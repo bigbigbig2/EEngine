@@ -12,6 +12,7 @@ import {
   nativeTextureViewDescriptor,
   type NativeTextureExtent
 } from "./GPUTextureDescriptors.js";
+import { submitGpuCommands } from "./GpuQueueEvidence.js";
 
 let nextTextureContextId = 0;
 
@@ -156,7 +157,9 @@ export class GPUTextureContext {
           Math.min(previous.depthOrArrayLayers, next.depthOrArrayLayers)
         ]
       );
-      this.device.queue.submit([encoder.finish()]);
+      submitGpuCommands(this.device, "GPUTextureContext/resize-copy", [
+        encoder.finish()
+      ]);
       previous.destroy();
     }
     this.textureValue = next;

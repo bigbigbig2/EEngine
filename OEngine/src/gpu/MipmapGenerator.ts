@@ -13,6 +13,10 @@ import {
   MIPMAP_PARAMS_BYTES
 } from "../shaders/mipmap_filters.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
+import {
+  submitGpuCommands,
+  writeGpuBuffer
+} from "./GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor, CachedShaderModuleDescriptor } from "./GPUDescriptorCaches.js";
 
 export type MipmapFilterConfig = {
@@ -351,7 +355,9 @@ export class MipmapGenerator {
     }
 
     if (ownEncoder) {
-      this.device.queue.submit([commandEncoder.finish()]);
+      submitGpuCommands(this.device, "MipmapGenerator/generate", [
+        commandEncoder.finish()
+      ]);
     } else {
       params.destroy();
     }
@@ -404,7 +410,14 @@ export class MipmapGenerator {
       words[wordOffset + 1] = mipHeight;
       if (mipWidth === 1 && mipHeight === 1) break;
     }
-    this.device.queue.writeBuffer(buffer, 0, bytes, 0);
+    writeGpuBuffer(
+      this.device.queue,
+      "MipmapGenerator/parameters",
+      buffer,
+      0,
+      bytes,
+      0
+    );
   }
 
   private obtainPipeline(

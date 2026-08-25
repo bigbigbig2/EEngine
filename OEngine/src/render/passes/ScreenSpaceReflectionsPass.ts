@@ -6,6 +6,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { GPUTextureContext, textureMipLevelCount } from "../../gpu/GPUTextureContext.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
@@ -140,7 +141,13 @@ export class ScreenSpaceReflectionsPass {
         size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       });
-      this.device.queue.writeBuffer(buffer, 0, new Int32Array([step, 0, 0, 0]));
+      writeGpuBuffer(
+        this.device.queue,
+        "SSR/spatial-settings",
+        buffer,
+        0,
+        new Int32Array([step, 0, 0, 0])
+      );
       this.spatialSettings.push(buffer);
     }
   }
@@ -392,7 +399,13 @@ export class ScreenSpaceReflectionsPass {
     view.setFloat32(0, 16, true);
     view.setUint32(4, frameIndex >>> 0, true);
     view.setFloat32(8, 0.07, true);
-    this.device.queue.writeBuffer(this.traceSettings, 0, data);
+    writeGpuBuffer(
+      this.device.queue,
+      "SSR/trace-settings",
+      this.traceSettings,
+      0,
+      data
+    );
     drawFullscreen(
       command,
       "SSR trace uk",
@@ -489,7 +502,13 @@ export class ScreenSpaceReflectionsPass {
   ): void {
     const pipeline = resources.lpv ? this.lpvResolvePipeline : this.resolvePipeline;
     if (!this.resolveSettings) throw new Error("SSR resolve is not initialized");
-    this.device.queue.writeBuffer(this.resolveSettings, 0, new Uint32Array([frameIndex >>> 0, 0, 0, 0]));
+    writeGpuBuffer(
+      this.device.queue,
+      "SSR/resolve-settings",
+      this.resolveSettings,
+      0,
+      new Uint32Array([frameIndex >>> 0, 0, 0, 0])
+    );
     const bindings: GPUBindingResource[][] = [[
       resources.trace,
       resources.depth,

@@ -7,6 +7,10 @@ import type { MeshletsStub } from "../geometry/BoxGeometry.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import {
+  submitGpuCommands,
+  writeGpuBuffer
+} from "./GpuQueueEvidence.js";
+import {
   INVALID_MESHLET_ALLOCATION,
   MeshletRangeAllocator,
   type MeshletRangeAllocation
@@ -153,7 +157,9 @@ export class MeshletGpuPool {
   add_batch(batch: MeshletsStub): MeshletBatchAllocation {
     const allocation = this.createBatchAllocation(batch);
     if (batch.data_buffer.byteLength > 0) {
-      this.device.queue.writeBuffer(
+      writeGpuBuffer(
+        this.device.queue,
+        "MeshletGpuPool/data",
         this._bufferData,
         allocation.data.offset << 2,
         batch.data_buffer
@@ -450,7 +456,7 @@ export class MeshletGpuPool {
     }
 
     for (const allocation of changed) allocation.changed.send0();
-    this.device.queue.submit([encoder.finish()]);
+    submitGpuCommands(this.device, "MeshletGpuPool/compact", [encoder.finish()]);
     oldData.destroy();
     oldMetadata.destroy();
     this._bufferData = nextData;
@@ -479,7 +485,9 @@ export class MeshletGpuPool {
       const addressIndex = i * MESHLET_METADATA_WORDS + MESHLET_ADDRESS_WORD;
       words[addressIndex] = (words[addressIndex]! + dataOffset) >>> 0;
     }
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "MeshletGpuPool/metadata",
       destination,
       metadataOffset * MESHLET_METADATA_BYTES,
       words

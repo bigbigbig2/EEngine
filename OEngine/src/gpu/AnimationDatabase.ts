@@ -1204,6 +1204,7 @@ export class GPUAnimationManager {
       throw new Error("GPUAnimationManager: material metadata buffer is unavailable");
     }
 
+    command.recordGraphBuild();
     const graph = new FrameGraph("GPUAnimationManager/Tick");
     const animationDatabase = graph.import_resource(
       "velocity",

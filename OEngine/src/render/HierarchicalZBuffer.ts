@@ -8,6 +8,7 @@ import {
   HZB_REDUCE_MIP_WGSL
 } from "../shaders/hzb_reduce.js";
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
+import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 import type {
   CachedRenderPipelineDescriptor
 } from "../gpu/GPUDescriptorCaches.js";
@@ -283,7 +284,13 @@ export class HierarchicalZBuffer {
         this.clipData[1] = viewport![1];
         this.clipData[2] = this.viewportW;
         this.clipData[3] = this.viewportH;
-        this.device.queue.writeBuffer(this.clipBuffer, 0, this.clipData);
+        writeGpuBuffer(
+          this.device.queue,
+          "HierarchicalZBuffer/clip",
+          this.clipBuffer,
+          0,
+          this.clipData
+        );
         bg = this.graphics.bind_groups.obtain({
           layout: HZB_CLIP_GROUP,
           entries: [

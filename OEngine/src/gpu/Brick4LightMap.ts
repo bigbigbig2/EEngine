@@ -2,6 +2,8 @@
  * Brick4LightMap：负责 GPU 资源、数据上传或 GPU 驱动渲染基础设施。
  */
 
+import { writeGpuBuffer } from "./GpuQueueEvidence.js";
+
 export const BRICK4_LIGHT_MAP_INITIAL_BYTES = 1 << 20;
 
 export class Brick4LightMap {
@@ -40,7 +42,9 @@ export class Brick4LightMap {
       uploadBytes = new Uint8Array(alignedSize);
       uploadBytes.set(bytes);
     }
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "Brick4LightMap/upload",
       this.bufferValue,
       0,
       uploadBytes.buffer,

@@ -4,6 +4,10 @@
 
 import type { Mesh } from "../scene/Mesh.js";
 import {
+  submitGpuCommands,
+  writeGpuBuffer
+} from "./GpuQueueEvidence.js";
+import {
   DynamicBvh,
   DYNAMIC_BVH_GPU_NODE_BYTES,
   exportDynamicBvhNodeRange,
@@ -33,7 +37,9 @@ function growBuffer(
   });
   const encoder = device.createCommandEncoder({ label: "" });
   encoder.copyBufferToBuffer(current, 0, next, 0, current.size);
-  device.queue.submit([encoder.finish({ label: "" })]);
+  submitGpuCommands(device, "TopLevelAccelerationStructure/grow", [
+    encoder.finish({ label: "" })
+  ]);
   current.destroy();
   return next;
 }
@@ -122,7 +128,9 @@ export class TopLevelAccelerationStructure {
     staging.unmap();
     const encoder = this.device.createCommandEncoder();
     encoder.copyBufferToBuffer(staging, 0, this.gpuBuffer, 0, staging.size);
-    this.device.queue.submit([encoder.finish()]);
+    submitGpuCommands(this.device, "TopLevelAccelerationStructure/rebuild", [
+      encoder.finish()
+    ]);
     staging.destroy();
     this.uploadedVersion = this.version;
     this.structureDirty = false;
@@ -147,7 +155,9 @@ export class TopLevelAccelerationStructure {
         firstNode,
         nodeCount
       );
-      this.device.queue.writeBuffer(
+      writeGpuBuffer(
+        this.device.queue,
+        "TopLevelAccelerationStructure/dirty-nodes",
         this.gpuBuffer,
         4 + firstNode * DYNAMIC_BVH_GPU_NODE_BYTES,
         data

@@ -425,6 +425,7 @@ export class GPULightProbeVolumeRenderer {
         grid.resolution[2]
       );
       pass.end();
+      command.recordReadback("probe-placement", outputByteSize);
       command.copyBufferToBuffer(output, 0, readback, 0, outputByteSize);
       command.finish();
 

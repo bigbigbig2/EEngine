@@ -133,6 +133,7 @@ export class GPUPerformanceTimer {
       });
     }
     this.#buffers.push(readback);
+    command.recordReadback("gpu-performance-timer", this.#resolveBuffer!.size);
     command.insertDebugMarker(`GPUTimer[${this.#name}] / Resolve`);
     command.resolveQuerySet(
       this.#querySet,

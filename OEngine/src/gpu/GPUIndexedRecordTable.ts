@@ -9,6 +9,10 @@ import { readWgslValue } from "../core/WgslBufferIO.js";
 import { BinaryReader } from "../loaders/BinaryReader.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { CachedComputePipelineDescriptor } from "./GPUDescriptorCaches.js";
+import {
+  recordGpuReadback,
+  submitGpuCommands
+} from "./GpuQueueEvidence.js";
 
 const GPU_INDEXED_RECORD_UPLOAD_WGSL = `struct Struct_48{
     count : u32,
@@ -216,7 +220,10 @@ export class GPUIndexedRecordTable<T> {
     });
     const encoder = this.options.device.createCommandEncoder({ label: "" });
     encoder.copyBufferToBuffer(this.buffer, offset, readback, 0, size);
-    this.options.device.queue.submit([encoder.finish()]);
+    recordGpuReadback(this.options.device, "GPUIndexedRecordTable/read", size);
+    submitGpuCommands(this.options.device, "GPUIndexedRecordTable/read", [
+      encoder.finish()
+    ]);
     await readback.mapAsync(GPUMapMode.READ);
     const result = readback.getMappedRange(0, size).slice(0);
     readback.unmap();

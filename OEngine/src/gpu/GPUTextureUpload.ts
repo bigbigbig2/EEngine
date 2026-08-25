@@ -8,6 +8,10 @@ import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { ShadeTextureFlags } from "../texture/ShadeTextureFlags.js";
 import { textureMipLevelCount } from "./GPUTextureContext.js";
 import { id } from "./GPUTextureDescriptors.js";
+import {
+  recordGpuQueueUpload,
+  writeGpuTexture
+} from "./GpuQueueEvidence.js";
 
 export type ShadeGpuImage = Pick<
   ShadeImage,
@@ -142,6 +146,12 @@ export function uploadShadeImage(
       premultipliedAlpha
     );
   } else if (isImageBitmapSource(source)) {
+    recordGpuQueueUpload(
+      queue,
+      "GPUTextureUpload/external-image",
+      image.width * image.height * image.depth * image.channel_count *
+        dataTypeBytes(image.data_type)
+    );
     queue.copyExternalImageToTexture(
       { source },
       { texture, premultipliedAlpha },
@@ -196,7 +206,9 @@ function uploadRawShadeImage(
     bytesPerRow
   };
   if (image.depth > 1) layout.rowsPerImage = image.height;
-  queue.writeTexture(
+  writeGpuTexture(
+    queue,
+    "GPUTextureUpload/raw",
     { texture, premultipliedAlpha } as GPUImageCopyTexture & {
       premultipliedAlpha?: boolean;
     },

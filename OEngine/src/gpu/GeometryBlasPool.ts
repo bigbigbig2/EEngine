@@ -3,6 +3,7 @@
  */
 
 import type { MeshletGeometryBase } from "../geometry/BoxGeometry.js";
+import { submitGpuCommands } from "./GpuQueueEvidence.js";
 
 export const GEOMETRY_BLAS_NODE_STRIDE_BYTES = 32;
 export const GEOMETRY_BLAS_METADATA_STRIDE_BYTES = 4;
@@ -42,7 +43,9 @@ function growGpuBuffer(
   });
   const encoder = device.createCommandEncoder({ label: "" });
   encoder.copyBufferToBuffer(current, 0, next, 0, current.size);
-  device.queue.submit([encoder.finish({ label: "" })]);
+  submitGpuCommands(device, "GeometryBlasPool/grow", [
+    encoder.finish({ label: "" })
+  ]);
   current.destroy();
   return next;
 }
@@ -196,7 +199,7 @@ export class GeometryBlasPool {
       );
     }
 
-    this.device.queue.submit([encoder.finish()]);
+    submitGpuCommands(this.device, "GeometryBlasPool/upload", [encoder.finish()]);
     dataStaging?.destroy();
     metadataStaging.destroy();
   }

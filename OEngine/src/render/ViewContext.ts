@@ -18,6 +18,7 @@ import {
 } from "../core/math/Mat4.js";
 import type { GPUCameraState } from "./GPUCameraState.js";
 import { HierarchicalZBuffer } from "./HierarchicalZBuffer.js";
+import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 
 export const GPU_VIEW_TYPE = StructType.from(
   {
@@ -149,7 +150,13 @@ export class GPUViewContext {
       GPU_VIEW_TYPE,
       this.uniformData
     );
-    this.device.queue.writeBuffer(this.uniform_buffer, 0, this.uniformData);
+    writeGpuBuffer(
+      this.device.queue,
+      "GPUViewContext/uniforms",
+      this.uniform_buffer,
+      0,
+      this.uniformData
+    );
   }
 
   update(graphics: GraphicsContext = this.graphics): void {

@@ -59,11 +59,18 @@ export class GPUTimer {
     return this.allocateWrites(label, "render");
   }
 
+  get readbackByteLength(): number {
+    return 2 * this.entryCount * BigInt64Array.BYTES_PER_ELEMENT;
+  }
+
   resolve(encoder: GPUCommandEncoder): void {
+    const queryCount = 2 * this.entryCount;
+    if (queryCount === 0) return;
+    const byteLength = queryCount * BigInt64Array.BYTES_PER_ELEMENT;
     encoder.resolveQuerySet(
       this.querySet,
       0,
-      this.querySet.count,
+      queryCount,
       this.resolveBuffer,
       0
     );
@@ -71,16 +78,16 @@ export class GPUTimer {
       this.resolveBuffer,
       0,
       this.readbackBuffer,
-      0
+      0,
+      byteLength
     );
   }
 
   async download_results(): Promise<void> {
-    await this.readbackBuffer.mapAsync(GPUMapMode.READ);
-    const mapped = this.readbackBuffer.getMappedRange(
-      0,
-      this.readbackBuffer.size
-    );
+    const byteLength = this.readbackByteLength;
+    if (byteLength === 0) return;
+    await this.readbackBuffer.mapAsync(GPUMapMode.READ, 0, byteLength);
+    const mapped = this.readbackBuffer.getMappedRange(0, byteLength);
     this.values.set(new BigInt64Array(mapped));
     this.readbackBuffer.unmap();
   }
@@ -112,6 +119,9 @@ export class GPUTimer {
     label: string | undefined,
     type: GPUTimerPassType
   ): GPUTimerTimestampWrites {
+    if (this.entryCount >= this.capacity) {
+      throw new RangeError(`GPUTimer capacity ${this.capacity} exceeded`);
+    }
     const index = this.entryCount++;
     this.entries[index] = { label, type };
     const queryIndex = 2 * index;

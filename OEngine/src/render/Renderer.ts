@@ -54,6 +54,12 @@ import { GPUTextureContext } from "../gpu/GPUTextureContext.js";
 import { createNativeTextureView, id } from "../gpu/GPUTextureDescriptors.js";
 import { TonemapPass } from "./passes/TonemapPass.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
+import { FrameProfiler } from "../debug/FrameProfiler.js";
+import {
+  captureGpuAdapterIdentity,
+  type BenchmarkAdapterIdentity
+} from "../debug/EnvironmentManifest.js";
+import type { HierarchicalZBuffer } from "./HierarchicalZBuffer.js";
 import { resolveGpuEncoder } from "../framegraph/FrameGraph.js";
 import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
 import type { Scene } from "../scene/Scene.js";
@@ -134,6 +140,8 @@ export class Renderer {
   private _highDynamicRange = false;
   private _peakNits = 1000;
   private _deviceLost = false;
+  private _adapterInfo: BenchmarkAdapterIdentity | null = null;
+  private readonly _profiler = new FrameProfiler();
   private _graphics!: GraphicsContext;
   private _scenes!: GPUSceneManager;
   private _cameraStates!: GPUCameraStateManager;
@@ -231,6 +239,19 @@ export class Renderer {
     return this._graphics;
   }
 
+  /**
+   * Frame evidence is disabled by default. Benchmarks enable it explicitly and
+   * choose a GPU timestamp sampling cadence through `configure()`.
+   */
+  get profiler(): FrameProfiler {
+    return this._profiler;
+  }
+
+  /** Null when the caller supplied a GPUDevice without its originating adapter. */
+  get adapter_info(): BenchmarkAdapterIdentity | null {
+    return this._adapterInfo === null ? null : { ...this._adapterInfo };
+  }
+
   get scenes(): GPUSceneManager {
     return this._scenes;
   }
@@ -299,6 +320,7 @@ export class Renderer {
         powerPreference: "high-performance"
       });
       if (adapter === null) throw new Error("Failed to bind GPUAdapter");
+      this._adapterInfo = captureGpuAdapterIdentity(adapter.info);
       if ((adapter as GPUAdapter & { isFallbackAdapter?: boolean }).isFallbackAdapter) {
         console.warn(
           "GPU provided a fallback adapter (typically because no other appropriate adapter was available). Fallback adapter is typically a software implementation and will be slow."
@@ -311,11 +333,11 @@ export class Renderer {
         );
       }
       const requiredFeatures: GPUFeatureName[] = [
-        "timestamp-query",
         "indirect-first-instance",
         "float32-blendable"
       ];
       const optionalFeatures: GPUFeatureName[] = [
+        "timestamp-query",
         "subgroups",
         "texture-formats-tier1"
       ];
@@ -347,7 +369,10 @@ export class Renderer {
     this._height = canvas.clientHeight;
     this.recalculateOutputResolution();
 
-    this._graphics = new GraphicsContext(device);
+    this._profiler.configure({
+      gpuTimestampAvailable: device.features.has("timestamp-query")
+    });
+    this._graphics = new GraphicsContext(device, this._profiler);
     await this._graphics.initialize();
     this._meshletDrawList = new MeshletDrawList(this._graphics);
     this._scenes = new GPUSceneManager(this._graphics);
@@ -418,8 +443,9 @@ export class Renderer {
 
   update_lpv(scene: Scene): void {
     const gpuScene = this._scenes.obtain(scene);
-    const graph = new FrameGraph("LPV");
     const command = ShadeGPUCommandContext.create(this._graphics, "LPV");
+    command.recordGraphBuild();
+    const graph = new FrameGraph("LPV");
     gpuScene.light_probe_volume.atlas.graph_update({
       graph,
       scene: gpuScene,
@@ -453,15 +479,17 @@ export class Renderer {
     scene: Scene,
     time_delta_seconds = 0.01666
   ): boolean {
-    void time_delta_seconds;
     if (this._deviceLost) return false;
+    const profileFrameIndex = this._frame_count;
+    this._profiler.beginFrame(profileFrameIndex);
+    try {
     this._renderTargets.setFrameIndex(this._frame_count);
     this.applyPendingRenderResolutionChange();
     if (this._canvasNeedsConfigure) {
       this.configureCanvas();
       this._canvasNeedsConfigure = false;
     }
-    this._graphics.update();
+    this._profiler.measure("graphics-update", () => this._graphics.update());
     if (this.upscale_type === 1) {
       this.nss.frame_count = this._frame_count;
       this.nss.frame_index = this._frame_count;
@@ -498,15 +526,23 @@ export class Renderer {
       (2 * temporalJitter.Jitter[0]) / w,
       (2 * temporalJitter.Jitter[1]) / h
     );
-    view.update(this._graphics);
+    this._profiler.measure("world-and-view-update", () => {
+      view.update(this._graphics);
+    });
     const viewHzb = view.hierarchical_z_buffer;
     const colorView = createNativeTextureView(this.context.getCurrentTexture());
 
     {
       const cmd = ShadeGPUCommandContext.create(this._graphics, MAIN_COMMAND_LABEL);
-      if (debugFrameIndex !== null) {
+      if (
+        (debugFrameIndex !== null || this._profiler.shouldSampleGpu()) &&
+        this.device.features.has("timestamp-query")
+      ) {
         cmd.enable_debug_timers((results) => {
-          this.onFrameDebug.send2(debugFrameIndex, results);
+          if (debugFrameIndex !== null) {
+            this.onFrameDebug.send2(debugFrameIndex, results);
+          }
+          this._profiler.recordGpuTimings(profileFrameIndex, results);
         });
       }
       gpuScene.tick(cmd, time_delta_seconds);
@@ -523,6 +559,8 @@ export class Renderer {
       }
 
       // 帧图只描述本帧的资源依赖；实际 GPU 资源会在编译和执行阶段按生命周期分配。
+      this._profiler.recordGraphBuild();
+      const finishGraphBuild = this._profiler.beginCpuSection("graph-build");
       const graph = new FrameGraph(MAIN_FRAME_GRAPH_NAME);
 
       const swapId = graph.import_resource(
@@ -1428,14 +1466,19 @@ export class Renderer {
         }
       }
 
+      finishGraphBuild();
       cmd.encodeGraph(graph);
       view.finish_frame(cmd);
       cmd.finish();
+      this.recordLegacyFrameCounters(viewHzb);
     }
 
     this._frame_count++;
     this.onFrameFinished.send1(this._frame_count);
     return true;
+    } finally {
+      this._profiler.endFrame();
+    }
   }
 
   private initializeRenderPasses(device: GPUDevice): void {
@@ -1480,6 +1523,51 @@ export class Renderer {
       this._tonemap.peakNits = this._peakNits;
       this._tonemap.init();
     }
+  }
+
+  private recordLegacyFrameCounters(hzb: HierarchicalZBuffer): void {
+    const profiler = this._profiler;
+    const visibility = this._visibility;
+    profiler.recordCounter(
+      "legacy.instances.candidate",
+      visibility.lastFrustumCulled + visibility.lastFrustumUnculled
+    );
+    profiler.recordCounter(
+      "legacy.instances.frustumCulled",
+      visibility.lastFrustumCulled
+    );
+    profiler.recordCounter(
+      "legacy.instances.frustumUnculled",
+      visibility.lastFrustumUnculled
+    );
+    profiler.recordCounter("legacy.visibility.drawCount", visibility.lastDrawCount);
+    profiler.recordCounter(
+      "legacy.visibility.bucketPasses",
+      visibility.lastBucketPasses
+    );
+    profiler.recordCounter(
+      "legacy.visibility.activeMaterialBuckets",
+      visibility.lastActiveBucketCount
+    );
+    profiler.recordCounter(
+      "legacy.visibility.secondChance",
+      visibility.lastSecondChance ? 1 : 0
+    );
+    profiler.recordCounter("legacy.hzb.builds", hzb.lastBuilt ? 1 : 0);
+    profiler.recordCounter("legacy.hzb.mips", hzb.lastMipCount);
+    profiler.recordCounter(
+      "legacy.material.fullscreenDraws",
+      this._materialExpand.lastDrawCount
+    );
+    profiler.recordCounter(
+      "lighting.clusterCount",
+      this._lightCluster.lastClusterCount
+    );
+    profiler.recordCounter(
+      "lighting.localLightCount",
+      this._lightCluster.lastLocalLightCount
+    );
+    profiler.recordCounter("gpu.residentBytes", this._graphics.gpu_memory_usage);
   }
 
   add_debug_frame(count = 1): void {

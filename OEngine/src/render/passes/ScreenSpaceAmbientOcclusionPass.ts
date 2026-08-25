@@ -6,6 +6,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
 import {
@@ -100,7 +101,9 @@ export class ScreenSpaceAmbientOcclusionPass {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "SSAO/spatial-settings",
       this.spatialSettingsBuffer,
       0,
       new Int32Array([1, 0, 0, 0])
@@ -270,7 +273,9 @@ export class ScreenSpaceAmbientOcclusionPass {
     ) {
       throw new Error("ScreenSpaceAmbientOcclusionPass not initialized");
     }
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "SSAO/raw-settings",
       this.rawSettingsBuffer,
       0,
       new Uint32Array([frameIndex >>> 0, 0, 0, 0])

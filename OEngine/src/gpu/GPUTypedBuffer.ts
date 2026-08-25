@@ -4,6 +4,7 @@
 
 import type { WebGPUType } from "../core/WebGPUTypes.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
+import { writeGpuBuffer } from "./GpuQueueEvidence.js";
 
 const TYPED_BUFFER_SCRATCH = new ArrayBuffer(1024);
 
@@ -77,7 +78,15 @@ export class GPUTypedBuffer<T = unknown> {
         ? TYPED_BUFFER_SCRATCH
         : new ArrayBuffer(size);
     writeWgslToBuffer(newValue, this.type, data);
-    queue.writeBuffer(this.buffer, 0, data, 0, size);
+    writeGpuBuffer(
+      queue,
+      "GPUTypedBuffer/upload",
+      this.buffer,
+      0,
+      data,
+      0,
+      size
+    );
   }
 
   destroy(): void {

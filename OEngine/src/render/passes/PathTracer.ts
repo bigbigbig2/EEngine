@@ -8,6 +8,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { writeGpuTexture } from "../../gpu/GpuQueueEvidence.js";
 import type {
   CachedComputePipelineDescriptor,
   CachedRenderPipelineDescriptor
@@ -333,7 +334,9 @@ export class PathTracer {
   private clearHistory(width: number, height: number): void {
     const bytes = this.ensureZeroBytes(width * height * 16);
     for (const history of this.history) {
-      this.device.queue.writeTexture(
+      writeGpuTexture(
+        this.device.queue,
+        "PathTracer/clear-history",
         { texture: history.gpu_texture },
         bytes,
         { bytesPerRow: width * 16, rowsPerImage: height },

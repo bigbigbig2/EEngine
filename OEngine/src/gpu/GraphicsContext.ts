@@ -27,6 +27,11 @@ import {
   type CachedRenderPipelineDescriptor
 } from "./GPUDescriptorCaches.js";
 import { GPUBufferWrapper } from "./GPUBufferWrapper.js";
+import { FrameProfiler } from "../debug/FrameProfiler.js";
+import {
+  registerGpuQueueProfiler,
+  unregisterGpuQueueProfiler
+} from "./GpuQueueEvidence.js";
 
 export class GraphicsContext {
   readonly isGraphicsContext = true;
@@ -46,10 +51,16 @@ export class GraphicsContext {
   readonly geometries: MeshletGpuTable;
   readonly materials: GPUMaterialRegistry;
   readonly samplers: GPUSamplerCache;
+  readonly profiler: FrameProfiler;
   private timerIncrementValue = 0;
 
-  constructor(device: GPUDevice) {
+  constructor(device: GPUDevice, profiler = new FrameProfiler()) {
     this.device = device;
+    this.profiler = profiler;
+    this.profiler.configure({
+      gpuTimestampAvailable: device.features.has("timestamp-query")
+    });
+    registerGpuQueueProfiler(device, profiler);
     this.collectionLimitsValue = new GPUCollectionLimits(device);
     this.buffer_allocator_main = new GPUBufferAllocator(device);
     this.buffer_allocator_native = new GPUNativeBufferAllocator(device);
@@ -150,6 +161,7 @@ export class GraphicsContext {
   }
 
   destroy(): void {
+    unregisterGpuQueueProfiler(this.device, this.profiler);
     this.residentMaterials?.destroy();
     this.buffer_allocator_main.destroy();
     this.buffer_allocator_native.destroy();

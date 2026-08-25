@@ -6,6 +6,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { textureMipLevelCount } from "../../gpu/GPUTextureContext.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
@@ -193,22 +194,30 @@ export class VelocityPass {
       width,
       height
     );
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "Velocity/reprojection-rotation",
       this.reprojectionRotationBuffer,
       0,
       this.reprojectionRotation
     );
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "Velocity/inverse-current-view-projection",
       this.inverseCurrentViewProjectionBuffer,
       0,
       this.inverseCurrentViewProjection
     );
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "Velocity/previous-view-projection",
       this.previousViewProjectionBuffer,
       0,
       this.previousViewProjection
     );
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "Velocity/skinning-active",
       this.skinningActiveBuffer,
       0,
       new Uint32Array([skinningActive ? 1 : 0, 0, 0, 0])

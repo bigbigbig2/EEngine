@@ -50,6 +50,7 @@ import { MATERIAL_SORT_DRAW_ARGS_BYTES } from "../../shaders/meshlet_material_so
 import { resolveTextureView } from "./MaterialExpandPass.js";
 import { GPU_VIEW_TYPE } from "../ViewManager.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import { GPUCollectionKind } from "../../gpu/GPUCollectionLimits.js";
 import type {
   CachedComputePipelineDescriptor,
@@ -572,9 +573,17 @@ export class VisibilityPass {
               byteLength
             )
           );
-          device.queue.writeBuffer(buffer, bufferOffset, copy);
+          writeGpuBuffer(
+            device.queue,
+            "VisibilityPass/upload-aligned-copy",
+            buffer,
+            bufferOffset,
+            copy
+          );
         } else {
-          device.queue.writeBuffer(
+          writeGpuBuffer(
+            device.queue,
+            "VisibilityPass/upload",
             buffer,
             bufferOffset,
             data,

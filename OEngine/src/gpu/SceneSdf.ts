@@ -11,6 +11,11 @@ import type { GPUSceneContext } from "./GPUSceneContext.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { CachedComputePipelineDescriptor } from "./GPUDescriptorCaches.js";
 import {
+  recordGpuReadback,
+  submitGpuCommands,
+  writeGpuTexture
+} from "./GpuQueueEvidence.js";
+import {
   createNativeTexture,
   createNativeTextureView
 } from "./GPUTextureDescriptors.js";
@@ -268,7 +273,9 @@ export class SceneSdf {
     } else {
       throw new Error(`Unsupported format ${dataType}`);
     }
-    this.device.queue.writeTexture(
+    writeGpuTexture(
+      this.device.queue,
+      "SceneSdf/upload",
       { texture: this.textureValue },
       values.buffer,
       {
@@ -332,7 +339,8 @@ export class SceneSdf {
       { buffer: readback, offset: 0, bytesPerRow, rowsPerImage: height },
       [width, height, depth]
     );
-    this.device.queue.submit([encoder.finish()]);
+    recordGpuReadback(this.device, "SceneSdf/read", readback.size);
+    submitGpuCommands(this.device, "SceneSdf/read", [encoder.finish()]);
     await readback.mapAsync(GPUMapMode.READ);
     const mapped = readback.getMappedRange();
     let values: Float32Array;

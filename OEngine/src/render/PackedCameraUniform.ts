@@ -6,6 +6,7 @@ import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
 import { mat4Invert } from "../core/math/Mat4.js";
 import { LPV_CAMERA_TYPE } from "../shaders/lpv_indirect_diffuse.js";
+import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 
 export class PackedCameraUniform {
   readonly buffer: GPUBuffer;
@@ -63,7 +64,13 @@ export class PackedCameraUniform {
       LPV_CAMERA_TYPE,
       this.data
     );
-    this.device.queue.writeBuffer(this.buffer, 0, this.data);
+    writeGpuBuffer(
+      this.device.queue,
+      "PackedCameraUniform/update",
+      this.buffer,
+      0,
+      this.data
+    );
   }
 
   destroy(): void {

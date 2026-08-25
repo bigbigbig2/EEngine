@@ -3,6 +3,11 @@
  */
 
 import { BitSet } from "../core/BitSet.js";
+import {
+  recordGpuReadback,
+  submitGpuCommands,
+  writeGpuBuffer
+} from "./GpuQueueEvidence.js";
 import { LineBuilder } from "../core/LineBuilder.js";
 import { alignCeil, detectNativeEndianness } from "../core/memoryUtils.js";
 import {
@@ -1352,7 +1357,7 @@ export class GPUDatabase {
         pageBytes
       );
     }
-    device.queue.submit([encoder.finish()]);
+    submitGpuCommands(device, "GPUDatabase/grow", [encoder.finish()]);
     previous.destroy();
     this.buffer = next;
     this.slotAllocator = nextAllocator;
@@ -1439,7 +1444,9 @@ export class GPUDatabase {
     const endBytes =
       (this.dirtyLookupEnd + 1) *
       Uint32Array.BYTES_PER_ELEMENT;
-    this.device.queue.writeBuffer(
+    writeGpuBuffer(
+      this.device.queue,
+      "GPUDatabase/page-lookup",
       this.buffer,
       startBytes,
       this.pageLookup.buffer,
@@ -1546,7 +1553,9 @@ export class GPUDatabase {
         const slot = index - firstIndex;
         header[1 + (slot >> 5)]! |= 1 << (slot & 31);
       }
-      this.device.queue.writeBuffer(
+      writeGpuBuffer(
+        this.device.queue,
+        "GPUDatabase/page-header",
         this.buffer,
         (page.slot_offset + this.dataStartOffsetWords) *
           GPU_DATABASE_WORD_BYTES,
@@ -1578,7 +1587,8 @@ export class GPUDatabase {
       0,
       size
     );
-    this.device.queue.submit([encoder.finish()]);
+    recordGpuReadback(this.device, "GPUDatabase/read", size);
+    submitGpuCommands(this.device, "GPUDatabase/read", [encoder.finish()]);
     await readback.mapAsync(GPUMapMode.READ);
     const result = readback
       .getMappedRange(0, byteLength)

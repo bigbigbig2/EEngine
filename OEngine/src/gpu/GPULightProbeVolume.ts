@@ -4,6 +4,11 @@
 
 import type { LightProbeVolume } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
+import {
+  recordGpuReadback,
+  submitGpuCommands,
+  writeGpuBuffer
+} from "./GpuQueueEvidence.js";
 import { LightProbeAtlas } from "./LightProbeAtlas.js";
 export { LIGHT_PROBE_RECORD_WGSL } from "./LightProbeRecord.js";
 import {
@@ -108,7 +113,13 @@ export class GPULightProbeVolume {
       this.source.probe_count >>> 0,
       this.probe_resolution >>> 0
     ]);
-    this.device.queue.writeBuffer(this.metadataBuffer, 0, metadata);
+    writeGpuBuffer(
+      this.device.queue,
+      "LightProbeVolume/metadata",
+      this.metadataBuffer,
+      0,
+      metadata
+    );
     this.rebuildMeshBvh();
   }
 
@@ -309,7 +320,8 @@ export class GPULightProbeVolume {
     });
     const encoder = this.device.createCommandEncoder({ label: "" });
     encoder.copyBufferToBuffer(this.probeBuffer, 0, readback, 0, byteSize);
-    this.device.queue.submit([encoder.finish()]);
+    recordGpuReadback(this.device, "LightProbeVolume/read", byteSize);
+    submitGpuCommands(this.device, "LightProbeVolume/read", [encoder.finish()]);
     await readback.mapAsync(GPUMapMode.READ, 0, byteSize);
     const bytes = readback.getMappedRange(0, byteSize).slice(0);
     readback.unmap();

@@ -8,6 +8,7 @@ import type { WebGPUType } from "../core/WebGPUTypes.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
 import type { GPUBufferPoolDescriptor } from "../gpu/GPUBufferAllocator.js";
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
+import { submitGpuCommands } from "../gpu/GpuQueueEvidence.js";
 import type {
   CachedComputePipelineDescriptor,
   CachedRenderPipelineDescriptor
@@ -52,6 +53,7 @@ export class ShadeGPUCommandContext {
   #gpuTimer: GPUTimer | undefined;
   #debugTimersCallback: (results: GPUTimerResult[]) => void = () => {};
   #finished = false;
+  #label = "";
 
   readonly onFinished = new ChangeSignal<this>();
   readonly onBeforeFinish = new ChangeSignal<this>();
@@ -122,6 +124,7 @@ export class ShadeGPUCommandContext {
   ): ShadeGPUCommandContext {
     const context = new ShadeGPUCommandContext();
     context.#graphics = graphics;
+    context.#label = label;
     context.#encoder = graphics.device!.createCommandEncoder({ label });
     openContextCount++;
     openContexts.push(context);
@@ -151,8 +154,19 @@ export class ShadeGPUCommandContext {
 
   encodeGraph(graph: FrameGraph): void {
     const context = this.createFrameGraphContext();
-    graph.compile();
-    graph.execute(context);
+    const profiler = this.#graphics.profiler;
+    profiler.recordGraphCompile();
+    profiler.measure("graph-compile", () => graph.compile());
+    profiler.recordGraphExecute();
+    profiler.measure("graph-execute", () => graph.execute(context));
+  }
+
+  recordReadback(label: string, bytes: number): void {
+    this.#graphics.profiler.recordReadback(label, bytes);
+  }
+
+  recordGraphBuild(): void {
+    this.#graphics.profiler.recordGraphBuild();
   }
 
   clearBuffer(buffer: GPUBuffer, offset = 0, size?: number): void {
@@ -192,13 +206,15 @@ export class ShadeGPUCommandContext {
   beginComputePass(
     descriptor?: GPUComputePassDescriptor
   ): GPUComputePassEncoder {
-    let resolved = descriptor;
+    const resolved: GPUComputePassDescriptor = descriptor === undefined
+      ? {}
+      : { ...descriptor };
     if (
       this.#gpuTimer !== undefined &&
       this.device.features.has("timestamp-query")
     ) {
-      resolved!.timestampWrites = this.#gpuTimer.getComputeWrites(
-        descriptor!.label
+      resolved.timestampWrites = this.#gpuTimer.getComputeWrites(
+        descriptor?.label
       );
     }
     return this.#encoder!.beginComputePass(resolved);
@@ -331,6 +347,7 @@ export class ShadeGPUCommandContext {
     writeWgslToBuffer(value, type, staging.getMappedRange(0, size), 0);
     staging.unmap();
     this.#stagingBuffers.push(staging);
+    this.#graphics.profiler.recordUpload("staging-copy", size);
     this.copyBufferToBuffer(staging, 0, buffer, buffer_offset, size);
   }
 
@@ -362,13 +379,23 @@ export class ShadeGPUCommandContext {
 
     const encoder = this.#encoder!;
     const timer = this.#gpuTimer;
-    if (timer !== undefined) timer.resolve(encoder);
+    if (timer !== undefined) {
+      timer.resolve(encoder);
+      this.#graphics.profiler.recordReadback(
+        "gpu-timestamps",
+        timer.readbackByteLength
+      );
+    }
     this.#finished = true;
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
 
     const commandBuffer = encoder.finish();
-    this.#graphics.device!.queue.submit([commandBuffer]);
+    submitGpuCommands(
+      this.#graphics.device!,
+      this.#label || "unlabeled-command-context",
+      [commandBuffer]
+    );
     this.#releaseBuffers();
 
     if (timer !== undefined) {

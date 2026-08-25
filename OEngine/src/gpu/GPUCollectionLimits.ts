@@ -4,6 +4,11 @@
 
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GPUBufferAllocator } from "./GPUBufferAllocator.js";
+import {
+  recordGpuReadback,
+  submitGpuCommands,
+  writeGpuBuffer
+} from "./GpuQueueEvidence.js";
 
 export enum GPUCollectionKind {
   Meshes = 0,
@@ -103,6 +108,7 @@ export class GPUCollectionStatistics {
       },
       command
     );
+    command.recordReadback("collection-limits", size);
     command.copyBufferToBuffer(this.stat_buffer, 0, readback, 0, size);
     await command.done;
     await readback.mapAsync(GPUMapMode.READ, 0, size);
@@ -121,7 +127,8 @@ export class GPUCollectionStatistics {
     });
     const encoder = this.device.createCommandEncoder({ label: "" });
     encoder.copyBufferToBuffer(this.stat_buffer, 0, readback, 0, size);
-    this.device.queue.submit([encoder.finish()]);
+    recordGpuReadback(this.device, "collection-limits-standalone", size);
+    submitGpuCommands(this.device, "GPUCollectionLimits/read", [encoder.finish()]);
     await readback.mapAsync(GPUMapMode.READ, 0, size);
     const data = readback.getMappedRange(0, size).slice(0);
     this.updateRecords(new Uint32Array(data));
@@ -129,7 +136,13 @@ export class GPUCollectionStatistics {
   }
 
   upload(): void {
-    this.device.queue.writeBuffer(this.stat_buffer, 0, this.records.buffer);
+    writeGpuBuffer(
+      this.device.queue,
+      "GPUCollectionLimits/upload",
+      this.stat_buffer,
+      0,
+      this.records.buffer
+    );
   }
 
   destroy(): void {

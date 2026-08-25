@@ -14,6 +14,7 @@ import type { GPULightCollection } from "../../gpu/LightDatabase.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
+import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import {
   LIGHT_CLUSTER_ASSIGN_WGSL,
   LIGHT_CLUSTER_ASSIGN_WORKGROUP,
@@ -501,6 +502,6 @@ function writeBuffer(
   if (command && typeof command.writeBuffer === "function") {
     command.writeBuffer(buffer, 0, data, 0, data.byteLength);
   } else {
-    device.queue.writeBuffer(buffer, 0, data);
+    writeGpuBuffer(device.queue, "LightCluster/settings", buffer, 0, data);
   }
 }

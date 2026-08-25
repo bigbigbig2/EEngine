@@ -39,3 +39,45 @@ export { load_environment_map } from "./loaders/load_environment_map.js";
 export { load_gltf } from "./loaders/load_gltf.js";
 export { load_scene_from_url } from "./loaders/load_scene_from_url.js";
 export { load_usd } from "./loaders/load_usd.js";
+export {
+  BENCHMARK_RESULT_SCHEMA_VERSION,
+  captureGpuAdapterIdentity,
+  captureWebGpuLimits,
+  createEnvironmentManifest
+} from "./debug/EnvironmentManifest.js";
+export type {
+  BenchmarkAdapterIdentity,
+  BenchmarkEngineIdentity,
+  BenchmarkEnvironmentInput,
+  BenchmarkEnvironmentManifest,
+  BenchmarkFrameEnvironment,
+  BenchmarkPlatformIdentity,
+  BenchmarkPowerPreference,
+  BenchmarkRunEnvironmentInput,
+  BenchmarkWebGpuEnvironmentInput
+} from "./debug/EnvironmentManifest.js";
+export { FrameProfiler } from "./debug/FrameProfiler.js";
+export type {
+  FrameCountEvidence,
+  FrameGpuEvidence,
+  FrameGpuPassType,
+  FrameGpuSegment,
+  FrameGpuTimingInput,
+  FrameGraphEvidence,
+  FrameProfileListener,
+  FrameProfileSnapshot,
+  FrameProfilerOptions,
+  FrameReadbackEvidence,
+  FrameUploadEvidence
+} from "./debug/FrameProfiler.js";
+export {
+  BenchmarkHarness,
+  serializeBenchmarkResult,
+  summarizeSeries
+} from "./debug/BenchmarkHarness.js";
+export type {
+  BenchmarkCaseManifest,
+  BenchmarkResult,
+  BenchmarkSummary,
+  SeriesSummary
+} from "./debug/BenchmarkHarness.js";
