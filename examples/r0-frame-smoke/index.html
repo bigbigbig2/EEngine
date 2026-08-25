@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OEngine R0 Frame Smoke</title>
+    <link rel="stylesheet" href="../r0-observability/style.css" />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">OBS-02 / OBS-03 / OBS-04 vertical frame</p>
+        <h1>R0 Frame Smoke</h1>
+        <p>固定 81 个 Box、固定相机和单方向光，运行真实 OEngine 主管线。</p>
+      </header>
+      <section class="status-card" aria-live="polite">
+        <span id="status-dot" class="status-dot"></span>
+        <div>
+          <strong id="status">正在初始化 WebGPU…</strong>
+          <p id="detail">等待 Renderer、场景和 GPU 资源。</p>
+        </div>
+      </section>
+      <canvas id="gpu-canvas" width="960" height="540" aria-label="OEngine rendered frame"></canvas>
+      <section class="grid" aria-label="Benchmark summary">
+        <article><span>Measured</span><strong id="frames">0 / 24</strong></article>
+        <article><span>CPU frame P50</span><strong id="cpu-p50">—</strong></article>
+        <article><span>GPU samples</span><strong id="gpu-samples">—</strong></article>
+        <article><span>Submit mean</span><strong id="submit-mean">—</strong></article>
+      </section>
+      <section>
+        <div class="result-heading">
+          <h2>Result JSON</h2>
+          <button id="download" type="button" disabled>下载结果</button>
+        </div>
+        <pre id="result">真实帧采集完成后显示 environment、frames 和分段结果。</pre>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

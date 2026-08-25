@@ -27,6 +27,11 @@ export { ShadeGPUCommandContext } from "./framegraph/ShadeGPUCommandContext.js";
 export { ShadeIndirectLightingMode } from "./render/ShadeIndirectLightingMode.js";
 export { ShadeMaterial } from "./material/ShadeMaterial.js";
 export { ShadeTexture } from "./texture/ShadeTexture.js";
+export {
+  ShadeDataType,
+  ShadeImage
+} from "./texture/ShadeTexture.js";
+export type { ShadeDataTypeName } from "./texture/ShadeTexture.js";
 export { ShadeTextureFlags } from "./texture/ShadeTextureFlags.js";
 export { Skin } from "./animation/Skin.js";
 export { SkinnedMesh } from "./scene/SkinnedMesh.js";
@@ -81,3 +86,9 @@ export type {
   BenchmarkSummary,
   SeriesSummary
 } from "./debug/BenchmarkHarness.js";
+export { BenchmarkRunController } from "./debug/BenchmarkRunController.js";
+export type {
+  BenchmarkRunOptions,
+  BenchmarkRunProgress,
+  BenchmarkRunState
+} from "./debug/BenchmarkRunController.js";

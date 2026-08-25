@@ -14,7 +14,7 @@
 
 ```ts
 import {
-  BenchmarkHarness,
+  BenchmarkRunController,
   captureWebGpuLimits,
   createEnvironmentManifest,
   serializeBenchmarkResult
@@ -53,7 +53,7 @@ const environment = createEnvironmentManifest({
   }
 });
 
-const harness = new BenchmarkHarness(environment, {
+const controller = new BenchmarkRunController(renderer.profiler, environment, {
   id: "A",
   name: "Compute Rasterizer alignment",
   sceneAssetHashes: [ASSET_HASH],
@@ -61,21 +61,22 @@ const harness = new BenchmarkHarness(environment, {
   cameraPathHash: CAMERA_PATH_HASH
 });
 
-// 首次 CPU snapshot 与稍后到达的 GPU timestamp 会按 frameIndex 合并。
-const unsubscribe = renderer.profiler.subscribe((frame) => {
-  harness.recordFrame(frame);
+// controller 统一执行 warm-up/sample，并等待延迟 GPU 结果后再完成。
+const result = await controller.run({
+  frame: () => renderer.render(camera, scene, 1 / 60),
+  settle: () => renderer.device.queue.onSubmittedWorkDone()
 });
-
-// 收满 warm-up + sampleFrames 后导出。
-const json = serializeBenchmarkResult(harness.complete());
-unsubscribe();
+const json = serializeBenchmarkResult(result);
 ```
 
 `BUILD_COMMIT`、浏览器版本、资产 hash 和相机轨迹 hash 必须由宿主/构建脚本提供；浏览器无法可靠推断这些值。
 
 ## 可运行浏览器示例
 
-根目录 [r0-observability](../../examples/r0-observability/README.md) 已接入真实 `Renderer`/WebGPU 初始化和 `GraphicsContext.update()` 采集：
+根目录现有两个垂直入口：
+
+- [r0-observability](../../examples/r0-observability/README.md)：真实初始化 `Renderer`/WebGPU，隔离验证观测设施与 `GraphicsContext.update()`。
+- [r0-frame-smoke](../../examples/r0-frame-smoke/README.md)：固定 81 Box 场景，运行真实 `Renderer.render()` 并采集 GPU timestamp。
 
 ```powershell
 Set-Location examples
@@ -83,7 +84,7 @@ npm install
 npm run dev:host
 ```
 
-该页面是观测设施 smoke，不是 A/B/C 性能结果。只有页面达到 `20 / 20`、控制台无 WebGPU validation error 且结果 JSON 可导出时，才算浏览器侧 smoke 通过。
+这些页面不是 A/B/C 性能结果。只有达到各自固定采样帧数、控制台无 WebGPU validation error、结果 JSON 可导出且主帧页面截图正确时，才算浏览器侧 smoke 通过。
 
 ## 当前 CPU/GPU 证据字段
 

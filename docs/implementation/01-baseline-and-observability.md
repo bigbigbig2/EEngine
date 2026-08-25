@@ -137,6 +137,13 @@ post
 
 ## 执行任务
 
+### 当前落地进度（2026-08-26）
+
+- 已有 environment/result schema、CPU timeline、submit/readback/upload 入口、可选 GPU timestamp 与 P50/P95/P99 汇总。
+- `BenchmarkRunController` 已统一 warm-up、采样帧调度和延迟 GPU 结果收尾。
+- `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
+- 尚未完成 A/B/C 对齐场景、正式 GPU counter buffer/三槽 ring、debug views、浏览器控制台/截图验收和真实性能 artifact，因此 G0 仍未通过。
+
 ### OBS-01 · 冻结运行环境清单
 
 输出 `environment.json` schema：commit、浏览器版本、OS、adapter 名称、driver、WebGPU features/limits、窗口像素尺寸、DPR、power preference、feature set、warm-up 和采样帧数。缺失字段使结果不可用于 gate。

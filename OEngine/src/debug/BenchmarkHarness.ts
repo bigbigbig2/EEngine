@@ -61,6 +61,17 @@ export class BenchmarkHarness {
     return this.measuredFrames.length;
   }
 
+  get isComplete(): boolean {
+    return this.measuredFrames.length === this.environment.run.sampleFrames;
+  }
+
+  get pendingGpuFrameCount(): number {
+    return this.measuredFrames.reduce(
+      (count, frame) => count + (frame.gpu.pending ? 1 : 0),
+      0
+    );
+  }
+
   recordFrame(frame: FrameProfileSnapshot): void {
     const measuredIndex = this.measuredIndexByFrame.get(frame.frameIndex);
     if (measuredIndex !== undefined) {

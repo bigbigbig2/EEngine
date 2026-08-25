@@ -1,6 +1,15 @@
 import {
   BenchmarkRunController,
+  BoxGeometry,
+  DirectionalLight,
+  Mesh,
+  PerspectiveCamera,
   Renderer,
+  Scene,
+  ShadeDataType,
+  ShadeImage,
+  ShadeTexture,
+  StandardShadeMaterial,
   captureWebGpuLimits,
   createEnvironmentManifest,
   serializeBenchmarkResult,
@@ -11,8 +20,9 @@ import {
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
 
-const WARMUP_FRAMES = 4;
-const SAMPLE_FRAMES = 20;
+const WARMUP_FRAMES = 8;
+const SAMPLE_FRAMES = 24;
+const GRID_SIZE = 9;
 
 const canvas = requiredElement<HTMLCanvasElement>("gpu-canvas");
 const status = requiredElement<HTMLElement>("status");
@@ -20,8 +30,8 @@ const detail = requiredElement<HTMLElement>("detail");
 const statusDot = requiredElement<HTMLElement>("status-dot");
 const frames = requiredElement<HTMLElement>("frames");
 const cpuP50 = requiredElement<HTMLElement>("cpu-p50");
+const gpuSamples = requiredElement<HTMLElement>("gpu-samples");
 const submitMean = requiredElement<HTMLElement>("submit-mean");
-const uploadP50 = requiredElement<HTMLElement>("upload-p50");
 const resultOutput = requiredElement<HTMLElement>("result");
 const download = requiredElement<HTMLButtonElement>("download");
 
@@ -34,7 +44,7 @@ download.addEventListener("click", () => {
   });
   const anchor = document.createElement("a");
   anchor.href = URL.createObjectURL(blob);
-  anchor.download = `oengine-r0-observability-${__BUILD_COMMIT__.slice(0, 8)}.json`;
+  anchor.download = `oengine-r0-frame-smoke-${__BUILD_COMMIT__.slice(0, 8)}.json`;
   anchor.click();
   URL.revokeObjectURL(anchor.href);
 });
@@ -58,12 +68,15 @@ async function run(): Promise<void> {
 
   const renderer = new Renderer();
   await renderer.initialize({ context, pixelRatio: 1 });
+  configureComparablePipeline(renderer);
   renderer.profiler.configure({
     enabled: true,
-    gpuSampleInterval: 1000,
-    historyCapacity: WARMUP_FRAMES + SAMPLE_FRAMES + 4
+    gpuSampleInterval: 4,
+    historyCapacity: WARMUP_FRAMES + SAMPLE_FRAMES + 8
   });
 
+  const scene = createScene();
+  const camera = createCamera(renderer.aspect_ratio);
   const output = renderer.output_resolution;
   const environment = createEnvironmentManifest({
     engine: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__ },
@@ -86,44 +99,121 @@ async function run(): Promise<void> {
       dpr: 1
     },
     run: {
-      featureSet: ["graphics-update-observability-smoke"],
+      featureSet: [
+        "hardware-visibility",
+        "material-expand",
+        "clustered-lighting",
+        "ibl"
+      ],
       warmupFrames: WARMUP_FRAMES,
       sampleFrames: SAMPLE_FRAMES
     }
   });
   const controller = new BenchmarkRunController(renderer.profiler, environment, {
-    id: "R0-SMOKE",
-    name: "GraphicsContext observability smoke",
-    sceneAssetHashes: ["none:empty"],
+    id: "R0-FRAME-SMOKE",
+    name: "Fixed box grid main frame",
+    sceneAssetHashes: ["procedural:box-grid-9x9-v1"],
     seed: 0,
-    cameraPathHash: "none:static"
+    cameraPathHash: "procedural:static-camera-v1"
   });
-  status.textContent = "正在采集";
+
+  status.textContent = "正在预热并采集";
   detail.textContent = adapterDescription(renderer.adapter_info);
   completedResult = await controller.run({
-    frame: (ordinal) => {
-      const frameIndex = ordinal + 1;
-      renderer.profiler.beginFrame(frameIndex);
-      renderer.profiler.measure("example.graphics-update", () => {
-        renderer.graphics.update();
-      });
-      renderer.profiler.recordCounter("example.frameIndex", frameIndex);
-      renderer.profiler.endFrame();
+    frame: () => {
+      if (!renderer.render(camera, scene, 1 / 60)) {
+        throw new Error("Renderer stopped because the GPU device was lost");
+      }
     },
     settle: () => renderer.device.queue.onSubmittedWorkDone(),
+    gpuWaitTimeoutMs: 15000,
     onProgress: (progress) => {
       frames.textContent = `${progress.measuredFrames} / ${SAMPLE_FRAMES}`;
+      if (progress.pendingGpuFrames > 0) {
+        detail.textContent = `${adapterDescription(renderer.adapter_info)} · 等待 ${progress.pendingGpuFrames} 个 GPU 样本`;
+      }
     }
   });
+
   const summary = completedResult.summary;
+  const sampledFrames = completedResult.frames.filter(
+    (frame) => frame.gpu.segments.length > 0
+  ).length;
   cpuP50.textContent = `${summary.cpuMs.frame.p50.toFixed(3)} ms`;
+  gpuSamples.textContent = renderer.profiler.gpuTimestampAvailable
+    ? String(sampledFrames)
+    : "unavailable";
   submitMean.textContent = summary.submits.mean.toFixed(2);
-  uploadP50.textContent = formatBytes(summary.uploadBytes.p50);
   resultOutput.textContent = serializeBenchmarkResult(completedResult);
   download.disabled = false;
   status.textContent = "采集完成";
-  detail.textContent = `${adapterDescription(renderer.adapter_info)} · 未发现同步异常`;
+  detail.textContent = `${adapterDescription(renderer.adapter_info)} · ${GRID_SIZE * GRID_SIZE} instances`;
   statusDot.classList.add("ok");
+}
+
+function createScene(): Scene {
+  const scene = new Scene();
+  scene.lights.environment = createEnvironmentTexture();
+  const geometry = new BoxGeometry(1, 1, 1);
+  const material = new StandardShadeMaterial();
+  material.diffuse_color.set(0.78, 0.34, 0.12, 1);
+  material.roughness_factor = 0.7;
+  material.metallic_factor = 0.05;
+  const center = (GRID_SIZE - 1) * 0.5;
+  for (let z = 0; z < GRID_SIZE; z++) {
+    for (let x = 0; x < GRID_SIZE; x++) {
+      const mesh = Mesh.from(geometry, material);
+      mesh.position = [(x - center) * 1.6, 0, (z - center) * 1.6];
+      mesh.updateMatrices();
+      scene.addChild(mesh);
+    }
+  }
+  const sun = new DirectionalLight();
+  sun.intensity = 4;
+  sun.casts_shadow = false;
+  sun.forward = [0.45, -1, -0.35];
+  scene.addChild(sun);
+  return scene;
+}
+
+function createEnvironmentTexture(): ShadeTexture {
+  const halfFloatRgba = new Uint16Array([
+    0x2a66,
+    0x2e66,
+    0x3266,
+    0x3c00
+  ]);
+  const image = ShadeImage.fromArrayBuffer(
+    halfFloatRgba.buffer,
+    4,
+    ShadeDataType.Float16,
+    1,
+    1,
+    1
+  );
+  image.color_space = 2;
+  return ShadeTexture.from(image);
+}
+
+function createCamera(aspect: number): PerspectiveCamera {
+  const camera = new PerspectiveCamera();
+  camera.aspect = aspect;
+  camera.near = 0.1;
+  camera.transform.position.set(0, 9, 17);
+  camera.transform.lookAt({ x: 0, y: 0, z: 0 });
+  camera.update();
+  return camera;
+}
+
+function configureComparablePipeline(renderer: Renderer): void {
+  renderer.feature_shadows_enabled = false;
+  renderer.feature_ssr_enabled = false;
+  renderer.feature_ssao_enabled = false;
+  renderer.feature_taa_enabled = false;
+  renderer.feature_bloom_enabled = false;
+  renderer.feature_automatic_exposure_enabled = false;
+  renderer.feature_motion_blur_enabled = false;
+  renderer.feature_sharpening_enabled = false;
 }
 
 function requiredElement<T extends HTMLElement>(id: string): T {
@@ -137,9 +227,4 @@ function adapterDescription(adapter: BenchmarkAdapterIdentity | null): string {
   return [adapter.vendor, adapter.architecture, adapter.device, adapter.description]
     .filter((value) => value.length > 0)
     .join(" · ") || "GPU adapter identity unavailable";
-}
-
-function formatBytes(value: number): string {
-  if (value < 1024) return `${value.toFixed(0)} B`;
-  return `${(value / 1024).toFixed(2)} KiB`;
 }

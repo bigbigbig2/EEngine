@@ -1,0 +1,19 @@
+# R0 Frame Smoke
+
+对应 `OBS-02`、`OBS-03` 和 `OBS-04` 的真实主帧垂直验证。页面通过相对路径导入 OEngine，创建固定的 9×9 Box 场景、程序化环境纹理、固定相机和方向光，预热 8 帧后采集 24 帧。
+
+```powershell
+Set-Location examples
+npm install
+npm run dev:host
+```
+
+打开 Vite 输出的 `/r0-frame-smoke/`。通过条件：
+
+- 状态变为“采集完成”，Measured 显示 `24 / 24`；
+- Canvas 显示完整 Box 阵列，没有漏绘、全黑或明显深度错误；
+- GPU 支持 `timestamp-query` 时，结果包含至少一个 GPU segment；不支持时明确记录 unavailable；
+- 控制台没有 WebGPU validation error、未处理异常或 device lost；
+- 保存结果 JSON 和页面截图。
+
+这是验证当前 OEngine 主链可观测性的固定小场景，不是 three.js A/B 性能对齐，也不能用于声称 R0 Gate 完成。

@@ -36,6 +36,10 @@ export default defineConfig({
         r0Observability: path.resolve(
           examplesRoot,
           "r0-observability/index.html"
+        ),
+        r0FrameSmoke: path.resolve(
+          examplesRoot,
+          "r0-frame-smoke/index.html"
         )
       }
     }

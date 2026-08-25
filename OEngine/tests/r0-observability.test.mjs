@@ -11,6 +11,7 @@ import {
   BenchmarkHarness,
   serializeBenchmarkResult
 } from "../.test-dist/debug/BenchmarkHarness.js";
+import { BenchmarkRunController } from "../.test-dist/debug/BenchmarkRunController.js";
 
 test("environment manifest canonicalizes comparable WebGPU run metadata", () => {
   const manifest = createEnvironmentManifest({
@@ -227,4 +228,68 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
   assert.equal(result.summary.submits.mean, 1);
   assert.equal(result.summary.gpuMs.visibility.mean, 0.75);
   assert.deepEqual(JSON.parse(serializeBenchmarkResult(result)), result);
+});
+
+test("benchmark run controller owns cadence and waits for delayed GPU evidence", async () => {
+  let now = 0;
+  const profiler = new FrameProfiler({
+    enabled: true,
+    gpuSampleInterval: 2,
+    gpuTimestampAvailable: true,
+    now: () => now
+  });
+  const environment = createEnvironmentManifest({
+    capturedAt: "2026-08-26T00:00:00.000Z",
+    engine: { commit: "controller-test", dirty: false },
+    platform: { os: "test", browser: "test", userAgent: "test" },
+    adapter: null,
+    webgpu: {
+      features: ["timestamp-query"],
+      limits: {},
+      powerPreference: "unknown"
+    },
+    frame: {
+      canvasWidth: 1,
+      canvasHeight: 1,
+      internalWidth: 1,
+      internalHeight: 1,
+      dpr: 1
+    },
+    run: { featureSet: [], warmupFrames: 1, sampleFrames: 2 }
+  });
+  const progress = [];
+  const controller = new BenchmarkRunController(profiler, environment, {
+    id: "controller",
+    name: "Controller cadence",
+    sceneAssetHashes: [],
+    seed: 0,
+    cameraPathHash: "static"
+  });
+
+  const result = await controller.run({
+    scheduleFrame: async () => {},
+    frame: (ordinal) => {
+      const frameIndex = ordinal + 1;
+      profiler.beginFrame(frameIndex);
+      now += frameIndex;
+      profiler.recordSubmit("main");
+      profiler.endFrame();
+    },
+    settle: async () => {
+      await Promise.resolve();
+      profiler.recordGpuTimings(2, [
+        { label: "visibility", type: "render", duration_ms: 0.75 }
+      ]);
+    },
+    gpuWaitTimeoutMs: 100,
+    onProgress: (snapshot) => progress.push(snapshot)
+  });
+
+  assert.equal(result.frames.length, 2);
+  assert.deepEqual(result.frames.map((frame) => frame.frameIndex), [2, 3]);
+  assert.equal(result.frames[0].gpu.pending, false);
+  assert.equal(result.summary.gpuMs.visibility.mean, 0.75);
+  assert.equal(progress.at(-1).measuredFrames, 2);
+  assert.equal(progress.at(-1).pendingGpuFrames, 0);
+  assert.equal(controller.state, "completed");
 });
