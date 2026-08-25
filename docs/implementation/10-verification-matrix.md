@@ -101,6 +101,8 @@ validation errors / device lost count
 
 R0 后创建 `performance-targets.json`，在实际目标硬件写入 A/B/C 的绝对与相对门槛。没有填写目标数字前，R4/R5 不得声称“追平 three.js”。
 
+即使 A/B 达到目标数字，也只能声明“最低垂直基线通过”。只有 C 的扩展曲线，以及多资产、动态世界、完整效果、feature-off、资源生命周期、device lost/capability fallback 等通用门禁同时通过，才可以声明对应 OEngine 阶段完成。A/B/C 使用同一主管线，不接受 benchmark 专用 Renderer。
+
 ### 建议的初始回归规则
 
 在 R0 噪声小于阈值后采用以下初始规则，后续可根据统计修订并记录原因：
@@ -185,6 +187,8 @@ git diff --check
 - feature off 仍有 Pass/resource/readback/submit；
 - 当前帧 CPU readback 决定 draw/dispatch；
 - A/B 比较条件不一致却声称性能结论；
+- 把 A/B 通过写成 OEngine 产品完成，或用样例专用旁路/Renderer 通过 A/B；
+- C 未覆盖多资产、动态更新、效果与生命周期，却声称已超过示例范围；
 - P95/P99 回退被平均 FPS 掩盖；
 - 旧 producer/ABI 长期双写且没有删除任务；
 - `CURRENT-STATE`、Context、ADR 与真实运行路径冲突。

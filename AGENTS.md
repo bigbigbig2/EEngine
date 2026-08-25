@@ -6,6 +6,8 @@ OEngine 是面向 WebGPU 的 GPU-first 游戏引擎核心。当前优先建设�
 
 当前阶段不以兼容 three.js 生态为目标。`three.js/` 与 `webgpufundamentals/` 是本地参考，不是 OEngine 运行时依赖或代码所有权来源。
 
+three.js 的两个 compute rasterizer 示例只是 OEngine 必须达到的最低垂直功能与性能基线，不是产品范围、架构方向或完成上限。通过该基线只能证明 GPU LOD、工作生成、SW/HW Visibility 和 PBR/IBL 基础闭环不落后；通用游戏引擎能力仍必须由多资产、动态世界、完整效果、生命周期和扩展性门禁证明。
+
 ## 开始任务前
 
 1. 完整阅读 `CONTEXT-MAP.md`。

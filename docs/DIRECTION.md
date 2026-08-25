@@ -32,6 +32,22 @@ GPU-ready Asset
 - Clustered Lighting、IBL、Shadow、Transparency、TAA/SSR/AO/Bloom/Exposure/Tonemap 等一条主管线上的可选功能。
 - GPU timestamp、计数器、debug view、固定 benchmark 和回归验证。
 
+## 基线不是产品上限
+
+three.js 的 `webgpu_compute_rasterizer` 与 `webgpu_compute_rasterizer_ibl` 只定义 OEngine 的最低垂直能力与性能下界：GPU LOD、GPU work generation、Software/Hardware Visibility、材质重建以及 PBR/IBL 必须至少形成同等级的可运行闭环，并在同条件 benchmark 中达到冻结的目标。
+
+通过这两个示例的 A/B 门禁，只能证明基础闭环没有落后，不能宣告 OEngine 已完成。OEngine 的产品目标在它们之上，还必须同时具备并验证：
+
+- 多 geometry、多 material、alpha-tested 与异构资产；
+- 独立动态对象与 Packed Instance Set；
+- 增量 GPU Render World、稳定 handle 与 GPU residency 生命周期；
+- hierarchy/SSE LOD、紧凑工作生成与可靠 overflow/fallback；
+- Lighting、IBL、Shadow、Transparency、Temporal/Post 的完整效果链；
+- resize、feature toggle、asset unload/reload、device lost 和跨设备 capability fallback；
+- 可扩展接口、debug/性能工具，以及功能关闭时接近零成本。
+
+A/B/C 是同一主管线在不同 manifest 与 feature set 下的验证场景，不是三档产品、三套 Renderer 或三条真实管线。
+
 ## 当前非目标
 
 - three.js API、Scene、Material、TSL 或 Loader 兼容层。
@@ -44,9 +60,9 @@ GPU-ready Asset
 
 ## 成功标准
 
-- 同画质、同分辨率下，OEngine 的基准场景能解释并证明相对 three.js 两个 compute rasterizer 示例的成本与收益。
+- 同画质、同分辨率下，A/B 至少覆盖 three.js 两个 compute rasterizer 示例的功能闭环，并达到 `performance-targets.json` 冻结的最低性能目标。
+- A/B 通过后，C 和通用 vertical cases 继续证明多资产、动态世界、完整效果、生命周期与扩展性；不得把“追平两个示例”写成产品完成。
 - 大量实例和高几何密度下，CPU 工作不随最终候选三角形线性增长。
 - GPU 选择 LOD、生成工作量并由 indirect consumer 消费，不发生 CPU readback 决策。
 - 功能关闭时不创建对应资源、不编码对应 Pass、不产生 readback/submit。
 - 每一帧可以回答“处理了多少实例、节点、Cluster、软/硬三角形和像素，时间花在哪里”。
-

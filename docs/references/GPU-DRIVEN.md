@@ -21,9 +21,15 @@ Bevy / nanite-webgpu：资产层次与混合 Visibility
 Niagara：工作生成和 ABI 简洁性
 renderling：GPU Render World 所有权
 PlayCanvas / Babylon：WebGPU 工程基础设施
-three.js 示例：必须追平的垂直性能基线
+three.js 示例：必须达到的最低垂直功能/性能基线，不是产品上限
 OEngine：统一到完整游戏引擎核心与效果管线
 ```
+
+## three.js 基线边界
+
+两个 compute rasterizer 示例提供的是可运行的最低闭环和直接性能对照：GPU LOD/work generation、Software/Hardware Visibility、材质属性重建和 PBR/IBL。OEngine 应优先核对并在许可证允许时移植其中成熟算法，但不得把示例的单模型、单 source material、固定队列和示例级生命周期固化成产品架构。
+
+“达到 A/B”只表示最低闭环达标。OEngine 还必须把该能力推广到多 geometry/material、动态对象与 Packed Instances、GPU Render World、hierarchy/SSE LOD、Shadow/Transparency/Lighting/Temporal/Post，以及完整 device/resource 生命周期；这些能力由 C 和通用 vertical cases 验证。
 
 ## 许可证
 

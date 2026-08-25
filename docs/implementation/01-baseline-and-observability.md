@@ -4,6 +4,8 @@
 
 先建立能解释一帧的证据链，再决定优先重写 LOD、软件光栅、HZB、材质还是提交路径。R0 不以提高 FPS 为主要目标；它的退出条件是所有后续性能结论都可以被复现和反驳。
 
+A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是产品完成标准；C 与通用 vertical/lifecycle cases 才继续覆盖 OEngine 的多资产、动态世界、完整效果和工程生命周期。三类 benchmark 必须通过同一 OEngine 主管线运行，只改变 manifest、数据和 feature set。
+
 ## 非目标
 
 - 不在本阶段重写 Visibility 主算法。
@@ -118,12 +120,14 @@ post
 - 相同相机轨迹、实例变换 seed、分辨率、DPR 和颜色输出。
 - three.js Hardware/Software/Hybrid 与 OEngine 当前 Hardware 分开记录。
 - 关闭 PBR、shadow、post，只做简单 Visibility resolve。
+- 最终最低功能覆盖必须包含 GPU LOD/work generation 和可切换 HW/SW/Hybrid Visibility；R0 可先记录当前缺项，但不得把 HW-only 页面标成 A 已通过。
 
 ### B · three.js Compute Rasterizer IBL 对齐
 
 - 相同 glTF、Meshopt LOD/Meshlet、环境贴图、实例布局和相机轨迹。
 - 相同 HZB 开关、PBR/IBL 属性和输出格式。
 - OEngine 额外效果全部关闭并证明没有 Pass/资源残留。
+- 最终最低功能覆盖必须包含材质属性重建与 PBR/IBL；只有场景看起来相似而输入属性或色彩空间不一致，不能通过。
 
 ### C · OEngine 通用压力
 
@@ -134,6 +138,8 @@ post
 3. alpha-tested、shadow、lights 和 temporal feature 的逐项压力。
 
 每个轴使用固定 seed；不要把所有变量同时放大后再猜瓶颈。
+
+C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU-driven 主链能推广到异构资产、动态增量更新、Packed Instances、完整效果依赖和生命周期事件，而不退化为 CPU 遍历或样例专用旁路。
 
 ## 执行任务
 
@@ -151,6 +157,8 @@ post
 ### OBS-02 · 建立 A/B/C harness
 
 让场景、相机轨迹、seed 和开关由同一个 manifest 驱动。可运行页面放在根目录 `examples/` 并通过相对路径引用 `OEngine`；three.js 结果可由其独立页面导出，但字段必须映射到同一 result schema。首版先证明截图与场景数量对齐，并检查 WebGPU validation error，而不是只运行 TypeScript 测试。
+
+Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 `engine-generality-c`）和真实 feature bits。A/B 页面不得形成样例专用渲染器；C 不得复用 A/B 通过状态冒充通用性通过。
 
 ### OBS-03 · 接通 CPU frame timeline
 
@@ -201,3 +209,5 @@ post
 ## 阶段退出
 
 `OBS-01` 至 `OBS-08` 全部完成，且 [PERFORMANCE.md](../PERFORMANCE.md) 每项字段都有自动化输出。收尾更新 `CURRENT-STATE`、performance Context 和 performance lesson；此后才允许用数据调整 R1–R5 优先级。
+
+G0 退出只表示证据系统完整，不表示 A/B 功能追平或 OEngine 产品完成；后者仍由 G3–G5 与 C/vertical/lifecycle 门禁判定。

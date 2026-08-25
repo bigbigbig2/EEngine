@@ -2,13 +2,15 @@
 
 路线是依赖顺序，不是功能档位。每阶段必须有可运行 benchmark 和退出标准。
 
+three.js 的 A/B 只是最低垂直功能与性能基线，不是路线终点。A/B 证明 GPU LOD、work generation、SW/HW Visibility 与 PBR/IBL 基础闭环不落后；C 和通用 vertical/lifecycle cases 继续证明 OEngine 在多资产、动态世界、效果完整性、生命周期与扩展性上超过样例范围。所有阶段最终汇入一条主管线。
+
 可直接领取的任务、ABI、迁移和验收门禁见 [详细实施手册](./implementation/README.md)。
 
 ## R0 · 建立真实性
 
 实施包：[01 · 基线与可观测性](./implementation/01-baseline-and-observability.md)
 
-- 固定 three.js A/B 对齐 benchmark。
+- 固定 three.js A/B 最低基线与 OEngine C 通用能力 benchmark。
 - 为现有主帧补 CPU/GPU 分段、submit/readback、工作量计数和 debug view。
 - 能切换现有 Visibility/HZB/Material Expand 的关键阶段。
 - 明确实际运行 Shader source-of-truth。

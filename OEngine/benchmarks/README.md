@@ -2,6 +2,8 @@
 
 本目录是 R0 性能证据入口。当前已完成统一环境/结果 Schema、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp 采样和 percentile 汇总；A/B/C 的实际场景资产与自动相机轨迹仍需后续 `OBS-02` 工作包接入。
 
+A/B 只是 OEngine 必须达到的最低垂直功能与性能基线：覆盖 GPU LOD/work generation、SW/HW Visibility、材质重建和 PBR/IBL。它们不是产品范围或完成上限。C 与通用 vertical/lifecycle cases 还必须证明多 geometry/material、动态对象与 Packed Instances、GPU Render World、层次 LOD、完整效果和 device/resource 生命周期。A/B/C 必须复用同一 OEngine 主管线，不能为 benchmark 创建样例专用 Renderer。
+
 ## 采样约束
 
 - 固定浏览器、GPU、分辨率、DPR、feature set、seed、warm-up 和采样帧数。

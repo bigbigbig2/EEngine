@@ -6,6 +6,10 @@
 
 ## 强制基线
 
+A/B 是最低垂直功能与性能基线，不是 OEngine 的产品范围或完成标准。它们用于保证 GPU LOD、GPU 工作生成、SW/HW Visibility、材质重建和 PBR/IBL 基础闭环至少不落后于对照实现。C 以及通用 vertical/lifecycle cases 用于证明 OEngine 在多资产、动态世界、完整效果和扩展性上的更高目标。
+
+A/B/C 必须驱动同一套 OEngine 主管线；只允许通过 manifest、场景数据和 feature set 改变依赖图，不允许为通过 benchmark 维护样例专用 Renderer 或独立真实管线。
+
 ### A · three.js Compute Rasterizer 对齐
 
 - 相同 Teapot LOD 数据和 160k instances。
@@ -21,8 +25,9 @@
 
 ### C · OEngine 通用性压力
 
-- 多 geometry、多 material、alpha-tested、shadow、动态 transform。
+- 多 geometry、多 material、alpha-tested、shadow、动态 transform、Packed instances。
 - 分别增加实例、Cluster、可见比例、活跃材质和灯光数量。
+- 补充 Lighting、Transparency、Temporal/Post、asset unload/reload、resize、feature toggle 和 device lost/capability fallback 的 vertical cases；不能只测一个静态峰值场景。
 
 ## 每组必须记录
 
@@ -55,3 +60,8 @@
 4. 给出其他场景是否退化以及 fallback。
 5. 更新相关 lesson 或 ADR（若结论改变调查顺序或长期架构）。
 
+## Gate 解释
+
+- A/B 未通过：基础 GPU-driven/渲染闭环尚未达到最低线。
+- A/B 通过：只说明对照功能与性能下界达标，不代表通用引擎完成。
+- OEngine 阶段完成：除 A/B 外，还必须通过 C 的扩展曲线、完整效果、动态世界、生命周期、feature-off 与跨设备门禁。
