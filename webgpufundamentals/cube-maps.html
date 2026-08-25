@@ -1,0 +1,669 @@
+<!doctype html>
+<!-- 声明这是 HTML5 文档。 -->
+<html lang="zh-CN">
+<head>
+  <!-- 使用 UTF-8，保证中文界面和注释正常显示。 -->
+  <meta charset="utf-8">
+  <!-- 让页面在桌面与移动设备上按真实宽度布局。 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU Cube Maps：六张面按方向采样</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      --page-bg: #0c1017;
+      --panel-bg: #151b25;
+      --border: #303a4b;
+      --text: #edf3ff;
+      --muted: #aab7ca;
+      --accent: #91d7ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page-bg);
+      color: var(--text);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(1180px, 100%);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(26px, 4vw, 40px);
+    }
+
+    .intro {
+      max-width: 940px;
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .flow {
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #111722;
+      color: #cbd7e8;
+      font: 14px/1.6 ui-monospace, "Cascadia Code", monospace;
+    }
+
+    .flow strong {
+      color: var(--accent);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    canvas.webgpu {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #070a10;
+    }
+
+    .panel {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel-bg);
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: #dce7f8;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+    }
+
+    .faces-title {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .faces {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+    }
+
+    .face {
+      min-width: 0;
+      margin: 0;
+    }
+
+    .face canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 8px;
+    }
+
+    .face figcaption {
+      margin-top: 3px;
+      color: #bdc9da;
+      text-align: center;
+      font: 11px/1.4 ui-monospace, "Cascadia Code", monospace;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 7px 12px;
+      margin: 0;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font: 13px/1.45 ui-monospace, "Cascadia Code", monospace;
+    }
+
+    .stats dt {
+      color: var(--muted);
+    }
+
+    .stats dd {
+      margin: 0;
+      color: #d8e8ff;
+    }
+
+    .status {
+      min-height: 1.5em;
+      margin: 14px 2px 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    code {
+      color: #b9ddff;
+    }
+
+    @media (max-width: 850px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Cube Map：用三维方向选择六张纹理面</h1>
+    <p class="intro">
+      普通二维纹理使用 <code>vec2f(u, v)</code> 采样；Cube Map 使用
+      <code>vec3f(x, y, z)</code> 方向采样。GPU 会根据方向中绝对值最大的轴，
+      自动选择 +X、-X、+Y、-Y、+Z 或 -Z 面。
+    </p>
+
+    <div class="flow">
+      <strong>创建：</strong>6 个 Canvas → 6 层 GPUTexture → cube TextureView<br>
+      <strong>采样：</strong>三维方向 → texture_cube&lt;f32&gt; → GPU 自动选择面和面内 UV
+    </div>
+
+    <section class="workspace">
+      <!-- WebGPU 在这里绘制一个自动旋转的立方体。 -->
+      <canvas class="webgpu" aria-label="WebGPU Cube Map 演示"></canvas>
+
+      <aside class="panel">
+        <label class="check-row">
+          <input id="auto-rotate" type="checkbox" checked>
+          自动旋转
+        </label>
+
+        <label>
+          绕 X 轴：<output id="rotation-x-value">-20°</output>
+          <input id="rotation-x" type="range" min="-80" max="80" step="1" value="-20">
+        </label>
+
+        <label>
+          绕 Y 轴：<output id="rotation-y-value">35°</output>
+          <input id="rotation-y" type="range" min="-180" max="180" step="1" value="35">
+        </label>
+
+        <p class="faces-title">
+          下列 Canvas 按固定层顺序上传。它们不是六个独立 Shader 绑定，而是同一个纹理的六层。
+        </p>
+
+        <div class="faces">
+          <figure class="face">
+            <canvas data-layer="0" width="128" height="128"></canvas>
+            <figcaption>layer 0 · +X</figcaption>
+          </figure>
+          <figure class="face">
+            <canvas data-layer="1" width="128" height="128"></canvas>
+            <figcaption>layer 1 · -X</figcaption>
+          </figure>
+          <figure class="face">
+            <canvas data-layer="2" width="128" height="128"></canvas>
+            <figcaption>layer 2 · +Y</figcaption>
+          </figure>
+          <figure class="face">
+            <canvas data-layer="3" width="128" height="128"></canvas>
+            <figcaption>layer 3 · -Y</figcaption>
+          </figure>
+          <figure class="face">
+            <canvas data-layer="4" width="128" height="128"></canvas>
+            <figcaption>layer 4 · +Z</figcaption>
+          </figure>
+          <figure class="face">
+            <canvas data-layer="5" width="128" height="128"></canvas>
+            <figcaption>layer 5 · -Z</figcaption>
+          </figure>
+        </div>
+
+        <dl class="stats">
+          <dt>GPUTexture</dt>
+          <dd>128 × 128 × 6</dd>
+          <dt>View 维度</dt>
+          <dd>cube</dd>
+          <dt>WGSL 类型</dt>
+          <dd>texture_cube&lt;f32&gt;</dd>
+          <dt>采样坐标</dt>
+          <dd>vec3f direction</dd>
+        </dl>
+      </aside>
+    </section>
+
+    <p id="status" class="status">正在初始化 WebGPU…</p>
+  </main>
+
+  <script type="module">
+    // 每层的文字和颜色都不同，方便观察三维方向到底选中了哪一层。
+    // 数组顺序必须是：+X、-X、+Y、-Y、+Z、-Z。
+    const faceInfos = [
+      { axis: "+X", name: "RIGHT",  colorA: "#ef4444", colorB: "#7f1d1d" },
+      { axis: "-X", name: "LEFT",   colorA: "#f59e0b", colorB: "#78350f" },
+      { axis: "+Y", name: "UP",     colorA: "#22c55e", colorB: "#14532d" },
+      { axis: "-Y", name: "DOWN",   colorA: "#06b6d4", colorB: "#164e63" },
+      { axis: "+Z", name: "FRONT",  colorA: "#3b82f6", colorB: "#1e3a8a" },
+      { axis: "-Z", name: "BACK",   colorA: "#d946ef", colorB: "#701a75" },
+    ];
+
+    const faceCanvases = [...document.querySelectorAll("canvas[data-layer]")];
+    const outputCanvas = document.querySelector("canvas.webgpu");
+    const status = document.querySelector("#status");
+    const controls = {
+      autoRotate: document.querySelector("#auto-rotate"),
+      rotationX: document.querySelector("#rotation-x"),
+      rotationXValue: document.querySelector("#rotation-x-value"),
+      rotationY: document.querySelector("#rotation-y"),
+      rotationYValue: document.querySelector("#rotation-y-value"),
+    };
+
+    // 在真正上传之前，先用 Canvas 2D 生成六张正方形图片。
+    faceCanvases.forEach((canvas, layer) => {
+      drawFace(canvas, faceInfos[layer], layer);
+    });
+
+    async function main() {
+      if (!navigator.gpu) {
+        throw new Error("当前浏览器不支持 WebGPU，请使用较新的 Chrome 或 Edge。");
+      }
+
+      // Adapter 是浏览器选中的 GPU 实现，Device 是本程序使用的逻辑 GPU 设备。
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
+        throw new Error("浏览器没有找到可用的 WebGPU Adapter。");
+      }
+      const device = await adapter.requestDevice();
+      let stopped = false;
+
+      device.lost.then((info) => {
+        stopped = true;
+        status.textContent = `GPU 设备已丢失：${info.message || info.reason}`;
+      });
+
+      // 配置最终显示结果的 WebGPU Canvas。
+      const context = outputCanvas.getContext("webgpu");
+      if (!context) {
+        throw new Error("无法从 Canvas 获取 WebGPU Context。");
+      }
+      const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+      context.configure({
+        device,
+        format: presentationFormat,
+        alphaMode: "premultiplied",
+      });
+
+      const shaderModule = device.createShaderModule({
+        label: "Cube Map Shader",
+        code: /* wgsl */ `
+          struct Uniforms {
+            aspect: f32,
+            angleY: f32,
+            angleX: f32,
+            padding: f32,
+          };
+
+          struct VertexOutput {
+            @builtin(position) position: vec4f,
+            // Cube Map 的阶段间数据是三维方向，不是二维 UV。
+            @location(0) sampleDirection: vec3f,
+          };
+
+          @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+          @group(0) @binding(1) var cubeSampler: sampler;
+          @group(0) @binding(2) var cubeTexture: texture_cube<f32>;
+
+          fn rotateY(point: vec3f, angle: f32) -> vec3f {
+            let c = cos(angle);
+            let s = sin(angle);
+            return vec3f(
+              c * point.x + s * point.z,
+              point.y,
+              -s * point.x + c * point.z,
+            );
+          }
+
+          fn rotateX(point: vec3f, angle: f32) -> vec3f {
+            let c = cos(angle);
+            let s = sin(angle);
+            return vec3f(
+              point.x,
+              c * point.y - s * point.z,
+              s * point.y + c * point.z,
+            );
+          }
+
+          @vertex
+          fn vs(@location(0) position: vec3f) -> VertexOutput {
+            // 旋转只是为了从不同视角观察六个面。
+            let rotated = rotateX(
+              rotateY(position, uniforms.angleY),
+              uniforms.angleX,
+            );
+
+            // 把立方体移到相机前方。这里采用相机朝 -Z 看的常见约定。
+            let viewPosition = rotated + vec3f(0.0, 0.0, -4.0);
+
+            // 用少量代码实现 WebGPU 深度范围为 0..1 的透视投影。
+            let near = 0.1;
+            let far = 100.0;
+            let focalLength = 1.0 / tan(radians(55.0) * 0.5);
+
+            var output: VertexOutput;
+            output.position = vec4f(
+              viewPosition.x * focalLength / uniforms.aspect,
+              viewPosition.y * focalLength,
+              viewPosition.z * far / (near - far) + near * far / (near - far),
+              -viewPosition.z,
+            );
+
+            // 使用模型空间位置作为“从立方体中心指出去”的方向。
+            // 方向不随立方体的屏幕旋转改变，所以纹理像贴在立方体上一样跟着转。
+            output.sampleDirection = position;
+            return output;
+          }
+
+          @fragment
+          fn fs(input: VertexOutput) -> @location(0) vec4f {
+            // 插值后的方向长度不一定是 1，先 normalize 再采样更清晰。
+            // textureSample 会按方向自动选择六层之一，并计算该面内部的 UV。
+            return textureSample(
+              cubeTexture,
+              cubeSampler,
+              normalize(input.sampleDirection),
+            );
+          }
+        `,
+      });
+
+      // 立方体由 6 个面、每面 2 个三角形组成，一共 36 个顶点。
+      // 每个顶点只有三维位置，不再需要普通纹理的二维 UV。
+      const vertexData = new Float32Array([
+        // +Z
+        -1, -1,  1,   1, -1,  1,  -1,  1,  1,
+        -1,  1,  1,   1, -1,  1,   1,  1,  1,
+        // -Z
+         1, -1, -1,  -1, -1, -1,   1,  1, -1,
+         1,  1, -1,  -1, -1, -1,  -1,  1, -1,
+        // +X
+         1, -1,  1,   1, -1, -1,   1,  1,  1,
+         1,  1,  1,   1, -1, -1,   1,  1, -1,
+        // -X
+        -1, -1, -1,  -1, -1,  1,  -1,  1, -1,
+        -1,  1, -1,  -1, -1,  1,  -1,  1,  1,
+        // +Y
+        -1,  1,  1,   1,  1,  1,  -1,  1, -1,
+        -1,  1, -1,   1,  1,  1,   1,  1, -1,
+        // -Y
+        -1, -1, -1,   1, -1, -1,  -1, -1,  1,
+        -1, -1,  1,   1, -1, -1,   1, -1,  1,
+      ]);
+
+      const vertexBuffer = device.createBuffer({
+        label: "立方体位置 Vertex Buffer",
+        size: vertexData.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(vertexBuffer, 0, vertexData);
+
+      const pipeline = device.createRenderPipeline({
+        label: "Cube Map RenderPipeline",
+        layout: "auto",
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs",
+          buffers: [{
+            arrayStride: 3 * Float32Array.BYTES_PER_ELEMENT,
+            attributes: [{
+              shaderLocation: 0,
+              offset: 0,
+              format: "float32x3",
+            }],
+          }],
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs",
+          targets: [{ format: presentationFormat }],
+        },
+        primitive: {
+          topology: "triangle-list",
+          // 为了把示例重点放在 Cube Map，本例关闭背面剔除，避免绕序干扰观察。
+          cullMode: "none",
+        },
+        depthStencil: {
+          depthWriteEnabled: true,
+          depthCompare: "less",
+          format: "depth24plus",
+        },
+      });
+
+      // Cube Map 在资源层面是一个具有 6 个 array layer 的二维纹理。
+      const faceSize = faceCanvases[0].width;
+      const cubeTexture = device.createTexture({
+        label: "六层 Cube Map GPUTexture",
+        size: [faceSize, faceSize, 6],
+        dimension: "2d",
+        format: "rgba8unorm",
+        usage:
+          // Cube Map 最终需要被 Shader 采样。
+          GPUTextureUsage.TEXTURE_BINDING |
+          // 外部 Canvas 的像素会复制到纹理中。
+          GPUTextureUsage.COPY_DST |
+          // copyExternalImageToTexture 的目标还必须具有 RENDER_ATTACHMENT。
+          // 浏览器可能通过内部渲染步骤完成颜色空间转换和上传。
+          GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+
+      // 将每个 Canvas 复制到同一 GPUTexture 的不同 array layer。
+      faceCanvases.forEach((source, layer) => {
+        device.queue.copyExternalImageToTexture(
+          {
+            source,
+            flipY: false,
+          },
+          {
+            texture: cubeTexture,
+            // z 在二维数组纹理中代表 array layer，而不是三维纹理的空间深度。
+            origin: { x: 0, y: 0, z: layer },
+          },
+          {
+            width: source.width,
+            height: source.height,
+            depthOrArrayLayers: 1,
+          },
+        );
+      });
+
+      // 关键步骤：同一个六层 GPUTexture 要通过 cube 维度的 View 暴露给 Shader。
+      // 如果使用默认的 2d-array View，就无法绑定到 texture_cube<f32>。
+      const cubeView = cubeTexture.createView({
+        label: "Cube Map TextureView",
+        dimension: "cube",
+        baseArrayLayer: 0,
+        arrayLayerCount: 6,
+      });
+
+      const sampler = device.createSampler({
+        label: "Cube Map Sampler",
+        magFilter: "linear",
+        minFilter: "linear",
+      });
+
+      // aspect、Y 角度、X 角度、padding，共 4 个 f32 = 16 字节。
+      const uniformValues = new Float32Array(4);
+      const uniformBuffer = device.createBuffer({
+        label: "Cube Map 旋转参数 Uniform Buffer",
+        size: uniformValues.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      const bindGroup = device.createBindGroup({
+        label: "Cube Map BindGroup",
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: uniformBuffer } },
+          { binding: 1, resource: sampler },
+          { binding: 2, resource: cubeView },
+        ],
+      });
+
+      let depthTexture;
+
+      function resizeCanvasAndDepthTexture() {
+        const pixelRatio = window.devicePixelRatio || 1;
+        const width = Math.max(1, Math.floor(outputCanvas.clientWidth * pixelRatio));
+        const height = Math.max(1, Math.floor(outputCanvas.clientHeight * pixelRatio));
+
+        if (
+          depthTexture &&
+          outputCanvas.width === width &&
+          outputCanvas.height === height
+        ) {
+          return;
+        }
+
+        outputCanvas.width = width;
+        outputCanvas.height = height;
+
+        // 深度纹理必须和颜色附件尺寸一致；Canvas 改变时重新创建。
+        depthTexture?.destroy();
+        depthTexture = device.createTexture({
+          label: "与 Canvas 同尺寸的深度纹理",
+          size: [width, height],
+          format: "depth24plus",
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+      }
+
+      function render(time) {
+        if (stopped) {
+          return;
+        }
+
+        resizeCanvasAndDepthTexture();
+
+        const degreesToRadians = Math.PI / 180;
+        const baseAngleY = Number(controls.rotationY.value) * degreesToRadians;
+        const angleY = controls.autoRotate.checked
+          ? baseAngleY + time * 0.00045
+          : baseAngleY;
+
+        uniformValues[0] = outputCanvas.width / outputCanvas.height;
+        uniformValues[1] = angleY;
+        uniformValues[2] = Number(controls.rotationX.value) * degreesToRadians;
+        device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
+
+        const encoder = device.createCommandEncoder({
+          label: "Cube Map 每帧命令编码器",
+        });
+        const pass = encoder.beginRenderPass({
+          label: "绘制 Cube Map 立方体",
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            clearValue: { r: 0.025, g: 0.04, b: 0.07, a: 1 },
+            loadOp: "clear",
+            storeOp: "store",
+          }],
+          depthStencilAttachment: {
+            view: depthTexture.createView(),
+            depthClearValue: 1,
+            depthLoadOp: "clear",
+            depthStoreOp: "store",
+          },
+        });
+
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.setVertexBuffer(0, vertexBuffer);
+        pass.draw(vertexData.length / 3);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+
+        requestAnimationFrame(render);
+      }
+
+      function updateLabels() {
+        controls.rotationXValue.value = `${controls.rotationX.value}°`;
+        controls.rotationYValue.value = `${controls.rotationY.value}°`;
+      }
+
+      controls.rotationX.addEventListener("input", updateLabels);
+      controls.rotationY.addEventListener("input", updateLabels);
+      updateLabels();
+
+      status.textContent =
+        "运行中：六个 Canvas 已上传到六层纹理，并通过 cube TextureView 按方向采样。";
+      requestAnimationFrame(render);
+    }
+
+    // 为一个 Cube Map 面生成带方向、网格和层编号的图片。
+    function drawFace(canvas, info, layer) {
+      const context = canvas.getContext("2d");
+      const size = canvas.width;
+      const gradient = context.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, info.colorA);
+      gradient.addColorStop(1, info.colorB);
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, size, size);
+
+      context.strokeStyle = "rgba(255, 255, 255, 0.22)";
+      context.lineWidth = 1;
+      for (let offset = 0; offset <= size; offset += size / 4) {
+        context.beginPath();
+        context.moveTo(offset, 0);
+        context.lineTo(offset, size);
+        context.moveTo(0, offset);
+        context.lineTo(size, offset);
+        context.stroke();
+      }
+
+      context.fillStyle = "rgba(0, 0, 0, 0.35)";
+      context.fillRect(8, 8, size - 16, size - 16);
+
+      context.fillStyle = "white";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.font = `700 ${size * 0.28}px system-ui`;
+      context.fillText(info.axis, size / 2, size * 0.42);
+      context.font = `600 ${size * 0.105}px ui-monospace, monospace`;
+      context.fillText(info.name, size / 2, size * 0.66);
+      context.font = `500 ${size * 0.08}px ui-monospace, monospace`;
+      context.fillText(`LAYER ${layer}`, size / 2, size * 0.82);
+    }
+
+    // 把初始化错误显示到页面，而不是只留在开发者工具里。
+    main().catch((error) => {
+      console.error(error);
+      status.textContent = `初始化失败：${error.message}`;
+    });
+  </script>
+</body>
+</html>

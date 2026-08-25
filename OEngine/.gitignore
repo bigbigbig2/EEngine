@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-app/
+.test-dist/
+*.local
+.DS_Store

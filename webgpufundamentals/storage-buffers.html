@@ -1,0 +1,539 @@
+<!doctype html>
+<!-- 声明这是 HTML5 文档。 -->
+<html lang="zh-CN">
+<head>
+  <!-- UTF-8 保证中文界面和代码注释正常显示。 -->
+  <meta charset="utf-8">
+  <!-- 让页面宽度跟随设备宽度，在手机上也能正常布局。 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU Storage Buffer：一次绘制多个实例</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      --page-bg: #0c1017;
+      --panel-bg: #151b25;
+      --border: #303a4b;
+      --text: #edf3ff;
+      --muted: #aab7ca;
+      --accent: #68e0bd;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page-bg);
+      color: var(--text);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(1120px, 100%);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(26px, 4vw, 40px);
+    }
+
+    .intro {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    /* 把 WebGL 与 WebGPU 的实例化数据路径放在一起对照。 */
+    .comparison {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #111722;
+      color: #c6d2e5;
+      font: 14px/1.5 ui-monospace, "Cascadia Code", monospace;
+    }
+
+    .comparison strong {
+      color: var(--accent);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 290px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #070a10;
+    }
+
+    .controls {
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel-bg);
+    }
+
+    .control {
+      display: grid;
+      gap: 8px;
+    }
+
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 14px;
+    }
+
+    output {
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    button {
+      padding: 9px 12px;
+      border: 1px solid #3c725f;
+      border-radius: 8px;
+      color: var(--text);
+      background: #1d4338;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #285948;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px 12px;
+      margin: 0;
+      padding: 12px;
+      border-radius: 8px;
+      background: #0a1017;
+      font-size: 13px;
+    }
+
+    .stats dt {
+      color: #9eacc0;
+    }
+
+    .stats dd {
+      margin: 0;
+      color: #baf4df;
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .flow {
+      margin: 0;
+      padding: 11px;
+      overflow-x: auto;
+      border-radius: 8px;
+      color: #baf4df;
+      background: #0a1017;
+      font: 12px/1.65 ui-monospace, "Cascadia Code", monospace;
+      white-space: pre;
+    }
+
+    #status {
+      margin-top: 12px;
+      color: #92a3bb;
+      font-size: 14px;
+    }
+
+    #error {
+      display: none;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 1px solid #954556;
+      border-radius: 8px;
+      color: #ffdce2;
+      background: #351a22;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 800px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Storage Buffer：一次 Draw 绘制多个实例</h1>
+    <p class="intro">
+      所有三角形的颜色、位置和缩放都放在同一个 Storage Buffer 中；顶点着色器用
+      <code>instance_index</code> 选择当前对象的数据。
+    </p>
+
+    <div class="comparison">
+      <div><strong>WebGL 2：</strong>实例 Attribute + vertexAttribDivisor + drawArraysInstanced</div>
+      <div><strong>WebGPU：</strong>Storage Buffer 数组 + instance_index + draw(3, instanceCount)</div>
+    </div>
+
+    <div class="workspace">
+      <!-- WebGPU 会把所有实例绘制到这个 Canvas。 -->
+      <canvas aria-label="使用 Storage Buffer 绘制的多个三角形"></canvas>
+
+      <section class="controls" aria-label="Storage Buffer 控制面板">
+        <label class="control">
+          <span class="control-header">
+            <span>实例数量</span>
+            <output id="count-output">100</output>
+          </span>
+          <input id="count" type="range" min="1" max="200" step="1" value="100">
+        </label>
+
+        <!-- 重新生成每个实例的颜色、位置和尺寸。 -->
+        <button id="randomize" type="button">重新随机对象数据</button>
+
+        <!-- 这里显示一次 draw 实际处理了多少数据和顶点。 -->
+        <dl class="stats">
+          <dt>Draw 调用</dt>
+          <dd>1 次</dd>
+          <dt>实例</dt>
+          <dd id="instance-stat">100</dd>
+          <dt>顶点调用</dt>
+          <dd id="vertex-stat">300</dd>
+          <dt>上传字节</dt>
+          <dd id="byte-stat">3200</dd>
+        </dl>
+
+        <pre class="flow">Float32Array
+  ↓ writeBuffer
+Storage Buffer
+  ↓ objects[instanceIndex]
+Vertex Shader
+  ↓ @location(0) color
+Fragment Shader</pre>
+      </section>
+    </div>
+
+    <div id="status">正在初始化 WebGPU…</div>
+    <div id="error" role="alert"></div>
+  </main>
+
+  <script type="module">
+    // 最多为 200 个对象分配空间，滑块只决定本次实际绘制多少个。
+    const MAX_OBJECTS = 200;
+
+    // WGSL 中每个 ObjectData 包含：
+    // color: vec4f  -> 4 个 Float32
+    // offset: vec2f -> 2 个 Float32
+    // scale: vec2f  -> 2 个 Float32
+    // 合计 8 个 Float32，也就是 32 字节。
+    const FLOATS_PER_OBJECT = 8;
+    const BYTES_PER_OBJECT = FLOATS_PER_OBJECT * Float32Array.BYTES_PER_ELEMENT;
+
+    // 每个字段在一个对象内部的 Float32 索引。
+    const COLOR_OFFSET = 0;
+    const POSITION_OFFSET = 4;
+    const SCALE_OFFSET = 6;
+
+    async function main() {
+      // 请求浏览器选择一个可用的 GPUAdapter。
+      const adapter = await navigator.gpu?.requestAdapter();
+      if (!adapter) {
+        throw new Error("当前浏览器没有可用的 WebGPU Adapter。");
+      }
+
+      // GPUDevice 用来创建 Buffer、Shader、Pipeline 和命令。
+      const device = await adapter.requestDevice();
+
+      // 获取 Canvas 的 WebGPU 上下文。
+      const canvas = document.querySelector("canvas");
+      const context = canvas.getContext("webgpu");
+      if (!context) {
+        throw new Error("无法从 Canvas 获取 WebGPU Context。");
+      }
+
+      const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+      context.configure({
+        device,
+        format: presentationFormat,
+        alphaMode: "premultiplied",
+      });
+
+      // 创建 WGSL ShaderModule。
+      const shaderModule = device.createShaderModule({
+        label: "Storage Buffer 多实例 Shader",
+        code: /* wgsl */ `
+          // Storage Buffer 中数组的每一个元素都使用这个布局。
+          struct ObjectData {
+            color: vec4f,
+            offset: vec2f,
+            scale: vec2f,
+          };
+
+          // 顶点着色器除了输出位置，还要把实例颜色传给片元着色器。
+          struct VSOutput {
+            @builtin(position) position: vec4f,
+            @location(0) color: vec4f,
+          };
+
+          // 把 group 0、binding 0 解释成一个只读 ObjectData 数组。
+          // 数组长度由绑定进来的 Storage Buffer 大小决定。
+          @group(0) @binding(0)
+          var<storage, read> objects: array<ObjectData>;
+
+          @vertex
+          fn vs(
+            // vertexIndex 在每个实例中依次为 0、1、2。
+            @builtin(vertex_index) vertexIndex: u32,
+            // instanceIndex 在各个实例之间依次为 0、1、2……。
+            @builtin(instance_index) instanceIndex: u32,
+          ) -> VSOutput {
+            // 三角形的局部顶点位置仍然直接写在 Shader 中。
+            let positions = array<vec2f, 3>(
+              vec2f( 0.0,  0.55),
+              vec2f(-0.5, -0.45),
+              vec2f( 0.5, -0.45),
+            );
+
+            // 用当前实例编号，从 Storage Buffer 数组中读取对应对象。
+            let object = objects[instanceIndex];
+
+            var output: VSOutput;
+            output.position = vec4f(
+              positions[vertexIndex] * object.scale + object.offset,
+              0.0,
+              1.0,
+            );
+
+            // fragment shader 没有 instance_index，
+            // 所以通过 Inter-stage 变量传递当前实例颜色。
+            output.color = object.color;
+            return output;
+          }
+
+          @fragment
+          fn fs(input: VSOutput) -> @location(0) vec4f {
+            // 一个实例的三个顶点使用相同颜色，因此插值后颜色仍然相同。
+            return input.color;
+          }
+        `,
+      });
+
+      // Pipeline 描述 Shader 入口、颜色目标和图元类型。
+      const pipeline = device.createRenderPipeline({
+        label: "Storage Buffer 多实例渲染管线",
+        layout: "auto",
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs",
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs",
+          targets: [{ format: presentationFormat }],
+        },
+        primitive: {
+          topology: "triangle-list",
+        },
+      });
+
+      // 一次性为最大对象数量分配 Storage Buffer。
+      // 调整滑块时只更新前 objectCount 个对象，不重新创建 Buffer。
+      const storageBuffer = device.createBuffer({
+        label: "所有三角形的 ObjectData 数组",
+        size: MAX_OBJECTS * BYTES_PER_OBJECT,
+        usage:
+          // 允许 Shader 使用 var<storage, read> 读取。
+          GPUBufferUsage.STORAGE |
+          // 允许 JavaScript 用 queue.writeBuffer 上传数据。
+          GPUBufferUsage.COPY_DST,
+      });
+
+      // CPU 侧数组与 GPUBuffer 拥有相同的总容量。
+      const storageValues = new Float32Array(MAX_OBJECTS * FLOATS_PER_OBJECT);
+
+      // BindGroup 把 storageBuffer 连接到 @group(0) @binding(0)。
+      const bindGroup = device.createBindGroup({
+        label: "Storage Buffer 绑定组",
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [{
+          binding: 0,
+          resource: {
+            buffer: storageBuffer,
+          },
+        }],
+      });
+
+      const countInput = document.querySelector("#count");
+      const countOutput = document.querySelector("#count-output");
+      const instanceStat = document.querySelector("#instance-stat");
+      const vertexStat = document.querySelector("#vertex-stat");
+      const byteStat = document.querySelector("#byte-stat");
+
+      // JavaScript 侧保存适合人类理解的对象数据。
+      // render() 会把它们打包进连续的 Float32Array。
+      let objectInfos = [];
+
+      function random(min, max) {
+        return min + Math.random() * (max - min);
+      }
+
+      function randomizeObjects() {
+        objectInfos = Array.from({ length: MAX_OBJECTS }, () => ({
+          color: [
+            random(0.25, 1),
+            random(0.25, 1),
+            random(0.25, 1),
+            1,
+          ],
+          offset: [random(-0.9, 0.9), random(-0.85, 0.85)],
+          scale: random(0.035, 0.12),
+        }));
+      }
+
+      // 让 Canvas 内部像素尺寸匹配 CSS 尺寸和设备像素比。
+      function resizeCanvas() {
+        const pixelRatio = window.devicePixelRatio || 1;
+        const maxSize = device.limits.maxTextureDimension2D;
+        const width = Math.max(
+          1,
+          Math.min(Math.round(canvas.clientWidth * pixelRatio), maxSize),
+        );
+        const height = Math.max(
+          1,
+          Math.min(Math.round(canvas.clientHeight * pixelRatio), maxSize),
+        );
+
+        if (canvas.width === width && canvas.height === height) {
+          return;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      // 把多个 JavaScript 对象按 WGSL ObjectData 的布局连续打包。
+      function updateStorageValues(objectCount) {
+        const aspect = canvas.width / canvas.height;
+
+        for (let index = 0; index < objectCount; ++index) {
+          const object = objectInfos[index];
+
+          // 当前对象在 Float32Array 中的起始位置。
+          const base = index * FLOATS_PER_OBJECT;
+
+          // 写入 vec4f color：索引 base+0 到 base+3。
+          storageValues.set(object.color, base + COLOR_OFFSET);
+
+          // 写入 vec2f offset：索引 base+4 到 base+5。
+          storageValues.set(object.offset, base + POSITION_OFFSET);
+
+          // 写入 vec2f scale：索引 base+6 到 base+7。
+          // x 除以宽高比，避免宽屏下的三角形横向拉伸。
+          storageValues.set(
+            [object.scale / aspect, object.scale],
+            base + SCALE_OFFSET,
+          );
+        }
+      }
+
+      // 录制并提交一帧绘制命令。
+      function render() {
+        resizeCanvas();
+
+        const objectCount = Number(countInput.value);
+        updateStorageValues(objectCount);
+
+        // 只上传本次会被 Shader 访问的前 objectCount 个结构体。
+        // subarray 不复制数据，它只创建原数组的一段视图。
+        const activeValues = storageValues.subarray(
+          0,
+          objectCount * FLOATS_PER_OBJECT,
+        );
+        device.queue.writeBuffer(storageBuffer, 0, activeValues);
+
+        const encoder = device.createCommandEncoder({
+          label: "Storage Buffer 示例命令编码器",
+        });
+
+        const pass = encoder.beginRenderPass({
+          label: "Storage Buffer 示例渲染通道",
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            clearValue: { r: 0.02, g: 0.03, b: 0.045, a: 1 },
+            loadOp: "clear",
+            storeOp: "store",
+          }],
+        });
+
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bindGroup);
+
+        // 第一个参数 3：每个实例有三个顶点。
+        // 第二个参数 objectCount：绘制多少个实例。
+        // 无论有多少实例，JavaScript 这里只调用一次 draw。
+        pass.draw(3, objectCount);
+        pass.end();
+
+        device.queue.submit([encoder.finish()]);
+
+        // 更新教学面板中的统计信息。
+        countOutput.value = String(objectCount);
+        instanceStat.textContent = String(objectCount);
+        vertexStat.textContent = String(objectCount * 3);
+        byteStat.textContent = String(objectCount * BYTES_PER_OBJECT);
+      }
+
+      // 初始生成 200 份对象数据，实际绘制数量由滑块决定。
+      randomizeObjects();
+
+      countInput.addEventListener("input", render);
+      document.querySelector("#randomize").addEventListener("click", () => {
+        randomizeObjects();
+        render();
+      });
+
+      // 尺寸变化时，宽高比发生变化，需要重新计算所有对象的 scale.x。
+      new ResizeObserver(render).observe(canvas);
+
+      render();
+      document.querySelector("#status").textContent =
+        "运行中：一个 Storage Buffer、一个 BindGroup、一次 Draw 调用。";
+    }
+
+    // 将初始化和运行时错误同时输出到控制台与页面。
+    main().catch((error) => {
+      console.error(error);
+      const errorElement = document.querySelector("#error");
+      errorElement.textContent = "WebGPU 初始化失败：" + error.message;
+      errorElement.style.display = "block";
+      document.querySelector("#status").textContent = "运行失败";
+    });
+  </script>
+</body>
+</html>

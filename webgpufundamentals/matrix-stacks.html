@@ -1,0 +1,1293 @@
+<!doctype html>
+<!--
+  WebGPU Matrix Stacks 单文件学习示例。
+
+  页面包含两个使用同一套 WebGPU 资源的场景：
+  1. 文件柜：Cabinets → Cabinet → Drawers → Drawer + Handle；
+  2. 递归树：每个 Branch 在父 Branch 的坐标系中继续分叉。
+
+  MatrixStack 只存在于 JavaScript，它负责计算 Model Matrix；WebGPU 不提供内置
+  Matrix Stack。每次 drawObject 会从按需资源池中取得 Uniform Buffer/BindGroup，
+  上传 ViewProjection × Model 和对象颜色，再编码一次 drawIndexed。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU Matrix Stacks：层级变换与递归绘制</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --page: #07111b;
+      --panel: #10202e;
+      --panel-2: #071620;
+      --line: #29475c;
+      --text: #eff9ff;
+      --muted: #abc0cf;
+      --blue: #70c9ff;
+      --green: #67dfae;
+      --orange: #ffc174;
+      --purple: #c9a5ff;
+      --red: #ff8585;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background:
+        radial-gradient(circle at 82% 0%, rgba(73, 139, 184, 0.18), transparent 34rem),
+        var(--page);
+      color: var(--text);
+    }
+
+    body {
+      padding: 22px;
+    }
+
+    main {
+      width: min(1280px, 100%);
+      margin: 0 auto;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 9px;
+      font-size: clamp(29px, 4.4vw, 46px);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: 21px;
+    }
+
+    h3 {
+      margin-bottom: 9px;
+      font-size: 15px;
+    }
+
+    p,
+    li {
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    code,
+    pre,
+    output,
+    select,
+    .status,
+    .metric-value {
+      font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+    }
+
+    code {
+      color: #c8eaff;
+    }
+
+    .lead {
+      max-width: 1040px;
+      margin-bottom: 18px;
+      font-size: 16px;
+    }
+
+    .panel {
+      margin-bottom: 18px;
+      padding: 19px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(16, 33, 47, 0.97), rgba(7, 20, 31, 0.97));
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+    }
+
+    .concept-flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .concept-step {
+      padding: 12px;
+      border: 1px solid #2c4c61;
+      border-radius: 11px;
+      background: rgba(5, 17, 27, 0.76);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .concept-step strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--blue);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(430px, 1.2fr) minmax(350px, 0.8fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .canvas-shell {
+      overflow: hidden;
+      border: 1px solid #35566c;
+      border-radius: 14px;
+      background: #03090e;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 10px;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #29465b;
+      border-radius: 10px;
+      background: rgba(5, 17, 26, 0.8);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .metric-value {
+      display: block;
+      margin-top: 5px;
+      overflow-wrap: anywhere;
+      color: var(--green);
+      font-size: 13px;
+    }
+
+    .controls {
+      display: grid;
+      gap: 12px;
+    }
+
+    .control-group {
+      padding: 13px;
+      border: 1px solid #29465b;
+      border-radius: 12px;
+      background: rgba(5, 17, 26, 0.72);
+    }
+
+    .control-group[hidden] {
+      display: none;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 13px;
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    output {
+      color: var(--orange);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue);
+    }
+
+    select,
+    button {
+      width: 100%;
+      min-height: 42px;
+      padding: 8px 11px;
+      border: 1px solid #3b5d74;
+      border-radius: 9px;
+      background: #11283a;
+      color: var(--text);
+    }
+
+    button {
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--blue);
+      background: #17364d;
+    }
+
+    button:disabled,
+    select:disabled,
+    input:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .inspectors {
+      display: grid;
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+      gap: 14px;
+    }
+
+    pre {
+      min-height: 238px;
+      max-height: 440px;
+      margin: 0;
+      padding: 14px;
+      overflow: auto;
+      border: 1px solid #28465b;
+      border-radius: 11px;
+      background: #05111a;
+      color: #caeaff;
+      font-size: 12px;
+      line-height: 1.62;
+      white-space: pre-wrap;
+    }
+
+    .status {
+      margin: 0;
+      padding: 14px 16px;
+      border: 1px solid #3a586d;
+      border-radius: 11px;
+      background: #07131e;
+      color: var(--orange);
+      line-height: 1.6;
+    }
+
+    .status.success {
+      border-color: rgba(103, 223, 174, 0.5);
+      color: var(--green);
+    }
+
+    .status.error {
+      border-color: rgba(255, 133, 133, 0.55);
+      color: var(--red);
+    }
+
+    .hint {
+      margin: 10px 0 0;
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .concept-flow,
+      .workspace,
+      .inspectors {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 650px) {
+      body {
+        padding: 13px;
+      }
+
+      .panel {
+        padding: 14px;
+      }
+
+      .metrics,
+      .control-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Matrix Stacks：把局部变换嵌套起来</h1>
+    <p class="lead">
+      矩阵栈不是 GPU 功能，而是 JavaScript 侧的一种层级建模工具。调用 <code>save()</code>
+      保存父矩阵，在副本上应用子节点局部变换，绘制后用 <code>restore()</code> 回到父坐标系。
+      文件柜展示可复用部件，递归树展示函数调用栈与矩阵栈如何一一对应。
+    </p>
+
+    <section class="panel">
+      <div class="concept-flow">
+        <div class="concept-step">
+          <strong>1 · save()</strong>
+          保存当前父矩阵，并复制一份作为子节点工作矩阵
+        </div>
+        <div class="concept-step">
+          <strong>2 · Local Transform</strong>
+          在栈顶追加子节点的 Translate / Rotate / Scale
+        </div>
+        <div class="concept-step">
+          <strong>3 · drawObject()</strong>
+          计算 ViewProjection × Model，上传对象 Uniform 并 Draw
+        </div>
+        <div class="concept-step">
+          <strong>4 · restore()</strong>
+          丢弃子节点变换，恢复父坐标系，继续绘制兄弟节点
+        </div>
+      </div>
+    </section>
+
+    <section class="panel workspace">
+      <div>
+        <div class="canvas-shell">
+          <canvas id="gpu-canvas" width="800" height="600"></canvas>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <span>本帧 Draw</span>
+            <strong id="frame-draws" class="metric-value">0</strong>
+          </div>
+          <div class="metric">
+            <span>对象资源池</span>
+            <strong id="pool-size" class="metric-value">0</strong>
+          </div>
+          <div class="metric">
+            <span>最大栈深度</span>
+            <strong id="max-depth" class="metric-value">0</strong>
+          </div>
+          <div class="metric">
+            <span>最终栈深度</span>
+            <strong id="final-depth" class="metric-value">0</strong>
+          </div>
+        </div>
+        <p class="hint">
+          资源池只增长不缩小：切换到复杂场景时按需创建 Buffer/BindGroup，之后的简单场景会复用已有对象资源。
+        </p>
+      </div>
+
+      <div class="controls">
+        <section class="control-group">
+          <h3>Scene</h3>
+          <div class="control-grid">
+            <div class="control">
+              <label for="scene">场景类型</label>
+              <select id="scene" disabled>
+                <option value="cabinets">文件柜层级</option>
+                <option value="tree">递归树</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="base-rotation">整体旋转 <output id="base-rotation-output">-22°</output></label>
+              <input id="base-rotation" type="range" min="-180" max="180" step="1" value="-22" disabled>
+            </div>
+          </div>
+        </section>
+
+        <section id="cabinet-controls" class="control-group">
+          <h3>Cabinets → Cabinet → Drawer → Handle</h3>
+          <div class="control-grid">
+            <div class="control">
+              <label for="cabinet-count">文件柜数量 <output id="cabinet-count-output">3</output></label>
+              <input id="cabinet-count" type="range" min="1" max="5" step="1" value="3" disabled>
+            </div>
+            <div class="control">
+              <label for="drawer-count">每柜抽屉数 <output id="drawer-count-output">4</output></label>
+              <input id="drawer-count" type="range" min="1" max="6" step="1" value="4" disabled>
+            </div>
+          </div>
+        </section>
+
+        <section id="tree-controls" class="control-group" hidden>
+          <h3>Recursive Branches</h3>
+          <div class="control-grid">
+            <div class="control">
+              <label for="tree-depth">递归深度 <output id="tree-depth-output">5</output></label>
+              <input id="tree-depth" type="range" min="1" max="7" step="1" value="5" disabled>
+            </div>
+            <div class="control">
+              <label for="branch-angle">分叉角度 <output id="branch-angle-output">24°</output></label>
+              <input id="branch-angle" type="range" min="5" max="55" step="1" value="24" disabled>
+            </div>
+            <div class="control">
+              <label for="branch-twist">Y 轴扭转 <output id="branch-twist-output">18°</output></label>
+              <input id="branch-twist" type="range" min="0" max="65" step="1" value="18" disabled>
+            </div>
+            <div class="control">
+              <label for="branch-scale">子枝缩放 <output id="branch-scale-output">0.76</output></label>
+              <input id="branch-scale" type="range" min="0.55" max="0.9" step="0.01" value="0.76" disabled>
+            </div>
+          </div>
+        </section>
+
+        <button id="reset" type="button" disabled>恢复当前示例默认值</button>
+      </div>
+    </section>
+
+    <section class="panel inspectors">
+      <div>
+        <h2>当前 WebGPU 数据流</h2>
+        <pre id="gpu-flow">正在初始化 WebGPU……</pre>
+      </div>
+      <div>
+        <h2>Matrix Stack Trace</h2>
+        <pre id="stack-trace">等待第一次层级遍历……</pre>
+      </div>
+    </section>
+
+    <p id="status" class="status">正在创建 Matrix Stack 示例资源……</p>
+  </main>
+
+  <script type="module">
+    // -------------------------------------------------------------------------
+    // DOM 与公开验证状态
+    // -------------------------------------------------------------------------
+
+    const canvas = document.querySelector("#gpu-canvas");
+    const statusElement = document.querySelector("#status");
+    const sceneSelect = document.querySelector("#scene");
+    const cabinetControls = document.querySelector("#cabinet-controls");
+    const treeControls = document.querySelector("#tree-controls");
+    const resetButton = document.querySelector("#reset");
+    const gpuFlowElement = document.querySelector("#gpu-flow");
+    const stackTraceElement = document.querySelector("#stack-trace");
+    const frameDrawsElement = document.querySelector("#frame-draws");
+    const poolSizeElement = document.querySelector("#pool-size");
+    const maxDepthElement = document.querySelector("#max-depth");
+    const finalDepthElement = document.querySelector("#final-depth");
+
+    const controlDefinitions = {
+      "base-rotation": { defaultValue: -22, digits: 0, suffix: "°" },
+      "cabinet-count": { defaultValue: 3, digits: 0, suffix: "" },
+      "drawer-count": { defaultValue: 4, digits: 0, suffix: "" },
+      "tree-depth": { defaultValue: 5, digits: 0, suffix: "" },
+      "branch-angle": { defaultValue: 24, digits: 0, suffix: "°" },
+      "branch-twist": { defaultValue: 18, digits: 0, suffix: "°" },
+      "branch-scale": { defaultValue: 0.76, digits: 2, suffix: "" },
+    };
+
+    const controls = Object.fromEntries(
+      Object.keys(controlDefinitions).map((id) => [id, document.querySelector(`#${id}`)]),
+    );
+
+    window.__webgpuDemo = {
+      ready: false,
+      scene: "cabinets",
+      renderCount: 0,
+      frameDraws: 0,
+      objectPoolSize: 0,
+      maxStackDepth: 0,
+      finalStackDepth: 0,
+      saves: 0,
+      restores: 0,
+      shaderErrors: [],
+      uncapturedErrors: [],
+    };
+
+    const toRadians = (degrees) => degrees * Math.PI / 180;
+
+    function updateOutput(id) {
+      const definition = controlDefinitions[id];
+      const value = Number(controls[id].value);
+      document.querySelector(`#${id}-output`).textContent =
+        `${value.toFixed(definition.digits)}${definition.suffix}`;
+    }
+
+    function readSettings() {
+      return {
+        scene: sceneSelect.value,
+        baseRotation: toRadians(Number(controls["base-rotation"].value)),
+        cabinetCount: Number(controls["cabinet-count"].value),
+        drawerCount: Number(controls["drawer-count"].value),
+        treeDepth: Number(controls["tree-depth"].value),
+        branchAngle: toRadians(Number(controls["branch-angle"].value)),
+        branchTwist: toRadians(Number(controls["branch-twist"].value)),
+        branchScale: Number(controls["branch-scale"].value),
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // 4×4 列主序矩阵函数
+    // -------------------------------------------------------------------------
+
+    function identity() {
+      return new Float32Array([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1,
+      ]);
+    }
+
+    function copy(matrix) {
+      return new Float32Array(matrix);
+    }
+
+    // 返回 a × b；列向量约定下，最右边的变换最先作用到顶点。
+    function multiply(a, b) {
+      const result = new Float32Array(16);
+      for (let column = 0; column < 4; ++column) {
+        for (let row = 0; row < 4; ++row) {
+          let sum = 0;
+          for (let k = 0; k < 4; ++k) {
+            sum += a[k * 4 + row] * b[column * 4 + k];
+          }
+          result[column * 4 + row] = sum;
+        }
+      }
+      return result;
+    }
+
+    function translation(tx, ty, tz) {
+      const result = identity();
+      result[12] = tx;
+      result[13] = ty;
+      result[14] = tz;
+      return result;
+    }
+
+    function scaling(sx, sy, sz) {
+      return new Float32Array([
+        sx, 0,  0,  0,
+        0,  sy, 0,  0,
+        0,  0,  sz, 0,
+        0,  0,  0,  1,
+      ]);
+    }
+
+    function xRotation(angle) {
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      return new Float32Array([
+        1, 0,  0, 0,
+        0, c,  s, 0,
+        0, -s, c, 0,
+        0, 0,  0, 1,
+      ]);
+    }
+
+    function yRotation(angle) {
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      return new Float32Array([
+        c, 0, -s, 0,
+        0, 1,  0, 0,
+        s, 0,  c, 0,
+        0, 0,  0, 1,
+      ]);
+    }
+
+    function zRotation(angle) {
+      const c = Math.cos(angle);
+      const s = Math.sin(angle);
+      return new Float32Array([
+        c,  s, 0, 0,
+        -s, c, 0, 0,
+        0,  0, 1, 0,
+        0,  0, 0, 1,
+      ]);
+    }
+
+    // WebGPU 右手透视矩阵：相机看向 -Z，NDC Z 为 0..1。
+    function perspective(fieldOfView, aspect, near, far) {
+      const f = 1 / Math.tan(fieldOfView / 2);
+      const rangeInverse = 1 / (near - far);
+      return new Float32Array([
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, far * rangeInverse, -1,
+        0, 0, near * far * rangeInverse, 0,
+      ]);
+    }
+
+    function subtract(a, b) {
+      return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    }
+
+    function dot(a, b) {
+      return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+
+    function cross(a, b) {
+      return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+      ];
+    }
+
+    function normalize(vector) {
+      const length = Math.hypot(...vector);
+      return length > 0.00001
+        ? vector.map((component) => component / length)
+        : [0, 0, 0];
+    }
+
+    // 直接生成 World → View Matrix；Camera 局部 -Z 指向 target。
+    function lookAt(eye, target, up) {
+      const zAxis = normalize(subtract(eye, target));
+      const xAxis = normalize(cross(up, zAxis));
+      const yAxis = cross(zAxis, xAxis);
+
+      return new Float32Array([
+        xAxis[0], yAxis[0], zAxis[0], 0,
+        xAxis[1], yAxis[1], zAxis[1], 0,
+        xAxis[2], yAxis[2], zAxis[2], 0,
+        -dot(xAxis, eye),
+        -dot(yAxis, eye),
+        -dot(zAxis, eye),
+        1,
+      ]);
+    }
+
+    function getTranslation(matrix) {
+      return [matrix[12], matrix[13], matrix[14]];
+    }
+
+    // -------------------------------------------------------------------------
+    // MatrixStack：保存父矩阵、修改副本、恢复父矩阵
+    // -------------------------------------------------------------------------
+
+    class MatrixStack {
+      #matrix = identity();
+      #stack = [];
+      #trace = [];
+      #maxTraceLines = 120;
+
+      reset(matrix = identity()) {
+        this.#matrix = copy(matrix);
+        this.#stack.length = 0;
+        this.#trace.length = 0;
+        this.maxDepth = 0;
+        this.saveCount = 0;
+        this.restoreCount = 0;
+        this.#log("reset → identity/root matrix", 0);
+        return this;
+      }
+
+      save(label = "child") {
+        // 保存当前矩阵对象，并复制一份给子节点修改。
+        // 如果不复制，子节点的原地变换会同时污染保存在栈里的父矩阵。
+        this.#stack.push(this.#matrix);
+        this.#matrix = copy(this.#matrix);
+        this.saveCount += 1;
+        this.maxDepth = Math.max(this.maxDepth, this.depth);
+        this.#log(`save   ${label}`, this.depth - 1);
+        return this;
+      }
+
+      restore(label = "parent") {
+        if (this.#stack.length === 0) {
+          throw new Error(`MatrixStack.restore() 下溢：${label}`);
+        }
+        this.#log(`restore ${label}`, this.depth - 1);
+        this.#matrix = this.#stack.pop();
+        this.restoreCount += 1;
+        return this;
+      }
+
+      get depth() {
+        return this.#stack.length;
+      }
+
+      get matrix() {
+        return this.#matrix;
+      }
+
+      get trace() {
+        return [...this.#trace];
+      }
+
+      translate([x, y, z]) {
+        this.#matrix = multiply(this.#matrix, translation(x, y, z));
+        return this;
+      }
+
+      rotateX(angle) {
+        this.#matrix = multiply(this.#matrix, xRotation(angle));
+        return this;
+      }
+
+      rotateY(angle) {
+        this.#matrix = multiply(this.#matrix, yRotation(angle));
+        return this;
+      }
+
+      rotateZ(angle) {
+        this.#matrix = multiply(this.#matrix, zRotation(angle));
+        return this;
+      }
+
+      scale([x, y, z]) {
+        this.#matrix = multiply(this.#matrix, scaling(x, y, z));
+        return this;
+      }
+
+      logDraw(label) {
+        this.#log(`draw   ${label}`, this.depth);
+      }
+
+      #log(message, depth) {
+        if (this.#trace.length >= this.#maxTraceLines) return;
+        this.#trace.push(`${"│  ".repeat(depth)}${message}`);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 共享的 Unit Cube Geometry
+    // -------------------------------------------------------------------------
+
+    function createCubeGeometry() {
+      // 面颜色是浅灰阶，Fragment Shader 再乘每对象 Color，保留各面方向感。
+      const faces = [
+        { shade: 255, positions: [
+          [-0.5, -0.5,  0.5], [ 0.5, -0.5,  0.5],
+          [ 0.5,  0.5,  0.5], [-0.5,  0.5,  0.5],
+        ] },
+        { shade: 155, positions: [
+          [ 0.5, -0.5, -0.5], [-0.5, -0.5, -0.5],
+          [-0.5,  0.5, -0.5], [ 0.5,  0.5, -0.5],
+        ] },
+        { shade: 220, positions: [
+          [ 0.5, -0.5,  0.5], [ 0.5, -0.5, -0.5],
+          [ 0.5,  0.5, -0.5], [ 0.5,  0.5,  0.5],
+        ] },
+        { shade: 175, positions: [
+          [-0.5, -0.5, -0.5], [-0.5, -0.5,  0.5],
+          [-0.5,  0.5,  0.5], [-0.5,  0.5, -0.5],
+        ] },
+        { shade: 235, positions: [
+          [-0.5,  0.5,  0.5], [ 0.5,  0.5,  0.5],
+          [ 0.5,  0.5, -0.5], [-0.5,  0.5, -0.5],
+        ] },
+        { shade: 195, positions: [
+          [-0.5, -0.5, -0.5], [ 0.5, -0.5, -0.5],
+          [ 0.5, -0.5,  0.5], [-0.5, -0.5,  0.5],
+        ] },
+      ];
+
+      // position.xyz 为 12 bytes，shade RGBA 为 4 bytes，总步长 16 bytes。
+      const vertexData = new ArrayBuffer(faces.length * 4 * 16);
+      const view = new DataView(vertexData);
+      const indices = [];
+
+      faces.forEach((face, faceIndex) => {
+        const baseVertex = faceIndex * 4;
+        face.positions.forEach((position, vertexIndex) => {
+          const offset = (baseVertex + vertexIndex) * 16;
+          position.forEach((value, component) => {
+            view.setFloat32(offset + component * 4, value, true);
+          });
+          view.setUint8(offset + 12, face.shade);
+          view.setUint8(offset + 13, face.shade);
+          view.setUint8(offset + 14, face.shade);
+          view.setUint8(offset + 15, 255);
+        });
+        indices.push(
+          baseVertex + 0, baseVertex + 1, baseVertex + 2,
+          baseVertex + 0, baseVertex + 2, baseVertex + 3,
+        );
+      });
+
+      return { vertexData, indexData: new Uint16Array(indices) };
+    }
+
+    // -------------------------------------------------------------------------
+    // WebGPU 初始化
+    // -------------------------------------------------------------------------
+
+    async function main() {
+      if (!navigator.gpu) {
+        throw new Error("当前浏览器没有可用的 WebGPU，请使用新版 Chrome。 ");
+      }
+
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) throw new Error("没有获得 GPUAdapter。 ");
+
+      const device = await adapter.requestDevice();
+      const context = canvas.getContext("webgpu");
+      const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+
+      device.lost.then((info) => {
+        window.__webgpuDemo.ready = false;
+        statusElement.className = "status error";
+        statusElement.textContent = `GPUDevice 已丢失：${info.message || info.reason}`;
+      });
+
+      device.addEventListener("uncapturederror", (event) => {
+        const message = event.error?.message ?? String(event.error);
+        window.__webgpuDemo.uncapturedErrors.push(message);
+        console.error("WebGPU uncaptured error:", message);
+      });
+
+      context.configure({
+        device,
+        format: canvasFormat,
+        alphaMode: "opaque",
+      });
+
+      const shaderModule = device.createShaderModule({
+        label: "Matrix stack cube shader",
+        code: /* wgsl */ `
+          struct Uniforms {
+            // 0..63 bytes：当前对象的 WorldViewProjection。
+            matrix: mat4x4f,
+            // 64..79 bytes：对象颜色，乘以 Cube 每个面的灰阶颜色。
+            color: vec4f,
+          };
+
+          struct VertexInput {
+            @location(0) position: vec3f,
+            @location(1) color: vec4f,
+          };
+
+          struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) color: vec4f,
+          };
+
+          @group(0) @binding(0)
+          var<uniform> uniforms: Uniforms;
+
+          @vertex
+          fn vertexMain(input: VertexInput) -> VertexOutput {
+            var output: VertexOutput;
+            output.position = uniforms.matrix * vec4f(input.position, 1.0);
+            output.color = input.color;
+            return output;
+          }
+
+          @fragment
+          fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+            return input.color * uniforms.color;
+          }
+        `,
+      });
+
+      const compilationInfo = await shaderModule.getCompilationInfo();
+      const shaderErrors = compilationInfo.messages
+        .filter((message) => message.type === "error")
+        .map((message) => `${message.lineNum}:${message.linePos} ${message.message}`);
+      window.__webgpuDemo.shaderErrors = shaderErrors;
+      if (shaderErrors.length) throw new Error(`WGSL 编译失败：${shaderErrors.join(" | ")}`);
+
+      device.pushErrorScope("validation");
+
+      const pipeline = await device.createRenderPipelineAsync({
+        label: "Matrix stack render pipeline",
+        layout: "auto",
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vertexMain",
+          buffers: [{
+            arrayStride: 16,
+            attributes: [
+              { shaderLocation: 0, offset: 0,  format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "unorm8x4" },
+            ],
+          }],
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fragmentMain",
+          targets: [{ format: canvasFormat }],
+        },
+        primitive: {
+          topology: "triangle-list",
+          frontFace: "ccw",
+          cullMode: "back",
+        },
+        depthStencil: {
+          format: "depth24plus",
+          depthWriteEnabled: true,
+          depthCompare: "less",
+        },
+      });
+
+      const geometry = createCubeGeometry();
+      const vertexBuffer = device.createBuffer({
+        label: "Shared unit cube vertices",
+        size: geometry.vertexData.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(vertexBuffer, 0, geometry.vertexData);
+
+      const indexBuffer = device.createBuffer({
+        label: "Shared unit cube indices",
+        size: geometry.indexData.byteLength,
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(indexBuffer, 0, geometry.indexData);
+
+      const validationError = await device.popErrorScope();
+      if (validationError) throw new Error(`Pipeline/资源验证失败：${validationError.message}`);
+
+      // objectInfos 是原文中的“按需对象资源池”。每一项对应一个 Draw Slot。
+      // 每帧从索引 0 开始复用；若当前场景需要更多 Draw，才继续创建新资源。
+      const objectInfos = [];
+
+      function createObjectInfo(index) {
+        // Uniforms = mat4x4f(64 bytes) + vec4f(16 bytes) = 80 bytes。
+        const uniformValues = new Float32Array(20);
+        const matrixValue = uniformValues.subarray(0, 16);
+        const colorValue = uniformValues.subarray(16, 20);
+
+        const uniformBuffer = device.createBuffer({
+          label: `Object slot ${index}: matrix + color`,
+          size: uniformValues.byteLength,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        const bindGroup = device.createBindGroup({
+          label: `Object slot ${index}: bind group`,
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+        });
+
+        return {
+          uniformValues,
+          matrixValue,
+          colorValue,
+          uniformBuffer,
+          bindGroup,
+        };
+      }
+
+      const stack = new MatrixStack();
+      let depthTexture;
+      let renderCount = 0;
+
+      function resizeCanvasToDisplaySize() {
+        const ratio = Math.min(window.devicePixelRatio || 1, 2);
+        const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
+        const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+      }
+
+      function ensureDepthTexture() {
+        if (
+          depthTexture &&
+          depthTexture.width === canvas.width &&
+          depthTexture.height === canvas.height
+        ) return;
+
+        depthTexture?.destroy();
+        depthTexture = device.createTexture({
+          label: "Matrix stack canvas depth",
+          size: [canvas.width, canvas.height],
+          format: "depth24plus",
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+      }
+
+      // -----------------------------------------------------------------------
+      // 层级绘制函数：只操作 MatrixStack，不直接管理 GPU 资源
+      // -----------------------------------------------------------------------
+
+      const colors = {
+        cabinet: [0.34, 0.41, 0.48, 1],
+        drawer: [0.72, 0.82, 0.88, 1],
+        handle: [0.18, 0.22, 0.26, 1],
+        branch: [0.34, 0.63, 0.30, 1],
+        leaf: [1.00, 0.70, 0.16, 1],
+      };
+
+      const drawerSize = [1.8, 0.52, 1.18];
+      const handleSize = [0.64, 0.11, 0.11];
+      const drawerSpacing = 0.64;
+      const cabinetSpacing = 2.55;
+      const branchLength = 1.22;
+      const branchSize = [0.13, branchLength, 0.13];
+
+      function drawPart(ctx, size, color, label) {
+        stack.save(label).scale(size);
+        ctx.drawObject(stack.matrix, color, label);
+        stack.restore(label);
+      }
+
+      function drawDrawer(ctx, drawerIndex) {
+        drawPart(ctx, drawerSize, colors.drawer, `drawer ${drawerIndex}`);
+
+        stack.save(`handle ${drawerIndex}`)
+          .translate([0, 0.06, drawerSize[2] / 2 + handleSize[2] / 2 + 0.025])
+          .scale(handleSize);
+        ctx.drawObject(stack.matrix, colors.handle, `handle ${drawerIndex}`);
+        stack.restore(`handle ${drawerIndex}`);
+      }
+
+      function drawCabinet(ctx, cabinetIndex, drawerCount) {
+        const cabinetHeight = drawerCount * drawerSpacing + 0.34;
+
+        stack.save(`cabinet ${cabinetIndex} body`)
+          .translate([0, cabinetHeight / 2, 0])
+          .scale([2.08, cabinetHeight, 1.42]);
+        ctx.drawObject(stack.matrix, colors.cabinet, `cabinet ${cabinetIndex} body`);
+        stack.restore(`cabinet ${cabinetIndex} body`);
+
+        for (let drawerIndex = 0; drawerIndex < drawerCount; ++drawerIndex) {
+          stack.save(`cabinet ${cabinetIndex} / drawer ${drawerIndex}`)
+            .translate([0, 0.35 + drawerIndex * drawerSpacing, 0.14]);
+          drawDrawer(ctx, drawerIndex);
+          stack.restore(`cabinet ${cabinetIndex} / drawer ${drawerIndex}`);
+        }
+      }
+
+      function drawCabinets(ctx, cabinetCount, drawerCount) {
+        const centerOffset = (cabinetCount - 1) * cabinetSpacing * 0.5;
+        for (let cabinetIndex = 0; cabinetIndex < cabinetCount; ++cabinetIndex) {
+          stack.save(`cabinet ${cabinetIndex}`)
+            .translate([cabinetIndex * cabinetSpacing - centerOffset, 0, 0]);
+          drawCabinet(ctx, cabinetIndex, drawerCount);
+          stack.restore(`cabinet ${cabinetIndex}`);
+        }
+      }
+
+      function drawBranch(ctx, depth) {
+        // Unit Cube 的中心在原点；先上移半个 Branch Length，使 Branch 从当前原点向 +Y 生长。
+        stack.save(`branch geometry depth=${depth}`)
+          .translate([0, branchLength / 2, 0])
+          .scale(branchSize);
+        ctx.drawObject(stack.matrix, colors.branch, `branch depth=${depth}`);
+        stack.restore(`branch geometry depth=${depth}`);
+      }
+
+      function drawTreeLevel(ctx, offset, depth, settings) {
+        stack.save(`tree depth=${depth}, side=${offset}`);
+
+        if (offset !== 0) {
+          // 当前矩阵来自父 Branch：先移动到父枝末端，再在父坐标系中旋转和缩放。
+          stack
+            .translate([0, branchLength, 0])
+            .rotateZ(offset * settings.branchAngle)
+            .rotateY(offset * settings.branchTwist)
+            .scale([
+              settings.branchScale,
+              settings.branchScale,
+              settings.branchScale,
+            ]);
+        }
+
+        drawBranch(ctx, depth);
+
+        if (depth > 0) {
+          drawTreeLevel(ctx, -1, depth - 1, settings);
+          drawTreeLevel(ctx, +1, depth - 1, settings);
+        } else {
+          // 叶子不应继承 Branch 的缩放与朝向：提取 Branch Tip 的世界位置，
+          // 再从纯 Translation Matrix 重新开始。这对应原文 Ornament 的“逃离层级”技巧。
+          const branchTip = multiply(stack.matrix, translation(0, branchLength, 0));
+          const tipPosition = getTranslation(branchTip);
+          const leafMatrix = multiply(
+            translation(...tipPosition),
+            scaling(0.18, 0.18, 0.18),
+          );
+          ctx.drawObject(leafMatrix, colors.leaf, "detached leaf");
+        }
+
+        stack.restore(`tree depth=${depth}, side=${offset}`);
+      }
+
+      function render() {
+        resizeCanvasToDisplaySize();
+        ensureDepthTexture();
+
+        const settings = readSettings();
+        const aspect = canvas.width / canvas.height;
+        const projection = perspective(toRadians(48), aspect, 0.1, 100);
+
+        const isTree = settings.scene === "tree";
+        const eye = isTree ? [6.2, 4.2, 10.5] : [7.2, 5.0, 10.5];
+        const target = isTree ? [0, 2.3, 0] : [0, 1.35, 0];
+        const view = lookAt(eye, target, [0, 1, 0]);
+        const viewProjection = multiply(projection, view);
+
+        const encoder = device.createCommandEncoder({
+          label: `Matrix stack render ${renderCount + 1}`,
+        });
+        const pass = encoder.beginRenderPass({
+          label: "Matrix stack color + depth pass",
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            clearValue: { r: 0.025, g: 0.055, b: 0.08, a: 1 },
+            loadOp: "clear",
+            storeOp: "store",
+          }],
+          depthStencilAttachment: {
+            view: depthTexture.createView(),
+            depthClearValue: 1,
+            depthLoadOp: "clear",
+            depthStoreOp: "store",
+          },
+        });
+
+        pass.setPipeline(pipeline);
+        pass.setVertexBuffer(0, vertexBuffer);
+        pass.setIndexBuffer(indexBuffer, "uint16");
+
+        let objectIndex = 0;
+
+        const drawObject = (modelMatrix, color, label) => {
+          if (objectIndex === objectInfos.length) {
+            objectInfos.push(createObjectInfo(objectInfos.length));
+          }
+
+          const objectInfo = objectInfos[objectIndex++];
+          const worldViewProjection = multiply(viewProjection, modelMatrix);
+          objectInfo.matrixValue.set(worldViewProjection);
+          objectInfo.colorValue.set(color);
+
+          device.queue.writeBuffer(
+            objectInfo.uniformBuffer,
+            0,
+            objectInfo.uniformValues,
+          );
+
+          pass.setBindGroup(0, objectInfo.bindGroup);
+          pass.drawIndexed(geometry.indexData.length);
+          stack.logDraw(label);
+        };
+
+        stack.reset();
+        stack.save("scene root").rotateY(settings.baseRotation);
+        const ctx = { drawObject };
+
+        if (isTree) {
+          drawTreeLevel(ctx, 0, settings.treeDepth, settings);
+        } else {
+          drawCabinets(ctx, settings.cabinetCount, settings.drawerCount);
+        }
+
+        stack.restore("scene root");
+
+        // save/restore 必须严格配对；否则兄弟节点会继承错误变换。
+        if (stack.depth !== 0 || stack.saveCount !== stack.restoreCount) {
+          throw new Error(
+            `Matrix Stack 不平衡：depth=${stack.depth}, ` +
+            `save=${stack.saveCount}, restore=${stack.restoreCount}`,
+          );
+        }
+
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        renderCount += 1;
+
+        frameDrawsElement.textContent = String(objectIndex);
+        poolSizeElement.textContent = String(objectInfos.length);
+        maxDepthElement.textContent = String(stack.maxDepth);
+        finalDepthElement.textContent = String(stack.depth);
+
+        gpuFlowElement.textContent = [
+          `Scene = ${settings.scene}`,
+          `Model Matrices = MatrixStack traversal`,
+          `ViewProjection = Perspective × LookAt`,
+          "",
+          `drawObject calls = ${objectIndex}`,
+          `object resource slots = ${objectInfos.length}`,
+          `per slot = 80-byte Uniform Buffer + BindGroup`,
+          `queue.writeBuffer × ${objectIndex}`,
+          `drawIndexed(${geometry.indexData.length}) × ${objectIndex}`,
+          "",
+          `stack save / restore = ${stack.saveCount} / ${stack.restoreCount}`,
+          `max depth / final depth = ${stack.maxDepth} / ${stack.depth}`,
+          "Depth = depth24plus, compare=less",
+        ].join("\n");
+
+        const trace = stack.trace;
+        stackTraceElement.textContent = [
+          ...trace,
+          trace.length >= 120 ? "… trace 已截断，绘制仍完整执行" : "",
+        ].filter(Boolean).join("\n");
+
+        window.__webgpuDemo.scene = settings.scene;
+        window.__webgpuDemo.renderCount = renderCount;
+        window.__webgpuDemo.frameDraws = objectIndex;
+        window.__webgpuDemo.objectPoolSize = objectInfos.length;
+        window.__webgpuDemo.maxStackDepth = stack.maxDepth;
+        window.__webgpuDemo.finalStackDepth = stack.depth;
+        window.__webgpuDemo.saves = stack.saveCount;
+        window.__webgpuDemo.restores = stack.restoreCount;
+        window.__webgpuDemo.canvasSize = [canvas.width, canvas.height];
+      }
+
+      function updateVisibleControls() {
+        const isTree = sceneSelect.value === "tree";
+        cabinetControls.hidden = isTree;
+        treeControls.hidden = !isTree;
+      }
+
+      for (const [id, control] of Object.entries(controls)) {
+        control.disabled = false;
+        updateOutput(id);
+        control.addEventListener("input", () => {
+          updateOutput(id);
+          render();
+        });
+      }
+
+      sceneSelect.disabled = false;
+      sceneSelect.addEventListener("change", () => {
+        updateVisibleControls();
+        render();
+      });
+
+      resetButton.disabled = false;
+      resetButton.addEventListener("click", () => {
+        if (sceneSelect.value === "tree") {
+          for (const id of ["base-rotation", "tree-depth", "branch-angle", "branch-twist", "branch-scale"]) {
+            controls[id].value = String(controlDefinitions[id].defaultValue);
+            updateOutput(id);
+          }
+        } else {
+          for (const id of ["base-rotation", "cabinet-count", "drawer-count"]) {
+            controls[id].value = String(controlDefinitions[id].defaultValue);
+            updateOutput(id);
+          }
+        }
+        render();
+      });
+
+      const resizeObserver = new ResizeObserver(render);
+      resizeObserver.observe(canvas);
+
+      updateVisibleControls();
+      render();
+      await device.queue.onSubmittedWorkDone();
+
+      window.__webgpuDemo.ready = true;
+      statusElement.className = "status success";
+      statusElement.textContent =
+        "运行成功：Matrix Stack save/restore 保持平衡；文件柜与递归树共用一个 " +
+        "Pipeline、Unit Cube Geometry 和按需对象 Uniform 资源池。";
+    }
+
+    main().catch((error) => {
+      console.error(error);
+      window.__webgpuDemo.ready = false;
+      window.__webgpuDemo.failure = error.message;
+      statusElement.className = "status error";
+      statusElement.textContent = `运行失败：${error.message}`;
+    });
+  </script>
+</body>
+</html>

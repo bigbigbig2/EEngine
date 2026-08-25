@@ -1,0 +1,21 @@
+{
+  "name": "shade-reconstructed",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A WebGPU renderer focused on GPU-driven visibility and modern real-time rendering",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit && vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "npm run build && npm run build:test && node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.64",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

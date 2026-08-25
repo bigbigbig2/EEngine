@@ -1,0 +1,690 @@
+<!doctype html>
+<!-- HTML5 单文件示例：不加载任何外部脚本、样式、图片或字体。 -->
+<html lang="zh-CN">
+<head>
+  <!-- 使用 UTF-8，保证中文界面与代码注释正常显示。 -->
+  <meta charset="utf-8">
+  <!-- 让布局在手机和窄窗口中按照设备宽度自适应。 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU 透明度：discard、混合与预乘 Alpha</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      --page-bg: #090f18;
+      --panel-bg: #141d2a;
+      --code-bg: #0d1521;
+      --border: #303e53;
+      --text: #eef5ff;
+      --muted: #a9b9ce;
+      --accent: #82c2ff;
+      --good: #53deb3;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page-bg);
+      color: var(--text);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(1220px, 100%);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(27px, 4vw, 42px);
+    }
+
+    .intro {
+      max-width: 1040px;
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    code,
+    pre,
+    .canvas-label,
+    .formula,
+    .status {
+      font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+    }
+
+    code {
+      color: #baddff;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #050a11;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 21 / 9;
+    }
+
+    .canvas-label {
+      position: absolute;
+      top: 12px;
+      z-index: 1;
+      width: calc(33.333% - 20px);
+      padding: 8px 5px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background: rgba(4, 9, 16, 0.84);
+      color: #eaf3ff;
+      text-align: center;
+      font-size: 11px;
+      line-height: 1.4;
+      pointer-events: none;
+    }
+
+    .canvas-label:nth-of-type(1) {
+      left: 10px;
+      color: #ffb1bc;
+    }
+
+    .canvas-label:nth-of-type(2) {
+      left: calc(33.333% + 10px);
+      color: #a8d3ff;
+    }
+
+    .canvas-label:nth-of-type(3) {
+      right: 10px;
+      color: #85e9c8;
+    }
+
+    .divider {
+      position: absolute;
+      inset: 0 auto 0 33.333%;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.28);
+      pointer-events: none;
+    }
+
+    .divider.second {
+      left: 66.666%;
+    }
+
+    .below {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 18px;
+      margin-top: 18px;
+      align-items: start;
+    }
+
+    .controls,
+    .formula-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel-bg);
+      padding: 16px;
+    }
+
+    .controls {
+      display: grid;
+      gap: 16px;
+    }
+
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 8px;
+      color: #dceaff;
+      font-size: 14px;
+    }
+
+    output {
+      color: var(--accent);
+      font-family: ui-monospace, "Cascadia Code", monospace;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #4da8ff;
+    }
+
+    .checkbox-row {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      color: #d8e5f7;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .checkbox-row input {
+      width: 17px;
+      height: 17px;
+      accent-color: #4da8ff;
+    }
+
+    .explanation {
+      margin: 0;
+      padding: 11px 12px;
+      border-left: 3px solid var(--accent);
+      background: rgba(73, 142, 220, 0.09);
+      color: #cad8ea;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .formula-card h2 {
+      margin: 0 0 10px;
+      font-size: 17px;
+    }
+
+    .formula {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .formula li {
+      padding: 9px 10px;
+      border: 1px solid #2b394c;
+      border-radius: 8px;
+      background: var(--code-bg);
+      color: #d6e8ff;
+    }
+
+    .formula strong {
+      color: var(--good);
+      font-weight: 650;
+    }
+
+    .status {
+      min-height: 1.5em;
+      margin: 14px 2px 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .status.error {
+      color: #ff9bab;
+    }
+
+    @media (max-width: 860px) {
+      .below {
+        grid-template-columns: 1fr;
+      }
+
+      .canvas-label {
+        top: 6px;
+        width: calc(33.333% - 8px);
+        padding: 5px 2px;
+        font-size: 9px;
+      }
+
+      .canvas-label:nth-of-type(1) {
+        left: 4px;
+      }
+
+      .canvas-label:nth-of-type(2) {
+        left: calc(33.333% + 4px);
+      }
+
+      .canvas-label:nth-of-type(3) {
+        right: 4px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>同一个 Alpha，三种不同结果</h1>
+    <p class="intro">
+      三栏先绘制相同的蓝色目标图形，再绘制相同的红色半透明圆。区别只在 RenderPipeline 的
+      <code>blend</code> 配置，以及 Fragment Shader 返回的是直通颜色还是预乘颜色。
+      圆外区域通过 WGSL <code>discard</code> 丢弃。
+    </p>
+
+    <div class="canvas-wrap">
+      <!-- 一个 WebGPU Canvas 被三个 Viewport 分成三栏。 -->
+      <canvas aria-label="默认覆盖、直通 Alpha 混合和预乘 Alpha 混合的比较"></canvas>
+      <span class="canvas-label">默认覆盖 · 无 blend</span>
+      <span class="canvas-label">直通 Alpha · src-alpha</span>
+      <span class="canvas-label">预乘 Alpha · one</span>
+      <span class="divider" aria-hidden="true"></span>
+      <span class="divider second" aria-hidden="true"></span>
+    </div>
+
+    <section class="below">
+      <div class="controls">
+        <label>
+          <span class="control-header">
+            <span>红色圆的 Alpha</span>
+            <output id="alpha-output">0.55</output>
+          </span>
+          <input id="alpha" type="range" min="0" max="1" step="0.01" value="0.55">
+        </label>
+
+        <label class="checkbox-row">
+          <input id="reverse-order" type="checkbox">
+          反转 Draw 顺序：先画红色源，再画蓝色目标
+        </label>
+
+        <p class="explanation">
+          中间和右侧使用不同的数据约定与 Blend Factor，但都实现 source-over，所以结果应该一致。
+          左侧没有启用混合，片段输出会直接替换目标颜色。反转顺序后，后绘制的蓝色目标会盖住重叠区域。
+        </p>
+      </div>
+
+      <aside class="formula-card">
+        <h2>本例的三条公式</h2>
+        <ul class="formula">
+          <li>默认：<strong>result = src</strong></li>
+          <li>直通：<strong>src.rgb × src.a + dst.rgb × (1-src.a)</strong></li>
+          <li>预乘：<strong>srcPremult.rgb + dst.rgb × (1-src.a)</strong></li>
+        </ul>
+      </aside>
+    </section>
+
+    <!-- 状态文字也供自动化测试判断 WebGPU 是否真正完成初始化。 -->
+    <p id="status" class="status">正在初始化 WebGPU……</p>
+  </main>
+
+  <script type="module">
+    // Uniform 只保存一个 vec4f：[红、绿、蓝、Alpha]，天然占据并对齐到 16 字节。
+    const UNIFORM_BUFFER_SIZE = 16;
+
+    // 将异步初始化集中在 main() 中，任何错误都由末尾的 catch 统一显示。
+    async function main() {
+      // navigator.gpu 是浏览器提供的 WebGPU 入口。
+      if (!navigator.gpu) {
+        throw new Error("当前浏览器没有启用 WebGPU。");
+      }
+
+      // Adapter 表示浏览器选择的一套 GPU、驱动和底层图形后端能力。
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
+        throw new Error("没有获得可用的 GPUAdapter。");
+      }
+
+      // Device 是创建 Shader、Pipeline、Buffer 和命令编码器的逻辑 GPU 设备。
+      const device = await adapter.requestDevice();
+
+      // 捕获没有被 Error Scope 接住的 WebGPU 验证错误。
+      device.addEventListener("uncapturederror", (event) => {
+        showError(event.error);
+      });
+
+      // GPU 进程重启或驱动异常时，Device 可能进入丢失状态。
+      device.lost.then((info) => {
+        if (info.reason !== "destroyed") {
+          showError(new Error(`GPUDevice 已丢失：${info.message}`));
+        }
+      });
+
+      // 找到 Canvas，并取得 WebGPU 专用的绘图上下文。
+      const canvas = document.querySelector("canvas");
+      const context = canvas.getContext("webgpu");
+      if (!context) {
+        throw new Error("无法创建 GPUCanvasContext。");
+      }
+
+      // 浏览器返回当前平台推荐的 Canvas Texture 格式。
+      const format = navigator.gpu.getPreferredCanvasFormat();
+
+      // 本例研究 Canvas 内部的图元混合，不让 Canvas 再与 HTML 页面进行 Alpha 混合。
+      // alphaMode: opaque 会忽略最终 Canvas 的 Alpha 通道。
+      context.configure({
+        device,
+        format,
+        alphaMode: "opaque",
+      });
+
+      // 一个 WGSL 模块包含共用的 Vertex Shader 和三种 Fragment Shader 入口。
+      const shaderModule = device.createShaderModule({
+        label: "transparency comparison shader",
+        code: /* wgsl */ `
+          // JavaScript 每次调节滑块都会更新这个 vec4f 的 alpha 分量。
+          struct Settings {
+            sourceColor: vec4f,
+          };
+
+          @group(0) @binding(0) var<uniform> settings: Settings;
+
+          // uv 让 Fragment Shader 知道当前片元位于四边形的哪个位置。
+          struct VSOutput {
+            @builtin(position) position: vec4f,
+            @location(0) uv: vec2f,
+          };
+
+          @vertex
+          fn vs(
+            @builtin(vertex_index) vertexIndex: u32,
+            @builtin(instance_index) instanceIndex: u32,
+          ) -> VSOutput {
+            // 两个三角形组成一个完整四边形；无需 Vertex Buffer。
+            let positions = array(
+              vec2f(-1.0, -1.0),
+              vec2f( 1.0, -1.0),
+              vec2f(-1.0,  1.0),
+              vec2f(-1.0,  1.0),
+              vec2f( 1.0, -1.0),
+              vec2f( 1.0,  1.0),
+            );
+
+            let base = positions[vertexIndex];
+
+            // firstInstance = 0 表示蓝色目标四边形；firstInstance = 1 表示红色源四边形。
+            // 红色源稍微向右上偏移，使反转 Draw 顺序时仍有一小部分露在目标外面。
+            let isSource = instanceIndex == 1u;
+            let scale = select(vec2f(0.76, 0.72), vec2f(0.60, 0.62), isSource);
+            let offset = select(vec2f(0.0), vec2f(0.31, 0.08), isSource);
+
+            var output: VSOutput;
+            output.position = vec4f(base * scale + offset, 0.0, 1.0);
+            output.uv = base * 0.5 + 0.5;
+            return output;
+          }
+
+          @fragment
+          fn fsBackground(input: VSOutput) -> @location(0) vec4f {
+            // 生成简单的蓝色条纹，让被半透明红色覆盖后的混合结果更容易观察。
+            let stripeIndex = u32((input.uv.x + input.uv.y) * 8.0);
+            let darkStripe = stripeIndex % 2u == 0u;
+            let colorA = vec3f(0.05, 0.30, 0.68);
+            let colorB = vec3f(0.08, 0.55, 0.80);
+            return vec4f(select(colorA, colorB, darkStripe), 1.0);
+          }
+
+          // 计算红色圆的 Alpha；直通与预乘 Fragment Shader 共用这段逻辑。
+          fn sourceAlpha(input: VSOutput) -> f32 {
+            let centered = input.uv * 2.0 - 1.0;
+            let radius = length(centered);
+
+            // 圆外片元完全不应修改颜色附件，所以直接丢弃，而不是只返回 alpha = 0。
+            if (radius > 1.0) {
+              discard;
+            }
+
+            // 圆心保持滑块指定的 Alpha；边缘逐渐衰减，便于观察连续混合。
+            let edgeCoverage = 1.0 - smoothstep(0.76, 1.0, radius);
+            return settings.sourceColor.a * edgeCoverage;
+          }
+
+          @fragment
+          fn fsStraight(input: VSOutput) -> @location(0) vec4f {
+            let alpha = sourceAlpha(input);
+
+            // 直通（未预乘）颜色：RGB 保持原值，Alpha 单独保存覆盖率。
+            // 它必须配合 srcFactor: src-alpha 才能得到普通 source-over。
+            return vec4f(settings.sourceColor.rgb, alpha);
+          }
+
+          @fragment
+          fn fsPremultiplied(input: VSOutput) -> @location(0) vec4f {
+            let alpha = sourceAlpha(input);
+
+            // 预乘颜色：先把 RGB 乘以 Alpha。
+            // 因为乘法已经在 Shader 中完成，Blend State 的 srcFactor 应该使用 one。
+            return vec4f(settings.sourceColor.rgb * alpha, alpha);
+          }
+        `,
+      });
+
+      // 所有 Pipeline 共用的 Vertex State 和图元类型。
+      const vertexState = {
+        module: shaderModule,
+        entryPoint: "vs",
+      };
+      const primitiveState = {
+        topology: "triangle-list",
+      };
+
+      // 蓝色目标永远不混合，Fragment Shader 输出直接写入目标纹理。
+      const backgroundPipeline = await device.createRenderPipelineAsync({
+        label: "opaque background pipeline",
+        layout: "auto",
+        vertex: vertexState,
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fsBackground",
+          targets: [{ format }],
+        },
+        primitive: primitiveState,
+      });
+
+      // 左栏：省略 blend。默认行为是 srcFactor=one、dstFactor=zero，也就是 result=src。
+      const copyPipeline = await device.createRenderPipelineAsync({
+        label: "source copy pipeline",
+        layout: "auto",
+        vertex: vertexState,
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fsStraight",
+          targets: [{ format }],
+        },
+        primitive: primitiveState,
+      });
+
+      // 中栏：Fragment Shader 返回未预乘 RGB，因此颜色部分还要乘 src-alpha。
+      const straightAlphaPipeline = await device.createRenderPipelineAsync({
+        label: "straight alpha source-over pipeline",
+        layout: "auto",
+        vertex: vertexState,
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fsStraight",
+          targets: [{
+            format,
+            blend: {
+              color: {
+                operation: "add",
+                srcFactor: "src-alpha",
+                dstFactor: "one-minus-src-alpha",
+              },
+              alpha: {
+                operation: "add",
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+              },
+            },
+          }],
+        },
+        primitive: primitiveState,
+      });
+
+      // 右栏：Fragment Shader 已把 RGB 乘过 Alpha，所以源因子直接使用 one。
+      const premultipliedAlphaPipeline = await device.createRenderPipelineAsync({
+        label: "premultiplied alpha source-over pipeline",
+        layout: "auto",
+        vertex: vertexState,
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fsPremultiplied",
+          targets: [{
+            format,
+            blend: {
+              color: {
+                operation: "add",
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+              },
+              alpha: {
+                operation: "add",
+                srcFactor: "one",
+                dstFactor: "one-minus-src-alpha",
+              },
+            },
+          }],
+        },
+        primitive: primitiveState,
+      });
+
+      // CPU 侧 TypedArray 保存红色源的 RGB 与滑块控制的 Alpha。
+      const uniformValues = new Float32Array([1.0, 0.16, 0.08, 0.55]);
+
+      // GPUBuffer 既要能被 Fragment Shader 当 Uniform 读取，也要能接受 CPU 上传。
+      const uniformBuffer = device.createBuffer({
+        label: "source color and alpha uniforms",
+        size: UNIFORM_BUFFER_SIZE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      // layout:auto 产生的布局属于具体 Pipeline，因此分别为三条源 Pipeline 创建 BindGroup。
+      function createSourceBindGroup(label, pipeline) {
+        return device.createBindGroup({
+          label,
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [{
+            binding: 0,
+            resource: { buffer: uniformBuffer },
+          }],
+        });
+      }
+
+      const copyBindGroup = createSourceBindGroup("copy source bind group", copyPipeline);
+      const straightBindGroup = createSourceBindGroup(
+        "straight alpha source bind group",
+        straightAlphaPipeline,
+      );
+      const premultipliedBindGroup = createSourceBindGroup(
+        "premultiplied alpha source bind group",
+        premultipliedAlphaPipeline,
+      );
+
+      // 每栏使用自己的源 Pipeline 和与之兼容的 BindGroup。
+      const panels = [
+        { pipeline: copyPipeline, bindGroup: copyBindGroup },
+        { pipeline: straightAlphaPipeline, bindGroup: straightBindGroup },
+        { pipeline: premultipliedAlphaPipeline, bindGroup: premultipliedBindGroup },
+      ];
+
+      const alphaInput = document.querySelector("#alpha");
+      const alphaOutput = document.querySelector("#alpha-output");
+      const reverseOrderInput = document.querySelector("#reverse-order");
+
+      // 录制一帧：同一个 Render Pass 中依次绘制三个 Viewport。
+      function render() {
+        // 把滑块值写入 vec4f 的第四个分量，然后上传完整的 16 字节 Uniform。
+        uniformValues[3] = Number(alphaInput.value);
+        alphaOutput.value = uniformValues[3].toFixed(2);
+        device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
+
+        // Canvas Texture 属于交换链，每一帧都必须重新获取。
+        const canvasTexture = context.getCurrentTexture();
+        const encoder = device.createCommandEncoder({
+          label: "transparency comparison encoder",
+        });
+
+        const pass = encoder.beginRenderPass({
+          label: "transparency comparison render pass",
+          colorAttachments: [{
+            view: canvasTexture.createView(),
+            clearValue: { r: 0.018, g: 0.028, b: 0.045, a: 1 },
+            loadOp: "clear",
+            storeOp: "store",
+          }],
+        });
+
+        // 把总宽度平均分成三栏，最后一栏吸收除法产生的余数。
+        const baseWidth = Math.floor(canvasTexture.width / panels.length);
+
+        // 背景 Draw 使用 firstInstance=0；源圆 Draw 使用 firstInstance=1。
+        function drawBackground() {
+          pass.setPipeline(backgroundPipeline);
+          pass.draw(6, 1, 0, 0);
+        }
+
+        function drawSource(panel) {
+          pass.setPipeline(panel.pipeline);
+          pass.setBindGroup(0, panel.bindGroup);
+          pass.draw(6, 1, 0, 1);
+        }
+
+        for (let index = 0; index < panels.length; ++index) {
+          const x = index * baseWidth;
+          const width = index === panels.length - 1
+            ? canvasTexture.width - x
+            : baseWidth;
+
+          // Viewport 决定裁剪空间映射到 Canvas 的哪一栏；Scissor 防止跨栏写入。
+          pass.setViewport(x, 0, width, canvasTexture.height, 0, 1);
+          pass.setScissorRect(x, 0, width, canvasTexture.height);
+
+          // 混合中的 src 是当前 Fragment Shader 输出，dst 是目标纹理已有值。
+          // 改变 Draw 顺序，就会改变“已有值”是谁。
+          if (reverseOrderInput.checked) {
+            drawSource(panels[index]);
+            drawBackground();
+          } else {
+            drawBackground();
+            drawSource(panels[index]);
+          }
+        }
+
+        // 结束 Pass、生成 CommandBuffer，并把整帧命令提交给 GPUQueue。
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+      }
+
+      // 让 Canvas 内部渲染分辨率跟随 CSS 尺寸和设备像素比。
+      const observer = new ResizeObserver(() => {
+        const rect = canvas.getBoundingClientRect();
+        const pixelRatio = window.devicePixelRatio || 1;
+        const maxSize = device.limits.maxTextureDimension2D;
+        const width = Math.max(1, Math.min(Math.round(rect.width * pixelRatio), maxSize));
+        const height = Math.max(1, Math.min(Math.round(rect.height * pixelRatio), maxSize));
+
+        // 只有内部尺寸改变时才重新分配 Canvas Texture。
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        render();
+      });
+      observer.observe(canvas);
+
+      // 滑块与顺序开关变化时，只更新 Uniform 并重新提交一帧，不重建 Pipeline。
+      alphaInput.addEventListener("input", render);
+      reverseOrderInput.addEventListener("change", render);
+
+      // 供读者和自动测试确认 Shader、Pipeline 与 BindGroup 已成功创建。
+      document.querySelector("#status").textContent =
+        "运行中：4 条 Pipeline；中间直通 Alpha 与右侧预乘 Alpha 应得到相同的 source-over 结果。";
+    }
+
+    // 把错误同时写到页面和控制台，避免 WebGPU 验证失败时只得到空白画面。
+    function showError(error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = document.querySelector("#status");
+      status.textContent = `错误：${message}`;
+      status.classList.add("error");
+      console.error(error);
+    }
+
+    // 启动示例，并捕获 requestAdapter、requestDevice 或 Pipeline 创建阶段的异常。
+    main().catch(showError);
+  </script>
+</body>
+</html>

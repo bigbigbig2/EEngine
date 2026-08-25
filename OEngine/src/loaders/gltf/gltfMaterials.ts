@@ -1,0 +1,259 @@
+/**
+ * gltfMaterials：解析 glTF 数据并转换为引擎运行时对象。
+ */
+
+import { Color } from "../../core/Color.js";
+import { ShadeDrawSide, ShadeTransparencyMode } from "../../material/enums.js";
+import { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
+import type { ShadeTexture } from "../../texture/ShadeTexture.js";
+import { TextureFilterType } from "../../texture/TextureFilterType.js";
+import type { GltfMaterial } from "./GltfLoader.js";
+
+export const MIPMAP_ALBEDO_EMISSIVE = TextureFilterType.MagicKernelSharp;
+
+export const DIELECTRIC_F0 = Object.freeze(new Color(0.04, 0.04, 0.04, 1));
+
+const EPS_U = 1e-6;
+
+function saturate(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function mix(e: number, t: number, n: number): number {
+  return (t - e) * n + e;
+}
+
+export function colorLumaSqrt(e: { r: number; g: number; b: number }): number {
+  const t = e.r;
+  const n = e.g;
+  const r = e.b;
+  return Math.sqrt(t * t * 0.299 + n * n * 0.587 + r * r * 0.114);
+}
+
+export function specularGlossinessToMetallicRoughness(
+  diffuse: Color,
+  specular: Color,
+  glossiness: number
+): { base_color: Color; metallic: number; roughness: number } {
+  const r = 1 - Math.max(specular.r, specular.g, specular.b);
+  let s: number;
+  {
+    const t = colorLumaSqrt(specular);
+    const e = colorLumaSqrt(diffuse);
+    const n = r;
+    if (t < DIELECTRIC_F0.r) {
+      s = 0;
+    } else {
+      const r0 = DIELECTRIC_F0.r;
+      const sLin = (e * n) / (1 - DIELECTRIC_F0.r) + t - 2 * DIELECTRIC_F0.r;
+      const a = Math.max(sLin * sLin - 4 * r0 * (DIELECTRIC_F0.r - t), 0);
+      s = saturate((-sLin + Math.sqrt(a)) / (2 * r0));
+    }
+  }
+  const a = r / (1 - DIELECTRIC_F0.r) / Math.max(1 - s, EPS_U);
+  const i = s * s;
+  const o = DIELECTRIC_F0.r * (1 - s);
+  const invS = 1 / Math.max(s, EPS_U);
+  const base = new Color(
+    saturate(mix(diffuse.r * a, (specular.r - o) * invS, i)),
+    saturate(mix(diffuse.g * a, (specular.g - o) * invS, i)),
+    saturate(mix(diffuse.b * a, (specular.b - o) * invS, i)),
+    diffuse.a
+  );
+  return {
+    base_color: base,
+    metallic: s,
+    roughness: 1 - glossiness
+  };
+}
+
+export const l_ = specularGlossinessToMetallicRoughness;
+export const d_ = colorLumaSqrt;
+
+export function rewriteTransparencyMode(e: StandardShadeMaterial): boolean {
+  const albedoHasAlpha = (() => {
+    const tex = e.texture_albedo;
+    if (tex == null) return false;
+    const src = (
+      tex.image as { source?: { isSampler2D?: boolean; itemSize?: number } } | undefined
+    )?.source;
+    return src !== undefined && !(src.isSampler2D && src.itemSize! <= 3);
+  })();
+
+  if (
+    e.transparency_mode !== ShadeTransparencyMode.Transparent ||
+    e.diffuse_color.a !== 1 ||
+    albedoHasAlpha ||
+    e.transmission_factor !== 0
+  ) {
+    if (
+      e.transparency_mode === ShadeTransparencyMode.AlphaTested &&
+      !albedoHasAlpha &&
+      e.diffuse_color.a === 1
+    ) {
+      e.transparency_mode = ShadeTransparencyMode.Opaque;
+      return true;
+    }
+    return false;
+  }
+  e.transparency_mode = ShadeTransparencyMode.Opaque;
+  return true;
+}
+
+export function parseGltfMaterial(
+  e: GltfMaterial,
+  textures: ShadeTexture[]
+): StandardShadeMaterial {
+  const n = new StandardShadeMaterial();
+  if (e.doubleSided === true) n.draw_side = ShadeDrawSide.Double;
+  if (typeof e.name === "string") n.name = e.name;
+
+  const r = e.normalTexture;
+  if (r !== undefined) {
+    const tex = textures[r.index]!;
+    tex.mipmapGenerationFilter = TextureFilterType.LinearNormal;
+    n.texture_normal = tex;
+  }
+  const s = e.emissiveTexture;
+  if (s !== undefined) {
+    const tex = textures[s.index]!;
+    const img = tex.image as { color_space?: number };
+    img.color_space = 1;
+    tex.mipmapGenerationFilter = MIPMAP_ALBEDO_EMISSIVE;
+    n.texture_emissive = tex;
+  }
+
+  if (e.emissiveFactor !== undefined) {
+    n.emissive_factor.setRGB(
+      e.emissiveFactor[0] ?? 0,
+      e.emissiveFactor[1] ?? 0,
+      e.emissiveFactor[2] ?? 0
+    );
+  } else {
+    n.emissive_factor.setRGB(0, 0, 0);
+  }
+  const strength = Math.max(
+    0,
+    e.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1
+  );
+  n.emissive_factor.multiplyScalar(strength);
+
+  const i = e.pbrMetallicRoughness;
+  if (i !== undefined) {
+    const base = i.baseColorFactor;
+    if (base !== undefined) n.diffuse_color.fromArray(base);
+    const baseTex = i.baseColorTexture;
+    if (baseTex !== undefined) {
+      const tex = textures[baseTex.index]!;
+      const img = tex.image as { color_space?: number };
+      img.color_space = 1;
+      tex.mipmapGenerationFilter = MIPMAP_ALBEDO_EMISSIVE;
+      n.texture_albedo = tex;
+    }
+    const orm = i.metallicRoughnessTexture;
+    if (orm !== undefined) {
+      n.texture_orm = textures[orm.index]!;
+    }
+    n.roughness_factor = saturate(i.roughnessFactor ?? 1);
+    n.metallic_factor = saturate(i.metallicFactor ?? 1);
+  }
+
+  const o = e.alphaMode;
+  if (o === undefined || o === "OPAQUE") {
+    n.transparency_mode = ShadeTransparencyMode.Opaque;
+  } else if (o === "MASK") {
+    n.transparency_mode = ShadeTransparencyMode.AlphaTested;
+  } else if (o === "BLEND") {
+    n.transparency_mode = ShadeTransparencyMode.Transparent;
+  } else {
+    console.warn(`Unknown alphaMode: ${o}, defaulting to opaque`);
+    n.transparency_mode = ShadeTransparencyMode.Opaque;
+  }
+
+  const occ = e.occlusionTexture;
+  if (occ !== undefined) {
+    if (
+      n.texture_orm !== undefined &&
+      textures[occ.index] !== n.texture_orm
+    ) {
+      console.warn(
+        `Material.occlusionTexture uses a different texture from metallicRoughness, this is unsupported. Material name='${n.name}'`
+      );
+    }
+    n.ambient_factors.a = occ.strength ?? 1;
+    n.ambient_factors.b = 0;
+    if (occ.texCoord !== undefined && occ.texCoord !== 0) {
+      n.ambient_factors.b = 1;
+      n.ambient_factors.a = 0;
+    }
+  } else {
+    n.ambient_factors.b = 1;
+    n.ambient_factors.a = 0;
+  }
+
+  const c = e.extensions;
+  if (c !== undefined) {
+    const sg = c.KHR_materials_pbrSpecularGlossiness as
+      | {
+          diffuseFactor?: number[];
+          specularFactor?: number[];
+          glossinessFactor?: number;
+        }
+      | undefined;
+    if (sg !== undefined) {
+      const eCol = new Color();
+      const rCol = new Color();
+      let gloss = 0;
+      if (sg.diffuseFactor !== undefined) eCol.fromArray(sg.diffuseFactor);
+      if (sg.specularFactor !== undefined) {
+        rCol.setRGB(
+          sg.specularFactor[0] ?? 0,
+          sg.specularFactor[1] ?? 0,
+          sg.specularFactor[2] ?? 0
+        );
+      }
+      if (sg.glossinessFactor !== undefined) gloss = sg.glossinessFactor;
+      const conv = specularGlossinessToMetallicRoughness(eCol, rCol, gloss);
+      n.diffuse_color.copy(conv.base_color);
+    }
+
+    const ior = c.KHR_materials_ior;
+    if (ior !== undefined && typeof ior.ior === "number") n.ior_factor = ior.ior;
+
+    const tr = c.KHR_materials_transmission;
+    if (tr !== undefined) {
+      if (typeof tr.transmissionFactor === "number") {
+        n.transmission_factor = saturate(tr.transmissionFactor);
+      }
+      if (n.transmission_factor > 0) {
+        n.transparency_mode = ShadeTransparencyMode.Transparent;
+      }
+    }
+
+    const spec = c.KHR_materials_specular as
+      | {
+          specularFactor?: number;
+          specularColorFactor?: number[];
+        }
+      | undefined;
+    if (spec !== undefined) {
+      const t = spec.specularFactor ?? 1;
+      const rgb = spec.specularColorFactor ?? [1, 1, 1];
+      const rCol = new Color(rgb[0] ?? 1, rgb[1] ?? 1, rgb[2] ?? 1, 1);
+      rCol.multiplyScalar(t);
+      const conv = specularGlossinessToMetallicRoughness(
+        n.diffuse_color,
+        rCol,
+        1 - n.roughness_factor
+      );
+      if (e.pbrMetallicRoughness?.baseColorFactor === undefined) {
+        n.diffuse_color.copy(conv.base_color);
+      }
+    }
+  }
+
+  if (rewriteTransparencyMode(n)) {
+    console.warn(`Rewrote transparency mode for material '${n.name}'`);
+  }
+  return n;
+}

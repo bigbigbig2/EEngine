@@ -1,0 +1,781 @@
+<!doctype html>
+<!--
+  WebGPU Compatibility Mode 单文件学习示例。
+
+  本文件没有外部脚本、样式和图片依赖，直接用 Chrome 打开即可运行。
+  示例刻意遵守兼容性模式的重要约束：
+  1. 请求 featureLevel: "compatibility"；
+  2. 顶点数据使用 Vertex Buffer，不依赖 Vertex Shader Storage Buffer；
+  3. 创建二维数组纹理时提前声明 textureBindingViewDimension: "2d-array"；
+  4. BindGroup 绑定完整的二维数组视图，不通过 createView 选择某个图层子集；
+  5. 使用 instance_index 把图层编号交给 Shader，再由 Shader 选择要采样的图层；
+  6. 整数阶段变量使用 @interpolate(flat, either)。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU Compatibility Mode：兼容路径实战</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --page: #07111c;
+      --panel: #101f2f;
+      --panel-2: #0a1724;
+      --line: #2a455d;
+      --text: #eff8ff;
+      --muted: #aac0d2;
+      --blue: #69c6ff;
+      --green: #66dfb4;
+      --orange: #ffbd72;
+      --red: #ff8585;
+      --purple: #c7a4ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background:
+        radial-gradient(circle at 82% 4%, rgba(74, 138, 190, 0.16), transparent 32rem),
+        var(--page);
+      color: var(--text);
+    }
+
+    body {
+      padding: 24px;
+    }
+
+    main {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+      font-size: clamp(29px, 5vw, 46px);
+      line-height: 1.08;
+      letter-spacing: -0.03em;
+    }
+
+    h2 {
+      margin-bottom: 16px;
+      font-size: 22px;
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+
+    p,
+    li {
+      color: var(--muted);
+      line-height: 1.72;
+    }
+
+    code,
+    pre,
+    output,
+    .status,
+    .metric-value,
+    .badge {
+      font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+    }
+
+    code {
+      color: #c5e7ff;
+    }
+
+    .lead {
+      max-width: 940px;
+      margin-bottom: 20px;
+      font-size: 17px;
+    }
+
+    .panel {
+      margin-bottom: 18px;
+      padding: 20px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(17, 34, 50, 0.96), rgba(9, 23, 36, 0.96));
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.18);
+    }
+
+    .mode-grid,
+    .demo-grid,
+    .rule-grid,
+    .metric-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .mode-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .mode-step,
+    .rule,
+    .metric {
+      min-width: 0;
+      padding: 15px;
+      border: 1px solid #263f55;
+      border-radius: 12px;
+      background: rgba(5, 16, 26, 0.65);
+    }
+
+    .mode-step strong,
+    .rule strong {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--text);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      margin-bottom: 9px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(105, 198, 255, 0.13);
+      color: var(--blue);
+      font-size: 12px;
+    }
+
+    .demo-grid {
+      grid-template-columns: minmax(300px, 0.9fr) minmax(330px, 1.1fr);
+      align-items: start;
+    }
+
+    .canvas-shell {
+      overflow: hidden;
+      border: 1px solid #37556d;
+      border-radius: 14px;
+      background: #040a10;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1;
+      image-rendering: pixelated;
+    }
+
+    .controls {
+      display: grid;
+      gap: 12px;
+    }
+
+    .layer-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    button {
+      min-height: 46px;
+      padding: 10px 14px;
+      border: 1px solid #3c5e77;
+      border-radius: 10px;
+      background: #132a3d;
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--blue);
+      background: #18374f;
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.52;
+    }
+
+    button.active {
+      border-color: var(--green);
+      background: rgba(53, 131, 103, 0.28);
+      color: #c9ffeb;
+    }
+
+    .metric-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .metric-value {
+      margin-top: 7px;
+      overflow-wrap: anywhere;
+      color: var(--green);
+      font-size: 14px;
+    }
+
+    .path {
+      margin: 0;
+      padding: 14px;
+      overflow-x: auto;
+      border: 1px solid #2b465c;
+      border-radius: 10px;
+      background: #06111b;
+      color: #ccecff;
+      font-size: 13px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    .rule-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .rule.good {
+      border-color: rgba(102, 223, 180, 0.42);
+    }
+
+    .rule.bad {
+      border-color: rgba(255, 133, 133, 0.42);
+    }
+
+    .rule.good strong {
+      color: var(--green);
+    }
+
+    .rule.bad strong {
+      color: var(--red);
+    }
+
+    .status {
+      margin: 0;
+      padding: 14px 16px;
+      border: 1px solid #38546a;
+      border-radius: 11px;
+      background: #07131e;
+      color: var(--orange);
+      line-height: 1.65;
+    }
+
+    .status.success {
+      border-color: rgba(102, 223, 180, 0.48);
+      color: var(--green);
+    }
+
+    .status.error {
+      border-color: rgba(255, 133, 133, 0.52);
+      color: var(--red);
+    }
+
+    .small-note {
+      margin: 12px 0 0;
+      font-size: 13px;
+    }
+
+    @media (max-width: 860px) {
+      .mode-grid,
+      .demo-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      body {
+        padding: 14px;
+      }
+
+      .panel {
+        padding: 15px;
+      }
+
+      .rule-grid,
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Compatibility Mode：用受限路径覆盖更多 GPU</h1>
+    <p class="lead">
+      兼容性模式不是把 WebGL 包进 WebGPU，也不是遇到错误自动降级。应用主动请求一个限制更多的
+      Adapter，并让同一套 WebGPU 代码遵守这些限制，以便运行在只能映射到较旧图形能力的设备上。
+    </p>
+
+    <section class="panel">
+      <h2>请求关系</h2>
+      <div class="mode-grid">
+        <article class="mode-step">
+          <span class="badge">01 · Request</span>
+          <strong>请求 Compatibility Adapter</strong>
+          <code>requestAdapter({ featureLevel: "compatibility" })</code>
+        </article>
+        <article class="mode-step">
+          <span class="badge">02 · Inspect</span>
+          <strong>检查能否升级 Core</strong>
+          <code>adapter.features.has("core-features-and-limits")</code>
+        </article>
+        <article class="mode-step">
+          <span class="badge">03 · Device</span>
+          <strong>本页故意保留 Compatibility 约束</strong>
+          <code>adapter.requestDevice()</code>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>真实兼容路径：完整绑定数组纹理，在 Shader 内选择图层</h2>
+      <div class="demo-grid">
+        <div class="canvas-shell">
+          <!-- Canvas 的像素尺寸固定，CSS 只负责响应式显示。 -->
+          <canvas id="gpu-canvas" width="512" height="512"></canvas>
+        </div>
+
+        <div class="controls">
+          <div class="layer-buttons" aria-label="选择二维数组纹理图层">
+            <button type="button" data-layer="0" class="active" disabled>
+              图层 0 · 暖色棋盘
+            </button>
+            <button type="button" data-layer="1" disabled>
+              图层 1 · 冷色棋盘
+            </button>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric">
+              <span>实际 Device Level</span>
+              <strong id="device-level" class="metric-value">检测中</strong>
+            </div>
+            <div class="metric">
+              <span>Adapter 可升级 Core</span>
+              <strong id="adapter-core" class="metric-value">检测中</strong>
+            </div>
+            <div class="metric">
+              <span>当前纹理图层</span>
+              <strong id="current-layer" class="metric-value">0</strong>
+            </div>
+            <div class="metric">
+              <span>GPU Draw 次数</span>
+              <strong id="draw-count" class="metric-value">0</strong>
+            </div>
+          </div>
+
+          <pre id="data-path" class="path">正在请求 Compatibility Adapter……</pre>
+        </div>
+      </div>
+      <p class="small-note">
+        切换按钮时不会创建某个图层的子视图。页面始终把两层一起绑定为
+        <code>texture_2d_array</code>，只修改 <code>draw(3, 1, 0, firstInstance)</code>
+        的 <code>firstInstance</code>，由 Shader 根据 <code>instance_index</code> 选择图层。
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>本示例遵守的关键约束</h2>
+      <div class="rule-grid">
+        <article class="rule bad">
+          <strong>受限写法：Vertex Shader 随意读取 Storage Buffer</strong>
+          <p>部分旧设备的 Vertex Stage 不支持 Storage Buffer，默认上限可能是 0。</p>
+        </article>
+        <article class="rule good">
+          <strong>本页写法：顶点位置和 UV 放进 Vertex Buffer</strong>
+          <p>Vertex Fetch 是 WebGL 2 级设备普遍具备的路径，也符合 Core WebGPU。</p>
+        </article>
+        <article class="rule bad">
+          <strong>受限写法：绑定时创建单层 2D 子视图</strong>
+          <p>Compatibility Mode 不允许在 Texture Binding View 中随意切换维度或选择图层子集。</p>
+        </article>
+        <article class="rule good">
+          <strong>本页写法：创建时固定 2d-array，绑定完整视图</strong>
+          <p>图层选择移到 WGSL，并使用 <code>@interpolate(flat, either)</code> 传递整数图层号。</p>
+        </article>
+      </div>
+    </section>
+
+    <p id="status" class="status">正在初始化 WebGPU Compatibility Mode……</p>
+  </main>
+
+  <script type="module">
+    // 所有查询都集中在这里，方便后面更新状态与编写自动验证。
+    const canvas = document.querySelector("#gpu-canvas");
+    const statusElement = document.querySelector("#status");
+    const deviceLevelElement = document.querySelector("#device-level");
+    const adapterCoreElement = document.querySelector("#adapter-core");
+    const currentLayerElement = document.querySelector("#current-layer");
+    const drawCountElement = document.querySelector("#draw-count");
+    const dataPathElement = document.querySelector("#data-path");
+    const layerButtons = [...document.querySelectorAll("[data-layer]")];
+
+    // 暴露只读式的测试状态，便于在 DevTools 或自动化验证中确认真实执行结果。
+    // 它不参与绘制逻辑，因此不会掩盖 WebGPU API 的正常错误。
+    window.__webgpuDemo = {
+      ready: false,
+      requestedFeatureLevel: "compatibility",
+      deviceLevel: "unknown",
+      adapterCanUpgradeToCore: false,
+      selectedLayer: 0,
+      drawCount: 0,
+      shaderErrors: [],
+    };
+
+    // 创建 4×4 RGBA 棋盘数据。
+    // bytesPerRow 使用 256 字节对齐，保证数据布局在不同实现上都合法。
+    function createCheckerboard(colorA, colorB) {
+      const width = 4;
+      const height = 4;
+      const bytesPerRow = 256;
+      const data = new Uint8Array(bytesPerRow * height);
+
+      for (let y = 0; y < height; ++y) {
+        for (let x = 0; x < width; ++x) {
+          const color = (x + y) % 2 === 0 ? colorA : colorB;
+          const offset = y * bytesPerRow + x * 4;
+          data.set(color, offset);
+        }
+      }
+
+      return { data, width, height, bytesPerRow };
+    }
+
+    // 把某一份棋盘数据写入二维数组纹理的指定图层。
+    // origin.z 表示 Array Layer，而不是纹理深度方向的普通像素坐标。
+    function writeTextureLayer(device, texture, layer, checkerboard) {
+      device.queue.writeTexture(
+        {
+          texture,
+          origin: { x: 0, y: 0, z: layer },
+        },
+        checkerboard.data,
+        {
+          offset: 0,
+          bytesPerRow: checkerboard.bytesPerRow,
+          rowsPerImage: checkerboard.height,
+        },
+        {
+          width: checkerboard.width,
+          height: checkerboard.height,
+          depthOrArrayLayers: 1,
+        },
+      );
+    }
+
+    async function main() {
+      // WebGPU 只能在支持它的浏览器与安全上下文中使用。
+      if (!navigator.gpu) {
+        throw new Error("当前浏览器没有可用的 navigator.gpu，请使用新版 Chrome。 ");
+      }
+
+      // 本章最关键的一行：主动请求 Compatibility Feature Level。
+      // 它不是 requestDevice 的 Feature，也不是 WebGL Context 参数。
+      const adapter = await navigator.gpu.requestAdapter({
+        featureLevel: "compatibility",
+      });
+
+      if (!adapter) {
+        throw new Error("浏览器没有返回 Compatibility Adapter。请确认浏览器版本和 WebGPU 设置。 ");
+      }
+
+      // Compatibility Adapter 可能同时支持升级为 Core。
+      // 若请求 Device 时把此 Feature 放进 requiredFeatures，得到的就是 Core Device。
+      const adapterCanUpgradeToCore = adapter.features.has("core-features-and-limits");
+
+      // 本页故意不请求 core-features-and-limits：这样浏览器会实际执行 Compatibility 约束，
+      // 可以检验下面的资源和 Pipeline 是否真正在受限模式中合法。
+      const device = await adapter.requestDevice();
+
+      // Device 上存在 core-features-and-limits 才代表当前 Device 是 Core。
+      // 不要只看 Adapter，因为 Adapter 可能“能升级”，但本次 Device 没有升级。
+      const isCoreDevice = device.features.has("core-features-and-limits");
+      const deviceLevel = isCoreDevice ? "Core" : "Compatibility";
+
+      window.__webgpuDemo.deviceLevel = deviceLevel;
+      window.__webgpuDemo.adapterCanUpgradeToCore = adapterCanUpgradeToCore;
+      deviceLevelElement.textContent = deviceLevel;
+      adapterCoreElement.textContent = adapterCanUpgradeToCore ? "是" : "否";
+
+      // 监听异步设备丢失。真正项目应在这里提示用户或重建 GPU 资源。
+      device.lost.then((info) => {
+        statusElement.className = "status error";
+        statusElement.textContent = `GPUDevice 已丢失：${info.message || info.reason}`;
+        window.__webgpuDemo.ready = false;
+      });
+
+      const context = canvas.getContext("webgpu");
+      const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+
+      // Canvas 配置与普通 Core WebGPU 相同；Compatibility Mode 仍然是 WebGPU。
+      context.configure({
+        device,
+        format: canvasFormat,
+        alphaMode: "opaque",
+      });
+
+      const shaderModule = device.createShaderModule({
+        label: "Compatibility Mode 2D-array shader",
+        code: /* wgsl */ `
+          // Vertex Buffer 的每个顶点提供裁剪空间位置和纹理坐标。
+          struct VertexInput {
+            @location(0) position: vec2f,
+            @location(1) uv: vec2f,
+
+            // firstInstance 会成为 instance_index。
+            // 本例只画一个实例，所以三个顶点看到的是同一个图层编号。
+            @builtin(instance_index) textureLayer: u32,
+          };
+
+          struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) uv: vec2f,
+
+            // 整数不能做普通线性插值。
+            // Compatibility Mode 要求 flat 插值写成 flat, either。
+            // 三个顶点的 textureLayer 完全相同，因此取首顶点还是末顶点都安全。
+            @location(1) @interpolate(flat, either) textureLayer: u32,
+          };
+
+          @vertex
+          fn vertexMain(input: VertexInput) -> VertexOutput {
+            var output: VertexOutput;
+            output.position = vec4f(input.position, 0.0, 1.0);
+            output.uv = input.uv;
+            output.textureLayer = input.textureLayer;
+            return output;
+          }
+
+          // Sampler 决定使用最近邻过滤，让 4×4 棋盘的像素边界清晰可见。
+          @group(0) @binding(0)
+          var textureSampler: sampler;
+
+          // 这里必须与创建纹理时固定的 2d-array Binding View Dimension 匹配。
+          @group(0) @binding(1)
+          var textureArray: texture_2d_array<f32>;
+
+          @fragment
+          fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+            // 第四个采样坐标是数组图层。
+            // BindGroup 没有切换 View；切换按钮只是改变 input.textureLayer。
+            return textureSample(
+              textureArray,
+              textureSampler,
+              input.uv,
+              input.textureLayer,
+            );
+          }
+        `,
+      });
+
+      // 主动读取 Shader 编译信息，页面测试时可以区分 WGSL 编译错误和其他验证错误。
+      const compilationInfo = await shaderModule.getCompilationInfo();
+      const shaderErrors = compilationInfo.messages
+        .filter((message) => message.type === "error")
+        .map((message) => `${message.lineNum}:${message.linePos} ${message.message}`);
+      window.__webgpuDemo.shaderErrors = shaderErrors;
+
+      if (shaderErrors.length > 0) {
+        throw new Error(`WGSL 编译失败：${shaderErrors.join(" | ")}`);
+      }
+
+      // 一个顶点共 4 个 f32：position.xy + uv.xy，因此步长为 16 字节。
+      // 这组三个顶点组成“大三角形”，覆盖整个裁剪空间。
+      const vertexValues = new Float32Array([
+        // position.xy   uv.xy
+        -1, -1,          0,  1,
+         3, -1,          2,  1,
+        -1,  3,          0, -1,
+      ]);
+
+      const vertexBuffer = device.createBuffer({
+        label: "Compatibility-safe vertex buffer",
+        size: vertexValues.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(vertexBuffer, 0, vertexValues);
+
+      // 创建包含两个图层的二维数组纹理。
+      // Compatibility Mode 中，作为 TEXTURE_BINDING 使用时允许的 View Dimension
+      // 必须在创建纹理时通过 textureBindingViewDimension 提前固定。
+      const arrayTexture = device.createTexture({
+        label: "Two-layer compatibility texture",
+        size: { width: 4, height: 4, depthOrArrayLayers: 2 },
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        textureBindingViewDimension: "2d-array",
+      });
+
+      // 图层 0 使用暖色，图层 1 使用冷色，方便肉眼验证 Shader 选择是否生效。
+      writeTextureLayer(
+        device,
+        arrayTexture,
+        0,
+        createCheckerboard([255, 124, 70, 255], [255, 218, 112, 255]),
+      );
+      writeTextureLayer(
+        device,
+        arrayTexture,
+        1,
+        createCheckerboard([52, 126, 255, 255], [88, 235, 203, 255]),
+      );
+
+      const sampler = device.createSampler({
+        label: "Nearest checkerboard sampler",
+        magFilter: "nearest",
+        minFilter: "nearest",
+        addressModeU: "repeat",
+        addressModeV: "repeat",
+      });
+
+      // 把 Pipeline 创建包进 Validation Error Scope。
+      // 若 View Dimension、插值方式或其他兼容性规则不合法，可以得到明确错误。
+      device.pushErrorScope("validation");
+
+      const pipeline = await device.createRenderPipelineAsync({
+        label: "Compatibility texture-array pipeline",
+        layout: "auto",
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vertexMain",
+          buffers: [
+            {
+              arrayStride: 4 * 4,
+              attributes: [
+                { shaderLocation: 0, offset: 0,     format: "float32x2" },
+                { shaderLocation: 1, offset: 2 * 4, format: "float32x2" },
+              ],
+            },
+          ],
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fragmentMain",
+          targets: [{ format: canvasFormat }],
+        },
+        primitive: {
+          topology: "triangle-list",
+        },
+      });
+
+      const bindGroup = device.createBindGroup({
+        label: "Full 2D-array view bind group",
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: sampler },
+          {
+            binding: 1,
+            // 不设置 baseArrayLayer/arrayLayerCount：绑定两层组成的完整数组视图。
+            // dimension 必须和 textureBindingViewDimension 一致。
+            resource: arrayTexture.createView({ dimension: "2d-array" }),
+          },
+        ],
+      });
+
+      const validationError = await device.popErrorScope();
+      if (validationError) {
+        throw new Error(`兼容性验证失败：${validationError.message}`);
+      }
+
+      let selectedLayer = 0;
+      let drawCount = 0;
+
+      function render() {
+        const encoder = device.createCommandEncoder({
+          label: `Draw texture array layer ${selectedLayer}`,
+        });
+
+        const pass = encoder.beginRenderPass({
+          label: "Compatibility canvas render pass",
+          colorAttachments: [
+            {
+              view: context.getCurrentTexture().createView(),
+              clearValue: { r: 0.02, g: 0.05, b: 0.08, a: 1 },
+              loadOp: "clear",
+              storeOp: "store",
+            },
+          ],
+        });
+
+        pass.setPipeline(pipeline);
+        pass.setVertexBuffer(0, vertexBuffer);
+        pass.setBindGroup(0, bindGroup);
+
+        // 参数依次是 vertexCount、instanceCount、firstVertex、firstInstance。
+        // selectedLayer 作为 firstInstance，最终进入 WGSL 的 instance_index。
+        pass.draw(3, 1, 0, selectedLayer);
+        pass.end();
+
+        device.queue.submit([encoder.finish()]);
+        drawCount += 1;
+
+        currentLayerElement.textContent = String(selectedLayer);
+        drawCountElement.textContent = String(drawCount);
+        dataPathElement.textContent = [
+          `draw(3, 1, 0, ${selectedLayer})`,
+          `→ @builtin(instance_index) = ${selectedLayer}`,
+          `→ @interpolate(flat, either) textureLayer`,
+          `→ textureSample(texture_2d_array, uv, layer=${selectedLayer})`,
+          "→ Canvas Color Attachment",
+        ].join("\n");
+
+        window.__webgpuDemo.selectedLayer = selectedLayer;
+        window.__webgpuDemo.drawCount = drawCount;
+      }
+
+      for (const button of layerButtons) {
+        button.disabled = false;
+        button.addEventListener("click", () => {
+          selectedLayer = Number(button.dataset.layer);
+
+          for (const candidate of layerButtons) {
+            candidate.classList.toggle(
+              "active",
+              Number(candidate.dataset.layer) === selectedLayer,
+            );
+          }
+
+          render();
+        });
+      }
+
+      render();
+
+      // 等待 GPU 完成至少一次提交，使“运行成功”代表命令真实到达 Queue。
+      await device.queue.onSubmittedWorkDone();
+
+      window.__webgpuDemo.ready = true;
+      statusElement.className = "status success";
+      statusElement.textContent =
+        `运行成功：请求 compatibility，实际得到 ${deviceLevel} Device；` +
+        "Vertex Buffer、完整 2D-array View、Shader 图层选择均通过验证。";
+    }
+
+    main().catch((error) => {
+      console.error(error);
+      statusElement.className = "status error";
+      statusElement.textContent = `运行失败：${error.message}`;
+      window.__webgpuDemo.ready = false;
+      window.__webgpuDemo.failure = error.message;
+    });
+  </script>
+</body>
+</html>

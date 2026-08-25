@@ -1,0 +1,492 @@
+<!doctype html>
+<!-- 声明这是 HTML5 文档。 -->
+<html lang="zh-CN">
+<head>
+  <!-- 使用 UTF-8，保证中文界面与中文注释正常显示。 -->
+  <meta charset="utf-8">
+  <!-- 让页面在手机和窄窗口中按照真实宽度进行响应式布局。 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU 杂项输入：firstInstance 与 instance_index</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      --page-bg: #0b1018;
+      --panel-bg: #151c28;
+      --border: #303b4e;
+      --text: #edf4ff;
+      --muted: #a8b7cc;
+      --accent: #8ec5ff;
+      --code-bg: #0d1420;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page-bg);
+      color: var(--text);
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(1160px, 100%);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(26px, 4vw, 40px);
+    }
+
+    .intro {
+      max-width: 960px;
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .flow {
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #101722;
+      color: #cad8ea;
+      font: 14px/1.65 ui-monospace, "Cascadia Code", monospace;
+    }
+
+    .flow strong {
+      color: var(--accent);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #070b12;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+    }
+
+    .canvas-label {
+      position: absolute;
+      top: 12px;
+      z-index: 1;
+      width: calc(50% - 22px);
+      padding: 7px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background: rgba(4, 9, 16, 0.8);
+      color: #f6f9ff;
+      text-align: center;
+      font: 12px/1.35 ui-monospace, "Cascadia Code", monospace;
+      pointer-events: none;
+    }
+
+    .canvas-label.left {
+      left: 11px;
+    }
+
+    .canvas-label.right {
+      right: 11px;
+    }
+
+    .divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.3);
+      pointer-events: none;
+    }
+
+    .panel {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel-bg);
+    }
+
+    .panel h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .draw-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .draw-list li {
+      padding: 9px 10px;
+      border: 1px solid #2b3749;
+      border-radius: 8px;
+      background: var(--code-bg);
+      color: #cce0fa;
+      font: 13px/1.45 ui-monospace, "Cascadia Code", monospace;
+    }
+
+    .explanation {
+      margin: 0;
+      padding: 11px 12px;
+      border-left: 3px solid #3b82f6;
+      background: rgba(59, 130, 246, 0.08);
+      color: #c9d7ea;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 7px 12px;
+      margin: 0;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font: 13px/1.45 ui-monospace, "Cascadia Code", monospace;
+    }
+
+    .stats dt {
+      color: var(--muted);
+    }
+
+    .stats dd {
+      margin: 0;
+      color: #d8e8ff;
+    }
+
+    .status {
+      min-height: 1.5em;
+      margin: 14px 2px 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    code {
+      color: #b9ddff;
+    }
+
+    @media (max-width: 850px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Draw 参数也是 Shader 输入</h1>
+    <p class="intro">
+      左右两栏使用同一个 ShaderModule 和同一条 RenderPipeline，也没有 Buffer 或 BindGroup。
+      左侧用三次 Draw 的 <code>firstInstance</code> 分别传入 0、1、2；右侧用一次真正的实例化 Draw
+      自动生成相同的三个 <code>instance_index</code>。
+    </p>
+
+    <div class="flow">
+      <strong>左侧：</strong>draw(3, 1, 0, <em>firstInstance</em>) → instance_index = firstInstance<br>
+      <strong>右侧：</strong>draw(3, 3, 0, 0) → instance_index = 0、1、2
+    </div>
+
+    <section class="workspace">
+      <div class="canvas-wrap">
+        <!-- WebGPU 会把左右两组图形绘制进同一个 Canvas Texture。 -->
+        <canvas aria-label="firstInstance 与真正实例化的并排比较"></canvas>
+        <span class="canvas-label left">3 次 Draw · firstInstance = 0 / 1 / 2</span>
+        <span class="canvas-label right">1 次 Draw · instanceCount = 3</span>
+        <span class="divider" aria-hidden="true"></span>
+      </div>
+
+      <aside class="panel">
+        <h2>本帧录制的 Draw</h2>
+
+        <ul class="draw-list">
+          <li>draw(3, 1, 0, 0)</li>
+          <li>draw(3, 1, 0, 1)</li>
+          <li>draw(3, 1, 0, 2)</li>
+          <li>draw(3, 3, 0, 0)</li>
+        </ul>
+
+        <p class="explanation">
+          两种方式得到相同图案，但语义不同。左侧把 <code>firstInstance</code> 当成一个免费的逐 Draw 索引；
+          右侧才是一次 Draw 绘制三个实例。
+        </p>
+
+        <dl class="stats">
+          <dt>Pipeline</dt>
+          <dd>1</dd>
+          <dt>Buffer</dt>
+          <dd>0</dd>
+          <dt>BindGroup</dt>
+          <dd>0</dd>
+          <dt>左侧 Draw</dt>
+          <dd id="left-draws">3</dd>
+          <dt>右侧 Draw</dt>
+          <dd id="right-draws">1</dd>
+        </dl>
+      </aside>
+    </section>
+
+    <!-- 状态文字也方便自动测试判断 WebGPU 是否真正运行成功。 -->
+    <p id="status" class="status">正在初始化 WebGPU……</p>
+  </main>
+
+  <script type="module">
+    // 把程序放进 async 函数中，因为获取 Adapter、Device 和异步创建 Pipeline 都需要 await。
+    async function main() {
+      // navigator.gpu 是浏览器提供的 WebGPU 入口。
+      if (!navigator.gpu) {
+        throw new Error("当前浏览器没有启用 WebGPU。");
+      }
+
+      // Adapter 表示浏览器为当前页面选择的一套 GPU/驱动能力。
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
+        throw new Error("没有获得可用的 GPUAdapter。");
+      }
+
+      // Device 是本程序创建 Shader、Pipeline、Texture 和命令编码器的逻辑 GPU 设备。
+      const device = await adapter.requestDevice();
+
+      // 捕获没有被 Error Scope 接住的 WebGPU 验证错误，并直接显示在页面上。
+      device.addEventListener("uncapturederror", (event) => {
+        showError(event.error);
+      });
+
+      // 如果 GPU 进程重启、驱动更新或设备被系统回收，Device 可能丢失。
+      device.lost.then((info) => {
+        if (info.reason !== "destroyed") {
+          showError(new Error(`GPUDevice 已丢失：${info.message}`));
+        }
+      });
+
+      // 找到 Canvas，并获取专门用于 WebGPU 显示的上下文。
+      const canvas = document.querySelector("canvas");
+      const context = canvas.getContext("webgpu");
+      if (!context) {
+        throw new Error("无法创建 GPUCanvasContext。");
+      }
+
+      // 使用浏览器推荐的 Canvas 格式，通常是 bgra8unorm 或 rgba8unorm。
+      const format = navigator.gpu.getPreferredCanvasFormat();
+
+      // 把 Canvas 与 Device 关联。之后 getCurrentTexture() 会返回本帧可显示的纹理。
+      context.configure({
+        device,
+        format,
+        alphaMode: "opaque",
+      });
+
+      // 一个 ShaderModule 同时包含 Vertex 与 Fragment 两个入口点。
+      const shaderModule = device.createShaderModule({
+        label: "firstInstance comparison shader",
+        code: /* wgsl */ `
+          // Vertex Shader 除了位置，还要把颜色索引传给 Fragment Shader。
+          struct VSOutput {
+            // 顶点位置是 GPU 组装、裁剪和光栅化三角形所需的内置输出。
+            @builtin(position) position: vec4f,
+
+            // colorIndex 是整数，整数不能进行普通插值，因此必须使用 flat。
+            // either 允许 GPU 取图元第一个或最后一个顶点的值；三个顶点的值完全相同，
+            // 所以取哪一个都不会改变结果，并且这种写法也适合兼容性模式。
+            @location(0) @interpolate(flat, either) colorIndex: u32,
+          };
+
+          @vertex
+          fn vs(
+            // vertex_index 来自 draw 的 firstVertex 与当前顶点编号。
+            @builtin(vertex_index) vertexIndex: u32,
+
+            // instance_index = firstInstance + 当前实例在本次 Draw 中的编号。
+            @builtin(instance_index) instanceIndex: u32,
+          ) -> VSOutput {
+            // 每个实例都使用同一个小三角形，没有使用 Vertex Buffer。
+            let positions = array(
+              vec2f( 0.00,  0.22),
+              vec2f(-0.18, -0.18),
+              vec2f( 0.18, -0.18),
+            );
+
+            // instanceIndex 选择三角形在当前半屏 Viewport 中的位置。
+            let offsets = array(
+              vec2f( 0.00,  0.48),
+              vec2f(-0.48, -0.40),
+              vec2f( 0.48, -0.40),
+            );
+
+            var output: VSOutput;
+            output.position = vec4f(
+              positions[vertexIndex] + offsets[instanceIndex],
+              0.0,
+              1.0,
+            );
+
+            // 把本次 Draw/实例的索引原样交给 Fragment Shader 选择颜色。
+            output.colorIndex = instanceIndex;
+            return output;
+          }
+
+          @fragment
+          fn fs(input: VSOutput) -> @location(0) vec4f {
+            // 与 offsets 使用相同索引，因此三个位置始终对应三种固定颜色。
+            let colors = array(
+              vec4f(1.00, 0.82, 0.18, 1.0), // 黄色
+              vec4f(0.16, 0.88, 0.78, 1.0), // 青色
+              vec4f(0.91, 0.30, 0.78, 1.0), // 洋红色
+            );
+
+            return colors[input.colorIndex];
+          }
+        `,
+      });
+
+      // 整个页面只需要一条 Pipeline；左右两栏仅仅使用了不同的 Draw 参数。
+      const pipeline = await device.createRenderPipelineAsync({
+        label: "firstInstance comparison pipeline",
+        layout: "auto",
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs",
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs",
+          targets: [{ format }],
+        },
+        primitive: {
+          topology: "triangle-list",
+        },
+      });
+
+      // render() 只录制和提交命令；没有 Buffer 上传，也没有 BindGroup 切换。
+      function render() {
+        // Canvas Texture 每帧由浏览器交换，因此每次渲染都要重新获取。
+        const canvasTexture = context.getCurrentTexture();
+
+        // Render Pass 描述本帧写入哪个纹理，以及开始和结束时如何处理它。
+        const renderPassDescriptor = {
+          label: "firstInstance comparison render pass",
+          colorAttachments: [{
+            view: canvasTexture.createView(),
+            clearValue: { r: 0.025, g: 0.04, b: 0.07, a: 1 },
+            loadOp: "clear",
+            storeOp: "store",
+          }],
+        };
+
+        // CommandEncoder 用来录制这一帧的 GPU 命令。
+        const encoder = device.createCommandEncoder({
+          label: "firstInstance comparison encoder",
+        });
+
+        // 开始记录渲染命令。
+        const pass = encoder.beginRenderPass(renderPassDescriptor);
+        pass.setPipeline(pipeline);
+
+        // 把 Canvas 切成两个 Viewport。Shader 输出同样的裁剪空间坐标，
+        // GPU 会分别映射到左半边和右半边。
+        const leftWidth = Math.floor(canvasTexture.width / 2);
+        const rightWidth = canvasTexture.width - leftWidth;
+
+        // ---------- 左半边：三次独立 Draw ----------
+        pass.setViewport(0, 0, leftWidth, canvasTexture.height, 0, 1);
+        pass.setScissorRect(0, 0, leftWidth, canvasTexture.height);
+
+        // draw(vertexCount, instanceCount, firstVertex, firstInstance)
+        // 每次只画一个实例，所以 instance_index 就等于传入的 firstInstance。
+        pass.draw(3, 1, 0, 0);
+        pass.draw(3, 1, 0, 1);
+        pass.draw(3, 1, 0, 2);
+
+        // ---------- 右半边：一次真正的实例化 Draw ----------
+        pass.setViewport(leftWidth, 0, rightWidth, canvasTexture.height, 0, 1);
+        pass.setScissorRect(leftWidth, 0, rightWidth, canvasTexture.height);
+
+        // instanceCount = 3，firstInstance = 0，
+        // 因此同一次 Draw 中的 instance_index 依次是 0、1、2。
+        pass.draw(3, 3, 0, 0);
+
+        // 结束 Render Pass 后，不能再向 pass 编码命令。
+        pass.end();
+
+        // finish() 把录制内容封装为不可再修改的 CommandBuffer。
+        const commandBuffer = encoder.finish();
+
+        // 真正把这帧命令交给 GPU 队列执行。
+        device.queue.submit([commandBuffer]);
+      }
+
+      // 让 Canvas 的内部渲染分辨率跟随 CSS 显示尺寸与设备像素比。
+      const observer = new ResizeObserver(() => {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const maxSize = device.limits.maxTextureDimension2D;
+
+        const width = Math.max(
+          1,
+          Math.min(Math.round(rect.width * dpr), maxSize),
+        );
+        const height = Math.max(
+          1,
+          Math.min(Math.round(rect.height * dpr), maxSize),
+        );
+
+        // 只有像素尺寸实际变化时才重新设置，避免无意义地重建 Canvas Texture。
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+
+        render();
+      });
+
+      // ResizeObserver 首次 observe 后也会回调一次，因此不需要额外调用 render()。
+      observer.observe(canvas);
+
+      // 显示可供人工和自动测试读取的成功状态。
+      document.querySelector("#status").textContent =
+        "运行中：左侧 3 次 Draw 使用 firstInstance，右侧 1 次 Draw 使用真正实例化。";
+    }
+
+    // 把任何初始化异常显示到页面，同时保留控制台堆栈，方便排查。
+    function showError(error) {
+      console.error(error);
+      const status = document.querySelector("#status");
+      status.textContent = `错误：${error?.message ?? error}`;
+      status.style.color = "#fca5a5";
+    }
+
+    // 捕获 main() 中所有异步异常。
+    main().catch(showError);
+  </script>
+</body>
+</html>

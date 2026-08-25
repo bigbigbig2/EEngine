@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU 基础：可自适应画布的三角形</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;             /* 移除浏览器默认的页面外边距。 */
+      height: 100%;          /* 让页面高度等于浏览器可视区域高度。 */
+      overflow: hidden;      /* 隐藏滚动条，避免 Canvas 引起页面滚动。 */
+      background: #4d4d4d;  /* WebGPU 初始化前显示的深灰色背景。 */
+    }
+
+    canvas {
+      display: block;  /* Canvas 默认是行内元素；改成块元素可消除底部空隙。 */
+      width: 100%;     /* CSS 显示宽度占满父容器。 */
+      height: 100%;    /* CSS 显示高度占满父容器。 */
+    }
+
+    #error {
+      position: fixed;                              /* 固定在浏览器窗口中。 */
+      inset: 0;                                     /* 上、右、下、左都设为 0，铺满窗口。 */
+      display: none;                                /* 正常情况下隐藏。 */
+      place-items: center;                          /* 显示时让错误文本水平、垂直居中。 */
+      padding: 24px;                                /* 给错误文本留出边距。 */
+      color: #fff;                                  /* 使用白色文字。 */
+      background: #1b1b1b;                         /* 使用接近黑色的背景。 */
+      font: 16px/1.7 system-ui, sans-serif;         /* 使用系统字体并设置行高。 */
+      text-align: center;                           /* 文本居中。 */
+    }
+  </style>
+</head>
+
+<body>
+  <canvas aria-label="WebGPU 绘制的红色三角形"></canvas>
+  <div id="error" role="alert"></div>
+  <script type="module">
+    async function main() {
+      // 向浏览器请求一个 GPUAdapter。
+      // Adapter 代表浏览器选中的 GPU/驱动实现及其能力。
+      const adapter = await navigator.gpu?.requestAdapter();
+
+      // 基于 Adapter 请求一个 GPUDevice。
+      // Device 是创建 GPU 资源和提交 GPU 工作的核心对象。
+      const device = await adapter?.requestDevice();
+
+      if (!device) {
+        fail('当前浏览器不支持 WebGPU，或 WebGPU 尚未启用。请使用最新版 Chrome 或 Edge。');
+        return;
+      }
+
+      // 找到页面中的 Canvas 元素。
+      const canvas = document.querySelector('canvas');
+      // 从 Canvas 取得 WebGPU 专用的绘图上下文。
+      const context = canvas.getContext('webgpu');
+
+      // 获取浏览器推荐的 Canvas Texture 格式。
+      // 常见值是 "bgra8unorm" 或 "rgba8unorm"。
+      const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+      // 把 Canvas Context 与当前 Device 连接起来。
+      context.configure({
+        // 指定由哪个 GPUDevice 负责渲染。
+        device,
+        // 指定 Canvas 当前纹理的像素格式。
+        format: presentationFormat,
+      });
+
+      // 创建一个 Shader Module。
+      // 同一个 Module 中可以同时放置 Vertex Shader 和 Fragment Shader。
+      const shaderModule = device.createShaderModule({
+        // label 只用于调试，不影响渲染结果。
+        label: '红色三角形着色器',
+        // WGSL 是 WebGPU 默认使用的着色器语言。
+        code: /* wgsl */ `
+          // @vertex 表示 vertexMain 是顶点着色器入口。
+          @vertex fn vertexMain(
+            // vertex_index 是 GPU 自动提供的当前顶点编号。
+            // draw(3) 时，它依次为 0、1、2。
+            @builtin(vertex_index) vertexIndex: u32
+          // 顶点着色器必须输出裁剪空间位置。
+          ) -> @builtin(position) vec4f {
+            // 在 Shader 内部直接保存三个顶点的位置。
+            // 这个最小示例不使用 Vertex Buffer。
+            let positions = array(
+              // 第 0 个顶点：顶部中间。
+              vec2f( 0.0,  0.5),
+
+              // 第 1 个顶点：左下角。
+              vec2f(-0.5, -0.5),
+
+              // 第 2 个顶点：右下角。
+              vec2f( 0.5, -0.5)
+            );
+
+            // 根据 vertexIndex 取出当前顶点的二维位置。
+            // z = 0.0，w = 1.0，组成四维裁剪空间坐标。
+            return vec4f(positions[vertexIndex], 0.0, 1.0);
+          }
+
+          // @fragment 表示 fragmentMain 是片元着色器入口。
+          @fragment fn fragmentMain() -> @location(0) vec4f {
+            // 输出到第 0 个颜色目标。
+            // RGBA = (1, 0, 0, 1)，表示完全不透明的红色。
+            return vec4f(1.0, 0.0, 0.0, 1.0);
+          }
+        `,
+      });
+
+      // 创建 Render Pipeline，把 Shader 和固定渲染状态组合起来。
+      const pipeline = device.createRenderPipeline({
+        // 用于调试工具和错误消息。
+        label: '红色三角形渲染管线',
+        // 根据 Shader 自动推导 Bind Group Layout。
+        // 当前 Shader 没有使用外部 Buffer 或 Texture，所以不需要手写布局。
+        layout: 'auto',
+        // 配置顶点阶段。
+        vertex: {
+          // 顶点阶段使用刚才创建的 Shader Module。
+          module: shaderModule,
+          // 指定 WGSL 中的顶点入口函数名称。
+          entryPoint: 'vertexMain',
+        },
+
+        // 配置片元阶段。
+        fragment: {
+          // 片元阶段也使用同一个 Shader Module。
+          module: shaderModule,
+          // 指定 WGSL 中的片元入口函数名称。
+          entryPoint: 'fragmentMain',
+          // 声明片元着色器输出的颜色目标。
+          targets: [
+            {
+              // 必须与 context.configure() 使用的 Canvas 格式兼容。
+              format: presentationFormat,
+            },
+          ],
+        },
+      });
+
+      // 描述一次 Render Pass 使用的颜色附件。
+      const renderPassDescriptor = {
+        label: '基础画布渲染通道',
+        colorAttachments: [        // 本例只有一个颜色输出目标。
+          {
+            // 真正的 Texture View 会在每次 render() 时填写。
+            view: undefined, // Canvas 当前纹理会变化，不能在这里永久保存同一个 View。
+            clearValue: [0.3, 0.3, 0.3, 1.0],// Render Pass 开始时，用深灰色清空整个目标纹理。
+            loadOp: 'clear',  // 开始 Pass 时忽略原内容并执行清屏。
+            storeOp: 'store', // Pass 结束时保存渲染结果，供浏览器显示。
+          },
+        ],
+      };
+
+      // render() 会录制并提交一次完整的三角形绘制。
+      function render() {
+        const currentTexture = context.getCurrentTexture();// 取得 Canvas 当前可显示的 GPUTexture。
+        const currentTextureView = currentTexture.createView(); // 为当前 Texture 创建一个供 Render Pass 使用的 Texture View。
+        renderPassDescriptor.colorAttachments[0].view = currentTextureView; // 把当前 Texture View 设置为本次 Render Pass 的颜色目标。
+        const commandEncoder = device.createCommandEncoder({ // 创建 Command Encoder，用于录制 GPU 命令。
+          label: '三角形命令编码器', // 调试名称。
+        });
+        const renderPass =
+          commandEncoder.beginRenderPass(renderPassDescriptor);// 开始录制一个 Render Pass。
+        renderPass.setPipeline(pipeline);// 告诉当前 Render Pass 使用哪条 Render Pipeline。
+        // 请求绘制三个顶点。
+        // 默认图元拓扑是 triangle-list，所以三个顶点组成一个三角形。
+        renderPass.draw(3);
+
+        // 结束 Render Pass；之后不能再向这个 Pass 添加命令。
+        renderPass.end();
+
+        // 完成命令录制，生成不可修改的 GPUCommandBuffer。
+        const commandBuffer = commandEncoder.finish();
+
+        // 把 Command Buffer 提交到 GPUQueue。
+        // submit() 表示提交，不代表 GPU 此刻已经执行完成。
+        device.queue.submit([commandBuffer]);
+      }
+
+      // 监听 Canvas 的 CSS 显示尺寸变化。
+      const resizeObserver = new ResizeObserver((entries) => {
+        // ResizeObserver 可能一次报告多个被观察元素。
+        for (const entry of entries) {
+          // 当前被观察的目标就是 Canvas。
+          const observedCanvas = entry.target;
+
+          // 某些浏览器把 contentBoxSize 表示为数组，另一些实现可能直接给对象。
+          const contentBoxSize = Array.isArray(entry.contentBoxSize)
+            // 数组形式时读取第一个尺寸对象。
+            ? entry.contentBoxSize[0]
+            // 对象形式时直接使用。
+            : entry.contentBoxSize;
+
+          // inlineSize 是内容区域的 CSS 宽度。
+          // 如果浏览器没有提供 contentBoxSize，则回退到 contentRect.width。
+          const width =
+            contentBoxSize?.inlineSize ?? entry.contentRect.width;
+
+          // blockSize 是内容区域的 CSS 高度。
+          // 如果浏览器没有提供 contentBoxSize，则回退到 contentRect.height。
+          const height =
+            contentBoxSize?.blockSize ?? entry.contentRect.height;
+
+          // 更新 Canvas 内部的实际像素宽度。
+          observedCanvas.width = Math.max(
+            // Canvas 宽度至少为 1，避免零尺寸渲染目标。
+            1,
+
+            // Canvas 宽度不能超过 GPU 支持的最大二维纹理尺寸。
+            Math.min(
+              // 尺寸取整，因为 Canvas 的 width 必须是整数。
+              Math.round(width),
+
+              // 当前 GPUDevice 支持的最大二维纹理边长。
+              device.limits.maxTextureDimension2D,
+            ),
+          );
+
+          // 更新 Canvas 内部的实际像素高度。
+          observedCanvas.height = Math.max(
+            // Canvas 高度至少为 1。
+            1,
+
+            // Canvas 高度不能超过 GPU 支持的最大二维纹理尺寸。
+            Math.min(
+              // 把 CSS 高度取整为整数像素。
+              Math.round(height),
+
+              // 使用同一个 GPU 尺寸限制。
+              device.limits.maxTextureDimension2D,
+            ),
+          );
+        }
+
+        // Canvas 分辨率改变后，重新绘制三角形。
+        render();
+      });
+
+      // 开始观察 Canvas；ResizeObserver 至少会报告一次初始尺寸。
+      resizeObserver.observe(canvas);
+    }
+
+    // 在 WebGPU 不可用或发生异常时显示错误。
+    function fail(message) {
+      // 找到页面中的错误显示层。
+      const errorElement = document.querySelector('#error');
+
+      // 把错误消息写入元素。
+      errorElement.textContent = message;
+
+      // 把 display 从 none 改为 grid，使错误层显示出来。
+      errorElement.style.display = 'grid';
+    }
+
+    // 启动 WebGPU 初始化。
+    main().catch((error) => {
+      // 把完整错误打印到开发者工具控制台，方便调试。
+      console.error(error);
+
+      // 同时在页面上显示简化后的错误消息。
+      fail('WebGPU 初始化失败：' + error.message);
+    });
+  </script>
+</body>
+</html>

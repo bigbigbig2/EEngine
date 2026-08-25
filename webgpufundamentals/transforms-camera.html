@@ -1,0 +1,1172 @@
+<!doctype html>
+<!--
+  WebGPU 3D 变换、投影与相机：合并学习示例。
+
+  单文件、无外部依赖。这个示例不重复推导基础线性代数，而是展示矩阵在
+  WebGPU 中真正走过的路径：
+
+  JavaScript 计算 World / View / Projection
+    → 组合为 WorldViewProjection
+    → queue.writeBuffer 写入每个对象的 Uniform Buffer
+    → BindGroup 把 Buffer 连接到 WGSL
+    → Vertex Shader 执行 mat4x4f × vec4f
+    → Depth Texture 解决多个三维表面的前后遮挡
+    → Render Pass 编码 3 次 drawIndexed
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU 3D 变换、投影与相机</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --page: #07111b;
+      --panel: #10202e;
+      --panel-2: #091722;
+      --line: #29465b;
+      --text: #eff9ff;
+      --muted: #aac0ce;
+      --blue: #6bc8ff;
+      --green: #66dfae;
+      --orange: #ffbf73;
+      --purple: #c5a3ff;
+      --red: #ff8585;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background:
+        radial-gradient(circle at 80% 0%, rgba(75, 132, 180, 0.18), transparent 34rem),
+        var(--page);
+      color: var(--text);
+    }
+
+    body {
+      padding: 22px;
+    }
+
+    main {
+      width: min(1320px, 100%);
+      margin: 0 auto;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 9px;
+      font-size: clamp(29px, 4.5vw, 46px);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    h2 {
+      margin-bottom: 15px;
+      font-size: 21px;
+    }
+
+    h3 {
+      margin-bottom: 10px;
+      font-size: 15px;
+    }
+
+    p,
+    li {
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    code,
+    pre,
+    output,
+    .status,
+    .metric-value,
+    select {
+      font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+    }
+
+    code {
+      color: #c8eaff;
+    }
+
+    .lead {
+      max-width: 1030px;
+      margin-bottom: 18px;
+      font-size: 16px;
+    }
+
+    .panel {
+      margin-bottom: 18px;
+      padding: 19px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(16, 33, 47, 0.97), rgba(7, 20, 31, 0.97));
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 9px;
+    }
+
+    .flow-step {
+      position: relative;
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid #2b4b61;
+      border-radius: 11px;
+      background: rgba(6, 18, 28, 0.72);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .flow-step strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--blue);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(430px, 1.2fr) minmax(390px, 0.8fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .canvas-shell {
+      overflow: hidden;
+      border: 1px solid #34566d;
+      border-radius: 14px;
+      background: #03090e;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 10px;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #29465b;
+      border-radius: 10px;
+      background: rgba(5, 17, 26, 0.78);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .metric-value {
+      display: block;
+      margin-top: 5px;
+      overflow-wrap: anywhere;
+      color: var(--green);
+      font-size: 13px;
+    }
+
+    .controls {
+      display: grid;
+      gap: 12px;
+    }
+
+    .control-group {
+      padding: 13px;
+      border: 1px solid #29465b;
+      border-radius: 12px;
+      background: rgba(5, 17, 26, 0.7);
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px 13px;
+    }
+
+    .control {
+      min-width: 0;
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    output {
+      color: var(--orange);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue);
+    }
+
+    select,
+    button {
+      width: 100%;
+      min-height: 42px;
+      padding: 8px 11px;
+      border: 1px solid #3b5d74;
+      border-radius: 9px;
+      background: #11283a;
+      color: var(--text);
+    }
+
+    button {
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--blue);
+      background: #17364d;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .inspectors {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: 14px;
+    }
+
+    pre {
+      min-height: 186px;
+      margin: 0;
+      padding: 14px;
+      overflow: auto;
+      border: 1px solid #28465b;
+      border-radius: 11px;
+      background: #05111a;
+      color: #caeaff;
+      font-size: 12px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+    }
+
+    .status {
+      margin: 0;
+      padding: 14px 16px;
+      border: 1px solid #3a586d;
+      border-radius: 11px;
+      background: #07131e;
+      color: var(--orange);
+      line-height: 1.6;
+    }
+
+    .status.success {
+      border-color: rgba(102, 223, 174, 0.5);
+      color: var(--green);
+    }
+
+    .status.error {
+      border-color: rgba(255, 133, 133, 0.55);
+      color: var(--red);
+    }
+
+    .hint {
+      margin: 10px 0 0;
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace,
+      .inspectors {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      body {
+        padding: 13px;
+      }
+
+      .panel {
+        padding: 14px;
+      }
+
+      .control-grid,
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>WebGPU 3D 变换、投影与相机</h1>
+    <p class="lead">
+      数学发生在 JavaScript，GPU 只接收最终矩阵。下面三个立方体分别拥有独立 Uniform Buffer 和
+      BindGroup；一次 Render Pass 中复用同一个 Pipeline、Vertex Buffer、Index Buffer，再执行三次
+      <code>drawIndexed</code>。切换正交/透视并移动相机，可以直接观察投影和 View Matrix 的职责边界。
+    </p>
+
+    <section class="panel">
+      <div class="flow">
+        <div class="flow-step">
+          <strong>1 · Local → World</strong>
+          JavaScript 组合 Translation、Rotation、Scale
+        </div>
+        <div class="flow-step">
+          <strong>2 · World → View</strong>
+          Camera Matrix 的逆把世界变到相机坐标系
+        </div>
+        <div class="flow-step">
+          <strong>3 · View → Clip</strong>
+          Orthographic 或 Perspective 生成 Projection
+        </div>
+        <div class="flow-step">
+          <strong>4 · Uniform Upload</strong>
+          <code>queue.writeBuffer</code> 上传三个 WVP
+        </div>
+        <div class="flow-step">
+          <strong>5 · Draw + Depth</strong>
+          WGSL 乘顶点，Depth Texture 处理遮挡
+        </div>
+      </div>
+    </section>
+
+    <section class="panel workspace">
+      <div>
+        <div class="canvas-shell">
+          <canvas id="gpu-canvas" width="800" height="600"></canvas>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <span>Render 次数</span>
+            <strong id="render-count" class="metric-value">0</strong>
+          </div>
+          <div class="metric">
+            <span>累计 Draw Calls</span>
+            <strong id="draw-count" class="metric-value">0</strong>
+          </div>
+          <div class="metric">
+            <span>Uniform Upload / Render</span>
+            <strong id="upload-count" class="metric-value">3 × 64 bytes</strong>
+          </div>
+        </div>
+        <p class="hint">
+          三个立方体故意放在不同深度。透视模式下远处立方体更小；正交模式下距离不改变投影尺寸。
+        </p>
+      </div>
+
+      <div class="controls">
+        <section class="control-group">
+          <h3>Projection</h3>
+          <div class="control-grid">
+            <div class="control">
+              <label for="projection">投影类型</label>
+              <select id="projection" disabled>
+                <option value="perspective">Perspective</option>
+                <option value="orthographic">Orthographic</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="fov">FOV <output id="fov-output">55°</output></label>
+              <input id="fov" type="range" min="25" max="100" step="1" value="55" disabled>
+            </div>
+            <div class="control">
+              <label for="ortho-size">Ortho 半高 <output id="ortho-size-output">3.5</output></label>
+              <input id="ortho-size" type="range" min="2" max="8" step="0.1" value="3.5" disabled>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-group">
+          <h3>World：T × Rz × Ry × Rx × S</h3>
+          <div class="control-grid">
+            <div class="control">
+              <label for="tx">Translate X <output id="tx-output">0.0</output></label>
+              <input id="tx" type="range" min="-3" max="3" step="0.1" value="0" disabled>
+            </div>
+            <div class="control">
+              <label for="ty">Translate Y <output id="ty-output">0.0</output></label>
+              <input id="ty" type="range" min="-3" max="3" step="0.1" value="0" disabled>
+            </div>
+            <div class="control">
+              <label for="tz">Translate Z <output id="tz-output">0.0</output></label>
+              <input id="tz" type="range" min="-3" max="3" step="0.1" value="0" disabled>
+            </div>
+            <div class="control">
+              <label for="rx">Rotate X <output id="rx-output">-15°</output></label>
+              <input id="rx" type="range" min="-180" max="180" step="1" value="-15" disabled>
+            </div>
+            <div class="control">
+              <label for="ry">Rotate Y <output id="ry-output">25°</output></label>
+              <input id="ry" type="range" min="-180" max="180" step="1" value="25" disabled>
+            </div>
+            <div class="control">
+              <label for="rz">Rotate Z <output id="rz-output">0°</output></label>
+              <input id="rz" type="range" min="-180" max="180" step="1" value="0" disabled>
+            </div>
+            <div class="control">
+              <label for="scale">Uniform Scale <output id="scale-output">0.75</output></label>
+              <input id="scale" type="range" min="0.25" max="1.6" step="0.05" value="0.75" disabled>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-group">
+          <h3>Camera Orbit → Camera Matrix → View Matrix</h3>
+          <div class="control-grid">
+            <div class="control">
+              <label for="azimuth">Azimuth <output id="azimuth-output">35°</output></label>
+              <input id="azimuth" type="range" min="-180" max="180" step="1" value="35" disabled>
+            </div>
+            <div class="control">
+              <label for="elevation">Elevation <output id="elevation-output">22°</output></label>
+              <input id="elevation" type="range" min="-80" max="80" step="1" value="22" disabled>
+            </div>
+            <div class="control">
+              <label for="distance">Distance <output id="distance-output">8.0</output></label>
+              <input id="distance" type="range" min="4" max="14" step="0.1" value="8" disabled>
+            </div>
+          </div>
+        </section>
+
+        <button id="reset" type="button" disabled>恢复默认参数</button>
+      </div>
+    </section>
+
+    <section class="panel inspectors">
+      <div>
+        <h2>当前矩阵数据流</h2>
+        <pre id="matrix-flow">正在初始化 WebGPU……</pre>
+      </div>
+      <div>
+        <h2>中央对象的 WorldViewProjection</h2>
+        <pre id="matrix-values">等待第一次 Uniform Upload……</pre>
+      </div>
+    </section>
+
+    <p id="status" class="status">正在创建 GPUDevice、Render Pipeline 和 Depth Texture……</p>
+  </main>
+
+  <script type="module">
+    // -------------------------------------------------------------------------
+    // DOM 与可测试状态
+    // -------------------------------------------------------------------------
+
+    const canvas = document.querySelector("#gpu-canvas");
+    const statusElement = document.querySelector("#status");
+    const matrixFlowElement = document.querySelector("#matrix-flow");
+    const matrixValuesElement = document.querySelector("#matrix-values");
+    const renderCountElement = document.querySelector("#render-count");
+    const drawCountElement = document.querySelector("#draw-count");
+    const resetButton = document.querySelector("#reset");
+    const projectionSelect = document.querySelector("#projection");
+
+    // 所有 Range Input 的默认值和显示格式集中管理，避免 UI 与矩阵代码互相耦合。
+    const controlDefinitions = {
+      fov: { defaultValue: 55, suffix: "°", digits: 0 },
+      "ortho-size": { defaultValue: 3.5, suffix: "", digits: 1 },
+      tx: { defaultValue: 0, suffix: "", digits: 1 },
+      ty: { defaultValue: 0, suffix: "", digits: 1 },
+      tz: { defaultValue: 0, suffix: "", digits: 1 },
+      rx: { defaultValue: -15, suffix: "°", digits: 0 },
+      ry: { defaultValue: 25, suffix: "°", digits: 0 },
+      rz: { defaultValue: 0, suffix: "°", digits: 0 },
+      scale: { defaultValue: 0.75, suffix: "", digits: 2 },
+      azimuth: { defaultValue: 35, suffix: "°", digits: 0 },
+      elevation: { defaultValue: 22, suffix: "°", digits: 0 },
+      distance: { defaultValue: 8, suffix: "", digits: 1 },
+    };
+
+    const controls = Object.fromEntries(
+      Object.keys(controlDefinitions).map((id) => [id, document.querySelector(`#${id}`)]),
+    );
+
+    // 暴露验证信息，方便 DevTools 与自动化测试确认真实 GPU 执行结果。
+    window.__webgpuDemo = {
+      ready: false,
+      renderCount: 0,
+      drawCount: 0,
+      projection: "perspective",
+      objectCount: 3,
+      shaderErrors: [],
+      uncapturedErrors: [],
+      canvasSize: [canvas.width, canvas.height],
+    };
+
+    function updateControlOutput(id) {
+      const definition = controlDefinitions[id];
+      const value = Number(controls[id].value);
+      document.querySelector(`#${id}-output`).textContent =
+        `${value.toFixed(definition.digits)}${definition.suffix}`;
+    }
+
+    function readSettings() {
+      return {
+        projection: projectionSelect.value,
+        fov: Number(controls.fov.value),
+        orthoSize: Number(controls["ortho-size"].value),
+        translation: [
+          Number(controls.tx.value),
+          Number(controls.ty.value),
+          Number(controls.tz.value),
+        ],
+        rotation: [
+          Number(controls.rx.value),
+          Number(controls.ry.value),
+          Number(controls.rz.value),
+        ],
+        scale: Number(controls.scale.value),
+        camera: {
+          azimuth: Number(controls.azimuth.value),
+          elevation: Number(controls.elevation.value),
+          distance: Number(controls.distance.value),
+        },
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // 最小 4×4 矩阵库：列主序，与 WGSL mat4x4f 的内存顺序一致
+    // -------------------------------------------------------------------------
+
+    const toRadians = (degrees) => degrees * Math.PI / 180;
+
+    function identity() {
+      return new Float32Array([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1,
+      ]);
+    }
+
+    // 返回 a × b。WGSL 使用 matrix × column-vector，所以最右侧矩阵先作用于顶点。
+    function multiply(a, b) {
+      const result = new Float32Array(16);
+
+      // 数组按 column * 4 + row 访问。
+      for (let column = 0; column < 4; ++column) {
+        for (let row = 0; row < 4; ++row) {
+          let sum = 0;
+          for (let k = 0; k < 4; ++k) {
+            sum += a[k * 4 + row] * b[column * 4 + k];
+          }
+          result[column * 4 + row] = sum;
+        }
+      }
+
+      return result;
+    }
+
+    function translation(tx, ty, tz) {
+      const matrix = identity();
+      // 第四列负责齐次坐标中的平移。
+      matrix[12] = tx;
+      matrix[13] = ty;
+      matrix[14] = tz;
+      return matrix;
+    }
+
+    function scaling(sx, sy, sz) {
+      return new Float32Array([
+        sx, 0,  0,  0,
+        0,  sy, 0,  0,
+        0,  0,  sz, 0,
+        0,  0,  0,  1,
+      ]);
+    }
+
+    function xRotation(radians) {
+      const c = Math.cos(radians);
+      const s = Math.sin(radians);
+      return new Float32Array([
+        1, 0,  0, 0,
+        0, c,  s, 0,
+        0, -s, c, 0,
+        0, 0,  0, 1,
+      ]);
+    }
+
+    function yRotation(radians) {
+      const c = Math.cos(radians);
+      const s = Math.sin(radians);
+      return new Float32Array([
+        c,  0, -s, 0,
+        0,  1,  0, 0,
+        s,  0,  c, 0,
+        0,  0,  0, 1,
+      ]);
+    }
+
+    function zRotation(radians) {
+      const c = Math.cos(radians);
+      const s = Math.sin(radians);
+      return new Float32Array([
+        c,  s, 0, 0,
+        -s, c, 0, 0,
+        0,  0, 1, 0,
+        0,  0, 0, 1,
+      ]);
+    }
+
+    // WebGPU 的 NDC/Clip Z 范围是 0..1。
+    // 这个右手透视矩阵假设相机朝局部 -Z 看，near 映射到 0，far 映射到 1。
+    function perspective(fieldOfViewRadians, aspect, near, far) {
+      const f = 1 / Math.tan(fieldOfViewRadians / 2);
+      const rangeInverse = 1 / (near - far);
+
+      return new Float32Array([
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, far * rangeInverse, -1,
+        0, 0, near * far * rangeInverse, 0,
+      ]);
+    }
+
+    // 同样使用 WebGPU 的 0..1 深度范围；near/far 表示相机前方的正距离。
+    function orthographic(left, right, bottom, top, near, far) {
+      return new Float32Array([
+        2 / (right - left), 0, 0, 0,
+        0, 2 / (top - bottom), 0, 0,
+        0, 0, 1 / (near - far), 0,
+        (right + left) / (left - right),
+        (top + bottom) / (bottom - top),
+        near / (near - far),
+        1,
+      ]);
+    }
+
+    function subtract(a, b) {
+      return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    }
+
+    function dot(a, b) {
+      return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+
+    function cross(a, b) {
+      return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+      ];
+    }
+
+    function normalize(vector) {
+      const length = Math.hypot(vector[0], vector[1], vector[2]);
+      if (length < 0.00001) return [0, 0, 0];
+      return vector.map((component) => component / length);
+    }
+
+    // Camera Matrix 描述“相机在世界中的姿态”，不是直接传给 Shader 的 View Matrix。
+    function cameraAim(eye, target, up) {
+      const zAxis = normalize(subtract(eye, target)); // 相机局部 +Z 指向后方
+      const xAxis = normalize(cross(up, zAxis));
+      const yAxis = cross(zAxis, xAxis);
+
+      return {
+        matrix: new Float32Array([
+          xAxis[0], xAxis[1], xAxis[2], 0,
+          yAxis[0], yAxis[1], yAxis[2], 0,
+          zAxis[0], zAxis[1], zAxis[2], 0,
+          eye[0],   eye[1],   eye[2],   1,
+        ]),
+        xAxis,
+        yAxis,
+        zAxis,
+        eye,
+      };
+    }
+
+    // Camera Matrix 由正交单位轴构成，因此它的逆可以用“旋转转置 + 反向平移”快速得到。
+    // View Matrix 的职责是把整个世界反向移动，让相机在 View Space 中回到原点。
+    function inverseRigidCamera(camera) {
+      const { xAxis, yAxis, zAxis, eye } = camera;
+      return new Float32Array([
+        xAxis[0], yAxis[0], zAxis[0], 0,
+        xAxis[1], yAxis[1], zAxis[1], 0,
+        xAxis[2], yAxis[2], zAxis[2], 0,
+        -dot(xAxis, eye),
+        -dot(yAxis, eye),
+        -dot(zAxis, eye),
+        1,
+      ]);
+    }
+
+    function composeWorld(settings) {
+      // 对列向量而言，下面的顶点实际执行顺序是：S → Rx → Ry → Rz → T。
+      let world = translation(...settings.translation);
+      world = multiply(world, zRotation(toRadians(settings.rotation[2])));
+      world = multiply(world, yRotation(toRadians(settings.rotation[1])));
+      world = multiply(world, xRotation(toRadians(settings.rotation[0])));
+      world = multiply(world, scaling(settings.scale, settings.scale, settings.scale));
+      return world;
+    }
+
+    function formatMatrix(matrix) {
+      const lines = [];
+      for (let row = 0; row < 4; ++row) {
+        const values = [];
+        for (let column = 0; column < 4; ++column) {
+          values.push(matrix[column * 4 + row].toFixed(3).padStart(8));
+        }
+        lines.push(`[${values.join("  ")}]`);
+      }
+      return lines.join("\n");
+    }
+
+    // -------------------------------------------------------------------------
+    // 几何数据：24 个独立面顶点 + 36 个索引
+    // -------------------------------------------------------------------------
+
+    function createCubeGeometry() {
+      // 每个面独立拥有 4 个顶点，这样一个顶点可以携带该面的固定颜色。
+      const faces = [
+        { color: [244, 92, 92, 255], positions: [ // +Z
+          [-1, -1,  1], [ 1, -1,  1], [ 1,  1,  1], [-1,  1,  1],
+        ] },
+        { color: [100, 164, 255, 255], positions: [ // -Z
+          [ 1, -1, -1], [-1, -1, -1], [-1,  1, -1], [ 1,  1, -1],
+        ] },
+        { color: [255, 193, 91, 255], positions: [ // +X
+          [ 1, -1,  1], [ 1, -1, -1], [ 1,  1, -1], [ 1,  1,  1],
+        ] },
+        { color: [183, 128, 255, 255], positions: [ // -X
+          [-1, -1, -1], [-1, -1,  1], [-1,  1,  1], [-1,  1, -1],
+        ] },
+        { color: [99, 224, 174, 255], positions: [ // +Y
+          [-1,  1,  1], [ 1,  1,  1], [ 1,  1, -1], [-1,  1, -1],
+        ] },
+        { color: [78, 200, 223, 255], positions: [ // -Y
+          [-1, -1, -1], [ 1, -1, -1], [ 1, -1,  1], [-1, -1,  1],
+        ] },
+      ];
+
+      // 每个顶点 16 字节：position = 3×f32（12 字节），color = 4×u8（4 字节）。
+      const vertexStride = 16;
+      const vertexBufferData = new ArrayBuffer(faces.length * 4 * vertexStride);
+      const view = new DataView(vertexBufferData);
+      const indices = [];
+
+      faces.forEach((face, faceIndex) => {
+        const firstVertex = faceIndex * 4;
+
+        face.positions.forEach((position, vertexInFace) => {
+          const byteOffset = (firstVertex + vertexInFace) * vertexStride;
+          position.forEach((value, component) => {
+            view.setFloat32(byteOffset + component * 4, value, true);
+          });
+          face.color.forEach((value, component) => {
+            view.setUint8(byteOffset + 12 + component, value);
+          });
+        });
+
+        // 从面外侧看，两个三角形均为逆时针绕序。
+        indices.push(
+          firstVertex + 0, firstVertex + 1, firstVertex + 2,
+          firstVertex + 0, firstVertex + 2, firstVertex + 3,
+        );
+      });
+
+      return {
+        vertexBufferData,
+        indexData: new Uint16Array(indices),
+        vertexStride,
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // WebGPU：资源、Pipeline、Depth Texture 与每帧命令编码
+    // -------------------------------------------------------------------------
+
+    async function main() {
+      if (!navigator.gpu) {
+        throw new Error("当前浏览器没有可用的 WebGPU，请使用新版 Chrome。 ");
+      }
+
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) throw new Error("没有获得 GPUAdapter。 ");
+
+      const device = await adapter.requestDevice();
+      const context = canvas.getContext("webgpu");
+      const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+
+      device.lost.then((info) => {
+        window.__webgpuDemo.ready = false;
+        statusElement.className = "status error";
+        statusElement.textContent = `GPUDevice 已丢失：${info.message || info.reason}`;
+      });
+
+      // 捕获没有被 Error Scope 接住的异步 GPU 验证错误。
+      device.addEventListener("uncapturederror", (event) => {
+        const message = event.error?.message ?? String(event.error);
+        window.__webgpuDemo.uncapturedErrors.push(message);
+        console.error("WebGPU uncaptured error:", message);
+      });
+
+      context.configure({
+        device,
+        format: canvasFormat,
+        alphaMode: "opaque",
+      });
+
+      const shaderModule = device.createShaderModule({
+        label: "World View Projection shader",
+        code: /* wgsl */ `
+          struct Uniforms {
+            // mat4x4f 占 64 字节，列主序存储；与 JavaScript Float32Array 完全对应。
+            worldViewProjection: mat4x4f,
+          };
+
+          struct VertexInput {
+            @location(0) position: vec3f,
+            // Buffer 中是 4 个 u8；unorm8x4 会自动归一化为 0..1 的 vec4f。
+            @location(1) color: vec4f,
+          };
+
+          struct VertexOutput {
+            @builtin(position) position: vec4f,
+            @location(0) color: vec4f,
+          };
+
+          @group(0) @binding(0)
+          var<uniform> uniforms: Uniforms;
+
+          @vertex
+          fn vertexMain(input: VertexInput) -> VertexOutput {
+            var output: VertexOutput;
+
+            // JavaScript 已经组合好 P × V × W；Shader 每个顶点只做一次矩阵乘法。
+            output.position =
+              uniforms.worldViewProjection * vec4f(input.position, 1.0);
+            output.color = input.color;
+            return output;
+          }
+
+          @fragment
+          fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+            return input.color;
+          }
+        `,
+      });
+
+      const compilationInfo = await shaderModule.getCompilationInfo();
+      const shaderErrors = compilationInfo.messages
+        .filter((message) => message.type === "error")
+        .map((message) => `${message.lineNum}:${message.linePos} ${message.message}`);
+      window.__webgpuDemo.shaderErrors = shaderErrors;
+      if (shaderErrors.length) {
+        throw new Error(`WGSL 编译失败：${shaderErrors.join(" | ")}`);
+      }
+
+      device.pushErrorScope("validation");
+
+      const pipeline = await device.createRenderPipelineAsync({
+        label: "3D transforms pipeline",
+        layout: "auto",
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vertexMain",
+          buffers: [{
+            arrayStride: 16,
+            attributes: [
+              { shaderLocation: 0, offset: 0,  format: "float32x3" },
+              { shaderLocation: 1, offset: 12, format: "unorm8x4" },
+            ],
+          }],
+        },
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fragmentMain",
+          targets: [{ format: canvasFormat }],
+        },
+        primitive: {
+          topology: "triangle-list",
+          frontFace: "ccw",
+          cullMode: "back",
+        },
+        depthStencil: {
+          format: "depth24plus",
+          depthWriteEnabled: true,
+          depthCompare: "less",
+        },
+      });
+
+      const geometry = createCubeGeometry();
+
+      const vertexBuffer = device.createBuffer({
+        label: "Interleaved cube position + color",
+        size: geometry.vertexBufferData.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(vertexBuffer, 0, geometry.vertexBufferData);
+
+      const indexBuffer = device.createBuffer({
+        label: "Cube uint16 indices",
+        size: geometry.indexData.byteLength,
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(indexBuffer, 0, geometry.indexData);
+
+      // 三个对象共享几何和 Pipeline，但各自拥有 64 字节 Uniform Buffer 与 BindGroup。
+      // 这样每个 Draw 在同一 Command Buffer 中仍能读取不同的 WVP 矩阵。
+      const objectOffsets = [
+        [-2.4, 0,  1.7],
+        [ 0.0, 0,  0.0],
+        [ 2.4, 0, -1.7],
+      ];
+
+      const objects = objectOffsets.map((offset, index) => {
+        const uniformBuffer = device.createBuffer({
+          label: `Object ${index} WVP uniform`,
+          size: 16 * 4,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        const bindGroup = device.createBindGroup({
+          label: `Object ${index} bind group`,
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+        });
+
+        return { offset, uniformBuffer, bindGroup };
+      });
+
+      const validationError = await device.popErrorScope();
+      if (validationError) {
+        throw new Error(`Pipeline/资源验证失败：${validationError.message}`);
+      }
+
+      let depthTexture;
+      let renderCount = 0;
+      let drawCount = 0;
+
+      function resizeCanvasToDisplaySize() {
+        const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const displayWidth = Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio));
+        const displayHeight = Math.max(1, Math.round(canvas.clientHeight * devicePixelRatio));
+
+        if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+          canvas.width = displayWidth;
+          canvas.height = displayHeight;
+        }
+      }
+
+      function ensureDepthTexture() {
+        if (
+          depthTexture &&
+          depthTexture.width === canvas.width &&
+          depthTexture.height === canvas.height
+        ) {
+          return;
+        }
+
+        // Depth Attachment 必须与 Canvas 当前 Color Attachment 的像素尺寸一致。
+        depthTexture?.destroy();
+        depthTexture = device.createTexture({
+          label: "Canvas-sized depth texture",
+          size: [canvas.width, canvas.height],
+          format: "depth24plus",
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+      }
+
+      function render() {
+        resizeCanvasToDisplaySize();
+        ensureDepthTexture();
+
+        const settings = readSettings();
+        const aspect = canvas.width / canvas.height;
+        const near = 0.1;
+        const far = 100;
+
+        const azimuth = toRadians(settings.camera.azimuth);
+        const elevation = toRadians(settings.camera.elevation);
+        const horizontalDistance = settings.camera.distance * Math.cos(elevation);
+        const eye = [
+          horizontalDistance * Math.sin(azimuth),
+          settings.camera.distance * Math.sin(elevation),
+          horizontalDistance * Math.cos(azimuth),
+        ];
+
+        const camera = cameraAim(eye, [0, 0, 0], [0, 1, 0]);
+        const view = inverseRigidCamera(camera);
+
+        const projection = settings.projection === "perspective"
+          ? perspective(toRadians(settings.fov), aspect, near, far)
+          : orthographic(
+              -settings.orthoSize * aspect,
+               settings.orthoSize * aspect,
+              -settings.orthoSize,
+               settings.orthoSize,
+               near,
+               far,
+            );
+
+        const viewProjection = multiply(projection, view);
+        const groupWorld = composeWorld(settings);
+
+        let centerWvp;
+        for (const [index, object] of objects.entries()) {
+          // object.offset 是局部层级变换，groupWorld 是用户操作的父变换。
+          const world = multiply(groupWorld, translation(...object.offset));
+          const worldViewProjection = multiply(viewProjection, world);
+
+          // 三个 Buffer 分开写，避免同一 Buffer 在三个尚未执行的 Draw 之间被覆盖。
+          device.queue.writeBuffer(object.uniformBuffer, 0, worldViewProjection);
+          if (index === 1) centerWvp = worldViewProjection;
+        }
+
+        const encoder = device.createCommandEncoder({
+          label: `Transform render ${renderCount + 1}`,
+        });
+
+        const pass = encoder.beginRenderPass({
+          label: "3D color + depth render pass",
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            clearValue: { r: 0.025, g: 0.055, b: 0.08, a: 1 },
+            loadOp: "clear",
+            storeOp: "store",
+          }],
+          depthStencilAttachment: {
+            view: depthTexture.createView(),
+            depthClearValue: 1,
+            depthLoadOp: "clear",
+            depthStoreOp: "store",
+          },
+        });
+
+        // Pipeline 和几何只设置一次，每个对象只切换 BindGroup 并再次 Draw。
+        pass.setPipeline(pipeline);
+        pass.setVertexBuffer(0, vertexBuffer);
+        pass.setIndexBuffer(indexBuffer, "uint16");
+
+        for (const object of objects) {
+          pass.setBindGroup(0, object.bindGroup);
+          pass.drawIndexed(geometry.indexData.length);
+        }
+
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+
+        renderCount += 1;
+        drawCount += objects.length;
+        renderCountElement.textContent = String(renderCount);
+        drawCountElement.textContent = String(drawCount);
+
+        matrixFlowElement.textContent = [
+          `Projection = ${settings.projection}`,
+          settings.projection === "perspective"
+            ? `Perspective(fov=${settings.fov}°, aspect=${aspect.toFixed(3)}, near=${near}, far=${far})`
+            : `Ortho(halfHeight=${settings.orthoSize}, aspect=${aspect.toFixed(3)}, near=${near}, far=${far})`,
+          "",
+          `Eye = [${eye.map((value) => value.toFixed(2)).join(", ")}]`,
+          "View = inverse(CameraMatrix)",
+          "",
+          "World = T × Rz × Ry × Rx × S",
+          "WVP = Projection × View × World",
+          "",
+          `queue.writeBuffer × ${objects.length}`,
+          `drawIndexed(${geometry.indexData.length}) × ${objects.length}`,
+          "Depth: depth24plus / clear=1 / compare=less",
+        ].join("\n");
+
+        matrixValuesElement.textContent = [
+          "数组内存：column-major",
+          "下面按数学行列显示：",
+          "",
+          formatMatrix(centerWvp),
+          "",
+          "WGSL:",
+          "clipPosition = WVP * vec4f(localPosition, 1.0)",
+          "WebGPU NDC depth: 0 ≤ z/w ≤ 1",
+        ].join("\n");
+
+        window.__webgpuDemo.renderCount = renderCount;
+        window.__webgpuDemo.drawCount = drawCount;
+        window.__webgpuDemo.projection = settings.projection;
+        window.__webgpuDemo.canvasSize = [canvas.width, canvas.height];
+        window.__webgpuDemo.lastCenterWvp = [...centerWvp];
+      }
+
+      // 控件只改变 JavaScript 侧设置；每次变化重新计算矩阵并上传，而不重建 Pipeline。
+      for (const [id, control] of Object.entries(controls)) {
+        control.disabled = false;
+        updateControlOutput(id);
+        control.addEventListener("input", () => {
+          updateControlOutput(id);
+          render();
+        });
+      }
+
+      projectionSelect.disabled = false;
+      projectionSelect.addEventListener("change", render);
+
+      resetButton.disabled = false;
+      resetButton.addEventListener("click", () => {
+        projectionSelect.value = "perspective";
+        for (const [id, definition] of Object.entries(controlDefinitions)) {
+          controls[id].value = String(definition.defaultValue);
+          updateControlOutput(id);
+        }
+        render();
+      });
+
+      // CSS 尺寸变化时重建匹配的新 Depth Texture 并重绘。
+      const resizeObserver = new ResizeObserver(() => render());
+      resizeObserver.observe(canvas);
+
+      render();
+      await device.queue.onSubmittedWorkDone();
+
+      window.__webgpuDemo.ready = true;
+      statusElement.className = "status success";
+      statusElement.textContent =
+        "运行成功：3 个对象的 WVP Uniform 已上传；Perspective/Orthographic、" +
+        "轨道相机、Back-face Culling 与 depth24plus 深度测试均已启用。";
+    }
+
+    main().catch((error) => {
+      console.error(error);
+      window.__webgpuDemo.ready = false;
+      window.__webgpuDemo.failure = error.message;
+      statusElement.className = "status error";
+      statusElement.textContent = `运行失败：${error.message}`;
+    });
+  </script>
+</body>
+</html>

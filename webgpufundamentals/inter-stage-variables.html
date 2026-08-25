@@ -1,0 +1,314 @@
+<!doctype html>
+<!-- 声明这是一个 HTML5 文档。 -->
+<html lang="zh-CN">
+<head>
+  <!-- 使用 UTF-8，保证中文标题和注释可以正常显示。 -->
+  <meta charset="utf-8">
+  <!-- 让页面在手机等窄屏设备上按设备宽度布局。 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 浏览器标签页上显示的标题。 -->
+  <title>WebGPU: Inter-stage &#21464;&#37327;</title>
+  <style>
+    /* 页面使用深色配色，并优先使用系统无衬线字体。 */
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    /* html 和 body 至少占满整个视口，并清除浏览器默认外边距。 */
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: #10131a;
+      color: #e8edf7;
+    }
+
+    /* 使用 Grid 把主内容放到页面中央，并给页面四周留出空间。 */
+    body {
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    /* 主内容最大宽度为 900px，小屏时自动缩小到可用宽度。 */
+    main {
+      width: min(900px, 100%);
+    }
+
+    /* 页面标题的大小随视口宽度变化，但限制在 24～36px 之间。 */
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(24px, 4vw, 36px);
+    }
+
+    /* 说明文字使用较浅的蓝灰色，增强与标题的层次。 */
+    p {
+      margin: 0 0 16px;
+      color: #aeb8ca;
+      line-height: 1.6;
+    }
+
+    /* Canvas 是 WebGPU 的显示区域；宽高比固定为 16:9。 */
+    canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 1px solid #2f3747;
+      border-radius: 12px;
+      background: #1b202b;
+    }
+
+    /* 显示 WebGPU 初始化和运行状态。 */
+    #status {
+      margin-top: 12px;
+      color: #91a4c4;
+      font-size: 14px;
+    }
+
+    /* 出错时才显示这个提示框，正常状态下保持隐藏。 */
+    #error {
+      display: none;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 1px solid #8c3b4a;
+      border-radius: 8px;
+      color: #ffd9df;
+      background: #351a22;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <!-- 这段文字说明本示例观察的重点：顶点颜色会被 GPU 自动插值。 -->
+    <h1>Inter-stage &#21464;&#37327;: RGB &#28176;&#21464;&#19977;&#35282;&#24418;</h1>
+    <p>
+      The vertex shader outputs one color per vertex. Rasterization interpolates that color,
+      and the fragment shader reads the interpolated value.
+    </p>
+    <!-- WebGPU 会把最终渲染结果写入这个 Canvas。 -->
+    <canvas aria-label="WebGPU RGB gradient triangle"></canvas>
+    <!-- 初始化完成后，这里会显示当前示例的运行状态。 -->
+    <div id="status">Initializing WebGPU...</div>
+    <!-- WebGPU 不可用或初始化失败时，这里显示错误信息。 -->
+    <div id="error" role="alert"></div>
+  </main>
+
+  <script type="module">
+    // 所有 WebGPU 初始化和绘制逻辑都放在异步函数中，
+    // 因为 requestAdapter 和 requestDevice 都是异步操作。
+    async function main() {
+      // 向浏览器请求一个 GPUAdapter。
+      // Adapter 代表浏览器找到的物理 GPU、驱动实现及其能力。
+      const adapter = await navigator.gpu?.requestAdapter();
+      if (!adapter) {
+        // 没有 Adapter 通常意味着浏览器不支持 WebGPU，或当前环境没有可用 GPU。
+        throw new Error("No WebGPU adapter is available.");
+      }
+
+      // 根据 Adapter 创建一个 GPUDevice。
+      // Device 是本示例后续创建 Shader、Pipeline、Texture 和命令的核心对象。
+      const device = await adapter.requestDevice();
+
+      // 找到 HTML 中的 Canvas 元素。
+      const canvas = document.querySelector("canvas");
+
+      // 请求 WebGPU 专用上下文；它负责把 GPU 图像显示到 Canvas 上。
+      const context = canvas.getContext("webgpu");
+
+      // 获取浏览器针对当前平台推荐的 Canvas 纹理格式。
+      // 常见值是 rgba8unorm 或 bgra8unorm，不要硬编码成某一个格式。
+      const format = navigator.gpu.getPreferredCanvasFormat();
+
+      // 创建 WGSL ShaderModule。
+      // 一个 Module 可以同时包含 vertex shader 和 fragment shader。
+      // 两个阶段通过 @location(0) 连接 color，这就是本章的重点。
+      const shaderModule = device.createShaderModule({
+        // label 只用于开发者工具调试，不会影响渲染结果。
+        label: "Inter-stage variable shader",
+        // WGSL 是 WebGPU 使用的 Shader 语言。
+        code: /* wgsl */ `
+          // 定义顶点着色器的输出结构。
+          // position 是 GPU 内置的位置输出；color 是要传给片元着色器的普通数据。
+          struct VertexOutput {
+            // @builtin(position) 告诉 GPU：这个字段是顶点的裁剪空间位置。
+            @builtin(position) position: vec4f,
+
+            // @location(0) 是顶点阶段和片元阶段之间的第 0 号连接槽位。
+            // 片元着色器也必须在 location(0) 读取同类型的数据。
+            @location(0) color: vec4f,
+          };
+
+          // @vertex 表示下面的函数是顶点着色器入口。
+          @vertex
+          fn vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+            // 这里直接在 Shader 中保存三个顶点的位置，
+            // 因此 JavaScript 不需要创建和绑定 Vertex Buffer。
+            let positions = array<vec2f, 3>(
+              // 顶部顶点：x=0，y=0.65。
+              vec2f( 0.0,  0.65),
+              // 左下顶点。
+              vec2f(-0.65, -0.55),
+              // 右下顶点。
+              vec2f( 0.65, -0.55),
+            );
+
+            // 三个顶点分别使用红、绿、蓝三种颜色。
+            // vec4f 的四个分量分别是 R、G、B、A，取值范围通常是 0.0～1.0。
+            let colors = array<vec4f, 3>(
+              // vertexIndex=0 时使用红色。
+              vec4f(1.0, 0.0, 0.0, 1.0),
+              // vertexIndex=1 时使用绿色。
+              vec4f(0.0, 1.0, 0.0, 1.0),
+              // vertexIndex=2 时使用蓝色。
+              vec4f(0.0, 0.0, 1.0, 1.0),
+            );
+
+            // 声明一个顶点着色器输出对象。
+            var output: VertexOutput;
+
+            // 根据当前顶点编号取出位置，并补齐 z、w 分量。
+            // z=0 表示位于裁剪空间中间深度，w=1 表示普通位置坐标。
+            output.position = vec4f(positions[vertexIndex], 0.0, 1.0);
+
+            // 根据同一个顶点编号取出对应颜色。
+            output.color = colors[vertexIndex];
+
+            // 返回 position 和 color，交给后续光栅化阶段处理。
+            return output;
+          }
+
+          // @fragment 表示下面的函数是片元着色器入口。
+          @fragment
+          fn fs(fsInput: VertexOutput) -> @location(0) vec4f {
+            // 三角形内部的每个片元都会执行这里。
+            // fsInput.color 已经是 GPU 根据三个顶点颜色插值后的结果。
+            // 因此不需要手动计算渐变，直接返回它即可。
+            return fsInput.color;
+          }
+        `
+      });
+
+      // 创建 RenderPipeline，描述一次渲染所需的固定配置。
+      const pipeline = device.createRenderPipeline({
+        // label 方便在开发者工具中识别这条 Pipeline。
+        label: "Inter-stage variable pipeline",
+
+        // auto 让 WebGPU 根据 Shader 的资源声明自动生成 PipelineLayout。
+        // 本示例没有 Buffer、Texture 等绑定资源，因此不需要手动布局。
+        layout: "auto",
+
+        // vertex 部分指定顶点 Shader 模块和入口函数。
+        vertex: {
+          module: shaderModule,
+          entryPoint: "vs",
+        },
+
+        // fragment 部分指定片元 Shader 和颜色输出目标。
+        fragment: {
+          module: shaderModule,
+          entryPoint: "fs",
+          // targets[0] 必须与 Canvas 当前纹理的格式一致。
+          targets: [{ format }],
+        },
+
+        // triangle-list 表示每连续三个顶点组成一个独立三角形。
+        primitive: {
+          topology: "triangle-list",
+        },
+      });
+
+      // 把 Canvas 上下文配置到刚刚创建的 Device 上。
+      // 配置后，getCurrentTexture() 才能取得可渲染的 Canvas 纹理。
+      context.configure({
+        device,
+        format,
+        // 使用预乘 Alpha，适合与浏览器页面进行合成。
+        alphaMode: "premultiplied",
+      });
+
+      // 根据 CSS 显示尺寸同步 Canvas 的实际像素尺寸。
+      // CSS 尺寸决定页面上显示多大，Canvas width/height 决定渲染有多清晰。
+      function resizeCanvas() {
+        // devicePixelRatio 可以让高分屏使用更多实际像素，避免画面模糊。
+        const scale = window.devicePixelRatio || 1;
+        const width = Math.max(1, Math.floor(canvas.clientWidth * scale));
+        const height = Math.max(1, Math.floor(canvas.clientHeight * scale));
+
+        // 尺寸没有变化时不重复修改 Canvas，避免不必要的重新配置。
+        if (canvas.width === width && canvas.height === height) {
+          return;
+        }
+
+        // 设置 Canvas 的内部绘图分辨率。
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      // 录制并提交一帧 GPU 绘制命令。
+      function render() {
+        // 绘制前先确保 Canvas 的实际像素尺寸是最新的。
+        resizeCanvas();
+
+        // 获取当前帧的 Canvas Texture，并创建 RenderPass 使用的 TextureView。
+        // 每次绘制都应重新获取当前纹理。
+        const view = context.getCurrentTexture().createView();
+
+        // CommandEncoder 用于在 CPU 侧录制 GPU 命令。
+        const encoder = device.createCommandEncoder();
+
+        // 开始一个渲染通道，并声明颜色附件。
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{
+            // 指定本次要写入的颜色目标。
+            view,
+            // 清屏颜色：深蓝灰色背景。
+            clearValue: { r: 0.04, g: 0.05, b: 0.08, a: 1 },
+            // 在 RenderPass 开始时先清除颜色附件。
+            loadOp: "clear",
+            // RenderPass 结束后保留绘制结果。
+            storeOp: "store",
+          }],
+        });
+
+        // 告诉 GPU：后续绘制命令使用哪一条渲染管线。
+        pass.setPipeline(pipeline);
+
+        // 发出绘制命令：从 vertex_index=0 开始执行 3 个顶点。
+        // 三个顶点组成一个三角形，顶点颜色由 vertex shader 提供。
+        pass.draw(3);
+
+        // 结束渲染通道，不能再向这个 pass 追加命令。
+        pass.end();
+
+        // finish() 把 Encoder 变成不可修改的 CommandBuffer。
+        // queue.submit() 再把命令提交给 GPU 异步执行。
+        device.queue.submit([encoder.finish()]);
+      }
+
+      // Canvas 尺寸变化时重新绘制，保证窗口缩放后画面仍然清晰。
+      new ResizeObserver(render).observe(canvas);
+
+      // 初始化完成后先主动绘制第一帧。
+      render();
+
+      // 更新页面上的运行状态提示。
+      document.querySelector("#status").textContent =
+        "Running: @location(0) color is interpolated by the GPU.";
+    }
+
+    // 捕获初始化或渲染过程中抛出的异常，并显示在页面上。
+    main().catch((error) => {
+      // 同时输出完整错误，方便在开发者工具中定位问题。
+      console.error(error);
+      const errorElement = document.querySelector("#error");
+      errorElement.textContent = "WebGPU initialization failed: " + error.message;
+      errorElement.style.display = "block";
+      document.querySelector("#status").textContent = "Failed";
+    });
+  </script>
+</body>
+</html>
+

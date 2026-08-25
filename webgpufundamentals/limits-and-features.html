@@ -1,0 +1,681 @@
+<!doctype html>
+<!-- 单文件 HTML 示例：CSS 与 JavaScript 全部内联，不依赖任何外部资源。 -->
+<html lang="zh-CN">
+<head>
+  <!-- 使用 UTF-8，保证中文界面与中文代码注释正常显示。 -->
+  <meta charset="utf-8">
+  <!-- 让布局在手机、平板和桌面窗口中都按设备宽度自适应。 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGPU Limits 与 Features：从 Adapter 到 Device</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      --page: #081018;
+      --panel: #111d29;
+      --panel-2: #0c1722;
+      --border: #2d4256;
+      --text: #eef7ff;
+      --muted: #a9bdcf;
+      --blue: #75c5ff;
+      --green: #62ddb0;
+      --orange: #ffbd70;
+      --red: #ff8282;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--page);
+      color: var(--text);
+    }
+
+    body {
+      padding: 24px;
+    }
+
+    main {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(27px, 4vw, 42px);
+      line-height: 1.15;
+    }
+
+    h2,
+    h3 {
+      margin-top: 0;
+    }
+
+    .intro {
+      max-width: 980px;
+      margin: 0 0 20px;
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    code,
+    pre,
+    table,
+    .badge,
+    .status {
+      font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", monospace;
+    }
+
+    code {
+      color: #b9e0ff;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 10px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+
+    .step,
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+
+    .step {
+      padding: 15px;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--blue);
+    }
+
+    .step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .arrow {
+      align-self: center;
+      color: #68839a;
+      font-size: 21px;
+    }
+
+    .panel {
+      margin-top: 16px;
+      padding: 17px;
+    }
+
+    .panel > p {
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 10px 11px;
+      border-bottom: 1px solid #26394b;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+
+    th {
+      color: #bed3e5;
+      font-weight: 650;
+    }
+
+    td.adapter {
+      color: var(--orange);
+    }
+
+    td.default-device {
+      color: #c2d6e8;
+    }
+
+    td.requested-device {
+      color: var(--green);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .feature-state {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .feature-card {
+      min-height: 98px;
+      padding: 12px;
+      border: 1px solid #31475a;
+      border-radius: 10px;
+      background: var(--panel-2);
+    }
+
+    .feature-card span {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .feature-card strong {
+      color: var(--green);
+      font-size: 16px;
+    }
+
+    .feature-card strong.no {
+      color: var(--orange);
+    }
+
+    .feature-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      max-height: 190px;
+      overflow-y: auto;
+    }
+
+    .badge {
+      padding: 5px 8px;
+      border: 1px solid #35526a;
+      border-radius: 999px;
+      background: #102334;
+      color: #bfe2ff;
+      font-size: 11px;
+    }
+
+    pre {
+      min-height: 170px;
+      margin: 0;
+      padding: 13px;
+      overflow-x: auto;
+      border: 1px solid #2c4052;
+      border-radius: 10px;
+      background: #09131d;
+      color: #d6e8f6;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .rules {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .rule {
+      padding: 13px;
+      border: 1px solid #304659;
+      border-radius: 10px;
+      background: var(--panel-2);
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .rule.bad {
+      border-color: rgba(255, 130, 130, 0.5);
+    }
+
+    .rule.good {
+      border-color: rgba(98, 221, 176, 0.5);
+    }
+
+    .rule strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--text);
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      margin-top: 16px;
+    }
+
+    button {
+      padding: 10px 14px;
+      border: 1px solid #4c7b9f;
+      border-radius: 9px;
+      background: #17334a;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+    }
+
+    button:hover:not(:disabled) {
+      background: #214764;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.55;
+    }
+
+    .status {
+      flex: 1;
+      margin: 0;
+      color: var(--green);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .status.error {
+      color: var(--red);
+    }
+
+    @media (max-width: 860px) {
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow {
+        transform: rotate(90deg);
+        justify-self: center;
+      }
+
+      .grid,
+      .rules {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      body {
+        padding: 14px;
+      }
+
+      .feature-state {
+        grid-template-columns: 1fr;
+      }
+
+      .actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>WebGPU Limits 与 Features</h1>
+    <p class="intro">
+      这个示例不把 <code>Adapter</code> 和 <code>Device</code> 混为一谈：Adapter 先报告“最多能提供什么”，
+      随后通过两个独立 Adapter 分别创建默认 Device 和按需求申请的 Device，观察限制与可选特性到底启用了哪些。
+    </p>
+
+    <!-- 三段流程对应本章最重要的能力协商模型。 -->
+    <section class="flow" aria-label="Adapter 到 Device 的能力协商流程">
+      <article class="step">
+        <strong>1. 查询 Adapter</strong>
+        <p><code>adapter.limits</code> 与 <code>adapter.features</code> 表示实现可以提供的能力上界。</p>
+      </article>
+      <div class="arrow" aria-hidden="true">→</div>
+      <article class="step">
+        <strong>2. 声明真实需求</strong>
+        <p>只把确实会使用的阈值和特性放进 <code>requiredLimits</code> / <code>requiredFeatures</code>。</p>
+      </article>
+      <div class="arrow" aria-hidden="true">→</div>
+      <article class="step">
+        <strong>3. 获得 Device</strong>
+        <p>后续只能依赖 <code>device.limits</code> 与 <code>device.features</code> 中已经授予的能力。</p>
+      </article>
+    </section>
+
+    <!-- 表格展示同一组限制在三层对象上的真实值。 -->
+    <section class="panel">
+      <h2>常用 Limits：可提供 ≠ 已申请</h2>
+      <p>
+        Adapter 一列是当前实现的可用上限；默认 Device 不传任何要求；按需 Device 只额外要求
+        <code>maxBufferSize</code> 达到本示例计划使用的阈值。为了并排比较，两种 Device 各自使用一次新的
+        <code>requestAdapter()</code> 结果。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Limit</th>
+              <th>Adapter 可提供</th>
+              <th>默认 Device</th>
+              <th>按需 Device</th>
+            </tr>
+          </thead>
+          <tbody id="limits-body">
+            <tr><td colspan="4">正在读取 GPU Limits……</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid">
+      <!-- 聚焦一个容易理解的可选特性，展示支持和启用是两回事。 -->
+      <article class="panel">
+        <h2>Feature Gate：float32-filterable</h2>
+        <p>
+          它允许对 <code>rgba32float</code> 等 32-bit float 纹理做线性过滤。Adapter 支持时，本示例才把它加入
+          <code>requiredFeatures</code>；否则选择 nearest-filtering 回退路径。
+        </p>
+        <div class="feature-state">
+          <div class="feature-card">
+            <span>Adapter 可提供</span>
+            <strong id="feature-available">检测中</strong>
+          </div>
+          <div class="feature-card">
+            <span>默认 Device 已启用</span>
+            <strong id="feature-default">检测中</strong>
+          </div>
+          <div class="feature-card">
+            <span>按需 Device 已启用</span>
+            <strong id="feature-requested">检测中</strong>
+          </div>
+        </div>
+      </article>
+
+      <!-- 这里列出当前 Adapter 的 Feature Set，内容来自实际设备而非硬编码。 -->
+      <article class="panel">
+        <h2>当前 Adapter 的可选 Features</h2>
+        <p id="feature-count">正在读取可选特性……</p>
+        <div id="feature-list" class="feature-list" aria-live="polite"></div>
+      </article>
+    </section>
+
+    <section class="grid">
+      <!-- 运行后动态打印真正交给 requestDevice 的参数。 -->
+      <article class="panel">
+        <h2>本次 requestDevice 参数</h2>
+        <pre id="request-plan">正在生成申请计划……</pre>
+      </article>
+
+      <article class="panel">
+        <h2>为什么不要“全部申请”</h2>
+        <div class="rules">
+          <div class="rule bad">
+            <strong>✕ 把 Adapter 能力全部复制进去</strong>
+            程序可能无意中依赖高端桌面 GPU 的能力，开发机正常，低配设备却在创建 Device 时失败。
+          </div>
+          <div class="rule good">
+            <strong>✓ 先定义需求，再申请最小集合</strong>
+            必需能力不可用就明确失败；增强能力不可用就走回退路径，并让未申请能力的误用尽早暴露。
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <div class="actions">
+      <button id="run" type="button" disabled>重新检测并申请 Device</button>
+      <p id="status" class="status">正在初始化 WebGPU……</p>
+    </div>
+  </main>
+
+  <script type="module">
+    // 本例把 512 MiB 视为“应用希望支持的最大 Buffer 尺寸”。
+    // 这只是演示申请 Limit 的阈值，不会真的分配一个 512 MiB Buffer。
+    const DESIRED_MAX_BUFFER_SIZE = 512 * 1024 * 1024;
+
+    // 选用原文举例的可选特性：让 32-bit float 纹理支持线性过滤。
+    const OPTIONAL_FEATURE = "float32-filterable";
+
+    // 只展示最常遇到的几个 Limit，避免把本章变成几十行字段清单。
+    const LIMITS_TO_SHOW = [
+      ["maxBufferSize", "bytes"],
+      ["maxUniformBufferBindingSize", "bytes"],
+      ["maxStorageBufferBindingSize", "bytes"],
+      ["maxTextureDimension2D", "number"],
+      ["maxBindGroups", "number"],
+      ["maxComputeWorkgroupStorageSize", "bytes"],
+    ];
+
+    // 保存当前创建的 Device；重新运行时先 destroy，避免反复点击后保留无用资源。
+    let liveDevices = [];
+
+    // 把字节数同时格式化成人类可读值和原始整数，便于核对真实 Limit。
+    function formatBytes(value) {
+      const units = ["B", "KiB", "MiB", "GiB"];
+      let scaled = value;
+      let unitIndex = 0;
+      while (scaled >= 1024 && unitIndex < units.length - 1) {
+        scaled /= 1024;
+        unitIndex += 1;
+      }
+      const digits = Number.isInteger(scaled) ? 0 : 1;
+      return `${scaled.toFixed(digits)} ${units[unitIndex]} (${value})`;
+    }
+
+    // 根据字段类型选择普通数字或字节格式。
+    function formatLimit(value, type) {
+      return type === "bytes" ? formatBytes(value) : value.toLocaleString("zh-CN");
+    }
+
+    // 用统一的“是/否”样式展示 Feature 状态。
+    function setBooleanState(element, enabled, yesText, noText) {
+      element.textContent = enabled ? yesText : noText;
+      element.classList.toggle("no", !enabled);
+    }
+
+    // 将 Adapter、默认 Device、按需 Device 的 Limit 并排写入表格。
+    function renderLimits(adapter, defaultDevice, requestedDevice) {
+      const body = document.querySelector("#limits-body");
+      body.replaceChildren();
+
+      for (const [name, type] of LIMITS_TO_SHOW) {
+        const row = document.createElement("tr");
+        const nameCell = document.createElement("td");
+        const adapterCell = document.createElement("td");
+        const defaultCell = document.createElement("td");
+        const requestedCell = document.createElement("td");
+
+        nameCell.textContent = name;
+        adapterCell.textContent = formatLimit(adapter.limits[name], type);
+        defaultCell.textContent = formatLimit(defaultDevice.limits[name], type);
+        requestedCell.textContent = formatLimit(requestedDevice.limits[name], type);
+
+        adapterCell.className = "adapter";
+        defaultCell.className = "default-device";
+        requestedCell.className = "requested-device";
+
+        row.append(nameCell, adapterCell, defaultCell, requestedCell);
+        body.append(row);
+      }
+    }
+
+    // 将 GPUSupportedFeatures 这个 setlike 对象转成排序后的普通数组再显示。
+    function renderAdapterFeatures(adapter) {
+      const features = Array.from(adapter.features).sort();
+      const list = document.querySelector("#feature-list");
+      list.replaceChildren();
+
+      document.querySelector("#feature-count").textContent =
+        `共 ${features.length} 项；这些只是“可申请”，并不表示默认 Device 已启用。`;
+
+      if (features.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "badge";
+        empty.textContent = "当前 Adapter 没有可选 Feature";
+        list.append(empty);
+        return;
+      }
+
+      for (const feature of features) {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = feature;
+        list.append(badge);
+      }
+    }
+
+    // Device 丢失是异步事件；除主动 destroy 外，都把原因反馈到页面。
+    function observeDeviceLoss(device, label) {
+      device.lost.then((info) => {
+        if (info.reason !== "destroyed") {
+          showError(new Error(`${label} 已丢失：${info.message}`));
+        }
+      });
+    }
+
+    // 每次执行都重新查询 Adapter，并创建两种不同申请方式的 Device。
+    async function runCapabilityNegotiation() {
+      const runButton = document.querySelector("#run");
+      const status = document.querySelector("#status");
+      runButton.disabled = true;
+      status.classList.remove("error");
+      status.textContent = "正在查询 Adapter，并创建默认与按需 Device……";
+
+      // 清理上一次运行留下的 Device；此示例不需要跨运行保留 GPU 资源。
+      for (const device of liveDevices) {
+        device.destroy();
+      }
+      liveDevices = [];
+
+      // navigator.gpu 是 WebGPU 的浏览器入口；不存在通常表示浏览器未支持或未启用 WebGPU。
+      if (!navigator.gpu) {
+        throw new Error("当前浏览器没有启用 WebGPU。");
+      }
+
+      // 当前实现会在 requestDevice() 后消费这个 Adapter。
+      // 为了并排创建两个 Device，示例分别请求两个 Adapter；浏览器会按相同偏好完成选择。
+      const defaultAdapter = await navigator.gpu.requestAdapter();
+      if (!defaultAdapter) {
+        throw new Error("没有获得用于默认 Device 的 GPUAdapter。");
+      }
+
+      // 先创建一个完全不申请可选能力的 Device，用它观察默认能力。
+      const defaultDevice = await defaultAdapter.requestDevice();
+      liveDevices = [defaultDevice];
+
+      // 第二个 Adapter 专门用于读取可提供能力并创建按需 Device。
+      const adapter = await navigator.gpu.requestAdapter();
+      if (!adapter) {
+        throw new Error("没有获得用于按需 Device 的 GPUAdapter。");
+      }
+
+      // maxBufferSize 只申请“应用计划使用的值”和“Adapter 上限”中较小的一个。
+      // 正常的 WebGPU Adapter 至少满足规范基线，因此这个数值一定是合法阈值。
+      const requiredMaxBufferSize = Math.min(
+        DESIRED_MAX_BUFFER_SIZE,
+        adapter.limits.maxBufferSize,
+      );
+
+      // 只有 Adapter 明确报告支持时，才能把可选 Feature 放进 requiredFeatures。
+      const canFilterFloat32 = adapter.features.has(OPTIONAL_FEATURE);
+      const requiredFeatures = canFilterFloat32 ? [OPTIONAL_FEATURE] : [];
+
+      // 这里只申请示例真正关注的一项 Limit 和一项条件 Feature，没有复制全部 Adapter 能力。
+      const requestDescriptor = {
+        requiredLimits: {
+          maxBufferSize: requiredMaxBufferSize,
+        },
+        requiredFeatures,
+      };
+
+      // 如果任一 required 项超过 Adapter 能力，requestDevice 的 Promise 就会 reject。
+      const requestedDevice = await adapter.requestDevice(requestDescriptor);
+      liveDevices.push(requestedDevice);
+
+      observeDeviceLoss(defaultDevice, "默认 Device");
+      observeDeviceLoss(requestedDevice, "按需 Device");
+
+      // 验证 Device 确实获得了申请的 Limit，而不是只相信页面显示代码。
+      if (requestedDevice.limits.maxBufferSize < requiredMaxBufferSize) {
+        throw new Error("按需 Device 没有获得申请的 maxBufferSize。");
+      }
+
+      // 默认 Device 不应自动启用未申请的可选 Feature。
+      if (defaultDevice.features.has(OPTIONAL_FEATURE)) {
+        throw new Error("默认 Device 意外启用了未申请的 float32-filterable。");
+      }
+
+      // Adapter 支持时按需 Device 必须启用；不支持时则必须走不申请的回退路径。
+      if (requestedDevice.features.has(OPTIONAL_FEATURE) !== canFilterFloat32) {
+        throw new Error("按需 Device 的 Feature 状态与申请计划不一致。");
+      }
+
+      renderLimits(adapter, defaultDevice, requestedDevice);
+      renderAdapterFeatures(adapter);
+
+      setBooleanState(
+        document.querySelector("#feature-available"),
+        canFilterFloat32,
+        "是，可申请",
+        "否，需回退",
+      );
+      setBooleanState(
+        document.querySelector("#feature-default"),
+        defaultDevice.features.has(OPTIONAL_FEATURE),
+        "是",
+        "否（未申请）",
+      );
+      setBooleanState(
+        document.querySelector("#feature-requested"),
+        requestedDevice.features.has(OPTIONAL_FEATURE),
+        "是（已申请）",
+        "否（回退）",
+      );
+
+      // JSON 只用于直观展示本次真实使用的 requestDevice 参数。
+      document.querySelector("#request-plan").textContent = JSON.stringify(
+        requestDescriptor,
+        null,
+        2,
+      );
+
+      const featureDecision = canFilterFloat32
+        ? "已申请 float32-filterable，可使用 float32 纹理线性过滤"
+        : "Adapter 不支持 float32-filterable，应使用 nearest 过滤或换纹理格式";
+
+      status.textContent =
+        `运行成功：maxBufferSize 需求为 ${formatBytes(requiredMaxBufferSize)}；${featureDecision}。`;
+      runButton.disabled = false;
+    }
+
+    // 统一把初始化、Adapter、Device 和验证错误显示到页面与控制台。
+    function showError(error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = document.querySelector("#status");
+      status.textContent = `错误：${message}`;
+      status.classList.add("error");
+      document.querySelector("#run").disabled = false;
+      console.error(error);
+    }
+
+    // 页面加载后自动运行一次；按钮用于验证重新申请也能得到一致结果。
+    const runButton = document.querySelector("#run");
+    runButton.addEventListener("click", () => {
+      runCapabilityNegotiation().catch(showError);
+    });
+    runCapabilityNegotiation().catch(showError);
+  </script>
+</body>
+</html>

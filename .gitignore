@@ -1,0 +1,14 @@
+node_modules
+dist
+*.tsbuildinfo
+.DS_Store
+*.local
+.vite
+.turbo
+coverage
+.grok/
+.codex-temp/
+.three.js/
+
+
+
