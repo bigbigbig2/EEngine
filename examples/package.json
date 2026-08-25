@@ -1,0 +1,17 @@
+{
+  "name": "oengine-examples",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.ts",
+    "dev:host": "vite --config vite.config.ts --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build --config vite.config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@webgpu/types": "^0.1.64",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

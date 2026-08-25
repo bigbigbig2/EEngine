@@ -73,6 +73,18 @@ unsubscribe();
 
 `BUILD_COMMIT`、浏览器版本、资产 hash 和相机轨迹 hash 必须由宿主/构建脚本提供；浏览器无法可靠推断这些值。
 
+## 可运行浏览器示例
+
+根目录 [r0-observability](../../examples/r0-observability/README.md) 已接入真实 `Renderer`/WebGPU 初始化和 `GraphicsContext.update()` 采集：
+
+```powershell
+Set-Location examples
+npm install
+npm run dev:host
+```
+
+该页面是观测设施 smoke，不是 A/B/C 性能结果。只有页面达到 `20 / 20`、控制台无 WebGPU validation error 且结果 JSON 可导出时，才算浏览器侧 smoke 通过。
+
 ## 当前 CPU/GPU 证据字段
 
 ```text

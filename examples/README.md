@@ -20,4 +20,8 @@ examples/
 - 预期画面、counter/debug view 与不允许出现的 validation error；
 - 对应实施任务 ID，以及需要保存的 JSON/截图路径。
 
-这里只先冻结目录和验证约束。具体页面随 R0 工作包按最小垂直切片加入，避免先生成无法运行的空示例。
+## 当前示例
+
+- [r0-observability](./r0-observability/README.md)：真实初始化 WebGPU/OEngine，并导出 GraphicsContext 更新的 R0 观测结果。
+
+在本目录运行 `npm install` 后，可用 `npm run dev:host` 启动全部示例；`npm run build` 同时执行类型检查和生产构建。后续页面继续按最小垂直切片加入。
