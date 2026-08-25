@@ -30,3 +30,20 @@ OEngine：统一到完整游戏引擎核心与效果管线
 - 只复制明确兼容许可证的代码，并保留必要声明。
 - 无许可证或 All Rights Reserved 项目只能用于概念核对，不得复制、翻译或移植实现。
 - 原生 Vulkan/wgpu 项目只迁移算法思想；WebGPU 缺失能力必须重新设计 fallback。
+
+## 实现移植记录
+
+具体算法开始编码前，应先在本页映射的项目中定位可运行源码，而不是只根据项目简介或论文重新实现。每个移植任务必须固定以下证据：
+
+```text
+upstream repository URL
+commit / tag
+source file(s) and relevant test/example
+license and retained notice
+copied/ported algorithm scope
+OEngine/WebGPU adaptations
+known semantic or precision differences
+local regression example/test
+```
+
+提交中的注释不必堆叠整段上游说明，但必须能链接到仓库内的移植记录。没有兼容许可证时只记录算法对照和独立验证，不复制表达性代码。

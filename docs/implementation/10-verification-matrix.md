@@ -18,6 +18,8 @@ Schema/unit
 
 越靠下成本越高。上层失败时停止下层 benchmark，避免用 FPS 掩盖 ABI/画面错误。
 
+根目录 `examples/` 承载可交互、可截图的 vertical frame test。示例从相对路径加载 `OEngine`，固定场景输入与 seed，并把控制台错误、关键 counter 和预期输出写入自身 README。TypeScript 测试继续负责纯逻辑与 schema，但不能替代真实 WebGPU 页面。
+
 ## 结果元数据
 
 所有 GPU/性能结果至少记录：
@@ -70,6 +72,10 @@ validation errors / device lost count
 ### Vertical frame tests
 
 至少有以下最小场景：empty、single triangle、shared-edge quad、overlap/tie、single Meshlet、two-level hierarchy、Packed instances、alpha-tested、multi-material、one/many lights、camera cut、resize、feature toggle、asset unload/reload 和 device lost simulation（能力允许时）。
+
+### 默认中等验证
+
+普通实现批次不默认启动大规模 review 或跨设备矩阵。最低执行命中单元测试、typecheck/build、一个相关 `examples/` 浏览器场景和 WebGPU 控制台错误检查；涉及像素、LOD、遮挡、材质或时域输出时，再采集截图或短序列进行观察。阶段 Gate、ABI 大改和性能结论才升级到完整矩阵。
 
 ## 图像与数值判定
 

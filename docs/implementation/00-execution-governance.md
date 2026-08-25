@@ -32,6 +32,7 @@ ABI：字段、字节、对齐、版本
 容量：默认值、上限、来源
 Overflow：检测、fallback、counter
 Owner/Lifetime：创建、复用、销毁、device lost
+Upstream：参考仓库、commit/tag、源码路径、许可证、移植差异；无参考实现则说明检索范围
 正确性：单元/GPU/截图/数值验证
 性能：场景、对照、指标、允许回退
 删除项：被替代的旧代码
@@ -39,6 +40,20 @@ Owner/Lifetime：创建、复用、销毁、device lost
 ```
 
 缺少 `Producer/Consumer`、`Overflow` 或验证方法的 GPU 队列任务不进入实现。
+
+## 算法实现来源纪律
+
+- 实现层次遍历、LOD/SSE、BVH8、scan/compact、HZB、软件光栅、Visibility resolve、材质重建和时域算法前，先沿 [GPU-DRIVEN 参考映射](../references/GPU-DRIVEN.md) 定位上游真实实现与测试。
+- 有许可证兼容的成熟实现时，优先移植其已验证的不变量、边界处理和测试向量，再适配 WebGPU 能力与 OEngine ABI；不要仅凭论文摘要重新发明容易出错的细节。
+- 每次移植在任务或代码邻近文档中记录仓库 URL、固定 commit/tag、源码路径、许可证、采用部分、未采用部分和行为差异。上游更新不会自动改变 OEngine。
+- 无许可证、许可证不兼容或能力模型不同的项目只能作为设计证据；此时独立实现，并用 CPU reference/property test 与小型 GPU case 验证。
+- “参考实现”不是跳过设计审查的理由。容量、overflow、owner、WebGPU fallback 和统一主管线约束仍由 OEngine 定义。
+
+## 示例驱动验证
+
+根目录 `examples/` 是可运行垂直场景的默认入口。示例直接通过相对路径引用 `OEngine`，不复制引擎源码，也不建立 three.js 兼容层。每个示例至少写明启动命令、固定输入/seed、期望画面或 counter，以及适用的实施任务 ID。
+
+渲染工作包的中等验证默认包含：命中的 unit/schema 测试、`OEngine` typecheck/build、至少一个相关浏览器示例、控制台 validation error 检查；当画面或时域状态改变时再保存截图/序列并人工观察。普通工作包不默认扩散多个 review 子任务。
 
 ## 完成状态
 

@@ -24,6 +24,7 @@ OEngine 是面向 WebGPU 的 GPU-first 游戏引擎核心。当前优先建设�
 - Feature 关闭时必须接近零成本，不得保留无消费者 Pass、资源分配、readback 或独立 submit。
 - 不以 Pass 数量、Shader 数量或“已存在类名”证明能力完成；必须有运行证据、计数器和 benchmark。
 - 当前 reconstructed 实现不是不可推翻的权威。性能证据可以要求删除或重写现有 Visibility、HZB、Material Expand 和帧提交路径。
+- 具体算法、GPU 数据结构和 Shader 实现应先检查 `docs/references/GPU-DRIVEN.md` 已登记的开源项目；存在许可证兼容且经过验证的实现时，优先做可追溯移植，不凭空重写同一算法。移植必须记录上游仓库、commit/tag、源码路径、许可证、保留的不变量和为 WebGPU/OEngine 做出的差异。
 
 ## 代码与生成物
 
@@ -37,6 +38,8 @@ OEngine 是面向 WebGPU 的 GPU-first 游戏引擎核心。当前优先建设�
 - 类型与构建：`cd OEngine; npm ci; npm run build`。
 - 性能改动必须使用 `docs/PERFORMANCE.md` 的固定 benchmark、相同分辨率/DPR/画质和 warm-up 规则。
 - 渲染正确性不能只靠 typecheck；需要 GPU timestamp、计数器、debug view 或截图/数值回归。
+- 可运行的垂直验证逐步放在根目录 `examples/`，通过相对路径引用 `OEngine` 源码。渲染改动至少运行一个命中的浏览器示例；必要时保存结果并检查截图和控制台，不能只跑 TypeScript 单元测试。
+- 默认采用与风险匹配的中等验证：本地检查、构建/测试和命中示例。除非用户明确要求或变更风险确实需要，不为普通验证扩散多个 review 子任务。
 - 最终说明必须列出已运行验证、未运行验证和原因。
 
 ## 文档权威顺序
@@ -47,4 +50,3 @@ OEngine 是面向 WebGPU 的 GPU-first 游戏引擎核心。当前优先建设�
 4. `docs/ARCHITECTURE.md`、`docs/RENDER-PIPELINE.md`：目标架构。
 5. `docs/CURRENT-STATE.md`：当前实现事实与已知缺陷。
 6. `docs/references/`、`three.js/`：外部证据，不自动决定本项目设计。
-

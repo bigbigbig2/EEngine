@@ -48,6 +48,12 @@ OEngine/src/debug/
 ├─ FrameCounters.ts
 ├─ FrameProfiler.ts
 └─ RenderDebugView.ts
+
+examples/
+├─ r0-observability/       # profiler/environment/result 导出垂直页
+├─ benchmark-a/            # three.js Compute Rasterizer 对齐
+├─ benchmark-b/            # Compute Rasterizer IBL 对齐
+└─ benchmark-c/            # OEngine 通用压力
 ```
 
 预计修改 `GraphicsContext.ts`、`GPUSceneContext.ts`、`Renderer.ts`、`FrameGraph.ts`、现有 timer/statistics 类及关键 Pass。目录和类名可在实现前按局部 `AGENTS.md` 调整，但职责不得重新散回每个 Pass。
@@ -137,7 +143,7 @@ post
 
 ### OBS-02 · 建立 A/B/C harness
 
-让场景、相机轨迹、seed 和开关由同一个 manifest 驱动。three.js 结果可由其独立页面导出，但字段必须映射到同一 result schema。首版先证明截图与场景数量对齐。
+让场景、相机轨迹、seed 和开关由同一个 manifest 驱动。可运行页面放在根目录 `examples/` 并通过相对路径引用 `OEngine`；three.js 结果可由其独立页面导出，但字段必须映射到同一 result schema。首版先证明截图与场景数量对齐，并检查 WebGPU validation error，而不是只运行 TypeScript 测试。
 
 ### OBS-03 · 接通 CPU frame timeline
 
