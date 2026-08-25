@@ -1,0 +1,202 @@
+# 10 · 验证矩阵与发布门禁
+
+## 目标
+
+为每个阶段定义可以自动化、复现和否决错误实现的验证。构建通过只证明 TypeScript/WGSL 被接受，不证明 GPU producer/consumer、渲染正确性或性能完成。
+
+## 验证层次
+
+```text
+Schema/unit
+  → CPU reference/property tests
+  → WebGPU micro tests
+  → vertical frame tests
+  → image/sequence regression
+  → A/B/C performance
+  → cross-adapter/browser recovery
+```
+
+越靠下成本越高。上层失败时停止下层 benchmark，避免用 FPS 掩盖 ABI/画面错误。
+
+## 结果元数据
+
+所有 GPU/性能结果至少记录：
+
+```text
+resultSchemaVersion
+git commit + dirty state
+OS / browser / version
+adapter / architecture description / driver when exposed
+WebGPU features + limits
+canvas pixels / internal pixels / DPR / render scale
+scene asset hashes / seed / camera path
+feature bits / capability profile / SW-HW thresholds
+warm-up / sample count / profiler sampling cadence
+timestamp availability
+validation errors / device lost count
+```
+
+缺少同条件元数据的结果只能作为诊断附件，不能通过 gate。
+
+## 测试类型
+
+### Schema 与单元测试
+
+- TypeScript/WGSL stride、offset、alignment、sentinel、encode/decode。
+- Stable handle allocate/free/reuse/generation/wrap/deferred reuse。
+- Package header/section/range/checksum/version/schema hash。
+- VisibilityKey min/max/empty、Material/Texture refs。
+- FrameGraphKey 相等性、feature pruning、resource lifetime。
+
+### CPU reference/property tests
+
+- Meshlet limits、hierarchy cycle/orphan/parent-child coverage/error monotonicity。
+- BVH8 quantize/decode conservative bounds。
+- frustum/cone/SSE/hysteresis traversal。
+- reverse-Z HZB reduction/occlusion compare。
+- triangle clip/top-left/barycentric/depth/gradient/velocity。
+
+随机/property case 必须保存失败 seed，能转成固定 regression。
+
+### WebGPU micro tests
+
+- upload/copy alignment、table grow、device epoch。
+- queue append、atomic reservation、overflow/fallback、indirect args clamp。
+- ping-pong traversal rounds 与空 indirect dispatch。
+- atomic reverse-Z depth、visibility tie、SW/HW transfer。
+- texture bank sampling、analytic gradients、Surface formats。
+- timestamp/readback ring 不阻塞与 capacity exhaustion。
+
+### Vertical frame tests
+
+至少有以下最小场景：empty、single triangle、shared-edge quad、overlap/tie、single Meshlet、two-level hierarchy、Packed instances、alpha-tested、multi-material、one/many lights、camera cut、resize、feature toggle、asset unload/reload 和 device lost simulation（能力允许时）。
+
+## 图像与数值判定
+
+| 输出 | 判定 |
+|---|---|
+| VisibilityKey | 支持范围内逐像素 exact；empty exact |
+| depth/HZB | 小 reference 场景按明确 float/ULP tolerance；遮挡结论不得漏绘 |
+| selected cluster set | GPU/CPU set 相同；顺序可不同 |
+| barycentric/UV/velocity | 数值 tolerance + 边界 case；invalid/reactive exact |
+| Surface attributes | 在线性空间比较；normal angular error、roughness/metallic absolute error单列 |
+| PBR/IBL/HDR | 先比较线性 HDR 数值，再比较 tonemapped screenshot |
+| TAA/SSR/AO | 固定相机序列，检查 temporal error、ghosting/disocclusion，不只单帧 SSIM |
+
+容差由首个 reference test 写入测试文件和结果 schema；不得为让失败消失而全局放宽。
+
+## 性能统计
+
+- 每个 case 至少经过固定 warm-up，再采集足够帧输出 median/P50、P95、P99；实际帧数由 R0 噪声分析冻结。
+- cold pipeline compile、asset upload 和 warm steady-state 分开。
+- CPU、GPU、submit/readback、工作量、resident/transient/upload bytes 同时输出。
+- 至少重复多轮并报告轮间方差；系统明显受后台任务影响的 run 作废并保留原因。
+- profiler off 数据用于最终性能，profiled sampled run 用于分段；两者都保存。
+
+R0 后创建 `performance-targets.json`，在实际目标硬件写入 A/B/C 的绝对与相对门槛。没有填写目标数字前，R4/R5 不得声称“追平 three.js”。
+
+### 建议的初始回归规则
+
+在 R0 噪声小于阈值后采用以下初始规则，后续可根据统计修订并记录原因：
+
+- 不相关场景 GPU/CPU P50 回退超过 3% 或 P95 回退超过 5% 时阻塞；
+- submit、readback、overflow、validation error 属于 exact gate，不使用百分比豁免；
+- 有意画质增加必须提供 feature-off 同条件结果和 feature-on 增量预算；
+- A 的目标微三角形区间，Hybrid 必须优于新 HW-only，且与 three.js 对齐结果达到 `performance-targets.json`；
+- B 的相同 PBR/IBL 基础链达到目标文件，附加效果不得混入比较；
+- C 不要求单个样例数字掩盖扩展性，必须展示 instance/cluster/material/light 各轴曲线。
+
+## 跨设备/浏览器矩阵
+
+Gate 的具体设备名称在 R0 填入，不在文档猜硬件。最低覆盖类别：
+
+| 类别 | 必须验证 |
+|---|---|
+| 主要开发/目标 adapter | 每次阶段 gate 的完整 A/B/C |
+| 至少一类集成 GPU | limits、atomic/带宽、Hybrid profile、内存峰值 |
+| 至少一类离散 GPU | primitive/compute 交叉点、timestamp、P95/P99 |
+| 一个低 limits/capability profile | texture banks、buffer capacity、feature fallback |
+| 主要 Chromium WebGPU 浏览器 | 完整稳定帧与 validation |
+| 另一可支持的浏览器/平台 | 启动协商、correct fallback、基础 vertical cases |
+
+某平台缺少 timestamp-query 等可选 feature 时标为 capability fallback 通过，不伪造数据。64 位原子或 native-only 能力不属于 baseline gate。
+
+## 阶段追踪矩阵
+
+| Gate | 必过 correctness | 必出 performance | 必查结构 |
+|---|---|---|---|
+| G0 Observe | counter/timestamp frame 归属、debug view | A/B/C R0 artifact | shader source map、submit/readback map |
+| G1 Runtime | HZB reference、resize/history/device lost | 空/A/B/C fixed cost 前后 | 一个主要 submit、graph cache/off pruning |
+| G2 Data | package/handle/change set/packed instances | unchanged 与 N changes scaling | owner、resident bytes、旧 owner 删除 |
+| G3 Hierarchy | CPU/GPU selected set、overflow parent fallback | visited/selected/raster reduction | GPU闭环、旧 flat chain 删除 |
+| G4 Visibility | HW/SW/Hybrid depth/key/edge/clip | triangle size sweep、跨 GPU profile | key ABI、HW fallback、旧 Visibility 删除 |
+| G5 Shading | Surface/PBR/velocity/history/feature sequence | B/C materials/lights/effects curves | 单次 Resolve、off 零成本、旧 GBuffer旁路删除 |
+
+## 需求到证据追踪
+
+| 核心要求 | 实施任务 | 主要证据 |
+|---|---|---|
+| 可解释当前性能差距 | OBS-01..08 | A/B/C result + frame timeline |
+| 一个主要 submit | FG-01..04、FG-10 | submit/readback exact counters |
+| FrameGraph 缓存/feature off | FG-05..06 | graph key/cache counters/dump |
+| Compute HZB | FG-07..09 | mip numerical tests + GPU time |
+| Runtime Asset/stable handle | WORLD-02..06 | schema/lifetime/device lost tests |
+| Packed Instance Set | WORLD-07 | A/C JS objects、extract/upload scaling |
+| Cooker/hierarchy/BVH8 | COOK-01..10 | package validator + CPU reference |
+| SSE GPU work generation | WORK-01..10 | selected set + queue/counter + indirect consumer |
+| SW/HW Visibility | VIS-01..10 | pixel exact/tolerance + size sweep |
+| 单次 Material Resolve | MAT-01..10 | draw count vs materials + B visual/numeric |
+| 高质量效果统一主管线 | FX-01..12 | feature graph/off assertion + B/C sequence |
+| 大胆删除旧实现 | DEL-00..05 | `rg`/bundle/graph dump + git diff |
+
+## 自动化命令
+
+当前仓库已有基础命令：
+
+```powershell
+Set-Location OEngine
+npm ci
+npm run build
+npm test
+```
+
+`OBS-02` 应新增非交互 benchmark/export 命令和可在浏览器运行的 harness；具体脚本名在实现时写入 `OEngine/package.json` 与 `OEngine/benchmarks/README.md`，避免本文档先声明不存在的可执行命令。
+
+每次文档/迁移还应运行：
+
+```powershell
+git diff --check
+```
+
+以及仓库 Markdown 相对链接检查。GPU/截图/性能验证如果当前环境不能运行，交付说明必须列为未运行及原因，不能用 build 代替。
+
+## 发布阻断条件
+
+以下任何一项存在时不能通过对应 gate：
+
+- WebGPU validation error、device lost 未解释、NaN/越界访问；
+- 不可恢复 queue overflow 或静默漏绘/丢灯/丢透明；
+- feature off 仍有 Pass/resource/readback/submit；
+- 当前帧 CPU readback 决定 draw/dispatch；
+- A/B 比较条件不一致却声称性能结论；
+- P95/P99 回退被平均 FPS 掩盖；
+- 旧 producer/ABI 长期双写且没有删除任务；
+- `CURRENT-STATE`、Context、ADR 与真实运行路径冲突。
+
+## 最终交付报告模板
+
+```md
+完成的 Gate/任务 ID：
+真实运行主链：
+新增/修改/删除模块：
+冻结 ABI 与版本：
+正确性结果：
+A/B/C 性能结果：
+其他场景回退：
+Overflow/fallback 结果：
+Feature-off 证据：
+已运行命令：
+未运行验证与原因：
+更新的 Context/ADR/CURRENT-STATE/Lesson：
+下一 Gate 的未决问题：
+```

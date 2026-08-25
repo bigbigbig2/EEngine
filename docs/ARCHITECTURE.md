@@ -1,76 +1,67 @@
-# 当前架构
+# OEngine 目标架构
 
-> 本文只记录当前已经接入的运行时事实。未来目标、强制约束与推进门槛见 [ENGINE-DIRECTION-AND-CONSTRAINTS.md](./ENGINE-DIRECTION-AND-CONSTRAINTS.md)。
-
-## 总体数据流
+## 总体分层
 
 ```text
-Loader / application
-        ↓
-Scene + Camera + Geometry + Material + Texture
-        ↓
-GPUSceneContext + GraphicsContext
-        ↓
-FrameGraph
-        ↓
-Visibility → Material Expand → Lighting/GI → Temporal/Post
-        ↓
-Swapchain
+Importer / Cooker / Profiler
+          │
+Runtime Asset Package
+          │
+Application World
+          │ Change Set / Extract
+GPU Render World
+          │
+GPU Work Generator
+          │
+Hybrid Visibility Renderer
+          │
+Material Resolve / Lighting / Temporal / Post
+          │
+Present
 ```
 
-## 外部 interface
+## 所有权
 
-`reconstructed/src/index.ts` 是唯一公开 seam。示例和未来消费者只依赖这里，不能直接导入 `gpu`、`render/passes` 或 `shaders`。
+### Asset Pipeline
 
-这使外部调用者只需要理解 Renderer、Scene、Camera、资源和 Loader；GPU 数据库、FrameGraph 与 Pass 实现可以在不修改示例的情况下重构。
+拥有设备无关的 GeometryAsset、Meshlet、Cluster Group、LOD hierarchy、BVH、几何误差、压缩顶点流和纹理预处理。输出必须可序列化和版本化。
 
-## 运行时所有权
+### Application World
 
-```text
-Renderer
-├─ GraphicsContext                  device 级共享资源
-│  ├─ buffer / texture allocators
-│  ├─ shader / pipeline / bind-group caches
-│  ├─ shared MeshletGpuTable
-│  └─ shared GPUMaterialRegistry
-├─ GPUSceneManager
-│  └─ GPUSceneContext               每个 Scene
-│     ├─ SceneDatabase
-│     ├─ LightDatabase / Shadow
-│     ├─ Animation / Skinning
-│     ├─ TLAS / Probe / Volumetrics
-│     └─ 引用共享 geometry/material
-├─ ViewManager
-│  └─ GPUViewContext                每个 Camera + Scene
-│     ├─ current/previous camera
-│     ├─ view uniform
-│     └─ HZB
-├─ RenderTargets / temporal history
-└─ Pass owners
-```
+拥有 Gameplay/编辑语义、对象身份、层级、动画意图和 Packed Instance Set。它不持有 GPU Buffer 地址。
 
-每次 GPU 提交创建 `ShadeGPUCommandContext`；每帧主渲染创建临时 `FrameGraph`。FrameGraph 声明 Pass 的 read/write/create 关系，裁剪无消费者 Pass，并在资源最后使用后归还 transient 资源。
+### GPU Render World
 
-## 主渲染管线
+拥有 GPU 常驻表、稳定 handle、resident geometry/material/texture/light、容量和销毁。建议的核心表为 Instance、Geometry、Cluster、Material、Light。
 
-```text
-GPUScene update
-→ shadow selection/raster
-→ mesh/meshlet frustum + HZB culling
-→ GPU compact / prefix scan / indirect args
-→ visibility ID + reverse-Z depth
-→ material expansion to GBuffer
-→ clustered direct lighting + indirect lighting
-→ transparent OIT
-→ velocity + TAA/NSS
-→ motion blur + sharpen + bloom + exposure
-→ tonemap
-```
+### GPU Work Generator
 
-## 模块设计原则
+从实例剔除进入 BVH/Cluster traversal，完成 SSE LOD、frustum/cone/HZB culling、compact、软硬件队列分类和 indirect 参数生成。
 
-1. `src/index.ts` 是外部 interface，内部目录不是公开 interface。
-2. `Renderer` 是 composition root，只负责编排和所有权，不继续吸收算法实现。
-3. GPU 常驻数据由明确 owner 管理；临时资源由 command context 或 FrameGraph 管理。
-4. Pass 通过 `addToGraph()` 声明依赖，避免绕过 FrameGraph 创建跨 Pass 临时资源。
-5. CPU 与 WGSL 的结构布局必须共享明确 ABI，不允许在调用点重复硬编码 offset。
+### Hybrid Visibility Renderer
+
+Compute 处理微三角形，固定功能硬件处理普通/大三角形。两条路径输出同一 VisibilityKey 与深度语义。
+
+### Shading Pipeline
+
+一次 Material Resolve 动态读取 MaterialTable 和 resident texture pages，生成紧凑表面数据；后续光照、透明、时域和后处理共享 Depth/HZB/Velocity/Lighting 数据。
+
+### FrameGraph
+
+拥有 Pass 依赖、资源生命周期、裁剪、复用和命令编码。图拓扑由 feature set、尺寸和目标决定，并可缓存编译结果。
+
+## 关键 seam
+
+| Seam | 输入 | 输出 | 禁止泄漏 |
+|---|---|---|---|
+| Asset → Resident | Runtime Asset handle | GPU resident handle | 临时 Loader 对象、裸地址 |
+| World → GPU World | Change Set | 增量表更新 | Renderer 全量遍历 |
+| Hierarchy → Raster | SelectedCluster/Work Queue | SW/HW queues + indirect args | CPU 可见列表 |
+| Raster → Resolve | VisibilityKey + depth | Surface/GBuffer | 光栅路径特有材质逻辑 |
+| Pass → FrameGraph | 完整 read/write/create | 编码后的命令 | 隐式跨 Pass 资源 |
+
+## WebGPU 基线与增强能力
+
+浏览器 WebGPU 是默认契约。subgroups 等能力只能通过 capability profile 选择增强实现；64 位原子、multi-draw-indirect、mesh/task shader 和 buffer device address 不得成为正确性前提。
+
+Native/WebGPU 增强路径尚未决策，若引入必须新增 ADR。
