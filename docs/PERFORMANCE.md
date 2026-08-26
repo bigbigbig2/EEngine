@@ -45,7 +45,7 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 ## 当前已确认的性能风险
 
-- R1-A 入口的 `GraphicsContext.update()` 独立 submit、持续 collection readback、scene animation/database self-submit 已在代码中删除；真实 WebGPU 的 3/13→1 结果仍待同入口浏览器 artifact 确认。
+- R1-A 入口的 `GraphicsContext.update()` 独立 submit、持续 collection readback、scene animation/database self-submit 已删除；真实 WebGPU smoke 已确认 Frame/A/B/C 从 3/13 收口为一次 `Renderer/main-0` submit。
 - steady render tick 现在由 `FrameCoordinator` 持有唯一主 command；显式 one-shot/tool/debug-readback/recovery 路径仍可独立提交，但 runtime label 必须在 allowlist。
 - FrameGraph 每帧重建和 compile。
 - HZB 每次逐 mip 开 Render Pass，普通帧构建两次，alpha-tested 时可能三次。
@@ -63,7 +63,9 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 R1-A 修复 B mipmap 生命周期后的自动门禁为 `npm test` 55/55 与 examples production build 通过。浏览器插件桥在本轮初始化失败，因此浏览器 artifact 由用户采集；下表仍是入口基线，after smoke 只用于验证结构变化，不与 clean/full 性能 gate 混用。
 
-commit `4de81f7a` 的第一轮 after smoke 已证明 Frame Smoke/A/B/C 的 submit P50/max 全为 1/1，非采样 readback P50 为 0，scene preparation P50 为 1；C 的 view preparation P50 为 10，但不增加 scene preparation 或 submit。Frame Smoke/A/C diagnostics 为 0。B 的 3 个 GPU counter 采样帧因 mipmap 临时 Buffer/Texture 提前销毁产生 validation error，不能进入 after 性能比较；修复 commit 必须重跑 B，确认 diagnostics=0、shadedPixels 恢复真实非零和画面正常后才能关闭 R1-A。
+commit `4de81f7a` 的第一轮 after smoke 已证明 Frame Smoke/A/B/C 的 submit P50/max 全为 1/1，非采样 readback P50 为 0，scene preparation P50 为 1；C 的 view preparation P50 为 10，但不增加 scene preparation 或 submit。Frame Smoke/A/C diagnostics 为 0。B 的 3 个 GPU counter 采样帧因 mipmap 临时 Buffer/Texture 提前销毁产生 validation error，第一轮 B 不能进入 after 性能比较，并促成后续资源生命周期修复。
+
+修复后第二轮 B 保持 submit P50/max 1/1、readback P50 0、scene preparation 1，并恢复 `shadedPixels P50=259190`，diagnostics 全为 0，画面人工确认正常；`R1-A` 功能 Gate 关闭。由于 dev server 未重启，第二轮 JSON 仍带旧 build-time commit 字段，只能作为 non-gate smoke；正式性能百分比和 clean/full paired 结论留到 R1-D，届时必须刷新 server、commit 与 dirty reasons。
 
 | Case | CPU frame P50 / P95 | Submit | Graph build/compile | HZB build / mip Render Pass | HZB phase P50 / P95 |
 |---|---:|---:|---:|---:|---:|

@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。`R1-A` 的代码与自动门禁已经落地，正在等待 Frame Smoke/A/B/C 浏览器 artifact 验收；验收前不提前进入 `R1-B`，也不把自动测试通过冒充 GPU 运行证据。
+R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。`R1-A` 已完成代码、自动门禁与 Frame Smoke/A/B/C 浏览器功能验收；下一执行包是 `R1-B` Compiled FrameGraph 与 feature pruning。
 
 R1 解决与场景规模不成比例的运行时固定成本和错误生命周期边界。它不会实现 R2 的 Runtime Asset/Packed Instance、R3 的 Geometry Hierarchy/SSE LOD、R4 的 Compute Software Raster，也不把 three.js 两个示例当作引擎完成上限。
 
@@ -220,17 +220,19 @@ R1-D Lifecycle / deletion / regression gate
 
 | ID | 状态 | 已落地证据 / 剩余验收 |
 |---|---|---|
-| `R1-A01` | 代码完成 | `GpuQueueEvidence` 冻结 submit owner 分类；未知 label 在 queue 前失败；`gpu-submit-owner.test.mjs` 禁止主帧模块自建 encoder/submit。浏览器仍需确认 runtime label 只有 `Renderer/main-0`。 |
-| `R1-A02` | 代码完成 | 新增 `FrameCoordinator`，统一 begin/submit/abort/destroy；command 暴露 `closed`、`submitted`、`gpuDone`，abort 会取消 readback ticket并释放未提交资源。in-flight GPU 完成后资源复用的完整矩阵仍属于 `R1-D03`。 |
-| `R1-A03` | 代码完成 | Graphics maintenance、geometry/texture/material maintenance 与按需 collection sampling 编码到主 command；保留的 `GraphicsContext.update()` 明确降级为非 render-frame 的 one-shot tool。 |
-| `R1-A04` | 代码完成 | `GPUSceneContext.encodeFrame()` 每 scene/frame 幂等；主/阴影视图只准备 camera/view uniform；animation、database、BLAS、TLAS dirty work 共用主 command；abort 后强制重建。 |
-| `R1-A05` | 代码完成 | Light、environment prefilter、Volumetrics、resident material、mipmap、GPUDatabase grow、Geometry BLAS grow/upload 与 TLAS copy 已迁入调用方 command。 |
-| `R1-A06` | 代码完成 | 非采样帧不发起 collection readback；采样 copy 编入主 encoder；readback ring 支持 abort/cancel，不为 map 制造额外 submit。 |
-| `R1-A07` | 待浏览器验收 | 旧 animation/database/Graphics/BLAS grow self-submit 已删除；修复 B mipmap 生命周期后 `npm test` 55/55 和 examples build 通过。Frame Smoke/A/C 已通过；仍需重跑 B，确认 diagnostics=0、真实 counter 与画面恢复。 |
+| `R1-A01` | 完成 | `GpuQueueEvidence` 冻结 submit owner 分类；未知 label 在 queue 前失败；静态门禁禁止主帧模块自建 encoder/submit；Frame/A/B/C runtime label 均只有 `Renderer/main-0`。 |
+| `R1-A02` | 完成 | 新增 `FrameCoordinator`，统一 begin/submit/abort/destroy；command 暴露 `closed`、`submitted`、`gpuDone`，abort 会取消 readback ticket并释放未提交资源。in-flight GPU 完成后资源复用的完整矩阵仍属于 `R1-D03`。 |
+| `R1-A03` | 完成 | Graphics maintenance、geometry/texture/material maintenance 与按需 collection sampling 编码到主 command；保留的 `GraphicsContext.update()` 明确降级为非 render-frame 的 one-shot tool。 |
+| `R1-A04` | 完成 | `GPUSceneContext.encodeFrame()` 每 scene/frame 幂等；主/阴影视图只准备 camera/view uniform；animation、database、BLAS、TLAS dirty work 共用主 command；abort 后强制重建。 |
+| `R1-A05` | 完成 | Light、environment prefilter、Volumetrics、resident material、mipmap、GPUDatabase grow、Geometry BLAS grow/upload 与 TLAS copy 已迁入调用方 command。 |
+| `R1-A06` | 完成 | 非采样帧不发起 collection readback；采样 copy 编入主 encoder；readback ring 支持 abort/cancel，不为 map 制造额外 submit。 |
+| `R1-A07` | 完成 | 旧 animation/database/Graphics/BLAS grow self-submit 已删除；修复 B mipmap 生命周期后 `npm test` 55/55 和 examples build 通过。Frame/A/B/C 均为一次 `Renderer/main-0` submit；diagnostics、真实 counter 与画面通过。 |
 
 保留的独立 submit 只允许 `one-shot | tool | debug-readback | recovery` 分类；`GPUDatabase/read`、LPV bake/read、texture preserve resize、meshlet compact 等不属于 steady render tick。`queue.writeBuffer()` 不等于额外 submit，按本文件非目标约束继续记录 owner/bytes，不在 R1-A 机械改写全部 Pass settings upload。
 
-第一次浏览器验收使用 commit `4de81f7a` 的 smoke artifact。Frame Smoke、A、C 均证明 `submit P50/max=1/1`、非采样 `readback P50=0`、`scenePrepareCount=1` 且 diagnostics 为 0；C 的 `viewPrepareCount=10` 对应 1 个主视图与 9 个实际阴影视图，没有放大 scene preparation 或 submit。B 同样达到 submit/scene 指标，但 3 个采样帧出现 `Buffer used in submit while destroyed`，截图为空蓝画面，因此该 artifact 无效。根因是并入主 encoder 的 mipmap 参数 Buffer/临时纹理仍沿用旧 one-shot 生命周期，在主 submit 前销毁；现已改为 command finish/abort 后回收。`R1-A07` 只需用修复 commit 重跑 B 并确认 diagnostics/画面，不要求重复已通过的 A/C/Frame smoke。
+第一次浏览器验收使用 commit `4de81f7a` 的 smoke artifact。Frame Smoke、A、C 均证明 `submit P50/max=1/1`、非采样 `readback P50=0`、`scenePrepareCount=1` 且 diagnostics 为 0；C 的 `viewPrepareCount=10` 对应 1 个主视图与 9 个实际阴影视图，没有放大 scene preparation 或 submit。B 同样达到 submit/scene 指标，但 3 个采样帧出现 `Buffer used in submit while destroyed`，截图为空蓝画面，因此第一轮 B artifact 无效。根因是并入主 encoder 的 mipmap 参数 Buffer/临时纹理仍沿用旧 one-shot 生命周期，在主 submit 前销毁；现已改为 command finish/abort 后回收。
+
+修复后第二轮用户重新采集五个 smoke 页面，B 恢复为 `submit P50/max=1/1`、`readback P50=0`、`scenePrepareCount=1`、`shadedPixels P50=259190`、`validation/uncaptured/deviceLost=0`，画面人工确认正常；Frame/A/C 也继续正常。所有主管线帧的 submit label 唯一为 `Renderer/main-0`。该轮 dev server 没有重启，JSON 的 build-time commit 字段仍为 `4de81f7a`，因此只作为 R1-A non-gate 功能验收；R1-D clean/full paired benchmark 必须重启 server 并保存准确 commit/dirty 元数据。
 
 #### 输入
 
@@ -458,7 +460,7 @@ R1 默认四个主要实现提交，包内先在工作区完成自动测试和�
 
 ## 阶段退出清单
 
-- [ ] `R1-A01～A07`：一帧唯一提交 owner 与按 dirty 编码完成。
+- [x] `R1-A01～A07`：一帧唯一提交 owner 与按 dirty 编码完成。
 - [ ] `R1-B01～B06`：Compiled graph、cache 与 feature pruning 完成。
 - [ ] `R1-C01～C06`：Compute HZB、history 与旧 Render HZB 删除完成。
 - [ ] `R1-D01～D05`：生命周期、paired benchmark、文档和死代码收口完成。
