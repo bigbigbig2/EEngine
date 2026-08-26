@@ -1,0 +1,1286 @@
+{
+  "schemaVersion": 3,
+  "environment": {
+    "schemaVersion": 3,
+    "capturedAt": "2026-08-26T17:27:53.153Z",
+    "engine": {
+      "commit": "cb4ee7a8f6722feeb5eb3f7e8571bc70982ceb7f",
+      "dirty": true,
+      "dirtyReasons": [
+        " M examples/index.html",
+        " M examples/tsconfig.json",
+        " M examples/vite.config.ts",
+        " M OEngine/src/render/HierarchicalZBuffer.ts",
+        " M OEngine/src/render/passes/ShadowRasterPass.ts",
+        " M OEngine/src/render/passes/VisibilityPass.ts",
+        " M OEngine/src/render/Renderer.ts",
+        " M OEngine/src/render/ViewContext.ts",
+        " M OEngine/src/shaders/hzb_reduce.ts",
+        " M OEngine/tests/gpu-frame-phase.test.mjs",
+        " M three.js",
+        "?? examples/r1-compute-hzb/",
+        "?? OEngine/src/render/HzbHistory.ts",
+        "?? OEngine/src/render/HzbReference.ts",
+        "?? OEngine/tests/hzb-compute.test.mjs",
+        "?? temp/",
+        "A  examples/yarn.lock",
+        "M OEngine/src/gpu/ShadowContext.ts"
+      ]
+    },
+    "platform": {
+      "os": "Win32",
+      "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+    },
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "0x1f06",
+      "description": "NVIDIA GeForce RTX 2060 SUPER",
+      "driver": null
+    },
+    "webgpu": {
+      "features": [
+        "core-features-and-limits",
+        "float32-blendable",
+        "indirect-first-instance",
+        "rg11b10ufloat-renderable",
+        "subgroups",
+        "texture-formats-tier1",
+        "timestamp-query"
+      ],
+      "limits": {
+        "maxBindGroups": 4,
+        "maxBindGroupsPlusVertexBuffers": 24,
+        "maxBindingsPerBindGroup": 1000,
+        "maxBufferSize": 2147483648,
+        "maxColorAttachmentBytesPerSample": 32,
+        "maxColorAttachments": 8,
+        "maxComputeInvocationsPerWorkgroup": 256,
+        "maxComputeWorkgroupSizeX": 256,
+        "maxComputeWorkgroupSizeY": 256,
+        "maxComputeWorkgroupSizeZ": 64,
+        "maxComputeWorkgroupsPerDimension": 65535,
+        "maxComputeWorkgroupStorageSize": 16384,
+        "maxDynamicStorageBuffersPerPipelineLayout": 4,
+        "maxDynamicUniformBuffersPerPipelineLayout": 8,
+        "maxImmediateSize": 64,
+        "maxInterStageShaderVariables": 16,
+        "maxSampledTexturesPerShaderStage": 16,
+        "maxSamplersPerShaderStage": 16,
+        "maxStorageBufferBindingSize": 2147483644,
+        "maxStorageBuffersInFragmentStage": 10,
+        "maxStorageBuffersInVertexStage": 10,
+        "maxStorageBuffersPerShaderStage": 10,
+        "maxStorageTexturesInFragmentStage": 4,
+        "maxStorageTexturesInVertexStage": 4,
+        "maxStorageTexturesPerShaderStage": 4,
+        "maxTextureArrayLayers": 256,
+        "maxTextureDimension1D": 8192,
+        "maxTextureDimension2D": 8192,
+        "maxTextureDimension3D": 2048,
+        "maxUniformBufferBindingSize": 65536,
+        "maxUniformBuffersPerShaderStage": 12,
+        "maxVertexAttributes": 16,
+        "maxVertexBufferArrayStride": 2048,
+        "maxVertexBuffers": 8,
+        "minStorageBufferOffsetAlignment": 256,
+        "minUniformBufferOffsetAlignment": 256
+      },
+      "powerPreference": "high-performance",
+      "timestampQueryAvailable": true
+    },
+    "frame": {
+      "canvasWidth": 1037,
+      "canvasHeight": 177,
+      "internalWidth": 1037,
+      "internalHeight": 177,
+      "dpr": 1
+    },
+    "run": {
+      "baselineRole": "observability-smoke",
+      "featureSet": [
+        "graphics-update-observability-smoke"
+      ],
+      "warmupFrames": 4,
+      "sampleFrames": 20,
+      "gpuSampleInterval": 1000,
+      "gpuCounterSampleInterval": 1000,
+      "readbackRingSlots": 3
+    }
+  },
+  "case": {
+    "id": "R0-SMOKE",
+    "name": "GraphicsContext observability smoke",
+    "sceneAssetHashes": [
+      "none:empty"
+    ],
+    "seed": 0,
+    "cameraPathHash": "none:static"
+  },
+  "capabilityEvidence": {
+    "schemaVersion": 2,
+    "featureSets": {
+      "graphics-update-observability-smoke": {
+        "status": "supported",
+        "requiredGpuCounters": []
+      }
+    },
+    "gpuCounters": {
+      "candidateInstances": {
+        "status": "supported",
+        "producer": "VisibilityPass/scene-frustum-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "visibleInstances": {
+        "status": "supported",
+        "producer": "VisibilityPass/scene-frustum-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "visitedBvhNodes": {
+        "status": "unsupported",
+        "blockerTaskId": "WORK-04",
+        "reason": "主链没有 BVH8/Hierarchy traversal producer"
+      },
+      "candidateClusters": {
+        "status": "supported",
+        "producer": "VisibilityPass/meshlet-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "selectedClusters": {
+        "status": "supported",
+        "producer": "VisibilityPass/raster-work-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "rejectedFrustum": {
+        "status": "supported",
+        "producer": "VisibilityPass/scene-frustum-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "rejectedCone": {
+        "status": "unsupported",
+        "blockerTaskId": "WORK-04",
+        "reason": "主链尚未实现独立的 Meshlet normal-cone/backface culling stage"
+      },
+      "rejectedHzb": {
+        "status": "supported",
+        "producer": "MeshletDrawList/HZB depth-query reject branches",
+        "requiredInSampledFrames": true
+      },
+      "swClusters": {
+        "status": "unsupported",
+        "blockerTaskId": "VIS-05",
+        "reason": "主链没有 Compute software raster cluster queue producer"
+      },
+      "hwClusters": {
+        "status": "supported",
+        "producer": "VisibilityPass/hardware-raster-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "alphaClusters": {
+        "status": "supported",
+        "producer": "VisibilityPass/alpha-raster-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "swTriangles": {
+        "status": "unsupported",
+        "blockerTaskId": "VIS-05",
+        "reason": "主链没有 Compute software raster triangle producer"
+      },
+      "hwTriangles": {
+        "status": "supported",
+        "producer": "VisibilityPass/hardware-raster-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "shadedPixels": {
+        "status": "supported",
+        "producer": "VisibilityCounterPass/final-visibility reducer",
+        "requiredInSampledFrames": true
+      },
+      "emptyVisibilityPixels": {
+        "status": "supported",
+        "producer": "VisibilityCounterPass/final-visibility reducer",
+        "requiredInSampledFrames": true
+      },
+      "activeMaterials": {
+        "status": "supported",
+        "producer": "MaterialExpandPass/encoded-draw counter",
+        "requiredInSampledFrames": true
+      },
+      "activeLights": {
+        "status": "supported",
+        "producer": "Renderer/active-light-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "queueOverflowMask": {
+        "status": "supported",
+        "producer": "Renderer/registered-GPU-list overflow reducers",
+        "requiredInSampledFrames": true
+      }
+    }
+  },
+  "frames": [
+    {
+      "frameIndex": 5,
+      "cpuMs": {
+        "queue-submit": 0.10000002384185791,
+        "example.graphics-update": 0.10000002384185791,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 5
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 6,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.10000002384185791,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 6
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 7,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.10000002384185791,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 7
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 8,
+      "cpuMs": {
+        "queue-submit": 0.09999990463256836,
+        "example.graphics-update": 0.09999990463256836,
+        "frame": 0.09999990463256836
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 8
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 9,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 9
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 10,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.09999990463256836,
+        "frame": 0.09999990463256836
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 10
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 11,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.20000004768371582,
+        "frame": 0.20000004768371582
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 11
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 12,
+      "cpuMs": {
+        "queue-submit": 0.10000002384185791,
+        "example.graphics-update": 0.20000004768371582,
+        "frame": 0.20000004768371582
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 12
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 13,
+      "cpuMs": {
+        "queue-submit": 0.10000002384185791,
+        "example.graphics-update": 0.10000002384185791,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 13
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 14,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0,
+        "frame": 0
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 14
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 15,
+      "cpuMs": {
+        "queue-submit": 0.10000002384185791,
+        "example.graphics-update": 0.19999992847442627,
+        "frame": 0.19999992847442627
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 15
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 16,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.10000002384185791,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 16
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 17,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.10000002384185791,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 17
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 18,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0,
+        "frame": 0
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 18
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 19,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.10000002384185791,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 19
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 20,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 20
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 21,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.19999992847442627,
+        "frame": 0.19999992847442627
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 21
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 22,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0,
+        "frame": 0
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 22
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 23,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0,
+        "frame": 0.09999990463256836
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 23
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 24,
+      "cpuMs": {
+        "queue-submit": 0,
+        "example.graphics-update": 0.10000002384185791,
+        "frame": 0.10000002384185791
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "GraphicsContext/one-shot-maintenance": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 0,
+        "cacheHits": 0,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "example.frameIndex": 24
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    }
+  ],
+  "summary": {
+    "cpuMs": {
+      "example.graphics-update": {
+        "count": 20,
+        "mean": 0.089999997616,
+        "min": 0,
+        "max": 0.20000004768371582,
+        "p50": 0.100000023842,
+        "p95": 0.200000047684,
+        "p99": 0.200000047684
+      },
+      "frame": {
+        "count": 20,
+        "mean": 0.104999995232,
+        "min": 0,
+        "max": 0.20000004768371582,
+        "p50": 0.100000023842,
+        "p95": 0.200000047684,
+        "p99": 0.200000047684
+      },
+      "queue-submit": {
+        "count": 20,
+        "mean": 0.025,
+        "min": 0,
+        "max": 0.10000002384185791,
+        "p50": 0,
+        "p95": 0.100000023842,
+        "p99": 0.100000023842
+      }
+    },
+    "gpuMs": {},
+    "gpuPhaseMs": {},
+    "counters": {
+      "example.frameIndex": {
+        "count": 20,
+        "mean": 14.5,
+        "min": 5,
+        "max": 24,
+        "p50": 14.5,
+        "p95": 23.05,
+        "p99": 23.81
+      }
+    },
+    "gpuCounters": {},
+    "submits": {
+      "count": 20,
+      "mean": 1,
+      "min": 1,
+      "max": 1,
+      "p50": 1,
+      "p95": 1,
+      "p99": 1
+    },
+    "readbacks": {
+      "count": 20,
+      "mean": 0,
+      "min": 0,
+      "max": 0,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0
+    },
+    "uploadBytes": {
+      "count": 20,
+      "mean": 0,
+      "min": 0,
+      "max": 0,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0
+    }
+  },
+  "diagnostics": {
+    "validationErrorCount": 0,
+    "uncapturedErrorCount": 0,
+    "deviceLostCount": 0,
+    "uncapturedErrors": [],
+    "deviceLostReasons": [],
+    "failedGpuTimestampBatches": 0,
+    "droppedGpuCounterSamples": 0,
+    "failedGpuCounterSamples": 0
+  }
+}

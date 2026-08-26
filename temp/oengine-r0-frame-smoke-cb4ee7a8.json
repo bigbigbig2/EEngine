@@ -1,0 +1,5018 @@
+{
+  "schemaVersion": 3,
+  "environment": {
+    "schemaVersion": 3,
+    "capturedAt": "2026-08-26T17:28:00.379Z",
+    "engine": {
+      "commit": "cb4ee7a8f6722feeb5eb3f7e8571bc70982ceb7f",
+      "dirty": true,
+      "dirtyReasons": [
+        " M examples/index.html",
+        " M examples/tsconfig.json",
+        " M examples/vite.config.ts",
+        " M OEngine/src/render/HierarchicalZBuffer.ts",
+        " M OEngine/src/render/passes/ShadowRasterPass.ts",
+        " M OEngine/src/render/passes/VisibilityPass.ts",
+        " M OEngine/src/render/Renderer.ts",
+        " M OEngine/src/render/ViewContext.ts",
+        " M OEngine/src/shaders/hzb_reduce.ts",
+        " M OEngine/tests/gpu-frame-phase.test.mjs",
+        " M three.js",
+        "?? examples/r1-compute-hzb/",
+        "?? OEngine/src/render/HzbHistory.ts",
+        "?? OEngine/src/render/HzbReference.ts",
+        "?? OEngine/tests/hzb-compute.test.mjs",
+        "?? temp/",
+        "A  examples/yarn.lock",
+        "M OEngine/src/gpu/ShadowContext.ts"
+      ]
+    },
+    "platform": {
+      "os": "Win32",
+      "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+    },
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "device": "0x1f06",
+      "description": "NVIDIA GeForce RTX 2060 SUPER",
+      "driver": null
+    },
+    "webgpu": {
+      "features": [
+        "core-features-and-limits",
+        "float32-blendable",
+        "indirect-first-instance",
+        "rg11b10ufloat-renderable",
+        "subgroups",
+        "texture-formats-tier1",
+        "timestamp-query"
+      ],
+      "limits": {
+        "maxBindGroups": 4,
+        "maxBindGroupsPlusVertexBuffers": 24,
+        "maxBindingsPerBindGroup": 1000,
+        "maxBufferSize": 2147483648,
+        "maxColorAttachmentBytesPerSample": 32,
+        "maxColorAttachments": 8,
+        "maxComputeInvocationsPerWorkgroup": 256,
+        "maxComputeWorkgroupSizeX": 256,
+        "maxComputeWorkgroupSizeY": 256,
+        "maxComputeWorkgroupSizeZ": 64,
+        "maxComputeWorkgroupsPerDimension": 65535,
+        "maxComputeWorkgroupStorageSize": 16384,
+        "maxDynamicStorageBuffersPerPipelineLayout": 4,
+        "maxDynamicUniformBuffersPerPipelineLayout": 8,
+        "maxImmediateSize": 64,
+        "maxInterStageShaderVariables": 16,
+        "maxSampledTexturesPerShaderStage": 16,
+        "maxSamplersPerShaderStage": 16,
+        "maxStorageBufferBindingSize": 2147483644,
+        "maxStorageBuffersInFragmentStage": 10,
+        "maxStorageBuffersInVertexStage": 10,
+        "maxStorageBuffersPerShaderStage": 10,
+        "maxStorageTexturesInFragmentStage": 4,
+        "maxStorageTexturesInVertexStage": 4,
+        "maxStorageTexturesPerShaderStage": 4,
+        "maxTextureArrayLayers": 256,
+        "maxTextureDimension1D": 8192,
+        "maxTextureDimension2D": 8192,
+        "maxTextureDimension3D": 2048,
+        "maxUniformBufferBindingSize": 65536,
+        "maxUniformBuffersPerShaderStage": 12,
+        "maxVertexAttributes": 16,
+        "maxVertexBufferArrayStride": 2048,
+        "maxVertexBuffers": 8,
+        "minStorageBufferOffsetAlignment": 256,
+        "minUniformBufferOffsetAlignment": 256
+      },
+      "powerPreference": "high-performance",
+      "timestampQueryAvailable": true
+    },
+    "frame": {
+      "canvasWidth": 1037,
+      "canvasHeight": 582,
+      "internalWidth": 1037,
+      "internalHeight": 582,
+      "dpr": 1
+    },
+    "run": {
+      "baselineRole": "frame-smoke",
+      "featureSet": [
+        "clustered-lighting",
+        "hardware-visibility",
+        "hzb-culling",
+        "ibl",
+        "material-expand"
+      ],
+      "warmupFrames": 8,
+      "sampleFrames": 24,
+      "gpuSampleInterval": 4,
+      "gpuCounterSampleInterval": 4,
+      "readbackRingSlots": 3
+    }
+  },
+  "case": {
+    "id": "R0-FRAME-SMOKE",
+    "name": "Fixed box grid main frame",
+    "sceneAssetHashes": [
+      "procedural:box-grid-9x9-v1"
+    ],
+    "seed": 0,
+    "cameraPathHash": "procedural:static-camera-v1"
+  },
+  "capabilityEvidence": {
+    "schemaVersion": 2,
+    "featureSets": {
+      "clustered-lighting": {
+        "status": "supported",
+        "requiredGpuCounters": [
+          "activeLights",
+          "queueOverflowMask"
+        ]
+      },
+      "hardware-visibility": {
+        "status": "supported",
+        "requiredGpuCounters": [
+          "candidateInstances",
+          "visibleInstances",
+          "candidateClusters",
+          "selectedClusters",
+          "rejectedFrustum",
+          "hwClusters",
+          "alphaClusters",
+          "hwTriangles",
+          "shadedPixels",
+          "emptyVisibilityPixels",
+          "queueOverflowMask"
+        ]
+      },
+      "hzb-culling": {
+        "status": "supported",
+        "requiredGpuCounters": [
+          "rejectedHzb"
+        ]
+      },
+      "ibl": {
+        "status": "supported",
+        "requiredGpuCounters": []
+      },
+      "material-expand": {
+        "status": "supported",
+        "requiredGpuCounters": [
+          "activeMaterials"
+        ]
+      }
+    },
+    "gpuCounters": {
+      "candidateInstances": {
+        "status": "supported",
+        "producer": "VisibilityPass/scene-frustum-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "visibleInstances": {
+        "status": "supported",
+        "producer": "VisibilityPass/scene-frustum-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "visitedBvhNodes": {
+        "status": "unsupported",
+        "blockerTaskId": "WORK-04",
+        "reason": "主链没有 BVH8/Hierarchy traversal producer"
+      },
+      "candidateClusters": {
+        "status": "supported",
+        "producer": "VisibilityPass/meshlet-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "selectedClusters": {
+        "status": "supported",
+        "producer": "VisibilityPass/raster-work-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "rejectedFrustum": {
+        "status": "supported",
+        "producer": "VisibilityPass/scene-frustum-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "rejectedCone": {
+        "status": "unsupported",
+        "blockerTaskId": "WORK-04",
+        "reason": "主链尚未实现独立的 Meshlet normal-cone/backface culling stage"
+      },
+      "rejectedHzb": {
+        "status": "supported",
+        "producer": "MeshletDrawList/HZB depth-query reject branches",
+        "requiredInSampledFrames": true
+      },
+      "swClusters": {
+        "status": "unsupported",
+        "blockerTaskId": "VIS-05",
+        "reason": "主链没有 Compute software raster cluster queue producer"
+      },
+      "hwClusters": {
+        "status": "supported",
+        "producer": "VisibilityPass/hardware-raster-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "alphaClusters": {
+        "status": "supported",
+        "producer": "VisibilityPass/alpha-raster-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "swTriangles": {
+        "status": "unsupported",
+        "blockerTaskId": "VIS-05",
+        "reason": "主链没有 Compute software raster triangle producer"
+      },
+      "hwTriangles": {
+        "status": "supported",
+        "producer": "VisibilityPass/hardware-raster-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "shadedPixels": {
+        "status": "supported",
+        "producer": "VisibilityCounterPass/final-visibility reducer",
+        "requiredInSampledFrames": true
+      },
+      "emptyVisibilityPixels": {
+        "status": "supported",
+        "producer": "VisibilityCounterPass/final-visibility reducer",
+        "requiredInSampledFrames": true
+      },
+      "activeMaterials": {
+        "status": "supported",
+        "producer": "MaterialExpandPass/encoded-draw counter",
+        "requiredInSampledFrames": true
+      },
+      "activeLights": {
+        "status": "supported",
+        "producer": "Renderer/active-light-list reducer",
+        "requiredInSampledFrames": true
+      },
+      "queueOverflowMask": {
+        "status": "supported",
+        "producer": "Renderer/registered-GPU-list overflow reducers",
+        "requiredInSampledFrames": true
+      }
+    }
+  },
+  "frames": [
+    {
+      "frameIndex": 8,
+      "cpuMs": {
+        "graphics-update": 0.10000002384185791,
+        "world-and-view-update": 0.19999992847442627,
+        "graph-execute": 3.299999952316284,
+        "queue-submit": 0,
+        "frame": 4
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 3,
+        "bytes": 7312,
+        "labels": {
+          "collection-limits": 1,
+          "gpu-counters": 1,
+          "gpu-timestamps": 1
+        }
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265467728
+      },
+      "gpu": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "segments": [
+          {
+            "label": "Renderer/main-0/VisibilityPass/tb-eb-paged-frustum-filter",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/visibleInstances",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ra",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ja",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_dual_hb",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_dual_yb",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_hg_maybe",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_ob",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_count",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/jb_scatter",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/meshlet_ub_b8",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/second-bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 visibility pixel counters",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/depth",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/gbuffer",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU counter atomic add/activeMaterials",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/LightCluster/yh",
+            "type": "compute",
+            "phase": "light-cluster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/overflow-only",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/activeLights",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Direct lighting Ch",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Environment background Ku",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect specular hw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect diffuse uw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Indirect composite TB",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Tonemap $h",
+            "type": "render",
+            "phase": "post",
+            "durationMs": 0
+          }
+        ]
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {
+          "candidateInstances": 0,
+          "visibleInstances": 0,
+          "candidateClusters": 0,
+          "selectedClusters": 0,
+          "hwClusters": 0,
+          "alphaClusters": 0,
+          "hwTriangles": 0,
+          "rejectedFrustum": 0,
+          "rejectedHzb": 0,
+          "shadedPixels": 0,
+          "emptyVisibilityPixels": 0,
+          "activeMaterials": 0,
+          "activeLights": 0,
+          "queueOverflowMask": 0
+        }
+      }
+    },
+    {
+      "frameIndex": 9,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 2.100000023841858,
+        "queue-submit": 0.09999990463256836,
+        "frame": 2.399999976158142
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 10,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.19999992847442627,
+        "graph-execute": 2.399999976158142,
+        "queue-submit": 0.10000002384185791,
+        "frame": 3
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 11,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.20000004768371582,
+        "graph-execute": 1.899999976158142,
+        "queue-submit": 0,
+        "frame": 2.3000000715255737
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 12,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.20000004768371582,
+        "graph-execute": 2.1999999284744263,
+        "queue-submit": 0,
+        "frame": 2.700000047683716
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 3,
+        "bytes": 7312,
+        "labels": {
+          "collection-limits": 1,
+          "gpu-counters": 1,
+          "gpu-timestamps": 1
+        }
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265467728
+      },
+      "gpu": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "segments": [
+          {
+            "label": "Renderer/main-0/VisibilityPass/tb-eb-paged-frustum-filter",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/visibleInstances",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ra",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ja",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_dual_hb",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_dual_yb",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_hg_maybe",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_ob",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_count",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/jb_scatter",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/meshlet_ub_b8",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/second-bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 visibility pixel counters",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/depth",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/gbuffer",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU counter atomic add/activeMaterials",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/LightCluster/yh",
+            "type": "compute",
+            "phase": "light-cluster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/overflow-only",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/activeLights",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Direct lighting Ch",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Environment background Ku",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect specular hw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect diffuse uw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Indirect composite TB",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Tonemap $h",
+            "type": "render",
+            "phase": "post",
+            "durationMs": 0
+          }
+        ]
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {
+          "candidateInstances": 0,
+          "visibleInstances": 0,
+          "candidateClusters": 0,
+          "selectedClusters": 0,
+          "hwClusters": 0,
+          "alphaClusters": 0,
+          "hwTriangles": 0,
+          "rejectedFrustum": 0,
+          "rejectedHzb": 0,
+          "shadedPixels": 0,
+          "emptyVisibilityPixels": 0,
+          "activeMaterials": 0,
+          "activeLights": 0,
+          "queueOverflowMask": 0
+        }
+      }
+    },
+    {
+      "frameIndex": 13,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0,
+        "graph-execute": 2.3000000715255737,
+        "queue-submit": 0,
+        "frame": 2.5999999046325684
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 14,
+      "cpuMs": {
+        "graphics-update": 0.10000002384185791,
+        "world-and-view-update": 0.19999992847442627,
+        "graph-execute": 3.100000023841858,
+        "queue-submit": 0,
+        "frame": 3.600000023841858
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 15,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.20000004768371582,
+        "graph-execute": 2.100000023841858,
+        "queue-submit": 0.09999990463256836,
+        "frame": 2.5
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 16,
+      "cpuMs": {
+        "graphics-update": 0.10000002384185791,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 2.1999999284744263,
+        "queue-submit": 0,
+        "frame": 2.700000047683716
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 3,
+        "bytes": 7312,
+        "labels": {
+          "collection-limits": 1,
+          "gpu-counters": 1,
+          "gpu-timestamps": 1
+        }
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265467728
+      },
+      "gpu": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "segments": [
+          {
+            "label": "Renderer/main-0/VisibilityPass/tb-eb-paged-frustum-filter",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/visibleInstances",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ra",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ja",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_dual_hb",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_dual_yb",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_hg_maybe",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_ob",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_count",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/jb_scatter",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/meshlet_ub_b8",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/second-bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 visibility pixel counters",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/depth",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/gbuffer",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU counter atomic add/activeMaterials",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/LightCluster/yh",
+            "type": "compute",
+            "phase": "light-cluster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/overflow-only",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/activeLights",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Direct lighting Ch",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Environment background Ku",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect specular hw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect diffuse uw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Indirect composite TB",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Tonemap $h",
+            "type": "render",
+            "phase": "post",
+            "durationMs": 0
+          }
+        ]
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {
+          "candidateInstances": 0,
+          "visibleInstances": 0,
+          "candidateClusters": 0,
+          "selectedClusters": 0,
+          "hwClusters": 0,
+          "alphaClusters": 0,
+          "hwTriangles": 0,
+          "rejectedFrustum": 0,
+          "rejectedHzb": 0,
+          "shadedPixels": 0,
+          "emptyVisibilityPixels": 0,
+          "activeMaterials": 0,
+          "activeLights": 0,
+          "queueOverflowMask": 0
+        }
+      }
+    },
+    {
+      "frameIndex": 17,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.19999992847442627,
+        "graph-execute": 1.7000000476837158,
+        "queue-submit": 0.10000002384185791,
+        "frame": 2.200000047683716
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 18,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 1.9000000953674316,
+        "queue-submit": 0,
+        "frame": 2.299999952316284
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 19,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 2.1999999284744263,
+        "queue-submit": 0,
+        "frame": 2.6999999284744263
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 20,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 2.3000000715255737,
+        "queue-submit": 0,
+        "frame": 2.899999976158142
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 3,
+        "bytes": 7312,
+        "labels": {
+          "collection-limits": 1,
+          "gpu-counters": 1,
+          "gpu-timestamps": 1
+        }
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265467728
+      },
+      "gpu": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "segments": [
+          {
+            "label": "Renderer/main-0/VisibilityPass/tb-eb-paged-frustum-filter",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/visibleInstances",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ra",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ja",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_dual_hb",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_dual_yb",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_hg_maybe",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_ob",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_count",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/jb_scatter",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/meshlet_ub_b8",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/second-bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 visibility pixel counters",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/depth",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/gbuffer",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU counter atomic add/activeMaterials",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/LightCluster/yh",
+            "type": "compute",
+            "phase": "light-cluster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/overflow-only",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/activeLights",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Direct lighting Ch",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Environment background Ku",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect specular hw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect diffuse uw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Indirect composite TB",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Tonemap $h",
+            "type": "render",
+            "phase": "post",
+            "durationMs": 0
+          }
+        ]
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {
+          "candidateInstances": 0,
+          "visibleInstances": 0,
+          "candidateClusters": 0,
+          "selectedClusters": 0,
+          "hwClusters": 0,
+          "alphaClusters": 0,
+          "hwTriangles": 0,
+          "rejectedFrustum": 0,
+          "rejectedHzb": 0,
+          "shadedPixels": 0,
+          "emptyVisibilityPixels": 0,
+          "activeMaterials": 0,
+          "activeLights": 0,
+          "queueOverflowMask": 0
+        }
+      }
+    },
+    {
+      "frameIndex": 21,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 1.600000023841858,
+        "queue-submit": 0,
+        "frame": 1.899999976158142
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 22,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.20000004768371582,
+        "graph-execute": 1.6999999284744263,
+        "queue-submit": 0,
+        "frame": 2.100000023841858
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 23,
+      "cpuMs": {
+        "graphics-update": 0.10000002384185791,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 2,
+        "queue-submit": 0,
+        "frame": 2.4000000953674316
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 24,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 2.299999952316284,
+        "queue-submit": 0,
+        "frame": 2.8000000715255737
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 3,
+        "bytes": 7312,
+        "labels": {
+          "collection-limits": 1,
+          "gpu-counters": 1,
+          "gpu-timestamps": 1
+        }
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265467728
+      },
+      "gpu": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "segments": [
+          {
+            "label": "Renderer/main-0/VisibilityPass/tb-eb-paged-frustum-filter",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/visibleInstances",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ra",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ja",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_dual_hb",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_dual_yb",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_hg_maybe",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_ob",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_count",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/jb_scatter",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/meshlet_ub_b8",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/second-bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 visibility pixel counters",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/depth",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/gbuffer",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU counter atomic add/activeMaterials",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/LightCluster/yh",
+            "type": "compute",
+            "phase": "light-cluster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/overflow-only",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/activeLights",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Direct lighting Ch",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Environment background Ku",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect specular hw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect diffuse uw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Indirect composite TB",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Tonemap $h",
+            "type": "render",
+            "phase": "post",
+            "durationMs": 0
+          }
+        ]
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {
+          "candidateInstances": 0,
+          "visibleInstances": 0,
+          "candidateClusters": 0,
+          "selectedClusters": 0,
+          "hwClusters": 0,
+          "alphaClusters": 0,
+          "hwTriangles": 0,
+          "rejectedFrustum": 0,
+          "rejectedHzb": 0,
+          "shadedPixels": 0,
+          "emptyVisibilityPixels": 0,
+          "activeMaterials": 0,
+          "activeLights": 0,
+          "queueOverflowMask": 0
+        }
+      }
+    },
+    {
+      "frameIndex": 25,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 1.399999976158142,
+        "queue-submit": 0,
+        "frame": 1.7999999523162842
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 26,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.30000007152557373,
+        "graph-execute": 2.0999999046325684,
+        "queue-submit": 0,
+        "frame": 2.600000023841858
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 27,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.09999990463256836,
+        "graph-execute": 1.600000023841858,
+        "queue-submit": 0,
+        "frame": 2
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 28,
+      "cpuMs": {
+        "graphics-update": 0.10000002384185791,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 2.100000023841858,
+        "queue-submit": 0,
+        "frame": 2.4000000953674316
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 3,
+        "bytes": 7312,
+        "labels": {
+          "collection-limits": 1,
+          "gpu-counters": 1,
+          "gpu-timestamps": 1
+        }
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265467728
+      },
+      "gpu": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "segments": [
+          {
+            "label": "Renderer/main-0/VisibilityPass/tb-eb-paged-frustum-filter",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/visibleInstances",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ra",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ka_ja",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_dual_hb",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_dual_yb",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/instance_cull_hg_maybe",
+            "type": "compute",
+            "phase": "instance-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/ep-counts",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/og-prefix",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/rp-dispatch",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/$g-expand",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/Yg-commit",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/candidateClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/hzb_cull_ob",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_count",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/qb_ga",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/jb_scatter",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_dispatch_eg",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/meshlet_ub_b8",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args",
+            "type": "compute",
+            "phase": "hierarchy-and-cluster-cull",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/selectedClusters",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Visibility/ID+Depth/second-bucket-8",
+            "type": "render",
+            "phase": "hardware-raster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/HZB/compute-pyramid",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 visibility pixel counters",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/depth",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Material Expand/gbuffer",
+            "type": "render",
+            "phase": "material-resolve",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU counter atomic add/activeMaterials",
+            "type": "compute",
+            "phase": "observability",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/LightCluster/yh",
+            "type": "compute",
+            "phase": "light-cluster",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/overflow-only",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/R0 GPU list counters/activeLights",
+            "type": "compute",
+            "phase": "frame",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Direct lighting Ch",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Environment background Ku",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect specular hw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/IBL indirect diffuse uw",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Indirect composite TB",
+            "type": "render",
+            "phase": "lighting-and-ibl",
+            "durationMs": 0
+          },
+          {
+            "label": "Renderer/main-0/Tonemap $h",
+            "type": "render",
+            "phase": "post",
+            "durationMs": 0
+          }
+        ]
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": true,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {
+          "candidateInstances": 0,
+          "visibleInstances": 0,
+          "candidateClusters": 0,
+          "selectedClusters": 0,
+          "hwClusters": 0,
+          "alphaClusters": 0,
+          "hwTriangles": 0,
+          "rejectedFrustum": 0,
+          "rejectedHzb": 0,
+          "shadedPixels": 0,
+          "emptyVisibilityPixels": 0,
+          "activeMaterials": 0,
+          "activeLights": 0,
+          "queueOverflowMask": 0
+        }
+      }
+    },
+    {
+      "frameIndex": 29,
+      "cpuMs": {
+        "graphics-update": 0.09999990463256836,
+        "world-and-view-update": 0,
+        "graph-execute": 1.600000023841858,
+        "queue-submit": 0,
+        "frame": 1.7999999523162842
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 30,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.09999990463256836,
+        "graph-execute": 1.7000000476837158,
+        "queue-submit": 0,
+        "frame": 2
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    },
+    {
+      "frameIndex": 31,
+      "cpuMs": {
+        "graphics-update": 0,
+        "world-and-view-update": 0.10000002384185791,
+        "graph-execute": 1.4000000953674316,
+        "queue-submit": 0,
+        "frame": 1.6999999284744263
+      },
+      "submits": {
+        "count": 1,
+        "labels": {
+          "Renderer/main-0": 1
+        }
+      },
+      "readbacks": {
+        "count": 0,
+        "bytes": 0,
+        "labels": {}
+      },
+      "uploads": {
+        "writes": 2,
+        "bytes": 8,
+        "labels": {
+          "staging-copy": 8
+        }
+      },
+      "graph": {
+        "builds": 0,
+        "compiles": 0,
+        "executes": 1,
+        "cacheHits": 1,
+        "cacheMisses": 0,
+        "cacheEvictions": 0
+      },
+      "counters": {
+        "runtime.scenePrepareCount": 1,
+        "runtime.viewPrepareCount": 1,
+        "legacy.instances.candidate": 81,
+        "legacy.instances.frustumCulled": 0,
+        "legacy.instances.frustumUnculled": 81,
+        "legacy.visibility.drawCount": 81,
+        "legacy.visibility.bucketPasses": 1,
+        "legacy.visibility.activeMaterialBuckets": 1,
+        "legacy.visibility.secondChance": 1,
+        "hzb.computeBuilds": 2,
+        "hzb.computePasses": 2,
+        "hzb.dispatches": 20,
+        "hzb.outputPixels": 401296,
+        "hzb.historyValid": 1,
+        "hzb.historyInvalidations": 0,
+        "legacy.material.fullscreenDraws": 1,
+        "lighting.clusterCount": 15048,
+        "lighting.localLightCount": 0,
+        "gpu.residentBytes": 265468080
+      },
+      "gpu": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "segments": []
+      },
+      "gpuCounters": {
+        "available": true,
+        "sampled": false,
+        "pending": false,
+        "dropped": false,
+        "schemaVersion": 1,
+        "values": {}
+      }
+    }
+  ],
+  "summary": {
+    "cpuMs": {
+      "frame": {
+        "count": 24,
+        "mean": 2.475000003974,
+        "min": 1.6999999284744263,
+        "max": 4,
+        "p50": 2.400000095367,
+        "p95": 3.510000020266,
+        "p99": 3.908000005484
+      },
+      "graph-execute": {
+        "count": 24,
+        "mean": 2.050000001987,
+        "min": 1.399999976158142,
+        "max": 3.299999952316284,
+        "p50": 2.099999964237,
+        "p95": 2.995000016689,
+        "p99": 3.253999968767
+      },
+      "graphics-update": {
+        "count": 24,
+        "mean": 0.025000000993,
+        "min": 0,
+        "max": 0.10000002384185791,
+        "p50": 0,
+        "p95": 0.100000023842,
+        "p99": 0.100000023842
+      },
+      "queue-submit": {
+        "count": 24,
+        "mean": 0.016666660706,
+        "min": 0,
+        "max": 0.10000002384185791,
+        "p50": 0,
+        "p95": 0.10000000596,
+        "p99": 0.100000023842
+      },
+      "world-and-view-update": {
+        "count": 24,
+        "mean": 0.13333333532,
+        "min": 0,
+        "max": 0.30000007152557373,
+        "p50": 0.100000023842,
+        "p95": 0.200000047684,
+        "p99": 0.277000066042
+      }
+    },
+    "gpuMs": {
+      "Renderer/main-0/Direct lighting Ch": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/Environment background Ku": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/HZB/compute-pyramid": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/IBL indirect diffuse uw": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/IBL indirect specular hw": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/Indirect composite TB": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/LightCluster/yh": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/Material Expand/depth": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/Material Expand/gbuffer": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/$g-expand": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/ep-counts": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/fill_dispatch_eg": {
+        "count": 66,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/fill_draw_indirect_args": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/hzb_cull_dual_yb": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/hzb_cull_ob": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/instance_cull_dual_hb": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/instance_cull_hg_maybe": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/jb_scatter": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/ka_ga": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/ka_ja": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/ka_ra": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/meshlet_ub_b8": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/og-prefix": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/qb_count": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/qb_ga": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/rp-dispatch": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/MeshletDrawList/Yg-commit": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/R0 GPU counter atomic add/activeMaterials": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/R0 GPU list counters/activeLights": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/R0 GPU list counters/candidateClusters": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/R0 GPU list counters/overflow-only": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/R0 GPU list counters/selectedClusters": {
+        "count": 12,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/R0 GPU list counters/visibleInstances": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/R0 visibility pixel counters": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/Tonemap $h": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/Visibility/ID+Depth/bucket-8": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/Visibility/ID+Depth/second-bucket-8": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "Renderer/main-0/VisibilityPass/tb-eb-paged-frustum-filter": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      }
+    },
+    "gpuPhaseMs": {
+      "frame": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "hardware-raster": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "hierarchy-and-cluster-cull": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "instance-cull": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "light-cluster": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "lighting-and-ibl": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "material-resolve": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "observability": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "post": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      }
+    },
+    "counters": {
+      "gpu.residentBytes": {
+        "count": 24,
+        "mean": 265467992,
+        "min": 265467728,
+        "max": 265468080,
+        "p50": 265468080,
+        "p95": 265468080,
+        "p99": 265468080
+      },
+      "hzb.computeBuilds": {
+        "count": 24,
+        "mean": 2,
+        "min": 2,
+        "max": 2,
+        "p50": 2,
+        "p95": 2,
+        "p99": 2
+      },
+      "hzb.computePasses": {
+        "count": 24,
+        "mean": 2,
+        "min": 2,
+        "max": 2,
+        "p50": 2,
+        "p95": 2,
+        "p99": 2
+      },
+      "hzb.dispatches": {
+        "count": 24,
+        "mean": 20,
+        "min": 20,
+        "max": 20,
+        "p50": 20,
+        "p95": 20,
+        "p99": 20
+      },
+      "hzb.historyInvalidations": {
+        "count": 24,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "hzb.historyValid": {
+        "count": 24,
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1
+      },
+      "hzb.outputPixels": {
+        "count": 24,
+        "mean": 401296,
+        "min": 401296,
+        "max": 401296,
+        "p50": 401296,
+        "p95": 401296,
+        "p99": 401296
+      },
+      "legacy.instances.candidate": {
+        "count": 24,
+        "mean": 81,
+        "min": 81,
+        "max": 81,
+        "p50": 81,
+        "p95": 81,
+        "p99": 81
+      },
+      "legacy.instances.frustumCulled": {
+        "count": 24,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "legacy.instances.frustumUnculled": {
+        "count": 24,
+        "mean": 81,
+        "min": 81,
+        "max": 81,
+        "p50": 81,
+        "p95": 81,
+        "p99": 81
+      },
+      "legacy.material.fullscreenDraws": {
+        "count": 24,
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1
+      },
+      "legacy.visibility.activeMaterialBuckets": {
+        "count": 24,
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1
+      },
+      "legacy.visibility.bucketPasses": {
+        "count": 24,
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1
+      },
+      "legacy.visibility.drawCount": {
+        "count": 24,
+        "mean": 81,
+        "min": 81,
+        "max": 81,
+        "p50": 81,
+        "p95": 81,
+        "p99": 81
+      },
+      "legacy.visibility.secondChance": {
+        "count": 24,
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1
+      },
+      "lighting.clusterCount": {
+        "count": 24,
+        "mean": 15048,
+        "min": 15048,
+        "max": 15048,
+        "p50": 15048,
+        "p95": 15048,
+        "p99": 15048
+      },
+      "lighting.localLightCount": {
+        "count": 24,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "runtime.scenePrepareCount": {
+        "count": 24,
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1
+      },
+      "runtime.viewPrepareCount": {
+        "count": 24,
+        "mean": 1,
+        "min": 1,
+        "max": 1,
+        "p50": 1,
+        "p95": 1,
+        "p99": 1
+      }
+    },
+    "gpuCounters": {
+      "activeLights": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "activeMaterials": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "alphaClusters": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "candidateClusters": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "candidateInstances": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "emptyVisibilityPixels": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "hwClusters": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "hwTriangles": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "queueOverflowMask": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "rejectedFrustum": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "rejectedHzb": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "selectedClusters": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "shadedPixels": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "visibleInstances": {
+        "count": 6,
+        "mean": 0,
+        "min": 0,
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      }
+    },
+    "submits": {
+      "count": 24,
+      "mean": 1,
+      "min": 1,
+      "max": 1,
+      "p50": 1,
+      "p95": 1,
+      "p99": 1
+    },
+    "readbacks": {
+      "count": 24,
+      "mean": 0.75,
+      "min": 0,
+      "max": 3,
+      "p50": 0,
+      "p95": 3,
+      "p99": 3
+    },
+    "uploadBytes": {
+      "count": 24,
+      "mean": 8,
+      "min": 8,
+      "max": 8,
+      "p50": 8,
+      "p95": 8,
+      "p99": 8
+    }
+  },
+  "diagnostics": {
+    "validationErrorCount": 66,
+    "uncapturedErrorCount": 66,
+    "deviceLostCount": 0,
+    "uncapturedErrors": [
+      "GPUValidationError: [Invalid ShaderModule \"HZB/from-depth-module\"] is invalid due to a previous error.\n - While validating compute stage ([Invalid ShaderModule \"HZB/from-depth-module\"], entryPoint: \"main\").\n - While calling [Device].CreateComputePipeline([ComputePipelineDescriptor \"\"HZB/from-depth-compute\"\"]).\n",
+      "GPUValidationError: [Invalid ShaderModule \"HZB/reduce-module\"] is invalid due to a previous error.\n - While validating compute stage ([Invalid ShaderModule \"HZB/reduce-module\"], entryPoint: \"main\").\n - While calling [Device].CreateComputePipeline([ComputePipelineDescriptor \"\"HZB/reduce-compute\"\"]).\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n",
+      "GPUValidationError: [Invalid ComputePipeline \"HZB/from-depth-compute\"] is invalid due to a previous error.\n - While encoding [ComputePassEncoder \"HZB/compute-pyramid\"].SetPipeline([Invalid ComputePipeline \"HZB/from-depth-compute\"]).\n - While finishing [CommandEncoder \"Renderer/main-0\"].\n",
+      "GPUValidationError: [Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"] is invalid due to a previous error.\n - While calling [Queue].Submit([[Invalid CommandBuffer from CommandEncoder \"Renderer/main-0\"]])\n"
+    ],
+    "deviceLostReasons": [],
+    "failedGpuTimestampBatches": 0,
+    "droppedGpuCounterSamples": 0,
+    "failedGpuCounterSamples": 0
+  }
+}
