@@ -8,6 +8,50 @@ G0/R0 冻结的是“证据真实性”，不是要求提前完成 R2–R5。对
 
 A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是产品完成标准；C 与通用 vertical/lifecycle cases 才继续覆盖 OEngine 的多资产、动态世界、完整效果和工程生命周期。三类 benchmark 必须通过同一 OEngine 主管线运行，只改变 manifest、数据和 feature set。
 
+## R0 收口总账
+
+本表是 `01-baseline-and-observability` 的唯一剩余工作总账。`Completed` 表示已经满足 R0 的证据真实性目标，不因未来可以增加更多 counter、debug view 或计时范围而重新打开；只有发现当前声明为 supported 的证据是伪造、错误归帧或无法运行，才允许重新打开对应任务。
+
+| 任务 | 状态 | R0 结论 / 唯一剩余交付 |
+|---|---|---|
+| `OBS-01` 环境清单 | `Completed` | Environment Schema、commit/dirty、浏览器/OS、adapter/features/limits、尺寸/DPR、feature set 与采样参数已经冻结并受 gate 校验 |
+| `OBS-02` A/B/C Harness | `Remaining` | 建立 A/B/C manifest、固定资产 hash/seed/相机路径、三个根目录浏览器入口，并复用同一 OEngine Renderer/Result Schema |
+| `OBS-03` CPU Timeline | `Completed` | CPU frame 分段、submit/readback/upload、FrameGraph build/compile/execute 已归帧 |
+| `OBS-04` GPU Timestamp | `Completed（R0 范围）` | 已覆盖真实 Compute/Render Pass、跨 CommandContext 异步归档、phase 汇总、失败及 unavailable；纯 copy/write 与跨 submit wall-clock 不属于 WebGPU Pass timestamp 能力，不再阻塞 R0 |
+| `OBS-05` 工作量 Counters | `Completed（当前能力）` | 当前启用算法的 required counter 已有真实 producer；未实现算法由能力矩阵明确 `unsupported + blockerTaskId` |
+| `OBS-06` Debug Views | `Completed（R0 control surface）` | 统一控制面与三个真实视图已接通，其余模式明确 unsupported，未来随 producer 所属阶段扩展 |
+| `OBS-07` Shader Source | `Completed（inventory）` | 66 个 Shader 的 source/consumer/pipeline owner 审计已冻结 |
+| `OBS-08` 不可修改基线 | `Remaining` | 在 `OBS-02` 完成后采集 A/B/C 的 clean Schema v3 cold/warm JSON、截图、控制台和分析 bundle |
+
+因此 R0 只剩两个顺序工作包：先完成 `OBS-02`，再完成 `OBS-08`。浏览器中的 `r0-observability` 与 `r0-frame-smoke` 复测并入 `OBS-02` 验收，不再单独制造第三个任务。
+
+### 固定剩余实施顺序
+
+第一包 `OBS-02` 只建立可重复输入与运行入口：
+
+1. 冻结共享 manifest schema，包含 role、资产 hash、seed、相机路径 hash、实例/材质/灯光数量、尺寸/DPR、feature set 和 cold/warm 参数。
+2. A 固定 160k Teapot 对照输入；B 固定 glTF、LOD/Meshlet、环境贴图与 PBR/IBL 输入；C 固定当前可以运行的 geometry/material/alpha/shadow/dynamic-transform 分轴输入。当前缺少的 Packed/Hierarchy/SW 能力写入 feature evidence，不为 R0 制造样例专用替代实现。
+3. 新增 `examples/benchmark-a`、`benchmark-b`、`benchmark-c`，通过相对路径复用同一 OEngine public interface、`Renderer.render()`、`BenchmarkRunController` 和 Result writer。
+4. 自动核对 manifest hash、场景数量、相机帧序列和 Result role；浏览器核对两个既有 smoke 与 A/B/C 页面无 validation/uncaptured/device-lost error，能导出 Schema v3 JSON 和截图。
+
+`OBS-02` 完成只表示“输入和采集入口被冻结并可运行”，不表示 A/B 的 GPU LOD、SW/HW Hybrid 或最终性能已经追平。
+
+第二包 `OBS-08` 只保存迁移前事实：
+
+1. 在一个干净、可定位的 commit 和主要开发/目标 adapter 上记录完整 environment；timestamp-query 不可用时走已冻结的 unavailable 路径。
+2. 对 A/B/C 分开采集 cold compile/upload 与 warm steady-state，输出原始逐帧数据以及 CPU/GPU/counter 的 P50/P95/P99；profiled sampled run 与 profiler-off 总体性能分开保存。
+3. 为每组保存 Result JSON、画面截图、控制台记录和简短分析，并登记到 `docs/BASELINE-ARTIFACTS.md`；任何 dropped/failed/pending evidence 或 validation error 都使该 run 作废。
+4. `validateBenchmarkEvidence()` 必须返回 `gateEligible=true`。`capabilityComplete` 可以因后续能力 blocker 为 false；R0 报告必须写“当前基线已冻结”，不能写“A/B 已通过”或“性能已达标”。
+
+`OBS-08` 完成后立即退出 G0，不继续在 R0 增加新的 counter、debug view、场景轴或跨设备运行；这些需求进入其所属后续 Gate。
+
+### 不再作为 R0 blocker
+
+- Packed Instances、Hierarchy/SSE LOD、cone culling 与 Compute SW Raster 分别属于 `WORLD-07`、`WORK-04`、`VIS-05` 和 G2–G4；R0 artifact 必须诚实报告缺失，但不实现它们。
+- HZB mip、逐像素 reject reason、LOD/Cluster、SW/HW classification、material ID 与 history validity 的新 producer 随对应后续算法实现；R0 统一 debug control surface 报告 unsupported 即为完成。
+- `queueOverflowMask` 当前只声明并验证 bit 0=`sceneMeshList`、bit 1=`meshletList`、bit 3=`lightList`。bit 2 只是未启用的 material-list 保留位，不得宣称受保护，但也不要求 R0 为一个没有登记 ABI/producer 的队列伪造统计。
+- WebGPU Pass timestamp 不能覆盖 command encoder 中的纯 copy/write，也不能用一个 query 横跨多个 submit；Result 保留 CPU upload/submit 时间、字节与次数，并明确 GPU 覆盖边界，不再为追求不存在的“整帧 query”延迟 G0。
+
 ## 非目标
 
 - 不在本阶段重写 Visibility 主算法。
@@ -31,36 +75,27 @@ A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是
 
 以上是调查起点，不是保留承诺。
 
-## 计划新增与修改
+## 已落地与固定剩余目录
 
-建议新增：
+当前已落地：
 
 ```text
-OEngine/benchmarks/
-├─ README.md
-├─ harness/
-│  ├─ BenchmarkHarness.ts
-│  ├─ EnvironmentManifest.ts
-│  └─ ResultWriter.ts
-├─ scenes/
-│  ├─ ComputeRasterA.ts
-│  ├─ ComputeRasterIblB.ts
-│  └─ GeneralSceneC.ts
-└─ results/                  ignored or artifact-managed measured output
-
-OEngine/src/debug/
-├─ FrameCounters.ts
-├─ FrameProfiler.ts
-└─ RenderDebugView.ts
+OEngine/src/debug/BenchmarkHarness.ts
+OEngine/src/debug/BenchmarkRunController.ts
+OEngine/src/debug/EnvironmentManifest.ts
+OEngine/src/debug/FrameProfiler.ts
+OEngine/src/debug/GpuFrameCounters.ts
+OEngine/src/debug/GpuReadbackRing.ts
+OEngine/src/debug/RenderDebugView.ts
+OEngine/benchmarks/README.md
+OEngine/benchmarks/shader-source-audit.json
 
 examples/
-├─ r0-observability/       # profiler/environment/result 导出垂直页
-├─ benchmark-a/            # three.js Compute Rasterizer 对齐
-├─ benchmark-b/            # Compute Rasterizer IBL 对齐
-└─ benchmark-c/            # OEngine 通用压力
+├─ r0-observability/
+└─ r0-frame-smoke/
 ```
 
-预计修改 `GraphicsContext.ts`、`GPUSceneContext.ts`、`Renderer.ts`、`FrameGraph.ts`、现有 timer/statistics 类及关键 Pass。目录和类名可在实现前按局部 `AGENTS.md` 调整，但职责不得重新散回每个 Pass。
+`OBS-02` 固定只新增 A/B/C manifest/scene 夹具与三个根目录浏览器入口；结果 writer 可以复用浏览器下载或 artifact-managed 输出，不再预设一套与现有 `OEngine/src/debug` 重复的 harness 目录。A/B/C 必须调用公开 OEngine seam 和同一个 `Renderer.render()` 主链，不新增 benchmark 专用 Renderer。
 
 ## 观测数据契约
 
@@ -151,7 +186,7 @@ candidateInstances == visibleInstances + rejectedFrustum
 
 只有 GPU counter 采样帧使用带额外 storage bind group 与全局 atomic 的 Shader/Pipeline variant；非采样帧继续使用原 Shader，不增加 binding、atomic 或 readback。`hardware-visibility` 与 `hzb-culling` 是独立 feature set，关闭 HZB 时硬件光栅证据不应被迫要求 `rejectedHzb`。
 
-当前主链没有独立 Meshlet normal-cone/backface culling 算法，因此 `cone-culling/rejectedCone` 由 `WORK-04` 阻塞，不属于“已有算法只差 OBS-05 接线”。SW raster 仍由 `VIS-05` 阻塞；material overflow producer 尚未接线，所以 `OBS-05` 保持 `Partial`。
+当前主链没有独立 Meshlet normal-cone/backface culling 算法，因此 `cone-culling/rejectedCone` 由 `WORK-04` 阻塞，不属于“已有算法只差 OBS-05 接线”。SW raster 仍由 `VIS-05` 阻塞。material overflow bit 2 只是未启用保留位，当前 feature evidence 没有宣称其存在 producer；这一边界已经显式记录，不再阻止 OBS-05 收口。
 
 ### Timestamp contract
 
@@ -240,11 +275,13 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - 原始 GPU timestamp label 已增加稳定逻辑阶段归类；Result 同时保留逐 Pass `gpuMs`，并将同一采样帧内的 Pass 先按 phase 求和后输出 `gpuPhaseMs`，避免用 Pass 样本冒充帧样本。采样挂在统一 `ShadeGPUCommandContext.create()` 缝上，登记主图之外的 upload、database update 和 animation context，并覆盖其中实际存在的 compute/render Pass；多个 context 的异步结果按注册顺序稳定合并，不按 readback 完成顺序漂移，也不新增 submit。纯 copy/write 命令没有 Pass timestamp，不能把“context 已登记”写成复制区间已完整计时。未知 label 显式进入 `unclassified`，采样用 counter/debug Pass 单独进入 `observability`，不混入主渲染阶段。
 - `validateBenchmarkEvidence()` 已建立 Result artifact 机器门禁：检查 Schema、clean commit/dirtyReasons、A/B/C role、adapter/尺寸/feature set、真实资产与相机 hash、能力证据矩阵、采样帧数、diagnostics、异步 timestamp/counter 完成状态、counter ABI、逻辑 phase，并从逐帧样本反算核对 `gpuMs`、`gpuPhaseMs` 与 `gpuCounters`。它分别输出 artifact 的 `gateEligible` 和产品证据的 `capabilityComplete/blockedCapabilities`。用户 `temp/` 的两份旧 Schema 1 smoke 已登记为 exploratory，不会误入 G0。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
-- 尚未完成 A/B/C 对齐场景、其余 GPU pass counter producer、unsupported 视图所需的逐像素 producer、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
+- R0 观测基础设施已经收口；G0 仍未通过的原因只剩 `OBS-02` 的 A/B/C 固定 Harness/浏览器验收，以及 `OBS-08` 的 clean Schema v3 run bundle。后续算法 counter 和逐像素 debug producer 不再混入 R0 剩余项。
 
 ### OBS-01 · 冻结运行环境清单
 
 输出 `environment.json` schema：commit、浏览器版本、OS、adapter 名称、driver、WebGPU features/limits、窗口像素尺寸、DPR、power preference、feature set、warm-up 和采样帧数。缺失字段使结果不可用于 gate。
+
+状态：`Completed`。`EnvironmentManifest`、Result Schema v3 与 `validateBenchmarkEvidence()` 已覆盖并校验上述字段；浏览器无法提供 driver 时保存 `null`，不会伪造。后续只允许版本化 schema 迁移，不因新增可选环境字段重新打开 R0。
 
 ### OBS-02 · 建立 A/B/C harness
 
@@ -252,21 +289,29 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 
 Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 `engine-generality-c`）和真实 feature bits。A/B 页面不得形成样例专用渲染器；C 不得复用 A/B 通过状态冒充通用性通过。
 
+状态：`Remaining`。通用 `BenchmarkHarness`、`BenchmarkRunController`、Result Schema 和两个 smoke 入口已经存在；尚缺 A/B/C 三份冻结 manifest、真实资产 hash、固定相机路径、可运行浏览器入口与同输入数量/截图核对。R0 页面允许把 Hierarchy/SW/Packed 等当前缺项输出为 unsupported，不得为补齐后续产品功能而把 `OBS-02` 扩成 R2–R4 实现任务。
+
 ### OBS-03 · 接通 CPU frame timeline
 
 记录 world/change set、resource upload、graph build/compile、encode、submit 前总耗时、submit 次数、readback 次数和每帧上传字节。使用 monotonic clock；不得把异步 GPU 完成时间混进 CPU encode。
+
+状态：`Completed`。`FrameProfiler` 已按帧记录 CPU timeline、submit/readback/upload label 与字节、FrameGraph build/compile/execute；异步 GPU 完成时间保存在独立 GPU evidence 中。R1 可以减少这些成本，但不重新定义 R0 归帧契约。
 
 ### OBS-04 · 接通 GPU timestamps
 
 每个被采样的 OEngine CommandContext 分配 query 范围，Pass 只请求逻辑 marker，不拥有 query set/readback。处理设备不支持、query 容量不足、异步 map 失败和 feature off 的情况。
 
-状态：`Partial`。所有 OEngine `ShadeGPUCommandContext` 的真实 compute/render Pass timestamp、异步多批次归档、map 失败收尾与 unavailable 路径已接通；原始 label 以 command context 限定，并映射到稳定的 `upload`、`animation`、`instance-cull`、`hierarchy-and-cluster-cull`、`software-raster`、`hardware-raster`、`hzb`、`material-resolve`、`light-cluster`、`lighting-and-ibl`、`shadow`、`transparency`、`temporal`、`post`、`observability` 和 `unclassified`。Result 按帧汇总 `gpuPhaseMs`，同时保留原始 `gpuMs`。纯 copy/write 区间和跨 `GraphicsContext.update`、animation flush 与 main submit 的 whole-frame 起止 marker 尚未闭环，因此不能标为 Completed。
+状态：`Completed（R0 范围）`。所有 OEngine `ShadeGPUCommandContext` 的真实 compute/render Pass timestamp、异步多批次归档、map 失败收尾与 unavailable 路径已接通；原始 label 以 command context 限定，并映射到稳定的 `upload`、`animation`、`instance-cull`、`hierarchy-and-cluster-cull`、`software-raster`、`hardware-raster`、`hzb`、`material-resolve`、`light-cluster`、`lighting-and-ibl`、`shadow`、`transparency`、`temporal`、`post`、`observability` 和 `unclassified`。Result 按帧汇总 `gpuPhaseMs`，同时保留原始 `gpuMs`。
+
+WebGPU timestamp-query 的可靠范围是 Compute/Render Pass；纯 copy/write 继续由 CPU encode 时间、upload/readback 字节和 submit 归属说明，不能用 CPU 等待或虚构 GPU marker 冒充。跨多个 submit 的 wall-clock latency 属于 R1 提交路径重构与外部 profiler 调查，不是 OBS-04 未完成项。
 
 ### OBS-05 · 接通工作量 counters
 
 先覆盖现有 instance、meshlet、draw、material 和 light 路径。所有 counter 定义是“输入”“通过”还是“唯一项”必须写入 schema，避免重复累计后无法比较。
 
-状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合、主帧生命周期和 Schema v3 能力证据矩阵已完成；最终 Visibility Buffer 已产生像素统计，LightCluster 已产生带 overflow 证据的 `activeLights`，Visibility GPU list 已产生 instance/frustum/cluster/HW 工作量，Material Expand 已产生实际全屏 draw 数 `activeMaterials`，三种现有 HZB cull Shader 已产生真实 `rejectedHzb`。当前不存在的 cone culling 以 `unsupported + WORK-04` 表达；SW counter 以 `unsupported + VIS-05` 表达；hierarchy counter 以 `unsupported + WORK-04` 表达。material overflow 仍缺少可安全读取的 producer，不得为了把 Partial 改成 Completed 而填零或注册无 producer 字段。
+状态：`Completed（当前能力）`。固定 ABI、资源 owner、采样 ring、结果聚合、主帧生命周期和 Schema v3 能力证据矩阵已经完成；最终 Visibility Buffer、LightCluster、现有 Visibility GPU list、Material Expand 与三种 HZB cull Shader 已分别产生像素、灯光、instance/frustum/cluster/HW、active material 与 `rejectedHzb` 的真实证据。
+
+当前不存在的 cone culling、SW raster 与 hierarchy producer 分别以 `unsupported + WORK-04/VIS-05` 表达。`queueOverflowMask` 当前只承诺已登记的 scene-mesh、meshlet 与 light 队列；material bit 2 是未启用的 ABI 保留位，不出现在 feature-set required evidence 中。未来若建立对应 GPU 队列，必须在其所属任务中同时补 capacity、overflow producer、能力矩阵和回归测试，但不因此重新打开 OBS-05。
 
 ### OBS-06 · 建立 debug views
 
@@ -284,7 +329,7 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 
 在同机完成 A/B/C 的 cold/warm、P50/P95/P99。保存原始 JSON、截图、控制台错误和分析说明。任何后续阶段都以该 artifact 与前一阶段 artifact 双重对照。
 
-状态：`Partial`。Result JSON 的机器 gate validator 与旧 artifact 登记已完成；旧 RTX 2060 SUPER Schema 1 数据只能证明当时 81 Box 主链的 3 submit、持续 readback 等探索事实，不能作为 A/B/C gate。A/B/C 的 clean Schema v3 JSON、截图、控制台和 cold/warm run bundle 尚未采集。
+状态：`Remaining`。Result JSON 的机器 gate validator 与旧 artifact 登记已完成；旧 RTX 2060 SUPER Schema 1 数据只能证明当时 81 Box 主链的 3 submit、持续 readback 等探索事实，不能作为 A/B/C gate。待 `OBS-02` 冻结输入后，只采集当前实现的 A/B/C clean Schema v3 JSON、截图、控制台和 cold/warm run bundle；当前 unsupported capability 不妨碍 artifact `gateEligible=true`，但不得把它写成 A/B 功能或性能已通过。
 
 ## 验收
 
@@ -310,6 +355,6 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 
 ## 阶段退出
 
-`OBS-01` 至 `OBS-08` 全部完成，且 [PERFORMANCE.md](../PERFORMANCE.md) 当前可用的每项字段都有自动化真实输出；尚未实现的后续能力由 Schema v3 明确输出 `unsupported + blockerTaskId`，没有字段缺失/零值歧义。收尾更新 `CURRENT-STATE`、performance Context 和 performance lesson；此后才允许用数据调整 R1–R5 优先级。
+按“R0 收口总账”，`OBS-01/03/04/05/06/07` 已完成；完成 `OBS-02` 后采集并通过 `OBS-08` 即可退出。A/B/C artifact 必须使用冻结输入、Result Schema v3、当前 supported counter 的真实值、后续能力的 `unsupported + blockerTaskId`，并配套截图与控制台记录。收尾更新 `CURRENT-STATE`、performance Context 和 performance lesson；此后才允许用数据调整 R1–R5 优先级。
 
 G0 退出只表示证据系统能够诚实、可机读地表达“当前真实值”和“后续能力 blocker”，不要求在 R0 提前实现 Packed Instances、Hierarchy/SSE LOD 或 Compute SW Raster。A/B 的 manifest、资产/相机对照契约在 R0 建立，但 A/B 真正的垂直功能与性能追平仍由 G2–G5 的对应实现和最终 run bundle 判定；C/vertical/lifecycle 门禁继续判定通用引擎能力。

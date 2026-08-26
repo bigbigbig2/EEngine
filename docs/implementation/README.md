@@ -38,7 +38,7 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 
 ## 执行单位
 
-实施任务使用文档内稳定 ID，例如 `OBS-03`、`FG-04`、`VIS-07`。一个任务只有在以下内容同时存在时才可标为完成：
+实施任务使用文档内稳定 ID，例如 `OBS-03`、`FG-04`、`VIS-07`。一个实现任务只有在以下适用内容同时存在时才可标为完成：
 
 1. 真实主帧 producer 与 GPU consumer 已接通；
 2. ABI、容量、owner、生命周期和 overflow 已实现；
@@ -46,6 +46,8 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 4. 固定 benchmark 有变更前后证据；
 5. 被替代的旧代码已经删除，或有带截止任务 ID 的短期迁移记录；
 6. `CURRENT-STATE`、领域 Context、ADR 和本文档按影响更新。
+
+“适用”由任务自己的交付物决定，不允许循环依赖制造永远无法完成的状态。例如 `OBS-01～07` 建设采集系统，其完成证据是 schema/ABI 测试、真实主帧接入和 smoke；不可修改 A/B/C run bundle 统一由 `OBS-08` 拥有。后续阶段的算法、画质和性能目标不得倒灌成 R0 观测任务的完成条件。
 
 ## 阶段门禁
 
@@ -61,6 +63,8 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 阶段允许重叠的只有不依赖未冻结 ABI 的调查、测试夹具和离线工具；不得一边改变上游 ABI，一边把下游大规模实现建立在猜测上。
 
 G0 的“证据完整”不等于 R2–R5 产品能力已经存在。G0 允许 artifact 机器结构合格但 `capabilityComplete=false`，前提是所有 blocker 可追溯且没有假 counter；A/B 的真实功能与性能通过仍在对应后续 Gate 判定。
+
+当前 R0 已收口 `OBS-01/03/04/05/06/07`，固定只剩 `OBS-02` A/B/C Harness 和 `OBS-08` 当前实现基线采集。唯一总账见 [01 · R0 基线与可观测性](./01-baseline-and-observability.md#r0-收口总账)；不得把后续算法或可选观测增强重新加入 G0 blocker。
 
 ## 明确排除
 

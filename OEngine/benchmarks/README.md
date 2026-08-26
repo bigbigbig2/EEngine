@@ -176,12 +176,13 @@ npm run audit:shaders
 
 命令确定性生成 `benchmarks/shader-source-audit.json`。schema v2 覆盖每个 `src/shaders/*.ts` 的 direct/runtime consumers、最近 runtime pipeline owners、generator candidates、分类与删除候选。当前为 55 个 `authored-live`、5 个 `dead` candidate 和 6 个正在运行但 ownership 未闭环的 oracle/generated `unknown`。人工解释与静态分析限制见 `../../docs/SHADER-SOURCES.md`。
 
-## 尚未完成的 R0 工作
+## 固定剩余的 R0 工作
 
-- A：160k Teapot 的同资产/同相机/同输出对齐页面。
-- B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
-- C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- 当前算法观测 producer：material overflow bit 尚未接线；HZB reject 已有真实 producer。cone culling 当前是 `WORK-04` 下的算法缺失，不是 R0 counter 接线任务。
-- 后续产品能力：Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD（`WORK-04`）和 SW Visibility（`VIS-05`）；它们不属于 G0 提前实现条件，但 A/B/C 对应功能通过前必须完成。
-- HZB mip、reject reason、LOD/Cluster、SW/HW classification、material ID 与 history validity 所需的真实逐像素 producer；当前统一控制面明确报告 unsupported。
-- 纯 copy/write upload 区间，以及横跨 upload、animation 与 main submit 的 whole-frame GPU 起止 marker。
+只剩两个顺序工作包：
+
+1. `OBS-02`：建立 A/B/C 冻结 manifest、真实资产 hash、seed、相机路径和三个根目录浏览器入口；复用同一 `BenchmarkRunController`、`Renderer.render()` 与 Result Schema。
+2. `OBS-08`：在主要开发/目标 adapter 上采集当前实现的 A/B/C clean Schema v3 cold/warm JSON、截图、控制台记录和分析 bundle，并登记到 `docs/BASELINE-ARTIFACTS.md`。
+
+`r0-observability` 与 `r0-frame-smoke` 的 Schema v3 浏览器复测并入 `OBS-02` 验收。当前 artifact 可以对 Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD/cone culling（`WORK-04`）和 SW Visibility（`VIS-05`）诚实报告 unsupported；这不妨碍 G0 artifact 合格，也不等于 A/B 功能已通过。
+
+以下内容不再列为 R0 剩余：material overflow 保留 bit 2、更多逐像素 debug producer、纯 copy/write GPU timestamp 和跨 submit whole-frame query。它们没有被当前 feature evidence 宣称为 supported，或超出 WebGPU Pass timestamp 范围；未来在对应 owner/算法任务中实现，禁止用占位 counter 收口。

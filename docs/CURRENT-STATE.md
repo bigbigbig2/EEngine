@@ -20,7 +20,7 @@
 - Shader source-of-truth 审计已覆盖 66 个文件，并生成确定性的逐文件 artifact：55 个 `authored-live`、5 个静态无 pipeline owner 的删除候选、6 个仍在运行但 generator/所有权未闭环的 oracle/generated 文件。详见 `SHADER-SOURCES.md`。
 - HZB legacy 观测会分别记录同帧 build 数、最终 mip 数与累计 mip pass 数。
 - R0 已有单一 `render_debug_view` 控制面。`visibility-key`、reverse-Z `depth` 和 `velocity` 是真实全屏视图，统一在时域/后处理之后覆盖最终 HDR 输入；其余已规划视图会返回 `unsupported` 及原因。关闭和 unsupported 状态不添加 Debug Pass、瞬态纹理或 readback，旧 velocity 独立开关和 Pass 已删除。
-- GPU timestamp 同时保存原始 Pass label 与稳定逻辑 phase；benchmark 会先对同一帧内同 phase 的 Pass 求和，再生成 `gpuPhaseMs` 分位数。采样现在登记一帧内所有 OEngine `ShadeGPUCommandContext`，以 context label 限定原始 Pass label，并按 context 注册顺序合并异步结果；这能覆盖 `GraphicsContext.update`、scene database update 与 animation context 内实际存在的 compute/render Pass。WebGPU 当前接口无法给纯 copy/write 命令单独加 Pass timestamp，因此 upload/animation 的纯复制区间及跨多个 submit 的 whole-frame GPU 起止 marker 仍未闭环。无法证明 owner 的 label 保留为 `unclassified`，R0 观测开销单列为 `observability`。
+- GPU timestamp 同时保存原始 Pass label 与稳定逻辑 phase；benchmark 会先对同一帧内同 phase 的 Pass 求和，再生成 `gpuPhaseMs` 分位数。采样登记一帧内所有 OEngine `ShadeGPUCommandContext`，以 context label 限定原始 Pass label，并按注册顺序合并异步结果；这覆盖 `GraphicsContext.update`、scene database update 与 animation context 内实际存在的 compute/render Pass。纯 copy/write 和跨 submit wall-clock 不属于 WebGPU Pass timestamp 覆盖范围，继续由 CPU timeline、字节与 submit 归属说明，不是 R0 未完成项。无法证明 owner 的 label 保留为 `unclassified`，R0 观测开销单列为 `observability`。
 - Result 已有机器 gate validator，能拒绝旧 Schema、dirty commit、非 A/B/C role、占位 hash、伪造/缺失能力声明、required counter 缺失、unsupported counter 冒充零值、缺失 diagnostics、pending/dropped/failed GPU evidence、未归类 timestamp 和不匹配的 GPU/phase/counter summary。报告把 `gateEligible`（artifact 结构可信）与 `capabilityComplete/blockedCapabilities`（启用能力是否完整）分开。timestamp batch 的异步 map 失败会收尾该帧并累计 `failedGpuTimestampBatches`，不会把 benchmark 永久留在 pending。`temp/` 中 RTX 2060 SUPER 的两份旧 Schema 1 smoke 已登记为 exploratory：它们暴露了 81 Box 主链 3 submit 与持续 readback，但不是 A/B/C 基线。
 
 ## 关键缺口
@@ -33,9 +33,10 @@
 - HZB、submit、readback 和中间队列存在明显固定成本。
 - FrameGraph 尚未覆盖全部资源依赖和旁路系统。
 - 资源销毁、device lost、history 失效与动态资产生命周期未闭环。
-- 自动化测试目前只覆盖 R0 观测公共 seam；固定 benchmark、截图和数值回归仍基本缺失。
-- A/B/C 固定 benchmark、SW raster 与 material overflow 等其余 GPU counter producer，以及可用于 gate 的浏览器实机截图/性能 artifact 尚未完成；当前主链也没有独立 cone culling 算法。HZB mip、逐像素 reject reason、LOD/Cluster、SW/HW、material ID 和 history validity debug view 仍因缺少真实 producer 标记为 unsupported。Schema v3 已消除歧义：required/supported 字段缺失是错误，真实零必须显式为 `0`，unsupported 必须携带 blocker 且不得出现在 sampled values。
-- 用户已完成旧 Schema smoke 数据采集；Schema v3 接入后的两个页面仍需手动复测，因此 R0 Gate 尚未通过。
+- 自动化测试已覆盖 R0 观测公共 seam；A/B/C 固定 Harness、浏览器截图和正式性能 run bundle 仍缺失。
+- R0 只剩 `OBS-02` 与 `OBS-08`：冻结 A/B/C manifest/资产 hash/相机路径/浏览器入口，并采集当前实现的 clean Schema v3 JSON、截图、控制台和 cold/warm 统计。Schema v3 已消除歧义：required/supported 字段缺失是错误，真实零必须显式为 `0`，unsupported 必须携带 blocker 且不得出现在 sampled values。
+- 当前主链没有 Packed Instances、Hierarchy/SSE LOD、独立 cone culling 或 SW raster；相关 counter/debug view 明确 unsupported 并归后续 `WORLD-07`、`WORK-04`、`VIS-05`。material overflow bit 2、更多逐像素 debug producer、纯 copy/write/跨 submit GPU timestamp 都不是 R0 blocker。
+- 用户已完成旧 Schema smoke 数据采集；旧 artifact 仍为 exploratory。Schema v3 的两个 smoke 与未来 A/B/C 页面仍需浏览器实机复测，因此 G0 尚未通过。
 - package 和大量内部符号仍保留 reconstructed/Shade 历史名称。
 
 ## 参考代码状态
