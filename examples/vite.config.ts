@@ -46,6 +46,10 @@ export default defineConfig({
           examplesRoot,
           "r0-frame-smoke/index.html"
         ),
+        r1ComputeHzb: path.resolve(
+          examplesRoot,
+          "r1-compute-hzb/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

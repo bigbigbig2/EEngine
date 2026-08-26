@@ -1,187 +1,90 @@
-/**
- * hzb_reduce：定义对应渲染阶段使用的 WGSL 着色器代码。
- */
+/** Compute HZB：reverse-Z min/max pyramid，8x8 workgroup。 */
 
-const FS_VS = /* wgsl */ `
-const POS = array<vec2f, 3>(
-  vec2f(-1.0, -1.0),
-  vec2f( 3.0, -1.0),
-  vec2f(-1.0,  3.0)
-);
+export const HZB_WORKGROUP_SIZE = 8;
 
-struct VsOut {
-  @builtin(position) pos: vec4f,
-  @location(0) uv: vec2f,
-};
+const HZB_COMMON_WGSL = /* wgsl */ `
+fn sanitize_reverse_z(depth: f32) -> f32 {
+  return select(clamp(depth, 0.0, 1.0), 0.0, isNan(depth));
+}
 
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-  var out: VsOut;
-  let p = POS[vi];
-  out.pos = vec4f(p, 0.0, 1.0);
-  // 全屏三角的纹理坐标使用 WebGPU 屏幕空间方向：X 从左到右，
-  // Y 从上到下。这里必须保留 fma 的表达式顺序和 Y 轴负缩放；普通的
-  // p * 0.5 + 0.5 会把 HZB 每一级垂直镜像，破坏细层级的深度对应关系。
-  out.uv = fma(p, vec2f(0.5, -0.5), vec2f(0.5));
-  return out;
+fn coverage_first(coord: u32, source_size: u32, output_size: u32) -> u32 {
+  return (coord * source_size) / output_size;
+}
+
+fn coverage_end(coord: u32, source_size: u32, output_size: u32) -> u32 {
+  return min(source_size, max(
+    coverage_first(coord, source_size, output_size) + 1u,
+    ((coord + 1u) * source_size + output_size - 1u) / output_size
+  ));
 }
 `;
 
-export const HZB_FROM_DEPTH_WGSL = /* wgsl */ `
-${FS_VS}
+export const HZB_FROM_DEPTH_COMPUTE_WGSL = /* wgsl */ `
+${HZB_COMMON_WGSL}
 
-struct ResUbo {
-  width: u32,
-  height: u32,
+struct SourceRegion {
+  origin: vec2u,
+  extent: vec2u,
 };
 
-@group(0) @binding(0) var<uniform> output_resolution: ResUbo;
-@group(0) @binding(1) var this_hit: texture_depth_2d;
+@group(0) @binding(0) var source_depth: texture_depth_2d;
+@group(0) @binding(1) var output_hzb: texture_storage_2d<rg16float, write>;
+@group(0) @binding(2) var<uniform> source_region: SourceRegion;
 
-@fragment
-fn fs_main(
-  @builtin(position) coord: vec4f,
-  @location(0) uv: vec2f,
-) -> @location(0) vec2f {
-  let output_texel_size2 = 0.5 / vec2f(f32(output_resolution.width), f32(output_resolution.height));
-  let uv_min = uv - output_texel_size2;
-  let uv_max = uv + output_texel_size2;
-
-  let source_resolution = textureDimensions(this_hit);
-  let source_resolution_f = vec2f(source_resolution);
-
-  const EPSILON: f32 = 1e-6;
-  let safe_uv_min = uv_min + EPSILON;
-  let safe_uv_max = uv_max - EPSILON;
-
-  let source_bounds_min = max(
-    vec2i(floor(safe_uv_min * source_resolution_f)),
-    vec2i(0)
+@compute @workgroup_size(${HZB_WORKGROUP_SIZE}, ${HZB_WORKGROUP_SIZE}, 1)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let output_size = textureDimensions(output_hzb);
+  if (any(gid.xy >= output_size)) { return; }
+  let first = vec2u(
+    coverage_first(gid.x, source_region.extent.x, output_size.x),
+    coverage_first(gid.y, source_region.extent.y, output_size.y)
   );
-  let source_bounds_max = min(
-    vec2i(ceil(safe_uv_max * source_resolution_f)),
-    vec2i(source_resolution) - vec2i(1)
+  let end = vec2u(
+    coverage_end(gid.x, source_region.extent.x, output_size.x),
+    coverage_end(gid.y, source_region.extent.y, output_size.y)
   );
-
-  // reverse-Z: far≈0 near≈1；初值 min=1 max=0 再收紧
-  var out_min: f32 = 1.0;
-  var out_max: f32 = 0.0;
-
-  for (var y = source_bounds_min.y; y <= source_bounds_max.y; y++) {
-    for (var x = source_bounds_min.x; x <= source_bounds_max.x; x++) {
-      let d = textureLoad(this_hit, vec2i(x, y), 0);
-      out_min = min(d, out_min);
-      out_max = max(d, out_max);
+  var farthest = 1.0;
+  var nearest = 0.0;
+  for (var y = first.y; y < end.y; y++) {
+    for (var x = first.x; x < end.x; x++) {
+      let coord = source_region.origin + vec2u(x, y);
+      let depth = sanitize_reverse_z(textureLoad(source_depth, vec2i(coord), 0));
+      farthest = min(farthest, depth);
+      nearest = max(nearest, depth);
     }
   }
-  return vec2f(out_min, out_max);
+  textureStore(output_hzb, vec2i(gid.xy), vec4f(farthest, nearest, 0.0, 0.0));
 }
 `;
 
-export const HZB_FROM_DEPTH_CLIP_WGSL = /* wgsl */ `
-${FS_VS}
+export const HZB_REDUCE_COMPUTE_WGSL = /* wgsl */ `
+${HZB_COMMON_WGSL}
 
-struct ClipRegion {
-  value: vec4f,
-};
+@group(0) @binding(0) var source_hzb: texture_2d<f32>;
+@group(0) @binding(1) var output_hzb: texture_storage_2d<rg16float, write>;
 
-struct ResUbo {
-  width: u32,
-  height: u32,
-};
-
-@group(0) @binding(0) var<uniform> clip_region: ClipRegion;
-@group(0) @binding(1) var<uniform> output_resolution: ResUbo;
-@group(0) @binding(2) var this_hit: texture_depth_2d;
-
-@fragment
-fn fs_main(
-  @builtin(position) coord: vec4f,
-  @location(0) uv: vec2f,
-) -> @location(0) vec2f {
-  let output_texel_size2 = 0.5 / vec2f(
-    f32(output_resolution.width),
-    f32(output_resolution.height)
+@compute @workgroup_size(${HZB_WORKGROUP_SIZE}, ${HZB_WORKGROUP_SIZE}, 1)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let source_size = textureDimensions(source_hzb);
+  let output_size = textureDimensions(output_hzb);
+  if (any(gid.xy >= output_size)) { return; }
+  let first = vec2u(
+    coverage_first(gid.x, source_size.x, output_size.x),
+    coverage_first(gid.y, source_size.y, output_size.y)
   );
-  let uv_min = uv - output_texel_size2;
-  let uv_max = uv + output_texel_size2;
-
-  const EPSILON: f32 = 1e-6;
-  let safe_uv_min = uv_min + EPSILON;
-  let safe_uv_max = uv_max - EPSILON;
-  let local_resolution = clip_region.value.zw;
-
-  let local_bounds_min = max(
-    vec2i(floor(safe_uv_min * local_resolution)),
-    vec2i(0)
+  let end = vec2u(
+    coverage_end(gid.x, source_size.x, output_size.x),
+    coverage_end(gid.y, source_size.y, output_size.y)
   );
-  let local_bounds_max = min(
-    vec2i(ceil(safe_uv_max * local_resolution)),
-    vec2i(local_resolution)
-  );
-  let atlas_offset = vec2i(clip_region.value.xy);
-  let source_bounds_min = local_bounds_min + atlas_offset;
-  let source_bounds_max = local_bounds_max + atlas_offset;
-
-  var out_min: f32 = 1.0;
-  var out_max: f32 = 0.0;
-  for (var y = source_bounds_min.y; y < source_bounds_max.y; y++) {
-    for (var x = source_bounds_min.x; x < source_bounds_max.x; x++) {
-      let d = textureLoad(this_hit, vec2i(x, y), 0);
-      out_min = min(d, out_min);
-      out_max = max(d, out_max);
+  var farthest = 1.0;
+  var nearest = 0.0;
+  for (var y = first.y; y < end.y; y++) {
+    for (var x = first.x; x < end.x; x++) {
+      let min_max = textureLoad(source_hzb, vec2i(x, y), 0).xy;
+      farthest = min(farthest, sanitize_reverse_z(min_max.x));
+      nearest = max(nearest, sanitize_reverse_z(min_max.y));
     }
   }
-  return vec2f(out_min, out_max);
-}
-`;
-
-export const HZB_REDUCE_MIP_WGSL = /* wgsl */ `
-${FS_VS}
-
-struct ResUbo {
-  width: u32,
-  height: u32,
-};
-
-@group(0) @binding(0) var<uniform> output_resolution: ResUbo;
-@group(0) @binding(1) var this_hit: texture_2d<f32>;
-
-@fragment
-fn fs_main(
-  @builtin(position) coord: vec4f,
-  @location(0) uv: vec2f,
-) -> @location(0) vec2f {
-  let output_texel_size2 = 0.5 / vec2f(f32(output_resolution.width), f32(output_resolution.height));
-  let uv_min = uv - output_texel_size2;
-  let uv_max = uv + output_texel_size2;
-
-  let source_resolution = textureDimensions(this_hit);
-  let source_resolution_f = vec2f(source_resolution);
-
-  const EPSILON: f32 = 1e-6;
-  let safe_uv_min = uv_min + EPSILON;
-  let safe_uv_max = uv_max - EPSILON;
-
-  let source_bounds_min = max(
-    vec2i(floor(safe_uv_min * source_resolution_f)),
-    vec2i(0)
-  );
-  let source_bounds_max = min(
-    vec2i(ceil(safe_uv_max * source_resolution_f)),
-    vec2i(source_resolution) - vec2i(1)
-  );
-
-  var out_min: f32 = 1.0;
-  var out_max: f32 = 0.0;
-
-  for (var y = source_bounds_min.y; y <= source_bounds_max.y; y++) {
-    for (var x = source_bounds_min.x; x <= source_bounds_max.x; x++) {
-      let texel = textureLoad(this_hit, vec2i(x, y), 0);
-      out_min = min(texel.x, out_min);
-      out_max = max(texel.y, out_max);
-    }
-  }
-  return vec2f(out_min, out_max);
+  textureStore(output_hzb, vec2i(gid.xy), vec4f(farthest, nearest, 0.0, 0.0));
 }
 `;

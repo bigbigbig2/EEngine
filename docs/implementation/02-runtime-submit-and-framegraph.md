@@ -370,6 +370,17 @@ submit once
 | `R1-C05` | second-chance/alpha 调度 | initial、late visibility、alpha 共享一份 recipe 与明确依赖；根据配置和真实收益裁剪节点 |
 | `R1-C06` | 删除旧实现并前后对比 | 删除 `hzb_reduce` Render shader/pipeline/attachments；A/B/C paired JSON 与截图 |
 
+#### 当前实施状态（2026-08-27）
+
+| ID | 状态 | 已落地证据 / 剩余验收 |
+|---|---|---|
+| `R1-C01` | 代码完成，设备验收待补 | 已登记 three.js 固定 commit/MIT/source 和 OEngine 差异；新增 `r1-compute-hzb`，接受上界为每 build 1 Compute Pass、`dispatches=mipCount`、0 Render Pass。页面 production build 已通过，仍需目标 adapter 实跑 JSON。 |
+| `R1-C02` | 完成 | `HzbReference` 与 `hzb-compute.test.mjs` 覆盖 1×1、8×8、奇数边界、全远/全近、NaN clamp 和 reverse-Z compare。 |
+| `R1-C03` | 代码完成，浏览器动作待验 | per-view ping-pong owner 明确 previous/current/final 和 commit；单测覆盖 resize/cut/render-scale/feature/view discontinuity。仍需浏览器执行 resize、camera cut 和 consumer toggle。 |
+| `R1-C04` | 代码完成 | `HierarchicalZBuffer` 已直接替换为 `rg16float` storage Compute；旧 Render pipeline/attachment/vertex/fragment shader 已删除；真实 counter 和 `HZB/compute-pyramid` phase label 已接入。 |
+| `R1-C05` | 代码完成 | FrameGraph 显式区分 previous/current logical resource；initial 读 previous，second-chance/alpha 写后读 current，后续 consumer 读 final version；阴影无 previous 时保守绘制并建立 current。 |
+| `R1-C06` | 待浏览器证据 | 源码静态门禁确认不含 HZB Render fallback；`npm test` 与 examples build 通过。仍需 Frame Smoke/A/B/C、原型页 JSON/截图和 after phase 数据后才能关闭。 |
+
 #### 允许的临时状态
 
 GPU prototype 可在独立 example 中与旧实现对照。主链迁移期间可有测试专用双算结果，但 `R1-C` 提交结束时不能长期双轨，也不能暴露两套产品开关。
@@ -484,7 +495,7 @@ R1 默认四个主要实现提交，包内先在工作区完成自动测试和�
 
 - [x] `R1-A01～A07`：一帧唯一提交 owner 与按 dirty 编码完成。
 - [x] `R1-B01～B06`：Compiled graph、cache、feature pruning、自动门禁与 Frame Smoke/A/B/C 浏览器功能验收完成。
-- [ ] `R1-C01～C06`：Compute HZB、history 与旧 Render HZB 删除完成。
+- [ ] `R1-C01～C06`：Compute HZB、history 与旧 Render HZB 代码已完成；目标 adapter 原型与 Frame Smoke/A/B/C after artifact 待补。
 - [ ] `R1-D01～D05`：生命周期、paired benchmark、文档和死代码收口完成。
 - [ ] `npm test` 通过；命中浏览器示例无 WebGPU validation/console error。
 - [ ] Frame Smoke/A/B/C 前后 JSON、截图和环境记录完整。

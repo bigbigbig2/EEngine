@@ -9,7 +9,7 @@
 - Scene Change Set 与部分 transform/bounds 增量同步。
 - GPU Scene、Geometry/Material/Texture 数据库和 allocator。
 - Meshlet 数据、实例/Meshlet 剔除、Prefix Scan、Indirect Draw。
-- Hardware Visibility Buffer、reverse-Z、previous HZB 和 same-frame second chance。
+- Hardware Visibility Buffer、reverse-Z、Compute HZB、显式 previous/current history 和 same-frame second chance。
 - Material Expand、Clustered Lighting、IBL、Shadow、SSAO、SSR、OIT、TAA、Bloom、Exposure、Tonemap 等代码路径。
 - R0 Result Schema v3、CPU/submit/readback/upload 观测、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback ring、diagnostics、percentile 汇总和统一 `BenchmarkRunController` 已接入；根目录已有 observability、真实主帧 smoke 与 A/B/C 三个统一主管线页面。Schema v3 额外冻结 feature-to-counter 能力证据矩阵：真实 producer 标为 `supported`，未实现/未接线项必须保存 `unsupported + blockerTaskId + reason`。
 - 最终 Visibility Buffer 已有首个真实 GPU counter producer：采样帧通过 8×8 工作组归约统计非空/空 mesh-id 像素，异步归档 `shadedPixels` 与 `emptyVisibilityPixels`；两者之和必须等于内部渲染像素数。非采样帧不添加该 Pass，也不编码 counter clear/copy/readback。
@@ -18,7 +18,7 @@
 - Visibility 的 initial、dual 与 second-chance HZB Compute Shader 在采样 variant 中直接累加 `rejectedHzb`；只统计真实 depth-query reject event，不包含 frustum/offscreen reject。非采样 variant 没有 counter bind group 或额外 atomic。能力矩阵把 `hzb-culling` 与 `hardware-visibility` 独立登记；当前没有独立 cone culling，`cone-culling/rejectedCone` 明确由 `WORK-04` 阻塞。
 - Material Expand 采样帧已接入 `activeMaterials`，表示实际编码了全屏 Material Expand draw 的已构建非透明去重材质数；它不是最终可见材质数，每增加 1 对应当前旧路径多一次全屏 GBuffer 扫描。
 - Shader source-of-truth 审计已覆盖 66 个文件，并生成确定性的逐文件 artifact：55 个 `authored-live`、5 个静态无 pipeline owner 的删除候选、6 个仍在运行但 generator/所有权未闭环的 oracle/generated 文件。详见 `SHADER-SOURCES.md`。
-- HZB legacy 观测会分别记录同帧 build 数、最终 mip 数与累计 mip pass 数。
+- HZB 观测记录真实 `computeBuilds/computePasses/dispatches/outputPixels/historyValid/historyInvalidations`；旧 `legacy.hzb.*` 已删除，逐 mip Render Pass 不再作为能力证据。
 - R0 已有单一 `render_debug_view` 控制面。`visibility-key`、reverse-Z `depth` 和 `velocity` 是真实全屏视图，统一在时域/后处理之后覆盖最终 HDR 输入；其余已规划视图会返回 `unsupported` 及原因。关闭和 unsupported 状态不添加 Debug Pass、瞬态纹理或 readback，旧 velocity 独立开关和 Pass 已删除。
 - GPU timestamp 同时保存原始 Pass label 与稳定逻辑 phase；benchmark 会先对同一帧内同 phase 的 Pass 求和，再生成 `gpuPhaseMs` 分位数。采样登记一帧内所有 OEngine `ShadeGPUCommandContext`，以 context label 限定原始 Pass label，并按注册顺序合并异步结果；这覆盖 `GraphicsContext.update`、scene database update 与 animation context 内实际存在的 compute/render Pass。纯 copy/write 和跨 submit wall-clock 不属于 WebGPU Pass timestamp 覆盖范围，继续由 CPU timeline、字节与 submit 归属说明，不是 R0 未完成项。无法证明 owner 的 label 保留为 `unclassified`，R0 观测开销单列为 `observability`。
 - Result 已有机器 gate validator，能拒绝旧 Schema、dirty commit、非 A/B/C role、占位 hash、伪造/缺失能力声明、required counter 缺失、unsupported counter 冒充零值、缺失 diagnostics、pending/dropped/failed GPU evidence、未归类 timestamp 和不匹配的 GPU/phase/counter summary。报告把 `gateEligible`（artifact 结构可信）与 `capabilityComplete/blockedCapabilities`（启用能力是否完整）分开。timestamp batch 的异步 map 失败会收尾该帧并累计 `failedGpuTimestampBatches`，不会把 benchmark 永久留在 pending。`temp/` 中 RTX 2060 SUPER 的两份旧 Schema 1 smoke 已登记为 exploratory：它们暴露了 81 Box 主链 3 submit 与持续 readback，但不是 A/B/C 基线。
@@ -30,7 +30,7 @@
 - 没有正式离线 Asset Cooker 和版本化 Runtime Asset ABI。
 - 没有 Packed Instance Set 的完整公开 seam。
 - Material Expand 仍按材质全屏绘制。
-- HZB 逐 mip Render Pass 和中间队列仍存在明显固定成本；R1-B 已删除相同 topology 稳定帧的 FrameGraph build/compile 固定成本，Frame Smoke/A/B/C 浏览器 after smoke 已确认 warm hit 路径。
+- Visibility 中间队列仍存在明显固定成本；R1-B 已删除相同 topology 稳定帧的 FrameGraph build/compile 固定成本，R1-C 已从代码路径删除逐 mip HZB Render Pass，真实浏览器 after 数据待补采。
 - FrameGraph 尚未覆盖全部资源依赖和旁路系统。
 - 资源销毁、device lost、history 失效与动态资产生命周期未闭环。
 - 自动化测试已覆盖 R0 观测公共 seam，并重新计算 A/B/C 的 workspace 资产与相机 SHA-256。三份固定 manifest、7 级 Teapot GLB、Damaged Helmet/PBR 输入、C 配方、共享 runner 和三个根目录浏览器入口已完成，全部调用公开 OEngine interface、同一 `Renderer.render()`、`BenchmarkRunController` 和 Schema v3 writer。`?profile=smoke` 会强制 dirty/non-gate，不能冒充完整场景 artifact。
@@ -41,7 +41,7 @@
 
 ## R1 调查与实施状态（2026-08-27）
 
-- R1 详细计划已冻结，`R1-A` 与 `R1-B` 已完成，下一执行包是 `R1-C` Compute HZB/history。入口证据中 Frame Smoke/A/B 的稳定 3 submit 来自 Graphics update、无条件 animation flush 和 Renderer main；C 的 13 submit 来自 Graphics ×1、animation flush ×10、database incremental ×1、Renderer main ×1。
+- R1 详细计划已冻结，`R1-A` 与 `R1-B` 已完成；`R1-C` 代码包已落地并等待真实浏览器 artifact 收口。入口证据中 Frame Smoke/A/B 的稳定 3 submit 来自 Graphics update、无条件 animation flush 和 Renderer main；C 的 13 submit 来自 Graphics ×1、animation flush ×10、database incremental ×1、Renderer main ×1。
 - 新增内部 `FrameCoordinator` 作为 render tick 唯一 close/submit owner；Graphics maintenance、scene/database/animation、main/shadow view、Light/Volumetrics/material/mipmap、BLAS/TLAS 和采样 copy 使用同一主 command。保留的独立提交必须显式分类为 one-shot、tool、debug-readback 或 recovery，未知 label 会在触碰 queue 前失败。
 - `GPUSceneContext.encodeFrame()` 已与 per-view preparation 分离，同一 scene/frame 重入返回零 preparation；shadow view 不再进入 scene update。失败帧会清除 preparation guard 并强制下帧重建，避免 abort 后丢 dirty work。
 - collection history readback 已改为只在 GPU counter 采样帧编码；非采样帧代码路径不创建该 readback。GPU counter ring ticket 支持 frame abort/cancel。
@@ -53,8 +53,9 @@
 - Renderer 主管线使用 canonical plain key 和 16-entry LRU compiled cache。key 包含 capability profile、内外分辨率、view/sample count、feature topology、Visibility implementation、history/output format 与 instrumentation recipe；相机矩阵、frame index、GPU handle 和动态 light/instance count不进入 key。Profiler 新增 `cacheHits/cacheMisses/cacheEvictions`，cache destroy/evict 会销毁 compiled owner。
 - 相同 key 的 steady main frame 不再运行 graph recipe 或 compile，只执行 `encodeCompiledGraph()`；LPV/tool graph 仍保留显式 one-shot `FrameGraph`。Bloom 与 Exposure 已解耦，Exposure 关闭时不再创建 unadapted Exposure Pass；阴影关闭时主图不登记 shadow-atlas resource，SSAO/SSR/TAA/Bloom/Exposure/debug 由 recipe 入口裁剪。
 - R1-B 自动验证覆盖 late binding 换 handle、不变 key、resize/feature/instrumentation key 变化、compiled dump/pruning/last-use、cache hit/miss/evict/destroy 和 feature-off 缺席；`npm test` 59/59 与 examples build 通过。用户补采的 Frame Smoke 24 帧和 A/B/C 各 12 帧全部为 `build=0/compile=0/execute=1/cacheHit=1`，submit 只有一次 `Renderer/main-0`，非采样 readback、diagnostics 和 overflow 均为 0；用户人工确认画面正常但未保存截图。artifact 的 dev server provenance 仍为旧 `4de81f7a`，只能关闭功能 smoke，不能替代 R1-D clean/full paired gate。
-- 当前 Frame Smoke（1038×583）与 A/B/C（1280×720）的 HZB 都是 10 mip。Frame Smoke/A/B 每帧 build 两次、20 个逐 mip Render Pass；C 每帧 build 三次、30 个 Render Pass，HZB phase P50/P95 约 1.040/1.051 ms。
-- R1 只建立三个主要 seam：唯一 frame submit owner、compiled topology/frame bindings、per-view HZB/history。前两个 seam 已落地代码；第三个仍属于 `R1-C`。R1-B 的 history 改动只解决 compiled graph 的逐帧绑定，不替代 R1-C 的 Compute HZB/history invalidation contract。
+- R1-C 入口时 Frame Smoke（1038×583）与 A/B/C（1280×720）的 HZB 都是 10 mip：Frame Smoke/A/B 每帧 build 两次、20 个逐 mip Render Pass；C 每帧 build 三次、30 个 Render Pass，C 的 HZB phase P50/P95 约 1.040/1.051 ms。新代码上界为每 build 1 个 Compute Pass、10 次 dispatch、0 个 HZB Render Pass；after P50/P95 尚待真实浏览器 JSON。
+- `HierarchicalZBuffer` 已直接替换为 `rg16float` storage Compute 实现，不保留 Render fallback。每个 view 持有 previous/current 两张 ping-pong texture；initial visibility 只读有效 previous，second-chance/alpha/light/SSR 读 current/final，完整 view 结束后才 commit。resize、显式 camera cut/revision 和 view frame discontinuity会使 history 失效；阴影 history 无效时保守绘制而不再返回零工作。
+- R1-C CPU reference 覆盖 1×1、8×8、奇数尺寸、全远/全近、边界、NaN 和 reverse-Z compare；独立 `r1-compute-hzb` 页面用实际 WGSL 验证 storage format、同纹理不同 mip 的单 pass dispatch 与最终 mip readback。自动测试和 production build 已通过；本轮浏览器控制连接不可用，因此不能把页面 build 冒充 GPU validation 通过。
 
 ## 参考代码状态
 

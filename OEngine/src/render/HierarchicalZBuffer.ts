@@ -1,261 +1,171 @@
-/**
- * HierarchicalZBuffer：负责渲染管线编排、视图状态或渲染目标管理。
- */
+/** Compute HZB owner：持有 per-view ping-pong history、编码金字塔并输出真实工作量证据。 */
 
 import {
-  HZB_FROM_DEPTH_CLIP_WGSL,
-  HZB_FROM_DEPTH_WGSL,
-  HZB_REDUCE_MIP_WGSL
+  HZB_FROM_DEPTH_COMPUTE_WGSL,
+  HZB_REDUCE_COMPUTE_WGSL,
+  HZB_WORKGROUP_SIZE
 } from "../shaders/hzb_reduce.js";
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
-import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
-import type {
-  CachedRenderPipelineDescriptor
-} from "../gpu/GPUDescriptorCaches.js";
+import type { CachedComputePipelineDescriptor } from "../gpu/GPUDescriptorCaches.js";
 import { GPUTextureContext } from "../gpu/GPUTextureContext.js";
 import { gd, id } from "../gpu/GPUTextureDescriptors.js";
+import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
+import { HzbHistoryState, type HzbHistoryRevision } from "./HzbHistory.js";
+import { hzbMipLevelCount } from "./HzbReference.js";
+
+export { hzbMipLevelCount } from "./HzbReference.js";
 
 export const HZB_FORMAT: GPUTextureFormat = "rg16float";
+export const HZB_FORMAT_REVISION = 2;
+export const HZB_COMPUTE_PASSES_PER_BUILD = 1;
+const SOURCE_REGION_BYTES = 16;
 
-export const HZB_RES_UBO_BYTES = 8;
-
-const HZB_FROM_DEPTH_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "",
+const FROM_DEPTH_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "HZB/from-depth-group",
   entries: [
-    {
-      binding: 0,
-      visibility: GPUShaderStage.FRAGMENT,
-      buffer: { type: "uniform", minBindingSize: HZB_RES_UBO_BYTES }
-    },
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth", viewDimension: "2d" } },
     {
       binding: 1,
-      visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "depth", viewDimension: "2d" }
-    }
-  ]
-};
-
-const HZB_REDUCE_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "",
-  entries: [
-    {
-      binding: 0,
-      visibility: GPUShaderStage.FRAGMENT,
-      buffer: { type: "uniform", minBindingSize: HZB_RES_UBO_BYTES }
-    },
-    {
-      binding: 1,
-      visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
-    }
-  ]
-};
-
-const HZB_CLIP_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "",
-  entries: [
-    {
-      binding: 0,
-      visibility: GPUShaderStage.FRAGMENT,
-      buffer: { type: "uniform", minBindingSize: 16 }
-    },
-    {
-      binding: 1,
-      visibility: GPUShaderStage.FRAGMENT,
-      buffer: { type: "uniform", minBindingSize: HZB_RES_UBO_BYTES }
+      visibility: GPUShaderStage.COMPUTE,
+      storageTexture: { access: "write-only", format: HZB_FORMAT, viewDimension: "2d" }
     },
     {
       binding: 2,
-      visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "depth", viewDimension: "2d" }
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "uniform", minBindingSize: SOURCE_REGION_BYTES }
     }
   ]
 };
 
-const HZB_FROM_DEPTH_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "",
-  layout: { label: "", bindGroupLayouts: [HZB_FROM_DEPTH_GROUP] },
-  vertex: {
-    module: { label: "", code: HZB_FROM_DEPTH_WGSL },
-    entryPoint: "vs_main"
-  },
-  fragment: {
-    module: { label: "", code: HZB_FROM_DEPTH_WGSL },
-    entryPoint: "fs_main",
-    targets: [{ format: HZB_FORMAT }]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" }
+const REDUCE_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "HZB/reduce-group",
+  entries: [
+    {
+      binding: 0,
+      visibility: GPUShaderStage.COMPUTE,
+      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+    },
+    {
+      binding: 1,
+      visibility: GPUShaderStage.COMPUTE,
+      storageTexture: { access: "write-only", format: HZB_FORMAT, viewDimension: "2d" }
+    }
+  ]
 };
 
-const HZB_REDUCE_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "",
-  layout: { label: "", bindGroupLayouts: [HZB_REDUCE_GROUP] },
-  vertex: {
-    module: { label: "", code: HZB_REDUCE_MIP_WGSL },
-    entryPoint: "vs_main"
-  },
-  fragment: {
-    module: { label: "", code: HZB_REDUCE_MIP_WGSL },
-    entryPoint: "fs_main",
-    targets: [{ format: HZB_FORMAT }]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" }
+const FROM_DEPTH_PIPELINE: CachedComputePipelineDescriptor = {
+  label: "HZB/from-depth-compute",
+  layout: { label: "HZB/from-depth-layout", bindGroupLayouts: [FROM_DEPTH_GROUP] },
+  compute: {
+    module: { label: "HZB/from-depth-module", code: HZB_FROM_DEPTH_COMPUTE_WGSL },
+    entryPoint: "main"
+  }
 };
 
-const HZB_CLIP_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "",
-  layout: { label: "", bindGroupLayouts: [HZB_CLIP_GROUP] },
-  vertex: {
-    module: { label: "", code: HZB_FROM_DEPTH_CLIP_WGSL },
-    entryPoint: "vs_main"
-  },
-  fragment: {
-    module: { label: "", code: HZB_FROM_DEPTH_CLIP_WGSL },
-    entryPoint: "fs_main",
-    targets: [{ format: HZB_FORMAT }]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" }
+const REDUCE_PIPELINE: CachedComputePipelineDescriptor = {
+  label: "HZB/reduce-compute",
+  layout: { label: "HZB/reduce-layout", bindGroupLayouts: [REDUCE_GROUP] },
+  compute: {
+    module: { label: "HZB/reduce-module", code: HZB_REDUCE_COMPUTE_WGSL },
+    entryPoint: "main"
+  }
 };
 
-export function hzbMipLevelCount(width: number, height: number): number {
-  const n = Math.max(width, height);
-  if (n <= 0) return 0;
-  return Math.floor(Math.log2(n)) + 1;
-}
+export type HzbFrameRevision = Partial<
+  Pick<HzbHistoryRevision, "camera" | "renderScale" | "feature" | "format">
+>;
 
 export class HierarchicalZBuffer {
   private readonly device: GPUDevice;
   private readonly graphics: GraphicsContext;
-  private readonly texture: GPUTextureContext;
-  private mipViews: GPUTextureView[] = [];
+  private readonly textures: readonly [GPUTextureContext, GPUTextureContext];
+  private readonly mipViews: [GPUTextureView[], GPUTextureView[]] = [[], []];
+  private readonly history = new HzbHistoryState();
   private viewportW = 1;
   private viewportH = 1;
   private hzbW = 0;
   private hzbH = 0;
   private mipCount = 0;
-
-  private resBuffer: GPUBuffer | null = null;
-  private resStride = 256;
-
-  private pipelineFromDepth: GPURenderPipeline | null = null;
-  private pipelineClip: GPURenderPipeline | null = null;
-  private pipelineReduce: GPURenderPipeline | null = null;
-  private readonly clipData = new Float32Array(4);
-  private readonly clipBuffer: GPUBuffer;
+  private readonly sourceRegionData = new Uint32Array(4);
+  private readonly uploadedSourceRegion = [-1, -1, -1, -1];
+  private readonly sourceRegionBuffer: GPUBuffer;
+  private pipelineFromDepth: GPUComputePipeline | null = null;
+  private pipelineReduce: GPUComputePipeline | null = null;
 
   lastBuilt = false;
   lastMipCount = 0;
   lastBuildCount = 0;
-  lastMipPassCount = 0;
+  lastComputePassCount = 0;
+  lastDispatchCount = 0;
+  lastOutputPixels = 0;
 
   constructor(graphics: GraphicsContext) {
     const device = graphics.device;
-    if (device === null) {
-      throw new Error("HierarchicalZBuffer: GraphicsContext has no device");
-    }
+    if (device === null) throw new Error("HierarchicalZBuffer: GraphicsContext has no device");
     this.graphics = graphics;
     this.device = device;
-    this.texture = graphics.textures.contextFromDescriptor(id.from({
-      label: "",
-      format: HZB_FORMAT,
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.RENDER_ATTACHMENT,
-      mipLevelCount: 1,
-      size: [1, 1, 1]
-    }));
-    this.clipBuffer = device.createBuffer({
-      label: "",
-      size: this.clipData.byteLength,
+    const makeTexture = (index: number): GPUTextureContext =>
+      graphics.textures.contextFromDescriptor(id.from({
+        label: `HZB/history-${index}`,
+        format: HZB_FORMAT,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+        mipLevelCount: 1,
+        size: [1, 1, 1]
+      }));
+    this.textures = [makeTexture(0), makeTexture(1)];
+    this.sourceRegionBuffer = device.createBuffer({
+      label: "HZB/source-region",
+      size: SOURCE_REGION_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
   }
 
-  getTexture(): GPUTextureContext {
-    return this.texture;
+  get width(): number { return this.hzbW; }
+  get height(): number { return this.hzbH; }
+  get mipLevelCount(): number { return this.mipCount; }
+  get historyValid(): boolean { return this.history.valid; }
+  get historyInvalidationCount(): number { return this.history.invalidationCount; }
+
+  getCurrentTexture(): GPUTextureContext {
+    return this.textures[this.history.writeTextureIndex];
   }
 
-  get width(): number {
-    return this.hzbW;
-  }
-
-  get height(): number {
-    return this.hzbH;
-  }
-
-  get mipLevelCount(): number {
-    return this.mipCount;
+  getPreviousTexture(): GPUTextureContext {
+    return this.textures[this.history.committedTextureIndex];
   }
 
   setViewportSize(width: number, height: number): void {
     this.viewportW = Math.max(1, width | 0);
     this.viewportH = Math.max(1, height | 0);
-    const hw = Math.max(this.viewportW >>> 1, 1);
-    const hh = Math.max(this.viewportH >>> 1, 1);
-    this.ensureTexture(hw, hh);
+    this.ensureTextures(Math.max(this.viewportW >>> 1, 1), Math.max(this.viewportH >>> 1, 1));
   }
 
-  private ensureTexture(w: number, h: number): void {
-    const mips = hzbMipLevelCount(w, h);
-    if (
-      this.hzbW === w &&
-      this.hzbH === h &&
-      this.mipCount === mips
-    ) {
-      return;
-    }
-    this.hzbW = w;
-    this.hzbH = h;
-    this.mipCount = mips;
-    this.texture.descriptor.mipLevelCount = mips;
-    this.texture.resize(w, h);
-    this.mipViews = [];
-
-    this.resStride = Math.max(
-      HZB_RES_UBO_BYTES,
-      this.device.limits.minUniformBufferOffsetAlignment
-    );
-    const resBytes = (mips + 1) * this.resStride;
-    this.resBuffer?.destroy();
-    this.resBuffer = this.device.createBuffer({
-      label: "",
-      size: resBytes,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true
+  beginFrame(frameIndex: number, revision: HzbFrameRevision = {}): void {
+    this.history.beginFrame(frameIndex, {
+      width: this.hzbW,
+      height: this.hzbH,
+      camera: revision.camera ?? 0,
+      renderScale: revision.renderScale ?? 0,
+      feature: revision.feature ?? 0,
+      format: revision.format ?? HZB_FORMAT_REVISION
     });
+  }
 
-    const u32 = new Uint32Array(this.resBuffer.getMappedRange());
-    let cw = w;
-    let ch = h;
-    const strideU32 = this.resStride >>> 2;
-    for (let i = 0; i < mips; i++) {
-      const base = i * strideU32;
-      u32[base] = cw >>> 0;
-      u32[base + 1] = ch >>> 0;
-      cw = Math.max(1, cw >>> 1);
-      ch = Math.max(1, ch >>> 1);
-    }
-    this.resBuffer.unmap();
+  commitHistory(frameIndex: number): boolean {
+    return this.history.commit(frameIndex);
+  }
+
+  invalidate(reason: "camera-cut" | "feature-toggle" | "explicit" = "explicit"): void {
+    this.history.invalidate(reason);
   }
 
   resetFrameStatistics(): void {
     this.lastBuilt = false;
     this.lastMipCount = 0;
     this.lastBuildCount = 0;
-    this.lastMipPassCount = 0;
-  }
-
-  private ensurePipelines(): void {
-    if (this.pipelineFromDepth && this.pipelineClip && this.pipelineReduce) return;
-    this.pipelineFromDepth = this.graphics.render_pipelines.obtain(
-      HZB_FROM_DEPTH_PIPELINE
-    );
-    this.pipelineClip = this.graphics.render_pipelines.obtain(
-      HZB_CLIP_PIPELINE
-    );
-    this.pipelineReduce = this.graphics.render_pipelines.obtain(
-      HZB_REDUCE_PIPELINE
-    );
+    this.lastComputePassCount = 0;
+    this.lastDispatchCount = 0;
+    this.lastOutputPixels = 0;
   }
 
   build(
@@ -263,124 +173,112 @@ export class HierarchicalZBuffer {
     sourceDepth: GPUTextureContext,
     viewport?: readonly [number, number, number, number]
   ): void {
-    if (this.mipCount < 1 || !this.resBuffer) {
-      this.setViewportSize(sourceDepth.width, sourceDepth.height);
-    }
-    if (!this.resBuffer || this.mipCount < 1) return;
-
+    if (this.mipCount < 1) this.setViewportSize(sourceDepth.width, sourceDepth.height);
+    if (this.mipCount < 1) return;
     this.ensurePipelines();
-    if (!this.pipelineFromDepth || !this.pipelineClip || !this.pipelineReduce) return;
+    if (!this.pipelineFromDepth || !this.pipelineReduce) return;
 
-    const useClip = viewport !== undefined && (
-      (viewport[0] !== 0 && viewport[1] !== 0) ||
-      this.viewportW !== sourceDepth.width ||
-      this.viewportH !== sourceDepth.height
-    );
-
-    {
-      const sourceView = sourceDepth.obtainView(gd.from({
-        dimension: "2d",
-        baseMipLevel: 0,
-        mipLevelCount: 1,
-        baseArrayLayer: 0,
-        arrayLayerCount: 1
-      }));
-      let bg: GPUBindGroup;
-      let pipeline: GPURenderPipeline;
-      if (useClip) {
-        this.clipData[0] = viewport![0];
-        this.clipData[1] = viewport![1];
-        this.clipData[2] = this.viewportW;
-        this.clipData[3] = this.viewportH;
-        writeGpuBuffer(
-          this.device.queue,
-          "HierarchicalZBuffer/clip",
-          this.clipBuffer,
-          0,
-          this.clipData
-        );
-        bg = this.graphics.bind_groups.obtain({
-          layout: HZB_CLIP_GROUP,
-          entries: [
-            { buffer: this.clipBuffer },
-            {
-              buffer: this.resBuffer,
-              offset: 0,
-              size: HZB_RES_UBO_BYTES
-            },
-            sourceView
-          ]
-        });
-        pipeline = this.pipelineClip;
-      } else {
-        bg = this.graphics.bind_groups.obtain({
-          layout: HZB_FROM_DEPTH_GROUP,
-          entries: [
-            {
-              buffer: this.resBuffer,
-              offset: 0,
-              size: HZB_RES_UBO_BYTES
-            },
-            sourceView
-          ]
-        });
-        pipeline = this.pipelineFromDepth;
+    this.sourceRegionData[0] = Math.max(0, Math.floor(viewport?.[0] ?? 0));
+    this.sourceRegionData[1] = Math.max(0, Math.floor(viewport?.[1] ?? 0));
+    this.sourceRegionData[2] = this.viewportW;
+    this.sourceRegionData[3] = this.viewportH;
+    if (this.sourceRegionData.some((value, index) => value !== this.uploadedSourceRegion[index])) {
+      writeGpuBuffer(
+        this.device.queue,
+        "HierarchicalZBuffer/source-region",
+        this.sourceRegionBuffer,
+        0,
+        this.sourceRegionData
+      );
+      for (let index = 0; index < 4; index++) {
+        this.uploadedSourceRegion[index] = this.sourceRegionData[index]!;
       }
-      const pass = encoder.beginRenderPass({
-        label: "HZB/build_mip0",
-        colorAttachments: [
-          {
-            view: this.obtainMipView(0),
-            loadOp: "clear",
-            storeOp: "store",
-            clearValue: { r: 1, g: 0, b: 0, a: 0 }
-          }
-        ]
-      });
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, bg);
-      pass.draw(3);
-      pass.end();
     }
 
-    for (let m = 1; m < this.mipCount; m++) {
-      const bg = this.graphics.bind_groups.obtain({
-        layout: HZB_REDUCE_GROUP,
-        entries: [
-          {
-            buffer: this.resBuffer,
-            offset: m * this.resStride,
-            size: HZB_RES_UBO_BYTES
-          },
-          this.obtainMipView(m - 1)
-        ]
-      });
-      const pass = encoder.beginRenderPass({
-        label: `HZB/build_mip${m}`,
-        colorAttachments: [
-          {
-            view: this.obtainMipView(m),
-            loadOp: "clear",
-            storeOp: "store",
-            clearValue: { r: 1, g: 0, b: 0, a: 0 }
-          }
-        ]
-      });
-      pass.setPipeline(this.pipelineReduce);
-      pass.setBindGroup(0, bg);
-      pass.draw(3);
-      pass.end();
-    }
+    const sourceView = sourceDepth.obtainView(gd.from({
+      dimension: "2d",
+      baseMipLevel: 0,
+      mipLevelCount: 1,
+      baseArrayLayer: 0,
+      arrayLayerCount: 1
+    }));
+    const writeIndex = this.history.writeTextureIndex;
+    const pass = encoder.beginComputePass({ label: "HZB/compute-pyramid" });
+    pass.setPipeline(this.pipelineFromDepth);
+    pass.setBindGroup(0, this.graphics.bind_groups.obtain({
+      layout: FROM_DEPTH_GROUP,
+      entries: [sourceView, this.obtainMipView(writeIndex, 0), {
+        buffer: this.sourceRegionBuffer,
+        offset: 0,
+        size: SOURCE_REGION_BYTES
+      }]
+    }));
+    this.dispatchMip(pass, this.hzbW, this.hzbH);
 
+    pass.setPipeline(this.pipelineReduce);
+    let width = this.hzbW;
+    let height = this.hzbH;
+    for (let mip = 1; mip < this.mipCount; mip++) {
+      pass.setBindGroup(0, this.graphics.bind_groups.obtain({
+        layout: REDUCE_GROUP,
+        entries: [this.obtainMipView(writeIndex, mip - 1), this.obtainMipView(writeIndex, mip)]
+      }));
+      width = Math.max(1, width >> 1);
+      height = Math.max(1, height >> 1);
+      this.dispatchMip(pass, width, height);
+    }
+    pass.end();
+
+    this.history.markBuilt();
     this.lastBuilt = true;
     this.lastMipCount = this.mipCount;
     this.lastBuildCount++;
-    this.lastMipPassCount += this.mipCount;
+    this.lastComputePassCount++;
+    this.lastDispatchCount += this.mipCount;
   }
 
-  obtainFullView(): GPUTextureView | null {
-    if (this.mipCount < 1) return null;
-    return this.texture.obtainView(gd.from({
+  obtainPreviousView(): GPUTextureView | null {
+    return this.history.valid ? this.obtainFullView(this.history.committedTextureIndex) : null;
+  }
+
+  obtainCurrentView(): GPUTextureView | null {
+    return this.mipCount > 0 ? this.obtainFullView(this.history.writeTextureIndex) : null;
+  }
+
+  obtainFinalView(): GPUTextureView | null {
+    return this.history.builtThisFrame ? this.obtainCurrentView() : this.obtainPreviousView();
+  }
+
+  private ensureTextures(width: number, height: number): void {
+    const mips = hzbMipLevelCount(width, height);
+    if (this.hzbW === width && this.hzbH === height && this.mipCount === mips) return;
+    this.hzbW = width;
+    this.hzbH = height;
+    this.mipCount = mips;
+    for (let index = 0; index < 2; index++) {
+      const texture = this.textures[index as 0 | 1];
+      texture.descriptor.mipLevelCount = mips;
+      texture.resize(width, height);
+      this.mipViews[index as 0 | 1] = [];
+    }
+  }
+
+  private ensurePipelines(): void {
+    this.pipelineFromDepth ??= this.graphics.compute_pipelines.obtain(FROM_DEPTH_PIPELINE);
+    this.pipelineReduce ??= this.graphics.compute_pipelines.obtain(REDUCE_PIPELINE);
+  }
+
+  private dispatchMip(pass: GPUComputePassEncoder, width: number, height: number): void {
+    pass.dispatchWorkgroups(
+      Math.ceil(width / HZB_WORKGROUP_SIZE),
+      Math.ceil(height / HZB_WORKGROUP_SIZE),
+      1
+    );
+    this.lastOutputPixels += width * height;
+  }
+
+  private obtainFullView(textureIndex: 0 | 1): GPUTextureView {
+    return this.textures[textureIndex].obtainView(gd.from({
       dimension: "2d",
       baseMipLevel: 0,
       mipLevelCount: this.mipCount,
@@ -389,32 +287,31 @@ export class HierarchicalZBuffer {
     }));
   }
 
-  private obtainMipView(mip: number): GPUTextureView {
-    let view = this.mipViews[mip];
+  private obtainMipView(textureIndex: 0 | 1, mip: number): GPUTextureView {
+    let view = this.mipViews[textureIndex][mip];
     if (view === undefined) {
-      view = this.texture.obtainView(gd.from({
+      view = this.textures[textureIndex].obtainView(gd.from({
         baseMipLevel: mip,
         mipLevelCount: 1,
         dimension: "2d",
         baseArrayLayer: 0,
         arrayLayerCount: 1
       }));
-      this.mipViews[mip] = view;
+      this.mipViews[textureIndex][mip] = view;
     }
     return view;
   }
 
   destroy(): void {
-    this.texture.destroy();
-    this.mipViews = [];
-    this.resBuffer?.destroy();
-    this.resBuffer = null;
-    this.clipBuffer.destroy();
+    this.textures[0].destroy();
+    this.textures[1].destroy();
+    this.mipViews[0] = [];
+    this.mipViews[1] = [];
+    this.sourceRegionBuffer.destroy();
     this.hzbW = 0;
     this.hzbH = 0;
     this.mipCount = 0;
     this.pipelineFromDepth = null;
-    this.pipelineClip = null;
     this.pipelineReduce = null;
   }
 }

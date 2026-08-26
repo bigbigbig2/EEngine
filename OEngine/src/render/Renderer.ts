@@ -178,6 +178,8 @@ export class Renderer {
   context!: GPUCanvasContext;
   device!: GPUDevice;
   private _frame_count = 0;
+  private _hzbCameraRevision = 0;
+  private _hzbRenderScaleRevision = 0;
   private _pixel_ratio = window.devicePixelRatio;
   private _internal_resolution_scale = 1;
   private readonly _render_resolution = new Vec2(1, 1);
@@ -609,6 +611,10 @@ export class Renderer {
     }
     const viewHzb = view.hierarchical_z_buffer;
     viewHzb.resetFrameStatistics();
+    viewHzb.beginFrame(this._frame_count, {
+      camera: this._hzbCameraRevision,
+      renderScale: this._hzbRenderScaleRevision
+    });
     const colorView = createNativeTextureView(this.context.getCurrentTexture());
 
     {
@@ -739,7 +745,16 @@ export class Renderer {
           { kind: "imported", label: "packed view Yu" },
           bind("view-uniform", (bindings) => bindings.view.uniform_buffer)
         );
-        let hzbRes: ResourceId | null = null;
+        let hzbRes: ResourceId | null = graph.import_resource(
+          "hzb_current",
+          { kind: "imported", label: "current hierarchical_z rg16float" },
+          bind("hzb-current-texture", (bindings) => bindings.viewHzb.getCurrentTexture())
+        );
+        const previousHzbRes = graph.import_resource(
+          "hzb_previous",
+          { kind: "imported", label: "previous hierarchical_z rg16float" },
+          bind("hzb-previous-texture", (bindings) => bindings.viewHzb.getPreviousTexture())
+        );
         let gpuCounterRes: ResourceId | null = null;
         if (sampleGpuCounters) {
           gpuCounterRes = graph.import_resource(
@@ -768,7 +783,7 @@ export class Renderer {
               sceneDatabase: bindings.gpuScene.scene_database,
               materialMetadata: bindings.gpuScene.material_metadata,
               enableFrustumCull: true,
-              hzbView: bindings.viewHzb.obtainFullView(),
+              hzbView: bindings.viewHzb.obtainPreviousView(),
               viewportWidth: bindings.internalWidth,
               viewportHeight: bindings.internalHeight,
               enableHzbCull: true,
@@ -780,6 +795,7 @@ export class Renderer {
               meshId: meshIdRes,
               triangleId: triIdRes,
               depth: depthRes,
+              hzb: previousHzbRes,
               counters: gpuCounterRes ?? undefined
             },
             "Visibility"
@@ -800,16 +816,11 @@ export class Renderer {
             }
           );
           hzbBuilder.read(depthRes);
-          hzbBuilder.make_side_effect();
-          hzbRes = graph.import_resource(
-            "hzb",
-            { kind: "imported", label: "hierarchical_z rg16float" },
-            bind("hzb-texture", (bindings) => bindings.viewHzb.getTexture())
-          );
+          hzbRes = hzbBuilder.write(hzbRes!);
         }
 
         {
-          const sameFrameHzbView = viewHzb.obtainFullView();
+          const sameFrameHzbView = viewHzb.obtainCurrentView();
           if (sameFrameHzbView) {
             gpuCounterRes = this._visibility.addToGraph(
               graph,
@@ -829,7 +840,7 @@ export class Renderer {
                 sceneDatabase: bindings.gpuScene.scene_database,
                 materialMetadata: bindings.gpuScene.material_metadata,
                 enableFrustumCull: false,
-                hzbView: bindings.viewHzb.obtainFullView(),
+                hzbView: bindings.viewHzb.obtainCurrentView(),
                 viewportWidth: bindings.internalWidth,
                 viewportHeight: bindings.internalHeight,
                 enableHzbCull: true,
@@ -841,6 +852,7 @@ export class Renderer {
                 meshId: meshIdRes,
                 triangleId: triIdRes,
                 depth: depthRes,
+                hzb: hzbRes!,
                 counters: gpuCounterRes ?? undefined
               },
               "Visibility/second-chance"
@@ -859,7 +871,7 @@ export class Renderer {
               }
             );
             hzb2Builder.read(depthRes);
-            hzb2Builder.make_side_effect();
+            hzbRes = hzb2Builder.write(hzbRes!);
           }
         }
 
@@ -885,7 +897,7 @@ export class Renderer {
               materialMetadata: bindings.gpuScene.material_metadata,
               materialRegistry: bindings.gpuScene.materials ?? this._graphics.materials,
               enableFrustumCull: true,
-              hzbView: bindings.viewHzb.obtainFullView(),
+              hzbView: bindings.viewHzb.obtainCurrentView(),
               viewportWidth: bindings.internalWidth,
               viewportHeight: bindings.internalHeight,
               enableHzbCull: true,
@@ -898,6 +910,7 @@ export class Renderer {
               meshId: meshIdRes,
               triangleId: triIdRes,
               depth: depthRes,
+              hzb: hzbRes!,
               counters: gpuCounterRes ?? undefined
             },
             "Visibility/alpha-tested"
@@ -917,7 +930,7 @@ export class Renderer {
               }
             );
             hzbABuilder.read(depthRes);
-            hzbABuilder.make_side_effect();
+            hzbRes = hzbABuilder.write(hzbRes!);
           }
         }
 
@@ -1757,8 +1770,8 @@ export class Renderer {
         ]);
       }
       cmd.encodeCompiledGraph(compiledGraph, mainBindings);
-      view.finish_frame(cmd);
-      this.recordLegacyFrameCounters(viewHzb);
+      view.finish_frame(cmd, this._frame_count);
+      this.recordFrameCounters(viewHzb);
       this._profiler.encodeGpuCounterReadback(cmd);
       this._frameCoordinator.submitFrame(activeFrame);
       activeFrame = null;
@@ -1885,7 +1898,7 @@ export class Renderer {
     }
   }
 
-  private recordLegacyFrameCounters(hzb: HierarchicalZBuffer): void {
+  private recordFrameCounters(hzb: HierarchicalZBuffer): void {
     const profiler = this._profiler;
     const visibility = this._visibility;
     profiler.recordCounter(
@@ -1913,9 +1926,12 @@ export class Renderer {
       "legacy.visibility.secondChance",
       visibility.lastSecondChance ? 1 : 0
     );
-    profiler.recordCounter("legacy.hzb.builds", hzb.lastBuildCount);
-    profiler.recordCounter("legacy.hzb.mips", hzb.lastMipCount);
-    profiler.recordCounter("legacy.hzb.mipPasses", hzb.lastMipPassCount);
+    profiler.recordCounter("hzb.computeBuilds", hzb.lastBuildCount);
+    profiler.recordCounter("hzb.computePasses", hzb.lastComputePassCount);
+    profiler.recordCounter("hzb.dispatches", hzb.lastDispatchCount);
+    profiler.recordCounter("hzb.outputPixels", hzb.lastOutputPixels);
+    profiler.recordCounter("hzb.historyValid", hzb.historyValid ? 1 : 0);
+    profiler.recordCounter("hzb.historyInvalidations", hzb.historyInvalidationCount);
     profiler.recordCounter(
       "legacy.material.fullscreenDraws",
       this._materialExpand.lastDrawCount
@@ -1936,6 +1952,7 @@ export class Renderer {
   }
 
   indicate_view_change(): void {
+    this._hzbCameraRevision++;
     this._taaJitter.reset_history = true;
     if (this._pathTracer !== undefined) this._pathTracer.clear_history = true;
     if (this._nss) this._nss.reset_history = true;
@@ -1958,6 +1975,7 @@ export class Renderer {
   }
 
   private recalculateRenderResolution(): void {
+    this._hzbRenderScaleRevision++;
     const limit = this.device.limits.maxTextureDimension2D;
     const width = clampInteger(
       Math.floor(this._output_resolution.x * this._internal_resolution_scale),

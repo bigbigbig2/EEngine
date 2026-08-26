@@ -12,6 +12,7 @@ test("GPU phase classifier covers current main-frame labels without hiding unkno
     ["MeshletDrawList/$g-expand", "hierarchy-and-cluster-cull"],
     ["Visibility/ID+Depth/bucket-8", "hardware-raster"],
     ["HZB/build_mip4", "hzb"],
+    ["HZB/compute-pyramid", "hzb"],
     ["Material Expand/gbuffer", "material-resolve"],
     ["LightCluster/yh", "light-cluster"],
     ["IBL indirect diffuse uw", "lighting-and-ibl"],

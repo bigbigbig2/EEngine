@@ -109,3 +109,18 @@ OEngine adaptations: 为现有 initial、dual、second-chance Visibility HZB Sha
 semantic differences: rejectedHzb 是各 Visibility wave 的 reject event 总和，同一逻辑 Cluster 可重复；它不是唯一 Cluster 数，也不是逐像素 reject-reason debug view
 local regression: OEngine/tests/hzb-reject-counter.test.mjs、OEngine/tests/benchmark-evidence-gate.test.mjs、examples/r0-frame-smoke
 ```
+
+### R1-C Compute HZB 金字塔
+
+```text
+upstream repository URL: https://github.com/mrdoob/three.js
+commit: 7cda7e710d884827fc73ff1a3aa63270846513d7
+source: examples/webgpu_compute_rasterizer_ibl.html:557-624、1626-1671、1757-1762
+license: MIT
+scope: 移植逐 level storage compute pyramid、2D workgroup dispatch 和越界保护的算法结构；没有复制 TSL 表达式、packed buffer ABI 或示例生命周期
+retained invariants: level 0 从真实深度生成；后续 level 只读上一层；每层覆盖全部 source texel；GPU 上完成 producer→consumer，不做 CPU readback 驱动
+OEngine adaptations: 使用 WebGPU rg16float storage texture；每 texel 保存 reverse-Z farthest(min)/nearest(max)；奇数尺寸按 floor/ceil coverage 映射；一个 Compute Pass 内逐 mip dispatch；per-view 两张 texture 承担 previous/current ping-pong
+semantic differences: three.js 上游使用 packed storage buffer 和单深度值、level 0 为 ceil 半分辨率；OEngine 保留已有 texture consumer ABI 和 min/max pair，level 0 沿用 floor 半分辨率，并由 CPU/GPU reference 验证边界不遗漏；history/FrameGraph owner 为 OEngine 自有设计
+accepted bound: 每次 build 固定 1 Compute Pass，dispatches = mipCount，HZB Render Pass = 0；后续只有 paired benchmark 证明需要时才升级为 SPD/subgroup 方案
+local regression: OEngine/tests/hzb-compute.test.mjs、examples/r1-compute-hzb、examples/r0-frame-smoke
+```

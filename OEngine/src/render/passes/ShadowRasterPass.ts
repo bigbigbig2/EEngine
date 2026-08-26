@@ -322,9 +322,19 @@ export class ShadowRasterPass {
     const writeBuffer = adaptCommandWriter(command);
     const drawList = job.drawList;
     const hzb = view.hierarchical_z_buffer;
-    const previousHzbView = hzb.obtainFullView();
+    const previousHzbView = hzb.obtainPreviousView();
     const materialBuffer = job.materialMetadata.buffer;
-    if (!previousHzbView || !materialBuffer) return 0;
+    if (!materialBuffer) return 0;
+
+    // History 无效时必须保守地画出当前深度，再建立可供下一帧使用的 HZB；
+    // 不能把“没有 previous”误当成“没有可见阴影工作”。
+    if (!previousHzbView) {
+      drawList.beginVisibilityCycle(command, job.meshlets, job.sceneDatabase);
+      if (!this.prepareFrustumMeshes(command, job)) return 0;
+      const drew = this.executePrepared(command, job);
+      hzb.build(encoder, depthTexture, job.viewport);
+      return drew;
+    }
 
     drawList.beginVisibilityCycle(command, job.meshlets, job.sceneDatabase);
     if (!this.prepareFrustumMeshes(command, job)) return 0;
@@ -382,7 +392,7 @@ export class ShadowRasterPass {
     }
 
     hzb.build(encoder, depthTexture, job.viewport);
-    const currentHzbView = hzb.obtainFullView();
+    const currentHzbView = hzb.obtainCurrentView();
 
     if (currentHzbView && drawList.prepareSecondChance({ device: this.device })) {
       const instanceOk = drawList.dispatchInstanceCull(encoder, this.device, {

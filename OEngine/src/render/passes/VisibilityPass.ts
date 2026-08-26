@@ -400,6 +400,7 @@ export class VisibilityPass {
       meshId: ResourceId;
       triangleId: ResourceId;
       depth: ResourceId;
+      hzb?: ResourceId;
       counters?: ResourceId;
     },
     passName = "Visibility"
@@ -460,6 +461,7 @@ export class VisibilityPass {
     builder.write(resources.triangleId);
     builder.read(resources.depth);
     builder.write(resources.depth);
+    if (resources.hzb !== undefined) builder.read(resources.hzb);
     const nextCounters = resources.counters === undefined
       ? null
       : builder.write(resources.counters);

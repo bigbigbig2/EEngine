@@ -435,7 +435,9 @@ export class ShadowContext {
     database.update(command);
     for (const map of this.maps) {
       if (map.last_updated_frame_index !== this.frameIndex) continue;
-      for (const view of map.views) view.gpu_context?.finish_frame(command);
+      for (const view of map.views) {
+        view.gpu_context?.finish_frame(command, this.frameIndex);
+      }
     }
     return this.debugRenderCount;
   }
@@ -541,6 +543,7 @@ export class ShadowContext {
     }
     context.update(command);
     context.setViewportSize(width, height);
+    context.hierarchical_z_buffer.beginFrame(this.frameIndex);
     return context;
   }
 
