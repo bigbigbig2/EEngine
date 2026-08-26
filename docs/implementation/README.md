@@ -64,7 +64,7 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 
 G0 的“证据完整”不等于 R2–R5 产品能力已经存在。G0 允许 artifact 机器结构合格但 `capabilityComplete=false`，前提是所有 blocker 可追溯且没有假 counter；A/B 的真实功能与性能通过仍在对应后续 Gate 判定。
 
-当前 R0 已收口 `OBS-01/03/04/05/06/07`；`OBS-02` 的 A/B/C Harness 实现已完成，只差一次 WebGPU 浏览器验收，随后执行 `OBS-08` 当前实现基线采集。唯一总账见 [01 · R0 基线与可观测性](./01-baseline-and-observability.md#r0-收口总账)；不得把后续算法或可选观测增强重新加入 G0 blocker。
+当前 R0 已收口 `OBS-01～07`，包括 A/B/C Harness 与 RTX 2060 SUPER 浏览器 smoke；唯一剩余是 `OBS-08` 当前实现基线采集。唯一总账见 [01 · R0 基线与可观测性](./01-baseline-and-observability.md#r0-收口总账)；不得把后续算法或可选观测增强重新加入 G0 blocker。
 
 ## 明确排除
 

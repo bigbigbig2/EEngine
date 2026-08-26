@@ -1,6 +1,6 @@
 # OEngine R0 Benchmark Harness
 
-本目录是 R0 性能证据入口。当前已完成 Result Schema v3、feature-to-counter 能力证据矩阵、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback、diagnostics 和 percentile 汇总；A/B/C 的 manifest、实际资产 hash、固定相机、共享 runner 与三个浏览器入口也已接入。`OBS-02` 代码交付已经收口，尚差一次可用 WebGPU 浏览器中的 smoke 验收。
+本目录是 R0 性能证据入口。当前已完成 Result Schema v3、feature-to-counter 能力证据矩阵、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback、diagnostics 和 percentile 汇总；A/B/C 的 manifest、实际资产 hash、固定相机、共享 runner、三个浏览器入口和 RTX 2060 SUPER smoke 验收也已完成。
 
 A/B 只是 OEngine 必须达到的最低垂直功能与性能基线：覆盖 GPU LOD/work generation、SW/HW Visibility、材质重建和 PBR/IBL。它们不是产品范围或完成上限。C 与通用 vertical/lifecycle cases 还必须证明多 geometry/material、动态对象与 Packed Instances、GPU Render World、层次 LOD、完整效果和 device/resource 生命周期。A/B/C 必须复用同一 OEngine 主管线，不能为 benchmark 创建样例专用 Renderer。
 
@@ -181,11 +181,10 @@ npm run audit:shaders
 
 ## 固定剩余的 R0 工作
 
-只剩两个顺序工作包：
+R0 只剩一个工作包：
 
-1. `OBS-02`：实现已完成；只需在可用 WebGPU 浏览器中复测两个既有 smoke 与 A/B/C smoke 页面，保存控制台/截图并确认 Schema v3 可导出。该验收不得再扩出新 schema、counter、debug view 或后续算法任务。
-2. `OBS-08`：在主要开发/目标 adapter 上采集当前实现的 A/B/C clean Schema v3 cold/warm JSON、截图、控制台记录和分析 bundle，并登记到 `docs/BASELINE-ARTIFACTS.md`。
+1. `OBS-08`：在主要开发/目标 adapter 上采集当前实现的 A/B/C clean Schema v3 cold/warm JSON、截图、控制台记录和分析 bundle，并登记到 `docs/BASELINE-ARTIFACTS.md`。
 
-`r0-observability` 与 `r0-frame-smoke` 的 Schema v3 浏览器复测并入 `OBS-02` 验收。当前 artifact 可以对 Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD/cone culling（`WORK-04`）和 SW Visibility（`VIS-05`）诚实报告 unsupported；这不妨碍 G0 artifact 合格，也不等于 A/B 功能已通过。
+`OBS-02` 的两个既有 smoke 与 A/B/C smoke 已在 RTX 2060 SUPER 上完成。当前 artifact 可以对 Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD/cone culling（`WORK-04`）和 SW Visibility（`VIS-05`）诚实报告 unsupported；这不妨碍 G0 artifact 合格，也不等于 A/B 功能已通过。
 
 以下内容不再列为 R0 剩余：material overflow 保留 bit 2、更多逐像素 debug producer、纯 copy/write GPU timestamp 和跨 submit whole-frame query。它们没有被当前 feature evidence 宣称为 supported，或超出 WebGPU Pass timestamp 范围；未来在对应 owner/算法任务中实现，禁止用占位 counter 收口。
