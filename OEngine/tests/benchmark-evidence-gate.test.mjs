@@ -7,11 +7,8 @@ import { createBenchmarkCapabilityEvidence } from "../.test-dist/debug/Benchmark
 test("complete clean A/B/C evidence is gate eligible", () => {
   const report = validateBenchmarkEvidence(validResult());
   assert.equal(report.gateEligible, true);
-  assert.equal(report.capabilityComplete, false);
-  assert.deepEqual(
-    report.blockedCapabilities.map((blocker) => blocker.id),
-    ["rejectedCone", "rejectedHzb"]
-  );
+  assert.equal(report.capabilityComplete, true);
+  assert.deepEqual(report.blockedCapabilities, []);
   assert.equal(report.baselineRole, "minimum-a");
   assert.deepEqual(report.errors, []);
 });
@@ -177,7 +174,7 @@ function errorCodes(result) {
   );
 }
 
-function validResult(featureSet = ["hardware-visibility"]) {
+function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
   const gpuCounterValues = featureSet.includes("hardware-visibility")
     ? {
         candidateInstances: 0,
@@ -185,6 +182,7 @@ function validResult(featureSet = ["hardware-visibility"]) {
         candidateClusters: 1,
         selectedClusters: 1,
         rejectedFrustum: 0,
+        rejectedHzb: 0,
         hwClusters: 1,
         alphaClusters: 0,
         hwTriangles: 128,

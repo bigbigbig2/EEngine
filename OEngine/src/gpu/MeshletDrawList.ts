@@ -10,10 +10,16 @@ import type { CachedComputePipelineDescriptor } from "./GPUDescriptorCaches.js";
 import { StructType } from "../core/WgslStruct.js";
 import { WGSL_u32 } from "../core/WebGPUTypes.js";
 import {
+  createMeshletHzbCullSecondWgsl,
+  createMeshletHzbCullWgsl,
   MESHLET_HZB_CULL_SECOND_WGSL,
   MESHLET_HZB_CULL_WGSL
 } from "../shaders/meshlet_hzb_cull.js";
-import { MESHLET_HZB_CULL_DUAL_WGSL } from "../shaders/meshlet_hzb_cull_dual.js";
+import {
+  createMeshletHzbCullDualWgsl,
+  MESHLET_HZB_CULL_DUAL_WGSL
+} from "../shaders/meshlet_hzb_cull_dual.js";
+import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import {
   ORACLE_MESH_INSTANCE_CULL_WGSL,
   ORACLE_MESHLET_EXPAND_COMMIT_WGSL,
@@ -143,6 +149,30 @@ const HZB_CULL_DUAL_GROUPS = [
   ]),
   computeBufferGroup(["read-only-storage", "storage", "storage"])
 ] as const;
+const HZB_COUNTER_GROUP = computeBufferGroup(["storage"]);
+const HZB_CULL_COUNTER_GROUPS = [...HZB_CULL_GROUPS, HZB_COUNTER_GROUP] as const;
+const HZB_CULL_SECOND_COUNTER_GROUPS = [
+  ...HZB_CULL_SECOND_GROUPS,
+  HZB_COUNTER_GROUP
+] as const;
+const HZB_CULL_DUAL_COUNTER_GROUPS = [
+  ...HZB_CULL_DUAL_GROUPS,
+  HZB_COUNTER_GROUP
+] as const;
+const REJECTED_HZB_COUNTER_INDEX =
+  counterByteOffset("rejectedHzb") / Uint32Array.BYTES_PER_ELEMENT;
+const MESHLET_HZB_CULL_COUNTER_WGSL = createMeshletHzbCullWgsl({
+  counterGroup: 2,
+  rejectedHzbIndex: REJECTED_HZB_COUNTER_INDEX
+});
+const MESHLET_HZB_CULL_SECOND_COUNTER_WGSL = createMeshletHzbCullSecondWgsl({
+  counterGroup: 3,
+  rejectedHzbIndex: REJECTED_HZB_COUNTER_INDEX
+});
+const MESHLET_HZB_CULL_DUAL_COUNTER_WGSL = createMeshletHzbCullDualWgsl({
+  counterGroup: 2,
+  rejectedHzbIndex: REJECTED_HZB_COUNTER_INDEX
+});
 const EXPAND_GROUPS = [
   computeBufferGroup(["read-only-storage"]),
   computeBufferGroup(["read-only-storage", "read-only-storage"]),
@@ -422,6 +452,9 @@ export class MeshletDrawList {
   private hzbCullPipeline: GPUComputePipeline | null = null;
   private hzbCullSecondPipeline: GPUComputePipeline | null = null;
   private hzbCullDualPipeline: GPUComputePipeline | null = null;
+  private hzbCullCounterPipeline: GPUComputePipeline | null = null;
+  private hzbCullSecondCounterPipeline: GPUComputePipeline | null = null;
+  private hzbCullDualCounterPipeline: GPUComputePipeline | null = null;
   private expandPipeline: GPUComputePipeline | null = null;
   private instanceCullPipeline: GPUComputePipeline | null = null;
   private instanceCullDualPipeline: GPUComputePipeline | null = null;
@@ -985,7 +1018,19 @@ export class MeshletDrawList {
     return true;
   }
 
-  private ensureHzbCullPipeline(device: GPUDevice): GPUComputePipeline {
+  private ensureHzbCullPipeline(
+    device: GPUDevice,
+    withCounters: boolean
+  ): GPUComputePipeline {
+    if (withCounters) {
+      if (this.hzbCullCounterPipeline) return this.hzbCullCounterPipeline;
+      this.hzbCullCounterPipeline = this.obtainComputePipeline(
+        device,
+        MESHLET_HZB_CULL_COUNTER_WGSL,
+        HZB_CULL_COUNTER_GROUPS
+      );
+      return this.hzbCullCounterPipeline;
+    }
     if (this.hzbCullPipeline) return this.hzbCullPipeline;
     this.hzbCullPipeline = this.obtainComputePipeline(
       device,
@@ -995,7 +1040,21 @@ export class MeshletDrawList {
     return this.hzbCullPipeline;
   }
 
-  private ensureHzbCullSecondPipeline(device: GPUDevice): GPUComputePipeline {
+  private ensureHzbCullSecondPipeline(
+    device: GPUDevice,
+    withCounters: boolean
+  ): GPUComputePipeline {
+    if (withCounters) {
+      if (this.hzbCullSecondCounterPipeline) {
+        return this.hzbCullSecondCounterPipeline;
+      }
+      this.hzbCullSecondCounterPipeline = this.obtainComputePipeline(
+        device,
+        MESHLET_HZB_CULL_SECOND_COUNTER_WGSL,
+        HZB_CULL_SECOND_COUNTER_GROUPS
+      );
+      return this.hzbCullSecondCounterPipeline;
+    }
     if (this.hzbCullSecondPipeline) return this.hzbCullSecondPipeline;
     this.hzbCullSecondPipeline = this.obtainComputePipeline(
       device,
@@ -1005,7 +1064,21 @@ export class MeshletDrawList {
     return this.hzbCullSecondPipeline;
   }
 
-  private ensureHzbCullDualPipeline(device: GPUDevice): GPUComputePipeline {
+  private ensureHzbCullDualPipeline(
+    device: GPUDevice,
+    withCounters: boolean
+  ): GPUComputePipeline {
+    if (withCounters) {
+      if (this.hzbCullDualCounterPipeline) {
+        return this.hzbCullDualCounterPipeline;
+      }
+      this.hzbCullDualCounterPipeline = this.obtainComputePipeline(
+        device,
+        MESHLET_HZB_CULL_DUAL_COUNTER_WGSL,
+        HZB_CULL_DUAL_COUNTER_GROUPS
+      );
+      return this.hzbCullDualCounterPipeline;
+    }
     if (this.hzbCullDualPipeline) return this.hzbCullDualPipeline;
     this.hzbCullDualPipeline = this.obtainComputePipeline(
       device,
@@ -1819,6 +1892,7 @@ export class MeshletDrawList {
       sceneDatabaseBuffer: GPUBuffer;
       meshletHeaders: GPUBuffer;
       hzbView: GPUTextureView;
+      gpuCounterBuffer?: GPUBuffer | null;
       writeBuffer: (
         buffer: GPUBuffer,
         offset: number,
@@ -1842,7 +1916,9 @@ export class MeshletDrawList {
 
     encoder.clearBuffer(this.positiveBuffer, 0, MESHLET_LIST_ELEMENTS_OFFSET);
 
-    const pipeline = this.ensureHzbCullDualPipeline(device);
+    const withCounters = opts.gpuCounterBuffer !== null &&
+      opts.gpuCounterBuffer !== undefined;
+    const pipeline = this.ensureHzbCullDualPipeline(device, withCounters);
     const group0 = this.obtainBindGroup(device, pipeline, 0, HZB_CULL_DUAL_GROUPS[0], [
         { binding: 0, resource: { buffer: opts.currentCameraBuffer } },
         { binding: 1, resource: { buffer: opts.previousCameraBuffer } },
@@ -1856,6 +1932,15 @@ export class MeshletDrawList {
         { binding: 1, resource: { buffer: this.positiveBuffer } },
         { binding: 2, resource: { buffer: this.meshletMaybeBuffer } }
     ]);
+    const counterGroup = withCounters
+      ? this.obtainBindGroup(
+          device,
+          pipeline,
+          2,
+          HZB_CULL_DUAL_COUNTER_GROUPS[2],
+          [{ binding: 0, resource: { buffer: opts.gpuCounterBuffer! } }]
+        )
+      : null;
 
     const usedIndirect = this.dispatchFillDispatchArgs(
       encoder,
@@ -1872,6 +1957,7 @@ export class MeshletDrawList {
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, group0);
     pass.setBindGroup(1, group1);
+    if (counterGroup) pass.setBindGroup(2, counterGroup);
     pass.dispatchWorkgroupsIndirect(this.dispatchArgsBuffer, 0);
     pass.end();
 
@@ -1893,6 +1979,7 @@ export class MeshletDrawList {
       resolutionH: number;
       meshletHeaders: GPUBuffer;
       hzbView: GPUTextureView;
+      gpuCounterBuffer?: GPUBuffer | null;
       writeBuffer: (
         buffer: GPUBuffer,
         offset: number,
@@ -1925,9 +2012,11 @@ export class MeshletDrawList {
 
     encoder.clearBuffer(this.positiveBuffer, 0, MESHLET_LIST_ELEMENTS_OFFSET);
 
+    const withCounters = opts.gpuCounterBuffer !== null &&
+      opts.gpuCounterBuffer !== undefined;
     const pipeline = opts.secondChance
-      ? this.ensureHzbCullSecondPipeline(device)
-      : this.ensureHzbCullPipeline(device);
+      ? this.ensureHzbCullSecondPipeline(device, withCounters)
+      : this.ensureHzbCullPipeline(device, withCounters);
     const usedIndirect = this.dispatchFillDispatchArgs(
       encoder,
       device,
@@ -1975,6 +2064,19 @@ export class MeshletDrawList {
           { binding: 0, resource: { buffer: this.positiveBuffer } }
         ])
       : null;
+    const counterGroupIndex = opts.secondChance ? 3 : 2;
+    const counterGroups = opts.secondChance
+      ? HZB_CULL_SECOND_COUNTER_GROUPS
+      : HZB_CULL_COUNTER_GROUPS;
+    const counterGroup = withCounters
+      ? this.obtainBindGroup(
+          device,
+          pipeline,
+          counterGroupIndex,
+          counterGroups[counterGroupIndex]!,
+          [{ binding: 0, resource: { buffer: opts.gpuCounterBuffer! } }]
+        )
+      : null;
     const pass = encoder.beginComputePass({
       label: opts.secondChance
         ? "MeshletDrawList/hzb_cull_ob"
@@ -1984,6 +2086,7 @@ export class MeshletDrawList {
     pass.setBindGroup(0, group0);
     pass.setBindGroup(1, group1);
     if (group2) pass.setBindGroup(2, group2);
+    if (counterGroup) pass.setBindGroup(counterGroupIndex, counterGroup);
     pass.dispatchWorkgroupsIndirect(this.dispatchArgsBuffer, 0);
     pass.end();
 
@@ -2031,6 +2134,9 @@ export class MeshletDrawList {
     this.hzbCullPipeline = null;
     this.hzbCullSecondPipeline = null;
     this.hzbCullDualPipeline = null;
+    this.hzbCullCounterPipeline = null;
+    this.hzbCullSecondCounterPipeline = null;
+    this.hzbCullDualCounterPipeline = null;
     this.expandPipeline = null;
     this.instanceCullPipeline = null;
     this.instanceCullDualPipeline = null;

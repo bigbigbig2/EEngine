@@ -53,6 +53,10 @@ const GPU_FRAME_PHASE_SET = new Set<string>(GPU_FRAME_PHASES);
 const GPU_COUNTER_FIELD_SET = new Set<string>(
   GPU_COUNTER_FIELDS.map((field) => field.name)
 );
+const GPU_COUNTER_EVIDENCE: Record<
+  GpuCounterFieldName,
+  CounterEvidenceDeclaration
+> = BENCHMARK_GPU_COUNTER_EVIDENCE;
 
 type FrameEvidenceStats = {
   timestampSamples: number;
@@ -215,7 +219,7 @@ function validateCapabilityEvidence(
     blockers: []
   };
   for (const field of GPU_COUNTER_FIELDS) {
-    if (BENCHMARK_GPU_COUNTER_EVIDENCE[field.name].status === "unsupported") {
+    if (GPU_COUNTER_EVIDENCE[field.name].status === "unsupported") {
       result.unsupportedCounters.add(field.name);
     }
   }
@@ -291,7 +295,7 @@ function validateCapabilityEvidence(
         continue;
       }
       for (const field of expected.requiredGpuCounters) {
-        const counter = BENCHMARK_GPU_COUNTER_EVIDENCE[field];
+        const counter = GPU_COUNTER_EVIDENCE[field];
         if (counter.status === "supported") {
           result.requiredSupportedCounters.add(field);
         } else {

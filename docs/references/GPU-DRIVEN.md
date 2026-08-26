@@ -95,3 +95,17 @@ OEngine adaptations: 采样帧以 1-workgroup GPU reducer读取 count-prefixed q
 semantic differences: 上游统计围绕其 hierarchy/SW-HW pipeline；OEngine 当前还没有 SW raster/hierarchy，candidateClusters 是现有所有 visibility wave/bucket 的队列项总和，不声明唯一 cluster；queueOverflowMask 使用稳定 bit ABI，目前接通 scene-mesh、meshlet 与 light list
 local regression: OEngine/tests/gpu-list-counter-accumulator.test.mjs、examples/r0-frame-smoke
 ```
+
+### R0 HZB reject 统计语义
+
+```text
+upstream repository URL: https://github.com/mrdoob/three.js、https://github.com/Scthe/nanite-webgpu
+commit: three.js 7cda7e710d884827fc73ff1a3aa63270846513d7；nanite-webgpu b9cd33f65bb3cdba0464717e0fa621d330d2116f
+source: three.js/examples/webgpu_compute_rasterizer_ibl.html；nanite-webgpu src/sys_web/stats.ts
+license: MIT
+scope: 只核对 HZB reject 应来自实际 GPU 遮挡判断、并作为独立工作量证据的语义；未复制 culling 或统计实现
+retained invariants: HZB reject 与 frustum/offscreen reject 分离；统计来自真实执行的 GPU 分支；零值与 unsupported 不混淆
+OEngine adaptations: 为现有 initial、dual、second-chance Visibility HZB Shader 生成 sampled-only variant，在 depth-query reject 分支对固定 counter ABI 执行 atomicAdd；非采样 variant 不带 counter binding/atomic
+semantic differences: rejectedHzb 是各 Visibility wave 的 reject event 总和，同一逻辑 Cluster 可重复；它不是唯一 Cluster 数，也不是逐像素 reject-reason debug view
+local regression: OEngine/tests/hzb-reject-counter.test.mjs、OEngine/tests/benchmark-evidence-gate.test.mjs、examples/r0-frame-smoke
+```

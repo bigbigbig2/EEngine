@@ -3,8 +3,16 @@
  */
 
 import { VISIBILITY_CULL_COMMON_WGSL } from "./visibility_cull_common.js";
+import {
+  createMeshletHzbCounterWgsl,
+  type MeshletHzbCounterWgslOptions
+} from "./meshlet_hzb_cull.js";
 
-export const MESHLET_HZB_CULL_DUAL_WGSL = /* wgsl */ `
+export function createMeshletHzbCullDualWgsl(
+  options?: MeshletHzbCounterWgslOptions
+): string {
+  const counter = createMeshletHzbCounterWgsl(options);
+  return /* wgsl */ `
 ${VISIBILITY_CULL_COMMON_WGSL}
 
 struct PipelineCacheKey {
@@ -46,6 +54,7 @@ struct MeshletDualOutputList {
 @group(1) @binding(0) var<storage, read> input: MeshletDualInputList;
 @group(1) @binding(1) var<storage, read_write> source_bounds_x1: MeshletDualOutputList;
 @group(1) @binding(2) var<storage, read_write> chunk_sh3_color_add: MeshletDualOutputList;
+${counter.declaration}
 
 @compute @workgroup_size(128)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
@@ -106,6 +115,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
       source_bounds_x1.elements[output_index] = element;
     }
   } else {
+    ${counter.increment}
     let output_index = atomicAdd(&chunk_sh3_color_add.count, 1u);
     if (output_index < arrayLength(&chunk_sh3_color_add.elements)) {
       chunk_sh3_color_add.elements[output_index] = element;
@@ -113,3 +123,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
   }
 }
 `;
+}
+
+export const MESHLET_HZB_CULL_DUAL_WGSL = createMeshletHzbCullDualWgsl();

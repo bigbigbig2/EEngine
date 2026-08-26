@@ -968,7 +968,8 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/gpu/MeshletDrawList.ts"
+        "src/gpu/MeshletDrawList.ts",
+        "src/shaders/meshlet_hzb_cull_dual.ts"
       ],
       "runtimeConsumers": [
         "src/gpu/GPULightProbeVolume.ts",

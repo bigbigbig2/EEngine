@@ -100,7 +100,9 @@ Result Schema v3 在顶层增加 `capabilityEvidence`，其冻结实现位于 `O
 
 | Feature set | 当前状态 | 必需 counter / blocker |
 |---|---|---|
-| `hardware-visibility` | supported，证据仍受阻 | instance、cluster、frustum、cone/HZB reject、HW/alpha triangle、visibility pixel、overflow；`rejectedCone/rejectedHzb` 受 `OBS-05` 阻塞 |
+| `hardware-visibility` | supported | instance、cluster、frustum、HW/alpha triangle、visibility pixel、overflow |
+| `hzb-culling` | supported | `rejectedHzb`；由真实 HZB depth-query reject 分支产生 |
+| `cone-culling` | unsupported | `WORK-04`；当前主链没有独立 Meshlet normal-cone/backface culling stage |
 | `material-expand` | supported | `activeMaterials` |
 | `clustered-lighting` | supported | `activeLights`、`queueOverflowMask` |
 | `ibl` | supported | 当前无独立工作量 counter |
@@ -145,7 +147,11 @@ candidateInstances == visibleInstances + rejectedFrustum
 
 第四个真实 producer 是 `activeMaterials`。Material Expand 对 `SceneInstances.materials` 的去重材质集合过滤透明和未构建 context，并为剩余每项实际编码一个全屏 GBuffer draw；采样帧在 draw loop 结束后用 `GpuCounterAtomicAdder` 把真实 `lastDrawCount` 写入 Counter ABI。该字段衡量当前按材质重复全屏扫描的 GPU 工作，不声称这些材质最终都有可见像素。
 
-cone/HZB reject reason、SW raster 与 material overflow producer 仍未接线，因此 `OBS-05` 保持 `Partial`。
+第五个真实 producer 是 `rejectedHzb`。现有 initial、dual 与 second-chance Meshlet HZB Compute Shader 只在 `visibility_query_depth_from_screen_space_bb()` 判定为遮挡的真实分支中原子累加；视锥拒绝、投影失败和屏幕 texel-center 裁剪不计入该字段。它统计实际执行的 HZB wave reject event，同一逻辑 Cluster 可能在 initial、dual、second-chance 或 alpha wave 中重复出现，因此不是唯一 Cluster 数。
+
+只有 GPU counter 采样帧使用带额外 storage bind group 与全局 atomic 的 Shader/Pipeline variant；非采样帧继续使用原 Shader，不增加 binding、atomic 或 readback。`hardware-visibility` 与 `hzb-culling` 是独立 feature set，关闭 HZB 时硬件光栅证据不应被迫要求 `rejectedHzb`。
+
+当前主链没有独立 Meshlet normal-cone/backface culling 算法，因此 `cone-culling/rejectedCone` 由 `WORK-04` 阻塞，不属于“已有算法只差 OBS-05 接线”。SW raster 仍由 `VIS-05` 阻塞；material overflow producer 尚未接线，所以 `OBS-05` 保持 `Partial`。
 
 ### Timestamp contract
 
@@ -227,6 +233,7 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - `BenchmarkRunController` 已统一 warm-up、采样帧调度，并同时等待 timestamp/counter 延迟结果收尾。
 - 256-byte counter buffer 与至少三槽的非阻塞异步 readback ring 已进入真实 `Renderer.render()`；profiler 关闭时不分配 counter/ring 资源。
 - 最终 Visibility Buffer、LightCluster 与现有 Visibility GPU list 已接入真实 GPU counter producer；采样帧输出像素、本地灯光、instance/cluster/HW 工作量和 scene-mesh/meshlet/light overflow 证据，frame smoke 会校验字段存在性、工作量关系与像素总数不变量。非采样帧不编码 counter clear/copy/readback 或统计 Pass。
+- 三种真实 Visibility HZB cull Shader 已接入 sampled-only `rejectedHzb` producer；只统计 depth-query reject event，不混入 frustum/offscreen reject，非采样 variant 没有额外 counter binding 或 atomic。能力证据矩阵 schema 已升级为 v2，并把 `hardware-visibility`、`hzb-culling`、尚未实现的 `cone-culling` 分开表达。
 - Shader source-of-truth 静态审计已覆盖 66 个文件，逐项记录 direct/runtime consumer、最近 pipeline owner、generator candidate 与删除候选；当前结论为 55 个 authored-live、5 个 dead candidate、6 个运行中的 oracle/generated ownership blocker。清单见 `OEngine/benchmarks/shader-source-audit.json` 与 `docs/SHADER-SOURCES.md`。
 - HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
 - `OBS-06` 已建立单一 `render_debug_view` 控制面：VisibilityKey、reverse-Z depth 与 velocity 在时域/后处理之后覆盖最终 HDR 输入；HZB mip、三类 reject reason、LOD/Cluster level、SW/HW 分类、material ID 与 history validity 均登记为带原因的 `unsupported`，不会添加占位 Pass。旧 `feature_velocity_debug_view` 与独立 `VelocityDebugPass` 已删除；关闭和 unsupported 状态不创建 Debug Pass、瞬态输出或 readback。
@@ -259,7 +266,7 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 
 先覆盖现有 instance、meshlet、draw、material 和 light 路径。所有 counter 定义是“输入”“通过”还是“唯一项”必须写入 schema，避免重复累计后无法比较。
 
-状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合、主帧生命周期和 Schema v3 能力证据矩阵已完成；最终 Visibility Buffer 已产生像素统计，LightCluster 已产生带 overflow 证据的 `activeLights`，Visibility GPU list 已产生 instance/frustum/cluster/HW 工作量，Material Expand 已产生实际全屏 draw 数 `activeMaterials`。cone/HZB reject counter 以 `unsupported + OBS-05` 表达；SW counter 以 `unsupported + VIS-05` 表达；hierarchy counter 以 `unsupported + WORK-04` 表达。不得为了把 Partial 改成 Completed 而填零或注册无 producer 字段。
+状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合、主帧生命周期和 Schema v3 能力证据矩阵已完成；最终 Visibility Buffer 已产生像素统计，LightCluster 已产生带 overflow 证据的 `activeLights`，Visibility GPU list 已产生 instance/frustum/cluster/HW 工作量，Material Expand 已产生实际全屏 draw 数 `activeMaterials`，三种现有 HZB cull Shader 已产生真实 `rejectedHzb`。当前不存在的 cone culling 以 `unsupported + WORK-04` 表达；SW counter 以 `unsupported + VIS-05` 表达；hierarchy counter 以 `unsupported + WORK-04` 表达。material overflow 仍缺少可安全读取的 producer，不得为了把 Partial 改成 Completed 而填零或注册无 producer 字段。
 
 ### OBS-06 · 建立 debug views
 

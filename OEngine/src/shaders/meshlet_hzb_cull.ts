@@ -27,7 +27,16 @@ struct MeshletCullOutputList {
 };
 `;
 
-export const MESHLET_HZB_CULL_WGSL = /* wgsl */ `
+export interface MeshletHzbCounterWgslOptions {
+  counterGroup: number;
+  rejectedHzbIndex: number;
+}
+
+export function createMeshletHzbCullWgsl(
+  options?: MeshletHzbCounterWgslOptions
+): string {
+  const counter = createMeshletHzbCounterWgsl(options);
+  return /* wgsl */ `
 ${VISIBILITY_CULL_COMMON_WGSL}
 ${MESHLET_CULL_TYPES_WGSL}
 
@@ -38,6 +47,7 @@ ${MESHLET_CULL_TYPES_WGSL}
 @group(0) @binding(4) var triangle_index: texture_2d<f32>;
 @group(1) @binding(0) var<storage, read> input: MeshletCullInputList;
 @group(1) @binding(1) var<storage, read_write> output: MeshletCullOutputList;
+${counter.declaration}
 
 @compute @workgroup_size(128)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
@@ -78,6 +88,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
       triangle_index
     ) < 0.0
   ) {
+    ${counter.increment}
     return;
   }
 
@@ -87,8 +98,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
   }
 }
 `;
+}
 
-export const MESHLET_HZB_CULL_SECOND_WGSL = /* wgsl */ `
+export function createMeshletHzbCullSecondWgsl(
+  options?: MeshletHzbCounterWgslOptions
+): string {
+  const counter = createMeshletHzbCounterWgsl(options);
+  return /* wgsl */ `
 ${VISIBILITY_CULL_COMMON_WGSL}
 ${MESHLET_CULL_TYPES_WGSL}
 
@@ -98,6 +114,7 @@ ${MESHLET_CULL_TYPES_WGSL}
 @group(0) @binding(3) var triangle_index: texture_2d<f32>;
 @group(1) @binding(0) var<storage, read> input: MeshletCullInputList;
 @group(2) @binding(0) var<storage, read_write> output: MeshletCullOutputList;
+${counter.declaration}
 
 @compute @workgroup_size(128)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
@@ -126,6 +143,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
       triangle_index
     ) < 0.0
   ) {
+    ${counter.increment}
     return;
   }
 
@@ -135,3 +153,26 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
   }
 }
 `;
+}
+
+export const MESHLET_HZB_CULL_WGSL = createMeshletHzbCullWgsl();
+export const MESHLET_HZB_CULL_SECOND_WGSL = createMeshletHzbCullSecondWgsl();
+
+export function createMeshletHzbCounterWgsl(
+  options?: MeshletHzbCounterWgslOptions
+): {
+  declaration: string;
+  increment: string;
+} {
+  if (options === undefined) return { declaration: "", increment: "" };
+  if (!Number.isInteger(options.counterGroup) || options.counterGroup < 0) {
+    throw new RangeError("counterGroup must be a non-negative integer");
+  }
+  if (!Number.isInteger(options.rejectedHzbIndex) || options.rejectedHzbIndex < 0) {
+    throw new RangeError("rejectedHzbIndex must be a non-negative integer");
+  }
+  return {
+    declaration: `@group(${options.counterGroup}) @binding(0) var<storage, read_write> frame_counters: array<atomic<u32>>;`,
+    increment: `atomicAdd(&frame_counters[${options.rejectedHzbIndex}u], 1u);`
+  };
+}

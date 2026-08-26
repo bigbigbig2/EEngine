@@ -3,7 +3,7 @@ import {
   type GpuCounterFieldName
 } from "./GpuFrameCounters.js";
 
-export const BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION = 1;
+export const BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION = 2;
 
 export type CapabilityEvidenceStatus = "supported" | "unsupported";
 
@@ -69,8 +69,6 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "candidateClusters",
       "selectedClusters",
       "rejectedFrustum",
-      "rejectedCone",
-      "rejectedHzb",
       "hwClusters",
       "alphaClusters",
       "hwTriangles",
@@ -78,6 +76,16 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "emptyVisibilityPixels",
       "queueOverflowMask"
     ]
+  },
+  "hzb-culling": {
+    status: "supported",
+    requiredGpuCounters: ["rejectedHzb"]
+  },
+  "cone-culling": {
+    status: "unsupported",
+    requiredGpuCounters: ["rejectedCone"],
+    blockerTaskId: "WORK-04",
+    reason: "主链尚未实现独立的 Meshlet normal-cone/backface culling stage"
   },
   "material-expand": {
     status: "supported",
@@ -143,13 +151,10 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   selectedClusters: supported("VisibilityPass/raster-work-list reducer"),
   rejectedFrustum: supported("VisibilityPass/scene-frustum-list reducer"),
   rejectedCone: unsupported(
-    "OBS-05",
-    "现有 cone culling 尚未输出可归属到采样帧的真实 reject counter"
+    "WORK-04",
+    "主链尚未实现独立的 Meshlet normal-cone/backface culling stage"
   ),
-  rejectedHzb: unsupported(
-    "OBS-05",
-    "现有 HZB culling 尚未输出可归属到采样帧的真实 reject counter"
-  ),
+  rejectedHzb: supported("MeshletDrawList/HZB depth-query reject branches"),
   swClusters: unsupported(
     "VIS-05",
     "主链没有 Compute software raster cluster queue producer"

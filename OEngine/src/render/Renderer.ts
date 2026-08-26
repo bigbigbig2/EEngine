@@ -832,6 +832,7 @@ export class Renderer {
             "alphaClusters",
             "hwTriangles",
             "rejectedFrustum",
+            "rejectedHzb",
             "shadedPixels",
             "emptyVisibilityPixels",
             "queueOverflowMask"

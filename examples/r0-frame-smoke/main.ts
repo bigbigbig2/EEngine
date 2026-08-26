@@ -135,6 +135,7 @@ async function run(): Promise<void> {
       baselineRole: "frame-smoke",
       featureSet: [
         "hardware-visibility",
+        "hzb-culling",
         "material-expand",
         "clustered-lighting",
         "ibl"
@@ -205,6 +206,7 @@ async function run(): Promise<void> {
       "alphaClusters",
       "hwTriangles",
       "rejectedFrustum",
+      "rejectedHzb",
       "shadedPixels",
       "emptyVisibilityPixels",
       "activeMaterials",

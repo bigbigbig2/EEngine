@@ -143,7 +143,7 @@ capabilityEvidence.gpuCounters[*].blockerTaskId/reason
 
 采样帧会自动登记该帧创建的每个 OEngine `ShadeGPUCommandContext`，原始 label 采用 `<command-context>/<pass>` 形式。不同 context 的 readback 即使乱序完成，也按 GPU command context 的注册顺序归档；非采样帧不会创建 timer/query/readback，采样本身不增加 submit。timestamp 只覆盖 context 内实际存在的 compute/render Pass，纯 copy/write 区间仍不可见；当前也没有横跨多个 submit 的 whole-frame GPU 起止 marker，因此各 Pass/phase 之和不能冒充完整 GPU frame latency。
 
-GPU counter ABI 当前是 256-byte `u32` 固定布局，定义见 `src/debug/GpuFrameCounters.ts`；Result 能力矩阵定义见 `src/debug/BenchmarkCapabilityEvidence.ts`。`BenchmarkHarness` 根据 manifest 的 feature set 自动写入冻结矩阵，未知 feature set 会在 Result 完成时失败，要求先登记证据契约。主帧已完成 buffer clear、采样 copy、submit 后异步 map 与 frame-index 归档。最终 Visibility Buffer 是首个真实 producer：采样帧通过 8×8 工作组归约输出 `shadedPixels` 与 `emptyVisibilityPixels`；前者当前表示 mesh-id 非 sentinel 的最终可见性覆盖像素，不代表 Material/Lighting shader invocation。每个有效样本必须满足：
+GPU counter ABI 当前是 256-byte `u32` 固定布局，定义见 `src/debug/GpuFrameCounters.ts`；Result Schema 当前为 v3，能力证据矩阵 schema 当前为 v2，定义见 `src/debug/BenchmarkCapabilityEvidence.ts`。`BenchmarkHarness` 根据 manifest 的 feature set 自动写入冻结矩阵，未知 feature set 会在 Result 完成时失败，要求先登记证据契约。主帧已完成 buffer clear、采样 copy、submit 后异步 map 与 frame-index 归档。最终 Visibility Buffer 是首个真实 producer：采样帧通过 8×8 工作组归约输出 `shadedPixels` 与 `emptyVisibilityPixels`；前者当前表示 mesh-id 非 sentinel 的最终可见性覆盖像素，不代表 Material/Lighting shader invocation。每个有效样本必须满足：
 
 `FrameProfiler` 在采样帧会直接拒绝注册矩阵中仍为 unsupported 的字段，不能把 counter buffer 清零后的槽位导出为假证据。实现真实 GPU producer、更新冻结矩阵和相应测试之后，该字段才可进入 sampled values。
 
@@ -164,7 +164,9 @@ selectedClusters == hwClusters + alphaClusters
 hwTriangles == selectedClusters × 128
 ```
 
-非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。cone/HZB reject counter 当前以 `unsupported + OBS-05` 表达；`visitedBvhNodes` 以 `unsupported + WORK-04` 表达；SW counter 以 `unsupported + VIS-05` 表达。Packed Instances 是 feature capability 而非单个 counter，以 `unsupported + WORLD-07` 表达。material overflow bit 仍未接线，不得从现有 `queueOverflowMask` 推断 bit 2 已受保护。
+现有三种 Visibility HZB cull Shader 在采样 variant 中直接产生 `rejectedHzb`。它只累计 `visibility_query_depth_from_screen_space_bb()` 的真实遮挡分支；frustum、投影失败和 offscreen/texel-center 裁剪不计入。该字段是 initial、dual、second-chance 与 alpha wave 的 reject event 总和，不声明跨 wave 唯一。非采样 variant 没有 counter bind group 或额外 atomic。
+
+非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。能力矩阵把 `hzb-culling` 与 `hardware-visibility` 分开；当前不存在独立 Meshlet cone culling，所以 `cone-culling/rejectedCone` 以 `unsupported + WORK-04` 表达。`visitedBvhNodes` 同样以 `unsupported + WORK-04` 表达；SW counter 以 `unsupported + VIS-05` 表达。Packed Instances 是 feature capability 而非单个 counter，以 `unsupported + WORLD-07` 表达。material overflow bit 仍未接线，不得从现有 `queueOverflowMask` 推断 bit 2 已受保护。
 
 ## Shader source 审计
 
@@ -179,7 +181,7 @@ npm run audit:shaders
 - A：160k Teapot 的同资产/同相机/同输出对齐页面。
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- 当前算法观测 producer：cone/HZB reject reason 与 material overflow bit；在完成前由能力矩阵明确阻塞。
+- 当前算法观测 producer：material overflow bit 尚未接线；HZB reject 已有真实 producer。cone culling 当前是 `WORK-04` 下的算法缺失，不是 R0 counter 接线任务。
 - 后续产品能力：Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD（`WORK-04`）和 SW Visibility（`VIS-05`）；它们不属于 G0 提前实现条件，但 A/B/C 对应功能通过前必须完成。
 - HZB mip、reject reason、LOD/Cluster、SW/HW classification、material ID 与 history validity 所需的真实逐像素 producer；当前统一控制面明确报告 unsupported。
 - 纯 copy/write upload 区间，以及横跨 upload、animation 与 main submit 的 whole-frame GPU 起止 marker。

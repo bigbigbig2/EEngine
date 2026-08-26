@@ -934,6 +934,7 @@ export class VisibilityPass {
           resolutionH: vh,
           meshletHeaders: meshlets.headerBuffer,
           hzbView: opts.hzbView,
+          gpuCounterBuffer: opts.gpuCounterBuffer,
           writeBuffer: writeBuf
         });
         if (!culled) continue;
@@ -1446,6 +1447,7 @@ export class VisibilityPass {
           resolutionH: vh,
           meshletHeaders: meshlets.headerBuffer,
           hzbView: opts.hzbView,
+          gpuCounterBuffer: opts.gpuCounterBuffer,
           writeBuffer: writeBuf,
           secondChance: true
         });
@@ -1462,6 +1464,7 @@ export class VisibilityPass {
             sceneDatabaseBuffer: opts.sceneDatabase!.buffer!,
             meshletHeaders: meshlets.headerBuffer,
             hzbView: opts.hzbView,
+            gpuCounterBuffer: opts.gpuCounterBuffer,
             writeBuffer: writeBuf
           }
         );
