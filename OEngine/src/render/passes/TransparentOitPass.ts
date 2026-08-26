@@ -253,6 +253,11 @@ export class TransparentOitPass {
     this.doubleDrawList = new MaterialMeshletDrawList(graphics);
   }
 
+  hasTransparentMaterials(scene: Scene): boolean {
+    return transparentMaterials(scene, ShadeDrawSide.Front).length > 0 ||
+      transparentMaterials(scene, ShadeDrawSide.Double).length > 0;
+  }
+
   addToGraph(
     graph: FrameGraph,
     job: TransparentOitJob,
@@ -270,8 +275,18 @@ export class TransparentOitPass {
 
     const prepareBuilder = graph.add(
       "OIT/Bp transparent material sort",
-      { job, inputs, frontMaterials, doubleMaterials },
+      { job, inputs },
       (data, resources, context) => {
+        const currentFrontMaterials = transparentMaterials(
+          data.job.scene,
+          ShadeDrawSide.Front
+        );
+        const currentDoubleMaterials = transparentMaterials(
+          data.job.scene,
+          ShadeDrawSide.Double
+        );
+        this.lastMaterialCount =
+          currentFrontMaterials.length + currentDoubleMaterials.length;
         const command = requireCommandContext(context);
         const encoder = requireEncoder(context);
         const hzb = texture(resources.get(data.inputs.hzb));
@@ -279,14 +294,14 @@ export class TransparentOitPass {
         const sceneDatabase = buffer(resources.get(data.inputs.sceneDatabase));
         const meshletHeaders = buffer(resources.get(data.inputs.meshletHeaders));
         const geometryMetadata = buffer(resources.get(data.inputs.geometryMetadata));
-        const capacity = data.frontMaterials.length + data.doubleMaterials.length;
+        const capacity = currentFrontMaterials.length + currentDoubleMaterials.length;
         this.frontPrepared = this.prepareSide(
-          command, encoder, data.job, data.frontMaterials, ShadeDrawSide.Front,
+          command, encoder, data.job, currentFrontMaterials, ShadeDrawSide.Front,
           this.frontDrawList, capacity, camera, sceneDatabase, meshletHeaders,
           geometryMetadata, hzb
         );
         this.doublePrepared = this.prepareSide(
-          command, encoder, data.job, data.doubleMaterials, ShadeDrawSide.Double,
+          command, encoder, data.job, currentDoubleMaterials, ShadeDrawSide.Double,
           this.doubleDrawList, capacity, camera, sceneDatabase, meshletHeaders,
           geometryMetadata, hzb
         );

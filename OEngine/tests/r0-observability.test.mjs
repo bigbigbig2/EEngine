@@ -124,6 +124,7 @@ test("frame profiler exposes CPU, submit, readback, upload and delayed GPU evide
   profiler.recordGraphBuild();
   profiler.recordGraphCompile();
   profiler.recordGraphExecute();
+  profiler.recordGraphCacheMiss();
   profiler.recordCounter("legacy.instances.candidate", 160000);
   profiler.addCounter("legacy.instances.rejected", 2);
   profiler.addCounter("legacy.instances.rejected", 3);
@@ -148,7 +149,14 @@ test("frame profiler exposes CPU, submit, readback, upload and delayed GPU evide
     bytes: 256,
     labels: { "staging-copy": 256 }
   });
-  assert.deepEqual(initial.graph, { builds: 1, compiles: 1, executes: 1 });
+  assert.deepEqual(initial.graph, {
+    builds: 1,
+    compiles: 1,
+    executes: 1,
+    cacheHits: 0,
+    cacheMisses: 1,
+    cacheEvictions: 0
+  });
   assert.deepEqual(initial.counters, {
     "legacy.instances.candidate": 160000,
     "legacy.instances.rejected": 5

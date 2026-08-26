@@ -14,6 +14,7 @@ import type {
   CachedRenderPipelineDescriptor
 } from "../gpu/GPUDescriptorCaches.js";
 import {
+  CompiledFrameGraph,
   FrameGraph,
   FrameGraphContext,
   FrameGraphResourceManager
@@ -191,9 +192,16 @@ export class ShadeGPUCommandContext {
     const context = this.createFrameGraphContext();
     const profiler = this.#graphics.profiler;
     profiler.recordGraphCompile();
-    profiler.measure("graph-compile", () => graph.compile());
+    const compiled = profiler.measure("graph-compile", () => graph.compile());
     profiler.recordGraphExecute();
-    profiler.measure("graph-execute", () => graph.execute(context));
+    profiler.measure("graph-execute", () => compiled.execute(context, undefined));
+  }
+
+  encodeCompiledGraph(graph: CompiledFrameGraph, bindings: unknown): void {
+    const context = this.createFrameGraphContext();
+    const profiler = this.#graphics.profiler;
+    profiler.recordGraphExecute();
+    profiler.measure("graph-execute", () => graph.execute(context, bindings));
   }
 
   recordReadback(label: string, bytes: number): void {

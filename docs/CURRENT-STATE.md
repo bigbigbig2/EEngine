@@ -30,7 +30,7 @@
 - 没有正式离线 Asset Cooker 和版本化 Runtime Asset ABI。
 - 没有 Packed Instance Set 的完整公开 seam。
 - Material Expand 仍按材质全屏绘制。
-- HZB、FrameGraph compile 和中间队列仍存在明显固定成本；R1-A 已用浏览器 smoke 确认收口 submit/readback 固定成本。
+- HZB 逐 mip Render Pass 和中间队列仍存在明显固定成本；R1-B 已删除相同 topology 稳定帧的 FrameGraph build/compile 固定成本，浏览器 after artifact 尚待补采。
 - FrameGraph 尚未覆盖全部资源依赖和旁路系统。
 - 资源销毁、device lost、history 失效与动态资产生命周期未闭环。
 - 自动化测试已覆盖 R0 观测公共 seam，并重新计算 A/B/C 的 workspace 资产与相机 SHA-256。三份固定 manifest、7 级 Teapot GLB、Damaged Helmet/PBR 输入、C 配方、共享 runner 和三个根目录浏览器入口已完成，全部调用公开 OEngine interface、同一 `Renderer.render()`、`BenchmarkRunController` 和 Schema v3 writer。`?profile=smoke` 会强制 dirty/non-gate，不能冒充完整场景 artifact。
@@ -39,9 +39,9 @@
 - 用户已完成旧 Schema smoke 与本轮 OBS-02 Schema v3 浏览器 smoke；前者仍为 exploratory，后者证明固定入口和证据链可运行并完成 G0。clean/full cold-warm bundle 仍是后续实际性能修改前的阶段入口要求，但不再阻塞 R1 的分析和计划。
 - package 和大量内部符号仍保留 reconstructed/Shade 历史名称。
 
-## R1 调查与实施状态（2026-08-26）
+## R1 调查与实施状态（2026-08-27）
 
-- R1 详细计划已冻结，`R1-A` 已完成，下一执行包是 `R1-B`。入口证据中 Frame Smoke/A/B 的稳定 3 submit 来自 Graphics update、无条件 animation flush 和 Renderer main；C 的 13 submit 来自 Graphics ×1、animation flush ×10、database incremental ×1、Renderer main ×1。
+- R1 详细计划已冻结，`R1-A` 已完成；`R1-B` 的代码、自动门禁和 examples production build 已完成，浏览器 Frame/A/B/C after smoke 尚待补采，通过后再关闭该执行包。入口证据中 Frame Smoke/A/B 的稳定 3 submit 来自 Graphics update、无条件 animation flush 和 Renderer main；C 的 13 submit 来自 Graphics ×1、animation flush ×10、database incremental ×1、Renderer main ×1。
 - 新增内部 `FrameCoordinator` 作为 render tick 唯一 close/submit owner；Graphics maintenance、scene/database/animation、main/shadow view、Light/Volumetrics/material/mipmap、BLAS/TLAS 和采样 copy 使用同一主 command。保留的独立提交必须显式分类为 one-shot、tool、debug-readback 或 recovery，未知 label 会在触碰 queue 前失败。
 - `GPUSceneContext.encodeFrame()` 已与 per-view preparation 分离，同一 scene/frame 重入返回零 preparation；shadow view 不再进入 scene update。失败帧会清除 preparation guard 并强制下帧重建，避免 abort 后丢 dirty work。
 - collection history readback 已改为只在 GPU counter 采样帧编码；非采样帧代码路径不创建该 readback。GPU counter ring ticket 支持 frame abort/cancel。
@@ -49,9 +49,12 @@
 - 自动验证：修复 B mipmap 生命周期后 `npm test` 55/55 通过，根目录 examples TypeScript/Vite build 通过。Frame Smoke/A/B/C 已有真实浏览器功能证据，`R1-A07` 已关闭。
 - 第一轮 commit `4de81f7a` 浏览器 JSON 中，Frame Smoke/A/C 的 submit、readback、scene preparation 和 diagnostics 通过；C 为 10 个 view preparation、1 个 scene preparation和 1 次 submit，证明 shadow view 不再重复 scene。B 暴露 3 次 destroyed Buffer validation，并定位为 mipmap 临时资源在合并 command submit 前提前销毁。
 - 修复后第二轮 B 为一次 `Renderer/main-0` submit、非采样 readback 0、scene preparation 1、`shadedPixels=259190`，validation/uncaptured/device-lost 均为 0，用户确认所有截图画面正常。dev server 的 build-time commit 字段仍是 `4de81f7a`，该轮只用于 non-gate 功能验收；R1-D 正式 paired artifact 必须重启服务以刷新 provenance。
-- `FrameGraph` 当前把 topology、动态 pass data、imported GPU handle、compiled state 和 execute state 放在同一个 mutable object 中；所有 R0 smoke 记录帧均发生一次 build/compile/execute，没有 warm cache hit。
+- `FrameGraph.compile()` 现在生成不可变 `CompiledFrameGraph`：冻结 executable pass order、pruning、logical resource slot 和 first/last-use dump；编译后继续修改 topology 会失败。执行期只接受 late-bound frame bindings，swapchain、camera/scene/light/material Buffer、HZB、SSAO/SSR/TAA/NSS/Exposure history 与动态 job data 不保留首帧 GPU handle。
+- Renderer 主管线使用 canonical plain key 和 16-entry LRU compiled cache。key 包含 capability profile、内外分辨率、view/sample count、feature topology、Visibility implementation、history/output format 与 instrumentation recipe；相机矩阵、frame index、GPU handle 和动态 light/instance count不进入 key。Profiler 新增 `cacheHits/cacheMisses/cacheEvictions`，cache destroy/evict 会销毁 compiled owner。
+- 相同 key 的 steady main frame 不再运行 graph recipe 或 compile，只执行 `encodeCompiledGraph()`；LPV/tool graph 仍保留显式 one-shot `FrameGraph`。Bloom 与 Exposure 已解耦，Exposure 关闭时不再创建 unadapted Exposure Pass；阴影关闭时主图不登记 shadow-atlas resource，SSAO/SSR/TAA/Bloom/Exposure/debug 由 recipe 入口裁剪。
+- R1-B 自动验证覆盖 late binding 换 handle、不变 key、resize/feature/instrumentation key 变化、compiled dump/pruning/last-use、cache hit/miss/evict/destroy 和 feature-off 缺席；`npm test` 与 examples build 通过。浏览器插件在本轮初始化阶段失败，因此真实 warm `build=0/compile=0/execute=1/cacheHit=1`、画面、counter 和 validation 仍需 Frame Smoke/A/B/C artifact 确认。
 - 当前 Frame Smoke（1038×583）与 A/B/C（1280×720）的 HZB 都是 10 mip。Frame Smoke/A/B 每帧 build 两次、20 个逐 mip Render Pass；C 每帧 build 三次、30 个 Render Pass，HZB phase P50/P95 约 1.040/1.051 ms。
-- R1 只建立三个主要 seam：唯一 frame submit owner、compiled topology/frame bindings、per-view HZB/history。第一个 seam 已落地，后两个仍分别属于 `R1-B`、`R1-C`；不会为单实现创建一批 cache/key/adapter 薄 module。
+- R1 只建立三个主要 seam：唯一 frame submit owner、compiled topology/frame bindings、per-view HZB/history。前两个 seam 已落地代码；第三个仍属于 `R1-C`。R1-B 的 history 改动只解决 compiled graph 的逐帧绑定，不替代 R1-C 的 Compute HZB/history invalidation contract。
 
 ## 参考代码状态
 

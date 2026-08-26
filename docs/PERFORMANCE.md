@@ -47,7 +47,7 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 - R1-A 入口的 `GraphicsContext.update()` 独立 submit、持续 collection readback、scene animation/database self-submit 已删除；真实 WebGPU smoke 已确认 Frame/A/B/C 从 3/13 收口为一次 `Renderer/main-0` submit。
 - steady render tick 现在由 `FrameCoordinator` 持有唯一主 command；显式 one-shot/tool/debug-readback/recovery 路径仍可独立提交，但 runtime label 必须在 allowlist。
-- FrameGraph 每帧重建和 compile。
+- R1-B 已把主管线改为 canonical-key compiled cache：key miss 才 build/compile，稳定 key 只 execute；真实浏览器 warm-cache 数据尚待补采，不能只凭代码结构宣称 CPU 性能收益。
 - HZB 每次逐 mip 开 Render Pass，普通帧构建两次，alpha-tested 时可能三次。
 - Visibility 的 bucket/scan/expand/second-chance 中间队列和 clear 成本高。
 - 当前 Material Expand 先写 material depth，再对每个材质画全屏三角形。

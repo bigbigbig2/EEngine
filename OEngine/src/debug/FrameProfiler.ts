@@ -41,6 +41,9 @@ export interface FrameGraphEvidence {
   builds: number;
   compiles: number;
   executes: number;
+  cacheHits: number;
+  cacheMisses: number;
+  cacheEvictions: number;
 }
 
 export type FrameGpuPassType = "compute" | "render";
@@ -313,7 +316,14 @@ export class FrameProfiler {
         submits: { count: 0, labels: {} },
         readbacks: { count: 0, bytes: 0, labels: {} },
         uploads: { writes: 0, bytes: 0, labels: {} },
-        graph: { builds: 0, compiles: 0, executes: 0 },
+        graph: {
+          builds: 0,
+          compiles: 0,
+          executes: 0,
+          cacheHits: 0,
+          cacheMisses: 0,
+          cacheEvictions: 0
+        },
         counters: {},
         gpu: {
           available: this.gpuTimestampAvailableValue,
@@ -493,6 +503,18 @@ export class FrameProfiler {
 
   recordGraphExecute(): void {
     if (this.active !== null) this.active.snapshot.graph.executes++;
+  }
+
+  recordGraphCacheHit(): void {
+    if (this.active !== null) this.active.snapshot.graph.cacheHits++;
+  }
+
+  recordGraphCacheMiss(): void {
+    if (this.active !== null) this.active.snapshot.graph.cacheMisses++;
+  }
+
+  recordGraphCacheEviction(): void {
+    if (this.active !== null) this.active.snapshot.graph.cacheEvictions++;
   }
 
   recordCounter(label: string, value: number): void {

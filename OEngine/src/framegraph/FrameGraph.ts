@@ -90,6 +90,123 @@ export type PassExecuteFn<TData = unknown> = (
   ctx: FrameGraphContext
 ) => void;
 
+type BindingResolver = (bindings: unknown) => unknown;
+
+type FrameGraphBindingSlot = {
+  readonly name: string;
+  readonly resolve: BindingResolver;
+  readonly releaseInitial: () => void;
+};
+
+const FRAME_GRAPH_BINDING_SLOTS = new WeakMap<object, FrameGraphBindingSlot>();
+const NO_ACTIVE_FRAME_GRAPH_BINDINGS = Symbol("no-active-frame-graph-bindings");
+let ACTIVE_FRAME_GRAPH_BINDINGS: unknown = NO_ACTIVE_FRAME_GRAPH_BINDINGS;
+
+/** Defines named late-bound values while a graph recipe is built. */
+export class FrameGraphBindingLayout<TBindings> {
+  private readonly names = new Set<string>();
+  private readonly initialBindingReleases = new Set<() => void>();
+
+  slot<TValue extends object>(
+    name: string,
+    initialBindings: TBindings,
+    resolve: (bindings: TBindings) => TValue
+  ): TValue {
+    if (this.names.has(name)) {
+      throw new Error(`FrameGraph binding slot '${name}' is duplicated`);
+    }
+    this.names.add(name);
+    const initialValue = resolve(initialBindings);
+    if (typeof initialValue !== "object" || initialValue === null) {
+      throw new Error(`FrameGraph binding slot '${name}' must resolve to an object`);
+    }
+    let buildBindings: unknown = initialBindings;
+    const releaseOwnInitialBindings = (): void => {
+      buildBindings = NO_ACTIVE_FRAME_GRAPH_BINDINGS;
+    };
+    this.initialBindingReleases.add(releaseOwnInitialBindings);
+    const binding: FrameGraphBindingSlot = {
+      name,
+      resolve: (bindings) => resolve(bindings as TBindings),
+      // A Pass often wraps a bound job inside another data object. Releasing the
+      // complete layout here also clears those nested proxies when any imported
+      // resource or directly-bound Pass registers this layout with the graph.
+      releaseInitial: () => this.releaseInitialBindings()
+    };
+    const resolveCurrent = (): object => {
+      const currentBindings =
+        ACTIVE_FRAME_GRAPH_BINDINGS === NO_ACTIVE_FRAME_GRAPH_BINDINGS
+          ? buildBindings
+          : ACTIVE_FRAME_GRAPH_BINDINGS;
+      if (currentBindings === NO_ACTIVE_FRAME_GRAPH_BINDINGS) {
+        throw new Error(
+          `FrameGraph binding slot '${name}' is only available while building or executing`
+        );
+      }
+      return binding.resolve(currentBindings) as object;
+    };
+    const proxy = new Proxy({} as TValue, {
+      get(_target, property): unknown {
+        const current = resolveCurrent();
+        return Reflect.get(current, property, current);
+      },
+      has(_target, property): boolean {
+        return Reflect.has(resolveCurrent(), property);
+      },
+      ownKeys(): ArrayLike<string | symbol> {
+        return Reflect.ownKeys(resolveCurrent());
+      },
+      getOwnPropertyDescriptor(_target, property): PropertyDescriptor | undefined {
+        const descriptor = Reflect.getOwnPropertyDescriptor(resolveCurrent(), property);
+        return descriptor === undefined ? undefined : { ...descriptor, configurable: true };
+      },
+      getPrototypeOf(): object | null {
+        return Reflect.getPrototypeOf(resolveCurrent());
+      },
+      set(): boolean {
+        throw new Error(`FrameGraph binding slot '${name}' is read-only`);
+      }
+    });
+    FRAME_GRAPH_BINDING_SLOTS.set(proxy, binding);
+    return proxy;
+  }
+
+  get slotNames(): readonly string[] {
+    return Object.freeze([...this.names]);
+  }
+
+  releaseInitialBindings(): void {
+    for (const release of this.initialBindingReleases) release();
+    this.initialBindingReleases.clear();
+  }
+}
+
+export type CompiledFrameGraphPassDump = {
+  readonly id: number;
+  readonly name: string;
+  readonly culled: boolean;
+  readonly reads: readonly number[];
+  readonly writes: readonly number[];
+};
+
+export type CompiledFrameGraphResourceDump = {
+  readonly logicalSlot: number;
+  readonly name: string;
+  readonly imported: boolean;
+  readonly binding?: string;
+  readonly transient: boolean;
+  readonly firstUsePass?: number;
+  readonly lastUsePass?: number;
+  readonly description?: string;
+};
+
+export type CompiledFrameGraphDump = {
+  readonly name: string;
+  readonly executablePassOrder: readonly number[];
+  readonly passes: readonly CompiledFrameGraphPassDump[];
+  readonly resources: readonly CompiledFrameGraphResourceDump[];
+};
+
 /** 用于声明一个渲染阶段读取、写入或创建哪些资源。 */
 export class PassBuilder {
   private graph: FrameGraph;
@@ -101,6 +218,7 @@ export class PassBuilder {
   }
 
   create(name: string, descriptor: ResourceDescriptor): ResourceId {
+    this.graph.assertBuilding();
     const id = this.graph.create_resource(name, descriptor);
     this.pass.resource_creates.push(id);
     this.pass.resource_writes.push(id);
@@ -108,10 +226,12 @@ export class PassBuilder {
   }
 
   read(id: ResourceId): ResourceId {
+    this.graph.assertBuilding();
     return this.pass.read(id);
   }
 
   write(id: ResourceId): ResourceId {
+    this.graph.assertBuilding();
     const entry = this.graph.getResourceEntry(id);
     if (entry.imported) {
       this.pass.has_side_effects = true;
@@ -124,6 +244,7 @@ export class PassBuilder {
   }
 
   make_side_effect(): void {
+    this.graph.assertBuilding();
     this.pass.has_side_effects = true;
   }
 }
@@ -162,6 +283,7 @@ class PassNode {
   ref_count = 0;
   has_side_effects = false;
   data: unknown = {};
+  data_binding: FrameGraphBindingSlot | null = null;
   execute: PassExecuteFn = () => {};
   resource_creates: ResourceId[] = [];
   resource_reads: ResourceId[] = [];
@@ -357,6 +479,8 @@ export class FrameGraph {
   private __pass_nodes: PassNode[] = [];
   private __resource_nodes: ResourceNode[] = [];
   private __resource_registry: ResourceEntry[] = [];
+  private readonly __imported_bindings = new Map<number, FrameGraphBindingSlot>();
+  private __compiled: CompiledFrameGraph | null = null;
 
   constructor(name = "") {
     this.name = name;
@@ -388,18 +512,23 @@ export class FrameGraph {
   }
 
   create_resource(name: string, descriptor: ResourceDescriptor): ResourceId {
+    this.assertBuilding();
     const entry = this._createResourceEntry(descriptor);
     return this._createResourceNode(name, entry.resource_id).id;
   }
 
   import_resource(name: string, descriptor: ResourceDescriptor, resource: unknown): ResourceId {
+    this.assertBuilding();
     const entry = this._createResourceEntry(descriptor);
-    entry.resource = resource;
+    const binding = objectBindingSlot(resource);
+    if (binding === null) entry.resource = resource;
+    else this.__imported_bindings.set(entry.resource_id, binding);
     entry.imported = true;
     return this._createResourceNode(name, entry.resource_id).id;
   }
 
   clone_resource(id: ResourceId): ResourceId {
+    this.assertBuilding();
     const node = this.getResourceNode(id);
     const entry = this.__resource_registry[node.resource_id]!;
     entry.resource_version++;
@@ -427,10 +556,13 @@ export class FrameGraph {
     data: TData,
     execute: PassExecuteFn<TData>
   ): PassBuilder {
+    this.assertBuilding();
     const pass = new PassNode();
     pass.id = this.__pass_nodes.length;
     pass.name = name;
-    pass.data = data;
+    const binding = objectBindingSlot(data);
+    if (binding === null) pass.data = data;
+    else pass.data_binding = binding;
     pass.execute = execute as PassExecuteFn;
     this.__pass_nodes.push(pass);
     const builder = new PassBuilder(this, pass);
@@ -442,7 +574,8 @@ export class FrameGraph {
   }
 
   /** 计算资源引用、剔除无效阶段，并确定瞬态资源的最后使用位置。 */
-  compile(): void {
+  compile(): CompiledFrameGraph {
+    if (this.__compiled !== null) return this.__compiled;
     const passes = this.__pass_nodes;
     const resources = this.__resource_nodes;
 
@@ -493,15 +626,36 @@ export class FrameGraph {
         this.getResourceEntry(e).last = p;
       }
     }
+    this.__compiled = new CompiledFrameGraph(this);
+    const bindingSlots = new Set(this.__imported_bindings.values());
+    for (const pass of this.__pass_nodes) {
+      if (pass.data_binding !== null) bindingSlots.add(pass.data_binding);
+    }
+    for (const binding of bindingSlots) binding.releaseInitial();
+    return this.__compiled;
   }
 
   /** 按编译结果执行渲染阶段，并在资源最后一次使用后及时回收瞬态资源。 */
   execute(ctx: FrameGraphContext = new FrameGraphContext()): void {
+    this.compile().execute(ctx, undefined);
+  }
+
+  /** @internal CompiledFrameGraph is the reusable execution owner. */
+  executeCompiled(ctx: FrameGraphContext, bindings: unknown): void {
     const rm = ctx.resource_manager ?? new FrameGraphResourceManager(ctx.device ?? null);
     if (ctx.device) rm.attach(ctx.device);
     ctx.resource_manager = rm;
 
-    for (const pass of this.__pass_nodes) {
+    if (ACTIVE_FRAME_GRAPH_BINDINGS !== NO_ACTIVE_FRAME_GRAPH_BINDINGS) {
+      throw new Error("Nested CompiledFrameGraph execution is not supported");
+    }
+    ACTIVE_FRAME_GRAPH_BINDINGS = bindings;
+
+    try {
+      for (const [resourceId, binding] of this.__imported_bindings) {
+        this.__resource_registry[resourceId]!.resource = binding.resolve(bindings);
+      }
+      for (const pass of this.__pass_nodes) {
       if (!pass.can_execute()) continue;
 
       for (const id of pass.resource_creates) {
@@ -513,7 +667,10 @@ export class FrameGraph {
 
       const resources = new PassResources(this, pass);
       try {
-        pass.execute(pass.data, resources, ctx);
+        const data = pass.data_binding === null
+          ? pass.data
+          : pass.data_binding.resolve(bindings);
+        pass.execute(data, resources, ctx);
       } catch (cause) {
         const err = new Error(`RenderPass '${pass.name}' failed to execute`);
         (err as Error & { cause?: unknown }).cause = cause;
@@ -526,6 +683,18 @@ export class FrameGraph {
           entry.resource = null;
         }
       }
+      }
+    } finally {
+      for (const entry of this.__resource_registry) {
+        if (isTransientEntry(entry) && entry.resource !== null) {
+          rm.release(entry.resource);
+          entry.resource = null;
+        }
+      }
+      for (const resourceId of this.__imported_bindings.keys()) {
+        this.__resource_registry[resourceId]!.resource = null;
+      }
+      ACTIVE_FRAME_GRAPH_BINDINGS = NO_ACTIVE_FRAME_GRAPH_BINDINGS;
     }
 
     this.onExecuted.emit([ctx, this]);
@@ -569,7 +738,9 @@ export class FrameGraph {
     this.__resource_registry.forEach((entry, id) => {
       const resource = {
         id,
-        name: this.getResourceNode(entry.resource_id).name,
+        name: this.__resource_nodes.find((node) =>
+          node.resource_id === id
+        )?.name ?? `resource-${id}`,
         transient: isTransientEntry(entry)
       } as {
         id: number;
@@ -681,6 +852,88 @@ export class FrameGraph {
     this.__resource_nodes.push(node);
     return node;
   }
+
+  /** @internal */
+  createCompiledDump(): CompiledFrameGraphDump {
+    const executablePassOrder = this.__pass_nodes
+      .filter((pass) => pass.can_execute())
+      .map((pass) => pass.id);
+    const resources = this.__resource_registry.map((entry, logicalSlot) => {
+      const uses = this.__pass_nodes.filter((pass) =>
+        pass.can_execute() && (
+          pass.resource_creates.some((id) => this.getResourceNode(id).resource_id === logicalSlot) ||
+          pass.resource_reads.some((id) => this.getResourceNode(id).resource_id === logicalSlot) ||
+          pass.resource_writes.some((id) => this.getResourceNode(id).resource_id === logicalSlot)
+        )
+      );
+      const binding = this.__imported_bindings.get(logicalSlot);
+      const description = resourceDescriptorToString(entry.resource_descriptor);
+      const dump: CompiledFrameGraphResourceDump = {
+        logicalSlot,
+        name: this.__resource_nodes.find((node) =>
+          node.resource_id === logicalSlot
+        )?.name ?? `resource-${logicalSlot}`,
+        imported: entry.imported,
+        transient: isTransientEntry(entry),
+        ...(binding === undefined ? {} : { binding: binding.name }),
+        ...(uses.length === 0 ? {} : {
+          firstUsePass: uses[0]!.id,
+          lastUsePass: uses[uses.length - 1]!.id
+        }),
+        ...(description ? { description } : {})
+      };
+      return Object.freeze(dump);
+    });
+    return Object.freeze({
+      name: this.name,
+      executablePassOrder: Object.freeze(executablePassOrder),
+      passes: Object.freeze(this.__pass_nodes.map((pass) => Object.freeze({
+        id: pass.id,
+        name: pass.name,
+        culled: !pass.can_execute(),
+        reads: Object.freeze([...pass.resource_reads]),
+        writes: Object.freeze([...pass.resource_writes])
+      }))),
+      resources: Object.freeze(resources)
+    });
+  }
+
+  /** @internal PassBuilder uses this to enforce immutable compiled topology. */
+  assertBuilding(): void {
+    if (this.__compiled !== null) {
+      throw new Error(`FrameGraph '${this.name}' topology is already compiled`);
+    }
+  }
+}
+
+/** Immutable compiled topology with late-bound per-frame inputs. */
+export class CompiledFrameGraph {
+  private readonly compiledDump: CompiledFrameGraphDump;
+  private destroyed = false;
+
+  constructor(private readonly graph: FrameGraph) {
+    this.compiledDump = graph.createCompiledDump();
+  }
+
+  execute(ctx: FrameGraphContext, bindings: unknown): void {
+    if (this.destroyed) {
+      throw new Error(`CompiledFrameGraph '${this.compiledDump.name}' is destroyed`);
+    }
+    this.graph.executeCompiled(ctx, bindings);
+  }
+
+  dump(): CompiledFrameGraphDump {
+    return this.compiledDump;
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+  }
+}
+
+function objectBindingSlot(value: unknown): FrameGraphBindingSlot | null {
+  if (typeof value !== "object" || value === null) return null;
+  return FRAME_GRAPH_BINDING_SLOTS.get(value) ?? null;
 }
 
 (FrameGraph.prototype as FrameGraph & { isFrameGraph: boolean }).isFrameGraph = true;

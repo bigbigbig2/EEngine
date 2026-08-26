@@ -155,30 +155,28 @@ export class ScreenSpaceReflectionsPass {
   addToGraph(
     graph: FrameGraph,
     job: ScreenSpaceReflectionsJob,
-    inputs: ScreenSpaceReflectionsInputs
+    inputs: ScreenSpaceReflectionsInputs,
+    historyBindings?: { readonly input: unknown; readonly output: unknown }
   ): ScreenSpaceReflectionsOutput {
     this.init();
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
-    const frameIndex = job.frameIndex >>> 0;
     this.resize(width, height);
-    const historyInput = this.histories[frameIndex % 2]!;
-    const historyOutput = this.histories[(frameIndex + 1) % 2]!;
     const historyInputResource = graph.import_resource(
       "ssr_history",
       { kind: "imported", label: "ssr_history" },
-      historyInput.gpu_texture
+      historyBindings?.input ?? this.historyTexture(job.frameIndex, false)
     );
     const historyOutputResource = graph.import_resource(
       "ssr_output",
       { kind: "imported", label: "ssr_output" },
-      historyOutput.gpu_texture
+      historyBindings?.output ?? this.historyTexture(job.frameIndex, true)
     );
 
     let trace = -1;
     const traceBuilder = graph.add(
       "SSR trace uk",
-      { frameIndex },
+      job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         this.executeTrace(command, data.frameIndex, {
@@ -238,7 +236,7 @@ export class ScreenSpaceReflectionsPass {
     let reflections = -1;
     const resolveBuilder = graph.add(
       "SSR reflection resolve QD",
-      { frameIndex, samplers: job.samplers },
+      job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         this.executeResolve(
@@ -346,6 +344,11 @@ export class ScreenSpaceReflectionsPass {
     }
 
     return { final, trace, denoised, denoised_1: denoised1, reflections };
+  }
+
+  historyTexture(frameIndex: number, output: boolean): GPUTexture {
+    const index = (frameIndex + (output ? 1 : 0)) % 2;
+    return this.histories[index]!.gpu_texture;
   }
 
   resize(width: number, height: number): void {

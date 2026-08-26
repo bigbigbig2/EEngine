@@ -116,25 +116,23 @@ export class ScreenSpaceAmbientOcclusionPass {
   addToGraph(
     graph: FrameGraph,
     job: ScreenSpaceAmbientOcclusionJob,
-    inputs: ScreenSpaceAmbientOcclusionInputs
+    inputs: ScreenSpaceAmbientOcclusionInputs,
+    historyBindings?: { readonly input: unknown; readonly output: unknown }
   ): ScreenSpaceAmbientOcclusionOutput {
     this.init();
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
     this.resize(width, height);
 
-    const frameIndex = job.frameIndex >>> 0;
-    const historyInput = this.histories[frameIndex % 2]!;
-    const historyOutput = this.histories[(frameIndex + 1) % 2]!;
     const historyInputResource = graph.import_resource(
       "ao_history",
       { kind: "imported", label: "ao_history" },
-      historyInput.gpu_texture
+      historyBindings?.input ?? this.historyTexture(job.frameIndex, false)
     );
     const historyOutputResource = graph.import_resource(
       "ao_output",
       { kind: "imported", label: "ao_output" },
-      historyOutput.gpu_texture
+      historyBindings?.output ?? this.historyTexture(job.frameIndex, true)
     );
 
     let rawVisibility = -1;
@@ -247,6 +245,10 @@ export class ScreenSpaceAmbientOcclusionPass {
       occlusion,
       bentNormals
     };
+  }
+
+  historyTexture(frameIndex: number, output: boolean): GPUTexture {
+    return this.histories[(frameIndex + (output ? 1 : 0)) % 2]!.gpu_texture;
   }
 
   resize(width: number, height: number): void {

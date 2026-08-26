@@ -49,8 +49,17 @@ export class AutomaticExposurePass {
     ];
   }
 
-  update(graph: FrameGraph, inputColor: ResourceId, timeDeltaSeconds = 0.01666): ResourceId {
-    this.frameIndex++;
+  update(
+    graph: FrameGraph,
+    inputColor: ResourceId,
+    timeDeltaSeconds = 0.01666,
+    frameBindings?: {
+      readonly previous: ResourceId;
+      readonly adapted: ResourceId;
+      readonly job: { readonly timeDeltaSeconds: number };
+    }
+  ): ResourceId {
+    if (frameBindings === undefined) this.frameIndex++;
 
     let histogram = -1;
     const histogramBuilder = graph.add("Automatic exposure histogram eC", {}, (_data, resources, context) => {
@@ -86,24 +95,22 @@ export class AutomaticExposurePass {
     });
     reduceBuilder.read(histogram);
 
-    const previousBuffer = this.adaptedBuffers[this.frameIndex % 2];
-    const adaptedBuffer = this.adaptedBuffers[(this.frameIndex + 1) % 2];
-    const previous = graph.import_resource(
-      "Automatic exposure previous",
-      { kind: "imported", label: "automatic exposure previous" },
-      previousBuffer
-    );
-    const adaptedImported = graph.import_resource(
-      "Automatic exposure adapted",
-      { kind: "imported", label: "automatic exposure adapted" },
-      adaptedBuffer
-    );
+    const previous = frameBindings?.previous ?? graph.import_resource(
+        "Automatic exposure previous",
+        { kind: "imported", label: "automatic exposure previous" },
+        this.historyBuffer(this.frameIndex, false)
+      );
+    const adaptedImported = frameBindings?.adapted ?? graph.import_resource(
+        "Automatic exposure adapted",
+        { kind: "imported", label: "automatic exposure adapted" },
+        this.historyBuffer(this.frameIndex, true)
+      );
 
     let multiplier = -1;
     let adapted = adaptedImported;
     const adaptBuilder = graph.add(
       "Automatic exposure adaptation ZE",
-      { timeDeltaSeconds },
+      frameBindings?.job ?? { timeDeltaSeconds },
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         this.dispatchAdapt(
@@ -125,6 +132,10 @@ export class AutomaticExposurePass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM
     });
     return multiplier;
+  }
+
+  historyBuffer(frameIndex: number, output: boolean): GPUBuffer {
+    return this.adaptedBuffers[(frameIndex + (output ? 1 : 0)) % 2]!;
   }
 
   unadapted(graph: FrameGraph): ResourceId {

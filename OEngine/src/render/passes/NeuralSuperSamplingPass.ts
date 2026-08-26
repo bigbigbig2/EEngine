@@ -56,7 +56,7 @@ export type NeuralSuperSamplingJob = {
   outputResolution: readonly [number, number];
 };
 
-type NssSettings = {
+export type NssSettings = {
   jitter: readonly [number, number];
   renderResolution: readonly [number, number];
   outputResolution: readonly [number, number];
@@ -267,27 +267,53 @@ export class NeuralSuperSamplingPass {
   addToGraph(
     graph: FrameGraph,
     job: NeuralSuperSamplingJob,
-    inputs: NeuralSuperSamplingInputs
+    inputs: NeuralSuperSamplingInputs,
+    frameBindings?: {
+      readonly settings: NssSettings;
+      readonly feedbackCurrent: unknown;
+      readonly feedbackNext: unknown;
+      readonly bindResource: (
+        name: string,
+        resolve: () => object
+      ) => object;
+    }
   ): ResourceId {
     const [renderWidth, renderHeight] = job.renderResolution;
     const [outputWidth, outputHeight] = job.outputResolution;
-    this.resize(renderWidth, renderHeight);
+    if (frameBindings === undefined) this.resize(renderWidth, renderHeight);
     const currentFeedbackIndex = this.frameCountValue % 2;
     const nextFeedbackIndex = (this.frameCountValue + 1) % 2;
-    const feedbackCurrent = importTexture(graph, "NSS feedback current", this.feedbackHistory[currentFeedbackIndex]!);
-    let feedbackNext = importTexture(graph, "NSS feedback next", this.feedbackHistory[nextFeedbackIndex]!);
+    const feedbackCurrent = importTexture(
+      graph,
+      "NSS feedback current",
+      this.feedbackHistory[currentFeedbackIndex]!,
+      frameBindings?.feedbackCurrent
+    );
+    let feedbackNext = importTexture(
+      graph,
+      "NSS feedback next",
+      this.feedbackHistory[nextFeedbackIndex]!,
+      frameBindings?.feedbackNext
+    );
+    const importInternal = (name: string, context: GPUTextureContext): ResourceId =>
+      importTexture(
+        graph,
+        name,
+        context,
+        frameBindings?.bindResource(name, () => context.gpu_texture)
+      );
     const ping: [ResourceId, ResourceId] = [
-      importTexture(graph, "NSS ping 0", this.ping[0]),
-      importTexture(graph, "NSS ping 1", this.ping[1])
+      importInternal("NSS ping 0", this.ping[0]),
+      importInternal("NSS ping 1", this.ping[1])
     ];
     const skips: Record<"A" | "B", ResourceId> = {
-      A: importTexture(graph, "NSS skip A", this.skips[0]),
-      B: importTexture(graph, "NSS skip B", this.skips[1])
+      A: importInternal("NSS skip A", this.skips[0]),
+      B: importInternal("NSS skip B", this.skips[1])
     };
-    let concat = importTexture(graph, "NSS concat", this.concat);
-    let preOutput = importTexture(graph, "NSS pre-output", this.preOutput);
-    let networkOutput = importTexture(graph, "NSS network output", this.networkOutput);
-    const settings = this.createSettings(job);
+    let concat = importInternal("NSS concat", this.concat);
+    let preOutput = importInternal("NSS pre-output", this.preOutput);
+    let networkOutput = importInternal("NSS network output", this.networkOutput);
+    const settings = frameBindings?.settings ?? this.createSettings(job);
     const preprocess = this.addPreprocess(
       graph,
       settings,
@@ -331,8 +357,19 @@ export class NeuralSuperSamplingPass {
       outputWidth,
       outputHeight
     );
-    this.reset_history = false;
+    if (frameBindings === undefined) this.reset_history = false;
     return result;
+  }
+
+  prepareFrame(job: NeuralSuperSamplingJob): NssSettings {
+    this.resize(job.renderResolution[0], job.renderResolution[1]);
+    const settings = this.createSettings(job);
+    this.reset_history = false;
+    return settings;
+  }
+
+  feedbackTexture(frameIndex: number, output: boolean): GPUTexture {
+    return this.feedbackHistory[(frameIndex + (output ? 1 : 0)) % 2]!.gpu_texture;
   }
 
   destroy(): void {
@@ -697,11 +734,16 @@ function createSettingsBuffer(command: ShadeGPUCommandContext, settings: NssSett
   return command.allocateTransientBufferAndLoad(buffer, GPUBufferUsage.UNIFORM);
 }
 
-function importTexture(graph: FrameGraph, name: string, context: GPUTextureContext): ResourceId {
+function importTexture(
+  graph: FrameGraph,
+  name: string,
+  context: GPUTextureContext,
+  resource?: unknown
+): ResourceId {
   return graph.import_resource(
     name,
     { kind: "imported", label: name },
-    context.gpu_texture
+    resource ?? context.gpu_texture
   );
 }
 

@@ -9,7 +9,8 @@ import { MeshletDrawList } from "../gpu/MeshletDrawList.js";
 import { GPUSceneManager } from "../gpu/GPUSceneManager.js";
 import { SceneSdf } from "../gpu/SceneSdf.js";
 import { GPULightProbeVolumeRenderer } from "../gpu/GPULightProbeVolumeRenderer.js";
-import { FrameGraph } from "../framegraph/FrameGraph.js";
+import { FrameGraph, FrameGraphBindingLayout } from "../framegraph/FrameGraph.js";
+import { CompiledFrameGraphCache } from "../framegraph/CompiledFrameGraphCache.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   FrameCoordinator,
@@ -46,7 +47,10 @@ import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
 import { ScreenSpaceAmbientOcclusionPass } from "./passes/ScreenSpaceAmbientOcclusionPass.js";
 import { ScreenSpaceReflectionsPass } from "./passes/ScreenSpaceReflectionsPass.js";
 import { TemporalAntiAliasingPass } from "./passes/TemporalAntiAliasingPass.js";
-import { NeuralSuperSamplingPass } from "./passes/NeuralSuperSamplingPass.js";
+import {
+  NeuralSuperSamplingPass,
+  type NssSettings
+} from "./passes/NeuralSuperSamplingPass.js";
 import { MotionBlurPass } from "./passes/MotionBlurPass.js";
 import { SharpenPass } from "./passes/SharpenPass.js";
 import { BloomPass } from "./passes/BloomPass.js";
@@ -68,6 +72,10 @@ import {
 } from "../debug/EnvironmentManifest.js";
 import type { HierarchicalZBuffer } from "./HierarchicalZBuffer.js";
 import { resolveGpuEncoder } from "../framegraph/FrameGraph.js";
+import {
+  canonicalFrameGraphKey,
+  type FrameGraphKey
+} from "../framegraph/FrameGraphKey.js";
 import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
 import type { Scene } from "../scene/Scene.js";
 import {
@@ -134,6 +142,32 @@ export type RendererInitializeOptions = {
   pixelRatio?: number;
 };
 
+type MainFrameGraphBindings = {
+  readonly camera: PerspectiveCamera;
+  readonly scene: Scene;
+  readonly view: ReturnType<ViewManager["obtain"]>;
+  readonly gpuScene: ReturnType<GPUSceneManager["obtain"]>;
+  readonly viewHzb: HierarchicalZBuffer;
+  readonly colorView: GPUTextureView;
+  readonly renderTargets: ReturnType<RenderTargets["asImportBundle"]>;
+  readonly previousDepth: GPUTextureContext;
+  readonly frameIndex: number;
+  readonly timeDeltaSeconds: number;
+  readonly internalWidth: number;
+  readonly internalHeight: number;
+  readonly outputWidth: number;
+  readonly outputHeight: number;
+  readonly gpuCounterBuffer: GPUBuffer | null;
+  readonly taaJitter: readonly [number, number];
+  readonly taaHistoryValidity: number;
+  readonly motionBlurStrength: number;
+  readonly nssSettings: NssSettings | null;
+};
+
+const MAIN_GRAPH_CACHE_LIMIT = 16;
+const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 1;
+const MAIN_GRAPH_INSTRUMENTATION_REVISION = 1;
+
 /**
  * 渲染器运行时总控。
  *
@@ -158,6 +192,9 @@ export class Renderer {
   private readonly _profiler = new FrameProfiler();
   private _graphics!: GraphicsContext;
   private _frameCoordinator!: FrameCoordinator;
+  private readonly _mainGraphCache = new CompiledFrameGraphCache(
+    MAIN_GRAPH_CACHE_LIMIT
+  );
   private _scenes!: GPUSceneManager;
   private _cameraStates!: GPUCameraStateManager;
   private _meshletDrawList!: MeshletDrawList;
@@ -182,7 +219,7 @@ export class Renderer {
   private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence!: OcclusionConfidencePass;
   private _ssao!: ScreenSpaceAmbientOcclusionPass;
-  private _ssr!: ScreenSpaceReflectionsPass;
+  private _ssr: ScreenSpaceReflectionsPass | null = null;
   private _taa!: TemporalAntiAliasingPass;
   private _nss: NeuralSuperSamplingPass | null = null;
   private _motionBlur!: MotionBlurPass;
@@ -437,6 +474,11 @@ export class Renderer {
       .matchMedia("(dynamic-range: high)")
       .removeEventListener("change", this._onDynamicRangeChange);
     this._transparentOit?.destroy();
+    this._ssao?.destroy();
+    this._ssr?.destroy();
+    this._ssr = null;
+    this._automaticExposure?.destroy();
+    this._taaHistory?.forEach((history) => history.destroy());
     this._renderDebug?.destroy();
     this._renderDebug = null;
     this._meshletDrawList?.destroy();
@@ -444,6 +486,7 @@ export class Renderer {
     this._nss = null;
     this._scenes?.destroy();
     this._probeRenderers.clear();
+    this._mainGraphCache.destroy();
     this._frameCoordinator?.destroy();
     this._profiler.detachGpuDevice(this.device);
   }
@@ -569,11 +612,12 @@ export class Renderer {
     const colorView = createNativeTextureView(this.context.getCurrentTexture());
 
     {
-      this._profiler.encodeGpuCounterClear(cmd);
-      if (
+      const sampleGpuCounters = this._profiler.shouldSampleGpuCounters();
+      const sampleGpuTimestamps =
         (debugFrameIndex !== null || this._profiler.shouldSampleGpu()) &&
-        this.device.features.has("timestamp-query")
-      ) {
+        this.device.features.has("timestamp-query");
+      this._profiler.encodeGpuCounterClear(cmd);
+      if (sampleGpuTimestamps) {
         cmd.enable_debug_timers((results) => {
           if (debugFrameIndex !== null) {
             this.onFrameDebug.send2(debugFrameIndex, results);
@@ -591,102 +635,147 @@ export class Renderer {
         );
       }
 
-      // 帧图只描述本帧的资源依赖；实际 GPU 资源会在编译和执行阶段按生命周期分配。
-      this._profiler.recordGraphBuild();
-      const finishGraphBuild = this._profiler.beginCpuSection("graph-build");
-      const graph = new FrameGraph(MAIN_FRAME_GRAPH_NAME);
+      const gpuCounterBuffer = sampleGpuCounters
+        ? this._profiler.gpuCounterBuffer
+        : null;
+      if (sampleGpuCounters && gpuCounterBuffer === null) {
+        throw new Error("GPU counter sampling has no counter buffer");
+      }
+      if (this.feature_ssao_enabled) this._ssao.resize(w, h);
+      if (this.feature_ssr_enabled) this._ssr!.resize(w, h);
+      const taaHistoryValidity = this._taaJitter.reset_history ? 0 : 1;
+      if (this.feature_taa_enabled && this.upscale_type !== 1) {
+        this._taaJitter.reset_history = false;
+      }
+      const nssSettings = this.feature_taa_enabled && this.upscale_type === 1
+        ? this.nss.prepareFrame({
+            renderResolution: [w, h],
+            outputResolution: [outputWidth, outputHeight]
+          })
+        : null;
+      const mainBindings: MainFrameGraphBindings = {
+        camera,
+        scene,
+        view,
+        gpuScene,
+        viewHzb,
+        colorView,
+        renderTargets: this._renderTargets.asImportBundle(),
+        previousDepth: this._renderTargets.depthPrevious,
+        frameIndex: this._frame_count,
+        timeDeltaSeconds: time_delta_seconds,
+        internalWidth: w,
+        internalHeight: h,
+        outputWidth,
+        outputHeight,
+        gpuCounterBuffer,
+        taaJitter: [this._taaJitter.Jitter[0], this._taaJitter.Jitter[1]],
+        taaHistoryValidity,
+        motionBlurStrength: this.motion_blur_strength,
+        nssSettings
+      };
+      const graphKey = canonicalFrameGraphKey(this.createMainFrameGraphKey(
+        mainBindings,
+        sampleGpuTimestamps,
+        sampleGpuCounters,
+        debugFrameIndex !== null
+      ));
+      const compiledGraph = this._mainGraphCache.getOrCreate(graphKey, () => {
+        this._profiler.recordGraphBuild();
+        const finishGraphBuild = this._profiler.beginCpuSection("graph-build");
+        const bindingLayout = new FrameGraphBindingLayout<MainFrameGraphBindings>();
+        const bind = <TValue extends object>(
+          name: string,
+          resolve: (bindings: MainFrameGraphBindings) => TValue
+        ): TValue => bindingLayout.slot(name, mainBindings, resolve);
+        const graph = new FrameGraph(MAIN_FRAME_GRAPH_NAME);
 
       const swapId = graph.import_resource(
         "swapchain",
         { kind: "imported", label: "swapchain" },
-        colorView
+        bind("swapchain", (bindings) => bindings.colorView)
       );
 
       const sceneDatabaseRes = graph.import_resource(
         "scene_database_buffer",
         { kind: "imported", label: "scene_database" },
-        gpuScene.scene_database_buffer
+        bind("scene-database", (bindings) => bindings.gpuScene.scene_database_buffer!)
       );
 
       {
-        const rt = this._renderTargets.asImportBundle();
+        const rt = mainBindings.renderTargets;
         const meshIdRes = graph.import_resource(
           "texture_viz_mesh",
           { kind: "imported", label: "r32uint mesh id" },
-          rt.meshId
+          bind("target-mesh-id", (bindings) => bindings.renderTargets.meshId)
         );
         const triIdRes = graph.import_resource(
           "texture_viz_triangle",
           { kind: "imported", label: "r32uint triangle id" },
-          rt.triangleId
+          bind("target-triangle-id", (bindings) => bindings.renderTargets.triangleId)
         );
         const depthRes = graph.import_resource(
           "main_depth",
           { kind: "imported", label: "depth32float" },
-          rt.depth
+          bind("target-depth", (bindings) => bindings.renderTargets.depth)
         );
         const previousDepthRes = graph.import_resource(
           "previous_depth",
           { kind: "imported", label: "previous depth32float" },
-          this._renderTargets.depthPrevious
+          bind("target-previous-depth", (bindings) => bindings.previousDepth)
         );
         const currentCameraRes = graph.import_resource(
           "camera_current",
           { kind: "imported", label: "packed current camera Td" },
-          view.gpu_camera_state.buffer
+          bind("camera-current", (bindings) => bindings.view.gpu_camera_state.buffer)
         );
         const previousCameraRes = graph.import_resource(
           "camera_previous",
           { kind: "imported", label: "packed previous camera Td" },
-          view.gpu_previous_camera_state.buffer
+          bind("camera-previous", (bindings) => bindings.view.gpu_previous_camera_state.buffer)
         );
         const viewUniformRes = graph.import_resource(
           "view/Yu",
           { kind: "imported", label: "packed view Yu" },
-          view.uniform_buffer
+          bind("view-uniform", (bindings) => bindings.view.uniform_buffer)
         );
         let hzbRes: ResourceId | null = null;
         let gpuCounterRes: ResourceId | null = null;
-        if (this._profiler.shouldSampleGpuCounters()) {
-          const counterBuffer = this._profiler.gpuCounterBuffer;
-          if (counterBuffer === null) {
-            throw new Error("GPU counter sampling has no counter buffer");
-          }
+        if (sampleGpuCounters) {
           gpuCounterRes = graph.import_resource(
             "r0_gpu_frame_counters",
             { kind: "imported", label: "R0 GPU frame counters" },
-            counterBuffer
+            bind("gpu-frame-counters", (bindings) => bindings.gpuCounterBuffer!)
           );
         }
 
         {
-          const prevHzbView = viewHzb.obtainFullView();
           gpuCounterRes = this._visibility.addToGraph(
             graph,
-            {
-              camera,
-              gpuCameraBuffer: view.gpu_camera_state.buffer,
+            bind("visibility-main-job", (bindings) => ({
+              camera: bindings.camera,
+              gpuCameraBuffer: bindings.view.gpu_camera_state.buffer,
               gpuPreviousCameraBuffer:
-                view.gpu_previous_camera_state.buffer,
-              gpuViewBuffer: view.uniform_buffer,
-              scene,
+                bindings.view.gpu_previous_camera_state.buffer,
+              gpuViewBuffer: bindings.view.uniform_buffer,
+              scene: bindings.scene,
               targets: this._renderTargets,
-              meshCount: gpuScene.mesh_count,
-              meshlets: gpuScene.meshlets,
+              meshCount: bindings.gpuScene.mesh_count,
+              meshlets: bindings.gpuScene.meshlets,
               drawList: this._meshletDrawList,
-              meshTable: gpuScene.meshSlice,
-              transformTable: gpuScene.transformSlice,
-              sceneDatabase: gpuScene.scene_database,
-              materialMetadata: gpuScene.material_metadata,
+              meshTable: bindings.gpuScene.meshSlice,
+              transformTable: bindings.gpuScene.transformSlice,
+              sceneDatabase: bindings.gpuScene.scene_database,
+              materialMetadata: bindings.gpuScene.material_metadata,
               enableFrustumCull: true,
-              hzbView: prevHzbView,
-              viewportWidth: w,
-              viewportHeight: h,
+              hzbView: bindings.viewHzb.obtainFullView(),
+              viewportWidth: bindings.internalWidth,
+              viewportHeight: bindings.internalHeight,
               enableHzbCull: true,
               enableInstanceCull: true,
               clearTargets: true,
               secondChance: false
-            },
+            })),
             {
               meshId: meshIdRes,
               triangleId: triIdRes,
@@ -698,11 +787,12 @@ export class Renderer {
         }
 
         {
-          const hzb = viewHzb;
-          const depthTex = this._renderTargets.depth;
           const hzbBuilder = graph.add(
             "graph_rasterize_triangle_closest",
-            { depthTex, hzb },
+            bind("hzb-main-job", (bindings) => ({
+              depthTex: bindings.renderTargets.depth,
+              hzb: bindings.viewHzb
+            })),
             (data, _res, ctx: FrameGraphContext) => {
               const enc = resolveGpuEncoder(ctx);
               if (!enc || !data.depthTex) return;
@@ -714,7 +804,7 @@ export class Renderer {
           hzbRes = graph.import_resource(
             "hzb",
             { kind: "imported", label: "hierarchical_z rg16float" },
-            viewHzb.getTexture()
+            bind("hzb-texture", (bindings) => bindings.viewHzb.getTexture())
           );
         }
 
@@ -723,30 +813,30 @@ export class Renderer {
           if (sameFrameHzbView) {
             gpuCounterRes = this._visibility.addToGraph(
               graph,
-              {
-                camera,
-                gpuCameraBuffer: view.gpu_camera_state.buffer,
+              bind("visibility-second-chance-job", (bindings) => ({
+                camera: bindings.camera,
+                gpuCameraBuffer: bindings.view.gpu_camera_state.buffer,
                 gpuPreviousCameraBuffer:
-                  view.gpu_previous_camera_state.buffer,
-                gpuViewBuffer: view.uniform_buffer,
-                scene,
+                  bindings.view.gpu_previous_camera_state.buffer,
+                gpuViewBuffer: bindings.view.uniform_buffer,
+                scene: bindings.scene,
                 targets: this._renderTargets,
-                meshCount: gpuScene.mesh_count,
-                meshlets: gpuScene.meshlets,
+                meshCount: bindings.gpuScene.mesh_count,
+                meshlets: bindings.gpuScene.meshlets,
                 drawList: this._meshletDrawList,
-                meshTable: gpuScene.meshSlice,
-                transformTable: gpuScene.transformSlice,
-                sceneDatabase: gpuScene.scene_database,
-                materialMetadata: gpuScene.material_metadata,
+                meshTable: bindings.gpuScene.meshSlice,
+                transformTable: bindings.gpuScene.transformSlice,
+                sceneDatabase: bindings.gpuScene.scene_database,
+                materialMetadata: bindings.gpuScene.material_metadata,
                 enableFrustumCull: false,
-                hzbView: sameFrameHzbView,
-                viewportWidth: w,
-                viewportHeight: h,
+                hzbView: bindings.viewHzb.obtainFullView(),
+                viewportWidth: bindings.internalWidth,
+                viewportHeight: bindings.internalHeight,
                 enableHzbCull: true,
                 enableInstanceCull: true,
                 clearTargets: false,
                 secondChance: true
-              },
+              })),
               {
                 meshId: meshIdRes,
                 triangleId: triIdRes,
@@ -756,11 +846,12 @@ export class Renderer {
               "Visibility/second-chance"
             ) ?? gpuCounterRes;
 
-            const hzb2 = viewHzb;
-            const depthTex2 = this._renderTargets.depth;
             const hzb2Builder = graph.add(
               "graph_rasterize_triangle_closest/second",
-              { depthTex: depthTex2, hzb: hzb2 },
+              bind("hzb-second-chance-job", (bindings) => ({
+                depthTex: bindings.renderTargets.depth,
+                hzb: bindings.viewHzb
+              })),
               (data, _res, ctx: FrameGraphContext) => {
                 const enc = resolveGpuEncoder(ctx);
                 if (!enc || !data.depthTex) return;
@@ -775,35 +866,34 @@ export class Renderer {
         const hasAlphaTested =
           this._visibility.hasAlphaTestedMaterials(scene);
         if (hasAlphaTested) {
-          const alphaHzbView = viewHzb.obtainFullView();
           gpuCounterRes = this._visibility.addToGraph(
             graph,
-            {
-              camera,
-              gpuCameraBuffer: view.gpu_camera_state.buffer,
+            bind("visibility-alpha-tested-job", (bindings) => ({
+              camera: bindings.camera,
+              gpuCameraBuffer: bindings.view.gpu_camera_state.buffer,
               gpuPreviousCameraBuffer:
-                view.gpu_previous_camera_state.buffer,
-              gpuViewBuffer: view.uniform_buffer,
-              scene,
+                bindings.view.gpu_previous_camera_state.buffer,
+              gpuViewBuffer: bindings.view.uniform_buffer,
+              scene: bindings.scene,
               targets: this._renderTargets,
-              meshCount: gpuScene.mesh_count,
-              meshlets: gpuScene.meshlets,
+              meshCount: bindings.gpuScene.mesh_count,
+              meshlets: bindings.gpuScene.meshlets,
               drawList: this._meshletDrawList,
-              meshTable: gpuScene.meshSlice,
-              transformTable: gpuScene.transformSlice,
-              sceneDatabase: gpuScene.scene_database,
-              materialMetadata: gpuScene.material_metadata,
-              materialRegistry: gpuScene.materials ?? this._graphics.materials,
+              meshTable: bindings.gpuScene.meshSlice,
+              transformTable: bindings.gpuScene.transformSlice,
+              sceneDatabase: bindings.gpuScene.scene_database,
+              materialMetadata: bindings.gpuScene.material_metadata,
+              materialRegistry: bindings.gpuScene.materials ?? this._graphics.materials,
               enableFrustumCull: true,
-              hzbView: alphaHzbView,
-              viewportWidth: w,
-              viewportHeight: h,
+              hzbView: bindings.viewHzb.obtainFullView(),
+              viewportWidth: bindings.internalWidth,
+              viewportHeight: bindings.internalHeight,
               enableHzbCull: true,
               enableInstanceCull: true,
               clearTargets: false,
               secondChance: false,
               alphaTestedPass: true
-            },
+            })),
             {
               meshId: meshIdRes,
               triangleId: triIdRes,
@@ -814,11 +904,12 @@ export class Renderer {
           ) ?? gpuCounterRes;
 
           {
-            const hzbA = viewHzb;
-            const depthTexA = this._renderTargets.depth;
             const hzbABuilder = graph.add(
               "graph_rasterize_triangle_closest/alpha",
-              { depthTex: depthTexA, hzb: hzbA },
+              bind("hzb-alpha-tested-job", (bindings) => ({
+                depthTex: bindings.renderTargets.depth,
+                hzb: bindings.viewHzb
+              })),
               (data, _res, ctx: FrameGraphContext) => {
                 const enc = resolveGpuEncoder(ctx);
                 if (!enc || !data.depthTex) return;
@@ -856,27 +947,27 @@ export class Renderer {
         const geometryMetaRes = graph.import_resource(
           "geometries/Jg",
           { kind: "imported", label: "geometry metadata Jg" },
-          gpuScene.meshlets.meshMetaBuffer
+          bind("geometry-metadata", (bindings) => bindings.gpuScene.meshlets.meshMetaBuffer!)
         );
         const meshletHeadersRes = graph.import_resource(
           "meshlets/ki",
           { kind: "imported", label: "meshlet headers ki" },
-          gpuScene.meshlets.headerBuffer
+          bind("meshlet-headers", (bindings) => bindings.gpuScene.meshlets.headerBuffer)
         );
         const meshletDataRes = graph.import_resource(
           "meshlets/data",
           { kind: "imported", label: "meshlet data" },
-          gpuScene.meshlets.dataBuffer
+          bind("meshlet-data", (bindings) => bindings.gpuScene.meshlets.dataBuffer)
         );
 
         const matOut = this._materialExpand.addToGraph(
           graph,
-          {
-            scene,
-            materials: gpuScene.materials,
-            width: w,
-            height: h
-          },
+          bind("material-expand-job", (bindings) => ({
+            scene: bindings.scene,
+            materials: bindings.gpuScene.materials,
+            width: bindings.internalWidth,
+            height: bindings.internalHeight
+          })),
           {
             meshId: meshIdRes,
             triangleId: triIdRes,
@@ -909,24 +1000,26 @@ export class Renderer {
             ? graph.import_resource(
                 "velocity/previous-position offsets",
                 { kind: "imported", label: "previous-position offsets" },
-                previousOffsetsBuffer
+                bind("previous-position-offsets", (bindings) =>
+                  bindings.gpuScene.skinning.prev_position_offsets_buffer!)
               )
             : null;
           const previousPositionsRes = previousPositionsBuffer
             ? graph.import_resource(
                 "velocity/previous positions",
                 { kind: "imported", label: "previous positions" },
-                previousPositionsBuffer
+                bind("previous-positions", (bindings) =>
+                  bindings.gpuScene.skinning.prev_positions_buffer!)
               )
             : null;
           velocityRes = this._velocity!.addToGraph(
             graph,
-            {
-              width: w,
-              height: h,
-              currentCamera: view.gpu_camera_state.camera,
-              previousCamera: view.gpu_previous_camera_state.camera
-            },
+            bind("velocity-job", (bindings) => ({
+              width: bindings.internalWidth,
+              height: bindings.internalHeight,
+              currentCamera: bindings.view.gpu_camera_state.camera,
+              previousCamera: bindings.view.gpu_previous_camera_state.camera
+            })),
             {
               depth: depthRes,
               meshId: meshIdRes,
@@ -964,26 +1057,29 @@ export class Renderer {
           lightDatabaseRes = graph.import_resource(
             "Tl/light database",
             { kind: "imported", label: "Tl paged light database" },
-            gpuScene.lights.buffer_data
+            bind("light-database", (bindings) => bindings.gpuScene.lights.buffer_data)
           );
           environmentRes = graph.import_resource(
             "Ch/sec_radix_passes",
             { kind: "imported", label: "rgba16float environment" },
-            gpuScene.lights.environment.gpu_texture
+            bind("environment", (bindings) => bindings.gpuScene.lights.environment.gpu_texture)
           );
-          shadowAtlasRes = graph.import_resource(
-            "Ch/pass_descriptor",
-            { kind: "imported", label: "depth32float shadow atlas" },
-            gpuScene.lights.shadow_context.texture.gpu_texture
-          );
+          shadowAtlasRes = this.feature_shadows_enabled
+            ? graph.import_resource(
+                "Ch/pass_descriptor",
+                { kind: "imported", label: "depth32float shadow atlas" },
+                bind("shadow-atlas", (bindings) =>
+                  bindings.gpuScene.lights.shadow_context.texture.gpu_texture)
+              )
+            : depthRes;
           clusters = this._lightCluster.addToGraph(
             graph,
-            {
-              camera,
-              lights: gpuScene.lights,
-              width: w,
-              height: h
-            },
+            bind("light-cluster-job", (bindings) => ({
+              camera: bindings.camera,
+              lights: bindings.gpuScene.lights,
+              width: bindings.internalWidth,
+              height: bindings.internalHeight
+            })),
             {
               camera: currentCameraRes,
               lightDatabase: lightDatabaseRes,
@@ -1050,12 +1146,12 @@ export class Renderer {
         ) {
           const ssao = this._ssao!.addToGraph(
             graph,
-            {
+            bind("ssao-job", (bindings) => ({
               samplers: this._graphics.samplers,
-              frameIndex: this._frame_count,
-              width: w,
-              height: h
-            },
+              frameIndex: bindings.frameIndex,
+              width: bindings.internalWidth,
+              height: bindings.internalHeight
+            })),
             {
               depth: depthRes,
               normal: gNormalRes,
@@ -1063,6 +1159,12 @@ export class Renderer {
               occlusionConfidence: occlusionConfidenceRes,
               albedoAo: gAlbedoRes,
               camera: currentCameraRes
+            },
+            {
+              input: bind("ssao-history-input", (bindings) =>
+                this._ssao.historyTexture(bindings.frameIndex, false)),
+              output: bind("ssao-history-output", (bindings) =>
+                this._ssao.historyTexture(bindings.frameIndex, true))
             }
           );
           gAlbedoRes = ssao.occlusion;
@@ -1108,14 +1210,14 @@ export class Renderer {
               { kind: "imported", label: "STBN vec2 3D" },
               blueNoise.gpu_texture
             );
-            indirectSpecularRes = this._ssr.addToGraph(
+            indirectSpecularRes = this._ssr!.addToGraph(
               graph,
-              {
-                width: w,
-                height: h,
-                frameIndex: this._frame_count,
+              bind("ssr-job", (bindings) => ({
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
+                frameIndex: bindings.frameIndex,
                 samplers: this._graphics.samplers
-              },
+              })),
               {
                 depth: depthRes,
                 hzb: hzbRes!,
@@ -1129,6 +1231,12 @@ export class Renderer {
                 blueNoise: blueNoiseRes,
                 currentCamera: currentCameraRes,
                 previousCamera: previousCameraRes
+              },
+              {
+                input: bind("ssr-history-input", (bindings) =>
+                  this._ssr!.historyTexture(bindings.frameIndex, false)),
+                output: bind("ssr-history-output", (bindings) =>
+                  this._ssr!.historyTexture(bindings.frameIndex, true))
               }
             ).denoised;
           } else {
@@ -1197,7 +1305,8 @@ export class Renderer {
           const lightMapRes = graph.import_resource(
             "Brick4/volumetric light map",
             { kind: "imported", label: "Brick4 Av storage" },
-            gpuScene.volumetric_light_map.buffer
+            bind("brick4-light-map", (bindings) =>
+              bindings.gpuScene.volumetric_light_map.buffer)
           );
           const base = {
             depth: depthRes,
@@ -1255,32 +1364,38 @@ export class Renderer {
           const atlasRadianceRes = graph.import_resource(
             "LPV/radiance atlas",
             { kind: "imported", label: "r32uint LPV radiance atlas" },
-            gpuScene.light_probe_volume.atlas.texture_radiance.texture
+            bind("lpv-radiance-atlas", (bindings) =>
+              bindings.gpuScene.light_probe_volume.atlas.texture_radiance.texture)
           );
           const atlasDepthRes = graph.import_resource(
             "LPV/depth atlas",
             { kind: "imported", label: "rg16float LPV depth atlas" },
-            gpuScene.light_probe_volume.atlas.texture_depth.texture
+            bind("lpv-depth-atlas", (bindings) =>
+              bindings.gpuScene.light_probe_volume.atlas.texture_depth.texture)
           );
           const lpvMeshBvhRes = graph.import_resource(
             "LPV/tetra BVH",
             { kind: "imported", label: "LPV tetra BVH" },
-            gpuScene.light_probe_volume.buffer_mesh_bvh
+            bind("lpv-mesh-bvh", (bindings) =>
+              bindings.gpuScene.light_probe_volume.buffer_mesh_bvh)
           );
           const lpvMetadataRes = graph.import_resource(
             "LPV/metadata",
             { kind: "imported", label: "LPV metadata" },
-            gpuScene.light_probe_volume.buffer_metadata
+            bind("lpv-metadata", (bindings) =>
+              bindings.gpuScene.light_probe_volume.buffer_metadata)
           );
           const lpvTetraRes = graph.import_resource(
             "LPV/tetrahedra",
             { kind: "imported", label: "LPV tetrahedra" },
-            gpuScene.light_probe_volume.buffer_mesh
+            bind("lpv-tetrahedra", (bindings) =>
+              bindings.gpuScene.light_probe_volume.buffer_mesh)
           );
           const lpvProbesRes = graph.import_resource(
             "LPV/probes",
             { kind: "imported", label: "LPV probes" },
-            gpuScene.light_probe_volume.buffer_probes
+            bind("lpv-probes", (bindings) =>
+              bindings.gpuScene.light_probe_volume.buffer_probes)
           );
           const splitSum = this._graphics.textures.obtain(
             STATIC_GRAPHICS_ENGINE_ASSETS.split_sum
@@ -1308,12 +1423,12 @@ export class Renderer {
             );
             indirectSpecularRes = this._ssr!.addToGraph(
               graph,
-              {
-                width: w,
-                height: h,
-                frameIndex: this._frame_count,
+              bind("ssr-job", (bindings) => ({
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
+                frameIndex: bindings.frameIndex,
                 samplers: this._graphics.samplers
-              },
+              })),
               {
                 depth: depthRes,
                 hzb: hzbRes,
@@ -1335,6 +1450,12 @@ export class Renderer {
                   tetrahedra: lpvTetraRes,
                   probes: lpvProbesRes
                 }
+              },
+              {
+                input: bind("ssr-history-input", (bindings) =>
+                  this._ssr!.historyTexture(bindings.frameIndex, false)),
+                output: bind("ssr-history-output", (bindings) =>
+                  this._ssr!.historyTexture(bindings.frameIndex, true))
               }
             ).denoised;
           } else {
@@ -1353,12 +1474,12 @@ export class Renderer {
           }
           const diffuse = this._lpvIndirectDiffuse.addToGraph(
             graph,
-            {
-              camera,
+            bind("lpv-indirect-diffuse-job", (bindings) => ({
+              camera: bindings.camera,
               samplers: this._graphics.samplers,
-              width: w,
-              height: h
-            },
+              width: bindings.internalWidth,
+              height: bindings.internalHeight
+            })),
             {
               depth: depthRes,
               normal: gNormalRes,
@@ -1386,6 +1507,7 @@ export class Renderer {
         }
 
         if (
+          this._transparentOit.hasTransparentMaterials(scene) &&
           hdrRes !== null &&
           hzbRes !== null &&
           lightDatabaseRes !== null &&
@@ -1406,19 +1528,20 @@ export class Renderer {
               ? graph.import_resource(
                   "OIT/Brick4 volumetric light map",
                   { kind: "imported", label: "OIT Brick4 Av storage" },
-                  gpuScene.volumetric_light_map.buffer
+                  bind("oit-brick4-light-map", (bindings) =>
+                    bindings.gpuScene.volumetric_light_map.buffer)
                 )
               : undefined;
           hdrRes = this._transparentOit.addToGraph(
             graph,
-            {
-              width: w,
-              height: h,
-              scene,
-              materials: gpuScene.materials,
+            bind("transparent-oit-job", (bindings) => ({
+              width: bindings.internalWidth,
+              height: bindings.internalHeight,
+              scene: bindings.scene,
+              materials: bindings.gpuScene.materials,
               drawList: this._meshletDrawList,
               indirectLightingMode: this.indirect_lighting_mode
-            },
+            })),
             {
               hdr: hdrRes,
               depth: depthRes,
@@ -1447,19 +1570,17 @@ export class Renderer {
           velocityRes !== null &&
           occlusionConfidenceRes !== null
         ) {
-          const historyInput = this._taaHistory[this._frame_count % 2]!;
-          const historyOutput = this._taaHistory[(this._frame_count + 1) % 2]!;
-          historyInput.resize(this._output_resolution.x, this._output_resolution.y);
-          historyOutput.resize(this._output_resolution.x, this._output_resolution.y);
           const historyInputRes = graph.import_resource(
             "taa_history",
             { kind: "imported", label: "TAA history input rgba16float" },
-            historyInput.gpu_texture
+            bind("taa-history-input", (bindings) =>
+              this._taaHistory[bindings.frameIndex % 2]!.gpu_texture)
           );
           const historyOutputRes = graph.import_resource(
             "taa_output",
             { kind: "imported", label: "TAA history output rgba16float" },
-            historyOutput.gpu_texture
+            bind("taa-history-output", (bindings) =>
+              this._taaHistory[(bindings.frameIndex + 1) % 2]!.gpu_texture)
           );
           if (this.upscale_type === 1) {
             hdrRes = this.nss.addToGraph(
@@ -1475,18 +1596,27 @@ export class Renderer {
                 disocclusionConfidence: occlusionConfidenceRes,
                 colorHistory: historyInputRes,
                 output: historyOutputRes
+              },
+              {
+                settings: bind("nss-settings", (bindings) => bindings.nssSettings!),
+                feedbackCurrent: bind("nss-feedback-current", (bindings) =>
+                  this.nss.feedbackTexture(bindings.frameIndex, false)),
+                feedbackNext: bind("nss-feedback-next", (bindings) =>
+                  this.nss.feedbackTexture(bindings.frameIndex, true)),
+                bindResource: (name, resolve) => bind(
+                  `nss-internal/${name}`,
+                  () => resolve()
+                )
               }
             );
           } else {
-            const historyValidity = this._taaJitter.reset_history ? 0 : 1;
-            this._taaJitter.reset_history = false;
             hdrRes = this._taa.addToGraph(
               graph,
-              {
-                jitter: this._taaJitter.Jitter,
-                historyValidity,
+              bind("taa-job", (bindings) => ({
+                jitter: bindings.taaJitter,
+                historyValidity: bindings.taaHistoryValidity,
                 samplers: this._graphics.samplers
-              },
+              })),
               {
                 output: historyOutputRes,
                 currentColor: hdrRes,
@@ -1507,11 +1637,11 @@ export class Renderer {
         ) {
           hdrRes = this._motionBlur.addToGraph(
             graph,
-            {
-              width: this._output_resolution.x,
-              height: this._output_resolution.y,
-              strength: this.motion_blur_strength
-            },
+            bind("motion-blur-job", (bindings) => ({
+              width: bindings.outputWidth,
+              height: bindings.outputHeight,
+              strength: bindings.motionBlurStrength
+            })),
             {
               color: hdrRes,
               velocity: velocityRes,
@@ -1531,10 +1661,8 @@ export class Renderer {
         }
 
         let exposureRes: ResourceId | null = null;
-        if (
-          hdrRes !== null &&
-          (this.feature_bloom_enabled || this.feature_automatic_exposure_enabled)
-        ) {
+        let exposureInput = hdrRes;
+        if (hdrRes !== null && this.feature_bloom_enabled) {
           const bloom = this._bloom.addToGraph(graph, hdrRes, {
             width: this._output_resolution.x,
             height: this._output_resolution.y,
@@ -1542,17 +1670,34 @@ export class Renderer {
             mipCount: 5,
             samplers: this._graphics.samplers
           });
-          if (this.feature_bloom_enabled) hdrRes = bloom.composited;
-          if (this.feature_automatic_exposure_enabled) {
-            exposureRes = this._automaticExposure.update(
-              graph,
-              bloom.downsampled,
-              time_delta_seconds
-            );
-          }
+          hdrRes = bloom.composited;
+          exposureInput = bloom.downsampled;
         }
-        if (!this.feature_automatic_exposure_enabled) {
-          exposureRes = this._automaticExposure.unadapted(graph);
+        if (this.feature_automatic_exposure_enabled && exposureInput !== null) {
+          const exposurePrevious = graph.import_resource(
+            "Automatic exposure previous",
+            { kind: "imported", label: "automatic exposure previous" },
+            bind("automatic-exposure-previous", (bindings) =>
+              this._automaticExposure.historyBuffer(bindings.frameIndex, false))
+          );
+          const exposureAdapted = graph.import_resource(
+            "Automatic exposure adapted",
+            { kind: "imported", label: "automatic exposure adapted" },
+            bind("automatic-exposure-adapted", (bindings) =>
+              this._automaticExposure.historyBuffer(bindings.frameIndex, true))
+          );
+          exposureRes = this._automaticExposure.update(
+            graph,
+            exposureInput,
+            time_delta_seconds,
+            {
+              previous: exposurePrevious,
+              adapted: exposureAdapted,
+              job: bind("automatic-exposure-job", (bindings) => ({
+                timeDeltaSeconds: bindings.timeDeltaSeconds
+              }))
+            }
+          );
         }
 
         // Debug 是主管线最终 HDR 的观察覆盖：不经过 TAA/Bloom 等处理，也不
@@ -1586,7 +1731,32 @@ export class Renderer {
       }
 
       finishGraphBuild();
-      cmd.encodeGraph(graph);
+      this._profiler.recordGraphCompile();
+      return this._profiler.measure("graph-compile", () => graph.compile());
+      }, {
+        hit: () => this._profiler.recordGraphCacheHit(),
+        miss: () => this._profiler.recordGraphCacheMiss(),
+        evict: () => this._profiler.recordGraphCacheEviction()
+      });
+      if (sampleGpuCounters) {
+        this._profiler.registerGpuCounterFields([
+          "candidateInstances",
+          "visibleInstances",
+          "candidateClusters",
+          "selectedClusters",
+          "hwClusters",
+          "alphaClusters",
+          "hwTriangles",
+          "rejectedFrustum",
+          "rejectedHzb",
+          "shadedPixels",
+          "emptyVisibilityPixels",
+          "activeMaterials",
+          "activeLights",
+          "queueOverflowMask"
+        ]);
+      }
+      cmd.encodeCompiledGraph(compiledGraph, mainBindings);
       view.finish_frame(cmd);
       this.recordLegacyFrameCounters(viewHzb);
       this._profiler.encodeGpuCounterReadback(cmd);
@@ -1605,6 +1775,69 @@ export class Renderer {
     } finally {
       this._profiler.endFrame();
     }
+  }
+
+  private createMainFrameGraphKey(
+    bindings: MainFrameGraphBindings,
+    sampleGpuTimestamps: boolean,
+    sampleGpuCounters: boolean,
+    debugFrame: boolean
+  ): FrameGraphKey {
+    let featureBits = 0;
+    if (this.feature_shadows_enabled) featureBits += 2 ** 0;
+    if (this.feature_ssr_enabled) featureBits += 2 ** 1;
+    if (this.feature_ssao_enabled) featureBits += 2 ** 2;
+    if (this.feature_taa_enabled) featureBits += 2 ** 3;
+    if (this.feature_bloom_enabled) featureBits += 2 ** 4;
+    if (this.feature_automatic_exposure_enabled) featureBits += 2 ** 5;
+    if (this.feature_motion_blur_enabled) featureBits += 2 ** 6;
+    if (this.feature_sharpening_enabled) featureBits += 2 ** 7;
+    if (this.fused_indirect) featureBits += 2 ** 8;
+    if (this._visibility.hasAlphaTestedMaterials(bindings.scene)) {
+      featureBits += 2 ** 9;
+    }
+    if (bindings.gpuScene.skinning.prev_position_offsets_buffer !== null) {
+      featureBits += 2 ** 10;
+    }
+    if (bindings.gpuScene.skinning.prev_positions_buffer !== null) {
+      featureBits += 2 ** 11;
+    }
+    if (this._transparentOit.hasTransparentMaterials(bindings.scene)) {
+      featureBits += 2 ** 23;
+    }
+    if (this._highDynamicRange) featureBits += 2 ** 24;
+    const debugTopology = this.render_debug_view === RenderDebugView.VisibilityKey
+      ? 1
+      : this.render_debug_view === RenderDebugView.Depth
+        ? 2
+        : this.render_debug_view === RenderDebugView.Velocity
+          ? 3
+          : 0;
+    featureBits += debugTopology * 2 ** 12;
+    featureBits += this.indirect_lighting_mode * 2 ** 16;
+    featureBits += this.upscale_type * 2 ** 19;
+
+    const instrumentationMode = [
+      sampleGpuTimestamps ? "timestamps" : "",
+      sampleGpuCounters ? "counters" : "",
+      debugFrame ? "debug" : ""
+    ].filter(Boolean).join("+") || "none";
+
+    return {
+      capabilityProfile: [...this.device.features].sort().join(","),
+      internalWidth: bindings.internalWidth,
+      internalHeight: bindings.internalHeight,
+      outputWidth: bindings.outputWidth,
+      outputHeight: bindings.outputHeight,
+      viewCount: 1,
+      sampleCount: 1,
+      enabledFeatureBits: featureBits,
+      visibilityImplementation: "hardware-raster-v1",
+      historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
+      outputFormat: this._format,
+      instrumentationMode,
+      instrumentationRevision: MAIN_GRAPH_INSTRUMENTATION_REVISION
+    };
   }
 
   private initializeRenderPasses(device: GPUDevice): void {
@@ -1636,7 +1869,9 @@ export class Renderer {
     this._velocity ??= new VelocityPass(this._graphics);
     this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
     this._ssao ??= new ScreenSpaceAmbientOcclusionPass(this._graphics);
-    this._ssr ??= new ScreenSpaceReflectionsPass(this._graphics);
+    if (this.feature_ssr_enabled) {
+      this._ssr ??= new ScreenSpaceReflectionsPass(this._graphics);
+    }
     this._taa ??= new TemporalAntiAliasingPass(this._graphics);
     this._motionBlur ??= new MotionBlurPass(this._graphics);
     this._sharpen ??= new SharpenPass(this._graphics);

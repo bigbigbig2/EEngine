@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。`R1-A` 已完成代码、自动门禁与 Frame Smoke/A/B/C 浏览器功能验收；下一执行包是 `R1-B` Compiled FrameGraph 与 feature pruning。
+R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。`R1-A` 已完成代码、自动门禁与 Frame Smoke/A/B/C 浏览器功能验收；`R1-B` 于 2026-08-27 完成代码与自动门禁，等待 Frame Smoke/A/B/C 浏览器 after smoke 后关闭。
 
 R1 解决与场景规模不成比例的运行时固定成本和错误生命周期边界。它不会实现 R2 的 Runtime Asset/Packed Instance、R3 的 Geometry Hierarchy/SSE LOD、R4 的 Compute Software Raster，也不把 three.js 两个示例当作引擎完成上限。
 
@@ -290,6 +290,19 @@ submit once
 
 ### R1-B · Compiled graph 与 feature pruning
 
+#### 当前实施状态（2026-08-27）
+
+| ID | 状态 | 已落地证据 / 剩余验收 |
+|---|---|---|
+| `R1-B01` | 代码完成，浏览器待验收 | `framegraph-compiled.test.mjs` 冻结 pass pruning、logical slot、first/last-use dump 和同 topology 换 bindings；主图真实 dump/画面仍随 after artifact 确认。 |
+| `R1-B02` | 完成 | `FrameGraph.compile()` 返回不可变 `CompiledFrameGraph`；编译后 topology mutation 失败；execute 异常也会释放已取得的 transient。 |
+| `R1-B03` | 完成 | 主管线 recipe 只在 miss 运行；swapchain、scene/camera/light/material、HZB、history 与动态 job 使用命名 binding slot，compiled closure 不保留首帧 GPU handle。 |
+| `R1-B04` | 完成 | canonical key 覆盖 capability、尺寸、feature、format/history 与 instrumentation；LRU cache 拥有 hit/miss/evict/destroy；Profiler 保存对应计数。 |
+| `R1-B05` | 代码完成，浏览器待验收 | shadows/SSAO/SSR/TAA/Bloom/Exposure/debug 从 recipe 入口裁剪；Bloom/Exposure 已解耦，Exposure off 不再添加 fallback Pass，shadow off 不登记 atlas resource。 |
+| `R1-B06` | 完成 | steady main hit 路径只调用 `encodeCompiledGraph()`；`new FrameGraph(MAIN_FRAME_GRAPH_NAME)` 只存在 cache builder；LPV/tool 继续 one-shot。 |
+
+自动验证为 `npm test` 全通过和根目录 examples production build 通过。浏览器插件在 runtime 初始化阶段失败，未取得新的 WebGPU after artifact；因此本表不会用自动测试冒充 A/B/C 画面、真实 GPU counter 或 validation 验收。手动验收必须看到：首个 key 帧 `build=1/compile=1/execute=1/cacheMiss=1`，随后相同 key 为 `build=0/compile=0/execute=1/cacheHit=1`，且 submit、readback、diagnostics 与 R1-A 不退化。
+
 #### 任务
 
 | ID | 实施内容 | 必须产出 |
@@ -461,7 +474,7 @@ R1 默认四个主要实现提交，包内先在工作区完成自动测试和�
 ## 阶段退出清单
 
 - [x] `R1-A01～A07`：一帧唯一提交 owner 与按 dirty 编码完成。
-- [ ] `R1-B01～B06`：Compiled graph、cache 与 feature pruning 完成。
+- [ ] `R1-B01～B06`：代码与自动门禁完成；等待 Frame Smoke/A/B/C 浏览器 after smoke 后关闭。
 - [ ] `R1-C01～C06`：Compute HZB、history 与旧 Render HZB 删除完成。
 - [ ] `R1-D01～D05`：生命周期、paired benchmark、文档和死代码收口完成。
 - [ ] `npm test` 通过；命中浏览器示例无 WebGPU validation/console error。
