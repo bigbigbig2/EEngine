@@ -102,6 +102,29 @@ test("readback map failures release the slot and increment failure evidence", as
   ring.destroy();
 });
 
+test("an encoded readback can be cancelled when frame encoding aborts", () => {
+  const device = new FakeDevice();
+  const source = new FakeBuffer(16);
+  const failures = [];
+  const ring = new GpuReadbackRing(device, {
+    byteLength: 16,
+    slotCount: 3,
+    onResult: () => assert.fail("cancelled copy must not publish a result"),
+    onError: (failure) => failures.push(failure)
+  });
+  const ticket = ring.encodeCopy(new FakeEncoder(), source, 0, 11);
+  assert.ok(ticket);
+
+  ring.cancel(ticket, new Error("frame aborted"));
+
+  assert.equal(ring.stats.pending, 0);
+  assert.equal(ring.stats.failed, 1);
+  assert.equal(failures[0].frameIndex, 11);
+  assert.match(String(failures[0].error), /frame aborted/);
+  assert.ok(ring.encodeCopy(new FakeEncoder(), source, 0, 12));
+  ring.destroy();
+});
+
 class FakeDevice {
   buffers = [];
 

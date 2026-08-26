@@ -5,8 +5,7 @@
 import { BitSet } from "../core/BitSet.js";
 import {
   recordGpuReadback,
-  submitGpuCommands,
-  writeGpuBuffer
+  submitGpuCommands
 } from "./GpuQueueEvidence.js";
 import { LineBuilder } from "../core/LineBuilder.js";
 import { alignCeil, detectNativeEndianness } from "../core/memoryUtils.js";
@@ -1085,6 +1084,19 @@ export class GPUDatabase {
   private dirtyLookupEnd = -1;
   private dataStartOffsetWords: number;
   private slotAllocator: FixedSlotAllocator;
+  private readonly growthTransactions = new WeakMap<
+    ShadeGPUCommandContext,
+    {
+      originalBuffer: GPUBuffer;
+      originalAllocator: FixedSlotAllocator;
+      originalLookup: Uint32Array;
+      originalPageSlots: Map<GPUDatabasePage, number>;
+      dirtyLookupStart: number;
+      dirtyLookupEnd: number;
+      createdBuffers: GPUBuffer[];
+      retiredBuffers: GPUBuffer[];
+    }
+  >();
 
   constructor({
     definition,
@@ -1170,20 +1182,20 @@ export class GPUDatabase {
       ) {
         const page = table.pages.get(pageIndex)!;
         if (!page.is_gpu_resident) {
-          this.allocateGpuPage(table, page.index);
+          this.allocateGpuPage(table, page.index, command);
         }
       }
       dirtyPages.reset();
       this.releaseEmptyPages(table);
     }
 
-    this.uploadDirtyLookup();
+    this.uploadDirtyLookup(command);
 
     for (const table of this.tables) {
       this.encodeElementUploads(command, table);
     }
     for (const table of this.tables) {
-      this.uploadDirtyHeaders(table);
+      this.uploadDirtyHeaders(command, table);
     }
     for (const table of this.tables) {
       for (const page of table.pages.values()) {
@@ -1288,8 +1300,52 @@ export class GPUDatabase {
     );
   }
 
-  private grow(newByteSize: number): void {
+  private grow(
+    newByteSize: number,
+    command: ShadeGPUCommandContext
+  ): void {
     const device = this.device;
+    let transaction = this.growthTransactions.get(command);
+    if (transaction === undefined) {
+      const originalPageSlots = new Map<GPUDatabasePage, number>();
+      for (const table of this.tables) {
+        for (const page of table.pages.values()) {
+          originalPageSlots.set(page, page.slot_offset);
+        }
+      }
+      transaction = {
+        originalBuffer: this.buffer,
+        originalAllocator: this.slotAllocator,
+        originalLookup: this.pageLookup.slice(),
+        originalPageSlots,
+        dirtyLookupStart: this.dirtyLookupStart,
+        dirtyLookupEnd: this.dirtyLookupEnd,
+        createdBuffers: [],
+        retiredBuffers: []
+      };
+      this.growthTransactions.set(command, transaction);
+      const activeTransaction = transaction;
+      command.onFinished.addOne(() => {
+        for (const buffer of activeTransaction.retiredBuffers) {
+          buffer.destroy();
+        }
+        this.growthTransactions.delete(command);
+      });
+      command.onAborted.addOne(() => {
+        this.buffer = activeTransaction.originalBuffer;
+        this.slotAllocator = activeTransaction.originalAllocator;
+        this.pageLookup.set(activeTransaction.originalLookup);
+        this.dirtyLookupStart = activeTransaction.dirtyLookupStart;
+        this.dirtyLookupEnd = activeTransaction.dirtyLookupEnd;
+        for (const [page, slot] of activeTransaction.originalPageSlots) {
+          page.slot_offset = slot;
+        }
+        for (const buffer of activeTransaction.createdBuffers) {
+          buffer.destroy();
+        }
+        this.growthTransactions.delete(command);
+      });
+    }
     if (newByteSize > device.limits.maxStorageBufferBindingSize) {
       throw new Error(
         `Cannot grow database to ${newByteSize} bytes, max allowed is ${device.limits.maxStorageBufferBindingSize}`
@@ -1315,6 +1371,8 @@ export class GPUDatabase {
       usage: previous.usage,
       mappedAtCreation: false
     });
+    transaction.retiredBuffers.push(previous);
+    transaction.createdBuffers.push(next);
     const copies: Array<[number, number]> = [];
 
     for (const table of this.tables) {
@@ -1340,8 +1398,7 @@ export class GPUDatabase {
       }
     }
 
-    const encoder = device.createCommandEncoder({ label: "" });
-    encoder.copyBufferToBuffer(
+    command.copyBufferToBuffer(
       previous,
       0,
       next,
@@ -1349,7 +1406,7 @@ export class GPUDatabase {
       lookupBytes
     );
     for (const [source, destination] of copies) {
-      encoder.copyBufferToBuffer(
+      command.copyBufferToBuffer(
         previous,
         source,
         next,
@@ -1357,13 +1414,11 @@ export class GPUDatabase {
         pageBytes
       );
     }
-    submitGpuCommands(device, "GPUDatabase/grow", [encoder.finish()]);
-    previous.destroy();
     this.buffer = next;
     this.slotAllocator = nextAllocator;
   }
 
-  private growByFactor(): void {
+  private growByFactor(command: ShadeGPUCommandContext): void {
     const current = this.buffer.size;
     const limit = this.device.limits.maxStorageBufferBindingSize;
     if (current === limit) {
@@ -1375,12 +1430,13 @@ export class GPUDatabase {
       alignCeil(1.2 * current, GPU_DATABASE_GROW_ALIGNMENT),
       limit
     );
-    this.grow(next);
+    this.grow(next, command);
   }
 
   private allocateGpuPage(
     table: GPUTypedTable,
-    pageIndex: number
+    pageIndex: number,
+    command: ShadeGPUCommandContext
   ): GPUDatabasePage {
     const descriptor = table.descriptor;
     if (pageIndex >= descriptor.page_limit) {
@@ -1390,7 +1446,7 @@ export class GPUDatabase {
     }
     let slot = this.slotAllocator.allocate();
     while (slot === -1) {
-      this.growByFactor();
+      this.growByFactor(command);
       slot = this.slotAllocator.allocate();
     }
 
@@ -1437,19 +1493,17 @@ export class GPUDatabase {
     this.dirtyLookupEnd = Math.max(this.dirtyLookupEnd, index);
   }
 
-  private uploadDirtyLookup(): void {
+  private uploadDirtyLookup(command: ShadeGPUCommandContext): void {
     if (this.dirtyLookupStart > this.dirtyLookupEnd) return;
     const startBytes =
       this.dirtyLookupStart * Uint32Array.BYTES_PER_ELEMENT;
     const endBytes =
       (this.dirtyLookupEnd + 1) *
       Uint32Array.BYTES_PER_ELEMENT;
-    writeGpuBuffer(
-      this.device.queue,
-      "GPUDatabase/page-lookup",
+    command.writeBuffer(
       this.buffer,
       startBytes,
-      this.pageLookup.buffer,
+      this.pageLookup.buffer as ArrayBuffer,
       startBytes,
       endBytes - startBytes
     );
@@ -1525,7 +1579,10 @@ export class GPUDatabase {
     table.trim_upload_buffer();
   }
 
-  private uploadDirtyHeaders(table: GPUTypedTable): void {
+  private uploadDirtyHeaders(
+    command: ShadeGPUCommandContext,
+    table: GPUTypedTable
+  ): void {
     const dirty = table.header_dirty_pages;
     if (dirty.size() === 0) return;
     const descriptor = table.descriptor;
@@ -1553,9 +1610,7 @@ export class GPUDatabase {
         const slot = index - firstIndex;
         header[1 + (slot >> 5)]! |= 1 << (slot & 31);
       }
-      writeGpuBuffer(
-        this.device.queue,
-        "GPUDatabase/page-header",
+      command.writeBuffer(
         this.buffer,
         (page.slot_offset + this.dataStartOffsetWords) *
           GPU_DATABASE_WORD_BYTES,

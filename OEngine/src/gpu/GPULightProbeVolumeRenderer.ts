@@ -167,10 +167,14 @@ export class GPULightProbeVolumeRenderer {
       setTimeout(resolve, 10);
     });
 
-    this.graphics.update();
-    this.sceneContext.update(this.graphics);
+    const command = ShadeGPUCommandContext.create(
+      this.graphics,
+      "LPV/generate-locations"
+    );
+    this.graphics.encodeFrameMaintenance(command, false);
+    this.sceneContext.update(command);
     const grid = this.createGrid(resolution);
-    const result = await this.dispatchAndReadback(resolution, grid);
+    const result = await this.dispatchAndReadback(resolution, grid, command);
 
     console.warn(
       `Probe count = ${result.count}, ${(
@@ -221,22 +225,22 @@ export class GPULightProbeVolumeRenderer {
   }
 
   bake(): void {
-    this.graphics.update();
     const scene = this.sceneContext;
-    scene.update(this.graphics);
     const geometries = scene.meshlets;
     const probes = scene.light_probe_volume;
     const probeCount = probes.source.probe_count;
     if (probeCount === 0) return;
 
+    const probesToUpdate = this.probesPerBatch;
+    if (probesToUpdate <= 0) return;
+    const command = ShadeGPUCommandContext.create(this.graphics, "LPV/bake");
+    this.graphics.encodeFrameMaintenance(command, false);
+    scene.update(command);
+
     probes.update();
     const resident = this.residentMaterials;
     resident.ensure_scene_materials(scene.scene);
-    resident.update();
-
-    const command = ShadeGPUCommandContext.create(this.graphics, "LPV/bake");
-    const probesToUpdate = this.probesPerBatch;
-    if (probesToUpdate <= 0) return;
+    resident.update(command);
 
     const direction = new Float32Array(3);
     randomUnitDirection(this.random, direction);
@@ -372,7 +376,8 @@ export class GPULightProbeVolumeRenderer {
 
   private async dispatchAndReadback(
     requestedResolution: number,
-    grid: ProbePlacementGrid
+    grid: ProbePlacementGrid,
+    command: ShadeGPUCommandContext
   ): Promise<ProbePlacementReadback> {
     const sceneDatabase = this.sceneContext.scene_database_buffer;
     const geometryMetadata = this.sceneContext.meshlets.meshMetaBuffer;
@@ -399,10 +404,6 @@ export class GPULightProbeVolumeRenderer {
     const settings = this.createSettingsBuffer(grid);
 
     try {
-      const command = ShadeGPUCommandContext.create(
-        this.graphics,
-        "generate probe positions"
-      );
       const pass = command.constructComputePass({
         label: "gpu_vertex_count_required",
         pipeline: this.placementPipeline,

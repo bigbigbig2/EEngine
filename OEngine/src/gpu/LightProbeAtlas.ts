@@ -49,6 +49,7 @@ export type LightProbeAtlasGraphUpdateOptions = {
   graph: FrameGraph;
   scene: GPUSceneContext;
   graphics: GraphicsContext;
+  command: ShadeGPUCommandContext;
   update_ray_count?: number;
 };
 
@@ -339,6 +340,7 @@ export class LightProbeAtlas {
     graph,
     scene,
     graphics,
+    command,
     update_ray_count = 4096
   }: LightProbeAtlasGraphUpdateOptions): ResourceId {
     const probeCount = scene.light_probe_volume.source.probe_count;
@@ -360,7 +362,7 @@ export class LightProbeAtlas {
 
     const materials = graphics.materials_resident;
     materials.ensure_scene_materials(scene.scene);
-    materials.update();
+    materials.update(command);
     const randomSeed = Math.round(this.random() * 0xffffffff) >>> 0;
     const splitSum = graphics.textures.obtain(
       STATIC_GRAPHICS_ENGINE_ASSETS.split_sum

@@ -256,12 +256,19 @@ export class GPUResidentMaterialContext {
     }
   }
 
-  update(): void {
+  update(command?: ShadeGPUCommandContext): boolean {
     this.syncRegistry();
-    if (this.residentVersion === this.uploadedResidentVersion) return;
+    if (this.residentVersion === this.uploadedResidentVersion) return false;
+    const ownsCommand = command === undefined;
+    const activeCommand = command ?? ShadeGPUCommandContext.create(
+      this.graphics,
+      "GPUResidentMaterialContext/one-shot-update"
+    );
     this.uploadedResidentVersion = this.residentVersion;
-    this.build_textures();
+    this.build_textures(activeCommand);
     this.build_materials();
+    if (ownsCommand) activeCommand.finish();
+    return true;
   }
 
   build_materials(): void {
@@ -298,7 +305,7 @@ export class GPUResidentMaterialContext {
     this.materialBuffer.unmap();
   }
 
-  build_textures(): void {
+  build_textures(command: ShadeGPUCommandContext): void {
     const records = Array.from(this.textures.values());
     const layerCount = Math.ceil(
       records.length / RESIDENT_TEXTURE_TILES_PER_LAYER
@@ -313,12 +320,7 @@ export class GPUResidentMaterialContext {
     for (let index = 0; index < records.length; index++) {
       textureManager.obtain(records[index]!.source);
     }
-    textureManager.mipmaps.flush();
-
-    const command = ShadeGPUCommandContext.create(
-      this.graphics,
-      "GPUResidentMaterialContext/texture-write"
-    );
+    textureManager.mipmaps.flush(command.gpu_encoder);
     for (let i = 0; i < records.length; i++) {
       const record = records[i]!;
       const sourceTexture = record.source;
@@ -352,7 +354,6 @@ export class GPUResidentMaterialContext {
       const sourceMip = Math.max(0, Math.floor(Math.min(mipX, mipY)));
       this.encodeResizeCopy(command, source, sourceMip, tile);
     }
-    command.finish();
   }
 
   destroy(): void {

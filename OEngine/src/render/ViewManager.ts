@@ -9,6 +9,7 @@ import type { Scene } from "../scene/Scene.js";
 import type { GPUCameraStateManager } from "./GPUCameraState.js";
 import { GPUViewContext } from "./ViewContext.js";
 import type { ViewHandle } from "./ViewContext.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 
 export { GPUViewContext, GPU_VIEW_TYPE } from "./ViewContext.js";
 export type { ViewHandle } from "./ViewContext.js";
@@ -67,7 +68,7 @@ export class ViewManager {
     return this._scenes;
   }
 
-  obtain(key: GPUViewKey): ViewHandle {
+  obtain(key: GPUViewKey, command: ShadeGPUCommandContext): ViewHandle {
     const { camera, scene } = key;
     let byScene = this._contexts.get(camera);
     if (byScene === undefined) {
@@ -79,7 +80,8 @@ export class ViewManager {
       context = new GPUViewContext(
         this._graphics,
         this._scenes.obtain(scene),
-        this._cameraStates.obtain(camera)
+        this._cameraStates.obtain(camera),
+        command
       );
       context.label = key.label;
       byScene.set(scene, context);

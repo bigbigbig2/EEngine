@@ -110,7 +110,7 @@ export class GPUCollectionStatistics {
     );
     command.recordReadback("collection-limits", size);
     command.copyBufferToBuffer(this.stat_buffer, 0, readback, 0, size);
-    await command.done;
+    await command.submitted;
     await readback.mapAsync(GPUMapMode.READ, 0, size);
     this.updateRecords(new Uint32Array(readback.getMappedRange(0, size)));
     readback.unmap();

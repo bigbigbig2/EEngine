@@ -387,6 +387,7 @@ export class ShadowContext {
             const layout = map.layout[viewIndex]!;
             const shadowView = map.views[viewIndex]!;
             const viewContext = this.prepareViewContext(
+              command,
               shadowView,
               scene,
               layout.width,
@@ -489,6 +490,7 @@ export class ShadowContext {
       const row = Math.floor(face / 3);
       const shadowView = map.views[face]!;
       const viewContext = this.prepareViewContext(
+        command,
         shadowView,
         scene,
         faceResolution,
@@ -520,6 +522,7 @@ export class ShadowContext {
   }
 
   private prepareViewContext(
+    command: ShadeGPUCommandContext,
     shadowView: ShadowView,
     scene: GPUSceneContext,
     width: number,
@@ -530,12 +533,13 @@ export class ShadowContext {
       context = new GPUViewContext(
         this.graphics,
         scene,
-        new GPUCameraState(this.device, shadowView.camera)
+        new GPUCameraState(this.device, shadowView.camera),
+        command
       );
       context.label = shadowView.label;
       shadowView.gpu_context = context;
     }
-    context.update(this.graphics);
+    context.update(command);
     context.setViewportSize(width, height);
     return context;
   }

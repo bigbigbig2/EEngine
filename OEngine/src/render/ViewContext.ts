@@ -18,7 +18,6 @@ import {
 } from "../core/math/Mat4.js";
 import type { GPUCameraState } from "./GPUCameraState.js";
 import { HierarchicalZBuffer } from "./HierarchicalZBuffer.js";
-import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 
 export const GPU_VIEW_TYPE = StructType.from(
   {
@@ -61,7 +60,8 @@ export class GPUViewContext {
   constructor(
     graphics: GraphicsContext,
     scene: GPUSceneContext,
-    camera: GPUCameraState
+    camera: GPUCameraState,
+    command: ShadeGPUCommandContext
   ) {
     const device = graphics.device;
     if (device === null) {
@@ -72,7 +72,7 @@ export class GPUViewContext {
     this.scene = scene;
     this.camera = camera;
     this.hierarchical_z_buffer = new HierarchicalZBuffer(graphics);
-    this.gpu_previous_camera_state = camera.clone();
+    this.gpu_previous_camera_state = camera.clone(command);
     this.uniform_buffer = device.createBuffer({
       label: "GPUViewContext/uj/Yu",
       size: GPU_VIEW_TYPE.size,
@@ -127,7 +127,7 @@ export class GPUViewContext {
     return 0;
   }
 
-  update_uniforms(): void {
+  update_uniforms(command: ShadeGPUCommandContext): void {
     mat4FromTranslationScale(
       this.viewportMatrix,
       { x: 0.5 * this.width, y: 0.5 * this.height, z: 0 },
@@ -150,19 +150,19 @@ export class GPUViewContext {
       GPU_VIEW_TYPE,
       this.uniformData
     );
-    writeGpuBuffer(
-      this.device.queue,
-      "GPUViewContext/uniforms",
+    command.writeBuffer(
       this.uniform_buffer,
       0,
-      this.uniformData
+      this.uniformData,
+      0,
+      this.uniformData.byteLength
     );
   }
 
-  update(graphics: GraphicsContext = this.graphics): void {
-    this.scene.update(graphics);
-    this.camera.update();
-    this.update_uniforms();
+  update(command: ShadeGPUCommandContext): void {
+    this.camera.update(command);
+    this.update_uniforms(command);
+    this.graphics.profiler.addCounter("runtime.viewPrepareCount", 1);
   }
 
   finish_frame(command: ShadeGPUCommandContext): void {

@@ -4,11 +4,9 @@
 
 import type { Camera } from "../camera/Camera.js";
 import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
-import {
-  submitGpuCommands,
-  writeGpuBuffer
-} from "../gpu/GpuQueueEvidence.js";
+import { submitGpuCommands } from "../gpu/GpuQueueEvidence.js";
 import { LPV_CAMERA_TYPE } from "../shaders/lpv_indirect_diffuse.js";
 
 let nextGpuCameraStateId = 0;
@@ -56,7 +54,7 @@ export class GPUCameraState {
     this.viewportOffset[1] = y;
   }
 
-  update(): void {
+  update(command: ShadeGPUCommandContext): void {
     const camera = this.cameraValue;
     camera.update();
     const projection = Float64Array.from(camera.projection_matrix);
@@ -102,20 +100,20 @@ export class GPUCameraState {
       LPV_CAMERA_TYPE,
       this.packed,
     );
-    writeGpuBuffer(
-      this.device.queue,
-      "GPUCameraState/update",
+    command.writeBuffer(
       this.buffer,
       0,
-      this.packed
+      this.packed,
+      0,
+      this.packed.byteLength
     );
   }
 
-  clone(): GPUCameraState {
+  clone(command?: ShadeGPUCommandContext): GPUCameraState {
     const clone = new GPUCameraState(this.device, this.cameraValue.clone());
     clone.viewportOffset.set(this.viewportOffset);
     clone.viewProjection.set(this.viewProjection);
-    clone.copy(this);
+    clone.copy(this, command?.gpu_encoder);
     return clone;
   }
 

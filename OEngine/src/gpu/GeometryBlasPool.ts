@@ -3,7 +3,7 @@
  */
 
 import type { MeshletGeometryBase } from "../geometry/BoxGeometry.js";
-import { submitGpuCommands } from "./GpuQueueEvidence.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 
 export const GEOMETRY_BLAS_NODE_STRIDE_BYTES = 32;
 export const GEOMETRY_BLAS_METADATA_STRIDE_BYTES = 4;
@@ -22,6 +22,7 @@ function growGpuBuffer(
   device: GPUDevice,
   current: GPUBuffer,
   requiredBytes: number,
+  command: ShadeGPUCommandContext,
   alignment = 1024,
   minimumGrowth = 1024,
   factor = 1.2,
@@ -41,12 +42,7 @@ function growGpuBuffer(
     size: nextSize,
     mappedAtCreation: false,
   });
-  const encoder = device.createCommandEncoder({ label: "" });
-  encoder.copyBufferToBuffer(current, 0, next, 0, current.size);
-  submitGpuCommands(device, "GeometryBlasPool/grow", [
-    encoder.finish({ label: "" })
-  ]);
-  current.destroy();
+  command.copyBufferToBuffer(current, 0, next, 0, current.size);
   return next;
 }
 
@@ -112,7 +108,7 @@ export class GeometryBlasPool {
     return record;
   }
 
-  update(): void {
+  update(command: ShadeGPUCommandContext): void {
     const count = this.records.length;
     if (count === 0) return;
 
@@ -131,10 +127,11 @@ export class GeometryBlasPool {
     for (const geometryIndex of this.geometryIndexRecords.keys()) {
       metadataSlotCount = Math.max(metadataSlotCount, geometryIndex + 1);
     }
-    this.ensureMetadataCapacity(metadataSlotCount);
-    this.ensureDataCapacity(this.logicalNodeCapacity + nodeCount);
-
-    const encoder = this.device.createCommandEncoder({ label: "" });
+    const previousUsedDataBytes = this.usedDataBytes;
+    const previousLogicalNodeCapacity = this.logicalNodeCapacity;
+    const previousAddresses = this.records.map((record) => record.address);
+    this.ensureMetadataCapacity(metadataSlotCount, command);
+    this.ensureDataCapacity(this.logicalNodeCapacity + nodeCount, command);
     let dataStaging: GPUBuffer | null = null;
     if (uploadBytes > 0) {
       dataStaging = this.device.createBuffer({
@@ -157,7 +154,7 @@ export class GeometryBlasPool {
       const byteLength = record.bvh.byteLength;
       this.usedDataBytes += byteLength;
       if (byteLength > 0 && dataStaging) {
-        encoder.copyBufferToBuffer(
+        command.copyBufferToBuffer(
           dataStaging,
           sourceOffsets[i]!,
           this._bufferData,
@@ -190,7 +187,7 @@ export class GeometryBlasPool {
     metadataStaging.unmap();
     for (let i = 0; i < metadataRecords.length; i++) {
       const geometryIndex = metadataRecords[i]![0];
-      encoder.copyBufferToBuffer(
+      command.copyBufferToBuffer(
         metadataStaging,
         i * GEOMETRY_BLAS_METADATA_STRIDE_BYTES,
         this._bufferMetadata,
@@ -199,9 +196,19 @@ export class GeometryBlasPool {
       );
     }
 
-    submitGpuCommands(this.device, "GeometryBlasPool/upload", [encoder.finish()]);
-    dataStaging?.destroy();
-    metadataStaging.destroy();
+    const releaseStaging = () => {
+      dataStaging?.destroy();
+      metadataStaging.destroy();
+    };
+    command.onFinished.addOne(releaseStaging);
+    command.onAborted.addOne(() => {
+      releaseStaging();
+      this.usedDataBytes = previousUsedDataBytes;
+      this.logicalNodeCapacity = previousLogicalNodeCapacity;
+      for (let i = 0; i < this.records.length; i++) {
+        this.records[i]!.address = previousAddresses[i] ?? 0;
+      }
+    });
   }
 
   destroy(): void {
@@ -209,27 +216,53 @@ export class GeometryBlasPool {
     this._bufferData.destroy();
   }
 
-  private ensureDataCapacity(requiredNodes: number): void {
+  private ensureDataCapacity(
+    requiredNodes: number,
+    command: ShadeGPUCommandContext
+  ): void {
     if (this.logicalNodeCapacity >= requiredNodes) return;
     this.logicalNodeCapacity = requiredNodes;
-    this._bufferData = growGpuBuffer(
+    const previous = this._bufferData;
+    const next = growGpuBuffer(
       this.device,
-      this._bufferData,
+      previous,
       requiredNodes * GEOMETRY_BLAS_NODE_STRIDE_BYTES,
+      command,
       1024,
       1024,
       1.2,
     );
+    this._bufferData = next;
+    if (next !== previous) {
+      command.onFinished.addOne(() => previous.destroy());
+      command.onAborted.addOne(() => {
+        if (this._bufferData === next) this._bufferData = previous;
+        next.destroy();
+      });
+    }
   }
 
-  private ensureMetadataCapacity(recordCount: number): void {
-    this._bufferMetadata = growGpuBuffer(
+  private ensureMetadataCapacity(
+    recordCount: number,
+    command: ShadeGPUCommandContext
+  ): void {
+    const previous = this._bufferMetadata;
+    const next = growGpuBuffer(
       this.device,
-      this._bufferMetadata,
+      previous,
       recordCount * GEOMETRY_BLAS_METADATA_STRIDE_BYTES,
+      command,
       GEOMETRY_BLAS_METADATA_STRIDE_BYTES,
       16,
       1.2,
     );
+    this._bufferMetadata = next;
+    if (next !== previous) {
+      command.onFinished.addOne(() => previous.destroy());
+      command.onAborted.addOne(() => {
+        if (this._bufferMetadata === next) this._bufferMetadata = previous;
+        next.destroy();
+      });
+    }
   }
 }

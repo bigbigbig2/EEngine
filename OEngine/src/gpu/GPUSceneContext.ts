@@ -4,7 +4,7 @@
  * @status migrated (aL owner/update/build ordering aligned through B12)
  * @module-dissection artifacts/slices/REBOOT-R4-gpuscene/
  *
- * GPU Scene：`_g/cg/dg` → paged `oI` → 独立 Dd `GPUSceneContext/database-build`。
+ * GPU Scene：`_g/cg/dg` → paged `oI`，dirty work 编码到帧协调器持有的 command。
  * G6-17：materials.metadata_table 使用 lm.pack() 80B ABI，仍为 dense lifecycle。
  * `qz/Nz -> nE -> yh -> Ch/qf` shadow/cluster direct-light consumer 已接；
  * B3 已闭合 source/clone geometry index → BLAS address 与当前 ray-query consumer；
@@ -14,7 +14,7 @@
 import type { Scene } from "../scene/Scene.js";
 import type { Mesh } from "../scene/Mesh.js";
 import type { Node3D } from "../scene/Node3D.js";
-import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   SceneDatabase,
   type TransformTableRow,
@@ -49,13 +49,14 @@ export interface GPUSceneContextMembers {
   id_mapping: Map<number, number>;
 }
 
-/**
- * @evidence pretty aL labels L35996 / L36001
- */
-export const GPU_SCENE_COMMAND_LABELS = {
-  databaseBuild: "GPUSceneContext/database-build",
-  animationFlush: "GPUSceneContext/animation-flush",
-} as const;
+export interface SceneFrameEvidence {
+  readonly scenePrepareCount: number;
+  readonly transformedNodes: number;
+  readonly changedMeshBounds: number;
+  readonly changedLights: number;
+  readonly structureChanged: boolean;
+  readonly fullRebuild: boolean;
+}
 
 let nextGpuSceneId = 1;
 
@@ -90,6 +91,7 @@ export class GPUSceneContext implements GPUSceneContextMembers {
   private _lastSceneChangeRevision = -1;
   /** @evidence #fo dirty */
   private _dirty = true;
+  private _lastPreparedFrame = -1;
   private readonly _globalTmp = new Float32Array(16);
   private readonly _prevGlobalTmp = new Float32Array(16);
   private readonly _trScratch: TransformTableRow = {
@@ -195,10 +197,10 @@ export class GPUSceneContext implements GPUSceneContextMembers {
 
   /**
    * build 顺序对齐 pretty aL L35931–35998（子集）。
-   * 上传：独立 Dd label `GPUSceneContext/database-build`。
+   * 上传：编码到调用方传入的 frame/tool command。
    * @evidence excerpts/02-al-build.md L124–128
    */
-  build(): void {
+  build(command: ShadeGPUCommandContext): void {
     const instances = this.scene.instances.instances;
     const n = instances.length;
 
@@ -296,8 +298,8 @@ export class GPUSceneContext implements GPUSceneContextMembers {
       this.meshRowByCpuId.set(mesh.id, row);
     }
 
-    // 12) GPU 上传 — 独立 Dd（对齐 aL；oI compute 仍 gap，自建 writeBuffer）
-    this.uploadDatabaseBuild();
+    // 12) GPU 上传 — 共享主 command，不创建 scene 私有提交。
+    this.uploadDatabaseBuild(command);
 
     this._lastSceneChangeRevision = this.scene.change_revision;
     this._dirty = false;
@@ -305,43 +307,90 @@ export class GPUSceneContext implements GPUSceneContextMembers {
 
   /**
    * @evidence pretty aL.update L35999 — 子系统 stub；version → build
-   * 参数：可选 main Dd（当前未用于上传；animation-flush 仍 gap）。
+   * scene/frame 幂等；animation、database 与 TLAS dirty work 共用主 command。
    */
-  update(graphics: GraphicsContext = this.graphics): void {
+  encodeFrame(
+    command: ShadeGPUCommandContext,
+    frameIndex: number,
+    timeDeltaSeconds: number
+  ): SceneFrameEvidence {
+    if (this._lastPreparedFrame === frameIndex) {
+      return {
+        scenePrepareCount: 0,
+        transformedNodes: 0,
+        changedMeshBounds: 0,
+        changedLights: 0,
+        structureChanged: false,
+        fullRebuild: false
+      };
+    }
+    const previousSceneRevision = this._lastSceneChangeRevision;
+    this._lastPreparedFrame = frameIndex;
+    command.onAborted.addOne(() => {
+      if (this._lastPreparedFrame === frameIndex) this._lastPreparedFrame = -1;
+      this._lastSceneChangeRevision = previousSceneRevision;
+      this._dirty = true;
+    });
     const changes = this.scene.changesSince(this._lastSceneChangeRevision);
     this.light_probe_volume.update();
     this.lights.update(
+      command,
       changes.fullResyncRequired || changes.changedLights.length > 0
     );
-    this.volumetrics.update(graphics, 0);
-    const animationCommand = ShadeGPUCommandContext.create(
-      this.graphics,
-      GPU_SCENE_COMMAND_LABELS.animationFlush,
-    );
-    this.animation_manager.update(animationCommand);
-    animationCommand.finish();
+    this.volumetrics.update(command, timeDeltaSeconds);
 
+    const fullRebuild =
+      this._dirty ||
+      changes.fullResyncRequired ||
+      changes.instanceStructureChanged;
+    if (
+      fullRebuild
+    ) {
+      this.build(command);
+    } else if (
+      changes.transformedNodes.length > 0 ||
+      changes.changedMeshBounds.length > 0
+    ) {
+      this.applyTransformChanges(changes, command);
+    }
+    this._lastSceneChangeRevision = changes.revision;
+    this.tlas.update(command);
+    this.animation_manager.tick(command, timeDeltaSeconds);
+    this.graphics.profiler.addCounter("runtime.scenePrepareCount", 1);
+    return {
+      scenePrepareCount: 1,
+      transformedNodes: changes.transformedNodes.length,
+      changedMeshBounds: changes.changedMeshBounds.length,
+      changedLights: changes.changedLights.length,
+      structureChanged: changes.instanceStructureChanged,
+      fullRebuild
+    };
+  }
+
+  /** Encode-only update for explicit tools that own their command context. */
+  update(command: ShadeGPUCommandContext): void {
+    const changes = this.scene.changesSince(this._lastSceneChangeRevision);
+    this.light_probe_volume.update();
+    this.lights.update(
+      command,
+      changes.fullResyncRequired || changes.changedLights.length > 0
+    );
+    this.volumetrics.update(command, 0);
+    this.animation_manager.update(command);
     if (
       this._dirty ||
       changes.fullResyncRequired ||
       changes.instanceStructureChanged
     ) {
-      this.build();
+      this.build(command);
     } else if (
       changes.transformedNodes.length > 0 ||
       changes.changedMeshBounds.length > 0
     ) {
-      this.applyTransformChanges(changes);
+      this.applyTransformChanges(changes, command);
     }
     this._lastSceneChangeRevision = changes.revision;
-    this.tlas.update();
-  }
-
-  /**
-   * @evidence pretty aL.tick L36007 — main Dd + dt；G0 animation 空
-   */
-  tick(_cmd: ShadeGPUCommandContext | null, _dt: number): void {
-    if (_cmd !== null) this.animation_manager.tick(_cmd, _dt);
+    this.tlas.update(command);
   }
 
   markDirty(): void {
@@ -361,20 +410,12 @@ export class GPUSceneContext implements GPUSceneContextMembers {
     this.meshRowByCpuId.clear();
   }
 
-  /**
-   * @evidence L35996–35997：Dd.create → geometries.update → scene_database.update → finish
-   */
-  private uploadDatabaseBuild(): void {
-    const label = GPU_SCENE_COMMAND_LABELS.databaseBuild;
-    const cmd = ShadeGPUCommandContext.create(
-      this.graphics,
-      label,
-    );
+  /** Encode geometry and scene database uploads into the caller-owned command. */
+  private uploadDatabaseBuild(command: ShadeGPUCommandContext): void {
     // Original submits only shared geometry updates followed by the per-scene
     // paged database. Draw-list and global material owners update elsewhere.
-    this.meshlets.update(cmd, `GPUSceneContext[${this.id}]`);
-    this.scene_database.update(cmd);
-    cmd.finish();
+    this.meshlets.update(command, `GPUSceneContext[${this.id}]`);
+    this.scene_database.update(command);
   }
 
   /**
@@ -385,7 +426,10 @@ export class GPUSceneContext implements GPUSceneContextMembers {
     return this.skinning.obtain_geometry_index(mesh) >>> 0;
   }
 
-  private applyTransformChanges(changes: SceneChangeSnapshot): void {
+  private applyTransformChanges(
+    changes: SceneChangeSnapshot,
+    command: ShadeGPUCommandContext
+  ): void {
     const result = applySceneTransformChanges(changes, {
       transformRowFor: (node) => this.id_mapping.get(node.id),
       meshRowFor: (mesh) => this.meshRowByCpuId.get(mesh.id),
@@ -414,17 +458,12 @@ export class GPUSceneContext implements GPUSceneContextMembers {
       },
       updateTlas: (row, mesh) => this.tlas.instance_update(row, mesh),
       flush: () => {
-        const command = ShadeGPUCommandContext.create(
-          this.graphics,
-          "GPUSceneContext/database-incremental-update"
-        );
         this.scene_database.update(command);
-        command.finish();
       }
     });
 
     if (result.requiresFullRebuild) {
-      this.build();
+      this.build(command);
     }
   }
 

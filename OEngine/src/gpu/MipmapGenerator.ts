@@ -133,21 +133,25 @@ export class MipmapGenerator {
     this.queue.push({ texture, descriptor, filter });
   }
 
-  update(timeBudgetMs = Number.POSITIVE_INFINITY): void {
+  update(
+    timeBudgetMs = Number.POSITIVE_INFINITY,
+    encoder?: GPUCommandEncoder
+  ): void {
     const started = performance.now();
     while (this.queue.length > 0) {
       const scheduled = this.queue.shift()!;
       this.generateMipmap(
         scheduled.texture,
         scheduled.descriptor,
-        scheduled.filter
+        scheduled.filter,
+        encoder
       );
       if (performance.now() - started >= timeBudgetMs) break;
     }
   }
 
-  flush(): void {
-    this.update();
+  flush(encoder?: GPUCommandEncoder): void {
+    this.update(Number.POSITIVE_INFINITY, encoder);
   }
 
   get pending_count(): number {

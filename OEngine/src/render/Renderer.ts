@@ -11,6 +11,10 @@ import { SceneSdf } from "../gpu/SceneSdf.js";
 import { GPULightProbeVolumeRenderer } from "../gpu/GPULightProbeVolumeRenderer.js";
 import { FrameGraph } from "../framegraph/FrameGraph.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import {
+  FrameCoordinator,
+  type FrameEncoding
+} from "./FrameCoordinator.js";
 import { MAIN_COMMAND_LABEL, MAIN_FRAME_GRAPH_NAME } from "../framegraph/FrameGraphNotes.js";
 import type { ResourceId } from "../framegraph/ResourceHandle.js";
 import { RenderTargets } from "./RenderTargets.js";
@@ -153,6 +157,7 @@ export class Renderer {
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private readonly _profiler = new FrameProfiler();
   private _graphics!: GraphicsContext;
+  private _frameCoordinator!: FrameCoordinator;
   private _scenes!: GPUSceneManager;
   private _cameraStates!: GPUCameraStateManager;
   private _meshletDrawList!: MeshletDrawList;
@@ -389,6 +394,7 @@ export class Renderer {
       gpuTimestampAvailable: device.features.has("timestamp-query")
     });
     this._graphics = new GraphicsContext(device, this._profiler);
+    this._frameCoordinator = new FrameCoordinator(this._graphics);
     await this._graphics.initialize();
     this._meshletDrawList = new MeshletDrawList(this._graphics);
     this._scenes = new GPUSceneManager(this._graphics);
@@ -438,6 +444,7 @@ export class Renderer {
     this._nss = null;
     this._scenes?.destroy();
     this._probeRenderers.clear();
+    this._frameCoordinator?.destroy();
     this._profiler.detachGpuDevice(this.device);
   }
 
@@ -460,19 +467,18 @@ export class Renderer {
     return renderer;
   }
 
-  update_lpv(scene: Scene): void {
+  update_lpv(scene: Scene, command: ShadeGPUCommandContext): void {
     const gpuScene = this._scenes.obtain(scene);
-    const command = ShadeGPUCommandContext.create(this._graphics, "LPV");
     command.recordGraphBuild();
     const graph = new FrameGraph("LPV");
     gpuScene.light_probe_volume.atlas.graph_update({
       graph,
       scene: gpuScene,
       graphics: this._graphics,
+      command,
       update_ray_count: 100000
     });
     command.encodeGraph(graph);
-    command.finish();
   }
 
   init_render_targets(): void {
@@ -500,6 +506,7 @@ export class Renderer {
   ): boolean {
     if (this._deviceLost) return false;
     this._profiler.beginFrame(this._frame_count);
+    let activeFrame: FrameEncoding | null = null;
     try {
     this._renderTargets.setFrameIndex(this._frame_count);
     this.applyPendingRenderResolutionChange();
@@ -507,7 +514,17 @@ export class Renderer {
       this.configureCanvas();
       this._canvasNeedsConfigure = false;
     }
-    this._profiler.measure("graphics-update", () => this._graphics.update());
+    activeFrame = this._frameCoordinator.beginFrame(
+      this._frame_count,
+      MAIN_COMMAND_LABEL
+    );
+    const cmd = activeFrame.command;
+    this._profiler.measure("graphics-update", () => {
+      this._graphics.encodeFrameMaintenance(
+        cmd,
+        this._profiler.shouldSampleGpuCounters()
+      );
+    });
     if (this.upscale_type === 1) {
       this.nss.frame_count = this._frame_count;
       this.nss.frame_index = this._frame_count;
@@ -524,14 +541,10 @@ export class Renderer {
       this._debug_frame_budget > 0 ? this._frame_count : null;
     if (debugFrameIndex !== null) this._debug_frame_budget--;
 
-    if (this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV) {
-      this.update_lpv(scene);
-    }
-
     const temporalJitter = this.upscale_type === 1 ? this.nss : this._taaJitter;
     const viewKey = GPUViewKey.from(camera, scene);
     viewKey.label = "check_assertions";
-    const view = this.views.obtain(viewKey);
+    const view = this.views.obtain(viewKey, cmd);
     const gpuScene = view.scene;
     gpuScene.lights.shadow_context.enabled = this.feature_shadows_enabled;
     view.setJitter(temporalJitter.Jitter[0], temporalJitter.Jitter[1]);
@@ -545,14 +558,17 @@ export class Renderer {
       (2 * temporalJitter.Jitter[1]) / h
     );
     this._profiler.measure("world-and-view-update", () => {
-      view.update(this._graphics);
+      gpuScene.encodeFrame(cmd, this._frame_count, time_delta_seconds);
+      view.update(cmd);
     });
+    if (this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV) {
+      this.update_lpv(scene, cmd);
+    }
     const viewHzb = view.hierarchical_z_buffer;
     viewHzb.resetFrameStatistics();
     const colorView = createNativeTextureView(this.context.getCurrentTexture());
 
     {
-      const cmd = ShadeGPUCommandContext.create(this._graphics, MAIN_COMMAND_LABEL);
       this._profiler.encodeGpuCounterClear(cmd);
       if (
         (debugFrameIndex !== null || this._profiler.shouldSampleGpu()) &&
@@ -564,8 +580,6 @@ export class Renderer {
           }
         });
       }
-      gpuScene.tick(cmd, time_delta_seconds);
-
       if (this.feature_shadows_enabled) {
         const shadows = gpuScene.lights.shadow_context;
         shadows.select_for_draw(camera, this._frame_count, [w, h]);
@@ -1576,12 +1590,18 @@ export class Renderer {
       view.finish_frame(cmd);
       this.recordLegacyFrameCounters(viewHzb);
       this._profiler.encodeGpuCounterReadback(cmd);
-      cmd.finish();
+      this._frameCoordinator.submitFrame(activeFrame);
+      activeFrame = null;
     }
 
     this._frame_count++;
     this.onFrameFinished.send1(this._frame_count);
     return true;
+    } catch (error) {
+      if (activeFrame !== null) {
+        this._frameCoordinator.abortFrame(activeFrame, error);
+      }
+      throw error;
     } finally {
       this._profiler.endFrame();
     }

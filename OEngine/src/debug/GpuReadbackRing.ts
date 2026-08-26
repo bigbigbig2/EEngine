@@ -140,6 +140,22 @@ export class GpuReadbackRing {
     void this.mapSlot(slot, ticket);
   }
 
+  cancel(ticket: GpuReadbackTicket, error: unknown): void {
+    if (this.destroyed) return;
+    const slot = this.slots[ticket.slotIndex];
+    if (
+      slot === undefined ||
+      slot.generation !== ticket.generation ||
+      slot.frameIndex !== ticket.frameIndex ||
+      slot.state !== "encoded"
+    ) {
+      return;
+    }
+    slot.state = "idle";
+    this.failedCount++;
+    this.onError({ frameIndex: ticket.frameIndex, error });
+  }
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;

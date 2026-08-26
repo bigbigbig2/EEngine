@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。下一步不是继续补 R0，也不是同时修改所有渲染算法，而是从 `R1-A` 开始收口一帧的 GPU 工作所有权。
+R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。`R1-A` 的代码与自动门禁已经落地，正在等待 Frame Smoke/A/B/C 浏览器 artifact 验收；验收前不提前进入 `R1-B`，也不把自动测试通过冒充 GPU 运行证据。
 
 R1 解决与场景规模不成比例的运行时固定成本和错误生命周期边界。它不会实现 R2 的 Runtime Asset/Packed Instance、R3 的 Geometry Hierarchy/SSE LOD、R4 的 Compute Software Raster，也不把 three.js 两个示例当作引擎完成上限。
 
@@ -215,6 +215,20 @@ R1-D Lifecycle / deletion / regression gate
 ```
 
 ### R1-A · Frame ownership 与 one-submit 闭环
+
+#### 当前实施状态（2026-08-26）
+
+| ID | 状态 | 已落地证据 / 剩余验收 |
+|---|---|---|
+| `R1-A01` | 代码完成 | `GpuQueueEvidence` 冻结 submit owner 分类；未知 label 在 queue 前失败；`gpu-submit-owner.test.mjs` 禁止主帧模块自建 encoder/submit。浏览器仍需确认 runtime label 只有 `Renderer/main-0`。 |
+| `R1-A02` | 代码完成 | 新增 `FrameCoordinator`，统一 begin/submit/abort/destroy；command 暴露 `closed`、`submitted`、`gpuDone`，abort 会取消 readback ticket并释放未提交资源。in-flight GPU 完成后资源复用的完整矩阵仍属于 `R1-D03`。 |
+| `R1-A03` | 代码完成 | Graphics maintenance、geometry/texture/material maintenance 与按需 collection sampling 编码到主 command；保留的 `GraphicsContext.update()` 明确降级为非 render-frame 的 one-shot tool。 |
+| `R1-A04` | 代码完成 | `GPUSceneContext.encodeFrame()` 每 scene/frame 幂等；主/阴影视图只准备 camera/view uniform；animation、database、BLAS、TLAS dirty work 共用主 command；abort 后强制重建。 |
+| `R1-A05` | 代码完成 | Light、environment prefilter、Volumetrics、resident material、mipmap、GPUDatabase grow、Geometry BLAS grow/upload 与 TLAS copy 已迁入调用方 command。 |
+| `R1-A06` | 代码完成 | 非采样帧不发起 collection readback；采样 copy 编入主 encoder；readback ring 支持 abort/cancel，不为 map 制造额外 submit。 |
+| `R1-A07` | 待浏览器验收 | 旧 animation/database/Graphics/BLAS grow self-submit 已删除；`npm test` 52/52 和 examples build 通过。仍需在真实 WebGPU 页面保存 Frame Smoke/A/B/C JSON、截图和 console，确认 3/13→1、readback=0、scenePrepareCount=1 及画面无回归。 |
+
+保留的独立 submit 只允许 `one-shot | tool | debug-readback | recovery` 分类；`GPUDatabase/read`、LPV bake/read、texture preserve resize、meshlet compact 等不属于 steady render tick。`queue.writeBuffer()` 不等于额外 submit，按本文件非目标约束继续记录 owner/bytes，不在 R1-A 机械改写全部 Pass settings upload。
 
 #### 输入
 

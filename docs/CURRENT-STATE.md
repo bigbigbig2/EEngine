@@ -30,7 +30,7 @@
 - 没有正式离线 Asset Cooker 和版本化 Runtime Asset ABI。
 - 没有 Packed Instance Set 的完整公开 seam。
 - Material Expand 仍按材质全屏绘制。
-- HZB、submit、readback 和中间队列存在明显固定成本。
+- HZB、FrameGraph compile 和中间队列仍存在明显固定成本；R1-A 已在代码层收口 submit/readback 固定成本，尚待浏览器量化确认。
 - FrameGraph 尚未覆盖全部资源依赖和旁路系统。
 - 资源销毁、device lost、history 失效与动态资产生命周期未闭环。
 - 自动化测试已覆盖 R0 观测公共 seam，并重新计算 A/B/C 的 workspace 资产与相机 SHA-256。三份固定 manifest、7 级 Teapot GLB、Damaged Helmet/PBR 输入、C 配方、共享 runner 和三个根目录浏览器入口已完成，全部调用公开 OEngine interface、同一 `Renderer.render()`、`BenchmarkRunController` 和 Schema v3 writer。`?profile=smoke` 会强制 dirty/non-gate，不能冒充完整场景 artifact。
@@ -39,15 +39,17 @@
 - 用户已完成旧 Schema smoke 与本轮 OBS-02 Schema v3 浏览器 smoke；前者仍为 exploratory，后者证明固定入口和证据链可运行并完成 G0。clean/full cold-warm bundle 仍是后续实际性能修改前的阶段入口要求，但不再阻塞 R1 的分析和计划。
 - package 和大量内部符号仍保留 reconstructed/Shade 历史名称。
 
-## R1 调查结论（2026-08-26）
+## R1 调查与实施状态（2026-08-26）
 
-- R1 详细计划已冻结，下一执行包是 `R1-A`。Frame Smoke/A/B 的稳定 3 submit 精确来自 Graphics update、无条件 animation flush 和 Renderer main；C 的 13 submit 来自 Graphics ×1、animation flush ×10、database incremental ×1、Renderer main ×1。
-- C 的 10 次 animation flush 是 scene preparation 与 per-view preparation 未分离造成的：`GPUViewContext.update()` 会进入 `scene.update()`，shadow views 因而重复准备同一 scene。阴影 Pass 本身不要求独立 submit。
-- `ShadeGPUCommandContext.finish()` 当前同时承担 encoder close、queue submit、timer resolve/readback、staging/transient release 和完成信号，是 R1 首先要替换的隐式提交 interface。
-- `GraphicsContext.update()` 无论 dirty 与否都创建 encoder/submit，并每帧触发 6,144-byte collection history readback；`GPUSceneContext` 的 animation/database、LightDatabase、Volumetrics 和 resident material 仍有自建 command 路径。
+- R1 详细计划已冻结，`R1-A` 代码和自动门禁已落地，浏览器验收尚未完成。入口证据中 Frame Smoke/A/B 的稳定 3 submit 来自 Graphics update、无条件 animation flush 和 Renderer main；C 的 13 submit 来自 Graphics ×1、animation flush ×10、database incremental ×1、Renderer main ×1。
+- 新增内部 `FrameCoordinator` 作为 render tick 唯一 close/submit owner；Graphics maintenance、scene/database/animation、main/shadow view、Light/Volumetrics/material/mipmap、BLAS/TLAS 和采样 copy 使用同一主 command。保留的独立提交必须显式分类为 one-shot、tool、debug-readback 或 recovery，未知 label 会在触碰 queue 前失败。
+- `GPUSceneContext.encodeFrame()` 已与 per-view preparation 分离，同一 scene/frame 重入返回零 preparation；shadow view 不再进入 scene update。失败帧会清除 preparation guard 并强制下帧重建，避免 abort 后丢 dirty work。
+- collection history readback 已改为只在 GPU counter 采样帧编码；非采样帧代码路径不创建该 readback。GPU counter ring ticket 支持 frame abort/cancel。
+- GPUDatabase grow/page dirty upload、Geometry BLAS grow/upload 和 TLAS full/dirty copy 不再自建 submit；扩容资源在 finish/abort 上分别提交所有权或回滚。首帧 previous-camera clone 与 main/shadow camera/view uniform 也已进入主 command。
+- 自动验证：`npm test` 52/52 通过，根目录 examples TypeScript/Vite build 通过。当前浏览器桥初始化失败，因此 3/13→1、readback=0、scenePrepareCount=1、画面和 WebGPU validation 仍必须由下一份真实 Frame Smoke/A/B/C JSON、截图和 console 证明；在此之前 `R1-A07` 不关闭。
 - `FrameGraph` 当前把 topology、动态 pass data、imported GPU handle、compiled state 和 execute state 放在同一个 mutable object 中；所有 R0 smoke 记录帧均发生一次 build/compile/execute，没有 warm cache hit。
 - 当前 Frame Smoke（1038×583）与 A/B/C（1280×720）的 HZB 都是 10 mip。Frame Smoke/A/B 每帧 build 两次、20 个逐 mip Render Pass；C 每帧 build 三次、30 个 Render Pass，HZB phase P50/P95 约 1.040/1.051 ms。
-- R1 将只建立三个主要 seam：唯一 frame submit owner、compiled topology/frame bindings、per-view HZB/history。不会为单实现创建一批 cache/key/adapter 薄 module；迁移完成后直接删除旧 interface。
+- R1 只建立三个主要 seam：唯一 frame submit owner、compiled topology/frame bindings、per-view HZB/history。第一个 seam 已落地，后两个仍分别属于 `R1-B`、`R1-C`；不会为单实现创建一批 cache/key/adapter 薄 module。
 
 ## 参考代码状态
 

@@ -454,6 +454,9 @@ export class FrameProfiler {
       [...active.gpuCounterFields]
     );
     command.onFinished.addOne(() => counters.markSubmitted(ticket));
+    command.onAborted?.addOne((_context: ShadeGPUCommandContext, cause: unknown) => {
+      counters.cancel(ticket, cause);
+    });
   }
 
   recordSubmit(label: string): void {

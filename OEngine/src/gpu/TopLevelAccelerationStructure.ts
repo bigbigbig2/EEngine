@@ -3,10 +3,7 @@
  */
 
 import type { Mesh } from "../scene/Mesh.js";
-import {
-  submitGpuCommands,
-  writeGpuBuffer
-} from "./GpuQueueEvidence.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   DynamicBvh,
   DYNAMIC_BVH_GPU_NODE_BYTES,
@@ -23,6 +20,7 @@ function growBuffer(
   device: GPUDevice,
   current: GPUBuffer,
   requiredBytes: number,
+  command: ShadeGPUCommandContext
 ): GPUBuffer {
   if (current.size >= requiredBytes) return current;
   const size = alignUp(
@@ -35,12 +33,8 @@ function growBuffer(
     size,
     mappedAtCreation: false,
   });
-  const encoder = device.createCommandEncoder({ label: "" });
-  encoder.copyBufferToBuffer(current, 0, next, 0, current.size);
-  submitGpuCommands(device, "TopLevelAccelerationStructure/grow", [
-    encoder.finish({ label: "" })
-  ]);
-  current.destroy();
+  command.copyBufferToBuffer(current, 0, next, 0, current.size);
+  command.onFinished.addOne(() => current.destroy());
   return next;
 }
 
@@ -102,11 +96,25 @@ export class TopLevelAccelerationStructure {
     this.version++;
   }
 
-  push_to_gpu(): void {
+  push_to_gpu(command: ShadeGPUCommandContext): void {
     optimizeDynamicBvh(this.cpuBvh);
     const requiredBytes =
       this.cpuBvh.node_capacity * DYNAMIC_BVH_GPU_NODE_BYTES + 4;
-    this.gpuBuffer = growBuffer(this.device, this.gpuBuffer, requiredBytes);
+    const previousBuffer = this.gpuBuffer;
+    const previousUploadedVersion = this.uploadedVersion;
+    const nextBuffer = growBuffer(
+      this.device,
+      previousBuffer,
+      requiredBytes,
+      command
+    );
+    this.gpuBuffer = nextBuffer;
+    if (nextBuffer !== previousBuffer) {
+      command.onAborted.addOne(() => {
+        if (this.gpuBuffer === nextBuffer) this.gpuBuffer = previousBuffer;
+        nextBuffer.destroy();
+      });
+    }
 
     const exportedNodes = exportDynamicBvhNodes(this.cpuBvh);
     const stagingSize =
@@ -126,18 +134,20 @@ export class TopLevelAccelerationStructure {
       new Uint8Array(exportedNodes),
     );
     staging.unmap();
-    const encoder = this.device.createCommandEncoder();
-    encoder.copyBufferToBuffer(staging, 0, this.gpuBuffer, 0, staging.size);
-    submitGpuCommands(this.device, "TopLevelAccelerationStructure/rebuild", [
-      encoder.finish()
-    ]);
-    staging.destroy();
+    command.copyBufferToBuffer(staging, 0, this.gpuBuffer, 0, staging.size);
+    command.onFinished.addOne(() => staging.destroy());
+    command.onAborted.addOne(() => staging.destroy());
     this.uploadedVersion = this.version;
     this.structureDirty = false;
     this.dirtyNodes.clear();
+    command.onAborted.addOne(() => {
+      this.uploadedVersion = previousUploadedVersion;
+      this.structureDirty = true;
+    });
   }
 
-  private pushDirtyNodesToGpu(): void {
+  private pushDirtyNodesToGpu(command: ShadeGPUCommandContext): void {
+    const previousUploadedVersion = this.uploadedVersion;
     const nodes = Array.from(this.dirtyNodes).sort((a, b) => a - b);
     let rangeStart = 0;
     while (rangeStart < nodes.length) {
@@ -155,23 +165,27 @@ export class TopLevelAccelerationStructure {
         firstNode,
         nodeCount
       );
-      writeGpuBuffer(
-        this.device.queue,
-        "TopLevelAccelerationStructure/dirty-nodes",
+      command.writeBuffer(
         this.gpuBuffer,
         4 + firstNode * DYNAMIC_BVH_GPU_NODE_BYTES,
-        data
+        data,
+        0,
+        data.byteLength
       );
       rangeStart = rangeEnd;
     }
     this.dirtyNodes.clear();
     this.uploadedVersion = this.version;
+    command.onAborted.addOne(() => {
+      this.uploadedVersion = previousUploadedVersion;
+      this.structureDirty = true;
+    });
   }
 
-  update(): void {
+  update(command: ShadeGPUCommandContext): void {
     if (this.uploadedVersion === this.version) return;
-    if (this.structureDirty) this.push_to_gpu();
-    else this.pushDirtyNodesToGpu();
+    if (this.structureDirty) this.push_to_gpu(command);
+    else this.pushDirtyNodesToGpu(command);
   }
 
   destroy(): void {

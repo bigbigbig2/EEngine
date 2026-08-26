@@ -3,6 +3,37 @@ import type { FrameProfiler } from "../debug/FrameProfiler.js";
 const profilerByDevice = new WeakMap<GPUDevice, FrameProfiler>();
 const profilerByQueue = new WeakMap<GPUQueue, FrameProfiler>();
 
+export type GpuSubmitOwnerKind =
+  | "render-frame"
+  | "one-shot"
+  | "tool"
+  | "debug-readback"
+  | "recovery";
+
+const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
+  ["Renderer/main-0", "render-frame"],
+  ["GraphicsContext/one-shot-maintenance", "one-shot"],
+  ["GPUResidentMaterialContext/one-shot-update", "one-shot"],
+  ["LPV/generate-locations", "tool"],
+  ["LPV/dering", "tool"],
+  ["LPV/bake", "tool"],
+  ["GPUCameraState/copy", "tool"],
+  ["GPUDatabase/read", "debug-readback"],
+  ["GPUCollectionLimits/read", "debug-readback"],
+  ["LightProbeVolume/read", "debug-readback"],
+  ["GPUIndexedRecordTable/read", "debug-readback"],
+  ["SceneSdf/read", "debug-readback"],
+  ["GPUTextureContext/resize-copy", "recovery"],
+  ["MeshletGpuPool/compact", "tool"],
+  ["MipmapGenerator/generate", "one-shot"]
+]);
+
+export function classifyGpuSubmitLabel(
+  label: string
+): GpuSubmitOwnerKind | undefined {
+  return GPU_SUBMIT_OWNER_BY_LABEL.get(label);
+}
+
 export function registerGpuQueueProfiler(
   device: GPUDevice,
   profiler: FrameProfiler
@@ -27,6 +58,10 @@ export function submitGpuCommands(
   label: string,
   commandBuffers: readonly GPUCommandBuffer[]
 ): void {
+  const ownerKind = classifyGpuSubmitLabel(label);
+  if (ownerKind === undefined) {
+    throw new Error(`Unclassified GPU submit owner label '${label}'`);
+  }
   const profiler = profilerByDevice.get(device);
   profiler?.recordSubmit(label);
   if (profiler === undefined) {

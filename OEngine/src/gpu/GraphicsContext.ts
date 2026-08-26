@@ -138,17 +138,37 @@ export class GraphicsContext {
     await STATIC_GRAPHICS_ENGINE_ASSETS.init();
   }
 
-  update(): void {
-    const command = ShadeGPUCommandContext.create(this, "GraphicsContext.update");
+  encodeFrameMaintenance(
+    command: ShadeGPUCommandContext,
+    sampleCollectionLimits = false
+  ): void {
     this.geometries.update(command, "GraphicsContext");
-    this.textures.update();
+    this.textures.update(command.gpu_encoder);
     this.materials.update(command);
     this.bind_groups.update();
     this.increment_time();
     this.allocator_textures.update();
-    void this.collectionLimitsValue.update(command, this.buffer_allocator_main);
-    command.finish();
+    if (sampleCollectionLimits) {
+      void this.collectionLimitsValue.update(
+        command,
+        this.buffer_allocator_main
+      ).catch((error: unknown) => {
+        if (!command.isAborted) {
+          console.error("Collection limit readback failed", error);
+        }
+      });
+    }
     this.buffer_allocator_main.update();
+  }
+
+  /** Explicit one-shot maintenance for tools that do not own a render frame. */
+  update(): void {
+    const command = ShadeGPUCommandContext.create(
+      this,
+      "GraphicsContext/one-shot-maintenance"
+    );
+    this.encodeFrameMaintenance(command, false);
+    command.finish();
   }
 
   get gpu_memory_usage(): number {

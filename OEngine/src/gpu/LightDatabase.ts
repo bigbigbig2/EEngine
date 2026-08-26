@@ -736,23 +736,21 @@ export class GPULightCollection {
     ) as GPUTypedTable<ShadowSpotRecord[]>;
   }
 
-  update(sceneChanged = false): boolean {
-    const environmentChanged = this.updateEnvironment();
+  update(
+    command: ShadeGPUCommandContext,
+    sceneChanged = false
+  ): boolean {
+    const environmentChanged = this.updateEnvironment(command);
     const shadowsChanged = this.shadow_context.process_lights();
     if (shadowsChanged) this.source.needsUpdate = true;
     if (!sceneChanged && this.lastSourceVersion === this.source.version) {
       return environmentChanged || shadowsChanged;
     }
-    const command = ShadeGPUCommandContext.create(
-      this.graphics,
-      "GPULightCollection/build"
-    );
     this.build(command);
-    command.finish();
     return true;
   }
 
-  private updateEnvironment(): boolean {
+  private updateEnvironment(command: ShadeGPUCommandContext): boolean {
     const source = this.source.environment;
     if (this.environmentSource === source) return false;
     this.environmentSource = source;
@@ -776,9 +774,7 @@ export class GPULightCollection {
     }
     uploadShadeImage(image, environment.gpu_texture, this.device.queue);
 
-    const command = ShadeGPUCommandContext.create(this.graphics, "");
     this.obtainEnvironmentPrefilter().encode(command, environment);
-    command.finish();
     return true;
   }
 

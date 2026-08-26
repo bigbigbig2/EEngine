@@ -238,7 +238,7 @@ export class PathTracer {
         const resident = this.graphics.materials_resident;
         const scene = view.scene;
         resident.ensure_scene_materials(scene.scene);
-        resident.update();
+        resident.update(command);
 
         const geometry = scene.geometries;
         const sceneDatabase = requireBuffer(

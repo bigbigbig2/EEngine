@@ -54,15 +54,26 @@ export class ShadeGPUCommandContext {
   #debugTimersCallbacks = new Set<(results: GPUTimerResult[]) => void>();
   #debugTimerErrorCallbacks = new Set<(error: unknown) => void>();
   #finished = false;
+  #submitted = false;
+  #abortCause: unknown | undefined;
   #label = "";
 
   readonly onFinished = new ChangeSignal<this>();
+  readonly onAborted = new ChangeSignal<this, unknown>();
   readonly onBeforeFinish = new ChangeSignal<this>();
 
   constructor() {}
 
   get id(): number {
     return this.#id;
+  }
+
+  get label(): string {
+    return this.#label;
+  }
+
+  get isAborted(): boolean {
+    return this.#finished && this.#abortCause !== undefined;
   }
 
   get isGPUCommandContext(): boolean {
@@ -111,12 +122,33 @@ export class ShadeGPUCommandContext {
     return this.#graphics.textures;
   }
 
-  get done(): Promise<void> {
-    if (this.#finished) return Promise.resolve();
-    return new Promise((resolve) => {
+  get closed(): boolean {
+    return this.#finished;
+  }
+
+  get wasSubmitted(): boolean {
+    return this.#submitted;
+  }
+
+  /** Resolves once the command buffer has been handed to GPUQueue. */
+  get submitted(): Promise<void> {
+    if (this.#finished) {
+      return this.#abortCause === undefined
+        ? Promise.resolve()
+        : Promise.reject(this.#abortCause);
+    }
+    return new Promise((resolve, reject) => {
       this.onFinished.addOne(resolve);
+      this.onAborted.addOne(
+        (_context: ShadeGPUCommandContext, cause: unknown) => reject(cause)
+      );
       if (this.#finished) resolve();
     });
+  }
+
+  /** Resolves only after the queue has completed all work submitted so far. */
+  get gpuDone(): Promise<void> {
+    return this.submitted.then(() => this.device.queue.onSubmittedWorkDone());
   }
 
   static create(
@@ -376,32 +408,37 @@ export class ShadeGPUCommandContext {
       return;
     }
 
-    this.onBeforeFinish.send1(this);
-    openContextCount--;
-    arrayRemoveFirst(openContexts, this);
-
     const encoder = this.#encoder!;
     const timer = this.#gpuTimer;
-    if (timer !== undefined) {
-      timer.resolve(encoder);
-      const readbackByteLength = timer.readbackByteLength;
-      if (readbackByteLength > 0) {
-        this.#graphics.profiler.recordReadback(
-          "gpu-timestamps",
-          readbackByteLength
-        );
+    try {
+      this.onBeforeFinish.send1(this);
+      if (timer !== undefined) {
+        timer.resolve(encoder);
+        const readbackByteLength = timer.readbackByteLength;
+        if (readbackByteLength > 0) {
+          this.#graphics.profiler.recordReadback(
+            "gpu-timestamps",
+            readbackByteLength
+          );
+        }
       }
+      const commandBuffer = encoder.finish();
+      submitGpuCommands(
+        this.#graphics.device!,
+        this.#label || "unlabeled-command-context",
+        [commandBuffer]
+      );
+    } catch (cause) {
+      this.abort(cause);
+      throw cause;
     }
+
+    openContextCount--;
+    arrayRemoveFirst(openContexts, this);
     this.#finished = true;
+    this.#submitted = true;
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
-
-    const commandBuffer = encoder.finish();
-    submitGpuCommands(
-      this.#graphics.device!,
-      this.#label || "unlabeled-command-context",
-      [commandBuffer]
-    );
     this.#releaseBuffers();
 
     if (timer !== undefined) {
@@ -441,6 +478,33 @@ export class ShadeGPUCommandContext {
     }
 
     this.onFinished.send1(this);
+  }
+
+  /** Discards an unsubmitted encoder and settles asynchronous observers. */
+  abort(cause: unknown = new Error("GPU command context aborted")): void {
+    if (this.#finished) return;
+    openContextCount--;
+    arrayRemoveFirst(openContexts, this);
+    this.#finished = true;
+    this.#abortCause = cause;
+    this.#encoder = undefined;
+    this.#timedEncoderFacade = undefined;
+    this.#releaseBuffers();
+
+    const timer = this.#gpuTimer;
+    this.#gpuTimer = undefined;
+    if (timer !== undefined) timer.destroy();
+    const errorCallbacks = [...this.#debugTimerErrorCallbacks];
+    this.#debugTimersCallbacks.clear();
+    this.#debugTimerErrorCallbacks.clear();
+    for (const callback of errorCallbacks) {
+      try {
+        callback(cause);
+      } catch (callbackError) {
+        console.error("GPU timer abort callback failed", callbackError);
+      }
+    }
+    this.onAborted.send2(this, cause);
   }
 
   #releaseBuffers(): void {

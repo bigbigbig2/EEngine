@@ -104,6 +104,10 @@ export class GpuFrameCounterBuffer {
     this.ring.markSubmitted(ticket);
   }
 
+  cancel(ticket: GpuReadbackTicket, error: unknown): void {
+    this.ring.cancel(ticket, error);
+  }
+
   destroy(): void {
     this.ring.destroy();
     this.buffer.destroy();

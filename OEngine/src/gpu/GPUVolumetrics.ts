@@ -16,7 +16,6 @@ import type {
   SceneVolumetrics
 } from "../scene/Scene.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
-import type { GraphicsContext } from "./GraphicsContext.js";
 import { GPUIndexedRecordTable } from "./GPUIndexedRecordTable.js";
 import { GPUTypedBuffer } from "./GPUTypedBuffer.js";
 
@@ -111,13 +110,9 @@ export class GPUVolumetrics {
     });
   }
 
-  update(graphics: GraphicsContext, _timeDeltaSeconds = 0): void {
-    if (this.version === this.source.version) return;
+  update(command: ShadeGPUCommandContext, _timeDeltaSeconds = 0): boolean {
+    if (this.version === this.source.version) return false;
 
-    const command = ShadeGPUCommandContext.create(
-      graphics,
-      GPU_VOLUMETRICS_UPDATE_LABEL
-    );
     const transformInverse = new Float32Array(16);
     this.source.volumes.forEach((volume, index) => {
       this.queueVolume(index, volume, transformInverse);
@@ -127,8 +122,8 @@ export class GPUVolumetrics {
       { instance_count: this.source.volumes.length },
       this.device.queue
     );
-    command.finish();
     this.version = this.source.version;
+    return true;
   }
 
   destroy(): void {

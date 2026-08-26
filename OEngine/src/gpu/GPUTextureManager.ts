@@ -59,8 +59,8 @@ export class GPUTextureManager {
     return new GPUTextureContext(this.device, nativeTextureDescriptor(descriptor));
   }
 
-  update(): void {
-    this.mipmaps.update(1);
+  update(encoder?: GPUCommandEncoder): void {
+    this.mipmaps.update(1, encoder);
   }
 
   get pending_mipmap_count(): number {

@@ -212,16 +212,17 @@ export class MeshletGpuTable {
   }
 
   update(
-    command?: ShadeGPUCommandContext,
+    command: ShadeGPUCommandContext,
     labelPrefix = "MeshletGpuTable"
   ): void {
     if (this.needsUpdate) {
       this.build(labelPrefix);
-      this.blas.update();
+      this.blas.update(command);
+      command.onAborted.addOne(() => {
+        this.needsUpdate = true;
+      });
     }
-    if (command) {
-      this.meshlets.update(command);
-    }
+    this.meshlets.update(command);
   }
 
   build(labelPrefix = "MeshletGpuTable"): void {

@@ -45,9 +45,8 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 ## 当前已确认的性能风险
 
-- `GraphicsContext.update()` 稳定帧独立 submit，并触发 collection statistics readback。
-- `GPUSceneContext.update()` 无条件提交 animation flush。
-- 主帧之外存在多次 GPU submit。
+- R1-A 入口的 `GraphicsContext.update()` 独立 submit、持续 collection readback、scene animation/database self-submit 已在代码中删除；真实 WebGPU 的 3/13→1 结果仍待同入口浏览器 artifact 确认。
+- steady render tick 现在由 `FrameCoordinator` 持有唯一主 command；显式 one-shot/tool/debug-readback/recovery 路径仍可独立提交，但 runtime label 必须在 allowlist。
 - FrameGraph 每帧重建和 compile。
 - HZB 每次逐 mip 开 Render Pass，普通帧构建两次，alpha-tested 时可能三次。
 - Visibility 的 bucket/scan/expand/second-chance 中间队列和 clear 成本高。
@@ -61,6 +60,8 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 ## R1 入口数据与目标
 
 2026-08-26 Schema v3 acceptance-smoke 已作为 R1 调查输入登记，但因 smoke/dirty 标记不能充当正式 paired gate。第一次修改 R1 代码前按相同入口采集 clean/full cold + warm 基线；这是 R1 前测，不是重新打开 R0。
+
+R1-A 代码完成后的自动门禁为 `npm test` 52/52 与 examples production build 通过。浏览器插件桥在本轮初始化失败，所以下表仍是入口基线，不得把预期的 submit=1 写成实测值；待 Frame Smoke/A/B/C 新 JSON 与截图生成后，在此追加同条件 after 数据并关闭 `R1-A07`。
 
 | Case | CPU frame P50 / P95 | Submit | Graph build/compile | HZB build / mip Render Pass | HZB phase P50 / P95 |
 |---|---:|---:|---:|---:|---:|
