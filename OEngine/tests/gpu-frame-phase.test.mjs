@@ -75,8 +75,28 @@ test("GPU phase classifier freezes all 40 labels from the RTX 2060 SUPER smoke",
     for (const label of group) {
       labels.push(label);
       assert.equal(classifyGpuFramePhase(label), expected, label);
+      assert.equal(
+        classifyGpuFramePhase(`Renderer/main-0/${label}`),
+        expected,
+        `qualified ${label}`
+      );
     }
   }
   assert.equal(labels.length, 40);
   assert.equal(new Set(labels).size, labels.length);
+});
+
+test("GPU phase classifier attributes auxiliary command contexts", () => {
+  const cases = new Map([
+    ["GraphicsContext.update/resource preparation", "upload"],
+    ["GPUSceneContext/database-build/table write", "upload"],
+    ["GPUSceneContext/database-incremental-update/table write", "upload"],
+    ["GPUResidentMaterialContext/texture-write/blit", "upload"],
+    ["GPULightCollection/build/table write", "upload"],
+    ["volumetrics update/table write", "upload"],
+    ["GPUSceneContext/animation-flush/skinning", "animation"]
+  ]);
+  for (const [label, expected] of cases) {
+    assert.equal(classifyGpuFramePhase(label), expected, label);
+  }
 });

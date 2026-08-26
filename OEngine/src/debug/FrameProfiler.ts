@@ -73,6 +73,7 @@ export interface FrameProfilerDiagnostics {
   deviceLostCount: number;
   uncapturedErrors: string[];
   deviceLostReasons: string[];
+  failedGpuTimestampBatches: number;
   droppedGpuCounterSamples: number;
   failedGpuCounterSamples: number;
 }
@@ -104,6 +105,16 @@ type ActiveFrame = {
   gpuCounterFields: Set<GpuCounterFieldName>;
 };
 
+type GpuTimingBatch = {
+  contextLabel: string;
+  timings: FrameGpuTimingInput[] | null;
+};
+
+type GpuTimingBatchState = {
+  sealed: boolean;
+  batches: GpuTimingBatch[];
+};
+
 /**
  * CPU-side frame evidence collector. GPU timestamps are attached later because
  * readback is asynchronous. Disabled profiling does not retain frame history.
@@ -126,11 +137,16 @@ export class FrameProfiler {
   private deviceLostCount = 0;
   private readonly uncapturedErrors: string[] = [];
   private readonly deviceLostReasons: string[] = [];
+  private failedGpuTimestampBatches = 0;
   private droppedGpuCounterSamples = 0;
   private failedGpuCounterSamples = 0;
   private readonly gpuCounterFieldsByFrame = new Map<
     number,
     GpuCounterFieldName[]
+  >();
+  private readonly gpuTimingBatchesByFrame = new Map<
+    number,
+    GpuTimingBatchState
   >();
   private deviceEpoch = 0;
   private readonly onUncapturedError = (event: GPUUncapturedErrorEvent): void => {
@@ -194,6 +210,7 @@ export class FrameProfiler {
       deviceLostCount: this.deviceLostCount,
       uncapturedErrors: [...this.uncapturedErrors],
       deviceLostReasons: [...this.deviceLostReasons],
+      failedGpuTimestampBatches: this.failedGpuTimestampBatches,
       droppedGpuCounterSamples: Math.max(
         this.droppedGpuCounterSamples,
         ring?.dropped ?? 0
@@ -346,6 +363,40 @@ export class FrameProfiler {
     return this.active?.snapshot.gpu.sampled ?? false;
   }
 
+  /**
+   * 将采样帧内所有 OEngine CommandContext 登记为一个异步 timing batch。
+   * batch 最终按注册顺序合并，readback 的完成顺序不会改变 artifact。
+   */
+  attachGpuTimingContext(
+    command: ShadeGPUCommandContext,
+    contextLabel: string
+  ): void {
+    const active = this.active;
+    if (
+      active === null ||
+      !active.snapshot.gpu.sampled ||
+      !command.device.features.has("timestamp-query")
+    ) {
+      return;
+    }
+    const frameIndex = active.snapshot.frameIndex;
+    let state = this.gpuTimingBatchesByFrame.get(frameIndex);
+    if (state === undefined) {
+      state = { sealed: false, batches: [] };
+      this.gpuTimingBatchesByFrame.set(frameIndex, state);
+    }
+    const batchIndex = state.batches.length;
+    state.batches.push({ contextLabel, timings: null });
+    command.enable_debug_timers(
+      (timings) => {
+        this.completeGpuTimingBatch(frameIndex, batchIndex, timings);
+      },
+      (error) => {
+        this.failGpuTimingBatch(frameIndex, batchIndex, error);
+      }
+    );
+  }
+
   shouldSampleGpuCounters(): boolean {
     return this.active?.snapshot.gpuCounters.sampled ?? false;
   }
@@ -459,6 +510,15 @@ export class FrameProfiler {
       active.snapshot.gpuCounters.dropped = true;
       this.droppedGpuCounterSamples++;
     }
+    if (active.snapshot.gpu.sampled) {
+      const timingState = this.gpuTimingBatchesByFrame.get(
+        active.snapshot.frameIndex
+      );
+      if (timingState !== undefined) {
+        timingState.sealed = true;
+        this.finalizeGpuTimingBatches(active.snapshot.frameIndex, timingState);
+      }
+    }
     active.snapshot.cpuMs.frame = Math.max(0, this.now() - active.startedAt);
     this.active = null;
     this.frames.push(active.snapshot);
@@ -514,12 +574,14 @@ export class FrameProfiler {
     if (this.active !== null) throw new Error("Cannot clear FrameProfiler during a frame");
     this.frames.length = 0;
     this.gpuCounterFieldsByFrame.clear();
+    this.gpuTimingBatchesByFrame.clear();
   }
 
   destroy(): void {
     this.detachGpuDevice();
     this.listeners.clear();
     this.frames.length = 0;
+    this.gpuTimingBatchesByFrame.clear();
   }
 
   private ensureGpuFrameCounters(): GpuFrameCounterBuffer {
@@ -548,9 +610,79 @@ export class FrameProfiler {
     this.gpuCounterFieldsByFrame.clear();
   }
 
+  private completeGpuTimingBatch(
+    frameIndex: number,
+    batchIndex: number,
+    timings: readonly FrameGpuTimingInput[]
+  ): void {
+    const state = this.gpuTimingBatchesByFrame.get(frameIndex);
+    const batch = state?.batches[batchIndex];
+    if (state === undefined || batch === undefined || batch.timings !== null) {
+      return;
+    }
+    batch.timings = timings.map((timing) => ({ ...timing }));
+    this.finalizeGpuTimingBatches(frameIndex, state);
+  }
+
+  private failGpuTimingBatch(
+    frameIndex: number,
+    batchIndex: number,
+    error: unknown
+  ): void {
+    const state = this.gpuTimingBatchesByFrame.get(frameIndex);
+    const batch = state?.batches[batchIndex];
+    if (state === undefined || batch === undefined || batch.timings !== null) {
+      return;
+    }
+    this.failedGpuTimestampBatches++;
+    batch.timings = [];
+    this.finalizeGpuTimingBatches(frameIndex, state);
+    console.error("GPU timestamp readback failed", error);
+  }
+
+  private finalizeGpuTimingBatches(
+    frameIndex: number,
+    state: GpuTimingBatchState
+  ): void {
+    if (!state.sealed || state.batches.some((batch) => batch.timings === null)) {
+      return;
+    }
+    const snapshot =
+      this.active?.snapshot.frameIndex === frameIndex
+        ? this.active.snapshot
+        : this.frames.find((candidate) => candidate.frameIndex === frameIndex);
+    if (snapshot === undefined) {
+      this.gpuTimingBatchesByFrame.delete(frameIndex);
+      return;
+    }
+    snapshot.gpu.segments = state.batches.flatMap((batch) =>
+      batch.timings!.map((timing, index) => {
+        const label = qualifyGpuTimingLabel(
+          batch.contextLabel,
+          timing.label,
+          index
+        );
+        return {
+          label,
+          type: timing.type,
+          phase: classifyGpuFramePhase(label),
+          durationMs: nonNegativeFinite(timing.duration_ms, "GPU duration")
+        };
+      })
+    );
+    snapshot.gpu.pending = false;
+    this.gpuTimingBatchesByFrame.delete(frameIndex);
+    if (this.active?.snapshot !== snapshot) this.notify(cloneSnapshot(snapshot));
+  }
+
   private trimHistory(): void {
     const excess = this.frames.length - this.historyCapacityValue;
-    if (excess > 0) this.frames.splice(0, excess);
+    if (excess <= 0) return;
+    const removed = this.frames.splice(0, excess);
+    for (const frame of removed) {
+      this.gpuTimingBatchesByFrame.delete(frame.frameIndex);
+      this.gpuCounterFieldsByFrame.delete(frame.frameIndex);
+    }
   }
 
   private notify(snapshot: FrameProfileSnapshot): void {
@@ -580,6 +712,16 @@ function nonNegativeFinite(value: number, name: string): number {
     throw new RangeError(`${name} must be a finite non-negative number`);
   }
   return value;
+}
+
+function qualifyGpuTimingLabel(
+  contextLabel: string,
+  passLabel: string | undefined,
+  index: number
+): string {
+  const context = contextLabel.trim() || "unlabeled-command-context";
+  const pass = passLabel?.trim() || `unnamed-${index}`;
+  return `${context}/${pass}`;
 }
 
 function cloneSnapshot(snapshot: FrameProfileSnapshot): FrameProfileSnapshot {

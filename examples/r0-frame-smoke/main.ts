@@ -226,6 +226,7 @@ async function run(): Promise<void> {
   const failed = diagnostics.validationErrorCount > 0 ||
     diagnostics.uncapturedErrorCount > 0 ||
     diagnostics.deviceLostCount > 0 ||
+    diagnostics.failedGpuTimestampBatches > 0 ||
     diagnostics.droppedGpuCounterSamples > 0 ||
     diagnostics.failedGpuCounterSamples > 0 ||
     counterSamples.length === 0 ||

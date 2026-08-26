@@ -51,7 +51,8 @@ export class ShadeGPUCommandContext {
   #transientBuffers: GPUBuffer[] = [];
   #stagingBuffers: GPUBuffer[] = [];
   #gpuTimer: GPUTimer | undefined;
-  #debugTimersCallback: (results: GPUTimerResult[]) => void = () => {};
+  #debugTimersCallbacks = new Set<(results: GPUTimerResult[]) => void>();
+  #debugTimerErrorCallbacks = new Set<(error: unknown) => void>();
   #finished = false;
   #label = "";
 
@@ -128,6 +129,7 @@ export class ShadeGPUCommandContext {
     context.#encoder = graphics.device!.createCommandEncoder({ label });
     openContextCount++;
     openContexts.push(context);
+    graphics.profiler.attachGpuTimingContext(context, label);
     if (openContextCount > 1024 && openContextWarningCount < 20) {
       console.warn("Too many open GPU contexts");
       openContextWarningCount++;
@@ -136,11 +138,12 @@ export class ShadeGPUCommandContext {
   }
 
   enable_debug_timers(
-    callback: (results: GPUTimerResult[]) => void
+    callback: (results: GPUTimerResult[]) => void,
+    onError?: (error: unknown) => void
   ): void {
-    if (this.#gpuTimer !== undefined) return;
-    this.#gpuTimer = new GPUTimer(this.device);
-    this.#debugTimersCallback = callback;
+    this.#gpuTimer ??= new GPUTimer(this.device);
+    this.#debugTimersCallbacks.add(callback);
+    if (onError !== undefined) this.#debugTimerErrorCallbacks.add(onError);
   }
 
   createFrameGraphContext(): FrameGraphContext {
@@ -381,10 +384,13 @@ export class ShadeGPUCommandContext {
     const timer = this.#gpuTimer;
     if (timer !== undefined) {
       timer.resolve(encoder);
-      this.#graphics.profiler.recordReadback(
-        "gpu-timestamps",
-        timer.readbackByteLength
-      );
+      const readbackByteLength = timer.readbackByteLength;
+      if (readbackByteLength > 0) {
+        this.#graphics.profiler.recordReadback(
+          "gpu-timestamps",
+          readbackByteLength
+        );
+      }
     }
     this.#finished = true;
     this.#encoder = undefined;
@@ -399,11 +405,34 @@ export class ShadeGPUCommandContext {
     this.#releaseBuffers();
 
     if (timer !== undefined) {
-      const callback = this.#debugTimersCallback;
+      const callbacks = [...this.#debugTimersCallbacks];
+      const errorCallbacks = [...this.#debugTimerErrorCallbacks];
+      this.#debugTimersCallbacks.clear();
+      this.#debugTimerErrorCallbacks.clear();
       void timer
         .download_results()
         .then(() => {
-          callback(timer.results_to_console_table());
+          const results = timer.results_to_console_table();
+          for (const callback of callbacks) {
+            try {
+              callback(results);
+            } catch (error) {
+              console.error("GPU timer callback failed", error);
+            }
+          }
+        })
+        .catch((error: unknown) => {
+          if (errorCallbacks.length === 0) {
+            console.error("GPU timer readback failed", error);
+            return;
+          }
+          for (const callback of errorCallbacks) {
+            try {
+              callback(error);
+            } catch (callbackError) {
+              console.error("GPU timer error callback failed", callbackError);
+            }
+          }
         })
         .finally(() => {
           timer.destroy();

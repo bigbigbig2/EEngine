@@ -339,6 +339,7 @@ function validateDiagnostics(
     "validationErrorCount",
     "uncapturedErrorCount",
     "deviceLostCount",
+    "failedGpuTimestampBatches",
     "droppedGpuCounterSamples",
     "failedGpuCounterSamples"
   ] as const;

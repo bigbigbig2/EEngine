@@ -191,6 +191,7 @@ function emptyDiagnostics(): FrameProfilerDiagnostics {
     deviceLostCount: 0,
     uncapturedErrors: [],
     deviceLostReasons: [],
+    failedGpuTimestampBatches: 0,
     droppedGpuCounterSamples: 0,
     failedGpuCounterSamples: 0
   };

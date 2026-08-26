@@ -499,8 +499,7 @@ export class Renderer {
     time_delta_seconds = 0.01666
   ): boolean {
     if (this._deviceLost) return false;
-    const profileFrameIndex = this._frame_count;
-    this._profiler.beginFrame(profileFrameIndex);
+    this._profiler.beginFrame(this._frame_count);
     try {
     this._renderTargets.setFrameIndex(this._frame_count);
     this.applyPendingRenderResolutionChange();
@@ -563,7 +562,6 @@ export class Renderer {
           if (debugFrameIndex !== null) {
             this.onFrameDebug.send2(debugFrameIndex, results);
           }
-          this._profiler.recordGpuTimings(profileFrameIndex, results);
         });
       }
       gpuScene.tick(cmd, time_delta_seconds);

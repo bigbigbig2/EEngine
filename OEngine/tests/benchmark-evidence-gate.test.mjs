@@ -75,6 +75,14 @@ test("gate rejects phase, summary, counter and diagnostics corruption", () => {
     )
   );
 
+  const failedTimestamp = validResult();
+  failedTimestamp.diagnostics.failedGpuTimestampBatches = 1;
+  assert.ok(
+    errorCodes(failedTimestamp).has(
+      "diagnostics-failedGpuTimestampBatches"
+    )
+  );
+
   const malformedHash = validResult();
   malformedHash.case.sceneAssetHashes = ["sha256:abcd"];
   assert.ok(errorCodes(malformedHash).has("asset-hash-placeholder"));
@@ -185,6 +193,7 @@ function validResult() {
       deviceLostCount: 0,
       uncapturedErrors: [],
       deviceLostReasons: [],
+      failedGpuTimestampBatches: 0,
       droppedGpuCounterSamples: 0,
       failedGpuCounterSamples: 0
     }

@@ -43,7 +43,17 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /counter accumulator/,
     /render debug/
   ),
-  rule("upload", /upload/, /staging copy/, /resource copy/),
+  rule(
+    "upload",
+    /upload/,
+    /staging copy/,
+    /resource copy/,
+    /graphicscontext\.update/,
+    /gpuscenecontext\/database-(?:build|incremental-update)/,
+    /gpuresidentmaterialcontext\/texture-write/,
+    /gpulightcollection\/build/,
+    /volumetrics update/
+  ),
   rule("animation", /animation/, /skinning/),
   rule("shadow", /shadow/),
   rule("transparency", /transparent/, /\boit\b/),

@@ -126,8 +126,11 @@ counters.legacy.*
 counters.lighting.*
 counters.gpu.residentBytes
 diagnostics.validationErrorCount/uncapturedErrorCount/deviceLostCount
+diagnostics.failedGpuTimestampBatches
 diagnostics.droppedGpuCounterSamples/failedGpuCounterSamples
 ```
+
+采样帧会自动登记该帧创建的每个 OEngine `ShadeGPUCommandContext`，原始 label 采用 `<command-context>/<pass>` 形式。不同 context 的 readback 即使乱序完成，也按 GPU command context 的注册顺序归档；非采样帧不会创建 timer/query/readback，采样本身不增加 submit。timestamp 只覆盖 context 内实际存在的 compute/render Pass，纯 copy/write 区间仍不可见；当前也没有横跨多个 submit 的 whole-frame GPU 起止 marker，因此各 Pass/phase 之和不能冒充完整 GPU frame latency。
 
 GPU counter ABI 当前是 256-byte `u32` 固定布局，定义见 `src/debug/GpuFrameCounters.ts`。主帧已完成 buffer clear、采样 copy、submit 后异步 map 与 frame-index 归档。最终 Visibility Buffer 是首个真实 producer：采样帧通过 8×8 工作组归约输出 `shadedPixels` 与 `emptyVisibilityPixels`；前者当前表示 mesh-id 非 sentinel 的最终可见性覆盖像素，不代表 Material/Lighting shader invocation。每个有效样本必须满足：
 
@@ -165,4 +168,4 @@ npm run audit:shaders
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
 - GPU pass producer：cone/HZB reject reason、SW raster 与 material overflow bit。
 - HZB mip、reject reason、LOD/Cluster、SW/HW classification、material ID 与 history validity 所需的真实逐像素 producer；当前统一控制面明确报告 unsupported。
-- 主 encoder 外 upload/animation 与 whole-frame GPU timestamp marker。
+- 纯 copy/write upload 区间，以及横跨 upload、animation 与 main submit 的 whole-frame GPU 起止 marker。

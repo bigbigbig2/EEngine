@@ -189,6 +189,101 @@ test("frame profiler exposes CPU, submit, readback, upload and delayed GPU evide
   assert.equal(observed[1].gpu.pending, false);
 });
 
+test("frame profiler merges every command context timing batch by registration order", () => {
+  const profiler = new FrameProfiler({
+    enabled: true,
+    gpuSampleInterval: 1,
+    gpuTimestampAvailable: true
+  });
+  const upload = new FakeTimingContext();
+  const animation = new FakeTimingContext();
+  const main = new FakeTimingContext();
+  const observed = [];
+  profiler.subscribe((frame) => observed.push(frame));
+
+  profiler.beginFrame(4);
+  profiler.attachGpuTimingContext(upload, "GraphicsContext.update");
+  profiler.attachGpuTimingContext(animation, "GPUSceneContext/animation-flush");
+  profiler.attachGpuTimingContext(main, "Renderer/main-0");
+  const initial = profiler.endFrame();
+  assert.equal(initial.gpu.pending, true);
+
+  main.complete([
+    { label: "HZB/build_mip0", type: "render", duration_ms: 0.3 }
+  ]);
+  upload.complete([
+    { label: "resource preparation", type: "compute", duration_ms: 0.1 }
+  ]);
+  assert.equal(profiler.getFrame(4).gpu.pending, true);
+  animation.complete([
+    { label: "skinning", type: "compute", duration_ms: 0.2 }
+  ]);
+
+  const completed = profiler.getFrame(4);
+  assert.equal(completed.gpu.pending, false);
+  assert.deepEqual(completed.gpu.segments, [
+    {
+      label: "GraphicsContext.update/resource preparation",
+      type: "compute",
+      phase: "upload",
+      durationMs: 0.1
+    },
+    {
+      label: "GPUSceneContext/animation-flush/skinning",
+      type: "compute",
+      phase: "animation",
+      durationMs: 0.2
+    },
+    {
+      label: "Renderer/main-0/HZB/build_mip0",
+      type: "render",
+      phase: "hzb",
+      durationMs: 0.3
+    }
+  ]);
+  assert.equal(observed.length, 2);
+  assert.equal(observed[0].gpu.pending, true);
+  assert.equal(observed[1].gpu.pending, false);
+});
+
+test("unsampled frames do not enable command context timers", () => {
+  const profiler = new FrameProfiler({
+    enabled: true,
+    gpuSampleInterval: 2,
+    gpuTimestampAvailable: true
+  });
+  const command = new FakeTimingContext();
+
+  profiler.beginFrame(1);
+  profiler.attachGpuTimingContext(command, "Renderer/main-0");
+  const frame = profiler.endFrame();
+
+  assert.equal(command.callbacks.length, 0);
+  assert.equal(frame.gpu.sampled, false);
+  assert.equal(frame.gpu.pending, false);
+  assert.deepEqual(frame.gpu.segments, []);
+});
+
+test("GPU timestamp batch failures settle the frame and enter diagnostics", (t) => {
+  t.mock.method(console, "error", () => {});
+  const profiler = new FrameProfiler({
+    enabled: true,
+    gpuSampleInterval: 1,
+    gpuTimestampAvailable: true
+  });
+  const command = new FakeTimingContext();
+
+  profiler.beginFrame(6);
+  profiler.attachGpuTimingContext(command, "Renderer/main-0");
+  const initial = profiler.endFrame();
+  assert.equal(initial.gpu.pending, true);
+  command.fail(new Error("timestamp map failed"));
+
+  assert.equal(profiler.getFrame(6).gpu.pending, false);
+  assert.deepEqual(profiler.getFrame(6).gpu.segments, []);
+  assert.equal(profiler.diagnostics.failedGpuTimestampBatches, 1);
+});
+
 test("disabled profiler device attachment allocates no GPU counter resources", () => {
   const device = new FakeGpuDevice();
   const profiler = new FrameProfiler({ enabled: false });
@@ -338,6 +433,7 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
     deviceLostCount: 0,
     uncapturedErrors: [],
     deviceLostReasons: [],
+    failedGpuTimestampBatches: 0,
     droppedGpuCounterSamples: 0,
     failedGpuCounterSamples: 0
   });
@@ -596,5 +692,26 @@ class FakeCommandContext {
 
   finish() {
     for (const callback of this.finishedCallbacks.splice(0)) callback();
+  }
+}
+
+class FakeTimingContext {
+  callbacks = [];
+  errorCallbacks = [];
+  device = { features: new Set(["timestamp-query"]) };
+
+  enable_debug_timers(callback, onError) {
+    this.callbacks.push(callback);
+    if (onError !== undefined) this.errorCallbacks.push(onError);
+  }
+
+  complete(timings) {
+    this.errorCallbacks.length = 0;
+    for (const callback of this.callbacks.splice(0)) callback(timings);
+  }
+
+  fail(error) {
+    this.callbacks.length = 0;
+    for (const callback of this.errorCallbacks.splice(0)) callback(error);
   }
 }

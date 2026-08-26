@@ -151,7 +151,7 @@ post
 - 采样延迟允许跨帧，结果按原始 frame index 归档。
 - ring 满时丢弃本次采样并增加 `droppedSamples`，不得阻塞渲染帧。
 
-当前 `GpuReadbackRing` 已实现固定至少三槽、主 encoder 内 copy、submit 后 `mapAsync`、按 frame index 回填、满环丢样本，以及 map 失败后释放槽位。结果 Schema v2 通过 `diagnostics.droppedGpuCounterSamples` 与 `failedGpuCounterSamples` 显式保存异常；控制器会同时等待 timestamp 和 counter 的延迟结果。
+当前 `GpuReadbackRing` 已实现固定至少三槽、主 encoder 内 copy、submit 后 `mapAsync`、按 frame index 回填、满环丢样本，以及 map 失败后释放槽位。结果 Schema v2 通过 `diagnostics.failedGpuTimestampBatches`、`droppedGpuCounterSamples` 与 `failedGpuCounterSamples` 显式保存异常；timestamp 某个 context readback 失败时会以空 batch 收尾并使 diagnostics gate 失败，不会永久 pending。控制器会同时等待 timestamp 和 counter 的延迟结果。
 
 ### Result Schema v2
 
@@ -201,7 +201,7 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - Shader source-of-truth 静态审计已覆盖 66 个文件，逐项记录 direct/runtime consumer、最近 pipeline owner、generator candidate 与删除候选；当前结论为 55 个 authored-live、5 个 dead candidate、6 个运行中的 oracle/generated ownership blocker。清单见 `OEngine/benchmarks/shader-source-audit.json` 与 `docs/SHADER-SOURCES.md`。
 - HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
 - `OBS-06` 已建立单一 `render_debug_view` 控制面：VisibilityKey、reverse-Z depth 与 velocity 在时域/后处理之后覆盖最终 HDR 输入；HZB mip、三类 reject reason、LOD/Cluster level、SW/HW 分类、material ID 与 history validity 均登记为带原因的 `unsupported`，不会添加占位 Pass。旧 `feature_velocity_debug_view` 与独立 `VelocityDebugPass` 已删除；关闭和 unsupported 状态不创建 Debug Pass、瞬态输出或 readback。
-- 原始 GPU timestamp label 已增加稳定逻辑阶段归类；Result 同时保留逐 Pass `gpuMs`，并将同一采样帧内的 Pass 先按 phase 求和后输出 `gpuPhaseMs`，避免用 Pass 样本冒充帧样本。未知 label 显式进入 `unclassified`，采样用 counter/debug Pass 单独进入 `observability`，不混入主渲染阶段。
+- 原始 GPU timestamp label 已增加稳定逻辑阶段归类；Result 同时保留逐 Pass `gpuMs`，并将同一采样帧内的 Pass 先按 phase 求和后输出 `gpuPhaseMs`，避免用 Pass 样本冒充帧样本。采样挂在统一 `ShadeGPUCommandContext.create()` 缝上，登记主图之外的 upload、database update 和 animation context，并覆盖其中实际存在的 compute/render Pass；多个 context 的异步结果按注册顺序稳定合并，不按 readback 完成顺序漂移，也不新增 submit。纯 copy/write 命令没有 Pass timestamp，不能把“context 已登记”写成复制区间已完整计时。未知 label 显式进入 `unclassified`，采样用 counter/debug Pass 单独进入 `observability`，不混入主渲染阶段。
 - `validateBenchmarkEvidence()` 已建立 Result artifact 机器门禁：检查 Schema、clean commit/dirtyReasons、A/B/C role、adapter/尺寸/feature set、真实资产与相机 hash、采样帧数、diagnostics、异步 timestamp/counter 完成状态、counter ABI、逻辑 phase，并从逐帧 segment 反算核对 `gpuMs`/`gpuPhaseMs`。用户 `temp/` 的两份旧 Schema 1 smoke 已登记为 exploratory，不会误入 G0。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
 - 尚未完成 A/B/C 对齐场景、其余 GPU pass counter producer、unsupported 视图所需的逐像素 producer、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
@@ -222,9 +222,9 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 
 ### OBS-04 · 接通 GPU timestamps
 
-在主 encoder 内分配 query 范围，Pass 只请求逻辑 marker，不拥有 query set/readback。处理设备不支持、query 容量不足和 feature off 的情况。
+每个被采样的 OEngine CommandContext 分配 query 范围，Pass 只请求逻辑 marker，不拥有 query set/readback。处理设备不支持、query 容量不足、异步 map 失败和 feature off 的情况。
 
-状态：`Partial`。主 encoder 的真实 Pass timestamp、异步结果归档与 unavailable 路径已接通；原始 label 现在映射到稳定的 `instance-cull`、`hierarchy-and-cluster-cull`、`software-raster`、`hardware-raster`、`hzb`、`material-resolve`、`light-cluster`、`lighting-and-ibl`、`shadow`、`transparency`、`temporal`、`post`、`observability` 和 `unclassified`。Result 按帧汇总 `gpuPhaseMs`，同时保留原始 `gpuMs`。主 encoder 之外的 upload/animation 独立提交尚无统一 timestamp，whole-frame marker 也尚未闭环，因此不能标为 Completed。
+状态：`Partial`。所有 OEngine `ShadeGPUCommandContext` 的真实 compute/render Pass timestamp、异步多批次归档、map 失败收尾与 unavailable 路径已接通；原始 label 以 command context 限定，并映射到稳定的 `upload`、`animation`、`instance-cull`、`hierarchy-and-cluster-cull`、`software-raster`、`hardware-raster`、`hzb`、`material-resolve`、`light-cluster`、`lighting-and-ibl`、`shadow`、`transparency`、`temporal`、`post`、`observability` 和 `unclassified`。Result 按帧汇总 `gpuPhaseMs`，同时保留原始 `gpuMs`。纯 copy/write 区间和跨 `GraphicsContext.update`、animation flush 与 main submit 的 whole-frame 起止 marker 尚未闭环，因此不能标为 Completed。
 
 ### OBS-05 · 接通工作量 counters
 
