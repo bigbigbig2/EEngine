@@ -172,7 +172,9 @@ async function run(): Promise<void> {
   const invalidCounterSamples = counterSamples.filter((frame) => {
     const shaded = frame.gpuCounters.values.shadedPixels;
     const empty = frame.gpuCounters.values.emptyVisibilityPixels;
+    const activeLights = frame.gpuCounters.values.activeLights;
     return shaded === undefined || empty === undefined ||
+      activeLights === undefined ||
       shaded + empty !== expectedPixelCount;
   });
   const failed = diagnostics.validationErrorCount > 0 ||

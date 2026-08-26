@@ -131,7 +131,9 @@ shadedPixels + emptyVisibilityPixels
 == environment.frame.internalWidth × environment.frame.internalHeight
 ```
 
-非采样帧不添加像素统计 Pass，也不编码 counter clear/copy/readback。其余 Visibility、instance、meshlet、material 与 light producer 仍是 Partial。
+LightCluster filtered list 还会通过图内 copy 输出 `activeLights`：它表示通过 GPU frustum + HZB filter、送入 cluster assign 的 Point/Spot light 数量，不包含 DirectionalLight。现有列表的 capacity/overflow bit 尚未闭环，因此超容量判断仍需后续 `queueOverflowMask` producer。
+
+非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。其余 Visibility、instance、meshlet 与 material producer 仍是 Partial。
 
 ## Shader source 审计
 
@@ -146,5 +148,5 @@ node tools/audit-shader-sources.mjs > shader-source-audit.json
 - A：160k Teapot 的同资产/同相机/同输出对齐页面。
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- GPU pass producer：instance、meshlet、reject reason、SW/HW 分类、material 与 light 的真实计数接线。
+- GPU pass producer：instance、meshlet、reject reason、SW/HW 分类与 material 的真实计数接线，以及 LightCluster overflow bit。
 - VisibilityKey、HZB mip、reject reason、material ID 等统一 debug views。

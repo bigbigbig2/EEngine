@@ -32,6 +32,8 @@ export type LightClusterOutputs = {
   parameters: ResourceId;
   lookup: ResourceId;
   data: ResourceId;
+  /** GPU-produced count/list consumed by cluster assignment. */
+  activeLightList: ResourceId;
 };
 
 export type LightClusterJob = {
@@ -292,7 +294,10 @@ export class LightClusterPass {
       kind: "transient_buffer",
       label: "LightCluster/filtered",
       size: LIGHT_CLUSTER_LIST_BYTES,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      usage:
+        GPUBufferUsage.STORAGE |
+        GPUBufferUsage.COPY_DST |
+        GPUBufferUsage.COPY_SRC
     });
 
     let lookup = -1;
@@ -361,7 +366,7 @@ export class LightClusterPass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
 
-    return { parameters, lookup, data };
+    return { parameters, lookup, data, activeLightList: filteredList };
   }
 
   private dispatchPagedList(

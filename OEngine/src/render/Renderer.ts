@@ -56,6 +56,7 @@ import { createNativeTextureView, id } from "../gpu/GPUTextureDescriptors.js";
 import { TonemapPass } from "./passes/TonemapPass.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
+import { addGpuCounterCopyPass } from "../debug/GpuCounterCopyPass.js";
 import {
   captureGpuAdapterIdentity,
   type BenchmarkAdapterIdentity
@@ -618,6 +619,7 @@ export class Renderer {
           view.uniform_buffer
         );
         let hzbRes: ResourceId | null = null;
+        let gpuCounterRes: ResourceId | null = null;
 
         {
           const prevHzbView = viewHzb.obtainFullView();
@@ -780,16 +782,16 @@ export class Renderer {
           if (counterBuffer === null) {
             throw new Error("GPU counter sampling has no counter buffer");
           }
-          const counterRes = graph.import_resource(
+          gpuCounterRes = graph.import_resource(
             "r0_gpu_frame_counters",
             { kind: "imported", label: "R0 GPU frame counters" },
             counterBuffer
           );
           this._visibilityCounters ??= new VisibilityCounterPass();
-          this._visibilityCounters.addToGraph(
+          gpuCounterRes = this._visibilityCounters.addToGraph(
             graph,
             { width: w, height: h },
-            { meshId: meshIdRes, counters: counterRes }
+            { meshId: meshIdRes, counters: gpuCounterRes }
           );
           this._profiler.registerGpuCounterFields([
             "shadedPixels",
@@ -929,6 +931,15 @@ export class Renderer {
               hzb: hzbRes
             }
           );
+          if (gpuCounterRes !== null) {
+            gpuCounterRes = addGpuCounterCopyPass(
+              graph,
+              "activeLights",
+              clusters.activeLightList,
+              gpuCounterRes
+            );
+            this._profiler.registerGpuCounterFields(["activeLights"]);
+          }
           const lightOut = this._lighting.addToGraph(
             graph,
             {

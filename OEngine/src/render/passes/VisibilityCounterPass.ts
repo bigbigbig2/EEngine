@@ -91,7 +91,7 @@ export class VisibilityCounterPass {
     graph: FrameGraph,
     size: { width: number; height: number },
     inputs: { meshId: ResourceId; counters: ResourceId }
-  ): void {
+  ): ResourceId {
     const dispatch = visibilityCounterDispatchSize(size.width, size.height);
     const builder = graph.add(
       "R0 visibility pixel counters",
@@ -111,8 +111,9 @@ export class VisibilityCounterPass {
       }
     );
     builder.read(inputs.meshId);
-    builder.write(inputs.counters);
+    const nextCounters = builder.write(inputs.counters);
     builder.make_side_effect();
+    return nextCounters;
   }
 }
 

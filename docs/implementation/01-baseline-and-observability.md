@@ -89,7 +89,11 @@ shadedPixels + emptyVisibilityPixels
 == internalWidth × internalHeight
 ```
 
-该 Pass 只存在于 GPU counter 采样帧；非采样帧不清零、不复制、不分配 counter 资源，也不添加统计 Pass。instance、meshlet、reject reason、SW/HW、material 与 light producer 仍未接线，因此 `OBS-05` 仍为 `Partial`。
+该 Pass 只存在于 GPU counter 采样帧；非采样帧不清零、不复制、不分配 counter 资源，也不添加统计 Pass。
+
+第二个真实 producer 是 `activeLights`：LightCluster 的 GPU frustum + HZB filter 产生运行时本地灯光列表，图内 `GpuCounterCopyPass` 在该 transient buffer 释放或复用前，把首个 `u32` 原子计数复制到 Counter ABI。该字段只统计送入 cluster assign 的 Point/Spot light，不包含 DirectionalLight。现有 LightCluster 列表的 capacity/overflow bit 仍未闭环；因此该字段能暴露超容量数量，但 `queueOverflowMask` 尚不能证明灯光队列没有丢项。
+
+instance、meshlet、reject reason、SW/HW 与 material producer 仍未接线，因此 `OBS-05` 仍为 `Partial`。
 
 ### Timestamp contract
 
@@ -169,7 +173,7 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - 已有 Result Schema v2、CPU timeline、submit/readback/upload、可选 GPU timestamp、GPU counter ABI 与 P50/P95/P99 汇总。
 - `BenchmarkRunController` 已统一 warm-up、采样帧调度，并同时等待 timestamp/counter 延迟结果收尾。
 - 256-byte counter buffer 与至少三槽的非阻塞异步 readback ring 已进入真实 `Renderer.render()`；profiler 关闭时不分配 counter/ring 资源。
-- 最终 Visibility Buffer 已接入首个真实 GPU counter producer；采样帧输出 `shadedPixels` 与 `emptyVisibilityPixels`，并在 frame smoke 中校验像素总数不变量。非采样帧不编码 counter clear/copy/readback 或像素统计 Pass。
+- 最终 Visibility Buffer 与 LightCluster 已接入真实 GPU counter producer；采样帧输出 `shadedPixels`、`emptyVisibilityPixels` 与 `activeLights`，frame smoke 会校验字段存在性和像素总数不变量。非采样帧不编码 counter clear/copy/readback 或统计 Pass。
 - HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
 - 尚未完成 A/B/C 对齐场景、其余 GPU pass counter producer、debug views、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
@@ -196,7 +200,7 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 
 先覆盖现有 instance、meshlet、draw、material 和 light 路径。所有 counter 定义是“输入”“通过”还是“唯一项”必须写入 schema，避免重复累计后无法比较。
 
-状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；最终 Visibility Buffer 已通过 `VisibilityCounterPass` 真实产生 `shadedPixels` 与 `emptyVisibilityPixels`。其余 GPU pass 的 source buffer/atomic producer 尚未逐项接到 counter ABI；字段缺失是“未接入”，不是“工作量为零”。
+状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；最终 Visibility Buffer 已通过 `VisibilityCounterPass` 真实产生 `shadedPixels` 与 `emptyVisibilityPixels`，LightCluster filtered list 已通过图内 copy 真实产生 `activeLights`。其余 GPU pass 的 source buffer/atomic producer 尚未逐项接到 counter ABI；字段缺失是“未接入”，不是“工作量为零”。
 
 ### OBS-06 · 建立 debug views
 
