@@ -11,6 +11,7 @@
 | 理解整体分层和数据所有权 | [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | 理解一帧和软硬件混合渲染 | [RENDER-PIPELINE.md](./RENDER-PIPELINE.md) |
 | 做性能工作或对比 three.js | [PERFORMANCE.md](./PERFORMANCE.md) |
+| 核对 Shader 事实源和删除候选 | [SHADER-SOURCES.md](./SHADER-SOURCES.md) |
 | 区分目标与当前代码 | [CURRENT-STATE.md](./CURRENT-STATE.md) |
 | 查看推进顺序 | [ROADMAP.md](./ROADMAP.md) |
 | 按任务实施、迁移和验收 | [implementation/README.md](./implementation/README.md) |

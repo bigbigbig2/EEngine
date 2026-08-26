@@ -620,10 +620,21 @@ export class Renderer {
         );
         let hzbRes: ResourceId | null = null;
         let gpuCounterRes: ResourceId | null = null;
+        if (this._profiler.shouldSampleGpuCounters()) {
+          const counterBuffer = this._profiler.gpuCounterBuffer;
+          if (counterBuffer === null) {
+            throw new Error("GPU counter sampling has no counter buffer");
+          }
+          gpuCounterRes = graph.import_resource(
+            "r0_gpu_frame_counters",
+            { kind: "imported", label: "R0 GPU frame counters" },
+            counterBuffer
+          );
+        }
 
         {
           const prevHzbView = viewHzb.obtainFullView();
-          this._visibility.addToGraph(
+          gpuCounterRes = this._visibility.addToGraph(
             graph,
             {
               camera,
@@ -649,9 +660,14 @@ export class Renderer {
               clearTargets: true,
               secondChance: false
             },
-            { meshId: meshIdRes, triangleId: triIdRes, depth: depthRes },
+            {
+              meshId: meshIdRes,
+              triangleId: triIdRes,
+              depth: depthRes,
+              counters: gpuCounterRes ?? undefined
+            },
             "Visibility"
-          );
+          ) ?? gpuCounterRes;
         }
 
         {
@@ -678,7 +694,7 @@ export class Renderer {
         {
           const sameFrameHzbView = viewHzb.obtainFullView();
           if (sameFrameHzbView) {
-            this._visibility.addToGraph(
+            gpuCounterRes = this._visibility.addToGraph(
               graph,
               {
                 camera,
@@ -704,9 +720,14 @@ export class Renderer {
                 clearTargets: false,
                 secondChance: true
               },
-              { meshId: meshIdRes, triangleId: triIdRes, depth: depthRes },
+              {
+                meshId: meshIdRes,
+                triangleId: triIdRes,
+                depth: depthRes,
+                counters: gpuCounterRes ?? undefined
+              },
               "Visibility/second-chance"
-            );
+            ) ?? gpuCounterRes;
 
             const hzb2 = viewHzb;
             const depthTex2 = this._renderTargets.depth;
@@ -728,7 +749,7 @@ export class Renderer {
           this._visibility.hasAlphaTestedMaterials(scene);
         if (hasAlphaTested) {
           const alphaHzbView = viewHzb.obtainFullView();
-          this._visibility.addToGraph(
+          gpuCounterRes = this._visibility.addToGraph(
             graph,
             {
               camera,
@@ -756,9 +777,14 @@ export class Renderer {
               secondChance: false,
               alphaTestedPass: true
             },
-            { meshId: meshIdRes, triangleId: triIdRes, depth: depthRes },
+            {
+              meshId: meshIdRes,
+              triangleId: triIdRes,
+              depth: depthRes,
+              counters: gpuCounterRes ?? undefined
+            },
             "Visibility/alpha-tested"
-          );
+          ) ?? gpuCounterRes;
 
           {
             const hzbA = viewHzb;
@@ -777,16 +803,7 @@ export class Renderer {
           }
         }
 
-        if (this._profiler.shouldSampleGpuCounters()) {
-          const counterBuffer = this._profiler.gpuCounterBuffer;
-          if (counterBuffer === null) {
-            throw new Error("GPU counter sampling has no counter buffer");
-          }
-          gpuCounterRes = graph.import_resource(
-            "r0_gpu_frame_counters",
-            { kind: "imported", label: "R0 GPU frame counters" },
-            counterBuffer
-          );
+        if (gpuCounterRes !== null) {
           this._visibilityCounters ??= new VisibilityCounterPass();
           gpuCounterRes = this._visibilityCounters.addToGraph(
             graph,
@@ -794,8 +811,15 @@ export class Renderer {
             { meshId: meshIdRes, counters: gpuCounterRes }
           );
           this._profiler.registerGpuCounterFields([
+            "visibleInstances",
+            "candidateClusters",
+            "selectedClusters",
+            "hwClusters",
+            "alphaClusters",
+            "hwTriangles",
             "shadedPixels",
-            "emptyVisibilityPixels"
+            "emptyVisibilityPixels",
+            "queueOverflowMask"
           ]);
         }
 

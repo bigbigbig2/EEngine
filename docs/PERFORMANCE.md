@@ -48,7 +48,7 @@ A/B/C 必须驱动同一套 OEngine 主管线；只允许通过 manifest、场�
 - 当前 Material Expand 先写 material depth，再对每个材质画全屏三角形。
 - Visibility、material depth、四张 GBuffer、HDR 和 history 产生较大全分辨率带宽。
 - 主链缺少 hierarchy/SSE LOD 和 Compute micro-raster。
-- oracle/generated Shader 尚未建立系统的性能和视觉回归。
+- Shader runtime owner 已有静态审计，但 6 个运行中的 oracle/generated 事实源仍没有 generator/所有权闭环，也尚未建立系统的性能和视觉回归。
 
 这些是待测风险，不得在没有分段数据时把总慢归因于单一 LOD 或单一 Pass。
 

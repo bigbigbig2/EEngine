@@ -81,3 +81,17 @@ OEngine adaptations: 对最终 r32uint mesh-id attachment 做 8×8 workgroup sha
 semantic differences: 上游没有最终 Visibility 像素 reduction；OEngine mesh-id sentinel 为 1 << 24，并要求 shadedPixels + emptyVisibilityPixels 严格等于内部渲染像素数；shadedPixels 当前表示非空 Visibility coverage，不是 Material/Lighting invocation
 local regression: OEngine/tests/visibility-counter-pass.test.mjs、OEngine/tests/r0-observability.test.mjs、examples/r0-frame-smoke
 ```
+
+### R0 Visibility 工作量字段语义
+
+```text
+upstream repository URL: https://github.com/Scthe/nanite-webgpu
+commit: b9cd33f65bb3cdba0464717e0fa621d330d2116f
+source: src/sys_web/stats.ts
+license: MIT
+scope: 参考 Rendered/Hardware/Software triangle 与 cluster 工作量字段的可解释语义；没有复制 reducer 或队列实现
+retained invariants: 工作量统计来自 GPU producer/consumer 的真实队列；HW triangle 表示送入硬件路径的 primitive；overflow 不能静默
+OEngine adaptations: 采样帧以 1-workgroup GPU reducer读取 count-prefixed queue raw count，根据真实 Buffer size 推导 capacity，并原子累加到固定 counter ABI；HW/alpha 当前按 drawIndirect 固定 384 vertices 换算为每 Meshlet 128 个 submitted primitives
+semantic differences: 上游统计围绕其 hierarchy/SW-HW pipeline；OEngine 当前还没有 SW raster/hierarchy，candidateClusters 是现有所有 visibility wave/bucket 的队列项总和，不声明唯一 cluster；queueOverflowMask 使用稳定 bit ABI
+local regression: OEngine/tests/gpu-list-counter-accumulator.test.mjs、examples/r0-frame-smoke
+```

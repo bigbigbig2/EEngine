@@ -14,8 +14,8 @@ npm run dev:host
 - Canvas 显示完整 Box 阵列，没有漏绘、全黑或明显深度错误；
 - GPU 支持 `timestamp-query` 时，结果包含至少一个 GPU segment；不支持时明确记录 unavailable；
 - Result `schemaVersion` 为 2，`diagnostics` 中 validation、uncaptured error、device lost、dropped/failed GPU counter sample 全为 0；
-- `gpu-counters` readback 只出现在采样帧，采样完成后 `pending=false`；每个有效样本必须包含 `shadedPixels`、`emptyVisibilityPixels` 与 `activeLights`；本场景只有 DirectionalLight，因此 `activeLights=0` 是正确结果；
-- 每个有效样本满足 `shadedPixels + emptyVisibilityPixels = internalWidth × internalHeight`，页面显示 `counterMismatches=0`；
+- `gpu-counters` readback 只出现在采样帧，采样完成后 `pending=false`；每个有效样本必须包含 `visibleInstances`、`candidateClusters`、`selectedClusters`、`hwClusters`、`alphaClusters`、`hwTriangles`、`shadedPixels`、`emptyVisibilityPixels`、`activeLights` 与 `queueOverflowMask`；
+- 每个有效样本满足 `selectedClusters = hwClusters + alphaClusters`、`hwTriangles = selectedClusters × 128`、`shadedPixels + emptyVisibilityPixels = internalWidth × internalHeight`；本场景只有 DirectionalLight，所以 `activeLights=0`，并且固定小场景必须有 `queueOverflowMask=0`；页面最终显示 `counterMismatches=0`；
 - `legacy.hzb.builds` 与 `legacy.hzb.mipPasses` 应和 timestamp 中实际 HZB 执行次数一致；
 - 控制台没有 WebGPU validation error、未处理异常或 device lost；
 - 保存结果 JSON 和页面截图。

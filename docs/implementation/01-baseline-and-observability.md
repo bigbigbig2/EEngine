@@ -93,7 +93,26 @@ shadedPixels + emptyVisibilityPixels
 
 第二个真实 producer 是 `activeLights`：LightCluster 的 GPU frustum + HZB filter 产生运行时本地灯光列表，图内 `GpuCounterCopyPass` 在该 transient buffer 释放或复用前，把首个 `u32` 原子计数复制到 Counter ABI。该字段只统计送入 cluster assign 的 Point/Spot light，不包含 DirectionalLight。现有 LightCluster 列表的 capacity/overflow bit 仍未闭环；因此该字段能暴露超容量数量，但 `queueOverflowMask` 尚不能证明灯光队列没有丢项。
 
-instance、meshlet、reject reason、SW/HW 与 material producer 仍未接线，因此 `OBS-05` 仍为 `Partial`。
+第三组真实 producer 是现有 Visibility GPU list。`GpuListCounterAccumulator` 只在采样帧读取 count-prefixed list 的 GPU raw count，以 Buffer size、16-byte header 和元素 stride 推导真实 capacity，向 Counter ABI 原子累加 safe count；若 raw count 超过 capacity，则设置稳定的 `queueOverflowMask` bit。当前接线语义为：
+
+| 字段 | 当前精确定义 |
+|---|---|
+| `visibleInstances` | 所有实际执行的 Visibility job 中，GPU scene frustum filter 输出 mesh row 的累计数；initial、second-chance、alpha job 可重复出现同一逻辑 instance，因此不是唯一 Application World instance 数 |
+| `candidateClusters` | 所有实际 Visibility wave/bucket 中 expand 后、进入 cluster/HZB cull 的队列项总和；可能包含 second-chance/alpha wave 的重复逻辑 cluster |
+| `selectedClusters` | 实际送入 opaque、second-chance 与 alpha hardware raster draw list 的队列项总和 |
+| `hwClusters` | opaque/second-chance hardware raster list 的队列项总和 |
+| `alphaClusters` | alpha-tested hardware raster list 的队列项总和 |
+| `hwTriangles` | 固定功能路径实际提交的 primitive 数；当前每个 Meshlet 固定 `drawIndirect` 384 vertices，即 128 triangles，不是 Meshlet header 中的逻辑 primitive count |
+| `queueOverflowMask` | bit 0=`sceneMeshList`，bit 1=`meshletList`；bit 2/3 为 material/light list 保留但尚无 producer |
+
+每个无 overflow 的样本应满足：
+
+```text
+selectedClusters == hwClusters + alphaClusters
+hwTriangles == selectedClusters × 128
+```
+
+`candidateInstances`、frustum/cone/HZB reject reason、SW raster 与 active material producer 仍未接线，因此 `OBS-05` 保持 `Partial`。
 
 ### Timestamp contract
 
@@ -173,7 +192,8 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - 已有 Result Schema v2、CPU timeline、submit/readback/upload、可选 GPU timestamp、GPU counter ABI 与 P50/P95/P99 汇总。
 - `BenchmarkRunController` 已统一 warm-up、采样帧调度，并同时等待 timestamp/counter 延迟结果收尾。
 - 256-byte counter buffer 与至少三槽的非阻塞异步 readback ring 已进入真实 `Renderer.render()`；profiler 关闭时不分配 counter/ring 资源。
-- 最终 Visibility Buffer 与 LightCluster 已接入真实 GPU counter producer；采样帧输出 `shadedPixels`、`emptyVisibilityPixels` 与 `activeLights`，frame smoke 会校验字段存在性和像素总数不变量。非采样帧不编码 counter clear/copy/readback 或统计 Pass。
+- 最终 Visibility Buffer、LightCluster 与现有 Visibility GPU list 已接入真实 GPU counter producer；采样帧输出像素、本地灯光、instance/cluster/HW 工作量和 scene-mesh/meshlet overflow 证据，frame smoke 会校验字段存在性、工作量关系与像素总数不变量。非采样帧不编码 counter clear/copy/readback 或统计 Pass。
+- Shader source-of-truth 静态审计已覆盖 66 个文件，逐项记录 direct/runtime consumer、最近 pipeline owner、generator candidate 与删除候选；当前结论为 55 个 authored-live、5 个 dead candidate、6 个运行中的 oracle/generated ownership blocker。清单见 `OEngine/benchmarks/shader-source-audit.json` 与 `docs/SHADER-SOURCES.md`。
 - HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
 - 尚未完成 A/B/C 对齐场景、其余 GPU pass counter producer、debug views、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
@@ -200,7 +220,7 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 
 先覆盖现有 instance、meshlet、draw、material 和 light 路径。所有 counter 定义是“输入”“通过”还是“唯一项”必须写入 schema，避免重复累计后无法比较。
 
-状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；最终 Visibility Buffer 已通过 `VisibilityCounterPass` 真实产生 `shadedPixels` 与 `emptyVisibilityPixels`，LightCluster filtered list 已通过图内 copy 真实产生 `activeLights`。其余 GPU pass 的 source buffer/atomic producer 尚未逐项接到 counter ABI；字段缺失是“未接入”，不是“工作量为零”。
+状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；最终 Visibility Buffer 已真实产生 `shadedPixels`/`emptyVisibilityPixels`，LightCluster filtered list 已产生 `activeLights`，Visibility GPU list 已产生 `visibleInstances`、cluster/HW 工作量与 scene-mesh/meshlet overflow。`candidateInstances`、reject reason、SW raster、active material 与 light/material overflow 等 producer 尚未接入；字段缺失是“未接入”，不是“工作量为零”。
 
 ### OBS-06 · 建立 debug views
 
@@ -209,6 +229,8 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 ### OBS-07 · 核实 Shader source-of-truth
 
 为实际创建 pipeline 的 WGSL 建立 `shaderName → authored/generated source → generator → runtime pipeline` 清单。未被引用的 oracle/generated Shader 标为删除候选，不在 R0 顺手大规模改写。
+
+状态：`Completed（inventory）`。`npm run audit:shaders` 生成确定性的 schema v2 JSON，覆盖全部 66 个 `src/shaders/*.ts`，并沿 import 图记录最近 runtime pipeline owner。审计发现 5 个没有静态 pipeline owner 的删除候选，以及 6 个仍在运行但没有仓库内 generator/source 的 oracle/generated 文件。后者已经追到具体 pipeline owner，作为对应模块迁移 blocker 记录；R0 不把它们误标为 authored，也不在缺少视觉/数值回归时直接删除。人工摘要与限制见 `docs/SHADER-SOURCES.md`。
 
 ### OBS-08 · 采集不可修改基线
 

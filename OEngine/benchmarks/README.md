@@ -131,22 +131,29 @@ shadedPixels + emptyVisibilityPixels
 == environment.frame.internalWidth × environment.frame.internalHeight
 ```
 
-LightCluster filtered list 还会通过图内 copy 输出 `activeLights`：它表示通过 GPU frustum + HZB filter、送入 cluster assign 的 Point/Spot light 数量，不包含 DirectionalLight。现有列表的 capacity/overflow bit 尚未闭环，因此超容量判断仍需后续 `queueOverflowMask` producer。
+LightCluster filtered list 还会通过图内 copy 输出 `activeLights`：它表示通过 GPU frustum + HZB filter、送入 cluster assign 的 Point/Spot light 数量，不包含 DirectionalLight。现有列表的 capacity/overflow bit 尚未闭环，因此 `queueOverflowMask` 暂时不能证明灯光队列没有丢项。
 
-非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。其余 Visibility、instance、meshlet 与 material producer 仍是 Partial。
+现有 Visibility GPU list 会在采样帧直接累计 `visibleInstances`、`candidateClusters`、`selectedClusters`、`hwClusters`、`alphaClusters` 和 `hwTriangles`。计数器以 Buffer size、16-byte header 与元素 stride 推导 capacity，只累计实际可容纳的 safe count；scene-mesh/meshlet raw count 超容量时分别设置 `queueOverflowMask` bit 0/1。`visibleInstances` 是 initial/second-chance/alpha 等实际 Visibility job 的 GPU scene-filter 输出 row 总和；cluster 字段同样是所有真实 wave/bucket 的队列项总和，均不声明跨 wave 唯一；`hwTriangles` 是固定功能路径提交的 primitive，当前满足：
+
+```text
+selectedClusters == hwClusters + alphaClusters
+hwTriangles == selectedClusters × 128
+```
+
+非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。`candidateInstances`、reject reason、SW raster、active material 和 light/material overflow producer 仍是 Partial。
 
 ## Shader source 审计
 
 ```powershell
-node tools/audit-shader-sources.mjs > shader-source-audit.json
+npm run audit:shaders
 ```
 
-输出列出每个 `src/shaders/*.ts` 的直接 TypeScript consumers，并把文件分类为 authored/generated/oracle 的 live/dead/reference 状态。这是静态入口清单；最终 source-of-truth 仍需跟到 pipeline 创建点核实。
+命令确定性生成 `benchmarks/shader-source-audit.json`。schema v2 覆盖每个 `src/shaders/*.ts` 的 direct/runtime consumers、最近 runtime pipeline owners、generator candidates、分类与删除候选。当前为 55 个 `authored-live`、5 个 `dead` candidate 和 6 个正在运行但 ownership 未闭环的 oracle/generated `unknown`。人工解释与静态分析限制见 `../../docs/SHADER-SOURCES.md`。
 
 ## 尚未完成的 R0 工作
 
 - A：160k Teapot 的同资产/同相机/同输出对齐页面。
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- GPU pass producer：instance、meshlet、reject reason、SW/HW 分类与 material 的真实计数接线，以及 LightCluster overflow bit。
+- GPU pass producer：`candidateInstances`、reject reason、SW raster、active material，以及 material/LightCluster overflow bit。
 - VisibilityKey、HZB mip、reject reason、material ID 等统一 debug views。

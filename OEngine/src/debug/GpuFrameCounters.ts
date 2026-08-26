@@ -7,12 +7,20 @@ import {
 export const GPU_COUNTER_SCHEMA_VERSION = 1;
 export const GPU_COUNTER_BYTE_SIZE = 256;
 
+/** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
+export const GPU_QUEUE_OVERFLOW_BITS = {
+  sceneMeshList: 1 << 0,
+  meshletList: 1 << 1,
+  materialMeshletList: 1 << 2,
+  lightList: 1 << 3
+} as const;
+
 export const GPU_COUNTER_FIELDS = [
   { name: "candidateInstances", index: 0, semantic: "instance-cull input" },
-  { name: "visibleInstances", index: 1, semantic: "instance-cull output" },
+  { name: "visibleInstances", index: 1, semantic: "scene GPU frustum-filter output rows" },
   { name: "visitedBvhNodes", index: 2, semantic: "hierarchy nodes visited" },
-  { name: "candidateClusters", index: 3, semantic: "cluster-cull input" },
-  { name: "selectedClusters", index: 4, semantic: "unique raster work" },
+  { name: "candidateClusters", index: 3, semantic: "expanded cluster queue items across visibility waves" },
+  { name: "selectedClusters", index: 4, semantic: "submitted raster queue items across visibility waves" },
   { name: "rejectedFrustum", index: 5, semantic: "frustum rejects" },
   { name: "rejectedCone", index: 6, semantic: "cone rejects" },
   { name: "rejectedHzb", index: 7, semantic: "HZB rejects" },
@@ -20,7 +28,7 @@ export const GPU_COUNTER_FIELDS = [
   { name: "hwClusters", index: 9, semantic: "hardware raster clusters" },
   { name: "alphaClusters", index: 10, semantic: "alpha-tested clusters" },
   { name: "swTriangles", index: 11, semantic: "software raster triangles" },
-  { name: "hwTriangles", index: 12, semantic: "hardware raster triangles" },
+  { name: "hwTriangles", index: 12, semantic: "fixed-function raster primitives submitted" },
   { name: "shadedPixels", index: 13, semantic: "resolved visible pixels" },
   { name: "emptyVisibilityPixels", index: 14, semantic: "empty resolve pixels" },
   { name: "activeMaterials", index: 15, semantic: "unique active materials" },

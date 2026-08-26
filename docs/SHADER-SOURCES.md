@@ -1,0 +1,51 @@
+# Shader Source-of-Truth 清单
+
+本文记录 `OEngine/src/shaders/*.ts` 到实际 runtime pipeline owner 的静态证据。完整逐文件清单由 `OEngine/tools/audit-shader-sources.mjs` 生成到 `OEngine/benchmarks/shader-source-audit.json`；本文只拥有分类规则、当前结论和迁移边界。
+
+## 重现
+
+```powershell
+Set-Location OEngine
+npm run audit:shaders
+```
+
+审计沿相对 TypeScript import 图追踪 WGSL。Shader 先穿过其他 Shader 聚合文件，再停在最近的 pipeline owner：`render_pipelines.obtain`、`compute_pipelines.obtain`、对应 Cache 的 `obtain`、原生 pipeline 创建或 `constructComputePass`。动态 import、运行时字符串拼接和仓库外 generator 仍需人工确认。
+
+## 当前结论
+
+| 分类 | 数量 | 含义 |
+|---|---:|---|
+| `authored-live` | 55 | 能到达 runtime pipeline，当前 authored 文件是运行事实源 |
+| `dead` | 5 | 没有 runtime pipeline owner，是删除候选；删除前仍需核对 feature 注册与动态路径 |
+| `unknown` | 6 | runtime pipeline 正在使用 oracle/generated 文件，但仓库内没有登记 generator/source，所有权尚未闭环 |
+
+`dead` 不等于本次已删除。R0 只冻结证据，实际删除归 `OBS-07` 后的迁移波次，并要求构建、命中 feature 示例和 graph dump 同时证明没有动态 consumer。
+
+## 正在运行但所有权未闭环
+
+| Shader | 最近 runtime pipeline owner | 当前问题 |
+|---|---|---|
+| `lighting_ch_oracle.ts` | `GPUMaterialContext.ts`、`LightingPass.ts` | oracle 文件直接提供 Lighting/Material pipeline WGSL |
+| `material_depth_oracle.ts` | `GPUMaterialContext.ts` | oracle 文件是 Material Depth 的实际运行源 |
+| `material_expand_oracle.ts` | `GPUMaterialContext.ts` | oracle 文件是 Material Expand 的实际运行源 |
+| `oracle_visibility_work_generation.ts` | `MeshletDrawList.ts` | oracle 文件直接驱动 instance cull、prefix/expand 和 indirect work generation |
+| `probe_legacy.generated.ts` | `GPULightProbeVolumeRenderer.ts` | generated 文件在运行，但仓库内没有 generator/source |
+| `temporal_post_legacy.generated.ts` | `AutomaticExposurePass.ts` | generated 文件经 `automatic_exposure.ts` 转发进入运行管线，但仓库内没有 generator/source |
+
+这些文件不能被当作长期设计权威，也不能仅因文件名含 `oracle/generated` 就直接删除。后续修改对应模块前必须先选择并登记 authored source 或可重复 generator，添加视觉/数值回归，再迁移 pipeline owner。
+
+## 删除候选边界
+
+完整 5 项以 JSON artifact 为准：`material_expand.ts`、`material_sr.ts`、`mesh_instance_cull.ts`、`meshlet_expand_counts.ts` 与 `meshlet_expand.ts`。它们是当前 oracle Material/Visibility work-generation 路径旁边没有 runtime owner 的可读重写或旧分支。静态结果不能替代删除波次的构建、feature 示例和 graph dump 验证。
+
+## Artifact 字段
+
+每个 entry 保存：
+
+- `shader`、`sourceKind`、`classification`；
+- `directConsumers` 与所有 `runtimeConsumers`；
+- 最近的 `pipelineOwners`；
+- 仓库内 `generatorCandidates`；
+- `deletionCandidate` 和当前状态说明。
+
+生成结果必须保持确定性。修改 Shader import、pipeline owner 或 generator 后，同一提交必须重新运行 `npm run audit:shaders` 并提交 JSON 差异。

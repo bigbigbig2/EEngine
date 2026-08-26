@@ -170,12 +170,27 @@ async function run(): Promise<void> {
     (frame) => frame.gpuCounters.sampled && !frame.gpuCounters.dropped
   );
   const invalidCounterSamples = counterSamples.filter((frame) => {
-    const shaded = frame.gpuCounters.values.shadedPixels;
-    const empty = frame.gpuCounters.values.emptyVisibilityPixels;
-    const activeLights = frame.gpuCounters.values.activeLights;
-    return shaded === undefined || empty === undefined ||
-      activeLights === undefined ||
-      shaded + empty !== expectedPixelCount;
+    const counters = frame.gpuCounters.values;
+    const required = [
+      "visibleInstances",
+      "candidateClusters",
+      "selectedClusters",
+      "hwClusters",
+      "alphaClusters",
+      "hwTriangles",
+      "shadedPixels",
+      "emptyVisibilityPixels",
+      "activeLights",
+      "queueOverflowMask"
+    ] as const;
+    if (required.some((field) => counters[field] === undefined)) return true;
+    return counters.shadedPixels! + counters.emptyVisibilityPixels! !==
+        expectedPixelCount ||
+      counters.selectedClusters !==
+        counters.hwClusters! + counters.alphaClusters! ||
+      counters.hwTriangles !== counters.selectedClusters! * 128 ||
+      counters.activeLights !== 0 ||
+      counters.queueOverflowMask !== 0;
   });
   const failed = diagnostics.validationErrorCount > 0 ||
     diagnostics.uncapturedErrorCount > 0 ||

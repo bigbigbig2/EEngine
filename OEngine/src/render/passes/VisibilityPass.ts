@@ -13,6 +13,7 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { MeshletGpuTable } from "../../gpu/MeshletGpuTable.js";
 import {
+  MESHLET_DRAW_VERTEX_COUNT,
   MESHLET_INSTANCE_STRIDE_BYTES,
   MESHLET_LIST_ELEMENTS_OFFSET,
   type MeshletDrawList
@@ -57,6 +58,12 @@ import type {
   CachedRenderPipelineDescriptor
 } from "../../gpu/GPUDescriptorCaches.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../VisibilityBufferContract.js";
+import {
+  GPU_QUEUE_OVERFLOW_BITS
+} from "../../debug/GpuFrameCounters.js";
+import {
+  GpuListCounterAccumulator
+} from "../../debug/GpuListCounterAccumulator.js";
 
 export { VIS_MESH_CLEAR_SENTINEL } from "../VisibilityBufferContract.js";
 
@@ -251,6 +258,7 @@ export type VisibilityJob = {
   clearTargets?: boolean;
   secondChance?: boolean;
   alphaTestedPass?: boolean;
+  gpuCounterBuffer?: GPUBuffer | null;
 };
 
 type UploadCmd = {
@@ -275,6 +283,7 @@ export class VisibilityPass {
   private sceneMeshFilterPipeline: GPUComputePipeline | null = null;
   private readonly alphaPipelines = new Map<GPUCullMode, GPURenderPipeline>();
   private readonly alphaMaterialDrawList: MaterialMeshletDrawList;
+  private readonly gpuListCounters = new GpuListCounterAccumulator();
   private alphaNoiseView: GPUTextureView | null = null;
 
   lastDrawCount = 0;
@@ -391,9 +400,10 @@ export class VisibilityPass {
       meshId: ResourceId;
       triangleId: ResourceId;
       depth: ResourceId;
+      counters?: ResourceId;
     },
     passName = "Visibility"
-  ): void {
+  ): ResourceId | null {
     const self = this;
     const builder = graph.add(passName, job, (data, res, ctx) => {
       const encoder = ctx.gpu_encoder;
@@ -435,7 +445,10 @@ export class VisibilityPass {
           enableInstanceCull: data.enableInstanceCull !== false,
           clearTargets: data.clearTargets !== false,
           secondChance: data.secondChance === true,
-          alphaTestedPass: data.alphaTestedPass === true
+          alphaTestedPass: data.alphaTestedPass === true,
+          gpuCounterBuffer: resources.counters === undefined
+            ? null
+            : resolveGpuBuffer(res.get(resources.counters))
         },
         self.resolveUpload(ctx),
         self.resolveCommandContext(ctx)
@@ -447,7 +460,11 @@ export class VisibilityPass {
     builder.write(resources.triangleId);
     builder.read(resources.depth);
     builder.write(resources.depth);
+    const nextCounters = resources.counters === undefined
+      ? null
+      : builder.write(resources.counters);
     builder.make_side_effect();
+    return nextCounters;
   }
 
   /** 立即执行一次可见性渲染，主要供内部路径和独立验证使用。 */
@@ -484,7 +501,8 @@ export class VisibilityPass {
         enableInstanceCull: job.enableInstanceCull !== false,
         clearTargets: job.clearTargets !== false,
         secondChance: job.secondChance === true,
-        alphaTestedPass: job.alphaTestedPass === true
+        alphaTestedPass: job.alphaTestedPass === true,
+        gpuCounterBuffer: job.gpuCounterBuffer ?? null
       },
       this.asUpload(upload),
       this.asCommandContext(upload)
@@ -625,6 +643,7 @@ export class VisibilityPass {
       clearTargets: boolean;
       secondChance: boolean;
       alphaTestedPass: boolean;
+      gpuCounterBuffer: GPUBuffer | null;
     },
     upload: UploadCmd,
     command: ShadeGPUCommandContext | null
@@ -787,6 +806,7 @@ export class VisibilityPass {
         hzbView: GPUTextureView | null;
         enableHzbCull: boolean;
         enableInstanceCull: boolean;
+        gpuCounterBuffer: GPUBuffer | null;
       };
       buckets: ActiveMaterialBucket[];
       writeBuf: (
@@ -893,6 +913,17 @@ export class VisibilityPass {
           GPUCollectionKind.Meshlets,
           expandedMeshlets
         );
+        if (opts.gpuCounterBuffer !== null) {
+          this.gpuListCounters.encode(
+            p.transientCommand,
+            expandedMeshlets,
+            opts.gpuCounterBuffer,
+            {
+              primary: "candidateClusters",
+              overflowBit: GPU_QUEUE_OVERFLOW_BITS.meshletList
+            }
+          );
+        }
       }
 
       if (opts.enableHzbCull && opts.hzbView) {
@@ -911,6 +942,20 @@ export class VisibilityPass {
 
       const inputMeshlets = drawList.elementsBuffer;
       if (!inputMeshlets) continue;
+      if (opts.gpuCounterBuffer !== null) {
+        this.gpuListCounters.encode(
+          p.transientCommand,
+          inputMeshlets,
+          opts.gpuCounterBuffer,
+          {
+            primary: "selectedClusters",
+            secondary: "alphaClusters",
+            triangleField: "hwTriangles",
+            trianglesPerElement: MESHLET_DRAW_VERTEX_COUNT / 3,
+            overflowBit: GPU_QUEUE_OVERFLOW_BITS.meshletList
+          }
+        );
+      }
       const grouped = this.alphaMaterialDrawList.build(
         command,
         inputMeshlets,
@@ -1024,6 +1069,7 @@ export class VisibilityPass {
         enableHzbCull: boolean;
         enableInstanceCull: boolean;
         secondChance: boolean;
+        gpuCounterBuffer: GPUBuffer | null;
       };
       writeBuf: (
         buffer: GPUBuffer,
@@ -1071,7 +1117,9 @@ export class VisibilityPass {
       sceneDatabase,
       meshlets,
       drawList,
-      writeBuffer: writeBuf
+      writeBuffer: writeBuf,
+      command: p.command,
+      gpuCounterBuffer: opts.gpuCounterBuffer
     });
     if (!filtered) return false;
     if (drawList.meshListBuffer !== null) {
@@ -1140,6 +1188,8 @@ export class VisibilityPass {
         offset: number,
         data: ArrayBuffer | ArrayBufferView
       ) => void;
+      command: ShadeGPUCommandContext | null;
+      gpuCounterBuffer: GPUBuffer | null;
     }
   ): boolean {
     const pipeline = this.sceneMeshFilterPipeline;
@@ -1175,6 +1225,18 @@ export class VisibilityPass {
     pass.setBindGroup(1, group1);
     pass.dispatchWorkgroups(groupCount);
     pass.end();
+    if (opts.command !== null && opts.gpuCounterBuffer !== null) {
+      this.gpuListCounters.encode(
+        opts.command,
+        output,
+        opts.gpuCounterBuffer,
+        {
+          primary: "visibleInstances",
+          overflowBit: GPU_QUEUE_OVERFLOW_BITS.sceneMeshList,
+          elementBytes: Uint32Array.BYTES_PER_ELEMENT
+        }
+      );
+    }
     this.lastSceneMeshFilterRan = true;
     this.lastFrustumUnculled += opts.sceneDatabase.meshCount;
     return true;
@@ -1201,6 +1263,7 @@ export class VisibilityPass {
         enableHzbCull: boolean;
         enableInstanceCull: boolean;
         secondChance: boolean;
+        gpuCounterBuffer: GPUBuffer | null;
       };
       writeBuf: (
         buffer: GPUBuffer,
@@ -1350,6 +1413,17 @@ export class VisibilityPass {
           GPUCollectionKind.Meshlets,
           expandedMeshlets
         );
+        if (opts.gpuCounterBuffer !== null) {
+          this.gpuListCounters.encode(
+            p.command,
+            expandedMeshlets,
+            opts.gpuCounterBuffer,
+            {
+              primary: "candidateClusters",
+              overflowBit: GPU_QUEUE_OVERFLOW_BITS.meshletList
+            }
+          );
+        }
       }
     } else return false;
 
@@ -1456,7 +1530,9 @@ export class VisibilityPass {
           cullMode,
           clearTargets: false,
           label: `Visibility/ID+Depth/second-bucket-${secondBucket.bucketId}`,
-          bindGroupLabel: `Visibility/BG0-meshlet-second-b${secondBucket.bucketId}`
+          bindGroupLabel: `Visibility/BG0-meshlet-second-b${secondBucket.bucketId}`,
+          command: p.command,
+          gpuCounterBuffer: opts.gpuCounterBuffer
         });
         if (drew) {
           anyDrew = true;
@@ -1500,7 +1576,9 @@ export class VisibilityPass {
         : passIndex > 0
           ? `Visibility/ID+Depth/pass-${passIndex}`
           : "Visibility/ID+Depth",
-      bindGroupLabel: `Visibility/BG0-meshlet-indirect-b${bucket?.bucketId ?? 0}`
+      bindGroupLabel: `Visibility/BG0-meshlet-indirect-b${bucket?.bucketId ?? 0}`,
+      command: p.command,
+      gpuCounterBuffer: opts.gpuCounterBuffer
     });
   }
 
@@ -1520,6 +1598,8 @@ export class VisibilityPass {
       clearTargets: boolean;
       label: string;
       bindGroupLabel: string;
+      command: ShadeGPUCommandContext | null;
+      gpuCounterBuffer: GPUBuffer | null;
     }
   ): boolean {
     const { drawList, meshlets } = p;
@@ -1532,6 +1612,21 @@ export class VisibilityPass {
       !meshlets.dataBuffer
     ) {
       return false;
+    }
+
+    if (p.command !== null && p.gpuCounterBuffer !== null) {
+      this.gpuListCounters.encode(
+        p.command,
+        listBuf,
+        p.gpuCounterBuffer,
+        {
+          primary: "selectedClusters",
+          secondary: "hwClusters",
+          triangleField: "hwTriangles",
+          trianglesPerElement: MESHLET_DRAW_VERTEX_COUNT / 3,
+          overflowBit: GPU_QUEUE_OVERFLOW_BITS.meshletList
+        }
+      );
     }
 
     const loadOp: GPULoadOp = p.clearTargets ? "clear" : "load";
@@ -1618,4 +1713,16 @@ export class VisibilityPass {
       .obtainView();
     return this.alphaNoiseView;
   }
+}
+
+function resolveGpuBuffer(value: unknown): GPUBuffer {
+  if (
+    value &&
+    typeof value === "object" &&
+    "size" in value &&
+    "usage" in value
+  ) {
+    return value as GPUBuffer;
+  }
+  throw new Error("VisibilityPass expected GPU counter buffer");
 }

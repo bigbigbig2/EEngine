@@ -1,0 +1,2198 @@
+{
+  "schemaVersion": 2,
+  "generatedBy": "tools/audit-shader-sources.mjs",
+  "sourceRoot": "src",
+  "method": {
+    "importGraph": "static relative TypeScript import graph",
+    "pipelineOwnerHeuristic": [
+      "render_pipelines.obtain/createRenderPipeline",
+      "compute_pipelines.obtain/createComputePipeline",
+      "RenderPipelineCache/ComputePipelineCache obtain",
+      "constructComputePass/constructRenderPass"
+    ],
+    "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
+  },
+  "shaderCount": 66,
+  "summary": {
+    "authored-live": 55,
+    "unknown": 6,
+    "dead": 5
+  },
+  "entries": [
+    {
+      "shader": "src/shaders/automatic_exposure.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/AutomaticExposurePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/AutomaticExposurePass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/AutomaticExposurePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/bloom.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/BloomPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/BloomPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/BloomPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/brick4_indirect.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/shaders/transparent_oit.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/TransparentOitPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/environment_ibl.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/environment_prefilter.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/EnvironmentPrefilterPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/EnvironmentPrefilterPass.ts",
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/EnvironmentPrefilterPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/gbuffer_encode.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/lighting_direct.ts",
+        "src/shaders/material_expand.ts",
+        "src/shaders/probe_gbuffer.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/render/passes/TransparentOitPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/hzb_reduce.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/HierarchicalZBuffer.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/HierarchicalZBuffer.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/HierarchicalZBuffer.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ibl_specular.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/IblSpecularPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/IblSpecularPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/IblSpecularPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/indirect_composite.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/IndirectCompositePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/IndirectCompositePass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/IndirectCompositePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/light_cluster.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/LightClusterPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/LightClusterPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/lighting_ch_oracle.ts",
+      "sourceKind": "oracle",
+      "classification": "unknown",
+      "directConsumers": [
+        "src/gpu/GPUMaterialContext.ts",
+        "src/render/passes/LightingPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/debug/BenchmarkHarness.ts",
+        "src/debug/BenchmarkRunController.ts",
+        "src/debug/FrameProfiler.ts",
+        "src/debug/GpuCounterCopyPass.ts",
+        "src/debug/GpuListCounterAccumulator.ts",
+        "src/framegraph/FrameGraph.ts",
+        "src/framegraph/GPUPerformanceTimer.ts",
+        "src/framegraph/index.ts",
+        "src/framegraph/ShadeGPUCommandContext.ts",
+        "src/gpu/AnimationDatabase.ts",
+        "src/gpu/Brick4LightMap.ts",
+        "src/gpu/EnvironmentPrefilterPass.ts",
+        "src/gpu/GeometryBlasPool.ts",
+        "src/gpu/GPUCollectionLimits.ts",
+        "src/gpu/GPUDatabase.ts",
+        "src/gpu/GPUIndexedRecordTable.ts",
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUMaterialContext.ts",
+        "src/gpu/GpuQueueEvidence.ts",
+        "src/gpu/GPUResidentMaterialContext.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/GPUSkinningManager.ts",
+        "src/gpu/GPUSkinningShaders.ts",
+        "src/gpu/GPUTextureAllocator.ts",
+        "src/gpu/GPUTextureContext.ts",
+        "src/gpu/GPUTextureManager.ts",
+        "src/gpu/GPUTextureUpload.ts",
+        "src/gpu/GPUTypedBuffer.ts",
+        "src/gpu/GPUVolumetrics.ts",
+        "src/gpu/GraphicsContext.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeAtlasBorderUpdatePass.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/LightProbeShProjectPass.ts",
+        "src/gpu/LightProbeShReducePass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MaterialMetadataTable.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/MeshletGpuPool.ts",
+        "src/gpu/MeshletGpuTable.ts",
+        "src/gpu/MipmapGenerator.ts",
+        "src/gpu/SceneDatabase.ts",
+        "src/gpu/SceneHierarchyUpdater.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/gpu/TopLevelAccelerationStructure.ts",
+        "src/index.ts",
+        "src/render/GPUCameraState.ts",
+        "src/render/HierarchicalZBuffer.ts",
+        "src/render/PackedCameraUniform.ts",
+        "src/render/passes/AutomaticExposurePass.ts",
+        "src/render/passes/BloomPass.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts",
+        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/IndirectCompositePass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/LightingPass.ts",
+        "src/render/passes/LpvIndirectDiffusePass.ts",
+        "src/render/passes/MaterialExpandPass.ts",
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/NeuralSuperSamplingPass.ts",
+        "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/SharpenPass.ts",
+        "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TonemapPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VelocityDebugPass.ts",
+        "src/render/passes/VelocityPass.ts",
+        "src/render/passes/VisibilityCounterPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/RenderTargets.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/GPUMaterialContext.ts",
+        "src/render/passes/LightingPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable, but oracle/generated ownership is unresolved."
+    },
+    {
+      "shader": "src/shaders/lighting_direct.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/transparent_oit.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/TransparentOitPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/lpv_indirect_diffuse.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/SceneDatabase.ts",
+        "src/render/GPUCameraState.ts",
+        "src/render/PackedCameraUniform.ts",
+        "src/render/passes/LpvIndirectDiffusePass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/shaders/brick4_indirect.ts",
+        "src/shaders/environment_ibl.ts",
+        "src/shaders/ibl_specular.ts",
+        "src/shaders/indirect_composite.ts",
+        "src/shaders/light_cluster.ts",
+        "src/shaders/lighting_direct.ts",
+        "src/shaders/material_expand.ts",
+        "src/shaders/occlusion_confidence.ts",
+        "src/shaders/path_tracer.ts",
+        "src/shaders/shadow_raster.ts",
+        "src/shaders/ssao.ts",
+        "src/shaders/ssr_common.ts",
+        "src/shaders/transparent_oit.ts",
+        "src/shaders/visibility_alpha_tested.ts",
+        "src/shaders/visibility_cull_common.ts",
+        "src/shaders/visibility_meshlet.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/AnimationDatabase.ts",
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/GPUSkinningManager.ts",
+        "src/gpu/GPUSkinningShaders.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneDatabase.ts",
+        "src/gpu/SceneHierarchyUpdater.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/GPUCameraState.ts",
+        "src/render/PackedCameraUniform.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts",
+        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/IndirectCompositePass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/LpvIndirectDiffusePass.ts",
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VelocityDebugPass.ts",
+        "src/render/passes/VelocityPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/AnimationDatabase.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSkinningManager.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneHierarchyUpdater.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts",
+        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/IndirectCompositePass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/LpvIndirectDiffusePass.ts",
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VelocityDebugPass.ts",
+        "src/render/passes/VelocityPass.ts",
+        "src/render/passes/VisibilityPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/material_bucket_wgsl.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/meshlet_bucket_ka.ts",
+        "src/shaders/meshlet_bucket_qb.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/material_depth_oracle.ts",
+      "sourceKind": "oracle",
+      "classification": "unknown",
+      "directConsumers": [
+        "src/gpu/GPUMaterialContext.ts"
+      ],
+      "runtimeConsumers": [
+        "src/debug/BenchmarkHarness.ts",
+        "src/debug/BenchmarkRunController.ts",
+        "src/debug/FrameProfiler.ts",
+        "src/debug/GpuCounterCopyPass.ts",
+        "src/debug/GpuListCounterAccumulator.ts",
+        "src/framegraph/FrameGraph.ts",
+        "src/framegraph/GPUPerformanceTimer.ts",
+        "src/framegraph/index.ts",
+        "src/framegraph/ShadeGPUCommandContext.ts",
+        "src/gpu/AnimationDatabase.ts",
+        "src/gpu/Brick4LightMap.ts",
+        "src/gpu/EnvironmentPrefilterPass.ts",
+        "src/gpu/GeometryBlasPool.ts",
+        "src/gpu/GPUCollectionLimits.ts",
+        "src/gpu/GPUDatabase.ts",
+        "src/gpu/GPUIndexedRecordTable.ts",
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUMaterialContext.ts",
+        "src/gpu/GpuQueueEvidence.ts",
+        "src/gpu/GPUResidentMaterialContext.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/GPUSkinningManager.ts",
+        "src/gpu/GPUSkinningShaders.ts",
+        "src/gpu/GPUTextureAllocator.ts",
+        "src/gpu/GPUTextureContext.ts",
+        "src/gpu/GPUTextureManager.ts",
+        "src/gpu/GPUTextureUpload.ts",
+        "src/gpu/GPUTypedBuffer.ts",
+        "src/gpu/GPUVolumetrics.ts",
+        "src/gpu/GraphicsContext.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeAtlasBorderUpdatePass.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/LightProbeShProjectPass.ts",
+        "src/gpu/LightProbeShReducePass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MaterialMetadataTable.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/MeshletGpuPool.ts",
+        "src/gpu/MeshletGpuTable.ts",
+        "src/gpu/MipmapGenerator.ts",
+        "src/gpu/SceneDatabase.ts",
+        "src/gpu/SceneHierarchyUpdater.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/gpu/TopLevelAccelerationStructure.ts",
+        "src/index.ts",
+        "src/render/GPUCameraState.ts",
+        "src/render/HierarchicalZBuffer.ts",
+        "src/render/PackedCameraUniform.ts",
+        "src/render/passes/AutomaticExposurePass.ts",
+        "src/render/passes/BloomPass.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts",
+        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/IndirectCompositePass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/LightingPass.ts",
+        "src/render/passes/LpvIndirectDiffusePass.ts",
+        "src/render/passes/MaterialExpandPass.ts",
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/NeuralSuperSamplingPass.ts",
+        "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/SharpenPass.ts",
+        "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TonemapPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VelocityDebugPass.ts",
+        "src/render/passes/VelocityPass.ts",
+        "src/render/passes/VisibilityCounterPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/RenderTargets.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/GPUMaterialContext.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable, but oracle/generated ownership is unresolved."
+    },
+    {
+      "shader": "src/shaders/material_expand_oracle.ts",
+      "sourceKind": "oracle",
+      "classification": "unknown",
+      "directConsumers": [
+        "src/gpu/GPUMaterialContext.ts"
+      ],
+      "runtimeConsumers": [
+        "src/debug/BenchmarkHarness.ts",
+        "src/debug/BenchmarkRunController.ts",
+        "src/debug/FrameProfiler.ts",
+        "src/debug/GpuCounterCopyPass.ts",
+        "src/debug/GpuListCounterAccumulator.ts",
+        "src/framegraph/FrameGraph.ts",
+        "src/framegraph/GPUPerformanceTimer.ts",
+        "src/framegraph/index.ts",
+        "src/framegraph/ShadeGPUCommandContext.ts",
+        "src/gpu/AnimationDatabase.ts",
+        "src/gpu/Brick4LightMap.ts",
+        "src/gpu/EnvironmentPrefilterPass.ts",
+        "src/gpu/GeometryBlasPool.ts",
+        "src/gpu/GPUCollectionLimits.ts",
+        "src/gpu/GPUDatabase.ts",
+        "src/gpu/GPUIndexedRecordTable.ts",
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUMaterialContext.ts",
+        "src/gpu/GpuQueueEvidence.ts",
+        "src/gpu/GPUResidentMaterialContext.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/GPUSkinningManager.ts",
+        "src/gpu/GPUSkinningShaders.ts",
+        "src/gpu/GPUTextureAllocator.ts",
+        "src/gpu/GPUTextureContext.ts",
+        "src/gpu/GPUTextureManager.ts",
+        "src/gpu/GPUTextureUpload.ts",
+        "src/gpu/GPUTypedBuffer.ts",
+        "src/gpu/GPUVolumetrics.ts",
+        "src/gpu/GraphicsContext.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeAtlasBorderUpdatePass.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/LightProbeShProjectPass.ts",
+        "src/gpu/LightProbeShReducePass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MaterialMetadataTable.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/MeshletGpuPool.ts",
+        "src/gpu/MeshletGpuTable.ts",
+        "src/gpu/MipmapGenerator.ts",
+        "src/gpu/SceneDatabase.ts",
+        "src/gpu/SceneHierarchyUpdater.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/gpu/TopLevelAccelerationStructure.ts",
+        "src/index.ts",
+        "src/render/GPUCameraState.ts",
+        "src/render/HierarchicalZBuffer.ts",
+        "src/render/PackedCameraUniform.ts",
+        "src/render/passes/AutomaticExposurePass.ts",
+        "src/render/passes/BloomPass.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts",
+        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/IndirectCompositePass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/LightingPass.ts",
+        "src/render/passes/LpvIndirectDiffusePass.ts",
+        "src/render/passes/MaterialExpandPass.ts",
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/NeuralSuperSamplingPass.ts",
+        "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/SharpenPass.ts",
+        "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TonemapPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VelocityDebugPass.ts",
+        "src/render/passes/VelocityPass.ts",
+        "src/render/passes/VisibilityCounterPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/RenderTargets.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/GPUMaterialContext.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable, but oracle/generated ownership is unresolved."
+    },
+    {
+      "shader": "src/shaders/material_expand.ts",
+      "sourceKind": "authored",
+      "classification": "dead",
+      "directConsumers": [],
+      "runtimeConsumers": [],
+      "pipelineOwners": [],
+      "generatorCandidates": [],
+      "deletionCandidate": true,
+      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
+    },
+    {
+      "shader": "src/shaders/material_sr.ts",
+      "sourceKind": "authored",
+      "classification": "dead",
+      "directConsumers": [],
+      "runtimeConsumers": [],
+      "pipelineOwners": [],
+      "generatorCandidates": [],
+      "deletionCandidate": true,
+      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
+    },
+    {
+      "shader": "src/shaders/mesh_instance_cull_dual.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/mesh_instance_cull.ts",
+      "sourceKind": "authored",
+      "classification": "dead",
+      "directConsumers": [],
+      "runtimeConsumers": [],
+      "pipelineOwners": [],
+      "generatorCandidates": [],
+      "deletionCandidate": true,
+      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
+    },
+    {
+      "shader": "src/shaders/meshlet_bucket_ka.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/meshlet_bucket_qb.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/meshlet_expand_counts.ts",
+      "sourceKind": "authored",
+      "classification": "dead",
+      "directConsumers": [],
+      "runtimeConsumers": [],
+      "pipelineOwners": [],
+      "generatorCandidates": [],
+      "deletionCandidate": true,
+      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
+    },
+    {
+      "shader": "src/shaders/meshlet_expand.ts",
+      "sourceKind": "authored",
+      "classification": "dead",
+      "directConsumers": [],
+      "runtimeConsumers": [],
+      "pipelineOwners": [],
+      "generatorCandidates": [],
+      "deletionCandidate": true,
+      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
+    },
+    {
+      "shader": "src/shaders/meshlet_hzb_cull_dual.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/meshlet_hzb_cull.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/meshlet_material_sort.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/shaders/meshlet_prefix_scan.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/meshlet_prefix_scan.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/meshlet_read.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/material_expand.ts",
+        "src/shaders/ray_query.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/render/passes/PathTracer.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/mipmap_filters.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/MipmapGenerator.ts"
+      ],
+      "runtimeConsumers": [
+        "src/debug/BenchmarkHarness.ts",
+        "src/debug/BenchmarkRunController.ts",
+        "src/debug/FrameProfiler.ts",
+        "src/debug/GpuCounterCopyPass.ts",
+        "src/debug/GpuListCounterAccumulator.ts",
+        "src/framegraph/FrameGraph.ts",
+        "src/framegraph/GPUPerformanceTimer.ts",
+        "src/framegraph/index.ts",
+        "src/framegraph/ShadeGPUCommandContext.ts",
+        "src/gpu/AnimationDatabase.ts",
+        "src/gpu/Brick4LightMap.ts",
+        "src/gpu/EnvironmentPrefilterPass.ts",
+        "src/gpu/GeometryBlasPool.ts",
+        "src/gpu/GPUCollectionLimits.ts",
+        "src/gpu/GPUDatabase.ts",
+        "src/gpu/GPUIndexedRecordTable.ts",
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUMaterialContext.ts",
+        "src/gpu/GpuQueueEvidence.ts",
+        "src/gpu/GPUResidentMaterialContext.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/GPUSkinningManager.ts",
+        "src/gpu/GPUSkinningShaders.ts",
+        "src/gpu/GPUTextureAllocator.ts",
+        "src/gpu/GPUTextureContext.ts",
+        "src/gpu/GPUTextureManager.ts",
+        "src/gpu/GPUTextureUpload.ts",
+        "src/gpu/GPUTypedBuffer.ts",
+        "src/gpu/GPUVolumetrics.ts",
+        "src/gpu/GraphicsContext.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeAtlasBorderUpdatePass.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/LightProbeShProjectPass.ts",
+        "src/gpu/LightProbeShReducePass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MaterialMetadataTable.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/MeshletGpuPool.ts",
+        "src/gpu/MeshletGpuTable.ts",
+        "src/gpu/MipmapGenerator.ts",
+        "src/gpu/SceneDatabase.ts",
+        "src/gpu/SceneHierarchyUpdater.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/gpu/TopLevelAccelerationStructure.ts",
+        "src/index.ts",
+        "src/render/GPUCameraState.ts",
+        "src/render/HierarchicalZBuffer.ts",
+        "src/render/PackedCameraUniform.ts",
+        "src/render/passes/AutomaticExposurePass.ts",
+        "src/render/passes/BloomPass.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/EnvironmentBackgroundPass.ts",
+        "src/render/passes/IblDiffusePass.ts",
+        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/IndirectCompositePass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/LightingPass.ts",
+        "src/render/passes/LpvIndirectDiffusePass.ts",
+        "src/render/passes/MaterialExpandPass.ts",
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/NeuralSuperSamplingPass.ts",
+        "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/SharpenPass.ts",
+        "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TonemapPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VelocityDebugPass.ts",
+        "src/render/passes/VelocityPass.ts",
+        "src/render/passes/VisibilityCounterPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/RenderTargets.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MipmapGenerator.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/motion_blur.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/MotionBlurPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/MotionBlurPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/nss.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/NeuralSuperSamplingPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/NeuralSuperSamplingPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/NeuralSuperSamplingPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/occlusion_confidence.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/OcclusionConfidencePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/OcclusionConfidencePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/oracle_visibility_work_generation.ts",
+      "sourceKind": "oracle",
+      "classification": "unknown",
+      "directConsumers": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable, but oracle/generated ownership is unresolved."
+    },
+    {
+      "shader": "src/shaders/path_tracer.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/PathTracer.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/PathTracer.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_atlas_border.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/LightProbeAtlasBorderUpdatePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeAtlasBorderUpdatePass.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/LightProbeAtlasBorderUpdatePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_depth_moments.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/LightProbeDepthUpdatePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/LightProbeDepthUpdatePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_gbuffer.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/LightProbeGBufferPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/LightProbeGBufferPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_indirect.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/LightProbeIndirectPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/LightProbeIndirectPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_legacy.generated.ts",
+      "sourceKind": "generated",
+      "classification": "unknown",
+      "directConsumers": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/index.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable, but oracle/generated ownership is unresolved."
+    },
+    {
+      "shader": "src/shaders/probe_placement.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/index.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_radiance_accumulate.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/LightProbeRadianceAccumulatePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/LightProbeRadianceAccumulatePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_sh_commit.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/LightProbeShCommitPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/LightProbeShCommitPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_sh_project.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeShProjectPass.ts",
+        "src/shaders/probe_sh_commit.ts",
+        "src/shaders/probe_sh_reduce.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/LightProbeShProjectPass.ts",
+        "src/gpu/LightProbeShReducePass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/LightProbeShProjectPass.ts",
+        "src/gpu/LightProbeShReducePass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/probe_sh_reduce.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/LightProbeShReducePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/LightProbeShReducePass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/LightProbeShReducePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ray_query.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/gpu/SceneSdf.ts",
+        "src/shaders/path_tracer.ts",
+        "src/shaders/probe_gbuffer.ts",
+        "src/shaders/probe_placement.ts",
+        "src/shaders/probe_radiance_accumulate.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeIndirectPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/LightProbeGBufferPass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/render/passes/PathTracer.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/shadow_raster.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ShadowRasterPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ShadowRasterPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/sharpen.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/SharpenPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/SharpenPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/SharpenPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssao.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssr_common.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/motion_blur.ts",
+        "src/shaders/ssr_composite.ts",
+        "src/shaders/ssr_denoise.ts",
+        "src/shaders/ssr_prefilter.ts",
+        "src/shaders/ssr_resolve.ts",
+        "src/shaders/ssr_trace.ts",
+        "src/shaders/velocity_debug.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/VelocityDebugPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/VelocityDebugPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssr_composite.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssr_denoise.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssr_prefilter.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssr_resolve_lpv.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssr_resolve.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/shaders/ssr_resolve_lpv.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssr_trace.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/taa.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/TemporalAntiAliasingPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/TemporalAntiAliasingPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/temporal_post_legacy.generated.ts",
+      "sourceKind": "generated",
+      "classification": "unknown",
+      "directConsumers": [
+        "src/shaders/automatic_exposure.ts",
+        "src/shaders/bloom.ts",
+        "src/shaders/sharpen.ts",
+        "src/shaders/taa.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/AutomaticExposurePass.ts",
+        "src/render/passes/BloomPass.ts",
+        "src/render/passes/SharpenPass.ts",
+        "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/AutomaticExposurePass.ts",
+        "src/render/passes/BloomPass.ts",
+        "src/render/passes/SharpenPass.ts",
+        "src/render/passes/TemporalAntiAliasingPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable, but oracle/generated ownership is unresolved."
+    },
+    {
+      "shader": "src/shaders/tonemap_hdr.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/TonemapPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/TonemapPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/TonemapPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/tonemap_sdr.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/TonemapPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/TonemapPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/TonemapPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/transparent_oit.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/TransparentOitPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/TransparentOitPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/velocity_debug.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/VelocityDebugPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/VelocityDebugPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/VelocityDebugPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/velocity.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/VelocityPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/VelocityPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/VelocityPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/visibility_alpha_tested.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/VisibilityPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/VisibilityPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/visibility_cull_common.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/mesh_instance_cull_dual.ts",
+        "src/shaders/mesh_instance_cull.ts",
+        "src/shaders/meshlet_hzb_cull_dual.ts",
+        "src/shaders/meshlet_hzb_cull.ts"
+      ],
+      "runtimeConsumers": [
+        "src/gpu/GPULightProbeVolume.ts",
+        "src/gpu/GPULightProbeVolumeRenderer.ts",
+        "src/gpu/GPUSceneContext.ts",
+        "src/gpu/GPUSceneManager.ts",
+        "src/gpu/LightDatabase.ts",
+        "src/gpu/LightProbeAtlas.ts",
+        "src/gpu/LightProbeDepthUpdatePass.ts",
+        "src/gpu/LightProbeRadianceAccumulatePass.ts",
+        "src/gpu/LightProbeShCommitPass.ts",
+        "src/gpu/MaterialMeshletDrawList.ts",
+        "src/gpu/MeshletDrawList.ts",
+        "src/gpu/SceneSdf.ts",
+        "src/gpu/ShadowContext.ts",
+        "src/index.ts",
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LightClusterPass.ts",
+        "src/render/passes/PathTracer.ts",
+        "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/TransparentOitPass.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts",
+        "src/render/ViewContext.ts",
+        "src/render/ViewManager.ts"
+      ],
+      "pipelineOwners": [
+        "src/gpu/MeshletDrawList.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/visibility_meshlet.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/VisibilityPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/VisibilityPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/VisibilityPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    }
+  ]
+}
