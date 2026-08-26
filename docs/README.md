@@ -18,6 +18,12 @@
 | 按任务实施、迁移和验收 | [implementation/README.md](./implementation/README.md) |
 | 查看长期决策 | [wiki/adr/README.md](./wiki/adr/README.md) |
 
+## 参考与移植
+
+- [GPU-DRIVEN-RESEARCH.md](./references/GPU-DRIVEN-RESEARCH.md)：按算法、源码入口、论文和 OEngine 任务映射的详细研究。
+- [OPEN-SOURCE-REUSE.md](./references/OPEN-SOURCE-REUSE.md)：开源实现复用、许可证、性能和 WebGPU 适配规范。
+- [GPU-DRIVEN.md](./references/GPU-DRIVEN.md)：已有参考项目映射和历史移植记录。
+
 ## 文档系统
 
 ```text

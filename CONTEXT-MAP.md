@@ -26,6 +26,12 @@
 - Agent 工作方法：`docs/wiki/agents/`
 - 外部项目映射：`docs/references/GPU-DRIVEN.md`
 
+## 研究与移植参考
+
+- 详细算法、源码入口、论文、基础库和候选迁移路径：docs/references/GPU-DRIVEN-RESEARCH.md。
+- 开源复用、许可证、性能和 WebGPU 适配门槛：docs/references/OPEN-SOURCE-REUSE.md。
+- 简要项目映射和已有 OEngine 移植记录：docs/references/GPU-DRIVEN.md。
+
 ## 本地参考边界
 
 - `three.js/examples/webgpu_compute_rasterizer*.html`：性能和算法基线。

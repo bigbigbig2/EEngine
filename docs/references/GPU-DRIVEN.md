@@ -2,6 +2,8 @@
 
 参考项目提供证据和设计对照，不自动决定 OEngine 实现。
 
+详细的算法拆解、源码入口、论文、基础库、迁移步骤和替代路线见 [GPU-DRIVEN-RESEARCH.md](./GPU-DRIVEN-RESEARCH.md)。开源实现复用、许可证、性能和 WebGPU 适配门槛见 [OPEN-SOURCE-REUSE.md](./OPEN-SOURCE-REUSE.md)。
+
 | 项目 | 主要学习对象 | 不能直接照搬 |
 |---|---|---|
 | three.js compute rasterizer | 最短 GPU LOD/work queue/SW-HW/resolve 闭环 | 单模型布局、固定巨型队列、低位宽 packed visibility |

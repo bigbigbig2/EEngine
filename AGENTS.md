@@ -28,6 +28,13 @@ three.js 的两个 compute rasterizer 示例只是 OEngine 必须达到的最低
 - 当前 reconstructed 实现不是不可推翻的权威。性能证据可以要求删除或重写现有 Visibility、HZB、Material Expand 和帧提交路径。
 - 具体算法、GPU 数据结构和 Shader 实现应先检查 `docs/references/GPU-DRIVEN.md` 已登记的开源项目；存在许可证兼容且经过验证的实现时，优先做可追溯移植，不凭空重写同一算法。移植必须记录上游仓库、commit/tag、源码路径、许可证、保留的不变量和为 WebGPU/OEngine 做出的差异。
 
+## 开源实现与算法复用
+
+- 开源复用优先适用于所有基础能力，不只适用于 GPU-driven：渲染算法、数学函数、PBR/BRDF、材质模型、资产解析、Meshlet/压缩、纹理格式、动画、ECS、验证和调试工具都必须先检索成熟开源实现、论文或官方规格。
+- 外部实现只能采用“直接依赖、可追溯局部移植、按规格独立实现、拒绝采用”四种状态；无许可证或许可证不兼容的代码只能做概念参考，不得复制、翻译或改写其表达性代码。
+- 详细搜索、许可证、源码入口、迁移记录、性能评估和 WebGPU 适配规则见 docs/references/OPEN-SOURCE-REUSE.md 与 docs/references/GPU-DRIVEN-RESEARCH.md。
+- 复用外部实现不豁免性能门禁；必须说明减少的工作、增加的资源/dispatch/branch 成本、fallback/lifecycle 语义，并用同条件 A/B/C 或局部 benchmark 证明。
+
 ## 代码与生成物
 
 - `OEngine/src/index.ts` 是公开 interface；内部 GPU、Pass、Shader 类型默认不向外泄漏。
