@@ -11,7 +11,7 @@ export const GPU_LIST_COUNTER_WORKGROUP_SIZE = 1;
 const DISABLED_COUNTER_INDEX = 0xffffffff;
 const MESHLET_LIST_HEADER_BYTES = 16;
 const MESHLET_LIST_ELEMENT_BYTES = 8;
-const PARAM_WORDS = 8;
+const PARAM_WORDS = 12;
 
 export const GPU_LIST_COUNTER_WGSL = /* wgsl */ `
 struct CounterParams {
@@ -22,7 +22,11 @@ struct CounterParams {
   overflow_bit: u32,
   capacity: u32,
   triangles_per_element: u32,
-  _padding: u32,
+  input_index: u32,
+  rejected_index: u32,
+  input_count: u32,
+  _padding0: u32,
+  _padding1: u32,
 };
 
 @group(0) @binding(0) var<storage, read> source: array<u32>;
@@ -44,6 +48,16 @@ fn main() {
     atomicAdd(
       &frame_counters[params.triangle_index],
       safe_count * params.triangles_per_element
+    );
+  }
+  if (params.input_index != ${DISABLED_COUNTER_INDEX}u) {
+    atomicAdd(&frame_counters[params.input_index], params.input_count);
+  }
+  if (params.rejected_index != ${DISABLED_COUNTER_INDEX}u) {
+    let accepted_count = min(raw_count, params.input_count);
+    atomicAdd(
+      &frame_counters[params.rejected_index],
+      params.input_count - accepted_count
     );
   }
   if (raw_count > params.capacity && params.overflow_bit != 0u) {
@@ -96,6 +110,9 @@ export interface GpuListCounterOptions {
   secondary?: GpuCounterFieldName;
   triangleField?: GpuCounterFieldName;
   trianglesPerElement?: number;
+  inputField?: GpuCounterFieldName;
+  rejectedField?: GpuCounterFieldName;
+  inputCount?: number;
   overflowBit: number;
   headerBytes?: number;
   elementBytes?: number;
@@ -134,6 +151,7 @@ export class GpuListCounterAccumulator {
     counters: GPUBuffer,
     options: GpuListCounterOptions
   ): void {
+    validateInputCounterOptions(options);
     const headerBytes = options.headerBytes ?? MESHLET_LIST_HEADER_BYTES;
     const elementBytes = options.elementBytes ?? MESHLET_LIST_ELEMENT_BYTES;
     const capacity = gpuListElementCapacity(
@@ -149,6 +167,9 @@ export class GpuListCounterAccumulator {
     params[4] = options.overflowBit >>> 0;
     params[5] = capacity >>> 0;
     params[6] = options.trianglesPerElement ?? 0;
+    params[7] = optionalCounterIndex(options.inputField);
+    params[8] = optionalCounterIndex(options.rejectedField);
+    params[9] = options.inputCount ?? 0;
     const paramsBuffer = command.allocateTransientBufferAndLoad(
       params.buffer,
       GPUBufferUsage.UNIFORM
@@ -192,6 +213,22 @@ function counterIndex(field: GpuCounterFieldName): number {
 
 function optionalCounterIndex(field: GpuCounterFieldName | undefined): number {
   return field === undefined ? DISABLED_COUNTER_INDEX : counterIndex(field);
+}
+
+function validateInputCounterOptions(options: GpuListCounterOptions): void {
+  const tracksInput = options.inputField !== undefined ||
+    options.rejectedField !== undefined;
+  if (!tracksInput && options.inputCount === undefined) return;
+  if (
+    !Number.isInteger(options.inputCount) ||
+    options.inputCount === undefined ||
+    options.inputCount < 0 ||
+    options.inputCount > 0xffffffff
+  ) {
+    throw new RangeError(
+      "inputCount must be a non-negative u32 when input/rejected fields are used"
+    );
+  }
 }
 
 function requireShadeCommandContext(value: unknown): ShadeGPUCommandContext {

@@ -1232,6 +1232,9 @@ export class VisibilityPass {
         opts.gpuCounterBuffer,
         {
           primary: "visibleInstances",
+          inputField: "candidateInstances",
+          rejectedField: "rejectedFrustum",
+          inputCount: opts.sceneDatabase.meshCount,
           overflowBit: GPU_QUEUE_OVERFLOW_BITS.sceneMeshList,
           elementBytes: Uint32Array.BYTES_PER_ELEMENT
         }

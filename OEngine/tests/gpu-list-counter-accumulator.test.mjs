@@ -26,6 +26,7 @@ test("GPU list accumulator targets dynamic counter ABI slots and submitted trian
     GPU_LIST_COUNTER_WGSL,
     /safe_count \* params\.triangles_per_element/
   );
+  assert.match(GPU_LIST_COUNTER_WGSL, /params\.input_count - accepted_count/);
   assert.match(GPU_LIST_COUNTER_WGSL, /atomicAdd\(&frame_counters\[params\.primary_index\]/);
   assert.match(
     GPU_LIST_COUNTER_WGSL,
@@ -102,6 +103,38 @@ test("FrameGraph list counters cover both LightCluster queues", () => {
   );
 });
 
+test("scene filter counter derives candidate and frustum-rejected rows", () => {
+  const graph = new FrameGraph("scene-filter-counter-test");
+  const visible = fakeBuffer(24);
+  visible.words[0] = 1;
+  const counters = fakeBuffer(256);
+  const visibleResource = graph.import_resource(
+    "visible scene rows",
+    { kind: "imported" },
+    visible
+  );
+  const counterResource = graph.import_resource(
+    "frame counters",
+    { kind: "imported" },
+    counters
+  );
+  addGpuListCounterPass(graph, visibleResource, counterResource, {
+    primary: "visibleInstances",
+    inputField: "candidateInstances",
+    rejectedField: "rejectedFrustum",
+    inputCount: 5,
+    overflowBit: GPU_QUEUE_OVERFLOW_BITS.sceneMeshList,
+    headerBytes: 16,
+    elementBytes: 4
+  });
+  graph.compile();
+  graph.execute(new FrameGraphContext({ encoder: fakeCommandContext() }));
+
+  assert.equal(counters.words[counterByteOffset("candidateInstances") / 4], 5);
+  assert.equal(counters.words[counterByteOffset("visibleInstances") / 4], 1);
+  assert.equal(counters.words[counterByteOffset("rejectedFrustum") / 4], 4);
+});
+
 function fakeBuffer(size) {
   return { size, usage: 0, words: new Uint32Array(size / 4) };
 }
@@ -127,6 +160,10 @@ function fakeCommandContext() {
           if (params[1] !== 0xffffffff) counters[params[1]] += safeCount;
           if (params[2] !== 0xffffffff) {
             counters[params[2]] += safeCount * params[6];
+          }
+          if (params[7] !== 0xffffffff) counters[params[7]] += params[9];
+          if (params[8] !== 0xffffffff) {
+            counters[params[8]] += params[9] - Math.min(source[0], params[9]);
           }
           if (source[0] > params[5]) counters[params[3]] |= params[4];
         },

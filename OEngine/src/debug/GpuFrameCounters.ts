@@ -16,12 +16,12 @@ export const GPU_QUEUE_OVERFLOW_BITS = {
 } as const;
 
 export const GPU_COUNTER_FIELDS = [
-  { name: "candidateInstances", index: 0, semantic: "instance-cull input" },
+  { name: "candidateInstances", index: 0, semantic: "scene GPU frustum-filter input rows across visibility jobs" },
   { name: "visibleInstances", index: 1, semantic: "scene GPU frustum-filter output rows" },
   { name: "visitedBvhNodes", index: 2, semantic: "hierarchy nodes visited" },
   { name: "candidateClusters", index: 3, semantic: "expanded cluster queue items across visibility waves" },
   { name: "selectedClusters", index: 4, semantic: "submitted raster queue items across visibility waves" },
-  { name: "rejectedFrustum", index: 5, semantic: "frustum rejects" },
+  { name: "rejectedFrustum", index: 5, semantic: "scene GPU frustum-filter rejected rows" },
   { name: "rejectedCone", index: 6, semantic: "cone rejects" },
   { name: "rejectedHzb", index: 7, semantic: "HZB rejects" },
   { name: "swClusters", index: 8, semantic: "software raster clusters" },
@@ -31,7 +31,7 @@ export const GPU_COUNTER_FIELDS = [
   { name: "hwTriangles", index: 12, semantic: "fixed-function raster primitives submitted" },
   { name: "shadedPixels", index: 13, semantic: "resolved visible pixels" },
   { name: "emptyVisibilityPixels", index: 14, semantic: "empty resolve pixels" },
-  { name: "activeMaterials", index: 15, semantic: "unique active materials" },
+  { name: "activeMaterials", index: 15, semantic: "non-transparent Material Expand fullscreen draws" },
   { name: "activeLights", index: 16, semantic: "active local lights" },
   { name: "queueOverflowMask", index: 17, semantic: "registered queue overflow bits" }
 ] as const;

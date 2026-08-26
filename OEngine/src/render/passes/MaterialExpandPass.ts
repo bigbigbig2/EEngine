@@ -4,6 +4,8 @@
 
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
+import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import { GpuCounterAtomicAdder } from "../../debug/GpuCounterAtomicAdder.js";
 import {
   MATERIAL_EXPAND_GROUP1,
   MATERIAL_EXPAND_GROUP2,
@@ -62,6 +64,7 @@ export type MaterialExpandInputs = {
   meshletData: ResourceId;
   view: ResourceId;
   camera: ResourceId;
+  counters?: ResourceId;
 };
 
 export type MaterialExpandGraphOutputs = {
@@ -70,6 +73,7 @@ export type MaterialExpandGraphOutputs = {
   gAlbedo: ResourceId;
   gEmissive: ResourceId;
   materialDepth: ResourceId;
+  counters: ResourceId | null;
 };
 
 export function resolveTextureView(
@@ -105,6 +109,7 @@ export function resolveDepthAttachmentView(resource: unknown): GPUTextureView {
  * 将可见性缓冲区中的几何与材质索引展开为完整表面属性，供后续光照阶段读取。
  */
 export class MaterialExpandPass {
+  private readonly gpuCounterAdder = new GpuCounterAtomicAdder();
   lastDrawCount = 0;
   lastSrRan = false;
   lastUsedNzRzSplit = false;
@@ -137,7 +142,8 @@ export class MaterialExpandPass {
       gNormal: -1,
       gAlbedo: -1,
       gEmissive: -1,
-      materialDepth: -1
+      materialDepth: -1,
+      counters: null
     };
 
     const builder = graph.add(
@@ -208,8 +214,9 @@ export class MaterialExpandPass {
         pass.setBindGroup(1, nz);
         pass.setBindGroup(2, rz);
         this.lastUsedNzRzSplit = true;
+        const drawableMaterials = this.collectMaterials(passJob);
         let previousPipeline: GPURenderPipeline | null = null;
-        for (const material of this.collectMaterials(passJob)) {
+        for (const material of drawableMaterials) {
           const pipeline = material.pipeline;
           if (pipeline === null) continue;
           if (previousPipeline !== pipeline) {
@@ -224,6 +231,14 @@ export class MaterialExpandPass {
           }
         }
         pass.end();
+        if (inputs.counters !== undefined) {
+          this.gpuCounterAdder.encode(
+            requireShadeCommandContext(context.encoder),
+            buffer(resources.get(inputs.counters)),
+            "activeMaterials",
+            this.lastDrawCount
+          );
+        }
       }
     );
 
@@ -252,7 +267,12 @@ export class MaterialExpandPass {
           GPUTextureUsage.TEXTURE_BINDING
       )
     );
-    for (const resource of Object.values(inputs)) builder.read(resource);
+    for (const resource of Object.values(inputs)) {
+      if (resource !== undefined) builder.read(resource);
+    }
+    outputs.counters = inputs.counters === undefined
+      ? null
+      : builder.write(inputs.counters);
     builder.make_side_effect();
     return outputs;
   }
@@ -310,6 +330,18 @@ function buffer(value: unknown): GPUBuffer {
     return value as GPUBuffer;
   }
   throw new Error("MaterialExpandPass: expected GPUBuffer");
+}
+
+function requireShadeCommandContext(value: unknown): ShadeGPUCommandContext {
+  if (
+    value &&
+    typeof value === "object" &&
+    "allocateTransientBufferAndLoad" in value &&
+    "constructComputePass" in value
+  ) {
+    return value as ShadeGPUCommandContext;
+  }
+  throw new Error("MaterialExpandPass: GPU counters require ShadeGPUCommandContext");
 }
 
 function colorAttachment(view: GPUTextureView): GPURenderPassColorAttachment {

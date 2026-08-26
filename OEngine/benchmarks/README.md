@@ -133,14 +133,17 @@ shadedPixels + emptyVisibilityPixels
 
 LightCluster 的 frustum-visible 与 HZB-filtered 两级 list 都通过同一 GPU reducer 检查 overflow，filtered list 另外输出 `activeLights`：它表示通过 GPU frustum + HZB filter、实际可由列表容纳并送入 cluster assign 的 Point/Spot light 数量，不包含 DirectionalLight。两级列表都是 4-byte count header + `u32` elements，capacity 从 64 KiB Buffer 的实际尺寸推导为 16,383；任一级 raw count 超容量都会设置 `queueOverflowMask` bit 3。
 
-现有 Visibility GPU list 会在采样帧直接累计 `visibleInstances`、`candidateClusters`、`selectedClusters`、`hwClusters`、`alphaClusters` 和 `hwTriangles`。计数器以 Buffer size、16-byte header 与元素 stride 推导 capacity，只累计实际可容纳的 safe count；scene-mesh/meshlet raw count 超容量时分别设置 `queueOverflowMask` bit 0/1。`visibleInstances` 是 initial/second-chance/alpha 等实际 Visibility job 的 GPU scene-filter 输出 row 总和；cluster 字段同样是所有真实 wave/bucket 的队列项总和，均不声明跨 wave 唯一；`hwTriangles` 是固定功能路径提交的 primitive，当前满足：
+Material Expand 在采样帧结束实际 draw 循环后，通过 GPU atomic add 输出 `activeMaterials`。该字段精确定义为已构建、非透明、实际编码了一次全屏 Material Expand draw 的去重材质数；它不是最终可见像素中出现的材质数。当前每增加 1 就意味着本帧多一次全屏 GBuffer 扫描，可直接暴露旧材质路径的固定成本。
+
+现有 Visibility GPU list 会在采样帧直接累计 `candidateInstances`、`visibleInstances`、`rejectedFrustum`、cluster/HW 工作量。计数器以 Buffer size、16-byte header 与元素 stride 推导 capacity，只累计实际可容纳的 safe count；scene-mesh/meshlet raw count 超容量时分别设置 `queueOverflowMask` bit 0/1。前三个 instance 字段仅描述 GPU scene frustum filter：candidate 是所有执行 job 的输入 row 总和，visible 是输出 safe count，rejected 是未通过 sphere/AABB frustum test 的 row；initial/second-chance/alpha 可重复出现同一逻辑 instance。cluster 字段同样是所有真实 wave/bucket 的队列项总和，均不声明跨 wave 唯一；`hwTriangles` 是固定功能路径提交的 primitive。无 overflow 时满足：
 
 ```text
+candidateInstances == visibleInstances + rejectedFrustum
 selectedClusters == hwClusters + alphaClusters
 hwTriangles == selectedClusters × 128
 ```
 
-非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。`candidateInstances`、reject reason、SW raster、active material 和 material overflow producer 仍是 Partial。
+非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。cone/HZB reject reason、SW raster 和 material overflow producer 仍是 Partial。
 
 ## Shader source 审计
 
@@ -155,5 +158,5 @@ npm run audit:shaders
 - A：160k Teapot 的同资产/同相机/同输出对齐页面。
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- GPU pass producer：`candidateInstances`、reject reason、SW raster、active material 与 material overflow bit。
+- GPU pass producer：cone/HZB reject reason、SW raster 与 material overflow bit。
 - VisibilityKey、HZB mip、reject reason、material ID 等统一 debug views。

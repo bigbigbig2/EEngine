@@ -172,23 +172,29 @@ async function run(): Promise<void> {
   const invalidCounterSamples = counterSamples.filter((frame) => {
     const counters = frame.gpuCounters.values;
     const required = [
+      "candidateInstances",
       "visibleInstances",
       "candidateClusters",
       "selectedClusters",
       "hwClusters",
       "alphaClusters",
       "hwTriangles",
+      "rejectedFrustum",
       "shadedPixels",
       "emptyVisibilityPixels",
+      "activeMaterials",
       "activeLights",
       "queueOverflowMask"
     ] as const;
     if (required.some((field) => counters[field] === undefined)) return true;
     return counters.shadedPixels! + counters.emptyVisibilityPixels! !==
         expectedPixelCount ||
+      counters.candidateInstances !==
+        counters.visibleInstances! + counters.rejectedFrustum! ||
       counters.selectedClusters !==
         counters.hwClusters! + counters.alphaClusters! ||
       counters.hwTriangles !== counters.selectedClusters! * 128 ||
+      counters.activeMaterials !== 1 ||
       counters.activeLights !== 0 ||
       counters.queueOverflowMask !== 0;
   });

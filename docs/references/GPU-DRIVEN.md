@@ -91,7 +91,7 @@ source: src/sys_web/stats.ts
 license: MIT
 scope: 参考 Rendered/Hardware/Software triangle 与 cluster 工作量字段的可解释语义；没有复制 reducer 或队列实现
 retained invariants: 工作量统计来自 GPU producer/consumer 的真实队列；HW triangle 表示送入硬件路径的 primitive；overflow 不能静默
-OEngine adaptations: 采样帧以 1-workgroup GPU reducer读取 count-prefixed queue raw count，根据真实 Buffer size、header 与 element stride 推导 capacity，并原子累加到固定 counter ABI；HW/alpha 当前按 drawIndirect 固定 384 vertices 换算为每 Meshlet 128 个 submitted primitives；同一 reducer 也覆盖 4-byte header 的 LightCluster filtered list
+OEngine adaptations: 采样帧以 1-workgroup GPU reducer读取 count-prefixed queue raw count，根据真实 Buffer size、header 与 element stride 推导 capacity，并原子累加到固定 counter ABI；scene filter 额外使用实际 dispatch 输入 row 数推导 candidate/accepted/frustum-rejected 不变量；HW/alpha 当前按 drawIndirect 固定 384 vertices 换算为每 Meshlet 128 个 submitted primitives；同一 reducer 也覆盖 4-byte header 的 LightCluster filtered list
 semantic differences: 上游统计围绕其 hierarchy/SW-HW pipeline；OEngine 当前还没有 SW raster/hierarchy，candidateClusters 是现有所有 visibility wave/bucket 的队列项总和，不声明唯一 cluster；queueOverflowMask 使用稳定 bit ABI，目前接通 scene-mesh、meshlet 与 light list
 local regression: OEngine/tests/gpu-list-counter-accumulator.test.mjs、examples/r0-frame-smoke
 ```

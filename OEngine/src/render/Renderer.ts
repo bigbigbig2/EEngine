@@ -812,12 +812,14 @@ export class Renderer {
             { meshId: meshIdRes, counters: gpuCounterRes }
           );
           this._profiler.registerGpuCounterFields([
+            "candidateInstances",
             "visibleInstances",
             "candidateClusters",
             "selectedClusters",
             "hwClusters",
             "alphaClusters",
             "hwTriangles",
+            "rejectedFrustum",
             "shadedPixels",
             "emptyVisibilityPixels",
             "queueOverflowMask"
@@ -856,9 +858,14 @@ export class Renderer {
             meshletHeaders: meshletHeadersRes,
             meshletData: meshletDataRes,
             view: viewUniformRes,
-            camera: currentCameraRes
+            camera: currentCameraRes,
+            counters: gpuCounterRes ?? undefined
           }
         );
+        if (matOut.counters !== null) {
+          gpuCounterRes = matOut.counters;
+          this._profiler.registerGpuCounterFields(["activeMaterials"]);
+        }
         let gPbrRes = matOut.gPbr;
         let gNormalRes = matOut.gNormal;
         let gAlbedoRes = matOut.gAlbedo;

@@ -97,7 +97,9 @@ shadedPixels + emptyVisibilityPixels
 
 | 字段 | 当前精确定义 |
 |---|---|
+| `candidateInstances` | 所有实际执行的 Visibility job 中，GPU scene frustum filter 接收的有效 mesh row 累计数；不是唯一 Application World instance 数 |
 | `visibleInstances` | 所有实际执行的 Visibility job 中，GPU scene frustum filter 输出 mesh row 的累计数；initial、second-chance、alpha job 可重复出现同一逻辑 instance，因此不是唯一 Application World instance 数 |
+| `rejectedFrustum` | `candidateInstances` 中未通过 scene sphere/AABB frustum test 的累计 row 数；不包含后续 instance/cluster HZB 或 cone reject |
 | `candidateClusters` | 所有实际 Visibility wave/bucket 中 expand 后、进入 cluster/HZB cull 的队列项总和；可能包含 second-chance/alpha wave 的重复逻辑 cluster |
 | `selectedClusters` | 实际送入 opaque、second-chance 与 alpha hardware raster draw list 的队列项总和 |
 | `hwClusters` | opaque/second-chance hardware raster list 的队列项总和 |
@@ -110,9 +112,12 @@ shadedPixels + emptyVisibilityPixels
 ```text
 selectedClusters == hwClusters + alphaClusters
 hwTriangles == selectedClusters × 128
+candidateInstances == visibleInstances + rejectedFrustum
 ```
 
-`candidateInstances`、frustum/cone/HZB reject reason、SW raster 与 active material producer 仍未接线，因此 `OBS-05` 保持 `Partial`。
+第四个真实 producer 是 `activeMaterials`。Material Expand 对 `SceneInstances.materials` 的去重材质集合过滤透明和未构建 context，并为剩余每项实际编码一个全屏 GBuffer draw；采样帧在 draw loop 结束后用 `GpuCounterAtomicAdder` 把真实 `lastDrawCount` 写入 Counter ABI。该字段衡量当前按材质重复全屏扫描的 GPU 工作，不声称这些材质最终都有可见像素。
+
+cone/HZB reject reason、SW raster 与 material overflow producer 仍未接线，因此 `OBS-05` 保持 `Partial`。
 
 ### Timestamp contract
 
@@ -220,7 +225,7 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 
 先覆盖现有 instance、meshlet、draw、material 和 light 路径。所有 counter 定义是“输入”“通过”还是“唯一项”必须写入 schema，避免重复累计后无法比较。
 
-状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；最终 Visibility Buffer 已真实产生 `shadedPixels`/`emptyVisibilityPixels`，LightCluster filtered list 已产生带 overflow 证据的 `activeLights`，Visibility GPU list 已产生 `visibleInstances`、cluster/HW 工作量与 scene-mesh/meshlet overflow。`candidateInstances`、reject reason、SW raster、active material 与 material overflow 等 producer 尚未接入；字段缺失是“未接入”，不是“工作量为零”。
+状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；最终 Visibility Buffer 已产生像素统计，LightCluster 已产生带 overflow 证据的 `activeLights`，Visibility GPU list 已产生 instance/frustum/cluster/HW 工作量，Material Expand 已产生实际全屏 draw 数 `activeMaterials`。cone/HZB reject、SW raster 与 material overflow 等 producer 尚未接入；字段缺失是“未接入”，不是“工作量为零”。
 
 ### OBS-06 · 建立 debug views
 
