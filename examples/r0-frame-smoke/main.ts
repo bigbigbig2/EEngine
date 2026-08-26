@@ -19,9 +19,13 @@ import {
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
+declare const __BUILD_DIRTY_REASONS__: string[];
 
 const WARMUP_FRAMES = 8;
 const SAMPLE_FRAMES = 24;
+const GPU_SAMPLE_INTERVAL = 4;
+const GPU_COUNTER_SAMPLE_INTERVAL = 4;
+const READBACK_RING_SLOTS = 3;
 const GRID_SIZE = 9;
 
 const canvas = requiredElement<HTMLCanvasElement>("gpu-canvas");
@@ -71,7 +75,9 @@ async function run(): Promise<void> {
   configureComparablePipeline(renderer);
   renderer.profiler.configure({
     enabled: true,
-    gpuSampleInterval: 4,
+    gpuSampleInterval: GPU_SAMPLE_INTERVAL,
+    gpuCounterSampleInterval: GPU_COUNTER_SAMPLE_INTERVAL,
+    readbackRingSlots: READBACK_RING_SLOTS,
     historyCapacity: WARMUP_FRAMES + SAMPLE_FRAMES + 8
   });
 
@@ -79,7 +85,11 @@ async function run(): Promise<void> {
   const camera = createCamera(renderer.aspect_ratio);
   const output = renderer.output_resolution;
   const environment = createEnvironmentManifest({
-    engine: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__ },
+    engine: {
+      commit: __BUILD_COMMIT__,
+      dirty: __BUILD_DIRTY__,
+      dirtyReasons: __BUILD_DIRTY_REASONS__
+    },
     platform: {
       os: navigator.platform || "unknown",
       browser: navigator.userAgent,
@@ -99,6 +109,7 @@ async function run(): Promise<void> {
       dpr: 1
     },
     run: {
+      baselineRole: "frame-smoke",
       featureSet: [
         "hardware-visibility",
         "material-expand",
@@ -106,7 +117,10 @@ async function run(): Promise<void> {
         "ibl"
       ],
       warmupFrames: WARMUP_FRAMES,
-      sampleFrames: SAMPLE_FRAMES
+      sampleFrames: SAMPLE_FRAMES,
+      gpuSampleInterval: GPU_SAMPLE_INTERVAL,
+      gpuCounterSampleInterval: GPU_COUNTER_SAMPLE_INTERVAL,
+      readbackRingSlots: READBACK_RING_SLOTS
     }
   });
   const controller = new BenchmarkRunController(renderer.profiler, environment, {
@@ -130,7 +144,10 @@ async function run(): Promise<void> {
     onProgress: (progress) => {
       frames.textContent = `${progress.measuredFrames} / ${SAMPLE_FRAMES}`;
       if (progress.pendingGpuFrames > 0) {
-        detail.textContent = `${adapterDescription(renderer.adapter_info)} · 等待 ${progress.pendingGpuFrames} 个 GPU 样本`;
+        detail.textContent = [
+          adapterDescription(renderer.adapter_info),
+          `等待 ${progress.pendingGpuFrames} 个 GPU 样本`
+        ].join(" · ");
       }
     }
   });
@@ -146,9 +163,20 @@ async function run(): Promise<void> {
   submitMean.textContent = summary.submits.mean.toFixed(2);
   resultOutput.textContent = serializeBenchmarkResult(completedResult);
   download.disabled = false;
-  status.textContent = "采集完成";
-  detail.textContent = `${adapterDescription(renderer.adapter_info)} · ${GRID_SIZE * GRID_SIZE} instances`;
-  statusDot.classList.add("ok");
+  const diagnostics = completedResult.diagnostics;
+  const failed = diagnostics.validationErrorCount > 0 ||
+    diagnostics.uncapturedErrorCount > 0 ||
+    diagnostics.deviceLostCount > 0 ||
+    diagnostics.droppedGpuCounterSamples > 0 ||
+    diagnostics.failedGpuCounterSamples > 0;
+  status.textContent = failed ? "采集完成（存在错误）" : "采集完成";
+  detail.textContent = [
+    adapterDescription(renderer.adapter_info),
+    `${GRID_SIZE * GRID_SIZE} instances`,
+    `uncaptured=${diagnostics.uncapturedErrorCount}`,
+    `deviceLost=${diagnostics.deviceLostCount}`
+  ].join(" · ");
+  statusDot.classList.add(failed ? "error" : "ok");
 }
 
 function createScene(): Scene {

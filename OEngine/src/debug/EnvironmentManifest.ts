@@ -1,11 +1,12 @@
 /** Version of the JSON contract shared by OEngine benchmark artifacts. */
-export const BENCHMARK_RESULT_SCHEMA_VERSION = 1;
+export const BENCHMARK_RESULT_SCHEMA_VERSION = 2;
 
 export type BenchmarkPowerPreference = GPUPowerPreference | "unknown";
 
 export interface BenchmarkEngineIdentity {
   commit: string;
   dirty: boolean;
+  dirtyReasons: string[];
 }
 
 export interface BenchmarkPlatformIdentity {
@@ -19,7 +20,15 @@ export interface BenchmarkAdapterIdentity {
   architecture: string;
   device: string;
   description: string;
+  driver?: string | null;
 }
+
+export type BenchmarkBaselineRole =
+  | "observability-smoke"
+  | "frame-smoke"
+  | "minimum-a"
+  | "minimum-b"
+  | "engine-generality-c";
 
 export interface BenchmarkWebGpuEnvironmentInput {
   features: Iterable<string>;
@@ -36,9 +45,13 @@ export interface BenchmarkFrameEnvironment {
 }
 
 export interface BenchmarkRunEnvironmentInput {
+  baselineRole: BenchmarkBaselineRole;
   featureSet: Iterable<string>;
   warmupFrames: number;
   sampleFrames: number;
+  gpuSampleInterval: number;
+  gpuCounterSampleInterval: number;
+  readbackRingSlots: number;
 }
 
 export interface BenchmarkEnvironmentInput {
@@ -65,9 +78,13 @@ export interface BenchmarkEnvironmentManifest {
   };
   frame: BenchmarkFrameEnvironment;
   run: {
+    baselineRole: BenchmarkBaselineRole;
     featureSet: string[];
     warmupFrames: number;
     sampleFrames: number;
+    gpuSampleInterval: number;
+    gpuCounterSampleInterval: number;
+    readbackRingSlots: number;
   };
 }
 
@@ -129,7 +146,8 @@ export function captureGpuAdapterIdentity(
     vendor: info.vendor,
     architecture: info.architecture,
     device: info.device,
-    description: info.description
+    description: info.description,
+    driver: null
   };
 }
 
@@ -141,6 +159,9 @@ export function createEnvironmentManifest(
   input: BenchmarkEnvironmentInput
 ): BenchmarkEnvironmentManifest {
   assertNonEmpty(input.engine.commit, "engine.commit");
+  if (input.engine.dirty !== (input.engine.dirtyReasons.length > 0)) {
+    throw new RangeError("engine.dirty must match engine.dirtyReasons");
+  }
   assertNonEmpty(input.platform.os, "platform.os");
   assertNonEmpty(input.platform.browser, "platform.browser");
   assertPositiveInteger(input.frame.canvasWidth, "frame.canvasWidth");
@@ -150,6 +171,16 @@ export function createEnvironmentManifest(
   assertPositiveNumber(input.frame.dpr, "frame.dpr");
   assertNonNegativeInteger(input.run.warmupFrames, "run.warmupFrames");
   assertPositiveInteger(input.run.sampleFrames, "run.sampleFrames");
+  assertPositiveInteger(input.run.gpuSampleInterval, "run.gpuSampleInterval");
+  assertPositiveInteger(
+    input.run.gpuCounterSampleInterval,
+    "run.gpuCounterSampleInterval"
+  );
+  assertPositiveInteger(input.run.readbackRingSlots, "run.readbackRingSlots");
+  if (input.run.readbackRingSlots < 3) {
+    throw new RangeError("run.readbackRingSlots must be at least 3");
+  }
+  assertBaselineRole(input.run.baselineRole);
 
   const features = canonicalStrings(input.webgpu.features);
   const featureSet = canonicalStrings(input.run.featureSet);
@@ -162,9 +193,15 @@ export function createEnvironmentManifest(
   return {
     schemaVersion: BENCHMARK_RESULT_SCHEMA_VERSION,
     capturedAt,
-    engine: { ...input.engine },
+    engine: {
+      commit: input.engine.commit,
+      dirty: input.engine.dirty,
+      dirtyReasons: canonicalStrings(input.engine.dirtyReasons)
+    },
     platform: { ...input.platform },
-    adapter: input.adapter === null ? null : { ...input.adapter },
+    adapter: input.adapter === null
+      ? null
+      : { ...input.adapter, driver: input.adapter.driver ?? null },
     webgpu: {
       features,
       limits,
@@ -173,9 +210,13 @@ export function createEnvironmentManifest(
     },
     frame: { ...input.frame },
     run: {
+      baselineRole: input.run.baselineRole,
       featureSet,
       warmupFrames: input.run.warmupFrames,
-      sampleFrames: input.run.sampleFrames
+      sampleFrames: input.run.sampleFrames,
+      gpuSampleInterval: input.run.gpuSampleInterval,
+      gpuCounterSampleInterval: input.run.gpuCounterSampleInterval,
+      readbackRingSlots: input.run.readbackRingSlots
     }
   };
 }
@@ -216,5 +257,18 @@ function assertPositiveInteger(value: number, field: string): void {
 function assertNonNegativeInteger(value: number, field: string): void {
   if (!Number.isInteger(value) || value < 0) {
     throw new RangeError(`${field} must be a non-negative integer`);
+  }
+}
+
+function assertBaselineRole(value: BenchmarkBaselineRole): void {
+  const roles: readonly BenchmarkBaselineRole[] = [
+    "observability-smoke",
+    "frame-smoke",
+    "minimum-a",
+    "minimum-b",
+    "engine-generality-c"
+  ];
+  if (!roles.includes(value)) {
+    throw new RangeError(`run.baselineRole '${value}' is not supported`);
   }
 }

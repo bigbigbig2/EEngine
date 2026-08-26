@@ -108,7 +108,7 @@ export class BenchmarkRunController {
             finishPendingWait = null;
             reject(
               new Error(
-                `Timed out waiting for ${this.harness.pendingGpuFrameCount} GPU timestamp frame(s)`
+                `Timed out waiting for ${this.harness.pendingGpuFrameCount} delayed GPU evidence frame(s)`
               )
             );
           }, gpuWaitTimeoutMs);
@@ -120,7 +120,7 @@ export class BenchmarkRunController {
         });
       }
 
-      const result = this.harness.complete();
+      const result = this.harness.complete(this.profiler.diagnostics);
       this.stateValue = "completed";
       emitProgress();
       return result;

@@ -80,6 +80,8 @@ examples/
 
 Owner 是 `FrameProfiler`。每帧在主 encoder 内清零，由 GPU pass 原子累加。counter 不参与当前帧 CPU 决策。
 
+当前落地 ABI 为 `schemaVersion=1`、总长 256 bytes，字段索引固定在 `OEngine/src/debug/GpuFrameCounters.ts`。`FrameProfiler.copyGpuCounter()` 是 producer 的唯一登记入口：结果只导出本帧实际登记过的字段，尚未接线的 producer 保持字段缺失，不以 0 冒充真实统计。ABI buffer、清零、采样 copy 和归档已接入主帧；Visibility、Lighting、resolve 等具体 GPU producer 仍属 `OBS-05 Partial`。
+
 ### Timestamp contract
 
 至少标记：
@@ -111,6 +113,16 @@ post
 - 稳定非采样帧不编码 counter/timestamp copy，不创建 readback buffer，不等待 Promise。
 - 采样延迟允许跨帧，结果按原始 frame index 归档。
 - ring 满时丢弃本次采样并增加 `droppedSamples`，不得阻塞渲染帧。
+
+当前 `GpuReadbackRing` 已实现固定至少三槽、主 encoder 内 copy、submit 后 `mapAsync`、按 frame index 回填、满环丢样本，以及 map 失败后释放槽位。结果 Schema v2 通过 `diagnostics.droppedGpuCounterSamples` 与 `failedGpuCounterSamples` 显式保存异常；控制器会同时等待 timestamp 和 counter 的延迟结果。
+
+### Result Schema v2
+
+- `environment.engine` 保存 commit、dirty 和逐项 `dirtyReasons`。
+- `environment.adapter.driver` 在浏览器无法提供时必须为 `null`，不能伪造。
+- `environment.run` 固定 `baselineRole`、timestamp/counter cadence 与 readback ring slots。
+- 每帧分别保存 CPU counters、GPU counters、timestamp、submit/readback/upload 和 graph 证据。
+- 顶层 `diagnostics` 保存 validation、uncaptured error、device lost、counter dropped/failed；smoke 页面任一 dropped/failed 样本都显示错误状态。
 
 ## Benchmark 场景
 
@@ -145,10 +157,12 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 
 ### 当前落地进度（2026-08-26）
 
-- 已有 environment/result schema、CPU timeline、submit/readback/upload 入口、可选 GPU timestamp 与 P50/P95/P99 汇总。
-- `BenchmarkRunController` 已统一 warm-up、采样帧调度和延迟 GPU 结果收尾。
+- 已有 Result Schema v2、CPU timeline、submit/readback/upload、可选 GPU timestamp、GPU counter ABI 与 P50/P95/P99 汇总。
+- `BenchmarkRunController` 已统一 warm-up、采样帧调度，并同时等待 timestamp/counter 延迟结果收尾。
+- 256-byte counter buffer 与至少三槽的非阻塞异步 readback ring 已进入真实 `Renderer.render()`；profiler 关闭时不分配 counter/ring 资源。
+- HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
-- 尚未完成 A/B/C 对齐场景、正式 GPU counter buffer/三槽 ring、debug views、浏览器控制台/截图验收和真实性能 artifact，因此 G0 仍未通过。
+- 尚未完成 A/B/C 对齐场景、具体 GPU pass counter producer、debug views、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
 
 ### OBS-01 · 冻结运行环境清单
 
@@ -171,6 +185,8 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 ### OBS-05 · 接通工作量 counters
 
 先覆盖现有 instance、meshlet、draw、material 和 light 路径。所有 counter 定义是“输入”“通过”还是“唯一项”必须写入 schema，避免重复累计后无法比较。
+
+状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；各 GPU pass 的 source buffer/atomic producer 尚未逐项接到 `copyGpuCounter()`，因此当前 JSON 的 `gpuCounters.values` 为空是“未接入”，不是“工作量为零”。
 
 ### OBS-06 · 建立 debug views
 

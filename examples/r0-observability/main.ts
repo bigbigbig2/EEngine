@@ -10,9 +10,13 @@ import {
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
+declare const __BUILD_DIRTY_REASONS__: string[];
 
 const WARMUP_FRAMES = 4;
 const SAMPLE_FRAMES = 20;
+const GPU_SAMPLE_INTERVAL = 1000;
+const GPU_COUNTER_SAMPLE_INTERVAL = 1000;
+const READBACK_RING_SLOTS = 3;
 
 const canvas = requiredElement<HTMLCanvasElement>("gpu-canvas");
 const status = requiredElement<HTMLElement>("status");
@@ -60,13 +64,19 @@ async function run(): Promise<void> {
   await renderer.initialize({ context, pixelRatio: 1 });
   renderer.profiler.configure({
     enabled: true,
-    gpuSampleInterval: 1000,
+    gpuSampleInterval: GPU_SAMPLE_INTERVAL,
+    gpuCounterSampleInterval: GPU_COUNTER_SAMPLE_INTERVAL,
+    readbackRingSlots: READBACK_RING_SLOTS,
     historyCapacity: WARMUP_FRAMES + SAMPLE_FRAMES + 4
   });
 
   const output = renderer.output_resolution;
   const environment = createEnvironmentManifest({
-    engine: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__ },
+    engine: {
+      commit: __BUILD_COMMIT__,
+      dirty: __BUILD_DIRTY__,
+      dirtyReasons: __BUILD_DIRTY_REASONS__
+    },
     platform: {
       os: navigator.platform || "unknown",
       browser: navigator.userAgent,
@@ -86,9 +96,13 @@ async function run(): Promise<void> {
       dpr: 1
     },
     run: {
+      baselineRole: "observability-smoke",
       featureSet: ["graphics-update-observability-smoke"],
       warmupFrames: WARMUP_FRAMES,
-      sampleFrames: SAMPLE_FRAMES
+      sampleFrames: SAMPLE_FRAMES,
+      gpuSampleInterval: GPU_SAMPLE_INTERVAL,
+      gpuCounterSampleInterval: GPU_COUNTER_SAMPLE_INTERVAL,
+      readbackRingSlots: READBACK_RING_SLOTS
     }
   });
   const controller = new BenchmarkRunController(renderer.profiler, environment, {
@@ -121,9 +135,21 @@ async function run(): Promise<void> {
   uploadP50.textContent = formatBytes(summary.uploadBytes.p50);
   resultOutput.textContent = serializeBenchmarkResult(completedResult);
   download.disabled = false;
-  status.textContent = "采集完成";
-  detail.textContent = `${adapterDescription(renderer.adapter_info)} · 未发现同步异常`;
-  statusDot.classList.add("ok");
+  const diagnostics = completedResult.diagnostics;
+  const failed = diagnostics.validationErrorCount > 0 ||
+    diagnostics.uncapturedErrorCount > 0 ||
+    diagnostics.deviceLostCount > 0 ||
+    diagnostics.droppedGpuCounterSamples > 0 ||
+    diagnostics.failedGpuCounterSamples > 0;
+  status.textContent = failed ? "采集完成（存在错误）" : "采集完成";
+  detail.textContent = failed
+    ? [
+        adapterDescription(renderer.adapter_info),
+        `uncaptured=${diagnostics.uncapturedErrorCount}`,
+        `deviceLost=${diagnostics.deviceLostCount}`
+      ].join(" · ")
+    : `${adapterDescription(renderer.adapter_info)} · uncaptured=0, deviceLost=0`;
+  statusDot.classList.add(failed ? "error" : "ok");
 }
 
 function requiredElement<T extends HTMLElement>(id: string): T {

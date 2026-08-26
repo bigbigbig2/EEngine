@@ -60,6 +60,7 @@ export class GraphicsContext {
     this.profiler.configure({
       gpuTimestampAvailable: device.features.has("timestamp-query")
     });
+    this.profiler.attachGpuDevice(device);
     registerGpuQueueProfiler(device, profiler);
     this.collectionLimitsValue = new GPUCollectionLimits(device);
     this.buffer_allocator_main = new GPUBufferAllocator(device);
@@ -167,5 +168,6 @@ export class GraphicsContext {
     this.buffer_allocator_native.destroy();
     this.buffer_allocator_staging.destroy();
     this.collectionLimitsValue.destroy();
+    this.profiler.detachGpuDevice(this.device);
   }
 }

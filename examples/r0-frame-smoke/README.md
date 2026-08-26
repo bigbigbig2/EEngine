@@ -13,6 +13,9 @@ npm run dev:host
 - 状态变为“采集完成”，Measured 显示 `24 / 24`；
 - Canvas 显示完整 Box 阵列，没有漏绘、全黑或明显深度错误；
 - GPU 支持 `timestamp-query` 时，结果包含至少一个 GPU segment；不支持时明确记录 unavailable；
+- Result `schemaVersion` 为 2，`diagnostics` 中 validation、uncaptured error、device lost、dropped/failed GPU counter sample 全为 0；
+- `gpu-counters` readback 只出现在采样帧，采样完成后 `pending=false`；当前 `values={}` 表示真实 GPU pass producer 尚未接入；
+- `legacy.hzb.builds` 与 `legacy.hzb.mipPasses` 应和 timestamp 中实际 HZB 执行次数一致；
 - 控制台没有 WebGPU validation error、未处理异常或 device lost；
 - 保存结果 JSON 和页面截图。
 

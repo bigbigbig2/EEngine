@@ -420,6 +420,7 @@ export class Renderer {
     this._nss = null;
     this._scenes?.destroy();
     this._probeRenderers.clear();
+    this._profiler.detachGpuDevice(this.device);
   }
 
   obtains_scene_sdf(scene: Scene): SceneSdf {
@@ -530,10 +531,12 @@ export class Renderer {
       view.update(this._graphics);
     });
     const viewHzb = view.hierarchical_z_buffer;
+    viewHzb.resetFrameStatistics();
     const colorView = createNativeTextureView(this.context.getCurrentTexture());
 
     {
       const cmd = ShadeGPUCommandContext.create(this._graphics, MAIN_COMMAND_LABEL);
+      this._profiler.encodeGpuCounterClear(cmd);
       if (
         (debugFrameIndex !== null || this._profiler.shouldSampleGpu()) &&
         this.device.features.has("timestamp-query")
@@ -1469,8 +1472,9 @@ export class Renderer {
       finishGraphBuild();
       cmd.encodeGraph(graph);
       view.finish_frame(cmd);
-      cmd.finish();
       this.recordLegacyFrameCounters(viewHzb);
+      this._profiler.encodeGpuCounterReadback(cmd);
+      cmd.finish();
     }
 
     this._frame_count++;
@@ -1553,8 +1557,9 @@ export class Renderer {
       "legacy.visibility.secondChance",
       visibility.lastSecondChance ? 1 : 0
     );
-    profiler.recordCounter("legacy.hzb.builds", hzb.lastBuilt ? 1 : 0);
+    profiler.recordCounter("legacy.hzb.builds", hzb.lastBuildCount);
     profiler.recordCounter("legacy.hzb.mips", hzb.lastMipCount);
+    profiler.recordCounter("legacy.hzb.mipPasses", hzb.lastMipPassCount);
     profiler.recordCounter(
       "legacy.material.fullscreenDraws",
       this._materialExpand.lastDrawCount

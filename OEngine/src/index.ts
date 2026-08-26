@@ -52,6 +52,7 @@ export {
 } from "./debug/EnvironmentManifest.js";
 export type {
   BenchmarkAdapterIdentity,
+  BenchmarkBaselineRole,
   BenchmarkEngineIdentity,
   BenchmarkEnvironmentInput,
   BenchmarkEnvironmentManifest,
@@ -65,6 +66,7 @@ export { FrameProfiler } from "./debug/FrameProfiler.js";
 export type {
   FrameCountEvidence,
   FrameGpuEvidence,
+  FrameGpuCounterEvidence,
   FrameGpuPassType,
   FrameGpuSegment,
   FrameGpuTimingInput,
@@ -72,9 +74,20 @@ export type {
   FrameProfileListener,
   FrameProfileSnapshot,
   FrameProfilerOptions,
+  FrameProfilerDiagnostics,
   FrameReadbackEvidence,
   FrameUploadEvidence
 } from "./debug/FrameProfiler.js";
+export {
+  GPU_COUNTER_BYTE_SIZE,
+  GPU_COUNTER_FIELDS,
+  GPU_COUNTER_SCHEMA_VERSION,
+  decodeGpuCounterValues
+} from "./debug/GpuFrameCounters.js";
+export type {
+  GpuCounterFieldName,
+  GpuCounterValues
+} from "./debug/GpuFrameCounters.js";
 export {
   BenchmarkHarness,
   serializeBenchmarkResult,

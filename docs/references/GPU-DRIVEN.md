@@ -53,3 +53,17 @@ local regression example/test
 ```
 
 提交中的注释不必堆叠整段上游说明，但必须能链接到仓库内的移植记录。没有兼容许可证时只记录算法对照和独立验证，不复制表达性代码。
+
+### R0 异步 readback 生命周期
+
+```text
+upstream repository URL: https://github.com/mrdoob/three.js
+commit: 7cda7e710d884827fc73ff1a3aa63270846513d7
+source: src/renderers/webgpu/utils/WebGPUTimestampQueryPool.js
+license: MIT
+scope: timestamp readback buffer 的 map/unmap/destroy 生命周期设计参考；未复制算法代码
+retained invariants: resolve 与 COPY_DST/MAP_READ 分离、mapState 检查、禁止并发 pending resolve、map 后复制 ArrayBuffer 再 unmap、destroy 处理 pending/mapped 状态
+OEngine adaptations: 固定至少 3 slots；主 encoder 编码 copy；submit 后异步 map；ring 满丢样本并计数；按 frameIndex 归档；profiler off 不分配 counter/ring
+semantic differences: three.js owner 是 timestamp query pool；OEngine owner 是通用 GpuReadbackRing，目前首个 consumer 为 256-byte frame counter ABI
+local regression: OEngine/tests/gpu-readback-ring.test.mjs、OEngine/tests/r0-observability.test.mjs、examples/r0-frame-smoke
+```

@@ -145,6 +145,8 @@ export class HierarchicalZBuffer {
 
   lastBuilt = false;
   lastMipCount = 0;
+  lastBuildCount = 0;
+  lastMipPassCount = 0;
 
   constructor(graphics: GraphicsContext) {
     const device = graphics.device;
@@ -236,6 +238,13 @@ export class HierarchicalZBuffer {
     this.resBuffer.unmap();
   }
 
+  resetFrameStatistics(): void {
+    this.lastBuilt = false;
+    this.lastMipCount = 0;
+    this.lastBuildCount = 0;
+    this.lastMipPassCount = 0;
+  }
+
   private ensurePipelines(): void {
     if (this.pipelineFromDepth && this.pipelineClip && this.pipelineReduce) return;
     this.pipelineFromDepth = this.graphics.render_pipelines.obtain(
@@ -254,7 +263,6 @@ export class HierarchicalZBuffer {
     sourceDepth: GPUTextureContext,
     viewport?: readonly [number, number, number, number]
   ): void {
-    this.lastBuilt = false;
     if (this.mipCount < 1 || !this.resBuffer) {
       this.setViewportSize(sourceDepth.width, sourceDepth.height);
     }
@@ -366,6 +374,8 @@ export class HierarchicalZBuffer {
 
     this.lastBuilt = true;
     this.lastMipCount = this.mipCount;
+    this.lastBuildCount++;
+    this.lastMipPassCount += this.mipCount;
   }
 
   obtainFullView(): GPUTextureView | null {

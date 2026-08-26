@@ -2,7 +2,10 @@ import {
   BENCHMARK_RESULT_SCHEMA_VERSION,
   type BenchmarkEnvironmentManifest
 } from "./EnvironmentManifest.js";
-import type { FrameProfileSnapshot } from "./FrameProfiler.js";
+import type {
+  FrameProfileSnapshot,
+  FrameProfilerDiagnostics
+} from "./FrameProfiler.js";
 
 export interface BenchmarkCaseManifest {
   id: string;
@@ -26,6 +29,7 @@ export interface BenchmarkSummary {
   cpuMs: Record<string, SeriesSummary>;
   gpuMs: Record<string, SeriesSummary>;
   counters: Record<string, SeriesSummary>;
+  gpuCounters: Record<string, SeriesSummary>;
   submits: SeriesSummary;
   readbacks: SeriesSummary;
   uploadBytes: SeriesSummary;
@@ -37,6 +41,7 @@ export interface BenchmarkResult {
   case: BenchmarkCaseManifest;
   frames: FrameProfileSnapshot[];
   summary: BenchmarkSummary;
+  diagnostics: FrameProfilerDiagnostics;
 }
 
 /** Accumulates warm and measured frames without depending on a renderer. */
@@ -67,7 +72,8 @@ export class BenchmarkHarness {
 
   get pendingGpuFrameCount(): number {
     return this.measuredFrames.reduce(
-      (count, frame) => count + (frame.gpu.pending ? 1 : 0),
+      (count, frame) => count +
+        (frame.gpu.pending || frame.gpuCounters.pending ? 1 : 0),
       0
     );
   }
@@ -90,7 +96,9 @@ export class BenchmarkHarness {
     this.measuredFrames.push(cloneFrame(frame));
   }
 
-  complete(): BenchmarkResult {
+  complete(
+    diagnostics: FrameProfilerDiagnostics = emptyDiagnostics()
+  ): BenchmarkResult {
     if (this.measuredFrames.length !== this.environment.run.sampleFrames) {
       throw new Error(
         `Benchmark incomplete: expected ${this.environment.run.sampleFrames} measured frames, got ${this.measuredFrames.length}`
@@ -102,7 +110,8 @@ export class BenchmarkHarness {
       environment: cloneJson(this.environment),
       case: cloneJson(this.caseManifest),
       frames,
-      summary: summarizeFrames(frames)
+      summary: summarizeFrames(frames),
+      diagnostics: cloneJson(diagnostics)
     };
   }
 }
@@ -132,6 +141,7 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
   const cpuValues = new Map<string, number[]>();
   const gpuValues = new Map<string, number[]>();
   const counterValues = new Map<string, number[]>();
+  const gpuCounterValues = new Map<string, number[]>();
   for (const frame of frames) {
     for (const [label, value] of Object.entries(frame.cpuMs)) {
       append(cpuValues, label, value);
@@ -142,14 +152,32 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
     for (const [label, value] of Object.entries(frame.counters)) {
       append(counterValues, label, value);
     }
+    if (frame.gpuCounters.sampled && !frame.gpuCounters.dropped) {
+      for (const [label, value] of Object.entries(frame.gpuCounters.values)) {
+        if (value !== undefined) append(gpuCounterValues, label, value);
+      }
+    }
   }
   return {
     cpuMs: summarizeMap(cpuValues),
     gpuMs: summarizeMap(gpuValues),
     counters: summarizeMap(counterValues),
+    gpuCounters: summarizeMap(gpuCounterValues),
     submits: summarizeSeries(frames.map((frame) => frame.submits.count)),
     readbacks: summarizeSeries(frames.map((frame) => frame.readbacks.count)),
     uploadBytes: summarizeSeries(frames.map((frame) => frame.uploads.bytes))
+  };
+}
+
+function emptyDiagnostics(): FrameProfilerDiagnostics {
+  return {
+    validationErrorCount: 0,
+    uncapturedErrorCount: 0,
+    deviceLostCount: 0,
+    uncapturedErrors: [],
+    deviceLostReasons: [],
+    droppedGpuCounterSamples: 0,
+    failedGpuCounterSamples: 0
   };
 }
 

@@ -11,8 +11,9 @@ npm run dev:host
 打开 Vite 输出的 `/r0-observability/`。通过条件：
 
 - 状态变为“采集完成”，Measured 显示 `20 / 20`；
-- Result JSON 包含真实 adapter、features、limits、CPU frame、submit/readback/upload 和 counter；
+- Result JSON 的 `schemaVersion` 为 2，并包含真实 adapter、features、limits、CPU frame、submit/readback/upload、GPU counter 状态和 diagnostics；
+- diagnostics 中 validation、uncaptured error、device lost、dropped/failed GPU counter sample 全为 0；
 - 控制台没有 WebGPU validation error 或未处理异常；
 - 页面截图能识别 adapter 和汇总结果。
 
-这不是 A/B/C 性能基线，也不渲染场景。它只验证 R0 观测设施能在真实浏览器/WebGPU/OEngine 初始化路径运行；正式 GPU timestamp、画面和性能结论仍由后续示例负责。
+这不是 A/B/C 性能基线，也不渲染场景。它只验证 R0 观测设施能在真实浏览器/WebGPU/OEngine 初始化路径运行；GPU pass producer、画面和性能结论仍由后续示例负责。

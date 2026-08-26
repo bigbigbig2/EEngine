@@ -1,8 +1,19 @@
+import {
+  GPU_COUNTER_BYTE_SIZE,
+  GPU_COUNTER_SCHEMA_VERSION,
+  GpuFrameCounterBuffer,
+  type GpuCounterFieldName,
+  type GpuCounterValues
+} from "./GpuFrameCounters.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+
 export interface FrameProfilerOptions {
   enabled?: boolean;
   gpuSampleInterval?: number;
+  gpuCounterSampleInterval?: number;
   gpuTimestampAvailable?: boolean;
   historyCapacity?: number;
+  readbackRingSlots?: number;
   now?: () => number;
 }
 
@@ -42,6 +53,25 @@ export interface FrameGpuEvidence {
   segments: FrameGpuSegment[];
 }
 
+export interface FrameGpuCounterEvidence {
+  available: boolean;
+  sampled: boolean;
+  pending: boolean;
+  dropped: boolean;
+  schemaVersion: number;
+  values: Partial<GpuCounterValues>;
+}
+
+export interface FrameProfilerDiagnostics {
+  validationErrorCount: number;
+  uncapturedErrorCount: number;
+  deviceLostCount: number;
+  uncapturedErrors: string[];
+  deviceLostReasons: string[];
+  droppedGpuCounterSamples: number;
+  failedGpuCounterSamples: number;
+}
+
 export interface FrameProfileSnapshot {
   frameIndex: number;
   cpuMs: Record<string, number>;
@@ -51,6 +81,7 @@ export interface FrameProfileSnapshot {
   graph: FrameGraphEvidence;
   counters: Record<string, number>;
   gpu: FrameGpuEvidence;
+  gpuCounters: FrameGpuCounterEvidence;
 }
 
 export interface FrameGpuTimingInput {
@@ -64,6 +95,8 @@ export type FrameProfileListener = (snapshot: FrameProfileSnapshot) => void;
 type ActiveFrame = {
   startedAt: number;
   snapshot: FrameProfileSnapshot;
+  gpuCounterSampleEncoded: boolean;
+  gpuCounterFields: Set<GpuCounterFieldName>;
 };
 
 /**
@@ -73,12 +106,35 @@ type ActiveFrame = {
 export class FrameProfiler {
   private enabledValue: boolean;
   private gpuSampleIntervalValue: number;
+  private gpuCounterSampleIntervalValue: number;
   private gpuTimestampAvailableValue: boolean;
   private historyCapacityValue: number;
+  private readbackRingSlotsValue: number;
   private readonly now: () => number;
   private active: ActiveFrame | null = null;
   private readonly frames: FrameProfileSnapshot[] = [];
   private readonly listeners = new Set<FrameProfileListener>();
+  private gpuDevice: GPUDevice | null = null;
+  private gpuFrameCounters: GpuFrameCounterBuffer | null = null;
+  private validationErrorCount = 0;
+  private uncapturedErrorCount = 0;
+  private deviceLostCount = 0;
+  private readonly uncapturedErrors: string[] = [];
+  private readonly deviceLostReasons: string[] = [];
+  private droppedGpuCounterSamples = 0;
+  private failedGpuCounterSamples = 0;
+  private readonly gpuCounterFieldsByFrame = new Map<
+    number,
+    GpuCounterFieldName[]
+  >();
+  private deviceEpoch = 0;
+  private readonly onUncapturedError = (event: GPUUncapturedErrorEvent): void => {
+    const error = event.error;
+    const name = error.constructor?.name || "GPUError";
+    this.uncapturedErrorCount++;
+    if (name === "GPUValidationError") this.validationErrorCount++;
+    appendBounded(this.uncapturedErrors, `${name}: ${error.message}`);
+  };
 
   constructor(options: FrameProfilerOptions = {}) {
     this.enabledValue = options.enabled ?? false;
@@ -86,11 +142,22 @@ export class FrameProfiler {
       options.gpuSampleInterval ?? 60,
       "gpuSampleInterval"
     );
+    this.gpuCounterSampleIntervalValue = positiveInteger(
+      options.gpuCounterSampleInterval ?? 60,
+      "gpuCounterSampleInterval"
+    );
     this.gpuTimestampAvailableValue = options.gpuTimestampAvailable ?? false;
     this.historyCapacityValue = positiveInteger(
       options.historyCapacity ?? 2048,
       "historyCapacity"
     );
+    this.readbackRingSlotsValue = positiveInteger(
+      options.readbackRingSlots ?? 3,
+      "readbackRingSlots"
+    );
+    if (this.readbackRingSlotsValue < 3) {
+      throw new RangeError("readbackRingSlots must be at least 3");
+    }
     this.now = options.now ?? (() => performance.now());
   }
 
@@ -102,12 +169,48 @@ export class FrameProfiler {
     return this.gpuTimestampAvailableValue;
   }
 
+  get gpuSampleInterval(): number {
+    return this.gpuSampleIntervalValue;
+  }
+
+  get gpuCounterSampleInterval(): number {
+    return this.gpuCounterSampleIntervalValue;
+  }
+
+  get readbackRingSlots(): number {
+    return this.readbackRingSlotsValue;
+  }
+
+  get diagnostics(): FrameProfilerDiagnostics {
+    const ring = this.gpuFrameCounters?.stats;
+    return {
+      validationErrorCount: this.validationErrorCount,
+      uncapturedErrorCount: this.uncapturedErrorCount,
+      deviceLostCount: this.deviceLostCount,
+      uncapturedErrors: [...this.uncapturedErrors],
+      deviceLostReasons: [...this.deviceLostReasons],
+      droppedGpuCounterSamples: Math.max(
+        this.droppedGpuCounterSamples,
+        ring?.dropped ?? 0
+      ),
+      failedGpuCounterSamples: Math.max(
+        this.failedGpuCounterSamples,
+        ring?.failed ?? 0
+      )
+    };
+  }
+
+  get gpuCounterBuffer(): GPUBuffer | null {
+    return this.gpuFrameCounters?.buffer ?? null;
+  }
+
   subscribe(listener: FrameProfileListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
   configure(options: Omit<FrameProfilerOptions, "now">): void {
+    if (this.active !== null) throw new Error("Cannot configure FrameProfiler during a frame");
     if (options.enabled !== undefined) this.enabledValue = options.enabled;
     if (options.gpuTimestampAvailable !== undefined) {
       this.gpuTimestampAvailableValue = options.gpuTimestampAvailable;
@@ -118,6 +221,12 @@ export class FrameProfiler {
         "gpuSampleInterval"
       );
     }
+    if (options.gpuCounterSampleInterval !== undefined) {
+      this.gpuCounterSampleIntervalValue = positiveInteger(
+        options.gpuCounterSampleInterval,
+        "gpuCounterSampleInterval"
+      );
+    }
     if (options.historyCapacity !== undefined) {
       this.historyCapacityValue = positiveInteger(
         options.historyCapacity,
@@ -125,6 +234,39 @@ export class FrameProfiler {
       );
       this.trimHistory();
     }
+    if (options.readbackRingSlots !== undefined) {
+      const slots = positiveInteger(options.readbackRingSlots, "readbackRingSlots");
+      if (slots < 3) throw new RangeError("readbackRingSlots must be at least 3");
+      if (slots !== this.readbackRingSlotsValue) {
+        this.readbackRingSlotsValue = slots;
+        this.destroyGpuCounterResources();
+      }
+    }
+    if (!this.enabledValue) this.destroyGpuCounterResources();
+  }
+
+  attachGpuDevice(device: GPUDevice): void {
+    if (this.gpuDevice === device) return;
+    this.detachGpuDevice();
+    this.gpuDevice = device;
+    const epoch = ++this.deviceEpoch;
+    device.addEventListener("uncapturederror", this.onUncapturedError);
+    void device.lost.then((info) => {
+      if (this.gpuDevice !== device || this.deviceEpoch !== epoch) return;
+      this.deviceLostCount++;
+      appendBounded(this.deviceLostReasons, `${info.reason}: ${info.message}`);
+    });
+  }
+
+  detachGpuDevice(device?: GPUDevice): void {
+    if (device !== undefined && this.gpuDevice !== device) return;
+    const current = this.gpuDevice;
+    if (current !== null) {
+      current.removeEventListener("uncapturederror", this.onUncapturedError);
+    }
+    this.gpuDevice = null;
+    this.deviceEpoch++;
+    this.destroyGpuCounterResources();
   }
 
   beginFrame(frameIndex: number): void {
@@ -140,6 +282,8 @@ export class FrameProfiler {
       frameIndex % this.gpuSampleIntervalValue === 0;
     this.active = {
       startedAt: this.now(),
+      gpuCounterSampleEncoded: false,
+      gpuCounterFields: new Set(),
       snapshot: {
         frameIndex,
         cpuMs: {},
@@ -153,9 +297,21 @@ export class FrameProfiler {
           sampled,
           pending: sampled,
           segments: []
+        },
+        gpuCounters: {
+          available: this.gpuDevice !== null,
+          sampled: false,
+          pending: false,
+          dropped: false,
+          schemaVersion: GPU_COUNTER_SCHEMA_VERSION,
+          values: {}
         }
       }
     };
+    const counters = this.active.snapshot.gpuCounters;
+    counters.sampled = counters.available &&
+      frameIndex % this.gpuCounterSampleIntervalValue === 0;
+    counters.pending = counters.sampled;
   }
 
   beginCpuSection(label: string): () => void {
@@ -183,6 +339,54 @@ export class FrameProfiler {
 
   shouldSampleGpu(): boolean {
     return this.active?.snapshot.gpu.sampled ?? false;
+  }
+
+  shouldSampleGpuCounters(): boolean {
+    return this.active?.snapshot.gpuCounters.sampled ?? false;
+  }
+
+  encodeGpuCounterClear(command: ShadeGPUCommandContext): void {
+    if (this.active === null || this.gpuDevice === null || !this.enabledValue) return;
+    this.ensureGpuFrameCounters().clear(command.gpu_encoder);
+  }
+
+  copyGpuCounter(
+    command: ShadeGPUCommandContext,
+    field: GpuCounterFieldName,
+    source: GPUBuffer,
+    sourceOffset = 0
+  ): void {
+    if (this.active === null || this.gpuDevice === null || !this.enabledValue) return;
+    this.ensureGpuFrameCounters().copyField(
+      command.gpu_encoder,
+      field,
+      source,
+      sourceOffset
+    );
+    this.active.gpuCounterFields.add(field);
+  }
+
+  encodeGpuCounterReadback(command: ShadeGPUCommandContext): void {
+    const active = this.active;
+    if (active === null || !active.snapshot.gpuCounters.sampled) return;
+    const counters = this.ensureGpuFrameCounters();
+    const ticket = counters.encodeReadback(
+      command.gpu_encoder,
+      active.snapshot.frameIndex
+    );
+    active.gpuCounterSampleEncoded = true;
+    if (ticket === null) {
+      active.snapshot.gpuCounters.pending = false;
+      active.snapshot.gpuCounters.dropped = true;
+      this.droppedGpuCounterSamples++;
+      return;
+    }
+    command.recordReadback("gpu-counters", GPU_COUNTER_BYTE_SIZE);
+    this.gpuCounterFieldsByFrame.set(
+      active.snapshot.frameIndex,
+      [...active.gpuCounterFields]
+    );
+    command.onFinished.addOne(() => counters.markSubmitted(ticket));
   }
 
   recordSubmit(label: string): void {
@@ -236,6 +440,14 @@ export class FrameProfiler {
   endFrame(): FrameProfileSnapshot | undefined {
     const active = this.active;
     if (active === null) return undefined;
+    if (
+      active.snapshot.gpuCounters.sampled &&
+      !active.gpuCounterSampleEncoded
+    ) {
+      active.snapshot.gpuCounters.pending = false;
+      active.snapshot.gpuCounters.dropped = true;
+      this.droppedGpuCounterSamples++;
+    }
     active.snapshot.cpuMs.frame = Math.max(0, this.now() - active.startedAt);
     this.active = null;
     this.frames.push(active.snapshot);
@@ -260,6 +472,18 @@ export class FrameProfiler {
     this.notify(cloneSnapshot(frame));
   }
 
+  recordGpuCounters(frameIndex: number, values: GpuCounterValues): void {
+    const frame = this.frames.find((candidate) => candidate.frameIndex === frameIndex);
+    if (frame === undefined || !frame.gpuCounters.sampled) return;
+    const fields = this.gpuCounterFieldsByFrame.get(frameIndex) ?? [];
+    const supported: Partial<GpuCounterValues> = {};
+    for (const field of fields) supported[field] = values[field];
+    frame.gpuCounters.values = supported;
+    frame.gpuCounters.pending = false;
+    this.gpuCounterFieldsByFrame.delete(frameIndex);
+    this.notify(cloneSnapshot(frame));
+  }
+
   get latest(): FrameProfileSnapshot | undefined {
     const frame = this.frames[this.frames.length - 1];
     return frame === undefined ? undefined : cloneSnapshot(frame);
@@ -277,6 +501,39 @@ export class FrameProfiler {
   clear(): void {
     if (this.active !== null) throw new Error("Cannot clear FrameProfiler during a frame");
     this.frames.length = 0;
+    this.gpuCounterFieldsByFrame.clear();
+  }
+
+  destroy(): void {
+    this.detachGpuDevice();
+    this.listeners.clear();
+    this.frames.length = 0;
+  }
+
+  private ensureGpuFrameCounters(): GpuFrameCounterBuffer {
+    const device = this.gpuDevice;
+    if (device === null) throw new Error("FrameProfiler has no attached GPUDevice");
+    this.gpuFrameCounters ??= new GpuFrameCounterBuffer(device, {
+      slotCount: this.readbackRingSlotsValue,
+      onResult: (frameIndex, values) => this.recordGpuCounters(frameIndex, values),
+      onError: (frameIndex, error) => {
+        this.failedGpuCounterSamples++;
+        const frame = this.frames.find((candidate) => candidate.frameIndex === frameIndex);
+        if (frame !== undefined) {
+          frame.gpuCounters.pending = false;
+          this.notify(cloneSnapshot(frame));
+        }
+        this.gpuCounterFieldsByFrame.delete(frameIndex);
+        console.error("GPU counter readback failed", error);
+      }
+    });
+    return this.gpuFrameCounters;
+  }
+
+  private destroyGpuCounterResources(): void {
+    this.gpuFrameCounters?.destroy();
+    this.gpuFrameCounters = null;
+    this.gpuCounterFieldsByFrame.clear();
   }
 
   private trimHistory(): void {
@@ -338,6 +595,18 @@ function cloneSnapshot(snapshot: FrameProfileSnapshot): FrameProfileSnapshot {
       sampled: snapshot.gpu.sampled,
       pending: snapshot.gpu.pending,
       segments: snapshot.gpu.segments.map((segment) => ({ ...segment }))
+    },
+    gpuCounters: {
+      available: snapshot.gpuCounters.available,
+      sampled: snapshot.gpuCounters.sampled,
+      pending: snapshot.gpuCounters.pending,
+      dropped: snapshot.gpuCounters.dropped,
+      schemaVersion: snapshot.gpuCounters.schemaVersion,
+      values: { ...snapshot.gpuCounters.values }
     }
   };
+}
+
+function appendBounded(values: string[], value: string, capacity = 64): void {
+  if (values.length < capacity) values.push(value);
 }

@@ -17,12 +17,17 @@ function gitOutput(args: string[], fallback: string): string {
   }
 }
 
+const dirtyReasons = gitOutput(["status", "--porcelain"], "")
+  .split(/\r?\n/)
+  .filter((line) => line.length > 0);
+
 export default defineConfig({
   root: examplesRoot,
   publicDir: false,
   define: {
     __BUILD_COMMIT__: JSON.stringify(gitOutput(["rev-parse", "HEAD"], "unknown")),
-    __BUILD_DIRTY__: JSON.stringify(gitOutput(["status", "--porcelain"], "") !== "")
+    __BUILD_DIRTY__: JSON.stringify(dirtyReasons.length > 0),
+    __BUILD_DIRTY_REASONS__: JSON.stringify(dirtyReasons)
   },
   server: {
     fs: { allow: [repositoryRoot] }

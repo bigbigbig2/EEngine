@@ -1,6 +1,6 @@
 # OEngine R0 Benchmark Harness
 
-本目录是 R0 性能证据入口。当前已完成统一环境/结果 Schema、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp 采样和 percentile 汇总；A/B/C 的实际场景资产与自动相机轨迹仍需后续 `OBS-02` 工作包接入。
+本目录是 R0 性能证据入口。当前已完成 Result Schema v2、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback、diagnostics 和 percentile 汇总；A/B/C 的实际场景资产与自动相机轨迹仍需后续 `OBS-02` 工作包接入。
 
 A/B 只是 OEngine 必须达到的最低垂直功能与性能基线：覆盖 GPU LOD/work generation、SW/HW Visibility、材质重建和 PBR/IBL。它们不是产品范围或完成上限。C 与通用 vertical/lifecycle cases 还必须证明多 geometry/material、动态对象与 Packed Instances、GPU Render World、层次 LOD、完整效果和 device/resource 生命周期。A/B/C 必须复用同一 OEngine 主管线，不能为 benchmark 创建样例专用 Renderer。
 
@@ -9,8 +9,10 @@ A/B 只是 OEngine 必须达到的最低垂直功能与性能基线：覆盖 GPU
 - 固定浏览器、GPU、分辨率、DPR、feature set、seed、warm-up 和采样帧数。
 - profiler 默认关闭；benchmark 显式开启。
 - CPU 和 submit/readback 每个测量帧记录；GPU timestamp 默认每 60 帧采样一次。
+- GPU counter 默认每 60 帧采样一次，ring 满时丢样本并写入 diagnostics，绝不阻塞主帧。
 - GPU timestamp 不可用时 `gpu.available=false`，不能用 CPU 时间冒充。
 - `legacy.*` counters 描述当前 reconstructed 管线，只用于建立迁移前基线。
+- `gpuCounters.values` 只包含真实登记 producer 的字段；字段缺失表示未接入，不能按 0 解读。
 
 ## 浏览器侧接入
 
@@ -25,11 +27,17 @@ import {
 renderer.profiler.configure({
   enabled: true,
   gpuSampleInterval: 60,
+  gpuCounterSampleInterval: 60,
+  readbackRingSlots: 3,
   historyCapacity: 2048
 });
 
 const environment = createEnvironmentManifest({
-  engine: { commit: BUILD_COMMIT, dirty: BUILD_DIRTY },
+  engine: {
+    commit: BUILD_COMMIT,
+    dirty: BUILD_DIRTY,
+    dirtyReasons: BUILD_DIRTY_REASONS
+  },
   platform: {
     os: navigator.platform,
     browser: BROWSER_VERSION,
@@ -49,9 +57,13 @@ const environment = createEnvironmentManifest({
     dpr: renderer.pixel_ratio
   },
   run: {
+    baselineRole: "minimum-a",
     featureSet: ENABLED_FEATURE_NAMES,
     warmupFrames: 120,
-    sampleFrames: 600
+    sampleFrames: 600,
+    gpuSampleInterval: 60,
+    gpuCounterSampleInterval: 60,
+    readbackRingSlots: 3
   }
 });
 
@@ -104,10 +116,15 @@ readbacks.labels[*] + bytes
 uploads.labels[*] + bytes
 graph.builds / compiles / executes
 gpu.segments[*].label/type/durationMs
+gpuCounters.schemaVersion/sampled/pending/dropped/values
 counters.legacy.*
 counters.lighting.*
 counters.gpu.residentBytes
+diagnostics.validationErrorCount/uncapturedErrorCount/deviceLostCount
+diagnostics.droppedGpuCounterSamples/failedGpuCounterSamples
 ```
+
+GPU counter ABI 当前是 256-byte `u32` 固定布局，定义见 `src/debug/GpuFrameCounters.ts`。主帧已完成 buffer clear、采样 copy、submit 后异步 map 与 frame-index 归档，但具体 Visibility/Lighting/resolve producer 仍是 Partial。
 
 ## Shader source 审计
 
@@ -122,5 +139,5 @@ node tools/audit-shader-sources.mjs > shader-source-audit.json
 - A：160k Teapot 的同资产/同相机/同输出对齐页面。
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- GPU resident counter buffer 与三槽异步 readback ring。
+- GPU pass producer：instance、meshlet、Visibility 分类、resolve、material 与 light 的真实计数接线。
 - VisibilityKey、HZB mip、reject reason、material ID 等统一 debug views。
