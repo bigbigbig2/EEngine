@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。`R1-A` 已完成代码、自动门禁与 Frame Smoke/A/B/C 浏览器功能验收；`R1-B` 于 2026-08-27 完成代码与自动门禁，等待 Frame Smoke/A/B/C 浏览器 after smoke 后关闭。
+R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。`R1-A` 与 `R1-B` 已完成代码、自动门禁和 Frame Smoke/A/B/C 浏览器功能验收；下一执行包是 `R1-C` Compute HZB 与 history contract。
 
 R1 解决与场景规模不成比例的运行时固定成本和错误生命周期边界。它不会实现 R2 的 Runtime Asset/Packed Instance、R3 的 Geometry Hierarchy/SSE LOD、R4 的 Compute Software Raster，也不把 three.js 两个示例当作引擎完成上限。
 
@@ -294,14 +294,23 @@ submit once
 
 | ID | 状态 | 已落地证据 / 剩余验收 |
 |---|---|---|
-| `R1-B01` | 代码完成，浏览器待验收 | `framegraph-compiled.test.mjs` 冻结 pass pruning、logical slot、first/last-use dump 和同 topology 换 bindings；主图真实 dump/画面仍随 after artifact 确认。 |
+| `R1-B01` | 完成 | `framegraph-compiled.test.mjs` 冻结 pass pruning、logical slot、first/last-use dump 和同 topology 换 bindings；Frame/A/B/C after smoke 的所有记录帧均为 warm cache hit，用户人工确认画面正常。 |
 | `R1-B02` | 完成 | `FrameGraph.compile()` 返回不可变 `CompiledFrameGraph`；编译后 topology mutation 失败；execute 异常也会释放已取得的 transient。 |
 | `R1-B03` | 完成 | 主管线 recipe 只在 miss 运行；swapchain、scene/camera/light/material、HZB、history 与动态 job 使用命名 binding slot，compiled closure 不保留首帧 GPU handle。 |
 | `R1-B04` | 完成 | canonical key 覆盖 capability、尺寸、feature、format/history 与 instrumentation；LRU cache 拥有 hit/miss/evict/destroy；Profiler 保存对应计数。 |
-| `R1-B05` | 代码完成，浏览器待验收 | shadows/SSAO/SSR/TAA/Bloom/Exposure/debug 从 recipe 入口裁剪；Bloom/Exposure 已解耦，Exposure off 不再添加 fallback Pass，shadow off 不登记 atlas resource。 |
+| `R1-B05` | 完成 | shadows/SSAO/SSR/TAA/Bloom/Exposure/debug 从 recipe 入口裁剪；Bloom/Exposure 已解耦，Exposure off 不再添加 fallback Pass，shadow off 不登记 atlas resource；自动 feature-off 门禁与统一主管线浏览器 smoke 通过。 |
 | `R1-B06` | 完成 | steady main hit 路径只调用 `encodeCompiledGraph()`；`new FrameGraph(MAIN_FRAME_GRAPH_NAME)` 只存在 cache builder；LPV/tool 继续 one-shot。 |
 
-自动验证为 `npm test` 全通过和根目录 examples production build 通过。浏览器插件在 runtime 初始化阶段失败，未取得新的 WebGPU after artifact；因此本表不会用自动测试冒充 A/B/C 画面、真实 GPU counter 或 validation 验收。手动验收必须看到：首个 key 帧 `build=1/compile=1/execute=1/cacheMiss=1`，随后相同 key 为 `build=0/compile=0/execute=1/cacheHit=1`，且 submit、readback、diagnostics 与 R1-A 不退化。
+自动验证为 `npm test` 59/59 和根目录 examples production build 通过。用户于 2026-08-27 补采 Frame Smoke/A/B/C JSON，并人工确认四页画面正常；未保存截图文件。记录发生在 warm-up 之后，因此 JSON 不含首个 key miss，miss/build/compile 路径由自动测试覆盖；真实 WebGPU 记录证明 warm hit 路径没有退化：
+
+| Case | 记录帧 | build / compile | execute / cache hit | submit P50 / max | readback P50 | diagnostics / overflow |
+|---|---:|---:|---:|---:|---:|---:|
+| Frame Smoke | 24 | 0 / 0 | 24 / 24 | 1 / 1 | 0 | 0 / 0 |
+| A | 12 | 0 / 0 | 12 / 12 | 1 / 1 | 0 | 0 / 0 |
+| B | 12 | 0 / 0 | 12 / 12 | 1 / 1 | 0 | 0 / 0 |
+| C | 12 | 0 / 0 | 12 / 12 | 1 / 1 | 0 | 0 / 0 |
+
+四组 submit label 只有 `Renderer/main-0`；GPU counter 采样分别保持真实 Visibility/Lighting 值，B 的 `shadedPixels P50=259190`，C 的 `activeMaterials=3`、`activeLights=6`，没有用零值掩盖执行。artifact 仍携带 dev server 的旧 `4de81f7a` build-time provenance 和 dirty/smoke 标记，因此只关闭 R1-B 功能验收，不用于正式性能百分比或 R1-D paired gate；后者必须重启服务并保存 clean/full cold + warm provenance。
 
 #### 任务
 
@@ -474,7 +483,7 @@ R1 默认四个主要实现提交，包内先在工作区完成自动测试和�
 ## 阶段退出清单
 
 - [x] `R1-A01～A07`：一帧唯一提交 owner 与按 dirty 编码完成。
-- [ ] `R1-B01～B06`：代码与自动门禁完成；等待 Frame Smoke/A/B/C 浏览器 after smoke 后关闭。
+- [x] `R1-B01～B06`：Compiled graph、cache、feature pruning、自动门禁与 Frame Smoke/A/B/C 浏览器功能验收完成。
 - [ ] `R1-C01～C06`：Compute HZB、history 与旧 Render HZB 删除完成。
 - [ ] `R1-D01～D05`：生命周期、paired benchmark、文档和死代码收口完成。
 - [ ] `npm test` 通过；命中浏览器示例无 WebGPU validation/console error。

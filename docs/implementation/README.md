@@ -64,7 +64,7 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 
 G0 的“证据完整”不等于 R2–R5 产品能力已经存在。G0 允许 artifact 机器结构合格但 `capabilityComplete=false`，前提是所有 blocker 可追溯且没有假 counter；A/B 的真实功能与性能通过仍在对应后续 Gate 判定。
 
-当前 R0/G0 已完成：`OBS-01～07`、A/B/C Harness 与 RTX 2060 SUPER 浏览器 smoke 均已收口；R1 的代码/R0 artifact 分析和详细计划也已冻结，下一步执行 [R1-A Frame ownership 与 one-submit 闭环](./02-runtime-submit-and-framegraph.md#r1-a--frame-ownership-与-one-submit-闭环)。不得把后续算法、正式性能采样或可选观测增强重新加入 G0 blocker；R1 首次修改前的 clean/full 前测属于新阶段入口。
+当前 R0/G0 已完成；R1 的 `R1-A` one-submit 与 `R1-B` Compiled FrameGraph/feature pruning 也已通过自动门禁和 Frame Smoke/A/B/C 浏览器功能验收。下一步执行 [R1-C Compute HZB 与 history contract](./02-runtime-submit-and-framegraph.md#r1-c--compute-hzb-与-history-contract)，随后由 `R1-D` 统一完成生命周期、删除和 clean/full paired gate。不得把后续算法、正式性能采样或可选观测增强重新加入 G0 blocker。
 
 ## 明确排除
 

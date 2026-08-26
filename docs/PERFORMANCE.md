@@ -47,7 +47,7 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 - R1-A 入口的 `GraphicsContext.update()` 独立 submit、持续 collection readback、scene animation/database self-submit 已删除；真实 WebGPU smoke 已确认 Frame/A/B/C 从 3/13 收口为一次 `Renderer/main-0` submit。
 - steady render tick 现在由 `FrameCoordinator` 持有唯一主 command；显式 one-shot/tool/debug-readback/recovery 路径仍可独立提交，但 runtime label 必须在 allowlist。
-- R1-B 已把主管线改为 canonical-key compiled cache：key miss 才 build/compile，稳定 key 只 execute；真实浏览器 warm-cache 数据尚待补采，不能只凭代码结构宣称 CPU 性能收益。
+- R1-B 已把主管线改为 canonical-key compiled cache：key miss 才 build/compile，稳定 key 只 execute；真实浏览器 Frame Smoke/A/B/C after smoke 已确认所有记录帧均为 warm hit，但旧 provenance/dirty smoke 不能用于宣称正式 CPU 性能收益。
 - HZB 每次逐 mip 开 Render Pass，普通帧构建两次，alpha-tested 时可能三次。
 - Visibility 的 bucket/scan/expand/second-chance 中间队列和 clear 成本高。
 - 当前 Material Expand 先写 material depth，再对每个材质画全屏三角形。
@@ -66,6 +66,8 @@ R1-A 修复 B mipmap 生命周期后的自动门禁为 `npm test` 55/55 与 exam
 commit `4de81f7a` 的第一轮 after smoke 已证明 Frame Smoke/A/B/C 的 submit P50/max 全为 1/1，非采样 readback P50 为 0，scene preparation P50 为 1；C 的 view preparation P50 为 10，但不增加 scene preparation 或 submit。Frame Smoke/A/C diagnostics 为 0。B 的 3 个 GPU counter 采样帧因 mipmap 临时 Buffer/Texture 提前销毁产生 validation error，第一轮 B 不能进入 after 性能比较，并促成后续资源生命周期修复。
 
 修复后第二轮 B 保持 submit P50/max 1/1、readback P50 0、scene preparation 1，并恢复 `shadedPixels P50=259190`，diagnostics 全为 0，画面人工确认正常；`R1-A` 功能 Gate 关闭。由于 dev server 未重启，第二轮 JSON 仍带旧 build-time commit 字段，只能作为 non-gate smoke；正式性能百分比和 clean/full paired 结论留到 R1-D，届时必须刷新 server、commit 与 dirty reasons。
+
+R1-B after smoke 中，Frame Smoke 的 24 个记录帧和 A/B/C 各 12 个记录帧全部为 `build=0、compile=0、execute=1、cacheHits=1`；submit P50/max 均为 1/1 且 label 只有 `Renderer/main-0`，非采样 readback P50 为 0，diagnostics、counter sample failure 和 `queueOverflowMask` 均为 0。B 继续保持 `shadedPixels P50=259190`，C 保持 `activeMaterials=3`、`activeLights=6`。用户人工确认四页画面正常但未保存截图。JSON 从 warm-up 后开始记录，因此首个 miss 由自动测试证明；文件仍携带旧 `4de81f7a` build-time provenance 和 dirty/smoke 标记，只能作为 R1-B 结构/功能证据，不能与入口表直接计算性能百分比。
 
 | Case | CPU frame P50 / P95 | Submit | Graph build/compile | HZB build / mip Render Pass | HZB phase P50 / P95 |
 |---|---:|---:|---:|---:|---:|
