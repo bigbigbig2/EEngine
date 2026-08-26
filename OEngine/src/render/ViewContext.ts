@@ -168,7 +168,13 @@ export class GPUViewContext {
   finish_frame(command: ShadeGPUCommandContext, hzbFrameIndex = this.frame_index): void {
     this.previousViewProjection.set(this.camera.camera.view_projection_matrix);
     this.gpu_previous_camera_state.copy(this.camera, command.gpu_encoder);
-    this.hierarchical_z_buffer.commitHistory(hzbFrameIndex);
+    // History becomes visible only after the owning command context has been submitted.
+    command.onFinished.addOne(() => {
+      this.hierarchical_z_buffer.commitHistory(hzbFrameIndex);
+    });
+    command.onAborted.addOne(() => {
+      this.hierarchical_z_buffer.invalidate("explicit");
+    });
     this.frame_index++;
   }
 

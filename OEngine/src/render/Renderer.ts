@@ -394,12 +394,13 @@ export class Renderer {
       }
       const requiredFeatures: GPUFeatureName[] = [
         "indirect-first-instance",
-        "float32-blendable"
+        "float32-blendable",
+        // HZB is a core render path and unconditionally uses rg16float storage.
+        "texture-formats-tier1"
       ];
       const optionalFeatures: GPUFeatureName[] = [
         "timestamp-query",
-        "subgroups",
-        "texture-formats-tier1"
+        "subgroups"
       ];
       for (const feature of requiredFeatures) {
         if (!adapter.features.has(feature)) {

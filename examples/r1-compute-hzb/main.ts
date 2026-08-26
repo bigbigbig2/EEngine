@@ -26,12 +26,26 @@ async function run(): Promise<void> {
   if (!navigator.gpu) throw new Error("当前浏览器没有 WebGPU");
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   if (!adapter) throw new Error("没有可用的 WebGPU adapter");
-  const device = await adapter.requestDevice();
+  const requiredFeature: GPUFeatureName = "texture-formats-tier1";
+  if (!adapter.features.has(requiredFeature)) {
+    const artifact = {
+      passed: false,
+      adapter: adapter.info,
+      requiredFeature,
+      supportedFeatures: [...adapter.features],
+      failure: "required WebGPU feature is unavailable"
+    };
+    status.textContent = "楠岃瘉澶辫触";
+    status.className = "error";
+    summary.textContent = "Missing texture-formats-tier1";
+    result.textContent = JSON.stringify(artifact, null, 2);
+    return;
+  }
+  const device = await adapter.requestDevice({ requiredFeatures: [requiredFeature] });
   const uncaptured: string[] = [];
   device.addEventListener("uncapturederror", (event) => {
     uncaptured.push(event.error.message);
   });
-  device.pushErrorScope("validation");
 
   const depth = device.createTexture({
     label: "R1-C/prototype-depth-9x7",
@@ -54,11 +68,49 @@ async function run(): Promise<void> {
   });
   device.queue.writeBuffer(region, 0, new Uint32Array([0, 0, SOURCE_WIDTH, SOURCE_HEIGHT]));
 
+  const shaderModules = [
+    ["R1-C/depth-module", device.createShaderModule({ label: "R1-C/depth-module", code: DEPTH_WGSL })],
+    ["R1-C/from-depth-module", device.createShaderModule({ label: "R1-C/from-depth-module", code: HZB_FROM_DEPTH_COMPUTE_WGSL })],
+    ["R1-C/reduce-module", device.createShaderModule({ label: "R1-C/reduce-module", code: HZB_REDUCE_COMPUTE_WGSL })]
+  ] as const;
+  const shaderDiagnostics = (await Promise.all(
+    shaderModules.map(async ([label, module]) => {
+      const info = await module.getCompilationInfo();
+      return info.messages.map((message) => ({
+        label,
+        type: message.type,
+        message: message.message,
+        lineNum: message.lineNum,
+        linePos: message.linePos,
+        offset: message.offset,
+        length: message.length
+      }));
+    })
+  )).flat();
+  const shaderErrors = shaderDiagnostics.filter((message) => message.type === "error");
+  if (shaderErrors.length > 0) {
+    const artifact = {
+      passed: false,
+      adapter: adapter.info,
+      requiredFeature,
+      format: "rg16float",
+      shaderDiagnostics
+    };
+    status.textContent = "楠岃瘉澶辫触";
+    status.className = "error";
+    summary.textContent = shaderErrors.length + " WGSL compilation errors";
+    result.textContent = JSON.stringify(artifact, null, 2);
+    return;
+  }
+  const depthModule = shaderModules[0][1];
+  const fromDepthModule = shaderModules[1][1];
+  const reduceModule = shaderModules[2][1];
+  device.pushErrorScope("validation");
   const depthPipeline = device.createRenderPipeline({
     label: "R1-C/fixed-depth",
     layout: "auto",
-    vertex: { module: device.createShaderModule({ code: DEPTH_WGSL }), entryPoint: "vs_main" },
-    fragment: { module: device.createShaderModule({ code: DEPTH_WGSL }), entryPoint: "fs_main", targets: [] },
+    vertex: { module: depthModule, entryPoint: "vs_main" },
+    fragment: { module: depthModule, entryPoint: "fs_main", targets: [] },
     primitive: { topology: "triangle-list" },
     depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "always" }
   });
@@ -66,7 +118,7 @@ async function run(): Promise<void> {
     label: "R1-C/from-depth",
     layout: "auto",
     compute: {
-      module: device.createShaderModule({ code: HZB_FROM_DEPTH_COMPUTE_WGSL }),
+      module: fromDepthModule,
       entryPoint: "main"
     }
   });
@@ -74,7 +126,7 @@ async function run(): Promise<void> {
     label: "R1-C/reduce",
     layout: "auto",
     compute: {
-      module: device.createShaderModule({ code: HZB_REDUCE_COMPUTE_WGSL }),
+      module: reduceModule,
       entryPoint: "main"
     }
   });
@@ -162,6 +214,7 @@ async function run(): Promise<void> {
     actualFinalMinMax: actual,
     expectedFinalMinMax: expected,
     maxError,
+    shaderDiagnostics,
     validationError: validation?.message ?? null,
     uncapturedErrors: uncaptured
   };

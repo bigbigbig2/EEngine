@@ -8,6 +8,16 @@ import { hashString } from "../core/memoryUtils.js";
 
 export type CachedShaderModuleDescriptor = GPUShaderModuleDescriptor;
 
+export type ShaderCompilationDiagnostic = {
+  readonly label: string;
+  readonly type: GPUCompilationMessageType;
+  readonly message: string;
+  readonly lineNum: number;
+  readonly linePos: number;
+  readonly offset: number;
+  readonly length: number;
+};
+
 export type CachedPipelineLayoutDescriptor = {
   label?: string;
   bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[];
@@ -228,6 +238,7 @@ export class ShaderModuleCache {
     DescriptorKey<CachedShaderModuleDescriptor>,
     GPUShaderModule
   >();
+  private readonly compilationDiagnostics: ShaderCompilationDiagnostic[] = [];
 
   constructor(private readonly device: GPUDevice) {}
 
@@ -238,11 +249,39 @@ export class ShaderModuleCache {
 
   clear(): void {
     this.cache.clear();
+    this.compilationDiagnostics.length = 0;
+  }
+
+  get diagnostics(): readonly ShaderCompilationDiagnostic[] {
+    return [...this.compilationDiagnostics];
   }
 
   private create(descriptor: CachedShaderModuleDescriptor): GPUShaderModule {
     this.device.pushErrorScope("validation");
     const module = this.device.createShaderModule(descriptor);
+    void module.getCompilationInfo().then((info) => {
+      const label = descriptor.label ?? "";
+      for (const message of info.messages) {
+        this.compilationDiagnostics.push({
+          label,
+          type: message.type,
+          message: message.message,
+          lineNum: message.lineNum,
+          linePos: message.linePos,
+          offset: message.offset,
+          length: message.length
+        });
+      }
+      for (const message of info.messages) {
+        const level = message.type === "error" ? "error" : "warn";
+        console[level](
+          "[ShaderModule " + (label || "unnamed") + "] " + message.type +
+          " at " + message.lineNum + ":" + message.linePos + ": " + message.message
+        );
+      }
+    }).catch((error: unknown) => {
+      console.error("Shader compilation diagnostics failed", error);
+    });
     void this.device.popErrorScope().then((error) => {
       if (error === null) return;
       const label = descriptor.label ?? "";

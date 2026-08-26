@@ -4,7 +4,8 @@ export const HZB_WORKGROUP_SIZE = 8;
 
 const HZB_COMMON_WGSL = /* wgsl */ `
 fn sanitize_reverse_z(depth: f32) -> f32 {
-  return select(clamp(depth, 0.0, 1.0), 0.0, isNan(depth));
+  // NaN is the only floating-point value that is not equal to itself.
+  return select(clamp(depth, 0.0, 1.0), 0.0, depth != depth);
 }
 
 fn coverage_first(coord: u32, source_size: u32, output_size: u32) -> u32 {
@@ -80,7 +81,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   var nearest = 0.0;
   for (var y = first.y; y < end.y; y++) {
     for (var x = first.x; x < end.x; x++) {
-      let min_max = textureLoad(source_hzb, vec2i(x, y), 0).xy;
+      let min_max = textureLoad(source_hzb, vec2i(i32(x), i32(y)), 0).xy;
       farthest = min(farthest, sanitize_reverse_z(min_max.x));
       nearest = max(nearest, sanitize_reverse_z(min_max.y));
     }
