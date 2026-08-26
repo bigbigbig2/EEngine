@@ -32,6 +32,8 @@ export type LightClusterOutputs = {
   parameters: ResourceId;
   lookup: ResourceId;
   data: ResourceId;
+  /** GPU frustum-list producer before the HZB filter. */
+  candidateLightList: ResourceId;
   /** GPU-produced count/list consumed by cluster assignment. */
   activeLightList: ResourceId;
 };
@@ -366,7 +368,13 @@ export class LightClusterPass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
 
-    return { parameters, lookup, data, activeLightList: filteredList };
+    return {
+      parameters,
+      lookup,
+      data,
+      candidateLightList: visibleList,
+      activeLightList: filteredList
+    };
   }
 
   private dispatchPagedList(

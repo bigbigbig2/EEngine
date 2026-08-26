@@ -131,7 +131,7 @@ shadedPixels + emptyVisibilityPixels
 == environment.frame.internalWidth × environment.frame.internalHeight
 ```
 
-LightCluster filtered list 还会通过图内 copy 输出 `activeLights`：它表示通过 GPU frustum + HZB filter、送入 cluster assign 的 Point/Spot light 数量，不包含 DirectionalLight。现有列表的 capacity/overflow bit 尚未闭环，因此 `queueOverflowMask` 暂时不能证明灯光队列没有丢项。
+LightCluster 的 frustum-visible 与 HZB-filtered 两级 list 都通过同一 GPU reducer 检查 overflow，filtered list 另外输出 `activeLights`：它表示通过 GPU frustum + HZB filter、实际可由列表容纳并送入 cluster assign 的 Point/Spot light 数量，不包含 DirectionalLight。两级列表都是 4-byte count header + `u32` elements，capacity 从 64 KiB Buffer 的实际尺寸推导为 16,383；任一级 raw count 超容量都会设置 `queueOverflowMask` bit 3。
 
 现有 Visibility GPU list 会在采样帧直接累计 `visibleInstances`、`candidateClusters`、`selectedClusters`、`hwClusters`、`alphaClusters` 和 `hwTriangles`。计数器以 Buffer size、16-byte header 与元素 stride 推导 capacity，只累计实际可容纳的 safe count；scene-mesh/meshlet raw count 超容量时分别设置 `queueOverflowMask` bit 0/1。`visibleInstances` 是 initial/second-chance/alpha 等实际 Visibility job 的 GPU scene-filter 输出 row 总和；cluster 字段同样是所有真实 wave/bucket 的队列项总和，均不声明跨 wave 唯一；`hwTriangles` 是固定功能路径提交的 primitive，当前满足：
 
@@ -140,7 +140,7 @@ selectedClusters == hwClusters + alphaClusters
 hwTriangles == selectedClusters × 128
 ```
 
-非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。`candidateInstances`、reject reason、SW raster、active material 和 light/material overflow producer 仍是 Partial。
+非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。`candidateInstances`、reject reason、SW raster、active material 和 material overflow producer 仍是 Partial。
 
 ## Shader source 审计
 
@@ -155,5 +155,5 @@ npm run audit:shaders
 - A：160k Teapot 的同资产/同相机/同输出对齐页面。
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- GPU pass producer：`candidateInstances`、reject reason、SW raster、active material，以及 material/LightCluster overflow bit。
+- GPU pass producer：`candidateInstances`、reject reason、SW raster、active material 与 material overflow bit。
 - VisibilityKey、HZB mip、reject reason、material ID 等统一 debug views。

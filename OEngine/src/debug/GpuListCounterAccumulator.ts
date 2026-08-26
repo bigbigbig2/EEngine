@@ -3,6 +3,8 @@ import {
   type GpuCounterFieldName
 } from "./GpuFrameCounters.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import type { FrameGraph } from "../framegraph/FrameGraph.js";
+import type { ResourceId } from "../framegraph/ResourceHandle.js";
 import type { CachedComputePipelineDescriptor } from "../gpu/GPUDescriptorCaches.js";
 
 export const GPU_LIST_COUNTER_WORKGROUP_SIZE = 1;
@@ -90,13 +92,38 @@ const GPU_LIST_COUNTER_PIPELINE: CachedComputePipelineDescriptor = {
 };
 
 export interface GpuListCounterOptions {
-  primary: GpuCounterFieldName;
+  primary?: GpuCounterFieldName;
   secondary?: GpuCounterFieldName;
   triangleField?: GpuCounterFieldName;
   trianglesPerElement?: number;
   overflowBit: number;
   headerBytes?: number;
   elementBytes?: number;
+}
+
+/** Adds an ordered sampling pass for a FrameGraph-owned count-prefixed list. */
+export function addGpuListCounterPass(
+  graph: FrameGraph,
+  source: ResourceId,
+  counters: ResourceId,
+  options: GpuListCounterOptions
+): ResourceId {
+  const builder = graph.add(
+    `R0 GPU list counters/${options.primary ?? "overflow-only"}`,
+    options,
+    (data, resources, context) => {
+      GRAPH_ACCUMULATOR.encode(
+        requireShadeCommandContext(context.encoder),
+        requireGpuBuffer(resources.get(source), "source list"),
+        requireGpuBuffer(resources.get(counters), "counter ABI"),
+        data
+      );
+    }
+  );
+  builder.read(source);
+  const nextCounters = builder.write(counters);
+  builder.make_side_effect();
+  return nextCounters;
 }
 
 /** Sampling-only reducer for count-prefixed GPU work queues. */
@@ -115,7 +142,7 @@ export class GpuListCounterAccumulator {
       elementBytes
     );
     const params = new Uint32Array(PARAM_WORDS);
-    params[0] = counterIndex(options.primary);
+    params[0] = optionalCounterIndex(options.primary);
     params[1] = optionalCounterIndex(options.secondary);
     params[2] = optionalCounterIndex(options.triangleField);
     params[3] = counterIndex("queueOverflowMask");
@@ -127,7 +154,7 @@ export class GpuListCounterAccumulator {
       GPUBufferUsage.UNIFORM
     );
     const pass = command.constructComputePass({
-      label: `R0 GPU list counters/${options.primary}`,
+      label: `R0 GPU list counters/${options.primary ?? "overflow-only"}`,
       pipeline: GPU_LIST_COUNTER_PIPELINE,
       bindings: [[
         { buffer: source },
@@ -140,13 +167,15 @@ export class GpuListCounterAccumulator {
   }
 }
 
+const GRAPH_ACCUMULATOR = new GpuListCounterAccumulator();
+
 export function gpuListElementCapacity(
   bufferSize: number,
   headerBytes = MESHLET_LIST_HEADER_BYTES,
   elementBytes = MESHLET_LIST_ELEMENT_BYTES
 ): number {
-  if (!Number.isInteger(headerBytes) || headerBytes < 0 || headerBytes % 16 !== 0) {
-    throw new RangeError("headerBytes must be a non-negative 16-byte multiple");
+  if (!Number.isInteger(headerBytes) || headerBytes < 0 || headerBytes % 4 !== 0) {
+    throw new RangeError("headerBytes must be a non-negative u32-aligned integer");
   }
   if (!Number.isInteger(elementBytes) || elementBytes <= 0 || elementBytes % 4 !== 0) {
     throw new RangeError("elementBytes must be a positive u32-aligned integer");
@@ -163,4 +192,28 @@ function counterIndex(field: GpuCounterFieldName): number {
 
 function optionalCounterIndex(field: GpuCounterFieldName | undefined): number {
   return field === undefined ? DISABLED_COUNTER_INDEX : counterIndex(field);
+}
+
+function requireShadeCommandContext(value: unknown): ShadeGPUCommandContext {
+  if (
+    value &&
+    typeof value === "object" &&
+    "allocateTransientBufferAndLoad" in value &&
+    "constructComputePass" in value
+  ) {
+    return value as ShadeGPUCommandContext;
+  }
+  throw new Error("GPU list counter pass requires ShadeGPUCommandContext");
+}
+
+function requireGpuBuffer(value: unknown, label: string): GPUBuffer {
+  if (
+    value &&
+    typeof value === "object" &&
+    "size" in value &&
+    "usage" in value
+  ) {
+    return value as GPUBuffer;
+  }
+  throw new Error(`GPU list counter pass expected ${label} GPUBuffer`);
 }

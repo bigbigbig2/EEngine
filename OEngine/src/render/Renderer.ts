@@ -56,7 +56,8 @@ import { createNativeTextureView, id } from "../gpu/GPUTextureDescriptors.js";
 import { TonemapPass } from "./passes/TonemapPass.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
-import { addGpuCounterCopyPass } from "../debug/GpuCounterCopyPass.js";
+import { addGpuListCounterPass } from "../debug/GpuListCounterAccumulator.js";
+import { GPU_QUEUE_OVERFLOW_BITS } from "../debug/GpuFrameCounters.js";
 import {
   captureGpuAdapterIdentity,
   type BenchmarkAdapterIdentity
@@ -956,11 +957,26 @@ export class Renderer {
             }
           );
           if (gpuCounterRes !== null) {
-            gpuCounterRes = addGpuCounterCopyPass(
+            gpuCounterRes = addGpuListCounterPass(
               graph,
-              "activeLights",
+              clusters.candidateLightList,
+              gpuCounterRes,
+              {
+                overflowBit: GPU_QUEUE_OVERFLOW_BITS.lightList,
+                headerBytes: Uint32Array.BYTES_PER_ELEMENT,
+                elementBytes: Uint32Array.BYTES_PER_ELEMENT
+              }
+            );
+            gpuCounterRes = addGpuListCounterPass(
+              graph,
               clusters.activeLightList,
-              gpuCounterRes
+              gpuCounterRes,
+              {
+                primary: "activeLights",
+                overflowBit: GPU_QUEUE_OVERFLOW_BITS.lightList,
+                headerBytes: Uint32Array.BYTES_PER_ELEMENT,
+                elementBytes: Uint32Array.BYTES_PER_ELEMENT
+              }
             );
             this._profiler.registerGpuCounterFields(["activeLights"]);
           }
