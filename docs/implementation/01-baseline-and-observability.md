@@ -201,6 +201,8 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - Shader source-of-truth 静态审计已覆盖 66 个文件，逐项记录 direct/runtime consumer、最近 pipeline owner、generator candidate 与删除候选；当前结论为 55 个 authored-live、5 个 dead candidate、6 个运行中的 oracle/generated ownership blocker。清单见 `OEngine/benchmarks/shader-source-audit.json` 与 `docs/SHADER-SOURCES.md`。
 - HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
 - `OBS-06` 已建立单一 `render_debug_view` 控制面：VisibilityKey、reverse-Z depth 与 velocity 在时域/后处理之后覆盖最终 HDR 输入；HZB mip、三类 reject reason、LOD/Cluster level、SW/HW 分类、material ID 与 history validity 均登记为带原因的 `unsupported`，不会添加占位 Pass。旧 `feature_velocity_debug_view` 与独立 `VelocityDebugPass` 已删除；关闭和 unsupported 状态不创建 Debug Pass、瞬态输出或 readback。
+- 原始 GPU timestamp label 已增加稳定逻辑阶段归类；Result 同时保留逐 Pass `gpuMs`，并将同一采样帧内的 Pass 先按 phase 求和后输出 `gpuPhaseMs`，避免用 Pass 样本冒充帧样本。未知 label 显式进入 `unclassified`，采样用 counter/debug Pass 单独进入 `observability`，不混入主渲染阶段。
+- `validateBenchmarkEvidence()` 已建立 Result artifact 机器门禁：检查 Schema、clean commit/dirtyReasons、A/B/C role、adapter/尺寸/feature set、真实资产与相机 hash、采样帧数、diagnostics、异步 timestamp/counter 完成状态、counter ABI、逻辑 phase，并从逐帧 segment 反算核对 `gpuMs`/`gpuPhaseMs`。用户 `temp/` 的两份旧 Schema 1 smoke 已登记为 exploratory，不会误入 G0。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
 - 尚未完成 A/B/C 对齐场景、其余 GPU pass counter producer、unsupported 视图所需的逐像素 producer、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
 
@@ -221,6 +223,8 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 ### OBS-04 · 接通 GPU timestamps
 
 在主 encoder 内分配 query 范围，Pass 只请求逻辑 marker，不拥有 query set/readback。处理设备不支持、query 容量不足和 feature off 的情况。
+
+状态：`Partial`。主 encoder 的真实 Pass timestamp、异步结果归档与 unavailable 路径已接通；原始 label 现在映射到稳定的 `instance-cull`、`hierarchy-and-cluster-cull`、`software-raster`、`hardware-raster`、`hzb`、`material-resolve`、`light-cluster`、`lighting-and-ibl`、`shadow`、`transparency`、`temporal`、`post`、`observability` 和 `unclassified`。Result 按帧汇总 `gpuPhaseMs`，同时保留原始 `gpuMs`。主 encoder 之外的 upload/animation 独立提交尚无统一 timestamp，whole-frame marker 也尚未闭环，因此不能标为 Completed。
 
 ### OBS-05 · 接通工作量 counters
 
@@ -243,6 +247,8 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 ### OBS-08 · 采集不可修改基线
 
 在同机完成 A/B/C 的 cold/warm、P50/P95/P99。保存原始 JSON、截图、控制台错误和分析说明。任何后续阶段都以该 artifact 与前一阶段 artifact 双重对照。
+
+状态：`Partial`。Result JSON 的机器 gate validator 与旧 artifact 登记已完成；旧 RTX 2060 SUPER Schema 1 数据只能证明当时 81 Box 主链的 3 submit、持续 readback 等探索事实，不能作为 A/B/C gate。A/B/C 的 clean Schema v2 JSON、截图、控制台和 cold/warm run bundle 尚未采集。
 
 ## 验收
 

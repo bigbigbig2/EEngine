@@ -6,6 +6,7 @@ import type {
   FrameProfileSnapshot,
   FrameProfilerDiagnostics
 } from "./FrameProfiler.js";
+import { classifyGpuFramePhase } from "./GpuFramePhase.js";
 
 export interface BenchmarkCaseManifest {
   id: string;
@@ -27,7 +28,10 @@ export interface SeriesSummary {
 
 export interface BenchmarkSummary {
   cpuMs: Record<string, SeriesSummary>;
+  /** 原始 pipeline/pass label，供实现级诊断。 */
   gpuMs: Record<string, SeriesSummary>;
+  /** 同一帧内先求和后的稳定逻辑阶段，供跨版本比较。 */
+  gpuPhaseMs: Record<string, SeriesSummary>;
   counters: Record<string, SeriesSummary>;
   gpuCounters: Record<string, SeriesSummary>;
   submits: SeriesSummary;
@@ -140,14 +144,24 @@ export function summarizeSeries(values: readonly number[]): SeriesSummary {
 function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSummary {
   const cpuValues = new Map<string, number[]>();
   const gpuValues = new Map<string, number[]>();
+  const gpuPhaseValues = new Map<string, number[]>();
   const counterValues = new Map<string, number[]>();
   const gpuCounterValues = new Map<string, number[]>();
   for (const frame of frames) {
+    const framePhaseTotals = new Map<string, number>();
     for (const [label, value] of Object.entries(frame.cpuMs)) {
       append(cpuValues, label, value);
     }
     for (const segment of frame.gpu.segments) {
       append(gpuValues, segment.label, segment.durationMs);
+      const phase = segment.phase ?? classifyGpuFramePhase(segment.label);
+      framePhaseTotals.set(
+        phase,
+        (framePhaseTotals.get(phase) ?? 0) + segment.durationMs
+      );
+    }
+    for (const [phase, durationMs] of framePhaseTotals) {
+      append(gpuPhaseValues, phase, durationMs);
     }
     for (const [label, value] of Object.entries(frame.counters)) {
       append(counterValues, label, value);
@@ -161,6 +175,7 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
   return {
     cpuMs: summarizeMap(cpuValues),
     gpuMs: summarizeMap(gpuValues),
+    gpuPhaseMs: summarizeMap(gpuPhaseValues),
     counters: summarizeMap(counterValues),
     gpuCounters: summarizeMap(gpuCounterValues),
     submits: summarizeSeries(frames.map((frame) => frame.submits.count)),

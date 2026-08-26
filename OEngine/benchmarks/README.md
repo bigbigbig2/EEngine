@@ -100,6 +100,8 @@ npm run dev:host
 
 这些页面不是 A/B/C 性能结果。只有达到各自固定采样帧数、控制台无 WebGPU validation error、结果 JSON 可导出且主帧页面截图正确时，才算浏览器侧 smoke 通过。
 
+`validateBenchmarkEvidence(result)` 负责 Result JSON 的最低 gate 判定：Schema、clean commit、A/B/C role、真实 hash、环境、diagnostics、采样完成状态、GPU timestamp/counter 与 phase 汇总任一缺失都会返回机器可读错误；`gpuMs`/`gpuPhaseMs` 还会从逐帧 segment 反算核对，不能只补一个同名空对象过关。它不验证仓库外截图和控制台文件，因此 `gateEligible=true` 仍需与完整 run bundle 一起归档。已采集旧数据的结论见 [`docs/BASELINE-ARTIFACTS.md`](../../docs/BASELINE-ARTIFACTS.md)。
+
 ## 当前 CPU/GPU 证据字段
 
 ```text
@@ -116,6 +118,9 @@ readbacks.labels[*] + bytes
 uploads.labels[*] + bytes
 graph.builds / compiles / executes
 gpu.segments[*].label/type/durationMs
+gpu.segments[*].phase
+summary.gpuMs[*]              # 原始 Pass label
+summary.gpuPhaseMs[*]         # 每帧先按稳定逻辑阶段求和
 gpuCounters.schemaVersion/sampled/pending/dropped/values
 counters.legacy.*
 counters.lighting.*
@@ -159,4 +164,5 @@ npm run audit:shaders
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
 - GPU pass producer：cone/HZB reject reason、SW raster 与 material overflow bit。
-- VisibilityKey、HZB mip、reject reason、material ID 等统一 debug views。
+- HZB mip、reject reason、LOD/Cluster、SW/HW classification、material ID 与 history validity 所需的真实逐像素 producer；当前统一控制面明确报告 unsupported。
+- 主 encoder 外 upload/animation 与 whole-frame GPU timestamp marker。

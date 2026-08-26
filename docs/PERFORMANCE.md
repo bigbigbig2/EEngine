@@ -37,6 +37,8 @@ A/B/C 必须驱动同一套 OEngine 主管线；只允许通过 manifest、场�
 - 内存：常驻 Buffer/Texture、transient 峰值、每帧上传与 readback 字节。
 - 统计：平均、P50、P95、P99、首次编译和 warm frame。
 
+Result 必须同时保留原始 Pass `gpuMs` 与稳定逻辑阶段 `gpuPhaseMs`。阶段统计先在每个采样帧内求和，再跨帧计算分位数；不得把同一帧的多个 mip/bucket/pass 当作多个独立帧样本。无法可靠归类的 label 写入 `unclassified`，profiler/counter/debug 的采样开销写入 `observability`，两者都不能静默并入主渲染时间。
+
 ## 当前已确认的性能风险
 
 - `GraphicsContext.update()` 稳定帧独立 submit，并触发 collection statistics readback。

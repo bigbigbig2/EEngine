@@ -175,8 +175,13 @@ test("frame profiler exposes CPU, submit, readback, upload and delayed GPU evide
   assert.ok(completed);
   assert.equal(completed.gpu.pending, false);
   assert.deepEqual(completed.gpu.segments, [
-    { label: "visibility", type: "render", durationMs: 1.25 },
-    { label: "hzb", type: "compute", durationMs: 0.5 }
+    {
+      label: "visibility",
+      type: "render",
+      phase: "hardware-raster",
+      durationMs: 1.25
+    },
+    { label: "hzb", type: "compute", phase: "hzb", durationMs: 0.5 }
   ]);
   unsubscribe();
   assert.equal(observed.length, 2);
@@ -319,7 +324,10 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
       available: true,
       sampled: true,
       pending: false,
-      segments: [{ label: "visibility", type: "render", durationMs: 0.75 }]
+      segments: [
+        { label: "visibility", type: "render", durationMs: 0.75 },
+        { label: "Visibility/ID+Depth/second", type: "render", durationMs: 0.25 }
+      ]
     },
     gpuCounters: emptyGpuCounters()
   });
@@ -346,6 +354,16 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
   });
   assert.equal(result.summary.submits.mean, 1);
   assert.equal(result.summary.gpuMs.visibility.mean, 0.75);
+  assert.equal(result.summary.gpuMs["Visibility/ID+Depth/second"].mean, 0.25);
+  assert.deepEqual(result.summary.gpuPhaseMs["hardware-raster"], {
+    count: 1,
+    mean: 1,
+    min: 1,
+    max: 1,
+    p50: 1,
+    p95: 1,
+    p99: 1
+  });
   assert.equal(result.diagnostics.validationErrorCount, 0);
   assert.deepEqual(JSON.parse(serializeBenchmarkResult(result)), result);
 });

@@ -63,6 +63,17 @@ export type {
   BenchmarkWebGpuEnvironmentInput
 } from "./debug/EnvironmentManifest.js";
 export { FrameProfiler } from "./debug/FrameProfiler.js";
+export { validateBenchmarkEvidence } from "./debug/BenchmarkEvidenceGate.js";
+export type {
+  BenchmarkEvidenceIssue,
+  BenchmarkEvidenceReport,
+  BenchmarkEvidenceSeverity
+} from "./debug/BenchmarkEvidenceGate.js";
+export {
+  GPU_FRAME_PHASES,
+  classifyGpuFramePhase
+} from "./debug/GpuFramePhase.js";
+export type { GpuFramePhase } from "./debug/GpuFramePhase.js";
 export {
   RENDER_DEBUG_VIEW_OPTIONS,
   RenderDebugView,

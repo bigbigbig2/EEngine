@@ -6,6 +6,10 @@ import {
   type GpuCounterValues
 } from "./GpuFrameCounters.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import {
+  classifyGpuFramePhase,
+  type GpuFramePhase
+} from "./GpuFramePhase.js";
 
 export interface FrameProfilerOptions {
   enabled?: boolean;
@@ -43,6 +47,7 @@ export type FrameGpuPassType = "compute" | "render";
 export interface FrameGpuSegment {
   label: string;
   type: FrameGpuPassType;
+  phase: GpuFramePhase;
   durationMs: number;
 }
 
@@ -472,6 +477,7 @@ export class FrameProfiler {
     frame.gpu.segments = timings.map((timing, index) => ({
       label: timing.label ?? `unnamed-${index}`,
       type: timing.type,
+      phase: classifyGpuFramePhase(timing.label ?? `unnamed-${index}`),
       durationMs: nonNegativeFinite(timing.duration_ms, "GPU duration")
     }));
     frame.gpu.pending = false;
