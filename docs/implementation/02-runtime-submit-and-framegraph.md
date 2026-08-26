@@ -1,169 +1,453 @@
-# 02 · R1 单帧提交、FrameGraph 与 HZB
+# 02 · R1 运行时提交、Compiled FrameGraph 与 Compute HZB
+
+## 阶段状态
+
+R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。下一步不是继续补 R0，也不是同时修改所有渲染算法，而是从 `R1-A` 开始收口一帧的 GPU 工作所有权。
+
+R1 解决与场景规模不成比例的运行时固定成本和错误生命周期边界。它不会实现 R2 的 Runtime Asset/Packed Instance、R3 的 Geometry Hierarchy/SSE LOD、R4 的 Compute Software Raster，也不把 three.js 两个示例当作引擎完成上限。
 
 ## 阶段目标
 
-先降低与场景内容无关的固定成本：稳定帧以一个主要 `GPUCommandEncoder`、一次主要 `queue.submit()` 完成 upload、animation、culling、raster、lighting 和 post；FrameGraph 拓扑可缓存；HZB 不再每 mip 开 Render Pass；feature off 不产生旁路资源和提交。
+完成 R1 后，同一个 render tick 的 upload、scene change、animation、shadow、visibility、lighting、post 和采样 copy 必须由一个主要 `GPUCommandEncoder` 编码，并由唯一 owner 执行一次主要 `queue.submit()`；稳定 FrameGraph 拓扑只在 key miss 时编译；HZB 不再为每个 mip 创建 Render Pass；关闭 feature 后不残留 Pass、资源、readback、timestamp 或 submit。
 
-## 非目标
+阶段退出必须同时证明：
 
-- 不在 R1 冻结新的 Geometry/Cluster ABI。
-- 不因为“一个 submit”而把资产初始化、异步编译或显式调试 readback 强塞进渲染帧。
-- 不把所有代码机械塞进一个巨型 `Renderer.render()`。
-- 不承诺 second chance 永远开启或永远关闭。
+- 提交所有权唯一，而不是把额外 submit 改了名字；
+- scene preparation 每个 scene 每帧至多一次，shadow view 不重复 flush scene；
+- compiled topology 与本帧 GPU handle、相机和动态数据已经分离；
+- HZB history 在 resize、camera cut 和 feature toggle 后不会错误复用；
+- 被替代的旧提交、旧图构建入口和旧逐 mip Render Pass 已删除；
+- A/B/C 与通用生命周期示例有前后 JSON、截图和控制台证据。
 
-## 当前代码入口
+## 非目标与范围边界
 
-| 当前入口 | 迁移问题 |
-|---|---|
-| `OEngine/src/gpu/GraphicsContext.ts::update()` | 创建独立 command，更新 geometry/material/statistics 后 finish |
-| `OEngine/src/gpu/GPUSceneContext.ts::update()` | animation command 无条件 finish；增量 database flush 也可创建 command |
-| `OEngine/src/framegraph/ShadeGPUCommandContext.ts` | `finish()` 的提交所有权需收口 |
-| `OEngine/src/render/Renderer.ts` | 每帧 `new FrameGraph(...)`，图拓扑与动态数据混在一起 |
-| `OEngine/src/framegraph/FrameGraph.ts` | compile/execute 已存在，但需分离 compiled topology 与 frame bindings |
-| `OEngine/src/render/HierarchicalZBuffer.ts` | mip0 与后续每 mip 使用独立 Render Pass |
-| `OEngine/src/render/ViewContext.ts`、`RenderTargets.ts` | resize、history 和 per-view resource owner |
+- 不冻结新的 Geometry/Cluster/Visibility ABI。
+- 不实现 Core/Quality/Experimental 三档真实管线；所有功能仍进入同一主管线 recipe。
+- 不为“一个 submit”把资产离线烘焙、用户显式预上传、环境贴图预滤波或调试工具强塞进 render tick。
+- 不要求把所有 `queue.writeBuffer()` 机械改成 staging copy。它不是 `queue.submit()`，先记录 owner、字节和发生顺序，再由数据决定是否迁移。
+- 不把所有逻辑塞进 `Renderer.render()`；`Renderer` 继续是 composition root，不成为 Graphics、Scene、HZB 或 FrameGraph 算法 owner。
+- 不在 R1 实现复杂的跨资源全局 alias allocator。Compiled graph 先冻结 pass order、pruning 和 last-use，瞬态资源继续通过现有 pool 复用；更激进 alias 必须有单独内存证据。
+- 不承诺 second chance 永久开启。它是同一 recipe 中可裁剪的条件节点，不是另一条管线。
 
-## 目标帧所有权
+## R0 输入证据与根因
+
+本节只使用 `temp/` 中 2026-08-26 Schema v3 acceptance-smoke 解释当前路径。它们不是正式性能 gate，R1 第一次修改代码前仍要采集 clean/full 入口基线；这属于 R1 的前测，不会重新打开 G0。
+
+| Case | CPU frame P50 / P95 | Submit | Graph build / compile / execute | HZB build / mip Render Pass | HZB GPU P50 / P95 |
+|---|---:|---:|---:|---:|---:|
+| Frame Smoke | 2.150 / 2.985 ms | 3 | 1 / 1 / 1 每帧 | 2 / 20 | 0.114 / 0.116 ms |
+| A smoke | 2.800 / 3.800 ms | 3 | 1 / 1 / 1 每帧 | 2 / 20 | 0.125 / 0.127 ms |
+| B smoke | 3.050 / 3.860 ms | 3 | 1 / 1 / 1 每帧 | 2 / 20 | 0.126 / 0.128 ms |
+| C smoke | 9.300 / 18.555 ms | 13 | 1 / 1 / 1 每帧 | 3 / 30 | 1.040 / 1.051 ms |
+
+### Submit 的精确来源
+
+Frame Smoke、A、B 的三次提交固定为：
 
 ```text
-FrameCoordinator.beginFrame()
-  ├─ apply CPU Change Set
-  ├─ obtain cached CompiledFrameGraph
-  ├─ create one main GPUCommandEncoder
-  ├─ encode dirty upload + animation
-  ├─ execute graph passes into same encoder
-  ├─ optional sampled timestamp/counter copies
-  └─ finish + queue.submit once
-FrameCoordinator.endFrame()
+GraphicsContext.update                         × 1
+GPUSceneContext/animation-flush                × 1
+Renderer/main-0                                × 1
 ```
 
-### 允许的非主帧提交
-
-以下提交必须带明确分类并进入 submit counter，但不计为“稳定帧主要 submit”：
-
-- device 初始化和一次性默认纹理上传；
-- 用户显式发起的资产预上传/烘焙；
-- benchmark 明确开启的 readback；
-- device lost 恢复；
-- 无法并入当前帧、且 API 明确异步的工具操作。
-
-一旦操作发生在每个稳定 render tick，它就必须并入主 encoder 或被删除。
-
-## 计划模块
-
-建议新增或重构为：
+C 的十三次提交固定为：
 
 ```text
-OEngine/src/render/FrameCoordinator.ts
-OEngine/src/framegraph/CompiledFrameGraph.ts
-OEngine/src/framegraph/FrameGraphCache.ts
-OEngine/src/framegraph/FrameGraphKey.ts
-OEngine/src/render/ComputeHierarchicalZBuffer.ts
+GraphicsContext.update                         × 1
+GPUSceneContext/animation-flush                × 10
+GPUSceneContext/database-incremental-update    × 1
+Renderer/main-0                                × 1
 ```
 
-建议逐步移除 `ShadeGPUCommandContext` 的隐式提交能力：它可以作为 encoder façade 暂时保留，但 `finish()` 只能由 frame coordinator 或显式 one-shot owner 调用。
+C 的放大不是“阴影天然需要十三次提交”。`GPUViewContext.update()` 当前会调用 `scene.update()`；主 view 与 shadow views 更新时反复进入同一个 scene，因而每次都无条件创建 animation command。动态 transform 随后又触发 database incremental command。scene preparation 与 per-view preparation 没有分开，才是这里的根因。
 
-## 数据与生命周期契约
+### Readback、upload 和图重建
 
-### FrameGraphKey
+- 所有普通帧都调用 `GPUCollectionLimits.update()`，复制 6,144 bytes collection history 并异步 map；非 GPU timestamp/counter 采样帧仍有一次 collection readback。
+- A/B/Frame Smoke 每帧 upload 728 bytes；C 每帧 8,456 bytes，其中相机状态 6,240 bytes、view uniform 960 bytes、TLAS dirty nodes 896 bytes、HZB clip 144 bytes、staging copy 216 bytes。
+- 所有记录帧都 `new FrameGraph()`、build、compile、execute 一次；12 帧 A/B/C 各发生 12 次 compile，没有 warm cache hit。
+- A/B/Frame Smoke 每帧构建两次 10-mip HZB；C 因 alpha/shadow/visibility 路径构建三次。C 的 `hierarchy-and-cluster-cull` GPU P50 另有 2.596 ms，因此 R1 不能把总慢简单归因于 HZB。
 
-key 只包含会改变图拓扑或资源描述的值：
+### 当前提交 owner 分类
+
+| 当前 owner | 当前分类 | R1 处理 |
+|---|---|---|
+| `Renderer/main-0` | steady-frame | 保留为 render tick 唯一 submit owner，并迁入 `FrameCoordinator` |
+| `GraphicsContext.update()` | steady-frame | 改为只做 CPU maintenance 和向主 context 编码真实 dirty work |
+| `GPUSceneContext` animation/database flush | steady-frame | scene 每帧只准备一次，全部并入主 context |
+| `LightDatabase.update()` | render tick 的 dirty work | encode-only；environment prefilter 若显式预处理则分类 one-shot |
+| `GPUVolumetrics.update()` | render tick 的 dirty work | encode-only；无 version change 时零编码 |
+| `GPUResidentMaterialContext.update()` | residency dirty work | render 前发生时并入主 context；显式预上传可 one-shot |
+| Shadow draw/view update | steady-frame | 多 view 可有多个 Pass，不得产生多个 submit，也不得重复 scene prepare |
+| LPV bake/probe placement/read | explicit tool/bake | 可独立提交，但必须有 one-shot label，不能出现在普通 render tick |
+| database grow/compact/read、camera clone、mipmap fallback | one-shot/tool/recovery 候选 | 逐项登记调用条件；一旦每帧出现即迁入主 context 或删除 |
+
+`createCommandEncoder()`、`submitGpuCommands()`、`mapAsync()` 的完整 allowlist 是 `R1-A01` 的交付物。上表不是允许跳过未知调用的白名单。
+
+## 目标架构：三个需要守住的 seam
+
+R1 不新增一组薄 wrapper。目标是三个具有足够 depth 和 leverage 的 module：帧协调器隐藏编码/提交/采样生命周期；compiled graph 隐藏拓扑编译和瞬态生命周期；HZB 隐藏 pyramid 算法与 history 状态。
 
 ```text
-deviceCapabilityProfile
+Renderer.render()                         composition root
+  │
+  └─ FrameCoordinator                    唯一 render-frame submit owner
+       ├─ GraphicsContext.encodeFrameMaintenance()
+       ├─ GPUSceneContext.encodeFrame()  每 scene / frame 至多一次
+       ├─ GPUViewContext.encodeViewState()
+       ├─ ShadowContext.encodeViews()     N views，仍在同一 encoder
+       ├─ CompiledFrameGraph.execute(bindings)
+       │    └─ HierarchicalZBuffer.encodeBuild()
+       └─ Profiler.encodeSampleCopies()  仅采样帧
+```
+
+### Seam 1：一帧唯一提交 owner
+
+建议内部 interface：
+
+```ts
+type FrameEncoding = {
+  readonly frameIndex: number;
+  readonly command: FrameEncodeContext;
+  readonly instrumentation: "none" | "timestamps" | "counters" | "debug";
+};
+
+class FrameCoordinator {
+  beginFrame(input: FrameBeginInput): FrameEncoding;
+  submitFrame(frame: FrameEncoding): FrameExecutionEvidence;
+  abortFrame(frame: FrameEncoding, cause: unknown): void;
+  destroy(): void;
+}
+```
+
+`FrameEncodeContext` 可以由现有 `ShadeGPUCommandContext` 直接重构而来，但它只能 encode，不再公开会隐式 submit 的 `finish()`。只有 coordinator 能关闭 encoder、resolve timer、生成 command buffer、submit、推进 staging/readback ring 和发出完成信号。
+
+必须明确区分三个时刻：
+
+- `closed`：CPU 已结束编码；
+- `submitted`：command buffer 已交给 queue；
+- `gpuDone`：`queue.onSubmittedWorkDone()` 或 map 完成证明 GPU 已消费。
+
+旧 `command.done` 当前只表示 context 已 `finish()`，不能继续含糊地兼作 GPU 完成。readback ring 和临时资源回收必须选择正确时刻，不能靠额外 submit 制造同步点。
+
+显式 one-shot 工作允许独立提交，但必须满足：调用者不在 open render frame 中；label 和 `one-shot | tool | recovery` 分类非空；runtime counter 可见；调用点在 allowlist。不要为每个系统创建一套 immediate adapter。
+
+### Seam 2：Compiled topology 与 frame bindings
+
+当前 `FrameGraph` 同时拥有 pass 声明、动态 pass data、imported GPU handle、compile state 和 execute state，导致无法安全缓存。目标拆分为一个 deep `CompiledFrameGraph` module；cache 若只是一个 `Map`，直接由 `FrameCoordinator` 或 Renderer 内部持有，不单独建立浅 `FrameGraphCache` class。
+
+```ts
+type CompiledFrameGraph = {
+  execute(
+    frame: FrameEncodeContext,
+    bindings: FrameGraphBindings,
+  ): FrameGraphExecutionEvidence;
+  dump(): CompiledFrameGraphDump;
+  destroy(): void;
+};
+```
+
+编译结果拥有：
+
+- executable pass order 与被裁剪 pass；
+- logical resource slot、读写边和 imported binding slot；
+- transient descriptor、first/last use 与现有 pool 的 acquire/release plan；
+- pass execute function 和稳定的 binding 索引；
+- feature、history 和 instrumentation 条件的 graph dump。
+
+每帧 bindings 只拥有当前 swapchain view、camera buffer、scene/light/material tables、history views、动态常量和 job data。execute 不能修改 compiled topology，也不能把上帧 GPU handle 留在闭包里。
+
+`FrameGraphKey` 使用 canonical plain value 和集中 hash/equality helper，不必成为独立 module。key 至少包含：
+
+```text
+capabilityProfile
 internalWidth × internalHeight
 outputWidth × outputHeight
-viewCount
-sampleCount
+view/sample count
 enabledFeatureBits
 visibilityImplementation
 historyFormatRevision
+instrumentationMode/revision
 ```
 
-相机矩阵、light count、instance count、时间、dirty ranges 和当前 texture handles 是 frame bindings，不进入 key。key 相同必须复用 compiled topology、pipeline layout 决策和 transient allocation plan。
+camera matrix、时间、instance/light/material 数、dirty ranges、GPU handle 和当前 history valid 状态不进入 key。相同 key 的 warm frame 必须是 cache hit；resize、DPR/render scale、feature topology、format/capability 和 instrumentation recipe 改变才 miss。采样与非采样允许命中两份稳定 compiled graph，不能每次重新生成。
 
-### FrameUploadBatch
+### Seam 3：per-view HZB 与 history owner
 
-CPU producer 是 Asset residency、World Change Set、animation 和 table owner；GPU consumer 是本帧对应 Pass。batch 至少记录 buffer copy/write ranges、texture uploads、总字节、owner 和最晚消费 Pass。相邻 range 可合并，但不得越过不同 owner 的生命周期。
+不长期并存 `ComputeHierarchicalZBuffer` 和旧 `HierarchicalZBuffer` 两个 owner。保留 per-view `HierarchicalZBuffer` 概念，直接替换内部算法，并收紧 interface：
 
-### HistoryState
+```ts
+class HierarchicalZBuffer {
+  setViewportSize(width: number, height: number): void;
+  previousView(): GPUTextureView | null;
+  encodeBuild(frame: FrameEncodeContext, depth: GPUTextureView): HzbBuildEvidence;
+  commitHistory(frameIndex: number): void;
+  invalidate(reason: HzbInvalidationReason): void;
+  destroy(): void;
+}
+```
 
-每个 view 独立持有 previous depth/HZB、velocity/TAA/SSR/exposure history。状态至少包含 `valid`、尺寸、camera cut revision、render scale revision、feature revision 和 lastWrittenFrame。resize、device lost、camera cut、切换相机、相关 feature off/on 必须使对应 history 失效。
+每个 view 的 history 至少保存：
 
-## Compute HZB 契约
+```text
+valid
+dimensions + mipCount + formatRevision
+cameraCutRevision
+renderScaleRevision
+featureRevision
+lastWrittenFrame
+```
 
-- reverse-Z 下每级保存覆盖区域的最远保守深度，具体 reduce 运算与 culling compare 写成共享测试。
-- mip0 从最终 depth 复制/归约；其后 mip 在同一个 Compute Pass encoder 中依次 dispatch。
-- WebGPU 同一 texture 的不同 mip view 在相邻 dispatch 中读写时，bind group 和资源 usage 必须通过 validation；不能依赖未定义的 pass 内 barrier 行为。
-- 如果单 pass 多 mip 在目标实现上不可验证，则允许少量 Compute Pass 分段，但禁止回到每 mip一个 Render Pass。
-- 每个 view 每帧默认只生成 final HZB；只有 same-frame late visibility 真正启用时才增加 current HZB，并单独计时。
+previous history 在本帧 initial visibility 期间只读；current/final pyramid 的写入与 history commit 明确分开。需要时使用 ping-pong 或独立 scratch，禁止一个未声明状态的 texture 既冒充 previous 又在中途被覆盖。
 
-## 执行任务
+## R1 执行顺序
 
-### FG-01 · 枚举所有 submit owner
+R1 以四个纵向包连续执行。每包都要求代码、测试、命中浏览器示例、删除项和中文详细 commit 一起完成；不要把十个小步骤分别拖成多轮“还差一点”。
 
-使用静态搜索和 R0 runtime counter 列出每个 `createCommandEncoder`、`finish`、`queue.submit`、`mapAsync`。为每个调用标注 `steady-frame`、`one-shot`、`debug` 或 `recovery`。未知调用不得跳过。
+```text
+R1-A Frame ownership / one-submit
+  ↓
+R1-B Compiled graph / feature pruning
+  ↓
+R1-C Compute HZB / history
+  ↓
+R1-D Lifecycle / deletion / regression gate
+```
 
-### FG-02 · 建立 FrameCoordinator
+### R1-A · Frame ownership 与 one-submit 闭环
 
-让 `Renderer.render()` 把主 encoder 传给 Graphics、GPUScene、upload 和 graph execute。旧 helper 若没有工作，不得创建 command；有工作时只 encode，不 submit。
+#### 输入
 
-### FG-03 · 让动画和增量同步按 dirty 编码
+- R0 Schema v3 submit/readback/upload/graph counter；
+- 当前 `ShadeGPUCommandContext`、`GraphicsContext`、`GPUSceneContext`、`ViewContext`、shadow 与 profiler ring；
+- 修改前 clean/full Frame Smoke + A/B/C 入口 artifact。
 
-`GPUSceneContext.update()` 在没有动画、transform、bounds、material/light 或 residency 变化时返回空 batch。增量 upload 与 animation dispatch 使用主 encoder。结构变化与字段变化分别计数。
+#### 任务
 
-### FG-04 · 收口 statistics/readback
+| ID | 实施内容 | 必须产出 |
+|---|---|---|
+| `R1-A01` | 静态与 runtime submit owner 审计 | 所有 encoder/submit/map 调用的分类表；render-frame submit allowlist 测试；未知 label 直接失败 |
+| `R1-A02` | 重构 command 生命周期 | encode-only context；coordinator 唯一 close/submit；`closed/submitted/gpuDone` 语义；异常 abort 不泄漏资源 |
+| `R1-A03` | 合并 Graphics maintenance | `GraphicsContext.encodeFrameMaintenance(frame)`；无 dirty GPU work 不创建额外 encoder；collection sampling 从 update 解耦 |
+| `R1-A04` | 分离 scene 与 view preparation | `GPUSceneContext.encodeFrame()` 每 scene/frame 至多一次；view/shadow 只更新自身 camera/uniform；animation update/tick 与 database dirty upload 用主 context |
+| `R1-A05` | 迁移其他 dirty owner | LightDatabase、Volumetrics、resident material、TLAS 与命中的 mipmap/upload fallback 在 render tick 内只 encode |
+| `R1-A06` | 收口 sampled copy/readback | 非采样帧零 collection readback；采样 copy 位于主 encoder 尾部；异步 map 旧 ring slot，不阻塞当前 frame |
+| `R1-A07` | 删除旧提交旁路并验收 | 删除无条件 animation flush、incremental self-submit、Graphics self-submit 和主帧可达的 `finish()` 调用 |
 
-接入 R0 readback ring。普通帧禁止 `GPUCollectionLimits.readback()` 自建 encoder/submit；只有 sampled frame 在主 encoder 末尾 copy，异步 map 旧 staging slot。
+scene change、view update 的目标调用顺序固定为：
 
-### FG-05 · 分离图描述与帧绑定
+```text
+consume Scene Change Set once
+encode scene database / animation dirty work once
+encode main view state
+encode selected shadow view states
+encode shadow + main graph work
+encode sampled copies when requested
+submit once
+```
 
-把 `Renderer.ts` 中每帧重复的 pass/resource 声明变成可缓存 graph recipe。compile 结果包含 pass order、culled pass、resource lifetime 和 transient alias plan；execute 只绑定本帧 imported resources 与 job data。
+`SceneFrameEvidence` 至少记录 `scenePrepareCount`、structure/transform/bounds/material/light/animation dirty counts、upload bytes 和 view count。它不是让所有调用方学习的大型 `FrameUploadBatch` DTO；复杂合并逻辑留在 GPUScene/Graphics deep module 内部。
 
-### FG-06 · 实现 feature pruning
+#### 允许的临时状态
 
-每个 feature 从 graph recipe 入口控制。关闭时不创建 Pass、history、transient texture、timer marker、readback 或 submit。用 graph dump 自动断言，不靠人工看代码。
+- FrameGraph 仍可每帧 build/compile；旧 HZB 仍可逐 mip Render Pass。
+- `ShadeGPUCommandContext` 类名可暂留，但 `finish()` 不能再被 steady-frame helper 调用。
+- 显式 tool/one-shot 路径可暂时使用独立 submit，前提是分类表和 runtime label 完整。
 
-### FG-07 · 重写 Compute HZB
+#### 必删项
 
-先用固定 8×8/奇数尺寸 depth 金标验证每个 mip，再替换 `HierarchicalZBuffer.ts` 运行路径。记录 build 次数、mip dispatch 数、读写像素和 GPU 时间。
+- `GraphicsContext.update()` 内自建 command/submit；
+- `GPUSceneContext/animation-flush` 无条件 command；
+- database incremental/full build 在 render tick 内自建 command；
+- `GPUCollectionLimits.update()` 每帧 readback；
+- main-frame helper 的 owned-command fallback。
 
-### FG-08 · second-chance 调度策略
+#### 验收
 
-将 previous-HZB-only 和 same-frame late visibility 表达为同一 graph recipe 的条件节点。条件来自配置、相机/场景运动信号和后续 profile，不得把“Fast/Robust”实现成两条长期管线。
+- Frame Smoke、A、B、C 的 warm non-sampled frame 均为 `Renderer/main` 一次 submit；C 的 shadow views 不增加 submit。
+- 非采样帧 readback 为 0；timestamp/counter 采样帧仍为一次 main submit。
+- scene preparation counter 每 scene/frame 为 1，C 不再出现 10 次 animation flush。
+- 动态 transform、动画、灯光/阴影和材质 residency 变化实际生效，不得为一 submit 丢掉 dirty work。
+- `npm test`、根目录 Frame Smoke + A/B/C 浏览器 smoke、控制台 validation 和截图通过。
 
-### FG-09 · 生命周期与恢复
+### R1-B · Compiled graph 与 feature pruning
 
-验证 resize、DPR、dynamic resolution、feature toggle、view 删除和 device lost。旧 compiled graph、texture view、bind group、history 和 staging slot 必须可销毁或重建。
+#### 任务
 
-### FG-10 · 删除旧提交旁路
+| ID | 实施内容 | 必须产出 |
+|---|---|---|
+| `R1-B01` | 冻结 topology/binding 测试面 | 当前主图 graph dump 金标；同 topology 换 GPU handles 不重新 compile 的测试 |
+| `R1-B02` | 建立 compiled representation | pass order、pruning、logical slots、last-use plan 与 immutable execute interface |
+| `R1-B03` | 迁移主管线 recipe | 把 `Renderer.ts` 每帧 pass/resource 声明迁为 recipe；动态闭包数据改为 binding slot |
+| `R1-B04` | canonical key 与 cache | hit/miss/compile/evict counter；resize、feature、instrumentation invalidation；destroy 清理 |
+| `R1-B05` | feature pruning | feature 从 recipe 入口控制；off 时 graph dump、资源、timer、readback、submit 中都不存在该功能 |
+| `R1-B06` | 删除每帧 build/compile 入口 | steady main path 不再 `new FrameGraph()`；LPV/tool graph 保留明确 one-shot owner |
 
-删除主帧内自建 encoder 的 helper、无条件 animation flush、每帧统计 readback和旧 HZB render pipeline/shader。临时 adapter 必须在本任务收尾清零。
+先完成固定 A/B/C feature set 和尺寸的最小 vertical cache，再验证 resize/toggle；不要先把 cache 设计成支持尚不存在的任意多 view/streaming ABI。
 
-## 验收
+#### 允许的临时状态
 
-### 正确性
+- HZB 仍使用旧 Render 实现，但已经作为同一 recipe 节点执行。
+- transient resource 继续使用现有 allocator/pool；本阶段只缓存 lifetime plan，不承诺跨 descriptor 的激进 alias。
 
-- 空场景、A/B/C、resize、camera cut、feature toggle 和 device lost 恢复无 validation error。
-- compiled graph key 改变时正确重建，不改变时保持 cache hit。
-- Compute HZB 与 CPU/reference pyramid 在小尺寸、reverse-Z、奇数边界和全远平面输入一致。
-- previous/current/final HZB 不发生跨 view、跨尺寸或错误相机复用。
+#### 必删项
 
-### 性能
+- main frame 每帧 `new FrameGraph(MAIN_FRAME_GRAPH_NAME)`；
+- compiled pass closure 捕获本帧 GPU handle 的路径；
+- feature off 后仍被 `make_side_effect()` 强制保留的无消费者 Pass；
+- cache 迁移完成后的旧 mutable compile/execute interface 与只服务旧 interface 的测试。
 
-- warm steady frame：一个主要 submit；非采样帧零 statistics readback。
-- graph compile 只在 key 改变时发生，warm cache hit 接近常数绑定成本。
-- HZB 不再每 mip 开 Render Pass；A/B/C 记录重写前后 GPU 时间。
-- feature off 的 graph dump、资源峰值和 timestamp 中均不存在对应成本。
-- 空场景和简单场景 CPU P95、GPU P95 不劣于 R0；若某项回退，必须定位和修正后才能过 gate。
+#### 验收
 
-## 回退与失败条件
+- 首帧/key miss：build=1、compile=1、execute=1；相同 key warm frame：build=0、compile=0、execute=1、cacheHit=1。
+- 替换 swapchain view、camera/scene buffer、动态 light/instance count不产生 miss。
+- resize、DPR/render scale、feature topology、capability/format 和 instrumentation recipe 改变各产生一次可解释 miss，随后恢复 hit。
+- shadows/SSAO/SSR/TAA/Bloom/Exposure/debug 等命中 feature 关闭时，对应 Pass/resource/history/readback/timestamp label 全部缺席。
+- graph cache 不改变 A/B/C 画面与真实 GPU counters。
 
-- 单 encoder 导致 uploader 生命周期冲突：修正 upload batch/资源 owner，不恢复每帧独立 submit。
-- graph cache 因动态值频繁 miss：把非拓扑数据移到 frame bindings，不扩大 key。
-- Compute HZB 在部分设备 validation/性能失败：保留一个 WebGPU 合法的 Compute fallback；旧逐 mip Render Pass 只可短期对照，不能通过 gate。
-- same-frame second chance 没收益：从默认图裁掉，保留条件功能节点，不影响 previous-HZB 主链。
+### R1-C · Compute HZB 与 history contract
 
-## 阶段退出
+#### 算法选择规则
 
-`FG-01` 至 `FG-10` 完成；提交、readback、graph compile、HZB 次数均能由自动 counter 证明。更新 platform/performance/visibility Context、`CURRENT-STATE` 和相关性能 lesson，然后进入数据 ABI 与资产阶段。
+先检查 [GPU-DRIVEN.md](../references/GPU-DRIVEN.md) 已登记项目中的 HZB/Hi-Z/Single-Pass Downsampler 实现。优先移植许可证兼容、已有 GPU 验证且满足 WebGPU baseline 的算法；必须登记上游仓库、commit/tag、源码路径、许可证、保留不变量和 OEngine/WebGPU 差异。没有合适实现时，先记录调查结论，再实现最小自有算法。
+
+候选实现必须通过 WebGPU prototype 后才能进入主链：
+
+- 验证目标 adapter 对 storage texture format 的读写支持，不能假设当前 `rg16float` 可直接转为 storage；
+- 验证同一 texture 不同 mip 在同一 Compute Pass 中的 binding/usage 是否合法；
+- 若 pass 内 subresource hazard 不合法，选择 ping-pong、多 mip 单 dispatch 或少量分段 Compute Pass；
+- 不依赖 64 位原子、mesh shader、MDI 或 buffer device address；
+- 禁止以“Compute”名义退化为每 mip 一个 Render Pass。
+
+#### 任务
+
+| ID | 实施内容 | 必须产出 |
+|---|---|---|
+| `R1-C01` | 上游与设备原型 | 可追溯移植记录；格式/usage/dispatch validation 页面；选型结论与接受的 pass/dispatch 上界 |
+| `R1-C02` | CPU reference 与数值测试 | reverse-Z reduce/compare；1×1、8×8、奇数尺寸、全远/全近、边界 texel、NaN/clear policy |
+| `R1-C03` | history owner | per-view valid/revision/lastWrittenFrame；previous/current/final；resize/cut/toggle invalidation |
+| `R1-C04` | 替换 HZB encode | 直接替换 `HierarchicalZBuffer` 内部 Render pipeline；输出 build、dispatch/pass、pixels 与 GPU phase evidence |
+| `R1-C05` | second-chance/alpha 调度 | initial、late visibility、alpha 共享一份 recipe 与明确依赖；根据配置和真实收益裁剪节点 |
+| `R1-C06` | 删除旧实现并前后对比 | 删除 `hzb_reduce` Render shader/pipeline/attachments；A/B/C paired JSON 与截图 |
+
+#### 允许的临时状态
+
+GPU prototype 可在独立 example 中与旧实现对照。主链迁移期间可有测试专用双算结果，但 `R1-C` 提交结束时不能长期双轨，也不能暴露两套产品开关。
+
+#### 验收
+
+- CPU reference 与 GPU readback 在固定/奇数尺寸输入一致，遮挡比较无漏绘；
+- R0 的 20/30 个 HZB mip Render Pass 归零；每次 build 的 compute pass/dispatch 数不超过 `R1-C01` 冻结上界，且不随 mip 数一比一创建 Render Pass；
+- previous history 只读，final history 只在完整深度结束后 commit；camera cut/resize/feature off-on 后首帧不使用无效 history；
+- A/B/C `legacy.hzb.*` 迁移为真实 compute counters，不能通过改 counter 名隐藏重复 build；
+- 同条件 HZB GPU P50/P95 不劣于 R1-C 入口基线，目标是显著低于旧逐 mip Render 路径；若某 adapter 回退，必须有 WebGPU 合法、画面正确且被记录的 compute fallback。
+
+### R1-D · 删除、生命周期与回归 Gate
+
+#### 任务
+
+| ID | 实施内容 | 必须产出 |
+|---|---|---|
+| `R1-D01` | feature-off 矩阵 | 每个主管线 feature 的 pass/resource/history/readback/submit/timestamp 断言 |
+| `R1-D02` | 生命周期矩阵 | resize、DPR、dynamic resolution、camera cut/switch、view 删除、asset unload/reload、device lost/recovery |
+| `R1-D03` | in-flight 资源回收 | compiled graph、texture view、bind group、staging/readback slot 与 transient 在正确 GPU completion 后复用/销毁 |
+| `R1-D04` | paired benchmark | clean/full cold + warm Frame Smoke/A/B/C；同机同浏览器同 GPU/尺寸/DPR/feature set；JSON、截图、console |
+| `R1-D05` | replace-don't-layer 收口 | 删除 adapter、fallback、旧测试和死 shader；更新 Context、CURRENT-STATE、PERFORMANCE、lesson/ADR |
+
+device lost 若当前浏览器无法可靠自动触发，必须至少完成可注入的 owner 单测和一次人工恢复记录；不能把资源 owner 未定义留作“以后再说”。
+
+## 自动测试设计
+
+Interface 是 R1 的稳定测试面，测试不依赖内部数组或私有 helper 名称。
+
+| 测试面 | 核心断言 |
+|---|---|
+| `FrameCoordinator` | begin/submit 状态机；一帧一次 submit；double-submit/未关闭 Pass/abort 失败；one-shot 不得嵌套 render frame |
+| `GPUSceneContext.encodeFrame` | 同 frame 重入不重复编码；不同 change kind 的 evidence；无 dirty work 零 upload/dispatch |
+| submit allowlist | main render 可达路径只有 coordinator；新 `createCommandEncoder/submitGpuCommands` 调用必须分类 |
+| readback ring | 非采样零 copy/map；采样 copy进入主 encoder；map旧 slot；pending/drop/error 可收尾 |
+| graph key/cache | value equality；动态 bindings不影响 key；resize/toggle miss；destroy/evict；两种 instrumentation recipe 稳定命中 |
+| compiled graph | pass pruning、import binding、last-use release、异常 cleanup、dump确定性 |
+| feature off | Pass/resource/history/readback/timer/submit label 都不存在 |
+| HZB | CPU/GPU pyramid 数值、reverse-Z compare、奇数尺寸、history invalidation、accepted dispatch bound |
+
+## 浏览器验证矩阵
+
+R1 每个纵向包完成时运行命中 example；`R1-D` 再运行完整矩阵。默认使用中等验证，不启动多个 review agent。
+
+| 页面/动作 | R1-A | R1-B | R1-C | R1-D |
+|---|---:|---:|---:|---:|
+| `r0-frame-smoke` | 必跑 | 必跑 | 必跑 | clean/full paired |
+| Benchmark A | smoke | smoke | 必跑并截图 | clean/full paired |
+| Benchmark B | smoke | smoke | 必跑并截图 | clean/full paired |
+| Benchmark C | 必跑并检查 13→1 | 必跑 | 必跑并检查 30 HZB pass | clean/full paired |
+| resize + DPR/render scale | — | 必跑 | 必跑 | 必跑 |
+| shadow/alpha/SSAO/SSR/TAA/Bloom toggle | 命中 shadow | 必跑 | 命中 HZB consumers | 必跑 |
+| camera cut/switch | — | — | 必跑 | 必跑 |
+| device lost/recovery | — | destroy 单测 | history 单测 | 自动或人工记录 |
+
+每次浏览器验证保存：结果 JSON、最终画面截图、console validation/error、GPU/浏览器/分辨率/DPR/feature set、commit 与 dirty reasons。`temp/` 是用户本地 artifact 目录，不纳入 Git commit。
+
+## 量化 Gate
+
+结构正确性是硬门槛，性能数值使用同条件 paired run 判断，不能用 smoke 与 three.js 不同场景直接相除。
+
+| 指标 | R0 smoke 输入 | G1 退出要求 |
+|---|---:|---|
+| Frame Smoke/A/B steady submit | 3 | warm non-sampled = 1 main submit |
+| C steady submit | 13 | warm non-sampled = 1 main submit；shadow view 数不改变 submit |
+| collection readback | 每帧 1 | 非采样帧 0；采样 copy不增加 submit |
+| scene prepare | C 间接表现为 10 次 animation flush | 每 scene/frame = 1 |
+| graph build/compile | 每帧 1/1 | key hit 帧 0/0；execute=1；cacheHit=1 |
+| HZB Render Pass | A/B 20，C 30 | 0 个逐 mip HZB Render Pass |
+| feature off | 未形成统一证据 | 对应 pass/resource/history/readback/timestamp/submit 全部不存在 |
+| queue overflow/diagnostics | A/B/C 为 0 | 继续为 0，counter invariants 继续通过 |
+
+性能 paired gate：
+
+- CPU/GPU P50、P95、P99 都保存，不用单个最快帧；
+- CPU frame P95 和非 HZB GPU phase P95 原则上不得回退；小于 5% 的差异需要重复 run 判断噪声，不能直接宣称提升或退化；
+- HZB phase 必须与 `R1-C` 入口 clean/full 基线比较，至少不回退，并说明减少的是 pass/dispatch、像素工作还是同步固定成本；
+- one-submit 主要预期降低 CPU 固定开销和 queue 调度，不预先承诺虚假的 GPU 百分比；
+- 若总帧改善但某 phase 明显退化，仍需定位，不能用总数掩盖局部回归。
+
+## 失败处理与禁止回退
+
+- 单 encoder 暴露 uploader 生命周期冲突：修正 owner、ring 或 completion 状态，不恢复每帧独立 submit。
+- graph cache 因动态数据频繁 miss：把非 topology 数据移到 bindings，不扩大 key 吞掉问题。
+- compiled graph 暂时无法覆盖 tool/bake：明确保留 one-shot graph，不让它进入 steady main path。
+- Compute HZB validation 失败：回到 `R1-C01` 更换 storage 格式、ping-pong 或分段策略；旧逐 mip Render 只可作为短期测试 oracle，不能通过 G1。
+- second chance 没有收益：从默认 recipe 裁掉，保留同一主管线中的条件节点和证据，不创建第二套管线。
+- 一 submit 后画面错误：先用 graph dump、resource lifetime、history revision 和 GPU counter定位；禁止以恢复旧 submit 作为长期修复。
+
+## 提交切分
+
+R1 默认四个主要实现提交，包内先在工作区完成自动测试和命中浏览器验证，再一次性收口，避免每个 helper 一次提交。必要的算法原型可单独提交，但不得与产品主链长期并存。
+
+建议中文详细 commit：
+
+```text
+重构（R1-A）：收口单帧 GPU 命令所有权并删除多提交旁路
+
+- 建立 FrameCoordinator 唯一提交状态机
+- 合并 Graphics、Scene、Animation、Shadow 与采样 copy
+- 分离每 scene 与 per-view 更新，修复 C 场景重复 flush
+- 删除稳定帧自建 encoder 和持续 collection readback
+- 补充 submit allowlist、动态场景和浏览器证据
+```
+
+后续三个主提交分别以 `重构（R1-B）`、`性能（R1-C）`、`收口（R1-D）` 开头，并在正文列出 interface 变化、删除项、验证命令、浏览器 artifact 和已知限制。
+
+不得提交用户现有的 `three.js` 修改、`examples/yarn.lock` 或 `temp/` artifact。
+
+## 阶段退出清单
+
+- [ ] `R1-A01～A07`：一帧唯一提交 owner 与按 dirty 编码完成。
+- [ ] `R1-B01～B06`：Compiled graph、cache 与 feature pruning 完成。
+- [ ] `R1-C01～C06`：Compute HZB、history 与旧 Render HZB 删除完成。
+- [ ] `R1-D01～D05`：生命周期、paired benchmark、文档和死代码收口完成。
+- [ ] `npm test` 通过；命中浏览器示例无 WebGPU validation/console error。
+- [ ] Frame Smoke/A/B/C 前后 JSON、截图和环境记录完整。
+- [ ] `CURRENT-STATE`、platform/performance Context、`PERFORMANCE.md` 和相关 ADR/lesson 与真实实现一致。
+
+全部完成后 G1 才能关闭，随后进入 R2 Runtime Asset、GPU Render World 与 Cooker。仅把 submit 从 13 降到 1、仅缓存图或仅改 Compute HZB 都不单独等于 R1 完成。

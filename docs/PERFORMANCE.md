@@ -58,6 +58,19 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 这些是待测风险，不得在没有分段数据时把总慢归因于单一 LOD 或单一 Pass。
 
+## R1 入口数据与目标
+
+2026-08-26 Schema v3 acceptance-smoke 已作为 R1 调查输入登记，但因 smoke/dirty 标记不能充当正式 paired gate。第一次修改 R1 代码前按相同入口采集 clean/full cold + warm 基线；这是 R1 前测，不是重新打开 R0。
+
+| Case | CPU frame P50 / P95 | Submit | Graph build/compile | HZB build / mip Render Pass | HZB phase P50 / P95 |
+|---|---:|---:|---:|---:|---:|
+| Frame Smoke | 2.150 / 2.985 ms | 3 | 1 / 1 每帧 | 2 / 20 | 0.114 / 0.116 ms |
+| A smoke | 2.800 / 3.800 ms | 3 | 1 / 1 每帧 | 2 / 20 | 0.125 / 0.127 ms |
+| B smoke | 3.050 / 3.860 ms | 3 | 1 / 1 每帧 | 2 / 20 | 0.126 / 0.128 ms |
+| C smoke | 9.300 / 18.555 ms | 13 | 1 / 1 每帧 | 3 / 30 | 1.040 / 1.051 ms |
+
+G1 的结构性硬门槛是：Frame Smoke/A/B/C warm non-sampled 均为一次 main submit；非采样帧零 collection readback；每 scene/frame 只 prepare 一次；相同 graph key warm frame build/compile 为 0；逐 mip HZB Render Pass 为 0；feature off 无对应 Pass/resource/history/readback/timestamp/submit。详细执行与 paired 性能规则见 [R1 计划](./implementation/02-runtime-submit-and-framegraph.md#量化-gate)。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。

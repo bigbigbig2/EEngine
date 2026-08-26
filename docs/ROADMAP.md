@@ -17,7 +17,7 @@ three.js 的 A/B 只是最低垂直功能与性能基线，不是路线终点。
 
 退出：能够解释一帧慢在资产候选、工作生成、光栅、材质、带宽还是运行时提交；当前已有能力输出真实 GPU 证据，Packed Instances、Hierarchy/SSE LOD、Compute SW Raster 等未实现能力输出稳定 `unsupported + blockerTaskId`。这不要求 R0 提前实现 R2–R4，也不表示 A/B 已通过。
 
-当前状态（2026-08-26）：`OBS-01～07`、A/B/C Harness 及 RTX 2060 SUPER 浏览器 smoke 已收口，R0/G0 完成；下一步进入 R1 的分析与计划。clean/full cold-warm bundle 在后续实际性能修改前按命中场景刷新，不再阻塞阶段推进。详细边界以实施文档的 [R0 收口总账](./implementation/01-baseline-and-observability.md#r0-收口总账) 为准。
+当前状态（2026-08-26）：`OBS-01～07`、A/B/C Harness 及 RTX 2060 SUPER 浏览器 smoke 已收口，R0/G0 完成；R1 的代码/R0 artifact 分析和详细执行计划也已冻结，下一步直接执行 `R1-A` 单帧提交所有权闭环。clean/full cold-warm bundle 是 R1 首次实际性能修改前的入口前测，不重新打开 G0。详细边界见 [R0 收口总账](./implementation/01-baseline-and-observability.md#r0-收口总账) 和 [R1 执行计划](./implementation/02-runtime-submit-and-framegraph.md#r1-执行顺序)。
 
 ## R1 · 收紧运行时成本
 
@@ -29,7 +29,9 @@ three.js 的 A/B 只是最低垂直功能与性能基线，不是路线终点。
 - HZB 改为 Compute 编码，消除逐 mip Render Pass。
 - feature off 达到近零成本。
 
-退出：空场景和简单场景固定成本有明确预算。
+执行顺序：`R1-A` one-submit → `R1-B` Compiled graph/feature pruning → `R1-C` Compute HZB/history → `R1-D` 生命周期、删除与 paired gate。
+
+退出：Frame Smoke/A/B/C 稳定非采样帧均为一次主要 submit；相同 topology warm frame 不再 build/compile；HZB 不再逐 mip 创建 Render Pass；feature off 无 Pass、资源、history、readback、timestamp 或 submit 旁路；生命周期与前后 benchmark 证据完整。仅完成其中一项不等于 R1 完成。
 
 ## R2 · GPU-ready 资产与 Render World
 

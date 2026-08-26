@@ -147,9 +147,9 @@ R0 的职责是冻结目标矩阵并证明 A/B/C 采集入口、真实 counter �
 | 核心要求 | 实施任务 | 主要证据 |
 |---|---|---|
 | 可解释当前性能差距 | OBS-01..08 | A/B/C result + frame timeline |
-| 一个主要 submit | FG-01..04、FG-10 | submit/readback exact counters |
-| FrameGraph 缓存/feature off | FG-05..06 | graph key/cache counters/dump |
-| Compute HZB | FG-07..09 | mip numerical tests + GPU time |
+| 一个主要 submit | R1-A01～A07 | submit/readback exact counters |
+| FrameGraph 缓存/feature off | R1-B01～B06、R1-D01 | graph key/cache counters/dump |
+| Compute HZB | R1-C01～C06 | mip numerical tests + GPU time |
 | Runtime Asset/stable handle | WORLD-02..06 | schema/lifetime/device lost tests |
 | Packed Instance Set | WORLD-07 | A/C JS objects、extract/upload scaling |
 | Cooker/hierarchy/BVH8 | COOK-01..10 | package validator + CPU reference |

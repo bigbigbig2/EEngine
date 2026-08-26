@@ -27,11 +27,11 @@
 | `MeshletDrawList` | 删除 | WORK-08 新 HW 垂直闭环通过 |
 | `MaterialMeshletDrawList` | opaque 删除；透明/阴影迁移 | FX-04/FX-05 新 work consumer 接通 |
 | `VisibilityPass` | 由 WorkGenerator + HybridVisibility 替换 | VIS-10 |
-| `HierarchicalZBuffer` render 实现 | Compute 重写 | FG-07 正确性/性能通过 |
+| `HierarchicalZBuffer` render 实现 | Compute 重写 | R1-C01～C06 正确性/性能通过 |
 | `MaterialExpandPass` | 删除 | MAT-10 单次 Resolve consumers 迁完 |
 | 独立 opaque `VelocityPass` | 合并/删除 | MAT-06；特殊对象需求单独证明 |
-| `Renderer.render()` 编排 | 重写为 FrameCoordinator + cached graph | FG-02/FG-05 |
-| `ShadeGPUCommandContext` 隐式 submit | 删除或降为 encoder façade | FG-10 |
+| `Renderer.render()` 编排 | 重写为 FrameCoordinator + cached graph | R1-A02～A07、R1-B01～B06 |
+| `ShadeGPUCommandContext` 隐式 submit | 删除或降为 encode-only façade | R1-A02、R1-A07 |
 | oracle/generated shaders | 逐个追溯 source-of-truth | OBS-07 后，无 consumer/generator 者删除 |
 | Lighting/Shadow/Transparency/Post 算法 | 隔离、逐项重接 | FX-01..12；存在不等于默认启用 |
 | LPV/Brick4/NSS/SDF/volumetrics | 可选节点，默认断开直到验证 | off 零成本、owner/history/counters 完整 |
@@ -66,7 +66,7 @@ src/debug/                     profiler/counters/debug views
 
 ### DEL-01 · 清提交与图旁路
 
-依赖 `FG-10`。删除稳定帧独立 encoder/submit、无条件 animation flush、每帧统计 readback、逐 mip HZB render pipelines 和无 owner history。
+依赖 `R1-A07`、`R1-B06`、`R1-C06`。删除稳定帧独立 encoder/submit、无条件 animation flush、每帧统计 readback、每帧 main graph build/compile、逐 mip HZB render pipelines 和无 owner history。
 
 ### DEL-02 · 清旧资产/世界 owner
 

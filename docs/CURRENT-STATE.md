@@ -39,6 +39,16 @@
 - 用户已完成旧 Schema smoke 与本轮 OBS-02 Schema v3 浏览器 smoke；前者仍为 exploratory，后者证明固定入口和证据链可运行并完成 G0。clean/full cold-warm bundle 仍是后续实际性能修改前的阶段入口要求，但不再阻塞 R1 的分析和计划。
 - package 和大量内部符号仍保留 reconstructed/Shade 历史名称。
 
+## R1 调查结论（2026-08-26）
+
+- R1 详细计划已冻结，下一执行包是 `R1-A`。Frame Smoke/A/B 的稳定 3 submit 精确来自 Graphics update、无条件 animation flush 和 Renderer main；C 的 13 submit 来自 Graphics ×1、animation flush ×10、database incremental ×1、Renderer main ×1。
+- C 的 10 次 animation flush 是 scene preparation 与 per-view preparation 未分离造成的：`GPUViewContext.update()` 会进入 `scene.update()`，shadow views 因而重复准备同一 scene。阴影 Pass 本身不要求独立 submit。
+- `ShadeGPUCommandContext.finish()` 当前同时承担 encoder close、queue submit、timer resolve/readback、staging/transient release 和完成信号，是 R1 首先要替换的隐式提交 interface。
+- `GraphicsContext.update()` 无论 dirty 与否都创建 encoder/submit，并每帧触发 6,144-byte collection history readback；`GPUSceneContext` 的 animation/database、LightDatabase、Volumetrics 和 resident material 仍有自建 command 路径。
+- `FrameGraph` 当前把 topology、动态 pass data、imported GPU handle、compiled state 和 execute state 放在同一个 mutable object 中；所有 R0 smoke 记录帧均发生一次 build/compile/execute，没有 warm cache hit。
+- 当前 Frame Smoke（1038×583）与 A/B/C（1280×720）的 HZB 都是 10 mip。Frame Smoke/A/B 每帧 build 两次、20 个逐 mip Render Pass；C 每帧 build 三次、30 个 Render Pass，HZB phase P50/P95 约 1.040/1.051 ms。
+- R1 将只建立三个主要 seam：唯一 frame submit owner、compiled topology/frame bindings、per-view HZB/history。不会为单实现创建一批 cache/key/adapter 薄 module；迁移完成后直接删除旧 interface。
+
 ## 参考代码状态
 
 - `three.js/` 是 gitlink 形式的本地上游参考；根仓库当前没有 `.gitmodules`。

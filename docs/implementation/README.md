@@ -38,7 +38,7 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 
 ## 执行单位
 
-实施任务使用文档内稳定 ID，例如 `OBS-03`、`FG-04`、`VIS-07`。一个实现任务只有在以下适用内容同时存在时才可标为完成：
+实施任务使用文档内稳定 ID，例如 `OBS-03`、`R1-A04`、`VIS-07`。一个实现任务只有在以下适用内容同时存在时才可标为完成：
 
 1. 真实主帧 producer 与 GPU consumer 已接通；
 2. ABI、容量、owner、生命周期和 overflow 已实现；
@@ -64,7 +64,7 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 
 G0 的“证据完整”不等于 R2–R5 产品能力已经存在。G0 允许 artifact 机器结构合格但 `capabilityComplete=false`，前提是所有 blocker 可追溯且没有假 counter；A/B 的真实功能与性能通过仍在对应后续 Gate 判定。
 
-当前 R0/G0 已完成：`OBS-01～07`、A/B/C Harness 与 RTX 2060 SUPER 浏览器 smoke 均已收口；下一步直接分析并计划 R1。最终总账见 [01 · R0 基线与可观测性](./01-baseline-and-observability.md#r0-收口总账)；不得把后续算法、正式性能采样或可选观测增强重新加入 G0 blocker。
+当前 R0/G0 已完成：`OBS-01～07`、A/B/C Harness 与 RTX 2060 SUPER 浏览器 smoke 均已收口；R1 的代码/R0 artifact 分析和详细计划也已冻结，下一步执行 [R1-A Frame ownership 与 one-submit 闭环](./02-runtime-submit-and-framegraph.md#r1-a--frame-ownership-与-one-submit-闭环)。不得把后续算法、正式性能采样或可选观测增强重新加入 G0 blocker；R1 首次修改前的 clean/full 前测属于新阶段入口。
 
 ## 明确排除
 
