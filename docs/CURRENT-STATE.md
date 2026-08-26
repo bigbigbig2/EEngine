@@ -18,6 +18,7 @@
 - Material Expand 采样帧已接入 `activeMaterials`，表示实际编码了全屏 Material Expand draw 的已构建非透明去重材质数；它不是最终可见材质数，每增加 1 对应当前旧路径多一次全屏 GBuffer 扫描。
 - Shader source-of-truth 审计已覆盖 66 个文件，并生成确定性的逐文件 artifact：55 个 `authored-live`、5 个静态无 pipeline owner 的删除候选、6 个仍在运行但 generator/所有权未闭环的 oracle/generated 文件。详见 `SHADER-SOURCES.md`。
 - HZB legacy 观测会分别记录同帧 build 数、最终 mip 数与累计 mip pass 数。
+- R0 已有单一 `render_debug_view` 控制面。`visibility-key`、reverse-Z `depth` 和 `velocity` 是真实全屏视图，统一在时域/后处理之后覆盖最终 HDR 输入；其余已规划视图会返回 `unsupported` 及原因。关闭和 unsupported 状态不添加 Debug Pass、瞬态纹理或 readback，旧 velocity 独立开关和 Pass 已删除。
 
 ## 关键缺口
 
@@ -30,7 +31,7 @@
 - FrameGraph 尚未覆盖全部资源依赖和旁路系统。
 - 资源销毁、device lost、history 失效与动态资产生命周期未闭环。
 - 自动化测试目前只覆盖 R0 观测公共 seam；固定 benchmark、截图和数值回归仍基本缺失。
-- A/B/C 固定 benchmark、cone/HZB reject reason、SW raster 与 material overflow 等其余 GPU counter producer、统一 debug views 和可用于 gate 的浏览器实机截图/性能 artifact 尚未完成；counter 字段缺失表示 producer 未接入，不能解释为真实零工作量。
+- A/B/C 固定 benchmark、cone/HZB reject reason、SW raster 与 material overflow 等其余 GPU counter producer，以及可用于 gate 的浏览器实机截图/性能 artifact 尚未完成；HZB mip、reject reason、LOD/Cluster、SW/HW、material ID 和 history validity debug view 仍因缺少真实 producer 标记为 unsupported。counter 字段缺失表示 producer 未接入，不能解释为真实零工作量。
 - 用户已完成旧 Schema smoke 数据采集；Schema v2 与 readback ring 接入后的两个页面仍需手动复测，因此 R0 Gate 尚未通过。
 - package 和大量内部符号仍保留 reconstructed/Shade 历史名称。
 

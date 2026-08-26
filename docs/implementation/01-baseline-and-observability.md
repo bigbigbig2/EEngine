@@ -200,8 +200,9 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - 最终 Visibility Buffer、LightCluster 与现有 Visibility GPU list 已接入真实 GPU counter producer；采样帧输出像素、本地灯光、instance/cluster/HW 工作量和 scene-mesh/meshlet/light overflow 证据，frame smoke 会校验字段存在性、工作量关系与像素总数不变量。非采样帧不编码 counter clear/copy/readback 或统计 Pass。
 - Shader source-of-truth 静态审计已覆盖 66 个文件，逐项记录 direct/runtime consumer、最近 pipeline owner、generator candidate 与删除候选；当前结论为 55 个 authored-live、5 个 dead candidate、6 个运行中的 oracle/generated ownership blocker。清单见 `OEngine/benchmarks/shader-source-audit.json` 与 `docs/SHADER-SOURCES.md`。
 - HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
+- `OBS-06` 已建立单一 `render_debug_view` 控制面：VisibilityKey、reverse-Z depth 与 velocity 在时域/后处理之后覆盖最终 HDR 输入；HZB mip、三类 reject reason、LOD/Cluster level、SW/HW 分类、material ID 与 history validity 均登记为带原因的 `unsupported`，不会添加占位 Pass。旧 `feature_velocity_debug_view` 与独立 `VelocityDebugPass` 已删除；关闭和 unsupported 状态不创建 Debug Pass、瞬态输出或 readback。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
-- 尚未完成 A/B/C 对齐场景、其余 GPU pass counter producer、debug views、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
+- 尚未完成 A/B/C 对齐场景、其余 GPU pass counter producer、unsupported 视图所需的逐像素 producer、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
 
 ### OBS-01 · 冻结运行环境清单
 
@@ -230,6 +231,8 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 ### OBS-06 · 建立 debug views
 
 至少提供 VisibilityKey、depth、HZB mip、frustum/cone/HZB reject reason、LOD/cluster level、SW/HW 分类、material ID、velocity 和 history validity。尚不存在的数据视图显示 `unsupported`，不伪造。
+
+状态：`Completed（R0 control surface）`。公共 `RenderDebugView` 目录统一登记 12 种状态，Renderer 只接受一个选择。当前三个真实视图共享 `rgba16float` 最终覆盖契约，并按输出/内部尺寸做显式坐标映射：VisibilityKey 对 `meshId + triangleId` 稳定哈希，depth 显示 reverse-Z mip 0，velocity 以色相表示方向、亮度表示屏幕空间幅度。其余视图因缺少可靠逐像素 producer 显示 `unsupported` 及具体原因；后续 producer 接入时扩展同一控制面，不新增独立 feature flag 或旁路管线。
 
 ### OBS-07 · 核实 Shader source-of-truth
 

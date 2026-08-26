@@ -20,4 +20,9 @@ npm run dev:host
 - 控制台没有 WebGPU validation error、未处理异常或 device lost；
 - 保存结果 JSON 和页面截图。
 
+采集完成后，页面会解锁统一 Render Debug View 下拉框。`Visibility Key`、
+`反向 Z Depth` 和 `Velocity` 会各自触发一次真实主管线渲染；其他已登记但尚无
+逐像素 producer 的模式会明确显示 `unsupported` 和原因，并保持正常输出，不能
+把占位颜色当成已经实现。切回“关闭”后不应保留 Debug Pass、瞬态纹理或 readback。
+
 这是验证当前 OEngine 主链可观测性的固定小场景，不是 three.js A/B 性能对齐，也不能用于声称 R0 Gate 完成。

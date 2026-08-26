@@ -21,6 +21,16 @@
           <p id="detail">等待 Renderer、场景和 GPU 资源。</p>
         </div>
       </section>
+      <section class="debug-controls" aria-labelledby="debug-heading">
+        <div>
+          <h2 id="debug-heading">统一 Render Debug View</h2>
+          <p id="debug-status">Benchmark 完成后可切换；unsupported 视图不会添加 GPU Pass。</p>
+        </div>
+        <label>
+          视图
+          <select id="debug-view" disabled></select>
+        </label>
+      </section>
       <canvas id="gpu-canvas" width="960" height="540" aria-label="OEngine rendered frame"></canvas>
       <section class="grid" aria-label="Benchmark summary">
         <article><span>Measured</span><strong id="frames">0 / 24</strong></article>

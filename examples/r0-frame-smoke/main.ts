@@ -4,7 +4,9 @@ import {
   DirectionalLight,
   Mesh,
   PerspectiveCamera,
+  RENDER_DEBUG_VIEW_OPTIONS,
   Renderer,
+  RenderDebugView,
   Scene,
   ShadeDataType,
   ShadeImage,
@@ -14,7 +16,8 @@ import {
   createEnvironmentManifest,
   serializeBenchmarkResult,
   type BenchmarkAdapterIdentity,
-  type BenchmarkResult
+  type BenchmarkResult,
+  type RenderDebugViewName
 } from "../../OEngine/src/index.ts";
 
 declare const __BUILD_COMMIT__: string;
@@ -38,8 +41,20 @@ const gpuSamples = requiredElement<HTMLElement>("gpu-samples");
 const submitMean = requiredElement<HTMLElement>("submit-mean");
 const resultOutput = requiredElement<HTMLElement>("result");
 const download = requiredElement<HTMLButtonElement>("download");
+const debugViewSelect = requiredElement<HTMLSelectElement>("debug-view");
+const debugStatus = requiredElement<HTMLElement>("debug-status");
 
 let completedResult: BenchmarkResult | null = null;
+
+for (const entry of RENDER_DEBUG_VIEW_OPTIONS) {
+  const option = document.createElement("option");
+  option.value = entry.view;
+  option.textContent = entry.status === "unsupported"
+    ? `${entry.label} · unsupported`
+    : entry.label;
+  debugViewSelect.append(option);
+}
+debugViewSelect.value = RenderDebugView.None;
 
 download.addEventListener("click", () => {
   if (completedResult === null) return;
@@ -83,6 +98,14 @@ async function run(): Promise<void> {
 
   const scene = createScene();
   const camera = createCamera(renderer.aspect_ratio);
+  debugViewSelect.addEventListener("change", () => {
+    renderer.render_debug_view = debugViewSelect.value as RenderDebugViewName;
+    const viewStatus = renderer.render_debug_view_status;
+    debugStatus.textContent = `${viewStatus.status} · ${viewStatus.reason}`;
+    if (completedResult !== null) {
+      renderer.render(camera, scene, 1 / 60);
+    }
+  });
   const output = renderer.output_resolution;
   const environment = createEnvironmentManifest({
     engine: {
@@ -163,6 +186,8 @@ async function run(): Promise<void> {
   submitMean.textContent = summary.submits.mean.toFixed(2);
   resultOutput.textContent = serializeBenchmarkResult(completedResult);
   download.disabled = false;
+  debugViewSelect.disabled = false;
+  debugStatus.textContent = renderer.render_debug_view_status.reason;
   const diagnostics = completedResult.diagnostics;
   const expectedPixelCount = environment.frame.internalWidth *
     environment.frame.internalHeight;

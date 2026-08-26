@@ -1,2 +1,29 @@
 canvas { height: auto; aspect-ratio: 16 / 9; }
 article + article { margin-top: 14px; }
+/* R0 Debug View 控制面保持独立，不改变 benchmark canvas 的固定尺寸。 */
+.debug-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.debug-controls h2,
+.debug-controls p {
+  margin: 0;
+}
+
+.debug-controls label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 15rem;
+}
+
+.debug-controls select {
+  border: 1px solid #667085;
+  border-radius: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  background: #101828;
+  color: #f9fafb;
+}

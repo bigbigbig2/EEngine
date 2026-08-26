@@ -357,6 +357,7 @@
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/PathTracer.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
@@ -364,7 +365,6 @@
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/TransparentOitPass.ts",
-        "src/render/passes/VelocityDebugPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
@@ -461,11 +461,11 @@
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/PathTracer.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
-        "src/render/passes/VelocityDebugPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityPass.ts",
         "src/render/Renderer.ts",
@@ -494,11 +494,11 @@
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/PathTracer.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
-        "src/render/passes/VelocityDebugPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityPass.ts"
       ],
@@ -626,6 +626,7 @@
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/PathTracer.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
@@ -633,7 +634,6 @@
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/TransparentOitPass.ts",
-        "src/render/passes/VelocityDebugPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
@@ -729,6 +729,7 @@
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/PathTracer.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
@@ -736,7 +737,6 @@
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/TransparentOitPass.ts",
-        "src/render/passes/VelocityDebugPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
@@ -1212,6 +1212,7 @@
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/PathTracer.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
@@ -1219,7 +1220,6 @@
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/TransparentOitPass.ts",
-        "src/render/passes/VelocityDebugPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
@@ -1754,6 +1754,25 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/render_debug_view.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/RenderDebugViewPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/RenderDebugViewPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/shadow_raster.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -1834,24 +1853,24 @@
       "classification": "authored-live",
       "directConsumers": [
         "src/shaders/motion_blur.ts",
+        "src/shaders/render_debug_view.ts",
         "src/shaders/ssr_composite.ts",
         "src/shaders/ssr_denoise.ts",
         "src/shaders/ssr_prefilter.ts",
         "src/shaders/ssr_resolve.ts",
-        "src/shaders/ssr_trace.ts",
-        "src/shaders/velocity_debug.ts"
+        "src/shaders/ssr_trace.ts"
       ],
       "runtimeConsumers": [
         "src/index.ts",
         "src/render/passes/MotionBlurPass.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/render/passes/VelocityDebugPass.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/MotionBlurPass.ts",
-        "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/render/passes/VelocityDebugPass.ts"
+        "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -2071,25 +2090,6 @@
       ],
       "pipelineOwners": [
         "src/render/passes/TransparentOitPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/velocity_debug.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/VelocityDebugPass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/index.ts",
-        "src/render/passes/VelocityDebugPass.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/VelocityDebugPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

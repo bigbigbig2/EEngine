@@ -21,7 +21,9 @@ Apply Change Set / Upload Dirty
 → Clustered Lighting + IBL + Shadows
 → Transparency
 → Temporal and screen-space effects
-→ Exposure / Bloom / Tonemap
+→ Exposure / Bloom
+→ Optional unified Render Debug View override
+→ Tonemap
 → Present
 ```
 
@@ -60,3 +62,6 @@ Clustered direct lighting、IBL、Shadow、Transparency、AO、SSR、TAA、Bloom
 - 记录 GPU 时间和分辨率；
 - 根据画质允许半分辨率、时域重建或 pass fusion。
 
+## 统一调试视图
+
+Renderer 只有一个 `render_debug_view` 选择。可运行视图在时域与后处理之后覆盖最终 HDR 输入，再复用主管线 Tonemap/Present；这样不会被 TAA、Bloom 或 Sharpen 改写，也不形成第二条渲染管线。尚无可靠 GPU producer 的条目必须报告 `unsupported`，不能输出占位颜色。`none` 和 `unsupported` 状态不添加 Pass、瞬态资源、readback 或 submit。

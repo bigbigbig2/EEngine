@@ -37,7 +37,7 @@ import {
   Brick4SpecularPass
 } from "./passes/Brick4IndirectPass.js";
 import { VelocityPass } from "./passes/VelocityPass.js";
-import { VelocityDebugPass } from "./passes/VelocityDebugPass.js";
+import { RenderDebugViewPass } from "./passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
 import { ScreenSpaceAmbientOcclusionPass } from "./passes/ScreenSpaceAmbientOcclusionPass.js";
 import { ScreenSpaceReflectionsPass } from "./passes/ScreenSpaceReflectionsPass.js";
@@ -71,6 +71,13 @@ import {
   type ShadeIndirectLightingMode as ShadeIndirectLightingModeT
 } from "./ShadeIndirectLightingMode.js";
 import { STATIC_GRAPHICS_ENGINE_ASSETS } from "./STATIC_GRAPHICS_ENGINE_ASSETS.js";
+import {
+  RenderDebugView,
+  getRenderDebugViewStatus,
+  isRenderableRenderDebugView,
+  type RenderDebugView as RenderDebugViewT,
+  type RenderDebugViewStatus
+} from "../debug/RenderDebugView.js";
 
 export {
   ShadeIndirectLightingMode
@@ -167,7 +174,7 @@ export class Renderer {
   private _brick4Specular!: Brick4SpecularPass;
   private _brick4Fused!: Brick4FusedIndirectPass;
   private _velocity!: VelocityPass;
-  private _velocityDebug!: VelocityDebugPass;
+  private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence!: OcclusionConfidencePass;
   private _ssao!: ScreenSpaceAmbientOcclusionPass;
   private _ssr!: ScreenSpaceReflectionsPass;
@@ -195,7 +202,8 @@ export class Renderer {
   feature_automatic_exposure_enabled = true;
   feature_motion_blur_enabled = false;
   feature_sharpening_enabled = true;
-  feature_velocity_debug_view = false;
+  /** 单一调试视图选择；unsupported 条目不会向 FrameGraph 添加工作。 */
+  render_debug_view: RenderDebugViewT = RenderDebugView.None;
   fused_indirect = true;
   indirect_lighting_mode: ShadeIndirectLightingModeT = ShadeIndirectLightingMode.IBL;
   upscale_type = 0;
@@ -249,6 +257,10 @@ export class Renderer {
    */
   get profiler(): FrameProfiler {
     return this._profiler;
+  }
+
+  get render_debug_view_status(): RenderDebugViewStatus {
+    return getRenderDebugViewStatus(this.render_debug_view);
   }
 
   /** Null when the caller supplied a GPUDevice without its originating adapter. */
@@ -419,6 +431,8 @@ export class Renderer {
       .matchMedia("(dynamic-range: high)")
       .removeEventListener("change", this._onDynamicRangeChange);
     this._transparentOit?.destroy();
+    this._renderDebug?.destroy();
+    this._renderDebug = null;
     this._meshletDrawList?.destroy();
     this._nss?.destroy();
     this._nss = null;
@@ -1415,20 +1429,6 @@ export class Renderer {
         }
 
         if (
-          this.feature_velocity_debug_view &&
-          velocityRes !== null &&
-          gAlbedoRes !== null
-        ) {
-          hdrRes = this._velocityDebug.addToGraph(
-            graph,
-            velocityRes,
-            gAlbedoRes,
-            w,
-            h
-          );
-        }
-
-        if (
           this.feature_taa_enabled &&
           hdrRes !== null &&
           velocityRes !== null &&
@@ -1542,6 +1542,27 @@ export class Renderer {
           exposureRes = this._automaticExposure.unadapted(graph);
         }
 
+        // Debug 是主管线最终 HDR 的观察覆盖：不经过 TAA/Bloom 等处理，也不
+        // 改写它们的历史；关闭或 unsupported 时不创建 Pass、纹理或 readback。
+        if (
+          isRenderableRenderDebugView(this.render_debug_view) &&
+          velocityRes !== null
+        ) {
+          this._renderDebug ??= new RenderDebugViewPass(this._graphics);
+          hdrRes = this._renderDebug.addToGraph(
+            graph,
+            this.render_debug_view,
+            {
+              meshId: meshIdRes,
+              triangleId: triIdRes,
+              depth: depthRes,
+              velocity: velocityRes
+            },
+            this._output_resolution.x,
+            this._output_resolution.y
+          );
+        }
+
         if (hdrRes !== null) {
           this._tonemap.addToGraph(graph, {
             swapchain: swapId,
@@ -1594,7 +1615,6 @@ export class Renderer {
     this._brick4Specular ??= new Brick4SpecularPass(this._graphics);
     this._brick4Fused ??= new Brick4FusedIndirectPass(this._graphics);
     this._velocity ??= new VelocityPass(this._graphics);
-    this._velocityDebug ??= new VelocityDebugPass(this._graphics);
     this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
     this._ssao ??= new ScreenSpaceAmbientOcclusionPass(this._graphics);
     this._ssr ??= new ScreenSpaceReflectionsPass(this._graphics);

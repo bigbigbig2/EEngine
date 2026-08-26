@@ -21,6 +21,8 @@ npm run audit:shaders
 
 `dead` 不等于本次已删除。R0 只冻结证据，实际删除归 `OBS-07` 后的迁移波次，并要求构建、命中 feature 示例和 graph dump 同时证明没有动态 consumer。
 
+OBS-06 将旧 `velocity_debug.ts` 和独立 pipeline owner 直接迁移为 authored `render_debug_view.ts`，由统一 `RenderDebugViewPass.ts` 消费；因此总数仍为 66、`authored-live` 仍为 55。该文件当前拥有 VisibilityKey、reverse-Z depth 和 velocity 三个明确入口，不是 oracle/generated 来源。
+
 ## 正在运行但所有权未闭环
 
 | Shader | 最近 runtime pipeline owner | 当前问题 |

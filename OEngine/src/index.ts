@@ -63,6 +63,16 @@ export type {
   BenchmarkWebGpuEnvironmentInput
 } from "./debug/EnvironmentManifest.js";
 export { FrameProfiler } from "./debug/FrameProfiler.js";
+export {
+  RENDER_DEBUG_VIEW_OPTIONS,
+  RenderDebugView,
+  getRenderDebugViewStatus,
+  isRenderableRenderDebugView
+} from "./debug/RenderDebugView.js";
+export type {
+  RenderDebugViewStatus,
+  RenderDebugView as RenderDebugViewName
+} from "./debug/RenderDebugView.js";
 export type {
   FrameCountEvidence,
   FrameGpuEvidence,
