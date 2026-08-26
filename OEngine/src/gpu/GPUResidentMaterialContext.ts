@@ -320,7 +320,7 @@ export class GPUResidentMaterialContext {
     for (let index = 0; index < records.length; index++) {
       textureManager.obtain(records[index]!.source);
     }
-    textureManager.mipmaps.flush(command.gpu_encoder);
+    textureManager.mipmaps.flush(command);
     for (let i = 0; i < records.length; i++) {
       const record = records[i]!;
       const sourceTexture = record.source;

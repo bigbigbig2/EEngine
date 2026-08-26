@@ -61,7 +61,9 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 2026-08-26 Schema v3 acceptance-smoke 已作为 R1 调查输入登记，但因 smoke/dirty 标记不能充当正式 paired gate。第一次修改 R1 代码前按相同入口采集 clean/full cold + warm 基线；这是 R1 前测，不是重新打开 R0。
 
-R1-A 代码完成后的自动门禁为 `npm test` 52/52 与 examples production build 通过。浏览器插件桥在本轮初始化失败，所以下表仍是入口基线，不得把预期的 submit=1 写成实测值；待 Frame Smoke/A/B/C 新 JSON 与截图生成后，在此追加同条件 after 数据并关闭 `R1-A07`。
+R1-A 修复 B mipmap 生命周期后的自动门禁为 `npm test` 55/55 与 examples production build 通过。浏览器插件桥在本轮初始化失败，因此浏览器 artifact 由用户采集；下表仍是入口基线，after smoke 只用于验证结构变化，不与 clean/full 性能 gate 混用。
+
+commit `4de81f7a` 的第一轮 after smoke 已证明 Frame Smoke/A/B/C 的 submit P50/max 全为 1/1，非采样 readback P50 为 0，scene preparation P50 为 1；C 的 view preparation P50 为 10，但不增加 scene preparation 或 submit。Frame Smoke/A/C diagnostics 为 0。B 的 3 个 GPU counter 采样帧因 mipmap 临时 Buffer/Texture 提前销毁产生 validation error，不能进入 after 性能比较；修复 commit 必须重跑 B，确认 diagnostics=0、shadedPixels 恢复真实非零和画面正常后才能关闭 R1-A。
 
 | Case | CPU frame P50 / P95 | Submit | Graph build/compile | HZB build / mip Render Pass | HZB phase P50 / P95 |
 |---|---:|---:|---:|---:|---:|

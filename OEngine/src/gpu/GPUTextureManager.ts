@@ -13,6 +13,7 @@ import {
 } from "./GPUTextureUpload.js";
 import { MipmapGenerator } from "./MipmapGenerator.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 
 export class GPUTextureManager {
   private readonly byShadeTexture = new Map<ShadeTexture, GPUTextureContext>();
@@ -59,8 +60,8 @@ export class GPUTextureManager {
     return new GPUTextureContext(this.device, nativeTextureDescriptor(descriptor));
   }
 
-  update(encoder?: GPUCommandEncoder): void {
-    this.mipmaps.update(1, encoder);
+  update(command?: ShadeGPUCommandContext): void {
+    this.mipmaps.update(1, command);
   }
 
   get pending_mipmap_count(): number {

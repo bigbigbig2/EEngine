@@ -200,6 +200,12 @@ export class ShadeGPUCommandContext {
     this.#graphics.profiler.recordReadback(label, bytes);
   }
 
+  /** Keeps an encoded resource alive until this command is submitted or aborted. */
+  destroyAfterSubmit(resource: { destroy(): void }): void {
+    this.onFinished.addOne(() => resource.destroy());
+    this.onAborted.addOne(() => resource.destroy());
+  }
+
   recordGraphBuild(): void {
     this.#graphics.profiler.recordGraphBuild();
   }

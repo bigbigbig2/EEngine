@@ -226,9 +226,11 @@ R1-D Lifecycle / deletion / regression gate
 | `R1-A04` | 代码完成 | `GPUSceneContext.encodeFrame()` 每 scene/frame 幂等；主/阴影视图只准备 camera/view uniform；animation、database、BLAS、TLAS dirty work 共用主 command；abort 后强制重建。 |
 | `R1-A05` | 代码完成 | Light、environment prefilter、Volumetrics、resident material、mipmap、GPUDatabase grow、Geometry BLAS grow/upload 与 TLAS copy 已迁入调用方 command。 |
 | `R1-A06` | 代码完成 | 非采样帧不发起 collection readback；采样 copy 编入主 encoder；readback ring 支持 abort/cancel，不为 map 制造额外 submit。 |
-| `R1-A07` | 待浏览器验收 | 旧 animation/database/Graphics/BLAS grow self-submit 已删除；`npm test` 52/52 和 examples build 通过。仍需在真实 WebGPU 页面保存 Frame Smoke/A/B/C JSON、截图和 console，确认 3/13→1、readback=0、scenePrepareCount=1 及画面无回归。 |
+| `R1-A07` | 待浏览器验收 | 旧 animation/database/Graphics/BLAS grow self-submit 已删除；修复 B mipmap 生命周期后 `npm test` 55/55 和 examples build 通过。Frame Smoke/A/C 已通过；仍需重跑 B，确认 diagnostics=0、真实 counter 与画面恢复。 |
 
 保留的独立 submit 只允许 `one-shot | tool | debug-readback | recovery` 分类；`GPUDatabase/read`、LPV bake/read、texture preserve resize、meshlet compact 等不属于 steady render tick。`queue.writeBuffer()` 不等于额外 submit，按本文件非目标约束继续记录 owner/bytes，不在 R1-A 机械改写全部 Pass settings upload。
+
+第一次浏览器验收使用 commit `4de81f7a` 的 smoke artifact。Frame Smoke、A、C 均证明 `submit P50/max=1/1`、非采样 `readback P50=0`、`scenePrepareCount=1` 且 diagnostics 为 0；C 的 `viewPrepareCount=10` 对应 1 个主视图与 9 个实际阴影视图，没有放大 scene preparation 或 submit。B 同样达到 submit/scene 指标，但 3 个采样帧出现 `Buffer used in submit while destroyed`，截图为空蓝画面，因此该 artifact 无效。根因是并入主 encoder 的 mipmap 参数 Buffer/临时纹理仍沿用旧 one-shot 生命周期，在主 submit 前销毁；现已改为 command finish/abort 后回收。`R1-A07` 只需用修复 commit 重跑 B 并确认 diagnostics/画面，不要求重复已通过的 A/C/Frame smoke。
 
 #### 输入
 

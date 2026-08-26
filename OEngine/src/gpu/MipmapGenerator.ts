@@ -13,6 +13,7 @@ import {
   MIPMAP_PARAMS_BYTES
 } from "../shaders/mipmap_filters.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
+import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   submitGpuCommands,
   writeGpuBuffer
@@ -135,7 +136,7 @@ export class MipmapGenerator {
 
   update(
     timeBudgetMs = Number.POSITIVE_INFINITY,
-    encoder?: GPUCommandEncoder
+    command?: ShadeGPUCommandContext
   ): void {
     const started = performance.now();
     while (this.queue.length > 0) {
@@ -144,14 +145,14 @@ export class MipmapGenerator {
         scheduled.texture,
         scheduled.descriptor,
         scheduled.filter,
-        encoder
+        command
       );
       if (performance.now() - started >= timeBudgetMs) break;
     }
   }
 
-  flush(encoder?: GPUCommandEncoder): void {
-    this.update(Number.POSITIVE_INFINITY, encoder);
+  flush(command?: ShadeGPUCommandContext): void {
+    this.update(Number.POSITIVE_INFINITY, command);
   }
 
   get pending_count(): number {
@@ -162,7 +163,7 @@ export class MipmapGenerator {
     source: GPUTexture,
     descriptor: GPUTextureDescriptor,
     filter: number = TextureFilterType.Linear,
-    encoder?: GPUCommandEncoder
+    command?: ShadeGPUCommandContext
   ): GPUTexture {
     const mipLevelCount = source.mipLevelCount;
     if (mipLevelCount <= 1) return source;
@@ -170,8 +171,9 @@ export class MipmapGenerator {
     const width = source.width;
     const height = source.height;
     const layers = source.depthOrArrayLayers || 1;
-    const ownEncoder = encoder === undefined;
-    const commandEncoder = encoder ?? this.device.createCommandEncoder({});
+    const ownEncoder = command === undefined;
+    const commandEncoder = command?.gpu_encoder ?? this.device.createCommandEncoder({});
+    const ownedTextures: GPUTexture[] = [];
     let inputTexture = source;
     const linearFormat = SRGB_TO_LINEAR_FORMAT[source.format] ?? descriptor.format;
 
@@ -194,6 +196,7 @@ export class MipmapGenerator {
             GPUTextureUsage.COPY_DST,
           mipLevelCount
         });
+        ownedTextures.push(linearTexture);
         commandEncoder.copyTextureToTexture(
           { texture: inputTexture },
           { texture: linearTexture, mipLevel: 0 },
@@ -210,6 +213,7 @@ export class MipmapGenerator {
           size: this.paramsBuffer.size,
           usage: this.paramsBuffer.usage
         });
+    if (!ownEncoder) command.destroyAfterSubmit(params);
     this.writeParams(params, width, height);
 
     const config = MIPMAP_FILTER_CONFIGS[filter];
@@ -246,6 +250,7 @@ export class MipmapGenerator {
           GPUTextureUsage.RENDER_ATTACHMENT,
         mipLevelCount: mipLevelCount - 1
       });
+      ownedTextures.push(outputTexture);
     }
 
     const needsIntermediate = !onePass && config.skip_distance === 0;
@@ -264,6 +269,7 @@ export class MipmapGenerator {
           GPUTextureUsage.RENDER_ATTACHMENT,
         mipLevelCount: mipLevelCount - 1
       });
+      ownedTextures.push(filteredTexture);
     }
 
     for (let layer = 0; layer < layers; layer++) {
@@ -362,12 +368,12 @@ export class MipmapGenerator {
       submitGpuCommands(this.device, "MipmapGenerator/generate", [
         commandEncoder.finish()
       ]);
+      for (const texture of ownedTextures) texture.destroy();
     } else {
-      params.destroy();
+      for (const texture of ownedTextures) {
+        command.destroyAfterSubmit(texture);
+      }
     }
-    if (source !== inputTexture) inputTexture.destroy();
-    if (source !== outputTexture) outputTexture.destroy();
-    if (needsIntermediate) filteredTexture.destroy();
     return source;
   }
 

@@ -143,7 +143,7 @@ export class GraphicsContext {
     sampleCollectionLimits = false
   ): void {
     this.geometries.update(command, "GraphicsContext");
-    this.textures.update(command.gpu_encoder);
+    this.textures.update(command);
     this.materials.update(command);
     this.bind_groups.update();
     this.increment_time();

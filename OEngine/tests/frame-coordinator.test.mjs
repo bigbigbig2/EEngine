@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { FrameCoordinator } from "../.test-dist/render/FrameCoordinator.js";
+import { ShadeGPUCommandContext } from "../.test-dist/framegraph/ShadeGPUCommandContext.js";
 
 test("frame coordinator owns one active render submission", () => {
   const commands = [];
@@ -60,6 +61,31 @@ test("a failed close remains abortable by the render error boundary", () => {
 
   const next = coordinator.beginFrame(4, "Renderer/main-0");
   assert.equal(next.frameIndex, 4);
+});
+
+test("encoded temporary resources survive until submit or abort", () => {
+  const submitted = new ShadeGPUCommandContext();
+  const aborted = new ShadeGPUCommandContext();
+  let submittedDestroyCount = 0;
+  let abortedDestroyCount = 0;
+
+  submitted.destroyAfterSubmit({
+    destroy() {
+      submittedDestroyCount++;
+    }
+  });
+  aborted.destroyAfterSubmit({
+    destroy() {
+      abortedDestroyCount++;
+    }
+  });
+
+  assert.equal(submittedDestroyCount, 0);
+  assert.equal(abortedDestroyCount, 0);
+  submitted.onFinished.send1(submitted);
+  aborted.onAborted.send2(aborted, new Error("discarded"));
+  assert.equal(submittedDestroyCount, 1);
+  assert.equal(abortedDestroyCount, 1);
 });
 
 class FakeCommand {

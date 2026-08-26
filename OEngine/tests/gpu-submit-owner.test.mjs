@@ -40,6 +40,16 @@ test("database debug readback remains classified but grow never self-submits", (
   assert.match(source, /GPUDatabase\/read/);
 });
 
+test("main-command mipmap resources are deferred until submit", () => {
+  const source = readFileSync(
+    new URL("../src/gpu/MipmapGenerator.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /command\.destroyAfterSubmit\(params\)/);
+  assert.match(source, /command\.destroyAfterSubmit\(texture\)/);
+  assert.doesNotMatch(source, /else\s*\{\s*params\.destroy\(\)/);
+});
+
 test("every known submit label has an explicit owner class", () => {
   const expected = new Map([
     ["Renderer/main-0", "render-frame"],

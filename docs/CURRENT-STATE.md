@@ -46,7 +46,8 @@
 - `GPUSceneContext.encodeFrame()` 已与 per-view preparation 分离，同一 scene/frame 重入返回零 preparation；shadow view 不再进入 scene update。失败帧会清除 preparation guard 并强制下帧重建，避免 abort 后丢 dirty work。
 - collection history readback 已改为只在 GPU counter 采样帧编码；非采样帧代码路径不创建该 readback。GPU counter ring ticket 支持 frame abort/cancel。
 - GPUDatabase grow/page dirty upload、Geometry BLAS grow/upload 和 TLAS full/dirty copy 不再自建 submit；扩容资源在 finish/abort 上分别提交所有权或回滚。首帧 previous-camera clone 与 main/shadow camera/view uniform 也已进入主 command。
-- 自动验证：`npm test` 52/52 通过，根目录 examples TypeScript/Vite build 通过。当前浏览器桥初始化失败，因此 3/13→1、readback=0、scenePrepareCount=1、画面和 WebGPU validation 仍必须由下一份真实 Frame Smoke/A/B/C JSON、截图和 console 证明；在此之前 `R1-A07` 不关闭。
+- 自动验证：修复 B mipmap 生命周期后 `npm test` 55/55 通过，根目录 examples TypeScript/Vite build 通过。Frame Smoke/A/C 已有真实浏览器证据；B 修复后的 JSON、截图和 console 仍是关闭 `R1-A07` 的最后条件。
+- 用户随后提供了 commit `4de81f7a` 的五份浏览器 JSON 与 B 截图。Frame Smoke/A/C 的 submit、readback、scene preparation 和 diagnostics 已通过；C 为 10 个 view preparation、1 个 scene preparation和 1 次 submit，证明 shadow view 不再重复 scene。B 暴露 3 次 destroyed Buffer validation，定位为 mipmap 临时资源在合并 command submit 前提前销毁；修复后只需重跑 B 完成 R1-A 浏览器收口。
 - `FrameGraph` 当前把 topology、动态 pass data、imported GPU handle、compiled state 和 execute state 放在同一个 mutable object 中；所有 R0 smoke 记录帧均发生一次 build/compile/execute，没有 warm cache hit。
 - 当前 Frame Smoke（1038×583）与 A/B/C（1280×720）的 HZB 都是 10 mip。Frame Smoke/A/B 每帧 build 两次、20 个逐 mip Render Pass；C 每帧 build 三次、30 个 Render Pass，HZB phase P50/P95 约 1.040/1.051 ms。
 - R1 只建立三个主要 seam：唯一 frame submit owner、compiled topology/frame bindings、per-view HZB/history。第一个 seam 已落地，后两个仍分别属于 `R1-B`、`R1-C`；不会为单实现创建一批 cache/key/adapter 薄 module。
