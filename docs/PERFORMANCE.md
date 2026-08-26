@@ -69,7 +69,7 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 ## Gate 解释
 
 - G0 证据 artifact：`gateEligible=true` 只表示 Schema、环境、采样、真实 counter/unsupported 声明和汇总可比较；它不等于功能或性能达标。
-- G0 当前固定剩余：完成 A/B/C Harness 契约并采集当前实现的 clean Schema v3 run bundle；不要求先完成 R2–R5 算法，也不要求为 unsupported debug view 或未登记 overflow bit 增加占位 producer。
+- G0 已完成：A/B/C Harness、Schema v3、真实 counter/unsupported 契约和 RTX 2060 SUPER 浏览器 smoke 已验证。clean/full cold-warm bundle 在每个实际性能修改阶段开始前按命中场景刷新，不再反向阻塞 R1 分析和计划。
 - 能力证据：`capabilityComplete=false` 时，`blockedCapabilities` 必须列出未实现 feature 或尚未接线 counter 的稳定任务 ID。真实 GPU 采样值 `0` 与 `unsupported` 是不同状态；required/supported 字段缺失或 unsupported 字段伪填 `0` 都使 artifact 无效。
 - A/B 未通过：基础 GPU-driven/渲染闭环尚未达到最低线。
 - A/B 通过：除证据 artifact 合格外，必须 `capabilityComplete=true`、固定功能/画质契约完整且性能阈值达标；这仍只说明对照功能与性能下界达标，不代表通用引擎完成。

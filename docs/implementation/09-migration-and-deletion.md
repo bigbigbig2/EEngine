@@ -62,7 +62,7 @@ src/debug/                     profiler/counters/debug views
 
 ### DEL-00 · 保存基线与 source map
 
-依赖 `OBS-08`。保存基准 artifact、graph dump、shader source map 和关键截图。建立一个可定位的 git commit/tag 作为历史对照；不复制整套 Legacy 源码到新目录。
+依赖命中场景在迁移前完成一次 clean/full 基线刷新。保存基准 artifact、graph dump、shader source map 和关键截图。建立一个可定位的 git commit/tag 作为历史对照；不复制整套 Legacy 源码到新目录。
 
 ### DEL-01 · 清提交与图旁路
 

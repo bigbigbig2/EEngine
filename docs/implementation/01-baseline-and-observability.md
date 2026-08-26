@@ -10,7 +10,7 @@ A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是
 
 ## R0 收口总账
 
-本表是 `01-baseline-and-observability` 的唯一剩余工作总账。`Completed` 表示已经满足 R0 的证据真实性目标，不因未来可以增加更多 counter、debug view 或计时范围而重新打开；只有发现当前声明为 supported 的证据是伪造、错误归帧或无法运行，才允许重新打开对应任务。
+本表是 `01-baseline-and-observability` 的最终收口总账。`Completed` 表示已经满足 R0 的证据真实性目标，不因未来可以增加更多 counter、debug view、计时范围或正式性能采样而重新打开；只有发现当前声明为 supported 的证据是伪造、错误归帧或无法运行，才允许重新打开对应任务。
 
 | 任务 | 状态 | R0 结论 / 唯一剩余交付 |
 |---|---|---|
@@ -21,9 +21,9 @@ A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是
 | `OBS-05` 工作量 Counters | `Completed（当前能力）` | 当前启用算法的 required counter 已有真实 producer；未实现算法由能力矩阵明确 `unsupported + blockerTaskId` |
 | `OBS-06` Debug Views | `Completed（R0 control surface）` | 统一控制面与三个真实视图已接通，其余模式明确 unsupported，未来随 producer 所属阶段扩展 |
 | `OBS-07` Shader Source | `Completed（inventory）` | 66 个 Shader 的 source/consumer/pipeline owner 审计已冻结 |
-| `OBS-08` 不可修改基线 | `Remaining` | 采集 A/B/C 的 clean Schema v3 cold/warm JSON、截图、控制台和分析 bundle |
+| `OBS-08` 不可修改基线 | `Closed as R0 blocker` | R0 以已登记的 Schema v3 smoke 冻结当前事实；clean/full cold-warm bundle 改为每个后续性能阶段开始修改前的基线刷新，不再阻塞进入 R1 |
 
-因此 R0 现在只剩 `OBS-08`。`OBS-02` 的 manifest、入口、自动核对和浏览器 smoke 已经整体收口，不再重新打开或追加新的 harness 子任务。
+因此 R0/G0 已完成，下一步直接进入 R1 的分析与计划。`OBS-02` 的 manifest、入口、自动核对和浏览器 smoke 已经整体收口；clean/full 性能采集只在后续阶段真正要做性能修改前执行，不再让 R0 无限等待。
 
 ### 固定剩余实施顺序
 
@@ -38,14 +38,14 @@ A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是
 
 `OBS-02` 完成只表示“输入和采集入口被冻结并可运行”，不表示 A/B 的 GPU LOD、SW/HW Hybrid 或最终性能已经追平。
 
-第二包 `OBS-08` 只保存迁移前事实：
+后续阶段开始性能修改前，按原 `OBS-08` 契约刷新可比较基线：
 
 1. 在一个干净、可定位的 commit 和主要开发/目标 adapter 上记录完整 environment；timestamp-query 不可用时走已冻结的 unavailable 路径。
 2. 对 A/B/C 分开采集 cold compile/upload 与 warm steady-state，输出原始逐帧数据以及 CPU/GPU/counter 的 P50/P95/P99；profiled sampled run 与 profiler-off 总体性能分开保存。
 3. 为每组保存 Result JSON、画面截图、控制台记录和简短分析，并登记到 `docs/BASELINE-ARTIFACTS.md`；任何 dropped/failed/pending evidence 或 validation error 都使该 run 作废。
 4. `validateBenchmarkEvidence()` 必须返回 `gateEligible=true`。`capabilityComplete` 可以因后续能力 blocker 为 false；R0 报告必须写“当前基线已冻结”，不能写“A/B 已通过”或“性能已达标”。
 
-`OBS-08` 完成后立即退出 G0，不继续在 R0 增加新的 counter、debug view、场景轴或跨设备运行；这些需求进入其所属后续 Gate。
+这项刷新不是新的 R0 阶段，也不影响现在进入 R1。R0 不再增加新的 counter、debug view、场景轴或跨设备运行；这些需求进入其所属后续 Gate。
 
 ### 不再作为 R0 blocker
 
@@ -277,7 +277,7 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - 原始 GPU timestamp label 已增加稳定逻辑阶段归类；Result 同时保留逐 Pass `gpuMs`，并将同一采样帧内的 Pass 先按 phase 求和后输出 `gpuPhaseMs`，避免用 Pass 样本冒充帧样本。采样挂在统一 `ShadeGPUCommandContext.create()` 缝上，登记主图之外的 upload、database update 和 animation context，并覆盖其中实际存在的 compute/render Pass；多个 context 的异步结果按注册顺序稳定合并，不按 readback 完成顺序漂移，也不新增 submit。纯 copy/write 命令没有 Pass timestamp，不能把“context 已登记”写成复制区间已完整计时。未知 label 显式进入 `unclassified`，采样用 counter/debug Pass 单独进入 `observability`，不混入主渲染阶段。
 - `validateBenchmarkEvidence()` 已建立 Result artifact 机器门禁：检查 Schema、clean commit/dirtyReasons、A/B/C role、adapter/尺寸/feature set、真实资产与相机 hash、能力证据矩阵、采样帧数、diagnostics、异步 timestamp/counter 完成状态、counter ABI、逻辑 phase，并从逐帧样本反算核对 `gpuMs`、`gpuPhaseMs` 与 `gpuCounters`。它分别输出 artifact 的 `gateEligible` 和产品证据的 `capabilityComplete/blockedCapabilities`。用户 `temp/` 的两份旧 Schema 1 smoke 已登记为 exploratory，不会误入 G0。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
-- R0 观测基础设施和 `OBS-02` Harness/浏览器验收已经收口；G0 仍未通过的唯一原因是 `OBS-08` 的 clean Schema v3 run bundle。后续算法 counter 和逐像素 debug producer 不再混入 R0 剩余项。
+- R0 观测基础设施、`OBS-02` Harness/浏览器验收和 G0 均已收口；下一步是 R1 分析与计划。后续算法 counter、逐像素 debug producer和 clean/full 性能刷新不再混入 R0。
 
 ### OBS-01 · 冻结运行环境清单
 
@@ -333,7 +333,9 @@ WebGPU timestamp-query 的可靠范围是 Compute/Render Pass；纯 copy/write �
 
 在同机完成 A/B/C 的 cold/warm、P50/P95/P99。保存原始 JSON、截图、控制台错误和分析说明。任何后续阶段都以该 artifact 与前一阶段 artifact 双重对照。
 
-状态：`Remaining`。Result JSON 的机器 gate validator 与旧 artifact 登记已完成；旧 RTX 2060 SUPER Schema 1 数据只能证明当时 81 Box 主链的 3 submit、持续 readback 等探索事实，不能作为 A/B/C gate。待 `OBS-02` 冻结输入后，只采集当前实现的 A/B/C clean Schema v3 JSON、截图、控制台和 cold/warm run bundle；当前 unsupported capability 不妨碍 artifact `gateEligible=true`，但不得把它写成 A/B 功能或性能已通过。
+状态：`Closed as R0 blocker / moved to phase-entry refresh`。Result JSON 的机器 gate validator、固定 A/B/C 输入、Schema v3 smoke JSON/截图与 artifact 登记已经完成，足以结束“先建立真实证据链”的 R0。旧 RTX 2060 SUPER Schema 1 数据仍只能证明当时 81 Box 主链的 3 submit、持续 readback等探索事实；本轮 Schema v3 smoke 证明当前入口、counter、unsupported 声明与浏览器渲染可运行，但不冒充 clean/full 性能 gate。
+
+以后 R1–R5 中任何实际性能修改，仍必须在修改前按本节步骤采集命中场景的 clean/full cold-warm bundle，并与修改后结果成对保存。它是性能改动的阶段入口条件，不再是继续滞留 R0 的独立工作包。
 
 ## 验收
 
@@ -359,6 +361,6 @@ WebGPU timestamp-query 的可靠范围是 Compute/Render Pass；纯 copy/write �
 
 ## 阶段退出
 
-按“R0 收口总账”，`OBS-01/02/03/04/05/06/07` 已完成；现在只需采集并通过 `OBS-08` 即可退出。A/B/C artifact 必须使用冻结输入、Result Schema v3、当前 supported counter 的真实值、后续能力的 `unsupported + blockerTaskId`，并配套截图与控制台记录。收尾更新 `CURRENT-STATE`、performance Context 和 performance lesson；此后才允许用数据调整 R1–R5 优先级。
+按“R0 收口总账”，`OBS-01～07` 已完成，原 `OBS-08` 已改为后续性能阶段的入口刷新，R0/G0 现在正式退出。后续 A/B/C artifact 仍必须使用冻结输入、Result Schema v3、当前 supported counter 的真实值、后续能力的 `unsupported + blockerTaskId`，并配套截图与控制台记录；但这不阻止现在根据已有证据分析和规划 R1。
 
 G0 退出只表示证据系统能够诚实、可机读地表达“当前真实值”和“后续能力 blocker”，不要求在 R0 提前实现 Packed Instances、Hierarchy/SSE LOD 或 Compute SW Raster。A/B 的 manifest、资产/相机对照契约在 R0 建立，但 A/B 真正的垂直功能与性能追平仍由 G2–G5 的对应实现和最终 run bundle 判定；C/vertical/lifecycle 门禁继续判定通用引擎能力。

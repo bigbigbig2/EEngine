@@ -118,7 +118,7 @@ R0 后创建 `performance-targets.json`，在实际目标硬件写入 A/B/C 的�
 
 Gate 的具体设备名称在 R0 填入，不在文档猜硬件。最低覆盖类别：
 
-R0 的职责是冻结目标矩阵，并在主要开发/目标 adapter 与主要 Chromium WebGPU 浏览器上采集当前 A/B/C 基线；集成 GPU、额外离散 GPU、低 limits profile 和第二浏览器的完整算法/画质/性能执行随 G2–G5 对应能力进入 gate。它们不能反向阻塞 `OBS-08` 保存第一份可比较基线。
+R0 的职责是冻结目标矩阵并证明 A/B/C 采集入口、真实 counter 和 unsupported 契约能在主要 Chromium WebGPU 浏览器上运行；该职责已经完成。clean/full A/B/C 性能数据在后续阶段真正开始修改前按命中场景刷新；集成 GPU、额外离散 GPU、低 limits profile 和第二浏览器的完整算法/画质/性能执行随 G2–G5 对应能力进入 gate，不能反向阻塞 R1 分析和计划。
 
 | 类别 | 必须验证 |
 |---|---|

@@ -181,10 +181,10 @@ npm run audit:shaders
 
 ## 固定剩余的 R0 工作
 
-R0 只剩一个工作包：
+R0/G0 已完成。后续实际性能修改开始前执行以下阶段入口刷新：
 
-1. `OBS-08`：在主要开发/目标 adapter 上采集当前实现的 A/B/C clean Schema v3 cold/warm JSON、截图、控制台记录和分析 bundle，并登记到 `docs/BASELINE-ARTIFACTS.md`。
+1. 在主要开发/目标 adapter 上采集命中场景的 clean Schema v3 cold/warm JSON、截图、控制台记录和分析 bundle，并登记到 `docs/BASELINE-ARTIFACTS.md`。
 
-`OBS-02` 的两个既有 smoke 与 A/B/C smoke 已在 RTX 2060 SUPER 上完成。当前 artifact 可以对 Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD/cone culling（`WORK-04`）和 SW Visibility（`VIS-05`）诚实报告 unsupported；这不妨碍 G0 artifact 合格，也不等于 A/B 功能已通过。
+`OBS-02` 的两个既有 smoke 与 A/B/C smoke 已在 RTX 2060 SUPER 上完成，足以结束 R0 的证据系统建设。当前 artifact 可以对 Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD/cone culling（`WORK-04`）和 SW Visibility（`VIS-05`）诚实报告 unsupported；这不等于 A/B 功能或性能已通过。
 
 以下内容不再列为 R0 剩余：material overflow 保留 bit 2、更多逐像素 debug producer、纯 copy/write GPU timestamp 和跨 submit whole-frame query。它们没有被当前 feature evidence 宣称为 supported，或超出 WebGPU Pass timestamp 范围；未来在对应 owner/算法任务中实现，禁止用占位 counter 收口。

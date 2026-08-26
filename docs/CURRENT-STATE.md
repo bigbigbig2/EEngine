@@ -34,9 +34,9 @@
 - FrameGraph 尚未覆盖全部资源依赖和旁路系统。
 - 资源销毁、device lost、history 失效与动态资产生命周期未闭环。
 - 自动化测试已覆盖 R0 观测公共 seam，并重新计算 A/B/C 的 workspace 资产与相机 SHA-256。三份固定 manifest、7 级 Teapot GLB、Damaged Helmet/PBR 输入、C 配方、共享 runner 和三个根目录浏览器入口已完成，全部调用公开 OEngine interface、同一 `Renderer.render()`、`BenchmarkRunController` 和 Schema v3 writer。`?profile=smoke` 会强制 dirty/non-gate，不能冒充完整场景 artifact。
-- `OBS-02` 已在 RTX 2060 SUPER 上完成两个既有 smoke 与 A/B/C smoke 的 JSON/截图验收；五页均采集完成，A/B/C diagnostics 与 counter 不变量通过，预期 capability blocker 为 2/2/4。R0 现在只剩 `OBS-08` 的 clean Schema v3 cold/warm bundle。Schema v3 已消除歧义：required/supported 字段缺失是错误，真实零必须显式为 `0`，unsupported 必须携带 blocker 且不得出现在 sampled values。
+- `OBS-02` 已在 RTX 2060 SUPER 上完成两个既有 smoke 与 A/B/C smoke 的 JSON/截图验收；五页均采集完成，A/B/C diagnostics 与 counter 不变量通过，预期 capability blocker 为 2/2/4。R0/G0 已完成，下一步进入 R1 分析与计划。Schema v3 已消除歧义：required/supported 字段缺失是错误，真实零必须显式为 `0`，unsupported 必须携带 blocker 且不得出现在 sampled values。
 - 当前主链没有 Packed Instances、Hierarchy/SSE LOD、独立 cone culling 或 SW raster；相关 counter/debug view 明确 unsupported 并归后续 `WORLD-07`、`WORK-04`、`VIS-05`。material overflow bit 2、更多逐像素 debug producer、纯 copy/write/跨 submit GPU timestamp 都不是 R0 blocker。
-- 用户已完成旧 Schema smoke 与本轮 OBS-02 Schema v3 浏览器 smoke；前者仍为 exploratory，后者只证明固定入口和证据链可运行，不是 clean gate artifact。G0 尚未通过的唯一原因是 `OBS-08` 尚未采集。
+- 用户已完成旧 Schema smoke 与本轮 OBS-02 Schema v3 浏览器 smoke；前者仍为 exploratory，后者证明固定入口和证据链可运行并完成 G0。clean/full cold-warm bundle 仍是后续实际性能修改前的阶段入口要求，但不再阻塞 R1 的分析和计划。
 - package 和大量内部符号仍保留 reconstructed/Shade 历史名称。
 
 ## 参考代码状态

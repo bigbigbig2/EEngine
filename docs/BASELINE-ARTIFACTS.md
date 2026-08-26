@@ -29,7 +29,17 @@ frame-smoke 使用 81 个 Box、单材质、无本地灯光；稳定帧记录 72
 | B | `oengine-benchmark-b-smoke-ccc05fbe.json` | `image copy 3.png` | 12/12，225/15,625 实例，2 blockers，counterIssues=0 |
 | C | `oengine-benchmark-c-smoke-ccc05fbe.json` | `image copy 4.png` | 12/12，64/144 实例、3 材质、6 本地灯，4 blockers，counterIssues=0 |
 
-A/B/C 各包含 3 个完成的 GPU timestamp/counter 样本；像素总数、instance partition、HW/alpha cluster partition 和 HW triangle 四组不变量全部通过，queue overflow 为 0。五张截图均显示采集完成，A/B/C 画面与固定场景配方一致。`gateEligible=false` 只来自 smoke 的 dirty/non-gate 标记；`capabilityComplete=false` 来自冻结的 `WORK-04`、`VIS-05`、`WORLD-07` blocker，是预期结果。该组证据完成 `OBS-02` 浏览器验收，但不能替代 `OBS-08` 的 clean/full cold-warm bundle。
+A/B/C 各包含 3 个完成的 GPU timestamp/counter 样本；像素总数、instance partition、HW/alpha cluster partition 和 HW triangle 四组不变量全部通过，queue overflow 为 0。五张截图均显示采集完成，A/B/C 画面与固定场景配方一致。`gateEligible=false` 只来自 smoke 的 dirty/non-gate 标记；`capabilityComplete=false` 来自冻结的 `WORK-04`、`VIS-05`、`WORLD-07` blocker，是预期结果。该组证据完成 `OBS-02` 浏览器验收和 R0 证据系统建设；clean/full cold-warm bundle 在后续实际性能修改前刷新，不再作为继续停留 R0 的理由。
+
+JSON 中可用于下一阶段调查的 smoke 数值如下；它们只说明当前路径特征，不能与 three.js 完整场景直接比较：
+
+| Case | CPU frame P50 | Submit mean | 首个样本 candidate/visible instance | candidate/selected cluster | material/light | 直接暴露的事实 |
+|---|---:|---:|---:|---:|---:|---|
+| Observability | 0.100 ms | 1 | — | — | — | 单独 `GraphicsContext.update()` 已产生一次 submit |
+| Frame Smoke | 2.150 ms | 3 | 81/81 | — | 1/0 | 简单主帧仍有 3 submit |
+| A smoke | 2.800 ms | 3 | 400/246 | 12,304/11,256 | 1/0 | HW-only 路径运行，Hierarchy/SW 仍 blocked |
+| B smoke | 3.050 ms | 3 | 225/107 | 15,202/11,724 | 1/0 | Helmet 原始几何/PBR 运行，LOD/SW 与参考环境仍 blocked |
+| C smoke | 9.300 ms | 13 | 64/64 | 64/64 | 3/6 | shadow + 动态异构场景把 submit 放大到 13，应进入 R1 提交路径调查 |
 
 ## 升级条件
 

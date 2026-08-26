@@ -47,7 +47,7 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 5. 被替代的旧代码已经删除，或有带截止任务 ID 的短期迁移记录；
 6. `CURRENT-STATE`、领域 Context、ADR 和本文档按影响更新。
 
-“适用”由任务自己的交付物决定，不允许循环依赖制造永远无法完成的状态。例如 `OBS-01～07` 建设采集系统，其完成证据是 schema/ABI 测试、真实主帧接入和 smoke；不可修改 A/B/C run bundle 统一由 `OBS-08` 拥有。后续阶段的算法、画质和性能目标不得倒灌成 R0 观测任务的完成条件。
+“适用”由任务自己的交付物决定，不允许循环依赖制造永远无法完成的状态。例如 `OBS-01～07` 建设采集系统，其完成证据是 schema/ABI 测试、真实主帧接入和 smoke；clean/full A/B/C run bundle 在后续性能阶段开始修改前按命中场景刷新。后续阶段的算法、画质和性能目标不得倒灌成 R0 观测任务的完成条件。
 
 ## 阶段门禁
 
@@ -64,7 +64,7 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 
 G0 的“证据完整”不等于 R2–R5 产品能力已经存在。G0 允许 artifact 机器结构合格但 `capabilityComplete=false`，前提是所有 blocker 可追溯且没有假 counter；A/B 的真实功能与性能通过仍在对应后续 Gate 判定。
 
-当前 R0 已收口 `OBS-01～07`，包括 A/B/C Harness 与 RTX 2060 SUPER 浏览器 smoke；唯一剩余是 `OBS-08` 当前实现基线采集。唯一总账见 [01 · R0 基线与可观测性](./01-baseline-and-observability.md#r0-收口总账)；不得把后续算法或可选观测增强重新加入 G0 blocker。
+当前 R0/G0 已完成：`OBS-01～07`、A/B/C Harness 与 RTX 2060 SUPER 浏览器 smoke 均已收口；下一步直接分析并计划 R1。最终总账见 [01 · R0 基线与可观测性](./01-baseline-and-observability.md#r0-收口总账)；不得把后续算法、正式性能采样或可选观测增强重新加入 G0 blocker。
 
 ## 明确排除
 
