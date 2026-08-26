@@ -346,7 +346,7 @@ export class FrameProfiler {
   }
 
   encodeGpuCounterClear(command: ShadeGPUCommandContext): void {
-    if (this.active === null || this.gpuDevice === null || !this.enabledValue) return;
+    if (!this.shouldSampleGpuCounters() || this.gpuDevice === null) return;
     this.ensureGpuFrameCounters().clear(command.gpu_encoder);
   }
 
@@ -356,14 +356,20 @@ export class FrameProfiler {
     source: GPUBuffer,
     sourceOffset = 0
   ): void {
-    if (this.active === null || this.gpuDevice === null || !this.enabledValue) return;
+    if (!this.shouldSampleGpuCounters() || this.gpuDevice === null) return;
     this.ensureGpuFrameCounters().copyField(
       command.gpu_encoder,
       field,
       source,
       sourceOffset
     );
-    this.active.gpuCounterFields.add(field);
+    this.registerGpuCounterFields([field]);
+  }
+
+  registerGpuCounterFields(fields: readonly GpuCounterFieldName[]): void {
+    const active = this.active;
+    if (active === null || !active.snapshot.gpuCounters.sampled) return;
+    for (const field of fields) active.gpuCounterFields.add(field);
   }
 
   encodeGpuCounterReadback(command: ShadeGPUCommandContext): void {

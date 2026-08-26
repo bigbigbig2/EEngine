@@ -67,3 +67,17 @@ OEngine adaptations: 固定至少 3 slots；主 encoder 编码 copy；submit 后
 semantic differences: three.js owner 是 timestamp query pool；OEngine owner 是通用 GpuReadbackRing，目前首个 consumer 为 256-byte frame counter ABI
 local regression: OEngine/tests/gpu-readback-ring.test.mjs、OEngine/tests/r0-observability.test.mjs、examples/r0-frame-smoke
 ```
+
+### R0 最终 Visibility 像素统计
+
+```text
+upstream repository URL: https://github.com/Scthe/nanite-webgpu
+commit: b9cd33f65bb3cdba0464717e0fa621d330d2116f
+source: src/sys_web/stats.ts、src/passes/rasterizeCombine/rasterizeCombine.wgsl.ts
+license: MIT
+scope: 参考 Rendered/SW/HW 工作量字段语义，以及空像素 sentinel 不进入 resolve 的语义；没有复制统计实现
+retained invariants: 最终 Visibility 只有真实 surface pixel 进入后续 resolve；统计字段必须来自 GPU 实际结果
+OEngine adaptations: 对最终 r32uint mesh-id attachment 做 8×8 workgroup shared-memory reduction，每个工作组最多两次全局 atomicAdd，直接写入 256-byte counter ABI
+semantic differences: 上游没有最终 Visibility 像素 reduction；OEngine mesh-id sentinel 为 1 << 24，并要求 shadedPixels + emptyVisibilityPixels 严格等于内部渲染像素数；shadedPixels 当前表示非空 Visibility coverage，不是 Material/Lighting invocation
+local regression: OEngine/tests/visibility-counter-pass.test.mjs、OEngine/tests/r0-observability.test.mjs、examples/r0-frame-smoke
+```

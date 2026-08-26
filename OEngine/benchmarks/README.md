@@ -124,7 +124,14 @@ diagnostics.validationErrorCount/uncapturedErrorCount/deviceLostCount
 diagnostics.droppedGpuCounterSamples/failedGpuCounterSamples
 ```
 
-GPU counter ABI 当前是 256-byte `u32` 固定布局，定义见 `src/debug/GpuFrameCounters.ts`。主帧已完成 buffer clear、采样 copy、submit 后异步 map 与 frame-index 归档，但具体 Visibility/Lighting/resolve producer 仍是 Partial。
+GPU counter ABI 当前是 256-byte `u32` 固定布局，定义见 `src/debug/GpuFrameCounters.ts`。主帧已完成 buffer clear、采样 copy、submit 后异步 map 与 frame-index 归档。最终 Visibility Buffer 是首个真实 producer：采样帧通过 8×8 工作组归约输出 `shadedPixels` 与 `emptyVisibilityPixels`；前者当前表示 mesh-id 非 sentinel 的最终可见性覆盖像素，不代表 Material/Lighting shader invocation。每个有效样本必须满足：
+
+```text
+shadedPixels + emptyVisibilityPixels
+== environment.frame.internalWidth × environment.frame.internalHeight
+```
+
+非采样帧不添加像素统计 Pass，也不编码 counter clear/copy/readback。其余 Visibility、instance、meshlet、material 与 light producer 仍是 Partial。
 
 ## Shader source 审计
 
@@ -139,5 +146,5 @@ node tools/audit-shader-sources.mjs > shader-source-audit.json
 - A：160k Teapot 的同资产/同相机/同输出对齐页面。
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- GPU pass producer：instance、meshlet、Visibility 分类、resolve、material 与 light 的真实计数接线。
+- GPU pass producer：instance、meshlet、reject reason、SW/HW 分类、material 与 light 的真实计数接线。
 - VisibilityKey、HZB mip、reject reason、material ID 等统一 debug views。

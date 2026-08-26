@@ -56,6 +56,9 @@ import type {
   CachedComputePipelineDescriptor,
   CachedRenderPipelineDescriptor
 } from "../../gpu/GPUDescriptorCaches.js";
+import { VIS_MESH_CLEAR_SENTINEL } from "../VisibilityBufferContract.js";
+
+export { VIS_MESH_CLEAR_SENTINEL } from "../VisibilityBufferContract.js";
 
 export const VISIBILITY_NB_STEPS = [
   "collect material buckets (transparency × draw_mode × side)",
@@ -72,8 +75,6 @@ export const VISIBILITY_RT = {
   meshId: "color_attachments[1] r32uint",
   depth: "depth32float reverse-Z (greater, clear 0)"
 } as const;
-
-export const VIS_MESH_CLEAR_SENTINEL = 1 << 24;
 
 const VISIBILITY_FILTER_GROUP0: GPUBindGroupLayoutDescriptor = {
   label: "",

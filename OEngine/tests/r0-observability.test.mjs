@@ -197,6 +197,32 @@ test("disabled profiler device attachment allocates no GPU counter resources", (
   profiler.destroy();
 });
 
+test("non-sampled frames encode no GPU counter work", () => {
+  const device = new FakeGpuDevice();
+  const profiler = new FrameProfiler({
+    enabled: true,
+    gpuCounterSampleInterval: 2
+  });
+  profiler.attachGpuDevice(device);
+  const command = new FakeCommandContext();
+
+  profiler.beginFrame(1);
+  profiler.encodeGpuCounterClear(command);
+  profiler.copyGpuCounter(
+    command,
+    "visibleInstances",
+    new FakeGpuBuffer(Uint32Array.BYTES_PER_ELEMENT)
+  );
+  profiler.encodeGpuCounterReadback(command);
+  const frame = profiler.endFrame();
+
+  assert.equal(device.buffers.length, 0);
+  assert.equal(frame.gpuCounters.sampled, false);
+  assert.equal(frame.gpuCounters.pending, false);
+  assert.deepEqual(frame.gpuCounters.values, {});
+  profiler.destroy();
+});
+
 test("GPU counter readback failure settles pending frame evidence", async (t) => {
   t.mock.method(console, "error", () => {});
   const device = new FakeGpuDevice();
@@ -447,6 +473,10 @@ test("benchmark run controller waits for delayed GPU counter evidence", async ()
       profiler.beginFrame(2);
       now = 1;
       profiler.encodeGpuCounterClear(command);
+      profiler.registerGpuCounterFields([
+        "shadedPixels",
+        "emptyVisibilityPixels"
+      ]);
       profiler.encodeGpuCounterReadback(command);
       profiler.endFrame();
     },
@@ -457,7 +487,12 @@ test("benchmark run controller waits for delayed GPU counter evidence", async ()
   });
 
   assert.equal(result.frames[0].gpuCounters.pending, false);
-  assert.deepEqual(result.frames[0].gpuCounters.values, {});
+  assert.deepEqual(result.frames[0].gpuCounters.values, {
+    shadedPixels: 23,
+    emptyVisibilityPixels: 23
+  });
+  assert.equal(result.summary.gpuCounters.shadedPixels.mean, 23);
+  assert.equal(result.summary.gpuCounters.emptyVisibilityPixels.mean, 23);
   assert.equal(result.diagnostics.droppedGpuCounterSamples, 0);
   assert.equal(controller.progress.pendingGpuFrames, 0);
   profiler.destroy();

@@ -164,15 +164,30 @@ async function run(): Promise<void> {
   resultOutput.textContent = serializeBenchmarkResult(completedResult);
   download.disabled = false;
   const diagnostics = completedResult.diagnostics;
+  const expectedPixelCount = environment.frame.internalWidth *
+    environment.frame.internalHeight;
+  const counterSamples = completedResult.frames.filter(
+    (frame) => frame.gpuCounters.sampled && !frame.gpuCounters.dropped
+  );
+  const invalidCounterSamples = counterSamples.filter((frame) => {
+    const shaded = frame.gpuCounters.values.shadedPixels;
+    const empty = frame.gpuCounters.values.emptyVisibilityPixels;
+    return shaded === undefined || empty === undefined ||
+      shaded + empty !== expectedPixelCount;
+  });
   const failed = diagnostics.validationErrorCount > 0 ||
     diagnostics.uncapturedErrorCount > 0 ||
     diagnostics.deviceLostCount > 0 ||
     diagnostics.droppedGpuCounterSamples > 0 ||
-    diagnostics.failedGpuCounterSamples > 0;
+    diagnostics.failedGpuCounterSamples > 0 ||
+    counterSamples.length === 0 ||
+    invalidCounterSamples.length > 0;
   status.textContent = failed ? "采集完成（存在错误）" : "采集完成";
   detail.textContent = [
     adapterDescription(renderer.adapter_info),
     `${GRID_SIZE * GRID_SIZE} instances`,
+    `counterSamples=${counterSamples.length}`,
+    `counterMismatches=${invalidCounterSamples.length}`,
     `uncaptured=${diagnostics.uncapturedErrorCount}`,
     `deviceLost=${diagnostics.deviceLostCount}`
   ].join(" · ");

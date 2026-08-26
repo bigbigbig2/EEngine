@@ -80,7 +80,16 @@ examples/
 
 Owner 是 `FrameProfiler`。每帧在主 encoder 内清零，由 GPU pass 原子累加。counter 不参与当前帧 CPU 决策。
 
-当前落地 ABI 为 `schemaVersion=1`、总长 256 bytes，字段索引固定在 `OEngine/src/debug/GpuFrameCounters.ts`。`FrameProfiler.copyGpuCounter()` 是 producer 的唯一登记入口：结果只导出本帧实际登记过的字段，尚未接线的 producer 保持字段缺失，不以 0 冒充真实统计。ABI buffer、清零、采样 copy 和归档已接入主帧；Visibility、Lighting、resolve 等具体 GPU producer 仍属 `OBS-05 Partial`。
+当前落地 ABI 为 `schemaVersion=1`、总长 256 bytes，字段索引固定在 `OEngine/src/debug/GpuFrameCounters.ts`。producer 通过 `FrameProfiler.copyGpuCounter()` 复制已有 GPU 数量，或在直接原子写入共享 counter buffer 后调用 `registerGpuCounterFields()` 登记字段；结果只导出本帧实际登记过的字段，尚未接线的 producer 保持字段缺失，不以 0 冒充真实统计。ABI buffer、清零、采样 copy 和归档已接入主帧。
+
+首个真实 producer 是最终 Visibility Buffer 像素统计：`VisibilityCounterPass` 在所有 opaque、second-chance 与 alpha-tested Visibility 完成后，以 8×8 工作组归约 `r32uint mesh-id` attachment，每个工作组最多执行两次全局原子加，写入 `shadedPixels` 与 `emptyVisibilityPixels`。这里的 `shadedPixels` 精确定义为“最终 Visibility Buffer 中 mesh-id 非 sentinel 的像素数”，不是 Material/Lighting shader invocation 数。每个有效样本必须满足：
+
+```text
+shadedPixels + emptyVisibilityPixels
+== internalWidth × internalHeight
+```
+
+该 Pass 只存在于 GPU counter 采样帧；非采样帧不清零、不复制、不分配 counter 资源，也不添加统计 Pass。instance、meshlet、reject reason、SW/HW、material 与 light producer 仍未接线，因此 `OBS-05` 仍为 `Partial`。
 
 ### Timestamp contract
 
@@ -160,9 +169,10 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 - 已有 Result Schema v2、CPU timeline、submit/readback/upload、可选 GPU timestamp、GPU counter ABI 与 P50/P95/P99 汇总。
 - `BenchmarkRunController` 已统一 warm-up、采样帧调度，并同时等待 timestamp/counter 延迟结果收尾。
 - 256-byte counter buffer 与至少三槽的非阻塞异步 readback ring 已进入真实 `Renderer.render()`；profiler 关闭时不分配 counter/ring 资源。
+- 最终 Visibility Buffer 已接入首个真实 GPU counter producer；采样帧输出 `shadedPixels` 与 `emptyVisibilityPixels`，并在 frame smoke 中校验像素总数不变量。非采样帧不编码 counter clear/copy/readback 或像素统计 Pass。
 - HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
 - `examples/r0-observability` 与 `examples/r0-frame-smoke` 已通过类型检查和生产构建；后者进入真实 `Renderer.render()`。
-- 尚未完成 A/B/C 对齐场景、具体 GPU pass counter producer、debug views、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
+- 尚未完成 A/B/C 对齐场景、其余 GPU pass counter producer、debug views、浏览器控制台/截图复测和可用于 gate 的真实性能 artifact，因此 G0 仍未通过。
 
 ### OBS-01 · 冻结运行环境清单
 
@@ -186,7 +196,7 @@ Harness 必须在结果中声明 `baselineRole`（`minimum-a`、`minimum-b` 或 
 
 先覆盖现有 instance、meshlet、draw、material 和 light 路径。所有 counter 定义是“输入”“通过”还是“唯一项”必须写入 schema，避免重复累计后无法比较。
 
-状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；各 GPU pass 的 source buffer/atomic producer 尚未逐项接到 `copyGpuCounter()`，因此当前 JSON 的 `gpuCounters.values` 为空是“未接入”，不是“工作量为零”。
+状态：`Partial`。固定 ABI、资源 owner、采样 ring、结果聚合和主帧生命周期已完成；最终 Visibility Buffer 已通过 `VisibilityCounterPass` 真实产生 `shadedPixels` 与 `emptyVisibilityPixels`。其余 GPU pass 的 source buffer/atomic producer 尚未逐项接到 counter ABI；字段缺失是“未接入”，不是“工作量为零”。
 
 ### OBS-06 · 建立 debug views
 

@@ -17,6 +17,7 @@ import { RenderTargets } from "./RenderTargets.js";
 import { GPUViewKey, ViewManager } from "./ViewManager.js";
 import { GPUCameraStateManager } from "./GPUCameraState.js";
 import { VisibilityPass } from "./passes/VisibilityPass.js";
+import { VisibilityCounterPass } from "./passes/VisibilityCounterPass.js";
 import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
 import { LightingPass } from "./passes/LightingPass.js";
 import {
@@ -149,6 +150,7 @@ export class Renderer {
   private _views!: ViewManager;
   private readonly _output_resolution = new Vec2(1, 1);
   private _visibility!: VisibilityPass;
+  private _visibilityCounters: VisibilityCounterPass | null = null;
   private _materialExpand!: MaterialExpandPass;
   private _lighting!: LightingPass;
   private _lightCluster!: LightClusterPass;
@@ -771,6 +773,28 @@ export class Renderer {
             hzbABuilder.read(depthRes);
             hzbABuilder.make_side_effect();
           }
+        }
+
+        if (this._profiler.shouldSampleGpuCounters()) {
+          const counterBuffer = this._profiler.gpuCounterBuffer;
+          if (counterBuffer === null) {
+            throw new Error("GPU counter sampling has no counter buffer");
+          }
+          const counterRes = graph.import_resource(
+            "r0_gpu_frame_counters",
+            { kind: "imported", label: "R0 GPU frame counters" },
+            counterBuffer
+          );
+          this._visibilityCounters ??= new VisibilityCounterPass();
+          this._visibilityCounters.addToGraph(
+            graph,
+            { width: w, height: h },
+            { meshId: meshIdRes, counters: counterRes }
+          );
+          this._profiler.registerGpuCounterFields([
+            "shadedPixels",
+            "emptyVisibilityPixels"
+          ]);
         }
 
         const geometryMetaRes = graph.import_resource(
