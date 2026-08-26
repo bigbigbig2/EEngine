@@ -11,7 +11,7 @@
 - Meshlet 数据、实例/Meshlet 剔除、Prefix Scan、Indirect Draw。
 - Hardware Visibility Buffer、reverse-Z、previous HZB 和 same-frame second chance。
 - Material Expand、Clustered Lighting、IBL、Shadow、SSAO、SSR、OIT、TAA、Bloom、Exposure、Tonemap 等代码路径。
-- R0 Result Schema v2、CPU/submit/readback/upload 观测、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback ring、diagnostics、percentile 汇总和统一 `BenchmarkRunController` 已接入；根目录已有 observability 与真实主帧 smoke 页面。
+- R0 Result Schema v3、CPU/submit/readback/upload 观测、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback ring、diagnostics、percentile 汇总和统一 `BenchmarkRunController` 已接入；根目录已有 observability 与真实主帧 smoke 页面。Schema v3 额外冻结 feature-to-counter 能力证据矩阵：真实 producer 标为 `supported`，未实现/未接线项必须保存 `unsupported + blockerTaskId + reason`。
 - 最终 Visibility Buffer 已有首个真实 GPU counter producer：采样帧通过 8×8 工作组归约统计非空/空 mesh-id 像素，异步归档 `shadedPixels` 与 `emptyVisibilityPixels`；两者之和必须等于内部渲染像素数。非采样帧不添加该 Pass，也不编码 counter clear/copy/readback。
 - LightCluster 的 frustum-visible 与 HZB-filtered 两级 64 KiB list 均已接入 overflow 检查；filtered list 另外产生 `activeLights`，表示实际可容纳并送入 cluster assign 的 Point/Spot light 数量，DirectionalLight 不计入。任一级 raw count 超过 16,383 时设置 `queueOverflowMask` bit 3。
 - Visibility 采样帧会从真实 count-prefixed GPU list 累加 `candidateInstances`、`visibleInstances`、scene-filter `rejectedFrustum`、cluster/HW 工作量，并在 scene-mesh/meshlet raw count 超过实际 Buffer capacity 时设置 `queueOverflowMask`。无 overflow 时 `candidateInstances = visibleInstances + rejectedFrustum`；当前 HW/alpha 每个 Meshlet 固定提交 384 vertices，所以 `hwTriangles = (hwClusters + alphaClusters) × 128`。
@@ -20,7 +20,7 @@
 - HZB legacy 观测会分别记录同帧 build 数、最终 mip 数与累计 mip pass 数。
 - R0 已有单一 `render_debug_view` 控制面。`visibility-key`、reverse-Z `depth` 和 `velocity` 是真实全屏视图，统一在时域/后处理之后覆盖最终 HDR 输入；其余已规划视图会返回 `unsupported` 及原因。关闭和 unsupported 状态不添加 Debug Pass、瞬态纹理或 readback，旧 velocity 独立开关和 Pass 已删除。
 - GPU timestamp 同时保存原始 Pass label 与稳定逻辑 phase；benchmark 会先对同一帧内同 phase 的 Pass 求和，再生成 `gpuPhaseMs` 分位数。采样现在登记一帧内所有 OEngine `ShadeGPUCommandContext`，以 context label 限定原始 Pass label，并按 context 注册顺序合并异步结果；这能覆盖 `GraphicsContext.update`、scene database update 与 animation context 内实际存在的 compute/render Pass。WebGPU 当前接口无法给纯 copy/write 命令单独加 Pass timestamp，因此 upload/animation 的纯复制区间及跨多个 submit 的 whole-frame GPU 起止 marker 仍未闭环。无法证明 owner 的 label 保留为 `unclassified`，R0 观测开销单列为 `observability`。
-- Result 已有机器 gate validator，能拒绝旧 Schema、dirty commit、非 A/B/C role、占位 hash、缺失 diagnostics、pending/dropped/failed GPU evidence、未归类 timestamp 和缺失 phase summary。timestamp batch 的异步 map 失败会收尾该帧并累计 `failedGpuTimestampBatches`，不会把 benchmark 永久留在 pending。`temp/` 中 RTX 2060 SUPER 的两份旧 Schema 1 smoke 已登记为 exploratory：它们暴露了 81 Box 主链 3 submit 与持续 readback，但不是 A/B/C 基线。
+- Result 已有机器 gate validator，能拒绝旧 Schema、dirty commit、非 A/B/C role、占位 hash、伪造/缺失能力声明、required counter 缺失、unsupported counter 冒充零值、缺失 diagnostics、pending/dropped/failed GPU evidence、未归类 timestamp 和不匹配的 GPU/phase/counter summary。报告把 `gateEligible`（artifact 结构可信）与 `capabilityComplete/blockedCapabilities`（启用能力是否完整）分开。timestamp batch 的异步 map 失败会收尾该帧并累计 `failedGpuTimestampBatches`，不会把 benchmark 永久留在 pending。`temp/` 中 RTX 2060 SUPER 的两份旧 Schema 1 smoke 已登记为 exploratory：它们暴露了 81 Box 主链 3 submit 与持续 readback，但不是 A/B/C 基线。
 
 ## 关键缺口
 
@@ -33,8 +33,8 @@
 - FrameGraph 尚未覆盖全部资源依赖和旁路系统。
 - 资源销毁、device lost、history 失效与动态资产生命周期未闭环。
 - 自动化测试目前只覆盖 R0 观测公共 seam；固定 benchmark、截图和数值回归仍基本缺失。
-- A/B/C 固定 benchmark、cone/HZB reject reason、SW raster 与 material overflow 等其余 GPU counter producer，以及可用于 gate 的浏览器实机截图/性能 artifact 尚未完成；HZB mip、reject reason、LOD/Cluster、SW/HW、material ID 和 history validity debug view 仍因缺少真实 producer 标记为 unsupported。counter 字段缺失表示 producer 未接入，不能解释为真实零工作量。
-- 用户已完成旧 Schema smoke 数据采集；Schema v2 与 readback ring 接入后的两个页面仍需手动复测，因此 R0 Gate 尚未通过。
+- A/B/C 固定 benchmark、cone/HZB reject reason、SW raster 与 material overflow 等其余 GPU counter producer，以及可用于 gate 的浏览器实机截图/性能 artifact 尚未完成；HZB mip、reject reason、LOD/Cluster、SW/HW、material ID 和 history validity debug view 仍因缺少真实 producer 标记为 unsupported。Schema v3 已消除歧义：required/supported 字段缺失是错误，真实零必须显式为 `0`，unsupported 必须携带 blocker 且不得出现在 sampled values。
+- 用户已完成旧 Schema smoke 数据采集；Schema v3 接入后的两个页面仍需手动复测，因此 R0 Gate 尚未通过。
 - package 和大量内部符号仍保留 reconstructed/Shade 历史名称。
 
 ## 参考代码状态

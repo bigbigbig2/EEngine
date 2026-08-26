@@ -51,7 +51,7 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 
 | Gate | 可以开始的条件 | 退出证据 |
 |---|---|---|
-| G0 · Observe | 当前工程可构建运行 | A/B/C 基线、GPU 分段、计数器、submit/readback 证据完整 |
+| G0 · Observe | 当前工程可构建运行 | A/B/C 对照契约已冻结；当前能力有真实 GPU 证据，未实现能力有 `unsupported + blockerTaskId`，无缺字段/零值歧义 |
 | G1 · Runtime | G0 可解释固定成本 | 稳定帧一个主要 submit、图缓存、Compute HZB、feature off 零旁路成本 |
 | G2 · Data | Runtime Asset/Resident seam 已写入测试 | versioned package、稳定 handle、增量 Change Set、Packed Instance Set 可运行 |
 | G3 · Hierarchy | Cooker 能产出并校验 hierarchy/BVH8 | GPU 在 Meshlet 展开前完成 SSE 选择，队列无静默 overflow |
@@ -59,6 +59,8 @@ R5 单次 Material Resolve、Lighting、Temporal/Post
 | G5 · Shading | 统一 VisibilityKey 稳定 | 单次 PBR Resolve 和效果依赖图通过 B/C 画质与性能门禁 |
 
 阶段允许重叠的只有不依赖未冻结 ABI 的调查、测试夹具和离线工具；不得一边改变上游 ABI，一边把下游大规模实现建立在猜测上。
+
+G0 的“证据完整”不等于 R2–R5 产品能力已经存在。G0 允许 artifact 机器结构合格但 `capabilityComplete=false`，前提是所有 blocker 可追溯且没有假 counter；A/B 的真实功能与性能通过仍在对应后续 Gate 判定。
 
 ## 明确排除
 

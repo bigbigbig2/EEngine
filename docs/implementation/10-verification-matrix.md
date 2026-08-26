@@ -133,7 +133,7 @@ Gate 的具体设备名称在 R0 填入，不在文档猜硬件。最低覆盖�
 
 | Gate | 必过 correctness | 必出 performance | 必查结构 |
 |---|---|---|---|
-| G0 Observe | counter/timestamp frame 归属、debug view | A/B/C R0 artifact | shader source map、submit/readback map |
+| G0 Observe | counter/timestamp frame 归属、debug view | A/B/C 对照契约；当前能力 artifact 可带明确 blocker | shader source map、submit/readback map、Schema v3 能力矩阵 |
 | G1 Runtime | HZB reference、resize/history/device lost | 空/A/B/C fixed cost 前后 | 一个主要 submit、graph cache/off pruning |
 | G2 Data | package/handle/change set/packed instances | unchanged 与 N changes scaling | owner、resident bytes、旧 owner 删除 |
 | G3 Hierarchy | CPU/GPU selected set、overflow parent fallback | visited/selected/raster reduction | GPU闭环、旧 flat chain 删除 |

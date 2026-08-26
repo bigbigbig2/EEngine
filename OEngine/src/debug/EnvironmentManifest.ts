@@ -1,5 +1,5 @@
 /** Version of the JSON contract shared by OEngine benchmark artifacts. */
-export const BENCHMARK_RESULT_SCHEMA_VERSION = 2;
+export const BENCHMARK_RESULT_SCHEMA_VERSION = 3;
 
 export type BenchmarkPowerPreference = GPUPowerPreference | "unknown";
 

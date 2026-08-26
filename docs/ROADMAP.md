@@ -15,7 +15,7 @@ three.js 的 A/B 只是最低垂直功能与性能基线，不是路线终点。
 - 能切换现有 Visibility/HZB/Material Expand 的关键阶段。
 - 明确实际运行 Shader source-of-truth。
 
-退出：能够解释一帧慢在资产候选、工作生成、光栅、材质、带宽还是运行时提交。
+退出：能够解释一帧慢在资产候选、工作生成、光栅、材质、带宽还是运行时提交；当前已有能力输出真实 GPU 证据，Packed Instances、Hierarchy/SSE LOD、Compute SW Raster 等未实现能力输出稳定 `unsupported + blockerTaskId`。这不要求 R0 提前实现 R2–R4，也不表示 A/B 已通过。
 
 ## R1 · 收紧运行时成本
 

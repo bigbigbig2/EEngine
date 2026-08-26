@@ -13,6 +13,7 @@ import {
 } from "../.test-dist/debug/BenchmarkHarness.js";
 import { BenchmarkRunController } from "../.test-dist/debug/BenchmarkRunController.js";
 import { GPU_COUNTER_FIELDS } from "../.test-dist/debug/GpuFrameCounters.js";
+import { BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION } from "../.test-dist/debug/BenchmarkCapabilityEvidence.js";
 
 globalThis.GPUBufferUsage ??= {
   COPY_DST: 1,
@@ -323,6 +324,23 @@ test("non-sampled frames encode no GPU counter work", () => {
   profiler.destroy();
 });
 
+test("unsupported GPU counters cannot be registered as synthetic zero producers", () => {
+  const device = new FakeGpuDevice();
+  const profiler = new FrameProfiler({
+    enabled: true,
+    gpuCounterSampleInterval: 1,
+    gpuTimestampAvailable: false
+  });
+  profiler.attachGpuDevice(device);
+  profiler.beginFrame(1);
+  assert.throws(
+    () => profiler.registerGpuCounterFields(["swTriangles"]),
+    /unsupported.*VIS-05/
+  );
+  profiler.endFrame();
+  profiler.destroy();
+});
+
 test("GPU counter readback failure settles pending frame evidence", async (t) => {
   t.mock.method(console, "error", () => {});
   const device = new FakeGpuDevice();
@@ -438,6 +456,15 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
     failedGpuCounterSamples: 0
   });
   assert.equal(result.frames.length, 3);
+  assert.equal(
+    result.capabilityEvidence.schemaVersion,
+    BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION
+  );
+  assert.deepEqual(result.capabilityEvidence.featureSets, {});
+  assert.equal(
+    Object.keys(result.capabilityEvidence.gpuCounters).length,
+    GPU_COUNTER_FIELDS.length
+  );
   assert.deepEqual(result.frames.map((frame) => frame.cpuMs.frame), [1, 2, 3]);
   assert.deepEqual(result.summary.cpuMs.frame, {
     count: 3,

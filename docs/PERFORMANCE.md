@@ -64,6 +64,8 @@ Result 必须同时保留原始 Pass `gpuMs` 与稳定逻辑阶段 `gpuPhaseMs`�
 
 ## Gate 解释
 
+- G0 证据 artifact：`gateEligible=true` 只表示 Schema、环境、采样、真实 counter/unsupported 声明和汇总可比较；它不等于功能或性能达标。
+- 能力证据：`capabilityComplete=false` 时，`blockedCapabilities` 必须列出未实现 feature 或尚未接线 counter 的稳定任务 ID。真实 GPU 采样值 `0` 与 `unsupported` 是不同状态；required/supported 字段缺失或 unsupported 字段伪填 `0` 都使 artifact 无效。
 - A/B 未通过：基础 GPU-driven/渲染闭环尚未达到最低线。
-- A/B 通过：只说明对照功能与性能下界达标，不代表通用引擎完成。
+- A/B 通过：除证据 artifact 合格外，必须 `capabilityComplete=true`、固定功能/画质契约完整且性能阈值达标；这仍只说明对照功能与性能下界达标，不代表通用引擎完成。
 - OEngine 阶段完成：除 A/B 外，还必须通过 C 的扩展曲线、完整效果、动态世界、生命周期、feature-off 与跨设备门禁。

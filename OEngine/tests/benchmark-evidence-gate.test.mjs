@@ -2,12 +2,78 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { validateBenchmarkEvidence } from "../.test-dist/debug/BenchmarkEvidenceGate.js";
+import { createBenchmarkCapabilityEvidence } from "../.test-dist/debug/BenchmarkCapabilityEvidence.js";
 
 test("complete clean A/B/C evidence is gate eligible", () => {
   const report = validateBenchmarkEvidence(validResult());
   assert.equal(report.gateEligible, true);
+  assert.equal(report.capabilityComplete, false);
+  assert.deepEqual(
+    report.blockedCapabilities.map((blocker) => blocker.id),
+    ["rejectedCone", "rejectedHzb"]
+  );
   assert.equal(report.baselineRole, "minimum-a");
   assert.deepEqual(report.errors, []);
+});
+
+test("supported zero is evidence, while missing and unsupported values are rejected", () => {
+  const zero = validResult();
+  zero.frames[0].gpuCounters.values.candidateInstances = 0;
+  assert.equal(errorCodes(zero).has("gpu-counter-required-field-missing"), false);
+
+  const missing = validResult();
+  delete missing.frames[0].gpuCounters.values.candidateInstances;
+  assert.ok(errorCodes(missing).has("gpu-counter-required-field-missing"));
+
+  const fakeUnsupported = validResult();
+  fakeUnsupported.frames[0].gpuCounters.values.rejectedCone = 0;
+  assert.ok(errorCodes(fakeUnsupported).has("gpu-counter-unsupported-field-present"));
+});
+
+test("capability matrix rejects missing declarations, fake support and invalid blockers", () => {
+  const missingCounter = validResult();
+  delete missingCounter.capabilityEvidence.gpuCounters.visitedBvhNodes;
+  assert.ok(errorCodes(missingCounter).has("capability-counter-declaration-missing"));
+
+  const unknownCounter = validResult();
+  unknownCounter.capabilityEvidence.gpuCounters.futureCounter = {
+    status: "unsupported",
+    blockerTaskId: "OBS-05",
+    reason: "not implemented"
+  };
+  assert.ok(errorCodes(unknownCounter).has("capability-counter-declaration-unknown"));
+
+  const fakeSupport = validResult();
+  fakeSupport.capabilityEvidence.gpuCounters.rejectedCone = {
+    status: "supported",
+    producer: "fake",
+    requiredInSampledFrames: true
+  };
+  assert.ok(errorCodes(fakeSupport).has("capability-counter-declaration-mismatch"));
+
+  const invalidBlocker = validResult();
+  invalidBlocker.capabilityEvidence.gpuCounters.rejectedCone.blockerTaskId = "later";
+  assert.ok(errorCodes(invalidBlocker).has("capability-blocker-task-invalid"));
+
+  const reordered = validResult();
+  reordered.capabilityEvidence.gpuCounters.candidateInstances = {
+    requiredInSampledFrames: true,
+    producer: "VisibilityPass/scene-frustum-list reducer",
+    status: "supported"
+  };
+  assert.equal(errorCodes(reordered).has("capability-counter-declaration-mismatch"), false);
+});
+
+test("unsupported feature set stays structurally valid but reports a product blocker", () => {
+  const result = validResult(["packed-instances"]);
+  result.frames[0].gpuCounters.values = {};
+  const report = validateBenchmarkEvidence(result);
+  assert.equal(report.gateEligible, true);
+  assert.equal(report.capabilityComplete, false);
+  assert.deepEqual(
+    report.blockedCapabilities.map((blocker) => [blocker.kind, blocker.id, blocker.blockerTaskId]),
+    [["feature-set", "packed-instances", "WORLD-07"]]
+  );
 });
 
 test("old dirty smoke artifacts remain exploratory instead of passing a gate", () => {
@@ -111,11 +177,26 @@ function errorCodes(result) {
   );
 }
 
-function validResult() {
+function validResult(featureSet = ["hardware-visibility"]) {
+  const gpuCounterValues = featureSet.includes("hardware-visibility")
+    ? {
+        candidateInstances: 0,
+        visibleInstances: 0,
+        candidateClusters: 1,
+        selectedClusters: 1,
+        rejectedFrustum: 0,
+        hwClusters: 1,
+        alphaClusters: 0,
+        hwTriangles: 128,
+        shadedPixels: 0,
+        emptyVisibilityPixels: 2073600,
+        queueOverflowMask: 0
+      }
+    : {};
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     environment: {
-      schemaVersion: 2,
+      schemaVersion: 3,
       capturedAt: "2026-08-26T00:00:00.000Z",
       engine: {
         commit: "0123456789abcdef",
@@ -139,7 +220,7 @@ function validResult() {
       },
       run: {
         baselineRole: "minimum-a",
-        featureSet: ["hardware-visibility"],
+        featureSet,
         warmupFrames: 120,
         sampleFrames: 1,
         gpuSampleInterval: 1,
@@ -154,6 +235,7 @@ function validResult() {
       seed: 42,
       cameraPathHash: `sha256:${"fe".repeat(32)}`
     },
+    capabilityEvidence: createBenchmarkCapabilityEvidence(featureSet),
     frames: [{
       frameIndex: 1,
       cpuMs: { frame: 1 },
@@ -174,7 +256,7 @@ function validResult() {
         pending: false,
         dropped: false,
         schemaVersion: 1,
-        values: { selectedClusters: 1 }
+        values: gpuCounterValues
       }
     }],
     summary: {
@@ -182,7 +264,9 @@ function validResult() {
       gpuMs: { Visibility: { count: 1, mean: 1, min: 1, max: 1, p50: 1, p95: 1, p99: 1 } },
       gpuPhaseMs: { "hardware-raster": { count: 1, mean: 1, min: 1, max: 1, p50: 1, p95: 1, p99: 1 } },
       counters: {},
-      gpuCounters: {},
+      gpuCounters: Object.fromEntries(
+        Object.entries(gpuCounterValues).map(([name, value]) => [name, series(value)])
+      ),
       submits: {},
       readbacks: {},
       uploadBytes: {}
@@ -198,4 +282,8 @@ function validResult() {
       failedGpuCounterSamples: 0
     }
   };
+}
+
+function series(value) {
+  return { count: 1, mean: value, min: value, max: value, p50: value, p95: value, p99: value };
 }

@@ -7,6 +7,10 @@ import type {
   FrameProfilerDiagnostics
 } from "./FrameProfiler.js";
 import { classifyGpuFramePhase } from "./GpuFramePhase.js";
+import {
+  createBenchmarkCapabilityEvidence,
+  type BenchmarkCapabilityEvidence
+} from "./BenchmarkCapabilityEvidence.js";
 
 export interface BenchmarkCaseManifest {
   id: string;
@@ -43,6 +47,7 @@ export interface BenchmarkResult {
   schemaVersion: number;
   environment: BenchmarkEnvironmentManifest;
   case: BenchmarkCaseManifest;
+  capabilityEvidence: BenchmarkCapabilityEvidence;
   frames: FrameProfileSnapshot[];
   summary: BenchmarkSummary;
   diagnostics: FrameProfilerDiagnostics;
@@ -113,6 +118,9 @@ export class BenchmarkHarness {
       schemaVersion: BENCHMARK_RESULT_SCHEMA_VERSION,
       environment: cloneJson(this.environment),
       case: cloneJson(this.caseManifest),
+      capabilityEvidence: createBenchmarkCapabilityEvidence(
+        this.environment.run.featureSet
+      ),
       frames,
       summary: summarizeFrames(frames),
       diagnostics: cloneJson(diagnostics)

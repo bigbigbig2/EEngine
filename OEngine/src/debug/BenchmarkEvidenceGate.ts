@@ -1,7 +1,16 @@
 import { BENCHMARK_RESULT_SCHEMA_VERSION } from "./EnvironmentManifest.js";
 import {
+  BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION,
+  BENCHMARK_FEATURE_SET_EVIDENCE,
+  BENCHMARK_GPU_COUNTER_EVIDENCE,
+  type BenchmarkFeatureSetName,
+  type CounterEvidenceDeclaration,
+  type FeatureSetEvidenceDeclaration
+} from "./BenchmarkCapabilityEvidence.js";
+import {
   GPU_COUNTER_FIELDS,
-  GPU_COUNTER_SCHEMA_VERSION
+  GPU_COUNTER_SCHEMA_VERSION,
+  type GpuCounterFieldName
 } from "./GpuFrameCounters.js";
 import {
   GPU_FRAME_PHASES,
@@ -18,10 +27,21 @@ export type BenchmarkEvidenceIssue = {
 };
 
 export type BenchmarkEvidenceReport = {
+  /** Result JSON is structurally complete and contains honest evidence declarations. */
   gateEligible: boolean;
+  /** Every enabled feature and its required counters are currently supported. */
+  capabilityComplete: boolean;
+  blockedCapabilities: BenchmarkCapabilityBlocker[];
   baselineRole: string | null;
   errors: BenchmarkEvidenceIssue[];
   warnings: BenchmarkEvidenceIssue[];
+};
+
+export type BenchmarkCapabilityBlocker = {
+  kind: "feature-set" | "gpu-counter";
+  id: string;
+  blockerTaskId: string;
+  reason: string;
 };
 
 const GATE_BASELINE_ROLES = new Set([
@@ -38,6 +58,13 @@ type FrameEvidenceStats = {
   timestampSamples: number;
   gpuValues: Map<string, number[]>;
   gpuPhaseValues: Map<GpuFramePhase, number[]>;
+  gpuCounterValues: Map<GpuCounterFieldName, number[]>;
+};
+
+type CapabilityValidation = {
+  requiredSupportedCounters: Set<GpuCounterFieldName>;
+  unsupportedCounters: Set<GpuCounterFieldName>;
+  blockers: BenchmarkCapabilityBlocker[];
 };
 
 /**
@@ -51,7 +78,7 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
   const root = asRecord(value);
   if (root === null) {
     add(issues, "result-not-object", "error", "$", "benchmark result 必须是对象");
-    return finish(issues, null);
+    return finish(issues, null, []);
   }
 
   numberEquals(
@@ -161,9 +188,243 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
 
   validateCase(issues, root.case);
   validateDiagnostics(issues, root.diagnostics);
-  const frameStats = validateFrames(issues, root.frames, environment, run);
+  const capability = validateCapabilityEvidence(
+    issues,
+    root.capabilityEvidence,
+    run
+  );
+  const frameStats = validateFrames(
+    issues,
+    root.frames,
+    environment,
+    run,
+    capability
+  );
   validateSummary(issues, root.summary, frameStats);
-  return finish(issues, role);
+  return finish(issues, role, capability.blockers);
+}
+
+function validateCapabilityEvidence(
+  issues: BenchmarkEvidenceIssue[],
+  value: unknown,
+  run: Record<string, unknown> | null
+): CapabilityValidation {
+  const result: CapabilityValidation = {
+    requiredSupportedCounters: new Set(),
+    unsupportedCounters: new Set(),
+    blockers: []
+  };
+  for (const field of GPU_COUNTER_FIELDS) {
+    if (BENCHMARK_GPU_COUNTER_EVIDENCE[field.name].status === "unsupported") {
+      result.unsupportedCounters.add(field.name);
+    }
+  }
+
+  const evidence = requiredRecord(issues, value, "$.capabilityEvidence");
+  if (evidence === null) return result;
+  numberEquals(
+    issues,
+    evidence.schemaVersion,
+    BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION,
+    "capability-schema-version",
+    "$.capabilityEvidence.schemaVersion"
+  );
+
+  const declaredFeatureSets = requiredRecord(
+    issues,
+    evidence.featureSets,
+    "$.capabilityEvidence.featureSets"
+  );
+  const runFeatureNames = run !== null && Array.isArray(run.featureSet)
+    ? run.featureSet.filter((name): name is string => typeof name === "string")
+    : [];
+  const expectedFeatureNames = [...new Set(runFeatureNames)].sort((a, b) =>
+    a.localeCompare(b)
+  );
+  if (declaredFeatureSets !== null) {
+    const undeclared = new Set(Object.keys(declaredFeatureSets));
+    for (const name of expectedFeatureNames) {
+      undeclared.delete(name);
+      const expected = BENCHMARK_FEATURE_SET_EVIDENCE[
+        name as BenchmarkFeatureSetName
+      ];
+      const path = `$.capabilityEvidence.featureSets.${name}`;
+      if (expected === undefined) {
+        add(
+          issues,
+          "capability-feature-set-unknown",
+          "error",
+          path,
+          `feature set '${name}' 没有冻结的证据契约`
+        );
+        continue;
+      }
+      const actual = asRecord(declaredFeatureSets[name]);
+      if (actual === null) {
+        add(
+          issues,
+          "capability-feature-set-declaration-missing",
+          "error",
+          path,
+          `缺少 feature set '${name}' 的证据声明`
+        );
+      } else {
+        validateDeclarationShape(issues, actual, path);
+        if (!declarationEquals(actual, expected)) {
+          add(
+            issues,
+            "capability-feature-set-declaration-mismatch",
+            "error",
+            path,
+            `feature set '${name}' 的声明与冻结矩阵不一致`
+          );
+        }
+      }
+
+      if (expected.status === "unsupported") {
+        result.blockers.push({
+          kind: "feature-set",
+          id: name,
+          blockerTaskId: expected.blockerTaskId,
+          reason: expected.reason
+        });
+        continue;
+      }
+      for (const field of expected.requiredGpuCounters) {
+        const counter = BENCHMARK_GPU_COUNTER_EVIDENCE[field];
+        if (counter.status === "supported") {
+          result.requiredSupportedCounters.add(field);
+        } else {
+          addBlocker(result.blockers, {
+            kind: "gpu-counter",
+            id: field,
+            blockerTaskId: counter.blockerTaskId,
+            reason: counter.reason
+          });
+        }
+      }
+    }
+    for (const name of undeclared) {
+      add(
+        issues,
+        "capability-feature-set-declaration-extra",
+        "error",
+        `$.capabilityEvidence.featureSets.${name}`,
+        `声明了 run.featureSet 中不存在的 feature set '${name}'`
+      );
+    }
+  }
+
+  const declaredCounters = requiredRecord(
+    issues,
+    evidence.gpuCounters,
+    "$.capabilityEvidence.gpuCounters"
+  );
+  if (declaredCounters !== null) {
+    const unknown = new Set(Object.keys(declaredCounters));
+    for (const field of GPU_COUNTER_FIELDS) {
+      const name = field.name;
+      unknown.delete(name);
+      const path = `$.capabilityEvidence.gpuCounters.${name}`;
+      const actual = asRecord(declaredCounters[name]);
+      if (actual === null) {
+        add(
+          issues,
+          "capability-counter-declaration-missing",
+          "error",
+          path,
+          `缺少 GPU counter '${name}' 的 supported/unsupported 声明`
+        );
+        continue;
+      }
+      validateDeclarationShape(issues, actual, path);
+      if (!declarationEquals(actual, BENCHMARK_GPU_COUNTER_EVIDENCE[name])) {
+        add(
+          issues,
+          "capability-counter-declaration-mismatch",
+          "error",
+          path,
+          `GPU counter '${name}' 的声明与冻结 producer 事实不一致`
+        );
+      }
+    }
+    for (const name of unknown) {
+      add(
+        issues,
+        "capability-counter-declaration-unknown",
+        "error",
+        `$.capabilityEvidence.gpuCounters.${name}`,
+        `GPU counter ABI 不包含声明 '${name}'`
+      );
+    }
+  }
+  return result;
+}
+
+function validateDeclarationShape(
+  issues: BenchmarkEvidenceIssue[],
+  declaration: Record<string, unknown>,
+  path: string
+): void {
+  if (declaration.status === "supported") {
+    if (
+      "producer" in declaration &&
+      (typeof declaration.producer !== "string" || declaration.producer.trim().length === 0)
+    ) {
+      add(issues, "capability-producer-invalid", "error", `${path}.producer`, "supported counter 必须记录非空真实 producer");
+    }
+    if (
+      "requiredInSampledFrames" in declaration &&
+      declaration.requiredInSampledFrames !== true
+    ) {
+      add(issues, "capability-sampled-requirement-invalid", "error", `${path}.requiredInSampledFrames`, "supported counter 的 sampled-frame 要求必须为 true");
+    }
+    return;
+  }
+  if (declaration.status === "unsupported") {
+    if (
+      typeof declaration.blockerTaskId !== "string" ||
+      !/^[A-Z]+-[0-9]+(?:-[A-Z0-9]+)*$/.test(declaration.blockerTaskId)
+    ) {
+      add(issues, "capability-blocker-task-invalid", "error", `${path}.blockerTaskId`, "unsupported 声明必须使用稳定任务 ID，例如 WORLD-07");
+    }
+    if (typeof declaration.reason !== "string" || declaration.reason.trim().length === 0) {
+      add(issues, "capability-blocker-reason-missing", "error", `${path}.reason`, "unsupported 声明必须记录非空原因");
+    }
+    return;
+  }
+  add(issues, "capability-status-invalid", "error", `${path}.status`, "status 必须是 supported 或 unsupported");
+}
+
+function declarationEquals(
+  actual: Record<string, unknown>,
+  expected: CounterEvidenceDeclaration | FeatureSetEvidenceDeclaration
+): boolean {
+  return stableStringify(actual) === stableStringify(expected);
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortObjectKeys(value));
+}
+
+function sortObjectKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortObjectKeys);
+  const record = asRecord(value);
+  if (record === null) return value;
+  return Object.fromEntries(
+    Object.keys(record)
+      .sort((left, right) => left.localeCompare(right))
+      .map((key) => [key, sortObjectKeys(record[key])])
+  );
+}
+
+function addBlocker(
+  blockers: BenchmarkCapabilityBlocker[],
+  blocker: BenchmarkCapabilityBlocker
+): void {
+  if (!blockers.some((candidate) =>
+    candidate.kind === blocker.kind && candidate.id === blocker.id
+  )) blockers.push(blocker);
 }
 
 function validatePlatform(
@@ -215,7 +476,7 @@ function validateEngine(issues: BenchmarkEvidenceIssue[], value: unknown): void 
       "dirty-reasons-missing",
       "error",
       "$.environment.engine.dirtyReasons",
-      "Schema v2 必须保存 dirtyReasons 数组"
+      "Schema v3 必须保存 dirtyReasons 数组"
     );
   } else if (engine.dirtyReasons.length > 0) {
     add(
@@ -398,12 +659,14 @@ function validateFrames(
   issues: BenchmarkEvidenceIssue[],
   value: unknown,
   environment: Record<string, unknown> | null,
-  run: Record<string, unknown> | null
+  run: Record<string, unknown> | null,
+  capability: CapabilityValidation
 ): FrameEvidenceStats {
   const stats: FrameEvidenceStats = {
     timestampSamples: 0,
     gpuValues: new Map(),
-    gpuPhaseValues: new Map()
+    gpuPhaseValues: new Map(),
+    gpuCounterValues: new Map()
   };
   if (!Array.isArray(value)) {
     add(issues, "frames-missing", "error", "$.frames", "缺少 measured frames");
@@ -472,7 +735,7 @@ function validateFrames(
         }
         const phasePath = `${segmentPath}.phase`;
         if (typeof segment.phase !== "string") {
-          add(issues, "gpu-phase-missing", "error", phasePath, "Schema v2 segment 缺少逻辑 phase");
+          add(issues, "gpu-phase-missing", "error", phasePath, "Schema v3 segment 缺少逻辑 phase");
           continue;
         }
         if (!GPU_FRAME_PHASE_SET.has(segment.phase)) {
@@ -530,16 +793,50 @@ function validateFrames(
           ) {
             add(issues, "gpu-counter-value-invalid", "error", `$.frames[${index}].gpuCounters.values.${field}`, "GPU counter 值必须是 u32");
           }
+          if (capability.unsupportedCounters.has(field as GpuCounterFieldName)) {
+            add(
+              issues,
+              "gpu-counter-unsupported-field-present",
+              "error",
+              `$.frames[${index}].gpuCounters.values.${field}`,
+              `unsupported counter '${field}' 不得出现在 values 中；即使值为 0 也不能冒充 producer`
+            );
+          }
         }
       }
       if (
         counters.sampled === true &&
         counters.pending !== true &&
         counters.dropped !== true &&
-        counterValues !== null &&
-        Object.keys(counterValues).length > 0
+        counterValues !== null
       ) {
         counterSamples++;
+        for (const field of capability.requiredSupportedCounters) {
+          if (!(field in counterValues)) {
+            add(
+              issues,
+              "gpu-counter-required-field-missing",
+              "error",
+              `$.frames[${index}].gpuCounters.values.${field}`,
+              `启用的 feature set 要求真实采样 counter '${field}'；字段缺失不是 0`
+            );
+          }
+        }
+        for (const [field, rawCounter] of Object.entries(counterValues)) {
+          if (
+            GPU_COUNTER_FIELD_SET.has(field) &&
+            !capability.unsupportedCounters.has(field as GpuCounterFieldName) &&
+            Number.isInteger(rawCounter) &&
+            (rawCounter as number) >= 0 &&
+            (rawCounter as number) <= 0xffff_ffff
+          ) {
+            append(
+              stats.gpuCounterValues,
+              field as GpuCounterFieldName,
+              rawCounter as number
+            );
+          }
+        }
       }
     }
   }
@@ -582,6 +879,13 @@ function validateSummary(
     stats.gpuPhaseValues,
     "$.summary.gpuPhaseMs",
     "gpu-phase-summary"
+  );
+  validateGpuSummaryMap(
+    issues,
+    summary.gpuCounters,
+    stats.gpuCounterValues,
+    "$.summary.gpuCounters",
+    "gpu-counter-summary"
   );
 }
 
@@ -724,9 +1028,17 @@ function add(
 
 function finish(
   issues: BenchmarkEvidenceIssue[],
-  baselineRole: string | null
+  baselineRole: string | null,
+  blockedCapabilities: BenchmarkCapabilityBlocker[]
 ): BenchmarkEvidenceReport {
   const errors = issues.filter((issue) => issue.severity === "error");
   const warnings = issues.filter((issue) => issue.severity === "warning");
-  return { gateEligible: errors.length === 0, baselineRole, errors, warnings };
+  return {
+    gateEligible: errors.length === 0,
+    capabilityComplete: errors.length === 0 && blockedCapabilities.length === 0,
+    blockedCapabilities,
+    baselineRole,
+    errors,
+    warnings
+  };
 }

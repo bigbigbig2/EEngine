@@ -23,3 +23,7 @@ Status: accepted
 ## 验证
 
 所有性能 PR/Issue 使用 `docs/PERFORMANCE.md` 的数据字段和对齐条件。
+
+## 2026-08-26 补充解释
+
+G0 冻结证据契约，不提前实现后续阶段能力。Result 必须区分真实 GPU 采样 `0`、required counter 缺失和明确 `unsupported`：前者是有效数据，第二种是证据错误，第三种必须带稳定 blocker task ID。机器报告分别给出 artifact 是否可信与启用能力是否完整；只有两者满足且固定功能/画质/性能契约通过，才能宣称 A/B 通过。

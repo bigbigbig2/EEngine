@@ -64,7 +64,25 @@ export type {
 } from "./debug/EnvironmentManifest.js";
 export { FrameProfiler } from "./debug/FrameProfiler.js";
 export { validateBenchmarkEvidence } from "./debug/BenchmarkEvidenceGate.js";
+export {
+  BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION,
+  BENCHMARK_FEATURE_SET_EVIDENCE,
+  BENCHMARK_GPU_COUNTER_EVIDENCE,
+  createBenchmarkCapabilityEvidence
+} from "./debug/BenchmarkCapabilityEvidence.js";
 export type {
+  BenchmarkCapabilityEvidence,
+  BenchmarkFeatureSetName,
+  CapabilityEvidenceStatus,
+  CounterEvidenceDeclaration,
+  FeatureSetEvidenceDeclaration,
+  SupportedCounterEvidence,
+  SupportedFeatureSetEvidence,
+  UnsupportedCounterEvidence,
+  UnsupportedFeatureSetEvidence
+} from "./debug/BenchmarkCapabilityEvidence.js";
+export type {
+  BenchmarkCapabilityBlocker,
   BenchmarkEvidenceIssue,
   BenchmarkEvidenceReport,
   BenchmarkEvidenceSeverity

@@ -1,6 +1,6 @@
 # OEngine R0 Benchmark Harness
 
-本目录是 R0 性能证据入口。当前已完成 Result Schema v2、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback、diagnostics 和 percentile 汇总；A/B/C 的实际场景资产与自动相机轨迹仍需后续 `OBS-02` 工作包接入。
+本目录是 R0 性能证据入口。当前已完成 Result Schema v3、feature-to-counter 能力证据矩阵、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback、diagnostics 和 percentile 汇总；A/B/C 的实际场景资产与自动相机轨迹仍需后续 `OBS-02` 工作包接入。
 
 A/B 只是 OEngine 必须达到的最低垂直功能与性能基线：覆盖 GPU LOD/work generation、SW/HW Visibility、材质重建和 PBR/IBL。它们不是产品范围或完成上限。C 与通用 vertical/lifecycle cases 还必须证明多 geometry/material、动态对象与 Packed Instances、GPU Render World、层次 LOD、完整效果和 device/resource 生命周期。A/B/C 必须复用同一 OEngine 主管线，不能为 benchmark 创建样例专用 Renderer。
 
@@ -12,7 +12,7 @@ A/B 只是 OEngine 必须达到的最低垂直功能与性能基线：覆盖 GPU
 - GPU counter 默认每 60 帧采样一次，ring 满时丢样本并写入 diagnostics，绝不阻塞主帧。
 - GPU timestamp 不可用时 `gpu.available=false`，不能用 CPU 时间冒充。
 - `legacy.*` counters 描述当前 reconstructed 管线，只用于建立迁移前基线。
-- `gpuCounters.values` 只包含真实登记 producer 的字段；字段缺失表示未接入，不能按 0 解读。
+- `gpuCounters.values` 只包含真实登记 producer 的字段。对当前 feature set 的 required/supported counter，字段必须存在且允许真实值为 `0`；对 `capabilityEvidence` 声明为 unsupported 的字段，必须缺失并携带 blocker，不能写假 `0`。
 
 ## 浏览器侧接入
 
@@ -100,7 +100,14 @@ npm run dev:host
 
 这些页面不是 A/B/C 性能结果。只有达到各自固定采样帧数、控制台无 WebGPU validation error、结果 JSON 可导出且主帧页面截图正确时，才算浏览器侧 smoke 通过。
 
-`validateBenchmarkEvidence(result)` 负责 Result JSON 的最低 gate 判定：Schema、clean commit、A/B/C role、真实 hash、环境、diagnostics、采样完成状态、GPU timestamp/counter 与 phase 汇总任一缺失都会返回机器可读错误；`gpuMs`/`gpuPhaseMs` 还会从逐帧 segment 反算核对，不能只补一个同名空对象过关。它不验证仓库外截图和控制台文件，因此 `gateEligible=true` 仍需与完整 run bundle 一起归档。已采集旧数据的结论见 [`docs/BASELINE-ARTIFACTS.md`](../../docs/BASELINE-ARTIFACTS.md)。
+`validateBenchmarkEvidence(result)` 负责 Result JSON 的最低机器判定：Schema、clean commit、A/B/C role、真实 hash、环境、能力矩阵、diagnostics、采样完成状态、GPU timestamp/counter 与 phase 汇总任一缺失都会返回机器可读错误；`gpuMs`、`gpuPhaseMs`、`gpuCounters` 都从逐帧样本反算核对，不能只补一个同名空对象过关。
+
+报告中的两个结论不得混用：
+
+- `gateEligible=true`：artifact 结构、采样和 supported/unsupported 声明可信，可以作为 G0 证据。
+- `capabilityComplete=true`：本次启用的 feature set 及其所有必需 counter 都已支持；否则查看 `blockedCapabilities` 的任务 ID。
+
+带 blocker 的当前能力 artifact 可以前者为 true、后者为 false。A/B 最终通过还要求 `capabilityComplete=true`、固定功能/画质/性能契约以及仓库外截图和控制台 run bundle；validator 不会仅凭 JSON 宣告性能达标。已采集旧数据的结论见 [`docs/BASELINE-ARTIFACTS.md`](../../docs/BASELINE-ARTIFACTS.md)。
 
 ## 当前 CPU/GPU 证据字段
 
@@ -128,11 +135,17 @@ counters.gpu.residentBytes
 diagnostics.validationErrorCount/uncapturedErrorCount/deviceLostCount
 diagnostics.failedGpuTimestampBatches
 diagnostics.droppedGpuCounterSamples/failedGpuCounterSamples
+capabilityEvidence.schemaVersion
+capabilityEvidence.featureSets[*].status/requiredGpuCounters
+capabilityEvidence.gpuCounters[*].status/producer
+capabilityEvidence.gpuCounters[*].blockerTaskId/reason
 ```
 
 采样帧会自动登记该帧创建的每个 OEngine `ShadeGPUCommandContext`，原始 label 采用 `<command-context>/<pass>` 形式。不同 context 的 readback 即使乱序完成，也按 GPU command context 的注册顺序归档；非采样帧不会创建 timer/query/readback，采样本身不增加 submit。timestamp 只覆盖 context 内实际存在的 compute/render Pass，纯 copy/write 区间仍不可见；当前也没有横跨多个 submit 的 whole-frame GPU 起止 marker，因此各 Pass/phase 之和不能冒充完整 GPU frame latency。
 
-GPU counter ABI 当前是 256-byte `u32` 固定布局，定义见 `src/debug/GpuFrameCounters.ts`。主帧已完成 buffer clear、采样 copy、submit 后异步 map 与 frame-index 归档。最终 Visibility Buffer 是首个真实 producer：采样帧通过 8×8 工作组归约输出 `shadedPixels` 与 `emptyVisibilityPixels`；前者当前表示 mesh-id 非 sentinel 的最终可见性覆盖像素，不代表 Material/Lighting shader invocation。每个有效样本必须满足：
+GPU counter ABI 当前是 256-byte `u32` 固定布局，定义见 `src/debug/GpuFrameCounters.ts`；Result 能力矩阵定义见 `src/debug/BenchmarkCapabilityEvidence.ts`。`BenchmarkHarness` 根据 manifest 的 feature set 自动写入冻结矩阵，未知 feature set 会在 Result 完成时失败，要求先登记证据契约。主帧已完成 buffer clear、采样 copy、submit 后异步 map 与 frame-index 归档。最终 Visibility Buffer 是首个真实 producer：采样帧通过 8×8 工作组归约输出 `shadedPixels` 与 `emptyVisibilityPixels`；前者当前表示 mesh-id 非 sentinel 的最终可见性覆盖像素，不代表 Material/Lighting shader invocation。每个有效样本必须满足：
+
+`FrameProfiler` 在采样帧会直接拒绝注册矩阵中仍为 unsupported 的字段，不能把 counter buffer 清零后的槽位导出为假证据。实现真实 GPU producer、更新冻结矩阵和相应测试之后，该字段才可进入 sampled values。
 
 ```text
 shadedPixels + emptyVisibilityPixels
@@ -151,7 +164,7 @@ selectedClusters == hwClusters + alphaClusters
 hwTriangles == selectedClusters × 128
 ```
 
-非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。cone/HZB reject reason、SW raster 和 material overflow producer 仍是 Partial。
+非采样帧不添加统计 Pass，也不编码 counter clear/copy/readback。cone/HZB reject counter 当前以 `unsupported + OBS-05` 表达；`visitedBvhNodes` 以 `unsupported + WORK-04` 表达；SW counter 以 `unsupported + VIS-05` 表达。Packed Instances 是 feature capability 而非单个 counter，以 `unsupported + WORLD-07` 表达。material overflow bit 仍未接线，不得从现有 `queueOverflowMask` 推断 bit 2 已受保护。
 
 ## Shader source 审计
 
@@ -166,6 +179,7 @@ npm run audit:shaders
 - A：160k Teapot 的同资产/同相机/同输出对齐页面。
 - B：相同 glTF、LOD、环境贴图与 PBR/IBL 对齐页面。
 - C：geometry/material/alpha/shadow/dynamic-transform 分轴场景。
-- GPU pass producer：cone/HZB reject reason、SW raster 与 material overflow bit。
+- 当前算法观测 producer：cone/HZB reject reason 与 material overflow bit；在完成前由能力矩阵明确阻塞。
+- 后续产品能力：Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD（`WORK-04`）和 SW Visibility（`VIS-05`）；它们不属于 G0 提前实现条件，但 A/B/C 对应功能通过前必须完成。
 - HZB mip、reject reason、LOD/Cluster、SW/HW classification、material ID 与 history validity 所需的真实逐像素 producer；当前统一控制面明确报告 unsupported。
 - 纯 copy/write upload 区间，以及横跨 upload、animation 与 main submit 的 whole-frame GPU 起止 marker。

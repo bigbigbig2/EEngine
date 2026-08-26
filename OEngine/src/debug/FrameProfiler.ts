@@ -5,6 +5,7 @@ import {
   type GpuCounterFieldName,
   type GpuCounterValues
 } from "./GpuFrameCounters.js";
+import { BENCHMARK_GPU_COUNTER_EVIDENCE } from "./BenchmarkCapabilityEvidence.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   classifyGpuFramePhase,
@@ -413,6 +414,7 @@ export class FrameProfiler {
     sourceOffset = 0
   ): void {
     if (!this.shouldSampleGpuCounters() || this.gpuDevice === null) return;
+    assertSupportedGpuCounter(field);
     this.ensureGpuFrameCounters().copyField(
       command.gpu_encoder,
       field,
@@ -425,7 +427,10 @@ export class FrameProfiler {
   registerGpuCounterFields(fields: readonly GpuCounterFieldName[]): void {
     const active = this.active;
     if (active === null || !active.snapshot.gpuCounters.sampled) return;
-    for (const field of fields) active.gpuCounterFields.add(field);
+    for (const field of fields) {
+      assertSupportedGpuCounter(field);
+      active.gpuCounterFields.add(field);
+    }
   }
 
   encodeGpuCounterReadback(command: ShadeGPUCommandContext): void {
@@ -693,6 +698,15 @@ export class FrameProfiler {
         console.error("FrameProfiler listener failed", error);
       }
     }
+  }
+}
+
+function assertSupportedGpuCounter(field: GpuCounterFieldName): void {
+  const declaration = BENCHMARK_GPU_COUNTER_EVIDENCE[field];
+  if (declaration.status === "unsupported") {
+    throw new Error(
+      `GPU counter '${field}' is unsupported; implement its real producer under ${declaration.blockerTaskId} before registration`
+    );
   }
 }
 
