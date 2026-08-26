@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "C",
+  "name": "Engine generality C · heterogeneous dynamic world",
+  "baselineRole": "engine-generality-c",
+  "rendererPath": "oengine-unified",
+  "reference": {
+    "implementation": "OEngine repository-owned generality fixture",
+    "source": "examples/benchmark-shared/recipes/benchmark-c.json",
+    "revision": "schema-1"
+  },
+  "seed": 3237998146,
+  "featureSet": ["hardware-visibility", "hzb-culling", "cone-culling", "material-expand", "clustered-lighting", "ibl", "packed-instances", "hierarchy-sse-lod", "software-visibility"],
+  "frame": { "width": 1280, "height": 720, "dpr": 1 },
+  "run": {
+    "warmupFrames": 60,
+    "sampleFrames": 180,
+    "gpuSampleInterval": 6,
+    "gpuCounterSampleInterval": 6,
+    "readbackRingSlots": 3
+  },
+  "counts": { "instances": 144, "geometries": 3, "materials": 3, "localLights": 6 },
+  "camera": {
+    "id": "oengine-generality-static-v1",
+    "frameCount": 240,
+    "sha256": "7ccf8479ce22266c50f888b92b73ad718c9508d0512bdb1bf08f213631fe84df",
+    "keyframes": [
+      { "frame": 0, "position": [18, 14, 22], "target": [0, 0, 0] },
+      { "frame": 239, "position": [18, 14, 22], "target": [0, 0, 0] }
+    ]
+  },
+  "assets": [
+    { "id": "benchmark-c-recipe", "kind": "recipe", "source": "workspace:examples/benchmark-shared/recipes/benchmark-c.json", "sha256": "7e4865c33ea94a7e4209ab1a22a9af0b507a607036a8561bdb75ddb73ce5f8f1", "usage": "固定多 geometry/material/alpha/light/dynamic-transform 场景配方", "runtimeStatus": "consumed" }
+  ],
+  "currentLimitations": [
+    "144 个节点当前均是独立 Mesh；Packed Instances 由 WORLD-07 阻塞",
+    "Hierarchy/SSE LOD 与 cone culling 由 WORK-04 阻塞",
+    "Compute software visibility 由 VIS-05 阻塞",
+    "C 的 shadow/temporal/lifecycle 扩展轴属于后续 gate，不由 OBS-02 单页冒充完成"
+  ]
+}

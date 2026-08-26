@@ -1,0 +1,22 @@
+:root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #071018; color: #e7edf5; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { width: min(100% - 32px, 1320px); margin: 0 auto; padding: 40px 0 80px; }
+h1, h2, p { margin-top: 0; }
+.eyebrow { color: #77b7ff; font-size: .78rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.status-card, .panel, article { border: 1px solid #243548; border-radius: 12px; background: #0d1925; padding: 16px; }
+.status-card { display: flex; align-items: center; gap: 12px; margin: 20px 0; }
+.status-card p { margin: 4px 0 0; color: #9eb0c3; }
+.status-dot { width: 12px; height: 12px; border-radius: 50%; background: #e0a63d; flex: 0 0 auto; }
+.status-dot.ok { background: #43d17e; }.status-dot.error { background: #ff667a; }
+.meta, .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+article span { display: block; color: #91a4b8; font-size: .78rem; } article strong { display: block; margin-top: 5px; }
+.canvas-wrap { overflow: auto; border-radius: 12px; border: 1px solid #243548; background: #03070a; }
+canvas { display: block; max-width: none; }
+.panel { margin-top: 16px; }
+.panel p, li { color: #aab9c8; }
+.result-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+button { border: 1px solid #4875a8; border-radius: 8px; padding: 9px 14px; background: #153a61; color: white; cursor: pointer; }
+button:disabled { opacity: .45; cursor: wait; }
+pre { max-height: 440px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #050b10; border-radius: 8px; padding: 14px; color: #b9d6ee; }
+details { margin-top: 16px; }

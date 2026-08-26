@@ -1,6 +1,6 @@
 # OEngine R0 Benchmark Harness
 
-本目录是 R0 性能证据入口。当前已完成 Result Schema v3、feature-to-counter 能力证据矩阵、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback、diagnostics 和 percentile 汇总；A/B/C 的实际场景资产与自动相机轨迹仍需后续 `OBS-02` 工作包接入。
+本目录是 R0 性能证据入口。当前已完成 Result Schema v3、feature-to-counter 能力证据矩阵、CPU frame timeline、submit/readback/upload 证据、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback、diagnostics 和 percentile 汇总；A/B/C 的 manifest、实际资产 hash、固定相机、共享 runner 与三个浏览器入口也已接入。`OBS-02` 代码交付已经收口，尚差一次可用 WebGPU 浏览器中的 smoke 验收。
 
 A/B 只是 OEngine 必须达到的最低垂直功能与性能基线：覆盖 GPU LOD/work generation、SW/HW Visibility、材质重建和 PBR/IBL。它们不是产品范围或完成上限。C 与通用 vertical/lifecycle cases 还必须证明多 geometry/material、动态对象与 Packed Instances、GPU Render World、层次 LOD、完整效果和 device/resource 生命周期。A/B/C 必须复用同一 OEngine 主管线，不能为 benchmark 创建样例专用 Renderer。
 
@@ -87,10 +87,13 @@ const json = serializeBenchmarkResult(result);
 
 ## 可运行浏览器示例
 
-根目录现有两个垂直入口：
+根目录现有五个垂直入口：
 
 - [r0-observability](../../examples/r0-observability/README.md)：真实初始化 `Renderer`/WebGPU，隔离验证观测设施与 `GraphicsContext.update()`。
 - [r0-frame-smoke](../../examples/r0-frame-smoke/README.md)：固定 81 Box 场景，运行真实 `Renderer.render()` 并采集 GPU timestamp。
+- [benchmark-a](../../examples/benchmark-a/index.html)：7 级 Teapot 资产、160k 布局和 A 相机契约。
+- [benchmark-b](../../examples/benchmark-b/index.html)：Damaged Helmet PBR 输入、15,625 布局和 B 相机契约。
+- [benchmark-c](../../examples/benchmark-c/index.html)：多 geometry/material、alpha-tested、灯光和动态 transform 配方。
 
 ```powershell
 Set-Location examples
@@ -98,7 +101,7 @@ npm install
 npm run dev:host
 ```
 
-这些页面不是 A/B/C 性能结果。只有达到各自固定采样帧数、控制台无 WebGPU validation error、结果 JSON 可导出且主帧页面截图正确时，才算浏览器侧 smoke 通过。
+`benchmark-a/b/c` 默认无查询参数时运行完整契约；`?profile=smoke` 缩小实例与帧数并强制把 Result 标成 dirty/non-gate。只有达到各自固定采样帧数、控制台无 WebGPU validation error、结果 JSON 可导出且主帧页面截图正确时，才算浏览器侧 smoke 通过。
 
 `validateBenchmarkEvidence(result)` 负责 Result JSON 的最低机器判定：Schema、clean commit、A/B/C role、真实 hash、环境、能力矩阵、diagnostics、采样完成状态、GPU timestamp/counter 与 phase 汇总任一缺失都会返回机器可读错误；`gpuMs`、`gpuPhaseMs`、`gpuCounters` 都从逐帧样本反算核对，不能只补一个同名空对象过关。
 
@@ -180,7 +183,7 @@ npm run audit:shaders
 
 只剩两个顺序工作包：
 
-1. `OBS-02`：建立 A/B/C 冻结 manifest、真实资产 hash、seed、相机路径和三个根目录浏览器入口；复用同一 `BenchmarkRunController`、`Renderer.render()` 与 Result Schema。
+1. `OBS-02`：实现已完成；只需在可用 WebGPU 浏览器中复测两个既有 smoke 与 A/B/C smoke 页面，保存控制台/截图并确认 Schema v3 可导出。该验收不得再扩出新 schema、counter、debug view 或后续算法任务。
 2. `OBS-08`：在主要开发/目标 adapter 上采集当前实现的 A/B/C clean Schema v3 cold/warm JSON、截图、控制台记录和分析 bundle，并登记到 `docs/BASELINE-ARTIFACTS.md`。
 
 `r0-observability` 与 `r0-frame-smoke` 的 Schema v3 浏览器复测并入 `OBS-02` 验收。当前 artifact 可以对 Packed Instances（`WORLD-07`）、Hierarchy/SSE LOD/cone culling（`WORK-04`）和 SW Visibility（`VIS-05`）诚实报告 unsupported；这不妨碍 G0 artifact 合格，也不等于 A/B 功能已通过。

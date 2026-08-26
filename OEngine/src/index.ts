@@ -26,6 +26,11 @@ export { ShadeAnimationClip } from "./animation/ShadeAnimationClip.js";
 export { ShadeGPUCommandContext } from "./framegraph/ShadeGPUCommandContext.js";
 export { ShadeIndirectLightingMode } from "./render/ShadeIndirectLightingMode.js";
 export { ShadeMaterial } from "./material/ShadeMaterial.js";
+export {
+  ShadeDrawMode,
+  ShadeDrawSide,
+  ShadeTransparencyMode
+} from "./material/enums.js";
 export { ShadeTexture } from "./texture/ShadeTexture.js";
 export {
   ShadeDataType,
@@ -144,3 +149,14 @@ export type {
   BenchmarkRunProgress,
   BenchmarkRunState
 } from "./debug/BenchmarkRunController.js";
+export {
+  BENCHMARK_SCENE_MANIFEST_SCHEMA_VERSION,
+  createBenchmarkCaseManifest,
+  validateBenchmarkSceneManifest
+} from "./debug/BenchmarkSceneManifest.js";
+export type {
+  BenchmarkAssetManifest,
+  BenchmarkAssetRuntimeStatus,
+  BenchmarkCameraKeyframe,
+  BenchmarkSceneManifest
+} from "./debug/BenchmarkSceneManifest.js";

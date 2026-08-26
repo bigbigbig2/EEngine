@@ -45,6 +45,18 @@ export default defineConfig({
         r0FrameSmoke: path.resolve(
           examplesRoot,
           "r0-frame-smoke/index.html"
+        ),
+        benchmarkA: path.resolve(
+          examplesRoot,
+          "benchmark-a/index.html"
+        ),
+        benchmarkB: path.resolve(
+          examplesRoot,
+          "benchmark-b/index.html"
+        ),
+        benchmarkC: path.resolve(
+          examplesRoot,
+          "benchmark-c/index.html"
         )
       }
     }

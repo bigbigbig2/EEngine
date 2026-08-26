@@ -11,7 +11,7 @@
 - Meshlet 数据、实例/Meshlet 剔除、Prefix Scan、Indirect Draw。
 - Hardware Visibility Buffer、reverse-Z、previous HZB 和 same-frame second chance。
 - Material Expand、Clustered Lighting、IBL、Shadow、SSAO、SSR、OIT、TAA、Bloom、Exposure、Tonemap 等代码路径。
-- R0 Result Schema v3、CPU/submit/readback/upload 观测、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback ring、diagnostics、percentile 汇总和统一 `BenchmarkRunController` 已接入；根目录已有 observability 与真实主帧 smoke 页面。Schema v3 额外冻结 feature-to-counter 能力证据矩阵：真实 producer 标为 `supported`，未实现/未接线项必须保存 `unsupported + blockerTaskId + reason`。
+- R0 Result Schema v3、CPU/submit/readback/upload 观测、可选 GPU timestamp、256-byte GPU counter ABI、至少三槽异步 readback ring、diagnostics、percentile 汇总和统一 `BenchmarkRunController` 已接入；根目录已有 observability、真实主帧 smoke 与 A/B/C 三个统一主管线页面。Schema v3 额外冻结 feature-to-counter 能力证据矩阵：真实 producer 标为 `supported`，未实现/未接线项必须保存 `unsupported + blockerTaskId + reason`。
 - 最终 Visibility Buffer 已有首个真实 GPU counter producer：采样帧通过 8×8 工作组归约统计非空/空 mesh-id 像素，异步归档 `shadedPixels` 与 `emptyVisibilityPixels`；两者之和必须等于内部渲染像素数。非采样帧不添加该 Pass，也不编码 counter clear/copy/readback。
 - LightCluster 的 frustum-visible 与 HZB-filtered 两级 64 KiB list 均已接入 overflow 检查；filtered list 另外产生 `activeLights`，表示实际可容纳并送入 cluster assign 的 Point/Spot light 数量，DirectionalLight 不计入。任一级 raw count 超过 16,383 时设置 `queueOverflowMask` bit 3。
 - Visibility 采样帧会从真实 count-prefixed GPU list 累加 `candidateInstances`、`visibleInstances`、scene-filter `rejectedFrustum`、cluster/HW 工作量，并在 scene-mesh/meshlet raw count 超过实际 Buffer capacity 时设置 `queueOverflowMask`。无 overflow 时 `candidateInstances = visibleInstances + rejectedFrustum`；当前 HW/alpha 每个 Meshlet 固定提交 384 vertices，所以 `hwTriangles = (hwClusters + alphaClusters) × 128`。
@@ -33,10 +33,10 @@
 - HZB、submit、readback 和中间队列存在明显固定成本。
 - FrameGraph 尚未覆盖全部资源依赖和旁路系统。
 - 资源销毁、device lost、history 失效与动态资产生命周期未闭环。
-- 自动化测试已覆盖 R0 观测公共 seam；A/B/C 固定 Harness、浏览器截图和正式性能 run bundle 仍缺失。
-- R0 只剩 `OBS-02` 与 `OBS-08`：冻结 A/B/C manifest/资产 hash/相机路径/浏览器入口，并采集当前实现的 clean Schema v3 JSON、截图、控制台和 cold/warm 统计。Schema v3 已消除歧义：required/supported 字段缺失是错误，真实零必须显式为 `0`，unsupported 必须携带 blocker 且不得出现在 sampled values。
+- 自动化测试已覆盖 R0 观测公共 seam，并重新计算 A/B/C 的 workspace 资产与相机 SHA-256。三份固定 manifest、7 级 Teapot GLB、Damaged Helmet/PBR 输入、C 配方、共享 runner 和三个根目录浏览器入口已完成，全部调用公开 OEngine interface、同一 `Renderer.render()`、`BenchmarkRunController` 和 Schema v3 writer。`?profile=smoke` 会强制 dirty/non-gate，不能冒充完整场景 artifact。
+- R0 只剩 `OBS-02` 的一次浏览器实机验收和 `OBS-08`：前者只复测两个既有 smoke 与 A/B/C smoke 页面、控制台、截图和 JSON 导出，不再包含任何代码/文档扩展；后者采集当前实现的 clean Schema v3 cold/warm bundle。Schema v3 已消除歧义：required/supported 字段缺失是错误，真实零必须显式为 `0`，unsupported 必须携带 blocker 且不得出现在 sampled values。
 - 当前主链没有 Packed Instances、Hierarchy/SSE LOD、独立 cone culling 或 SW raster；相关 counter/debug view 明确 unsupported 并归后续 `WORLD-07`、`WORK-04`、`VIS-05`。material overflow bit 2、更多逐像素 debug producer、纯 copy/write/跨 submit GPU timestamp 都不是 R0 blocker。
-- 用户已完成旧 Schema smoke 数据采集；旧 artifact 仍为 exploratory。Schema v3 的两个 smoke 与未来 A/B/C 页面仍需浏览器实机复测，因此 G0 尚未通过。
+- 用户已完成旧 Schema smoke 数据采集；旧 artifact 仍为 exploratory。Schema v3 的两个 smoke 与现有 A/B/C 页面仍需浏览器实机复测；当前自动浏览器连接未发现可用实例，因此 G0 尚未通过，不能把 build/HTTP 200 冒充渲染验收。
 - package 和大量内部符号仍保留 reconstructed/Shade 历史名称。
 
 ## 参考代码状态

@@ -8,8 +8,11 @@
 examples/
 ├─ README.md
 ├─ r0-observability/       # profiler、环境清单、结果导出
-├─ visibility-minimal/     # triangle/meshlet/depth/VisibilityKey
-└─ benchmark-*/            # A/B/C 固定场景，按 R0 逐步加入
+├─ r0-frame-smoke/         # 真实 Renderer 主帧 smoke
+├─ benchmark-shared/       # A/B/C manifest、fixture 与统一 runner
+├─ benchmark-a/            # 160k Teapot 最低线
+├─ benchmark-b/            # 15,625 Helmet PBR/IBL 最低线
+└─ benchmark-c/            # OEngine 异构动态世界通用性输入
 ```
 
 每个示例目录应包含：
@@ -24,5 +27,6 @@ examples/
 
 - [r0-observability](./r0-observability/README.md)：真实初始化 WebGPU/OEngine，并导出 GraphicsContext 更新的 R0 观测结果。
 - [r0-frame-smoke](./r0-frame-smoke/README.md)：运行真实 `Renderer.render()`、固定 Box 场景和 GPU timestamp/counter 采样；采集后可切换统一 Render Debug View，并查看 unsupported 原因。
+- [benchmark-shared](./benchmark-shared/README.md)：A/B/C 的冻结输入、正式/烟雾 profile、资产归属和统一验收方法。三个页面默认使用 `?profile=smoke` 开发链接；无查询参数才加载完整实例数量。
 
-在本目录运行 `npm install` 后，可用 `npm run dev:host` 启动全部示例；`npm run build` 同时执行类型检查和生产构建。后续页面继续按最小垂直切片加入。
+在本目录运行 `npm install` 后，可用 `npm run dev:host` 启动全部示例；`npm run build` 同时执行类型检查和生产构建。Teapot 输入由 `npm run generate:benchmark-assets` 从本地 three.js revision 确定性再生。

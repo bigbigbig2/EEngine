@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --config vite.config.ts",
     "dev:host": "vite --config vite.config.ts --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build --config vite.config.ts"
+    "build": "tsc --noEmit && vite build --config vite.config.ts",
+    "generate:benchmark-assets": "node scripts/generate-teapot-benchmark-assets.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -22,6 +22,18 @@
         <h2><a href="./r0-frame-smoke/">R0 Frame Smoke</a></h2>
         <p>执行真实 Renderer 主帧，渲染固定 Box 场景并采集 CPU/GPU 分段结果。</p>
       </article>
+      <article>
+        <h2><a href="./benchmark-a/?profile=smoke">Benchmark A · Teapot 160k contract</a></h2>
+        <p>冻结 three.js Compute Rasterizer 最低线的 Teapot/LOD/160k 输入；链接默认使用不可入 gate 的 smoke profile。</p>
+      </article>
+      <article>
+        <h2><a href="./benchmark-b/?profile=smoke">Benchmark B · Helmet PBR/IBL contract</a></h2>
+        <p>冻结 Damaged Helmet、材质纹理、环境资产和 15,625 布局；当前缺项在页面中明确列为 unsupported。</p>
+      </article>
+      <article>
+        <h2><a href="./benchmark-c/?profile=smoke">Benchmark C · Engine generality contract</a></h2>
+        <p>同一主管线上的多几何、多材质、alpha-tested、本地灯光和动态 transform 场景。</p>
+      </article>
     </main>
   </body>
 </html>

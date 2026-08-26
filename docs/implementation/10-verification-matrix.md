@@ -170,7 +170,7 @@ npm run build
 npm test
 ```
 
-`OBS-02` 应新增非交互 benchmark/export 命令和可在浏览器运行的 harness；具体脚本名在实现时写入 `OEngine/package.json` 与 `OEngine/benchmarks/README.md`，避免本文档先声明不存在的可执行命令。
+`OBS-02` 已新增可在浏览器运行的 A/B/C harness，并复用统一 Result 下载 writer。非 GPU 的 manifest/hash/camera 契约由 `OEngine/tests/benchmark-scene-manifest.test.mjs` 非交互验证；真实 WebGPU Result 不能由 Node 命令伪造，必须在浏览器页面采集和导出。入口、正式/烟雾 profile 与命令记录在 `examples/benchmark-shared/README.md` 和 `OEngine/benchmarks/README.md`。
 
 每次文档/迁移还应运行：
 

@@ -287,6 +287,7 @@
       "runtimeConsumers": [
         "src/debug/BenchmarkHarness.ts",
         "src/debug/BenchmarkRunController.ts",
+        "src/debug/BenchmarkSceneManifest.ts",
         "src/debug/FrameProfiler.ts",
         "src/debug/GpuCounterAtomicAdder.ts",
         "src/debug/GpuListCounterAccumulator.ts",
@@ -556,6 +557,7 @@
       "runtimeConsumers": [
         "src/debug/BenchmarkHarness.ts",
         "src/debug/BenchmarkRunController.ts",
+        "src/debug/BenchmarkSceneManifest.ts",
         "src/debug/FrameProfiler.ts",
         "src/debug/GpuCounterAtomicAdder.ts",
         "src/debug/GpuListCounterAccumulator.ts",
@@ -659,6 +661,7 @@
       "runtimeConsumers": [
         "src/debug/BenchmarkHarness.ts",
         "src/debug/BenchmarkRunController.ts",
+        "src/debug/BenchmarkSceneManifest.ts",
         "src/debug/FrameProfiler.ts",
         "src/debug/GpuCounterAtomicAdder.ts",
         "src/debug/GpuListCounterAccumulator.ts",
@@ -1143,6 +1146,7 @@
       "runtimeConsumers": [
         "src/debug/BenchmarkHarness.ts",
         "src/debug/BenchmarkRunController.ts",
+        "src/debug/BenchmarkSceneManifest.ts",
         "src/debug/FrameProfiler.ts",
         "src/debug/GpuCounterAtomicAdder.ts",
         "src/debug/GpuListCounterAccumulator.ts",
