@@ -12,16 +12,16 @@
 
 产出真实 CPU/GPU 分段、submit/readback/upload、工作量计数、capability evidence、debug view 和 A/B/C artifact。未实现能力必须为 `unsupported + blockerTaskId`，不得以假零值通过 Gate。
 
-## R1 · Runtime 固定成本（收口中）
+## R1 · Runtime 固定成本（完成）
 
 实施包：[02-runtime-submit-and-framegraph](./implementation/02-runtime-submit-and-framegraph.md)
 
 - 单一 main submit owner。
 - Compiled FrameGraph/cache/feature pruning。
 - Compute HZB 与显式 per-view history。
-- feature-off、in-flight resource 和 paired benchmark 收口。
+- feature-off、in-flight resource 和 clean/full after benchmark 收口。
 
-退出：warm steady frame 一个 main submit、零无条件 readback、graph build/compile 为零、HZB 无逐 mip Render Pass、关闭功能无旁路成本，证据 provenance 可用于比较。
+退出已通过：warm steady frame 一个 main submit、零无条件 readback、graph build/compile 为零、HZB 无逐 mip Render Pass、关闭功能无旁路成本，clean artifact provenance 准确。因缺少同条件 clean/full before，本阶段不声明性能提升百分比。
 
 ## R2 · Compact Data Foundation
 

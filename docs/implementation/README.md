@@ -6,7 +6,7 @@
 
 ```text
 R0 Observe                         complete
-→ R1 Runtime/FrameGraph/HZB        closing
+→ R1 Runtime/FrameGraph/HZB        complete
 → R2 Compact Data + Cooker
 → R3 Hierarchy + HW Consumer
 → R4-A Visibility Contract
@@ -23,7 +23,7 @@ R0 Observe                         complete
 |---|---|---|
 | [00-execution-governance](./00-execution-governance.md) | 任务、ABI、移植、证据和删除如何治理 | 全阶段 |
 | [01-baseline-and-observability](./01-baseline-and-observability.md) | 当前一帧慢在哪里、证据是否真实 | R0，完成 |
-| [02-runtime-submit-and-framegraph](./02-runtime-submit-and-framegraph.md) | submit、compiled graph、Compute HZB、history | R1，收口中 |
+| [02-runtime-submit-and-framegraph](./02-runtime-submit-and-framegraph.md) | submit、compiled graph、Compute HZB、history | R1，完成 |
 | [03-runtime-assets-and-gpu-world](./03-runtime-assets-and-gpu-world.md) | Compact asset/tables、Packed Instances、bulk/patch upload | R2 |
 | [04-geometry-cooker-and-hierarchy](./04-geometry-cooker-and-hierarchy.md) | Meshlet、Cluster hierarchy、误差和 BVH8 | R2 |
 | [05-hierarchical-work-generation](./05-hierarchical-work-generation.md) | hierarchy → compact queue → existing HW indirect consumer | R3 |
@@ -35,22 +35,22 @@ R0 Observe                         complete
 
 ## 当前唯一入口
 
-R0、R1-A、R1-B 已关闭。R1-C 代码与独立 GPU prototype 已通过，下一执行包是将 R1-C 主页面证据与 R1-D 一次性收口：
+R0/G0 与 R1/G1 已关闭。当前唯一执行入口是 R2 Compact Data Foundation：
 
-1. 重启服务并刷新 commit/dirty provenance；
-2. 采集 Frame Smoke/A/B/C 命中页面和 HZB phase/counter；
-3. 验证 feature-off、resize/camera-cut 与 in-flight resource；
-4. 登记 paired 结论并关闭 G1；
-5. 直接开始 R2 Compact Data Foundation。
+1. 冻结版本化 Runtime Asset Package 与 Cooker 输入/输出；
+2. 冻结 compact Geometry/Material/Texture/Instance GPU table ABI；
+3. 接通 Packed Instance Set、bulk upload 与显式 transform/material patch；
+4. 建立 resident bytes、上传字节和 overflow/fallback 证据；
+5. 为 R3 hierarchy → compact queue → single indirect Hardware consumer 提供稳定数据基础。
 
-不得重新打开 G0，也不得在 R1 中提前加入 Cooker、Hierarchy、SW Raster 或 Material Resolve。
+不得重新打开 G0/G1，也不得在 R2 中提前加入 SW Raster 或用旧 Material Expand 的兼容层掩盖数据迁移。
 
 ## Gate
 
 | Gate | 退出证据 |
 |---|---|
 | G0 Observe | Schema/counter/unsupported、A/B/C artifact 可解释；完成 |
-| G1 Runtime | one-submit、compiled graph、Compute HZB、feature-off/in-flight/paired 证据 |
+| G1 Runtime | one-submit、compiled graph、Compute HZB、feature-off/in-flight 与 clean/full after 证据；完成 |
 | G2 Data | versioned package、compact tables、Packed Instances、bulk/patch upload、resident bytes |
 | G3 Work | hierarchy/SSE 在展开前减量，compact queue 被 single indirect HW consumer 直接消费 |
 | G4-A Visibility | HW key/depth/lookup/alpha/overflow 正确 |

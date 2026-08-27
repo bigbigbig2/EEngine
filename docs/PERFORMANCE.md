@@ -48,8 +48,9 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 - R1-A 入口的 `GraphicsContext.update()` 独立 submit、持续 collection readback、scene animation/database self-submit 已删除；真实 WebGPU smoke 已确认 Frame/A/B/C 从 3/13 收口为一次 `Renderer/main-0` submit。
 - steady render tick 现在由 `FrameCoordinator` 持有唯一主 command；显式 one-shot/tool/debug-readback/recovery 路径仍可独立提交，但 runtime label 必须在 allowlist。
-- R1-B 已把主管线改为 canonical-key compiled cache：key miss 才 build/compile，稳定 key 只 execute；真实浏览器 Frame Smoke/A/B/C after smoke 已确认所有记录帧均为 warm hit，但旧 provenance/dirty smoke 不能用于宣称正式 CPU 性能收益。
-- R1-C 已在代码中把 HZB 从逐 mip Render Pass 改为每 build 一个 Compute Pass；普通帧仍 build 两次、alpha-tested 可能三次，是否裁剪重复 build 必须由 after phase 数据决定。
+- R1-B 已把主管线改为 canonical-key compiled cache：key miss 才 build/compile，稳定 key 只 execute；最终 clean Frame Smoke/A/B/C 的所有记录帧均为 `0/0/1/1` warm hit。
+- R1-C 已把 HZB 从逐 mip Render Pass 改为每 build 一个 Compute Pass；A/B/Frame 每帧总计 2 builds，C 当前为主视图 3 builds + 实际更新阴影视图 9 builds。重复 main build 和 shadow update 策略仍需后续 profile，但 counter 现在记录所有 view 总量。
+- R1-D 冻结了 transient 生命周期：command 内 last-use alias、同 queue ordered reuse、mapping/readback/显式 fence/跨 owner destroy 等待 completion。把所有 transient 一刀切延迟到 completion 会把 Frame Smoke resident 从约 265 MB 放大到约 946 MB，已拒绝。
 - Visibility 的 bucket/scan/expand/second-chance 中间队列和 clear 成本高。
 - 当前 Material Expand 先写 material depth，再对每个材质画全屏三角形。
 - Visibility、material depth、四张 GBuffer、HDR 和 history 产生较大全分辨率带宽。
@@ -58,28 +59,26 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 
 这些是待测风险，不得在没有分段数据时把总慢归因于单一 LOD 或单一 Pass。
 
-## R1 入口数据与目标
+## R1 证据与结论
 
-2026-08-26 Schema v3 acceptance-smoke 已作为 R1 调查输入登记，但因 smoke/dirty 标记不能充当正式 paired gate。第一次修改 R1 代码前按相同入口采集 clean/full cold + warm 基线；这是 R1 前测，不是重新打开 R0。
+2026-08-26 Schema v3 acceptance-smoke 是 R1 的调查输入。它证明旧路径 Frame Smoke/A/B 为 3 submits、C 为 13 submits，且每帧重建 graph、持续 collection readback、逐 mip HZB Render Pass；但 artifact 是 dirty/smoke，不能充当 clean/full paired before。
 
-R1-A 修复 B mipmap 生命周期后的自动门禁为 `npm test` 55/55 与 examples production build 通过。浏览器插件桥在本轮初始化失败，因此浏览器 artifact 由用户采集；下表仍是入口基线，after smoke 只用于验证结构变化，不与 clean/full 性能 gate 混用。
+R1-A/B/C 的中间 smoke 用于定位并修复 mipmap 临时资源提前销毁、graph cache、Compute HZB 和 Debug WGSL 问题。最终 Gate 只认 commit `7934db1` 的 clean/full after bundle：
 
-commit `4de81f7a` 的第一轮 after smoke 已证明 Frame Smoke/A/B/C 的 submit P50/max 全为 1/1，非采样 readback P50 为 0，scene preparation P50 为 1；C 的 view preparation P50 为 10，但不增加 scene preparation 或 submit。Frame Smoke/A/C diagnostics 为 0。B 的 3 个 GPU counter 采样帧因 mipmap 临时 Buffer/Texture 提前销毁产生 validation error，第一轮 B 不能进入 after 性能比较，并促成后续资源生命周期修复。
+| Case | 分辨率 | CPU frame P50 / P95 / P99 | Submit | Warm graph | HZB 总 builds / passes / dispatches | Resident P50 |
+|---|---:|---:|---:|---:|---:|---:|
+| Frame Smoke | 1038×583 | 5.000 / 7.295 / 7.785 ms | 1 | 0 / 0 / 1 / 1 | 2 / 2 / 20 | 266,063,384 B |
+| A full | 1280×720 | 260.500 / 287.015 / 311.496 ms | 1 | 0 / 0 / 1 / 1 | 2 / 2 / 20 | 685,619,504 B |
+| B full | 1280×720 | 24.400 / 32.005 / 53.219 ms | 1 | 0 / 0 / 1 / 1 | 2 / 2 / 20 | 457,393,268 B |
+| C full | 1280×720 | 21.000 / 25.710 / 27.063 ms | 1 | 0 / 0 / 1 / 1 | 12 / 12 / 120 | 384,516,100 B |
 
-修复后第二轮 B 保持 submit P50/max 1/1、readback P50 0、scene preparation 1，并恢复 `shadedPixels P50=259190`，diagnostics 全为 0，画面人工确认正常；`R1-A` 功能 Gate 关闭。由于 dev server 未重启，第二轮 JSON 仍带旧 build-time commit 字段，只能作为 non-gate smoke；正式性能百分比和 clean/full paired 结论留到 R1-D，届时必须刷新 server、commit 与 dirty reasons。
+四组均满足：commit/dirty provenance 准确、`scenePrepareCount=1`、非采样 readback 帧为 0、`queueOverflowMask=0`、WebGPU validation/uncaptured/device-lost/counter/timestamp diagnostics 为 0。A/B/C 页面为 `gateEligible=true`、`counterIssues=0`；`capabilityComplete=false` 仍由 R2/R3/R4 的 WORLD-07、WORK-04、VIS-05 等任务阻塞，不反向阻塞 G1。
 
-R1-B after smoke 中，Frame Smoke 的 24 个记录帧和 A/B/C 各 12 个记录帧全部为 `build=0、compile=0、execute=1、cacheHits=1`；submit P50/max 均为 1/1 且 label 只有 `Renderer/main-0`，非采样 readback P50 为 0，diagnostics、counter sample failure 和 `queueOverflowMask` 均为 0。B 继续保持 `shadedPixels P50=259190`，C 保持 `activeMaterials=3`、`activeLights=6`。用户人工确认四页画面正常但未保存截图。JSON 从 warm-up 后开始记录，因此首个 miss 由自动测试证明；文件仍携带旧 `4de81f7a` build-time provenance 和 dirty/smoke 标记，只能作为 R1-B 结构/功能证据，不能与入口表直接计算性能百分比。
+C 的 HZB counter 在最终提交前发现只统计 primary view 3 builds，但 GPU timestamp 每个采样帧有 12 个 `HZB/compute-pyramid` 标签。commit `7934db1` 将语义修正为本帧所有实际更新 view 的总量：主视图 3 + 阴影视图 9 = 12 builds/Compute Passes、120 dispatches，并逐帧与 12 个 timestamp 标签一致。每个单独 build 仍满足一个 Compute Pass、`mipCount` dispatch、零 Render Pass 的结构上界。
 
-R1-C 接受的结构上界已冻结为每次 build `computePasses=1、dispatches=mipCount、renderPasses=0`。计数器已迁移为 `hzb.computeBuilds`、`hzb.computePasses`、`hzb.dispatches`、`hzb.outputPixels`、`hzb.historyValid`、`hzb.historyInvalidations`。独立真实 GPU prototype 已通过 `computePasses=1、dispatches=3、maxError=0` 且 diagnostics 为零；主 Frame Smoke/A/B/C after P50/P95 与 R1-D paired gate 尚未登记。
+G1 的结构硬门槛已全部关闭：一次 main submit、非采样零 readback、scene prepare 一次、warm graph 不 rebuild/compile、逐 mip HZB Render Pass 为零、feature off 无对应 owner/Pass/history/readback/timestamp/submit、持久资源安全退休。
 
-| Case | CPU frame P50 / P95 | Submit | Graph build/compile | HZB build / mip Render Pass | HZB phase P50 / P95 |
-|---|---:|---:|---:|---:|---:|
-| Frame Smoke | 2.150 / 2.985 ms | 3 | 1 / 1 每帧 | 2 / 20 | 0.114 / 0.116 ms |
-| A smoke | 2.800 / 3.800 ms | 3 | 1 / 1 每帧 | 2 / 20 | 0.125 / 0.127 ms |
-| B smoke | 3.050 / 3.860 ms | 3 | 1 / 1 每帧 | 2 / 20 | 0.126 / 0.128 ms |
-| C smoke | 9.300 / 18.555 ms | 13 | 1 / 1 每帧 | 3 / 30 | 1.040 / 1.051 ms |
-
-G1 的结构性硬门槛是：Frame Smoke/A/B/C warm non-sampled 均为一次 main submit；非采样帧零 collection readback；每 scene/frame 只 prepare 一次；相同 graph key warm frame build/compile 为 0；逐 mip HZB Render Pass 为 0；feature off 无对应 Pass/resource/history/readback/timestamp/submit。详细执行与 paired 性能规则见 [R1 计划](./implementation/02-runtime-submit-and-framegraph.md#量化-gate)。
+R1 修改前没有同条件 clean/full bundle，因此无法诚实计算 CPU/GPU paired 百分比。R1 只声明减少了 submit、graph rebuild、持续 readback 和逐 mip Render Pass 这些结构工作，不声明总帧性能提升。尤其 A full 的 CPU P50 仍为 260.5 ms，说明 flat 160k instance/meshlet 路径远未达到最低性能线；下一步必须通过 R2 compact data/Packed Instances 和 R3 hierarchy/SSE 在展开前真正减量，而不是继续把 R1 当性能完成证明。详细实现证据见 [R1 文档](./implementation/02-runtime-submit-and-framegraph.md)。
 
 ## 性能变更完成标准
 

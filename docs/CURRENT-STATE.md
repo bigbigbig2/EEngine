@@ -25,11 +25,13 @@
 
 ## R1 当前状态
 
-- `R1-A` 完成：Frame Smoke/A/B/C 已证明 steady 主帧只有一个 `Renderer/main-0` submit，非采样 readback 为零，每 scene/frame 只 prepare 一次。
-- `R1-B` 完成：相同 graph key 的 warm frame `build=0/compile=0/execute=1/cacheHit=1`，feature-off topology 可裁剪。
-- `R1-C` 代码完成：旧逐 mip HZB Render Pass 已删除；每 build 一个 Compute Pass、每 mip 一个 dispatch；history owner 明确 previous/current/final。
-- 最新独立 `r1-compute-hzb` 真实 GPU prototype 已得到 `computePasses=1`、`dispatches=3`、`maxError=0`，且无 shader compilation、validation 或 uncaptured error。
-- 尚未关闭的是主 Frame Smoke/A/B/C 的 R1-C after phase/counter 与 R1-D clean/full paired gate、feature-off/in-flight 回归。它们作为一个 R1 收口包完成，不继续拆分。
+- R1/G1 已于 2026-08-27 关闭；最终 clean 浏览器证据基于 commit `7934db1`。
+- `R1-A`：Frame Smoke/A/B/C steady 主帧只有一个 `Renderer/main-0` submit，非采样 readback 为零，每 scene/frame 只 prepare 一次。
+- `R1-B`：相同 graph key 的 warm frame `build=0/compile=0/execute=1/cacheHit=1`；可选 feature 不创建 owner、Pass 或 history，关闭后安全退休。
+- `R1-C`：旧逐 mip HZB Render Pass 已删除；每 build 一个 Compute Pass、每 mip 一个 dispatch；history owner 明确 previous/current/final。独立真实 GPU prototype 为 `computePasses=1`、`dispatches=3`、`maxError=0`。
+- `R1-D`：View 从 lookup 立即移除，持久 owner/history 在 GPU completion 后销毁；FrameGraph 保留 command 内 last-use alias 和同 queue ordered reuse，mapping/readback、显式 fenced 资源与 destroy 才等待 completion。
+- 最终 A/B/Frame Smoke 的 HZB 总量均为 `2 builds / 2 Compute Passes / 20 dispatches`；C 为 `12/12/120`，其中主视图 3 次、实际更新的阴影视图 9 次，counter 与 timestamp 标签逐帧一致。
+- clean/full after bundle 证明结构 Gate，但 R1 修改前没有同条件 clean/full bundle，因此不伪造 CPU/GPU 性能提升百分比；绝对 after 数据登记在 `PERFORMANCE.md`。
 
 ## 关键缺口
 
@@ -46,10 +48,9 @@
 
 ## 当前下一步
 
-1. 一次性完成 R1-C 主页面 after artifact 与 R1-D paired/feature-off/in-flight 收口。
-2. 进入 R2 Compact Runtime Asset、GPU Tables、Packed Instances 和 Cooker。
-3. R3 将 hierarchy 输出接入现有 single indirect Hardware consumer。
-4. R4-A 冻结 Hardware Visibility contract，R4-B 提前 Single Material Resolve，R4-C 再决定 SW/Hybrid 收益。
+1. R2 Compact Runtime Asset、GPU Tables、Packed Instances 和 Cooker。
+2. R3 将 hierarchy 输出接入现有 single indirect Hardware consumer。
+3. R4-A 冻结 Hardware Visibility contract，R4-B 提前 Single Material Resolve，R4-C 再决定 SW/Hybrid 收益。
 
 ## 本地参考状态
 

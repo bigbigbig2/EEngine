@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-R1 执行计划于 2026-08-26 冻结。`R1-A` 与 `R1-B` 已完成；`R1-C` 代码、自动测试和独立真实 GPU HZB prototype 已通过。当前不再拆分小包：下一步统一补采主 Frame Smoke/A/B/C after artifact，并与 `R1-D` feature-off、in-flight 和 paired gate 一次收口。
+R1 执行计划于 2026-08-26 冻结，并于 2026-08-27 在 commit `7934db1` 完成。`R1-A～D`、自动测试、独立真实 GPU HZB prototype、Frame Smoke/A/B/C clean/full after bundle 均已通过，G1 已关闭；当前唯一执行入口是 R2 Compact Data Foundation。
 
 R1 解决与场景规模不成比例的运行时固定成本和错误生命周期边界。它不会实现 R2 的 Runtime Asset/Packed Instance、R3 的 Geometry Hierarchy/SSE LOD、R4 的 Compute Software Raster，也不把 three.js 两个示例当作引擎完成上限。
 
@@ -17,7 +17,7 @@ R1 解决与场景规模不成比例的运行时固定成本和错误生命周�
 - compiled topology 与本帧 GPU handle、相机和动态数据已经分离；
 - HZB history 在 resize、camera cut 和 feature toggle 后不会错误复用；
 - 被替代的旧提交、旧图构建入口和旧逐 mip Render Pass 已删除；
-- Frame Smoke/A/B/C 命中页面有前后 JSON、必要截图和控制台证据；不以完整动态资产生命周期扩张 R1 Gate。
+- Frame Smoke/A/B/C 命中页面有 clean/full after JSON、必要截图或数值证据和控制台记录；若修改前没有同条件 clean/full bundle，必须明确不可配对并禁止伪造百分比，不以完整动态资产生命周期扩张 R1 Gate。
 
 ## 非目标与范围边界
 
@@ -376,10 +376,10 @@ submit once
 |---|---|---|
 | `R1-C01` | 完成 | 已登记 three.js 固定 commit/MIT/source 和 OEngine 差异；`r1-compute-hzb` 在真实 GPU 达到每 build 1 Compute Pass、3 dispatch、0 Render Pass、`maxError=0`，无 compilation/validation/uncaptured error。 |
 | `R1-C02` | 完成 | `HzbReference` 与 `hzb-compute.test.mjs` 覆盖 1×1、8×8、奇数边界、全远/全近、NaN clamp 和 reverse-Z compare。 |
-| `R1-C03` | 代码完成，主页面动作并入 R1-D | per-view ping-pong owner 明确 previous/current/final 和 commit；单测覆盖 resize/cut/render-scale/feature/view discontinuity。主页面 resize/camera-cut/consumer toggle 统一在 R1-D 验收。 |
-| `R1-C04` | 代码完成 | `HierarchicalZBuffer` 已直接替换为 `rg16float` storage Compute；旧 Render pipeline/attachment/vertex/fragment shader 已删除；真实 counter 和 `HZB/compute-pyramid` phase label 已接入。 |
-| `R1-C05` | 代码完成 | FrameGraph 显式区分 previous/current logical resource；initial 读 previous，second-chance/alpha 写后读 current，后续 consumer 读 final version；阴影无 previous 时保守绘制并建立 current。 |
-| `R1-C06` | 主页面 paired 证据待 R1-D | 源码静态门禁、自动测试、examples build 与独立 GPU prototype 已通过。仍需 Frame Smoke/A/B/C after phase/counter 和 paired 结论后关闭 G1。 |
+| `R1-C03` | 完成 | per-view ping-pong owner 明确 previous/current/final 和 commit；单测覆盖 resize/cut/render-scale/feature/view discontinuity，R1-D 覆盖 view 删除和 feature owner 退休。 |
+| `R1-C04` | 完成 | `HierarchicalZBuffer` 已直接替换为 `rg16float` storage Compute；旧 Render pipeline/attachment/vertex/fragment shader 已删除；真实 counter 和 `HZB/compute-pyramid` timestamp label 已接入。 |
+| `R1-C05` | 完成 | FrameGraph 显式区分 previous/current logical resource；initial 读 previous，second-chance/alpha 写后读 current，后续 consumer 读 final version；阴影无 previous 时保守绘制并建立 current。 |
+| `R1-C06` | 完成 | Frame Smoke/A/B/C clean/full after 均无逐 mip Render Pass；A/B/Frame 为 `2 builds/2 passes/20 dispatches`，C 的主视图和阴影视图总量为 `12/12/120`，timestamp label 数与 build counter 逐帧一致。 |
 
 #### 允许的临时状态
 
@@ -391,7 +391,7 @@ GPU prototype 可在独立 example 中与旧实现对照。主链迁移期间可
 - R0 的 20/30 个 HZB mip Render Pass 归零；每次 build 的 compute pass/dispatch 数不超过 `R1-C01` 冻结上界，且不随 mip 数一比一创建 Render Pass；
 - previous history 只读，final history 只在完整深度结束后 commit；camera cut/resize/feature off-on 后首帧不使用无效 history；
 - A/B/C `legacy.hzb.*` 迁移为真实 compute counters，不能通过改 counter 名隐藏重复 build；
-- 同条件 HZB GPU P50/P95 不劣于 R1-C 入口基线，目标是显著低于旧逐 mip Render 路径；若某 adapter 回退，必须有 WebGPU 合法、画面正确且被记录的 compute fallback。
+- 有同条件 before 时，HZB GPU P50/P95 不得回退；本轮缺少 clean/full before，只能关闭结构与正确性门禁，不能宣称 Compute 路径的性能百分比。若某 adapter 回退，必须有 WebGPU 合法、画面正确且被记录的 compute fallback。
 
 ### R1-D · 删除、生命周期与回归 Gate
 
@@ -401,11 +401,48 @@ GPU prototype 可在独立 example 中与旧实现对照。主链迁移期间可
 |---|---|---|
 | `R1-D01` | feature-off 矩阵 | 每个主管线 feature 的 pass/resource/history/readback/submit/timestamp 断言 |
 | `R1-D02` | View/history 矩阵 | resize、DPR、dynamic resolution、camera cut/switch、view 删除与 feature toggle；完整 asset unload/device recovery 不属于当前 G1 |
-| `R1-D03` | in-flight 资源回收 | compiled graph、texture view、bind group、staging/readback slot 与 transient 在正确 GPU completion 后复用/销毁 |
-| `R1-D04` | paired benchmark | clean/full cold + warm Frame Smoke/A/B/C；同机同浏览器同 GPU/尺寸/DPR/feature set；JSON、截图、console |
+| `R1-D03` | in-flight 资源回收 | compiled graph、texture view、bind group、staging/readback slot 与 transient 按 queue ordering、mapping 和 destroy 语义正确复用/销毁 |
+| `R1-D04` | benchmark 收口 | clean/full warm Frame Smoke/A/B/C + 自动 cold miss 门禁；同机同浏览器同 GPU/尺寸/DPR/feature set；JSON、必要截图、console；无可比 before 时明确禁止伪造百分比 |
 | `R1-D05` | replace-don't-layer 收口 | 删除 adapter、fallback、旧测试和死 shader；更新 Context、CURRENT-STATE、PERFORMANCE、lesson/ADR |
 
-device lost 若当前浏览器无法可靠自动触发，必须至少完成可注入的 owner 单测和一次人工恢复记录；不能把资源 owner 未定义留作“以后再说”。
+device lost 不属于当前 G1 的完整恢复 Gate；若浏览器无法可靠自动触发，至少完成可注入的 owner abort/destroy 单测并记录未运行原因。完整 device recovery 在未来进入产品范围时另立 Gate，不能反向扩张 R1。
+
+#### 当前实施状态（2026-08-27）
+
+| ID | 状态 | 落地证据 |
+|---|---|---|
+| `R1-D01` | 完成 | `MainFrameFeatureTopology` 统一 graph key、persistent owner 和 history；SSAO、SSR、TAA、NSS、Bloom、Exposure、Motion Blur、Sharpen、Debug 按 feature 创建，off 后不保留对应 owner/history。 |
+| `R1-D02` | 完成 | HZB history 单测覆盖 resize、camera cut、render scale、feature toggle 与 view discontinuity；`ViewManager.remove()` 立即移除 lookup，并把 View/history 交给 command 的 GPU-done retirement。完整资产卸载和 device recovery 不属于当前 G1。 |
+| `R1-D03` | 完成 | FrameGraph 保留同 command 的 last-use alias；普通不可映射 transient 依赖同一 WebGPU queue 的严格提交顺序复用；mapping/readback、显式 fence、跨 owner 退休和 destroy 等待 completion。Frame Smoke resident P50 保持约 266 MB，没有因一刀切 fence 膨胀到约 946 MB。 |
+| `R1-D04` | 完成（无性能百分比声明） | commit `7934db1` 的 Frame Smoke/A/B/C clean artifact 均为 accurate provenance、warm graph hit、一次 submit、非采样 readback 0、diagnostics 0；cold miss/随后 warm hit 由 cache 自动测试覆盖。修改前没有同条件 clean/full bundle，因此只登记绝对 after 和结构结论，不把旧 dirty smoke 当 paired before。 |
+| `R1-D05` | 完成 | 旧逐 mip HZB Render 路径和稳定帧 self-submit 已删除；Debug WGSL 保留字错误已修复；CRLF 文本配方哈希门禁已跨平台规范化；权威状态文档已切换到 R2。 |
+
+#### 生命周期边界
+
+R1-D 曾尝试让所有 transient 都等待 `queue.onSubmittedWorkDone()` 后回池，Frame Smoke resident bytes 从历史约 265 MB 膨胀到约 946 MB。最终边界如下：
+
+1. 同一 FrameGraph/command 内按 first/last use 做 alias；
+2. 同一 queue 上的普通不可映射 transient 可按 WebGPU submission order 跨 frame 复用，后续提交不会越过先前提交使用它；
+3. CPU mapping/readback slot、显式 fenced 资源和可能被 CPU 同时访问的对象等待对应 completion；
+4. View/history、feature persistent owner 与真正 destroy 在 `onSubmittedWorkDone()` 后退休；
+5. 禁止在 per-frame render path `await` completion，退休链只能异步推进，不能制造 CPU-GPU stall。
+
+#### 最终 clean/full after 证据
+
+固定环境为 Windows、Chrome 150、NVIDIA Turing、DPR 1；A/B/C 为 1280×720、60 warm-up + 180 measured。Frame Smoke 为浏览器实际 1038×583、8 warm-up + 24 measured，因此只用于自身结构回归，不与 A/B/C 或旧 smoke 计算百分比。
+
+| Case | CPU P50 / P95 / P99 | Submit | Warm graph | HZB builds / passes / dispatches | Resident P50 | Diagnostics |
+|---|---:|---:|---:|---:|---:|---:|
+| Frame Smoke | 5.000 / 7.295 / 7.785 ms | 1 | 0 / 0 / 1 / 1 | 2 / 2 / 20 | 266,063,384 B | 0 |
+| A full | 260.500 / 287.015 / 311.496 ms | 1 | 0 / 0 / 1 / 1 | 2 / 2 / 20 | 685,619,504 B | 0 |
+| B full | 24.400 / 32.005 / 53.219 ms | 1 | 0 / 0 / 1 / 1 | 2 / 2 / 20 | 457,393,268 B | 0 |
+| C full | 21.000 / 25.710 / 27.063 ms | 1 | 0 / 0 / 1 / 1 | 12 / 12 / 120 | 384,516,100 B | 0 |
+
+Artifact 位于本地 `temp/`，文件名分别为 `oengine-r1-final-frame-smoke-7934db1.json`、`oengine-r1-final-a-full-7934db1.json`、`oengine-r1-final-b-full-7934db1.json`、`oengine-r1-final-c-full-7934db1.json`。四组所有非采样帧 readback 均为 0，`scenePrepareCount=1`、`queueOverflowMask=0`，A/B/C 页面报告 `gateEligible=true`、`counterIssues=0`。A/B/C 的 capability blocker 属于 R2/R3/R4，不反向阻塞 G1。
+
+C 的 12 次 HZB build 是总量：主视图 3 次，9 个实际更新阴影视图各 1 次。旧 counter 只记录主视图 3 次而 timestamp 有 12 个标签；commit `7934db1` 已修复为总量，最终每个 sampled frame 都满足 `computeBuilds=computePasses=HZB timestamp label count=12`。
+
+浏览器页面、Debug feature 开关与 Compute HZB prototype 画面/数值均正常，console error 为 0。正常页面按用户约定不额外保存截图；此前 Debug Visibility Key 的异常黑屏已定位为 WGSL 保留字 `target` 并修复，修复后人工确认正常。浏览器未人工触发 device lost；当前 G1 只验证 owner 的 abort/destroy/retirement seam，完整恢复链不在当前产品 Gate。
 
 ## 自动测试设计
 
@@ -495,10 +532,10 @@ R1 默认四个主要实现提交，包内先在工作区完成自动测试和�
 
 - [x] `R1-A01～A07`：一帧唯一提交 owner 与按 dirty 编码完成。
 - [x] `R1-B01～B06`：Compiled graph、cache、feature pruning、自动门禁与 Frame Smoke/A/B/C 浏览器功能验收完成。
-- [ ] `R1-C01～C06`：Compute HZB、history、旧 Render HZB 删除和目标 adapter prototype 已完成；Frame Smoke/A/B/C after artifact 并入 R1-D 收口。
-- [ ] `R1-D01～D05`：生命周期、paired benchmark、文档和死代码收口完成。
-- [ ] `npm test` 通过；命中浏览器示例无 WebGPU validation/console error。
-- [ ] Frame Smoke/A/B/C 前后 JSON、截图和环境记录完整。
-- [ ] `CURRENT-STATE`、platform/performance Context、`PERFORMANCE.md` 和相关 ADR/lesson 与真实实现一致。
+- [x] `R1-C01～C06`：Compute HZB、history、旧 Render HZB 删除、目标 adapter prototype 与主页面总量证据完成。
+- [x] `R1-D01～D05`：feature-off、View/history、queue-order 生命周期、clean/full after、删除和文档收口完成。
+- [x] `npm test` 79/79、examples production build；命中浏览器示例无 WebGPU validation/console error。
+- [x] Frame Smoke/A/B/C clean/full JSON、环境和 console 记录完整；正常页面按用户约定不重复保存截图。
+- [x] `CURRENT-STATE`、platform/performance Context 与 `PERFORMANCE.md` 已和真实实现一致。
 
-全部完成后 G1 才能关闭，随后进入 R2 Compact Runtime Asset、GPU Tables、Packed Instances 与 Cooker。仅把 submit 从 13 降到 1、仅缓存图或仅改 Compute HZB 都不单独等于 R1 完成。
+G1 已关闭，下一步进入 R2 Compact Runtime Asset、GPU Tables、Packed Instances 与 Cooker。R1 关闭只证明 runtime 固定成本与生命周期结构达标；A 的 260.5 ms、B 的 24.4 ms 和 capability blocker 明确证明引擎尚未达到最低 three.js 功能/性能基线，更不代表当前产品目标完成。
