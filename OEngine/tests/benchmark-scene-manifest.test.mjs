@@ -47,7 +47,10 @@ test("camera paths and every workspace-owned asset match their SHA-256", async (
       if (!asset.source.startsWith("workspace:")) continue;
       const relativePath = asset.source.slice("workspace:".length);
       const bytes = await readFile(path.join(repositoryRoot, relativePath));
-      assert.equal(sha256(bytes), asset.sha256, asset.id);
+      const canonicalBytes = asset.kind === "recipe"
+        ? Buffer.from(bytes.toString("utf8").replace(/\r\n/g, "\n"))
+        : bytes;
+      assert.equal(sha256(canonicalBytes), asset.sha256, asset.id);
     }
   }
 });
