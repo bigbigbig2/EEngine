@@ -41,8 +41,8 @@ Vertical。同一 R2 Compact Data Foundation 顺序保持不变：
 1. `R2-A Package Kernel`：已完成；冻结 SourceGeometry、版本化 package kernel、reader/writer/validator 和黄金资产；
 2. `R2-B Cooked Geometry`：已完成；以可追溯开源实现生成 Meshlet、renderable hierarchy、geometric error、BVH8 与未压缩 streams/material package；
 3. `R2-C Residency + Compact Tables`：已完成；Geometry/Cluster/Meshlet GPU ABI、stable handle、bulk residency、生命周期和内存证据已落地，flat 黄金资产通过 live 浏览器 GPU readback、Hardware `drawIndirect` 画面和 WebGPU validation 门禁；
-4. `R2-D Packed Scene Vertical`：当前下一代码包；冻结 Instance record/Packed Instances/patch，并让 A/C、普通 Scene adapter 与现有 Hardware consumer 真实消费新 Geometry/Instance bindings；
-5. 删除 package 主路径上的 runtime Meshlet build、重复 Geometry residency 与重复 Instance owner。
+4. `R2-D Packed Scene Vertical`：Instance record、GpuScene owner、Packed/普通 Scene source、bulk/patch/stable-frame 和 Instance + Geometry Hardware 纵切已完成；
+5. 当前唯一剩余代码入口：把 A/C 与至少一个真实 glTF 生产 consumer 接到新 bindings，并同步删除 package 主路径上的 runtime Meshlet build、重复 Geometry residency 与重复 Instance owner；完成后关闭 G2。
 
 R2 只新增 Geometry、Cluster、Instance 三张必需 record table；Material 使用现有 registry 的 validated handle reference，Texture/Light 全面重构不进入 G2。R2 会生成、验证并驻留 hierarchy 数据，但 GPU hierarchy/SSE traversal 属于 R3。
 

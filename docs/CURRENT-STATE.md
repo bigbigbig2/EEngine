@@ -38,21 +38,24 @@
 - R2-A/B 设备无关数据基础已完成；R2-C core 也已落地：validated Geometry package 可进入惰性 `GpuAssetStore`，并重排为显式对齐的 Geometry 144 B、Cluster 128 B、Meshlet 112 B GPU records 与连续 payload buffers。
 - R2-C 已有 opaque generation handle、0 号 fallback、bulk upload、grow/copy/abort/completion-safe retirement、release/stale-handle 语义，以及 logical/resident/allocated/peak/retiring/reclaimable 和 upload/grow/reject counters。`GraphicsContext.assets` 惰性创建，legacy-only 页面不承担额外 store Buffer。
 - `examples/r2-gpu-residency` 已形成 package → resident tables → Compute 写 indirect args → Hardware `drawIndirect()` 的 flat 黄金资产闭环。2026-08-27 人工浏览器证据为 `passed=true`、GPU roundtrip `6/6` 一致、211,600 个非背景像素、`validationError=null`、无 uncaptured error/shader diagnostic、abort/release handle 均失效且 `privateSubmitCount=0`；R2-C 已关闭。
-- 当前 glTF/Box/USD、A/B/C 与生产 `MeshletGpuTable` 仍消费 legacy `niMeshlets`/`GeometryBlasPool`。R2-C 没有伪装成全主路径迁移；Packed Instance、普通 Scene adapter、A/C 接线和旧重复 owner 删除属于 R2-D。
-- Geometry/Cluster/Meshlet compact GPU ABI 已存在；Instance table 与完整 Packed Instance Set 尚未实现。
+- R2-D compact Instance 基础已落地：`InstanceRecord` v1 为 192 B，包含 Geometry record index、material handle、flags/debug ID、object bounds、current/previous object-to-world；TS packer、offset 和 WGSL struct 共用同一冻结 schema。
+- 惰性 `GpuScene` 是新 Instance table 唯一 owner，提供 opaque generation `InstanceSetHandle`、1k/10k/100k bulk、grow/abort/release、显式 transform/material patch、同帧 previous 保持、dirty span 合并和 logical/resident/allocated/CPU shadow/upload/patch/grow 证据；稳定空 batch 不编码 copy/pass/submit，`privateSubmitCount=0`。
+- `createInstanceSourceFromScene()` 已让普通 `Scene/Mesh` 一次性写入同一个 `InstanceSource`，Packed source 只使用 typed arrays + 少量 geometry handle，不构造等量 JS 对象。`Renderer` 已公开 instantiate/patch/release/evidence seam，GPU Buffer/range 保持内部。
+- `examples/r2-packed-scene` 已形成 Geometry package + Instance table → Compute compact active indices/完整 indirect args → Hardware `drawIndirect()` 的真实双 binding consumer。2026-08-27 干净浏览器证据为 `passed=true`：1k/10k/100k bulk，0/1/10/100% patch，stable upload bytes 不变，previous/current GPU readback 一致，1,000 instances 得到 41,733 个非背景像素，validation/uncaptured/shader diagnostics/console warning-error 均为空。
+- 当前 glTF/Box/USD、A/B/C 与生产 `VisibilityPass` 仍消费 legacy `niMeshlets`/`MeshletGpuTable`/分页 `SceneDatabase`。新纵切没有伪装成全生产迁移；R2-D/G2 只剩把 A/C 和至少一个真实 glTF consumer 切到新 Geometry/Instance bindings，并随迁移删除对应 runtime build 与重复 owner。
 - 没有 GPU Geometry Hierarchy、BVH8 traversal 或 SSE LOD；现有路径仍先展开大量 flat Meshlet 工作。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
 - 没有正式冻结的 frame-local VisibilityKey/VisibleCluster lookup 契约。
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
 - Material Expand 仍按活跃材质执行全屏三角形，成本可能接近 `materials × pixels`。
 - Lighting/CSM/Transparency/Temporal/Post 虽有代码路径，尚未基于新的 Visibility/Surface ABI 逐项重新验收。
-- Geometry residency 的 record/payload/upload/grow 内存证据已接入；Instance、texture、全帧 transient 与统一显存/上传预算仍未完成。
+- Geometry 与 Instance residency 的 record/payload/upload/grow/patch 内存证据已接入；texture、全帧 transient 与统一显存/上传预算仍未完成。
 - Shader oracle/generated owner 尚未完全收口，部分 reconstructed/Shade 历史命名仍存在。
 
 ## 当前下一步
 
-1. R2-C 已关闭；当前唯一代码包是 R2-D Packed Scene Vertical：冻结 Instance ABI/bulk/patch，把 A/C 和普通 Scene adapter 接到同一 Geometry/Instance bindings，并删除 package 主路径的重复 runtime build/residency owner。
-2. R2-D/G2 关闭后进入 R3，让 GPU hierarchy/SSE 在 flat Meshlet 展开前减量并接入同一个 Hardware consumer；随后依次推进 R4-A、R4-B、R4-C。
+1. R2-D 的 ABI/owner/bulk/patch/普通 Scene adapter/真实 GPU 纵切已完成；当前唯一代码任务是 R2-D 生产 consumer 收口：迁 A/C + 真实 glTF，逐个删除 legacy runtime Meshlet build、Geometry residency 与重复 Instance owner。
+2. 上述生产接线与删除完成后关闭 R2-D/G2，再进入 R3，让 GPU hierarchy/SSE 在 flat Meshlet 展开前减量并接入同一个 Hardware consumer；随后依次推进 R4-A、R4-B、R4-C。
 
 ## 本地参考状态
 

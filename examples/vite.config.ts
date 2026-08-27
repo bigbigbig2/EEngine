@@ -66,6 +66,10 @@ export default defineConfig({
           examplesRoot,
           "r2-gpu-residency/index.html"
         ),
+        r2PackedScene: path.resolve(
+          examplesRoot,
+          "r2-packed-scene/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

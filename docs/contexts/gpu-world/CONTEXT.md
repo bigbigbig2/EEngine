@@ -20,3 +20,6 @@
 - Package records 与 GPU records 明确分离；TS packer、字段 offset、stride 和 WGSL struct 由同一 schema 校验。当前 v1 stride 为 Geometry 144 B、Cluster 128 B、Meshlet 112 B。
 - release 立即使 handle/Geometry record 失效；append payload 暂计入 `reclaimableBytes`，不在 R2-C 未经 profile 建设通用 compactor。grow 只编码进调用方 command，`privateSubmitCount` 固定为 0。
 - R2-C flat 黄金资产 consumer 已通过 live 浏览器 GPU roundtrip、Hardware `drawIndirect` 画面和生命周期证据，R2-C 已关闭；A/C、普通 Scene adapter、Instance table/Packed source 与 legacy owner 删除仍属于 R2-D，GPU hierarchy traversal 仍属于 R3。
+- R2-D 已新增惰性 `GpuScene` 和 192 B `InstanceRecord` v1。0 号 fallback、opaque generation `InstanceSetHandle`、bulk/grow/abort/release、transform/material patch、previous/current、dirty spans 与完整 evidence 由同一 owner 管理；不创建私有 submit。
+- `examples/r2-packed-scene` 已让 Compute producer 读取 Instance table、compact active record indices 并写完整 16 B indirect record，Hardware consumer 同时读取 Instance/Geometry/vertex bindings。live 结果为 `passed=true`、1k/10k/100k 与四档 patch 完整、stable copy/upload 为零、41,733 非背景像素且 validation/console diagnostics 为空。
+- 生产 `VisibilityPass` 与 A/C 仍绑定 legacy `MeshletGpuTable` + 分页 `SceneDatabase`。迁移并删除这些重复 owner 是 R2-D/G2 的最后任务；不能仅凭新纵切关闭整个 R2。

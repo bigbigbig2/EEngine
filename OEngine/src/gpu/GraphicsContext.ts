@@ -33,6 +33,7 @@ import {
   unregisterGpuQueueProfiler
 } from "./GpuQueueEvidence.js";
 import { GpuAssetStore } from "./GpuAssetStore.js";
+import { GpuScene } from "./GpuScene.js";
 
 export class GraphicsContext {
   readonly isGraphicsContext = true;
@@ -54,6 +55,7 @@ export class GraphicsContext {
   readonly samplers: GPUSamplerCache;
   readonly profiler: FrameProfiler;
   private assetStoreValue: GpuAssetStore | undefined;
+  private gpuSceneValue: GpuScene | undefined;
   private timerIncrementValue = 0;
 
   constructor(device: GPUDevice, profiler = new FrameProfiler()) {
@@ -142,6 +144,12 @@ export class GraphicsContext {
     return this.assetStoreValue;
   }
 
+  /** Lazily creates the R2 compact Instance table; legacy-only pages pay zero cost. */
+  get gpu_scene(): GpuScene {
+    this.gpuSceneValue ??= new GpuScene(this.device, this.assets);
+    return this.gpuSceneValue;
+  }
+
   async initialize(): Promise<void> {
     await STATIC_GRAPHICS_ENGINE_ASSETS.init();
   }
@@ -182,6 +190,8 @@ export class GraphicsContext {
   get gpu_memory_usage(): number {
     return (
       this.geometries.gpu_memory_usage +
+      (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
+      (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
@@ -191,6 +201,8 @@ export class GraphicsContext {
 
   destroy(): void {
     unregisterGpuQueueProfiler(this.device, this.profiler);
+    this.gpuSceneValue?.destroy();
+    this.gpuSceneValue = undefined;
     this.assetStoreValue?.destroy();
     this.assetStoreValue = undefined;
     this.residentMaterials?.destroy();

@@ -64,9 +64,13 @@ meshoptimizer、`GeometryCooker`、Renderer、GPUDevice 或 legacy `niMeshlets`�
 3. 新纵切由 `AssetHandle` + compact table 唯一持有 GPU residency，grow/abort/release 无私有 submit；
 4. `r2-gpu-residency` 已通过完整黄金资产 package → Compute → Hardware `drawIndirect` live 页面和 JSON/readback 门禁；GPU roundtrip、画面、WebGPU validation、abort/release 与 `privateSubmitCount=0` 全部通过。
 
-R2-D 必须继续完成：
+R2-D 已完成：
 
 1. 冻结 Instance/Packed ABI，并让普通 Scene adapter 与 Packed source 写入同一 `GpuScene`；
-2. 把 A/C 和至少一个真实 glTF 主路径 consumer 切到新 Geometry/Instance bindings；
-3. 每迁移一个 consumer 即删除对应 legacy reader/build/owner，不长期双写；
-4. 完成 1k/10k/100k bulk、0%/1%/10%/100% patch、stable-frame zero upload 与画面/counter/timestamp 证据。
+2. 完成 1k/10k/100k bulk、0%/1%/10%/100% transform/material patch、stable-frame zero upload 与 Instance + Geometry Hardware consumer 画面/counter 证据。
+
+R2-D/G2 唯一剩余收口：
+
+1. 把 A/C 和至少一个真实 glTF 主路径 consumer 切到新 Geometry/Instance bindings；
+2. 每迁移一个 consumer 即删除对应 legacy reader/build/owner，不长期双写；
+3. 用生产页面重新确认 one-submit、非采样零 readback、画面与 counter，随后关闭 G2。

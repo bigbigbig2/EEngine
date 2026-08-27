@@ -88,6 +88,13 @@ import type {
   AssetHandle,
   AssetResidencyEvidence
 } from "../gpu/GpuAssetStore.js";
+import type {
+  GpuSceneEvidence,
+  InstancePatchBatch,
+  InstancePatchResult,
+  InstanceSetHandle,
+  InstanceSource
+} from "../gpu/GpuScene.js";
 import {
   RenderDebugView,
   getRenderDebugViewStatus,
@@ -325,6 +332,36 @@ export class Renderer {
   /** Returns counters only; GPU buffers and byte offsets remain internal. */
   geometryAssetResidencyEvidence(): AssetResidencyEvidence {
     return this._graphics.assets.evidence();
+  }
+
+  /** Bulk-creates one Packed Instance Set in the caller-owned command. */
+  instantiateInstances(
+    source: InstanceSource,
+    command: ShadeGPUCommandContext
+  ): InstanceSetHandle {
+    return this._graphics.gpu_scene.instantiate(source, command);
+  }
+
+  /** Applies one explicit transform/material batch without scanning the source set. */
+  patchInstances(
+    handle: InstanceSetHandle,
+    batch: InstancePatchBatch,
+    command: ShadeGPUCommandContext
+  ): InstancePatchResult {
+    return this._graphics.gpu_scene.patch(handle, batch, command);
+  }
+
+  /** Invalidates a Packed Instance Set in command order. */
+  releaseInstances(
+    handle: InstanceSetHandle,
+    command: ShadeGPUCommandContext
+  ): void {
+    this._graphics.gpu_scene.release(handle, command);
+  }
+
+  /** Returns compact Instance table counters without exposing its GPUBuffer. */
+  gpuSceneEvidence(): GpuSceneEvidence {
+    return this._graphics.gpu_scene.evidence();
   }
 
   /**

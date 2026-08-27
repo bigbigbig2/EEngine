@@ -91,6 +91,18 @@ export type {
   AssetHandle,
   AssetResidencyEvidence
 } from "./gpu/GpuAssetStore.js";
+export type {
+  GpuSceneEvidence,
+  InstanceMaterialPatch,
+  InstancePatchBatch,
+  InstancePatchResult,
+  InstanceSetHandle,
+  InstanceSource,
+  InstanceTransformPatch
+} from "./gpu/GpuScene.js";
+export { INSTANCE_SOURCE_FLAGS } from "./gpu/GpuScene.js";
+export { createInstanceSourceFromScene } from "./gpu/GpuSceneAdapter.js";
+export type { SceneInstanceAdapterOptions } from "./gpu/GpuSceneAdapter.js";
 export {
   projectedGeometryErrorPixels,
   selectGeometryHierarchy
