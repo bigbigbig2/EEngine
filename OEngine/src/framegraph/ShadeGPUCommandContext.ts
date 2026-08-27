@@ -214,6 +214,23 @@ export class ShadeGPUCommandContext {
     this.onAborted.addOne(() => resource.destroy());
   }
 
+  /** Retires a resource only after submitted GPU work is complete. */
+  destroyAfterGpuDone(resource: { destroy(): void }): void {
+    let retired = false;
+    const destroy = (): void => {
+      if (retired) return;
+      retired = true;
+      resource.destroy();
+    };
+    const retireAfterQueueIdle = (): void => {
+      void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
+    };
+    this.onFinished.addOne(retireAfterQueueIdle);
+    // The resource may have been used by an earlier submission even if this
+    // encoder aborts, so abort is not permission to destroy it immediately.
+    this.onAborted.addOne(retireAfterQueueIdle);
+  }
+
   recordGraphBuild(): void {
     this.#graphics.profiler.recordGraphBuild();
   }

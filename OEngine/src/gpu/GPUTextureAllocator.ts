@@ -16,6 +16,8 @@ export type GPUTexturePoolDescriptor = {
 
 export class GPUTextureAllocator {
   readonly texture_cache: GPUTextureContext[] = [];
+  private readonly pending = new Set<GPUTextureContext>();
+  private destroyed = false;
   private readonly lastUse = new WeakMap<GPUTextureContext, number>();
   private scanIndex = 0;
   private lastScanTime = now();
@@ -23,6 +25,9 @@ export class GPUTextureAllocator {
   constructor(private readonly device: GPUDevice) {}
 
   get(descriptor: GPUTexturePoolDescriptor): GPUTextureContext {
+    if (this.destroyed) {
+      throw new Error("GPUTextureAllocator has been destroyed");
+    }
     const normalized = normalizeDescriptor(descriptor);
     const index = this.lowerBound(normalized);
     let context: GPUTextureContext | undefined;
@@ -50,8 +55,23 @@ export class GPUTextureAllocator {
     return context;
   }
 
-  release(context: GPUTextureContext): void {
+  release(context: GPUTextureContext, reuseAfter?: Promise<void>): void {
+    if (this.pending.has(context) || this.texture_cache.includes(context)) {
+      return;
+    }
     void context.gpu_texture;
+    if (reuseAfter !== undefined) {
+      this.pending.add(context);
+      void reuseAfter.then(
+        () => this.finishPendingRelease(context),
+        () => this.finishPendingRelease(context)
+      );
+      return;
+    }
+    this.cacheReleased(context);
+  }
+
+  private cacheReleased(context: GPUTextureContext): void {
     const descriptor = descriptorFromContext(context);
     const index = this.lowerBound(descriptor);
     this.texture_cache.splice(index, 0, context);
@@ -69,12 +89,30 @@ export class GPUTextureAllocator {
     for (const context of this.texture_cache) {
       usage += context.gpu_memory_usage;
     }
+    for (const context of this.pending) {
+      usage += context.gpu_memory_usage;
+    }
     return usage;
   }
 
+  get pending_count(): number {
+    return this.pending.size;
+  }
+
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     for (const context of this.texture_cache) context.destroy();
     this.texture_cache.length = 0;
+  }
+
+  private finishPendingRelease(context: GPUTextureContext): void {
+    if (!this.pending.delete(context)) return;
+    if (this.destroyed) {
+      context.destroy();
+      return;
+    }
+    this.cacheReleased(context);
   }
 
   private lowerBound(descriptor: GPUTexturePoolDescriptor): number {

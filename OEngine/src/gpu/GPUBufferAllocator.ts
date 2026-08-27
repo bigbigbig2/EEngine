@@ -23,6 +23,8 @@ export class GPUBufferAllocator {
   private aged: CachedBuffer[] = [];
   private agedBytes = 0;
   private readonly active = new Set<GPUBuffer>();
+  private readonly pending = new Set<GPUBuffer>();
+  private destroyed = false;
   private time = 0;
   private scanIndex = 0;
   private creationCount = 0;
@@ -38,6 +40,9 @@ export class GPUBufferAllocator {
     descriptor: GPUBufferPoolDescriptor,
     encoder?: GPUBufferClearEncoder
   ): GPUBuffer {
+    if (this.destroyed) {
+      throw new Error("GPUBufferAllocator has been destroyed");
+    }
     const request = normalizeDescriptor(descriptor);
     let buffer = this.takeCompatible(this.recent, request, true);
     if (!buffer) buffer = this.takeCompatible(this.aged, request, false);
@@ -70,12 +75,18 @@ export class GPUBufferAllocator {
     return buffer;
   }
 
-  release(buffer: GPUBuffer): boolean {
+  release(buffer: GPUBuffer, reuseAfter?: Promise<void>): boolean {
     if (!this.active.has(buffer)) return false;
-    const entry: CachedBuffer = { buffer, last_use_time: this.time };
-    insertSorted(this.recent, entry);
-    this.recentBytes += buffer.size;
     this.active.delete(buffer);
+    if (reuseAfter !== undefined) {
+      this.pending.add(buffer);
+      void reuseAfter.then(
+        () => this.finishPendingRelease(buffer),
+        () => this.finishPendingRelease(buffer)
+      );
+      return true;
+    }
+    this.cacheReleased(buffer);
     return true;
   }
 
@@ -87,6 +98,7 @@ export class GPUBufferAllocator {
   get gpu_memory_usage(): number {
     let bytes = this.recentBytes + this.agedBytes;
     for (const buffer of this.active) bytes += buffer.size;
+    for (const buffer of this.pending) bytes += buffer.size;
     return bytes;
   }
 
@@ -98,7 +110,13 @@ export class GPUBufferAllocator {
     return this.recent.length + this.aged.length;
   }
 
+  get pending_count(): number {
+    return this.pending.size;
+  }
+
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     for (const buffer of this.active) buffer.destroy();
     this.active.clear();
     for (const entry of this.recent) entry.buffer.destroy();
@@ -107,6 +125,21 @@ export class GPUBufferAllocator {
     this.aged.length = 0;
     this.recentBytes = 0;
     this.agedBytes = 0;
+  }
+
+  private cacheReleased(buffer: GPUBuffer): void {
+    const entry: CachedBuffer = { buffer, last_use_time: this.time };
+    insertSorted(this.recent, entry);
+    this.recentBytes += buffer.size;
+  }
+
+  private finishPendingRelease(buffer: GPUBuffer): void {
+    if (!this.pending.delete(buffer)) return;
+    if (this.destroyed) {
+      buffer.destroy();
+      return;
+    }
+    this.cacheReleased(buffer);
   }
 
   private takeCompatible(

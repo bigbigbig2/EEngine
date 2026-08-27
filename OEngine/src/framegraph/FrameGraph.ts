@@ -319,6 +319,8 @@ export class FrameGraphResourceManager {
   private readonly fallbackOwned = new Set<object>();
   private readonly pooledBuffers = new Set<GPUBuffer>();
   private readonly pooledTextures = new Set<GPUTextureContext>();
+  private readonly availableBuffers: GPUBuffer[] = [];
+  private readonly availableTextures: GPUTextureContext[] = [];
 
   constructor(device?: GPUDevice | null) {
     this.device = device ?? null;
@@ -363,20 +365,41 @@ export class FrameGraphResourceManager {
       if ((descriptor.ensure_cleared?.[1] ?? 0) > 0) {
         usage |= GPUBufferUsage.COPY_DST;
       }
-      const buf = this.graphics
-        ? this.graphics.buffer_allocator_main.get(
+      let buf: GPUBuffer;
+      if (this.graphics) {
+        const localIndex = this.availableBuffers.findIndex((candidate) =>
+          candidate.size >= size &&
+          (candidate.usage & usage) === usage &&
+          !(candidate.size > 2 * size && candidate.size - size > 1024)
+        );
+        if (localIndex >= 0) {
+          buf = this.availableBuffers.splice(localIndex, 1)[0]!;
+          const clear = descriptor.ensure_cleared;
+          if (clear !== undefined && clear[1] > 0) {
+            if (this.encoder === null) {
+              throw new Error(
+                "FrameGraph transient ensure_cleared requires an encoder"
+              );
+            }
+            this.encoder.clearBuffer(buf, clear[0], clear[1]);
+          }
+        } else {
+          buf = this.graphics.buffer_allocator_main.get(
             {
               size,
               usage,
               ensure_cleared: descriptor.ensure_cleared
             },
             this.encoder ?? undefined
-          )
-        : this.device.createBuffer({
+          );
+        }
+      } else {
+        buf = this.device.createBuffer({
             label: descriptor.label ?? "FrameGraph/transient_buffer",
             size,
             usage
           });
+      }
       if (this.graphics) this.pooledBuffers.add(buf);
       else this.fallbackOwned.add(buf);
       return buf;
@@ -394,7 +417,7 @@ export class FrameGraphResourceManager {
           GPUTextureUsage.COPY_SRC |
           GPUTextureUsage.COPY_DST);
       if (this.graphics) {
-        const context = this.graphics.allocator_textures.get({
+        const textureDescriptor = {
           width: w,
           height: h,
           depthOrArrayLayers: d,
@@ -402,7 +425,19 @@ export class FrameGraphResourceManager {
           format,
           usage,
           mipLevelCount: Math.max(1, descriptor.mipLevelCount ?? 1)
-        });
+        };
+        const localIndex = this.availableTextures.findIndex((candidate) =>
+          candidate.width === textureDescriptor.width &&
+          candidate.height === textureDescriptor.height &&
+          candidate.depthOrArrayLayers === textureDescriptor.depthOrArrayLayers &&
+          candidate.dimension === textureDescriptor.dimension &&
+          candidate.format === textureDescriptor.format &&
+          candidate.usage === textureDescriptor.usage &&
+          candidate.mipLevelCount === textureDescriptor.mipLevelCount
+        );
+        const context = localIndex >= 0
+          ? this.availableTextures.splice(localIndex, 1)[0]!
+          : this.graphics.allocator_textures.get(textureDescriptor);
         this.pooledTextures.add(context);
         return context;
       }
@@ -425,7 +460,7 @@ export class FrameGraphResourceManager {
     if (!resource || typeof resource !== "object") return;
     if (this.graphics && this.pooledBuffers.has(resource as GPUBuffer)) {
       this.pooledBuffers.delete(resource as GPUBuffer);
-      this.graphics.buffer_allocator_main.release(resource as GPUBuffer);
+      this.availableBuffers.push(resource as GPUBuffer);
       return;
     }
     if (
@@ -433,7 +468,7 @@ export class FrameGraphResourceManager {
       this.pooledTextures.has(resource as GPUTextureContext)
     ) {
       this.pooledTextures.delete(resource as GPUTextureContext);
-      this.graphics.allocator_textures.release(resource as GPUTextureContext);
+      this.availableTextures.push(resource as GPUTextureContext);
       return;
     }
     if (!this.fallbackOwned.has(resource as object)) {
@@ -442,16 +477,31 @@ export class FrameGraphResourceManager {
     this.fallbackOwned.delete(resource as object);
     const r = resource as { destroy?: () => void };
     if (typeof r.destroy === "function") {
-      r.destroy();
+      const destroy = r.destroy.bind(r);
+      destroy();
     }
   }
 
   destroy(): void {
+    this.finish();
     for (const r of this.fallbackOwned) {
       const o = r as { destroy?: () => void };
       o.destroy?.();
     }
     this.fallbackOwned.clear();
+  }
+
+  /** Publishes command-local aliases to shared pools behind the submit fence. */
+  finish(): void {
+    if (this.graphics === null) return;
+    for (const buffer of this.availableBuffers) {
+      this.graphics.buffer_allocator_main.release(buffer);
+    }
+    this.availableBuffers.length = 0;
+    for (const texture of this.availableTextures) {
+      this.graphics.allocator_textures.release(texture);
+    }
+    this.availableTextures.length = 0;
   }
 }
 
@@ -695,6 +745,7 @@ export class FrameGraph {
         this.__resource_registry[resourceId]!.resource = null;
       }
       ACTIVE_FRAME_GRAPH_BINDINGS = NO_ACTIVE_FRAME_GRAPH_BINDINGS;
+      rm.finish();
     }
 
     this.onExecuted.emit([ctx, this]);

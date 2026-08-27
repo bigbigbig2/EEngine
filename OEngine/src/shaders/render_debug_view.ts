@@ -19,9 +19,12 @@ struct DebugViewSettings {
 const DEBUG_VIEW_COORDINATE_WGSL = /* wgsl */ `
 fn source_coordinate(position: vec2f, source_size: vec2u) -> vec2i {
   let output_size = max(settings.output_size, vec2u(1u));
-  let target = vec2u(position);
-  let source = min(target * source_size / output_size, source_size - vec2u(1u));
-  return vec2i(source);
+  let output_coordinate = vec2u(position);
+  let source_coordinate_value = min(
+    output_coordinate * source_size / output_size,
+    source_size - vec2u(1u)
+  );
+  return vec2i(source_coordinate_value);
 }
 `;
 

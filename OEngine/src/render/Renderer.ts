@@ -86,10 +86,13 @@ import { STATIC_GRAPHICS_ENGINE_ASSETS } from "./STATIC_GRAPHICS_ENGINE_ASSETS.j
 import {
   RenderDebugView,
   getRenderDebugViewStatus,
-  isRenderableRenderDebugView,
   type RenderDebugView as RenderDebugViewT,
   type RenderDebugViewStatus
 } from "../debug/RenderDebugView.js";
+import {
+  resolveMainFrameFeatureTopology,
+  type MainFrameFeatureTopology
+} from "./MainFrameFeatureTopology.js";
 
 export {
   ShadeIndirectLightingMode
@@ -220,16 +223,16 @@ export class Renderer {
   private _velocity!: VelocityPass;
   private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence!: OcclusionConfidencePass;
-  private _ssao!: ScreenSpaceAmbientOcclusionPass;
+  private _ssao: ScreenSpaceAmbientOcclusionPass | null = null;
   private _ssr: ScreenSpaceReflectionsPass | null = null;
-  private _taa!: TemporalAntiAliasingPass;
+  private _taa: TemporalAntiAliasingPass | null = null;
   private _nss: NeuralSuperSamplingPass | null = null;
-  private _motionBlur!: MotionBlurPass;
-  private _sharpen!: SharpenPass;
-  private _bloom!: BloomPass;
-  private _automaticExposure!: AutomaticExposurePass;
+  private _motionBlur: MotionBlurPass | null = null;
+  private _sharpen: SharpenPass | null = null;
+  private _bloom: BloomPass | null = null;
+  private _automaticExposure: AutomaticExposurePass | null = null;
   private readonly _taaJitter = new TemporalJitterController();
-  private _taaHistory!: [GPUTextureContext, GPUTextureContext];
+  private _taaHistory: [GPUTextureContext, GPUTextureContext] | null = null;
   private _tonemap!: TonemapPass;
   private _renderTargets = new RenderTargets();
   private _format: GPUTextureFormat = "rgba8unorm";
@@ -449,22 +452,6 @@ export class Renderer {
       this._render_resolution.x,
       this._render_resolution.y
     );
-    const historyDescriptor = id.from({
-      label: "",
-      size: this._output_resolution.asArray(),
-      format: "rgba16float",
-      mipLevelCount: 1,
-      usage:
-        GPUTextureUsage.RENDER_ATTACHMENT |
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.COPY_SRC
-    });
-    this._taaHistory = [
-      this._graphics.textures.contextFromDescriptor(new id().copy(historyDescriptor)),
-      this._graphics.textures.contextFromDescriptor(new id().copy(historyDescriptor))
-    ];
-    this._automaticExposure = new AutomaticExposurePass(device);
     this.configureCanvas();
     this.init_render_targets();
     window
@@ -478,15 +465,27 @@ export class Renderer {
       .removeEventListener("change", this._onDynamicRangeChange);
     this._transparentOit?.destroy();
     this._ssao?.destroy();
+    this._ssao = null;
     this._ssr?.destroy();
     this._ssr = null;
     this._automaticExposure?.destroy();
+    this._automaticExposure = null;
     this._taaHistory?.forEach((history) => history.destroy());
+    this._taaHistory = null;
+    this._taa?.destroy();
+    this._taa = null;
+    this._motionBlur?.destroy();
+    this._motionBlur = null;
+    this._sharpen?.destroy();
+    this._sharpen = null;
+    this._bloom?.destroy();
+    this._bloom = null;
     this._renderDebug?.destroy();
     this._renderDebug = null;
     this._meshletDrawList?.destroy();
     this._nss?.destroy();
     this._nss = null;
+    this._views?.destroy();
     this._scenes?.destroy();
     this._probeRenderers.clear();
     this._mainGraphCache.destroy();
@@ -571,9 +570,11 @@ export class Renderer {
         this._profiler.shouldSampleGpuCounters()
       );
     });
-    if (this.upscale_type === 1) {
-      this.nss.frame_count = this._frame_count;
-      this.nss.frame_index = this._frame_count;
+    const featureTopology = this.resolveFeatureTopology();
+    this.initializeRenderPasses(this.device, featureTopology);
+    if (featureTopology.nss) {
+      this._nss!.frame_count = this._frame_count;
+      this._nss!.frame_index = this._frame_count;
     } else {
       this._taaJitter.frame_index = this._frame_count;
     }
@@ -582,17 +583,16 @@ export class Renderer {
     const outputHeight = this._output_resolution.y;
     const w = this._render_resolution.x;
     const h = this._render_resolution.y;
-    this.initializeRenderPasses(this.device);
     const debugFrameIndex =
       this._debug_frame_budget > 0 ? this._frame_count : null;
     if (debugFrameIndex !== null) this._debug_frame_budget--;
 
-    const temporalJitter = this.upscale_type === 1 ? this.nss : this._taaJitter;
+    const temporalJitter = featureTopology.nss ? this._nss! : this._taaJitter;
     const viewKey = GPUViewKey.from(camera, scene);
     viewKey.label = "check_assertions";
     const view = this.views.obtain(viewKey, cmd);
     const gpuScene = view.scene;
-    gpuScene.lights.shadow_context.enabled = this.feature_shadows_enabled;
+    gpuScene.lights.shadow_context.enabled = featureTopology.shadows;
     view.setJitter(temporalJitter.Jitter[0], temporalJitter.Jitter[1]);
     view.setViewportSize(w, h);
     view.setUpscaleRatio(
@@ -631,7 +631,7 @@ export class Renderer {
           }
         });
       }
-      if (this.feature_shadows_enabled) {
+      if (featureTopology.shadows) {
         const shadows = gpuScene.lights.shadow_context;
         shadows.select_for_draw(camera, this._frame_count, [w, h]);
         shadows.draw(
@@ -648,14 +648,14 @@ export class Renderer {
       if (sampleGpuCounters && gpuCounterBuffer === null) {
         throw new Error("GPU counter sampling has no counter buffer");
       }
-      if (this.feature_ssao_enabled) this._ssao.resize(w, h);
-      if (this.feature_ssr_enabled) this._ssr!.resize(w, h);
+      if (featureTopology.ssao) this._ssao!.resize(w, h);
+      if (featureTopology.ssr) this._ssr!.resize(w, h);
       const taaHistoryValidity = this._taaJitter.reset_history ? 0 : 1;
-      if (this.feature_taa_enabled && this.upscale_type !== 1) {
+      if (featureTopology.taa) {
         this._taaJitter.reset_history = false;
       }
-      const nssSettings = this.feature_taa_enabled && this.upscale_type === 1
-        ? this.nss.prepareFrame({
+      const nssSettings = featureTopology.nss
+        ? this._nss!.prepareFrame({
             renderResolution: [w, h],
             outputResolution: [outputWidth, outputHeight]
           })
@@ -681,8 +681,10 @@ export class Renderer {
         motionBlurStrength: this.motion_blur_strength,
         nssSettings
       };
+      const graphTopology = this.resolveFeatureTopology(mainBindings);
       const graphKey = canonicalFrameGraphKey(this.createMainFrameGraphKey(
         mainBindings,
+        graphTopology,
         sampleGpuTimestamps,
         sampleGpuCounters,
         debugFrameIndex !== null
@@ -1078,7 +1080,7 @@ export class Renderer {
             { kind: "imported", label: "rgba16float environment" },
             bind("environment", (bindings) => bindings.gpuScene.lights.environment.gpu_texture)
           );
-          shadowAtlasRes = this.feature_shadows_enabled
+          shadowAtlasRes = graphTopology.shadows
             ? graph.import_resource(
                 "Ch/pass_descriptor",
                 { kind: "imported", label: "depth32float shadow atlas" },
@@ -1150,9 +1152,9 @@ export class Renderer {
         }
 
         let bentNormalRes = gNormalRes;
-        let ssaoReady = !this.feature_ssao_enabled;
+        let ssaoReady = !graphTopology.ssao;
         if (
-          this.feature_ssao_enabled &&
+          graphTopology.ssao &&
           velocityRes !== null &&
           occlusionConfidenceRes !== null &&
           gNormalRes !== null &&
@@ -1176,9 +1178,9 @@ export class Renderer {
             },
             {
               input: bind("ssao-history-input", (bindings) =>
-                this._ssao.historyTexture(bindings.frameIndex, false)),
+                this._ssao!.historyTexture(bindings.frameIndex, false)),
               output: bind("ssao-history-output", (bindings) =>
-                this._ssao.historyTexture(bindings.frameIndex, true))
+                this._ssao!.historyTexture(bindings.frameIndex, true))
             }
           );
           gAlbedoRes = ssao.occlusion;
@@ -1215,7 +1217,7 @@ export class Renderer {
             splitSum.gpu_texture
           );
           let indirectSpecularRes: ResourceId;
-          if (this.feature_ssr_enabled) {
+          if (graphTopology.ssr) {
             const blueNoise = this._graphics.textures.obtain(
               STATIC_GRAPHICS_ENGINE_ASSETS.stbn_vec2
             );
@@ -1329,7 +1331,7 @@ export class Renderer {
             camera: currentCameraRes,
             lightMap: lightMapRes
           };
-          if (this.fused_indirect && !this.feature_ssr_enabled) {
+          if (this.fused_indirect && !graphTopology.ssr) {
             hdrRes = this._brick4Fused.addToGraph(graph, {
               ...base,
               hdr: hdrRes,
@@ -1422,7 +1424,7 @@ export class Renderer {
 
           let indirectSpecularRes: ResourceId;
           if (
-            this.feature_ssr_enabled &&
+            graphTopology.ssr &&
             hzbRes !== null &&
             velocityRes !== null &&
             occlusionConfidenceRes !== null
@@ -1579,7 +1581,7 @@ export class Renderer {
         }
 
         if (
-          this.feature_taa_enabled &&
+          graphTopology.temporal &&
           hdrRes !== null &&
           velocityRes !== null &&
           occlusionConfidenceRes !== null
@@ -1588,16 +1590,16 @@ export class Renderer {
             "taa_history",
             { kind: "imported", label: "TAA history input rgba16float" },
             bind("taa-history-input", (bindings) =>
-              this._taaHistory[bindings.frameIndex % 2]!.gpu_texture)
+              this._taaHistory![bindings.frameIndex % 2]!.gpu_texture)
           );
           const historyOutputRes = graph.import_resource(
             "taa_output",
             { kind: "imported", label: "TAA history output rgba16float" },
             bind("taa-history-output", (bindings) =>
-              this._taaHistory[(bindings.frameIndex + 1) % 2]!.gpu_texture)
+              this._taaHistory![(bindings.frameIndex + 1) % 2]!.gpu_texture)
           );
-          if (this.upscale_type === 1) {
-            hdrRes = this.nss.addToGraph(
+          if (graphTopology.nss) {
+            hdrRes = this._nss!.addToGraph(
               graph,
               {
                 renderResolution: [w, h],
@@ -1614,9 +1616,9 @@ export class Renderer {
               {
                 settings: bind("nss-settings", (bindings) => bindings.nssSettings!),
                 feedbackCurrent: bind("nss-feedback-current", (bindings) =>
-                  this.nss.feedbackTexture(bindings.frameIndex, false)),
+                  this._nss!.feedbackTexture(bindings.frameIndex, false)),
                 feedbackNext: bind("nss-feedback-next", (bindings) =>
-                  this.nss.feedbackTexture(bindings.frameIndex, true)),
+                  this._nss!.feedbackTexture(bindings.frameIndex, true)),
                 bindResource: (name, resolve) => bind(
                   `nss-internal/${name}`,
                   () => resolve()
@@ -1624,7 +1626,7 @@ export class Renderer {
               }
             );
           } else {
-            hdrRes = this._taa.addToGraph(
+            hdrRes = this._taa!.addToGraph(
               graph,
               bind("taa-job", (bindings) => ({
                 jitter: bindings.taaJitter,
@@ -1645,11 +1647,11 @@ export class Renderer {
         }
 
         if (
-          this.feature_motion_blur_enabled &&
+          graphTopology.motionBlur &&
           hdrRes !== null &&
           velocityRes !== null
         ) {
-          hdrRes = this._motionBlur.addToGraph(
+          hdrRes = this._motionBlur!.addToGraph(
             graph,
             bind("motion-blur-job", (bindings) => ({
               width: bindings.outputWidth,
@@ -1664,8 +1666,8 @@ export class Renderer {
           );
         }
 
-        if (this.feature_sharpening_enabled && hdrRes !== null) {
-          hdrRes = this._sharpen.addToGraph(
+        if (graphTopology.sharpening && hdrRes !== null) {
+          hdrRes = this._sharpen!.addToGraph(
             graph,
             hdrRes,
             this._output_resolution.x,
@@ -1676,8 +1678,8 @@ export class Renderer {
 
         let exposureRes: ResourceId | null = null;
         let exposureInput = hdrRes;
-        if (hdrRes !== null && this.feature_bloom_enabled) {
-          const bloom = this._bloom.addToGraph(graph, hdrRes, {
+        if (hdrRes !== null && graphTopology.bloom) {
+          const bloom = this._bloom!.addToGraph(graph, hdrRes, {
             width: this._output_resolution.x,
             height: this._output_resolution.y,
             intensity: 1,
@@ -1687,20 +1689,20 @@ export class Renderer {
           hdrRes = bloom.composited;
           exposureInput = bloom.downsampled;
         }
-        if (this.feature_automatic_exposure_enabled && exposureInput !== null) {
+        if (graphTopology.automaticExposure && exposureInput !== null) {
           const exposurePrevious = graph.import_resource(
             "Automatic exposure previous",
             { kind: "imported", label: "automatic exposure previous" },
             bind("automatic-exposure-previous", (bindings) =>
-              this._automaticExposure.historyBuffer(bindings.frameIndex, false))
+              this._automaticExposure!.historyBuffer(bindings.frameIndex, false))
           );
           const exposureAdapted = graph.import_resource(
             "Automatic exposure adapted",
             { kind: "imported", label: "automatic exposure adapted" },
             bind("automatic-exposure-adapted", (bindings) =>
-              this._automaticExposure.historyBuffer(bindings.frameIndex, true))
+              this._automaticExposure!.historyBuffer(bindings.frameIndex, true))
           );
-          exposureRes = this._automaticExposure.update(
+          exposureRes = this._automaticExposure!.update(
             graph,
             exposureInput,
             time_delta_seconds,
@@ -1717,7 +1719,7 @@ export class Renderer {
         // Debug 是主管线最终 HDR 的观察覆盖：不经过 TAA/Bloom 等处理，也不
         // 改写它们的历史；关闭或 unsupported 时不创建 Pass、纹理或 readback。
         if (
-          isRenderableRenderDebugView(this.render_debug_view) &&
+          graphTopology.debug &&
           velocityRes !== null
         ) {
           this._renderDebug ??= new RenderDebugViewPass(this._graphics);
@@ -1793,44 +1795,11 @@ export class Renderer {
 
   private createMainFrameGraphKey(
     bindings: MainFrameGraphBindings,
+    topology: MainFrameFeatureTopology,
     sampleGpuTimestamps: boolean,
     sampleGpuCounters: boolean,
     debugFrame: boolean
   ): FrameGraphKey {
-    let featureBits = 0;
-    if (this.feature_shadows_enabled) featureBits += 2 ** 0;
-    if (this.feature_ssr_enabled) featureBits += 2 ** 1;
-    if (this.feature_ssao_enabled) featureBits += 2 ** 2;
-    if (this.feature_taa_enabled) featureBits += 2 ** 3;
-    if (this.feature_bloom_enabled) featureBits += 2 ** 4;
-    if (this.feature_automatic_exposure_enabled) featureBits += 2 ** 5;
-    if (this.feature_motion_blur_enabled) featureBits += 2 ** 6;
-    if (this.feature_sharpening_enabled) featureBits += 2 ** 7;
-    if (this.fused_indirect) featureBits += 2 ** 8;
-    if (this._visibility.hasAlphaTestedMaterials(bindings.scene)) {
-      featureBits += 2 ** 9;
-    }
-    if (bindings.gpuScene.skinning.prev_position_offsets_buffer !== null) {
-      featureBits += 2 ** 10;
-    }
-    if (bindings.gpuScene.skinning.prev_positions_buffer !== null) {
-      featureBits += 2 ** 11;
-    }
-    if (this._transparentOit.hasTransparentMaterials(bindings.scene)) {
-      featureBits += 2 ** 23;
-    }
-    if (this._highDynamicRange) featureBits += 2 ** 24;
-    const debugTopology = this.render_debug_view === RenderDebugView.VisibilityKey
-      ? 1
-      : this.render_debug_view === RenderDebugView.Depth
-        ? 2
-        : this.render_debug_view === RenderDebugView.Velocity
-          ? 3
-          : 0;
-    featureBits += debugTopology * 2 ** 12;
-    featureBits += this.indirect_lighting_mode * 2 ** 16;
-    featureBits += this.upscale_type * 2 ** 19;
-
     const instrumentationMode = [
       sampleGpuTimestamps ? "timestamps" : "",
       sampleGpuCounters ? "counters" : "",
@@ -1845,7 +1814,7 @@ export class Renderer {
       outputHeight: bindings.outputHeight,
       viewCount: 1,
       sampleCount: 1,
-      enabledFeatureBits: featureBits,
+      enabledFeatureBits: topology.enabledFeatureBits,
       visibilityImplementation: "hardware-raster-v1",
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
@@ -1854,7 +1823,40 @@ export class Renderer {
     };
   }
 
-  private initializeRenderPasses(device: GPUDevice): void {
+  private resolveFeatureTopology(
+    bindings?: MainFrameGraphBindings
+  ): MainFrameFeatureTopology {
+    return resolveMainFrameFeatureTopology({
+      shadows: this.feature_shadows_enabled,
+      ssr: this.feature_ssr_enabled,
+      ssao: this.feature_ssao_enabled,
+      temporal: this.feature_taa_enabled,
+      bloom: this.feature_bloom_enabled,
+      automaticExposure: this.feature_automatic_exposure_enabled,
+      motionBlur: this.feature_motion_blur_enabled,
+      sharpening: this.feature_sharpening_enabled,
+      fusedIndirect: this.fused_indirect,
+      upscaleType: this.upscale_type,
+      debugView: this.render_debug_view,
+      indirectLightingMode: this.indirect_lighting_mode,
+      alphaTested: bindings === undefined
+        ? false
+        : this._visibility.hasAlphaTestedMaterials(bindings.scene),
+      previousSkinOffsets: bindings !== undefined &&
+        bindings.gpuScene.skinning.prev_position_offsets_buffer !== null,
+      previousSkinPositions: bindings !== undefined &&
+        bindings.gpuScene.skinning.prev_positions_buffer !== null,
+      transparency: bindings === undefined
+        ? false
+        : this._transparentOit.hasTransparentMaterials(bindings.scene),
+      highDynamicRange: this._highDynamicRange
+    });
+  }
+
+  private initializeRenderPasses(
+    device: GPUDevice,
+    topology: MainFrameFeatureTopology
+  ): void {
     if (!this._visibility) {
       this._visibility = new VisibilityPass(this._graphics);
       this._visibility.init();
@@ -1882,21 +1884,102 @@ export class Renderer {
     this._brick4Fused ??= new Brick4FusedIndirectPass(this._graphics);
     this._velocity ??= new VelocityPass(this._graphics);
     this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
-    this._ssao ??= new ScreenSpaceAmbientOcclusionPass(this._graphics);
-    if (this.feature_ssr_enabled) {
-      this._ssr ??= new ScreenSpaceReflectionsPass(this._graphics);
+    if (topology.ssao) {
+      this._ssao ??= new ScreenSpaceAmbientOcclusionPass(this._graphics);
+    } else if (this._ssao !== null) {
+      this.retireAfterSubmittedWork(this._ssao);
+      this._ssao = null;
     }
-    this._taa ??= new TemporalAntiAliasingPass(this._graphics);
-    this._motionBlur ??= new MotionBlurPass(this._graphics);
-    this._sharpen ??= new SharpenPass(this._graphics);
-    this._bloom ??= new BloomPass(this._graphics);
-    this._automaticExposure ??= new AutomaticExposurePass(device);
+    if (topology.ssr) {
+      this._ssr ??= new ScreenSpaceReflectionsPass(this._graphics);
+    } else if (this._ssr !== null) {
+      this.retireAfterSubmittedWork(this._ssr);
+      this._ssr = null;
+    }
+    if (topology.taa) {
+      this._taa ??= new TemporalAntiAliasingPass(this._graphics);
+    } else if (this._taa !== null) {
+      this.retireAfterSubmittedWork(this._taa);
+      this._taa = null;
+    }
+    if (topology.nss) {
+      void this.nss;
+    } else if (this._nss !== null) {
+      this.retireAfterSubmittedWork(this._nss);
+      this._nss = null;
+    }
+    if (topology.temporal) {
+      this.ensureTemporalColorHistory();
+    } else if (this._taaHistory !== null) {
+      for (const history of this._taaHistory) {
+        this.retireAfterSubmittedWork(history);
+      }
+      this._taaHistory = null;
+      this._taaJitter.reset_history = true;
+    }
+    if (topology.motionBlur) {
+      this._motionBlur ??= new MotionBlurPass(this._graphics);
+    } else if (this._motionBlur !== null) {
+      this.retireAfterSubmittedWork(this._motionBlur);
+      this._motionBlur = null;
+    }
+    if (topology.sharpening) {
+      this._sharpen ??= new SharpenPass(this._graphics);
+    } else if (this._sharpen !== null) {
+      this.retireAfterSubmittedWork(this._sharpen);
+      this._sharpen = null;
+    }
+    if (topology.bloom) {
+      this._bloom ??= new BloomPass(this._graphics);
+    } else if (this._bloom !== null) {
+      this.retireAfterSubmittedWork(this._bloom);
+      this._bloom = null;
+    }
+    if (topology.automaticExposure) {
+      this._automaticExposure ??= new AutomaticExposurePass(device);
+    } else if (this._automaticExposure !== null) {
+      this.retireAfterSubmittedWork(this._automaticExposure);
+      this._automaticExposure = null;
+    }
+    if (!topology.debug && this._renderDebug !== null) {
+      this.retireAfterSubmittedWork(this._renderDebug);
+      this._renderDebug = null;
+    }
     if (!this._tonemap) {
       this._tonemap = new TonemapPass(device, this._format);
       this._tonemap.hdrEnabled = this._highDynamicRange;
       this._tonemap.peakNits = this._peakNits;
       this._tonemap.init();
     }
+  }
+
+  private ensureTemporalColorHistory(): void {
+    if (this._taaHistory !== null) return;
+    const historyDescriptor = id.from({
+      label: "Renderer/temporal-color-history",
+      size: this._output_resolution.asArray(),
+      format: "rgba16float",
+      mipLevelCount: 1,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.COPY_SRC
+    });
+    this._taaHistory = [
+      this._graphics.textures.contextFromDescriptor(
+        new id().copy(historyDescriptor)
+      ),
+      this._graphics.textures.contextFromDescriptor(
+        new id().copy(historyDescriptor)
+      )
+    ];
+    this._taaJitter.reset_history = true;
+  }
+
+  private retireAfterSubmittedWork(resource: { destroy(): void }): void {
+    const destroy = (): void => resource.destroy();
+    void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
   }
 
   private recordFrameCounters(hzb: HierarchicalZBuffer): void {
@@ -2024,7 +2107,7 @@ export class Renderer {
   }
 
   private resizeColorHistories(): void {
-    this._taaHistory.forEach((history) => {
+    this._taaHistory?.forEach((history) => {
       history.resize(
         this._output_resolution.x,
         this._output_resolution.y

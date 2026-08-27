@@ -135,6 +135,17 @@ test("compiled graph cache reports miss, warm hit and deterministic eviction", (
   assert.equal(cache.size, 2);
   cache.destroy();
   assert.deepEqual(destroyed, ["A", "B", "C"]);
+  cache.destroy();
+  assert.deepEqual(destroyed, ["A", "B", "C"]);
+
+  const failing = new CompiledFrameGraphCache(1);
+  assert.throws(
+    () => failing.getOrCreate("broken", () => {
+      throw new Error("compile failed");
+    }, observer),
+    /compile failed/
+  );
+  assert.equal(failing.size, 0);
 });
 
 test("disabled feature contributes no pass, resource or history binding", () => {

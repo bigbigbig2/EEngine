@@ -50,6 +50,7 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
     assert.match(source, /source_coordinate/);
     assert.match(source, /output_size/);
     assert.match(source, /@fragment/);
+    assert.doesNotMatch(source, /\blet\s+target\b/);
   }
   assert.match(VISIBILITY_KEY_DEBUG_WGSL, /16777216u/);
   assert.match(VISIBILITY_KEY_DEBUG_WGSL, /triangle_ids/);
