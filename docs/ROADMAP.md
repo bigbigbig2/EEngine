@@ -29,13 +29,13 @@
 
 - versioned Runtime Asset Package 与 TS/WGSL ABI validator。
 - meshoptimizer 优先的 Meshlet/Cooker、Cluster hierarchy、BVH8 和 geometric error。
-- Compact GPU Geometry/Material/Texture/Light tables。
+- Compact GPU Geometry/Cluster/Instance records 与连续 geometry payload；Material 只接现有 registry handle。
 - Mostly-static GPU Scene、Packed Instance Set、bulk upload 和 transform/material patch。
 - resident/transient bytes 与 upload counters。
 
 当前不建设完整 ECS、高频 add/remove/reparent、超大世界坐标或 geometry streaming。
 
-退出：多资产和大量 Packed Instances 不依赖一实例一 JS 对象；GPU 表 ABI、容量、owner、上传和内存证据稳定。
+退出：多资产和大量 Packed Instances 不依赖一实例一 JS 对象；GPU 表 ABI、容量、owner、上传和内存证据稳定；新数据已由现有 flat Hardware consumer 真实消费。GPU hierarchy/SSE traversal 仍由 R3 完成。
 
 ## R3 · Hierarchical Work Generation + Hardware Consumer
 

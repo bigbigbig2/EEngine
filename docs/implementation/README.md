@@ -37,11 +37,13 @@ R0 Observe                         complete
 
 R0/G0 与 R1/G1 已关闭。当前唯一执行入口是 R2 Compact Data Foundation：
 
-1. 冻结版本化 Runtime Asset Package 与 Cooker 输入/输出；
-2. 冻结 compact Geometry/Material/Texture/Instance GPU table ABI；
-3. 接通 Packed Instance Set、bulk upload 与显式 transform/material patch；
-4. 建立 resident bytes、上传字节和 overflow/fallback 证据；
-5. 为 R3 hierarchy → compact queue → single indirect Hardware consumer 提供稳定数据基础。
+1. `R2-A Package Kernel`：冻结 SourceGeometry、版本化 package kernel、reader/writer/validator 和黄金资产；
+2. `R2-B Cooked Geometry`：以可追溯开源实现生成 Meshlet、renderable hierarchy、geometric error 与 BVH8；
+3. `R2-C Residency + Compact Tables`：冻结 Geometry/Cluster GPU records、stable handle、bulk residency 与内存证据；
+4. `R2-D Packed Scene Vertical`：冻结 Instance record/Packed Instances/patch，并让现有 Hardware consumer 真实消费新数据；
+5. 删除 package 主路径上的 runtime Meshlet build、重复 Geometry residency 与重复 Instance owner。
+
+R2 只新增 Geometry、Cluster、Instance 三张必需 record table；Material 使用现有 registry 的 validated handle reference，Texture/Light 全面重构不进入 G2。R2 会生成、验证并驻留 hierarchy 数据，但 GPU hierarchy/SSE traversal 属于 R3。
 
 不得重新打开 G0/G1，也不得在 R2 中提前加入 SW Raster 或用旧 Material Expand 的兼容层掩盖数据迁移。
 
@@ -51,7 +53,7 @@ R0/G0 与 R1/G1 已关闭。当前唯一执行入口是 R2 Compact Data Foundati
 |---|---|
 | G0 Observe | Schema/counter/unsupported、A/B/C artifact 可解释；完成 |
 | G1 Runtime | one-submit、compiled graph、Compute HZB、feature-off/in-flight 与 clean/full after 证据；完成 |
-| G2 Data | versioned package、compact tables、Packed Instances、bulk/patch upload、resident bytes |
+| G2 Data | versioned package、Cooked hierarchy data、Geometry/Cluster/Instance tables、Packed Instances、bulk/patch upload、resident bytes、现有 Hardware consumer 接线 |
 | G3 Work | hierarchy/SSE 在展开前减量，compact queue 被 single indirect HW consumer 直接消费 |
 | G4-A Visibility | HW key/depth/lookup/alpha/overflow 正确 |
 | G4-B Resolve | single PBR resolve、velocity、材质扩展曲线通过，旧 Material Expand 删除 |
@@ -69,6 +71,20 @@ R0/G0 与 R1/G1 已关闭。当前唯一执行入口是 R2 Compact Data Foundati
 5. 外部算法有 source/commit/license/adaptation/benchmark 记录；
 6. 被替代旧实现已删除或有明确截止任务；
 7. 只更新唯一状态 owner，其他文档使用链接。
+
+## 历史任务 ID 映射
+
+R0 artifact 与已关闭文档中的 blocker ID 是历史证据，不回写修改。进入 R2 后按以下映射解释：
+
+| 历史 ID | 当前执行 owner |
+|---|---|
+| `WORLD-02..06` | `R2-A` / `R2-C` |
+| `WORLD-07`（Packed Instances） | `R2-D` |
+| `WORLD-09..10` | `R2-D` consumer 迁移与删除 |
+| `COOK-01..03` | `R2-A` |
+| `COOK-04..10` | `R2-B`，GPU residency/删除部分由 `R2-C/D` 关闭 |
+
+新任务和提交使用 `R2-A-xx`～`R2-D-xx`；历史 JSON 中的 `WORLD/COOK` blocker 保持原值，避免伪造证据来源。
 
 ## 当前明确排除
 

@@ -20,10 +20,11 @@
 | WebGPU device/canvas、`WebGPUTypes` | 保留并重验 | feature/limit、resize、device lost 通过 R1 |
 | Pipeline/BindGroup caches | 保留概念，修正 owner/key | cache hit/miss 可测且无 stale resource |
 | Buffer/Texture allocators | 保留概念，修正生命周期 | in-flight reuse、grow、device lost 测试通过 |
-| `SceneChangeSet` | 深化重构 | WORLD-04 覆盖结构/字段/residency |
-| `GPUSceneContext`/`SceneDatabase` | 迁移到 compact GPU Scene/Tables | 新表接通后删除重复 record/submit owner |
-| `MeshletGeometryBase`/`niMeshlets` runtime 格式 | 用 Cooker v1 替换 | COOK-10；程序化几何走同 schema |
-| `GeometryBlasPool` | 按 BVH8/ResidentGeometry 重写或删除 | COOK-09/WORK-04 |
+| `SceneChangeSet` | 保留为普通对象 adapter 的输入 | R2-D Packed patch 不扩张完整对象 Change Set |
+| `GPUSceneContext`/`SceneDatabase` | 迁移到 `GpuScene`/Instance table | R2-D 新表接通现有 Hardware consumer 后删除重复 record owner |
+| `MeshletGeometryBase`/`niMeshlets` runtime 格式 | 用 package v1 替换 | R2-B/D；程序化几何走同 in-memory Cooker/schema |
+| `MeshletGpuTable`/`MeshletGpuPool` | 用 `GpuAssetStore` 唯一 residency owner 替换 | R2-C 新 store 接通、R2-D consumers 迁完 |
+| `GeometryBlasPool` | 用 package BVH8 payload 与 `GpuAssetStore` 替换 | R2-C/D；R3 读取新 BVH8 binding |
 | `MeshletDrawList` | 删除 | WORK-08 新 HW 垂直闭环通过 |
 | `MaterialMeshletDrawList` | opaque 删除；透明/阴影迁移 | FX-04/FX-05 新 work consumer 接通 |
 | `VisibilityPass` | 由 WorkGenerator + HybridVisibility 替换 | VIS-10 |
@@ -70,7 +71,7 @@ src/debug/                     profiler/counters/debug views
 
 ### DEL-02 · 清旧资产/世界 owner
 
-依赖 `WORLD-10`、`COOK-10`。删除 Loader GPU owner、旧 Meshlet runtime layout、重复 GPUScene tables/address maps 和无法通过 device lost 重建的 cache。
+依赖 `R2-D`。删除 Loader/runtime Meshlet build、旧 Meshlet/BLAS residency owner、重复 GPUScene tables/address maps 和无法安全 retirement 的 cache；Material owner 保留到 R4-B，不在 R2 制造第二张表。
 
 ### DEL-03 · 清旧工作生成与 Visibility
 

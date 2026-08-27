@@ -48,7 +48,7 @@
 
 ## 当前下一步
 
-1. R2 Compact Runtime Asset、GPU Tables、Packed Instances 和 Cooker。
+1. R2 已冻结为 `R2-A Package Kernel → R2-B Cooked Geometry → R2-C Residency + Compact Tables → R2-D Packed Scene Vertical`；当前从 R2-A 开始，不并行重写 Material/Texture/Light。
 2. R3 将 hierarchy 输出接入现有 single indirect Hardware consumer。
 3. R4-A 冻结 Hardware Visibility contract，R4-B 提前 Single Material Resolve，R4-C 再决定 SW/Hybrid 收益。
 

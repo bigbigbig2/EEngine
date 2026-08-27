@@ -137,7 +137,7 @@ R0 的职责是冻结目标矩阵并证明 A/B/C 采集入口、真实 counter �
 |---|---|---|---|
 | G0 Observe | counter/timestamp frame 归属、debug view | A/B/C 对照契约；当前能力 artifact 可带明确 blocker | shader source map、submit/readback map、Schema v3 能力矩阵 |
 | G1 Runtime | HZB reference、resize/history/device lost | 空/A/B/C fixed cost 前后 | 一个主要 submit、graph cache/off pruning |
-| G2 Data | package/handle/change set/packed instances | unchanged 与 N changes scaling | owner、resident bytes、旧 owner 删除 |
+| G2 Data | package/hierarchy data/handle/packed instances | bulk、stable frame 与 patch-density scaling | Geometry/Cluster/Instance owner、resident bytes、现有 HW consumer 接线、旧 owner 删除 |
 | G3 Hierarchy | CPU/GPU selected set、overflow parent fallback | visited/selected/raster reduction | GPU闭环、旧 flat chain 删除 |
 | G4 Visibility | HW/SW/Hybrid depth/key/edge/clip | triangle size sweep、跨 GPU profile | key ABI、HW fallback、旧 Visibility 删除 |
 | G5 Shading | Surface/PBR/velocity/history/feature sequence | B/C materials/lights/effects curves | 单次 Resolve、off 零成本、旧 GBuffer旁路删除 |
@@ -150,9 +150,10 @@ R0 的职责是冻结目标矩阵并证明 A/B/C 采集入口、真实 counter �
 | 一个主要 submit | R1-A01～A07 | submit/readback exact counters |
 | FrameGraph 缓存/feature off | R1-B01～B06、R1-D01 | graph key/cache counters/dump |
 | Compute HZB | R1-C01～C06 | mip numerical tests + GPU time |
-| Runtime Asset/stable handle | WORLD-02..06 | schema/lifetime/device lost tests |
-| Packed Instance Set | WORLD-07 | A/C JS objects、extract/upload scaling |
-| Cooker/hierarchy/BVH8 | COOK-01..10 | package validator + CPU reference |
+| Package kernel/SourceGeometry | R2-A | deterministic schema/corruption/import tests |
+| Cooker/hierarchy/BVH8 | R2-B | porting ledger + package validator + CPU selector/reference |
+| Runtime Asset/stable handle/residency | R2-C | TS/WGSL schema、grow/abort/retirement、bytes tests |
+| Packed Instance Set/patch/HW 接线 | R2-D | A/C JS objects、bulk/patch/upload scaling、截图/counter/timestamp |
 | SSE GPU work generation | WORK-01..10 | selected set + queue/counter + indirect consumer |
 | SW/HW Visibility | VIS-01..10 | pixel exact/tolerance + size sweep |
 | 单次 Material Resolve | MAT-01..10 | draw count vs materials + B visual/numeric |

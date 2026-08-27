@@ -16,3 +16,5 @@
 - ABI 变更需要版本、迁移或明确拒绝旧资产。
 - Cooker 输出必须包含 bounds、geometric error、父子关系和材质范围验证。
 - 当前输出优先全驻留紧凑数据；streaming page 只保留未来扩展字段，不支配 v1 ABI。
+- 通用 package kernel 只拥有 header/directory/hash/range；Geometry sections 与不变量由 `implementation/04-geometry-cooker-and-hierarchy.md` 拥有。
+- runtime 打开 package 只做验证、驻留和上传，不重复 Meshlet、simplify、hierarchy 或 BVH build。
