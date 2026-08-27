@@ -212,6 +212,10 @@ export class ShadowContext {
   readonly maps: ShadowMapBase[] = [];
   readonly resolution_controller: ShadowAtlasResolutionController;
   enabled = true;
+  lastHzbBuildCount = 0;
+  lastHzbComputePassCount = 0;
+  lastHzbDispatchCount = 0;
+  lastHzbOutputPixels = 0;
 
   private debugRenderCount = 0;
   private frameIndex = -1;
@@ -348,6 +352,10 @@ export class ShadowContext {
     drawList: MeshletDrawList
   ): number {
     this.debugRenderCount = 0;
+    this.lastHzbBuildCount = 0;
+    this.lastHzbComputePassCount = 0;
+    this.lastHzbDispatchCount = 0;
+    this.lastHzbOutputPixels = 0;
     const meshlets = scene.meshlets;
     const sceneDatabaseBuffer = scene.scene_database_buffer;
     const meshTable = scene.meshSlice;
@@ -436,7 +444,14 @@ export class ShadowContext {
     for (const map of this.maps) {
       if (map.last_updated_frame_index !== this.frameIndex) continue;
       for (const view of map.views) {
-        view.gpu_context?.finish_frame(command, this.frameIndex);
+        const context = view.gpu_context;
+        if (!context) continue;
+        const hzb = context.hierarchical_z_buffer;
+        this.lastHzbBuildCount += hzb.lastBuildCount;
+        this.lastHzbComputePassCount += hzb.lastComputePassCount;
+        this.lastHzbDispatchCount += hzb.lastDispatchCount;
+        this.lastHzbOutputPixels += hzb.lastOutputPixels;
+        context.finish_frame(command, this.frameIndex);
       }
     }
     return this.debugRenderCount;
@@ -543,6 +558,7 @@ export class ShadowContext {
     }
     context.update(command);
     context.setViewportSize(width, height);
+    context.hierarchical_z_buffer.resetFrameStatistics();
     context.hierarchical_z_buffer.beginFrame(this.frameIndex);
     return context;
   }

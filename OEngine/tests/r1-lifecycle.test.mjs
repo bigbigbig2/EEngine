@@ -36,7 +36,7 @@ const { GPUViewKey, ViewManager } = await import(
   "../.test-dist/render/ViewManager.js"
 );
 
-test("transient buffers cannot return to the shared pool before GPU completion", async () => {
+test("explicitly fenced transient buffers wait for GPU completion", async () => {
   const created = [];
   const device = {
     limits: { maxBufferSize: 1 << 20 },

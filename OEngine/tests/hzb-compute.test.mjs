@@ -134,6 +134,21 @@ test("production HZB has no render-pass fallback and exposes compute evidence", 
   assert.doesNotMatch(renderer, /legacy\.hzb\./);
 });
 
+test("HZB compute evidence includes shadow-view builds", () => {
+  const renderer = readFileSync(new URL("../src/render/Renderer.ts", import.meta.url), "utf8");
+  const shadows = readFileSync(new URL("../src/gpu/ShadowContext.ts", import.meta.url), "utf8");
+  for (const field of [
+    "lastHzbBuildCount",
+    "lastHzbComputePassCount",
+    "lastHzbDispatchCount",
+    "lastHzbOutputPixels"
+  ]) {
+    assert.match(renderer, new RegExp(`hzb\\.last[A-Za-z]+ \\+ shadows\\.${field}`));
+    assert.match(shadows, new RegExp(`this\\.${field} \\+= hzb\\.last[A-Za-z]+`));
+  }
+  assert.match(shadows, /hierarchical_z_buffer\.resetFrameStatistics\(\)/);
+});
+
 test("HZB history commit is attached to submission, while abort invalidates it", () => {
   const viewContext = readFileSync(new URL("../src/render/ViewContext.ts", import.meta.url), "utf8");
   const finishBody = viewContext.slice(viewContext.indexOf("finish_frame("));

@@ -1774,7 +1774,7 @@ export class Renderer {
       }
       cmd.encodeCompiledGraph(compiledGraph, mainBindings);
       view.finish_frame(cmd, this._frame_count);
-      this.recordFrameCounters(viewHzb);
+      this.recordFrameCounters(viewHzb, gpuScene.lights.shadow_context);
       this._profiler.encodeGpuCounterReadback(cmd);
       this._frameCoordinator.submitFrame(activeFrame);
       activeFrame = null;
@@ -1982,7 +1982,15 @@ export class Renderer {
     void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
   }
 
-  private recordFrameCounters(hzb: HierarchicalZBuffer): void {
+  private recordFrameCounters(
+    hzb: HierarchicalZBuffer,
+    shadows: {
+      readonly lastHzbBuildCount: number;
+      readonly lastHzbComputePassCount: number;
+      readonly lastHzbDispatchCount: number;
+      readonly lastHzbOutputPixels: number;
+    }
+  ): void {
     const profiler = this._profiler;
     const visibility = this._visibility;
     profiler.recordCounter(
@@ -2010,10 +2018,22 @@ export class Renderer {
       "legacy.visibility.secondChance",
       visibility.lastSecondChance ? 1 : 0
     );
-    profiler.recordCounter("hzb.computeBuilds", hzb.lastBuildCount);
-    profiler.recordCounter("hzb.computePasses", hzb.lastComputePassCount);
-    profiler.recordCounter("hzb.dispatches", hzb.lastDispatchCount);
-    profiler.recordCounter("hzb.outputPixels", hzb.lastOutputPixels);
+    profiler.recordCounter(
+      "hzb.computeBuilds",
+      hzb.lastBuildCount + shadows.lastHzbBuildCount
+    );
+    profiler.recordCounter(
+      "hzb.computePasses",
+      hzb.lastComputePassCount + shadows.lastHzbComputePassCount
+    );
+    profiler.recordCounter(
+      "hzb.dispatches",
+      hzb.lastDispatchCount + shadows.lastHzbDispatchCount
+    );
+    profiler.recordCounter(
+      "hzb.outputPixels",
+      hzb.lastOutputPixels + shadows.lastHzbOutputPixels
+    );
     profiler.recordCounter("hzb.historyValid", hzb.historyValid ? 1 : 0);
     profiler.recordCounter("hzb.historyInvalidations", hzb.historyInvalidationCount);
     profiler.recordCounter(
