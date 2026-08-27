@@ -19,6 +19,7 @@ const MAX_SECTION_COUNT = 65535;
 const MAX_ALIGNMENT = 1 << 20;
 const CONTENT_HASH_OFFSET = 48;
 const CONTENT_HASH_BYTES = 32;
+const HEADER_RESERVED_OFFSET = CONTENT_HASH_OFFSET + CONTENT_HASH_BYTES;
 const PACKAGE_MAGIC = new Uint8Array([
   0x4f, 0x45, 0x4e, 0x47, 0x49, 0x4e, 0x45, 0x00
 ]);
@@ -68,7 +69,8 @@ export interface RuntimeAssetPackage {
 }
 
 export interface RuntimeAssetPackageOpenOptions {
-  readonly supportedSectionTypes?: ReadonlySet<number>;
+  /** Every required section type understood by the calling consumer. */
+  readonly supportedSectionTypes: ReadonlySet<number>;
 }
 
 export interface RuntimeAssetSectionInput {
@@ -230,14 +232,14 @@ export async function writeRuntimeAssetPackage(
 
 export async function validateRuntimeAssetPackage(
   bytes: ArrayBuffer,
-  options: RuntimeAssetPackageOpenOptions = {}
+  options: RuntimeAssetPackageOpenOptions
 ): Promise<RuntimeAssetValidationReport> {
   return (await parseAndValidate(bytes, options)).report;
 }
 
 export async function openRuntimeAssetPackage(
   bytes: ArrayBuffer,
-  options: RuntimeAssetPackageOpenOptions = {}
+  options: RuntimeAssetPackageOpenOptions
 ): Promise<RuntimeAssetPackage> {
   const parsed = await parseAndValidate(bytes, options);
   if (!parsed.report.valid || parsed.manifest === null) {
@@ -331,6 +333,12 @@ async function parseAndValidate(
   }
   if (flags !== 0 || headerReserved !== 0) {
     error("unsupported-header-flags", "Package v1 header flags/reserved fields must be zero");
+  }
+  if (!paddingIsZero(bytes, HEADER_RESERVED_OFFSET, RUNTIME_ASSET_HEADER_SIZE)) {
+    error(
+      "nonzero-header-reserved",
+      "Package v1 trailing header reserved bytes must be zero"
+    );
   }
   if (sectionCount > MAX_SECTION_COUNT) {
     error("section-count-overflow", `Package section count exceeds ${MAX_SECTION_COUNT}`);
@@ -479,7 +487,7 @@ async function parseAndValidate(
     }
 
     const supported = options.supportedSectionTypes;
-    if (supported !== undefined && !supported.has(descriptor.type)) {
+    if (!supported.has(descriptor.type)) {
       if ((descriptor.flags & RUNTIME_ASSET_SECTION_REQUIRED) !== 0) {
         error(
           "unknown-required-section",
@@ -606,8 +614,10 @@ async function calculateContentHash(
 }
 
 async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
-  const owned = bytes.slice().buffer;
-  return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", owned));
+  // All package views are backed by ArrayBuffer, so Web Crypto can consume the
+  // existing range without a second full-section allocation during open.
+  const view = bytes as Uint8Array<ArrayBuffer>;
+  return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", view));
 }
 
 function digestU32(digest: Uint8Array): number {

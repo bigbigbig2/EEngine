@@ -95,6 +95,8 @@ Recipe 至少冻结：
 
 content hash 覆盖规范化后的 source、recipe 和影响结果的工具版本。相同三者必须生成 byte-identical required sections；debug name/timestamp 等非确定内容只能进入不参与 hash 的 optional debug section。
 
+R2-A 的 v1 recipe 采用 hierarchy target fanout 8、simplify ratio 0.5/absolute error/failure ratio 0.60；BVH 和 vertex bounds 暂不量化，optional attribute 保留缺失状态，degenerate/non-manifold 从第一个命中项开始 warning 或按 policy reject；浮点条件固定为 IEEE-754 round-to-nearest 且禁用 fast-math。R2-B 若以证据改变任一值，必须升级 recipe key 并重建黄金 hash，不能静默改变同一 v1 identity。
+
 ## Geometry package sections
 
 通用 section directory 格式见 03。Geometry v1 使用以下 section type，不把 Meshlet、Cluster、BVH 或未来 streaming page 混为一种记录：
@@ -247,7 +249,7 @@ Writer 不得直接信任内部对象。Cook 完成的定义是“重新从最�
 
 实现通用 writer/reader/validator 与 tiny/cube/multi-material/alpha/degenerate/corruption fixtures。以 reopen 后的 bytes 作为所有后续任务输入。
 
-状态：完成。Package Kernel v1 见 [ADR-0008](../wiki/adr/0008-runtime-asset-package-kernel-v1.md)；fixtures 由 `source-geometry.test.mjs`、`geometry-cook-recipe.test.mjs` 和 `runtime-asset-package.test.mjs` 拥有。完整 OEngine 测试 91/91、examples production build 与 `r2-package-kernel` 浏览器纵切通过；页面确认 deterministic package 可 reopen，损坏 payload 被 checksum/content hash 双重拒绝，控制台无 warning/error。
+状态：完成。Package Kernel v1 见 [ADR-0008](../wiki/adr/0008-runtime-asset-package-kernel-v1.md)；fixtures 由 `source-geometry.test.mjs`、`geometry-cook-recipe.test.mjs` 和 `runtime-asset-package.test.mjs` 拥有。tiny、cube、multi-material、alpha-tested 与 degenerate source 均固定 content/file SHA-256 并 reopen；恶意 source 与 package corruption 明确拒绝。完整 OEngine 测试、examples production build 与 `r2-package-kernel` 浏览器纵切通过；页面确认损坏 payload 被 checksum/content hash 双重拒绝，控制台无 warning/error。
 
 ### R2-B-01 · Meshlet vertical slice
 

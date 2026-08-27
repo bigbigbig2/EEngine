@@ -28,8 +28,11 @@ export {
 } from "./assets/GeometryCookRecipe.js";
 export type {
   DegenerateTrianglePolicy,
+  GeometryFloatMode,
   GeometryCookRecipe,
-  GeometryCookRecipeInput
+  GeometryCookRecipeInput,
+  MissingAttributePolicy,
+  NonManifoldPolicy
 } from "./assets/GeometryCookRecipe.js";
 export {
   RUNTIME_ASSET_FORMAT_VERSION,

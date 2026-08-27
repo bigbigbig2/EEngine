@@ -38,6 +38,7 @@
 ## OEngine/WebGPU 适配
 
 - Cooker 可以按固定 Rust 实现做局部移植或 CPU oracle，但 package 只保存 WebGPU 可表达的 `u32` record/range；
+- v1 recipe 的 `hierarchyTargetFanout = 8` 对齐 `TARGET_MESHLETS_PER_GROUP`，`simplificationFailureRatio = 0.60` 对齐 `SIMPLIFICATION_FAILURE_PERCENTAGE`；simplify 使用 0.5 target 与 absolute error mode。以上只冻结输入与验证语义，R2-B 函数级移植仍需补 provenance；
 - BVH8 与 LOD tree 保持不同记录；不引入 streaming page；
 - R2 只生成/验证/驻留数据，R3 才实现 WGSL traversal；
 - 任何并行任务/allocator 抽象不迁入浏览器 runtime。

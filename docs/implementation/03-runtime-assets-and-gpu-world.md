@@ -101,14 +101,19 @@ glTF / procedural source
 ```ts
 interface RuntimeAssetPackage {
   readonly manifest: RuntimeAssetManifest;
+  readonly sections: readonly RuntimeAssetSectionView[];
+  section(type: number): RuntimeAssetSectionView | undefined;
   geometry(id: GeometryAssetId): GeometryAssetView;
   validate(): ValidationReport;
 }
 
-function openRuntimeAssetPackage(bytes: ArrayBuffer): Promise<RuntimeAssetPackage>;
+function openRuntimeAssetPackage(
+  bytes: ArrayBuffer,
+  options: { supportedSectionTypes: ReadonlySet<number> }
+): Promise<RuntimeAssetPackage>;
 ```
 
-它在内部隐藏 header、section directory、version/schema hash、checksum、range/alignment 验证和 typed views。`GeometryAssetView` 只提供验证后的只读 section view，不把 Loader 临时对象变成 package 状态。v1 使用浏览器/Node 共有的 Web Crypto SHA-256，因此 open/write 是异步资产边界；精确格式由 [ADR-0008](../wiki/adr/0008-runtime-asset-package-kernel-v1.md) 冻结。
+R2-A Kernel 隐藏 header、section directory 的解析、version/schema hash、checksum 和 range/alignment 验证，只向资产层暴露验证后的通用只读 section view；调用方必须声明自己支持的 section type。R2-B 的 `GeometryAssetView` 再把 Geometry 交叉引用和 typed view 隐藏起来，Renderer 不读取通用 directory。v1 使用浏览器/Node 共有的 Web Crypto SHA-256，因此 open/write 是异步资产边界；精确格式由 [ADR-0008](../wiki/adr/0008-runtime-asset-package-kernel-v1.md) 冻结。
 
 ### `GeometryCooker`
 
@@ -245,7 +250,7 @@ R2 严格按 A → B → C → D 执行。每个包都必须交付可运行纵�
 
 - `R2-A-01` 完成：锁定 meshoptimizer `v1.0`/`73583c3` 与 Bevy `v0.18.0`/`5f8270f`，许可证、源码、测试和采用边界已进入 porting ledger；
 - `R2-A-02` 完成：`SourceGeometry`、`GeometryCookRecipe`、glTF primitive seam、Box source seam 与 legacy adapter 已接入；
-- `R2-A-03` 完成：Package v1 writer/open/validator、SHA-256 identity、required/optional、黄金 hash 和 corruption tests 已接入；完整 OEngine 测试 91/91、examples production build 与 `r2-package-kernel` 浏览器纵切通过，控制台无 warning/error；
+- `R2-A-03` 完成：Package v1 writer/open/validator、SHA-256 identity、required/optional、SourceGeometry 黄金 hash 和 corruption tests 已接入；完整 OEngine 测试 92/92、examples production build 与 `r2-package-kernel` 浏览器纵切通过，控制台无 warning/error；
 - R2-B 尚未开始，当前没有新 Meshlet/hierarchy/BVH8 算法或 GPU residency。
 
 ### R2-B · Cooked Geometry

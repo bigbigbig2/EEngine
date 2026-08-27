@@ -16,8 +16,8 @@ Package Kernel 必须独立于 Geometry section 内容：R2-A 冻结容器和验
 4. v1 alignment 至少 4 bytes 且是 2 的幂；compression kernel 只接受 `none`。实验压缩必须由新 section/schema/version 引入，不能让 Reader 猜测。
 5. 每个 section 计算完整 SHA-256；directory checksum 保存 digest 的低 32 bits用于快速/固定字段验证。Package content hash 是 canonical header identity、section metadata 和每个完整 section digest 的 SHA-256，不依赖 padding或自身 hash field。
 6. `writeRuntimeAssetPackage()` 按 type 排序、复制输入 section 并产生 byte-identical bytes。`openRuntimeAssetPackage()`/`validateRuntimeAssetPackage()` 使用 Web Crypto SHA-256，因此是异步 seam；没有 Node-only `crypto` runtime dependency。
-7. 未知 required section 必须拒绝；未知 optional section产生 warning并保留只读 view，具体 consumer 可以跳过。Magic/version/schema/hash/range/stride/count/alignment/checksum 失败均发生在 GPU residency 前。
-8. Opened package 保留调用方提供的 `ArrayBuffer`；section view 只读是 API contract。调用方在 package 生命周期内不得修改或复用该 buffer；避免默认全包复制造成 load peak 翻倍。
+7. 每个 consumer 调用 open/validate 时必须显式传入 `supportedSectionTypes`；未知 required section 必须拒绝，未知 optional section 产生 warning 并保留只读 view，具体 consumer 可以跳过。Magic/version/schema/hash/range/stride/count/alignment/checksum 失败均发生在 GPU residency 前。
+8. Opened package 保留调用方提供的 `ArrayBuffer`；section view 只读是 API contract。调用方在 package 生命周期内不得修改或复用该 buffer；SHA-256 直接读取现有 section view，不默认复制整包或整段 section，避免 load peak 翻倍。
 9. Package Kernel 不解释 Geometry/Material/Texture，也不创建 GPU 资源。Geometry cross-section validation由 R2-B 的 `GeometryAssetValidator` 拥有，GPU `u32` range/capacity 由 R2-C 再验证。
 
 ## 后果
@@ -31,6 +31,6 @@ Package Kernel 必须独立于 Geometry section 内容：R2-A 冻结容器和验
 ## 验证
 
 - 同一输入两次 write 的 bytes 相同，并保存 whole-file/content-hash 黄金值。
-- 测试 magic/version/schema/endianness、required/optional、截断、checksum、content hash、非 canonical offset、alignment、reserved field 和超过 JS safe integer 的 `u64`。
+- 测试 magic/version/schema/endianness、required/optional、截断、checksum、content hash、非 canonical offset、alignment、header/directory reserved field 和超过 JS safe integer 的 `u64`。
 - tiny triangle、Box、multi-material、alpha-tested 和 degenerate SourceGeometry 通过相同输入 seam；invalid index、NaN/Inf 和 material coverage gap 在 Cook 前拒绝。
 - `npm run build`、定向 package/source tests 与完整 `npm test` 必须通过。
