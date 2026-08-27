@@ -1,82 +1,97 @@
 # OEngine 推进路线
 
-路线是依赖顺序，不是功能档位。每阶段必须有可运行 benchmark 和退出标准。
+路线服务于桌面 WebGPU 的中大型高密度场景，不是完整 AAA 功能清单，也不是六套渲染管线。长期目标见 [DIRECTION](./DIRECTION.md)，目标 workload 见 [TARGETS](./TARGETS.md)，执行细节见 [implementation](./implementation/README.md)。
 
-three.js 的 A/B 只是最低垂直功能与性能基线，不是路线终点。A/B 证明 GPU LOD、work generation、SW/HW Visibility 与 PBR/IBL 基础闭环不落后；C 和通用 vertical/lifecycle cases 继续证明 OEngine 在多资产、动态世界、效果完整性、生命周期与扩展性上超过样例范围。所有阶段最终汇入一条主管线。
+## 状态入口
 
-可直接领取的任务、ABI、迁移和验收门禁见 [详细实施手册](./implementation/README.md)。
+本文件只拥有阶段依赖、目标和退出条件，不重复维护任务状态。当前代码事实见 [CURRENT-STATE](./CURRENT-STATE.md)，唯一当前执行入口见 [implementation/README](./implementation/README.md)，任务级状态见对应 implementation package。
 
-## R0 · 建立真实性
+## R0 · 真实性与观测（完成）
 
-实施包：[01 · 基线与可观测性](./implementation/01-baseline-and-observability.md)
+实施包：[01-baseline-and-observability](./implementation/01-baseline-and-observability.md)
 
-- 固定 three.js A/B 最低基线与 OEngine C 通用能力 benchmark。
-- 为现有主帧补 CPU/GPU 分段、submit/readback、工作量计数和 debug view。
-- 能切换现有 Visibility/HZB/Material Expand 的关键阶段。
-- 明确实际运行 Shader source-of-truth。
+产出真实 CPU/GPU 分段、submit/readback/upload、工作量计数、capability evidence、debug view 和 A/B/C artifact。未实现能力必须为 `unsupported + blockerTaskId`，不得以假零值通过 Gate。
 
-退出：能够解释一帧慢在资产候选、工作生成、光栅、材质、带宽还是运行时提交；当前已有能力输出真实 GPU 证据，Packed Instances、Hierarchy/SSE LOD、Compute SW Raster 等未实现能力输出稳定 `unsupported + blockerTaskId`。这不要求 R0 提前实现 R2–R4，也不表示 A/B 已通过。
+## R1 · Runtime 固定成本（收口中）
 
-当前状态（2026-08-26）：`OBS-01～07`、A/B/C Harness 及 RTX 2060 SUPER 浏览器 smoke 已收口，R0/G0 完成；R1 的代码/R0 artifact 分析和详细执行计划也已冻结，下一步直接执行 `R1-A` 单帧提交所有权闭环。clean/full cold-warm bundle 是 R1 首次实际性能修改前的入口前测，不重新打开 G0。详细边界见 [R0 收口总账](./implementation/01-baseline-and-observability.md#r0-收口总账) 和 [R1 执行计划](./implementation/02-runtime-submit-and-framegraph.md#r1-执行顺序)。
+实施包：[02-runtime-submit-and-framegraph](./implementation/02-runtime-submit-and-framegraph.md)
 
-## R1 · 收紧运行时成本
+- 单一 main submit owner。
+- Compiled FrameGraph/cache/feature pruning。
+- Compute HZB 与显式 per-view history。
+- feature-off、in-flight resource 和 paired benchmark 收口。
 
-实施包：[02 · 单帧提交、FrameGraph 与 HZB](./implementation/02-runtime-submit-and-framegraph.md)
+退出：warm steady frame 一个 main submit、零无条件 readback、graph build/compile 为零、HZB 无逐 mip Render Pass、关闭功能无旁路成本，证据 provenance 可用于比较。
 
-- 合并主帧 submit，移除空 animation flush。
-- 统计 readback 改为显式采样。
-- 缓存稳定 FrameGraph 拓扑。
-- HZB 改为 Compute 编码，消除逐 mip Render Pass。
-- feature off 达到近零成本。
+## R2 · Compact Data Foundation
 
-执行顺序：`R1-A` one-submit → `R1-B` Compiled graph/feature pruning → `R1-C` Compute HZB/history → `R1-D` 生命周期、删除与 paired gate。
+实施包：[03-runtime-assets-and-gpu-world](./implementation/03-runtime-assets-and-gpu-world.md)、[04-geometry-cooker-and-hierarchy](./implementation/04-geometry-cooker-and-hierarchy.md)
 
-退出：Frame Smoke/A/B/C 稳定非采样帧均为一次主要 submit；相同 topology warm frame 不再 build/compile；HZB 不再逐 mip 创建 Render Pass；feature off 无 Pass、资源、history、readback、timestamp 或 submit 旁路；生命周期与前后 benchmark 证据完整。仅完成其中一项不等于 R1 完成。
+- versioned Runtime Asset Package 与 TS/WGSL ABI validator。
+- meshoptimizer 优先的 Meshlet/Cooker、Cluster hierarchy、BVH8 和 geometric error。
+- Compact GPU Geometry/Material/Texture/Light tables。
+- Mostly-static GPU Scene、Packed Instance Set、bulk upload 和 transform/material patch。
+- resident/transient bytes 与 upload counters。
 
-## R2 · GPU-ready 资产与 Render World
+当前不建设完整 ECS、高频 add/remove/reparent、超大世界坐标或 geometry streaming。
 
-实施包：[03 · Runtime Asset 与 GPU Render World](./implementation/03-runtime-assets-and-gpu-world.md)、[04 · Geometry Cooker 与层次结构](./implementation/04-geometry-cooker-and-hierarchy.md)
+退出：多资产和大量 Packed Instances 不依赖一实例一 JS 对象；GPU 表 ABI、容量、owner、上传和内存证据稳定。
 
-- 冻结 Runtime Asset/Resident Resource seam。
-- 建立 versioned Geometry ABI、稳定 handle 和增量 Change Set。
-- 建立 Packed Instance Set。
-- Cooker 输出 Meshlet、Cluster Group、误差和 BVH8。
+## R3 · Hierarchical Work Generation + Hardware Consumer
 
-退出：大量实例和异构资产不依赖 JS 对象数量线性扩张。
+实施包：[05-hierarchical-work-generation](./implementation/05-hierarchical-work-generation.md)
 
-## R3 · 层次工作生成
+- Instance → BVH8/Cluster traversal。
+- 在 Meshlet 大规模展开前完成 SSE LOD。
+- frustum/cone/previous-HZB culling 与 compact queue。
+- 现有 single `drawIndirect` hardware consumer 正式接通 hierarchy 输出。
+- main/CSM view 分别记录 queue、indirect count、submitted triangle、固定 384-vertex waste 和 overflow。
 
-实施包：[05 · 层次工作生成](./implementation/05-hierarchical-work-generation.md)
+退出：GPU producer → indirect consumer 闭环成立，CPU 不遍历最终可见列表；相比 flat Meshlet 主链，Raster 前工作量和目标场景 GPU 时间有可量化改善。
 
-- Instance → BVH → Cluster GPU traversal。
-- SSE LOD、frustum/cone/HZB culling。
-- 紧凑 SelectedCluster queue 和明确 overflow。
-- 只在必要位置保留 scan/scatter。
+## R4 · Unified Visibility、Material Resolve 与 Hybrid 优化
 
-退出：在 Raster 前显著减少候选 Cluster，并在 A/B/C benchmark 可量化。
+R4 按固定顺序执行，不把 Software Raster 作为 Material Resolve 的前置依赖。
 
-## R4 · Hybrid Visibility
+### R4-A · Hardware Visibility Contract
 
-实施包：[06 · 软硬件混合 Visibility](./implementation/06-hybrid-visibility.md)
+实施包：[06-hybrid-visibility](./implementation/06-hybrid-visibility.md)
 
-- 统一 VisibilityKey 和 VisibleCluster table。
-- Compute micro-raster 深度/ID 正确性原型。
-- Hardware queue 与统一 depth/visibility 合并。
-- 动态阈值、SW/HW 统计和跨 GPU 对比。
+冻结 frame-local VisibilityKey、VisibleCluster lookup、reverse-Z depth、sentinel、alpha-tested、overflow/fallback，并用 Hardware path 建立最小属性重建。
 
-退出：Hybrid 在目标微三角形场景有收益，其他场景不明显退化。
+### R4-B · Single Material Resolve
 
-## R5 · 单次材质解析与效果管线
+实施包：[07-material-resolve](./implementation/07-material-resolve.md)
 
-实施包：[07 · 单次 Material Resolve](./implementation/07-material-resolve.md)、[08 · Lighting、Temporal 与 Post](./implementation/08-lighting-temporal-post.md)
+一次扫描可见像素完成 Standard PBR surface/velocity 重建，删除每材质全屏 Material Expand。纹理先使用有界 bank/resident handle；streaming 不阻塞 v1。
 
-- MaterialTable、纹理页和单次 Standard PBR Resolve。
-- 移除每材质全屏扫描。
-- 压缩 GBuffer/Surface 数据并评估 resolve-lighting fusion。
-- 逐项恢复并验证 Lighting、Shadow、Transparency、Temporal/Post。
+### R4-C · Compute SW/Hybrid Profile Optimization
 
-退出：效果打开/关闭的成本和资源依赖透明，同画质 B/C benchmark 达标。
+实施包：[06-hybrid-visibility](./implementation/06-hybrid-visibility.md)
 
-## 后续
+从 Scthe/The Forge/MOC 等参考移植并验证微三角形 Software Raster、SW/HW classification、统一 merge 和 fallback。只有目标 workload 证明收益时才默认启用。
 
-全驻留层次、生命周期和 benchmark 稳定后，再以数据决定 geometry residency/streaming、虚拟化阴影、更复杂 GI、native enhanced profile 或完整 Gameplay/Editor 扩张。
+退出：HW-only 是完整正确基线；Material Resolve 成本不再近似材质数 × 全屏；Hybrid 在目标场景有收益且普通场景不明显退化。
+
+## R5 · Lighting、Shadow、Temporal 与扩展效果
+
+实施包：[08-lighting-temporal-post](./implementation/08-lighting-temporal-post.md)
+
+- 扩展 Clustered Lighting 到大量动态灯光，并冻结 list capacity/overflow。
+- 保留 CSM，优化多 Cascade work generation、稳定性和过滤质量。
+- IBL 与已有可迁移 GI 先形成基础间接光，不以高级 GI 阻塞阶段。
+- Transparency/Decal 接入统一 Depth/Surface/Lighting。
+- Velocity、Temporal Reconstruction、Dynamic Resolution、Upscaling 和 Post。
+- Texture resident bytes/mip feedback；由显存证据决定是否增加 mip streaming。
+
+退出：目标 workload 的画质、GPU 时间、内存和 feature-off 成本透明；Temporal/Upscaling 在相同输出画质下有可解释收益。
+
+## Deferred
+
+- 完整 World Partition 和开放世界 streaming。
+- camera-relative/双精度超大世界坐标。
+- Virtual Geometry、Virtual Shadow Map、Virtual Texture 全套系统。
+- 地形、植被、角色、粒子、云、海洋和大气专用 Renderer。
+- ReSTIR/Lumen-like GI、完整 Gameplay/ECS/Editor。
+
+这些内容保留研究资料和未来接入 seam，但不是当前阶段完成 Gate。

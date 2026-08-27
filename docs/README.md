@@ -8,6 +8,7 @@
 |---|---|
 | 了解项目词汇 | [CONTEXT.md](./CONTEXT.md) |
 | 了解引擎要成为什么 | [DIRECTION.md](./DIRECTION.md) |
+| 了解当前目标平台和 workload | [TARGETS.md](./TARGETS.md) |
 | 理解整体分层和数据所有权 | [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | 理解一帧和软硬件混合渲染 | [RENDER-PIPELINE.md](./RENDER-PIPELINE.md) |
 | 做性能工作或对比 three.js | [PERFORMANCE.md](./PERFORMANCE.md) |
@@ -20,9 +21,10 @@
 
 ## 参考与移植
 
-- [GPU-DRIVEN-RESEARCH.md](./references/GPU-DRIVEN-RESEARCH.md)：按算法、源码入口、论文和 OEngine 任务映射的详细研究。
-- [OPEN-SOURCE-REUSE.md](./references/OPEN-SOURCE-REUSE.md)：开源实现复用、许可证、性能和 WebGPU 适配规范。
-- [GPU-DRIVEN.md](./references/GPU-DRIVEN.md)：已有参考项目映射和历史移植记录。
+- [references/README.md](./references/README.md)：当前参考路由与优先级。
+- [GPU-DRIVEN.md](./references/GPU-DRIVEN.md)：核心项目映射和历史移植记录。
+- [OPEN-SOURCE-REUSE.md](./references/OPEN-SOURCE-REUSE.md)：许可证、性能和 WebGPU 适配规范。
+- [references/deferred](./references/deferred/README.md)：不支配当前路线的超大世界、高级 GI 等研究。
 
 ## 文档系统
 
@@ -44,5 +46,6 @@ docs/wiki/tracker/            PRD/Issue 约定
 - 方向、目标和事实分开写；当前代码存在不代表长期接受。
 - ADR 只记录已接受决策；尚未决定的内容留在讨论或 tracker。
 - 同一规则只保留一个 owner，其他文档使用链接。
+- `CURRENT-STATE` 只拥有当前代码事实；`ROADMAP` 只拥有阶段依赖；`implementation/README` 只拥有当前执行入口；任务级状态只在对应 implementation package 维护。
 - 文档必须提供下一跳，不创建孤立长文。
 - 过期内容直接删除；只有仍有调查价值且不会误导时才保留为 reference。

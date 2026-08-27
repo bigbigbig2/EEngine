@@ -6,7 +6,7 @@
 
 ## 强制基线
 
-A/B 是最低垂直功能与性能基线，不是 OEngine 的产品范围或完成标准。它们用于保证 GPU LOD、GPU 工作生成、SW/HW Visibility、材质重建和 PBR/IBL 基础闭环至少不落后于对照实现。C 以及通用 vertical/lifecycle cases 用于证明 OEngine 在多资产、动态世界、完整效果和扩展性上的更高目标。
+A/B 是最低垂直功能与性能基线，不是 OEngine 的产品范围或完成标准。它们用于保证 GPU LOD、GPU 工作生成、SW/HW Visibility、材质重建和 PBR/IBL 基础闭环至少不落后于对照实现。C 用于证明 OEngine 在中大型高密度、多资产/Packed Instance、hierarchy、single resolve、动态灯光、CSM、Temporal/Upscaling、内存和扩展曲线上的更高目标。
 
 A/B/C 必须驱动同一套 OEngine 主管线；只允许通过 manifest、场景数据和 feature set 改变依赖图，不允许为通过 benchmark 维护样例专用 Renderer 或独立真实管线。
 
@@ -23,18 +23,19 @@ A/B/C 必须驱动同一套 OEngine 主管线；只允许通过 manifest、场�
 - 相同 HZB、PBR/IBL、分辨率和输出格式。
 - 额外效果必须关闭或单独列出。
 
-### C · OEngine 通用性压力
+### C · OEngine 中大型场景压力
 
-- 多 geometry、多 material、alpha-tested、shadow、动态 transform、Packed instances。
+- 多 geometry、多 material、alpha-tested、CSM、少量动态 transform、Packed instances。
 - 分别增加实例、Cluster、可见比例、活跃材质和灯光数量。
-- 补充 Lighting、Transparency、Temporal/Post、asset unload/reload、resize、feature toggle 和 device lost/capability fallback 的 vertical cases；不能只测一个静态峰值场景。
+- 补充大量动态灯光、Transparency/Decal、Temporal/Upscaling、resize、feature toggle 和 capability fallback 的 vertical cases；不能只测一个静态峰值场景。完整 asset lifecycle/device recovery 不属于当前产品性能 Gate。
 
 ## 每组必须记录
 
 - CPU：World/Change Set、graph/encode、提交前总时间、submit 次数。
 - GPU：upload、cull/traversal、SW raster、HW raster、HZB、resolve、lighting、每个效果。
 - 数量：候选/可见 instance、BVH node、Cluster、SW/HW triangle、材质、灯光。
-- 内存：常驻 Buffer/Texture、transient 峰值、每帧上传与 readback 字节。
+- 内存：Geometry/Texture/Table/history resident bytes、transient 峰值、每帧上传与 readback 字节。
+- 消费效率：indirect instance count、submitted/useful vertex/triangle、固定 384-vertex Meshlet waste、bucket/pass 数。
 - 统计：平均、P50、P95、P99、首次编译和 warm frame。
 
 Result 必须同时保留原始 Pass `gpuMs` 与稳定逻辑阶段 `gpuPhaseMs`。阶段统计先在每个采样帧内求和，再跨帧计算分位数；不得把同一帧的多个 mip/bucket/pass 当作多个独立帧样本。无法可靠归类的 label 写入 `unclassified`，profiler/counter/debug 的采样开销写入 `observability`，两者都不能静默并入主渲染时间。
@@ -52,7 +53,7 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 - Visibility 的 bucket/scan/expand/second-chance 中间队列和 clear 成本高。
 - 当前 Material Expand 先写 material depth，再对每个材质画全屏三角形。
 - Visibility、material depth、四张 GBuffer、HDR 和 history 产生较大全分辨率带宽。
-- 主链缺少 hierarchy/SSE LOD 和 Compute micro-raster。
+- 主链缺少 hierarchy/SSE LOD；Compute micro-raster 是待 profile 的可选优化，不是唯一根因。
 - Shader runtime owner 已有静态审计，但 6 个运行中的 oracle/generated 事实源仍没有 generator/所有权闭环，也尚未建立系统的性能和视觉回归。
 
 这些是待测风险，不得在没有分段数据时把总慢归因于单一 LOD 或单一 Pass。
@@ -69,7 +70,7 @@ commit `4de81f7a` 的第一轮 after smoke 已证明 Frame Smoke/A/B/C 的 submi
 
 R1-B after smoke 中，Frame Smoke 的 24 个记录帧和 A/B/C 各 12 个记录帧全部为 `build=0、compile=0、execute=1、cacheHits=1`；submit P50/max 均为 1/1 且 label 只有 `Renderer/main-0`，非采样 readback P50 为 0，diagnostics、counter sample failure 和 `queueOverflowMask` 均为 0。B 继续保持 `shadedPixels P50=259190`，C 保持 `activeMaterials=3`、`activeLights=6`。用户人工确认四页画面正常但未保存截图。JSON 从 warm-up 后开始记录，因此首个 miss 由自动测试证明；文件仍携带旧 `4de81f7a` build-time provenance 和 dirty/smoke 标记，只能作为 R1-B 结构/功能证据，不能与入口表直接计算性能百分比。
 
-R1-C 接受的结构上界已冻结为每次 build `computePasses=1、dispatches=mipCount、renderPasses=0`。计数器已迁移为 `hzb.computeBuilds`、`hzb.computePasses`、`hzb.dispatches`、`hzb.outputPixels`、`hzb.historyValid`、`hzb.historyInvalidations`；不得用旧 `legacy.hzb.mipPasses` 或合成零值证明迁移。独立奇数尺寸 GPU readback 页面已加入，但本轮浏览器控制连接不可用，after JSON、validation 和 P50/P95 尚未登记。
+R1-C 接受的结构上界已冻结为每次 build `computePasses=1、dispatches=mipCount、renderPasses=0`。计数器已迁移为 `hzb.computeBuilds`、`hzb.computePasses`、`hzb.dispatches`、`hzb.outputPixels`、`hzb.historyValid`、`hzb.historyInvalidations`。独立真实 GPU prototype 已通过 `computePasses=1、dispatches=3、maxError=0` 且 diagnostics 为零；主 Frame Smoke/A/B/C after P50/P95 与 R1-D paired gate 尚未登记。
 
 | Case | CPU frame P50 / P95 | Submit | Graph build/compile | HZB build / mip Render Pass | HZB phase P50 / P95 |
 |---|---:|---:|---:|---:|---:|
@@ -95,4 +96,4 @@ G1 的结构性硬门槛是：Frame Smoke/A/B/C warm non-sampled 均为一次 ma
 - 能力证据：`capabilityComplete=false` 时，`blockedCapabilities` 必须列出未实现 feature 或尚未接线 counter 的稳定任务 ID。真实 GPU 采样值 `0` 与 `unsupported` 是不同状态；required/supported 字段缺失或 unsupported 字段伪填 `0` 都使 artifact 无效。
 - A/B 未通过：基础 GPU-driven/渲染闭环尚未达到最低线。
 - A/B 通过：除证据 artifact 合格外，必须 `capabilityComplete=true`、固定功能/画质契约完整且性能阈值达标；这仍只说明对照功能与性能下界达标，不代表通用引擎完成。
-- OEngine 阶段完成：除 A/B 外，还必须通过 C 的扩展曲线、完整效果、动态世界、生命周期、feature-off 与跨设备门禁。
+- OEngine 当前阶段完成：除 A/B 外，还必须通过 C 的多资产/Packed Instance/hierarchy、single resolve、动态灯光、CSM、Temporal/Upscaling、内存、feature-off 与目标 capability 门禁；不要求超大世界或完整 Gameplay 生命周期。

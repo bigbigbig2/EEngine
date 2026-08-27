@@ -1,68 +1,94 @@
 # OEngine 产品方向
 
-## 愿景
+## 当前定位
 
-OEngine 建设一套面向 WebGPU 的 GPU-first 游戏引擎核心。它不只包含 Renderer，还要形成资产编译、运行时世界、GPU Render World、渲染管线和性能工具的连续系统。
+OEngine 当前阶段是一套面向桌面 WebGPU、服务于中大型高几何密度场景的 GPU-first 渲染引擎核心。它优先消除 CPU 驱动和无效 GPU 工作，让 GPU 直接完成 LOD、剔除、工作生成、Visibility、材质解析、光照与时域处理。
 
-## 核心技术主张
+OEngine 当前不建设“浏览器版完整 AAA 引擎”，也不以超大世界为产品前提。所谓高画质与高性能，必须在固定中大型场景、目标桌面 GPU、统一主管线和可复现 benchmark 中证明。
+
+## 核心主链
 
 ```text
 GPU-ready Asset
-→ Data-oriented Runtime World
-→ GPU-resident Render World
-→ Hierarchical Work Generation
-→ Software/Hardware Hybrid Visibility
+→ Compact GPU Tables + Packed Instances
+→ Hierarchical LOD / Cull / Work Generation
+→ GPU Indirect Hardware Visibility
+→ Unified VisibilityKey + Depth
 → Single Material Resolve
-→ Lighting + Temporal/Post
+→ Clustered Lighting + IBL + CSM
+→ Temporal Reconstruction / Upscaling / Post
 ```
 
-高性能来自尽早消除无效工作、紧凑且稳定的数据布局、GPU producer/consumer 闭环和按证据启用的算法；不是来自堆叠更多 Pass。
+Compute Software Raster 是微三角形场景的 profile optimization。它在 Hardware-first 主链、统一 VisibilityKey 和单次 Material Resolve 已正确且可测后接入，不是引擎正确性前提。
 
-高画质来自统一 Visibility、正确的材质属性重建、PBR/IBL、阴影、透明、时域稳定性和后处理共享数据；不是维护另一套独立“高画质管线”。
+## 当前核心范围
 
-## 当前范围
+- 桌面浏览器 WebGPU capability profile、设备协商和统一主管线。
+- 离线 GPU-ready Geometry/Texture Cooker、版本化 Runtime Asset ABI。
+- 紧凑 GPU Geometry/Instance/Material/Texture/Light 表与 Packed Instance Set。
+- Meshlet、Cluster hierarchy、BVH8、SSE LOD、frustum/cone/HZB culling。
+- GPU producer → GPU queue/indirect args → GPU consumer 闭环。
+- Hardware Visibility baseline、统一 VisibilityKey/Depth、单次 Standard PBR Material Resolve。
+- 经过 benchmark 证明有收益的 Compute Micro Raster 与 SW/HW Hybrid。
+- Clustered Lighting、IBL、现有 CSM、Transparency/Decal 接入 seam。
+- Velocity、Temporal Reconstruction、Dynamic Resolution、Upscaling 与 Post。
+- GPU timestamp、工作量计数、显存/瞬态内存、上传/readback 字节和固定 benchmark。
 
-- 浏览器 WebGPU 能力基线和设备生命周期。
-- GPU-ready 资产、Meshlet、Cluster hierarchy、几何误差和 BVH。
-- 独立对象与 Packed Instance Set。
-- GPU Render World、稳定 handle 和增量 Change Set。
-- GPU instance/hierarchy/cluster culling、LOD、compact、indirect。
-- Compute 微三角形与 Hardware Raster 混合 Visibility。
-- 单次通用 Standard PBR Material Resolve。
-- Clustered Lighting、IBL、Shadow、Transparency、TAA/SSR/AO/Bloom/Exposure/Tonemap 等一条主管线上的可选功能。
-- GPU timestamp、计数器、debug view、固定 benchmark 和回归验证。
+## 当前场景模型
+
+当前优先验证中大型、高密度、静态或 mostly-static 场景。几何先按渲染行为分类，而不是提前建设内容专用系统：
+
+```text
+Opaque static
+Alpha-tested
+Transparent
+Skinned/deformed        deferred
+Procedural/particle     deferred
+```
+
+建筑可走通用 Opaque；植被首先作为 alpha-tested 压力 workload；地形、角色、粒子不在当前阶段建设专用 Renderer。
 
 ## 基线不是产品上限
 
-three.js 的 `webgpu_compute_rasterizer` 与 `webgpu_compute_rasterizer_ibl` 只定义 OEngine 的最低垂直能力与性能下界：GPU LOD、GPU work generation、Software/Hardware Visibility、材质重建以及 PBR/IBL 必须至少形成同等级的可运行闭环，并在同条件 benchmark 中达到冻结的目标。
+three.js 的 `webgpu_compute_rasterizer` 与 `webgpu_compute_rasterizer_ibl` 只定义最低垂直功能和性能下界。A/B 至少证明 GPU LOD、工作生成、SW/HW Visibility、材质重建与 PBR/IBL 闭环不落后。
 
-通过这两个示例的 A/B 门禁，只能证明基础闭环没有落后，不能宣告 OEngine 已完成。OEngine 的产品目标在它们之上，还必须同时具备并验证：
+OEngine 当前阶段的完成还要求 C 和通用 workload 证明：
 
-- 多 geometry、多 material、alpha-tested 与异构资产；
-- 独立动态对象与 Packed Instance Set；
-- 增量 GPU Render World、稳定 handle 与 GPU residency 生命周期；
-- hierarchy/SSE LOD、紧凑工作生成与可靠 overflow/fallback；
-- Lighting、IBL、Shadow、Transparency、Temporal/Post 的完整效果链；
-- resize、feature toggle、asset unload/reload、device lost 和跨设备 capability fallback；
-- 可扩展接口、debug/性能工具，以及功能关闭时接近零成本。
+- 多 geometry/material、Packed Instances、alpha-tested 和 CSM；
+- hierarchy/SSE 在展开 Meshlet 前减少工作；
+- GPU 生成的队列由 indirect/compute consumer 直接消费；
+- 单次 Material Resolve 不随活跃材质数执行全屏扫描；
+- 动态灯光、Temporal/Upscaling 和可选效果成本可解释、可关闭；
+- 工作量、GPU 时间、显存、上传和 overflow 均有真实证据。
 
-A/B/C 是同一主管线在不同 manifest 与 feature set 下的验证场景，不是三档产品、三套 Renderer 或三条真实管线。
+A/B/C 是同一主管线的不同 manifest 与 feature set，不是三档产品或三条 Renderer。
+
+## 可选后续
+
+- 场景分块、资源预取与轻量 World Partition。
+- Texture mip residency/streaming；只有显存证据需要时再研究 Virtual Texture。
+- 更多动态灯光、Probe/已有 GI 项目迁移。
+- 粒子、Skinned Mesh、复杂透明和专用内容路径。
+- Geometry streaming、Virtual Shadow Map、ReSTIR 等远期研究。
 
 ## 当前非目标
 
+- 超大世界坐标、camera-relative rendering 和双精度世界坐标。
+- 完整 World Partition、虚拟几何或开放世界 streaming 作为近期前提。
+- 地形、植被、角色、云、海洋、大气等专用系统。
+- 完整 ECS、Gameplay、Editor 和高频动态对象生命周期系统。
 - three.js API、Scene、Material、TSL 或 Loader 兼容层。
-- WebGL fallback 或自研 Vulkan/D3D12/Metal RHI。
-- 在核心性能闭环稳定前扩张编辑器、物理、网络和完整 Gameplay 生态。
+- WebGL fallback，或自研 Vulkan/D3D12/Metal RHI。
 - 未经 benchmark 证明的 Compute Raster 全量替换。
-- 在全驻留 Geometry Hierarchy 正确前实现虚拟几何 streaming。
-- 通用 Shader Graph。
 - Core/Quality/Experimental 三档独立渲染管线。
+
+GPU 资源的 in-flight 安全、resize/history 失效和 owner 正确性仍是底层正确性要求，不因动态世界不在范围内而取消。
 
 ## 成功标准
 
-- 同画质、同分辨率下，A/B 至少覆盖 three.js 两个 compute rasterizer 示例的功能闭环，并达到 `performance-targets.json` 冻结的最低性能目标。
-- A/B 通过后，C 和通用 vertical cases 继续证明多资产、动态世界、完整效果、生命周期与扩展性；不得把“追平两个示例”写成产品完成。
-- 大量实例和高几何密度下，CPU 工作不随最终候选三角形线性增长。
-- GPU 选择 LOD、生成工作量并由 indirect consumer 消费，不发生 CPU readback 决策。
-- 功能关闭时不创建对应资源、不编码对应 Pass、不产生 readback/submit。
-- 每一帧可以回答“处理了多少实例、节点、Cluster、软/硬三角形和像素，时间花在哪里”。
+- CPU 不遍历最终可见 Meshlet/triangle 列表决定绘制。
+- GPU 选择 LOD、生成 compact work 和 indirect args，并由 GPU consumer 直接消费。
+- Hardware-first 主链在普通场景稳定；Hybrid 只在目标 workload 有收益时启用，其他场景不明显退化。
+- 材质数量增长时，主材质解析不再退化为材质数 × 全屏像素。
+- 中大型场景下 CPU/GPU P50、P95、P99、显存和上传成本均可解释。
+- 功能关闭时不保留无消费者 Pass、资源、history、readback 或独立 submit。

@@ -54,4 +54,4 @@ R1 规划进一步从逐帧明细确认：Frame Smoke/A/B 的 3 次提交固定�
 - 原始 `gpuMs` 和按帧求和的 `gpuPhaseMs` 同时存在，没有 `unclassified` segment；
 - 同一 run bundle 保存截图、控制台错误记录和结果 JSON。
 
-A/B 仍只是最低功能与性能基线；`gateEligible=true` 只代表 artifact 可信，A/B 功能通过还要求 `capabilityComplete=true`。即使升级为 gate artifact，也不能替代 C 和通用 vertical/lifecycle 证据。
+A/B 仍只是最低功能与性能基线；`gateEligible=true` 只代表 artifact 可信，A/B 功能通过还要求 `capabilityComplete=true`。即使升级为 gate artifact，也不能替代 C 的多资产/Packed Instance/hierarchy、single resolve、画质、内存与 feature-off 证据。

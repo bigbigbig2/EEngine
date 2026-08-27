@@ -1,8 +1,8 @@
 # GPU-Driven 参考项目映射
 
-参考项目提供证据和设计对照，不自动决定 OEngine 实现。
+参考项目提供证据和设计对照，不自动决定 OEngine 实现。当前任务先从 [参考入口](./README.md) 选择直接命中的项目；本页保留项目总表和 R0/R1 历史移植记录。
 
-详细的算法拆解、源码入口、论文、基础库、迁移步骤和替代路线见 [GPU-DRIVEN-RESEARCH.md](./GPU-DRIVEN-RESEARCH.md)。开源实现复用、许可证、性能和 WebGPU 适配门槛见 [OPEN-SOURCE-REUSE.md](./OPEN-SOURCE-REUSE.md)。
+当前核心算法见 [GPU-DRIVEN-CORE](./GPU-DRIVEN-CORE.md) 与 [VISIBILITY-AND-MATERIAL](./VISIBILITY-AND-MATERIAL.md)；画质和平台分别见 [RENDER-QUALITY](./RENDER-QUALITY.md) 与 [WEBGPU-INFRASTRUCTURE](./WEBGPU-INFRASTRUCTURE.md)。开源复用、许可证、性能和 WebGPU 适配门槛见 [OPEN-SOURCE-REUSE.md](./OPEN-SOURCE-REUSE.md)。
 
 | 项目 | 主要学习对象 | 不能直接照搬 |
 |---|---|---|
@@ -19,19 +19,20 @@
 ## 组合原则
 
 ```text
-Bevy / nanite-webgpu：资产层次与混合 Visibility
-Niagara：工作生成和 ABI 简洁性
-renderling：GPU Render World 所有权
+meshoptimizer / Bevy：资产层次、误差与 validator
+AnKi / Niagara：GPU Scene、工作生成和 ABI 简洁性
+nanite-webgpu / The Forge：Visibility、SW/HW 与 Material Resolve
+Filament / glTF Sample Viewer：PBR/IBL reference
 PlayCanvas / Babylon：WebGPU 工程基础设施
 three.js 示例：必须达到的最低垂直功能/性能基线，不是产品上限
-OEngine：统一到完整游戏引擎核心与效果管线
+OEngine：统一为中大型高密度场景的桌面 WebGPU GPU-driven 管线
 ```
 
 ## three.js 基线边界
 
 两个 compute rasterizer 示例提供的是可运行的最低闭环和直接性能对照：GPU LOD/work generation、Software/Hardware Visibility、材质属性重建和 PBR/IBL。OEngine 应优先核对并在许可证允许时移植其中成熟算法，但不得把示例的单模型、单 source material、固定队列和示例级生命周期固化成产品架构。
 
-“达到 A/B”只表示最低闭环达标。OEngine 还必须把该能力推广到多 geometry/material、动态对象与 Packed Instances、GPU Render World、hierarchy/SSE LOD、Shadow/Transparency/Lighting/Temporal/Post，以及完整 device/resource 生命周期；这些能力由 C 和通用 vertical cases 验证。
+“达到 A/B”只表示最低闭环达标。OEngine 还必须把该能力推广到多 geometry/material、Packed Instances、compact GPU tables、hierarchy/SSE LOD、单次 Material Resolve、动态灯光、CSM、Temporal/Upscaling、内存与 feature-off；这些能力由 C 和通用 workload 验证。超大世界、完整 Gameplay 生命周期和专用内容系统不属于当前完成 Gate。
 
 ## 许可证
 

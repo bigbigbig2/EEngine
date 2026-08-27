@@ -2,7 +2,7 @@
 
 ## 阶段目标
 
-在统一 Visibility、Surface、Depth/HZB 和 Velocity 契约上逐项接回高质量光照、阴影、透明、时域和后处理。所有功能属于同一 FrameGraph；按依赖和场景启停，关闭后不保留 Pass、资源、history、readback 或 submit。
+在统一 Visibility、Surface、Depth/HZB 和 Velocity 契约上，优先完成大量动态灯光、现有 CSM、Transparency/Decal、Temporal Reconstruction、Dynamic Resolution 和 Upscaling，再逐项接回其他后处理。所有功能属于同一 FrameGraph；关闭后不保留 Pass、资源、history、readback 或 submit。
 
 ## 非目标
 
@@ -10,6 +10,7 @@
 - 不把“旧代码存在”视为必须默认接线。
 - 不为每个效果重复构建 depth、HZB、velocity、light list 或 exposure。
 - 不用 TAA/Bloom 掩盖基础 surface、visibility 或 lighting 错误。
+- 不在本阶段实现 VSM、ReSTIR/Lumen-like GI、地形/角色/粒子、云、水或大气专用路径。
 
 ## 统一资源图
 
@@ -98,17 +99,17 @@ off-state graph assertion
 
 迁移 diffuse/specular IBL、environment prefilter 和 BRDF LUT。与 Benchmark B 对齐 environment、roughness mip、normal/tangent、color space 和 exposure；禁止额外效果干扰。
 
-### FX-04 · Shadow
+### FX-04 · CSM Shadow
 
-Shadow caster selection 复用 Instance/Hierarchy/Cluster tables 和统一 Change Set，不恢复旧 MeshletDrawList。shadow atlas 有明确 allocation、eviction、dirty、overflow 与 debug view；关闭 shadow 不保留 caster work/atlas update。
+保留现有 CSM，不建设 VSM。每个 Cascade 的 caster selection 复用 Instance/Hierarchy/Cluster tables 和 GPU indirect consumer，不恢复 CPU draw list。记录 main/cascade traversal、raster、atlas bytes、更新频率和 alpha-tested caster 成本；关闭 shadow 不保留 caster work/atlas update。
 
 ### FX-05 · Transparency
 
 Alpha-tested 留在 Visibility；真正 blend 材质走透明队列。OIT/排序方案声明容量与 overflow，使用同 MaterialTable/texture pools，正确合成 Opaque HDR、depth 和 velocity/reactive。
 
-### FX-06 · TAA/TAAU
+### FX-06 · Temporal Reconstruction / Dynamic Resolution / Upscaling
 
-以新 Velocity、Depth、reactive 和 HistoryState 接入。覆盖 camera cut、disocclusion、LOD transition、透明、dynamic resolution 和 resize。TAAU 是否启用是配置节点，不复制一条主管线。
+分离 internal/output resolution，以新 Velocity、Depth、reactive 和 HistoryState 接入。覆盖 camera cut、disocclusion、LOD transition、透明、dynamic resolution 和 resize；GPU frame-time feedback 只能改变配置/scale，不产生第二条主管线。
 
 ### FX-07 · AO
 
@@ -122,9 +123,9 @@ SSAO/GTAO 选择由画质/性能对比决定，复用 final Depth/HZB/normal。�
 
 按 HDR → exposure → bloom/composite → tonemap → output transform 的色彩顺序接入。每项明确输入分辨率、输出 color space 和关闭行为。Motion Blur 不得使用 invalid velocity。
 
-### FX-10 · 高级可选功能隔离接入
+### FX-10 · 已有项目效果隔离迁移
 
-LPV、Brick4、NSS、SDF、volumetrics、GI 等逐项以 Feature node contract 接入；未通过验证保持断开。Path tracer 作为 reference/tool 时使用显式入口和资源 owner。任一功能不得增加 feature-off 的主帧固定成本。
+LPV、Brick4、NSS、SDF、volumetrics、GI 或其他用户已有项目逐项以 Feature node contract 迁移；未通过验证保持断开。任一功能不得增加 feature-off 的主帧固定成本，也不成为 R5 基础 Gate。
 
 ### FX-11 · 资源/Pass fusion 实验
 
@@ -174,4 +175,4 @@ OIT node/fragment 容量必须定义。overflow fallback 可以是 weighted blen
 
 ## 阶段退出
 
-Benchmark B 的 Standard PBR + direct/IBL 基线正确，C 中 Shadow/Transparency/Temporal/Post 可逐项启停且成本透明；所有 history、queue、资源和 fallback 闭环；旧 ABI 旁路删除。更新 shading/performance Context、`CURRENT-STATE` 和受影响 ADR/lessons。
+Benchmark B 的 Standard PBR + direct/IBL 基线正确；C 中动态灯光、CSM、Transparency/Decal、Temporal/Upscaling 可逐项启停且成本、history、queue、内存与 fallback 透明。高级 GI 和内容专用效果不阻塞阶段退出。

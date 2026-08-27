@@ -16,5 +16,4 @@ GeometryAsset
 - SSE 选择必须发生在大规模 Meshlet 展开前。
 - Parent/child 必须满足覆盖与互斥语义，并有 hysteresis/debug view。
 - Meshlet、Cluster Group、BVH Node 和 Geometry Page 是不同概念。
-- Streaming 在全驻留 hierarchy 正确且可测后再设计。
-
+- 当前只实现全驻留 hierarchy；Geometry Page/streaming 保留在 deferred 研究，不进入阶段 Gate。

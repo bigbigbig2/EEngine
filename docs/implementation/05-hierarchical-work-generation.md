@@ -2,7 +2,7 @@
 
 ## 阶段目标
 
-把现有“先展开大量 Meshlet，再 bucket/scan/cull”的路径改成 GPU producer → GPU consumer 闭环：先剔除实例，再按 BVH8/Cluster hierarchy 与 SSE 选择层次，最后只为已选 Cluster 生成 SW/HW/Alpha 光栅工作。
+把现有“先展开大量 Meshlet，再 bucket/scan/cull”的路径改成 GPU producer → GPU consumer 闭环：先剔除实例，再按 BVH8/Cluster hierarchy 与 SSE 选择层次，最后只为已选 Cluster 生成 HW/Alpha 工作并由现有 single `drawIndirect` 直接消费。SW queue 只预留稳定分类字段，不阻塞 R3。
 
 ## 非目标
 
@@ -15,7 +15,7 @@
 
 | 当前入口 | 当前职责 | 目标处理 |
 |---|---|---|
-| `OEngine/src/gpu/MeshletDrawList.ts` | instance/meshlet candidate、scan、second chance、indirect args | 用新 WorkGenerator 替换后删除 |
+| `OEngine/src/gpu/MeshletDrawList.ts` | instance/meshlet candidate、scan、second chance、indirect args 和 single draw consumer 输入 | 替换平坦工作生成；保留并深化 GPU indirect consumer 不变量 |
 | `OEngine/src/gpu/MaterialMeshletDrawList.ts` | material bucket 与 draw commands | opaque 主链删除；alpha/transparency 单独迁移 |
 | `OEngine/src/render/passes/VisibilityPass.ts` | 编排 bucket/cull/scatter/drawIndirect | 拆成 WorkGeneration + UnifiedVisibility |
 | `mesh_instance_cull*.ts` | 现有 instance cull shader | 作为行为对照，按新 InstanceTable ABI 重写 |
@@ -34,13 +34,15 @@ InstanceTable
        └─ select current renderable cluster otherwise
   → VisibleClusterTable + SelectedClusterQueue
   → Classify
-       ├─ SoftwareRasterQueue
        ├─ HardwareRasterQueue
        └─ AlphaTestQueue
-  → dispatchWorkgroupsIndirect / drawIndirect
+  → GPU fills indirect instanceCount
+  → single drawIndirect Hardware consumer
 ```
 
 从 RootTraversalQueue 开始全部由 GPU 产生和消费。CPU 只在帧开始提供表、相机、配置与容量，不读取数量来决定当帧 draw。
+
+当前 Hardware consumer 已存在：每个可见 Meshlet 作为 indirect draw 的一个 instance，固定 `vertexCount=384`。R3 必须补充 `submittedVertices/usefulVertices` 或等价证据，量化不足 128 triangles Meshlet 的浪费，而不是把“只有一次 draw”直接当成最优。
 
 ## SSE LOD 语义
 

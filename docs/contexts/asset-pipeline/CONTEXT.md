@@ -2,7 +2,7 @@
 
 ## 职责
 
-把 glTF/其他源资产转换为设备无关、可版本化、GPU-ready 的 Runtime Asset。包含规范化、Meshopt、Meshlet、Cluster Group、LOD hierarchy、BVH、压缩和验证。
+把 glTF/其他源资产转换为设备无关、可版本化、GPU-ready 的 Runtime Asset。包含规范化、meshoptimizer 优先的 Meshlet、Cluster Group、LOD hierarchy、BVH、压缩、纹理预处理和验证。
 
 ## 不职责
 
@@ -15,4 +15,4 @@
 - `Source Asset → Runtime Asset Package` 可离线重建。
 - ABI 变更需要版本、迁移或明确拒绝旧资产。
 - Cooker 输出必须包含 bounds、geometric error、父子关系和材质范围验证。
-
+- 当前输出优先全驻留紧凑数据；streaming page 只保留未来扩展字段，不支配 v1 ABI。

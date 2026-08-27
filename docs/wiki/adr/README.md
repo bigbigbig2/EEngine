@@ -22,4 +22,4 @@ ADR 记录已经接受、会长期约束实现的决策。普通实现细节、�
 - [0004 · 单次 Standard PBR Material Resolve](./0004-single-material-resolve.md)
 - [0005 · 单一统一主管线](./0005-unified-render-pipeline.md)
 - [0006 · 性能证据是架构门槛](./0006-performance-evidence-gate.md)
-
+- [0007 · 桌面 WebGPU 中大型场景与 Hardware-first 主链](./0007-desktop-webgpu-hardware-first.md)

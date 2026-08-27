@@ -6,7 +6,7 @@
 
 G0/R0 冻结的是“证据真实性”，不是要求提前完成 R2–R5。对当前已有并启用的算法，采样结果必须包含真实 GPU producer 写出的 counter，真实工作量为 0 时明确保存数值 `0`；对当前不存在的算法或尚未接线的观测 producer，Result 必须保存 `unsupported + blockerTaskId + reason`。G0 可以产出结构完整但仍带能力 blocker 的 artifact，不能把它宣称为 A/B 功能追平。Packed Instances、Hierarchy/SSE LOD 与 Compute SW Raster 的产品完成分别仍由 `WORLD-07`、`WORK-04`、`VIS-05` 及 G2–G4 判定。
 
-A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是产品完成标准；C 与通用 vertical/lifecycle cases 才继续覆盖 OEngine 的多资产、动态世界、完整效果和工程生命周期。三类 benchmark 必须通过同一 OEngine 主管线运行，只改变 manifest、数据和 feature set。
+A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是产品完成标准；C 继续覆盖 OEngine 当前范围的多资产、Packed Instances、alpha-tested、CSM、动态灯光、Temporal/Upscaling、内存和扩展曲线。三类 benchmark 必须通过同一 OEngine 主管线运行，只改变 manifest、数据和 feature set。
 
 ## R0 收口总账
 
@@ -260,7 +260,7 @@ post
 
 每个轴使用固定 seed；不要把所有变量同时放大后再猜瓶颈。
 
-C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU-driven 主链能推广到异构资产、动态增量更新、Packed Instances、完整效果依赖和生命周期事件，而不退化为 CPU 遍历或样例专用旁路。
+C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU-driven 主链能推广到异构资产、Packed Instances、少量字段 patch、alpha-tested、CSM、动态灯光、Temporal/Upscaling 和内存扩展曲线，而不退化为 CPU 遍历或样例专用旁路。
 
 ## 执行任务
 

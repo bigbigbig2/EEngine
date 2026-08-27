@@ -7,13 +7,17 @@ Instance Cull
 → Hierarchy Traversal + SSE
 → Cluster Cull
 → SelectedCluster Queue
-→ SW/HW/Alpha classification
+→ HW/Alpha classification
+→ GPU indirect args + single drawIndirect consumer
+→ optional SW classification/raster
 → Unified VisibilityKey + depth
 ```
 
 ## 约束
 
-- 每个 Work Queue 说明 producer、consumer、capacity、overflow 和 counters。
+- 每个 Work Queue 说明 producer、consumer、capacity、attempted/written、overflow 和 counters。
+- 当前 Hardware baseline 是 GPU list count 写入 indirect `instanceCount`，每 Meshlet instance 固定最多 384 vertices；必须统计无效提交和多 bucket 成本。
+- HW-only 必须先形成完整正确主链；SW/Hybrid 是后续 profile optimization。
 - Hardware 与 Software Raster 共享 VisibilityKey、深度和边规则。
 - HZB 只负责遮挡，不负责决定当前帧 LOD。
 - HZB 是 per-view ping-pong history：initial 只能读已 commit 的 previous，late/alpha/lighting 读本帧 current/final；resize、camera cut 和 view discontinuity 后 previous 无效。

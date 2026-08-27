@@ -1,67 +1,79 @@
 # 统一渲染主管线
 
-OEngine 只有一条主管线。功能按照配置、资源依赖和场景需要启停；关闭后不得保留对应 Pass 或资源成本。
+OEngine 只有一条主管线。功能按照 capability、配置和资源依赖启停；关闭后不得保留对应 Pass、资源、history、readback 或 submit。
 
 ## 一帧
 
 ```text
-Apply Change Set / Upload Dirty
-→ Update animation and camera
+Apply bulk/dirty GPU table updates
+→ Update camera and required deformation
 → Clear active counters
 → Instance Cull
 → BVH/Cluster Hierarchy Traversal + SSE LOD
-→ Cluster Frustum/Cone/HZB Cull
-→ Compact Selected Clusters
-→ Classify SW / HW / Alpha Work
-→ Software Micro Raster
-→ Transfer SW Visibility/Depth
-→ Hardware Visibility Raster
-→ Optional current-HZB late visibility
-→ Unified Material Resolve
-→ Clustered Lighting + IBL + Shadows
-→ Transparency
-→ Temporal and screen-space effects
-→ Exposure / Bloom
-→ Optional unified Render Debug View override
-→ Tonemap
-→ Present
+→ Cluster Frustum/Cone/previous-HZB Cull
+→ Compact VisibleCluster Queue
+→ Classify HW / Alpha / optional SW Work
+→ GPU writes indirect args
+→ Hardware Visibility drawIndirect
+→ Optional Software Micro Raster + unified merge
+→ Build current HZB / optional late visibility
+→ Single Material Resolve + Velocity
+→ Clustered Lighting + IBL + CSM
+→ Transparency / Decal
+→ Temporal Reconstruction / Upscaling
+→ Exposure / Bloom / Post
+→ Optional unified debug view
+→ Tonemap / Present
 ```
 
-## 软件微三角形光栅
+## Hardware-first Visibility
 
-WebGPU baseline 没有 64 位原子。目标实现使用两阶段、完整 32 位深度：
+当前 WebGPU baseline 是 GPU compact list → GPU indirect args → single `drawIndirect`。固定功能光栅是普通不透明几何、alpha-tested、shadow 和所有 fallback 的正确性路径。
 
-1. Depth 阶段遍历微三角形小包围盒，原子竞争完整 ordered depth。
-2. Visibility 阶段再次处理微三角形，只为胜出深度写 VisibilityKey；深度相同时使用确定性 key 裁决。
-3. Fullscreen transfer 把软件结果写入统一 Visibility attachment 和 `depth32float`。
-4. Hardware Raster 以 load + depth test 合并大三角形。
+必须报告：
 
-是否采用更紧凑 packed 单阶段实现，由目标 GPU benchmark 决定，不能牺牲无法接受的深度或 ID 正确性。
+- attempted/written visible Meshlet；
+- indirect instance count 与实际 submitted triangle；
+- 固定 384 vertices 带来的无效工作；
+- bucket/pass 数、overflow 和 fallback；
+- main/CSM view 分别消耗的 traversal 与 raster 时间。
+
+## Unified Visibility 与 Material Resolve
+
+先冻结 HW VisibilityKey、depth、VisibleCluster lookup 和最小属性重建，再完成单次 Standard PBR Material Resolve。主链不得等待 Software Raster 才建立材质闭环。
+
+Material Resolve 一次处理可见像素，动态读取 MaterialTable 和纹理 bank/resident handle。不得长期保留“每个材质一个全屏三角形”的通用实现。
+
+## Software Micro Raster
+
+Software Raster 是统一 Visibility 后的可选 adapter：
+
+1. Depth 阶段对微三角形执行完整 32 位 ordered depth 原子竞争。
+2. Visibility 阶段只为胜出深度写入统一 key，并采用确定性 tie-break。
+3. Transfer/merge 与 Hardware path 共享 reverse-Z、sentinel 和边规则。
+4. Alpha/复杂 clip、near-plane 大三角形、超大 bbox、overflow、atomic hotspot 和 MSAA 回退 Hardware。
+
+只有目标 adapter 和 workload 证明 Hybrid 有收益时才默认启用；HW-only 更快也是有效结论。
 
 ## HZB
 
-- 使用 Compute 在一个 Pass 内编码多个 mip dispatch，避免每 mip 一个 Render Pass。
-- previous-HZB-only 与 same-frame late visibility 是同一主管线的调度选项，不是不同档位。
-- second-chance 必须由运动、遮挡收益和性能数据决定，不无条件运行。
-- 最终 Depth/HZB 的跨帧语义必须明确，不能用历史相机错误决定当前 LOD。
+- 使用 Compute 在一个 Pass 中编码多个 mip dispatch，禁止恢复逐 mip Render Pass。
+- initial visibility 只读已 commit previous；late/alpha/light/SSR 读 current/final。
+- HZB 负责遮挡，不决定当前帧 LOD；SSE 使用当前 view 和 hierarchy error。
+- second-chance 由收益和运动证据决定，不无条件运行。
 
-## Material Resolve
+## Lighting、Shadow 与 Temporal
 
-- Standard PBR 主路径一次扫描可见像素，动态读取 MaterialTable 和纹理页。
-- 禁止长期保留“每个材质一个全屏三角形”的通用实现。
-- 自定义材质未来使用少量 Shader Bin；不得退化为材质数 × 全屏像素扫描。
-- Velocity 在 resolve 中根据当前/上一帧变换和可见几何生成，并处理 LOD 切换稳定性。
+- CSM 暂时是阴影 baseline；优先让每个 Cascade 的工作生成、计数和 indirect consumer 可解释，不建设 VSM。
+- 动态灯光走 GPU Light Table、cluster assignment 和有界 light list；attempted/written/overflow 必须可观测。
+- IBL 与现有可迁移 GI 是当前间接光基础；高级 GI 留作后续研究。
+- internal resolution 与 output resolution 分离，为 Dynamic Resolution、Temporal Reconstruction 和 Upscaling 建立统一 history contract。
+- Velocity、disocclusion/reactive 信息、camera cut、resize 和 LOD transition 必须有明确语义。
 
-## 光照与效果
+## 内容扩展
 
-Clustered direct lighting、IBL、Shadow、Transparency、AO、SSR、TAA、Bloom、Exposure 和 Tonemap 属于同一资源图。每项必须：
-
-- 声明资源依赖和历史失效条件；
-- 支持关闭且接近零成本；
-- 复用已有 Depth/HZB/Velocity，避免重复构建；
-- 记录 GPU 时间和分辨率；
-- 根据画质允许半分辨率、时域重建或 pass fusion。
+当前只冻结通用输入输出 seam，不实现地形、角色、粒子、云、海洋或大气专用 Renderer。未来项目必须复用 GPU Tables、Visibility/Depth、Surface/Velocity 和 FrameGraph，不复制第二条主管线。
 
 ## 统一调试视图
 
-Renderer 只有一个 `render_debug_view` 选择。可运行视图在时域与后处理之后覆盖最终 HDR 输入，再复用主管线 Tonemap/Present；这样不会被 TAA、Bloom 或 Sharpen 改写，也不形成第二条渲染管线。尚无可靠 GPU producer 的条目必须报告 `unsupported`，不能输出占位颜色。`none` 和 `unsupported` 状态不添加 Pass、瞬态资源、readback 或 submit。
+Renderer 只有一个 `render_debug_view`。真实 producer 不存在时报告 `unsupported + blockerTaskId`；`none` 与 `unsupported` 不添加 Pass、瞬态资源或 readback。

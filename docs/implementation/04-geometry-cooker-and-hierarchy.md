@@ -141,10 +141,10 @@ Import primitive
 ## Producer/consumer 与生命周期
 
 - Producer：离线 GeometryCooker。
-- CPU consumer：RuntimeAsset reader/validator、ResidencyManager。
+- CPU consumer：RuntimeAsset reader/validator、GPU Asset Table uploader。
 - GPU consumers：Instance cull、BVH8 traversal、SSE LOD、Cluster cull、SW/HW raster、Material Resolve。
 - Owner：RuntimeAssetRegistry 拥有 package bytes/decoded metadata；ResidentGeometry owner 拥有 GPU ranges。
-- 生命周期：package 可跨 device；resident ranges 绑定 device epoch；unload 延迟到 in-flight frame 完成。
+- 生命周期：package 设备无关；GPU ranges 绑定当前 device，grow/replace/destroy 遵守 in-flight completion。
 
 ## Capacity 与错误处理
 
@@ -188,9 +188,9 @@ Import primitive
 
 检查 section、range、tree cycle/multi-parent、orphan、error monotonicity、bounds containment、Meshlet limits、material references 和 BVH conservative decode。
 
-### COOK-09 · 接入 ResidencyManager
+### COOK-09 · 接入 GPU Asset Tables
 
-package 上传到 R2 Geometry/Cluster tables；记录 resident bytes、upload bytes、range、handle 和 device epoch。Runtime 不重新生成 hierarchy。
+package 上传到 R2 Geometry/Cluster tables；记录 resident bytes、upload bytes、range 和 handle。Runtime 不重新生成 hierarchy。Texture/geometry streaming state machine 不属于本任务。
 
 ### COOK-10 · 删除旧 runtime 生成与格式
 

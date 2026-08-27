@@ -13,7 +13,7 @@ Schema/unit
   → vertical frame tests
   → image/sequence regression
   → A/B/C performance
-  → cross-adapter/browser recovery
+  → target-adapter/browser and capability fallback
 ```
 
 越靠下成本越高。上层失败时停止下层 benchmark，避免用 FPS 掩盖 ABI/画面错误。
@@ -99,9 +99,9 @@ validation errors / device lost count
 - 至少重复多轮并报告轮间方差；系统明显受后台任务影响的 run 作废并保留原因。
 - profiler off 数据用于最终性能，profiled sampled run 用于分段；两者都保存。
 
-R0 后创建 `performance-targets.json`，在实际目标硬件写入 A/B/C 的绝对与相对门槛。没有填写目标数字前，R4/R5 不得声称“追平 three.js”。
+在下一正式性能阶段前创建/刷新 `performance-targets.json`，在目标桌面 GPU 写入 A/B/C 的绝对与相对门槛。没有填写目标数字前，R4/R5 不得声称“追平 three.js”或达到最终 AAA-like 性能。
 
-即使 A/B 达到目标数字，也只能声明“最低垂直基线通过”。只有 C 的扩展曲线，以及多资产、动态世界、完整效果、feature-off、资源生命周期、device lost/capability fallback 等通用门禁同时通过，才可以声明对应 OEngine 阶段完成。A/B/C 使用同一主管线，不接受 benchmark 专用 Renderer。
+即使 A/B 达到目标数字，也只能声明“最低垂直基线通过”。只有 C 的多资产/Packed Instance/hierarchy、single resolve、动态灯光、CSM、Temporal/Upscaling、内存、feature-off 和 capability fallback 同时通过，才可以声明当前 OEngine 阶段完成。超大世界、完整动态对象生命周期和专用内容系统不属于当前 Gate。A/B/C 使用同一主管线，不接受 benchmark 专用 Renderer。
 
 ### 建议的初始回归规则
 
@@ -190,7 +190,7 @@ git diff --check
 - 当前帧 CPU readback 决定 draw/dispatch；
 - A/B 比较条件不一致却声称性能结论；
 - 把 A/B 通过写成 OEngine 产品完成，或用样例专用旁路/Renderer 通过 A/B；
-- C 未覆盖多资产、动态更新、效果与生命周期，却声称已超过示例范围；
+- C 未覆盖多资产、Packed Instances、hierarchy、single resolve、效果和内存扩展曲线，却声称已超过示例范围；
 - P95/P99 回退被平均 FPS 掩盖；
 - 旧 producer/ABI 长期双写且没有删除任务；
 - `CURRENT-STATE`、Context、ADR 与真实运行路径冲突。

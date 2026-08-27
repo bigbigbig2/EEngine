@@ -1,8 +1,10 @@
-# 07 · R5 单次 Standard PBR Material Resolve
+# 07 · R4-B 单次 Standard PBR Material Resolve
 
 ## 阶段目标
 
 用一次可见像素扫描替代当前“material depth + 每活跃材质一个全屏三角形”。Resolve 从统一 VisibilityKey 回查 VisibleCluster、Instance、Geometry、triangle attributes 和 MaterialTable，输出光照需要的紧凑 surface data 与 velocity。
+
+本阶段依赖 R4-A Hardware Visibility Contract，不依赖 R4-C Software Raster。HW-only 必须先完成完整 Standard PBR 闭环；R4-C 后续复用相同 key/resolve。
 
 ## 非目标
 
@@ -118,9 +120,9 @@ velocity + validity/reactive
 
 ## Producer/consumer 与生命周期
 
-- Producer：Cooker/MaterialRegistry 生成 MaterialRecord/TextureRef；ResidencyManager 上传；Visibility 生成 key/depth。
+- Producer：Cooker/MaterialRegistry 生成 MaterialRecord/TextureRef；GPU Asset Table owner 上传；Visibility 生成 key/depth。
 - Consumer：Material Resolve；后续 Lighting、AO、SSR、TAA、Transparency composite 和 debug。
-- MaterialTable owner：GPU Render World；texture pool owner：ResidencyManager。
+- MaterialTable owner：GPU Asset Tables；texture bank/resident handle owner：Texture Table module。
 - Surface outputs：FrameGraph transient；Velocity/history inputs 按 view 拥有。
 - feature off：若没有任何 consumer，FrameGraph 裁掉对应 Surface channel；不能固定分配最大 GBuffer。
 

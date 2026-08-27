@@ -34,7 +34,7 @@ OEngine 的默认策略不是凭空重写已有成熟能力，而是先查找经
 
 实现新的基础功能前，至少检查以下来源：
 
-1. docs/references/GPU-DRIVEN-RESEARCH.md 的算法卡片；
+1. docs/references/README.md 路由到的当前核心算法文档；
 2. docs/references/GPU-DRIVEN.md 的已登记移植记录；
 3. 任务命中的领域 Context 和 ADR；
 4. 官方仓库、论文、规格、测试和 benchmark；
@@ -68,7 +68,7 @@ decision: adopt / port / reimplement / reject
 reason
 ~~~
 
-记录必须进入相关任务、ADR、Context 或 references/porting 文档。不能只写在聊天、提交说明或个人笔记中。
+记录默认进入 `references/porting/`，并由相关任务链接；长期决策再进入 ADR。不能只写在聊天、提交说明或个人笔记中。
 
 ## 性能约束
 

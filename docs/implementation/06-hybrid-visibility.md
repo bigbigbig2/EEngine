@@ -1,8 +1,8 @@
-# 06 · R4 软硬件混合 Visibility
+# 06 · R4-A Hardware Visibility Contract / R4-C Hybrid 优化
 
 ## 阶段目标
 
-在 R3 的统一 VisibleCluster/queue 契约上实现真实 Compute 软件微三角形光栅，并与固定功能 Hardware Raster 合并为同一 `VisibilityKey + depth`。Hybrid 只在目标 GPU/场景有证据时承担微三角形；Hardware 永远是正确性 fallback。
+本实施包分两次执行。R4-A 先在 R3 Hardware path 上冻结 `VisibleCluster + VisibilityKey + depth`，完成最小属性重建；随后执行 [R4-B Single Material Resolve](./07-material-resolve.md)。只有这两项稳定后，R4-C 才实现 Compute 软件微三角形光栅和 SW/HW Hybrid profile optimization。
 
 ## 非目标
 
@@ -12,9 +12,20 @@
 - 不让 Material Resolve 区分像素来自 SW 还是 HW。
 - 不把 HW/SW/Hybrid 变成三档产品管线；它们是同一 Visibility 契约的验证/实现选择。
 
+## 固定执行顺序
+
+```text
+R3 hierarchy → existing HW drawIndirect consumer
+→ R4-A VIS-01 + Hardware key/depth/lookup + minimal attribute debug
+→ R4-B MAT-01..10 Single Material Resolve
+→ R4-C VIS-02..06/08..10 Software/Hybrid profile optimization
+```
+
+不得因为本文件编号早于 Material Resolve，就先完成整套 SW Raster。HW-only 是完整产品主链；R4-C 未证明收益时保持关闭也可完成对应 profile 决策。
+
 ## 当前代码入口
 
-`OEngine/src/render/passes/VisibilityPass.ts` 最终在 Meshlet 路径使用 `drawIndirect()`，`visibility_meshlet.ts`/`visibility_alpha_tested.ts` 是固定功能硬件光栅 shader。当前仓库没有 Compute triangle coverage、software atomic depth 或统一 SW/HW transfer 路径。因此 R4 以 R3 新模块为唯一上游，不在旧类中继续堆叠。
+`OEngine/src/render/passes/VisibilityPass.ts` 最终在 Meshlet 路径使用 `drawIndirect()`，`visibility_meshlet.ts`/`visibility_alpha_tested.ts` 是固定功能硬件光栅 shader。当前仓库没有 Compute triangle coverage、software atomic depth 或统一 SW/HW transfer 路径；但已经存在 GPU list count → indirect args → single `drawIndirect` Hardware consumer。因此 R4-A 先规范现有闭环，R4-C 再以 R3/R4-B 新 module 为上游，不在旧类中堆叠。
 
 ## VisibilityKey v1
 
@@ -128,9 +139,9 @@ current SW queue pressure
 
 让 SW/HW/Alpha 输出同一 final attachments；逐像素对照 HW-only reference，重点检查路径交界、reverse-Z 和同深度。
 
-### VIS-07 · Material Resolve 垂直验证
+### VIS-07 · Hardware 属性重建 Gate
 
-在正式 R5 前先做最小 attribute resolve/debug color，证明两条路径回查到相同 instance、meshlet、triangle 和 barycentric。
+在 R4-B 前用 Hardware path 做最小 attribute resolve/debug color，证明 key 能唯一回查 instance、meshlet、triangle 和 barycentric。R4-C 完成后复用同一 Gate 对照 SW/HW，不新增第二套 lookup。
 
 ### VIS-08 · 分类器与 profile
 
@@ -172,8 +183,8 @@ Debug views：SW/HW 分类、software atomic depth、software key、final key、
 - depth/key 不一致：停止 classifier 调优，修复共享 coverage/depth 函数。
 - 原子热点导致长尾：缩小 SW 适用 bbox/coverage，热点工作路由 HW。
 - 某 adapter 原子或 storage 性能异常：capability profile 禁用 SW，Unified Visibility 输出契约不变。
-- 32 位 key 容量不满足真实场景：在 R5 前新增 ADR 并改 lookup 方案，不压缩 depth 精度。
+- 32 位 key 容量不满足真实场景：在 R4-B 前新增 ADR 并改 lookup 方案，不压缩 depth 精度。
 
 ## 阶段退出
 
-新 Visibility 模块能以同一输入切换 HW/SW/Hybrid 对照，统一 key/depth 通过正确性；Hybrid 在明确目标区间有收益，其他区间由 HW fallback；旧 Visibility 主链删除。更新 visibility/platform/performance Context、ADR（若 key/算法改变）和 `CURRENT-STATE`。
+R4-A 退出：Hardware path 的 key/depth/lookup/alpha/overflow 正确并可供 R4-B 消费。R4-C 退出：Hardware/Software/Hybrid 输出一致 VisibilityKey/depth/Resolve；Hybrid 在目标微三角形 workload 有证明的收益，普通场景无明显退化。若 HW-only 更快，则记录结论并保持 SW 默认关闭，不把它判定为主链失败。

@@ -1,6 +1,6 @@
 # ADR-0001 · GPU-first WebGPU 引擎方向
 
-Status: accepted
+Status: superseded by ADR-0007
 
 ## 背景
 
@@ -19,4 +19,3 @@ OEngine 定位为 WebGPU baseline 的 GPU-first 游戏引擎核心。近期不�
 ## 验证
 
 公开 interface、目录所有权和 roadmap 不再依赖 three.js 类型或包。
-

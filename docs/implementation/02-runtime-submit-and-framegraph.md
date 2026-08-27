@@ -2,7 +2,7 @@
 
 ## 阶段状态
 
-R1 已完成代码与 R0 artifact 调查，执行计划于 2026-08-26 冻结。`R1-A` 与 `R1-B` 已完成代码、自动门禁和 Frame Smoke/A/B/C 浏览器功能验收；下一执行包是 `R1-C` Compute HZB 与 history contract。
+R1 执行计划于 2026-08-26 冻结。`R1-A` 与 `R1-B` 已完成；`R1-C` 代码、自动测试和独立真实 GPU HZB prototype 已通过。当前不再拆分小包：下一步统一补采主 Frame Smoke/A/B/C after artifact，并与 `R1-D` feature-off、in-flight 和 paired gate 一次收口。
 
 R1 解决与场景规模不成比例的运行时固定成本和错误生命周期边界。它不会实现 R2 的 Runtime Asset/Packed Instance、R3 的 Geometry Hierarchy/SSE LOD、R4 的 Compute Software Raster，也不把 three.js 两个示例当作引擎完成上限。
 
@@ -17,7 +17,7 @@ R1 解决与场景规模不成比例的运行时固定成本和错误生命周�
 - compiled topology 与本帧 GPU handle、相机和动态数据已经分离；
 - HZB history 在 resize、camera cut 和 feature toggle 后不会错误复用；
 - 被替代的旧提交、旧图构建入口和旧逐 mip Render Pass 已删除；
-- A/B/C 与通用生命周期示例有前后 JSON、截图和控制台证据。
+- Frame Smoke/A/B/C 命中页面有前后 JSON、必要截图和控制台证据；不以完整动态资产生命周期扩张 R1 Gate。
 
 ## 非目标与范围边界
 
@@ -374,12 +374,12 @@ submit once
 
 | ID | 状态 | 已落地证据 / 剩余验收 |
 |---|---|---|
-| `R1-C01` | 代码完成，设备验收待补 | 已登记 three.js 固定 commit/MIT/source 和 OEngine 差异；新增 `r1-compute-hzb`，接受上界为每 build 1 Compute Pass、`dispatches=mipCount`、0 Render Pass。页面 production build 已通过，仍需目标 adapter 实跑 JSON。 |
+| `R1-C01` | 完成 | 已登记 three.js 固定 commit/MIT/source 和 OEngine 差异；`r1-compute-hzb` 在真实 GPU 达到每 build 1 Compute Pass、3 dispatch、0 Render Pass、`maxError=0`，无 compilation/validation/uncaptured error。 |
 | `R1-C02` | 完成 | `HzbReference` 与 `hzb-compute.test.mjs` 覆盖 1×1、8×8、奇数边界、全远/全近、NaN clamp 和 reverse-Z compare。 |
-| `R1-C03` | 代码完成，浏览器动作待验 | per-view ping-pong owner 明确 previous/current/final 和 commit；单测覆盖 resize/cut/render-scale/feature/view discontinuity。仍需浏览器执行 resize、camera cut 和 consumer toggle。 |
+| `R1-C03` | 代码完成，主页面动作并入 R1-D | per-view ping-pong owner 明确 previous/current/final 和 commit；单测覆盖 resize/cut/render-scale/feature/view discontinuity。主页面 resize/camera-cut/consumer toggle 统一在 R1-D 验收。 |
 | `R1-C04` | 代码完成 | `HierarchicalZBuffer` 已直接替换为 `rg16float` storage Compute；旧 Render pipeline/attachment/vertex/fragment shader 已删除；真实 counter 和 `HZB/compute-pyramid` phase label 已接入。 |
 | `R1-C05` | 代码完成 | FrameGraph 显式区分 previous/current logical resource；initial 读 previous，second-chance/alpha 写后读 current，后续 consumer 读 final version；阴影无 previous 时保守绘制并建立 current。 |
-| `R1-C06` | 待浏览器证据 | 源码静态门禁确认不含 HZB Render fallback；`npm test` 与 examples build 通过。仍需 Frame Smoke/A/B/C、原型页 JSON/截图和 after phase 数据后才能关闭。 |
+| `R1-C06` | 主页面 paired 证据待 R1-D | 源码静态门禁、自动测试、examples build 与独立 GPU prototype 已通过。仍需 Frame Smoke/A/B/C after phase/counter 和 paired 结论后关闭 G1。 |
 
 #### 允许的临时状态
 
@@ -400,7 +400,7 @@ GPU prototype 可在独立 example 中与旧实现对照。主链迁移期间可
 | ID | 实施内容 | 必须产出 |
 |---|---|---|
 | `R1-D01` | feature-off 矩阵 | 每个主管线 feature 的 pass/resource/history/readback/submit/timestamp 断言 |
-| `R1-D02` | 生命周期矩阵 | resize、DPR、dynamic resolution、camera cut/switch、view 删除、asset unload/reload、device lost/recovery |
+| `R1-D02` | View/history 矩阵 | resize、DPR、dynamic resolution、camera cut/switch、view 删除与 feature toggle；完整 asset unload/device recovery 不属于当前 G1 |
 | `R1-D03` | in-flight 资源回收 | compiled graph、texture view、bind group、staging/readback slot 与 transient 在正确 GPU completion 后复用/销毁 |
 | `R1-D04` | paired benchmark | clean/full cold + warm Frame Smoke/A/B/C；同机同浏览器同 GPU/尺寸/DPR/feature set；JSON、截图、console |
 | `R1-D05` | replace-don't-layer 收口 | 删除 adapter、fallback、旧测试和死 shader；更新 Context、CURRENT-STATE、PERFORMANCE、lesson/ADR |
@@ -495,10 +495,10 @@ R1 默认四个主要实现提交，包内先在工作区完成自动测试和�
 
 - [x] `R1-A01～A07`：一帧唯一提交 owner 与按 dirty 编码完成。
 - [x] `R1-B01～B06`：Compiled graph、cache、feature pruning、自动门禁与 Frame Smoke/A/B/C 浏览器功能验收完成。
-- [ ] `R1-C01～C06`：Compute HZB、history 与旧 Render HZB 代码已完成；目标 adapter 原型与 Frame Smoke/A/B/C after artifact 待补。
+- [ ] `R1-C01～C06`：Compute HZB、history、旧 Render HZB 删除和目标 adapter prototype 已完成；Frame Smoke/A/B/C after artifact 并入 R1-D 收口。
 - [ ] `R1-D01～D05`：生命周期、paired benchmark、文档和死代码收口完成。
 - [ ] `npm test` 通过；命中浏览器示例无 WebGPU validation/console error。
 - [ ] Frame Smoke/A/B/C 前后 JSON、截图和环境记录完整。
 - [ ] `CURRENT-STATE`、platform/performance Context、`PERFORMANCE.md` 和相关 ADR/lesson 与真实实现一致。
 
-全部完成后 G1 才能关闭，随后进入 R2 Runtime Asset、GPU Render World 与 Cooker。仅把 submit 从 13 降到 1、仅缓存图或仅改 Compute HZB 都不单独等于 R1 完成。
+全部完成后 G1 才能关闭，随后进入 R2 Compact Runtime Asset、GPU Tables、Packed Instances 与 Cooker。仅把 submit 从 13 降到 1、仅缓存图或仅改 Compute HZB 都不单独等于 R1 完成。

@@ -21,7 +21,7 @@
 | Pipeline/BindGroup caches | 保留概念，修正 owner/key | cache hit/miss 可测且无 stale resource |
 | Buffer/Texture allocators | 保留概念，修正生命周期 | in-flight reuse、grow、device lost 测试通过 |
 | `SceneChangeSet` | 深化重构 | WORLD-04 覆盖结构/字段/residency |
-| `GPUSceneContext`/`SceneDatabase` | 迁移到 GPU Render World | 新表接通后删除重复 record/submit owner |
+| `GPUSceneContext`/`SceneDatabase` | 迁移到 compact GPU Scene/Tables | 新表接通后删除重复 record/submit owner |
 | `MeshletGeometryBase`/`niMeshlets` runtime 格式 | 用 Cooker v1 替换 | COOK-10；程序化几何走同 schema |
 | `GeometryBlasPool` | 按 BVH8/ResidentGeometry 重写或删除 | COOK-09/WORK-04 |
 | `MeshletDrawList` | 删除 | WORK-08 新 HW 垂直闭环通过 |
@@ -45,8 +45,8 @@
 ```text
 src/assets/                    Runtime Asset schema/reader/registry
 tools/cooker/                  offline cook/validate
-src/world/ or src/scene/       Application World + RenderChangeSet
-src/gpu/world/                 stable tables/residency/upload
+src/world/ or src/scene/       optional scene adapter + Packed Instance source
+src/gpu/world/                 compact tables/bulk upload/field patch
 src/render/work/               instance/hierarchy/classification queues
 src/render/visibility/         HW/SW/Hybrid + unified attachments
 src/render/material/           single resolve + surface ABI

@@ -2,12 +2,12 @@
 
 ## 产品词汇
 
-- **OEngine**：面向 WebGPU 的 GPU-first 游戏引擎核心。
-- **Application World**：面向 Gameplay、编辑和序列化的 CPU 世界表示。
-- **GPU Render World**：面向批处理、查询和工作生成的 GPU 常驻表示。
+- **OEngine**：面向桌面 WebGPU 和中大型高密度场景的 GPU-first 渲染引擎核心。
+- **Application World**：可选的 Gameplay/编辑 CPU 表示；不是当前性能主链前提。
+- **GPU Scene**：面向批处理、查询和工作生成的 mostly-static Instance/Packed Instance 表示。
 - **Runtime Asset**：设备无关、可序列化、由 Cooker 生成或 Loader 解析的资产。
 - **Resident Resource**：已上传到特定 GPUDevice、可以被 GPU 安全引用的资源。
-- **Change Set**：Application World 向 GPU Render World 传递的显式增量变化。
+- **GPU Patch**：对 transform/material/light 等少量字段的显式增量更新；当前不承诺完整动态对象生命周期。
 
 ## 几何与工作生成
 
@@ -17,6 +17,7 @@
 - **Geometric Error**：资产空间简化误差。
 - **Screen-Space Error (SSE)**：几何误差投影到屏幕后的像素误差。
 - **Work Queue**：GPU producer 写入、后续 GPU consumer 间接消费的工作列表。
+- **Hardware Consumer**：当前 single `drawIndirect` + instance-driven visible Meshlet list 的 WebGPU baseline。
 - **VisibilityKey**：统一标识可见 Cluster/实例/局部三角形的 32 位键；软硬件路径必须产出相同语义。
 
 ## 渲染
@@ -33,4 +34,3 @@
 - **接入**：真实主帧 producer/consumer 已连接。
 - **闭环**：数据、容量、溢出、生命周期、统计和验证均成立。
 - **完成**：在固定场景通过正确性、性能和回归验证；不能只以“接入”代替。
-
