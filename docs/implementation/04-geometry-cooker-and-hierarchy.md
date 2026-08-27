@@ -235,13 +235,19 @@ Writer 不得直接信任内部对象。Cook 完成的定义是“重新从最�
 
 锁定 meshoptimizer/Bevy 候选版本、许可证、源码和测试；记录采用状态与 WebGPU/OEngine 差异。完成前不开始表达性算法移植。
 
+状态：完成。见 [meshoptimizer ledger](../references/porting/R2-A-01-meshoptimizer.md) 与 [Bevy Meshlet ledger](../references/porting/R2-A-01-bevy-meshlet.md)。
+
 ### R2-A-02 · SourceGeometry seam
 
 从 glTF accessor 解码与 `buildBoxMesh()` 提取同一 `SourceGeometry`；验证 material ranges、finite/index 和 deterministic normalization。旧 `niFromGeometry()` 暂由 adapter 调用，不改变真实页面。
 
+状态：完成。glTF 先生成 owned/validated `SourceGeometry` 再经 legacy adapter 调用 `niFromGeometry()`；`buildBoxSourceGeometry()` 提供同一程序化 seam。
+
 ### R2-A-03 · Package kernel + 黄金资产
 
 实现通用 writer/reader/validator 与 tiny/cube/multi-material/alpha/degenerate/corruption fixtures。以 reopen 后的 bytes 作为所有后续任务输入。
+
+状态：完成。Package Kernel v1 见 [ADR-0008](../wiki/adr/0008-runtime-asset-package-kernel-v1.md)；fixtures 由 `source-geometry.test.mjs`、`geometry-cook-recipe.test.mjs` 和 `runtime-asset-package.test.mjs` 拥有。完整 OEngine 测试 91/91、examples production build 与 `r2-package-kernel` 浏览器纵切通过；页面确认 deterministic package 可 reopen，损坏 payload 被 checksum/content hash 双重拒绝，控制台无 warning/error。
 
 ### R2-B-01 · Meshlet vertical slice
 

@@ -2,7 +2,7 @@
 
 ## 状态
 
-设计已于 2026-08-27 冻结，运行时代码尚未开始。执行顺序唯一为 `R2-A → R2-B → R2-C → R2-D`；当前待执行入口是 `R2-A-01`。
+设计已于 2026-08-27 冻结。`R2-A` Gate 已完成；执行顺序唯一为 `R2-A → R2-B → R2-C → R2-D`，当前入口切换为 R2-B Cooked Geometry。
 
 ## R2 通俗解释
 
@@ -105,10 +105,10 @@ interface RuntimeAssetPackage {
   validate(): ValidationReport;
 }
 
-function openRuntimeAssetPackage(bytes: ArrayBuffer): RuntimeAssetPackage;
+function openRuntimeAssetPackage(bytes: ArrayBuffer): Promise<RuntimeAssetPackage>;
 ```
 
-它在内部隐藏 header、section directory、version/schema hash、checksum、range/alignment 验证和 typed views。`GeometryAssetView` 只提供验证后的只读 section view，不把 Loader 临时对象变成 package 状态。
+它在内部隐藏 header、section directory、version/schema hash、checksum、range/alignment 验证和 typed views。`GeometryAssetView` 只提供验证后的只读 section view，不把 Loader 临时对象变成 package 状态。v1 使用浏览器/Node 共有的 Web Crypto SHA-256，因此 open/write 是异步资产边界；精确格式由 [ADR-0008](../wiki/adr/0008-runtime-asset-package-kernel-v1.md) 冻结。
 
 ### `GeometryCooker`
 
@@ -240,6 +240,13 @@ R2 严格按 A → B → C → D 执行。每个包都必须交付可运行纵�
 5. 程序化 `BoxGeometry` 可先通过 in-memory SourceGeometry 进入 package，不再定义第二套目标格式。
 
 退出证据：黄金 package byte-identical；所有 corruption case 被明确接受/拒绝；Reader/Cooker 不依赖 WebGPU；porting ledger 完整。
+
+当前状态（2026-08-27）：
+
+- `R2-A-01` 完成：锁定 meshoptimizer `v1.0`/`73583c3` 与 Bevy `v0.18.0`/`5f8270f`，许可证、源码、测试和采用边界已进入 porting ledger；
+- `R2-A-02` 完成：`SourceGeometry`、`GeometryCookRecipe`、glTF primitive seam、Box source seam 与 legacy adapter 已接入；
+- `R2-A-03` 完成：Package v1 writer/open/validator、SHA-256 identity、required/optional、黄金 hash 和 corruption tests 已接入；完整 OEngine 测试 91/91、examples production build 与 `r2-package-kernel` 浏览器纵切通过，控制台无 warning/error；
+- R2-B 尚未开始，当前没有新 Meshlet/hierarchy/BVH8 算法或 GPU residency。
 
 ### R2-B · Cooked Geometry
 

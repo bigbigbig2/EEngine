@@ -18,3 +18,4 @@
 - 当前输出优先全驻留紧凑数据；streaming page 只保留未来扩展字段，不支配 v1 ABI。
 - 通用 package kernel 只拥有 header/directory/hash/range；Geometry sections 与不变量由 `implementation/04-geometry-cooker-and-hierarchy.md` 拥有。
 - runtime 打开 package 只做验证、驻留和上传，不重复 Meshlet、simplify、hierarchy 或 BVH build。
+- R2-A 当前已冻结 `SourceGeometry`、`GeometryCookRecipe` 与 Package Kernel v1；精确容器 ABI 见 ADR-0008。Geometry sections/Cooker 算法仍由 R2-B 完成。

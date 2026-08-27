@@ -50,6 +50,10 @@ export default defineConfig({
           examplesRoot,
           "r1-compute-hzb/index.html"
         ),
+        r2PackageKernel: path.resolve(
+          examplesRoot,
+          "r2-package-kernel/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

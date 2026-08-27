@@ -3,7 +3,53 @@
  */
 
 export { AnimationClipFlags } from "./animation/AnimationClipFlags.js";
-export { BoxGeometry } from "./geometry/BoxGeometry.js";
+export { BoxGeometry, buildBoxSourceGeometry } from "./geometry/BoxGeometry.js";
+export {
+  SOURCE_DEFAULT_MATERIAL_ID,
+  createSourceGeometry
+} from "./assets/SourceGeometry.js";
+export type {
+  SourceAlphaMode,
+  SourceGeometry,
+  SourceGeometryBounds,
+  SourceGeometryInput,
+  SourceMaterialRange,
+  SourceNumericArray,
+  SourceVertexDataType,
+  SourceVertexStream,
+  SourceVertexStreamInput
+} from "./assets/SourceGeometry.js";
+export {
+  BEVY_MESHLET_REFERENCE_COMMIT,
+  GEOMETRY_COOK_RECIPE_VERSION,
+  MESHOPTIMIZER_COOKER_COMMIT,
+  createGeometryCookRecipe,
+  geometryCookRecipeKey
+} from "./assets/GeometryCookRecipe.js";
+export type {
+  DegenerateTrianglePolicy,
+  GeometryCookRecipe,
+  GeometryCookRecipeInput
+} from "./assets/GeometryCookRecipe.js";
+export {
+  RUNTIME_ASSET_FORMAT_VERSION,
+  RUNTIME_ASSET_PACKAGE_SCHEMA_HASH,
+  RuntimeAssetPackageError,
+  openRuntimeAssetPackage,
+  validateRuntimeAssetPackage,
+  writeRuntimeAssetPackage
+} from "./assets/RuntimeAssetPackage.js";
+export type {
+  RuntimeAssetManifest,
+  RuntimeAssetPackage,
+  RuntimeAssetPackageOpenOptions,
+  RuntimeAssetPackageWriteInput,
+  RuntimeAssetSectionInput,
+  RuntimeAssetSectionView,
+  RuntimeAssetValidationIssue,
+  RuntimeAssetValidationReport,
+  RuntimeAssetValidationSeverity
+} from "./assets/RuntimeAssetPackage.js";
 export { Camera } from "./camera/Camera.js";
 export { DirectionalLight } from "./light/DirectionalLight.js";
 export { DynamicResolutionScaling } from "./render/DynamicResolutionScaling.js";

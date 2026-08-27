@@ -7,7 +7,16 @@ import { HashMap } from "../../core/HashMap.js";
 import { HashSet } from "../../core/HashSet.js";
 import { Attribute, AttributeSpec } from "../../geometry/Attribute.js";
 import type { MeshletGeometryBase } from "../../geometry/BoxGeometry.js";
+import {
+  SOURCE_DEFAULT_MATERIAL_ID,
+  type SourceAlphaMode,
+  type SourceGeometry
+} from "../../assets/SourceGeometry.js";
 import { Geometry } from "../../geometry/Geometry.js";
+import {
+  geometryToSourceGeometry,
+  sourceGeometryToGeometry
+} from "../../geometry/SourceGeometryAdapter.js";
 import { MeshletAttrName } from "../../geometry/meshletPackedAttrs.js";
 import { niFromGeometry } from "../../geometry/niMeshlets.js";
 import {
@@ -30,6 +39,7 @@ export interface GltfAttrCacheKey {
 export interface GltfGeometryBuildContext {
   attrCache: HashMap<GltfAttrCacheKey, Attribute>;
   primJsonCache: Map<string, MeshletGeometryBase>;
+  sourcePrimJsonCache: Map<string, SourceGeometry>;
   geomIntern: HashSet<MeshletGeometryBase>;
 }
 
@@ -40,6 +50,7 @@ export function createGltfGeometryBuildContext(): GltfGeometryBuildContext {
       keyEqualityFunction: (a, b) => deepEquals(a, b)
     }),
     primJsonCache: new Map(),
+    sourcePrimJsonCache: new Map(),
     geomIntern: new HashSet<MeshletGeometryBase>()
   };
 }
@@ -437,12 +448,12 @@ export function normalizeGltfAttribute(e: Attribute): Attribute {
   return convertAttributeToTarget(e, t.type, t.itemSize, t.normalized);
 }
 
-function primitiveToGeometryUncached(
+function primitiveToSourceGeometryUncached(
   doc: GltfDocument,
   primitive: GltfPrimitive,
   name: string,
   ctx?: GltfGeometryBuildContext
-): MeshletGeometryBase {
+): SourceGeometry {
   if ((primitive.mode ?? GLTF_TRIANGLES) !== GLTF_TRIANGLES) {
     throw new Error("Unsupported draw method");
   }
@@ -482,7 +493,53 @@ function primitiveToGeometryUncached(
 
   if (name) n.name = name;
 
-  return niFromGeometry(n);
+  const material = primitive.material === undefined
+    ? undefined
+    : doc.materials?.[primitive.material];
+  return geometryToSourceGeometry(n, {
+    sourceId: name || `gltf:${JSON.stringify(primitive)}`,
+    materialRanges: [{
+      firstTriangle: 0,
+      triangleCount: n.getPrimitiveCount(),
+      materialId: primitive.material ?? SOURCE_DEFAULT_MATERIAL_ID,
+      alphaMode: gltfAlphaMode(material?.alphaMode),
+      doubleSided: material?.doubleSided === true
+    }]
+  });
+}
+
+export function primitiveToSourceGeometry(
+  doc: GltfDocument,
+  primitive: GltfPrimitive,
+  name = "",
+  ctx?: GltfGeometryBuildContext
+): SourceGeometry {
+  if (!ctx) {
+    return primitiveToSourceGeometryUncached(doc, primitive, name);
+  }
+  const jsonKey = `${name}\u0000${JSON.stringify(primitive)}`;
+  let source = ctx.sourcePrimJsonCache.get(jsonKey);
+  if (source === undefined) {
+    source = primitiveToSourceGeometryUncached(doc, primitive, name, ctx);
+    ctx.sourcePrimJsonCache.set(jsonKey, source);
+  }
+  return source;
+}
+
+function gltfAlphaMode(value: string | undefined): SourceAlphaMode {
+  if (value === "MASK") return "mask";
+  if (value === "BLEND") return "blend";
+  return "opaque";
+}
+
+function primitiveToGeometryUncached(
+  doc: GltfDocument,
+  primitive: GltfPrimitive,
+  name: string,
+  ctx?: GltfGeometryBuildContext
+): MeshletGeometryBase {
+  const source = primitiveToSourceGeometry(doc, primitive, name, ctx);
+  return niFromGeometry(sourceGeometryToGeometry(source));
 }
 
 export function primitiveToGeometry(

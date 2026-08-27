@@ -35,7 +35,7 @@
 
 ## 关键缺口
 
-- 没有正式离线 Geometry Cooker 和版本化 Runtime Asset Package。
+- R2-A 已实现 `SourceGeometry`、固定 `GeometryCookRecipe` 和版本化 Runtime Asset Package Kernel；尚无 R2-B Meshlet/hierarchy/BVH8 Geometry sections 或正式 Cooker CLI。
 - 没有面向当前目标的 compact GPU table ABI 与完整 Packed Instance Set。
 - 没有 GPU Geometry Hierarchy、BVH8 traversal 或 SSE LOD；现有路径仍先展开大量 flat Meshlet 工作。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
@@ -48,7 +48,7 @@
 
 ## 当前下一步
 
-1. R2 已冻结为 `R2-A Package Kernel → R2-B Cooked Geometry → R2-C Residency + Compact Tables → R2-D Packed Scene Vertical`；当前从 R2-A 开始，不并行重写 Material/Texture/Light。
+1. R2-A Package Kernel Gate 已完成；当前进入 R2-B Cooked Geometry，不并行重写 Material/Texture/Light。
 2. R3 将 hierarchy 输出接入现有 single indirect Hardware consumer。
 3. R4-A 冻结 Hardware Visibility contract，R4-B 提前 Single Material Resolve，R4-C 再决定 SW/Hybrid 收益。
 

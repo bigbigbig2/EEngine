@@ -9,6 +9,8 @@ import {
 } from "../core/hashMix.js";
 import { Attribute } from "./Attribute.js";
 import { Geometry } from "./Geometry.js";
+import type { SourceGeometry } from "../assets/SourceGeometry.js";
+import { geometryToSourceGeometry } from "./SourceGeometryAdapter.js";
 import { MeshletAttrName } from "./meshletPackedAttrs.js";
 import {
   buildMeshletBatchFromGeometry,
@@ -213,6 +215,20 @@ export function buildBoxMesh(
     Attribute.from(new Float32Array(d), 2, MeshletAttrName.Uv0)
   );
   return i;
+}
+
+export function buildBoxSourceGeometry(
+  width = 1,
+  height = 1,
+  depth = 1,
+  segW = 1,
+  segH = 1,
+  segD = 1
+): SourceGeometry {
+  return geometryToSourceGeometry(
+    buildBoxMesh(width, height, depth, segW, segH, segD),
+    { sourceId: `box:${width}:${height}:${depth}:${segW}:${segH}:${segD}` }
+  );
 }
 
 export class BoxGeometry extends MeshletGeometryBase {
