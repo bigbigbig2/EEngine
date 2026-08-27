@@ -45,7 +45,7 @@
 
 ## 性能假设与验证
 
-- 假设：可绘制 hierarchy 与 BVH8 让 R3 在 flat Meshlet expand 前减少候选；
+- 原始假设：可绘制 hierarchy 与 BVH8 可以在 flat Meshlet expand 前减少候选；后续 ADR-0009 已收紧为 R3 v1 只使用 Cluster hierarchy，当前独立 BVH8 不具备 LOD cut 互斥语义；
 - R2-B 只验证 Cook time、bytes、node/depth/error 和 CPU selected set；
 - R3 使用相同场景比较 flat/hierarchy 的 visited/selected/raster 工作与 GPU timestamp；层次基础开销更高时允许禁用但必须共享 flat fallback。
 
@@ -98,3 +98,7 @@ recipe/schema identity。
 fallback、cycle/multi-parent/orphan/non-monotonic error、平面/线/点状/极端尺度
 BVH bounds、BVH cycle 与非保守 decoded bounds。真正的 GPU traversal 与
 flat-vs-hierarchy counter 属于 R3，R2-B 不声称 GPU 性能收益。
+
+## R3 消费边界补充（2026-08-28）
+
+R2-B 的 BVH8 对全部 Cluster 建立独立空间索引，数据与 conservative bounds validator 仍然有效；但它没有编码 parent/descendant 互斥 cut。R3 v1 不直接消费该 BVH8，而以 strict renderable Cluster hierarchy root→children 作为 LOD traversal 主干。该修正不撤销本记录的 Cooker provenance，只撤销“当前 BVH8 必然进入 R3 热路径”的运行假设；详见 [R3-01](./R3-01-hierarchical-work-generation.md) 与 [ADR-0009](../../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md)。

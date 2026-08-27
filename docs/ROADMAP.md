@@ -41,13 +41,14 @@
 
 实施包：[05-hierarchical-work-generation](./implementation/05-hierarchical-work-generation.md)
 
-- Instance → BVH8/Cluster traversal。
+- Instance → Cluster hierarchy root/children traversal；当前 R2 BVH8 不直接进入 R3 v1 热路径。
 - 在 Meshlet 大规模展开前完成 SSE LOD。
-- frustum/cone/previous-HZB culling 与 compact queue。
+- 先完成 CPU/GPU `frustum + SSE` selected-set 对齐，再加入 cone/previous-HZB culling。
 - 现有 single `drawIndirect` hardware consumer 正式接通 hierarchy 输出。
-- main/CSM view 分别记录 queue、indirect count、submitted triangle、固定 384-vertex waste 和 overflow。
+- children all-or-nothing reservation、parent fallback 与 max-cut RasterWork capacity。
+- main/CSM view 分别记录 queue、round、indirect count、submitted triangle、固定 384-vertex waste、overflow 和 fallback。
 
-退出：GPU producer → indirect consumer 闭环成立，CPU 不遍历最终可见列表；相比 flat Meshlet 主链，Raster 前工作量和目标场景 GPU 时间有可量化改善。
+退出：GPU producer → indirect consumer 闭环成立，CPU 不遍历最终可见列表；相比 flat Meshlet 主链，Raster 前工作量和目标场景 GPU 时间有可量化改善；Packed flat producer/owner 已删除。执行按 R3-A Reference/ABI、R3-B Hierarchy producer、R3-C Hardware vertical、R3-D Cone/HZB/deletion 四包收口。
 
 ## R4 · Unified Visibility、Material Resolve 与 Hybrid 优化
 

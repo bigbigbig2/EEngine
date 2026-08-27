@@ -9,7 +9,7 @@
 | three.js compute rasterizer | 最短 GPU LOD/work queue/SW-HW/resolve 闭环 | 单模型布局、固定巨型队列、低位宽 packed visibility |
 | three.js compute rasterizer IBL | HZB、真实材质属性重建、PBR/IBL | 单 source material、示例生命周期和多次 submit |
 | Scthe/nanite-webgpu | Meshlet LOD hierarchy、误差、SW/HW、统计 | 无通用 GPU Scene/Visibility Buffer/streaming |
-| Bevy Meshlet Renderer | Cooker ABI、BVH8、实例→BVH→Cluster、early/late visibility | Vulkan/Metal 特性要求、64 位原子、subgroup 假设 |
+| Bevy Meshlet Renderer | Cooker ABI、hierarchy scheduling、SSE/error、BVH/early-late 对照 | 直接套用 Bevy BVH record、Vulkan/Metal 特性要求、64 位原子、subgroup 假设 |
 | renderling | GPU-resident slab、owner、frustum/HZB、indirect | native multi-draw-indirect 和未完成遮挡路径 |
 | Niagara | 紧凑 GPU Scene ABI、分阶段 work generation、LOD/HZB/Meshlet | Vulkan 专有提交能力 |
 | PlayCanvas | GPU scan/scatter、WebGPU backend/cache | GSplat 专用链不等于通用 Mesh GPU-driven |
@@ -56,6 +56,8 @@ local regression example/test
 ```
 
 提交中的注释不必堆叠整段上游说明，但必须能链接到仓库内的移植记录。没有兼容许可证时只记录算法对照和独立验证，不复制表达性代码。
+
+R3 的 hierarchy scheduling/SSE/queue/indirect 来源已从历史总表拆到 [R3-01 Cluster hierarchy GPU work generation](./porting/R3-01-hierarchical-work-generation.md)。该记录明确拒绝把当前 R2 BVH8 或上游 BVH record 直接当作 OEngine LOD cut 主链。
 
 ### R0 异步 readback 生命周期
 

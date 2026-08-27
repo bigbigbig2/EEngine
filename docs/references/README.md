@@ -21,7 +21,7 @@
 - three.js compute rasterizer：最低 WebGPU 垂直闭环和直接性能对照。
 - Scthe/nanite-webgpu：WGSL hierarchy、SW/HW raster、HZB 和统计。
 - meshoptimizer：Meshlet/Cooker、bounds、cone 和顶点局部性。
-- Bevy Meshlet：hierarchy/BVH8/error/validator；不照搬原生 capability。
+- Bevy Meshlet：hierarchy scheduling、SSE/error/validator 与 BVH 语义对照；R3 不直接套用其 BVH record 或原生 capability。
 - AnKi/Niagara：GPU Scene、cull/compact/work generation 数据流。
 - The Forge TVB：Visibility Buffer、Material Resolve、Forward+/OIT。
 - Filament/glTF Sample Viewer：PBR/IBL/材质语义和视觉 reference。

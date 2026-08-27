@@ -46,7 +46,7 @@
 - R2 provenance 清算已补齐 Packed glTF 的 Khronos 规范台账与 multi-primitive/material/nested-transform fixture；Packed Material 的 glTF 8/16 位 normalized 与 OEngine 32 位扩展 CPU/WGSL 边界也已冻结。flat Visibility 与每材质 fullscreen 仍分别由 R3/R4-B 替换。
 - Packed Visibility 执行 Instance frustum cull → flat Meshlet compact → GPU 写完整 16 B indirect record → Hardware `drawIndirect()`；共享 Geometry 的 capacity 按实例精确累加，storage/u32 limit 在 owner 变更前拒绝。Material 每 semantic 只扫描一次 descriptor，使用解析 perspective UV gradient 并修正重复 viewport、镜像/非均匀 normal-tangent；Velocity 已删除每可见像素 `mat4_inverse`。稳定帧不重复 residency/instantiate，也不由 CPU readback 决定 draw。
 - package 主路径不创建等量 `Mesh/Node3D`，也不创建 legacy `MeshletGpuTable`；旧 Geometry owner 改为 legacy Scene consumer 请求时惰性创建。普通对象、旧 Loader、shadow/transparent 等尚未迁移 consumer 仍保留旧路径，后续按 R3/R4/R5 迁移删除，不能解释为 Packed 主路径双 owner。
-- 没有 GPU Geometry Hierarchy、BVH8 traversal 或 SSE LOD；现有路径仍先展开大量 flat Meshlet 工作。
+- 没有 GPU Cluster hierarchy traversal 或 SSE LOD；现有路径仍先展开大量 flat Meshlet 工作。R2 BVH8 已正确生成/驻留，但它独立索引所有 LOD Cluster、没有 parent/descendant 互斥 cut 语义，按 ADR-0009 不进入 R3 v1 热路径。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
 - 没有正式冻结的 frame-local VisibilityKey/VisibleCluster lookup 契约。
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
@@ -58,7 +58,7 @@
 
 ## 当前下一步
 
-1. R2/G2 已完成。当前唯一代码任务是 R3：读取 R2 已驻留的 Instance/Geometry/Cluster/BVH8 数据，在 flat Meshlet 展开前执行 GPU hierarchy/SSE/cull/compact，并直接喂给现有 Hardware consumer。
+1. R2/G2 已完成。当前唯一代码任务是 R3：先完成 multi-instance CPU oracle、queue ABI/max-cut capacity，再读取 R2 已驻留的 Instance/Geometry/Cluster hierarchy 数据执行 GPU root→children/SSE/cull/compact，并直接喂给现有 Hardware consumer。当前 BVH8 暂不参与首版运行 traversal。
 2. R3 关闭后依次推进 R4-A Visibility contract、R4-B single Material Resolve、R4-C 可选 SW/Hybrid；Packed alpha-tested Visibility、Packed shadow consumer 与画质管线按各自 Gate 验收，不倒灌回 R2。
 
 ## 本地参考状态

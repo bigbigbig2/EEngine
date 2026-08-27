@@ -4,7 +4,7 @@
 
 ```text
 Instance Cull
-→ Hierarchy Traversal + SSE
+→ Cluster Hierarchy root/children Traversal + SSE
 → Cluster Cull
 → SelectedCluster Queue
 → HW/Alpha classification
@@ -18,6 +18,9 @@ Instance Cull
 - 每个 Work Queue 说明 producer、consumer、capacity、attempted/written、overflow 和 counters。
 - 当前 Hardware baseline 是 GPU list count 写入 indirect `instanceCount`，每 Meshlet instance 固定最多 384 vertices；必须统计无效提交和多 bucket 成本。
 - R2-D Packed flat queue 的 header 为 `written/attempted/visible/rejected`，element 为 Instance/Meshlet record index；共享 Geometry capacity 必须乘实例数，adapter limit 在 owner 变更前拒绝。该 flat producer 由 R3 hierarchy traversal 替换，但复用同一 Hardware indirect consumer。
+- R3 v1 的 TraversalWork 是 `instanceRecordIndex + clusterRecordIndex`，VisibleCluster 是稳定 lookup seam，RasterWork 是 `visibleClusterSlot + meshletRecordIndex`；当前 R2 BVH8 不直接参与 LOD cut。
+- children queue 使用 all-or-nothing bounded reservation：整组成功写入，否则选择当前 renderable parent。每条队列区分 attempted/written/peak/overflow/fallback，HW RasterWork 不允许截断漏绘。
+- 首个 GPU/CPU selected-set 闭环只启用 Frustum + SSE；Cone 和 previous HZB 之后逐项接入。没有 SW consumer 时不得创建 SW queue 或相关资源/Pass。
 - HW-only 必须先形成完整正确主链；SW/Hybrid 是后续 profile optimization。
 - Hardware 与 Software Raster 共享 VisibilityKey、深度和边规则。
 - HZB 只负责遮挡，不负责决定当前帧 LOD。

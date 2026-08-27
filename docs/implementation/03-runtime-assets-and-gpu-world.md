@@ -26,12 +26,12 @@ R2：Source → Cooked Package → Resident Geometry → Packed Instances
                                       ↓
                          现有 flat Hardware consumer 可正确渲染
 
-R3：Instance → BVH8 / Cluster traversal → SSE LOD → compact queue
-                                                    ↓
-                                      同一个 Hardware consumer
+R3：Instance → Cluster hierarchy root/children → SSE LOD → compact queue
+                                                          ↓
+                                            同一个 Hardware consumer
 ```
 
-G2 证明“数据基础、owner、上传与旧消费者接线完成”；不宣称 GPU hierarchy traversal 已完成。Hierarchy/error/BVH8 必须在 R2 被 Cook、序列化、验证并上传，是因为 R3 不能一边实现 traversal、一边继续改输入 ABI。
+G2 证明“数据基础、owner、上传与旧消费者接线完成”；不宣称 GPU hierarchy traversal 已完成。Hierarchy/error/BVH8 必须在 R2 被 Cook、序列化、验证并上传，是因为后续不能一边实现 consumer、一边继续改输入 ABI；但当前独立 BVH8 不具备 parent/descendant 互斥 cut 语义，按 ADR-0009 不进入 R3 v1 热路径。
 
 ## 范围冻结
 
@@ -179,7 +179,7 @@ R2 只冻结三张 record table。Material/Texture/Light 继续使用现有 owne
 
 | Record | 必需逻辑字段 | R2 consumer |
 |---|---|---|
-| `GeometryRecord` | bounds、vertex/index/meshlet payload ranges、cluster root/range、BVH8 root/range、decode metadata | flat adapter、R3 traversal、后续 material resolve |
+| `GeometryRecord` | bounds、vertex/index/meshlet payload ranges、cluster root/range、BVH8 root/range、decode metadata | flat adapter、R3 读取 cluster root/range、后续 material resolve；BVH8 range 暂为 profile 候选 |
 | `ClusterRecord` | conservative bounds/cone、geometric error、child range、renderable Meshlet range、material/group flags | R2 CPU validator；R3 GPU traversal |
 | `InstanceRecord` | geometry record index、material handle、current object-to-world、CPU 预计算 previous-from-current、object bounds/scale、flags、stable debug ID | 现有 flat work adapter、R3 instance cull、后续 resolve |
 
@@ -381,4 +381,4 @@ R2 关闭后的 provenance/performance-debt 清算（2026-08-27）：
 6. package 主路径不再 runtime 生成 Meshlet/hierarchy，也不创建旧重复 residency/instance owner；仍有真实 legacy consumer 的旧类已惰性隔离并登记后续删除 Gate；
 7. `CURRENT-STATE`、相关 Context、public interface 与 migration ledger 同步。
 
-G2 不要求 GPU traversal 已经使用 hierarchy。R2 关闭后的唯一下一步是 R3：读取这里冻结的 Instance/Geometry/Cluster/BVH8 数据，在 Meshlet 展开前完成 SSE/cull/compact，并把结果接入同一个 Hardware consumer。
+G2 不要求 GPU traversal 已经使用 hierarchy。R2 关闭后的唯一下一步是 R3：读取这里冻结的 Instance/Geometry/Cluster hierarchy 数据，在 Meshlet 展开前完成 SSE/cull/compact，并把结果接入同一个 Hardware consumer。BVH8 继续驻留为 package/validator 数据和后续 profile 候选，不为使用已有字段强行接入首版主链。

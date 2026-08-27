@@ -43,7 +43,14 @@ R0/G0、R1/G1 与 R2/G2 已关闭。R2 Compact Data Foundation 的交付顺序�
 4. `R2-D Packed Scene Vertical`：Instance record、GpuScene owner、Packed/普通 Scene source、bulk/patch/stable-frame 已完成；A/B/C 与真实 Damaged Helmet glTF 已进入 Cooker → Package → Packed Geometry/Instance → production Hardware Visibility/Material/Velocity 主链；
 5. package/Packed 主路径不创建等量 `Mesh/Node3D`，旧 `MeshletGpuTable` 改为 legacy Scene consumer 才惰性创建，因此新主路径不存在重复 Geometry/Instance owner。旧 Scene consumer 的全局删除随 R3 工作生成迁移完成，不能反向把它当作 G2 数据 Gate blocker。
 
-当前唯一代码入口是 R3 Hierarchy + HW Consumer：让已驻留的 hierarchy/SSE 在 flat Meshlet 展开前减量，并继续消费同一套 Packed bindings 与 Hardware `drawIndirect()`。
+当前唯一代码入口是 R3 Hierarchy + HW Consumer：让已驻留的 Cluster hierarchy/SSE 在 flat Meshlet 展开前减量，并继续消费同一套 Packed bindings 与 Hardware `drawIndirect()`。R3 v1 不直接遍历当前独立 BVH8；原因、长期决策和来源分别见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md) 与 [R3-01 porting ledger](../references/porting/R3-01-hierarchical-work-generation.md)。
+
+R3 集中为四个可运行包：
+
+1. `R3-A Reference + ABI`：multi-instance CPU oracle、queue schema、max-cut capacity 和整组 children fallback；
+2. `R3-B Hierarchy Producer`：InstanceCull → root → ping/pong Cluster traversal，先只启用 Frustum + SSE；
+3. `R3-C Hardware Vertical`：VisibleCluster/RasterWork → GPU indirect args → 现有 Hardware consumer，并运行 flat/hierarchy paired A/B/C；
+4. `R3-D Enhancement + Deletion`：Cone、previous HZB、feature-off、删除 Packed flat producer/owner并关闭 G3。
 
 R2 只新增 Geometry、Cluster、Instance 三张必需 record table；Material 使用现有 registry 的 validated handle reference，Texture/Light 全面重构不进入 G2。R2 会生成、验证并驻留 hierarchy 数据，但 GPU hierarchy/SSE traversal 属于 R3。
 

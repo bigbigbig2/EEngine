@@ -24,8 +24,8 @@
 | `GPUSceneContext`/`SceneDatabase` | 迁移到 `GpuScene`/Instance table | R2-D 新表接通现有 Hardware consumer 后删除重复 record owner |
 | `MeshletGeometryBase`/`niMeshlets` runtime 格式 | 用 package v1 替换 | R2-B/D；程序化几何走同 in-memory Cooker/schema |
 | `MeshletGpuTable`/`MeshletGpuPool` | 用 `GpuAssetStore` 唯一 residency owner 替换 | R2-C 新 store 接通、R2-D consumers 迁完 |
-| `GeometryBlasPool` | 用 package BVH8 payload 与 `GpuAssetStore` 替换 | R2-C/D；R3 读取新 BVH8 binding |
-| `MeshletDrawList` | 删除 | WORK-08 新 HW 垂直闭环通过 |
+| `GeometryBlasPool` | 用 package BVH8 payload 与 `GpuAssetStore` 替换 | R2-C/D；当前 BVH8 不进入 R3 v1 热路径，真实 legacy consumer 清空后删除旧 owner |
+| `MeshletDrawList` | 删除 | R3-C 新 HW 垂直闭环通过，R3-D 完成真实 consumer 迁移 |
 | `MaterialMeshletDrawList` | opaque 删除；透明/阴影迁移 | FX-04/FX-05 新 work consumer 接通 |
 | `VisibilityPass` | 由 WorkGenerator + HybridVisibility 替换 | VIS-10 |
 | `HierarchicalZBuffer` render 实现 | Compute 重写 | R1-C01～C06 正确性/性能通过 |
@@ -77,7 +77,7 @@ R2-D 收口状态：Packed/package 主路径已经完成该删除语义——不
 
 ### DEL-03 · 清旧工作生成与 Visibility
 
-依赖 `WORK-10`、`VIS-10`。删除旧 bucket/expand/prefix-scan/scatter/second-chance 主链、旧 mesh/triangle ID attachments、旧 visibility shaders 和 runtime switch。
+依赖 `R3-D`、`VIS-10`。R3-D 先删除 Packed flat producer、flat queue/indirect owner，以及已被 Cluster hierarchy Work Generator 替换的 bucket/expand/prefix-scan/scatter 工作链；`VIS-10` 再删除被统一 VisibilityKey 取代的旧 attachments、visibility shaders 和 runtime switch。仍有普通 Scene、shadow 或 transparency consumer 的模块必须先迁移，不能只按类名删除。
 
 ### DEL-04 · 清 Material Expand
 

@@ -40,7 +40,9 @@ Present
 
 ### Hierarchical Work Generator
 
-从 instance cull 进入 BVH/Cluster traversal，在展开大量 Meshlet 前完成 SSE LOD、frustum/cone/HZB culling，输出 compact `VisibleCluster`、HW/Alpha/SW queue 和 indirect args。所有队列必须定义 ABI、capacity、attempted/written/overflow、producer 和 consumer。
+从 instance cull 进入 Cluster hierarchy traversal，在展开大量 Meshlet 前完成 SSE LOD、frustum/cone/HZB culling，输出 compact `VisibleCluster`、Hardware RasterWork 和 indirect args。R3 v1 以 Cluster hierarchy root→children 作为正确性主干；当前 R2 BVH8 同时索引不同 LOD 层的 Cluster，没有 parent/descendant 互斥 cut 语义，因此不进入首版热路径。所有真实队列必须定义 ABI、capacity、attempted/written/peak/overflow/fallback、producer 和 consumer；没有 SW consumer 时不创建 SW queue。
+
+该 module 的外部 interface 只接受 Packed Scene/View/配置并返回 RasterWork、indirect args 和 evidence。ping/pong rounds、原子预约、SSE、容量与 fallback 隐藏在 implementation 内；frame-local work resources 不由长期 Scene registry 拥有。
 
 ### Hardware Visibility Consumer
 
@@ -70,7 +72,7 @@ Clustered Lighting、IBL、CSM、Transparency/Decal、Temporal Reconstruction、
 |---|---|---|---|
 | Source → Runtime Asset | glTF/源资产 | versioned package | Loader 临时对象、GPU handle |
 | Runtime Asset → GPU Tables | package handle | resident table ranges | 裸 Buffer 地址、源格式对象 |
-| Scene → Work Generator | compact instance tables + view | selected queues | CPU 可见列表 |
+| Scene → Work Generator | compact instance tables + view | VisibleCluster + RasterWork + indirect args | CPU 可见列表、round/queue 内部布局 |
 | Work Generator → HW Consumer | visible meshlet list + indirect args | VisibilityKey + depth | CPU draw loop、未 clamp raw count |
 | Raster → Resolve | VisibilityKey + depth | Surface + Velocity | 光栅实现特有材质逻辑 |
 | Resolve → Effects | Surface/Depth/Velocity | HDR/history | 每材质全屏扫描 |

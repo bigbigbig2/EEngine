@@ -9,7 +9,7 @@ Apply bulk/dirty GPU table updates
 → Update camera and required deformation
 → Clear active counters
 → Instance Cull
-→ BVH/Cluster Hierarchy Traversal + SSE LOD
+→ Cluster Hierarchy Traversal + SSE LOD
 → Cluster Frustum/Cone/previous-HZB Cull
 → Compact VisibleCluster Queue
 → Classify HW / Alpha / optional SW Work
@@ -26,6 +26,8 @@ Apply bulk/dirty GPU table updates
 → Tonemap / Present
 ```
 
+R3 v1 从 Cluster hierarchy roots 形成合法 parent/child cut；当前 R2 BVH8 不直接进入运行热路径，因为其 leaf 同时覆盖多个 LOD 层且没有父子互斥选择语义。Frustum + SSE 先与 CPU reference 对齐，再逐项启用 Cone 和 previous HZB。
+
 ## Hardware-first Visibility
 
 当前 WebGPU baseline 是 GPU compact list → GPU indirect args → single `drawIndirect`。固定功能光栅是普通不透明几何、alpha-tested、shadow 和所有 fallback 的正确性路径。
@@ -33,6 +35,7 @@ Apply bulk/dirty GPU table updates
 必须报告：
 
 - attempted/written visible Meshlet；
+- traversal attempted/written/peak/overflow/fallback 与 encoded/effective/empty rounds；
 - indirect instance count 与实际 submitted triangle；
 - 固定 384 vertices 带来的无效工作；
 - bucket/pass 数、overflow 和 fallback；

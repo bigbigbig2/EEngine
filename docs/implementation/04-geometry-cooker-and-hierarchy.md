@@ -4,7 +4,7 @@
 
 本文只拥有 Geometry Cooker 的输入、算法不变量、geometry package sections 和验证规则。通用 package header、GPU residency、Packed Instances、执行顺序和 G2 Gate 由 [03-runtime-assets-and-gpu-world](./03-runtime-assets-and-gpu-world.md) 拥有。
 
-R2 在这里“生成并冻结层次数据”，R3 才“每帧在 GPU 上遍历层次数据”。如果 Cooker 没有可绘制父级、可信 geometric error 和保守 BVH8，R3 无法靠 Shader 补救。
+R2 在这里“生成并冻结层次数据”，R3 才“每帧在 GPU 上遍历层次数据”。如果 Cooker 没有可绘制父级、可信 geometric error 和保守 hierarchy bounds，R3 无法靠 Shader 补救。独立 BVH8 仍必须满足自身 conservative validator，但按 ADR-0009 不属于 R3 v1 LOD traversal 的正确性前提。
 
 ## 当前代码事实
 
@@ -213,12 +213,14 @@ validate SourceGeometry
 → build simplified renderable parents
 → validate and propagate monotonic geometric error
 → serialize strict runtime hierarchy
-→ build BVH8 over traversal ranges
+→ build independent spatial BVH8 over all Cluster records
 → quantize/compress streams where evidence permits
 → write versioned sections
 → reopen bytes and run full validator
 → run CPU selector/reference statistics
 ```
+
+这里的 BVH8 是独立空间索引，不编码 hierarchy parent/descendant 互斥 cut。R2 验证其 bounds/reachability 不等于 R3 必须消费它；R3 v1 从 strict runtime hierarchy roots 遍历。
 
 Writer 不得直接信任内部对象。Cook 完成的定义是“重新从最终 bytes 打开并通过 validator”，不是“内存中的 builder 没抛异常”。
 

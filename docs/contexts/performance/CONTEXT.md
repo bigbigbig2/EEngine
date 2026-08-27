@@ -10,6 +10,14 @@
 6. 记录 resident/transient memory、固定 384-vertex waste 和 texture/upload 带宽。
 7. 再形成瓶颈假设并做单变量实验。
 
+## R3 必报口径
+
+- flat candidate Meshlets 与 hierarchy visited nodes/selected clusters/RasterWork 同时报告；减少 candidate 不等于总 GPU 时间改善。
+- 记录 encoded/effective/empty traversal rounds、每轮 input/output、queue attempted/written/peak/overflow/fallback。
+- paired flat/hierarchy 必须使用相同 Scene、相机、分辨率、DPR、画质和 Hardware consumer，并同时报告 traversal 新增成本与 raster 减量。
+- 高密度胜例和简单低密度回退都进入结果；没有 paired artifact 前不宣称 hierarchy 更快。
+- work queue 的 resident/transient bytes 和 `maxCutMeshlets` 保底容量随 Instance/Geometry 轴输出扩展曲线。
+
 ## R1 已冻结口径
 
 - steady main frame 只有 `Renderer/main-0` 一次 submit；one-shot/tool/recovery 必须单独分类。

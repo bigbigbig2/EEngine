@@ -13,6 +13,7 @@
 - 不建设完整动态对象生命周期，但 grow/replace/destroy 必须等待正确的 GPU completion。
 - texture residency 可以后加；geometry streaming 不进入当前主路线。
 - R2 的 hierarchy 数据由 Cooker 生成并驻留；每帧 GPU traversal/SSE/work queue 属于 R3。
+- `GpuPackedSceneRegistry` 只关联长期 Scene、InstanceSet、Geometry assets 和 material dictionary；R3 frame-local traversal/selected/raster queues 与 indirect args 由 `HierarchicalWorkGenerator` 拥有，不继续深化 registry 的临时 flat-buffer ownership。
 
 ## 当前状态
 
@@ -25,4 +26,4 @@
 - `examples/r2-packed-scene` 已让 Compute producer 读取 Instance table、compact active record indices 并写完整 16 B indirect record，Hardware consumer 同时读取 Instance/Geometry/vertex bindings。live 结果为 `passed=true`、1k/10k/100k 与四档 patch 完整、stable copy/upload 为零、41,733 非背景像素且 validation/console diagnostics 为空。
 - R2-D/G2 已关闭：A/B/C 与真实 glTF 使用 `GpuAssetStore + GpuScene + GpuPackedSceneRegistry`，生产 Packed Visibility/Material/Velocity 直接读取新 Geometry/Instance ABI。package 主路径不创建 `MeshletGpuTable`；旧 Geometry owner 只在 legacy Scene consumer 请求时惰性创建。
 - R2-D provenance 清算已补齐 [Packed Visibility](../../references/porting/R2-D-07-packed-visibility.md)、[Material reconstruction](../../references/porting/R2-D-08-packed-material-reconstruction.md) 与 [Velocity](../../references/porting/R2-D-09-packed-velocity.md)；flat loop 与每材质 fullscreen 仍分别由 R3/R4-B 替换，不能因局部热点优化标记为长期完成。
-- 当前下一步是 R3 GPU hierarchy/SSE traversal。Packed alpha-tested Visibility、Packed CSM shadow consumer 和 single Material Resolve 分别属于后续 G4-A/G5/G4-B，不由 G2 冒充完成。
+- 当前下一步是 R3 Cluster hierarchy/SSE traversal。R3 v1 不直接消费当前独立 BVH8；先冻结 multi-instance CPU oracle、Queue ABI、max-cut capacity 和 children 整组 reservation，再接 Hardware consumer。Packed alpha-tested Visibility、Packed CSM shadow consumer 和 single Material Resolve 分别属于后续 G4-A/G5/G4-B，不由 G2 冒充完成。

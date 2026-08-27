@@ -131,9 +131,9 @@ current SW queue pressure
 
 接入第二阶段和 deterministic `atomicMin`。验证完全重叠、共享边、多 workgroup、不同提交顺序和 empty sentinel。
 
-### VIS-05 · 接入 R3 SW queue
+### VIS-05 · 从 R3 work seam 建立 SW queue
 
-由 classifier 输出 RasterWork 和 indirect dispatch args。SW queue capacity不足自动回退 HW，并记录原因。
+R3 只冻结 VisibleCluster/Hardware RasterWork seam，不预先分配无 consumer 的 SW queue。R4-C 的 classifier 从该 seam 建立 SW RasterWork 和 indirect dispatch args；SW queue capacity 不足自动回退 HW，并记录原因。
 
 ### VIS-06 · Fullscreen transfer + HW merge
 

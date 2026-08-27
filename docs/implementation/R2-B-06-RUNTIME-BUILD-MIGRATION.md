@@ -29,7 +29,7 @@ meshoptimizer、`GeometryCooker`、Renderer、GPUDevice 或 legacy `niMeshlets`�
 | `loaders/shadeFormat.ts` | load 时 `rebuildBvhFromMeshlets()` | 版本化 Geometry package reader | 旧 shade asset 有明确 reject/re-cook 策略 | R2-D |
 | `geometry/niMeshlets.ts` | legacy Meshlet、压缩 attribute、Dynamic BVH build 与旧 header 混合 | 无 runtime owner；算法由 Cooker/package schema 取代 | 下列所有 reader/consumer 迁移完成 | R2-D |
 | `gpu/MeshletGpuTable.ts` | 读取 legacy `MeshletGeometryBase` 并持有 `GeometryBlasPool` | R2-C `GpuAssetStore` 已完成新纵切；R2-D 迁生产 consumer | 新 section ranges 已可上传、释放并复算 bytes；A/C/普通 Scene consumer 切换后删除旧 owner | R2-C / R2-D |
-| `gpu/GeometryBlasPool.ts` | 上传 legacy 32 B Dynamic BVH node | 独立 Cluster/BVH8 GPU ranges | R3 consumer 使用新 BVH8 ABI；LPV 不被误删 | R2-C / R3 |
+| `gpu/GeometryBlasPool.ts` | 上传 legacy 32 B Dynamic BVH node | 独立 Cluster/BVH8 GPU ranges | 新 owner/range 已验证；当前 BVH8 不进入 R3 v1，真实 legacy consumer 清空后删除旧 owner；LPV 不被误删 | R2-C / R3 |
 | legacy Visibility readers/shaders | 读取旧 meshlet header/packed attr 地址 | 新 Meshlet/Cluster/stream table word index | R3 GPU producer → consumer 闭环通过 | R3 / R4 |
 
 `gpu/DynamicBvh.ts` 还被 TLAS/LPV 使用，不能因为 Geometry BVH8 到位就整文件删除。

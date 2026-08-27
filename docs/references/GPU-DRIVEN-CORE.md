@@ -20,7 +20,7 @@ OEngine 当前已有可工作的 baseline：`MeshletDrawList` 在 GPU 写入 `ve
 
 这条路径应在 R3 正式冻结和验证，而不是重新假设 MDI 或 Mesh Shader：
 
-- producer：hierarchy/flat cull compact list；
+- producer：R3 Cluster hierarchy cull compact list；flat 只作为阶段内 paired 对照并在 G3 删除；
 - args producer：GPU fill indirect args；
 - consumer：single fixed-function hardware visibility draw；
 - capacity：visible list capacity 与 clamped indirect count；
@@ -32,7 +32,7 @@ OEngine 当前已有可工作的 baseline：`MeshletDrawList` 在 GPU 写入 `ve
 | 参考 | 当前用途 | 禁止照搬 |
 |---|---|---|
 | meshoptimizer | Meshlet、bounds/cone、vertex reuse、Cooker | 把单一 meshlet size 当跨 GPU 真理 |
-| Bevy Meshlet | hierarchy、BVH8、error、CPU validator | 64 位原子、subgroup 和原生后端假设 |
+| Bevy Meshlet | hierarchy scheduling、SSE/error、CPU validator；其 BVH 只作语义对照 | 直接套用 Bevy BVH record、64 位原子、subgroup 和原生后端假设 |
 | AnKi | GPU Scene、micro-patch、cull/compact、shadow work | Vulkan MDI/DGC/bindless runtime |
 | Niagara | 紧凑 GPU record 与分阶段 work generation | mesh shader/Vulkan command model |
 | Scthe/nanite-webgpu | WebGPU hierarchy、queue、WGSL 和统计 | demo 固定队列与单资产产品 ABI |
@@ -41,12 +41,14 @@ OEngine 当前已有可工作的 baseline：`MeshletDrawList` 在 GPU 写入 `ve
 ## R2/R3 迁移顺序
 
 1. 以 meshoptimizer 生成黄金 Geometry Package，并建立 CPU validator。
-2. 参考 Bevy 冻结 Cluster hierarchy、BVH8、geometric error 和 reachability。
+2. 参考 Bevy 冻结 Cluster hierarchy、独立 BVH8、geometric error 和 reachability；R3 v1 只用 Cluster hierarchy 形成 LOD cut。
 3. 冻结 TS/WGSL shared ABI、queue header/stride/capacity/overflow。
 4. 建立 mostly-static GPU Scene、Packed Instances 和 bulk/patch upload。
 5. Instance cull → root queue → traversal → SSE select → frustum/cone/HZB → compact list。
 6. 将 hierarchy 输出直接接到当前 single `drawIndirect` consumer。
 7. 用 flat-vs-hierarchy、不同 Meshlet size、main/CSM view 和跨 adapter benchmark 决定优化。
+
+当前 R2 BVH8 的 leaf 会同时索引不同 LOD 层的 Cluster，不携带 parent/descendant 互斥 cut。它不进入 R3 v1 runtime 热路径；未来接入必须先获得与 LOD traversal 对齐的语义，并通过 CPU reference 和 paired benchmark。R3 的固定来源与采用状态见 [R3-01 porting ledger](./porting/R3-01-hierarchical-work-generation.md)。
 
 ## WebGPU 限制
 
