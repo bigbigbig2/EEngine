@@ -38,18 +38,19 @@
 - R2-A/B 设备无关数据基础已完成；R2-C core 也已落地：validated Geometry package 可进入惰性 `GpuAssetStore`，并重排为显式对齐的 Geometry 144 B、Cluster 128 B、Meshlet 112 B GPU records 与连续 payload buffers。
 - R2-C 已有 opaque generation handle、0 号 fallback、bulk upload、grow/copy/abort/completion-safe retirement、release/stale-handle 语义，以及 logical/resident/allocated/peak/retiring/reclaimable 和 upload/grow/reject counters。`GraphicsContext.assets` 惰性创建，legacy-only 页面不承担额外 store Buffer。
 - `examples/r2-gpu-residency` 已形成 package → resident tables → Compute 写 indirect args → Hardware `drawIndirect()` 的 flat 黄金资产闭环。2026-08-27 人工浏览器证据为 `passed=true`、GPU roundtrip `6/6` 一致、211,600 个非背景像素、`validationError=null`、无 uncaptured error/shader diagnostic、abort/release handle 均失效且 `privateSubmitCount=0`；R2-C 已关闭。
-- R2-D compact Instance 基础已落地：`InstanceRecord` v1 为 192 B，包含 Geometry record index、material handle、flags/debug ID、object bounds、current/previous object-to-world；TS packer、offset 和 WGSL struct 共用同一冻结 schema。
+- R2-D compact Instance 基础已落地：`InstanceRecord` v2 保持 192 B，包含 Geometry record index、material handle、flags/debug ID、object bounds、current object-to-world 与 CPU 预计算 `previous_from_current`；奇异变换设置 `MotionInvalid`，Packed Velocity 输出零。TS packer、offset 和 WGSL struct 共用同一冻结 schema。
 - 惰性 `GpuScene` 是新 Instance table 唯一 owner，提供 opaque generation `InstanceSetHandle`、1k/10k/100k bulk、grow/abort/release、显式 transform/material patch、同帧 previous 保持、dirty span 合并和 logical/resident/allocated/CPU shadow/upload/patch/grow 证据；稳定空 batch 不编码 copy/pass/submit，`privateSubmitCount=0`。
 - `createInstanceSourceFromScene()` 已让普通 `Scene/Mesh` 一次性写入同一个 `InstanceSource`，Packed source 只使用 typed arrays + 少量 geometry handle，不构造等量 JS 对象。`Renderer` 已公开 instantiate/patch/release/evidence seam，GPU Buffer/range 保持内部。
-- `examples/r2-packed-scene` 已形成 Geometry package + Instance table → Compute compact active indices/完整 indirect args → Hardware `drawIndirect()` 的真实双 binding consumer。2026-08-27 干净浏览器证据为 `passed=true`：1k/10k/100k bulk，0/1/10/100% patch，stable upload bytes 不变，previous/current GPU readback 一致，1,000 instances 得到 41,733 个非背景像素，validation/uncaptured/shader diagnostics/console warning-error 均为空。
+- `examples/r2-packed-scene` 已形成 Geometry package + Instance table → Compute compact active indices/完整 indirect args → Hardware `drawIndirect()` 的真实双 binding consumer。G2 关闭时 v1 浏览器证据为 `passed=true`、1k/10k/100k bulk、四档 patch、41,733 非背景像素且 diagnostics 为空；页面现已随 v2 改为验证 `previous_from_current`，本轮完成 production build 和 Node reference，尚未重采浏览器 artifact。
 - R2-D/G2 已关闭：`load_gltf_packed()` 直接输出 SourceGeometry、材质 dictionary、transform/bounds/flags typed arrays；A/B 的 Teapot/Damaged Helmet 和 C 的三份程序化几何均经过 Cooker/package，由 `Renderer.uploadPackedScene()` 进入生产 Packed Visibility、Material Expand 与 Velocity。
-- Packed Visibility 执行 Instance frustum cull → flat Meshlet compact → GPU 写完整 16 B indirect record → Hardware `drawIndirect()`；Material/Velocity 直接读取新 Instance/Geometry/Meshlet/stream ABI，current/previous transform 语义已接通。稳定帧不重复 residency/instantiate，也不由 CPU readback 决定 draw。
+- Packed Visibility 执行 Instance frustum cull → flat Meshlet compact → GPU 写完整 16 B indirect record → Hardware `drawIndirect()`；共享 Geometry 的 capacity 按实例精确累加，storage/u32 limit 在 owner 变更前拒绝。Material 每 semantic 只扫描一次 descriptor，使用解析 perspective UV gradient 并修正重复 viewport、镜像/非均匀 normal-tangent；Velocity 已删除每可见像素 `mat4_inverse`。稳定帧不重复 residency/instantiate，也不由 CPU readback 决定 draw。
 - package 主路径不创建等量 `Mesh/Node3D`，也不创建 legacy `MeshletGpuTable`；旧 Geometry owner 改为 legacy Scene consumer 请求时惰性创建。普通对象、旧 Loader、shadow/transparent 等尚未迁移 consumer 仍保留旧路径，后续按 R3/R4/R5 迁移删除，不能解释为 Packed 主路径双 owner。
 - 没有 GPU Geometry Hierarchy、BVH8 traversal 或 SSE LOD；现有路径仍先展开大量 flat Meshlet 工作。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
 - 没有正式冻结的 frame-local VisibilityKey/VisibleCluster lookup 契约。
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
 - Material Expand 仍按活跃材质执行全屏三角形，成本可能接近 `materials × pixels`。
+- R2-C/D 的 owner、flat work、属性重建和 motion 数学已有独立 porting ledger；本轮只证明 reference/property/source audit 与构建正确，Material/Velocity 的 GPU 时间收益仍需同条件浏览器 artifact，不能由结构优化直接推断。
 - Lighting/CSM/Transparency/Temporal/Post 虽有代码路径，尚未基于新的 Visibility/Surface ABI 逐项重新验收。
 - Geometry 与 Instance residency 的 record/payload/upload/grow/patch 内存证据已接入；texture、全帧 transient 与统一显存/上传预算仍未完成。
 - Shader oracle/generated owner 尚未完全收口，部分 reconstructed/Shade 历史命名仍存在。

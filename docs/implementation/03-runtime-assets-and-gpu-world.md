@@ -181,7 +181,7 @@ R2 只冻结三张 record table。Material/Texture/Light 继续使用现有 owne
 |---|---|---|
 | `GeometryRecord` | bounds、vertex/index/meshlet payload ranges、cluster root/range、BVH8 root/range、decode metadata | flat adapter、R3 traversal、后续 material resolve |
 | `ClusterRecord` | conservative bounds/cone、geometric error、child range、renderable Meshlet range、material/group flags | R2 CPU validator；R3 GPU traversal |
-| `InstanceRecord` | geometry record index、material handle、current/previous object-to-world、object bounds/scale、flags、stable debug ID | 现有 flat work adapter、R3 instance cull、后续 resolve |
+| `InstanceRecord` | geometry record index、material handle、current object-to-world、CPU 预计算 previous-from-current、object bounds/scale、flags、stable debug ID | 现有 flat work adapter、R3 instance cull、后续 resolve |
 
 vertex/index/meshlet vertex/triangle/hierarchy child/BVH8 数据是连续 payload buffers，不伪装成独立生命周期 table。所有 GPU 引用使用 `u32` record index 或 word/element range；WebGPU Buffer 不保存 pointer/device address。
 
@@ -320,9 +320,9 @@ R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前�
 
 当前状态（2026-08-27）：完成，R2-D/G2 已关闭。
 
-- `GpuInstanceAbi` 冻结 v1 192 B record：Geometry record index、Material handle、flags/debug ID、sphere/AABB、current/previous object-to-world；0 号 record 是 fallback，TS packer、offset 与 WGSL declaration 由测试共同冻结。
+- `GpuInstanceAbi` 当前为 v2 192 B record：Geometry record index、Material handle、flags/debug ID、sphere/AABB、current object-to-world 与 `previous_from_current`；CPU bulk/patch 使用锁定的 `gl-matrix@3.4.4` 计算 motion，奇异结果设置 `MotionInvalid`，Velocity 不再逐像素求逆。0 号 record 是 fallback，TS packer、offset 与 WGSL declaration 由测试共同冻结。
 - `GpuScene` 是新 Instance table 唯一 owner：opaque generation handle、append/bulk-first range、grow/copy/abort/completion-safe retirement、release/stale handle、1k/10k/100k typed-array source、显式 transform/material patch、排序去重、dirty span 合并和同帧 previous 保持已落地。
-- 0% stable batch 不触碰 command、不创建 upload/pass/submit；1%/10%/100% 连续 patch 当前合并为一个 span。首版保留每 set CPU record shadow 以保证 previous/current 和 abort 数值语义，`cpuShadowBytes` 单独计量；后续只能在 profile 证明必要时改为 staging/scatter，不能隐藏该内存。
+- 0% stable batch 不触碰 command、不创建 upload/pass/submit；1%/10%/100% 连续 patch 当前合并为一个 span。首版保留每 set CPU record shadow 以保证 previous-from-current、same-frame 和 abort 数值语义，`cpuShadowBytes` 单独计量；后续只能在 profile 证明必要时改为 staging/scatter，不能隐藏该内存。
 - `createInstanceSourceFromScene()` 让普通 `Scene/Mesh` 写同一 ABI；Packed source 不创建等量对象。`GraphicsContext.gpu_scene` 惰性创建，`Renderer` 公开 instantiate/patch/release/evidence，但不公开 Buffer offset/range。
 - `r2-packed-scene` 使用 validated package + Packed table；Compute compact active record indices并写完整 16 B indirect args，Hardware `drawIndirect()` 同时读取 InstanceRecord、GeometryRecord 和 vertex payload。该纵切复用 WebGPU producer/consumer 结构，不是第三条产品管线。
 - Node 中等验证覆盖 ABI、1k/10k/100k、0/1/10/100% density、duplicate last-wins、same-frame previous、abort/release stale handle 和普通 Scene adapter。最终 live 浏览器 artifact：`passed=true`；bulk CPU pack 约 1.7/6.1/26.6 ms（同页参考，不跨机器比较）；111k active records，logical 21,312,000 B、allocated/resident 21,312,192 B、CPU shadow 21,756,000 B、peak 23,616,768 B；transform/material patch 分别为 1,112/1,110 records，stable copy=0 且 upload bytes 不变；1k Hardware consumer 为 41,733 非背景像素；validation、uncaptured error、shader diagnostics 和干净 console warning/error 均为空。
@@ -330,6 +330,14 @@ R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前�
 - A/B 通过真实 glTF → Cooker → Package，C 通过程序化 SourceGeometry → Cooker → Package；三者均由 `Renderer.uploadPackedScene()` 驻留并进入生产 Packed Visibility、Material Expand 与 Velocity。GPU producer 写完整 16 B indirect record，Hardware consumer 使用 `drawIndirect()`，无 CPU readback 决定 draw。
 - package/Packed 主路径不创建 legacy `MeshletGpuTable`；`GraphicsContext.geometries` 仅在旧 Scene consumer 请求时惰性创建。旧类仍服务尚未迁移的普通 Scene/阴影消费者，其后续删除属于 R3/R4 consumer 迁移，不再构成新主路径双 owner。
 - 自动回归新增 Packed glTF 静态导入、输入校验、stage abort、completion-safe release、Renderer residency rollback 与 submit label 分类。A/B/C smoke 均为 `counterIssues=0`、主帧 submit mean `1.00`、无 WebGPU error；C full 180 帧也完成为 `counterIssues=0`、submit mean `1.00`。B 仅保留独立 AO 纹理不支持的已知材质警告。
+
+R2 关闭后的 provenance/performance-debt 清算（2026-08-27）：
+
+- 新增 [R2-C GPU Scene ledger](../references/porting/R2-C-07-gpu-scene-residency.md)、[Packed Visibility ledger](../references/porting/R2-D-07-packed-visibility.md)、[Material reconstruction ledger](../references/porting/R2-D-08-packed-material-reconstruction.md) 与 [Velocity ledger](../references/porting/R2-D-09-packed-velocity.md)，固定 upstream commit、源码、许可证、采用状态、差异与测试。
+- Packed Material 按 three.js 官方 compute rasterizer IBL 示例移植解析 perspective barycentric/UV gradient；删除 fullscreen hardware derivative、重复 viewport mapping 和每 vertex descriptor 重扫，并修正镜像/非均匀 transform 的 normal/tangent frame。
+- Packed Velocity 将 `previous * inverse(current)` 从每可见像素移到 bulk/patch；Node reference 覆盖 rotation、non-uniform scale、same-frame、singular 和恢复语义，Shader source 明确不存在 inverse。
+- flat Visibility 仍是 R3 前的临时 producer，但 capacity/overflow ABI 已补共享 Geometry × 1,000 instances、sphere-frustum CPU reference 和 adapter limit preflight；拒绝路径不再先修改 material/Instance owner。
+- 本轮 `npm test` 为 131/131；浏览器/WebGPU artifact 尚未重采，因此不声明 Material/Velocity GPU 百分比收益，也不重新打开已关闭的 G2 数据 Gate。
 
 ## 迁移期间的唯一真相规则
 
@@ -351,7 +359,7 @@ R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前�
 | ABI | TS/WGSL offset/stride 一致 | generated/schema tests + GPU roundtrip micro example |
 | Residency | owner、capacity、grow、abort、retirement 正确 | lifecycle tests + browser example counters |
 | Packed | 不依赖一实例一 JS object | 1k/10k/100k build/upload/CPU memory 曲线 |
-| Patch | previous/current 与 dirty spans 正确 | 数值 test + 0%/1%/10%/100% density A/B |
+| Patch | current/previous-from-current 与 dirty spans 正确 | 数值 test + 0%/1%/10%/100% density A/B |
 | Stable frame | 不产生无效数据工作 | upload calls/bytes、patch passes、private submit 均为 0 |
 | Main path | 新数据被真实消费者使用 | A/C 截图、console、counter 与 GPU timestamp |
 | Memory | 数值可复算、无隐藏双份 owner | record/payload/resident/allocated/peak bytes |

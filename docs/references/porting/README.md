@@ -21,3 +21,10 @@ reason
 ```
 
 R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；后续任务从本目录开始一任务一记录，避免项目总表继续膨胀。
+
+## R2 登记
+
+- [R2-C-07 GPU Scene residency 与 patch owner](./R2-C-07-gpu-scene-residency.md)
+- [R2-D-07 Packed flat Visibility](./R2-D-07-packed-visibility.md)
+- [R2-D-08 Packed Material reconstruction](./R2-D-08-packed-material-reconstruction.md)
+- [R2-D-09 Packed Velocity](./R2-D-09-packed-velocity.md)

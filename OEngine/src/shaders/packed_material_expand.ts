@@ -103,13 +103,11 @@ fn find_stream(geometry: GpuGeometryRecord, semantic: u32) -> u32 {
   return 0xffffffffu;
 }
 
-fn read_stream4(
-  geometry: GpuGeometryRecord,
-  semantic: u32,
+fn read_stream4_from_descriptor(
+  descriptor: u32,
   vertex: u32,
   fallback: vec4f
 ) -> vec4f {
-  let descriptor = find_stream(geometry, semantic);
   if descriptor == 0xffffffffu { return fallback; }
   let base = descriptor * STREAM_DESCRIPTOR_WORDS;
   let data_offset = stream_descriptors[base + 8u];
@@ -138,41 +136,98 @@ fn triangle_source_vertices(meshlet: GpuMeshletRecord, triangle: u32) -> vec3u {
   );
 }
 
-fn screen_position(clip: vec4f) -> vec2f {
-  let ndc = clip.xy / clip.w;
-  return vec2f(
-    (ndc.x + 1.0) * 0.5 * f32(view.width),
-    (1.0 - ndc.y) * 0.5 * f32(view.height)
-  );
+fn projected_pixel(projected: vec4f) -> vec2f {
+  // GPUViewContext.projection_matrix already contains the viewport transform.
+  return projected.xy / projected.w;
 }
 
-fn perspective_barycentric(
+struct PerspectiveBarycentric {
+  weights: vec3f,
+  ddx: vec3f,
+  ddy: vec3f,
+}
+
+fn perspective_barycentric_with_derivatives(
   pixel: vec2f,
-  clip0: vec4f,
-  clip1: vec4f,
-  clip2: vec4f
-) -> vec3f {
-  let p0 = screen_position(clip0);
-  let p1 = screen_position(clip1);
-  let p2 = screen_position(clip2);
+  projected0: vec4f,
+  projected1: vec4f,
+  projected2: vec4f
+) -> PerspectiveBarycentric {
+  var output: PerspectiveBarycentric;
+  output.weights = vec3f(1.0, 0.0, 0.0);
+  output.ddx = vec3f(0.0);
+  output.ddy = vec3f(0.0);
+  let p0 = projected_pixel(projected0);
+  let p1 = projected_pixel(projected1);
+  let p2 = projected_pixel(projected2);
   let denominator = (p1.y - p2.y) * (p0.x - p2.x)
     + (p2.x - p1.x) * (p0.y - p2.y);
-  let safe_denominator = select(1e-8, denominator, abs(denominator) > 1e-8);
+  if abs(denominator) < 1e-8 { return output; }
   let l0 = ((p1.y - p2.y) * (pixel.x - p2.x)
-    + (p2.x - p1.x) * (pixel.y - p2.y)) / safe_denominator;
+    + (p2.x - p1.x) * (pixel.y - p2.y)) / denominator;
   let l1 = ((p2.y - p0.y) * (pixel.x - p2.x)
-    + (p0.x - p2.x) * (pixel.y - p2.y)) / safe_denominator;
+    + (p0.x - p2.x) * (pixel.y - p2.y)) / denominator;
   let screen = vec3f(l0, l1, 1.0 - l0 - l1);
-  let corrected = screen / vec3f(clip0.w, clip1.w, clip2.w);
-  return corrected / max(dot(corrected, vec3f(1.0)), 1e-8);
+  let screen_ddx = vec3f(
+    p1.y - p2.y,
+    p2.y - p0.y,
+    p0.y - p1.y
+  ) / denominator;
+  let screen_ddy = vec3f(
+    p2.x - p1.x,
+    p0.x - p2.x,
+    p1.x - p0.x
+  ) / denominator;
+  let reciprocal_w = 1.0 / vec3f(projected0.w, projected1.w, projected2.w);
+  let weighted = screen * reciprocal_w;
+  let weighted_sum = dot(weighted, vec3f(1.0));
+  if abs(weighted_sum) < 1e-8 { return output; }
+  let weighted_ddx = screen_ddx * reciprocal_w;
+  let weighted_ddy = screen_ddy * reciprocal_w;
+  let sum_ddx = dot(weighted_ddx, vec3f(1.0));
+  let sum_ddy = dot(weighted_ddy, vec3f(1.0));
+  let inverse_sum = 1.0 / weighted_sum;
+  let inverse_sum_squared = inverse_sum * inverse_sum;
+  output.weights = weighted * inverse_sum;
+  output.ddx = (weighted_ddx * weighted_sum - weighted * sum_ddx) * inverse_sum_squared;
+  output.ddy = (weighted_ddy * weighted_sum - weighted * sum_ddy) * inverse_sum_squared;
+  return output;
 }
 
-fn normal_matrix(matrix: mat4x4f) -> mat3x3f {
-  return mat3x3f(
+fn safe_normalize(value: vec3f, fallback: vec3f) -> vec3f {
+  let length_squared = dot(value, value);
+  if length_squared <= 1e-16 { return fallback; }
+  return value * inverseSqrt(length_squared);
+}
+
+struct ObjectTransformFrame {
+  normal_matrix: mat3x3f,
+  tangent_matrix: mat3x3f,
+  orientation: f32,
+}
+
+fn object_transform_frame(matrix: mat4x4f) -> ObjectTransformFrame {
+  var output: ObjectTransformFrame;
+  output.tangent_matrix = mat3x3f(matrix[0].xyz, matrix[1].xyz, matrix[2].xyz);
+  let linear_determinant = dot(matrix[0].xyz, cross(matrix[1].xyz, matrix[2].xyz));
+  output.orientation = select(1.0, -1.0, linear_determinant < 0.0);
+  if abs(linear_determinant) <= 1e-12 {
+    output.normal_matrix = mat3x3f(
+      vec3f(1.0, 0.0, 0.0),
+      vec3f(0.0, 1.0, 0.0),
+      vec3f(0.0, 0.0, 1.0)
+    );
+    output.tangent_matrix = output.normal_matrix;
+    output.orientation = 1.0;
+    return output;
+  }
+  let cofactor = mat3x3f(
     cross(matrix[1].xyz, matrix[2].xyz),
     cross(matrix[2].xyz, matrix[0].xyz),
     cross(matrix[0].xyz, matrix[1].xyz)
   );
+  output.normal_matrix = cofactor * output.orientation;
+  return output;
 }
 
 const FULLSCREEN = array<vec2f, 3>(
@@ -204,43 +259,66 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let geometry = geometries[instance.geometry_record_index];
   let meshlet = meshlets[meshlet_index];
   let vertices = triangle_source_vertices(meshlet, triangle_index);
-  let local0 = read_stream4(geometry, SEMANTIC_POSITION, vertices.x, vec4f(0.0)).xyz;
-  let local1 = read_stream4(geometry, SEMANTIC_POSITION, vertices.y, vec4f(0.0)).xyz;
-  let local2 = read_stream4(geometry, SEMANTIC_POSITION, vertices.z, vec4f(0.0)).xyz;
+  let position_descriptor = find_stream(geometry, SEMANTIC_POSITION);
+  let normal_descriptor = find_stream(geometry, SEMANTIC_NORMAL);
+  let tangent_descriptor = find_stream(geometry, SEMANTIC_TANGENT);
+  let uv_descriptor = find_stream(geometry, SEMANTIC_UV0);
+  let color_descriptor = find_stream(geometry, SEMANTIC_COLOR);
+  let local0 = read_stream4_from_descriptor(position_descriptor, vertices.x, vec4f(0.0)).xyz;
+  let local1 = read_stream4_from_descriptor(position_descriptor, vertices.y, vec4f(0.0)).xyz;
+  let local2 = read_stream4_from_descriptor(position_descriptor, vertices.z, vec4f(0.0)).xyz;
   let world0 = instance.current_object_to_world * vec4f(local0, 1.0);
   let world1 = instance.current_object_to_world * vec4f(local1, 1.0);
   let world2 = instance.current_object_to_world * vec4f(local2, 1.0);
-  let clip0 = view.projection_matrix * world0;
-  let clip1 = view.projection_matrix * world1;
-  let clip2 = view.projection_matrix * world2;
-  let bary = perspective_barycentric(position.xy, clip0, clip1, clip2);
-  let face_local = normalize(cross(local2 - local1, local0 - local1));
-  let normal0 = read_stream4(geometry, SEMANTIC_NORMAL, vertices.x, vec4f(face_local, 0.0)).xyz;
-  let normal1 = read_stream4(geometry, SEMANTIC_NORMAL, vertices.y, vec4f(face_local, 0.0)).xyz;
-  let normal2 = read_stream4(geometry, SEMANTIC_NORMAL, vertices.z, vec4f(face_local, 0.0)).xyz;
-  let tangent0 = read_stream4(geometry, SEMANTIC_TANGENT, vertices.x, vec4f(1.0, 0.0, 0.0, 1.0));
-  let tangent1 = read_stream4(geometry, SEMANTIC_TANGENT, vertices.y, vec4f(1.0, 0.0, 0.0, 1.0));
-  let tangent2 = read_stream4(geometry, SEMANTIC_TANGENT, vertices.z, vec4f(1.0, 0.0, 0.0, 1.0));
-  let uv0 = read_stream4(geometry, SEMANTIC_UV0, vertices.x, vec4f(0.0)).xy;
-  let uv1 = read_stream4(geometry, SEMANTIC_UV0, vertices.y, vec4f(0.0)).xy;
-  let uv2 = read_stream4(geometry, SEMANTIC_UV0, vertices.z, vec4f(0.0)).xy;
-  let color0 = read_stream4(geometry, SEMANTIC_COLOR, vertices.x, vec4f(1.0)).rgb;
-  let color1 = read_stream4(geometry, SEMANTIC_COLOR, vertices.y, vec4f(1.0)).rgb;
-  let color2 = read_stream4(geometry, SEMANTIC_COLOR, vertices.z, vec4f(1.0)).rgb;
-  let uv = uv0 * bary.x + uv1 * bary.y + uv2 * bary.z;
-  let uv_dx = dpdx(uv) / view.upscale_ratio.x;
-  let uv_dy = dpdy(uv) / view.upscale_ratio.y;
-  let vertex_color = color0 * bary.x + color1 * bary.y + color2 * bary.z;
-  let local_normal = normalize(normal0 * bary.x + normal1 * bary.y + normal2 * bary.z);
-  let local_tangent4 = tangent0 * bary.x + tangent1 * bary.y + tangent2 * bary.z;
-  let matrix = normal_matrix(instance.current_object_to_world);
-  let shading_normal = normalize(matrix * local_normal);
-  let geometric_normal = normalize(matrix * face_local);
-  var tangent = normalize(matrix * local_tangent4.xyz);
-  tangent = normalize(tangent - shading_normal * dot(shading_normal, tangent));
-  let bitangent = normalize(cross(shading_normal, tangent) * sign(local_tangent4.w));
+  let projected0 = view.projection_matrix * world0;
+  let projected1 = view.projection_matrix * world1;
+  let projected2 = view.projection_matrix * world2;
+  let bary = perspective_barycentric_with_derivatives(
+    position.xy,
+    projected0,
+    projected1,
+    projected2
+  );
+  let face_local = safe_normalize(cross(local2 - local1, local0 - local1), vec3f(0.0, 0.0, 1.0));
+  let normal0 = read_stream4_from_descriptor(normal_descriptor, vertices.x, vec4f(face_local, 0.0)).xyz;
+  let normal1 = read_stream4_from_descriptor(normal_descriptor, vertices.y, vec4f(face_local, 0.0)).xyz;
+  let normal2 = read_stream4_from_descriptor(normal_descriptor, vertices.z, vec4f(face_local, 0.0)).xyz;
+  let tangent0 = read_stream4_from_descriptor(tangent_descriptor, vertices.x, vec4f(1.0, 0.0, 0.0, 1.0));
+  let tangent1 = read_stream4_from_descriptor(tangent_descriptor, vertices.y, vec4f(1.0, 0.0, 0.0, 1.0));
+  let tangent2 = read_stream4_from_descriptor(tangent_descriptor, vertices.z, vec4f(1.0, 0.0, 0.0, 1.0));
+  let uv0 = read_stream4_from_descriptor(uv_descriptor, vertices.x, vec4f(0.0)).xy;
+  let uv1 = read_stream4_from_descriptor(uv_descriptor, vertices.y, vec4f(0.0)).xy;
+  let uv2 = read_stream4_from_descriptor(uv_descriptor, vertices.z, vec4f(0.0)).xy;
+  let color0 = read_stream4_from_descriptor(color_descriptor, vertices.x, vec4f(1.0)).rgb;
+  let color1 = read_stream4_from_descriptor(color_descriptor, vertices.y, vec4f(1.0)).rgb;
+  let color2 = read_stream4_from_descriptor(color_descriptor, vertices.z, vec4f(1.0)).rgb;
+  let uv = uv0 * bary.weights.x + uv1 * bary.weights.y + uv2 * bary.weights.z;
+  let uv_dx = (uv0 * bary.ddx.x + uv1 * bary.ddx.y + uv2 * bary.ddx.z) / view.upscale_ratio.x;
+  let uv_dy = (uv0 * bary.ddy.x + uv1 * bary.ddy.y + uv2 * bary.ddy.z) / view.upscale_ratio.y;
+  let vertex_color = color0 * bary.weights.x + color1 * bary.weights.y + color2 * bary.weights.z;
+  let local_normal = safe_normalize(
+    normal0 * bary.weights.x + normal1 * bary.weights.y + normal2 * bary.weights.z,
+    face_local
+  );
+  let local_tangent4 = tangent0 * bary.weights.x + tangent1 * bary.weights.y + tangent2 * bary.weights.z;
+  let frame = object_transform_frame(instance.current_object_to_world);
+  let shading_normal = safe_normalize(frame.normal_matrix * local_normal, face_local);
+  let geometric_normal = safe_normalize(frame.normal_matrix * face_local, shading_normal);
+  var tangent = frame.tangent_matrix * local_tangent4.xyz;
+  tangent = safe_normalize(
+    tangent - shading_normal * dot(shading_normal, tangent),
+    safe_normalize(cross(vec3f(0.0, 1.0, 0.0), shading_normal), vec3f(1.0, 0.0, 0.0))
+  );
+  let tangent_handedness = select(-1.0, 1.0, local_tangent4.w >= 0.0);
+  let bitangent = safe_normalize(
+    cross(shading_normal, tangent) * tangent_handedness * frame.orientation,
+    safe_normalize(cross(shading_normal, tangent), vec3f(0.0, 1.0, 0.0))
+  );
   let sampled_normal = textureSampleGrad(texture_normal, sampler_normal, uv, uv_dx, uv_dy).xyz * 2.0 - 1.0;
-  let mapped_normal = normalize(mat3x3f(tangent, bitangent, shading_normal) * sampled_normal);
+  let mapped_normal = safe_normalize(
+    mat3x3f(tangent, bitangent, shading_normal) * sampled_normal,
+    shading_normal
+  );
   let orm = textureSampleGrad(texture_orm, sampler_orm, uv, uv_dx, uv_dy);
   let albedo_sample = textureSampleGrad(texture_albedo, sampler_albedo, uv, uv_dx, uv_dy);
   let emissive_sample = textureSampleGrad(texture_emissive, sampler_emissive, uv, uv_dx, uv_dy);

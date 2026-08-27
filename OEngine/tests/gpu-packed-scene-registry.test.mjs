@@ -76,20 +76,49 @@ test("R2-D Renderer upload path explicitly rolls resident handles back on failur
   assert.match(upload, /catch \(error\) \{\s*await this\.releasePackedAssetHandles\(handles\)/s);
 });
 
-function makeSource() {
-  return {
-    geometries: [{ directory: { meshletCount: 2 } }],
-    materials: [new StandardShadeMaterial()],
-    count: 1,
-    geometryIndices: new Uint32Array([0]),
-    materialIndices: new Uint32Array([0]),
-    currentTransforms: new Float32Array([
+test("R2-D flat work capacity counts every instance sharing one Geometry and rejects limits before mutation", () => {
+  const graphics = createGraphics();
+  const registry = new GpuPackedSceneRegistry(graphics);
+  const scene = new Scene();
+  const shared = makeSource(1_000, 7);
+  const command = new FakeCommand();
+  registry.stage(scene, shared, [Object.freeze({})], command);
+  command.finish();
+  assert.equal(registry.evidence().candidateMeshletCapacity, 7_000);
+
+  const limitedGraphics = createGraphics();
+  limitedGraphics.device.limits.maxBufferSize = 1_024;
+  limitedGraphics.device.limits.maxStorageBufferBindingSize = 1_024;
+  const limited = new GpuPackedSceneRegistry(limitedGraphics);
+  assert.throws(
+    () => limited.stage(new Scene(), makeSource(1_000, 7), [Object.freeze({})], new FakeCommand()),
+    /flat work queue requires/
+  );
+  assert.equal(limitedGraphics.obtainCount, 0);
+  assert.equal(limitedGraphics.instantiateCount, 0);
+  assert.equal(limitedGraphics.buffers.length, 0);
+});
+
+function makeSource(count = 1, meshletCount = 2) {
+  const currentTransforms = new Float32Array(count * 16);
+  const boundsSpheres = new Float32Array(count * 4);
+  for (let index = 0; index < count; index++) {
+    currentTransforms.set([
       1, 0, 0, 0,
       0, 1, 0, 0,
       0, 0, 1, 0,
       0, 0, 0, 1
-    ]),
-    boundsSpheres: new Float32Array([0, 0, 0, 1])
+    ], index * 16);
+    boundsSpheres.set([0, 0, 0, 1], index * 4);
+  }
+  return {
+    geometries: [{ directory: { meshletCount } }],
+    materials: [new StandardShadeMaterial()],
+    count,
+    geometryIndices: new Uint32Array(count),
+    materialIndices: new Uint32Array(count),
+    currentTransforms,
+    boundsSpheres
   };
 }
 

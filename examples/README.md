@@ -36,7 +36,7 @@ examples/
 - [r2-meshlet-cooker](./r2-meshlet-cooker/README.md)：运行官方 meshoptimizer 1.0.0 WASM，验证 32/64、64/64、64/128 variants、新 Meshlet sections 和 reopen validator。
 - [r2-geometry-package](./r2-geometry-package/README.md)：验证可绘制层次/error、未量化保守 BVH8、未压缩 streams/material、完整 validator、CPU selector 与纯 package reopen。
 - [r2-gpu-residency](./r2-gpu-residency/README.md)：验证 package residency、紧凑 Geometry/Cluster/Meshlet records、GPU readback 和 Hardware `drawIndirect()` consumer。
-- [r2-packed-scene](./r2-packed-scene/README.md)：验证 1k/10k/100k Packed Instances、显式 patch、previous/current、stable-frame 与 Instance + Geometry Hardware consumer。
+- [r2-packed-scene](./r2-packed-scene/README.md)：验证 1k/10k/100k Packed Instances、显式 patch、previous-from-current、stable-frame 与 Instance + Geometry Hardware consumer。
 - [benchmark-shared](./benchmark-shared/README.md)：A/B/C 的冻结输入、正式/烟雾 profile、资产归属和统一验收方法。三个页面默认使用 `?profile=smoke` 开发链接；无查询参数才加载完整实例数量。
 
 在本目录运行 `npm install` 后，可用 `npm run dev:host` 启动全部示例；`npm run build` 同时执行类型检查和生产构建。Teapot 输入由 `npm run generate:benchmark-assets` 从本地 three.js revision 确定性再生。

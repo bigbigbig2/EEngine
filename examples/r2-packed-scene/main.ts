@@ -249,8 +249,8 @@ async function run(): Promise<void> {
     GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world + 12 * 4,
     true
   );
-  const previousX = patchView.getFloat32(
-    GPU_INSTANCE_RECORD_OFFSETS.previous_object_to_world + 12 * 4,
+  const previousFromCurrentX = patchView.getFloat32(
+    GPU_INSTANCE_RECORD_OFFSETS.previous_from_current + 12 * 4,
     true
   );
 
@@ -284,7 +284,7 @@ async function run(): Promise<void> {
     stableEncodedCopies === 0 &&
     uploadBeforeStable === uploadAfterStable &&
     Math.abs(currentX - expectedCurrentX) < 1e-5 &&
-    Math.abs(previousX - baselineX) < 1e-5 &&
+    Math.abs(previousFromCurrentX - (baselineX - expectedCurrentX)) < 1e-5 &&
     nonBackgroundPixels > 1_000 &&
     sceneEvidence.activeInstanceCount === 111_000 &&
     sceneEvidence.privateSubmitCount === 0 &&
@@ -305,7 +305,13 @@ async function run(): Promise<void> {
       uploadBytesBefore: uploadBeforeStable,
       uploadBytesAfter: uploadAfterStable
     },
-    previousCurrent: { baselineX, expectedCurrentX, currentX, previousX, frameId: 99 },
+    previousCurrent: {
+      baselineX,
+      expectedCurrentX,
+      currentX,
+      previousFromCurrentX,
+      frameId: 99
+    },
     hardwareConsumer: {
       producer: "Compute compacts active InstanceRecord indices and writes all 16 indirect bytes",
       consumer: "drawIndirect reads compact list + InstanceRecord + GeometryRecord/vertex payload",
@@ -322,7 +328,7 @@ async function run(): Promise<void> {
   status.textContent = passed ? "验证通过" : "验证失败";
   status.className = passed ? "ok" : "error";
   summary.innerHTML = passed
-    ? "<strong>PASS</strong>：Packed bulk/patch、previous/current 和 GPU compact → Hardware indirect consumer 闭环成立。"
+    ? "<strong>PASS</strong>：Packed bulk/patch、previous-from-current 和 GPU compact → Hardware indirect consumer 闭环成立。"
     : "R2-D Packed Scene 的 ABI、bulk、patch、画面或 WebGPU 门禁失败。";
   result.textContent = JSON.stringify(artifact, null, 2);
   if (!passed) throw new Error("R2-D browser validation failed");

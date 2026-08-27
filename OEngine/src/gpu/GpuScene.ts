@@ -1,6 +1,9 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { AssetHandle, GpuAssetStore } from "./GpuAssetStore.js";
+import { mat4 } from "gl-matrix";
 import {
+  computePreviousFromCurrent,
+  createGpuInstanceMotionScratch,
   GPU_INSTANCE_ABI_VERSION,
   GPU_INSTANCE_FLAGS,
   GPU_INSTANCE_RECORD_OFFSETS,
@@ -189,6 +192,7 @@ export const INSTANCE_SOURCE_FLAGS = GPU_INSTANCE_FLAGS;
  * caller's command for grow and patch copies and never creates a private submit.
  */
 export class GpuScene {
+  private readonly motionScratch = createGpuInstanceMotionScratch();
   private buffer: GPUBuffer;
   private readonly slots: SlotState[] = [{ generation: 0 }];
   private readonly freeSlots: number[] = [];
@@ -377,6 +381,11 @@ export class GpuScene {
     const transformValues = batch.transforms?.transforms;
     const materialIndices = batch.materials?.indices;
     const materialValues = batch.materials?.materialHandles;
+    const recordView = new DataView(
+      entry.bytes.buffer,
+      entry.bytes.byteOffset,
+      entry.bytes.byteLength
+    );
 
     try {
       for (let cursor = 0; cursor < transformOrders.length; cursor++) {
@@ -384,13 +393,40 @@ export class GpuScene {
         const localIndex = transformIndices![order]!;
         previousFrames[cursor] = entry.lastTransformFrame[localIndex]!;
         const recordOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE;
-        if (entry.lastTransformFrame[localIndex] !== batch.frameId) {
-          entry.bytes.copyWithin(
-            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_object_to_world,
-            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world,
-            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world + 64
+        const flagsOffset = recordOffset + GPU_INSTANCE_RECORD_OFFSETS.flags;
+        const previousFlags = recordView.getUint32(flagsOffset, true);
+        const sameFrame = entry.lastTransformFrame[localIndex] === batch.frameId;
+        let motionValid = false;
+        if (sameFrame && (previousFlags & GPU_INSTANCE_FLAGS.MotionInvalid) !== 0) {
+          // The prior-frame transform cannot be reconstructed from an invalid
+          // motion record. Keep velocity disabled for the rest of this frame.
+          mat4.identity(this.motionScratch.previousFromCurrent);
+        } else {
+          readMatrix(
+            this.motionScratch.inverseCurrent,
+            entry.bytes,
+            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world
           );
-          entry.lastTransformFrame[localIndex] = batch.frameId;
+          if (sameFrame) {
+            readMatrix(
+              this.motionScratch.previous,
+              entry.bytes,
+              recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current
+            );
+            mat4.multiply(
+              this.motionScratch.inverseCurrent,
+              this.motionScratch.previous,
+              this.motionScratch.inverseCurrent
+            );
+          }
+          motionValid = computePreviousFromCurrent(
+            this.motionScratch.previousFromCurrent,
+            transformValues!,
+            this.motionScratch.inverseCurrent,
+            order * 16,
+            0,
+            this.motionScratch
+          );
         }
         writeMatrix(
           entry.bytes,
@@ -399,8 +435,22 @@ export class GpuScene {
           order * 16,
           `transforms[${order}]`
         );
+        writeMatrix(
+          entry.bytes,
+          recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current,
+          this.motionScratch.previousFromCurrent,
+          0,
+          `previousFromCurrent[${order}]`
+        );
+        recordView.setUint32(
+          flagsOffset,
+          (motionValid
+            ? previousFlags & ~GPU_INSTANCE_FLAGS.MotionInvalid
+            : previousFlags | GPU_INSTANCE_FLAGS.MotionInvalid) >>> 0,
+          true
+        );
+        entry.lastTransformFrame[localIndex] = batch.frameId;
       }
-      const recordView = new DataView(entry.bytes.buffer);
       for (let cursor = 0; cursor < materialOrders.length; cursor++) {
         const order = materialOrders[cursor]!;
         const localIndex = materialIndices![order]!;
@@ -618,8 +668,7 @@ export class GpuScene {
         source.materialHandles[index]!,
         true
       );
-      const flags = (source.flags?.[index] ?? 0) | GPU_INSTANCE_FLAGS.Active;
-      view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.flags, flags >>> 0, true);
+      let flags = (source.flags?.[index] ?? 0) | GPU_INSTANCE_FLAGS.Active;
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.debug_id,
         source.debugIds?.[index] ?? index,
@@ -637,13 +686,25 @@ export class GpuScene {
         copyFiniteF32(view, base + GPU_INSTANCE_RECORD_OFFSETS.bounds_max, source.boundsMax, index * 3, 3, "boundsMax");
       }
       copyFiniteF32(view, base + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world, source.currentTransforms, index * 16, 16, "currentTransforms");
-      copyFiniteF32(
-        view,
-        base + GPU_INSTANCE_RECORD_OFFSETS.previous_object_to_world,
+      const motionValid = computePreviousFromCurrent(
+        this.motionScratch.previousFromCurrent,
+        source.currentTransforms,
         source.previousTransforms ?? source.currentTransforms,
         index * 16,
+        index * 16,
+        this.motionScratch
+      );
+      flags = (motionValid
+        ? flags & ~GPU_INSTANCE_FLAGS.MotionInvalid
+        : flags | GPU_INSTANCE_FLAGS.MotionInvalid) >>> 0;
+      view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.flags, flags >>> 0, true);
+      copyFiniteF32(
+        view,
+        base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current,
+        this.motionScratch.previousFromCurrent,
+        0,
         16,
-        "previousTransforms"
+        "previousFromCurrent"
       );
     }
     return bytes;
@@ -928,6 +989,17 @@ function writeMatrix(
     const value = source[sourceOffset + index]!;
     if (!Number.isFinite(value)) throw new RangeError(`${label}[${index}] must be finite`);
     view.setFloat32(destinationByteOffset + index * 4, value, true);
+  }
+}
+
+function readMatrix(
+  destination: Float32Array,
+  source: Uint8Array,
+  sourceByteOffset: number
+): void {
+  const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
+  for (let index = 0; index < 16; index++) {
+    destination[index] = view.getFloat32(sourceByteOffset + index * 4, true);
   }
 }
 

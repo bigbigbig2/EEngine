@@ -20,6 +20,7 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "gl-matrix": "3.4.4",
     "meshoptimizer": "1.0.0"
   }
 }

@@ -12,7 +12,8 @@
 
 Packed source 只保留 typed arrays 和少量 geometry handles，不构造一实例一
 `Mesh/Node3D`。普通 Scene 使用 `createInstanceSourceFromScene()` 写入同一个 ABI。
-页面还会 readback 一个同帧重复 transform patch，确认 previous 保持上一帧值。
+页面还会 readback 一个同帧重复 transform patch，确认 v2 `previous_from_current`
+始终把最新 current 映射到上一帧 transform。
 
 本地验收：
 
@@ -31,3 +32,5 @@ npm run dev:host
 encoded copy 为 0 且 upload bytes 不变；same-frame current/previous readback 与期望一致；
 1,000-instance Hardware consumer 得到 41,733 个非背景像素。WebGPU validation、
 uncaptured error、shader diagnostic 和干净标签页 console warning/error 均为空。
+该段是 G2 关闭时的 v1 历史证据；页面已升级为 ABI v2 motion readback，本轮只完成
+production build，新的 live 浏览器 JSON/diagnostics 尚待重采。

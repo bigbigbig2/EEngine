@@ -34,11 +34,12 @@ const { Mesh } = await import("../.test-dist/scene/Mesh.js");
 const { Scene } = await import("../.test-dist/scene/Scene.js");
 
 test("R2-D Instance TS packer and WGSL share the frozen 192-byte ABI", () => {
+  assert.equal(GPU_INSTANCE_RECORD_SCHEMA.abiVersion, 2);
   assert.equal(GPU_INSTANCE_RECORD_SCHEMA.stride, 192);
   assert.equal(GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world, 64);
-  assert.equal(GPU_INSTANCE_RECORD_OFFSETS.previous_object_to_world, 128);
+  assert.equal(GPU_INSTANCE_RECORD_OFFSETS.previous_from_current, 128);
   assert.match(GPU_INSTANCE_RECORD_WGSL, /current_object_to_world: mat4x4f/);
-  assert.match(GPU_INSTANCE_RECORD_WGSL, /previous_object_to_world: mat4x4f/);
+  assert.match(GPU_INSTANCE_RECORD_WGSL, /previous_from_current: mat4x4f/);
 
   const current = identity(3, 4, 5);
   const previous = identity(1, 2, 3);
@@ -59,7 +60,8 @@ test("R2-D Instance TS packer and WGSL share the frozen 192-byte ABI", () => {
   assert.equal(view.getUint32(4, true), 10);
   assert.equal(view.getFloat32(16, true), 1);
   assert.equal(view.getFloat32(64 + 12 * 4, true), 3);
-  assert.equal(view.getFloat32(128 + 13 * 4, true), 2);
+  assert.equal(view.getFloat32(128 + 12 * 4, true), -2);
+  assert.equal(view.getFloat32(128 + 13 * 4, true), -2);
 });
 
 test("R2-D bulk path accepts 1k/10k/100k without per-instance objects or private submits", async () => {
@@ -155,7 +157,7 @@ test("R2-D patch keeps previous/current semantics, deduplicates and proves 0/1/1
   let view = new DataView(buffer.data);
   assert.equal(view.getUint32(base + GPU_INSTANCE_RECORD_OFFSETS.material_handle, true), 9);
   assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world + 12 * 4, true), 30);
-  assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_object_to_world + 12 * 4, true), 102);
+  assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current + 12 * 4, true), 72);
 
   const sameFrame = new FakeSceneCommand(gpu.device);
   scene.patch(handle, {
@@ -169,9 +171,9 @@ test("R2-D patch keeps previous/current semantics, deduplicates and proves 0/1/1
   view = new DataView(scene.bindings().instances.data);
   assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world + 12 * 4, true), 40);
   assert.equal(
-    view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_object_to_world + 12 * 4, true),
-    102,
-    "a second patch in one frame must preserve the prior-frame transform"
+    view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current + 12 * 4, true),
+    62,
+    "a second patch in one frame must still map the new transform to the prior-frame transform"
   );
 
   const nextFrame = new FakeSceneCommand(gpu.device);
@@ -185,7 +187,49 @@ test("R2-D patch keeps previous/current semantics, deduplicates and proves 0/1/1
   nextFrame.finish();
   view = new DataView(scene.bindings().instances.data);
   assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world + 12 * 4, true), 50);
-  assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_object_to_world + 12 * 4, true), 40);
+  assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current + 12 * 4, true), -10);
+
+  const singular = identity(55, 0, 0);
+  singular[0] = 0;
+  const singularPatch = new FakeSceneCommand(gpu.device);
+  scene.patch(handle, {
+    frameId: 12,
+    transforms: { indices: new Uint32Array([4]), transforms: singular }
+  }, singularPatch);
+  singularPatch.finish();
+  view = new DataView(scene.bindings().instances.data);
+  assert.notEqual(
+    view.getUint32(base + GPU_INSTANCE_RECORD_OFFSETS.flags, true) & GPU_INSTANCE_FLAGS.MotionInvalid,
+    0
+  );
+  assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current, true), 1);
+  assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current + 12 * 4, true), 0);
+
+  const recoverSameFrame = new FakeSceneCommand(gpu.device);
+  scene.patch(handle, {
+    frameId: 12,
+    transforms: { indices: new Uint32Array([4]), transforms: identity(60, 0, 0) }
+  }, recoverSameFrame);
+  recoverSameFrame.finish();
+  view = new DataView(scene.bindings().instances.data);
+  assert.notEqual(
+    view.getUint32(base + GPU_INSTANCE_RECORD_OFFSETS.flags, true) & GPU_INSTANCE_FLAGS.MotionInvalid,
+    0,
+    "motion remains disabled when the prior-frame transform was lost earlier in the same frame"
+  );
+
+  const recoverNextFrame = new FakeSceneCommand(gpu.device);
+  scene.patch(handle, {
+    frameId: 13,
+    transforms: { indices: new Uint32Array([4]), transforms: identity(70, 0, 0) }
+  }, recoverNextFrame);
+  recoverNextFrame.finish();
+  view = new DataView(scene.bindings().instances.data);
+  assert.equal(
+    view.getUint32(base + GPU_INSTANCE_RECORD_OFFSETS.flags, true) & GPU_INSTANCE_FLAGS.MotionInvalid,
+    0
+  );
+  assert.equal(view.getFloat32(base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current + 12 * 4, true), -10);
   assert.equal(scene.evidence().privateSubmitCount, 0);
   scene.destroy();
 });

@@ -53,6 +53,8 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 - R1-D 冻结了 transient 生命周期：command 内 last-use alias、同 queue ordered reuse、mapping/readback/显式 fence/跨 owner destroy 等待 completion。把所有 transient 一刀切延迟到 completion 会把 Frame Smoke resident 从约 265 MB 放大到约 946 MB，已拒绝。
 - Visibility 的 bucket/scan/expand/second-chance 中间队列和 clear 成本高。
 - 当前 Material Expand 先写 material depth，再对每个材质画全屏三角形。
+- Packed Material 已删除每 vertex 重复 descriptor 扫描、错误 fullscreen derivative 和重复 viewport mapping；但每材质 fullscreen 循环仍存在，R4-B 前不得把局部降本当作 single resolve 完成。
+- Packed Velocity 已将 `previous * inverse(current)` 从每可见像素移到 Instance bulk/patch，并对奇异 motion 输出零；尚缺同条件浏览器 timestamp，当前只登记结构工作量消除，不声明 GPU 百分比。
 - Visibility、material depth、四张 GBuffer、HDR 和 history 产生较大全分辨率带宽。
 - 主链缺少 hierarchy/SSE LOD；Compute micro-raster 是待 profile 的可选优化，不是唯一根因。
 - Shader runtime owner 已有静态审计，但 6 个运行中的 oracle/generated 事实源仍没有 generator/所有权闭环，也尚未建立系统的性能和视觉回归。

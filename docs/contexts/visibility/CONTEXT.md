@@ -17,6 +17,7 @@ Instance Cull
 
 - 每个 Work Queue 说明 producer、consumer、capacity、attempted/written、overflow 和 counters。
 - 当前 Hardware baseline 是 GPU list count 写入 indirect `instanceCount`，每 Meshlet instance 固定最多 384 vertices；必须统计无效提交和多 bucket 成本。
+- R2-D Packed flat queue 的 header 为 `written/attempted/visible/rejected`，element 为 Instance/Meshlet record index；共享 Geometry capacity 必须乘实例数，adapter limit 在 owner 变更前拒绝。该 flat producer 由 R3 hierarchy traversal 替换，但复用同一 Hardware indirect consumer。
 - HW-only 必须先形成完整正确主链；SW/Hybrid 是后续 profile optimization。
 - Hardware 与 Software Raster 共享 VisibilityKey、深度和边规则。
 - HZB 只负责遮挡，不负责决定当前帧 LOD。

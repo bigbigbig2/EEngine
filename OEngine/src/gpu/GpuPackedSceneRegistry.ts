@@ -85,6 +85,24 @@ export class GpuPackedSceneRegistry {
       throw new Error("Scene already has a Packed Scene registration");
     }
     validateSource(source, assetHandles);
+    let candidateMeshletCapacity = 0;
+    for (let index = 0; index < source.count; index++) {
+      const geometry = source.geometries[source.geometryIndices[index]!]!;
+      candidateMeshletCapacity += geometry.directory.meshletCount;
+      if (!Number.isSafeInteger(candidateMeshletCapacity) || candidateMeshletCapacity > 0xffffffff) {
+        throw new RangeError("Packed Scene candidate Meshlet capacity exceeds u32");
+      }
+    }
+    const workQueueBytes = 16 + candidateMeshletCapacity * 8;
+    const storageLimit = Math.min(
+      Number(this.graphics.device.limits.maxBufferSize),
+      Number(this.graphics.device.limits.maxStorageBufferBindingSize)
+    );
+    if (workQueueBytes > storageLimit) {
+      throw new RangeError(
+        `Packed Scene flat work queue requires ${workQueueBytes} bytes, adapter limit is ${storageLimit}`
+      );
+    }
     for (const material of source.materials) this.graphics.materials.obtain(material);
     const geometryHandles = Object.freeze([...assetHandles]);
     const materialHandles = new Uint32Array(source.count);
@@ -106,24 +124,6 @@ export class GpuPackedSceneRegistry {
     };
     const instanceHandle = this.graphics.gpu_scene.instantiate(instanceSource, command);
     const range = this.graphics.gpu_scene.range(instanceHandle);
-    let candidateMeshletCapacity = 0;
-    for (let index = 0; index < source.count; index++) {
-      const geometry = source.geometries[source.geometryIndices[index]!]!;
-      candidateMeshletCapacity += geometry.directory.meshletCount;
-      if (!Number.isSafeInteger(candidateMeshletCapacity) || candidateMeshletCapacity > 0xffffffff) {
-        throw new RangeError("Packed Scene candidate Meshlet capacity exceeds u32");
-      }
-    }
-    const workQueueBytes = 16 + candidateMeshletCapacity * 8;
-    const storageLimit = Math.min(
-      Number(this.graphics.device.limits.maxBufferSize),
-      Number(this.graphics.device.limits.maxStorageBufferBindingSize)
-    );
-    if (workQueueBytes > storageLimit) {
-      throw new RangeError(
-        `Packed Scene flat work queue requires ${workQueueBytes} bytes, adapter limit is ${storageLimit}`
-      );
-    }
     const workQueue = this.graphics.device.createBuffer({
       label: "PackedScene/flat-meshlet-work",
       size: Math.max(16, workQueueBytes),
