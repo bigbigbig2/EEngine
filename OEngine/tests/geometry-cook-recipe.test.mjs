@@ -54,6 +54,10 @@ test("GeometryCookRecipe validates limits before any external algorithm runs", (
     /meshletMaxVertices/
   );
   assert.throws(
+    () => createGeometryCookRecipe({ meshletMaxVertices: 2 }),
+    /meshletMaxVertices/
+  );
+  assert.throws(
     () => createGeometryCookRecipe({ simplificationTargetRatio: 1 }),
     /simplificationTargetRatio/
   );

@@ -57,5 +57,5 @@
 
 - R2-A：SourceGeometry/package kernel tests，不执行 Meshlet 算法；
 - R2-B：上游统计对照、黄金资产、deterministic package、CPU selector/validator；
-- decision：`adopt` 固定上游算法能力，具体 direct dependency 或可追溯 wrapper 生成方式在 R2-B-01 以 bundle/Node/browser 条件最终选择；
+- decision：`adopt` 固定上游算法能力；R2-B-01 已选择 `meshoptimizer@1.0.0` direct dependency，精确包、integrity、文件 hash、API 和 OEngine 差异见 [R2-B-01 ledger](./R2-B-01-meshoptimizer-package.md)；
 - reason：避免重新实现成熟的 Meshlet、bounds/cone 和 simplification 基础算法，同时保持 OEngine 自有 package/GPU ABI。

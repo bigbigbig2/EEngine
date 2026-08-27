@@ -118,6 +118,17 @@ OptionalDebugNames
 
 每个 section 由通用 directory 声明 byte offset/length、element stride/count、alignment、flags/compression 和 checksum。Reader 先验证通用 directory，再由 Geometry validator 验证跨 section 引用。
 
+R2-B-01 已冻结可独立 reopen 的最小 Geometry slice：
+
+| Section | Type | Stride | R2-B-01 语义 |
+|---|---:|---:|---|
+| `GeometryDirectory` | `0x1000` | 192 B | required，恰好 1 条；little-endian，尾部 8 B reserved 必须为 0 |
+| `MeshletRecords` | `0x2000` | 112 B | required；连续引用 vertex/local-triangle payload |
+| `MeshletVertexIndices` | `0x2001` | 4 B | required；`u32` SourceGeometry vertex index |
+| `MeshletTriangleIndices` | `0x2002` | 1 B | required；每 triangle 3 个 Meshlet-local `u8` index |
+
+`GeometryDirectory` 保存 schema/flags、source counts、未来 section ranges、实际 Meshlet limits、object-space AABB/sphere、source SHA-256 与 recipe SHA-256。R2-B-01 对尚未存在的 stream/material ranges 写 0，对 hierarchy/BVH root 写 `0xffffffff` 且 count 写 0，并用 `SingleLevel | NoHierarchy | NoBvh | Uncompressed` 明确能力边界。`MeshletRecord` 保存 payload offset/count、material range ordinal/material ID、alpha/double-sided/cone flags、AABB、sphere 与 cone；reserved bytes 必须为 0。完整 stream/material cross-reference 在 R2-B-04 冻结前不得伪造。
+
 ### `GeometryDirectory`
 
 每个 geometry entry 至少包含：
@@ -255,9 +266,23 @@ Writer 不得直接信任内部对象。Cook 完成的定义是“重新从最�
 
 从固定 `SourceGeometry` 调用登记的 meshoptimizer 能力，输出新 Meshlet sections；对照上游统计和现有 `niMeshlets` 画面，但不复用旧 header ABI。
 
+状态：完成。新路径直接依赖锁定的 `meshoptimizer@1.0.0`（tag `v1.0`、commit `73583c3`），按 material range 分批调用 `buildMeshlets()`，以 `extractMeshlet()` 去掉上游 aggregate 尾部，并把 `computeMeshletBounds()` 结果保守化后写入 OEngine sections。Cook 完成前必须从最终 bytes 重新打开；runtime open 不调用 meshoptimizer，也不创建 WebGPU/GPU 资源。复用证据见 [R2-B-01 porting ledger](../references/porting/R2-B-01-meshoptimizer-package.md)。
+
+固定 16×16 Grid 黄金结果：
+
+| Recipe | Meshlets | Vertex refs | Triangles | Package bytes | Content hash |
+|---|---:|---:|---:|---:|---|
+| 32/64 | 13 | 393 | 512 | 5056 | `b4571b2f54857249299ee06805fd147fec5573ba2ab705877cd5f556dcabe065` |
+| 64/64 | 8 | 375 | 512 | 4416 | `b1cdd425d9422d6364e1a88a5dbc32931b451a4463597d3500633df7491c5d83` |
+| 64/128 | 6 | 342 | 512 | 4064 | `cb63d50124f7d2e9f14b173eba6409326c585dac62378095775a2ad9b0aa32ca` |
+
+验证覆盖 byte-identical rebuild、triangle coverage、Meshlet sphere 包含 source vertices、material/alpha/double-sided 分界、limits/连续 ranges、local/global index、reserved bytes、identity、bounds/cone 与 trailing payload。由于 R2-B-01 尚未写入 vertex streams，package reopen 只能验证 bounds 的有限性/顺序；基于真实 vertex position 的完整 bounds containment 会在 R2-B-04 随 streams 一起进入 package validator。根目录 `r2-meshlet-cooker` example 已通过 production build，并由本机 Edge 页面截图确认 `PASS`、512 triangles、13/8/6 Meshlets 与 byte-identical rebuild；应用内 Browser runtime 初始化失败，备用页面验证未采集 console 日志，因此 console 不登记为通过证据。
+
 ### R2-B-02 · Renderable hierarchy + error
 
 先支持一个有明确父/叶关系的黄金资产；建立 CPU selector、覆盖互斥、reachability 和 monotonic error tests，再扩展 A/B/C。
+
+状态：当前唯一入口。不得在 hierarchy 可绘制父级、误差语义与 CPU selector 尚未闭环时提前进入 BVH8 或 GPU residency。
 
 ### R2-B-03 · BVH8
 

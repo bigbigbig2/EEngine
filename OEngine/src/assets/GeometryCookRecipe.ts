@@ -90,7 +90,10 @@ export function createGeometryCookRecipe(
   const deterministicSeed = input.deterministicSeed ?? 0;
   const floatingPointMode = input.floatingPointMode ?? "ieee754-nearest-no-fast-math";
 
-  assertIntegerInRange(meshletMaxVertices, 1, 256, "meshletMaxVertices");
+  // A triangle-list Meshlet must be able to reference at least one complete
+  // triangle. meshoptimizer accepts smaller values at the JS boundary, but
+  // they cannot produce a valid OEngine Meshlet.
+  assertIntegerInRange(meshletMaxVertices, 3, 256, "meshletMaxVertices");
   assertIntegerInRange(meshletMaxTriangles, 1, 512, "meshletMaxTriangles");
   assertFiniteInRange(coneWeight, 0, 1, true, "coneWeight");
   assertFiniteInRange(

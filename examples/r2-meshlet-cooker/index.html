@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OEngine R2-B-01 Meshlet Cooker</title>
+    <style>
+      body { margin: 0; color: #edf4ff; background: #07101d; font: 15px/1.55 system-ui, sans-serif; }
+      main { max-width: 1000px; margin: 0 auto; padding: 48px 24px; }
+      section { margin: 20px 0; padding: 20px; border: 1px solid #29405f; border-radius: 14px; background: #101c2e; }
+      .pending { color: #ffd27a; } .ok { color: #75e5a5; } .error { color: #ff8291; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 8px 10px; border-bottom: 1px solid #29405f; text-align: left; }
+      pre { overflow: auto; padding: 16px; border-radius: 10px; background: #050b14; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>R2-B-01 · Meshlet Cooker</h1>
+      <p>通过相对路径运行官方 meshoptimizer 1.0.0 WASM：SourceGeometry → Meshlet sections → package reopen/Geometry validator。该示例不创建 GPU 资源。</p>
+      <section>
+        <h2 id="status" class="pending">正在 Cook…</h2>
+        <div id="summary"></div>
+      </section>
+      <section>
+        <h2>16 × 16 Grid variants</h2>
+        <table>
+          <thead><tr><th>Recipe</th><th>Meshlets</th><th>Vertex refs</th><th>Triangles</th><th>Package bytes</th></tr></thead>
+          <tbody id="variants"></tbody>
+        </table>
+      </section>
+      <section><h2>验证结果</h2><pre id="result"></pre></section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

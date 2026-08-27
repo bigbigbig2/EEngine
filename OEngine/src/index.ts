@@ -53,6 +53,28 @@ export type {
   RuntimeAssetValidationReport,
   RuntimeAssetValidationSeverity
 } from "./assets/RuntimeAssetPackage.js";
+export {
+  GEOMETRY_ASSET_SCHEMA_VERSION,
+  GEOMETRY_DIRECTORY_FLAGS,
+  GEOMETRY_DIRECTORY_RECORD_STRIDE,
+  GEOMETRY_INVALID_INDEX,
+  GEOMETRY_MESHLET_RECORD_STRIDE,
+  GEOMETRY_SECTION_TYPES,
+  GeometryAssetPackageError,
+  openGeometryAssetPackage
+} from "./assets/GeometryAssetPackage.js";
+export type {
+  GeometryAssetPackage,
+  GeometryAssetValidationReport,
+  GeometryDirectoryRecord,
+  GeometryMeshletAlphaMode,
+  GeometryMeshletRecord
+} from "./assets/GeometryAssetPackage.js";
+export { cookGeometryAssetPackage } from "./geometry/GeometryCooker.js";
+export type {
+  GeometryCookEvidence,
+  GeometryCookResult
+} from "./geometry/GeometryCooker.js";
 export { Camera } from "./camera/Camera.js";
 export { DirectionalLight } from "./light/DirectionalLight.js";
 export { DynamicResolutionScaling } from "./render/DynamicResolutionScaling.js";

@@ -18,5 +18,8 @@
     "@webgpu/types": "^0.1.64",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "meshoptimizer": "1.0.0"
   }
 }
