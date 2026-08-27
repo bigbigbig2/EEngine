@@ -28,7 +28,7 @@ meshoptimizer、`GeometryCooker`、Renderer、GPUDevice 或 legacy `niMeshlets`�
 | `loaders/usd/usdMesh.ts` | import 后直接 `niFromGeometry()` | USD normalize 到同一 `SourceGeometry` seam | USD fixture 通过新 Cooker/validator | R2-D |
 | `loaders/shadeFormat.ts` | load 时 `rebuildBvhFromMeshlets()` | 版本化 Geometry package reader | 旧 shade asset 有明确 reject/re-cook 策略 | R2-D |
 | `geometry/niMeshlets.ts` | legacy Meshlet、压缩 attribute、Dynamic BVH build 与旧 header 混合 | 无 runtime owner；算法由 Cooker/package schema 取代 | 下列所有 reader/consumer 迁移完成 | R2-D |
-| `gpu/MeshletGpuTable.ts` | 读取 legacy `MeshletGeometryBase` 并持有 `GeometryBlasPool` | R2-C compact geometry residency tables | 新 section ranges 可上传、回收、复算 bytes | R2-C |
+| `gpu/MeshletGpuTable.ts` | 读取 legacy `MeshletGeometryBase` 并持有 `GeometryBlasPool` | R2-C `GpuAssetStore` 已完成新纵切；R2-D 迁生产 consumer | 新 section ranges 已可上传、释放并复算 bytes；A/C/普通 Scene consumer 切换后删除旧 owner | R2-C / R2-D |
 | `gpu/GeometryBlasPool.ts` | 上传 legacy 32 B Dynamic BVH node | 独立 Cluster/BVH8 GPU ranges | R3 consumer 使用新 BVH8 ABI；LPV 不被误删 | R2-C / R3 |
 | legacy Visibility readers/shaders | 读取旧 meshlet header/packed attr 地址 | 新 Meshlet/Cluster/stream table word index | R3 GPU producer → consumer 闭环通过 | R3 / R4 |
 
@@ -55,10 +55,18 @@ meshoptimizer、`GeometryCooker`、Renderer、GPUDevice 或 legacy `niMeshlets`�
 - A/B/C 真实 GPU residency、upload bytes 和 traversal counter 属于 R2-C/R3，
   R2-B 不把“新 package 尚未被 GPU 使用”伪装成完成的性能收益。
 
-## R2-C 接手清单
+## R2-C 结果与 R2-D 接手清单
 
-1. 为每类 section 建立 GPU range/stride/alignment 与 resident bytes 复算；
-2. package schema/limits 不支持时在 allocation 前拒绝；
-3. 以 `AssetHandle` + compact table 取代 Loader/Geometry object 作为 GPU owner；
-4. 先迁移 Box 和一个 glTF 垂直切片，再切 A/B/C；
-5. 每迁移一个 consumer，就删除矩阵中对应 legacy reader/build，不留双写。
+已完成：
+
+1. 每类 Geometry section 已有 GPU range/stride/alignment、全局 range 重定位与 resident bytes 复算；
+2. package validation、u32 range 和 adapter buffer/storage limit 在目标分配/提交前检查；
+3. 新纵切由 `AssetHandle` + compact table 唯一持有 GPU residency，grow/abort/release 无私有 submit；
+4. `r2-gpu-residency` 已通过完整黄金资产 package → Compute → Hardware `drawIndirect` live 页面和 JSON/readback 门禁；GPU roundtrip、画面、WebGPU validation、abort/release 与 `privateSubmitCount=0` 全部通过。
+
+R2-D 必须继续完成：
+
+1. 冻结 Instance/Packed ABI，并让普通 Scene adapter 与 Packed source 写入同一 `GpuScene`；
+2. 把 A/C 和至少一个真实 glTF 主路径 consumer 切到新 Geometry/Instance bindings；
+3. 每迁移一个 consumer 即删除对应 legacy reader/build/owner，不长期双写；
+4. 完成 1k/10k/100k bulk、0%/1%/10%/100% patch、stable-frame zero upload 与画面/counter/timestamp 证据。

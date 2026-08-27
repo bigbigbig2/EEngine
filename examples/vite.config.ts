@@ -62,6 +62,10 @@ export default defineConfig({
           examplesRoot,
           "r2-geometry-package/index.html"
         ),
+        r2GpuResidency: path.resolve(
+          examplesRoot,
+          "r2-gpu-residency/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

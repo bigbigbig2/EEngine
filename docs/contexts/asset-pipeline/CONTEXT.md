@@ -20,4 +20,5 @@
 - runtime 打开 package 只做验证、驻留和上传，不重复 Meshlet、simplify、hierarchy 或 BVH build。
 - R2-A 已冻结 `SourceGeometry`、`GeometryCookRecipe` 与 Package Kernel v1；精确容器 ABI 见 ADR-0008。
 - R2-B 已冻结完整设备无关 Geometry package：Meshlet、可绘制 Cluster hierarchy/error、未量化保守 BVH8、未压缩 vertex/index/material sections、CPU selector、最终 bytes reopen validator 与报告。`single-level` recipe 只保留 R2-B-01 黄金兼容；完整资产使用 `renderable` recipe。
-- 当前唯一入口是 R2-C：validated section views → GPU residency/compact tables。package load 不得执行 Cooker；legacy Loader/`niMeshlets` consumer 按 R2-B-06 矩阵在 R2-C/D 迁移删除。
+- R2-C core 已接通 validated section views → `GpuAssetStore` → compact Geometry/Cluster/Meshlet records 与连续 payload；package load 不执行 Cooker，Package ABI 也不直接冒充 WGSL ABI。
+- R2-C 浏览器纵切已通过人工 live 画面、GPU readback、validation error scope 和 uncaptured-error 门禁，R2-C 已关闭。legacy Loader、A/B/C、`niMeshlets` consumer 和重复 residency owner 按 R2-B-06 矩阵在 R2-D 迁移删除；不能用 R2-C 黄金资产纵切宣称主路径已切换。

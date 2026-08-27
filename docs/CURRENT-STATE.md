@@ -35,23 +35,24 @@
 
 ## 关键缺口
 
-- R2-A 与 R2-B 设备无关数据基础已完成：`SourceGeometry`、固定 recipe、Package Kernel、独立 Meshlet ABI、可绘制 Cluster hierarchy/geometric error、未量化保守 BVH8、未压缩 vertex/index/material sections、完整 reopen validator、CPU selector 和机器报告均已落地。
-- 新 Geometry package 尚未接 GPU residency/consumer；当前 glTF/Box/USD 与 `MeshletGpuTable` 仍消费 legacy `niMeshlets`/`GeometryBlasPool`。迁移 owner 和删除条件见 [R2-B-06 矩阵](./implementation/R2-B-06-RUNTIME-BUILD-MIGRATION.md)，因此不能据此声明 GPU 性能提升。
-- 没有面向当前目标的 compact GPU table ABI 与完整 Packed Instance Set。
+- R2-A/B 设备无关数据基础已完成；R2-C core 也已落地：validated Geometry package 可进入惰性 `GpuAssetStore`，并重排为显式对齐的 Geometry 144 B、Cluster 128 B、Meshlet 112 B GPU records 与连续 payload buffers。
+- R2-C 已有 opaque generation handle、0 号 fallback、bulk upload、grow/copy/abort/completion-safe retirement、release/stale-handle 语义，以及 logical/resident/allocated/peak/retiring/reclaimable 和 upload/grow/reject counters。`GraphicsContext.assets` 惰性创建，legacy-only 页面不承担额外 store Buffer。
+- `examples/r2-gpu-residency` 已形成 package → resident tables → Compute 写 indirect args → Hardware `drawIndirect()` 的 flat 黄金资产闭环。2026-08-27 人工浏览器证据为 `passed=true`、GPU roundtrip `6/6` 一致、211,600 个非背景像素、`validationError=null`、无 uncaptured error/shader diagnostic、abort/release handle 均失效且 `privateSubmitCount=0`；R2-C 已关闭。
+- 当前 glTF/Box/USD、A/B/C 与生产 `MeshletGpuTable` 仍消费 legacy `niMeshlets`/`GeometryBlasPool`。R2-C 没有伪装成全主路径迁移；Packed Instance、普通 Scene adapter、A/C 接线和旧重复 owner 删除属于 R2-D。
+- Geometry/Cluster/Meshlet compact GPU ABI 已存在；Instance table 与完整 Packed Instance Set 尚未实现。
 - 没有 GPU Geometry Hierarchy、BVH8 traversal 或 SSE LOD；现有路径仍先展开大量 flat Meshlet 工作。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
 - 没有正式冻结的 frame-local VisibilityKey/VisibleCluster lookup 契约。
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
 - Material Expand 仍按活跃材质执行全屏三角形，成本可能接近 `materials × pixels`。
 - Lighting/CSM/Transparency/Temporal/Post 虽有代码路径，尚未基于新的 Visibility/Surface ABI 逐项重新验收。
-- resident/transient memory、geometry/texture/table bytes 和每帧 upload 仍没有完整预算证据。
+- Geometry residency 的 record/payload/upload/grow 内存证据已接入；Instance、texture、全帧 transient 与统一显存/上传预算仍未完成。
 - Shader oracle/generated owner 尚未完全收口，部分 reconstructed/Shade 历史命名仍存在。
 
 ## 当前下一步
 
-1. R2-A/B 已完成；当前唯一入口是 R2-C Residency + Compact Tables，让 validated package sections 成为 GPU Geometry/Cluster table 的唯一输入。
-2. R3 将 hierarchy 输出接入现有 single indirect Hardware consumer。
-3. R4-A 冻结 Hardware Visibility contract，R4-B 提前 Single Material Resolve，R4-C 再决定 SW/Hybrid 收益。
+1. R2-C 已关闭；当前唯一代码包是 R2-D Packed Scene Vertical：冻结 Instance ABI/bulk/patch，把 A/C 和普通 Scene adapter 接到同一 Geometry/Instance bindings，并删除 package 主路径的重复 runtime build/residency owner。
+2. R2-D/G2 关闭后进入 R3，让 GPU hierarchy/SSE 在 flat Meshlet 展开前减量并接入同一个 Hardware consumer；随后依次推进 R4-A、R4-B、R4-C。
 
 ## 本地参考状态
 

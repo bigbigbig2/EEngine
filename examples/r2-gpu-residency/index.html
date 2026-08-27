@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OEngine R2-C GPU Residency</title>
+    <style>
+      body { margin: 0; color: #edf4ff; background: #07101d; font: 15px/1.55 system-ui, sans-serif; }
+      main { max-width: 1120px; margin: 0 auto; padding: 40px 24px; }
+      section { margin: 20px 0; padding: 20px; border: 1px solid #29405f; border-radius: 14px; background: #101c2e; }
+      .pending { color: #ffd27a; } .ok { color: #75e5a5; } .error { color: #ff8291; }
+      canvas { width: min(100%, 640px); aspect-ratio: 1; image-rendering: auto; border: 1px solid #38567d; background: #02050a; }
+      pre { overflow: auto; max-height: 70vh; padding: 16px; border-radius: 10px; background: #050b14; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>R2-C · Residency + Compact Tables</h1>
+      <p>Validated package → GpuAssetStore → TS/WGSL ABI roundtrip → GPU indirect args → fixed-function Hardware Raster。</p>
+      <section><h2 id="status" class="pending">正在验证 GPU residency…</h2><div id="summary"></div></section>
+      <section><h2>Hardware-first 黄金资产</h2><canvas id="preview" width="512" height="512"></canvas></section>
+      <section><h2>机器报告</h2><pre id="result"></pre></section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

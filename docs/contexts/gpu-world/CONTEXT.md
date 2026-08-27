@@ -13,3 +13,10 @@
 - 不建设完整动态对象生命周期，但 grow/replace/destroy 必须等待正确的 GPU completion。
 - texture residency 可以后加；geometry streaming 不进入当前主路线。
 - R2 的 hierarchy 数据由 Cooker 生成并驻留；每帧 GPU traversal/SSE/work queue 属于 R3。
+
+## 当前状态
+
+- R2-C 已实现惰性 `GpuAssetStore`：0 号 fallback、opaque generation handle、Geometry/Cluster/Meshlet records、BVH8/stream/material/index/Meshlet/child payload、bulk upload 和完成安全退休由同一 owner 管理。
+- Package records 与 GPU records 明确分离；TS packer、字段 offset、stride 和 WGSL struct 由同一 schema 校验。当前 v1 stride 为 Geometry 144 B、Cluster 128 B、Meshlet 112 B。
+- release 立即使 handle/Geometry record 失效；append payload 暂计入 `reclaimableBytes`，不在 R2-C 未经 profile 建设通用 compactor。grow 只编码进调用方 command，`privateSubmitCount` 固定为 0。
+- R2-C flat 黄金资产 consumer 已通过 live 浏览器 GPU roundtrip、Hardware `drawIndirect` 画面和生命周期证据，R2-C 已关闭；A/C、普通 Scene adapter、Instance table/Packed source 与 legacy owner 删除仍属于 R2-D，GPU hierarchy traversal 仍属于 R3。

@@ -30,6 +30,8 @@
 - `buildMeshlets()`：输入 triangle-list `Uint32Array`、`Float32Array` position、stride 与 recipe limits；
 - `extractMeshlet()`：只读取每个 Meshlet 的精确 vertex/triangle range；
 - `computeMeshletBounds()`：取得上游 sphere/cone，随后由 OEngine conservative validator 验证并编码。
+- `computeClusterBounds()`：只用于不超过上游公开 JS 契约 512 triangles 的 hierarchy node；
+- `computeSphereBounds()`：hierarchy node 超过 512 triangles 时计算无数量上限的上游 sphere，OEngine 合并 child bounds 并显式关闭该节点 cone culling。
 
 保留：每个 Meshlet 的 unique vertex/triangle limits、local triangle index、全局 vertex index、winding、bounds/cone 语义。OEngine 按 material range 分批调用，禁止 alpha mode、double-sided 或 material ID 跨 Meshlet 边界。
 
@@ -41,6 +43,7 @@ OEngine recipe 额外要求 `meshletMaxVertices >= 3`：上游 JS boundary 接�
 - npm wrapper 的 aggregate triangle allocation 可能包含未使用尾部，OEngine 只通过 `extractMeshlet()` 取得精确 range，再紧凑写入自己的 sections；
 - 新 ABI 是 `GeometryDirectory`、`MeshletRecords`、`MeshletVertexIndices`、`MeshletTriangleIndices`，不复用旧 `niMeshlets` header；
 - 上游 bounds 发生非有限值时显式 warning 并退回保守 AABB sphere；序列化 radius 至少覆盖所有 Meshlet vertex；
+- 上游 `computeClusterBounds()` 在 JS boundary 对 `triangleCount <= 512` 做断言；OEngine 不绕过断言，也不分块拼接不保守的 cone。更大的 multi-material synthetic root 使用 `computeSphereBounds()`，并记录 `hierarchy-bounds-sphere-only:<triangles>`；
 - runtime `openGeometryAssetPackage()` 只验证 sections，不调用 meshoptimizer；
 - Cooker 不依赖 WebGPU、Renderer、GPU Buffer 或 Node-only crypto。
 
@@ -63,4 +66,5 @@ OEngine recipe 额外要求 `meshletMaxVertices >= 3`：上游 JS boundary 接�
 - 上游 `meshopt_clusterizer.test.js`：4/4；
 - OEngine 完整 `npm test`：97/97；独立 production build 通过；
 - OEngine `geometry-meshlet-cooker.test.mjs`：deterministic rebuild、triangle coverage、material boundary、degenerate warning/reject、bounds/cone、validly rehashed corruption；
+- OEngine `geometry-hierarchy.test.mjs`：包含 24×24 双材质 synthetic root 回归，证明大于 512 triangles 时不违反上游断言，root bounds/sphere 保守包含两个 material children，且 cone 无效；
 - 根目录 `examples/r2-meshlet-cooker`：production build 已通过；本机 Edge 页面截图显示 `PASS`、512 triangles、13/8/6 Meshlets 与 byte-identical rebuild。应用内 Browser runtime 初始化失败，备用验证未采集 console 日志，因此 console 不登记为通过证据。

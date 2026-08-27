@@ -2,8 +2,9 @@
 
 ## 状态
 
-设计已于 2026-08-27 冻结。`R2-A/B` 已完成；执行顺序唯一为
-`R2-A → R2-B → R2-C → R2-D`，当前入口切换为 R2-C Residency + Compact Tables。
+设计已于 2026-08-27 冻结。`R2-A/B/C` 已完成；执行顺序仍为
+`R2-A → R2-B → R2-C → R2-D`。当前唯一代码入口是 R2-D Packed Scene
+Vertical，整个 R2/G2 尚未关闭。
 
 ## R2 通俗解释
 
@@ -255,8 +256,8 @@ R2 严格按 A → B → C → D 执行。每个包都必须交付可运行纵�
 - `R2-B` 完成：新 Geometry package 已包含独立 Meshlet ABI、可绘制 Cluster
   hierarchy/error、未量化保守 BVH8、未压缩 stream/index/material sections、CPU
   selector、完整 reopen validator 与报告；旧 `niMeshlets` header 不进入新 ABI。
-- 当前入口是 `R2-C`。GPU residency/compact tables 与 consumer 尚未实现，因此
-  R2-B 只证明设备无关数据闭环，不声明 GPU 性能提升。
+- R2-C 已补上 GPU residency/compact tables 与 flat 黄金资产 consumer；这不改变
+  R2-B 只证明设备无关数据闭环的历史事实，也不构成 A/C 主路径性能提升证据。
 
 ### R2-B · Cooked Geometry
 
@@ -275,8 +276,9 @@ R2 严格按 A → B → C → D 执行。每个包都必须交付可运行纵�
 
 当前状态（2026-08-27）：完成。固定 Meshlet variants、renderable hierarchy/error、
 BVH8、完整 streams/material、deterministic evidence 与 runtime-build 删除准备均已
-关闭；实现与证据以 [04](./04-geometry-cooker-and-hierarchy.md) 为唯一 owner。下一
-唯一实现入口为 `R2-C · Residency + Compact Tables`。
+关闭；实现与证据以 [04](./04-geometry-cooker-and-hierarchy.md) 为唯一 owner。
+R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前唯一代码入口为
+`R2-D · Packed Scene Vertical`。
 
 ### R2-C · Residency + Compact Tables
 
@@ -291,6 +293,16 @@ BVH8、完整 streams/material、deterministic evidence 与 runtime-build 删除
 5. 输出 logical/allocated/resident/peak bytes、upload calls/bytes/padding、grow 和 rejected package counters。
 
 退出证据：黄金资产由新 store + 现有 Hardware consumer 渲染正确；bytes 可由 count × stride + payload 重算；grow/abort/release 无 use-after-free 或私有 submit。
+
+当前状态（2026-08-27）：完成。
+
+- `GpuGeometryAbi` 是 GPU ABI 单一事实源：Geometry 144 B、Cluster 128 B、Meshlet 112 B；字段 offset、TS packer、WGSL declaration 和 0 号 fallback 由测试共同冻结。Package 的 byte-packed record 不直接绑定为 WGSL struct，residency 时显式重排并重定位局部 range。
+- `GpuAssetStore` 已实现 opaque generation handle、`resident/release/bindings/evidence`，上传 Geometry/Meshlet/Cluster/BVH8、stream descriptor、material、vertex/index、Meshlet payload 和 cluster children。grow 只写入调用方 command，abort 恢复 cursor/buffer/slot，旧 grow buffer 在 GPU completion 后销毁。
+- release 后旧 handle 失效；当前 append/bulk-first payload 不做未量化收益的通用 compaction，释放空间诚实计入 `reclaimableBytes`。证据覆盖 logical/resident/allocated/peak/retiring/reclaimable、upload source/uploaded/padding/calls、grow/reject/abort/release 和 `privateSubmitCount=0`。
+- `GraphicsContext.assets` 惰性创建；`Renderer` 公开 package residency/release/evidence seam，但不公开裸 GPU Buffer bindings。legacy-only 页面不因 R2-C 无条件分配 residency Buffers。
+- `examples/r2-gpu-residency` 用相对路径构建完整 package，Compute 读取新 record 并写完整 16 B indirect record，固定功能 Hardware Raster 通过 `drawIndirect()` 消费，同时 readback ABI、颜色和生命周期 evidence。它是 flat 黄金资产 proof，不是 R3 hierarchy traversal，也不是第三条产品管线。
+- 自动验证为 OEngine `112/112` tests、OEngine production build 与 examples production build 全部通过。人工浏览器 artifact 为 `passed=true`；625 vertices/1,152 triangles Cook 成 29 Meshlets、16 Clusters、9 BVH8 nodes，GPU roundtrip expected/actual `6/6` 一致，512×512 画面有 211,600 个非背景像素；`validationError=null`、`uncapturedErrors=[]`、`shaderDiagnostics=[]`，abort/release stale handle、resident 回零和 `privateSubmitCount=0` 均通过。
+- A/C Packed Scene、普通 Scene adapter、生产 Visibility consumer 迁移和 legacy owner 删除属于 R2-D；因此当前不能关闭整个 R2/G2，也不能声明相对 three.js 的性能收益。
 
 ### R2-D · Packed Scene Vertical
 
@@ -312,7 +324,7 @@ BVH8、完整 streams/material、deterministic evidence 与 runtime-build 删除
 | 数据 | R2-A/B | R2-C | R2-D 完成后 |
 |---|---|---|---|
 | package bytes / geometry metadata | `RuntimeAssetPackage` | 同左 | 同左 |
-| resident Geometry/Cluster/payload | 旧 owner 仍服务旧页面 | `GpuAssetStore` 成为新路径唯一 owner | 旧 `MeshletGpuTable/GeometryBlasPool` residency 删除或仅剩无生产 consumer 的代码并立即删除 |
+| resident Geometry/Cluster/payload | 旧 owner 仍服务旧页面 | `GpuAssetStore` 是新纵切唯一 owner；legacy 主页面仍由旧 owner 服务 | R2-D 迁完 consumer 后删除旧 `MeshletGpuTable/GeometryBlasPool` geometry residency；R3 读取新 BVH8 binding |
 | instances | `SceneDatabase` | 迁移 adapter | `GpuScene` 是唯一 GPU Instance owner |
 | material | 现有 material registry | 现有 registry + validated handle reference | 保留到 R4-B；R2 不制造第二张 Material table |
 

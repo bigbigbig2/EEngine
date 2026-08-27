@@ -757,7 +757,7 @@ function buildRenderableHierarchy(
       syntheticRoot: true
     };
   }
-  return flattenHierarchy(root, state, positions, fallbackCount);
+  return flattenHierarchy(root, state, positions, fallbackCount, warnings);
 }
 
 function groupHierarchyNodes(
@@ -861,7 +861,8 @@ function flattenHierarchy(
   root: HierarchyNode,
   state: MeshletBuildState,
   positions: Float32Array,
-  fallbackCount: number
+  fallbackCount: number,
+  warnings: string[]
 ): HierarchyBuildResult {
   const nodes = [root];
   const parents = [GEOMETRY_INVALID_INDEX];
@@ -882,7 +883,7 @@ function flattenHierarchy(
   }
   const boundsCache = new Map<HierarchyNode, ClusterBounds>();
   const clusters = nodes.map((node, index) => {
-    const bounds = hierarchyNodeBounds(node, state, positions, boundsCache);
+    const bounds = hierarchyNodeBounds(node, state, positions, boundsCache, warnings);
     let flags = node.children.length === 0 ? GEOMETRY_CLUSTER_FLAGS.Leaf : 0;
     if (node.syntheticRoot) flags |= GEOMETRY_CLUSTER_FLAGS.SyntheticRoot;
     if (node.materialId === GEOMETRY_INVALID_INDEX) flags |= GEOMETRY_CLUSTER_FLAGS.MixedMaterial;
@@ -921,11 +922,18 @@ interface ClusterBounds {
   coneValid: boolean;
 }
 
+// meshoptimizer v1.0's public JS boundary asserts this exact upper bound before
+// calling meshopt_computeClusterBounds. Hierarchy nodes are allowed to aggregate
+// more work than one cluster, so those nodes use the upstream sphere API and
+// explicitly disable cone culling instead of violating the dependency contract.
+const MESHOPT_CLUSTER_BOUNDS_MAX_TRIANGLES = 512;
+
 function hierarchyNodeBounds(
   node: HierarchyNode,
   state: MeshletBuildState,
   positions: Float32Array,
-  cache: Map<HierarchyNode, ClusterBounds>
+  cache: Map<HierarchyNode, ClusterBounds>,
+  warnings: string[]
 ): ClusterBounds {
   const cached = cache.get(node);
   if (cached !== undefined) return cached;
@@ -933,16 +941,33 @@ function hierarchyNodeBounds(
   const unique = uniqueVerticesForNode(node, state);
   const vertexArray = new Uint32Array(unique);
   let box = meshletBoundsBox(vertexArray, positions);
-  const upstream = MeshoptClusterizer.computeClusterBounds(indices, positions, 3);
-  const normalized = normalizeUpstreamBounds(upstream, box, [], -1, -1);
+  const triangleCount = indices.length / 3;
+  const usesClusterBounds = triangleCount <= MESHOPT_CLUSTER_BOUNDS_MAX_TRIANGLES;
+  const upstream = usesClusterBounds
+    ? MeshoptClusterizer.computeClusterBounds(indices, positions, 3)
+    : MeshoptClusterizer.computeSphereBounds(
+        compactVertexPositions(vertexArray, positions),
+        3
+      );
+  if (!usesClusterBounds) {
+    warnings.push(`hierarchy-bounds-sphere-only:${triangleCount}`);
+  }
+  const normalized = normalizeUpstreamBounds(upstream, box, warnings, -1, triangleCount);
   let sphere = Object.freeze({
     centerX: normalized.centerX,
     centerY: normalized.centerY,
     centerZ: normalized.centerZ,
-    radius: conservativeMeshletRadius(normalized, vertexArray, positions, [], -1, -1)
+    radius: conservativeMeshletRadius(
+      normalized,
+      vertexArray,
+      positions,
+      warnings,
+      -1,
+      triangleCount
+    )
   });
   for (const child of node.children) {
-    const childBounds = hierarchyNodeBounds(child, state, positions, cache);
+    const childBounds = hierarchyNodeBounds(child, state, positions, cache, warnings);
     box = mergeBoxes(box, childBounds.box);
     sphere = mergeSpheres(sphere, childBounds.sphere);
   }
@@ -952,7 +977,7 @@ function hierarchyNodeBounds(
   const result: ClusterBounds = {
     box,
     sphere,
-    cone: Object.freeze({
+    cone: Object.freeze(usesClusterBounds ? {
       apexX: normalized.coneApexX,
       apexY: normalized.coneApexY,
       apexZ: normalized.coneApexZ,
@@ -960,13 +985,35 @@ function hierarchyNodeBounds(
       axisY: normalized.coneAxisY,
       axisZ: normalized.coneAxisZ,
       cutoff: normalized.coneCutoff
+    } : {
+      apexX: sphere.centerX,
+      apexY: sphere.centerY,
+      apexZ: sphere.centerZ,
+      axisX: 0,
+      axisY: 0,
+      axisZ: 1,
+      cutoff: 1
     }),
-    coneValid: Number.isFinite(normalized.coneCutoff) &&
+    coneValid: usesClusterBounds && Number.isFinite(normalized.coneCutoff) &&
       normalized.coneCutoff >= -1 && normalized.coneCutoff < 1 &&
       axisLength >= 0.5 && axisLength <= 1.5
   };
   cache.set(node, result);
   return result;
+}
+
+function compactVertexPositions(
+  vertices: Uint32Array,
+  positions: Float32Array
+): Float32Array {
+  const compact = new Float32Array(vertices.length * 3);
+  for (let index = 0; index < vertices.length; index++) {
+    const source = vertices[index]! * 3;
+    compact[index * 3] = positions[source]!;
+    compact[index * 3 + 1] = positions[source + 1]!;
+    compact[index * 3 + 2] = positions[source + 2]!;
+  }
+  return compact;
 }
 
 function mergeBoxes(a: Float32Array, b: Float32Array): Float32Array {

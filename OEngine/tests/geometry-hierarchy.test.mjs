@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { createGeometryCookRecipe } from "../.test-dist/assets/GeometryCookRecipe.js";
 import {
+  GEOMETRY_CLUSTER_FLAGS,
   GEOMETRY_CLUSTER_RECORD_STRIDE,
   GEOMETRY_DIRECTORY_FLAGS,
   GEOMETRY_INVALID_INDEX,
@@ -111,6 +112,44 @@ test("R2-B-02 CPU selector is parent/child exclusive and capacity-safe", async (
   assert.ok(partiallyLimited.capacityFallbacks > 0);
 });
 
+test("R2-B-02 bounds keep multi-material synthetic roots inside meshoptimizer limits", async () => {
+  const widthSegments = 24;
+  const heightSegments = 24;
+  const triangleCount = widthSegments * heightSegments * 2;
+  const cooked = await cookGeometryAssetPackage(
+    buildGridSourceGeometry(widthSegments, heightSegments, [
+      {
+        firstTriangle: 0,
+        triangleCount: triangleCount / 2,
+        materialId: 3,
+        alphaMode: "opaque",
+        doubleSided: false
+      },
+      {
+        firstTriangle: triangleCount / 2,
+        triangleCount: triangleCount / 2,
+        materialId: 7,
+        alphaMode: "mask",
+        doubleSided: true
+      }
+    ]),
+    createGeometryCookRecipe()
+  );
+  const asset = cooked.asset;
+  const root = asset.clusters[asset.directory.clusterRoot];
+  assert.ok((root.flags & GEOMETRY_CLUSTER_FLAGS.SyntheticRoot) !== 0);
+  assert.ok((root.flags & GEOMETRY_CLUSTER_FLAGS.ConeValid) === 0);
+  const children = asset.clusterChildren.subarray(
+    root.childBegin,
+    root.childBegin + root.childCount
+  );
+  assert.equal(children.length, 2);
+  for (const childIndex of children) {
+    assertBoundsContain(root.boundsBox, asset.clusters[childIndex].boundsBox);
+    assertSphereContains(root.bounds, asset.clusters[childIndex].bounds);
+  }
+});
+
 test("R2-B-02 validator rejects rehashed cycle, orphan and non-monotonic error", async () => {
   const cooked = await cookGeometryAssetPackage(
     buildGridSourceGeometry(32, 32),
@@ -163,7 +202,7 @@ test("R2-B-02 validator rejects rehashed cycle, orphan and non-monotonic error",
   }
 });
 
-function buildGridSourceGeometry(widthSegments, heightSegments) {
+function buildGridSourceGeometry(widthSegments, heightSegments, materialRanges) {
   const row = widthSegments + 1;
   const positions = new Float32Array(row * (heightSegments + 1) * 3);
   let vertexOffset = 0;
@@ -193,7 +232,8 @@ function buildGridSourceGeometry(widthSegments, heightSegments) {
   return createSourceGeometry({
     sourceId: `hierarchy-grid:${widthSegments}:${heightSegments}`,
     indices,
-    attributes: [{ semantic: "position", componentCount: 3, data: positions }]
+    attributes: [{ semantic: "position", componentCount: 3, data: positions }],
+    materialRanges
   });
 }
 

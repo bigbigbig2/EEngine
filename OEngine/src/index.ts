@@ -87,6 +87,10 @@ export type {
   GeometryCookResult,
   GeometryCookTiming
 } from "./geometry/GeometryCooker.js";
+export type {
+  AssetHandle,
+  AssetResidencyEvidence
+} from "./gpu/GpuAssetStore.js";
 export {
   projectedGeometryErrorPixels,
   selectGeometryHierarchy

@@ -83,6 +83,11 @@ import {
   type ShadeIndirectLightingMode as ShadeIndirectLightingModeT
 } from "./ShadeIndirectLightingMode.js";
 import { STATIC_GRAPHICS_ENGINE_ASSETS } from "./STATIC_GRAPHICS_ENGINE_ASSETS.js";
+import type { GeometryAssetPackage } from "../assets/GeometryAssetPackage.js";
+import type {
+  AssetHandle,
+  AssetResidencyEvidence
+} from "../gpu/GpuAssetStore.js";
 import {
   RenderDebugView,
   getRenderDebugViewStatus,
@@ -296,6 +301,30 @@ export class Renderer {
 
   get graphics(): GraphicsContext {
     return this._graphics;
+  }
+
+  /**
+   * Encodes validated package residency into a caller-owned command context.
+   * The returned handle becomes committed when that command is submitted.
+   */
+  residentGeometryAsset(
+    asset: GeometryAssetPackage,
+    command: ShadeGPUCommandContext
+  ): AssetHandle {
+    return this._graphics.assets.resident(asset, command);
+  }
+
+  /** Invalidates a resident handle in command order; stale handles then fail. */
+  releaseGeometryAsset(
+    handle: AssetHandle,
+    command: ShadeGPUCommandContext
+  ): void {
+    this._graphics.assets.release(handle, command);
+  }
+
+  /** Returns counters only; GPU buffers and byte offsets remain internal. */
+  geometryAssetResidencyEvidence(): AssetResidencyEvidence {
+    return this._graphics.assets.evidence();
   }
 
   /**

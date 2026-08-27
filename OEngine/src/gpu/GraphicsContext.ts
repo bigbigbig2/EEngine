@@ -32,6 +32,7 @@ import {
   registerGpuQueueProfiler,
   unregisterGpuQueueProfiler
 } from "./GpuQueueEvidence.js";
+import { GpuAssetStore } from "./GpuAssetStore.js";
 
 export class GraphicsContext {
   readonly isGraphicsContext = true;
@@ -52,6 +53,7 @@ export class GraphicsContext {
   readonly materials: GPUMaterialRegistry;
   readonly samplers: GPUSamplerCache;
   readonly profiler: FrameProfiler;
+  private assetStoreValue: GpuAssetStore | undefined;
   private timerIncrementValue = 0;
 
   constructor(device: GPUDevice, profiler = new FrameProfiler()) {
@@ -134,6 +136,12 @@ export class GraphicsContext {
     return this.residentMaterials;
   }
 
+  /** Lazily creates the R2 package residency owner; legacy-only pages pay zero cost. */
+  get assets(): GpuAssetStore {
+    this.assetStoreValue ??= new GpuAssetStore(this.device);
+    return this.assetStoreValue;
+  }
+
   async initialize(): Promise<void> {
     await STATIC_GRAPHICS_ENGINE_ASSETS.init();
   }
@@ -183,6 +191,8 @@ export class GraphicsContext {
 
   destroy(): void {
     unregisterGpuQueueProfiler(this.device, this.profiler);
+    this.assetStoreValue?.destroy();
+    this.assetStoreValue = undefined;
     this.residentMaterials?.destroy();
     this.buffer_allocator_main.destroy();
     this.buffer_allocator_native.destroy();
