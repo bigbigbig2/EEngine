@@ -333,10 +333,12 @@ R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前�
 
 R2 关闭后的 provenance/performance-debt 清算（2026-08-27）：
 
-- 新增 [R2-C GPU Scene ledger](../references/porting/R2-C-07-gpu-scene-residency.md)、[Packed Visibility ledger](../references/porting/R2-D-07-packed-visibility.md)、[Material reconstruction ledger](../references/porting/R2-D-08-packed-material-reconstruction.md) 与 [Velocity ledger](../references/porting/R2-D-09-packed-velocity.md)，固定 upstream commit、源码、许可证、采用状态、差异与测试。
+- 新增 [R2-C GPU Scene ledger](../references/porting/R2-C-07-gpu-scene-residency.md)、[Packed Visibility ledger](../references/porting/R2-D-07-packed-visibility.md)、[Material reconstruction ledger](../references/porting/R2-D-08-packed-material-reconstruction.md)、[Velocity ledger](../references/porting/R2-D-09-packed-velocity.md) 与 [Packed glTF ledger](../references/porting/R2-D-10-packed-gltf-import.md)，固定 upstream commit、源码/规格、许可证、采用状态、差异与测试。
 - Packed Material 按 three.js 官方 compute rasterizer IBL 示例移植解析 perspective barycentric/UV gradient；删除 fullscreen hardware derivative、重复 viewport mapping 和每 vertex descriptor 重扫，并修正镜像/非均匀 transform 的 normal/tangent frame。
+- Packed Material 的整数 stream code 由 Package/Cooker/WGSL 共用，CPU decode reference、glTF 8/16 位 normalized 边界与 OEngine 32 位扩展边界已冻结；此前 WGSL 32 位 normalized 漂移已修正。
 - Packed Velocity 将 `previous * inverse(current)` 从每可见像素移到 bulk/patch；Node reference 覆盖 rotation、non-uniform scale、same-frame、singular 和恢复语义，Shader source 明确不存在 inverse。
 - flat Visibility 仍是 R3 前的临时 producer，但 capacity/overflow ABI 已补共享 Geometry × 1,000 instances、sphere-frustum CPU reference 和 adapter limit preflight；拒绝路径不再先修改 material/Instance owner。
+- Packed glTF 以 Khronos glTF 固定 commit 为规范依据，multi-primitive、multi-material、MASK/double-sided 与 nested parent/child transform fixture 已覆盖；它仍只拥有静态输入规范化，不成为 runtime GPU owner。
 - 本轮 `npm test` 为 131/131；浏览器/WebGPU artifact 尚未重采，因此不声明 Material/Velocity GPU 百分比收益，也不重新打开已关闭的 G2 数据 Gate。
 
 ## 迁移期间的唯一真相规则

@@ -17,6 +17,12 @@ const {
   GPU_INSTANCE_RECORD_OFFSETS,
   packGpuInstanceRecord
 } = await import("../.test-dist/gpu/GpuInstanceAbi.js");
+const {
+  GEOMETRY_VERTEX_DATA_TYPE_CODE,
+  decodeGeometryVertexComponent,
+  decodeGeometryVertexDataType,
+  encodeGeometryVertexDataType
+} = await import("../.test-dist/assets/GeometryAssetPackage.js");
 const { PACKED_MATERIAL_EXPAND_WGSL } = await import(
   "../.test-dist/shaders/packed_material_expand.js"
 );
@@ -104,6 +110,52 @@ test("R2-D Packed Material uses one descriptor lookup per semantic and analytic 
   assert.match(PACKED_MATERIAL_EXPAND_WGSL, /return projected\.xy \/ projected\.w/);
   assert.match(PACKED_MATERIAL_EXPAND_WGSL, /frame\.tangent_matrix \* local_tangent4\.xyz/);
   assert.match(PACKED_MATERIAL_EXPAND_WGSL, /frame\.orientation/);
+});
+
+test("R2-D Packed Material covers glTF 8/16-bit and OEngine 32-bit normalized boundaries", () => {
+  const boundaryCases = [
+    ["int8", true, -128, -1],
+    ["int8", true, -127, -1],
+    ["int8", true, -1, -1 / 127],
+    ["int8", true, 0, 0],
+    ["int8", true, 1, 1 / 127],
+    ["int8", true, 127, 1],
+    ["uint8", true, 0, 0],
+    ["uint8", true, 1, 1 / 255],
+    ["uint8", true, 254, 254 / 255],
+    ["uint8", true, 255, 1],
+    ["int16", true, -32768, -1],
+    ["int16", true, -32767, -1],
+    ["int16", true, -1, -1 / 32767],
+    ["int16", true, 0, 0],
+    ["int16", true, 1, 1 / 32767],
+    ["int16", true, 32767, 1],
+    ["uint16", true, 0, 0],
+    ["uint16", true, 1, 1 / 65535],
+    ["uint16", true, 65534, 65534 / 65535],
+    ["uint16", true, 65535, 1],
+    ["int32", true, -2147483648, -1],
+    ["int32", true, -2147483647, -1],
+    ["int32", true, 0, 0],
+    ["int32", true, 2147483647, 1],
+    ["uint32", true, 0, 0],
+    ["uint32", true, 4294967295, 1],
+    ["int16", false, -32768, -32768],
+    ["uint16", false, 65535, 65535]
+  ];
+  for (const [type, normalized, input, expected] of boundaryCases) {
+    assertClose(decodeGeometryVertexComponent(input, type, normalized), expected, 1e-12);
+    const code = encodeGeometryVertexDataType(type);
+    assert.equal(code, GEOMETRY_VERTEX_DATA_TYPE_CODE[type]);
+    assert.equal(decodeGeometryVertexDataType(code), type);
+  }
+
+  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /max\(f32\(value\) \/ 127\.0, -1\.0\)/);
+  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /f32\(value\) \/ 255\.0/);
+  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /max\(f32\(value\) \/ 32767\.0, -1\.0\)/);
+  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /f32\(value\) \/ 65535\.0/);
+  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /max\(f32\(value\) \/ 2147483647\.0, -1\.0\)/);
+  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /f32\(word\) \/ 4294967295\.0/);
 });
 
 test("three.js analytic perspective UV gradients agree with finite differences", () => {

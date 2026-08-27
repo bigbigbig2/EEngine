@@ -22,4 +22,5 @@
 - R2-B 已冻结完整设备无关 Geometry package：Meshlet、可绘制 Cluster hierarchy/error、未量化保守 BVH8、未压缩 vertex/index/material sections、CPU selector、最终 bytes reopen validator 与报告。`single-level` recipe 只保留 R2-B-01 黄金兼容；完整资产使用 `renderable` recipe。
 - R2-C core 已接通 validated section views → `GpuAssetStore` → compact Geometry/Cluster/Meshlet records 与连续 payload；package load 不执行 Cooker，Package ABI 也不直接冒充 WGSL ABI。
 - R2-D/G2 已关闭：`load_gltf_packed()` 将真实静态 glTF 直接输出为 SourceGeometry、材质 dictionary 和 typed-array instances；A/B 的 Teapot/Damaged Helmet 与 C 的程序化几何均经过 Cooker/package 后进入生产 Packed consumer，不构造等量 `Mesh/Node3D`，runtime package open 不执行 Cooker。
+- Packed glTF 的规范依据与支持边界登记在 [R2-D-10](../../references/porting/R2-D-10-packed-gltf-import.md)；multi-primitive/material 与 nested world transform 由独立 fixture 冻结，静态导入不扩张为 skin/animation runtime。
 - legacy `load_gltf()`、USD/shade loader 与普通 Scene adapter 仍可服务旧对象路径；它们不再是 Packed/package 主路径 owner，随 R3/R4 consumer 迁移逐项删除或重接，不能把其存在解释成新主路径双驻留。

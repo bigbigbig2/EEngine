@@ -1,3 +1,4 @@
+import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.js";
 import { MATERIAL_META_TYPE } from "../gpu/MaterialMetadataTable.js";
 import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
@@ -65,25 +66,30 @@ fn sign_extend(value: u32, bits: u32) -> i32 {
 }
 
 fn stream_component(byte_offset: u32, data_type: u32, normalized: bool) -> f32 {
-  if data_type == 1u {
+  if data_type == ${GEOMETRY_VERTEX_DATA_TYPE_CODE.int8}u {
     let value = sign_extend(read_u8(byte_offset), 8u);
     return select(f32(value), max(f32(value) / 127.0, -1.0), normalized);
   }
-  if data_type == 2u {
+  if data_type == ${GEOMETRY_VERTEX_DATA_TYPE_CODE.uint8}u {
     let value = read_u8(byte_offset);
     return select(f32(value), f32(value) / 255.0, normalized);
   }
-  if data_type == 3u {
+  if data_type == ${GEOMETRY_VERTEX_DATA_TYPE_CODE.int16}u {
     let value = sign_extend(read_u16(byte_offset), 16u);
     return select(f32(value), max(f32(value) / 32767.0, -1.0), normalized);
   }
-  if data_type == 4u {
+  if data_type == ${GEOMETRY_VERTEX_DATA_TYPE_CODE.uint16}u {
     let value = read_u16(byte_offset);
     return select(f32(value), f32(value) / 65535.0, normalized);
   }
   let word = vertex_data[byte_offset >> 2u];
-  if data_type == 5u { return f32(bitcast<i32>(word)); }
-  if data_type == 6u { return f32(word); }
+  if data_type == ${GEOMETRY_VERTEX_DATA_TYPE_CODE.int32}u {
+    let value = bitcast<i32>(word);
+    return select(f32(value), max(f32(value) / 2147483647.0, -1.0), normalized);
+  }
+  if data_type == ${GEOMETRY_VERTEX_DATA_TYPE_CODE.uint32}u {
+    return select(f32(word), f32(word) / 4294967295.0, normalized);
+  }
   return bitcast<f32>(word);
 }
 

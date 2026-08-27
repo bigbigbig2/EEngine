@@ -12,6 +12,13 @@
 - verified on：2026-08-27
 - decision：`port`（barycentric/gradient 不变量）+ `reimplement`（OEngine ABI/stream decode/transform frame）
 
+整数 attribute 解码另以 Khronos glTF 官方规范为数值依据：
+
+- repository URL：https://github.com/KhronosGroup/glTF
+- locked commit：`fdb8ce0e2e0b7ecf3466f8dacb9f1385257b8276`
+- source：`specification/2.0/Specification.adoc` 的 Accessors / normalized integer conversion
+- license：CC-BY-4.0；仅按规范公式独立实现
+
 ## 保留不变量
 
 - Visibility pixel 反查精确 triangle vertices；screen barycentric 先计算，再以 reciprocal-W 归一化。
@@ -25,10 +32,11 @@
 - 每个 semantic 每像素只执行一次 `find_stream()`；三个 vertex 复用 descriptor。position/normal/tangent/uv/color 从约 15 次线性 descriptor 扫描降为 5 次。
 - normal 使用 inverse-transpose 等价 cofactor，并以 determinant orientation 修正镜像变换；tangent 使用 object-to-world 线性 3×3，bitangent 使用 `cross(N,T) * tangent.w * orientation`。
 - 奇异 transform 和退化向量走有限 identity/safe-normalize fallback，禁止 NaN/Inf 扩散。
+- Package、Cooker 与 WGSL 共用冻结的 vertex data-type code；Package validator 与 Cooker 共用同一个 CPU decode reference。WGSL 支持 glTF 规定的 8/16 位 normalized 解码，也保持 OEngine package 已有的 32 位 normalized 扩展契约；signed 最小值 clamp 到 `-1`。此前 32 位 normalized 在 CPU 支持、WGSL 忽略 normalized 的漂移已删除。
 - 当前仍是按活跃材质重复 fullscreen 的旧 Material Expand；R4-B 必须迁移到单次 Material Resolve，不能把本次局部优化当作最终架构。
 
 ## 精度、性能假设与验证
 
 使用 f32 WGSL；解析导数 CPU oracle 以双精度计算，并与中心有限差分对照。性能假设是删除错误的 quad derivative 和 10 次重复 descriptor scan；增加 barycentric derivative 算术。只有 R4-B 前后的同条件 GPU timestamp 才能声明实际收益。
 
-本地验证：`packed-r2-algorithms.test.mjs` 覆盖不同 W、顶点命中、权重/导数守恒、UV 有限差分、镜像非均匀 normal/tangent、Shader 禁止 `dpdx/dpdy` 和 lookup 次数；`npm run audit:shaders` 覆盖 runtime source owner。浏览器画面/diagnostic 需要重新运行 Packed A/B 或 `r2-packed-scene` 后登记。
+本地验证：`packed-r2-algorithms.test.mjs` 覆盖不同 W、顶点命中、权重/导数守恒、UV 有限差分、镜像非均匀 normal/tangent、glTF 8/16 位与 OEngine 32 位 normalized 边界、非 normalized 保值、Shader 禁止 `dpdx/dpdy` 和 lookup 次数；`npm run audit:shaders` 覆盖 runtime source owner。浏览器画面/diagnostic 需要重新运行 Packed A/B 或 `r2-packed-scene` 后登记。

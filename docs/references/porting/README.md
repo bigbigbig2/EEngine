@@ -28,3 +28,4 @@ R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；�
 - [R2-D-07 Packed flat Visibility](./R2-D-07-packed-visibility.md)
 - [R2-D-08 Packed Material reconstruction](./R2-D-08-packed-material-reconstruction.md)
 - [R2-D-09 Packed Velocity](./R2-D-09-packed-velocity.md)
+- [R2-D-10 Packed glTF 静态导入](./R2-D-10-packed-gltf-import.md)

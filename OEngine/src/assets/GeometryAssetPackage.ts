@@ -69,6 +69,18 @@ export type GeometryVertexDataType =
   | "float32"
   | "float64";
 
+/** Frozen package/WGSL codes for vertex component storage. */
+export const GEOMETRY_VERTEX_DATA_TYPE_CODE = Object.freeze({
+  int8: 1,
+  uint8: 2,
+  int16: 3,
+  uint16: 4,
+  int32: 5,
+  uint32: 6,
+  float32: 7,
+  float64: 8
+} satisfies Readonly<Record<GeometryVertexDataType, number>>);
+
 export type GeometryMeshletAlphaMode = "opaque" | "mask" | "blend";
 
 export interface GeometryDirectoryRecord {
@@ -661,7 +673,7 @@ export function encodeGeometryVertexStreamDescriptors(
     view.setUint32(offset + 40, descriptor.elementStride, true);
     view.setUint32(offset + 44, descriptor.vertexCount, true);
     view.setUint32(offset + 48, descriptor.componentCount, true);
-    view.setUint32(offset + 52, encodeVertexDataType(descriptor.dataType), true);
+    view.setUint32(offset + 52, encodeGeometryVertexDataType(descriptor.dataType), true);
     view.setUint32(offset + 56, descriptor.normalized ? 1 : 0, true);
     view.setUint32(offset + 60, descriptor.flags, true);
     writeFloatArray(view, offset + 64, descriptor.decodeScale);
@@ -864,7 +876,7 @@ export function readGeometryVertexStreamDescriptor(
     elementStride: view.getUint32(offset + 40, true),
     vertexCount: view.getUint32(offset + 44, true),
     componentCount: view.getUint32(offset + 48, true),
-    dataType: decodeVertexDataType(view.getUint32(offset + 52, true)),
+    dataType: decodeGeometryVertexDataType(view.getUint32(offset + 52, true)),
     normalized: view.getUint32(offset + 56, true) !== 0,
     flags: view.getUint32(offset + 60, true),
     decodeScale: readFloatArray(view, offset + 64, 4),
@@ -1702,7 +1714,7 @@ function validateVertexAndIndexPayload(
       descriptor.componentCount < 1 || descriptor.componentCount > 4 ||
       descriptor.vertexCount !== directory.vertexCount ||
       descriptor.elementStride !==
-        descriptor.componentCount * vertexDataTypeBytes(descriptor.dataType) ||
+        descriptor.componentCount * geometryVertexDataTypeBytes(descriptor.dataType) ||
       descriptor.dataByteLength !== descriptor.elementStride * descriptor.vertexCount ||
       descriptor.dataByteLength > data.length - Math.min(data.length, descriptor.dataByteOffset)
     ) {
@@ -1829,7 +1841,7 @@ function validateStreamFiniteValues(
     return;
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const componentBytes = vertexDataTypeBytes(descriptor.dataType);
+  const componentBytes = geometryVertexDataTypeBytes(descriptor.dataType);
   const minimum = new Float32Array(4);
   const maximum = new Float32Array(4);
   minimum.fill(Infinity, 0, descriptor.componentCount);
@@ -1853,7 +1865,7 @@ function validateStreamFiniteValues(
       });
       return;
     }
-    const value = normalizedVertexComponent(
+    const value = decodeGeometryVertexComponent(
       raw,
       descriptor.dataType,
       descriptor.normalized
@@ -2073,34 +2085,34 @@ function encodeMaterialRangeFlags(
   return encodeMeshletFlags(alphaMode, doubleSided, false);
 }
 
-function encodeVertexDataType(type: GeometryVertexDataType): number {
+export function encodeGeometryVertexDataType(type: GeometryVertexDataType): number {
   switch (type) {
-    case "int8": return 1;
-    case "uint8": return 2;
-    case "int16": return 3;
-    case "uint16": return 4;
-    case "int32": return 5;
-    case "uint32": return 6;
-    case "float32": return 7;
-    case "float64": return 8;
+    case "int8": return GEOMETRY_VERTEX_DATA_TYPE_CODE.int8;
+    case "uint8": return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint8;
+    case "int16": return GEOMETRY_VERTEX_DATA_TYPE_CODE.int16;
+    case "uint16": return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint16;
+    case "int32": return GEOMETRY_VERTEX_DATA_TYPE_CODE.int32;
+    case "uint32": return GEOMETRY_VERTEX_DATA_TYPE_CODE.uint32;
+    case "float32": return GEOMETRY_VERTEX_DATA_TYPE_CODE.float32;
+    case "float64": return GEOMETRY_VERTEX_DATA_TYPE_CODE.float64;
   }
 }
 
-function decodeVertexDataType(value: number): GeometryVertexDataType {
+export function decodeGeometryVertexDataType(value: number): GeometryVertexDataType {
   switch (value) {
-    case 1: return "int8";
-    case 2: return "uint8";
-    case 3: return "int16";
-    case 4: return "uint16";
-    case 5: return "int32";
-    case 6: return "uint32";
-    case 7: return "float32";
-    case 8: return "float64";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int8: return "int8";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint8: return "uint8";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int16: return "int16";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint16: return "uint16";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.int32: return "int32";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.uint32: return "uint32";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.float32: return "float32";
+    case GEOMETRY_VERTEX_DATA_TYPE_CODE.float64: return "float64";
     default: throw new RangeError(`Unsupported vertex data type code ${value}`);
   }
 }
 
-function vertexDataTypeBytes(type: GeometryVertexDataType): number {
+export function geometryVertexDataTypeBytes(type: GeometryVertexDataType): number {
   switch (type) {
     case "int8":
     case "uint8": return 1;
@@ -2130,7 +2142,7 @@ function readVertexComponent(
   }
 }
 
-function normalizedVertexComponent(
+export function decodeGeometryVertexComponent(
   value: number,
   type: GeometryVertexDataType,
   normalized: boolean

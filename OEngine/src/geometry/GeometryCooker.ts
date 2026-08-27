@@ -12,6 +12,8 @@ import {
   GEOMETRY_MATERIAL_RANGE_STRIDE,
   GEOMETRY_MESHLET_RECORD_STRIDE,
   GEOMETRY_SECTION_TYPES,
+  decodeGeometryVertexComponent,
+  geometryVertexDataTypeBytes,
   GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
   encodeGeometryDirectoryRecord,
   encodeGeometryClusterRecords,
@@ -494,7 +496,7 @@ function buildGeometryPayload(
         ? new Float32Array(sourceStream.data)
         : sourceStream.data;
     const dataType = convertToFloat32 ? "float32" as const : sourceStream.dataType;
-    const componentBytes = numericDataTypeBytes(dataType);
+    const componentBytes = geometryVertexDataTypeBytes(dataType);
     const elementStride = sourceStream.componentCount * componentBytes;
     const dataBytes = encodeNumericArrayLittleEndian(streamData, dataType);
     byteLength = alignUp(byteLength, 16);
@@ -510,7 +512,7 @@ function buildGeometryPayload(
         const raw = streamData[vertex * sourceStream.componentCount + component]!;
         const value = dataType === "float32"
           ? raw
-          : decodedVertexValue(raw, dataType, sourceStream.normalized);
+          : decodeGeometryVertexComponent(raw, dataType, sourceStream.normalized);
         componentMinimum[component] = Math.min(componentMinimum[component]!, value);
         componentMaximum[component] = Math.max(componentMaximum[component]!, value);
       }
@@ -560,7 +562,7 @@ function encodeNumericArrayLittleEndian(
   values: SourceNumericArray,
   dataType: GeometryVertexStreamDescriptor["dataType"]
 ): Uint8Array {
-  const componentBytes = numericDataTypeBytes(dataType);
+  const componentBytes = geometryVertexDataTypeBytes(dataType);
   const bytes = new Uint8Array(values.length * componentBytes);
   const view = new DataView(bytes.buffer);
   for (let index = 0; index < values.length; index++) {
@@ -578,39 +580,6 @@ function encodeNumericArrayLittleEndian(
     }
   }
   return bytes;
-}
-
-function numericDataTypeBytes(
-  dataType: GeometryVertexStreamDescriptor["dataType"]
-): number {
-  switch (dataType) {
-    case "int8":
-    case "uint8": return 1;
-    case "int16":
-    case "uint16": return 2;
-    case "int32":
-    case "uint32":
-    case "float32": return 4;
-    case "float64": return 8;
-  }
-}
-
-function decodedVertexValue(
-  value: number,
-  dataType: GeometryVertexStreamDescriptor["dataType"],
-  normalized: boolean
-): number {
-  if (!normalized) return value;
-  switch (dataType) {
-    case "int8": return Math.max(value / 127, -1);
-    case "uint8": return value / 255;
-    case "int16": return Math.max(value / 32767, -1);
-    case "uint16": return value / 65535;
-    case "int32": return Math.max(value / 2147483647, -1);
-    case "uint32": return value / 4294967295;
-    case "float32":
-    case "float64": return value;
-  }
 }
 
 function alignUp(value: number, alignment: number): number {
