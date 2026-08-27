@@ -10,11 +10,13 @@ export type DegenerateTrianglePolicy = "warn" | "reject";
 export type NonManifoldPolicy = "warn" | "reject";
 export type MissingAttributePolicy = "preserve-optional";
 export type GeometryFloatMode = "ieee754-nearest-no-fast-math";
+export type GeometryHierarchyMode = "single-level" | "renderable";
 
 export interface GeometryCookRecipe {
   readonly recipeVersion: 1;
   readonly meshoptimizerCommit: string;
   readonly hierarchyReferenceCommit: string;
+  readonly hierarchyMode: GeometryHierarchyMode;
   readonly meshletMaxVertices: number;
   readonly meshletMaxTriangles: number;
   readonly coneWeight: number;
@@ -40,6 +42,7 @@ export interface GeometryCookRecipe {
 }
 
 export interface GeometryCookRecipeInput {
+  readonly hierarchyMode?: GeometryHierarchyMode | string;
   readonly meshletMaxVertices?: number;
   readonly meshletMaxTriangles?: number;
   readonly coneWeight?: number;
@@ -68,6 +71,7 @@ export function createGeometryCookRecipe(
   input: GeometryCookRecipeInput = {}
 ): GeometryCookRecipe {
   const meshletMaxVertices = input.meshletMaxVertices ?? 64;
+  const hierarchyMode = input.hierarchyMode ?? "renderable";
   const meshletMaxTriangles = input.meshletMaxTriangles ?? 128;
   const coneWeight = input.coneWeight ?? 0;
   const simplificationTargetRatio = input.simplificationTargetRatio ?? 0.5;
@@ -89,6 +93,10 @@ export function createGeometryCookRecipe(
   const nonManifoldEdgeThreshold = input.nonManifoldEdgeThreshold ?? 1;
   const deterministicSeed = input.deterministicSeed ?? 0;
   const floatingPointMode = input.floatingPointMode ?? "ieee754-nearest-no-fast-math";
+
+  if (hierarchyMode !== "single-level" && hierarchyMode !== "renderable") {
+    throw new RangeError("hierarchyMode must be 'single-level' or 'renderable'");
+  }
 
   // A triangle-list Meshlet must be able to reference at least one complete
   // triangle. meshoptimizer accepts smaller values at the JS boundary, but
@@ -166,6 +174,7 @@ export function createGeometryCookRecipe(
     recipeVersion: GEOMETRY_COOK_RECIPE_VERSION,
     meshoptimizerCommit: MESHOPTIMIZER_COOKER_COMMIT,
     hierarchyReferenceCommit: BEVY_MESHLET_REFERENCE_COMMIT,
+    hierarchyMode,
     meshletMaxVertices,
     meshletMaxTriangles,
     coneWeight,
@@ -196,6 +205,7 @@ export function geometryCookRecipeKey(recipe: GeometryCookRecipe): string {
     recipeVersion: recipe.recipeVersion,
     meshoptimizerCommit: recipe.meshoptimizerCommit,
     hierarchyReferenceCommit: recipe.hierarchyReferenceCommit,
+    ...(recipe.hierarchyMode === "renderable" ? { hierarchyMode: recipe.hierarchyMode } : {}),
     meshletMaxVertices: recipe.meshletMaxVertices,
     meshletMaxTriangles: recipe.meshletMaxTriangles,
     coneWeight: recipe.coneWeight,

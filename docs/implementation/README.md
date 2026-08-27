@@ -35,10 +35,11 @@ R0 Observe                         complete
 
 ## 当前唯一入口
 
-R0/G0 与 R1/G1 已关闭。当前唯一执行入口是 R2 Compact Data Foundation：
+R0/G0、R1/G1 与 R2-A/B 已关闭。当前唯一执行入口是 R2-C Residency +
+Compact Tables，并沿同一 R2 Compact Data Foundation 顺序继续：
 
-1. `R2-A Package Kernel`：冻结 SourceGeometry、版本化 package kernel、reader/writer/validator 和黄金资产；
-2. `R2-B Cooked Geometry`：以可追溯开源实现生成 Meshlet、renderable hierarchy、geometric error 与 BVH8；
+1. `R2-A Package Kernel`：已完成；冻结 SourceGeometry、版本化 package kernel、reader/writer/validator 和黄金资产；
+2. `R2-B Cooked Geometry`：已完成；以可追溯开源实现生成 Meshlet、renderable hierarchy、geometric error、BVH8 与未压缩 streams/material package；
 3. `R2-C Residency + Compact Tables`：冻结 Geometry/Cluster GPU records、stable handle、bulk residency 与内存证据；
 4. `R2-D Packed Scene Vertical`：冻结 Instance record/Packed Instances/patch，并让现有 Hardware consumer 真实消费新数据；
 5. 删除 package 主路径上的 runtime Meshlet build、重复 Geometry residency 与重复 Instance owner。

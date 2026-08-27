@@ -282,30 +282,68 @@ Writer 不得直接信任内部对象。Cook 完成的定义是“重新从最�
 
 先支持一个有明确父/叶关系的黄金资产；建立 CPU selector、覆盖互斥、reachability 和 monotonic error tests，再扩展 A/B/C。
 
-状态：当前唯一入口。不得在 hierarchy 可绘制父级、误差语义与 CPU selector 尚未闭环时提前进入 BVH8 或 GPU residency。
+状态：完成。固定 Bevy v0.18.0 的 grouping/simplify/error/validator 不变量已按
+TypeScript/WebGPU `u32` ABI 可追溯适配；父级具有真实 Meshlet 表示，simplify
+失败生成可绘制 aggregation fallback 并记录 warning。最终 bytes reopen 会验证
+strict tree、cycle/multi-parent/orphan、parent/depth、error/bounds monotonic、leaf
+coverage 和 Meshlet reachability。CPU selector 支持 camera-relative SSE、非均匀
+scale 保守项、父子互斥与严格 `maxVisitedClusters` 容量 fallback。
 
 ### R2-B-03 · BVH8
 
 实现 build/quantize/decode，先过 conservative property tests，再将 root/range 写入 GeometryDirectory。BVH8 不替代 hierarchy。
 
+状态：完成正确性版本。recipe v1 继续固定 `quantizeBvhBounds=false`；352 B
+storage-ready node 保存 8 个 `u32` ref、8 个连续 Cluster range count、valid/leaf
+mask 和 8 组 16-byte aligned `vec4` min/max。构建采用确定性三轴 SAH cost 与
+balanced 8-way split；validator 证明 node/Cluster reachability、唯一 ownership 和
+decoded bounds containment。平面、线、点状、极端尺度、cycle 与收缩 bounds
+corruption 均有自动测试。量化不是基础闭环 blocker。
+
 ### R2-B-04 · Streams 与 material boundaries
 
 冻结 v1 vertex/index formats、material ranges 和 decode metadata；正确性版本先行，压缩 variant 用 bytes/误差/decode benchmark 决策。
+
+状态：完成未压缩 v1。128 B descriptor 固定 semantic、raw type、component/
+normalized、byte range、identity decode 与 component bounds；stream payload 16 B
+对齐并按稳定 semantic order 写入。position 固定 unnormalized `float32x3`，index
+固定 little-endian `u32`，32 B material range 固定 triangle coverage、material ID、
+alpha mode 与 double-sided。最终 validator 会从 position bytes 反查 Meshlet
+AABB/sphere containment。压缩 variant 暂未采用，也不阻塞 R2-B。
 
 ### R2-B-05 · 完整 validator 与报告
 
 每个黄金资产输出 source/package bytes、Cook time、Meshlet/Cluster/BVH 数、depth、error distribution、warnings 和 hash；损坏任一交叉引用必须被拒绝。
 
+状态：完成 package/黄金纵切的报告接口与损坏矩阵。确定性 `evidence` 输出
+source/package/各 section bytes、Meshlet/Cluster/BVH 数、depth、error
+min/max/mean/P50/P95、warnings 和 source/recipe/content/file hash；非确定 Cook
+time 单独位于 `GeometryCookTiming`，不污染 deterministic evidence。完整 Node
+corruption tests 覆盖所有当前 required section；浏览器页面输出同一报告。
+
+A/B/C 当前 Renderer 仍消费 legacy Geometry/GPU table，因此本阶段不在 benchmark
+主帧中额外运行 Cooker，也不伪造 A/B/C GPU 收益。A/B/C 的 package residency
+报告随 R2-C 垂直切换补采；这不改变 R2-B 设备无关 package 完成事实。
+
 ### R2-B-06 · Runtime build 删除准备
 
 browser package load 停止执行 Meshlet/hierarchy/BVH build；程序化 geometry 通过同一 in-memory Cooker。保留旧 `niMeshlets` 的每个 reader/consumer 建立迁移矩阵，交给 R2-C/D 删除。
+
+状态：完成删除准备。新 `openGeometryAssetPackage()` 只做 package open/validate，
+不导入 Cooker、meshoptimizer、GPU 或 Renderer；程序化页面复用同一
+`cookGeometryAssetPackage()`。legacy reader/consumer、删除条件和 R2-C/D owner
+见 [R2-B-06 Runtime build 删除准备矩阵](./R2-B-06-RUNTIME-BUILD-MIGRATION.md)。
+R2-B 不提前删除仍被当前主链消费的 `niMeshlets`/`GeometryBlasPool`，避免把
+“删除后页面坏掉”冒充迁移完成。
 
 ## R2-B 退出证据
 
 - 相同 source hash + recipe + tool version 产生 byte-identical required sections；
 - package corruption、越界、cycle、多父、orphan、非单调 error 和不保守 BVH 均被拒绝；
 - CPU selector 在不同 SSE threshold 下不同时选择同一分支父子，不产生空洞；
-- A/B/C 与黄金资产都有 Meshlet/Cluster/BVH/depth/error/bytes 报告；
+- 黄金资产已有 Meshlet/Cluster/BVH/depth/error/bytes/hash/Cook time 报告；A/B/C
+  在 R2-C 切换真实 package residency 时用同一报告结构采集，禁止为满足 R2-B
+  在现有 benchmark 主帧额外运行 legacy load + Cooker；
 - alpha/double-sided/material boundaries 未被错误合并；
 - runtime load 只做 open/validate/resident，不执行 mesh simplify、Meshlet、hierarchy 或 BVH build；
 - porting ledger 记录 source/commit/license/invariants/adaptation/tests/benchmark；

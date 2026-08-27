@@ -11,6 +11,7 @@ examples/
 ├─ r0-frame-smoke/         # 真实 Renderer 主帧 smoke
 ├─ r2-package-kernel/      # SourceGeometry 与 Package Kernel 浏览器验证
 ├─ r2-meshlet-cooker/      # meshoptimizer 与新 Meshlet sections 浏览器验证
+├─ r2-geometry-package/    # 完整 hierarchy/BVH8/streams/material package
 ├─ benchmark-shared/       # A/B/C manifest、fixture 与统一 runner
 ├─ benchmark-a/            # 160k Teapot 最低线
 ├─ benchmark-b/            # 15,625 Helmet PBR/IBL 最低线
@@ -31,6 +32,7 @@ examples/
 - [r0-frame-smoke](./r0-frame-smoke/README.md)：运行真实 `Renderer.render()`、固定 Box 场景和 GPU timestamp/counter 采样；采集后可切换统一 Render Debug View，并查看 unsupported 原因。
 - [r2-package-kernel](./r2-package-kernel/README.md)：验证 Box → SourceGeometry → deterministic package → reopen/corruption reject，不创建 GPU 资源。
 - [r2-meshlet-cooker](./r2-meshlet-cooker/README.md)：运行官方 meshoptimizer 1.0.0 WASM，验证 32/64、64/64、64/128 variants、新 Meshlet sections 和 reopen validator。
+- [r2-geometry-package](./r2-geometry-package/README.md)：验证可绘制层次/error、未量化保守 BVH8、未压缩 streams/material、完整 validator、CPU selector 与纯 package reopen。
 - [benchmark-shared](./benchmark-shared/README.md)：A/B/C 的冻结输入、正式/烟雾 profile、资产归属和统一验收方法。三个页面默认使用 `?profile=smoke` 开发链接；无查询参数才加载完整实例数量。
 
 在本目录运行 `npm install` 后，可用 `npm run dev:host` 启动全部示例；`npm run build` 同时执行类型检查和生产构建。Teapot 输入由 `npm run generate:benchmark-assets` 从本地 three.js revision 确定性再生。

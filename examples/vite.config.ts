@@ -58,6 +58,10 @@ export default defineConfig({
           examplesRoot,
           "r2-meshlet-cooker/index.html"
         ),
+        r2GeometryPackage: path.resolve(
+          examplesRoot,
+          "r2-geometry-package/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

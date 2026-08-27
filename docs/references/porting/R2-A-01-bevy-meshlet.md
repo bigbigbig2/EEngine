@@ -62,3 +62,39 @@
 - R2-B：CPU selector、cycle/reachability/error/bounds property tests 与黄金 package；
 - decision：`port` 候选，须在 R2-B-02/03 完成函数级 provenance 后才允许移植；
 - reason：复用 hierarchy/BVH/error 的成熟不变量和负面经验，同时拒绝 Bevy 的 ECS/backend/capability 结构进入 OEngine。
+
+## R2-B-02/03 函数级补充（2026-08-27）
+
+固定源码再次按 tag `v0.18.0` / commit
+`5f8270f2e049f90139a503d1e930070d926f9427` 核对：
+
+- `crates/bevy_pbr/src/meshlet/from_mesh.rs` SHA-256：`a7253d45c819cdc8aaf014a1a60152bf25cedff8f9cac38e6e347ff598dfc68b`；
+- `crates/bevy_pbr/src/meshlet/asset.rs` SHA-256：`c536fab4cdd24769df2e3b934d86e28286cd5cd64d972979d4ffee0f51946b05`；
+- `LICENSE-MIT` SHA-256：`508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1`。
+
+命中的上游函数/区段：
+
+| 固定源码区段 | 采用的不变量 | OEngine 适配 |
+|---|---|---|
+| `from_mesh.rs:101-123` | shared-vertex adjacency、分组和 group border lock | 确定性 shared-vertex 贪心/BFS；不引入 rayon/METIS owner |
+| `from_mesh.rs:136-164` | 约 50% simplify、失败判定、parent error ≥ child | 直接调用登记的 meshoptimizer simplifier；`LockBorder + Sparse + ErrorAbsolute`；失败写入可绘制 aggregation parent 与 warning |
+| `from_mesh.rs:440-483` | 按 shared vertex grouping、目标 fanout 8 | 保留 fanout 8；用稳定 index tie-break 替代 native METIS partition |
+| `from_mesh.rs:521-564` | absolute error、sparse simplify、0.60 failure ratio | 参数进入 `GeometryCookRecipe` identity；不在 runtime 修改 |
+| `from_mesh.rs:792-860` | BVH8 平衡分裂与 SAH 排序 | 确定性三轴 surface-area cost + balanced 8-way；输出 WebGPU `u32` refs/ranges 和未量化 `vec4` bounds |
+| `from_mesh.rs:991-1033` | error/sphere 单调、reachability validation | 最终 package reopen 后检查 cycle/multi-parent/orphan、error/bounds monotonic 与 leaf ownership |
+
+采用状态从候选更新为 `traceable local port`。OEngine 没有翻译 Rust
+类型、控制流或表达性实现；只移植上述算法不变量和测试策略，并重新实现为
+TypeScript 深接口。许可证按 MIT 路径记录。
+
+BVH8 v1 刻意不采用相对 parent 量化：当前 recipe 固定
+`quantizeBvhBounds=false / bvhQuantizationBits=0`。352 B node 使用 8 个
+`u32` ref、8 个 Cluster range count、valid/leaf mask 与 8 组 16-byte-aligned
+`vec4` min/max；leaf 当前 range count 为 1，但 ABI 不使用裸地址。量化只有在
+后续同条件 bytes/decode benchmark 且 conservative property tests 通过后才能改变
+recipe/schema identity。
+
+本地定向验证覆盖：可绘制 root fallback、parent/child selector 互斥、capacity
+fallback、cycle/multi-parent/orphan/non-monotonic error、平面/线/点状/极端尺度
+BVH bounds、BVH cycle 与非保守 decoded bounds。真正的 GPU traversal 与
+flat-vs-hierarchy counter 属于 R3，R2-B 不声称 GPU 性能收益。

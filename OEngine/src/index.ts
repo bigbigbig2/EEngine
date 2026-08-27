@@ -28,6 +28,7 @@ export {
 } from "./assets/GeometryCookRecipe.js";
 export type {
   DegenerateTrianglePolicy,
+  GeometryHierarchyMode,
   GeometryFloatMode,
   GeometryCookRecipe,
   GeometryCookRecipeInput,
@@ -55,26 +56,46 @@ export type {
 } from "./assets/RuntimeAssetPackage.js";
 export {
   GEOMETRY_ASSET_SCHEMA_VERSION,
+  GEOMETRY_BVH8_NODE_STRIDE,
+  GEOMETRY_CLUSTER_FLAGS,
+  GEOMETRY_CLUSTER_RECORD_STRIDE,
   GEOMETRY_DIRECTORY_FLAGS,
   GEOMETRY_DIRECTORY_RECORD_STRIDE,
   GEOMETRY_INVALID_INDEX,
+  GEOMETRY_MATERIAL_RANGE_STRIDE,
   GEOMETRY_MESHLET_RECORD_STRIDE,
   GEOMETRY_SECTION_TYPES,
+  GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
   GeometryAssetPackageError,
   openGeometryAssetPackage
 } from "./assets/GeometryAssetPackage.js";
 export type {
   GeometryAssetPackage,
   GeometryAssetValidationReport,
+  GeometryBvh8Node,
+  GeometryClusterRecord,
   GeometryDirectoryRecord,
+  GeometryMaterialRangeRecord,
   GeometryMeshletAlphaMode,
-  GeometryMeshletRecord
+  GeometryMeshletRecord,
+  GeometryVertexDataType,
+  GeometryVertexStreamDescriptor
 } from "./assets/GeometryAssetPackage.js";
 export { cookGeometryAssetPackage } from "./geometry/GeometryCooker.js";
 export type {
   GeometryCookEvidence,
-  GeometryCookResult
+  GeometryCookResult,
+  GeometryCookTiming
 } from "./geometry/GeometryCooker.js";
+export {
+  projectedGeometryErrorPixels,
+  selectGeometryHierarchy
+} from "./geometry/GeometryHierarchy.js";
+export type {
+  GeometryHierarchyProjection,
+  GeometryHierarchySelection,
+  GeometryHierarchySelectionOptions
+} from "./geometry/GeometryHierarchy.js";
 export { Camera } from "./camera/Camera.js";
 export { DirectionalLight } from "./light/DirectionalLight.js";
 export { DynamicResolutionScaling } from "./render/DynamicResolutionScaling.js";

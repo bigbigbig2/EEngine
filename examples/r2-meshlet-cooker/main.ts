@@ -23,14 +23,17 @@ async function run(): Promise<void> {
   const source = buildGridSourceGeometry(16, 16);
   const recipes = [
     ["32/64", createGeometryCookRecipe({
+      hierarchyMode: "single-level",
       meshletMaxVertices: 32,
       meshletMaxTriangles: 64
     })],
     ["64/64", createGeometryCookRecipe({
+      hierarchyMode: "single-level",
       meshletMaxVertices: 64,
       meshletMaxTriangles: 64
     })],
     ["64/128", createGeometryCookRecipe({
+      hierarchyMode: "single-level",
       meshletMaxVertices: 64,
       meshletMaxTriangles: 128
     })]

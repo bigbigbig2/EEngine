@@ -2,7 +2,8 @@
 
 ## 状态
 
-设计已于 2026-08-27 冻结。`R2-A` Gate 已完成；执行顺序唯一为 `R2-A → R2-B → R2-C → R2-D`，当前入口切换为 R2-B Cooked Geometry。
+设计已于 2026-08-27 冻结。`R2-A/B` 已完成；执行顺序唯一为
+`R2-A → R2-B → R2-C → R2-D`，当前入口切换为 R2-C Residency + Compact Tables。
 
 ## R2 通俗解释
 
@@ -251,8 +252,11 @@ R2 严格按 A → B → C → D 执行。每个包都必须交付可运行纵�
 - `R2-A-01` 完成：锁定 meshoptimizer `v1.0`/`73583c3` 与 Bevy `v0.18.0`/`5f8270f`，许可证、源码、测试和采用边界已进入 porting ledger；
 - `R2-A-02` 完成：`SourceGeometry`、`GeometryCookRecipe`、glTF primitive seam、Box source seam 与 legacy adapter 已接入；
 - `R2-A-03` 完成：Package v1 writer/open/validator、SHA-256 identity、required/optional、SourceGeometry 黄金 hash 和 corruption tests 已接入；完整 OEngine 测试 92/92、examples production build 与 `r2-package-kernel` 浏览器纵切通过，控制台无 warning/error；
-- `R2-B-01` 完成：新 Geometry package 已包含 `GeometryDirectory` 与三类 Meshlet payload section，Cooker 通过锁定的 `meshoptimizer@1.0.0` 生成、重新打开并验证 bytes；旧 `niMeshlets` header 不进入新 ABI。
-- 当前入口是 `R2-B-02`。renderable hierarchy/geometric error、BVH8、完整 stream/material sections 与 GPU residency 仍未实现，因此本阶段不声明 GPU 性能提升。
+- `R2-B` 完成：新 Geometry package 已包含独立 Meshlet ABI、可绘制 Cluster
+  hierarchy/error、未量化保守 BVH8、未压缩 stream/index/material sections、CPU
+  selector、完整 reopen validator 与报告；旧 `niMeshlets` header 不进入新 ABI。
+- 当前入口是 `R2-C`。GPU residency/compact tables 与 consumer 尚未实现，因此
+  R2-B 只证明设备无关数据闭环，不声明 GPU 性能提升。
 
 ### R2-B · Cooked Geometry
 
@@ -269,7 +273,10 @@ R2 严格按 A → B → C → D 执行。每个包都必须交付可运行纵�
 
 退出证据：见 04 文档；runtime package load 不执行 Meshlet、simplify、hierarchy 或 BVH build。
 
-当前状态（2026-08-27）：`R2-B-01` 已关闭。固定 16×16 Grid 的 32/64、64/64、64/128 三个 recipe 分别生成 13、8、6 个 Meshlet，均覆盖 512 triangles；required sections byte-identical rebuild、material/alpha/double-sided 分界和重算 hash 后的交叉引用损坏拒绝均已有测试。下一唯一实现入口为 `R2-B-02 · Renderable hierarchy + error`。
+当前状态（2026-08-27）：完成。固定 Meshlet variants、renderable hierarchy/error、
+BVH8、完整 streams/material、deterministic evidence 与 runtime-build 删除准备均已
+关闭；实现与证据以 [04](./04-geometry-cooker-and-hierarchy.md) 为唯一 owner。下一
+唯一实现入口为 `R2-C · Residency + Compact Tables`。
 
 ### R2-C · Residency + Compact Tables
 

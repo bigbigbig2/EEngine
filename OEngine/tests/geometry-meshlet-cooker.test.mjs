@@ -19,7 +19,7 @@ import { cookGeometryAssetPackage } from "../.test-dist/geometry/GeometryCooker.
 
 test("R2-B-01 cooks deterministic meshoptimizer Meshlet sections and reopens them", async () => {
   const source = buildBoxSourceGeometry(2, 4, 6);
-  const recipe = createGeometryCookRecipe();
+  const recipe = createGeometryCookRecipe({ hierarchyMode: "single-level" });
   const first = await cookGeometryAssetPackage(source, recipe);
   const second = await cookGeometryAssetPackage(source, recipe);
 
@@ -68,14 +68,17 @@ test("R2-B-01 freezes 32/64, 64/64 and 64/128 offline variants", async () => {
   const source = buildGridSourceGeometry(16, 16);
   const variants = {
     "32/64": createGeometryCookRecipe({
+      hierarchyMode: "single-level",
       meshletMaxVertices: 32,
       meshletMaxTriangles: 64
     }),
     "64/64": createGeometryCookRecipe({
+      hierarchyMode: "single-level",
       meshletMaxVertices: 64,
       meshletMaxTriangles: 64
     }),
     "64/128": createGeometryCookRecipe({
+      hierarchyMode: "single-level",
       meshletMaxVertices: 64,
       meshletMaxTriangles: 128
     })
@@ -147,7 +150,10 @@ test("R2-B-01 never merges incompatible material boundaries", async () => {
       }
     ]
   });
-  const cooked = await cookGeometryAssetPackage(source, createGeometryCookRecipe());
+  const cooked = await cookGeometryAssetPackage(
+    source,
+    createGeometryCookRecipe({ hierarchyMode: "single-level" })
+  );
   const asset = await openGeometryAssetPackage(cooked.bytes);
 
   assert.equal(asset.meshlets.length, 2);
@@ -179,7 +185,10 @@ test("R2-B-01 applies degenerate policy before external Meshlet output is accept
 
   const warned = await cookGeometryAssetPackage(
     source,
-    createGeometryCookRecipe({ degenerateTrianglePolicy: "warn" })
+    createGeometryCookRecipe({
+      hierarchyMode: "single-level",
+      degenerateTrianglePolicy: "warn"
+    })
   );
   assert.ok(warned.evidence.warnings.includes("degenerate-triangles:1"));
   assert.equal(warned.evidence.meshletTriangleCount, 1);
@@ -187,7 +196,10 @@ test("R2-B-01 applies degenerate policy before external Meshlet output is accept
   await assert.rejects(
     () => cookGeometryAssetPackage(
       source,
-      createGeometryCookRecipe({ degenerateTrianglePolicy: "reject" })
+      createGeometryCookRecipe({
+        hierarchyMode: "single-level",
+        degenerateTrianglePolicy: "reject"
+      })
     ),
     /recipe rejects/
   );
@@ -196,7 +208,7 @@ test("R2-B-01 applies degenerate policy before external Meshlet output is accept
 test("R2-B-01 geometry validator rejects validly rehashed Meshlet cross-reference corruption", async () => {
   const cooked = await cookGeometryAssetPackage(
     buildBoxSourceGeometry(),
-    createGeometryCookRecipe()
+    createGeometryCookRecipe({ hierarchyMode: "single-level" })
   );
   const generic = await openRuntimeAssetPackage(cooked.bytes, {
     supportedSectionTypes: new Set(Object.values(GEOMETRY_SECTION_TYPES))
