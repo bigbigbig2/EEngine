@@ -1,0 +1,4 @@
+interface:
+  display_name: "WebGPU Review"
+  short_description: "Audit WebGPU and WGSL correctness"
+  default_prompt: "Use $webgpu-review to audit this WebGPU or WGSL code."

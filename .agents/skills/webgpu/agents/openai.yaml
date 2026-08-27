@@ -1,0 +1,4 @@
+interface:
+  display_name: "WebGPU"
+  short_description: "Build and debug native WebGPU and WGSL"
+  default_prompt: "Use $webgpu to implement or debug this WebGPU task."
