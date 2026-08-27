@@ -160,6 +160,8 @@ R0 的职责是冻结目标矩阵并证明 A/B/C 采集入口、真实 counter �
 | 高质量效果统一主管线 | FX-01..12 | feature graph/off assertion + B/C sequence |
 | 大胆删除旧实现 | DEL-00..05 | `rg`/bundle/graph dump + git diff |
 
+R2/G2 于 2026-08-27 关闭。自动证据覆盖 package/geometry/instance ABI、真实 glTF 静态导入、1k/10k/100k bulk、0/1/10/100% patch、stage abort、release/rollback 与 submit owner；浏览器证据覆盖 A/B/C production Packed 主链，三组 smoke 均 `counterIssues=0`、submit mean `1.00`、无 WebGPU error，C full 180 帧同样为 `counterIssues=0`、submit mean `1.00`。这些是数据与正确性 Gate，不是 hierarchy/SSE 或性能目标已达标的声明。
+
 ## 自动化命令
 
 当前仓库已有基础命令：

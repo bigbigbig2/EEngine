@@ -73,6 +73,8 @@ src/debug/                     profiler/counters/debug views
 
 依赖 `R2-D`。删除 Loader/runtime Meshlet build、旧 Meshlet/BLAS residency owner、重复 GPUScene tables/address maps 和无法安全 retirement 的 cache；Material owner 保留到 R4-B，不在 R2 制造第二张表。
 
+R2-D 收口状态：Packed/package 主路径已经完成该删除语义——不构造等量对象、不运行 legacy Meshlet build、不创建旧 Geometry/Instance owner。旧模块文件仍被普通 Scene、shadow/transparent 等未迁移 consumer 引用，已隔离为惰性 legacy 路径；类级删除分别随 R3/R4/R5 consumer 迁移执行，不能为追求文件删除而破坏仍公开的普通 Scene 功能。
+
 ### DEL-03 · 清旧工作生成与 Visibility
 
 依赖 `WORK-10`、`VIS-10`。删除旧 bucket/expand/prefix-scan/scatter/second-chance 主链、旧 mesh/triangle ID attachments、旧 visibility shaders 和 runtime switch。

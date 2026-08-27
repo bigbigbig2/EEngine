@@ -48,7 +48,7 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
     });
     elements.status.textContent = "正在构建固定场景";
     elements.detail.textContent = adapterDescription(renderer.adapter_info);
-    const fixture = await createBenchmarkSceneFixture(manifest, profile);
+    const fixture = await createBenchmarkSceneFixture(renderer, manifest, profile);
     const camera = createCamera(manifest, renderer.aspect_ratio);
     renderCounts(elements, manifest, fixture.runtimeCounts, profile);
 

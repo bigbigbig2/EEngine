@@ -62,15 +62,22 @@ test("capability matrix rejects missing declarations, fake support and invalid b
 });
 
 test("unsupported feature set stays structurally valid but reports a product blocker", () => {
-  const result = validResult(["packed-instances"]);
+  const result = validResult(["hierarchy-sse-lod"]);
   result.frames[0].gpuCounters.values = {};
   const report = validateBenchmarkEvidence(result);
   assert.equal(report.gateEligible, true);
   assert.equal(report.capabilityComplete, false);
   assert.deepEqual(
     report.blockedCapabilities.map((blocker) => [blocker.kind, blocker.id, blocker.blockerTaskId]),
-    [["feature-set", "packed-instances", "WORLD-07"]]
+    [["feature-set", "hierarchy-sse-lod", "WORK-04"]]
   );
+});
+
+test("R2 Packed Instances is supported by real production counters", () => {
+  const result = validResult(["hardware-visibility", "packed-instances"]);
+  const report = validateBenchmarkEvidence(result);
+  assert.equal(report.capabilityComplete, true);
+  assert.deepEqual(report.blockedCapabilities, []);
 });
 
 test("old dirty smoke artifacts remain exploratory instead of passing a gate", () => {

@@ -25,10 +25,29 @@ test("main render modules cannot own an encoder or submit", () => {
     const source = readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
     assert.doesNotMatch(source, /createCommandEncoder\s*\(/, relativePath);
     assert.doesNotMatch(source, /submitGpuCommands\s*\(/, relativePath);
-    if (relativePath !== "src/gpu/GraphicsContext.ts") {
+    if (
+      relativePath !== "src/gpu/GraphicsContext.ts" &&
+      relativePath !== "src/render/Renderer.ts"
+    ) {
       assert.doesNotMatch(source, /ShadeGPUCommandContext\.create\s*\(/, relativePath);
     }
   }
+});
+
+test("Renderer command contexts are limited to classified Packed Scene tools", () => {
+  const source = readFileSync(
+    new URL("../src/render/Renderer.ts", import.meta.url),
+    "utf8"
+  );
+  const labels = [...source.matchAll(/ShadeGPUCommandContext\.create\(\s*this\._graphics,\s*"([^"]+)"/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(labels.sort(), [
+    "Renderer/PackedScene/instantiate",
+    "Renderer/PackedScene/release-asset",
+    "Renderer/PackedScene/release-instances",
+    "Renderer/PackedScene/resident"
+  ]);
+  for (const label of labels) assert.equal(classifyGpuSubmitLabel(label), "tool");
 });
 
 test("database debug readback remains classified but grow never self-submits", () => {
@@ -66,7 +85,11 @@ test("every known submit label has an explicit owner class", () => {
     ["SceneSdf/read", "debug-readback"],
     ["GPUTextureContext/resize-copy", "recovery"],
     ["MeshletGpuPool/compact", "tool"],
-    ["MipmapGenerator/generate", "one-shot"]
+    ["MipmapGenerator/generate", "one-shot"],
+    ["Renderer/PackedScene/resident", "tool"],
+    ["Renderer/PackedScene/instantiate", "tool"],
+    ["Renderer/PackedScene/release-instances", "tool"],
+    ["Renderer/PackedScene/release-asset", "tool"]
   ]);
   for (const [label, kind] of expected) {
     assert.equal(classifyGpuSubmitLabel(label), kind, label);

@@ -34,6 +34,7 @@ import {
 } from "./GpuQueueEvidence.js";
 import { GpuAssetStore } from "./GpuAssetStore.js";
 import { GpuScene } from "./GpuScene.js";
+import { GpuPackedSceneRegistry } from "./GpuPackedSceneRegistry.js";
 
 export class GraphicsContext {
   readonly isGraphicsContext = true;
@@ -50,12 +51,13 @@ export class GraphicsContext {
   readonly bind_groups: BindGroupCache;
   readonly render_pipelines: RenderPipelineCache;
   readonly compute_pipelines: ComputePipelineCache;
-  readonly geometries: MeshletGpuTable;
+  private geometryTableValue: MeshletGpuTable | undefined;
   readonly materials: GPUMaterialRegistry;
   readonly samplers: GPUSamplerCache;
   readonly profiler: FrameProfiler;
   private assetStoreValue: GpuAssetStore | undefined;
   private gpuSceneValue: GpuScene | undefined;
+  private packedScenesValue: GpuPackedSceneRegistry | undefined;
   private timerIncrementValue = 0;
 
   constructor(device: GPUDevice, profiler = new FrameProfiler()) {
@@ -85,7 +87,6 @@ export class GraphicsContext {
       this.shader_modules
     );
     this.textures = new GPUTextureManager(this);
-    this.geometries = new MeshletGpuTable(this);
     this.materials = new GPUMaterialRegistry(
       device,
       this.textures,
@@ -150,6 +151,26 @@ export class GraphicsContext {
     return this.gpuSceneValue;
   }
 
+  /** Lazily creates the Scene → Packed Geometry/Instance association owner. */
+  get packed_scenes(): GpuPackedSceneRegistry {
+    this.packedScenesValue ??= new GpuPackedSceneRegistry(this);
+    return this.packedScenesValue;
+  }
+
+  get packed_scenes_if_created(): GpuPackedSceneRegistry | undefined {
+    return this.packedScenesValue;
+  }
+
+  /** Legacy Geometry owner, created only when an old Scene consumer asks for it. */
+  get geometries(): MeshletGpuTable {
+    this.geometryTableValue ??= new MeshletGpuTable(this);
+    return this.geometryTableValue;
+  }
+
+  get geometries_if_created(): MeshletGpuTable | undefined {
+    return this.geometryTableValue;
+  }
+
   async initialize(): Promise<void> {
     await STATIC_GRAPHICS_ENGINE_ASSETS.init();
   }
@@ -158,7 +179,7 @@ export class GraphicsContext {
     command: ShadeGPUCommandContext,
     sampleCollectionLimits = false
   ): void {
-    this.geometries.update(command, "GraphicsContext");
+    this.geometryTableValue?.update(command, "GraphicsContext");
     this.textures.update(command);
     this.materials.update(command);
     this.bind_groups.update();
@@ -189,9 +210,10 @@ export class GraphicsContext {
 
   get gpu_memory_usage(): number {
     return (
-      this.geometries.gpu_memory_usage +
+      (this.geometryTableValue?.gpu_memory_usage ?? 0) +
       (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
+      (this.packedScenesValue?.evidence().workQueueBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
@@ -201,10 +223,14 @@ export class GraphicsContext {
 
   destroy(): void {
     unregisterGpuQueueProfiler(this.device, this.profiler);
+    this.packedScenesValue?.destroy();
+    this.packedScenesValue = undefined;
     this.gpuSceneValue?.destroy();
     this.gpuSceneValue = undefined;
     this.assetStoreValue?.destroy();
     this.assetStoreValue = undefined;
+    this.geometryTableValue?.destroy();
+    this.geometryTableValue = undefined;
     this.residentMaterials?.destroy();
     this.buffer_allocator_main.destroy();
     this.buffer_allocator_native.destroy();

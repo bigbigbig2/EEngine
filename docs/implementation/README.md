@@ -7,7 +7,7 @@
 ```text
 R0 Observe                         complete
 → R1 Runtime/FrameGraph/HZB        complete
-→ R2 Compact Data + Cooker
+→ R2 Compact Data + Cooker           complete
 → R3 Hierarchy + HW Consumer
 → R4-A Visibility Contract
 → R4-B Single Material Resolve
@@ -35,14 +35,15 @@ R0 Observe                         complete
 
 ## 当前唯一入口
 
-R0/G0、R1/G1 与 R2-A/B/C 已关闭。当前唯一代码入口是 R2-D Packed Scene
-Vertical。同一 R2 Compact Data Foundation 顺序保持不变：
+R0/G0、R1/G1 与 R2/G2 已关闭。R2 Compact Data Foundation 的交付顺序为：
 
 1. `R2-A Package Kernel`：已完成；冻结 SourceGeometry、版本化 package kernel、reader/writer/validator 和黄金资产；
 2. `R2-B Cooked Geometry`：已完成；以可追溯开源实现生成 Meshlet、renderable hierarchy、geometric error、BVH8 与未压缩 streams/material package；
 3. `R2-C Residency + Compact Tables`：已完成；Geometry/Cluster/Meshlet GPU ABI、stable handle、bulk residency、生命周期和内存证据已落地，flat 黄金资产通过 live 浏览器 GPU readback、Hardware `drawIndirect` 画面和 WebGPU validation 门禁；
-4. `R2-D Packed Scene Vertical`：Instance record、GpuScene owner、Packed/普通 Scene source、bulk/patch/stable-frame 和 Instance + Geometry Hardware 纵切已完成；
-5. 当前唯一剩余代码入口：把 A/C 与至少一个真实 glTF 生产 consumer 接到新 bindings，并同步删除 package 主路径上的 runtime Meshlet build、重复 Geometry residency 与重复 Instance owner；完成后关闭 G2。
+4. `R2-D Packed Scene Vertical`：Instance record、GpuScene owner、Packed/普通 Scene source、bulk/patch/stable-frame 已完成；A/B/C 与真实 Damaged Helmet glTF 已进入 Cooker → Package → Packed Geometry/Instance → production Hardware Visibility/Material/Velocity 主链；
+5. package/Packed 主路径不创建等量 `Mesh/Node3D`，旧 `MeshletGpuTable` 改为 legacy Scene consumer 才惰性创建，因此新主路径不存在重复 Geometry/Instance owner。旧 Scene consumer 的全局删除随 R3 工作生成迁移完成，不能反向把它当作 G2 数据 Gate blocker。
+
+当前唯一代码入口是 R3 Hierarchy + HW Consumer：让已驻留的 hierarchy/SSE 在 flat Meshlet 展开前减量，并继续消费同一套 Packed bindings 与 Hardware `drawIndirect()`。
 
 R2 只新增 Geometry、Cluster、Instance 三张必需 record table；Material 使用现有 registry 的 validated handle reference，Texture/Light 全面重构不进入 G2。R2 会生成、验证并驻留 hierarchy 数据，但 GPU hierarchy/SSE traversal 属于 R3。
 

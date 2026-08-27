@@ -10,7 +10,7 @@
     "revision": "7cda7e710d884827fc73ff1a3aa63270846513d7"
   },
   "seed": 2976579765,
-  "featureSet": ["hardware-visibility", "hzb-culling", "material-expand", "clustered-lighting", "ibl", "hierarchy-sse-lod", "software-visibility"],
+  "featureSet": ["hardware-visibility", "packed-instances", "hzb-culling", "material-expand", "clustered-lighting", "ibl", "hierarchy-sse-lod", "software-visibility"],
   "frame": { "width": 1280, "height": 720, "dpr": 1 },
   "run": {
     "warmupFrames": 60,
@@ -30,13 +30,13 @@
     ]
   },
   "assets": [
-    { "id": "damaged-helmet-gltf", "kind": "geometry", "source": "workspace:three.js/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf", "sha256": "30dcaef780c6233a235ccadba761a7e0b50d8a98705a1d8b80f2b3b52e0fe57a", "usage": "Khronos Damaged Helmet glTF scene；CC BY-NC，benchmark-only", "runtimeStatus": "consumed" },
-    { "id": "damaged-helmet-bin", "kind": "geometry", "source": "workspace:three.js/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.bin", "sha256": "61b33ead6aa3de23f39f02aaf0965bc3988575716a768f45b15d5ea3fb783fdf", "usage": "Damaged Helmet vertex/index payload", "runtimeStatus": "consumed" },
-    { "id": "helmet-albedo", "kind": "texture", "source": "workspace:three.js/examples/models/gltf/DamagedHelmet/glTF/Default_albedo.jpg", "sha256": "2dc95e87aeb0cd7c8a65ef0eb8b23212388da0534ca379811427a9a8780511f5", "usage": "PBR base color", "runtimeStatus": "consumed" },
-    { "id": "helmet-ao", "kind": "texture", "source": "workspace:three.js/examples/models/gltf/DamagedHelmet/glTF/Default_AO.jpg", "sha256": "7024051b65ed2ead8d24ebc9bd5ea61d4c21639a57b15dab29870668bcc6b90f", "usage": "PBR ambient occlusion", "runtimeStatus": "consumed" },
-    { "id": "helmet-emissive", "kind": "texture", "source": "workspace:three.js/examples/models/gltf/DamagedHelmet/glTF/Default_emissive.jpg", "sha256": "dd0057989f22f93a4ab796d06ebf85a7c12fbfae1d59a86ae8b0c54770dc1159", "usage": "PBR emissive", "runtimeStatus": "consumed" },
-    { "id": "helmet-metal-roughness", "kind": "texture", "source": "workspace:three.js/examples/models/gltf/DamagedHelmet/glTF/Default_metalRoughness.jpg", "sha256": "0f05e7ffbeaa974f7d2c83436b04109969966d64ab188cbc3a19a265a0a69ae0", "usage": "PBR metallic/roughness", "runtimeStatus": "consumed" },
-    { "id": "helmet-normal", "kind": "texture", "source": "workspace:three.js/examples/models/gltf/DamagedHelmet/glTF/Default_normal.jpg", "sha256": "f253ba09a90a86ffd8a807dc45d7953111f8b3421e15d7a21d1e915b01dd33c1", "usage": "PBR tangent-space normal", "runtimeStatus": "consumed" },
+    { "id": "damaged-helmet-gltf", "kind": "geometry", "source": "workspace:examples/benchmark-assets/damaged-helmet/DamagedHelmet.gltf", "sha256": "30dcaef780c6233a235ccadba761a7e0b50d8a98705a1d8b80f2b3b52e0fe57a", "usage": "Khronos Damaged Helmet glTF scene；CC BY-NC，benchmark-only", "runtimeStatus": "consumed" },
+    { "id": "damaged-helmet-bin", "kind": "geometry", "source": "workspace:examples/benchmark-assets/damaged-helmet/DamagedHelmet.bin", "sha256": "61b33ead6aa3de23f39f02aaf0965bc3988575716a768f45b15d5ea3fb783fdf", "usage": "Damaged Helmet vertex/index payload", "runtimeStatus": "consumed" },
+    { "id": "helmet-albedo", "kind": "texture", "source": "workspace:examples/benchmark-assets/damaged-helmet/Default_albedo.jpg", "sha256": "2dc95e87aeb0cd7c8a65ef0eb8b23212388da0534ca379811427a9a8780511f5", "usage": "PBR base color", "runtimeStatus": "consumed" },
+    { "id": "helmet-ao", "kind": "texture", "source": "workspace:examples/benchmark-assets/damaged-helmet/Default_AO.jpg", "sha256": "7024051b65ed2ead8d24ebc9bd5ea61d4c21639a57b15dab29870668bcc6b90f", "usage": "PBR ambient occlusion", "runtimeStatus": "consumed" },
+    { "id": "helmet-emissive", "kind": "texture", "source": "workspace:examples/benchmark-assets/damaged-helmet/Default_emissive.jpg", "sha256": "dd0057989f22f93a4ab796d06ebf85a7c12fbfae1d59a86ae8b0c54770dc1159", "usage": "PBR emissive", "runtimeStatus": "consumed" },
+    { "id": "helmet-metal-roughness", "kind": "texture", "source": "workspace:examples/benchmark-assets/damaged-helmet/Default_metalRoughness.jpg", "sha256": "0f05e7ffbeaa974f7d2c83436b04109969966d64ab188cbc3a19a265a0a69ae0", "usage": "PBR metallic/roughness", "runtimeStatus": "consumed" },
+    { "id": "helmet-normal", "kind": "texture", "source": "workspace:examples/benchmark-assets/damaged-helmet/Default_normal.jpg", "sha256": "f253ba09a90a86ffd8a807dc45d7953111f8b3421e15d7a21d1e915b01dd33c1", "usage": "PBR tangent-space normal", "runtimeStatus": "consumed" },
     { "id": "royal-esplanade", "kind": "environment", "source": "workspace:three.js/examples/textures/equirectangular/royal_esplanade_2k.hdr.jpg", "sha256": "b05a664c5fb022ddc6104f253a6684570e99876d30b41a220c8dea4482df6d64", "usage": "three.js IBL reference environment", "runtimeStatus": "declared-unsupported", "blockerTaskId": "MAT-05", "reason": "OEngine 当前环境加载器不能解码该 UltraHDR JPEG，页面显式使用程序化中性环境 fallback" },
     { "id": "helmet-lod-meshlet-recipe", "kind": "recipe", "source": "workspace:examples/benchmark-shared/recipes/benchmark-b-lod.json", "sha256": "4498ba9c466292a707a2df59c232c1317e7f0cde2bbac30313dac6522fad24e8", "usage": "冻结 three.js 的 6 级 Meshopt simplification 和 64/64 meshlet 参数", "runtimeStatus": "declared-unsupported", "blockerTaskId": "WORK-04", "reason": "当前 OEngine 页面只消费原始 Helmet 几何，尚无兼容该配方的 cooker/hierarchy consumer" }
   ],

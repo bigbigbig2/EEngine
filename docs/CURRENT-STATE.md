@@ -42,7 +42,9 @@
 - 惰性 `GpuScene` 是新 Instance table 唯一 owner，提供 opaque generation `InstanceSetHandle`、1k/10k/100k bulk、grow/abort/release、显式 transform/material patch、同帧 previous 保持、dirty span 合并和 logical/resident/allocated/CPU shadow/upload/patch/grow 证据；稳定空 batch 不编码 copy/pass/submit，`privateSubmitCount=0`。
 - `createInstanceSourceFromScene()` 已让普通 `Scene/Mesh` 一次性写入同一个 `InstanceSource`，Packed source 只使用 typed arrays + 少量 geometry handle，不构造等量 JS 对象。`Renderer` 已公开 instantiate/patch/release/evidence seam，GPU Buffer/range 保持内部。
 - `examples/r2-packed-scene` 已形成 Geometry package + Instance table → Compute compact active indices/完整 indirect args → Hardware `drawIndirect()` 的真实双 binding consumer。2026-08-27 干净浏览器证据为 `passed=true`：1k/10k/100k bulk，0/1/10/100% patch，stable upload bytes 不变，previous/current GPU readback 一致，1,000 instances 得到 41,733 个非背景像素，validation/uncaptured/shader diagnostics/console warning-error 均为空。
-- 当前 glTF/Box/USD、A/B/C 与生产 `VisibilityPass` 仍消费 legacy `niMeshlets`/`MeshletGpuTable`/分页 `SceneDatabase`。新纵切没有伪装成全生产迁移；R2-D/G2 只剩把 A/C 和至少一个真实 glTF consumer 切到新 Geometry/Instance bindings，并随迁移删除对应 runtime build 与重复 owner。
+- R2-D/G2 已关闭：`load_gltf_packed()` 直接输出 SourceGeometry、材质 dictionary、transform/bounds/flags typed arrays；A/B 的 Teapot/Damaged Helmet 和 C 的三份程序化几何均经过 Cooker/package，由 `Renderer.uploadPackedScene()` 进入生产 Packed Visibility、Material Expand 与 Velocity。
+- Packed Visibility 执行 Instance frustum cull → flat Meshlet compact → GPU 写完整 16 B indirect record → Hardware `drawIndirect()`；Material/Velocity 直接读取新 Instance/Geometry/Meshlet/stream ABI，current/previous transform 语义已接通。稳定帧不重复 residency/instantiate，也不由 CPU readback 决定 draw。
+- package 主路径不创建等量 `Mesh/Node3D`，也不创建 legacy `MeshletGpuTable`；旧 Geometry owner 改为 legacy Scene consumer 请求时惰性创建。普通对象、旧 Loader、shadow/transparent 等尚未迁移 consumer 仍保留旧路径，后续按 R3/R4/R5 迁移删除，不能解释为 Packed 主路径双 owner。
 - 没有 GPU Geometry Hierarchy、BVH8 traversal 或 SSE LOD；现有路径仍先展开大量 flat Meshlet 工作。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
 - 没有正式冻结的 frame-local VisibilityKey/VisibleCluster lookup 契约。
@@ -54,8 +56,8 @@
 
 ## 当前下一步
 
-1. R2-D 的 ABI/owner/bulk/patch/普通 Scene adapter/真实 GPU 纵切已完成；当前唯一代码任务是 R2-D 生产 consumer 收口：迁 A/C + 真实 glTF，逐个删除 legacy runtime Meshlet build、Geometry residency 与重复 Instance owner。
-2. 上述生产接线与删除完成后关闭 R2-D/G2，再进入 R3，让 GPU hierarchy/SSE 在 flat Meshlet 展开前减量并接入同一个 Hardware consumer；随后依次推进 R4-A、R4-B、R4-C。
+1. R2/G2 已完成。当前唯一代码任务是 R3：读取 R2 已驻留的 Instance/Geometry/Cluster/BVH8 数据，在 flat Meshlet 展开前执行 GPU hierarchy/SSE/cull/compact，并直接喂给现有 Hardware consumer。
+2. R3 关闭后依次推进 R4-A Visibility contract、R4-B single Material Resolve、R4-C 可选 SW/Hybrid；Packed alpha-tested Visibility、Packed shadow consumer 与画质管线按各自 Gate 验收，不倒灌回 R2。
 
 ## 本地参考状态
 

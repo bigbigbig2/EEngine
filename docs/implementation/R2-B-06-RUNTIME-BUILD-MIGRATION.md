@@ -69,8 +69,8 @@ R2-D 已完成：
 1. 冻结 Instance/Packed ABI，并让普通 Scene adapter 与 Packed source 写入同一 `GpuScene`；
 2. 完成 1k/10k/100k bulk、0%/1%/10%/100% transform/material patch、stable-frame zero upload 与 Instance + Geometry Hardware consumer 画面/counter 证据。
 
-R2-D/G2 唯一剩余收口：
+R2-D/G2 收口结果：
 
-1. 把 A/C 和至少一个真实 glTF 主路径 consumer 切到新 Geometry/Instance bindings；
-2. 每迁移一个 consumer 即删除对应 legacy reader/build/owner，不长期双写；
-3. 用生产页面重新确认 one-submit、非采样零 readback、画面与 counter，随后关闭 G2。
+1. A/B/C 和真实 Damaged Helmet glTF 已切到 SourceGeometry → Cooker → Package → `GpuAssetStore/GpuScene` → production Packed Visibility/Material/Velocity bindings；
+2. Packed/package 主路径不创建等量 `Mesh/Node3D`，也不创建 legacy `MeshletGpuTable`；旧 owner 仅在 legacy Scene consumer 请求时惰性创建，因此不再双驻留同一 Packed 数据；
+3. A/B/C smoke 与 C full 均确认 one-submit、真实 counter、画面和 WebGPU diagnostics；G2 已关闭。旧普通 Scene、阴影和透明 consumer 的类级删除随 R3/R4/R5 迁移完成。

@@ -25,7 +25,11 @@ const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["SceneSdf/read", "debug-readback"],
   ["GPUTextureContext/resize-copy", "recovery"],
   ["MeshletGpuPool/compact", "tool"],
-  ["MipmapGenerator/generate", "one-shot"]
+  ["MipmapGenerator/generate", "one-shot"],
+  ["Renderer/PackedScene/resident", "tool"],
+  ["Renderer/PackedScene/instantiate", "tool"],
+  ["Renderer/PackedScene/release-instances", "tool"],
+  ["Renderer/PackedScene/release-asset", "tool"]
 ]);
 
 export function classifyGpuSubmitLabel(

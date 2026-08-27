@@ -22,8 +22,10 @@ import { RenderTargets } from "./RenderTargets.js";
 import { GPUViewKey, ViewManager } from "./ViewManager.js";
 import { GPUCameraStateManager } from "./GPUCameraState.js";
 import { VisibilityPass } from "./passes/VisibilityPass.js";
+import { PackedVisibilityPass } from "./passes/PackedVisibilityPass.js";
 import { VisibilityCounterPass } from "./passes/VisibilityCounterPass.js";
 import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
+import { PackedMaterialExpandPass } from "./passes/PackedMaterialExpandPass.js";
 import { LightingPass } from "./passes/LightingPass.js";
 import {
   LightClusterPass,
@@ -42,6 +44,7 @@ import {
   Brick4SpecularPass
 } from "./passes/Brick4IndirectPass.js";
 import { VelocityPass } from "./passes/VelocityPass.js";
+import { PackedVelocityPass } from "./passes/PackedVelocityPass.js";
 import { RenderDebugViewPass } from "./passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
 import { ScreenSpaceAmbientOcclusionPass } from "./passes/ScreenSpaceAmbientOcclusionPass.js";
@@ -95,6 +98,12 @@ import type {
   InstanceSetHandle,
   InstanceSource
 } from "../gpu/GpuScene.js";
+import type {
+  PackedSceneEvidence,
+  PackedSceneHandle,
+  PackedSceneSource
+} from "../gpu/GpuPackedSceneRegistry.js";
+import type { PackedSceneRuntime } from "../gpu/GpuPackedSceneRegistry.js";
 import {
   RenderDebugView,
   getRenderDebugViewStatus,
@@ -162,6 +171,7 @@ type MainFrameGraphBindings = {
   readonly scene: Scene;
   readonly view: ReturnType<ViewManager["obtain"]>;
   readonly gpuScene: ReturnType<GPUSceneManager["obtain"]>;
+  readonly gpuPacked: PackedSceneRuntime | null;
   readonly viewHzb: HierarchicalZBuffer;
   readonly colorView: GPUTextureView;
   readonly renderTargets: ReturnType<RenderTargets["asImportBundle"]>;
@@ -218,8 +228,10 @@ export class Renderer {
   private _views!: ViewManager;
   private readonly _output_resolution = new Vec2(1, 1);
   private _visibility!: VisibilityPass;
+  private _packedVisibility!: PackedVisibilityPass;
   private _visibilityCounters: VisibilityCounterPass | null = null;
   private _materialExpand!: MaterialExpandPass;
+  private _packedMaterialExpand!: PackedMaterialExpandPass;
   private _lighting!: LightingPass;
   private _lightCluster!: LightClusterPass;
   private _environmentBackground!: EnvironmentBackgroundPass;
@@ -233,6 +245,7 @@ export class Renderer {
   private _brick4Specular!: Brick4SpecularPass;
   private _brick4Fused!: Brick4FusedIndirectPass;
   private _velocity!: VelocityPass;
+  private _packedVelocity!: PackedVelocityPass;
   private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence!: OcclusionConfidencePass;
   private _ssao: ScreenSpaceAmbientOcclusionPass | null = null;
@@ -362,6 +375,104 @@ export class Renderer {
   /** Returns compact Instance table counters without exposing its GPUBuffer. */
   gpuSceneEvidence(): GpuSceneEvidence {
     return this._graphics.gpu_scene.evidence();
+  }
+
+  /**
+   * Uploads already-cooked packages and one compact Instance set as explicit
+   * one-shot tool commands. Stable render frames never repeat this work.
+   */
+  async uploadPackedScene(
+    scene: Scene,
+    source: PackedSceneSource
+  ): Promise<PackedSceneHandle> {
+    const handles: AssetHandle[] = [];
+    try {
+      for (let index = 0; index < source.geometries.length; index++) {
+        const command = ShadeGPUCommandContext.create(
+          this._graphics,
+          "Renderer/PackedScene/resident"
+        );
+        try {
+          const handle = this._graphics.assets.resident(
+            source.geometries[index]!,
+            command
+          );
+          command.finish();
+          await command.submitted;
+          handles.push(handle);
+        } catch (error) {
+          command.abort(error);
+          throw error;
+        }
+      }
+      const command = ShadeGPUCommandContext.create(
+        this._graphics,
+        "Renderer/PackedScene/instantiate"
+      );
+      try {
+        const handle = this._graphics.packed_scenes.stage(
+          scene,
+          source,
+          handles,
+          command
+        );
+        command.finish();
+        await command.submitted;
+        return handle;
+      } catch (error) {
+        command.abort(error);
+        throw error;
+      }
+    } catch (error) {
+      await this.releasePackedAssetHandles(handles);
+      throw error;
+    }
+  }
+
+  /** Releases one Packed Scene and all Geometry residency owned by its upload. */
+  async releasePackedScene(scene: Scene): Promise<void> {
+    const command = ShadeGPUCommandContext.create(
+      this._graphics,
+      "Renderer/PackedScene/release-instances"
+    );
+    let handles: readonly AssetHandle[];
+    try {
+      handles = this._graphics.packed_scenes.release(scene, command);
+      command.finish();
+      await command.submitted;
+    } catch (error) {
+      command.abort(error);
+      throw error;
+    }
+    await this.releasePackedAssetHandles(handles);
+  }
+
+  /** Queues one explicit patch batch for the next main frame command. */
+  queuePackedScenePatch(scene: Scene, batch: InstancePatchBatch): void {
+    this._graphics.packed_scenes.queuePatch(scene, batch);
+  }
+
+  packedSceneEvidence(): PackedSceneEvidence {
+    return this._graphics.packed_scenes.evidence();
+  }
+
+  private async releasePackedAssetHandles(
+    handles: readonly AssetHandle[]
+  ): Promise<void> {
+    for (let index = handles.length - 1; index >= 0; index--) {
+      const command = ShadeGPUCommandContext.create(
+        this._graphics,
+        "Renderer/PackedScene/release-asset"
+      );
+      try {
+        this._graphics.assets.release(handles[index]!, command);
+        command.finish();
+        await command.submitted;
+      } catch (error) {
+        command.abort(error);
+        throw error;
+      }
+    }
   }
 
   /**
@@ -548,6 +659,7 @@ export class Renderer {
     this._bloom = null;
     this._renderDebug?.destroy();
     this._renderDebug = null;
+    this._packedVelocity?.destroy();
     this._meshletDrawList?.destroy();
     this._nss?.destroy();
     this._nss = null;
@@ -556,7 +668,7 @@ export class Renderer {
     this._probeRenderers.clear();
     this._mainGraphCache.destroy();
     this._frameCoordinator?.destroy();
-    this._profiler.detachGpuDevice(this.device);
+    this._graphics.destroy();
   }
 
   obtains_scene_sdf(scene: Scene): SceneSdf {
@@ -658,6 +770,8 @@ export class Renderer {
     viewKey.label = "check_assertions";
     const view = this.views.obtain(viewKey, cmd);
     const gpuScene = view.scene;
+    const gpuPacked =
+      this._graphics.packed_scenes_if_created?.runtime(scene) ?? null;
     gpuScene.lights.shadow_context.enabled = featureTopology.shadows;
     view.setJitter(temporalJitter.Jitter[0], temporalJitter.Jitter[1]);
     view.setViewportSize(w, h);
@@ -670,6 +784,7 @@ export class Renderer {
       (2 * temporalJitter.Jitter[1]) / h
     );
     this._profiler.measure("world-and-view-update", () => {
+      this._graphics.packed_scenes_if_created?.encodePendingPatch(scene, cmd);
       gpuScene.encodeFrame(cmd, this._frame_count, time_delta_seconds);
       view.update(cmd);
     });
@@ -731,6 +846,7 @@ export class Renderer {
         scene,
         view,
         gpuScene,
+        gpuPacked,
         viewHzb,
         colorView,
         renderTargets: this._renderTargets.asImportBundle(),
@@ -771,11 +887,15 @@ export class Renderer {
         bind("swapchain", (bindings) => bindings.colorView)
       );
 
-      const sceneDatabaseRes = graph.import_resource(
-        "scene_database_buffer",
-        { kind: "imported", label: "scene_database" },
-        bind("scene-database", (bindings) => bindings.gpuScene.scene_database_buffer!)
-      );
+      const packedPath = mainBindings.gpuPacked !== null;
+      const sceneDatabaseRes = packedPath
+        ? null
+        : graph.import_resource(
+            "scene_database_buffer",
+            { kind: "imported", label: "scene_database" },
+            bind("scene-database", (bindings) =>
+              bindings.gpuScene.scene_database_buffer!)
+          );
 
       {
         const rt = mainBindings.renderTargets;
@@ -833,7 +953,35 @@ export class Renderer {
           );
         }
 
-        {
+        if (packedPath) {
+          const packedCounterRes = gpuCounterRes ?? graph.import_resource(
+            "packed_visibility_counter_sink",
+            { kind: "imported", label: "Packed Visibility disabled counter sink" },
+            bind("packed-counter-sink", (bindings) =>
+              bindings.gpuPacked!.counterSink)
+          );
+          const packedOutputCounterRes = this._packedVisibility.addToGraph(
+            graph,
+            bind("packed-visibility-main-job", (bindings) => {
+              const registryBindings =
+                this._graphics.packed_scenes.bindings();
+              return {
+                runtime: bindings.gpuPacked!,
+                assets: registryBindings.assets,
+                scene: registryBindings.scene,
+                countersEnabled: bindings.gpuCounterBuffer !== null
+              };
+            }),
+            {
+              camera: currentCameraRes,
+              counters: packedCounterRes,
+              triangleId: triIdRes,
+              instanceId: meshIdRes,
+              depth: depthRes
+            }
+          );
+          gpuCounterRes = sampleGpuCounters ? packedOutputCounterRes : null;
+        } else {
           gpuCounterRes = this._visibility.addToGraph(
             graph,
             bind("visibility-main-job", (bindings) => ({
@@ -889,7 +1037,9 @@ export class Renderer {
         }
 
         {
-          const sameFrameHzbView = viewHzb.obtainCurrentView();
+          const sameFrameHzbView = packedPath
+            ? null
+            : viewHzb.obtainCurrentView();
           if (sameFrameHzbView) {
             gpuCounterRes = this._visibility.addToGraph(
               graph,
@@ -944,7 +1094,7 @@ export class Renderer {
           }
         }
 
-        const hasAlphaTested =
+        const hasAlphaTested = !packedPath &&
           this._visibility.hasAlphaTestedMaterials(scene);
         if (hasAlphaTested) {
           gpuCounterRes = this._visibility.addToGraph(
@@ -1026,42 +1176,73 @@ export class Renderer {
           ]);
         }
 
-        const geometryMetaRes = graph.import_resource(
-          "geometries/Jg",
-          { kind: "imported", label: "geometry metadata Jg" },
-          bind("geometry-metadata", (bindings) => bindings.gpuScene.meshlets.meshMetaBuffer!)
-        );
-        const meshletHeadersRes = graph.import_resource(
-          "meshlets/ki",
-          { kind: "imported", label: "meshlet headers ki" },
-          bind("meshlet-headers", (bindings) => bindings.gpuScene.meshlets.headerBuffer)
-        );
-        const meshletDataRes = graph.import_resource(
-          "meshlets/data",
-          { kind: "imported", label: "meshlet data" },
-          bind("meshlet-data", (bindings) => bindings.gpuScene.meshlets.dataBuffer)
-        );
+        const geometryMetaRes = packedPath
+          ? null
+          : graph.import_resource(
+              "geometries/Jg",
+              { kind: "imported", label: "geometry metadata Jg" },
+              bind("geometry-metadata", (bindings) =>
+                bindings.gpuScene.meshlets.meshMetaBuffer!)
+            );
+        const meshletHeadersRes = packedPath
+          ? null
+          : graph.import_resource(
+              "meshlets/ki",
+              { kind: "imported", label: "meshlet headers ki" },
+              bind("meshlet-headers", (bindings) =>
+                bindings.gpuScene.meshlets.headerBuffer)
+            );
+        const meshletDataRes = packedPath
+          ? null
+          : graph.import_resource(
+              "meshlets/data",
+              { kind: "imported", label: "meshlet data" },
+              bind("meshlet-data", (bindings) =>
+                bindings.gpuScene.meshlets.dataBuffer)
+            );
 
-        const matOut = this._materialExpand.addToGraph(
-          graph,
-          bind("material-expand-job", (bindings) => ({
-            scene: bindings.scene,
-            materials: bindings.gpuScene.materials,
-            width: bindings.internalWidth,
-            height: bindings.internalHeight
-          })),
-          {
-            meshId: meshIdRes,
-            triangleId: triIdRes,
-            sceneDatabase: sceneDatabaseRes,
-            geometries: geometryMetaRes,
-            meshletHeaders: meshletHeadersRes,
-            meshletData: meshletDataRes,
-            view: viewUniformRes,
-            camera: currentCameraRes,
-            counters: gpuCounterRes ?? undefined
-          }
-        );
+        const matOut = packedPath
+          ? this._packedMaterialExpand.addToGraph(
+              graph,
+              bind("packed-material-expand-job", (bindings) => {
+                const registryBindings =
+                  this._graphics.packed_scenes.bindings();
+                return {
+                  runtime: bindings.gpuPacked!,
+                  assets: registryBindings.assets,
+                  scene: registryBindings.scene,
+                  width: bindings.internalWidth,
+                  height: bindings.internalHeight
+                };
+              }),
+              {
+                instanceId: meshIdRes,
+                triangleId: triIdRes,
+                view: viewUniformRes,
+                camera: currentCameraRes,
+                counters: gpuCounterRes ?? undefined
+              }
+            )
+          : this._materialExpand.addToGraph(
+              graph,
+              bind("material-expand-job", (bindings) => ({
+                scene: bindings.scene,
+                materials: bindings.gpuScene.materials,
+                width: bindings.internalWidth,
+                height: bindings.internalHeight
+              })),
+              {
+                meshId: meshIdRes,
+                triangleId: triIdRes,
+                sceneDatabase: sceneDatabaseRes!,
+                geometries: geometryMetaRes!,
+                meshletHeaders: meshletHeadersRes!,
+                meshletData: meshletDataRes!,
+                view: viewUniformRes,
+                camera: currentCameraRes,
+                counters: gpuCounterRes ?? undefined
+              }
+            );
         if (matOut.counters !== null) {
           gpuCounterRes = matOut.counters;
           this._profiler.registerGpuCounterFields(["activeMaterials"]);
@@ -1094,25 +1275,39 @@ export class Renderer {
                   bindings.gpuScene.skinning.prev_positions_buffer!)
               )
             : null;
-          velocityRes = this._velocity!.addToGraph(
-            graph,
-            bind("velocity-job", (bindings) => ({
-              width: bindings.internalWidth,
-              height: bindings.internalHeight,
-              currentCamera: bindings.view.gpu_camera_state.camera,
-              previousCamera: bindings.view.gpu_previous_camera_state.camera
-            })),
-            {
-              depth: depthRes,
-              meshId: meshIdRes,
-              triangleId: triIdRes,
-              sceneDatabase: sceneDatabaseRes,
-              meshletHeaders: meshletHeadersRes,
-              meshletData: meshletDataRes,
-              previousPositionOffsets: previousOffsetsRes,
-              previousPositions: previousPositionsRes
-            }
-          ).velocity;
+          velocityRes = packedPath
+            ? this._packedVelocity.addToGraph(
+                graph,
+                bind("packed-velocity-job", (bindings) => ({
+                  width: bindings.internalWidth,
+                  height: bindings.internalHeight,
+                  currentCamera: bindings.view.gpu_camera_state.camera,
+                  previousCamera:
+                    bindings.view.gpu_previous_camera_state.camera,
+                  scene: this._graphics.packed_scenes.bindings().scene
+                })),
+                { depth: depthRes, instanceId: meshIdRes }
+              )
+            : this._velocity!.addToGraph(
+                graph,
+                bind("velocity-job", (bindings) => ({
+                  width: bindings.internalWidth,
+                  height: bindings.internalHeight,
+                  currentCamera: bindings.view.gpu_camera_state.camera,
+                  previousCamera:
+                    bindings.view.gpu_previous_camera_state.camera
+                })),
+                {
+                  depth: depthRes,
+                  meshId: meshIdRes,
+                  triangleId: triIdRes,
+                  sceneDatabase: sceneDatabaseRes!,
+                  meshletHeaders: meshletHeadersRes!,
+                  meshletData: meshletDataRes!,
+                  previousPositionOffsets: previousOffsetsRes,
+                  previousPositions: previousPositionsRes
+                }
+              ).velocity;
           occlusionConfidenceRes = this._occlusionConfidence!.addToGraph(
             graph,
             {
@@ -1630,10 +1825,10 @@ export class Renderer {
               hzb: hzbRes,
               camera: currentCameraRes,
               view: viewUniformRes,
-              sceneDatabase: sceneDatabaseRes,
-              geometryMetadata: geometryMetaRes,
-              meshletHeaders: meshletHeadersRes,
-              meshletData: meshletDataRes,
+              sceneDatabase: sceneDatabaseRes!,
+              geometryMetadata: geometryMetaRes!,
+              meshletHeaders: meshletHeadersRes!,
+              meshletData: meshletDataRes!,
               lightDatabase: lightDatabaseRes,
               environment: environmentRes,
               clusterParameters: clusters.parameters,
@@ -1840,7 +2035,11 @@ export class Renderer {
       }
       cmd.encodeCompiledGraph(compiledGraph, mainBindings);
       view.finish_frame(cmd, this._frame_count);
-      this.recordFrameCounters(viewHzb, gpuScene.lights.shadow_context);
+      this.recordFrameCounters(
+        viewHzb,
+        gpuScene.lights.shadow_context,
+        gpuPacked !== null
+      );
       this._profiler.encodeGpuCounterReadback(cmd);
       this._frameCoordinator.submitFrame(activeFrame);
       activeFrame = null;
@@ -1881,7 +2080,9 @@ export class Renderer {
       viewCount: 1,
       sampleCount: 1,
       enabledFeatureBits: topology.enabledFeatureBits,
-      visibilityImplementation: "hardware-raster-v1",
+      visibilityImplementation: bindings.gpuPacked === null
+        ? "hardware-legacy-v1"
+        : "hardware-packed-r2",
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
       instrumentationMode,
@@ -1927,6 +2128,7 @@ export class Renderer {
       this._visibility = new VisibilityPass(this._graphics);
       this._visibility.init();
     }
+    this._packedVisibility ??= new PackedVisibilityPass(this._graphics);
     if (!this._materialExpand) {
       this._materialExpand = new MaterialExpandPass(
         this._graphics,
@@ -1934,6 +2136,7 @@ export class Renderer {
       );
       this._materialExpand.init();
     }
+    this._packedMaterialExpand ??= new PackedMaterialExpandPass(this._graphics);
     if (!this._lighting) {
       this._lighting = new LightingPass(this._graphics);
       this._lighting.init();
@@ -1949,6 +2152,7 @@ export class Renderer {
     this._brick4Specular ??= new Brick4SpecularPass(this._graphics);
     this._brick4Fused ??= new Brick4FusedIndirectPass(this._graphics);
     this._velocity ??= new VelocityPass(this._graphics);
+    this._packedVelocity ??= new PackedVelocityPass(this._graphics);
     this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
     if (topology.ssao) {
       this._ssao ??= new ScreenSpaceAmbientOcclusionPass(this._graphics);
@@ -2055,35 +2259,54 @@ export class Renderer {
       readonly lastHzbComputePassCount: number;
       readonly lastHzbDispatchCount: number;
       readonly lastHzbOutputPixels: number;
-    }
+    },
+    packedPath: boolean
   ): void {
     const profiler = this._profiler;
-    const visibility = this._visibility;
-    profiler.recordCounter(
-      "legacy.instances.candidate",
-      visibility.lastFrustumCulled + visibility.lastFrustumUnculled
-    );
-    profiler.recordCounter(
-      "legacy.instances.frustumCulled",
-      visibility.lastFrustumCulled
-    );
-    profiler.recordCounter(
-      "legacy.instances.frustumUnculled",
-      visibility.lastFrustumUnculled
-    );
-    profiler.recordCounter("legacy.visibility.drawCount", visibility.lastDrawCount);
-    profiler.recordCounter(
-      "legacy.visibility.bucketPasses",
-      visibility.lastBucketPasses
-    );
-    profiler.recordCounter(
-      "legacy.visibility.activeMaterialBuckets",
-      visibility.lastActiveBucketCount
-    );
-    profiler.recordCounter(
-      "legacy.visibility.secondChance",
-      visibility.lastSecondChance ? 1 : 0
-    );
+    if (packedPath) {
+      profiler.recordCounter(
+        "packed.visibility.candidateMeshletCapacity",
+        this._packedVisibility.lastCandidateCapacity
+      );
+      profiler.recordCounter(
+        "packed.visibility.drawIndirect",
+        this._packedVisibility.lastDrawIndirect ? 1 : 0
+      );
+      profiler.recordCounter(
+        "packed.visibility.fixedVertexCount",
+        this._packedVisibility.lastFixedVertexCount
+      );
+    } else {
+      const visibility = this._visibility;
+      profiler.recordCounter(
+        "legacy.instances.candidate",
+        visibility.lastFrustumCulled + visibility.lastFrustumUnculled
+      );
+      profiler.recordCounter(
+        "legacy.instances.frustumCulled",
+        visibility.lastFrustumCulled
+      );
+      profiler.recordCounter(
+        "legacy.instances.frustumUnculled",
+        visibility.lastFrustumUnculled
+      );
+      profiler.recordCounter(
+        "legacy.visibility.drawCount",
+        visibility.lastDrawCount
+      );
+      profiler.recordCounter(
+        "legacy.visibility.bucketPasses",
+        visibility.lastBucketPasses
+      );
+      profiler.recordCounter(
+        "legacy.visibility.activeMaterialBuckets",
+        visibility.lastActiveBucketCount
+      );
+      profiler.recordCounter(
+        "legacy.visibility.secondChance",
+        visibility.lastSecondChance ? 1 : 0
+      );
+    }
     profiler.recordCounter(
       "hzb.computeBuilds",
       hzb.lastBuildCount + shadows.lastHzbBuildCount
@@ -2103,8 +2326,12 @@ export class Renderer {
     profiler.recordCounter("hzb.historyValid", hzb.historyValid ? 1 : 0);
     profiler.recordCounter("hzb.historyInvalidations", hzb.historyInvalidationCount);
     profiler.recordCounter(
-      "legacy.material.fullscreenDraws",
-      this._materialExpand.lastDrawCount
+      packedPath
+        ? "packed.material.fullscreenDraws"
+        : "legacy.material.fullscreenDraws",
+      packedPath
+        ? this._packedMaterialExpand.lastDrawCount
+        : this._materialExpand.lastDrawCount
     );
     profiler.recordCounter(
       "lighting.clusterCount",

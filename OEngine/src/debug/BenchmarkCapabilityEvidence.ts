@@ -100,15 +100,13 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
     requiredGpuCounters: []
   },
   "packed-instances": {
-    status: "unsupported",
+    status: "supported",
     requiredGpuCounters: [
       "candidateInstances",
       "visibleInstances",
       "rejectedFrustum",
       "queueOverflowMask"
-    ],
-    blockerTaskId: "WORLD-07",
-    reason: "Packed Instance Set 的运行时 seam 和 GPU producer/consumer 闭环尚未实现"
+    ]
   },
   "hierarchy-sse-lod": {
     status: "unsupported",

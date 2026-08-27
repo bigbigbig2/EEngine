@@ -103,6 +103,11 @@ export type {
 export { INSTANCE_SOURCE_FLAGS } from "./gpu/GpuScene.js";
 export { createInstanceSourceFromScene } from "./gpu/GpuSceneAdapter.js";
 export type { SceneInstanceAdapterOptions } from "./gpu/GpuSceneAdapter.js";
+export type {
+  PackedSceneEvidence,
+  PackedSceneHandle,
+  PackedSceneSource
+} from "./gpu/GpuPackedSceneRegistry.js";
 export {
   projectedGeometryErrorPixels,
   selectGeometryHierarchy
@@ -154,7 +159,8 @@ export { create_frame_loop } from "./render/create_frame_loop.js";
 export { deserialize_scene } from "./loaders/deserialize_scene.js";
 export { load_environment_avif } from "./loaders/load_environment_avif.js";
 export { load_environment_map } from "./loaders/load_environment_map.js";
-export { load_gltf } from "./loaders/load_gltf.js";
+export { load_gltf, load_gltf_packed } from "./loaders/load_gltf.js";
+export type { PackedGltfSource } from "./loaders/load_gltf.js";
 export { load_scene_from_url } from "./loaders/load_scene_from_url.js";
 export { load_usd } from "./loaders/load_usd.js";
 export {

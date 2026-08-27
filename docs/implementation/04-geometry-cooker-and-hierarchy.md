@@ -321,9 +321,9 @@ min/max/mean/P50/P95、warnings 和 source/recipe/content/file hash；非确定 
 time 单独位于 `GeometryCookTiming`，不污染 deterministic evidence。完整 Node
 corruption tests 覆盖所有当前 required section；浏览器页面输出同一报告。
 
-A/B/C 当前 Renderer 仍消费 legacy Geometry/GPU table，因此本阶段不在 benchmark
-主帧中额外运行 Cooker，也不伪造 A/B/C GPU 收益。A/B/C 的 package residency
-报告随 R2-C 垂直切换补采；这不改变 R2-B 设备无关 package 完成事实。
+R2-B 关闭当时 A/B/C Renderer 仍消费 legacy Geometry/GPU table，因此该阶段没有
+在 benchmark 主帧中额外运行 Cooker，也没有伪造 A/B/C GPU 收益。生产 Packed
+迁移后来由 R2-D 完成；这不改变 R2-B 设备无关 package 完成事实。
 
 ### R2-B-06 · Runtime build 删除准备
 

@@ -2,9 +2,8 @@
 
 ## 状态
 
-设计已于 2026-08-27 冻结。`R2-A/B/C` 已完成；执行顺序仍为
-`R2-A → R2-B → R2-C → R2-D`。当前唯一代码入口是 R2-D Packed Scene
-Vertical，整个 R2/G2 尚未关闭。
+设计已于 2026-08-27 冻结并完成。`R2-A → R2-B → R2-C → R2-D` 全部
+关闭，G2 Data 已通过；当前唯一代码入口转为 R3 Hierarchy + HW Consumer。
 
 ## R2 通俗解释
 
@@ -302,7 +301,7 @@ R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前�
 - `GraphicsContext.assets` 惰性创建；`Renderer` 公开 package residency/release/evidence seam，但不公开裸 GPU Buffer bindings。legacy-only 页面不因 R2-C 无条件分配 residency Buffers。
 - `examples/r2-gpu-residency` 用相对路径构建完整 package，Compute 读取新 record 并写完整 16 B indirect record，固定功能 Hardware Raster 通过 `drawIndirect()` 消费，同时 readback ABI、颜色和生命周期 evidence。它是 flat 黄金资产 proof，不是 R3 hierarchy traversal，也不是第三条产品管线。
 - 自动验证为 OEngine `112/112` tests、OEngine production build 与 examples production build 全部通过。人工浏览器 artifact 为 `passed=true`；625 vertices/1,152 triangles Cook 成 29 Meshlets、16 Clusters、9 BVH8 nodes，GPU roundtrip expected/actual `6/6` 一致，512×512 画面有 211,600 个非背景像素；`validationError=null`、`uncapturedErrors=[]`、`shaderDiagnostics=[]`，abort/release stale handle、resident 回零和 `privateSubmitCount=0` 均通过。
-- A/C Packed Scene、普通 Scene adapter、生产 Visibility consumer 迁移和 legacy owner 删除属于 R2-D；因此当前不能关闭整个 R2/G2，也不能声明相对 three.js 的性能收益。
+- 在 R2-C 单独关闭时，A/C Packed Scene、普通 Scene adapter、生产 Visibility consumer 迁移和 legacy owner 隔离仍属于 R2-D；因此当时不能仅凭 R2-C 纵切关闭整个 R2/G2，也不能声明相对 three.js 的性能收益。
 
 ### R2-D · Packed Scene Vertical
 
@@ -319,7 +318,7 @@ R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前�
 
 退出证据：Packed 与普通 adapter 在相同输入下 GPU record/画面一致；大规模曲线、patch 和 stable frame 证据通过；Renderer 不遍历 Packed 源列表构建最终可见工作。
 
-当前状态（2026-08-27）：compact ABI/owner/vertical 已完成，生产迁移待收口。
+当前状态（2026-08-27）：完成，R2-D/G2 已关闭。
 
 - `GpuInstanceAbi` 冻结 v1 192 B record：Geometry record index、Material handle、flags/debug ID、sphere/AABB、current/previous object-to-world；0 号 record 是 fallback，TS packer、offset 与 WGSL declaration 由测试共同冻结。
 - `GpuScene` 是新 Instance table 唯一 owner：opaque generation handle、append/bulk-first range、grow/copy/abort/completion-safe retirement、release/stale handle、1k/10k/100k typed-array source、显式 transform/material patch、排序去重、dirty span 合并和同帧 previous 保持已落地。
@@ -327,14 +326,17 @@ R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前�
 - `createInstanceSourceFromScene()` 让普通 `Scene/Mesh` 写同一 ABI；Packed source 不创建等量对象。`GraphicsContext.gpu_scene` 惰性创建，`Renderer` 公开 instantiate/patch/release/evidence，但不公开 Buffer offset/range。
 - `r2-packed-scene` 使用 validated package + Packed table；Compute compact active record indices并写完整 16 B indirect args，Hardware `drawIndirect()` 同时读取 InstanceRecord、GeometryRecord 和 vertex payload。该纵切复用 WebGPU producer/consumer 结构，不是第三条产品管线。
 - Node 中等验证覆盖 ABI、1k/10k/100k、0/1/10/100% density、duplicate last-wins、same-frame previous、abort/release stale handle 和普通 Scene adapter。最终 live 浏览器 artifact：`passed=true`；bulk CPU pack 约 1.7/6.1/26.6 ms（同页参考，不跨机器比较）；111k active records，logical 21,312,000 B、allocated/resident 21,312,192 B、CPU shadow 21,756,000 B、peak 23,616,768 B；transform/material patch 分别为 1,112/1,110 records，stable copy=0 且 upload bytes 不变；1k Hardware consumer 为 41,733 非背景像素；validation、uncaptured error、shader diagnostics 和干净 console warning/error 均为空。
-- 尚未关闭：A/C 与至少一个真实 glTF 仍通过 legacy `niMeshlets`/`MeshletGpuTable`/分页 `SceneDatabase` 进入生产 `VisibilityPass`。只有这些 consumer 切到新 bindings，并随迁移删除对应 runtime build/residency/instance owner 后，才能关闭 R2-D/G2。
+- `load_gltf_packed()` 输出设备无关的 SourceGeometry、材质 dictionary 与 typed-array instance input，不构造 `Mesh/Node3D`；Damaged Helmet 固定资产从 three.js revision `7cda7e710d884827fc73ff1a3aa63270846513d7` 复制到仓库 benchmark 目录，并保留 CC BY-NC 许可边界。
+- A/B 通过真实 glTF → Cooker → Package，C 通过程序化 SourceGeometry → Cooker → Package；三者均由 `Renderer.uploadPackedScene()` 驻留并进入生产 Packed Visibility、Material Expand 与 Velocity。GPU producer 写完整 16 B indirect record，Hardware consumer 使用 `drawIndirect()`，无 CPU readback 决定 draw。
+- package/Packed 主路径不创建 legacy `MeshletGpuTable`；`GraphicsContext.geometries` 仅在旧 Scene consumer 请求时惰性创建。旧类仍服务尚未迁移的普通 Scene/阴影消费者，其后续删除属于 R3/R4 consumer 迁移，不再构成新主路径双 owner。
+- 自动回归新增 Packed glTF 静态导入、输入校验、stage abort、completion-safe release、Renderer residency rollback 与 submit label 分类。A/B/C smoke 均为 `counterIssues=0`、主帧 submit mean `1.00`、无 WebGPU error；C full 180 帧也完成为 `counterIssues=0`、submit mean `1.00`。B 仅保留独立 AO 纹理不支持的已知材质警告。
 
 ## 迁移期间的唯一真相规则
 
 | 数据 | R2-A/B | R2-C | R2-D 完成后 |
 |---|---|---|---|
 | package bytes / geometry metadata | `RuntimeAssetPackage` | 同左 | 同左 |
-| resident Geometry/Cluster/payload | 旧 owner 仍服务旧页面 | `GpuAssetStore` 是新纵切唯一 owner；legacy 主页面仍由旧 owner 服务 | R2-D 迁完 consumer 后删除旧 `MeshletGpuTable/GeometryBlasPool` geometry residency；R3 读取新 BVH8 binding |
+| resident Geometry/Cluster/payload | 旧 owner 仍服务旧页面 | `GpuAssetStore` 是新纵切唯一 owner；legacy 主页面仍由旧 owner 服务 | Packed 主路径只由 `GpuAssetStore` 持有；旧 owner 已隔离为 legacy Scene 惰性 consumer，R3 迁移后删除 |
 | instances | `SceneDatabase` | 迁移 adapter | `GpuScene` 是唯一 GPU Instance owner |
 | material | 现有 material registry | 现有 registry + validated handle reference | 保留到 R4-B；R2 不制造第二张 Material table |
 
@@ -366,7 +368,7 @@ R2-C 已完成，R2-B 的下一历史入口不再是当前执行状态。当前�
 3. Geometry/Cluster/Instance schema、handle、capacity、overflow/fallback 和 owner 已冻结；
 4. A/C 的新 package + Packed path 被现有 Hardware consumer 真实消费；
 5. stable frame 零数据上传，bulk/patch/grow/resident bytes 证据完整；
-6. package 主路径不再 runtime 生成 Meshlet/hierarchy；旧重复 residency/instance owner 已删除；
+6. package 主路径不再 runtime 生成 Meshlet/hierarchy，也不创建旧重复 residency/instance owner；仍有真实 legacy consumer 的旧类已惰性隔离并登记后续删除 Gate；
 7. `CURRENT-STATE`、相关 Context、public interface 与 migration ledger 同步。
 
 G2 不要求 GPU traversal 已经使用 hierarchy。R2 关闭后的唯一下一步是 R3：读取这里冻结的 Instance/Geometry/Cluster/BVH8 数据，在 Meshlet 展开前完成 SSE/cull/compact，并把结果接入同一个 Hardware consumer。

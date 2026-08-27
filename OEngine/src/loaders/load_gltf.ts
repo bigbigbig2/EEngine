@@ -4,10 +4,12 @@
 
 import { Skin } from "../animation/Skin.js";
 import { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
+import { ShadeTransparencyMode } from "../material/enums.js";
 import { Mesh } from "../scene/Mesh.js";
 import { Node3D } from "../scene/Node3D.js";
 import { SkinnedMesh } from "../scene/SkinnedMesh.js";
 import type { MeshletGeometryBase } from "../geometry/BoxGeometry.js";
+import type { SourceGeometry } from "../assets/SourceGeometry.js";
 import { SceneBundle } from "./SceneBundle.js";
 import {
   GltfLoader,
@@ -18,7 +20,8 @@ import {
 import {
   readAccessor,
   createGltfGeometryBuildContext,
-  primitiveToGeometry
+  primitiveToGeometry,
+  primitiveToSourceGeometry
 } from "./gltf/gltfGeometry.js";
 import { parseGltfMaterial } from "./gltf/gltfMaterials.js";
 import { buildGltfTextures } from "./gltf/gltfTextures.js";
@@ -224,6 +227,118 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
 }
 
 /**
+ * Device-independent, static/mostly-static glTF geometry import used by the
+ * R2 Cooker + Packed Instance path. It intentionally creates no Mesh/Node3D
+ * objects and owns no GPU resources.
+ */
+export interface PackedGltfSource {
+  readonly geometries: readonly SourceGeometry[];
+  readonly materials: readonly StandardShadeMaterial[];
+  readonly geometryIndices: Uint32Array;
+  readonly materialIndices: Uint32Array;
+  readonly transforms: Float32Array;
+  readonly boundsSpheres: Float32Array;
+  readonly boundsMin: Float32Array;
+  readonly boundsMax: Float32Array;
+  readonly flags: Uint32Array;
+  readonly debugIds: Uint32Array;
+}
+
+function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
+  const textures = buildGltfTextures(doc);
+  const materials = (doc.materials ?? []).map((material) =>
+    parseGltfMaterial(material, textures)
+  );
+  const defaultMaterial = new StandardShadeMaterial();
+  const geometryContext = createGltfGeometryBuildContext();
+  const geometryMap = new Map<SourceGeometry, number>();
+  const packedGeometries: SourceGeometry[] = [];
+  const packedMaterials = [...materials];
+  let defaultMaterialIndex = -1;
+  const geometryIndices: number[] = [];
+  const materialIndices: number[] = [];
+  const transforms: number[] = [];
+  const boundsSpheres: number[] = [];
+  const boundsMin: number[] = [];
+  const boundsMax: number[] = [];
+  const flags: number[] = [];
+  const debugIds: number[] = [];
+
+  const nodes = doc.nodes ?? [];
+  const meshes = doc.meshes ?? [];
+  for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+    const node = nodes[nodeIndex]!;
+    if (node.mesh === undefined) continue;
+    if (node.skin !== undefined) {
+      throw new Error(
+        `Packed glTF import does not support skinned node ${nodeIndex}; use load_gltf() for the legacy animated path`
+      );
+    }
+    const mesh = meshes[node.mesh];
+    if (mesh === undefined) {
+      throw new Error(`glTF node ${nodeIndex} references missing mesh ${node.mesh}`);
+    }
+    const world = node.worldMatrix;
+    if (world === undefined || world.length !== 16) {
+      throw new Error(`glTF node ${nodeIndex} has no validated world transform`);
+    }
+    for (let primitiveIndex = 0; primitiveIndex < mesh.primitives.length; primitiveIndex++) {
+      const primitive = mesh.primitives[primitiveIndex]!;
+      const source = primitiveToSourceGeometry(
+        doc,
+        primitive,
+        `${mesh.name ?? `mesh-${node.mesh}`}/primitive-${primitiveIndex}`,
+        geometryContext
+      );
+      let geometryIndex = geometryMap.get(source);
+      if (geometryIndex === undefined) {
+        geometryIndex = packedGeometries.length;
+        packedGeometries.push(source);
+        geometryMap.set(source, geometryIndex);
+      }
+      let materialIndex = primitive.material;
+      if (materialIndex === undefined || materials[materialIndex] === undefined) {
+        if (defaultMaterialIndex < 0) {
+          defaultMaterialIndex = packedMaterials.length;
+          packedMaterials.push(defaultMaterial);
+        }
+        materialIndex = defaultMaterialIndex;
+      }
+      const material = packedMaterials[materialIndex]!;
+      let instanceFlags = 0;
+      if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
+        instanceFlags |= 1 << 3;
+      }
+      const materialRange = source.materialRanges[0];
+      if (materialRange?.doubleSided === true) instanceFlags |= 1 << 4;
+      geometryIndices.push(geometryIndex);
+      materialIndices.push(materialIndex);
+      transforms.push(...world);
+      boundsSpheres.push(...source.bounds.sphere);
+      boundsMin.push(source.bounds.box[0]!, source.bounds.box[1]!, source.bounds.box[2]!);
+      boundsMax.push(source.bounds.box[3]!, source.bounds.box[4]!, source.bounds.box[5]!);
+      flags.push(instanceFlags);
+      debugIds.push(debugIds.length + 1);
+    }
+  }
+  if (geometryIndices.length === 0) {
+    throw new Error("glTF contains no static triangle primitives for Packed import");
+  }
+  return Object.freeze({
+    geometries: Object.freeze(packedGeometries),
+    materials: Object.freeze(packedMaterials),
+    geometryIndices: Uint32Array.from(geometryIndices),
+    materialIndices: Uint32Array.from(materialIndices),
+    transforms: Float32Array.from(transforms),
+    boundsSpheres: Float32Array.from(boundsSpheres),
+    boundsMin: Float32Array.from(boundsMin),
+    boundsMax: Float32Array.from(boundsMax),
+    flags: Uint32Array.from(flags),
+    debugIds: Uint32Array.from(debugIds)
+  });
+}
+
+/**
  * 从 URL 加载 glTF/GLB，并返回可直接加入场景的节点、动画及关联资源集合。
  */
 export async function load_gltf(
@@ -234,6 +349,20 @@ export async function load_gltf(
   if (fileMap) n.fileMap = fileMap;
   const doc = await n.loadFromUrl(url);
   return buildSceneBundle(doc);
+}
+
+/**
+ * Loads glTF into the R2 device-independent Packed seam. Expensive Meshlet,
+ * hierarchy and BVH generation remains the Geometry Cooker responsibility.
+ */
+export async function load_gltf_packed(
+  url: string,
+  { fileMap }: { fileMap?: GltfFileMap } = {}
+): Promise<PackedGltfSource> {
+  const loader = new GltfLoader();
+  if (fileMap) loader.fileMap = fileMap;
+  const doc = await loader.loadFromUrl(url);
+  return buildPackedGltfSource(doc);
 }
 
 export type { GltfFileMap };

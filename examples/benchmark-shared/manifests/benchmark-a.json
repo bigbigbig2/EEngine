@@ -10,7 +10,7 @@
     "revision": "7cda7e710d884827fc73ff1a3aa63270846513d7"
   },
   "seed": 2703024129,
-  "featureSet": ["hardware-visibility", "hzb-culling", "hierarchy-sse-lod", "software-visibility"],
+  "featureSet": ["hardware-visibility", "packed-instances", "hzb-culling", "hierarchy-sse-lod", "software-visibility"],
   "frame": { "width": 1280, "height": 720, "dpr": 1 },
   "run": {
     "warmupFrames": 60,
