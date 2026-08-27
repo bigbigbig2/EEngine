@@ -47,8 +47,8 @@ R0/G0、R1/G1 与 R2/G2 已关闭。R2 Compact Data Foundation 的交付顺序�
 
 R3 集中为四个可运行包：
 
-1. `R3-A Reference + ABI`：multi-instance CPU oracle、queue schema、max-cut capacity 和整组 children fallback；
-2. `R3-B Hierarchy Producer`：InstanceCull → root → ping/pong Cluster traversal，先只启用 Frustum + SSE；
+1. `R3-A Reference + ABI`：已完成；multi-instance CPU oracle、queue schema、max-cut capacity 和整组 children fallback 已由定向测试冻结；
+2. `R3-B Hierarchy Producer`：当前下一步；InstanceCull → root → ping/pong Cluster traversal，先只启用 Frustum + SSE；
 3. `R3-C Hardware Vertical`：VisibleCluster/RasterWork → GPU indirect args → 现有 Hardware consumer，并运行 flat/hierarchy paired A/B/C；
 4. `R3-D Enhancement + Deletion`：Cone、previous HZB、feature-off、删除 Packed flat producer/owner并关闭 G3。
 

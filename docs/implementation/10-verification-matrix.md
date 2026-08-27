@@ -162,6 +162,8 @@ R0 的职责是冻结目标矩阵并证明 A/B/C 采集入口、真实 counter �
 
 R2/G2 于 2026-08-27 关闭。自动证据覆盖 package/geometry/instance ABI、真实 glTF 静态导入、1k/10k/100k bulk、0/1/10/100% patch、stage abort、release/rollback 与 submit owner；浏览器证据覆盖 A/B/C production Packed 主链，三组 smoke 均 `counterIssues=0`、submit mean `1.00`、无 WebGPU error，C full 180 帧同样为 `counterIssues=0`、submit mean `1.00`。这些是数据与正确性 Gate，不是 hierarchy/SSE 或性能目标已达标的声明。
 
+R3-A 于 2026-08-28 关闭。自动证据覆盖 multi-instance world-space CPU selector、Perspective/Orthographic、Frustum/near-plane、non-uniform/mirrored/singular transform、parent/child exclusive、Queue ABI/完整 indirect record、children all-or-nothing reservation，以及 64 组固定随机树全部合法 cut 对 `maxCutMeshlets` 的穷举对照；定向测试 15/15、完整 `npm test` 148/148，并通过 production build 与 test compilation。该关闭只冻结 reference/ABI/capacity；GPU producer、浏览器画面、flat/hierarchy paired benchmark 和 G3 仍由 R3-B～D 阻塞。
+
 ## 自动化命令
 
 当前仓库已有基础命令：

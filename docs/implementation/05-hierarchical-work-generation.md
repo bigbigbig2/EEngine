@@ -1,6 +1,6 @@
 # 05 · R3 层次工作生成与 Hardware Consumer
 
-Status: Designed，尚未开始 R3 代码实现
+Status: R3-A Completed；R3-B～R3-D 尚未实现
 
 长期决策见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md)，上游来源、许可证与采用边界见 [R3-01 移植登记](../references/porting/R3-01-hierarchical-work-generation.md)。本文件只拥有执行顺序、工程契约、验证和删除条件。
 
@@ -311,6 +311,14 @@ R3 只拆成四个可运行包；包内可以有提交，但不得把“类存�
 5. 增加 transform、projection、near-plane、parent/child、all-or-nothing reservation 和 fallback property tests。
 
 退出证据：CPU selected set deterministic；ABI layout test；容量上界穷举/随机树验证；强制小容量只降 LOD、不破洞；尚未宣称 GPU hierarchy 已完成。
+
+当前状态（2026-08-28）：Completed。
+
+- `selectGeometryHierarchyInstances()` 已成为 multi-instance world-space CPU oracle，覆盖 Instance translation、非均匀/镜像 scale、Perspective/Orthographic、near-plane fail-open、Instance/Cluster Frustum、parent/child exclusive 和 singular transform 显式失败；
+- `GpuWorkGenerationAbi` 冻结 TraversalWork 8 B、VisibleCluster 16 B、RasterWork 8 B、Queue header 32 B、dispatch indirect 12 B 与 draw indirect 16 B，并由同一 TS schema 生成 WGSL record；
+- WGSL `atomicCompareExchangeWeak` 整组预约与 CPU reference 都区分 attempted/written/peak/overflow/fallback，失败不发布部分 children；
+- `computeGeometryMaxCutMeshlets()`/`computePackedMaxCutMeshlets()` 已用 64 组固定随机树的全量合法 cut 穷举对照，u32 overflow 显式拒绝；
+- 定向回归为 15/15；完整 `npm test` 为 148/148，并通过 production build 与 test compilation。该证据只关闭 R3-A，不声明 GPU hierarchy、浏览器画面或性能完成。
 
 ### R3-B · Cluster Hierarchy GPU Producer
 

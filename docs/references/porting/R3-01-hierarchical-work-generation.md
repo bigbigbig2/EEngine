@@ -1,6 +1,6 @@
 # R3-01 · Cluster hierarchy GPU work generation
 
-Status: planned；代码移植尚未开始
+Status: R3-A reference/ABI 已实现；R3-B～R3-D GPU 移植仍为 planned
 
 Reference ID: `R3-01`
 
@@ -70,6 +70,13 @@ OEngine/WebGPU adaptation：Cluster hierarchy root 直接作为 traversal 主干
 
 Precision/semantic differences：矩阵、clip/reverse-Z 和 bounds layout 使用 OEngine 已冻结约定；SSE 数值先移植到 CPU reference，再以明确容差核对 GPU；current BVH8 不参与首版选择。
 
+R3-A 实际采用区段（2026-08-28）：
+
+- `meshlet_cull_shared.wgsl:14-36`：world axis scale、Perspective/Orthographic 分支、sphere nearest distance 和 projection-scale 结构；
+- OEngine `GeometryHierarchy.ts` 保留 `worldError = objectError × conservativeScale` 于两个投影分支，并统一使用 vertical viewport height；固定 Bevy commit 的 Perspective 表达式没有乘 `world_scale`，因此未逐字复制；
+- Instance transform 使用仓库已锁定的 `gl-matrix@3.4.4` `vec3.transformMat4`；正交 TRS 使用 Bevy 的最大轴长度，检测到 shear 时改用 Frobenius norm 保守上界；
+- 本阶段尚未移植 `aabb_in_frustum`、Cone 或 HZB WGSL；CPU oracle 使用 world-space sphere planes，R3-B 再与真实 GPU Shader 对齐。
+
 ## Scthe/nanite-webgpu
 
 ```text
@@ -134,6 +141,8 @@ src/shaders/math.h
 
 OEngine/WebGPU adaptation：GLSL 数学先进入 CPU reference/property cases，再用 WGSL/OEngine matrix convention 独立实现；Cone 对 mirrored/non-uniform transform 在未通过 reference 前 fail-open；HZB 使用 R1 `rg16float` min/max previous history。
 
+R3-A 实际采用区段（2026-08-28）：`src/shaders/drawcull.comp.glsl:73-82` 的 sphere/Frustum signed-distance 判定作为数学依据。OEngine CPU oracle 按同一不变量独立实现，并允许输入未归一化 world-space plane，因此比较半径时显式乘 plane normal length；Niagara 的 Vulkan buffer、command 和 native 类型结构均未复制。
+
 ## AnKi 3D Engine
 
 ```text
@@ -194,13 +203,16 @@ R3 只消费 R2 已冻结的 Meshlet、bounds/cone、Cluster hierarchy 和 geome
 - hierarchy 总时间回退：允许同一 output ABI 下研究小几何 implementation，不恢复 CPU readback/draw loop；
 - current BVH8 不具备 LOD cut 语义：R3 v1 拒绝接入热路径。
 
-## Planned local regression/example
+## Local regression/example
 
 ```text
-CPU: multi-instance hierarchy selector、max-cut capacity、reservation property tests
-GPU: queue ABI/indirect layout、ping-pong/empty rounds、selected-set readback
+R3-A complete: tests/geometry-hierarchy-r3a.test.mjs
+R3-A complete: tests/gpu-work-generation-abi.test.mjs
+R3-A complete: multi-instance selector、64 fixed random-tree legal-cut enumeration、reservation property tests
+R3-A complete: TS/WGSL queue ABI and complete 12 B dispatch / 16 B draw indirect layouts
+R3-B planned: GPU ping-pong/empty rounds、selected-set readback
 Vertical: examples/r3-hierarchical-work-generation
 Performance: fixed A/B/C flat-vs-hierarchy paired artifacts
 ```
 
-上述条目在代码落地前是 planned，不得在 CURRENT-STATE 或 Gate 中写成已通过。
+只有标为 complete 的 R3-A 条目已有本地证据；GPU、Vertical 和 Performance 条目仍为 planned，不得写成已通过。
