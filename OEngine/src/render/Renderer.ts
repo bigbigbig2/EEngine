@@ -28,7 +28,8 @@ import {
 } from "./passes/PackedVisibilityPass.js";
 import { VisibilityCounterPass } from "./passes/VisibilityCounterPass.js";
 import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
-import { PackedMaterialExpandPass } from "./passes/PackedMaterialExpandPass.js";
+import { PackedMaterialResolvePass } from "./passes/PackedMaterialResolvePass.js";
+import { PackedSurfaceCounterPass } from "./passes/PackedSurfaceCounterPass.js";
 import { LightingPass } from "./passes/LightingPass.js";
 import {
   LightClusterPass,
@@ -47,7 +48,6 @@ import {
   Brick4SpecularPass
 } from "./passes/Brick4IndirectPass.js";
 import { VelocityPass } from "./passes/VelocityPass.js";
-import { PackedVelocityPass } from "./passes/PackedVelocityPass.js";
 import { RenderDebugViewPass } from "./passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
 import { ScreenSpaceAmbientOcclusionPass } from "./passes/ScreenSpaceAmbientOcclusionPass.js";
@@ -234,8 +234,9 @@ export class Renderer {
   private _visibility!: VisibilityPass;
   private _packedVisibility!: PackedVisibilityPass;
   private _visibilityCounters: VisibilityCounterPass | null = null;
-  private _materialExpand!: MaterialExpandPass;
-  private _packedMaterialExpand!: PackedMaterialExpandPass;
+  private _materialExpand: MaterialExpandPass | null = null;
+  private _packedMaterialResolve!: PackedMaterialResolvePass;
+  private _packedSurfaceCounters!: PackedSurfaceCounterPass;
   private _lighting!: LightingPass;
   private _lightCluster!: LightClusterPass;
   private _environmentBackground!: EnvironmentBackgroundPass;
@@ -248,8 +249,7 @@ export class Renderer {
   private _brick4Diffuse!: Brick4DiffusePass;
   private _brick4Specular!: Brick4SpecularPass;
   private _brick4Fused!: Brick4FusedIndirectPass;
-  private _velocity!: VelocityPass;
-  private _packedVelocity!: PackedVelocityPass;
+  private _velocity: VelocityPass | null = null;
   private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence!: OcclusionConfidencePass;
   private _ssao: ScreenSpaceAmbientOcclusionPass | null = null;
@@ -671,7 +671,11 @@ export class Renderer {
     this._bloom = null;
     this._renderDebug?.destroy();
     this._renderDebug = null;
-    this._packedVelocity?.destroy();
+    this._materialExpand?.destroy();
+    this._materialExpand = null;
+    this._velocity?.destroy();
+    this._velocity = null;
+    this._packedMaterialResolve?.destroy();
     this._packedVisibility?.destroy();
     this._meshletDrawList?.destroy();
     this._nss?.destroy();
@@ -912,12 +916,12 @@ export class Renderer {
 
       {
         const rt = mainBindings.renderTargets;
-        const meshIdRes = graph.import_resource(
+        const meshIdRes = packedPath ? null : graph.import_resource(
           "texture_viz_mesh",
           { kind: "imported", label: "r32uint mesh id" },
           bind("target-mesh-id", (bindings) => bindings.renderTargets.meshId)
         );
-        const triIdRes = graph.import_resource(
+        const triIdRes = packedPath ? null : graph.import_resource(
           "texture_viz_triangle",
           { kind: "imported", label: "r32uint triangle id" },
           bind("target-triangle-id", (bindings) => bindings.renderTargets.triangleId)
@@ -1007,8 +1011,6 @@ export class Renderer {
               previousHzb: this.packed_visibility_hzb_enabled
                 ? previousHzbRes
                 : undefined,
-              triangleId: triIdRes,
-              instanceId: meshIdRes,
               depth: depthRes
             }
           );
@@ -1043,8 +1045,8 @@ export class Renderer {
               secondChance: false
             })),
             {
-              meshId: meshIdRes,
-              triangleId: triIdRes,
+              meshId: meshIdRes!,
+              triangleId: triIdRes!,
               depth: depthRes,
               hzb: previousHzbRes,
               counters: gpuCounterRes ?? undefined
@@ -1102,8 +1104,8 @@ export class Renderer {
                 secondChance: true
               })),
               {
-                meshId: meshIdRes,
-                triangleId: triIdRes,
+                meshId: meshIdRes!,
+                triangleId: triIdRes!,
                 depth: depthRes,
                 hzb: hzbRes!,
                 counters: gpuCounterRes ?? undefined
@@ -1160,8 +1162,8 @@ export class Renderer {
               alphaTestedPass: true
             })),
             {
-              meshId: meshIdRes,
-              triangleId: triIdRes,
+              meshId: meshIdRes!,
+              triangleId: triIdRes!,
               depth: depthRes,
               hzb: hzbRes!,
               counters: gpuCounterRes ?? undefined
@@ -1193,7 +1195,7 @@ export class Renderer {
             graph,
             { width: w, height: h },
             {
-              visibility: packedVisibilityKeyRes ?? meshIdRes,
+              visibility: (packedVisibilityKeyRes ?? meshIdRes)!,
               counters: gpuCounterRes
             },
             packedVisibilityKeyRes === null
@@ -1243,29 +1245,31 @@ export class Renderer {
                 bindings.gpuScene.meshlets.dataBuffer)
             );
 
-        const matOut = packedPath
-          ? this._packedMaterialExpand.addToGraph(
+        const packedResolveOut = packedPath
+          ? this._packedMaterialResolve.addToGraph(
               graph,
-              bind("packed-material-expand-job", (bindings) => {
+              bind("packed-material-resolve-job", (bindings) => {
                 const registryBindings =
                   this._graphics.packed_scenes.bindings();
                 return {
                   runtime: bindings.gpuPacked!,
                   assets: registryBindings.assets,
                   scene: registryBindings.scene,
+                  visibility: packedVisibilityDebug!,
                   width: bindings.internalWidth,
-                  height: bindings.internalHeight
+                  height: bindings.internalHeight,
+                  currentCamera: bindings.view.gpu_camera_state.camera,
+                  previousCamera: bindings.view.gpu_previous_camera_state.camera
                 };
               }),
               {
-                instanceId: meshIdRes,
-                triangleId: triIdRes,
+                visibilityKey: packedVisibilityKeyRes!,
                 view: viewUniformRes,
-                camera: currentCameraRes,
                 counters: gpuCounterRes ?? undefined
               }
             )
-          : this._materialExpand.addToGraph(
+          : null;
+        const matOut = packedResolveOut ?? this.obtainLegacyMaterialExpand().addToGraph(
               graph,
               bind("material-expand-job", (bindings) => ({
                 scene: bindings.scene,
@@ -1274,8 +1278,8 @@ export class Renderer {
                 height: bindings.internalHeight
               })),
               {
-                meshId: meshIdRes,
-                triangleId: triIdRes,
+                meshId: meshIdRes!,
+                triangleId: triIdRes!,
                 sceneDatabase: sceneDatabaseRes!,
                 geometries: geometryMetaRes!,
                 meshletHeaders: meshletHeadersRes!,
@@ -1288,6 +1292,25 @@ export class Renderer {
         if (matOut.counters !== null) {
           gpuCounterRes = matOut.counters;
           this._profiler.registerGpuCounterFields(["activeMaterials"]);
+        }
+        if (packedResolveOut !== null && gpuCounterRes !== null) {
+          gpuCounterRes = this._packedSurfaceCounters.addToGraph(
+            graph,
+            w,
+            h,
+            {
+              surfaceFlags: packedResolveOut.surfaceFlags,
+              counters: gpuCounterRes
+            }
+          );
+          this._profiler.registerGpuCounterFields([
+            "gradientFallbackPixels",
+            "reactiveSurfacePixels",
+            "normalTexturePixels",
+            "ormTexturePixels",
+            "emissiveTexturePixels",
+            "unlitSurfacePixels"
+          ]);
         }
         let gPbrRes = matOut.gPbr;
         let gNormalRes = matOut.gNormal;
@@ -1317,20 +1340,9 @@ export class Renderer {
                   bindings.gpuScene.skinning.prev_positions_buffer!)
               )
             : null;
-          velocityRes = packedPath
-            ? this._packedVelocity.addToGraph(
-                graph,
-                bind("packed-velocity-job", (bindings) => ({
-                  width: bindings.internalWidth,
-                  height: bindings.internalHeight,
-                  currentCamera: bindings.view.gpu_camera_state.camera,
-                  previousCamera:
-                    bindings.view.gpu_previous_camera_state.camera,
-                  scene: this._graphics.packed_scenes.bindings().scene
-                })),
-                { depth: depthRes, instanceId: meshIdRes }
-              )
-            : this._velocity!.addToGraph(
+          velocityRes = packedResolveOut !== null
+            ? packedResolveOut.velocity
+            : this.obtainLegacyVelocity().addToGraph(
                 graph,
                 bind("velocity-job", (bindings) => ({
                   width: bindings.internalWidth,
@@ -1341,8 +1353,8 @@ export class Renderer {
                 })),
                 {
                   depth: depthRes,
-                  meshId: meshIdRes,
-                  triangleId: triIdRes,
+                  meshId: meshIdRes!,
+                  triangleId: triIdRes!,
                   sceneDatabase: sceneDatabaseRes!,
                   meshletHeaders: meshletHeadersRes!,
                   meshletData: meshletDataRes!,
@@ -2032,7 +2044,12 @@ export class Renderer {
               visibilityKey: packedVisibilityKeyRes,
               packedVisibility: packedVisibilityDebug,
               depth: depthRes,
-              velocity: velocityRes
+              velocity: velocityRes,
+              gPbr: gPbrRes,
+              gNormal: gNormalRes,
+              gAlbedo: gAlbedoRes,
+              gEmissive: gEmissiveRes,
+              surfaceFlags: packedResolveOut?.surfaceFlags ?? null
             },
             this._output_resolution.x,
             this._output_resolution.y
@@ -2077,6 +2094,12 @@ export class Renderer {
           "traversalQueueReservations",
           "workGenerationDispatchUpdates",
           "workGenerationCasRetries",
+          "gradientFallbackPixels",
+          "reactiveSurfacePixels",
+          "normalTexturePixels",
+          "ormTexturePixels",
+          "emissiveTexturePixels",
+          "unlitSurfacePixels",
           "queueOverflowMask"
         ]);
         if (gpuPacked !== null) {
@@ -2180,14 +2203,8 @@ export class Renderer {
       this._visibility.init();
     }
     this._packedVisibility ??= new PackedVisibilityPass(this._graphics);
-    if (!this._materialExpand) {
-      this._materialExpand = new MaterialExpandPass(
-        this._graphics,
-        this._graphics.materials
-      );
-      this._materialExpand.init();
-    }
-    this._packedMaterialExpand ??= new PackedMaterialExpandPass(this._graphics);
+    this._packedMaterialResolve ??= new PackedMaterialResolvePass(this._graphics);
+    this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     if (!this._lighting) {
       this._lighting = new LightingPass(this._graphics);
       this._lighting.init();
@@ -2202,8 +2219,6 @@ export class Renderer {
     this._brick4Diffuse ??= new Brick4DiffusePass(this._graphics);
     this._brick4Specular ??= new Brick4SpecularPass(this._graphics);
     this._brick4Fused ??= new Brick4FusedIndirectPass(this._graphics);
-    this._velocity ??= new VelocityPass(this._graphics);
-    this._packedVelocity ??= new PackedVelocityPass(this._graphics);
     this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
     if (topology.ssao) {
       this._ssao ??= new ScreenSpaceAmbientOcclusionPass(this._graphics);
@@ -2272,6 +2287,22 @@ export class Renderer {
       this._tonemap.peakNits = this._peakNits;
       this._tonemap.init();
     }
+  }
+
+  private obtainLegacyMaterialExpand(): MaterialExpandPass {
+    if (this._materialExpand === null) {
+      this._materialExpand = new MaterialExpandPass(
+        this._graphics,
+        this._graphics.materials
+      );
+      this._materialExpand.init();
+    }
+    return this._materialExpand;
+  }
+
+  private obtainLegacyVelocity(): VelocityPass {
+    this._velocity ??= new VelocityPass(this._graphics);
+    return this._velocity;
   }
 
   private ensureTemporalColorHistory(): void {
@@ -2389,9 +2420,41 @@ export class Renderer {
         ? "packed.material.fullscreenDraws"
         : "legacy.material.fullscreenDraws",
       packedPath
-        ? this._packedMaterialExpand.lastDrawCount
-        : this._materialExpand.lastDrawCount
+        ? this._packedMaterialResolve.lastDrawCount
+        : this._materialExpand!.lastDrawCount
     );
+    if (packedPath) {
+      const materialEvidence = this._graphics.material_visibility_if_created?.evidence();
+      profiler.recordCounter(
+        "packed.material.activeMaterials",
+        this._packedMaterialResolve.lastActiveMaterialCount
+      );
+      profiler.recordCounter(
+        "packed.material.surfaceBytesPerPixel",
+        this._packedMaterialResolve.surfaceBytesPerPixel
+      );
+      profiler.recordCounter(
+        "packed.material.surfaceAttachmentBytes",
+        this._render_resolution.x * this._render_resolution.y *
+          this._packedMaterialResolve.surfaceBytesPerPixel
+      );
+      profiler.recordCounter(
+        "packed.material.residentTextures",
+        materialEvidence?.residentTextureCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureFallbacks",
+        materialEvidence?.textureFallbackCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.samplerFallbacks",
+        materialEvidence?.samplerFallbackCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.residentTextureBytes",
+        materialEvidence?.residentTextureBytes ?? 0
+      );
+    }
     profiler.recordCounter(
       "lighting.clusterCount",
       this._lightCluster.lastClusterCount

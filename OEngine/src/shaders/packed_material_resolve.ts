@@ -1,21 +1,26 @@
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.js";
-import { MATERIAL_META_TYPE } from "../gpu/MaterialMetadataTable.js";
 import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
+import {
+  GPU_RASTER_WORK_SCHEMA,
+  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA
+} from "../gpu/GpuWorkGenerationAbi.js";
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
-export const PACKED_MATERIAL_EXPAND_WGSL = /* wgsl */ `
-${MATERIAL_META_TYPE.wgsl_declaration}
+export const PACKED_MATERIAL_RESOLVE_WGSL = /* wgsl */ `
 ${GPU_VIEW_TYPE.wgsl_declaration}
-${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
+${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_VISIBILITY_KEY_WGSL}
+${GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.wgsl}
+${GPU_RASTER_WORK_SCHEMA.wgsl}
 ${GBUFFER_ENCODE_WGSL}
 
-const VISIBILITY_SENTINEL: u32 = 16777216u;
 const SEMANTIC_POSITION: u32 = 0x69736f70u;
 const SEMANTIC_NORMAL: u32 = 0x6d726f6eu;
 const SEMANTIC_TANGENT: u32 = 0x676e6174u;
@@ -23,28 +28,48 @@ const SEMANTIC_COLOR: u32 = 0x6f6c6f63u;
 const SEMANTIC_UV0: u32 = 0x00307675u;
 const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
 
-@group(0) @binding(0) var<uniform> material_info: EventDispatcher;
-@group(0) @binding(1) var texture_albedo: texture_2d<f32>;
-@group(0) @binding(2) var sampler_albedo: sampler;
-@group(0) @binding(3) var texture_normal: texture_2d<f32>;
-@group(0) @binding(4) var sampler_normal: sampler;
-@group(0) @binding(5) var texture_orm: texture_2d<f32>;
-@group(0) @binding(6) var sampler_orm: sampler;
-@group(0) @binding(7) var texture_emissive: texture_2d<f32>;
-@group(0) @binding(8) var sampler_emissive: sampler;
+struct R4ResolveQueueHeaderRead {
+  written: u32,
+  attempted: u32,
+  peak: u32,
+  overflow: u32,
+  fallback: u32,
+  capacity: u32,
+  rejected_cone: u32,
+  rejected_hzb: u32,
+}
 
-@group(1) @binding(0) var triangle_ids: texture_2d<u32>;
-@group(1) @binding(1) var instance_ids: texture_2d<u32>;
-@group(1) @binding(2) var<uniform> view: PipelineCacheKey;
-@group(1) @binding(3) var<uniform> camera: CommandEncoder;
+struct R4ResolveVisibleClusterQueue {
+  header: R4ResolveQueueHeaderRead,
+  elements: array<OEngineVisibleClusterRecord>,
+}
 
-@group(2) @binding(0) var<storage, read> instances: array<OEngineInstanceRecord>;
-@group(2) @binding(1) var<storage, read> geometries: array<GpuGeometryRecord>;
-@group(2) @binding(2) var<storage, read> meshlets: array<GpuMeshletRecord>;
-@group(2) @binding(3) var<storage, read> meshlet_vertices: array<u32>;
-@group(2) @binding(4) var<storage, read> meshlet_triangles: array<u32>;
-@group(2) @binding(5) var<storage, read> stream_descriptors: array<u32>;
-@group(2) @binding(6) var<storage, read> vertex_data: array<u32>;
+struct R4ResolveRasterWorkQueue {
+  header: R4ResolveQueueHeaderRead,
+  elements: array<OEngineRasterWork>,
+}
+
+@group(0) @binding(0) var visibility_keys: texture_2d<u32>;
+@group(0) @binding(1) var<uniform> view: PipelineCacheKey;
+@group(0) @binding(2) var<uniform> previous_view_projection: mat4x4f;
+@group(0) @binding(3) var material_textures: texture_2d_array<f32>;
+@group(0) @binding(4) var sampler_repeat_linear: sampler;
+@group(0) @binding(5) var sampler_clamp_linear: sampler;
+@group(0) @binding(6) var sampler_mirror_linear: sampler;
+@group(0) @binding(7) var sampler_repeat_nearest: sampler;
+@group(0) @binding(8) var sampler_clamp_nearest: sampler;
+@group(0) @binding(9) var sampler_mirror_nearest: sampler;
+@group(0) @binding(10) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
+
+@group(1) @binding(0) var<storage, read> instances: array<OEngineInstanceRecord>;
+@group(1) @binding(1) var<storage, read> geometries: array<GpuGeometryRecord>;
+@group(1) @binding(2) var<storage, read> meshlets: array<GpuMeshletRecord>;
+@group(1) @binding(3) var<storage, read> meshlet_vertices: array<u32>;
+@group(1) @binding(4) var<storage, read> meshlet_triangles: array<u32>;
+@group(1) @binding(5) var<storage, read> stream_descriptors: array<u32>;
+@group(1) @binding(6) var<storage, read> vertex_data: array<u32>;
+@group(1) @binding(7) var<storage, read> visible_clusters: R4ResolveVisibleClusterQueue;
+@group(1) @binding(8) var<storage, read> raster_work: R4ResolveRasterWorkQueue;
 
 fn read_u8(byte_offset: u32) -> u32 {
   let word = vertex_data[byte_offset >> 2u];
@@ -151,6 +176,7 @@ struct PerspectiveBarycentric {
   weights: vec3f,
   ddx: vec3f,
   ddy: vec3f,
+  valid: u32,
 }
 
 fn perspective_barycentric_with_derivatives(
@@ -163,6 +189,7 @@ fn perspective_barycentric_with_derivatives(
   output.weights = vec3f(1.0, 0.0, 0.0);
   output.ddx = vec3f(0.0);
   output.ddy = vec3f(0.0);
+  output.valid = 0u;
   let p0 = projected_pixel(projected0);
   let p1 = projected_pixel(projected1);
   let p2 = projected_pixel(projected2);
@@ -197,6 +224,7 @@ fn perspective_barycentric_with_derivatives(
   output.weights = weighted * inverse_sum;
   output.ddx = (weighted_ddx * weighted_sum - weighted * sum_ddx) * inverse_sum_squared;
   output.ddy = (weighted_ddy * weighted_sum - weighted * sum_ddy) * inverse_sum_squared;
+  output.valid = 1u;
   return output;
 }
 
@@ -245,25 +273,111 @@ fn packed_material_vs(@builtin(vertex_index) vertex_index: u32) -> @builtin(posi
   return vec4f(FULLSCREEN[vertex_index], 0.0, 1.0);
 }
 
+const SURFACE_VALID: u32 = 1u;
+const SURFACE_MOTION_VALID: u32 = 2u;
+const SURFACE_REACTIVE: u32 = 4u;
+const SURFACE_GRADIENT_FALLBACK: u32 = 8u;
+const SURFACE_NORMAL_TEXTURE: u32 = 16u;
+const SURFACE_ORM_TEXTURE: u32 = 32u;
+const SURFACE_EMISSIVE_TEXTURE: u32 = 64u;
+const SURFACE_UNLIT: u32 = 128u;
+
+fn material_sampler_class(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
+  if slot == 0u { return material.sampler_class; }
+  return (material.texture_sampler_classes >> ((slot - 1u) * 8u)) & 0xffu;
+}
+
+fn sample_material_texture(
+  texture_ref: u32,
+  sampler_class: u32,
+  uv: vec2f,
+  uv_dx: vec2f,
+  uv_dy: vec2f,
+  fallback: vec4f
+) -> vec4f {
+  if texture_ref == OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE {
+    return fallback;
+  }
+  let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
+  let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
+  if linear {
+    if address == 0u {
+      return textureSampleGrad(material_textures, sampler_clamp_linear, uv, i32(texture_ref), uv_dx, uv_dy);
+    }
+    if address == 2u {
+      return textureSampleGrad(material_textures, sampler_mirror_linear, uv, i32(texture_ref), uv_dx, uv_dy);
+    }
+    return textureSampleGrad(material_textures, sampler_repeat_linear, uv, i32(texture_ref), uv_dx, uv_dy);
+  }
+  if address == 0u {
+    return textureSampleGrad(material_textures, sampler_clamp_nearest, uv, i32(texture_ref), uv_dx, uv_dy);
+  }
+  if address == 2u {
+    return textureSampleGrad(material_textures, sampler_mirror_nearest, uv, i32(texture_ref), uv_dx, uv_dy);
+  }
+  return textureSampleGrad(material_textures, sampler_repeat_nearest, uv, i32(texture_ref), uv_dx, uv_dy);
+}
+
+fn transform_material_uv(material: OEngineMaterialVisibilityRecord, uv: vec2f) -> vec2f {
+  let scaled = uv * material.uv_offset_scale.zw;
+  return material.uv_offset_scale.xy + vec2f(
+    material.uv_rotation.x * scaled.x - material.uv_rotation.y * scaled.y,
+    material.uv_rotation.y * scaled.x + material.uv_rotation.x * scaled.y
+  );
+}
+
+fn transform_material_gradient(material: OEngineMaterialVisibilityRecord, gradient: vec2f) -> vec2f {
+  let scaled = gradient * material.uv_offset_scale.zw;
+  return vec2f(
+    material.uv_rotation.x * scaled.x - material.uv_rotation.y * scaled.y,
+    material.uv_rotation.y * scaled.x + material.uv_rotation.x * scaled.y
+  );
+}
+
 struct PackedMaterialOutput {
   @location(0) pbr: vec2f,
   @location(1) normal: vec4u,
   @location(2) albedo: vec4f,
   @location(3) emissive: u32,
+  @location(4) velocity: vec2f,
+  @location(5) flags: u32,
 }
 
 @fragment
 fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutput {
   let pixel = vec2i(position.xy);
-  let instance_index = textureLoad(instance_ids, pixel, 0).r;
-  if instance_index == VISIBILITY_SENTINEL { discard; }
-  let instance = instances[instance_index];
-  if instance.material_handle != material_info.id { discard; }
-  let encoded = textureLoad(triangle_ids, pixel, 0).r;
-  let meshlet_index = encoded >> 8u;
-  let triangle_index = encoded & 0xffu;
-  let geometry = geometries[instance.geometry_record_index];
-  let meshlet = meshlets[meshlet_index];
+  let key = textureLoad(visibility_keys, pixel, 0).r;
+  if !oengine_visibility_key_is_valid(key) { discard; }
+  let raster_slot = oengine_visibility_key_raster_work_slot(key);
+  if raster_slot >= min(raster_work.header.written, raster_work.header.capacity) { discard; }
+  let work = raster_work.elements[raster_slot];
+  if work.visible_cluster_slot >= min(visible_clusters.header.written, visible_clusters.header.capacity) { discard; }
+  let visible = visible_clusters.elements[work.visible_cluster_slot];
+  if visible.instance_record_index >= arrayLength(&instances) ||
+    visible.geometry_record_index >= arrayLength(&geometries) ||
+    work.meshlet_record_index >= arrayLength(&meshlets) ||
+    visible.material_handle >= arrayLength(&materials) {
+    discard;
+  }
+  let instance = instances[visible.instance_record_index];
+  let geometry = geometries[visible.geometry_record_index];
+  let meshlet = meshlets[work.meshlet_record_index];
+  if !oengine_instance_active(instance) ||
+    instance.geometry_record_index != visible.geometry_record_index ||
+    instance.material_handle != visible.material_handle ||
+    visible.cluster_record_index < geometry.cluster_begin ||
+    visible.cluster_record_index - geometry.cluster_begin >= geometry.cluster_count ||
+    work.meshlet_record_index < geometry.meshlet_begin ||
+    work.meshlet_record_index - geometry.meshlet_begin >= geometry.meshlet_count {
+    discard;
+  }
+  let triangle_index = oengine_visibility_key_local_triangle(key);
+  if triangle_index >= meshlet.triangle_count { discard; }
+  let material_info = materials[visible.material_handle];
+  if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
+    material_info.material_id != visible.material_handle {
+    discard;
+  }
   let vertices = triangle_source_vertices(meshlet, triangle_index);
   let position_descriptor = find_stream(geometry, SEMANTIC_POSITION);
   let normal_descriptor = find_stream(geometry, SEMANTIC_NORMAL);
@@ -298,9 +412,12 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let color0 = read_stream4_from_descriptor(color_descriptor, vertices.x, vec4f(1.0)).rgb;
   let color1 = read_stream4_from_descriptor(color_descriptor, vertices.y, vec4f(1.0)).rgb;
   let color2 = read_stream4_from_descriptor(color_descriptor, vertices.z, vec4f(1.0)).rgb;
-  let uv = uv0 * bary.weights.x + uv1 * bary.weights.y + uv2 * bary.weights.z;
-  let uv_dx = (uv0 * bary.ddx.x + uv1 * bary.ddx.y + uv2 * bary.ddx.z) / view.upscale_ratio.x;
-  let uv_dy = (uv0 * bary.ddy.x + uv1 * bary.ddy.y + uv2 * bary.ddy.z) / view.upscale_ratio.y;
+  let reconstructed_uv = uv0 * bary.weights.x + uv1 * bary.weights.y + uv2 * bary.weights.z;
+  let reconstructed_uv_dx = (uv0 * bary.ddx.x + uv1 * bary.ddx.y + uv2 * bary.ddx.z) / view.upscale_ratio.x;
+  let reconstructed_uv_dy = (uv0 * bary.ddy.x + uv1 * bary.ddy.y + uv2 * bary.ddy.z) / view.upscale_ratio.y;
+  let uv = transform_material_uv(material_info, reconstructed_uv);
+  let uv_dx = transform_material_gradient(material_info, reconstructed_uv_dx);
+  let uv_dy = transform_material_gradient(material_info, reconstructed_uv_dy);
   let vertex_color = color0 * bary.weights.x + color1 * bary.weights.y + color2 * bary.weights.z;
   let local_normal = safe_normalize(
     normal0 * bary.weights.x + normal1 * bary.weights.y + normal2 * bary.weights.z,
@@ -320,27 +437,103 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     cross(shading_normal, tangent) * tangent_handedness * frame.orientation,
     safe_normalize(cross(shading_normal, tangent), vec3f(0.0, 1.0, 0.0))
   );
-  let sampled_normal = textureSampleGrad(texture_normal, sampler_normal, uv, uv_dx, uv_dy).xyz * 2.0 - 1.0;
+  var sampled_normal = sample_material_texture(
+    material_info.normal_texture_ref,
+    material_sampler_class(material_info, 1u),
+    uv,
+    uv_dx,
+    uv_dy,
+    vec4f(0.5, 0.5, 1.0, 1.0)
+  ).xyz * 2.0 - 1.0;
+  sampled_normal.xy *= material_info.pbr_factors.z;
   let mapped_normal = safe_normalize(
     mat3x3f(tangent, bitangent, shading_normal) * sampled_normal,
     shading_normal
   );
-  let orm = textureSampleGrad(texture_orm, sampler_orm, uv, uv_dx, uv_dy);
-  let albedo_sample = textureSampleGrad(texture_albedo, sampler_albedo, uv, uv_dx, uv_dy);
-  let emissive_sample = textureSampleGrad(texture_emissive, sampler_emissive, uv, uv_dx, uv_dy);
-  let albedo = albedo_sample.rgb * vertex_color * material_info.albedo_color.rgb;
-  let ambient = fma(orm.r, material_info.ambient_factors.x, material_info.ambient_factors.y);
+  let orm = sample_material_texture(
+    material_info.orm_texture_ref,
+    material_sampler_class(material_info, 2u),
+    uv,
+    uv_dx,
+    uv_dy,
+    vec4f(1.0)
+  );
+  let albedo_sample = sample_material_texture(
+    material_info.texture_ref,
+    material_sampler_class(material_info, 0u),
+    uv,
+    uv_dx,
+    uv_dy,
+    vec4f(1.0)
+  );
+  let emissive_sample = sample_material_texture(
+    material_info.emissive_texture_ref,
+    material_sampler_class(material_info, 3u),
+    uv,
+    uv_dx,
+    uv_dy,
+    vec4f(1.0)
+  );
+  let albedo = albedo_sample.rgb * vertex_color * material_info.base_color_factor.rgb;
+  let ambient = select(
+    1.0,
+    mix(1.0, orm.r, material_info.pbr_factors.w),
+    (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u
+  );
+  let metallic_sample = select(1.0, orm.b, (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u);
+  let roughness_sample = select(1.0, orm.g, (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u);
   var output: PackedMaterialOutput;
   output.pbr = vec2f(
-    orm.b * material_info.metallic_factor,
-    clamp(orm.g * material_info.roughness_factor, 0.0, 1.0)
+    metallic_sample * material_info.pbr_factors.x,
+    clamp(roughness_sample * material_info.pbr_factors.y, 0.0, 1.0)
   );
   output.normal = vec4u(
     encode_g_buffer_normal(mapped_normal),
     encode_g_buffer_normal(geometric_normal)
   );
   output.albedo = vec4f(albedo, ambient);
-  output.emissive = rgbe9995_encode(emissive_sample.rgb * material_info.emissive_factor);
+  output.emissive = rgbe9995_encode(emissive_sample.rgb * material_info.emissive_factor.rgb);
+  output.velocity = vec2f(0.0);
+  var surface_flags = SURFACE_VALID;
+  if (material_info.flags & OENGINE_MATERIAL_HAS_NORMAL_TEXTURE) != 0u {
+    surface_flags |= SURFACE_NORMAL_TEXTURE;
+  }
+  if (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u {
+    surface_flags |= SURFACE_ORM_TEXTURE;
+  }
+  if (material_info.flags & OENGINE_MATERIAL_HAS_EMISSIVE_TEXTURE) != 0u {
+    surface_flags |= SURFACE_EMISSIVE_TEXTURE;
+  }
+  if (material_info.flags & OENGINE_MATERIAL_UNLIT) != 0u {
+    surface_flags |= SURFACE_UNLIT;
+  }
+  if bary.valid == 0u {
+    surface_flags |= SURFACE_GRADIENT_FALLBACK | SURFACE_REACTIVE;
+  }
+  if oengine_instance_motion_valid(instance) && bary.valid != 0u {
+    let current_world = world0 * bary.weights.x + world1 * bary.weights.y + world2 * bary.weights.z;
+    let previous_world_h = instance.previous_from_current * current_world;
+    if abs(previous_world_h.w) > 1e-8 {
+      let previous_clip = previous_view_projection * vec4f(previous_world_h.xyz / previous_world_h.w, 1.0);
+      if abs(previous_clip.w) > 1e-8 {
+        let previous_ndc = previous_clip.xy / previous_clip.w;
+        let resolution = vec2f(textureDimensions(visibility_keys));
+        let previous_pixel = vec2f(
+          (previous_ndc.x + 1.0) * 0.5 * resolution.x,
+          (1.0 - previous_ndc.y) * 0.5 * resolution.y
+        );
+        output.velocity = position.xy - previous_pixel;
+        surface_flags |= SURFACE_MOTION_VALID;
+      } else {
+        surface_flags |= SURFACE_REACTIVE;
+      }
+    } else {
+      surface_flags |= SURFACE_REACTIVE;
+    }
+  } else {
+    surface_flags |= SURFACE_REACTIVE;
+  }
+  output.flags = (visible.material_handle & 0x00ffffffu) | (surface_flags << 24u);
   return output;
 }
 `;

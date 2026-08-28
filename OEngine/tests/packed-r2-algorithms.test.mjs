@@ -23,11 +23,8 @@ const {
   decodeGeometryVertexDataType,
   encodeGeometryVertexDataType
 } = await import("../.test-dist/assets/GeometryAssetPackage.js");
-const { PACKED_MATERIAL_EXPAND_WGSL } = await import(
-  "../.test-dist/shaders/packed_material_expand.js"
-);
-const { PACKED_VELOCITY_WGSL } = await import(
-  "../.test-dist/shaders/packed_velocity.js"
+const { PACKED_MATERIAL_RESOLVE_WGSL } = await import(
+  "../.test-dist/shaders/packed_material_resolve.js"
 );
 
 test("R2-D motion ABI maps current world positions to previous for translation, rotation and scale", () => {
@@ -81,9 +78,9 @@ test("R2-D singular motion is explicitly flagged and Packed Velocity cannot exec
     readMatrix(view, GPU_INSTANCE_RECORD_OFFSETS.previous_from_current),
     [...mat4.create()]
   );
-  assert.doesNotMatch(PACKED_VELOCITY_WGSL, /mat4_inverse|inverse\s*\(/);
-  assert.match(PACKED_VELOCITY_WGSL, /oengine_instance_motion_valid/);
-  assert.match(PACKED_VELOCITY_WGSL, /instance\.previous_from_current/);
+  assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /mat4_inverse|inverse\s*\(/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /oengine_instance_motion_valid/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /instance\.previous_from_current/);
 
   const nearSingular = new Float32Array([
     1, 0, 0, 0,
@@ -99,14 +96,14 @@ test("R2-D singular motion is explicitly flagged and Packed Velocity cannot exec
 
 test("R2-D Packed Material uses one descriptor lookup per semantic and analytic gradients", () => {
   assert.equal(
-    [...PACKED_MATERIAL_EXPAND_WGSL.matchAll(/find_stream\(geometry, SEMANTIC_/g)].length,
+    [...PACKED_MATERIAL_RESOLVE_WGSL.matchAll(/find_stream\(geometry, SEMANTIC_/g)].length,
     5
   );
-  assert.doesNotMatch(PACKED_MATERIAL_EXPAND_WGSL, /\bdpdx\b|\bdpdy\b/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /perspective_barycentric_with_derivatives/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /return projected\.xy \/ projected\.w/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /frame\.tangent_matrix \* local_tangent4\.xyz/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /frame\.orientation/);
+  assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /\bdpdx\b|\bdpdy\b/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /perspective_barycentric_with_derivatives/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /return projected\.xy \/ projected\.w/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /frame\.tangent_matrix \* local_tangent4\.xyz/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /frame\.orientation/);
 });
 
 test("R2-D Packed Material covers glTF 8/16-bit and OEngine 32-bit normalized boundaries", () => {
@@ -147,12 +144,12 @@ test("R2-D Packed Material covers glTF 8/16-bit and OEngine 32-bit normalized bo
     assert.equal(decodeGeometryVertexDataType(code), type);
   }
 
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /max\(f32\(value\) \/ 127\.0, -1\.0\)/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /f32\(value\) \/ 255\.0/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /max\(f32\(value\) \/ 32767\.0, -1\.0\)/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /f32\(value\) \/ 65535\.0/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /max\(f32\(value\) \/ 2147483647\.0, -1\.0\)/);
-  assert.match(PACKED_MATERIAL_EXPAND_WGSL, /f32\(word\) \/ 4294967295\.0/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /max\(f32\(value\) \/ 127\.0, -1\.0\)/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /f32\(value\) \/ 255\.0/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /max\(f32\(value\) \/ 32767\.0, -1\.0\)/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /f32\(value\) \/ 65535\.0/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /max\(f32\(value\) \/ 2147483647\.0, -1\.0\)/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /f32\(word\) \/ 4294967295\.0/);
 });
 
 test("three.js analytic perspective UV gradients agree with finite differences", () => {

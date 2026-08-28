@@ -16,8 +16,15 @@ export const RenderDebugView = {
   LodClusterLevel: "lod-cluster-level",
   RasterClassification: "raster-classification",
   MaterialId: "material-id",
+  BaseColor: "base-color",
+  ShadingNormal: "shading-normal",
+  Roughness: "roughness",
+  Metallic: "metallic",
+  Occlusion: "occlusion",
+  Emissive: "emissive",
   Velocity: "velocity",
-  HistoryValidity: "history-validity"
+  HistoryValidity: "history-validity",
+  Reactive: "reactive"
 } as const;
 
 export type RenderDebugView =
@@ -83,9 +90,15 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
   descriptor(
     RenderDebugView.MaterialId,
     "Material ID",
-    "unsupported",
-    "当前 VisibilityKey 没有可直接显示的稳定 material ID attachment"
+    "supported",
+    "显示 R4-B SurfaceFlags 低 24 位 MaterialRecord handle"
   ),
+  descriptor(RenderDebugView.BaseColor, "Base color", "supported", "显示线性 base color Surface 通道"),
+  descriptor(RenderDebugView.ShadingNormal, "Shading normal", "supported", "显示解码后的切线空间法线结果"),
+  descriptor(RenderDebugView.Roughness, "Roughness", "supported", "显示 perceptual roughness"),
+  descriptor(RenderDebugView.Metallic, "Metallic", "supported", "显示 metallic"),
+  descriptor(RenderDebugView.Occlusion, "Occlusion", "supported", "显示材质 AO"),
+  descriptor(RenderDebugView.Emissive, "Emissive", "supported", "显示解码后的 emissive"),
   descriptor(
     RenderDebugView.Velocity,
     "Velocity",
@@ -95,9 +108,10 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
   descriptor(
     RenderDebugView.HistoryValidity,
     "History validity",
-    "unsupported",
-    "TAA history validity 尚未输出为逐像素资源"
-  )
+    "supported",
+    "显示 R4-B SurfaceFlags motion-valid 与 reactive 状态"
+  ),
+  descriptor(RenderDebugView.Reactive, "Reactive", "supported", "显示必须拒绝时域历史的像素")
 ] as const;
 
 const STATUS_BY_VIEW = new Map(

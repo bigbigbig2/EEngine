@@ -19,6 +19,7 @@ import {
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../render/VisibilityBufferContract.js";
 import { SSR_FULLSCREEN_VERTEX_WGSL } from "./ssr_common.js";
+import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
 export const RENDER_DEBUG_VIEW_FORMAT = "rgba16float" as const;
 
@@ -80,6 +81,104 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
     f32((hash >> 16u) & 255u)
   ) / 255.0;
   return vec4f(0.15 + color * 0.65, 1.0);
+}
+`;
+
+const SURFACE_DEBUG_COMMON_WGSL = /* wgsl */ `
+${SSR_FULLSCREEN_VERTEX_WGSL}
+${DEBUG_VIEW_SETTINGS_WGSL}
+${DEBUG_VIEW_COORDINATE_WGSL}
+`;
+
+export const SURFACE_COLOR_DEBUG_WGSL = /* wgsl */ `
+${SURFACE_DEBUG_COMMON_WGSL}
+@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  return vec4f(textureLoad(source, coordinate, 0).rgb, 1.0);
+}
+`;
+
+export const SURFACE_NORMAL_DEBUG_WGSL = /* wgsl */ `
+${SURFACE_DEBUG_COMMON_WGSL}
+${GBUFFER_ENCODE_WGSL}
+@group(0) @binding(0) var source: texture_2d<u32>;
+@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  let encoded = textureLoad(source, coordinate, 0).xy;
+  if all(encoded == vec2u(0u)) { return vec4f(0.0, 0.0, 0.0, 1.0); }
+  let normal = decode_g_buffer_normal(encoded);
+  return vec4f(normal * 0.5 + 0.5, 1.0);
+}
+`;
+
+export const SURFACE_PBR_DEBUG_WGSL = /* wgsl */ `
+${SURFACE_DEBUG_COMMON_WGSL}
+struct SurfaceDebugMode { value: vec4u, }
+@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(2) var<uniform> mode: SurfaceDebugMode;
+@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  let pbr = textureLoad(source, coordinate, 0);
+  let value = select(pbr.x, pbr.y, mode.value.x == 1u);
+  return vec4f(vec3f(value), 1.0);
+}
+`;
+
+export const SURFACE_AO_DEBUG_WGSL = /* wgsl */ `
+${SURFACE_DEBUG_COMMON_WGSL}
+@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  return vec4f(vec3f(textureLoad(source, coordinate, 0).a), 1.0);
+}
+`;
+
+export const SURFACE_EMISSIVE_DEBUG_WGSL = /* wgsl */ `
+${SURFACE_DEBUG_COMMON_WGSL}
+${GBUFFER_ENCODE_WGSL}
+@group(0) @binding(0) var source: texture_2d<u32>;
+@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  return vec4f(rgbe9995_decode(textureLoad(source, coordinate, 0).r), 1.0);
+}
+`;
+
+export const SURFACE_FLAGS_DEBUG_WGSL = /* wgsl */ `
+${SURFACE_DEBUG_COMMON_WGSL}
+fn avalanche_hash(value_in: u32) -> u32 {
+  var value = value_in;
+  value ^= value >> 16u;
+  value *= 0x7feb352du;
+  value ^= value >> 15u;
+  value *= 0x846ca68bu;
+  value ^= value >> 16u;
+  return value;
+}
+struct SurfaceDebugMode { value: vec4u, }
+@group(0) @binding(0) var source: texture_2d<u32>;
+@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(2) var<uniform> mode: SurfaceDebugMode;
+@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  let packed = textureLoad(source, coordinate, 0).r;
+  let flags = packed >> 24u;
+  if (flags & 1u) == 0u { return vec4f(0.0, 0.0, 0.0, 1.0); }
+  if mode.value.x == 0u {
+    let hash = avalanche_hash(packed & 0x00ffffffu);
+    return vec4f(0.15 + vec3f(
+      f32(hash & 255u), f32((hash >> 8u) & 255u), f32((hash >> 16u) & 255u)
+    ) / 255.0 * 0.65, 1.0);
+  }
+  if mode.value.x == 1u {
+    return select(vec4f(1.0, 0.1, 0.05, 1.0), vec4f(0.1, 1.0, 0.2, 1.0), (flags & 2u) != 0u);
+  }
+  return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0, 0.1, 0.05, 1.0), (flags & 4u) != 0u);
 }
 `;
 

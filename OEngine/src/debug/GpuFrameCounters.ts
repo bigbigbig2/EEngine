@@ -4,7 +4,7 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 3;
+export const GPU_COUNTER_SCHEMA_VERSION = 4;
 export const GPU_COUNTER_BYTE_SIZE = 256;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -31,14 +31,20 @@ export const GPU_COUNTER_FIELDS = [
   { name: "hwTriangles", index: 12, semantic: "fixed-function raster primitives submitted" },
   { name: "shadedPixels", index: 13, semantic: "resolved visible pixels" },
   { name: "emptyVisibilityPixels", index: 14, semantic: "empty resolve pixels" },
-  { name: "activeMaterials", index: 15, semantic: "non-transparent Material Expand fullscreen draws" },
+  { name: "activeMaterials", index: 15, semantic: "active non-transparent MaterialRecords consumed by one Material Resolve draw" },
   { name: "activeLights", index: 16, semantic: "active local lights" },
   { name: "queueOverflowMask", index: 17, semantic: "registered queue overflow bits" },
   { name: "rootStageQueueReservations", index: 18, semantic: "sampled fused root/leaf global bounded queue reservation attempts" },
   { name: "traversalQueueReservations", index: 19, semantic: "sampled post-root hierarchy global bounded queue reservation attempts" },
   { name: "workGenerationDispatchUpdates", index: 20, semantic: "sampled workgroups that publish a next-round indirect dispatch extent" },
   { name: "workGenerationCasRetries", index: 21, semantic: "sampled failed bounded queue compare-exchange attempts" },
-  { name: "invalidVisibilityKeys", index: 22, semantic: "final VisibilityKey pixels using the reserved RasterWork slot" }
+  { name: "invalidVisibilityKeys", index: 22, semantic: "final VisibilityKey pixels using the reserved RasterWork slot" },
+  { name: "gradientFallbackPixels", index: 23, semantic: "Material Resolve pixels using the conservative analytic-gradient fallback" },
+  { name: "reactiveSurfacePixels", index: 24, semantic: "Material Resolve pixels whose temporal history must be rejected" },
+  { name: "normalTexturePixels", index: 25, semantic: "Material Resolve pixels using a normal texture feature bit" },
+  { name: "ormTexturePixels", index: 26, semantic: "Material Resolve pixels using an ORM texture feature bit" },
+  { name: "emissiveTexturePixels", index: 27, semantic: "Material Resolve pixels using an emissive texture feature bit" },
+  { name: "unlitSurfacePixels", index: 28, semantic: "Material Resolve pixels using the unlit feature bit" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

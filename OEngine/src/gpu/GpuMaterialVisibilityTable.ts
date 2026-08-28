@@ -1,6 +1,7 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
+import { TextureFilterType } from "../texture/TextureFilterType.js";
 import type { CachedRenderPipelineDescriptor } from "./GPUDescriptorCaches.js";
 import type { GPUTextureContext } from "./GPUTextureContext.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
@@ -13,24 +14,25 @@ import {
 } from "./GpuMaterialVisibilityAbi.js";
 
 export const GPU_MATERIAL_VISIBILITY_CAPACITY = 4096;
-export const GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE = 64;
-export const GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS = 16;
-export const GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY =
-  GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS ** 2;
+export const GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE = 256;
+export const GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS = 1;
+export const GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY = 64;
 export const GPU_MATERIAL_VISIBILITY_TEXTURE_ATLAS_SIZE =
-  GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE *
-  GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS;
+  GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE;
+export const GPU_MATERIAL_VISIBILITY_TEXTURE_MIP_COUNT = 9;
 
 export interface GpuMaterialVisibilityBindings {
   readonly abiVersion: number;
   readonly materialCapacity: number;
   readonly textureCapacity: number;
   readonly materialRecords: GPUBuffer;
+  readonly textureArray: GPUTextureView;
+  /** R4-A compatibility name; alpha and shading now share textureArray. */
   readonly alphaAtlas: GPUTextureView;
 }
 
 export interface GpuMaterialVisibilityEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly abiVersion: number;
   readonly materialCapacity: number;
   readonly textureCapacity: number;
@@ -39,8 +41,11 @@ export interface GpuMaterialVisibilityEvidence {
   readonly textureFallbackCount: number;
   readonly samplerFallbackCount: number;
   readonly allocatedBytes: number;
+  readonly residentTextureBytes: number;
+  readonly textureSize: number;
+  readonly mipLevelCount: number;
   readonly privateSubmitCount: 0;
-  readonly takeoverTask: "R4-B-02";
+  readonly takeoverTask: null;
 }
 
 interface TextureTile {
@@ -49,13 +54,14 @@ interface TextureTile {
 }
 
 /**
- * Bounded R4-A owner for alpha classification only. R4-B-02 must replace this
- * table with the complete Material/Texture owner or preserve this mapping.
+ * Single bounded R4-B Standard PBR material and texture residency owner.
+ * Visibility alpha and Material Resolve consume the same stable TextureRef.
  */
 export class GpuMaterialVisibilityTable {
   private readonly materialRecords: GPUBuffer;
-  private readonly alphaAtlas: GPUTexture;
-  private readonly alphaAtlasView: GPUTextureView;
+  private readonly textureArray: GPUTexture;
+  private readonly textureArrayView: GPUTextureView;
+  private readonly textureDescriptor: GPUTextureDescriptor;
   private readonly textures = new Map<ShadeTexture, TextureTile>();
   private readonly stagedMaterialIds = new Set<number>();
   private readonly textureFallbackMaterialIds = new Set<number>();
@@ -75,27 +81,30 @@ export class GpuMaterialVisibilityTable {
       );
     }
     this.materialRecords = device.createBuffer({
-      label: "R4-A MaterialVisibilityRecord table",
+      label: "R4-B Standard PBR MaterialRecord table",
       size: materialBytes,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       mappedAtCreation: true
     });
     new Uint8Array(this.materialRecords.getMappedRange()).fill(0);
     this.materialRecords.unmap();
-    this.alphaAtlas = device.createTexture({
-      label: "R4-A bounded base-color alpha atlas",
+    this.textureDescriptor = {
+      label: "R4-B bounded Standard PBR texture array",
       size: [
-        GPU_MATERIAL_VISIBILITY_TEXTURE_ATLAS_SIZE,
-        GPU_MATERIAL_VISIBILITY_TEXTURE_ATLAS_SIZE,
-        1
+        GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
+        GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
+        GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY
       ],
       format: "rgba8unorm",
+      mipLevelCount: GPU_MATERIAL_VISIBILITY_TEXTURE_MIP_COUNT,
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.COPY_SRC |
         GPUTextureUsage.COPY_DST
-    });
-    this.alphaAtlasView = this.alphaAtlas.createView();
+    };
+    this.textureArray = device.createTexture(this.textureDescriptor);
+    this.textureArrayView = this.textureArray.createView({ dimension: "2d-array" });
   }
 
   stage(
@@ -122,14 +131,14 @@ export class GpuMaterialVisibilityTable {
       }
     });
     for (const material of materials) {
-      const texture = material.texture_albedo;
-      if (texture === undefined) continue;
-      const existing = this.textures.get(texture);
-      if (existing !== undefined) {
-        textureRefs.set(texture, existing.id);
-        continue;
+      for (const texture of material.textures) {
+        const existing = this.textures.get(texture);
+        if (existing !== undefined) {
+          textureRefs.set(texture, existing.id);
+          continue;
+        }
+        if (canStageTexture(texture)) pendingTextures.push(texture);
       }
-      if (canStageTexture(texture)) pendingTextures.push(texture);
     }
     const uniquePending = [...new Set(pendingTextures)];
     const available = GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - this.textures.size;
@@ -151,14 +160,27 @@ export class GpuMaterialVisibilityTable {
       if (tile === undefined) continue;
       this.encodeResizeCopy(command, tile);
     }
+    if (accepted.length > 0) {
+      this.graphics.textures.mipmaps.generateMipmap(
+        this.textureArray,
+        this.textureDescriptor,
+        TextureFilterType.Linear,
+        command
+      );
+    }
 
     for (const material of materials) {
-      const textureRef = material.texture_albedo === undefined
-        ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
-        : textureRefs.get(material.texture_albedo) ??
-          this.textures.get(material.texture_albedo)?.id ??
-          GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
-      const source = materialVisibilitySource(material, textureRef);
+      const textureRef = (texture: ShadeTexture | undefined): number =>
+        texture === undefined
+          ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
+          : textureRefs.get(texture) ?? this.textures.get(texture)?.id ??
+            GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
+      const source = materialVisibilitySource(material, {
+        baseColor: textureRef(material.texture_albedo),
+        normal: textureRef(material.texture_normal),
+        orm: textureRef(material.texture_orm),
+        emissive: textureRef(material.texture_emissive)
+      });
       previousFallbacks.push([
         material.id,
         this.textureFallbackMaterialIds.has(material.id),
@@ -188,13 +210,14 @@ export class GpuMaterialVisibilityTable {
       materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
       textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
       materialRecords: this.materialRecords,
-      alphaAtlas: this.alphaAtlasView
+      textureArray: this.textureArrayView,
+      alphaAtlas: this.textureArrayView
     });
   }
 
   evidence(): GpuMaterialVisibilityEvidence {
     return Object.freeze({
-      schemaVersion: 1,
+      schemaVersion: 2,
       abiVersion: GPU_MATERIAL_VISIBILITY_ABI_VERSION,
       materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
       textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
@@ -204,15 +227,18 @@ export class GpuMaterialVisibilityTable {
       samplerFallbackCount: this.samplerFallbackMaterialIds.size,
       allocatedBytes:
         GPU_MATERIAL_VISIBILITY_CAPACITY * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
-        GPU_MATERIAL_VISIBILITY_TEXTURE_ATLAS_SIZE ** 2 * 4,
+        textureArrayBytes(),
+      residentTextureBytes: textureArrayBytes(),
+      textureSize: GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
+      mipLevelCount: GPU_MATERIAL_VISIBILITY_TEXTURE_MIP_COUNT,
       privateSubmitCount: 0,
-      takeoverTask: "R4-B-02"
+      takeoverTask: null
     });
   }
 
   destroy(): void {
     this.materialRecords.destroy();
-    this.alphaAtlas.destroy();
+    this.textureArray.destroy();
     this.textures.clear();
     this.stagedMaterialIds.clear();
     this.textureFallbackMaterialIds.clear();
@@ -224,7 +250,7 @@ export class GpuMaterialVisibilityTable {
     for (const material of materials) {
       if (material.id >= GPU_MATERIAL_VISIBILITY_CAPACITY) {
         throw new RangeError(
-          `Material id ${material.id} exceeds R4-A visibility capacity ${GPU_MATERIAL_VISIBILITY_CAPACITY}`
+          `Material id ${material.id} exceeds R4-B material capacity ${GPU_MATERIAL_VISIBILITY_CAPACITY}`
         );
       }
     }
@@ -235,8 +261,6 @@ export class GpuMaterialVisibilityTable {
     tile: TextureTile
   ): void {
     const source = this.graphics.textures.obtain(tile.source);
-    const tileX = tile.id % GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS;
-    const tileY = Math.floor(tile.id / GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS);
     const sourceMip = Math.max(0, Math.floor(Math.min(
       Math.log2(source.width / GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE),
       Math.log2(source.height / GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE)
@@ -256,16 +280,22 @@ export class GpuMaterialVisibilityTable {
       ]
     });
     const pass = command.beginRenderPass({
-      label: "R4-A alpha atlas tile upload",
+      label: "R4-B texture array layer upload",
       colorAttachments: [{
-        view: this.alphaAtlasView,
+        view: this.textureArray.createView({
+          dimension: "2d",
+          baseMipLevel: 0,
+          mipLevelCount: 1,
+          baseArrayLayer: tile.id,
+          arrayLayerCount: 1
+        }),
         loadOp: "load",
         storeOp: "store"
       }]
     });
     pass.setViewport(
-      tileX * GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
-      tileY * GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
+      0,
+      0,
       GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
       GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
       0,
@@ -317,7 +347,7 @@ fn main(@location(0) uv: vec2f) -> @location(0) vec4f {
 `;
 
 const RESIZE_COPY_GROUP_LAYOUT: GPUBindGroupLayoutDescriptor = {
-  label: "R4-A alpha atlas resize group",
+  label: "R4-B texture array resize group",
   entries: [
     {
       binding: 0,
@@ -333,18 +363,18 @@ const RESIZE_COPY_GROUP_LAYOUT: GPUBindGroupLayoutDescriptor = {
 };
 
 const RESIZE_COPY_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "R4-A alpha atlas resize",
+  label: "R4-B texture array resize",
   layout: {
-    label: "R4-A alpha atlas resize layout",
+    label: "R4-B texture array resize layout",
     bindGroupLayouts: [RESIZE_COPY_GROUP_LAYOUT]
   },
   vertex: {
-    module: { label: "R4-A alpha atlas resize vertex", code: RESIZE_COPY_VERTEX_WGSL },
+    module: { label: "R4-B texture array resize vertex", code: RESIZE_COPY_VERTEX_WGSL },
     entryPoint: "main",
     buffers: []
   },
   fragment: {
-    module: { label: "R4-A alpha atlas resize fragment", code: RESIZE_COPY_FRAGMENT_WGSL },
+    module: { label: "R4-B texture array resize fragment", code: RESIZE_COPY_FRAGMENT_WGSL },
     entryPoint: "main",
     targets: [{ format: "rgba8unorm" }]
   },
@@ -360,4 +390,13 @@ function canStageTexture(texture: ShadeTexture): boolean {
 function writeSet(set: Set<number>, value: number, present: boolean): void {
   if (present) set.add(value);
   else set.delete(value);
+}
+
+function textureArrayBytes(): number {
+  let texels = 0;
+  for (let mip = 0; mip < GPU_MATERIAL_VISIBILITY_TEXTURE_MIP_COUNT; mip++) {
+    const size = Math.max(1, GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE >> mip);
+    texels += size * size;
+  }
+  return texels * GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY * 4;
 }

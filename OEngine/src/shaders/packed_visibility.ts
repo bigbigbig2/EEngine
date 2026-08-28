@@ -6,8 +6,7 @@ import {
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
 import {
-  GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
-  GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS
+  GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE
 } from "../gpu/GpuMaterialVisibilityTable.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
@@ -78,7 +77,7 @@ struct R3VisibilityVertexOutput {
 @group(0) @binding(7) var<storage, read> r3_visible_clusters: R3VisibleClusterQueueRead;
 @group(0) @binding(8) var<storage, read> r3_raster_work: R3RasterWorkQueueRead;
 @group(0) @binding(9) var<storage, read> r4_material_visibility: array<OEngineMaterialVisibilityRecord>;
-@group(0) @binding(10) var r4_alpha_atlas: texture_2d<f32>;
+@group(0) @binding(10) var r4_alpha_atlas: texture_2d_array<f32>;
 
 fn r3_read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
   let word = (*words)[byte_offset >> 2u];
@@ -199,16 +198,14 @@ fn r4_wrap_texel(value: i32, mode: u32) -> u32 {
 }
 
 fn r4_alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
-  let tile_x = texture_ref % ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS}u;
-  let tile_y = texture_ref / ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILES_PER_AXIS}u;
   let address_u = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
   let address_v = (sampler_class >> OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS) &
     OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
   let pixel = vec2u(
-    tile_x * ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE}u + r4_wrap_texel(x, address_u),
-    tile_y * ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE}u + r4_wrap_texel(y, address_v)
+    r4_wrap_texel(x, address_u),
+    r4_wrap_texel(y, address_v)
   );
-  return textureLoad(r4_alpha_atlas, vec2i(pixel), 0).a;
+  return textureLoad(r4_alpha_atlas, vec2i(pixel), i32(texture_ref), 0).a;
 }
 
 fn r4_sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 {
@@ -235,12 +232,6 @@ fn r4_transform_uv(record: OEngineMaterialVisibilityRecord, uv: vec2f) -> vec2f 
   return record.uv_offset_scale.xy + rotated;
 }
 
-struct R3VisibilityFragmentOutput {
-  @location(0) visibility_key: u32,
-  @location(1) triangle_id: u32,
-  @location(2) instance_id: u32,
-}
-
 @fragment
 fn write_hierarchy_visibility(
   @location(0) @interpolate(flat) instance_record_index: u32,
@@ -252,7 +243,7 @@ fn write_hierarchy_visibility(
   @location(6) @interpolate(flat) material_handle: u32,
   @location(7) @interpolate(flat) mirrored: u32,
   @builtin(front_facing) front_facing: bool
-) -> R3VisibilityFragmentOutput {
+) -> @location(0) u32 {
   var record = OEngineMaterialVisibilityRecord(
     material_handle,
     OENGINE_MATERIAL_ALPHA_OPAQUE,
@@ -263,7 +254,14 @@ fn write_hierarchy_visibility(
     0u,
     0u,
     vec4f(0.0, 0.0, 1.0, 1.0),
-    vec4f(1.0, 0.0, 0.0, 0.0)
+    vec4f(1.0, 0.0, 0.0, 0.0),
+    vec4f(1.0),
+    vec4f(0.0, 1.0, 1.0, 1.0),
+    vec4f(0.0, 0.0, 0.0, 1.0),
+    OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+    OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+    OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+    0u
   );
   if material_handle < arrayLength(&r4_material_visibility) {
     let candidate = r4_material_visibility[material_handle];
@@ -297,10 +295,6 @@ fn write_hierarchy_visibility(
       discard;
     }
   }
-  return R3VisibilityFragmentOutput(
-    visibility_key,
-    encoded_triangle,
-    instance_record_index
-  );
+  return visibility_key;
 }
 `;

@@ -13,18 +13,29 @@ import {
   DEPTH_DEBUG_WGSL,
   PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL,
   RENDER_DEBUG_VIEW_FORMAT,
+  SURFACE_AO_DEBUG_WGSL,
+  SURFACE_COLOR_DEBUG_WGSL,
+  SURFACE_EMISSIVE_DEBUG_WGSL,
+  SURFACE_FLAGS_DEBUG_WGSL,
+  SURFACE_NORMAL_DEBUG_WGSL,
+  SURFACE_PBR_DEBUG_WGSL,
   VELOCITY_DEBUG_WGSL,
   VISIBILITY_KEY_DEBUG_WGSL
 } from "../../shaders/render_debug_view.js";
 import { resolveTextureView } from "./MaterialExpandPass.js";
 
 export type RenderDebugViewResources = {
-  meshId: ResourceId;
-  triangleId: ResourceId;
+  meshId: ResourceId | null;
+  triangleId: ResourceId | null;
   visibilityKey: ResourceId | null;
   packedVisibility: PackedVisibilityDebugSource | null;
   depth: ResourceId;
   velocity: ResourceId | null;
+  gPbr: ResourceId;
+  gNormal: ResourceId;
+  gAlbedo: ResourceId;
+  gEmissive: ResourceId;
+  surfaceFlags: ResourceId | null;
 };
 
 export class RenderDebugViewPass {
@@ -62,6 +73,42 @@ export class RenderDebugViewPass {
           VELOCITY_DEBUG_WGSL,
           [floatTextureEntry(0), uniformEntry(1)]
         )
+      ],
+      [
+        RenderDebugViewValue.BaseColor,
+        createPipeline("Render debug/Base color", SURFACE_COLOR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.ShadingNormal,
+        createPipeline("Render debug/Shading normal", SURFACE_NORMAL_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.Metallic,
+        createPipeline("Render debug/Metallic", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+      ],
+      [
+        RenderDebugViewValue.Roughness,
+        createPipeline("Render debug/Roughness", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+      ],
+      [
+        RenderDebugViewValue.Occlusion,
+        createPipeline("Render debug/Occlusion", SURFACE_AO_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.Emissive,
+        createPipeline("Render debug/Emissive", SURFACE_EMISSIVE_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.MaterialId,
+        createPipeline("Render debug/Material ID", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+      ],
+      [
+        RenderDebugViewValue.HistoryValidity,
+        createPipeline("Render debug/History validity", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+      ],
+      [
+        RenderDebugViewValue.Reactive,
+        createPipeline("Render debug/Reactive", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
       ]
     ]);
     this.packedVisibilityPipeline = createPipeline(
@@ -134,6 +181,14 @@ export class RenderDebugViewPass {
           );
         }
         bindings.push({ buffer: settings });
+        const mode = debugMode(view);
+        if (mode !== null) {
+          const modeBuffer = command.allocateTransientBufferAndLoad(
+            new Uint32Array([mode, 0, 0, 0]).buffer,
+            GPUBufferUsage.UNIFORM
+          );
+          bindings.push({ buffer: modeBuffer });
+        }
         const pass = command.constructRenderPass({
           label: `Render debug/${view}`,
           pipeline,
@@ -172,6 +227,9 @@ function inputResourceIds(
   switch (view) {
     case RenderDebugViewValue.VisibilityKey:
       if (packedVisibility) return [resources.visibilityKey!];
+      if (resources.meshId === null || resources.triangleId === null) {
+        throw new Error("RenderDebugViewPass requires legacy visibility IDs");
+      }
       return [resources.meshId, resources.triangleId];
     case RenderDebugViewValue.Depth:
       return [resources.depth];
@@ -180,6 +238,23 @@ function inputResourceIds(
         throw new Error("RenderDebugViewPass requires a velocity resource");
       }
       return [resources.velocity];
+    case RenderDebugViewValue.BaseColor:
+    case RenderDebugViewValue.Occlusion:
+      return [resources.gAlbedo];
+    case RenderDebugViewValue.ShadingNormal:
+      return [resources.gNormal];
+    case RenderDebugViewValue.Metallic:
+    case RenderDebugViewValue.Roughness:
+      return [resources.gPbr];
+    case RenderDebugViewValue.Emissive:
+      return [resources.gEmissive];
+    case RenderDebugViewValue.MaterialId:
+    case RenderDebugViewValue.HistoryValidity:
+    case RenderDebugViewValue.Reactive:
+      if (resources.surfaceFlags === null) {
+        throw new Error(`RenderDebugViewPass requires R4-B SurfaceFlags for '${view}'`);
+      }
+      return [resources.surfaceFlags];
     default:
       throw new Error(`RenderDebugViewPass has no resource contract for '${view}'`);
   }
@@ -240,6 +315,21 @@ function uniformEntry(
     visibility: GPUShaderStage.FRAGMENT,
     buffer: { type: "uniform", minBindingSize }
   };
+}
+
+function debugMode(view: RenderDebugView): number | null {
+  switch (view) {
+    case RenderDebugViewValue.Metallic:
+    case RenderDebugViewValue.MaterialId:
+      return 0;
+    case RenderDebugViewValue.Roughness:
+    case RenderDebugViewValue.HistoryValidity:
+      return 1;
+    case RenderDebugViewValue.Reactive:
+      return 2;
+    default:
+      return null;
+  }
 }
 
 function storageBufferEntry(binding: number): GPUBindGroupLayoutEntry {

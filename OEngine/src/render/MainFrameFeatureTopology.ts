@@ -51,13 +51,7 @@ export function resolveMainFrameFeatureTopology(
   const taa = input.temporal && input.upscaleType !== 1;
   const nss = input.temporal && input.upscaleType === 1;
   const debug = isRenderableRenderDebugView(input.debugView);
-  const debugTopology = input.debugView === RenderDebugView.VisibilityKey
-    ? 1
-    : input.debugView === RenderDebugView.Depth
-      ? 2
-      : input.debugView === RenderDebugView.Velocity
-        ? 3
-        : 0;
+  const debugTopology = debug ? debugTopologyCode(input.debugView) : 0;
 
   let bits = 0;
   if (input.shadows) bits += 2 ** 0;
@@ -110,4 +104,22 @@ export function resolveMainFrameFeatureTopology(
       ...(input.automaticExposure ? ["automatic-exposure-history"] : [])
     ])
   });
+}
+
+function debugTopologyCode(view: RenderDebugViewT): number {
+  switch (view) {
+    case RenderDebugView.VisibilityKey: return 1;
+    case RenderDebugView.Depth: return 2;
+    case RenderDebugView.Velocity: return 3;
+    case RenderDebugView.MaterialId: return 4;
+    case RenderDebugView.BaseColor: return 5;
+    case RenderDebugView.ShadingNormal: return 6;
+    case RenderDebugView.Roughness: return 7;
+    case RenderDebugView.Metallic: return 8;
+    case RenderDebugView.Occlusion: return 9;
+    case RenderDebugView.Emissive: return 10;
+    case RenderDebugView.HistoryValidity: return 11;
+    case RenderDebugView.Reactive: return 12;
+    default: return 0;
+  }
 }

@@ -91,6 +91,20 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
     status: "supported",
     requiredGpuCounters: ["activeMaterials"]
   },
+  "single-material-resolve": {
+    status: "supported",
+    requiredGpuCounters: [
+      "activeMaterials",
+      "invalidVisibilityKeys",
+      "gradientFallbackPixels",
+      "reactiveSurfacePixels",
+      "normalTexturePixels",
+      "ormTexturePixels",
+      "emissiveTexturePixels",
+      "unlitSurfacePixels",
+      "queueOverflowMask"
+    ]
+  },
   "clustered-lighting": {
     status: "supported",
     requiredGpuCounters: ["activeLights", "queueOverflowMask"]
@@ -184,7 +198,7 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   invalidVisibilityKeys: supported(
     "VisibilityCounterPass/VisibilityKey v1 reserved-slot reducer"
   ),
-  activeMaterials: supported("MaterialExpandPass/encoded-draw counter"),
+  activeMaterials: supported("Material Resolve/active MaterialRecord counter"),
   activeLights: supported("Renderer/active-light-list reducer"),
   queueOverflowMask: supported("Renderer/registered-GPU-list overflow reducers"),
   rootStageQueueReservations: supported(
@@ -198,6 +212,24 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   ),
   workGenerationCasRetries: supported(
     "HierarchicalWorkGenerator/bounded reservation CAS retry reducer"
+  ),
+  gradientFallbackPixels: supported(
+    "PackedSurfaceCounterPass/Surface flags reducer"
+  ),
+  reactiveSurfacePixels: supported(
+    "PackedSurfaceCounterPass/Surface flags reducer"
+  ),
+  normalTexturePixels: supported(
+    "PackedSurfaceCounterPass/Surface material-feature reducer"
+  ),
+  ormTexturePixels: supported(
+    "PackedSurfaceCounterPass/Surface material-feature reducer"
+  ),
+  emissiveTexturePixels: supported(
+    "PackedSurfaceCounterPass/Surface material-feature reducer"
+  ),
+  unlitSurfacePixels: supported(
+    "PackedSurfaceCounterPass/Surface material-feature reducer"
   )
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 

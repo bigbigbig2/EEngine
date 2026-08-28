@@ -24,8 +24,8 @@ const { parseGltfMaterial } = await import(
   "../.test-dist/loaders/gltf/gltfMaterials.js"
 );
 
-test("R4-A-03 MaterialVisibilityRecord freezes a 64-byte TS/WGSL layout", () => {
-  assert.equal(GPU_MATERIAL_VISIBILITY_RECORD_STRIDE, 64);
+test("R4-B-01 MaterialRecord freezes a 128-byte TS/WGSL Standard PBR layout", () => {
+  assert.equal(GPU_MATERIAL_VISIBILITY_RECORD_STRIDE, 128);
   assert.deepEqual(GPU_MATERIAL_VISIBILITY_OFFSETS, {
     material_id: 0,
     alpha_mode: 4,
@@ -36,10 +36,16 @@ test("R4-A-03 MaterialVisibilityRecord freezes a 64-byte TS/WGSL layout", () => 
     uv_set: 24,
     sampler_class: 28,
     uv_offset_scale: 32,
-    uv_rotation: 48
+    uv_rotation: 48,
+    base_color_factor: 64,
+    pbr_factors: 80,
+    emissive_factor: 96,
+    texture_refs: 112
   });
   assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /texture_ref: u32/);
   assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /uv_offset_scale: vec4f/);
+  assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /base_color_factor: vec4f/);
+  assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /texture_sampler_classes: u32/);
 
   const material = new StandardShadeMaterial();
   material.transparency_mode = ShadeTransparencyMode.AlphaTested;
@@ -51,11 +57,25 @@ test("R4-A-03 MaterialVisibilityRecord freezes a 64-byte TS/WGSL layout", () => 
   material.base_color_uv_scale = [2, 3];
   material.base_color_uv_rotation = Math.PI / 2;
   material.texture_albedo = validTexture();
+  material.texture_normal = validTexture();
+  material.texture_orm = validTexture();
+  material.texture_emissive = validTexture();
+  material.diffuse_color.setRGB(0.2, 0.3, 0.4);
+  material.diffuse_color.a = 0.75;
+  material.metallic_factor = 0.8;
+  material.roughness_factor = 0.25;
+  material.ambient_factors.a = 0.6;
+  material.emissive_factor.setRGB(2, 1, 0.5);
 
-  const source = materialVisibilitySource(material, 7);
+  const source = materialVisibilitySource(material, {
+    baseColor: 7,
+    normal: 8,
+    orm: 9,
+    emissive: 10
+  });
   const packed = packGpuMaterialVisibilityRecord(source.packed);
   const view = new DataView(packed);
-  assert.equal(packed.byteLength, 64);
+  assert.equal(packed.byteLength, 128);
   assert.equal(view.getUint32(4, true), GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Mask);
   assert.equal(
     view.getUint32(8, true) & GPU_MATERIAL_VISIBILITY_FLAGS.DoubleSided,
@@ -75,6 +95,19 @@ test("R4-A-03 MaterialVisibilityRecord freezes a 64-byte TS/WGSL layout", () => 
   assert.equal(view.getFloat32(44, true), 3);
   assert.ok(Math.abs(view.getFloat32(48, true)) < 1e-6);
   assert.ok(Math.abs(view.getFloat32(52, true) - 1) < 1e-6);
+  assert.ok(Math.abs(view.getFloat32(64, true) - 0.2) < 1e-6);
+  assert.ok(Math.abs(view.getFloat32(68, true) - 0.3) < 1e-6);
+  assert.ok(Math.abs(view.getFloat32(72, true) - 0.4) < 1e-6);
+  assert.equal(view.getFloat32(76, true), 0.75);
+  assert.ok(Math.abs(view.getFloat32(80, true) - 0.8) < 1e-6);
+  assert.equal(view.getFloat32(84, true), 0.25);
+  assert.ok(Math.abs(view.getFloat32(92, true) - 0.6) < 1e-6);
+  assert.equal(view.getFloat32(96, true), 2);
+  assert.equal(view.getFloat32(100, true), 1);
+  assert.equal(view.getFloat32(104, true), 0.5);
+  assert.equal(view.getUint32(112, true), 8);
+  assert.equal(view.getUint32(116, true), 9);
+  assert.equal(view.getUint32(120, true), 10);
 });
 
 test("R4-A-03 invalid texture and sampler fallbacks remain independent", () => {

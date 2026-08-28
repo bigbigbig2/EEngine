@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 globalThis.GPUBufferUsage = { COPY_DST: 1, STORAGE: 2, UNIFORM: 4 };
-globalThis.GPUTextureUsage = { COPY_DST: 1, RENDER_ATTACHMENT: 2, TEXTURE_BINDING: 4 };
+globalThis.GPUTextureUsage = { COPY_DST: 1, RENDER_ATTACHMENT: 2, TEXTURE_BINDING: 4, COPY_SRC: 8 };
 globalThis.GPUShaderStage = { FRAGMENT: 2 };
 
 const {
@@ -20,7 +20,7 @@ const { ShadeImage, ShadeTexture } = await import(
   "../.test-dist/texture/ShadeTexture.js"
 );
 
-test("R4-A-03 bounded Material Visibility owner stages without private submit and rolls back abort", () => {
+test("R4-B-02 bounded Material/Texture owner stages without private submit and rolls back abort", () => {
   const graphics = fakeGraphics();
   const table = new GpuMaterialVisibilityTable(graphics);
   const command = new FakeCommand();
@@ -34,17 +34,20 @@ test("R4-A-03 bounded Material Visibility owner stages without private submit an
   assert.equal(command.writes[0].offset, material.id * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
   assert.equal(command.renderPassCount, 1);
   assert.deepEqual(table.evidence(), {
-    schemaVersion: 1,
-    abiVersion: 1,
+    schemaVersion: 2,
+    abiVersion: 2,
     materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
     textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
     stagedMaterialCount: 1,
     residentTextureCount: 1,
     textureFallbackCount: 0,
     samplerFallbackCount: 0,
-    allocatedBytes: 4_456_448,
+    allocatedBytes: 22_893_824,
+    residentTextureBytes: 22_369_536,
+    textureSize: 256,
+    mipLevelCount: 9,
     privateSubmitCount: 0,
-    takeoverTask: "R4-B-02"
+    takeoverTask: null
   });
   assert.equal(graphics.submitCount, 0);
 
@@ -57,7 +60,7 @@ test("R4-A-03 bounded Material Visibility owner stages without private submit an
   assert.equal(graphics.texturesCreated[0].destroyCount, 1);
 });
 
-test("R4-A-03 Material Visibility owner rejects material handles before recording GPU work", () => {
+test("R4-B-02 Material owner rejects material handles before recording GPU work", () => {
   const graphics = fakeGraphics();
   const table = new GpuMaterialVisibilityTable(graphics);
   const command = new FakeCommand();
@@ -68,7 +71,7 @@ test("R4-A-03 Material Visibility owner rejects material handles before recordin
 
   assert.throws(
     () => table.stage([material], command),
-    /exceeds R4-A visibility capacity/
+    /exceeds R4-B material capacity/
   );
   assert.equal(command.writes.length, 0);
   assert.equal(command.renderPassCount, 0);
@@ -158,7 +161,7 @@ function fakeGraphics() {
       }
     },
     textures: {
-      mipmaps: { flush() {} },
+      mipmaps: { flush() {}, generateMipmap() {} },
       obtain(source) {
         let resident = residentTextures.get(source);
         if (resident === undefined) {

@@ -46,7 +46,7 @@ const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
     {
       binding: 10,
       visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+      texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
     }
   ]
 };
@@ -70,11 +70,7 @@ const HIERARCHY_RASTER_PIPELINE: CachedRenderPipelineDescriptor = {
       code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
     },
     entryPoint: "write_hierarchy_visibility",
-    targets: [
-      { format: "r32uint" },
-      { format: "r32uint" },
-      { format: "r32uint" }
-    ]
+    targets: [{ format: "r32uint" }]
   },
   primitive: { topology: "triangle-list", cullMode: "none" },
   depthStencil: {
@@ -107,8 +103,6 @@ export interface PackedVisibilityInputs {
   readonly camera: ResourceId;
   readonly counters: ResourceId;
   readonly previousHzb?: ResourceId;
-  readonly triangleId: ResourceId;
-  readonly instanceId: ResourceId;
   readonly depth: ResourceId;
 }
 
@@ -213,8 +207,6 @@ export class PackedVisibilityPass {
           camera,
           counters,
           resolveTextureView(resources.get(output.visibilityKey)),
-          resolveTextureView(resources.get(inputs.triangleId)),
-          resolveTextureView(resources.get(inputs.instanceId)),
           resolveDepthAttachmentView(resources.get(inputs.depth))
         );
       }
@@ -222,8 +214,6 @@ export class PackedVisibilityPass {
     builder.read(inputs.camera);
     builder.read(inputs.counters);
     if (inputs.previousHzb !== undefined) builder.read(inputs.previousHzb);
-    builder.write(inputs.triangleId);
-    builder.write(inputs.instanceId);
     builder.write(inputs.depth);
     const counters = builder.write(inputs.counters);
     output.visibilityKey = builder.create(
@@ -259,8 +249,6 @@ export class PackedVisibilityPass {
     camera: GPUBuffer,
     counters: GPUBuffer,
     visibilityKey: GPUTextureView,
-    triangleId: GPUTextureView,
-    instanceId: GPUTextureView,
     depth: GPUTextureView
   ): void {
     const prepared = this.prepareHierarchy(job, counters, command);
@@ -319,18 +307,6 @@ export class PackedVisibilityPass {
         {
           view: visibilityKey,
           clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 },
-          loadOp: "clear",
-          storeOp: "store"
-        },
-        {
-          view: triangleId,
-          clearValue: { r: VIS_MESH_CLEAR_SENTINEL, g: 0, b: 0, a: 0 },
-          loadOp: "clear",
-          storeOp: "store"
-        },
-        {
-          view: instanceId,
-          clearValue: { r: VIS_MESH_CLEAR_SENTINEL, g: 0, b: 0, a: 0 },
           loadOp: "clear",
           storeOp: "store"
         }

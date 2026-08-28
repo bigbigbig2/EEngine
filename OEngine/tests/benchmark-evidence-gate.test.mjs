@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { validateBenchmarkEvidence } from "../.test-dist/debug/BenchmarkEvidenceGate.js";
 import { createBenchmarkCapabilityEvidence } from "../.test-dist/debug/BenchmarkCapabilityEvidence.js";
+import { GPU_COUNTER_SCHEMA_VERSION } from "../.test-dist/debug/GpuFrameCounters.js";
 
 test("complete clean A/B/C evidence is gate eligible", () => {
   const report = validateBenchmarkEvidence(validResult());
@@ -273,7 +274,7 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
         sampled: true,
         pending: false,
         dropped: false,
-        schemaVersion: 3,
+        schemaVersion: GPU_COUNTER_SCHEMA_VERSION,
         values: gpuCounterValues
       }
     }],

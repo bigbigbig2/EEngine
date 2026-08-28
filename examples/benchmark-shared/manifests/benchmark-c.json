@@ -10,7 +10,7 @@
     "revision": "schema-1"
   },
   "seed": 3237998146,
-  "featureSet": ["hardware-visibility", "hzb-culling", "cone-culling", "material-expand", "clustered-lighting", "ibl", "packed-instances", "hierarchy-sse-lod", "software-visibility"],
+  "featureSet": ["hardware-visibility", "hzb-culling", "cone-culling", "single-material-resolve", "clustered-lighting", "ibl", "packed-instances", "hierarchy-sse-lod", "software-visibility"],
   "frame": { "width": 1280, "height": 720, "dpr": 1 },
   "run": {
     "warmupFrames": 60,

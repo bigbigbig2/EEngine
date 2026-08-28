@@ -1,0 +1,113 @@
+import { counterByteOffset } from "../../debug/GpuFrameCounters.js";
+import type { FrameGraph } from "../../framegraph/FrameGraph.js";
+import type { ResourceId } from "../../framegraph/ResourceHandle.js";
+import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import { resolveTextureView } from "./MaterialExpandPass.js";
+
+const WORKGROUP = 8;
+const GRADIENT_INDEX = counterByteOffset("gradientFallbackPixels") / 4;
+const REACTIVE_INDEX = counterByteOffset("reactiveSurfacePixels") / 4;
+const NORMAL_TEXTURE_INDEX = counterByteOffset("normalTexturePixels") / 4;
+const ORM_TEXTURE_INDEX = counterByteOffset("ormTexturePixels") / 4;
+const EMISSIVE_TEXTURE_INDEX = counterByteOffset("emissiveTexturePixels") / 4;
+const UNLIT_INDEX = counterByteOffset("unlitSurfacePixels") / 4;
+
+const WGSL = /* wgsl */ `
+@group(0) @binding(0) var surface_flags: texture_2d<u32>;
+@group(0) @binding(1) var<storage, read_write> counters: array<atomic<u32>>;
+
+@compute @workgroup_size(${WORKGROUP}, ${WORKGROUP}, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let size = textureDimensions(surface_flags);
+  if any(id.xy >= size) { return; }
+  let flags = textureLoad(surface_flags, vec2i(id.xy), 0).r >> 24u;
+  if (flags & 8u) != 0u {
+    atomicAdd(&counters[${GRADIENT_INDEX}u], 1u);
+  }
+  if (flags & 4u) != 0u {
+    atomicAdd(&counters[${REACTIVE_INDEX}u], 1u);
+  }
+  if (flags & 16u) != 0u {
+    atomicAdd(&counters[${NORMAL_TEXTURE_INDEX}u], 1u);
+  }
+  if (flags & 32u) != 0u {
+    atomicAdd(&counters[${ORM_TEXTURE_INDEX}u], 1u);
+  }
+  if (flags & 64u) != 0u {
+    atomicAdd(&counters[${EMISSIVE_TEXTURE_INDEX}u], 1u);
+  }
+  if (flags & 128u) != 0u {
+    atomicAdd(&counters[${UNLIT_INDEX}u], 1u);
+  }
+}
+`;
+
+const GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "R4-B GPU Surface counters/group0",
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+  ]
+};
+
+const PIPELINE: CachedComputePipelineDescriptor = {
+  label: "R4-B GPU Surface counters",
+  layout: { label: "R4-B GPU Surface counters/layout", bindGroupLayouts: [GROUP] },
+  compute: {
+    module: { label: "R4-B GPU Surface counters", code: WGSL },
+    entryPoint: "main"
+  }
+};
+
+/** Optional sampled observability; absent when the frame owns no GPU counter resource. */
+export class PackedSurfaceCounterPass {
+  constructor(private readonly graphics: GraphicsContext) {}
+
+  addToGraph(
+    graph: FrameGraph,
+    width: number,
+    height: number,
+    inputs: { surfaceFlags: ResourceId; counters: ResourceId }
+  ): ResourceId {
+    const builder = graph.add(
+      "R4-B GPU Surface counters",
+      { width: Math.max(1, width | 0), height: Math.max(1, height | 0) },
+      (data, resources, context) => {
+        const command = requireCommand(context.encoder);
+        const pass = command.constructComputePass({
+          label: "R4-B GPU Surface counters",
+          pipeline: PIPELINE,
+          bindings: [[
+            resolveTextureView(resources.get(inputs.surfaceFlags)),
+            { buffer: requireBuffer(resources.get(inputs.counters), "GPU counters") }
+          ]]
+        });
+        pass.dispatchWorkgroups(
+          Math.ceil(data.width / WORKGROUP),
+          Math.ceil(data.height / WORKGROUP),
+          1
+        );
+        pass.end();
+      }
+    );
+    builder.read(inputs.surfaceFlags);
+    builder.read(inputs.counters);
+    return builder.write(inputs.counters);
+  }
+}
+
+function requireCommand(value: unknown): ShadeGPUCommandContext {
+  if (value && typeof value === "object" && "isGPUCommandContext" in value) {
+    return value as ShadeGPUCommandContext;
+  }
+  throw new Error("PackedSurfaceCounterPass requires ShadeGPUCommandContext");
+}
+
+function requireBuffer(value: unknown, label: string): GPUBuffer {
+  if (value && typeof value === "object" && "size" in value && "usage" in value) {
+    return value as GPUBuffer;
+  }
+  throw new Error(`PackedSurfaceCounterPass expected ${label} GPUBuffer`);
+}
