@@ -52,11 +52,11 @@ MDI、mesh/task shader、buffer device address 不属于 baseline。Compute Micr
 
 ### Unified Visibility
 
-HW、Alpha 和可选 SW 路径输出同一 frame-local VisibilityKey 与 reverse-Z depth。该 module 隐藏 key 分配、depth tie、overflow、transfer 和 debug 逻辑；下游 Material Resolve 不知道像素来自哪种光栅实现。
+HW、Alpha 和可选 SW 路径输出同一 frame-local VisibilityKey 与 reverse-Z depth。Key 编码 `rasterWorkSlot + localTriangle`，再经 `RasterWork → VisibleCluster + Meshlet` 唯一定位 multi-Meshlet Cluster 内 triangle。该 module 隐藏 key 分配、depth tie、overflow、transfer 和 debug 逻辑；下游 Material Resolve 不知道像素来自哪种光栅实现。
 
 ### Material Resolve
 
-一次扫描可见像素，按 VisibilityKey 回查 VisibleCluster、Geometry、Instance、MaterialTable 和纹理，重建 PBR surface 与 Velocity。当前每材质全屏 Material Expand 属于明确删除对象；未来自定义材质使用有界 Shader Bin，不恢复无界全屏循环。
+一次扫描可见像素，按 VisibilityKey 回查 RasterWork、VisibleCluster/Meshlet、Geometry、Instance、MaterialTable 和有界 TextureRef，重建 PBR surface 与 Velocity。当前每材质全屏 Material Expand 属于明确删除对象；未来自定义材质使用有证据且有硬上限的 Shader Bin，不恢复无界全屏循环。
 
 ### Lighting / Temporal
 

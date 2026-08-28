@@ -155,8 +155,9 @@ R0 的职责是冻结目标矩阵并证明 A/B/C 采集入口、真实 counter �
 | Runtime Asset/stable handle/residency | R2-C | TS/WGSL schema、grow/abort/retirement、bytes tests |
 | Packed Instance Set/patch/HW 接线 | R2-D | A/C JS objects、bulk/patch/upload scaling、截图/counter/timestamp |
 | SSE GPU work generation | R3-A..R3-D | multi-instance selected set + ABI/max-cut + queue/counter + indirect consumer + flat deletion |
-| SW/HW Visibility | VIS-01..10 | pixel exact/tolerance + size sweep |
-| 单次 Material Resolve | MAT-01..10 | draw count vs materials + B visual/numeric |
+| Hardware Visibility Contract | R4-A-01..06 | multi-Meshlet key lookup + depth/alpha/debug/browser |
+| 单次 Material Resolve | R4-B-01..10 | draw count vs materials + B visual/numeric |
+| optional SW/Hybrid Visibility | R4-C-01..09 | non-edge exact + shared-edge invariant + size/cost sweep |
 | 高质量效果统一主管线 | FX-01..12 | feature graph/off assertion + B/C sequence |
 | 大胆删除旧实现 | DEL-00..05 | `rg`/bundle/graph dump + git diff |
 

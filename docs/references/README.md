@@ -8,6 +8,7 @@
 |---|---|
 | GPU Scene、Meshlet、Hierarchy、Work Queue、Indirect Consumer | [GPU-DRIVEN-CORE.md](./GPU-DRIVEN-CORE.md) |
 | VisibilityKey、HW/SW Raster、Material Resolve | [VISIBILITY-AND-MATERIAL.md](./VISIBILITY-AND-MATERIAL.md) |
+| R4 参考项目、论文与采用边界 | [R4-ALGORITHM-GUIDE.md](./R4-ALGORITHM-GUIDE.md) |
 | PBR/IBL、Clustered Lighting、CSM、Temporal/Upscaling | [RENDER-QUALITY.md](./RENDER-QUALITY.md) |
 | WebGPU capability、cache、format 和工程约束 | [WEBGPU-INFRASTRUCTURE.md](./WEBGPU-INFRASTRUCTURE.md) |
 | 项目总表与已有历史移植记录 | [GPU-DRIVEN.md](./GPU-DRIVEN.md) |
@@ -38,3 +39,5 @@ Nanite streaming、World Partition、3D Tiles、Virtual Shadow Map、ReSTIR/Falc
 3. 在 [porting](./porting/README.md) 或任务文档记录采用、移植、独立实现或拒绝理由。
 4. 将上游算法转换成 OEngine 自己的 ABI、owner、capacity、overflow/fallback 和 WebGPU consumer。
 5. 以本地 reference test、浏览器 example 和固定 benchmark 关闭任务。
+
+研究指南不拥有任务 ID、ABI 或完成状态；R4 的冻结决策与执行步骤分别由 ADR-0010 和 `docs/implementation/06/07` 拥有。

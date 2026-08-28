@@ -25,3 +25,4 @@ ADR 记录已经接受、会长期约束实现的决策。普通实现细节、�
 - [0007 · 桌面 WebGPU 中大型场景与 Hardware-first 主链](./0007-desktop-webgpu-hardware-first.md)
 - [0008 · Runtime Asset Package Kernel v1](./0008-runtime-asset-package-kernel-v1.md)
 - [0009 · R3 以 Cluster hierarchy 生成 GPU Raster Work](./0009-r3-cluster-hierarchy-work-generation.md)
+- [0010 · R4 统一 Visibility Key、光栅语义与 Resolve 边界](./0010-r4-unified-visibility-contract.md)

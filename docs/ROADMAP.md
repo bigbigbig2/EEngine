@@ -60,17 +60,23 @@ R4 按固定顺序执行，不把 Software Raster 作为 Material Resolve 的前
 
 冻结 frame-local VisibilityKey、VisibleCluster lookup、reverse-Z depth、sentinel、alpha-tested、overflow/fallback，并用 Hardware path 建立最小属性重建。
 
+执行编号为 `R4-A-01..06`。Key v1 编码 `rasterWorkSlot + localTriangle`，经 R3 RasterWork 唯一回查 multi-Meshlet Cluster；R4-A 只提前建立 alpha Visibility 所需 Material 子集。
+
 ### R4-B · Single Material Resolve
 
 实施包：[07-material-resolve](./implementation/07-material-resolve.md)
 
 一次扫描可见像素完成 Standard PBR surface/velocity 重建，删除每材质全屏 Material Expand。纹理先使用有界 bank/resident handle；streaming 不阻塞 v1。
 
+执行编号为 `R4-B-01..10`。优先迁移 R2-D-08/R2-D-09 已验证的 attribute/gradient/frame/velocity，不重新实现同一数学。
+
 ### R4-C · Compute SW/Hybrid Profile Optimization
 
 实施包：[06-hybrid-visibility](./implementation/06-hybrid-visibility.md)
 
 从 Scthe/The Forge/MOC 等参考移植并验证微三角形 Software Raster、SW/HW classification、统一 merge 和 fallback。只有目标 workload 证明收益时才默认启用。
+
+执行编号为 `R4-C-01..09`。两阶段 SW 使用完整 `u32 depth → key`；feature off 与 feature-on empty 固定成本分别验收。
 
 退出：HW-only 是完整正确基线；Material Resolve 成本不再近似材质数 × 全屏；Hybrid 在目标场景有收益且普通场景不明显退化。
 

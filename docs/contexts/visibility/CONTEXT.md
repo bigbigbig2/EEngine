@@ -26,7 +26,9 @@ Instance Cull
 - children queue 使用 all-or-nothing bounded reservation：整组成功写入，否则选择当前 renderable parent。每条队列区分 attempted/written/peak/overflow/fallback，HW RasterWork 不允许截断漏绘。
 - GPU/CPU selected-set 先以 Frustum + SSE 对齐，再接 Cone 和 previous HZB。Cone 对 mirrored/non-uniform/shear/double-sided/invalid cone fail-open；HZB 对首帧、resize、camera cut、history invalid 与异常投影 fail-open。没有 SW consumer 时不得创建 SW queue 或相关资源/Pass。
 - HW-only 必须先形成完整正确主链；SW/Hybrid 是后续 profile optimization。
-- Hardware 与 Software Raster 共享 VisibilityKey、深度和边规则。
+- Hardware 与 Software Raster 共享 VisibilityKey、depth/lookup 与 coverage invariant。OEngine SW 使用 deterministic top-left；WebGPU exact shared-edge 的 HW primitive owner 可以因后端不同，但不得出现 coverage hole、非法重叠或最终 surface 差异。
+- R4 VisibilityKey v1 编码 `rasterWorkSlot + localTriangle`，经 `RasterWork → VisibleCluster + meshletRecordIndex` 回查；不得退回有 multi-Meshlet 歧义的 `visibleClusterSlot + localTriangle`。
+- Hardware fragment depth 是规范 oracle；SW/CPU 按 WebGPU 语义插值 post-clip viewport depth。reciprocal-W perspective correction 只用于后续 attributes。
 - HZB 只负责遮挡，不负责决定当前帧 LOD。
 - HZB 是 per-view ping-pong history：initial 只能读已 commit 的 previous，late/alpha/lighting 读本帧 current/final；resize、camera cut 和 view discontinuity 后 previous 无效。
 - 当前 HZB build 使用 `rg16float` storage Compute；每次 build 上界为一个 Compute Pass、每 mip 一个 dispatch，不允许恢复逐 mip Render Pass。

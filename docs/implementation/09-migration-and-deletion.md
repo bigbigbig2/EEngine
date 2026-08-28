@@ -27,10 +27,10 @@
 | `GeometryBlasPool` | 用 package BVH8 payload 与 `GpuAssetStore` 替换 | R2-C/D；当前 BVH8 不进入 R3 v1 热路径，真实 legacy consumer 清空后删除旧 owner |
 | `MeshletDrawList` | Packed 路径已断开；legacy Scene consumer 迁移后删除 | R3-D 已审计，普通 Scene/alpha/shadow 仍有真实 consumer，不能在 R3 按类名误删 |
 | `MaterialMeshletDrawList` | opaque 删除；透明/阴影迁移 | FX-04/FX-05 新 work consumer 接通 |
-| `VisibilityPass` | 由 WorkGenerator + HybridVisibility 替换 | VIS-10 |
+| `VisibilityPass` | 由 WorkGenerator + Unified/Hybrid Visibility 替换 | R4-C-09；R4-A 先迁移 Hardware/alpha contract |
 | `HierarchicalZBuffer` render 实现 | Compute 重写 | R1-C01～C06 正确性/性能通过 |
-| `MaterialExpandPass` | 删除 | MAT-10 单次 Resolve consumers 迁完 |
-| 独立 opaque `VelocityPass` | 合并/删除 | MAT-06；特殊对象需求单独证明 |
+| `MaterialExpandPass` | 删除 | R4-B-10 单次 Resolve consumers 迁完 |
+| 独立 opaque `VelocityPass` | 合并/删除 | R4-B-06；特殊对象需求单独证明 |
 | `Renderer.render()` 编排 | 重写为 FrameCoordinator + cached graph | R1-A02～A07、R1-B01～B06 |
 | `ShadeGPUCommandContext` 隐式 submit | 删除或降为 encode-only façade | R1-A02、R1-A07 |
 | oracle/generated shaders | 逐个追溯 source-of-truth | OBS-07 后，无 consumer/generator 者删除 |
@@ -77,11 +77,11 @@ R2-D 收口状态：Packed/package 主路径已经完成该删除语义——不
 
 ### DEL-03 · 清旧工作生成与 Visibility
 
-依赖 `R3-D`、`VIS-10`。R3-D 已删除 Packed flat producer、flat queue/indirect owner、flat Shader 与 runtime mode；`GpuPackedSceneRegistry` schema v2 明确 `flatWorkBytes=0`。审计确认 legacy `MeshletDrawList`/bucket/scan/expand 仍被普通 Scene、alpha 或 shadow 路径消费，因此保留到相应 consumer 迁移；`VIS-10` 再删除被统一 VisibilityKey 取代的旧 attachments、visibility shaders 和剩余 runtime switch。不能只按类名删除。
+依赖 `R3-D`、`R4-C-09`。R3-D 已删除 Packed flat producer、flat queue/indirect owner、flat Shader 与 runtime mode；`GpuPackedSceneRegistry` schema v2 明确 `flatWorkBytes=0`。审计确认 legacy `MeshletDrawList`/bucket/scan/expand 仍被普通 Scene、alpha 或 shadow 路径消费，因此保留到相应 consumer 迁移；R4-A 先迁移 Hardware/alpha contract，`R4-C-09` 再删除被统一 VisibilityKey 取代的旧 attachments、visibility shaders 和剩余 runtime switch。不能只按类名删除。
 
 ### DEL-04 · 清 Material Expand
 
-依赖 `MAT-10`。删除 material depth、每材质 fullscreen pipeline/bind groups、旧 GBuffer-only helpers 和 opaque 独立 Velocity。
+依赖 `R4-B-10`。删除 material depth、每材质 fullscreen pipeline/bind groups、旧 GBuffer-only helpers 和 opaque 独立 Velocity。
 
 ### DEL-05 · 清效果旁路与历史命名
 

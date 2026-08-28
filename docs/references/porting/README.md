@@ -33,3 +33,9 @@ R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；�
 ## R3 登记
 
 - [R3-01 Cluster hierarchy GPU work generation](./R3-01-hierarchical-work-generation.md)
+
+## R4 登记
+
+- [R4-A-01 Unified Hardware Visibility Contract](./R4-A-01-unified-visibility-contract.md)
+- [R4-B-01 Single Material Resolve](./R4-B-01-single-material-resolve.md)
+- [R4-C-01 Software/Hybrid Raster](./R4-C-01-software-hybrid-raster.md)

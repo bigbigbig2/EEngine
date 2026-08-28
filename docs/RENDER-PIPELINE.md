@@ -43,9 +43,9 @@ R3 v1 从 Cluster hierarchy roots 形成合法 parent/child cut；当前 R2 BVH8
 
 ## Unified Visibility 与 Material Resolve
 
-先冻结 HW VisibilityKey、depth、VisibleCluster lookup 和最小属性重建，再完成单次 Standard PBR Material Resolve。主链不得等待 Software Raster 才建立材质闭环。
+先落地已冻结的 HW VisibilityKey、depth、`RasterWork → VisibleCluster/Meshlet` lookup 和最小属性重建，再完成单次 Standard PBR Material Resolve。主链不得等待 Software Raster 才建立材质闭环。
 
-Material Resolve 一次处理可见像素，动态读取 MaterialTable 和纹理 bank/resident handle。不得长期保留“每个材质一个全屏三角形”的通用实现。
+Material Resolve 一次处理可见像素，动态读取 MaterialTable 和有界 TextureRef/resident handle。array-bank、atlas 或 fixed-bank 由真实资产 benchmark 冻结；不得长期保留“每个材质一个全屏三角形”的通用实现。
 
 ## Software Micro Raster
 
@@ -53,7 +53,7 @@ Software Raster 是统一 Visibility 后的可选 adapter：
 
 1. Depth 阶段对微三角形执行完整 32 位 ordered depth 原子竞争。
 2. Visibility 阶段只为胜出深度写入统一 key，并采用确定性 tie-break。
-3. Transfer/merge 与 Hardware path 共享 reverse-Z、sentinel 和边规则。
+3. Transfer/merge 与 Hardware path 共享 reverse-Z、sentinel 和 coverage invariant；exact shared-edge 的 primitive owner 不要求跨 WebGPU backend 一致。
 4. Alpha/复杂 clip、near-plane 大三角形、超大 bbox、overflow、atomic hotspot 和 MSAA 回退 Hardware。
 
 只有目标 adapter 和 workload 证明 Hybrid 有收益时才默认启用；HW-only 更快也是有效结论。

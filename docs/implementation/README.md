@@ -8,7 +8,7 @@
 R0 Observe                         complete
 → R1 Runtime/FrameGraph/HZB        complete
 → R2 Compact Data + Cooker          complete
-→ R3 Hierarchy + HW Consumer        functional complete; performance gate blocked
+→ R3 Hierarchy + HW Consumer        complete
 → R4-A Visibility Contract
 → R4-B Single Material Resolve
 → R4-C Optional SW/Hybrid
@@ -44,6 +44,8 @@ R0/G0、R1/G1 与 R2/G2 已关闭。R2 Compact Data Foundation 的交付顺序�
 5. package/Packed 主路径不创建等量 `Mesh/Node3D`，旧 `MeshletGpuTable` 改为 legacy Scene consumer 才惰性创建，因此新主路径不存在重复 Geometry/Instance owner。旧 Scene consumer 的全局删除随 R3 工作生成迁移完成，不能反向把它当作 G2 数据 Gate blocker。
 
 R3/G3 已在 clean commit `aff3ab8` 关闭：`InstanceCull + root` 融合、root/traversal/selected workgroup-local compaction、sampled diagnostics 与 depth-zero fused-leaf 已落地；full A/B/C 均 clean/gate eligible/zero diagnostics，A P95 不再回退历史 flat、B 继续改善、C 真实命中 fused-leaf 并消除固定成本。R3 v1 不直接遍历当前独立 BVH8；原因、长期决策和来源分别见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md) 与 [R3-01 porting ledger](../references/porting/R3-01-hierarchical-work-generation.md)。当前唯一执行入口转为 R4-A Visibility contract。
+
+R4 已完成执行前设计冻结，长期边界见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，研究来源见 [R4 algorithm guide](../references/R4-ALGORITHM-GUIDE.md)。当前从 `R4-A-01` 开始，顺序为 `R4-A-01..06 → R4-B-01..10 → R4-C-01..09`；旧 `VIS/MAT` 编号只保留历史含义，不再生成新提交或 artifact。
 
 R3 集中为四个可运行包：
 

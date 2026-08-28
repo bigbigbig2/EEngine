@@ -1,190 +1,300 @@
 # 06 · R4-A Hardware Visibility Contract / R4-C Hybrid 优化
 
-## 阶段目标
+## 阶段边界
 
-本实施包分两次执行。R4-A 先在 R3 Hardware path 上冻结 `VisibleCluster + VisibilityKey + depth`，完成最小属性重建；随后执行 [R4-B Single Material Resolve](./07-material-resolve.md)。只有这两项稳定后，R4-C 才实现 Compute 软件微三角形光栅和 SW/HW Hybrid profile optimization。
+本包分两次执行：
+
+```text
+R3 RasterWork + Hardware drawIndirect
+→ R4-A Hardware key/depth/lookup/alpha contract
+→ R4-B Single Material Resolve
+→ R4-C optional Software/Hybrid profile optimization
+```
+
+R4-A 让现有 Hardware-first 主链成为完整、可回查的统一 Visibility producer；R4-C 只在 R4-B 稳定后增加可选 Compute micro-raster consumer。长期决策见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，来源选择见 [R4 research guide](../references/R4-ALGORITHM-GUIDE.md) 与对应 [porting ledgers](../references/porting/README.md)。
+
+旧 `VIS-*` 编号保留给历史 artifact 和早期计划，不再分配。R4 新工作统一使用 `R4-A-*`、`R4-B-*`、`R4-C-*`。
 
 ## 非目标
 
-- 不给旧 `VisibilityPass` 简单追加一个孤立 SW Pass。
-- 不用软件光栅全量替换硬件光栅。
-- 不依赖 WebGPU baseline 不具备的 64 位原子。
-- 不让 Material Resolve 区分像素来自 SW 还是 HW。
-- 不把 HW/SW/Hybrid 变成三档产品管线；它们是同一 Visibility 契约的验证/实现选择。
+- 不给旧 `VisibilityPass` 追加一条孤立产品管线。
+- 不用 Software Raster 全量替换 Hardware Raster。
+- 不依赖 64 位原子、BDA、MDI、mesh/task shader 或无限 bindless。
+- 不让 Material Resolve 区分像素来自 HW 还是 SW。
+- 不在 R4-A 实现完整 PBR、Texture Streaming、Shader Graph 或 Lighting。
+- 不把 HW-only、SW-only、Hybrid 变成三档产品管线；SW-only 只用于验证。
 
-## 固定执行顺序
+## 当前事实与迁移对象
 
-```text
-R3 hierarchy → existing HW drawIndirect consumer
-→ R4-A VIS-01 + Hardware key/depth/lookup + minimal attribute debug
-→ R4-B MAT-01..10 Single Material Resolve
-→ R4-C VIS-02..06/08..10 Software/Hybrid profile optimization
-```
-
-不得因为本文件编号早于 Material Resolve，就先完成整套 SW Raster。HW-only 是完整产品主链；R4-C 未证明收益时保持关闭也可完成对应 profile 决策。
-
-## 当前代码入口
-
-`OEngine/src/render/passes/VisibilityPass.ts` 最终在 Meshlet 路径使用 `drawIndirect()`，`visibility_meshlet.ts`/`visibility_alpha_tested.ts` 是固定功能硬件光栅 shader。当前仓库没有 Compute triangle coverage、software atomic depth 或统一 SW/HW transfer 路径；但已经存在 GPU list count → indirect args → single `drawIndirect` Hardware consumer。因此 R4-A 先规范现有闭环，R4-C 再以 R3/R4-B 新 module 为上游，不在旧类中堆叠。
+- R3 已生成 `RasterWork(visibleClusterSlot, meshletRecordIndex)`、完整 16 B `drawIndirect`，生产 `PackedVisibilityPass` 直接消费。
+- 当前 Packed Hardware output 还不是 R4 冻结的 `VisibilityKey v1`。
+- 当前 alpha-tested 仍依赖按材质 bucket/list 的旧资源组织；它可作为画面 oracle，但必须迁移到 GPU Material Visibility record，不成为最终 per-material CPU draw loop。
+- 当前 Material Expand/Velocity 是 R4-B 删除对象，不应在 R4-A 复制成另一套长期 consumer。
 
 ## VisibilityKey v1
 
 ```text
-bits  0..6   localTriangle        0..127
-bits  7..31  visibleClusterSlot   0..33,554,430
-0xFFFFFFFF   empty; slot 0x1FFFFFF 整体保留
+bits  0..6   localTriangle      0..127
+bits  7..31  rasterWorkSlot     0..0x01FFFFFE
+slot         0x01FFFFFF         reserved
+0xFFFFFFFF   empty
 
-key = (visibleClusterSlot << 7) | localTriangle
+key = (rasterWorkSlot << 7) | localTriangle
+```
+
+Lookup：
+
+```text
+VisibilityKey
+→ RasterWork[rasterWorkSlot]
+→ visibleClusterSlot + meshletRecordIndex
+→ VisibleCluster[visibleClusterSlot]
+→ InstanceRecord + GeometryRecord + Material handle
+→ Meshlet triangle indices/attributes
 ```
 
 约束：
 
-- Meshlet 最多 128 triangles，由 Cooker validator 保证。
-- `visibleClusterSlot` 查 R3 `VisibleClusterTable`，再取得 Instance/Geometry/Cluster/Material。
-- key 是 frame-local，不可跨帧保存为对象身份；picking/debug 返回稳定 object ID 时必须回查。
-- 超过有效 slot 容量在工作生成阶段触发 budget/error，不截断高位。
-- final visibility attachment 使用 `r32uint`，depth 使用 `depth32float` reverse-Z。
+- Cooker/Package validator 保证每 Meshlet 最多 128 triangles。
+- 最大合法 `rasterWorkSlot` 为 `0x01FFFFFE`；整个 `0x01FFFFFF` slot 保留。RasterWork record capacity 还要取 adapter buffer limit 与 `0x01FFFFFF` 的较小值；TS/WGSL codec 必须用同一常量。
+- key 是 frame-local，不得写入跨帧对象身份、持久 picking ID 或 history identity；稳定 object ID 必须 lookup 后返回。
+- producer 无法证明 RasterWork 容量时明确 unsupported/error；不得截断高位或漏绘。
+- final visibility 为 `r32uint`，empty clear 为 `0xFFFFFFFF`。
 
-如果一个 hierarchy node 含多个 Meshlet，RasterWork 对每个 Meshlet持有同一个 visible cluster slot；`localTriangle` 是该 Meshlet 内索引。VisibleCluster record 或 RasterWork 必须能让 Resolve 唯一找到 meshlet。若 32 位 key 无法表达，应在 `VIS-01` 调整 lookup table 层次，而不是偷占深度位。
+选择 `rasterWorkSlot` 而不是 `visibleClusterSlot` 是必须条件：一个 selected Cluster 可以展开多个 Meshlet，后者不能唯一定位 triangle。
 
-## 软件光栅资源
+## R4-A Hardware 光栅契约
 
-| 资源 | 格式/大小 | Owner | 生命周期 |
+### Attachment 与深度
+
+| 输出 | 格式 | clear | 语义 |
 |---|---|---|---|
-| `swDepthAtomic` | `width × height × u32` | HybridVisibility | 仅 SW queue 非空/功能启用的帧 |
-| `swVisibilityAtomic` | `width × height × u32` | HybridVisibility | 同上 |
-| final Visibility | `r32uint` texture | unified visibility graph node | 本帧 resolve/debug consumer |
-| final Depth | `depth32float` | view render targets | HZB/resolve/lighting/history |
+| Visibility | `r32uint` | `0xFFFFFFFF` | frame-local key |
+| Depth | `depth32float` | `0.0` | reverse-Z far/empty |
 
-reverse-Z depth 范围为正浮点 `[0,1]`。将有限、clamped depth `bitcast<u32>` 后使用 `atomicMax`，0 表示 far/empty。NaN、负值和超范围在投影/clip 阶段拒绝或 clamp，不能进入原子比较。
+- Hardware Raster 是 final fragment depth 的规范 oracle。
+- SW/CPU reference 按 WebGPU rasterization 规则，对 clip 后顶点的 viewport depth 使用 framebuffer-space barycentric 插值。
+- reciprocal-W perspective correction 只用于 UV、position、normal/tangent 等 attributes，不套给 final Hardware depth。
+- alpha-tested 在 fragment discard 后才写 key/depth；opaque 和 alpha 必须共享 lookup 与 sentinel。
 
-## 两阶段 Compute 软件光栅
+### Material Visibility 子集
 
-### Stage 1 · SW Depth
+R4-A 冻结逻辑字段，不提前决定完整 MaterialRecord 的物理布局：
 
-1. 从 SW RasterWork 读取 Meshlet/triangle；
-2. clip near plane/viewport，背面规则与 HW cull mode 对齐；
-3. 计算保守屏幕包围盒；
-4. 使用固定点 top-left edge rule 测试像素中心；
-5. 计算 perspective-correct depth，转换为 ordered `u32`；
-6. `atomicMax(swDepthAtomic[pixel], depthBits)`。
+```text
+MaterialVisibilityRecord
+├─ alphaMode: opaque | mask
+├─ alphaCutoff
+├─ doubleSided
+├─ baseColorFactorAlpha
+├─ baseColorAlphaTextureRef | invalid
+├─ uvSet
+├─ uvTransformRef | identity
+└─ samplerClass
+```
 
-### Stage 2 · SW Visibility
+要求：
 
-重复相同 coverage/depth 算法。只有 `depthBits == atomicLoad(swDepthAtomic[pixel])` 时，执行 `atomicMin(swVisibilityAtomic[pixel], VisibilityKey)`。clear sentinel 是 `0xFFFFFFFF`。这提供同一 VisibleCluster table 内不依赖 workgroup执行顺序的 tie 选择。
+- `blend` 不进入 opaque Visibility，路由后续 Transparency。
+- 无纹理时只使用 factor alpha；invalid/未驻留纹理使用明确 fallback，不随机采样。
+- R4-A 可以用有界临时 visibility texture binding/table 接通正确性，但不得建立 per-material fullscreen 或 CPU 最终可见循环。
+- R4-B 的 Material/Texture owner 必须接管或无损映射该子集；不允许维护两个长期 alpha 真相来源。
 
-两阶段必须共享一份 coverage/depth WGSL 函数，避免数值细节不同导致 winner 无 key。
+### Hardware debug reconstruction
 
-## 与 Hardware Raster 合并
+R4-A 不做 PBR，但必须通过 key 唯一回查并输出 debug color：
 
-建议使用一个 Unified Visibility Render Pass：
+- rasterWork slot；
+- visible cluster；
+- meshlet/triangle；
+- instance/object；
+- material/alpha class；
+- invalid/empty。
 
-1. final Visibility clear 为 `0xFFFFFFFF`，final Depth clear 为 reverse-Z far `0.0`；
-2. SW queue 非空时画一次 fullscreen transfer：空像素 discard，其余写 `VisibilityKey` 和 `frag_depth`；
-3. 切到 Hardware Visibility pipeline，消费 HW `drawIndirect()`；
-4. depth compare 使用 reverse-Z `greater`，load 已有 SW 结果；精确同深度时 SW winner 保留；
-5. AlphaTest queue 使用同一 attachment/depth 语义，在 fragment alpha discard 后写 key。
+它是 R4-B 开始前的结构 Gate，而不是“已有类名”证明。
 
-当 SW feature 关闭或 SW queue 为 0 时，不分配/clear atomic buffers、不编码 SW compute/transfer，只执行 clear + Hardware。若实际 queue count 只在 GPU 可知，使用 indirect dispatch 和条件性工作；资源是否常驻由 profile 决定，但关闭 feature 必须完全裁掉。
+## R4-A 执行任务
 
-## Triangle coverage 契约
+### R4-A-01 · 冻结来源、Key 与 lookup ABI
 
-- 采用像素中心与 top-left fill convention，固定点精度在 `VIS-02` 通过边界测试冻结。
-- near-plane clip 后最多生成有限个三角形；clip overflow 有 counter 并路由 HW，不能漏面。
-- degenerate、零面积和超大屏幕包围盒路由 HW 或安全丢弃（仅真正退化）。
-- double-sided、front-face 和负 determinant transform 与 HW 一致。
-- perspective-correct attribute 不在 raster 阶段写 GBuffer；Resolve 由 key + depth 重建 barycentric。
-- MSAA 暂不进入 v1 SW visibility；若启用必须新增 sample-level ABI/ADR，不假装 per-pixel 结果等价。
+- 完成 [R4-A porting ledger](../references/porting/R4-A-01-unified-visibility-contract.md)。
+- 新建共享 TS schema/WGSL codec，覆盖 encode/decode/empty/invalid/max values。
+- 以 multi-Meshlet Cluster fixture 证明 `rasterWorkSlot → meshletRecordIndex` 唯一回查。
+- 冻结 capacity、sentinel 和 producer failure，不改 R3 Package ABI。
 
-## GPU 分类策略
+### R4-A-02 · Hardware opaque producer
 
-首版 classifier 只使用可测量字段：
+- Packed Hardware vertex/fragment path 写 `VisibilityKey v1 + reverse-Z depth`。
+- 继续消费 R3 `RasterWork + drawIndirect`；当前帧不得 readback count。
+- 定义 attachment owner、FrameGraph lifetime、resize/device-lost 和 feature-off 行为。
+- 增加 submitted/useful fragments 可观测值（能力允许时）与 invalid-key counter。
+
+### R4-A-03 · Material Visibility 与 alpha-tested
+
+- 冻结 `MaterialVisibilityRecord` TS/WGSL layout 或到现有 material table 的无损映射。
+- 从 GPU record 完成 alpha factor/texture/UV transform/cutoff discard。
+- 覆盖 opaque/mask/blend classification、double-sided、mirrored transform、invalid texture 和 sampler fallback。
+- CPU per-material bucket 只能作为迁移 oracle；生产 Packed alpha consumer 不得按最终可见对象回读或循环提交。
+
+### R4-A-04 · Hardware debug Resolve
+
+- 单次 debug pass 从 key 回查 RasterWork/VisibleCluster/Meshlet/Instance/Material。
+- 对 empty/invalid/max key fail-visible，debug 模式记录具体越界层级。
+- 保存 ID heatmap 和至少一个真实 glTF alpha fixture screenshot。
+
+### R4-A-05 · Overflow、生命周期与 feature-off
+
+- RasterWork/key capacity 不足必须 prepare 失败或明确 fallback，不截断画面。
+- resize、camera cut、view recreate、device lost 和 in-flight replacement 有测试。
+- debug/counter sampling 关闭时不保留无消费者 reducer/readback。
+
+### R4-A-06 · Paired 浏览器 Gate
+
+- A/B/C 使用相同分辨率、DPR、画质与 warm-up 规则运行旧画面 oracle/new key producer。
+- 保存 key/depth/debug screenshot、GPU time、queue/counter 与 WebGPU diagnostics。
+- R4-A 关闭只证明 Hardware contract；不宣称 Single Resolve 或 SW Raster 已完成。
+
+## R4-C Software/Hybrid 资源与固定成本
+
+| 资源 | 格式/大小 | Producer | Consumer |
+|---|---|---|---|
+| SW RasterWork queue | 任务 ABI 在 R4-C-05 冻结 | classifier | depth/key stages |
+| `swDepthAtomic` | `width × height × u32` | SW depth | SW key/merge |
+| `swVisibilityAtomic` | `width × height × u32` | SW key | merge |
+| indirect args | 12 B dispatch record | classifier/prepare | SW stages |
+| final Visibility/Depth | 与 R4-A 相同 | merge + HW | R4-B Resolve |
+
+两个原子屏幕缓冲约为 `8 B/pixel`，还需计入 clear、classifier、indirect 和 transfer/combine。
+
+```text
+feature off
+→ 不分配 SW queue/atomic buffers
+→ 不编码 classifier/SW/transfer Pass
+→ 零 SW readback
+
+feature on + GPU queue empty
+→ 可以用 indirect 令 triangle work为零
+→ 仍可能存在常驻资源、clear/classifier/combine 固定成本
+```
+
+后一种情况必须实测，不能冒充 feature-off。CPU 若不 readback，就不能因为本帧 GPU classifier 输出零而在同帧撤销已经编码的所有图节点。
+
+## R4-C 两阶段 Software Raster
+
+### 共享 coverage/depth 核心
+
+1. 从 SW RasterWork 读取 Meshlet/triangle。
+2. clip near plane/viewport；复杂 clip 或 overflow 路由 HW。
+3. 统一 winding、front-face、double-sided 和负 determinant 规则。
+4. 计算有限保守屏幕 bbox。
+5. 使用固定点 edge function 和 OEngine deterministic top-left 规则测试像素中心。
+6. 按 WebGPU 语义插值 post-clip viewport reverse-Z depth，clamp/validate 后 `bitcast<u32>`。
+
+由于有效 depth 在 `[0,1]`，正有限 float 的 bit pattern 保序。NaN、负值、超范围和 `w <= epsilon` 不进入 atomic；路由 HW 或按明确退化规则处理。
+
+### Stage 1 · depth winner
+
+```wgsl
+atomicMax(&swDepthAtomic[pixel], depthBits)
+```
+
+0 是 reverse-Z far/empty。
+
+### Stage 2 · key winner
+
+重复同一 coverage/depth 函数，仅当 `depthBits == atomicLoad(swDepthAtomic[pixel])` 时：
+
+```wgsl
+atomicMin(&swVisibilityAtomic[pixel], visibilityKey)
+```
+
+key clear 为 `0xFFFFFFFF`。这只保证当前帧、当前 key 集合内执行顺序无关；frame-local RasterWork slot 重排时不承诺跨帧 winner ID 稳定。
+
+### HW/SW merge
+
+首版允许 fullscreen transfer 写 final key 和 `frag_depth`，随后 Hardware path 以 reverse-Z `greater` 消费同一 attachments。必须测量 fullscreen cost，以及写 `frag_depth` 对 early-depth 优化的限制。若换成其他 combine，R4-B 看到的 attachment 与 lookup 契约不能变化。
+
+## Coverage 与 HW oracle 规则
+
+- OEngine SW 固定 top-left 是自身 deterministic 规则，不是所有 WebGPU HW 后端的 exact-edge 保证。
+- 非边界像素：CPU/SW/HW depth/key 必须 exact 或在冻结容差内。
+- 像素中心正好位于 shared edge：允许 HW/SW primitive owner 不同，但不得有 coverage hole、非法双 winner 或 surface 差异。
+- near clip/viewport edge 不越界；clip overflow、超大 bbox、unsupported primitive、alpha、MSAA 全部保守路由 HW。
+- MSAA 不进入 v1；未来需要 sample-level key/depth 时新增 ADR。
+
+## Classifier
+
+首版只使用可测字段：
 
 ```text
 projected cluster rectangle
 triangle count
-estimated average pixels/triangle
-clip/alpha/double-sided flags
-device profile threshold
-current SW queue pressure
+estimated pixels/triangle
+clip / alpha / double-sided flags
+adapter profile threshold
+SW queue pressure
 ```
 
-保守路由规则：alpha-tested、clip 复杂、超大 bbox、unsupported primitive 和 SW queue overflow 全部走 HW。阈值存于 capability/performance profile，不写死为跨 GPU 通用的 `16×16`。
+阈值不按 benchmark 名称分支，也不写死成跨 GPU 通用常数。alpha-tested、复杂 clip、超大 bbox、queue overflow 与 atomic hotspot 默认 HW。发布默认值来自目标 adapter 的 HW-only/SW-only/Hybrid paired sweep。
 
-每个 profile 至少通过 `HW only`、`SW only（支持范围）`、`Hybrid` 三种验证模式产生数据；发布默认值只从跨场景结果选择。
+## R4-C 执行任务
 
-## 执行任务
+### R4-C-01 · CPU coverage/depth oracle
 
-### VIS-01 · 冻结 key 与 lookup
+固定 edge precision、pixel center、clip、viewport depth 和退化规则；生成小分辨率 coverage/depth/key images。
 
-实现 TypeScript/WGSL encode/decode、empty、最大 slot/triangle、非法值测试。确认 multi-meshlet cluster 的唯一回查方式，然后冻结 VisibilityKey v1。
+### R4-C-02 · WGSL coverage prototype
 
-### VIS-02 · CPU coverage reference
+直接输入少量三角形，不接主帧；对 winding、subpixel、near clip、viewport edge、shared edge 和 degenerate 做 GPU/CPU 对照。
 
-实现小型 CPU reference，覆盖 winding、top-left 共享边、subpixel、near clip、viewport edge、reverse-Z、透视和 degenerate。生成期望 depth/key images。
+### R4-C-03 · SW depth stage
 
-### VIS-03 · SW depth prototype
+接 `u32 atomicMax`、clear 和 counter；验证 reverse-Z winner、NaN/invalid 拒绝、atomic contention 和资源字节。
 
-先对直接输入的少量三角形实现 atomic depth，不接主帧。与 CPU reference 逐像素比较，并记录 clear/coverage/atomic contention。
+### R4-C-04 · SW key tie stage
 
-### VIS-04 · SW visibility tie stage
+接共享 coverage/depth 和 `atomicMin`；验证完全重叠、多 workgroup、不同 dispatch 顺序、empty sentinel 和帧内 order independence。
 
-接入第二阶段和 deterministic `atomicMin`。验证完全重叠、共享边、多 workgroup、不同提交顺序和 empty sentinel。
+### R4-C-05 · R3 seam classifier/queue
 
-### VIS-05 · 从 R3 work seam 建立 SW queue
+从同一 selected Cluster/RasterWork seam 产生 HW/SW work 与完整 indirect args。队列登记 ABI、capacity、attempted/written/peak/overflow/fallback；SW overflow 整组回退 HW。
 
-R3 只冻结 VisibleCluster/Hardware RasterWork seam，不预先分配无 consumer 的 SW queue。R4-C 的 classifier 从该 seam 建立 SW RasterWork 和 indirect dispatch args；SW queue capacity 不足自动回退 HW，并记录原因。
+### R4-C-06 · Unified merge
 
-### VIS-06 · Fullscreen transfer + HW merge
+SW/HW/Alpha 写 R4-A final attachments。逐像素对照 Hardware oracle，按“非边界 exact、exact-edge invariant”判定。
 
-让 SW/HW/Alpha 输出同一 final attachments；逐像素对照 HW-only reference，重点检查路径交界、reverse-Z 和同深度。
+### R4-C-07 · Profile 与固定成本
 
-### VIS-07 · Hardware 属性重建 Gate
+扫 triangle size、bbox、visible ratio、atomic overdraw 和 queue pressure；报告 SW buffers、clear、classifier、depth/key/merge P50/P95/P99。B/C 普通三角形不能因 feature-on 固定成本明显退化。
 
-在 R4-B 前用 Hardware path 做最小 attribute resolve/debug color，证明 key 能唯一回查 instance、meshlet、triangle 和 barycentric。R4-C 完成后复用同一 Gate 对照 SW/HW，不新增第二套 lookup。
+### R4-C-08 · same-frame late visibility（条件任务）
 
-### VIS-08 · 分类器与 profile
+只有 R1/R3 evidence 证明 second chance 有收益才接入；复用相同 queue/key/merge，不建立第二套 Visibility。
 
-扫 projected size、triangles/cluster、可见比例和 SW queue pressure，在至少目标离散/集成 GPU 类别上记录交叉点。阈值包含版本和 adapter profile fallback。
+### R4-C-09 · 默认策略与删除
 
-### VIS-09 · same-frame late visibility
+- 若目标微三角形 workload 有稳定收益：按 adapter profile 默认 Hybrid。
+- 若无收益：SW 默认关闭，保存 reject/profile 证据；HW-only 仍是完整产品主链。
+- 新模块覆盖 opaque/alpha 后，删除旧 Visibility owner、旧 shader 和只服务旧 ID attachment 的资源。
 
-如果 R1/R3 数据证明 second chance 有收益，让 late work 继续使用相同 VisibleCluster/key/merge 契约。无收益时 graph 裁掉，不建立另一套 Visibility。
+## Counters 与 debug
 
-### VIS-10 · 删除旧 Visibility
+至少记录：SW/HW/Alpha classified work、triangles、bbox pixels、coverage、depth atomic attempts/wins、tie attempts、clip/queue fallback、transfer pixels、invalid lookup、atomic buffer bytes 和各阶段 GPU time。
 
-新 HW/Hybrid 完整覆盖 opaque/alpha 后，删除旧 `VisibilityPass`、旧 visibility shader 与只服务旧 mesh/triangle ID attachment 的资源。HW fallback 保留在新模块中。
+Debug views：path classification、SW depth、SW key、final key、lookup layer、shared-edge、triangle-size heatmap、atomic overdraw、invalid/empty。
 
-## Counters 与 debug views
+## Gate
 
-至少记录：classified SW/HW/Alpha clusters、triangles、SW bbox pixels、coverage pixels、depth atomic attempts/wins、tie attempts、clip fallback、SW queue fallback、transfer pixels、HW fragments（可测时）和各阶段 GPU time。
+### G4-A
 
-Debug views：SW/HW 分类、software atomic depth、software key、final key、路径边界、triangle size heatmap、atomic overdraw、empty/invalid lookup。
+- `VisibilityKey v1` 对 multi-Meshlet Cluster 唯一。
+- Hardware opaque/alpha 输出正确 key/depth；overflow/fallback/lifecycle 明确。
+- debug reconstruction 和真实浏览器 glTF fixture 通过，无 validation/uncaptured error。
+- 生产 consumer 保持 GPU producer → `drawIndirect` → GPU output，当前帧不读回可见数。
 
-## 验收
+### G4-C
 
-### 正确性
-
-- CPU reference、HW-only、SW-only 和 Hybrid 在规定支持范围内深度/ID 一致；容许的浮点误差必须量化。
-- 共享边无裂缝，near clip/viewport edge 不越界，invalid key 不进入 Resolve。
-- SW overflow/unsupported 全部路由 HW，无静默漏绘。
-- resize、camera cut、feature toggle、device lost 正确重建/裁掉 SW resources。
-
-### 性能
-
-- A 的微三角形 sweep 显示 Hybrid 相对新 HW-only 的收益区间和交叉点。
-- B/C 普通/大三角形场景不得因 SW 固定资源、clear 或 transfer 明显退化。
-- 两阶段额外带宽、atomic contention、transfer 成本与节省的 HW primitive 成本同时报告。
-- 跨 GPU profile 没有通用收益时，默认路由 HW，但保留已验证的同契约可选 Hybrid；不得宣称软件路径普遍更快。
-
-## 回退与失败条件
-
-- 两阶段成本始终高于 HW：保留 HW 主路径，将 SW 默认关闭；继续研究前先保存证据，不为“架构完整”强开。
-- depth/key 不一致：停止 classifier 调优，修复共享 coverage/depth 函数。
-- 原子热点导致长尾：缩小 SW 适用 bbox/coverage，热点工作路由 HW。
-- 某 adapter 原子或 storage 性能异常：capability profile 禁用 SW，Unified Visibility 输出契约不变。
-- 32 位 key 容量不满足真实场景：在 R4-B 前新增 ADR 并改 lookup 方案，不压缩 depth 精度。
-
-## 阶段退出
-
-R4-A 退出：Hardware path 的 key/depth/lookup/alpha/overflow 正确并可供 R4-B 消费。R4-C 退出：Hardware/Software/Hybrid 输出一致 VisibilityKey/depth/Resolve；Hybrid 在目标微三角形 workload 有证明的收益，普通场景无明显退化。若 HW-only 更快，则记录结论并保持 SW 默认关闭，不把它判定为主链失败。
+- CPU/SW/HW 在支持域内按冻结规则一致；路径交界无裂缝或漏绘。
+- feature off 真正零 SW 资源/Pass；feature-on empty 固定成本被单独报告。
+- A 微三角形 sweep 给出收益区间和 crossover；B/C 无不可解释回退。
+- 没有跨 adapter 通用收益时，默认 HW，并把该结论视为合法 profile 结果而不是强开 SW。
