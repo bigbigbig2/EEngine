@@ -117,6 +117,8 @@ R4-A 不做 PBR，但必须通过 key 唯一回查并输出 debug color：
 
 ### R4-A-01 · 冻结来源、Key 与 lookup ABI
 
+工作项已于 2026-08-28 验收，治理状态为 `Implemented`。`OEngine/src/gpu/GpuVisibilityKeyAbi.ts` 已以同一组 TS 常量生成 WGSL codec，并冻结 `0xFFFFFFFF` empty、完整 reserved slot、最大 RasterWork capacity、adapter limit 与显式 producer failure；`OEngine/tests/gpu-visibility-key-abi.test.mjs` 已覆盖 multi-Meshlet 唯一回查。R3 Work Generation/Package ABI 未修改；生产接线、GPU 证据与 `Completed` 状态属于 `R4-A-02..06`。
+
 - 完成 [R4-A porting ledger](../references/porting/R4-A-01-unified-visibility-contract.md)。
 - 新建共享 TS schema/WGSL codec，覆盖 encode/decode/empty/invalid/max values。
 - 以 multi-Meshlet Cluster fixture 证明 `rasterWorkSlot → meshletRecordIndex` 唯一回查。

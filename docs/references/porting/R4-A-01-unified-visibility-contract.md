@@ -1,6 +1,6 @@
 # R4-A-01 · Unified Hardware Visibility Contract
 
-Status: source freeze / implementation pending
+Status: implemented 2026-08-28 / Hardware producer pending in R4-A-02
 
 ## Reference ID
 
@@ -130,11 +130,36 @@ depth32float reverse-Z
 
 ## Local tests/examples
 
-Planned：
+Implemented：
 
 ```text
-TS/WGSL VisibilityKey codec and generated ABI test
-multi-Meshlet Cluster round-trip fixture
+OEngine/src/gpu/GpuVisibilityKeyAbi.ts
+  shared TS schema/constants and generated WGSL codec
+  strict encode/decode/empty/invalid/max behavior
+  adapter-aware RasterWork capacity and explicit producer failure
+  CPU VisibilityKey -> RasterWork -> VisibleCluster lookup reference
+
+OEngine/tests/gpu-visibility-key-abi.test.mjs
+  TS/WGSL generated constant parity
+  reserved slot, empty, maximum and rejected input boundaries
+  key-limit/header/adapter capacity cases
+  multi-Meshlet Cluster unique lookup and invalid table ranges
+```
+
+本步骤没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI 对 lookup 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
+
+Validation：
+
+```text
+cd OEngine
+npm run build:test
+node --test tests/gpu-visibility-key-abi.test.mjs
+result: 6/6 passed
+```
+
+Planned by later R4-A tasks：
+
+```text
 Hardware opaque/alpha key + depth GPU readback oracle
 examples/r4-unified-visibility
 A/B/C paired browser artifact with debug screenshots
