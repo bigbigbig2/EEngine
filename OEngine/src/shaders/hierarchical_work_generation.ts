@@ -426,6 +426,10 @@ fn r3_write_work_counters() {
   let selected_word = (round_count + 1u) * 8u;
   scene_overflow |= raster_work_evidence[selected_word + 3u];
   let root_visible = raster_work_evidence[0u];
+  let selected_cluster_count = min(
+    raster_work_evidence[selected_word],
+    raster_work_evidence[selected_word + 5u]
+  );
   let raster_count = atomicLoad(&raster_work_output.header.written);
   atomicAdd(
     &raster_work_counters[R3_COUNTER_CANDIDATE_INSTANCES],
@@ -440,7 +444,10 @@ fn r3_write_work_counters() {
     &raster_work_counters[R3_COUNTER_CANDIDATE_CLUSTERS],
     candidate_clusters
   );
-  atomicAdd(&raster_work_counters[R3_COUNTER_SELECTED_CLUSTERS], raster_count);
+  atomicAdd(
+    &raster_work_counters[R3_COUNTER_SELECTED_CLUSTERS],
+    selected_cluster_count
+  );
   atomicAdd(&raster_work_counters[R3_COUNTER_HW_CLUSTERS], raster_count);
   atomicAdd(&raster_work_counters[R3_COUNTER_HW_TRIANGLES], raster_count * 128u);
   if scene_overflow != 0u {

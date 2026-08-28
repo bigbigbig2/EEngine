@@ -128,7 +128,7 @@ function finishPage(
   result: BenchmarkResult
 ): void {
   const evidence = validateBenchmarkEvidence(result);
-  const counterIssues = validateCounterInvariants(result);
+  const counterIssues = validateCounterInvariants(result, visibility);
   const diagnostics = result.diagnostics;
   const runtimeClean = diagnostics.validationErrorCount === 0 &&
     diagnostics.uncapturedErrorCount === 0 &&
@@ -170,7 +170,10 @@ function finishPage(
   });
 }
 
-function validateCounterInvariants(result: BenchmarkResult): string[] {
+function validateCounterInvariants(
+  result: BenchmarkResult,
+  visibility: "hierarchy" | "flat"
+): string[] {
   const issues: string[] = [];
   const expectedPixels = result.environment.frame.internalWidth * result.environment.frame.internalHeight;
   for (const frame of result.frames) {
@@ -187,16 +190,29 @@ function validateCounterInvariants(result: BenchmarkResult): string[] {
       counters.rejectedFrustum !== undefined &&
       counters.candidateInstances !== counters.visibleInstances + counters.rejectedFrustum
     ) issues.push(`frame ${frame.frameIndex}: instance partition`);
-    if (
-      counters.selectedClusters !== undefined &&
-      counters.hwClusters !== undefined &&
-      counters.alphaClusters !== undefined &&
-      counters.selectedClusters !== counters.hwClusters + counters.alphaClusters
-    ) issues.push(`frame ${frame.frameIndex}: cluster partition`);
+    if (visibility === "flat") {
+      if (
+        counters.selectedClusters !== undefined &&
+        counters.hwClusters !== undefined &&
+        counters.alphaClusters !== undefined &&
+        counters.selectedClusters !== counters.hwClusters + counters.alphaClusters
+      ) issues.push(`frame ${frame.frameIndex}: flat RasterWork partition`);
+    } else {
+      if (
+        counters.candidateClusters !== undefined &&
+        counters.selectedClusters !== undefined &&
+        counters.selectedClusters > counters.candidateClusters
+      ) issues.push(`frame ${frame.frameIndex}: hierarchy selected exceeds visited`);
+      if (
+        counters.selectedClusters !== undefined &&
+        counters.hwClusters !== undefined &&
+        counters.hwClusters < counters.selectedClusters
+      ) issues.push(`frame ${frame.frameIndex}: RasterWork below selected Cluster count`);
+    }
     if (
       counters.hwTriangles !== undefined &&
-      counters.selectedClusters !== undefined &&
-      counters.hwTriangles !== counters.selectedClusters * 128
+      counters.hwClusters !== undefined &&
+      counters.hwTriangles !== counters.hwClusters * 128
     ) issues.push(`frame ${frame.frameIndex}: hardware triangle count`);
   }
   return issues;

@@ -15,6 +15,7 @@
 - flat candidate Meshlets 与 hierarchy visited nodes/selected clusters/RasterWork 同时报告；减少 candidate 不等于总 GPU 时间改善。
 - 记录 encoded/effective/empty traversal rounds、每轮 input/output、queue attempted/written/peak/overflow/fallback。
 - paired flat/hierarchy 必须使用相同 Scene、相机、分辨率、DPR、画质和 Hardware consumer，并同时报告 traversal 新增成本与 raster 减量。
+- paired counter 按 implementation 解读：flat 的 `candidateClusters/selectedClusters/hwClusters` 都是 Meshlet work；hierarchy 分别是 visited hierarchy nodes、VisibleCluster records 与 RasterWork Meshlets。`hwTriangles` 始终以 `hwClusters × 128` 表示固定上限提交量，禁止拿 VisibleCluster 数代算。
 - 高密度胜例和简单低密度回退都进入结果；没有 paired artifact 前不宣称 hierarchy 更快。
 - work queue 的 resident/transient bytes 和 `maxCutMeshlets` 保底容量随 Instance/Geometry 轴输出扩展曲线。
 

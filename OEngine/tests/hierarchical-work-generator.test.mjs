@@ -249,6 +249,14 @@ test("R3-B pressure capacity is bounded and WGSL keeps the frozen producer invar
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /first_instance = 0u/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /@builtin\(num_workgroups\)/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /workgroup_count_y: atomic<u32>/);
+  assert.match(
+    HIERARCHICAL_WORK_GENERATION_WGSL,
+    /R3_COUNTER_SELECTED_CLUSTERS\],\s*selected_cluster_count/s
+  );
+  assert.match(
+    HIERARCHICAL_WORK_GENERATION_WGSL,
+    /R3_COUNTER_HW_CLUSTERS\], raster_count/
+  );
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /oengine_try_reserve_work_group/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /atomicMax\(&\(\*args\)\.workgroup_count_x/);
   assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, /texture_2d|texture_storage/);
