@@ -18,6 +18,7 @@
 - paired counter 按 implementation 解读：flat 的 `candidateClusters/selectedClusters/hwClusters` 都是 Meshlet work；hierarchy 分别是 visited hierarchy nodes、VisibleCluster records 与 RasterWork Meshlets。`hwTriangles` 始终以 `hwClusters × 128` 表示固定上限提交量，禁止拿 VisibleCluster 数代算。
 - 高密度胜例和简单低密度回退都进入结果；没有 paired artifact 前不宣称 hierarchy 更快。
 - work queue 的 resident/transient bytes 和 `maxCutMeshlets` 保底容量随 Instance/Geometry 轴输出扩展曲线。
+- R3-C clean/full paired 已证明：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。因此 R3-D 首先 profile/优化 `workgroup_size(1)` 的 InstanceCull、round 0 和 VisibleCluster expansion，不用减少的 work count 代替总时间 Gate。
 
 ## R1 已冻结口径
 

@@ -1,6 +1,6 @@
 # R3-01 · Cluster hierarchy GPU work generation
 
-Status: R3-A/R3-B 已完成；R3-C Hardware vertical 已实现并进入 paired full 证据采集；R3-D 仍为 planned
+Status: R3-A/R3-B/R3-C 已完成；R3-D 仍为 planned / next；G3 尚未关闭
 
 Reference ID: `R3-01`
 
@@ -214,6 +214,8 @@ R3 只消费 R2 已冻结的 Meshlet、bounds/cone、Cluster hierarchy 和 geome
 
 必须运行同条件 flat/hierarchy paired A/B/C，记录：visited/selected/raster work、encoded/effective/empty rounds、queue bytes/peak/overflow/fallback、submitted/useful triangles、CPU encode、GPU traversal/raster/frame P50/P95/P99。简单低密度场景也必须报告，不能只选择远景胜例。
 
+R3-C clean/full paired 证据已于 2026-08-28 基于 commit `0b77ce8cf67e110aef5d6cf82ee9e0e2f9c837d0` 采集，环境为 NVIDIA Turing / Chrome 150 / 1280×720 / DPR 1 / 60 warm-up + 180 sample frames。六组 artifact 均 clean、gate eligible、zero counter issue/overflow/WebGPU diagnostics。结果：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 Visibility P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。A 的当前瓶颈是三个 `workgroup_size(1)` 大规模阶段，因此证据不支持 hierarchy 普遍更快；R3-D 先优化并行粒度、queue bandwidth 和低密度固定成本，再重跑 paired Gate。完整分位数见 [05 实施文档](../../implementation/05-hierarchical-work-generation.md) 与 [PERFORMANCE](../../PERFORMANCE.md)。
+
 ## Fallback 与失败行为
 
 - children queue 预约失败：选择当前 renderable parent，记录 raw attempted/overflow/fallback；
@@ -232,10 +234,10 @@ R3-A complete: TS/WGSL queue ABI and complete 12 B dispatch / 16 B draw indirect
 R3-B complete: tests/hierarchical-work-generator.test.mjs（owner、真实 depth rounds、feature-off、runtime-array binding size）
 R3-B complete: examples/r3-hierarchical-work-generation（live GPU ping/pong、empty rounds、capacity fallback、GPU/CPU selected-set）
 R3-B live: Perspective 68、Orthographic 16、empty 0、pressure fallback 3；shader/validation/uncaptured/console errors 均为空
-R3-C implemented: VisibleCluster → RasterWork → complete 16 B drawIndirect → production Packed Hardware Visibility consumer
+R3-C complete: VisibleCluster → RasterWork → complete 16 B drawIndirect → production Packed Hardware Visibility consumer
 R3-C regression: tests/gpu-work-generation-abi.test.mjs、tests/hierarchical-work-generator.test.mjs、Shader source audit、examples/r3-hierarchical-work-generation GPU/CPU RasterWork oracle
 R3-C live oracle: Perspective/Orthographic/empty/pressure 的 VisibleCluster、RasterWork 与完整 indirect record 对齐；validation/uncaptured errors 为空
-Performance pending: fixed A/B/C flat-vs-hierarchy paired full artifacts
+R3-C paired complete: A/B/C 六组 clean/full JSON + `*-visual.png`，commit `0b77ce8`，`gateEligible=true`、zero counter issue/overflow/diagnostics
 ```
 
-R3-C 的生产 Hardware vertical 已接通，但 paired full artifact 尚未登记前不关闭 R3-C 性能退出条件；flat producer 删除、Cone/HZB 和 G3 收口仍属于 R3-D。
+R3-C 的生产 Hardware vertical、GPU/CPU oracle 和 paired full 退出条件已关闭；A 的 producer 回退已作为真实债务转入 R3-D，不被胜例掩盖。flat producer 删除、Cone/HZB、feature-off 和 G3 收口仍属于 R3-D。

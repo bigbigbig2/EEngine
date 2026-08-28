@@ -56,7 +56,7 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 - Packed Material 已删除每 vertex 重复 descriptor 扫描、错误 fullscreen derivative 和重复 viewport mapping；但每材质 fullscreen 循环仍存在，R4-B 前不得把局部降本当作 single resolve 完成。
 - Packed Velocity 已将 `previous * inverse(current)` 从每可见像素移到 Instance bulk/patch，并对奇异 motion 输出零；尚缺同条件浏览器 timestamp，当前只登记结构工作量消除，不声明 GPU 百分比。
 - Visibility、material depth、四张 GBuffer、HDR 和 history 产生较大全分辨率带宽。
-- 主链缺少 hierarchy/SSE LOD；Compute micro-raster 是待 profile 的可选优化，不是唯一根因。
+- 生产 Packed 主链已接 hierarchy/SSE LOD 与 Hardware indirect consumer，但当前 InstanceCull、round 0 和 VisibleCluster expansion 使用的 `workgroup_size(1)` 在 A 大规模场景中成为主要瓶颈；Compute micro-raster 仍是待 profile 的可选优化，不是唯一根因。
 - Shader runtime owner 已有静态审计，但 6 个运行中的 oracle/generated 事实源仍没有 generator/所有权闭环，也尚未建立系统的性能和视觉回归。
 
 这些是待测风险，不得在没有分段数据时把总慢归因于单一 LOD 或单一 Pass。
@@ -81,6 +81,30 @@ C 的 HZB counter 在最终提交前发现只统计 primary view 3 builds，但 
 G1 的结构硬门槛已全部关闭：一次 main submit、非采样零 readback、scene prepare 一次、warm graph 不 rebuild/compile、逐 mip HZB Render Pass 为零、feature off 无对应 owner/Pass/history/readback/timestamp/submit、持久资源安全退休。
 
 R1 修改前没有同条件 clean/full bundle，因此无法诚实计算 CPU/GPU paired 百分比。R1 只声明减少了 submit、graph rebuild、持续 readback 和逐 mip Render Pass 这些结构工作，不声明总帧性能提升。尤其 A full 的 CPU P50 仍为 260.5 ms，说明 flat 160k instance/meshlet 路径远未达到最低性能线；下一步必须通过 R2 compact data/Packed Instances 和 R3 hierarchy/SSE 在展开前真正减量，而不是继续把 R1 当性能完成证明。详细实现证据见 [R1 文档](./implementation/02-runtime-submit-and-framegraph.md)。
+
+## R3-C paired 证据与结论
+
+2026-08-28 在 clean commit `0b77ce8cf67e110aef5d6cf82ee9e0e2f9c837d0` 上完成 A/B/C flat-vs-hierarchy full 对照。环境为 NVIDIA Turing、Chrome 150、1280×720、DPR 1，每组 60 warm-up + 180 sample frames，GPU timestamp/counter 每 6 帧采样。六组均为 `dirty=false`、`gateEligible=true`、`counterIssues=0`、`queueOverflowMask=0`，validation/uncaptured/device-lost/failed timestamp/failed counter diagnostics 均为 0。A/B 各有 1 个 SW Visibility blocker，C 有 Cone + SW Visibility 两个 blocker；这些诚实 unsupported 不使 artifact 失效，也不反向宣称 A/B 已完成最终能力对齐。
+
+时间为 P50/P95/P99，单位 ms。`Producer` 包含 InstanceCull、hierarchy rounds、RasterWork preparation/expansion 及对应 evidence；`Visibility total` 是 Producer + Hardware Raster。
+
+| Case | 模式 | Producer | Hardware Raster | Visibility total | RasterWork |
+|---|---|---:|---:|---:|---:|
+| A | hierarchy | 112.427 / 116.651 / 117.288 | 10.289 / 10.355 / 10.355 | 122.749 / 126.940 / 127.624 | 273,750 |
+| A | flat | 1.114 / 1.311 / 1.311 | 106.562 / 107.243 / 107.479 | 107.577 / 108.357 / 108.593 | 2,776,888 |
+| B | hierarchy | 5.767 / 6.685 / 6.731 | 10.355 / 10.551 / 10.551 | 16.253 / 17.105 / 17.151 | 281,286 |
+| B | flat | 0.262 / 0.262 / 0.262 | 53.150 / 53.710 / 53.740 | 53.412 / 53.972 / 54.002 | 1,437,568 |
+| C | hierarchy | 0.328 / 0.328 / 0.328 | 0 / 0.066 / 0.066 | 0.328 / 0.393 / 0.393 | 127 |
+| C | flat | 0 / 0.066 / 0.066 | 0 / 0.066 / 0.066 | 0.066 / 0.066 / 0.066 | 127 |
+
+分场景结论：
+
+- A：RasterWork 减少约 90.1%，Hardware Raster P50 从 106.562 ms 降至 10.289 ms，但 Producer P50 升至 112.427 ms，Visibility total 仍回退约 14.1%。主要债务为 `workgroup_size(1)` InstanceCull 约 35.6 ms、round 0 约 37.8 ms、VisibleCluster expansion 约 38.5 ms。
+- B：RasterWork 减少约 80.4%，Visibility total P50 从 53.412 ms 降至 16.253 ms，改善约 69.6%；这是当前 hierarchy 能够降低总 GPU Visibility 成本的明确胜例。
+- C：两路均生成 127 RasterWork，`shadedPixels=187,368`，但 hierarchy 比 flat 多约 0.262 ms 固定成本；这是 R3-D 必须保留的低密度回退例，不能从报告中删掉。
+- 视觉：A hierarchy/flat 的 `shadedPixels` 约差 2.4%，`*-visual.png` 显示为预期 LOD 轮廓差异，无明显破洞；B 基本一致，C 画面与像素计数一致。只登记带 `-visual` 后缀的截图，窄 viewport 的早期截图不作证据。
+
+这些数据关闭 R3-C Hardware vertical 与 paired 退出条件，但不关闭 G3，也不支持“hierarchy 普遍更快”。R3-D 必须先解决 workgroup 粒度、queue bandwidth 和低密度固定成本，再加入 Cone/previous HZB，删除 flat producer/owner 后重跑同条件 A/B/C。本地 JSON 与截图位于 `temp/r3c-0b77ce8-artifacts/`，`temp/` 不纳入 Git。
 
 ## 性能变更完成标准
 

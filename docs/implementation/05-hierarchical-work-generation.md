@@ -1,12 +1,12 @@
 # 05 · R3 层次工作生成与 Hardware Consumer
 
-Status: R3-A、R3-B Completed；R3-C～R3-D 尚未实现
+Status: R3-A、R3-B、R3-C Completed；R3-D Planned / Next；G3 尚未关闭
 
 长期决策见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md)，上游来源、许可证与采用边界见 [R3-01 移植登记](../references/porting/R3-01-hierarchical-work-generation.md)。本文件只拥有执行顺序、工程契约、验证和删除条件。
 
 ## 阶段目标
 
-R2 已经把 Meshlet、可渲染 Cluster hierarchy、Geometry/Cluster/Meshlet GPU records 和 Packed Instances 驻留到 GPU，但当前生产路径仍由 `compact_packed_meshlets()` 对每个 Instance 遍历该 Geometry 的全部 Meshlet。R3 要在大规模 Meshlet 展开前完成实例剔除、Cluster hierarchy/SSE 选择和 compact work generation，并继续由现有 fixed-function Hardware Visibility `drawIndirect()` consumer 消费：
+R2 已经把 Meshlet、可渲染 Cluster hierarchy、Geometry/Cluster/Meshlet GPU records 和 Packed Instances 驻留到 GPU。R3-C 已经在大规模 Meshlet 展开前完成实例剔除、Cluster hierarchy/SSE 选择和 compact work generation，并由现有 fixed-function Hardware Visibility `drawIndirect()` consumer 直接消费。旧 `compact_packed_meshlets()` 现在只作为内部 paired reference，待 R3-D 删除：
 
 ```text
 Packed InstanceTable + resident Geometry/Cluster/Meshlet tables
@@ -21,7 +21,7 @@ Packed InstanceTable + resident Geometry/Cluster/Meshlet tables
 
 从 RootTraversalQueue 开始，数量和工作项全部由 GPU 产生并由 GPU 消费。CPU 只提供 view、驻留表、配置、容量和 FrameGraph topology；不得 readback 可见数量来决定当前帧 draw/dispatch。
 
-R3 的性能假设是“层次选择减少 Raster 前工作量后，总 GPU 时间在目标高密度场景下降”。在 A/B/C paired benchmark 完成前，不得仅凭 GPU-driven、较少 candidate 或单次 draw 宣称更快。
+R3 的性能假设是“层次选择减少 Raster 前工作量后，总 GPU 时间在目标高密度场景中下降”。R3-C paired 数据只在 B 证明该假设；A 虽减少 90.1% RasterWork，但总 Visibility P50 因三个大规模 `workgroup_size(1)` 阶段回退 14.1%；C 则暴露约 0.262 ms 固定成本。因此不得宣称 hierarchy 普遍更快，R3-D 必须继续处理粒度、queue bandwidth 和低密度短路。
 
 ## 首版冻结决策
 
@@ -63,9 +63,9 @@ R3 的真实 consumer 是 Hardware Visibility。SW/Hybrid 属于 R4-C：
 
 | 当前入口 | 当前事实 | R3 处理 |
 |---|---|---|
-| `OEngine/src/shaders/packed_visibility.ts` | 一个 Instance invocation 遍历 Geometry 全部 Meshlet | R3-C 被 hierarchy producer + RasterWork 替换，R3-D 删除 |
-| `OEngine/src/render/passes/PackedVisibilityPass.ts` | flat Compute producer 后执行 single `drawIndirect()` | 保留 Hardware vertex pulling/Visibility 输出不变量；重构为 Work Generator 输出的 consumer |
-| `OEngine/src/gpu/GpuPackedSceneRegistry.ts` | 长期 Scene 关联与 frame-local flat work buffer 混在同一 owner | 保留 Scene/asset/instance/material 关联；flat queue/indirect owner 迁到 Work Generator 后删除 |
+| `OEngine/src/shaders/packed_visibility.ts` | hierarchy Hardware consumer 读取 RasterWork；flat producer 仍可由内部 paired 开关启用 | R3-C 已替换生产 work 输入；R3-D 删除 flat producer 分支 |
+| `OEngine/src/render/passes/PackedVisibilityPass.ts` | 生产 hierarchy 路径直接消费 RasterWork 和 16 B indirect record；flat 只用于 paired reference | 保留 Hardware vertex pulling/Visibility 输出不变量；R3-D 删除 paired flat 接线 |
+| `OEngine/src/gpu/GpuPackedSceneRegistry.ts` | 长期 Scene 关联与待删的 frame-local flat work owner 仍并存 | 保留 Scene/asset/instance/material 关联；R3-D 删除 flat queue/indirect owner |
 | `OEngine/src/geometry/GeometryHierarchy.ts` | CPU selector 主要验证单资产 object-space hierarchy | R3-A 升级成 multi-instance CPU oracle，不进入性能主帧 |
 | `OEngine/src/geometry/GeometryBvh8.ts` | 所有 Cluster 的独立空间索引 | R3 v1 不消费；保留 package/validator，后续由证据决定 |
 | legacy `MeshletDrawList`/bucket/scan/expand | 旧 Scene consumer | Packed R3 通过后核对调用方；只删除已被统一新链替换且无 consumer 的部分 |
@@ -344,7 +344,7 @@ R3 只拆成四个可运行包；包内可以有提交，但不得把“类存�
 - live WebGPU 结果为 `passed=true`：Perspective 68、Orthographic 16、empty 0、capacity parent fallback 3 个 selected Cluster，四组 GPU set 均与 CPU oracle 完全一致；pressure case 首轮 `attempted=6/written=0/overflow=1/fallback=3/capacity=1`。Shader diagnostics、validation、uncaptured errors 与 console errors 均为空。
 - 浏览器验证额外冻结 runtime-array binding 最小尺寸：Traversal queue 为 `32 + 8 = 40 B`，VisibleCluster queue 为 `32 + 16 = 48 B`；Node regression 防止回退到仅 header 的无效布局。
 - 定向 R3-A/R3-B/source-audit 回归为 20/20；完整 `npm test` 为 152/152，OEngine production build、test compilation 与 examples production build 均通过。
-- R3-B 只关闭 GPU selected-set producer。RasterWork、完整 16 B draw indirect producer、Hardware Visibility consumer、paired A/B/C 性能与 flat 链删除仍由 R3-C/R3-D 阻塞，因此 G3 仍未关闭。
+- R3-B 只关闭 GPU selected-set producer。其当时未完成的 RasterWork、16 B draw indirect producer、Hardware consumer 和 paired A/B/C 现已由 R3-C 关闭；flat 链删除、Cone/HZB 与性能债务仍由 R3-D 阻塞 G3。
 
 ### R3-C · Hardware Vertical Closure
 
@@ -360,17 +360,40 @@ R3 只拆成四个可运行包；包内可以有提交，但不得把“类存�
 
 退出证据：真实 GPU producer → GPU consumer 闭环，不 readback 决定 draw；Visibility/Depth reference/截图无回归；目标高密度场景同时报告减少的工作与新增 traversal/dispatch 成本；低密度回退在门槛内或有同 ABI 短路径提案。
 
-### R3-D · Cone/HZB、删除与 G3 收口
+当前状态（2026-08-28）：Completed；性能债务转入 R3-D，G3 仍未关闭。
+
+- `HierarchicalWorkGenerator` 在 GPU 上把 VisibleCluster 展开为 `RasterWork(visibleClusterSlot, meshletRecordIndex)`，并完整写入 `[384, written, 0, 0]` 的 16 B `drawIndirect` record；生产 `PackedVisibilityPass` 直接 vertex-pull 该 queue，当前帧不读回 count。
+- 超过 65,535 的线性 indirect workgroup count 在不改变 12 B ABI 的前提下映射为二维 dispatch，WGSL 用 `num_workgroups.x` 还原线性 invocation；16 万 workgroup 回归锁定为 `65,535 × 3`。
+- evidence 分开登记 VisibleCluster `selectedClusters` 和 RasterWork/Meshlet `hwClusters`，不再以同一数值冒充两个 counter。`NoHierarchy` tiny Geometry 通过 runtime-only virtual leaf Cluster 归一化到同一 consumer ABI；没有改写 R2 Package ABI。
+- 自动回归为 OEngine `npm test` 156/156、examples production build 通过、R3-C GPU/CPU RasterWork oracle 通过。
+- clean/full 证据基于 commit `0b77ce8cf67e110aef5d6cf82ee9e0e2f9c837d0`，NVIDIA Turing / Chrome 150、1280×720、DPR 1、60 warm-up + 180 sample frames。六组均为 `dirty=false`、`gateEligible=true`、`counterIssues=0`、`queueOverflowMask=0`，且 validation/uncaptured/device-lost/timestamp/counter diagnostics 均为 0。A/B 只保留 SW Visibility blocker，C 保留 Cone + SW Visibility blocker；`hierarchy-sse-lod` 已是真实 supported counter。
+
+paired 时间按 P50/P95/P99 登记，单位 ms；`Producer` 为 InstanceCull、hierarchy rounds、RasterWork preparation/expansion 与对应 evidence 成本，`Visibility total` 为 Producer + Hardware raster：
+
+| Case | 模式 | Producer | HW Raster | Visibility total | RasterWork |
+|---|---|---:|---:|---:|---:|
+| A | hierarchy | 112.427 / 116.651 / 117.288 | 10.289 / 10.355 / 10.355 | 122.749 / 126.940 / 127.624 | 273,750 |
+| A | flat | 1.114 / 1.311 / 1.311 | 106.562 / 107.243 / 107.479 | 107.577 / 108.357 / 108.593 | 2,776,888 |
+| B | hierarchy | 5.767 / 6.685 / 6.731 | 10.355 / 10.551 / 10.551 | 16.253 / 17.105 / 17.151 | 281,286 |
+| B | flat | 0.262 / 0.262 / 0.262 | 53.150 / 53.710 / 53.740 | 53.412 / 53.972 / 54.002 | 1,437,568 |
+| C | hierarchy | 0.328 / 0.328 / 0.328 | 0 / 0.066 / 0.066 | 0.328 / 0.393 / 0.393 | 127 |
+| C | flat | 0 / 0.066 / 0.066 | 0 / 0.066 / 0.066 | 0.066 / 0.066 / 0.066 | 127 |
+
+结论不得合并为“hierarchy 更快”：A 的 RasterWork 减少 90.1%，但 Visibility P50 回退 14.1%；B 减少 80.4% RasterWork 且 Visibility P50 改善 69.6%；C 工作量与 `shadedPixels=187,368` 完全相同，hierarchy 多约 0.262 ms 固定成本。A 的主要问题是 `workgroup_size(1)` 的 InstanceCull 约 35.6 ms、round 0 约 37.8 ms 和 VisibleCluster expansion 约 38.5 ms。A 的 hierarchy/flat `shadedPixels` 约差 2.4%，配套视觉截图显示为预期 LOD 轮廓差异，无明显破洞；B 基本一致，C 画面与像素计数一致。本地 JSON 和 `*-visual.png` 在 `temp/r3c-0b77ce8-artifacts/`，`temp/` 不纳入 Git。
+
+### R3-D · 性能、Cone/HZB、删除与 G3 收口
 
 依赖：R3-C 正确闭环。
 
 交付：
 
-1. 加入 Cluster cone cull；镜像/非均匀 transform 只有 reference 通过后才启用 reject；
-2. 接入 previous HZB，验证 reverse-Z、mip、camera cut/resize/history fail-open；
-3. 删除 `compact_packed_meshlets()`、Packed flat queue/indirect owner 和只服务旧 ABI 的 Shader/adapter；
-4. 核对 legacy `MeshletDrawList`/bucket/scan/expand 的剩余真实 consumer，删除已被替换部分，不误删其他路径；
-5. 更新 Context、CURRENT-STATE、性能结果与 G3 evidence。
+1. 首先针对 A 的 InstanceCull、round 0 和 VisibleCluster expansion 把单 invocation workgroup 改为经 benchmark 验证的并行粒度，同时减少 queue header/record 带宽与不必要的分段；
+2. 在不分裂 output ABI、不恢复 CPU draw list 的前提下为 C 类低密度工作研究 GPU-side/coarse preparation 短路；只有 paired 数据证明时才保留；
+3. 加入 Cluster cone cull；镜像/非均匀 transform 只有 reference 通过后才启用 reject；
+4. 接入 previous HZB，验证 reverse-Z、mip、camera cut/resize/history fail-open；
+5. 删除 `compact_packed_meshlets()`、Packed flat queue/indirect owner 和只服务旧 ABI 的 Shader/adapter；
+6. 核对 legacy `MeshletDrawList`/bucket/scan/expand 的剩余真实 consumer，删除已被替换部分，不误删其他路径；
+7. 重跑 clean/full paired A/B/C，更新 Context、CURRENT-STATE、性能结果与 G3 evidence。
 
 退出证据：旧 Packed flat producer 不再可达；不可恢复 overflow 为 0；feature-off 无 Cone/HZB/SW 多余资源与 Pass；A/B/C paired artifact 可解释；只有满足全部条件才把 G3 标记 Completed。
 

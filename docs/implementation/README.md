@@ -7,8 +7,8 @@
 ```text
 R0 Observe                         complete
 → R1 Runtime/FrameGraph/HZB        complete
-→ R2 Compact Data + Cooker           complete
-→ R3 Hierarchy + HW Consumer
+→ R2 Compact Data + Cooker          complete
+→ R3 Hierarchy + HW Consumer        A/B/C complete; D next
 → R4-A Visibility Contract
 → R4-B Single Material Resolve
 → R4-C Optional SW/Hybrid
@@ -49,8 +49,8 @@ R3 集中为四个可运行包：
 
 1. `R3-A Reference + ABI`：已完成；multi-instance CPU oracle、queue schema、max-cut capacity 和整组 children fallback 已由定向测试冻结；
 2. `R3-B Hierarchy Producer`：已完成；InstanceCull → root → ping/pong Cluster traversal 已在真实 WebGPU 上只启用 Frustum + SSE，并与 multi-instance CPU oracle selected set 对齐；
-3. `R3-C Hardware Vertical`：当前下一步；VisibleCluster/RasterWork → GPU indirect args → 现有 Hardware consumer，并运行 flat/hierarchy paired A/B/C；
-4. `R3-D Enhancement + Deletion`：Cone、previous HZB、feature-off、删除 Packed flat producer/owner并关闭 G3。
+3. `R3-C Hardware Vertical`：已完成；VisibleCluster 在 GPU 上展开为 RasterWork，写满 16 B `drawIndirect` record，并由生产 Packed Hardware consumer 直接消费；clean/full flat/hierarchy paired A/B/C 已登记，其中 B 是明确胜例，A 因当前大规模 `workgroup_size(1)` producer 反而回退，C 显示低密度固定成本；
+4. `R3-D Enhancement + Deletion`：当前唯一代码入口；先处理 workgroup 粒度、queue bandwidth 与低密度短路，再接 Cone、previous HZB、feature-off，删除 Packed flat producer/owner 并关闭 G3。
 
 R2 只新增 Geometry、Cluster、Instance 三张必需 record table；Material 使用现有 registry 的 validated handle reference，Texture/Light 全面重构不进入 G2。R2 会生成、验证并驻留 hierarchy 数据，但 GPU hierarchy/SSE traversal 属于 R3。
 
