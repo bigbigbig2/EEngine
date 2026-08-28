@@ -21,7 +21,7 @@ Instance Cull
 - R3-A 已冻结 TraversalWork `instanceRecordIndex + clusterRecordIndex`、VisibleCluster 稳定 lookup seam、RasterWork `visibleClusterSlot + meshletRecordIndex`、32 B Queue header 和完整 indirect records；当前 R2 BVH8 不直接参与 LOD cut。
 - R3-B 已创建并消费真实 GPU root/ping-pong queue，以 `dispatchWorkgroupsIndirect` 运行 InstanceCull + Cluster Frustum/SSE，输出 CPU oracle 对齐的 VisibleCluster；root、每轮和 selected 都保存真实 header evidence，R3-B 测试 readback 不进入主帧决策。
 - R3-C 已将 VisibleCluster 展开为 RasterWork，GPU 完整写入 16 B `drawIndirect` record，并由生产 Packed Hardware consumer 直接消费。线性 workgroup 超过 65,535 时使用二维 indirect dispatch；`NoHierarchy` tiny Geometry 通过 runtime-only virtual leaf Cluster 归一化 ABI，不改 Package。VisibleCluster `selectedClusters` 与 RasterWork `hwClusters` 必须分开登记。
-- R3-D 已把 RasterWork expansion 改为每 selected Cluster 一个 64-lane workgroup、一次整组预约并行写 Meshlet；InstanceCull/Traversal 本来就是 64-lane，不能再归因为 `workgroup_size(1)`。Cone/previous HZB 与真实 reject counter 已接入，flat producer/owner 已删除。G3 功能结构已关闭，clean/full performance after 尚待采集。
+- R3-D 已把 RasterWork expansion 改为每 selected Cluster 一个 64-lane workgroup、一次整组预约并行写 Meshlet；InstanceCull/Traversal 本来就是 64-lane，不能再归因为 `workgroup_size(1)`。Cone/previous HZB 与真实 reject counter 已接入，flat producer/owner 已删除。clean/full after 的正确性 Gate 已关闭；A P95 长尾与 C 低密度固定成本仍由 `R3-D-08/09` 阻塞 G3 performance。
 - children queue 使用 all-or-nothing bounded reservation：整组成功写入，否则选择当前 renderable parent。每条队列区分 attempted/written/peak/overflow/fallback，HW RasterWork 不允许截断漏绘。
 - GPU/CPU selected-set 先以 Frustum + SSE 对齐，再接 Cone 和 previous HZB。Cone 对 mirrored/non-uniform/shear/double-sided/invalid cone fail-open；HZB 对首帧、resize、camera cut、history invalid 与异常投影 fail-open。没有 SW consumer 时不得创建 SW queue 或相关资源/Pass。
 - HW-only 必须先形成完整正确主链；SW/Hybrid 是后续 profile optimization。

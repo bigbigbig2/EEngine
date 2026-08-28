@@ -1,6 +1,6 @@
 # 05 · R3 层次工作生成与 Hardware Consumer
 
-Status: R3-A、R3-B、R3-C Completed；R3-D code/structure complete；G3 functional complete，clean/full performance closure pending
+Status: R3-A、R3-B、R3-C Completed；R3-D live correctness complete；G3 functional complete，performance blocked by R3-D-08/09
 
 长期决策见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md)，上游来源、许可证与采用边界见 [R3-01 移植登记](../references/porting/R3-01-hierarchical-work-generation.md)。本文件只拥有执行顺序、工程契约、验证和删除条件。
 
@@ -21,7 +21,7 @@ Packed InstanceTable + resident Geometry/Cluster/Meshlet tables
 
 从 RootTraversalQueue 开始，数量和工作项全部由 GPU 产生并由 GPU 消费。CPU 只提供 view、驻留表、配置、容量和 FrameGraph topology；不得 readback 可见数量来决定当前帧 draw/dispatch。
 
-R3 的性能假设是“层次选择减少 Raster 前工作量后，总 GPU 时间在目标高密度场景中下降”。R3-C paired 数据只在 B 证明该假设；A 虽减少 90.1% RasterWork，但总 Visibility P50 因 InstanceCull、round 0 与 RasterWork expansion 三个阶段的总成本回退 14.1%；C 则暴露约 0.262 ms 固定成本。此前把这三段都归因为 `workgroup_size(1)` 是错误的：InstanceCull、Cluster traversal 和旧 expansion 都已是 64-lane workgroup，真正的 expansion 问题是“每 lane 串行展开一个 Cluster 的全部 Meshlet”。R3-D 已改成“一 selected Cluster 对应一个 64-lane workgroup、一次整组预约、lane 并行展开”，但尚无新的 clean/full A/B/C，因此不能声称总时间已经改善。
+R3 的性能假设是“层次选择减少 Raster 前工作量后，总 GPU 时间在目标高密度场景中下降”。R3-C paired 数据只在 B 证明该假设；A 虽减少 90.1% RasterWork，但总 Visibility P50 因 InstanceCull、round 0 与 RasterWork expansion 三个阶段的总成本回退 14.1%；C 则暴露约 0.262 ms 固定成本。此前把这三段都归因为 `workgroup_size(1)` 是错误的：InstanceCull、Cluster traversal 和旧 expansion 都已是 64-lane workgroup，真正的 expansion 问题是“每 lane 串行展开一个 Cluster 的全部 Meshlet”。R3-D 已改成“一 selected Cluster 对应一个 64-lane workgroup、一次整组预约、lane 并行展开”；after 证明 expansion 局部优化有效，但 A P95 和 C 低密度总成本仍未过 Gate。
 
 ## 首版冻结决策
 
@@ -399,15 +399,21 @@ paired 时间按 P50/P95/P99 登记，单位 ms；`Producer` 为 InstanceCull、
 
 退出证据：旧 Packed flat producer 不再可达；不可恢复 overflow 为 0；feature-off 无 Cone/HZB/SW 多余资源与 Pass；A/B/C paired artifact 可解释；只有满足全部条件才把 G3 标记 Completed。
 
-当前状态（2026-08-28）：code/structure complete；functional Gate complete；performance Gate pending。
+当前状态（2026-08-28）：live correctness complete；functional Gate complete；performance Gate blocked。
 
 - RasterWork expansion 改成一个 selected Cluster 对应一个 64-lane workgroup。只有 lane 0 执行一次 all-or-nothing reservation，再通过 `var<workgroup>` 与 `workgroupBarrier()` 广播 base；其余 lane 以 64 为步长并行写 Meshlet。回归明确禁止“64 lane 各预约一次”的容量破坏。
 - Cone 数学直接对齐 `meshoptimizer` v1.0 commit `73583c3` 的 cone apex/axis/cutoff 判定；仅正朝向、均匀 scale、无 shear、有效 cone、非 double-sided transform 允许 reject，mirrored/non-uniform/shear/invalid 全部 fail-open。
 - previous HZB 对齐 Niagara commit `eefec27` 的 reverse-Z 保守结构：8-corner AABB projection、conservative mip、四角 exact texel load 与 farthest/min compare。查询使用上一帧相机矩阵和 `previous_from_current × current_object_to_world`；MotionInvalid、首帧、resize、camera cut、history invalid、near-plane/异常投影全部 fail-open；无 previous history 时不创建 HZB pipeline/bind group。
 - Work Queue ABI 升为 v2，32 B header 的尾部保留位改成真实 `rejectedCone/rejectedHzb` 原子 counter；`visitedBvhNodes` 由 consumed traversal queue reducer 写真实值，并与当前 `candidateClusters` hierarchy 语义一致。
 - `compact_packed_meshlets()`、flat Compute/Raster shaders、`PackedVisibilityMode`、Renderer runtime switch、Packed Scene flat queue/indirect owner 与候选容量已删除；`flatWorkBytes=0` 有测试门禁。legacy `MeshletDrawList` 仍被普通 Scene/alpha/shadow consumer 使用，不在 R3-D 按类名误删。
-- 自动验证为 OEngine `npm test` 161/161 与 examples production build。当前 Codex in-app browser 拦截 localhost，Chrome/extension connection unavailable，因此本提交没有新的 WebGPU 页面、截图或 clean/full A/B/C artifact。
-- 所以旧 R3-C flat/hierarchy full bundle 继续作为 before 证据；R3-D after bundle 必须由相同 NVIDIA Turing/Chrome、1280×720、DPR 1、60 warm-up + 180 sample 条件重采。重采前不标记 G3 performance completed，也不宣称 A/C 回退已消除。
+- 自动验证为 OEngine `npm test` 161/161 与 examples production build；live GPU/CPU oracle 的 Perspective/Orthographic/empty/pressure 均通过，Shader/validation/uncaptured diagnostics 为空。
+- clean commit `1f3a2d7` 的 A/B/C hierarchy full after 已按 NVIDIA Turing/Chrome 150、1280×720、DPR 1、60 warm-up + 180 sample 重采。三组均 clean、gate eligible、zero counter issue/overflow/WebGPU diagnostics；本地 JSON/PNG 在 `temp/r3d-1f3a2d7-clean-artifacts/`。
+- expansion P50 从 A/B/C 的 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms；A Visibility P50 相对 flat 改善约 10.4%，但 P95 回退约 15.3%；B P50/P95 改善约 65%；C 多约 0.262 ms 固定成本且 P95 回退约 277.5%。因此不能标记 G3 performance completed。
+
+剩余阻塞任务：
+
+1. `R3-D-08`：降低 A 的 InstanceCull/round-0 P95 长尾；保持现有 Queue/RasterWork/indirect ABI，用 pass timestamp、round counter 和 clean/full A/B/C paired 验证。
+2. `R3-D-09`：实现同 ABI 的低密度 GPU fast path，消除 C 固定成本；不得恢复 CPU draw list、运行时 flat queue/owner 或 benchmark 专用 Renderer。
 
 ## 示例与验证
 
@@ -465,7 +471,7 @@ resident/transient/work queue bytes
 
 ## 阶段退出
 
-R3 代码与功能结构已满足 1、2、3、5、6；第 4 项中的新浏览器画面和 clean/full A/B/C after artifact 尚未满足。因此当前可以进入“等待性能采集”的收尾状态，但不能把 G3 performance 标记为 Completed：
+R3 代码、功能结构、live 浏览器正确性和 clean/full A/B/C after artifact 已满足 1～6；但 after 数据触发性能回退门槛，因此 G3 performance 仍由 `R3-D-08/09` 阻塞：
 
 1. `Instance → Cluster hierarchy/SSE → VisibleCluster/RasterWork → Hardware drawIndirect` 是生产 Packed 主链；
 2. CPU 不遍历最终可见列表，GPU queue 数直接被 GPU consumer 使用；
@@ -474,4 +480,4 @@ R3 代码与功能结构已满足 1、2、3、5、6；第 4 项中的新浏览�
 5. Packed flat producer、flat queue owner 和无 consumer Shader 已删除；
 6. CURRENT-STATE、Context、ADR、porting ledger 与真实代码一致。
 
-在 R3-D after bundle 采集前不启动会改变 Visibility 工作量的 R4 实现；允许先完成 R4-A 文档/ABI 分析，但不得用 Software Raster 或 Material Resolve 扩张掩盖尚未验证的工作生成性能。
+在 `R3-D-08/09` 关闭前不启动会改变 Visibility 工作量的 R4 实现；允许先完成 R4-A 文档/ABI 分析，但不得用 Software Raster 或 Material Resolve 扩张掩盖尚未关闭的工作生成性能债务。

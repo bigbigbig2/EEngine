@@ -18,8 +18,8 @@
 - paired counter 按 implementation 解读：flat 的 `candidateClusters/selectedClusters/hwClusters` 都是 Meshlet work；hierarchy 分别是 visited hierarchy nodes、VisibleCluster records 与 RasterWork Meshlets。`hwTriangles` 始终以 `hwClusters × 128` 表示固定上限提交量，禁止拿 VisibleCluster 数代算。
 - 高密度胜例和简单低密度回退都进入结果；没有 paired artifact 前不宣称 hierarchy 更快。
 - work queue 的 resident/transient bytes 和 `maxCutMeshlets` 保底容量随 Instance/Geometry 轴输出扩展曲线。
-- R3-C clean/full paired 已证明：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。三段热点不是三个 `workgroup_size(1)`：InstanceCull/Traversal 已是 64-lane，旧 expansion 是每 lane 串行展开 Cluster。R3-D 只在证据支持的 seam 上改为每 Cluster 一个 64-lane expansion workgroup；没有 after artifact 前不用结构变化代替总时间 Gate。
-- R3-D 当前只有 build/test/reference/source evidence；clean/full A/B/C after 和真实 WebGPU diagnostics 尚待人工浏览器采集，G3 performance 未关闭。
+- R3-C clean/full paired 已证明：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。三段热点不是三个 `workgroup_size(1)`：InstanceCull/Traversal 已是 64-lane，旧 expansion 是每 lane 串行展开 Cluster。R3-D 只在证据支持的 seam 上改为每 Cluster 一个 64-lane expansion workgroup；clean/full after 已证明 A/B/C expansion P50 从 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms，但局部 Pass 下降不能替代总时间 Gate。
+- clean commit `1f3a2d7` 的 A/B/C after 均为 `gateEligible=true`、zero counter issue/overflow/WebGPU diagnostics。A Visibility P50 相对历史 flat 改善约 10.4%，但 P95 回退约 15.3%；B P50/P95 改善约 65%；C 多约 0.262 ms 固定成本且 P95 从约 0.131 ms 增至 0.495 ms。G3 performance 被 `R3-D-08/09` 阻塞，不再写成“待采集”。
 
 ## R1 已冻结口径
 

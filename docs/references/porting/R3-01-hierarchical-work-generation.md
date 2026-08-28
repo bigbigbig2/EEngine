@@ -1,6 +1,6 @@
 # R3-01 · Cluster hierarchy GPU work generation
 
-Status: R3-A/R3-B/R3-C 已完成；R3-D code/structure complete；G3 functional complete，performance artifact pending
+Status: R3-A/R3-B/R3-C 已完成；R3-D live correctness complete；G3 functional complete，performance blocked by R3-D-08/09
 
 Reference ID: `R3-01`
 
@@ -241,7 +241,7 @@ R3 只消费 R2 已冻结的 Meshlet、bounds/cone、Cluster hierarchy 和 geome
 
 R3-C clean/full paired 证据已于 2026-08-28 基于 commit `0b77ce8cf67e110aef5d6cf82ee9e0e2f9c837d0` 采集，环境为 NVIDIA Turing / Chrome 150 / 1280×720 / DPR 1 / 60 warm-up + 180 sample frames。六组 artifact 均 clean、gate eligible、zero counter issue/overflow/WebGPU diagnostics。结果：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 Visibility P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。A 的三个阶段是热点，但不是三个 `workgroup_size(1)`；R3-D 只对真实串行的 Cluster Meshlet expansion 改成 one-cluster/64-lane workgroup，并继续保留 queue/atomic 假设待测。
 
-R3-D 没有采用 Prefix Scan：当前 Cluster meshlet count 有界，lane-0 每 Cluster 一次 all-or-nothing atomic reservation 保留已有 ABI/fallback，且不增加 scan/scatter buffer与 dispatch。该决定只是成本假设，不是性能结论。当前自动 reference/build/test 已通过，但 clean/full A/B/C after artifact 因浏览器连接不可用尚未采集；完成前 G3 performance pending。完整分位数和采集条件见 [05 实施文档](../../implementation/05-hierarchical-work-generation.md) 与 [PERFORMANCE](../../PERFORMANCE.md)。
+R3-D 没有采用 Prefix Scan：当前 Cluster meshlet count 有界，lane-0 每 Cluster 一次 all-or-nothing atomic reservation 保留已有 ABI/fallback，且不增加 scan/scatter buffer 与 dispatch。clean/full after 已证明该选择把 A/B/C expansion P50 从 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms；但它没有关闭总时间 Gate，A P95 长尾与 C 低密度固定成本仍由 `R3-D-08/09` 处理。完整分位数和采集条件见 [05 实施文档](../../implementation/05-hierarchical-work-generation.md) 与 [PERFORMANCE](../../PERFORMANCE.md)。
 
 ## Fallback 与失败行为
 
@@ -266,7 +266,8 @@ R3-C regression: tests/gpu-work-generation-abi.test.mjs、tests/hierarchical-wor
 R3-C live oracle: Perspective/Orthographic/empty/pressure 的 VisibleCluster、RasterWork 与完整 indirect record 对齐；validation/uncaptured errors 为空
 R3-C paired complete: A/B/C 六组 clean/full JSON + `*-visual.png`，commit `0b77ce8`，`gateEligible=true`、zero counter issue/overflow/diagnostics
 R3-D structural complete: tests/hierarchy-occlusion-reference.test.mjs、ABI/source/deletion gates、OEngine npm test 161/161、examples build
-R3-D browser pending: Cone/HZB live WGSL + clean/full A/B/C hierarchy after artifact
+R3-D live complete: Cone/HZB production counters、GPU/CPU oracle、clean/full A/B/C hierarchy after artifact
+R3-D performance blocked: R3-D-08 A InstanceCull/round-0 P95；R3-D-09 C low-density fast path
 ```
 
-R3-D 的生产代码、来源台账、CPU reference、counter/feature-off 与 flat 删除已关闭；当前唯一缺口是 live WGSL/画面和 clean/full性能 after artifact。该缺口不允许用 Node build 替代，也不允许在提交说明中宣称 G3 performance complete。
+R3-D 的生产代码、来源台账、CPU reference、counter/feature-off、flat 删除与 live 浏览器证据已关闭；当前缺口不再是采集，而是 artifact 已证明的 A P95 和 C 低密度性能回退。`R3-D-08/09` 关闭前不宣称 G3 performance complete。

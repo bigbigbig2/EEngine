@@ -52,7 +52,9 @@
 - R3-C 已完成 GPU producer → GPU Hardware consumer 垂直闭环：VisibleCluster 展开为 RasterWork，GPU 写满 `[384, written, 0, 0]` 的 16 B record，生产 `PackedVisibilityPass` 直接消费；线性 workgroup 超过 65,535 时映射为二维 indirect dispatch。`NoHierarchy` tiny Geometry 以 runtime-only virtual leaf Cluster 归一化到同一 ABI，不改 R2 Package。
 - R3-C clean/full flat/hierarchy paired A/B/C 基于 clean commit `0b77ce8`：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 工作量相同但 hierarchy 多约 0.262 ms 固定成本。六组均无 overflow/WebGPU diagnostics，不能由此宣称 hierarchy 普遍更快。InstanceCull、round 0 和 expansion 是热点，但并非三个 `workgroup_size(1)` 阶段。
 - R3-D 代码/功能结构已完成：expansion 改为每 selected Cluster 一个 64-lane workgroup且一次预约；Cone 使用 meshoptimizer 公式并对 mirrored/non-uniform/shear fail-open；previous HZB 使用上一帧 camera 与 Instance motion 变换做 Niagara reverse-Z 保守投影，MotionInvalid/无效 history fail-open；Work Queue ABI v2 输出真实 `visitedBvhNodes/rejectedCone/rejectedHzb`；Packed flat shader/mode/owner 全部删除。
-- R3-D 自动证据为 OEngine `npm test` 161/161 与 examples build；当前浏览器连接无法访问 localhost，尚无新的 WebGPU 页面、截图或 clean/full A/B/C after。G3 functional 已关闭，G3 performance 仍待相同条件人工采集，不能宣称 A/C 回退已修复。
+- R3-D 自动证据为 OEngine `npm test` 161/161 与 examples build；live GPU/CPU oracle 页面也为 `passed=true`，Perspective/Orthographic/empty/pressure 的 VisibleCluster、RasterWork 和完整 16 B indirect record 全部一致，Shader/validation/uncaptured diagnostics 为空。
+- R3-D clean/full A/B/C after 已在 clean commit `1f3a2d7` 上由浏览器采集：NVIDIA Turing、Chrome 150、1280×720、DPR 1、60 warm-up + 180 sample。三组均 `dirty=false`、`gateEligible=true`、`counterIssues=0`、`queueOverflowMask=0`，WebGPU validation/uncaptured/device-lost/timestamp/counter diagnostics 全为 0；`capabilityComplete=false` 只来自诚实的 `VIS-05` Software Visibility blocker。
+- 64-lane RasterWork expansion 的 P50 从 A/B/C 的 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms，局部优化成立；但 G3 performance 仍被 A 的 Visibility P95 124.95 ms（相对历史 flat 约回退 15.3%）和 C 的约 0.262 ms 低密度固定成本/P95 0.495 ms 阻塞。B 的 Visibility P50 18.48 ms，相对历史 flat 仍改善约 65.4%，且真实 `rejectedCone=16`、`rejectedHzb=40` 证明两条 reject 分支已在生产 Renderer 执行。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
 - 没有正式冻结的 frame-local VisibilityKey/VisibleCluster lookup 契约。
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
@@ -64,8 +66,9 @@
 
 ## 当前下一步
 
-1. 当前唯一收尾任务是采集 R3-D clean/full A/B/C hierarchy after artifact，与 commit `0b77ce8` 的历史 flat/hierarchy bundle 对照，检查画面、Cone/HZB counter、overflow、WebGPU diagnostics 和 P50/P95/P99；当前 BVH8 仍不参与 R3 v1 traversal。
-2. 性能 artifact 通过后正式标记 G3 performance completed，并进入 R4-A Visibility contract；随后是 R4-B single Material Resolve、R4-C 可选 SW/Hybrid。
+1. `R3-D-08`：定位并降低 A 的 InstanceCull/round-0 P95 长尾；保留相同 output ABI、counter 与 Hardware consumer，用 clean/full A/B/C paired 证明修复，当前 BVH8 仍不参与 R3 v1 traversal。
+2. `R3-D-09`：设计同 ABI 的低密度 GPU fast path，消除 C 的约 0.262 ms 固定成本；不得恢复 CPU draw list、运行时 flat owner 或 benchmark 专用管线。
+3. 两项性能阻塞关闭后标记 G3 performance completed，再进入 R4-A Visibility contract；随后是 R4-B single Material Resolve、R4-C 可选 SW/Hybrid。
 
 ## 本地参考状态
 

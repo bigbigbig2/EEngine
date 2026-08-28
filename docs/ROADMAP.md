@@ -37,7 +37,7 @@
 
 退出：多资产和大量 Packed Instances 不依赖一实例一 JS 对象；GPU 表 ABI、容量、owner、上传和内存证据稳定；新数据已由现有 flat Hardware consumer 真实消费。GPU hierarchy/SSE traversal 仍由 R3 完成。
 
-## R3 · Hierarchical Work Generation + Hardware Consumer（功能结构完成，性能收尾待采）
+## R3 · Hierarchical Work Generation + Hardware Consumer（功能完成，性能 Gate 阻塞）
 
 实施包：[05-hierarchical-work-generation](./implementation/05-hierarchical-work-generation.md)
 
@@ -48,7 +48,7 @@
 - children all-or-nothing reservation、parent fallback 与 max-cut RasterWork capacity。
 - main/CSM view 分别记录 queue、round、indirect count、submitted triangle、固定 384-vertex waste、overflow 和 fallback。
 
-当前功能退出条件已满足：GPU producer → indirect consumer 闭环成立，CPU 不遍历最终可见列表；Cone/previous HZB、counter/fallback/feature-off 已接入；Packed flat producer/owner 已删除。性能退出仍缺 R3-D clean/full A/B/C after artifact，完成前不宣称目标场景 GPU 时间已改善。执行按 R3-A Reference/ABI、R3-B Hierarchy producer、R3-C Hardware vertical、R3-D Cone/HZB/deletion 四包收口。
+当前功能退出条件已满足：GPU producer → indirect consumer 闭环成立，CPU 不遍历最终可见列表；Cone/previous HZB、counter/fallback/feature-off 已接入；Packed flat producer/owner 已删除。R3-D clean/full A/B/C after artifact 已采集且正确性/证据 Gate 全部通过；64-lane expansion 局部优化有效，但 A 的 P95 长尾和 C 的低密度固定成本超过仓库回退门槛，因此 G3 performance 仍阻塞于 `R3-D-08/09`，不能标记阶段完全完成。
 
 ## R4 · Unified Visibility、Material Resolve 与 Hybrid 优化
 

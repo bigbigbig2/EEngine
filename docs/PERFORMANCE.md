@@ -56,7 +56,7 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 - Packed Material 已删除每 vertex 重复 descriptor 扫描、错误 fullscreen derivative 和重复 viewport mapping；但每材质 fullscreen 循环仍存在，R4-B 前不得把局部降本当作 single resolve 完成。
 - Packed Velocity 已将 `previous * inverse(current)` 从每可见像素移到 Instance bulk/patch，并对奇异 motion 输出零；尚缺同条件浏览器 timestamp，当前只登记结构工作量消除，不声明 GPU 百分比。
 - Visibility、material depth、四张 GBuffer、HDR 和 history 产生较大全分辨率带宽。
-- 生产 Packed 主链已接 hierarchy/SSE/Cone/previous-HZB 与 Hardware indirect consumer。R3-C A 数据显示 InstanceCull、round 0 和 VisibleCluster expansion 是主要热点，但此前将三者都写成 `workgroup_size(1)` 属于错误归因：InstanceCull/Traversal 已是每 workgroup 64 lane，旧 expansion 是每 lane 串行展开一个 Cluster。R3-D 已把 expansion 改成每 Cluster 一个 64-lane workgroup；InstanceCull/round 0 的 queue bandwidth/atomic 成本和低密度固定成本仍待新数据定位。
+- 生产 Packed 主链已接 hierarchy/SSE/Cone/previous-HZB 与 Hardware indirect consumer。R3-C A 数据显示 InstanceCull、round 0 和 VisibleCluster expansion 是主要热点，但此前将三者都写成 `workgroup_size(1)` 属于错误归因：InstanceCull/Traversal 已是每 workgroup 64 lane，旧 expansion 是每 lane 串行展开一个 Cluster。R3-D 已把 expansion 改成每 Cluster 一个 64-lane workgroup；after 证明 expansion 成本显著下降，同时把剩余问题定位为 A InstanceCull/round-0 P95 长尾和 C 低密度固定成本。
 - Shader runtime owner 已有静态审计，但 6 个运行中的 oracle/generated 事实源仍没有 generator/所有权闭环，也尚未建立系统的性能和视觉回归。
 
 这些是待测风险，不得在没有分段数据时把总慢归因于单一 LOD 或单一 Pass。
@@ -106,13 +106,28 @@ R1 修改前没有同条件 clean/full bundle，因此无法诚实计算 CPU/GPU
 
 这些数据关闭 R3-C Hardware vertical 与 paired 退出条件，但不关闭 G3，也不支持“hierarchy 普遍更快”。R3-D 必须先解决 workgroup 粒度、queue bandwidth 和低密度固定成本，再加入 Cone/previous HZB，删除 flat producer/owner 后重跑同条件 A/B/C。本地 JSON 与截图位于 `temp/r3c-0b77ce8-artifacts/`，`temp/` 不纳入 Git。
 
-## R3-D 结构结果与待采性能证据
+## R3-D 浏览器 after 证据与性能结论
 
-2026-08-28 的 R3-D 代码已完成以下结构变化：RasterWork expansion 改为每 selected Cluster 一个 64-lane workgroup且只预约一次；Cluster cone 和 previous-frame reverse-Z HZB 进入 hierarchy traversal；`rejectedCone/rejectedHzb/visitedBvhNodes` 由真实 GPU producer 写入；Packed flat producer、Shader、runtime switch、queue 和 indirect owner 已删除，`flatWorkBytes=0`。
+2026-08-28 的 R3-D 代码完成以下结构变化：RasterWork expansion 改为每 selected Cluster 一个 64-lane workgroup且只预约一次；Cluster cone 和 previous-frame reverse-Z HZB 进入 hierarchy traversal；`rejectedCone/rejectedHzb/visitedBvhNodes` 由真实 GPU producer 写入；Packed flat producer、Shader、runtime switch、queue 和 indirect owner 已删除，`flatWorkBytes=0`。
 
-这些变化已通过 CPU oracle、ABI/source 门禁、OEngine build/test 与 examples build，但当前没有新的真实 WebGPU full bundle。Codex in-app browser 对 localhost 返回 `ERR_BLOCKED_BY_CLIENT`，Chrome/extension connection unavailable；因此本节不登记新的 P50/P95/P99，也不推断 A 的 14.1% 回退、B 的 69.6% 改善或 C 的 0.262 ms 固定成本已经变化。
+live `examples/r3-hierarchical-work-generation` 已通过：Perspective/Orthographic/empty/pressure 的 GPU/CPU VisibleCluster、RasterWork 和完整 16 B indirect record 一致，Shader diagnostics、validation、uncaptured error 均为空。随后在 clean commit `1f3a2d7583ec60dfab71ad3dfa111e947833fcfb` 上完成 A/B/C hierarchy full after；环境与 R3-C 相同：NVIDIA Turing、Chrome 150、1280×720、DPR 1、60 warm-up + 180 sample frames，timestamp/counter 每 6 帧采样。三组均 `dirty=false`、`gateEligible=true`、`counterIssues=0`、`queueOverflowMask=0`，validation/uncaptured/device-lost/failed timestamp/failed counter diagnostics 全为 0；`capabilityComplete=false` 只来自合法的 `VIS-05` Software Visibility blocker。
 
-G3 performance closure 仍需在与 R3-C 相同的 NVIDIA Turing/Chrome、1280×720、DPR 1、60 warm-up + 180 sample 条件下重采 A/B/C hierarchy after artifact，并与 commit `0b77ce8` 的历史 flat/hierarchy bundle配对。必须同时验证 `visitedBvhNodes == candidateClusters`（当前 hierarchy 语义）、真实 Cone/HZB reject、`queueOverflowMask=0`、feature-off、画面与 WebGPU diagnostics。完成前状态为“R3-D code/structure complete；G3 functional complete；performance pending”。
+时间为 P50/P95/P99，单位 ms；`Producer` 为 InstanceCull、全部 hierarchy rounds、RasterWork preparation/expansion 和 queue evidence，`Visibility total = Producer + Hardware Raster`：
+
+| Case | Producer | Hardware Raster | Visibility total | RasterWork P50 |
+|---|---:|---:|---:|---:|
+| A | 86.049 / 111.244 / 113.154 | 10.355 / 13.704 / 13.763 | 96.403 / 124.948 / 126.916 | 273,750 |
+| B | 4.981 / 5.381 / 5.998 | 13.500 / 13.536 / 13.566 | 18.481 / 18.917 / 19.564 | ≈281,191 |
+| C | 0.262 / 0.429 / 0.505 | 0 / 0.066 / 0.066 | 0.262 / 0.495 / 0.571 | 127 |
+
+分场景结论：
+
+- 64-lane expansion 局部优化成立：A/B/C 的 P50 分别由 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms，约改善 82.3%/47.4%/50.0%。
+- A：Visibility P50 相对历史 flat 107.577 ms 改善约 10.4%，但 P95 相对 flat 约 108.357 ms 回退约 15.3%；主要长尾仍在 InstanceCull 与 round 0，因此由 `R3-D-08` 阻塞。
+- B：Visibility P50/P95 相对历史 flat 53.412/53.972 ms 分别改善约 65.4%/65.0%；`rejectedCone=16`、`rejectedHzb=40`，证明 Cone/HZB reject 在生产 Renderer 中真实执行，而不是只通过 Shader 编译。
+- C：两路仍只有 127 RasterWork，after 多约 0.262 ms 固定成本；flat 两个 Pass 的 P50 都量化为 0，P95 合计约 0.131 ms，而 after P95 为 0.495 ms，回退约 277.5%，由 `R3-D-09` 阻塞。
+
+因此当前状态是“R3-D live correctness complete；G3 functional complete；G3 performance blocked”。artifact 位于 `temp/r3d-1f3a2d7-clean-artifacts/`，其中 A/B/C 各有 clean full JSON 与 PNG；`temp/` 不纳入 Git。下一轮必须针对 A InstanceCull/round-0 P95 和 C 低密度固定成本做单变量优化并重跑同条件 paired，不得恢复 CPU draw list、运行时 flat owner 或 benchmark 专用管线。
 
 ## 性能变更完成标准
 
