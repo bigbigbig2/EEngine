@@ -26,4 +26,4 @@ cd examples
 npm run dev:host
 ```
 
-打开 `http://127.0.0.1:5173/r3-hierarchical-work-generation/`。页面通过后下载 JSON；再使用 Benchmark A/B/C 的 `?visibility=hierarchy|flat` 做同条件 paired 验证。
+打开 `http://127.0.0.1:5173/r3-hierarchical-work-generation/`。页面通过后下载 JSON。该页保留 R3-C 的 GPU/CPU RasterWork oracle；R3-D 已删除运行时 flat 开关，新的 hierarchy 结果只与 commit `0b77ce8` 保存的历史 flat artifact 做版本间对照。

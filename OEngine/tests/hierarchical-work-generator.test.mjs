@@ -22,6 +22,7 @@ const {
 } = await import("../.test-dist/geometry/GeometryHierarchy.js");
 const {
   computeHierarchicalDispatchGrid,
+  computeHierarchicalWorkgroupGrid,
   HierarchicalWorkGenerator,
   packHierarchyViewUniform
 } = await import("../.test-dist/render/HierarchicalWorkGenerator.js");
@@ -134,6 +135,18 @@ test("R3-C dispatch grid crosses the WebGPU single-dimension limit without trunc
   );
 });
 
+test("R3-D Cluster expansion validates one selected Cluster per workgroup", () => {
+  assert.deepEqual(computeHierarchicalWorkgroupGrid(160_000, 65_535), {
+    x: 65_535,
+    y: 3
+  });
+  assert.throws(
+    () => computeHierarchicalWorkgroupGrid(17, 4),
+    /adapter 2D limit/
+  );
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /visible_count % raster_work_view\.limits\.x/);
+});
+
 test("R3-B owner allocates only root/ping-pong/selected resources and encodes GPU rounds", () => {
   const gpu = createFakeGpu();
   const generator = new HierarchicalWorkGenerator(gpu.device);
@@ -175,6 +188,11 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
   assert.equal(
     gpu.buffers.filter((buffer) => /cone|hzb|software/i.test(buffer.label)).length,
     0
+  );
+  assert.equal(
+    gpu.layouts.filter((layout) => /previous HZB/i.test(layout.label)).length,
+    0,
+    "feature-off must not allocate the previous-HZB bind group layout"
   );
   assert.ok(gpu.buffers.filter((buffer) => /dispatch/.test(buffer.label)).every(
     (buffer) => (buffer.usage & GPUBufferUsage.INDIRECT) !== 0 && buffer.size === 12
@@ -299,8 +317,9 @@ test("R3-C production Hardware consumer pulls RasterWork and issues the GPU draw
   );
   assert.match(
     rendererSource,
-    /packed_visibility_mode: PackedVisibilityMode = "hierarchy"/
+    /hardware-packed-r3-hierarchy-cone/
   );
+  assert.doesNotMatch(rendererSource, /packed_visibility_mode|r2-flat-reference/);
 });
 
 function perspectiveView() {

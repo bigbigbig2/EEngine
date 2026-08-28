@@ -8,7 +8,7 @@
 R0 Observe                         complete
 → R1 Runtime/FrameGraph/HZB        complete
 → R2 Compact Data + Cooker          complete
-→ R3 Hierarchy + HW Consumer        A/B/C complete; D next
+→ R3 Hierarchy + HW Consumer        functional complete; performance capture pending
 → R4-A Visibility Contract
 → R4-B Single Material Resolve
 → R4-C Optional SW/Hybrid
@@ -43,14 +43,14 @@ R0/G0、R1/G1 与 R2/G2 已关闭。R2 Compact Data Foundation 的交付顺序�
 4. `R2-D Packed Scene Vertical`：Instance record、GpuScene owner、Packed/普通 Scene source、bulk/patch/stable-frame 已完成；A/B/C 与真实 Damaged Helmet glTF 已进入 Cooker → Package → Packed Geometry/Instance → production Hardware Visibility/Material/Velocity 主链；
 5. package/Packed 主路径不创建等量 `Mesh/Node3D`，旧 `MeshletGpuTable` 改为 legacy Scene consumer 才惰性创建，因此新主路径不存在重复 Geometry/Instance owner。旧 Scene consumer 的全局删除随 R3 工作生成迁移完成，不能反向把它当作 G2 数据 Gate blocker。
 
-当前唯一代码入口是 R3 Hierarchy + HW Consumer：让已驻留的 Cluster hierarchy/SSE 在 flat Meshlet 展开前减量，并继续消费同一套 Packed bindings 与 Hardware `drawIndirect()`。R3 v1 不直接遍历当前独立 BVH8；原因、长期决策和来源分别见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md) 与 [R3-01 porting ledger](../references/porting/R3-01-hierarchical-work-generation.md)。
+当前唯一收尾入口是 R3-D performance capture：代码已让驻留 Cluster hierarchy/SSE/Cone/previous-HZB 在 Meshlet 展开前减量，并由同一 Packed Hardware `drawIndirect()` consumer 消费；Packed flat 路径已删除。R3 v1 不直接遍历当前独立 BVH8；原因、长期决策和来源分别见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md) 与 [R3-01 porting ledger](../references/porting/R3-01-hierarchical-work-generation.md)。
 
 R3 集中为四个可运行包：
 
 1. `R3-A Reference + ABI`：已完成；multi-instance CPU oracle、queue schema、max-cut capacity 和整组 children fallback 已由定向测试冻结；
 2. `R3-B Hierarchy Producer`：已完成；InstanceCull → root → ping/pong Cluster traversal 已在真实 WebGPU 上只启用 Frustum + SSE，并与 multi-instance CPU oracle selected set 对齐；
-3. `R3-C Hardware Vertical`：已完成；VisibleCluster 在 GPU 上展开为 RasterWork，写满 16 B `drawIndirect` record，并由生产 Packed Hardware consumer 直接消费；clean/full flat/hierarchy paired A/B/C 已登记，其中 B 是明确胜例，A 因当前大规模 `workgroup_size(1)` producer 反而回退，C 显示低密度固定成本；
-4. `R3-D Enhancement + Deletion`：当前唯一代码入口；先处理 workgroup 粒度、queue bandwidth 与低密度短路，再接 Cone、previous HZB、feature-off，删除 Packed flat producer/owner 并关闭 G3。
+3. `R3-C Hardware Vertical`：已完成；VisibleCluster 在 GPU 上展开为 RasterWork，写满 16 B `drawIndirect` record，并由生产 Packed Hardware consumer 直接消费；clean/full flat/hierarchy paired A/B/C 已登记，其中 B 是明确胜例，A 的 producer 阶段回退，C 显示低密度固定成本；
+4. `R3-D Enhancement + Deletion`：代码/功能结构已完成；RasterWork expansion 使用每 Cluster 64-lane workgroup，Cone/previous HZB、真实 counter 与 feature-off 已接入，Packed flat producer/owner 已删除。当前只剩 clean/full A/B/C after 浏览器采集；该证据通过前 G3 performance 不标记完成。
 
 R2 只新增 Geometry、Cluster、Instance 三张必需 record table；Material 使用现有 registry 的 validated handle reference，Texture/Light 全面重构不进入 G2。R2 会生成、验证并驻留 hierarchy 数据，但 GPU hierarchy/SSE traversal 属于 R3。
 
@@ -92,6 +92,7 @@ R0 artifact 与已关闭文档中的 blocker ID 是历史证据，不回写修�
 | `WORLD-09..10` | `R2-D` consumer 迁移与删除 |
 | `COOK-01..03` | `R2-A` |
 | `COOK-04..10` | `R2-B`，GPU residency/删除部分由 `R2-C/D` 关闭 |
+| `COOK-11` | three.js 预制 LOD/Meshlet 配方的精确 benchmark 资产接入；不反向否定 R3 已消费 OEngine Cooker hierarchy |
 
 新任务和提交使用 `R2-A-xx`～`R2-D-xx`；历史 JSON 中的 `WORLD/COOK` blocker 保持原值，避免伪造证据来源。
 

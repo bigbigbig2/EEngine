@@ -15,7 +15,7 @@ npm run dev:host
 - GPU 支持 `timestamp-query` 时，结果包含至少一个 GPU segment；不支持时明确记录 unavailable；
 - Result `schemaVersion` 为 3，`capabilityEvidence.schemaVersion` 为 2，`diagnostics` 中 validation、uncaptured error、device lost、dropped/failed GPU counter sample 全为 0；
 - `gpu-counters` readback 只出现在采样帧，采样完成后 `pending=false`；每个有效样本必须包含 `candidateInstances`、`visibleInstances`、`rejectedFrustum`、`candidateClusters`、`selectedClusters`、`rejectedHzb`、`hwClusters`、`alphaClusters`、`hwTriangles`、`shadedPixels`、`emptyVisibilityPixels`、`activeMaterials`、`activeLights` 与 `queueOverflowMask`；`rejectedHzb=0` 是合法真实结果，不能和字段缺失混为一谈；
-- `capabilityEvidence.featureSets.hzb-culling` 必须为 `supported`；当前未实现的 `cone-culling/rejectedCone` 仍由 `WORK-04` 阻塞，页面不得伪造该 counter；
+- R0 历史 artifact 中 `cone-culling/rejectedCone` 曾由 `WORK-04` 阻塞；当前 R3-D 已有真实 producer，新采 artifact 必须为 `supported` 并保存真实值，不能继续复用旧 blocker 或伪造零；
 - 每个有效样本满足 `candidateInstances = visibleInstances + rejectedFrustum`、`selectedClusters = hwClusters + alphaClusters`、`hwTriangles = selectedClusters × 128`、`shadedPixels + emptyVisibilityPixels = internalWidth × internalHeight`；本场景只有一个已构建非透明材质和 DirectionalLight，所以 `activeMaterials=1`、`activeLights=0`，并且固定小场景必须有 `queueOverflowMask=0`；页面最终显示 `counterMismatches=0`；
 - `legacy.hzb.builds` 与 `legacy.hzb.mipPasses` 应和 timestamp 中实际 HZB 执行次数一致；
 - 控制台没有 WebGPU validation error、未处理异常或 device lost；

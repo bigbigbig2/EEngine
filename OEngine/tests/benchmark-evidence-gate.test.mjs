@@ -23,7 +23,7 @@ test("supported zero is evidence, while missing and unsupported values are rejec
   assert.ok(errorCodes(missing).has("gpu-counter-required-field-missing"));
 
   const fakeUnsupported = validResult();
-  fakeUnsupported.frames[0].gpuCounters.values.rejectedCone = 0;
+  fakeUnsupported.frames[0].gpuCounters.values.swClusters = 0;
   assert.ok(errorCodes(fakeUnsupported).has("gpu-counter-unsupported-field-present"));
 });
 
@@ -41,7 +41,7 @@ test("capability matrix rejects missing declarations, fake support and invalid b
   assert.ok(errorCodes(unknownCounter).has("capability-counter-declaration-unknown"));
 
   const fakeSupport = validResult();
-  fakeSupport.capabilityEvidence.gpuCounters.rejectedCone = {
+  fakeSupport.capabilityEvidence.gpuCounters.swClusters = {
     status: "supported",
     producer: "fake",
     requiredInSampledFrames: true
@@ -49,13 +49,13 @@ test("capability matrix rejects missing declarations, fake support and invalid b
   assert.ok(errorCodes(fakeSupport).has("capability-counter-declaration-mismatch"));
 
   const invalidBlocker = validResult();
-  invalidBlocker.capabilityEvidence.gpuCounters.rejectedCone.blockerTaskId = "later";
+  invalidBlocker.capabilityEvidence.gpuCounters.swClusters.blockerTaskId = "later";
   assert.ok(errorCodes(invalidBlocker).has("capability-blocker-task-invalid"));
 
   const reordered = validResult();
   reordered.capabilityEvidence.gpuCounters.candidateInstances = {
     requiredInSampledFrames: true,
-    producer: "VisibilityPass/scene-frustum-list reducer",
+    producer: "VisibilityPass or HierarchicalWorkGenerator/instance reducer",
     status: "supported"
   };
   assert.equal(errorCodes(reordered).has("capability-counter-declaration-mismatch"), false);
@@ -193,6 +193,7 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
     ? {
         candidateInstances: 0,
         visibleInstances: 0,
+        visitedBvhNodes: 1,
         candidateClusters: 1,
         selectedClusters: 1,
         rejectedFrustum: 0,

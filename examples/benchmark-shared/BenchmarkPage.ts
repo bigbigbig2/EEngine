@@ -26,7 +26,7 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
   try {
     const manifest = await loadBenchmarkSceneManifest(manifestUrl);
     const profile = readProfile();
-    const visibility = readVisibilityMode();
+    const visibility = "hierarchy" as const;
     renderManifest(elements, manifest, profile, visibility);
     const canvas = elements.canvas;
     canvas.width = manifest.frame.width;
@@ -38,7 +38,6 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
 
     const renderer = new Renderer();
     await renderer.initialize({ context, pixelRatio: manifest.frame.dpr });
-    renderer.packed_visibility_mode = visibility;
     configurePipeline(renderer, manifest.id);
     const run = profileRun(manifest, profile);
     renderer.profiler.configure({
@@ -124,7 +123,7 @@ function finishPage(
   elements: PageElements,
   manifest: BenchmarkSceneManifest,
   profile: BenchmarkRuntimeProfile,
-  visibility: "hierarchy" | "flat",
+  visibility: "hierarchy",
   result: BenchmarkResult
 ): void {
   const evidence = validateBenchmarkEvidence(result);
@@ -161,7 +160,7 @@ function finishPage(
     visibility,
     result
   );
-  console.info("R3-C paired benchmark evidence", {
+  console.info("R3 hierarchy benchmark evidence", {
     manifest,
     profile,
     visibility,
@@ -172,7 +171,7 @@ function finishPage(
 
 function validateCounterInvariants(
   result: BenchmarkResult,
-  visibility: "hierarchy" | "flat"
+  visibility: "hierarchy"
 ): string[] {
   const issues: string[] = [];
   const expectedPixels = result.environment.frame.internalWidth * result.environment.frame.internalHeight;
@@ -190,25 +189,21 @@ function validateCounterInvariants(
       counters.rejectedFrustum !== undefined &&
       counters.candidateInstances !== counters.visibleInstances + counters.rejectedFrustum
     ) issues.push(`frame ${frame.frameIndex}: instance partition`);
-    if (visibility === "flat") {
-      if (
-        counters.selectedClusters !== undefined &&
-        counters.hwClusters !== undefined &&
-        counters.alphaClusters !== undefined &&
-        counters.selectedClusters !== counters.hwClusters + counters.alphaClusters
-      ) issues.push(`frame ${frame.frameIndex}: flat RasterWork partition`);
-    } else {
-      if (
-        counters.candidateClusters !== undefined &&
-        counters.selectedClusters !== undefined &&
-        counters.selectedClusters > counters.candidateClusters
-      ) issues.push(`frame ${frame.frameIndex}: hierarchy selected exceeds visited`);
-      if (
-        counters.selectedClusters !== undefined &&
-        counters.hwClusters !== undefined &&
-        counters.hwClusters < counters.selectedClusters
-      ) issues.push(`frame ${frame.frameIndex}: RasterWork below selected Cluster count`);
-    }
+    if (
+      counters.visitedBvhNodes !== undefined &&
+      counters.candidateClusters !== undefined &&
+      counters.visitedBvhNodes !== counters.candidateClusters
+    ) issues.push(`frame ${frame.frameIndex}: hierarchy visited-node alias`);
+    if (
+      counters.candidateClusters !== undefined &&
+      counters.selectedClusters !== undefined &&
+      counters.selectedClusters > counters.candidateClusters
+    ) issues.push(`frame ${frame.frameIndex}: hierarchy selected exceeds visited`);
+    if (
+      counters.selectedClusters !== undefined &&
+      counters.hwClusters !== undefined &&
+      counters.hwClusters < counters.selectedClusters
+    ) issues.push(`frame ${frame.frameIndex}: RasterWork below selected Cluster count`);
     if (
       counters.hwTriangles !== undefined &&
       counters.hwClusters !== undefined &&
@@ -261,17 +256,11 @@ function readProfile(): BenchmarkRuntimeProfile {
     : "full";
 }
 
-function readVisibilityMode(): "hierarchy" | "flat" {
-  return new URLSearchParams(location.search).get("visibility") === "flat"
-    ? "flat"
-    : "hierarchy";
-}
-
 function renderManifest(
   elements: PageElements,
   manifest: BenchmarkSceneManifest,
   profile: BenchmarkRuntimeProfile,
-  visibility: "hierarchy" | "flat"
+  visibility: "hierarchy"
 ): void {
   document.title = `OEngine Benchmark ${manifest.id} ${visibility}`;
   elements.title.textContent = manifest.name;
@@ -304,7 +293,7 @@ function renderCounts(
 function downloadResult(
   manifest: BenchmarkSceneManifest,
   profile: BenchmarkRuntimeProfile,
-  visibility: "hierarchy" | "flat",
+  visibility: "hierarchy",
   result: BenchmarkResult
 ): void {
   const blob = new Blob([serializeBenchmarkResult(result)], { type: "application/json" });

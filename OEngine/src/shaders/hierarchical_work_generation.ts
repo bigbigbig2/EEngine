@@ -6,7 +6,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
 
 export const HIERARCHICAL_WORKGROUP_SIZE = 64;
-export const HIERARCHICAL_VIEW_UNIFORM_SIZE = 176;
+export const HIERARCHICAL_VIEW_UNIFORM_SIZE = 256;
 
 export const HIERARCHICAL_VIEW_OFFSETS = Object.freeze({
   cameraPosition: 0,
@@ -14,8 +14,75 @@ export const HIERARCHICAL_VIEW_OFFSETS = Object.freeze({
   sse: 112,
   orthographic: 128,
   scene: 144,
-  limits: 160
+  limits: 160,
+  worldToClip: 176,
+  hzb: 240
 } as const);
+
+const HIERARCHICAL_HZB_DISABLED_WGSL = /* wgsl */ `
+fn hierarchy_hzb_occluded(
+  cluster: GpuClusterRecord,
+  instance: OEngineInstanceRecord
+) -> bool {
+  return false;
+}
+`;
+
+const HIERARCHICAL_HZB_ENABLED_WGSL = /* wgsl */ `
+@group(1) @binding(10) var traversal_previous_hzb: texture_2d<f32>;
+
+fn hierarchy_hzb_occluded(
+  cluster: GpuClusterRecord,
+  instance: OEngineInstanceRecord
+) -> bool {
+  if !oengine_instance_motion_valid(instance) { return false; }
+  var uv_min = vec2f(1.0);
+  var uv_max = vec2f(0.0);
+  var candidate_nearest = 0.0;
+  for (var corner = 0u; corner < 8u; corner++) {
+    let local = vec3f(
+      select(cluster.bounds_min.x, cluster.bounds_max.x, (corner & 1u) != 0u),
+      select(cluster.bounds_min.y, cluster.bounds_max.y, (corner & 2u) != 0u),
+      select(cluster.bounds_min.z, cluster.bounds_max.z, (corner & 4u) != 0u)
+    );
+    let current_world = instance.current_object_to_world * vec4f(local, 1.0);
+    let previous_world = instance.previous_from_current * current_world;
+    let clip = traversal_view.world_to_clip * previous_world;
+    // Near-plane crossings and invalid projections are deliberately fail-open.
+    if any(clip != clip) || any(abs(clip) > vec4f(3.4e38)) || clip.w <= 1e-6 {
+      return false;
+    }
+    let ndc = clip.xyz / clip.w;
+    if any(ndc != ndc) || any(abs(ndc) > vec3f(3.4e38)) { return false; }
+    let uv = vec2f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    uv_min = min(uv_min, uv);
+    uv_max = max(uv_max, uv);
+    candidate_nearest = max(candidate_nearest, clamp(ndc.z, 0.0, 1.0));
+  }
+  if any(uv_max <= vec2f(0.0)) || any(uv_min >= vec2f(1.0)) {
+    return false;
+  }
+  uv_min = clamp(uv_min, vec2f(0.0), vec2f(1.0));
+  uv_max = clamp(uv_max, vec2f(0.0), vec2f(1.0));
+  let base_size = vec2f(traversal_view.hzb.xy);
+  let footprint = max((uv_max.x - uv_min.x) * base_size.x,
+    (uv_max.y - uv_min.y) * base_size.y);
+  let mip = min(
+    u32(ceil(log2(max(footprint, 1.0)))),
+    traversal_view.hzb.z - 1u
+  );
+  let mip_size = max(traversal_view.hzb.xy >> vec2u(mip), vec2u(1u));
+  let last = vec2i(mip_size - vec2u(1u));
+  let lo = clamp(vec2i(floor(uv_min * vec2f(mip_size))), vec2i(0), last);
+  let hi = clamp(vec2i(floor(uv_max * vec2f(mip_size))), vec2i(0), last);
+  let h00 = textureLoad(traversal_previous_hzb, lo, i32(mip)).x;
+  let h10 = textureLoad(traversal_previous_hzb, vec2i(hi.x, lo.y), i32(mip)).x;
+  let h01 = textureLoad(traversal_previous_hzb, vec2i(lo.x, hi.y), i32(mip)).x;
+  let h11 = textureLoad(traversal_previous_hzb, hi, i32(mip)).x;
+  let occluder_farthest = min(min(h00, h10), min(h01, h11));
+  return candidate_nearest + 1e-6 < occluder_farthest;
+}
+`;
 
 /**
  * Production R3-B source of truth.
@@ -35,7 +102,8 @@ export const HIERARCHICAL_VIEW_OFFSETS = Object.freeze({
  * subgroup, 64-bit atomics and native command features are intentionally
  * absent from this R3-B shader.
  */
-export const HIERARCHICAL_WORK_GENERATION_WGSL = /* wgsl */ `
+function createHierarchicalWorkGenerationWgsl(hzbEnabled: boolean): string {
+return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_CLUSTER_RECORD_WGSL}
@@ -52,6 +120,9 @@ struct OEngineHierarchyView {
   scene: vec4u,
   // maxComputeWorkgroupsPerDimension; remaining lanes are reserved
   limits: vec4u,
+  world_to_clip: mat4x4f,
+  // previous HZB width, height, mip count, feature flags
+  hzb: vec4u,
 };
 
 struct OEngineWorkQueueHeaderRead {
@@ -61,8 +132,8 @@ struct OEngineWorkQueueHeaderRead {
   overflow: u32,
   fallback: u32,
   capacity: u32,
-  _pad0: u32,
-  _pad1: u32,
+  rejected_cone: u32,
+  rejected_hzb: u32,
 };
 
 struct OEngineTraversalQueueRead {
@@ -105,14 +176,22 @@ struct OEngineDrawIndirectArgs {
 
 const R3_COUNTER_CANDIDATE_INSTANCES: u32 = 0u;
 const R3_COUNTER_VISIBLE_INSTANCES: u32 = 1u;
+const R3_COUNTER_VISITED_HIERARCHY_NODES: u32 = 2u;
 const R3_COUNTER_CANDIDATE_CLUSTERS: u32 = 3u;
 const R3_COUNTER_SELECTED_CLUSTERS: u32 = 4u;
 const R3_COUNTER_REJECTED_FRUSTUM: u32 = 5u;
+const R3_COUNTER_REJECTED_CONE: u32 = 6u;
+const R3_COUNTER_REJECTED_HZB: u32 = 7u;
 const R3_COUNTER_HW_CLUSTERS: u32 = 9u;
 const R3_COUNTER_HW_TRIANGLES: u32 = 12u;
 const R3_COUNTER_OVERFLOW_MASK: u32 = 17u;
 const R3_SCENE_QUEUE_OVERFLOW_BIT: u32 = 1u;
 const R3_MESHLET_QUEUE_OVERFLOW_BIT: u32 = 2u;
+const R3_FEATURE_CONE: u32 = 1u;
+const R3_FEATURE_HZB: u32 = 2u;
+const R3_FEATURE_COUNTERS: u32 = 4u;
+const R3_CLUSTER_CONE_VALID: u32 = 8u;
+const R3_CLUSTER_DOUBLE_SIDED: u32 = 16u;
 
 struct OEngineWorldSphere {
   center: vec3f,
@@ -197,6 +276,50 @@ fn hierarchy_projected_error_pixels(
     0.5 * (*view).sse.y;
 }
 
+// meshoptimizer v1.0 README/meshoptimizer.h perspective cone test. OEngine
+// accepts only positive-orientation uniform-scale transforms; every other
+// transform is fail-open until a conservative normal transform is proven.
+fn hierarchy_cluster_cone_backfacing(
+  cluster: GpuClusterRecord,
+  instance: OEngineInstanceRecord,
+  camera_position: vec3f
+) -> bool {
+  if (cluster.flags & R3_CLUSTER_CONE_VALID) == 0u ||
+    (cluster.flags & R3_CLUSTER_DOUBLE_SIDED) != 0u {
+    return false;
+  }
+  let transform = instance.current_object_to_world;
+  let x = transform[0].xyz;
+  let y = transform[1].xyz;
+  let z = transform[2].xyz;
+  let sx = length(x);
+  let sy = length(y);
+  let sz = length(z);
+  let maximum = max(sx, max(sy, sz));
+  let minimum = min(sx, min(sy, sz));
+  if minimum <= 1e-12 || maximum - minimum > maximum * 1e-5 {
+    return false;
+  }
+  if max(abs(dot(x, y)), max(abs(dot(x, z)), abs(dot(y, z)))) >
+    maximum * maximum * 1e-5 {
+    return false;
+  }
+  if dot(cross(x, y), z) <= 0.0 { return false; }
+  let local_axis = cluster.cone_axis_cutoff.xyz;
+  let axis_length = length(local_axis);
+  let cutoff = cluster.cone_axis_cutoff.w;
+  if axis_length < 0.5 || axis_length > 1.5 || cutoff < -1.0 || cutoff >= 1.0 {
+    return false;
+  }
+  let apex = (transform * vec4f(cluster.cone_apex.xyz, 1.0)).xyz;
+  let axis = normalize(mat3x3f(x, y, z) * local_axis);
+  let view = apex - camera_position;
+  let view_length = length(view);
+  return view_length > 1e-12 && dot(view, axis) >= cutoff * view_length;
+}
+
+${hzbEnabled ? HIERARCHICAL_HZB_ENABLED_WGSL : HIERARCHICAL_HZB_DISABLED_WGSL}
+
 fn hierarchy_update_dispatch(
   args: ptr<storage, OEngineDispatchIndirectArgs, read_write>,
   published_end: u32,
@@ -244,7 +367,7 @@ fn r3_instance_cull(
   @builtin(global_invocation_id) id: vec3u,
   @builtin(num_workgroups) grid: vec3u
 ) {
-  if id.x == 0u {
+  if all(id == vec3u(0u)) {
     hierarchy_init_draw_indirect.vertex_count = 384u;
     atomicStore(&hierarchy_init_draw_indirect.instance_count, 0u);
     hierarchy_init_draw_indirect.first_vertex = 0u;
@@ -326,6 +449,20 @@ fn r3_traverse_clusters(
     instance.current_object_to_world
   );
   if !hierarchy_sphere_in_frustum(sphere, &traversal_view) { return; }
+  if (traversal_view.hzb.w & R3_FEATURE_CONE) != 0u &&
+    hierarchy_cluster_cone_backfacing(
+      cluster,
+      instance,
+      traversal_view.camera_position.xyz
+    ) {
+    atomicAdd(&traversal_selected.header.rejected_cone, 1u);
+    return;
+  }
+  if (traversal_view.hzb.w & R3_FEATURE_HZB) != 0u &&
+    hierarchy_hzb_occluded(cluster, instance) {
+    atomicAdd(&traversal_selected.header.rejected_hzb, 1u);
+    return;
+  }
   let projected_error = hierarchy_projected_error_pixels(
     cluster.geometric_error,
     sphere,
@@ -367,47 +504,68 @@ fn r3_traverse_clusters(
 @group(2) @binding(6) var<storage, read> raster_work_evidence: array<u32>;
 @group(2) @binding(7) var<storage, read_write> raster_work_counters: array<atomic<u32>>;
 
+var<workgroup> raster_work_group_base: u32;
+
 @compute @workgroup_size(1)
 fn r3_prepare_raster_dispatch() {
   let visible_count = min(
     raster_work_selected.header.written,
     raster_work_selected.header.capacity
   );
-  hierarchy_update_dispatch(
-    &raster_work_dispatch,
-    visible_count,
-    raster_work_view.limits.x
+  // One workgroup owns one selected Cluster. Its 64 lanes expand Meshlets in
+  // parallel while preserving the existing all-or-nothing queue reservation.
+  let groups_x = min(visible_count, raster_work_view.limits.x);
+  let full_rows = visible_count / raster_work_view.limits.x;
+  let partial_row = select(
+    0u,
+    1u,
+    visible_count % raster_work_view.limits.x != 0u
   );
+  let groups_y = max(
+    full_rows + partial_row,
+    1u
+  );
+  atomicStore(&raster_work_dispatch.workgroup_count_x, groups_x);
+  atomicStore(&raster_work_dispatch.workgroup_count_y, groups_y);
+  atomicStore(&raster_work_dispatch.workgroup_count_z, 1u);
 }
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
 fn r3_expand_raster_work(
-  @builtin(global_invocation_id) id: vec3u,
+  @builtin(local_invocation_index) lane: u32,
+  @builtin(workgroup_id) group: vec3u,
   @builtin(num_workgroups) grid: vec3u
 ) {
   let visible_count = min(
     raster_work_selected.header.written,
     raster_work_selected.header.capacity
   );
-  let invocation_index = hierarchy_linear_invocation_index(id, grid);
+  let invocation_index = group.x + group.y * grid.x;
   if invocation_index >= visible_count { return; }
   let visible = raster_work_selected.elements[invocation_index];
   let cluster = raster_work_clusters[visible.cluster_record_index];
-  let base = oengine_try_reserve_work_group(
-    &raster_work_output.header,
-    cluster.meshlet_count
-  );
+  if lane == 0u {
+    raster_work_group_base = oengine_try_reserve_work_group(
+      &raster_work_output.header,
+      cluster.meshlet_count
+    );
+  }
+  workgroupBarrier();
+  let base = raster_work_group_base;
   if base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
     return;
   }
-  for (var local_meshlet = 0u; local_meshlet < cluster.meshlet_count; local_meshlet++) {
+  for (var local_meshlet = lane; local_meshlet < cluster.meshlet_count;
+    local_meshlet += ${HIERARCHICAL_WORKGROUP_SIZE}u) {
     raster_work_output.elements[base + local_meshlet] = OEngineRasterWork(
       invocation_index,
       cluster.meshlet_begin + local_meshlet
     );
   }
-  let published_end = base + cluster.meshlet_count;
-  atomicMax(&hierarchy_draw_indirect.instance_count, published_end);
+  if lane == 0u {
+    let published_end = base + cluster.meshlet_count;
+    atomicMax(&hierarchy_draw_indirect.instance_count, published_end);
+  }
 }
 
 @compute @workgroup_size(1)
@@ -430,6 +588,8 @@ fn r3_write_work_counters() {
     raster_work_evidence[selected_word],
     raster_work_evidence[selected_word + 5u]
   );
+  let rejected_cone = raster_work_evidence[selected_word + 6u];
+  let rejected_hzb = raster_work_evidence[selected_word + 7u];
   let raster_count = atomicLoad(&raster_work_output.header.written);
   atomicAdd(
     &raster_work_counters[R3_COUNTER_CANDIDATE_INSTANCES],
@@ -441,6 +601,10 @@ fn r3_write_work_counters() {
     raster_work_view.scene.y - min(root_visible, raster_work_view.scene.y)
   );
   atomicAdd(
+    &raster_work_counters[R3_COUNTER_VISITED_HIERARCHY_NODES],
+    candidate_clusters
+  );
+  atomicAdd(
     &raster_work_counters[R3_COUNTER_CANDIDATE_CLUSTERS],
     candidate_clusters
   );
@@ -448,6 +612,8 @@ fn r3_write_work_counters() {
     &raster_work_counters[R3_COUNTER_SELECTED_CLUSTERS],
     selected_cluster_count
   );
+  atomicAdd(&raster_work_counters[R3_COUNTER_REJECTED_CONE], rejected_cone);
+  atomicAdd(&raster_work_counters[R3_COUNTER_REJECTED_HZB], rejected_hzb);
   atomicAdd(&raster_work_counters[R3_COUNTER_HW_CLUSTERS], raster_count);
   atomicAdd(&raster_work_counters[R3_COUNTER_HW_TRIANGLES], raster_count * 128u);
   if scene_overflow != 0u {
@@ -464,3 +630,10 @@ fn r3_write_work_counters() {
   }
 }
 `;
+}
+
+export const HIERARCHICAL_WORK_GENERATION_WGSL =
+  createHierarchicalWorkGenerationWgsl(false);
+
+export const HIERARCHICAL_HZB_WORK_GENERATION_WGSL =
+  createHierarchicalWorkGenerationWgsl(true);

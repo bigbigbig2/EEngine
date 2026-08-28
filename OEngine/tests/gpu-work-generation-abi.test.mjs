@@ -7,6 +7,7 @@ import {
   GPU_RASTER_WORK_SCHEMA,
   GPU_TRAVERSAL_WORK_SCHEMA,
   GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
+  GPU_WORK_GENERATION_ABI_VERSION,
   GPU_WORK_GENERATION_WGSL,
   GPU_WORK_QUEUE_HEADER_SCHEMA,
   GPU_WORK_QUEUE_INVALID_OFFSET,
@@ -22,6 +23,7 @@ import {
 } from "../.test-dist/gpu/GpuWorkGenerationAbi.js";
 
 test("R3-A Work Generation TS and WGSL share the frozen queue ABI", () => {
+  assert.equal(GPU_WORK_GENERATION_ABI_VERSION, 2);
   assert.equal(GPU_TRAVERSAL_WORK_SCHEMA.stride, 8);
   assert.deepEqual(GPU_TRAVERSAL_WORK_SCHEMA.offsets, {
     instance_record_index: 0,
@@ -47,8 +49,8 @@ test("R3-A Work Generation TS and WGSL share the frozen queue ABI", () => {
     overflow: 12,
     fallback: 16,
     capacity: 20,
-    _pad0: 24,
-    _pad1: 28
+    rejected_cone: 24,
+    rejected_hzb: 28
   });
   assert.match(GPU_WORK_GENERATION_WGSL, /written: atomic<u32>/);
   assert.match(GPU_WORK_GENERATION_WGSL, /atomicCompareExchangeWeak/);

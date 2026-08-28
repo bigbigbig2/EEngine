@@ -213,7 +213,7 @@ export class GraphicsContext {
       (this.geometryTableValue?.gpu_memory_usage ?? 0) +
       (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
-      (this.packedScenesValue?.evidence().workQueueBytes ?? 0) +
+      (this.packedScenesValue?.evidence().flatWorkBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +

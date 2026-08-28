@@ -20,6 +20,7 @@ WebGPU baseline 也没有跨 workgroup 全局同步、multi-draw-indirect、mesh
 6. R3 首个正确性闭环只启用 Frustum + SSE。Cone 和 previous HZB 在 CPU/GPU selected set 对齐后逐项接入；HZB 历史无效时 fail-open。
 7. R3 继续使用现有 single `drawIndirect()` Hardware Visibility consumer。没有 Software Raster consumer 时不创建 SW queue、资源或 Pass；SW/Hybrid 属于后续 R4-C。
 8. Bevy Meshlet 是 hierarchy scheduling/SSE 的主要局部移植来源；nanite-webgpu 用于 WebGPU queue/indirect 对照；Niagara 用于 Frustum/Cone/HZB 数学对照；AnKi 用于 staged ownership 对照。OEngine 自己拥有 ABI、容量证明、fallback、FrameGraph 接入和 benchmark。
+9. R3-D 的 RasterWork expansion 使用一个 selected Cluster 对应一个 64-lane workgroup：lane 0 执行一次 bounded reservation，workgroup 内广播 base 后并行展开 Meshlet。不默认引入 Prefix Scan；是否替换原子预约必须由相同输出 ABI 的 benchmark 决定。
 
 本 ADR 细化 [ADR-0002](./0002-gpu-ready-assets-and-hierarchy.md) 的 runtime traversal 决策，不推翻 R2 生成 Cluster hierarchy 与 BVH8 数据的资产决策。
 

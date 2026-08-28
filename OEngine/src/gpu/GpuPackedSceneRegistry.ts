@@ -36,14 +36,13 @@ export interface PackedSceneSource {
 }
 
 export interface PackedSceneEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly sceneCount: number;
   readonly instanceCount: number;
-  readonly candidateMeshletCapacity: number;
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
   readonly hierarchyRasterWorkCapacity: number;
-  readonly workQueueBytes: number;
+  readonly flatWorkBytes: 0;
   readonly privateSubmitCount: 0;
 }
 
@@ -55,14 +54,11 @@ export interface PackedSceneRuntime {
   readonly materials: readonly StandardShadeMaterial[];
   readonly instanceBegin: number;
   readonly instanceCount: number;
-  readonly candidateMeshletCapacity: number;
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
   readonly hierarchyRasterWorkCapacity: number;
   /** Zero-based deepest reachable Cluster depth. */
   readonly hierarchyMaxDepth: number;
-  readonly workQueue: GPUBuffer;
-  readonly indirectArgs: GPUBuffer;
   readonly counterSink: GPUBuffer;
 }
 
@@ -74,8 +70,8 @@ const HANDLE_RUNTIME = new WeakMap<object, PackedSceneRuntime>();
 
 /**
  * Associates a CPU Scene's lights/environment with one compact Geometry +
- * Instance set. It owns only the frame-local flat work buffers; residency
- * remains uniquely owned by GpuAssetStore and GpuScene.
+ * Instance set. Residency remains uniquely owned by GpuAssetStore and
+ * GpuScene; frame-local hierarchy work is owned by HierarchicalWorkGenerator.
  */
 export class GpuPackedSceneRegistry {
   private readonly byScene = new Map<Scene, PackedSceneRuntime>();
@@ -98,24 +94,6 @@ export class GpuPackedSceneRegistry {
       source.geometries,
       source.geometryIndices
     );
-    let candidateMeshletCapacity = 0;
-    for (let index = 0; index < source.count; index++) {
-      const geometry = source.geometries[source.geometryIndices[index]!]!;
-      candidateMeshletCapacity += geometry.directory.meshletCount;
-      if (!Number.isSafeInteger(candidateMeshletCapacity) || candidateMeshletCapacity > 0xffffffff) {
-        throw new RangeError("Packed Scene candidate Meshlet capacity exceeds u32");
-      }
-    }
-    const workQueueBytes = 16 + candidateMeshletCapacity * 8;
-    const storageLimit = Math.min(
-      Number(this.graphics.device.limits.maxBufferSize),
-      Number(this.graphics.device.limits.maxStorageBufferBindingSize)
-    );
-    if (workQueueBytes > storageLimit) {
-      throw new RangeError(
-        `Packed Scene flat work queue requires ${workQueueBytes} bytes, adapter limit is ${storageLimit}`
-      );
-    }
     for (const material of source.materials) this.graphics.materials.obtain(material);
     const geometryHandles = Object.freeze([...assetHandles]);
     const materialHandles = new Uint32Array(source.count);
@@ -137,16 +115,6 @@ export class GpuPackedSceneRegistry {
     };
     const instanceHandle = this.graphics.gpu_scene.instantiate(instanceSource, command);
     const range = this.graphics.gpu_scene.range(instanceHandle);
-    const workQueue = this.graphics.device.createBuffer({
-      label: "PackedScene/flat-meshlet-work",
-      size: Math.max(16, workQueueBytes),
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
-    });
-    const indirectArgs = this.graphics.device.createBuffer({
-      label: "PackedScene/hardware-indirect",
-      size: 16,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
-    });
     const counterSink = this.graphics.device.createBuffer({
       label: "PackedScene/disabled-counter-sink",
       size: 256,
@@ -161,13 +129,10 @@ export class GpuPackedSceneRegistry {
       materials: Object.freeze([...source.materials]),
       instanceBegin: range.start,
       instanceCount: range.count,
-      candidateMeshletCapacity,
       hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,
       hierarchyVisibleClusterCapacity: hierarchyCapacity.visibleClusterCapacity,
       hierarchyRasterWorkCapacity: hierarchyCapacity.rasterWorkCapacity,
       hierarchyMaxDepth: hierarchyCapacity.maxHierarchyDepth,
-      workQueue,
-      indirectArgs,
       counterSink
     });
     command.onFinished.addOne(() => {
@@ -175,8 +140,6 @@ export class GpuPackedSceneRegistry {
       HANDLE_RUNTIME.set(handle as object, runtime);
     });
     command.onAborted.addOne(() => {
-      workQueue.destroy();
-      indirectArgs.destroy();
       counterSink.destroy();
     });
     return handle;
@@ -212,8 +175,6 @@ export class GpuPackedSceneRegistry {
       HANDLE_RUNTIME.delete(runtime.handle as object);
       this.releasingScenes.delete(scene);
       const destroy = (): void => {
-        runtime.workQueue.destroy();
-        runtime.indirectArgs.destroy();
         runtime.counterSink.destroy();
       };
       void this.graphics.device.queue.onSubmittedWorkDone().then(destroy, destroy);
@@ -253,36 +214,29 @@ export class GpuPackedSceneRegistry {
 
   evidence(): PackedSceneEvidence {
     let instanceCount = 0;
-    let candidateMeshletCapacity = 0;
     let hierarchyTraversalCapacity = 0;
     let hierarchyVisibleClusterCapacity = 0;
     let hierarchyRasterWorkCapacity = 0;
-    let workQueueBytes = 0;
     for (const runtime of this.byScene.values()) {
       instanceCount += runtime.instanceCount;
-      candidateMeshletCapacity += runtime.candidateMeshletCapacity;
       hierarchyTraversalCapacity += runtime.hierarchyTraversalCapacity;
       hierarchyVisibleClusterCapacity += runtime.hierarchyVisibleClusterCapacity;
       hierarchyRasterWorkCapacity += runtime.hierarchyRasterWorkCapacity;
-      workQueueBytes += runtime.workQueue.size;
     }
     return Object.freeze({
-      schemaVersion: 1,
+      schemaVersion: 2,
       sceneCount: this.byScene.size,
       instanceCount,
-      candidateMeshletCapacity,
       hierarchyTraversalCapacity,
       hierarchyVisibleClusterCapacity,
       hierarchyRasterWorkCapacity,
-      workQueueBytes,
+      flatWorkBytes: 0,
       privateSubmitCount: 0
     });
   }
 
   destroy(): void {
     for (const runtime of this.byScene.values()) {
-      runtime.workQueue.destroy();
-      runtime.indirectArgs.destroy();
       runtime.counterSink.destroy();
     }
     this.byScene.clear();

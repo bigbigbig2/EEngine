@@ -20,7 +20,7 @@ OEngine 当前已有可工作的 baseline：`MeshletDrawList` 在 GPU 写入 `ve
 
 这条路径应在 R3 正式冻结和验证，而不是重新假设 MDI 或 Mesh Shader：
 
-- producer：R3 Cluster hierarchy cull compact list；flat 只作为阶段内 paired 对照并在 G3 删除；
+- producer：R3 Cluster hierarchy/SSE/Cone/previous-HZB compact list；Packed flat 已在 R3-D 删除，历史 paired 对照保存在 commit `0b77ce8` artifact；
 - args producer：GPU fill indirect args；
 - consumer：single fixed-function hardware visibility draw；
 - capacity：visible list capacity 与 clamped indirect count；

@@ -22,10 +22,7 @@ import { RenderTargets } from "./RenderTargets.js";
 import { GPUViewKey, ViewManager } from "./ViewManager.js";
 import { GPUCameraStateManager } from "./GPUCameraState.js";
 import { VisibilityPass } from "./passes/VisibilityPass.js";
-import {
-  PackedVisibilityPass,
-  type PackedVisibilityMode
-} from "./passes/PackedVisibilityPass.js";
+import { PackedVisibilityPass } from "./passes/PackedVisibilityPass.js";
 import { VisibilityCounterPass } from "./passes/VisibilityCounterPass.js";
 import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
 import { PackedMaterialExpandPass } from "./passes/PackedMaterialExpandPass.js";
@@ -284,10 +281,10 @@ export class Renderer {
   indirect_lighting_mode: ShadeIndirectLightingModeT = ShadeIndirectLightingMode.IBL;
   upscale_type = 0;
   motion_blur_strength = 1;
-  /** R3-C paired evidence switch; the flat option is deleted in R3-D. */
-  packed_visibility_mode: PackedVisibilityMode = "hierarchy";
   /** R3 production default, matching the minimum three.js quality baseline. */
   packed_visibility_sse_threshold = 4;
+  packed_visibility_cone_enabled = true;
+  packed_visibility_hzb_enabled = true;
 
   onFrameFinished = new ChangeSignal<number>();
   onFrameDebug = new ChangeSignal<number, any[]>();
@@ -983,17 +980,26 @@ export class Renderer {
                 assets: registryBindings.assets,
                 scene: registryBindings.scene,
                 countersEnabled: bindings.gpuCounterBuffer !== null,
-                mode: this.packed_visibility_mode,
                 hierarchyView: createPackedHierarchyView(
                   bindings.camera,
                   bindings.internalHeight
                 ),
-                sseThreshold: this.packed_visibility_sse_threshold
+                sseThreshold: this.packed_visibility_sse_threshold,
+                coneEnabled: this.packed_visibility_cone_enabled,
+                previousHzb: this.packed_visibility_hzb_enabled
+                  ? packedPreviousHzb(
+                    bindings.viewHzb,
+                    bindings.view.gpu_previous_camera_state.view_projection_matrix
+                  )
+                  : null
               };
             }),
             {
               camera: currentCameraRes,
               counters: packedCounterRes,
+              previousHzb: this.packed_visibility_hzb_enabled
+                ? previousHzbRes
+                : undefined,
               triangleId: triIdRes,
               instanceId: meshIdRes,
               depth: depthRes
@@ -1182,12 +1188,14 @@ export class Renderer {
           this._profiler.registerGpuCounterFields([
             "candidateInstances",
             "visibleInstances",
+            "visitedBvhNodes",
             "candidateClusters",
             "selectedClusters",
             "hwClusters",
             "alphaClusters",
             "hwTriangles",
             "rejectedFrustum",
+            "rejectedCone",
             "rejectedHzb",
             "shadedPixels",
             "emptyVisibilityPixels",
@@ -2038,12 +2046,14 @@ export class Renderer {
         this._profiler.registerGpuCounterFields([
           "candidateInstances",
           "visibleInstances",
+          "visitedBvhNodes",
           "candidateClusters",
           "selectedClusters",
           "hwClusters",
           "alphaClusters",
           "hwTriangles",
           "rejectedFrustum",
+          "rejectedCone",
           "rejectedHzb",
           "shadedPixels",
           "emptyVisibilityPixels",
@@ -2101,9 +2111,8 @@ export class Renderer {
       enabledFeatureBits: topology.enabledFeatureBits,
       visibilityImplementation: bindings.gpuPacked === null
         ? "hardware-legacy-v1"
-        : this.packed_visibility_mode === "hierarchy"
-          ? "hardware-packed-r3-hierarchy"
-          : "hardware-packed-r2-flat-reference",
+        : `hardware-packed-r3-hierarchy-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
+          `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}`,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
       instrumentationMode,
@@ -2286,7 +2295,7 @@ export class Renderer {
     const profiler = this._profiler;
     if (packedPath) {
       profiler.recordCounter(
-        "packed.visibility.candidateMeshletCapacity",
+        "packed.visibility.rasterWorkCapacity",
         this._packedVisibility.lastCandidateCapacity
       );
       profiler.recordCounter(
@@ -2528,6 +2537,26 @@ function createPackedHierarchyView(
     verticalFovRadians: camera.fov,
     nearPlane: camera.near,
     frustumPlanes: planes
+  };
+}
+
+function packedPreviousHzb(
+  hzb: HierarchicalZBuffer,
+  previousWorldToClip: ArrayLike<number>
+): Readonly<{
+  view: GPUTextureView;
+  width: number;
+  height: number;
+  mipLevelCount: number;
+  worldToClipMatrix: ArrayLike<number>;
+}> | null {
+  const view = hzb.obtainPreviousView();
+  return view === null ? null : {
+    view,
+    width: hzb.width,
+    height: hzb.height,
+    mipLevelCount: hzb.mipLevelCount,
+    worldToClipMatrix: previousWorldToClip
   };
 }
 

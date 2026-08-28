@@ -8,7 +8,7 @@
 - license：MIT（见 `three.js/LICENSE`）
 - 参数：size=1、segments=`10/8/6/5/4/3/2`，body/lid/bottom/fitLid/blinn 全部启用
 
-生成器只把上游 `BufferGeometry` 的 position/normal/uv/index 封装成 GLB。OEngine 当前 OBS-02 页面只消费最高细节输入；其余 LOD 用于冻结后续 `WORK-04` 的同输入契约，不冒充已经实现 hierarchy/SSE LOD。
+生成器只把上游 `BufferGeometry` 的 position/normal/uv/index 封装成 GLB。OEngine R3 主链已经消费由自身 Cooker 生成的 Cluster hierarchy/SSE；其余预制 LOD 继续冻结 three.js 精确输入契约，但页面尚未直接消费这些独立文件，该资产配方差异由 `COOK-11` 跟踪。
 
 ## Damaged Helmet
 

@@ -12,13 +12,14 @@
 
 ## R3 必报口径
 
-- flat candidate Meshlets 与 hierarchy visited nodes/selected clusters/RasterWork 同时报告；减少 candidate 不等于总 GPU 时间改善。
+- R3-C 历史 flat candidate Meshlets 与当前 hierarchy visited nodes/selected clusters/RasterWork 同时报告；R3-D 已删除 runtime flat 路径，after 数据与 commit `0b77ce8` 保存的 flat/hierarchy bundle 对照。减少 candidate 不等于总 GPU 时间改善。
 - 记录 encoded/effective/empty traversal rounds、每轮 input/output、queue attempted/written/peak/overflow/fallback。
-- paired flat/hierarchy 必须使用相同 Scene、相机、分辨率、DPR、画质和 Hardware consumer，并同时报告 traversal 新增成本与 raster 减量。
+- paired before/after 必须使用相同 Scene、相机、分辨率、DPR、画质和 Hardware consumer，并同时报告 traversal 新增成本与 raster 减量。
 - paired counter 按 implementation 解读：flat 的 `candidateClusters/selectedClusters/hwClusters` 都是 Meshlet work；hierarchy 分别是 visited hierarchy nodes、VisibleCluster records 与 RasterWork Meshlets。`hwTriangles` 始终以 `hwClusters × 128` 表示固定上限提交量，禁止拿 VisibleCluster 数代算。
 - 高密度胜例和简单低密度回退都进入结果；没有 paired artifact 前不宣称 hierarchy 更快。
 - work queue 的 resident/transient bytes 和 `maxCutMeshlets` 保底容量随 Instance/Geometry 轴输出扩展曲线。
-- R3-C clean/full paired 已证明：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。因此 R3-D 首先 profile/优化 `workgroup_size(1)` 的 InstanceCull、round 0 和 VisibleCluster expansion，不用减少的 work count 代替总时间 Gate。
+- R3-C clean/full paired 已证明：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。三段热点不是三个 `workgroup_size(1)`：InstanceCull/Traversal 已是 64-lane，旧 expansion 是每 lane 串行展开 Cluster。R3-D 只在证据支持的 seam 上改为每 Cluster 一个 64-lane expansion workgroup；没有 after artifact 前不用结构变化代替总时间 Gate。
+- R3-D 当前只有 build/test/reference/source evidence；clean/full A/B/C after 和真实 WebGPU diagnostics 尚待人工浏览器采集，G3 performance 未关闭。
 
 ## R1 已冻结口径
 

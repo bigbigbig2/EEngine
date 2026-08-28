@@ -1,6 +1,6 @@
 # R3-01 · Cluster hierarchy GPU work generation
 
-Status: R3-A/R3-B/R3-C 已完成；R3-D 仍为 planned / next；G3 尚未关闭
+Status: R3-A/R3-B/R3-C 已完成；R3-D code/structure complete；G3 functional complete，performance artifact pending
 
 Reference ID: `R3-01`
 
@@ -161,6 +161,30 @@ OEngine/WebGPU adaptation：GLSL 数学先进入 CPU reference/property cases，
 
 R3-A/R3-B 实际采用区段（2026-08-28）：`src/shaders/drawcull.comp.glsl:73-82` 的 sphere/Frustum signed-distance 判定作为数学依据。OEngine CPU oracle 与 WGSL producer 按同一不变量独立实现，并允许输入未归一化 world-space plane，因此比较半径时显式乘 plane normal length；零法线且 `w >= 0` 表示 infinite-far disabled plane。Niagara 的 Vulkan buffer、command 和 native 类型结构均未复制。
 
+R3-D 实际采用区段（2026-08-28）：
+
+- `src/shaders/drawcull.comp.glsl`、`src/shaders/clustercull.comp.glsl` 与 `src/shaders/math.h`：保留 HZB 的投影、mip 与 reverse-Z conservative compare 不变量；OEngine 改为对 Cluster object-space AABB 做 8-corner previous-frame 投影，选择 `ceil(log2(max footprint))` mip，读取最多四个覆盖 texel 的 min/farthest channel。
+- committed previous HZB 必须使用与它匹配的上一帧 `worldToClip`；动态 Instance 先以 `previous_from_current × current_object_to_world` 还原上一帧 object-to-world。`MotionInvalid` 时 fail-open，禁止用当前相机/当前物体坐标查询上一帧深度。
+- R1 的 `rg16float` HZB 存 `min/max` reverse-Z；R3-D 精确读取 `.x` farthest/min，不采样、不依赖 sampler。首帧、resize、camera cut、history discontinuity、`clip.w <= epsilon` 和非有限投影全部 fail-open。
+- OEngine 只在 committed previous view 非空时惰性创建 HZB traversal pipeline/bind group；无 HZB variant 不声明 texture binding，并保持 WebGPU baseline 每 shader stage 最多 8 个 storage buffer。
+- Niagara 的 Vulkan descriptor、push constant、early/late MDI 和 native types 均未复制；OEngine 当前没有 second-chance hierarchy wave，`rejectedHzb` 只计真实 traversal reject event。
+
+## meshoptimizer Cone（R3-D）
+
+```text
+upstream project: meshoptimizer
+repository URL: https://github.com/zeux/meshoptimizer
+tag: v1.0
+commit: 73583c335e541c139821d0de2bf5f12960a04941
+source paths: README.md、src/meshoptimizer.h
+license: MIT
+decision: adopt Cooker bounds + port mathematical predicate
+```
+
+保留的不变量是 `dot(normalize(cone_apex - camera_position), cone_axis) >= cone_cutoff`。Cone apex/axis/cutoff 直接来自 R2 已固定版本的 meshoptimizer bounds，R3-D 不重算 cone。WGSL 与 `HierarchyOcclusionReference.ts` 使用同一列主矩阵约定和容差。
+
+OEngine/WebGPU 差异：只有 positive orientation、uniform scale、orthogonal basis、有效 cone 且非 double-sided Cluster 允许 reject；mirrored、non-uniform、shear、singular、invalid cone 全部 fail-open。该限制减少可剔除工作但优先避免 normal transform 符号/尺度错误；以后放宽必须新增 CPU/GPU reference 和性能对照。
+
 ## AnKi 3D Engine
 
 ```text
@@ -204,7 +228,8 @@ R3 只消费 R2 已冻结的 Meshlet、bounds/cone、Cluster hierarchy 和 geome
 3. `maxCutMeshlets(node)` hierarchy cut 容量证明；
 4. `HierarchicalWorkGenerator` FrameGraph/owner/lifetime；
 5. OEngine evidence schema、unsupported/blocker 和 feature-off 行为。
-6. 8-storage-binding baseline 下的 RasterWork dispatch preparation、queue evidence reduction 与 completion-safe prepared-resource retirement。
+6. 8-storage-binding baseline 下的 RasterWork dispatch preparation、queue evidence reduction 与 completion-safe prepared-resource retirement；
+7. 每 selected Cluster 一个 64-lane expansion workgroup、lane-0 单次 reservation 和 workgroup base 广播。
 
 理由：这些行为由 OEngine 现有 GPU records、WebGPU limits、统一主管线和 fail-visible Gate 决定；上游没有相同 ABI 与失败契约。独立实现前必须先有 CPU/property test，不得把“reimplement”解释为无来源自由编写算法。
 
@@ -214,7 +239,9 @@ R3 只消费 R2 已冻结的 Meshlet、bounds/cone、Cluster hierarchy 和 geome
 
 必须运行同条件 flat/hierarchy paired A/B/C，记录：visited/selected/raster work、encoded/effective/empty rounds、queue bytes/peak/overflow/fallback、submitted/useful triangles、CPU encode、GPU traversal/raster/frame P50/P95/P99。简单低密度场景也必须报告，不能只选择远景胜例。
 
-R3-C clean/full paired 证据已于 2026-08-28 基于 commit `0b77ce8cf67e110aef5d6cf82ee9e0e2f9c837d0` 采集，环境为 NVIDIA Turing / Chrome 150 / 1280×720 / DPR 1 / 60 warm-up + 180 sample frames。六组 artifact 均 clean、gate eligible、zero counter issue/overflow/WebGPU diagnostics。结果：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 Visibility P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。A 的当前瓶颈是三个 `workgroup_size(1)` 大规模阶段，因此证据不支持 hierarchy 普遍更快；R3-D 先优化并行粒度、queue bandwidth 和低密度固定成本，再重跑 paired Gate。完整分位数见 [05 实施文档](../../implementation/05-hierarchical-work-generation.md) 与 [PERFORMANCE](../../PERFORMANCE.md)。
+R3-C clean/full paired 证据已于 2026-08-28 基于 commit `0b77ce8cf67e110aef5d6cf82ee9e0e2f9c837d0` 采集，环境为 NVIDIA Turing / Chrome 150 / 1280×720 / DPR 1 / 60 warm-up + 180 sample frames。六组 artifact 均 clean、gate eligible、zero counter issue/overflow/WebGPU diagnostics。结果：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 Visibility P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。A 的三个阶段是热点，但不是三个 `workgroup_size(1)`；R3-D 只对真实串行的 Cluster Meshlet expansion 改成 one-cluster/64-lane workgroup，并继续保留 queue/atomic 假设待测。
+
+R3-D 没有采用 Prefix Scan：当前 Cluster meshlet count 有界，lane-0 每 Cluster 一次 all-or-nothing atomic reservation 保留已有 ABI/fallback，且不增加 scan/scatter buffer与 dispatch。该决定只是成本假设，不是性能结论。当前自动 reference/build/test 已通过，但 clean/full A/B/C after artifact 因浏览器连接不可用尚未采集；完成前 G3 performance pending。完整分位数和采集条件见 [05 实施文档](../../implementation/05-hierarchical-work-generation.md) 与 [PERFORMANCE](../../PERFORMANCE.md)。
 
 ## Fallback 与失败行为
 
@@ -238,6 +265,8 @@ R3-C complete: VisibleCluster → RasterWork → complete 16 B drawIndirect → 
 R3-C regression: tests/gpu-work-generation-abi.test.mjs、tests/hierarchical-work-generator.test.mjs、Shader source audit、examples/r3-hierarchical-work-generation GPU/CPU RasterWork oracle
 R3-C live oracle: Perspective/Orthographic/empty/pressure 的 VisibleCluster、RasterWork 与完整 indirect record 对齐；validation/uncaptured errors 为空
 R3-C paired complete: A/B/C 六组 clean/full JSON + `*-visual.png`，commit `0b77ce8`，`gateEligible=true`、zero counter issue/overflow/diagnostics
+R3-D structural complete: tests/hierarchy-occlusion-reference.test.mjs、ABI/source/deletion gates、OEngine npm test 161/161、examples build
+R3-D browser pending: Cone/HZB live WGSL + clean/full A/B/C hierarchy after artifact
 ```
 
-R3-C 的生产 Hardware vertical、GPU/CPU oracle 和 paired full 退出条件已关闭；A 的 producer 回退已作为真实债务转入 R3-D，不被胜例掩盖。flat producer 删除、Cone/HZB、feature-off 和 G3 收口仍属于 R3-D。
+R3-D 的生产代码、来源台账、CPU reference、counter/feature-off 与 flat 删除已关闭；当前唯一缺口是 live WGSL/画面和 clean/full性能 after artifact。该缺口不允许用 Node build 替代，也不允许在提交说明中宣称 G3 performance complete。

@@ -37,7 +37,7 @@
 
 退出：多资产和大量 Packed Instances 不依赖一实例一 JS 对象；GPU 表 ABI、容量、owner、上传和内存证据稳定；新数据已由现有 flat Hardware consumer 真实消费。GPU hierarchy/SSE traversal 仍由 R3 完成。
 
-## R3 · Hierarchical Work Generation + Hardware Consumer
+## R3 · Hierarchical Work Generation + Hardware Consumer（功能结构完成，性能收尾待采）
 
 实施包：[05-hierarchical-work-generation](./implementation/05-hierarchical-work-generation.md)
 
@@ -48,7 +48,7 @@
 - children all-or-nothing reservation、parent fallback 与 max-cut RasterWork capacity。
 - main/CSM view 分别记录 queue、round、indirect count、submitted triangle、固定 384-vertex waste、overflow 和 fallback。
 
-退出：GPU producer → indirect consumer 闭环成立，CPU 不遍历最终可见列表；相比 flat Meshlet 主链，Raster 前工作量和目标场景 GPU 时间有可量化改善；Packed flat producer/owner 已删除。执行按 R3-A Reference/ABI、R3-B Hierarchy producer、R3-C Hardware vertical、R3-D Cone/HZB/deletion 四包收口。
+当前功能退出条件已满足：GPU producer → indirect consumer 闭环成立，CPU 不遍历最终可见列表；Cone/previous HZB、counter/fallback/feature-off 已接入；Packed flat producer/owner 已删除。性能退出仍缺 R3-D clean/full A/B/C after artifact，完成前不宣称目标场景 GPU 时间已改善。执行按 R3-A Reference/ABI、R3-B Hierarchy producer、R3-C Hardware vertical、R3-D Cone/HZB/deletion 四包收口。
 
 ## R4 · Unified Visibility、Material Resolve 与 Hybrid 优化
 

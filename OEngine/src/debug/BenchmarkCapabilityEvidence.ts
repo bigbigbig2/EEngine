@@ -66,6 +66,7 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
     requiredGpuCounters: [
       "candidateInstances",
       "visibleInstances",
+      "visitedBvhNodes",
       "candidateClusters",
       "selectedClusters",
       "rejectedFrustum",
@@ -82,10 +83,8 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
     requiredGpuCounters: ["rejectedHzb"]
   },
   "cone-culling": {
-    status: "unsupported",
-    requiredGpuCounters: ["rejectedCone"],
-    blockerTaskId: "WORK-04",
-    reason: "主链尚未实现独立的 Meshlet normal-cone/backface culling stage"
+    status: "supported",
+    requiredGpuCounters: ["rejectedCone"]
   },
   "material-expand": {
     status: "supported",
@@ -138,24 +137,28 @@ export type BenchmarkFeatureSetName = keyof typeof BENCHMARK_FEATURE_SET_EVIDENC
 
 /** Frozen producer truth for Result Schema v3. */
 export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
-  candidateInstances: supported("VisibilityPass/scene-frustum-list reducer"),
-  visibleInstances: supported("VisibilityPass/scene-frustum-list reducer"),
-  visitedBvhNodes: unsupported(
-    "WORK-04",
-    "主链没有 BVH8/Hierarchy traversal producer"
+  candidateInstances: supported(
+    "VisibilityPass or HierarchicalWorkGenerator/instance reducer"
+  ),
+  visibleInstances: supported(
+    "VisibilityPass or HierarchicalWorkGenerator/root reducer"
+  ),
+  visitedBvhNodes: supported(
+    "HierarchicalWorkGenerator/consumed traversal queue reducer"
   ),
   candidateClusters: supported(
-    "PackedVisibility flat reducer / HierarchicalWorkGenerator visited-queue reducer"
+    "MeshletDrawList legacy reducer or HierarchicalWorkGenerator/consumed traversal queue reducer"
   ),
   selectedClusters: supported(
-    "PackedVisibility flat reducer / HierarchicalWorkGenerator VisibleCluster reducer"
+    "HierarchicalWorkGenerator/VisibleCluster reducer"
   ),
-  rejectedFrustum: supported("VisibilityPass/scene-frustum-list reducer"),
-  rejectedCone: unsupported(
-    "WORK-04",
-    "主链尚未实现独立的 Meshlet normal-cone/backface culling stage"
+  rejectedFrustum: supported(
+    "VisibilityPass or HierarchicalWorkGenerator/instance frustum reducer"
   ),
-  rejectedHzb: supported("MeshletDrawList/HZB depth-query reject branches"),
+  rejectedCone: supported("HierarchicalWorkGenerator/Cluster cone reject branch"),
+  rejectedHzb: supported(
+    "MeshletDrawList or HierarchicalWorkGenerator/previous-HZB reject branch"
+  ),
   swClusters: unsupported(
     "VIS-05",
     "主链没有 Compute software raster cluster queue producer"

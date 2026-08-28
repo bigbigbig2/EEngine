@@ -38,10 +38,10 @@
     { "id": "helmet-metal-roughness", "kind": "texture", "source": "workspace:examples/benchmark-assets/damaged-helmet/Default_metalRoughness.jpg", "sha256": "0f05e7ffbeaa974f7d2c83436b04109969966d64ab188cbc3a19a265a0a69ae0", "usage": "PBR metallic/roughness", "runtimeStatus": "consumed" },
     { "id": "helmet-normal", "kind": "texture", "source": "workspace:examples/benchmark-assets/damaged-helmet/Default_normal.jpg", "sha256": "f253ba09a90a86ffd8a807dc45d7953111f8b3421e15d7a21d1e915b01dd33c1", "usage": "PBR tangent-space normal", "runtimeStatus": "consumed" },
     { "id": "royal-esplanade", "kind": "environment", "source": "workspace:three.js/examples/textures/equirectangular/royal_esplanade_2k.hdr.jpg", "sha256": "b05a664c5fb022ddc6104f253a6684570e99876d30b41a220c8dea4482df6d64", "usage": "three.js IBL reference environment", "runtimeStatus": "declared-unsupported", "blockerTaskId": "MAT-05", "reason": "OEngine 当前环境加载器不能解码该 UltraHDR JPEG，页面显式使用程序化中性环境 fallback" },
-    { "id": "helmet-lod-meshlet-recipe", "kind": "recipe", "source": "workspace:examples/benchmark-shared/recipes/benchmark-b-lod.json", "sha256": "4498ba9c466292a707a2df59c232c1317e7f0cde2bbac30313dac6522fad24e8", "usage": "冻结 three.js 的 6 级 Meshopt simplification 和 64/64 meshlet 参数", "runtimeStatus": "declared-unsupported", "blockerTaskId": "WORK-04", "reason": "当前 OEngine 页面只消费原始 Helmet 几何，尚无兼容该配方的 cooker/hierarchy consumer" }
+    { "id": "helmet-lod-meshlet-recipe", "kind": "recipe", "source": "workspace:examples/benchmark-shared/recipes/benchmark-b-lod.json", "sha256": "4498ba9c466292a707a2df59c232c1317e7f0cde2bbac30313dac6522fad24e8", "usage": "冻结 three.js 的 6 级 Meshopt simplification 和 64/64 meshlet 参数", "runtimeStatus": "declared-unsupported", "blockerTaskId": "COOK-11", "reason": "R3 已消费 OEngine Cooker hierarchy；当前页面尚未按这份 three.js 配方逐级生成并导入完全一致的 LOD/Meshlet 数据" }
   ],
   "currentLimitations": [
-    "6 级 LOD/Meshlet 配方已冻结，但当前只消费原始 Helmet 几何；构建与 hierarchy consumer 由 WORK-04 阻塞",
+    "R3 主链已消费 OEngine Cooker hierarchy；与 three.js 6 级 LOD/Meshlet 配方逐项一致的资产基线由 COOK-11 阻塞",
     "参考 UltraHDR 环境不能消费，页面使用中性 half-float environment；因此不能宣称 B 画质对齐",
     "Compute software visibility 由 VIS-05 阻塞"
   ]

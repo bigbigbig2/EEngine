@@ -7,7 +7,7 @@
  * docs/references/porting/R3-01-hierarchical-work-generation.md.
  */
 
-export const GPU_WORK_GENERATION_ABI_VERSION = 1;
+export const GPU_WORK_GENERATION_ABI_VERSION = 2;
 export const GPU_WORK_QUEUE_INVALID_OFFSET = 0xffffffff;
 export const GPU_DISPATCH_INDIRECT_ARGS_SIZE = 12;
 export const GPU_DRAW_INDIRECT_ARGS_SIZE = 16;
@@ -52,8 +52,8 @@ const WORK_QUEUE_HEADER_FIELDS: readonly GpuWorkAbiField[] = [
   { name: "overflow", kind: "atomic_u32", byteOffset: 12 },
   { name: "fallback", kind: "atomic_u32", byteOffset: 16 },
   { name: "capacity", kind: "u32", byteOffset: 20 },
-  { name: "_pad0", kind: "u32", byteOffset: 24 },
-  { name: "_pad1", kind: "u32", byteOffset: 28 }
+  { name: "rejected_cone", kind: "atomic_u32", byteOffset: 24 },
+  { name: "rejected_hzb", kind: "atomic_u32", byteOffset: 28 }
 ];
 
 export const GPU_TRAVERSAL_WORK_SCHEMA = createSchema(

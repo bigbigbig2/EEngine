@@ -29,9 +29,6 @@ const { PACKED_MATERIAL_EXPAND_WGSL } = await import(
 const { PACKED_VELOCITY_WGSL } = await import(
   "../.test-dist/shaders/packed_velocity.js"
 );
-const { PACKED_VISIBILITY_COMPUTE_WGSL } = await import(
-  "../.test-dist/shaders/packed_visibility.js"
-);
 
 test("R2-D motion ABI maps current world positions to previous for translation, rotation and scale", () => {
   const current = mat4.create();
@@ -197,7 +194,7 @@ test("mirrored non-uniform transforms preserve inverse-transpose normals and tan
   assertVectorClose(bitangent, [0, 1, 0], 1e-12);
 });
 
-test("Packed Visibility sphere-frustum reference covers inside, intersect and outside", () => {
+test("Packed sphere-frustum reference covers inside, intersect and outside", () => {
   const planes = [
     [1, 0, 0, 1], [-1, 0, 0, 1],
     [0, 1, 0, 1], [0, -1, 0, 1],
@@ -206,9 +203,6 @@ test("Packed Visibility sphere-frustum reference covers inside, intersect and ou
   assert.equal(sphereIntersectsFrustum([0, 0, 0, 0.25], planes), true);
   assert.equal(sphereIntersectsFrustum([1.2, 0, 0, 0.25], planes), true);
   assert.equal(sphereIntersectsFrustum([1.3, 0, 0, 0.25], planes), false);
-  assert.match(PACKED_VISIBILITY_COMPUTE_WGSL, /attempted: atomic<u32>/);
-  assert.match(PACKED_VISIBILITY_COMPUTE_WGSL, /written: atomic<u32>/);
-  assert.match(PACKED_VISIBILITY_COMPUTE_WGSL, /output_index >= packed_params\.work_capacity/);
 });
 
 function readMatrix(view, offset) {

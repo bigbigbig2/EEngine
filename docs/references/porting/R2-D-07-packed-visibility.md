@@ -1,5 +1,7 @@
 # R2-D-07 · Packed flat Visibility producer/consumer
 
+Current disposition: R3-D 已删除该运行时 producer/consumer、flat queue/indirect owner 与 Shader；本文只保留 R2 阶段来源和历史 ABI 证据。
+
 ## Reference
 
 - Reference ID：`R2-D-07-PACKED-VISIBILITY`

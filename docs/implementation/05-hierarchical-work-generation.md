@@ -1,12 +1,12 @@
 # 05 · R3 层次工作生成与 Hardware Consumer
 
-Status: R3-A、R3-B、R3-C Completed；R3-D Planned / Next；G3 尚未关闭
+Status: R3-A、R3-B、R3-C Completed；R3-D code/structure complete；G3 functional complete，clean/full performance closure pending
 
 长期决策见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md)，上游来源、许可证与采用边界见 [R3-01 移植登记](../references/porting/R3-01-hierarchical-work-generation.md)。本文件只拥有执行顺序、工程契约、验证和删除条件。
 
 ## 阶段目标
 
-R2 已经把 Meshlet、可渲染 Cluster hierarchy、Geometry/Cluster/Meshlet GPU records 和 Packed Instances 驻留到 GPU。R3-C 已经在大规模 Meshlet 展开前完成实例剔除、Cluster hierarchy/SSE 选择和 compact work generation，并由现有 fixed-function Hardware Visibility `drawIndirect()` consumer 直接消费。旧 `compact_packed_meshlets()` 现在只作为内部 paired reference，待 R3-D 删除：
+R2 已经把 Meshlet、可渲染 Cluster hierarchy、Geometry/Cluster/Meshlet GPU records 和 Packed Instances 驻留到 GPU。R3-D 已经在大规模 Meshlet 展开前完成实例剔除、Cluster hierarchy/SSE/Cone/previous-HZB 选择和 compact work generation，并由现有 fixed-function Hardware Visibility `drawIndirect()` consumer 直接消费。旧 `compact_packed_meshlets()`、Packed flat queue/indirect owner 与运行时 flat 开关已经删除：
 
 ```text
 Packed InstanceTable + resident Geometry/Cluster/Meshlet tables
@@ -21,7 +21,7 @@ Packed InstanceTable + resident Geometry/Cluster/Meshlet tables
 
 从 RootTraversalQueue 开始，数量和工作项全部由 GPU 产生并由 GPU 消费。CPU 只提供 view、驻留表、配置、容量和 FrameGraph topology；不得 readback 可见数量来决定当前帧 draw/dispatch。
 
-R3 的性能假设是“层次选择减少 Raster 前工作量后，总 GPU 时间在目标高密度场景中下降”。R3-C paired 数据只在 B 证明该假设；A 虽减少 90.1% RasterWork，但总 Visibility P50 因三个大规模 `workgroup_size(1)` 阶段回退 14.1%；C 则暴露约 0.262 ms 固定成本。因此不得宣称 hierarchy 普遍更快，R3-D 必须继续处理粒度、queue bandwidth 和低密度短路。
+R3 的性能假设是“层次选择减少 Raster 前工作量后，总 GPU 时间在目标高密度场景中下降”。R3-C paired 数据只在 B 证明该假设；A 虽减少 90.1% RasterWork，但总 Visibility P50 因 InstanceCull、round 0 与 RasterWork expansion 三个阶段的总成本回退 14.1%；C 则暴露约 0.262 ms 固定成本。此前把这三段都归因为 `workgroup_size(1)` 是错误的：InstanceCull、Cluster traversal 和旧 expansion 都已是 64-lane workgroup，真正的 expansion 问题是“每 lane 串行展开一个 Cluster 的全部 Meshlet”。R3-D 已改成“一 selected Cluster 对应一个 64-lane workgroup、一次整组预约、lane 并行展开”，但尚无新的 clean/full A/B/C，因此不能声称总时间已经改善。
 
 ## 首版冻结决策
 
@@ -38,9 +38,9 @@ R3 的性能假设是“层次选择减少 Raster 前工作量后，总 GPU 时�
 
 这不推翻 R2 对 BVH8 数据正确性的结论，只限定其当前 runtime consumer。
 
-### 首个闭环只启用 Frustum + SSE
+### 正确性接入顺序为 Frustum + SSE → Cone → previous HZB
 
-R3-B 首先对齐 CPU/GPU 的 `Instance Frustum + Cluster Frustum + SSE` 选择集合。Cone 和 previous-frame HZB 在该闭环正确之后由 R3-D 逐项加入：
+R3-B 首先对齐 CPU/GPU 的 `Instance Frustum + Cluster Frustum + SSE` 选择集合。R3-D 随后逐项加入 Cone 和 previous-frame HZB：
 
 ```text
 Frustum + SSE reference 对齐
@@ -63,9 +63,9 @@ R3 的真实 consumer 是 Hardware Visibility。SW/Hybrid 属于 R4-C：
 
 | 当前入口 | 当前事实 | R3 处理 |
 |---|---|---|
-| `OEngine/src/shaders/packed_visibility.ts` | hierarchy Hardware consumer 读取 RasterWork；flat producer 仍可由内部 paired 开关启用 | R3-C 已替换生产 work 输入；R3-D 删除 flat producer 分支 |
-| `OEngine/src/render/passes/PackedVisibilityPass.ts` | 生产 hierarchy 路径直接消费 RasterWork 和 16 B indirect record；flat 只用于 paired reference | 保留 Hardware vertex pulling/Visibility 输出不变量；R3-D 删除 paired flat 接线 |
-| `OEngine/src/gpu/GpuPackedSceneRegistry.ts` | 长期 Scene 关联与待删的 frame-local flat work owner 仍并存 | 保留 Scene/asset/instance/material 关联；R3-D 删除 flat queue/indirect owner |
+| `OEngine/src/shaders/packed_visibility.ts` | 只保留 hierarchy Hardware consumer 读取 RasterWork | R3-D 已删除 flat Compute/Raster WGSL |
+| `OEngine/src/render/passes/PackedVisibilityPass.ts` | 生产 hierarchy 路径直接消费 RasterWork 和 16 B indirect record | R3-D 已删除 mode 分支和 flat pipeline/bindings |
+| `OEngine/src/gpu/GpuPackedSceneRegistry.ts` | 只关联长期 Scene/asset/instance/material 与 hierarchy capacity | R3-D 已删除 flat queue/indirect owner，evidence `flatWorkBytes=0` |
 | `OEngine/src/geometry/GeometryHierarchy.ts` | CPU selector 主要验证单资产 object-space hierarchy | R3-A 升级成 multi-instance CPU oracle，不进入性能主帧 |
 | `OEngine/src/geometry/GeometryBvh8.ts` | 所有 Cluster 的独立空间索引 | R3 v1 不消费；保留 package/validator，后续由证据决定 |
 | legacy `MeshletDrawList`/bucket/scan/expand | 旧 Scene consumer | Packed R3 通过后核对调用方；只删除已被统一新链替换且无 consumer 的部分 |
@@ -118,7 +118,7 @@ Frame-local traversal/selected/raster buffers 和间接参数由该 module 管�
 
 所有跨 workgroup 的 producer/consumer 排序依靠独立 Compute Pass 和同一 command encoder 中的编码顺序；不得假设 `storageBarrier()` 能同步不同 workgroup。
 
-## Queue ABI v1
+## Queue ABI v2
 
 ABI 先在 R3-A 以一个可审查的 TypeScript schema/显式常量冻结，再生成或验证 WGSL offsets。未冻结前以下为目标逻辑布局，禁止下游散落手写 stride。
 
@@ -164,6 +164,8 @@ attempted            // producer 想产生的原始数量
 peak                 // 本帧达到的最高 written/预约水位
 overflow             // 任何容量预约失败，release 也保留 bit
 fallback             // 因容量压力选择 parent 或改走 HW 的次数
+rejectedCone         // Cluster cone 真实 reject event
+rejectedHzb          // previous-HZB 真实 depth-query reject event
 ```
 
 字段缺失、真实零、unsupported 不得混为一谈。Gate 禁止把 `attempted` clamp 后冒充真实 counter，也禁止为通过测试写假值。
@@ -379,7 +381,7 @@ paired 时间按 P50/P95/P99 登记，单位 ms；`Producer` 为 InstanceCull、
 | C | hierarchy | 0.328 / 0.328 / 0.328 | 0 / 0.066 / 0.066 | 0.328 / 0.393 / 0.393 | 127 |
 | C | flat | 0 / 0.066 / 0.066 | 0 / 0.066 / 0.066 | 0.066 / 0.066 / 0.066 | 127 |
 
-结论不得合并为“hierarchy 更快”：A 的 RasterWork 减少 90.1%，但 Visibility P50 回退 14.1%；B 减少 80.4% RasterWork 且 Visibility P50 改善 69.6%；C 工作量与 `shadedPixels=187,368` 完全相同，hierarchy 多约 0.262 ms 固定成本。A 的主要问题是 `workgroup_size(1)` 的 InstanceCull 约 35.6 ms、round 0 约 37.8 ms 和 VisibleCluster expansion 约 38.5 ms。A 的 hierarchy/flat `shadedPixels` 约差 2.4%，配套视觉截图显示为预期 LOD 轮廓差异，无明显破洞；B 基本一致，C 画面与像素计数一致。本地 JSON 和 `*-visual.png` 在 `temp/r3c-0b77ce8-artifacts/`，`temp/` 不纳入 Git。
+结论不得合并为“hierarchy 更快”：A 的 RasterWork 减少 90.1%，但 Visibility P50 回退 14.1%；B 减少 80.4% RasterWork 且 Visibility P50 改善 69.6%；C 工作量与 `shadedPixels=187,368` 完全相同，hierarchy 多约 0.262 ms 固定成本。A 的热点是 InstanceCull 约 35.6 ms、round 0 约 37.8 ms 和 VisibleCluster expansion 约 38.5 ms；该 artifact 只能证明阶段耗时，不能证明三个阶段使用 `workgroup_size(1)`。A 的 hierarchy/flat `shadedPixels` 约差 2.4%，配套视觉截图显示为预期 LOD 轮廓差异，无明显破洞；B 基本一致，C 画面与像素计数一致。本地 JSON 和 `*-visual.png` 在 `temp/r3c-0b77ce8-artifacts/`，`temp/` 不纳入 Git。
 
 ### R3-D · 性能、Cone/HZB、删除与 G3 收口
 
@@ -397,6 +399,16 @@ paired 时间按 P50/P95/P99 登记，单位 ms；`Producer` 为 InstanceCull、
 
 退出证据：旧 Packed flat producer 不再可达；不可恢复 overflow 为 0；feature-off 无 Cone/HZB/SW 多余资源与 Pass；A/B/C paired artifact 可解释；只有满足全部条件才把 G3 标记 Completed。
 
+当前状态（2026-08-28）：code/structure complete；functional Gate complete；performance Gate pending。
+
+- RasterWork expansion 改成一个 selected Cluster 对应一个 64-lane workgroup。只有 lane 0 执行一次 all-or-nothing reservation，再通过 `var<workgroup>` 与 `workgroupBarrier()` 广播 base；其余 lane 以 64 为步长并行写 Meshlet。回归明确禁止“64 lane 各预约一次”的容量破坏。
+- Cone 数学直接对齐 `meshoptimizer` v1.0 commit `73583c3` 的 cone apex/axis/cutoff 判定；仅正朝向、均匀 scale、无 shear、有效 cone、非 double-sided transform 允许 reject，mirrored/non-uniform/shear/invalid 全部 fail-open。
+- previous HZB 对齐 Niagara commit `eefec27` 的 reverse-Z 保守结构：8-corner AABB projection、conservative mip、四角 exact texel load 与 farthest/min compare。查询使用上一帧相机矩阵和 `previous_from_current × current_object_to_world`；MotionInvalid、首帧、resize、camera cut、history invalid、near-plane/异常投影全部 fail-open；无 previous history 时不创建 HZB pipeline/bind group。
+- Work Queue ABI 升为 v2，32 B header 的尾部保留位改成真实 `rejectedCone/rejectedHzb` 原子 counter；`visitedBvhNodes` 由 consumed traversal queue reducer 写真实值，并与当前 `candidateClusters` hierarchy 语义一致。
+- `compact_packed_meshlets()`、flat Compute/Raster shaders、`PackedVisibilityMode`、Renderer runtime switch、Packed Scene flat queue/indirect owner 与候选容量已删除；`flatWorkBytes=0` 有测试门禁。legacy `MeshletDrawList` 仍被普通 Scene/alpha/shadow consumer 使用，不在 R3-D 按类名误删。
+- 自动验证为 OEngine `npm test` 161/161 与 examples production build。当前 Codex in-app browser 拦截 localhost，Chrome/extension connection unavailable，因此本提交没有新的 WebGPU 页面、截图或 clean/full A/B/C artifact。
+- 所以旧 R3-C flat/hierarchy full bundle 继续作为 before 证据；R3-D after bundle 必须由相同 NVIDIA Turing/Chrome、1280×720、DPR 1、60 warm-up + 180 sample 条件重采。重采前不标记 G3 performance completed，也不宣称 A/C 回退已消除。
+
 ## 示例与验证
 
 新增根目录 `examples/r3-hierarchical-work-generation`，通过相对路径使用 OEngine 源码，至少包含：
@@ -406,8 +418,8 @@ paired 时间按 P50/P95/P99 登记，单位 ms；`Producer` 为 InstanceCull、
 - perspective/orthographic 切换；
 - mirrored/non-uniform transform；
 - 强制小 traversal capacity 的 parent fallback；
-- HZB on/off、camera cut 和 resize；
-- flat/hierarchy 内部对照与 JSON 下载；
+- HZB/Cone on/off、camera cut 和 resize；
+- hierarchy JSON 下载，并与已保存的 R3-C flat artifact 做版本间对照；
 - selected LOD、reject reason、queue overflow/fallback debug view。
 
 普通批次采用中等验证：命中 Node tests、`npm run build`、一个相关浏览器场景、WebGPU validation/console 检查；改变可见集合、LOD 或 HZB 时保存 JSON，并在画面异常或 Gate 收口时保存截图/序列。若当前环境不能运行浏览器，必须列为未运行并交给人工采集，不能用 TypeScript build 代替。
@@ -440,7 +452,7 @@ CPU encode + GPU traversal/raster/frame P50/P95/P99
 resident/transient/work queue bytes
 ```
 
-不能只展示远景最佳样例。A/B/C 都要包含 hierarchy off/on paired result，简单低密度场景回退超过仓库阈值时阻塞默认启用。
+不能只展示远景最佳样例。R3-D 已删除产品运行时 flat 开关；after hierarchy 必须与 commit `0b77ce8` 保存的同条件 flat/hierarchy before bundle 对照，简单低密度场景回退超过仓库阈值时阻塞默认启用。
 
 ## 失败与回退
 
@@ -453,7 +465,7 @@ resident/transient/work queue bytes
 
 ## 阶段退出
 
-只有以下全部成立，R3/G3 才结束：
+R3 代码与功能结构已满足 1、2、3、5、6；第 4 项中的新浏览器画面和 clean/full A/B/C after artifact 尚未满足。因此当前可以进入“等待性能采集”的收尾状态，但不能把 G3 performance 标记为 Completed：
 
 1. `Instance → Cluster hierarchy/SSE → VisibleCluster/RasterWork → Hardware drawIndirect` 是生产 Packed 主链；
 2. CPU 不遍历最终可见列表，GPU queue 数直接被 GPU consumer 使用；
@@ -462,4 +474,4 @@ resident/transient/work queue bytes
 5. Packed flat producer、flat queue owner 和无 consumer Shader 已删除；
 6. CURRENT-STATE、Context、ADR、porting ledger 与真实代码一致。
 
-R3 完成后进入 R4-A Visibility contract；不得在 R3 收口前用 Software Raster 或 Material Resolve 扩张掩盖工作生成缺陷。
+在 R3-D after bundle 采集前不启动会改变 Visibility 工作量的 R4 实现；允许先完成 R4-A 文档/ABI 分析，但不得用 Software Raster 或 Material Resolve 扩张掩盖尚未验证的工作生成性能。

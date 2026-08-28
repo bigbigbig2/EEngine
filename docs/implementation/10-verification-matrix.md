@@ -168,6 +168,8 @@ R3-B 于 2026-08-28 关闭。自动证据覆盖 `HierarchicalWorkGenerator` owne
 
 R3-C 于 2026-08-28 关闭。生产链已形成 `VisibleCluster → RasterWork → [384, written, 0, 0] → Packed Hardware drawIndirect`，当前帧无 count readback；二维 indirect dispatch 覆盖超过 65,535 workgroups，runtime virtual leaf 覆盖 `NoHierarchy` tiny Geometry，VisibleCluster 与 RasterWork counter 分开登记。自动证据为 `npm test` 156/156、examples production build 和 GPU/CPU RasterWork oracle 通过。commit `0b77ce8` 的六组 clean/full paired A/B/C 均为 `gateEligible=true`、`counterIssues=0`、`queueOverflowMask=0` 且 WebGPU diagnostics 为 0；A/B/C 分别显示 14.1% 回退、69.6% 改善与约 0.262 ms 低密度固定成本。因此该关闭证明 Hardware vertical 和 paired 证据完成，不宣称 hierarchy 普遍更快；workgroup/queue 优化、Cone/HZB、flat 链删除和 G3 仍由 R3-D 阻塞。
 
+R3-D 于 2026-08-28 完成代码与功能结构。自动证据覆盖：Queue ABI v2；`visitedBvhNodes/rejectedCone/rejectedHzb` 真实 producer；meshoptimizer cone CPU oracle及 mirrored/non-uniform/shear fail-open；Niagara reverse-Z HZB 8-corner/mip/compare oracle及 invalid-history fail-open；RasterWork 每 Cluster 64-lane expansion 且仅 lane 0 预约；Packed flat Shader/mode/queue/indirect owner 删除；feature-off 不创建 HZB pipeline/bind group edge。OEngine `npm test` 161/161，examples production build 通过。当前浏览器连接无法访问 localhost，因此没有新的 WebGPU validation、截图或 clean/full A/B/C after；G3 functional complete，G3 performance pending，不得把自动证据写成性能提升。
+
 ## 自动化命令
 
 当前仓库已有基础命令：

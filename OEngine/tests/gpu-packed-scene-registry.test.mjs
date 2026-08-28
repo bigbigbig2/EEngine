@@ -32,7 +32,7 @@ test("R2-D Packed Scene rejects malformed source before allocating or mutating o
   assert.equal(graphics.buffers.length, 0);
 });
 
-test("R2-D Packed Scene abort rolls back work buffers and release retires them after completion", async () => {
+test("R3-D Packed Scene abort rolls back its counter sink and release retires it after completion", async () => {
   const graphics = createGraphics();
   const registry = new GpuPackedSceneRegistry(graphics);
   const scene = new Scene();
@@ -42,26 +42,26 @@ test("R2-D Packed Scene abort rolls back work buffers and release retires them a
   registry.stage(scene, source, [Object.freeze({})], aborted);
   aborted.abort();
   assert.equal(registry.evidence().sceneCount, 0);
-  assert.deepEqual(graphics.buffers.map((buffer) => buffer.destroyCount), [1, 1, 1]);
+  assert.deepEqual(graphics.buffers.map((buffer) => buffer.destroyCount), [1]);
 
   const staged = new FakeCommand();
   registry.stage(scene, source, [Object.freeze({})], staged);
   staged.finish();
   assert.equal(registry.evidence().sceneCount, 1);
-  assert.equal(registry.evidence().candidateMeshletCapacity, 2);
   assert.equal(registry.evidence().hierarchyRasterWorkCapacity, 2);
+  assert.equal(registry.evidence().flatWorkBytes, 0);
 
   const release = new FakeCommand();
   const handles = registry.release(scene, release);
   assert.equal(handles.length, 1);
   release.finish();
   assert.equal(registry.evidence().sceneCount, 0);
-  assert.deepEqual(graphics.buffers.slice(3).map((buffer) => buffer.destroyCount), [0, 0, 0]);
+  assert.deepEqual(graphics.buffers.slice(1).map((buffer) => buffer.destroyCount), [0]);
 
   graphics.completeGpu();
   await Promise.resolve();
   await Promise.resolve();
-  assert.deepEqual(graphics.buffers.slice(3).map((buffer) => buffer.destroyCount), [1, 1, 1]);
+  assert.deepEqual(graphics.buffers.slice(1).map((buffer) => buffer.destroyCount), [1]);
   assert.equal(graphics.releaseCount, 1);
 });
 
@@ -77,7 +77,7 @@ test("R2-D Renderer upload path explicitly rolls resident handles back on failur
   assert.match(upload, /catch \(error\) \{\s*await this\.releasePackedAssetHandles\(handles\)/s);
 });
 
-test("R2-D flat work capacity counts every instance sharing one Geometry and rejects limits before mutation", () => {
+test("R3-D hierarchy capacity counts every instance sharing one Geometry without a flat owner", () => {
   const graphics = createGraphics();
   const registry = new GpuPackedSceneRegistry(graphics);
   const scene = new Scene();
@@ -85,21 +85,9 @@ test("R2-D flat work capacity counts every instance sharing one Geometry and rej
   const command = new FakeCommand();
   registry.stage(scene, shared, [Object.freeze({})], command);
   command.finish();
-  assert.equal(registry.evidence().candidateMeshletCapacity, 7_000);
   assert.equal(registry.evidence().hierarchyVisibleClusterCapacity, 1_000);
   assert.equal(registry.evidence().hierarchyRasterWorkCapacity, 7_000);
-
-  const limitedGraphics = createGraphics();
-  limitedGraphics.device.limits.maxBufferSize = 1_024;
-  limitedGraphics.device.limits.maxStorageBufferBindingSize = 1_024;
-  const limited = new GpuPackedSceneRegistry(limitedGraphics);
-  assert.throws(
-    () => limited.stage(new Scene(), makeSource(1_000, 7), [Object.freeze({})], new FakeCommand()),
-    /flat work queue requires/
-  );
-  assert.equal(limitedGraphics.obtainCount, 0);
-  assert.equal(limitedGraphics.instantiateCount, 0);
-  assert.equal(limitedGraphics.buffers.length, 0);
+  assert.equal(registry.evidence().flatWorkBytes, 0);
 });
 
 function makeSource(count = 1, meshletCount = 2) {
