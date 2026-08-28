@@ -170,6 +170,14 @@ debug source 只暴露 `PackedVisibilityPass` 当帧已经生成并由 Hardware 
 
 ### R4-A-05 · Overflow、生命周期与 feature-off
 
+工作项已于 2026-08-28 验收，治理状态为 `Integrated`。生产 `PackedVisibilityPass.prepareHierarchy()` 在调用 `HierarchicalWorkGenerator.prepare()` 前统一执行 `validatePackedVisibilityPreparation()`：同时检查 VisibilityKey v1 的 25-bit RasterWork slot 上界、`maxBufferSize`、`maxStorageBufferBindingSize` 与 32 B queue header，并保存 required capacity/bytes 和 key/adapter/effective capacity 证据。失败直接抛出 `RangeError`，不会调用 generator、创建 frame-local queue、编码 producer 或截断高位；exact boundary 可以通过同一函数验证而不分配对应大 Buffer。
+
+prepared hierarchy cache 仍以 runtime + counter buffer + asset/scene epoch + SSE/counter mode 为 identity。epoch replacement、Packed runtime release 统一通过 `ShadeGPUCommandContext.destroyAfterGpuDone()` 退休旧 work；即使 replacement/release command abort，也必须等待 `queue.onSubmittedWorkDone()` 后才销毁可能被先前 submission 引用的资源。`ViewManager.remove()` 先从 lookup 删除 view，再按相同 fence 退休 HZB/history；下一次 `obtain()` 创建不同 view owner。resize 进入 VisibilityKey descriptor/FrameGraph key，并由 HZB revision 标记 `resize`；`indicate_view_change()` 增加 camera revision，使 previous HZB 以 `camera-cut` fail-open。
+
+device lost 边界保持显式：当前 Renderer 收到 `device.lost` 后只返回 `false` 并停止渲染，不复用旧 adapter/device/resource；恢复由 fresh `Renderer/GraphicsContext`、fresh adapter/device 和 device-independent cooked package 重新上传完成。intentional `device.destroy()` 只验证 `reason=destroyed` 的停止/重建路径，不伪装成浏览器无法可靠注入的 `unknown` recovery。
+
+counter sampling 关闭时不 import GPU counter buffer、不创建 `VisibilityCounterPass`、不编码 reducer/readback；debug 关闭时不创建 debug pass/output/uniform/readback。Packed runtime 仍保留 hierarchy shader binding ABI 必需的 256 B `disabled-counter-sink`，但它没有可选 reducer、每帧 clear/copy、readback、独立 encoder 或 submit。`examples/r4-visibility-lifecycle` 的 Chrome WebGPU 结果为 `passed=true`：feature-off frame `readbacks=0`、counter sampled=false；sampled frame `queueOverflowMask=0`、`invalidVisibilityKeys=0`；resize `768×432 → 640×360`、camera invalidation `1 → 2`、view id `0 → 1`；提交后立即 release/re-upload Packed Scene 成功。目标 adapter 的 effective capacity 为 VisibilityKey 上界 `33,554,431`，exact boundary 为 `268,435,480 B`，`33,554,432` 在零分配验证中明确失败。intentional device destroy 后旧 Renderer 停止，fresh NVIDIA Turing Renderer 连续 3 帧零 validation/uncaptured/device-lost diagnostics。JSON、整页截图和 canvas screenshot 保存于 `temp/r4-a-05/`。该证据关闭 lifecycle/overflow 工作项，不关闭 `R4-A-06` paired Gate 或整个 G4-A。
+
 - RasterWork/key capacity 不足必须 prepare 失败或明确 fallback，不截断画面。
 - resize、camera cut、view recreate、device lost 和 in-flight replacement 有测试。
 - debug/counter sampling 关闭时不保留无消费者 reducer/readback。

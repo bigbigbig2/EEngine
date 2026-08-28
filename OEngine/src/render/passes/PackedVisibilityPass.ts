@@ -9,7 +9,9 @@ import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import {
   GPU_VISIBILITY_KEY_EMPTY,
-  assertGpuVisibilityRasterWorkCapacity
+  assertGpuVisibilityRasterWorkCapacity,
+  visibilityRasterWorkBufferByteLength,
+  type GpuVisibilityBufferLimits
 } from "../../gpu/GpuVisibilityKeyAbi.js";
 import { LPV_CAMERA_TYPE } from "../../shaders/lpv_indirect_diffuse.js";
 import {
@@ -133,6 +135,20 @@ export interface PackedVisibilityDebugSource {
   resolve(): PackedVisibilityDebugBindings;
 }
 
+export interface PackedVisibilityPreparationEvidence {
+  readonly requiredCapacity: number;
+  readonly requiredByteLength: number;
+  readonly keyCapacity: number;
+  readonly adapterCapacity: number;
+  readonly effectiveCapacity: number;
+  readonly effectiveByteLimit: number;
+}
+
+type PackedVisibilityHierarchyGenerator = Pick<
+  HierarchicalWorkGenerator,
+  "prepare" | "encode" | "release" | "destroy"
+>;
+
 export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
   submittedFragments: Object.freeze({
     status: "unsupported" as const,
@@ -158,7 +174,8 @@ export class PackedVisibilityPass {
   lastFixedVertexCount = PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT;
   lastVisibilityKeyAttachmentBytes = 0;
   readonly lastImplementation = "hierarchy" as const;
-  private readonly hierarchyGenerator: HierarchicalWorkGenerator;
+  lastPreparation: Readonly<PackedVisibilityPreparationEvidence> | null = null;
+  private readonly hierarchyGenerator: PackedVisibilityHierarchyGenerator;
   private readonly hierarchyPrepared = new Map<
     PackedSceneRuntime,
     Map<GPUBuffer, HierarchyPreparedCacheEntry>
@@ -168,8 +185,12 @@ export class PackedVisibilityPass {
     PackedVisibilityDebugBindings
   >();
 
-  constructor(private readonly graphics: GraphicsContext) {
-    this.hierarchyGenerator = new HierarchicalWorkGenerator(graphics.device);
+  constructor(
+    private readonly graphics: GraphicsContext,
+    hierarchyGenerator?: PackedVisibilityHierarchyGenerator
+  ) {
+    this.hierarchyGenerator = hierarchyGenerator ??
+      new HierarchicalWorkGenerator(graphics.device);
   }
 
   addToGraph(
@@ -241,7 +262,7 @@ export class PackedVisibilityPass {
     instanceId: GPUTextureView,
     depth: GPUTextureView
   ): void {
-    const prepared = this.obtainHierarchyPrepared(job, counters, command);
+    const prepared = this.prepareHierarchy(job, counters, command);
     const generated = this.hierarchyGenerator.encode(
       command.gpu_encoder,
       prepared,
@@ -320,12 +341,13 @@ export class PackedVisibilityPass {
     this.lastVisibilityKeyAttachmentBytes = job.width * job.height * 4;
   }
 
-  private obtainHierarchyPrepared(
+  /** Validates capacity before allocating or encoding producer work. */
+  prepareHierarchy(
     job: PackedVisibilityJob,
     counters: GPUBuffer,
     command: ShadeGPUCommandContext
   ): PreparedHierarchyWork {
-    assertGpuVisibilityRasterWorkCapacity(
+    this.lastPreparation = validatePackedVisibilityPreparation(
       job.runtime.hierarchyRasterWorkCapacity,
       {
         maxBufferSize: Number(this.graphics.device.limits.maxBufferSize),
@@ -392,6 +414,25 @@ export class PackedVisibilityPass {
     }
     return bindings;
   }
+}
+
+/** Internal R4 prepare contract; intentionally not exported from src/index.ts. */
+export function validatePackedVisibilityPreparation(
+  requiredCapacity: number,
+  limits: GpuVisibilityBufferLimits
+): Readonly<PackedVisibilityPreparationEvidence> {
+  const capacity = assertGpuVisibilityRasterWorkCapacity(
+    requiredCapacity,
+    limits
+  );
+  return Object.freeze({
+    requiredCapacity,
+    requiredByteLength: visibilityRasterWorkBufferByteLength(requiredCapacity),
+    keyCapacity: capacity.keyCapacity,
+    adapterCapacity: capacity.adapterCapacity,
+    effectiveCapacity: capacity.effectiveCapacity,
+    effectiveByteLimit: capacity.effectiveByteLimit
+  });
 }
 
 export function packedVisibilityAttachmentDescriptor(

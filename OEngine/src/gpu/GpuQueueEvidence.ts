@@ -29,7 +29,8 @@ const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["Renderer/PackedScene/resident", "tool"],
   ["Renderer/PackedScene/instantiate", "tool"],
   ["Renderer/PackedScene/release-instances", "tool"],
-  ["Renderer/PackedScene/release-asset", "tool"]
+  ["Renderer/PackedScene/release-asset", "tool"],
+  ["Renderer/View/release", "tool"]
 ]);
 
 export function classifyGpuSubmitLabel(

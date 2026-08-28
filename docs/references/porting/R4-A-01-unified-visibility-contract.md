@@ -1,6 +1,6 @@
 # R4-A-01 · Unified Hardware Visibility Contract
 
-Status: R4-A-01 implemented; R4-A-02 Hardware opaque, R4-A-03 alpha-tested and R4-A-04 debug Resolve integrated 2026-08-28 / lifecycle and paired Gate pending
+Status: R4-A-01 implemented; R4-A-02 Hardware opaque, R4-A-03 alpha-tested, R4-A-04 debug Resolve and R4-A-05 lifecycle/overflow integrated 2026-08-28 / paired Gate pending
 
 ## Reference ID
 
@@ -137,6 +137,9 @@ depth32float reverse-Z
 - Hardware debug 沿用 Timberdoodle/Visibility Buffer 的“compact key 后续回查”不变量，但由 OEngine 依据本地 TS/WGSL ABI 独立实现：单个 fullscreen pass 读取 Key 与五个 storage buffer，按 RasterWork → VisibleCluster → Meshlet/triangle → Instance/Geometry → Material 顺序做有界检查；不移植 native bindless、BDA、descriptor 或 task graph 结构。
 - debug settings 固定 32 B；有效像素哈希完整 identity，异常层级使用稳定 fail-visible color。queue 同时检查 header `written` 与 storage runtime array length，table 同时检查 runtime array length 与 owner high-water/capacity，避免损坏 header 导致越界读取。
 - production `RenderDebugView.VisibilityKey` 复用既有 debug topology。关闭时不实例化 pass/output/uniform/readback/encoder/submit；开启时新增一次 fullscreen draw 与一个 `rgba16float` transient output，不重新生成 work、不重复 geometry draw。
+- `validatePackedVisibilityPreparation()` 是 production prepare 的单一 capacity seam：在 generator 之前同时验证 key 和 adapter buffer limits，返回 required/effective byte evidence；失败不调用 generator、不分配 RasterWork queue、不编码 producer。
+- prepared hierarchy 的 epoch replacement、Packed release 和 abort 通过 `destroyAfterGpuDone()` 等待 queue completion；View removal 同样先断开 lookup 再 fence old history。device loss 不复用旧 device resources，只允许 fresh Renderer/GraphicsContext 从 device-independent package 重建。
+- counter/debug feature-off 不保留 reducer/readback/额外 submit；256 B disabled counter sink 仅用于当前固定 shader binding ABI，不执行采样 clear/copy/reduce。
 
 ## Precision / semantic differences
 
@@ -235,9 +238,20 @@ OEngine/tests/packed-visibility-r4.test.mjs
 examples/r4-debug-resolve
   static MASK/alpha texture/KHR_texture_transform glTF through the public Packed path
   production Renderer ID heatmap and same-WGSL 16-case fail-visible GPU injection
+
+OEngine/tests/r4-visibility-lifecycle.test.mjs
+OEngine/tests/gpu-submit-owner.test.mjs
+  prepare-before-allocation rejection and exact boundary
+  epoch replacement/release/abort GPU fence and view recreation
+  guarded counter/debug optional work and classified view lifecycle submit
+
+examples/r4-visibility-lifecycle
+  production Packed alpha path with feature-off and sampled counter evidence
+  resize, camera cut, view recreation and immediate release/re-upload
+  intentional device destroy, old Renderer stop and fresh adapter/device/Renderer rebuild
 ```
 
-R4-A-01/02/03/04 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI、WebGPU/WGSL 与 Khronos glTF 规格，对 lookup/producer/material alpha/debug bounds 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
+R4-A-01/02/03/04/05 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI、WebGPU/WGSL 与 Khronos glTF 规格，对 lookup/producer/material alpha/debug bounds/lifecycle 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
 
 Validation：
 
@@ -277,6 +291,20 @@ result: passed=true; production Packed alpha glTF path completed for 6 frames;
         16/16 empty/reserved/max/lookup-layer/valid cases matched frozen colors;
         WGSL/validation/uncaptured/device-lost diagnostics empty
 artifacts: temp/r4-a-04/r4-a-04.json, r4-a-04.png and r4-a-04-canvas.png
+
+cd OEngine
+npm run build:test
+node --test tests/r4-visibility-lifecycle.test.mjs tests/packed-visibility-r4.test.mjs tests/gpu-submit-owner.test.mjs
+result: capacity prepare, replacement/release/abort fence, view recreation, feature-off guards and submit owner passed
+
+Chrome WebGPU: examples/r4-visibility-lifecycle
+result: passed=true; feature-off readbacks=0 and counter sampled=false;
+        sampled queueOverflowMask/invalidVisibilityKeys=0/0;
+        resize=768x432->640x360, camera invalidations=1->2, view id=0->1;
+        immediate Packed release/re-upload passed; exact key capacity 33,554,431 passed and
+        33,554,432 rejected before allocation; intentional destroyed loss stopped old Renderer;
+        fresh NVIDIA Turing Renderer completed 3 frames with zero diagnostics
+artifacts: temp/r4-a-05/r4-a-05.json, r4-a-05.png and r4-a-05-canvas.png
 ```
 
 Planned by later R4-A tasks：

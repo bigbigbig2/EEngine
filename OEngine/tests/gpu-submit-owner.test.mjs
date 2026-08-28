@@ -89,7 +89,8 @@ test("every known submit label has an explicit owner class", () => {
     ["Renderer/PackedScene/resident", "tool"],
     ["Renderer/PackedScene/instantiate", "tool"],
     ["Renderer/PackedScene/release-instances", "tool"],
-    ["Renderer/PackedScene/release-asset", "tool"]
+    ["Renderer/PackedScene/release-asset", "tool"],
+    ["Renderer/View/release", "tool"]
   ]);
   for (const [label, kind] of expected) {
     assert.equal(classifyGpuSubmitLabel(label), kind, label);
