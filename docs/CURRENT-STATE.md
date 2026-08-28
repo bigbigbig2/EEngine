@@ -61,7 +61,8 @@
 - `R4-A-01` 工作项已验收，治理状态为 `Implemented`：`GpuVisibilityKeyAbi.ts` 以共享 TS 常量生成 WGSL codec，冻结 frame-local `VisibilityKey v1 = rasterWorkSlot + localTriangle`、`0xFFFFFFFF` empty、完整 reserved slot、最大 RasterWork capacity、adapter buffer limit 与显式 producer failure；CPU reference 已通过 multi-Meshlet fixture 证明 `RasterWork → VisibleCluster/Meshlet` 唯一回查，未修改 R3 Package ABI。
 - `R4-A-02` 已验收，治理状态为 `Integrated`：生产 Packed Hardware shader 在原有单次 `drawIndirect` 中写 `VisibilityKey v1 + reverse-Z depth`；Key 是 FrameGraph transient `r32uint` attachment，Packed feature-off 不创建资源，resize 进入 descriptor/graph signature，RasterWork capacity 在 producer 前按 key/adapter limit 显式拒绝。旧 triangle/instance MRT 暂供 Material/Velocity 使用，列为 R4-B 删除对象。
 - sampled `VisibilityCounterPass` 已切换为 legacy/key 双 contract，新增 `invalidVisibilityKeys`，useful fragments 复用 `shadedPixels`；submitted fragments 因 WebGPU baseline 没有 pipeline-statistics producer，诚实登记为 `unsupported / R4-A-06`。`examples/r4-hardware-opaque-producer` 的 live Chrome 结果为 `passed=true`、`6820` valid、`69980` empty、invalid/unresolved/depth mismatch 全为 `0`、depth `0.025`，Shader/validation/uncaptured diagnostics 为空；Benchmark A production Renderer smoke 的 3 个 sampled frame 也全部导出 `invalidVisibilityKeys=0` 且 runtime diagnostics 为零，但 smoke 不作为 R4-A paired Gate artifact。
-- ADR-0010 的 alpha-tested Material Visibility、Hardware debug Resolve、完整 lifecycle/overflow 与 paired A/B/C Gate 尚未完成；因此 G4-A 仍未完成。
+- `R4-A-03` 已验收，治理状态为 `Integrated`：64 B `MaterialVisibilityRecord v1` 与 4,096 material/256 alpha-tile 临时 owner 已接入 Packed Scene staging；Geometry GPU ABI 升为 v2/160 B 并加入 UV0/UV1 fast path，Package ABI 不变。生产 Hardware fragment 从 GPU record 完成 opaque/mask/blend、factor/texture、glTF UV transform、cutoff、double-sided/mirrored 与 invalid texture/sampler fallback，仍只使用原单次 `RasterWork → drawIndirect → VisibilityKey/depth`，没有 CPU 最终可见循环。Chrome 8-slot fixture 像素为 `2892/2177/0/0/2913/2849/2850/1440`，invalid key/depth mismatch 与 WGSL/validation/uncaptured/device-lost diagnostics 全为 `0`。
+- ADR-0010 的 Hardware debug Resolve、完整 lifecycle/overflow 与 paired A/B/C Gate 尚未完成；因此 G4-A 仍未完成。R4-A 临时 Material Visibility owner 是 `R4-B-02` 接管/删除对象，不是第二套长期材质真相来源。
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
 - Material Expand 仍按活跃材质执行全屏三角形，成本可能接近 `materials × pixels`。
 - R2-C/D 的 owner、flat work、属性重建和 motion 数学已有独立 porting ledger；本轮只证明 reference/property/source audit 与构建正确，Material/Velocity 的 GPU 时间收益仍需同条件浏览器 artifact，不能由结构优化直接推断。
@@ -71,8 +72,8 @@
 
 ## 当前下一步
 
-1. 执行 `R4-A-03` Material Visibility 与 alpha-tested：冻结 GPU visibility material record/映射并完成 factor/texture/UV transform/cutoff discard；不得退回 CPU per-material 最终可见循环，也不得提前实现完整 PBR。
-2. 完成 `R4-A-04..06` 的 debug lookup、overflow/lifecycle 和 paired 浏览器 Gate 后，才能进入 R4-B single Material Resolve；R4-C SW/Hybrid 继续作为后续 profile optimization。
+1. 执行 `R4-A-04` Hardware debug Resolve：从 VisibilityKey 单次回查 RasterWork/VisibleCluster/Meshlet/Instance/Material，并保存 fail-visible heatmap 与真实 glTF alpha fixture。
+2. 完成 `R4-A-05..06` 的 overflow/lifecycle 和 paired 浏览器 Gate 后，才能进入 R4-B single Material Resolve；R4-C SW/Hybrid 继续作为后续 profile optimization。
 3. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；G3 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
 
 ## 本地参考状态

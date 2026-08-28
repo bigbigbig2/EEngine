@@ -89,12 +89,12 @@ test("R4-A-02 FrameGraph owns the Key attachment only when the Packed pass exist
   graph.compile();
   assert.equal(
     graph.getResourceNode(outputs.visibilityKey).producer?.name,
-    "Packed Visibility/R4-A-02 Hardware opaque producer"
+    "Packed Visibility/R4-A-03 Material Visibility alpha producer"
   );
   assert.deepEqual(
     graph.listExecutablePasses().map(({ name, culled }) => ({ name, culled })),
     [{
-      name: "Packed Visibility/R4-A-02 Hardware opaque producer",
+      name: "Packed Visibility/R4-A-03 Material Visibility alpha producer",
       culled: false
     }]
   );

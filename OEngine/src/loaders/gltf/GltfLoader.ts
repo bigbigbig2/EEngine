@@ -162,13 +162,25 @@ export interface GltfMaterial {
   name?: string;
   doubleSided?: boolean;
   alphaMode?: string;
+  alphaCutoff?: number;
   emissiveFactor?: number[];
   normalTexture?: { index: number };
   emissiveTexture?: { index: number };
   occlusionTexture?: { index: number; strength?: number; texCoord?: number };
   pbrMetallicRoughness?: {
     baseColorFactor?: number[];
-    baseColorTexture?: { index: number };
+    baseColorTexture?: {
+      index: number;
+      texCoord?: number;
+      extensions?: {
+        KHR_texture_transform?: {
+          offset?: number[];
+          rotation?: number;
+          scale?: number[];
+          texCoord?: number;
+        };
+      };
+    };
     metallicRoughnessTexture?: { index: number };
     metallicFactor?: number;
     roughnessFactor?: number;
@@ -420,7 +432,8 @@ const SUPPORTED_REQUIRED_EXTENSIONS = new Set([
   "KHR_materials_ior",
   "KHR_materials_pbrSpecularGlossiness",
   "KHR_materials_specular",
-  "KHR_materials_transmission"
+  "KHR_materials_transmission",
+  "KHR_texture_transform"
 ]);
 
 function validateRequiredExtensions(extensions: readonly string[]): void {

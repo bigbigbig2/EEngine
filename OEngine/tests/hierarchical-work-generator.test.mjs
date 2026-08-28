@@ -35,6 +35,9 @@ const {
 const {
   PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
 } = await import("../.test-dist/shaders/packed_visibility.js");
+const { GPU_GEOMETRY_ABI_VERSION } = await import(
+  "../.test-dist/gpu/GpuGeometryAbi.js"
+);
 
 test("R3-B preparation computes exact combined breadth and legal-cut capacities", () => {
   const shallow = createHierarchyAsset([
@@ -455,7 +458,7 @@ function createSceneDescriptor(gpu, values) {
   const counterBuffer = gpu.createExternalBuffer("counters", 256);
   return {
     assets: {
-      abiVersion: 1,
+      abiVersion: GPU_GEOMETRY_ABI_VERSION,
       epoch: 1,
       geometryRecords: geometryBuffer,
       clusterRecords: clusterBuffer,

@@ -78,6 +78,10 @@ export default defineConfig({
           examplesRoot,
           "r4-hardware-opaque-producer/index.html"
         ),
+        r4AlphaTestedVisibility: path.resolve(
+          examplesRoot,
+          "r4-alpha-tested-visibility/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

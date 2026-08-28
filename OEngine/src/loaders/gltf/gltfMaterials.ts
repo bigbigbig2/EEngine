@@ -149,6 +149,15 @@ export function parseGltfMaterial(
       img.color_space = 1;
       tex.mipmapGenerationFilter = MIPMAP_ALBEDO_EMISSIVE;
       n.texture_albedo = tex;
+      const transform = baseTex.extensions?.KHR_texture_transform;
+      n.base_color_uv_set = Math.max(0, Math.floor(
+        transform?.texCoord ?? baseTex.texCoord ?? 0
+      ));
+      n.base_color_uv_offset = finiteVec2(transform?.offset, [0, 0]);
+      n.base_color_uv_scale = finiteVec2(transform?.scale, [1, 1]);
+      n.base_color_uv_rotation = Number.isFinite(transform?.rotation)
+        ? transform!.rotation!
+        : 0;
     }
     const orm = i.metallicRoughnessTexture;
     if (orm !== undefined) {
@@ -163,6 +172,7 @@ export function parseGltfMaterial(
     n.transparency_mode = ShadeTransparencyMode.Opaque;
   } else if (o === "MASK") {
     n.transparency_mode = ShadeTransparencyMode.AlphaTested;
+    n.alpha_cutoff = saturate(e.alphaCutoff ?? 0.5);
   } else if (o === "BLEND") {
     n.transparency_mode = ShadeTransparencyMode.Transparent;
   } else {
@@ -256,4 +266,16 @@ export function parseGltfMaterial(
     console.warn(`Rewrote transparency mode for material '${n.name}'`);
   }
   return n;
+}
+
+function finiteVec2(
+  value: number[] | undefined,
+  fallback: [number, number]
+): [number, number] {
+  const x = value?.[0];
+  const y = value?.[1];
+  return [
+    Number.isFinite(x) ? x! : fallback[0],
+    Number.isFinite(y) ? y! : fallback[1]
+  ];
 }

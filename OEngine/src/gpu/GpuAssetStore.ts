@@ -16,6 +16,7 @@ import {
   GPU_GEOMETRY_RECORD_STRIDE,
   GPU_MESHLET_RECORD_STRIDE,
   GPU_POSITION_FORMAT,
+  GPU_UV_FORMAT,
   packGpuClusterRecords,
   packGpuGeometryRecord,
   packGpuMeshletRecords,
@@ -528,6 +529,12 @@ export class GpuAssetStore {
       : position.dataType === "float32" && position.componentCount === 4
         ? GPU_POSITION_FORMAT.Float32x4
         : GPU_POSITION_FORMAT.Unknown;
+    const uv0 = asset.vertexStreamDescriptors.find(
+      (descriptor) => descriptor.semantic === "uv0"
+    );
+    const uv1 = asset.vertexStreamDescriptors.find(
+      (descriptor) => descriptor.semantic === "uv1"
+    );
 
     const meshletRecords: GpuMeshletRecordCpu[] = asset.meshlets.map((meshlet) => ({
       vertexOffset: checkedAdd(meshletVertexBegin, meshlet.vertexOffset, "Meshlet vertex range"),
@@ -657,7 +664,13 @@ export class GpuAssetStore {
       ),
       positionStride: position.elementStride,
       positionFormat,
-      flags: asset.directory.flags
+      flags: asset.directory.flags,
+      uv0ByteOffset: uvByteOffset(uv0, vertexDataBegin),
+      uv0Stride: uv0?.elementStride ?? 0,
+      uv0Format: uvFormat(uv0),
+      uv1ByteOffset: uvByteOffset(uv1, vertexDataBegin),
+      uv1Stride: uv1?.elementStride ?? 0,
+      uv1Format: uvFormat(uv1)
     });
 
     const segments: UploadSegment[] = [];
@@ -908,6 +921,31 @@ export class GpuAssetStore {
       0
     );
   }
+}
+
+function uvByteOffset(
+  descriptor: GeometryAssetPackage["vertexStreamDescriptors"][number] | undefined,
+  vertexDataBegin: number
+): number {
+  return descriptor === undefined
+    ? 0
+    : checkedAdd(vertexDataBegin, descriptor.dataByteOffset, "UV stream offset");
+}
+
+function uvFormat(
+  descriptor: GeometryAssetPackage["vertexStreamDescriptors"][number] | undefined
+): number {
+  if (descriptor === undefined || descriptor.componentCount !== 2) {
+    return GPU_UV_FORMAT.Unknown;
+  }
+  if (descriptor.dataType === "float32") return GPU_UV_FORMAT.Float32x2;
+  if (descriptor.dataType === "uint8" && descriptor.normalized) {
+    return GPU_UV_FORMAT.Unorm8x2;
+  }
+  if (descriptor.dataType === "uint16" && descriptor.normalized) {
+    return GPU_UV_FORMAT.Unorm16x2;
+  }
+  return GPU_UV_FORMAT.Unknown;
 }
 
 function rebaseBvhNode(

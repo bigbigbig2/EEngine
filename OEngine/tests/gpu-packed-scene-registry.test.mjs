@@ -139,6 +139,17 @@ function createGraphics() {
         graphics.obtainCount++;
       }
     },
+    material_visibility: {
+      stage() {
+        return {
+          abiVersion: 1,
+          materialCapacity: 4096,
+          textureCapacity: 256,
+          materialRecords: {},
+          alphaAtlas: {}
+        };
+      }
+    },
     assets: {
       bindings() {
         return {};

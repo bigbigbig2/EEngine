@@ -8,9 +8,9 @@
  * resident tables.
  */
 
-export const GPU_GEOMETRY_ABI_VERSION = 1;
+export const GPU_GEOMETRY_ABI_VERSION = 2;
 export const GPU_FALLBACK_RECORD_INDEX = 0;
-export const GPU_GEOMETRY_RECORD_STRIDE = 144;
+export const GPU_GEOMETRY_RECORD_STRIDE = 160;
 export const GPU_CLUSTER_RECORD_STRIDE = 128;
 export const GPU_MESHLET_RECORD_STRIDE = 112;
 
@@ -55,9 +55,13 @@ const GEOMETRY_FIELDS: readonly GpuAbiField[] = [
   { name: "position_stride", kind: "u32", byteOffset: 120 },
   { name: "position_format", kind: "u32", byteOffset: 124 },
   { name: "flags", kind: "u32", byteOffset: 128 },
-  { name: "_pad0", kind: "u32", byteOffset: 132 },
-  { name: "_pad1", kind: "u32", byteOffset: 136 },
-  { name: "_pad2", kind: "u32", byteOffset: 140 }
+  { name: "uv0_byte_offset", kind: "u32", byteOffset: 132 },
+  { name: "uv0_stride", kind: "u32", byteOffset: 136 },
+  { name: "uv0_format", kind: "u32", byteOffset: 140 },
+  { name: "uv1_byte_offset", kind: "u32", byteOffset: 144 },
+  { name: "uv1_stride", kind: "u32", byteOffset: 148 },
+  { name: "uv1_format", kind: "u32", byteOffset: 152 },
+  { name: "_pad0", kind: "u32", byteOffset: 156 }
 ];
 
 const CLUSTER_FIELDS: readonly GpuAbiField[] = [
@@ -122,6 +126,13 @@ export const GPU_POSITION_FORMAT = Object.freeze({
   Float32x4: 2
 });
 
+export const GPU_UV_FORMAT = Object.freeze({
+  Unknown: 0,
+  Float32x2: 1,
+  Unorm8x2: 2,
+  Unorm16x2: 3
+});
+
 export interface GpuGeometryRecordCpu {
   readonly boundsSphere: ArrayLike<number>;
   readonly boundsMin: ArrayLike<number>;
@@ -147,6 +158,12 @@ export interface GpuGeometryRecordCpu {
   readonly positionStride: number;
   readonly positionFormat: number;
   readonly flags: number;
+  readonly uv0ByteOffset: number;
+  readonly uv0Stride: number;
+  readonly uv0Format: number;
+  readonly uv1ByteOffset: number;
+  readonly uv1Stride: number;
+  readonly uv1Format: number;
 }
 
 export interface GpuClusterRecordCpu {
@@ -208,7 +225,13 @@ export function packGpuGeometryRecord(record: GpuGeometryRecordCpu): Uint8Array 
     record.positionByteOffset,
     record.positionStride,
     record.positionFormat,
-    record.flags
+    record.flags,
+    record.uv0ByteOffset,
+    record.uv0Stride,
+    record.uv0Format,
+    record.uv1ByteOffset,
+    record.uv1Stride,
+    record.uv1Format
   ];
   for (let index = 0; index < values.length; index++) {
     view.setUint32(48 + index * 4, checkedU32(values[index]!, "GeometryRecord"), true);

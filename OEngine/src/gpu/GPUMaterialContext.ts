@@ -88,7 +88,11 @@ export class GPUMaterialContext {
     );
     this.uniform_buffer.unmap();
     for (const texture of source.textures) {
-      this.textures.set(texture, textureManager.obtain(texture));
+      try {
+        this.textures.set(texture, textureManager.obtain(texture));
+      } catch {
+        // Invalid/unresident material textures use the typed fallback below.
+      }
     }
   }
 
@@ -166,8 +170,12 @@ export class GPUMaterialContext {
     }
     let texture = this.textures.get(source);
     if (texture === undefined) {
-      texture = this.textureManager.obtain(source);
-      this.textures.set(source, texture);
+      try {
+        texture = this.textureManager.obtain(source);
+        this.textures.set(source, texture);
+      } catch {
+        return { texture: fallback, sampler: this.defaults.sampler };
+      }
     }
     return {
       texture,

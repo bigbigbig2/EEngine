@@ -14,6 +14,11 @@ import {
 import { GpuAssetStore, type AssetHandle } from "../../OEngine/src/gpu/GpuAssetStore.ts";
 import { GpuScene } from "../../OEngine/src/gpu/GpuScene.ts";
 import {
+  GPU_MATERIAL_VISIBILITY_FLAGS,
+  GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
+  packGpuMaterialVisibilityRecord
+} from "../../OEngine/src/gpu/GpuMaterialVisibilityAbi.ts";
+import {
   GPU_VISIBILITY_KEY_EMPTY,
   decodeVisibilityKey,
   resolveVisibilityKeyReference
@@ -85,6 +90,8 @@ async function run(): Promise<void> {
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   if (!adapter) throw new Error("No WebGPU adapter is available");
   const device = await adapter.requestDevice();
+  const deviceLost: string[] = [];
+  void device.lost.then((info) => deviceLost.push(`${info.reason}: ${info.message}`));
   const uncapturedErrors: string[] = [];
   device.addEventListener("uncapturederror", (event) => {
     uncapturedErrors.push(event.error.message);
@@ -185,7 +192,9 @@ async function run(): Promise<void> {
         binding: index + 1,
         visibility: GPUShaderStage.VERTEX,
         buffer: { type: "read-only-storage" as GPUBufferBindingType }
-      }))
+      })),
+      { binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+      { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } }
     ]
   });
   const pipeline = await device.createRenderPipelineAsync({
@@ -258,6 +267,32 @@ async function run(): Promise<void> {
 
   const assetBindings = assets.bindings();
   const sceneBindings = gpuScene.bindings();
+  const materialBuffer = device.createBuffer({
+    label: "R4-A-02 opaque MaterialVisibilityRecord",
+    size: GPU_MATERIAL_VISIBILITY_RECORD_STRIDE * 18,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+  device.queue.writeBuffer(materialBuffer, GPU_MATERIAL_VISIBILITY_RECORD_STRIDE * 17,
+    packGpuMaterialVisibilityRecord({
+      materialId: 17,
+      alphaMode: 0,
+      flags: GPU_MATERIAL_VISIBILITY_FLAGS.Valid,
+      textureRef: 0xffffffff,
+      baseColorFactorAlpha: 1,
+      alphaCutoff: 0.5,
+      uvSet: 0,
+      samplerClass: 0,
+      uvOffset: [0, 0],
+      uvScale: [1, 1],
+      rotationCos: 1,
+      rotationSin: 0
+    }));
+  const alphaAtlas = device.createTexture({
+    label: "R4-A-02 unused alpha atlas",
+    size: [1, 1],
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+  });
   const bindGroup = device.createBindGroup({
     label: "R4-A-02 Hardware opaque bindings",
     layout: bindGroupLayout,
@@ -270,8 +305,11 @@ async function run(): Promise<void> {
       assetBindings.vertexStreamData,
       assetBindings.geometryRecords,
       prepared.generated.visibleClusters,
-      prepared.generated.rasterWork
-    ].map((buffer, binding) => ({ binding, resource: { buffer } }))
+      prepared.generated.rasterWork,
+      materialBuffer
+    ].map((buffer, binding) => ({ binding, resource: { buffer } })).concat([
+      { binding: 10, resource: alphaAtlas.createView() }
+    ])
   });
 
   const encoder = device.createCommandEncoder({ label: "R4-A-02 producer and evidence" });
@@ -377,7 +415,8 @@ async function run(): Promise<void> {
     pixels: { ...pixelEvidence, gpuCounters: gpuPixelCounters },
     shaderDiagnostics,
     validationError: validationError?.message ?? null,
-    uncapturedErrors
+    uncapturedErrors,
+    deviceLost
   };
   publishResult(finalResult);
   result.textContent = JSON.stringify(finalResult, null, 2);
@@ -392,6 +431,8 @@ async function run(): Promise<void> {
   assets.destroy();
   counterBuffer.destroy();
   for (const texture of [visibilityKey, triangleId, instanceId, depth]) texture.destroy();
+  materialBuffer.destroy();
+  alphaAtlas.destroy();
   for (const buffer of [keyReadback, depthReadback, visibleReadback, rasterReadback, indirectReadback, counterReadback]) buffer.destroy();
 }
 

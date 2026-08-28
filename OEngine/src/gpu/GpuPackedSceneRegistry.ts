@@ -4,6 +4,7 @@ import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContex
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { Scene } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
+import type { GpuMaterialVisibilityBindings } from "./GpuMaterialVisibilityTable.js";
 import type { AssetHandle, GpuAssetBindings } from "./GpuAssetStore.js";
 import type {
   GpuSceneBindings,
@@ -52,6 +53,7 @@ export interface PackedSceneRuntime {
   readonly assetHandles: readonly AssetHandle[];
   readonly instanceHandle: InstanceSetHandle;
   readonly materials: readonly StandardShadeMaterial[];
+  readonly materialVisibility: GpuMaterialVisibilityBindings;
   readonly instanceBegin: number;
   readonly instanceCount: number;
   readonly hierarchyTraversalCapacity: number;
@@ -95,6 +97,10 @@ export class GpuPackedSceneRegistry {
       source.geometryIndices
     );
     for (const material of source.materials) this.graphics.materials.obtain(material);
+    const materialVisibility = this.graphics.material_visibility.stage(
+      source.materials,
+      command
+    );
     const geometryHandles = Object.freeze([...assetHandles]);
     const materialHandles = new Uint32Array(source.count);
     for (let index = 0; index < source.count; index++) {
@@ -127,6 +133,7 @@ export class GpuPackedSceneRegistry {
       assetHandles: geometryHandles,
       instanceHandle,
       materials: Object.freeze([...source.materials]),
+      materialVisibility,
       instanceBegin: range.start,
       instanceCount: range.count,
       hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,

@@ -27,33 +27,43 @@ import {
 } from "./MaterialExpandPass.js";
 
 const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "R3-C Packed Visibility/hierarchy Hardware consumer group0",
+  label: "R4-A-03 Packed Visibility material alpha group0",
   entries: [
     { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
     ...Array.from({ length: 8 }, (_, index) => ({
       binding: index + 1,
       visibility: GPUShaderStage.VERTEX,
       buffer: { type: "read-only-storage" as GPUBufferBindingType }
-    }))
+    })),
+    {
+      binding: 9,
+      visibility: GPUShaderStage.FRAGMENT,
+      buffer: { type: "read-only-storage" }
+    },
+    {
+      binding: 10,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+    }
   ]
 };
 
 const HIERARCHY_RASTER_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "R3-C Packed Visibility/hierarchy Hardware consumer",
+  label: "R4-A-03 Packed Visibility material alpha consumer",
   layout: {
-    label: "R3-C Packed Visibility/hierarchy Hardware consumer layout",
+    label: "R4-A-03 Packed Visibility material alpha layout",
     bindGroupLayouts: [HIERARCHY_RASTER_GROUP]
   },
   vertex: {
     module: {
-      label: "R3-C Packed Visibility/hierarchy Hardware consumer",
+      label: "R4-A-03 Packed Visibility material alpha consumer",
       code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
     },
     entryPoint: "raster_hierarchy_meshlets"
   },
   fragment: {
     module: {
-      label: "R3-C Packed Visibility/hierarchy Hardware consumer",
+      label: "R4-A-03 Packed Visibility material alpha consumer",
       code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
     },
     entryPoint: "write_hierarchy_visibility",
@@ -146,7 +156,7 @@ export class PackedVisibilityPass {
   ): PackedVisibilityOutputs {
     const output = { visibilityKey: -1 };
     const builder = graph.add(
-      "Packed Visibility/R4-A-02 Hardware opaque producer",
+      "Packed Visibility/R4-A-03 Material Visibility alpha producer",
       job,
       (data, resources, context) => {
         const command = requireCommand(context.encoder);
@@ -226,11 +236,13 @@ export class PackedVisibilityPass {
         { buffer: job.assets.vertexStreamData },
         { buffer: job.assets.geometryRecords },
         { buffer: generated.visibleClusters },
-        { buffer: generated.rasterWork }
+        { buffer: generated.rasterWork },
+        { buffer: job.runtime.materialVisibility.materialRecords },
+        job.runtime.materialVisibility.alphaAtlas
       ]
     });
     const render = command.beginRenderPass({
-      label: "R4-A-02 Packed VisibilityKey/depth Hardware drawIndirect",
+      label: "R4-A-03 Packed VisibilityKey/depth alpha drawIndirect",
       colorAttachments: [
         {
           view: visibilityKey,

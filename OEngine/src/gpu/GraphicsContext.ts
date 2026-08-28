@@ -35,6 +35,7 @@ import {
 import { GpuAssetStore } from "./GpuAssetStore.js";
 import { GpuScene } from "./GpuScene.js";
 import { GpuPackedSceneRegistry } from "./GpuPackedSceneRegistry.js";
+import { GpuMaterialVisibilityTable } from "./GpuMaterialVisibilityTable.js";
 
 export class GraphicsContext {
   readonly isGraphicsContext = true;
@@ -58,6 +59,7 @@ export class GraphicsContext {
   private assetStoreValue: GpuAssetStore | undefined;
   private gpuSceneValue: GpuScene | undefined;
   private packedScenesValue: GpuPackedSceneRegistry | undefined;
+  private materialVisibilityValue: GpuMaterialVisibilityTable | undefined;
   private timerIncrementValue = 0;
 
   constructor(device: GPUDevice, profiler = new FrameProfiler()) {
@@ -161,6 +163,16 @@ export class GraphicsContext {
     return this.packedScenesValue;
   }
 
+  /** Lazily creates the bounded R4-A alpha-only material table. */
+  get material_visibility(): GpuMaterialVisibilityTable {
+    this.materialVisibilityValue ??= new GpuMaterialVisibilityTable(this);
+    return this.materialVisibilityValue;
+  }
+
+  get material_visibility_if_created(): GpuMaterialVisibilityTable | undefined {
+    return this.materialVisibilityValue;
+  }
+
   /** Legacy Geometry owner, created only when an old Scene consumer asks for it. */
   get geometries(): MeshletGpuTable {
     this.geometryTableValue ??= new MeshletGpuTable(this);
@@ -214,6 +226,7 @@ export class GraphicsContext {
       (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
       (this.packedScenesValue?.evidence().flatWorkBytes ?? 0) +
+      (this.materialVisibilityValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
@@ -225,6 +238,8 @@ export class GraphicsContext {
     unregisterGpuQueueProfiler(this.device, this.profiler);
     this.packedScenesValue?.destroy();
     this.packedScenesValue = undefined;
+    this.materialVisibilityValue?.destroy();
+    this.materialVisibilityValue = undefined;
     this.gpuSceneValue?.destroy();
     this.gpuSceneValue = undefined;
     this.assetStoreValue?.destroy();

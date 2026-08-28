@@ -1,6 +1,6 @@
 # R4-A-01 · Unified Hardware Visibility Contract
 
-Status: R4-A-01 implemented and R4-A-02 Hardware opaque producer integrated 2026-08-28 / alpha, debug and paired Gate pending
+Status: R4-A-01 implemented; R4-A-02 Hardware opaque and R4-A-03 alpha-tested producers integrated 2026-08-28 / debug, lifecycle and paired Gate pending
 
 ## Reference ID
 
@@ -68,6 +68,15 @@ decision: implement material visibility semantics to specification
 scope: alphaMode, alphaCutoff, doubleSided, baseColor alpha, texCoord
 ```
 
+### KHR_texture_transform
+
+```text
+URL: https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_texture_transform
+snapshot reviewed: 2026-08-28
+decision: implement transform semantics to specification
+scope: offset, scale, rotation and extension texCoord override
+```
+
 ## Input/output ABI
 
 Input：
@@ -80,6 +89,14 @@ RasterWork[rasterWorkSlot]
 VisibleCluster[visibleClusterSlot]
 Instance / Geometry / Meshlet records
 MaterialVisibilityRecord
+  v1 / 64 B
+  materialId / alphaMode / flags / textureRef
+  baseColorFactorAlpha / alphaCutoff / uvSet / samplerClass
+  uvOffset / uvScale / cos(rotation) / sin(rotation)
+
+GeometryRecord
+  internal GPU ABI v2 / 160 B
+  UV0/UV1 byteOffset / stride / format fast paths
 ```
 
 Output：
@@ -112,6 +129,11 @@ depth32float reverse-Z
 - `PackedVisibilityPass` 只增加同一次 Hardware draw 的第三个 `r32uint` MRT；旧 triangle/instance outputs 暂供 Material/Velocity consumer 使用并登记为 R4-B 删除对象，不复制第二条 producer。
 - Key attachment 使用 FrameGraph transient texture，usage 为 `RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_SRC`；width/height 属于 descriptor/graph signature，feature-off graph 不创建该资源。device lost 只随 GraphicsContext/Renderer 重建恢复，live lifecycle stress 留给 `R4-A-05`。
 - producer 在 hierarchy prepare 前调用共享 capacity guard；invalid encode 写 reserved-slot marker `0xFFFFFF80`，empty 保持 `0xFFFFFFFF`，两者在 reducer 中分开统计。
+- `MaterialVisibilityRecord v1` 是 OEngine 独立冻结的 64 B TS/WGSL ABI；生产 fragment 从 Geometry/Instance/Meshlet/RasterWork 回查 material，不建立 CPU per-material draw loop。
+- `GpuMaterialVisibilityTable` 是 `R4-B-02` 前的有界临时 owner：4,096 records、256 个 64×64 tile、约 4.25 MiB 固定资源；随 Packed staging 惰性创建，使用调用方 command，不创建 encoder、不私有 submit。material handle 超界在记录命令前失败；texture tile 满或纹理无效时写显式 factor-only fallback，abort 回滚本表 CPU residency，destroy 随 GraphicsContext/device 生命周期执行。
+- WebGPU baseline 只有 8 个 vertex-stage storage buffer slot，因此 Geometry GPU ABI 从 v1/144 B 升到 v2/160 B，在原 binding 中加入 UV0/UV1 fast path；device-independent Geometry Package ABI 不变。支持 `float32x2`、normalized `uint8x2` 与 normalized `uint16x2`，未知/缺失 UV fail 到 factor-only。
+- Material table 与 alpha atlas 仅占 fragment binding 9/10。atlas 由 `textureLoad` 手动实现 clamp/repeat/mirror 与 nearest/linear，非法 sampler 使用冻结的 linear-repeat class；没有依赖 bindless、descriptor indexing 或每材质 sampler binding。
+- glTF `alphaMode/alphaCutoff/doubleSided/baseColorFactor/baseColorTexture.texCoord` 与 `KHR_texture_transform` 依据 Khronos 规格独立实现；transform 顺序为 scale → rotation → offset，extension `texCoord` 覆盖 texture info `texCoord`。
 
 ## Precision / semantic differences
 
@@ -119,16 +141,19 @@ depth32float reverse-Z
 - perspective correction：只用于后续 attributes。
 - reverse-Z clear `0.0`，Visibility clear `0xFFFFFFFF`。
 - `rasterWorkSlot` 若每帧重排，key 不提供跨帧 primitive identity。
+- alpha atlas 使用 `rgba8unorm`，只读取 base-color alpha；sRGB RGB 解码不参与 cutoff。R4-A 临时 owner 固定缩放到 64×64 tile，不宣称保留完整材质纹理 mip/各向异性语义，完整 owner 由 `R4-B-02` 接管。
+- mirrored transform 由 object-to-world 3×3 determinant 修正 front-facing；double-sided 绕过单面 discard。alpha discard 发生在 key/depth 写出前，不显式写 `frag_depth`。
 
 ## Performance hypothesis
 
-新增一次 RasterWork lookup 和 `r32uint` write，可删除有歧义 ID/旧 attachment 转换，并让 R4-B 只扫描一次可见像素。R4-A paired A/B/C 必须报告 Hardware raster、lookup/debug、attachment bytes 和 active alpha materials；不能只报告总帧。
+新增一次 RasterWork lookup 和 `r32uint` write，可删除有歧义 ID/旧 attachment 转换，并让 R4-B 只扫描一次可见像素。alpha 临时 owner 固定增加约 4.25 MiB；首次 residency 最坏为 256 个 tile resize render pass，稳定帧不重复编码。opaque fragment 不采样 atlas；mask nearest 为一次 `textureLoad`，linear 为四次 `textureLoad` 加手工插值。R4-A paired A/B/C 必须报告 Hardware raster、lookup/debug、attachment bytes、active alpha materials 与 alpha staging/pass 数；不能只报告总帧。
 
 ## Fallback / failure behavior
 
 - key/RasterWork capacity 无法表示：prepare 明确失败或 unsupported，不截断。
 - invalid/empty lookup：debug fail-visible + counter；release producer validation 必须阻止非法 key。
 - alpha texture 未驻留：使用已冻结 fallback，不能随机绑定或静默当 opaque。
+- alpha texture/sampler fallback：invalid/未驻留 texture 使用 factor-only；非法 sampler 保留有效纹理并使用冻结 sampler class，同时记录独立 fallback flag/counter。
 - capability 不支持所需 attachment/format：报告 capability blocker，不退回 CPU material/object draw loop。
 
 ## Local tests/examples
@@ -166,17 +191,39 @@ OEngine/tests/packed-visibility-r4.test.mjs
 examples/r4-hardware-opaque-producer
   production WGSL + HierarchicalWorkGenerator + GPU drawIndirect
   key/depth/RasterWork/VisibleCluster validation-only readback and screenshot
+
+OEngine/src/gpu/GpuMaterialVisibilityAbi.ts
+OEngine/src/gpu/GpuMaterialVisibilityTable.ts
+OEngine/src/gpu/GpuGeometryAbi.ts
+OEngine/src/loaders/gltf/gltfMaterials.ts
+OEngine/src/shaders/packed_visibility.ts
+OEngine/src/render/passes/PackedVisibilityPass.ts
+  64 B Material Visibility ABI and bounded temporary owner
+  Geometry GPU ABI v2 UV0/UV1 fast paths without a ninth vertex storage binding
+  opaque/mask/blend, factor/texture/transform/cutoff and facing classification
+
+OEngine/tests/gpu-material-visibility-abi.test.mjs
+OEngine/tests/gpu-material-visibility-table.test.mjs
+OEngine/tests/gpu-asset-store.test.mjs
+OEngine/tests/gpu-packed-scene-registry.test.mjs
+OEngine/tests/packed-visibility-r4.test.mjs
+  TS/WGSL ABI, glTF transform, independent texture/sampler fallback
+  bounded owner staging/abort/capacity/destroy and production graph contract
+
+examples/r4-alpha-tested-visibility
+  production WGSL, eight RasterWork slots and one drawIndirect
+  key/depth validation-only readback, full-page screenshot and canvas screenshot
 ```
 
-R4-A-01/02 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI 对 lookup/producer 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
+R4-A-01/02/03 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI、WebGPU/WGSL 与 Khronos glTF 规格，对 lookup/producer/material alpha 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
 
 Validation：
 
 ```text
 cd OEngine
 npm run build:test
-node --test tests/gpu-visibility-key-abi.test.mjs tests/packed-visibility-r4.test.mjs tests/visibility-counter-pass.test.mjs
-result: VisibilityKey/attachment/counter focused tests passed
+node --test tests/gpu-material-visibility-abi.test.mjs tests/gpu-material-visibility-table.test.mjs tests/gpu-asset-store.test.mjs tests/gpu-packed-scene-registry.test.mjs tests/packed-visibility-r4.test.mjs
+result: 15/15 Material ABI/fallback/glTF, owner lifecycle/capacity, Packed staging and graph contract tests passed
 
 cd examples
 npm run build
@@ -190,12 +237,18 @@ result: production Renderer completed; 3 sampled frames all exported invalidVisi
         validation/uncaptured/device-lost/timestamp/counter diagnostics empty
 note: smoke profile and existing Software Visibility blocker make this non-gate evidence
 artifacts: temp/r4-a-02/benchmark-a-smoke.json and benchmark-a-smoke.png
+
+Chrome WebGPU: examples/r4-alpha-tested-visibility
+result: passed=true; drawIndirect=[384,8,0,0]; CPU material draw loops=0;
+        opaque/mask-texture/mask-factor/blend/double-sided/mirrored/invalid-texture/sampler-fallback
+        pixels=2892/2177/0/0/2913/2849/2850/1440;
+        invalid key/depth mismatch=0/0; WGSL/validation/uncaptured/device-lost diagnostics empty
+artifacts: temp/r4-a-03/r4-a-03.json, r4-a-03.png and r4-a-03-canvas.png
 ```
 
 Planned by later R4-A tasks：
 
 ```text
-Hardware alpha key + depth GPU readback oracle
 Hardware debug reconstruction and real glTF alpha screenshot
 A/B/C paired browser artifact with debug screenshots
 ```

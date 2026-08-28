@@ -3,7 +3,7 @@
  */
 
 import { Color } from "../core/Color.js";
-import { hashMix, hashOptional } from "../core/hashMix.js";
+import { hashFloat, hashMix, hashOptional } from "../core/hashMix.js";
 import { ShadeMaterial } from "./ShadeMaterial.js";
 import { LinearModifier } from "./LinearModifier.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
@@ -21,6 +21,11 @@ export class StandardShadeMaterial extends ShadeMaterial {
 
   texture_albedo: ShadeTexture | undefined = undefined;
   diffuse_color = new Color(1, 1, 1, 1);
+  alpha_cutoff = 0.5;
+  base_color_uv_set = 0;
+  base_color_uv_offset: [number, number] = [0, 0];
+  base_color_uv_scale: [number, number] = [1, 1];
+  base_color_uv_rotation = 0;
   texture_normal: ShadeTexture | undefined = undefined;
   texture_orm: ShadeTexture | undefined = undefined;
   texture_emissive: ShadeTexture | undefined = undefined;
@@ -48,7 +53,14 @@ export class StandardShadeMaterial extends ShadeMaterial {
       hashOptional(this.texture_albedo),
       hashOptional(this.texture_normal),
       hashOptional(this.texture_orm),
-      hashOptional(this.texture_emissive)
+      hashOptional(this.texture_emissive),
+      hashFloat(this.alpha_cutoff),
+      this.base_color_uv_set,
+      hashFloat(this.base_color_uv_offset[0]),
+      hashFloat(this.base_color_uv_offset[1]),
+      hashFloat(this.base_color_uv_scale[0]),
+      hashFloat(this.base_color_uv_scale[1]),
+      hashFloat(this.base_color_uv_rotation)
     );
   }
 
@@ -61,6 +73,13 @@ export class StandardShadeMaterial extends ShadeMaterial {
       this.metallic_factor === other.metallic_factor &&
       this.transmission_factor === other.transmission_factor &&
       this.ior_factor === other.ior_factor &&
+      this.alpha_cutoff === other.alpha_cutoff &&
+      this.base_color_uv_set === other.base_color_uv_set &&
+      this.base_color_uv_offset[0] === other.base_color_uv_offset[0] &&
+      this.base_color_uv_offset[1] === other.base_color_uv_offset[1] &&
+      this.base_color_uv_scale[0] === other.base_color_uv_scale[0] &&
+      this.base_color_uv_scale[1] === other.base_color_uv_scale[1] &&
+      this.base_color_uv_rotation === other.base_color_uv_rotation &&
       refOrDeepEquals(this.texture_albedo, other.texture_albedo) &&
       this.diffuse_color.equals(other.diffuse_color) &&
       refOrDeepEquals(this.texture_normal, other.texture_normal) &&

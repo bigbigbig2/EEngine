@@ -139,6 +139,16 @@ R4-A 不做 PBR，但必须通过 key 唯一回查并输出 debug color：
 
 ### R4-A-03 · Material Visibility 与 alpha-tested
 
+工作项已于 2026-08-28 验收，治理状态为 `Integrated`。`GpuMaterialVisibilityAbi.ts` 冻结 64 B `MaterialVisibilityRecord v1`：`materialId/alphaMode/flags/textureRef`、`baseColorFactorAlpha/alphaCutoff/uvSet/samplerClass`、`offset+scale` 与 `cos/sin rotation`；invalid texture sentinel 为 `0xFFFFFFFF`。opaque 不读取 alpha，mask 在 fragment discard 后才写 key/depth，blend 全部排除出 opaque Visibility；invalid/未驻留纹理和缺失 UV 都只使用 factor alpha，不随机采样，也不静默强制 opaque。
+
+`GpuMaterialVisibilityTable` 是 R4-A 的有界临时 owner：随首个 Packed Scene staging 惰性创建，容量为 4,096 个 material record 与 256 个 64×64 alpha tile，固定资源约 `256 KiB + 4 MiB`；material handle 超界在 staging 前明确失败，纹理无效或 tile 容量不足记录 fallback 并继续 factor-only。owner 不私有 submit，stage 写入调用方 command，abort 回滚 CPU residency 状态，随 `GraphicsContext`/device 销毁；`R4-B-02` 必须接管或无损映射并删除该临时表。Packed feature 从未 staging 时资源成本为零。
+
+为避免超过 WebGPU baseline `maxStorageBuffersInVertexStage=8`，没有新增 vertex storage binding。内部 Geometry GPU ABI 升级为 v2/160 B，在已有 record 中增加 `uv0/uv1 byteOffset/stride/format` fast path，支持 `float32x2` 与 glTF 合法的 normalized `uint8x2/uint16x2`；device-independent Geometry Package ABI 不变。vertex 从现有 `vertexStreamData` 同时输出 UV0/UV1，fragment 只增加一个 Material storage table 与一个 alpha atlas texture binding；sampler address/filter 由 record 手动执行 clamp/repeat/mirror 与 nearest/linear，非法 sampler 使用冻结的 linear-repeat fallback。`KHR_texture_transform` 按 glTF 的 scale → rotation → offset 语义解析，extension `texCoord` 覆盖 texture info `texCoord`。
+
+生产 `PackedVisibilityPass` 仍只有一个 GPU `RasterWork → drawIndirect → VisibilityKey/depth` producer，没有 current-frame readback、CPU 最终可见对象循环或 per-material draw。`front_facing` 与 object-to-world 3×3 determinant 一起处理 mirrored winding；double-sided 跳过单面 discard。旧 CPU material bucket 仍只可作为画面 oracle，未接回 Packed producer。
+
+`examples/r4-alpha-tested-visibility` 的真实 Chrome WebGPU 门禁使用 8 个 RasterWork slot 和一次 `[384, 8, 0, 0] drawIndirect`：opaque/mask-texture/mask-factor/blend/double-sided/mirrored/invalid-texture/sampler-fallback 像素分别为 `2892/2177/0/0/2913/2849/2850/1440`；invalid key 与 depth mismatch 为 `0`，WGSL compilation、validation、uncaptured 与 device-lost diagnostics 均为空。JSON、整页截图和 canvas screenshot 保存于 `temp/r4-a-03/`。该证据关闭 alpha producer，不关闭 R4-A-04 debug Resolve、R4-A-05 lifecycle 或 R4-A-06 paired Gate。
+
 - 冻结 `MaterialVisibilityRecord` TS/WGSL layout 或到现有 material table 的无损映射。
 - 从 GPU record 完成 alpha factor/texture/UV transform/cutoff discard。
 - 覆盖 opaque/mask/blend classification、double-sided、mirrored transform、invalid texture 和 sampler fallback。
