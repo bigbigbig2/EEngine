@@ -156,6 +156,14 @@ R4-A 不做 PBR，但必须通过 key 唯一回查并输出 debug color：
 
 ### R4-A-04 · Hardware debug Resolve
 
+工作项已于 2026-08-28 验收，治理状态为 `Integrated`。生产 `RenderDebugView.VisibilityKey` 在 Packed 路径切换为单个全屏 debug pass：直接读取 Hardware producer 本帧写出的 `VisibilityKey`，并消费同一组 `RasterWork`、`VisibleCluster`、Meshlet、Instance 与临时 Material Visibility GPU table；没有第二次工作生成、几何 draw、CPU 可见列表、readback、独立 encoder 或 submit。legacy Scene 继续使用原 mesh/triangle ID debug shader，不建立平行的 Packed debug 架构。
+
+`GpuVisibilityDebugResolve.ts` 冻结 32 B settings ABI、15 个状态和 14 组 fail-visible color。lookup 依次检查 empty/reserved key、RasterWork queue written/physical range、VisibleCluster queue written/physical range、Cluster、Meshlet、triangle、Instance active、Geometry、Instance/VisibleCluster identity、Material valid 与 blend-in-opaque；最大合法 key 会稳定落入 RasterWork 越界色。有效像素对 RasterWork/VisibleCluster/Meshlet/triangle/instance debug ID/geometry/cluster/material identity 做稳定哈希，mask 与 double-sided 叠加可识别 tint。
+
+debug source 只暴露 `PackedVisibilityPass` 当帧已经生成并由 Hardware draw 消费的 buffer；Packed runtime release/destroy 时清除引用。debug 关闭时 `MainFrameFeatureTopology` 不添加 pass、输出纹理、32 B transient uniform、readback、encoder 或 submit；开启时只新增一个 `rgba16float` 输出与执行期 transient uniform，FrameGraph 对 `VisibilityKey` 的 read 建立 producer → debug consumer 顺序。
+
+`examples/r4-debug-resolve` 使用带 `MASK`、alpha texture、double-sided 与 `KHR_texture_transform` 的静态 glTF，真实经过 `load_gltf_packed → Cooker → uploadPackedScene → production Renderer`。Chrome WebGPU 生产画面保存了 alpha cutout ID heatmap；同页使用生产 authored WGSL 注入 empty、reserved、maximum-valid key 与 RasterWork/VisibleCluster/Cluster/Meshlet/triangle/Instance/active/Geometry/identity/Material/blend 全部异常层级，16 个 case 全部命中冻结颜色，WGSL compilation、validation、uncaptured 与 device-lost diagnostics 为零。JSON、整页截图和 canvas screenshot 保存于 `temp/r4-a-04/`。该证据只关闭 debug Resolve，不关闭 `R4-A-05` lifecycle/overflow、`R4-A-06` paired Gate 或整个 G4-A。
+
 - 单次 debug pass 从 key 回查 RasterWork/VisibleCluster/Meshlet/Instance/Material。
 - 对 empty/invalid/max key fail-visible，debug 模式记录具体越界层级。
 - 保存 ID heatmap 和至少一个真实 glTF alpha fixture screenshot。

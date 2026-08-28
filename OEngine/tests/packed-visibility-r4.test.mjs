@@ -86,6 +86,7 @@ test("R4-A-02 FrameGraph owns the Key attachment only when the Packed pass exist
   );
   assert.deepEqual(graph.getDescriptor(outputs.visibilityKey),
     packedVisibilityAttachmentDescriptor(640, 360));
+  assert.equal(typeof outputs.debugResolve.resolve, "function");
   graph.compile();
   assert.equal(
     graph.getResourceNode(outputs.visibilityKey).producer?.name,

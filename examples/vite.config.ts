@@ -82,6 +82,10 @@ export default defineConfig({
           examplesRoot,
           "r4-alpha-tested-visibility/index.html"
         ),
+        r4DebugResolve: path.resolve(
+          examplesRoot,
+          "r4-debug-resolve/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

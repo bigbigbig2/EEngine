@@ -112,6 +112,25 @@ export interface PackedVisibilityInputs {
 export interface PackedVisibilityOutputs {
   readonly counters: ResourceId;
   readonly visibilityKey: ResourceId;
+  readonly debugResolve: PackedVisibilityDebugSource;
+}
+
+export interface PackedVisibilityDebugBindings {
+  readonly instances: GPUBuffer;
+  readonly meshlets: GPUBuffer;
+  readonly visibleClusters: GPUBuffer;
+  readonly rasterWork: GPUBuffer;
+  readonly materials: GPUBuffer;
+  readonly instanceCount: number;
+  readonly geometryRecordCount: number;
+  readonly clusterRecordCount: number;
+  readonly meshletRecordCount: number;
+  readonly materialCapacity: number;
+}
+
+export interface PackedVisibilityDebugSource {
+  /** Valid only while the compiled graph executes after Packed Visibility. */
+  resolve(): PackedVisibilityDebugBindings;
 }
 
 export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
@@ -143,6 +162,10 @@ export class PackedVisibilityPass {
   private readonly hierarchyPrepared = new Map<
     PackedSceneRuntime,
     Map<GPUBuffer, HierarchyPreparedCacheEntry>
+  >();
+  private readonly debugBindings = new Map<
+    PackedSceneRuntime,
+    PackedVisibilityDebugBindings
   >();
 
   constructor(private readonly graphics: GraphicsContext) {
@@ -186,18 +209,24 @@ export class PackedVisibilityPass {
       packedVisibilityAttachmentDescriptor(job.width, job.height)
     );
     builder.make_side_effect();
-    return Object.freeze({ counters, visibilityKey: output.visibilityKey });
+    const debugResolve = Object.freeze({
+      resolve: (): PackedVisibilityDebugBindings =>
+        this.requireDebugBindings(job.runtime)
+    });
+    return Object.freeze({ counters, visibilityKey: output.visibilityKey, debugResolve });
   }
 
   /** Retires all prepared hierarchy bindings for a Packed Scene in queue order. */
   release(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {
     const entries = this.hierarchyPrepared.get(runtime);
+    this.debugBindings.delete(runtime);
     if (entries === undefined) return;
     this.hierarchyPrepared.delete(runtime);
     for (const entry of entries.values()) this.retirePrepared(entry.prepared, command);
   }
 
   destroy(): void {
+    this.debugBindings.clear();
     this.hierarchyPrepared.clear();
     this.hierarchyGenerator.destroy();
   }
@@ -222,6 +251,18 @@ export class PackedVisibilityPass {
         previousHzb: job.previousHzb
       }
     );
+    this.debugBindings.set(job.runtime, Object.freeze({
+      instances: job.scene.instances,
+      meshlets: job.assets.meshletRecords,
+      visibleClusters: generated.visibleClusters,
+      rasterWork: generated.rasterWork,
+      materials: job.runtime.materialVisibility.materialRecords,
+      instanceCount: job.scene.highWaterCount,
+      geometryRecordCount: job.assets.highWaterCounts.geometryRecords,
+      clusterRecordCount: job.assets.highWaterCounts.clusterRecords,
+      meshletRecordCount: job.assets.highWaterCounts.meshletRecords,
+      materialCapacity: job.runtime.materialVisibility.materialCapacity
+    }));
     const pipeline = this.graphics.render_pipelines.obtain(
       HIERARCHY_RASTER_PIPELINE
     );
@@ -338,6 +379,18 @@ export class PackedVisibilityPass {
     command.destroyAfterGpuDone({
       destroy: () => this.hierarchyGenerator.release(prepared)
     });
+  }
+
+  private requireDebugBindings(
+    runtime: PackedSceneRuntime
+  ): PackedVisibilityDebugBindings {
+    const bindings = this.debugBindings.get(runtime);
+    if (bindings === undefined) {
+      throw new Error(
+        "R4-A-04 debug resolve executed before Packed Visibility produced work"
+      );
+    }
+    return bindings;
   }
 }
 

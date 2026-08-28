@@ -196,6 +196,7 @@
         "src/index.ts",
         "src/render/HierarchicalWorkGenerator.ts",
         "src/render/passes/PackedVisibilityPass.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1472,6 +1473,7 @@
       "runtimeConsumers": [
         "src/index.ts",
         "src/render/passes/PackedVisibilityPass.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [

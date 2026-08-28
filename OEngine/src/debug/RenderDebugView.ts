@@ -36,7 +36,7 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     RenderDebugView.VisibilityKey,
     "Visibility Key",
     "supported",
-    "对 meshId 与 triangleId 组合做稳定哈希着色"
+    "Packed 路径回查 RasterWork/Cluster/Meshlet/Instance/Material；legacy 路径哈希 mesh/triangle ID"
   ),
   descriptor(
     RenderDebugView.Depth,

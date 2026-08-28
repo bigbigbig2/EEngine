@@ -1,6 +1,6 @@
 # R4-A-01 · Unified Hardware Visibility Contract
 
-Status: R4-A-01 implemented; R4-A-02 Hardware opaque and R4-A-03 alpha-tested producers integrated 2026-08-28 / debug, lifecycle and paired Gate pending
+Status: R4-A-01 implemented; R4-A-02 Hardware opaque, R4-A-03 alpha-tested and R4-A-04 debug Resolve integrated 2026-08-28 / lifecycle and paired Gate pending
 
 ## Reference ID
 
@@ -134,6 +134,9 @@ depth32float reverse-Z
 - WebGPU baseline 只有 8 个 vertex-stage storage buffer slot，因此 Geometry GPU ABI 从 v1/144 B 升到 v2/160 B，在原 binding 中加入 UV0/UV1 fast path；device-independent Geometry Package ABI 不变。支持 `float32x2`、normalized `uint8x2` 与 normalized `uint16x2`，未知/缺失 UV fail 到 factor-only。
 - Material table 与 alpha atlas 仅占 fragment binding 9/10。atlas 由 `textureLoad` 手动实现 clamp/repeat/mirror 与 nearest/linear，非法 sampler 使用冻结的 linear-repeat class；没有依赖 bindless、descriptor indexing 或每材质 sampler binding。
 - glTF `alphaMode/alphaCutoff/doubleSided/baseColorFactor/baseColorTexture.texCoord` 与 `KHR_texture_transform` 依据 Khronos 规格独立实现；transform 顺序为 scale → rotation → offset，extension `texCoord` 覆盖 texture info `texCoord`。
+- Hardware debug 沿用 Timberdoodle/Visibility Buffer 的“compact key 后续回查”不变量，但由 OEngine 依据本地 TS/WGSL ABI 独立实现：单个 fullscreen pass 读取 Key 与五个 storage buffer，按 RasterWork → VisibleCluster → Meshlet/triangle → Instance/Geometry → Material 顺序做有界检查；不移植 native bindless、BDA、descriptor 或 task graph 结构。
+- debug settings 固定 32 B；有效像素哈希完整 identity，异常层级使用稳定 fail-visible color。queue 同时检查 header `written` 与 storage runtime array length，table 同时检查 runtime array length 与 owner high-water/capacity，避免损坏 header 导致越界读取。
+- production `RenderDebugView.VisibilityKey` 复用既有 debug topology。关闭时不实例化 pass/output/uniform/readback/encoder/submit；开启时新增一次 fullscreen draw 与一个 `rgba16float` transient output，不重新生成 work、不重复 geometry draw。
 
 ## Precision / semantic differences
 
@@ -213,9 +216,28 @@ OEngine/tests/packed-visibility-r4.test.mjs
 examples/r4-alpha-tested-visibility
   production WGSL, eight RasterWork slots and one drawIndirect
   key/depth validation-only readback, full-page screenshot and canvas screenshot
+
+OEngine/src/gpu/GpuVisibilityDebugResolve.ts
+OEngine/src/shaders/render_debug_view.ts
+OEngine/src/render/passes/RenderDebugViewPass.ts
+OEngine/src/render/passes/PackedVisibilityPass.ts
+  shared debug status/settings/color ABI and CPU full-lookup oracle
+  one production fullscreen lookup consumer over the producer-owned GPU tables
+  runtime release/destroy cleanup and legacy debug fallback
+
+OEngine/tests/gpu-visibility-debug-resolve.test.mjs
+OEngine/tests/render-debug-view.test.mjs
+OEngine/tests/packed-visibility-r4.test.mjs
+  empty/reserved/max and every lookup failure layer
+  complete valid identity/material result, seven-binding ABI and one-pass graph order
+  feature-off graph and Packed debug source contract
+
+examples/r4-debug-resolve
+  static MASK/alpha texture/KHR_texture_transform glTF through the public Packed path
+  production Renderer ID heatmap and same-WGSL 16-case fail-visible GPU injection
 ```
 
-R4-A-01/02/03 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI、WebGPU/WGSL 与 Khronos glTF 规格，对 lookup/producer/material alpha 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
+R4-A-01/02/03/04 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI、WebGPU/WGSL 与 Khronos glTF 规格，对 lookup/producer/material alpha/debug bounds 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
 
 Validation：
 
@@ -244,12 +266,22 @@ result: passed=true; drawIndirect=[384,8,0,0]; CPU material draw loops=0;
         pixels=2892/2177/0/0/2913/2849/2850/1440;
         invalid key/depth mismatch=0/0; WGSL/validation/uncaptured/device-lost diagnostics empty
 artifacts: temp/r4-a-03/r4-a-03.json, r4-a-03.png and r4-a-03-canvas.png
+
+cd OEngine
+npm run build:test
+node --test tests/gpu-visibility-debug-resolve.test.mjs tests/render-debug-view.test.mjs tests/packed-visibility-r4.test.mjs
+result: 10/10 debug ABI/oracle, bounds layers, binding ABI and FrameGraph topology tests passed
+
+Chrome WebGPU: examples/r4-debug-resolve
+result: passed=true; production Packed alpha glTF path completed for 6 frames;
+        16/16 empty/reserved/max/lookup-layer/valid cases matched frozen colors;
+        WGSL/validation/uncaptured/device-lost diagnostics empty
+artifacts: temp/r4-a-04/r4-a-04.json, r4-a-04.png and r4-a-04-canvas.png
 ```
 
 Planned by later R4-A tasks：
 
 ```text
-Hardware debug reconstruction and real glTF alpha screenshot
 A/B/C paired browser artifact with debug screenshots
 ```
 

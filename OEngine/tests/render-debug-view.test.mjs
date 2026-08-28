@@ -9,10 +9,15 @@ import {
 } from "../.test-dist/debug/RenderDebugView.js";
 import {
   DEPTH_DEBUG_WGSL,
+  PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL,
   RENDER_DEBUG_VIEW_FORMAT,
   VELOCITY_DEBUG_WGSL,
   VISIBILITY_KEY_DEBUG_WGSL
 } from "../.test-dist/shaders/render_debug_view.js";
+import {
+  GPU_VISIBILITY_DEBUG_SETTINGS_SIZE,
+  GPU_VISIBILITY_DEBUG_STATUS
+} from "../.test-dist/gpu/GpuVisibilityDebugResolve.js";
 globalThis.GPUShaderStage ??= { COMPUTE: 1, FRAGMENT: 2, VERTEX: 4 };
 globalThis.GPUTextureUsage ??= { TEXTURE_BINDING: 1, RENDER_ATTACHMENT: 2 };
 const { FrameGraph } = await import("../.test-dist/framegraph/FrameGraph.js");
@@ -58,6 +63,26 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
   assert.match(DEPTH_DEBUG_WGSL, /pow\(clamp\(depth/);
   assert.match(VELOCITY_DEBUG_WGSL, /atan2/);
   assert.match(VELOCITY_DEBUG_WGSL, /length\(velocity\)/);
+  for (const lookup of [
+    "raster_work_slot >= raster_work_count",
+    "work.visible_cluster_slot >= visible_cluster_count",
+    "visible.cluster_record_index >= settings.cluster_record_count",
+    "work.meshlet_record_index >= min",
+    "local_triangle >= meshlet.triangle_count",
+    "visible.instance_record_index >= min",
+    "visible.geometry_record_index >= settings.geometry_record_count",
+    "instance.geometry_record_index != visible.geometry_record_index",
+    "visible.material_handle >= min",
+    "material.material_id != visible.material_handle"
+  ]) {
+    assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, new RegExp(lookup));
+  }
+  assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineRasterWork/);
+  assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineVisibleClusterRecord/);
+  assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineInstanceRecord/);
+  assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /GpuMeshletRecord/);
+  assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineMaterialVisibilityRecord/);
+  assert.equal(Object.keys(GPU_VISIBILITY_DEBUG_STATUS).length, 15);
 });
 
 test("debug graph work exists only for a supported non-disabled selection", () => {
@@ -65,6 +90,8 @@ test("debug graph work exists only for a supported non-disabled selection", () =
   const resources = {
     meshId: 0,
     triangleId: 1,
+    visibilityKey: null,
+    packedVisibility: null,
     depth: 2,
     velocity: 3
   };
@@ -97,4 +124,46 @@ test("debug graph work exists only for a supported non-disabled selection", () =
     pass.addToGraph(unsupportedGraph, RenderDebugView.HzbMip, resources, 960, 540);
   }
   assert.equal(unsupportedGraph.passCount, 0);
+});
+
+test("R4-A-04 packed VisibilityKey debug is one pass with the complete lookup binding ABI", () => {
+  const pass = new RenderDebugViewPass({ device: {} });
+  const entries = pass.packedVisibilityPipeline.layout.bindGroupLayouts[0].entries;
+  assert.equal(entries.length, 7);
+  assert.equal(entries[0].texture.sampleType, "uint");
+  assert.deepEqual(
+    entries.slice(1, 6).map((entry) => entry.buffer.type),
+    Array(5).fill("read-only-storage")
+  );
+  assert.equal(entries[6].buffer.type, "uniform");
+  assert.equal(entries[6].buffer.minBindingSize, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE);
+
+  const graph = new FrameGraph("R4-A-04 packed debug");
+  const imported = ["mesh", "triangle", "key", "depth", "velocity"].map((name) =>
+    graph.import_resource(name, { kind: "imported", label: name }, {})
+  );
+  const output = pass.addToGraph(
+    graph,
+    RenderDebugView.VisibilityKey,
+    {
+      meshId: imported[0],
+      triangleId: imported[1],
+      visibilityKey: imported[2],
+      packedVisibility: { resolve: () => { throw new Error("execute only"); } },
+      depth: imported[3],
+      velocity: imported[4]
+    },
+    1280,
+    720
+  );
+  const sink = graph.add("packed debug sink", {}, () => {});
+  sink.read(output);
+  sink.make_side_effect();
+  graph.compile();
+
+  assert.equal(graph.passCount, 2);
+  const debugPass = graph.listExecutablePasses()[0];
+  assert.equal(debugPass.name, "Render debug/visibility-key");
+  assert.equal(debugPass.culled, false);
+  assert.equal(graph.exportToJson().passes[0].reads.includes(imported[2]), true);
 });

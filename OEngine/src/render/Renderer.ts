@@ -22,7 +22,10 @@ import { RenderTargets } from "./RenderTargets.js";
 import { GPUViewKey, ViewManager } from "./ViewManager.js";
 import { GPUCameraStateManager } from "./GPUCameraState.js";
 import { VisibilityPass } from "./passes/VisibilityPass.js";
-import { PackedVisibilityPass } from "./passes/PackedVisibilityPass.js";
+import {
+  PackedVisibilityPass,
+  type PackedVisibilityDebugSource
+} from "./passes/PackedVisibilityPass.js";
 import { VisibilityCounterPass } from "./passes/VisibilityCounterPass.js";
 import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
 import { PackedMaterialExpandPass } from "./passes/PackedMaterialExpandPass.js";
@@ -956,6 +959,7 @@ export class Renderer {
         );
         let gpuCounterRes: ResourceId | null = null;
         let packedVisibilityKeyRes: ResourceId | null = null;
+        let packedVisibilityDebug: PackedVisibilityDebugSource | null = null;
         if (sampleGpuCounters) {
           gpuCounterRes = graph.import_resource(
             "r0_gpu_frame_counters",
@@ -1009,6 +1013,7 @@ export class Renderer {
             }
           );
           packedVisibilityKeyRes = packedOutput.visibilityKey;
+          packedVisibilityDebug = packedOutput.debugResolve;
           gpuCounterRes = sampleGpuCounters ? packedOutput.counters : null;
         } else {
           gpuCounterRes = this._visibility.addToGraph(
@@ -2016,10 +2021,7 @@ export class Renderer {
 
         // Debug 是主管线最终 HDR 的观察覆盖：不经过 TAA/Bloom 等处理，也不
         // 改写它们的历史；关闭或 unsupported 时不创建 Pass、纹理或 readback。
-        if (
-          graphTopology.debug &&
-          velocityRes !== null
-        ) {
+        if (graphTopology.debug) {
           this._renderDebug ??= new RenderDebugViewPass(this._graphics);
           hdrRes = this._renderDebug.addToGraph(
             graph,
@@ -2027,6 +2029,8 @@ export class Renderer {
             {
               meshId: meshIdRes,
               triangleId: triIdRes,
+              visibilityKey: packedVisibilityKeyRes,
+              packedVisibility: packedVisibilityDebug,
               depth: depthRes,
               velocity: velocityRes
             },
