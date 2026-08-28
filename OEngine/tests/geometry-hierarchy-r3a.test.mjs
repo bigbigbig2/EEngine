@@ -54,6 +54,41 @@ test("R3-A world-space selector applies instance translation and rejects an outs
   );
 });
 
+test("R3-A selector treats a single-level package as one virtual resident Cluster", () => {
+  const asset = createAsset([], [], 3, [0, 0, 0, 2]);
+  const result = selectGeometryHierarchyInstances([
+    createInstance(asset, 7, translation(0, 0, -10))
+  ], {
+    view: perspectiveView(),
+    sseThreshold: 20,
+    traversalQueueCapacity: 1
+  });
+
+  assert.equal(result.visitedClusters, 1);
+  assert.deepEqual(result.selectedClusters.map((record) => ({
+    instanceRecordIndex: record.instanceRecordIndex,
+    clusterRecordIndex: record.clusterRecordIndex,
+    localClusterIndex: record.localClusterIndex
+  })), [{
+    instanceRecordIndex: 7,
+    clusterRecordIndex: 100,
+    localClusterIndex: 0
+  }]);
+  assert.deepEqual(
+    result.selectedMeshlets.map((record) => record.meshletRecordIndex),
+    [200, 201, 202]
+  );
+  assert.deepEqual(result.traversalRounds, [{
+    roundIndex: 0,
+    input: 1,
+    written: 0,
+    attempted: 0,
+    peak: 0,
+    overflow: 0,
+    fallback: 0
+  }]);
+});
+
 test("R3-A selector uses conservative non-uniform mirrored scale and near-sphere distance", () => {
   const asset = createTwoLevelAsset();
   const mirroredNonUniform = new Float32Array([

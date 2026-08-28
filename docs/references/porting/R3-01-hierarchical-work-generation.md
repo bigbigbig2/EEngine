@@ -132,6 +132,7 @@ R3-C 实际采用区段（2026-08-28）：
 - 为避免同一 compute usage scope 内把 selected dispatch buffer 同时作为 writable storage 与 `INDIRECT` 使用，dispatch preparation、expansion、evidence 使用三个最小 BindGroup/PipelineLayout；这些是 OEngine/WebGPU `reimplement`，不是上游表达性代码移植。
 - A full 的保守 traversal capacity 首次暴露单维 65,535 workgroup 上限；OEngine 保持 12 B dispatch ABI，把 GPU 生成的线性 workgroup count 映射成不超过 adapter limit 的 `x/y` 二维网格，并用 `num_workgroups.x` 在 WGSL 还原线性 invocation index。它不降低 capacity、不截断队列，也不新增 required limit；固定回归覆盖 160,000 workgroup → `65,535 × 3`。
 - queue evidence reduction 分开登记 VisibleCluster `selectedClusters` 与 RasterWork/Meshlet `hwClusters`；paired artifact 不允许把后者重复写入两个字段来制造“已有 counter”。
+- C 异构场景包含 Cooker 合法保留为 `NoHierarchy` 的 tiny Geometry。OEngine 没有为通过 benchmark 改写 Package，也没有让它回退旧 flat producer；`GpuAssetStore` 以 `reimplement` 方式追加一个 runtime-only virtual leaf Cluster（全 Meshlet、零 geometric error、禁用 cone reject），capacity 与 CPU oracle同步采用一 Cluster 语义。这样所有 Geometry 共用相同 GPU producer/consumer ABI，且该适配有 mixed hierarchy/single-level 与 residency record 回归。
 
 ## Niagara
 

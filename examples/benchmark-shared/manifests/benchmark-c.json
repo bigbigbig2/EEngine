@@ -34,7 +34,7 @@
   ],
   "currentLimitations": [
     "144 个实例已使用 typed-array Packed Instance Set；不构造等量 Mesh/Node3D",
-    "Hierarchy/SSE LOD 与 cone culling 由 WORK-04 阻塞",
+    "Hierarchy/SSE LOD 已接生产 Hardware consumer；cone culling 仍由 WORK-04/R3-D 阻塞",
     "Compute software visibility 由 VIS-05 阻塞",
     "Packed Geometry 尚未进入 CSM shadow consumer；alpha-tested Visibility、single Material Resolve 与 temporal 扩展轴属于后续 gate"
   ]

@@ -62,15 +62,22 @@ test("capability matrix rejects missing declarations, fake support and invalid b
 });
 
 test("unsupported feature set stays structurally valid but reports a product blocker", () => {
-  const result = validResult(["hierarchy-sse-lod"]);
+  const result = validResult(["software-visibility"]);
   result.frames[0].gpuCounters.values = {};
   const report = validateBenchmarkEvidence(result);
   assert.equal(report.gateEligible, true);
   assert.equal(report.capabilityComplete, false);
   assert.deepEqual(
     report.blockedCapabilities.map((blocker) => [blocker.kind, blocker.id, blocker.blockerTaskId]),
-    [["feature-set", "hierarchy-sse-lod", "WORK-04"]]
+    [["feature-set", "software-visibility", "VIS-05"]]
   );
+});
+
+test("R3 hierarchy SSE is supported by visited, selected and RasterWork counters", () => {
+  const result = validResult(["hardware-visibility", "hierarchy-sse-lod"]);
+  const report = validateBenchmarkEvidence(result);
+  assert.equal(report.capabilityComplete, true);
+  assert.deepEqual(report.blockedCapabilities, []);
 });
 
 test("R2 Packed Instances is supported by real production counters", () => {

@@ -65,6 +65,22 @@ test("R3-B preparation computes exact combined breadth and legal-cut capacities"
     ),
     capacity
   );
+
+  const singleLevel = createHierarchyAsset([], []);
+  singleLevel.meshlets = Array.from({ length: 3 }, () => ({}));
+  assert.deepEqual(
+    computeIndexedPackedHierarchyWorkCapacity(
+      [shallow, singleLevel],
+      new Uint32Array([0, 1, 1])
+    ),
+    {
+      rootTraversalCapacity: 3,
+      traversalWorkCapacity: 3,
+      visibleClusterCapacity: 4,
+      rasterWorkCapacity: 8,
+      maxHierarchyDepth: 1
+    }
+  );
 });
 
 test("R3-B view packer freezes Perspective/Orthographic values and disabled far plane", () => {

@@ -109,18 +109,17 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
     ]
   },
   "hierarchy-sse-lod": {
-    status: "unsupported",
+    status: "supported",
     requiredGpuCounters: [
-      "visitedBvhNodes",
+      "candidateInstances",
+      "visibleInstances",
       "candidateClusters",
       "selectedClusters",
       "rejectedFrustum",
-      "rejectedCone",
-      "rejectedHzb",
+      "hwClusters",
+      "hwTriangles",
       "queueOverflowMask"
-    ],
-    blockerTaskId: "WORK-04",
-    reason: "主链尚未实现 BVH8/Hierarchy wavefront 与 SSE LOD traversal"
+    ]
   },
   "software-visibility": {
     status: "unsupported",
@@ -145,8 +144,12 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
     "WORK-04",
     "主链没有 BVH8/Hierarchy traversal producer"
   ),
-  candidateClusters: supported("VisibilityPass/meshlet-list reducer"),
-  selectedClusters: supported("VisibilityPass/raster-work-list reducer"),
+  candidateClusters: supported(
+    "PackedVisibility flat reducer / HierarchicalWorkGenerator visited-queue reducer"
+  ),
+  selectedClusters: supported(
+    "PackedVisibility flat reducer / HierarchicalWorkGenerator VisibleCluster reducer"
+  ),
   rejectedFrustum: supported("VisibilityPass/scene-frustum-list reducer"),
   rejectedCone: unsupported(
     "WORK-04",
@@ -157,13 +160,15 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
     "VIS-05",
     "主链没有 Compute software raster cluster queue producer"
   ),
-  hwClusters: supported("VisibilityPass/hardware-raster-list reducer"),
+  hwClusters: supported(
+    "Packed Hardware Visibility RasterWork reducer"
+  ),
   alphaClusters: supported("VisibilityPass/alpha-raster-list reducer"),
   swTriangles: unsupported(
     "VIS-05",
     "主链没有 Compute software raster triangle producer"
   ),
-  hwTriangles: supported("VisibilityPass/hardware-raster-list reducer"),
+  hwTriangles: supported("Packed Hardware Visibility fixed-384 submission reducer"),
   shadedPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   emptyVisibilityPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   activeMaterials: supported("MaterialExpandPass/encoded-draw counter"),

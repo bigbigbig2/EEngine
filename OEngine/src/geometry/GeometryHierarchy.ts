@@ -246,6 +246,8 @@ export interface GeometryHierarchyInstanceSelection {
 interface PendingHierarchyWork {
   readonly instance: PreparedHierarchyInstance;
   readonly localClusterIndex: number;
+  /** Package has no serialized hierarchy; residency supplies one virtual leaf. */
+  readonly virtualLeaf: boolean;
 }
 
 interface PreparedHierarchyInstance {
@@ -281,11 +283,12 @@ export function selectGeometryHierarchyInstances(
   for (const source of instances) {
     const instance = prepareHierarchyInstance(source);
     const asset = source.asset;
-    if (asset.clusters.length === 0) {
-      throw new Error("R3 hierarchy selector requires at least one Cluster");
-    }
-    const root = asset.directory.clusterRoot;
-    if (!Number.isInteger(root) || root < 0 || root >= asset.clusters.length) {
+    const virtualLeaf = asset.clusters.length === 0;
+    const root = virtualLeaf ? 0 : asset.directory.clusterRoot;
+    if (
+      !virtualLeaf &&
+      (!Number.isInteger(root) || root < 0 || root >= asset.clusters.length)
+    ) {
       throw new RangeError(`Geometry Cluster root ${root} is out of bounds`);
     }
     const bounds = asset.directory.boundsSphere;
@@ -303,7 +306,7 @@ export function selectGeometryHierarchyInstances(
       rejectedInstancesFrustum++;
       continue;
     }
-    roots.push({ instance, localClusterIndex: root });
+    roots.push({ instance, localClusterIndex: root, virtualLeaf });
   }
 
   if (roots.length > rootQueueCapacity) {
@@ -325,7 +328,9 @@ export function selectGeometryHierarchyInstances(
 
   const select = (work: PendingHierarchyWork): void => {
     const source = work.instance.source;
-    const cluster = source.asset.clusters[work.localClusterIndex]!;
+    const cluster = work.virtualLeaf
+      ? undefined
+      : source.asset.clusters[work.localClusterIndex]!;
     const visibleClusterSlot = selectedClusters.length;
     selectedClusters.push(Object.freeze({
       visibleClusterSlot,
@@ -339,15 +344,17 @@ export function selectGeometryHierarchyInstances(
       localClusterIndex: work.localClusterIndex,
       materialHandle: source.materialHandle
     }));
-    const meshletEnd = cluster.meshletBegin + cluster.meshletCount;
+    const meshletBegin = cluster?.meshletBegin ?? 0;
+    const meshletCount = cluster?.meshletCount ?? source.asset.meshlets.length;
+    const meshletEnd = meshletBegin + meshletCount;
     if (
       !Number.isSafeInteger(meshletEnd) ||
-      cluster.meshletBegin < 0 ||
+      meshletBegin < 0 ||
       meshletEnd > source.asset.meshlets.length
     ) {
       throw new RangeError(`Cluster ${work.localClusterIndex} Meshlet range is invalid`);
     }
-    for (let localMeshletIndex = cluster.meshletBegin; localMeshletIndex < meshletEnd; localMeshletIndex++) {
+    for (let localMeshletIndex = meshletBegin; localMeshletIndex < meshletEnd; localMeshletIndex++) {
       selectedMeshlets.push(Object.freeze({
         visibleClusterSlot,
         meshletRecordIndex: addU32(
@@ -361,7 +368,7 @@ export function selectGeometryHierarchyInstances(
   };
 
   const maximumPossibleRounds = instances.reduce(
-    (sum, instance) => sum + instance.asset.clusters.length,
+    (sum, instance) => sum + Math.max(1, instance.asset.clusters.length),
     0
   ) + 1;
   while (current.length > 0) {
@@ -375,6 +382,11 @@ export function selectGeometryHierarchyInstances(
     let fallback = 0;
     for (const work of current) {
       const source = work.instance.source;
+      if (work.virtualLeaf) {
+        visitedClusters++;
+        select(work);
+        continue;
+      }
       const cluster = source.asset.clusters[work.localClusterIndex];
       if (cluster === undefined) {
         throw new RangeError(`Cluster ${work.localClusterIndex} is out of bounds`);
@@ -415,7 +427,8 @@ export function selectGeometryHierarchyInstances(
       for (let child = 0; child < cluster.childCount; child++) {
         next.push({
           instance: work.instance,
-          localClusterIndex: source.asset.clusterChildren[cluster.childBegin + child]!
+          localClusterIndex: source.asset.clusterChildren[cluster.childBegin + child]!,
+          virtualLeaf: false
         });
       }
       refinedClusters++;
@@ -637,7 +650,13 @@ function analyzeGeometryHierarchy(
   asset: GeometryAssetPackage
 ): GeometryHierarchyAnalysis {
   if (asset.clusters.length === 0) {
-    throw new Error("R3 hierarchy capacity requires at least one Cluster");
+    assertU32(asset.meshlets.length, "Geometry Meshlet count");
+    return Object.freeze({
+      maxCutClusters: 1,
+      maxCutMeshlets: asset.meshlets.length,
+      maxDepth: 0,
+      depthWidths: Object.freeze([1])
+    });
   }
   const root = asset.directory.clusterRoot;
   if (!Number.isInteger(root) || root < 0 || root >= asset.clusters.length) {

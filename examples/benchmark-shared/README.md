@@ -13,7 +13,7 @@ npm run dev:host
 
 正式输入使用无查询参数的页面，例如 `http://127.0.0.1:5173/benchmark-a/`。开发验收使用 `?profile=smoke`，它只缩小实例数与采样帧数，但保持分辨率、主管线、资产、相机和 feature set；Result 会强制加入 `benchmark-profile-smoke-not-gate` dirty reason，因此永远不能误入 G0 artifact。
 
-每个页面必须最终显示 `采集完成`，控制台不得有 WebGPU validation/uncaptured/device-lost error，并能下载 Schema v3 JSON。Packed Instances 已由 A/B/C 的生产主链和真实 counter 标记为 supported；Hierarchy/SSE LOD、cone culling 和 Compute SW Visibility 仍返回稳定 blocker，而不是假 counter。B 的 UltraHDR JPEG 当前明确为 `declared-unsupported + MAT-05`；程序化中性环境与一盏不投影的验证方向光只用于检查材质可读性，不能宣称 B 环境画质对齐或 Packed CSM 已完成。
+每个页面必须最终显示 `采集完成`，控制台不得有 WebGPU validation/uncaptured/device-lost error，并能下载 Schema v3 JSON。Packed Instances 与 Hierarchy/SSE LOD 已由 A/B/C 的生产主链和真实 visited/VisibleCluster/RasterWork counter 标记为 supported；cone culling 和 Compute SW Visibility 仍返回稳定 blocker，而不是假 counter。B 的 UltraHDR JPEG 当前明确为 `declared-unsupported + MAT-05`；程序化中性环境与一盏不投影的验证方向光只用于检查材质可读性，不能宣称 B 环境画质对齐或 Packed CSM 已完成。
 
 ## 资产来源与许可
 

@@ -500,7 +500,10 @@ export class GpuAssetStore {
     }
 
     const meshletBegin = countOf(b.meshletRecords);
-    const clusterBegin = asset.clusters.length === 0 ? 0 : countOf(b.clusterRecords);
+    // Runtime traversal consumes one uniform Cluster ABI. Packages that are
+    // intentionally single-level have no serialized Cluster section, so the
+    // residency adapter appends one virtual leaf spanning their Meshlets.
+    const clusterBegin = countOf(b.clusterRecords);
     const bvhBegin = asset.bvh8Nodes.length === 0 ? 0 : countOf(b.bvh8Nodes);
     const descriptorBegin = asset.vertexStreamDescriptors.length === 0
       ? 0
@@ -586,6 +589,30 @@ export class GpuAssetStore {
         cluster.cone.cutoff
       ]
     }));
+    if (clusterRecords.length === 0) {
+      clusterRecords.push({
+        childBegin: 0,
+        childCount: 0,
+        meshletBegin,
+        meshletCount: asset.meshlets.length,
+        parent: GPU_FALLBACK_RECORD_INDEX,
+        depth: 0,
+        materialId: asset.meshlets[0]?.materialId ?? 0,
+        flags: 0,
+        geometricError: 0,
+        boundsMin: asset.directory.boundsBox.subarray(0, 3),
+        boundsMax: asset.directory.boundsBox.subarray(3, 6),
+        boundsSphere: asset.directory.boundsSphere,
+        coneApex: [
+          asset.directory.boundsSphere[0]!,
+          asset.directory.boundsSphere[1]!,
+          asset.directory.boundsSphere[2]!,
+          0
+        ],
+        // A zero axis with cutoff 1 disables future cone rejection safely.
+        coneAxisCutoff: [0, 0, 0, 1]
+      });
+    }
     const rebasedBvh = asset.bvh8Nodes.map((node) =>
       rebaseBvhNode(node, bvhBegin, clusterBegin)
     );
@@ -609,9 +636,9 @@ export class GpuAssetStore {
       meshletCount: asset.meshlets.length,
       clusterBegin,
       clusterRoot: asset.clusters.length === 0
-        ? 0
+        ? clusterBegin
         : checkedAdd(clusterBegin, asset.directory.clusterRoot, "Cluster root"),
-      clusterCount: asset.clusters.length,
+      clusterCount: clusterRecords.length,
       bvhBegin,
       bvhRoot: asset.bvh8Nodes.length === 0
         ? 0

@@ -130,6 +130,7 @@ test("R2-C residency grows transactionally, retires after completion and exposes
     createGeometryCookRecipe()
   );
   const asset = cooked.asset;
+  assert.equal(asset.clusters.length, 0, "fixture must exercise virtual Cluster residency");
   const store = new GpuAssetStore(gpu.device);
   const before = store.evidence();
   assert.equal(before.residentAssetCount, 0);
@@ -157,7 +158,7 @@ test("R2-C residency grows transactionally, retires after completion and exposes
   const expectedLogical =
     GPU_GEOMETRY_RECORD_STRIDE +
     asset.meshlets.length * GPU_MESHLET_RECORD_STRIDE +
-    asset.clusters.length * GPU_CLUSTER_RECORD_STRIDE +
+    Math.max(1, asset.clusters.length) * GPU_CLUSTER_RECORD_STRIDE +
     asset.bvh8Nodes.length * 352 +
     asset.vertexStreamDescriptors.length * GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE +
     asset.materialRanges.length * GEOMETRY_MATERIAL_RANGE_STRIDE +
@@ -176,6 +177,13 @@ test("R2-C residency grows transactionally, retires after completion and exposes
   const base = store.recordIndex(handle) * GPU_GEOMETRY_RECORD_STRIDE;
   assert.equal(record.getUint32(base + 48, true), asset.directory.vertexCount);
   assert.equal(record.getUint32(base + 64, true), asset.meshlets.length);
+  const clusterRoot = record.getUint32(base + 72, true);
+  assert.equal(record.getUint32(base + 76, true), 1);
+  const clusterRecord = new DataView(store.bindings().clusterRecords.data);
+  const clusterBase = clusterRoot * GPU_CLUSTER_RECORD_STRIDE;
+  assert.equal(clusterRecord.getUint32(clusterBase + 4, true), 0);
+  assert.equal(clusterRecord.getUint32(clusterBase + 8, true), 1);
+  assert.equal(clusterRecord.getUint32(clusterBase + 12, true), asset.meshlets.length);
   assert.equal(record.getUint32(base + 116, true) % 4, 0);
 
   gpu.resolveCompletion();
