@@ -1,4 +1,5 @@
 import type { GeometryHierarchyView } from "../geometry/GeometryHierarchy.js";
+import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import type { FrameGraph } from "../framegraph/FrameGraph.js";
 import { resolveGpuEncoder } from "../framegraph/FrameGraph.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
@@ -35,6 +36,13 @@ const VISIBLE_CLUSTER_QUEUE_MIN_BINDING_SIZE =
 const RASTER_WORK_QUEUE_MIN_BINDING_SIZE =
   GPU_WORK_QUEUE_HEADER_SCHEMA.stride + GPU_RASTER_WORK_SCHEMA.stride;
 
+// First production crossover is deliberately bounded to the measured C case
+// (144 instances / 127 RasterWork). Broaden only with another same-condition
+// wavefront-vs-fused GPU sweep; the fused shader serializes Meshlets per lane.
+export const FUSED_LEAF_INSTANCE_THRESHOLD = 144;
+export const FUSED_LEAF_RASTER_WORK_THRESHOLD = 128;
+export type HierarchicalWorkImplementation = "wavefront" | "fused-leaf";
+
 export interface HierarchicalWorkSceneDescriptor {
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
@@ -52,6 +60,10 @@ export interface HierarchicalWorkSceneDescriptor {
 export interface HierarchicalWorkConfig {
   readonly sseThreshold: number;
   readonly countersEnabled: boolean;
+  /** Sampling/test-only queue headers. Defaults to countersEnabled. */
+  readonly diagnosticsEnabled?: boolean;
+  /** Test-only escape hatch; production uses the static crossover decision. */
+  readonly fusedLeafEnabled?: boolean;
   /** Test/pressure override. Production defaults to the proven scene capacity. */
   readonly traversalWorkCapacity?: number;
 }
@@ -88,10 +100,11 @@ export interface GeneratedHierarchyWork {
   readonly rasterWorkCapacity: number;
   /** Complete 16 B drawIndirect record written by the GPU every frame. */
   readonly drawIndirect: GPUBuffer;
-  /** Root, each round output, then selected queue headers. */
-  readonly evidence: GPUBuffer;
+  /** Sampling-only root, round output, selected and RasterWork headers. */
+  readonly evidence: GPUBuffer | null;
   readonly evidenceLayout: HierarchicalWorkEvidenceLayout;
   readonly encodedRoundCount: number;
+  readonly implementation: HierarchicalWorkImplementation;
 }
 
 export interface PreparedHierarchyWork {
@@ -111,21 +124,25 @@ interface PreparedState {
   readonly sseThreshold: number;
   readonly traversalCapacity: number;
   readonly roundCount: number;
-  readonly rootQueue: GPUBuffer;
-  readonly traversalQueues: readonly [GPUBuffer, GPUBuffer];
+  readonly implementation: HierarchicalWorkImplementation;
+  readonly traversalQueues: readonly [GPUBuffer, GPUBuffer] | null;
   readonly selectedQueue: GPUBuffer;
   readonly rasterQueue: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
-  readonly dispatchArgs: readonly [GPUBuffer, GPUBuffer, GPUBuffer, GPUBuffer];
-  readonly evidence: GPUBuffer;
+  readonly dispatchArgs: readonly [GPUBuffer, GPUBuffer, GPUBuffer] | null;
+  readonly evidence: GPUBuffer | null;
+  readonly evidenceLayout: HierarchicalWorkEvidenceLayout;
   readonly viewUniform: GPUBuffer;
-  readonly instanceBindGroup: GPUBindGroup;
-  readonly traversalBindGroups: readonly [GPUBindGroup, GPUBindGroup, GPUBindGroup];
-  readonly hzbTraversalBindGroups: WeakMap<GPUTextureView, readonly [GPUBindGroup, GPUBindGroup, GPUBindGroup]>;
-  readonly expansionBindGroup: GPUBindGroup;
-  readonly dispatchPreparationBindGroup: GPUBindGroup;
-  readonly counterBindGroup: GPUBindGroup;
+  readonly rootBindGroup: GPUBindGroup | null;
+  readonly hzbRootBindGroups: WeakMap<GPUTextureView, GPUBindGroup>;
+  readonly traversalBindGroups: readonly [GPUBindGroup, GPUBindGroup] | null;
+  readonly hzbTraversalBindGroups: WeakMap<GPUTextureView, readonly [GPUBindGroup, GPUBindGroup]>;
+  readonly expansionBindGroup: GPUBindGroup | null;
+  readonly dispatchPreparationBindGroup: GPUBindGroup | null;
+  readonly leafBindGroup: GPUBindGroup | null;
+  readonly hzbLeafBindGroups: WeakMap<GPUTextureView, GPUBindGroup>;
   readonly countersEnabled: boolean;
+  readonly diagnosticsEnabled: boolean;
   readonly buffers: readonly GPUBuffer[];
   destroyed: boolean;
 }
@@ -133,14 +150,29 @@ interface PreparedState {
 const PREPARED_STATE = new WeakMap<object, PreparedState>();
 
 const INSTANCE_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "R3-B Hierarchy/instance-cull group0",
+  label: "R3-D Hierarchy/fused root group0",
   entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: HIERARCHICAL_VIEW_UNIFORM_SIZE } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: TRAVERSAL_QUEUE_MIN_BINDING_SIZE } },
-    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DISPATCH_INDIRECT_ARGS_SIZE } },
-    { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DRAW_INDIRECT_ARGS_SIZE } }
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: TRAVERSAL_QUEUE_MIN_BINDING_SIZE } },
+    { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: VISIBLE_CLUSTER_QUEUE_MIN_BINDING_SIZE } },
+    { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DISPATCH_INDIRECT_ARGS_SIZE } },
+    { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 256 } }
+  ]
+};
+
+const HZB_INSTANCE_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "R3-D Hierarchy/fused root + previous HZB group0",
+  entries: [
+    ...INSTANCE_GROUP.entries,
+    {
+      binding: 10,
+      visibility: GPUShaderStage.COMPUTE,
+      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+    }
   ]
 };
 
@@ -149,13 +181,13 @@ const TRAVERSAL_GROUP: GPUBindGroupLayoutDescriptor = {
   entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: HIERARCHICAL_VIEW_UNIFORM_SIZE } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: TRAVERSAL_QUEUE_MIN_BINDING_SIZE } },
     { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: TRAVERSAL_QUEUE_MIN_BINDING_SIZE } },
     { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: VISIBLE_CLUSTER_QUEUE_MIN_BINDING_SIZE } },
-    { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DISPATCH_INDIRECT_ARGS_SIZE } }
+    { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DISPATCH_INDIRECT_ARGS_SIZE } },
+    { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 256 } }
   ]
 };
 
@@ -178,7 +210,8 @@ const EXPANSION_GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: VISIBLE_CLUSTER_QUEUE_MIN_BINDING_SIZE } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: RASTER_WORK_QUEUE_MIN_BINDING_SIZE } },
-    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DRAW_INDIRECT_ARGS_SIZE } }
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DRAW_INDIRECT_ARGS_SIZE } },
+    { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 256 } }
   ]
 };
 
@@ -191,13 +224,29 @@ const DISPATCH_PREPARATION_GROUP: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
-const COUNTER_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "R3-C Hierarchy/queue evidence counter group2",
+const LEAF_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "R3-D Hierarchy/fused leaf group3",
   entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: HIERARCHICAL_VIEW_UNIFORM_SIZE } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: RASTER_WORK_QUEUE_MIN_BINDING_SIZE } },
-    { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: VISIBLE_CLUSTER_QUEUE_MIN_BINDING_SIZE } },
+    { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: RASTER_WORK_QUEUE_MIN_BINDING_SIZE } },
+    { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DRAW_INDIRECT_ARGS_SIZE } },
     { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 256 } }
+  ]
+};
+
+const HZB_LEAF_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "R3-D Hierarchy/fused leaf + previous HZB group3",
+  entries: [
+    ...LEAF_GROUP.entries,
+    {
+      binding: 10,
+      visibility: GPUShaderStage.COMPUTE,
+      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+    }
   ]
 };
 
@@ -210,18 +259,22 @@ const COUNTER_GROUP: GPUBindGroupLayoutDescriptor = {
  * after the caller has established GPU completion for the last use.
  */
 export class HierarchicalWorkGenerator {
-  private readonly instancePipeline: GPUComputePipeline;
+  private readonly rootPipeline: GPUComputePipeline;
+  private hzbRootPipeline: GPUComputePipeline | null = null;
   private readonly traversalPipeline: GPUComputePipeline;
   private hzbTraversalPipeline: GPUComputePipeline | null = null;
+  private readonly leafPipeline: GPUComputePipeline;
+  private hzbLeafPipeline: GPUComputePipeline | null = null;
   private readonly expansionPipeline: GPUComputePipeline;
   private readonly dispatchPreparationPipeline: GPUComputePipeline;
-  private readonly counterPipeline: GPUComputePipeline;
   private readonly instanceLayout: GPUBindGroupLayout;
+  private hzbInstanceLayout: GPUBindGroupLayout | null = null;
   private readonly traversalLayout: GPUBindGroupLayout;
   private hzbTraversalLayout: GPUBindGroupLayout | null = null;
+  private readonly leafLayout: GPUBindGroupLayout;
+  private hzbLeafLayout: GPUBindGroupLayout | null = null;
   private readonly expansionLayout: GPUBindGroupLayout;
   private readonly dispatchPreparationLayout: GPUBindGroupLayout;
-  private readonly counterLayout: GPUBindGroupLayout;
   private readonly emptyLayout: GPUBindGroupLayout;
   private readonly prepared = new Set<PreparedHierarchyWork>();
   private destroyed = false;
@@ -233,22 +286,22 @@ export class HierarchicalWorkGenerator {
     });
     this.instanceLayout = device.createBindGroupLayout(INSTANCE_GROUP);
     this.traversalLayout = device.createBindGroupLayout(TRAVERSAL_GROUP);
+    this.leafLayout = device.createBindGroupLayout(LEAF_GROUP);
     this.expansionLayout = device.createBindGroupLayout(EXPANSION_GROUP);
     this.dispatchPreparationLayout = device.createBindGroupLayout(
       DISPATCH_PREPARATION_GROUP
     );
-    this.counterLayout = device.createBindGroupLayout(COUNTER_GROUP);
     this.emptyLayout = device.createBindGroupLayout({
       label: "R3-B Hierarchy/empty group0",
       entries: []
     });
-    this.instancePipeline = device.createComputePipeline({
-      label: "R3-B Hierarchy/InstanceCull → RootTraversal",
+    this.rootPipeline = device.createComputePipeline({
+      label: "R3-D Hierarchy/fused InstanceCull + root Cluster",
       layout: device.createPipelineLayout({
-        label: "R3-B Hierarchy/instance pipeline layout",
+        label: "R3-D Hierarchy/fused root pipeline layout",
         bindGroupLayouts: [this.instanceLayout]
       }),
-      compute: { module, entryPoint: "r3_instance_cull" }
+      compute: { module, entryPoint: "r3_fused_root_cull" }
     });
     this.traversalPipeline = device.createComputePipeline({
       label: "R3-B Hierarchy/Cluster Frustum + SSE traversal",
@@ -257,6 +310,19 @@ export class HierarchicalWorkGenerator {
         bindGroupLayouts: [this.emptyLayout, this.traversalLayout]
       }),
       compute: { module, entryPoint: "r3_traverse_clusters" }
+    });
+    this.leafPipeline = device.createComputePipeline({
+      label: "R3-D Hierarchy/depth-0 fused leaf work",
+      layout: device.createPipelineLayout({
+        label: "R3-D Hierarchy/fused leaf pipeline layout",
+        bindGroupLayouts: [
+          this.emptyLayout,
+          this.emptyLayout,
+          this.emptyLayout,
+          this.leafLayout
+        ]
+      }),
+      compute: { module, entryPoint: "r3_fused_leaf_work" }
     });
     this.expansionPipeline = device.createComputePipeline({
       label: "R3-C Hierarchy/VisibleCluster → RasterWork",
@@ -278,14 +344,6 @@ export class HierarchicalWorkGenerator {
       }),
       compute: { module, entryPoint: "r3_prepare_raster_dispatch" }
     });
-    this.counterPipeline = device.createComputePipeline({
-      label: "R3-C Hierarchy/queue evidence counters",
-      layout: device.createPipelineLayout({
-        label: "R3-C Hierarchy/queue evidence counter layout",
-        bindGroupLayouts: [this.emptyLayout, this.emptyLayout, this.counterLayout]
-      }),
-      compute: { module, entryPoint: "r3_write_work_counters" }
-    });
   }
 
   prepare(
@@ -300,6 +358,10 @@ export class HierarchicalWorkGenerator {
     if (typeof config.countersEnabled !== "boolean") {
       throw new TypeError("R3-C countersEnabled must be boolean");
     }
+    if (config.diagnosticsEnabled !== undefined &&
+      typeof config.diagnosticsEnabled !== "boolean") {
+      throw new TypeError("R3-D diagnosticsEnabled must be boolean");
+    }
     const traversalCapacity = config.traversalWorkCapacity ??
       scene.traversalWorkCapacity;
     assertPositiveU32(traversalCapacity, "R3-B traversal capacity");
@@ -313,61 +375,67 @@ export class HierarchicalWorkGenerator {
       1,
       "R3-B hierarchy round count"
     );
+    const implementation = selectHierarchicalWorkImplementation(scene, config);
+    const diagnosticsEnabled = config.diagnosticsEnabled ?? config.countersEnabled;
     validateDispatchCapacity(
       this.device,
       scene.instanceCount,
-      "R3-B root traversal"
+      implementation === "fused-leaf"
+        ? "R3-D fused leaf work"
+        : "R3-D fused root work"
     );
-    validateDispatchCapacity(
-      this.device,
-      traversalCapacity,
-      "R3-B Cluster traversal"
-    );
-    validateWorkgroupCapacity(
-      this.device,
-      scene.visibleClusterCapacity,
-      "R3-C RasterWork expansion"
-    );
+    if (implementation === "wavefront") {
+      validateDispatchCapacity(
+        this.device,
+        traversalCapacity,
+        "R3-B Cluster traversal"
+      );
+      validateWorkgroupCapacity(
+        this.device,
+        scene.visibleClusterCapacity,
+        "R3-C RasterWork expansion"
+      );
+    }
 
     const buffers: GPUBuffer[] = [];
     try {
-      const rootQueue = this.createQueue(
-        "R3-B/RootTraversalQueue",
-        scene.instanceCount,
-        GPU_TRAVERSAL_WORK_SCHEMA.stride,
-        buffers
-      );
-      const ping = this.createQueue(
-        "R3-B/TraversalQueue/ping",
-        traversalCapacity,
-        GPU_TRAVERSAL_WORK_SCHEMA.stride,
-        buffers
-      );
-      const pong = this.createQueue(
-        "R3-B/TraversalQueue/pong",
-        traversalCapacity,
-        GPU_TRAVERSAL_WORK_SCHEMA.stride,
-        buffers
-      );
+      const ping = implementation === "wavefront"
+        ? this.createQueue(
+          "R3-D/TraversalQueue/ping",
+          traversalCapacity,
+          GPU_TRAVERSAL_WORK_SCHEMA.stride,
+          buffers
+        )
+        : null;
+      const pong = implementation === "wavefront"
+        ? this.createQueue(
+          "R3-D/TraversalQueue/pong",
+          traversalCapacity,
+          GPU_TRAVERSAL_WORK_SCHEMA.stride,
+          buffers
+        )
+        : null;
       const selectedQueue = this.createQueue(
-        "R3-B/VisibleClusterQueue",
+        "R3-D/VisibleClusterQueue",
         scene.visibleClusterCapacity,
         GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride,
         buffers
       );
       const rasterQueue = this.createQueue(
-        "R3-C/RasterWorkQueue",
+        "R3-D/RasterWorkQueue",
         scene.rasterWorkCapacity,
         GPU_RASTER_WORK_SCHEMA.stride,
         buffers
       );
-      const rootArgs = this.createDispatchArgs("R3-B/dispatch/root", buffers);
-      const pingArgs = this.createDispatchArgs("R3-B/dispatch/ping", buffers);
-      const pongArgs = this.createDispatchArgs("R3-B/dispatch/pong", buffers);
-      const selectedArgs = this.createDispatchArgs(
-        "R3-C/dispatch/VisibleCluster",
-        buffers
-      );
+      const pingArgs = implementation === "wavefront"
+        ? this.createDispatchArgs("R3-D/dispatch/ping", buffers)
+        : null;
+      const pongArgs = implementation === "wavefront"
+        ? this.createDispatchArgs("R3-D/dispatch/pong", buffers)
+        : null;
+      const selectedArgs = implementation === "wavefront"
+        ? this.createDispatchArgs("R3-D/dispatch/VisibleCluster", buffers)
+        : null;
       const drawIndirect = this.createInitializedBuffer({
         label: "R3-C/Hardware Visibility drawIndirect",
         size: GPU_DRAW_INDIRECT_ARGS_SIZE,
@@ -379,35 +447,32 @@ export class HierarchicalWorkGenerator {
         3,
         "R3-B evidence header count"
       );
-      const evidence = this.createBuffer({
-        label: "R3-B/queue-evidence",
-        size: checkedByteLength(
+      const evidence = diagnosticsEnabled
+        ? this.createEvidenceBuffer(
           evidenceHeaderCount,
-          GPU_WORK_QUEUE_HEADER_SCHEMA.stride,
-          0,
-          "R3-B evidence"
-        ),
-        usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
-          | GPUBufferUsage.STORAGE
-      }, buffers);
+          roundCount,
+          scene,
+          traversalCapacity,
+          buffers
+        )
+        : null;
       const viewUniform = this.createBuffer({
         label: "R3-B/view-uniform",
         size: HIERARCHICAL_VIEW_UNIFORM_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       }, buffers);
 
-      const instanceBindGroup = this.device.createBindGroup({
-        label: "R3-B/InstanceCull bindings",
-        layout: this.instanceLayout,
-        entries: [
-          { binding: 0, resource: { buffer: viewUniform } },
-          { binding: 1, resource: { buffer: scene.scene.instances } },
-          { binding: 2, resource: { buffer: scene.assets.geometryRecords } },
-          { binding: 3, resource: { buffer: rootQueue } },
-          { binding: 4, resource: { buffer: rootArgs } },
-          { binding: 5, resource: { buffer: drawIndirect } }
-        ]
-      });
+      const rootBindGroup = implementation === "wavefront"
+        ? this.createRootBindGroup(
+          this.instanceLayout,
+          "R3-D/fused root bindings",
+          scene,
+          viewUniform,
+          ping!,
+          selectedQueue,
+          pingArgs!
+        )
+        : null;
       const createTraversalGroup = (
         label: string,
         input: GPUBuffer,
@@ -419,21 +484,23 @@ export class HierarchicalWorkGenerator {
         entries: [
           { binding: 0, resource: { buffer: viewUniform } },
           { binding: 1, resource: { buffer: scene.scene.instances } },
-          { binding: 2, resource: { buffer: scene.assets.geometryRecords } },
           { binding: 3, resource: { buffer: scene.assets.clusterRecords } },
           { binding: 4, resource: { buffer: scene.assets.clusterChildren } },
           { binding: 5, resource: { buffer: input } },
           { binding: 6, resource: { buffer: output } },
           { binding: 7, resource: { buffer: selectedQueue } },
-          { binding: 8, resource: { buffer: outputArgs } }
+          { binding: 8, resource: { buffer: outputArgs } },
+          { binding: 9, resource: { buffer: scene.counterBuffer } }
         ]
       });
-      const traversalBindGroups = Object.freeze([
-        createTraversalGroup("R3-B/root → ping", rootQueue, ping, pingArgs),
-        createTraversalGroup("R3-B/ping → pong", ping, pong, pongArgs),
-        createTraversalGroup("R3-B/pong → ping", pong, ping, pingArgs)
-      ] as const);
-      const expansionBindGroup = this.device.createBindGroup({
+      const traversalBindGroups = implementation === "wavefront"
+        ? Object.freeze([
+          createTraversalGroup("R3-D/ping → pong", ping!, pong!, pongArgs!),
+          createTraversalGroup("R3-D/pong → ping", pong!, ping!, pingArgs!)
+        ] as const)
+        : null;
+      const expansionBindGroup = implementation === "wavefront"
+        ? this.device.createBindGroup({
         label: "R3-C/VisibleCluster → RasterWork bindings",
         layout: this.expansionLayout,
         entries: [
@@ -441,28 +508,33 @@ export class HierarchicalWorkGenerator {
           { binding: 1, resource: { buffer: scene.assets.clusterRecords } },
           { binding: 2, resource: { buffer: selectedQueue } },
           { binding: 3, resource: { buffer: rasterQueue } },
-          { binding: 4, resource: { buffer: drawIndirect } }
+          { binding: 4, resource: { buffer: drawIndirect } },
+          { binding: 6, resource: { buffer: scene.counterBuffer } }
         ]
-      });
-      const dispatchPreparationBindGroup = this.device.createBindGroup({
+      })
+        : null;
+      const dispatchPreparationBindGroup = implementation === "wavefront"
+        ? this.device.createBindGroup({
         label: "R3-C/prepare RasterWork dispatch bindings",
         layout: this.dispatchPreparationLayout,
         entries: [
           { binding: 0, resource: { buffer: viewUniform } },
           { binding: 2, resource: { buffer: selectedQueue } },
-          { binding: 5, resource: { buffer: selectedArgs } }
+          { binding: 5, resource: { buffer: selectedArgs! } }
         ]
-      });
-      const counterBindGroup = this.device.createBindGroup({
-        label: "R3-C/queue evidence counter bindings",
-        layout: this.counterLayout,
-        entries: [
-          { binding: 0, resource: { buffer: viewUniform } },
-          { binding: 3, resource: { buffer: rasterQueue } },
-          { binding: 6, resource: { buffer: evidence } },
-          { binding: 7, resource: { buffer: scene.counterBuffer } }
-        ]
-      });
+      })
+        : null;
+      const leafBindGroup = implementation === "fused-leaf"
+        ? this.createLeafBindGroup(
+          this.leafLayout,
+          "R3-D/fused leaf bindings",
+          scene,
+          viewUniform,
+          selectedQueue,
+          rasterQueue,
+          drawIndirect
+        )
+        : null;
       const evidenceLayout = Object.freeze({
         headerStride: GPU_WORK_QUEUE_HEADER_SCHEMA.stride,
         rootHeaderIndex: 0 as const,
@@ -480,7 +552,8 @@ export class HierarchicalWorkGenerator {
         drawIndirect,
         evidence,
         evidenceLayout,
-        encodedRoundCount: roundCount
+        encodedRoundCount: roundCount,
+        implementation
       });
       const prepared = Object.freeze({
         [PREPARED_HIERARCHY_WORK_BRAND]: true as const,
@@ -492,21 +565,27 @@ export class HierarchicalWorkGenerator {
         sseThreshold: config.sseThreshold,
         traversalCapacity,
         roundCount,
-        rootQueue,
-        traversalQueues: [ping, pong],
+        implementation,
+        traversalQueues: ping !== null && pong !== null ? [ping, pong] : null,
         selectedQueue,
         rasterQueue,
         drawIndirect,
-        dispatchArgs: [rootArgs, pingArgs, pongArgs, selectedArgs],
+        dispatchArgs: pingArgs !== null && pongArgs !== null && selectedArgs !== null
+          ? [pingArgs, pongArgs, selectedArgs]
+          : null,
         evidence,
+        evidenceLayout,
         viewUniform,
-        instanceBindGroup,
+        rootBindGroup,
+        hzbRootBindGroups: new WeakMap(),
         traversalBindGroups,
         hzbTraversalBindGroups: new WeakMap(),
         expansionBindGroup,
         dispatchPreparationBindGroup,
-        counterBindGroup,
+        leafBindGroup,
+        hzbLeafBindGroups: new WeakMap(),
         countersEnabled: config.countersEnabled,
+        diagnosticsEnabled,
         buffers: Object.freeze(buffers),
         destroyed: false
       };
@@ -527,13 +606,15 @@ export class HierarchicalWorkGenerator {
   ): GeneratedHierarchyWork {
     this.assertAlive();
     const state = this.requirePrepared(prepared);
+    const instrumentationEnabled =
+      state.countersEnabled || state.diagnosticsEnabled;
     const viewBytes = packHierarchyViewUniform(
       view,
       state.sseThreshold,
       state.scene.instanceBegin,
       state.scene.instanceCount,
       state.roundCount,
-      state.countersEnabled,
+      instrumentationEnabled,
       Number(this.device.limits.maxComputeWorkgroupsPerDimension),
       features
     );
@@ -545,107 +626,104 @@ export class HierarchicalWorkGenerator {
       viewBytes
     );
 
-    clearQueueCounters(encoder, state.rootQueue);
-    clearQueueCounters(encoder, state.traversalQueues[0]);
-    clearQueueCounters(encoder, state.traversalQueues[1]);
     clearQueueCounters(encoder, state.selectedQueue);
     clearQueueCounters(encoder, state.rasterQueue);
-    for (const args of state.dispatchArgs) encoder.clearBuffer(args, 0, 12);
-
-    const instancePass = encoder.beginComputePass({
-      label: "R3-B/InstanceCull → RootTraversal"
-    });
-    instancePass.setPipeline(this.instancePipeline);
-    instancePass.setBindGroup(0, state.instanceBindGroup);
+    if (state.evidence !== null) {
+      clearEvidenceCounters(
+        encoder,
+        state.evidence,
+        state.roundCount + 3
+      );
+    }
+    // vertexCount/firstVertex/firstInstance are immutable initialized lanes;
+    // the GPU resets and publishes only the dynamic instanceCount lane.
+    encoder.clearBuffer(state.drawIndirect, 4, 4);
     const rootGrid = computeHierarchicalDispatchGrid(
       state.scene.instanceCount,
       Number(this.device.limits.maxComputeWorkgroupsPerDimension)
     );
-    instancePass.dispatchWorkgroups(rootGrid.x, rootGrid.y, 1);
-    instancePass.end();
-    encoder.copyBufferToBuffer(
-      state.rootQueue,
-      0,
-      state.evidence,
-      0,
-      GPU_WORK_QUEUE_HEADER_SCHEMA.stride
-    );
+    const hzbEnabled = features.previousHzb !== null &&
+      features.previousHzb !== undefined;
 
-    for (let round = 0; round < state.roundCount; round++) {
-      const outputIndex = round % 2;
-      const outputQueue = state.traversalQueues[outputIndex]!;
-      const outputArgs = state.dispatchArgs[outputIndex + 1]!;
-      if (round >= 2) {
-        clearQueueCounters(encoder, outputQueue);
-        encoder.clearBuffer(outputArgs, 0, 12);
-      }
-      const inputArgs = round === 0
-        ? state.dispatchArgs[0]
-        : state.dispatchArgs[((round - 1) % 2) + 1]!;
-      const hzbEnabled = features.previousHzb !== null &&
-        features.previousHzb !== undefined;
-      const traversalGroups = hzbEnabled
-        ? this.obtainHzbTraversalBindGroups(state, features.previousHzb!.view)
-        : state.traversalBindGroups;
-      const group = round === 0
-        ? traversalGroups[0]
-        : round % 2 === 1
-          ? traversalGroups[1]
-          : traversalGroups[2];
-      const traversalPass = encoder.beginComputePass({
-        label: `R3-B/Hierarchy round ${round}`
+    if (state.implementation === "fused-leaf") {
+      const leafPass = encoder.beginComputePass({
+        label: "R3-D/Fused leaf work generation"
       });
-      traversalPass.setPipeline(hzbEnabled
-        ? this.obtainHzbTraversalPipeline()
-        : this.traversalPipeline);
-      traversalPass.setBindGroup(1, group);
-      traversalPass.dispatchWorkgroupsIndirect(inputArgs, 0);
-      traversalPass.end();
-      encoder.copyBufferToBuffer(
-        outputQueue,
-        0,
-        state.evidence,
-        (round + 1) * GPU_WORK_QUEUE_HEADER_SCHEMA.stride,
-        GPU_WORK_QUEUE_HEADER_SCHEMA.stride
+      leafPass.setPipeline(hzbEnabled
+        ? this.obtainHzbLeafPipeline()
+        : this.leafPipeline);
+      leafPass.setBindGroup(
+        3,
+        hzbEnabled
+          ? this.obtainHzbLeafBindGroup(state, features.previousHzb!.view)
+          : state.leafBindGroup!
       );
-    }
-    encoder.copyBufferToBuffer(
-      state.selectedQueue,
-      0,
-      state.evidence,
-      (state.roundCount + 1) * GPU_WORK_QUEUE_HEADER_SCHEMA.stride,
-      GPU_WORK_QUEUE_HEADER_SCHEMA.stride
-    );
-    const dispatchPreparationPass = encoder.beginComputePass({
-      label: "R3-C/prepare RasterWork dispatch"
-    });
-    dispatchPreparationPass.setPipeline(this.dispatchPreparationPipeline);
-    dispatchPreparationPass.setBindGroup(2, state.dispatchPreparationBindGroup);
-    dispatchPreparationPass.dispatchWorkgroups(1, 1, 1);
-    dispatchPreparationPass.end();
-    const expansionPass = encoder.beginComputePass({
-      label: "R3-C/VisibleCluster → RasterWork"
-    });
-    expansionPass.setPipeline(this.expansionPipeline);
-    expansionPass.setBindGroup(2, state.expansionBindGroup);
-    expansionPass.dispatchWorkgroupsIndirect(state.dispatchArgs[3], 0);
-    expansionPass.end();
-    encoder.copyBufferToBuffer(
-      state.rasterQueue,
-      0,
-      state.evidence,
-      (state.roundCount + 2) * GPU_WORK_QUEUE_HEADER_SCHEMA.stride,
-      GPU_WORK_QUEUE_HEADER_SCHEMA.stride
-    );
-    if (state.countersEnabled) {
-      const counterPass = encoder.beginComputePass({
-        label: "R3-C/queue evidence counters"
+      leafPass.dispatchWorkgroups(rootGrid.x, rootGrid.y, 1);
+      leafPass.end();
+    } else {
+      const queues = state.traversalQueues!;
+      const args = state.dispatchArgs!;
+      clearQueueCounters(encoder, queues[0]);
+      clearQueueCounters(encoder, queues[1]);
+      for (const dispatch of args) encoder.clearBuffer(dispatch, 0, 12);
+
+      const rootPass = encoder.beginComputePass({
+        label: "R3-D/Fused root hierarchy work generation"
       });
-      counterPass.setPipeline(this.counterPipeline);
-      counterPass.setBindGroup(2, state.counterBindGroup);
-      counterPass.dispatchWorkgroups(1, 1, 1);
-      counterPass.end();
+      rootPass.setPipeline(hzbEnabled
+        ? this.obtainHzbRootPipeline()
+        : this.rootPipeline);
+      rootPass.setBindGroup(
+        0,
+        hzbEnabled
+          ? this.obtainHzbRootBindGroup(state, features.previousHzb!.view)
+          : state.rootBindGroup!
+      );
+      rootPass.dispatchWorkgroups(rootGrid.x, rootGrid.y, 1);
+      rootPass.end();
+      this.copyQueueEvidence(state, encoder, queues[0], 1);
+
+      for (let round = 1; round < state.roundCount; round++) {
+        const outputIndex = round % 2;
+        const inputIndex = (round - 1) % 2;
+        const outputQueue = queues[outputIndex]!;
+        const outputArgs = args[outputIndex]!;
+        if (round >= 2) {
+          clearQueueCounters(encoder, outputQueue);
+          encoder.clearBuffer(outputArgs, 0, 12);
+        }
+        const traversalGroups = hzbEnabled
+          ? this.obtainHzbTraversalBindGroups(state, features.previousHzb!.view)
+          : state.traversalBindGroups!;
+        const traversalPass = encoder.beginComputePass({
+          label: `R3-B/Hierarchy round ${round}`
+        });
+        traversalPass.setPipeline(hzbEnabled
+          ? this.obtainHzbTraversalPipeline()
+          : this.traversalPipeline);
+        traversalPass.setBindGroup(1, traversalGroups[inputIndex]!);
+        traversalPass.dispatchWorkgroupsIndirect(args[inputIndex]!, 0);
+        traversalPass.end();
+        this.copyQueueEvidence(state, encoder, outputQueue, round + 1);
+      }
+
+      const dispatchPreparationPass = encoder.beginComputePass({
+        label: "R3-C/prepare RasterWork dispatch"
+      });
+      dispatchPreparationPass.setPipeline(this.dispatchPreparationPipeline);
+      dispatchPreparationPass.setBindGroup(2, state.dispatchPreparationBindGroup!);
+      dispatchPreparationPass.dispatchWorkgroups(1, 1, 1);
+      dispatchPreparationPass.end();
+      const expansionPass = encoder.beginComputePass({
+        label: "R3-C/VisibleCluster → RasterWork"
+      });
+      expansionPass.setPipeline(this.expansionPipeline);
+      expansionPass.setBindGroup(2, state.expansionBindGroup!);
+      expansionPass.dispatchWorkgroupsIndirect(args[2], 0);
+      expansionPass.end();
     }
+
+    this.writeSampledEvidence(state, encoder);
     return prepared.generated;
   }
 
@@ -678,13 +756,17 @@ export class HierarchicalWorkGenerator {
   }
 
   evidence(prepared: PreparedHierarchyWork): Readonly<{
-    schemaVersion: 1;
+    schemaVersion: 2;
+    implementation: HierarchicalWorkImplementation;
     rootCapacity: number;
+    rootWorkBytes: 0;
     traversalCapacity: number;
     visibleClusterCapacity: number;
     rasterWorkCapacity: number;
     drawIndirectBytes: 16;
     encodedRoundCount: number;
+    encodedTraversalPassCount: number;
+    sampledEvidenceBytes: number;
     transientBytes: number;
     privateSubmitCount: 0;
     coneResources: 0;
@@ -693,13 +775,19 @@ export class HierarchicalWorkGenerator {
   }> {
     const state = this.requirePrepared(prepared);
     return Object.freeze({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      implementation: state.implementation,
       rootCapacity: state.scene.instanceCount,
+      rootWorkBytes: 0,
       traversalCapacity: state.traversalCapacity,
       visibleClusterCapacity: state.scene.visibleClusterCapacity,
       rasterWorkCapacity: state.scene.rasterWorkCapacity,
       drawIndirectBytes: GPU_DRAW_INDIRECT_ARGS_SIZE as 16,
       encodedRoundCount: state.roundCount,
+      encodedTraversalPassCount: state.implementation === "wavefront"
+        ? state.roundCount - 1
+        : 0,
+      sampledEvidenceBytes: state.evidence?.size ?? 0,
       transientBytes: state.buffers.reduce((sum, buffer) => sum + buffer.size, 0),
       privateSubmitCount: 0,
       coneResources: 0,
@@ -712,6 +800,160 @@ export class HierarchicalWorkGenerator {
     if (this.destroyed) return;
     for (const prepared of [...this.prepared]) this.release(prepared);
     this.destroyed = true;
+  }
+
+  private createEvidenceBuffer(
+    headerCount: number,
+    roundCount: number,
+    scene: HierarchicalWorkSceneDescriptor,
+    traversalCapacity: number,
+    buffers: GPUBuffer[]
+  ): GPUBuffer {
+    const size = checkedByteLength(
+      headerCount,
+      GPU_WORK_QUEUE_HEADER_SCHEMA.stride,
+      0,
+      "R3-D sampled evidence"
+    );
+    const initial = new Uint8Array(size);
+    const view = new DataView(initial.buffer);
+    const capacityOffset = GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.capacity!;
+    view.setUint32(capacityOffset, scene.instanceCount, true);
+    for (let round = 0; round < roundCount; round++) {
+      view.setUint32(
+        (round + 1) * GPU_WORK_QUEUE_HEADER_SCHEMA.stride + capacityOffset,
+        traversalCapacity,
+        true
+      );
+    }
+    view.setUint32(
+      (roundCount + 1) * GPU_WORK_QUEUE_HEADER_SCHEMA.stride + capacityOffset,
+      scene.visibleClusterCapacity,
+      true
+    );
+    view.setUint32(
+      (roundCount + 2) * GPU_WORK_QUEUE_HEADER_SCHEMA.stride + capacityOffset,
+      scene.rasterWorkCapacity,
+      true
+    );
+    return this.createInitializedBuffer({
+      label: "R3-D/sampled queue evidence",
+      size,
+      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+    }, initial, buffers);
+  }
+
+  private createRootBindGroup(
+    layout: GPUBindGroupLayout,
+    label: string,
+    scene: HierarchicalWorkSceneDescriptor,
+    viewUniform: GPUBuffer,
+    output: GPUBuffer,
+    selected: GPUBuffer,
+    outputArgs: GPUBuffer,
+    hzbView?: GPUTextureView
+  ): GPUBindGroup {
+    return this.device.createBindGroup({
+      label,
+      layout,
+      entries: [
+        { binding: 0, resource: { buffer: viewUniform } },
+        { binding: 1, resource: { buffer: scene.scene.instances } },
+        { binding: 2, resource: { buffer: scene.assets.geometryRecords } },
+        { binding: 3, resource: { buffer: scene.assets.clusterRecords } },
+        { binding: 4, resource: { buffer: scene.assets.clusterChildren } },
+        { binding: 5, resource: { buffer: output } },
+        { binding: 6, resource: { buffer: selected } },
+        { binding: 7, resource: { buffer: outputArgs } },
+        { binding: 8, resource: { buffer: scene.counterBuffer } },
+        ...(hzbView === undefined ? [] : [{ binding: 10, resource: hzbView }])
+      ]
+    });
+  }
+
+  private createLeafBindGroup(
+    layout: GPUBindGroupLayout,
+    label: string,
+    scene: HierarchicalWorkSceneDescriptor,
+    viewUniform: GPUBuffer,
+    selected: GPUBuffer,
+    raster: GPUBuffer,
+    drawIndirect: GPUBuffer,
+    hzbView?: GPUTextureView
+  ): GPUBindGroup {
+    return this.device.createBindGroup({
+      label,
+      layout,
+      entries: [
+        { binding: 0, resource: { buffer: viewUniform } },
+        { binding: 1, resource: { buffer: scene.scene.instances } },
+        { binding: 2, resource: { buffer: scene.assets.geometryRecords } },
+        { binding: 3, resource: { buffer: scene.assets.clusterRecords } },
+        { binding: 4, resource: { buffer: selected } },
+        { binding: 5, resource: { buffer: raster } },
+        { binding: 6, resource: { buffer: drawIndirect } },
+        { binding: 7, resource: { buffer: scene.counterBuffer } },
+        ...(hzbView === undefined ? [] : [{ binding: 10, resource: hzbView }])
+      ]
+    });
+  }
+
+  private copyQueueEvidence(
+    state: PreparedState,
+    encoder: GPUCommandEncoder,
+    queue: GPUBuffer,
+    headerIndex: number
+  ): void {
+    if (state.evidence === null) return;
+    encoder.copyBufferToBuffer(
+      queue,
+      0,
+      state.evidence,
+      headerIndex * GPU_WORK_QUEUE_HEADER_SCHEMA.stride,
+      GPU_WORK_QUEUE_HEADER_SCHEMA.stride
+    );
+  }
+
+  private writeSampledEvidence(
+    state: PreparedState,
+    encoder: GPUCommandEncoder
+  ): void {
+    if (state.evidence === null) return;
+    const rootOffset = state.evidenceLayout.rootHeaderIndex *
+      GPU_WORK_QUEUE_HEADER_SCHEMA.stride;
+    encoder.copyBufferToBuffer(
+      state.scene.counterBuffer,
+      counterByteOffset("visibleInstances"),
+      state.evidence,
+      rootOffset + GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.written!,
+      4
+    );
+    encoder.copyBufferToBuffer(
+      state.scene.counterBuffer,
+      counterByteOffset("candidateInstances"),
+      state.evidence,
+      rootOffset + GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.attempted!,
+      4
+    );
+    encoder.copyBufferToBuffer(
+      state.scene.counterBuffer,
+      counterByteOffset("visibleInstances"),
+      state.evidence,
+      rootOffset + GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.peak!,
+      4
+    );
+    this.copyQueueEvidence(
+      state,
+      encoder,
+      state.selectedQueue,
+      state.evidenceLayout.selectedHeaderIndex
+    );
+    this.copyQueueEvidence(
+      state,
+      encoder,
+      state.rasterQueue,
+      state.evidenceLayout.rasterHeaderIndex
+    );
   }
 
   private createQueue(
@@ -789,6 +1031,52 @@ export class HierarchicalWorkGenerator {
     return state;
   }
 
+  private obtainHzbRootPipeline(): GPUComputePipeline {
+    this.hzbRootPipeline ??= this.device.createComputePipeline({
+      label: "R3-D Hierarchy/fused root + previous HZB",
+      layout: this.device.createPipelineLayout({
+        label: "R3-D Hierarchy/fused root HZB pipeline layout",
+        bindGroupLayouts: [this.obtainHzbInstanceLayout()]
+      }),
+      compute: {
+        module: this.device.createShaderModule({
+          label: "R3-D Hierarchical previous-HZB Work Generation",
+          code: HIERARCHICAL_HZB_WORK_GENERATION_WGSL
+        }),
+        entryPoint: "r3_fused_root_cull"
+      }
+    });
+    return this.hzbRootPipeline;
+  }
+
+  private obtainHzbRootBindGroup(
+    state: PreparedState,
+    hzbView: GPUTextureView
+  ): GPUBindGroup {
+    const cached = state.hzbRootBindGroups.get(hzbView);
+    if (cached !== undefined) return cached;
+    const queues = state.traversalQueues!;
+    const args = state.dispatchArgs!;
+    const group = this.createRootBindGroup(
+      this.obtainHzbInstanceLayout(),
+      "R3-D/fused root + previous HZB bindings",
+      state.scene,
+      state.viewUniform,
+      queues[0],
+      state.selectedQueue,
+      args[0],
+      hzbView
+    );
+    state.hzbRootBindGroups.set(hzbView, group);
+    return group;
+  }
+
+  private obtainHzbInstanceLayout(): GPUBindGroupLayout {
+    this.hzbInstanceLayout ??=
+      this.device.createBindGroupLayout(HZB_INSTANCE_GROUP);
+    return this.hzbInstanceLayout;
+  }
+
   private obtainHzbTraversalPipeline(): GPUComputePipeline {
     this.hzbTraversalPipeline ??= this.device.createComputePipeline({
       label: "R3-D Hierarchy/Cluster Cone + previous HZB traversal",
@@ -810,7 +1098,7 @@ export class HierarchicalWorkGenerator {
   private obtainHzbTraversalBindGroups(
     state: PreparedState,
     hzbView: GPUTextureView
-  ): readonly [GPUBindGroup, GPUBindGroup, GPUBindGroup] {
+  ): readonly [GPUBindGroup, GPUBindGroup] {
     const cached = state.hzbTraversalBindGroups.get(hzbView);
     if (cached !== undefined) return cached;
     const create = (
@@ -824,23 +1112,21 @@ export class HierarchicalWorkGenerator {
       entries: [
         { binding: 0, resource: { buffer: state.viewUniform } },
         { binding: 1, resource: { buffer: state.scene.scene.instances } },
-        { binding: 2, resource: { buffer: state.scene.assets.geometryRecords } },
         { binding: 3, resource: { buffer: state.scene.assets.clusterRecords } },
         { binding: 4, resource: { buffer: state.scene.assets.clusterChildren } },
         { binding: 5, resource: { buffer: input } },
         { binding: 6, resource: { buffer: output } },
         { binding: 7, resource: { buffer: state.selectedQueue } },
         { binding: 8, resource: { buffer: outputArgs } },
+        { binding: 9, resource: { buffer: state.scene.counterBuffer } },
         { binding: 10, resource: hzbView }
       ]
     });
+    const queues = state.traversalQueues!;
+    const args = state.dispatchArgs!;
     const groups = Object.freeze([
-      create("R3-D/root → ping + previous HZB", state.rootQueue,
-        state.traversalQueues[0], state.dispatchArgs[1]),
-      create("R3-D/ping → pong + previous HZB", state.traversalQueues[0],
-        state.traversalQueues[1], state.dispatchArgs[2]),
-      create("R3-D/pong → ping + previous HZB", state.traversalQueues[1],
-        state.traversalQueues[0], state.dispatchArgs[1])
+      create("R3-D/ping → pong + previous HZB", queues[0], queues[1], args[1]),
+      create("R3-D/pong → ping + previous HZB", queues[1], queues[0], args[0])
     ] as const);
     state.hzbTraversalBindGroups.set(hzbView, groups);
     return groups;
@@ -850,6 +1136,54 @@ export class HierarchicalWorkGenerator {
     this.hzbTraversalLayout ??=
       this.device.createBindGroupLayout(HZB_TRAVERSAL_GROUP);
     return this.hzbTraversalLayout;
+  }
+
+  private obtainHzbLeafPipeline(): GPUComputePipeline {
+    this.hzbLeafPipeline ??= this.device.createComputePipeline({
+      label: "R3-D Hierarchy/fused leaf + previous HZB",
+      layout: this.device.createPipelineLayout({
+        label: "R3-D Hierarchy/fused leaf HZB pipeline layout",
+        bindGroupLayouts: [
+          this.emptyLayout,
+          this.emptyLayout,
+          this.emptyLayout,
+          this.obtainHzbLeafLayout()
+        ]
+      }),
+      compute: {
+        module: this.device.createShaderModule({
+          label: "R3-D Hierarchical previous-HZB Work Generation",
+          code: HIERARCHICAL_HZB_WORK_GENERATION_WGSL
+        }),
+        entryPoint: "r3_fused_leaf_work"
+      }
+    });
+    return this.hzbLeafPipeline;
+  }
+
+  private obtainHzbLeafBindGroup(
+    state: PreparedState,
+    hzbView: GPUTextureView
+  ): GPUBindGroup {
+    const cached = state.hzbLeafBindGroups.get(hzbView);
+    if (cached !== undefined) return cached;
+    const group = this.createLeafBindGroup(
+      this.obtainHzbLeafLayout(),
+      "R3-D/fused leaf + previous HZB bindings",
+      state.scene,
+      state.viewUniform,
+      state.selectedQueue,
+      state.rasterQueue,
+      state.drawIndirect,
+      hzbView
+    );
+    state.hzbLeafBindGroups.set(hzbView, group);
+    return group;
+  }
+
+  private obtainHzbLeafLayout(): GPUBindGroupLayout {
+    this.hzbLeafLayout ??= this.device.createBindGroupLayout(HZB_LEAF_GROUP);
+    return this.hzbLeafLayout;
   }
 
   private assertAlive(): void {
@@ -1015,6 +1349,21 @@ export function computeHierarchicalWorkgroupGrid(
   return Object.freeze({ x, y });
 }
 
+export function selectHierarchicalWorkImplementation(
+  scene: Pick<
+    HierarchicalWorkSceneDescriptor,
+    "maxHierarchyDepth" | "instanceCount" | "rasterWorkCapacity"
+  >,
+  config: Pick<HierarchicalWorkConfig, "fusedLeafEnabled"> = {}
+): HierarchicalWorkImplementation {
+  return config.fusedLeafEnabled !== false &&
+    scene.maxHierarchyDepth === 0 &&
+    scene.instanceCount <= FUSED_LEAF_INSTANCE_THRESHOLD &&
+    scene.rasterWorkCapacity <= FUSED_LEAF_RASTER_WORK_THRESHOLD
+    ? "fused-leaf"
+    : "wavefront";
+}
+
 function validateSceneDescriptor(scene: HierarchicalWorkSceneDescriptor): void {
   if (scene.assets.abiVersion !== GPU_GEOMETRY_ABI_VERSION) {
     throw new Error("R3-B Geometry ABI version mismatch");
@@ -1089,6 +1438,26 @@ function clearQueueCounters(encoder: GPUCommandEncoder, queue: GPUBuffer): void 
     GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.rejected_cone!,
     8
   );
+}
+
+function clearEvidenceCounters(
+  encoder: GPUCommandEncoder,
+  evidence: GPUBuffer,
+  headerCount: number
+): void {
+  for (let index = 0; index < headerCount; index++) {
+    const base = index * GPU_WORK_QUEUE_HEADER_SCHEMA.stride;
+    encoder.clearBuffer(
+      evidence,
+      base,
+      GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.capacity!
+    );
+    encoder.clearBuffer(
+      evidence,
+      base + GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.rejected_cone!,
+      8
+    );
+  }
 }
 
 function validateDispatchCapacity(

@@ -203,6 +203,10 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
         hwTriangles: 128,
         shadedPixels: 0,
         emptyVisibilityPixels: 2073600,
+        rootStageQueueReservations: 1,
+        traversalQueueReservations: 0,
+        workGenerationDispatchUpdates: 0,
+        workGenerationCasRetries: 0,
         queueOverflowMask: 0
       }
     : {};
@@ -268,7 +272,7 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
         sampled: true,
         pending: false,
         dropped: false,
-        schemaVersion: 1,
+        schemaVersion: 2,
         values: gpuCounterValues
       }
     }],

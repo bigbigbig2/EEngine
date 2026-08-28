@@ -24,7 +24,8 @@ const {
   computeHierarchicalDispatchGrid,
   computeHierarchicalWorkgroupGrid,
   HierarchicalWorkGenerator,
-  packHierarchyViewUniform
+  packHierarchyViewUniform,
+  selectHierarchicalWorkImplementation
 } = await import("../.test-dist/render/HierarchicalWorkGenerator.js");
 const {
   HIERARCHICAL_VIEW_OFFSETS,
@@ -158,33 +159,40 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
   });
   const prepared = generator.prepare(scene, {
     sseThreshold: 24,
-    countersEnabled: false
+    countersEnabled: false,
+    diagnosticsEnabled: true
   });
   const evidence = generator.evidence(prepared);
   assert.deepEqual({
     rootCapacity: evidence.rootCapacity,
+    rootWorkBytes: evidence.rootWorkBytes,
+    implementation: evidence.implementation,
     traversalCapacity: evidence.traversalCapacity,
     visibleClusterCapacity: evidence.visibleClusterCapacity,
     rasterWorkCapacity: evidence.rasterWorkCapacity,
     drawIndirectBytes: evidence.drawIndirectBytes,
     encodedRoundCount: evidence.encodedRoundCount,
+    encodedTraversalPassCount: evidence.encodedTraversalPassCount,
     privateSubmitCount: evidence.privateSubmitCount,
     coneResources: evidence.coneResources,
     hzbResources: evidence.hzbResources,
     softwareRasterResources: evidence.softwareRasterResources
   }, {
     rootCapacity: 3,
+    rootWorkBytes: 0,
+    implementation: "wavefront",
     traversalCapacity: 5,
     visibleClusterCapacity: 6,
     rasterWorkCapacity: 6,
     drawIndirectBytes: 16,
     encodedRoundCount: 3,
+    encodedTraversalPassCount: 2,
     privateSubmitCount: 0,
     coneResources: 0,
     hzbResources: 0,
     softwareRasterResources: 0
   });
-  assert.equal(gpu.buffers.length, 12);
+  assert.equal(gpu.buffers.length, 10);
   assert.equal(
     gpu.buffers.filter((buffer) => /cone|hzb|software/i.test(buffer.label)).length,
     0
@@ -198,15 +206,16 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
     (buffer) => (buffer.usage & GPUBufferUsage.INDIRECT) !== 0 && buffer.size === 12
   ));
   const instanceLayout = gpu.layouts.find(
-    (layout) => layout.label === "R3-B Hierarchy/instance-cull group0"
+    (layout) => layout.label === "R3-D Hierarchy/fused root group0"
   );
   const traversalLayout = gpu.layouts.find(
     (layout) => layout.label === "R3-B Hierarchy/traversal group1"
   );
-  assert.equal(instanceLayout.entries[3].buffer.minBindingSize, 40);
-  assert.equal(traversalLayout.entries[5].buffer.minBindingSize, 40);
-  assert.equal(traversalLayout.entries[6].buffer.minBindingSize, 40);
-  assert.equal(traversalLayout.entries[7].buffer.minBindingSize, 48);
+  assert.equal(instanceLayout.entries.find((entry) => entry.binding === 5).buffer.minBindingSize, 40);
+  assert.equal(instanceLayout.entries.find((entry) => entry.binding === 6).buffer.minBindingSize, 48);
+  assert.equal(traversalLayout.entries.find((entry) => entry.binding === 5).buffer.minBindingSize, 40);
+  assert.equal(traversalLayout.entries.find((entry) => entry.binding === 6).buffer.minBindingSize, 40);
+  assert.equal(traversalLayout.entries.find((entry) => entry.binding === 7).buffer.minBindingSize, 48);
   assert.equal(
     traversalLayout.entries.filter((entry) => entry.buffer.type !== "uniform").length,
     8,
@@ -232,9 +241,10 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
   assert.equal(generated.encodedRoundCount, 3);
   assert.equal(encoder.directDispatches.length, 2);
   assert.deepEqual(encoder.directDispatches, [[1, 1, 1], [1, 1, 1]]);
-  assert.equal(encoder.indirectDispatches.length, 4);
+  assert.equal(encoder.indirectDispatches.length, 3);
   assert.ok(encoder.indirectDispatches.every((dispatch) => dispatch.offset === 0));
-  assert.equal(encoder.copies.length, 6, "root + 3 rounds + selected + RasterWork evidence");
+  assert.equal(encoder.copies.length, 8,
+    "sampled root synthesis + 3 logical round outputs + selected + RasterWork");
   assert.ok(
     encoder.clears
       .filter((clear) => /dispatch/.test(clear.buffer.label))
@@ -276,24 +286,94 @@ test("R3-B pressure capacity is bounded and WGSL keeps the frozen producer invar
     }),
     /exceeds the proven scene capacity/
   );
-  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_instance_cull/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_fused_root_cull/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_fused_leaf_work/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_traverse_clusters/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_expand_raster_work/);
-  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /vertex_count = 384u/);
-  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /first_instance = 0u/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /leaf_draw_indirect\.instance_count/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /@builtin\(num_workgroups\)/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /workgroup_count_y: atomic<u32>/);
   assert.match(
     HIERARCHICAL_WORK_GENERATION_WGSL,
-    /R3_COUNTER_SELECTED_CLUSTERS\],\s*selected_cluster_count/s
+    /atomicAdd\(&hierarchy_counters\[R3_COUNTER_SELECTED_CLUSTERS\], selected_count\)/
   );
   assert.match(
     HIERARCHICAL_WORK_GENERATION_WGSL,
-    /R3_COUNTER_HW_CLUSTERS\], raster_count/
+    /atomicAdd\(&leaf_counters\[R3_COUNTER_HW_CLUSTERS\], raster_count\)/
   );
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /oengine_try_reserve_work_group/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /var<workgroup> hierarchy_wg_child_count: atomic<u32>/);
+  assert.match(
+    HIERARCHICAL_WORK_GENERATION_WGSL,
+    /hierarchy_wg_child_base = hierarchy_try_reserve_profiled\(\s*&hierarchy_output\.header,\s*group_child_count/s
+  );
+  assert.match(
+    HIERARCHICAL_WORK_GENERATION_WGSL,
+    /hierarchy_wg_child_base = hierarchy_try_reserve_profiled\(\s*&traversal_output\.header,\s*group_child_count/s
+  );
+  assert.match(
+    HIERARCHICAL_WORK_GENERATION_WGSL,
+    /fallback_count: u32[\s\S]*\(\*header\)\.fallback, fallback_count/
+  );
+  assert.doesNotMatch(
+    HIERARCHICAL_WORK_GENERATION_WGSL,
+    /(?:hierarchy_output|traversal_output)\.header, cluster\.child_count/
+  );
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /atomicMax\(&\(\*args\)\.workgroup_count_x/);
   assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, /texture_2d|texture_storage/);
+  generator.destroy();
+});
+
+test("R3-D depth-zero fast path is static, same-ABI and diagnostics are opt-in", () => {
+  assert.equal(selectHierarchicalWorkImplementation({
+    maxHierarchyDepth: 0,
+    instanceCount: 144,
+    rasterWorkCapacity: 127
+  }), "fused-leaf");
+  assert.equal(selectHierarchicalWorkImplementation({
+    maxHierarchyDepth: 1,
+    instanceCount: 1,
+    rasterWorkCapacity: 1
+  }), "wavefront");
+  assert.equal(selectHierarchicalWorkImplementation({
+    maxHierarchyDepth: 0,
+    instanceCount: 145,
+    rasterWorkCapacity: 127
+  }), "wavefront");
+  assert.equal(selectHierarchicalWorkImplementation({
+    maxHierarchyDepth: 0,
+    instanceCount: 144,
+    rasterWorkCapacity: 129
+  }), "wavefront");
+  assert.equal(selectHierarchicalWorkImplementation({
+    maxHierarchyDepth: 0,
+    instanceCount: 144,
+    rasterWorkCapacity: 127
+  }, { fusedLeafEnabled: false }), "wavefront");
+
+  const gpu = createFakeGpu();
+  const generator = new HierarchicalWorkGenerator(gpu.device);
+  const scene = createSceneDescriptor(gpu, {
+    instanceCount: 144,
+    maxHierarchyDepth: 0,
+    traversalWorkCapacity: 144,
+    visibleClusterCapacity: 144,
+    rasterWorkCapacity: 127
+  });
+  const prepared = generator.prepare(scene, {
+    sseThreshold: 1,
+    countersEnabled: false
+  });
+  assert.equal(prepared.generated.implementation, "fused-leaf");
+  assert.equal(prepared.generated.evidence, null);
+  assert.equal(generator.evidence(prepared).sampledEvidenceBytes, 0);
+  assert.equal(generator.evidence(prepared).encodedTraversalPassCount, 0);
+  assert.equal(gpu.buffers.some((buffer) => /TraversalQueue|dispatch/.test(buffer.label)), false);
+  const encoder = new FakeEncoder();
+  generator.encode(encoder, prepared, perspectiveView());
+  assert.deepEqual(encoder.directDispatches, [[3, 1, 1]]);
+  assert.equal(encoder.indirectDispatches.length, 0);
+  assert.equal(encoder.copies.length, 0);
   generator.destroy();
 });
 

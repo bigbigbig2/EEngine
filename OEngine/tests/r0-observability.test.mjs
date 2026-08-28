@@ -12,7 +12,10 @@ import {
   serializeBenchmarkResult
 } from "../.test-dist/debug/BenchmarkHarness.js";
 import { BenchmarkRunController } from "../.test-dist/debug/BenchmarkRunController.js";
-import { GPU_COUNTER_FIELDS } from "../.test-dist/debug/GpuFrameCounters.js";
+import {
+  GPU_COUNTER_FIELDS,
+  GPU_COUNTER_SCHEMA_VERSION
+} from "../.test-dist/debug/GpuFrameCounters.js";
 import { BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION } from "../.test-dist/debug/BenchmarkCapabilityEvidence.js";
 
 globalThis.GPUBufferUsage ??= {
@@ -172,7 +175,7 @@ test("frame profiler exposes CPU, submit, readback, upload and delayed GPU evide
     sampled: false,
     pending: false,
     dropped: false,
-    schemaVersion: 1,
+    schemaVersion: GPU_COUNTER_SCHEMA_VERSION,
     values: {}
   });
 
@@ -653,7 +656,7 @@ function emptyGpuCounters() {
     sampled: false,
     pending: false,
     dropped: false,
-    schemaVersion: 1,
+    schemaVersion: GPU_COUNTER_SCHEMA_VERSION,
     values: {}
   };
 }

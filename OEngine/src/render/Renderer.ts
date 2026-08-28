@@ -192,7 +192,7 @@ type MainFrameGraphBindings = {
 
 const MAIN_GRAPH_CACHE_LIMIT = 16;
 const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 1;
-const MAIN_GRAPH_INSTRUMENTATION_REVISION = 1;
+const MAIN_GRAPH_INSTRUMENTATION_REVISION = 2;
 
 /**
  * 渲染器运行时总控。
@@ -2059,6 +2059,10 @@ export class Renderer {
           "emptyVisibilityPixels",
           "activeMaterials",
           "activeLights",
+          "rootStageQueueReservations",
+          "traversalQueueReservations",
+          "workGenerationDispatchUpdates",
+          "workGenerationCasRetries",
           "queueOverflowMask"
         ]);
       }

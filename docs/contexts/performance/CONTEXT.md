@@ -20,6 +20,8 @@
 - work queue 的 resident/transient bytes 和 `maxCutMeshlets` 保底容量随 Instance/Geometry 轴输出扩展曲线。
 - R3-C clean/full paired 已证明：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。三段热点不是三个 `workgroup_size(1)`：InstanceCull/Traversal 已是 64-lane，旧 expansion 是每 lane 串行展开 Cluster。R3-D 只在证据支持的 seam 上改为每 Cluster 一个 64-lane expansion workgroup；clean/full after 已证明 A/B/C expansion P50 从 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms，但局部 Pass 下降不能替代总时间 Gate。
 - clean commit `1f3a2d7` 的 A/B/C after 均为 `gateEligible=true`、zero counter issue/overflow/WebGPU diagnostics。A Visibility P50 相对历史 flat 改善约 10.4%，但 P95 回退约 15.3%；B P50/P95 改善约 65%；C 多约 0.262 ms 固定成本且 P95 从约 0.131 ms 增至 0.495 ms。G3 performance 被 `R3-D-08/09` 阻塞，不再写成“待采集”。
+- `R3-D-08/09` 已实现 fused root、workgroup-local queue compaction、sampled diagnostics 和 depth-zero fused-leaf。dirty tuning probe 只证明方向：B smoke root/traversal reservation 约从 76/244 降至 4/51、CAS retry 清零；C fused-leaf 总 GPU frame P50/P95 约比 forced-wavefront 低 12.5%/16.1%。这些数值不能关闭 Gate；最终只认提交后的 clean/full A/B/C。
+- 新增 `rootStageQueueReservations`、`traversalQueueReservations`、`workGenerationDispatchUpdates`、`workGenerationCasRetries`。比较必须同时报告对应 sampled frame、实现类型（wavefront/fused-leaf）和 RasterWork；非采样帧的无 evidence 不能解释为真实零。
 
 ## R1 已冻结口径
 

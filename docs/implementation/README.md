@@ -43,14 +43,14 @@ R0/G0、R1/G1 与 R2/G2 已关闭。R2 Compact Data Foundation 的交付顺序�
 4. `R2-D Packed Scene Vertical`：Instance record、GpuScene owner、Packed/普通 Scene source、bulk/patch/stable-frame 已完成；A/B/C 与真实 Damaged Helmet glTF 已进入 Cooker → Package → Packed Geometry/Instance → production Hardware Visibility/Material/Velocity 主链；
 5. package/Packed 主路径不创建等量 `Mesh/Node3D`，旧 `MeshletGpuTable` 改为 legacy Scene consumer 才惰性创建，因此新主路径不存在重复 Geometry/Instance owner。旧 Scene consumer 的全局删除随 R3 工作生成迁移完成，不能反向把它当作 G2 数据 Gate blocker。
 
-当前唯一收尾入口是 R3-D performance blockers：驻留 Cluster hierarchy/SSE/Cone/previous-HZB 已在 Meshlet 展开前减量，并由同一 Packed Hardware `drawIndirect()` consumer 消费；Packed flat 路径已删除。clean/full A/B/C after 的正确性/证据 Gate 已通过，但 A 的 P95 长尾和 C 的低密度固定成本仍超过回退门槛。R3 v1 不直接遍历当前独立 BVH8；原因、长期决策和来源分别见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md) 与 [R3-01 porting ledger](../references/porting/R3-01-hierarchical-work-generation.md)。
+当前唯一收尾入口是 R3-D clean performance Gate：`InstanceCull + root` 融合、root/traversal/selected workgroup-local compaction、sampled diagnostics 与 depth-zero fused-leaf 已落地，并在 live GPU oracle 和 dirty 单变量 probe 中通过。现在必须基于提交后的 clean commit 重跑 full A/B/C，确认 A P95 不再相对历史 flat 回退、C 固定成本被消除且 B 不明显退化，才能关闭 `R3-D-08/09` 与 G3 performance。R3 v1 不直接遍历当前独立 BVH8；原因、长期决策和来源分别见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md) 与 [R3-01 porting ledger](../references/porting/R3-01-hierarchical-work-generation.md)。
 
 R3 集中为四个可运行包：
 
 1. `R3-A Reference + ABI`：已完成；multi-instance CPU oracle、queue schema、max-cut capacity 和整组 children fallback 已由定向测试冻结；
 2. `R3-B Hierarchy Producer`：已完成；InstanceCull → root → ping/pong Cluster traversal 已在真实 WebGPU 上只启用 Frustum + SSE，并与 multi-instance CPU oracle selected set 对齐；
 3. `R3-C Hardware Vertical`：已完成；VisibleCluster 在 GPU 上展开为 RasterWork，写满 16 B `drawIndirect` record，并由生产 Packed Hardware consumer 直接消费；clean/full flat/hierarchy paired A/B/C 已登记，其中 B 是明确胜例，A 的 producer 阶段回退，C 显示低密度固定成本；
-4. `R3-D Enhancement + Deletion`：代码/功能结构和浏览器正确性证据已完成；RasterWork expansion 使用每 Cluster 64-lane workgroup，Cone/previous HZB、真实 counter 与 feature-off 已接入，Packed flat producer/owner 已删除。clean/full A/B/C after 证明 expansion 局部成本下降且 B 总成本明显优于 flat，也暴露 A P95 与 C 低密度回退；`R3-D-08/09` 关闭前 G3 performance 不标记完成。
+4. `R3-D Enhancement + Deletion`：代码/功能结构和浏览器正确性证据已完成；RasterWork expansion 使用每 Cluster 64-lane workgroup，Cone/previous HZB、真实 counter 与 feature-off 已接入，Packed flat producer/owner 已删除。`R3-D-08/09` 又融合 InstanceCull/root、压缩 workgroup 全局预约、把 diagnostics 改为 sampled/opt-in，并为 depth-zero 小场景加入同 ABI fused-leaf；等待 clean/full A/B/C 后决定 G3 performance。
 
 R2 只新增 Geometry、Cluster、Instance 三张必需 record table；Material 使用现有 registry 的 validated handle reference，Texture/Light 全面重构不进入 G2。R2 会生成、验证并驻留 hierarchy 数据，但 GPU hierarchy/SSE traversal 属于 R3。
 

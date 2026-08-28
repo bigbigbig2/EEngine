@@ -20,7 +20,21 @@ export const HIERARCHICAL_VIEW_OFFSETS = Object.freeze({
 } as const);
 
 const HIERARCHICAL_HZB_DISABLED_WGSL = /* wgsl */ `
-fn hierarchy_hzb_occluded(
+fn hierarchy_root_hzb_occluded(
+  cluster: GpuClusterRecord,
+  instance: OEngineInstanceRecord
+) -> bool {
+  return false;
+}
+
+fn hierarchy_traversal_hzb_occluded(
+  cluster: GpuClusterRecord,
+  instance: OEngineInstanceRecord
+) -> bool {
+  return false;
+}
+
+fn hierarchy_leaf_hzb_occluded(
   cluster: GpuClusterRecord,
   instance: OEngineInstanceRecord
 ) -> bool {
@@ -29,9 +43,13 @@ fn hierarchy_hzb_occluded(
 `;
 
 const HIERARCHICAL_HZB_ENABLED_WGSL = /* wgsl */ `
+@group(0) @binding(10) var hierarchy_previous_hzb: texture_2d<f32>;
 @group(1) @binding(10) var traversal_previous_hzb: texture_2d<f32>;
+@group(3) @binding(10) var leaf_previous_hzb: texture_2d<f32>;
 
-fn hierarchy_hzb_occluded(
+fn hierarchy_hzb_occluded_from(
+  hzb_texture: texture_2d<f32>,
+  view: ptr<uniform, OEngineHierarchyView>,
   cluster: GpuClusterRecord,
   instance: OEngineInstanceRecord
 ) -> bool {
@@ -47,7 +65,7 @@ fn hierarchy_hzb_occluded(
     );
     let current_world = instance.current_object_to_world * vec4f(local, 1.0);
     let previous_world = instance.previous_from_current * current_world;
-    let clip = traversal_view.world_to_clip * previous_world;
+    let clip = (*view).world_to_clip * previous_world;
     // Near-plane crossings and invalid projections are deliberately fail-open.
     if any(clip != clip) || any(abs(clip) > vec4f(3.4e38)) || clip.w <= 1e-6 {
       return false;
@@ -64,23 +82,50 @@ fn hierarchy_hzb_occluded(
   }
   uv_min = clamp(uv_min, vec2f(0.0), vec2f(1.0));
   uv_max = clamp(uv_max, vec2f(0.0), vec2f(1.0));
-  let base_size = vec2f(traversal_view.hzb.xy);
+  let base_size = vec2f((*view).hzb.xy);
   let footprint = max((uv_max.x - uv_min.x) * base_size.x,
     (uv_max.y - uv_min.y) * base_size.y);
   let mip = min(
     u32(ceil(log2(max(footprint, 1.0)))),
-    traversal_view.hzb.z - 1u
+    (*view).hzb.z - 1u
   );
-  let mip_size = max(traversal_view.hzb.xy >> vec2u(mip), vec2u(1u));
+  let mip_size = max((*view).hzb.xy >> vec2u(mip), vec2u(1u));
   let last = vec2i(mip_size - vec2u(1u));
   let lo = clamp(vec2i(floor(uv_min * vec2f(mip_size))), vec2i(0), last);
   let hi = clamp(vec2i(floor(uv_max * vec2f(mip_size))), vec2i(0), last);
-  let h00 = textureLoad(traversal_previous_hzb, lo, i32(mip)).x;
-  let h10 = textureLoad(traversal_previous_hzb, vec2i(hi.x, lo.y), i32(mip)).x;
-  let h01 = textureLoad(traversal_previous_hzb, vec2i(lo.x, hi.y), i32(mip)).x;
-  let h11 = textureLoad(traversal_previous_hzb, hi, i32(mip)).x;
+  let h00 = textureLoad(hzb_texture, lo, i32(mip)).x;
+  let h10 = textureLoad(hzb_texture, vec2i(hi.x, lo.y), i32(mip)).x;
+  let h01 = textureLoad(hzb_texture, vec2i(lo.x, hi.y), i32(mip)).x;
+  let h11 = textureLoad(hzb_texture, hi, i32(mip)).x;
   let occluder_farthest = min(min(h00, h10), min(h01, h11));
   return candidate_nearest + 1e-6 < occluder_farthest;
+}
+
+fn hierarchy_root_hzb_occluded(
+  cluster: GpuClusterRecord,
+  instance: OEngineInstanceRecord
+) -> bool {
+  return hierarchy_hzb_occluded_from(
+    hierarchy_previous_hzb, &hierarchy_view, cluster, instance
+  );
+}
+
+fn hierarchy_traversal_hzb_occluded(
+  cluster: GpuClusterRecord,
+  instance: OEngineInstanceRecord
+) -> bool {
+  return hierarchy_hzb_occluded_from(
+    traversal_previous_hzb, &traversal_view, cluster, instance
+  );
+}
+
+fn hierarchy_leaf_hzb_occluded(
+  cluster: GpuClusterRecord,
+  instance: OEngineInstanceRecord
+) -> bool {
+  return hierarchy_hzb_occluded_from(
+    leaf_previous_hzb, &leaf_view, cluster, instance
+  );
 }
 `;
 
@@ -185,6 +230,10 @@ const R3_COUNTER_REJECTED_HZB: u32 = 7u;
 const R3_COUNTER_HW_CLUSTERS: u32 = 9u;
 const R3_COUNTER_HW_TRIANGLES: u32 = 12u;
 const R3_COUNTER_OVERFLOW_MASK: u32 = 17u;
+const R3_COUNTER_ROOT_STAGE_QUEUE_RESERVATIONS: u32 = 18u;
+const R3_COUNTER_TRAVERSAL_QUEUE_RESERVATIONS: u32 = 19u;
+const R3_COUNTER_WORK_GENERATION_DISPATCH_UPDATES: u32 = 20u;
+const R3_COUNTER_WORK_GENERATION_CAS_RETRIES: u32 = 21u;
 const R3_SCENE_QUEUE_OVERFLOW_BIT: u32 = 1u;
 const R3_MESHLET_QUEUE_OVERFLOW_BIT: u32 = 2u;
 const R3_FEATURE_CONE: u32 = 1u;
@@ -201,9 +250,12 @@ struct OEngineWorldSphere {
 @group(0) @binding(0) var<uniform> hierarchy_view: OEngineHierarchyView;
 @group(0) @binding(1) var<storage, read> hierarchy_instances: array<OEngineInstanceRecord>;
 @group(0) @binding(2) var<storage, read> hierarchy_geometries: array<GpuGeometryRecord>;
-@group(0) @binding(3) var<storage, read_write> hierarchy_roots: OEngineTraversalQueueWrite;
-@group(0) @binding(4) var<storage, read_write> hierarchy_root_dispatch: OEngineDispatchIndirectArgs;
-@group(0) @binding(5) var<storage, read_write> hierarchy_init_draw_indirect: OEngineDrawIndirectArgs;
+@group(0) @binding(3) var<storage, read> hierarchy_clusters: array<GpuClusterRecord>;
+@group(0) @binding(4) var<storage, read> hierarchy_children: array<u32>;
+@group(0) @binding(5) var<storage, read_write> hierarchy_output: OEngineTraversalQueueWrite;
+@group(0) @binding(6) var<storage, read_write> hierarchy_selected: OEngineVisibleClusterQueue;
+@group(0) @binding(7) var<storage, read_write> hierarchy_output_dispatch: OEngineDispatchIndirectArgs;
+@group(0) @binding(8) var<storage, read_write> hierarchy_counters: array<atomic<u32>>;
 
 fn hierarchy_conservative_scale(transform: mat4x4f) -> f32 {
   let x_axis = transform[0].xyz;
@@ -342,157 +394,652 @@ fn hierarchy_linear_invocation_index(id: vec3u, grid: vec3u) -> u32 {
   return id.x + id.y * grid.x * ${HIERARCHICAL_WORKGROUP_SIZE}u;
 }
 
-fn hierarchy_try_reserve_root(
-  header: ptr<storage, OEngineWorkQueueHeader, read_write>
+var<workgroup> hierarchy_wg_selected_count: atomic<u32>;
+var<workgroup> hierarchy_wg_selected_base: u32;
+var<workgroup> hierarchy_wg_child_count: atomic<u32>;
+var<workgroup> hierarchy_wg_child_base: u32;
+var<workgroup> hierarchy_wg_expanding_parents: atomic<u32>;
+var<workgroup> hierarchy_wg_visible_instances: atomic<u32>;
+var<workgroup> hierarchy_wg_visited_clusters: atomic<u32>;
+var<workgroup> hierarchy_wg_rejected_cone: atomic<u32>;
+var<workgroup> hierarchy_wg_rejected_hzb: atomic<u32>;
+var<workgroup> hierarchy_wg_queue_reservations: atomic<u32>;
+var<workgroup> hierarchy_wg_cas_retries: atomic<u32>;
+var<workgroup> hierarchy_wg_dispatch_end: atomic<u32>;
+var<workgroup> hierarchy_wg_overflow: atomic<u32>;
+
+// SceneDatabase.ts uses the same proven compact invariant: local atomic index,
+// one global reservation by lane 0, then contiguous lane writes. The queue
+// reservation remains OEngine's bounded all-or-nothing WebGPU adaptation.
+fn hierarchy_try_reserve_profiled(
+  header: ptr<storage, OEngineWorkQueueHeader, read_write>,
+  count: u32,
+  fallback_count: u32
 ) -> u32 {
-  oengine_atomic_saturating_add_u32(&(*header).attempted, 1u);
+  atomicAdd(&hierarchy_wg_queue_reservations, 1u);
+  oengine_atomic_saturating_add_u32(&(*header).attempted, count);
   var observed = atomicLoad(&(*header).written);
   loop {
-    if observed >= (*header).capacity {
+    if count == 0u || count > (*header).capacity - min(observed, (*header).capacity) {
       atomicOr(&(*header).overflow, 1u);
+      oengine_atomic_saturating_add_u32(&(*header).fallback, fallback_count);
+      atomicStore(&hierarchy_wg_overflow, 1u);
       return OENGINE_WORK_QUEUE_INVALID_OFFSET;
     }
-    let next = observed + 1u;
+    let next = observed + count;
     let result = atomicCompareExchangeWeak(&(*header).written, observed, next);
     if result.exchanged {
       atomicMax(&(*header).peak, next);
       return observed;
     }
+    atomicAdd(&hierarchy_wg_cas_retries, 1u);
     observed = result.old_value;
   }
 }
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
-fn r3_instance_cull(
+fn r3_fused_root_cull(
   @builtin(global_invocation_id) id: vec3u,
+  @builtin(local_invocation_index) lane: u32,
   @builtin(num_workgroups) grid: vec3u
 ) {
-  if all(id == vec3u(0u)) {
-    hierarchy_init_draw_indirect.vertex_count = 384u;
-    atomicStore(&hierarchy_init_draw_indirect.instance_count, 0u);
-    hierarchy_init_draw_indirect.first_vertex = 0u;
-    hierarchy_init_draw_indirect.first_instance = 0u;
+  if lane == 0u {
+    atomicStore(&hierarchy_wg_selected_count, 0u);
+    hierarchy_wg_selected_base = OENGINE_WORK_QUEUE_INVALID_OFFSET;
+    atomicStore(&hierarchy_wg_child_count, 0u);
+    hierarchy_wg_child_base = OENGINE_WORK_QUEUE_INVALID_OFFSET;
+    atomicStore(&hierarchy_wg_expanding_parents, 0u);
+    atomicStore(&hierarchy_wg_visible_instances, 0u);
+    atomicStore(&hierarchy_wg_visited_clusters, 0u);
+    atomicStore(&hierarchy_wg_rejected_cone, 0u);
+    atomicStore(&hierarchy_wg_rejected_hzb, 0u);
+    atomicStore(&hierarchy_wg_queue_reservations, 0u);
+    atomicStore(&hierarchy_wg_cas_retries, 0u);
+    atomicStore(&hierarchy_wg_dispatch_end, 0u);
+    atomicStore(&hierarchy_wg_overflow, 0u);
   }
+  workgroupBarrier();
+
   let invocation_index = hierarchy_linear_invocation_index(id, grid);
-  if invocation_index >= hierarchy_view.scene.y { return; }
-  let instance_record_index = hierarchy_view.scene.x + invocation_index;
-  let instance = hierarchy_instances[instance_record_index];
-  if !oengine_instance_active(instance) {
-    return;
+  var selected = false;
+  var selected_local = 0u;
+  var selected_instance = 0u;
+  var selected_geometry = 0u;
+  var selected_cluster = 0u;
+  var selected_material = 0u;
+  var expand = false;
+  var child_local = 0u;
+  var child_begin = 0u;
+  var child_count = 0u;
+
+  if invocation_index < hierarchy_view.scene.y {
+    let instance_record_index = hierarchy_view.scene.x + invocation_index;
+    let instance = hierarchy_instances[instance_record_index];
+    let instance_sphere = hierarchy_transform_sphere(
+      instance.bounds_sphere,
+      instance.current_object_to_world
+    );
+    if oengine_instance_active(instance) &&
+      hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
+      atomicAdd(&hierarchy_wg_visible_instances, 1u);
+      atomicAdd(&hierarchy_wg_visited_clusters, 1u);
+      let geometry = hierarchy_geometries[instance.geometry_record_index];
+      let cluster = hierarchy_clusters[geometry.cluster_root];
+      let scale = hierarchy_conservative_scale(instance.current_object_to_world);
+      let sphere = hierarchy_transform_sphere(
+        cluster.bounds_sphere,
+        instance.current_object_to_world
+      );
+      selected_instance = instance_record_index;
+      selected_geometry = instance.geometry_record_index;
+      selected_cluster = geometry.cluster_root;
+      selected_material = instance.material_handle;
+      if hierarchy_sphere_in_frustum(sphere, &hierarchy_view) {
+        if (hierarchy_view.hzb.w & R3_FEATURE_CONE) != 0u &&
+          hierarchy_cluster_cone_backfacing(
+            cluster, instance, hierarchy_view.camera_position.xyz
+          ) {
+          atomicAdd(&hierarchy_wg_rejected_cone, 1u);
+        } else if (hierarchy_view.hzb.w & R3_FEATURE_HZB) != 0u &&
+          hierarchy_root_hzb_occluded(cluster, instance) {
+          atomicAdd(&hierarchy_wg_rejected_hzb, 1u);
+        } else {
+          let projected_error = hierarchy_projected_error_pixels(
+            cluster.geometric_error, sphere, scale, &hierarchy_view
+          );
+          if cluster.child_count == 0u || projected_error <= hierarchy_view.sse.x {
+            selected = true;
+          } else {
+            expand = true;
+            child_begin = cluster.child_begin;
+            child_count = cluster.child_count;
+          }
+        }
+      }
+    }
   }
-  let instance_sphere = hierarchy_transform_sphere(
-    instance.bounds_sphere,
-    instance.current_object_to_world
-  );
-  if !hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
-    return;
+
+  if expand {
+    child_local = atomicAdd(&hierarchy_wg_child_count, child_count);
+    atomicAdd(&hierarchy_wg_expanding_parents, 1u);
   }
-  let geometry = hierarchy_geometries[instance.geometry_record_index];
-  let slot = hierarchy_try_reserve_root(&hierarchy_roots.header);
-  if slot == OENGINE_WORK_QUEUE_INVALID_OFFSET {
-    return;
+  workgroupBarrier();
+  if lane == 0u {
+    let group_child_count = atomicLoad(&hierarchy_wg_child_count);
+    if group_child_count > 0u {
+      hierarchy_wg_child_base = hierarchy_try_reserve_profiled(
+        &hierarchy_output.header,
+        group_child_count,
+        atomicLoad(&hierarchy_wg_expanding_parents)
+      );
+      if hierarchy_wg_child_base != OENGINE_WORK_QUEUE_INVALID_OFFSET {
+        atomicStore(
+          &hierarchy_wg_dispatch_end,
+          hierarchy_wg_child_base + group_child_count
+        );
+      }
+    }
   }
-  hierarchy_roots.elements[slot] = OEngineTraversalWork(
-    instance_record_index,
-    geometry.cluster_root
-  );
-  hierarchy_update_dispatch(
-    &hierarchy_root_dispatch,
-    slot + 1u,
-    hierarchy_view.limits.x
-  );
+  workgroupBarrier();
+  if expand {
+    if hierarchy_wg_child_base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
+      selected = true;
+    } else {
+      for (var child = 0u; child < child_count; child++) {
+        hierarchy_output.elements[hierarchy_wg_child_base + child_local + child] =
+          OEngineTraversalWork(
+            selected_instance,
+            hierarchy_children[child_begin + child]
+          );
+      }
+    }
+  }
+
+  if selected {
+    selected_local = atomicAdd(&hierarchy_wg_selected_count, 1u);
+  }
+  workgroupBarrier();
+  if lane == 0u {
+    let selected_count = atomicLoad(&hierarchy_wg_selected_count);
+    if selected_count > 0u {
+      hierarchy_wg_selected_base = hierarchy_try_reserve_profiled(
+        &hierarchy_selected.header, selected_count, selected_count
+      );
+    }
+  }
+  workgroupBarrier();
+  if selected && hierarchy_wg_selected_base != OENGINE_WORK_QUEUE_INVALID_OFFSET {
+    hierarchy_selected.elements[hierarchy_wg_selected_base + selected_local] =
+      OEngineVisibleClusterRecord(
+        selected_instance,
+        selected_geometry,
+        selected_cluster,
+        selected_material
+      );
+  }
+  workgroupBarrier();
+
+  if lane == 0u {
+    let dispatch_end = atomicLoad(&hierarchy_wg_dispatch_end);
+    var dispatch_updates = 0u;
+    if dispatch_end > 0u {
+      hierarchy_update_dispatch(
+        &hierarchy_output_dispatch,
+        dispatch_end,
+        hierarchy_view.limits.x
+      );
+      dispatch_updates = 1u;
+    }
+    if (hierarchy_view.hzb.w & R3_FEATURE_COUNTERS) != 0u {
+      let group_begin = hierarchy_linear_invocation_index(id, grid);
+      let candidates = min(
+        ${HIERARCHICAL_WORKGROUP_SIZE}u,
+        hierarchy_view.scene.y - min(group_begin, hierarchy_view.scene.y)
+      );
+      let visible = atomicLoad(&hierarchy_wg_visible_instances);
+      let selected_count = select(
+        0u,
+        atomicLoad(&hierarchy_wg_selected_count),
+        hierarchy_wg_selected_base != OENGINE_WORK_QUEUE_INVALID_OFFSET
+      );
+      atomicAdd(&hierarchy_counters[R3_COUNTER_CANDIDATE_INSTANCES], candidates);
+      atomicAdd(&hierarchy_counters[R3_COUNTER_VISIBLE_INSTANCES], visible);
+      atomicAdd(
+        &hierarchy_counters[R3_COUNTER_REJECTED_FRUSTUM],
+        candidates - min(visible, candidates)
+      );
+      let visited = atomicLoad(&hierarchy_wg_visited_clusters);
+      atomicAdd(&hierarchy_counters[R3_COUNTER_VISITED_HIERARCHY_NODES], visited);
+      atomicAdd(&hierarchy_counters[R3_COUNTER_CANDIDATE_CLUSTERS], visited);
+      atomicAdd(&hierarchy_counters[R3_COUNTER_SELECTED_CLUSTERS], selected_count);
+      atomicAdd(
+        &hierarchy_counters[R3_COUNTER_REJECTED_CONE],
+        atomicLoad(&hierarchy_wg_rejected_cone)
+      );
+      atomicAdd(
+        &hierarchy_counters[R3_COUNTER_REJECTED_HZB],
+        atomicLoad(&hierarchy_wg_rejected_hzb)
+      );
+      atomicAdd(
+        &hierarchy_selected.header.rejected_cone,
+        atomicLoad(&hierarchy_wg_rejected_cone)
+      );
+      atomicAdd(
+        &hierarchy_selected.header.rejected_hzb,
+        atomicLoad(&hierarchy_wg_rejected_hzb)
+      );
+      atomicAdd(
+        &hierarchy_counters[R3_COUNTER_ROOT_STAGE_QUEUE_RESERVATIONS],
+        atomicLoad(&hierarchy_wg_queue_reservations)
+      );
+      atomicAdd(
+        &hierarchy_counters[R3_COUNTER_WORK_GENERATION_DISPATCH_UPDATES],
+        dispatch_updates
+      );
+      atomicAdd(
+        &hierarchy_counters[R3_COUNTER_WORK_GENERATION_CAS_RETRIES],
+        atomicLoad(&hierarchy_wg_cas_retries)
+      );
+      if atomicLoad(&hierarchy_wg_overflow) != 0u {
+        atomicOr(
+          &hierarchy_counters[R3_COUNTER_OVERFLOW_MASK],
+          R3_SCENE_QUEUE_OVERFLOW_BIT
+        );
+      }
+    }
+  }
 }
 
 @group(1) @binding(0) var<uniform> traversal_view: OEngineHierarchyView;
 @group(1) @binding(1) var<storage, read> traversal_instances: array<OEngineInstanceRecord>;
-@group(1) @binding(2) var<storage, read> traversal_geometries: array<GpuGeometryRecord>;
 @group(1) @binding(3) var<storage, read> traversal_clusters: array<GpuClusterRecord>;
 @group(1) @binding(4) var<storage, read> traversal_children: array<u32>;
 @group(1) @binding(5) var<storage, read> traversal_input: OEngineTraversalQueueRead;
 @group(1) @binding(6) var<storage, read_write> traversal_output: OEngineTraversalQueueWrite;
 @group(1) @binding(7) var<storage, read_write> traversal_selected: OEngineVisibleClusterQueue;
 @group(1) @binding(8) var<storage, read_write> traversal_output_dispatch: OEngineDispatchIndirectArgs;
-
-fn traversal_select_cluster(
-  work: OEngineTraversalWork,
-  instance: OEngineInstanceRecord
-) {
-  let slot = oengine_try_reserve_work_group(&traversal_selected.header, 1u);
-  if slot == OENGINE_WORK_QUEUE_INVALID_OFFSET {
-    return;
-  }
-  traversal_selected.elements[slot] = OEngineVisibleClusterRecord(
-    work.instance_record_index,
-    instance.geometry_record_index,
-    work.cluster_record_index,
-    instance.material_handle
-  );
-}
+@group(1) @binding(9) var<storage, read_write> traversal_counters: array<atomic<u32>>;
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
 fn r3_traverse_clusters(
   @builtin(global_invocation_id) id: vec3u,
+  @builtin(local_invocation_index) lane: u32,
   @builtin(num_workgroups) grid: vec3u
 ) {
+  if lane == 0u {
+    atomicStore(&hierarchy_wg_selected_count, 0u);
+    hierarchy_wg_selected_base = OENGINE_WORK_QUEUE_INVALID_OFFSET;
+    atomicStore(&hierarchy_wg_child_count, 0u);
+    hierarchy_wg_child_base = OENGINE_WORK_QUEUE_INVALID_OFFSET;
+    atomicStore(&hierarchy_wg_expanding_parents, 0u);
+    atomicStore(&hierarchy_wg_visible_instances, 0u);
+    atomicStore(&hierarchy_wg_visited_clusters, 0u);
+    atomicStore(&hierarchy_wg_rejected_cone, 0u);
+    atomicStore(&hierarchy_wg_rejected_hzb, 0u);
+    atomicStore(&hierarchy_wg_queue_reservations, 0u);
+    atomicStore(&hierarchy_wg_cas_retries, 0u);
+    atomicStore(&hierarchy_wg_dispatch_end, 0u);
+    atomicStore(&hierarchy_wg_overflow, 0u);
+  }
+  workgroupBarrier();
+
   let input_count = min(
     traversal_input.header.written,
     traversal_input.header.capacity
   );
   let invocation_index = hierarchy_linear_invocation_index(id, grid);
-  if invocation_index >= input_count { return; }
-  let work = traversal_input.elements[invocation_index];
-  let instance = traversal_instances[work.instance_record_index];
-  let cluster = traversal_clusters[work.cluster_record_index];
-  let scale = hierarchy_conservative_scale(instance.current_object_to_world);
-  let sphere = hierarchy_transform_sphere(
-    cluster.bounds_sphere,
-    instance.current_object_to_world
-  );
-  if !hierarchy_sphere_in_frustum(sphere, &traversal_view) { return; }
-  if (traversal_view.hzb.w & R3_FEATURE_CONE) != 0u &&
-    hierarchy_cluster_cone_backfacing(
-      cluster,
-      instance,
-      traversal_view.camera_position.xyz
-    ) {
-    atomicAdd(&traversal_selected.header.rejected_cone, 1u);
-    return;
-  }
-  if (traversal_view.hzb.w & R3_FEATURE_HZB) != 0u &&
-    hierarchy_hzb_occluded(cluster, instance) {
-    atomicAdd(&traversal_selected.header.rejected_hzb, 1u);
-    return;
-  }
-  let projected_error = hierarchy_projected_error_pixels(
-    cluster.geometric_error,
-    sphere,
-    scale,
-    &traversal_view
-  );
-  if cluster.child_count == 0u || projected_error <= traversal_view.sse.x {
-    traversal_select_cluster(work, instance);
-    return;
+  var selected = false;
+  var selected_local = 0u;
+  var selected_instance = 0u;
+  var selected_geometry = 0u;
+  var selected_cluster = 0u;
+  var selected_material = 0u;
+  var expand = false;
+  var child_local = 0u;
+  var child_begin = 0u;
+  var child_count = 0u;
+
+  if invocation_index < input_count {
+    atomicAdd(&hierarchy_wg_visited_clusters, 1u);
+    let work = traversal_input.elements[invocation_index];
+    let instance = traversal_instances[work.instance_record_index];
+    let cluster = traversal_clusters[work.cluster_record_index];
+    let scale = hierarchy_conservative_scale(instance.current_object_to_world);
+    let sphere = hierarchy_transform_sphere(
+      cluster.bounds_sphere,
+      instance.current_object_to_world
+    );
+    selected_instance = work.instance_record_index;
+    selected_geometry = instance.geometry_record_index;
+    selected_cluster = work.cluster_record_index;
+    selected_material = instance.material_handle;
+    if hierarchy_sphere_in_frustum(sphere, &traversal_view) {
+      if (traversal_view.hzb.w & R3_FEATURE_CONE) != 0u &&
+        hierarchy_cluster_cone_backfacing(
+          cluster, instance, traversal_view.camera_position.xyz
+        ) {
+        atomicAdd(&hierarchy_wg_rejected_cone, 1u);
+      } else if (traversal_view.hzb.w & R3_FEATURE_HZB) != 0u &&
+        hierarchy_traversal_hzb_occluded(cluster, instance) {
+        atomicAdd(&hierarchy_wg_rejected_hzb, 1u);
+      } else {
+        let projected_error = hierarchy_projected_error_pixels(
+          cluster.geometric_error, sphere, scale, &traversal_view
+        );
+        if cluster.child_count == 0u || projected_error <= traversal_view.sse.x {
+          selected = true;
+        } else {
+          expand = true;
+          child_begin = cluster.child_begin;
+          child_count = cluster.child_count;
+        }
+      }
+    }
   }
 
-  let base = oengine_try_reserve_work_group(
-    &traversal_output.header,
-    cluster.child_count
-  );
-  if base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
-    traversal_select_cluster(work, instance);
-    return;
+  if expand {
+    child_local = atomicAdd(&hierarchy_wg_child_count, child_count);
+    atomicAdd(&hierarchy_wg_expanding_parents, 1u);
   }
-  for (var child = 0u; child < cluster.child_count; child++) {
-    traversal_output.elements[base + child] = OEngineTraversalWork(
-      work.instance_record_index,
-      traversal_children[cluster.child_begin + child]
+  workgroupBarrier();
+  if lane == 0u {
+    let group_child_count = atomicLoad(&hierarchy_wg_child_count);
+    if group_child_count > 0u {
+      hierarchy_wg_child_base = hierarchy_try_reserve_profiled(
+        &traversal_output.header,
+        group_child_count,
+        atomicLoad(&hierarchy_wg_expanding_parents)
+      );
+      if hierarchy_wg_child_base != OENGINE_WORK_QUEUE_INVALID_OFFSET {
+        atomicStore(
+          &hierarchy_wg_dispatch_end,
+          hierarchy_wg_child_base + group_child_count
+        );
+      }
+    }
+  }
+  workgroupBarrier();
+  if expand {
+    if hierarchy_wg_child_base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
+      selected = true;
+    } else {
+      for (var child = 0u; child < child_count; child++) {
+        traversal_output.elements[
+          hierarchy_wg_child_base + child_local + child
+        ] = OEngineTraversalWork(
+          selected_instance,
+          traversal_children[child_begin + child]
+        );
+      }
+    }
+  }
+
+  if selected {
+    selected_local = atomicAdd(&hierarchy_wg_selected_count, 1u);
+  }
+  workgroupBarrier();
+  if lane == 0u {
+    let selected_count = atomicLoad(&hierarchy_wg_selected_count);
+    if selected_count > 0u {
+      hierarchy_wg_selected_base = hierarchy_try_reserve_profiled(
+        &traversal_selected.header, selected_count, selected_count
+      );
+    }
+  }
+  workgroupBarrier();
+  if selected && hierarchy_wg_selected_base != OENGINE_WORK_QUEUE_INVALID_OFFSET {
+    traversal_selected.elements[hierarchy_wg_selected_base + selected_local] =
+      OEngineVisibleClusterRecord(
+        selected_instance,
+        selected_geometry,
+        selected_cluster,
+        selected_material
+      );
+  }
+  workgroupBarrier();
+
+  if lane == 0u {
+    let dispatch_end = atomicLoad(&hierarchy_wg_dispatch_end);
+    var dispatch_updates = 0u;
+    if dispatch_end > 0u {
+      hierarchy_update_dispatch(
+        &traversal_output_dispatch,
+        dispatch_end,
+        traversal_view.limits.x
+      );
+      dispatch_updates = 1u;
+    }
+    if (traversal_view.hzb.w & R3_FEATURE_COUNTERS) != 0u {
+      let visited = atomicLoad(&hierarchy_wg_visited_clusters);
+      let selected_count = select(
+        0u,
+        atomicLoad(&hierarchy_wg_selected_count),
+        hierarchy_wg_selected_base != OENGINE_WORK_QUEUE_INVALID_OFFSET
+      );
+      atomicAdd(&traversal_counters[R3_COUNTER_VISITED_HIERARCHY_NODES], visited);
+      atomicAdd(&traversal_counters[R3_COUNTER_CANDIDATE_CLUSTERS], visited);
+      atomicAdd(&traversal_counters[R3_COUNTER_SELECTED_CLUSTERS], selected_count);
+      atomicAdd(
+        &traversal_counters[R3_COUNTER_REJECTED_CONE],
+        atomicLoad(&hierarchy_wg_rejected_cone)
+      );
+      atomicAdd(
+        &traversal_counters[R3_COUNTER_REJECTED_HZB],
+        atomicLoad(&hierarchy_wg_rejected_hzb)
+      );
+      atomicAdd(
+        &traversal_selected.header.rejected_cone,
+        atomicLoad(&hierarchy_wg_rejected_cone)
+      );
+      atomicAdd(
+        &traversal_selected.header.rejected_hzb,
+        atomicLoad(&hierarchy_wg_rejected_hzb)
+      );
+      atomicAdd(
+        &traversal_counters[R3_COUNTER_TRAVERSAL_QUEUE_RESERVATIONS],
+        atomicLoad(&hierarchy_wg_queue_reservations)
+      );
+      atomicAdd(
+        &traversal_counters[R3_COUNTER_WORK_GENERATION_DISPATCH_UPDATES],
+        dispatch_updates
+      );
+      atomicAdd(
+        &traversal_counters[R3_COUNTER_WORK_GENERATION_CAS_RETRIES],
+        atomicLoad(&hierarchy_wg_cas_retries)
+      );
+      if atomicLoad(&hierarchy_wg_overflow) != 0u {
+        atomicOr(
+          &traversal_counters[R3_COUNTER_OVERFLOW_MASK],
+          R3_SCENE_QUEUE_OVERFLOW_BIT
+        );
+      }
+    }
+  }
+}
+
+@group(3) @binding(0) var<uniform> leaf_view: OEngineHierarchyView;
+@group(3) @binding(1) var<storage, read> leaf_instances: array<OEngineInstanceRecord>;
+@group(3) @binding(2) var<storage, read> leaf_geometries: array<GpuGeometryRecord>;
+@group(3) @binding(3) var<storage, read> leaf_clusters: array<GpuClusterRecord>;
+@group(3) @binding(4) var<storage, read_write> leaf_selected: OEngineVisibleClusterQueue;
+@group(3) @binding(5) var<storage, read_write> leaf_raster: OEngineRasterWorkQueue;
+@group(3) @binding(6) var<storage, read_write> leaf_draw_indirect: OEngineDrawIndirectArgs;
+@group(3) @binding(7) var<storage, read_write> leaf_counters: array<atomic<u32>>;
+
+var<workgroup> leaf_wg_raster_count: atomic<u32>;
+var<workgroup> leaf_wg_raster_base: u32;
+
+// R3-D-09 depth-zero implementation. It preserves the exact public
+// VisibleCluster/RasterWork/drawIndirect ABI while bypassing root queues,
+// indirect traversal rounds and the separate RasterWork expansion pass.
+@compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
+fn r3_fused_leaf_work(
+  @builtin(global_invocation_id) id: vec3u,
+  @builtin(local_invocation_index) lane: u32,
+  @builtin(num_workgroups) grid: vec3u
+) {
+  if lane == 0u {
+    atomicStore(&hierarchy_wg_selected_count, 0u);
+    hierarchy_wg_selected_base = OENGINE_WORK_QUEUE_INVALID_OFFSET;
+    atomicStore(&leaf_wg_raster_count, 0u);
+    leaf_wg_raster_base = OENGINE_WORK_QUEUE_INVALID_OFFSET;
+    atomicStore(&hierarchy_wg_visible_instances, 0u);
+    atomicStore(&hierarchy_wg_visited_clusters, 0u);
+    atomicStore(&hierarchy_wg_rejected_cone, 0u);
+    atomicStore(&hierarchy_wg_rejected_hzb, 0u);
+    atomicStore(&hierarchy_wg_queue_reservations, 0u);
+    atomicStore(&hierarchy_wg_cas_retries, 0u);
+    atomicStore(&hierarchy_wg_dispatch_end, 0u);
+    atomicStore(&hierarchy_wg_overflow, 0u);
+  }
+  workgroupBarrier();
+
+  let invocation_index = hierarchy_linear_invocation_index(id, grid);
+  var selected = false;
+  var selected_local = 0u;
+  var raster_local = 0u;
+  var selected_instance = 0u;
+  var selected_geometry = 0u;
+  var selected_cluster = 0u;
+  var selected_material = 0u;
+  var meshlet_begin = 0u;
+  var meshlet_count = 0u;
+
+  if invocation_index < leaf_view.scene.y {
+    let instance_record_index = leaf_view.scene.x + invocation_index;
+    let instance = leaf_instances[instance_record_index];
+    let instance_sphere = hierarchy_transform_sphere(
+      instance.bounds_sphere,
+      instance.current_object_to_world
     );
+    if oengine_instance_active(instance) &&
+      hierarchy_sphere_in_frustum(instance_sphere, &leaf_view) {
+      atomicAdd(&hierarchy_wg_visible_instances, 1u);
+      atomicAdd(&hierarchy_wg_visited_clusters, 1u);
+      let geometry = leaf_geometries[instance.geometry_record_index];
+      let cluster = leaf_clusters[geometry.cluster_root];
+      let sphere = hierarchy_transform_sphere(
+        cluster.bounds_sphere,
+        instance.current_object_to_world
+      );
+      if hierarchy_sphere_in_frustum(sphere, &leaf_view) {
+        if (leaf_view.hzb.w & R3_FEATURE_CONE) != 0u &&
+          hierarchy_cluster_cone_backfacing(
+            cluster, instance, leaf_view.camera_position.xyz
+          ) {
+          atomicAdd(&hierarchy_wg_rejected_cone, 1u);
+        } else if (leaf_view.hzb.w & R3_FEATURE_HZB) != 0u &&
+          hierarchy_leaf_hzb_occluded(cluster, instance) {
+          atomicAdd(&hierarchy_wg_rejected_hzb, 1u);
+        } else if cluster.child_count == 0u {
+          selected = true;
+          selected_instance = instance_record_index;
+          selected_geometry = instance.geometry_record_index;
+          selected_cluster = geometry.cluster_root;
+          selected_material = instance.material_handle;
+          meshlet_begin = cluster.meshlet_begin;
+          meshlet_count = cluster.meshlet_count;
+        }
+      }
+    }
   }
-  hierarchy_update_dispatch(
-    &traversal_output_dispatch,
-    base + cluster.child_count,
-    traversal_view.limits.x
-  );
+
+  if selected {
+    selected_local = atomicAdd(&hierarchy_wg_selected_count, 1u);
+    raster_local = atomicAdd(&leaf_wg_raster_count, meshlet_count);
+  }
+  workgroupBarrier();
+  if lane == 0u {
+    let selected_count = atomicLoad(&hierarchy_wg_selected_count);
+    let raster_count = atomicLoad(&leaf_wg_raster_count);
+    if selected_count > 0u {
+      hierarchy_wg_selected_base = hierarchy_try_reserve_profiled(
+        &leaf_selected.header, selected_count, selected_count
+      );
+    }
+    if raster_count > 0u {
+      leaf_wg_raster_base = hierarchy_try_reserve_profiled(
+        &leaf_raster.header, raster_count, raster_count
+      );
+    }
+  }
+  workgroupBarrier();
+
+  let group_selected_count = atomicLoad(&hierarchy_wg_selected_count);
+  let group_raster_count = atomicLoad(&leaf_wg_raster_count);
+  let valid_group =
+    (group_selected_count == 0u ||
+      hierarchy_wg_selected_base != OENGINE_WORK_QUEUE_INVALID_OFFSET) &&
+    (group_raster_count == 0u ||
+      leaf_wg_raster_base != OENGINE_WORK_QUEUE_INVALID_OFFSET);
+  if selected && valid_group {
+    let visible_slot = hierarchy_wg_selected_base + selected_local;
+    leaf_selected.elements[visible_slot] = OEngineVisibleClusterRecord(
+      selected_instance,
+      selected_geometry,
+      selected_cluster,
+      selected_material
+    );
+    for (var local_meshlet = 0u; local_meshlet < meshlet_count; local_meshlet++) {
+      leaf_raster.elements[leaf_wg_raster_base + raster_local + local_meshlet] =
+        OEngineRasterWork(visible_slot, meshlet_begin + local_meshlet);
+    }
+  }
+  workgroupBarrier();
+
+  if lane == 0u {
+    if valid_group && group_raster_count > 0u {
+      atomicMax(
+        &leaf_draw_indirect.instance_count,
+        leaf_wg_raster_base + group_raster_count
+      );
+    }
+    if (leaf_view.hzb.w & R3_FEATURE_COUNTERS) != 0u {
+      let group_begin = hierarchy_linear_invocation_index(id, grid);
+      let candidates = min(
+        ${HIERARCHICAL_WORKGROUP_SIZE}u,
+        leaf_view.scene.y - min(group_begin, leaf_view.scene.y)
+      );
+      let visible = atomicLoad(&hierarchy_wg_visible_instances);
+      let selected_count = select(
+        0u,
+        group_selected_count,
+        valid_group
+      );
+      let raster_count = select(0u, group_raster_count, valid_group);
+      let rejected_cone = atomicLoad(&hierarchy_wg_rejected_cone);
+      let rejected_hzb = atomicLoad(&hierarchy_wg_rejected_hzb);
+      atomicAdd(&leaf_counters[R3_COUNTER_CANDIDATE_INSTANCES], candidates);
+      atomicAdd(&leaf_counters[R3_COUNTER_VISIBLE_INSTANCES], visible);
+      atomicAdd(
+        &leaf_counters[R3_COUNTER_REJECTED_FRUSTUM],
+        candidates - min(visible, candidates)
+      );
+      atomicAdd(&leaf_counters[R3_COUNTER_VISITED_HIERARCHY_NODES], visible);
+      atomicAdd(&leaf_counters[R3_COUNTER_CANDIDATE_CLUSTERS], visible);
+      atomicAdd(&leaf_counters[R3_COUNTER_SELECTED_CLUSTERS], selected_count);
+      atomicAdd(&leaf_counters[R3_COUNTER_REJECTED_CONE], rejected_cone);
+      atomicAdd(&leaf_counters[R3_COUNTER_REJECTED_HZB], rejected_hzb);
+      atomicAdd(&leaf_counters[R3_COUNTER_HW_CLUSTERS], raster_count);
+      atomicAdd(&leaf_counters[R3_COUNTER_HW_TRIANGLES], raster_count * 128u);
+      atomicAdd(
+        &leaf_counters[R3_COUNTER_ROOT_STAGE_QUEUE_RESERVATIONS],
+        atomicLoad(&hierarchy_wg_queue_reservations)
+      );
+      atomicAdd(
+        &leaf_counters[R3_COUNTER_WORK_GENERATION_CAS_RETRIES],
+        atomicLoad(&hierarchy_wg_cas_retries)
+      );
+      atomicAdd(&leaf_selected.header.rejected_cone, rejected_cone);
+      atomicAdd(&leaf_selected.header.rejected_hzb, rejected_hzb);
+      if !valid_group {
+        atomicOr(
+          &leaf_counters[R3_COUNTER_OVERFLOW_MASK],
+          R3_SCENE_QUEUE_OVERFLOW_BIT | R3_MESHLET_QUEUE_OVERFLOW_BIT
+        );
+      }
+    }
+  }
 }
 
 @group(2) @binding(0) var<uniform> raster_work_view: OEngineHierarchyView;
@@ -501,8 +1048,7 @@ fn r3_traverse_clusters(
 @group(2) @binding(3) var<storage, read_write> raster_work_output: OEngineRasterWorkQueue;
 @group(2) @binding(4) var<storage, read_write> hierarchy_draw_indirect: OEngineDrawIndirectArgs;
 @group(2) @binding(5) var<storage, read_write> raster_work_dispatch: OEngineDispatchIndirectArgs;
-@group(2) @binding(6) var<storage, read> raster_work_evidence: array<u32>;
-@group(2) @binding(7) var<storage, read_write> raster_work_counters: array<atomic<u32>>;
+@group(2) @binding(6) var<storage, read_write> raster_work_counters: array<atomic<u32>>;
 
 var<workgroup> raster_work_group_base: u32;
 
@@ -553,6 +1099,12 @@ fn r3_expand_raster_work(
   workgroupBarrier();
   let base = raster_work_group_base;
   if base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
+    if lane == 0u && (raster_work_view.hzb.w & R3_FEATURE_COUNTERS) != 0u {
+      atomicOr(
+        &raster_work_counters[R3_COUNTER_OVERFLOW_MASK],
+        R3_MESHLET_QUEUE_OVERFLOW_BIT
+      );
+    }
     return;
   }
   for (var local_meshlet = lane; local_meshlet < cluster.meshlet_count;
@@ -565,68 +1117,16 @@ fn r3_expand_raster_work(
   if lane == 0u {
     let published_end = base + cluster.meshlet_count;
     atomicMax(&hierarchy_draw_indirect.instance_count, published_end);
-  }
-}
-
-@compute @workgroup_size(1)
-fn r3_write_work_counters() {
-  if raster_work_view.scene.w == 0u { return; }
-  let round_count = raster_work_view.scene.z;
-  var candidate_clusters = 0u;
-  var scene_overflow = 0u;
-  // Root plus every traversal input queue. The final encoded round output is
-  // intentionally excluded because no subsequent round consumes it.
-  for (var header_index = 0u; header_index < round_count; header_index++) {
-    let word = header_index * 8u;
-    candidate_clusters += raster_work_evidence[word];
-    scene_overflow |= raster_work_evidence[word + 3u];
-  }
-  let selected_word = (round_count + 1u) * 8u;
-  scene_overflow |= raster_work_evidence[selected_word + 3u];
-  let root_visible = raster_work_evidence[0u];
-  let selected_cluster_count = min(
-    raster_work_evidence[selected_word],
-    raster_work_evidence[selected_word + 5u]
-  );
-  let rejected_cone = raster_work_evidence[selected_word + 6u];
-  let rejected_hzb = raster_work_evidence[selected_word + 7u];
-  let raster_count = atomicLoad(&raster_work_output.header.written);
-  atomicAdd(
-    &raster_work_counters[R3_COUNTER_CANDIDATE_INSTANCES],
-    raster_work_view.scene.y
-  );
-  atomicAdd(&raster_work_counters[R3_COUNTER_VISIBLE_INSTANCES], root_visible);
-  atomicAdd(
-    &raster_work_counters[R3_COUNTER_REJECTED_FRUSTUM],
-    raster_work_view.scene.y - min(root_visible, raster_work_view.scene.y)
-  );
-  atomicAdd(
-    &raster_work_counters[R3_COUNTER_VISITED_HIERARCHY_NODES],
-    candidate_clusters
-  );
-  atomicAdd(
-    &raster_work_counters[R3_COUNTER_CANDIDATE_CLUSTERS],
-    candidate_clusters
-  );
-  atomicAdd(
-    &raster_work_counters[R3_COUNTER_SELECTED_CLUSTERS],
-    selected_cluster_count
-  );
-  atomicAdd(&raster_work_counters[R3_COUNTER_REJECTED_CONE], rejected_cone);
-  atomicAdd(&raster_work_counters[R3_COUNTER_REJECTED_HZB], rejected_hzb);
-  atomicAdd(&raster_work_counters[R3_COUNTER_HW_CLUSTERS], raster_count);
-  atomicAdd(&raster_work_counters[R3_COUNTER_HW_TRIANGLES], raster_count * 128u);
-  if scene_overflow != 0u {
-    atomicOr(
-      &raster_work_counters[R3_COUNTER_OVERFLOW_MASK],
-      R3_SCENE_QUEUE_OVERFLOW_BIT
-    );
-  }
-  if atomicLoad(&raster_work_output.header.overflow) != 0u {
-    atomicOr(
-      &raster_work_counters[R3_COUNTER_OVERFLOW_MASK],
-      R3_MESHLET_QUEUE_OVERFLOW_BIT
-    );
+    if (raster_work_view.hzb.w & R3_FEATURE_COUNTERS) != 0u {
+      atomicAdd(
+        &raster_work_counters[R3_COUNTER_HW_CLUSTERS],
+        cluster.meshlet_count
+      );
+      atomicAdd(
+        &raster_work_counters[R3_COUNTER_HW_TRIANGLES],
+        cluster.meshlet_count * 128u
+      );
+    }
   }
 }
 `;

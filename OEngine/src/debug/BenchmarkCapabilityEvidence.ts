@@ -3,7 +3,7 @@ import {
   type GpuCounterFieldName
 } from "./GpuFrameCounters.js";
 
-export const BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION = 2;
+export const BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION = 3;
 
 export type CapabilityEvidenceStatus = "supported" | "unsupported";
 
@@ -117,6 +117,10 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "rejectedFrustum",
       "hwClusters",
       "hwTriangles",
+      "rootStageQueueReservations",
+      "traversalQueueReservations",
+      "workGenerationDispatchUpdates",
+      "workGenerationCasRetries",
       "queueOverflowMask"
     ]
   },
@@ -176,7 +180,19 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   emptyVisibilityPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   activeMaterials: supported("MaterialExpandPass/encoded-draw counter"),
   activeLights: supported("Renderer/active-light-list reducer"),
-  queueOverflowMask: supported("Renderer/registered-GPU-list overflow reducers")
+  queueOverflowMask: supported("Renderer/registered-GPU-list overflow reducers"),
+  rootStageQueueReservations: supported(
+    "HierarchicalWorkGenerator/fused-root workgroup reservation reducer"
+  ),
+  traversalQueueReservations: supported(
+    "HierarchicalWorkGenerator/post-root workgroup reservation reducer"
+  ),
+  workGenerationDispatchUpdates: supported(
+    "HierarchicalWorkGenerator/workgroup dispatch publication reducer"
+  ),
+  workGenerationCasRetries: supported(
+    "HierarchicalWorkGenerator/bounded reservation CAS retry reducer"
+  )
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

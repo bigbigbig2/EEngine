@@ -127,9 +127,13 @@ test("R3-D RasterWork expansion reserves once per Cluster workgroup", () => {
     HIERARCHICAL_WORK_GENERATION_WGSL,
     /for \(var local_meshlet = lane;[\s\S]*local_meshlet \+= 64u\)/
   );
-  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /if all\(id == vec3u\(0u\)\)/);
   assert.match(
     HIERARCHICAL_WORK_GENERATION_WGSL,
-    /R3_COUNTER_VISITED_HIERARCHY_NODES[\s\S]*candidate_clusters/
+    /atomicAdd\([\s\S]*R3_COUNTER_HW_CLUSTERS[\s\S]*cluster\.meshlet_count/
+  );
+  assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_write_work_counters/);
+  assert.match(
+    HIERARCHICAL_WORK_GENERATION_WGSL,
+    /R3_COUNTER_VISITED_HIERARCHY_NODES\], visited\)[\s\S]*R3_COUNTER_CANDIDATE_CLUSTERS\], visited\)/
   );
 });
