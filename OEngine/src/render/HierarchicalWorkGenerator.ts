@@ -158,6 +158,7 @@ const EXPANSION_GROUP: GPUBindGroupLayoutDescriptor = {
 const DISPATCH_PREPARATION_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "R3-C Hierarchy/RasterWork dispatch preparation group2",
   entries: [
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: HIERARCHICAL_VIEW_UNIFORM_SIZE } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: VISIBLE_CLUSTER_QUEUE_MIN_BINDING_SIZE } },
     { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DISPATCH_INDIRECT_ARGS_SIZE } }
   ]
@@ -417,6 +418,7 @@ export class HierarchicalWorkGenerator {
         label: "R3-C/prepare RasterWork dispatch bindings",
         layout: this.dispatchPreparationLayout,
         entries: [
+          { binding: 0, resource: { buffer: viewUniform } },
           { binding: 2, resource: { buffer: selectedQueue } },
           { binding: 5, resource: { buffer: selectedArgs } }
         ]
@@ -499,7 +501,8 @@ export class HierarchicalWorkGenerator {
       state.scene.instanceBegin,
       state.scene.instanceCount,
       state.roundCount,
-      state.countersEnabled
+      state.countersEnabled,
+      Number(this.device.limits.maxComputeWorkgroupsPerDimension)
     );
     writeGpuBuffer(
       this.device.queue,
@@ -514,18 +517,18 @@ export class HierarchicalWorkGenerator {
     clearQueueCounters(encoder, state.traversalQueues[1]);
     clearQueueCounters(encoder, state.selectedQueue);
     clearQueueCounters(encoder, state.rasterQueue);
-    for (const args of state.dispatchArgs) encoder.clearBuffer(args, 0, 4);
+    for (const args of state.dispatchArgs) encoder.clearBuffer(args, 0, 12);
 
     const instancePass = encoder.beginComputePass({
       label: "R3-B/InstanceCull → RootTraversal"
     });
     instancePass.setPipeline(this.instancePipeline);
     instancePass.setBindGroup(0, state.instanceBindGroup);
-    instancePass.dispatchWorkgroups(
-      Math.ceil(state.scene.instanceCount / HIERARCHICAL_WORKGROUP_SIZE),
-      1,
-      1
+    const rootGrid = computeHierarchicalDispatchGrid(
+      state.scene.instanceCount,
+      Number(this.device.limits.maxComputeWorkgroupsPerDimension)
     );
+    instancePass.dispatchWorkgroups(rootGrid.x, rootGrid.y, 1);
     instancePass.end();
     encoder.copyBufferToBuffer(
       state.rootQueue,
@@ -541,7 +544,7 @@ export class HierarchicalWorkGenerator {
       const outputArgs = state.dispatchArgs[outputIndex + 1]!;
       if (round >= 2) {
         clearQueueCounters(encoder, outputQueue);
-        encoder.clearBuffer(outputArgs, 0, 4);
+        encoder.clearBuffer(outputArgs, 0, 12);
       }
       const inputArgs = round === 0
         ? state.dispatchArgs[0]
@@ -757,7 +760,8 @@ export function packHierarchyViewUniform(
   instanceBegin: number,
   instanceCount: number,
   encodedRoundCount: number,
-  countersEnabled = false
+  countersEnabled = false,
+  maxComputeWorkgroupsPerDimension = 65535
 ): Uint8Array<ArrayBuffer> {
   validateGpuHierarchyView(view);
   if (!Number.isFinite(sseThreshold) || sseThreshold < 0) {
@@ -766,6 +770,10 @@ export function packHierarchyViewUniform(
   assertU32(instanceBegin, "R3-B instance begin");
   assertPositiveU32(instanceCount, "R3-B instance count");
   assertPositiveU32(encodedRoundCount, "R3-B encoded round count");
+  assertPositiveU32(
+    maxComputeWorkgroupsPerDimension,
+    "R3-B maxComputeWorkgroupsPerDimension"
+  );
   checkedAddU32(instanceBegin, instanceCount, "R3-B Instance range");
   const bytes = new Uint8Array(HIERARCHICAL_VIEW_UNIFORM_SIZE);
   const data = new DataView(bytes.buffer);
@@ -812,7 +820,35 @@ export function packHierarchyViewUniform(
     countersEnabled ? 1 : 0,
     true
   );
+  data.setUint32(
+    HIERARCHICAL_VIEW_OFFSETS.limits,
+    maxComputeWorkgroupsPerDimension,
+    true
+  );
   return bytes;
+}
+
+export function computeHierarchicalDispatchGrid(
+  invocationCapacity: number,
+  maxComputeWorkgroupsPerDimension: number
+): Readonly<{ x: number; y: number }> {
+  assertPositiveU32(invocationCapacity, "R3 dispatch invocation capacity");
+  assertPositiveU32(
+    maxComputeWorkgroupsPerDimension,
+    "R3 maxComputeWorkgroupsPerDimension"
+  );
+  const linearWorkgroups = Math.ceil(
+    invocationCapacity / HIERARCHICAL_WORKGROUP_SIZE
+  );
+  const x = Math.min(linearWorkgroups, maxComputeWorkgroupsPerDimension);
+  const y = Math.ceil(linearWorkgroups / x);
+  if (y > maxComputeWorkgroupsPerDimension) {
+    throw new RangeError(
+      `R3 dispatch requires ${linearWorkgroups} workgroups, adapter 2D limit is ` +
+      `${maxComputeWorkgroupsPerDimension}²`
+    );
+  }
+  return Object.freeze({ x, y });
 }
 
 function validateSceneDescriptor(scene: HierarchicalWorkSceneDescriptor): void {
@@ -891,12 +927,15 @@ function validateDispatchCapacity(
   capacity: number,
   label: string
 ): void {
-  const workgroups = Math.ceil(capacity / HIERARCHICAL_WORKGROUP_SIZE);
-  if (workgroups > Number(device.limits.maxComputeWorkgroupsPerDimension)) {
-    throw new RangeError(
-      `${label} requires ${workgroups} workgroups, adapter limit is ` +
-      `${device.limits.maxComputeWorkgroupsPerDimension}`
+  try {
+    computeHierarchicalDispatchGrid(
+      capacity,
+      Number(device.limits.maxComputeWorkgroupsPerDimension)
     );
+  } catch (cause) {
+    throw new RangeError(`${label} exceeds the adapter 2D dispatch limit`, {
+      cause
+    });
   }
 }
 

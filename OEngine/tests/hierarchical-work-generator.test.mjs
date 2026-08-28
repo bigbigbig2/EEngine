@@ -21,6 +21,7 @@ const {
   computePackedHierarchyWorkCapacity
 } = await import("../.test-dist/geometry/GeometryHierarchy.js");
 const {
+  computeHierarchicalDispatchGrid,
   HierarchicalWorkGenerator,
   packHierarchyViewUniform
 } = await import("../.test-dist/render/HierarchicalWorkGenerator.js");
@@ -83,6 +84,10 @@ test("R3-B view packer freezes Perspective/Orthographic values and disabled far 
     view.getUint32(HIERARCHICAL_VIEW_OFFSETS.scene + 4, true),
     view.getUint32(HIERARCHICAL_VIEW_OFFSETS.scene + 8, true)
   ], [7, 3, 4]);
+  assert.equal(
+    view.getUint32(HIERARCHICAL_VIEW_OFFSETS.limits, true),
+    65535
+  );
 
   const orthographic = packHierarchyViewUniform({
     ...perspective,
@@ -97,6 +102,19 @@ test("R3-B view packer freezes Perspective/Orthographic values and disabled far 
   assert.equal(
     orthographicView.getFloat32(HIERARCHICAL_VIEW_OFFSETS.orthographic + 4, true),
     1
+  );
+});
+
+test("R3-C dispatch grid crosses the WebGPU single-dimension limit without truncation", () => {
+  assert.deepEqual(computeHierarchicalDispatchGrid(64 * 4, 4), { x: 4, y: 1 });
+  assert.deepEqual(computeHierarchicalDispatchGrid(64 * 5, 4), { x: 4, y: 2 });
+  assert.deepEqual(
+    computeHierarchicalDispatchGrid(64 * 160_000, 65_535),
+    { x: 65_535, y: 3 }
+  );
+  assert.throws(
+    () => computeHierarchicalDispatchGrid(64 * 17, 4),
+    /2D limit/
   );
 });
 
@@ -164,6 +182,13 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
     (layout) => layout.label === "R3-C Hierarchy/RasterWork expansion group2"
   );
   assert.equal(expansionLayout.entries[3].buffer.minBindingSize, 40);
+  const dispatchPreparationLayout = gpu.layouts.find(
+    (layout) => layout.label === "R3-C Hierarchy/RasterWork dispatch preparation group2"
+  );
+  assert.deepEqual(
+    dispatchPreparationLayout.entries.map((entry) => entry.binding),
+    [0, 2, 5]
+  );
   const drawIndirect = gpu.buffers.find((buffer) => /drawIndirect/.test(buffer.label));
   assert.equal(drawIndirect.size, 16);
   assert.ok((drawIndirect.usage & GPUBufferUsage.INDIRECT) !== 0);
@@ -176,6 +201,12 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
   assert.equal(encoder.indirectDispatches.length, 4);
   assert.ok(encoder.indirectDispatches.every((dispatch) => dispatch.offset === 0));
   assert.equal(encoder.copies.length, 6, "root + 3 rounds + selected + RasterWork evidence");
+  assert.ok(
+    encoder.clears
+      .filter((clear) => /dispatch/.test(clear.buffer.label))
+      .every((clear) => clear.offset === 0 && clear.size === 12),
+    "2D indirect dispatch records must reset all three u32 lanes"
+  );
   assert.equal(gpu.queue.submitCount, 0, "work generator must not own submit");
   assert.equal(gpu.queue.writeCount, 1, "only the current view uniform is uploaded");
 
@@ -216,6 +247,8 @@ test("R3-B pressure capacity is bounded and WGSL keeps the frozen producer invar
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_expand_raster_work/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /vertex_count = 384u/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /first_instance = 0u/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /@builtin\(num_workgroups\)/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /workgroup_count_y: atomic<u32>/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /oengine_try_reserve_work_group/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /atomicMax\(&\(\*args\)\.workgroup_count_x/);
   assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, /texture_2d|texture_storage/);

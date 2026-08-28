@@ -130,6 +130,7 @@ R3-C 实际采用区段（2026-08-28）：
 - OEngine 将输入改为 `VisibleCluster → RasterWork(visibleClusterSlot, meshletRecordIndex)`，完整写入 `[384, written, 0, 0]` 的 16 B `drawIndirect`，随后由生产 `PackedVisibilityPass` vertex pulling consumer 调用 `drawIndirect()`；
 - 因 WebGPU 默认每 stage 8 个 storage buffer binding，OEngine 没有提高 required limit，而是把 traversal、RasterWork dispatch preparation、RasterWork expansion 和 evidence counter reduction 拆成有序最小 Compute Pass；
 - 为避免同一 compute usage scope 内把 selected dispatch buffer 同时作为 writable storage 与 `INDIRECT` 使用，dispatch preparation、expansion、evidence 使用三个最小 BindGroup/PipelineLayout；这些是 OEngine/WebGPU `reimplement`，不是上游表达性代码移植。
+- A full 的保守 traversal capacity 首次暴露单维 65,535 workgroup 上限；OEngine 保持 12 B dispatch ABI，把 GPU 生成的线性 workgroup count 映射成不超过 adapter limit 的 `x/y` 二维网格，并用 `num_workgroups.x` 在 WGSL 还原线性 invocation index。它不降低 capacity、不截断队列，也不新增 required limit；固定回归覆盖 160,000 workgroup → `65,535 × 3`。
 
 ## Niagara
 

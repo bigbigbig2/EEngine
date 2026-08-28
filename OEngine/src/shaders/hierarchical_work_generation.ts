@@ -6,14 +6,15 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
 
 export const HIERARCHICAL_WORKGROUP_SIZE = 64;
-export const HIERARCHICAL_VIEW_UNIFORM_SIZE = 160;
+export const HIERARCHICAL_VIEW_UNIFORM_SIZE = 176;
 
 export const HIERARCHICAL_VIEW_OFFSETS = Object.freeze({
   cameraPosition: 0,
   frustumPlanes: 16,
   sse: 112,
   orthographic: 128,
-  scene: 144
+  scene: 144,
+  limits: 160
 } as const);
 
 /**
@@ -49,6 +50,8 @@ struct OEngineHierarchyView {
   orthographic: vec4f,
   // instance begin, instance count, encoded hierarchy rounds, reserved
   scene: vec4u,
+  // maxComputeWorkgroupsPerDimension; remaining lanes are reserved
+  limits: vec4u,
 };
 
 struct OEngineWorkQueueHeaderRead {
@@ -89,8 +92,8 @@ struct OEngineRasterWorkQueue {
 
 struct OEngineDispatchIndirectArgs {
   workgroup_count_x: atomic<u32>,
-  workgroup_count_y: u32,
-  workgroup_count_z: u32,
+  workgroup_count_y: atomic<u32>,
+  workgroup_count_z: atomic<u32>,
 };
 
 struct OEngineDrawIndirectArgs {
@@ -196,11 +199,24 @@ fn hierarchy_projected_error_pixels(
 
 fn hierarchy_update_dispatch(
   args: ptr<storage, OEngineDispatchIndirectArgs, read_write>,
-  published_end: u32
+  published_end: u32,
+  max_workgroups_per_dimension: u32
 ) {
-  let workgroups = (published_end + ${HIERARCHICAL_WORKGROUP_SIZE - 1}u) /
+  let linear_workgroups = (published_end + ${HIERARCHICAL_WORKGROUP_SIZE - 1}u) /
     ${HIERARCHICAL_WORKGROUP_SIZE}u;
-  atomicMax(&(*args).workgroup_count_x, workgroups);
+  let workgroups_x = min(linear_workgroups, max_workgroups_per_dimension);
+  let workgroups_y = max(
+    (linear_workgroups + max_workgroups_per_dimension - 1u) /
+      max_workgroups_per_dimension,
+    1u
+  );
+  atomicMax(&(*args).workgroup_count_x, workgroups_x);
+  atomicMax(&(*args).workgroup_count_y, workgroups_y);
+  atomicMax(&(*args).workgroup_count_z, 1u);
+}
+
+fn hierarchy_linear_invocation_index(id: vec3u, grid: vec3u) -> u32 {
+  return id.x + id.y * grid.x * ${HIERARCHICAL_WORKGROUP_SIZE}u;
 }
 
 fn hierarchy_try_reserve_root(
@@ -224,15 +240,19 @@ fn hierarchy_try_reserve_root(
 }
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
-fn r3_instance_cull(@builtin(global_invocation_id) id: vec3u) {
+fn r3_instance_cull(
+  @builtin(global_invocation_id) id: vec3u,
+  @builtin(num_workgroups) grid: vec3u
+) {
   if id.x == 0u {
     hierarchy_init_draw_indirect.vertex_count = 384u;
     atomicStore(&hierarchy_init_draw_indirect.instance_count, 0u);
     hierarchy_init_draw_indirect.first_vertex = 0u;
     hierarchy_init_draw_indirect.first_instance = 0u;
   }
-  if id.x >= hierarchy_view.scene.y { return; }
-  let instance_record_index = hierarchy_view.scene.x + id.x;
+  let invocation_index = hierarchy_linear_invocation_index(id, grid);
+  if invocation_index >= hierarchy_view.scene.y { return; }
+  let instance_record_index = hierarchy_view.scene.x + invocation_index;
   let instance = hierarchy_instances[instance_record_index];
   if !oengine_instance_active(instance) {
     return;
@@ -253,7 +273,11 @@ fn r3_instance_cull(@builtin(global_invocation_id) id: vec3u) {
     instance_record_index,
     geometry.cluster_root
   );
-  hierarchy_update_dispatch(&hierarchy_root_dispatch, slot + 1u);
+  hierarchy_update_dispatch(
+    &hierarchy_root_dispatch,
+    slot + 1u,
+    hierarchy_view.limits.x
+  );
 }
 
 @group(1) @binding(0) var<uniform> traversal_view: OEngineHierarchyView;
@@ -283,13 +307,17 @@ fn traversal_select_cluster(
 }
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
-fn r3_traverse_clusters(@builtin(global_invocation_id) id: vec3u) {
+fn r3_traverse_clusters(
+  @builtin(global_invocation_id) id: vec3u,
+  @builtin(num_workgroups) grid: vec3u
+) {
   let input_count = min(
     traversal_input.header.written,
     traversal_input.header.capacity
   );
-  if id.x >= input_count { return; }
-  let work = traversal_input.elements[id.x];
+  let invocation_index = hierarchy_linear_invocation_index(id, grid);
+  if invocation_index >= input_count { return; }
+  let work = traversal_input.elements[invocation_index];
   let instance = traversal_instances[work.instance_record_index];
   let cluster = traversal_clusters[work.cluster_record_index];
   let scale = hierarchy_conservative_scale(instance.current_object_to_world);
@@ -325,7 +353,8 @@ fn r3_traverse_clusters(@builtin(global_invocation_id) id: vec3u) {
   }
   hierarchy_update_dispatch(
     &traversal_output_dispatch,
-    base + cluster.child_count
+    base + cluster.child_count,
+    traversal_view.limits.x
   );
 }
 
@@ -344,23 +373,25 @@ fn r3_prepare_raster_dispatch() {
     raster_work_selected.header.written,
     raster_work_selected.header.capacity
   );
-  atomicStore(
-    &raster_work_dispatch.workgroup_count_x,
-    (visible_count + ${HIERARCHICAL_WORKGROUP_SIZE - 1}u) /
-      ${HIERARCHICAL_WORKGROUP_SIZE}u
+  hierarchy_update_dispatch(
+    &raster_work_dispatch,
+    visible_count,
+    raster_work_view.limits.x
   );
-  raster_work_dispatch.workgroup_count_y = 1u;
-  raster_work_dispatch.workgroup_count_z = 1u;
 }
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
-fn r3_expand_raster_work(@builtin(global_invocation_id) id: vec3u) {
+fn r3_expand_raster_work(
+  @builtin(global_invocation_id) id: vec3u,
+  @builtin(num_workgroups) grid: vec3u
+) {
   let visible_count = min(
     raster_work_selected.header.written,
     raster_work_selected.header.capacity
   );
-  if id.x >= visible_count { return; }
-  let visible = raster_work_selected.elements[id.x];
+  let invocation_index = hierarchy_linear_invocation_index(id, grid);
+  if invocation_index >= visible_count { return; }
+  let visible = raster_work_selected.elements[invocation_index];
   let cluster = raster_work_clusters[visible.cluster_record_index];
   let base = oengine_try_reserve_work_group(
     &raster_work_output.header,
@@ -371,7 +402,7 @@ fn r3_expand_raster_work(@builtin(global_invocation_id) id: vec3u) {
   }
   for (var local_meshlet = 0u; local_meshlet < cluster.meshlet_count; local_meshlet++) {
     raster_work_output.elements[base + local_meshlet] = OEngineRasterWork(
-      id.x,
+      invocation_index,
       cluster.meshlet_begin + local_meshlet
     );
   }
