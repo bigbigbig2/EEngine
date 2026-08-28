@@ -27,9 +27,9 @@ R4-A 让现有 Hardware-first 主链成为完整、可回查的统一 Visibility
 ## 当前事实与迁移对象
 
 - R3 已生成 `RasterWork(visibleClusterSlot, meshletRecordIndex)`、完整 16 B `drawIndirect`，生产 `PackedVisibilityPass` 直接消费。
-- 当前 Packed Hardware output 还不是 R4 冻结的 `VisibilityKey v1`。
-- 当前 alpha-tested 仍依赖按材质 bucket/list 的旧资源组织；它可作为画面 oracle，但必须迁移到 GPU Material Visibility record，不成为最终 per-material CPU draw loop。
-- 当前 Material Expand/Velocity 是 R4-B 删除对象，不应在 R4-A 复制成另一套长期 consumer。
+- Packed Hardware output 已是 R4 冻结的 `VisibilityKey v1 + reverse-Z depth`。
+- alpha-tested 已迁移到共享 GPU Material record/texture owner，不依赖 per-material CPU draw loop。
+- Packed Material Expand/Velocity 已由 R4-B 删除并合并为一次 Resolve；普通 Scene legacy 只惰性保留到 consumer 迁移与 `FX-12`。
 
 ## VisibilityKey v1
 
@@ -98,7 +98,7 @@ MaterialVisibilityRecord
 - `blend` 不进入 opaque Visibility，路由后续 Transparency。
 - 无纹理时只使用 factor alpha；invalid/未驻留纹理使用明确 fallback，不随机采样。
 - R4-A 可以用有界临时 visibility texture binding/table 接通正确性，但不得建立 per-material fullscreen 或 CPU 最终可见循环。
-- R4-B 的 Material/Texture owner 必须接管或无损映射该子集；不允许维护两个长期 alpha 真相来源。
+- R4-B 的 Material/Texture owner 已无损接管该子集；当前只有一个长期 alpha/shading 真相来源。
 
 ### Hardware debug reconstruction
 
@@ -126,7 +126,7 @@ R4-A 不做 PBR，但必须通过 key 唯一回查并输出 debug color：
 
 ### R4-A-02 · Hardware opaque producer
 
-工作项已于 2026-08-28 验收，治理状态为 `Integrated`。生产 `PackedVisibilityPass` 继续直接消费 R3 `RasterWork + 16 B drawIndirect`，在同一次 Hardware draw 中新增 `r32uint VisibilityKey v1` MRT，并保持 `depth32float / clear 0 / greater` reverse-Z；当前帧没有 count readback、额外 submit 或第二次几何 draw。旧 triangle/instance MRT 只为尚未迁移的 Material/Velocity consumer 临时保留，是 R4-B 的显式删除对象，不是第二套 Visibility contract。
+工作项已于 2026-08-28 验收，治理状态为 `Integrated`。生产 `PackedVisibilityPass` 继续直接消费 R3 `RasterWork + 16 B drawIndirect`，在同一次 Hardware draw 中新增 `r32uint VisibilityKey v1` MRT，并保持 `depth32float / clear 0 / greater` reverse-Z；当前帧没有 count readback、额外 submit 或第二次几何 draw。当时临时保留的 triangle/instance MRT 已由 R4-B 删除，不是第二套 Visibility contract。
 
 `VisibilityKey` 由 FrameGraph transient texture owner 创建，descriptor 冻结 width/height/format/usage，随 graph signature/resize 重建并由资源池回收；Packed feature 不进入 graph 时不创建该 attachment。device lost 后只允许随 `GraphicsContext/Renderer` 重建恢复，不保留跨 device handle；对应 live device-lost/in-flight 压力测试仍属于 `R4-A-05`。producer 在 hierarchy prepare 前用 VisibilityKey 与 adapter storage-buffer limit 校验 RasterWork capacity，失败明确抛错，不 mask/truncate。
 
@@ -142,6 +142,8 @@ R4-A 不做 PBR，但必须通过 key 唯一回查并输出 debug color：
 工作项已于 2026-08-28 验收，治理状态为 `Integrated`。`GpuMaterialVisibilityAbi.ts` 冻结 64 B `MaterialVisibilityRecord v1`：`materialId/alphaMode/flags/textureRef`、`baseColorFactorAlpha/alphaCutoff/uvSet/samplerClass`、`offset+scale` 与 `cos/sin rotation`；invalid texture sentinel 为 `0xFFFFFFFF`。opaque 不读取 alpha，mask 在 fragment discard 后才写 key/depth，blend 全部排除出 opaque Visibility；invalid/未驻留纹理和缺失 UV 都只使用 factor alpha，不随机采样，也不静默强制 opaque。
 
 `GpuMaterialVisibilityTable` 是 R4-A 的有界临时 owner：随首个 Packed Scene staging 惰性创建，容量为 4,096 个 material record 与 256 个 64×64 alpha tile，固定资源约 `256 KiB + 4 MiB`；material handle 超界在 staging 前明确失败，纹理无效或 tile 容量不足记录 fallback 并继续 factor-only。owner 不私有 submit，stage 写入调用方 command，abort 回滚 CPU residency 状态，随 `GraphicsContext`/device 销毁；`R4-B-02` 必须接管或无损映射并删除该临时表。Packed feature 从未 staging 时资源成本为零。
+
+R4-B 已完成接管：同一 owner 升级为 128 B `MaterialRecord v2` 与 64-layer、`256×256`、9-mip texture array，alpha 与 shading 共用 record/texture handle；没有新增第二张材质表。上述 64 B/alpha-tile 数字只保留为 R4-A 历史 contract。
 
 为避免超过 WebGPU baseline `maxStorageBuffersInVertexStage=8`，没有新增 vertex storage binding。内部 Geometry GPU ABI 升级为 v2/160 B，在已有 record 中增加 `uv0/uv1 byteOffset/stride/format` fast path，支持 `float32x2` 与 glTF 合法的 normalized `uint8x2/uint16x2`；device-independent Geometry Package ABI 不变。vertex 从现有 `vertexStreamData` 同时输出 UV0/UV1，fragment 只增加一个 Material storage table 与一个 alpha atlas texture binding；sampler address/filter 由 record 手动执行 clamp/repeat/mirror 与 nearest/linear，非法 sampler 使用冻结的 linear-repeat fallback。`KHR_texture_transform` 按 glTF 的 scale → rotation → offset 语义解析，extension `texCoord` 覆盖 texture info `texCoord`。
 

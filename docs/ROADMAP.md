@@ -66,6 +66,8 @@ R4 按固定顺序执行，不把 Software Raster 作为 Material Resolve 的前
 
 实施包：[07-material-resolve](./implementation/07-material-resolve.md)
 
+状态：2026-08-28 已关闭 Packed G4-B；普通 Scene legacy 类级删除归 consumer 迁移与 `FX-12`。
+
 一次扫描可见像素完成 Standard PBR surface/velocity 重建，删除每材质全屏 Material Expand。纹理先使用有界 bank/resident handle；streaming 不阻塞 v1。
 
 执行编号为 `R4-B-01..10`。优先迁移 R2-D-08/R2-D-09 已验证的 attribute/gradient/frame/velocity，不重新实现同一数学。

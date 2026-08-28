@@ -52,10 +52,10 @@ GPU timestamp 的契约范围是 WebGPU Compute/Render Pass。纯 copy/write 由
 - R1-C 已把 HZB 从逐 mip Render Pass 改为每 build 一个 Compute Pass；A/B/Frame 每帧总计 2 builds，C 当前为主视图 3 builds + 实际更新阴影视图 9 builds。重复 main build 和 shadow update 策略仍需后续 profile，但 counter 现在记录所有 view 总量。
 - R1-D 冻结了 transient 生命周期：command 内 last-use alias、同 queue ordered reuse、mapping/readback/显式 fence/跨 owner destroy 等待 completion。把所有 transient 一刀切延迟到 completion 会把 Frame Smoke resident 从约 265 MB 放大到约 946 MB，已拒绝。
 - Visibility 的 bucket/scan/expand/second-chance 中间队列和 clear 成本高。
-- 当前 Material Expand 先写 material depth，再对每个材质画全屏三角形。
-- Packed Material 已删除每 vertex 重复 descriptor 扫描、错误 fullscreen derivative 和重复 viewport mapping；但每材质 fullscreen 循环仍存在，R4-B 前不得把局部降本当作 single resolve 完成。
-- Packed Velocity 已将 `previous * inverse(current)` 从每可见像素移到 Instance bulk/patch，并对奇异 motion 输出零；尚缺同条件浏览器 timestamp，当前只登记结构工作量消除，不声明 GPU 百分比。
-- Visibility、material depth、四张 GBuffer、HDR 和 history 产生较大全分辨率带宽。
+- R4-B 前的 Packed Material Expand 先写 auxiliary MRT，再按材质重复全屏；该 Packed 链现已由一次 Resolve 删除。普通 Scene legacy 仍按需保留，不进入 Packed B/C。
+- Packed Material 已删除每 vertex 重复 descriptor 扫描、错误 fullscreen derivative、重复 viewport mapping 与每材质 fullscreen；B/C material sweep 已证明 draw 恒为 1，但 B 的完整纹理+velocity Resolve 绝对时间回退，仍需后续 profile。
+- Packed Velocity 已将 `previous * inverse(current)` 从每可见像素移到 Instance bulk/patch，并在 R4-B 合并进 Resolve；同条件浏览器 timestamp 已包含在 R4-B 数据中。
+- VisibilityKey/depth、26 B/pixel Surface、HDR 和 history 仍产生较大全分辨率带宽；R4-B 仅相对旧 Packed chain 减少 8 B/pixel，不代表总帧带宽目标完成。
 - 生产 Packed 主链已接 hierarchy/SSE/Cone/previous-HZB 与 Hardware indirect consumer。R3-C A 数据显示 InstanceCull、round 0 和 VisibleCluster expansion 是主要热点，但此前将三者都写成 `workgroup_size(1)` 属于错误归因：InstanceCull/Traversal 已是每 workgroup 64 lane，旧 expansion 是每 lane 串行展开一个 Cluster。R3-D 已把 expansion 改成每 Cluster 一个 64-lane workgroup；after 证明 expansion 成本显著下降，同时把剩余问题定位为 A InstanceCull/round-0 P95 长尾和 C 低密度固定成本。
 - Shader runtime owner 已有静态审计，但 6 个运行中的 oracle/generated 事实源仍没有 generator/所有权闭环，也尚未建立系统的性能和视觉回归。
 
@@ -171,7 +171,27 @@ Hardware Raster 时间为两次实现等价 clean full 重跑观测到的 P50/P9
 
 这是正确性 Gate，不是性能优化完成证明。相对 clean R3 `aff3ab8` 的 A/B Hardware Raster P50 `10.486/10.355 ms`，R4-A 在 RasterWork 数量基本不变时回退到约 `35–44 ms`，且 B 的一次 clean run 出现 `P95=60.679 ms / P99=84.260 ms` 长尾。R4-A-03 新增的 per-fragment Material Visibility lookup/alpha 分支是待验证嫌疑，不是已证明根因；运行间波动也必须纳入调查。下一轮应分别 profile record lookup、alpha branch/atlas、额外 `r32uint` attachment 带宽与 adapter/浏览器稳定性，保持场景、分辨率、DPR、画质、warm-up 与采样 cadence 不变。R4-B 报告必须继续独立列出 `hardware-raster`，不得用总 Resolve 改善掩盖该回退。
 
-submitted fragments 没有可协商的 WebGPU pipeline-statistics producer，继续登记 `unsupported / WEBGPU-01-PIPELINE-STATISTICS`；useful fragments 使用 final `shadedPixels`，不伪造 submitted/useful 比率。截图中的 final-color、Key 与 depth silhouette 一致，只证明没有明显 blank、孔洞或 key/depth 分离；Single Resolve、SW/Hybrid 和最终 A/B 性能目标仍未完成。artifact 位于 `temp/r4-a-06/full/`，`temp/` 不纳入 Git。
+submitted fragments 没有可协商的 WebGPU pipeline-statistics producer，继续登记 `unsupported / WEBGPU-01-PIPELINE-STATISTICS`；useful fragments 使用 final `shadedPixels`，不伪造 submitted/useful 比率。截图中的 final-color、Key 与 depth silhouette 一致，只证明没有明显 blank、孔洞或 key/depth 分离；该 artifact 不证明后续 Single Resolve 或 SW/Hybrid。artifact 位于 `temp/r4-a-06/full/`，`temp/` 不纳入 Git。
+
+## R4-B Single Material Resolve 浏览器 Gate
+
+2026-08-28 在 clean commit `4e1206bd8d32670fddf3c5659710b92e46888210` 完成 B/C full。环境为 NVIDIA Turing、Chrome 151、`1280×720`、DPR 1、60 warm-up + 180 sample，GPU timestamp/counter 每 6 帧采样。两组均 `passed=true`、`gateEligible=true`，issues/counter issues、validation、uncaptured error、device loss、failed timestamp/counter 和 queue overflow 为 0；`capabilityComplete=false` 只来自尚未开始的 `software-visibility / VIS-05`，不反向阻塞 G4-B Hardware vertical。
+
+| Case | Active materials | Fullscreen Resolve draws | Resolve P50 / P95 / P99 | Resident textures | Texture/sampler fallback |
+|---|---:|---:|---:|---:|---:|
+| B | 1 | 1 | `1.559088 / 1.7152 / 2.05827136 ms` | 4 | `0 / 0` |
+| C | 3 | 1 | `0.66336 / 0.6934896 / 0.69565568 ms` | 0 | `0 / 0` |
+
+材质 `1 → 3` sweep 证明 fullscreen draw 恒为 1。Surface 物理布局为 26 B/pixel：PBR `rg8unorm` 2、normal `rgba16uint` 8、albedo/AO `rgba8unorm` 4、emissive `r32uint` 4、velocity `rg16float` 4、flags `r32uint` 4；旧 Packed Material Expand + Velocity 链为 34 B/pixel，因此少 8 B/pixel，在 1280×720 少 `7,372,800` transient bytes。Material/texture owner 分配 `22,893,824` B，其中 array texture resident bytes 为 `22,369,536`；固定 64 layers、`256×256`、9 mips 的方案换取 WebGPU baseline 下的确定容量、单 binding 与一致 mip 行为，代价是 C 即使没有 resident texture 也保留该固定 owner 内存，后续 texture streaming/size-class 需要另做同条件 benchmark。
+
+与 R4-A clean artifact `1c160d7` 的旧 Packed Material Expand 对照：
+
+| Case | Old draws | Old P50 / P95 / P99 | New draws | New P50 / P95 / P99 | 结论 |
+|---|---:|---:|---:|---:|---|
+| B | 1 | `1.02664 / 1.2854272 / 1.37027936 ms` | 1 | `1.559088 / 1.7152 / 2.05827136 ms` | 新 Resolve 同时承担完整纹理采样与 velocity，绝对时间回退；不得宣称普遍提速 |
+| C | 3 | `0.75264 / 0.7877024 / 0.79532608 ms` | 1 | `0.66336 / 0.6934896 / 0.69565568 ms` | 移除 materials×fullscreen，P50 改善约 11.9% |
+
+R4-B artifact 继续单独报告 `hardware-raster`：B `39.369904/39.6922608/39.93239712 ms`，C `0.053248/0.0567792/0.0572512 ms`。因此 R4-A 暴露的 B Hardware Raster 高成本仍存在，没有被 Resolve 数据掩盖。B/C 保存 final-color、VisibilityKey、depth 及 10 个 Surface/velocity debug views；B 13/13 hash 唯一，C 的 emissive/reactive 合法零值 view 重合。artifact 位于 `temp/r4-b/full/`，`temp/` 不纳入 Git。
 
 ## 性能变更完成标准
 

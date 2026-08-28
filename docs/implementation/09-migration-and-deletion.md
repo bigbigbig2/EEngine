@@ -29,8 +29,8 @@
 | `MaterialMeshletDrawList` | opaque 删除；透明/阴影迁移 | FX-04/FX-05 新 work consumer 接通 |
 | `VisibilityPass` | 由 WorkGenerator + Unified/Hybrid Visibility 替换 | R4-C-09；R4-A 先迁移 Hardware/alpha contract |
 | `HierarchicalZBuffer` render 实现 | Compute 重写 | R1-C01～C06 正确性/性能通过 |
-| `MaterialExpandPass` | 删除 | R4-B-10 单次 Resolve consumers 迁完 |
-| 独立 opaque `VelocityPass` | 合并/删除 | R4-B-06；特殊对象需求单独证明 |
+| `MaterialExpandPass` | Packed consumer 已删除；普通 Scene 类级删除 | R4-B-10 已关闭 Packed 链；普通 Scene consumer 迁移与 FX-12 |
+| 独立 opaque `VelocityPass` | Packed 已合并；普通 Scene 类级删除 | R4-B-06 已关闭 Packed 链；特殊对象/普通 Scene consumer 单独证明 |
 | `Renderer.render()` 编排 | 重写为 FrameCoordinator + cached graph | R1-A02～A07、R1-B01～B06 |
 | `ShadeGPUCommandContext` 隐式 submit | 删除或降为 encode-only façade | R1-A02、R1-A07 |
 | oracle/generated shaders | 逐个追溯 source-of-truth | OBS-07 后，无 consumer/generator 者删除 |
@@ -81,7 +81,9 @@ R2-D 收口状态：Packed/package 主路径已经完成该删除语义——不
 
 ### DEL-04 · 清 Material Expand
 
-依赖 `R4-B-10`。删除 material depth、每材质 fullscreen pipeline/bind groups、旧 GBuffer-only helpers 和 opaque 独立 Velocity。
+依赖 `R4-B-10`。Packed production 已删除 material depth/triangle/instance auxiliary MRT、每材质 fullscreen pipeline/bind groups、Packed Material Expand shader/consumer 和独立 Packed Velocity。生产 Hardware Visibility 只写 key/depth，Single Resolve 一次输出 Surface + velocity。
+
+普通 `Scene` 仍有 Lighting/AO/SSR/TAA/透明等公开 consumer 依赖 legacy `MaterialExpandPass/VelocityPass` 及共享 helper；这两类现为惰性创建，Packed 帧不创建 owner、Pass、资源或 submit。为避免按类名误删真实功能，最终类级删除并入普通 Scene consumer 迁移与 `FX-12`；不得把该例外恢复为 Packed 兼容层。
 
 ### DEL-05 · 清效果旁路与历史命名
 

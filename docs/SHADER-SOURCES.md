@@ -15,13 +15,13 @@ npm run audit:shaders
 
 | 分类 | 数量 | 含义 |
 |---|---:|---|
-| `authored-live` | 55 | 能到达 runtime pipeline，当前 authored 文件是运行事实源 |
+| `authored-live` | 58 | 能到达 runtime pipeline，当前 authored 文件是运行事实源 |
 | `dead` | 5 | 没有 runtime pipeline owner，是删除候选；删除前仍需核对 feature 注册与动态路径 |
 | `unknown` | 6 | runtime pipeline 正在使用 oracle/generated 文件，但仓库内没有登记 generator/source，所有权尚未闭环 |
 
 `dead` 不等于本次已删除。R0 只冻结证据，实际删除归 `OBS-07` 后的迁移波次，并要求构建、命中 feature 示例和 graph dump 同时证明没有动态 consumer。
 
-OBS-06 将旧 `velocity_debug.ts` 和独立 pipeline owner 直接迁移为 authored `render_debug_view.ts`，由统一 `RenderDebugViewPass.ts` 消费；因此总数仍为 66、`authored-live` 仍为 55。该文件当前拥有 VisibilityKey、reverse-Z depth 和 velocity 三个明确入口，不是 oracle/generated 来源。
+当前总数为 69、`authored-live` 为 58。R4-B 新增 authored `packed_material_resolve.ts` 并扩展统一 `render_debug_view.ts`，旧 `packed_velocity.ts` 已删除；两者都由明确 runtime pipeline owner 消费，不是 oracle/generated 来源。
 
 ## 正在运行但所有权未闭环
 

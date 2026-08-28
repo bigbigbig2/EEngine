@@ -20,7 +20,7 @@ A/B 是 three.js 两个示例给出的最低垂直功能与性能基线，不是
 | `OBS-04` GPU Timestamp | `Completed（R0 范围）` | 已覆盖真实 Compute/Render Pass、跨 CommandContext 异步归档、phase 汇总、失败及 unavailable；纯 copy/write 与跨 submit wall-clock 不属于 WebGPU Pass timestamp 能力，不再阻塞 R0 |
 | `OBS-05` 工作量 Counters | `Completed（当前能力）` | 当前启用算法的 required counter 已有真实 producer；未实现算法由能力矩阵明确 `unsupported + blockerTaskId` |
 | `OBS-06` Debug Views | `Completed（R0 control surface）` | 统一控制面与三个真实视图已接通，其余模式明确 unsupported，未来随 producer 所属阶段扩展 |
-| `OBS-07` Shader Source | `Completed（inventory）` | 66 个 Shader 的 source/consumer/pipeline owner 审计已冻结 |
+| `OBS-07` Shader Source | `Completed（inventory）` | 69 个 Shader 的 source/consumer/pipeline owner 审计已冻结 |
 | `OBS-08` 不可修改基线 | `Closed as R0 blocker` | R0 以已登记的 Schema v3 smoke 冻结当前事实；clean/full cold-warm bundle 改为每个后续性能阶段开始修改前的基线刷新，不再阻塞进入 R1 |
 
 因此 R0/G0 已完成，下一步直接进入 R1 的分析与计划。`OBS-02` 的 manifest、入口、自动核对和浏览器 smoke 已经整体收口；clean/full 性能采集只在后续阶段真正要做性能修改前执行，不再让 R0 无限等待。
@@ -119,7 +119,7 @@ examples/
 
 Owner 是 `FrameProfiler`。每帧在主 encoder 内清零，由 GPU pass 原子累加。counter 不参与当前帧 CPU 决策。
 
-当前落地 ABI 为 `schemaVersion=1`、总长 256 bytes，字段索引固定在 `OEngine/src/debug/GpuFrameCounters.ts`。producer 通过 `FrameProfiler.copyGpuCounter()` 复制已有 GPU 数量，或在直接原子写入共享 counter buffer 后调用 `registerGpuCounterFields()` 登记字段；结果只导出本帧实际登记过的字段。ABI buffer、清零、采样 copy 和归档已接入主帧。
+当前落地 ABI 为 `schemaVersion=4`、总长 256 bytes，字段索引固定在 `OEngine/src/debug/GpuFrameCounters.ts`。R4-B 新增 gradient fallback、reactive 与 normal/ORM/emissive/unlit feature pixel 字段；producer 通过 `FrameProfiler.copyGpuCounter()` 复制已有 GPU 数量，或在直接原子写入共享 counter buffer 后调用 `registerGpuCounterFields()` 登记字段；结果只导出本帧实际登记过的字段。ABI buffer、清零、采样 copy 和归档已接入主帧。
 
 ### R0 能力证据矩阵
 
@@ -139,12 +139,13 @@ Result Schema v3 在顶层增加 `capabilityEvidence`，其冻结实现位于 `O
 |---|---|---|
 | `hardware-visibility` | supported | instance、cluster、frustum、HW/alpha triangle、visibility pixel、overflow |
 | `hzb-culling` | supported | `rejectedHzb`；由真实 HZB depth-query reject 分支产生 |
-| `cone-culling` | unsupported | `WORK-04`；当前主链没有独立 Meshlet normal-cone/backface culling stage |
-| `material-expand` | supported | `activeMaterials` |
+| `cone-culling` | supported | `rejectedCone`；由 hierarchy cone reject 分支产生 |
+| `material-expand` | supported | 历史/普通 Scene capability；`activeMaterials`，不再进入 Packed B/C manifest |
+| `single-material-resolve` | supported | `activeMaterials`、invalid key、gradient/reactive、normal/ORM/emissive/unlit feature pixels 与 overflow |
 | `clustered-lighting` | supported | `activeLights`、`queueOverflowMask` |
 | `ibl` | supported | 当前无独立工作量 counter |
-| `packed-instances` | unsupported | `WORLD-07` |
-| `hierarchy-sse-lod` | unsupported | `WORK-04`；未来包含 `visitedBvhNodes` 等层次工作量 |
+| `packed-instances` | supported | instance、frustum 与 overflow counters |
+| `hierarchy-sse-lod` | supported | instance/cluster/work-generation contention 与 overflow counters |
 | `software-visibility` | unsupported | `VIS-05`；未来包含 `swClusters/swTriangles` |
 
 `validateBenchmarkEvidence()` 分开返回两个结论：`gateEligible` 只表示 Result JSON 的结构、采样和声明可信；`capabilityComplete` 表示启用的 feature 及其必需 counter 均已支持，`blockedCapabilities` 给出阻塞项。带明确 blocker 的 G0 artifact 可以 `gateEligible=true` 且 `capabilityComplete=false`；任何 A/B 最终功能通过声明都必须同时检查 `capabilityComplete`、固定场景契约、性能阈值、截图和控制台 artifact。
@@ -183,13 +184,13 @@ hwTriangles == hwClusters × 128
 candidateInstances == visibleInstances + rejectedFrustum
 ```
 
-第四个真实 producer 是 `activeMaterials`。Material Expand 对 `SceneInstances.materials` 的去重材质集合过滤透明和未构建 context，并为剩余每项实际编码一个全屏 GBuffer draw；采样帧在 draw loop 结束后用 `GpuCounterAtomicAdder` 把真实 `lastDrawCount` 写入 Counter ABI。该字段衡量当前按材质重复全屏扫描的 GPU 工作，不声称这些材质最终都有可见像素。
+第四个真实 producer 是 `activeMaterials`。普通 Scene legacy Material Expand 仍从实际 draw loop 写入该字段；Packed R4-B 则从共享 MaterialTable 的 active record 数写入，并额外导出 single Resolve draw、gradient/reactive 与 material feature pixel 证据。该字段衡量场景材质复杂度，不再表示 Packed 路径的 fullscreen draw 数。
 
 第五个真实 producer 是 `rejectedHzb`。现有 initial、dual 与 second-chance Meshlet HZB Compute Shader 只在 `visibility_query_depth_from_screen_space_bb()` 判定为遮挡的真实分支中原子累加；视锥拒绝、投影失败和屏幕 texel-center 裁剪不计入该字段。它统计实际执行的 HZB wave reject event，同一逻辑 Cluster 可能在 initial、dual、second-chance 或 alpha wave 中重复出现，因此不是唯一 Cluster 数。
 
 只有 GPU counter 采样帧使用带额外 storage bind group 与全局 atomic 的 Shader/Pipeline variant；非采样帧继续使用原 Shader，不增加 binding、atomic 或 readback。`hardware-visibility` 与 `hzb-culling` 是独立 feature set，关闭 HZB 时硬件光栅证据不应被迫要求 `rejectedHzb`。
 
-当前主链没有独立 Meshlet normal-cone/backface culling 算法，因此 `cone-culling/rejectedCone` 由 `WORK-04` 阻塞，不属于“已有算法只差 OBS-05 接线”。SW raster 仍由 `VIS-05` 阻塞。material overflow bit 2 只是未启用保留位，当前 feature evidence 没有宣称其存在 producer；这一边界已经显式记录，不再阻止 OBS-05 收口。
+R3-D 已接入 hierarchy cone reject 与 `rejectedCone` producer，Packed Instances 和 hierarchy/SSE 也已有完整 counter contract。SW raster 仍由 `VIS-05` 阻塞。material overflow bit 2 只是未启用保留位，当前 feature evidence 没有宣称其存在 producer；这一边界已经显式记录。
 
 ### Timestamp contract
 
@@ -265,14 +266,14 @@ C 不是“比 A/B 多开几个效果”的展示页。它必须验证相同 GPU
 
 ## 执行任务
 
-### 当前落地进度（2026-08-26）
+### 当前落地进度（2026-08-28）
 
 - 已有 Result Schema v3、CPU timeline、submit/readback/upload、可选 GPU timestamp、GPU counter ABI、能力证据矩阵与 P50/P95/P99 汇总。
 - `BenchmarkRunController` 已统一 warm-up、采样帧调度，并同时等待 timestamp/counter 延迟结果收尾。
 - 256-byte counter buffer 与至少三槽的非阻塞异步 readback ring 已进入真实 `Renderer.render()`；profiler 关闭时不分配 counter/ring 资源。
 - 最终 Visibility Buffer、LightCluster 与现有 Visibility GPU list 已接入真实 GPU counter producer；采样帧输出像素、本地灯光、instance/cluster/HW 工作量和 scene-mesh/meshlet/light overflow 证据，frame smoke 会校验字段存在性、工作量关系与像素总数不变量。非采样帧不编码 counter clear/copy/readback 或统计 Pass。
-- 三种真实 Visibility HZB cull Shader 已接入 sampled-only `rejectedHzb` producer；只统计 depth-query reject event，不混入 frustum/offscreen reject，非采样 variant 没有额外 counter binding 或 atomic。能力证据矩阵 schema 已升级为 v2，并把 `hardware-visibility`、`hzb-culling`、尚未实现的 `cone-culling` 分开表达。
-- Shader source-of-truth 静态审计已覆盖 66 个文件，逐项记录 direct/runtime consumer、最近 pipeline owner、generator candidate 与删除候选；当前结论为 55 个 authored-live、5 个 dead candidate、6 个运行中的 oracle/generated ownership blocker。清单见 `OEngine/benchmarks/shader-source-audit.json` 与 `docs/SHADER-SOURCES.md`。
+- 三种真实 Visibility HZB cull Shader 已接入 sampled-only `rejectedHzb` producer；只统计 depth-query reject event，不混入 frustum/offscreen reject，非采样 variant 没有额外 counter binding 或 atomic。R3-D 又接入 `rejectedCone`，能力证据矩阵现将 Hardware/HZB/Cone/Packed Instances/Hierarchy 与尚未实现的 Software Visibility 分开表达。
+- Shader source-of-truth 静态审计已覆盖 69 个文件，逐项记录 direct/runtime consumer、最近 pipeline owner、generator candidate 与删除候选；当前结论为 58 个 authored-live、5 个 dead candidate、6 个运行中的 oracle/generated ownership blocker。清单见 `OEngine/benchmarks/shader-source-audit.json` 与 `docs/SHADER-SOURCES.md`。
 - HZB legacy 统计已改为记录每帧真实 build 次数与累计 mip pass 数，不再把同帧两次 build 报成一次。
 - `OBS-06` 已建立单一 `render_debug_view` 控制面：VisibilityKey、reverse-Z depth 与 velocity 在时域/后处理之后覆盖最终 HDR 输入；HZB mip、三类 reject reason、LOD/Cluster level、SW/HW 分类、material ID 与 history validity 均登记为带原因的 `unsupported`，不会添加占位 Pass。旧 `feature_velocity_debug_view` 与独立 `VelocityDebugPass` 已删除；关闭和 unsupported 状态不创建 Debug Pass、瞬态输出或 readback。
 - 原始 GPU timestamp label 已增加稳定逻辑阶段归类；Result 同时保留逐 Pass `gpuMs`，并将同一采样帧内的 Pass 先按 phase 求和后输出 `gpuPhaseMs`，避免用 Pass 样本冒充帧样本。采样挂在统一 `ShadeGPUCommandContext.create()` 缝上，登记主图之外的 upload、database update 和 animation context，并覆盖其中实际存在的 compute/render Pass；多个 context 的异步结果按注册顺序稳定合并，不按 readback 完成顺序漂移，也不新增 submit。纯 copy/write 命令没有 Pass timestamp，不能把“context 已登记”写成复制区间已完整计时。未知 label 显式进入 `unclassified`，采样用 counter/debug Pass 单独进入 `observability`，不混入主渲染阶段。
@@ -328,7 +329,7 @@ WebGPU timestamp-query 的可靠范围是 Compute/Render Pass；纯 copy/write �
 
 为实际创建 pipeline 的 WGSL 建立 `shaderName → authored/generated source → generator → runtime pipeline` 清单。未被引用的 oracle/generated Shader 标为删除候选，不在 R0 顺手大规模改写。
 
-状态：`Completed（inventory）`。`npm run audit:shaders` 生成确定性的 schema v2 JSON，覆盖全部 66 个 `src/shaders/*.ts`，并沿 import 图记录最近 runtime pipeline owner。审计发现 5 个没有静态 pipeline owner 的删除候选，以及 6 个仍在运行但没有仓库内 generator/source 的 oracle/generated 文件。后者已经追到具体 pipeline owner，作为对应模块迁移 blocker 记录；R0 不把它们误标为 authored，也不在缺少视觉/数值回归时直接删除。人工摘要与限制见 `docs/SHADER-SOURCES.md`。
+状态：`Completed（inventory）`。`npm run audit:shaders` 生成确定性的 schema v2 JSON，当前覆盖全部 69 个 `src/shaders/*.ts`，并沿 import 图记录最近 runtime pipeline owner。审计发现 5 个没有静态 pipeline owner 的删除候选，以及 6 个仍在运行但没有仓库内 generator/source 的 oracle/generated 文件。后者已经追到具体 pipeline owner，作为对应模块迁移 blocker 记录；R0 不把它们误标为 authored，也不在缺少视觉/数值回归时直接删除。人工摘要与限制见 `docs/SHADER-SOURCES.md`。
 
 ### OBS-08 · 采集不可修改基线
 

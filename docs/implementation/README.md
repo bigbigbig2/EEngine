@@ -9,8 +9,8 @@ R0 Observe                         complete
 → R1 Runtime/FrameGraph/HZB        complete
 → R2 Compact Data + Cooker          complete
 → R3 Hierarchy + HW Consumer        complete
-→ R4-A Visibility Contract
-→ R4-B Single Material Resolve
+→ R4-A Visibility Contract            complete
+→ R4-B Single Material Resolve        complete for Packed production
 → R4-C Optional SW/Hybrid
 → R5 Lighting + CSM + Temporal/Upscaling
 ```
@@ -45,7 +45,7 @@ R0/G0、R1/G1 与 R2/G2 已关闭。R2 Compact Data Foundation 的交付顺序�
 
 R3/G3 已在 clean commit `aff3ab8` 关闭：`InstanceCull + root` 融合、root/traversal/selected workgroup-local compaction、sampled diagnostics 与 depth-zero fused-leaf 已落地；full A/B/C 均 clean/gate eligible/zero diagnostics，A P95 不再回退历史 flat、B 继续改善、C 真实命中 fused-leaf 并消除固定成本。R3 v1 不直接遍历当前独立 BVH8；原因、长期决策和来源分别见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md) 与 [R3-01 porting ledger](../references/porting/R3-01-hierarchical-work-generation.md)。当前唯一执行入口转为 R4-A Visibility contract。
 
-R4 已完成执行前设计冻结，长期边界见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，研究来源见 [R4 algorithm guide](../references/R4-ALGORITHM-GUIDE.md)。`R4-A-01` 已于 2026-08-28 验收共享 VisibilityKey TS/WGSL codec、capacity/producer failure 和 multi-Meshlet lookup fixture，治理状态为 `Implemented`；`R4-A-02..05` 已依次接入 production Packed Hardware key/depth、Material Visibility/alpha-tested、单次 GPU debug lookup 与 capacity/lifecycle/feature-off，并完成各自 Chrome fixture。`R4-A-06` 于 2026-08-28 用 clean/full A/B/C 关闭 G4-A：冻结 cadence、一个 main submit/一个 Packed drawIndirect、Key attachment/pixel partition、zero invalid/overflow/WebGPU diagnostics 与 oracle/key/depth screenshot 全部通过，C 的 40 个 alpha RasterWork 由 sampled GPU reducer 实测。A/B Hardware Raster P50 约 `35–44 ms` 且 B 已观察到 `84.260 ms` P99 长尾，已登记为后续 profile 风险；这不冒充性能改善，也不关闭 Single Resolve 或 SW Raster。当前唯一执行入口为 `R4-B-01`，总顺序仍为 `R4-A-01..06 → R4-B-01..10 → R4-C-01..09`。旧 `VIS/MAT` 编号只保留历史含义，不再生成新提交或 artifact。
+R4 已完成执行前设计冻结，长期边界见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，研究来源见 [R4 algorithm guide](../references/R4-ALGORITHM-GUIDE.md)。`R4-A-01..06` 已关闭 G4-A；A/B Hardware Raster 回退仍作为独立 phase 风险保留。`R4-B-01..06/09` 已集成，条件任务 `R4-B-07/08` 因无资产/profile 证据而跳过，Packed `R4-B-10` 已删除 per-material fullscreen、旧 auxiliary MRT 与 Packed Velocity。2026-08-28 的 clean/full B/C Gate 证明 active material `1 → 3` 时 Resolve draw 恒为 1、Surface 为 26 B/pixel、fallback/invalid/overflow/WebGPU diagnostics 为 0；C P50 相对旧 3-draw 链改善约 11.9%，B 因加入完整纹理与 velocity 回退，已如实登记。普通 `Scene` legacy MaterialExpand/Velocity 仍有公开 consumer，但只惰性创建且 Packed 帧零成本，类级删除归 `FX-12`。当前唯一执行入口为 `R4-C-01`，总顺序仍为 `R4-A-01..06 → R4-B-01..10 → R4-C-01..09`。旧 `VIS/MAT` 编号只保留历史含义，不再生成新提交或 artifact。
 
 R3 集中为四个可运行包：
 
@@ -67,7 +67,7 @@ R2 只新增 Geometry、Cluster、Instance 三张必需 record table；Material 
 | G2 Data | versioned package、Cooked hierarchy data、Geometry/Cluster/Instance tables、Packed Instances、bulk/patch upload、resident bytes、现有 Hardware consumer 接线 |
 | G3 Work | hierarchy/SSE 在展开前减量，compact queue 被 single indirect HW consumer 直接消费 |
 | G4-A Visibility | HW key/depth/lookup/alpha/overflow 正确；完成 |
-| G4-B Resolve | single PBR resolve、velocity、材质扩展曲线通过，旧 Material Expand 删除 |
+| G4-B Resolve | single PBR resolve、velocity、材质扩展曲线通过，Packed 旧链删除；完成 |
 | G4-C Hybrid | SW/HW 对照正确，Hybrid 只在有收益 workload 启用 |
 | G5 Quality | dynamic lights、CSM、Temporal/Upscaling、Transparency/Decal 和 feature-off 可解释 |
 

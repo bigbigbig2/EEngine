@@ -8,6 +8,12 @@
 
 长期边界见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，算法来源见 [R4 research guide](../references/R4-ALGORITHM-GUIDE.md) 与 [R4-B porting ledger](../references/porting/R4-B-01-single-material-resolve.md)。
 
+## 实施状态
+
+`R4-B-01..06`、`R4-B-09` 已于 2026-08-28 集成，`R4-B-07/08` 按条件任务跳过，Packed 范围的 `R4-B-10` 已关闭。生产 Packed 主链现在只写 `VisibilityKey + depth`，随后由一次 `PackedMaterialResolvePass` 输出 Standard PBR Surface 与 velocity；active material 数不再增加 fullscreen draw。
+
+冻结结果：`MaterialRecord v2` 为 128 B；有界纹理 residency 为 64-layer、`256×256`、9-mip `texture_2d_array`；Surface 为 26 B/pixel；`GPU_COUNTER_SCHEMA_VERSION=4`。Packed Material Expand、Packed Velocity 与旧 auxiliary MRT 已删除。普通 `Scene` 的 legacy `MaterialExpandPass/VelocityPass` 因仍有公开 consumer 而保留为惰性路径，Packed 帧不创建其 owner、Pass 或资源，最终类级删除归 `FX-12`。
+
 ## 非目标
 
 - 不按材质数量重复全屏。
@@ -133,17 +139,18 @@ surface/material flags
 velocity + validity/reactive
 ```
 
-物理布局由 `R4-B-04` 冻结。候选包括：
+物理布局已由 `R4-B-04` 冻结：
 
-| Attachment | 候选格式 | 内容 |
+| Attachment | 格式 | 内容 |
 |---|---|---|
-| Surface0 | `rgba8unorm` | baseColor + metallic |
-| Surface1 | `rgba16float` 或验证后的压缩 | normal + roughness |
-| Surface2 | `rgba16float` 或更紧凑格式 | emissive + occlusion |
-| SurfaceFlags | `r32uint`/packed channel | material/reactive/validity |
+| PBR | `rg8unorm` | metallic + perceptual roughness |
+| Normal | `rgba16uint` | shading + geometric normal 的双 octahedral encoding |
+| Albedo/AO | `rgba8unorm` | base color + occlusion |
+| Emissive | `r32uint` | RGBE9995 emissive |
+| SurfaceFlags | `r32uint` | valid/motion/reactive/gradient 与材质 feature bits |
 | Velocity | `rg16float` | motion |
 
-必须先核对目标 adapter 的 renderability/filter/storage 支持、误差和 bytes/pixel。FrameGraph 只在有 consumer 时创建 channel，不固定分配最大 GBuffer。
+合计 26 B/pixel，已在目标 adapter 核对 renderability 与 bytes/pixel。FrameGraph 只在 Packed Resolve consumer 存在时创建整组 Surface；更细粒度 channel pruning 留给真实 consumer profile，不提前复制第二套 attachment contract。
 
 首版优先一次 fullscreen Render Pass，因为可自然写多个 color attachments 并采样纹理；Compute Resolve 必须在 storage-format、写带宽和 GPU time 证明更好后替换。两者共享同一逻辑输出契约。
 
@@ -221,6 +228,20 @@ Lighting/AO/SSR/TAA/debug 逐个改读新 Surface/Velocity。每迁移一个 con
 ### R4-B-10 · 删除旧 Material Expand
 
 删除 `MaterialExpandPass`、Packed Material Expand、material depth texture、per-material fullscreen pipeline/bind group、无消费者 shader 和旧 opaque Velocity pass。Material registry 只保留资产/API 语义与新 GPU table residency。
+
+交付边界：Packed production chain 已删除 Packed Material Expand、material depth/triangle/instance auxiliary MRT、per-material fullscreen consumer 与 Packed Velocity；普通 `Scene` 仍真实使用 legacy 类，因此本阶段不按类名误删。legacy 实例改为按普通 Scene 请求惰性创建，对 Packed feature 为零成本；类级删除截止为普通 Scene consumer 迁移与 `FX-12`。
+
+## 交付证据
+
+- clean commit：`4e1206bd8d32670fddf3c5659710b92e46888210`；Chrome 151、NVIDIA Turing、`1280×720`、DPR 1、60 warm-up + 180 sample、每 6 帧 timestamp/counter。
+- B/C Gate 均 `passed=true`、issues/counter issues/WebGPU diagnostics 为 0；一个 main submit、一个 Packed Hardware drawIndirect、一个 fullscreen Resolve。
+- material sweep：active materials `1 → 3`，fullscreen draw 恒为 1。B Resolve P50/P95/P99 `1.559088/1.7152/2.05827136 ms`；C `0.66336/0.6934896/0.69565568 ms`。
+- Surface 从旧链 34 B/pixel 降为 26 B/pixel，1280×720 每帧少 `7,372,800` transient bytes。B texture owner 分配 `22,893,824` B，其中 resident texture `22,369,536` B，4 个纹理且 fallback 为 0。
+- B 保存 final-color 与 12 个 debug screenshots，13/13 hash 唯一；C 为 12/13，重合项是合法零值 view。final-color 非黑像素分别为 `806,587/923,601` 与 `910,154/923,601`。
+- R4-A 旧链 B/C Material Expand P50 为 `1.02664/0.75264 ms`。新 B 包含完整纹理采样与 velocity，回退到 `1.559088 ms`；新 C 把 3 draws 收为 1 draw，并改善约 11.9%。这证明结构伸缩性，不声明所有场景绝对更快。
+- artifact 位于 `temp/r4-b/full/`，不纳入 Git；shader audit 为 69 total、58 authored-live、5 dead、6 unknown。
+
+`R4-B-07` 跳过，因为 B/C 目标资产不要求额外 glTF extension；`R4-B-08` 跳过，因为 universal Resolve profile 未证明 feature divergence 是热点。二者都没有被伪装成“实现了空功能”。
 
 ## Counters 与 debug
 

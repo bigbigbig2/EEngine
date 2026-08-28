@@ -1,6 +1,6 @@
 # R4-B-01 · Single Material Resolve
 
-Status: source freeze / implementation pending
+Status: integrated / browser gate passed
 
 ## Reference ID
 
@@ -117,7 +117,7 @@ surface/material flags
 velocity + validity/reactive
 ```
 
-Physical attachment formats 由 `R4-B-04` 依据 format capability、精度与带宽冻结。
+Physical attachment formats 已由 `R4-B-04` 冻结为 26 B/pixel：PBR `rg8unorm`、normal `rgba16uint`、albedo/AO `rgba8unorm`、emissive `r32uint` RGBE9995、velocity `rg16float`、flags `r32uint`。旧 Packed material/velocity 链为 34 B/pixel，同分辨率节省 8 B/pixel。
 
 ## Retained invariants
 
@@ -139,7 +139,7 @@ Physical attachment formats 由 `R4-B-04` 依据 format capability、精度与�
 
 - final depth 完全沿用 R4-A WebGPU raster contract；只对 attributes 做 reciprocal-W perspective correction。
 - R2-D-08 analytic gradients 是 v1 authority；clipped/degenerate triangle 的保守 mip fallback 必须带 counter，不能冒充精确导数。
-- Surface physical formats 尚未冻结；半精度、normal packing、emissive range 和 velocity precision 由 `R4-B-04` 数值误差与带宽测试决定。
+- Surface physical formats 已冻结为 26 B/pixel；normal 使用现有 `rgba16uint` 双 octahedral encoding，emissive 使用现有 `r32uint` RGBE9995，velocity 保留 `rg16float`，不在 R4-B 另造第二套 GBuffer codec。
 - glTF 定义输入语义，Filament/Sample Viewer/three.js 用于 BRDF/IBL、颜色空间和视觉对照；允许实现结构不同，但容差、曝光和 tone mapping 条件必须固定。
 
 ## Performance hypothesis
@@ -169,3 +169,17 @@ examples/r4-single-material-resolve
 ## Decision
 
 `adopt/port` 已验证 R2 数学；`port/reimplement` The Forge 的 single-resolve 不变量；`implement to specification` glTF；`reference` Filament/Sample Viewer/three.js；`reject` native bindless、BDA、per-material fullscreen 和无证据 Shader Bin/fusion。
+
+## Integrated result
+
+2026-08-28 在 clean commit `4e1206bd8d32670fddf3c5659710b92e46888210` 完成实现与 Chrome 151 WebGPU Gate：
+
+- `MaterialRecord v2` 为 128 B、16-byte 对齐的 Standard PBR ABI；R4-A alpha 与 R4-B shading 共用 `GpuMaterialVisibilityTable` 单 owner，无第二张 Material truth table。
+- 纹理方案选择一个有界 `texture_2d_array`：64 layers、`256×256`、9 mips、`rgba8unorm`，容量超限显式失败或 fallback；目标 adapter 的 `maxTextureArrayLayers=256`。B 实测 4 个 resident texture、texture/sampler fallback 均为 0，resident texture bytes 为 `22,369,536`。
+- Single fullscreen Render Resolve 从 `VisibilityKey → RasterWork → VisibleCluster → Instance/Geometry/Meshlet/Material` 完成 production lookup，并复用 R2-D-08 analytic barycentric/gradient/frame 与 R2-D-09 `previous_from_current`；没有复制新的插值或 per-pixel inverse 实现。
+- glTF metallic-roughness、base color、normal、occlusion、emissive、factors 与 unlit 按规范实现；Filament、Sample Viewer、three.js 只作为数值/视觉 authority。The Forge 只采用 single visible-pixel shading 的结构不变量；本任务没有复制任何上游表达性代码，因此无需新增 retained source notice。
+- `R4-B-07` 未执行：B/C 没有要求额外 glTF extension，不为完整性提前加入 clearcoat 等字段。`R4-B-08` 未执行：当前 universal Resolve profile 没有证明 feature divergence 是 blocker，禁止无证据增加 Shader Bin。
+- Packed Material Expand、material depth/triangle/instance auxiliary MRT 与 Packed Velocity producer/shader 已删除。普通 `Scene` 的公开 legacy `MaterialExpandPass/VelocityPass` 仍有真实 consumer，现为惰性创建且 Packed 帧零 owner/Pass/resource；最终类级删除归普通 Scene consumer 迁移与 `FX-12`，不伪装成全仓已删除。
+- `GPU_COUNTER_SCHEMA_VERSION=4`，新增 gradient fallback、reactive 和 material feature pixel producers；B/C 的 invalid key、gradient fallback、reactive、texture/sampler fallback、overflow 与 WebGPU diagnostics 均为 0。
+
+Gate artifact 位于 `temp/r4-b/full/`，不纳入 Git。B/C 都使用 `1280×720`、DPR 1、60 warm-up + 180 sample、每 6 帧 timestamp/counter；active material 从 1 增至 3 时 fullscreen draw 始终为 1。B Resolve P50/P95/P99 为 `1.559088/1.7152/2.05827136 ms`；C 为 `0.66336/0.6934896/0.69565568 ms`。相对 R4-A 旧链，B 因加入完整纹理采样和 velocity 从 P50 `1.02664 ms` 回退，不声明普遍提速；C 从 3 draws 降为 1 draw，P50 从 `0.75264 ms` 改善到 `0.66336 ms`，约 11.9%。
