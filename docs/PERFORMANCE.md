@@ -157,6 +157,22 @@ A 的 CAS retry 仍高，说明 compact 后 SelectedCluster 全局有界预约�
 
 正确性同时由 `examples/r3-hierarchical-work-generation` 六组 GPU/CPU oracle、完整 16 B indirect、capacity parent fallback、最终 C 正常画面与三组稳定 RasterWork/shadedPixels 证明。最终 JSON 位于 `temp/r3d-aff3ab8-clean-artifacts/`，`temp/` 不纳入 Git。由此 `R3-D-08`、`R3-D-09` 与 G3 performance 关闭；下一阶段进入 R4-A Visibility contract，不把 A/B 的 `COOK-11`、`VIS-05` 或 B 画质输入 blocker 伪装成已经完成。
 
+## R4-A-06 Hardware Visibility 浏览器 Gate
+
+2026-08-28 的 clean/full A/B/C Gate 继续使用 NVIDIA Turing、Chrome、`1280×720`、DPR 1、60 warm-up + 180 sample，GPU timestamp/counter 每 6 帧采样。三组都运行 production Packed hierarchy → RasterWork → single Hardware `drawIndirect`，final-color oracle 仍由当前主管线 Material Resolve 产生；Gate 另外保存 VisibilityKey heatmap 与 reverse-Z depth，不建立替代 Renderer。三组均为一个 main submit、一个 Packed drawIndirect、`invalidVisibilityKeys=0`、`queueOverflowMask=0`、`shadedPixels + emptyVisibilityPixels = 921,600`，WebGPU validation/uncaptured/device-lost/timestamp/counter 与浏览器 console/page errors 全为零。
+
+Hardware Raster 时间为两次实现等价 clean full 重跑观测到的 P50/P95/P99 范围，单位 ms；RasterWork/alpha 为稳定 sampled counter P50，单次精确值以当前 `summary.json` 为准：
+
+| Case | Hardware Raster | RasterWork | alpha RasterWork |
+|---|---:|---:|---:|
+| A | `35.372–39.831 / 37.769–40.481 / 39.247–41.621` | `273,750` | `0` |
+| B | `39.307–43.523 / 39.587–60.679 / 39.725–84.260` | `≈281,191` | `0` |
+| C | `0.0512–0.0614 / 0.0539–0.0713 / 0.0545–0.0716` | `127` | `40` |
+
+这是正确性 Gate，不是性能优化完成证明。相对 clean R3 `aff3ab8` 的 A/B Hardware Raster P50 `10.486/10.355 ms`，R4-A 在 RasterWork 数量基本不变时回退到约 `35–44 ms`，且 B 的一次 clean run 出现 `P95=60.679 ms / P99=84.260 ms` 长尾。R4-A-03 新增的 per-fragment Material Visibility lookup/alpha 分支是待验证嫌疑，不是已证明根因；运行间波动也必须纳入调查。下一轮应分别 profile record lookup、alpha branch/atlas、额外 `r32uint` attachment 带宽与 adapter/浏览器稳定性，保持场景、分辨率、DPR、画质、warm-up 与采样 cadence 不变。R4-B 报告必须继续独立列出 `hardware-raster`，不得用总 Resolve 改善掩盖该回退。
+
+submitted fragments 没有可协商的 WebGPU pipeline-statistics producer，继续登记 `unsupported / WEBGPU-01-PIPELINE-STATISTICS`；useful fragments 使用 final `shadedPixels`，不伪造 submitted/useful 比率。截图中的 final-color、Key 与 depth silhouette 一致，只证明没有明显 blank、孔洞或 key/depth 分离；Single Resolve、SW/Hybrid 和最终 A/B 性能目标仍未完成。artifact 位于 `temp/r4-a-06/full/`，`temp/` 不纳入 Git。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。

@@ -27,6 +27,7 @@ import {
   resolveDepthAttachmentView,
   resolveTextureView
 } from "./MaterialExpandPass.js";
+import { encodePackedVisibilityAlphaCounter } from "./PackedVisibilityAlphaCounterPass.js";
 
 const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "R4-A-03 Packed Visibility material alpha group0",
@@ -152,7 +153,7 @@ type PackedVisibilityHierarchyGenerator = Pick<
 export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
   submittedFragments: Object.freeze({
     status: "unsupported" as const,
-    blockerTaskId: "R4-A-06",
+    blockerTaskId: "WEBGPU-01-PIPELINE-STATISTICS",
     reason: "OEngine WebGPU baseline has no negotiated pipeline statistics producer"
   }),
   usefulFragments: Object.freeze({
@@ -272,6 +273,15 @@ export class PackedVisibilityPass {
         previousHzb: job.previousHzb
       }
     );
+    if (job.countersEnabled) {
+      encodePackedVisibilityAlphaCounter(command, {
+        visibleClusters: generated.visibleClusters,
+        rasterWork: generated.rasterWork,
+        materials: job.runtime.materialVisibility.materialRecords,
+        counters,
+        rasterWorkCapacity: generated.rasterWorkCapacity
+      });
+    }
     this.debugBindings.set(job.runtime, Object.freeze({
       instances: job.scene.instances,
       meshlets: job.assets.meshletRecords,

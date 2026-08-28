@@ -77,6 +77,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     "hardware-raster",
     /visibility\/id\+depth/,
     /visibility pass\/raster/,
+    /packed visibilitykey\/depth .*drawindirect/,
     /hardware raster/,
     /\bhw raster/,
     /^visibility$/

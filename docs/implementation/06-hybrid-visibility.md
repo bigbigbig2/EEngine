@@ -130,7 +130,7 @@ R4-A 不做 PBR，但必须通过 key 唯一回查并输出 debug color：
 
 `VisibilityKey` 由 FrameGraph transient texture owner 创建，descriptor 冻结 width/height/format/usage，随 graph signature/resize 重建并由资源池回收；Packed feature 不进入 graph 时不创建该 attachment。device lost 后只允许随 `GraphicsContext/Renderer` 重建恢复，不保留跨 device handle；对应 live device-lost/in-flight 压力测试仍属于 `R4-A-05`。producer 在 hierarchy prepare 前用 VisibilityKey 与 adapter storage-buffer limit 校验 RasterWork capacity，失败明确抛错，不 mask/truncate。
 
-采样帧的 `VisibilityCounterPass` 已按 `legacy-id | visibility-key-v1` 双 contract 工作，`shadedPixels` 作为 final useful fragments，新增 `invalidVisibilityKeys` 统计 reserved-slot marker。当前 WebGPU baseline 没有已协商的 pipeline-statistics producer，因此 submitted fragments 明确登记为 `unsupported / R4-A-06`，不伪造 submitted/useful 比例。`examples/r4-hardware-opaque-producer` 的真实 Chrome WebGPU 门禁已通过：GPU work 写出 `[384, 1, 0, 0]`，有效/empty 像素为 `6820/69980`、invalid/unresolved/depth mismatch 均为 `0`、visible reverse-Z depth 为 `0.025`，WGSL/validation/uncaptured diagnostics 为空；本地 JSON 与截图保存于 `temp/r4-a-02/`。生产 Renderer 的 Benchmark A smoke 也完成 3 个 sampled frame，均导出 `invalidVisibilityKeys=0`，且 validation/uncaptured/device-lost/timestamp/counter diagnostics 全为 `0`；它因 smoke profile 与既有 Software Visibility blocker 不具备 Gate 资格。这只关闭 opaque producer 工作项，不关闭 alpha、debug Resolve、lifecycle Gate 或整个 G4-A。
+采样帧的 `VisibilityCounterPass` 已按 `legacy-id | visibility-key-v1` 双 contract 工作，`shadedPixels` 作为 final useful fragments，新增 `invalidVisibilityKeys` 统计 reserved-slot marker。当前 WebGPU baseline 没有已协商的 pipeline-statistics producer，因此 submitted fragments 明确登记为 `unsupported / WEBGPU-01-PIPELINE-STATISTICS`，不伪造 submitted/useful 比例。`examples/r4-hardware-opaque-producer` 的真实 Chrome WebGPU 门禁已通过：GPU work 写出 `[384, 1, 0, 0]`，有效/empty 像素为 `6820/69980`、invalid/unresolved/depth mismatch 均为 `0`、visible reverse-Z depth 为 `0.025`，WGSL/validation/uncaptured diagnostics 为空；本地 JSON 与截图保存于 `temp/r4-a-02/`。生产 Renderer 的 Benchmark A smoke 也完成 3 个 sampled frame，均导出 `invalidVisibilityKeys=0`，且 validation/uncaptured/device-lost/timestamp/counter diagnostics 全为 `0`；它因 smoke profile 与既有 Software Visibility blocker 不具备 Gate 资格。这只关闭 opaque producer 工作项，不关闭 alpha、debug Resolve、lifecycle Gate 或整个 G4-A。
 
 - Packed Hardware vertex/fragment path 写 `VisibilityKey v1 + reverse-Z depth`。
 - 继续消费 R3 `RasterWork + drawIndirect`；当前帧不得 readback count。
@@ -183,6 +183,16 @@ counter sampling 关闭时不 import GPU counter buffer、不创建 `VisibilityC
 - debug/counter sampling 关闭时不保留无消费者 reducer/readback。
 
 ### R4-A-06 · Paired 浏览器 Gate
+
+工作项已于 2026-08-28 验收，治理状态为 `Integrated`。A/B/C 继续运行各自冻结 manifest、production `Renderer.render()`、同一 Packed hierarchy 主链与既有 Material Resolve final-color oracle；Gate 只添加完成后的浏览器 capture hook，不建立 benchmark 专用 Renderer、替代 producer 或第二条提交路径。每组固定为 `1280×720`、DPR 1、60 warm-up + 180 sample，GPU timestamp/counter 每 6 帧采样。
+
+Gate artifact 同时验证 clean provenance、full profile、冻结 cadence、steady frame 单 submit、每帧一次 Packed `drawIndirect`、`r32uint` Key attachment 字节、sampled useful/empty 像素分区、zero invalid key/overflow、Hardware timestamp phase 和全部 WebGPU diagnostics。完成采样后，在相同 scene ordinal 上分别渲染 final-color oracle、`VisibilityKey` GPU lookup heatmap 与 reverse-Z depth；每个 capture 等待自身显式工具帧完成，但不修改被统计的 180 个 steady sample。JSON、三种 canvas screenshot 与整页截图保存于 `temp/r4-a-06/full/`，`temp/` 不纳入 Git。
+
+Packed `alphaClusters` 不再伪填零：只在 counter sampled frame 编码一个 64-lane GPU reducer，从真实 `RasterWork → VisibleCluster → MaterialVisibilityRecord` 统计 `MASK` RasterWork 子集；它不读取本帧 count 决定渲染、不创建私有 encoder/submit，也不在 counter-off frame 存在。C 的 127 个 Hardware RasterWork 中有 40 个 alpha-tested RasterWork；A/B 为真实零。
+
+最终 A/B/C 均满足 `invalidVisibilityKeys=0`、`queueOverflowMask=0`、`shadedPixels + emptyVisibilityPixels = 921,600`、一个 main submit、一个 Packed drawIndirect，并且 validation/uncaptured/device-lost/timestamp/counter failure 与浏览器 console/page error 全为零。oracle/key/depth 三种截图轮廓一致，无 blank output、明显孔洞或 depth/key silhouette 分离。`capabilityComplete=false` 仍只来自后续 `VIS-05` Software Visibility，不阻塞 Hardware G4-A；submitted fragments 继续诚实登记为平台能力 `unsupported / WEBGPU-01-PIPELINE-STATISTICS`。
+
+该 Gate 发现必须保留的性能风险：相对 clean R3 `aff3ab8` 的 A/B Hardware Raster P50 约 `10.486/10.355 ms`，R4-A full 重跑约升至 `35–44 ms`，B 另有一次 `P95=60.679 ms / P99=84.260 ms` 长尾；RasterWork 数量仍约为 `273,750/281,191`，因此不能用工作量变化解释，也不能宣称 R4-A 性能改善。高概率热点是 R4-A-03 fragment 的 Material Visibility lookup/alpha 分支，但运行间波动和 adapter/browser 稳定性也必须由后续同条件单变量 profile 排查；R4-B 不得把这段成本静默并入 Single Resolve 数据。
 
 - A/B/C 使用相同分辨率、DPR、画质与 warm-up 规则运行旧画面 oracle/new key producer。
 - 保存 key/depth/debug screenshot、GPU time、queue/counter 与 WebGPU diagnostics。

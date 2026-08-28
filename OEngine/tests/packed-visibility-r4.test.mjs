@@ -106,7 +106,7 @@ test("R4-A-02 fragment evidence is honest about the WebGPU baseline", () => {
   assert.deepEqual(PACKED_VISIBILITY_FRAGMENT_EVIDENCE, {
     submittedFragments: {
       status: "unsupported",
-      blockerTaskId: "R4-A-06",
+      blockerTaskId: "WEBGPU-01-PIPELINE-STATISTICS",
       reason: "OEngine WebGPU baseline has no negotiated pipeline statistics producer"
     },
     usefulFragments: {

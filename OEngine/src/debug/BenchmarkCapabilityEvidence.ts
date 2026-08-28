@@ -171,7 +171,9 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   hwClusters: supported(
     "Packed Hardware Visibility RasterWork reducer"
   ),
-  alphaClusters: supported("VisibilityPass/alpha-raster-list reducer"),
+  alphaClusters: supported(
+    "VisibilityPass legacy alpha list or Packed RasterWork material reducer"
+  ),
   swTriangles: unsupported(
     "VIS-05",
     "主链没有 Compute software raster triangle producer"
