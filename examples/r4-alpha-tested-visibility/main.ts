@@ -31,7 +31,6 @@ import {
 import { ShadeDrawSide, ShadeTransparencyMode } from "../../OEngine/src/material/enums.ts";
 import { StandardShadeMaterial } from "../../OEngine/src/material/StandardShadeMaterial.ts";
 import { GPUCameraState } from "../../OEngine/src/render/GPUCameraState.ts";
-import { VIS_MESH_CLEAR_SENTINEL } from "../../OEngine/src/render/VisibilityBufferContract.ts";
 import { LPV_CAMERA_TYPE } from "../../OEngine/src/shaders/lpv_indirect_diffuse.ts";
 import {
   PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT,
@@ -112,9 +111,9 @@ async function run(): Promise<void> {
   const instances = createBufferWithData(
     device,
     "R4-A-03 instances",
-    packGpuInstanceRecords(materials.map((material, index) => ({
+    packGpuInstanceRecords(materials.map((_material, index) => ({
       geometryRecordIndex: 0,
-      materialHandle: material.id,
+      materialHandle: index,
       flags: 1,
       debugId: index,
       boundsSphere: [0, 0, 0, 1],
@@ -130,11 +129,11 @@ async function run(): Promise<void> {
   const visibleClusters = createQueueBuffer(
     device,
     "R4-A-03 VisibleCluster queue",
-    materials.map((material, index) => packVisibleClusterRecord({
+    materials.map((_material, index) => packVisibleClusterRecord({
       instanceRecordIndex: index,
       geometryRecordIndex: 0,
       clusterRecordIndex: 0,
-      materialHandle: material.id
+      materialHandle: index
     })),
     GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride
   );
@@ -188,7 +187,11 @@ async function run(): Promise<void> {
         buffer: { type: "read-only-storage" as GPUBufferBindingType }
       })),
       { binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-      { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } }
+      {
+        binding: 10,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
+      }
     ]
   });
   const pipeline = await device.createRenderPipelineAsync({
@@ -198,7 +201,7 @@ async function run(): Promise<void> {
     fragment: {
       module: shaderModule,
       entryPoint: "write_hierarchy_visibility",
-      targets: [{ format: "r32uint" }, { format: "r32uint" }, { format: "r32uint" }]
+      targets: [{ format: "r32uint" }]
     },
     primitive: { topology: "triangle-list", cullMode: "none" },
     depthStencil: {
@@ -222,13 +225,11 @@ async function run(): Promise<void> {
       rasterWork,
       materialRecords
     ].map((buffer, binding) => ({ binding, resource: { buffer } })).concat([
-      { binding: 10, resource: alphaAtlas.createView() }
+      { binding: 10, resource: alphaAtlas.createView({ dimension: "2d-array" }) }
     ])
   });
 
   const visibilityKey = createTarget(device, "VisibilityKey", "r32uint");
-  const triangleId = createTarget(device, "triangle ID", "r32uint");
-  const instanceId = createTarget(device, "instance ID", "r32uint");
   const depth = createTarget(device, "reverse-Z depth", "depth32float");
   const keyReadback = createReadback(device, "VisibilityKey readback");
   const depthReadback = createReadback(device, "depth readback");
@@ -236,11 +237,7 @@ async function run(): Promise<void> {
   const encoder = device.createCommandEncoder({ label: "R4-A-03 alpha evidence" });
   const pass = encoder.beginRenderPass({
     label: "R4-A-03 one drawIndirect alpha producer",
-    colorAttachments: [
-      colorAttachment(visibilityKey, GPU_VISIBILITY_KEY_EMPTY),
-      colorAttachment(triangleId, VIS_MESH_CLEAR_SENTINEL),
-      colorAttachment(instanceId, VIS_MESH_CLEAR_SENTINEL)
-    ],
+    colorAttachments: [colorAttachment(visibilityKey, GPU_VISIBILITY_KEY_EMPTY)],
     depthStencilAttachment: {
       view: depth.createView(),
       depthClearValue: 0,
@@ -331,7 +328,7 @@ async function run(): Promise<void> {
     keyReadback,
     depthReadback
   ]) buffer.destroy();
-  for (const texture of [visibilityKey, triangleId, instanceId, depth, alphaAtlas]) {
+  for (const texture of [visibilityKey, depth, alphaAtlas]) {
     texture.destroy();
   }
 }
@@ -345,6 +342,7 @@ function buildMaterials(): StandardShadeMaterial[] {
   maskTexture.transparency_mode = ShadeTransparencyMode.AlphaTested;
   maskTexture.texture_albedo = alphaTexture;
   maskTexture.alpha_cutoff = 0.5;
+  maskTexture.base_color_uv_set = 1;
   maskTexture.base_color_uv_offset = [0.25, 0];
 
   const maskFactorDiscard = new StandardShadeMaterial();
@@ -388,18 +386,17 @@ function buildMaterialBuffer(
   device: GPUDevice,
   materials: readonly StandardShadeMaterial[]
 ): GPUBuffer {
-  const maxId = Math.max(...materials.map((material) => material.id));
-  const bytes = new ArrayBuffer((maxId + 1) * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
+  const bytes = new ArrayBuffer(materials.length * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
   for (let index = 0; index < materials.length; index++) {
     const material = materials[index]!;
     const textureRef = index === 1 || index === 7
       ? 0
       : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
-    const source = materialVisibilitySource(material, textureRef);
+    const source = materialVisibilitySource(material, textureRef, index);
     packGpuMaterialVisibilityRecord(
       source.packed,
       bytes,
-      material.id * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE
+      index * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE
     );
   }
   return createBufferWithData(
@@ -411,7 +408,7 @@ function buildMaterialBuffer(
 }
 
 function buildGeometryBuffers(device: GPUDevice) {
-  const vertexData = new Uint8Array(80);
+  const vertexData = new Uint8Array(104);
   new Float32Array(vertexData.buffer, 0, 9).set([
     -0.7, -0.65, 0,
     0, 0.7, 0,
@@ -421,6 +418,11 @@ function buildGeometryBuffers(device: GPUDevice) {
     0, 0,
     0.5, 1,
     1, 0
+  ]);
+  new Float32Array(vertexData.buffer, 80, 6).set([
+    1, 0,
+    0.5, 1,
+    0, 0
   ]);
   const geometryRecord = packGpuGeometryRecord({
     boundsSphere: [0, 0, 0, 1],
@@ -440,7 +442,7 @@ function buildGeometryBuffers(device: GPUDevice) {
     materialRangeBegin: 0,
     materialRangeCount: 1,
     streamDescriptorBegin: 0,
-    streamDescriptorCount: 2,
+    streamDescriptorCount: 3,
     vertexDataByteBegin: 0,
     vertexDataByteLength: vertexData.byteLength,
     positionByteOffset: 0,
@@ -450,9 +452,9 @@ function buildGeometryBuffers(device: GPUDevice) {
     uv0ByteOffset: 48,
     uv0Stride: 8,
     uv0Format: GPU_UV_FORMAT.Float32x2,
-    uv1ByteOffset: 0,
-    uv1Stride: 0,
-    uv1Format: GPU_UV_FORMAT.Unknown
+    uv1ByteOffset: 80,
+    uv1Stride: 8,
+    uv1Format: GPU_UV_FORMAT.Float32x2
   });
   const meshlet = packGpuMeshletRecords([{
     vertexOffset: 0,
@@ -480,7 +482,7 @@ function buildGeometryBuffers(device: GPUDevice) {
 function buildAlphaAtlas(device: GPUDevice): GPUTexture {
   const texture = device.createTexture({
     label: "R4-A-03 alpha atlas tile 0",
-    size: [64, 64],
+    size: [64, 64, 1],
     format: "rgba8unorm",
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
   });

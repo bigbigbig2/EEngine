@@ -31,12 +31,20 @@ export interface GpuMaterialVisibilityBindings {
   readonly alphaAtlas: GPUTextureView;
 }
 
+export interface GpuMaterialVisibilityStage {
+  readonly bindings: GpuMaterialVisibilityBindings;
+  /** Dense resident slots aligned with the input material dictionary. */
+  readonly materialSlots: readonly number[];
+}
+
 export interface GpuMaterialVisibilityEvidence {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly abiVersion: number;
   readonly materialCapacity: number;
   readonly textureCapacity: number;
-  readonly stagedMaterialCount: number;
+  readonly residentMaterialSlotCount: number;
+  readonly retiringMaterialSlotCount: number;
+  readonly freeMaterialSlotCount: number;
   readonly residentTextureCount: number;
   readonly textureFallbackCount: number;
   readonly samplerFallbackCount: number;
@@ -53,6 +61,19 @@ interface TextureTile {
   readonly source: ShadeTexture;
 }
 
+interface ResidentMaterial {
+  readonly slot: number;
+  refCount: number;
+  retireGeneration: number;
+}
+
+interface MaterialRetainOperation {
+  readonly material: StandardShadeMaterial;
+  readonly entry: ResidentMaterial;
+  readonly created: boolean;
+  readonly previousRetireGeneration: number;
+}
+
 /**
  * Single bounded R4-B Standard PBR material and texture residency owner.
  * Visibility alpha and Material Resolve consume the same stable TextureRef.
@@ -63,10 +84,12 @@ export class GpuMaterialVisibilityTable {
   private readonly textureArrayView: GPUTextureView;
   private readonly textureDescriptor: GPUTextureDescriptor;
   private readonly textures = new Map<ShadeTexture, TextureTile>();
-  private readonly stagedMaterialIds = new Set<number>();
+  private readonly residentMaterials = new Map<StandardShadeMaterial, ResidentMaterial>();
+  private readonly freeMaterialSlots: number[] = [];
   private readonly textureFallbackMaterialIds = new Set<number>();
   private readonly samplerFallbackMaterialIds = new Set<number>();
   private resizePipeline: GPURenderPipeline | null = null;
+  private destroyed = false;
 
   constructor(private readonly graphics: GraphicsContext) {
     const device = graphics.device;
@@ -105,103 +128,155 @@ export class GpuMaterialVisibilityTable {
     };
     this.textureArray = device.createTexture(this.textureDescriptor);
     this.textureArrayView = this.textureArray.createView({ dimension: "2d-array" });
+    for (let slot = GPU_MATERIAL_VISIBILITY_CAPACITY - 1; slot >= 0; slot--) {
+      this.freeMaterialSlots.push(slot);
+    }
   }
 
   stage(
     materials: readonly StandardShadeMaterial[],
     command: ShadeGPUCommandContext
-  ): GpuMaterialVisibilityBindings {
+  ): GpuMaterialVisibilityStage {
     this.preflight(materials);
+    const retainOperations = this.retainMaterialSlots(materials);
+    const materialSlots = retainOperations.map(({ entry }) => entry.slot);
     const textureRefs = new Map<ShadeTexture, number>();
     const pendingTextures: ShadeTexture[] = [];
     const newTiles: TextureTile[] = [];
-    const newlyStagedMaterialIds: number[] = [];
     const previousFallbacks: Array<readonly [number, boolean, boolean]> = [];
-    command.onAborted.addOne(() => {
+    let rolledBack = false;
+    const rollback = (): void => {
+      if (rolledBack) return;
+      rolledBack = true;
       for (let index = newTiles.length - 1; index >= 0; index--) {
         const tile = newTiles[index]!;
         if (this.textures.get(tile.source) === tile) this.textures.delete(tile.source);
       }
-      for (const materialId of newlyStagedMaterialIds) {
-        this.stagedMaterialIds.delete(materialId);
-      }
-      for (const [materialId, textureFallback, samplerFallback] of previousFallbacks) {
+      for (let index = previousFallbacks.length - 1; index >= 0; index--) {
+        const [materialId, textureFallback, samplerFallback] = previousFallbacks[index]!;
         writeSet(this.textureFallbackMaterialIds, materialId, textureFallback);
         writeSet(this.samplerFallbackMaterialIds, materialId, samplerFallback);
       }
-    });
-    for (const material of materials) {
-      for (const texture of material.textures) {
-        const existing = this.textures.get(texture);
-        if (existing !== undefined) {
-          textureRefs.set(texture, existing.id);
+      for (let index = retainOperations.length - 1; index >= 0; index--) {
+        const operation = retainOperations[index]!;
+        operation.entry.refCount--;
+        operation.entry.retireGeneration = operation.previousRetireGeneration;
+        if (operation.entry.refCount === 0 && operation.created) {
+          if (this.residentMaterials.get(operation.material) === operation.entry) {
+            this.residentMaterials.delete(operation.material);
+          }
+          this.freeMaterialSlots.push(operation.entry.slot);
+        }
+      }
+    };
+    command.onAborted.addOne(rollback);
+    try {
+      for (const material of materials) {
+        for (const texture of material.textures) {
+          const existing = this.textures.get(texture);
+          if (existing !== undefined) {
+            textureRefs.set(texture, existing.id);
+            continue;
+          }
+          if (canStageTexture(texture)) pendingTextures.push(texture);
+        }
+      }
+      const uniquePending = [...new Set(pendingTextures)];
+      const available = GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - this.textures.size;
+      const accepted = uniquePending.slice(0, Math.max(0, available));
+      for (const texture of accepted) {
+        try {
+          this.graphics.textures.obtain(texture);
+        } catch {
           continue;
         }
-        if (canStageTexture(texture)) pendingTextures.push(texture);
+        const tile = Object.freeze({ id: this.textures.size, source: texture });
+        this.textures.set(texture, tile);
+        newTiles.push(tile);
+        textureRefs.set(texture, tile.id);
       }
-    }
-    const uniquePending = [...new Set(pendingTextures)];
-    const available = GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - this.textures.size;
-    const accepted = uniquePending.slice(0, Math.max(0, available));
-    for (const texture of accepted) {
-      try {
-        this.graphics.textures.obtain(texture);
-      } catch {
-        continue;
+      this.graphics.textures.mipmaps.flush(command);
+      for (const texture of accepted) {
+        const tile = this.textures.get(texture);
+        if (tile === undefined) continue;
+        this.encodeResizeCopy(command, tile);
       }
-      const tile = Object.freeze({ id: this.textures.size, source: texture });
-      this.textures.set(texture, tile);
-      newTiles.push(tile);
-      textureRefs.set(texture, tile.id);
-    }
-    this.graphics.textures.mipmaps.flush(command);
-    for (const texture of accepted) {
-      const tile = this.textures.get(texture);
-      if (tile === undefined) continue;
-      this.encodeResizeCopy(command, tile);
-    }
-    if (accepted.length > 0) {
-      this.graphics.textures.mipmaps.generateMipmap(
-        this.textureArray,
-        this.textureDescriptor,
-        TextureFilterType.Linear,
-        command
-      );
-    }
+      if (accepted.length > 0) {
+        this.graphics.textures.mipmaps.generateMipmap(
+          this.textureArray,
+          this.textureDescriptor,
+          TextureFilterType.Linear,
+          command
+        );
+      }
 
-    for (const material of materials) {
-      const textureRef = (texture: ShadeTexture | undefined): number =>
-        texture === undefined
-          ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
-          : textureRefs.get(texture) ?? this.textures.get(texture)?.id ??
-            GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
-      const source = materialVisibilitySource(material, {
-        baseColor: textureRef(material.texture_albedo),
-        normal: textureRef(material.texture_normal),
-        orm: textureRef(material.texture_orm),
-        emissive: textureRef(material.texture_emissive)
-      });
-      previousFallbacks.push([
-        material.id,
-        this.textureFallbackMaterialIds.has(material.id),
-        this.samplerFallbackMaterialIds.has(material.id)
-      ]);
-      const packed = packGpuMaterialVisibilityRecord(source.packed);
-      command.writeBuffer(
-        this.materialRecords,
-        material.id * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
-        packed,
-        0,
-        packed.byteLength
-      );
-      if (!this.stagedMaterialIds.has(material.id)) {
-        newlyStagedMaterialIds.push(material.id);
-        this.stagedMaterialIds.add(material.id);
+      for (let materialIndex = 0; materialIndex < materials.length; materialIndex++) {
+        const material = materials[materialIndex]!;
+        const materialSlot = materialSlots[materialIndex]!;
+        const textureRef = (texture: ShadeTexture | undefined): number =>
+          texture === undefined
+            ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
+            : textureRefs.get(texture) ?? this.textures.get(texture)?.id ??
+              GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
+        const source = materialVisibilitySource(material, {
+          baseColor: textureRef(material.texture_albedo),
+          normal: textureRef(material.texture_normal),
+          orm: textureRef(material.texture_orm),
+          emissive: textureRef(material.texture_emissive)
+        }, materialSlot);
+        previousFallbacks.push([
+          materialSlot,
+          this.textureFallbackMaterialIds.has(materialSlot),
+          this.samplerFallbackMaterialIds.has(materialSlot)
+        ]);
+        const packed = packGpuMaterialVisibilityRecord(source.packed);
+        command.writeBuffer(
+          this.materialRecords,
+          materialSlot * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
+          packed,
+          0,
+          packed.byteLength
+        );
+        writeSet(this.textureFallbackMaterialIds, materialSlot, source.textureFallback);
+        writeSet(this.samplerFallbackMaterialIds, materialSlot, source.samplerFallback);
       }
-      writeSet(this.textureFallbackMaterialIds, material.id, source.textureFallback);
-      writeSet(this.samplerFallbackMaterialIds, material.id, source.samplerFallback);
+      return Object.freeze({
+        bindings: this.bindings(),
+        materialSlots: Object.freeze(materialSlots)
+      });
+    } catch (error) {
+      rollback();
+      throw error;
     }
-    return this.bindings();
+  }
+
+  release(
+    materials: readonly StandardShadeMaterial[],
+    command: ShadeGPUCommandContext
+  ): void {
+    const releaseCounts = new Map<StandardShadeMaterial, number>();
+    for (const material of materials) {
+      releaseCounts.set(material, (releaseCounts.get(material) ?? 0) + 1);
+    }
+    for (const [material, count] of releaseCounts) {
+      const entry = this.residentMaterials.get(material);
+      if (entry === undefined || entry.refCount < count) {
+        throw new Error(`Material '${material.name}' has no matching resident slot reference`);
+      }
+    }
+    command.onFinished.addOne(() => {
+      for (const [material, count] of releaseCounts) {
+        const entry = this.residentMaterials.get(material);
+        if (entry === undefined) continue;
+        entry.refCount -= count;
+        if (entry.refCount !== 0) continue;
+        this.textureFallbackMaterialIds.delete(entry.slot);
+        this.samplerFallbackMaterialIds.delete(entry.slot);
+        const generation = ++entry.retireGeneration;
+        const retire = (): void => this.retireMaterialSlot(material, entry, generation);
+        void command.gpuDone.then(retire, retire);
+      }
+    });
   }
 
   bindings(): GpuMaterialVisibilityBindings {
@@ -216,12 +291,20 @@ export class GpuMaterialVisibilityTable {
   }
 
   evidence(): GpuMaterialVisibilityEvidence {
+    let residentMaterialSlotCount = 0;
+    let retiringMaterialSlotCount = 0;
+    for (const entry of this.residentMaterials.values()) {
+      if (entry.refCount > 0) residentMaterialSlotCount++;
+      else retiringMaterialSlotCount++;
+    }
     return Object.freeze({
-      schemaVersion: 2,
+      schemaVersion: 3,
       abiVersion: GPU_MATERIAL_VISIBILITY_ABI_VERSION,
       materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
       textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
-      stagedMaterialCount: this.stagedMaterialIds.size,
+      residentMaterialSlotCount,
+      retiringMaterialSlotCount,
+      freeMaterialSlotCount: this.freeMaterialSlots.length,
       residentTextureCount: this.textures.size,
       textureFallbackCount: this.textureFallbackMaterialIds.size,
       samplerFallbackCount: this.samplerFallbackMaterialIds.size,
@@ -237,23 +320,69 @@ export class GpuMaterialVisibilityTable {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.materialRecords.destroy();
     this.textureArray.destroy();
     this.textures.clear();
-    this.stagedMaterialIds.clear();
+    this.residentMaterials.clear();
+    this.freeMaterialSlots.length = 0;
     this.textureFallbackMaterialIds.clear();
     this.samplerFallbackMaterialIds.clear();
     this.resizePipeline = null;
   }
 
   private preflight(materials: readonly StandardShadeMaterial[]): void {
+    const newMaterials = new Set<StandardShadeMaterial>();
     for (const material of materials) {
-      if (material.id >= GPU_MATERIAL_VISIBILITY_CAPACITY) {
+      if (material.base_color_uv_set !== 0 && material.base_color_uv_set !== 1) {
         throw new RangeError(
-          `Material id ${material.id} exceeds R4-B material capacity ${GPU_MATERIAL_VISIBILITY_CAPACITY}`
+          `Material '${material.name}' requests TEXCOORD_${material.base_color_uv_set}; ` +
+          "MaterialRecord v2 supports only TEXCOORD_0 and TEXCOORD_1"
         );
       }
+      if (!this.residentMaterials.has(material)) newMaterials.add(material);
     }
+    if (newMaterials.size > this.freeMaterialSlots.length) {
+      throw new RangeError(
+        `R4-B material residency requires ${newMaterials.size} new slots but only ` +
+        `${this.freeMaterialSlots.length} of ${GPU_MATERIAL_VISIBILITY_CAPACITY} are free`
+      );
+    }
+  }
+
+  private retainMaterialSlots(
+    materials: readonly StandardShadeMaterial[]
+  ): MaterialRetainOperation[] {
+    const operations: MaterialRetainOperation[] = [];
+    for (const material of materials) {
+      let entry = this.residentMaterials.get(material);
+      let created = false;
+      if (entry === undefined) {
+        const slot = this.freeMaterialSlots.pop();
+        if (slot === undefined) throw new RangeError("R4-B material resident slot overflow");
+        entry = { slot, refCount: 0, retireGeneration: 0 };
+        this.residentMaterials.set(material, entry);
+        created = true;
+      }
+      const previousRetireGeneration = entry.retireGeneration;
+      if (!created && entry.refCount === 0) {
+        entry.retireGeneration++;
+      }
+      entry.refCount++;
+      operations.push({ material, entry, created, previousRetireGeneration });
+    }
+    return operations;
+  }
+
+  private retireMaterialSlot(
+    material: StandardShadeMaterial,
+    entry: ResidentMaterial,
+    generation: number
+  ): void {
+    if (this.destroyed || entry.refCount !== 0 || entry.retireGeneration !== generation) return;
+    if (this.residentMaterials.get(material) !== entry) return;
+    this.residentMaterials.delete(material);
+    this.freeMaterialSlots.push(entry.slot);
   }
 
   private encodeResizeCopy(

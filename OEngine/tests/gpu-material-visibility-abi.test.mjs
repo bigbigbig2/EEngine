@@ -72,10 +72,11 @@ test("R4-B-01 MaterialRecord freezes a 128-byte TS/WGSL Standard PBR layout", ()
     normal: 8,
     orm: 9,
     emissive: 10
-  });
+  }, 42);
   const packed = packGpuMaterialVisibilityRecord(source.packed);
   const view = new DataView(packed);
   assert.equal(packed.byteLength, 128);
+  assert.equal(view.getUint32(0, true), 42);
   assert.equal(view.getUint32(4, true), GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Mask);
   assert.equal(
     view.getUint32(8, true) & GPU_MATERIAL_VISIBILITY_FLAGS.DoubleSided,
@@ -118,7 +119,8 @@ test("R4-A-03 invalid texture and sampler fallbacks remain independent", () => {
 
   const invalidTextureSource = materialVisibilitySource(
     invalidTextureMaterial,
-    GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
+    GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+    0
   );
   assert.equal(invalidTextureSource.texture, null);
   assert.equal(invalidTextureSource.textureFallback, true);
@@ -136,7 +138,7 @@ test("R4-A-03 invalid texture and sampler fallbacks remain independent", () => {
   samplerFallbackMaterial.transparency_mode = ShadeTransparencyMode.AlphaTested;
   samplerFallbackMaterial.texture_albedo = validTexture();
   samplerFallbackMaterial.texture_albedo.wrapS = 99;
-  const samplerFallbackSource = materialVisibilitySource(samplerFallbackMaterial, 3);
+  const samplerFallbackSource = materialVisibilitySource(samplerFallbackMaterial, 3, 1);
   assert.equal(samplerFallbackSource.texture, samplerFallbackMaterial.texture_albedo);
   assert.equal(samplerFallbackSource.textureFallback, false);
   assert.equal(samplerFallbackSource.samplerFallback, true);
@@ -155,9 +157,82 @@ test("R4-A-03 invalid texture and sampler fallbacks remain independent", () => {
 
   samplerFallbackMaterial.transparency_mode = ShadeTransparencyMode.Transparent;
   assert.equal(
-    materialVisibilitySource(samplerFallbackMaterial).packed.alphaMode,
+    materialVisibilitySource(
+      samplerFallbackMaterial,
+      GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+      1
+    ).packed.alphaMode,
     GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Blend
   );
+});
+
+test("R4-B MaterialRecord rejects UV sets outside the Geometry UV0/UV1 ABI", () => {
+  const material = new StandardShadeMaterial();
+  material.base_color_uv_set = 2;
+  assert.throws(
+    () => materialVisibilitySource(material, GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE, 0),
+    /supports only TEXCOORD_0 and TEXCOORD_1/
+  );
+});
+
+test("R4-B glTF shared UV contract accepts matching mappings on every texture", () => {
+  const texture = validTexture();
+  const mapping = {
+    texCoord: 0,
+    extensions: {
+      KHR_texture_transform: {
+        offset: [0.25, 0.5],
+        scale: [2, 3],
+        rotation: 0.125,
+        texCoord: 1
+      }
+    }
+  };
+  const material = parseGltfMaterial({
+    normalTexture: { index: 0, ...mapping },
+    emissiveTexture: { index: 0, ...mapping },
+    occlusionTexture: { index: 0, ...mapping },
+    pbrMetallicRoughness: {
+      baseColorTexture: { index: 0, ...mapping },
+      metallicRoughnessTexture: { index: 0, ...mapping }
+    }
+  }, [texture]);
+  assert.equal(material.base_color_uv_set, 1);
+  assert.deepEqual(material.base_color_uv_offset, [0.25, 0.5]);
+  assert.deepEqual(material.base_color_uv_scale, [2, 3]);
+  assert.equal(material.base_color_uv_rotation, 0.125);
+});
+
+test("R4-B glTF shared UV contract rejects per-texture texCoord or transform divergence", () => {
+  const texture = validTexture();
+  assert.throws(
+    () => parseGltfMaterial({
+      normalTexture: { index: 0, texCoord: 1 },
+      pbrMetallicRoughness: { baseColorTexture: { index: 0, texCoord: 0 } }
+    }, [texture]),
+    /requires per-texture UV mappings/
+  );
+  assert.throws(
+    () => parseGltfMaterial({
+      emissiveTexture: {
+        index: 0,
+        extensions: { KHR_texture_transform: { offset: [0.5, 0] } }
+      },
+      pbrMetallicRoughness: { baseColorTexture: { index: 0 } }
+    }, [texture]),
+    /requires per-texture UV mappings/
+  );
+});
+
+test("R4-B glTF KHR_texture_transform texCoord override is authoritative", () => {
+  const material = parseGltfMaterial({
+    normalTexture: {
+      index: 0,
+      texCoord: 0,
+      extensions: { KHR_texture_transform: { texCoord: 1 } }
+    }
+  }, [validTexture()]);
+  assert.equal(material.base_color_uv_set, 1);
 });
 
 test("R4-A-03 glTF MASK parsing preserves cutoff, texCoord and KHR_texture_transform", () => {

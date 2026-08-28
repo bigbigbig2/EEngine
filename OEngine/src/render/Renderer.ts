@@ -105,6 +105,7 @@ import type {
 import type {
   PackedSceneEvidence,
   PackedSceneHandle,
+  PackedScenePatchBatch,
   PackedSceneSource
 } from "../gpu/GpuPackedSceneRegistry.js";
 import type { PackedSceneRuntime } from "../gpu/GpuPackedSceneRegistry.js";
@@ -460,7 +461,7 @@ export class Renderer {
   }
 
   /** Queues one explicit patch batch for the next main frame command. */
-  queuePackedScenePatch(scene: Scene, batch: InstancePatchBatch): void {
+  queuePackedScenePatch(scene: Scene, batch: PackedScenePatchBatch): void {
     this._graphics.packed_scenes.queuePatch(scene, batch);
   }
 

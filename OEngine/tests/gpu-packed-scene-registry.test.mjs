@@ -90,6 +90,42 @@ test("R3-D hierarchy capacity counts every instance sharing one Geometry without
   assert.equal(registry.evidence().flatWorkBytes, 0);
 });
 
+test("R4-B Packed Scene writes dense resident material slots and patches by dictionary index", () => {
+  const graphics = createGraphics();
+  const registry = new GpuPackedSceneRegistry(graphics);
+  const scene = new Scene();
+  const source = makeSource(2, 1);
+  source.materials = [new StandardShadeMaterial(), new StandardShadeMaterial()];
+  source.materialIndices = new Uint32Array([1, 0]);
+
+  const stage = new FakeCommand();
+  registry.stage(scene, source, [Object.freeze({})], stage);
+  assert.deepEqual([...graphics.lastInstanceSource.materialHandles], [11, 7]);
+  stage.finish();
+
+  registry.queuePatch(scene, {
+    frameId: 4,
+    materials: {
+      indices: new Uint32Array([0, 1]),
+      materialIndices: new Uint32Array([0, 1])
+    }
+  });
+  registry.encodePendingPatch(scene, new FakeCommand());
+  assert.deepEqual([...graphics.lastPatch.materials.materialHandles], [7, 11]);
+
+  registry.queuePatch(scene, {
+    frameId: 5,
+    materials: {
+      indices: new Uint32Array([0]),
+      materialIndices: new Uint32Array([2])
+    }
+  });
+  assert.throws(
+    () => registry.encodePendingPatch(scene, new FakeCommand()),
+    /outside the material dictionary/
+  );
+});
+
 function makeSource(count = 1, meshletCount = 2) {
   const currentTransforms = new Float32Array(count * 16);
   const boundsSpheres = new Float32Array(count * 4);
@@ -134,20 +170,30 @@ function createGraphics() {
     obtainCount: 0,
     instantiateCount: 0,
     releaseCount: 0,
+    materialReleaseCount: 0,
+    lastInstanceSource: null,
+    lastPatch: null,
     materials: {
       obtain() {
         graphics.obtainCount++;
       }
     },
     material_visibility: {
-      stage() {
+      stage(materials) {
         return {
-          abiVersion: 1,
-          materialCapacity: 4096,
-          textureCapacity: 256,
-          materialRecords: {},
-          alphaAtlas: {}
+          bindings: {
+            abiVersion: 1,
+            materialCapacity: 4096,
+            textureCapacity: 256,
+            materialRecords: {},
+            textureArray: {},
+            alphaAtlas: {}
+          },
+          materialSlots: materials.map((_, index) => index === 0 ? 7 : 11)
         };
+      },
+      release(_materials, command) {
+        command.onFinished.addOne(() => graphics.materialReleaseCount++);
       }
     },
     assets: {
@@ -156,8 +202,9 @@ function createGraphics() {
       }
     },
     gpu_scene: {
-      instantiate(_source, command) {
+      instantiate(source, command) {
         graphics.instantiateCount++;
+        graphics.lastInstanceSource = source;
         const handle = Object.freeze({});
         command.onAborted.addOne(() => {});
         return handle;
@@ -168,8 +215,9 @@ function createGraphics() {
       release(_handle, command) {
         command.onFinished.addOne(() => graphics.releaseCount++);
       },
-      patch() {
-        throw new Error("not used");
+      patch(_handle, batch) {
+        graphics.lastPatch = batch;
+        return {};
       },
       bindings() {
         return {};

@@ -106,6 +106,8 @@ export type { SceneInstanceAdapterOptions } from "./gpu/GpuSceneAdapter.js";
 export type {
   PackedSceneEvidence,
   PackedSceneHandle,
+  PackedSceneMaterialPatch,
+  PackedScenePatchBatch,
   PackedSceneSource
 } from "./gpu/GpuPackedSceneRegistry.js";
 export {

@@ -141,6 +141,8 @@ Physical attachment formats 已由 `R4-B-04` 冻结为 26 B/pixel：PBR `rg8unor
 - R2-D-08 analytic gradients 是 v1 authority；clipped/degenerate triangle 的保守 mip fallback 必须带 counter，不能冒充精确导数。
 - Surface physical formats 已冻结为 26 B/pixel；normal 使用现有 `rgba16uint` 双 octahedral encoding，emissive 使用现有 `r32uint` RGBE9995，velocity 保留 `rg16float`，不在 R4-B 另造第二套 GBuffer codec。
 - glTF 定义输入语义，Filament/Sample Viewer/three.js 用于 BRDF/IBL、颜色空间和视觉对照；允许实现结构不同，但容差、曝光和 tone mapping 条件必须固定。
+- `MaterialRecord v2` 只保存一组共享 UV mapping；glTF 的每纹理 TextureInfo 先按规范解析 effective texCoord/transform，再要求 baseColor、normal、metallicRoughness/occlusion、emissive 完全一致。`KHR_texture_transform.texCoord` 覆盖 TextureInfo `texCoord`，仅支持 Geometry ABI 已提供的 UV0/UV1；不一致或超范围直接拒绝。
+- CPU `StandardShadeMaterial.id` 不进入 GPU 地址语义。Material owner 分配 0..4095 dense resident slot，Packed instance 和 Visibility/Resolve 只传该 slot；引用归零后经 owning command 的 GPU completion fence 才回到 free-list。
 
 ## Performance hypothesis
 
@@ -150,6 +152,8 @@ Physical attachment formats 已由 `R4-B-04` 冻结为 26 B/pixel：PBR `rg8unor
 
 - TextureRef/record invalid：debug counter + deterministic fallback material/texture。
 - resident set 超 adapter limits：拒绝或拆分明确资源集，不恢复 per-material主链。
+- per-texture UV mapping 不满足 v1 shared contract 或请求 `TEXCOORD_2+`：loader/packer 在 GPU work 前显式拒绝；不得选择错误 UV 或退化到 UV0。
+- dense material slot 满：在纹理上传、record write、pass 编码前失败；stage abort 恢复引用/free-list，release slot 在 GPU completion 前保持 retiring 且不可复用。
 - analytic gradient 不稳定：有 counter 的保守 LOD fallback。
 - universal shader 分支成为热点：先 profile，再用少量 bounded bin；禁止每材质全屏。
 - consumer 未迁移：旧链仅保留到对应任务，完成后直接删除，不保留无期限兼容层。
@@ -175,6 +179,9 @@ examples/r4-single-material-resolve
 2026-08-28 在 clean commit `4e1206bd8d32670fddf3c5659710b92e46888210` 完成实现与 Chrome 151 WebGPU Gate：
 
 - `MaterialRecord v2` 为 128 B、16-byte 对齐的 Standard PBR ABI；R4-A alpha 与 R4-B shading 共用 `GpuMaterialVisibilityTable` 单 owner，无第二张 Material truth table。
+- 2026-08-28 P1 修正让 Resolve 根据 `material_info.uv_set` 在 UV0/UV1 descriptor 间选择；glTF baseColor/normal/ORM/emissive 采用明确的 shared mapping contract，TextureInfo 或 `KHR_texture_transform` 分歧与 `TEXCOORD_2+` 在 residency 前拒绝。
+- Material table 改为 4,096 个 dense resident slots：全局递增 `material.id` 不再决定 record offset，Packed Scene stage/patch 使用 material dictionary → resident slot 映射；共享材质引用计数、abort 回滚和 completion-safe free-list reuse 已由 Node tests 覆盖。
+- Chrome focused UV1 fixture 已命中真实 `TEXCOORD_1` descriptor 并 `passed=true`：UV1 alpha case 为 38 pixels，shader/validation/uncaptured/device-lost diagnostics 全为 0。Benchmark B smoke 命中生产 Single Resolve，记录 1 active/4095 free material slots、4 resident textures、0 fallback、1 fullscreen draw 和 0 WebGPU diagnostics；artifact 在 `temp/r4-b/p1/`。该结果只证明本次运行正确性，不冒充 dirty/smoke 条件下的 clean full performance Gate。
 - 纹理方案选择一个有界 `texture_2d_array`：64 layers、`256×256`、9 mips、`rgba8unorm`，容量超限显式失败或 fallback；目标 adapter 的 `maxTextureArrayLayers=256`。B 实测 4 个 resident texture、texture/sampler fallback 均为 0，resident texture bytes 为 `22,369,536`。
 - Single fullscreen Render Resolve 从 `VisibilityKey → RasterWork → VisibleCluster → Instance/Geometry/Meshlet/Material` 完成 production lookup，并复用 R2-D-08 analytic barycentric/gradient/frame 与 R2-D-09 `previous_from_current`；没有复制新的插值或 per-pixel inverse 实现。
 - glTF metallic-roughness、base color、normal、occlusion、emissive、factors 与 unlit 按规范实现；Filament、Sample Viewer、three.js 只作为数值/视觉 authority。The Forge 只采用 single visible-pixel shading 的结构不变量；本任务没有复制任何上游表达性代码，因此无需新增 retained source notice。

@@ -26,6 +26,7 @@ const SEMANTIC_NORMAL: u32 = 0x6d726f6eu;
 const SEMANTIC_TANGENT: u32 = 0x676e6174u;
 const SEMANTIC_COLOR: u32 = 0x6f6c6f63u;
 const SEMANTIC_UV0: u32 = 0x00307675u;
+const SEMANTIC_UV1: u32 = 0x00317675u;
 const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
 
 struct R4ResolveQueueHeaderRead {
@@ -382,7 +383,9 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let position_descriptor = find_stream(geometry, SEMANTIC_POSITION);
   let normal_descriptor = find_stream(geometry, SEMANTIC_NORMAL);
   let tangent_descriptor = find_stream(geometry, SEMANTIC_TANGENT);
-  let uv_descriptor = find_stream(geometry, SEMANTIC_UV0);
+  if material_info.uv_set > 1u { discard; }
+  let uv_semantic = select(SEMANTIC_UV0, SEMANTIC_UV1, material_info.uv_set == 1u);
+  let uv_descriptor = find_stream(geometry, uv_semantic);
   let color_descriptor = find_stream(geometry, SEMANTIC_COLOR);
   let local0 = read_stream4_from_descriptor(position_descriptor, vertices.x, vec4f(0.0)).xyz;
   let local1 = read_stream4_from_descriptor(position_descriptor, vertices.y, vec4f(0.0)).xyz;

@@ -11,7 +11,8 @@ import type {
   InstancePatchBatch,
   InstancePatchResult,
   InstanceSetHandle,
-  InstanceSource
+  InstanceSource,
+  InstanceTransformPatch
 } from "./GpuScene.js";
 
 declare const PACKED_SCENE_HANDLE_BRAND: unique symbol;
@@ -36,6 +37,18 @@ export interface PackedSceneSource {
   readonly debugIds?: Uint32Array;
 }
 
+export interface PackedSceneMaterialPatch {
+  readonly indices: Uint32Array;
+  /** Indices into the Packed Scene material dictionary, never GPU slots or material.id. */
+  readonly materialIndices: Uint32Array;
+}
+
+export interface PackedScenePatchBatch {
+  readonly frameId: number;
+  readonly transforms?: InstanceTransformPatch;
+  readonly materials?: PackedSceneMaterialPatch;
+}
+
 export interface PackedSceneEvidence {
   readonly schemaVersion: 2;
   readonly sceneCount: number;
@@ -53,6 +66,7 @@ export interface PackedSceneRuntime {
   readonly assetHandles: readonly AssetHandle[];
   readonly instanceHandle: InstanceSetHandle;
   readonly materials: readonly StandardShadeMaterial[];
+  readonly materialSlots: readonly number[];
   readonly materialVisibility: GpuMaterialVisibilityBindings;
   readonly instanceBegin: number;
   readonly instanceCount: number;
@@ -65,7 +79,7 @@ export interface PackedSceneRuntime {
 }
 
 interface PendingPatch {
-  readonly batch: InstancePatchBatch;
+  readonly batch: PackedScenePatchBatch;
 }
 
 const HANDLE_RUNTIME = new WeakMap<object, PackedSceneRuntime>();
@@ -97,14 +111,14 @@ export class GpuPackedSceneRegistry {
       source.geometryIndices
     );
     for (const material of source.materials) this.graphics.materials.obtain(material);
-    const materialVisibility = this.graphics.material_visibility.stage(
+    const materialStage = this.graphics.material_visibility.stage(
       source.materials,
       command
     );
     const geometryHandles = Object.freeze([...assetHandles]);
     const materialHandles = new Uint32Array(source.count);
     for (let index = 0; index < source.count; index++) {
-      materialHandles[index] = source.materials[source.materialIndices[index]!]!.id >>> 0;
+      materialHandles[index] = materialStage.materialSlots[source.materialIndices[index]!]!;
     }
     const instanceSource: InstanceSource = {
       count: source.count,
@@ -133,7 +147,8 @@ export class GpuPackedSceneRegistry {
       assetHandles: geometryHandles,
       instanceHandle,
       materials: Object.freeze([...source.materials]),
-      materialVisibility,
+      materialSlots: materialStage.materialSlots,
+      materialVisibility: materialStage.bindings,
       instanceBegin: range.start,
       instanceCount: range.count,
       hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,
@@ -176,7 +191,13 @@ export class GpuPackedSceneRegistry {
       throw new Error("Packed Scene must not be released with a queued patch");
     }
     this.releasingScenes.add(scene);
-    this.graphics.gpu_scene.release(runtime.instanceHandle, command);
+    try {
+      this.graphics.material_visibility.release(runtime.materials, command);
+      this.graphics.gpu_scene.release(runtime.instanceHandle, command);
+    } catch (error) {
+      this.releasingScenes.delete(scene);
+      throw error;
+    }
     command.onFinished.addOne(() => {
       this.byScene.delete(scene);
       HANDLE_RUNTIME.delete(runtime.handle as object);
@@ -190,7 +211,7 @@ export class GpuPackedSceneRegistry {
     return runtime.assetHandles;
   }
 
-  queuePatch(scene: Scene, batch: InstancePatchBatch): void {
+  queuePatch(scene: Scene, batch: PackedScenePatchBatch): void {
     if (!this.byScene.has(scene)) throw new Error("Scene has no Packed Scene registration");
     this.pendingPatches.set(scene, { batch });
   }
@@ -202,9 +223,10 @@ export class GpuPackedSceneRegistry {
     const pending = this.pendingPatches.get(scene);
     if (pending === undefined) return null;
     const runtime = this.byScene.get(scene)!;
+    const batch = toInstancePatchBatch(pending.batch, runtime.materialSlots);
     const result = this.graphics.gpu_scene.patch(
       runtime.instanceHandle,
-      pending.batch,
+      batch,
       command
     );
     this.pendingPatches.delete(scene);
@@ -250,6 +272,34 @@ export class GpuPackedSceneRegistry {
     this.pendingPatches.clear();
     this.releasingScenes.clear();
   }
+}
+
+function toInstancePatchBatch(
+  batch: PackedScenePatchBatch,
+  materialSlots: readonly number[]
+): InstancePatchBatch {
+  const materials = batch.materials;
+  if (materials === undefined) {
+    return { frameId: batch.frameId, transforms: batch.transforms };
+  }
+  if (materials.indices.length !== materials.materialIndices.length) {
+    throw new RangeError("Packed Scene material patch indices and materialIndices must match");
+  }
+  const materialHandles = new Uint32Array(materials.materialIndices.length);
+  for (let index = 0; index < materials.materialIndices.length; index++) {
+    const dictionaryIndex = materials.materialIndices[index]!;
+    if (dictionaryIndex >= materialSlots.length) {
+      throw new RangeError(
+        `Packed Scene materialIndices[${index}] is outside the material dictionary`
+      );
+    }
+    materialHandles[index] = materialSlots[dictionaryIndex]!;
+  }
+  return {
+    frameId: batch.frameId,
+    transforms: batch.transforms,
+    materials: { indices: materials.indices, materialHandles }
+  };
 }
 
 function validateSource(

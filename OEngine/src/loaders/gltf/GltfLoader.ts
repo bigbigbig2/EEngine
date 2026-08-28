@@ -164,24 +164,13 @@ export interface GltfMaterial {
   alphaMode?: string;
   alphaCutoff?: number;
   emissiveFactor?: number[];
-  normalTexture?: { index: number };
-  emissiveTexture?: { index: number };
-  occlusionTexture?: { index: number; strength?: number; texCoord?: number };
+  normalTexture?: GltfTextureInfo & { scale?: number };
+  emissiveTexture?: GltfTextureInfo;
+  occlusionTexture?: GltfTextureInfo & { strength?: number };
   pbrMetallicRoughness?: {
     baseColorFactor?: number[];
-    baseColorTexture?: {
-      index: number;
-      texCoord?: number;
-      extensions?: {
-        KHR_texture_transform?: {
-          offset?: number[];
-          rotation?: number;
-          scale?: number[];
-          texCoord?: number;
-        };
-      };
-    };
-    metallicRoughnessTexture?: { index: number };
+    baseColorTexture?: GltfTextureInfo;
+    metallicRoughnessTexture?: GltfTextureInfo;
     metallicFactor?: number;
     roughnessFactor?: number;
   };
@@ -203,6 +192,19 @@ export interface GltfMaterial {
       specularColorTexture?: { index: number };
     };
     [key: string]: unknown;
+  };
+}
+
+export interface GltfTextureInfo {
+  index: number;
+  texCoord?: number;
+  extensions?: {
+    KHR_texture_transform?: {
+      offset?: number[];
+      rotation?: number;
+      scale?: number[];
+      texCoord?: number;
+    };
   };
 }
 

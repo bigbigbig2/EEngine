@@ -20,25 +20,32 @@ const { ShadeImage, ShadeTexture } = await import(
   "../.test-dist/texture/ShadeTexture.js"
 );
 
-test("R4-B-02 bounded Material/Texture owner stages without private submit and rolls back abort", () => {
+test("R4-B Material owner assigns dense slots independent of global material.id and rolls back abort", () => {
   const graphics = fakeGraphics();
   const table = new GpuMaterialVisibilityTable(graphics);
   const command = new FakeCommand();
-  const material = new StandardShadeMaterial();
+  let material = new StandardShadeMaterial();
+  while (material.id <= GPU_MATERIAL_VISIBILITY_CAPACITY + 32) {
+    material = new StandardShadeMaterial();
+  }
   material.texture_albedo = validTexture();
 
-  const bindings = table.stage([material], command);
-  assert.equal(bindings.materialCapacity, GPU_MATERIAL_VISIBILITY_CAPACITY);
-  assert.equal(bindings.textureCapacity, GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY);
+  const staged = table.stage([material], command);
+  assert.equal(staged.bindings.materialCapacity, GPU_MATERIAL_VISIBILITY_CAPACITY);
+  assert.equal(staged.bindings.textureCapacity, GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY);
+  assert.deepEqual(staged.materialSlots, [0]);
   assert.equal(command.writes.length, 1);
-  assert.equal(command.writes[0].offset, material.id * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
+  assert.equal(command.writes[0].offset, 0 * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
+  assert.equal(new DataView(command.writes[0].bytes.buffer).getUint32(0, true), 0);
   assert.equal(command.renderPassCount, 1);
   assert.deepEqual(table.evidence(), {
-    schemaVersion: 2,
+    schemaVersion: 3,
     abiVersion: 2,
     materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
     textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
-    stagedMaterialCount: 1,
+    residentMaterialSlotCount: 1,
+    retiringMaterialSlotCount: 0,
+    freeMaterialSlotCount: GPU_MATERIAL_VISIBILITY_CAPACITY - 1,
     residentTextureCount: 1,
     textureFallbackCount: 0,
     samplerFallbackCount: 0,
@@ -52,7 +59,8 @@ test("R4-B-02 bounded Material/Texture owner stages without private submit and r
   assert.equal(graphics.submitCount, 0);
 
   command.abort();
-  assert.equal(table.evidence().stagedMaterialCount, 0);
+  assert.equal(table.evidence().residentMaterialSlotCount, 0);
+  assert.equal(table.evidence().freeMaterialSlotCount, GPU_MATERIAL_VISIBILITY_CAPACITY);
   assert.equal(table.evidence().residentTextureCount, 0);
 
   table.destroy();
@@ -60,22 +68,63 @@ test("R4-B-02 bounded Material/Texture owner stages without private submit and r
   assert.equal(graphics.texturesCreated[0].destroyCount, 1);
 });
 
-test("R4-B-02 Material owner rejects material handles before recording GPU work", () => {
+test("R4-B Material owner refcounts shared residency and reuses slots only after GPU completion", async () => {
   const graphics = fakeGraphics();
   const table = new GpuMaterialVisibilityTable(graphics);
-  const command = new FakeCommand();
-  const material = {
-    id: GPU_MATERIAL_VISIBILITY_CAPACITY,
-    texture_albedo: undefined
-  };
+  const a = new StandardShadeMaterial();
+  const b = new StandardShadeMaterial();
+  const first = new FakeCommand();
+  const firstStage = table.stage([a, b], first);
+  first.finish();
+  assert.deepEqual(firstStage.materialSlots, [0, 1]);
 
-  assert.throws(
-    () => table.stage([material], command),
-    /exceeds R4-B material capacity/
+  const shared = new FakeCommand();
+  assert.deepEqual(table.stage([a], shared).materialSlots, [0]);
+  shared.finish();
+
+  const releaseShared = new FakeCommand();
+  table.release([a], releaseShared);
+  releaseShared.finish();
+  assert.equal(table.evidence().residentMaterialSlotCount, 2);
+
+  const completion = deferred();
+  const releaseLast = new FakeCommand(completion.promise);
+  table.release([a, b], releaseLast);
+  releaseLast.finish();
+  assert.equal(table.evidence().residentMaterialSlotCount, 0);
+  assert.equal(table.evidence().retiringMaterialSlotCount, 2);
+  assert.equal(table.evidence().freeMaterialSlotCount, GPU_MATERIAL_VISIBILITY_CAPACITY - 2);
+
+  completion.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(table.evidence().retiringMaterialSlotCount, 0);
+  assert.equal(table.evidence().freeMaterialSlotCount, GPU_MATERIAL_VISIBILITY_CAPACITY);
+
+  const reused = table.stage([new StandardShadeMaterial()], new FakeCommand());
+  assert.ok(firstStage.materialSlots.includes(reused.materialSlots[0]));
+  table.destroy();
+});
+
+test("R4-B Material owner rejects unsupported UV and capacity overflow before GPU work", () => {
+  const graphics = fakeGraphics();
+  const table = new GpuMaterialVisibilityTable(graphics);
+  const invalidUv = new StandardShadeMaterial();
+  invalidUv.base_color_uv_set = 2;
+  const uvCommand = new FakeCommand();
+  assert.throws(() => table.stage([invalidUv], uvCommand), /supports only TEXCOORD_0/);
+  assert.equal(uvCommand.writes.length, 0);
+  assert.equal(uvCommand.renderPassCount, 0);
+
+  const materials = Array.from(
+    { length: GPU_MATERIAL_VISIBILITY_CAPACITY + 1 },
+    () => new StandardShadeMaterial()
   );
-  assert.equal(command.writes.length, 0);
-  assert.equal(command.renderPassCount, 0);
-  assert.equal(table.evidence().stagedMaterialCount, 0);
+  const capacityCommand = new FakeCommand();
+  assert.throws(() => table.stage(materials, capacityCommand), /only 4096 .* are free/);
+  assert.equal(capacityCommand.writes.length, 0);
+  assert.equal(capacityCommand.renderPassCount, 0);
+  assert.equal(table.evidence().residentMaterialSlotCount, 0);
   table.destroy();
 });
 
@@ -92,9 +141,14 @@ class FakeSignal {
 }
 
 class FakeCommand {
+  onFinished = new FakeSignal();
   onAborted = new FakeSignal();
   writes = [];
   renderPassCount = 0;
+
+  constructor(gpuDone = Promise.resolve()) {
+    this.gpuDone = gpuDone;
+  }
 
   writeBuffer(_buffer, offset, data, dataOffset, size) {
     this.writes.push({ offset, bytes: new Uint8Array(data, dataOffset, size).slice() });
@@ -118,6 +172,18 @@ class FakeCommand {
   abort() {
     this.onAborted.send(this, new Error("aborted"));
   }
+
+  finish() {
+    this.onFinished.send(this);
+  }
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 function fakeGraphics() {

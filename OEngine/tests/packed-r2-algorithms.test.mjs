@@ -97,8 +97,9 @@ test("R2-D singular motion is explicitly flagged and Packed Velocity cannot exec
 test("R2-D Packed Material uses one descriptor lookup per semantic and analytic gradients", () => {
   assert.equal(
     [...PACKED_MATERIAL_RESOLVE_WGSL.matchAll(/find_stream\(geometry, SEMANTIC_/g)].length,
-    5
+    4
   );
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /find_stream\(geometry, uv_semantic\)/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /\bdpdx\b|\bdpdy\b/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /perspective_barycentric_with_derivatives/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /return projected\.xy \/ projected\.w/);

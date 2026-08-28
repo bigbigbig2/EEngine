@@ -132,7 +132,8 @@ export function materialVisibilitySource(
     normal?: number;
     orm?: number;
     emissive?: number;
-  }> | number = GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
+  }> | number,
+  materialSlot: number
 ): GpuMaterialVisibilitySource {
   const refs = typeof textureRefs === "number"
     ? { baseColor: textureRefs }
@@ -179,15 +180,22 @@ export function materialVisibilitySource(
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.SamplerFallback;
   }
   const rotation = finiteOr(material.base_color_uv_rotation, 0);
+  const uvSet = material.base_color_uv_set;
+  if (uvSet !== 0 && uvSet !== 1) {
+    throw new RangeError(
+      `Material '${material.name}' requests TEXCOORD_${uvSet}; ` +
+      "MaterialRecord v2 supports only TEXCOORD_0 and TEXCOORD_1"
+    );
+  }
   return Object.freeze({
     packed: Object.freeze({
-      materialId: checkedU32(material.id, "material id"),
+      materialId: checkedU32(materialSlot, "resident material slot"),
       alphaMode: alphaMode(material.transparency_mode),
       flags,
       textureRef: checkedU32(textureRef, "texture ref"),
       baseColorFactorAlpha: finiteOr(material.diffuse_color.a, 1),
       alphaCutoff: clamp01(finiteOr(material.alpha_cutoff, 0.5)),
-      uvSet: checkedU32(material.base_color_uv_set, "base color UV set"),
+      uvSet,
       samplerClass: sampler.value,
       uvOffset: material.base_color_uv_offset,
       uvScale: material.base_color_uv_scale,

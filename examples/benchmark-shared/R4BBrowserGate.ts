@@ -30,7 +30,9 @@ export interface R4BMaterialEvidence {
   abiVersion: number;
   materialCapacity: number;
   textureCapacity: number;
-  stagedMaterialCount: number;
+  residentMaterialSlotCount: number;
+  retiringMaterialSlotCount: number;
+  freeMaterialSlotCount: number;
   residentTextureCount: number;
   textureFallbackCount: number;
   samplerFallbackCount: number;
@@ -200,8 +202,8 @@ function validateR4BGate(
   if (materialEvidence === null) {
     issues.push("Material/Texture residency evidence is missing");
   } else {
-    if (materialEvidence.stagedMaterialCount !== expectedMaterials) {
-      issues.push("staged MaterialRecord count differs from the manifest");
+    if (materialEvidence.residentMaterialSlotCount !== expectedMaterials) {
+      issues.push("resident MaterialRecord slot count differs from the manifest");
     }
     if (materialEvidence.textureFallbackCount !== 0) {
       issues.push("texture residency fallback was observed");

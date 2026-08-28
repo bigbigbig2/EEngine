@@ -98,6 +98,14 @@ normal / ORM / emissive / extension TextureRef
 
 glTF 2.0 冻结字段语义；Filament、glTF Sample Viewer 和 three.js IBL baseline 冻结颜色空间、normal convention、BRDF/IBL 与可见画面对照。不能只凭肉眼猜 roughness/metallic 或曝光差异。
 
+### MaterialRecord v2 UV contract
+
+- 当前 128 B record 只有一组 `uvSet + scale/rotation/offset`，由 baseColor、normal、ORM、emissive 共享；这是一条显式 v1 限制，不代表 glTF 的每纹理 UV 语义已完整实现。
+- glTF loader 按 baseColor → normal → metallicRoughness/occlusion → emissive 归一化有效映射；`KHR_texture_transform.texCoord` 覆盖 TextureInfo `texCoord`，缺失 transform 归一化为 identity。
+- 只接受 `TEXCOORD_0/1`。任一已使用纹理的 texCoord、offset、scale 或 rotation 与共享映射不同，必须在进入 GPU residency 前明确拒绝，禁止静默按 baseColor UV 采样其它纹理。
+- Packed Material Resolve 根据 `MaterialRecord.uv_set` 选择 Geometry GPU ABI 的 UV0/UV1 descriptor，并保持同一套 analytic `dUVdx/dUVdy` 与 `textureSampleGrad` 路径。
+- 后续若真实 B/C 资产要求 per-texture mapping，必须先扩展并重新冻结 MaterialRecord/TextureRef ABI、resident bytes、lookup/branch 成本和浏览器 Gate；不能在 Shader 中增加未登记旁表。
+
 ## WebGPU 有界纹理访问
 
 候选而非预设答案：
@@ -171,6 +179,8 @@ R4-B v1 至少冻结：
 
 - Cooker/MaterialRegistry 产生 device-independent material/texture metadata。
 - GPU Asset/Material Table owner 上传 MaterialRecord；Texture residency module 独占 texture bank/atlas 和 handle 生命周期。
+- `StandardShadeMaterial.id` 只表示 CPU/runtime 身份，不得直接作为 GPU MaterialTable 下标。`GpuMaterialVisibilityTable` 为 active resident material 分配有界 dense slot，并由 Packed Scene 把 material dictionary index 映射为 instance `material_handle`。
+- dense slot 使用引用计数和 free-list；stage abort 回滚，最后引用 release 后先进入 retiring，只有 owning command 已提交且 GPU completion 成立后才允许复用。Packed Scene material patch 接收 dictionary `materialIndices`，不接受全局 `material.id` 或裸 GPU slot。
 - Visibility 只产生 key/depth，不拥有完整 shading material。
 - Material Resolve 产生 transient Surface/Velocity；Lighting、AO、SSR、TAA、debug 是 consumers。
 - 无 consumer 的 Surface channel和 feature 必须从 FrameGraph、resource allocation 和 Shader work 中裁掉。
@@ -240,6 +250,7 @@ Lighting/AO/SSR/TAA/debug 逐个改读新 Surface/Velocity。每迁移一个 con
 - B 保存 final-color 与 12 个 debug screenshots，13/13 hash 唯一；C 为 12/13，重合项是合法零值 view。final-color 非黑像素分别为 `806,587/923,601` 与 `910,154/923,601`。
 - R4-A 旧链 B/C Material Expand P50 为 `1.02664/0.75264 ms`。新 B 包含完整纹理采样与 velocity，回退到 `1.559088 ms`；新 C 把 3 draws 收为 1 draw，并改善约 11.9%。这证明结构伸缩性，不声明所有场景绝对更快。
 - artifact 位于 `temp/r4-b/full/`，不纳入 Git；shader audit 为 69 total、58 authored-live、5 dead、6 unknown。
+- 2026-08-28 P1 UV/dense-slot 修正另有 `temp/r4-b/p1/` focused 证据：Chrome UV1 fixture `passed=true`，生产 Benchmark B smoke 为 1 Resolve draw、1 active/4095 free material slots、4 resident textures、0 fallback/0 WebGPU diagnostics。该 dirty smoke 仅作 correctness evidence，不替代上面的 clean full Gate。
 
 `R4-B-07` 跳过，因为 B/C 目标资产不要求额外 glTF extension；`R4-B-08` 跳过，因为 universal Resolve profile 未证明 feature divergence 是热点。二者都没有被伪装成“实现了空功能”。
 

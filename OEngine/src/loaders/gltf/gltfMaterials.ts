@@ -7,7 +7,7 @@ import { ShadeDrawSide, ShadeTransparencyMode } from "../../material/enums.js";
 import { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../../texture/ShadeTexture.js";
 import { TextureFilterType } from "../../texture/TextureFilterType.js";
-import type { GltfMaterial } from "./GltfLoader.js";
+import type { GltfMaterial, GltfTextureInfo } from "./GltfLoader.js";
 
 export const MIPMAP_ALBEDO_EMISSIVE = TextureFilterType.MagicKernelSharp;
 
@@ -108,6 +108,19 @@ export function parseGltfMaterial(
   if (e.doubleSided === true) n.draw_side = ShadeDrawSide.Double;
   if (typeof e.name === "string") n.name = e.name;
 
+  const pbr = e.pbrMetallicRoughness;
+  const sharedUv = resolveSharedUvMapping(e, [
+    ["baseColorTexture", pbr?.baseColorTexture],
+    ["normalTexture", e.normalTexture],
+    ["metallicRoughnessTexture", pbr?.metallicRoughnessTexture],
+    ["occlusionTexture", e.occlusionTexture],
+    ["emissiveTexture", e.emissiveTexture]
+  ]);
+  n.base_color_uv_set = sharedUv.texCoord;
+  n.base_color_uv_offset = sharedUv.offset;
+  n.base_color_uv_scale = sharedUv.scale;
+  n.base_color_uv_rotation = sharedUv.rotation;
+
   const r = e.normalTexture;
   if (r !== undefined) {
     const tex = textures[r.index]!;
@@ -138,7 +151,7 @@ export function parseGltfMaterial(
   );
   n.emissive_factor.multiplyScalar(strength);
 
-  const i = e.pbrMetallicRoughness;
+  const i = pbr;
   if (i !== undefined) {
     const base = i.baseColorFactor;
     if (base !== undefined) n.diffuse_color.fromArray(base);
@@ -149,15 +162,6 @@ export function parseGltfMaterial(
       img.color_space = 1;
       tex.mipmapGenerationFilter = MIPMAP_ALBEDO_EMISSIVE;
       n.texture_albedo = tex;
-      const transform = baseTex.extensions?.KHR_texture_transform;
-      n.base_color_uv_set = Math.max(0, Math.floor(
-        transform?.texCoord ?? baseTex.texCoord ?? 0
-      ));
-      n.base_color_uv_offset = finiteVec2(transform?.offset, [0, 0]);
-      n.base_color_uv_scale = finiteVec2(transform?.scale, [1, 1]);
-      n.base_color_uv_rotation = Number.isFinite(transform?.rotation)
-        ? transform!.rotation!
-        : 0;
     }
     const orm = i.metallicRoughnessTexture;
     if (orm !== undefined) {
@@ -266,6 +270,77 @@ export function parseGltfMaterial(
     console.warn(`Rewrote transparency mode for material '${n.name}'`);
   }
   return n;
+}
+
+interface SharedUvMapping {
+  readonly texCoord: number;
+  readonly offset: [number, number];
+  readonly scale: [number, number];
+  readonly rotation: number;
+}
+
+function resolveSharedUvMapping(
+  material: GltfMaterial,
+  textureInfos: readonly (readonly [string, GltfTextureInfo | undefined])[]
+): SharedUvMapping {
+  let shared: SharedUvMapping | undefined;
+  let sharedRole = "";
+  for (const [role, info] of textureInfos) {
+    if (info === undefined) continue;
+    const mapping = normalizeUvMapping(info, material.name, role);
+    if (shared === undefined) {
+      shared = mapping;
+      sharedRole = role;
+      continue;
+    }
+    if (!sameUvMapping(shared, mapping)) {
+      throw new Error(
+        `glTF material '${material.name ?? "<unnamed>"}' requires per-texture UV mappings: ` +
+        `${role} differs from ${sharedRole}; OEngine MaterialRecord v2 requires one shared ` +
+        "texCoord/KHR_texture_transform across baseColor, normal, ORM and emissive textures"
+      );
+    }
+  }
+  return shared ?? {
+    texCoord: 0,
+    offset: [0, 0],
+    scale: [1, 1],
+    rotation: 0
+  };
+}
+
+function normalizeUvMapping(
+  info: GltfTextureInfo,
+  materialName: string | undefined,
+  role: string
+): SharedUvMapping {
+  const transform = info.extensions?.KHR_texture_transform;
+  const texCoord = transform?.texCoord ?? info.texCoord ?? 0;
+  if (!Number.isInteger(texCoord) || texCoord < 0 || texCoord > 1) {
+    throw new RangeError(
+      `glTF material '${materialName ?? "<unnamed>"}' ${role} requests TEXCOORD_${texCoord}; ` +
+      "OEngine MaterialRecord v2 supports only TEXCOORD_0 and TEXCOORD_1"
+    );
+  }
+  const rotation = transform?.rotation ?? 0;
+  if (!Number.isFinite(rotation)) {
+    throw new RangeError(
+      `glTF material '${materialName ?? "<unnamed>"}' ${role} UV rotation must be finite`
+    );
+  }
+  return {
+    texCoord,
+    offset: finiteVec2(transform?.offset, [0, 0]),
+    scale: finiteVec2(transform?.scale, [1, 1]),
+    rotation
+  };
+}
+
+function sameUvMapping(a: SharedUvMapping, b: SharedUvMapping): boolean {
+  return a.texCoord === b.texCoord &&
+    a.offset[0] === b.offset[0] && a.offset[1] === b.offset[1] &&
+    a.scale[0] === b.scale[0] && a.scale[1] === b.scale[1] &&
+    a.rotation === b.rotation;
 }
 
 function finiteVec2(

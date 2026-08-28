@@ -103,6 +103,12 @@ test("R4-B shader performs the complete key lookup and one analytic-gradient mat
   ]) assert.match(PACKED_MATERIAL_RESOLVE_WGSL, new RegExp(lookup.replace(/[&()]/g, "\\$&")));
 
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /textureSampleGrad\(material_textures/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /material_info\.uv_set > 1u/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /const SEMANTIC_UV1: u32 = 0x00317675u/);
+  assert.match(
+    PACKED_MATERIAL_RESOLVE_WGSL,
+    /select\(SEMANTIC_UV0, SEMANTIC_UV1, material_info\.uv_set == 1u\)/
+  );
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /perspective_barycentric_with_derivatives/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /\bdpdx\b|\bdpdy\b/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /mat4_inverse|inverse\s*\(/);
