@@ -90,7 +90,7 @@ R3-D-08/09 实际采用边界（2026-08-28）：
 - root 与 traversal children、SelectedCluster 均采用 OEngine 已在 `SceneDatabase.ts` 验证过的 workgroup compact 结构：workgroup-local atomic 分配连续局部槽位，lane 0 对全局有界 queue 做一次 all-or-nothing reservation，随后各 lane 写入连续区间。该结构按 OEngine Queue header/fail-visible fallback 独立重实现，不声称来自某一上游逐字移植。
 - 容量预约失败仍以“整组 children 不写、各 renderable parent 回退”为语义；workgroup 合并只减少全局 reservation/CAS 次数，不改变 attempted/written/overflow/fallback ABI。
 - `maxHierarchyDepth === 0` 的小场景使用同一 `VisibleClusterRecord/RasterWork/16 B drawIndirect` ABI 的 `r3_fused_leaf_work`。它是对 Scthe producer→consumer 与 Bevy staged-cull 不变量的 OEngine/WebGPU `reimplement`，不是恢复 flat queue，也不建立第二条产品管线。
-- fast path 当前只在 `instanceCount <= 144 && rasterWorkCapacity <= 128` 时启用。阈值只由 C 的 `144 instances / 127 RasterWork` 同条件 fused-vs-wavefront 探针支持；WGSL 仍由每 lane 串行展开本 Instance 的 Meshlet，未完成更多 crossover sweep 前禁止扩大。
+- fast path 当前只在 `instanceCount <= 144 && rasterWorkCapacity <= 144` 时启用。这里使用选择前可证明的静态 capacity；C 实际为 `144 instances / 144 capacity / 127 emitted RasterWork`。第一轮把 emitted 数误当 capacity、将阈值写成 128，clean C 因而未命中 fast path；该接线错误已由浏览器 artifact 发现并修正。未完成更多 crossover sweep 前禁止继续扩大。
 - queue header evidence 与四个 contention counter 只在 benchmark sampling/显式 diagnostics 时产生；稳定非采样帧不分配 evidence buffer、不复制 header，也不运行 reducer。counter 采样仍由真实 producer 写入，不允许用结构推算或假值补齐 Gate。
 
 ## Scthe/nanite-webgpu

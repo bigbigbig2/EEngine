@@ -115,7 +115,7 @@ Frame-local traversal/selected/raster buffers 和间接参数由该 module 管�
 | Indirect fill | GPU Compute，可与 expansion 合并但要保持 ABI 可测 | 16 B `drawIndirect` record | Hardware render pass |
 | Evidence | 各真实 producer 的原子 counter | fixed evidence schema | sampled readback/benchmark，不决定本帧调度 |
 
-当 `maxHierarchyDepth === 0`、`instanceCount <= 144` 且 `rasterWorkCapacity <= 128` 时，Fused root、Raster expansion 与 Indirect fill 合并为同 ABI `fused-leaf` Pass。该阈值只覆盖已经实测的 C crossover；不是按 benchmark 名称分支，也不改变 consumer。
+当 `maxHierarchyDepth === 0`、`instanceCount <= 144` 且 `rasterWorkCapacity <= 144` 时，Fused root、Raster expansion 与 Indirect fill 合并为同 ABI `fused-leaf` Pass。阈值比较的是选择前可证明的静态 capacity；C 为 144 capacity、实际输出 127 RasterWork。该阈值只覆盖已经实测的 C crossover，不按 benchmark 名称分支，也不改变 consumer。
 
 所有跨 workgroup 的 producer/consumer 排序依靠独立 Compute Pass 和同一 command encoder 中的编码顺序；不得假设 `storageBarrier()` 能同步不同 workgroup。
 
@@ -414,7 +414,7 @@ paired 时间按 P50/P95/P99 登记，单位 ms；`Producer` 为 InstanceCull、
 `R3-D-08/09` 已落地、尚待 clean Gate 的内容：
 
 1. `R3-D-08`：`InstanceCull + root Cluster` 融合；root/traversal children 与 SelectedCluster 使用 workgroup-local compaction，每 workgroup 至多一次全局有界预约和 dispatch update。保持 Queue/RasterWork/indirect ABI 与 parent fallback 语义。
-2. `R3-D-09`：queue evidence/counter 只在 sampled/opt-in 帧产生；depth-zero 且不超过 `144 instances / 128 RasterWork capacity` 时走单 Pass fused-leaf，直接写相同 VisibleCluster/RasterWork/16 B indirect。
+2. `R3-D-09`：queue evidence/counter 只在 sampled/opt-in 帧产生；depth-zero 且不超过 `144 instances / 144 RasterWork capacity` 时走单 Pass fused-leaf，直接写相同 VisibleCluster/RasterWork/16 B indirect。第一轮 clean C 发现 128 阈值误用了 emitted work 而不是静态 capacity，已修正并要求重新采集。
 3. sampled contention counter 新增 `rootStageQueueReservations`、`traversalQueueReservations`、`workGenerationDispatchUpdates`、`workGenerationCasRetries`；它们必须来自 GPU producer，非采样帧不得为取得数值引入 readback/额外 reducer。
 4. dirty tuning probe 已证明方向有效但不关闭 Gate：B smoke 的 root/traversal reservation 约从 `76/244` 降至 `4/51`，CAS retry 从约 `7392` 降至 `0`；C fused-leaf 相对 forced-wavefront 的总 GPU frame P50/P95 约从 `0.524/0.590 ms` 降至 `0.459/0.495 ms`。最终只认提交后的 clean/full A/B/C。
 

@@ -37,10 +37,11 @@ const RASTER_WORK_QUEUE_MIN_BINDING_SIZE =
   GPU_WORK_QUEUE_HEADER_SCHEMA.stride + GPU_RASTER_WORK_SCHEMA.stride;
 
 // First production crossover is deliberately bounded to the measured C case
-// (144 instances / 127 RasterWork). Broaden only with another same-condition
-// wavefront-vs-fused GPU sweep; the fused shader serializes Meshlets per lane.
+// (144 instances / 144 proven RasterWork capacity, 127 actually emitted).
+// Broaden only with another same-condition wavefront-vs-fused GPU sweep; the
+// fused shader serializes Meshlets per lane.
 export const FUSED_LEAF_INSTANCE_THRESHOLD = 144;
-export const FUSED_LEAF_RASTER_WORK_THRESHOLD = 128;
+export const FUSED_LEAF_RASTER_WORK_THRESHOLD = 144;
 export type HierarchicalWorkImplementation = "wavefront" | "fused-leaf";
 
 export interface HierarchicalWorkSceneDescriptor {

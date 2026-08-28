@@ -343,7 +343,7 @@ test("R3-D depth-zero fast path is static, same-ABI and diagnostics are opt-in",
   assert.equal(selectHierarchicalWorkImplementation({
     maxHierarchyDepth: 0,
     instanceCount: 144,
-    rasterWorkCapacity: 129
+    rasterWorkCapacity: 145
   }), "wavefront");
   assert.equal(selectHierarchicalWorkImplementation({
     maxHierarchyDepth: 0,
@@ -358,7 +358,7 @@ test("R3-D depth-zero fast path is static, same-ABI and diagnostics are opt-in",
     maxHierarchyDepth: 0,
     traversalWorkCapacity: 144,
     visibleClusterCapacity: 144,
-    rasterWorkCapacity: 127
+    rasterWorkCapacity: 144
   });
   const prepared = generator.prepare(scene, {
     sseThreshold: 1,
