@@ -47,15 +47,16 @@
 - 生产 Packed Visibility 现执行 InstanceCull → Cluster hierarchy/Frustum/SSE/Cone/previous-HZB → VisibleCluster → RasterWork → GPU 写完整 16 B indirect record → Hardware `drawIndirect()`，数量不经 CPU readback。Material 每 semantic 只扫描一次 descriptor，使用解析 perspective UV gradient 并修正重复 viewport、镜像/非均匀 normal-tangent；Velocity 已删除每可见像素 `mat4_inverse`。稳定帧不重复 residency/instantiate。
 - package 主路径不创建等量 `Mesh/Node3D`，也不创建 legacy `MeshletGpuTable`；旧 Geometry owner 改为 legacy Scene consumer 请求时惰性创建。普通对象、旧 Loader、shadow/transparent 等尚未迁移 consumer 仍保留旧路径，后续按 R3/R4/R5 迁移删除，不能解释为 Packed 主路径双 owner。
 - R3-A 已完成 CPU/ABI 冻结：multi-instance world-space selector 覆盖完整 Instance transform、透视/正交、Frustum、near-plane、parent/child 与容量 fallback；Work ABI 为 Traversal 8 B、VisibleCluster 16 B、Raster 8 B、Queue header 32 B，并冻结完整 12 B dispatch/16 B draw indirect records。`maxCutMeshlets` 已与固定随机树全部合法 cut 穷举对照。
-- R3-B 已完成 GPU selected-set producer：`HierarchicalWorkGenerator` 读取 R2 resident Instance/Geometry/Cluster/children tables，执行 InstanceCull → RootTraversalQueue → ping/pong indirect Cluster Frustum + SSE，并输出 VisibleCluster。owner 管理 root/ping/pong/selected/dispatch/evidence/view resources，不创建私有 submit。R2 BVH8 仍因缺少 parent/descendant cut 语义而不进入 R3 v1 热路径。
+- R3-B 的历史 GPU selected-set producer已由 R3-D 收口为 fused InstanceCull + root Cluster → 可选 ping/pong traversal → VisibleCluster；旧 RootTraversalQueue 已删除。owner 管理 traversal/selected/raster/dispatch、sampled evidence 与 view 资源，不创建私有 submit。R2 BVH8 仍因缺少 parent/descendant cut 语义而不进入 R3 v1 热路径。
 - `examples/r3-hierarchical-work-generation` 的 live WebGPU 结果为 `passed=true`：Perspective 68、Orthographic 16、empty 0、capacity parent fallback 3 个 selected Cluster，GPU/CPU set 全部一致；pressure 首轮真实计数为 `attempted=6/written=0/overflow=1/fallback=3/capacity=1`，Shader/validation/uncaptured/console errors 均为空。
 - R3-C 已完成 GPU producer → GPU Hardware consumer 垂直闭环：VisibleCluster 展开为 RasterWork，GPU 写满 `[384, written, 0, 0]` 的 16 B record，生产 `PackedVisibilityPass` 直接消费；线性 workgroup 超过 65,535 时映射为二维 indirect dispatch。`NoHierarchy` tiny Geometry 以 runtime-only virtual leaf Cluster 归一化到同一 ABI，不改 R2 Package。
 - R3-C clean/full flat/hierarchy paired A/B/C 基于 clean commit `0b77ce8`：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 工作量相同但 hierarchy 多约 0.262 ms 固定成本。六组均无 overflow/WebGPU diagnostics，不能由此宣称 hierarchy 普遍更快。InstanceCull、round 0 和 expansion 是热点，但并非三个 `workgroup_size(1)` 阶段。
 - R3-D 代码/功能结构已完成：expansion 改为每 selected Cluster 一个 64-lane workgroup且一次预约；Cone 使用 meshoptimizer 公式并对 mirrored/non-uniform/shear fail-open；previous HZB 使用上一帧 camera 与 Instance motion 变换做 Niagara reverse-Z 保守投影，MotionInvalid/无效 history fail-open；Work Queue ABI v2 输出真实 `visitedBvhNodes/rejectedCone/rejectedHzb`；Packed flat shader/mode/owner 全部删除。
 - R3-D 自动证据已扩展为 OEngine `npm test` 162/162 与 examples build；live GPU/CPU oracle 页面为 `passed=true`，Perspective、Perspective + empty previous HZB、Orthographic、empty、capacity pressure、depth-zero fused-leaf 六组的 VisibleCluster、RasterWork 和完整 16 B indirect record 全部一致，Shader/validation/uncaptured diagnostics 为空。
 - R3-D clean/full A/B/C after 已在 clean commit `1f3a2d7` 上由浏览器采集：NVIDIA Turing、Chrome 150、1280×720、DPR 1、60 warm-up + 180 sample。三组均 `dirty=false`、`gateEligible=true`、`counterIssues=0`、`queueOverflowMask=0`，WebGPU validation/uncaptured/device-lost/timestamp/counter diagnostics 全为 0；`capabilityComplete=false` 只来自诚实的 `VIS-05` Software Visibility blocker。
-- 64-lane RasterWork expansion 的 P50 从 A/B/C 的 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms，局部优化成立；但 G3 performance 仍被 A 的 Visibility P95 124.95 ms（相对历史 flat 约回退 15.3%）和 C 的约 0.262 ms 低密度固定成本/P95 0.495 ms 阻塞。B 的 Visibility P50 18.48 ms，相对历史 flat 仍改善约 65.4%，且真实 `rejectedCone=16`、`rejectedHzb=40` 证明两条 reject 分支已在生产 Renderer 执行。
-- `R3-D-08/09` 的代码已落地：InstanceCull 与 root Cluster 判定融合；root/traversal children 与 SelectedCluster 使用 workgroup-local compaction；queue evidence/counter 改为 sampled/opt-in；depth-zero 且不超过 `144 instances / 144 RasterWork capacity` 时使用同 ABI fused-leaf 单 Pass。第一轮 clean C 发现阈值曾把 127 emitted work 错当静态 capacity、导致 fast path 未命中；现已修正，最终 clean/full A/B/C 尚待重采，因此 G3 performance 仍未关闭。
+- commit `1f3a2d7` 的历史 after 曾证明 64-lane expansion 局部优化成立，但当时仍被 A P95 124.95 ms 和 C P95 0.495 ms 阻塞；真实 `rejectedCone=16`、`rejectedHzb=40` 也证明两条 reject 分支已在生产 Renderer 执行。该历史 blocker 已由下一条 `aff3ab8` 结果关闭，不能再解释为当前状态。
+- `R3-D-08/09` 与 G3 performance 已关闭。clean commit `aff3ab8` 的 A/B/C full 全部 `dirty=false`、`gateEligible=true`、zero counter issue/overflow/WebGPU diagnostics；Visibility P50/P95/P99 分别为 A `16.777/17.511/18.234 ms`、B `11.534/11.665/11.758 ms`、C `0/0.066/0.066 ms`。A/B 运行 wavefront + fused-root，C 真实命中 fused-leaf；RasterWork 保持 `273,750 / ≈281,191 / 127`，没有以漏绘换性能。
+- sampled contention counter 已保存 root/traversal reservation、dispatch update 与 CAS retry。A 的 CAS retry P50 仍为 18,428，但 Producer P50/P95 只有 `6.291/7.120 ms`，因此登记为更大 workload 的后续 profile 风险，不继续阻塞 G3。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
 - 没有正式冻结的 frame-local VisibilityKey/VisibleCluster lookup 契约。
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
@@ -67,9 +68,9 @@
 
 ## 当前下一步
 
-1. 在本次实现提交后重跑 clean/full A/B/C，记录 Producer、Hardware Raster、Visibility total P50/P95/P99、四个 contention counter、implementation、RasterWork 与全部 Gate diagnostics。
-2. 只有 A P95 不再相对历史 flat 回退、C 固定成本被消除、B 不明显退化时，才关闭 `R3-D-08/09` 与 G3 performance；否则保留精确剩余 blocker。
-3. G3 performance 完成后进入 R4-A Visibility contract；随后是 R4-B single Material Resolve、R4-C 可选 SW/Hybrid。
+1. 进入 R4-A Visibility contract：冻结 frame-local VisibilityKey、depth/lookup、alpha-tested 分类、overflow/fallback 与 Hardware consumer 正确性。
+2. 随后进入 R4-B single Material Resolve，删除当前每材质 fullscreen Material Expand；再以 profile 决定 R4-C 可选 SW/Hybrid。
+3. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；G3 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
 
 ## 本地参考状态
 

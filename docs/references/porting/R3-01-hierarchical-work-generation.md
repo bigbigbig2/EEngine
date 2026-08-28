@@ -1,6 +1,6 @@
 # R3-01 · Cluster hierarchy GPU work generation
 
-Status: R3-A/R3-B/R3-C 已完成；R3-D-08/09 代码与 live correctness 已完成，等待 clean/full A/B/C 关闭 G3 performance
+Status: R3-A/R3-B/R3-C/R3-D Completed；G3 functional + performance Completed
 
 Reference ID: `R3-01`
 
@@ -255,7 +255,7 @@ R3-C clean/full paired 证据已于 2026-08-28 基于 commit `0b77ce8cf67e110aef
 
 R3-D 没有采用 Prefix Scan：当前 Cluster meshlet count 有界，lane-0 每 Cluster 一次 all-or-nothing atomic reservation 保留已有 ABI/fallback，且不增加 scan/scatter buffer 与 dispatch。clean/full after 已证明该选择把 A/B/C expansion P50 从 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms；但它没有关闭总时间 Gate，A P95 长尾与 C 低密度固定成本仍由 `R3-D-08/09` 处理。完整分位数和采集条件见 [05 实施文档](../../implementation/05-hierarchical-work-generation.md) 与 [PERFORMANCE](../../PERFORMANCE.md)。
 
-R3-D-08/09 的 dirty tuning probe 只用于冻结实现选择，不作为 Gate artifact：B smoke 中 root 全局预约从 76 降为 4、traversal 预约从 244 降至约 51、CAS retry 从约 7392 降为 0，hierarchy phase P50 从约 1.114 ms 降至约 0.918 ms；C full 的 fused-leaf 相对 forced-wavefront 删除两个固定 Compute Pass，总 GPU frame P50/P95 从约 0.524/0.590 ms 降至约 0.459/0.495 ms。最终结论只认提交后的 clean/full A/B/C。
+R3-D-08/09 的 dirty tuning probe 只用于冻结实现选择，不作为 Gate artifact。最终 Gate 基于 clean commit `aff3ab8`：A/B/C Visibility P50/P95/P99 分别为 `16.777/17.511/18.234`、`11.534/11.665/11.758`、`0/0.066/0.066 ms`；三组均 clean/gate eligible/zero overflow/WebGPU diagnostics，C Pass label 证明真实命中 fused-leaf。A 的 sampled CAS retry 仍高，但 Producer P95 已通过；保留 counter 供后续更大 workload 调查，不因此引入无证据 Prefix Scan。
 
 ## Fallback 与失败行为
 
@@ -281,8 +281,7 @@ R3-C live oracle: Perspective/Orthographic/empty/pressure 的 VisibleCluster、R
 R3-C paired complete: A/B/C 六组 clean/full JSON + `*-visual.png`，commit `0b77ce8`，`gateEligible=true`、zero counter issue/overflow/diagnostics
 R3-D structural complete: tests/hierarchy-occlusion-reference.test.mjs、ABI/source/deletion gates、OEngine npm test 161/161、examples build
 R3-D live complete: Cone/HZB production counters、GPU/CPU oracle、clean/full A/B/C hierarchy after artifact
-R3-D performance blocked: R3-D-08 A InstanceCull/round-0 P95；R3-D-09 C low-density fast path
-R3-D-08/09 implementation complete: fused root、workgroup-local compaction、sampled diagnostics、depth-zero fused-leaf；等待 clean/full A/B/C Gate
+R3-D-08/09 complete: fused root、workgroup-local compaction、sampled diagnostics、depth-zero fused-leaf；clean/full A/B/C Gate passed at aff3ab8
 ```
 
-R3-D 的生产代码、来源台账、CPU reference、counter/feature-off、flat 删除与 live 浏览器证据已关闭；`R3-D-08/09` 的实现也已落地，但提交后的 clean/full A/B/C 尚未重采。在该 artifact 证明 A P95 不再回退、C 固定成本被消除且 B 不明显退化前，不宣称 G3 performance complete。
+R3-D 的生产代码、来源台账、CPU reference、counter/feature-off、flat 删除、live 浏览器与 clean/full A/B/C 已关闭；`R3-D-08/09` 和 G3 performance complete。A/B 的 Software Visibility、精确上游资产/画质输入 blocker 仍属于后续产品 Gate，不因 G3 完成而消失。

@@ -34,7 +34,7 @@
   ],
   "currentLimitations": [
     "144 个实例已使用 typed-array Packed Instance Set；不构造等量 Mesh/Node3D",
-    "Hierarchy/SSE、Cluster cone 与 previous-frame HZB 已接生产 Hardware consumer；R3-D clean/full 性能重采仍待完成",
+    "Hierarchy/SSE、Cluster cone 与 previous-frame HZB 已接生产 Hardware consumer；R3-D/G3 已由 clean full A/B/C 关闭",
     "Compute software visibility 由 VIS-05 阻塞",
     "Packed Geometry 尚未进入 CSM shadow consumer；alpha-tested Visibility、single Material Resolve 与 temporal 扩展轴属于后续 gate"
   ]

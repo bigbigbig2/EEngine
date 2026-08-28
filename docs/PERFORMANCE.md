@@ -129,6 +129,34 @@ live `examples/r3-hierarchical-work-generation` 已通过：Perspective/Orthogra
 
 因此当前状态是“R3-D live correctness complete；G3 functional complete；G3 performance blocked”。artifact 位于 `temp/r3d-1f3a2d7-clean-artifacts/`，其中 A/B/C 各有 clean full JSON 与 PNG；`temp/` 不纳入 Git。下一轮必须针对 A InstanceCull/round-0 P95 和 C 低密度固定成本做单变量优化并重跑同条件 paired，不得恢复 CPU draw list、运行时 flat owner 或 benchmark 专用管线。
 
+## R3-D-08/09 fused-root、compaction 与低密度收口
+
+2026-08-28 在 clean commit `aff3ab8fb33e29a31243bedde55f68fdb9b26964` 上完成最终 A/B/C full。环境继续固定为 NVIDIA Turing、Chrome 150、1280×720、DPR 1、60 warm-up + 180 sample，timestamp/counter 每 6 帧采样。三组均为 `dirty=false`、`gateEligible=true`、`counterIssues=0`、`queueOverflowMask=0`，validation/uncaptured/device-lost/failed timestamp/failed counter diagnostics 全为 0；`capabilityComplete=false` 只来自合法的 `VIS-05` Software Visibility blocker，不影响 G3 Hardware 工作生成 Gate。
+
+本轮把 InstanceCull 与 root Cluster 判定融合；root/traversal children 与 SelectedCluster 先做 workgroup-local compaction，再由 lane 0 做全局有界预约；queue evidence 只在 sampled/opt-in 帧产生。depth-zero 且静态上界不超过 `144 instances / 144 RasterWork capacity` 时，单个 fused-leaf Pass 直接写 VisibleCluster、RasterWork 和完整 16 B indirect。第一轮 clean C 曾因把 127 emitted work 错当静态 capacity、阈值写成 128 而未命中；commit `aff3ab8` 已修正，并由最终 Pass label 证明真实运行 fused-leaf。
+
+时间为 P50/P95/P99，单位 ms；仍按每个采样帧先求 `Producer + Hardware Raster`，再跨帧计算分位数：
+
+| Case | Implementation | Producer | Hardware Raster | Visibility total | RasterWork P50 |
+|---|---|---:|---:|---:|---:|
+| A | wavefront + fused-root | 6.291 / 7.120 / 7.674 | 10.486 / 10.617 / 10.617 | 16.777 / 17.511 / 18.234 | 273,750 |
+| B | wavefront + fused-root | 1.180 / 1.180 / 1.226 | 10.355 / 10.486 / 10.579 | 11.534 / 11.665 / 11.758 | ≈281,191 |
+| C | fused-leaf | 0 / 0.066 / 0.066 | 0 / 0.066 / 0.066 | 0 / 0.066 / 0.066 | 127 |
+
+相对 clean commit `1f3a2d7` 的 R3-D after：A Visibility P50/P95 分别下降约 82.6%/86.0%，B 下降约 37.6%/38.3%，C 的 P50 量化为 0、P95 下降约 86.8%。相对 commit `0b77ce8` 保存的历史 flat：A P50/P95 下降约 84.4%/83.8%，B 下降约 78.4%/78.4%，C 的 P95 与 flat 同为一个 timestamp quantum，且输出仍是相同 127 RasterWork 与约 187,368 shaded pixels。没有通过减少输出工作或恢复 flat producer 获得结果。
+
+新增 sampled contention counter 的 P50/P95/P99：
+
+| Case | root reservations | traversal reservations | dispatch updates | CAS retries |
+|---|---:|---:|---:|---:|
+| A | 489 / 489 / 489 | 0 / 0 / 0 | 0 / 0 / 0 | 18,428 / 20,672 / 21,471 |
+| B | 100 / 100 / 100 | 52 / 53.55 / 54 | 33 / 34.55 / 35 | 465 / 608.6 / 651.17 |
+| C | 6 / 6 / 6 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 1.42 |
+
+A 的 CAS retry 仍高，说明 compact 后 SelectedCluster 全局有界预约仍存在竞争；但 reservation 数、Producer 总时间与 P95 Gate 已通过，因此它登记为后续更大规模 sweep 的可观测风险，不继续阻塞 G3，也不为追求 counter 为零引入 Prefix Scan/额外 Pass。若新 workload 出现长尾，再以同 ABI 单变量比较 atomic、scan 或分层 queue。
+
+正确性同时由 `examples/r3-hierarchical-work-generation` 六组 GPU/CPU oracle、完整 16 B indirect、capacity parent fallback、最终 C 正常画面与三组稳定 RasterWork/shadedPixels 证明。最终 JSON 位于 `temp/r3d-aff3ab8-clean-artifacts/`，`temp/` 不纳入 Git。由此 `R3-D-08`、`R3-D-09` 与 G3 performance 关闭；下一阶段进入 R4-A Visibility contract，不把 A/B 的 `COOK-11`、`VIS-05` 或 B 画质输入 blocker 伪装成已经完成。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。
