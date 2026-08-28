@@ -1,6 +1,6 @@
 # R3-01 · Cluster hierarchy GPU work generation
 
-Status: R3-A reference/ABI 已实现；R3-B～R3-D GPU 移植仍为 planned
+Status: R3-A reference/ABI 与 R3-B GPU selected-set producer 已实现；R3-C～R3-D 仍为 planned
 
 Reference ID: `R3-01`
 
@@ -77,6 +77,13 @@ R3-A 实际采用区段（2026-08-28）：
 - Instance transform 使用仓库已锁定的 `gl-matrix@3.4.4` `vec3.transformMat4`；正交 TRS 使用 Bevy 的最大轴长度，检测到 shear 时改用 Frobenius norm 保守上界；
 - 本阶段尚未移植 `aabb_in_frustum`、Cone 或 HZB WGSL；CPU oracle 使用 world-space sphere planes，R3-B 再与真实 GPU Shader 对齐。
 
+R3-B 实际采用区段（2026-08-28）：
+
+- `cull_instances.wgsl::cull_instances`：保留 Instance 阶段先产生 hierarchy root work、后续 GPU consumer 不由 CPU readback 决定数量的分段不变量；OEngine 改读 R2 `InstanceRecord`/`GeometryRecord`，输出 8 B TraversalWork。
+- `cull_bvh.wgsl::cull_bvh`：只保留按 hierarchy depth 编码 ping/pong indirect dispatch 的 wavefront 调度不变量；没有复制 Bevy BVH record、双端 queue、subgroup 或 native render graph。
+- `meshlet_cull_shared.wgsl::lod_error_is_imperceptible`：保留 Perspective/Orthographic、nearest sphere distance 与 conservative world scale 的 SSE 数学结构，并严格对齐 R3-A CPU oracle；OEngine 使用 vertical viewport height、OEngine matrix/clip 约定和 Cluster geometric error。
+- `HierarchicalWorkGenerator`、32 B queue header、children all-or-nothing reservation、parent fallback、owner/evidence 与 runtime-array `minBindingSize` 是 OEngine/WebGPU `reimplement`，不是 Bevy 表达性代码移植。
+
 ## Scthe/nanite-webgpu
 
 ```text
@@ -141,7 +148,7 @@ src/shaders/math.h
 
 OEngine/WebGPU adaptation：GLSL 数学先进入 CPU reference/property cases，再用 WGSL/OEngine matrix convention 独立实现；Cone 对 mirrored/non-uniform transform 在未通过 reference 前 fail-open；HZB 使用 R1 `rg16float` min/max previous history。
 
-R3-A 实际采用区段（2026-08-28）：`src/shaders/drawcull.comp.glsl:73-82` 的 sphere/Frustum signed-distance 判定作为数学依据。OEngine CPU oracle 按同一不变量独立实现，并允许输入未归一化 world-space plane，因此比较半径时显式乘 plane normal length；Niagara 的 Vulkan buffer、command 和 native 类型结构均未复制。
+R3-A/R3-B 实际采用区段（2026-08-28）：`src/shaders/drawcull.comp.glsl:73-82` 的 sphere/Frustum signed-distance 判定作为数学依据。OEngine CPU oracle 与 WGSL producer 按同一不变量独立实现，并允许输入未归一化 world-space plane，因此比较半径时显式乘 plane normal length；零法线且 `w >= 0` 表示 infinite-far disabled plane。Niagara 的 Vulkan buffer、command 和 native 类型结构均未复制。
 
 ## AnKi 3D Engine
 
@@ -210,9 +217,11 @@ R3-A complete: tests/geometry-hierarchy-r3a.test.mjs
 R3-A complete: tests/gpu-work-generation-abi.test.mjs
 R3-A complete: multi-instance selector、64 fixed random-tree legal-cut enumeration、reservation property tests
 R3-A complete: TS/WGSL queue ABI and complete 12 B dispatch / 16 B draw indirect layouts
-R3-B planned: GPU ping-pong/empty rounds、selected-set readback
-Vertical: examples/r3-hierarchical-work-generation
+R3-B complete: tests/hierarchical-work-generator.test.mjs（owner、真实 depth rounds、feature-off、runtime-array binding size）
+R3-B complete: examples/r3-hierarchical-work-generation（live GPU ping/pong、empty rounds、capacity fallback、GPU/CPU selected-set）
+R3-B live: Perspective 68、Orthographic 16、empty 0、pressure fallback 3；shader/validation/uncaptured/console errors 均为空
+R3-C planned: VisibleCluster → RasterWork → complete drawIndirect → Hardware Visibility consumer
 Performance: fixed A/B/C flat-vs-hierarchy paired artifacts
 ```
 
-只有标为 complete 的 R3-A 条目已有本地证据；GPU、Vertical 和 Performance 条目仍为 planned，不得写成已通过。
+只有标为 complete 的 R3-A/R3-B 条目已有本地证据；R3-B readback 只属于测试 consumer。Hardware Vertical 和 Performance 条目仍为 planned，不得写成已通过或把 G3 标记完成。

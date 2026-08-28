@@ -46,8 +46,10 @@
 - R2 provenance 清算已补齐 Packed glTF 的 Khronos 规范台账与 multi-primitive/material/nested-transform fixture；Packed Material 的 glTF 8/16 位 normalized 与 OEngine 32 位扩展 CPU/WGSL 边界也已冻结。flat Visibility 与每材质 fullscreen 仍分别由 R3/R4-B 替换。
 - Packed Visibility 执行 Instance frustum cull → flat Meshlet compact → GPU 写完整 16 B indirect record → Hardware `drawIndirect()`；共享 Geometry 的 capacity 按实例精确累加，storage/u32 limit 在 owner 变更前拒绝。Material 每 semantic 只扫描一次 descriptor，使用解析 perspective UV gradient 并修正重复 viewport、镜像/非均匀 normal-tangent；Velocity 已删除每可见像素 `mat4_inverse`。稳定帧不重复 residency/instantiate，也不由 CPU readback 决定 draw。
 - package 主路径不创建等量 `Mesh/Node3D`，也不创建 legacy `MeshletGpuTable`；旧 Geometry owner 改为 legacy Scene consumer 请求时惰性创建。普通对象、旧 Loader、shadow/transparent 等尚未迁移 consumer 仍保留旧路径，后续按 R3/R4/R5 迁移删除，不能解释为 Packed 主路径双 owner。
-- 没有 GPU Cluster hierarchy traversal 或 SSE LOD；现有路径仍先展开大量 flat Meshlet 工作。R2 BVH8 已正确生成/驻留，但它独立索引所有 LOD Cluster、没有 parent/descendant 互斥 cut 语义，按 ADR-0009 不进入 R3 v1 热路径。
-- R3-A 已完成 CPU/ABI 冻结：multi-instance world-space selector 覆盖完整 Instance transform、透视/正交、Frustum、near-plane、parent/child 与容量 fallback；Work ABI 为 Traversal 8 B、VisibleCluster 16 B、Raster 8 B、Queue header 32 B，并冻结完整 12 B dispatch/16 B draw indirect records。`maxCutMeshlets` 已与固定随机树全部合法 cut 穷举对照；这些是 reference/schema 证据，不是 GPU producer 已接线。
+- R3-A 已完成 CPU/ABI 冻结：multi-instance world-space selector 覆盖完整 Instance transform、透视/正交、Frustum、near-plane、parent/child 与容量 fallback；Work ABI 为 Traversal 8 B、VisibleCluster 16 B、Raster 8 B、Queue header 32 B，并冻结完整 12 B dispatch/16 B draw indirect records。`maxCutMeshlets` 已与固定随机树全部合法 cut 穷举对照。
+- R3-B 已完成独立 GPU selected-set producer：`HierarchicalWorkGenerator` 读取 R2 resident Instance/Geometry/Cluster/children tables，执行 InstanceCull → RootTraversalQueue → ping/pong indirect Cluster Frustum + SSE，并输出 VisibleCluster。owner 管理 root/ping/pong/selected/dispatch/evidence/view resources，不创建私有 submit；Cone/HZB/SW feature-off resources 均为 0。R2 BVH8 仍因缺少 parent/descendant cut 语义而不进入 R3 v1 热路径。
+- `examples/r3-hierarchical-work-generation` 的 live WebGPU 结果为 `passed=true`：Perspective 68、Orthographic 16、empty 0、capacity parent fallback 3 个 selected Cluster，GPU/CPU set 全部一致；pressure 首轮真实计数为 `attempted=6/written=0/overflow=1/fallback=3/capacity=1`，Shader/validation/uncaptured/console errors 均为空。
+- R3-B 尚未生成 RasterWork，也没有接入生产 Hardware `drawIndirect()` consumer；当前生产 Packed Visibility 仍先展开 flat Meshlet。R3-B readback 只用于测试证据，不能被主帧用于决定 draw；R3-C 才负责 GPU producer → GPU Hardware consumer 的垂直闭环和 paired A/B/C。
 - 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
 - 没有正式冻结的 frame-local VisibilityKey/VisibleCluster lookup 契约。
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
@@ -59,7 +61,7 @@
 
 ## 当前下一步
 
-1. R2/G2 与 R3-A 已完成。当前代码任务是 R3-B：读取 R2 已驻留的 Instance/Geometry/Cluster hierarchy 数据，实现 InstanceCull → RootTraversalQueue → ping/pong GPU root→children/Frustum/SSE，并把 selected set 与 R3-A CPU oracle 对齐。当前 BVH8 暂不参与首版运行 traversal。
+1. R2/G2 与 R3-A/R3-B 已完成。当前代码任务是 R3-C：把 VisibleCluster 展开为 RasterWork，GPU 写完整 16 B `drawIndirect` record，并让现有 Packed Hardware Visibility consumer 直接消费；同时运行相同输入的 flat/hierarchy paired A/B/C。当前 BVH8 暂不参与首版运行 traversal。
 2. R3 关闭后依次推进 R4-A Visibility contract、R4-B single Material Resolve、R4-C 可选 SW/Hybrid；Packed alpha-tested Visibility、Packed shadow consumer 与画质管线按各自 Gate 验收，不倒灌回 R2。
 
 ## 本地参考状态

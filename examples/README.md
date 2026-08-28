@@ -14,6 +14,7 @@ examples/
 ├─ r2-geometry-package/    # 完整 hierarchy/BVH8/streams/material package
 ├─ r2-gpu-residency/       # package → compact GPU records → Hardware indirect
 ├─ r2-packed-scene/        # Packed Instance/Geometry 双 binding 纵切
+├─ r3-hierarchical-work-generation/ # Cluster hierarchy GPU selected-set
 ├─ benchmark-shared/       # A/B/C manifest、fixture 与统一 runner
 ├─ benchmark-a/            # 160k Teapot 最低线
 ├─ benchmark-b/            # 15,625 Helmet PBR/IBL 最低线
@@ -37,6 +38,7 @@ examples/
 - [r2-geometry-package](./r2-geometry-package/README.md)：验证可绘制层次/error、未量化保守 BVH8、未压缩 streams/material、完整 validator、CPU selector 与纯 package reopen。
 - [r2-gpu-residency](./r2-gpu-residency/README.md)：验证 package residency、紧凑 Geometry/Cluster/Meshlet records、GPU readback 和 Hardware `drawIndirect()` consumer。
 - [r2-packed-scene](./r2-packed-scene/README.md)：验证 1k/10k/100k Packed Instances、显式 patch、previous-from-current、stable-frame 与 Instance + Geometry Hardware consumer。
+- [r3-hierarchical-work-generation](./r3-hierarchical-work-generation/README.md)：验证 R2 resident tables 上的 InstanceCull、Cluster Frustum/SSE、ping/pong indirect rounds、容量 fallback 与 CPU/GPU selected-set 对齐。
 - [benchmark-shared](./benchmark-shared/README.md)：A/B/C 的冻结输入、正式/烟雾 profile、资产归属和统一验收方法。三个页面默认使用 `?profile=smoke` 开发链接；无查询参数才加载完整实例数量。
 
 在本目录运行 `npm install` 后，可用 `npm run dev:host` 启动全部示例；`npm run build` 同时执行类型检查和生产构建。Teapot 输入由 `npm run generate:benchmark-assets` 从本地 three.js revision 确定性再生。

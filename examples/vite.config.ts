@@ -70,6 +70,10 @@ export default defineConfig({
           examplesRoot,
           "r2-packed-scene/index.html"
         ),
+        r3HierarchicalWorkGeneration: path.resolve(
+          examplesRoot,
+          "r3-hierarchical-work-generation/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

@@ -89,16 +89,16 @@ ${GPU_RASTER_WORK_SCHEMA.wgsl}
 ${GPU_WORK_QUEUE_HEADER_SCHEMA.wgsl}
 
 fn oengine_atomic_saturating_add_u32(
-  target: ptr<storage, atomic<u32>, read_write>,
+  atomic_value: ptr<storage, atomic<u32>, read_write>,
   value: u32
 ) {
-  var observed = atomicLoad(target);
+  var observed = atomicLoad(atomic_value);
   loop {
     if (value == 0u || observed == 0xffffffffu) {
       return;
     }
     let next = observed + min(value, 0xffffffffu - observed);
-    let result = atomicCompareExchangeWeak(target, observed, next);
+    let result = atomicCompareExchangeWeak(atomic_value, observed, next);
     if (result.exchanged) {
       return;
     }
@@ -207,6 +207,62 @@ export function packWorkQueueHeader(
     0,
     0
   ], GPU_WORK_QUEUE_HEADER_SCHEMA.stride, "work queue header");
+}
+
+export function unpackWorkQueueHeader(
+  bytes: Uint8Array,
+  byteOffset = 0
+): Readonly<WorkQueueReservationState> {
+  assertByteRange(
+    bytes,
+    byteOffset,
+    GPU_WORK_QUEUE_HEADER_SCHEMA.stride,
+    "work queue header"
+  );
+  const view = new DataView(
+    bytes.buffer,
+    bytes.byteOffset + byteOffset,
+    GPU_WORK_QUEUE_HEADER_SCHEMA.stride
+  );
+  const state: WorkQueueReservationState = {
+    written: view.getUint32(0, true),
+    attempted: view.getUint32(4, true),
+    peak: view.getUint32(8, true),
+    overflow: view.getUint32(12, true),
+    fallback: view.getUint32(16, true),
+    capacity: view.getUint32(20, true)
+  };
+  validateReservationState(state);
+  return Object.freeze(state);
+}
+
+export function unpackVisibleClusterRecords(
+  bytes: Uint8Array,
+  count: number,
+  byteOffset = GPU_WORK_QUEUE_HEADER_SCHEMA.stride
+): readonly VisibleClusterRecordCpu[] {
+  assertU32(count, "VisibleCluster record count");
+  const byteLength = count * GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride;
+  if (!Number.isSafeInteger(byteLength)) {
+    throw new RangeError("VisibleCluster record byte length is invalid");
+  }
+  assertByteRange(bytes, byteOffset, byteLength, "VisibleCluster records");
+  const view = new DataView(
+    bytes.buffer,
+    bytes.byteOffset + byteOffset,
+    byteLength
+  );
+  const records: VisibleClusterRecordCpu[] = [];
+  for (let index = 0; index < count; index++) {
+    const base = index * GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride;
+    records.push(Object.freeze({
+      instanceRecordIndex: view.getUint32(base, true),
+      geometryRecordIndex: view.getUint32(base + 4, true),
+      clusterRecordIndex: view.getUint32(base + 8, true),
+      materialHandle: view.getUint32(base + 12, true)
+    }));
+  }
+  return Object.freeze(records);
 }
 
 export function packDispatchIndirectArgs(
@@ -333,6 +389,23 @@ function validateReservationState(state: Readonly<WorkQueueReservationState>): v
   assertU32(state.fallback, "Work queue fallback");
   if (state.written > state.capacity || state.peak < state.written) {
     throw new RangeError("Work queue reservation state is inconsistent");
+  }
+}
+
+function assertByteRange(
+  bytes: Uint8Array,
+  byteOffset: number,
+  byteLength: number,
+  label: string
+): void {
+  if (
+    !Number.isSafeInteger(byteOffset) ||
+    !Number.isSafeInteger(byteLength) ||
+    byteOffset < 0 ||
+    byteLength < 0 ||
+    byteOffset + byteLength > bytes.byteLength
+  ) {
+    throw new RangeError(`${label} byte range is invalid`);
   }
 }
 

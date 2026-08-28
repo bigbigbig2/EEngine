@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 69,
+  "shaderCount": 70,
   "summary": {
-    "authored-live": 58,
+    "authored-live": 59,
     "unknown": 6,
     "dead": 5
   },
@@ -180,6 +180,23 @@
         "src/gpu/LightProbeGBufferPass.ts",
         "src/render/passes/PackedMaterialExpandPass.ts",
         "src/render/passes/TransparentOitPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/hierarchical_work_generation.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/HierarchicalWorkGenerator.ts"
+      ],
+      "runtimeConsumers": [
+        "src/render/HierarchicalWorkGenerator.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/HierarchicalWorkGenerator.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -352,6 +369,7 @@
         "src/index.ts",
         "src/render/FrameCoordinator.ts",
         "src/render/GPUCameraState.ts",
+        "src/render/HierarchicalWorkGenerator.ts",
         "src/render/HierarchicalZBuffer.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/AutomaticExposurePass.ts",
@@ -641,6 +659,7 @@
         "src/index.ts",
         "src/render/FrameCoordinator.ts",
         "src/render/GPUCameraState.ts",
+        "src/render/HierarchicalWorkGenerator.ts",
         "src/render/HierarchicalZBuffer.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/AutomaticExposurePass.ts",
@@ -754,6 +773,7 @@
         "src/index.ts",
         "src/render/FrameCoordinator.ts",
         "src/render/GPUCameraState.ts",
+        "src/render/HierarchicalWorkGenerator.ts",
         "src/render/HierarchicalZBuffer.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/AutomaticExposurePass.ts",
@@ -1256,6 +1276,7 @@
         "src/index.ts",
         "src/render/FrameCoordinator.ts",
         "src/render/GPUCameraState.ts",
+        "src/render/HierarchicalWorkGenerator.ts",
         "src/render/HierarchicalZBuffer.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/AutomaticExposurePass.ts",

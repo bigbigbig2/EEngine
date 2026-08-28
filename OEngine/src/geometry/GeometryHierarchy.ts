@@ -465,40 +465,7 @@ export function computeGeometryMaxCutMeshlets(
     assertU32(asset.meshlets.length, "Geometry Meshlet count");
     return asset.meshlets.length;
   }
-  const root = asset.directory.clusterRoot;
-  if (!Number.isInteger(root) || root < 0 || root >= asset.clusters.length) {
-    throw new RangeError(`Geometry Cluster root ${root} is out of bounds`);
-  }
-  const state = new Uint8Array(asset.clusters.length);
-  const memo = new Float64Array(asset.clusters.length);
-  const visit = (clusterIndex: number): number => {
-    if (state[clusterIndex] === 1) {
-      throw new Error(`Geometry hierarchy contains a cycle at Cluster ${clusterIndex}`);
-    }
-    if (state[clusterIndex] === 2) return memo[clusterIndex]!;
-    const cluster = asset.clusters[clusterIndex];
-    if (cluster === undefined) {
-      throw new RangeError(`Cluster ${clusterIndex} is out of bounds`);
-    }
-    state[clusterIndex] = 1;
-    assertU32(cluster.meshletCount, `Cluster ${clusterIndex} Meshlet count`);
-    let childCutMeshlets = 0;
-    validateChildren(asset, clusterIndex, cluster);
-    for (let child = 0; child < cluster.childCount; child++) {
-      const childIndex = asset.clusterChildren[cluster.childBegin + child]!;
-      childCutMeshlets = addU32(
-        childCutMeshlets,
-        visit(childIndex),
-        `Cluster ${clusterIndex} child cut Meshlet count`
-      );
-    }
-    const result = Math.max(cluster.meshletCount, childCutMeshlets);
-    assertU32(result, `Cluster ${clusterIndex} max-cut Meshlet count`);
-    memo[clusterIndex] = result;
-    state[clusterIndex] = 2;
-    return result;
-  };
-  return visit(root);
+  return analyzeGeometryHierarchy(asset).maxCutMeshlets;
 }
 
 export function computePackedMaxCutMeshlets(
@@ -513,6 +480,151 @@ export function computePackedMaxCutMeshlets(
     );
   }
   return total;
+}
+
+export interface GeometryHierarchyWorkCapacity {
+  readonly rootTraversalCapacity: number;
+  readonly traversalWorkCapacity: number;
+  readonly visibleClusterCapacity: number;
+  readonly rasterWorkCapacity: number;
+  /** Zero-based deepest reachable Cluster depth. */
+  readonly maxHierarchyDepth: number;
+}
+
+/**
+ * Exact safe capacities for one or more complete hierarchy instances.
+ *
+ * Traversal capacity is the largest combined breadth at any depth. Selected
+ * Cluster and RasterWork capacities are the largest legal parent/children-
+ * exclusive cuts. This is preparation/tool work and is never run per frame.
+ */
+export function computePackedHierarchyWorkCapacity(
+  instances: readonly Pick<GeometryHierarchyInstanceReference, "asset">[]
+): GeometryHierarchyWorkCapacity {
+  assertU32(instances.length, "Hierarchy instance count");
+  const cached = new Map<GeometryAssetPackage, GeometryHierarchyAnalysis>();
+  const combinedDepthWidths: number[] = [];
+  let visibleClusterCapacity = 0;
+  let rasterWorkCapacity = 0;
+  let maxHierarchyDepth = 0;
+  for (const instance of instances) {
+    let analysis = cached.get(instance.asset);
+    if (analysis === undefined) {
+      analysis = analyzeGeometryHierarchy(instance.asset);
+      cached.set(instance.asset, analysis);
+    }
+    visibleClusterCapacity = addU32(
+      visibleClusterCapacity,
+      analysis.maxCutClusters,
+      "Packed VisibleCluster capacity"
+    );
+    rasterWorkCapacity = addU32(
+      rasterWorkCapacity,
+      analysis.maxCutMeshlets,
+      "Packed RasterWork capacity"
+    );
+    maxHierarchyDepth = Math.max(maxHierarchyDepth, analysis.maxDepth);
+    for (let depth = 0; depth < analysis.depthWidths.length; depth++) {
+      combinedDepthWidths[depth] = addU32(
+        combinedDepthWidths[depth] ?? 0,
+        analysis.depthWidths[depth]!,
+        `Packed traversal depth ${depth} capacity`
+      );
+    }
+  }
+  const traversalWorkCapacity = combinedDepthWidths.reduce(
+    (maximum, width) => Math.max(maximum, width),
+    0
+  );
+  return Object.freeze({
+    rootTraversalCapacity: instances.length,
+    traversalWorkCapacity,
+    visibleClusterCapacity,
+    rasterWorkCapacity,
+    maxHierarchyDepth
+  });
+}
+
+interface GeometryHierarchyAnalysis {
+  readonly maxCutClusters: number;
+  readonly maxCutMeshlets: number;
+  readonly maxDepth: number;
+  readonly depthWidths: readonly number[];
+}
+
+function analyzeGeometryHierarchy(
+  asset: GeometryAssetPackage
+): GeometryHierarchyAnalysis {
+  if (asset.clusters.length === 0) {
+    throw new Error("R3 hierarchy capacity requires at least one Cluster");
+  }
+  const root = asset.directory.clusterRoot;
+  if (!Number.isInteger(root) || root < 0 || root >= asset.clusters.length) {
+    throw new RangeError(`Geometry Cluster root ${root} is out of bounds`);
+  }
+  const state = new Uint8Array(asset.clusters.length);
+  const depthWidths: number[] = [];
+  let maxDepth = 0;
+  const visit = (
+    clusterIndex: number,
+    expectedDepth: number
+  ): Readonly<{ clusters: number; meshlets: number }> => {
+    if (state[clusterIndex] === 1) {
+      throw new Error(`Geometry hierarchy contains a cycle at Cluster ${clusterIndex}`);
+    }
+    if (state[clusterIndex] === 2) {
+      throw new Error(`Geometry hierarchy shares Cluster ${clusterIndex} between parents`);
+    }
+    const cluster = asset.clusters[clusterIndex];
+    if (cluster === undefined) {
+      throw new RangeError(`Cluster ${clusterIndex} is out of bounds`);
+    }
+    if (cluster.depth !== expectedDepth) {
+      throw new Error(
+        `Cluster ${clusterIndex} depth ${cluster.depth} does not match ${expectedDepth}`
+      );
+    }
+    state[clusterIndex] = 1;
+    depthWidths[expectedDepth] = addU32(
+      depthWidths[expectedDepth] ?? 0,
+      1,
+      `Geometry traversal depth ${expectedDepth} width`
+    );
+    maxDepth = Math.max(maxDepth, expectedDepth);
+    assertU32(cluster.meshletCount, `Cluster ${clusterIndex} Meshlet count`);
+    validateChildren(asset, clusterIndex, cluster);
+    let childCutClusters = 0;
+    let childCutMeshlets = 0;
+    for (let child = 0; child < cluster.childCount; child++) {
+      const childIndex = asset.clusterChildren[cluster.childBegin + child]!;
+      const childCut = visit(childIndex, expectedDepth + 1);
+      childCutClusters = addU32(
+        childCutClusters,
+        childCut.clusters,
+        `Cluster ${clusterIndex} child cut Cluster count`
+      );
+      childCutMeshlets = addU32(
+        childCutMeshlets,
+        childCut.meshlets,
+        `Cluster ${clusterIndex} child cut Meshlet count`
+      );
+    }
+    state[clusterIndex] = 2;
+    return {
+      clusters: Math.max(1, childCutClusters),
+      meshlets: Math.max(cluster.meshletCount, childCutMeshlets)
+    };
+  };
+  const cut = visit(root, 0);
+  if (state.some((value) => value === 0)) {
+    throw new Error("Geometry hierarchy contains an unreachable Cluster");
+  }
+  return Object.freeze({
+    maxCutClusters: cut.clusters,
+    maxCutMeshlets: cut.meshlets,
+    maxDepth,
+    depthWidths: Object.freeze(depthWidths)
+  });
 }
 
 interface WorldSphere {
@@ -672,8 +784,13 @@ function validateHierarchyView(view: GeometryHierarchyView): void {
     if (plane.length !== 4 || !plane.every(Number.isFinite)) {
       throw new RangeError(`frustumPlanes[${index}] must contain four finite values`);
     }
-    if (Math.hypot(plane[0], plane[1], plane[2]) === 0) {
-      throw new RangeError(`frustumPlanes[${index}] must have a non-zero normal`);
+    if (
+      Math.hypot(plane[0], plane[1], plane[2]) === 0 &&
+      plane[3] < 0
+    ) {
+      throw new RangeError(
+        `frustumPlanes[${index}] disabled plane must have non-negative W`
+      );
     }
   }
   if (view.kind === "perspective") {

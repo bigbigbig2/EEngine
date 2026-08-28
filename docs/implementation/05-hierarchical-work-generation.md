@@ -1,6 +1,6 @@
 # 05 · R3 层次工作生成与 Hardware Consumer
 
-Status: R3-A Completed；R3-B～R3-D 尚未实现
+Status: R3-A、R3-B Completed；R3-C～R3-D 尚未实现
 
 长期决策见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md)，上游来源、许可证与采用边界见 [R3-01 移植登记](../references/porting/R3-01-hierarchical-work-generation.md)。本文件只拥有执行顺序、工程契约、验证和删除条件。
 
@@ -333,6 +333,18 @@ R3 只拆成四个可运行包；包内可以有提交，但不得把“类存�
 5. GPU selected Cluster set 的测试 readback 与 CPU reference 对齐。
 
 退出证据：透视/正交、多 Instance/Geometry、非均匀/镜像 scale、near-plane、空 queue 和小 capacity case 通过；每轮 attempted/written/peak/overflow/fallback 为真实 producer 值；此时可以保留测试 consumer，但不能把孤立 selected buffer 写成 G3 完成。
+
+当前状态（2026-08-28）：Completed。
+
+- `HierarchicalWorkGenerator` 是 root、ping/pong traversal、VisibleCluster、dispatch args、view uniform 与 evidence buffer 的唯一 owner；`prepare()` 负责拓扑容量，`encode()` 只向调用方 encoder 编码，不创建私有 submit/readback。
+- InstanceCull 从 R2 resident Instance/Geometry 表产生 RootTraversalQueue；随后按 Prepared Scene 的真实最大深度编码 ping/pong `dispatchWorkgroupsIndirect`，Cluster Frustum + SSE 在 Meshlet 展开前形成 VisibleCluster selected set。
+- traversal children 使用 32 B Queue header 与 `atomicCompareExchangeWeak` 整组预约；容量不足时选择当前 renderable parent。root、每轮输出和 selected header 都保存真实 `attempted/written/peak/overflow/fallback/capacity`。
+- Cone、HZB 与 Software Raster 在 R3-B 显式关闭，owner evidence 均为 0 resources；当前独立 BVH8 未进入热路径。
+- `examples/r3-hierarchical-work-generation` 使用真实 `GpuAssetStore + GpuScene` 覆盖两份 Geometry、四个 Instance、near-plane、镜像/非均匀 scale、Perspective、Orthographic、empty queue 和 traversal capacity pressure。
+- live WebGPU 结果为 `passed=true`：Perspective 68、Orthographic 16、empty 0、capacity parent fallback 3 个 selected Cluster，四组 GPU set 均与 CPU oracle 完全一致；pressure case 首轮 `attempted=6/written=0/overflow=1/fallback=3/capacity=1`。Shader diagnostics、validation、uncaptured errors 与 console errors 均为空。
+- 浏览器验证额外冻结 runtime-array binding 最小尺寸：Traversal queue 为 `32 + 8 = 40 B`，VisibleCluster queue 为 `32 + 16 = 48 B`；Node regression 防止回退到仅 header 的无效布局。
+- 定向 R3-A/R3-B/source-audit 回归为 20/20；完整 `npm test` 为 152/152，OEngine production build、test compilation 与 examples production build 均通过。
+- R3-B 只关闭 GPU selected-set producer。RasterWork、完整 16 B draw indirect producer、Hardware Visibility consumer、paired A/B/C 性能与 flat 链删除仍由 R3-C/R3-D 阻塞，因此 G3 仍未关闭。
 
 ### R3-C · Hardware Vertical Closure
 

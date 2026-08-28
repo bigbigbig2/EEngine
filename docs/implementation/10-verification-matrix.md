@@ -164,6 +164,8 @@ R2/G2 于 2026-08-27 关闭。自动证据覆盖 package/geometry/instance ABI�
 
 R3-A 于 2026-08-28 关闭。自动证据覆盖 multi-instance world-space CPU selector、Perspective/Orthographic、Frustum/near-plane、non-uniform/mirrored/singular transform、parent/child exclusive、Queue ABI/完整 indirect record、children all-or-nothing reservation，以及 64 组固定随机树全部合法 cut 对 `maxCutMeshlets` 的穷举对照；定向测试 15/15、完整 `npm test` 148/148，并通过 production build 与 test compilation。该关闭只冻结 reference/ABI/capacity；GPU producer、浏览器画面、flat/hierarchy paired benchmark 和 G3 仍由 R3-B～D 阻塞。
 
+R3-B 于 2026-08-28 关闭。自动证据覆盖 `HierarchicalWorkGenerator` owner/lifecycle、按真实 depth 编码的 ping/pong indirect rounds、feature-off zero-resource、完整 queue evidence、adapter capacity 与 runtime-array binding size；定向回归 20/20、完整 `npm test` 152/152，OEngine 与 examples production build 均通过。live WebGPU 示例使用真实 `GpuAssetStore + GpuScene`，Perspective 68、Orthographic 16、empty 0、capacity parent fallback 3 个 selected Cluster 均与 CPU oracle 一致，pressure 首轮为 `attempted=6/written=0/overflow=1/fallback=3/capacity=1`，Shader diagnostics、validation、uncaptured 和 console errors 均为空。该关闭只证明 GPU VisibleCluster producer；RasterWork、Hardware `drawIndirect` consumer、paired A/B/C、flat 删除与 G3 仍由 R3-C/R3-D 阻塞。
+
 ## 自动化命令
 
 当前仓库已有基础命令：
