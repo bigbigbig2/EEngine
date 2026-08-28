@@ -386,18 +386,32 @@ test("R3-C production Hardware consumer pulls RasterWork and issues the GPU draw
     PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
     /r3_visible_clusters\.elements\[work\.visible_cluster_slot\]/
   );
+  assert.match(
+    PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
+    /oengine_visibility_key_try_encode\(\s*work_index,\s*triangle_index/s
+  );
+  assert.match(
+    PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
+    /@location\(0\) visibility_key: u32/
+  );
   const passSource = readFileSync(
     new URL("../src/render/passes/PackedVisibilityPass.ts", import.meta.url),
     "utf8"
   );
   assert.match(passSource, /render\.drawIndirect\(generated\.drawIndirect, 0\)/);
+  assert.match(passSource, /packedVisibilityAttachmentDescriptor\(job\.width, job\.height\)/);
+  assert.match(passSource, /assertGpuVisibilityRasterWorkCapacity/);
   const rendererSource = readFileSync(
     new URL("../src/render/Renderer.ts", import.meta.url),
     "utf8"
   );
   assert.match(
     rendererSource,
-    /hardware-packed-r3-hierarchy-cone/
+    /hardware-packed-r4-visibility-key-v1-cone/
+  );
+  assert.match(
+    rendererSource,
+    /if \(gpuPacked !== null\) \{\s*this\._profiler\.registerGpuCounterFields\(\["invalidVisibilityKeys"\]\)/s
   );
   assert.doesNotMatch(rendererSource, /packed_visibility_mode|r2-flat-reference/);
 });

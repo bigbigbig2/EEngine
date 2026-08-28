@@ -203,6 +203,7 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
         hwTriangles: 128,
         shadedPixels: 0,
         emptyVisibilityPixels: 2073600,
+        invalidVisibilityKeys: 0,
         rootStageQueueReservations: 1,
         traversalQueueReservations: 0,
         workGenerationDispatchUpdates: 0,
@@ -272,7 +273,7 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
         sampled: true,
         pending: false,
         dropped: false,
-        schemaVersion: 2,
+        schemaVersion: 3,
         values: gpuCounterValues
       }
     }],

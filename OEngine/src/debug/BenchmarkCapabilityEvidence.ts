@@ -75,6 +75,7 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "hwTriangles",
       "shadedPixels",
       "emptyVisibilityPixels",
+      "invalidVisibilityKeys",
       "queueOverflowMask"
     ]
   },
@@ -178,6 +179,9 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   hwTriangles: supported("Packed Hardware Visibility fixed-384 submission reducer"),
   shadedPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   emptyVisibilityPixels: supported("VisibilityCounterPass/final-visibility reducer"),
+  invalidVisibilityKeys: supported(
+    "VisibilityCounterPass/VisibilityKey v1 reserved-slot reducer"
+  ),
   activeMaterials: supported("MaterialExpandPass/encoded-draw counter"),
   activeLights: supported("Renderer/active-light-list reducer"),
   queueOverflowMask: supported("Renderer/registered-GPU-list overflow reducers"),

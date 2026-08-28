@@ -1,5 +1,6 @@
 import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 
 export const PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT = 384;
@@ -10,6 +11,7 @@ ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
+${GPU_VISIBILITY_KEY_WGSL}
 
 struct R3QueueHeaderRead {
   written: u32,
@@ -48,6 +50,7 @@ struct R3VisibilityVertexOutput {
   @builtin(position) position: vec4f,
   @location(0) @interpolate(flat) instance_record_index: u32,
   @location(1) @interpolate(flat) encoded_triangle: u32,
+  @location(2) @interpolate(flat) visibility_key: u32,
 }
 
 @group(0) @binding(0) var<uniform> r3_raster_camera: CommandEncoder;
@@ -98,19 +101,29 @@ fn raster_hierarchy_meshlets(
     * vec4f(local_position, 1.0);
   output.instance_record_index = visible.instance_record_index;
   output.encoded_triangle = (work.meshlet_record_index << 8u) | triangle_index;
+  output.visibility_key = oengine_visibility_key_try_encode(
+    work_index,
+    triangle_index
+  ).key;
   return output;
 }
 
 struct R3VisibilityFragmentOutput {
-  @location(0) triangle_id: u32,
-  @location(1) instance_id: u32,
+  @location(0) visibility_key: u32,
+  @location(1) triangle_id: u32,
+  @location(2) instance_id: u32,
 }
 
 @fragment
 fn write_hierarchy_visibility(
   @location(0) @interpolate(flat) instance_record_index: u32,
-  @location(1) @interpolate(flat) encoded_triangle: u32
+  @location(1) @interpolate(flat) encoded_triangle: u32,
+  @location(2) @interpolate(flat) visibility_key: u32
 ) -> R3VisibilityFragmentOutput {
-  return R3VisibilityFragmentOutput(encoded_triangle, instance_record_index);
+  return R3VisibilityFragmentOutput(
+    visibility_key,
+    encoded_triangle,
+    instance_record_index
+  );
 }
 `;

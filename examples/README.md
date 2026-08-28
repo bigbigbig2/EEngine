@@ -1,5 +1,9 @@
 # OEngine Examples
 
+`r4-hardware-opaque-producer/` is the R4-A-02 browser gate for the production
+Hardware opaque shader, GPU-generated `drawIndirect`, `VisibilityKey v1` and
+reverse-Z depth contract.
+
 本目录逐步收纳可在浏览器运行、可截图和可采集 counter 的垂直验证场景。示例通过相对路径引用 `../OEngine`，用于验证真实 WebGPU 主链，不复制引擎实现，也不承担 three.js API 兼容。
 
 ## 目录约定
@@ -15,6 +19,7 @@ examples/
 ├─ r2-gpu-residency/       # package → compact GPU records → Hardware indirect
 ├─ r2-packed-scene/        # Packed Instance/Geometry 双 binding 纵切
 ├─ r3-hierarchical-work-generation/ # Cluster hierarchy GPU selected-set
+├─ r4-hardware-opaque-producer/ # VisibilityKey v1 + reverse-Z Hardware gate
 ├─ benchmark-shared/       # A/B/C manifest、fixture 与统一 runner
 ├─ benchmark-a/            # 160k Teapot 最低线
 ├─ benchmark-b/            # 15,625 Helmet PBR/IBL 最低线

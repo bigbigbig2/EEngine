@@ -28,7 +28,8 @@ Instance Cull
 - HW-only 必须先形成完整正确主链；SW/Hybrid 是后续 profile optimization。
 - Hardware 与 Software Raster 共享 VisibilityKey、depth/lookup 与 coverage invariant。OEngine SW 使用 deterministic top-left；WebGPU exact shared-edge 的 HW primitive owner 可以因后端不同，但不得出现 coverage hole、非法重叠或最终 surface 差异。
 - R4 VisibilityKey v1 编码 `rasterWorkSlot + localTriangle`，经 `RasterWork → VisibleCluster + meshletRecordIndex` 回查；不得退回有 multi-Meshlet 歧义的 `visibleClusterSlot + localTriangle`。
-- `R4-A-01` 已将该编码落为内部共享 TS schema/WGSL codec，并冻结 empty/reserved/max、adapter-aware RasterWork capacity、显式 producer failure 与 CPU lookup oracle；multi-Meshlet fixture 已证明两个 RasterWork slot 可唯一定位同一 Cluster 的不同 Meshlet。生产 Hardware key/depth attachment 从 `R4-A-02` 开始。
+- `R4-A-01` 已将该编码落为内部共享 TS schema/WGSL codec，并冻结 empty/reserved/max、adapter-aware RasterWork capacity、显式 producer failure 与 CPU lookup oracle；multi-Meshlet fixture 已证明两个 RasterWork slot 可唯一定位同一 Cluster 的不同 Meshlet。
+- `R4-A-02` 已让生产 Packed Hardware vertex/fragment 在原有 GPU `RasterWork → drawIndirect` 闭环中写 `VisibilityKey v1 + reverse-Z depth`。Key attachment 由 FrameGraph transient owner 管理，Packed feature-off 不创建；legacy triangle/instance MRT 只为 R4-B 前的旧 consumer 临时保留。sampled reducer 统计 useful/empty/invalid key，submitted fragments 因 WebGPU baseline 无 pipeline statistics 登记为 `R4-A-06` blocker。独立 Chrome gate 已验证 key lookup、depth、draw indirect 和 diagnostics；当前入口为 `R4-A-03` alpha-tested Material Visibility，G4-A 未完成。
 - Hardware fragment depth 是规范 oracle；SW/CPU 按 WebGPU 语义插值 post-clip viewport depth。reciprocal-W perspective correction 只用于后续 attributes。
 - HZB 只负责遮挡，不负责决定当前帧 LOD。
 - HZB 是 per-view ping-pong history：initial 只能读已 commit 的 previous，late/alpha/lighting 读本帧 current/final；resize、camera cut 和 view discontinuity 后 previous 无效。

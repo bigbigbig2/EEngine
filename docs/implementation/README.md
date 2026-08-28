@@ -45,7 +45,7 @@ R0/G0、R1/G1 与 R2/G2 已关闭。R2 Compact Data Foundation 的交付顺序�
 
 R3/G3 已在 clean commit `aff3ab8` 关闭：`InstanceCull + root` 融合、root/traversal/selected workgroup-local compaction、sampled diagnostics 与 depth-zero fused-leaf 已落地；full A/B/C 均 clean/gate eligible/zero diagnostics，A P95 不再回退历史 flat、B 继续改善、C 真实命中 fused-leaf 并消除固定成本。R3 v1 不直接遍历当前独立 BVH8；原因、长期决策和来源分别见 [ADR-0009](../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md) 与 [R3-01 porting ledger](../references/porting/R3-01-hierarchical-work-generation.md)。当前唯一执行入口转为 R4-A Visibility contract。
 
-R4 已完成执行前设计冻结，长期边界见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，研究来源见 [R4 algorithm guide](../references/R4-ALGORITHM-GUIDE.md)。`R4-A-01` 已于 2026-08-28 验收共享 VisibilityKey TS/WGSL codec、capacity/producer failure 和 multi-Meshlet lookup fixture，治理状态为 `Implemented`；当前唯一执行入口是 `R4-A-02`，总顺序仍为 `R4-A-01..06 → R4-B-01..10 → R4-C-01..09`。旧 `VIS/MAT` 编号只保留历史含义，不再生成新提交或 artifact。
+R4 已完成执行前设计冻结，长期边界见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，研究来源见 [R4 algorithm guide](../references/R4-ALGORITHM-GUIDE.md)。`R4-A-01` 已于 2026-08-28 验收共享 VisibilityKey TS/WGSL codec、capacity/producer failure 和 multi-Meshlet lookup fixture，治理状态为 `Implemented`；`R4-A-02` 已将生产 Packed Hardware draw 接为 `VisibilityKey v1 + reverse-Z depth`，并完成 FrameGraph attachment owner、feature-off、invalid-key counter 与独立 Chrome GPU readback/screenshot，治理状态为 `Integrated`。当前唯一执行入口是 `R4-A-03`，总顺序仍为 `R4-A-01..06 → R4-B-01..10 → R4-C-01..09`；G4-A 尚未关闭。旧 `VIS/MAT` 编号只保留历史含义，不再生成新提交或 artifact。
 
 R3 集中为四个可运行包：
 

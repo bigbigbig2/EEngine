@@ -17,6 +17,7 @@ export const GPU_VISIBILITY_KEY_RASTER_WORK_SLOT_MASK = 0x01ffffff;
 export const GPU_VISIBILITY_KEY_RESERVED_RASTER_WORK_SLOT = 0x01ffffff;
 export const GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT = 0x01fffffe;
 export const GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY = 0x01ffffff;
+export const GPU_VISIBILITY_KEY_INVALID = 0xffffff80;
 export const GPU_VISIBILITY_KEY_EMPTY = 0xffffffff;
 
 export interface GpuVisibilityKeyFieldSchema {
@@ -50,6 +51,7 @@ export const GPU_VISIBILITY_KEY_SCHEMA = Object.freeze({
   version: GPU_VISIBILITY_KEY_ABI_VERSION,
   bitCount: 32,
   fields: GPU_VISIBILITY_KEY_FIELDS,
+  invalid: GPU_VISIBILITY_KEY_INVALID,
   empty: GPU_VISIBILITY_KEY_EMPTY,
   reservedRasterWorkSlot: GPU_VISIBILITY_KEY_RESERVED_RASTER_WORK_SLOT,
   maxRasterWorkCapacity: GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY
@@ -67,6 +69,7 @@ const OENGINE_VISIBILITY_KEY_RASTER_WORK_SLOT_MASK: u32 = ${GPU_VISIBILITY_KEY_R
 const OENGINE_VISIBILITY_KEY_RESERVED_RASTER_WORK_SLOT: u32 = ${GPU_VISIBILITY_KEY_RESERVED_RASTER_WORK_SLOT}u;
 const OENGINE_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT: u32 = ${GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT}u;
 const OENGINE_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY: u32 = ${GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY}u;
+const OENGINE_VISIBILITY_KEY_INVALID: u32 = ${GPU_VISIBILITY_KEY_INVALID}u;
 const OENGINE_VISIBILITY_KEY_EMPTY: u32 = ${GPU_VISIBILITY_KEY_EMPTY}u;
 
 struct OEngineVisibilityKeyEncodeResult {
@@ -107,7 +110,7 @@ fn oengine_visibility_key_try_encode(
   local_triangle: u32
 ) -> OEngineVisibilityKeyEncodeResult {
   if (!oengine_visibility_key_can_encode(raster_work_slot, local_triangle)) {
-    return OEngineVisibilityKeyEncodeResult(OENGINE_VISIBILITY_KEY_EMPTY, 0u);
+    return OEngineVisibilityKeyEncodeResult(OENGINE_VISIBILITY_KEY_INVALID, 0u);
   }
   return OEngineVisibilityKeyEncodeResult(
     (raster_work_slot << OENGINE_VISIBILITY_KEY_RASTER_WORK_SLOT_SHIFT) |

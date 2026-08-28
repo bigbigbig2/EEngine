@@ -3,6 +3,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../VisibilityBufferContract.js";
 
 export const VISIBILITY_COUNTER_WORKGROUP_SIZE = 8;
@@ -10,30 +11,43 @@ const WORKGROUP_ELEMENT_COUNT =
   VISIBILITY_COUNTER_WORKGROUP_SIZE * VISIBILITY_COUNTER_WORKGROUP_SIZE;
 const SHADED_PIXEL_INDEX = counterByteOffset("shadedPixels") / 4;
 const EMPTY_PIXEL_INDEX = counterByteOffset("emptyVisibilityPixels") / 4;
+const INVALID_KEY_INDEX = counterByteOffset("invalidVisibilityKeys") / 4;
+
+export type VisibilityCounterContract = "legacy-id" | "visibility-key-v1";
 
 export const VISIBILITY_COUNTER_WGSL = /* wgsl */ `
 const MESH_SENTINEL: u32 = ${VIS_MESH_CLEAR_SENTINEL}u;
+${GPU_VISIBILITY_KEY_WGSL}
 
-@group(0) @binding(0) var mesh_ids: texture_2d<u32>;
+@group(0) @binding(0) var visibility_values: texture_2d<u32>;
 @group(0) @binding(1) var<storage, read_write>
   frame_counters: array<atomic<u32>>;
 
-var<workgroup> local_counts: array<vec2u, ${WORKGROUP_ELEMENT_COUNT}>;
+var<workgroup> local_counts: array<vec3u, ${WORKGROUP_ELEMENT_COUNT}>;
 
-@compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
-fn main(
-  @builtin(global_invocation_id) global_id: vec3u,
-  @builtin(local_invocation_index) local_index: u32
+fn classify_visibility(value: u32, key_contract: bool) -> vec3u {
+  if (!key_contract) {
+    return select(vec3u(1u, 0u, 0u), vec3u(0u, 1u, 0u), value == MESH_SENTINEL);
+  }
+  if (oengine_visibility_key_is_empty(value)) {
+    return vec3u(0u, 1u, 0u);
+  }
+  if (!oengine_visibility_key_is_valid(value)) {
+    return vec3u(0u, 0u, 1u);
+  }
+  return vec3u(1u, 0u, 0u);
+}
+
+fn count_visibility(
+  global_id: vec3u,
+  local_index: u32,
+  key_contract: bool
 ) {
-  let dimensions = textureDimensions(mesh_ids);
-  var pixel_counts = vec2u(0u);
+  let dimensions = textureDimensions(visibility_values);
+  var pixel_counts = vec3u(0u);
   if (global_id.x < dimensions.x && global_id.y < dimensions.y) {
-    let mesh_id = textureLoad(mesh_ids, vec2i(global_id.xy), 0).r;
-    if (mesh_id == MESH_SENTINEL) {
-      pixel_counts.y = 1u;
-    } else {
-      pixel_counts.x = 1u;
-    }
+    let value = textureLoad(visibility_values, vec2i(global_id.xy), 0).r;
+    pixel_counts = classify_visibility(value, key_contract);
   }
   local_counts[local_index] = pixel_counts;
   workgroupBarrier();
@@ -51,7 +65,24 @@ fn main(
   if (local_index == 0u) {
     atomicAdd(&frame_counters[${SHADED_PIXEL_INDEX}u], local_counts[0].x);
     atomicAdd(&frame_counters[${EMPTY_PIXEL_INDEX}u], local_counts[0].y);
+    atomicAdd(&frame_counters[${INVALID_KEY_INDEX}u], local_counts[0].z);
   }
+}
+
+@compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
+fn count_legacy_ids(
+  @builtin(global_invocation_id) global_id: vec3u,
+  @builtin(local_invocation_index) local_index: u32
+) {
+  count_visibility(global_id, local_index, false);
+}
+
+@compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
+fn count_visibility_keys(
+  @builtin(global_invocation_id) global_id: vec3u,
+  @builtin(local_invocation_index) local_index: u32
+) {
+  count_visibility(global_id, local_index, true);
 }
 `;
 
@@ -71,38 +102,51 @@ const VISIBILITY_COUNTER_LAYOUT: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
-const VISIBILITY_COUNTER_PIPELINE: CachedComputePipelineDescriptor = {
-  label: "R0 visibility pixel counters",
-  layout: {
-    label: "R0 visibility counters/layout",
-    bindGroupLayouts: [VISIBILITY_COUNTER_LAYOUT]
-  },
-  compute: {
-    module: {
-      label: "R0 visibility pixel counters",
-      code: VISIBILITY_COUNTER_WGSL
+const VISIBILITY_COUNTER_PIPELINES: Readonly<
+  Record<VisibilityCounterContract, CachedComputePipelineDescriptor>
+> = Object.freeze({
+  "legacy-id": createPipeline("count_legacy_ids", "legacy IDs"),
+  "visibility-key-v1": createPipeline("count_visibility_keys", "VisibilityKey v1")
+});
+
+function createPipeline(
+  entryPoint: "count_legacy_ids" | "count_visibility_keys",
+  contractLabel: string
+): CachedComputePipelineDescriptor {
+  return {
+    label: `R0 visibility pixel counters/${contractLabel}`,
+    layout: {
+      label: `R0 visibility counters/${contractLabel}/layout`,
+      bindGroupLayouts: [VISIBILITY_COUNTER_LAYOUT]
     },
-    entryPoint: "main"
-  }
-};
+    compute: {
+      module: {
+        label: `R0 visibility pixel counters/${contractLabel}`,
+        code: VISIBILITY_COUNTER_WGSL
+      },
+      entryPoint
+    }
+  };
+}
 
 export class VisibilityCounterPass {
   addToGraph(
     graph: FrameGraph,
     size: { width: number; height: number },
-    inputs: { meshId: ResourceId; counters: ResourceId }
+    inputs: { visibility: ResourceId; counters: ResourceId },
+    contract: VisibilityCounterContract = "legacy-id"
   ): ResourceId {
     const dispatch = visibilityCounterDispatchSize(size.width, size.height);
     const builder = graph.add(
-      "R0 visibility pixel counters",
-      { dispatch },
+      `R0 visibility pixel counters/${contract}`,
+      { dispatch, contract },
       (data, resources, context) => {
         const command = requireCommandContext(context.encoder);
         const pass = command.constructComputePass({
           label: "R0 visibility pixel counters",
-          pipeline: VISIBILITY_COUNTER_PIPELINE,
+          pipeline: VISIBILITY_COUNTER_PIPELINES[data.contract],
           bindings: [[
-            resolveTextureView(resources.get(inputs.meshId)),
+            resolveTextureView(resources.get(inputs.visibility)),
             { buffer: resolveBuffer(resources.get(inputs.counters)) }
           ]]
         });
@@ -110,7 +154,7 @@ export class VisibilityCounterPass {
         pass.end();
       }
     );
-    builder.read(inputs.meshId);
+    builder.read(inputs.visibility);
     const nextCounters = builder.write(inputs.counters);
     builder.make_side_effect();
     return nextCounters;

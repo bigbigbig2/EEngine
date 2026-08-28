@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   GPU_VISIBILITY_KEY_ABI_VERSION,
   GPU_VISIBILITY_KEY_EMPTY,
+  GPU_VISIBILITY_KEY_INVALID,
   GPU_VISIBILITY_KEY_LOCAL_TRIANGLE_BITS,
   GPU_VISIBILITY_KEY_LOCAL_TRIANGLE_MASK,
   GPU_VISIBILITY_KEY_LOCAL_TRIANGLE_SHIFT,
@@ -69,6 +70,7 @@ test("R4-A-01 TS and WGSL share VisibilityKey v1 bit layout", () => {
     ["OENGINE_VISIBILITY_KEY_RESERVED_RASTER_WORK_SLOT", GPU_VISIBILITY_KEY_RESERVED_RASTER_WORK_SLOT],
     ["OENGINE_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT", GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT],
     ["OENGINE_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY", GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY],
+    ["OENGINE_VISIBILITY_KEY_INVALID", GPU_VISIBILITY_KEY_INVALID],
     ["OENGINE_VISIBILITY_KEY_EMPTY", GPU_VISIBILITY_KEY_EMPTY]
   ]) {
     assert.match(
@@ -77,7 +79,7 @@ test("R4-A-01 TS and WGSL share VisibilityKey v1 bit layout", () => {
     );
   }
   assert.match(GPU_VISIBILITY_KEY_WGSL, /oengine_visibility_key_try_encode/);
-  assert.match(GPU_VISIBILITY_KEY_WGSL, /OEngineVisibilityKeyEncodeResult\(OENGINE_VISIBILITY_KEY_EMPTY, 0u\)/);
+  assert.match(GPU_VISIBILITY_KEY_WGSL, /OEngineVisibilityKeyEncodeResult\(OENGINE_VISIBILITY_KEY_INVALID, 0u\)/);
 });
 
 test("R4-A-01 codec covers empty, invalid and maximum values", () => {
@@ -107,7 +109,7 @@ test("R4-A-01 codec covers empty, invalid and maximum values", () => {
   assert.equal(isVisibilityKeyEmpty(GPU_VISIBILITY_KEY_EMPTY), true);
   assert.equal(isVisibilityKeyValid(GPU_VISIBILITY_KEY_EMPTY), false);
 
-  for (const key of [0xffffff80, 0xfffffffe]) {
+  for (const key of [GPU_VISIBILITY_KEY_INVALID, 0xfffffffe]) {
     assert.deepEqual(decodeVisibilityKey(key), {
       kind: "invalid",
       reason: "reserved-raster-work-slot",

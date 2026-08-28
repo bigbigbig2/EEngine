@@ -1,6 +1,6 @@
 # R4-A-01 · Unified Hardware Visibility Contract
 
-Status: implemented 2026-08-28 / Hardware producer pending in R4-A-02
+Status: R4-A-01 implemented and R4-A-02 Hardware opaque producer integrated 2026-08-28 / alpha, debug and paired Gate pending
 
 ## Reference ID
 
@@ -109,6 +109,9 @@ depth32float reverse-Z
 - 现有 `visibleClusterSlot + localTriangle` 改为 `rasterWorkSlot + localTriangle`；额外 lookup 是解决 multi-Meshlet 唯一性的必要成本。
 - R4-A 只建立 Material Visibility 子集；完整 Material/Texture owner 属于 R4-B。
 - WebGPU exact shared-edge primitive ownership 未定义，因此 HW oracle 区分非边界 exact 与边界 coverage/surface invariant。
+- `PackedVisibilityPass` 只增加同一次 Hardware draw 的第三个 `r32uint` MRT；旧 triangle/instance outputs 暂供 Material/Velocity consumer 使用并登记为 R4-B 删除对象，不复制第二条 producer。
+- Key attachment 使用 FrameGraph transient texture，usage 为 `RENDER_ATTACHMENT | TEXTURE_BINDING | COPY_SRC`；width/height 属于 descriptor/graph signature，feature-off graph 不创建该资源。device lost 只随 GraphicsContext/Renderer 重建恢复，live lifecycle stress 留给 `R4-A-05`。
+- producer 在 hierarchy prepare 前调用共享 capacity guard；invalid encode 写 reserved-slot marker `0xFFFFFF80`，empty 保持 `0xFFFFFFFF`，两者在 reducer 中分开统计。
 
 ## Precision / semantic differences
 
@@ -144,24 +147,56 @@ OEngine/tests/gpu-visibility-key-abi.test.mjs
   reserved slot, empty, maximum and rejected input boundaries
   key-limit/header/adapter capacity cases
   multi-Meshlet Cluster unique lookup and invalid table ranges
+
+OEngine/src/shaders/packed_visibility.ts
+OEngine/src/render/passes/PackedVisibilityPass.ts
+  production RasterWork + drawIndirect Hardware producer
+  VisibilityKey v1 MRT + depth32float reverse-Z
+  FrameGraph transient attachment and explicit capacity failure
+
+OEngine/src/render/passes/VisibilityCounterPass.ts
+OEngine/src/debug/GpuFrameCounters.ts
+  legacy-id / visibility-key-v1 sampled reducer variants
+  useful, empty and reserved-slot invalid key counters
+
+OEngine/tests/packed-visibility-r4.test.mjs
+  attachment descriptor/owner/feature-off contract
+  submitted/useful/invalid observability declaration
+
+examples/r4-hardware-opaque-producer
+  production WGSL + HierarchicalWorkGenerator + GPU drawIndirect
+  key/depth/RasterWork/VisibleCluster validation-only readback and screenshot
 ```
 
-本步骤没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI 对 lookup 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
+R4-A-01/02 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI 对 lookup/producer 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
 
 Validation：
 
 ```text
 cd OEngine
 npm run build:test
-node --test tests/gpu-visibility-key-abi.test.mjs
-result: 6/6 passed
+node --test tests/gpu-visibility-key-abi.test.mjs tests/packed-visibility-r4.test.mjs tests/visibility-counter-pass.test.mjs
+result: VisibilityKey/attachment/counter focused tests passed
+
+cd examples
+npm run build
+Chrome WebGPU: examples/r4-hardware-opaque-producer
+result: passed=true; valid/empty=6820/69980; invalid/unresolved/depthMismatch=0/0/0;
+        reverse-Z depth=0.025; shader/validation/uncaptured diagnostics empty
+artifacts: temp/r4-a-02/r4-a-02-cdp.json and r4-a-02-cdp.png
+
+Chrome WebGPU: examples/benchmark-a/?profile=smoke
+result: production Renderer completed; 3 sampled frames all exported invalidVisibilityKeys=0;
+        validation/uncaptured/device-lost/timestamp/counter diagnostics empty
+note: smoke profile and existing Software Visibility blocker make this non-gate evidence
+artifacts: temp/r4-a-02/benchmark-a-smoke.json and benchmark-a-smoke.png
 ```
 
 Planned by later R4-A tasks：
 
 ```text
-Hardware opaque/alpha key + depth GPU readback oracle
-examples/r4-unified-visibility
+Hardware alpha key + depth GPU readback oracle
+Hardware debug reconstruction and real glTF alpha screenshot
 A/B/C paired browser artifact with debug screenshots
 ```
 

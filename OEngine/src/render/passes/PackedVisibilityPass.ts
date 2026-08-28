@@ -7,6 +7,10 @@ import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import {
+  GPU_VISIBILITY_KEY_EMPTY,
+  assertGpuVisibilityRasterWorkCapacity
+} from "../../gpu/GpuVisibilityKeyAbi.js";
 import { LPV_CAMERA_TYPE } from "../../shaders/lpv_indirect_diffuse.js";
 import {
   PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
@@ -53,7 +57,11 @@ const HIERARCHY_RASTER_PIPELINE: CachedRenderPipelineDescriptor = {
       code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
     },
     entryPoint: "write_hierarchy_visibility",
-    targets: [{ format: "r32uint" }, { format: "r32uint" }]
+    targets: [
+      { format: "r32uint" },
+      { format: "r32uint" },
+      { format: "r32uint" }
+    ]
   },
   primitive: { topology: "triangle-list", cullMode: "none" },
   depthStencil: {
@@ -68,6 +76,8 @@ export interface PackedVisibilityJob {
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
   readonly countersEnabled: boolean;
+  readonly width: number;
+  readonly height: number;
   readonly hierarchyView: GeometryHierarchyView;
   readonly sseThreshold: number;
   readonly coneEnabled: boolean;
@@ -89,11 +99,35 @@ export interface PackedVisibilityInputs {
   readonly depth: ResourceId;
 }
 
+export interface PackedVisibilityOutputs {
+  readonly counters: ResourceId;
+  readonly visibilityKey: ResourceId;
+}
+
+export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
+  submittedFragments: Object.freeze({
+    status: "unsupported" as const,
+    blockerTaskId: "R4-A-06",
+    reason: "OEngine WebGPU baseline has no negotiated pipeline statistics producer"
+  }),
+  usefulFragments: Object.freeze({
+    status: "supported" as const,
+    counter: "shadedPixels" as const,
+    producer: "VisibilityCounterPass/VisibilityKey v1 final-pixel reducer"
+  }),
+  invalidKeys: Object.freeze({
+    status: "supported" as const,
+    counter: "invalidVisibilityKeys" as const,
+    producer: "VisibilityCounterPass/VisibilityKey v1 invalid reducer"
+  })
+});
+
 /** R3 hierarchy production path. The temporary R2 flat producer was deleted in R3-D. */
 export class PackedVisibilityPass {
   lastDrawIndirect = false;
   lastCandidateCapacity = 0;
   lastFixedVertexCount = PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT;
+  lastVisibilityKeyAttachmentBytes = 0;
   readonly lastImplementation = "hierarchy" as const;
   private readonly hierarchyGenerator: HierarchicalWorkGenerator;
   private readonly hierarchyPrepared = new Map<
@@ -109,9 +143,10 @@ export class PackedVisibilityPass {
     graph: FrameGraph,
     job: PackedVisibilityJob,
     inputs: PackedVisibilityInputs
-  ): ResourceId {
+  ): PackedVisibilityOutputs {
+    const output = { visibilityKey: -1 };
     const builder = graph.add(
-      "Packed Visibility/R3 hierarchy Hardware consumer",
+      "Packed Visibility/R4-A-02 Hardware opaque producer",
       job,
       (data, resources, context) => {
         const command = requireCommand(context.encoder);
@@ -122,6 +157,7 @@ export class PackedVisibilityPass {
           command,
           camera,
           counters,
+          resolveTextureView(resources.get(output.visibilityKey)),
           resolveTextureView(resources.get(inputs.triangleId)),
           resolveTextureView(resources.get(inputs.instanceId)),
           resolveDepthAttachmentView(resources.get(inputs.depth))
@@ -135,8 +171,12 @@ export class PackedVisibilityPass {
     builder.write(inputs.instanceId);
     builder.write(inputs.depth);
     const counters = builder.write(inputs.counters);
+    output.visibilityKey = builder.create(
+      "R4 VisibilityKey v1",
+      packedVisibilityAttachmentDescriptor(job.width, job.height)
+    );
     builder.make_side_effect();
-    return counters;
+    return Object.freeze({ counters, visibilityKey: output.visibilityKey });
   }
 
   /** Retires all prepared hierarchy bindings for a Packed Scene in queue order. */
@@ -157,6 +197,7 @@ export class PackedVisibilityPass {
     command: ShadeGPUCommandContext,
     camera: GPUBuffer,
     counters: GPUBuffer,
+    visibilityKey: GPUTextureView,
     triangleId: GPUTextureView,
     instanceId: GPUTextureView,
     depth: GPUTextureView
@@ -189,8 +230,14 @@ export class PackedVisibilityPass {
       ]
     });
     const render = command.beginRenderPass({
-      label: "R3-C Packed Visibility/hierarchy Hardware drawIndirect",
+      label: "R4-A-02 Packed VisibilityKey/depth Hardware drawIndirect",
       colorAttachments: [
+        {
+          view: visibilityKey,
+          clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 },
+          loadOp: "clear",
+          storeOp: "store"
+        },
         {
           view: triangleId,
           clearValue: { r: VIS_MESH_CLEAR_SENTINEL, g: 0, b: 0, a: 0 },
@@ -217,6 +264,7 @@ export class PackedVisibilityPass {
     render.end();
     this.lastDrawIndirect = true;
     this.lastCandidateCapacity = job.runtime.hierarchyRasterWorkCapacity;
+    this.lastVisibilityKeyAttachmentBytes = job.width * job.height * 4;
   }
 
   private obtainHierarchyPrepared(
@@ -224,6 +272,15 @@ export class PackedVisibilityPass {
     counters: GPUBuffer,
     command: ShadeGPUCommandContext
   ): PreparedHierarchyWork {
+    assertGpuVisibilityRasterWorkCapacity(
+      job.runtime.hierarchyRasterWorkCapacity,
+      {
+        maxBufferSize: Number(this.graphics.device.limits.maxBufferSize),
+        maxStorageBufferBindingSize: Number(
+          this.graphics.device.limits.maxStorageBufferBindingSize
+        )
+      }
+    );
     let byCounter = this.hierarchyPrepared.get(job.runtime);
     if (byCounter === undefined) {
       byCounter = new Map();
@@ -272,6 +329,25 @@ export class PackedVisibilityPass {
   }
 }
 
+export function packedVisibilityAttachmentDescriptor(
+  width: number,
+  height: number
+) {
+  assertPositiveDimension(width, "width");
+  assertPositiveDimension(height, "height");
+  return Object.freeze({
+    kind: "transient_texture" as const,
+    label: "R4 VisibilityKey v1 r32uint",
+    width,
+    height,
+    format: "r32uint" as const,
+    usage:
+      GPUTextureUsage.RENDER_ATTACHMENT |
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_SRC
+  });
+}
+
 interface HierarchyPreparedCacheEntry {
   readonly prepared: PreparedHierarchyWork;
   readonly assetEpoch: number;
@@ -292,4 +368,10 @@ function requireBuffer(value: unknown, label: string): GPUBuffer {
     return value as GPUBuffer;
   }
   throw new Error(`PackedVisibilityPass expected ${label} GPUBuffer`);
+}
+
+function assertPositiveDimension(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`Packed Visibility ${label} must be a positive integer`);
+  }
 }

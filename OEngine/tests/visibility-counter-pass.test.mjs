@@ -17,8 +17,13 @@ test("visibility counter shader targets the fixed GPU counter ABI", () => {
   const shadedIndex = counterByteOffset("shadedPixels") / Uint32Array.BYTES_PER_ELEMENT;
   const emptyIndex = counterByteOffset("emptyVisibilityPixels") /
     Uint32Array.BYTES_PER_ELEMENT;
+  const invalidIndex = counterByteOffset("invalidVisibilityKeys") /
+    Uint32Array.BYTES_PER_ELEMENT;
 
   assert.match(VISIBILITY_COUNTER_WGSL, /const MESH_SENTINEL: u32 = 16777216u;/);
+  assert.match(VISIBILITY_COUNTER_WGSL, /fn count_legacy_ids/);
+  assert.match(VISIBILITY_COUNTER_WGSL, /fn count_visibility_keys/);
+  assert.match(VISIBILITY_COUNTER_WGSL, /oengine_visibility_key_is_valid/);
   assert.match(
     VISIBILITY_COUNTER_WGSL,
     new RegExp(`atomicAdd\\(&frame_counters\\[${shadedIndex}u\\]`)
@@ -26,6 +31,10 @@ test("visibility counter shader targets the fixed GPU counter ABI", () => {
   assert.match(
     VISIBILITY_COUNTER_WGSL,
     new RegExp(`atomicAdd\\(&frame_counters\\[${emptyIndex}u\\]`)
+  );
+  assert.match(
+    VISIBILITY_COUNTER_WGSL,
+    new RegExp(`atomicAdd\\(&frame_counters\\[${invalidIndex}u\\]`)
   );
   assert.match(
     VISIBILITY_COUNTER_WGSL,

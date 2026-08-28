@@ -192,7 +192,7 @@ type MainFrameGraphBindings = {
 
 const MAIN_GRAPH_CACHE_LIMIT = 16;
 const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 1;
-const MAIN_GRAPH_INSTRUMENTATION_REVISION = 2;
+const MAIN_GRAPH_INSTRUMENTATION_REVISION = 3;
 
 /**
  * 渲染器运行时总控。
@@ -955,6 +955,7 @@ export class Renderer {
           bind("hzb-previous-texture", (bindings) => bindings.viewHzb.getPreviousTexture())
         );
         let gpuCounterRes: ResourceId | null = null;
+        let packedVisibilityKeyRes: ResourceId | null = null;
         if (sampleGpuCounters) {
           gpuCounterRes = graph.import_resource(
             "r0_gpu_frame_counters",
@@ -970,7 +971,7 @@ export class Renderer {
             bind("packed-counter-sink", (bindings) =>
               bindings.gpuPacked!.counterSink)
           );
-          const packedOutputCounterRes = this._packedVisibility.addToGraph(
+          const packedOutput = this._packedVisibility.addToGraph(
             graph,
             bind("packed-visibility-main-job", (bindings) => {
               const registryBindings =
@@ -980,6 +981,8 @@ export class Renderer {
                 assets: registryBindings.assets,
                 scene: registryBindings.scene,
                 countersEnabled: bindings.gpuCounterBuffer !== null,
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
                 hierarchyView: createPackedHierarchyView(
                   bindings.camera,
                   bindings.internalHeight
@@ -1005,7 +1008,8 @@ export class Renderer {
               depth: depthRes
             }
           );
-          gpuCounterRes = sampleGpuCounters ? packedOutputCounterRes : null;
+          packedVisibilityKeyRes = packedOutput.visibilityKey;
+          gpuCounterRes = sampleGpuCounters ? packedOutput.counters : null;
         } else {
           gpuCounterRes = this._visibility.addToGraph(
             graph,
@@ -1183,7 +1187,13 @@ export class Renderer {
           gpuCounterRes = this._visibilityCounters.addToGraph(
             graph,
             { width: w, height: h },
-            { meshId: meshIdRes, counters: gpuCounterRes }
+            {
+              visibility: packedVisibilityKeyRes ?? meshIdRes,
+              counters: gpuCounterRes
+            },
+            packedVisibilityKeyRes === null
+              ? "legacy-id"
+              : "visibility-key-v1"
           );
           this._profiler.registerGpuCounterFields([
             "candidateInstances",
@@ -2065,6 +2075,9 @@ export class Renderer {
           "workGenerationCasRetries",
           "queueOverflowMask"
         ]);
+        if (gpuPacked !== null) {
+          this._profiler.registerGpuCounterFields(["invalidVisibilityKeys"]);
+        }
       }
       cmd.encodeCompiledGraph(compiledGraph, mainBindings);
       view.finish_frame(cmd, this._frame_count);
@@ -2115,7 +2128,7 @@ export class Renderer {
       enabledFeatureBits: topology.enabledFeatureBits,
       visibilityImplementation: bindings.gpuPacked === null
         ? "hardware-legacy-v1"
-        : `hardware-packed-r3-hierarchy-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
+        : `hardware-packed-r4-visibility-key-v1-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
           `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}`,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
@@ -2309,6 +2322,10 @@ export class Renderer {
       profiler.recordCounter(
         "packed.visibility.fixedVertexCount",
         this._packedVisibility.lastFixedVertexCount
+      );
+      profiler.recordCounter(
+        "packed.visibility.keyAttachmentBytes",
+        this._packedVisibility.lastVisibilityKeyAttachmentBytes
       );
       profiler.recordCounter(
         "packed.visibility.hierarchy",

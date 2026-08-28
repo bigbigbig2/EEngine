@@ -74,6 +74,10 @@ export default defineConfig({
           examplesRoot,
           "r3-hierarchical-work-generation/index.html"
         ),
+        r4HardwareOpaqueProducer: path.resolve(
+          examplesRoot,
+          "r4-hardware-opaque-producer/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

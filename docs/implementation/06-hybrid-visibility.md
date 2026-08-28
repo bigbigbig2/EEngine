@@ -126,6 +126,12 @@ R4-A 不做 PBR，但必须通过 key 唯一回查并输出 debug color：
 
 ### R4-A-02 · Hardware opaque producer
 
+工作项已于 2026-08-28 验收，治理状态为 `Integrated`。生产 `PackedVisibilityPass` 继续直接消费 R3 `RasterWork + 16 B drawIndirect`，在同一次 Hardware draw 中新增 `r32uint VisibilityKey v1` MRT，并保持 `depth32float / clear 0 / greater` reverse-Z；当前帧没有 count readback、额外 submit 或第二次几何 draw。旧 triangle/instance MRT 只为尚未迁移的 Material/Velocity consumer 临时保留，是 R4-B 的显式删除对象，不是第二套 Visibility contract。
+
+`VisibilityKey` 由 FrameGraph transient texture owner 创建，descriptor 冻结 width/height/format/usage，随 graph signature/resize 重建并由资源池回收；Packed feature 不进入 graph 时不创建该 attachment。device lost 后只允许随 `GraphicsContext/Renderer` 重建恢复，不保留跨 device handle；对应 live device-lost/in-flight 压力测试仍属于 `R4-A-05`。producer 在 hierarchy prepare 前用 VisibilityKey 与 adapter storage-buffer limit 校验 RasterWork capacity，失败明确抛错，不 mask/truncate。
+
+采样帧的 `VisibilityCounterPass` 已按 `legacy-id | visibility-key-v1` 双 contract 工作，`shadedPixels` 作为 final useful fragments，新增 `invalidVisibilityKeys` 统计 reserved-slot marker。当前 WebGPU baseline 没有已协商的 pipeline-statistics producer，因此 submitted fragments 明确登记为 `unsupported / R4-A-06`，不伪造 submitted/useful 比例。`examples/r4-hardware-opaque-producer` 的真实 Chrome WebGPU 门禁已通过：GPU work 写出 `[384, 1, 0, 0]`，有效/empty 像素为 `6820/69980`、invalid/unresolved/depth mismatch 均为 `0`、visible reverse-Z depth 为 `0.025`，WGSL/validation/uncaptured diagnostics 为空；本地 JSON 与截图保存于 `temp/r4-a-02/`。生产 Renderer 的 Benchmark A smoke 也完成 3 个 sampled frame，均导出 `invalidVisibilityKeys=0`，且 validation/uncaptured/device-lost/timestamp/counter diagnostics 全为 `0`；它因 smoke profile 与既有 Software Visibility blocker 不具备 Gate 资格。这只关闭 opaque producer 工作项，不关闭 alpha、debug Resolve、lifecycle Gate 或整个 G4-A。
+
 - Packed Hardware vertex/fragment path 写 `VisibilityKey v1 + reverse-Z depth`。
 - 继续消费 R3 `RasterWork + drawIndirect`；当前帧不得 readback count。
 - 定义 attachment owner、FrameGraph lifetime、resize/device-lost 和 feature-off 行为。
