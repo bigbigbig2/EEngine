@@ -169,16 +169,17 @@ shadedPixels + emptyVisibilityPixels
 | `rejectedFrustum` | `candidateInstances` 中未通过 scene sphere/AABB frustum test 的累计 row 数；不包含后续 instance/cluster HZB 或 cone reject |
 | `candidateClusters` | 所有实际 Visibility wave/bucket 中 expand 后、进入 cluster/HZB cull 的队列项总和；可能包含 second-chance/alpha wave 的重复逻辑 cluster |
 | `selectedClusters` | 实际送入 opaque、second-chance 与 alpha hardware raster draw list 的队列项总和 |
-| `hwClusters` | opaque/second-chance hardware raster list 的队列项总和 |
-| `alphaClusters` | alpha-tested hardware raster list 的队列项总和 |
+| `hwClusters` | legacy 路径为 opaque/second-chance list；Packed R3/R4 路径为统一 Hardware `drawIndirect` 实际消费的 RasterWork 总数，包含 alpha-tested 子集 |
+| `alphaClusters` | legacy 路径为独立 alpha list；Packed R4 路径为 sampled GPU reducer 从统一 RasterWork 中识别出的 alpha-tested 子集 |
 | `hwTriangles` | 固定功能路径实际提交的 primitive 数；当前每个 Meshlet 固定 `drawIndirect` 384 vertices，即 128 triangles，不是 Meshlet header 中的逻辑 primitive count |
 | `queueOverflowMask` | bit 0=`sceneMeshList`，bit 1=`meshletList`，bit 3=`lightList`；bit 2 为 material list 保留但尚无 producer |
 
 每个无 overflow 的样本应满足：
 
 ```text
-selectedClusters == hwClusters + alphaClusters
-hwTriangles == selectedClusters × 128
+legacy split-list: selectedClusters == hwClusters + alphaClusters
+Packed unified draw: hwClusters >= selectedClusters && alphaClusters <= hwClusters
+hwTriangles == hwClusters × 128
 candidateInstances == visibleInstances + rejectedFrustum
 ```
 

@@ -1,6 +1,7 @@
 import {
   BenchmarkRunController,
   PerspectiveCamera,
+  RenderDebugView,
   Renderer,
   captureWebGpuLimits,
   createBenchmarkCaseManifest,
@@ -9,17 +10,30 @@ import {
   validateBenchmarkEvidence,
   type BenchmarkAdapterIdentity,
   type BenchmarkResult,
-  type BenchmarkSceneManifest
+  type BenchmarkSceneManifest,
+  type RenderDebugViewName
 } from "../../OEngine/src/index.ts";
 import {
   createBenchmarkSceneFixture,
   type BenchmarkRuntimeProfile
 } from "./BenchmarkScenes.ts";
 import { loadBenchmarkSceneManifest } from "./manifest-loader.ts";
+import {
+  createR4A06GateArtifact,
+  type R4A06CaptureState,
+  type R4A06CaptureView,
+  type R4A06GateArtifact
+} from "./R4A06BrowserGate.ts";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
 declare const __BUILD_DIRTY_REASONS__: string[];
+
+declare global {
+  interface Window {
+    __OENGINE_R4_A_06_GATE__?: R4A06BrowserGateHook;
+  }
+}
 
 export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
   const elements = pageElements();
@@ -108,7 +122,20 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
         }
       }
     });
-    finishPage(elements, manifest, profile, visibility, result);
+    const completedOrdinal = run.warmupFrames + run.sampleFrames - 1;
+    const gate = finishPage(elements, manifest, profile, visibility, result);
+    renderer.profiler.configure({ enabled: false });
+    window.__OENGINE_R4_A_06_GATE__ = {
+      artifact: gate,
+      capture: async (view) => captureGateView(
+        view,
+        renderer,
+        camera,
+        fixture,
+        completedOrdinal,
+        canvas
+      )
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     elements.status.textContent = "运行失败";
@@ -125,9 +152,16 @@ function finishPage(
   profile: BenchmarkRuntimeProfile,
   visibility: "hierarchy",
   result: BenchmarkResult
-): void {
+): R4A06GateArtifact {
   const evidence = validateBenchmarkEvidence(result);
   const counterIssues = validateCounterInvariants(result, visibility);
+  const gate = createR4A06GateArtifact(
+    manifest,
+    profile,
+    result,
+    evidence,
+    counterIssues
+  );
   const diagnostics = result.diagnostics;
   const runtimeClean = diagnostics.validationErrorCount === 0 &&
     diagnostics.uncapturedErrorCount === 0 &&
@@ -144,7 +178,8 @@ function finishPage(
     `gateEligible=${evidence.gateEligible}`,
     `capabilityComplete=${evidence.capabilityComplete}`,
     `blockers=${evidence.blockedCapabilities.length}`,
-    `counterIssues=${counterIssues.length}`
+    `counterIssues=${counterIssues.length}`,
+    `r4a06=${gate.passed ? "passed" : `${gate.issues.length} issues`}`
   ].join(" · ");
   elements.cpu.textContent = `${result.summary.cpuMs.frame.p50.toFixed(3)} ms`;
   elements.submit.textContent = result.summary.submits.mean.toFixed(2);
@@ -165,8 +200,45 @@ function finishPage(
     profile,
     visibility,
     evidence,
-    counterIssues
+    counterIssues,
+    r4a06: gate
   });
+  return gate;
+}
+
+async function captureGateView(
+  view: R4A06CaptureView,
+  renderer: Renderer,
+  camera: PerspectiveCamera,
+  fixture: Awaited<ReturnType<typeof createBenchmarkSceneFixture>>,
+  frameOrdinal: number,
+  canvas: HTMLCanvasElement
+): Promise<R4A06CaptureState> {
+  const renderDebugView = gateDebugView(view);
+  renderer.render_debug_view = renderDebugView;
+  fixture.update(frameOrdinal);
+  for (let index = 0; index < 2; index++) {
+    if (!renderer.render(camera, fixture.scene, 1 / 60)) {
+      throw new Error(`Renderer stopped while capturing '${view}'`);
+    }
+    await renderer.device.queue.onSubmittedWorkDone();
+  }
+  return {
+    view,
+    renderDebugView,
+    frameOrdinal,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    diagnostics: renderer.profiler.diagnostics
+  };
+}
+
+function gateDebugView(view: R4A06CaptureView): RenderDebugViewName {
+  switch (view) {
+    case "oracle": return RenderDebugView.None;
+    case "visibility-key": return RenderDebugView.VisibilityKey;
+    case "depth": return RenderDebugView.Depth;
+  }
 }
 
 function validateCounterInvariants(
@@ -357,4 +429,9 @@ function adapterDescription(adapter: BenchmarkAdapterIdentity | null): string {
   return [adapter.vendor, adapter.architecture, adapter.device, adapter.description]
     .filter((value) => value.length > 0)
     .join(" · ") || "GPU adapter identity unavailable";
+}
+
+interface R4A06BrowserGateHook {
+  artifact: R4A06GateArtifact;
+  capture(view: R4A06CaptureView): Promise<R4A06CaptureState>;
 }

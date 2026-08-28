@@ -1,6 +1,6 @@
 # R4-A-01 · Unified Hardware Visibility Contract
 
-Status: R4-A-01 implemented; R4-A-02 Hardware opaque, R4-A-03 alpha-tested, R4-A-04 debug Resolve and R4-A-05 lifecycle/overflow integrated 2026-08-28 / paired Gate pending
+Status: R4-A-01 implemented; R4-A-02..06 integrated; G4-A closed 2026-08-28
 
 ## Reference ID
 
@@ -140,6 +140,9 @@ depth32float reverse-Z
 - `validatePackedVisibilityPreparation()` 是 production prepare 的单一 capacity seam：在 generator 之前同时验证 key 和 adapter buffer limits，返回 required/effective byte evidence；失败不调用 generator、不分配 RasterWork queue、不编码 producer。
 - prepared hierarchy 的 epoch replacement、Packed release 和 abort 通过 `destroyAfterGpuDone()` 等待 queue completion；View removal 同样先断开 lookup 再 fence old history。device loss 不复用旧 device resources，只允许 fresh Renderer/GraphicsContext 从 device-independent package 重建。
 - counter/debug feature-off 不保留 reducer/readback/额外 submit；256 B disabled counter sink 仅用于当前固定 shader binding ABI，不执行采样 clear/copy/reduce。
+- paired Gate 复用 production A/B/C Renderer、manifest、Packed hierarchy producer 与现有 final-color Material Resolve oracle；只在 benchmark 完成后暴露 capture hook，不建立独立渲染管线。artifact 检查 clean/full provenance、cadence、submit/drawIndirect、attachment bytes、pixel partition、queue/counter/timestamp 与 WebGPU diagnostics。
+- Packed `alphaClusters` 在 sampled frame 由 64-lane GPU reducer沿 `RasterWork → VisibleCluster → MaterialVisibilityRecord` 统计 `MASK` RasterWork 子集；counter-off frame 不创建该 Pass/readback，reducer 不读回 count 决定本帧工作。
+- WebGPU baseline 没有 negotiated pipeline-statistics producer，submitted fragments 使用稳定平台能力标识 `WEBGPU-01-PIPELINE-STATISTICS` 登记 unsupported；G4-A 不以假零值或伪造 submitted/useful 比例通过。
 
 ## Precision / semantic differences
 
@@ -249,9 +252,15 @@ examples/r4-visibility-lifecycle
   production Packed alpha path with feature-off and sampled counter evidence
   resize, camera cut, view recreation and immediate release/re-upload
   intentional device destroy, old Renderer stop and fresh adapter/device/Renderer rebuild
+
+OEngine/src/render/passes/PackedVisibilityAlphaCounterPass.ts
+examples/benchmark-shared/R4A06BrowserGate.ts
+examples/benchmark-shared/BenchmarkPage.ts
+  sampled-only Packed alpha RasterWork reducer
+  production A/B/C full Gate artifact and oracle/key/depth capture hook
 ```
 
-R4-A-01/02/03/04/05 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI、WebGPU/WGSL 与 Khronos glTF 规格，对 lookup/producer/material alpha/debug bounds/lifecycle 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
+R4-A-01/02/03/04/05/06 没有复制、翻译或改写 Timberdoodle 的表达性源码；实际实现是依据冻结 ABI、WebGPU/WGSL 与 Khronos glTF 规格，对 lookup/producer/material alpha/debug bounds/lifecycle/observability 不变量做 OEngine 独立 reimplementation，因此没有向本地源码嵌入 Apache-2.0 代码 notice。上游仓库、commit、路径与许可证仍保留在本 ledger，供后续 shader lookup 接线继续核对。
 
 Validation：
 
@@ -305,12 +314,21 @@ result: passed=true; feature-off readbacks=0 and counter sampled=false;
         33,554,432 rejected before allocation; intentional destroyed loss stopped old Renderer;
         fresh NVIDIA Turing Renderer completed 3 frames with zero diagnostics
 artifacts: temp/r4-a-05/r4-a-05.json, r4-a-05.png and r4-a-05-canvas.png
-```
 
-Planned by later R4-A tasks：
+cd OEngine
+npm test
+npm run audit:shaders
 
-```text
-A/B/C paired browser artifact with debug screenshots
+cd examples
+npm run build
+
+Chrome WebGPU: benchmark A/B/C full R4-A-06 Gate
+result: 1280x720, DPR 1, 60 warm-up + 180 sample, timestamp/counter every 6 frames;
+        clean/gate eligible; one main submit and one Packed drawIndirect per frame;
+        invalidVisibilityKeys=0, queueOverflowMask=0, useful+empty=921,600;
+        C alpha RasterWork=40/127; validation/uncaptured/device-lost/timestamp/counter,
+        browser console and page errors all zero; oracle/key/depth silhouettes matched
+artifacts: temp/r4-a-06/full/*.json and *.png
 ```
 
 ## Decision
