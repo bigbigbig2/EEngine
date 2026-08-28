@@ -193,7 +193,10 @@
         "src/render/HierarchicalWorkGenerator.ts"
       ],
       "runtimeConsumers": [
-        "src/render/HierarchicalWorkGenerator.ts"
+        "src/index.ts",
+        "src/render/HierarchicalWorkGenerator.ts",
+        "src/render/passes/PackedVisibilityPass.ts",
+        "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/HierarchicalWorkGenerator.ts"

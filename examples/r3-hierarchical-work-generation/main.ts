@@ -16,6 +16,8 @@ import {
 } from "../../OEngine/src/gpu/GpuAssetStore.ts";
 import { GpuScene } from "../../OEngine/src/gpu/GpuScene.ts";
 import {
+  unpackDrawIndirectArgs,
+  unpackRasterWorkRecords,
   unpackVisibleClusterRecords,
   unpackWorkQueueHeader
 } from "../../OEngine/src/gpu/GpuWorkGenerationAbi.ts";
@@ -44,13 +46,13 @@ download.addEventListener("click", () => {
     [JSON.stringify(finalResult, null, 2)],
     { type: "application/json" }
   ));
-  anchor.download = `oengine-r3-b-${__BUILD_COMMIT__.slice(0, 8)}.json`;
+  anchor.download = `oengine-r3-c-${__BUILD_COMMIT__.slice(0, 8)}.json`;
   anchor.click();
   URL.revokeObjectURL(anchor.href);
 });
 
 void run().catch((error: unknown) => {
-  status.textContent = "R3-B 验证失败";
+  status.textContent = "R3-C 验证失败";
   status.className = "error";
   result.textContent = error instanceof Error ? error.stack ?? error.message : String(error);
   console.error(error);
@@ -73,6 +75,10 @@ interface GpuCaseResult {
   readonly root: ReturnType<typeof unpackWorkQueueHeader>;
   readonly rounds: readonly ReturnType<typeof unpackWorkQueueHeader>[];
   readonly selected: ReturnType<typeof unpackWorkQueueHeader>;
+  readonly raster: ReturnType<typeof unpackWorkQueueHeader>;
+  readonly rasterKeys: readonly string[];
+  readonly cpuRasterKeys: readonly string[];
+  readonly drawIndirect: ReturnType<typeof unpackDrawIndirectArgs>;
 }
 
 async function run(): Promise<void> {
@@ -173,6 +179,11 @@ async function run(): Promise<void> {
   }
 
   const generator = new HierarchicalWorkGenerator(device);
+  const counterBuffer = device.createBuffer({
+    label: "R3-C/browser counter sink",
+    size: 256,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
   const descriptor = {
     assets: assets.bindings(),
     scene: gpuScene.bindings(),
@@ -180,11 +191,17 @@ async function run(): Promise<void> {
     instanceCount: instanceRange.count,
     maxHierarchyDepth: capacity.maxHierarchyDepth,
     traversalWorkCapacity: capacity.traversalWorkCapacity,
-    visibleClusterCapacity: capacity.visibleClusterCapacity
+    visibleClusterCapacity: capacity.visibleClusterCapacity,
+    rasterWorkCapacity: capacity.rasterWorkCapacity,
+    counterBuffer
   };
-  const normal = generator.prepare(descriptor, { sseThreshold: 18 });
+  const normal = generator.prepare(descriptor, {
+    sseThreshold: 18,
+    countersEnabled: false
+  });
   const pressure = generator.prepare(descriptor, {
     sseThreshold: 0,
+    countersEnabled: false,
     traversalWorkCapacity: 1
   });
   const cases = [
@@ -233,7 +250,7 @@ async function run(): Promise<void> {
     uncapturedErrors
   };
   result.textContent = JSON.stringify(finalResult, null, 2);
-  status.textContent = passed ? "R3-B GPU/CPU selected-set 验证通过" : "R3-B 验证未通过";
+  status.textContent = passed ? "R3-C GPU/CPU RasterWork 验证通过" : "R3-C 验证未通过";
   status.className = passed ? "ok" : "error";
   summary.textContent = `4 cases，${capacity.maxHierarchyDepth + 1} encoded rounds，pressure fallback=${pressureFallback}。`;
   download.disabled = false;
@@ -241,6 +258,7 @@ async function run(): Promise<void> {
   generator.release(normal);
   generator.release(pressure);
   generator.destroy();
+  counterBuffer.destroy();
   gpuScene.destroy();
   assets.destroy();
 }
@@ -287,26 +305,49 @@ async function runCase(
     size: generated.evidence.size,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
+  const rasterReadback = device.createBuffer({
+    label: `R3-C/${name}/RasterWork-readback`,
+    size: generated.rasterWork.size,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  const indirectReadback = device.createBuffer({
+    label: `R3-C/${name}/drawIndirect-readback`,
+    size: 16,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
   const encoder = device.createCommandEncoder({ label: `R3-B/${name}` });
   generator.encode(encoder, prepared, view);
   encoder.copyBufferToBuffer(generated.visibleClusters, 0, selectedReadback, 0, generated.visibleClusters.size);
   encoder.copyBufferToBuffer(generated.evidence, 0, evidenceReadback, 0, generated.evidence.size);
+  encoder.copyBufferToBuffer(generated.rasterWork, 0, rasterReadback, 0, generated.rasterWork.size);
+  encoder.copyBufferToBuffer(generated.drawIndirect, 0, indirectReadback, 0, 16);
   device.queue.submit([encoder.finish()]);
   await device.queue.onSubmittedWorkDone();
   await Promise.all([
     selectedReadback.mapAsync(GPUMapMode.READ),
-    evidenceReadback.mapAsync(GPUMapMode.READ)
+    evidenceReadback.mapAsync(GPUMapMode.READ),
+    rasterReadback.mapAsync(GPUMapMode.READ),
+    indirectReadback.mapAsync(GPUMapMode.READ)
   ]);
   const selectedBytes = new Uint8Array(selectedReadback.getMappedRange().slice(0));
   const evidenceBytes = new Uint8Array(evidenceReadback.getMappedRange().slice(0));
+  const rasterBytes = new Uint8Array(rasterReadback.getMappedRange().slice(0));
+  const indirectBytes = new Uint8Array(indirectReadback.getMappedRange().slice(0));
   selectedReadback.unmap();
   evidenceReadback.unmap();
+  rasterReadback.unmap();
+  indirectReadback.unmap();
   selectedReadback.destroy();
   evidenceReadback.destroy();
+  rasterReadback.destroy();
+  indirectReadback.destroy();
 
   const selected = unpackWorkQueueHeader(selectedBytes);
-  const gpuKeys = unpackVisibleClusterRecords(selectedBytes, selected.written)
-    .map(recordKey).sort();
+  const gpuVisibleRecords = unpackVisibleClusterRecords(
+    selectedBytes,
+    selected.written
+  );
+  const gpuKeys = gpuVisibleRecords.map(recordKey).sort();
   const cpu = selectGeometryHierarchyInstances(cpuInstances, {
     view,
     sseThreshold,
@@ -314,6 +355,14 @@ async function runCase(
     traversalQueueCapacity
   });
   const cpuKeys = cpu.selectedClusters.map(recordKey).sort();
+  const raster = unpackWorkQueueHeader(rasterBytes);
+  const rasterKeys = unpackRasterWorkRecords(rasterBytes, raster.written)
+    .map((work) => `${recordKey(gpuVisibleRecords[work.visibleClusterSlot]!)}:${work.meshletRecordIndex}`)
+    .sort();
+  const cpuRasterKeys = cpu.selectedMeshlets.map((work) =>
+    `${recordKey(cpu.selectedClusters[work.visibleClusterSlot]!)}:${work.meshletRecordIndex}`
+  ).sort();
+  const drawIndirect = unpackDrawIndirectArgs(indirectBytes);
   const layout = generated.evidenceLayout;
   const root = unpackWorkQueueHeader(
     evidenceBytes,
@@ -329,8 +378,17 @@ async function runCase(
     evidenceBytes,
     layout.selectedHeaderIndex * layout.headerStride
   );
+  const rasterEvidence = unpackWorkQueueHeader(
+    evidenceBytes,
+    layout.rasterHeaderIndex * layout.headerStride
+  );
   const passed = JSON.stringify(gpuKeys) === JSON.stringify(cpuKeys) &&
+    JSON.stringify(rasterKeys) === JSON.stringify(cpuRasterKeys) &&
     selected.overflow === 0 && selected.written === selectedEvidence.written &&
+    raster.overflow === 0 && raster.written === rasterEvidence.written &&
+    drawIndirect.vertexCount === 384 &&
+    drawIndirect.instanceCount === raster.written &&
+    drawIndirect.firstVertex === 0 && drawIndirect.firstInstance === 0 &&
     root.overflow === 0 && rounds.at(-1)?.written === 0;
   return {
     name,
@@ -340,7 +398,11 @@ async function runCase(
     cpuKeys,
     root,
     rounds,
-    selected: selectedEvidence
+    selected: selectedEvidence,
+    raster: rasterEvidence,
+    rasterKeys,
+    cpuRasterKeys,
+    drawIndirect
   };
 }
 

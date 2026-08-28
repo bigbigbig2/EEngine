@@ -545,6 +545,87 @@ export function computePackedHierarchyWorkCapacity(
   });
 }
 
+/**
+ * Bulk equivalent of `computePackedHierarchyWorkCapacity()` for Packed Scene
+ * dictionaries. It aggregates identical Geometry packages before applying
+ * their hierarchy bounds, so preparation remains O(instance count) without
+ * allocating one JavaScript wrapper object per Instance.
+ */
+export function computeIndexedPackedHierarchyWorkCapacity(
+  geometries: readonly GeometryAssetPackage[],
+  geometryIndices: Uint32Array
+): GeometryHierarchyWorkCapacity {
+  if (geometries.length === 0) {
+    throw new RangeError("Packed hierarchy requires at least one Geometry");
+  }
+  assertU32(geometryIndices.length, "Hierarchy instance count");
+  if (geometryIndices.length === 0) {
+    throw new RangeError("Packed hierarchy requires at least one Instance");
+  }
+  const instanceCounts = new Uint32Array(geometries.length);
+  for (let index = 0; index < geometryIndices.length; index++) {
+    const geometryIndex = geometryIndices[index]!;
+    if (geometryIndex >= geometries.length) {
+      throw new RangeError(
+        `geometryIndices[${index}] ${geometryIndex} is outside the Geometry dictionary`
+      );
+    }
+    const next = instanceCounts[geometryIndex]! + 1;
+    assertU32(next, `Geometry ${geometryIndex} Instance count`);
+    instanceCounts[geometryIndex] = next;
+  }
+
+  const combinedDepthWidths: number[] = [];
+  let visibleClusterCapacity = 0;
+  let rasterWorkCapacity = 0;
+  let maxHierarchyDepth = 0;
+  for (let geometryIndex = 0; geometryIndex < geometries.length; geometryIndex++) {
+    const instanceCount = instanceCounts[geometryIndex]!;
+    if (instanceCount === 0) continue;
+    const analysis = analyzeGeometryHierarchy(geometries[geometryIndex]!);
+    visibleClusterCapacity = addU32(
+      visibleClusterCapacity,
+      multiplyU32(
+        analysis.maxCutClusters,
+        instanceCount,
+        `Geometry ${geometryIndex} VisibleCluster capacity`
+      ),
+      "Packed VisibleCluster capacity"
+    );
+    rasterWorkCapacity = addU32(
+      rasterWorkCapacity,
+      multiplyU32(
+        analysis.maxCutMeshlets,
+        instanceCount,
+        `Geometry ${geometryIndex} RasterWork capacity`
+      ),
+      "Packed RasterWork capacity"
+    );
+    maxHierarchyDepth = Math.max(maxHierarchyDepth, analysis.maxDepth);
+    for (let depth = 0; depth < analysis.depthWidths.length; depth++) {
+      combinedDepthWidths[depth] = addU32(
+        combinedDepthWidths[depth] ?? 0,
+        multiplyU32(
+          analysis.depthWidths[depth]!,
+          instanceCount,
+          `Geometry ${geometryIndex} traversal depth ${depth} capacity`
+        ),
+        `Packed traversal depth ${depth} capacity`
+      );
+    }
+  }
+  return Object.freeze({
+    rootTraversalCapacity: geometryIndices.length,
+    traversalWorkCapacity: combinedDepthWidths.reduce(
+      (maximum, width) => Math.max(maximum, width),
+      0
+    ),
+    visibleClusterCapacity,
+    rasterWorkCapacity,
+    maxHierarchyDepth
+  });
+}
+
 interface GeometryHierarchyAnalysis {
   readonly maxCutClusters: number;
   readonly maxCutMeshlets: number;
@@ -625,6 +706,14 @@ function analyzeGeometryHierarchy(
     maxDepth,
     depthWidths: Object.freeze(depthWidths)
   });
+}
+
+function multiplyU32(left: number, right: number, label: string): number {
+  assertU32(left, label);
+  assertU32(right, label);
+  const result = left * right;
+  assertU32(result, label);
+  return result;
 }
 
 interface WorldSphere {

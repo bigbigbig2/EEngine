@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OEngine R3-B Hierarchical Work Generation</title>
+    <title>OEngine R3-C RasterWork + Hardware Indirect</title>
     <style>
       body { margin: 0; background: #0b1020; color: #edf2ff; font: 15px/1.55 system-ui, sans-serif; }
       main { max-width: 1040px; margin: 0 auto; padding: 36px 20px 72px; }
@@ -17,8 +17,8 @@
   </head>
   <body>
     <main>
-      <h1>R3-B · Cluster Hierarchy GPU Producer</h1>
-      <p>R2 resident Instance/Geometry/Cluster tables → InstanceCull → root → ping/pong Frustum + SSE → VisibleCluster readback test consumer。</p>
+      <h1>R3-C · RasterWork + 16 B drawIndirect</h1>
+      <p>R2 resident tables → hierarchy/SSE → VisibleCluster → RasterWork → 完整 GPU 16 B drawIndirect；并以 CPU oracle 对齐 Meshlet work set。</p>
       <section>
         <h2 id="status" class="running">正在运行 GPU/CPU selected-set 对齐……</h2>
         <p id="summary">初始化 WebGPU、Cooker 与 GPU resident tables。</p>

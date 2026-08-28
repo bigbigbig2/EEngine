@@ -26,7 +26,8 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
   try {
     const manifest = await loadBenchmarkSceneManifest(manifestUrl);
     const profile = readProfile();
-    renderManifest(elements, manifest, profile);
+    const visibility = readVisibilityMode();
+    renderManifest(elements, manifest, profile, visibility);
     const canvas = elements.canvas;
     canvas.width = manifest.frame.width;
     canvas.height = manifest.frame.height;
@@ -37,6 +38,7 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
 
     const renderer = new Renderer();
     await renderer.initialize({ context, pixelRatio: manifest.frame.dpr });
+    renderer.packed_visibility_mode = visibility;
     configurePipeline(renderer, manifest.id);
     const run = profileRun(manifest, profile);
     renderer.profiler.configure({
@@ -107,7 +109,7 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
         }
       }
     });
-    finishPage(elements, manifest, profile, result);
+    finishPage(elements, manifest, profile, visibility, result);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     elements.status.textContent = "运行失败";
@@ -122,6 +124,7 @@ function finishPage(
   elements: PageElements,
   manifest: BenchmarkSceneManifest,
   profile: BenchmarkRuntimeProfile,
+  visibility: "hierarchy" | "flat",
   result: BenchmarkResult
 ): void {
   const evidence = validateBenchmarkEvidence(result);
@@ -138,6 +141,7 @@ function finishPage(
   elements.statusDot.classList.add(runtimeClean ? "ok" : "error");
   elements.detail.textContent = [
     `profile=${profile}`,
+    `visibility=${visibility}`,
     `gateEligible=${evidence.gateEligible}`,
     `capabilityComplete=${evidence.capabilityComplete}`,
     `blockers=${evidence.blockedCapabilities.length}`,
@@ -151,8 +155,19 @@ function finishPage(
     : `${evidence.blockedCapabilities.length} blocked`;
   elements.result.textContent = serializeBenchmarkResult(result);
   elements.download.disabled = false;
-  elements.download.onclick = () => downloadResult(manifest, profile, result);
-  console.info("OBS-02 benchmark evidence", { manifest, profile, evidence, counterIssues });
+  elements.download.onclick = () => downloadResult(
+    manifest,
+    profile,
+    visibility,
+    result
+  );
+  console.info("R3-C paired benchmark evidence", {
+    manifest,
+    profile,
+    visibility,
+    evidence,
+    counterIssues
+  });
 }
 
 function validateCounterInvariants(result: BenchmarkResult): string[] {
@@ -230,15 +245,22 @@ function readProfile(): BenchmarkRuntimeProfile {
     : "full";
 }
 
+function readVisibilityMode(): "hierarchy" | "flat" {
+  return new URLSearchParams(location.search).get("visibility") === "flat"
+    ? "flat"
+    : "hierarchy";
+}
+
 function renderManifest(
   elements: PageElements,
   manifest: BenchmarkSceneManifest,
-  profile: BenchmarkRuntimeProfile
+  profile: BenchmarkRuntimeProfile,
+  visibility: "hierarchy" | "flat"
 ): void {
-  document.title = `OEngine Benchmark ${manifest.id}`;
+  document.title = `OEngine Benchmark ${manifest.id} ${visibility}`;
   elements.title.textContent = manifest.name;
   elements.role.textContent = manifest.baselineRole;
-  elements.profile.textContent = profile;
+  elements.profile.textContent = `${profile} / ${visibility}`;
   elements.manifest.textContent = JSON.stringify(manifest, null, 2);
   elements.limitations.innerHTML = "";
   for (const limitation of manifest.currentLimitations) {
@@ -266,12 +288,13 @@ function renderCounts(
 function downloadResult(
   manifest: BenchmarkSceneManifest,
   profile: BenchmarkRuntimeProfile,
+  visibility: "hierarchy" | "flat",
   result: BenchmarkResult
 ): void {
   const blob = new Blob([serializeBenchmarkResult(result)], { type: "application/json" });
   const anchor = document.createElement("a");
   anchor.href = URL.createObjectURL(blob);
-  anchor.download = `oengine-benchmark-${manifest.id.toLowerCase()}-${profile}-${__BUILD_COMMIT__.slice(0, 8)}.json`;
+  anchor.download = `oengine-benchmark-${manifest.id.toLowerCase()}-${profile}-${visibility}-${__BUILD_COMMIT__.slice(0, 8)}.json`;
   anchor.click();
   URL.revokeObjectURL(anchor.href);
 }

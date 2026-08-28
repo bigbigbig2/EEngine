@@ -1,4 +1,5 @@
 import type { GeometryAssetPackage } from "../assets/GeometryAssetPackage.js";
+import { computeIndexedPackedHierarchyWorkCapacity } from "../geometry/GeometryHierarchy.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { Scene } from "../scene/Scene.js";
@@ -39,6 +40,9 @@ export interface PackedSceneEvidence {
   readonly sceneCount: number;
   readonly instanceCount: number;
   readonly candidateMeshletCapacity: number;
+  readonly hierarchyTraversalCapacity: number;
+  readonly hierarchyVisibleClusterCapacity: number;
+  readonly hierarchyRasterWorkCapacity: number;
   readonly workQueueBytes: number;
   readonly privateSubmitCount: 0;
 }
@@ -52,6 +56,11 @@ export interface PackedSceneRuntime {
   readonly instanceBegin: number;
   readonly instanceCount: number;
   readonly candidateMeshletCapacity: number;
+  readonly hierarchyTraversalCapacity: number;
+  readonly hierarchyVisibleClusterCapacity: number;
+  readonly hierarchyRasterWorkCapacity: number;
+  /** Zero-based deepest reachable Cluster depth. */
+  readonly hierarchyMaxDepth: number;
   readonly workQueue: GPUBuffer;
   readonly indirectArgs: GPUBuffer;
   readonly counterSink: GPUBuffer;
@@ -85,6 +94,10 @@ export class GpuPackedSceneRegistry {
       throw new Error("Scene already has a Packed Scene registration");
     }
     validateSource(source, assetHandles);
+    const hierarchyCapacity = computeIndexedPackedHierarchyWorkCapacity(
+      source.geometries,
+      source.geometryIndices
+    );
     let candidateMeshletCapacity = 0;
     for (let index = 0; index < source.count; index++) {
       const geometry = source.geometries[source.geometryIndices[index]!]!;
@@ -149,6 +162,10 @@ export class GpuPackedSceneRegistry {
       instanceBegin: range.start,
       instanceCount: range.count,
       candidateMeshletCapacity,
+      hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,
+      hierarchyVisibleClusterCapacity: hierarchyCapacity.visibleClusterCapacity,
+      hierarchyRasterWorkCapacity: hierarchyCapacity.rasterWorkCapacity,
+      hierarchyMaxDepth: hierarchyCapacity.maxHierarchyDepth,
       workQueue,
       indirectArgs,
       counterSink
@@ -237,10 +254,16 @@ export class GpuPackedSceneRegistry {
   evidence(): PackedSceneEvidence {
     let instanceCount = 0;
     let candidateMeshletCapacity = 0;
+    let hierarchyTraversalCapacity = 0;
+    let hierarchyVisibleClusterCapacity = 0;
+    let hierarchyRasterWorkCapacity = 0;
     let workQueueBytes = 0;
     for (const runtime of this.byScene.values()) {
       instanceCount += runtime.instanceCount;
       candidateMeshletCapacity += runtime.candidateMeshletCapacity;
+      hierarchyTraversalCapacity += runtime.hierarchyTraversalCapacity;
+      hierarchyVisibleClusterCapacity += runtime.hierarchyVisibleClusterCapacity;
+      hierarchyRasterWorkCapacity += runtime.hierarchyRasterWorkCapacity;
       workQueueBytes += runtime.workQueue.size;
     }
     return Object.freeze({
@@ -248,6 +271,9 @@ export class GpuPackedSceneRegistry {
       sceneCount: this.byScene.size,
       instanceCount,
       candidateMeshletCapacity,
+      hierarchyTraversalCapacity,
+      hierarchyVisibleClusterCapacity,
+      hierarchyRasterWorkCapacity,
       workQueueBytes,
       privateSubmitCount: 0
     });

@@ -265,6 +265,56 @@ export function unpackVisibleClusterRecords(
   return Object.freeze(records);
 }
 
+export function unpackRasterWorkRecords(
+  bytes: Uint8Array,
+  count: number,
+  byteOffset = GPU_WORK_QUEUE_HEADER_SCHEMA.stride
+): readonly RasterWorkCpu[] {
+  assertU32(count, "RasterWork record count");
+  const byteLength = count * GPU_RASTER_WORK_SCHEMA.stride;
+  if (!Number.isSafeInteger(byteLength)) {
+    throw new RangeError("RasterWork record byte length is invalid");
+  }
+  assertByteRange(bytes, byteOffset, byteLength, "RasterWork records");
+  const view = new DataView(
+    bytes.buffer,
+    bytes.byteOffset + byteOffset,
+    byteLength
+  );
+  const records: RasterWorkCpu[] = [];
+  for (let index = 0; index < count; index++) {
+    const base = index * GPU_RASTER_WORK_SCHEMA.stride;
+    records.push(Object.freeze({
+      visibleClusterSlot: view.getUint32(base, true),
+      meshletRecordIndex: view.getUint32(base + 4, true)
+    }));
+  }
+  return Object.freeze(records);
+}
+
+export function unpackDrawIndirectArgs(
+  bytes: Uint8Array,
+  byteOffset = 0
+): Readonly<DrawIndirectArgsCpu> {
+  assertByteRange(
+    bytes,
+    byteOffset,
+    GPU_DRAW_INDIRECT_ARGS_SIZE,
+    "draw indirect arguments"
+  );
+  const view = new DataView(
+    bytes.buffer,
+    bytes.byteOffset + byteOffset,
+    GPU_DRAW_INDIRECT_ARGS_SIZE
+  );
+  return Object.freeze({
+    vertexCount: view.getUint32(0, true),
+    instanceCount: view.getUint32(4, true),
+    firstVertex: view.getUint32(8, true),
+    firstInstance: view.getUint32(12, true)
+  });
+}
+
 export function packDispatchIndirectArgs(
   workgroupCountX: number,
   workgroupCountY = 1,

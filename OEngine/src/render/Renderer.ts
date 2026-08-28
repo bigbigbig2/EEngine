@@ -22,7 +22,10 @@ import { RenderTargets } from "./RenderTargets.js";
 import { GPUViewKey, ViewManager } from "./ViewManager.js";
 import { GPUCameraStateManager } from "./GPUCameraState.js";
 import { VisibilityPass } from "./passes/VisibilityPass.js";
-import { PackedVisibilityPass } from "./passes/PackedVisibilityPass.js";
+import {
+  PackedVisibilityPass,
+  type PackedVisibilityMode
+} from "./passes/PackedVisibilityPass.js";
 import { VisibilityCounterPass } from "./passes/VisibilityCounterPass.js";
 import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
 import { PackedMaterialExpandPass } from "./passes/PackedMaterialExpandPass.js";
@@ -80,6 +83,7 @@ import {
   type FrameGraphKey
 } from "../framegraph/FrameGraphKey.js";
 import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
+import type { GeometryHierarchyView } from "../geometry/GeometryHierarchy.js";
 import type { Scene } from "../scene/Scene.js";
 import {
   ShadeIndirectLightingMode,
@@ -280,6 +284,10 @@ export class Renderer {
   indirect_lighting_mode: ShadeIndirectLightingModeT = ShadeIndirectLightingMode.IBL;
   upscale_type = 0;
   motion_blur_strength = 1;
+  /** R3-C paired evidence switch; the flat option is deleted in R3-D. */
+  packed_visibility_mode: PackedVisibilityMode = "hierarchy";
+  /** R3 production default, matching the minimum three.js quality baseline. */
+  packed_visibility_sse_threshold = 4;
 
   onFrameFinished = new ChangeSignal<number>();
   onFrameDebug = new ChangeSignal<number, any[]>();
@@ -437,6 +445,10 @@ export class Renderer {
     );
     let handles: readonly AssetHandle[];
     try {
+      const runtime = this._graphics.packed_scenes.runtime(scene);
+      if (runtime !== null && this._packedVisibility) {
+        this._packedVisibility.release(runtime, command);
+      }
       handles = this._graphics.packed_scenes.release(scene, command);
       command.finish();
       await command.submitted;
@@ -660,6 +672,7 @@ export class Renderer {
     this._renderDebug?.destroy();
     this._renderDebug = null;
     this._packedVelocity?.destroy();
+    this._packedVisibility?.destroy();
     this._meshletDrawList?.destroy();
     this._nss?.destroy();
     this._nss = null;
@@ -969,7 +982,13 @@ export class Renderer {
                 runtime: bindings.gpuPacked!,
                 assets: registryBindings.assets,
                 scene: registryBindings.scene,
-                countersEnabled: bindings.gpuCounterBuffer !== null
+                countersEnabled: bindings.gpuCounterBuffer !== null,
+                mode: this.packed_visibility_mode,
+                hierarchyView: createPackedHierarchyView(
+                  bindings.camera,
+                  bindings.internalHeight
+                ),
+                sseThreshold: this.packed_visibility_sse_threshold
               };
             }),
             {
@@ -2082,7 +2101,9 @@ export class Renderer {
       enabledFeatureBits: topology.enabledFeatureBits,
       visibilityImplementation: bindings.gpuPacked === null
         ? "hardware-legacy-v1"
-        : "hardware-packed-r2",
+        : this.packed_visibility_mode === "hierarchy"
+          ? "hardware-packed-r3-hierarchy"
+          : "hardware-packed-r2-flat-reference",
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
       instrumentationMode,
@@ -2275,6 +2296,10 @@ export class Renderer {
       profiler.recordCounter(
         "packed.visibility.fixedVertexCount",
         this._packedVisibility.lastFixedVertexCount
+      );
+      profiler.recordCounter(
+        "packed.visibility.hierarchy",
+        this._packedVisibility.lastImplementation === "hierarchy" ? 1 : 0
       );
     } else {
       const visibility = this._visibility;
@@ -2479,6 +2504,31 @@ export class Renderer {
     this._deviceLost = true;
     if (info.reason !== "destroyed") console.error("GPUDevice lost", info);
   }
+}
+
+function createPackedHierarchyView(
+  camera: PerspectiveCamera,
+  viewportHeight: number
+): GeometryHierarchyView {
+  const matrix = camera.transform.matrix;
+  const planes: [number, number, number, number][] = [];
+  for (let index = 0; index < 6; index++) {
+    const offset = index * 4;
+    planes.push([
+      camera.frustum[offset]!,
+      camera.frustum[offset + 1]!,
+      camera.frustum[offset + 2]!,
+      camera.frustum[offset + 3]!
+    ]);
+  }
+  return {
+    kind: "perspective",
+    cameraPosition: [matrix[12]!, matrix[13]!, matrix[14]!],
+    viewportHeight,
+    verticalFovRadians: camera.fov,
+    nearPlane: camera.near,
+    frustumPlanes: planes
+  };
 }
 
 function clampInteger(value: number, minimum: number, maximum: number): number {

@@ -49,6 +49,7 @@ test("R2-D Packed Scene abort rolls back work buffers and release retires them a
   staged.finish();
   assert.equal(registry.evidence().sceneCount, 1);
   assert.equal(registry.evidence().candidateMeshletCapacity, 2);
+  assert.equal(registry.evidence().hierarchyRasterWorkCapacity, 2);
 
   const release = new FakeCommand();
   const handles = registry.release(scene, release);
@@ -85,6 +86,8 @@ test("R2-D flat work capacity counts every instance sharing one Geometry and rej
   registry.stage(scene, shared, [Object.freeze({})], command);
   command.finish();
   assert.equal(registry.evidence().candidateMeshletCapacity, 7_000);
+  assert.equal(registry.evidence().hierarchyVisibleClusterCapacity, 1_000);
+  assert.equal(registry.evidence().hierarchyRasterWorkCapacity, 7_000);
 
   const limitedGraphics = createGraphics();
   limitedGraphics.device.limits.maxBufferSize = 1_024;
@@ -112,7 +115,17 @@ function makeSource(count = 1, meshletCount = 2) {
     boundsSpheres.set([0, 0, 0, 1], index * 4);
   }
   return {
-    geometries: [{ directory: { meshletCount } }],
+    geometries: [{
+      directory: { meshletCount, clusterRoot: 0 },
+      clusters: [{
+        childBegin: 0,
+        childCount: 0,
+        depth: 0,
+        meshletCount
+      }],
+      clusterChildren: new Uint32Array(),
+      meshlets: Array.from({ length: meshletCount }, () => ({}))
+    }],
     materials: [new StandardShadeMaterial()],
     count,
     geometryIndices: new Uint32Array(count),

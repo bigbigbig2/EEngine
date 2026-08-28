@@ -77,11 +77,39 @@ struct OEngineVisibleClusterQueue {
   elements: array<OEngineVisibleClusterRecord>,
 };
 
+struct OEngineVisibleClusterQueueRead {
+  header: OEngineWorkQueueHeaderRead,
+  elements: array<OEngineVisibleClusterRecord>,
+};
+
+struct OEngineRasterWorkQueue {
+  header: OEngineWorkQueueHeader,
+  elements: array<OEngineRasterWork>,
+};
+
 struct OEngineDispatchIndirectArgs {
   workgroup_count_x: atomic<u32>,
   workgroup_count_y: u32,
   workgroup_count_z: u32,
 };
+
+struct OEngineDrawIndirectArgs {
+  vertex_count: u32,
+  instance_count: atomic<u32>,
+  first_vertex: u32,
+  first_instance: u32,
+};
+
+const R3_COUNTER_CANDIDATE_INSTANCES: u32 = 0u;
+const R3_COUNTER_VISIBLE_INSTANCES: u32 = 1u;
+const R3_COUNTER_CANDIDATE_CLUSTERS: u32 = 3u;
+const R3_COUNTER_SELECTED_CLUSTERS: u32 = 4u;
+const R3_COUNTER_REJECTED_FRUSTUM: u32 = 5u;
+const R3_COUNTER_HW_CLUSTERS: u32 = 9u;
+const R3_COUNTER_HW_TRIANGLES: u32 = 12u;
+const R3_COUNTER_OVERFLOW_MASK: u32 = 17u;
+const R3_SCENE_QUEUE_OVERFLOW_BIT: u32 = 1u;
+const R3_MESHLET_QUEUE_OVERFLOW_BIT: u32 = 2u;
 
 struct OEngineWorldSphere {
   center: vec3f,
@@ -93,6 +121,7 @@ struct OEngineWorldSphere {
 @group(0) @binding(2) var<storage, read> hierarchy_geometries: array<GpuGeometryRecord>;
 @group(0) @binding(3) var<storage, read_write> hierarchy_roots: OEngineTraversalQueueWrite;
 @group(0) @binding(4) var<storage, read_write> hierarchy_root_dispatch: OEngineDispatchIndirectArgs;
+@group(0) @binding(5) var<storage, read_write> hierarchy_init_draw_indirect: OEngineDrawIndirectArgs;
 
 fn hierarchy_conservative_scale(transform: mat4x4f) -> f32 {
   let x_axis = transform[0].xyz;
@@ -196,18 +225,30 @@ fn hierarchy_try_reserve_root(
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
 fn r3_instance_cull(@builtin(global_invocation_id) id: vec3u) {
+  if id.x == 0u {
+    hierarchy_init_draw_indirect.vertex_count = 384u;
+    atomicStore(&hierarchy_init_draw_indirect.instance_count, 0u);
+    hierarchy_init_draw_indirect.first_vertex = 0u;
+    hierarchy_init_draw_indirect.first_instance = 0u;
+  }
   if id.x >= hierarchy_view.scene.y { return; }
   let instance_record_index = hierarchy_view.scene.x + id.x;
   let instance = hierarchy_instances[instance_record_index];
-  if !oengine_instance_active(instance) { return; }
+  if !oengine_instance_active(instance) {
+    return;
+  }
   let instance_sphere = hierarchy_transform_sphere(
     instance.bounds_sphere,
     instance.current_object_to_world
   );
-  if !hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) { return; }
+  if !hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
+    return;
+  }
   let geometry = hierarchy_geometries[instance.geometry_record_index];
   let slot = hierarchy_try_reserve_root(&hierarchy_roots.header);
-  if slot == OENGINE_WORK_QUEUE_INVALID_OFFSET { return; }
+  if slot == OENGINE_WORK_QUEUE_INVALID_OFFSET {
+    return;
+  }
   hierarchy_roots.elements[slot] = OEngineTraversalWork(
     instance_record_index,
     geometry.cluster_root
@@ -230,7 +271,9 @@ fn traversal_select_cluster(
   instance: OEngineInstanceRecord
 ) {
   let slot = oengine_try_reserve_work_group(&traversal_selected.header, 1u);
-  if slot == OENGINE_WORK_QUEUE_INVALID_OFFSET { return; }
+  if slot == OENGINE_WORK_QUEUE_INVALID_OFFSET {
+    return;
+  }
   traversal_selected.elements[slot] = OEngineVisibleClusterRecord(
     work.instance_record_index,
     instance.geometry_record_index,
@@ -284,5 +327,102 @@ fn r3_traverse_clusters(@builtin(global_invocation_id) id: vec3u) {
     &traversal_output_dispatch,
     base + cluster.child_count
   );
+}
+
+@group(2) @binding(0) var<uniform> raster_work_view: OEngineHierarchyView;
+@group(2) @binding(1) var<storage, read> raster_work_clusters: array<GpuClusterRecord>;
+@group(2) @binding(2) var<storage, read> raster_work_selected: OEngineVisibleClusterQueueRead;
+@group(2) @binding(3) var<storage, read_write> raster_work_output: OEngineRasterWorkQueue;
+@group(2) @binding(4) var<storage, read_write> hierarchy_draw_indirect: OEngineDrawIndirectArgs;
+@group(2) @binding(5) var<storage, read_write> raster_work_dispatch: OEngineDispatchIndirectArgs;
+@group(2) @binding(6) var<storage, read> raster_work_evidence: array<u32>;
+@group(2) @binding(7) var<storage, read_write> raster_work_counters: array<atomic<u32>>;
+
+@compute @workgroup_size(1)
+fn r3_prepare_raster_dispatch() {
+  let visible_count = min(
+    raster_work_selected.header.written,
+    raster_work_selected.header.capacity
+  );
+  atomicStore(
+    &raster_work_dispatch.workgroup_count_x,
+    (visible_count + ${HIERARCHICAL_WORKGROUP_SIZE - 1}u) /
+      ${HIERARCHICAL_WORKGROUP_SIZE}u
+  );
+  raster_work_dispatch.workgroup_count_y = 1u;
+  raster_work_dispatch.workgroup_count_z = 1u;
+}
+
+@compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
+fn r3_expand_raster_work(@builtin(global_invocation_id) id: vec3u) {
+  let visible_count = min(
+    raster_work_selected.header.written,
+    raster_work_selected.header.capacity
+  );
+  if id.x >= visible_count { return; }
+  let visible = raster_work_selected.elements[id.x];
+  let cluster = raster_work_clusters[visible.cluster_record_index];
+  let base = oengine_try_reserve_work_group(
+    &raster_work_output.header,
+    cluster.meshlet_count
+  );
+  if base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
+    return;
+  }
+  for (var local_meshlet = 0u; local_meshlet < cluster.meshlet_count; local_meshlet++) {
+    raster_work_output.elements[base + local_meshlet] = OEngineRasterWork(
+      id.x,
+      cluster.meshlet_begin + local_meshlet
+    );
+  }
+  let published_end = base + cluster.meshlet_count;
+  atomicMax(&hierarchy_draw_indirect.instance_count, published_end);
+}
+
+@compute @workgroup_size(1)
+fn r3_write_work_counters() {
+  if raster_work_view.scene.w == 0u { return; }
+  let round_count = raster_work_view.scene.z;
+  var candidate_clusters = 0u;
+  var scene_overflow = 0u;
+  // Root plus every traversal input queue. The final encoded round output is
+  // intentionally excluded because no subsequent round consumes it.
+  for (var header_index = 0u; header_index < round_count; header_index++) {
+    let word = header_index * 8u;
+    candidate_clusters += raster_work_evidence[word];
+    scene_overflow |= raster_work_evidence[word + 3u];
+  }
+  let selected_word = (round_count + 1u) * 8u;
+  scene_overflow |= raster_work_evidence[selected_word + 3u];
+  let root_visible = raster_work_evidence[0u];
+  let raster_count = atomicLoad(&raster_work_output.header.written);
+  atomicAdd(
+    &raster_work_counters[R3_COUNTER_CANDIDATE_INSTANCES],
+    raster_work_view.scene.y
+  );
+  atomicAdd(&raster_work_counters[R3_COUNTER_VISIBLE_INSTANCES], root_visible);
+  atomicAdd(
+    &raster_work_counters[R3_COUNTER_REJECTED_FRUSTUM],
+    raster_work_view.scene.y - min(root_visible, raster_work_view.scene.y)
+  );
+  atomicAdd(
+    &raster_work_counters[R3_COUNTER_CANDIDATE_CLUSTERS],
+    candidate_clusters
+  );
+  atomicAdd(&raster_work_counters[R3_COUNTER_SELECTED_CLUSTERS], raster_count);
+  atomicAdd(&raster_work_counters[R3_COUNTER_HW_CLUSTERS], raster_count);
+  atomicAdd(&raster_work_counters[R3_COUNTER_HW_TRIANGLES], raster_count * 128u);
+  if scene_overflow != 0u {
+    atomicOr(
+      &raster_work_counters[R3_COUNTER_OVERFLOW_MASK],
+      R3_SCENE_QUEUE_OVERFLOW_BIT
+    );
+  }
+  if atomicLoad(&raster_work_output.header.overflow) != 0u {
+    atomicOr(
+      &raster_work_counters[R3_COUNTER_OVERFLOW_MASK],
+      R3_MESHLET_QUEUE_OVERFLOW_BIT
+    );
+  }
 }
 `;

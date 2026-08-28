@@ -17,7 +17,8 @@ import {
   packTraversalWork,
   packVisibleClusterRecord,
   packWorkQueueHeader,
-  reserveWorkQueueGroupReference
+  reserveWorkQueueGroupReference,
+  unpackDrawIndirectArgs
 } from "../.test-dist/gpu/GpuWorkGenerationAbi.js";
 
 test("R3-A Work Generation TS and WGSL share the frozen queue ABI", () => {
@@ -92,6 +93,19 @@ test("R3-A packers write record indices and complete indirect arguments", () => 
   }).buffer);
   assert.equal(draw.byteLength, GPU_DRAW_INDIRECT_ARGS_SIZE);
   assert.deepEqual([...draw], [384, 9, 0, 0]);
+  assert.deepEqual(
+    unpackDrawIndirectArgs(new Uint8Array(draw.buffer)),
+    {
+      vertexCount: 384,
+      instanceCount: 9,
+      firstVertex: 0,
+      firstInstance: 0
+    }
+  );
+  assert.throws(
+    () => unpackDrawIndirectArgs(new Uint8Array(12)),
+    /byte range is invalid/
+  );
 
   const header = new Uint32Array(packWorkQueueHeader({
     capacity: 64,

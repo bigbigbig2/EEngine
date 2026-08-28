@@ -1,6 +1,6 @@
 # R3-01 · Cluster hierarchy GPU work generation
 
-Status: R3-A reference/ABI 与 R3-B GPU selected-set producer 已实现；R3-C～R3-D 仍为 planned
+Status: R3-A/R3-B 已完成；R3-C Hardware vertical 已实现并进入 paired full 证据采集；R3-D 仍为 planned
 
 Reference ID: `R3-01`
 
@@ -123,6 +123,14 @@ src/scene/naniteBuffers/drawnMeshletsBuffer.ts
 
 OEngine/WebGPU adaptation：work item 改成 VisibleCluster seam；容量来自 hierarchy cut 上界；完整间接参数由真实 `written` 生成；资源进入 FrameGraph 和 Work Generator owner。
 
+R3-C 实际采用区段（2026-08-28）：
+
+- `src/passes/cullMeshlets/cullMeshletsPass.ts` 与 `drawnMeshletsBuffer.ts`：保留 Compute compact work buffer 直接成为后续 GPU raster consumer 输入、当前帧不 readback count 的 producer/consumer 不变量；
+- `cullMeshletsPass.wgsl.ts`：只采用紧凑 `instance + meshlet` work item 与 GPU counter 驱动 indirect args 的结构依据，没有复制其 flat instance×meshlet 调度或 SW/HW 双端 queue；
+- OEngine 将输入改为 `VisibleCluster → RasterWork(visibleClusterSlot, meshletRecordIndex)`，完整写入 `[384, written, 0, 0]` 的 16 B `drawIndirect`，随后由生产 `PackedVisibilityPass` vertex pulling consumer 调用 `drawIndirect()`；
+- 因 WebGPU 默认每 stage 8 个 storage buffer binding，OEngine 没有提高 required limit，而是把 traversal、RasterWork dispatch preparation、RasterWork expansion 和 evidence counter reduction 拆成有序最小 Compute Pass；
+- 为避免同一 compute usage scope 内把 selected dispatch buffer 同时作为 writable storage 与 `INDIRECT` 使用，dispatch preparation、expansion、evidence 使用三个最小 BindGroup/PipelineLayout；这些是 OEngine/WebGPU `reimplement`，不是上游表达性代码移植。
+
 ## Niagara
 
 ```text
@@ -193,6 +201,7 @@ R3 只消费 R2 已冻结的 Meshlet、bounds/cone、Cluster hierarchy 和 geome
 3. `maxCutMeshlets(node)` hierarchy cut 容量证明；
 4. `HierarchicalWorkGenerator` FrameGraph/owner/lifetime；
 5. OEngine evidence schema、unsupported/blocker 和 feature-off 行为。
+6. 8-storage-binding baseline 下的 RasterWork dispatch preparation、queue evidence reduction 与 completion-safe prepared-resource retirement。
 
 理由：这些行为由 OEngine 现有 GPU records、WebGPU limits、统一主管线和 fail-visible Gate 决定；上游没有相同 ABI 与失败契约。独立实现前必须先有 CPU/property test，不得把“reimplement”解释为无来源自由编写算法。
 
@@ -220,8 +229,10 @@ R3-A complete: TS/WGSL queue ABI and complete 12 B dispatch / 16 B draw indirect
 R3-B complete: tests/hierarchical-work-generator.test.mjs（owner、真实 depth rounds、feature-off、runtime-array binding size）
 R3-B complete: examples/r3-hierarchical-work-generation（live GPU ping/pong、empty rounds、capacity fallback、GPU/CPU selected-set）
 R3-B live: Perspective 68、Orthographic 16、empty 0、pressure fallback 3；shader/validation/uncaptured/console errors 均为空
-R3-C planned: VisibleCluster → RasterWork → complete drawIndirect → Hardware Visibility consumer
-Performance: fixed A/B/C flat-vs-hierarchy paired artifacts
+R3-C implemented: VisibleCluster → RasterWork → complete 16 B drawIndirect → production Packed Hardware Visibility consumer
+R3-C regression: tests/gpu-work-generation-abi.test.mjs、tests/hierarchical-work-generator.test.mjs、Shader source audit、examples/r3-hierarchical-work-generation GPU/CPU RasterWork oracle
+R3-C live oracle: Perspective/Orthographic/empty/pressure 的 VisibleCluster、RasterWork 与完整 indirect record 对齐；validation/uncaptured errors 为空
+Performance pending: fixed A/B/C flat-vs-hierarchy paired full artifacts
 ```
 
-只有标为 complete 的 R3-A/R3-B 条目已有本地证据；R3-B readback 只属于测试 consumer。Hardware Vertical 和 Performance 条目仍为 planned，不得写成已通过或把 G3 标记完成。
+R3-C 的生产 Hardware vertical 已接通，但 paired full artifact 尚未登记前不关闭 R3-C 性能退出条件；flat producer 删除、Cone/HZB 和 G3 收口仍属于 R3-D。
