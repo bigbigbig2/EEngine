@@ -30,6 +30,7 @@ export const RENDER_DEBUG_VIEW_FORMAT = GPU_SURFACE_FORMATS.hdrColor;
 const DEBUG_VIEW_SETTINGS_WGSL = /* wgsl */ `
 struct DebugViewSettings {
   output_size: vec2u,
+  contract: vec2u,
 };
 `;
 
@@ -103,7 +104,10 @@ ${SURFACE_DEBUG_COMMON_WGSL}
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
-  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+  if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  if (settings.contract.x == 0u && !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
   return vec4f(textureLoad(source, coordinate, 0).rgb, 1.0);
@@ -119,7 +123,10 @@ ${GBUFFER_ENCODE_WGSL}
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
-  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+  if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  if (settings.contract.x == 0u && !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
   let encoded = textureLoad(source, coordinate, 0).xy;
@@ -138,7 +145,10 @@ struct SurfaceDebugMode { value: vec4u, }
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
-  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+  if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  if (settings.contract.x == 0u && !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
   let pbr = textureLoad(source, coordinate, 0);
@@ -155,7 +165,10 @@ ${SURFACE_DEBUG_COMMON_WGSL}
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
-  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+  if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  if (settings.contract.x == 0u && !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
   return vec4f(vec3f(textureLoad(source, coordinate, 0).a), 1.0);
@@ -171,7 +184,10 @@ ${GBUFFER_ENCODE_WGSL}
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
-  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+  if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  if (settings.contract.x == 0u && !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
   return vec4f(rgbe9995_decode(textureLoad(source, coordinate, 0).r), 1.0);
@@ -188,9 +204,12 @@ struct SurfaceDebugMode { value: vec4u, }
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
   let packed = textureLoad(source, coordinate, 0).r;
-  let material_slot = oengine_surface_material_slot(packed);
-  let flags = oengine_surface_flags(packed);
-  if (flags & OENGINE_SURFACE_FLAG_VALID) == 0u {
+  if (settings.contract.x == 1u && packed == ${VIS_MESH_CLEAR_SENTINEL}u) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  let material_slot = select(oengine_surface_material_slot(packed), packed, settings.contract.x == 1u);
+  let flags = select(oengine_surface_flags(packed), 0u, settings.contract.x == 1u);
+  if (settings.contract.x == 0u && (flags & OENGINE_SURFACE_FLAG_VALID) == 0u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
   if mode.value.x == 0u {
@@ -200,9 +219,9 @@ struct SurfaceDebugMode { value: vec4u, }
     ) / 255.0 * 0.65, 1.0);
   }
   if mode.value.x == 1u {
-    return select(vec4f(1.0, 0.1, 0.05, 1.0), vec4f(0.1, 1.0, 0.2, 1.0), (flags & OENGINE_SURFACE_FLAG_MOTION_VALID) != 0u);
+    return select(vec4f(1.0, 0.1, 0.05, 1.0), vec4f(0.1, 1.0, 0.2, 1.0), settings.contract.x == 0u && (flags & OENGINE_SURFACE_FLAG_MOTION_VALID) != 0u);
   }
-  return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0, 0.1, 0.05, 1.0), (flags & OENGINE_SURFACE_FLAG_REACTIVE) != 0u);
+  return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0, 0.1, 0.05, 1.0), settings.contract.x == 0u && (flags & OENGINE_SURFACE_FLAG_REACTIVE) != 0u);
 }
 `;
 
@@ -446,7 +465,10 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let dimensions = textureDimensions(source);
   let coordinate = source_coordinate(position.xy, dimensions);
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
-  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+  if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  if (settings.contract.x == 0u && !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
   let velocity = textureLoad(source, coordinate, 0).rg /

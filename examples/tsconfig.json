@@ -16,6 +16,7 @@
     "r0-frame-smoke/**/*.ts",
     "r1-compute-hzb/**/*.ts",
     "r2-*/**/*.ts",
+    "r5-*/**/*.ts",
     "benchmark-shared/**/*.ts",
     "benchmark-a/**/*.ts",
     "benchmark-b/**/*.ts",

@@ -9,6 +9,7 @@ import {
   ShadeTexture,
   StandardShadeMaterial,
   buildBoxSourceGeometry,
+  captureWebGpuLimits,
   cookGeometryAssetPackage,
   createGeometryCookRecipe
 } from "../../OEngine/src/index.ts";
@@ -16,6 +17,7 @@ import {
   GPU_SURFACE_FLAGS,
   packGpuSurfaceMetadata
 } from "../../OEngine/src/gpu/GpuSurfaceAbi.ts";
+import { floatToHalf, halfToFloat } from "../../OEngine/src/loaders/float16.ts";
 import {
   DEPTH_DEBUG_WGSL,
   SURFACE_AO_DEBUG_WGSL,
@@ -30,6 +32,7 @@ import {
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
 declare const __BUILD_DIRTY_REASONS__: readonly string[];
+declare const __BUILD_CONTENT_HASH__: string;
 
 const WIDTH = 960;
 const HEIGHT = 720;
@@ -51,7 +54,7 @@ const DEBUG_VIEWS = Object.freeze({
   Velocity: RenderDebugView.Velocity,
   Reactive: RenderDebugView.Reactive,
   MaterialId: RenderDebugView.MaterialId,
-  SurfaceFlags: RenderDebugView.HistoryValidity,
+  HistoryValidity: RenderDebugView.HistoryValidity,
   None: RenderDebugView.None
 });
 
@@ -100,8 +103,6 @@ async function run(): Promise<void> {
   const graphEvidence = await collectGraphEvidence();
   const numeric = await runNumericFixture(renderer.device);
   drawMicroFixture(numeric);
-  await renderView("Depth");
-
   const diagnostics = renderer.profiler.diagnostics;
   const passed = graphEvidence.passed && numeric.passed &&
     diagnostics.validationErrorCount === 0 &&
@@ -114,7 +115,8 @@ async function run(): Promise<void> {
     build: {
       commit: __BUILD_COMMIT__,
       dirty: __BUILD_DIRTY__,
-      dirtyReasons: __BUILD_DIRTY_REASONS__
+      dirtyReasons: __BUILD_DIRTY_REASONS__,
+      contentHash: __BUILD_CONTENT_HASH__
     },
     production: {
       path: "buildBoxSourceGeometry -> Cooker -> uploadPackedScene -> Renderer.render",
@@ -137,9 +139,27 @@ async function run(): Promise<void> {
         Emissive: ["Emissive"],
         Velocity: ["Velocity"],
         Reactive: ["Reactive"],
-        SurfaceFlags: ["MaterialId", "SurfaceFlags"]
+        MaterialAndMotion: ["MaterialId", "HistoryValidity"]
       },
       graphEvidence,
+      screenshotContract: {
+        owner: "examples/scripts/run-r5-fx01-gate.mjs",
+        captureViews: Object.keys(DEBUG_VIEWS).filter((name) => name !== "None"),
+        tileCenters: [
+          { material: "dielectric rough", x: 341, y: 182 },
+          { material: "dielectric smooth", x: 618, y: 182 },
+          { material: "metallic rough", x: 341, y: 359 },
+          { material: "metallic smooth", x: 618, y: 359 },
+          { material: "emissive", x: 341, y: 536 },
+          { material: "unlit motion-invalid", x: 618, y: 536 }
+        ],
+        screenshotMetrics: "runner-owned PNG decode; page result is necessary but not sufficient"
+      },
+      gpu: {
+        adapter: renderer.adapter_info,
+        features: [...renderer.device.features].sort(),
+        limits: captureWebGpuLimits(renderer.device.limits)
+      },
       diagnostics
     },
     numeric
@@ -162,6 +182,7 @@ async function createMaterialBoard(activeRenderer: Renderer) {
   const materials = createMaterials();
   const count = materials.length;
   const transforms = new Float32Array(count * 16);
+  const previousTransforms = new Float32Array(count * 16);
   const boundsSpheres = new Float32Array(count * 4);
   const boundsMin = new Float32Array(count * 3);
   const boundsMax = new Float32Array(count * 3);
@@ -179,6 +200,8 @@ async function createMaterialBoard(activeRenderer: Renderer) {
     boundsMin.set(source.bounds.box.subarray(0, 3), index * 3);
     boundsMax.set(source.bounds.box.subarray(3, 6), index * 3);
   }
+  previousTransforms.set(transforms);
+  previousTransforms.fill(0, (count - 1) * 16, count * 16);
 
   const activeScene = new Scene();
   activeScene.lights.environment = createEnvironmentTexture();
@@ -194,6 +217,7 @@ async function createMaterialBoard(activeRenderer: Renderer) {
     geometryIndices: new Uint32Array(count),
     materialIndices: Uint32Array.from({ length: count }, (_, index) => index),
     currentTransforms: transforms,
+    previousTransforms,
     boundsSpheres,
     boundsMin,
     boundsMax,
@@ -221,7 +245,12 @@ function createMaterials(): StandardShadeMaterial[] {
   ] as const;
   return definitions.map((definition) => {
     const material = new StandardShadeMaterial();
-    material.diffuse_color.set(...definition.color);
+    material.diffuse_color.set(
+      definition.color[0],
+      definition.color[1],
+      definition.color[2],
+      definition.color[3]
+    );
     material.metallic_factor = definition.metallic;
     material.roughness_factor = definition.roughness;
     if ("emissive" in definition) material.emissive_factor.setRGB(...definition.emissive);
@@ -245,19 +274,36 @@ async function collectGraphEvidence() {
   const onDebug = passNames(on).filter((name) => name.startsWith("Render debug/"));
   const offAgainDebug = passNames(offAgain)
     .filter((name) => name.startsWith("Render debug/"));
+  const offResources = off?.resources.filter((entry) =>
+    entry.name.startsWith("Render debug/")).map((entry) => entry.name) ?? [];
+  const offAgainResources = offAgain?.resources.filter((entry) =>
+    entry.name.startsWith("Render debug/")).map((entry) => entry.name) ?? [];
   return {
     passed: offDebug.length === 0 && onDebug.length === 1 &&
-      offAgainDebug.length === 0 && offFrame?.readbacks.count === 0,
+      offAgainDebug.length === 0 && offResources.length === 0 &&
+      offAgainResources.length === 0 && offFrame?.readbacks.count === 0,
     featureOff: {
       debugPasses: offDebug,
-      debugResources: off?.resources.filter((entry) =>
-        entry.name.startsWith("Render debug/")).map((entry) => entry.name) ?? [],
+      debugResources: offResources,
+      exactChecks: {
+        debugPasses: offDebug.length === 0,
+        debugResources: offResources.length === 0,
+        readbacks: offFrame?.readbacks.count === 0
+      },
       submits: offFrame?.submits ?? null,
       readbacks: offFrame?.readbacks ?? null,
       graph: off
     },
     featureOn: { debugPasses: onDebug, graph: on },
-    featureOffAgain: { debugPasses: offAgainDebug, graph: offAgain }
+    featureOffAgain: {
+      debugPasses: offAgainDebug,
+      debugResources: offAgainResources,
+      exactChecks: {
+        debugPasses: offAgainDebug.length === 0,
+        debugResources: offAgainResources.length === 0
+      },
+      graph: offAgain
+    }
   };
 }
 
@@ -279,8 +325,9 @@ async function renderView(name: keyof typeof DEBUG_VIEWS, frames = 3) {
 }
 
 async function setDirectLight(enabled: boolean) {
-  sun.intensity = enabled ? 4 : 0;
-  return renderView("Emissive", 3);
+  if (enabled && sun.parent === null) scene.add(sun);
+  if (!enabled && sun.parent !== null) scene.remove(sun);
+  return renderView("None", 3);
 }
 
 async function runNumericFixture(device: GPUDevice) {
@@ -305,9 +352,9 @@ async function runNumericFixture(device: GPUDevice) {
       0
     )
   );
-  const reactiveMetadata = createUintTexture(
+  const motionInvalidMetadata = createUintTexture(
     device,
-    "FX-01 reactive metadata",
+    "FX-01 motion-invalid metadata",
     "r32uint",
     Uint32Array.of(
       packGpuSurfaceMetadata(
@@ -321,7 +368,10 @@ async function runNumericFixture(device: GPUDevice) {
     Uint8Array.of(64, 192, 255, 7));
   const albedo = createByteTexture(device, "FX-01 albedo AO", "rgba8unorm", 4,
     Uint8Array.of(51, 102, 153, 204, 255, 0, 255, 255));
-  const normalBytes = new Uint16Array([32768, 32768, 32768, 32768, 1, 65534, 2, 65533]);
+  const normalBytes = new Uint16Array([
+    49151, 32767, 49151, 32767,
+    1, 65534, 2, 65533
+  ]);
   const normal = createByteTexture(
     device,
     "FX-01 normal",
@@ -333,11 +383,11 @@ async function runNumericFixture(device: GPUDevice) {
     device,
     "FX-01 emissive",
     "r32uint",
-    Uint32Array.of(((16 << 27) | (64 << 18) | (128 << 9) | 256) >>> 0, 0xffffffff)
+    Uint32Array.of(((18 << 27) | (16 << 18) | (64 << 9) | 256) >>> 0, 0xffffffff)
   );
   const velocityBytes = new Uint16Array([
-    float32ToFloat16(0), float32ToFloat16(0),
-    float32ToFloat16(120), float32ToFloat16(-80)
+    floatToHalf(0), floatToHalf(0),
+    floatToHalf(120), floatToHalf(-80)
   ]);
   const velocity = createByteTexture(
     device,
@@ -359,13 +409,17 @@ async function runNumericFixture(device: GPUDevice) {
     await runDebugShader(device, "normal", SURFACE_NORMAL_DEBUG_WGSL,
       uintPayloadLayout(false), [normal.createView(), metadata.createView()]),
     await runDebugShader(device, "emissive", SURFACE_EMISSIVE_DEBUG_WGSL,
-      uintPayloadLayout(false), [emissive.createView(), metadata.createView()]),
-    await runDebugShader(device, "velocity", VELOCITY_DEBUG_WGSL,
-      floatPayloadLayout(false), [velocity.createView(), metadata.createView()]),
+      uintPayloadLayout(false), [emissive.createView(), metadata.createView()], null, "rgba16float"),
+    await runDebugShader(device, "static-velocity", VELOCITY_DEBUG_WGSL,
+      floatPayloadLayout(false), [velocity.createView(), motionMetadata.createView()]),
     await runDebugShader(device, "motion-valid", SURFACE_FLAGS_DEBUG_WGSL,
       flagsLayout(), [motionMetadata.createView()], 1),
-    await runDebugShader(device, "reactive", SURFACE_FLAGS_DEBUG_WGSL,
-      flagsLayout(), [reactiveMetadata.createView()], 2),
+    await runDebugShader(device, "invalid-velocity", VELOCITY_DEBUG_WGSL,
+      floatPayloadLayout(false), [velocity.createView(), motionInvalidMetadata.createView()]),
+    await runDebugShader(device, "invalid-motion-valid", SURFACE_FLAGS_DEBUG_WGSL,
+      flagsLayout(), [motionInvalidMetadata.createView()], 1),
+    await runDebugShader(device, "invalid-reactive", SURFACE_FLAGS_DEBUG_WGSL,
+      flagsLayout(), [motionInvalidMetadata.createView()], 2),
     await runDepthDebug(device)
   ];
   const byName = Object.fromEntries(cases.map((entry) => [entry.name, entry]));
@@ -373,25 +427,35 @@ async function runNumericFixture(device: GPUDevice) {
   const checks = {
     invalidPayloadBackground: cases
       .filter((entry) => entry.invalid !== null)
-      .every((entry) => isNear(entry.invalid!, [0, 0, 0, 255], 1)),
+      .every((entry) => entry.invalidFloats !== null
+        ? isNearFloat(entry.invalidFloats, [0, 0, 0, 1], 0.01)
+        : isNear(entry.invalid!, [0, 0, 0, 255], 1)),
     metallic: isNear(byName.metallic!.valid, [64, 64, 64, 255], 1),
     roughness: isNear(byName.roughness!.valid, [192, 192, 192, 255], 1),
     normalUnitLength: Math.abs(Math.hypot(...normalRgb) - 1) < 0.025,
-    emissive: isNear(byName.emissive!.valid, [255, 128, 64, 255], 2),
-    staticVelocity: isNear(byName.velocity!.valid, [20, 20, 20, 255], 2),
+    normalDirection: normalRgb[0]! > 0.65 && Math.abs(normalRgb[1]!) < 0.1 &&
+      normalRgb[2]! > 0.65,
+    emissiveHdr: byName.emissive!.validFloats !== null &&
+      isNearFloat(byName.emissive!.validFloats, [4, 1, 0.25, 1], 0.01),
+    staticVelocity: isNear(byName["static-velocity"]!.valid, [20, 20, 20, 255], 2),
     motionValid: byName["motion-valid"]!.valid[1]! > 240,
-    reactive: byName.reactive!.valid[0]! > 240,
+    sameMotionInvalidPixel:
+      isNear(byName["invalid-velocity"]!.valid, [20, 20, 20, 255], 2) &&
+      byName["invalid-motion-valid"]!.valid[0]! > 240 &&
+      byName["invalid-motion-valid"]!.valid[1]! < 80 &&
+      byName["invalid-reactive"]!.valid[0]! > 240 &&
+      byName["invalid-reactive"]!.valid[1]! < 80,
     reverseZEmpty: isNear(byName.depth!.valid, [0, 0, 0, 255], 1),
     shaderDiagnostics: cases.every((entry) =>
       entry.shaderDiagnostics.every((message) => message.type !== "error")),
     validation: cases.every((entry) => entry.validationError === null)
   };
   for (const texture of [
-    metadata, motionMetadata, reactiveMetadata, pbr, albedo, normal, emissive, velocity
+    metadata, motionMetadata, motionInvalidMetadata, pbr, albedo, normal, emissive, velocity
   ]) texture.destroy();
   return {
     passed: Object.values(checks).every(Boolean),
-    targetFormat: "rgba8unorm",
+    targetFormat: "rgba8unorm + rgba16float emissive",
     source: "production render_debug_view WGSL",
     checks,
     cases
@@ -404,7 +468,8 @@ async function runDebugShader(
   code: string,
   layoutEntries: GPUBindGroupLayoutEntry[],
   textureViews: GPUTextureView[],
-  mode: number | null = null
+  mode: number | null = null,
+  targetFormat: GPUTextureFormat = "rgba8unorm"
 ) {
   const module = device.createShaderModule({ label: `FX-01 ${name}`, code });
   const shaderDiagnostics = [...(await module.getCompilationInfo()).messages].map((message) => ({
@@ -422,7 +487,7 @@ async function runDebugShader(
     label: `FX-01 ${name}`,
     layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
     vertex: { module, entryPoint: "vs_main" },
-    fragment: { module, entryPoint: "fs_main", targets: [{ format: "rgba8unorm" }] },
+    fragment: { module, entryPoint: "fs_main", targets: [{ format: targetFormat }] },
     primitive: { topology: "triangle-list", cullMode: "none" }
   });
   const settings = createUniformBuffer(device, Uint32Array.of(2, 1, 0, 0));
@@ -441,7 +506,7 @@ async function runDebugShader(
   const output = device.createTexture({
     label: `FX-01 ${name} output`,
     size: [2, 1],
-    format: "rgba8unorm",
+    format: targetFormat,
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
   });
   const readback = device.createBuffer({
@@ -470,7 +535,14 @@ async function runDebugShader(
   device.queue.submit([encoder.finish()]);
   await device.queue.onSubmittedWorkDone();
   await readback.mapAsync(GPUMapMode.READ);
-  const bytes = new Uint8Array(readback.getMappedRange().slice(0, 8));
+  const raw = new Uint8Array(readback.getMappedRange().slice(0, targetFormat === "rgba16float" ? 32 : 8));
+  const validFloats = targetFormat === "rgba16float"
+    ? Array.from(new Uint16Array(raw.buffer, raw.byteOffset, 8).slice(0, 4), halfToFloat)
+    : null;
+  const invalidFloats = targetFormat === "rgba16float"
+    ? Array.from(new Uint16Array(raw.buffer, raw.byteOffset + 8, 8).slice(0, 4), halfToFloat)
+    : null;
+  const bytes = raw;
   readback.unmap();
   const validationError = await device.popErrorScope();
   output.destroy();
@@ -480,7 +552,9 @@ async function runDebugShader(
   return {
     name,
     valid: [...bytes.slice(0, 4)],
-    invalid: [...bytes.slice(4, 8)],
+    invalid: [...bytes.slice(targetFormat === "rgba16float" ? 8 : 4, targetFormat === "rgba16float" ? 12 : 8)],
+    validFloats,
+    invalidFloats,
     shaderDiagnostics,
     validationError: validationError?.message ?? null
   };
@@ -608,20 +682,11 @@ function createUniformBuffer(device: GPUDevice, source: Uint32Array): GPUBuffer 
   return buffer;
 }
 
-function float32ToFloat16(value: number): number {
-  const float = new Float32Array(1);
-  const bits = new Uint32Array(float.buffer);
-  float[0] = value;
-  const word = bits[0]!;
-  const sign = (word >>> 16) & 0x8000;
-  const exponent = ((word >>> 23) & 0xff) - 127 + 15;
-  const mantissa = word & 0x7fffff;
-  if (exponent <= 0) return sign;
-  if (exponent >= 31) return sign | 0x7c00;
-  return sign | (exponent << 10) | (mantissa >>> 13);
+function isNear(actual: readonly number[], expected: readonly number[], tolerance: number) {
+  return expected.every((value, index) => Math.abs(value - actual[index]!) <= tolerance);
 }
 
-function isNear(actual: readonly number[], expected: readonly number[], tolerance: number) {
+function isNearFloat(actual: readonly number[], expected: readonly number[], tolerance: number) {
   return expected.every((value, index) => Math.abs(value - actual[index]!) <= tolerance);
 }
 
@@ -632,7 +697,9 @@ function latestGraphDump(activeRenderer: Renderer): GraphDump | null {
   return [...cache.entries.values()].at(-1)?.dump() ?? null;
 }
 
-function drawMicroFixture(numeric: NumericResult): void {
+function drawMicroFixture(
+  numeric: Awaited<ReturnType<typeof runNumericFixture>>
+): void {
   const context = microCanvas.getContext("2d");
   if (context === null) throw new Error("Micro fixture 2D context is unavailable");
   microCanvas.width = numeric.cases.length * 2;
@@ -713,11 +780,6 @@ type GraphDump = {
   resources: readonly { name: string }[];
 };
 
-type NumericCase = Awaited<ReturnType<typeof runDebugShader>>;
-type NumericResult = {
-  passed: boolean;
-  cases: Array<NumericCase | (NumericCase & { invalid: null })>;
-};
 type Fx01Result = {
   completed: true;
   passed: boolean;

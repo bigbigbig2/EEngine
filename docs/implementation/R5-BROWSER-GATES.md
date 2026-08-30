@@ -246,16 +246,65 @@ FX-01 只验证 R5-00 已冻结 ABI 的 GPU decode、background 和 debug consum
 另留至少 25% 背景区域。
 
 依次打开 debug：
-`Depth / Normal / PBR / AlbedoAO / Emissive / Velocity / Reactive / SurfaceFlags`。
+`Depth / Normal / PBR / AlbedoAO / Emissive / Velocity / Reactive / MaterialId / HistoryValidity`。
 
 预期：
 - background 不出现 NaN/随机颜色；
 - normal 连续且方向正确；
 - metallic/roughness 板位置与输入一致；
-- emissive/unlit 不受 direct light 开关影响；
+- emissive/unlit 的 resolved Surface 值不受 direct light 开关影响；最终 Direct
+  Lighting 对 `Unlit` flag 的消费由 FX-02 拥有，FX-01 只额外保存 on/off 截图并把
+  当前差异登记为 FX-02 blocker，不在 oracle source 未冻结时提前修改 Lighting；
 - 静态物体 velocity 为 0；
 - motion-invalid 输出 zero velocity + invalid flag；
 - 所有 debug pass feature-off 后从 graph 消失。
+
+## 实现与关闭证据
+
+FX-01 fixture 由 `examples/r5-surface-debug/` 拥有，production browser runner
+为 `examples/scripts/run-r5-fx01-gate.mjs`。runner 必须在截图期间隐藏与 canvas
+重叠的状态侧栏，只截取纯 `960×720` GPU canvas，并直接解码 Playwright 保存的
+PNG；WebGPU canvas 在 present 后通过页面内 `createImageBitmap()` 读取可能得到全黑
+内容，因此页面自报 screenshot metrics 不属于 Gate 证据。
+
+冻结判据：
+- `960×720`、DPR 1，背景像素比例至少 `25%`，所有截图尺寸和 alpha 正确；
+- 11 个单项 view 必须有 11 个不同 PNG hash，且除背景外存在预期有效区域；
+- 固定 2×3 ROI 自动验证 metallic、roughness、albedo、AO、emissive、zero velocity、
+  reactive、material slot 与 history-validity 布局；
+- unlit tile 使用可见 current transform 与退化 previous transform，固定产生
+  `zero velocity + !motion-valid + reactive`；
+- emissive Surface debug 的 direct-light on/off 使用像素 tolerance：平均绝对通道差
+  不超过 `0.01`，变化像素比例不超过 `0.0001`；runner 还必须保存 final-lighting
+  on/off，并证明至少一个 lit control ROI 确实变化，避免无效 toggle 让 invariant
+  假通过；final unlit ROI 只作为 FX-02 自动 blocker，不改变 FX-01 Gate 所有权；
+- 页面 `build.commit/build.dirty/build.dirtyReasons/build.contentHash` 必须与 runner
+  启动时的 Git worktree 完全一致；`contentHash` 覆盖 `HEAD` diff 与 untracked 文件
+  内容，因此同一批文件再次修改但未重建、旧 production build、错误 commit 或脏净
+  状态不一致都直接失败；
+- 初始页面和每个 debug/final capture 返回的 diagnostics 都必须参与 Gate，不能只
+  保存初始化快照；
+- feature-off 的 debug Pass、资源与 readback 均为 0；console、validation、
+  uncaptured error 与 device lost 均为 0。
+
+页面超时、截图/PNG 解码失败、device lost 或浏览器异常也必须写出已获得的
+`environment/console/result/graph/counters/screenshot-metrics/sequence` JSON；失败 run
+不能只以进程退出码结束而丢失证据。
+
+运行：
+
+```powershell
+Set-Location D:\code\EEngine\examples
+npm run gate:r5-fx01
+```
+
+clean artifact 保存到 `temp/r5/fx-01/<commit>/`；dirty exploratory run 使用
+`<commit>-dirty-<contentHash>`，并在每次运行前清空自己的目录，避免混入旧截图。
+artifact 包含通用规则要求的
+`environment/console/result/graph/counters/screenshot-metrics/sequence` JSON、page
+screenshot、每个 debug view、emissive attachment toggle 与 final-lighting toggle
+的 canvas screenshot。该 focused correctness Gate 关闭 FX-01；它不替代 R5-00 C
+full baseline，也不关闭 G5-L 或 FX-02 Direct Lighting correctness。
 
 ---
 

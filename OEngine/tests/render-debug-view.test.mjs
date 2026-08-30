@@ -118,6 +118,28 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
   assert.equal(Object.keys(GPU_VISIBILITY_DEBUG_STATUS).length, 15);
 });
 
+test("FX-01 legacy payload shaders use the mesh-id clear sentinel", () => {
+  for (const [label, shader] of [
+    ["base color", SURFACE_COLOR_DEBUG_WGSL],
+    ["normal", SURFACE_NORMAL_DEBUG_WGSL],
+    ["PBR", SURFACE_PBR_DEBUG_WGSL],
+    ["AO", SURFACE_AO_DEBUG_WGSL],
+    ["emissive", SURFACE_EMISSIVE_DEBUG_WGSL],
+    ["velocity", VELOCITY_DEBUG_WGSL]
+  ]) {
+    assert.match(
+      shader,
+      /settings\.contract\.x == 1u && (?:metadata|packed) == 16777216u/,
+      `${label} must reject the legacy mesh-id clear sentinel`
+    );
+    assert.doesNotMatch(
+      shader,
+      /settings\.contract\.x == 1u && (?:metadata|packed) == 0xffffffffu/,
+      `${label} must not treat the Packed VisibilityKey sentinel as legacy mesh metadata`
+    );
+  }
+});
+
 test("debug graph work exists only for a supported non-disabled selection", () => {
   const pass = new RenderDebugViewPass({ device: {} });
   const resources = {
@@ -270,4 +292,96 @@ test("R4-B surface debug views read exactly one resolved Surface attachment", ()
   const debugPass = graph.exportToJson().passes[0];
   assert.deepEqual(debugPass.reads, [imported[8]]);
   assert.equal(debugPass.name, "Render debug/history-validity");
+});
+
+test("FX-01 legacy Scene payload debug uses visibility metadata without Packed Surface metadata", () => {
+  const pass = new RenderDebugViewPass({ device: {} });
+  const cases = [
+    [RenderDebugView.Velocity, "velocity"],
+    [RenderDebugView.BaseColor, "albedo"],
+    [RenderDebugView.ShadingNormal, "normal"],
+    [RenderDebugView.Metallic, "pbr"],
+    [RenderDebugView.Roughness, "pbr"],
+    [RenderDebugView.Occlusion, "albedo"],
+    [RenderDebugView.Emissive, "emissive"]
+  ];
+
+  for (const [view, payloadName] of cases) {
+    const graph = new FrameGraph(`FX-01 legacy ${view}`);
+    const imported = Object.fromEntries([
+      "mesh", "triangle", "depth", "velocity", "pbr", "normal",
+      "albedo", "emissive"
+    ].map((name) => [
+      name,
+      graph.import_resource(name, { kind: "imported", label: name }, {})
+    ]));
+    const output = pass.addToGraph(
+      graph,
+      view,
+      {
+        meshId: imported.mesh,
+        triangleId: imported.triangle,
+        visibilityKey: null,
+        packedVisibility: null,
+        depth: imported.depth,
+        velocity: imported.velocity,
+        gPbr: imported.pbr,
+        gNormal: imported.normal,
+        gAlbedo: imported.albedo,
+        gEmissive: imported.emissive,
+        surfaceFlags: null
+      },
+      640,
+      360
+    );
+    const sink = graph.add("legacy debug sink", {}, () => {});
+    sink.read(output);
+    sink.make_side_effect();
+    graph.compile();
+    assert.deepEqual(
+      graph.exportToJson().passes[0].reads,
+      [imported[payloadName], imported.mesh],
+      `${view} must use the legacy mesh-id sentinel as validity metadata`
+    );
+  }
+});
+
+test("FX-01 legacy Scene rejects metadata-only debug views without Surface metadata", () => {
+  const pass = new RenderDebugViewPass({ device: {} });
+  for (const view of [
+    RenderDebugView.MaterialId,
+    RenderDebugView.HistoryValidity,
+    RenderDebugView.Reactive
+  ]) {
+    const graph = new FrameGraph(`FX-01 legacy metadata ${view}`);
+    const imported = Object.fromEntries([
+      "mesh", "triangle", "depth", "velocity", "pbr", "normal",
+      "albedo", "emissive"
+    ].map((name) => [
+      name,
+      graph.import_resource(name, { kind: "imported", label: name }, {})
+    ]));
+    assert.throws(
+      () => pass.addToGraph(
+        graph,
+        view,
+        {
+          meshId: imported.mesh,
+          triangleId: imported.triangle,
+          visibilityKey: null,
+          packedVisibility: null,
+          depth: imported.depth,
+          velocity: imported.velocity,
+          gPbr: imported.pbr,
+          gNormal: imported.normal,
+          gAlbedo: imported.albedo,
+          gEmissive: imported.emissive,
+          surfaceFlags: null
+        },
+        640,
+        360
+      ),
+      /requires Surface metadata/
+    );
+  }
 });

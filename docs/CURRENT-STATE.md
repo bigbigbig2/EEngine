@@ -78,7 +78,7 @@
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
 - R2-C/D 的 owner、flat work、属性重建和 motion 数学已有独立 porting ledger；R4-B 已用同条件浏览器 artifact 验证 Packed Material/Velocity 迁移，但 Lighting/Temporal 的最终质量目标仍需 R5 Gate。
 - Lighting/CSM/Transparency/Temporal/Post 虽有代码路径，尚未基于新的 Visibility/Surface ABI 逐项重新验收。
-- R5-00 Surface ABI v1 已由 commit `c632b2d` 落地，A 场景 Gate 校准由 `0cb3445` 修正；clean commit 上 A/B full 各 3 个独立 session 已通过，但用户停止了 C full，且目标机器 `performance-targets.json` 尚未冻结，因此 R5-00 当前是 ABI implementation complete / baseline conditional，不能声明 CLOSED。FX-01 只读既有 ABI，可以开始；C full 必须在 FX-02 修改 Lighting 前补齐，绝对门槛最迟在 G5-L 冻结。
+- R5-00 Surface ABI v1 已由 commit `c632b2d` 落地，A 场景 Gate 校准由 `0cb3445` 修正；clean commit 上 A/B full 各 3 个独立 session 已通过，但用户停止了 C full，且目标机器 `performance-targets.json` 尚未冻结，因此 R5-00 当前仍是 ABI implementation complete / baseline conditional，不能声明 CLOSED。2026-08-31 的 FX-01 已在不修改 ABI 的前提下关闭：2×3 Packed 材质板通过 production `Renderer.render()` 输出 Depth/Normal/PBR/AlbedoAO/Emissive/Velocity/Reactive/MaterialId/HistoryValidity；legacy Scene payload debug 使用真实 `1 << 24` mesh-id empty sentinel，metadata-only view 对无 Surface metadata 的路径显式拒绝。TAA/NSS 都关闭时 projection jitter 归零，静态与 motion-invalid tile 的 Velocity 均为 zero；同一 motion-invalid GPU micro pixel 同时证明 `zero velocity + !motion-valid + reactive`，normal 使用非轴向 fixed bytes 验证单位长度/方向，RGB9E5 emissive 通过 `rgba16float` readback 验证 HDR 值。feature-off 的 debug Pass/resource/readback 为 0。`examples/scripts/run-r5-fx01-gate.mjs` 隐藏重叠侧栏后只截取并解码纯 `960×720` GPU canvas，以 Git diff/untracked 内容哈希绑定页面 build provenance，并校验同一 Renderer adapter、每次 capture diagnostics、固定 ROI、11/11 distinct view、背景比例和 emissive Surface light-invariance；超时/截图/PNG/device failure 时仍写标准失败 JSON。final-lighting on/off 证明 toggle 对 lit control 生效，同时自动记录旧 `lighting_ch_oracle` Direct Lighting 仍改变 final unlit ROI；该项属于 FX-02，FX-01 不提前修改 Lighting。clean artifact 位于 `temp/r5/fx-01/<commit>/`。该结论只关闭 FX-01，不替代 R5-00 C full、FX-02 或 G5-L。
 - 当前 direct Lighting 已消费 Packed Resolve 的 Surface attachments；CSM 仍在主 FrameGraph 之前通过 legacy `MeshletDrawList` 生成各 shadow view，Transparency 仍扫描 CPU `Scene` 材质并使用 `MaterialMeshletDrawList`。现有 SSAO/SSR 有各自 history，主 TAA 只有单一 reset bit；这些旧路径是 FX-04..09 的迁移输入，不是已验收 R5 架构。
 - `Renderer` 当前历史默认仍开启 Shadows/SSAO/TAA/Bloom/Automatic Exposure/Sharpen，并在初始化阶段无条件构造 IBL、LPV、Brick4、Transparency 等 owner；这与 R5 “未过 Gate 默认关闭、feature-off 无 owner”的目标不一致，必须在对应 FX 中改为 maturity-gated recipe 与 lazy/completion-safe retirement，不能把现状视为产品默认设计。
 - Geometry 与 Instance residency 的 record/payload/upload/grow/patch 内存证据已接入；texture、全帧 transient 与统一显存/上传预算仍未完成。
@@ -86,7 +86,7 @@
 
 ## 当前下一步
 
-1. R4 core 已关闭；主线进入 R5 的 Lighting/Temporal/quality revalidation。`R4-C-01` 不再是默认下一步，只在 Hardware Raster 的同 GPU/profile 证据满足 optional track 触发条件时开启。
+1. R4 core 与 R5 FX-01 已关闭；进入 FX-02 修改 Lighting 前，先补齐 R5-00 clean/full C baseline，随后执行 FX-02 Clustered Direct。`R4-C-01` 不再是默认下一步，只在 Hardware Raster 的同 GPU/profile 证据满足 optional track 触发条件时开启。
 2. 保留 R4-A Hardware Raster 回退与 R4-B 的 B regression 为独立 phase 风险；若后续启动 R4-C，必须复用同一个 VisibilityKey/Depth/Material Resolve contract，HW-only 更快仍是合法结论。
 3. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；R4 core 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
 

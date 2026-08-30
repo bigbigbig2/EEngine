@@ -1,33 +1,21 @@
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { captureGitBuildProvenance } from "./scripts/r5-fx01-gate-contract.mjs";
 
 const examplesRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(examplesRoot, "..");
 
-function gitOutput(args: string[], fallback: string): string {
-  try {
-    return execFileSync("git", args, {
-      cwd: repositoryRoot,
-      encoding: "utf8"
-    }).trim() || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-const dirtyReasons = gitOutput(["status", "--porcelain"], "")
-  .split(/\r?\n/)
-  .filter((line) => line.length > 0);
+const buildProvenance = captureGitBuildProvenance(repositoryRoot);
 
 export default defineConfig({
   root: examplesRoot,
   publicDir: false,
   define: {
-    __BUILD_COMMIT__: JSON.stringify(gitOutput(["rev-parse", "HEAD"], "unknown")),
-    __BUILD_DIRTY__: JSON.stringify(dirtyReasons.length > 0),
-    __BUILD_DIRTY_REASONS__: JSON.stringify(dirtyReasons)
+    __BUILD_COMMIT__: JSON.stringify(buildProvenance.commit),
+    __BUILD_DIRTY__: JSON.stringify(buildProvenance.dirty),
+    __BUILD_DIRTY_REASONS__: JSON.stringify(buildProvenance.dirtyReasons),
+    __BUILD_CONTENT_HASH__: JSON.stringify(buildProvenance.contentHash)
   },
   server: {
     fs: { allow: [repositoryRoot] }

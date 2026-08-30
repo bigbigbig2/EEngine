@@ -63,7 +63,8 @@ import { BloomPass } from "./passes/BloomPass.js";
 import { AutomaticExposurePass } from "./passes/AutomaticExposurePass.js";
 import {
   TemporalJitterController,
-  recommendedTaaJitterSequenceSize
+  recommendedTaaJitterSequenceSize,
+  resolveFrameJitter
 } from "./TemporalJitterController.js";
 import { GPUTextureContext } from "../gpu/GPUTextureContext.js";
 import { createNativeTextureView, id } from "../gpu/GPUTextureDescriptors.js";
@@ -771,7 +772,7 @@ export class Renderer {
     if (featureTopology.nss) {
       this._nss!.frame_count = this._frame_count;
       this._nss!.frame_index = this._frame_count;
-    } else {
+    } else if (featureTopology.temporal) {
       this._taaJitter.frame_index = this._frame_count;
     }
 
@@ -783,7 +784,12 @@ export class Renderer {
       this._debug_frame_budget > 0 ? this._frame_count : null;
     if (debugFrameIndex !== null) this._debug_frame_budget--;
 
-    const temporalJitter = featureTopology.nss ? this._nss! : this._taaJitter;
+    const frameJitter = resolveFrameJitter(
+      featureTopology.temporal,
+      featureTopology.nss,
+      this._taaJitter.Jitter,
+      this._nss?.Jitter ?? this._taaJitter.Jitter
+    );
     const viewKey = GPUViewKey.from(camera, scene);
     viewKey.label = "check_assertions";
     const view = this.views.obtain(viewKey, cmd);
@@ -791,15 +797,15 @@ export class Renderer {
     const gpuPacked =
       this._graphics.packed_scenes_if_created?.runtime(scene) ?? null;
     gpuScene.lights.shadow_context.enabled = featureTopology.shadows;
-    view.setJitter(temporalJitter.Jitter[0], temporalJitter.Jitter[1]);
+    view.setJitter(frameJitter[0], frameJitter[1]);
     view.setViewportSize(w, h);
     view.setUpscaleRatio(
       outputWidth / w,
       outputHeight / h
     );
     view.gpu_camera_state.setViewportOffset(
-      (2 * temporalJitter.Jitter[0]) / w,
-      (2 * temporalJitter.Jitter[1]) / h
+      (2 * frameJitter[0]) / w,
+      (2 * frameJitter[1]) / h
     );
     this._profiler.measure("world-and-view-update", () => {
       this._graphics.packed_scenes_if_created?.encodePendingPatch(scene, cmd);
@@ -876,7 +882,7 @@ export class Renderer {
         outputWidth,
         outputHeight,
         gpuCounterBuffer,
-        taaJitter: [this._taaJitter.Jitter[0], this._taaJitter.Jitter[1]],
+        taaJitter: [frameJitter[0], frameJitter[1]],
         taaHistoryValidity,
         motionBlurStrength: this.motion_blur_strength,
         nssSettings

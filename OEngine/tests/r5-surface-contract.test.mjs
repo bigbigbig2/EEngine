@@ -84,6 +84,9 @@ const { RenderDebugViewPass } = await import(
 const { PACKED_SURFACE_COUNTER_WGSL } = await import(
   "../.test-dist/render/passes/PackedSurfaceCounterPass.js"
 );
+const { resolveFrameJitter } = await import(
+  "../.test-dist/render/TemporalJitterController.js"
+);
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -517,6 +520,14 @@ test("FX-01 motion-valid and reactive remain exact independent metadata bits", (
   assert.equal(gpuSurfaceMetadataHasFlag(invalidMotion, GPU_SURFACE_FLAGS.Reactive), true);
 });
 
+test("FX-01 disables projection jitter when neither TAA nor NSS consumes it", () => {
+  const taa = [0.25, -0.125];
+  const nss = [-0.375, 0.375];
+  assert.deepEqual(resolveFrameJitter(false, false, taa, nss), [0, 0]);
+  assert.deepEqual(resolveFrameJitter(true, false, taa, nss), taa);
+  assert.deepEqual(resolveFrameJitter(false, true, taa, nss), nss);
+});
+
 test("FX-01 reverse-Z empty depth is the deterministic zero background sentinel", () => {
   assert.equal(GPU_SURFACE_DEPTH_CONVENTION.reverseZ, true);
   assert.equal(GPU_SURFACE_DEPTH_CONVENTION.empty, 0);
@@ -594,4 +605,50 @@ test("FX-01 payload shaders reject empty metadata before loading random Surface 
     /all\(encoded == vec2u\(0u\)\)/,
     "zero octahedral bytes are valid when metadata says the Surface is valid"
   );
+});
+
+test("FX-01 production browser Gate owns PNG metrics and rejects blank or collapsed views", () => {
+  const runnerSource = readFileSync(
+    path.join(root, "../examples/scripts/run-r5-fx01-gate.mjs"),
+    "utf8"
+  );
+  const fixtureSource = readFileSync(
+    path.join(root, "../examples/r5-surface-debug/main.ts"),
+    "utf8"
+  );
+  const examplesTsconfig = readFileSync(
+    path.join(root, "../examples/tsconfig.json"),
+    "utf8"
+  );
+
+  assert.match(examplesTsconfig, /"r5-\*\/\*\*\/\*\.ts"/);
+  assert.match(runnerSource, /screenshot-metrics\.json/);
+  assert.match(runnerSource, /locator\("#gpu-canvas"\)\.screenshot/);
+  assert.match(runnerSource, /captureCanvasScreenshot/);
+  assert.match(runnerSource, /sidebar\.style\.visibility = "hidden"/);
+  assert.match(runnerSource, /PNG\.sync\.read/);
+  assert.match(runnerSource, /backgroundRatio/);
+  assert.match(runnerSource, /nonBackgroundCoverage/);
+  assert.match(runnerSource, /tileSamples/);
+  assert.match(runnerSource, /distinctViewHashes/);
+  assert.match(runnerSource, /allBlack/);
+  assert.match(
+    runnerSource,
+    /const gateEligible = cleanEligible && buildProvenance\.passed;/
+  );
+  assert.match(runnerSource, /evaluateBuildProvenance/);
+  assert.match(runnerSource, /evaluateDiagnosticSnapshots/);
+  assert.match(runnerSource, /screenshot-canvas-final-direct-light-on\.png/);
+  assert.match(runnerSource, /FX-02: legacy Direct Lighting changes the final unlit tile/);
+  assert.match(runnerSource, /writeGateArtifacts/);
+  assert.match(runnerSource, /__OENGINE_FX_01__\.renderView/);
+  assert.match(fixtureSource, /previousTransforms/);
+  assert.match(fixtureSource, /motionInvalidMetadata/);
+  assert.match(fixtureSource, /sameMotionInvalidPixel/);
+  assert.match(fixtureSource, /captureWebGpuLimits/);
+  assert.match(fixtureSource, /renderer\.adapter_info/);
+  assert.match(fixtureSource, /floatToHalf/);
+  assert.match(fixtureSource, /halfToFloat/);
+  assert.doesNotMatch(fixtureSource, /createImageBitmap\(canvas\)/);
+  assert.doesNotMatch(fixtureSource, /function float32ToFloat16/);
 });

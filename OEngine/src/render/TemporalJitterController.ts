@@ -42,6 +42,18 @@ export class TemporalJitterController {
   }
 }
 
+const ZERO_FRAME_JITTER = Object.freeze([0, 0]) as readonly [number, number];
+
+export function resolveFrameJitter(
+  temporalEnabled: boolean,
+  nssEnabled: boolean,
+  taaJitter: readonly [number, number],
+  nssJitter: readonly [number, number]
+): readonly [number, number] {
+  if (nssEnabled) return nssJitter;
+  return temporalEnabled ? taaJitter : ZERO_FRAME_JITTER;
+}
+
 export function recommendedTaaJitterSequenceSize(
   renderWidth: number,
   renderHeight: number,

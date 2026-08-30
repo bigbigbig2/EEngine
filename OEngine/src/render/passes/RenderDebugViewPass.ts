@@ -153,9 +153,10 @@ export class RenderDebugViewPass {
       (data, resolved, context) => {
         const command = requireShadeCommandContext(context.encoder);
         const lookup = data.packedVisibility?.resolve() ?? null;
+        const legacyContract = resources.surfaceFlags === null ? 1 : 0;
         const settings = command.allocateTransientBufferAndLoad(
           new Uint32Array(lookup === null
-            ? [data.outputWidth, data.outputHeight]
+            ? [data.outputWidth, data.outputHeight, legacyContract, 0]
             : [
               data.outputWidth,
               data.outputHeight,
@@ -237,24 +238,21 @@ function inputResourceIds(
       if (resources.velocity === null) {
         throw new Error("RenderDebugViewPass requires a velocity resource");
       }
-      return [resources.velocity, requireSurfaceMetadata(view, resources)];
+      return [resources.velocity, resources.surfaceFlags ?? requireLegacyVisibility(view, resources)];
     case RenderDebugViewValue.BaseColor:
     case RenderDebugViewValue.Occlusion:
-      return [resources.gAlbedo, requireSurfaceMetadata(view, resources)];
+      return [resources.gAlbedo, resources.surfaceFlags ?? requireLegacyVisibility(view, resources)];
     case RenderDebugViewValue.ShadingNormal:
-      return [resources.gNormal, requireSurfaceMetadata(view, resources)];
+      return [resources.gNormal, resources.surfaceFlags ?? requireLegacyVisibility(view, resources)];
     case RenderDebugViewValue.Metallic:
     case RenderDebugViewValue.Roughness:
-      return [resources.gPbr, requireSurfaceMetadata(view, resources)];
+      return [resources.gPbr, resources.surfaceFlags ?? requireLegacyVisibility(view, resources)];
     case RenderDebugViewValue.Emissive:
-      return [resources.gEmissive, requireSurfaceMetadata(view, resources)];
+      return [resources.gEmissive, resources.surfaceFlags ?? requireLegacyVisibility(view, resources)];
     case RenderDebugViewValue.MaterialId:
     case RenderDebugViewValue.HistoryValidity:
     case RenderDebugViewValue.Reactive:
-      if (resources.surfaceFlags === null) {
-        throw new Error(`RenderDebugViewPass requires Surface metadata for '${view}'`);
-      }
-      return [resources.surfaceFlags];
+      return [requireSurfaceMetadata(view, resources)];
     default:
       throw new Error(`RenderDebugViewPass has no resource contract for '${view}'`);
   }
@@ -340,6 +338,16 @@ function requireSurfaceMetadata(
     throw new Error(`RenderDebugViewPass requires Surface metadata for '${view}'`);
   }
   return resources.surfaceFlags;
+}
+
+function requireLegacyVisibility(
+  view: RenderDebugView,
+  resources: RenderDebugViewResources
+): ResourceId {
+  if (resources.meshId === null) {
+    throw new Error(`RenderDebugViewPass requires legacy visibility metadata for '${view}'`);
+  }
+  return resources.meshId;
 }
 
 function storageBufferEntry(binding: number): GPUBindGroupLayoutEntry {
