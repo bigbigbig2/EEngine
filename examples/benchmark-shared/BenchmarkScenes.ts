@@ -100,9 +100,28 @@ async function createB(
     blobEntry("Default_metalRoughness.jpg", urls.metalRoughness),
     blobEntry("Default_normal.jpg", urls.normal)
   ]);
-  const imported = await load_gltf_packed(urls.gltf.href, {
-    fileMap: new Map(fileEntries)
-  });
+  const fileMap = new Map(fileEntries);
+  fileMap.set(
+    "Default_metalRoughness.jpg",
+    await packOrmTexture(
+      requiredBlob(fileMap, "Default_AO.jpg"),
+      requiredBlob(fileMap, "Default_metalRoughness.jpg")
+    )
+  );
+  const gltfResponse = await fetch(urls.gltf);
+  if (!gltfResponse.ok) throw new Error(`Failed to load DamagedHelmet.gltf: ${gltfResponse.status}`);
+  const gltf = await gltfResponse.json() as DamagedHelmetGltf;
+  normalizeDamagedHelmetOrmContract(gltf);
+  const normalizedUrl = URL.createObjectURL(new Blob(
+    [JSON.stringify(gltf)],
+    { type: "model/gltf+json" }
+  ));
+  let imported: PackedGltfSource;
+  try {
+    imported = await load_gltf_packed(normalizedUrl, { fileMap });
+  } finally {
+    URL.revokeObjectURL(normalizedUrl);
+  }
   const gridSize = profile === "full" ? 125 : 15;
   const scene = new Scene();
   scene.lights.environment = createEnvironmentTexture();
@@ -389,6 +408,53 @@ async function blobEntry(name: string, url: URL): Promise<[string, Blob]> {
   return [name, await response.blob()];
 }
 
+async function packOrmTexture(aoBlob: Blob, metallicRoughnessBlob: Blob): Promise<Blob> {
+  const [ao, metallicRoughness] = await Promise.all([
+    createImageBitmap(aoBlob),
+    createImageBitmap(metallicRoughnessBlob)
+  ]);
+  try {
+    if (ao.width !== metallicRoughness.width || ao.height !== metallicRoughness.height) {
+      throw new Error(
+        `Damaged Helmet AO/MR dimensions differ: ${ao.width}x${ao.height} vs ` +
+        `${metallicRoughness.width}x${metallicRoughness.height}`
+      );
+    }
+    const canvas = new OffscreenCanvas(ao.width, ao.height);
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (context === null) throw new Error("OffscreenCanvas 2D context is unavailable for ORM packing");
+    context.drawImage(metallicRoughness, 0, 0);
+    const orm = context.getImageData(0, 0, canvas.width, canvas.height);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(ao, 0, 0);
+    const occlusion = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let offset = 0; offset < orm.data.length; offset += 4) {
+      orm.data[offset] = occlusion.data[offset]!;
+    }
+    context.putImageData(orm, 0, 0);
+    return canvas.convertToBlob({ type: "image/png" });
+  } finally {
+    ao.close();
+    metallicRoughness.close();
+  }
+}
+
+function normalizeDamagedHelmetOrmContract(gltf: DamagedHelmetGltf): void {
+  const material = gltf.materials?.[0];
+  const metallicRoughness = material?.pbrMetallicRoughness?.metallicRoughnessTexture;
+  const occlusion = material?.occlusionTexture;
+  if (metallicRoughness === undefined || occlusion === undefined) {
+    throw new Error("Damaged Helmet benchmark requires metallic-roughness and occlusion textures");
+  }
+  occlusion.index = metallicRoughness.index;
+}
+
+function requiredBlob(fileMap: ReadonlyMap<string, Blob>, name: string): Blob {
+  const blob = fileMap.get(name);
+  if (blob === undefined) throw new Error(`Missing benchmark asset '${name}'`);
+  return blob;
+}
+
 interface BenchmarkCRecipe {
   grid: { x: number; z: number; spacing: number };
   geometrySizes: [number, number, number][];
@@ -400,4 +466,11 @@ interface BenchmarkCRecipe {
   }[];
   lights: { point: number; spot: number; directional: number };
   dynamicTransformEvery: number;
+}
+
+interface DamagedHelmetGltf {
+  materials?: Array<{
+    occlusionTexture?: { index: number };
+    pbrMetallicRoughness?: { metallicRoughnessTexture?: { index: number } };
+  }>;
 }

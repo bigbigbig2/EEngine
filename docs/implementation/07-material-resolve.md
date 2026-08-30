@@ -262,6 +262,7 @@ Lighting/AO/SSR/TAA/debug 逐个改读新 Surface/Velocity。每迁移一个 con
 - artifact 位于 `temp/r4-b/full/`，不纳入 Git；shader audit 为 69 total、58 authored-live、5 dead、6 unknown。
 - 2026-08-28 P1 UV/dense-slot 修正另有 `temp/r4-b/p1/` focused 证据：Chrome UV1 fixture `passed=true`，生产 Benchmark B smoke 为 1 Resolve draw、1 active/4095 free material slots、4 resident textures、0 fallback/0 WebGPU diagnostics。该 dirty smoke 仅作 correctness evidence，不替代上面的 clean full Gate。
 - 2026-08-30 lifecycle/material-contract 修正加入 texture refcount/free-list/completion-safe retirement、evidence schema v4、separate occlusion explicit reject、`normalTexture.scale` 与真实 unlit Resolve；本条提交后的 clean B/C full Gate 必须重新采集，不能沿用 2026-08-28 artifact 证明这些新增语义。
+- 原始 Damaged Helmet B fixture 使用 separate AO 与 metallic-roughness 图片；为保持 loader 的 explicit reject，benchmark 在计时前按 glTF ORM 通道约定把 `AO.R + roughness.G + metallic.B` 确定性打包到同一 Blob，并让两个 TextureInfo 指向同一 index。该步骤属于 benchmark/runtime-asset 准备，不进入 steady frame、Material owner 或第二条渲染路径。
 
 `R4-B-07` 跳过，因为 B/C 目标资产不要求额外 glTF extension；`R4-B-08` 跳过，因为 universal Resolve profile 未证明 feature divergence 是热点。二者都没有被伪装成“实现了空功能”。
 

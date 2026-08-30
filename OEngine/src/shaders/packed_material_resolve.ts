@@ -448,7 +448,10 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     uv_dy,
     vec4f(0.5, 0.5, 1.0, 1.0)
   ).xyz * 2.0 - 1.0;
-  sampled_normal.xy *= material_info.pbr_factors.z;
+  sampled_normal = vec3f(
+    sampled_normal.xy * material_info.pbr_factors.z,
+    sampled_normal.z
+  );
   let mapped_normal = safe_normalize(
     mat3x3f(tangent, bitangent, shading_normal) * sampled_normal,
     shading_normal

@@ -150,6 +150,7 @@ Physical attachment formats 已由 `R4-B-04` 冻结为 26 B/pixel：PBR `rg8unor
 - CPU `StandardShadeMaterial.id` 不进入 GPU 地址语义。Material owner 分配 0..4095 dense resident slot，Packed instance 和 Visibility/Resolve 只传该 slot；引用归零后经 owning command 的 GPU completion fence 才回到 free-list。
 - 物理 texture array 有 64 layers，但 layer 0 固定为 zero/fallback；只有 layer 1..63 可分配。Texture owner 对共享 `ShadeTexture` 引用计数，最后引用归零后保留 retiring layer，直到 owning command 的 GPU completion settle 才归还 free-list。
 - glTF v2 不支持 separate occlusion texture：`occlusionTexture` 必须与 `metallicRoughnessTexture` 使用相同 texture index，否则在 residency 前拒绝。`normalTexture.scale` 直接进入 record 并缩放 tangent-space normal XY。
+- Khronos Damaged Helmet 源资产使用 separate AO/MR；B benchmark 在计时前保留 AO.R 与 MR.GB，生成一张确定性 ORM Blob，并规范化两个 TextureInfo 到同一 index。这个 asset-boundary adapter 不改变 loader 的拒绝行为，也不进入 steady GPU frame。
 - `KHR_materials_unlit` 只保留 baseColor factor/texture、vertex color 与 alpha 语义；OEngine Resolve 以 zero lit albedo + baseColor emissive 表达同一不变量，继续复用统一 tone-map/output。normal/ORM/emissive PBR texture 不驻留、不置 feature bit，也不贡献 shading。
 
 ## Performance hypothesis
