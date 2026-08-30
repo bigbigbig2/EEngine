@@ -77,6 +77,8 @@ validation errors / device lost count
 
 普通实现批次不默认启动大规模 review 或跨设备矩阵。最低执行命中单元测试、typecheck/build、一个相关 `examples/` 浏览器场景和 WebGPU 控制台错误检查；涉及像素、LOD、遮挡、材质或时域输出时，再采集截图或短序列进行观察。阶段 Gate、ABI 大改和性能结论才升级到完整矩阵。
 
+R5 的逐 FX 人工执行步骤、预期结果和 artifact 清单由 [R5-TEST-MANUAL](./R5-TEST-MANUAL.md) 拥有；R5 性能参数轴由 [R5-BENCHMARK-MATRIX](./R5-BENCHMARK-MATRIX.md) 拥有。
+
 ## 图像与数值判定
 
 | 输出 | 判定 |
@@ -139,8 +141,20 @@ R0 的职责是冻结目标矩阵并证明 A/B/C 采集入口、真实 counter �
 | G1 Runtime | HZB reference、resize/history/device lost | 空/A/B/C fixed cost 前后 | 一个主要 submit、graph cache/off pruning |
 | G2 Data | package/hierarchy data/handle/packed instances | bulk、stable frame 与 patch-density scaling | Geometry/Cluster/Instance owner、resident bytes、现有 HW consumer 接线、旧 owner 删除 |
 | G3 Hierarchy | multi-instance CPU/GPU selected set、parent/descendant exclusive、children 整组 reservation 与 parent fallback | flat candidate 对比 visited/selected/raster、round 成本、低密度回退、P50/P95/P99 | Cluster hierarchy GPU闭环、Work Generator owner、完整 indirect record、旧 Packed flat chain 删除 |
-| G4 Visibility | HW/SW/Hybrid depth/key/edge/clip | triangle size sweep、跨 GPU profile | key ABI、HW fallback、旧 Visibility 删除 |
-| G5 Shading | Surface/PBR/velocity/history/feature sequence | B/C materials/lights/effects curves | 单次 Resolve、off 零成本、旧 GBuffer旁路删除 |
+| G4-A/B Core | HW key/depth/alpha + single Resolve/PBR/velocity | 已关闭的 A/B/C/R4-B evidence | key/Surface ABI、HW fallback、Packed 旧链删除 |
+| G4-C Hybrid | optional；重新打开时检查 SW/HW shared-edge/clip/depth/key | triangle-size/cost sweep、跨 GPU crossover | 同 VisibilityKey/Depth/Resolve ABI、HW fallback |
+| G5-L Lighting | Surface numeric、0/1 light、cluster set/overflow、IBL oracle | B-shading + C-light spread/overlap | Surface/color ABI、LightList attempted/written、Lighting source owner |
+| G5-S Secondary Raster | cascade/alpha caster、MBOIT order invariance/overflow | C-shadow + C-transparent | Packed shadow/transparent work、bounded bins、legacy producer migration |
+| G5-T Temporal | reactive/disocclusion/cut/resize/scale、AO/SSR sequence | C-temporal + C-resolution | history revision、Temporal source owner、DRS async feedback |
+| G5-P Product | HDR/post/color、feature-off、legacy deletion | clean/full A/B/C + all R5 axes + target profile | shader audit、zero stale realtime owner、memory/targets/cross-device |
+
+## R5 sequence / overflow 特别判定
+
+- LightList 与 TransparentRasterWork 必须分别保存 `attempted/written/capacity/overflow`；consumer 遍历 raw attempted count 属于 correctness failure。
+- per-cluster light 上限或 shadow/transparent queue overflow 必须有显式 conservative fallback；“看起来大多数灯还在”不能通过 Gate。
+- Temporal/AO/SSR 至少保存 static、camera pan、disocclusion、reactive motion、cut、resize/scale transition 序列；单张 screenshot 不足以关闭 G5-T。
+- feature-on 性能同时给 absolute P50/P95/P99 与同 commit 的 `on-off` 增量；跨 GPU 历史绝对值不得计算 feature 百分比。
+- G5-P 前 shader audit 的 realtime `dead/unknown` 必须清零，或每个剩余项有明确 generator/tool-only/reference-only 分类。
 
 ## 需求到证据追踪
 

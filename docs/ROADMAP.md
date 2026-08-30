@@ -50,9 +50,9 @@
 
 R3/G3 已关闭：GPU producer → indirect consumer 闭环成立，CPU 不遍历最终可见列表；Cone/previous HZB、counter/fallback/feature-off 已接入；Packed flat producer/owner 已删除。`R3-D-08/09` 又完成 fused InstanceCull/root、workgroup-local compaction、sampled diagnostics 与 depth-zero fused-leaf。clean commit `aff3ab8` 的 A/B/C full 全部 gate eligible/zero diagnostics，A P95 不再回退、B 继续改善、C 消除低密度固定成本。下一入口是 R4-A。
 
-## R4 · Unified Visibility、Material Resolve 与 Hybrid 优化
+## R4 · Unified Visibility、Material Resolve 与 Hybrid 优化（核心完成）
 
-R4 按固定顺序执行，不把 Software Raster 作为 Material Resolve 的前置依赖。
+R4-A Hardware Visibility 与 R4-B Single Material Resolve 已关闭核心里程碑。Software/Hybrid 不再作为 R4 core 或 R5 的前置依赖。
 
 ### R4-A · Hardware Visibility Contract
 
@@ -72,28 +72,40 @@ R4 按固定顺序执行，不把 Software Raster 作为 Material Resolve 的前
 
 执行编号为 `R4-B-01..10`。优先迁移 R2-D-08/R2-D-09 已验证的 attribute/gradient/frame/velocity，不重新实现同一数学。
 
-### R4-C · Compute SW/Hybrid Profile Optimization
+### R4-C · Compute SW/Hybrid Profile Optimization（Optional）
 
 实施包：[06-hybrid-visibility](./implementation/06-hybrid-visibility.md)
 
-从 Scthe/The Forge/MOC 等参考移植并验证微三角形 Software Raster、SW/HW classification、统一 merge 和 fallback。只有目标 workload 证明收益时才默认启用。
+R4-C 是独立性能研究轨。只有同设备 profile 证明 Hardware Raster/固定 384-vertex waste 是主要瓶颈，并且 triangle-size/cost sweep 给出可信 crossover 时才重新打开。
 
-执行编号为 `R4-C-01..09`。两阶段 SW 使用完整 `u32 depth → key`；feature off 与 feature-on empty 固定成本分别验收。
+执行编号仍保留为 `R4-C-01..09`。它必须复用 R4-A/B 的 VisibilityKey/Depth/Resolve ABI；HW-only 始终是完整正确 fallback。R4-C 未执行不阻塞 R4 core 或 R5 退出。
 
-退出：HW-only 是完整正确基线；Material Resolve 成本不再近似材质数 × 全屏；Hybrid 在目标场景有收益且普通场景不明显退化。
-
-## R5 · Lighting、Shadow、Temporal 与扩展效果
+## R5 · Lighting、Shadow、Temporal 与扩展效果（当前主线）
 
 实施包：[08-lighting-temporal-post](./implementation/08-lighting-temporal-post.md)
+测试手册：[R5-TEST-MANUAL](./implementation/R5-TEST-MANUAL.md)
+性能矩阵：[R5-BENCHMARK-MATRIX](./implementation/R5-BENCHMARK-MATRIX.md)
+参考索引：[R5-ALGORITHM-GUIDE](./references/R5-ALGORITHM-GUIDE.md)
 
-- 扩展 Clustered Lighting 到大量动态灯光，并冻结 list capacity/overflow。
+固定执行结构：
+
+```text
+R5-00 Contract/Baseline
+→ FX-01..03 → G5-L
+→ FX-04..05 → G5-S
+→ FX-06..08 → G5-T
+→ FX-09..12 → G5-P
+→ R5 CLOSED
+```
+
+- 扩展 Clustered Lighting 到大量动态灯光，并冻结 attempted/written/capacity/overflow 与 conservative fallback。
 - 保留 CSM，优化多 Cascade work generation、稳定性和过滤质量。
 - IBL 与已有可迁移 GI 先形成基础间接光，不以高级 GI 阻塞阶段。
 - Transparency/Decal 接入统一 Depth/Surface/Lighting。
 - Velocity、Temporal Reconstruction、Dynamic Resolution、Upscaling 和 Post。
 - Texture resident bytes/mip feedback；由显存证据决定是否增加 mip streaming。
 
-退出：目标 workload 的画质、GPU 时间、内存和 feature-off 成本透明；Temporal/Upscaling 在相同输出画质下有可解释收益。
+退出：G5-L/S/T/P 全部通过；目标 workload 的画质、GPU 时间、内存、queue/history lifecycle 和 feature-off 成本透明；Packed Shadow/Transparency 不再依赖 legacy work producer；Temporal/Upscaling 在相同输出画质下有可解释收益；`performance-targets.json` 已在目标机器填入绝对门槛。Optional R4-C/高级 GI 不阻塞 R5。
 
 ## Deferred
 

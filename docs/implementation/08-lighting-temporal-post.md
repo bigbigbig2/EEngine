@@ -11,6 +11,62 @@
 - 不为每个效果重复构建 depth、HZB、velocity、light list 或 exposure。
 - 不用 TAA/Bloom 掩盖基础 surface、visibility 或 lighting 错误。
 - 不在本阶段实现 VSM、ReSTIR/Lumen-like GI、地形/角色/粒子、云、水或大气专用路径。
+- R4-C Software/Hybrid Visibility 是 optional performance track，不作为任何 G5 子 Gate 的前置。
+
+## R5-00 · Contract / Baseline Freeze
+
+R5 第一提交不实现新效果，先冻结下游共同依赖：
+
+```text
+Surface ABI v1
+├─ Depth: depth32float reverse-Z / empty semantic
+├─ PBR: metallic + perceptual roughness
+├─ ShadingNormal: encode/decode + normalized semantic
+├─ Albedo/AO: working-space base color + AO
+├─ Emissive: linear scene-referred
+├─ Velocity: coordinate/jitter convention + invalid
+└─ SurfaceFlags: reactive / motion-valid / unlit / reserved bits
+
+Color Contract
+├─ working linear space
+├─ HDR scene color
+├─ exposure/pre-exposure ownership
+└─ SDR/HDR output transform
+```
+
+同时：
+- R5 base A/B/C manifest 只列实际运行的 HW feature；optional `software-visibility` 从 base featureSet 移出；
+- `performance-targets.json` 在目标机器采样后冻结绝对门槛；
+- Lighting/Temporal 开始修改前先关闭 runtime oracle/generated source-of-truth 债务；
+- 建立 `R5-BENCHMARK-MATRIX.md` 与 `R5-TEST-MANUAL.md`。
+
+## 方案 B 子 Gate
+
+```text
+R5-00
+  ↓
+FX-01 Surface
+FX-02 Clustered Direct
+FX-03 IBL
+  ↓ G5-L · Lighting Baseline
+
+FX-04 CSM Shadow
+FX-05 Packed MBOIT Transparency
+  ↓ G5-S · Secondary Raster
+
+FX-06 Temporal / DRS / Upscale
+FX-07 AO
+FX-08 SSR
+  ↓ G5-T · Temporal Quality
+
+FX-09 Post
+FX-10 Optional Effects
+FX-11 Evidence-driven Fusion
+FX-12 Legacy Deletion
+  ↓ G5-P · Product / Performance Closure
+```
+
+每个 FX 的人工步骤、预期截图/counter/sequence 和提交复核材料见 [R5-TEST-MANUAL](./R5-TEST-MANUAL.md)；性能扩展轴见 [R5-BENCHMARK-MATRIX](./R5-BENCHMARK-MATRIX.md)。
 
 ## 统一资源图
 
@@ -42,7 +98,7 @@ Opaque/transparent HDR
 
 | 功能 | 当前入口 | 初始处理 |
 |---|---|---|
-| light clustering | `LightClusterPass.ts`、`shaders/light_cluster.ts` | 按新 Depth/LightTable ABI 重接并验证 overflow |
+| light clustering | `LightClusterPass.ts`、`shaders/light_cluster.ts` | 先冻结现有 LightDatabase/cluster ABI；修 attempted/written/overflow 与 per-cluster silent drop，profile 后再决定是否重写 LightTable |
 | direct lighting | `LightingPass.ts`、`lighting_direct.ts` | 对齐新 Surface/Material flags |
 | IBL/background | `IblDiffusePass.ts`、`IblSpecularPass.ts`、`EnvironmentBackgroundPass.ts` | B 场景最先恢复 |
 | shadow | `ShadowRasterPass.ts`、`ShadowContext.ts` | 删除旧 MeshletDrawList 依赖，复用新 hierarchy work |
@@ -53,6 +109,11 @@ Opaque/transparent HDR
 | LPV/Brick4/NSS/path tracer/SDF/volumetrics | 现有 pass/gpu/shader | 不默认接线；作为同图可选节点或 reference/tool 隔离验证 |
 
 “不默认接线”不是删除能力承诺；只有在 source-of-truth、owner 和验证清楚后才进入主管线。Path tracer 若作为离线/对照 renderer，必须与实时主管线资源明确隔离，不影响稳定帧。
+
+R5 的 source-of-truth 前置：
+- FX-02 开始修改 Lighting 前，`lighting_ch_oracle.ts` 必须选择 authored source 或可重复 generator，并建立 numeric/visual regression；
+- FX-06 开始修改 Temporal 前，`temporal_post_legacy.generated.ts` 必须登记 generator/source；无法追溯时先按已登记 reference 写最小 authored baseline；
+- 其他 `dead/unknown` shader 由 FX-12 清理，但不能仅按文件名删除。
 
 ## Feature node contract
 
@@ -93,7 +154,16 @@ off-state graph assertion
 
 ### FX-02 · LightTable 与 clustered direct lighting
 
-迁移 LightTable，明确 cluster grid、light index queue ABI、capacity、overflow 和大光源 fallback。用 0/1/多灯数值场景验证 inverse-square、单位和色温/颜色语义。
+先验证当前 `LightDatabase`，不为“统一命名”强制重写 owner。冻结 cluster grid 与 LightList queue：
+
+```text
+attempted
+written
+capacity
+overflow
+```
+
+producer 可以 `attempted > capacity`，但所有 consumer 只能遍历 `written`。当前 per-cluster point/spot 上限触发时必须设置 overflow 并执行 conservative fallback，禁止 `continue` 后静默少灯。用 0/1 directional、1 point、1 spot 与 C-light `0/1/16/64/256/1024 × spread/overlap` 验证 numeric correctness、worst overlap、capacity 与 scaling。
 
 ### FX-03 · IBL 对齐
 
@@ -105,11 +175,15 @@ off-state graph assertion
 
 ### FX-05 · Transparency
 
-Alpha-tested 留在 Visibility；真正 blend 材质走透明队列。OIT/排序方案声明容量与 overflow，使用同 MaterialTable/texture pools，正确合成 Opaque HDR、depth 和 velocity/reactive。
+Alpha-tested 留在 Visibility；BLEND 从同一 hierarchy/RasterWork 数据面分类到有界 `TransparentRasterWork`。当前透明算法按 Moment-Based OIT 迁移，不引入不存在的 A-buffer node pool：容量重点是 transparent work queue、raster-state bins、moment numeric range/precision 和 material/texture residency。
+
+透明 shader 必须动态读取同一 Material/Texture owner；draw/pass 数只能依赖有硬上限的 raster-state bin（例如 front/double-sided），不得随 active material 数线性增长。用 overlapping colored quads 做 order-invariance + sorted-alpha quality reference，再跑 C-transparent 的 coverage/depth-layer/material sweep。
 
 ### FX-06 · Temporal Reconstruction / Dynamic Resolution / Upscaling
 
-分离 internal/output resolution，以新 Velocity、Depth、reactive 和 HistoryState 接入。覆盖 camera cut、disocclusion、LOD transition、透明、dynamic resolution 和 resize；GPU frame-time feedback 只能改变配置/scale，不产生第二条主管线。
+先闭合 Temporal shader source-of-truth，再分离 internal/output resolution。Temporal input contract 至少包含 current HDR、Depth、Velocity+motion-valid、Reactive、disocclusion/history confidence、history revision、jitter 与 internal/output resolution。覆盖 camera cut、disocclusion、LOD transition、透明、dynamic resolution 和 resize。
+
+DRS 使用异步/延迟 GPU timestamp feedback 更新 scale；禁止同步 `mapAsync` 或 readback 控制当前帧，也不产生第二条主管线。C-temporal/C-resolution 必跑 static/pan/fast motion/disocclusion/reactive/cut/resize/scale transition sequence。
 
 ### FX-07 · AO
 
@@ -147,7 +221,7 @@ caster queue、tile/page allocation 和 dirty update 各自有 capacity/counter�
 
 ### Transparency
 
-OIT node/fragment 容量必须定义。overflow fallback 可以是 weighted blended/受限排序等已验证方案，但不能越界或静默破坏后续资源。
+当前算法为 Moment-Based OIT，不使用 A-buffer node pool。必须定义 `TransparentRasterWork attempted/written/capacity/overflow`、raster-state bin 上限、moment precision/range 与 overlap pressure。overflow 可以使用经过验证的保守降级，但不能越界、NaN/Inf 或静默减少 transparent work。
 
 ## 画质验证
 
@@ -173,6 +247,11 @@ OIT node/fragment 容量必须定义。overflow fallback 可以是 weighted blen
 - queue/atlas overflow 破坏画面：使用明确降级或报错，禁止静默。
 - 高级功能持续拖慢默认帧：保持断开，保留独立研究证据，不影响统一主管线。
 
-## 阶段退出
+## 子 Gate 与阶段退出
 
-Benchmark B 的 Standard PBR + direct/IBL 基线正确；C 中动态灯光、CSM、Transparency/Decal、Temporal/Upscaling 可逐项启停且成本、history、queue、内存与 fallback 透明。高级 GI 和内容专用效果不阻塞阶段退出。
+- **G5-L**：Surface ABI、direct lighting、LightList/per-cluster overflow、B-shading IBL oracle 和 C-light sweep 通过。
+- **G5-S**：Packed CSM 与 Packed MBOIT Transparency 通过；shadow/transparent Packed consumer 不再依赖 legacy `MeshletDrawList`/per-material work producer。
+- **G5-T**：Temporal/DRS/Upscaling、AO、SSR 的 camera cut/resize/disocclusion/reactive sequence 通过；history owner/source-of-truth 闭合。
+- **G5-P**：Post/color pipeline、feature-off、legacy 删除、shader ownership、clean/full A/B/C + R5 axis sweeps、目标机器 `performance-targets.json` 通过。
+
+G5-L/S/T/P 全部关闭后 R5 才能宣称完成。高级 GI、内容专用效果与 optional R4-C 不阻塞阶段退出。

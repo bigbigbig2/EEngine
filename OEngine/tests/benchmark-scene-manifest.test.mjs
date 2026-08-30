@@ -33,6 +33,11 @@ test("A/B/C scene manifests freeze unique roles on the unified Renderer path", a
   for (const manifest of manifests) {
     assert.equal(new Set(manifest.featureSet).size, manifest.featureSet.length);
     assert.equal(manifest.camera.frameCount, 240);
+    assert.equal(
+      manifest.featureSet.includes("software-visibility"),
+      false,
+      `${manifest.id} R5 base manifest must describe the actual HW-only feature set`
+    );
   }
 });
 

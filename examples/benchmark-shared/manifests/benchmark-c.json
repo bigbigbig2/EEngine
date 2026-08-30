@@ -10,7 +10,7 @@
     "revision": "schema-1"
   },
   "seed": 3237998146,
-  "featureSet": ["hardware-visibility", "hzb-culling", "cone-culling", "single-material-resolve", "clustered-lighting", "ibl", "packed-instances", "hierarchy-sse-lod", "software-visibility"],
+  "featureSet": ["hardware-visibility", "hzb-culling", "cone-culling", "single-material-resolve", "clustered-lighting", "ibl", "packed-instances", "hierarchy-sse-lod"],
   "frame": { "width": 1280, "height": 720, "dpr": 1 },
   "run": {
     "warmupFrames": 60,
@@ -35,7 +35,7 @@
   "currentLimitations": [
     "144 个实例已使用 typed-array Packed Instance Set；不构造等量 Mesh/Node3D",
     "Hierarchy/SSE、Cluster cone 与 previous-frame HZB 已接生产 Hardware consumer；R3-D/G3 已由 clean full A/B/C 关闭",
-    "Compute software visibility 由 VIS-05 阻塞",
-    "Packed Geometry 尚未进入 CSM shadow consumer；alpha-tested Visibility、single Material Resolve 与 temporal 扩展轴属于后续 gate"
+    "R4-C software/hybrid visibility 是 optional performance variant，不属于 R5 C base featureSet",
+    "Packed Geometry 尚未进入 CSM/Transparency consumer；R5 通过 C-light/shadow/transparent/temporal/resolution 参数轴逐项关闭"
   ]
 }

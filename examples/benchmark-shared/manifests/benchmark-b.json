@@ -10,7 +10,7 @@
     "revision": "7cda7e710d884827fc73ff1a3aa63270846513d7"
   },
   "seed": 2976579765,
-  "featureSet": ["hardware-visibility", "packed-instances", "hzb-culling", "single-material-resolve", "clustered-lighting", "ibl", "hierarchy-sse-lod", "software-visibility"],
+  "featureSet": ["hardware-visibility", "packed-instances", "hzb-culling", "single-material-resolve", "clustered-lighting", "ibl", "hierarchy-sse-lod"],
   "frame": { "width": 1280, "height": 720, "dpr": 1 },
   "run": {
     "warmupFrames": 60,
@@ -42,7 +42,7 @@
   ],
   "currentLimitations": [
     "R3 主链已消费 OEngine Cooker hierarchy；与 three.js 6 级 LOD/Meshlet 配方逐项一致的资产基线由 COOK-11 阻塞",
-    "参考 UltraHDR 环境不能消费，页面使用中性 half-float environment；因此不能宣称 B 画质对齐",
-    "Compute software visibility 由 VIS-05 阻塞"
+    "参考 UltraHDR 环境不能消费，页面使用中性 half-float environment；R5 FX-03 使用冻结的 linear HDR benchmark conversion/B-shading oracle 关闭画质对齐",
+    "R4-C software/hybrid visibility 是 optional performance variant，不属于 R5 B base featureSet"
   ]
 }

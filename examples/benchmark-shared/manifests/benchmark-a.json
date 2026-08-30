@@ -10,7 +10,7 @@
     "revision": "7cda7e710d884827fc73ff1a3aa63270846513d7"
   },
   "seed": 2703024129,
-  "featureSet": ["hardware-visibility", "packed-instances", "hzb-culling", "hierarchy-sse-lod", "software-visibility"],
+  "featureSet": ["hardware-visibility", "packed-instances", "hzb-culling", "hierarchy-sse-lod"],
   "frame": { "width": 1280, "height": 720, "dpr": 1 },
   "run": {
     "warmupFrames": 60,
@@ -40,7 +40,7 @@
   ],
   "currentLimitations": [
     "R3 主链已消费 OEngine Cooker hierarchy；直接导入 three.js 预制 LOD 链的精确基线配方由 COOK-11 阻塞",
-    "Compute software visibility 由 VIS-05 阻塞；当前运行是统一主管线的 hardware-only 基线",
-    "A 的完整功能/性能通过必须在后续 capabilityComplete=true 后另行判定"
+    "R4-C software/hybrid visibility 是 optional performance variant；R5 base artifact 只声明实际运行的 hardware-only feature",
+    "A 的最终性能是否达标由 R5 performance-targets 与同设备 profile 判定，不再由 optional VIS-05 阻塞"
   ]
 }
