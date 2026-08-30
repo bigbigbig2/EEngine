@@ -11,9 +11,8 @@ import {
   SHADOW_COMPARISON_SAMPLER_DESCRIPTOR
 } from "../../gpu/GPUSamplerCache.js";
 import {
-  LIGHTING_CH_FRAGMENT_WGSL,
-  LIGHTING_CH_VERTEX_WGSL
-} from "../../shaders/lighting_ch_oracle.js";
+  LIGHTING_DIRECT_WGSL
+} from "../../shaders/lighting_direct.js";
 import { HDR_COLOR_FORMAT } from "../RenderTargets.js";
 import {
   resolveDepthAttachmentView,
@@ -21,7 +20,7 @@ import {
 } from "./MaterialExpandPass.js";
 
 export const LIGHTING_MIGRATION_GAP = [
-  "fixed P0/P1 command/resource differences remain open before matched"
+  "authored lighting_direct.ts owns the runtime pipeline"
 ] as const;
 
 export const LIGHTING_STEPS = [
@@ -37,6 +36,7 @@ export const LIGHTING_STEPS = [
 export type LightingJob = {
   width: number;
   height: number;
+  surfaceMetadataAvailable: boolean;
 };
 
 export type LightingInputs = {
@@ -44,12 +44,14 @@ export type LightingInputs = {
   gNormal: ResourceId;
   gAlbedo: ResourceId;
   gEmissive: ResourceId;
+  gMetadata: ResourceId;
   depth: ResourceId;
   lightDatabase: ResourceId;
   environment: ResourceId;
   clusterParameters: ResourceId;
   clusterLookup: ResourceId;
   clusterData: ResourceId;
+  activeLightList: ResourceId;
   shadowAtlas: ResourceId;
   camera: ResourceId;
   view: ResourceId;
@@ -60,12 +62,13 @@ export type LightingGraphOutputs = { hdr: ResourceId };
 const CH_GROUP_0_LAYOUT: GPUBindGroupLayoutDescriptor = {
   label: "",
   entries: [
-    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
     { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
-    { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }
+    { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+    { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } }
   ]
 };
 
@@ -78,7 +81,8 @@ const CH_GROUP_1_LAYOUT: GPUBindGroupLayoutDescriptor = {
     { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
     { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
-    { binding: 6, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "comparison" } }
+    { binding: 6, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "comparison" } },
+    { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
   ]
 };
 
@@ -95,7 +99,18 @@ const CH_COLOR_TARGET = {
   format: HDR_COLOR_FORMAT
 } as GPUColorTargetState & { label: string };
 
-const CH_PIPELINE: CachedRenderPipelineDescriptor = {
+const CH_PIPELINE = createLightingPipeline(LIGHTING_DIRECT_WGSL);
+const CH_LEGACY_PIPELINE = createLightingPipeline(
+  LIGHTING_DIRECT_WGSL.replace(
+    "const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = true;",
+    "const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = false;"
+  )
+);
+
+function createLightingPipeline(
+  code: string
+): CachedRenderPipelineDescriptor {
+  return {
   label: "",
   layout: {
     label: "",
@@ -112,16 +127,18 @@ const CH_PIPELINE: CachedRenderPipelineDescriptor = {
     depthCompare: "not-equal"
   },
   vertex: {
-    module: { label: "", code: LIGHTING_CH_VERTEX_WGSL },
-    entryPoint: "main",
+    module: { label: "", code },
+    entryPoint: "vs_main",
     buffers: []
   },
   multisample: {},
   fragment: {
-    module: { label: "", code: LIGHTING_CH_FRAGMENT_WGSL },
+    module: { label: "", code },
+    entryPoint: "fs_main",
     targets: [CH_COLOR_TARGET]
   }
-};
+  };
+}
 
 /** 汇总材质表面、灯光簇、阴影和环境光数据，输出 HDR 光照结果。 */
 export class LightingPass {
@@ -143,7 +160,7 @@ export class LightingPass {
     const builder = graph.add(
       "Direct lighting Ch",
       job,
-      (_data, resources, context) => {
+      (passJob, resources, context) => {
         const encoder = context.gpu_encoder;
         if (!encoder) throw new Error("LightingPass: no GPU command encoder");
 
@@ -154,7 +171,8 @@ export class LightingPass {
             texture(resources.get(inputs.gNormal)),
             texture(resources.get(inputs.gAlbedo)),
             texture(resources.get(inputs.gEmissive)),
-            this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR)
+            this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+            texture(resources.get(inputs.gMetadata))
           ],
           [
             { buffer: buffer(resources.get(inputs.lightDatabase)) },
@@ -163,7 +181,8 @@ export class LightingPass {
             { buffer: buffer(resources.get(inputs.clusterLookup)) },
             { buffer: buffer(resources.get(inputs.clusterData)) },
             texture(resources.get(inputs.shadowAtlas)),
-            this.graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR)
+            this.graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR),
+            { buffer: buffer(resources.get(inputs.activeLightList)) }
           ],
           [
             { buffer: buffer(resources.get(inputs.view)) },
@@ -174,7 +193,10 @@ export class LightingPass {
         const depthView = resolveDepthAttachmentView(
           resources.get(inputs.depth)
         );
-        const pipeline = this.graphics.render_pipelines.obtain(CH_PIPELINE);
+        const descriptor = passJob.surfaceMetadataAvailable
+          ? CH_PIPELINE
+          : CH_LEGACY_PIPELINE;
+        const pipeline = this.graphics.render_pipelines.obtain(descriptor);
         const pass = encoder.beginRenderPass({
           label: "Direct lighting Ch",
           colorAttachments: [{
@@ -189,7 +211,7 @@ export class LightingPass {
           }
         });
         pass.setPipeline(pipeline);
-        this.graphics.setPipelineBindings(pass, CH_PIPELINE, bindings);
+        this.graphics.setPipelineBindings(pass, descriptor, bindings);
         pass.draw(3);
         pass.end();
         this.lastRan = true;

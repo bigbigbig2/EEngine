@@ -408,6 +408,62 @@ async function blobEntry(name: string, url: URL): Promise<[string, Blob]> {
   return [name, await response.blob()];
 }
 
+export type ClusteredLightKind = "directional" | "point" | "spot";
+export type ClusteredLightLayout = "spread" | "overlap";
+
+export function configureClusteredLightingFixture(
+  fixture: BenchmarkSceneFixture,
+  count: number,
+  layout: ClusteredLightLayout,
+  kind: ClusteredLightKind = "point"
+): void {
+  const scene = fixture.scene;
+  for (const child of [...scene.children]) {
+    if ((child as { isLight?: boolean }).isLight === true) {
+      scene.removeChild(child);
+    }
+  }
+  const safeCount = Math.max(0, count | 0);
+  for (let index = 0; index < safeCount; index++) {
+    if (kind === "directional") {
+      const light = new DirectionalLight();
+      light.intensity = 3;
+      light.forward = [0.35, -1, -0.25];
+      light.casts_shadow = false;
+      scene.addChild(light);
+      continue;
+    }
+    const angle = safeCount <= 1 ? 0 : index / safeCount * Math.PI * 2;
+    const ring = 4 + (index % 8) * 1.25;
+    const position = layout === "overlap"
+      ? [0, 4, 0] as const
+      : [Math.cos(angle) * ring, 2 + (index % 5), Math.sin(angle) * ring] as const;
+    if (kind === "point") {
+      const light = new PointLight();
+      light.position = position;
+      light.distance = layout === "overlap" ? 80 : 18;
+      light.radius = 0.05;
+      light.intensity = 24 / Math.max(1, safeCount);
+      light.casts_shadow = false;
+      light.updateMatrices();
+      scene.addChild(light);
+    } else {
+      const light = new SpotLight();
+      light.position = position;
+      light.forward = layout === "overlap"
+        ? [0, -1, 0]
+        : [-position[0], -Math.max(2, position[1]), -position[2]];
+      light.distance = layout === "overlap" ? 80 : 24;
+      light.angle = Math.PI / 3;
+      light.penumbra = 0.25;
+      light.intensity = 30 / Math.max(1, safeCount);
+      light.casts_shadow = false;
+      scene.addChild(light);
+    }
+  }
+  fixture.runtimeCounts.localLights = kind === "directional" ? 0 : safeCount;
+}
+
 async function packOrmTexture(aoBlob: Blob, metallicRoughnessBlob: Blob): Promise<Blob> {
   const [ao, metallicRoughness] = await Promise.all([
     createImageBitmap(aoBlob),

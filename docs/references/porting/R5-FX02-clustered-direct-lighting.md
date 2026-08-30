@@ -1,0 +1,171 @@
+# R5 FX-02 · Clustered Direct Lighting
+
+Status: implementation integrated / dirty smoke passed / clean full Gate pending
+
+## Reference ID
+
+`R5-FX02-clustered-direct-lighting`
+
+## Authorities And License
+
+### Clustered Deferred and Forward Shading
+
+```text
+authors: Ola Olsson, Markus Billeter, Ulf Assarsson
+paper: https://doi.org/10.1145/2383795.2383809
+license: paper/reference only; no source code copied
+decision: reimplement cluster/list invariants for the existing OEngine LightDatabase
+```
+
+The paper is the architectural authority for screen/depth clustering and bounded
+light assignment. OEngine keeps its existing paged light database and WebGPU
+resource model instead of importing a native renderer implementation.
+
+### Google Filament
+
+```text
+repository: https://github.com/google/filament
+commit: bdd01e82539938db70c60259e4e6c17bc2bdaba4
+license: Apache-2.0
+source paths:
+  shaders/src/surface_brdf.fs
+  shaders/src/surface_shading_lit.fs
+  shaders/src/surface_shading_parameters.fs
+decision: numeric/semantic authority for Standard PBR direct lighting; no expressive source copied
+```
+
+The current direct BRDF is retained and tested as OEngine authored source. Filament
+is used to check perceptual roughness, metallic workflow, normal and scene-linear
+light semantics; FX-03 still owns the IBL visual oracle.
+
+### Current OEngine implementation
+
+```text
+OEngine/src/gpu/LightDatabase.ts
+OEngine/src/render/passes/LightClusterPass.ts
+OEngine/src/render/passes/LightingPass.ts
+OEngine/src/shaders/light_cluster.ts
+OEngine/src/shaders/lighting_direct.ts
+```
+
+Decision: validate and repair the existing owner rather than rewrite it for naming
+consistency. The historical `lighting_ch_oracle.ts` runtime source was replaced by
+authored `lighting_direct.ts`; the generic fullscreen vertex source now lives in
+`fullscreen_triangle.ts`.
+
+## Algorithm Scope
+
+FX-02 owns local-light list generation, HZB filtering, cluster assignment, direct
+point/spot/directional evaluation, Surface metadata consumption, overflow behavior,
+counters and the `C-light` browser sweep. It does not own IBL alignment, CSM quality,
+transparency or temporal reconstruction.
+
+## Input / Output ABI
+
+```text
+LightDatabase + camera + HZB
+  -> Candidate LightList
+  -> Active LightList
+  -> ClusterMetadata + ClusterData
+  -> Direct Lighting consumes Surface + active/cluster lists
+  -> rgba16float scene-linear HDR
+```
+
+Both LightList and ClusterData use a 16-byte header:
+
+```text
+word 0 attempted
+word 1 written
+word 2 capacity
+word 3 overflow
+```
+
+All consumers iterate only `written`. `ClusterMetadata` is 16 bytes:
+
+```text
+offset / point_count / spot_count / flags
+```
+
+Flags distinguish point overflow, spot overflow, global cluster-data overflow and
+conservative fallback. Light tuples keep the existing `type high8 + table index
+low24` packing.
+
+## Retained Invariants
+
+- WebGPU baseline only: no 64-bit atomics, subgroup requirement or multi-draw.
+- GPU producers feed GPU consumers; no list readback controls current-frame work.
+- Point/spot list reservation uses bounded CAS and never publishes `written > capacity`.
+- A cluster with more than 128 point or 128 spot lights does not silently truncate;
+  it marks overflow and Direct Lighting evaluates the complete active list.
+- Global ClusterData exhaustion uses the same active-list fallback.
+- The fixed active list capacity is 16,380 local lights. Production rejects a larger
+  resident point+spot set before graph encoding because no conservative result can be
+  formed from a truncated active list.
+- Directional lights have an explicit capacity of 32 and overflow throws before GPU
+  database mutation; warning plus truncation is forbidden.
+- Invalid Surface metadata returns black. `Unlit` returns emissive only and bypasses
+  direct lights.
+- Sphere/frustum tangency is conservatively included.
+
+## OEngine / WebGPU Adaptation
+
+- The current 32x32 tile and 24 logarithmic depth-slice layout is retained.
+- ClusterData is intentionally pressure-limited; per-cluster/global pressure is
+  observable and falls back instead of allocating an unbounded worst-case buffer.
+- The three-plane frustum-corner intersection is an authored analytic-geometry helper;
+  the old `ffx_sssr_*` name was removed because no FidelityFX source was adopted.
+- GPU counter schema v5 adds candidate/active attempted and written values,
+  cluster-data attempted/written, overflow/fallback totals, max references and a
+  lights-per-cluster histogram.
+- Counter and screenshot collection stays sampled/runner-owned and introduces no
+  steady-frame readback or private submit.
+
+## Precision And Semantic Differences
+
+- Point attenuation uses inverse-square falloff clamped by emitter radius, with a
+  smooth finite-distance cutoff when `distance > 0`.
+- Spot attenuation uses smoothstep between cone and penumbra cosine.
+- Cluster depth uses the existing logarithmic parameters generated by
+  `LightClusterPass`; FX-02 freezes this mapping rather than replacing it.
+- Conservative fallback may evaluate more lights than the compact cluster list. This
+  is an explicit correctness-over-performance mode and is counted separately.
+
+## Performance Hypothesis And Gate
+
+Compact cluster lists should scale Direct Lighting with lights affecting each cluster,
+while overlap pressure intentionally demonstrates the fallback cost. The production
+runner is `examples/scripts/run-r5-fx02-gate.mjs` and covers point counts
+`0/1/16/64/256/1024` in `spread/overlap`, plus point/spot/directional and bounded-list
+GPU micro cases. It saves JSON, counters, diagnostics and automatic PNG evidence.
+
+The dirty smoke run under
+`temp/r5/fx-02/7b036316b818eef63f1f3a8a03de65f7498ef986-dirty-4ebbcf6ba142/smoke/`
+passed all 15 cases with zero WebGPU diagnostics. This is exploratory evidence only;
+the clean/full run owns final P50/P95/P99 and Gate status.
+
+## Fallback / Failure Behavior
+
+- Per-cluster point/spot overflow: set flags and evaluate `activeLightList.written`.
+- ClusterData reservation failure: set data-overflow plus fallback flags and evaluate
+  `activeLightList.written`.
+- Candidate/active list required count above 16,380: throw before graph encoding.
+- More than 32 directional lights: throw before database writes.
+- Invalid Surface: black; Unlit Surface: emissive only.
+- Any validation, uncaptured error, device loss, OOB symptom, missing counter or
+  provenance mismatch fails the browser Gate.
+
+## Local Tests / Examples
+
+```text
+OEngine/tests/r5-clustered-lighting.test.mjs
+OEngine/tests/gpu-list-counter-accumulator.test.mjs
+examples/r5-clustered-direct/
+examples/scripts/run-r5-fx02-gate.mjs
+```
+
+## Decision
+
+`reimplement/freeze` the clustered-list correctness contract around the existing
+OEngine owner; `reference` the clustered-lighting paper and Filament numeric semantics;
+`reject` silent truncation, CPU current-frame consumption, unbounded buffers and native
+GPU capabilities outside the WebGPU baseline.

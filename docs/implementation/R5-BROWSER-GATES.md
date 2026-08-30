@@ -366,6 +366,19 @@ WebGPU micro：
 - overlap pressure 可以触发 overflow test，但不能静默少灯；
 - unrelated B baseline P50/P95 不超过已冻结回归阈值。
 
+## 实现入口与当前证据
+
+- production fixture：`examples/r5-clustered-direct/`；
+- runner：`examples/scripts/run-r5-fx02-gate.mjs`；
+- 命令：`Set-Location examples; npm run gate:r5-fx02`；
+- runner 固定 production `Renderer.render()`、Chrome WebGPU、viewport/DPR、seed、
+  build provenance、JSON/counter/diagnostics 与 canvas PNG 自动判定；
+- 首个 case 额外执行 GPU bounded-list micro，覆盖 capacity `2` 下 attempted
+  `1/2/3` 的 `attempted/written/capacity/overflow` readback；
+- dirty smoke 已通过 15/15，artifact 位于
+  `temp/r5/fx-02/7b036316b818eef63f1f3a8a03de65f7498ef986-dirty-4ebbcf6ba142/smoke/`；
+  它只证明当前实现可运行，clean/full 结果写回前 FX-02 仍未关闭。
+
 ---
 
 # FX-03 · IBL Alignment / G5-L

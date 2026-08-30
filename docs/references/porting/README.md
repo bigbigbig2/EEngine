@@ -43,3 +43,4 @@ R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；�
 ## R5 登记
 
 - [R5-00 Surface ABI v1 freeze](./R5-00-surface-abi.md)
+- [R5 FX-02 Clustered Direct Lighting](./R5-FX02-clustered-direct-lighting.md)

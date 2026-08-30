@@ -15,19 +15,18 @@ npm run audit:shaders
 
 | 分类 | 数量 | 含义 |
 |---|---:|---|
-| `authored-live` | 58 | 能到达 runtime pipeline，当前 authored 文件是运行事实源 |
+| `authored-live` | 59 | 能到达 runtime pipeline，当前 authored 文件是运行事实源 |
 | `dead` | 5 | 没有 runtime pipeline owner，是删除候选；删除前仍需核对 feature 注册与动态路径 |
-| `unknown` | 6 | runtime pipeline 正在使用 oracle/generated 文件，但仓库内没有登记 generator/source，所有权尚未闭环 |
+| `unknown` | 5 | runtime pipeline 正在使用 oracle/generated 文件，但仓库内没有登记 generator/source，所有权尚未闭环 |
 
 `dead` 不等于本次已删除。R0 只冻结证据，实际删除归 `OBS-07` 后的迁移波次，并要求构建、命中 feature 示例和 graph dump 同时证明没有动态 consumer。
 
-当前总数为 69、`authored-live` 为 58。R4-B 新增 authored `packed_material_resolve.ts` 并扩展统一 `render_debug_view.ts`，旧 `packed_velocity.ts` 已删除；两者都由明确 runtime pipeline owner 消费，不是 oracle/generated 来源。
+当前总数为 69、`authored-live` 为 59。R4-B 新增 authored `packed_material_resolve.ts` 并扩展统一 `render_debug_view.ts`，旧 `packed_velocity.ts` 已删除；FX-02 又以 authored `lighting_direct.ts` 和 `fullscreen_triangle.ts` 替换 Lighting runtime 对 `lighting_ch_oracle.ts` 的依赖。上述文件均由明确 runtime pipeline owner 消费。
 
 ## 正在运行但所有权未闭环
 
 | Shader | 最近 runtime pipeline owner | 当前问题 |
 |---|---|---|
-| `lighting_ch_oracle.ts` | `GPUMaterialContext.ts`、`LightingPass.ts` | oracle 文件直接提供 Lighting/Material pipeline WGSL |
 | `material_depth_oracle.ts` | `GPUMaterialContext.ts` | oracle 文件是 Material Depth 的实际运行源 |
 | `material_expand_oracle.ts` | `GPUMaterialContext.ts` | oracle 文件是 Material Expand 的实际运行源 |
 | `oracle_visibility_work_generation.ts` | `MeshletDrawList.ts` | oracle 文件直接驱动 instance cull、prefix/expand 和 indirect work generation |
@@ -35,6 +34,11 @@ npm run audit:shaders
 | `temporal_post_legacy.generated.ts` | `AutomaticExposurePass.ts` | generated 文件经 `automatic_exposure.ts` 转发进入运行管线，但仓库内没有 generator/source |
 
 这些文件不能被当作长期设计权威，也不能仅因文件名含 `oracle/generated` 就直接删除。后续修改对应模块前必须先选择并登记 authored source 或可重复 generator，添加视觉/数值回归，再迁移 pipeline owner。
+
+FX-02 已完成 Lighting source-of-truth 迁移：`LightingPass.ts` 直接消费 authored
+`lighting_direct.ts`，`GPUMaterialContext.ts` 的通用 fullscreen vertex 改由
+`fullscreen_triangle.ts` 提供；`lighting_ch_oracle.ts` 已删除并由 Node source test
+与 production browser Gate 防止回归。
 
 ## 删除候选边界
 

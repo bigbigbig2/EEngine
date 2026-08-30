@@ -82,6 +82,10 @@ export default defineConfig({
           examplesRoot,
           "r5-surface-debug/index.html"
         ),
+        r5ClusteredDirect: path.resolve(
+          examplesRoot,
+          "r5-clustered-direct/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

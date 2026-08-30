@@ -71,8 +71,6 @@ import { createNativeTextureView, id } from "../gpu/GPUTextureDescriptors.js";
 import { TonemapPass } from "./passes/TonemapPass.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
-import { addGpuListCounterPass } from "../debug/GpuListCounterAccumulator.js";
-import { GPU_QUEUE_OVERFLOW_BITS } from "../debug/GpuFrameCounters.js";
 import {
   captureGpuAdapterIdentity,
   type BenchmarkAdapterIdentity
@@ -1323,6 +1321,7 @@ export class Renderer {
         let gNormalRes = matOut.gNormal;
         let gAlbedoRes = matOut.gAlbedo;
         const gEmissiveRes = matOut.gEmissive;
+        const gMetadataRes = packedResolveOut?.surfaceFlags ?? gEmissiveRes;
 
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
@@ -1421,50 +1420,55 @@ export class Renderer {
             {
               camera: currentCameraRes,
               lightDatabase: lightDatabaseRes,
-              hzb: hzbRes
+              hzb: hzbRes,
+              counters: gpuCounterRes ?? undefined
             }
           );
-          if (gpuCounterRes !== null) {
-            gpuCounterRes = addGpuListCounterPass(
-              graph,
-              clusters.candidateLightList,
-              gpuCounterRes,
-              {
-                overflowBit: GPU_QUEUE_OVERFLOW_BITS.lightList,
-                headerBytes: Uint32Array.BYTES_PER_ELEMENT,
-                elementBytes: Uint32Array.BYTES_PER_ELEMENT
-              }
-            );
-            gpuCounterRes = addGpuListCounterPass(
-              graph,
-              clusters.activeLightList,
-              gpuCounterRes,
-              {
-                primary: "activeLights",
-                overflowBit: GPU_QUEUE_OVERFLOW_BITS.lightList,
-                headerBytes: Uint32Array.BYTES_PER_ELEMENT,
-                elementBytes: Uint32Array.BYTES_PER_ELEMENT
-              }
-            );
-            this._profiler.registerGpuCounterFields(["activeLights"]);
+          if (clusters.counters !== null) {
+            gpuCounterRes = clusters.counters;
+            this._profiler.registerGpuCounterFields([
+              "activeLights",
+              "candidateLightsAttempted",
+              "candidateLightsWritten",
+              "activeLightsAttempted",
+              "clusterTestedLights",
+              "clusterLightIndicesAttempted",
+              "clusterLightIndicesWritten",
+              "clusterOverflowClusters",
+              "clusterFallbackLights",
+              "clusterLightReferences",
+              "clusterMaxLights",
+              "clusterHistogram0",
+              "clusterHistogram1",
+              "clusterHistogram4",
+              "clusterHistogram8",
+              "clusterHistogram16",
+              "clusterHistogram32",
+              "clusterHistogram64",
+              "clusterHistogram128",
+              "clusterHistogram256"
+            ]);
           }
           const lightOut = this._lighting.addToGraph(
             graph,
             {
               width: w,
-              height: h
+              height: h,
+              surfaceMetadataAvailable: packedResolveOut !== null
             },
             {
               gPbr: gPbrRes,
               gNormal: gNormalRes,
               gAlbedo: gAlbedoRes,
               gEmissive: gEmissiveRes,
+              gMetadata: gMetadataRes,
               depth: depthRes,
               lightDatabase: lightDatabaseRes,
               environment: environmentRes,
               clusterParameters: clusters.parameters,
               clusterLookup: clusters.lookup,
               clusterData: clusters.data,
+              activeLightList: clusters.activeLightList,
               shadowAtlas: shadowAtlasRes,
               camera: currentCameraRes,
               view: viewUniformRes
@@ -2107,6 +2111,25 @@ export class Renderer {
           "ormTexturePixels",
           "emissiveTexturePixels",
           "unlitSurfacePixels",
+          "candidateLightsAttempted",
+          "candidateLightsWritten",
+          "activeLightsAttempted",
+          "clusterTestedLights",
+          "clusterLightIndicesAttempted",
+          "clusterLightIndicesWritten",
+          "clusterOverflowClusters",
+          "clusterFallbackLights",
+          "clusterLightReferences",
+          "clusterMaxLights",
+          "clusterHistogram0",
+          "clusterHistogram1",
+          "clusterHistogram4",
+          "clusterHistogram8",
+          "clusterHistogram16",
+          "clusterHistogram32",
+          "clusterHistogram64",
+          "clusterHistogram128",
+          "clusterHistogram256",
           "queueOverflowMask"
         ]);
         if (gpuPacked !== null) {

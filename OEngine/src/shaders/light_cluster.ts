@@ -7,14 +7,24 @@ import {
   POINT_LIGHT_DESCRIPTOR,
   SPOT_LIGHT_DESCRIPTOR
 } from "../gpu/LightDatabase.js";
+import {
+  CLUSTER_METADATA_FLAG_DATA_OVERFLOW,
+  CLUSTER_METADATA_FLAG_FALLBACK,
+  CLUSTER_METADATA_FLAG_POINT_OVERFLOW,
+  CLUSTER_METADATA_FLAG_SPOT_OVERFLOW,
+  LIGHT_LIST_HEADER_BYTES
+} from "../render/ClusteredLightingReference.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 
 export const LIGHT_CLUSTER_TILE_SIZE = 32;
 export const LIGHT_CLUSTER_DEPTH_SLICES = 24;
 export const LIGHT_CLUSTER_ASSIGN_WORKGROUP = 4;
 export const LIGHT_CLUSTER_LIST_BYTES = 16_384 * 4;
+export const LIGHT_CLUSTER_LIST_CAPACITY =
+  (LIGHT_CLUSTER_LIST_BYTES - LIGHT_LIST_HEADER_BYTES) / 4;
 export const LIGHT_CLUSTER_SETTINGS_BYTES = 128;
-export const LIGHT_CLUSTER_METADATA_BYTES = 8;
+export const LIGHT_CLUSTER_METADATA_BYTES = 16;
+export const LIGHT_CLUSTER_DATA_HEADER_BYTES = 16;
 
 const CLUSTER_COMMON_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
@@ -22,6 +32,10 @@ ${LIGHT_DATABASE_READ_WGSL}
 
 const CLUSTER_LIGHT_TYPE_POINT: u32 = 0u;
 const CLUSTER_LIGHT_TYPE_SPOT: u32 = 1u;
+const CLUSTER_METADATA_FLAG_POINT_OVERFLOW: u32 = ${CLUSTER_METADATA_FLAG_POINT_OVERFLOW}u;
+const CLUSTER_METADATA_FLAG_SPOT_OVERFLOW: u32 = ${CLUSTER_METADATA_FLAG_SPOT_OVERFLOW}u;
+const CLUSTER_METADATA_FLAG_DATA_OVERFLOW: u32 = ${CLUSTER_METADATA_FLAG_DATA_OVERFLOW}u;
+const CLUSTER_METADATA_FLAG_FALLBACK: u32 = ${CLUSTER_METADATA_FLAG_FALLBACK}u;
 
 fn cluster_light_tuple_pack(id: u32, light_type: u32) -> u32 {
   return (id & 0x00ffffffu) | ((light_type & 0xffu) << 24u);
@@ -43,7 +57,7 @@ fn sphere_intersects_frustum(
   for (var i = 0; i < 6; i++) {
     let plane = frustum[i];
     let distance_to_plane = dot(plane.xyz, sphere.xyz) + plane.w;
-    intersects = intersects && distance_to_plane > -sphere.w;
+    intersects = intersects && distance_to_plane >= -sphere.w;
   }
   return intersects;
 }
@@ -57,7 +71,7 @@ fn point_light_intersects_frustum(
   return sphere_intersects_frustum(vec4f(light.position, light.distance), frustum);
 }
 
-fn ffx_sssr_advance_to(a: vec4f, b: vec4f, c: vec4f) -> vec3f {
+fn intersect_three_planes(a: vec4f, b: vec4f, c: vec4f) -> vec3f {
   let cross_bc = cross(b.xyz, c.xyz);
   let cross_ca = cross(c.xyz, a.xyz);
   let cross_ab = cross(a.xyz, b.xyz);
@@ -67,14 +81,14 @@ fn ffx_sssr_advance_to(a: vec4f, b: vec4f, c: vec4f) -> vec3f {
 
 fn frustum_corners(frustum: array<vec4f, 6>) -> array<vec3f, 8> {
   var corners: array<vec3f, 8>;
-  corners[0] = ffx_sssr_advance_to(frustum[0], frustum[2], frustum[4]);
-  corners[1] = ffx_sssr_advance_to(frustum[0], frustum[2], frustum[5]);
-  corners[2] = ffx_sssr_advance_to(frustum[0], frustum[3], frustum[4]);
-  corners[3] = ffx_sssr_advance_to(frustum[0], frustum[3], frustum[5]);
-  corners[4] = ffx_sssr_advance_to(frustum[1], frustum[2], frustum[4]);
-  corners[5] = ffx_sssr_advance_to(frustum[1], frustum[2], frustum[5]);
-  corners[6] = ffx_sssr_advance_to(frustum[1], frustum[3], frustum[4]);
-  corners[7] = ffx_sssr_advance_to(frustum[1], frustum[3], frustum[5]);
+  corners[0] = intersect_three_planes(frustum[0], frustum[2], frustum[4]);
+  corners[1] = intersect_three_planes(frustum[0], frustum[2], frustum[5]);
+  corners[2] = intersect_three_planes(frustum[0], frustum[3], frustum[4]);
+  corners[3] = intersect_three_planes(frustum[0], frustum[3], frustum[5]);
+  corners[4] = intersect_three_planes(frustum[1], frustum[2], frustum[4]);
+  corners[5] = intersect_three_planes(frustum[1], frustum[2], frustum[5]);
+  corners[6] = intersect_three_planes(frustum[1], frustum[3], frustum[4]);
+  corners[7] = intersect_three_planes(frustum[1], frustum[3], frustum[5]);
   return corners;
 }
 
@@ -151,13 +165,42 @@ function createPagedLightListShader(kind: "point" | "spot"): string {
   const type = kind === "point" ? 0 : 1;
   return /* wgsl */ `
 ${CLUSTER_COMMON_WGSL}
-struct AtomicLightList { offset: atomic<u32>, data: array<u32>, }
+struct AtomicLightList {
+  attempted: atomic<u32>,
+  written: atomic<u32>,
+  capacity: atomic<u32>,
+  overflow: atomic<u32>,
+  data: array<u32>,
+}
 @group(0) @binding(0) var<uniform> camera: CommandEncoder;
 @group(1) @binding(0) var<storage, read> node: array<u32>;
 @group(2) @binding(0) var<storage, read_write> output: AtomicLightList;
 
+fn append_output(value: u32) {
+  let capacity = arrayLength(&output.data);
+  atomicStore(&output.capacity, capacity);
+  atomicAdd(&output.attempted, 1u);
+  loop {
+    let current = atomicLoad(&output.written);
+    if (current >= capacity) {
+      atomicStore(&output.overflow, 1u);
+      return;
+    }
+    let reservation = atomicCompareExchangeWeak(
+      &output.written,
+      current,
+      current + 1u,
+    );
+    if (reservation.exchanged) {
+      output.data[current] = value;
+      return;
+    }
+  }
+}
+
 @compute @workgroup_size(128, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
+  atomicStore(&output.capacity, arrayLength(&output.data));
   let id = global_id.x;
   let page_index = id / ${upper}_ELEMENTS_PER_PAGE;
   let in_page_slot = id % ${upper}_ELEMENTS_PER_PAGE;
@@ -171,10 +214,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
   let light_index = ${lower}_slot_to_index(page_index, in_page_slot);
   if (!${intersects}(&node, light_index, camera.frustum)) { return; }
   let packed_id = cluster_light_tuple_pack(light_index, ${type}u);
-  let destination = atomicAdd(&output.offset, 1u);
-  if (destination < arrayLength(&output.data)) {
-    output.data[destination] = packed_id;
-  }
+  append_output(packed_id);
 }
 `;
 }
@@ -185,14 +225,48 @@ export const LIGHT_CLUSTER_SPOT_LIST_WGSL = createPagedLightListShader("spot");
 export const LIGHT_CLUSTER_HZB_FILTER_WGSL = /* wgsl */ `
 ${CLUSTER_COMMON_WGSL}
 struct Aabb3 { min: vec3f, max: vec3f, }
-struct LightList { count: u32, data: array<u32>, }
-struct AtomicLightList { offset: atomic<u32>, data: array<u32>, }
+struct LightList {
+  attempted: u32,
+  written: u32,
+  capacity: u32,
+  overflow: u32,
+  data: array<u32>,
+}
+struct AtomicLightList {
+  attempted: atomic<u32>,
+  written: atomic<u32>,
+  capacity: atomic<u32>,
+  overflow: atomic<u32>,
+  data: array<u32>,
+}
 
 @group(0) @binding(0) var<storage, read> node: array<u32>;
 @group(1) @binding(0) var<uniform> camera: CommandEncoder;
 @group(1) @binding(1) var triangle_index: texture_2d<f32>;
 @group(2) @binding(0) var<storage, read> input: LightList;
 @group(2) @binding(1) var<storage, read_write> output: AtomicLightList;
+
+fn append_output(value: u32) {
+  let capacity = arrayLength(&output.data);
+  atomicStore(&output.capacity, capacity);
+  atomicAdd(&output.attempted, 1u);
+  loop {
+    let current = atomicLoad(&output.written);
+    if (current >= capacity) {
+      atomicStore(&output.overflow, 1u);
+      return;
+    }
+    let reservation = atomicCompareExchangeWeak(
+      &output.written,
+      current,
+      current + 1u,
+    );
+    if (reservation.exchanged) {
+      output.data[current] = value;
+      return;
+    }
+  }
+}
 
 fn v3_angle_between(a: vec3f, b: vec3f) -> f32 {
   let denominator = length(a) * length(b);
@@ -283,8 +357,9 @@ fn query_depth_from_screen_space_bb(bounds: Aabb3, hzb: texture_2d<f32>) -> f32 
 
 @compute @workgroup_size(256, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3u) {
+  atomicStore(&output.capacity, arrayLength(&output.data));
   let i = global_id.x;
-  if (i >= input.count) { return; }
+  if (i >= input.written) { return; }
   let tuple = input.data[i];
   let light_index = cluster_light_tuple_id(tuple);
   let light_type = cluster_light_tuple_type(tuple);
@@ -297,16 +372,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
   var projected: Aabb3;
   let valid = aabb3_project_perspective(&projected, bounds, camera.view_projection_matrix);
   if (valid && query_depth_from_screen_space_bb(projected, triangle_index) < 0.0) { return; }
-  let destination = atomicAdd(&output.offset, 1u);
-  if (destination < arrayLength(&output.data)) { output.data[destination] = tuple; }
+  append_output(tuple);
 }
 `;
 
 export const LIGHT_CLUSTER_ASSIGN_WGSL = /* wgsl */ `
 ${CLUSTER_COMMON_WGSL}
-struct LightList { count: u32, data: array<u32>, }
-struct ClusterMetadata { counts: u32, offset: u32, }
-struct ClusterData { offset: atomic<u32>, data: array<u32>, }
+struct LightList {
+  attempted: u32,
+  written: u32,
+  capacity: u32,
+  overflow: u32,
+  data: array<u32>,
+}
+struct ClusterMetadata {
+  offset: u32,
+  point_count: u32,
+  spot_count: u32,
+  flags: u32,
+}
+struct ClusterData {
+  attempted: atomic<u32>,
+  written: atomic<u32>,
+  capacity: atomic<u32>,
+  overflow: atomic<u32>,
+  data: array<u32>,
+}
 struct ClusterSettings {
   cluster_params: vec3f,
   screen_resolution: vec2u,
@@ -365,8 +456,23 @@ fn grid3d_to_index(position: vec3u, dimensions: vec2u) -> u32 {
   return position.x + (position.y + position.z * dimensions.y) * dimensions.x;
 }
 
-fn light_cluster_pack_counts(point_count: u32, spot_count: u32) -> u32 {
-  return (point_count & 0xffu) | ((spot_count & 0xffu) << 8u);
+fn reserve_cluster_data(count: u32) -> u32 {
+  let capacity = arrayLength(&cluster_data.data);
+  atomicStore(&cluster_data.capacity, capacity);
+  atomicAdd(&cluster_data.attempted, count);
+  loop {
+    let current = atomicLoad(&cluster_data.written);
+    if (count > capacity - min(current, capacity)) {
+      atomicStore(&cluster_data.overflow, 1u);
+      return 0xffffffffu;
+    }
+    let reservation = atomicCompareExchangeWeak(
+      &cluster_data.written,
+      current,
+      current + count,
+    );
+    if (reservation.exchanged) { return current; }
+  }
 }
 
 @compute @workgroup_size(4, 4, 4)
@@ -384,10 +490,10 @@ fn main(@builtin(global_invocation_id) voxel_position: vec3u) {
   f0.z = inverse_lerp(z_planes.x, z_planes.y, d0);
   f1.z = inverse_lerp(z_planes.x, z_planes.y, d1);
   let cluster_frustum = frustum_slice(settings.frustum, f0, f1);
-  var point_count = 0u;
-  var spot_count = 0u;
+  var point_attempted = 0u;
+  var spot_attempted = 0u;
   var local_lights: array<u32, 256>;
-  for (var i = 0u; i < input.count; i++) {
+  for (var i = 0u; i < input.written; i++) {
     let tuple = input.data[i];
     let light_index = cluster_light_tuple_id(tuple);
     let light_type = cluster_light_tuple_type(tuple);
@@ -399,30 +505,57 @@ fn main(@builtin(global_invocation_id) voxel_position: vec3u) {
     }
     if (!intersects) { continue; }
     if (light_type == CLUSTER_LIGHT_TYPE_POINT) {
-      if (point_count >= 128u) { continue; }
-      local_lights[point_count] = light_index;
-      point_count += 1u;
+      if (point_attempted < 128u) {
+        local_lights[point_attempted] = light_index;
+      }
+      point_attempted += 1u;
     } else {
-      if (spot_count >= 128u) { continue; }
-      local_lights[128u + spot_count] = light_index;
-      spot_count += 1u;
+      if (spot_attempted < 128u) {
+        local_lights[128u + spot_attempted] = light_index;
+      }
+      spot_attempted += 1u;
     }
   }
+  let point_count = min(point_attempted, 128u);
+  let spot_count = min(spot_attempted, 128u);
+  var flags = 0u;
+  if (point_attempted > 128u) {
+    flags |= CLUSTER_METADATA_FLAG_POINT_OVERFLOW;
+  }
+  if (spot_attempted > 128u) {
+    flags |= CLUSTER_METADATA_FLAG_SPOT_OVERFLOW;
+  }
+  if (flags != 0u) {
+    cluster_lookup[cluster_index] = ClusterMetadata(
+      0u,
+      0u,
+      0u,
+      flags | CLUSTER_METADATA_FLAG_FALLBACK,
+    );
+    return;
+  }
   let total = point_count + spot_count;
-  let write_offset = atomicAdd(&cluster_data.offset, total);
-  let available = arrayLength(&cluster_data.data) - min(write_offset, arrayLength(&cluster_data.data));
-  let write_total = min(total, available);
-  let write_point_count = min(point_count, write_total);
-  let write_spot_count = min(spot_count, write_total - write_point_count);
-  for (var i = 0u; i < write_point_count; i++) {
+  let write_offset = reserve_cluster_data(total);
+  if (write_offset == 0xffffffffu) {
+    cluster_lookup[cluster_index] = ClusterMetadata(
+      0u,
+      0u,
+      0u,
+      CLUSTER_METADATA_FLAG_DATA_OVERFLOW | CLUSTER_METADATA_FLAG_FALLBACK,
+    );
+    return;
+  }
+  for (var i = 0u; i < point_count; i++) {
     cluster_data.data[write_offset + i] = local_lights[i];
   }
-  for (var i = 0u; i < write_spot_count; i++) {
-    cluster_data.data[write_offset + write_point_count + i] = local_lights[128u + i];
+  for (var i = 0u; i < spot_count; i++) {
+    cluster_data.data[write_offset + point_count + i] = local_lights[128u + i];
   }
   cluster_lookup[cluster_index] = ClusterMetadata(
-    light_cluster_pack_counts(write_point_count, write_spot_count),
-    write_offset + 1u,
+    write_offset,
+    point_count,
+    spot_count,
+    0u,
   );
 }
 `;

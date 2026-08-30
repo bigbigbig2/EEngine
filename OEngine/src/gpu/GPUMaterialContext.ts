@@ -7,9 +7,7 @@ import { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { ShadeTexture } from "../texture/ShadeTexture.js";
 import { TextureFilterType } from "../texture/TextureFilterType.js";
-import {
-  LIGHTING_CH_VERTEX_WGSL
-} from "../shaders/lighting_ch_oracle.js";
+import { FULLSCREEN_TRIANGLE_VERTEX_WGSL } from "../shaders/fullscreen_triangle.js";
 import {
   MATERIAL_DEPTH_FRAGMENT_WGSL
 } from "../shaders/material_depth_oracle.js";
@@ -216,7 +214,7 @@ const MATERIAL_DEPTH_PIPELINE_DESCRIPTOR: CachedRenderPipelineDescriptor = {
     ]
   },
   vertex: {
-    module: { label: "", code: LIGHTING_CH_VERTEX_WGSL },
+    module: { label: "", code: FULLSCREEN_TRIANGLE_VERTEX_WGSL },
     buffers: []
   },
   fragment: {

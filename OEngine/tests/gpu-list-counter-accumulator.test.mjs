@@ -21,7 +21,8 @@ const {
 
 test("GPU list accumulator targets dynamic counter ABI slots and submitted triangles", () => {
   assert.equal(GPU_LIST_COUNTER_WORKGROUP_SIZE, 1);
-  assert.match(GPU_LIST_COUNTER_WGSL, /source\[0\]/);
+  assert.match(GPU_LIST_COUNTER_WGSL, /source\[params\.source_count_word\]/);
+  assert.match(GPU_LIST_COUNTER_WGSL, /source\[params\.source_overflow_word\]/);
   assert.match(
     GPU_LIST_COUNTER_WGSL,
     /safe_count \* params\.triangles_per_element/
@@ -155,7 +156,8 @@ function fakeCommandContext() {
           const source = bindings[0][0].buffer.words;
           const counters = bindings[0][1].buffer.words;
           const params = bindings[0][2].buffer.words;
-          const safeCount = Math.min(source[0], params[5]);
+          const rawCount = source[params[10]];
+          const safeCount = Math.min(rawCount, params[5]);
           if (params[0] !== 0xffffffff) counters[params[0]] += safeCount;
           if (params[1] !== 0xffffffff) counters[params[1]] += safeCount;
           if (params[2] !== 0xffffffff) {
@@ -163,9 +165,12 @@ function fakeCommandContext() {
           }
           if (params[7] !== 0xffffffff) counters[params[7]] += params[9];
           if (params[8] !== 0xffffffff) {
-            counters[params[8]] += params[9] - Math.min(source[0], params[9]);
+            counters[params[8]] += params[9] - Math.min(rawCount, params[9]);
           }
-          if (source[0] > params[5]) counters[params[3]] |= params[4];
+          const explicitOverflow = params[11] !== 0xffffffff && source[params[11]] !== 0;
+          if (rawCount > params[5] || explicitOverflow) {
+            counters[params[3]] |= params[4];
+          }
         },
         end() {}
       };

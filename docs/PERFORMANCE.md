@@ -197,6 +197,21 @@ R4-B artifact 继续单独报告 `hardware-raster`：B `39.369904/39.6922608/39.
 
 新 material evidence schema v4 在 B 报告 material slots `1 resident / 0 retiring / 4095 free`、texture layers `4 / 0 / 59`；C 为 `3 / 0 / 4093` 与 `0 / 0 / 63`。两边 texture/sampler fallback、private submit 均为 0，证明 layer 0 fallback 保留、63 个可用层的会计恒等式与采集结束零 retiring。13 个 canvas view 加 page screenshot 已刷新到 `temp/r4-b/full/`；B 的 14 个 PNG hash 全部不同，C 只有合法零值 view 重合，final-color、normal、occlusion、emissive 已人工检查为非空且轮廓一致。
 
+## R5 FX-02 Clustered Direct dirty smoke
+
+2026-08-31 的 exploratory smoke 使用 production `Renderer.render()`、Chrome WebGPU、
+`C-light` 的 local light `0/1/16/64/256/1024 x spread/overlap`，并补充 1 spot、
+0/1 directional 与 GPU bounded-list micro。15/15 case 通过，console、validation、
+uncaptured error 与 device loss 为 0；artifact 位于
+`temp/r5/fx-02/7b036316b818eef63f1f3a8a03de65f7498ef986-dirty-4ebbcf6ba142/smoke/`。
+
+该 profile 每档只有 3 个 timestamp sample，只用于实现探索，不能作为 P50/P95/P99
+性能结论。256/1024 overlap 分别产生 `4,600` 个 overflow cluster，并通过 active-list
+fallback 评估 `1,177,600 / 4,710,400` 个 light references；center-luma 自动判定没有
+出现静默少灯。1024 overlap 的 Direct Lighting P50 为 `49.708544 ms`，明确说明保守
+fallback 的最坏成本很高；它是 correctness 降级，不是目标 steady-state fast path。
+clean/full 仍需 60 warm-up + 180 sample 并保存完整分位数，结果写回前不关闭 FX-02。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。

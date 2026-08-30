@@ -4,7 +4,7 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 4;
+export const GPU_COUNTER_SCHEMA_VERSION = 5;
 export const GPU_COUNTER_BYTE_SIZE = 256;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -44,7 +44,26 @@ export const GPU_COUNTER_FIELDS = [
   { name: "normalTexturePixels", index: 25, semantic: "Material Resolve pixels using a normal texture feature bit" },
   { name: "ormTexturePixels", index: 26, semantic: "Material Resolve pixels using an ORM texture feature bit" },
   { name: "emissiveTexturePixels", index: 27, semantic: "Material Resolve pixels using an emissive texture feature bit" },
-  { name: "unlitSurfacePixels", index: 28, semantic: "Material Resolve pixels using the unlit feature bit" }
+  { name: "unlitSurfacePixels", index: 28, semantic: "Material Resolve pixels using the unlit feature bit" },
+  { name: "candidateLightsAttempted", index: 29, semantic: "frustum-visible local light list append attempts" },
+  { name: "candidateLightsWritten", index: 30, semantic: "bounded frustum-visible local light list writes" },
+  { name: "activeLightsAttempted", index: 31, semantic: "HZB-filtered local light list append attempts" },
+  { name: "clusterTestedLights", index: 32, semantic: "light-vs-cluster intersection tests" },
+  { name: "clusterLightIndicesAttempted", index: 33, semantic: "cluster index reservations attempted" },
+  { name: "clusterLightIndicesWritten", index: 34, semantic: "bounded cluster index writes" },
+  { name: "clusterOverflowClusters", index: 35, semantic: "clusters using an explicit overflow flag" },
+  { name: "clusterFallbackLights", index: 36, semantic: "active-list light evaluations caused by conservative fallback" },
+  { name: "clusterLightReferences", index: 37, semantic: "lights evaluated by direct lighting across all clusters" },
+  { name: "clusterMaxLights", index: 38, semantic: "maximum evaluated lights in one cluster" },
+  { name: "clusterHistogram0", index: 39, semantic: "clusters evaluating zero local lights" },
+  { name: "clusterHistogram1", index: 40, semantic: "clusters evaluating one local light" },
+  { name: "clusterHistogram4", index: 41, semantic: "clusters evaluating two to four local lights" },
+  { name: "clusterHistogram8", index: 42, semantic: "clusters evaluating five to eight local lights" },
+  { name: "clusterHistogram16", index: 43, semantic: "clusters evaluating nine to sixteen local lights" },
+  { name: "clusterHistogram32", index: 44, semantic: "clusters evaluating seventeen to thirty-two local lights" },
+  { name: "clusterHistogram64", index: 45, semantic: "clusters evaluating thirty-three to sixty-four local lights" },
+  { name: "clusterHistogram128", index: 46, semantic: "clusters evaluating sixty-five to one-hundred-twenty-eight local lights" },
+  { name: "clusterHistogram256", index: 47, semantic: "clusters evaluating more than one-hundred-twenty-eight local lights" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

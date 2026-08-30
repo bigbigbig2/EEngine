@@ -35,8 +35,12 @@ import {
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import { ShadowContext } from "./ShadowContext.js";
+import {
+  assertDirectionalLightCapacity,
+  MAX_DIRECTIONAL_LIGHTS
+} from "./LightCapacity.js";
 
-export const MAX_DIRECTIONAL_LIGHTS = 32;
+export { assertDirectionalLightCapacity, MAX_DIRECTIONAL_LIGHTS } from "./LightCapacity.js";
 export const LIGHT_FLAG_CASTS_SHADOW = 1;
 
 export type DirectionalLightRecord = {
@@ -793,7 +797,14 @@ export class GPULightCollection {
     let pointCount = 0;
     let spotCount = 0;
     let directionalCount = 0;
-    let warnedDirectionalLimit = false;
+
+    let requestedDirectionalCount = 0;
+    for (const light of lights) {
+      if ((light as DirectionalLight).isDirectionalLight === true) {
+        requestedDirectionalCount++;
+      }
+    }
+    assertDirectionalLightCapacity(requestedDirectionalCount);
 
     for (const light of lights) {
       if ((light as PointLight).isPointLight === true) {
@@ -802,15 +813,6 @@ export class GPULightCollection {
           packPointLightRecord(light as PointLight)
         );
       } else if ((light as DirectionalLight).isDirectionalLight === true) {
-        if (directionalCount >= MAX_DIRECTIONAL_LIGHTS) {
-          if (!warnedDirectionalLimit) {
-            console.warn(
-              "GPULightCollection: directional light count exceeds MAX_DIRECTIONAL_LIGHTS (32); extras will not be written to the database."
-            );
-            warnedDirectionalLimit = true;
-          }
-          continue;
-        }
         directionalTable.set(
           directionalCount++,
           packDirectionalLightRecord(light as DirectionalLight)

@@ -12,6 +12,8 @@ import {
   SHADOW_SPOT_DESCRIPTOR,
   SPOT_LIGHT_DESCRIPTOR
 } from "../gpu/LightDatabase.js";
+import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import { CLUSTER_METADATA_FLAG_FALLBACK } from "../render/ClusteredLightingReference.js";
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
@@ -29,11 +31,16 @@ export const LIGHTING_DIRECT_WGSL = /* wgsl */ `
 ${GPU_VIEW_TYPE.wgsl_declaration}
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GBUFFER_ENCODE_WGSL}
+${GPU_SURFACE_ABI_WGSL}
 ${DIRECT_LIGHT_DATABASE_WGSL}
 
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
 const EPSILON: f32 = 1e-6;
+const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = true;
+const CLUSTER_METADATA_FLAG_FALLBACK: u32 = ${CLUSTER_METADATA_FLAG_FALLBACK}u;
+const CLUSTER_LIGHT_TYPE_POINT: u32 = 0u;
+const CLUSTER_LIGHT_TYPE_SPOT: u32 = 1u;
 
 struct StandardMaterial {
   diffuse: vec3f,
@@ -58,8 +65,26 @@ struct ReflectedLight {
 }
 
 struct ClusterMetadata {
-  counts: u32,
   offset: u32,
+  point_count: u32,
+  spot_count: u32,
+  flags: u32,
+}
+
+struct LightList {
+  attempted: u32,
+  written: u32,
+  capacity: u32,
+  overflow: u32,
+  data: array<u32>,
+}
+
+struct ClusterData {
+  attempted: u32,
+  written: u32,
+  capacity: u32,
+  overflow: u32,
+  data: array<u32>,
 }
 
 @group(0) @binding(0) var yz: texture_depth_2d;
@@ -68,14 +93,16 @@ struct ClusterMetadata {
 @group(0) @binding(3) var nzb: texture_2d<f32>;
 @group(0) @binding(4) var input_texture: texture_2d<u32>;
 @group(0) @binding(5) var segment_height: sampler;
+@group(0) @binding(6) var surface_metadata: texture_2d<u32>;
 
 @group(1) @binding(0) var<storage, read> node: array<u32>;
 @group(1) @binding(1) var sec_radix_passes: texture_2d<f32>;
 @group(1) @binding(2) var<uniform> cluster_parameters: vec3f;
 @group(1) @binding(3) var<storage, read> cluster_lookup: array<ClusterMetadata>;
-@group(1) @binding(4) var<storage, read> cluster_data: array<u32>;
+@group(1) @binding(4) var<storage, read> cluster_data: ClusterData;
 @group(1) @binding(5) var pass_descriptor: texture_depth_2d;
 @group(1) @binding(6) var u_int: sampler_comparison;
+@group(1) @binding(7) var<storage, read> active_light_list: LightList;
 
 @group(2) @binding(0) var<uniform> view: PipelineCacheKey;
 @group(2) @binding(1) var<uniform> camera: CommandEncoder;
@@ -152,8 +179,8 @@ fn read_gBuffer_material(i_coord: vec2u) -> StandardMaterial {
   return material;
 }
 
-fn light_cluster_count_point(counts: u32) -> u32 { return counts & 0xffu; }
-fn light_cluster_count_spot(counts: u32) -> u32 { return (counts >> 8u) & 0xffu; }
+fn cluster_light_tuple_id(value: u32) -> u32 { return value & 0x00ffffffu; }
+fn cluster_light_tuple_type(value: u32) -> u32 { return (value >> 24u) & 0xffu; }
 
 fn cluster_depth_to_z_slice(depth: f32, parameters: vec3f, limit: f32) -> f32 {
   let slice = max(0.0, log2(fma(depth, parameters.x, parameters.y)) * parameters.z);
@@ -646,10 +673,33 @@ fn shade_standard_material_direct(
   let metadata = light_cluster_metadata_by_position(
     pixel, view_depth, vec2u(view.width, view.height)
   );
-  let point_count = light_cluster_count_point(metadata.counts);
-  let spot_count = light_cluster_count_spot(metadata.counts);
-  for (var i = 0u; i < point_count; i++) {
-    let index = cluster_data[metadata.offset + i];
+  if ((metadata.flags & CLUSTER_METADATA_FLAG_FALLBACK) != 0u) {
+    for (var i = 0u; i < active_light_list.written; i++) {
+      let tuple = active_light_list.data[i];
+      let index = cluster_light_tuple_id(tuple);
+      let light_type = cluster_light_tuple_type(tuple);
+      if (light_type == CLUSTER_LIGHT_TYPE_POINT) {
+        var incident = get_point_light_info_by_index(&node, index, geometry.position);
+        incident.color *= shadowmap_get_point_light_visibility(
+          &node, index, geometry.position, geometry.shading_normal
+        );
+        if (any(incident.color != vec3f(0.0))) {
+          re_direct_physical(incident, geometry, material, &reflected);
+        }
+      } else if (light_type == CLUSTER_LIGHT_TYPE_SPOT) {
+        var incident = get_spot_light_info_by_index(&node, index, geometry.position);
+        incident.color *= shadowmap_get_spot_light_visibility(
+          &node, index, geometry.position, geometry.shading_normal
+        );
+        if (any(incident.color != vec3f(0.0))) {
+          re_direct_physical(incident, geometry, material, &reflected);
+        }
+      }
+    }
+    return reflected.diffuse + reflected.specular + material.emissive;
+  }
+  for (var i = 0u; i < metadata.point_count; i++) {
+    let index = cluster_data.data[metadata.offset + i];
     var incident = get_point_light_info_by_index(&node, index, geometry.position);
     incident.color *= shadowmap_get_point_light_visibility(
       &node, index, geometry.position, geometry.shading_normal
@@ -657,8 +707,8 @@ fn shade_standard_material_direct(
     if (all(incident.color == vec3f(0.0))) { continue; }
     re_direct_physical(incident, geometry, material, &reflected);
   }
-  for (var i = 0u; i < spot_count; i++) {
-    let index = cluster_data[metadata.offset + point_count + i];
+  for (var i = 0u; i < metadata.spot_count; i++) {
+    let index = cluster_data.data[metadata.offset + metadata.point_count + i];
     var incident = get_spot_light_info_by_index(&node, index, geometry.position);
     incident.color *= shadowmap_get_spot_light_visibility(
       &node, index, geometry.position, geometry.shading_normal
@@ -693,6 +743,17 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertex {
 fn fs_main(input: FullscreenVertex) -> @location(0) vec4f {
   let i_coord = vec2u(input.position.xy);
   random_initialize(vec3u(i_coord, view.frame_index), vec3u(0xEE6B2807u, 7u, 0xD0974829u));
+  var metadata = oengine_surface_pack(0u, OENGINE_SURFACE_FLAG_VALID);
+  if (OENGINE_LIGHTING_HAS_SURFACE_METADATA) {
+    metadata = textureLoad(surface_metadata, i_coord, 0).r;
+  }
+  if (!oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
+    return vec4f(0.0);
+  }
+  let material = read_gBuffer_material(i_coord);
+  if (oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT)) {
+    return vec4f(material.emissive, 1.0);
+  }
   let depth = textureLoad(yz, i_coord, 0);
   let view_depth = get_view_space_depth(depth, camera);
   let position_ws = project_position_from_depth(
@@ -707,7 +768,6 @@ fn fs_main(input: FullscreenVertex) -> @location(0) vec4f {
     position_ws,
     view_direction
   );
-  let material = read_gBuffer_material(i_coord);
   return vec4f(shade_standard_material_direct(
     material, geometry, input.position.xy, view_depth
   ), 1.0);

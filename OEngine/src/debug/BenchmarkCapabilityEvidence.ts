@@ -230,7 +230,26 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   ),
   unlitSurfacePixels: supported(
     "PackedSurfaceCounterPass/Surface material-feature reducer"
-  )
+  ),
+  candidateLightsAttempted: supported("LightClusterPass/FX-02 bounded-list reducer"),
+  candidateLightsWritten: supported("LightClusterPass/FX-02 bounded-list reducer"),
+  activeLightsAttempted: supported("LightClusterPass/FX-02 bounded-list reducer"),
+  clusterTestedLights: supported("LightClusterPass/FX-02 cluster statistics reducer"),
+  clusterLightIndicesAttempted: supported("LightClusterPass/FX-02 cluster-data reducer"),
+  clusterLightIndicesWritten: supported("LightClusterPass/FX-02 cluster-data reducer"),
+  clusterOverflowClusters: supported("LightClusterPass/FX-02 cluster statistics reducer"),
+  clusterFallbackLights: supported("LightClusterPass/FX-02 cluster statistics reducer"),
+  clusterLightReferences: supported("LightClusterPass/FX-02 cluster statistics reducer"),
+  clusterMaxLights: supported("LightClusterPass/FX-02 cluster statistics reducer"),
+  clusterHistogram0: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  clusterHistogram1: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  clusterHistogram4: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  clusterHistogram8: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  clusterHistogram16: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  clusterHistogram32: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  clusterHistogram64: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  clusterHistogram128: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  clusterHistogram256: supported("LightClusterPass/FX-02 cluster histogram reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

@@ -11,7 +11,7 @@ export const GPU_LIST_COUNTER_WORKGROUP_SIZE = 1;
 const DISABLED_COUNTER_INDEX = 0xffffffff;
 const MESHLET_LIST_HEADER_BYTES = 16;
 const MESHLET_LIST_ELEMENT_BYTES = 8;
-const PARAM_WORDS = 12;
+const PARAM_WORDS = 14;
 
 export const GPU_LIST_COUNTER_WGSL = /* wgsl */ `
 struct CounterParams {
@@ -25,6 +25,8 @@ struct CounterParams {
   input_index: u32,
   rejected_index: u32,
   input_count: u32,
+  source_count_word: u32,
+  source_overflow_word: u32,
   _padding0: u32,
   _padding1: u32,
 };
@@ -36,7 +38,7 @@ struct CounterParams {
 
 @compute @workgroup_size(${GPU_LIST_COUNTER_WORKGROUP_SIZE})
 fn main() {
-  let raw_count = source[0];
+  let raw_count = source[params.source_count_word];
   let safe_count = min(raw_count, params.capacity);
   if (params.primary_index != ${DISABLED_COUNTER_INDEX}u) {
     atomicAdd(&frame_counters[params.primary_index], safe_count);
@@ -60,7 +62,9 @@ fn main() {
       params.input_count - accepted_count
     );
   }
-  if (raw_count > params.capacity && params.overflow_bit != 0u) {
+  let explicit_overflow = params.source_overflow_word != ${DISABLED_COUNTER_INDEX}u &&
+    source[params.source_overflow_word] != 0u;
+  if ((raw_count > params.capacity || explicit_overflow) && params.overflow_bit != 0u) {
     atomicOr(
       &frame_counters[params.overflow_index],
       params.overflow_bit
@@ -116,6 +120,8 @@ export interface GpuListCounterOptions {
   overflowBit: number;
   headerBytes?: number;
   elementBytes?: number;
+  countByteOffset?: number;
+  overflowByteOffset?: number;
 }
 
 /** Adds an ordered sampling pass for a FrameGraph-owned count-prefixed list. */
@@ -170,6 +176,10 @@ export class GpuListCounterAccumulator {
     params[7] = optionalCounterIndex(options.inputField);
     params[8] = optionalCounterIndex(options.rejectedField);
     params[9] = options.inputCount ?? 0;
+    params[10] = (options.countByteOffset ?? 0) / Uint32Array.BYTES_PER_ELEMENT;
+    params[11] = options.overflowByteOffset === undefined
+      ? DISABLED_COUNTER_INDEX
+      : options.overflowByteOffset / Uint32Array.BYTES_PER_ELEMENT;
     const paramsBuffer = command.allocateTransientBufferAndLoad(
       params.buffer,
       GPUBufferUsage.UNIFORM
@@ -216,6 +226,8 @@ function optionalCounterIndex(field: GpuCounterFieldName | undefined): number {
 }
 
 function validateInputCounterOptions(options: GpuListCounterOptions): void {
+  validateHeaderFieldOffset(options.countByteOffset, "countByteOffset");
+  validateHeaderFieldOffset(options.overflowByteOffset, "overflowByteOffset");
   const tracksInput = options.inputField !== undefined ||
     options.rejectedField !== undefined;
   if (!tracksInput && options.inputCount === undefined) return;
@@ -228,6 +240,16 @@ function validateInputCounterOptions(options: GpuListCounterOptions): void {
     throw new RangeError(
       "inputCount must be a non-negative u32 when input/rejected fields are used"
     );
+  }
+}
+
+function validateHeaderFieldOffset(
+  value: number | undefined,
+  label: string
+): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || value < 0 || value % 4 !== 0) {
+    throw new RangeError(`${label} must be a non-negative u32-aligned integer`);
   }
 }
 
