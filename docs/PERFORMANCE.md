@@ -193,6 +193,10 @@ submitted fragments 没有可协商的 WebGPU pipeline-statistics producer，继
 
 R4-B artifact 继续单独报告 `hardware-raster`：B `39.369904/39.6922608/39.93239712 ms`，C `0.053248/0.0567792/0.0572512 ms`。因此 R4-A 暴露的 B Hardware Raster 高成本仍存在，没有被 Resolve 数据掩盖。B/C 保存 final-color、VisibilityKey、depth 及 10 个 Surface/velocity debug views；B 13/13 hash 唯一，C 的 emissive/reactive 合法零值 view 重合。artifact 位于 `temp/r4-b/full/`，`temp/` 不纳入 Git。
 
+2026-08-30 lifecycle/material-contract follow-up 在 clean commit `74e61c02f3fd66d30bafbf02d8b2472305c9347e` 重跑 B/C full。环境改为 Chrome 151 / Intel Gen9，其它条件保持 `1280×720`、DPR 1、60 warm-up + 180 sample、timestamp/counter 每 6 帧。两组均 `passed=true`、`gateEligible=true`，issues/counter issues、console/page、validation/uncaptured/device-lost/failed timestamp/counter 均为 0；active materials `1 → 3` 时 fullscreen draw 仍恒为 1。B/C Single Resolve P50/P95/P99 为 `9.9478445/10.14003285/10.1460405 ms` 与 `4.875299/5.04401315/5.08029693 ms`。由于 adapter 不同，本组禁止与 2026-08-28 NVIDIA Turing 数据计算涨跌；它用于关闭 texture lifecycle、separate occlusion reject、normal scale/unlit WGSL 接线后的 clean correctness Gate。
+
+新 material evidence schema v4 在 B 报告 material slots `1 resident / 0 retiring / 4095 free`、texture layers `4 / 0 / 59`；C 为 `3 / 0 / 4093` 与 `0 / 0 / 63`。两边 texture/sampler fallback、private submit 均为 0，证明 layer 0 fallback 保留、63 个可用层的会计恒等式与采集结束零 retiring。13 个 canvas view 加 page screenshot 已刷新到 `temp/r4-b/full/`；B 的 14 个 PNG hash 全部不同，C 只有合法零值 view 重合，final-color、normal、occlusion、emissive 已人工检查为非空且轮廓一致。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。
