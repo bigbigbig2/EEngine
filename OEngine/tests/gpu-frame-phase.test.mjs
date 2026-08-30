@@ -22,6 +22,7 @@ test("GPU phase classifier covers current main-frame labels without hiding unkno
     ["TAA resolve", "temporal"],
     ["Tonemap $h", "post"],
     ["VisibilityCounter/final pixels", "observability"],
+    ["LightCluster/FX-02 stats", "observability"],
     ["future pass with no registered owner", "unclassified"]
   ]);
   for (const [label, expected] of cases) {

@@ -39,6 +39,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /visibilitycounter/,
     /visibility pixel counters/,
     /r0 visibility counter/,
+    /lightcluster\/fx-02 stats/,
     /gpu.?counter/,
     /counter accumulator/,
     /render debug/
