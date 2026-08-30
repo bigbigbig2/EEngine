@@ -1,6 +1,6 @@
 # R5 FX-02 · Clustered Direct Lighting
 
-Status: implementation integrated / dirty smoke passed / clean full Gate pending
+Status: closed on clean commit `45d05b9b98313b324ae97c6b3796001dd5de294c`
 
 ## Reference ID
 
@@ -119,6 +119,9 @@ low24` packing.
   lights-per-cluster histogram.
 - Counter and screenshot collection stays sampled/runner-owned and introduces no
   steady-frame readback or private submit.
+- Zero-local-light frames clear the bounded headers but encode no list, HZB-filter,
+  cluster-assign or stats Compute Pass. Sampled evidence writes only the 4-byte
+  `clusterHistogram0` field, while Direct Lighting returns after directional lights.
 
 ## Precision And Semantic Differences
 
@@ -138,10 +141,20 @@ runner is `examples/scripts/run-r5-fx02-gate.mjs` and covers point counts
 `0/1/16/64/256/1024` in `spread/overlap`, plus point/spot/directional and bounded-list
 GPU micro cases. It saves JSON, counters, diagnostics and automatic PNG evidence.
 
-The dirty smoke run under
-`temp/r5/fx-02/7b036316b818eef63f1f3a8a03de65f7498ef986-dirty-4ebbcf6ba142/smoke/`
-passed all 15 cases with zero WebGPU diagnostics. This is exploratory evidence only;
-the clean/full run owns final P50/P95/P99 and Gate status.
+The clean/full run under
+`temp/r5/fx-02/45d05b9b98313b324ae97c6b3796001dd5de294c/full/`
+passed all 15 cases with `passed/gateEligible/cleanEligible=true`, zero Gate issues,
+zero WebGPU/console/page diagnostics and one automatic PNG per case. The 256/1024
+pressure cases exercise explicit fallback without silent light loss; 1024 overlap
+records 4,600 overflow clusters and 4,710,400 fallback light evaluations.
+
+The unrelated Benchmark B regression check under
+`temp/r5/r5-00/45d05b9b98313b324ae97c6b3796001dd5de294c/` used five independent
+sessions with 30 seconds of cooling between sessions. Relative to frozen clean
+baseline `0cb3445`, every non-FX-02 phase has `0/5` P50/P95 threshold crossings.
+The old zero-light `light-cluster` P50/P95 `0.17584/0.191864 ms` is absent after the
+fast path. These numbers establish no-regression for FX-02; they are not a final
+product performance claim and do not close FX-03 or G5-L.
 
 ## Fallback / Failure Behavior
 

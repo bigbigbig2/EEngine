@@ -197,20 +197,41 @@ R4-B artifact 继续单独报告 `hardware-raster`：B `39.369904/39.6922608/39.
 
 新 material evidence schema v4 在 B 报告 material slots `1 resident / 0 retiring / 4095 free`、texture layers `4 / 0 / 59`；C 为 `3 / 0 / 4093` 与 `0 / 0 / 63`。两边 texture/sampler fallback、private submit 均为 0，证明 layer 0 fallback 保留、63 个可用层的会计恒等式与采集结束零 retiring。13 个 canvas view 加 page screenshot 已刷新到 `temp/r4-b/full/`；B 的 14 个 PNG hash 全部不同，C 只有合法零值 view 重合，final-color、normal、occlusion、emissive 已人工检查为非空且轮廓一致。
 
-## R5 FX-02 Clustered Direct dirty smoke
+## R5 FX-02 Clustered Direct clean/full
 
-2026-08-31 的 exploratory smoke 使用 production `Renderer.render()`、Chrome WebGPU、
-`C-light` 的 local light `0/1/16/64/256/1024 x spread/overlap`，并补充 1 spot、
-0/1 directional 与 GPU bounded-list micro。15/15 case 通过，console、validation、
-uncaptured error 与 device loss 为 0；artifact 位于
-`temp/r5/fx-02/7b036316b818eef63f1f3a8a03de65f7498ef986-dirty-4ebbcf6ba142/smoke/`。
+2026-08-31 在 clean commit `45d05b9b98313b324ae97c6b3796001dd5de294c` 使用
+production `Renderer.render()`、Chrome 151、NVIDIA Turing、`1280×720`、DPR 1 完成
+FX-02 full Gate。C-light point sweep 每档使用 60 warm-up + 180 sample，并补充 1 spot、
+0/1 directional 与 GPU bounded-list micro。15/15 case 均
+`passed/gateEligible/cleanEligible=true`，issues、console/page error、validation、
+uncaptured error、device loss、failed timestamp/counter 为 0；每档 JSON/counter 与自动
+canvas PNG 位于
+`temp/r5/fx-02/45d05b9b98313b324ae97c6b3796001dd5de294c/full/`。
 
-该 profile 每档只有 3 个 timestamp sample，只用于实现探索，不能作为 P50/P95/P99
-性能结论。256/1024 overlap 分别产生 `4,600` 个 overflow cluster，并通过 active-list
-fallback 评估 `1,177,600 / 4,710,400` 个 light references；center-luma 自动判定没有
-出现静默少灯。1024 overlap 的 Direct Lighting P50 为 `49.708544 ms`，明确说明保守
-fallback 的最坏成本很高；它是 correctness 降级，不是目标 steady-state fast path。
-clean/full 仍需 60 warm-up + 180 sample 并保存完整分位数，结果写回前不关闭 FX-02。
+下表为 point sweep；时间列均为 GPU P50/P95，单位 ms。`none` 表示零灯 fast path 没有
+编码 cluster-build Compute Pass，不是伪造的 0 timestamp。
+
+| Lights | Spread cluster / direct | Overlap cluster / direct | Spread overflow / fallback | Overlap overflow / fallback |
+|---:|---:|---:|---:|---:|
+| 0 | `none / 0.075456/0.0877472` | `none / 0.075088/0.0879456` | `0 / 0` | `0 / 0` |
+| 1 | `3.533552/3.912368 / 0.09432/0.0996736` | `6.88816/8.2970416 / 0.101008/0.120008` | `0 / 0` | `0 / 0` |
+| 16 | `3.891024/4.3432704 / 0.585168/0.6452032` | `7.029808/7.8659728 / 0.747104/1.2904896` | `0 / 0` | `0 / 0` |
+| 64 | `4.629728/5.13044 / 2.583888/2.5887776` | `8.218272/9.3389232 / 3.52448/3.6503616` | `0 / 0` | `0 / 0` |
+| 256 | `0.860224/1.2554752 / 12.17744/18.2560496` | `0.884032/1.5895472 / 15.095808/29.0972144` | `2,760 / 706,560` | `4,600 / 1,177,600` |
+| 1024 | `3.289616/4.7999232 / 55.481008/77.7096944` | `3.364128/13.8620144 / 65.673536/136.6349376` | `2,760 / 2,826,240` | `4,600 / 4,710,400` |
+
+256/1024 pressure 通过 active-list conservative fallback 保持完整 direct contribution；其
+Direct Lighting 成本证明 fallback 只用于 correctness 降级，不是 steady-state fast path。
+零 local light 时 list/filter/assign/stats Compute Pass 均不编码，采样帧只执行 4 B counter
+copy 以记录 `clusterHistogram0=22080`，Direct Lighting 在 directional lights 后提前返回。
+
+unrelated Benchmark B 相对冻结 clean baseline `0cb3445` 另跑 5 个独立页面 session，
+session 间冷却 30 秒以避免该笔记本 GPU 从 `68°C` 连续升到 `81°C` 后污染 P95。5/5
+exact Gate 通过，所有非 FX-02 phase 的 P50/P95 回归线越界计数均为 `0/5`；冻结 baseline
+的零灯 `light-cluster` P50/P95 `0.17584/0.191864 ms` 在 candidate 中不存在。B 的
+`lighting-and-ibl` 为 `0.693456/0.8818544 ms`，baseline 为
+`0.885552/1.145904 ms`。这些数据只证明 FX-02 无不相关回归；由于机器热状态差异，
+不声明全局性能收益，也不关闭 FX-03、`performance-targets.json` 或 G5-L。
 
 ## 性能变更完成标准
 

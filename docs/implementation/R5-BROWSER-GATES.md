@@ -375,9 +375,20 @@ WebGPU micro：
   build provenance、JSON/counter/diagnostics 与 canvas PNG 自动判定；
 - 首个 case 额外执行 GPU bounded-list micro，覆盖 capacity `2` 下 attempted
   `1/2/3` 的 `attempted/written/capacity/overflow` readback；
-- dirty smoke 已通过 15/15，artifact 位于
-  `temp/r5/fx-02/7b036316b818eef63f1f3a8a03de65f7498ef986-dirty-4ebbcf6ba142/smoke/`；
-  它只证明当前实现可运行，clean/full 结果写回前 FX-02 仍未关闭。
+- clean commit `45d05b9b98313b324ae97c6b3796001dd5de294c` 的 full Gate 已通过
+  15/15，`passed/gateEligible/cleanEligible=true`，issues、console/page error、
+  validation、uncaptured error、device loss 与 failed timestamp/counter 均为 0；
+- artifact 位于
+  `temp/r5/fx-02/45d05b9b98313b324ae97c6b3796001dd5de294c/full/`，保存 15 份
+  JSON/counter/diagnostics 与自动判定 canvas PNG；
+- 0 local light 的 cluster-build timestamp 不存在，list/filter/assign/stats Compute Pass
+  均不编码；`clusterHistogram0=22080` 由采样帧 4 B counter copy 保持证据完整；
+- 256/1024 spread/overlap 均命中显式 overflow/fallback，最大 cluster 分别评估
+  256/1024 lights，没有 silent truncation；
+- unrelated B 在同一 commit 上完成 5 个独立 session，session 间冷却 30 秒；相对冻结
+  `0cb3445` baseline，所有非 FX-02 phase 的 P50/P95 越线计数均为 `0/5`，且
+  `light-cluster` phase 从 baseline `0.17584/0.191864 ms` 变为不存在。FX-02
+  据此关闭；FX-03 与 `performance-targets.json` 仍阻止 G5-L 关闭。
 
 ---
 
