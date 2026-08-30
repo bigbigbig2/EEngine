@@ -23,6 +23,10 @@ import {
   type R4BGateArtifact,
   type R4BMaterialEvidence
 } from "./R4BBrowserGate.ts";
+import {
+  createR500GateArtifact,
+  type R500GateArtifact
+} from "./R5SurfaceBrowserGate.ts";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -31,6 +35,7 @@ declare const __BUILD_DIRTY_REASONS__: string[];
 declare global {
   interface Window {
     __OENGINE_R4_B_GATE__?: R4BBrowserGateHook;
+    __OENGINE_R5_00_GATE__?: R500BrowserGateHook;
   }
 }
 
@@ -124,7 +129,7 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
     const completedOrdinal = run.warmupFrames + run.sampleFrames - 1;
     const materialEvidence =
       renderer.graphics.material_visibility_if_created?.evidence() ?? null;
-    const gate = finishPage(
+    const gates = finishPage(
       elements,
       manifest,
       profile,
@@ -134,7 +139,18 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
     );
     renderer.profiler.configure({ enabled: false });
     window.__OENGINE_R4_B_GATE__ = {
-      artifact: gate,
+      artifact: gates.r4b,
+      captureDebug: async (view) => captureDebugView(
+        view,
+        renderer,
+        camera,
+        fixture,
+        completedOrdinal,
+        canvas
+      )
+    };
+    window.__OENGINE_R5_00_GATE__ = {
+      artifact: gates.r500,
       captureDebug: async (view) => captureDebugView(
         view,
         renderer,
@@ -161,10 +177,10 @@ function finishPage(
   visibility: "hierarchy",
   result: BenchmarkResult,
   materialEvidence: R4BMaterialEvidence | null
-): R4BGateArtifact {
+): { r4b: R4BGateArtifact; r500: R500GateArtifact } {
   const evidence = validateBenchmarkEvidence(result);
   const counterIssues = validateCounterInvariants(result, visibility);
-  const gate = createR4BGateArtifact(
+  const r4b = createR4BGateArtifact(
     manifest,
     profile,
     result,
@@ -172,6 +188,7 @@ function finishPage(
     counterIssues,
     materialEvidence
   );
+  const r500 = createR500GateArtifact(manifest, r4b);
   const diagnostics = result.diagnostics;
   const runtimeClean = diagnostics.validationErrorCount === 0 &&
     diagnostics.uncapturedErrorCount === 0 &&
@@ -189,7 +206,8 @@ function finishPage(
     `capabilityComplete=${evidence.capabilityComplete}`,
     `blockers=${evidence.blockedCapabilities.length}`,
     `counterIssues=${counterIssues.length}`,
-    `r4b=${gate.passed ? "passed" : `${gate.issues.length} issues`}`
+    `r4b=${r4b.passed ? "passed" : `${r4b.issues.length} issues`}`,
+    `r5-00=${r500.passed ? "passed" : `${r500.issues.length} issues`}`
   ].join(" · ");
   elements.cpu.textContent = `${result.summary.cpuMs.frame.p50.toFixed(3)} ms`;
   elements.submit.textContent = result.summary.submits.mean.toFixed(2);
@@ -211,9 +229,10 @@ function finishPage(
     visibility,
     evidence,
     counterIssues,
-    r4b: gate
+    r4b,
+    r500
   });
-  return gate;
+  return { r4b, r500 };
 }
 
 async function captureDebugView(
@@ -439,5 +458,10 @@ function adapterDescription(adapter: BenchmarkAdapterIdentity | null): string {
 
 interface R4BBrowserGateHook {
   artifact: R4BGateArtifact;
+  captureDebug(view: RenderDebugViewName): Promise<unknown>;
+}
+
+interface R500BrowserGateHook {
+  artifact: R500GateArtifact;
   captureDebug(view: RenderDebugViewName): Promise<unknown>;
 }

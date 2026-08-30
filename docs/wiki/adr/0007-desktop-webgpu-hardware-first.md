@@ -19,7 +19,7 @@ Supersedes: ADR-0001 的当前产品范围；保留其 GPU-first、WebGPU baseli
 3. 现有 single `drawIndirect` + instance-driven visible Meshlet list 成为 WebGPU Hardware Visibility baseline。R3 负责将 hierarchy 输出接通并量化固定 384 vertices、bucket 和随机读取成本。
 4. R4 固定顺序为 Hardware Visibility Contract → Single Material Resolve → optional Compute SW/Hybrid。Software Raster 是 profile optimization，不是正确性前提。
 5. CSM 是当前阴影 baseline；优先改进 GPU-driven cascade work、稳定性和过滤，不建设 Virtual Shadow Map。
-6. 大量动态灯光、Temporal Reconstruction、Dynamic Resolution、Upscaling、Transparency/Decal 是当前画质扩展；高级 GI、terrain/foliage/character/particle、云、水、大气等留作 deferred 或已有项目迁移。
+6. 大量动态灯光、Temporal Reconstruction、Dynamic Resolution、Upscaling、Transparency 是当前画质扩展；Decal 保留接入 seam，但因当前没有 workload、producer/consumer ABI 和 Gate 而延期。高级 GI、terrain/foliage/character/particle、云、水、大气等留作 deferred 或已有项目迁移。
 7. Texture resident bytes、压缩和 mip feedback 先于 Texture Streaming/Virtual Texture；是否实现 streaming 由显存证据决定。
 8. 完整动态对象生命周期不是当前产品 Gate，但 GPU Buffer/Texture grow/replace/destroy 的 in-flight 安全仍是底层正确性要求。
 

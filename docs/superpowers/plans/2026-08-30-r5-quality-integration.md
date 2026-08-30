@@ -41,6 +41,8 @@
 - Consumes: R4 `VisibilityKey/Depth/Surface/Velocity/SurfaceFlags`.
 - Produces: R5 Surface/color/temporal contract and hardware-only base benchmark role.
 
+Scope boundary: R5-00 owns ABI/version/packing、现有 producer/consumer 迁移与 A/B/C artifact；FX-01 只能验证 GPU 数值、background 与 debug，不得重新定义同一 ABI。
+
 - [ ] **Step 1: Make manifest governance test fail**
 
 Extend `benchmark-scene-manifest.test.mjs` so R5 base A/B/C rejects `software-visibility` in `featureSet` while R4-C variants may use it under distinct IDs.
@@ -80,7 +82,7 @@ npm run build
 
 Expected: PASS / exit code 0.
 
-- [ ] **Step 5: Capture R5-00 B/C baseline**
+- [ ] **Step 5: Capture R5-00 A/B/C baseline**
 
 Follow `R5-TEST-MANUAL.md#r5-00--contract--baseline-freeze`. Expected: HW-only, one submit, zero invalid/overflow/diagnostics, warm graph stable.
 
@@ -103,8 +105,8 @@ git commit -m "文档（R5-00）：冻结质量阶段合同与基线"
 - Example/Create or extend: one R5 surface micro page under `examples/`
 
 **Interfaces:**
-- Consumes: packed Surface/Depth/Velocity/Flags.
-- Produces: authoritative Surface ABI v1 evidence consumed by all later R5 tasks.
+- Consumes: R5-00 已冻结的 packed Surface/Depth/Velocity/Metadata ABI.
+- Produces: GPU numeric/debug/background evidence consumed by all later R5 tasks；不重新拥有 ABI format/packing.
 
 - [ ] **Step 1: Add failing decode/semantic tests**
 
@@ -119,7 +121,7 @@ node --test tests/r5-surface-contract.test.mjs
 
 - [ ] **Step 3: Implement only missing debug/semantic wiring**
 
-Do not change material ABI unless a test proves a semantic mismatch.
+Do not change Surface format/packing/velocity ABI inside FX-01. A proven mismatch returns to an explicit R5-00 ABI version change.
 
 - [ ] **Step 4: Run surface browser fixture**
 

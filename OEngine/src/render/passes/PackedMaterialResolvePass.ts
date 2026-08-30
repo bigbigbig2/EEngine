@@ -6,17 +6,14 @@ import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import {
+  GPU_SURFACE_BYTES_PER_PIXEL,
+  GPU_SURFACE_FORMATS
+} from "../../gpu/GpuSurfaceAbi.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { ShadeTransparencyMode } from "../../material/enums.js";
 import { PACKED_MATERIAL_RESOLVE_WGSL } from "../../shaders/packed_material_resolve.js";
-import { VELOCITY_FORMAT } from "../../shaders/velocity.js";
-import {
-  GBUF_ALBEDO_FORMAT,
-  GBUF_EMISSIVE_FORMAT,
-  GBUF_NORMAL_FORMAT,
-  GBUF_PBR_FORMAT
-} from "../RenderTargets.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import { resolveTextureView } from "./MaterialExpandPass.js";
 import {
@@ -24,7 +21,8 @@ import {
   type VelocityCameraMatrices
 } from "./VelocityPass.js";
 
-export const PACKED_SURFACE_FLAGS_FORMAT = "r32uint" as const;
+/** R4-B compatibility name; the attachment stores R5 Surface metadata. */
+export const PACKED_SURFACE_FLAGS_FORMAT = GPU_SURFACE_FORMATS.metadata;
 
 const INPUT_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "R4-B Material Resolve/input group0",
@@ -78,12 +76,12 @@ const PIPELINE: CachedRenderPipelineDescriptor = {
     module: { label: "R4-B Single Material Resolve", code: PACKED_MATERIAL_RESOLVE_WGSL },
     entryPoint: "packed_material_fs",
     targets: [
-      { format: GBUF_PBR_FORMAT },
-      { format: GBUF_NORMAL_FORMAT },
-      { format: GBUF_ALBEDO_FORMAT },
-      { format: GBUF_EMISSIVE_FORMAT },
-      { format: VELOCITY_FORMAT },
-      { format: PACKED_SURFACE_FLAGS_FORMAT }
+      { format: GPU_SURFACE_FORMATS.pbr },
+      { format: GPU_SURFACE_FORMATS.normal },
+      { format: GPU_SURFACE_FORMATS.albedoAo },
+      { format: GPU_SURFACE_FORMATS.emissive },
+      { format: GPU_SURFACE_FORMATS.velocity },
+      { format: GPU_SURFACE_FORMATS.metadata }
     ]
   },
   primitive: { topology: "triangle-list", cullMode: "none" }
@@ -106,6 +104,7 @@ export interface PackedMaterialResolveOutputs {
   readonly gAlbedo: ResourceId;
   readonly gEmissive: ResourceId;
   readonly velocity: ResourceId;
+  /** R4-B compatibility property; resource semantic is Surface metadata. */
   readonly surfaceFlags: ResourceId;
   readonly counters: ResourceId | null;
 }
@@ -120,7 +119,7 @@ export class PackedMaterialResolvePass {
   private readonly samplers: readonly GPUSampler[];
   lastDrawCount = 0;
   lastActiveMaterialCount = 0;
-  readonly surfaceBytesPerPixel = 26;
+  readonly surfaceBytesPerPixel = GPU_SURFACE_BYTES_PER_PIXEL;
 
   constructor(private readonly graphics: GraphicsContext) {
     this.previousViewProjectionBuffer = graphics.device.createBuffer({
@@ -233,12 +232,30 @@ export class PackedMaterialResolvePass {
       }
     );
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
-    output.gPbr = builder.create("surface/PBR", texture(width, height, GBUF_PBR_FORMAT, usage));
-    output.gNormal = builder.create("surface/normal", texture(width, height, GBUF_NORMAL_FORMAT, usage));
-    output.gAlbedo = builder.create("surface/albedo+AO", texture(width, height, GBUF_ALBEDO_FORMAT, usage));
-    output.gEmissive = builder.create("surface/emissive", texture(width, height, GBUF_EMISSIVE_FORMAT, usage));
-    output.velocity = builder.create("surface/velocity", texture(width, height, VELOCITY_FORMAT, usage));
-    output.surfaceFlags = builder.create("surface/flags", texture(width, height, PACKED_SURFACE_FLAGS_FORMAT, usage));
+    output.gPbr = builder.create(
+      "surface/PBR",
+      texture(width, height, GPU_SURFACE_FORMATS.pbr, usage)
+    );
+    output.gNormal = builder.create(
+      "surface/normal",
+      texture(width, height, GPU_SURFACE_FORMATS.normal, usage)
+    );
+    output.gAlbedo = builder.create(
+      "surface/albedo+AO",
+      texture(width, height, GPU_SURFACE_FORMATS.albedoAo, usage)
+    );
+    output.gEmissive = builder.create(
+      "surface/emissive",
+      texture(width, height, GPU_SURFACE_FORMATS.emissive, usage)
+    );
+    output.velocity = builder.create(
+      "surface/velocity",
+      texture(width, height, GPU_SURFACE_FORMATS.velocity, usage)
+    );
+    output.surfaceFlags = builder.create(
+      "surface/metadata",
+      texture(width, height, GPU_SURFACE_FORMATS.metadata, usage)
+    );
     builder.read(inputs.visibilityKey);
     builder.read(inputs.view);
     if (inputs.counters !== undefined) {

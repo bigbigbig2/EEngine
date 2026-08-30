@@ -38,6 +38,11 @@ test("A/B/C scene manifests freeze unique roles on the unified Renderer path", a
       false,
       `${manifest.id} R5 base manifest must describe the actual HW-only feature set`
     );
+    assert.equal(
+      manifest.featureSet.includes("single-material-resolve"),
+      true,
+      `${manifest.id} R5 base manifest must declare its Surface producer`
+    );
   }
 });
 

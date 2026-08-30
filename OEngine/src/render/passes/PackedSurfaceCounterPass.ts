@@ -3,6 +3,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { GPU_SURFACE_ABI_WGSL } from "../../gpu/GpuSurfaceAbi.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { resolveTextureView } from "./MaterialExpandPass.js";
 
@@ -14,31 +15,32 @@ const ORM_TEXTURE_INDEX = counterByteOffset("ormTexturePixels") / 4;
 const EMISSIVE_TEXTURE_INDEX = counterByteOffset("emissiveTexturePixels") / 4;
 const UNLIT_INDEX = counterByteOffset("unlitSurfacePixels") / 4;
 
-const WGSL = /* wgsl */ `
-@group(0) @binding(0) var surface_flags: texture_2d<u32>;
+export const PACKED_SURFACE_COUNTER_WGSL = /* wgsl */ `
+${GPU_SURFACE_ABI_WGSL}
+@group(0) @binding(0) var surface_metadata: texture_2d<u32>;
 @group(0) @binding(1) var<storage, read_write> counters: array<atomic<u32>>;
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP}, 1)
 fn main(@builtin(global_invocation_id) id: vec3u) {
-  let size = textureDimensions(surface_flags);
+  let size = textureDimensions(surface_metadata);
   if any(id.xy >= size) { return; }
-  let flags = textureLoad(surface_flags, vec2i(id.xy), 0).r >> 24u;
-  if (flags & 8u) != 0u {
+  let flags = oengine_surface_flags(textureLoad(surface_metadata, vec2i(id.xy), 0).r);
+  if (flags & OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK) != 0u {
     atomicAdd(&counters[${GRADIENT_INDEX}u], 1u);
   }
-  if (flags & 4u) != 0u {
+  if (flags & OENGINE_SURFACE_FLAG_REACTIVE) != 0u {
     atomicAdd(&counters[${REACTIVE_INDEX}u], 1u);
   }
-  if (flags & 16u) != 0u {
+  if (flags & OENGINE_SURFACE_FLAG_NORMAL_TEXTURE) != 0u {
     atomicAdd(&counters[${NORMAL_TEXTURE_INDEX}u], 1u);
   }
-  if (flags & 32u) != 0u {
+  if (flags & OENGINE_SURFACE_FLAG_ORM_TEXTURE) != 0u {
     atomicAdd(&counters[${ORM_TEXTURE_INDEX}u], 1u);
   }
-  if (flags & 64u) != 0u {
+  if (flags & OENGINE_SURFACE_FLAG_EMISSIVE_TEXTURE) != 0u {
     atomicAdd(&counters[${EMISSIVE_TEXTURE_INDEX}u], 1u);
   }
-  if (flags & 128u) != 0u {
+  if (flags & OENGINE_SURFACE_FLAG_UNLIT) != 0u {
     atomicAdd(&counters[${UNLIT_INDEX}u], 1u);
   }
 }
@@ -56,7 +58,7 @@ const PIPELINE: CachedComputePipelineDescriptor = {
   label: "R4-B GPU Surface counters",
   layout: { label: "R4-B GPU Surface counters/layout", bindGroupLayouts: [GROUP] },
   compute: {
-    module: { label: "R4-B GPU Surface counters", code: WGSL },
+    module: { label: "R4-B GPU Surface counters", code: PACKED_SURFACE_COUNTER_WGSL },
     entryPoint: "main"
   }
 };

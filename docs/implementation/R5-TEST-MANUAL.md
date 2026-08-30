@@ -89,45 +89,124 @@ dirty=true 却声明 clean Gate
 
 ## 自动测试预期
 
-新增或扩展测试应覆盖：
-- Surface ABI format/semantic；
-- velocity 坐标与 invalid/reactive bit；
-- benchmark base manifest 不再把 optional `software-visibility` 写成实际 feature；
-- feature/capability evidence 对 R5 base feature 可解释；
-- FrameGraph feature-off assertions。
-
-建议测试文件：
+R5-00 必须先证明 ABI 本身，再证明 R4-B consumer 已全部迁到同一 truth source。核心测试：
 
 ```text
 OEngine/tests/r5-surface-contract.test.mjs
+OEngine/tests/packed-material-resolve.test.mjs
+OEngine/tests/render-debug-view.test.mjs
 OEngine/tests/benchmark-scene-manifest.test.mjs
 OEngine/tests/benchmark-evidence-gate.test.mjs
-OEngine/tests/framegraph-compiled.test.mjs
 ```
 
-期望：全部 PASS。
+`r5-surface-contract.test.mjs` 必须 exact 覆盖：
 
-## 人工测试
+```text
+Surface ABI version = 1
+Depth = depth32float / reverse-Z / empty 0
+PBR = rg8unorm
+Normal = rgba16uint
+Albedo/AO = rgba8unorm
+Emissive = r32uint
+Velocity = rg16float
+Metadata = r32uint
+HDR = rgba16float
+resolved Surface = 26 B/pixel
 
-1. 打开 Benchmark B、C。
-2. 确认实际 featureSet 是 HW-only R5 base，不包含尚未运行的 R4-C software/hybrid。
-3. 关闭 Shadow/Transparency/TAA/AO/SSR/Bloom/Exposure 等 R5 feature，只保留 Packed Visibility + Single Material Resolve + Background。
-4. 连续运行至少 240 帧。
+Metadata:
+  material slot bits 0..15
+  flags bits 16..31
+  defined flags bits 0..7
+  reserved flag bits 8..15
+
+Codec:
+  slot 0 / 1 / 4095 / 65535
+  flags 0 / valid / defined mask
+  reserved flags 0x0100 / 0xff00 / 0xffff reject
+  invalid CPU value rejects instead of truncation
+
+Velocity:
+  internal-pixel
+  current - previous
+  projection-matrix-inclusive jitter
+  invalid => zero velocity + !motion-valid + reactive
+```
+
+并扫描 Resolve / SurfaceCounter / Surface debug source，确保不再出现 R4-B metadata 的 `low24 + <<24` / `>>24` magic packing。
+
+本机运行：
+
+```bat
+cd /d D:\code\EEngine\OEngine
+set NODE_OPTIONS=
+npm test
+npm run audit:shaders
+
+cd ..\examples
+npm run build
+```
+
+预期：
+- `npm test` exit code 0；
+- `r5-surface-contract.test.mjs` 全部 PASS；
+- 既有 R4-B Resolve/debug tests 继续 PASS；
+- `audit:shaders` 无新增未解释的 realtime `dead/unknown`；
+- examples production build exit code 0；
+- `git diff --check` 无输出。
+
+## 人工 baseline 测试
+
+R5-00 **不改变 Benchmark A/B/C 的角色定义**。A 保持 160k hardware/hierarchy workload，B 本身包含 PBR/Lighting/IBL，C 保持 heterogeneous world；不要为了测 Surface 临时把它们裁成另一条 pipeline，否则所得数据不能作为 base baseline。
+
+1. 在 clean commit 上打开 Benchmark A、B、C。
+2. 确认 manifest/运行时 featureSet 包含 `hardware-visibility + single-material-resolve`，且不包含 optional R4-C `software-visibility` / hybrid。
+3. 保持 A/B/C 自己的 frozen role，不手工关闭用于定义该 case 的 Lighting/IBL。
+4. 分别打开已有 `MaterialId / Velocity / HistoryValidity / Reactive` debug view，检查它们读取同一 resolved Surface metadata/velocity。
+5. 每个 case 连续运行 `60 warm-up + 180 sample`，timestamp/counter 每 6 帧采样；需要人工观察时额外保持到 240 帧以上。
+6. 每个 case 至少做 3 次独立页面运行；以 run median 比较 P50/P95/P99，若只有 1/3 run 越线则记为噪声候选，2/3 同方向越线才判回归；结论不明确时扩到 5 次。
+7. profiler-off 总时间属于后续绝对性能冻结项；当前 harness 尚无 profiler-off profile 时必须明确记为 `not captured`，不得拿 sampled 总时间冒充。
 
 预期：
 - 一个 steady main submit；
 - graph warm 后 build/compile 为 0；
+- Single Material Resolve 仍只有一个 fullscreen draw；
+- Surface bytes/pixel 仍为 26；
 - `invalidVisibilityKeys=0`；
 - `queueOverflowMask=0`；
-- console/WebGPU diagnostics 为 0；
-- feature-off 的 pass/resource/history 不存在；
-- Surface debug 能区分 empty / valid / unlit / reactive / motion-invalid。
+- `gradientFallbackPixels` 只在既有已解释 fixture 出现；
+- console/WebGPU validation/uncaptured/device-lost 均为 0；
+- MaterialId debug 使用 16-bit resident material slot，颜色稳定；
+- motion-valid 像素 velocity 可用；motion-invalid 像素为 zero velocity + reactive；
+- R5-00 不引入新的 Lighting/Shadow/Temporal/Post pass，也不改变 B/C frozen role。
 
-保存：B/C `result.json`、graph dump、Surface debug 截图。
+保存：
+
+```text
+temp/r5/r5-00/<commit>/
+├─ environment.txt
+├─ benchmark-a-result.json
+├─ benchmark-b-result.json
+├─ benchmark-c-result.json
+├─ graph-a.json
+├─ graph-b.json
+├─ graph-c.json
+├─ counters-a.json
+├─ counters-b.json
+├─ counters-c.json
+├─ A|B|C/run-01..03/artifact.json
+├─ A|B|C/run-01..03/screenshot-material-id.png
+├─ A|B|C/run-01..03/screenshot-velocity.png
+├─ A|B|C/run-01..03/screenshot-history-validity.png
+└─ A|B|C/run-01..03/screenshot-reactive.png
+```
+
+`performance-targets.json` 不允许凭空填写。只在目标 adapter 上完成上述 clean baseline 采样后冻结绝对阈值；在此之前 R5-00 implementation 可以提交，但 Gate 状态只能是 `CONDITIONAL PASS`。完整基线和阈值复核完成后才标记 `R5-00 CLOSED → FX-01`。
 
 ---
 
 # FX-01 · Surface Debug + Background / G5-L 前置
+
+FX-01 只验证 R5-00 已冻结 ABI 的 GPU decode、background 和 debug consumer；若测试要求改变 attachment format、metadata packing 或 velocity convention，必须退回 R5-00 升级 ABI/version，不能在 FX-01 静默改约定。
 
 ## 自动测试用例
 
@@ -536,6 +615,15 @@ LPV/Brick4/NSS/SDF/volumetrics 等逐个作为独立 feature node 验收。
 
 没有明确 P50/P95 收益则 reject，不为了“pass 更少”合入。
 
+Texture evidence 同时必跑：
+- allocated/resident texture bytes；
+- resident/retiring/free layers 与 fallback；
+- sampled mip histogram 或等价的实际 mip 使用证据；
+- 每帧 texture upload bytes；
+- 固定 64-layer owner 与 size-class/按需候选的 same-device 对照。
+
+输出必须明确写 `keep fixed owner`、`adopt size classes` 或 `open mip-streaming task` 三者之一；没有 mip feedback 数据时不得选择第三项，也不得声明 streaming 已实现。
+
 ---
 
 # FX-12 · Legacy Deletion / G5-P
@@ -571,6 +659,7 @@ G5-P 目标：
 - Packed core 不再经过 legacy Material/Visibility/Shadow/Transparency work producer；
 - feature-off exact；
 - clean/full A/B/C + R5 axis sweeps；
+- texture resident/mip evidence 与明确 streaming 决策；
 - performance-targets 已填写目标机器绝对门槛。
 
 ---

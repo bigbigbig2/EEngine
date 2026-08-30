@@ -60,7 +60,7 @@ HW、Alpha 和可选 SW 路径输出同一 frame-local VisibilityKey 与 reverse
 
 ### Lighting / Temporal
 
-Clustered Lighting、IBL、CSM、Transparency/Decal、Temporal Reconstruction、Upscaling 和 Post 共用 Depth/HZB/Velocity/Surface。地形、植被、角色、云、水等项目通过这些稳定输入输出接入，不进入当前核心实现。
+Clustered Lighting、IBL、CSM、Transparency、Temporal Reconstruction、Upscaling 和 Post 共用 Depth/HZB/Velocity/Surface。Decal 只保留 receiver/material 接入 seam，当前未定义 producer/Gate 并延期；地形、植被、角色、云、水等项目通过这些稳定输入输出接入，不进入当前核心实现。
 
 ### FrameGraph
 

@@ -89,9 +89,11 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
   assert.match(VELOCITY_DEBUG_WGSL, /atan2/);
   assert.match(VELOCITY_DEBUG_WGSL, /length\(velocity\)/);
   assert.match(SURFACE_NORMAL_DEBUG_WGSL, /all\(encoded == vec2u\(0u\)\)/);
-  assert.match(SURFACE_FLAGS_DEBUG_WGSL, /packed & 0x00ffffffu/);
-  assert.match(SURFACE_FLAGS_DEBUG_WGSL, /flags & 2u/);
-  assert.match(SURFACE_FLAGS_DEBUG_WGSL, /flags & 4u/);
+  assert.match(SURFACE_FLAGS_DEBUG_WGSL, /oengine_surface_material_slot\(packed\)/);
+  assert.match(SURFACE_FLAGS_DEBUG_WGSL, /oengine_surface_flags\(packed\)/);
+  assert.match(SURFACE_FLAGS_DEBUG_WGSL, /OENGINE_SURFACE_FLAG_MOTION_VALID/);
+  assert.match(SURFACE_FLAGS_DEBUG_WGSL, /OENGINE_SURFACE_FLAG_REACTIVE/);
+  assert.doesNotMatch(SURFACE_FLAGS_DEBUG_WGSL, /0x00ffffffu|packed >> 24u/);
   for (const lookup of [
     "raster_work_slot >= raster_work_count",
     "work.visible_cluster_slot >= visible_cluster_count",

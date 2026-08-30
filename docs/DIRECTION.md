@@ -30,7 +30,7 @@ Compute Software Raster 是微三角形场景的 profile optimization。它在 H
 - GPU producer → GPU queue/indirect args → GPU consumer 闭环。
 - Hardware Visibility baseline、统一 VisibilityKey/Depth、单次 Standard PBR Material Resolve。
 - 经过 benchmark 证明有收益的 Compute Micro Raster 与 SW/HW Hybrid。
-- Clustered Lighting、IBL、现有 CSM、Transparency/Decal 接入 seam。
+- Clustered Lighting、IBL、现有 CSM 与 Transparency；保留 Decal 接入 seam，但其实现和 Gate 当前延期。
 - Velocity、Temporal Reconstruction、Dynamic Resolution、Upscaling 与 Post。
 - GPU timestamp、工作量计数、显存/瞬态内存、上传/readback 字节和固定 benchmark。
 

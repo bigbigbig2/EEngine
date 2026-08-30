@@ -113,12 +113,12 @@ test("R4-B shader performs the complete key lookup and one analytic-gradient mat
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /\bdpdx\b|\bdpdy\b/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /mat4_inverse|inverse\s*\(/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /instance\.previous_from_current/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /SURFACE_GRADIENT_FALLBACK \| SURFACE_REACTIVE/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= SURFACE_MOTION_VALID/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= SURFACE_NORMAL_TEXTURE/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= SURFACE_ORM_TEXTURE/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= SURFACE_EMISSIVE_TEXTURE/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= SURFACE_UNLIT/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK \| OENGINE_SURFACE_FLAG_REACTIVE/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= OENGINE_SURFACE_FLAG_MOTION_VALID/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= OENGINE_SURFACE_FLAG_NORMAL_TEXTURE/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= OENGINE_SURFACE_FLAG_ORM_TEXTURE/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= OENGINE_SURFACE_FLAG_EMISSIVE_TEXTURE/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= OENGINE_SURFACE_FLAG_UNLIT/);
   assert.match(
     PACKED_MATERIAL_RESOLVE_WGSL,
     /sampled_normal = vec3f\([\s\S]*sampled_normal\.xy \* material_info\.pbr_factors\.z,[\s\S]*sampled_normal\.z[\s\S]*\);/
@@ -129,7 +129,7 @@ test("R4-B shader performs the complete key lookup and one analytic-gradient mat
   );
   assert.match(
     PACKED_MATERIAL_RESOLVE_WGSL,
-    /output\.flags = \(visible\.material_handle & 0x00ffffffu\) \| \(surface_flags << 24u\)/
+    /output\.metadata = oengine_surface_pack\(visible\.material_handle, surface_flags\)/
   );
 });
 

@@ -2,7 +2,7 @@
 
 ## 阶段目标
 
-在统一 Visibility、Surface、Depth/HZB 和 Velocity 契约上，优先完成大量动态灯光、现有 CSM、Transparency/Decal、Temporal Reconstruction、Dynamic Resolution 和 Upscaling，再逐项接回其他后处理。所有功能属于同一 FrameGraph；关闭后不保留 Pass、资源、history、readback 或 submit。
+在统一 Visibility、Surface、Depth/HZB 和 Velocity 契约上，优先完成大量动态灯光、现有 CSM、Transparency、Temporal Reconstruction、Dynamic Resolution 和 Upscaling，再逐项接回其他后处理。所有功能属于同一 FrameGraph；关闭后不保留 Pass、资源、history、readback 或 submit。
 
 ## 非目标
 
@@ -11,6 +11,7 @@
 - 不为每个效果重复构建 depth、HZB、velocity、light list 或 exposure。
 - 不用 TAA/Bloom 掩盖基础 surface、visibility 或 lighting 错误。
 - 不在本阶段实现 VSM、ReSTIR/Lumen-like GI、地形/角色/粒子、云、水或大气专用路径。
+- Decal 没有当前目标 workload、producer/consumer ABI 和 Gate，本阶段明确延期；不得用 Transparency 或 Material Resolve 的存在代替 Decal 完成证据。
 - R4-C Software/Hybrid Visibility 是 optional performance track，不作为任何 G5 子 Gate 的前置。
 
 ## R5-00 · Contract / Baseline Freeze
@@ -33,6 +34,59 @@ Color Contract
 ├─ exposure/pre-exposure ownership
 └─ SDR/HDR output transform
 ```
+
+### R5-00 Surface ABI v1 精确冻结
+
+`OEngine/src/gpu/GpuSurfaceAbi.ts` 是 Surface format、metadata packing 与 velocity semantic 的唯一代码级 truth source。R4-B 遗留的 `surfaceFlags` / `PACKED_SURFACE_FLAGS_FORMAT` 名称暂作兼容别名；attachment 实际语义是 **Surface metadata**，不得再手写位移或 magic mask。
+
+| Attachment | Format | v1 semantic |
+|---|---|---|
+| Depth | `depth32float` | reverse-Z，empty/clear = `0` |
+| PBR | `rg8unorm` | `r = metallic`，`g = perceptual roughness` |
+| Normal | `rgba16uint` | `xy = encoded shading normal`，`zw = encoded geometric normal` |
+| Albedo/AO | `rgba8unorm` | `rgb = working-linear base color`，`a = ambient occlusion` |
+| Emissive | `r32uint` | RGB9E5，linear scene-referred |
+| Velocity | `rg16float` | internal pixel，`current - previous` |
+| Metadata | `r32uint` | low 16 bit material slot + high 16 bit flags |
+| HDR scene/debug color | `rgba16float` | working-linear HDR |
+
+Metadata v1：
+
+```text
+bits  0..15  resident MaterialRecord slot
+bits 16..31  Surface flags
+
+flag bit 0   valid
+flag bit 1   motion-valid
+flag bit 2   reactive
+flag bit 3   gradient-fallback
+flag bit 4   normal-texture
+flag bit 5   ORM-texture
+flag bit 6   emissive-texture
+flag bit 7   unlit
+flag bit 8..15 reserved
+```
+
+当前材质驻留容量为 `4096`，16-bit material slot 提供到 `65535` 的 ABI 余量；未来若突破该上限必须显式升级 Surface ABI，禁止截断。Velocity 使用调用方提供的 current/previous projection matrix，因此 projection jitter 若存在会包含在 velocity 中。previous homogeneous 与 previous clip 都只有 `w > epsilon` 才允许透视除法；非正 `w` 不能借 `abs(w)` 伪装成有效重投影。motion 无效时 v1 固定为 `velocity = 0`、`motion-valid = false`、`reactive = true`，Temporal consumer 必须拒绝或降权旧 history。
+
+R5-00 与 FX-01 的边界固定如下：R5-00 拥有 attachment format、metadata packing、velocity convention、现有 Resolve/Counter/Debug consumer 迁移和 A/B/C baseline artifact；FX-01 不再重新定义 ABI，只补 GPU 数值 readback、empty/background 行为和 Surface debug 可视验证。改变 format、bit layout 或 velocity convention 必须先升级 ABI/version，不能藏在 FX-01 的 debug 修复里。
+
+### Reactive v1 producer ownership
+
+`Reactive` 是各 owner 写入后按逻辑 OR 合并的保守标记；v1 不编码独立 reason bit，consumer 不得根据单一 bit 猜测来源。
+
+| 原因 | 写入 owner | R5-00/后续行为 |
+|---|---|---|
+| previous transform/clip 无效 | Packed Material Resolve | zero velocity，清 `MotionValid`，置 `Reactive` |
+| analytic gradient fallback | Packed Material Resolve | 置 `GradientFallback + Reactive` |
+| BLEND transparent contribution | FX-05 transparent composite | composite 时 OR 到 temporal reactive 输入；不回写 opaque Surface |
+| depth/normal/material disocclusion | FX-06 temporal classification | 从 current/history Surface 比较生成 history reject/confidence |
+| LOD transition | FX-06 temporal classification | affected pixels 降权或拒绝 history；不得全局永久 reactive |
+| texture/geometry re-resident | residency revision owner + FX-06 | v1 在 affected-pixel marker 完成前使用一次性保守 history revision invalidation；未来 streaming 必须补受影响像素标记 |
+
+材质/场景 revision 只能触发一次性 history epoch 变化，禁止每帧全局 invalid。透明、LOD 和 re-residency producer 尚未实现时，文档只定义 contract，不得声明这些 reactive case 已关闭。
+
+Color contract 在 R5-00 只冻结 ownership，不宣称 FX-09 已完成：Surface/base color 与 emissive 进入 working-linear/scene-referred 数据面；exposure/pre-exposure 只能由后续 exposure owner 处理；SDR/HDR output transform 只能发生在最终 output/present 阶段。
 
 同时：
 - R5 base A/B/C manifest 只列实际运行的 HW feature；optional `software-visibility` 从 base featureSet 移出；
@@ -150,7 +204,7 @@ off-state graph assertion
 
 ### FX-01 · Surface debug + Background
 
-先证明 Surface/Depth/Velocity 单独正确，背景处理 empty Visibility、HDR 色彩空间和 exposure 前值。没有这一步不进入复杂光照。
+消费 R5-00 已冻结的 Surface ABI，证明 Surface/Depth/Velocity 的 GPU 数值 decode 与 debug 正确，背景处理 empty Visibility、HDR 色彩空间和 exposure 前值。FX-01 不拥有 format/packing 重设计；没有这一步不进入复杂光照。
 
 ### FX-02 · LightTable 与 clustered direct lighting
 
@@ -205,6 +259,8 @@ LPV、Brick4、NSS、SDF、volumetrics、GI 或其他用户已有项目逐项以
 
 只有 timestamps/bandwidth 证明瓶颈后评估 resolve-lighting fusion、AO/SSR 共用 prefilter、半分辨率或 temporal reconstruction。每次实验保持输入输出语义与独立关闭能力。
 
+同时量化 texture owner 的 allocated/resident bytes、resident/retiring/free layer、实际采样 mip 分布、fallback 和每帧 upload。固定 `64 × 256² × 9 mip` owner 必须与 size-class/按需 residency 候选做同条件内存与 GPU time 对照；只有证据显示固定浪费或 mip 缺失达到目标门槛时才建立 streaming 任务。R5 不因“存在纹理数组”声明 mip streaming 已实现，也不在没有反馈数据时预先引入 streaming 复杂度。
+
 ### FX-12 · 删除旧旁路
 
 每恢复一个功能，删除旧 GBuffer、旧 visibility IDs、旧 MeshletDrawList、独立 HZB/velocity 和私有 submit 依赖。没有通过的新功能不默认回接旧链。
@@ -252,6 +308,6 @@ caster queue、tile/page allocation 和 dirty update 各自有 capacity/counter�
 - **G5-L**：Surface ABI、direct lighting、LightList/per-cluster overflow、B-shading IBL oracle 和 C-light sweep 通过。
 - **G5-S**：Packed CSM 与 Packed MBOIT Transparency 通过；shadow/transparent Packed consumer 不再依赖 legacy `MeshletDrawList`/per-material work producer。
 - **G5-T**：Temporal/DRS/Upscaling、AO、SSR 的 camera cut/resize/disocclusion/reactive sequence 通过；history owner/source-of-truth 闭合。
-- **G5-P**：Post/color pipeline、feature-off、legacy 删除、shader ownership、clean/full A/B/C + R5 axis sweeps、目标机器 `performance-targets.json` 通过。
+- **G5-P**：Post/color pipeline、feature-off、legacy 删除、shader ownership、clean/full A/B/C + R5 axis sweeps、texture resident/mip evidence 与 streaming 决策、目标机器 `performance-targets.json` 通过。
 
 G5-L/S/T/P 全部关闭后 R5 才能宣称完成。高级 GI、内容专用效果与 optional R4-C 不阻塞阶段退出。

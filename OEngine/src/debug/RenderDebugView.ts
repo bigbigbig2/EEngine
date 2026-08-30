@@ -91,7 +91,7 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     RenderDebugView.MaterialId,
     "Material ID",
     "supported",
-    "显示 R4-B SurfaceFlags 低 24 位 MaterialRecord handle"
+    "显示 Surface ABI v1 metadata 低 16 位 resident MaterialRecord slot"
   ),
   descriptor(RenderDebugView.BaseColor, "Base color", "supported", "显示线性 base color Surface 通道"),
   descriptor(RenderDebugView.ShadingNormal, "Shading normal", "supported", "显示解码后的切线空间法线结果"),
@@ -109,7 +109,7 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     RenderDebugView.HistoryValidity,
     "History validity",
     "supported",
-    "显示 R4-B SurfaceFlags motion-valid 与 reactive 状态"
+    "显示 Surface ABI v1 motion-valid 与 reactive 状态"
   ),
   descriptor(RenderDebugView.Reactive, "Reactive", "supported", "显示必须拒绝时域历史的像素")
 ] as const;

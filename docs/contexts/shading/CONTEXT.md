@@ -2,7 +2,7 @@
 
 ## 职责
 
-根据 VisibilityKey 重建 surface attributes，执行 Standard PBR、IBL、Clustered Lighting、CSM、Transparency/Decal、Temporal Reconstruction、Upscaling 和 Post。
+根据 VisibilityKey 重建 surface attributes，执行 Standard PBR、IBL、Clustered Lighting、CSM、Transparency、Temporal Reconstruction、Upscaling 和 Post；Decal 当前只保留接入 seam，implementation/Gate 延期。
 
 ## 约束
 

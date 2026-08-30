@@ -2,6 +2,7 @@ import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.j
 import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import {
   GPU_RASTER_WORK_SCHEMA,
@@ -16,6 +17,7 @@ ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_SURFACE_ABI_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.wgsl}
 ${GPU_RASTER_WORK_SCHEMA.wgsl}
@@ -274,15 +276,6 @@ fn packed_material_vs(@builtin(vertex_index) vertex_index: u32) -> @builtin(posi
   return vec4f(FULLSCREEN[vertex_index], 0.0, 1.0);
 }
 
-const SURFACE_VALID: u32 = 1u;
-const SURFACE_MOTION_VALID: u32 = 2u;
-const SURFACE_REACTIVE: u32 = 4u;
-const SURFACE_GRADIENT_FALLBACK: u32 = 8u;
-const SURFACE_NORMAL_TEXTURE: u32 = 16u;
-const SURFACE_ORM_TEXTURE: u32 = 32u;
-const SURFACE_EMISSIVE_TEXTURE: u32 = 64u;
-const SURFACE_UNLIT: u32 = 128u;
-
 fn material_sampler_class(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
   if slot == 0u { return material.sampler_class; }
   return (material.texture_sampler_classes >> ((slot - 1u) * 8u)) & 0xffu;
@@ -341,7 +334,7 @@ struct PackedMaterialOutput {
   @location(2) albedo: vec4f,
   @location(3) emissive: u32,
   @location(4) velocity: vec2f,
-  @location(5) flags: u32,
+  @location(5) metadata: u32,
 }
 
 @fragment
@@ -510,28 +503,28 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     output.emissive = rgbe9995_encode(albedo);
   }
   output.velocity = vec2f(0.0);
-  var surface_flags = SURFACE_VALID;
+  var surface_flags = OENGINE_SURFACE_FLAG_VALID;
   if (material_info.flags & OENGINE_MATERIAL_HAS_NORMAL_TEXTURE) != 0u {
-    surface_flags |= SURFACE_NORMAL_TEXTURE;
+    surface_flags |= OENGINE_SURFACE_FLAG_NORMAL_TEXTURE;
   }
   if (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u {
-    surface_flags |= SURFACE_ORM_TEXTURE;
+    surface_flags |= OENGINE_SURFACE_FLAG_ORM_TEXTURE;
   }
   if (material_info.flags & OENGINE_MATERIAL_HAS_EMISSIVE_TEXTURE) != 0u {
-    surface_flags |= SURFACE_EMISSIVE_TEXTURE;
+    surface_flags |= OENGINE_SURFACE_FLAG_EMISSIVE_TEXTURE;
   }
   if (material_info.flags & OENGINE_MATERIAL_UNLIT) != 0u {
-    surface_flags |= SURFACE_UNLIT;
+    surface_flags |= OENGINE_SURFACE_FLAG_UNLIT;
   }
   if bary.valid == 0u {
-    surface_flags |= SURFACE_GRADIENT_FALLBACK | SURFACE_REACTIVE;
+    surface_flags |= OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK | OENGINE_SURFACE_FLAG_REACTIVE;
   }
   if oengine_instance_motion_valid(instance) && bary.valid != 0u {
     let current_world = world0 * bary.weights.x + world1 * bary.weights.y + world2 * bary.weights.z;
     let previous_world_h = instance.previous_from_current * current_world;
-    if abs(previous_world_h.w) > 1e-8 {
+    if previous_world_h.w > 1e-8 {
       let previous_clip = previous_view_projection * vec4f(previous_world_h.xyz / previous_world_h.w, 1.0);
-      if abs(previous_clip.w) > 1e-8 {
+      if previous_clip.w > 1e-8 {
         let previous_ndc = previous_clip.xy / previous_clip.w;
         let resolution = vec2f(textureDimensions(visibility_keys));
         let previous_pixel = vec2f(
@@ -539,17 +532,17 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
           (1.0 - previous_ndc.y) * 0.5 * resolution.y
         );
         output.velocity = position.xy - previous_pixel;
-        surface_flags |= SURFACE_MOTION_VALID;
+        surface_flags |= OENGINE_SURFACE_FLAG_MOTION_VALID;
       } else {
-        surface_flags |= SURFACE_REACTIVE;
+        surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
       }
     } else {
-      surface_flags |= SURFACE_REACTIVE;
+      surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
     }
   } else {
-    surface_flags |= SURFACE_REACTIVE;
+    surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
   }
-  output.flags = (visible.material_handle & 0x00ffffffu) | (surface_flags << 24u);
+  output.metadata = oengine_surface_pack(visible.material_handle, surface_flags);
   return output;
 }
 `;

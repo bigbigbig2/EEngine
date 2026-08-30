@@ -252,7 +252,7 @@ function inputResourceIds(
     case RenderDebugViewValue.HistoryValidity:
     case RenderDebugViewValue.Reactive:
       if (resources.surfaceFlags === null) {
-        throw new Error(`RenderDebugViewPass requires R4-B SurfaceFlags for '${view}'`);
+        throw new Error(`RenderDebugViewPass requires Surface metadata for '${view}'`);
       }
       return [resources.surfaceFlags];
     default:

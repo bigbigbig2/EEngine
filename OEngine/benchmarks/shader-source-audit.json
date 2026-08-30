@@ -2250,7 +2250,6 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/VelocityPass.ts"
       ],
       "runtimeConsumers": [
@@ -2260,7 +2259,6 @@
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/VelocityPass.ts"
       ],
       "generatorCandidates": [],

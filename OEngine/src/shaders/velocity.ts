@@ -2,9 +2,10 @@
  * velocity：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
+import { GPU_SURFACE_FORMATS } from "../gpu/GpuSurfaceAbi.js";
 import { SCENE_DATABASE_READ_WGSL } from "../gpu/SceneDatabase.js";
 
-export const VELOCITY_FORMAT = "rg16float" as const;
+export const VELOCITY_FORMAT = GPU_SURFACE_FORMATS.velocity;
 export const VELOCITY_VIZ_INVALID = 1 << 24;
 export const VELOCITY_PREVIOUS_POSITION_INVALID = 0xffffffff;
 

@@ -101,7 +101,7 @@ R5-00 Contract/Baseline
 - 扩展 Clustered Lighting 到大量动态灯光，并冻结 attempted/written/capacity/overflow 与 conservative fallback。
 - 保留 CSM，优化多 Cascade work generation、稳定性和过滤质量。
 - IBL 与已有可迁移 GI 先形成基础间接光，不以高级 GI 阻塞阶段。
-- Transparency/Decal 接入统一 Depth/Surface/Lighting。
+- Transparency 接入统一 Depth/Surface/Lighting；Decal 因缺少当前 workload 与 ABI/Gate 明确延期。
 - Velocity、Temporal Reconstruction、Dynamic Resolution、Upscaling 和 Post。
 - Texture resident bytes/mip feedback；由显存证据决定是否增加 mip streaming。
 
@@ -114,5 +114,6 @@ R5-00 Contract/Baseline
 - Virtual Geometry、Virtual Shadow Map、Virtual Texture 全套系统。
 - 地形、植被、角色、粒子、云、海洋和大气专用 Renderer。
 - ReSTIR/Lumen-like GI、完整 Gameplay/ECS/Editor。
+- Decal（重新进入范围前必须先定义 projection/receiver ABI、material ownership 与 C-decal Gate）。
 
 这些内容保留研究资料和未来接入 seam，但不是当前阶段完成 Gate。

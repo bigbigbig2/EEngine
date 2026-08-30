@@ -27,7 +27,7 @@ A/B/C 必须驱动同一套 OEngine 主管线；只允许通过 manifest、场�
 
 - 多 geometry、多 material、alpha-tested、CSM、少量动态 transform、Packed instances。
 - 分别增加实例、Cluster、可见比例、活跃材质和灯光数量。
-- 补充大量动态灯光、Transparency/Decal、Temporal/Upscaling、resize、feature toggle 和 capability fallback 的 vertical cases；不能只测一个静态峰值场景。完整 asset lifecycle/device recovery 不属于当前产品性能 Gate。
+- 补充大量动态灯光、Transparency、Temporal/Upscaling、resize、feature toggle 和 capability fallback 的 vertical cases；不能只测一个静态峰值场景。Decal 当前延期，不计入 R5 Gate；完整 asset lifecycle/device recovery 不属于当前产品性能 Gate。
 
 ## 每组必须记录
 

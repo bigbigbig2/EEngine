@@ -164,4 +164,11 @@ Temporal/DRS 使用产品输出 profile + internal scale sweep。
 - 新画质 feature 必须有 off baseline 和 on 增量；
 - 只在 `performance-targets.json` 已填写目标机器绝对值后，才允许声称达到最终性能目标。
 
+噪声与重复规则：
+- 每个 baseline/candidate 至少各运行 3 个独立页面 session，不把同一 session 的 180 帧拆成 3 次实验；
+- 每个 session 先按原始 frame samples 计算 P50/P95/P99，再以 3 个 session 的中位数作为报告值；
+- 2/3 session 同方向越过 3%/5% 报警线才判定回归或收益；只有 1/3 越线标记为噪声候选并检查浏览器后台、温度、频率和 shader cache；
+- 中位数接近门槛或 P95 方向不一致时扩到 5 个 session，以 3/5 多数和 run median 复核；
+- exact gate 任一 session 失败都失败，不参与多数投票。
+
 这些百分比是回归报警线，不是最终产品帧预算；最终绝对数字由目标机器采样后冻结。

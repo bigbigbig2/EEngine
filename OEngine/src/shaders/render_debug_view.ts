@@ -9,6 +9,10 @@ import { GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
 import {
+  GPU_SURFACE_ABI_WGSL,
+  GPU_SURFACE_FORMATS
+} from "../gpu/GpuSurfaceAbi.js";
+import {
   GPU_VISIBILITY_DEBUG_COLORS,
   GPU_VISIBILITY_DEBUG_STATUS_WGSL
 } from "../gpu/GpuVisibilityDebugResolve.js";
@@ -21,7 +25,7 @@ import { VIS_MESH_CLEAR_SENTINEL } from "../render/VisibilityBufferContract.js";
 import { SSR_FULLSCREEN_VERTEX_WGSL } from "./ssr_common.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
-export const RENDER_DEBUG_VIEW_FORMAT = "rgba16float" as const;
+export const RENDER_DEBUG_VIEW_FORMAT = GPU_SURFACE_FORMATS.hdrColor;
 
 const DEBUG_VIEW_SETTINGS_WGSL = /* wgsl */ `
 struct DebugViewSettings {
@@ -151,15 +155,8 @@ ${GBUFFER_ENCODE_WGSL}
 
 export const SURFACE_FLAGS_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
-fn avalanche_hash(value_in: u32) -> u32 {
-  var value = value_in;
-  value ^= value >> 16u;
-  value *= 0x7feb352du;
-  value ^= value >> 15u;
-  value *= 0x846ca68bu;
-  value ^= value >> 16u;
-  return value;
-}
+${GPU_SURFACE_ABI_WGSL}
+${DEBUG_HASH_WGSL}
 struct SurfaceDebugMode { value: vec4u, }
 @group(0) @binding(0) var source: texture_2d<u32>;
 @group(0) @binding(1) var<uniform> settings: DebugViewSettings;
@@ -167,18 +164,21 @@ struct SurfaceDebugMode { value: vec4u, }
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
   let packed = textureLoad(source, coordinate, 0).r;
-  let flags = packed >> 24u;
-  if (flags & 1u) == 0u { return vec4f(0.0, 0.0, 0.0, 1.0); }
+  let material_slot = oengine_surface_material_slot(packed);
+  let flags = oengine_surface_flags(packed);
+  if (flags & OENGINE_SURFACE_FLAG_VALID) == 0u {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   if mode.value.x == 0u {
-    let hash = avalanche_hash(packed & 0x00ffffffu);
+    let hash = avalanche_hash(material_slot);
     return vec4f(0.15 + vec3f(
       f32(hash & 255u), f32((hash >> 8u) & 255u), f32((hash >> 16u) & 255u)
     ) / 255.0 * 0.65, 1.0);
   }
   if mode.value.x == 1u {
-    return select(vec4f(1.0, 0.1, 0.05, 1.0), vec4f(0.1, 1.0, 0.2, 1.0), (flags & 2u) != 0u);
+    return select(vec4f(1.0, 0.1, 0.05, 1.0), vec4f(0.1, 1.0, 0.2, 1.0), (flags & OENGINE_SURFACE_FLAG_MOTION_VALID) != 0u);
   }
-  return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0, 0.1, 0.05, 1.0), (flags & 4u) != 0u);
+  return select(vec4f(0.0, 0.0, 0.0, 1.0), vec4f(1.0, 0.1, 0.05, 1.0), (flags & OENGINE_SURFACE_FLAG_REACTIVE) != 0u);
 }
 `;
 
