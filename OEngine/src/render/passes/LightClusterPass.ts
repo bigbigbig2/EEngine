@@ -201,6 +201,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     }
   }
   if (cluster_index >= arrayLength(&lookup)) { return; }
+  if (active_list.written == 0u) {
+    add_counter(${counterByteOffset("clusterHistogram0") / 4}u, 1u);
+    return;
+  }
   let metadata = lookup[cluster_index];
   let fallback = (metadata.flags & 8u) != 0u;
   let clustered_count = metadata.point_count + metadata.spot_count;
@@ -300,6 +304,9 @@ export class LightClusterPass {
         encoder.clearBuffer(output, 0, 16);
         this.packSettings(passJob.camera, width, height);
         writeBuffer(context, this.device, settings, this.settingsData);
+        const activeLocalLightCount =
+          passJob.lights.pointLights.count + passJob.lights.spotLights.count;
+        if (activeLocalLightCount === 0) return;
         this.dispatchPagedList(
           encoder,
           this.pointListPipeline,
@@ -348,6 +355,7 @@ export class LightClusterPass {
         const activeLocalLightCount =
           passJob.lights.pointLights.count + passJob.lights.spotLights.count;
         this.lastLocalLightCount = activeLocalLightCount;
+        if (activeLocalLightCount === 0) return;
         const pipeline = this.hzbFilterPipeline;
         const database = requireGpuBuffer(resources.get(inputs.lightDatabase));
         const camera = requireGpuBuffer(resources.get(inputs.camera));
@@ -400,7 +408,7 @@ export class LightClusterPass {
     const assignBuilder = graph.add(
       "LightCluster/yh assign",
       job,
-      (_passJob, resources, context) => {
+      (passJob, resources, context) => {
         const encoder = requireGpuEncoder(context);
         const pipeline = this.assignPipeline;
         const camera = requireGpuBuffer(resources.get(inputs.camera));
@@ -410,6 +418,9 @@ export class LightClusterPass {
         const lookupBuffer = requireGpuBuffer(resources.get(lookup));
         const dataBuffer = requireGpuBuffer(resources.get(data));
         encoder.clearBuffer(dataBuffer, 0, 16);
+        const activeLocalLightCount =
+          passJob.lights.pointLights.count + passJob.lights.spotLights.count;
+        if (activeLocalLightCount === 0) return;
         const group0 = this.graphics.bind_groups.obtain({
           layout: LIGHT_CLUSTER_ASSIGN_GROUPS[0]!,
           entries: [

@@ -670,6 +670,9 @@ fn shade_standard_material_direct(
     );
     re_direct_physical(incident, geometry, material, &reflected);
   }
+  if (active_light_list.written == 0u) {
+    return reflected.diffuse + reflected.specular + material.emissive;
+  }
   let metadata = light_cluster_metadata_by_position(
     pixel, view_depth, vec2u(view.width, view.height)
   );

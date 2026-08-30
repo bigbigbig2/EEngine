@@ -111,6 +111,7 @@ test("FX-02 fallback consumes the bounded active list and cannot omit lights", (
 
 test("FX-02 production shader uses bounded headers and explicit cluster fallback", async () => {
   const source = await readFile(new URL("../src/shaders/light_cluster.ts", import.meta.url), "utf8");
+  const pass = await readFile(new URL("../src/render/passes/LightClusterPass.ts", import.meta.url), "utf8");
   assert.match(source, /attempted:\s*atomic<u32>/);
   assert.match(source, /written:\s*atomic<u32>/);
   assert.match(source, /capacity:\s*atomic<u32>/);
@@ -119,6 +120,8 @@ test("FX-02 production shader uses bounded headers and explicit cluster fallback
   assert.match(source, /CLUSTER_METADATA_FLAG_FALLBACK/);
   assert.doesNotMatch(source, /point_count\s*>=\s*128u\)\s*\{\s*continue/);
   assert.doesNotMatch(source, /spot_count\s*>=\s*128u\)\s*\{\s*continue/);
+  assert.match(pass, /if \(activeLocalLightCount === 0\) return;/);
+  assert.match(pass, /active_list\.written == 0u/);
 });
 
 test("FX-02 authored direct shader owns runtime and consumes Surface metadata", async () => {
@@ -130,6 +133,7 @@ test("FX-02 authored direct shader owns runtime and consumes Surface metadata", 
   assert.match(pass, /activeLightList:\s*ResourceId/);
   assert.match(shader, /OENGINE_SURFACE_FLAG_UNLIT/);
   assert.match(shader, /active_light_list\.written/);
+  assert.match(shader, /if \(active_light_list\.written == 0u\)/);
   assert.match(shader, /CLUSTER_METADATA_FLAG_FALLBACK/);
 });
 
