@@ -62,9 +62,25 @@ const { PACKED_MATERIAL_RESOLVE_WGSL } = await import(
   "../.test-dist/shaders/packed_material_resolve.js"
 );
 const {
+  DEPTH_DEBUG_WGSL,
   RENDER_DEBUG_VIEW_FORMAT,
-  SURFACE_FLAGS_DEBUG_WGSL
+  SURFACE_AO_DEBUG_WGSL,
+  SURFACE_COLOR_DEBUG_WGSL,
+  SURFACE_EMISSIVE_DEBUG_WGSL,
+  SURFACE_FLAGS_DEBUG_WGSL,
+  SURFACE_NORMAL_DEBUG_WGSL,
+  SURFACE_PBR_DEBUG_WGSL,
+  VELOCITY_DEBUG_WGSL
 } = await import("../.test-dist/shaders/render_debug_view.js");
+const { RenderDebugView } = await import(
+  "../.test-dist/debug/RenderDebugView.js"
+);
+const { FrameGraph } = await import(
+  "../.test-dist/framegraph/FrameGraph.js"
+);
+const { RenderDebugViewPass } = await import(
+  "../.test-dist/render/passes/RenderDebugViewPass.js"
+);
 const { PACKED_SURFACE_COUNTER_WGSL } = await import(
   "../.test-dist/render/passes/PackedSurfaceCounterPass.js"
 );
@@ -424,4 +440,158 @@ test("R5-00 browser evidence exposes the canonical Surface ABI for A/B/C", () =>
   assert.match(r4GateSource, /C:\s*0/);
   assert.match(pageSource, /__OENGINE_R5_00_GATE__/);
   assert.match(pageSource, /createR500GateArtifact/);
+});
+
+function decodeUnorm8(value) {
+  return value / 255;
+}
+
+function decodeOctahedralNormal(encodedX, encodedY) {
+  const signedX = encodedX / 65535 * 2 - 1;
+  const signedY = encodedY / 65535 * 2 - 1;
+  let x = signedX;
+  let y = signedY;
+  const z = 1 - Math.abs(signedX) - Math.abs(signedY);
+  const correction = Math.max(-z, 0);
+  x += x > 0 ? -correction : correction;
+  y += y > 0 ? -correction : correction;
+  const inverseLength = 1 / Math.hypot(x, y, z);
+  return [x * inverseLength, y * inverseLength, z * inverseLength];
+}
+
+function decodeRgb9e5(value) {
+  const scale = 2 ** (((value >>> 27) & 0x1f) - 15 - 9);
+  return [
+    value & 0x1ff,
+    (value >>> 9) & 0x1ff,
+    (value >>> 18) & 0x1ff
+  ].map((component) => component * scale);
+}
+
+test("FX-01 fixed Surface bytes decode metallic and perceptual roughness", () => {
+  const pbr = Uint8Array.of(64, 192);
+  assert.equal(decodeUnorm8(pbr[0]), 64 / 255);
+  assert.equal(decodeUnorm8(pbr[1]), 192 / 255);
+});
+
+test("FX-01 fixed octahedral normal bytes decode to unit length", () => {
+  const normal = decodeOctahedralNormal(49151, 32767);
+  assert.ok(Math.abs(Math.hypot(...normal) - 1) < 1e-7);
+  assert.ok(normal[0] > 0.7);
+  assert.ok(normal[2] > 0.7);
+});
+
+test("FX-01 fixed RGB9E5 emissive bytes decode in linear scene space", () => {
+  const packed = ((16 << 27) | (64 << 18) | (128 << 9) | 256) >>> 0;
+  assert.deepEqual(decodeRgb9e5(packed), [1, 0.5, 0.25]);
+});
+
+test("FX-01 unlit resolve is emissive-only and carries the exact Unlit bit", () => {
+  assert.match(
+    PACKED_MATERIAL_RESOLVE_WGSL,
+    /if is_unlit \{[\s\S]*output\.pbr = vec2f\(0\.0, 1\.0\);[\s\S]*output\.albedo = vec4f\(vec3f\(0\.0\), 1\.0\);[\s\S]*output\.emissive = rgbe9995_encode\(albedo\);[\s\S]*\}/
+  );
+  const packed = packGpuSurfaceMetadata(
+    9,
+    GPU_SURFACE_FLAGS.Valid | GPU_SURFACE_FLAGS.Unlit
+  );
+  assert.deepEqual(decodeGpuSurfaceMetadata(packed), {
+    materialSlot: 9,
+    flags: GPU_SURFACE_FLAGS.Valid | GPU_SURFACE_FLAGS.Unlit
+  });
+});
+
+test("FX-01 motion-valid and reactive remain exact independent metadata bits", () => {
+  const validMotion = packGpuSurfaceMetadata(
+    3,
+    GPU_SURFACE_FLAGS.Valid | GPU_SURFACE_FLAGS.MotionValid
+  );
+  const invalidMotion = packGpuSurfaceMetadata(
+    3,
+    GPU_SURFACE_FLAGS.Valid | GPU_SURFACE_FLAGS.Reactive
+  );
+  assert.equal(decodeGpuSurfaceMetadata(validMotion).flags, 0b0011);
+  assert.equal(decodeGpuSurfaceMetadata(invalidMotion).flags, 0b0101);
+  assert.equal(gpuSurfaceMetadataHasFlag(validMotion, GPU_SURFACE_FLAGS.Reactive), false);
+  assert.equal(gpuSurfaceMetadataHasFlag(invalidMotion, GPU_SURFACE_FLAGS.MotionValid), false);
+  assert.equal(gpuSurfaceMetadataHasFlag(invalidMotion, GPU_SURFACE_FLAGS.Reactive), true);
+});
+
+test("FX-01 reverse-Z empty depth is the deterministic zero background sentinel", () => {
+  assert.equal(GPU_SURFACE_DEPTH_CONVENTION.reverseZ, true);
+  assert.equal(GPU_SURFACE_DEPTH_CONVENTION.empty, 0);
+  assert.match(DEPTH_DEBUG_WGSL, /select\(0\.0,/);
+  assert.match(DEPTH_DEBUG_WGSL, /depth > 0\.0/);
+});
+
+test("FX-01 payload debug graph reads canonical metadata with every Surface payload", () => {
+  const pass = new RenderDebugViewPass({ device: {} });
+  const cases = [
+    [RenderDebugView.Velocity, "velocity"],
+    [RenderDebugView.BaseColor, "albedo"],
+    [RenderDebugView.ShadingNormal, "normal"],
+    [RenderDebugView.Metallic, "pbr"],
+    [RenderDebugView.Roughness, "pbr"],
+    [RenderDebugView.Occlusion, "albedo"],
+    [RenderDebugView.Emissive, "emissive"]
+  ];
+
+  for (const [view, payloadName] of cases) {
+    const graph = new FrameGraph(`FX-01 ${view}`);
+    const imported = Object.fromEntries([
+      "mesh", "triangle", "depth", "velocity", "pbr", "normal",
+      "albedo", "emissive", "metadata"
+    ].map((name) => [
+      name,
+      graph.import_resource(name, { kind: "imported", label: name }, {})
+    ]));
+    const resources = {
+      meshId: imported.mesh,
+      triangleId: imported.triangle,
+      visibilityKey: null,
+      packedVisibility: null,
+      depth: imported.depth,
+      velocity: imported.velocity,
+      gPbr: imported.pbr,
+      gNormal: imported.normal,
+      gAlbedo: imported.albedo,
+      gEmissive: imported.emissive,
+      surfaceFlags: imported.metadata
+    };
+    const output = pass.addToGraph(graph, view, resources, 64, 64);
+    const sink = graph.add("sink", {}, () => {});
+    sink.read(output);
+    sink.make_side_effect();
+    graph.compile();
+    assert.deepEqual(
+      graph.exportToJson().passes[0].reads,
+      [imported[payloadName], imported.metadata],
+      `${view} must read payload then metadata`
+    );
+  }
+});
+
+test("FX-01 payload shaders reject empty metadata before loading random Surface bytes", () => {
+  for (const [label, shader] of [
+    ["base color", SURFACE_COLOR_DEBUG_WGSL],
+    ["normal", SURFACE_NORMAL_DEBUG_WGSL],
+    ["PBR", SURFACE_PBR_DEBUG_WGSL],
+    ["AO", SURFACE_AO_DEBUG_WGSL],
+    ["emissive", SURFACE_EMISSIVE_DEBUG_WGSL],
+    ["velocity", VELOCITY_DEBUG_WGSL]
+  ]) {
+    assert.match(shader, /OENGINE_SURFACE_ABI_VERSION/, `${label} must use the canonical ABI`);
+    assert.match(shader, /surface_metadata:\s*texture_2d<u32>/, `${label} must bind metadata`);
+    const metadataLoad = shader.indexOf("textureLoad(surface_metadata");
+    const validGuard = shader.indexOf("OENGINE_SURFACE_FLAG_VALID", metadataLoad);
+    const payloadLoad = shader.indexOf("textureLoad(source", validGuard);
+    assert.ok(metadataLoad >= 0, `${label} must load metadata`);
+    assert.ok(validGuard > metadataLoad, `${label} must test Valid`);
+    assert.ok(payloadLoad > validGuard, `${label} must guard before payload load`);
+  }
+  assert.doesNotMatch(
+    SURFACE_NORMAL_DEBUG_WGSL,
+    /all\(encoded == vec2u\(0u\)\)/,
+    "zero octahedral bytes are valid when metadata says the Surface is valid"
+  );
 });

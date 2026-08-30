@@ -88,7 +88,9 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
   assert.match(DEPTH_DEBUG_WGSL, /pow\(clamp\(depth/);
   assert.match(VELOCITY_DEBUG_WGSL, /atan2/);
   assert.match(VELOCITY_DEBUG_WGSL, /length\(velocity\)/);
-  assert.match(SURFACE_NORMAL_DEBUG_WGSL, /all\(encoded == vec2u\(0u\)\)/);
+  assert.match(SURFACE_NORMAL_DEBUG_WGSL, /surface_metadata/);
+  assert.match(SURFACE_NORMAL_DEBUG_WGSL, /OENGINE_SURFACE_FLAG_VALID/);
+  assert.doesNotMatch(SURFACE_NORMAL_DEBUG_WGSL, /all\(encoded == vec2u\(0u\)\)/);
   assert.match(SURFACE_FLAGS_DEBUG_WGSL, /oengine_surface_material_slot\(packed\)/);
   assert.match(SURFACE_FLAGS_DEBUG_WGSL, /oengine_surface_flags\(packed\)/);
   assert.match(SURFACE_FLAGS_DEBUG_WGSL, /OENGINE_SURFACE_FLAG_MOTION_VALID/);

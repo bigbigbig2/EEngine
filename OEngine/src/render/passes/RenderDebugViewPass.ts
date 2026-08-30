@@ -71,32 +71,32 @@ export class RenderDebugViewPass {
         createPipeline(
           "Render debug/Velocity",
           VELOCITY_DEBUG_WGSL,
-          [floatTextureEntry(0), uniformEntry(1)]
+          [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)]
         )
       ],
       [
         RenderDebugViewValue.BaseColor,
-        createPipeline("Render debug/Base color", SURFACE_COLOR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/Base color", SURFACE_COLOR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)])
       ],
       [
         RenderDebugViewValue.ShadingNormal,
-        createPipeline("Render debug/Shading normal", SURFACE_NORMAL_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/Shading normal", SURFACE_NORMAL_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)])
       ],
       [
         RenderDebugViewValue.Metallic,
-        createPipeline("Render debug/Metallic", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+        createPipeline("Render debug/Metallic", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)])
       ],
       [
         RenderDebugViewValue.Roughness,
-        createPipeline("Render debug/Roughness", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+        createPipeline("Render debug/Roughness", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)])
       ],
       [
         RenderDebugViewValue.Occlusion,
-        createPipeline("Render debug/Occlusion", SURFACE_AO_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/Occlusion", SURFACE_AO_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)])
       ],
       [
         RenderDebugViewValue.Emissive,
-        createPipeline("Render debug/Emissive", SURFACE_EMISSIVE_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/Emissive", SURFACE_EMISSIVE_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)])
       ],
       [
         RenderDebugViewValue.MaterialId,
@@ -237,17 +237,17 @@ function inputResourceIds(
       if (resources.velocity === null) {
         throw new Error("RenderDebugViewPass requires a velocity resource");
       }
-      return [resources.velocity];
+      return [resources.velocity, requireSurfaceMetadata(view, resources)];
     case RenderDebugViewValue.BaseColor:
     case RenderDebugViewValue.Occlusion:
-      return [resources.gAlbedo];
+      return [resources.gAlbedo, requireSurfaceMetadata(view, resources)];
     case RenderDebugViewValue.ShadingNormal:
-      return [resources.gNormal];
+      return [resources.gNormal, requireSurfaceMetadata(view, resources)];
     case RenderDebugViewValue.Metallic:
     case RenderDebugViewValue.Roughness:
-      return [resources.gPbr];
+      return [resources.gPbr, requireSurfaceMetadata(view, resources)];
     case RenderDebugViewValue.Emissive:
-      return [resources.gEmissive];
+      return [resources.gEmissive, requireSurfaceMetadata(view, resources)];
     case RenderDebugViewValue.MaterialId:
     case RenderDebugViewValue.HistoryValidity:
     case RenderDebugViewValue.Reactive:
@@ -330,6 +330,16 @@ function debugMode(view: RenderDebugView): number | null {
     default:
       return null;
   }
+}
+
+function requireSurfaceMetadata(
+  view: RenderDebugView,
+  resources: RenderDebugViewResources
+): ResourceId {
+  if (resources.surfaceFlags === null) {
+    throw new Error(`RenderDebugViewPass requires Surface metadata for '${view}'`);
+  }
+  return resources.surfaceFlags;
 }
 
 function storageBufferEntry(binding: number): GPUBindGroupLayoutEntry {

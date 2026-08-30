@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>OEngine R5 FX-01 Surface Debug</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; background: #0b1017; color: #edf2f7; }
+      main { width: min(1280px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 48px; }
+      h1, h2 { margin: 0; }
+      h1 { font-size: 28px; }
+      h2 { font-size: 16px; }
+      .lead { color: #aab6c2; margin: 8px 0 18px; }
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 16px; align-items: start; }
+      .panel { border: 1px solid #364352; border-radius: 8px; background: #151c25; padding: 14px; }
+      #gpu-canvas { display: block; width: 100%; aspect-ratio: 4 / 3; background: #000; }
+      #micro-canvas { display: block; width: 100%; height: 54px; margin-top: 12px; image-rendering: pixelated; background: #000; }
+      .running { color: #f0c96b; }
+      .ok { color: #74d99f; }
+      .error { color: #ff8993; }
+      pre { margin: 12px 0 0; max-height: 680px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #cbd5df; font-size: 11px; }
+      button { margin-top: 12px; padding: 8px 12px; border: 0; border-radius: 6px; background: #8bc8ff; color: #07111b; cursor: pointer; }
+      button:disabled { opacity: .45; cursor: default; }
+      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>R5 FX-01 · Surface Debug + Background</h1>
+      <p class="lead">Production 2×3 packed material board plus production-WGSL GPU numeric readback.</p>
+      <div class="layout">
+        <section class="panel">
+          <canvas id="gpu-canvas" width="960" height="720"></canvas>
+          <canvas id="micro-canvas" width="20" height="1"></canvas>
+        </section>
+        <section class="panel">
+          <h2 id="status" class="running">Running FX-01 WebGPU validation...</h2>
+          <button id="download" type="button" disabled>Download JSON</button>
+          <pre id="result">Waiting for production Renderer and GPU readback evidence...</pre>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

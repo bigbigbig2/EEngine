@@ -92,14 +92,20 @@ const SURFACE_DEBUG_COMMON_WGSL = /* wgsl */ `
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${DEBUG_VIEW_SETTINGS_WGSL}
 ${DEBUG_VIEW_COORDINATE_WGSL}
+${GPU_SURFACE_ABI_WGSL}
 `;
 
 export const SURFACE_COLOR_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 @group(0) @binding(0) var source: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(1) var surface_metadata: texture_2d<u32>;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  let metadata = textureLoad(surface_metadata, coordinate, 0).r;
+  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   return vec4f(textureLoad(source, coordinate, 0).rgb, 1.0);
 }
 `;
@@ -108,11 +114,15 @@ export const SURFACE_NORMAL_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 ${GBUFFER_ENCODE_WGSL}
 @group(0) @binding(0) var source: texture_2d<u32>;
-@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(1) var surface_metadata: texture_2d<u32>;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  let metadata = textureLoad(surface_metadata, coordinate, 0).r;
+  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let encoded = textureLoad(source, coordinate, 0).xy;
-  if all(encoded == vec2u(0u)) { return vec4f(0.0, 0.0, 0.0, 1.0); }
   let normal = decode_g_buffer_normal(encoded);
   return vec4f(normal * 0.5 + 0.5, 1.0);
 }
@@ -122,10 +132,15 @@ export const SURFACE_PBR_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 struct SurfaceDebugMode { value: vec4u, }
 @group(0) @binding(0) var source: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
-@group(0) @binding(2) var<uniform> mode: SurfaceDebugMode;
+@group(0) @binding(1) var surface_metadata: texture_2d<u32>;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(3) var<uniform> mode: SurfaceDebugMode;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  let metadata = textureLoad(surface_metadata, coordinate, 0).r;
+  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let pbr = textureLoad(source, coordinate, 0);
   let value = select(pbr.x, pbr.y, mode.value.x == 1u);
   return vec4f(vec3f(value), 1.0);
@@ -135,9 +150,14 @@ struct SurfaceDebugMode { value: vec4u, }
 export const SURFACE_AO_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 @group(0) @binding(0) var source: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(1) var surface_metadata: texture_2d<u32>;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  let metadata = textureLoad(surface_metadata, coordinate, 0).r;
+  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   return vec4f(vec3f(textureLoad(source, coordinate, 0).a), 1.0);
 }
 `;
@@ -146,16 +166,20 @@ export const SURFACE_EMISSIVE_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 ${GBUFFER_ENCODE_WGSL}
 @group(0) @binding(0) var source: texture_2d<u32>;
-@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(1) var surface_metadata: texture_2d<u32>;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  let metadata = textureLoad(surface_metadata, coordinate, 0).r;
+  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   return vec4f(rgbe9995_decode(textureLoad(source, coordinate, 0).r), 1.0);
 }
 `;
 
 export const SURFACE_FLAGS_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
-${GPU_SURFACE_ABI_WGSL}
 ${DEBUG_HASH_WGSL}
 struct SurfaceDebugMode { value: vec4u, }
 @group(0) @binding(0) var source: texture_2d<u32>;
@@ -404,9 +428,11 @@ ${SSR_FULLSCREEN_VERTEX_WGSL}
 const PI: f32 = 3.141592653589793;
 
 ${DEBUG_VIEW_SETTINGS_WGSL}
+${GPU_SURFACE_ABI_WGSL}
 
-@group(0) @binding(0) var velocity_texture: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(1) var surface_metadata: texture_2d<u32>;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
 
 ${DEBUG_VIEW_COORDINATE_WGSL}
 
@@ -417,9 +443,13 @@ fn hue_to_rgb(hue: f32) -> vec3f {
 
 @fragment
 fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
-  let dimensions = textureDimensions(velocity_texture);
+  let dimensions = textureDimensions(source);
   let coordinate = source_coordinate(position.xy, dimensions);
-  let velocity = textureLoad(velocity_texture, coordinate, 0).rg /
+  let metadata = textureLoad(surface_metadata, coordinate, 0).r;
+  if !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  let velocity = textureLoad(source, coordinate, 0).rg /
     vec2f(max(dimensions, vec2u(1u)));
   let magnitude = clamp(length(velocity) * 100.0, 0.0, 1.0);
   let hue = (atan2(velocity.y, velocity.x) + PI) / (2.0 * PI);

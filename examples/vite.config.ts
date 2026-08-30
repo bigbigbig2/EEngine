@@ -90,6 +90,10 @@ export default defineConfig({
           examplesRoot,
           "r4-visibility-lifecycle/index.html"
         ),
+        r5SurfaceDebug: path.resolve(
+          examplesRoot,
+          "r5-surface-debug/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"
