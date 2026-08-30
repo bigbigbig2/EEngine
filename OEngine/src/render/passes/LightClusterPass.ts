@@ -230,6 +230,7 @@ export class LightClusterPass {
   private readonly assignPipeline: GPUComputePipeline;
   private readonly statsPipeline: GPUComputePipeline;
   private readonly settingsData = new ArrayBuffer(LIGHT_CLUSTER_SETTINGS_BYTES);
+  private readonly zeroLightHistogramData = new Uint32Array(1);
   private readonly inverseView = new Float32Array(16);
 
   lastClusterCount = 0;
@@ -479,6 +480,18 @@ export class LightClusterPass {
         null,
         (_statsJob, resources, context) => {
           const encoder = requireGpuEncoder(context);
+          if (localLightCount === 0) {
+            this.zeroLightHistogramData[0] = clusterCount;
+            writeBuffer(
+              context,
+              this.device,
+              requireGpuBuffer(resources.get(inputs.counters!)),
+              this.zeroLightHistogramData.buffer,
+              counterByteOffset("clusterHistogram0"),
+              "LightCluster/zero-light-stats"
+            );
+            return;
+          }
           const group = this.graphics.bind_groups.obtain({
             layout: LIGHT_CLUSTER_STATS_GROUPS[0]!,
             entries: [
@@ -653,12 +666,14 @@ function writeBuffer(
   context: FrameGraphContext,
   device: GPUDevice,
   buffer: GPUBuffer,
-  data: ArrayBuffer
+  data: ArrayBuffer,
+  bufferOffset = 0,
+  label = "LightCluster/settings"
 ): void {
   const command = context.encoder as ShadeGPUCommandContext | undefined;
   if (command && typeof command.writeBuffer === "function") {
-    command.writeBuffer(buffer, 0, data, 0, data.byteLength);
+    command.writeBuffer(buffer, bufferOffset, data, 0, data.byteLength);
   } else {
-    writeGpuBuffer(device.queue, "LightCluster/settings", buffer, 0, data);
+    writeGpuBuffer(device.queue, label, buffer, bufferOffset, data);
   }
 }
