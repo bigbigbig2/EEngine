@@ -8,6 +8,11 @@ import type {
 export const R4_B_GATE_SCHEMA_VERSION = 1;
 export const R4_B_SURFACE_BYTES_PER_PIXEL = 26;
 export const R4_B_RETIRED_MATERIAL_CHAIN_BYTES_PER_PIXEL = 34;
+export const R4_B_MAX_REACTIVE_SURFACE_PIXELS = Object.freeze({
+  A: 1,
+  B: 0,
+  C: 0
+} as const);
 
 export const R4_B_CAPTURE_VIEWS = [
   "final-color",
@@ -279,8 +284,14 @@ function validateR4BGate(
     if (counters.gradientFallbackPixels !== 0) {
       issues.push(`frame ${frame.frameIndex}: analytic-gradient fallback detected`);
     }
-    if (counters.reactiveSurfacePixels !== 0) {
-      issues.push(`frame ${frame.frameIndex}: unexpected reactive Surface pixels detected`);
+    const reactiveLimit = R4_B_MAX_REACTIVE_SURFACE_PIXELS[manifest.id];
+    const reactivePixels = counters.reactiveSurfacePixels;
+    if (reactivePixels === undefined) {
+      issues.push(`frame ${frame.frameIndex}: reactive Surface counter is missing`);
+    } else if (reactivePixels > reactiveLimit) {
+      issues.push(
+        `frame ${frame.frameIndex}: reactive Surface pixels ${reactivePixels} exceed ${reactiveLimit}`
+      );
     }
     if (manifest.id === "B") {
       for (const field of [

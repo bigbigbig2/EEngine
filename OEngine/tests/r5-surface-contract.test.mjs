@@ -397,6 +397,10 @@ test("R5-00 browser evidence exposes the canonical Surface ABI for A/B/C", () =>
     path.join(root, "../examples/benchmark-shared/R5SurfaceBrowserGate.ts"),
     "utf8"
   );
+  const r4GateSource = readFileSync(
+    path.join(root, "../examples/benchmark-shared/R4BBrowserGate.ts"),
+    "utf8"
+  );
   const pageSource = readFileSync(
     path.join(root, "../examples/benchmark-shared/BenchmarkPage.ts"),
     "utf8"
@@ -413,6 +417,11 @@ test("R5-00 browser evidence exposes the canonical Surface ABI for A/B/C", () =>
   assert.match(gateSource, /GPU_SURFACE_VELOCITY_CONVENTION/);
   assert.match(gateSource, /software-visibility/);
   assert.match(gateSource, /hybrid-visibility/);
+  assert.match(gateSource, /sameFeatureSet/);
+  assert.match(r4GateSource, /R4_B_MAX_REACTIVE_SURFACE_PIXELS/);
+  assert.match(r4GateSource, /A:\s*1/);
+  assert.match(r4GateSource, /B:\s*0/);
+  assert.match(r4GateSource, /C:\s*0/);
   assert.match(pageSource, /__OENGINE_R5_00_GATE__/);
   assert.match(pageSource, /createR500GateArtifact/);
 });

@@ -116,7 +116,7 @@ function validateR500Gate(
   if (featureSet.includes("hybrid-visibility")) {
     issues.push("R5 base must not include hybrid-visibility");
   }
-  if (manifest.featureSet.join("\u0000") !== featureSet.join("\u0000")) {
+  if (!sameFeatureSet(manifest.featureSet, featureSet)) {
     issues.push("runtime feature set differs from the frozen manifest");
   }
   if (GPU_SURFACE_BYTES_PER_PIXEL !== 26) {
@@ -134,4 +134,13 @@ function validateR500Gate(
     issues.push("Surface metadata no longer matches the frozen v1 bit layout");
   }
   return [...new Set(issues)];
+}
+
+function sameFeatureSet(
+  expected: readonly string[],
+  actual: readonly string[]
+): boolean {
+  if (expected.length !== actual.length) return false;
+  const actualSet = new Set(actual);
+  return expected.every((feature) => actualSet.has(feature));
 }

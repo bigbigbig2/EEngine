@@ -174,6 +174,7 @@ R5-00 **不改变 Benchmark A/B/C 的角色定义**。A 保持 160k hardware/hie
 - `invalidVisibilityKeys=0`；
 - `queueOverflowMask=0`；
 - `gradientFallbackPixels` 只在既有已解释 fixture 出现；
+- A 的近裁剪边缘允许每个 sampled frame 最多 `1` 个 reactive pixel，B/C 必须为 `0`；超过上限失败，不得把 reactive 全局放宽；
 - console/WebGPU validation/uncaptured/device-lost 均为 0；
 - MaterialId debug 使用 16-bit resident material slot，颜色稳定；
 - motion-valid 像素 velocity 可用；motion-invalid 像素为 zero velocity + reactive；

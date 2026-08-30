@@ -79,6 +79,8 @@ Metadata 保持 `r32uint` color attachment，不切换为 `rg16uint`，避免为
 
 预期 GPU phase 时间与显存带宽无实质变化，因为 attachment 数、格式和 Resolve draw count 不变。R5-00 clean A/B/C baseline 只允许无关回归阈值内波动，并保存同设备 P50/P95/P99；不能跨 GPU 计算百分比。
 
+A 的 160k 网格存在一个稳定近裁剪边缘像素；正 `w` motion contract 下 sampled counter 允许 `reactiveSurfacePixels <= 1`。B/C 仍要求为 `0`，A 超过 1 也失败；该例用于证明 fail-open 生效，不是放宽所有 reactive 错误。
+
 ## Fallback / failure
 
 - CPU pack 超出 `u16 materialSlot`、超出 `u16 flags` 或写 reserved v1 flags：立即抛错，不截断。
