@@ -38,7 +38,7 @@ export interface GpuMaterialVisibilityStage {
 }
 
 export interface GpuMaterialVisibilityEvidence {
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly abiVersion: number;
   readonly materialCapacity: number;
   readonly textureCapacity: number;
@@ -46,6 +46,8 @@ export interface GpuMaterialVisibilityEvidence {
   readonly retiringMaterialSlotCount: number;
   readonly freeMaterialSlotCount: number;
   readonly residentTextureCount: number;
+  readonly retiringTextureCount: number;
+  readonly freeTextureLayerCount: number;
   readonly textureFallbackCount: number;
   readonly samplerFallbackCount: number;
   readonly allocatedBytes: number;
@@ -56,15 +58,18 @@ export interface GpuMaterialVisibilityEvidence {
   readonly takeoverTask: null;
 }
 
-interface TextureTile {
-  readonly id: number;
+interface ResidentTexture {
+  readonly layer: number;
   readonly source: ShadeTexture;
+  refCount: number;
+  retireGeneration: number;
 }
 
 interface ResidentMaterial {
   readonly slot: number;
   refCount: number;
   retireGeneration: number;
+  textures: ResidentTexture[];
 }
 
 interface MaterialRetainOperation {
@@ -72,6 +77,20 @@ interface MaterialRetainOperation {
   readonly entry: ResidentMaterial;
   readonly created: boolean;
   readonly previousRetireGeneration: number;
+}
+
+interface TextureRetainOperation {
+  readonly entry: ResidentTexture;
+  readonly created: boolean;
+  readonly previousRetireGeneration: number;
+}
+
+interface MaterialTextureTransition {
+  readonly material: ResidentMaterial;
+  readonly previous: readonly ResidentTexture[];
+  readonly next: readonly ResidentTexture[];
+  readonly added: readonly TextureRetainOperation[];
+  readonly removed: readonly ResidentTexture[];
 }
 
 /**
@@ -83,9 +102,10 @@ export class GpuMaterialVisibilityTable {
   private readonly textureArray: GPUTexture;
   private readonly textureArrayView: GPUTextureView;
   private readonly textureDescriptor: GPUTextureDescriptor;
-  private readonly textures = new Map<ShadeTexture, TextureTile>();
+  private readonly textures = new Map<ShadeTexture, ResidentTexture>();
   private readonly residentMaterials = new Map<StandardShadeMaterial, ResidentMaterial>();
   private readonly freeMaterialSlots: number[] = [];
+  private readonly freeTextureLayers: number[] = [];
   private readonly textureFallbackMaterialIds = new Set<number>();
   private readonly samplerFallbackMaterialIds = new Set<number>();
   private resizePipeline: GPURenderPipeline | null = null;
@@ -131,6 +151,10 @@ export class GpuMaterialVisibilityTable {
     for (let slot = GPU_MATERIAL_VISIBILITY_CAPACITY - 1; slot >= 0; slot--) {
       this.freeMaterialSlots.push(slot);
     }
+    // Layer 0 remains the deterministic fallback/cleared layer.
+    for (let layer = GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 1; layer >= 1; layer--) {
+      this.freeTextureLayers.push(layer);
+    }
   }
 
   stage(
@@ -141,16 +165,19 @@ export class GpuMaterialVisibilityTable {
     const retainOperations = this.retainMaterialSlots(materials);
     const materialSlots = retainOperations.map(({ entry }) => entry.slot);
     const textureRefs = new Map<ShadeTexture, number>();
-    const pendingTextures: ShadeTexture[] = [];
-    const newTiles: TextureTile[] = [];
+    const textureTransitions: MaterialTextureTransition[] = [];
+    const newTextures: ResidentTexture[] = [];
     const previousFallbacks: Array<readonly [number, boolean, boolean]> = [];
     let rolledBack = false;
     const rollback = (): void => {
       if (rolledBack) return;
       rolledBack = true;
-      for (let index = newTiles.length - 1; index >= 0; index--) {
-        const tile = newTiles[index]!;
-        if (this.textures.get(tile.source) === tile) this.textures.delete(tile.source);
+      for (let index = textureTransitions.length - 1; index >= 0; index--) {
+        const transition = textureTransitions[index]!;
+        transition.material.textures = [...transition.previous];
+        for (let addedIndex = transition.added.length - 1; addedIndex >= 0; addedIndex--) {
+          this.rollbackTextureRetain(transition.added[addedIndex]!);
+        }
       }
       for (let index = previousFallbacks.length - 1; index >= 0; index--) {
         const [materialId, textureFallback, samplerFallback] = previousFallbacks[index]!;
@@ -171,37 +198,25 @@ export class GpuMaterialVisibilityTable {
     };
     command.onAborted.addOne(rollback);
     try {
-      for (const material of materials) {
-        for (const texture of material.textures) {
-          const existing = this.textures.get(texture);
-          if (existing !== undefined) {
-            textureRefs.set(texture, existing.id);
-            continue;
-          }
-          if (canStageTexture(texture)) pendingTextures.push(texture);
+      const transitioned = new Set<ResidentMaterial>();
+      for (let index = 0; index < materials.length; index++) {
+        const resident = retainOperations[index]!.entry;
+        if (transitioned.has(resident)) continue;
+        transitioned.add(resident);
+        const transition = this.transitionMaterialTextures(resident, materials[index]!);
+        textureTransitions.push(transition);
+        for (const operation of transition.added) {
+          if (operation.created) newTextures.push(operation.entry);
         }
       }
-      const uniquePending = [...new Set(pendingTextures)];
-      const available = GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - this.textures.size;
-      const accepted = uniquePending.slice(0, Math.max(0, available));
-      for (const texture of accepted) {
-        try {
-          this.graphics.textures.obtain(texture);
-        } catch {
-          continue;
-        }
-        const tile = Object.freeze({ id: this.textures.size, source: texture });
-        this.textures.set(texture, tile);
-        newTiles.push(tile);
-        textureRefs.set(texture, tile.id);
+      for (const entry of this.textures.values()) {
+        if (entry.refCount > 0) textureRefs.set(entry.source, entry.layer);
       }
       this.graphics.textures.mipmaps.flush(command);
-      for (const texture of accepted) {
-        const tile = this.textures.get(texture);
-        if (tile === undefined) continue;
-        this.encodeResizeCopy(command, tile);
+      for (const texture of newTextures) {
+        this.encodeResizeCopy(command, texture);
       }
-      if (accepted.length > 0) {
+      if (newTextures.length > 0) {
         this.graphics.textures.mipmaps.generateMipmap(
           this.textureArray,
           this.textureDescriptor,
@@ -216,7 +231,7 @@ export class GpuMaterialVisibilityTable {
         const textureRef = (texture: ShadeTexture | undefined): number =>
           texture === undefined
             ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
-            : textureRefs.get(texture) ?? this.textures.get(texture)?.id ??
+            : textureRefs.get(texture) ??
               GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
         const source = materialVisibilitySource(material, {
           baseColor: textureRef(material.texture_albedo),
@@ -240,6 +255,11 @@ export class GpuMaterialVisibilityTable {
         writeSet(this.textureFallbackMaterialIds, materialSlot, source.textureFallback);
         writeSet(this.samplerFallbackMaterialIds, materialSlot, source.samplerFallback);
       }
+      command.onFinished.addOne(() => {
+        for (const transition of textureTransitions) {
+          this.releaseTextureRefs(transition.removed, command.gpuDone);
+        }
+      });
       return Object.freeze({
         bindings: this.bindings(),
         materialSlots: Object.freeze(materialSlots)
@@ -273,6 +293,9 @@ export class GpuMaterialVisibilityTable {
         this.textureFallbackMaterialIds.delete(entry.slot);
         this.samplerFallbackMaterialIds.delete(entry.slot);
         const generation = ++entry.retireGeneration;
+        const textures = entry.textures;
+        entry.textures = [];
+        this.releaseTextureRefs(textures, command.gpuDone);
         const retire = (): void => this.retireMaterialSlot(material, entry, generation);
         void command.gpuDone.then(retire, retire);
       }
@@ -297,15 +320,23 @@ export class GpuMaterialVisibilityTable {
       if (entry.refCount > 0) residentMaterialSlotCount++;
       else retiringMaterialSlotCount++;
     }
+    let residentTextureCount = 0;
+    let retiringTextureCount = 0;
+    for (const entry of this.textures.values()) {
+      if (entry.refCount > 0) residentTextureCount++;
+      else retiringTextureCount++;
+    }
     return Object.freeze({
-      schemaVersion: 3,
+      schemaVersion: 4,
       abiVersion: GPU_MATERIAL_VISIBILITY_ABI_VERSION,
       materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
       textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
       residentMaterialSlotCount,
       retiringMaterialSlotCount,
       freeMaterialSlotCount: this.freeMaterialSlots.length,
-      residentTextureCount: this.textures.size,
+      residentTextureCount,
+      retiringTextureCount,
+      freeTextureLayerCount: this.freeTextureLayers.length,
       textureFallbackCount: this.textureFallbackMaterialIds.size,
       samplerFallbackCount: this.samplerFallbackMaterialIds.size,
       allocatedBytes:
@@ -326,6 +357,7 @@ export class GpuMaterialVisibilityTable {
     this.textures.clear();
     this.residentMaterials.clear();
     this.freeMaterialSlots.length = 0;
+    this.freeTextureLayers.length = 0;
     this.textureFallbackMaterialIds.clear();
     this.samplerFallbackMaterialIds.clear();
     this.resizePipeline = null;
@@ -333,6 +365,7 @@ export class GpuMaterialVisibilityTable {
 
   private preflight(materials: readonly StandardShadeMaterial[]): void {
     const newMaterials = new Set<StandardShadeMaterial>();
+    const newTextures = new Set<ShadeTexture>();
     for (const material of materials) {
       if (material.base_color_uv_set !== 0 && material.base_color_uv_set !== 1) {
         throw new RangeError(
@@ -341,11 +374,20 @@ export class GpuMaterialVisibilityTable {
         );
       }
       if (!this.residentMaterials.has(material)) newMaterials.add(material);
+      for (const texture of material.textures) {
+        if (canStageTexture(texture) && !this.textures.has(texture)) newTextures.add(texture);
+      }
     }
     if (newMaterials.size > this.freeMaterialSlots.length) {
       throw new RangeError(
         `R4-B material residency requires ${newMaterials.size} new slots but only ` +
         `${this.freeMaterialSlots.length} of ${GPU_MATERIAL_VISIBILITY_CAPACITY} are free`
+      );
+    }
+    if (newTextures.size > this.freeTextureLayers.length) {
+      throw new RangeError(
+        `R4-B texture residency requires ${newTextures.size} new layers but only ` +
+        `${this.freeTextureLayers.length} of ${GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 1} are free`
       );
     }
   }
@@ -360,7 +402,7 @@ export class GpuMaterialVisibilityTable {
       if (entry === undefined) {
         const slot = this.freeMaterialSlots.pop();
         if (slot === undefined) throw new RangeError("R4-B material resident slot overflow");
-        entry = { slot, refCount: 0, retireGeneration: 0 };
+        entry = { slot, refCount: 0, retireGeneration: 0, textures: [] };
         this.residentMaterials.set(material, entry);
         created = true;
       }
@@ -385,9 +427,87 @@ export class GpuMaterialVisibilityTable {
     this.freeMaterialSlots.push(entry.slot);
   }
 
+  private transitionMaterialTextures(
+    resident: ResidentMaterial,
+    material: StandardShadeMaterial
+  ): MaterialTextureTransition {
+    const desired = [...new Set(material.textures)];
+    const previous = resident.textures;
+    const previousSet = new Set(previous.map(({ source }) => source));
+    const desiredSet = new Set(desired);
+    const next: ResidentTexture[] = [];
+    const added: TextureRetainOperation[] = [];
+    for (const texture of desired) {
+      const current = this.textures.get(texture);
+      if (current !== undefined && previousSet.has(texture)) {
+        next.push(current);
+        continue;
+      }
+      const operation = this.retainTexture(texture);
+      if (operation === null) continue;
+      added.push(operation);
+      next.push(operation.entry);
+    }
+    const removed = previous.filter(({ source }) => !desiredSet.has(source));
+    resident.textures = next;
+    return { material: resident, previous, next, added, removed };
+  }
+
+  private retainTexture(texture: ShadeTexture): TextureRetainOperation | null {
+    if (!canStageTexture(texture)) return null;
+    let entry = this.textures.get(texture);
+    let created = false;
+    if (entry === undefined) {
+      try {
+        this.graphics.textures.obtain(texture);
+      } catch {
+        return null;
+      }
+      const layer = this.freeTextureLayers.pop();
+      if (layer === undefined) throw new RangeError("R4-B texture resident layer overflow");
+      entry = { layer, source: texture, refCount: 0, retireGeneration: 0 };
+      this.textures.set(texture, entry);
+      created = true;
+    }
+    const previousRetireGeneration = entry.retireGeneration;
+    if (!created && entry.refCount === 0) entry.retireGeneration++;
+    entry.refCount++;
+    return { entry, created, previousRetireGeneration };
+  }
+
+  private rollbackTextureRetain(operation: TextureRetainOperation): void {
+    const entry = operation.entry;
+    entry.refCount--;
+    entry.retireGeneration = operation.previousRetireGeneration;
+    if (!operation.created || entry.refCount !== 0) return;
+    if (this.textures.get(entry.source) === entry) this.textures.delete(entry.source);
+    this.freeTextureLayers.push(entry.layer);
+  }
+
+  private releaseTextureRefs(
+    textures: readonly ResidentTexture[],
+    gpuDone: Promise<void>
+  ): void {
+    for (const entry of textures) {
+      entry.refCount--;
+      if (entry.refCount < 0) throw new Error("R4-B texture resident refcount underflow");
+      if (entry.refCount !== 0) continue;
+      const generation = ++entry.retireGeneration;
+      const retire = (): void => this.retireTextureLayer(entry, generation);
+      void gpuDone.then(retire, retire);
+    }
+  }
+
+  private retireTextureLayer(entry: ResidentTexture, generation: number): void {
+    if (this.destroyed || entry.refCount !== 0 || entry.retireGeneration !== generation) return;
+    if (this.textures.get(entry.source) !== entry) return;
+    this.textures.delete(entry.source);
+    this.freeTextureLayers.push(entry.layer);
+  }
+
   private encodeResizeCopy(
     command: ShadeGPUCommandContext,
-    tile: TextureTile
+    tile: ResidentTexture
   ): void {
     const source = this.graphics.textures.obtain(tile.source);
     const sourceMip = Math.max(0, Math.floor(Math.min(
@@ -415,7 +535,7 @@ export class GpuMaterialVisibilityTable {
           dimension: "2d",
           baseMipLevel: 0,
           mipLevelCount: 1,
-          baseArrayLayer: tile.id,
+          baseArrayLayer: tile.layer,
           arrayLayerCount: 1
         }),
         loadOp: "load",

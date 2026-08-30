@@ -39,7 +39,7 @@ test("R4-B Material owner assigns dense slots independent of global material.id 
   assert.equal(new DataView(command.writes[0].bytes.buffer).getUint32(0, true), 0);
   assert.equal(command.renderPassCount, 1);
   assert.deepEqual(table.evidence(), {
-    schemaVersion: 3,
+    schemaVersion: 4,
     abiVersion: 2,
     materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
     textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
@@ -47,6 +47,8 @@ test("R4-B Material owner assigns dense slots independent of global material.id 
     retiringMaterialSlotCount: 0,
     freeMaterialSlotCount: GPU_MATERIAL_VISIBILITY_CAPACITY - 1,
     residentTextureCount: 1,
+    retiringTextureCount: 0,
+    freeTextureLayerCount: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 2,
     textureFallbackCount: 0,
     samplerFallbackCount: 0,
     allocatedBytes: 22_893_824,
@@ -62,10 +64,76 @@ test("R4-B Material owner assigns dense slots independent of global material.id 
   assert.equal(table.evidence().residentMaterialSlotCount, 0);
   assert.equal(table.evidence().freeMaterialSlotCount, GPU_MATERIAL_VISIBILITY_CAPACITY);
   assert.equal(table.evidence().residentTextureCount, 0);
+  assert.equal(
+    table.evidence().freeTextureLayerCount,
+    GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 1
+  );
 
   table.destroy();
   assert.equal(graphics.buffers[0].destroyCount, 1);
   assert.equal(graphics.texturesCreated[0].destroyCount, 1);
+});
+
+test("R4-B Texture owner refcounts shared layers and reuses them only after GPU completion", async () => {
+  const graphics = fakeGraphics();
+  const table = new GpuMaterialVisibilityTable(graphics);
+  const sharedTexture = validTexture();
+  const a = new StandardShadeMaterial();
+  const b = new StandardShadeMaterial();
+  a.texture_albedo = sharedTexture;
+  b.texture_normal = sharedTexture;
+
+  const stage = new FakeCommand();
+  table.stage([a, b], stage);
+  const sharedLayer = textureRef(stage.writes[0]);
+  assert.equal(sharedLayer, 1);
+  stage.finish();
+  assert.equal(table.evidence().residentTextureCount, 1);
+  assert.equal(table.evidence().retiringTextureCount, 0);
+  assert.equal(
+    table.evidence().freeTextureLayerCount,
+    GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 2
+  );
+
+  const releaseA = new FakeCommand();
+  table.release([a], releaseA);
+  releaseA.finish();
+  await Promise.resolve();
+  assert.equal(table.evidence().residentTextureCount, 1);
+
+  const completion = deferred();
+  const releaseB = new FakeCommand(completion.promise);
+  table.release([b], releaseB);
+  releaseB.finish();
+  assert.equal(table.evidence().residentTextureCount, 0);
+  assert.equal(table.evidence().retiringTextureCount, 1);
+  assert.equal(
+    table.evidence().freeTextureLayerCount,
+    GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 2
+  );
+
+  const whileRetiring = new StandardShadeMaterial();
+  whileRetiring.texture_albedo = validTexture();
+  const whileRetiringStage = new FakeCommand();
+  table.stage([whileRetiring], whileRetiringStage);
+  assert.notEqual(textureRef(whileRetiringStage.writes[0]), sharedLayer);
+  whileRetiringStage.finish();
+
+  completion.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(table.evidence().retiringTextureCount, 0);
+  assert.equal(
+    table.evidence().freeTextureLayerCount,
+    GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 2
+  );
+
+  const reused = new StandardShadeMaterial();
+  reused.texture_albedo = validTexture();
+  const reusedStage = new FakeCommand();
+  table.stage([reused], reusedStage);
+  assert.equal(textureRef(reusedStage.writes[0]), sharedLayer);
+  table.destroy();
 });
 
 test("R4-B Material owner refcounts shared residency and reuses slots only after GPU completion", async () => {
@@ -258,4 +326,9 @@ function validTexture() {
   image.color_space = 0;
   image.normalized = true;
   return ShadeTexture.from(image);
+}
+
+function textureRef(write) {
+  return new DataView(write.bytes.buffer, write.bytes.byteOffset, write.bytes.byteLength)
+    .getUint32(12, true);
 }

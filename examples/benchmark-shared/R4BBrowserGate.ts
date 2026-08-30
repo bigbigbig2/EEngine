@@ -34,6 +34,8 @@ export interface R4BMaterialEvidence {
   retiringMaterialSlotCount: number;
   freeMaterialSlotCount: number;
   residentTextureCount: number;
+  retiringTextureCount: number;
+  freeTextureLayerCount: number;
   textureFallbackCount: number;
   samplerFallbackCount: number;
   allocatedBytes: number;
@@ -202,8 +204,31 @@ function validateR4BGate(
   if (materialEvidence === null) {
     issues.push("Material/Texture residency evidence is missing");
   } else {
+    if (materialEvidence.schemaVersion !== 4) {
+      issues.push("Material/Texture residency evidence schema must be v4");
+    }
     if (materialEvidence.residentMaterialSlotCount !== expectedMaterials) {
       issues.push("resident MaterialRecord slot count differs from the manifest");
+    }
+    if (materialEvidence.retiringMaterialSlotCount !== 0) {
+      issues.push("MaterialRecord slots are still retiring after the benchmark");
+    }
+    if (
+      materialEvidence.residentMaterialSlotCount +
+      materialEvidence.retiringMaterialSlotCount +
+      materialEvidence.freeMaterialSlotCount !== materialEvidence.materialCapacity
+    ) {
+      issues.push("MaterialRecord resident/retiring/free accounting is inconsistent");
+    }
+    if (materialEvidence.retiringTextureCount !== 0) {
+      issues.push("texture layers are still retiring after the benchmark");
+    }
+    if (
+      materialEvidence.residentTextureCount +
+      materialEvidence.retiringTextureCount +
+      materialEvidence.freeTextureLayerCount !== materialEvidence.textureCapacity - 1
+    ) {
+      issues.push("texture resident/retiring/free accounting must reserve fallback layer zero");
     }
     if (materialEvidence.textureFallbackCount !== 0) {
       issues.push("texture residency fallback was observed");

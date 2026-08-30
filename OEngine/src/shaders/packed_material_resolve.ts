@@ -478,6 +478,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     vec4f(1.0)
   );
   let albedo = albedo_sample.rgb * vertex_color * material_info.base_color_factor.rgb;
+  let is_unlit = (material_info.flags & OENGINE_MATERIAL_UNLIT) != 0u;
   let ambient = select(
     1.0,
     mix(1.0, orm.r, material_info.pbr_factors.w),
@@ -496,6 +497,15 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   );
   output.albedo = vec4f(albedo, ambient);
   output.emissive = rgbe9995_encode(emissive_sample.rgb * material_info.emissive_factor.rgb);
+  if is_unlit {
+    output.pbr = vec2f(0.0, 1.0);
+    output.normal = vec4u(
+      encode_g_buffer_normal(shading_normal),
+      encode_g_buffer_normal(geometric_normal)
+    );
+    output.albedo = vec4f(vec3f(0.0), 1.0);
+    output.emissive = rgbe9995_encode(albedo);
+  }
   output.velocity = vec2f(0.0);
   var surface_flags = SURFACE_VALID;
   if (material_info.flags & OENGINE_MATERIAL_HAS_NORMAL_TEXTURE) != 0u {

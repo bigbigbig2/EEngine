@@ -12,7 +12,7 @@
 
 `R4-B-01..06`、`R4-B-09` 已于 2026-08-28 集成，`R4-B-07/08` 按条件任务跳过，Packed 范围的 `R4-B-10` 已关闭。生产 Packed 主链现在只写 `VisibilityKey + depth`，随后由一次 `PackedMaterialResolvePass` 输出 Standard PBR Surface 与 velocity；active material 数不再增加 fullscreen draw。
 
-冻结结果：`MaterialRecord v2` 为 128 B；有界纹理 residency 为 64-layer、`256×256`、9-mip `texture_2d_array`；Surface 为 26 B/pixel；`GPU_COUNTER_SCHEMA_VERSION=4`。Packed Material Expand、Packed Velocity 与旧 auxiliary MRT 已删除。普通 `Scene` 的 legacy `MaterialExpandPass/VelocityPass` 因仍有公开 consumer 而保留为惰性路径，Packed 帧不创建其 owner、Pass 或资源，最终类级删除归 `FX-12`。
+冻结结果：`MaterialRecord v2` 为 128 B；有界纹理 residency 为 64-layer、`256×256`、9-mip `texture_2d_array`，其中 layer 0 固定为 deterministic fallback，layer 1..63 是 63 个可驻留层；Surface 为 26 B/pixel；`GPU_COUNTER_SCHEMA_VERSION=4`。Packed Material Expand、Packed Velocity 与旧 auxiliary MRT 已删除。普通 `Scene` 的 legacy `MaterialExpandPass/VelocityPass` 因仍有公开 consumer 而保留为惰性路径，Packed 帧不创建其 owner、Pass 或资源，最终类级删除归 `FX-12`。
 
 ## 非目标
 
@@ -105,6 +105,7 @@ glTF 2.0 冻结字段语义；Filament、glTF Sample Viewer 和 three.js IBL bas
 - 只接受 `TEXCOORD_0/1`。任一已使用纹理的 texCoord、offset、scale 或 rotation 与共享映射不同，必须在进入 GPU residency 前明确拒绝，禁止静默按 baseColor UV 采样其它纹理。
 - Packed Material Resolve 根据 `MaterialRecord.uv_set` 选择 Geometry GPU ABI 的 UV0/UV1 descriptor，并保持同一套 analytic `dUVdx/dUVdy` 与 `textureSampleGrad` 路径。
 - 后续若真实 B/C 资产要求 per-texture mapping，必须先扩展并重新冻结 MaterialRecord/TextureRef ABI、resident bytes、lookup/branch 成本和浏览器 Gate；不能在 Shader 中增加未登记旁表。
+- `occlusionTexture` v2 只允许与 `metallicRoughnessTexture` 共用同一个 glTF texture index；没有 metallic-roughness texture 或使用 separate occlusion texture 都在 loader 阶段显式拒绝，不能警告后继续采错通道。
 
 ## WebGPU 有界纹理访问
 
@@ -134,6 +135,13 @@ invalid/fallback state
 - over-capacity 是拒绝、拆分 resident set 还是明确 fallback。
 
 The Forge 的 native descriptor/resource arrays 只提供组织参考，不能直接当作 WebGPU `texture_2d_array` 实现。v1 全驻留超过明确上限时拒绝或缩小资源集，不静默采错纹理，也不恢复 per-material bind group 主链。
+
+当前 texture owner 的 lifecycle contract：
+
+- 同一 `ShadeTexture` 在多个 MaterialRecord 间共享一个 layer，并由引用计数持有；材质换纹理时先 retain 新层，旧层绑定到本次 owning command 的完成点释放。
+- 最后引用释放后 layer 进入 retiring；在对应 `gpuDone` settle 前既不能归还 free-list，也不能被其它纹理覆盖。重新 retain 会用 generation 取消旧退休回调。
+- stage abort 回滚本次新增 retain、材质到纹理集合和 free-list；owner 不创建 private submit/readback。
+- evidence schema v4 同时报告 resident/retiring/free material slots 与 resident/retiring/free texture layers；恒等式为 `resident + retiring + free = 63`，物理 layer 0 不计入 free-list。
 
 ## Surface output v1
 
@@ -214,6 +222,8 @@ R4-B v1 至少冻结：
 ### R4-B-05 · Standard PBR/IBL Single Resolve
 
 - 接 factors、baseColor/normal/ORM/emissive、unlit 与 alpha-tested surface 语义。
+- `normalTexture.scale` 写入 `MaterialRecord.normalScale` 并只缩放 tangent-space normal 的 XY；默认值为 1。
+- `KHR_materials_unlit` 仅消费 baseColor factor/texture、vertex color 与 alpha；Resolve 将其写为零 lit albedo + baseColor emissive，并保留统一 tone-map/output consumer。normal/ORM/emissive PBR 纹理不进入 residency、feature bits 或采样分支。
 - 对齐 glTF、Filament/Sample Viewer 和 three.js B baseline 的颜色空间、BRDF/IBL 输入输出。
 - 一次 visible-pixel pass；active material 增长不增加 fullscreen pass。
 
@@ -251,6 +261,7 @@ Lighting/AO/SSR/TAA/debug 逐个改读新 Surface/Velocity。每迁移一个 con
 - R4-A 旧链 B/C Material Expand P50 为 `1.02664/0.75264 ms`。新 B 包含完整纹理采样与 velocity，回退到 `1.559088 ms`；新 C 把 3 draws 收为 1 draw，并改善约 11.9%。这证明结构伸缩性，不声明所有场景绝对更快。
 - artifact 位于 `temp/r4-b/full/`，不纳入 Git；shader audit 为 69 total、58 authored-live、5 dead、6 unknown。
 - 2026-08-28 P1 UV/dense-slot 修正另有 `temp/r4-b/p1/` focused 证据：Chrome UV1 fixture `passed=true`，生产 Benchmark B smoke 为 1 Resolve draw、1 active/4095 free material slots、4 resident textures、0 fallback/0 WebGPU diagnostics。该 dirty smoke 仅作 correctness evidence，不替代上面的 clean full Gate。
+- 2026-08-30 lifecycle/material-contract 修正加入 texture refcount/free-list/completion-safe retirement、evidence schema v4、separate occlusion explicit reject、`normalTexture.scale` 与真实 unlit Resolve；本条提交后的 clean B/C full Gate 必须重新采集，不能沿用 2026-08-28 artifact 证明这些新增语义。
 
 `R4-B-07` 跳过，因为 B/C 目标资产不要求额外 glTF extension；`R4-B-08` 跳过，因为 universal Resolve profile 未证明 feature divergence 是热点。二者都没有被伪装成“实现了空功能”。
 

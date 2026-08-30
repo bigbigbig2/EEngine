@@ -27,8 +27,10 @@ export class StandardShadeMaterial extends ShadeMaterial {
   base_color_uv_scale: [number, number] = [1, 1];
   base_color_uv_rotation = 0;
   texture_normal: ShadeTexture | undefined = undefined;
+  normal_scale = 1;
   texture_orm: ShadeTexture | undefined = undefined;
   texture_emissive: ShadeTexture | undefined = undefined;
+  is_unlit = false;
   roughness_factor = 1;
   metallic_factor = 0;
   transmission_factor = 0;
@@ -38,12 +40,10 @@ export class StandardShadeMaterial extends ShadeMaterial {
 
 
   override get textures(): ShadeTexture[] {
-    return [
-      this.texture_albedo,
-      this.texture_normal,
-      this.texture_orm,
-      this.texture_emissive
-    ].filter((e): e is ShadeTexture => e !== undefined);
+    const textures = this.is_unlit
+      ? [this.texture_albedo]
+      : [this.texture_albedo, this.texture_normal, this.texture_orm, this.texture_emissive];
+    return textures.filter((e): e is ShadeTexture => e !== undefined);
   }
 
   override hash(): number {
@@ -52,8 +52,10 @@ export class StandardShadeMaterial extends ShadeMaterial {
       this.diffuse_color.hash(),
       hashOptional(this.texture_albedo),
       hashOptional(this.texture_normal),
+      hashFloat(this.normal_scale),
       hashOptional(this.texture_orm),
       hashOptional(this.texture_emissive),
+      this.is_unlit ? 1 : 0,
       hashFloat(this.alpha_cutoff),
       this.base_color_uv_set,
       hashFloat(this.base_color_uv_offset[0]),
@@ -83,8 +85,10 @@ export class StandardShadeMaterial extends ShadeMaterial {
       refOrDeepEquals(this.texture_albedo, other.texture_albedo) &&
       this.diffuse_color.equals(other.diffuse_color) &&
       refOrDeepEquals(this.texture_normal, other.texture_normal) &&
+      this.normal_scale === other.normal_scale &&
       refOrDeepEquals(this.texture_orm, other.texture_orm) &&
       refOrDeepEquals(this.texture_emissive, other.texture_emissive) &&
+      this.is_unlit === other.is_unlit &&
       this.emissive_factor.equals(other.emissive_factor) &&
       this.ambient_factors.equals(other.ambient_factors)
     );

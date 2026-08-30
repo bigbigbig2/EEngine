@@ -235,6 +235,59 @@ test("R4-B glTF KHR_texture_transform texCoord override is authoritative", () =>
   assert.equal(material.base_color_uv_set, 1);
 });
 
+test("R4-B glTF rejects a separate occlusion texture before GPU residency", () => {
+  const textures = [validTexture(), validTexture()];
+  assert.throws(
+    () => parseGltfMaterial({
+      name: "separate-occlusion",
+      occlusionTexture: { index: 1 },
+      pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0 } }
+    }, textures),
+    /separate-occlusion.*occlusionTexture.*same texture index.*metallicRoughnessTexture/
+  );
+  assert.throws(
+    () => parseGltfMaterial({
+      name: "occlusion-only",
+      occlusionTexture: { index: 0 }
+    }, textures),
+    /occlusion-only.*occlusionTexture.*requires metallicRoughnessTexture/
+  );
+});
+
+test("R4-B glTF normalTexture.scale and unlit state reach MaterialRecord", () => {
+  const texture = validTexture();
+  const normal = parseGltfMaterial({
+    normalTexture: { index: 0, scale: 0.375 }
+  }, [texture]);
+  const normalSource = materialVisibilitySource(normal, { normal: 7 }, 3);
+  assert.equal(normal.normal_scale, 0.375);
+  assert.equal(normalSource.packed.normalScale, 0.375);
+
+  const unlit = parseGltfMaterial({
+    pbrMetallicRoughness: { baseColorTexture: { index: 0 } },
+    extensions: { KHR_materials_unlit: {} }
+  }, [texture]);
+  const unlitSource = materialVisibilitySource(unlit, { baseColor: 5 }, 4);
+  assert.equal(unlit.is_unlit, true);
+  assert.notEqual(unlitSource.packed.flags & GPU_MATERIAL_VISIBILITY_FLAGS.Unlit, 0);
+
+  unlit.texture_normal = validTexture();
+  unlit.texture_orm = validTexture();
+  unlit.texture_emissive = validTexture();
+  const runtimeUnlitSource = materialVisibilitySource(unlit, { baseColor: 5 }, 4);
+  assert.equal(runtimeUnlitSource.textureFallback, false);
+  assert.equal(runtimeUnlitSource.samplerFallback, false);
+  assert.equal(runtimeUnlitSource.textures.length, 1);
+  assert.equal(
+    runtimeUnlitSource.packed.flags & (
+      GPU_MATERIAL_VISIBILITY_FLAGS.HasNormalTexture |
+      GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture |
+      GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture
+    ),
+    0
+  );
+});
+
 test("R4-A-03 glTF MASK parsing preserves cutoff, texCoord and KHR_texture_transform", () => {
   const texture = validTexture();
   const material = parseGltfMaterial({

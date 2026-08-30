@@ -67,6 +67,11 @@ scope: material/scene lookup and validation organization
 glTF 2.0: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html
   decision: implement material field semantics to specification
 
+KHR_materials_unlit:
+  https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_unlit
+  decision: implement extension semantics to specification
+  retained invariant: baseColor/vertex color/alpha remain authoritative; lighting and other PBR inputs do not contribute
+
 Filament: https://github.com/google/filament
   commit: bdd01e82539938db70c60259e4e6c17bc2bdaba4
   license: Apache-2.0
@@ -143,6 +148,9 @@ Physical attachment formats 已由 `R4-B-04` 冻结为 26 B/pixel：PBR `rg8unor
 - glTF 定义输入语义，Filament/Sample Viewer/three.js 用于 BRDF/IBL、颜色空间和视觉对照；允许实现结构不同，但容差、曝光和 tone mapping 条件必须固定。
 - `MaterialRecord v2` 只保存一组共享 UV mapping；glTF 的每纹理 TextureInfo 先按规范解析 effective texCoord/transform，再要求 baseColor、normal、metallicRoughness/occlusion、emissive 完全一致。`KHR_texture_transform.texCoord` 覆盖 TextureInfo `texCoord`，仅支持 Geometry ABI 已提供的 UV0/UV1；不一致或超范围直接拒绝。
 - CPU `StandardShadeMaterial.id` 不进入 GPU 地址语义。Material owner 分配 0..4095 dense resident slot，Packed instance 和 Visibility/Resolve 只传该 slot；引用归零后经 owning command 的 GPU completion fence 才回到 free-list。
+- 物理 texture array 有 64 layers，但 layer 0 固定为 zero/fallback；只有 layer 1..63 可分配。Texture owner 对共享 `ShadeTexture` 引用计数，最后引用归零后保留 retiring layer，直到 owning command 的 GPU completion settle 才归还 free-list。
+- glTF v2 不支持 separate occlusion texture：`occlusionTexture` 必须与 `metallicRoughnessTexture` 使用相同 texture index，否则在 residency 前拒绝。`normalTexture.scale` 直接进入 record 并缩放 tangent-space normal XY。
+- `KHR_materials_unlit` 只保留 baseColor factor/texture、vertex color 与 alpha 语义；OEngine Resolve 以 zero lit albedo + baseColor emissive 表达同一不变量，继续复用统一 tone-map/output。normal/ORM/emissive PBR texture 不驻留、不置 feature bit，也不贡献 shading。
 
 ## Performance hypothesis
 
@@ -152,6 +160,7 @@ Physical attachment formats 已由 `R4-B-04` 冻结为 26 B/pixel：PBR `rg8unor
 
 - TextureRef/record invalid：debug counter + deterministic fallback material/texture。
 - resident set 超 adapter limits：拒绝或拆分明确资源集，不恢复 per-material主链。
+- 64-layer array 的可用容量是 63；layer 0 永不分配。texture stage overflow 在 upload/record write 前拒绝，stage abort 回滚 retain，retiring layer 在 GPU completion 前不可复用。
 - per-texture UV mapping 不满足 v1 shared contract 或请求 `TEXCOORD_2+`：loader/packer 在 GPU work 前显式拒绝；不得选择错误 UV 或退化到 UV0。
 - dense material slot 满：在纹理上传、record write、pass 编码前失败；stage abort 恢复引用/free-list，release slot 在 GPU completion 前保持 retiring 且不可复用。
 - analytic gradient 不稳定：有 counter 的保守 LOD fallback。
@@ -181,10 +190,11 @@ examples/r4-single-material-resolve
 - `MaterialRecord v2` 为 128 B、16-byte 对齐的 Standard PBR ABI；R4-A alpha 与 R4-B shading 共用 `GpuMaterialVisibilityTable` 单 owner，无第二张 Material truth table。
 - 2026-08-28 P1 修正让 Resolve 根据 `material_info.uv_set` 在 UV0/UV1 descriptor 间选择；glTF baseColor/normal/ORM/emissive 采用明确的 shared mapping contract，TextureInfo 或 `KHR_texture_transform` 分歧与 `TEXCOORD_2+` 在 residency 前拒绝。
 - Material table 改为 4,096 个 dense resident slots：全局递增 `material.id` 不再决定 record offset，Packed Scene stage/patch 使用 material dictionary → resident slot 映射；共享材质引用计数、abort 回滚和 completion-safe free-list reuse 已由 Node tests 覆盖。
+- 2026-08-30 follow-up 为 texture layer 增加共享 refcount、free-list、abort rollback 与 completion-safe retirement；Node tests 同时验证 layer 0 保留、retiring 期间不复用以及 completion 后实际 layer 编号复用。browser material evidence 升为 schema v4，Gate 要求 resident/retiring/free 总和为 63 且采集结束 retiring 为 0。
 - Chrome focused UV1 fixture 已命中真实 `TEXCOORD_1` descriptor 并 `passed=true`：UV1 alpha case 为 38 pixels，shader/validation/uncaptured/device-lost diagnostics 全为 0。Benchmark B smoke 命中生产 Single Resolve，记录 1 active/4095 free material slots、4 resident textures、0 fallback、1 fullscreen draw 和 0 WebGPU diagnostics；artifact 在 `temp/r4-b/p1/`。该结果只证明本次运行正确性，不冒充 dirty/smoke 条件下的 clean full performance Gate。
-- 纹理方案选择一个有界 `texture_2d_array`：64 layers、`256×256`、9 mips、`rgba8unorm`，容量超限显式失败或 fallback；目标 adapter 的 `maxTextureArrayLayers=256`。B 实测 4 个 resident texture、texture/sampler fallback 均为 0，resident texture bytes 为 `22,369,536`。
+- 纹理方案选择一个有界 `texture_2d_array`：64 physical layers、63 usable resident layers、`256×256`、9 mips、`rgba8unorm`，容量超限显式失败或 fallback；目标 adapter 的 `maxTextureArrayLayers=256`。B 实测 4 个 resident texture、texture/sampler fallback 均为 0，resident texture bytes 为 `22,369,536`。
 - Single fullscreen Render Resolve 从 `VisibilityKey → RasterWork → VisibleCluster → Instance/Geometry/Meshlet/Material` 完成 production lookup，并复用 R2-D-08 analytic barycentric/gradient/frame 与 R2-D-09 `previous_from_current`；没有复制新的插值或 per-pixel inverse 实现。
-- glTF metallic-roughness、base color、normal、occlusion、emissive、factors 与 unlit 按规范实现；Filament、Sample Viewer、three.js 只作为数值/视觉 authority。The Forge 只采用 single visible-pixel shading 的结构不变量；本任务没有复制任何上游表达性代码，因此无需新增 retained source notice。
+- glTF metallic-roughness、base color、normal、occlusion、emissive 与 factors 按规范实现；separate occlusion 作为 v2 unsupported contract 显式拒绝，`normalTexture.scale` 已进入 record/normal decode。`KHR_materials_unlit` 按 Khronos extension 语义实现为 baseColor-only、lighting-independent Surface。Filament、Sample Viewer、three.js 只作为数值/视觉 authority。The Forge 只采用 single visible-pixel shading 的结构不变量；本任务没有复制任何上游表达性代码，因此无需新增 retained source notice。
 - `R4-B-07` 未执行：B/C 没有要求额外 glTF extension，不为完整性提前加入 clearcoat 等字段。`R4-B-08` 未执行：当前 universal Resolve profile 没有证明 feature divergence 是 blocker，禁止无证据增加 Shader Bin。
 - Packed Material Expand、material depth/triangle/instance auxiliary MRT 与 Packed Velocity producer/shader 已删除。普通 `Scene` 的公开 legacy `MaterialExpandPass/VelocityPass` 仍有真实 consumer，现为惰性创建且 Packed 帧零 owner/Pass/resource；最终类级删除归普通 Scene consumer 迁移与 `FX-12`，不伪装成全仓已删除。
 - `GPU_COUNTER_SCHEMA_VERSION=4`，新增 gradient fallback、reactive 和 material feature pixel producers；B/C 的 invalid key、gradient fallback、reactive、texture/sampler fallback、overflow 与 WebGPU diagnostics 均为 0。

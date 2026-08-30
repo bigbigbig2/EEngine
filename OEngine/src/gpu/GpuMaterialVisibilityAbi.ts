@@ -143,11 +143,14 @@ export function materialVisibilitySource(
   const ormTextureRef = refs.orm ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
   const emissiveTextureRef = refs.emissive ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
   const texture = material.texture_albedo ?? null;
+  const normalTexture = material.is_unlit ? undefined : material.texture_normal;
+  const ormTexture = material.is_unlit ? undefined : material.texture_orm;
+  const emissiveTexture = material.is_unlit ? undefined : material.texture_emissive;
   const requestedTextures = [
     [material.texture_albedo, textureRef],
-    [material.texture_normal, normalTextureRef],
-    [material.texture_orm, ormTextureRef],
-    [material.texture_emissive, emissiveTextureRef]
+    [normalTexture, normalTextureRef],
+    [ormTexture, ormTextureRef],
+    [emissiveTexture, emissiveTextureRef]
   ] as const;
   const baseTextureFallback = texture !== null && (
     !isUsableTexture(texture) || textureRef === GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
@@ -156,9 +159,9 @@ export function materialVisibilitySource(
     candidate !== undefined && (!isUsableTexture(candidate) || ref === GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE)
   );
   const sampler = encodeSamplerClass(texture);
-  const normalSampler = encodeSamplerClass(material.texture_normal ?? null);
-  const ormSampler = encodeSamplerClass(material.texture_orm ?? null);
-  const emissiveSampler = encodeSamplerClass(material.texture_emissive ?? null);
+  const normalSampler = encodeSamplerClass(normalTexture ?? null);
+  const ormSampler = encodeSamplerClass(ormTexture ?? null);
+  const emissiveSampler = encodeSamplerClass(emissiveTexture ?? null);
   let flags = GPU_MATERIAL_VISIBILITY_FLAGS.Valid;
   if (material.draw_side === ShadeDrawSide.Double) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.DoubleSided;
@@ -166,15 +169,16 @@ export function materialVisibilitySource(
   if (texture !== null && !baseTextureFallback && textureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.HasAlphaTexture;
   }
-  if (material.texture_normal !== undefined && normalTextureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
+  if (normalTexture !== undefined && normalTextureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.HasNormalTexture;
   }
-  if (material.texture_orm !== undefined && ormTextureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
+  if (ormTexture !== undefined && ormTextureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture;
   }
-  if (material.texture_emissive !== undefined && emissiveTextureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
+  if (emissiveTexture !== undefined && emissiveTextureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture;
   }
+  if (material.is_unlit) flags |= GPU_MATERIAL_VISIBILITY_FLAGS.Unlit;
   if (textureFallback) flags |= GPU_MATERIAL_VISIBILITY_FLAGS.TextureFallback;
   if (sampler.fallback || normalSampler.fallback || ormSampler.fallback || emissiveSampler.fallback) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.SamplerFallback;
@@ -209,7 +213,7 @@ export function materialVisibilitySource(
       ],
       metallicFactor: clamp01(finiteOr(material.metallic_factor, 0)),
       perceptualRoughness: clamp01(finiteOr(material.roughness_factor, 1)),
-      normalScale: 1,
+      normalScale: finiteOr(material.normal_scale, 1),
       occlusionStrength: clamp01(finiteOr(material.ambient_factors.a, 1)),
       emissiveFactor: [
         material.emissive_factor.r,

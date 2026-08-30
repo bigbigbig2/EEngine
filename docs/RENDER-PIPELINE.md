@@ -47,7 +47,7 @@ R3 v1 从 Cluster hierarchy roots 形成合法 parent/child cut；当前 R2 BVH8
 
 Material Resolve 一次处理可见像素，动态读取 MaterialTable 和有界 TextureRef/resident handle。array-bank、atlas 或 fixed-bank 由真实资产 benchmark 冻结；不得长期保留“每个材质一个全屏三角形”的通用实现。
 
-当前 Packed production 已在 R4-B 冻结为一次 fullscreen Render Resolve：128 B `MaterialRecord v2`、64-layer `256×256` 9-mip texture array、26 B/pixel Surface + velocity。MaterialRecord v2 的纹理 UV contract 为共享 `TEXCOORD_0/1 + transform`，loader 对 per-texture mapping 分歧显式拒绝；GPU material handle 来自有界 dense resident slot/free-list，不再等于全局 `material.id`。Visibility 不再输出 triangle/instance/material-depth auxiliary MRT，Packed Velocity 也已并入 Resolve。普通 `Scene` legacy MaterialExpand/Velocity 只在对应 consumer 请求时惰性创建，不属于 Packed 主管线；R4-C 只能替换或合并 key/depth producer，必须复用同一个 Resolve。
+当前 Packed production 已在 R4-B 冻结为一次 fullscreen Render Resolve：128 B `MaterialRecord v2`、64-layer `256×256` 9-mip texture array、26 B/pixel Surface + velocity。layer 0 保留为 fallback，63 个 resident layer 与 4,096 个 material slot 都使用 refcount/free-list，并且最后引用只在 owning command 的 GPU completion 后复用。MaterialRecord v2 的纹理 UV contract 为共享 `TEXCOORD_0/1 + transform`，loader 对 per-texture mapping 分歧、separate occlusion texture 与 `TEXCOORD_2+` 显式拒绝；`normalTexture.scale` 进入 tangent normal decode，unlit 只驻留/采样 baseColor 并作为 emissive Surface 进入统一输出链。GPU material handle 来自有界 dense resident slot，不再等于全局 `material.id`。Visibility 不再输出 triangle/instance/material-depth auxiliary MRT，Packed Velocity 也已并入 Resolve。普通 `Scene` legacy MaterialExpand/Velocity 只在对应 consumer 请求时惰性创建，不属于 Packed 主管线；R4-C 只能替换或合并 key/depth producer，必须复用同一个 Resolve。
 
 ## Software Micro Raster
 

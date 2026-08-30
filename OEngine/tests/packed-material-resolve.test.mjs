@@ -119,6 +119,11 @@ test("R4-B shader performs the complete key lookup and one analytic-gradient mat
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= SURFACE_ORM_TEXTURE/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= SURFACE_EMISSIVE_TEXTURE/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= SURFACE_UNLIT/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /sampled_normal\.xy \*= material_info\.pbr_factors\.z/);
+  assert.match(
+    PACKED_MATERIAL_RESOLVE_WGSL,
+    /if is_unlit \{[\s\S]*output\.albedo = vec4f\(vec3f\(0\.0\), 1\.0\);[\s\S]*output\.emissive = rgbe9995_encode\(albedo\)/
+  );
   assert.match(
     PACKED_MATERIAL_RESOLVE_WGSL,
     /output\.flags = \(visible\.material_handle & 0x00ffffffu\) \| \(surface_flags << 24u\)/
