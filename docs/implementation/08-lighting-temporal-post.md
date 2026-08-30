@@ -71,6 +71,8 @@ flag bit 8..15 reserved
 
 R5-00 与 FX-01 的边界固定如下：R5-00 拥有 attachment format、metadata packing、velocity convention、现有 Resolve/Counter/Debug consumer 迁移和 A/B/C baseline artifact；FX-01 不再重新定义 ABI，只补 GPU 数值 readback、empty/background 行为和 Surface debug 可视验证。改变 format、bit layout 或 velocity convention 必须先升级 ABI/version，不能藏在 FX-01 的 debug 修复里。
 
+执行负载沿用 R4 的 focused/sub-Gate 分层：R5-00 ABI、自动测试和 focused production browser 通过后即可进入 FX-01；clean/full A/B/C baseline 必须在 FX-02 修改 Lighting 前完成，保证仍有可比较 before。`performance-targets.json` 最迟在 G5-L 关闭前由目标机器数据冻结。缺少后两项时不得声明 R5-00 baseline/G5-L CLOSED 或性能收益，但不阻塞只读既有 ABI 的 FX-01 debug 工作。
+
 ### Reactive v1 producer ownership
 
 `Reactive` 是各 owner 写入后按逻辑 OR 合并的保守标记；v1 不编码独立 reason bit，consumer 不得根据单一 bit 猜测来源。
@@ -92,7 +94,7 @@ Color contract 在 R5-00 只冻结 ownership，不宣称 FX-09 已完成：Surfa
 - R5 base A/B/C manifest 只列实际运行的 HW feature；optional `software-visibility` 从 base featureSet 移出；
 - `performance-targets.json` 在目标机器采样后冻结绝对门槛；
 - Lighting/Temporal 开始修改前先关闭 runtime oracle/generated source-of-truth 债务；
-- 建立 `R5-BENCHMARK-MATRIX.md` 与 `R5-TEST-MANUAL.md`。
+- 建立 `R5-BENCHMARK-MATRIX.md` 与 `R5-BROWSER-GATES.md`。
 
 ## 方案 B 子 Gate
 
@@ -108,9 +110,10 @@ FX-04 CSM Shadow
 FX-05 Packed MBOIT Transparency
   ↓ G5-S · Secondary Raster
 
-FX-06 Temporal / DRS / Upscale
+FX-06A Temporal foundation / DRS contract
 FX-07 AO
 FX-08 SSR
+FX-06B Final TAA/TAAU / Upscale closure
   ↓ G5-T · Temporal Quality
 
 FX-09 Post
@@ -120,7 +123,7 @@ FX-12 Legacy Deletion
   ↓ G5-P · Product / Performance Closure
 ```
 
-每个 FX 的人工步骤、预期截图/counter/sequence 和提交复核材料见 [R5-TEST-MANUAL](./R5-TEST-MANUAL.md)；性能扩展轴见 [R5-BENCHMARK-MATRIX](./R5-BENCHMARK-MATRIX.md)。
+每个 FX 的 production browser runner、自动截图/数值/counter/sequence Gate 和 artifact 规则见 [R5-BROWSER-GATES](./R5-BROWSER-GATES.md)；性能扩展轴见 [R5-BENCHMARK-MATRIX](./R5-BENCHMARK-MATRIX.md)。
 
 ## 统一资源图
 
@@ -134,9 +137,11 @@ Visibility + Depth
 
 LightTable → Light Cluster ───→ Direct Lighting
 Environment/BRDF LUT ─────────→ IBL
-Shadow work/atlas ─────────────→ Direct Lighting
+Packed Instance/Hierarchy
+  → bounded SecondaryRasterWork family
+      ├─ per-cascade ShadowRasterWork/atlas → Direct Lighting
+      └─ main-view TransparentRasterWork ───→ MBOIT/composite
 Surface + lighting ────────────→ Opaque HDR
-Transparent work ──────────────→ OIT/composite
 Opaque/transparent HDR
   → AO/SSR integration as declared
   → TAA/TAAU
@@ -146,7 +151,7 @@ Opaque/transparent HDR
   → Present
 ```
 
-实际 AO/SSR 在 lighting 前后组合由算法契约决定，但只能使用已声明的共享资源。FrameGraph 必须能输出某个 feature 的完整 producer/consumer 链。
+实际 AO/SSR 在 lighting 前后组合由算法契约决定，但只能使用已声明的共享资源。FrameGraph 必须能输出某个 feature 的完整 producer/consumer 链。`SecondaryRasterWork` 是共享 ABI/owner family，不要求 Shadow 与 Transparency 共用同一个物理队列：每个 cascade 与 main view 仍有独立 bounded queue、capacity、overflow 和 indirect consumer，禁止两项功能各自复制一套 hierarchy traversal/legacy draw-list 系统。
 
 ## 当前代码入口与处置
 
@@ -163,6 +168,8 @@ Opaque/transparent HDR
 | LPV/Brick4/NSS/path tracer/SDF/volumetrics | 现有 pass/gpu/shader | 不默认接线；作为同图可选节点或 reference/tool 隔离验证 |
 
 “不默认接线”不是删除能力承诺；只有在 source-of-truth、owner 和验证清楚后才进入主管线。Path tracer 若作为离线/对照 renderer，必须与实时主管线资源明确隔离，不影响稳定帧。
+
+R5 迁移期间采用 feature maturity Gate：尚未基于 Packed Surface 通过所属 FX/G5 Gate 的旧效果，在 R5 production/benchmark profile 中默认关闭且不得创建 owner；通过 Gate 后才能由产品 profile 显式启用。旧 `Renderer` 字段的历史默认值不能作为完成证据，FX-01/02/03、FX-04/05、FX-06/07/08、FX-09 必须逐组校正默认接线、lazy owner 与 off-state graph。这个规则不建立第二条 pipeline，只约束同一 FrameGraph recipe 的启用状态。
 
 R5 的 source-of-truth 前置：
 - FX-02 开始修改 Lighting 前，`lighting_ch_oracle.ts` 必须选择 authored source 或可重复 generator，并建立 numeric/visual regression；
@@ -223,19 +230,23 @@ producer 可以 `attempted > capacity`，但所有 consumer 只能遍历 `writte
 
 迁移 diffuse/specular IBL、environment prefilter 和 BRDF LUT。与 Benchmark B 对齐 environment、roughness mip、normal/tangent、color space 和 exposure；禁止额外效果干扰。
 
+从 FX-03/G5-L 起持续采集 texture allocated/resident bytes、resident/retiring/free layer、fallback、upload bytes 与 sampled-mip 分布。FX-11 才根据累计证据决定保留固定 owner、采用 size class 或建立 streaming 任务，但不能等到 FX-11 才第一次发现 Lighting/IBL 的纹理容量与 mip 质量问题。
+
 ### FX-04 · CSM Shadow
 
-保留现有 CSM，不建设 VSM。每个 Cascade 的 caster selection 复用 Instance/Hierarchy/Cluster tables 和 GPU indirect consumer，不恢复 CPU draw list。记录 main/cascade traversal、raster、atlas bytes、更新频率和 alpha-tested caster 成本；关闭 shadow 不保留 caster work/atlas update。
+保留现有 CSM，不建设 VSM。FX-04 开始前先冻结 `SecondaryRasterWork v1` family：至少定义 instance slot、cluster/meshlet locator、material slot、raster flags、queue header、capacity/overflow 和 indirect-args ownership。每个 Cascade 的 caster selection 复用 Instance/Hierarchy/Cluster tables、共享 work-generation kernel/ABI 与 GPU indirect consumer，不恢复 CPU draw list；视图相关裁剪仍写各 cascade 独立队列。记录 main/cascade traversal、raster、atlas bytes、更新频率和 alpha-tested caster 成本；关闭 shadow 不保留 caster work/atlas update。
 
 ### FX-05 · Transparency
 
-Alpha-tested 留在 Visibility；BLEND 从同一 hierarchy/RasterWork 数据面分类到有界 `TransparentRasterWork`。当前透明算法按 Moment-Based OIT 迁移，不引入不存在的 A-buffer node pool：容量重点是 transparent work queue、raster-state bins、moment numeric range/precision 和 material/texture residency。
+Alpha-tested 留在 Visibility；BLEND 通过同一个 `SecondaryRasterWork v1` family 从 Packed hierarchy/material flags 分类到 main-view 有界 `TransparentRasterWork`，不得消费主视图 opaque `RasterWork` 假装覆盖离屏/不同分类，也不得创建第二套 legacy hierarchy owner。当前透明算法按 Moment-Based OIT 迁移，不引入不存在的 A-buffer node pool：容量重点是 transparent work queue、raster-state bins、moment numeric range/precision 和 material/texture residency。
 
 透明 shader 必须动态读取同一 Material/Texture owner；draw/pass 数只能依赖有硬上限的 raster-state bin（例如 front/double-sided），不得随 active material 数线性增长。用 overlapping colored quads 做 order-invariance + sorted-alpha quality reference，再跑 C-transparent 的 coverage/depth-layer/material sweep。
 
-### FX-06 · Temporal Reconstruction / Dynamic Resolution / Upscaling
+### FX-06 · Temporal Foundation / Dynamic Resolution / Upscaling
 
-先闭合 Temporal shader source-of-truth，再分离 internal/output resolution。Temporal input contract 至少包含 current HDR、Depth、Velocity+motion-valid、Reactive、disocclusion/history confidence、history revision、jitter 与 internal/output resolution。覆盖 camera cut、disocclusion、LOD transition、透明、dynamic resolution 和 resize。
+FX-06 分为同一任务的两个落点，避免 AO/SSR 各自复制 history 逻辑，也避免先完成最终 TAAU 后又为 AO/SSR 改写输入。`FX-06A` 先闭合 Temporal shader source-of-truth，建立共享 history registry/invalidation、reactive/disocclusion classification、jitter、internal/output resolution 与 DRS feedback；此时只要求最小 TAA reference 可验证，不关闭最终画质。FX-07/08 复用该基础设施完成 AO/SSR 自身 temporal/denoise。`FX-06B` 最后冻结 current HDR composition、final TAA/TAAU/upscale、透明 reactive 与 AO/SSR 组合顺序，之后才关闭 G5-T。
+
+Temporal input contract 至少包含 current HDR、Depth、Velocity+motion-valid、Reactive、disocclusion/history confidence、history revision、jitter 与 internal/output resolution。覆盖 camera cut、disocclusion、LOD transition、透明、dynamic resolution 和 resize。
 
 DRS 使用异步/延迟 GPU timestamp feedback 更新 scale；禁止同步 `mapAsync` 或 readback 控制当前帧，也不产生第二条主管线。C-temporal/C-resolution 必跑 static/pan/fast motion/disocclusion/reactive/cut/resize/scale transition sequence。
 
@@ -249,7 +260,7 @@ SSAO/GTAO 选择由画质/性能对比决定，复用 final Depth/HZB/normal。�
 
 ### FX-09 · Exposure、Bloom、Tonemap、Sharpen/Motion Blur
 
-按 HDR → exposure → bloom/composite → tonemap → output transform 的色彩顺序接入。每项明确输入分辨率、输出 color space 和关闭行为。Motion Blur 不得使用 invalid velocity。
+冻结为显式分支而不是含糊的线性列表：scene-linear HDR 在 bloom 前分出 exposure metering，adapted exposure 由 Tonemap/output consumer 使用；Bloom 在 scene-linear 域提取并 composite，不能把 bloom 后的 downsample 默认为唯一测光输入。Motion Blur 位于 final temporal 后、tonemap 前且不得使用 invalid velocity；Sharpen 位于 upscale 后，其在线性 HDR 或 display-referred 域执行必须由选定算法明确，禁止重复锐化。每项明确输入分辨率、输出 color space、pre-exposure 语义和关闭行为。
 
 ### FX-10 · 已有项目效果隔离迁移
 

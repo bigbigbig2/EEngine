@@ -18,8 +18,9 @@ Apply bulk/dirty GPU table updates
 → Optional Software Micro Raster + unified merge
 → Build current HZB / optional late visibility
 → Single Material Resolve + Velocity
-→ Clustered Lighting + IBL + CSM
-→ Transparency / Decal
+→ Packed secondary raster: CSM caster work / shadow atlas
+→ Clustered Lighting + IBL
+→ Packed secondary raster: Transparency / MBOIT composite
 → Temporal Reconstruction / Upscaling
 → Exposure / Bloom / Post
 → Optional unified debug view

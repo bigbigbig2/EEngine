@@ -83,7 +83,7 @@ R4-C 是独立性能研究轨。只有同设备 profile 证明 Hardware Raster/�
 ## R5 · Lighting、Shadow、Temporal 与扩展效果（当前主线）
 
 实施包：[08-lighting-temporal-post](./implementation/08-lighting-temporal-post.md)
-测试手册：[R5-TEST-MANUAL](./implementation/R5-TEST-MANUAL.md)
+浏览器 Gate：[R5-BROWSER-GATES](./implementation/R5-BROWSER-GATES.md)
 性能矩阵：[R5-BENCHMARK-MATRIX](./implementation/R5-BENCHMARK-MATRIX.md)
 参考索引：[R5-ALGORITHM-GUIDE](./references/R5-ALGORITHM-GUIDE.md)
 
@@ -93,7 +93,7 @@ R4-C 是独立性能研究轨。只有同设备 profile 证明 Hardware Raster/�
 R5-00 Contract/Baseline
 → FX-01..03 → G5-L
 → FX-04..05 → G5-S
-→ FX-06..08 → G5-T
+→ FX-06A → FX-07..08 → FX-06B → G5-T
 → FX-09..12 → G5-P
 → R5 CLOSED
 ```

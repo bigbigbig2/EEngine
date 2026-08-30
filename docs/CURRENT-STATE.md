@@ -78,6 +78,9 @@
 - 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
 - R2-C/D 的 owner、flat work、属性重建和 motion 数学已有独立 porting ledger；R4-B 已用同条件浏览器 artifact 验证 Packed Material/Velocity 迁移，但 Lighting/Temporal 的最终质量目标仍需 R5 Gate。
 - Lighting/CSM/Transparency/Temporal/Post 虽有代码路径，尚未基于新的 Visibility/Surface ABI 逐项重新验收。
+- R5-00 Surface ABI v1 已由 commit `c632b2d` 落地，A 场景 Gate 校准由 `0cb3445` 修正；clean commit 上 A/B full 各 3 个独立 session 已通过，但用户停止了 C full，且目标机器 `performance-targets.json` 尚未冻结，因此 R5-00 当前是 ABI implementation complete / baseline conditional，不能声明 CLOSED。FX-01 只读既有 ABI，可以开始；C full 必须在 FX-02 修改 Lighting 前补齐，绝对门槛最迟在 G5-L 冻结。
+- 当前 direct Lighting 已消费 Packed Resolve 的 Surface attachments；CSM 仍在主 FrameGraph 之前通过 legacy `MeshletDrawList` 生成各 shadow view，Transparency 仍扫描 CPU `Scene` 材质并使用 `MaterialMeshletDrawList`。现有 SSAO/SSR 有各自 history，主 TAA 只有单一 reset bit；这些旧路径是 FX-04..09 的迁移输入，不是已验收 R5 架构。
+- `Renderer` 当前历史默认仍开启 Shadows/SSAO/TAA/Bloom/Automatic Exposure/Sharpen，并在初始化阶段无条件构造 IBL、LPV、Brick4、Transparency 等 owner；这与 R5 “未过 Gate 默认关闭、feature-off 无 owner”的目标不一致，必须在对应 FX 中改为 maturity-gated recipe 与 lazy/completion-safe retirement，不能把现状视为产品默认设计。
 - Geometry 与 Instance residency 的 record/payload/upload/grow/patch 内存证据已接入；texture、全帧 transient 与统一显存/上传预算仍未完成。
 - Shader oracle/generated owner 尚未完全收口，部分 reconstructed/Shade 历史命名仍存在。
 

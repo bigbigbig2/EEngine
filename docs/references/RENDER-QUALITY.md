@@ -30,9 +30,10 @@ FX-04 CSM Shadow
 FX-05 Packed MBOIT Transparency
   ↓ G5-S
 
-FX-06 Temporal/DRS/Upscale
+FX-06A Temporal foundation/DRS contract
 FX-07 AO
 FX-08 SSR
+FX-06B Final TAA/TAAU/Upscale closure
   ↓ G5-T
 
 FX-09 Post
@@ -42,7 +43,7 @@ FX-12 Legacy deletion
   ↓ G5-P / R5 CLOSED
 ```
 
-每个 Gate 的测试预期与人工步骤见 `docs/implementation/R5-TEST-MANUAL.md`。
+每个 Gate 的 production browser、自动截图/数值/sequence 预期见 `docs/implementation/R5-BROWSER-GATES.md`。
 
 ## Deferred
 

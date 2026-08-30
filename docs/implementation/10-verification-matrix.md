@@ -77,7 +77,7 @@ validation errors / device lost count
 
 普通实现批次不默认启动大规模 review 或跨设备矩阵。最低执行命中单元测试、typecheck/build、一个相关 `examples/` 浏览器场景和 WebGPU 控制台错误检查；涉及像素、LOD、遮挡、材质或时域输出时，再采集截图或短序列进行观察。阶段 Gate、ABI 大改和性能结论才升级到完整矩阵。
 
-R5 的逐 FX 人工执行步骤、预期结果和 artifact 清单由 [R5-TEST-MANUAL](./R5-TEST-MANUAL.md) 拥有；R5 性能参数轴由 [R5-BENCHMARK-MATRIX](./R5-BENCHMARK-MATRIX.md) 拥有。
+R5 的逐 FX production browser runner、自动截图/数值/sequence Gate 和 artifact 清单由 [R5-BROWSER-GATES](./R5-BROWSER-GATES.md) 拥有；R5 性能参数轴由 [R5-BENCHMARK-MATRIX](./R5-BENCHMARK-MATRIX.md) 拥有。
 
 ## 图像与数值判定
 

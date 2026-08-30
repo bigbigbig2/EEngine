@@ -72,4 +72,4 @@ cd ..\examples
 npm run build
 ```
 
-随后跑 clean A/B/C browser baseline + debug captures。完成前状态为 `R5-00 implementation complete / Gate conditional`，证据齐全后才 `R5-00 CLOSED → FX-01`。
+随后按 R4 focused/sub-Gate 分层采集：ABI focused production browser 通过即可进入只读 ABI 的 FX-01；clean A/B/C baseline + debug captures 必须在 FX-02 修改 Lighting 前完成，`performance-targets.json` 最迟在 G5-L 冻结。证据齐全前状态为 `R5-00 implementation complete / baseline conditional`，不得声明阶段关闭或性能收益。

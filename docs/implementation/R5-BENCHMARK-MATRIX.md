@@ -34,6 +34,8 @@ R5 base manifest 只列实际运行的 feature。`software-visibility` 属于 op
 
 Reference environment 可离线转换，但 source/result hash 与工具版本必须进入 artifact。
 
+从 B-shading-oracle/FX-03 起，每个 run 同时保存 texture allocated/resident bytes、resident/retiring/free layer、fallback、upload bytes 与 sampled-mip histogram（或等价 GPU 反馈）。FX-11 只负责基于累计数据作 owner/streaming 决策，不得把首次纹理容量与 mip 质量观测拖到阶段末尾。
+
 ## 3. C-light
 
 Light count：

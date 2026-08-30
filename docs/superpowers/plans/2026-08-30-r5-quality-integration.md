@@ -19,7 +19,7 @@
 - Queue 必须区分 attempted/written/capacity/overflow；consumer 只读 written。
 - 性能结论必须同机、同浏览器、同 GPU、同 resolution/profile。
 - 所有外部算法按 `docs/references/OPEN-SOURCE-REUSE.md` 登记 source/commit/license/adaptation。
-- 每个 FX 合入前执行 `docs/implementation/R5-TEST-MANUAL.md` 的对应章节。
+- 每个 FX 合入前执行 `docs/implementation/R5-BROWSER-GATES.md` 的对应 production browser Gate。
 
 ---
 
@@ -84,7 +84,7 @@ Expected: PASS / exit code 0.
 
 - [ ] **Step 5: Capture R5-00 A/B/C baseline**
 
-Follow `R5-TEST-MANUAL.md#r5-00--contract--baseline-freeze`. Expected: HW-only, one submit, zero invalid/overflow/diagnostics, warm graph stable.
+Follow `R5-BROWSER-GATES.md#r5-00--contract--baseline-freeze`. Expected: HW-only, one submit, zero invalid/overflow/diagnostics, warm graph stable.
 
 - [ ] **Step 6: Commit**
 
@@ -125,7 +125,7 @@ Do not change Surface format/packing/velocity ABI inside FX-01. A proven mismatc
 
 - [ ] **Step 4: Run surface browser fixture**
 
-Expected outputs are defined in `R5-TEST-MANUAL.md#fx-01--surface-debug--background--g5-l-前置`.
+Expected outputs are defined in `R5-BROWSER-GATES.md#fx-01--surface-debug--background--g5-l-前置`.
 
 - [ ] **Step 5: Commit**
 

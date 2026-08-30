@@ -1,6 +1,6 @@
-# R5 人工测试与验收手册
+# R5 浏览器 Gate 与截图回归
 
-本文是 `08-lighting-temporal-post.md` 的人工执行 companion。每个 FX 合入前至少完成对应的自动测试、production build、相关 WebGPU 页面和人工结果检查；每个子 Gate（G5-L/G5-S/G5-T/G5-P）再升级为 clean/full 证据。
+本文是 `08-lighting-temporal-post.md` 的 production browser Gate companion，沿用 R4 的证据规则。每个 FX 合入前必须由可重复脚本驱动真实 WebGPU 页面，自动导出 JSON、graph/counter、canvas/page screenshot 和 diagnostics；G5-L/G5-S/G5-T/G5-P 再升级为 clean/full 证据。人工查看 artifact 只用于复核自动结论，不得通过点击、肉眼判断或手写 notes 决定 Gate 通过。
 
 ## 0. 通用预检
 
@@ -32,22 +32,24 @@ npm run dev:host
 
 自动测试必须 `exit code 0`。`audit:shaders` 必须写出 `OEngine/benchmarks/shader-source-audit.json`；任何新增 `dead/unknown` realtime shader 都需要在当前 FX 解释 owner 或 generator。
 
-## 1. 每次人工采集必须保存
+## 1. 每次浏览器 Gate 必须自动保存
 
 建议目录：
 
 ```text
 temp/r5/<gate-or-fx>/<commit>/
-├─ environment.txt
-├─ console.txt
+├─ environment.json
+├─ console.json
 ├─ result.json
 ├─ graph.json
 ├─ counters.json
-├─ screenshot-*.png
-└─ sequence-notes.md
+├─ screenshot-page.png
+├─ screenshot-canvas-*.png
+├─ screenshot-metrics.json
+└─ sequence.json
 ```
 
-`environment.txt` 至少记录：
+`environment.json` 至少记录：
 
 ```text
 git rev-parse HEAD
@@ -70,6 +72,15 @@ warmup/sample/counter cadence
 - GPU timestamp/counter 每 `6` 帧采样；
 - profiler-off run 用于最终总时间，sampled profiler run 用于 phase 定位；
 - 必须保存 P50/P95/P99，不能只保存平均 FPS。
+
+浏览器 Gate 固定要求：
+- runner 使用 production build 和同一个公开 `Renderer.render()` 入口，不注入 benchmark-only renderer；
+- 脚本固定 viewport、DPR、profile、seed、相机轨迹与 feature set，等待页面明确的 completed/result 状态后再采集；
+- 页面 screenshot 与 canvas screenshot 都必须保存；截图由 hash、像素统计、区域 tolerance 或冻结的 perceptual metric 自动判定，不能只保存后目测；
+- 时域功能保存逐帧或固定关键帧的 sequence JSON 与截图，自动检查收敛、reject、finite、拖尾上限和 resize/cut 后 history 行为；
+- `result.passed=true` 与 `gateEligible=true` 只是必要条件；截图/数值、counter、graph pruning、console/page/WebGPU diagnostics 任一失败都使该 run 失败；
+- artifact 复核者可以发现自动规则遗漏并退回，但不能手工覆盖失败结果为通过。
+- 文中所有“明显”“稳定”“正确”“无突跳”等画质描述，在对应 FX 开始实现前必须落为 `screenshot-metrics.json` 的字段、reference、mask、tolerance 和 pass/fail；未冻结自动判据的描述只能是观察项，不能关闭 Gate。
 
 出现以下任意条件，本轮 Gate 直接失败：
 
@@ -154,16 +165,16 @@ npm run build
 - examples production build exit code 0；
 - `git diff --check` 无输出。
 
-## 人工 baseline 测试
+## Production browser baseline Gate
 
 R5-00 **不改变 Benchmark A/B/C 的角色定义**。A 保持 160k hardware/hierarchy workload，B 本身包含 PBR/Lighting/IBL，C 保持 heterogeneous world；不要为了测 Surface 临时把它们裁成另一条 pipeline，否则所得数据不能作为 base baseline。
 
-1. 在 clean commit 上打开 Benchmark A、B、C。
-2. 确认 manifest/运行时 featureSet 包含 `hardware-visibility + single-material-resolve`，且不包含 optional R4-C `software-visibility` / hybrid。
-3. 保持 A/B/C 自己的 frozen role，不手工关闭用于定义该 case 的 Lighting/IBL。
-4. 分别打开已有 `MaterialId / Velocity / HistoryValidity / Reactive` debug view，检查它们读取同一 resolved Surface metadata/velocity。
-5. 每个 case 连续运行 `60 warm-up + 180 sample`，timestamp/counter 每 6 帧采样；需要人工观察时额外保持到 240 帧以上。
-6. 每个 case 至少做 3 次独立页面运行；以 run median 比较 P50/P95/P99，若只有 1/3 run 越线则记为噪声候选，2/3 同方向越线才判回归；结论不明确时扩到 5 次。
+1. runner 在 clean commit 上依次启动 Benchmark A、B、C production 页面。
+2. manifest/运行时 featureSet 自动断言包含 `hardware-visibility + single-material-resolve`，且不包含 optional R4-C `software-visibility` / hybrid。
+3. A/B/C 保持各自 frozen role；runner 不临时关闭用于定义该 case 的 Lighting/IBL。
+4. runner 依次切换 `MaterialId / Velocity / HistoryValidity / Reactive` debug view，保存 canvas screenshot 并执行像素统计/阈值比较，证明它们读取同一 resolved Surface metadata/velocity。
+5. 每个 case 执行 `60 warm-up + 180 sample`，timestamp/counter 每 6 帧采样；需要 240 帧的时域收敛时由 profile 固定帧数，不靠人工等待。
+6. 每个 case 至少由 runner 创建 3 个独立页面 session；以 run median 比较 P50/P95/P99，若只有 1/3 run 越线则记为噪声候选，2/3 同方向越线才判回归；结论不明确时自动或显式扩到 5 次。
 7. profiler-off 总时间属于后续绝对性能冻结项；当前 harness 尚无 profiler-off profile 时必须明确记为 `not captured`，不得拿 sampled 总时间冒充。
 
 预期：
@@ -184,7 +195,7 @@ R5-00 **不改变 Benchmark A/B/C 的角色定义**。A 保持 160k hardware/hie
 
 ```text
 temp/r5/r5-00/<commit>/
-├─ environment.txt
+├─ environment.json
 ├─ benchmark-a-result.json
 ├─ benchmark-b-result.json
 ├─ benchmark-c-result.json
@@ -201,7 +212,7 @@ temp/r5/r5-00/<commit>/
 └─ A|B|C/run-01..03/screenshot-reactive.png
 ```
 
-`performance-targets.json` 不允许凭空填写。只在目标 adapter 上完成上述 clean baseline 采样后冻结绝对阈值；在此之前 R5-00 implementation 可以提交，但 Gate 状态只能是 `CONDITIONAL PASS`。完整基线和阈值复核完成后才标记 `R5-00 CLOSED → FX-01`。
+`performance-targets.json` 不允许凭空填写。R5-00 ABI 自动测试与 focused production browser 通过后可以进入只读 ABI 的 FX-01；上述 clean/full A/B/C baseline 必须在 FX-02 修改 Lighting 前补齐，绝对阈值最迟在 G5-L 关闭前由目标 adapter 数据冻结。在此之前 R5-00 implementation 可以提交，但 baseline/G5-L 状态只能是 `CONDITIONAL PASS`，不得声称性能收益或阶段关闭。
 
 ---
 
@@ -222,7 +233,7 @@ FX-01 只验证 R5-00 已冻结 ABI 的 GPU decode、background 和 debug consum
 
 建议 `r5-surface-contract.test.mjs` 使用固定 packed bytes 做 TS decode oracle；WGSL micro fixture 对同一像素输出 readback。
 
-## 人工场景
+## 浏览器截图 fixture
 
 使用单个 2×3 材质板：
 1. dielectric rough；
@@ -287,7 +298,7 @@ WebGPU micro：
 - overflow 时画面不能缺灯，counter/fallback 必须非零；
 - buffer 无 OOB。
 
-## 人工/性能 sweep
+## 浏览器性能 sweep
 
 `C-light`：
 - local lights：0 / 1 / 16 / 64 / 256 / 1024；
@@ -331,7 +342,7 @@ Reference environment 若上游格式 runtime 不支持，允许在 benchmark �
 
 期望：先在线性 HDR 对比，tonemap screenshot 只能作为第二层证据。
 
-## 人工测试
+## 截图与数值回归
 
 保存：
 - baseColor；
@@ -359,12 +370,13 @@ Caster selection：
 ```text
 Packed Instance
 → Cluster hierarchy
+→ SecondaryRasterWork v1 family
 → per-cascade ShadowRasterWork
 → GPU indirect draw
 → shadow atlas
 ```
 
-不得恢复 CPU final visible list，也不得继续依赖 legacy `MeshletDrawList` 作为 Packed caster producer。
+`SecondaryRasterWork v1` 先冻结 instance slot、cluster/meshlet locator、material slot、raster flags、queue header、capacity/overflow 和 indirect-args owner；各 cascade 使用独立 bounded queue，但共享 ABI/owner/kernel，不复制 hierarchy 系统。不得恢复 CPU final visible list，也不得继续依赖 legacy `MeshletDrawList` 作为 Packed caster producer。
 
 ## 自动测试
 
@@ -377,7 +389,7 @@ Packed Instance
 - feature-off 不创建 caster work/atlas update；
 - camera cut/resize 不采样无效 shadow history。
 
-## 人工 sequence
+## 浏览器时域 sequence
 
 1. 静态 directional light，相机每帧移动小于 1 shadow texel，连续 120 帧；
 2. 横穿 cascade boundary；
@@ -405,7 +417,7 @@ Packed Instance
 
 ```text
 Hierarchy selection
-→ RasterWork expansion
+→ SecondaryRasterWork v1 expansion
 → alphaMode classification
    ├─ OPAQUE/MASK → Visibility
    └─ BLEND → TransparentRasterWork
@@ -427,7 +439,7 @@ Hierarchy selection
 - BLEND 不写 opaque Visibility/depth；
 - transparent reactive/velocity contract。
 
-## 人工/性能 sweep
+## 浏览器性能 sweep
 
 `C-transparent`：
 - coverage：0 / 10 / 50%；
@@ -452,7 +464,7 @@ G5-S 退出：FX04/05 全部通过，Packed Shadow/Transparency 不再依赖 leg
 
 ---
 
-# FX-06 · Temporal Reconstruction / DRS / Upscaling / G5-T
+# FX-06A · Temporal Foundation / DRS Contract / G5-T
 
 ## Source-of-truth 前置
 
@@ -475,6 +487,8 @@ internal/output resolution
 exposure/pre-exposure（若算法需要）
 ```
 
+FX-06A 只关闭共享 history registry/invalidation、reactive/disocclusion classification、jitter、internal/output resolution 和异步 DRS feedback。runner 使用最小 TAA reference 验证 contract，但不得在 AO/SSR 尚未接入时宣称 final TAAU/upscale 画质关闭。
+
 ## 自动测试
 
 - reprojection coordinate；
@@ -487,7 +501,7 @@ exposure/pre-exposure（若算法需要）
 - history resource generation/reuse；
 - DRS 不进行同步 map/readback。
 
-## 人工 sequence
+## 浏览器时域 sequence
 
 固定每段 120–240 帧：
 1. static；
@@ -509,7 +523,7 @@ exposure/pre-exposure（若算法需要）
 - history bytes；
 - internal/output pixels；
 - settling frames；
-- ghost trail notes/screenshots。
+- ghost-trail length/error metric 与固定关键帧 screenshots。
 
 预期：
 - camera cut/resize 后第一帧不采样旧尺寸/旧 camera history；
@@ -553,22 +567,29 @@ AO raw、denoise/temporal、final HDR，GPU phase 与 history bytes。
 保存：
 SSR hit/miss debug、roughness、history confidence、trace/denoise/composite GPU time。
 
-G5-T 退出：FX06/07/08 sequence 全通过，Temporal source ownership 闭合，resize/cut/scale 无错误 history。
+## FX-06B · Final TAA/TAAU / Upscale Closure
+
+FX-07/08 通过后，runner 才执行 final composition sequence：opaque + transparency reactive + AO + SSR/IBL fallback → TAA/TAAU → upscale。必须自动比较 feature 单开/组合、camera cut、resize、scale transition 的关键帧和 settling/ghost metric，并证明 AO/SSR 没有私有重复的全局 history invalidation owner。
+
+G5-T 退出：FX-06A/07/08/06B sequence 全通过，Temporal source ownership 闭合，resize/cut/scale 无错误 history。
 
 ---
 
 # FX-09 · Exposure / Bloom / Tonemap / Motion Blur / Sharpen / G5-P
 
-测试顺序必须固定：
+颜色与依赖顺序必须固定：
 
 ```text
-linear HDR
-→ exposure
-→ bloom/composite
-→ temporal-dependent post（按 contract）
-→ tonemap
-→ output transform
+final temporal scene-linear HDR
+├─ exposure metering → adapted exposure ───────────────┐
+└─ motion blur（可选）→ bloom extract/composite ───────┤
+                                                       ↓
+                                                   tonemap
+                                                       ↓
+                                  output transform / declared sharpen domain
 ```
+
+Exposure histogram 默认读取 bloom 前 scene-linear HDR，不能因 Bloom 开关改变测光 source。若选定算法采用 pre-exposure 或 display-referred sharpen，必须在 artifact 中记录独立 color contract 和 on/off screenshot metric。
 
 用例：
 - exposure step：暗→亮、亮→暗；
@@ -678,8 +699,8 @@ G5-P 目标：
 6. 浏览器 console / WebGPU diagnostics
 7. result.json / counters.json
 8. 关键 screenshot
-9. sequence-notes.md
+9. sequence.json 与 screenshot-metrics.json
 10. 如果是性能任务：before/after 或 on/off 同机 P50/P95/P99
 ```
 
-不要只发 FPS 或一张“看起来正常”的截图。
+不要只提交 FPS 或一张未做自动判定的截图。
