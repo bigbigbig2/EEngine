@@ -71,6 +71,7 @@
 - 2026-08-28 的 R4-B P1 修正已进入代码：Resolve 按 `MaterialRecord.uv_set` 选择 UV0/UV1；v2 明确只支持 baseColor/normal/ORM/emissive 共用 texCoord/transform，glTF 每纹理 mapping 不一致或请求 `TEXCOORD_2+` 时在 residency 前拒绝。Material GPU table 已脱离全局递增 `material.id`，由 4,096-slot dense resident free-list、引用计数、abort rollback 和 GPU-completion-safe retirement 管理；Packed Scene stage/patch 只通过 material dictionary 映射内部 slot。Chrome focused UV1 fixture 已 `passed=true`，UV1 alpha case 产生 38 pixels 且 validation/uncaptured/device-lost/shader diagnostics 全为 0；Benchmark B smoke 的生产 Single Resolve 为 1 fullscreen draw、1 active/4095 free dense slots、4 resident textures、0 fallback 和 0 WebGPU diagnostics，unexpected issues 为 0。artifact 位于 `temp/r4-b/p1/`；因本轮 worktree dirty 且 smoke cadence 非 full，不能替代 clean full R4-B Gate。
 - 2026-08-30 R4-B lifecycle/material-contract 修正已进入代码：64-layer texture array 的 layer 0 固定为 fallback，63 个可驻留层由共享引用计数与 free-list 管理；最后引用释放、材质换纹理和重新驻留均绑定 owning command 的 `gpuDone` 与 generation，stage abort 回滚 retain。evidence schema v4 报告 resident/retiring/free texture layer，并由浏览器 Gate 校验 layer 0 保留与结束时零 retiring。glTF separate occlusion texture 现在显式拒绝；`normalTexture.scale` 进入 MaterialRecord/WGSL；`KHR_materials_unlit` 只消费 baseColor 并以 emissive Surface 绕过 lighting，残留 PBR 纹理不占 residency、不置 feature/fallback bit。
 - 上述修正在 clean commit `74e61c02f3fd66d30bafbf02d8b2472305c9347e` 完成 Chrome 151 / Intel Gen9 B/C full Gate：两组均 `passed=true`、`gateEligible=true`，issues/counter issues/console/page/WebGPU diagnostics 为 0；active materials `1/3` 时 fullscreen draw 恒为 1。B texture `resident/retiring/free = 4/0/59`，C 为 `0/0/63`，fallback 为 0；13 个 canvas view 加 page screenshot 已保存并人工核对 final-color、normal、occlusion、emissive。artifact 位于 `temp/r4-b/full/`。
+- R4 core milestone 已关闭：G4-A Hardware Unified Visibility 与 G4-B Single Material Resolve 均为 closed；R4-C Software/Hybrid Raster 转为 optional performance track。只有同 GPU/profile 证明 Hardware Raster 在目标 workload 是主要瓶颈且 SW/Hybrid 有净收益时才重开，HW-only 是合法终态。
 - 2026-08-28 clean commit `4e1206b` 的 Chrome 151 B/C full Gate 均通过：`1280×720`、DPR 1、60 warm-up + 180 sample，一个 Packed Hardware drawIndirect、一个 Resolve draw，invalid key/gradient fallback/reactive/texture/sampler fallback/overflow 与 WebGPU diagnostics 全为 0。active materials 为 1/3，Resolve P50/P95/P99 分别为 B `1.559088/1.7152/2.05827136 ms`、C `0.66336/0.6934896/0.69565568 ms`；artifact 位于 `temp/r4-b/full/`。
 - 旧 Packed material/velocity attachments 为 34 B/pixel，新 Surface 为 26 B/pixel，在 1280×720 少 `7,372,800` transient bytes。B 使用 4 个 resident texture，resident bytes `22,369,536`，fallback 为 0。相对 R4-A 旧链，B 因新增完整纹理采样与 velocity 回退；C 从 3 draws 收为 1 draw且 P50 改善约 11.9%，因此只声明结构伸缩性，不声明普遍提速。
 - Packed Material Expand、Packed Velocity producer/shader 与辅助 MRT 已删除。普通 `Scene` 的 legacy `MaterialExpandPass/VelocityPass` 仍有公开 consumer，现为惰性创建且 Packed 帧零 owner/Pass/resource；最终类级删除归普通 Scene consumer 迁移与 `FX-12`。
@@ -82,9 +83,9 @@
 
 ## 当前下一步
 
-1. 进入 `R4-C-01`，先冻结 Software/Hybrid producer 的 source、ABI、ordered depth/tie-break 与 Hardware fallback contract；不得复制第二套 Material Resolve。
-2. 保留 R4-A Hardware Raster 回退与 R4-B 的 B regression 为独立 phase 风险；R4-C 只有在目标 workload 证明收益时才启用，HW-only 更快是合法结论。
-3. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；G4-B 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
+1. R4 core 已关闭；主线进入 R5 的 Lighting/Temporal/quality revalidation。`R4-C-01` 不再是默认下一步，只在 Hardware Raster 的同 GPU/profile 证据满足 optional track 触发条件时开启。
+2. 保留 R4-A Hardware Raster 回退与 R4-B 的 B regression 为独立 phase 风险；若后续启动 R4-C，必须复用同一个 VisibilityKey/Depth/Material Resolve contract，HW-only 更快仍是合法结论。
+3. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；R4 core 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
 
 ## 本地参考状态
 

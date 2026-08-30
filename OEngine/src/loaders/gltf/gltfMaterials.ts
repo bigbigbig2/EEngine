@@ -110,7 +110,7 @@ export function parseGltfMaterial(
 
   const pbr = e.pbrMetallicRoughness;
   const unlit = e.extensions?.KHR_materials_unlit !== undefined;
-  validateOcclusionTextureContract(e);
+  if (!unlit) validateOcclusionTextureContract(e);
   const sharedUv = resolveSharedUvMapping(e, [
     ["baseColorTexture", pbr?.baseColorTexture],
     ...unlit ? [] : [
@@ -194,10 +194,6 @@ export function parseGltfMaterial(
   if (occ !== undefined) {
     n.ambient_factors.a = saturate(occ.strength ?? 1);
     n.ambient_factors.b = 0;
-    if (occ.texCoord !== undefined && occ.texCoord !== 0) {
-      n.ambient_factors.b = 1;
-      n.ambient_factors.a = 0;
-    }
   } else {
     n.ambient_factors.b = 1;
     n.ambient_factors.a = 0;

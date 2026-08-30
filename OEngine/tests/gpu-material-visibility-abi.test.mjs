@@ -254,6 +254,32 @@ test("R4-B glTF rejects a separate occlusion texture before GPU residency", () =
   );
 });
 
+test("R4-B glTF shared TEXCOORD_1 preserves occlusion strength", () => {
+  const texture = validTexture();
+  const material = parseGltfMaterial({
+    occlusionTexture: { index: 0, texCoord: 1, strength: 0.625 },
+    pbrMetallicRoughness: {
+      metallicRoughnessTexture: { index: 0, texCoord: 1 }
+    }
+  }, [texture]);
+  assert.equal(material.base_color_uv_set, 1);
+  assert.equal(material.ambient_factors.a, 0.625);
+  assert.equal(material.ambient_factors.b, 0);
+});
+
+test("R4-B glTF unlit ignores residual occlusion-only PBR inputs", () => {
+  const texture = validTexture();
+  const material = parseGltfMaterial({
+    occlusionTexture: { index: 0 },
+    pbrMetallicRoughness: { baseColorTexture: { index: 0 } },
+    extensions: { KHR_materials_unlit: {} }
+  }, [texture]);
+  assert.equal(material.is_unlit, true);
+  assert.equal(material.texture_orm, undefined);
+  assert.equal(material.ambient_factors.a, 0);
+  assert.equal(material.ambient_factors.b, 1);
+});
+
 test("R4-B glTF normalTexture.scale and unlit state reach MaterialRecord", () => {
   const texture = validTexture();
   const normal = parseGltfMaterial({
