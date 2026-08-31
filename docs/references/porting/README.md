@@ -48,3 +48,4 @@ R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；�
 - [R5-02 Packed CSM Shadow / FX-04](./R5-02-packed-csm-shadow.md)
 - [R5-03 Packed MBOIT Transparency / FX-05](./R5-03-packed-mboit-transparency.md)
 - [R5-04 Temporal / Upscale Foundation / FX-06A](./R5-04-temporal-upscale.md)
+- [R5-05 Ambient Occlusion / FX-07](./R5-05-ambient-occlusion.md)

@@ -102,6 +102,10 @@ export default defineConfig({
           examplesRoot,
           "r5-temporal-foundation/index.html"
         ),
+        r5AmbientOcclusion: path.resolve(
+          examplesRoot,
+          "r5-ambient-occlusion/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

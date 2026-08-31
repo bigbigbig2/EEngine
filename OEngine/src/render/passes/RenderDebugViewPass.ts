@@ -10,6 +10,7 @@ import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCach
 import { GPU_VISIBILITY_DEBUG_SETTINGS_SIZE } from "../../gpu/GpuVisibilityDebugResolve.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import {
+  AMBIENT_OCCLUSION_DEBUG_WGSL,
   DEPTH_DEBUG_WGSL,
   PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL,
   RENDER_DEBUG_VIEW_FORMAT,
@@ -40,6 +41,9 @@ export type RenderDebugViewResources = {
   indirectDiffuse: ResourceId | null;
   indirectSpecular: ResourceId | null;
   linearHdr: ResourceId | null;
+  ambientOcclusionRaw: ResourceId | null;
+  ambientOcclusionDenoised: ResourceId | null;
+  ambientOcclusionTemporal: ResourceId | null;
 };
 
 export class RenderDebugViewPass {
@@ -113,6 +117,18 @@ export class RenderDebugViewPass {
       [
         RenderDebugViewValue.Reactive,
         createPipeline("Render debug/Reactive", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+      ],
+      [
+        RenderDebugViewValue.AmbientOcclusionRaw,
+        createPipeline("Render debug/AO raw", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.AmbientOcclusionDenoised,
+        createPipeline("Render debug/AO denoised", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.AmbientOcclusionTemporal,
+        createPipeline("Render debug/AO temporal", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
       ],
       [
         RenderDebugViewValue.IndirectDiffuse,
@@ -275,6 +291,12 @@ function inputResourceIds(
       return [requireOptionalTexture(view, resources.indirectSpecular)];
     case RenderDebugViewValue.LinearHdr:
       return [requireOptionalTexture(view, resources.linearHdr)];
+    case RenderDebugViewValue.AmbientOcclusionRaw:
+      return [requireOptionalTexture(view, resources.ambientOcclusionRaw)];
+    case RenderDebugViewValue.AmbientOcclusionDenoised:
+      return [requireOptionalTexture(view, resources.ambientOcclusionDenoised)];
+    case RenderDebugViewValue.AmbientOcclusionTemporal:
+      return [requireOptionalTexture(view, resources.ambientOcclusionTemporal)];
     default:
       throw new Error(`RenderDebugViewPass has no resource contract for '${view}'`);
   }

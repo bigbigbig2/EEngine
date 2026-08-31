@@ -15,6 +15,7 @@ import {
 } from "../../gpu/GPUSamplerCache.js";
 import {
   SSAO_ALBEDO_AO_FORMAT,
+  SSAO_BENT_NORMAL_UPSAMPLE_WGSL,
   SSAO_BENT_NORMAL_FORMAT,
   SSAO_COMPOSITE_WGSL,
   SSAO_RAW_WGSL,
@@ -40,6 +41,8 @@ export type ScreenSpaceAmbientOcclusionInputs = {
 };
 
 export type ScreenSpaceAmbientOcclusionOutput = {
+  rawVisibility: ResourceId;
+  denoisedVisibility: ResourceId;
   visibility: ResourceId;
   occlusion: ResourceId;
   bentNormals: ResourceId;
@@ -48,6 +51,9 @@ export type ScreenSpaceAmbientOcclusionOutput = {
 export type ScreenSpaceAmbientOcclusionJob = {
   samplers: GPUSamplerCache;
   frameIndex: number;
+  historyValid: boolean;
+  historyInputIndex: 0 | 1;
+  historyOutputIndex: 0 | 1;
   width: number;
   height: number;
 };
@@ -57,15 +63,25 @@ export class ScreenSpaceAmbientOcclusionPass {
   private readonly spatialPipeline: CachedRenderPipelineDescriptor;
   private readonly temporalPipeline: CachedRenderPipelineDescriptor;
   private readonly compositePipeline: CachedRenderPipelineDescriptor;
+  private readonly bentNormalUpsamplePipeline: CachedRenderPipelineDescriptor;
   private rawSettingsBuffer: GPUBuffer | null = null;
   private spatialSettingsBuffer: GPUBuffer | null = null;
   private hilbertView: GPUTextureView | null = null;
-  private readonly histories: [GPUTextureContext, GPUTextureContext];
+  private readonly histories: [GPUTextureContext, GPUTextureContext] | null;
   private readonly device: GPUDevice;
 
   lastRan = false;
+  lastRawPasses = 0;
+  lastSpatialPasses = 0;
+  lastTemporalPasses = 0;
+  lastCompositePasses = 0;
+  lastBentNormalUpsamplePasses = 0;
 
-  constructor(private readonly graphics: GraphicsContext) {
+  constructor(
+    private readonly graphics: GraphicsContext,
+    readonly temporalEnabled = true,
+    readonly resolutionScale: 0.5 | 1 = 1
+  ) {
     const device = graphics.device;
     if (device === null) {
       throw new Error(
@@ -77,16 +93,19 @@ export class ScreenSpaceAmbientOcclusionPass {
     this.spatialPipeline = createSsaoSpatialPipelineDescriptor();
     this.temporalPipeline = createSsaoTemporalPipelineDescriptor();
     this.compositePipeline = createSsaoCompositePipelineDescriptor();
+    this.bentNormalUpsamplePipeline = createSsaoBentNormalUpsamplePipelineDescriptor();
     const descriptor: GPUTextureDescriptor = {
       label: "SSAO history",
       size: [1, 1, 1],
       format: SSAO_VISIBILITY_FORMAT,
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
     };
-    this.histories = [
-      new GPUTextureContext(device, { ...descriptor, label: "SSAO history 0" }),
-      new GPUTextureContext(device, { ...descriptor, label: "SSAO history 1" })
-    ];
+    this.histories = temporalEnabled
+      ? [
+          new GPUTextureContext(device, { ...descriptor, label: "SSAO history 0" }),
+          new GPUTextureContext(device, { ...descriptor, label: "SSAO history 1" })
+        ]
+      : null;
   }
 
   init(): void {
@@ -120,20 +139,16 @@ export class ScreenSpaceAmbientOcclusionPass {
     historyBindings?: { readonly input: unknown; readonly output: unknown }
   ): ScreenSpaceAmbientOcclusionOutput {
     this.init();
-    const width = Math.max(1, job.width | 0);
-    const height = Math.max(1, job.height | 0);
+    this.resetFrameEvidence();
+    const fullWidth = Math.max(1, job.width | 0);
+    const fullHeight = Math.max(1, job.height | 0);
+    const width = Math.max(1, Math.ceil(fullWidth * this.resolutionScale));
+    const height = Math.max(1, Math.ceil(fullHeight * this.resolutionScale));
     this.resize(width, height);
 
-    const historyInputResource = graph.import_resource(
-      "ao_history",
-      { kind: "imported", label: "ao_history" },
-      historyBindings?.input ?? this.historyTexture(job.frameIndex, false)
-    );
-    const historyOutputResource = graph.import_resource(
-      "ao_output",
-      { kind: "imported", label: "ao_output" },
-      historyBindings?.output ?? this.historyTexture(job.frameIndex, true)
-    );
+    if (this.temporalEnabled && historyBindings === undefined) {
+      throw new Error("SSAO temporal history bindings are required");
+    }
 
     let rawVisibility = -1;
     let bentNormals = -1;
@@ -150,6 +165,7 @@ export class ScreenSpaceAmbientOcclusionPass {
           normal: resolveTextureView(resources.get(inputs.normal)),
           camera: resolveBuffer(resources.get(inputs.camera), "SSAO camera")
         });
+        self.lastRawPasses = 1;
       }
     );
     rawVisibility = rawBuilder.create("SSAO raw visibility", {
@@ -184,6 +200,7 @@ export class ScreenSpaceAmbientOcclusionPass {
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
           normal: resolveTextureView(resources.get(inputs.normal))
         });
+        self.lastSpatialPasses = 1;
       }
     );
     spatialVisibility = spatialBuilder.create("SSAO filtered visibility", {
@@ -198,32 +215,71 @@ export class ScreenSpaceAmbientOcclusionPass {
     spatialBuilder.read(inputs.depth);
     spatialBuilder.read(inputs.normal);
 
-    let resolvedVisibility = -1;
-    const temporalBuilder = graph.add(
-      "SSAO temporal resolve ZC",
-      job,
-      (data, resources, context) => {
-        const command = requireShadeCommandContext(context.encoder);
-        self.executeTemporal(
-          command,
-          data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
-          {
-            output: resolveTextureView(resources.get(resolvedVisibility)),
-            current: resolveTextureView(resources.get(spatialVisibility)),
-            history: resolveTextureView(resources.get(historyInputResource)),
-            velocity: resolveTextureView(resources.get(inputs.velocity)),
-            occlusionConfidence: resolveTextureView(
-              resources.get(inputs.occlusionConfidence)
-            )
-          }
-        );
-      }
-    );
-    temporalBuilder.read(spatialVisibility);
-    temporalBuilder.read(historyInputResource);
-    temporalBuilder.read(inputs.velocity);
-    temporalBuilder.read(inputs.occlusionConfidence);
-    resolvedVisibility = temporalBuilder.write(historyOutputResource);
+    let resolvedVisibility = spatialVisibility;
+    if (this.temporalEnabled) {
+      const historyInputResource = graph.import_resource(
+        "ao_history",
+        { kind: "imported", label: "ao_history" },
+        historyBindings!.input
+      );
+      const historyOutputResource = graph.import_resource(
+        "ao_output",
+        { kind: "imported", label: "ao_output" },
+        historyBindings!.output
+      );
+      const temporalBuilder = graph.add(
+        "SSAO temporal resolve ZC",
+        job,
+        (data, resources, context) => {
+          const command = requireShadeCommandContext(context.encoder);
+          self.executeTemporal(
+            command,
+            data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+            data.historyValid,
+            {
+              output: resolveTextureView(resources.get(resolvedVisibility)),
+              current: resolveTextureView(resources.get(spatialVisibility)),
+              history: resolveTextureView(resources.get(historyInputResource)),
+              velocity: resolveTextureView(resources.get(inputs.velocity)),
+              occlusionConfidence: resolveTextureView(
+                resources.get(inputs.occlusionConfidence)
+              )
+            }
+          );
+          self.lastTemporalPasses = 1;
+        }
+      );
+      temporalBuilder.read(spatialVisibility);
+      temporalBuilder.read(historyInputResource);
+      temporalBuilder.read(inputs.velocity);
+      temporalBuilder.read(inputs.occlusionConfidence);
+      resolvedVisibility = temporalBuilder.write(historyOutputResource);
+    }
+
+    let resolvedBentNormals = bentNormals;
+    if (this.resolutionScale < 1) {
+      const bentNormalUpsampleBuilder = graph.add(
+        "SSAO bent-normal upsample",
+        {},
+        (_data, resources, context) => {
+          const command = requireShadeCommandContext(context.encoder);
+          self.executeBentNormalUpsample(command, {
+            output: resolveTextureView(resources.get(resolvedBentNormals)),
+            source: resolveTextureView(resources.get(bentNormals))
+          });
+          self.lastBentNormalUpsamplePasses = 1;
+        }
+      );
+      bentNormalUpsampleBuilder.read(bentNormals);
+      resolvedBentNormals = bentNormalUpsampleBuilder.create("SSAO full-resolution bent normals", {
+        kind: "transient_texture",
+        label: "SSAO full-resolution bent normals",
+        width: fullWidth,
+        height: fullHeight,
+        format: SSAO_BENT_NORMAL_FORMAT,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+      });
+    }
 
     let occlusion = -1;
     const compositeBuilder = graph.add(
@@ -231,31 +287,58 @@ export class ScreenSpaceAmbientOcclusionPass {
       {},
       (_data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
-        self.executeComposite(command, {
+        self.executeComposite(
+          command,
+          job.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+          {
           output: resolveTextureView(resources.get(occlusion)),
           visibility: resolveTextureView(resources.get(resolvedVisibility))
-        });
+          }
+        );
+        self.lastCompositePasses = 1;
       }
     );
     compositeBuilder.read(resolvedVisibility);
     occlusion = compositeBuilder.write(inputs.albedoAo);
 
     return {
+      rawVisibility,
+      denoisedVisibility: spatialVisibility,
       visibility: resolvedVisibility,
       occlusion,
-      bentNormals
+      bentNormals: resolvedBentNormals
     };
   }
 
-  historyTexture(frameIndex: number, output: boolean): GPUTexture {
-    return this.histories[(frameIndex + (output ? 1 : 0)) % 2]!.gpu_texture;
+  historyTexture(index: 0 | 1): GPUTexture {
+    if (this.histories === null) {
+      throw new Error("SSAO temporal history is disabled");
+    }
+    return this.histories[index].gpu_texture;
   }
 
   resize(width: number, height: number): void {
     const resolvedWidth = Math.max(1, width | 0);
     const resolvedHeight = Math.max(1, height | 0);
-    this.histories[0].resize(resolvedWidth, resolvedHeight);
-    this.histories[1].resize(resolvedWidth, resolvedHeight);
+    this.histories?.[0].resize(resolvedWidth, resolvedHeight);
+    this.histories?.[1].resize(resolvedWidth, resolvedHeight);
+  }
+
+  get historyTextureCount(): number {
+    return this.histories?.length ?? 0;
+  }
+
+  get historyBytes(): number {
+    return this.histories?.reduce((sum, history) => sum + history.gpu_memory_usage, 0) ?? 0;
+  }
+
+  resetFrameEvidence(): void {
+    this.lastRan = false;
+    this.lastRawPasses = 0;
+    this.lastSpatialPasses = 0;
+    this.lastTemporalPasses = 0;
+    this.lastCompositePasses = 0;
+    this.lastBentNormalUpsamplePasses = 0;
   }
 
   private executeRaw(
@@ -305,11 +388,7 @@ export class ScreenSpaceAmbientOcclusionPass {
           loadOp: "clear",
           storeOp: "store"
         }
-      ],
-      depthStencilAttachment: {
-        view: resources.depth,
-        depthReadOnly: true
-      }
+      ]
     });
     pass.draw(3, 1, 0, 0);
     pass.end();
@@ -350,6 +429,7 @@ export class ScreenSpaceAmbientOcclusionPass {
   private executeTemporal(
     command: ShadeGPUCommandContext,
     sampler: GPUSampler,
+    historyValid: boolean,
     resources: {
       output: GPUTextureView;
       current: GPUTextureView;
@@ -358,6 +438,10 @@ export class ScreenSpaceAmbientOcclusionPass {
       occlusionConfidence: GPUTextureView;
     }
   ): void {
+    const settings = command.allocateTransientBufferAndLoad(
+      new Uint32Array([historyValid ? 1 : 0, 0, 0, 0]).buffer,
+      GPUBufferUsage.UNIFORM
+    );
     const pass = command.constructRenderPass({
       label: "SSAO temporal resolve ZC",
       pipeline: this.temporalPipeline,
@@ -366,7 +450,8 @@ export class ScreenSpaceAmbientOcclusionPass {
         resources.velocity,
         resources.occlusionConfidence,
         resources.history,
-        sampler
+        sampler,
+        { buffer: settings }
       ]],
       colorAttachments: [
         {
@@ -383,6 +468,7 @@ export class ScreenSpaceAmbientOcclusionPass {
 
   private executeComposite(
     command: ShadeGPUCommandContext,
+    sampler: GPUSampler,
     resources: {
       output: GPUTextureView;
       visibility: GPUTextureView;
@@ -391,7 +477,7 @@ export class ScreenSpaceAmbientOcclusionPass {
     const pass = command.constructRenderPass({
       label: "SSAO alpha-min composite mD",
       pipeline: this.compositePipeline,
-      bindings: [[resources.visibility]],
+      bindings: [[resources.visibility, sampler]],
       colorAttachments: [
         {
           view: resources.output,
@@ -405,14 +491,33 @@ export class ScreenSpaceAmbientOcclusionPass {
     this.lastRan = true;
   }
 
+  private executeBentNormalUpsample(
+    command: ShadeGPUCommandContext,
+    resources: { output: GPUTextureView; source: GPUTextureView }
+  ): void {
+    const pass = command.constructRenderPass({
+      label: "SSAO bent-normal upsample",
+      pipeline: this.bentNormalUpsamplePipeline,
+      bindings: [[resources.source]],
+      colorAttachments: [{
+        view: resources.output,
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        loadOp: "clear",
+        storeOp: "store"
+      }]
+    });
+    pass.draw(3, 1, 0, 0);
+    pass.end();
+  }
+
   destroy(): void {
     this.rawSettingsBuffer?.destroy();
     this.rawSettingsBuffer = null;
     this.spatialSettingsBuffer?.destroy();
     this.spatialSettingsBuffer = null;
     this.hilbertView = null;
-    this.histories[0].destroy();
-    this.histories[1].destroy();
+    this.histories?.[0].destroy();
+    this.histories?.[1].destroy();
   }
 }
 
@@ -431,8 +536,7 @@ function createSsaoRawPipelineDescriptor(): CachedRenderPipelineDescriptor {
         }
       },
       { format: SSAO_BENT_NORMAL_FORMAT }
-    ],
-    true
+    ]
   );
 }
 
@@ -466,6 +570,22 @@ function createSsaoCompositePipelineDescriptor(): CachedRenderPipelineDescriptor
         alpha: { operation: "min", srcFactor: "one", dstFactor: "one" }
       }
     }]
+  );
+}
+
+function createSsaoBentNormalUpsamplePipelineDescriptor(): CachedRenderPipelineDescriptor {
+  return createSsaoPipelineDescriptor(
+    "Renderer/SSAO bent-normal upsample",
+    SSAO_BENT_NORMAL_UPSAMPLE_WGSL,
+    [{
+      label: "Renderer/SSAO bent-normal upsample group0",
+      entries: [{
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "uint", viewDimension: "2d" }
+      }]
+    }],
+    [{ format: SSAO_BENT_NORMAL_FORMAT }]
   );
 }
 
@@ -541,7 +661,8 @@ function createSsaoTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 3, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 4, visibility: fragment, sampler: { type: "filtering" } }
+      { binding: 4, visibility: fragment, sampler: { type: "filtering" } },
+      { binding: 5, visibility: fragment, buffer: { type: "uniform" } }
     ]
   };
 }
@@ -549,11 +670,18 @@ function createSsaoTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
 function createSsaoCompositeGroupLayout(): GPUBindGroupLayoutDescriptor {
   return {
     label: "Renderer/SSAO alpha-min mD group0",
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
-    }]
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "float", viewDimension: "2d" }
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: { type: "filtering" }
+      }
+    ]
   };
 }
 

@@ -207,6 +207,25 @@ export interface TemporalRuntimeEvidence {
   readonly drsFeedbackLatencyFrames: number;
 }
 
+export interface AmbientOcclusionRuntimeEvidence {
+  readonly enabled: boolean;
+  readonly temporalEnabled: boolean;
+  readonly resolutionScale: 0.5 | 1;
+  readonly internalPixels: number;
+  readonly aoPixels: number;
+  readonly rawPasses: number;
+  readonly spatialPasses: number;
+  readonly temporalPasses: number;
+  readonly compositePasses: number;
+  readonly bentNormalUpsamplePasses: number;
+  readonly historyTextureCount: number;
+  readonly historyBytes: number;
+  readonly historyValid: boolean;
+  readonly historyRevision: number;
+  readonly historyInvalidations: number;
+  readonly historyInvalidationReason: string;
+}
+
 type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
   readonly buffer: GPUBuffer;
   readonly bytesPerRow: number;
@@ -235,14 +254,17 @@ type MainFrameGraphBindings = {
   readonly taaHistoryValidity: number;
   readonly taaHistoryInputIndex: 0 | 1;
   readonly taaHistoryOutputIndex: 0 | 1;
+  readonly ssaoHistoryValidity: number;
+  readonly ssaoHistoryInputIndex: 0 | 1;
+  readonly ssaoHistoryOutputIndex: 0 | 1;
   readonly motionBlurStrength: number;
   readonly nssSettings: NssSettings | null;
   readonly linearHdrCapture: PendingLinearHdrCapture | null;
 };
 
 const MAIN_GRAPH_CACHE_LIMIT = 16;
-const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 1;
-const MAIN_GRAPH_INSTRUMENTATION_REVISION = 3;
+const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 2;
+const MAIN_GRAPH_INSTRUMENTATION_REVISION = 4;
 
 /**
  * 渲染器运行时总控。
@@ -301,8 +323,10 @@ export class Renderer {
   private _brick4Fused!: Brick4FusedIndirectPass;
   private _velocity: VelocityPass | null = null;
   private _renderDebug: RenderDebugViewPass | null = null;
-  private _occlusionConfidence!: OcclusionConfidencePass;
+  private _occlusionConfidence: OcclusionConfidencePass | null = null;
   private _ssao: ScreenSpaceAmbientOcclusionPass | null = null;
+  private _ssaoConfigurationKey = "";
+  private _ssaoOwnerGeneration = 0;
   private _ssr: ScreenSpaceReflectionsPass | null = null;
   private _taa: TemporalAntiAliasingPass | null = null;
   private _temporalClassification: TemporalClassificationPass | null = null;
@@ -313,7 +337,7 @@ export class Renderer {
   private _automaticExposure: AutomaticExposurePass | null = null;
   private readonly _taaJitter = new TemporalJitterController();
   private _taaHistory: [GPUTextureContext, GPUTextureContext] | null = null;
-  private readonly _temporalHistories = new TemporalHistoryRegistry(["color"]);
+  private readonly _temporalHistories = new TemporalHistoryRegistry(["color", "ssao"]);
   private readonly _dynamicResolution = new DynamicResolutionScaling();
   private _unsubscribeDynamicResolution: (() => void) | null = null;
   private _dynamicResolutionOwnsProfiler = false;
@@ -330,11 +354,32 @@ export class Renderer {
   feature_shadows_enabled = true;
   feature_ssr_enabled = false;
   feature_ssao_enabled = true;
+  private _ssao_resolution_scale: 0.5 | 1 = 1;
+  private _ssao_temporal_enabled = true;
   feature_taa_enabled = false;
   feature_bloom_enabled = true;
   feature_automatic_exposure_enabled = true;
   feature_motion_blur_enabled = false;
   feature_sharpening_enabled = true;
+
+  get ssao_resolution_scale(): 0.5 | 1 {
+    return this._ssao_resolution_scale;
+  }
+
+  set ssao_resolution_scale(value: 0.5 | 1) {
+    if (value !== 0.5 && value !== 1) {
+      throw new RangeError("ssao_resolution_scale must be 0.5 or 1");
+    }
+    this._ssao_resolution_scale = value;
+  }
+
+  get ssao_temporal_enabled(): boolean {
+    return this._ssao_temporal_enabled;
+  }
+
+  set ssao_temporal_enabled(value: boolean) {
+    this._ssao_temporal_enabled = value === true;
+  }
   /** 单一调试视图选择；unsupported 条目不会向 FrameGraph 添加工作。 */
   render_debug_view: RenderDebugViewT = RenderDebugView.None;
   fused_indirect = true;
@@ -654,6 +699,33 @@ export class Renderer {
     });
   }
 
+  /** FX-07 bounded AO phase/history evidence; GPU handles remain private. */
+  ambientOcclusionEvidence(): AmbientOcclusionRuntimeEvidence {
+    const history = this._temporalHistories.state("ssao");
+    const pass = this._ssao;
+    const internalPixels = this._render_resolution.x * this._render_resolution.y;
+    const aoWidth = Math.max(1, Math.ceil(this._render_resolution.x * this._ssao_resolution_scale));
+    const aoHeight = Math.max(1, Math.ceil(this._render_resolution.y * this._ssao_resolution_scale));
+    return Object.freeze({
+      enabled: this.feature_ssao_enabled,
+      temporalEnabled: this.feature_ssao_enabled && this._ssao_temporal_enabled,
+      resolutionScale: this._ssao_resolution_scale,
+      internalPixels,
+      aoPixels: this.feature_ssao_enabled ? aoWidth * aoHeight : 0,
+      rawPasses: pass?.lastRawPasses ?? 0,
+      spatialPasses: pass?.lastSpatialPasses ?? 0,
+      temporalPasses: pass?.lastTemporalPasses ?? 0,
+      compositePasses: pass?.lastCompositePasses ?? 0,
+      bentNormalUpsamplePasses: pass?.lastBentNormalUpsamplePasses ?? 0,
+      historyTextureCount: pass?.historyTextureCount ?? 0,
+      historyBytes: pass?.historyBytes ?? 0,
+      historyValid: history.valid,
+      historyRevision: history.revision,
+      historyInvalidations: history.invalidationCount,
+      historyInvalidationReason: history.lastInvalidationReason
+    });
+  }
+
   get render_debug_view_status(): RenderDebugViewStatus {
     return getRenderDebugViewStatus(this.render_debug_view);
   }
@@ -825,6 +897,9 @@ export class Renderer {
     this._packedTransparentOit = null;
     this._ssao?.destroy();
     this._ssao = null;
+    this._ssaoConfigurationKey = "";
+    this._occlusionConfidence?.destroy();
+    this._occlusionConfidence = null;
     this._ssr?.destroy();
     this._ssr = null;
     this._automaticExposure?.destroy();
@@ -955,7 +1030,10 @@ export class Renderer {
         format: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
         view: `${camera.id}/${scene.id}`
       },
-      featureTopology.temporal ? ["color"] : []
+      [
+        ...(featureTopology.temporal ? ["color"] : []),
+        ...(featureTopology.ssaoTemporal ? ["ssao"] : [])
+      ]
     );
     const temporalFrameIndex = this._frame_count;
     cmd.onFinished.addOne(() => {
@@ -1072,9 +1150,15 @@ export class Renderer {
       if (sampleGpuCounters && gpuCounterBuffer === null) {
         throw new Error("GPU counter sampling has no counter buffer");
       }
-      if (featureTopology.ssao) this._ssao!.resize(w, h);
+      if (featureTopology.ssao) {
+        this._ssao!.resize(
+          Math.max(1, Math.ceil(w * this._ssao_resolution_scale)),
+          Math.max(1, Math.ceil(h * this._ssao_resolution_scale))
+        );
+      }
       if (featureTopology.ssr) this._ssr!.resize(w, h);
       const temporalHistory = this._temporalHistories.state("color");
+      const ssaoHistory = this._temporalHistories.state("ssao");
       const taaHistoryValidity = temporalHistory.valid ? 1 : 0;
       if (featureTopology.taa) {
         this._taaJitter.reset_history = false;
@@ -1116,6 +1200,9 @@ export class Renderer {
         taaHistoryValidity,
         taaHistoryInputIndex: temporalHistory.readIndex,
         taaHistoryOutputIndex: temporalHistory.writeIndex,
+        ssaoHistoryValidity: ssaoHistory.valid ? 1 : 0,
+        ssaoHistoryInputIndex: ssaoHistory.readIndex,
+        ssaoHistoryOutputIndex: ssaoHistory.writeIndex,
         motionBlurStrength: this.motion_blur_strength,
         nssSettings,
         linearHdrCapture: frameLinearHdrCapture
@@ -1547,7 +1634,11 @@ export class Renderer {
 
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
-        {
+        const needsOcclusionConfidence =
+          graphTopology.ssaoTemporal || graphTopology.ssr || graphTopology.temporal;
+        const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
+          this.render_debug_view === RenderDebugView.Velocity;
+        if (needsVelocity) {
           const previousOffsetsBuffer =
             gpuScene.skinning.prev_position_offsets_buffer;
           const previousPositionsBuffer =
@@ -1590,20 +1681,22 @@ export class Renderer {
                   previousPositions: previousPositionsRes
                 }
               ).velocity;
-          occlusionConfidenceRes = this._occlusionConfidence!.addToGraph(
-            graph,
-            {
-              width: w,
-              height: h
-            },
-            {
-              currentDepth: depthRes,
-              previousDepth: previousDepthRes,
-              velocity: velocityRes,
-              currentCamera: currentCameraRes,
-              previousCamera: previousCameraRes
-            }
-          ).occlusionConfidence;
+          if (needsOcclusionConfidence) {
+            occlusionConfidenceRes = this._occlusionConfidence!.addToGraph(
+              graph,
+              {
+                width: w,
+                height: h
+              },
+              {
+                currentDepth: depthRes,
+                previousDepth: previousDepthRes,
+                velocity: velocityRes,
+                currentCamera: currentCameraRes,
+                previousCamera: previousCameraRes
+              }
+            ).occlusionConfidence;
+          }
         }
 
         let hdrRes: ResourceId | null = null;
@@ -1721,41 +1814,52 @@ export class Renderer {
         }
 
         let bentNormalRes = gNormalRes;
+        let ssaoRawDebugRes: ResourceId | null = null;
+        let ssaoDenoisedDebugRes: ResourceId | null = null;
+        let ssaoTemporalDebugRes: ResourceId | null = null;
         let indirectDiffuseDebugRes: ResourceId | null = null;
         let indirectSpecularDebugRes: ResourceId | null = null;
         let ssaoReady = !graphTopology.ssao;
         if (
           graphTopology.ssao &&
-          velocityRes !== null &&
-          occlusionConfidenceRes !== null &&
           gNormalRes !== null &&
-          gAlbedoRes !== null
+          gAlbedoRes !== null &&
+          (!graphTopology.ssaoTemporal ||
+            (velocityRes !== null && occlusionConfidenceRes !== null))
         ) {
           const ssao = this._ssao!.addToGraph(
             graph,
             bind("ssao-job", (bindings) => ({
               samplers: this._graphics.samplers,
               frameIndex: bindings.frameIndex,
+              historyValid: bindings.ssaoHistoryValidity >= 0.5,
+              historyInputIndex: bindings.ssaoHistoryInputIndex,
+              historyOutputIndex: bindings.ssaoHistoryOutputIndex,
               width: bindings.internalWidth,
               height: bindings.internalHeight
             })),
             {
               depth: depthRes,
               normal: gNormalRes,
-              velocity: velocityRes,
-              occlusionConfidence: occlusionConfidenceRes,
+              velocity: velocityRes ?? depthRes,
+              occlusionConfidence: occlusionConfidenceRes ?? depthRes,
               albedoAo: gAlbedoRes,
               camera: currentCameraRes
             },
-            {
-              input: bind("ssao-history-input", (bindings) =>
-                this._ssao!.historyTexture(bindings.frameIndex, false)),
-              output: bind("ssao-history-output", (bindings) =>
-                this._ssao!.historyTexture(bindings.frameIndex, true))
-            }
+            graphTopology.ssaoTemporal
+              ? {
+                  input: bind("ssao-history-input", (bindings) =>
+                    this._ssao!.historyTexture(bindings.ssaoHistoryInputIndex)),
+                  output: bind("ssao-history-output", (bindings) =>
+                    this._ssao!.historyTexture(bindings.ssaoHistoryOutputIndex))
+                }
+              : undefined
           );
           gAlbedoRes = ssao.occlusion;
           bentNormalRes = ssao.bentNormals;
+          ssaoRawDebugRes = ssao.rawVisibility;
+          ssaoDenoisedDebugRes = ssao.denoisedVisibility;
+          ssaoTemporalDebugRes = ssao.visibility;
           ssaoReady = true;
         }
 
@@ -2431,7 +2535,10 @@ export class Renderer {
               surfaceFlags: packedResolveOut?.surfaceFlags ?? null,
               indirectDiffuse: indirectDiffuseDebugRes,
               indirectSpecular: indirectSpecularDebugRes,
-              linearHdr: linearHdrDebugRes
+              linearHdr: linearHdrDebugRes,
+              ambientOcclusionRaw: ssaoRawDebugRes,
+              ambientOcclusionDenoised: ssaoDenoisedDebugRes,
+              ambientOcclusionTemporal: ssaoTemporalDebugRes
             },
             this._output_resolution.x,
             this._output_resolution.y
@@ -2528,6 +2635,9 @@ export class Renderer {
       if (graphTopology.temporal) {
         this._temporalHistories.markProduced("color");
       }
+      if (graphTopology.ssaoTemporal) {
+        this._temporalHistories.markProduced("ssao");
+      }
       view.finish_frame(cmd, this._frame_count);
       this.recordFrameCounters(
         viewHzb,
@@ -2593,10 +2703,11 @@ export class Renderer {
       sampleCount: 1,
       enabledFeatureBits: topology.enabledFeatureBits,
       visibilityImplementation: bindings.gpuPacked === null
-        ? "hardware-legacy-v1"
+        ? `hardware-legacy-v1-ssao-owner${this._ssaoOwnerGeneration}`
         : `hardware-packed-r4-visibility-key-v1-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
           `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
-          `-transparent-owner${this._packedTransparencyOwnerGeneration}`,
+          `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
+          `-ssao-owner${this._ssaoOwnerGeneration}`,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
       instrumentationMode,
@@ -2611,6 +2722,8 @@ export class Renderer {
       shadows: this.feature_shadows_enabled,
       ssr: this.feature_ssr_enabled,
       ssao: this.feature_ssao_enabled,
+      ssaoTemporal: this._ssao_temporal_enabled,
+      ssaoHalfResolution: this._ssao_resolution_scale === 0.5,
       temporal: this.feature_taa_enabled,
       bloom: this.feature_bloom_enabled,
       automaticExposure: this.feature_automatic_exposure_enabled,
@@ -2678,12 +2791,29 @@ export class Renderer {
     this._brick4Diffuse ??= new Brick4DiffusePass(this._graphics);
     this._brick4Specular ??= new Brick4SpecularPass(this._graphics);
     this._brick4Fused ??= new Brick4FusedIndirectPass(this._graphics);
-    this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
+    const needsOcclusionConfidence = topology.ssaoTemporal || topology.ssr || topology.temporal;
+    if (needsOcclusionConfidence) {
+      this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
+    } else if (this._occlusionConfidence !== null) {
+      this.retireAfterSubmittedWork(this._occlusionConfidence);
+      this._occlusionConfidence = null;
+    }
     if (topology.ssao) {
-      this._ssao ??= new ScreenSpaceAmbientOcclusionPass(this._graphics);
+      const configurationKey = `${topology.ssaoTemporal ? 1 : 0}/${topology.ssaoHalfResolution ? 1 : 0}`;
+      if (this._ssao === null || this._ssaoConfigurationKey !== configurationKey) {
+        if (this._ssao !== null) this.retireAfterSubmittedWork(this._ssao);
+        this._ssao = new ScreenSpaceAmbientOcclusionPass(
+          this._graphics,
+          topology.ssaoTemporal,
+          topology.ssaoHalfResolution ? 0.5 : 1
+        );
+        this._ssaoOwnerGeneration++;
+        this._ssaoConfigurationKey = configurationKey;
+      }
     } else if (this._ssao !== null) {
       this.retireAfterSubmittedWork(this._ssao);
       this._ssao = null;
+      this._ssaoConfigurationKey = "";
     }
     if (topology.ssr) {
       this._ssr ??= new ScreenSpaceReflectionsPass(this._graphics);
@@ -2972,6 +3102,17 @@ export class Renderer {
       "temporal.drsFeedbackLatencyFrames",
       temporal.drsFeedbackLatencyFrames
     );
+    const ao = this.ambientOcclusionEvidence();
+    profiler.recordCounter("ao.rawPasses", ao.rawPasses);
+    profiler.recordCounter("ao.spatialPasses", ao.spatialPasses);
+    profiler.recordCounter("ao.temporalPasses", ao.temporalPasses);
+    profiler.recordCounter("ao.compositePasses", ao.compositePasses);
+    profiler.recordCounter("ao.bentNormalUpsamplePasses", ao.bentNormalUpsamplePasses);
+    profiler.recordCounter("ao.internalPixels", ao.internalPixels);
+    profiler.recordCounter("ao.pixels", ao.aoPixels);
+    profiler.recordCounter("ao.historyBytes", ao.historyBytes);
+    profiler.recordCounter("ao.historyValid", ao.historyValid ? 1 : 0);
+    profiler.recordCounter("ao.historyRevision", ao.historyRevision);
     profiler.recordCounter("gpu.residentBytes", this._graphics.gpu_memory_usage);
   }
 

@@ -120,7 +120,10 @@ fn texture_sample_nearest_uv(
   mip_level: u32
 ) -> vec4f {
   let resolution = textureDimensions(source, mip_level);
-  let coordinate = vec2u(round(uv_to_texel_coordinate(saturate2(uv), resolution)));
+  let coordinate = min(
+    vec2u(round(uv_to_texel_coordinate(saturate2(uv), resolution))),
+    resolution - vec2u(1u)
+  );
   return textureLoad(source, coordinate, mip_level);
 }
 
@@ -143,7 +146,7 @@ const PI: f32 = 3.1415926535897932384626433832795;
 const PI_HALF: f32 = 1.5707963267948966192313216916398;
 
 fn fast_acos(value: f32) -> f32 {
-  let magnitude = abs(value);
+  let magnitude = clamp(abs(value), 0.0, 1.0);
   var result = -0.156583 * magnitude + PI_HALF;
   result *= sqrt(1.0 - magnitude);
   return select(PI - result, result, value >= 0.0);
@@ -194,10 +197,17 @@ fn fs_main(
   const falloff_mul = -1.0 / falloff_range;
   const falloff_add = falloff_from / falloff_range + 1.0;
 
-  let pixel = vec2u(coord.xy);
+  let output_pixel = vec2u(coord.xy);
   let viewport_size = textureDimensions(gr_bucket);
+  let pixel = min(vec2u(uv * vec2f(viewport_size)), viewport_size - vec2u(1u));
   let pixel_size = 1.0 / vec2f(viewport_size);
   let device_depth = textureLoad(gr_bucket, pixel, 0).r;
+  if (device_depth <= 0.0) {
+    var background: SsaoRawOutput;
+    background.visibility = vec2f(1.0);
+    background.bent_normal = textureLoad(ray_ws, pixel, 0).xy;
+    return background;
+  }
   var viewspace_z = get_view_space_depth(device_depth, camera);
   viewspace_z *= 0.99999;
 
@@ -209,7 +219,7 @@ fn fs_main(
   let view_position_ws = mat4_extract_position(camera.view_matrix_inverse);
   let view_direction_ws = normalize(view_position_ws - position_ws);
   let view_normal_ws = decode_g_buffer_normal(textureLoad(ray_ws, pixel, 0).xy);
-  let noise = spatio_temporal_noise_r2_64(pixel, settings.frame_index);
+  let noise = spatio_temporal_noise_r2_64(output_pixel, settings.frame_index);
   let noise_sample = noise.x;
   let noise_slice = noise.y;
 
@@ -222,7 +232,7 @@ fn fs_main(
   const inv_slice_count = 1.0 / f32(SLICE_COUNT);
 
   var visibility = 0.0;
-  var bent_normal: vec3f;
+  var bent_normal = vec3f(0.0);
   for (var slice = 0; slice < SLICE_COUNT; slice++) {
     let slice_k = (f32(slice) + noise_slice) * inv_slice_count;
     let phi = slice_k * PI;
@@ -236,7 +246,8 @@ fn fs_main(
       view_direction_ws,
       slice_world_dir
     );
-    let axis = normalize(cross(ortho_world_dir, view_direction_ws));
+    let axis_value = cross(ortho_world_dir, view_direction_ws);
+    let axis = axis_value / max(length(axis_value), 1e-6);
     let projected_normal = fma(
       -axis,
       vec3f(dot(view_normal_ws, axis)),
@@ -245,7 +256,7 @@ fn fs_main(
     let normal_sign = sign(dot(ortho_world_dir, projected_normal));
     let projected_normal_length = length(projected_normal);
     let normal_cos = saturate(
-      dot(projected_normal, view_direction_ws) / projected_normal_length
+      dot(projected_normal, view_direction_ws) / max(projected_normal_length, 1e-6)
     );
     let normal_angle = normal_sign * fast_acos(normal_cos);
     let low_horizon_cos_0 = cos(normal_angle + PI_HALF);
@@ -270,9 +281,9 @@ fn fs_main(
         sample_uv_0,
         mip_level
       ).x;
-      let sample_position_0 = project_position_from_depth(
+      let reconstructed_position_0 = project_position_from_depth(
         sample_uv_0,
-        sample_depth_0,
+        select(device_depth, sample_depth_0, sample_depth_0 > 0.0),
         camera.view_projection_matrix_inverse
       );
       let sample_uv_1 = uv - sample_offset;
@@ -281,20 +292,25 @@ fn fs_main(
         sample_uv_1,
         mip_level
       ).x;
-      let sample_position_1 = project_position_from_depth(
+      let reconstructed_position_1 = project_position_from_depth(
         sample_uv_1,
-        sample_depth_1,
+        select(device_depth, sample_depth_1, sample_depth_1 > 0.0),
         camera.view_projection_matrix_inverse
       );
+
+      let sample_position_0 = select(position_ws, reconstructed_position_0, sample_depth_0 > 0.0);
+      let sample_position_1 = select(position_ws, reconstructed_position_1, sample_depth_1 > 0.0);
 
       let sample_delta_0 = sample_position_0 - position_ws;
       let sample_delta_1 = sample_position_1 - position_ws;
       let sample_distance_0 = length(sample_delta_0);
       let sample_distance_1 = length(sample_delta_1);
-      let horizon_vector_0 = sample_delta_0 / sample_distance_0;
-      let horizon_vector_1 = sample_delta_1 / sample_distance_1;
-      let weight_0 = saturate(fma(sample_distance_0, falloff_mul, falloff_add));
-      let weight_1 = saturate(fma(sample_distance_1, falloff_mul, falloff_add));
+      let horizon_vector_0 = sample_delta_0 / max(sample_distance_0, 1e-6);
+      let horizon_vector_1 = sample_delta_1 / max(sample_distance_1, 1e-6);
+      let weight_0 = saturate(fma(sample_distance_0, falloff_mul, falloff_add)) *
+        select(0.0, 1.0, sample_depth_0 > 0.0 && sample_distance_0 > 1e-6);
+      let weight_1 = saturate(fma(sample_distance_1, falloff_mul, falloff_add)) *
+        select(0.0, 1.0, sample_depth_1 > 0.0 && sample_distance_1 > 1e-6);
       var sample_horizon_cos_0 = dot(horizon_vector_0, view_direction_ws);
       var sample_horizon_cos_1 = dot(horizon_vector_1, view_direction_ws);
       sample_horizon_cos_0 = mix(low_horizon_cos_0, sample_horizon_cos_0, weight_0);
@@ -318,7 +334,7 @@ fn fs_main(
     let visibility_projection_length = mix(projected_normal_length, 1.0, 0.05);
     visibility += visibility_projection_length * (arc_0 + arc_1);
 
-    let slice_tangent_ws = normalize(ortho_world_dir);
+    let slice_tangent_ws = ortho_world_dir / max(length(ortho_world_dir), 1e-6);
     let local_bent = integrate_bent_normal(
       horizon_cos_1,
       horizon_cos_0,
@@ -337,7 +353,7 @@ fn fs_main(
   visibility *= inv_slice_count;
   visibility = pow(visibility, SCALE);
   visibility = max(0.03, visibility);
-  bent_normal = normalize(bent_normal);
+  bent_normal = select(view_normal_ws, normalize(bent_normal), length(bent_normal) > 1e-6);
 
   var output: SsaoRawOutput;
   output.visibility = vec2f(visibility, visibility * visibility);
@@ -373,13 +389,14 @@ fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
   return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
 }
 
-fn visibility_variance(pixel: vec2i) -> f32 {
+fn visibility_variance(pixel: vec2i, dimensions: vec2i) -> f32 {
   let kernel = array<f32, 3>(0.25, 0.125, 0.0625);
   var moments = vec2f(0.0);
   for (var y = -1; y <= 1; y++) {
     for (var x = -1; x <= 1; x++) {
       let weight = kernel[abs(x) + abs(y)];
-      moments += textureLoad(this_hit, pixel + vec2i(x, y), 0).rg * weight;
+      let sample_pixel = clamp(pixel + vec2i(x, y), vec2i(0), dimensions - vec2i(1));
+      moments += textureLoad(this_hit, sample_pixel, 0).rg * weight;
     }
   }
   return max(moments.y - moments.x * moments.x, 0.0);
@@ -412,6 +429,11 @@ fn sample_weight(
 
 ${FULLSCREEN_VERTEX_WGSL}
 
+fn source_pixel(ao_pixel: vec2i, ao_dimensions: vec2i, source_dimensions: vec2i) -> vec2i {
+  let uv = (vec2f(ao_pixel) + 0.5) / vec2f(ao_dimensions);
+  return min(vec2i(uv * vec2f(source_dimensions)), source_dimensions - vec2i(1));
+}
+
 @fragment
 fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
   const phi_visibility_base = 4.0;
@@ -427,12 +449,14 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
 
   let pixel = vec2i(position.xy);
   let dimensions = vec2i(textureDimensions(this_hit));
+  let source_dimensions = vec2i(textureDimensions(gr_bucket));
+  let center_source_pixel = source_pixel(pixel, dimensions, source_dimensions);
   let center = textureLoad(this_hit, pixel, 0).rg;
-  let variance = visibility_variance(pixel);
+  let variance = visibility_variance(pixel, dimensions);
   let standard_deviation = sqrt(max(0.0, epsilon + variance));
   let visibility_phi = phi_visibility_base * standard_deviation;
-  let center_normal = decode_g_buffer_normal(textureLoad(ray_ws, pixel, 0).xy);
-  let center_depth = textureLoad(gr_bucket, pixel, 0).r;
+  let center_normal = decode_g_buffer_normal(textureLoad(ray_ws, center_source_pixel, 0).xy);
+  let center_depth = textureLoad(gr_bucket, center_source_pixel, 0).r;
 
   var total_weight = 1.0;
   var filtered = center;
@@ -444,18 +468,19 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
     }
     let kernel_weight = kernel[abs(offset.x)] * kernel[abs(offset.y)];
     let sample_value = textureLoad(this_hit, sample_pixel, 0).rg;
-    let sample_normal = decode_g_buffer_normal(textureLoad(ray_ws, sample_pixel, 0).xy);
-    let sample_depth = textureLoad(gr_bucket, sample_pixel, 0).r;
+    let sample_source_pixel = source_pixel(sample_pixel, dimensions, source_dimensions);
+    let sample_normal = decode_g_buffer_normal(textureLoad(ray_ws, sample_source_pixel, 0).xy);
+    let sample_depth = textureLoad(gr_bucket, sample_source_pixel, 0).r;
     let edge_weight = sample_weight(
-      center_depth,
-      sample_depth,
-      sigma_depth,
+      center.r,
+      sample_value.r,
+      max(visibility_phi, epsilon),
       center_normal,
       sample_normal,
       phi_normal,
-      center.r,
-      sample_value.r,
-      visibility_phi
+      center_depth,
+      sample_depth,
+      sigma_depth
     );
     let weight = edge_weight * kernel_weight;
     total_weight += weight;
@@ -466,11 +491,16 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
 `;
 
 export const SSAO_TEMPORAL_WGSL = /* wgsl */ `
+struct SsaoTemporalSettings {
+  history_valid: u32,
+};
+
 @group(0) @binding(0) var this_hit: texture_2d<f32>;
 @group(0) @binding(1) var header: texture_2d<f32>;
 @group(0) @binding(2) var top: texture_2d<f32>;
 @group(0) @binding(3) var mean: texture_2d<f32>;
 @group(0) @binding(4) var segment_height: sampler;
+@group(0) @binding(5) var<uniform> settings: SsaoTemporalSettings;
 
 fn velocity_with_largest_magnitude(source: texture_2d<f32>, pixel: vec2i) -> vec2f {
   const offsets = array<vec2i, 8>(
@@ -478,10 +508,12 @@ fn velocity_with_largest_magnitude(source: texture_2d<f32>, pixel: vec2i) -> vec
     vec2i(-1,  0),                  vec2i( 1,  0),
     vec2i(-1,  1), vec2i( 0,  1), vec2i( 1,  1)
   );
-  var velocity = textureLoad(source, pixel, 0).rg;
+  let dimensions = vec2i(textureDimensions(source));
+  var velocity = textureLoad(source, clamp(pixel, vec2i(0), dimensions - vec2i(1)), 0).rg;
   var magnitude_squared = dot(velocity, velocity);
   for (var index = 0; index < 8; index++) {
-    let candidate = textureLoad(source, pixel + offsets[index], 0).rg;
+    let sample_pixel = clamp(pixel + offsets[index], vec2i(0), dimensions - vec2i(1));
+    let candidate = textureLoad(source, sample_pixel, 0).rg;
     let candidate_magnitude_squared = dot(candidate, candidate);
     if (candidate_magnitude_squared > magnitude_squared) {
       velocity = candidate;
@@ -523,7 +555,7 @@ fn cubic_history_sample(source: texture_2d<f32>, uv: vec2f) -> vec4f {
   return result / (weight_negative_middle + weight_middle_negative + weight_middle_middle + weight_positive_middle + weight_middle_positive);
 }
 
-fn neighborhood_moments(center: vec2f, pixel: vec2i) -> vec2f {
+fn neighborhood_moments(center: vec2f, pixel: vec2i, dimensions: vec2i) -> vec2f {
   const offsets = array<vec2i, 8>(
     vec2i(-1, -1), vec2i( 0, -1), vec2i( 1, -1),
     vec2i(-1,  0),                  vec2i( 1,  0),
@@ -532,7 +564,8 @@ fn neighborhood_moments(center: vec2f, pixel: vec2i) -> vec2f {
   const inverse_sample_count = 1.0 / 9.0;
   var moments = vec2f(center.x, center.x * center.x);
   for (var index = 0; index < 8; index++) {
-    let sample_value = textureLoad(this_hit, pixel + offsets[index], 0).rg;
+    let sample_pixel = clamp(pixel + offsets[index], vec2i(0), dimensions - vec2i(1));
+    let sample_value = textureLoad(this_hit, sample_pixel, 0).rg;
     moments += vec2f(sample_value.x, sample_value.x * sample_value.x);
   }
   return moments * inverse_sample_count;
@@ -547,11 +580,17 @@ fn fs_main(
 ) -> @location(0) vec2f {
   let pixel = vec2i(position.xy);
   let dimensions = textureDimensions(this_hit);
-  let confidence = textureLoad(top, pixel, 0).r;
+  let full_dimensions = textureDimensions(header);
+  let full_pixel = min(
+    vec2i((position.xy / vec2f(dimensions)) * vec2f(full_dimensions)),
+    vec2i(full_dimensions) - vec2i(1)
+  );
+  let confidence = textureLoad(top, full_pixel, 0).r;
   let current = textureLoad(this_hit, pixel, 0).rg;
-  let velocity = velocity_with_largest_magnitude(header, pixel);
+  let velocity_full = velocity_with_largest_magnitude(header, full_pixel);
+  let velocity = velocity_full * vec2f(dimensions) / vec2f(full_dimensions);
   const velocity_limit = 128.0;
-  let velocity_confidence = saturate(1.0 - length(velocity) / velocity_limit);
+  let velocity_confidence = clamp(1.0 - length(velocity) / velocity_limit, 0.0, 1.0);
   let history_pixel = position.xy - velocity;
   const deviation_min = 0.5;
   const deviation_max = 1.2;
@@ -562,14 +601,15 @@ fn fs_main(
   );
   let history_valid = all(history_pixel >= vec2f(0.0)) &&
     all(history_pixel < vec2f(dimensions));
-  let history_weight = velocity_confidence * confidence * select(0.0, 1.0, history_valid);
+  let history_weight = velocity_confidence * confidence *
+    select(0.0, 1.0, history_valid && settings.history_valid != 0u);
   var output: vec2f;
   if (history_weight <= 0.001) {
     output = current;
   } else {
     let history_uv = history_pixel / vec2f(textureDimensions(mean));
     let history_sample = cubic_history_sample(mean, history_uv).rg;
-    let local_moments = neighborhood_moments(current, pixel);
+    let local_moments = neighborhood_moments(current, pixel, vec2i(dimensions));
     let standard_deviation = sqrt(max(local_moments.y - local_moments.x * local_moments.x, 0.0)) * deviation_scale;
     let lower = local_moments.x - standard_deviation;
     let upper = local_moments.x + standard_deviation;
@@ -586,12 +626,32 @@ fn fs_main(
 
 export const SSAO_COMPOSITE_WGSL = /* wgsl */ `
 @group(0) @binding(0) var this_hit: texture_2d<f32>;
+@group(0) @binding(1) var linear_clamp: sampler;
 
 ${FULLSCREEN_VERTEX_WGSL}
 
 @fragment
-fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
-  let visibility = textureLoad(this_hit, vec2u(position.xy), 0).r;
+fn fs_main(
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f
+) -> @location(0) vec4f {
+  let visibility = textureSampleLevel(this_hit, linear_clamp, uv, 0.0).r;
   return vec4f(1.0, 1.0, 1.0, visibility);
+}
+`;
+
+export const SSAO_BENT_NORMAL_UPSAMPLE_WGSL = /* wgsl */ `
+@group(0) @binding(0) var bent_normal_source: texture_2d<u32>;
+
+${FULLSCREEN_VERTEX_WGSL}
+
+@fragment
+fn fs_main(
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f
+) -> @location(0) vec2u {
+  let dimensions = textureDimensions(bent_normal_source);
+  let coordinate = min(vec2u(uv * vec2f(dimensions)), dimensions - vec2u(1u));
+  return textureLoad(bent_normal_source, coordinate, 0).xy;
 }
 `;
