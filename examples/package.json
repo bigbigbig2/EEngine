@@ -12,6 +12,7 @@
     "gate:r5-fx03": "node scripts/run-r5-fx03-gate.mjs",
     "gate:r5-fx04": "node scripts/run-r5-fx04-gate.mjs",
     "gate:r5-fx05": "node scripts/run-r5-fx05-gate.mjs",
+    "gate:r5-fx06": "node scripts/run-r5-fx06-gate.mjs",
     "generate:benchmark-assets": "node scripts/generate-teapot-benchmark-assets.mjs"
   },
   "devDependencies": {

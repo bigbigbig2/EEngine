@@ -4,7 +4,7 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 8;
+export const GPU_COUNTER_SCHEMA_VERSION = 9;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -84,7 +84,10 @@ export const GPU_COUNTER_FIELDS = [
   { name: "transparentTriangles", index: 65, semantic: "sampled exact transparent meshlet triangles" },
   { name: "transparentReactivePixels", index: 66, semantic: "sampled pixels covered by BLEND geometry" },
   { name: "transparentMomentFiniteFailures", index: 67, semantic: "sampled non-finite optical or power-moment pixels" },
-  { name: "transparentQueueOverflowMask", index: 68, semantic: "sampled TransparentRasterWork overflow bit" }
+  { name: "transparentQueueOverflowMask", index: 68, semantic: "sampled TransparentRasterWork overflow bit" },
+  { name: "temporalReactivePixels", index: 69, semantic: "sampled unified opaque/transparent reactive pixels consumed by Temporal" },
+  { name: "temporalDisoccludedPixels", index: 70, semantic: "sampled pixels rejected by shared disocclusion confidence" },
+  { name: "temporalHistoryRejectedPixels", index: 71, semantic: "sampled pixels rejecting history for global validity, motion, reactive or disocclusion" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

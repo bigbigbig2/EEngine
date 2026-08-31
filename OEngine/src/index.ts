@@ -129,7 +129,10 @@ export { OrbitalCameraController } from "./camera/OrbitalCameraController.js";
 export { PerspectiveCamera } from "./camera/PerspectiveCamera.js";
 export { PointLight } from "./light/PointLight.js";
 export { ProjectionMappingType } from "./loaders/ProjectionMappingType.js";
-export { Renderer } from "./render/Renderer.js";
+export {
+  Renderer,
+  type TemporalRuntimeEvidence
+} from "./render/Renderer.js";
 export { STATIC_GRAPHICS_ENGINE_ASSETS } from "./render/STATIC_GRAPHICS_ENGINE_ASSETS.js";
 export { Scene } from "./scene/Scene.js";
 export type {

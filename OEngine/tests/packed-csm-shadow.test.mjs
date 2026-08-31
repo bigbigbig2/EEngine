@@ -68,7 +68,7 @@ test("FX-04 Packed CSM consumes SecondaryRasterWork with one indirect draw and a
 });
 
 test("FX-04 sampled queue evidence owns real per-cascade, alpha, atlas and overflow fields", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 8);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 9);
   const names = new Set(GPU_COUNTER_FIELDS.map((field) => field.name));
   for (const name of [
     "shadowCascade0RasterWork", "shadowCascade1RasterWork",

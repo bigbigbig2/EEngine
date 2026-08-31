@@ -3,13 +3,13 @@
  */
 
 export class DynamicResolutionScaling {
-  enabled = true;
+  enabled = false;
 
   get_scale: () => number = null!;
 
   set_scale: (v: number) => void = null!;
 
-  target_frame_time_s = 1 / 30;
+  target_frame_time_s = 1 / 60;
 
   set target_frame_rate(v: number) {
     this.target_frame_time_s = 1 / v;
@@ -19,7 +19,7 @@ export class DynamicResolutionScaling {
     return 1 / this.target_frame_time_s;
   }
 
-  min_scale = 0.65;
+  min_scale = 0.5;
   max_scale = 1;
   tolerance = 0.1;
   probe_step = 0.05;
@@ -39,6 +39,11 @@ export class DynamicResolutionScaling {
   #hasPair = false;
   #settleCount = 0;
   #lockout = 0;
+  #lastGpuSampleFrame = -1;
+  #lastFeedbackLatencyFrames = 0;
+  #lastGpuFrameTimeMs = 0;
+  #pendingGpuSampleFrame = -1;
+  #pendingGpuFrameTimeMs = 0;
 
   get #alphaFast(): number {
     return 1 - Math.pow(0.5, 1 / this.fast_half_life_frames);
@@ -55,6 +60,11 @@ export class DynamicResolutionScaling {
     this.#hasPair = false;
     this.#settleCount = 0;
     this.#lockout = 0;
+    this.#lastGpuSampleFrame = -1;
+    this.#lastFeedbackLatencyFrames = 0;
+    this.#lastGpuFrameTimeMs = 0;
+    this.#pendingGpuSampleFrame = -1;
+    this.#pendingGpuFrameTimeMs = 0;
   }
 
   get fast_mean_frame_time_s(): number {
@@ -65,8 +75,73 @@ export class DynamicResolutionScaling {
     return this.#slowMean;
   }
 
+  get last_feedback_latency_frames(): number {
+    return this.#lastFeedbackLatencyFrames;
+  }
+
+  get last_gpu_frame_time_ms(): number {
+    return this.#lastGpuFrameTimeMs;
+  }
+
+  /**
+   * Consumes a completed timestamp sample only after its producing frame.
+   * Returning false means the sample was current-frame, duplicate or invalid.
+   */
+  notify_gpu_timing(sample: {
+    readonly sampleFrameIndex: number;
+    readonly currentFrameIndex: number;
+    readonly gpuFrameTimeMs: number;
+  }): boolean {
+    if (!this.enabled) return false;
+    if (
+      !Number.isInteger(sample.sampleFrameIndex) ||
+      sample.sampleFrameIndex < 0 ||
+      !Number.isInteger(sample.currentFrameIndex) ||
+      sample.sampleFrameIndex <= this.#lastGpuSampleFrame ||
+      !Number.isFinite(sample.gpuFrameTimeMs) ||
+      sample.gpuFrameTimeMs <= 0
+    ) return false;
+    if (sample.currentFrameIndex <= sample.sampleFrameIndex) {
+      if (sample.sampleFrameIndex >= this.#pendingGpuSampleFrame) {
+        this.#pendingGpuSampleFrame = sample.sampleFrameIndex;
+        this.#pendingGpuFrameTimeMs = sample.gpuFrameTimeMs;
+      }
+      return false;
+    }
+    if (this.#pendingGpuSampleFrame === sample.sampleFrameIndex) {
+      this.#pendingGpuSampleFrame = -1;
+      this.#pendingGpuFrameTimeMs = 0;
+    }
+    return this.#consumeGpuTiming(
+      sample.sampleFrameIndex,
+      sample.currentFrameIndex,
+      sample.gpuFrameTimeMs
+    );
+  }
+
+  /** Advances a completed current-frame sample once a later frame begins. */
+  consume_delayed_gpu_timing(currentFrameIndex: number): boolean {
+    if (
+      !this.enabled ||
+      !Number.isInteger(currentFrameIndex) ||
+      currentFrameIndex < 0 ||
+      this.#pendingGpuSampleFrame < 0 ||
+      currentFrameIndex <= this.#pendingGpuSampleFrame
+    ) return false;
+    const sampleFrameIndex = this.#pendingGpuSampleFrame;
+    const gpuFrameTimeMs = this.#pendingGpuFrameTimeMs;
+    this.#pendingGpuSampleFrame = -1;
+    this.#pendingGpuFrameTimeMs = 0;
+    return this.#consumeGpuTiming(
+      sampleFrameIndex,
+      currentFrameIndex,
+      gpuFrameTimeMs
+    );
+  }
+
   notify_frame(frame_time_s: number): void {
     if (!this.enabled) return;
+    if (!Number.isFinite(frame_time_s) || frame_time_s <= 0) return;
 
     this.#frameIndex++;
     if (this.#frameIndex === 1) {
@@ -165,5 +240,18 @@ export class DynamicResolutionScaling {
   #apply(v: number): void {
     this.set_scale(v);
     this.#settleCount = 0;
+  }
+
+  #consumeGpuTiming(
+    sampleFrameIndex: number,
+    currentFrameIndex: number,
+    gpuFrameTimeMs: number
+  ): boolean {
+    if (sampleFrameIndex <= this.#lastGpuSampleFrame) return false;
+    this.#lastGpuSampleFrame = sampleFrameIndex;
+    this.#lastFeedbackLatencyFrames = currentFrameIndex - sampleFrameIndex;
+    this.#lastGpuFrameTimeMs = gpuFrameTimeMs;
+    this.notify_frame(gpuFrameTimeMs / 1000);
+    return true;
   }
 }

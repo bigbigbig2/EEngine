@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>OEngine FX-06A Temporal Foundation</title>
+    <link rel="stylesheet" href="../benchmark-shared/style.css" />
+  </head>
+  <body><main>
+    <p class="eyebrow">FX-06A · C-temporal / C-resolution production Gate</p>
+    <h1>Temporal Foundation / Delayed DRS</h1>
+    <section class="status-card"><div>
+      <strong id="status">正在初始化 Temporal 序列…</strong>
+      <p id="detail">等待 WebGPU。</p>
+      <button id="advance" type="button">继续下一阶段</button>
+    </div></section>
+    <div class="canvas-wrap"><canvas id="gpu-canvas"></canvas></div>
+    <section class="panel"><pre id="result">等待采集。</pre></section>
+  </main><script type="module" src="./main.ts"></script></body>
+</html>

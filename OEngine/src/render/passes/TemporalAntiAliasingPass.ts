@@ -1,7 +1,3 @@
-/**
- * 时域抗锯齿阶段：结合运动矢量和历史颜色抑制锯齿与时域闪烁。
- */
-
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -11,54 +7,48 @@ import {
   LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
   type GPUSamplerCache
 } from "../../gpu/GPUSamplerCache.js";
-import {
-  TAA_FORMAT,
-  TAA_VERTEX_WGSL,
-  TAA_WGSL
-} from "../../shaders/taa.js";
+import { TAA_FORMAT, TAA_VERTEX_WGSL, TAA_WGSL } from "../../shaders/taa.js";
 import { resolveTextureView } from "./MaterialExpandPass.js";
 
-export type TemporalAntiAliasingInputs = {
-  output: ResourceId;
-  currentColor: ResourceId;
-  historyColor: ResourceId;
-  velocity: ResourceId;
-  occlusionConfidence: ResourceId;
-  currentCamera: ResourceId;
-  previousCamera: ResourceId;
-};
+export interface TemporalAntiAliasingInputs {
+  readonly output: ResourceId;
+  readonly currentColor: ResourceId;
+  readonly historyColor: ResourceId;
+  readonly velocity: ResourceId;
+  readonly disocclusionConfidence: ResourceId;
+  readonly depth: ResourceId;
+  readonly classification: ResourceId;
+}
 
-export type TemporalAntiAliasingJob = {
-  jitter: readonly [number, number];
-  historyValidity: number;
-  samplers: GPUSamplerCache;
-};
+export interface TemporalAntiAliasingJob {
+  readonly jitter: readonly [number, number];
+  readonly historyValidity: number;
+  readonly internalResolution: readonly [number, number];
+  readonly outputResolution: readonly [number, number];
+  readonly samplers: GPUSamplerCache;
+}
 
 export class TemporalAntiAliasingPass {
   private readonly pipeline: CachedRenderPipelineDescriptor;
   lastRan = false;
+  lastHistoryValidity = 0;
 
   constructor(graphics: GraphicsContext) {
     if (graphics.device === null) {
       throw new Error("TemporalAntiAliasingPass: GraphicsContext has no device");
     }
-    const vertexModule = {
-      label: "",
-      code: TAA_VERTEX_WGSL
-    };
-    const fragmentModule = {
-      label: "",
-      code: TAA_WGSL
-    };
     this.pipeline = {
-      label: "Renderer/TAA QQ",
+      label: "FX-06 Minimal TAA reference",
       layout: {
-        label: "Renderer/TAA QQ layout",
+        label: "FX-06 Minimal TAA reference/layout",
         bindGroupLayouts: [createTaaGroupLayout()]
       },
-      vertex: { module: vertexModule, entryPoint: "main" },
+      vertex: {
+        module: { label: "FX-06 fullscreen triangle", code: TAA_VERTEX_WGSL },
+        entryPoint: "main"
+      },
       fragment: {
-        module: fragmentModule,
+        module: { label: "FX-06 Minimal TAA reference", code: TAA_WGSL },
         entryPoint: "main",
         targets: [{ format: TAA_FORMAT }]
       },
@@ -66,33 +56,30 @@ export class TemporalAntiAliasingPass {
     };
   }
 
-  init(): void {}
-
   addToGraph(
     graph: FrameGraph,
     job: TemporalAntiAliasingJob,
     inputs: TemporalAntiAliasingInputs
   ): ResourceId {
-    this.init();
     let output = -1;
     const builder = graph.add(
-      "Temporal anti-aliasing QQ",
+      "FX-06 Minimal TAA reference",
       job,
       (data, resources, context) => {
-        const command = requireShadeCommandContext(context.encoder);
         this.execute(
-          command,
-          data.jitter,
-          data.historyValidity,
+          requireShadeCommandContext(context.encoder),
+          data,
           data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
           {
             output: resolveTextureView(resources.get(output)),
             currentColor: resolveTextureView(resources.get(inputs.currentColor)),
             historyColor: resolveTextureView(resources.get(inputs.historyColor)),
             velocity: resolveTextureView(resources.get(inputs.velocity)),
-            occlusionConfidence: resolveTextureView(resources.get(inputs.occlusionConfidence)),
-            currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera"),
-            previousCamera: resolveBuffer(resources.get(inputs.previousCamera), "previous camera")
+            disocclusionConfidence: resolveTextureView(
+              resources.get(inputs.disocclusionConfidence)
+            ),
+            depth: resolveTextureView(resources.get(inputs.depth)),
+            classification: resolveTextureView(resources.get(inputs.classification))
           }
         );
       }
@@ -101,65 +88,69 @@ export class TemporalAntiAliasingPass {
       inputs.currentColor,
       inputs.historyColor,
       inputs.velocity,
-      inputs.occlusionConfidence,
-      inputs.currentCamera,
-      inputs.previousCamera
-    ]) {
-      builder.read(input);
-    }
+      inputs.disocclusionConfidence,
+      inputs.depth,
+      inputs.classification
+    ]) builder.read(input);
     output = builder.write(inputs.output);
     return output;
   }
 
+  resetFrameEvidence(): void {
+    this.lastRan = false;
+  }
+
   private execute(
     command: ShadeGPUCommandContext,
-    jitter: readonly [number, number],
-    historyValidity: number,
+    job: TemporalAntiAliasingJob,
     sampler: GPUSampler,
     resources: {
       output: GPUTextureView;
       currentColor: GPUTextureView;
       historyColor: GPUTextureView;
       velocity: GPUTextureView;
-      occlusionConfidence: GPUTextureView;
-      currentCamera: GPUBuffer;
-      previousCamera: GPUBuffer;
+      disocclusionConfidence: GPUTextureView;
+      depth: GPUTextureView;
+      classification: GPUTextureView;
     }
   ): void {
     const settingsBuffer = command.allocateTransientBufferAndLoad(
       new Float32Array([
-        jitter[0],
-        jitter[1],
-        historyValidity,
-        0
+        job.jitter[0],
+        job.jitter[1],
+        job.historyValidity,
+        0,
+        job.internalResolution[0],
+        job.internalResolution[1],
+        job.outputResolution[0],
+        job.outputResolution[1]
       ]).buffer,
       GPUBufferUsage.UNIFORM
     );
     const pass = command.constructRenderPass({
-      label: "Temporal anti-aliasing QQ",
+      label: "FX-06 Minimal TAA reference",
       pipeline: this.pipeline,
       bindings: [[
         sampler,
         resources.velocity,
         resources.historyColor,
         resources.currentColor,
-        resources.occlusionConfidence,
-        { buffer: resources.currentCamera },
-        { buffer: resources.previousCamera },
+        resources.disocclusionConfidence,
+        resources.depth,
+        resources.classification,
         { buffer: settingsBuffer }
       ]],
-      colorAttachments: [
-        {
-          view: resources.output,
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
-          loadOp: "clear",
-          storeOp: "store"
-        }
-      ]
+      colorAttachments: [{
+        view: resources.output,
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: "clear",
+        storeOp: "store"
+      }]
     });
     pass.draw(3, 1, 0, 0);
     pass.end();
     this.lastRan = true;
+    this.lastHistoryValidity = job.historyValidity;
   }
 
   destroy(): void {}
@@ -167,48 +158,16 @@ export class TemporalAntiAliasingPass {
 
 function createTaaGroupLayout(): GPUBindGroupLayoutDescriptor {
   return {
-    label: "Renderer/TAA QQ group0",
+    label: "FX-06 Minimal TAA reference/group0",
     entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.FRAGMENT,
-        sampler: { type: "filtering" }
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" }
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" }
-      },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" }
-      },
-      {
-        binding: 4,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" }
-      },
-      {
-        binding: 5,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" }
-      },
-      {
-        binding: 6,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" }
-      },
-      {
-        binding: 7,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" }
-      }
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
+      { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
     ]
   };
 }
@@ -220,19 +179,6 @@ function requireShadeCommandContext(value: unknown): ShadeGPUCommandContext {
     "isGPUCommandContext" in value &&
     (value as { isGPUCommandContext?: unknown }).isGPUCommandContext === true &&
     "constructRenderPass" in value
-  ) {
-    return value as ShadeGPUCommandContext;
-  }
-  throw new Error("TemporalAntiAliasingPass: cached QQ requires ShadeGPUCommandContext");
-}
-
-function resolveBuffer(resource: unknown, label: string): GPUBuffer {
-  if (resource && typeof resource === "object") {
-    if ("size" in resource && "usage" in resource) return resource as GPUBuffer;
-    if ("buffer" in resource) {
-      const buffer = (resource as { buffer?: unknown }).buffer;
-      if (buffer && typeof buffer === "object") return buffer as GPUBuffer;
-    }
-  }
-  throw new Error(`TemporalAntiAliasingPass: missing ${label} buffer`);
+  ) return value as ShadeGPUCommandContext;
+  throw new Error("TemporalAntiAliasingPass requires ShadeGPUCommandContext");
 }

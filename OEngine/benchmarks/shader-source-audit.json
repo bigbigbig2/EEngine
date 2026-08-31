@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 71,
+  "shaderCount": 72,
   "summary": {
-    "authored-live": 61,
+    "authored-live": 62,
     "unknown": 5,
     "dead": 5
   },
@@ -148,7 +148,9 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/gpu/GPUMaterialContext.ts"
+        "src/gpu/GPUMaterialContext.ts",
+        "src/render/passes/TemporalClassificationPass.ts",
+        "src/shaders/taa.ts"
       ],
       "runtimeConsumers": [
         "src/debug/BenchmarkHarness.ts",
@@ -244,6 +246,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VelocityPass.ts",
@@ -255,7 +258,9 @@
         "src/render/ViewManager.ts"
       ],
       "pipelineOwners": [
-        "src/gpu/GPUMaterialContext.ts"
+        "src/gpu/GPUMaterialContext.ts",
+        "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TemporalClassificationPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -748,6 +753,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VelocityPass.ts",
@@ -866,6 +872,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VelocityPass.ts",
@@ -1397,6 +1404,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VelocityPass.ts",
@@ -2340,28 +2348,44 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/temporal_classification.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/TemporalClassificationPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/TemporalClassificationPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/TemporalClassificationPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/temporal_post_legacy.generated.ts",
       "sourceKind": "generated",
       "classification": "unknown",
       "directConsumers": [
         "src/shaders/automatic_exposure.ts",
         "src/shaders/bloom.ts",
-        "src/shaders/sharpen.ts",
-        "src/shaders/taa.ts"
+        "src/shaders/sharpen.ts"
       ],
       "runtimeConsumers": [
         "src/index.ts",
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",
         "src/render/passes/SharpenPass.ts",
-        "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",
-        "src/render/passes/SharpenPass.ts",
-        "src/render/passes/TemporalAntiAliasingPass.ts"
+        "src/render/passes/SharpenPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

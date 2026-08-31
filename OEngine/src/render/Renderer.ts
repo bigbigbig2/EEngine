@@ -55,6 +55,7 @@ import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
 import { ScreenSpaceAmbientOcclusionPass } from "./passes/ScreenSpaceAmbientOcclusionPass.js";
 import { ScreenSpaceReflectionsPass } from "./passes/ScreenSpaceReflectionsPass.js";
 import { TemporalAntiAliasingPass } from "./passes/TemporalAntiAliasingPass.js";
+import { TemporalClassificationPass } from "./passes/TemporalClassificationPass.js";
 import {
   NeuralSuperSamplingPass,
   type NssSettings
@@ -73,6 +74,7 @@ import { createNativeTextureView, id } from "../gpu/GPUTextureDescriptors.js";
 import { TonemapPass } from "./passes/TonemapPass.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
+import type { FrameProfileSnapshot } from "../debug/FrameProfiler.js";
 import {
   captureGpuAdapterIdentity,
   type BenchmarkAdapterIdentity
@@ -121,6 +123,8 @@ import {
   type MainFrameFeatureTopology
 } from "./MainFrameFeatureTopology.js";
 import { halfToFloat } from "../loaders/float16.js";
+import { TemporalHistoryRegistry } from "./TemporalHistoryRegistry.js";
+import { DynamicResolutionScaling } from "./DynamicResolutionScaling.js";
 
 export {
   ShadeIndirectLightingMode
@@ -185,6 +189,24 @@ export interface LinearHdrCaptureResult extends LinearHdrCaptureRegion {
   readonly rgba: Float32Array;
 }
 
+export interface TemporalRuntimeEvidence {
+  readonly enabled: boolean;
+  readonly taaPasses: number;
+  readonly classificationPasses: number;
+  readonly historyTextureCount: number;
+  readonly historyBytes: number;
+  readonly historyValid: boolean;
+  readonly historyRevision: number;
+  readonly historyInvalidations: number;
+  readonly historyInvalidationReason: string;
+  readonly internalPixels: number;
+  readonly outputPixels: number;
+  readonly internalScale: number;
+  readonly drsEnabled: boolean;
+  readonly drsLastGpuMs: number;
+  readonly drsFeedbackLatencyFrames: number;
+}
+
 type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
   readonly buffer: GPUBuffer;
   readonly bytesPerRow: number;
@@ -211,6 +233,8 @@ type MainFrameGraphBindings = {
   readonly gpuCounterBuffer: GPUBuffer | null;
   readonly taaJitter: readonly [number, number];
   readonly taaHistoryValidity: number;
+  readonly taaHistoryInputIndex: 0 | 1;
+  readonly taaHistoryOutputIndex: 0 | 1;
   readonly motionBlurStrength: number;
   readonly nssSettings: NssSettings | null;
   readonly linearHdrCapture: PendingLinearHdrCapture | null;
@@ -281,6 +305,7 @@ export class Renderer {
   private _ssao: ScreenSpaceAmbientOcclusionPass | null = null;
   private _ssr: ScreenSpaceReflectionsPass | null = null;
   private _taa: TemporalAntiAliasingPass | null = null;
+  private _temporalClassification: TemporalClassificationPass | null = null;
   private _nss: NeuralSuperSamplingPass | null = null;
   private _motionBlur: MotionBlurPass | null = null;
   private _sharpen: SharpenPass | null = null;
@@ -288,6 +313,12 @@ export class Renderer {
   private _automaticExposure: AutomaticExposurePass | null = null;
   private readonly _taaJitter = new TemporalJitterController();
   private _taaHistory: [GPUTextureContext, GPUTextureContext] | null = null;
+  private readonly _temporalHistories = new TemporalHistoryRegistry(["color"]);
+  private readonly _dynamicResolution = new DynamicResolutionScaling();
+  private _unsubscribeDynamicResolution: (() => void) | null = null;
+  private _dynamicResolutionOwnsProfiler = false;
+  private _lastTemporalTaaPassCount = 0;
+  private _lastTemporalClassificationPassCount = 0;
   private _tonemap!: TonemapPass;
   private _renderTargets = new RenderTargets();
   private _format: GPUTextureFormat = "rgba8unorm";
@@ -299,7 +330,7 @@ export class Renderer {
   feature_shadows_enabled = true;
   feature_ssr_enabled = false;
   feature_ssao_enabled = true;
-  feature_taa_enabled = true;
+  feature_taa_enabled = false;
   feature_bloom_enabled = true;
   feature_automatic_exposure_enabled = true;
   feature_motion_blur_enabled = false;
@@ -322,6 +353,16 @@ export class Renderer {
   private readonly _onDynamicRangeChange = (): void => {
     this.updateDynamicRangeState();
   };
+
+  constructor() {
+    this._dynamicResolution.get_scale = () => this.internal_resolution_scale;
+    this._dynamicResolution.set_scale = (scale) => {
+      this.internal_resolution_scale = scale;
+    };
+    this._unsubscribeDynamicResolution = this._profiler.subscribe((snapshot) => {
+      this.consumeDynamicResolutionSnapshot(snapshot);
+    });
+  }
 
   get frame_count(): number {
     return this._frame_count;
@@ -582,6 +623,37 @@ export class Renderer {
     return this._profiler;
   }
 
+  /** FX-06 delayed GPU timing controller; disabled until explicitly enabled. */
+  get dynamic_resolution_scaling(): DynamicResolutionScaling {
+    return this._dynamicResolution;
+  }
+
+  /** Bounded production evidence; no GPU handle or mutable owner escapes. */
+  temporalEvidence(): TemporalRuntimeEvidence {
+    const history = this._temporalHistories.state("color");
+    return Object.freeze({
+      enabled: this.feature_taa_enabled,
+      taaPasses: this._lastTemporalTaaPassCount,
+      classificationPasses: this._lastTemporalClassificationPassCount,
+      historyTextureCount: this._taaHistory?.length ?? 0,
+      historyBytes: this._taaHistory?.reduce(
+        (sum, texture) => sum + texture.gpu_memory_usage,
+        0
+      ) ?? 0,
+      historyValid: history.valid,
+      historyRevision: history.revision,
+      historyInvalidations: history.invalidationCount,
+      historyInvalidationReason: history.lastInvalidationReason,
+      internalPixels: this._render_resolution.x * this._render_resolution.y,
+      outputPixels: this._output_resolution.x * this._output_resolution.y,
+      internalScale: this._internal_resolution_scale,
+      drsEnabled: this._dynamicResolution.enabled,
+      drsLastGpuMs: this._dynamicResolution.last_gpu_frame_time_ms,
+      drsFeedbackLatencyFrames:
+        this._dynamicResolution.last_feedback_latency_frames
+    });
+  }
+
   get render_debug_view_status(): RenderDebugViewStatus {
     return getRenderDebugViewStatus(this.render_debug_view);
   }
@@ -736,6 +808,8 @@ export class Renderer {
   }
 
   destroy(): void {
+    this._unsubscribeDynamicResolution?.();
+    this._unsubscribeDynamicResolution = null;
     window
       .matchMedia("(dynamic-range: high)")
       .removeEventListener("change", this._onDynamicRangeChange);
@@ -759,6 +833,7 @@ export class Renderer {
     this._taaHistory = null;
     this._taa?.destroy();
     this._taa = null;
+    this._temporalClassification = null;
     this._motionBlur?.destroy();
     this._motionBlur = null;
     this._sharpen?.destroy();
@@ -841,6 +916,7 @@ export class Renderer {
     time_delta_seconds = 0.01666
   ): boolean {
     if (this._deviceLost) return false;
+    this.reconcileDynamicResolutionProfiler();
     this._profiler.beginFrame(this._frame_count);
     let activeFrame: FrameEncoding | null = null;
     let frameLinearHdrCapture: PendingLinearHdrCapture | null = null;
@@ -866,6 +942,28 @@ export class Renderer {
     });
     const featureTopology = this.resolveFeatureTopology();
     this.initializeRenderPasses(this.device, featureTopology);
+    this._temporalHistories.beginFrame(
+      this._frame_count,
+      {
+        outputWidth: this._output_resolution.x,
+        outputHeight: this._output_resolution.y,
+        internalWidth: this._render_resolution.x,
+        internalHeight: this._render_resolution.y,
+        camera: this._hzbCameraRevision,
+        renderScale: this._hzbRenderScaleRevision,
+        feature: featureTopology.enabledFeatureBits,
+        format: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
+        view: `${camera.id}/${scene.id}`
+      },
+      featureTopology.temporal ? ["color"] : []
+    );
+    const temporalFrameIndex = this._frame_count;
+    cmd.onFinished.addOne(() => {
+      this._temporalHistories.commitFrame(temporalFrameIndex);
+    });
+    cmd.onAborted.addOne(() => {
+      this._temporalHistories.abortFrame(temporalFrameIndex);
+    });
     if (featureTopology.nss) {
       this._nss!.frame_count = this._frame_count;
       this._nss!.frame_index = this._frame_count;
@@ -976,10 +1074,21 @@ export class Renderer {
       }
       if (featureTopology.ssao) this._ssao!.resize(w, h);
       if (featureTopology.ssr) this._ssr!.resize(w, h);
-      const taaHistoryValidity = this._taaJitter.reset_history ? 0 : 1;
+      const temporalHistory = this._temporalHistories.state("color");
+      const taaHistoryValidity = temporalHistory.valid ? 1 : 0;
       if (featureTopology.taa) {
         this._taaJitter.reset_history = false;
       }
+      if (sampleGpuCounters && featureTopology.temporal) {
+        this._profiler.registerGpuCounterFields([
+          "temporalReactivePixels",
+          "temporalDisoccludedPixels",
+          "temporalHistoryRejectedPixels"
+        ]);
+      }
+      this._taa?.resetFrameEvidence();
+      this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
+      this._lastTemporalClassificationPassCount = featureTopology.temporal ? 1 : 0;
       const nssSettings = featureTopology.nss
         ? this._nss!.prepareFrame({
             renderResolution: [w, h],
@@ -1005,6 +1114,8 @@ export class Renderer {
         gpuCounterBuffer,
         taaJitter: [frameJitter[0], frameJitter[1]],
         taaHistoryValidity,
+        taaHistoryInputIndex: temporalHistory.readIndex,
+        taaHistoryOutputIndex: temporalHistory.writeIndex,
         motionBlurStrength: this.motion_blur_strength,
         nssSettings,
         linearHdrCapture: frameLinearHdrCapture
@@ -1501,6 +1612,7 @@ export class Renderer {
         let lightDatabaseRes: ResourceId | null = null;
         let shadowAtlasRes: ResourceId | null = null;
         let clusters: LightClusterOutputs | null = null;
+        let transparentReactiveRes: ResourceId | null = null;
 
         if (hzbRes !== null) {
           lightDatabaseRes = graph.import_resource(
@@ -2037,6 +2149,7 @@ export class Renderer {
               }
             );
             hdrRes = output.hdr;
+            transparentReactiveRes = output.reactive;
             if (output.counters !== null) {
               gpuCounterRes = output.counters;
             }
@@ -2133,17 +2246,42 @@ export class Renderer {
           velocityRes !== null &&
           occlusionConfidenceRes !== null
         ) {
+          const metadataRes =
+            packedResolveOut?.surfaceFlags ?? packedVisibilityKeyRes ?? meshIdRes;
+          if (metadataRes === null) {
+            throw new Error("FX-06 Temporal has no uint metadata fallback");
+          }
+          const classification = this._temporalClassification!.addToGraph(
+            graph,
+            bind("temporal-classification-job", (bindings) => ({
+              width: bindings.internalWidth,
+              height: bindings.internalHeight,
+              metadataAvailable: bindings.gpuPacked !== null,
+              transparencyAvailable: transparentReactiveRes !== null,
+              historyValid: bindings.taaHistoryValidity >= 0.5
+            })),
+            {
+              surfaceMetadata: metadataRes,
+              transparentReactive:
+                transparentReactiveRes ?? occlusionConfidenceRes,
+              disocclusionConfidence: occlusionConfidenceRes,
+              counters: gpuCounterRes ?? undefined
+            }
+          );
+          if (classification.counters !== null) {
+            gpuCounterRes = classification.counters;
+          }
           const historyInputRes = graph.import_resource(
             "taa_history",
             { kind: "imported", label: "TAA history input rgba16float" },
             bind("taa-history-input", (bindings) =>
-              this._taaHistory![bindings.frameIndex % 2]!.gpu_texture)
+              this._taaHistory![bindings.taaHistoryInputIndex]!.gpu_texture)
           );
           const historyOutputRes = graph.import_resource(
             "taa_output",
             { kind: "imported", label: "TAA history output rgba16float" },
             bind("taa-history-output", (bindings) =>
-              this._taaHistory![(bindings.frameIndex + 1) % 2]!.gpu_texture)
+              this._taaHistory![bindings.taaHistoryOutputIndex]!.gpu_texture)
           );
           if (graphTopology.nss) {
             hdrRes = this._nss!.addToGraph(
@@ -2178,6 +2316,14 @@ export class Renderer {
               bind("taa-job", (bindings) => ({
                 jitter: bindings.taaJitter,
                 historyValidity: bindings.taaHistoryValidity,
+                internalResolution: [
+                  bindings.internalWidth,
+                  bindings.internalHeight
+                ],
+                outputResolution: [
+                  bindings.outputWidth,
+                  bindings.outputHeight
+                ],
                 samplers: this._graphics.samplers
               })),
               {
@@ -2185,9 +2331,9 @@ export class Renderer {
                 currentColor: hdrRes,
                 historyColor: historyInputRes,
                 velocity: velocityRes,
-                occlusionConfidence: occlusionConfidenceRes,
-                currentCamera: currentCameraRes,
-                previousCamera: previousCameraRes
+                disocclusionConfidence: occlusionConfidenceRes,
+                depth: depthRes,
+                classification: classification.classification
               }
             );
           }
@@ -2379,6 +2525,9 @@ export class Renderer {
         }
       }
       cmd.encodeCompiledGraph(compiledGraph, mainBindings);
+      if (graphTopology.temporal) {
+        this._temporalHistories.markProduced("color");
+      }
       view.finish_frame(cmd, this._frame_count);
       this.recordFrameCounters(
         viewHzb,
@@ -2547,6 +2696,16 @@ export class Renderer {
     } else if (this._taa !== null) {
       this.retireAfterSubmittedWork(this._taa);
       this._taa = null;
+      this._lastTemporalTaaPassCount = 0;
+    }
+    if (topology.temporal) {
+      this._temporalClassification ??= new TemporalClassificationPass(
+        this._graphics
+      );
+    } else if (this._temporalClassification !== null) {
+      this.retireAfterSubmittedWork(this._temporalClassification);
+      this._temporalClassification = null;
+      this._lastTemporalClassificationPassCount = 0;
     }
     if (topology.nss) {
       void this.nss;
@@ -2787,7 +2946,67 @@ export class Renderer {
     profiler.recordCounter("lighting.environment.specularAllocatedBytes", environment.specularAllocatedBytes);
     profiler.recordCounter("lighting.environment.diffuseAllocatedBytes", environment.diffuseAllocatedBytes);
     profiler.recordCounter("lighting.environment.specularMipLevelCount", environment.specularMipLevelCount);
+    const temporal = this.temporalEvidence();
+    profiler.recordCounter("temporal.taaPasses", temporal.taaPasses);
+    profiler.recordCounter(
+      "temporal.classificationPasses",
+      temporal.classificationPasses
+    );
+    profiler.recordCounter(
+      "temporal.historyValid",
+      temporal.historyValid ? 1 : 0
+    );
+    profiler.recordCounter(
+      "temporal.historyRevision",
+      temporal.historyRevision
+    );
+    profiler.recordCounter(
+      "temporal.historyInvalidations",
+      temporal.historyInvalidations
+    );
+    profiler.recordCounter("temporal.historyBytes", temporal.historyBytes);
+    profiler.recordCounter("temporal.internalPixels", temporal.internalPixels);
+    profiler.recordCounter("temporal.outputPixels", temporal.outputPixels);
+    profiler.recordCounter("temporal.drsGpuMs", temporal.drsLastGpuMs);
+    profiler.recordCounter(
+      "temporal.drsFeedbackLatencyFrames",
+      temporal.drsFeedbackLatencyFrames
+    );
     profiler.recordCounter("gpu.residentBytes", this._graphics.gpu_memory_usage);
+  }
+
+  private reconcileDynamicResolutionProfiler(): void {
+    this._dynamicResolution.consume_delayed_gpu_timing(this._frame_count);
+    const supported = this.device.features.has("timestamp-query");
+    if (this._dynamicResolution.enabled && supported) {
+      if (!this._profiler.enabled) {
+        this._profiler.configure({ enabled: true, gpuSampleInterval: 4 });
+        this._dynamicResolutionOwnsProfiler = true;
+      }
+      return;
+    }
+    if (this._dynamicResolutionOwnsProfiler) {
+      this._profiler.configure({ enabled: false });
+      this._dynamicResolutionOwnsProfiler = false;
+    }
+  }
+
+  private consumeDynamicResolutionSnapshot(snapshot: FrameProfileSnapshot): void {
+    if (
+      !this._dynamicResolution.enabled ||
+      !snapshot.gpu.sampled ||
+      snapshot.gpu.pending ||
+      snapshot.gpu.segments.length === 0
+    ) return;
+    const gpuFrameTimeMs = snapshot.gpu.segments.reduce(
+      (sum, segment) => sum + segment.durationMs,
+      0
+    );
+    this._dynamicResolution.notify_gpu_timing({
+      sampleFrameIndex: snapshot.frameIndex,
+      currentFrameIndex: this._frame_count,
+      gpuFrameTimeMs
+    });
   }
 
   add_debug_frame(count = 1): void {
@@ -2857,7 +3076,9 @@ export class Renderer {
     this.recalculateOutputResolution();
     if (this._renderResolutionDirty) this.recalculateRenderResolution();
     this.resizeColorHistories();
-    this.indicate_view_change();
+    this._taaJitter.reset_history = true;
+    if (this._pathTracer !== undefined) this._pathTracer.clear_history = true;
+    if (this._nss) this._nss.reset_history = true;
   }
 
   private applyPendingRenderResolutionChange(): void {

@@ -137,6 +137,14 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "transparentQueueOverflowMask"
     ]
   },
+  temporal: {
+    status: "supported",
+    requiredGpuCounters: [
+      "temporalReactivePixels",
+      "temporalDisoccludedPixels",
+      "temporalHistoryRejectedPixels"
+    ]
+  },
   "packed-instances": {
     status: "supported",
     requiredGpuCounters: [
@@ -294,7 +302,10 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   transparentTriangles: supported("PackedTransparentOitPass/exact meshlet triangle reducer"),
   transparentReactivePixels: supported("PackedTransparentOitPass/reactive texture reducer"),
   transparentMomentFiniteFailures: supported("PackedTransparentOitPass/power-moment finite reducer"),
-  transparentQueueOverflowMask: supported("PackedTransparentOitPass/queue overflow reducer")
+  transparentQueueOverflowMask: supported("PackedTransparentOitPass/queue overflow reducer"),
+  temporalReactivePixels: supported("TemporalClassificationPass/reactive reducer"),
+  temporalDisoccludedPixels: supported("TemporalClassificationPass/disocclusion reducer"),
+  temporalHistoryRejectedPixels: supported("TemporalClassificationPass/history rejection reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

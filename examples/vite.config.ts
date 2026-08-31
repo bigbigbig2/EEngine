@@ -98,6 +98,10 @@ export default defineConfig({
           examplesRoot,
           "r5-packed-transparency/index.html"
         ),
+        r5TemporalFoundation: path.resolve(
+          examplesRoot,
+          "r5-temporal-foundation/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"
