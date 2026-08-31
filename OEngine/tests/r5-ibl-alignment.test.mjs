@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   estimateConstantDiffuseIrradiance,
   hammersley2d,
+  iblMaterialTerms,
   iblRoughnessToLod,
   octDecode,
   octEncode,
@@ -15,6 +16,7 @@ import { GPU_COUNTER_FIELDS, GPU_COUNTER_SCHEMA_VERSION } from "../.test-dist/de
 import { ENVIRONMENT_PREFILTER_WGSL } from "../.test-dist/shaders/environment_prefilter.js";
 import { IBL_DIFFUSE_WGSL } from "../.test-dist/shaders/environment_ibl.js";
 import { IBL_SPECULAR_WGSL } from "../.test-dist/shaders/ibl_specular.js";
+import { INDIRECT_COMPOSITE_WGSL } from "../.test-dist/shaders/indirect_composite.js";
 import { RenderDebugView } from "../.test-dist/debug/RenderDebugView.js";
 import { resolveMainFrameFeatureTopology } from "../.test-dist/render/MainFrameFeatureTopology.js";
 
@@ -27,6 +29,20 @@ test("FX-03 perceptual roughness maps dynamically across any mip chain", () => {
   assert.equal(iblRoughnessToLod(1, 7), 6);
   assert.equal(perceptualRoughnessToLinear(0.5), 0.25);
   assert.equal(perceptualRoughnessToLinear(0), 0.0004);
+});
+
+test("FX-03 metallic endpoints freeze dielectric and conductor energy inputs", () => {
+  assert.deepEqual(iblMaterialTerms([0.8, 0.4, 0.2], 0), {
+    diffuseColor: [0.8, 0.4, 0.2],
+    specularF0: [0.04, 0.04, 0.04]
+  });
+  assert.deepEqual(iblMaterialTerms([0.8, 0.4, 0.2], 1), {
+    diffuseColor: [0, 0, 0],
+    specularF0: [0.8, 0.4, 0.2]
+  });
+  assert.match(INDIRECT_COMPOSITE_WGSL, /mix\(vec3f\(MIN_DIELECTRICS_F0\), albedo, metalness\)/);
+  assert.match(INDIRECT_COMPOSITE_WGSL, /diffuse = albedo \* \(1\.0 - metalness\)/);
+  assert.match(INDIRECT_COMPOSITE_WGSL, /textureSampleLevel\([\s\S]*vec2f\(no_v, roughness\)/);
 });
 
 test("FX-03 octahedral orientation round-trips canonical and oblique directions", () => {

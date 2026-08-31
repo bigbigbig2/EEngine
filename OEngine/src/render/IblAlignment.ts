@@ -1,5 +1,11 @@
 /** FX-03 CPU references shared with numeric tests. */
 export const IBL_MIN_PERCEPTUAL_ROUGHNESS = 0.02;
+export const IBL_DIELECTRIC_F0 = 0.04;
+
+export type IblMaterialTerms = {
+  diffuseColor: [number, number, number];
+  specularF0: [number, number, number];
+};
 
 export function perceptualRoughnessToLinear(value: number): number {
   const roughness = Math.min(1, Math.max(IBL_MIN_PERCEPTUAL_ROUGHNESS, value));
@@ -11,6 +17,23 @@ export function iblRoughnessToLod(perceptualRoughness: number, mipLevelCount: nu
     throw new RangeError("mipLevelCount must be a positive integer");
   }
   return Math.min(1, Math.max(0, perceptualRoughness)) * (mipLevelCount - 1);
+}
+
+/** CPU oracle for the metallic workflow consumed by INDIRECT_COMPOSITE_WGSL. */
+export function iblMaterialTerms(
+  baseColor: readonly [number, number, number],
+  metallic: number
+): IblMaterialTerms {
+  if (!baseColor.every(Number.isFinite) || !Number.isFinite(metallic)) {
+    throw new RangeError("IBL material inputs must be finite");
+  }
+  const factor = Math.min(1, Math.max(0, metallic));
+  return {
+    diffuseColor: baseColor.map((channel) => channel * (1 - factor)) as [number, number, number],
+    specularF0: baseColor.map(
+      (channel) => IBL_DIELECTRIC_F0 * (1 - factor) + channel * factor
+    ) as [number, number, number]
+  };
 }
 
 export function radicalInverseVdc(bits: number): number {

@@ -10,6 +10,8 @@ import {
 import { createFx03ShadingOracleFixture } from "../benchmark-shared/BenchmarkScenes.ts";
 import { ENVIRONMENT_PREFILTER_WGSL } from "../../OEngine/src/shaders/environment_prefilter.ts";
 import { floatToHalf, halfToFloat } from "../../OEngine/src/loaders/float16.ts";
+import { STATIC_GRAPHICS_ENGINE_ASSETS } from "../../OEngine/src/render/STATIC_GRAPHICS_ENGINE_ASSETS.ts";
+import { iblMaterialTerms, iblRoughnessToLod } from "../../OEngine/src/render/IblAlignment.ts";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -205,11 +207,70 @@ async function runIblGpuMicro(device: GPUDevice) {
     output.destroy(); uniform.destroy(); readback.destroy();
   }
   source.destroy();
+  const roughnessCases = [0, 0.5, 1].map((roughness) => ({
+    roughness,
+    mipLevelCount: 7,
+    lod: iblRoughnessToLod(roughness, 7)
+  }));
+  const metallicCases = [0, 1].map((metallic) => ({
+    metallic,
+    ...iblMaterialTerms([0.8, 0.4, 0.2], metallic)
+  }));
+  const brdfLut = inspectSplitSumLut();
   const issues = [
     ...cases.filter((entry) => !entry.passed).map((entry) => `${entry.entryPoint} GPU numeric oracle mismatch`),
-    ...shaderMessages.filter((entry) => entry.type === "error").map((entry) => `shader: ${entry.message}`)
+    ...shaderMessages.filter((entry) => entry.type === "error").map((entry) => `shader: ${entry.message}`),
+    ...(brdfLut.passed ? [] : ["split-sum BRDF LUT contract mismatch"])
   ];
-  return { passed: issues.length === 0, issues, source: "production ENVIRONMENT_PREFILTER_WGSL", shaderMessages, cases };
+  return {
+    passed: issues.length === 0,
+    issues,
+    source: "production ENVIRONMENT_PREFILTER_WGSL + resident split_sum.bin",
+    shaderMessages,
+    cases,
+    roughnessCases,
+    metallicCases,
+    brdfLut
+  };
+}
+
+function inspectSplitSumLut() {
+  const image = STATIC_GRAPHICS_ENGINE_ASSETS.split_sum.image;
+  if (image === undefined || !(image.source instanceof ArrayBuffer)) {
+    return { passed: false, reason: "split-sum CPU source unavailable" };
+  }
+  const encoded = new Uint16Array(image.source);
+  let minimum = Number.POSITIVE_INFINITY;
+  let maximum = Number.NEGATIVE_INFINITY;
+  let sumMinimum = Number.POSITIVE_INFINITY;
+  let sumMaximum = Number.NEGATIVE_INFINITY;
+  let finite = true;
+  for (let index = 0; index < encoded.length; index += 2) {
+    const x = halfToFloat(encoded[index]!);
+    const y = halfToFloat(encoded[index + 1]!);
+    finite &&= Number.isFinite(x) && Number.isFinite(y);
+    minimum = Math.min(minimum, x, y);
+    maximum = Math.max(maximum, x, y);
+    sumMinimum = Math.min(sumMinimum, x + y);
+    sumMaximum = Math.max(sumMaximum, x + y);
+  }
+  const passed = image.width === 64 && image.height === 64 && image.depth === 1 &&
+    image.channel_count === 2 && image.data_type === "float16" &&
+    encoded.length === 64 * 64 * 2 && finite && minimum >= 0 && maximum <= 1 &&
+    sumMinimum >= 0 && sumMaximum <= 1.001;
+  return {
+    passed,
+    width: image.width,
+    height: image.height,
+    channels: image.channel_count,
+    dataType: image.data_type,
+    sampleCount: encoded.length / 2,
+    finite,
+    minimum,
+    maximum,
+    sumMinimum,
+    sumMaximum
+  };
 }
 
 function summarize(result: BenchmarkResult) {
