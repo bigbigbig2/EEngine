@@ -256,7 +256,9 @@ Hardware Raster 与 64-light pressure debt 继续进入 G5-P。
 
 生产链每个 cascade 执行 hierarchy/SSE/frustum producer、viewport reverse-Z clear 和一次 depth-only `drawIndirect`。alpha MASK 读取同一 visibility material/UV/alpha atlas，active material 数不增加 draw/pass。atlas 上限为 4096² `depth32float`（64 MiB）；功能关闭 completion-safe 退休 atlas、prepared work、pass 与 shadow-view GPU state，不保留 counter/readback/submit。Packed point/spot shadow 不属于 FX-04，显式不回退 CPU producer；legacy non-Packed shadow 暂留到 FX-12。
 
-schema v7 sampled evidence使用最后六个 4 B slot记录三个 cascade work、atlas updated pixels、alpha work 和 per-cascade overflow mask。非 sampled frame没有 counter reducer。focused production Gate固定 Benchmark C camera/light使三个级联都有有效 caster，并执行 shadow on/off/on sequence；最终 clean artifact完成前，FX-04 状态保持 implementation complete / Gate pending。
+schema v7 sampled evidence使用最后六个 4 B slot记录三个 cascade work、atlas updated pixels、alpha work 和 per-cascade overflow mask。非 sampled frame没有 counter reducer。focused production Gate固定 Benchmark C camera/light使三个级联都有有效 caster，并执行 shadow on/off/on sequence。
+
+状态：已在 clean commit `8986dc6256e31a5c3630935d1fff2aed08f7a3bf` 关闭。Gate为 `passed/gateEligible=true`，三个 cascade work为 `5/64/47`、alpha work `38`、overflow `0`，Shadow GPU P50/P95为 `0.228096/0.884528 ms`；on/off/on atlas bytes为 `64 MiB/0/64 MiB`、draw count为 `3/0/3`，唯一 submit保持 1。截图、provenance、console/page/WebGPU diagnostics全部通过，artifact位于 `temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。这关闭 FX-04 correctness/focused budget，不关闭仍等待 FX-05的 G5-S，也不宣称1080p产品性能达标。
 
 ### FX-05 · Transparency
 

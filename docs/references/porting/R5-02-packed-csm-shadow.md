@@ -1,6 +1,6 @@
 # R5-02 · FX-04 Packed CSM Shadow
 
-Status: implementation complete; clean production Gate pending final evidence commit.
+Status: closed by clean production Gate on `8986dc6256e31a5c3630935d1fff2aed08f7a3bf`.
 
 ## Reference ID
 
@@ -138,5 +138,7 @@ Production browser:
 - fixed workload: Benchmark C smoke，1280×720、DPR 1、固定 camera/light、三个有效 cascade；
 - evidence: cascade `RasterWork`、alpha work、atlas updated pixels/bytes、overflow、一个 submit、
   WebGPU diagnostics、shadow on/off/on sequence和三张 canvas screenshot；
-- clean artifact/commit在最终关闭后回填，dirty artifact只作探索证据。
-
+- clean artifact: `temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`；
+- result: `passed=true`、`gateEligible=true`、issues/overflow/WebGPU diagnostics为零，
+  cascade work `5/64/47`，alpha work `38`，shadow GPU P50/P95
+  `0.228096/0.884528 ms`；dirty artifact只作探索证据。

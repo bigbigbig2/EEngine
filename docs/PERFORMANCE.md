@@ -279,6 +279,28 @@ FX-03 B-shading IBL oracle、正式 source owner 和上述目标合同关闭。`
 `threeJsParityClaimed`、`aaaLikePerformanceClaimed` 均明确为 `false`；现有 Hardware Raster 与
 64-light overlap 超出最终产品分配的事实继续阻塞 G5-P，不因 G5-L correctness closure 获得豁免。
 
+## R5 FX-04 Packed CSM Shadow clean focused Gate
+
+2026-08-31 在 clean commit `8986dc6256e31a5c3630935d1fff2aed08f7a3bf` 使用production
+`Renderer.render()`、Chrome 151、NVIDIA Turing、Benchmark C smoke完成FX-04 focused Gate。
+固定条件为1280×720、DPR 1、8 warm-up + 24 sample、timestamp/counter每4帧；该case固定
+camera far=100，让冻结几何覆盖三个practical cascade。它验证Packed shadow结构、数值证据、
+资源生命周期和focused预算，不替代G5-P的1080p/full性能结论。
+
+- `passed=true`、`gateEligible=true`、`requireClean=true`，issues、console/page error、
+  validation/uncaptured/device-loss/failed timestamp/counter均为0；
+- cascade `RasterWork=5/64/47`，alpha-tested work `38`，overflow mask `0`；
+- atlas updated pixels `7,174,800`，allocated bytes `67,108,864`，低于冻结的128 MiB cap；
+- Shadow phase GPU P50/P95 `0.228096/0.884528 ms`，低于冻结的3 ms feature-on increment
+  allocation；每帧submit mean保持1；
+- feature on/off/on的atlas bytes为`64 MiB/0/64 MiB`、cascade indirect draws为`3/0/3`，
+  证明关闭后不保留atlas或Packed shadow draw owner；
+- 两张shadow-on截图hash一致，shadow-off hash不同，三张均非空并经人工检查。
+
+完整JSON、环境provenance和PNG位于
+`temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。FX-04据此关闭；
+G5-S仍需FX-05 Packed Transparency，不能由本结果提前关闭。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。

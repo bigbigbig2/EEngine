@@ -514,7 +514,20 @@ Packed Instance
 - sequence：on 必须 3 个 cascade draw且 atlas不超过 128 MiB；off 必须 atlas/draw/work owner为 0；恢复必须重建 3 draws；
 - artifacts：`artifact.json`、`result.json`、`environment.json` 与 `shadow-on-0/off/on-2.png`；console/page/WebGPU/timestamp/counter diagnostics必须全零。
 
-当前代码已完成 browser exploratory validation：三个 cascade均有 RasterWork，alpha caster非零、overflow为零、on/off/on资源序列正确。该 dirty artifact只用于修正 fixture和 runtime，不是关闭证据；FX-04 必须在 implementation commit 后从 clean worktree重跑再回填 commit、timing和路径。
+FX-04 已在 clean commit `8986dc6256e31a5c3630935d1fff2aed08f7a3bf` 关闭：
+
+- `passed=true`、`gateEligible=true`、`requireClean=true`，issues、console/page error及
+  validation/uncaptured/device-loss/failed timestamp/counter均为零；
+- sampled cascade work为 `5/64/47`，alpha work `38`，overflow mask `0`；
+- atlas updated pixels为 `7,174,800`，allocated bytes为 `67,108,864`；
+- Shadow GPU P50/P95为 `0.228096/0.884528 ms`，低于冻结的3 ms product feature
+  increment allocation；这是720p focused数据，不代替后续1080p/full G5-P；
+- on/off/on sequence的 atlas bytes为 `64 MiB/0/64 MiB`，cascade draws为 `3/0/3`；
+- shadow-on两次截图hash一致，off截图hash不同，三张均非空并已人工复核。
+
+完整证据位于
+`temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。FX-04据此
+关闭；G5-S仍等待FX-05 Packed Transparency，不能用CSM完成证据提前关闭。
 
 ---
 
