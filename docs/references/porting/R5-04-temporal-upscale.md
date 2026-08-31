@@ -5,7 +5,7 @@
 - **Reference ID**：`R5-04-temporal-upscale`
 - **decision**：`port algorithm and integration invariants / independently reimplement WebGPU owner`
 - **当前范围**：FX-06A 的共享 history 生命周期、reprojection/acceptance contract、reactive/disocclusion 分类、最小 TAA reference、internal/output resolution contract 与异步 DRS feedback。
-- **未闭环范围**：FX-07/08 尚未提供最终 AO/SSR temporal 输入，因此最终 TAA/TAAU/upscale 质量、锁定与 sharpening 属于 FX-06B，不能由本记录提前宣称完成。
+- **未闭环范围**：FX-07 已提供共享 registry 下的 AO temporal 输入，FX-08 SSR 尚未完成；最终 TAA/TAAU/upscale 质量、锁定与 sharpening 仍属于 FX-06B，不能由本记录提前宣称完成。
 
 仓库没有复制、翻译或改写下列 HLSL/CG/Unity 表达性代码。OEngine 保留公开的算法与集成不变量，并以 WGSL、FrameGraph 和现有 Surface/Packed ABI 独立实现。
 

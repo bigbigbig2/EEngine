@@ -282,9 +282,15 @@ Temporal input contract 至少包含 current HDR、Depth、Velocity+motion-valid
 
 DRS 使用异步/延迟 GPU timestamp feedback 更新 scale；禁止同步 `mapAsync` 或 readback 控制当前帧，也不产生第二条主管线。C-temporal/C-resolution 必跑 static/pan/fast motion/disocclusion/reactive/cut/resize/scale transition sequence。
 
+状态：FX-06A 已在受测 commit `c52ef486917913ca7951b568a8db519980a40e73` 关闭。共享 `TemporalHistoryRegistry` 统一处理 submit-aware ping-pong 与 cut/resize/render-scale/feature/view/abort invalidation；最小 TAA reference、reactive/disocclusion classification、jitter/internal-output resolution 和只消费已完成 timestamp 的 DRS feedback 均通过 `30 warm-up + 120 sample` production browser sequence。Gate 为 `passed/gateEligible/requireClean=true`，完整证据位于 `temp/r5/fx-06/c52ef486917913ca7951b568a8db519980a40e73-dirty-c500aa424fc6/`。该结论只关闭 FX-06A contract，不宣称 final TAAU/upscale 或 G5-T 已关闭。
+
 ### FX-07 · AO
 
 SSAO/GTAO 选择由画质/性能对比决定，复用 final Depth/HZB/normal。半分辨率、temporal 和 denoise 的每个资源都受同一 feature bit 裁剪。
+
+状态：已在 clean-scope commit `548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7` 关闭。先验证并修复当前 horizon-based GTAO-family authored WGSL，没有建立 XeGTAO 第二管线；来源、许可证、保留不变量和 WebGPU 差异见 [R5-05 porting ledger](../references/porting/R5-05-ambient-occlusion.md)。raw/spatial/optional temporal 以 full 或 half internal resolution 工作，half bent normal 只在 final consumer 存在时恢复到 full resolution；AO temporal 复用 FX-06A shared history registry，temporal-off 不分配 history，feature-off 的 owner/Pass/resource/history/timestamp 全为零。
+
+production Gate 固定 `1280×720`、DPR 1、每阶段 30 warm-up + 120 sample，覆盖 raw/denoised/temporal、full/half、static temporal off/on、camera pan、disocclusion 和 feature off/on，共保存 52 张 PNG。Gate 为 `passed/gateEligible/requireClean=true`，WebGPU/console/page diagnostics 与 issues 为零；完整 JSON、GPU phase、graph/history evidence 和截图位于 `temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/`。FX-07 只关闭 AO；下一步为 FX-08，G5-T 仍需 FX-08 与 FX-06B。
 
 ### FX-08 · SSR
 

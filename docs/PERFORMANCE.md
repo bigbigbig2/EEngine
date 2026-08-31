@@ -320,7 +320,51 @@ DPR 1、每组6 warm-up + 18 sample、timestamp/counter每2帧；覆盖coverage 
 
 完整JSON、环境provenance和PNG位于
 `temp/r5/fx-05/ee576a574d0776b9d429c6befc240c3478e05528-dirty-bbb10831fccd/`。
-FX-04与FX-05由此共同关闭G5-S；当前进入FX-06A。该结论不表示1080p/60产品预算已经达成。
+FX-04与FX-05由此共同关闭G5-S；此时进入FX-06A。该结论不表示1080p/60产品预算已经达成。
+
+## R5 FX-06A Temporal Foundation clean-scope Gate
+
+2026-09-01 在受测 commit `c52ef486917913ca7951b568a8db519980a40e73` 使用 production
+`Renderer.render()` 完成 FX-06A Gate。固定条件为每阶段 30 warm-up + 120 sample；覆盖 static、
+slow/fast pan、moving object、disocclusion、transparent motion、LOD transition、camera cut、resize、
+internal scale `1/0.85/0.67/0.5` 与 feature off/on。
+
+- `passed/gateEligible/requireClean=true`，唯一排除的是用户已有 `M three.js`；
+- temporal static variance RMS 为 `0.598665`，低于 no-temporal 的 `0.995817`；
+- moving/disocclusion/transparent 序列在 settle 16 帧时 ghost trail 均回到 0；
+- off A/B screenshot 差异为 `RMS=0/max=0`，feature-off 无 temporal Pass/history；
+- history 只在提交完成后推进，camera cut/resize/scale/feature transition 使旧 history 失效；DRS
+  只消费延迟至少一帧的已完成 GPU timestamp。
+
+76 张 PNG、JSON、graph/counter 和环境 provenance 位于
+`temp/r5/fx-06/c52ef486917913ca7951b568a8db519980a40e73-dirty-c500aa424fc6/`。
+FX-06A 只关闭共享基础合同；final TAAU/upscale 仍归 FX-06B。
+
+## R5 FX-07 Ambient Occlusion clean focused Gate
+
+2026-09-01 在 clean-scope commit `548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7` 使用 production
+`Renderer.render()`、Chrome 151、NVIDIA Turing 完成 FX-07 Gate。固定条件为 `1280×720`、DPR 1、
+每阶段 30 warm-up + 120 sample、timestamp 每 2 帧；依次覆盖 full raw/denoised/temporal off/on、
+half raw/denoised/temporal、camera pan、disocclusion、final HDR 和 feature off/on，共 12 个阶段。
+
+- `passed/gateEligible/requireClean=true`，issues、console/page、validation/uncaptured/device-loss、
+  failed/dropped timestamp/counter 均为 0；唯一排除并记录的是用户已有 `M three.js`；
+- raw 平面/墙角分布为 `P01=220/P95=232`、标准差 `9.852`；大面积无遮挡平面接近无 AO，
+  墙角、缝隙和物体接触面保留连续遮蔽；
+- full/half denoised PNG 的 RMS 为 `0.721853 RGB8`；temporal off/on static variance RMS 分别为
+  `0.297473/0.069111 RGB8`；pan 与 disocclusion 的 settle-32→64 RMS 为 `0.135742/0.156665 RGB8`；
+- full temporal-only AO GPU P50/P95/P99 为 `0.585792/0.591072/0.593792 ms`；half temporal-only 为
+  `0.199328/0.203808/0.205152 ms`。half final-HDR 路径包含 bent-normal upsample 与 composite，
+  P50/P95/P99 为 `0.253056/0.255200/0.868000 ms`；P99 尖峰来自 upsample phase，仍如实保留，
+  不据此提前关闭 G5-T 或最终 1080p 产品预算；
+- full/half temporal history 分别为 `7,372,800/1,843,200 B`；temporal-off 不创建 history。
+  feature-off 的 AO owner、Pass、AO pixels、history bytes 和 timestamp label 全为 0，main submit 保持 1；
+- 52 张 PNG 已全部保存，raw、denoised、half temporal、final HDR、feature off/restored 关键图已人工复核；
+  clean artifact 的关键 PNG SHA-256 与已复核序列逐张一致，无空帧、棋盘、越界或持续 ghost。
+
+完整 JSON、GPU phase、graph/history evidence、environment provenance 与 PNG 位于
+`temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/`。
+FX-07 据此关闭；当前进入 FX-08，G5-T 仍需 FX-08 和 FX-06B。
 
 ## 性能变更完成标准
 
