@@ -26,6 +26,9 @@ const OUTPUT_WIDTH = 1920;
 const OUTPUT_HEIGHT = 1080;
 const WARMUP_FRAMES = 30;
 const SAMPLE_FRAMES = 120;
+const TOTAL_FRAMES = WARMUP_FRAMES + SAMPLE_FRAMES;
+const MOTION_STOP_ORDINAL = WARMUP_FRAMES + Math.floor(SAMPLE_FRAMES / 2);
+const DISOCCLUSION_ORDINAL = WARMUP_FRAMES + 30;
 
 type StageKind =
   | "static"
@@ -38,6 +41,7 @@ type StageKind =
   | "camera-cut"
   | "resize"
   | "resolution"
+  | "static-no-history"
   | "feature-off";
 
 interface StageDefinition {
@@ -46,6 +50,13 @@ interface StageDefinition {
   readonly scale?: number;
   readonly temporal?: boolean;
   readonly expectInvalidFirst?: boolean;
+}
+
+interface KeyframeDefinition {
+  readonly ordinal: number;
+  readonly label: string;
+  readonly role: "first-frame" | "variance" | "motion-settle" | "stage-end";
+  readonly framesSinceEvent?: number;
 }
 
 interface StageResult {
@@ -62,6 +73,13 @@ interface StageResult {
   readonly historyRejectPercentMedian: number;
   readonly temporalGpuP50Ms: number | null;
   readonly temporalGpuP95Ms: number | null;
+  readonly temporalGpuP99Ms: number | null;
+  readonly temporalGpuP50MsPerOutputMp: number | null;
+  readonly temporalGpuP50MsPerInternalMp: number | null;
+  readonly internalPixels: number;
+  readonly outputPixels: number;
+  readonly historyBytes: number;
+  readonly historySettlingFrames: number | null;
   readonly maxSubmits: number;
   readonly maxReadbackBytes: number;
   readonly maxReadbacks: number;
@@ -75,8 +93,10 @@ interface StageResult {
 interface GateState {
   completed: boolean;
   stageReady: boolean;
+  eventIndex: number;
   stageIndex: number;
   stageId: string;
+  keyframe?: KeyframeDefinition;
   result?: Record<string, unknown>;
 }
 
@@ -90,6 +110,7 @@ declare global {
 const stages: readonly StageDefinition[] = [
   { id: "static-a", kind: "static", scale: 1, expectInvalidFirst: true },
   { id: "static-b", kind: "static" },
+  { id: "static-no-history", kind: "static-no-history", expectInvalidFirst: true },
   { id: "slow-pan", kind: "slow-pan" },
   { id: "fast-pan", kind: "fast-pan" },
   { id: "moving-object", kind: "moving-object" },
@@ -99,8 +120,9 @@ const stages: readonly StageDefinition[] = [
   { id: "camera-cut", kind: "camera-cut", expectInvalidFirst: true },
   { id: "resize", kind: "resize", expectInvalidFirst: true },
   { id: "resolution-1", kind: "resolution", scale: 1, expectInvalidFirst: true },
-  { id: "resolution-085", kind: "resolution", scale: 0.85, expectInvalidFirst: true },
   { id: "resolution-067", kind: "resolution", scale: 0.67, expectInvalidFirst: true },
+  { id: "resolution-return-1", kind: "resolution", scale: 1, expectInvalidFirst: true },
+  { id: "resolution-085", kind: "resolution", scale: 0.85, expectInvalidFirst: true },
   { id: "resolution-05", kind: "resolution", scale: 0.5, expectInvalidFirst: true },
   { id: "feature-off-a", kind: "feature-off", temporal: false, scale: 1, expectInvalidFirst: true },
   { id: "feature-off-b", kind: "feature-off", temporal: false, scale: 1 },
@@ -109,6 +131,7 @@ const stages: readonly StageDefinition[] = [
 ] as const;
 
 let advanceStage: (() => void) | null = null;
+let eventIndex = 0;
 window.__OENGINE_FX_06_ADVANCE__ = () => advanceStage?.();
 required<HTMLButtonElement>("advance").addEventListener("click", () => advanceStage?.());
 
@@ -152,14 +175,16 @@ async function run(): Promise<void> {
     const stageResults: StageResult[] = [];
     for (let stageIndex = 0; stageIndex < stages.length; stageIndex++) {
       const definition = stages[stageIndex]!;
+      const keyframes = keyframesForStage(definition);
       const warmupFrameBegin = renderer.frame_count;
-      prepareStage(renderer, camera, definition);
+      prepareStage(renderer, camera, fixture, definition);
       for (let ordinal = 0; ordinal < WARMUP_FRAMES; ordinal++) {
         updateStage(renderer, camera, fixture, definition, ordinal);
         if (!renderer.render(camera, fixture.scene, 1 / 60)) {
           throw new Error("GPU device lost");
         }
         await animationFrame();
+        await captureKeyframe(stageIndex, definition, ordinal, keyframes, status, detail);
       }
       const frameBegin = renderer.frame_count;
       for (
@@ -172,6 +197,7 @@ async function run(): Promise<void> {
           throw new Error("GPU device lost");
         }
         await animationFrame();
+        await captureKeyframe(stageIndex, definition, ordinal, keyframes, status, detail);
       }
       const frameEnd = renderer.frame_count;
       await renderer.device.queue.onSubmittedWorkDone();
@@ -187,7 +213,7 @@ async function run(): Promise<void> {
         frameBegin,
         frameEnd,
         frames,
-        stageFrames[0]?.counters["temporal.historyValid"] ?? -1,
+        stageFrames,
         renderer
       );
       stageResults.push(result);
@@ -196,16 +222,6 @@ async function run(): Promise<void> {
         `history=${result.finalEvidence.historyValid} · ` +
         `temporal=${result.temporalGpuP50Ms?.toFixed(3) ?? "n/a"} ms`;
       output.textContent = JSON.stringify(result, null, 2);
-      window.__OENGINE_FX_06_STATE__ = {
-        completed: false,
-        stageReady: true,
-        stageIndex,
-        stageId: definition.id
-      };
-      if (new URLSearchParams(location.search).get("auto") !== "1") {
-        await new Promise<void>((resolve) => { advanceStage = resolve; });
-        advanceStage = null;
-      }
     }
 
     const environment = createEnvironmentManifest({
@@ -278,6 +294,7 @@ async function run(): Promise<void> {
     window.__OENGINE_FX_06_STATE__ = {
       completed: true,
       stageReady: false,
+      eventIndex,
       stageIndex: stages.length,
       stageId: "complete",
       result
@@ -293,6 +310,7 @@ async function run(): Promise<void> {
     window.__OENGINE_FX_06_STATE__ = {
       completed: true,
       stageReady: false,
+      eventIndex,
       stageIndex: -1,
       stageId: "error",
       result: {
@@ -313,6 +331,92 @@ async function run(): Promise<void> {
     output.textContent = message;
     console.error(error);
   }
+}
+
+function keyframesForStage(stage: StageDefinition): readonly KeyframeDefinition[] {
+  const entries: KeyframeDefinition[] = [];
+  if (stage.expectInvalidFirst) {
+    entries.push({ ordinal: 0, label: "first", role: "first-frame" });
+  }
+  if (stage.kind === "static" && stage.id === "static-b") {
+    for (let phase = 0; phase < 16; phase++) {
+      entries.push({
+        ordinal: TOTAL_FRAMES - 16 + phase,
+        label: `variance-${String(phase).padStart(2, "0")}`,
+        role: "variance"
+      });
+    }
+  } else if (stage.kind === "static-no-history") {
+    for (let phase = 0; phase < 16; phase++) {
+      entries.push({
+        ordinal: TOTAL_FRAMES - 16 + phase,
+        label: `variance-${String(phase).padStart(2, "0")}`,
+        role: "variance"
+      });
+    }
+  } else if (
+    stage.kind === "moving-object" ||
+    stage.kind === "transparent-motion" ||
+    stage.kind === "disocclusion"
+  ) {
+    const eventOrdinal = stage.kind === "disocclusion"
+      ? DISOCCLUSION_ORDINAL
+      : MOTION_STOP_ORDINAL;
+    for (const offset of [0, 8, 16, 32]) {
+      entries.push({
+        ordinal: eventOrdinal + offset,
+        label: `settle-${offset}`,
+        role: "motion-settle",
+        framesSinceEvent: offset
+      });
+    }
+    const settledOffset = Math.floor((TOTAL_FRAMES - 1 - eventOrdinal) / 16) * 16;
+    entries.push({
+      ordinal: eventOrdinal + settledOffset,
+      label: "settled",
+      role: "motion-settle",
+      framesSinceEvent: settledOffset
+    });
+    entries.push({ ordinal: TOTAL_FRAMES - 1, label: "end", role: "stage-end" });
+  } else {
+    entries.push({ ordinal: TOTAL_FRAMES - 1, label: "end", role: "stage-end" });
+  }
+  return entries.sort((left, right) => left.ordinal - right.ordinal);
+}
+
+async function captureKeyframe(
+  stageIndex: number,
+  stage: StageDefinition,
+  ordinal: number,
+  keyframes: readonly KeyframeDefinition[],
+  status: HTMLElement,
+  detail: HTMLElement
+): Promise<void> {
+  const keyframe = keyframes.find((entry) => entry.ordinal === ordinal);
+  if (keyframe === undefined) return;
+  const currentEvent = eventIndex;
+  window.__OENGINE_FX_06_STATE__ = {
+    completed: false,
+    stageReady: true,
+    eventIndex: currentEvent,
+    stageIndex,
+    stageId: stage.id,
+    keyframe
+  };
+  status.textContent = `FX-06A ${stage.id} · ${keyframe.label}`;
+  detail.textContent = `固定关键帧 ${currentEvent + 1} · stage frame ${ordinal}`;
+  if (new URLSearchParams(location.search).get("auto") !== "1") {
+    await new Promise<void>((resolve) => { advanceStage = resolve; });
+    advanceStage = null;
+  }
+  eventIndex++;
+  window.__OENGINE_FX_06_STATE__ = {
+    completed: false,
+    stageReady: false,
+    eventIndex,
+    stageIndex,
+    stageId: stage.id
+  };
 }
 
 function configureRenderer(renderer: Renderer): void {
@@ -356,6 +460,7 @@ async function createFixture(renderer: Renderer) {
     boundsMin.set(source.bounds.box.subarray(0, 3), index * 3);
     boundsMax.set(source.bounds.box.subarray(3, 6), index * 3);
   }
+  const baseTransforms = transforms.slice();
   const scene = new Scene();
   scene.lights.environment = environmentTexture();
   await renderer.uploadPackedScene(scene, {
@@ -372,12 +477,13 @@ async function createFixture(renderer: Renderer) {
     flags: new Uint32Array(count),
     debugIds: Uint32Array.from([1, 2, 3, 4])
   });
-  return { scene, baseTransforms: transforms, positions };
+  return { scene, baseTransforms, positions };
 }
 
 function prepareStage(
   renderer: Renderer,
   camera: PerspectiveCamera,
+  fixture: Awaited<ReturnType<typeof createFixture>>,
   stage: StageDefinition
 ): void {
   renderer.feature_taa_enabled = stage.temporal ?? true;
@@ -395,6 +501,12 @@ function prepareStage(
   } else {
     setCamera(camera, 0, 0, 7);
   }
+  if (
+    stage.kind !== "moving-object" &&
+    stage.kind !== "disocclusion" &&
+    stage.kind !== "transparent-motion" &&
+    stage.kind !== "lod-transition"
+  ) resetFixtureTransforms(renderer, fixture, [2, 3]);
 }
 
 function updateStage(
@@ -404,23 +516,60 @@ function updateStage(
   stage: StageDefinition,
   ordinal: number
 ): void {
-  const t = ordinal / Math.max(1, WARMUP_FRAMES + SAMPLE_FRAMES - 1);
+  const t = ordinal / Math.max(1, TOTAL_FRAMES - 1);
   if (stage.kind === "slow-pan") setCamera(camera, (t - 0.5) * 1.2, 0, 7);
   if (stage.kind === "fast-pan") setCamera(camera, Math.sin(t * Math.PI * 4) * 2.5, 0, 6.5);
   if (stage.kind === "moving-object") {
-    patchTransform(renderer, fixture.scene, 2, Math.sin(t * Math.PI * 2) * 1.8, 1.35, 0.2, 1);
+    const motion = Math.min(ordinal, MOTION_STOP_ORDINAL - 1) /
+      Math.max(1, MOTION_STOP_ORDINAL - 1);
+    patchTransforms(renderer, fixture.scene, [
+      [2, Math.sin(motion * Math.PI * 2) * 1.8, 1.35, 0.2, 1],
+      ...(ordinal === 0 ? [[3, 0, -1.35, 0.1, 1] as const] : [])
+    ]);
   }
   if (stage.kind === "disocclusion") {
-    patchTransform(renderer, fixture.scene, 2, ordinal < 8 ? 0 : 8, 1.35, 0.2, 1);
+    patchTransforms(renderer, fixture.scene, [
+      [2, ordinal < DISOCCLUSION_ORDINAL ? 0 : 8, 1.35, 0.2, 1],
+      ...(ordinal === 0 ? [[3, 0, -1.35, 0.1, 1] as const] : [])
+    ]);
   }
   if (stage.kind === "transparent-motion") {
-    patchTransform(renderer, fixture.scene, 3, Math.sin(t * Math.PI * 2) * 1.8, -1.35, 0.1, 1);
+    const motion = Math.min(ordinal, MOTION_STOP_ORDINAL - 1) /
+      Math.max(1, MOTION_STOP_ORDINAL - 1);
+    patchTransforms(renderer, fixture.scene, [
+      [3, Math.sin(motion * Math.PI * 2) * 1.8, -1.35, 0.1, 1],
+      ...(ordinal === 0 ? [[2, 0, 1.35, 0.2, 1] as const] : [])
+    ]);
   }
   if (stage.kind === "lod-transition") {
     const scale = 0.08 + (0.5 + 0.5 * Math.sin(t * Math.PI * 2)) * 5.92;
-    patchTransform(renderer, fixture.scene, 2, 0, 1.35, 0.2, scale);
+    patchTransforms(renderer, fixture.scene, [
+      [2, 0, 1.35, 0.2, scale],
+      ...(ordinal === 0 ? [[3, 0, -1.35, 0.1, 1] as const] : [])
+    ]);
   }
+  if (stage.kind === "static-no-history") renderer.indicate_view_change();
   camera.update();
+}
+
+function resetFixtureTransforms(
+  renderer: Renderer,
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  sourceIndices: readonly number[]
+): void {
+  const indices = Uint32Array.from(sourceIndices);
+  const transforms = new Float32Array(indices.length * 16);
+  for (let targetIndex = 0; targetIndex < sourceIndices.length; targetIndex++) {
+    const sourceIndex = sourceIndices[targetIndex]!;
+    transforms.set(
+      fixture.baseTransforms.subarray(sourceIndex * 16, (sourceIndex + 1) * 16),
+      targetIndex * 16
+    );
+  }
+  renderer.queuePackedScenePatch(fixture.scene, {
+    frameId: renderer.frame_count + 1,
+    transforms: { indices, transforms }
+  });
 }
 
 function patchTransform(
@@ -432,11 +581,24 @@ function patchTransform(
   z: number,
   scale: number
 ): void {
-  const transform = new Float32Array(16);
-  writeTransform(transform, 0, x, y, z, scale);
+  patchTransforms(renderer, scene, [[index, x, y, z, scale]]);
+}
+
+function patchTransforms(
+  renderer: Renderer,
+  scene: Scene,
+  updates: readonly (readonly [number, number, number, number, number])[]
+): void {
+  const indices = new Uint32Array(updates.length);
+  const transforms = new Float32Array(updates.length * 16);
+  for (let updateIndex = 0; updateIndex < updates.length; updateIndex++) {
+    const [index, x, y, z, scale] = updates[updateIndex]!;
+    indices[updateIndex] = index;
+    writeTransform(transforms, updateIndex * 16, x, y, z, scale);
+  }
   renderer.queuePackedScenePatch(scene, {
     frameId: renderer.frame_count + 1,
-    transforms: { indices: Uint32Array.of(index), transforms: transform }
+    transforms: { indices, transforms }
   });
 }
 
@@ -445,7 +607,7 @@ function summarizeStage(
   frameBegin: number,
   frameEnd: number,
   frames: readonly FrameProfileSnapshot[],
-  firstHistoryValid: number,
+  stageFrames: readonly FrameProfileSnapshot[],
   renderer: Renderer
 ): StageResult {
   const sampled = frames.filter(
@@ -466,12 +628,20 @@ function summarizeStage(
   const internalPixels = median(
     frames.map((frame) => frame.counters["temporal.internalPixels"] ?? 0)
   );
+  const firstHistoryValid = stageFrames[0]?.counters["temporal.historyValid"] ?? -1;
+  const historySettlingIndex = stageFrames.findIndex(
+    (frame) => frame.counters["temporal.historyValid"] === 1
+  );
+  const finalEvidence = renderer.temporalEvidence();
+  const temporalGpuP50Ms = percentile(temporalGpu, 0.5);
+  const outputMp = finalEvidence.outputPixels / 1_000_000;
+  const internalMp = finalEvidence.internalPixels / 1_000_000;
   return {
     definition,
     frameBegin,
     frameEnd,
     firstHistoryValid,
-    finalEvidence: renderer.temporalEvidence(),
+    finalEvidence,
     sampledCounterFrames: sampled.length,
     reactivePixelsMedian: counter("temporalReactivePixels"),
     disoccludedPixelsMedian: counter("temporalDisoccludedPixels"),
@@ -480,8 +650,19 @@ function summarizeStage(
       ? 0
       : Math.max(0, internalPixels - rejected),
     historyRejectPercentMedian: internalPixels > 0 ? rejected / internalPixels * 100 : 0,
-    temporalGpuP50Ms: percentile(temporalGpu, 0.5),
+    temporalGpuP50Ms,
     temporalGpuP95Ms: percentile(temporalGpu, 0.95),
+    temporalGpuP99Ms: percentile(temporalGpu, 0.99),
+    temporalGpuP50MsPerOutputMp: temporalGpuP50Ms === null || outputMp <= 0
+      ? null
+      : temporalGpuP50Ms / outputMp,
+    temporalGpuP50MsPerInternalMp: temporalGpuP50Ms === null || internalMp <= 0
+      ? null
+      : temporalGpuP50Ms / internalMp,
+    internalPixels: finalEvidence.internalPixels,
+    outputPixels: finalEvidence.outputPixels,
+    historyBytes: finalEvidence.historyBytes,
+    historySettlingFrames: historySettlingIndex < 0 ? null : historySettlingIndex,
     maxSubmits: maximum(frames.map((frame) => frame.submits.count)),
     maxReadbackBytes: maximum(frames.map((frame) => frame.readbacks.bytes)),
     maxReadbacks: maximum(frames.map((frame) => frame.readbacks.count)),
@@ -539,6 +720,9 @@ function validate(stages: readonly StageResult[], renderer: Renderer): string[] 
   }
   const transparent = stages.find((stage) => stage.definition.id === "transparent-motion");
   if ((transparent?.reactivePixelsMedian ?? 0) <= 0) issues.push("transparent reactive coverage is empty");
+  if ((transparent?.selectedClustersMin ?? 0) < 3) {
+    issues.push("transparent sequence inherited a missing opaque fixture instance");
+  }
   const lod = stages.find((stage) => stage.definition.id === "lod-transition");
   if (
     lod === undefined ||
@@ -550,6 +734,21 @@ function validate(stages: readonly StageResult[], renderer: Renderer): string[] 
     if (stage === undefined) issues.push(`missing C-resolution scale ${scale}`);
     else if (Math.abs(stage.finalEvidence.internalScale - scale) > 1e-6) {
       issues.push(`${id}: internal scale mismatch`);
+    } else if (
+      stage.temporalGpuP50MsPerOutputMp === null ||
+      stage.temporalGpuP50MsPerInternalMp === null
+    ) {
+      issues.push(`${id}: normalized temporal timing is missing`);
+    }
+  }
+  for (const [id, scale] of [
+    ["resolution-1", 1],
+    ["resolution-067", 0.67],
+    ["resolution-return-1", 1]
+  ] as const) {
+    const stage = stages.find((entry) => entry.definition.id === id);
+    if (stage === undefined || Math.abs(stage.finalEvidence.internalScale - scale) > 1e-6) {
+      issues.push(`render-scale transition is missing ${id}`);
     }
   }
   const native = stages.find((stage) => stage.definition.id === "resolution-1");
