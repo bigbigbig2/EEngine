@@ -422,7 +422,7 @@ fn packed_transparent_forward(
       direct_material, direct_geometry, input.position.xy,
       get_view_space_depth(input.position.z, camera)
     );
-    color = direct + diffuse + specular + emissive;
+    color = direct + diffuse + specular;
   }
   let depth = clamp(1.0 - input.position.z, 0.0, 1.0);
   let transmittance = resolve_power_moments_4(

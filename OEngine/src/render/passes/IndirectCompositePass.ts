@@ -23,6 +23,18 @@ const INDIRECT_COMPOSITE_GROUP0: GPUBindGroupLayoutDescriptor = {
     { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+    { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+    { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } }
+  ]
+};
+
+const INDIRECT_COMPOSITE_LEGACY_GROUP0: GPUBindGroupLayoutDescriptor = {
+  label: "Renderer/TB/legacy-group0-layout",
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
+    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
+    { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+    { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } }
   ]
 };
@@ -43,6 +55,16 @@ const INDIRECT_COMPOSITE_MODULE: GPUShaderModuleDescriptor = {
   code: INDIRECT_COMPOSITE_WGSL
 };
 
+const INDIRECT_COMPOSITE_TARGETS: readonly GPUColorTargetState[] = [
+  {
+    format: INDIRECT_COMPOSITE_FORMAT,
+    blend: {
+      color: { operation: "add", srcFactor: "one", dstFactor: "one" },
+      alpha: { operation: "add", srcFactor: "zero", dstFactor: "one" }
+    }
+  }
+];
+
 const INDIRECT_COMPOSITE_PIPELINE: CachedRenderPipelineDescriptor = {
   label: "Renderer/Indirect composite TB",
   layout: {
@@ -53,21 +75,27 @@ const INDIRECT_COMPOSITE_PIPELINE: CachedRenderPipelineDescriptor = {
   fragment: {
     module: INDIRECT_COMPOSITE_MODULE,
     entryPoint: "fs_main",
-    targets: [
-      {
-        format: INDIRECT_COMPOSITE_FORMAT,
-        blend: {
-          color: { operation: "add", srcFactor: "one", dstFactor: "one" },
-          alpha: { operation: "add", srcFactor: "zero", dstFactor: "one" }
-        }
-      }
-    ]
+    targets: INDIRECT_COMPOSITE_TARGETS
   },
   primitive: { topology: "triangle-list", cullMode: "none" },
   depthStencil: {
     format: "depth32float",
     depthWriteEnabled: false,
     depthCompare: "not-equal"
+  }
+};
+
+const INDIRECT_COMPOSITE_LEGACY_PIPELINE: CachedRenderPipelineDescriptor = {
+  ...INDIRECT_COMPOSITE_PIPELINE,
+  label: "Renderer/Indirect composite TB legacy",
+  layout: {
+    label: "Renderer/TB/legacy-pipeline-layout",
+    bindGroupLayouts: [INDIRECT_COMPOSITE_LEGACY_GROUP0, INDIRECT_COMPOSITE_GROUP1]
+  },
+  fragment: {
+    module: INDIRECT_COMPOSITE_MODULE,
+    entryPoint: "fs_main_legacy",
+    targets: INDIRECT_COMPOSITE_TARGETS
   }
 };
 
@@ -82,6 +110,8 @@ export type IndirectCompositeInputs = {
   indirectDiffuse: ResourceId;
   indirectSpecular: ResourceId;
   camera: ResourceId;
+  /** Packed Surface v1 metadata. Legacy Material Expand has no equivalent attachment. */
+  metadata?: ResourceId;
 };
 
 export type IndirectCompositeOutput = {
@@ -89,14 +119,18 @@ export type IndirectCompositeOutput = {
 };
 
 export class IndirectCompositePass {
-  private pipeline: GPURenderPipeline | null = null;
+  private surfacePipeline: GPURenderPipeline | null = null;
+  private legacyPipeline: GPURenderPipeline | null = null;
   lastRan = false;
 
   constructor(private readonly graphics: GraphicsContext) {}
 
   init(): void {
-    this.pipeline ??= this.graphics.render_pipelines.obtain(
+    this.surfacePipeline ??= this.graphics.render_pipelines.obtain(
       INDIRECT_COMPOSITE_PIPELINE
+    );
+    this.legacyPipeline ??= this.graphics.render_pipelines.obtain(
+      INDIRECT_COMPOSITE_LEGACY_PIPELINE
     );
   }
 
@@ -111,7 +145,11 @@ export class IndirectCompositePass {
       inputs,
       (data, resources, context) => {
         const encoder = context.gpu_encoder;
-        const pipeline = this.pipeline;
+        const surfaceAware = data.metadata !== undefined;
+        const pipeline = surfaceAware ? this.surfacePipeline : this.legacyPipeline;
+        const descriptor = surfaceAware
+          ? INDIRECT_COMPOSITE_PIPELINE
+          : INDIRECT_COMPOSITE_LEGACY_PIPELINE;
         if (!encoder) throw new Error("IndirectCompositePass: no encoder");
         if (!pipeline) throw new Error("IndirectCompositePass not initialized");
 
@@ -132,14 +170,17 @@ export class IndirectCompositePass {
         pass.setPipeline(pipeline);
         this.graphics.setPipelineBindings(
           pass,
-          INDIRECT_COMPOSITE_PIPELINE,
+          descriptor,
           [
             [
               texture(resources.get(data.normal)),
               texture(resources.get(data.bentNormal)),
               texture(resources.get(data.albedoAo)),
               texture(resources.get(data.pbr)),
-              texture(resources.get(data.depth))
+              texture(resources.get(data.depth)),
+              ...(data.metadata === undefined
+                ? []
+                : [texture(resources.get(data.metadata))])
             ],
             [
               { buffer: buffer(resources.get(data.camera)) },
@@ -164,7 +205,8 @@ export class IndirectCompositePass {
   }
 
   destroy(): void {
-    this.pipeline = null;
+    this.surfacePipeline = null;
+    this.legacyPipeline = null;
   }
 }
 

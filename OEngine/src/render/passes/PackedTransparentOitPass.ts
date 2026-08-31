@@ -219,6 +219,7 @@ export class PackedTransparentOitPass {
   private readonly samplers: readonly GPUSampler[];
   private readonly evidenceLayout: GPUBindGroupLayout;
   private readonly evidencePipeline: GPUComputePipeline;
+  private retired = false;
 
   constructor(private readonly graphics: GraphicsContext) {
     this.generator = new HierarchicalWorkGenerator(graphics.device);
@@ -249,6 +250,7 @@ export class PackedTransparentOitPass {
     job: PackedTransparentOitJob,
     inputs: PackedTransparentOitInputs
   ): PackedTransparentOitOutputs {
+    if (this.retired) throw new Error("FX-05 transparent owner is retired");
     this.lastMomentPasses = 1;
     this.lastForwardPasses = 1;
     this.lastCompositePasses = 1;
@@ -419,6 +421,7 @@ export class PackedTransparentOitPass {
   }
 
   release(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {
+    if (this.retired) return;
     this.generated.delete(runtime);
     const entry = this.prepared.get(runtime);
     if (entry === undefined) return;
@@ -426,7 +429,18 @@ export class PackedTransparentOitPass {
     command.destroyAfterGpuDone({ destroy: () => this.generator.release(entry.prepared) });
   }
 
+  /** Detaches all cached hierarchy work now and retires its GPU owner after completion. */
+  retire(command: ShadeGPUCommandContext): void {
+    if (this.retired) return;
+    this.retired = true;
+    this.generated.clear();
+    this.prepared.clear();
+    command.destroyAfterGpuDone({ destroy: () => this.generator.destroy() });
+  }
+
   destroy(): void {
+    if (this.retired) return;
+    this.retired = true;
     this.generated.clear();
     this.prepared.clear();
     this.generator.destroy();

@@ -10,12 +10,14 @@ import {
   buildBoxSourceGeometry,
   captureWebGpuLimits,
   cookGeometryAssetPackage,
+  createSourceGeometry,
   createEnvironmentManifest,
   createGeometryCookRecipe,
   type BenchmarkResult,
   type GpuCounterFieldName
 } from "../../OEngine/src/index.ts";
 import { ShadeTransparencyMode } from "../../OEngine/src/material/enums.ts";
+import { sortedAlphaComposite } from "../../OEngine/src/render/MomentOitReference.ts";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -27,6 +29,7 @@ interface CaseConfig {
   layers: 1 | 4 | 8 | 16;
   materials: 1 | 8 | 64;
   order: "forward" | "reverse";
+  mode: "standard" | "order-probe" | "emissive-probe";
 }
 
 declare global {
@@ -123,7 +126,9 @@ async function run(): Promise<void> {
       settle: () => renderer.device.queue.onSubmittedWorkDone(),
       gpuWaitTimeoutMs: 20_000
     });
-    const statistics = summarize(benchmark, renderer, config);
+    const hdrNumeric = await captureHdrNumeric(renderer, fixture.scene, camera, config);
+    const statistics = { ...summarize(benchmark, renderer, config), hdrNumeric,
+      fixtureContract: fixture.contract };
     const issues = validate(benchmark, statistics, config);
     const result = {
       completed: true,
@@ -166,15 +171,32 @@ async function run(): Promise<void> {
 }
 
 async function createFixture(renderer: Renderer, config: CaseConfig) {
-  const materialSweep = config.materials > config.layers;
-  const count = config.coverage === 0 ? 1 : materialSweep ? config.materials : config.layers;
-  const extent = config.coverage === 10 ? 1.8 : config.coverage === 50 ? 4.0 : 0.5;
+  const materialSweep = config.mode === "standard" && config.materials > config.layers;
+  const count = config.mode === "order-probe"
+    ? 4
+    : config.mode === "emissive-probe"
+      ? 1
+      : config.coverage === 0 ? 1 : materialSweep ? config.materials : config.layers;
+  const extent = config.mode === "order-probe"
+    ? 2.2
+    : config.mode === "emissive-probe"
+      ? 1.8
+      : config.coverage === 10 ? 1.8 : config.coverage === 50 ? 4.0 : 0.5;
   const grid = materialSweep ? Math.ceil(Math.sqrt(count)) : 1;
   const elementExtent = materialSweep ? extent / grid * 0.88 : extent;
-  const source = buildBoxSourceGeometry(elementExtent, elementExtent, 0.025);
+  // The order oracle needs one fragment layer per logical record. A thin box
+  // contributes both its front and back faces, producing an ill-conditioned
+  // eight-fragment moment set that is not the four-layer contract below.
+  const source = config.mode === "order-probe"
+    ? buildOrderProbePlaneSourceGeometry(elementExtent)
+    : buildBoxSourceGeometry(elementExtent, elementExtent, 0.025);
   const geometry = (await cookGeometryAssetPackage(source, createGeometryCookRecipe())).asset;
-  const materials = Array.from({ length: config.coverage === 0 ? 1 : config.materials },
-    (_, index) => material(index, config.coverage > 0));
+  const materials = config.mode === "order-probe"
+    ? Array.from({ length: 4 }, (_, index) => orderProbeMaterial(index))
+    : config.mode === "emissive-probe"
+      ? [emissiveProbeMaterial()]
+      : Array.from({ length: config.coverage === 0 ? 1 : config.materials },
+          (_, index) => material(index, config.coverage > 0));
   const geometryIndices = new Uint32Array(count);
   const materialIndices = new Uint32Array(count);
   const currentTransforms = new Float32Array(count * 16);
@@ -183,6 +205,8 @@ async function createFixture(renderer: Renderer, config: CaseConfig) {
   const boundsMax = new Float32Array(count * 3);
   const order = Array.from({ length: count }, (_, index) => index);
   if (config.order === "reverse") order.reverse();
+  const records: { record: number; logicalLayer: number; materialIndex: number;
+    x: number; y: number; z: number }[] = [];
   for (let outputIndex = 0; outputIndex < count; outputIndex++) {
     const sourceIndex = order[outputIndex]!;
     materialIndices[outputIndex] = sourceIndex % materials.length;
@@ -195,13 +219,18 @@ async function createFixture(renderer: Renderer, config: CaseConfig) {
       ? ((grid - 1) * 0.5 - gridY) * (extent / grid)
       : 0;
     const z = materialSweep ? 0 : (sourceIndex - (count - 1) * 0.5) * 0.07;
+    records.push({ record: outputIndex, logicalLayer: sourceIndex,
+      materialIndex: materialIndices[outputIndex]!, x, y, z });
     setTranslation(currentTransforms, outputIndex * 16, x, y, z);
     boundsSpheres.set(source.bounds.sphere, outputIndex * 4);
     boundsMin.set(source.bounds.box.subarray(0, 3), outputIndex * 3);
     boundsMax.set(source.bounds.box.subarray(3, 6), outputIndex * 3);
   }
   const scene = new Scene();
-  scene.lights.environment = environmentTexture();
+  scene.lights.environment = config.mode === "emissive-probe" ||
+    config.mode === "order-probe"
+    ? blackEnvironmentTexture()
+    : environmentTexture();
   await renderer.uploadPackedScene(scene, {
     geometries: [geometry],
     materials,
@@ -216,7 +245,15 @@ async function createFixture(renderer: Renderer, config: CaseConfig) {
     flags: new Uint32Array(count),
     debugIds: Uint32Array.from({ length: count }, (_, index) => index + 1)
   });
-  return { scene };
+  return {
+    scene,
+    contract: {
+      mode: config.mode,
+      sameXyFootprint: records.every((record) => record.x === 0 && record.y === 0),
+      distinctDepthCount: new Set(records.map((record) => record.z)).size,
+      records
+    }
+  };
 }
 
 function material(index: number, transparent: boolean): StandardShadeMaterial {
@@ -234,6 +271,67 @@ function material(index: number, transparent: boolean): StandardShadeMaterial {
     ? ShadeTransparencyMode.Transparent
     : ShadeTransparencyMode.Opaque;
   return value;
+}
+
+function orderProbeMaterial(index: number): StandardShadeMaterial {
+  const colors = [
+    [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 0.8, 0]
+  ] as const;
+  const alphas = [0.25, 0.4, 0.55, 0.7] as const;
+  const value = new StandardShadeMaterial();
+  const color = colors[index]!;
+  value.diffuse_color.set(color[0], color[1], color[2], alphas[index]!);
+  value.roughness_factor = 0.5;
+  value.metallic_factor = 0;
+  value.emissive_factor.setRGB(0, 0, 0);
+  value.is_unlit = true;
+  value.transparency_mode = ShadeTransparencyMode.Transparent;
+  return value;
+}
+
+function emissiveProbeMaterial(): StandardShadeMaterial {
+  const value = new StandardShadeMaterial();
+  value.diffuse_color.set(0, 0, 0, 0.5);
+  value.roughness_factor = 0.5;
+  value.metallic_factor = 0;
+  value.emissive_factor.setRGB(1, 0.25, 0);
+  value.transparency_mode = ShadeTransparencyMode.Transparent;
+  return value;
+}
+
+function buildOrderProbePlaneSourceGeometry(extent: number) {
+  const half = extent * 0.5;
+  return createSourceGeometry({
+    sourceId: `fx05-order-plane:${extent}`,
+    indices: [0, 1, 2, 0, 2, 3],
+    attributes: [
+      {
+        semantic: "position",
+        componentCount: 3,
+        data: new Float32Array([
+          -half, -half, 0,
+          half, -half, 0,
+          half, half, 0,
+          -half, half, 0
+        ])
+      },
+      {
+        semantic: "normal",
+        componentCount: 3,
+        data: new Float32Array([
+          0, 0, 1,
+          0, 0, 1,
+          0, 0, 1,
+          0, 0, 1
+        ])
+      },
+      {
+        semantic: "uv0",
+        componentCount: 2,
+        data: new Float32Array([0, 1, 1, 1, 1, 0, 0, 0])
+      }
+    ]
+  });
 }
 
 function summarize(result: BenchmarkResult, renderer: Renderer, config: CaseConfig) {
@@ -261,7 +359,10 @@ function summarize(result: BenchmarkResult, renderer: Renderer, config: CaseConf
 
 function validate(
   result: BenchmarkResult,
-  stats: ReturnType<typeof summarize>,
+  stats: ReturnType<typeof summarize> & {
+    hdrNumeric: Awaited<ReturnType<typeof captureHdrNumeric>>;
+    fixtureContract: { mode: string; sameXyFootprint: boolean; distinctDepthCount: number };
+  },
   config: CaseConfig
 ): string[] {
   const issues: string[] = [];
@@ -286,6 +387,37 @@ function validate(
   if (stats.pass?.motionContract !== "reactive-all-velocity-invalid-v1") issues.push("reactive/velocity contract changed");
   if (stats.momentGpuP50Ms === null || stats.forwardGpuP50Ms === null ||
     stats.compositeGpuP50Ms === null) issues.push("per-stage GPU timestamps are missing");
+  if (config.mode === "order-probe") {
+    if (!stats.fixtureContract.sameXyFootprint || stats.fixtureContract.distinctDepthCount !== 4) {
+      issues.push("order probe is not four truly overlapping world-space layers");
+    }
+    if (stats.hdrNumeric === null || !stats.hdrNumeric.finite) {
+      issues.push("order probe Linear HDR ROI is missing or non-finite");
+    } else {
+      const reference = stats.hdrNumeric.sortedAlphaReference!;
+      // Four-moment OIT is approximate. This predeclared quality bound is wide
+      // enough for moment reconstruction but rejects missing/wildly wrong layers.
+      if (maxRgbError(stats.hdrNumeric.meanRgb, reference) > 0.2) {
+        issues.push("MBOIT RGB exceeds the frozen sorted-alpha quality bound 0.2");
+      }
+      if (Math.abs(stats.hdrNumeric.meanAlpha - (1 - reference[3])) > 0.12) {
+        issues.push("MBOIT transmittance exceeds the frozen sorted-alpha bound 0.12");
+      }
+    }
+  }
+  if (config.mode === "emissive-probe") {
+    if (stats.hdrNumeric === null || !stats.hdrNumeric.finite) {
+      issues.push("emissive Linear HDR ROI is missing or non-finite");
+    } else {
+      const expected = [0.5, 0.125, 0] as const;
+      const doubled = [1, 0.25, 0] as const;
+      const expectedError = maxRgbError(stats.hdrNumeric.meanRgb, expected);
+      const doubledError = maxRgbError(stats.hdrNumeric.meanRgb, doubled);
+      if (expectedError > 0.04 || expectedError >= doubledError) {
+        issues.push(`transparent emissive is not exactly-once: error=${expectedError}`);
+      }
+    }
+  }
   return issues;
 }
 
@@ -302,7 +434,12 @@ function readConfig(): CaseConfig {
   const layers = numberChoice(params.get("layers"), [1, 4, 8, 16] as const, 4);
   const materials = numberChoice(params.get("materials"), [1, 8, 64] as const, 1);
   const order = params.get("order") === "reverse" ? "reverse" : "forward";
-  return { coverage, layers, materials, order };
+  const mode = params.get("mode") === "order-probe"
+    ? "order-probe"
+    : params.get("mode") === "emissive-probe"
+      ? "emissive-probe"
+      : "standard";
+  return { coverage, layers, materials, order, mode };
 }
 
 function numberChoice<T extends number>(value: string | null, choices: readonly T[], fallback: T): T {
@@ -311,7 +448,7 @@ function numberChoice<T extends number>(value: string | null, choices: readonly 
 }
 
 function caseId(config: CaseConfig): string {
-  return `FX-05-C-transparent-c${config.coverage}-l${config.layers}-m${config.materials}-${config.order}`;
+  return `FX-05-${config.mode}-c${config.coverage}-l${config.layers}-m${config.materials}-${config.order}`;
 }
 
 function configureRenderer(renderer: Renderer): void {
@@ -325,6 +462,50 @@ function configureRenderer(renderer: Renderer): void {
   renderer.feature_sharpening_enabled = false;
 }
 
+async function captureHdrNumeric(
+  renderer: Renderer,
+  scene: Scene,
+  camera: PerspectiveCamera,
+  config: CaseConfig
+) {
+  if (config.mode === "standard") return null;
+  const region = { x: 472, y: 352, width: 16, height: 16 } as const;
+  const pending = renderer.requestLinearHdrCapture(region);
+  if (!renderer.render(camera, scene, 1 / 60)) throw new Error("GPU device lost");
+  const capture = await pending;
+  const rgb = new Array<number>(capture.width * capture.height * 3);
+  const sum = [0, 0, 0, 0];
+  let finite = true;
+  for (let pixel = 0; pixel < capture.width * capture.height; pixel++) {
+    for (let channel = 0; channel < 3; channel++) {
+      const value = capture.rgba[pixel * 4 + channel]!;
+      finite &&= Number.isFinite(value);
+      rgb[pixel * 3 + channel] = value;
+      sum[channel]! += value;
+    }
+    const alpha = capture.rgba[pixel * 4 + 3]!;
+    finite &&= Number.isFinite(alpha);
+    sum[3]! += alpha;
+  }
+  const pixelCount = capture.width * capture.height;
+  return {
+    source: "production scene-linear rgba16float after transparent composite",
+    region,
+    finite,
+    meanRgb: sum.slice(0, 3).map((value) => value / pixelCount),
+    meanAlpha: sum[3]! / pixelCount,
+    rgb,
+    sortedAlphaReference: config.mode === "order-probe"
+      ? sortedAlphaComposite([
+          { depth: 0, opacity: 0.25, color: [1, 0, 0] },
+          { depth: 1, opacity: 0.4, color: [0, 1, 0] },
+          { depth: 2, opacity: 0.55, color: [0, 0, 1] },
+          { depth: 3, opacity: 0.7, color: [1, 0.8, 0] }
+        ])
+      : null
+  };
+}
+
 function environmentTexture(): ShadeTexture {
   const image = ShadeImage.fromArrayBuffer(
     new Uint16Array([0x3266, 0x3466, 0x3666, 0x3c00]).buffer,
@@ -336,6 +517,27 @@ function environmentTexture(): ShadeTexture {
   );
   image.color_space = 2;
   return ShadeTexture.from(image);
+}
+
+function blackEnvironmentTexture(): ShadeTexture {
+  const image = ShadeImage.fromArrayBuffer(
+    new Uint16Array([0, 0, 0, 0x3c00]).buffer,
+    4,
+    ShadeDataType.Float16,
+    1,
+    1,
+    1
+  );
+  image.color_space = 2;
+  return ShadeTexture.from(image);
+}
+
+function maxRgbError(actual: readonly number[], expected: readonly number[]): number {
+  return Math.max(
+    Math.abs(actual[0]! - expected[0]!),
+    Math.abs(actual[1]! - expected[1]!),
+    Math.abs(actual[2]! - expected[2]!)
+  );
 }
 
 function setTranslation(target: Float32Array, offset: number, x: number, y: number, z: number): void {

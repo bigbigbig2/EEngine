@@ -5,6 +5,7 @@ import {
   captureWebGpuLimits,
   createEnvironmentManifest,
   type BenchmarkResult,
+  type FrameProfileSnapshot,
   type GpuCounterFieldName
 } from "../../OEngine/src/index.ts";
 import { createBenchmarkSceneFixture } from "../benchmark-shared/BenchmarkScenes.ts";
@@ -107,6 +108,42 @@ async function run(): Promise<void> {
     const statistics = summarize(benchmark);
     const shadowContext = renderer.scenes.obtain(fixture.scene).lights.shadow_context;
     const featureOn = shadowEvidence(shadowContext);
+    renderer.profiler.configure({
+      enabled: true,
+      gpuSampleInterval: 1,
+      gpuCounterSampleInterval: 1,
+      readbackRingSlots: 3,
+      historyCapacity: 48
+    });
+    const patchedIndices = Uint32Array.from(
+      { length: fixture.runtimeCounts.instances },
+      (_, index) => index
+    );
+    renderer.queuePackedScenePatch(fixture.scene, {
+      frameId: renderer.frame_count + 1,
+      materials: {
+        indices: patchedIndices,
+        materialIndices: new Uint32Array(patchedIndices.length).fill(1)
+      }
+    });
+    const patchEvidencePending = waitForGpuCounterFrame(
+      renderer,
+      renderer.frame_count
+    );
+    if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
+    await renderer.device.queue.onSubmittedWorkDone();
+    const patchFrame = await patchEvidencePending;
+    const patchedCaster = {
+      patchedInstances: patchedIndices.length,
+      cascadeWork: [
+        patchFrame.gpuCounters.values.shadowCascade0RasterWork ?? 0,
+        patchFrame.gpuCounters.values.shadowCascade1RasterWork ?? 0,
+        patchFrame.gpuCounters.values.shadowCascade2RasterWork ?? 0
+      ],
+      overflowMask: patchFrame.gpuCounters.values.shadowQueueOverflowMask ?? 0,
+      mainSubmits: patchFrame.submits.count,
+      packedCascadeDraws: shadowContext.packed_cascade_draw_count
+    };
     renderer.feature_shadows_enabled = false;
     for (let index = 0; index < 3; index++) {
       if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
@@ -119,7 +156,7 @@ async function run(): Promise<void> {
     }
     await renderer.device.queue.onSubmittedWorkDone();
     const featureRestored = shadowEvidence(shadowContext);
-    const sequence = { featureOn, featureOff, featureRestored };
+    const sequence = { featureOn, patchedCaster, featureOff, featureRestored };
     const issues = validate(benchmark, statistics, sequence);
     const result: Fx04Result = {
       completed: true,
@@ -190,6 +227,14 @@ function validate(
   if (stats.shadowGpuP50Ms === null || stats.shadowGpuP95Ms === null) issues.push("shadow GPU timestamp phase is missing");
   if (sequence.featureOn.packedCascadeDraws !== 3) issues.push("feature-on did not issue exactly three cascade indirect draws");
   if (sequence.featureOn.atlasBytes <= 0 || sequence.featureOn.atlasBytes > 134_217_728) issues.push("feature-on atlas violates memory budget");
+  if (sequence.patchedCaster.cascadeWork.some((value: number) => value <= 0) ||
+    sequence.patchedCaster.packedCascadeDraws !== 3) {
+    issues.push("material-patched CastsShadow instances stopped producing ShadowRasterWork");
+  }
+  if (sequence.patchedCaster.overflowMask !== 0 ||
+    sequence.patchedCaster.mainSubmits !== 1) {
+    issues.push("material-patch shadow frame overflowed or changed the one-submit contract");
+  }
   if (sequence.featureOff.atlasBytes !== 0 || sequence.featureOff.packedCascadeDraws !== 0) issues.push("feature-off retained shadow GPU owner/work");
   if (sequence.featureRestored.packedCascadeDraws !== 3) issues.push("feature restore did not rebuild the packed cascade path");
   return issues;
@@ -205,6 +250,22 @@ function shadowEvidence(context: {
     packedCascadeDraws: context.packed_cascade_draw_count,
     atlasPixelsUpdated: context.packed_atlas_pixels_updated
   };
+}
+
+function waitForGpuCounterFrame(renderer: Renderer, minimumFrame: number) {
+  return new Promise<FrameProfileSnapshot>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      unsubscribe();
+      reject(new Error("Timed out waiting for material-patch shadow counters"));
+    }, 20_000);
+    const unsubscribe = renderer.profiler.subscribe((snapshot) => {
+      if (snapshot.frameIndex < minimumFrame || !snapshot.gpuCounters.sampled ||
+        snapshot.gpuCounters.pending || snapshot.gpuCounters.dropped) return;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(snapshot);
+    });
+  });
 }
 
 function configureRenderer(renderer: Renderer): void {

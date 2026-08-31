@@ -3,11 +3,13 @@
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 
 export const INDIRECT_COMPOSITE_FORMAT = "rgba16float" as const;
 
 export const INDIRECT_COMPOSITE_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
+${GPU_SURFACE_ABI_WGSL}
 
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
@@ -18,6 +20,7 @@ const MIN_DIELECTRICS_F0: f32 = 0.04;
 @group(0) @binding(2) var radix: texture_2d<f32>;
 @group(0) @binding(3) var channel_count: texture_2d<f32>;
 @group(0) @binding(4) var gr_bucket: texture_2d<f32>;
+@group(0) @binding(5) var surface_metadata: texture_2d<u32>;
 
 @group(1) @binding(0) var<uniform> camera: CommandEncoder;
 @group(1) @binding(1) var segment_height: sampler;
@@ -171,12 +174,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertexOutput {
   return output;
 }
 
-@fragment
-fn fs_main(
-  @builtin(position) coord: vec4f,
-  @location(0) uv: vec2f
-) -> @location(0) vec4f {
-  let pixel = vec2u(coord.xy);
+fn indirect_contribution(pixel: vec2u, uv: vec2f) -> vec4f {
   let depth = textureLoad(gr_bucket, vec2i(pixel), 0).r;
   let pbr = textureLoad(channel_count, vec2i(pixel), 0);
   let albedo_ao = textureLoad(radix, vec2i(pixel), 0);
@@ -216,5 +214,28 @@ fn fs_main(
     roughness
   );
   return vec4f(indirect[0] * specular_occlusion + indirect[1], 1.0);
+}
+
+@fragment
+fn fs_main(
+  @builtin(position) coord: vec4f,
+  @location(0) uv: vec2f
+) -> @location(0) vec4f {
+  let pixel = vec2u(coord.xy);
+  let metadata = textureLoad(surface_metadata, vec2i(pixel), 0).r;
+  if oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT) {
+    // Direct Lighting already placed the frozen Unlit baseColor in HDR.
+    // The additive indirect pass must contribute nothing and must not emit it again.
+    return vec4f(0.0);
+  }
+  return indirect_contribution(pixel, uv);
+}
+
+@fragment
+fn fs_main_legacy(
+  @builtin(position) coord: vec4f,
+  @location(0) uv: vec2f
+) -> @location(0) vec4f {
+  return indirect_contribution(vec2u(coord.xy), uv);
 }
 `;

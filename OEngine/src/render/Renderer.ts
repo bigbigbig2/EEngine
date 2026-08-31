@@ -120,6 +120,7 @@ import {
   resolveMainFrameFeatureTopology,
   type MainFrameFeatureTopology
 } from "./MainFrameFeatureTopology.js";
+import { halfToFloat } from "../loaders/float16.js";
 
 export {
   ShadeIndirectLightingMode
@@ -172,6 +173,25 @@ export type RendererInitializeOptions = {
   pixelRatio?: number;
 };
 
+export interface LinearHdrCaptureRegion {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface LinearHdrCaptureResult extends LinearHdrCaptureRegion {
+  readonly format: "rgba16float";
+  readonly rgba: Float32Array;
+}
+
+type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
+  readonly buffer: GPUBuffer;
+  readonly bytesPerRow: number;
+  readonly resolve: (result: LinearHdrCaptureResult) => void;
+  readonly reject: (error: unknown) => void;
+};
+
 type MainFrameGraphBindings = {
   readonly camera: PerspectiveCamera;
   readonly scene: Scene;
@@ -193,6 +213,7 @@ type MainFrameGraphBindings = {
   readonly taaHistoryValidity: number;
   readonly motionBlurStrength: number;
   readonly nssSettings: NssSettings | null;
+  readonly linearHdrCapture: PendingLinearHdrCapture | null;
 };
 
 const MAIN_GRAPH_CACHE_LIMIT = 16;
@@ -248,6 +269,8 @@ export class Renderer {
   private _indirectComposite!: IndirectCompositePass;
   private _transparentOit: TransparentOitPass | null = null;
   private _packedTransparentOit: PackedTransparentOitPass | null = null;
+  private _packedTransparencyOwnerGeneration = 0;
+  private _pendingLinearHdrCapture: PendingLinearHdrCapture | null = null;
   private _pathTracer: PathTracer | undefined;
   private _brick4Diffuse!: Brick4DiffusePass;
   private _brick4Specular!: Brick4SpecularPass;
@@ -499,6 +522,39 @@ export class Renderer {
     });
   }
 
+  /**
+   * Requests one scene-linear HDR capture from the next successful main frame.
+   * The copy is encoded into that frame's existing command submission; no
+   * capture node, buffer, readback or owner exists when this seam is unused.
+   */
+  requestLinearHdrCapture(
+    region: LinearHdrCaptureRegion
+  ): Promise<LinearHdrCaptureResult> {
+    if (this._pendingLinearHdrCapture !== null) {
+      throw new Error("A Linear HDR capture is already pending");
+    }
+    const validated = validateLinearHdrCaptureRegion(
+      region,
+      this._render_resolution.x,
+      this._render_resolution.y
+    );
+    const bytesPerRow = alignTo(validated.width * 8, 256);
+    const buffer = this.device.createBuffer({
+      label: "Renderer/one-shot linear HDR capture",
+      size: bytesPerRow * validated.height,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+    });
+    return new Promise<LinearHdrCaptureResult>((resolve, reject) => {
+      this._pendingLinearHdrCapture = {
+        ...validated,
+        buffer,
+        bytesPerRow,
+        resolve,
+        reject
+      };
+    });
+  }
+
   private async releasePackedAssetHandles(
     handles: readonly AssetHandle[]
   ): Promise<void> {
@@ -683,6 +739,12 @@ export class Renderer {
     window
       .matchMedia("(dynamic-range: high)")
       .removeEventListener("change", this._onDynamicRangeChange);
+    if (this._pendingLinearHdrCapture !== null) {
+      const pending = this._pendingLinearHdrCapture;
+      this._pendingLinearHdrCapture = null;
+      pending.buffer.destroy();
+      pending.reject(new Error("Renderer destroyed before Linear HDR capture"));
+    }
     this._transparentOit?.destroy();
     this._transparentOit = null;
     this._packedTransparentOit?.destroy();
@@ -781,6 +843,7 @@ export class Renderer {
     if (this._deviceLost) return false;
     this._profiler.beginFrame(this._frame_count);
     let activeFrame: FrameEncoding | null = null;
+    let frameLinearHdrCapture: PendingLinearHdrCapture | null = null;
     try {
     this._renderTargets.setFrameIndex(this._frame_count);
     this.applyPendingRenderResolutionChange();
@@ -788,6 +851,8 @@ export class Renderer {
       this.configureCanvas();
       this._canvasNeedsConfigure = false;
     }
+    frameLinearHdrCapture = this._pendingLinearHdrCapture;
+    this._pendingLinearHdrCapture = null;
     activeFrame = this._frameCoordinator.beginFrame(
       this._frame_count,
       MAIN_COMMAND_LABEL
@@ -941,15 +1006,22 @@ export class Renderer {
         taaJitter: [frameJitter[0], frameJitter[1]],
         taaHistoryValidity,
         motionBlurStrength: this.motion_blur_strength,
-        nssSettings
+        nssSettings,
+        linearHdrCapture: frameLinearHdrCapture
       };
       const graphTopology = this.resolveFeatureTopology(mainBindings);
+      this.reconcilePackedTransparencyOwner(
+        graphTopology.transparency,
+        mainBindings.gpuPacked,
+        cmd
+      );
       const graphKey = canonicalFrameGraphKey(this.createMainFrameGraphKey(
         mainBindings,
         graphTopology,
         sampleGpuTimestamps,
         sampleGpuCounters,
-        debugFrameIndex !== null
+        debugFrameIndex !== null,
+        frameLinearHdrCapture !== null
       ));
       const compiledGraph = this._mainGraphCache.getOrCreate(graphKey, () => {
         this._profiler.recordGraphBuild();
@@ -1679,7 +1751,8 @@ export class Renderer {
             splitSum: splitSumRes,
             indirectDiffuse: indirectDiffuseRes,
             indirectSpecular: indirectSpecularRes,
-            camera: currentCameraRes
+            camera: currentCameraRes,
+            metadata: packedResolveOut?.surfaceFlags
           }).hdr;
         }
 
@@ -1752,7 +1825,8 @@ export class Renderer {
               splitSum: splitSumRes,
               indirectDiffuse,
               indirectSpecular,
-              camera: currentCameraRes
+              camera: currentCameraRes,
+              metadata: packedResolveOut?.surfaceFlags
             }).hdr;
           }
         }
@@ -1908,7 +1982,8 @@ export class Renderer {
               splitSum: splitSumRes,
               indirectDiffuse: diffuse.indirectDiffuse,
               indirectSpecular: indirectSpecularRes,
-              camera: currentCameraRes
+              camera: currentCameraRes,
+              metadata: packedResolveOut?.surfaceFlags
             }).hdr;
         }
 
@@ -1923,8 +1998,11 @@ export class Renderer {
             splitSum.gpu_texture
           );
           if (packedPath) {
-            this._packedTransparentOit ??= new PackedTransparentOitPass(this._graphics);
-            const output = this._packedTransparentOit.addToGraph(
+            const packedTransparency = this._packedTransparentOit;
+            if (packedTransparency === null) {
+              throw new Error("Packed transparency topology has no active owner");
+            }
+            const output = packedTransparency.addToGraph(
               graph,
               bind("packed-transparent-oit-job", (bindings) => {
                 const registryBindings = this._graphics.packed_scenes.bindings();
@@ -2005,6 +2083,48 @@ export class Renderer {
               }
             );
           }
+        }
+
+        if (mainBindings.linearHdrCapture !== null && hdrRes !== null) {
+          const captureSource = hdrRes;
+          let captureBuffer = graph.import_resource(
+            "R5 one-shot linear HDR capture buffer",
+            { kind: "imported", label: "rgba16float capture readback" },
+            bind("linear-hdr-capture-buffer", (bindings) =>
+              bindings.linearHdrCapture!.buffer)
+          );
+          const captureBuilder = graph.add(
+            "R5 one-shot linear HDR capture",
+            bind("linear-hdr-capture-job", (bindings) =>
+              bindings.linearHdrCapture!),
+            (capture, resources, context) => {
+              const encoder = resolveGpuEncoder(context);
+              if (encoder === undefined) {
+                throw new Error("Linear HDR capture has no GPU encoder");
+              }
+              encoder.copyTextureToBuffer(
+                {
+                  texture: resolveGpuTexture(
+                    resources.get(captureSource),
+                    "Linear HDR capture source"
+                  ),
+                  origin: [capture.x, capture.y, 0]
+                },
+                {
+                  buffer: requireGpuBuffer(
+                    resources.get(captureBuffer),
+                    "Linear HDR capture buffer"
+                  ),
+                  bytesPerRow: capture.bytesPerRow,
+                  rowsPerImage: capture.height
+                },
+                [capture.width, capture.height, 1]
+              );
+            }
+          );
+          captureBuilder.read(captureSource);
+          captureBuffer = captureBuilder.write(captureBuffer);
+          captureBuilder.make_side_effect();
         }
 
         if (
@@ -2267,7 +2387,17 @@ export class Renderer {
         gpuScene.lights.environmentEvidence
       );
       this._profiler.encodeGpuCounterReadback(cmd);
+      if (frameLinearHdrCapture !== null) {
+        cmd.recordReadback(
+          "linear-hdr-capture",
+          frameLinearHdrCapture.buffer.size
+        );
+      }
       this._frameCoordinator.submitFrame(activeFrame);
+      if (frameLinearHdrCapture !== null) {
+        void settleLinearHdrCapture(frameLinearHdrCapture, cmd.gpuDone);
+        frameLinearHdrCapture = null;
+      }
       activeFrame = null;
     }
 
@@ -2277,6 +2407,11 @@ export class Renderer {
     } catch (error) {
       if (activeFrame !== null) {
         this._frameCoordinator.abortFrame(activeFrame, error);
+      }
+      if (frameLinearHdrCapture !== null) {
+        frameLinearHdrCapture.buffer.destroy();
+        frameLinearHdrCapture.reject(error);
+        frameLinearHdrCapture = null;
       }
       throw error;
     } finally {
@@ -2289,12 +2424,14 @@ export class Renderer {
     topology: MainFrameFeatureTopology,
     sampleGpuTimestamps: boolean,
     sampleGpuCounters: boolean,
-    debugFrame: boolean
+    debugFrame: boolean,
+    linearHdrCapture: boolean
   ): FrameGraphKey {
     const instrumentationMode = [
       sampleGpuTimestamps ? "timestamps" : "",
       sampleGpuCounters ? "counters" : "",
-      debugFrame ? "debug" : ""
+      debugFrame ? "debug" : "",
+      linearHdrCapture ? "linear-hdr-capture" : ""
     ].filter(Boolean).join("+") || "none";
 
     return {
@@ -2309,7 +2446,8 @@ export class Renderer {
       visibilityImplementation: bindings.gpuPacked === null
         ? "hardware-legacy-v1"
         : `hardware-packed-r4-visibility-key-v1-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
-          `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}`,
+          `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
+          `-transparent-owner${this._packedTransparencyOwnerGeneration}`,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
       instrumentationMode,
@@ -2344,12 +2482,27 @@ export class Renderer {
         ? false
         : bindings.gpuPacked === null
           ? hasLegacyTransparentMaterials(bindings.scene)
-          : bindings.gpuPacked.materials.some(
-              (material) =>
-                material.transparency_mode === ShadeTransparencyMode.Transparent
-            ),
+          : bindings.gpuPacked.transparentInstanceCount > 0,
       highDynamicRange: this._highDynamicRange
     });
+  }
+
+  private reconcilePackedTransparencyOwner(
+    enabled: boolean,
+    runtime: PackedSceneRuntime | null,
+    command: ShadeGPUCommandContext
+  ): void {
+    if (runtime !== null && enabled) {
+      if (this._packedTransparentOit === null) {
+        this._packedTransparentOit = new PackedTransparentOitPass(this._graphics);
+        this._packedTransparencyOwnerGeneration++;
+      }
+      return;
+    }
+    const previous = this._packedTransparentOit;
+    if (previous === null) return;
+    this._packedTransparentOit = null;
+    previous.retire(command);
   }
 
   private initializeRenderPasses(
@@ -2827,4 +2980,87 @@ function packedPreviousHzb(
 
 function clampInteger(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function validateLinearHdrCaptureRegion(
+  region: LinearHdrCaptureRegion,
+  renderWidth: number,
+  renderHeight: number
+): LinearHdrCaptureRegion {
+  for (const [name, value] of Object.entries(region)) {
+    if (!Number.isSafeInteger(value)) {
+      throw new RangeError(`Linear HDR capture ${name} must be an integer`);
+    }
+  }
+  if (region.x < 0 || region.y < 0 || region.width <= 0 || region.height <= 0) {
+    throw new RangeError("Linear HDR capture region must be positive and in bounds");
+  }
+  if (region.x + region.width > renderWidth || region.y + region.height > renderHeight) {
+    throw new RangeError(
+      `Linear HDR capture ${region.x},${region.y} ${region.width}x${region.height} ` +
+      `exceeds ${renderWidth}x${renderHeight}`
+    );
+  }
+  return Object.freeze({ ...region });
+}
+
+function alignTo(value: number, alignment: number): number {
+  return Math.ceil(value / alignment) * alignment;
+}
+
+function resolveGpuTexture(resource: unknown, label: string): GPUTexture {
+  if (resource && typeof resource === "object") {
+    if ("gpu_texture" in resource) {
+      return (resource as { gpu_texture: GPUTexture }).gpu_texture;
+    }
+    if ("createView" in resource &&
+      typeof (resource as GPUTexture).createView === "function") {
+      return resource as GPUTexture;
+    }
+  }
+  throw new Error(`${label} is not a GPUTexture`);
+}
+
+function requireGpuBuffer(resource: unknown, label: string): GPUBuffer {
+  if (resource && typeof resource === "object" && "mapAsync" in resource) {
+    return resource as GPUBuffer;
+  }
+  throw new Error(`${label} is not a GPUBuffer`);
+}
+
+async function settleLinearHdrCapture(
+  capture: PendingLinearHdrCapture,
+  gpuDone: Promise<void>
+): Promise<void> {
+  let mapped = false;
+  try {
+    await gpuDone;
+    await capture.buffer.mapAsync(GPUMapMode.READ);
+    mapped = true;
+    const source = new Uint16Array(capture.buffer.getMappedRange());
+    const sourceStride = capture.bytesPerRow / 2;
+    const output = new Float32Array(capture.width * capture.height * 4);
+    for (let y = 0; y < capture.height; y++) {
+      const sourceBegin = y * sourceStride;
+      const outputBegin = y * capture.width * 4;
+      for (let component = 0; component < capture.width * 4; component++) {
+        output[outputBegin + component] = halfToFloat(
+          source[sourceBegin + component]!
+        );
+      }
+    }
+    capture.resolve({
+      x: capture.x,
+      y: capture.y,
+      width: capture.width,
+      height: capture.height,
+      format: "rgba16float",
+      rgba: output
+    });
+  } catch (error) {
+    capture.reject(error);
+  } finally {
+    if (mapped) capture.buffer.unmap();
+    capture.buffer.destroy();
+  }
 }

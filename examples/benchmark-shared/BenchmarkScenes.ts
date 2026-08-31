@@ -48,7 +48,10 @@ export async function createBenchmarkSceneFixture(
   }
 }
 
-export function createFx03EnvironmentTexture(): ShadeTexture {
+export function createFx03EnvironmentTexture(radianceScale = 1): ShadeTexture {
+  if (!Number.isFinite(radianceScale) || radianceScale <= 0) {
+    throw new RangeError("FX-03 environment radianceScale must be positive");
+  }
   const size = 64;
   const sun = normalize3([0.35, 0.82, 0.45]);
   const halfFloatRgba = new Uint16Array(size * size * 4);
@@ -59,9 +62,9 @@ export function createFx03EnvironmentTexture(): ShadeTexture {
       const sunLobe = 18 * Math.pow(Math.max(0, dot3(direction, sun)), 512);
       const horizon = Math.pow(1 - Math.abs(direction[1]), 4);
       const offset = (y * size + x) * 4;
-      halfFloatRgba[offset] = floatToHalf(0.025 + 0.12 * up + 0.08 * horizon + sunLobe * 1.0);
-      halfFloatRgba[offset + 1] = floatToHalf(0.035 + 0.22 * up + 0.045 * horizon + sunLobe * 0.72);
-      halfFloatRgba[offset + 2] = floatToHalf(0.055 + 0.42 * up + 0.025 * horizon + sunLobe * 0.42);
+      halfFloatRgba[offset] = floatToHalf((0.025 + 0.12 * up + 0.08 * horizon + sunLobe * 1.0) * radianceScale);
+      halfFloatRgba[offset + 1] = floatToHalf((0.035 + 0.22 * up + 0.045 * horizon + sunLobe * 0.72) * radianceScale);
+      halfFloatRgba[offset + 2] = floatToHalf((0.055 + 0.42 * up + 0.025 * horizon + sunLobe * 0.42) * radianceScale);
       halfFloatRgba[offset + 3] = floatToHalf(1);
     }
   }

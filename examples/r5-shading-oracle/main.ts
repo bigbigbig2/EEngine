@@ -3,11 +3,19 @@ import {
   PerspectiveCamera,
   Renderer,
   RenderDebugView,
+  Scene,
+  StandardShadeMaterial,
+  buildBoxSourceGeometry,
   captureWebGpuLimits,
+  cookGeometryAssetPackage,
   createEnvironmentManifest,
+  createGeometryCookRecipe,
   type BenchmarkResult
 } from "../../OEngine/src/index.ts";
-import { createFx03ShadingOracleFixture } from "../benchmark-shared/BenchmarkScenes.ts";
+import {
+  createFx03EnvironmentTexture,
+  createFx03ShadingOracleFixture
+} from "../benchmark-shared/BenchmarkScenes.ts";
 import { ENVIRONMENT_PREFILTER_WGSL } from "../../OEngine/src/shaders/environment_prefilter.ts";
 import { floatToHalf, halfToFloat } from "../../OEngine/src/loaders/float16.ts";
 import { STATIC_GRAPHICS_ENGINE_ASSETS } from "../../OEngine/src/render/STATIC_GRAPHICS_ENGINE_ASSETS.ts";
@@ -116,9 +124,11 @@ async function run(): Promise<void> {
       gpuWaitTimeoutMs: 20_000
     });
     const numeric = await runIblGpuMicro(renderer.device);
+    const unlitIbl = await runUnlitIblProductionOracle(renderer);
     const statistics = summarize(benchmark);
     const issues = validate(benchmark, statistics);
     if (!numeric.passed) issues.push(...numeric.issues);
+    if (!unlitIbl.passed) issues.push(...unlitIbl.issues);
     const result: Fx03Result = {
       completed: true,
       passed: issues.length === 0,
@@ -133,7 +143,7 @@ async function run(): Promise<void> {
         captureViews: Object.keys(VIEWS)
       },
       statistics,
-      numeric,
+      numeric: { ...numeric, unlitIbl },
       result: benchmark
     };
     window.__OENGINE_FX_03_RESULT__ = result;
@@ -234,6 +244,90 @@ async function runIblGpuMicro(device: GPUDevice) {
   };
 }
 
+async function runUnlitIblProductionOracle(renderer: Renderer) {
+  const source = buildBoxSourceGeometry(0.9, 0.9, 0.08);
+  const geometry = (await cookGeometryAssetPackage(
+    source,
+    createGeometryCookRecipe()
+  )).asset;
+  const unlit = new StandardShadeMaterial();
+  unlit.diffuse_color.set(0.18, 0.42, 0.78, 1);
+  unlit.is_unlit = true;
+  const lit = new StandardShadeMaterial();
+  lit.diffuse_color.set(0.18, 0.42, 0.78, 1);
+  lit.roughness_factor = 0.32;
+  lit.metallic_factor = 0.15;
+  const transforms = new Float32Array(32);
+  setTranslation(transforms, 0, -0.62, 0, 0);
+  setTranslation(transforms, 16, 0.62, 0, 0);
+  const scene = new Scene();
+  scene.lights.environment = createFx03EnvironmentTexture(1);
+  await renderer.uploadPackedScene(scene, {
+    geometries: [geometry],
+    materials: [unlit, lit],
+    count: 2,
+    geometryIndices: new Uint32Array([0, 0]),
+    materialIndices: new Uint32Array([0, 1]),
+    currentTransforms: transforms,
+    previousTransforms: transforms.slice(),
+    boundsSpheres: new Float32Array([
+      ...source.bounds.sphere,
+      ...source.bounds.sphere
+    ]),
+    boundsMin: new Float32Array([
+      ...source.bounds.box.subarray(0, 3),
+      ...source.bounds.box.subarray(0, 3)
+    ]),
+    boundsMax: new Float32Array([
+      ...source.bounds.box.subarray(3, 6),
+      ...source.bounds.box.subarray(3, 6)
+    ]),
+    flags: new Uint32Array(2),
+    debugIds: new Uint32Array([1, 2])
+  });
+  const camera = new PerspectiveCamera();
+  camera.aspect = 4 / 3;
+  camera.near = 0.1;
+  camera.far = 100;
+  camera.transform.position.set(0, 0, 3);
+  camera.transform.lookAt({ x: 0, y: 0, z: 0 });
+  camera.update();
+  const captureRegion = { x: 250, y: 320, width: 460, height: 80 } as const;
+  const capture = async (radianceScale: number) => {
+    scene.lights.environment = createFx03EnvironmentTexture(radianceScale);
+    for (let index = 0; index < 4; index++) {
+      if (!renderer.render(camera, scene, 1 / 60)) throw new Error("GPU device lost");
+    }
+    const pending = renderer.requestLinearHdrCapture(captureRegion);
+    if (!renderer.render(camera, scene, 1 / 60)) throw new Error("GPU device lost");
+    return pending;
+  };
+  const a = await capture(1);
+  const b = await capture(10);
+  const unlitA = meanRgb(a.rgba, a.width, 51, 40, 6);
+  const unlitB = meanRgb(b.rgba, b.width, 51, 40, 6);
+  const litA = meanRgb(a.rgba, a.width, 409, 40, 6);
+  const litB = meanRgb(b.rgba, b.width, 409, 40, 6);
+  const unlitMaximumDelta = maximumRgbDelta(unlitA, unlitB);
+  const litMaximumDelta = maximumRgbDelta(litA, litB);
+  const issues: string[] = [];
+  if (unlitMaximumDelta > 0.002) {
+    issues.push(`Opaque Unlit changed under 10x IBL: ${unlitMaximumDelta}`);
+  }
+  if (litMaximumDelta < 0.05) {
+    issues.push(`Lit PBR control did not respond to 10x IBL: ${litMaximumDelta}`);
+  }
+  return {
+    passed: issues.length === 0,
+    issues,
+    source: "production scene-linear rgba16float capture after indirect composite",
+    environmentScales: [1, 10],
+    captureRegion,
+    unlit: { a: unlitA, b: unlitB, maximumDelta: unlitMaximumDelta, tolerance: 0.002 },
+    litControl: { a: litA, b: litB, maximumDelta: litMaximumDelta, minimumDelta: 0.05 }
+  };
+}
+
 function inspectSplitSumLut() {
   const image = STATIC_GRAPHICS_ENGINE_ASSETS.split_sum.image;
   if (image === undefined || !(image.source instanceof ArrayBuffer)) {
@@ -314,6 +408,54 @@ function configureRenderer(renderer: Renderer): void {
   renderer.feature_automatic_exposure_enabled = false;
   renderer.feature_motion_blur_enabled = false;
   renderer.feature_sharpening_enabled = false;
+}
+
+function setTranslation(
+  target: Float32Array,
+  offset: number,
+  x: number,
+  y: number,
+  z: number
+): void {
+  target[offset] = 1;
+  target[offset + 5] = 1;
+  target[offset + 10] = 1;
+  target[offset + 12] = x;
+  target[offset + 13] = y;
+  target[offset + 14] = z;
+  target[offset + 15] = 1;
+}
+
+function meanRgb(
+  rgba: Float32Array,
+  width: number,
+  centerX: number,
+  centerY: number,
+  radius: number
+): [number, number, number] {
+  const sum: [number, number, number] = [0, 0, 0];
+  let count = 0;
+  for (let y = centerY - radius; y <= centerY + radius; y++) {
+    for (let x = centerX - radius; x <= centerX + radius; x++) {
+      const offset = (y * width + x) * 4;
+      sum[0] += rgba[offset]!;
+      sum[1] += rgba[offset + 1]!;
+      sum[2] += rgba[offset + 2]!;
+      count++;
+    }
+  }
+  return [sum[0] / count, sum[1] / count, sum[2] / count];
+}
+
+function maximumRgbDelta(
+  left: readonly number[],
+  right: readonly number[]
+): number {
+  return Math.max(
+    Math.abs(left[0]! - right[0]!),
+    Math.abs(left[1]! - right[1]!),
+    Math.abs(left[2]! - right[2]!)
+  );
 }
 
 function required<T extends HTMLElement = HTMLElement>(id: string): T {

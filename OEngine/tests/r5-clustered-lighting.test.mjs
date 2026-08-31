@@ -122,7 +122,10 @@ test("FX-02 production shader uses bounded headers and explicit cluster fallback
   assert.doesNotMatch(source, /spot_count\s*>=\s*128u\)\s*\{\s*continue/);
   assert.match(pass, /if \(activeLocalLightCount === 0\) return;/);
   assert.match(pass, /active_list\.written == 0u/);
-  assert.match(pass, /if \(localLightCount === 0\)/);
+  assert.doesNotMatch(pass, /const localLightCount =\s*job\.lights/s);
+  assert.match(pass, /assertLightListCapacity\(\s*activeLocalLightCount/s);
+  assert.match(pass, /"LightCluster\/FX-02 stats",\s*job,\s*\(passJob/s);
+  assert.match(pass, /if \(activeLocalLightCount === 0\)/);
   assert.match(pass, /LightCluster\/zero-light-stats/);
 });
 

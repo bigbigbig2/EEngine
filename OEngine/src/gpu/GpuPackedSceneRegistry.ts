@@ -3,7 +3,10 @@ import { computeIndexedPackedHierarchyWorkCapacity } from "../geometry/GeometryH
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { ShadeDrawSide, ShadeTransparencyMode } from "../material/enums.js";
-import { GPU_INSTANCE_FLAGS } from "./GpuInstanceAbi.js";
+import {
+  GPU_INSTANCE_FLAGS,
+  GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK
+} from "./GpuInstanceAbi.js";
 import type { Scene } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { GpuMaterialVisibilityBindings } from "./GpuMaterialVisibilityTable.js";
@@ -72,6 +75,8 @@ export interface PackedSceneRuntime {
   readonly materialVisibility: GpuMaterialVisibilityBindings;
   readonly instanceBegin: number;
   readonly instanceCount: number;
+  /** Number of resident instances whose current material class is BLEND. */
+  readonly transparentInstanceCount: number;
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
   readonly hierarchyRasterWorkCapacity: number;
@@ -82,6 +87,11 @@ export interface PackedSceneRuntime {
 
 interface PendingPatch {
   readonly batch: PackedScenePatchBatch;
+}
+
+interface PackedSceneClassificationState {
+  readonly materialIndices: Uint32Array;
+  transparentInstanceCount: number;
 }
 
 const HANDLE_RUNTIME = new WeakMap<object, PackedSceneRuntime>();
@@ -95,6 +105,7 @@ export class GpuPackedSceneRegistry {
   private readonly byScene = new Map<Scene, PackedSceneRuntime>();
   private readonly pendingPatches = new Map<Scene, PendingPatch>();
   private readonly releasingScenes = new Set<Scene>();
+  private readonly classificationByScene = new Map<Scene, PackedSceneClassificationState>();
 
   constructor(private readonly graphics: GraphicsContext) {}
 
@@ -130,6 +141,13 @@ export class GpuPackedSceneRegistry {
         source.flags?.[index] ?? 0
       );
     }
+    const classification: PackedSceneClassificationState = {
+      materialIndices: source.materialIndices.slice(),
+      transparentInstanceCount: countTransparentInstances(
+        source.materialIndices,
+        source.materials
+      )
+    };
     const instanceSource: InstanceSource = {
       count: source.count,
       geometryHandles,
@@ -161,6 +179,9 @@ export class GpuPackedSceneRegistry {
       materialVisibility: materialStage.bindings,
       instanceBegin: range.start,
       instanceCount: range.count,
+      get transparentInstanceCount() {
+        return classification.transparentInstanceCount;
+      },
       hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,
       hierarchyVisibleClusterCapacity: hierarchyCapacity.visibleClusterCapacity,
       hierarchyRasterWorkCapacity: hierarchyCapacity.rasterWorkCapacity,
@@ -169,6 +190,7 @@ export class GpuPackedSceneRegistry {
     });
     command.onFinished.addOne(() => {
       this.byScene.set(scene, runtime);
+      this.classificationByScene.set(scene, classification);
       HANDLE_RUNTIME.set(handle as object, runtime);
     });
     command.onAborted.addOne(() => {
@@ -210,6 +232,7 @@ export class GpuPackedSceneRegistry {
     }
     command.onFinished.addOne(() => {
       this.byScene.delete(scene);
+      this.classificationByScene.delete(scene);
       HANDLE_RUNTIME.delete(runtime.handle as object);
       this.releasingScenes.delete(scene);
       const destroy = (): void => {
@@ -243,8 +266,16 @@ export class GpuPackedSceneRegistry {
       batch,
       command
     );
+    const rollbackClassification = applyMaterialClassificationPatch(
+      pending.batch.materials,
+      this.classificationByScene.get(scene)!,
+      runtime.materials
+    );
     this.pendingPatches.delete(scene);
-    command.onAborted.addOne(() => this.pendingPatches.set(scene, pending));
+    command.onAborted.addOne(() => {
+      rollbackClassification();
+      this.pendingPatches.set(scene, pending);
+    });
     return result;
   }
 
@@ -285,7 +316,58 @@ export class GpuPackedSceneRegistry {
     this.byScene.clear();
     this.pendingPatches.clear();
     this.releasingScenes.clear();
+    this.classificationByScene.clear();
   }
+}
+
+function countTransparentInstances(
+  materialIndices: ArrayLike<number>,
+  materials: readonly StandardShadeMaterial[]
+): number {
+  let count = 0;
+  for (let index = 0; index < materialIndices.length; index++) {
+    if (isTransparentMaterial(materials[materialIndices[index]!]!)) count++;
+  }
+  return count;
+}
+
+function applyMaterialClassificationPatch(
+  patch: PackedSceneMaterialPatch | undefined,
+  state: PackedSceneClassificationState,
+  materials: readonly StandardShadeMaterial[]
+): () => void {
+  if (patch === undefined) return () => {};
+  const previous = new Map<number, number>();
+  for (let index = 0; index < patch.indices.length; index++) {
+    const instanceIndex = patch.indices[index]!;
+    if (instanceIndex >= state.materialIndices.length) {
+      throw new RangeError(
+        `Packed Scene material patch indices[${index}] is outside the instance set`
+      );
+    }
+    const nextMaterialIndex = patch.materialIndices[index]!;
+    const previousMaterialIndex = state.materialIndices[instanceIndex]!;
+    if (!previous.has(instanceIndex)) previous.set(instanceIndex, previousMaterialIndex);
+    const wasTransparent = isTransparentMaterial(materials[previousMaterialIndex]!);
+    const isTransparent = isTransparentMaterial(materials[nextMaterialIndex]!);
+    if (wasTransparent !== isTransparent) {
+      state.transparentInstanceCount += isTransparent ? 1 : -1;
+    }
+    state.materialIndices[instanceIndex] = nextMaterialIndex;
+  }
+  return () => {
+    for (const [instanceIndex, materialIndex] of previous) {
+      state.materialIndices[instanceIndex] = materialIndex;
+    }
+    state.transparentInstanceCount = countTransparentInstances(
+      state.materialIndices,
+      materials
+    );
+  };
+}
+
+function isTransparentMaterial(material: StandardShadeMaterial): boolean {
+  return material.transparency_mode === ShadeTransparencyMode.Transparent;
 }
 
 function toInstancePatchBatch(
@@ -323,11 +405,7 @@ function materialClassificationFlags(
   material: StandardShadeMaterial,
   sourceFlags: number
 ): number {
-  let flags = sourceFlags & ~(
-    GPU_INSTANCE_FLAGS.AlphaTested |
-    GPU_INSTANCE_FLAGS.DoubleSided |
-    GPU_INSTANCE_FLAGS.Transparent
-  );
+  let flags = sourceFlags & ~GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK;
   if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
     flags |= GPU_INSTANCE_FLAGS.AlphaTested;
   } else if (material.transparency_mode === ShadeTransparencyMode.Transparent) {

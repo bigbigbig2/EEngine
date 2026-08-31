@@ -96,6 +96,14 @@ test("FX-05 sampled evidence extends the additive counter ABI without fake zeros
   assert.equal(counterByteOffset("transparentQueueOverflowMask"), 272);
 });
 
+test("P0-2 transparent lit shading emits emissive exactly once", async () => {
+  globalThis.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
+  const transparent = await import("../.test-dist/shaders/packed_transparent_oit.js");
+  const { PACKED_TRANSPARENT_FORWARD_WGSL } = transparent;
+  assert.match(PACKED_TRANSPARENT_FORWARD_WGSL, /color = direct \+ diffuse \+ specular;/);
+  assert.doesNotMatch(PACKED_TRANSPARENT_FORWARD_WGSL, /direct \+ diffuse \+ specular \+ emissive/);
+});
+
 test("FX-05 production source excludes BLEND from opaque and CSM and has no per-material Packed loop", async () => {
   const [hierarchy, visibility, shadow, loader, pass, shader, renderer, ledger, gateRunner] = await Promise.all([
     readFile(new URL("../src/render/HierarchicalWorkGenerator.ts", import.meta.url), "utf8"),
@@ -119,7 +127,10 @@ test("FX-05 production source excludes BLEND from opaque and CSM and has no per-
   assert.match(shader, /textureSampleGrad/);
   assert.match(shader, /shade_standard_material_direct/);
   assert.match(shader, /moments = mix\(moments, vec4f\(0\.0, 0\.375, 0\.0, 0\.375\), 0\.0000005\)/);
-  assert.match(renderer, /this\._packedTransparentOit \?\?= new PackedTransparentOitPass/);
+  assert.match(renderer, /reconcilePackedTransparencyOwner/);
+  assert.match(renderer, /transparentInstanceCount > 0/);
+  assert.match(renderer, /previous\.retire\(command\)/);
+  assert.match(pass, /destroyAfterGpuDone/);
   assert.match(ledger, /3A09C53B232908B356633D7BC1D9D651AE502E9A73E4E161527A73305B55C1FC/);
   assert.match(ledger, /CC0/);
   assert.match(ledger, /computeTransmittanceAtDepthFrom4PowerMoments/);

@@ -6,6 +6,7 @@ import {
   createGpuInstanceMotionScratch,
   GPU_INSTANCE_ABI_VERSION,
   GPU_INSTANCE_FLAGS,
+  GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK,
   GPU_INSTANCE_RECORD_OFFSETS,
   GPU_INSTANCE_RECORD_STRIDE
 } from "./GpuInstanceAbi.js";
@@ -471,9 +472,16 @@ export class GpuScene {
         if (materialFlags !== undefined) {
           const flagsOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
             GPU_INSTANCE_RECORD_OFFSETS.flags;
-          const preserved = recordView.getUint32(flagsOffset, true) &
-            (GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.MotionInvalid);
-          recordView.setUint32(flagsOffset, (preserved | materialFlags[order]!) >>> 0, true);
+          const previousFlags = recordView.getUint32(flagsOffset, true);
+          const persistentFlags = previousFlags &
+            ~GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK;
+          const classificationFlags = materialFlags[order]! &
+            GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK;
+          recordView.setUint32(
+            flagsOffset,
+            (persistentFlags | classificationFlags) >>> 0,
+            true
+          );
         }
       }
 

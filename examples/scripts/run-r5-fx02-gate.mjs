@@ -26,7 +26,8 @@ const cases = [
   ...counts.flatMap((count) => ["spread", "overlap"].map((layout) => ({ kind: "point", count, layout, role: "sweep" }))),
   { kind: "spot", count: 1, layout: "overlap", role: "micro" },
   { kind: "directional", count: 0, layout: "spread", role: "micro" },
-  { kind: "directional", count: 1, layout: "spread", role: "micro" }
+  { kind: "directional", count: 1, layout: "spread", role: "micro" },
+  { kind: "point", count: 0, layout: "spread", role: "dynamic" }
 ];
 
 await rm(outputRoot, { recursive: true, force: true });
@@ -38,7 +39,9 @@ const browser = await playwright.chromium.launch({ executablePath: chromePath, h
 const runs = [];
 try {
   for (const item of cases) {
-    const id = `${item.kind}-${item.count}-${item.layout}`;
+    const id = item.role === "dynamic"
+      ? "point-dynamic-same-graph"
+      : `${item.kind}-${item.count}-${item.layout}`;
     const runRoot = path.join(outputRoot, id);
     await mkdir(runRoot, { recursive: true });
     const context = await browser.newContext({ viewport: { width: 1500, height: 1000 }, deviceScaleFactor: 1 });
@@ -47,9 +50,10 @@ try {
     const pageErrors = [];
     page.on("console", (message) => consoleMessages.push({ type: message.type(), text: message.text() }));
     page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
-    const caseProfile = item.role === "micro" ? "smoke" : profile;
+    const caseProfile = item.role === "micro" || item.role === "dynamic" ? "smoke" : profile;
     const micro = runs.length === 0 ? "&micro=1" : "";
-    const url = `${baseUrl}/r5-clustered-direct/?count=${item.count}&layout=${item.layout}&kind=${item.kind}&profile=${caseProfile}${micro}`;
+    const dynamic = item.role === "dynamic" ? "&sequence=1" : "";
+    const url = `${baseUrl}/r5-clustered-direct/?count=${item.count}&layout=${item.layout}&kind=${item.kind}&profile=${caseProfile}${micro}${dynamic}`;
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.waitForFunction(() => window.__OENGINE_FX_02_RESULT__?.completed === true, undefined, { timeout: 600_000 });
     const result = await page.evaluate(() => window.__OENGINE_FX_02_RESULT__);
@@ -66,7 +70,7 @@ try {
       ...(pageErrors.length === 0 ? [] : [`page errors: ${pageErrors.length}`]),
       ...(screenshot.bytes > 1024 ? [] : ["empty canvas screenshot"])
     ];
-    const run = { id, ...item, profile: caseProfile, url, passed: issues.length === 0, issues, build, statistics: result.statistics, diagnostics: result.result.diagnostics, screenshot, consoleMessages, pageErrors };
+    const run = { id, ...item, profile: caseProfile, url, passed: issues.length === 0, issues, build, statistics: result.statistics, sequence: result.sequence ?? null, diagnostics: result.result.diagnostics, screenshot, consoleMessages, pageErrors };
     await writeJson(path.join(runRoot, "artifact.json"), { result, run });
     runs.push(run);
     await context.close();

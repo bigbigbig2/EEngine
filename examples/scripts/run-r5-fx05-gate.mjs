@@ -36,8 +36,12 @@ const cases = [
   ...[1, 8, 64].map((materials) => ({
     id: `materials-${materials}`, coverage: 50, layers: 1, materials, order: "forward"
   })),
-  { id: "order-forward", coverage: 50, layers: 4, materials: 8, order: "forward" },
-  { id: "order-reverse", coverage: 50, layers: 4, materials: 8, order: "reverse" }
+  { id: "emissive-once", coverage: 50, layers: 1, materials: 1,
+    order: "forward", mode: "emissive-probe" },
+  { id: "order-forward", coverage: 50, layers: 4, materials: 1,
+    order: "forward", mode: "order-probe" },
+  { id: "order-reverse", coverage: 50, layers: 4, materials: 1,
+    order: "reverse", mode: "order-probe" }
 ];
 
 await rm(outputRoot, { recursive: true, force: true });
@@ -76,7 +80,8 @@ try {
       coverage: String(definition.coverage),
       layers: String(definition.layers),
       materials: String(definition.materials),
-      order: definition.order
+      order: definition.order,
+      mode: definition.mode ?? "standard"
     });
     await page.goto(`${baseUrl}/r5-packed-transparency/?${query}`, {
       waitUntil: "domcontentloaded",
@@ -130,12 +135,32 @@ const materialScaleIssues = materialDrawCounts.every((value) => value === 3)
 const forward = results.find((entry) => entry.definition.id === "order-forward");
 const reverse = results.find((entry) => entry.definition.id === "order-reverse");
 const orderDifference = forward && reverse
-  ? await comparePng(forward.screenshotPath, reverse.screenshotPath, PNG)
+  ? compareHdr(
+      forward.pageResult?.statistics?.hdrNumeric,
+      reverse.pageResult?.statistics?.hdrNumeric
+    )
   : null;
-const orderIssues = orderDifference !== null && orderDifference.rms <= 1.25 &&
-  orderDifference.maxChannelDifference <= 8
-  ? []
-  : [`order invariance exceeded tolerance: ${JSON.stringify(orderDifference)}`];
+const logicalForward = normalizedLogicalStack(
+  forward?.pageResult?.statistics?.fixtureContract?.records
+);
+const logicalReverse = normalizedLogicalStack(
+  reverse?.pageResult?.statistics?.fixtureContract?.records
+);
+const logicalStackMatches = logicalForward !== null && logicalReverse !== null &&
+  JSON.stringify(logicalForward) === JSON.stringify(logicalReverse);
+// Both captures are rgba16float and use identical world-space fragments. The
+// bound permits FP16 additive rounding while rejecting order-dependent shading.
+const orderIssues = [
+  ...(orderDifference !== null && orderDifference.rmsRgb <= 0.003 &&
+    orderDifference.maxChannelDifference <= 0.01
+    ? []
+    : [`HDR order invariance exceeded 0.003 RMS / 0.01 max: ${JSON.stringify(orderDifference)}`]),
+  ...(logicalStackMatches ? [] : ["forward/reverse logical world-space stacks differ"]),
+  ...(forward?.pageResult?.statistics?.fixtureContract?.sameXyFootprint === true &&
+    forward?.pageResult?.statistics?.fixtureContract?.distinctDepthCount === 4
+    ? []
+    : ["order fixture does not contain four overlapping colored layers"])
+];
 const issues = [
   ...caseIssues,
   ...build.issues,
@@ -209,31 +234,31 @@ async function screenshotEvidence(filePath, PNG) {
   };
 }
 
-async function comparePng(leftPath, rightPath, PNG) {
-  const [leftBytes, rightBytes] = await Promise.all([
-    readFile(leftPath),
-    readFile(rightPath)
-  ]);
-  const left = PNG.sync.read(leftBytes);
-  const right = PNG.sync.read(rightBytes);
-  if (left.width !== right.width || left.height !== right.height) {
-    return { rms: Number.POSITIVE_INFINITY, maxChannelDifference: 255 };
+function compareHdr(left, right) {
+  const leftRgb = left?.rgb;
+  const rightRgb = right?.rgb;
+  if (!Array.isArray(leftRgb) || !Array.isArray(rightRgb) ||
+    leftRgb.length === 0 || leftRgb.length !== rightRgb.length) {
+    return null;
   }
   let squared = 0;
   let maximum = 0;
-  let channels = 0;
-  for (let index = 0; index < left.data.length; index += 4) {
-    for (let channel = 0; channel < 3; channel++) {
-      const difference = Math.abs(left.data[index + channel] - right.data[index + channel]);
-      squared += difference * difference;
-      maximum = Math.max(maximum, difference);
-      channels++;
-    }
+  for (let index = 0; index < leftRgb.length; index++) {
+    const difference = Math.abs(leftRgb[index] - rightRgb[index]);
+    squared += difference * difference;
+    maximum = Math.max(maximum, difference);
   }
   return {
-    rms: Math.sqrt(squared / channels),
+    source: "production pre-tonemap rgba16float ROI",
+    rmsRgb: Math.sqrt(squared / leftRgb.length),
     maxChannelDifference: maximum
   };
+}
+
+function normalizedLogicalStack(records) {
+  if (!Array.isArray(records) || records.length !== 4) return null;
+  return records.map(({ record: _record, ...logical }) => logical)
+    .sort((left, right) => left.logicalLayer - right.logicalLayer);
 }
 
 async function writeJson(filePath, value) {

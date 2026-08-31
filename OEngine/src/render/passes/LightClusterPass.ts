@@ -276,9 +276,6 @@ export class LightClusterPass {
       counters?: ResourceId;
     }
   ): LightClusterOutputs {
-    const localLightCount =
-      job.lights.pointLights.count + job.lights.spotLights.count;
-    assertLightListCapacity(localLightCount, LIGHT_CLUSTER_LIST_CAPACITY);
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
     const clusterWidth = Math.ceil(width / LIGHT_CLUSTER_TILE_SIZE);
@@ -298,6 +295,15 @@ export class LightClusterPass {
       job,
       (passJob, resources, context) => {
         const encoder = requireGpuEncoder(context);
+        const activeLocalLightCount =
+          passJob.lights.pointLights.count + passJob.lights.spotLights.count;
+        // Compiled FrameGraphs late-bind `passJob`. Validate the current frame
+        // before even clearing a LightList header so a warm graph cannot admit
+        // more resident lights than the bounded GPU consumer can preserve.
+        assertLightListCapacity(
+          activeLocalLightCount,
+          LIGHT_CLUSTER_LIST_CAPACITY
+        );
         const camera = requireGpuBuffer(resources.get(inputs.camera));
         const database = requireGpuBuffer(resources.get(inputs.lightDatabase));
         const output = requireGpuBuffer(resources.get(visibleList));
@@ -305,8 +311,6 @@ export class LightClusterPass {
         encoder.clearBuffer(output, 0, 16);
         this.packSettings(passJob.camera, width, height);
         writeBuffer(context, this.device, settings, this.settingsData);
-        const activeLocalLightCount =
-          passJob.lights.pointLights.count + passJob.lights.spotLights.count;
         if (activeLocalLightCount === 0) return;
         this.dispatchPagedList(
           encoder,
@@ -477,10 +481,12 @@ export class LightClusterPass {
     if (inputs.counters !== undefined) {
       const statsBuilder = graph.add(
         "LightCluster/FX-02 stats",
-        null,
-        (_statsJob, resources, context) => {
+        job,
+        (passJob, resources, context) => {
           const encoder = requireGpuEncoder(context);
-          if (localLightCount === 0) {
+          const activeLocalLightCount =
+            passJob.lights.pointLights.count + passJob.lights.spotLights.count;
+          if (activeLocalLightCount === 0) {
             this.zeroLightHistogramData[0] = clusterCount;
             writeBuffer(
               context,

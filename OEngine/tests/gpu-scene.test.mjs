@@ -234,6 +234,71 @@ test("R2-D patch keeps previous/current semantics, deduplicates and proves 0/1/1
   scene.destroy();
 });
 
+test("P0-1 material patch replaces classification and preserves every persistent instance flag", () => {
+  const gpu = createFakeGpu();
+  const geometryHandle = Object.freeze({});
+  const scene = new GpuScene(gpu.device, { recordIndex: () => 3 });
+  const source = makeSource(5, geometryHandle);
+  source.flags = new Uint32Array([
+    GPU_INSTANCE_FLAGS.CastsShadow,
+    GPU_INSTANCE_FLAGS.CastsShadow | GPU_INSTANCE_FLAGS.Transparent,
+    GPU_INSTANCE_FLAGS.ReceivesShadow,
+    0,
+    GPU_INSTANCE_FLAGS.AlphaTested
+  ]);
+  source.previousTransforms = source.currentTransforms.slice();
+  source.currentTransforms[3 * 16] = 0;
+  const create = new FakeSceneCommand(gpu.device);
+  const handle = scene.instantiate(source, create);
+  create.finish();
+  const range = scene.range(handle);
+
+  const patch = new FakeSceneCommand(gpu.device);
+  scene.patch(handle, {
+    frameId: 1,
+    materials: {
+      indices: new Uint32Array([0, 1, 2, 3, 4]),
+      materialHandles: new Uint32Array([10, 11, 12, 13, 14]),
+      flags: new Uint32Array([
+        GPU_INSTANCE_FLAGS.Transparent,
+        0,
+        GPU_INSTANCE_FLAGS.Transparent,
+        GPU_INSTANCE_FLAGS.Transparent,
+        GPU_INSTANCE_FLAGS.Transparent
+      ])
+    }
+  }, patch);
+  patch.finish();
+
+  const flags = (index) => new DataView(scene.bindings().instances.data).getUint32(
+    (range.start + index) * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.flags,
+    true
+  );
+  assert.equal(flags(0) & GPU_INSTANCE_FLAGS.CastsShadow, GPU_INSTANCE_FLAGS.CastsShadow);
+  assert.equal(flags(0) & GPU_INSTANCE_FLAGS.Transparent, GPU_INSTANCE_FLAGS.Transparent);
+  assert.equal(flags(1) & GPU_INSTANCE_FLAGS.CastsShadow, GPU_INSTANCE_FLAGS.CastsShadow);
+  assert.equal(flags(1) & GPU_INSTANCE_FLAGS.Transparent, 0);
+  assert.equal(flags(2) & GPU_INSTANCE_FLAGS.ReceivesShadow, GPU_INSTANCE_FLAGS.ReceivesShadow);
+  assert.equal(flags(3) & GPU_INSTANCE_FLAGS.MotionInvalid, GPU_INSTANCE_FLAGS.MotionInvalid);
+  assert.equal(flags(4) & GPU_INSTANCE_FLAGS.AlphaTested, 0);
+  assert.equal(flags(4) & GPU_INSTANCE_FLAGS.Transparent, GPU_INSTANCE_FLAGS.Transparent);
+
+  const backToOpaque = new FakeSceneCommand(gpu.device);
+  scene.patch(handle, {
+    frameId: 2,
+    materials: {
+      indices: new Uint32Array([2]),
+      materialHandles: new Uint32Array([15]),
+      flags: new Uint32Array([0])
+    }
+  }, backToOpaque);
+  backToOpaque.finish();
+  assert.equal(flags(2) & GPU_INSTANCE_FLAGS.ReceivesShadow, GPU_INSTANCE_FLAGS.ReceivesShadow);
+  assert.equal(flags(2) & GPU_INSTANCE_FLAGS.Transparent, 0);
+  assert.equal(gpu.queue.submitCount, 0);
+  scene.destroy();
+});
+
 test("R2-D abort restores CPU shadow and release invalidates the generation handle", () => {
   const gpu = createFakeGpu();
   const geometryHandle = Object.freeze({});

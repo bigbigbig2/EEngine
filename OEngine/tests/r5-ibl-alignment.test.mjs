@@ -19,6 +19,7 @@ import { IBL_SPECULAR_WGSL } from "../.test-dist/shaders/ibl_specular.js";
 import { INDIRECT_COMPOSITE_WGSL } from "../.test-dist/shaders/indirect_composite.js";
 import { RenderDebugView } from "../.test-dist/debug/RenderDebugView.js";
 import { resolveMainFrameFeatureTopology } from "../.test-dist/render/MainFrameFeatureTopology.js";
+import { GPU_SURFACE_ABI_WGSL } from "../.test-dist/gpu/GpuSurfaceAbi.js";
 
 globalThis.GPUTextureUsage ??= { TEXTURE_BINDING: 1 };
 const { id: TextureDescriptor } = await import("../.test-dist/gpu/GPUTextureDescriptors.js");
@@ -116,4 +117,17 @@ test("FX-03 debug views own distinct FrameGraph topology keys", () => {
     RenderDebugView.IndirectSpecular, RenderDebugView.LinearHdr]
     .map((debugView) => resolveMainFrameFeatureTopology({ ...base, debugView }).enabledFeatureBits);
   assert.equal(new Set(codes).size, codes.length);
+});
+
+test("FX-03 Packed indirect composite suppresses IBL for Unlit Surface metadata", async () => {
+  const [pass, renderer] = await Promise.all([
+    readFile(new URL("../src/render/passes/IndirectCompositePass.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/render/Renderer.ts", import.meta.url), "utf8")
+  ]);
+  assert.ok(INDIRECT_COMPOSITE_WGSL.includes(GPU_SURFACE_ABI_WGSL));
+  assert.match(INDIRECT_COMPOSITE_WGSL, /OENGINE_SURFACE_FLAG_UNLIT/);
+  assert.match(INDIRECT_COMPOSITE_WGSL, /return vec4f\(0\.0\)/);
+  assert.match(INDIRECT_COMPOSITE_WGSL, /fn fs_main_legacy/);
+  assert.match(pass, /metadata\?: ResourceId/);
+  assert.match(renderer, /metadata: packedResolveOut\?\.surfaceFlags/);
 });

@@ -17,6 +17,12 @@ export const GPU_INSTANCE_FLAGS = Object.freeze({
   Transparent: 1 << 6
 } as const);
 
+/** Bits replaced by an InstanceMaterialPatch; every other instance bit persists. */
+export const GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK =
+  GPU_INSTANCE_FLAGS.AlphaTested |
+  GPU_INSTANCE_FLAGS.DoubleSided |
+  GPU_INSTANCE_FLAGS.Transparent;
+
 export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   geometry_record_index: 0,
   material_handle: 4,
