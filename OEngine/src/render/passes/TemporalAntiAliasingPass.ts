@@ -16,7 +16,6 @@ export interface TemporalAntiAliasingInputs {
   readonly historyColor: ResourceId;
   readonly velocity: ResourceId;
   readonly disocclusionConfidence: ResourceId;
-  readonly depth: ResourceId;
   readonly classification: ResourceId;
 }
 
@@ -38,9 +37,9 @@ export class TemporalAntiAliasingPass {
       throw new Error("TemporalAntiAliasingPass: GraphicsContext has no device");
     }
     this.pipeline = {
-      label: "FX-06 Minimal TAA reference",
+      label: "FX-06B Final TAA/TAAU resolve",
       layout: {
-        label: "FX-06 Minimal TAA reference/layout",
+        label: "FX-06B Final TAA/TAAU resolve/layout",
         bindGroupLayouts: [createTaaGroupLayout()]
       },
       vertex: {
@@ -48,7 +47,7 @@ export class TemporalAntiAliasingPass {
         entryPoint: "main"
       },
       fragment: {
-        module: { label: "FX-06 Minimal TAA reference", code: TAA_WGSL },
+        module: { label: "FX-06B Final TAA/TAAU resolve", code: TAA_WGSL },
         entryPoint: "main",
         targets: [{ format: TAA_FORMAT }]
       },
@@ -63,7 +62,7 @@ export class TemporalAntiAliasingPass {
   ): ResourceId {
     let output = -1;
     const builder = graph.add(
-      "FX-06 Minimal TAA reference",
+      "FX-06B Final TAA/TAAU resolve",
       job,
       (data, resources, context) => {
         this.execute(
@@ -78,7 +77,6 @@ export class TemporalAntiAliasingPass {
             disocclusionConfidence: resolveTextureView(
               resources.get(inputs.disocclusionConfidence)
             ),
-            depth: resolveTextureView(resources.get(inputs.depth)),
             classification: resolveTextureView(resources.get(inputs.classification))
           }
         );
@@ -89,7 +87,6 @@ export class TemporalAntiAliasingPass {
       inputs.historyColor,
       inputs.velocity,
       inputs.disocclusionConfidence,
-      inputs.depth,
       inputs.classification
     ]) builder.read(input);
     output = builder.write(inputs.output);
@@ -110,7 +107,6 @@ export class TemporalAntiAliasingPass {
       historyColor: GPUTextureView;
       velocity: GPUTextureView;
       disocclusionConfidence: GPUTextureView;
-      depth: GPUTextureView;
       classification: GPUTextureView;
     }
   ): void {
@@ -128,7 +124,7 @@ export class TemporalAntiAliasingPass {
       GPUBufferUsage.UNIFORM
     );
     const pass = command.constructRenderPass({
-      label: "FX-06 Minimal TAA reference",
+      label: "FX-06B Final TAA/TAAU resolve",
       pipeline: this.pipeline,
       bindings: [[
         sampler,
@@ -136,7 +132,6 @@ export class TemporalAntiAliasingPass {
         resources.historyColor,
         resources.currentColor,
         resources.disocclusionConfidence,
-        resources.depth,
         resources.classification,
         { buffer: settingsBuffer }
       ]],
@@ -158,16 +153,15 @@ export class TemporalAntiAliasingPass {
 
 function createTaaGroupLayout(): GPUBindGroupLayoutDescriptor {
   return {
-    label: "FX-06 Minimal TAA reference/group0",
+    label: "FX-06B Final TAA/TAAU resolve/group0",
     entries: [
       { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-      { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
-      { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-      { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+      { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
     ]
   };
 }

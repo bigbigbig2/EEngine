@@ -2503,7 +2503,6 @@ export class Renderer {
                 historyColor: historyInputRes,
                 velocity: velocityRes,
                 disocclusionConfidence: occlusionConfidenceRes,
-                depth: depthRes,
                 classification: classification.classification
               }
             );
