@@ -120,6 +120,9 @@ function debugTopologyCode(view: RenderDebugViewT): number {
     case RenderDebugView.Emissive: return 10;
     case RenderDebugView.HistoryValidity: return 11;
     case RenderDebugView.Reactive: return 12;
+    case RenderDebugView.IndirectDiffuse: return 13;
+    case RenderDebugView.IndirectSpecular: return 14;
+    case RenderDebugView.LinearHdr: return 15;
     default: return 0;
   }
 }

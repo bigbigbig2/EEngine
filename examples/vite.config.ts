@@ -86,6 +86,10 @@ export default defineConfig({
           examplesRoot,
           "r5-clustered-direct/index.html"
         ),
+        r5ShadingOracle: path.resolve(
+          examplesRoot,
+          "r5-shading-oracle/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

@@ -662,6 +662,7 @@ export class GPULightCollection {
   private readonly device: GPUDevice;
   private readonly graphics: GraphicsContext;
   private readonly environmentTexture: GPUTextureContext;
+  private readonly diffuseIrradianceTexture: GPUTextureContext;
   private environmentSource: ShadeTexture | undefined;
   private environmentPrefilter: EnvironmentPrefilterPass | null = null;
   private lastSourceVersion = -1;
@@ -683,13 +684,19 @@ export class GPULightCollection {
     });
     this.shadow_context = new ShadowContext(graphics, source);
     this.environmentTexture = new GPUTextureContext(device, {
-      label: "is_infinite_far",
+      label: "FX-03 specular environment",
       size: [1, 1, 1],
       format: "rgba16float",
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.COPY_DST |
         GPUTextureUsage.STORAGE_BINDING
+    });
+    this.diffuseIrradianceTexture = new GPUTextureContext(device, {
+      label: "FX-03 diffuse irradiance",
+      size: [32, 32, 1],
+      format: "rgba16float",
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
     });
   }
 
@@ -701,9 +708,15 @@ export class GPULightCollection {
     return this.environmentTexture;
   }
 
+  /** Cosine-convolved irradiance integral; consumers apply diffuse BRDF 1/PI. */
+  get diffuseIrradiance(): GPUTextureContext {
+    return this.diffuseIrradianceTexture;
+  }
+
   get gpu_memory_usage(): number {
     return (
       this.environmentTexture.gpu_memory_usage +
+      this.diffuseIrradianceTexture.gpu_memory_usage +
       this.database.gpu_memory_usage
     );
   }
@@ -778,7 +791,12 @@ export class GPULightCollection {
     }
     uploadShadeImage(image, environment.gpu_texture, this.device.queue);
 
-    this.obtainEnvironmentPrefilter().encode(command, environment);
+    this.diffuseIrradianceTexture.allocate();
+    this.obtainEnvironmentPrefilter().encode(
+      command,
+      environment,
+      this.diffuseIrradianceTexture
+    );
     return true;
   }
 
@@ -850,5 +868,18 @@ export class GPULightCollection {
     this.shadow_context.destroy();
     this.database.destroy();
     this.environmentTexture.destroy();
+    this.diffuseIrradianceTexture.destroy();
+  }
+
+  get environmentEvidence(): {
+    specularAllocatedBytes: number;
+    diffuseAllocatedBytes: number;
+    specularMipLevelCount: number;
+  } {
+    return {
+      specularAllocatedBytes: this.environmentTexture.gpu_memory_usage,
+      diffuseAllocatedBytes: this.diffuseIrradianceTexture.gpu_memory_usage,
+      specularMipLevelCount: this.environmentTexture.mipLevelCount
+    };
   }
 }

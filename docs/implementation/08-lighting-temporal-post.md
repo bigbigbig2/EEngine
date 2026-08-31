@@ -228,7 +228,13 @@ producer 可以 `attempted > capacity`，但所有 consumer 只能遍历 `writte
 
 ### FX-03 · IBL 对齐
 
-迁移 diffuse/specular IBL、environment prefilter 和 BRDF LUT。与 Benchmark B 对齐 environment、roughness mip、normal/tangent、color space 和 exposure；禁止额外效果干扰。
+执行来源与代码合同见 [R5-01 porting ledger](../references/porting/R5-01-surface-lighting.md)。采用 Filament 的 Hammersley + GGX importance sampling、独立 cosine-weighted diffuse irradiance 与 split-sum 数学不变量；Khronos Sample Renderer 用于 glTF metallic/roughness/IBL 语义交叉验证。OEngine 重实现 WebGPU octahedral owner，不移植 native descriptor/allocator。
+
+生产结构冻结为 `GPULightCollection -> specular rgba16float mip chain + 32x32 diffuse irradiance`。环境改变时一次性显式生成所有 mip，稳定帧不得 prefilter；runtime 用 `textureNumLevels()`，禁止固定 5 mip、递归采上一 mip或 diffuse 复用 specular 最粗 mip。Diffuse 输出 irradiance integral，Composite 唯一乘 `1/PI`。
+
+`B-shading-oracle` 使用单个 Damaged Helmet、固定 camera、冻结 64×64 working-linear HDR octahedral recipe、零 direct light，并关闭 Shadow/AO/SSR/Temporal/Exposure/Bloom/Post。production Gate 保存 BaseColor/Normal/Roughness/Metallic/Diffuse IBL/Specular IBL/Linear HDR visualisation/Final Tonemapped，同时用 production prefilter WGSL 对 constant HDR 做 GPU readback 数值验证。
+
+counter schema v6 由 sampled `PackedSurfaceCounterPass` 记录 `iblSampledPixels + iblMip0..8`；非 sampled frame 没有新增 Pass/atomic/readback。CPU evidence 记录 specular/diffuse allocated bytes、mip count 与全局 resident bytes。关闭条件：histogram 完整覆盖 sampled pixels、GPU numeric/截图/provenance/diagnostics 全通过。
 
 从 FX-03/G5-L 起持续采集 texture allocated/resident bytes、resident/retiring/free layer、fallback、upload bytes 与 sampled-mip 分布。FX-11 才根据累计证据决定保留固定 owner、采用 size class 或建立 streaming 任务，但不能等到 FX-11 才第一次发现 Lighting/IBL 的纹理容量与 mip 质量问题。
 

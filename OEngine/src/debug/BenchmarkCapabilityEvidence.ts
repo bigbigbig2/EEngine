@@ -111,7 +111,10 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
   },
   ibl: {
     status: "supported",
-    requiredGpuCounters: []
+    requiredGpuCounters: [
+      "iblSampledPixels", "iblMip0", "iblMip1", "iblMip2", "iblMip3",
+      "iblMip4", "iblMip5", "iblMip6", "iblMip7", "iblMip8"
+    ]
   },
   "packed-instances": {
     status: "supported",
@@ -249,7 +252,17 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   clusterHistogram32: supported("LightClusterPass/FX-02 cluster histogram reducer"),
   clusterHistogram64: supported("LightClusterPass/FX-02 cluster histogram reducer"),
   clusterHistogram128: supported("LightClusterPass/FX-02 cluster histogram reducer"),
-  clusterHistogram256: supported("LightClusterPass/FX-02 cluster histogram reducer")
+  clusterHistogram256: supported("LightClusterPass/FX-02 cluster histogram reducer"),
+  iblSampledPixels: supported("PackedSurfaceCounterPass/FX-03 IBL mip reducer"),
+  iblMip0: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
+  iblMip1: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
+  iblMip2: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
+  iblMip3: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
+  iblMip4: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
+  iblMip5: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
+  iblMip6: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
+  iblMip7: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
+  iblMip8: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram overflow bin")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

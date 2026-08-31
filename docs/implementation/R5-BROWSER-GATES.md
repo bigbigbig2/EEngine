@@ -400,6 +400,10 @@ WebGPU micro：
 
 Reference environment 若上游格式 runtime 不支持，允许在 benchmark 准备阶段离线转换成冻结的 linear HDR asset，但必须记录 source hash、转换工具/版本和 result hash。
 
+当前执行入口为 `examples/r5-shading-oracle/` 与 `examples/scripts/run-r5-fx03-gate.mjs`。环境不是 royal_esplanade 内容的伪替代，而是由 `examples/benchmark-shared/recipes/fx03-environment.json` 冻结参数、确定性生成的 64×64 `rgba16float` linear-HDR octahedral fixture；manifest 必须以独立 asset 登记。
+
+Gate 还必须断言：`iblSampledPixels == sum(iblMip0..8)`、真实 specular mip count、specular/diffuse allocated bytes、production WGSL constant-HDR numeric micro、零 WebGPU/console/page diagnostics、所有截图非空且有变化、page/worktree provenance 一致。调试视图必须拥有不同 FrameGraph topology key；关闭视图不保留 debug Pass/resource。
+
 ## 自动/数值测试
 
 至少验证：

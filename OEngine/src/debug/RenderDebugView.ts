@@ -24,7 +24,10 @@ export const RenderDebugView = {
   Emissive: "emissive",
   Velocity: "velocity",
   HistoryValidity: "history-validity",
-  Reactive: "reactive"
+  Reactive: "reactive",
+  IndirectDiffuse: "indirect-diffuse",
+  IndirectSpecular: "indirect-specular",
+  LinearHdr: "linear-hdr"
 } as const;
 
 export type RenderDebugView =
@@ -111,7 +114,10 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     "supported",
     "显示 Surface ABI v1 motion-valid 与 reactive 状态"
   ),
-  descriptor(RenderDebugView.Reactive, "Reactive", "supported", "显示必须拒绝时域历史的像素")
+  descriptor(RenderDebugView.Reactive, "Reactive", "supported", "显示必须拒绝时域历史的像素"),
+  descriptor(RenderDebugView.IndirectDiffuse, "Diffuse IBL", "supported", "显示 FX-03 cosine-convolved diffuse irradiance 输出"),
+  descriptor(RenderDebugView.IndirectSpecular, "Specular IBL", "supported", "显示 FX-03 GGX prefiltered specular radiance 输出"),
+  descriptor(RenderDebugView.LinearHdr, "Linear HDR", "supported", "显示 tonemap/exposure 前 working-linear scene color")
 ] as const;
 
 const STATUS_BY_VIEW = new Map(

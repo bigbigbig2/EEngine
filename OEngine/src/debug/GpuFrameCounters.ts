@@ -4,7 +4,7 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 5;
+export const GPU_COUNTER_SCHEMA_VERSION = 6;
 export const GPU_COUNTER_BYTE_SIZE = 256;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -63,7 +63,17 @@ export const GPU_COUNTER_FIELDS = [
   { name: "clusterHistogram32", index: 44, semantic: "clusters evaluating seventeen to thirty-two local lights" },
   { name: "clusterHistogram64", index: 45, semantic: "clusters evaluating thirty-three to sixty-four local lights" },
   { name: "clusterHistogram128", index: 46, semantic: "clusters evaluating sixty-five to one-hundred-twenty-eight local lights" },
-  { name: "clusterHistogram256", index: 47, semantic: "clusters evaluating more than one-hundred-twenty-eight local lights" }
+  { name: "clusterHistogram256", index: 47, semantic: "clusters evaluating more than one-hundred-twenty-eight local lights" },
+  { name: "iblSampledPixels", index: 48, semantic: "valid Surface pixels included in sampled IBL mip evidence" },
+  { name: "iblMip0", index: 49, semantic: "IBL pixels whose nearest specular mip is 0" },
+  { name: "iblMip1", index: 50, semantic: "IBL pixels whose nearest specular mip is 1" },
+  { name: "iblMip2", index: 51, semantic: "IBL pixels whose nearest specular mip is 2" },
+  { name: "iblMip3", index: 52, semantic: "IBL pixels whose nearest specular mip is 3" },
+  { name: "iblMip4", index: 53, semantic: "IBL pixels whose nearest specular mip is 4" },
+  { name: "iblMip5", index: 54, semantic: "IBL pixels whose nearest specular mip is 5" },
+  { name: "iblMip6", index: 55, semantic: "IBL pixels whose nearest specular mip is 6" },
+  { name: "iblMip7", index: 56, semantic: "IBL pixels whose nearest specular mip is 7" },
+  { name: "iblMip8", index: 57, semantic: "IBL pixels whose nearest specular mip is 8 or above" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

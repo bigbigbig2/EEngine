@@ -19,6 +19,8 @@ import {
   type Renderer,
   type SourceGeometry
 } from "../../OEngine/src/index.ts";
+import { floatToHalf } from "../../OEngine/src/loaders/float16.ts";
+import { octDecode } from "../../OEngine/src/render/IblAlignment.ts";
 
 export type BenchmarkRuntimeProfile = "full" | "smoke";
 
@@ -45,18 +47,42 @@ export async function createBenchmarkSceneFixture(
   }
 }
 
-function createEnvironmentTexture(): ShadeTexture {
-  const halfFloatRgba = new Uint16Array([0x2a66, 0x2e66, 0x3266, 0x3c00]);
+export function createFx03EnvironmentTexture(): ShadeTexture {
+  const size = 64;
+  const sun = normalize3([0.35, 0.82, 0.45]);
+  const halfFloatRgba = new Uint16Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const direction = octDecode([(x + 0.5) / size, (y + 0.5) / size]);
+      const up = Math.max(0, direction[1] * 0.5 + 0.5);
+      const sunLobe = 18 * Math.pow(Math.max(0, dot3(direction, sun)), 512);
+      const horizon = Math.pow(1 - Math.abs(direction[1]), 4);
+      const offset = (y * size + x) * 4;
+      halfFloatRgba[offset] = floatToHalf(0.025 + 0.12 * up + 0.08 * horizon + sunLobe * 1.0);
+      halfFloatRgba[offset + 1] = floatToHalf(0.035 + 0.22 * up + 0.045 * horizon + sunLobe * 0.72);
+      halfFloatRgba[offset + 2] = floatToHalf(0.055 + 0.42 * up + 0.025 * horizon + sunLobe * 0.42);
+      halfFloatRgba[offset + 3] = floatToHalf(1);
+    }
+  }
   const image = ShadeImage.fromArrayBuffer(
     halfFloatRgba.buffer,
     4,
     ShadeDataType.Float16,
-    1,
-    1,
+    size,
+    size,
     1
   );
   image.color_space = 2;
   return ShadeTexture.from(image);
+}
+
+function dot3(a: readonly number[], b: readonly number[]): number {
+  return a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+}
+
+function normalize3(value: readonly [number, number, number]): [number, number, number] {
+  const inverseLength = 1 / Math.hypot(...value);
+  return [value[0] * inverseLength, value[1] * inverseLength, value[2] * inverseLength];
 }
 
 async function createA(
@@ -72,7 +98,7 @@ async function createA(
   material.metallic_factor = 0.02;
   const gridSize = profile === "full" ? 400 : 20;
   const scene = new Scene();
-  scene.lights.environment = createEnvironmentTexture();
+  scene.lights.environment = createFx03EnvironmentTexture();
   addValidationSun(scene);
   const packed = await repeatImportedGrid(imported, [material], gridSize, 4, -1);
   await renderer.uploadPackedScene(scene, packed);
@@ -83,6 +109,16 @@ async function createB(
   renderer: Renderer,
   profile: BenchmarkRuntimeProfile
 ): Promise<BenchmarkSceneFixture> {
+  const imported = await loadDamagedHelmetPacked();
+  const gridSize = profile === "full" ? 125 : 15;
+  return createDamagedHelmetFixture(renderer, imported, gridSize, true);
+}
+
+export async function createFx03ShadingOracleFixture(renderer: Renderer): Promise<BenchmarkSceneFixture> {
+  return createDamagedHelmetFixture(renderer, await loadDamagedHelmetPacked(), 1, false);
+}
+
+async function loadDamagedHelmetPacked(): Promise<PackedGltfSource> {
   const urls = {
     gltf: new URL("../benchmark-assets/damaged-helmet/DamagedHelmet.gltf", import.meta.url),
     bin: new URL("../benchmark-assets/damaged-helmet/DamagedHelmet.bin", import.meta.url),
@@ -122,10 +158,14 @@ async function createB(
   } finally {
     URL.revokeObjectURL(normalizedUrl);
   }
-  const gridSize = profile === "full" ? 125 : 15;
+  return imported;
+}
+
+async function createDamagedHelmetFixture(renderer: Renderer, imported: PackedGltfSource,
+  gridSize: number, directSun: boolean): Promise<BenchmarkSceneFixture> {
   const scene = new Scene();
-  scene.lights.environment = createEnvironmentTexture();
-  addValidationSun(scene);
+  scene.lights.environment = createFx03EnvironmentTexture();
+  if (directSun) addValidationSun(scene);
   const packed = await repeatImportedGrid(
     imported,
     imported.materials,
@@ -199,7 +239,7 @@ async function createC(
     }
   }
   const scene = new Scene();
-  scene.lights.environment = createEnvironmentTexture();
+  scene.lights.environment = createFx03EnvironmentTexture();
   addCLights(scene, recipe);
   await renderer.uploadPackedScene(scene, {
     geometries: packages,

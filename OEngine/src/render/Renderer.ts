@@ -1298,25 +1298,6 @@ export class Renderer {
           gpuCounterRes = matOut.counters;
           this._profiler.registerGpuCounterFields(["activeMaterials"]);
         }
-        if (packedResolveOut !== null && gpuCounterRes !== null) {
-          gpuCounterRes = this._packedSurfaceCounters.addToGraph(
-            graph,
-            w,
-            h,
-            {
-              surfaceFlags: packedResolveOut.surfaceFlags,
-              counters: gpuCounterRes
-            }
-          );
-          this._profiler.registerGpuCounterFields([
-            "gradientFallbackPixels",
-            "reactiveSurfacePixels",
-            "normalTexturePixels",
-            "ormTexturePixels",
-            "emissiveTexturePixels",
-            "unlitSurfacePixels"
-          ]);
-        }
         let gPbrRes = matOut.gPbr;
         let gNormalRes = matOut.gNormal;
         let gAlbedoRes = matOut.gAlbedo;
@@ -1386,6 +1367,7 @@ export class Renderer {
 
         let hdrRes: ResourceId | null = null;
         let environmentRes: ResourceId | null = null;
+        let diffuseIrradianceRes: ResourceId | null = null;
         let lightDatabaseRes: ResourceId | null = null;
         let shadowAtlasRes: ResourceId | null = null;
         let clusters: LightClusterOutputs | null = null;
@@ -1401,6 +1383,25 @@ export class Renderer {
             { kind: "imported", label: "rgba16float environment" },
             bind("environment", (bindings) => bindings.gpuScene.lights.environment.gpu_texture)
           );
+          diffuseIrradianceRes = graph.import_resource(
+            "FX-03/diffuse irradiance",
+            { kind: "imported", label: "rgba16float diffuse irradiance" },
+            bind("diffuse-irradiance", (bindings) =>
+              bindings.gpuScene.lights.diffuseIrradiance.gpu_texture)
+          );
+          if (packedResolveOut !== null && gpuCounterRes !== null) {
+            gpuCounterRes = this._packedSurfaceCounters.addToGraph(
+              graph, w, h,
+              { surfaceFlags: packedResolveOut.surfaceFlags, pbr: gPbrRes,
+                environment: environmentRes, counters: gpuCounterRes }
+            );
+            this._profiler.registerGpuCounterFields([
+              "gradientFallbackPixels", "reactiveSurfacePixels", "normalTexturePixels",
+              "ormTexturePixels", "emissiveTexturePixels", "unlitSurfacePixels",
+              "iblSampledPixels", "iblMip0", "iblMip1", "iblMip2", "iblMip3",
+              "iblMip4", "iblMip5", "iblMip6", "iblMip7", "iblMip8"
+            ]);
+          }
           shadowAtlasRes = graphTopology.shadows
             ? graph.import_resource(
                 "Ch/pass_descriptor",
@@ -1478,6 +1479,8 @@ export class Renderer {
         }
 
         let bentNormalRes = gNormalRes;
+        let indirectDiffuseDebugRes: ResourceId | null = null;
+        let indirectSpecularDebugRes: ResourceId | null = null;
         let ssaoReady = !graphTopology.ssao;
         if (
           graphTopology.ssao &&
@@ -1529,6 +1532,7 @@ export class Renderer {
           ssaoReady &&
           hdrRes !== null &&
           environmentRes !== null &&
+          diffuseIrradianceRes !== null &&
           gPbrRes !== null &&
           gNormalRes !== null &&
           gAlbedoRes !== null &&
@@ -1601,10 +1605,12 @@ export class Renderer {
             {
               bentNormal: bentNormalRes,
               albedoAo: gAlbedoRes,
-              environment: environmentRes,
+              environment: diffuseIrradianceRes,
               depth: depthRes
             }
           ).indirectDiffuse;
+          indirectDiffuseDebugRes = indirectDiffuseRes;
+          indirectSpecularDebugRes = indirectSpecularRes;
           hdrRes = this._indirectComposite.addToGraph(graph, {
             hdr: hdrRes,
             depth: depthRes,
@@ -2046,6 +2052,7 @@ export class Renderer {
         // 改写它们的历史；关闭或 unsupported 时不创建 Pass、纹理或 readback。
         if (graphTopology.debug) {
           this._renderDebug ??= new RenderDebugViewPass(this._graphics);
+          const linearHdrDebugRes = hdrRes;
           hdrRes = this._renderDebug.addToGraph(
             graph,
             this.render_debug_view,
@@ -2060,7 +2067,10 @@ export class Renderer {
               gNormal: gNormalRes,
               gAlbedo: gAlbedoRes,
               gEmissive: gEmissiveRes,
-              surfaceFlags: packedResolveOut?.surfaceFlags ?? null
+              surfaceFlags: packedResolveOut?.surfaceFlags ?? null,
+              indirectDiffuse: indirectDiffuseDebugRes,
+              indirectSpecular: indirectSpecularDebugRes,
+              linearHdr: linearHdrDebugRes
             },
             this._output_resolution.x,
             this._output_resolution.y
@@ -2130,6 +2140,16 @@ export class Renderer {
           "clusterHistogram64",
           "clusterHistogram128",
           "clusterHistogram256",
+          "iblSampledPixels",
+          "iblMip0",
+          "iblMip1",
+          "iblMip2",
+          "iblMip3",
+          "iblMip4",
+          "iblMip5",
+          "iblMip6",
+          "iblMip7",
+          "iblMip8",
           "queueOverflowMask"
         ]);
         if (gpuPacked !== null) {
@@ -2141,7 +2161,8 @@ export class Renderer {
       this.recordFrameCounters(
         viewHzb,
         gpuScene.lights.shadow_context,
-        gpuPacked !== null
+        gpuPacked !== null,
+        gpuScene.lights.environmentEvidence
       );
       this._profiler.encodeGpuCounterReadback(cmd);
       this._frameCoordinator.submitFrame(activeFrame);
@@ -2372,7 +2393,12 @@ export class Renderer {
       readonly lastHzbDispatchCount: number;
       readonly lastHzbOutputPixels: number;
     },
-    packedPath: boolean
+    packedPath: boolean,
+    environment: {
+      specularAllocatedBytes: number;
+      diffuseAllocatedBytes: number;
+      specularMipLevelCount: number;
+    }
   ): void {
     const profiler = this._profiler;
     if (packedPath) {
@@ -2493,6 +2519,9 @@ export class Renderer {
       "lighting.localLightCount",
       this._lightCluster.lastLocalLightCount
     );
+    profiler.recordCounter("lighting.environment.specularAllocatedBytes", environment.specularAllocatedBytes);
+    profiler.recordCounter("lighting.environment.diffuseAllocatedBytes", environment.diffuseAllocatedBytes);
+    profiler.recordCounter("lighting.environment.specularMipLevelCount", environment.specularMipLevelCount);
     profiler.recordCounter("gpu.residentBytes", this._graphics.gpu_memory_usage);
   }
 

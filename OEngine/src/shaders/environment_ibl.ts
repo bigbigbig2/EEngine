@@ -82,17 +82,13 @@ fn sample_octahedral_bilinear(
     textureLoad(source, vec2i(origin + c11), i32(lod)) * weights.w;
 }
 
-fn roughness_to_mip_ratio(roughness: f32) -> f32 {
-  let ratio = clamp(roughness / 0.7, 0.0, 1.0);
-  return mix(ratio, sqrt(ratio), 0.4);
-}
-
 fn sample_prefiltered_environment(
   source: texture_2d<f32>,
   direction: vec3f,
   roughness: f32
 ) -> vec3f {
-  let lod = roughness_to_mip_ratio(roughness) * f32(5 - 1);
+  let max_mip = textureNumLevels(source) - 1u;
+  let lod = clamp(roughness, 0.0, 1.0) * f32(max_mip);
   let lower = u32(floor(lod));
   let blend = fract(lod);
   let lower_sample = sample_octahedral_bilinear(
@@ -102,7 +98,7 @@ fn sample_prefiltered_environment(
     direction,
     lower
   ).rgb;
-  let upper = lower + 1u;
+  let upper = min(lower + 1u, max_mip);
   let upper_sample = sample_octahedral_bilinear(
     source,
     vec2u(0u),
@@ -199,8 +195,8 @@ fn fs_main(
   let irradiance = sample_prefiltered_environment(
     sec_radix_passes,
     normal,
-    1.0
-  ) * 3.1415926535897932384626433832795;
+    0.0
+  );
   return vec4f(irradiance * occlusion, 0.0);
 }
 `;

@@ -107,13 +107,8 @@ fn texture_octahedral_sample_bilinear(
     textureLoad(source, vec2i(origin + c11), lod) * weights.w;
 }
 
-fn roughness_to_mip_ratio(roughness: f32) -> f32 {
-  let ratio = clamp(roughness / 0.7, 0.0, 1.0);
-  return mix(ratio, sqrt(ratio), 0.4);
-}
-
 fn sphere_probe_roughness_to_lod(roughness: f32) -> f32 {
-  return roughness_to_mip_ratio(roughness) * f32(5 - 1);
+  return clamp(roughness, 0.0, 1.0) * f32(textureNumLevels(sec_radix_passes) - 1u);
 }
 
 fn named_child(source: texture_2d<f32>, direction: vec3f, roughness: f32) -> vec3f {
@@ -127,7 +122,7 @@ fn named_child(source: texture_2d<f32>, direction: vec3f, roughness: f32) -> vec
     direction,
     lower
   ).rgb;
-  let upper = lower + 1u;
+  let upper = min(lower + 1u, textureNumLevels(source) - 1u);
   let upper_radiance = texture_octahedral_sample_bilinear(
     source,
     vec2u(0u),

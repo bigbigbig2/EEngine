@@ -20,7 +20,8 @@ import {
   SURFACE_NORMAL_DEBUG_WGSL,
   SURFACE_PBR_DEBUG_WGSL,
   VELOCITY_DEBUG_WGSL,
-  VISIBILITY_KEY_DEBUG_WGSL
+  VISIBILITY_KEY_DEBUG_WGSL,
+  LINEAR_HDR_DEBUG_WGSL
 } from "../../shaders/render_debug_view.js";
 import { resolveTextureView } from "./MaterialExpandPass.js";
 
@@ -36,6 +37,9 @@ export type RenderDebugViewResources = {
   gAlbedo: ResourceId;
   gEmissive: ResourceId;
   surfaceFlags: ResourceId | null;
+  indirectDiffuse: ResourceId | null;
+  indirectSpecular: ResourceId | null;
+  linearHdr: ResourceId | null;
 };
 
 export class RenderDebugViewPass {
@@ -109,6 +113,18 @@ export class RenderDebugViewPass {
       [
         RenderDebugViewValue.Reactive,
         createPipeline("Render debug/Reactive", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+      ],
+      [
+        RenderDebugViewValue.IndirectDiffuse,
+        createPipeline("Render debug/Diffuse IBL", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.IndirectSpecular,
+        createPipeline("Render debug/Specular IBL", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.LinearHdr,
+        createPipeline("Render debug/Linear HDR", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
       ]
     ]);
     this.packedVisibilityPipeline = createPipeline(
@@ -253,9 +269,20 @@ function inputResourceIds(
     case RenderDebugViewValue.HistoryValidity:
     case RenderDebugViewValue.Reactive:
       return [requireSurfaceMetadata(view, resources)];
+    case RenderDebugViewValue.IndirectDiffuse:
+      return [requireOptionalTexture(view, resources.indirectDiffuse)];
+    case RenderDebugViewValue.IndirectSpecular:
+      return [requireOptionalTexture(view, resources.indirectSpecular)];
+    case RenderDebugViewValue.LinearHdr:
+      return [requireOptionalTexture(view, resources.linearHdr)];
     default:
       throw new Error(`RenderDebugViewPass has no resource contract for '${view}'`);
   }
+}
+
+function requireOptionalTexture(view: RenderDebugView, resource: ResourceId | null): ResourceId {
+  if (resource === null) throw new Error(`RenderDebugViewPass requires '${view}' producer output`);
+  return resource;
 }
 
 function createPipeline(

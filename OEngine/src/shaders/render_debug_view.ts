@@ -23,6 +23,19 @@ import {
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../render/VisibilityBufferContract.js";
 import { SSR_FULLSCREEN_VERTEX_WGSL } from "./ssr_common.js";
+
+export const LINEAR_HDR_DEBUG_WGSL = /* wgsl */ `
+${SSR_FULLSCREEN_VERTEX_WGSL}
+@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> settings: vec4u;
+@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let dimensions = textureDimensions(source);
+  let output_size = max(settings.xy, vec2u(1u));
+  let uv = position.xy / vec2f(output_size);
+  let coordinate = min(vec2i(uv * vec2f(dimensions)), vec2i(dimensions) - vec2i(1));
+  return vec4f(textureLoad(source, coordinate, 0).rgb, 1.0);
+}
+`;
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
 export const RENDER_DEBUG_VIEW_FORMAT = GPU_SURFACE_FORMATS.hdrColor;

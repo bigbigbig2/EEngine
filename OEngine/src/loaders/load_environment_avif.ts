@@ -40,7 +40,7 @@ export function estimateSunDirection(e: EnvSampler2D): Float32Array {
   let a = 0;
   const i = t * n;
   for (let p = 0; p < i; p++) {
-    const base = i * s;
+    const base = p * s;
     const y =
       0.2126 * (r[base] as number) +
       0.7152 * (r[base + 1] as number) +

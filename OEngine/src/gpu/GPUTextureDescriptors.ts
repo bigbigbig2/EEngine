@@ -50,14 +50,14 @@ export class id extends sd implements GPUTextureDescriptor {
 
   get memory_footprint(): number {
     const size = this.#size;
-    let texels = size[0] * size[1] * size[2];
+    let texels = 0;
     for (let mip = 0; mip < this.mipLevelCount; mip++) {
-      texels =
+      texels +=
         Math.max(size[0] >> mip, 1) *
         Math.max(size[1] >> mip, 1) *
-        Math.max(size[2] >> mip, 1);
+        (this.dimension === "3d" ? Math.max(size[2] >> mip, 1) : size[2]);
     }
-    return texels * this.bits_per_sample * this.sampleCount;
+    return texels * (this.bits_per_sample / 8) * this.sampleCount;
   }
 
   get isTextureDescriptor(): true {
