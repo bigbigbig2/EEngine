@@ -35,6 +35,16 @@ with the exact upstream repository, commit/tag, source paths, preserved
 invariants, WebGPU differences, and paired old/new artifacts before code is
 ported.
 
+## Revalidation result
+
+The retained authored implementation passed the clean production Gate on commit
+`62158e9f20c081d12a832f01ae057678346e3796`; FidelityFX SSSR remains not adopted.
+The artifact is `temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`.
+The result covers hit/miss, roughness `0 / 0.5 / 1`, environment fallback,
+offscreen target, pan/disocclusion response and settling, shared temporal history,
+feature-off exact-zero SSR ownership, and phase timestamps. FX-06B and G5-T remain
+open.
+
 ## FX-08 revalidation contract
 
 The production fixture and Gate must cover a mirror plane with a visible

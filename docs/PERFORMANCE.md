@@ -364,7 +364,37 @@ half raw/denoised/temporal、camera pan、disocclusion、final HDR 和 feature o
 
 完整 JSON、GPU phase、graph/history evidence、environment provenance 与 PNG 位于
 `temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/`。
-FX-07 据此关闭；当前进入 FX-08，G5-T 仍需 FX-08 和 FX-06B。
+FX-07 据此关闭；FX-08 已随后关闭，当前进入 FX-06B，G5-T 仍未关闭。
+
+## R5 FX-08 Screen-Space Reflections clean focused Gate
+
+2026-09-01 在 clean commit `62158e9f20c081d12a832f01ae057678346e3796` 使用 production
+`Renderer.render()`、Chrome 151、NVIDIA Turing 完成 FX-08 Gate。固定条件为 `1280×720`、DPR 1、
+每阶段 30 warm-up + 120 sample、timestamp 每 2 帧；10 个阶段覆盖 hit/miss、roughness
+`0/0.5/1`、history confidence、mirror reflection、screen miss、offscreen target、camera pan、
+disocclusion 和 feature off/on，共保存 18 张 PNG。
+
+- `passed/gateEligible/requireClean=true`，issues、console/page、validation/uncaptured/device-loss 与
+  failed timestamp 均为 0；每帧 main submit 保持 1；
+- hit/miss debug 分别包含 `45,634/874,110` pixels；roughness low/mid/high band 分别为
+  `693,616/45,050/48,967` pixels；镜面条带与可见反射物已人工复核；
+- pan/disocclusion 的 event→8 frame response RMS 为 `9.966212/96.741617 RGB8`，证明 confidence
+  实际响应事件；两者 settle-32→64 RMS 均为 `0`，没有持续 trail；
+- final-reflection 的 trace P50/P95/P99 为 `0.582400/0.712704/1.132320 ms`，scene-color prefilter 为
+  `0.380800/0.476736/0.488096 ms`，resolve 为 `0.491872/0.615360/0.615520 ms`，三次 spatial 加
+  temporal denoise 合计为 `1.186144/1.411008/1.719328 ms`，共享 Indirect Composite 为
+  `0.055296/0.061920/0.339328 ms`；这些是 720p focused 数据，不代表 1080p 产品预算达标；
+- 两张 `rgba16float` history 合计 `14,745,600 B`。screen miss、offscreen target 与恢复阶段的
+  scene-linear HDR readback 均 finite、near-black fraction 为 `0`，miss 由 FX-03 environment 连续兜底；
+- feature-off 的 SSR owner、trace/prefilter/resolve/spatial/temporal/composite evidence、history count、
+  history bytes 与 SSR timestamp label 全为 0；普通 IBL 的共享 Indirect Composite 仍是非 SSR owner；
+- 当前 authored SSR 通过 Gate，因此按算法治理保留；FidelityFX SSSR 仅登记为 MIT replacement
+  candidate，未采用。SSR 专属 scene-color prefilter 语义不同于 environment GGX prefilter，后者直接
+  复用 FX-03 owner；重复的私有 final composite 与死 shader 已删除。
+
+完整 JSON、GPU phase、graph/history evidence、HDR readback、environment provenance 与 PNG 位于
+`temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`。FX-08 据此关闭；当前进入
+FX-06B，G5-T 仍未关闭。
 
 ## 性能变更完成标准
 

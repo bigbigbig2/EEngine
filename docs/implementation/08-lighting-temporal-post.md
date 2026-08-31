@@ -290,11 +290,25 @@ SSAO/GTAO 选择由画质/性能对比决定，复用 final Depth/HZB/normal。�
 
 状态：已在 clean-scope commit `548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7` 关闭。先验证并修复当前 horizon-based GTAO-family authored WGSL，没有建立 XeGTAO 第二管线；来源、许可证、保留不变量和 WebGPU 差异见 [R5-05 porting ledger](../references/porting/R5-05-ambient-occlusion.md)。raw/spatial/optional temporal 以 full 或 half internal resolution 工作，half bent normal 只在 final consumer 存在时恢复到 full resolution；AO temporal 复用 FX-06A shared history registry，temporal-off 不分配 history，feature-off 的 owner/Pass/resource/history/timestamp 全为零。
 
-production Gate 固定 `1280×720`、DPR 1、每阶段 30 warm-up + 120 sample，覆盖 raw/denoised/temporal、full/half、static temporal off/on、camera pan、disocclusion 和 feature off/on，共保存 52 张 PNG。Gate 为 `passed/gateEligible/requireClean=true`，WebGPU/console/page diagnostics 与 issues 为零；完整 JSON、GPU phase、graph/history evidence 和截图位于 `temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/`。FX-07 只关闭 AO；下一步为 FX-08，G5-T 仍需 FX-08 与 FX-06B。
+production Gate 固定 `1280×720`、DPR 1、每阶段 30 warm-up + 120 sample，覆盖 raw/denoised/temporal、full/half、static temporal off/on、camera pan、disocclusion 和 feature off/on，共保存 52 张 PNG。Gate 为 `passed/gateEligible/requireClean=true`，WebGPU/console/page diagnostics 与 issues 为零；完整 JSON、GPU phase、graph/history evidence 和截图位于 `temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/`。FX-07 只关闭 AO；FX-08 已随后关闭，当前进入 FX-06B，G5-T 仍未关闭。
 
 ### FX-08 · SSR
 
 复用 HZB、Surface、roughness、Velocity/history；定义 miss/fallback 到 IBL，避免重复 prefilter 可融合资源。关闭后零 SSR history/trace/denoise。
+
+状态：已在 clean commit `62158e9f20c081d12a832f01ae057678346e3796` 关闭。先 revalidate 当前
+authored SSR，没有建立 FidelityFX SSSR 第二管线；治理记录见
+[R5-06 revalidation record](../references/porting/R5-06-screen-space-reflections.md)。SSR temporal 复用
+FX-06A shared registry 和 submission-aware invalidation；FX-03 environment mip contract 提供 miss fallback；
+私有 frame parity、重复 final composite 与死 shader 已删除。SSR 自有 scene-color prefilter 保留，因为它服务
+screen hit roughness resolve，不复制 environment GGX owner。
+
+production Gate 固定 `1280×720`、DPR 1、每阶段 30 warm-up + 120 sample，覆盖 mirror reflection、
+screen miss、roughness `0/0.5/1`、offscreen target、pan/disocclusion 与 feature off/on，保存 18 张 PNG、
+scene-linear HDR readback、GPU phase 与 graph/history evidence。Gate 为
+`passed/gateEligible/requireClean=true`，完整 artifact 位于
+`temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`。FX-08 只关闭 SSR；下一步为
+FX-06B，G5-T 尚未关闭。
 
 ### FX-09 · Exposure、Bloom、Tonemap、Sharpen/Motion Blur
 

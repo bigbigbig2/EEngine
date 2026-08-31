@@ -704,6 +704,29 @@ AO raw、denoise/temporal、final HDR，GPU phase 与 history bytes。
 保存：
 SSR hit/miss debug、roughness、history confidence、trace/denoise/composite GPU time。
 
+## 实现与关闭证据
+
+FX-08 已在 clean commit `62158e9f20c081d12a832f01ae057678346e3796` 关闭：
+
+- fixture：`examples/r5-screen-space-reflections/`；runner：
+  `examples/scripts/run-r5-fx08-gate.mjs`；
+- `1280×720`、DPR 1、每阶段 30 warm-up + 120 sample、timestamp interval 2；10-stage
+  sequence 与 18 张 PNG 覆盖本文全部要求；
+- hit/miss 为 `45,634/874,110` pixels，roughness low/mid/high band 为
+  `693,616/45,050/48,967` pixels；pan/disocclusion event response RMS 为
+  `9.966212/96.741617`，settle-32→64 均为 `0`；
+- screen miss/offscreen/restored 的 scene-linear HDR 均 finite 且 near-black fraction 为 `0`；
+  feature-off 的 SSR owner/Pass/history/bytes/timestamp 为零；
+- current authored SSR 通过 revalidation，因此 FidelityFX SSSR 未采用；FX-06A shared history 是唯一
+  全局 invalidation owner，off→on graph key 由 SSR owner generation 隔离；
+- final-reflection trace/denoise/shared-composite P50/P95/P99 分别为
+  `0.582400/0.712704/1.132320`、`1.186144/1.411008/1.719328`、
+  `0.055296/0.061920/0.339328 ms`；
+- `passed/gateEligible/requireClean=true`，issues 与 WebGPU/console/page diagnostics 为 0；完整证据位于
+  `temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`。
+
+该结论不关闭 FX-06B 或 G5-T。
+
 ## FX-06B · Final TAA/TAAU / Upscale Closure
 
 FX-07/08 通过后，runner 才执行 final composition sequence：opaque + transparency reactive + AO + SSR/IBL fallback → TAA/TAAU → upscale。必须自动比较 feature 单开/组合、camera cut、resize、scale transition 的关键帧和 settling/ghost metric，并证明 AO/SSR 没有私有重复的全局 history invalidation owner。
