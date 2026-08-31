@@ -258,7 +258,7 @@ Hardware Raster 与 64-light pressure debt 继续进入 G5-P。
 
 schema v7 sampled evidence使用最后六个 4 B slot记录三个 cascade work、atlas updated pixels、alpha work 和 per-cascade overflow mask。非 sampled frame没有 counter reducer。focused production Gate固定 Benchmark C camera/light使三个级联都有有效 caster，并执行 shadow on/off/on sequence。
 
-状态：已在 clean commit `8986dc6256e31a5c3630935d1fff2aed08f7a3bf` 关闭。Gate为 `passed/gateEligible=true`，三个 cascade work为 `5/64/47`、alpha work `38`、overflow `0`，Shadow GPU P50/P95为 `0.228096/0.884528 ms`；on/off/on atlas bytes为 `64 MiB/0/64 MiB`、draw count为 `3/0/3`，唯一 submit保持 1。截图、provenance、console/page/WebGPU diagnostics全部通过，artifact位于 `temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。这关闭 FX-04 correctness/focused budget，不关闭仍等待 FX-05的 G5-S，也不宣称1080p产品性能达标。
+状态：已在 clean commit `8986dc6256e31a5c3630935d1fff2aed08f7a3bf` 关闭。Gate为 `passed/gateEligible=true`，三个 cascade work为 `5/64/47`、alpha work `38`、overflow `0`，Shadow GPU P50/P95为 `0.228096/0.884528 ms`；on/off/on atlas bytes为 `64 MiB/0/64 MiB`、draw count为 `3/0/3`，唯一 submit保持 1。截图、provenance、console/page/WebGPU diagnostics全部通过，artifact位于 `temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。该证据当时只关闭 FX-04 correctness/focused budget；G5-S随后由FX-05正式Gate共同关闭，仍不宣称1080p产品性能达标。
 
 ### FX-05 · Transparency
 
@@ -270,7 +270,9 @@ FX-05 已落地为 `PackedTransparentOitPass`：BLEND instance 通过共享 hier
 
 MBOIT v1 移植官方 4 power moments 数学不变量，使用 `r32float + rgba32float` accumulation、`5e-7` 单精度 bias、`0.25` overestimation 和 bounded finite fallback；resolved/reactive 为 `rgba16float + r8unorm`，总 transient 为 `29 B/pixel`。透明 shading 读取同一 Packed Material/Texture、FX-02 bounded cluster/light/shadow inputs 与 FX-03 IBL owner，不复制 light-list producer；motion v1 固定 `reactive-all-velocity-invalid-v1`，最终 temporal 合并归 FX-06B。完整来源、归档 hash、许可证、差异和未包含项见 `references/porting/R5-03-packed-mboit-transparency.md`。
 
-schema v8 在原 additive ABI 后增加 real sampled fields：`transparentRasterWork`、`transparentTriangles`、`transparentReactivePixels`、`transparentMomentFiniteFailures`、`transparentQueueOverflowMask`。evidence compute 只存在于 sampled graph；非 sampled 帧没有该 pass/atomic。C-transparent dirty production Gate 已覆盖 coverage `0/10/50%`、layers `1/4/8/16`、materials `1/8/64` 与正/逆提交顺序，所有用例通过，order PNG RMS/max difference 为 `0/0`；clean provenance Gate 在提交后冻结。
+schema v8 在原 additive ABI 后增加 real sampled fields：`transparentRasterWork`、`transparentTriangles`、`transparentReactivePixels`、`transparentMomentFiniteFailures`、`transparentQueueOverflowMask`。evidence compute 只存在于 sampled graph；非 sampled 帧没有该 pass/atomic。C-transparent 正式 production Gate 已覆盖 coverage `0/10/50%`、layers `1/4/8/16`、materials `1/8/64` 与正/逆提交顺序，12组全部通过，material 1→64的draw恒为3，finite failure与overflow恒为0，order PNG RMS/max difference 为 `0/0`。16层、50% coverage压力case的moment/forward/composite P50分别为`1.550464/3.798848/0.02544 ms`，是focused压力证据，不是1080p产品目标结论。
+
+FX-05 在受测源码 clean commit `ee576a574d0776b9d429c6befc240c3478e05528` 关闭。Gate为`passed/gateEligible/requireClean=true`；clean scope覆盖OEngine/docs/examples和所有其他受测路径，只精确排除并在artifact中记录用户已有`M three.js`参考子模块状态，页面commit/content hash仍须与runner一致。完整JSON、环境provenance与PNG位于`temp/r5/fx-05/ee576a574d0776b9d429c6befc240c3478e05528-dirty-bbb10831fccd/`。FX-04与FX-05由此共同关闭G5-S；legacy non-Packed `TransparentOitPass`的类级删除仍归FX-12。
 
 ### FX-06 · Temporal Foundation / Dynamic Resolution / Upscaling
 

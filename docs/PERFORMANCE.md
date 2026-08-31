@@ -298,8 +298,29 @@ camera far=100，让冻结几何覆盖三个practical cascade。它验证Packed 
 - 两张shadow-on截图hash一致，shadow-off hash不同，三张均非空并经人工检查。
 
 完整JSON、环境provenance和PNG位于
-`temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。FX-04据此关闭；
-G5-S仍需FX-05 Packed Transparency，不能由本结果提前关闭。
+`temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。FX-04据此关闭；该证据本身不提前关闭G5-S。
+
+## R5 FX-05 Packed MBOIT Transparency clean focused Gate
+
+2026-08-31 在受测源码 clean commit `ee576a574d0776b9d429c6befc240c3478e05528` 使用production
+`Renderer.render()`、Chrome 151、NVIDIA Turing完成FX-05 focused Gate。固定条件为internal 960×720、
+DPR 1、每组6 warm-up + 18 sample、timestamp/counter每2帧；覆盖coverage 0/10/50%、layers
+1/4/8/16、materials 1/8/64与正逆提交顺序，共12组。该Gate验证Packed透明结构、数值稳定、
+工作量伸缩和focused预算，不替代G5-P的1080p/full性能结论。
+
+- `passed=true`、`gateEligible=true`、`requireClean=true`，issues、console/page/WebGPU diagnostics为0；
+- materials `1→64`时draw恒为3，work `1→64`、triangles `12→768`，不存在per-material draw扩张；
+- 全部用例的`transparentMomentFiniteFailures=0`、`transparentQueueOverflowMask=0`；
+- 16层、50% coverage压力case的moment/forward/composite P50为
+  `1.550464/3.798848/0.02544 ms`，transient固定`29 B/pixel = 20,044,800 B`；
+- 正逆提交顺序PNG差异为`RMS=0`、`maxChannelDifference=0`；layers-16与materials-64截图已人工复核，
+  未见破损、NaN或缺块；
+- Gate clean scope覆盖OEngine/docs/examples及其他受测路径，仅精确排除并记录用户已有
+  `M three.js`参考子模块状态；页面commit/content hash仍强制匹配。
+
+完整JSON、环境provenance和PNG位于
+`temp/r5/fx-05/ee576a574d0776b9d429c6befc240c3478e05528-dirty-bbb10831fccd/`。
+FX-04与FX-05由此共同关闭G5-S；当前进入FX-06A。该结论不表示1080p/60产品预算已经达成。
 
 ## 性能变更完成标准
 

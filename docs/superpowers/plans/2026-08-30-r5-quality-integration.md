@@ -248,7 +248,7 @@ git commit -am "实现（R5-FX02）：收口 clustered lighting 容量与 direct
 - [x] **Step 3: Add transparent queue capacity/overflow test**
 - [x] **Step 4: Remove per-material draw scaling from Packed transparency**
 - [x] **Step 5: Run C-transparent 1/8/64 material sweep**
-- [ ] **Step 6: Close G5-S and commit**
+- [x] **Step 6: Close G5-S and commit**
 
 ---
 

@@ -527,7 +527,7 @@ FX-04 已在 clean commit `8986dc6256e31a5c3630935d1fff2aed08f7a3bf` 关闭：
 
 完整证据位于
 `temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。FX-04据此
-关闭；G5-S仍等待FX-05 Packed Transparency，不能用CSM完成证据提前关闭。
+关闭；该证据本身不能提前关闭G5-S。G5-S随后由FX-05正式Gate共同关闭。
 
 ---
 
@@ -593,7 +593,11 @@ G5-S 退出：FX04/05 全部通过，Packed Shadow/Transparency 不再依赖 leg
 - 固定提交：1 moment indirect + 1 forward indirect + 1 composite，material `1/8/64` 均为 3 draw。
 - counter ABI：schema v8 / 512 B；work、exact meshlet triangles、reactive pixels、finite failure 和 overflow 均来自 sampled GPU pass，不用 CPU 或假 counter。
 - feature-off：coverage=0 使用 fresh Renderer 验证透明 graph/pass owner与 transient bytes为 0。
-- dirty production Gate 已通过全部 12 cases；正逆序截图 `RMS=0`、`maxChannelDifference=0`，无 console/page/WebGPU diagnostics。该结果只证明实现闭环，clean artifact/provenance 在提交后记录。
+- 正式 Gate 已在受测源码 commit `ee576a574d0776b9d429c6befc240c3478e05528` 通过全部12 cases；`passed/gateEligible/requireClean=true`，正逆序截图`RMS=0`、`maxChannelDifference=0`，无console/page/WebGPU diagnostics。
+- clean scope覆盖OEngine/docs/examples与其他受测路径，只精确排除并记录用户已有`M three.js`参考子模块状态；页面commit/content hash仍必须匹配，其他dirty reason一律使Gate失败。
+- materials `1/8/64`的work为`1/8/64`、triangles为`12/96/768`，draw均为3；全部用例finite failure和overflow均为0。
+- layers `1/4/8/16`的moment P50为`0.114528/0.397312/0.792864/1.550464 ms`，forward P50为`0.254112/0.95232/1.882112/3.798848 ms`；composite约`0.025 ms`。16层结果是960×720 focused压力数据，不代表1080p产品预算达标。
+- 完整artifact：`temp/r5/fx-05/ee576a574d0776b9d429c6befc240c3478e05528-dirty-bbb10831fccd/`。FX-04与FX-05共同关闭G5-S。
 
 ---
 
