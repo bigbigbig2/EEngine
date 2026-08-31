@@ -1,6 +1,6 @@
 # R5-01 · Surface Lighting / FX-03 IBL Alignment
 
-Status: implementation complete; clean production Gate is the closure authority.
+Status: closed by clean production Gate on `86e9ebd1423b8237500f82e1f3878773c28d35f6`.
 
 ## Reference ID
 
@@ -161,10 +161,13 @@ examples/scripts/run-r5-fx03-gate.mjs
 
 自动测试覆盖动态 LOD、perceptual/linear roughness、Hammersley、oct orientation、
 constant diffuse irradiance、sun direction loader、shader source、counter ABI、所有 mip
-显存计算、debug topology 与无下载副作用。浏览器页面使用生产 Renderer、单个 Damaged
+显存计算、metallic `0/1` energy input、debug topology 与无下载副作用。浏览器页面使用生产 Renderer、单个 Damaged
 Helmet、零 direct light、冻结 64×64 linear HDR environment；保存 Surface、Diffuse IBL、
 Specular IBL、Linear HDR visualisation 和 Final Tonemapped，并直接运行 production
-prefilter WGSL 的 constant-HDR GPU numeric readback。
+prefilter WGSL 的 constant-HDR GPU numeric readback。Gate 还直接检查 resident 64×64
+`rg16float` split-sum LUT 的 finite/range、roughness `0/0.5/1 → LOD 0/3/6`、真实 mip
+histogram 与 allocated bytes；clean artifact 位于
+`temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。
 
 ## Decision
 

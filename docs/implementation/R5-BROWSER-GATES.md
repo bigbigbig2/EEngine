@@ -419,6 +419,21 @@ Gate 还必须断言：`iblSampledPixels == sum(iblMip0..8)`、真实 specular m
 
 期望：先在线性 HDR 对比，tonemap screenshot 只能作为第二层证据。
 
+## Closure evidence
+
+FX-03 已在 clean commit `86e9ebd1423b8237500f82e1f3878773c28d35f6` 关闭：
+
+- clean Gate 为 `passed/gateEligible/requireClean=true`，issues 与 WebGPU/console/page diagnostics 为 0；
+- production constant-HDR WGSL micro 的 specular 为 `[0.25,0.5,2]`，diffuse 为
+  `[0.78515625,1.5703125,6.28125]`，匹配 radiance 与 `πL`；
+- roughness `0/0.5/1 → LOD 0/3/6`，metallic `0/1` 与 64×64 resident split-sum
+  LUT 的 finite/range 合同均写入 artifact；
+- `158,086` sampled pixels 与 mip histogram 总和一致，真实 mip count 为 7，
+  specular/diffuse allocated bytes 为 `43,688/8,192`；
+- 八个要求视图均保存非空、有变化的 PNG。
+
+证据目录为 `temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。
+
 ## 截图与数值回归
 
 保存：

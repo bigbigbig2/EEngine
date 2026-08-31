@@ -233,6 +233,33 @@ exact Gate 通过，所有非 FX-02 phase 的 P50/P95 回归线越界计数均�
 `0.885552/1.145904 ms`。这些数据只证明 FX-02 无不相关回归；由于机器热状态差异，
 不声明全局性能收益，也不关闭 FX-03、`performance-targets.json` 或 G5-L。
 
+## R5 FX-03 IBL Alignment clean focused Gate
+
+2026-08-31 在 clean commit `86e9ebd1423b8237500f82e1f3878773c28d35f6` 使用 production
+`Renderer.render()`、单个固定 Damaged Helmet、零 direct light 与确定性 64×64 linear-HDR
+octahedral environment 完成 FX-03 focused Gate。该页面使用 6 warm-up + 18 sample、GPU
+timestamp/counter 每 4 帧采样；它用于关闭 IBL 数值、资源和证据合同，不是 A/B/C 全局性能
+基线，也不据此声明稳定帧提速。
+
+- `passed=true`、`gateEligible=true`、`requireClean=true`，issues、WebGPU validation/
+  uncaptured/device-loss、failed timestamp/counter、console/page error 均为 0；
+- sampled frame 的 `iblSampledPixels=158,086`，dominant mip histogram 为
+  `[88766,34540,14269,6263,4549,7587,2112,0,0]`，总和精确等于 sampled pixels；
+- 真实 specular mip count 为 7，specular/diffuse allocated bytes 为 `43,688/8,192`；
+- production prefilter WGSL constant-HDR micro：specular `[0.25,0.5,2]` 精确匹配，diffuse
+  `[0.78515625,1.5703125,6.28125]` 在 0.04 容差内匹配 `πL`；
+- runtime `split_sum.bin` 为 64×64 `rg16float`、4,096 texels、全部 finite；单通道范围
+  `[0,1]`，两通道和范围 `[0.316447556,1.000006199]`；
+- roughness `0/0.5/1` 映射到 7-mip chain 的 LOD `0/3/6`；metallic `0/1` 分别得到
+  dielectric `F0=0.04 + diffuse=baseColor` 与 conductor `F0=baseColor + diffuse=0`；
+- BaseColor、Normal、Roughness、Metallic、Diffuse IBL、Specular IBL、Linear HDR 和 Final
+  Tonemapped 八张 canvas PNG 均非空且具有像素变化。
+
+环境卷积只在 environment identity 改变时编码；上述 Gate 没有把 one-shot prefilter 时间
+伪装成稳定帧收益。完整证据位于
+`temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。FX-03 据此关闭；
+`performance-targets.json` 仍需由目标机器冻结后才能关闭 G5-L。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。

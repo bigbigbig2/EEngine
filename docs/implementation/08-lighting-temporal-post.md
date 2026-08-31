@@ -230,6 +230,8 @@ producer 可以 `attempted > capacity`，但所有 consumer 只能遍历 `writte
 
 执行来源与代码合同见 [R5-01 porting ledger](../references/porting/R5-01-surface-lighting.md)。采用 Filament 的 Hammersley + GGX importance sampling、独立 cosine-weighted diffuse irradiance 与 split-sum 数学不变量；Khronos Sample Renderer 用于 glTF metallic/roughness/IBL 语义交叉验证。OEngine 重实现 WebGPU octahedral owner，不移植 native descriptor/allocator。
 
+状态：已在 clean commit `86e9ebd1423b8237500f82e1f3878773c28d35f6` 关闭。生产 Gate 覆盖 constant-HDR specular/`πL` diffuse GPU readback、roughness `0/0.5/1`、metallic `0/1`、resident split-sum LUT 范围、真实 mip histogram、资源 bytes、八个 debug view、provenance 与零 diagnostics。artifact 位于 `temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。下一步只收口 `performance-targets.json` 与 G5-L，不为 FX-04 重写 IBL owner。
+
 生产结构冻结为 `GPULightCollection -> specular rgba16float mip chain + 32x32 diffuse irradiance`。环境改变时一次性显式生成所有 mip，稳定帧不得 prefilter；runtime 用 `textureNumLevels()`，禁止固定 5 mip、递归采上一 mip或 diffuse 复用 specular 最粗 mip。Diffuse 输出 irradiance integral，Composite 唯一乘 `1/PI`。
 
 `B-shading-oracle` 使用单个 Damaged Helmet、固定 camera、冻结 64×64 working-linear HDR octahedral recipe、零 direct light，并关闭 Shadow/AO/SSR/Temporal/Exposure/Bloom/Post。production Gate 保存 BaseColor/Normal/Roughness/Metallic/Diffuse IBL/Specular IBL/Linear HDR visualisation/Final Tonemapped，同时用 production prefilter WGSL 对 constant HDR 做 GPU readback 数值验证。
