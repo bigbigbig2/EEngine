@@ -451,6 +451,11 @@ G5-L 退出前必须：
 - C-light sweep 无 silent overflow；
 - Lighting source-of-truth 不再依赖未登记的 `lighting_ch_oracle.ts`。
 
+状态：2026-08-31 已关闭。根 `performance-targets.json` 以 NVIDIA Turing clean evidence 冻结
+目标机、A/B/C absolute guard、1080p product budget、feature 增量、memory 与 I/O cap；文件
+显式区分 G5-L correctness closure 与尚未达成的 G5-P 产品性能目标。FX-01/02/03 的 clean
+artifact、C-light overflow/fallback 和 B-shading numeric/visual oracle 均通过，零 silent overflow。
+
 ---
 
 # FX-04 · Packed CSM Shadow / G5-S

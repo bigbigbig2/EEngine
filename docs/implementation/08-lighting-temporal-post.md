@@ -240,6 +240,14 @@ counter schema v6 由 sampled `PackedSurfaceCounterPass` 记录 `iblSampledPixel
 
 从 FX-03/G5-L 起持续采集 texture allocated/resident bytes、resident/retiring/free layer、fallback、upload bytes 与 sampled-mip 分布。FX-11 才根据累计证据决定保留固定 owner、采用 size class 或建立 streaming 任务，但不能等到 FX-11 才第一次发现 Lighting/IBL 的纹理容量与 mip 质量问题。
 
+### G5-L · Lighting Baseline（已关闭）
+
+2026-08-31 已在根 `performance-targets.json` 冻结目标机器与预算合同。FX-01/02/03 的
+Surface numeric、bounded LightList、C-light sweep 与 B-shading IBL oracle 均已有 clean
+production evidence，Lighting runtime source 不再依赖未登记 oracle，因此 G5-L 关闭。
+这里的关闭不等于产品总预算达标：目标文件保持 `productPerformanceAchieved=false`，当前
+Hardware Raster 与 64-light pressure debt 继续进入 G5-P。
+
 ### FX-04 · CSM Shadow
 
 保留现有 CSM，不建设 VSM。FX-04 开始前先冻结 `SecondaryRasterWork v1` family：至少定义 instance slot、cluster/meshlet locator、material slot、raster flags、queue header、capacity/overflow 和 indirect-args ownership。每个 Cascade 的 caster selection 复用 Instance/Hierarchy/Cluster tables、共享 work-generation kernel/ABI 与 GPU indirect consumer，不恢复 CPU draw list；视图相关裁剪仍写各 cascade 独立队列。记录 main/cascade traversal、raster、atlas bytes、更新频率和 alpha-tested caster 成本；关闭 shadow 不保留 caster work/atlas update。

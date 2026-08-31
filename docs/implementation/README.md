@@ -49,7 +49,7 @@ R3/G3 已在 clean commit `aff3ab8` 关闭：`InstanceCull + root` 融合、root
 
 R4 已完成执行前设计冻结，长期边界见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，研究来源见 [R4 algorithm guide](../references/R4-ALGORITHM-GUIDE.md)。`R4-A-01..06` 已关闭 G4-A；A/B Hardware Raster 回退仍作为独立 phase 风险保留。`R4-B-01..06/09` 已集成，条件任务 `R4-B-07/08` 因无资产/profile 证据而跳过，Packed `R4-B-10` 已删除 per-material fullscreen、旧 auxiliary MRT 与 Packed Velocity。2026-08-28 的 clean/full B/C Gate 证明 active material `1 → 3` 时 Resolve draw 恒为 1、Surface 为 26 B/pixel、fallback/invalid/overflow/WebGPU diagnostics 为 0；C P50 相对旧 3-draw 链改善约 11.9%，B 因加入完整纹理与 velocity 回退，已如实登记。普通 `Scene` legacy MaterialExpand/Velocity 仍有公开 consumer，但只惰性创建且 Packed 帧零成本，类级删除归 `FX-12`。R4 core（G4-A/G4-B）已经关闭；`R4-C-01..09` 改为 optional performance track，不属于当前主线 Gate。R5 执行顺序保持 `R5-00 → FX-01..03 → G5-L → FX-04..05 → G5-S → FX-06A → FX-07..08 → FX-06B → G5-T → FX-09..12 → G5-P`；旧 `VIS/MAT` 编号只保留历史含义，不再生成新提交或 artifact。
 
-R5-00、FX-01 Surface、FX-02 Clustered Direct 与 FX-03 IBL Alignment 已关闭。FX-03 clean commit `86e9ebd` 证明 production GGX/diffuse convolution、动态 mip、split-sum LUT、材质端点、真实 mip histogram、八个 debug view 与零 diagnostics；证据见 `temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。当前唯一执行入口是用目标机器数据冻结 `performance-targets.json` 并关闭 G5-L；之后进入 FX-04 Packed CSM Shadow，不重开 FX-01..03。
+R5-00、FX-01 Surface、FX-02 Clustered Direct、FX-03 IBL Alignment 与 G5-L 已关闭。FX-03 clean commit `86e9ebd` 证明 production GGX/diffuse convolution、动态 mip、split-sum LUT、材质端点、真实 mip histogram、八个 debug view 与零 diagnostics；证据见 `temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。根 `performance-targets.json` 已冻结目标机器与产品/回归预算且明确产品目标尚未达成；当前唯一执行入口是 FX-04 Packed CSM Shadow，不重开 FX-01..03。
 
 R3 集中为四个可运行包：
 

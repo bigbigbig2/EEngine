@@ -258,7 +258,26 @@ timestamp/counter 每 4 帧采样；它用于关闭 IBL 数值、资源和证据
 环境卷积只在 environment identity 改变时编码；上述 Gate 没有把 one-shot prefilter 时间
 伪装成稳定帧收益。完整证据位于
 `temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。FX-03 据此关闭；
-`performance-targets.json` 仍需由目标机器冻结后才能关闭 G5-L。
+`performance-targets.json` 随后的 G5-L 收口已由同一 NVIDIA Turing 目标机历史 clean/full
+证据冻结；FX-03 focused artifact 仍只证明 IBL correctness，不单独承担 A/B/C 绝对性能结论。
+
+## G5-L 目标机器预算冻结与结论
+
+2026-08-31 在根 `performance-targets.json` 冻结 schema v1。目标机为 Windows / Chrome 151 /
+NVIDIA Turing（GeForce RTX 2060 SUPER）；Intel Gen9 保留为 correctness-only 最低已验证 adapter。
+冻结依据直接引用 R3-D、R4-B、FX-02 与 FX-03 clean commit/artifact，不以缺失字段、假零或
+另一台 GPU 的数字填充。
+
+产品目标固定为 `1920×1080 / DPR 1 / 60 FPS / 16.667 ms GPU`；A/B/C 回归 profile 仍为
+`1280×720 / 60 warm-up / 180 sample / 3 independent sessions`。两者有意分离：前者是 G5-P
+必须追赶的最终总预算，后者是当前目标机上防止继续回退的绝对护栏。文件同时冻结 Lighting、
+Shadow、Transparency、Temporal 的 feature-on 增量预算、resident/transient/history/shadow-atlas
+上限和每帧 upload/readback cap。
+
+G5-L 据 FX-01 Surface numeric、FX-02 0/1/direct light 与 bounded LightList、C-light sweep、
+FX-03 B-shading IBL oracle、正式 source owner 和上述目标合同关闭。`productPerformanceAchieved`、
+`threeJsParityClaimed`、`aaaLikePerformanceClaimed` 均明确为 `false`；现有 Hardware Raster 与
+64-light overlap 超出最终产品分配的事实继续阻塞 G5-P，不因 G5-L correctness closure 获得豁免。
 
 ## 性能变更完成标准
 
