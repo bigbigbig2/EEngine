@@ -20,6 +20,12 @@ const outputRoot = path.join(repoRoot, "temp/r5/fx-05", artifactId);
 const baseUrl = process.env.OENGINE_EXAMPLES_URL ?? "http://127.0.0.1:5174";
 const chromePath = process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const requireClean = process.env.FX05_REQUIRE_CLEAN !== "0";
+const excludedReferenceDirtyReasons = currentBuild.dirtyReasons.filter(
+  (reason) => /^M three\.js$/.test(reason)
+);
+const scopedDirtyReasons = currentBuild.dirtyReasons.filter(
+  (reason) => !excludedReferenceDirtyReasons.includes(reason)
+);
 const cases = [
   { id: "coverage-0", coverage: 0, layers: 1, materials: 1, order: "forward" },
   { id: "coverage-10", coverage: 10, layers: 4, materials: 1, order: "forward" },
@@ -136,16 +142,18 @@ const issues = [
   ...imageIssues,
   ...materialScaleIssues,
   ...orderIssues,
-  ...(!requireClean || !currentBuild.dirty
+  ...(!requireClean || scopedDirtyReasons.length === 0
     ? []
-    : ["clean Gate requested with a dirty worktree"])
+    : [`clean Gate requested with scoped dirty paths: ${scopedDirtyReasons.join(", ")}`])
 ];
 const gate = {
   schemaVersion: 1,
   taskId: "FX-05",
   passed: issues.length === 0,
-  gateEligible: !currentBuild.dirty && build.passed,
+  gateEligible: scopedDirtyReasons.length === 0 && build.passed,
   requireClean,
+  cleanScope: "OEngine/docs/examples; three.js reference submodule worktree excluded",
+  excludedReferenceDirtyReasons,
   issues
 };
 await writeJson(path.join(outputRoot, "artifact.json"), {

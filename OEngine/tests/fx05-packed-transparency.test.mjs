@@ -97,7 +97,7 @@ test("FX-05 sampled evidence extends the additive counter ABI without fake zeros
 });
 
 test("FX-05 production source excludes BLEND from opaque and CSM and has no per-material Packed loop", async () => {
-  const [hierarchy, visibility, shadow, loader, pass, shader, renderer, ledger] = await Promise.all([
+  const [hierarchy, visibility, shadow, loader, pass, shader, renderer, ledger, gateRunner] = await Promise.all([
     readFile(new URL("../src/render/HierarchicalWorkGenerator.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/render/passes/PackedVisibilityPass.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/render/passes/PackedCsmShadowPass.ts", import.meta.url), "utf8"),
@@ -105,7 +105,8 @@ test("FX-05 production source excludes BLEND from opaque and CSM and has no per-
     readFile(new URL("../src/render/passes/PackedTransparentOitPass.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/shaders/packed_transparent_oit.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/render/Renderer.ts", import.meta.url), "utf8"),
-    readFile(new URL("../../docs/references/porting/R5-03-packed-mboit-transparency.md", import.meta.url), "utf8")
+    readFile(new URL("../../docs/references/porting/R5-03-packed-mboit-transparency.md", import.meta.url), "utf8"),
+    readFile(new URL("../../examples/scripts/run-r5-fx05-gate.mjs", import.meta.url), "utf8")
   ]);
   assert.match(hierarchy, /excludedInstanceFlags/);
   assert.match(visibility, /excludedInstanceFlags:\s*GPU_INSTANCE_FLAGS\.Transparent/);
@@ -122,4 +123,7 @@ test("FX-05 production source excludes BLEND from opaque and CSM and has no per-
   assert.match(ledger, /3A09C53B232908B356633D7BC1D9D651AE502E9A73E4E161527A73305B55C1FC/);
   assert.match(ledger, /CC0/);
   assert.match(ledger, /computeTransmittanceAtDepthFrom4PowerMoments/);
+  assert.match(gateRunner, /\^M three\\\.js\$/);
+  assert.match(gateRunner, /scopedDirtyReasons/);
+  assert.match(gateRunner, /three\.js reference submodule worktree excluded/);
 });
