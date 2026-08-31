@@ -21,6 +21,7 @@ import {
 } from "../../OEngine/src/index.ts";
 import { floatToHalf } from "../../OEngine/src/loaders/float16.ts";
 import { octDecode } from "../../OEngine/src/render/IblAlignment.ts";
+import { GPU_INSTANCE_FLAGS } from "../../OEngine/src/gpu/GpuInstanceAbi.ts";
 
 export type BenchmarkRuntimeProfile = "full" | "smoke";
 
@@ -232,8 +233,9 @@ async function createC(
         (z - (gridZ - 1) * 0.5) * recipe.grid.spacing
       );
       copyBounds(sources[geometryIndex]!, boundsSpheres, boundsMin, boundsMax, ordinal);
-      flags[ordinal] = materials[materialIndex]!.transparency_mode ===
-        ShadeTransparencyMode.AlphaTested ? 1 << 3 : 0;
+      flags[ordinal] = GPU_INSTANCE_FLAGS.CastsShadow |
+        (materials[materialIndex]!.transparency_mode ===
+          ShadeTransparencyMode.AlphaTested ? GPU_INSTANCE_FLAGS.AlphaTested : 0);
       debugIds[ordinal] = ordinal + 1;
       if (ordinal % recipe.dynamicTransformEvery === 0) dynamicIndices.push(ordinal);
     }
@@ -409,7 +411,7 @@ function addCLights(scene: Scene, recipe: BenchmarkCRecipe): void {
     light.position = [Math.cos(angle) * 8, 4, Math.sin(angle) * 8];
     light.distance = 18;
     light.intensity = 22;
-    light.casts_shadow = index === 0;
+    light.casts_shadow = false;
     light.updateMatrices();
     scene.addChild(light);
   }

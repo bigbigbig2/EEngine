@@ -504,6 +504,18 @@ Packed Instance
 性能保存：
 `shadow-work-generation / shadow-raster / shadow-update`，并按 cascade 分列。
 
+## 实现入口与 focused Gate
+
+- page：`examples/r5-packed-csm-shadow/`；
+- runner：`examples/scripts/run-r5-fx04-gate.mjs`；
+- workload：Benchmark C smoke、1280×720、DPR 1、固定 directional light/camera，camera far 为 100 以让 frozen geometry 覆盖三个 practical split；
+- production chain：三组独立 hierarchy queue → 三个完整 16 B indirect record → 三次 depth-only `drawIndirect`，没有 CPU count readback或 material draw loop；
+- sampled counters：`shadowCascade0/1/2RasterWork`、`shadowAtlasPixelsUpdated`、`shadowAlphaRasterWork`、`shadowQueueOverflowMask`；
+- sequence：on 必须 3 个 cascade draw且 atlas不超过 128 MiB；off 必须 atlas/draw/work owner为 0；恢复必须重建 3 draws；
+- artifacts：`artifact.json`、`result.json`、`environment.json` 与 `shadow-on-0/off/on-2.png`；console/page/WebGPU/timestamp/counter diagnostics必须全零。
+
+当前代码已完成 browser exploratory validation：三个 cascade均有 RasterWork，alpha caster非零、overflow为零、on/off/on资源序列正确。该 dirty artifact只用于修正 fixture和 runtime，不是关闭证据；FX-04 必须在 implementation commit 后从 clean worktree重跑再回填 commit、timing和路径。
+
 ---
 
 # FX-05 · Packed Transparency / MBOIT / G5-S

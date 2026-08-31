@@ -4,7 +4,7 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 6;
+export const GPU_COUNTER_SCHEMA_VERSION = 7;
 export const GPU_COUNTER_BYTE_SIZE = 256;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -73,7 +73,13 @@ export const GPU_COUNTER_FIELDS = [
   { name: "iblMip5", index: 54, semantic: "IBL pixels whose nearest specular mip is 5" },
   { name: "iblMip6", index: 55, semantic: "IBL pixels whose nearest specular mip is 6" },
   { name: "iblMip7", index: 56, semantic: "IBL pixels whose nearest specular mip is 7" },
-  { name: "iblMip8", index: 57, semantic: "IBL pixels whose nearest specular mip is 8 or above" }
+  { name: "iblMip8", index: 57, semantic: "IBL pixels whose nearest specular mip is 8 or above" },
+  { name: "shadowCascade0RasterWork", index: 58, semantic: "sampled SecondaryRasterWork written for directional cascade 0" },
+  { name: "shadowCascade1RasterWork", index: 59, semantic: "sampled SecondaryRasterWork written for directional cascade 1" },
+  { name: "shadowCascade2RasterWork", index: 60, semantic: "sampled SecondaryRasterWork written for directional cascade 2" },
+  { name: "shadowAtlasPixelsUpdated", index: 61, semantic: "sampled directional shadow atlas pixels updated" },
+  { name: "shadowAlphaRasterWork", index: 62, semantic: "sampled alpha-tested directional SecondaryRasterWork" },
+  { name: "shadowQueueOverflowMask", index: 63, semantic: "sampled per-cascade SecondaryRasterWork overflow bits" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

@@ -161,7 +161,7 @@ struct OEngineHierarchyView {
   sse: vec4f,
   // orthographic vertical world size; remaining lanes are reserved
   orthographic: vec4f,
-  // instance begin, instance count, encoded hierarchy rounds, reserved
+  // instance begin, instance count, encoded hierarchy rounds, required instance flags
   scene: vec4u,
   // maxComputeWorkgroupsPerDimension; remaining lanes are reserved
   limits: vec4u,
@@ -241,6 +241,14 @@ const R3_FEATURE_HZB: u32 = 2u;
 const R3_FEATURE_COUNTERS: u32 = 4u;
 const R3_CLUSTER_CONE_VALID: u32 = 8u;
 const R3_CLUSTER_DOUBLE_SIDED: u32 = 16u;
+
+fn hierarchy_instance_enabled(
+  instance: OEngineInstanceRecord,
+  required_flags: u32
+) -> bool {
+  return oengine_instance_active(instance) &&
+    (instance.flags & required_flags) == required_flags;
+}
 
 struct OEngineWorldSphere {
   center: vec3f,
@@ -467,6 +475,7 @@ fn r3_fused_root_cull(
   var selected_geometry = 0u;
   var selected_cluster = 0u;
   var selected_material = 0u;
+  var selected_raster_flags = 0u;
   var expand = false;
   var child_local = 0u;
   var child_begin = 0u;
@@ -479,7 +488,7 @@ fn r3_fused_root_cull(
       instance.bounds_sphere,
       instance.current_object_to_world
     );
-    if oengine_instance_active(instance) &&
+    if hierarchy_instance_enabled(instance, hierarchy_view.scene.w) &&
       hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
       atomicAdd(&hierarchy_wg_visible_instances, 1u);
       atomicAdd(&hierarchy_wg_visited_clusters, 1u);
@@ -494,6 +503,7 @@ fn r3_fused_root_cull(
       selected_geometry = instance.geometry_record_index;
       selected_cluster = geometry.cluster_root;
       selected_material = instance.material_handle;
+      selected_raster_flags = instance.flags;
       if hierarchy_sphere_in_frustum(sphere, &hierarchy_view) {
         if (hierarchy_view.hzb.w & R3_FEATURE_CONE) != 0u &&
           hierarchy_cluster_cone_backfacing(
@@ -574,7 +584,8 @@ fn r3_fused_root_cull(
         selected_instance,
         selected_geometry,
         selected_cluster,
-        selected_material
+        selected_material,
+        selected_raster_flags
       );
   }
   workgroupBarrier();
@@ -694,6 +705,7 @@ fn r3_traverse_clusters(
   var selected_geometry = 0u;
   var selected_cluster = 0u;
   var selected_material = 0u;
+  var selected_raster_flags = 0u;
   var expand = false;
   var child_local = 0u;
   var child_begin = 0u;
@@ -713,6 +725,7 @@ fn r3_traverse_clusters(
     selected_geometry = instance.geometry_record_index;
     selected_cluster = work.cluster_record_index;
     selected_material = instance.material_handle;
+    selected_raster_flags = instance.flags;
     if hierarchy_sphere_in_frustum(sphere, &traversal_view) {
       if (traversal_view.hzb.w & R3_FEATURE_CONE) != 0u &&
         hierarchy_cluster_cone_backfacing(
@@ -793,7 +806,8 @@ fn r3_traverse_clusters(
         selected_instance,
         selected_geometry,
         selected_cluster,
-        selected_material
+        selected_material,
+        selected_raster_flags
       );
   }
   workgroupBarrier();
@@ -902,6 +916,7 @@ fn r3_fused_leaf_work(
   var selected_geometry = 0u;
   var selected_cluster = 0u;
   var selected_material = 0u;
+  var selected_raster_flags = 0u;
   var meshlet_begin = 0u;
   var meshlet_count = 0u;
 
@@ -912,7 +927,7 @@ fn r3_fused_leaf_work(
       instance.bounds_sphere,
       instance.current_object_to_world
     );
-    if oengine_instance_active(instance) &&
+    if hierarchy_instance_enabled(instance, leaf_view.scene.w) &&
       hierarchy_sphere_in_frustum(instance_sphere, &leaf_view) {
       atomicAdd(&hierarchy_wg_visible_instances, 1u);
       atomicAdd(&hierarchy_wg_visited_clusters, 1u);
@@ -937,6 +952,7 @@ fn r3_fused_leaf_work(
           selected_geometry = instance.geometry_record_index;
           selected_cluster = geometry.cluster_root;
           selected_material = instance.material_handle;
+          selected_raster_flags = instance.flags;
           meshlet_begin = cluster.meshlet_begin;
           meshlet_count = cluster.meshlet_count;
         }
@@ -978,11 +994,16 @@ fn r3_fused_leaf_work(
       selected_instance,
       selected_geometry,
       selected_cluster,
-      selected_material
+      selected_material,
+      selected_raster_flags
     );
     for (var local_meshlet = 0u; local_meshlet < meshlet_count; local_meshlet++) {
       leaf_raster.elements[leaf_wg_raster_base + raster_local + local_meshlet] =
-        OEngineRasterWork(visible_slot, meshlet_begin + local_meshlet);
+        OEngineRasterWork(
+          visible_slot,
+          meshlet_begin + local_meshlet,
+          selected_raster_flags
+        );
     }
   }
   workgroupBarrier();
@@ -1111,7 +1132,8 @@ fn r3_expand_raster_work(
     local_meshlet += ${HIERARCHICAL_WORKGROUP_SIZE}u) {
     raster_work_output.elements[base + local_meshlet] = OEngineRasterWork(
       invocation_index,
-      cluster.meshlet_begin + local_meshlet
+      cluster.meshlet_begin + local_meshlet,
+      visible.raster_flags
     );
   }
   if lane == 0u {

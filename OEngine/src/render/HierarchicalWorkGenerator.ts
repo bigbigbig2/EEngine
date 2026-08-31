@@ -71,6 +71,8 @@ export interface HierarchicalWorkConfig {
 
 export interface HierarchicalWorkFeatures {
   readonly coneEnabled?: boolean;
+  /** Every selected instance must contain these bits; zero keeps the main view behavior. */
+  readonly requiredInstanceFlags?: number;
   /** Null means history is invalid and the traversal must fail open. */
   readonly previousHzb?: Readonly<{
     view: GPUTextureView;
@@ -1254,11 +1256,9 @@ export function packHierarchyViewUniform(
   data.setUint32(HIERARCHICAL_VIEW_OFFSETS.scene, instanceBegin, true);
   data.setUint32(HIERARCHICAL_VIEW_OFFSETS.scene + 4, instanceCount, true);
   data.setUint32(HIERARCHICAL_VIEW_OFFSETS.scene + 8, encodedRoundCount, true);
-  data.setUint32(
-    HIERARCHICAL_VIEW_OFFSETS.scene + 12,
-    countersEnabled ? 1 : 0,
-    true
-  );
+  const requiredInstanceFlags = features.requiredInstanceFlags ?? 0;
+  assertU32(requiredInstanceFlags, "R5 SecondaryRasterWork required instance flags");
+  data.setUint32(HIERARCHICAL_VIEW_OFFSETS.scene + 12, requiredInstanceFlags, true);
   data.setUint32(
     HIERARCHICAL_VIEW_OFFSETS.limits,
     maxComputeWorkgroupsPerDimension,

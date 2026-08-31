@@ -38,6 +38,7 @@ struct R3VisibleClusterRecord {
   geometry_record_index: u32,
   cluster_record_index: u32,
   material_handle: u32,
+  raster_flags: u32,
 }
 
 struct R3VisibleClusterQueueRead {
@@ -48,6 +49,7 @@ struct R3VisibleClusterQueueRead {
 struct R3RasterWork {
   visible_cluster_slot: u32,
   meshlet_record_index: u32,
+  raster_flags: u32,
 }
 
 struct R3RasterWorkQueueRead {

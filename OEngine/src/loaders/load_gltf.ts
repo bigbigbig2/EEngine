@@ -5,6 +5,7 @@
 import { Skin } from "../animation/Skin.js";
 import { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
+import { GPU_INSTANCE_FLAGS } from "../gpu/GpuInstanceAbi.js";
 import { Mesh } from "../scene/Mesh.js";
 import { Node3D } from "../scene/Node3D.js";
 import { SkinnedMesh } from "../scene/SkinnedMesh.js";
@@ -305,12 +306,12 @@ function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
         materialIndex = defaultMaterialIndex;
       }
       const material = packedMaterials[materialIndex]!;
-      let instanceFlags = 0;
+      let instanceFlags = GPU_INSTANCE_FLAGS.CastsShadow;
       if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
-        instanceFlags |= 1 << 3;
+        instanceFlags |= GPU_INSTANCE_FLAGS.AlphaTested;
       }
       const materialRange = source.materialRanges[0];
-      if (materialRange?.doubleSided === true) instanceFlags |= 1 << 4;
+      if (materialRange?.doubleSided === true) instanceFlags |= GPU_INSTANCE_FLAGS.DoubleSided;
       geometryIndices.push(geometryIndex);
       materialIndices.push(materialIndex);
       transforms.push(...world);

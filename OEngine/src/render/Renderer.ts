@@ -448,6 +448,10 @@ export class Renderer {
       const runtime = this._graphics.packed_scenes.runtime(scene);
       if (runtime !== null && this._packedVisibility) {
         this._packedVisibility.release(runtime, command);
+        this._scenes.obtain(scene).lights.shadow_context.releasePackedScene(
+          runtime,
+          command
+        );
       }
       handles = this._graphics.packed_scenes.release(scene, command);
       command.finish();
@@ -794,7 +798,7 @@ export class Renderer {
     const gpuScene = view.scene;
     const gpuPacked =
       this._graphics.packed_scenes_if_created?.runtime(scene) ?? null;
-    gpuScene.lights.shadow_context.enabled = featureTopology.shadows;
+    gpuScene.lights.shadow_context.setEnabled(featureTopology.shadows, cmd);
     view.setJitter(frameJitter[0], frameJitter[1]);
     view.setViewportSize(w, h);
     view.setUpscaleRatio(
@@ -836,12 +840,36 @@ export class Renderer {
       }
       if (featureTopology.shadows) {
         const shadows = gpuScene.lights.shadow_context;
+        if (sampleGpuCounters && gpuPacked !== null) {
+          this._profiler.registerGpuCounterFields([
+            "shadowCascade0RasterWork",
+            "shadowCascade1RasterWork",
+            "shadowCascade2RasterWork",
+            "shadowAtlasPixelsUpdated",
+            "shadowAlphaRasterWork",
+            "shadowQueueOverflowMask"
+          ]);
+        }
         shadows.select_for_draw(camera, this._frame_count, [w, h]);
+        const packedBindings = gpuPacked === null
+          ? null
+          : this._graphics.packed_scenes.bindings();
         shadows.draw(
           cmd,
           gpuScene,
           gpuScene.lights.database,
-          this._meshletDrawList
+          this._meshletDrawList,
+          gpuPacked === null || packedBindings === null
+            ? null
+            : {
+                runtime: gpuPacked,
+                assets: packedBindings.assets,
+                scene: packedBindings.scene,
+                counterBuffer: sampleGpuCounters
+                  ? this._profiler.gpuCounterBuffer
+                  : null,
+                sseThreshold: this.packed_visibility_sse_threshold
+              }
         );
       }
 
@@ -2392,6 +2420,9 @@ export class Renderer {
       readonly lastHzbComputePassCount: number;
       readonly lastHzbDispatchCount: number;
       readonly lastHzbOutputPixels: number;
+      readonly atlas_allocated_bytes: number;
+      readonly packed_cascade_draw_count: number;
+      readonly packed_atlas_pixels_updated: number;
     },
     packedPath: boolean,
     environment: {
@@ -2471,6 +2502,9 @@ export class Renderer {
     );
     profiler.recordCounter("hzb.historyValid", hzb.historyValid ? 1 : 0);
     profiler.recordCounter("hzb.historyInvalidations", hzb.historyInvalidationCount);
+    profiler.recordCounter("shadow.atlasBytes", shadows.atlas_allocated_bytes);
+    profiler.recordCounter("shadow.packedCascadeDraws", shadows.packed_cascade_draw_count);
+    profiler.recordCounter("shadow.atlasPixelsUpdated", shadows.packed_atlas_pixels_updated);
     profiler.recordCounter(
       packedPath
         ? "packed.material.fullscreenDraws"

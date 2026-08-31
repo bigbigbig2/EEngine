@@ -1,0 +1,231 @@
+import {
+  BenchmarkRunController,
+  PerspectiveCamera,
+  Renderer,
+  captureWebGpuLimits,
+  createEnvironmentManifest,
+  type BenchmarkResult,
+  type GpuCounterFieldName
+} from "../../OEngine/src/index.ts";
+import { createBenchmarkSceneFixture } from "../benchmark-shared/BenchmarkScenes.ts";
+import { loadBenchmarkSceneManifest } from "../benchmark-shared/manifest-loader.ts";
+
+declare const __BUILD_COMMIT__: string;
+declare const __BUILD_DIRTY__: boolean;
+declare const __BUILD_DIRTY_REASONS__: string[];
+declare const __BUILD_CONTENT_HASH__: string;
+
+interface Fx04Result {
+  completed: true;
+  passed: boolean;
+  issues: string[];
+  build: { commit: string; dirty: boolean; dirtyReasons: string[]; contentHash: string };
+  statistics: ReturnType<typeof summarize>;
+  sequence: Record<string, unknown>;
+  result: BenchmarkResult;
+}
+
+declare global {
+  interface Window {
+    __OENGINE_FX_04_RESULT__?: Fx04Result;
+    __OENGINE_FX_04__?: { renderFeature(enabled: boolean): Promise<Record<string, unknown>> };
+  }
+}
+
+void run();
+
+async function run(): Promise<void> {
+  const status = required("status");
+  const detail = required("detail");
+  const output = required("result");
+  try {
+    const canvas = required<HTMLCanvasElement>("gpu-canvas");
+    const context = canvas.getContext("webgpu");
+    if (context === null) throw new Error("WebGPU canvas context unavailable");
+    const renderer = new Renderer();
+    await renderer.initialize({ context, pixelRatio: 1 });
+    renderer.resize(1280, 720);
+    configureRenderer(renderer);
+    renderer.profiler.configure({
+      enabled: true,
+      gpuSampleInterval: 4,
+      gpuCounterSampleInterval: 4,
+      readbackRingSlots: 3,
+      historyCapacity: 48
+    });
+    const manifest = await loadBenchmarkSceneManifest(
+      new URL("../benchmark-shared/manifests/benchmark-c.json", import.meta.url)
+    );
+    const fixture = await createBenchmarkSceneFixture(renderer, manifest, "smoke");
+    const camera = new PerspectiveCamera();
+    camera.aspect = 16 / 9;
+    camera.near = 0.1;
+    // Keep the frozen C smoke geometry represented in every practical split.
+    // This is a cascade-coverage oracle, not the product camera far distance.
+    camera.far = 100;
+    camera.transform.position.set(18, 14, 22);
+    camera.transform.lookAt({ x: 0, y: 0, z: 0 });
+    camera.update();
+    const runConfig = {
+      warmupFrames: 8,
+      sampleFrames: 24,
+      gpuSampleInterval: 4,
+      gpuCounterSampleInterval: 4,
+      readbackRingSlots: 3
+    };
+    const resolution = renderer.output_resolution;
+    const environment = createEnvironmentManifest({
+      engine: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__, dirtyReasons: __BUILD_DIRTY_REASONS__ },
+      platform: { os: navigator.platform || "unknown", browser: navigator.userAgent, userAgent: navigator.userAgent },
+      adapter: renderer.adapter_info,
+      webgpu: { features: renderer.device.features, limits: captureWebGpuLimits(renderer.device.limits), powerPreference: "high-performance" },
+      frame: { canvasWidth: canvas.width, canvasHeight: canvas.height, internalWidth: resolution.x, internalHeight: resolution.y, dpr: 1 },
+      run: {
+        baselineRole: "engine-generality-c",
+        featureSet: [
+          "hardware-visibility", "packed-instances", "hierarchy-sse-lod",
+          "single-material-resolve", "clustered-lighting", "ibl", "packed-csm-shadow"
+        ],
+        ...runConfig
+      }
+    });
+    const controller = new BenchmarkRunController(renderer.profiler, environment, {
+      id: "FX-04-C-shadow",
+      name: "Packed CSM directional cascade sequence",
+      sceneAssetHashes: manifest.assets.map((asset) => asset.sha256),
+      seed: manifest.seed,
+      cameraPathHash: "fx04-c-shadow-static-v1"
+    });
+    const benchmark = await controller.run({
+      frame: (ordinal) => {
+        fixture.update(ordinal);
+        if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
+      },
+      settle: () => renderer.device.queue.onSubmittedWorkDone(),
+      gpuWaitTimeoutMs: 20_000
+    });
+    const statistics = summarize(benchmark);
+    const shadowContext = renderer.scenes.obtain(fixture.scene).lights.shadow_context;
+    const featureOn = shadowEvidence(shadowContext);
+    renderer.feature_shadows_enabled = false;
+    for (let index = 0; index < 3; index++) {
+      if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
+    }
+    await renderer.device.queue.onSubmittedWorkDone();
+    const featureOff = shadowEvidence(shadowContext);
+    renderer.feature_shadows_enabled = true;
+    for (let index = 0; index < 3; index++) {
+      if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
+    }
+    await renderer.device.queue.onSubmittedWorkDone();
+    const featureRestored = shadowEvidence(shadowContext);
+    const sequence = { featureOn, featureOff, featureRestored };
+    const issues = validate(benchmark, statistics, sequence);
+    const result: Fx04Result = {
+      completed: true,
+      passed: issues.length === 0,
+      issues,
+      build: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__, dirtyReasons: __BUILD_DIRTY_REASONS__, contentHash: __BUILD_CONTENT_HASH__ },
+      statistics,
+      sequence,
+      result: benchmark
+    };
+    window.__OENGINE_FX_04_RESULT__ = result;
+    window.__OENGINE_FX_04__ = {
+      renderFeature: async (enabled) => {
+        renderer.feature_shadows_enabled = enabled;
+        for (let index = 0; index < 2; index++) renderer.render(camera, fixture.scene, 1 / 60);
+        await renderer.device.queue.onSubmittedWorkDone();
+        return shadowEvidence(shadowContext);
+      }
+    };
+    status.textContent = result.passed ? "FX-04 production Gate passed" : "FX-04 production Gate failed";
+    status.className = result.passed ? "ok" : "error";
+    detail.textContent = `cascades=${statistics.cascadeWork.join("/")} atlas=${statistics.atlasPixels} overflow=${statistics.overflowMask}`;
+    output.textContent = JSON.stringify(result, null, 2);
+  } catch (error) {
+    status.textContent = "FX-04 production Gate failed";
+    status.className = "error";
+    detail.textContent = error instanceof Error ? error.message : String(error);
+    console.error(error);
+  }
+}
+
+function summarize(result: BenchmarkResult) {
+  const samples = result.frames.filter((frame) => frame.gpuCounters.sampled && !frame.gpuCounters.dropped);
+  const value = (field: GpuCounterFieldName) => median(
+    samples.map((frame) => frame.gpuCounters.values[field] ?? 0)
+  );
+  return {
+    sampledFrames: samples.length,
+    cascadeWork: [
+      value("shadowCascade0RasterWork"),
+      value("shadowCascade1RasterWork"),
+      value("shadowCascade2RasterWork")
+    ],
+    atlasPixels: value("shadowAtlasPixelsUpdated"),
+    alphaWork: value("shadowAlphaRasterWork"),
+    overflowMask: value("shadowQueueOverflowMask"),
+    shadowGpuP50Ms: result.summary.gpuPhaseMs.shadow?.p50 ?? null,
+    shadowGpuP95Ms: result.summary.gpuPhaseMs.shadow?.p95 ?? null,
+    submitMean: result.summary.submits.mean,
+    readbackMean: result.summary.readbacks.mean
+  };
+}
+
+function validate(
+  result: BenchmarkResult,
+  stats: ReturnType<typeof summarize>,
+  sequence: Record<string, any>
+): string[] {
+  const issues: string[] = [];
+  const d = result.diagnostics;
+  if (d.validationErrorCount || d.uncapturedErrorCount || d.deviceLostCount) issues.push("WebGPU diagnostics are non-zero");
+  if (d.failedGpuTimestampBatches || d.droppedGpuCounterSamples || d.failedGpuCounterSamples) issues.push("GPU evidence diagnostics are non-zero");
+  if (stats.sampledFrames < 1) issues.push("no sampled shadow counters");
+  if (stats.cascadeWork.some((value) => value <= 0)) issues.push("one or more CSM cascades produced no RasterWork");
+  if (stats.atlasPixels <= 0) issues.push("shadow atlas update evidence is empty");
+  if (stats.alphaWork <= 0) issues.push("alpha-tested caster evidence is empty");
+  if (stats.overflowMask !== 0) issues.push("SecondaryRasterWork queue overflowed");
+  if (stats.shadowGpuP50Ms === null || stats.shadowGpuP95Ms === null) issues.push("shadow GPU timestamp phase is missing");
+  if (sequence.featureOn.packedCascadeDraws !== 3) issues.push("feature-on did not issue exactly three cascade indirect draws");
+  if (sequence.featureOn.atlasBytes <= 0 || sequence.featureOn.atlasBytes > 134_217_728) issues.push("feature-on atlas violates memory budget");
+  if (sequence.featureOff.atlasBytes !== 0 || sequence.featureOff.packedCascadeDraws !== 0) issues.push("feature-off retained shadow GPU owner/work");
+  if (sequence.featureRestored.packedCascadeDraws !== 3) issues.push("feature restore did not rebuild the packed cascade path");
+  return issues;
+}
+
+function shadowEvidence(context: {
+  atlas_allocated_bytes: number;
+  packed_cascade_draw_count: number;
+  packed_atlas_pixels_updated: number;
+}) {
+  return {
+    atlasBytes: context.atlas_allocated_bytes,
+    packedCascadeDraws: context.packed_cascade_draw_count,
+    atlasPixelsUpdated: context.packed_atlas_pixels_updated
+  };
+}
+
+function configureRenderer(renderer: Renderer): void {
+  renderer.feature_shadows_enabled = true;
+  renderer.feature_ssr_enabled = false;
+  renderer.feature_ssao_enabled = false;
+  renderer.feature_taa_enabled = false;
+  renderer.feature_bloom_enabled = false;
+  renderer.feature_automatic_exposure_enabled = false;
+  renderer.feature_motion_blur_enabled = false;
+  renderer.feature_sharpening_enabled = false;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)]!;
+}
+
+function required<T extends HTMLElement = HTMLElement>(id: string): T {
+  const value = document.getElementById(id);
+  if (value === null) throw new Error(`Missing #${id}`);
+  return value as T;
+}

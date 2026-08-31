@@ -215,10 +215,10 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
     (layout) => layout.label === "R3-B Hierarchy/traversal group1"
   );
   assert.equal(instanceLayout.entries.find((entry) => entry.binding === 5).buffer.minBindingSize, 40);
-  assert.equal(instanceLayout.entries.find((entry) => entry.binding === 6).buffer.minBindingSize, 48);
+  assert.equal(instanceLayout.entries.find((entry) => entry.binding === 6).buffer.minBindingSize, 52);
   assert.equal(traversalLayout.entries.find((entry) => entry.binding === 5).buffer.minBindingSize, 40);
   assert.equal(traversalLayout.entries.find((entry) => entry.binding === 6).buffer.minBindingSize, 40);
-  assert.equal(traversalLayout.entries.find((entry) => entry.binding === 7).buffer.minBindingSize, 48);
+  assert.equal(traversalLayout.entries.find((entry) => entry.binding === 7).buffer.minBindingSize, 52);
   assert.equal(
     traversalLayout.entries.filter((entry) => entry.buffer.type !== "uniform").length,
     8,
@@ -227,7 +227,7 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
   const expansionLayout = gpu.layouts.find(
     (layout) => layout.label === "R3-C Hierarchy/RasterWork expansion group2"
   );
-  assert.equal(expansionLayout.entries[3].buffer.minBindingSize, 40);
+  assert.equal(expansionLayout.entries[3].buffer.minBindingSize, 44);
   const dispatchPreparationLayout = gpu.layouts.find(
     (layout) => layout.label === "R3-C Hierarchy/RasterWork dispatch preparation group2"
   );

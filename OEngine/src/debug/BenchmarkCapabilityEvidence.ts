@@ -116,6 +116,17 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "iblMip4", "iblMip5", "iblMip6", "iblMip7", "iblMip8"
     ]
   },
+  "packed-csm-shadow": {
+    status: "supported",
+    requiredGpuCounters: [
+      "shadowCascade0RasterWork",
+      "shadowCascade1RasterWork",
+      "shadowCascade2RasterWork",
+      "shadowAtlasPixelsUpdated",
+      "shadowAlphaRasterWork",
+      "shadowQueueOverflowMask"
+    ]
+  },
   "packed-instances": {
     status: "supported",
     requiredGpuCounters: [
@@ -262,7 +273,13 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   iblMip5: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
   iblMip6: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
   iblMip7: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram"),
-  iblMip8: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram overflow bin")
+  iblMip8: supported("PackedSurfaceCounterPass/FX-03 IBL mip histogram overflow bin"),
+  shadowCascade0RasterWork: supported("PackedCsmShadowPass/cascade-0 queue reducer"),
+  shadowCascade1RasterWork: supported("PackedCsmShadowPass/cascade-1 queue reducer"),
+  shadowCascade2RasterWork: supported("PackedCsmShadowPass/cascade-2 queue reducer"),
+  shadowAtlasPixelsUpdated: supported("PackedCsmShadowPass/atlas update reducer"),
+  shadowAlphaRasterWork: supported("PackedCsmShadowPass/alpha flag reducer"),
+  shadowQueueOverflowMask: supported("PackedCsmShadowPass/per-cascade overflow reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

@@ -51,7 +51,7 @@ test("R2-D static glTF import produces typed Packed input without runtime scene 
   assert.deepEqual([...packed.materialIndices], [0]);
   assert.equal(packed.transforms.length, 16);
   assert.deepEqual([...packed.transforms.subarray(12, 15)], [3, 4, 5]);
-  assert.equal(packed.flags[0], 1 << 4);
+  assert.equal(packed.flags[0], (1 << 1) | (1 << 4));
   assert.equal(packed.geometries[0].triangleCount, 1);
 });
 
@@ -131,7 +131,7 @@ test("R2-D-10 Packed glTF preserves multi-primitive materials and nested world t
   assert.equal(packed.materials.length, 2);
   assert.deepEqual([...packed.geometryIndices], [0, 1]);
   assert.deepEqual([...packed.materialIndices], [0, 1]);
-  assert.deepEqual([...packed.flags], [0, (1 << 3) | (1 << 4)]);
+  assert.deepEqual([...packed.flags], [1 << 1, (1 << 1) | (1 << 3) | (1 << 4)]);
   assert.equal(packed.geometries[0].materialRanges[0].materialId, 0);
   assert.equal(packed.geometries[1].materialRanges[0].materialId, 1);
   assert.equal(packed.transforms.length, 32);

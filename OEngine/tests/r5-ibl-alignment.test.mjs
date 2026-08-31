@@ -83,8 +83,8 @@ test("FX-03 production WGSL owns independent diffuse/GGX convolution and dynamic
   assert.doesNotMatch(`${IBL_SPECULAR_WGSL}\n${IBL_DIFFUSE_WGSL}`, /f32\(5\s*-\s*1\)/);
 });
 
-test("FX-03 sampled-mip evidence is real schema v6 data, not missing fields", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 6);
+test("FX-03 sampled-mip evidence remains present in the additive schema v7 ABI", () => {
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 7);
   const names = new Set(GPU_COUNTER_FIELDS.map((field) => field.name));
   assert.ok(names.has("iblSampledPixels"));
   for (let mip = 0; mip <= 8; mip++) assert.ok(names.has(`iblMip${mip}`));

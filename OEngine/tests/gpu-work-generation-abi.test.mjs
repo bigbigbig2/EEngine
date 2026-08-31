@@ -23,23 +23,25 @@ import {
 } from "../.test-dist/gpu/GpuWorkGenerationAbi.js";
 
 test("R3-A Work Generation TS and WGSL share the frozen queue ABI", () => {
-  assert.equal(GPU_WORK_GENERATION_ABI_VERSION, 2);
+  assert.equal(GPU_WORK_GENERATION_ABI_VERSION, 3);
   assert.equal(GPU_TRAVERSAL_WORK_SCHEMA.stride, 8);
   assert.deepEqual(GPU_TRAVERSAL_WORK_SCHEMA.offsets, {
     instance_record_index: 0,
     cluster_record_index: 4
   });
-  assert.equal(GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride, 16);
+  assert.equal(GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride, 20);
   assert.deepEqual(GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.offsets, {
     instance_record_index: 0,
     geometry_record_index: 4,
     cluster_record_index: 8,
-    material_handle: 12
+    material_handle: 12,
+    raster_flags: 16
   });
-  assert.equal(GPU_RASTER_WORK_SCHEMA.stride, 8);
+  assert.equal(GPU_RASTER_WORK_SCHEMA.stride, 12);
   assert.deepEqual(GPU_RASTER_WORK_SCHEMA.offsets, {
     visible_cluster_slot: 0,
-    meshlet_record_index: 4
+    meshlet_record_index: 4,
+    raster_flags: 8
   });
   assert.equal(GPU_WORK_QUEUE_HEADER_SCHEMA.stride, 32);
   assert.deepEqual(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets, {
@@ -69,19 +71,22 @@ test("R3-A packers write record indices and complete indirect arguments", () => 
     instanceRecordIndex: 1,
     geometryRecordIndex: 2,
     clusterRecordIndex: 3,
-    materialHandle: 4
+    materialHandle: 4,
+    rasterFlags: 5
   }).buffer);
   assert.deepEqual(
-    Array.from({ length: 4 }, (_, index) => visible.getUint32(index * 4, true)),
-    [1, 2, 3, 4]
+    Array.from({ length: 5 }, (_, index) => visible.getUint32(index * 4, true)),
+    [1, 2, 3, 4, 5]
   );
 
   const raster = new DataView(packRasterWork({
     visibleClusterSlot: 5,
-    meshletRecordIndex: 6
+    meshletRecordIndex: 6,
+    rasterFlags: 7
   }).buffer);
   assert.equal(raster.getUint32(0, true), 5);
   assert.equal(raster.getUint32(4, true), 6);
+  assert.equal(raster.getUint32(8, true), 7);
 
   const dispatch = new Uint32Array(packDispatchIndirectArgs(7, 2, 1).buffer);
   assert.equal(dispatch.byteLength, GPU_DISPATCH_INDIRECT_ARGS_SIZE);

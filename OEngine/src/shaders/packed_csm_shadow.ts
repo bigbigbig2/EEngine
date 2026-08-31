@@ -1,0 +1,227 @@
+import {
+  GPU_GEOMETRY_RECORD_WGSL,
+  GPU_MESHLET_RECORD_WGSL,
+  GPU_UV_FORMAT
+} from "../gpu/GpuGeometryAbi.js";
+import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE } from "../gpu/GpuMaterialVisibilityTable.js";
+import { GPU_SECONDARY_RASTER_FLAGS } from "../gpu/GpuSecondaryRasterAbi.js";
+import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+
+export const PACKED_CSM_FIXED_VERTEX_COUNT = 384;
+
+/** Depth-only SecondaryRasterWork consumer; alpha semantics match main Visibility. */
+export const PACKED_CSM_SHADOW_WGSL = /* wgsl */ `
+${LPV_CAMERA_TYPE.wgsl_declaration}
+${GPU_INSTANCE_RECORD_WGSL}
+${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_MESHLET_RECORD_WGSL}
+${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+
+struct QueueHeaderRead {
+  written: u32, attempted: u32, peak: u32, overflow: u32,
+  fallback: u32, capacity: u32, rejected_cone: u32, rejected_hzb: u32,
+}
+struct VisibleClusterRecord {
+  instance_record_index: u32,
+  geometry_record_index: u32,
+  cluster_record_index: u32,
+  material_handle: u32,
+  raster_flags: u32,
+}
+struct VisibleClusterQueue { header: QueueHeaderRead, elements: array<VisibleClusterRecord> }
+struct SecondaryRasterWork {
+  visible_cluster_slot: u32,
+  meshlet_record_index: u32,
+  raster_flags: u32,
+}
+struct SecondaryRasterQueue { header: QueueHeaderRead, elements: array<SecondaryRasterWork> }
+struct ShadowVertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv0: vec2f,
+  @location(1) uv1: vec2f,
+  @location(2) @interpolate(flat) uv_valid_mask: u32,
+  @location(3) @interpolate(flat) material_handle: u32,
+  @location(4) @interpolate(flat) mirrored: u32,
+  @location(5) @interpolate(flat) raster_flags: u32,
+}
+
+@group(0) @binding(0) var<uniform> shadow_camera: CommandEncoder;
+@group(0) @binding(1) var<storage, read> instances: array<OEngineInstanceRecord>;
+@group(0) @binding(2) var<storage, read> meshlets: array<GpuMeshletRecord>;
+@group(0) @binding(3) var<storage, read> meshlet_vertices: array<u32>;
+@group(0) @binding(4) var<storage, read> meshlet_triangles: array<u32>;
+@group(0) @binding(5) var<storage, read> vertex_data: array<u32>;
+@group(0) @binding(6) var<storage, read> geometries: array<GpuGeometryRecord>;
+@group(0) @binding(7) var<storage, read> visible_clusters: VisibleClusterQueue;
+@group(0) @binding(8) var<storage, read> raster_work: SecondaryRasterQueue;
+@group(0) @binding(9) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(10) var alpha_atlas: texture_2d_array<f32>;
+
+fn read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
+  let word = (*words)[byte_offset >> 2u];
+  return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;
+}
+fn read_u16(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
+  return read_u8(words, byte_offset) | (read_u8(words, byte_offset + 1u) << 8u);
+}
+fn read_uv(
+  words: ptr<storage, array<u32>, read>, byte_offset: u32, stride: u32,
+  format: u32, source_vertex: u32
+) -> vec3f {
+  let offset = byte_offset + source_vertex * stride;
+  if format == ${GPU_UV_FORMAT.Float32x2}u {
+    let word = offset >> 2u;
+    return vec3f(bitcast<f32>((*words)[word]), bitcast<f32>((*words)[word + 1u]), 1.0);
+  }
+  if format == ${GPU_UV_FORMAT.Unorm8x2}u {
+    return vec3f(f32(read_u8(words, offset)), f32(read_u8(words, offset + 1u)), 255.0);
+  }
+  if format == ${GPU_UV_FORMAT.Unorm16x2}u {
+    return vec3f(f32(read_u16(words, offset)), f32(read_u16(words, offset + 2u)), 65535.0);
+  }
+  return vec3f(0.0);
+}
+
+@vertex
+fn packed_csm_vertex(
+  @builtin(vertex_index) vertex_index: u32,
+  @builtin(instance_index) work_index: u32
+) -> ShadowVertexOutput {
+  let work = raster_work.elements[work_index];
+  let visible = visible_clusters.elements[work.visible_cluster_slot];
+  let instance = instances[visible.instance_record_index];
+  let geometry = geometries[visible.geometry_record_index];
+  let meshlet = meshlets[work.meshlet_record_index];
+  let corner = min(vertex_index, max(meshlet.triangle_count * 3u, 1u) - 1u);
+  let local_vertex = read_u8(&meshlet_triangles, meshlet.triangle_byte_offset + corner);
+  let source_vertex = meshlet_vertices[meshlet.vertex_offset + local_vertex];
+  let position_word = geometry.position_byte_offset / 4u +
+    source_vertex * (geometry.position_stride / 4u);
+  let local_position = vec3f(
+    bitcast<f32>(vertex_data[position_word]),
+    bitcast<f32>(vertex_data[position_word + 1u]),
+    bitcast<f32>(vertex_data[position_word + 2u])
+  );
+  let uv0 = read_uv(&vertex_data, geometry.uv0_byte_offset, geometry.uv0_stride,
+    geometry.uv0_format, source_vertex);
+  let uv1 = read_uv(&vertex_data, geometry.uv1_byte_offset, geometry.uv1_stride,
+    geometry.uv1_format, source_vertex);
+  var output: ShadowVertexOutput;
+  output.position = shadow_camera.view_projection_matrix *
+    instance.current_object_to_world * vec4f(local_position, 1.0);
+  output.uv0 = select(vec2f(0.0), uv0.xy / uv0.z, uv0.z > 0.0);
+  output.uv1 = select(vec2f(0.0), uv1.xy / uv1.z, uv1.z > 0.0);
+  output.uv_valid_mask = select(0u, 1u, uv0.z > 0.0) |
+    select(0u, 2u, uv1.z > 0.0);
+  output.material_handle = visible.material_handle;
+  let linear = instance.current_object_to_world;
+  output.mirrored = select(
+    0u, 1u, dot(linear[0].xyz, cross(linear[1].xyz, linear[2].xyz)) < 0.0
+  );
+  output.raster_flags = work.raster_flags;
+  return output;
+}
+
+fn wrap_texel(value: i32, mode: u32) -> u32 {
+  const size = ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE}i;
+  if mode == 0u { return u32(clamp(value, 0i, size - 1i)); }
+  if mode == 2u {
+    const period = size * 2i;
+    let wrapped = ((value % period) + period) % period;
+    return u32(select(wrapped, period - 1i - wrapped, wrapped >= size));
+  }
+  return u32(((value % size) + size) % size);
+}
+fn alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
+  let pixel = vec2u(
+    wrap_texel(x, sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK),
+    wrap_texel(y, (sampler_class >> OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS) &
+      OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK)
+  );
+  return textureLoad(alpha_atlas, vec2i(pixel), i32(texture_ref), 0).a;
+}
+fn sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 {
+  let position = uv * ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE}.0 - 0.5;
+  let base = vec2i(floor(position));
+  if (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) == 0u {
+    let nearest = vec2i(floor(uv * ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE}.0));
+    return alpha_texel(texture_ref, nearest.x, nearest.y, sampler_class);
+  }
+  let f = fract(position);
+  return mix(
+    mix(alpha_texel(texture_ref, base.x, base.y, sampler_class),
+      alpha_texel(texture_ref, base.x + 1i, base.y, sampler_class), f.x),
+    mix(alpha_texel(texture_ref, base.x, base.y + 1i, sampler_class),
+      alpha_texel(texture_ref, base.x + 1i, base.y + 1i, sampler_class), f.x), f.y
+  );
+}
+fn transform_uv(record: OEngineMaterialVisibilityRecord, uv: vec2f) -> vec2f {
+  let scaled = uv * record.uv_offset_scale.zw;
+  return record.uv_offset_scale.xy + vec2f(
+    record.uv_rotation.x * scaled.x - record.uv_rotation.y * scaled.y,
+    record.uv_rotation.y * scaled.x + record.uv_rotation.x * scaled.y
+  );
+}
+
+@fragment
+fn packed_csm_fragment(input: ShadowVertexOutput, @builtin(front_facing) front: bool) {
+  if (input.raster_flags & ${GPU_SECONDARY_RASTER_FLAGS.CastsShadow}u) == 0u { discard; }
+  if input.material_handle >= arrayLength(&materials) { return; }
+  let record = materials[input.material_handle];
+  if (record.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
+    record.material_id != input.material_handle { return; }
+  let corrected_front = front != (input.mirrored != 0u);
+  if (record.flags & OENGINE_MATERIAL_VISIBILITY_DOUBLE_SIDED) == 0u && !corrected_front {
+    discard;
+  }
+  if record.alpha_mode == OENGINE_MATERIAL_ALPHA_BLEND { discard; }
+  if record.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK {
+    var alpha = record.base_color_factor_alpha;
+    let uv_bit = select(0u, 1u << record.uv_set, record.uv_set < 2u);
+    if (record.flags & OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE) != 0u &&
+      record.texture_ref != OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE &&
+      (input.uv_valid_mask & uv_bit) != 0u {
+      alpha *= sample_alpha(record.texture_ref,
+        transform_uv(record, select(input.uv0, input.uv1, record.uv_set == 1u)),
+        record.sampler_class);
+    }
+    if alpha < record.alpha_cutoff { discard; }
+  }
+}
+`;
+
+export const PACKED_CSM_COUNTER_WGSL = /* wgsl */ `
+struct QueueHeaderRead {
+  written: u32, attempted: u32, peak: u32, overflow: u32,
+  fallback: u32, capacity: u32, rejected_cone: u32, rejected_hzb: u32,
+}
+struct SecondaryRasterWork {
+  visible_cluster_slot: u32, meshlet_record_index: u32, raster_flags: u32,
+}
+struct SecondaryRasterQueue { header: QueueHeaderRead, elements: array<SecondaryRasterWork> }
+struct EvidenceParams { cascade_index: u32, atlas_pixels: u32, reserved0: u32, reserved1: u32 }
+@group(0) @binding(0) var<storage, read> work: SecondaryRasterQueue;
+@group(0) @binding(1) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(2) var<uniform> params: EvidenceParams;
+const CASCADE0: u32 = 58u;
+const ATLAS_PIXELS: u32 = 61u;
+const ALPHA_WORK: u32 = 62u;
+const OVERFLOW: u32 = 63u;
+@compute @workgroup_size(64)
+fn packed_csm_evidence(@builtin(local_invocation_index) lane: u32) {
+  let count = min(work.header.written, work.header.capacity);
+  if lane == 0u {
+    atomicAdd(&counters[CASCADE0 + min(params.cascade_index, 2u)], count);
+    atomicAdd(&counters[ATLAS_PIXELS], params.atlas_pixels);
+    if work.header.overflow != 0u { atomicOr(&counters[OVERFLOW], 1u << params.cascade_index); }
+  }
+  var alpha = 0u;
+  for (var index = lane; index < count; index += 64u) {
+    alpha += select(0u, 1u,
+      (work.elements[index].raster_flags & ${GPU_SECONDARY_RASTER_FLAGS.AlphaTested}u) != 0u);
+  }
+  if alpha != 0u { atomicAdd(&counters[ALPHA_WORK], alpha); }
+}
+`;

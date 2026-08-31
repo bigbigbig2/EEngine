@@ -90,6 +90,10 @@ export default defineConfig({
           examplesRoot,
           "r5-shading-oracle/index.html"
         ),
+        r5PackedCsmShadow: path.resolve(
+          examplesRoot,
+          "r5-packed-csm-shadow/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

@@ -21,10 +21,14 @@ import {
 } from "../scene/Scene.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { ShadowRasterPass } from "../render/passes/ShadowRasterPass.js";
+import { PackedCsmShadowPass } from "../render/passes/PackedCsmShadowPass.js";
 import { GPUCameraState } from "../render/GPUCameraState.js";
 import { GPUViewContext } from "../render/ViewContext.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { GPUSceneContext } from "./GPUSceneContext.js";
+import type { PackedSceneRuntime } from "./GpuPackedSceneRegistry.js";
+import type { GpuAssetBindings } from "./GpuAssetStore.js";
+import type { GpuSceneBindings } from "./GpuScene.js";
 import type { MeshletDrawList } from "./MeshletDrawList.js";
 import type { GPUDatabase, GPUTypedTable } from "./GPUDatabase.js";
 import { GPUTextureContext } from "./GPUTextureContext.js";
@@ -38,13 +42,14 @@ import {
   type AdaptiveShadowMap
 } from "./ShadowAtlas.js";
 
-export const SHADOW_ATLAS_MAX_SIZE = 8192;
+export const SHADOW_ATLAS_MAX_SIZE = 4096;
 export const DIRECTIONAL_SHADOW_INITIAL_SIZES = [1740, 1440] as const;
 
 export type ShadowView = {
   label: string;
   camera: Camera;
   gpu_context?: GPUViewContext;
+  packed_camera_state?: GPUCameraState;
 };
 
 export abstract class ShadowMapBase<TLight extends Light = Light> implements AdaptiveShadowMap {
@@ -65,6 +70,8 @@ export abstract class ShadowMapBase<TLight extends Light = Light> implements Ada
     for (const view of this.views) {
       view.gpu_context?.destroy();
       view.gpu_context = undefined;
+      view.packed_camera_state?.destroy();
+      view.packed_camera_state = undefined;
     }
   }
 }
@@ -77,22 +84,7 @@ export class DirectionalShadowMap extends ShadowMapBase<DirectionalLight> {
   update(camera: Camera): void {
     const far = camera.far;
     const near = camera.near;
-    const splitParams = new Array<number>(3);
-    const splitStart = near + 0.05;
-    const splitCurve = (far - splitStart * Math.pow(2, 3 / 0.95)) / (far - splitStart);
-    splitParams[0] = (1 - splitCurve) / splitStart;
-    splitParams[1] = splitCurve;
-    splitParams[2] = 0.95;
-    for (let cascade = 0; cascade < this.views.length; cascade++) {
-      const exponent = cascade + 1;
-      let splitDistance =
-        (Math.pow(2, exponent / splitParams[2]!) - splitParams[1]!) /
-        splitParams[0]!;
-      if (exponent <= 0) splitDistance = 0;
-      if (exponent >= 4) splitDistance = Number.POSITIVE_INFINITY;
-      const range = far - near;
-      this.splits[cascade] = range === 0 ? 0 : (splitDistance - near) / range;
-    }
+    this.splits.set(computePracticalCascadeSplits(near, far, this.views.length));
 
     const frustum = new Float32Array(camera.frustum);
     replaceInfiniteFarPlane(frustum, camera.view_matrix, far);
@@ -122,6 +114,7 @@ export class DirectionalShadowMap extends ShadowMapBase<DirectionalLight> {
       bounds.x1 += growX;
       bounds.y0 -= growY;
       bounds.y1 += growY;
+      snapShadowBoundsToTexelGrid(bounds, layout.width, layout.height);
 
       const shadowCamera = this.views[cascade]!.camera as OrthographicCamera;
       shadowCamera.left = bounds.x0;
@@ -208,10 +201,9 @@ export class SpotShadowMap extends ShadowMapBase<SpotLight> {
 
 export class ShadowContext {
   readonly atlas: ShadowAtlasAllocator;
-  readonly texture: GPUTextureContext;
   readonly maps: ShadowMapBase[] = [];
   readonly resolution_controller: ShadowAtlasResolutionController;
-  enabled = true;
+  enabled = false;
   lastHzbBuildCount = 0;
   lastHzbComputePassCount = 0;
   lastHzbDispatchCount = 0;
@@ -223,7 +215,9 @@ export class ShadowContext {
   private previousPointCount = 0;
   private previousSpotCount = 0;
   private previousDirectionalCount = 0;
-  private readonly rasterPass: ShadowRasterPass;
+  private _texture: GPUTextureContext | null = null;
+  private rasterPass: ShadowRasterPass | null = null;
+  private packedRasterPass: PackedCsmShadowPass | null = null;
   private readonly graphics: GraphicsContext;
   private readonly device: GPUDevice;
 
@@ -237,15 +231,55 @@ export class ShadowContext {
     const size = Math.min(device.limits.maxTextureDimension2D, SHADOW_ATLAS_MAX_SIZE);
     this.atlas = new ShadowAtlasAllocator(SHADOW_ATLAS_MAX_SIZE, SHADOW_ATLAS_MAX_SIZE);
     this.atlas.resize(size, size);
-    this.texture = new GPUTextureContext(device, {
-      label: "build_mesh_sphere_probe",
-      size: [size, size, 1],
-      dimension: "2d",
-      format: "depth32float",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
-    });
     this.resolution_controller = new ShadowAtlasResolutionController(this.atlas);
-    this.rasterPass = new ShadowRasterPass(graphics);
+  }
+
+  get texture(): GPUTextureContext {
+    return this.ensureTexture();
+  }
+
+  get atlas_allocated_bytes(): number {
+    const texture = this._texture;
+    return texture === null ? 0 : texture.width * texture.height * 4;
+  }
+
+  get packed_cascade_draw_count(): number {
+    return this.packedRasterPass?.lastCascadeDraws ?? 0;
+  }
+
+  get packed_atlas_pixels_updated(): number {
+    return this.packedRasterPass?.lastAtlasPixelsUpdated ?? 0;
+  }
+
+  setEnabled(enabled: boolean, command: ShadeGPUCommandContext): void {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    if (enabled) return;
+    const texture = this._texture;
+    const raster = this.rasterPass;
+    const packed = this.packedRasterPass;
+    const viewOwners: Array<GPUViewContext | GPUCameraState> = [];
+    for (const map of this.maps) {
+      for (const view of map.views) {
+        if (view.gpu_context !== undefined) viewOwners.push(view.gpu_context);
+        if (view.packed_camera_state !== undefined) viewOwners.push(view.packed_camera_state);
+        view.gpu_context = undefined;
+        view.packed_camera_state = undefined;
+      }
+    }
+    this._texture = null;
+    this.rasterPass = null;
+    this.packedRasterPass = null;
+    if (texture !== null || raster !== null || packed !== null || viewOwners.length > 0) {
+      command.destroyAfterGpuDone({
+        destroy: () => {
+          packed?.destroy();
+          raster?.destroy();
+          texture?.destroy();
+          for (const owner of viewOwners) owner.destroy();
+        }
+      });
+    }
   }
 
   get debug_render_count(): number {
@@ -349,13 +383,21 @@ export class ShadowContext {
     command: ShadeGPUCommandContext,
     scene: GPUSceneContext,
     database: GPUDatabase,
-    drawList: MeshletDrawList
+    drawList: MeshletDrawList,
+    packed: Readonly<{
+      runtime: PackedSceneRuntime;
+      assets: GpuAssetBindings;
+      scene: GpuSceneBindings;
+      counterBuffer: GPUBuffer | null;
+      sseThreshold: number;
+    }> | null = null
   ): number {
     this.debugRenderCount = 0;
     this.lastHzbBuildCount = 0;
     this.lastHzbComputePassCount = 0;
     this.lastHzbDispatchCount = 0;
     this.lastHzbOutputPixels = 0;
+    this.packedRasterPass?.beginFrame();
     const meshlets = scene.meshlets;
     const sceneDatabaseBuffer = scene.scene_database_buffer;
     const meshTable = scene.meshSlice;
@@ -366,8 +408,8 @@ export class ShadowContext {
       meshlets.dataBuffer !== null &&
       meshlets.meshMetaBuffer !== null;
 
-    if (canRaster) {
-      const atlasView = this.texture.obtainView();
+    if (canRaster || packed !== null) {
+      const atlasView = this.ensureTexture().obtainView();
       for (const map of this.maps) {
         if (!map.should_draw) continue;
 
@@ -380,14 +422,40 @@ export class ShadowContext {
         }
 
         let drew = true;
-        if ((map.light as PointLight).isPointLight) {
+        if (packed !== null && (map.light as DirectionalLight).isDirectionalLight) {
+          const pass = this.obtainPackedRasterPass();
+          for (let viewIndex = 0; viewIndex < map.views.length; viewIndex++) {
+            const layout = map.layout[viewIndex]!;
+            const shadowView = map.views[viewIndex]!;
+            const camera = shadowView.camera as OrthographicCamera;
+            shadowView.packed_camera_state ??= new GPUCameraState(this.device, camera);
+            shadowView.packed_camera_state.update(command);
+            pass.execute(command, {
+              runtime: packed.runtime,
+              assets: packed.assets,
+              scene: packed.scene,
+              materials: packed.runtime.materialVisibility,
+              camera,
+              cameraBuffer: shadowView.packed_camera_state.buffer,
+              cascadeIndex: viewIndex,
+              viewport: [layout.x0, layout.y0, layout.width, layout.height],
+              depthView: atlasView,
+              sseThreshold: packed.sseThreshold,
+              counterBuffer: packed.counterBuffer
+            });
+          }
+        } else if (packed !== null) {
+          // FX-04 owns directional CSM only. Packed point/spot shadows remain
+          // explicitly unsupported instead of falling back to a CPU draw list.
+          drew = false;
+        } else if ((map.light as PointLight).isPointLight) {
           drew = this.drawPointMap(
             command,
             scene,
             map as PointShadowMap,
             atlasView,
-            sceneDatabaseBuffer,
-            meshTable,
+            sceneDatabaseBuffer!,
+            meshTable!,
             drawList
           );
         } else {
@@ -401,7 +469,7 @@ export class ShadowContext {
               layout.width,
               layout.height
             );
-            this.rasterPass.executeFull(command, {
+            this.obtainLegacyRasterPass().executeFull(command, {
               camera: shadowView.camera,
               viewport: [layout.x0, layout.y0, layout.width, layout.height],
               depthView: atlasView,
@@ -409,8 +477,8 @@ export class ShadowContext {
               viewContext,
               scene: scene.scene,
               sceneDatabase: scene.scene_database,
-              sceneDatabaseBuffer,
-              meshTable,
+              sceneDatabaseBuffer: sceneDatabaseBuffer!,
+              meshTable: meshTable!,
               materialMetadata: scene.material_metadata,
               materialRegistry: scene.materials,
               meshlets,
@@ -491,7 +559,8 @@ export class ShadowContext {
       meshCount: scene.mesh_count
     };
     const position = map.light.transform_global.position;
-    const prepared = this.rasterPass.preparePointSphereMeshes(command, baseJob, [
+    const rasterPass = this.obtainLegacyRasterPass();
+    const prepared = rasterPass.preparePointSphereMeshes(command, baseJob, [
       position.x,
       position.y,
       position.z,
@@ -513,7 +582,7 @@ export class ShadowContext {
         faceResolution,
         faceResolution
       );
-      this.rasterPass.executePrepared(command, {
+      rasterPass.executePrepared(command, {
         ...baseJob,
         camera: shadowView.camera,
         viewContext,
@@ -526,7 +595,7 @@ export class ShadowContext {
       });
     }
 
-    this.rasterPass.resolvePointShadow(
+    rasterPass.resolvePointShadow(
       command,
       cubeView,
       atlasView,
@@ -663,11 +732,94 @@ export class ShadowContext {
   }
 
   destroy(): void {
-    this.rasterPass.destroy();
-    this.texture.destroy();
+    this.packedRasterPass?.destroy();
+    this.rasterPass?.destroy();
+    this._texture?.destroy();
     for (const map of this.maps) map.destroy();
     this.maps.length = 0;
   }
+
+  releasePackedScene(
+    runtime: PackedSceneRuntime,
+    command: ShadeGPUCommandContext
+  ): void {
+    this.packedRasterPass?.release(runtime, command);
+  }
+
+  private ensureTexture(): GPUTextureContext {
+    if (!this.enabled) throw new Error("Shadow atlas requested while shadows are disabled");
+    if (this._texture !== null) return this._texture;
+    const size = Math.min(this.device.limits.maxTextureDimension2D, SHADOW_ATLAS_MAX_SIZE);
+    this._texture = new GPUTextureContext(this.device, {
+      label: "FX-04 ShadowAtlas/depth32float",
+      size: [size, size, 1],
+      dimension: "2d",
+      format: "depth32float",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+    });
+    return this._texture;
+  }
+
+  private obtainLegacyRasterPass(): ShadowRasterPass {
+    this.rasterPass ??= new ShadowRasterPass(this.graphics);
+    return this.rasterPass;
+  }
+
+  private obtainPackedRasterPass(): PackedCsmShadowPass {
+    this.packedRasterPass ??= new PackedCsmShadowPass(this.graphics);
+    return this.packedRasterPass;
+  }
+}
+
+/** Practical split (uniform/log blend) used by three.js CSM and PSSM references. */
+export function computePracticalCascadeSplits(
+  near: number,
+  far: number,
+  cascadeCount = 3,
+  lambda = 0.5
+): Float32Array {
+  if (!Number.isFinite(near) || !Number.isFinite(far) || near <= 0 || far <= near) {
+    throw new RangeError("CSM split range must satisfy 0 < near < far");
+  }
+  if (!Number.isInteger(cascadeCount) || cascadeCount <= 0) {
+    throw new RangeError("CSM cascade count must be a positive integer");
+  }
+  if (!Number.isFinite(lambda) || lambda < 0 || lambda > 1) {
+    throw new RangeError("CSM practical split lambda must be in [0, 1]");
+  }
+  const splits = new Float32Array(cascadeCount);
+  for (let cascade = 1; cascade <= cascadeCount; cascade++) {
+    const ratio = cascade / cascadeCount;
+    const uniform = near + (far - near) * ratio;
+    const logarithmic = near * Math.pow(far / near, ratio);
+    const distance = lerp(uniform, logarithmic, lambda);
+    splits[cascade - 1] = cascade === cascadeCount
+      ? 1
+      : (distance - near) / (far - near);
+  }
+  return splits;
+}
+
+export function snapShadowBoundsToTexelGrid(
+  bounds: SceneAABB,
+  width: number,
+  height: number
+): void {
+  if (!(width > 0) || !(height > 0) || !(bounds.width > 0) || !(bounds.height > 0)) {
+    throw new RangeError("CSM texel snapping requires positive bounds and resolution");
+  }
+  const texelX = bounds.width / width;
+  const texelY = bounds.height / height;
+  const centerX = 0.5 * (bounds.x0 + bounds.x1);
+  const centerY = 0.5 * (bounds.y0 + bounds.y1);
+  const snappedX = Math.floor(centerX / texelX) * texelX;
+  const snappedY = Math.floor(centerY / texelY) * texelY;
+  const deltaX = snappedX - centerX;
+  const deltaY = snappedY - centerY;
+  bounds.x0 += deltaX;
+  bounds.x1 += deltaX;
+  bounds.y0 += deltaY;
+  bounds.y1 += deltaY;
 }
 
 export function shadowUpdateScore(map: ShadowMapBase, frameIndex: number): number {

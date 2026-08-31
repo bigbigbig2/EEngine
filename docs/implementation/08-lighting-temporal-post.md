@@ -250,7 +250,13 @@ Hardware Raster 与 64-light pressure debt 继续进入 G5-P。
 
 ### FX-04 · CSM Shadow
 
-保留现有 CSM，不建设 VSM。FX-04 开始前先冻结 `SecondaryRasterWork v1` family：至少定义 instance slot、cluster/meshlet locator、material slot、raster flags、queue header、capacity/overflow 和 indirect-args ownership。每个 Cascade 的 caster selection 复用 Instance/Hierarchy/Cluster tables、共享 work-generation kernel/ABI 与 GPU indirect consumer，不恢复 CPU draw list；视图相关裁剪仍写各 cascade 独立队列。记录 main/cascade traversal、raster、atlas bytes、更新频率和 alpha-tested caster 成本；关闭 shadow 不保留 caster work/atlas update。
+来源、许可证、数学不变量与 WebGPU 差异由 [R5-02 porting ledger](../references/porting/R5-02-packed-csm-shadow.md) 冻结。保留现有三 cascade CSM，不建设 VSM；practical split、light-space fit 与 texel snapping 参考 Microsoft DirectX CSM sample 和 three.js CSM，GPU caster selection 直接复用已验收 R3 hierarchy producer。
+
+实现冻结为 `SecondaryRasterWork v1` family：32 B bounded queue header、20 B `VisibleCluster`、12 B `RasterWork`、完整 16 B indirect args。record 包含 instance/geometry/cluster/material locator 与 `CastsShadow/AlphaTested/DoubleSided` raster flags；每个 cascade 独立 owner/capacity/overflow，但共享 Work ABI v3 和 `HierarchicalWorkGenerator`，不复制 traversal，也不恢复 Packed CPU draw list。
+
+生产链每个 cascade 执行 hierarchy/SSE/frustum producer、viewport reverse-Z clear 和一次 depth-only `drawIndirect`。alpha MASK 读取同一 visibility material/UV/alpha atlas，active material 数不增加 draw/pass。atlas 上限为 4096² `depth32float`（64 MiB）；功能关闭 completion-safe 退休 atlas、prepared work、pass 与 shadow-view GPU state，不保留 counter/readback/submit。Packed point/spot shadow 不属于 FX-04，显式不回退 CPU producer；legacy non-Packed shadow 暂留到 FX-12。
+
+schema v7 sampled evidence使用最后六个 4 B slot记录三个 cascade work、atlas updated pixels、alpha work 和 per-cascade overflow mask。非 sampled frame没有 counter reducer。focused production Gate固定 Benchmark C camera/light使三个级联都有有效 caster，并执行 shadow on/off/on sequence；最终 clean artifact完成前，FX-04 状态保持 implementation complete / Gate pending。
 
 ### FX-05 · Transparency
 
