@@ -266,6 +266,12 @@ Alpha-tested 留在 Visibility；BLEND 通过同一个 `SecondaryRasterWork v1` 
 
 透明 shader 必须动态读取同一 Material/Texture owner；draw/pass 数只能依赖有硬上限的 raster-state bin（例如 front/double-sided），不得随 active material 数线性增长。用 overlapping colored quads 做 order-invariance + sorted-alpha quality reference，再跑 C-transparent 的 coverage/depth-layer/material sweep。
 
+FX-05 已落地为 `PackedTransparentOitPass`：BLEND instance 通过共享 hierarchy 的 required-flag 过滤生成独立 main-view `SecondaryRasterWork v1`，OPAQUE/MASK Visibility 与 Packed CSM 都显式排除 BLEND。生产 consumer 固定执行 1 次 moment `drawIndirect`、1 次 forward `drawIndirect` 和 1 次 composite；一个 `cullMode:none` bin 在 fragment 处理 one/double-sided 与 mirrored transform，材质数不改变 draw/pass。
+
+MBOIT v1 移植官方 4 power moments 数学不变量，使用 `r32float + rgba32float` accumulation、`5e-7` 单精度 bias、`0.25` overestimation 和 bounded finite fallback；resolved/reactive 为 `rgba16float + r8unorm`，总 transient 为 `29 B/pixel`。透明 shading 读取同一 Packed Material/Texture、FX-02 bounded cluster/light/shadow inputs 与 FX-03 IBL owner，不复制 light-list producer；motion v1 固定 `reactive-all-velocity-invalid-v1`，最终 temporal 合并归 FX-06B。完整来源、归档 hash、许可证、差异和未包含项见 `references/porting/R5-03-packed-mboit-transparency.md`。
+
+schema v8 在原 additive ABI 后增加 real sampled fields：`transparentRasterWork`、`transparentTriangles`、`transparentReactivePixels`、`transparentMomentFiniteFailures`、`transparentQueueOverflowMask`。evidence compute 只存在于 sampled graph；非 sampled 帧没有该 pass/atomic。C-transparent dirty production Gate 已覆盖 coverage `0/10/50%`、layers `1/4/8/16`、materials `1/8/64` 与正/逆提交顺序，所有用例通过，order PNG RMS/max difference 为 `0/0`；clean provenance Gate 在提交后冻结。
+
 ### FX-06 · Temporal Foundation / Dynamic Resolution / Upscaling
 
 FX-06 分为同一任务的两个落点，避免 AO/SSR 各自复制 history 逻辑，也避免先完成最终 TAAU 后又为 AO/SSR 改写输入。`FX-06A` 先闭合 Temporal shader source-of-truth，建立共享 history registry/invalidation、reactive/disocclusion classification、jitter、internal/output resolution 与 DRS feedback；此时只要求最小 TAA reference 可验证，不关闭最终画质。FX-07/08 复用该基础设施完成 AO/SSR 自身 temporal/denoise。`FX-06B` 最后冻结 current HDR composition、final TAA/TAAU/upscale、透明 reactive 与 AO/SSR 组合顺序，之后才关闭 G5-T。

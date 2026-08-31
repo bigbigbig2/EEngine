@@ -233,21 +233,21 @@ git commit -am "实现（R5-FX02）：收口 clustered lighting 容量与 direct
 ### Task 6: FX-05 Packed MBOIT Transparency and G5-S
 
 **Files:**
-- Modify: `OEngine/src/render/passes/TransparentOitPass.ts`
-- Modify: transparent WGSL.
+- Add: `OEngine/src/render/passes/PackedTransparentOitPass.ts`
+- Add: `OEngine/src/shaders/packed_transparent_oit.ts`
 - Add bounded `TransparentRasterWork` producer using Packed hierarchy/material slots.
-- Test/Create: `OEngine/tests/r5-transparency-mboit.test.mjs`
-- Create: `docs/references/porting/R5-03-transparency.md`
+- Test/Create: `OEngine/tests/fx05-packed-transparency.test.mjs`
+- Create: `docs/references/porting/R5-03-packed-mboit-transparency.md`
 
 **Interfaces:**
 - Consumes: Packed geometry/material/texture tables, opaque depth, Lighting inputs.
 - Produces: transparent HDR composite + reactive/motion semantics.
 
-- [ ] **Step 1: Add order-invariance overlapping-quad test**
-- [ ] **Step 2: Add sorted-alpha CPU quality reference**
-- [ ] **Step 3: Add transparent queue capacity/overflow test**
-- [ ] **Step 4: Remove per-material draw scaling from Packed transparency**
-- [ ] **Step 5: Run C-transparent 1/8/64 material sweep**
+- [x] **Step 1: Add order-invariance overlapping-quad test**
+- [x] **Step 2: Add sorted-alpha CPU quality reference**
+- [x] **Step 3: Add transparent queue capacity/overflow test**
+- [x] **Step 4: Remove per-material draw scaling from Packed transparency**
+- [x] **Step 5: Run C-transparent 1/8/64 material sweep**
 - [ ] **Step 6: Close G5-S and commit**
 
 ---

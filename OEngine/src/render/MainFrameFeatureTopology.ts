@@ -35,6 +35,7 @@ export type MainFrameFeatureTopology = Readonly<{
   automaticExposure: boolean;
   motionBlur: boolean;
   sharpening: boolean;
+  transparency: boolean;
   debug: boolean;
   enabledFeatureBits: number;
   persistentOwners: readonly string[];
@@ -83,6 +84,7 @@ export function resolveMainFrameFeatureTopology(
     automaticExposure: input.automaticExposure,
     motionBlur: input.motionBlur,
     sharpening: input.sharpening,
+    transparency: input.transparency === true,
     debug,
     enabledFeatureBits: bits,
     persistentOwners: Object.freeze([
@@ -94,6 +96,7 @@ export function resolveMainFrameFeatureTopology(
       ...(input.sharpening ? ["sharpen"] : []),
       ...(input.bloom ? ["bloom"] : []),
       ...(input.automaticExposure ? ["automatic-exposure"] : []),
+      ...(input.transparency ? ["transparency"] : []),
       ...(debug ? ["render-debug"] : [])
     ]),
     histories: Object.freeze([

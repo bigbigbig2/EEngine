@@ -12,7 +12,9 @@ export const GPU_INSTANCE_FLAGS = Object.freeze({
   AlphaTested: 1 << 3,
   DoubleSided: 1 << 4,
   /** Velocity must output zero because current-to-previous motion is not invertible. */
-  MotionInvalid: 1 << 5
+  MotionInvalid: 1 << 5,
+  /** BLEND material routed to a bounded transparent SecondaryRasterWork queue. */
+  Transparent: 1 << 6
 } as const);
 
 export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({

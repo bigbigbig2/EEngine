@@ -41,6 +41,8 @@ import { IblDiffusePass } from "./passes/IblDiffusePass.js";
 import { LpvIndirectDiffusePass } from "./passes/LpvIndirectDiffusePass.js";
 import { IndirectCompositePass } from "./passes/IndirectCompositePass.js";
 import { TransparentOitPass } from "./passes/TransparentOitPass.js";
+import { PackedTransparentOitPass } from "./passes/PackedTransparentOitPass.js";
+import { ShadeTransparencyMode } from "../material/enums.js";
 import { PathTracer } from "./passes/PathTracer.js";
 import {
   Brick4DiffusePass,
@@ -244,7 +246,8 @@ export class Renderer {
   private _iblDiffuse!: IblDiffusePass;
   private _lpvIndirectDiffuse!: LpvIndirectDiffusePass;
   private _indirectComposite!: IndirectCompositePass;
-  private _transparentOit!: TransparentOitPass;
+  private _transparentOit: TransparentOitPass | null = null;
+  private _packedTransparentOit: PackedTransparentOitPass | null = null;
   private _pathTracer: PathTracer | undefined;
   private _brick4Diffuse!: Brick4DiffusePass;
   private _brick4Specular!: Brick4SpecularPass;
@@ -448,6 +451,7 @@ export class Renderer {
       const runtime = this._graphics.packed_scenes.runtime(scene);
       if (runtime !== null && this._packedVisibility) {
         this._packedVisibility.release(runtime, command);
+        this._packedTransparentOit?.release(runtime, command);
         this._scenes.obtain(scene).lights.shadow_context.releasePackedScene(
           runtime,
           command
@@ -470,6 +474,29 @@ export class Renderer {
 
   packedSceneEvidence(): PackedSceneEvidence {
     return this._graphics.packed_scenes.evidence();
+  }
+
+  /** FX-05 bounded owner/draw evidence; null means the Packed feature owner was never created. */
+  packedTransparencyEvidence(): Readonly<{
+    rasterStateBinLimit: number;
+    drawCount: number;
+    momentPasses: number;
+    forwardPasses: number;
+    compositePasses: number;
+    transientBytesPerPixel: number;
+    motionContract: "reactive-all-velocity-invalid-v1";
+  }> | null {
+    const pass = this._packedTransparentOit;
+    if (pass === null) return null;
+    return Object.freeze({
+      rasterStateBinLimit: pass.rasterStateBinLimit,
+      drawCount: pass.lastDrawCount,
+      momentPasses: pass.lastMomentPasses,
+      forwardPasses: pass.lastForwardPasses,
+      compositePasses: pass.lastCompositePasses,
+      transientBytesPerPixel: pass.transientBytesPerPixel,
+      motionContract: pass.motionContract
+    });
   }
 
   private async releasePackedAssetHandles(
@@ -657,6 +684,9 @@ export class Renderer {
       .matchMedia("(dynamic-range: high)")
       .removeEventListener("change", this._onDynamicRangeChange);
     this._transparentOit?.destroy();
+    this._transparentOit = null;
+    this._packedTransparentOit?.destroy();
+    this._packedTransparentOit = null;
     this._ssao?.destroy();
     this._ssao = null;
     this._ssr?.destroy();
@@ -1882,15 +1912,8 @@ export class Renderer {
             }).hdr;
         }
 
-        if (
-          this._transparentOit.hasTransparentMaterials(scene) &&
-          hdrRes !== null &&
-          hzbRes !== null &&
-          lightDatabaseRes !== null &&
-          environmentRes !== null &&
-          shadowAtlasRes !== null &&
-          clusters !== null
-        ) {
+        if (graphTopology.transparency && hdrRes !== null &&
+          environmentRes !== null && diffuseIrradianceRes !== null) {
           const splitSum = this._graphics.textures.obtain(
             STATIC_GRAPHICS_ENGINE_ASSETS.split_sum
           );
@@ -1899,45 +1922,89 @@ export class Renderer {
             { kind: "imported", label: "OIT rg16float split_sum" },
             splitSum.gpu_texture
           );
-          const brick4LightMapRes =
-            this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4
-              ? graph.import_resource(
-                  "OIT/Brick4 volumetric light map",
-                  { kind: "imported", label: "OIT Brick4 Av storage" },
-                  bind("oit-brick4-light-map", (bindings) =>
-                    bindings.gpuScene.volumetric_light_map.buffer)
-                )
-              : undefined;
-          hdrRes = this._transparentOit.addToGraph(
-            graph,
-            bind("transparent-oit-job", (bindings) => ({
-              width: bindings.internalWidth,
-              height: bindings.internalHeight,
-              scene: bindings.scene,
-              materials: bindings.gpuScene.materials,
-              drawList: this._meshletDrawList,
-              indirectLightingMode: this.indirect_lighting_mode
-            })),
-            {
-              hdr: hdrRes,
-              depth: depthRes,
-              hzb: hzbRes,
-              camera: currentCameraRes,
-              view: viewUniformRes,
-              sceneDatabase: sceneDatabaseRes!,
-              geometryMetadata: geometryMetaRes!,
-              meshletHeaders: meshletHeadersRes!,
-              meshletData: meshletDataRes!,
-              lightDatabase: lightDatabaseRes,
-              environment: environmentRes,
-              clusterParameters: clusters.parameters,
-              clusterLookup: clusters.lookup,
-              clusterData: clusters.data,
-              shadowAtlas: shadowAtlasRes,
-              splitSum: oitSplitSumRes,
-              brick4LightMap: brick4LightMapRes
+          if (packedPath) {
+            this._packedTransparentOit ??= new PackedTransparentOitPass(this._graphics);
+            const output = this._packedTransparentOit.addToGraph(
+              graph,
+              bind("packed-transparent-oit-job", (bindings) => {
+                const registryBindings = this._graphics.packed_scenes.bindings();
+                return {
+                  runtime: bindings.gpuPacked!,
+                  assets: registryBindings.assets,
+                  scene: registryBindings.scene,
+                  width: bindings.internalWidth,
+                  height: bindings.internalHeight,
+                  hierarchyView: createPackedHierarchyView(
+                    bindings.camera,
+                    bindings.internalHeight
+                  ),
+                  sseThreshold: this.packed_visibility_sse_threshold
+                };
+              }),
+              {
+                hdr: hdrRes,
+                depth: depthRes,
+                camera: currentCameraRes,
+                view: viewUniformRes,
+                environment: environmentRes,
+                diffuseIrradiance: diffuseIrradianceRes,
+                splitSum: oitSplitSumRes,
+                lightDatabase: lightDatabaseRes!,
+                clusterParameters: clusters!.parameters,
+                clusterLookup: clusters!.lookup,
+                clusterData: clusters!.data,
+                activeLightList: clusters!.activeLightList,
+                shadowAtlas: shadowAtlasRes!,
+                counters: gpuCounterRes ?? undefined
+              }
+            );
+            hdrRes = output.hdr;
+            if (output.counters !== null) {
+              gpuCounterRes = output.counters;
             }
-          );
+          } else if (hzbRes !== null && lightDatabaseRes !== null &&
+            shadowAtlasRes !== null && clusters !== null) {
+            this._transparentOit ??= new TransparentOitPass(this._graphics);
+            const brick4LightMapRes =
+              this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4
+                ? graph.import_resource(
+                    "OIT/Brick4 volumetric light map",
+                    { kind: "imported", label: "OIT Brick4 Av storage" },
+                    bind("oit-brick4-light-map", (bindings) =>
+                      bindings.gpuScene.volumetric_light_map.buffer)
+                  )
+                : undefined;
+            hdrRes = this._transparentOit.addToGraph(
+              graph,
+              bind("transparent-oit-job", (bindings) => ({
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
+                scene: bindings.scene,
+                materials: bindings.gpuScene.materials,
+                drawList: this._meshletDrawList,
+                indirectLightingMode: this.indirect_lighting_mode
+              })),
+              {
+                hdr: hdrRes,
+                depth: depthRes,
+                hzb: hzbRes,
+                camera: currentCameraRes,
+                view: viewUniformRes,
+                sceneDatabase: sceneDatabaseRes!,
+                geometryMetadata: geometryMetaRes!,
+                meshletHeaders: meshletHeadersRes!,
+                meshletData: meshletDataRes!,
+                lightDatabase: lightDatabaseRes,
+                environment: environmentRes,
+                clusterParameters: clusters.parameters,
+                clusterLookup: clusters.lookup,
+                clusterData: clusters.data,
+                shadowAtlas: shadowAtlasRes,
+                splitSum: oitSplitSumRes,
+                brick4LightMap: brick4LightMapRes
+              }
+            );
+          }
         }
 
         if (
@@ -2182,6 +2249,13 @@ export class Renderer {
         ]);
         if (gpuPacked !== null) {
           this._profiler.registerGpuCounterFields(["invalidVisibilityKeys"]);
+          this._profiler.registerGpuCounterFields([
+            "transparentRasterWork",
+            "transparentTriangles",
+            "transparentReactivePixels",
+            "transparentMomentFiniteFailures",
+            "transparentQueueOverflowMask"
+          ]);
         }
       }
       cmd.encodeCompiledGraph(compiledGraph, mainBindings);
@@ -2268,7 +2342,12 @@ export class Renderer {
         bindings.gpuScene.skinning.prev_positions_buffer !== null,
       transparency: bindings === undefined
         ? false
-        : this._transparentOit.hasTransparentMaterials(bindings.scene),
+        : bindings.gpuPacked === null
+          ? hasLegacyTransparentMaterials(bindings.scene)
+          : bindings.gpuPacked.materials.some(
+              (material) =>
+                material.transparency_mode === ShadeTransparencyMode.Transparent
+            ),
       highDynamicRange: this._highDynamicRange
     });
   }
@@ -2294,7 +2373,6 @@ export class Renderer {
     this._iblDiffuse ??= new IblDiffusePass(this._graphics);
     this._lpvIndirectDiffuse ??= new LpvIndirectDiffusePass(this._graphics);
     this._indirectComposite ??= new IndirectCompositePass(this._graphics);
-    this._transparentOit ??= new TransparentOitPass(this._graphics);
     this._brick4Diffuse ??= new Brick4DiffusePass(this._graphics);
     this._brick4Specular ??= new Brick4SpecularPass(this._graphics);
     this._brick4Fused ??= new Brick4FusedIndirectPass(this._graphics);
@@ -2719,6 +2797,12 @@ function createPackedHierarchyView(
     nearPlane: camera.near,
     frustumPlanes: planes
   };
+}
+
+function hasLegacyTransparentMaterials(scene: Scene): boolean {
+  return scene.instances.materials.some(
+    (material) => material.transparency_mode === ShadeTransparencyMode.Transparent
+  );
 }
 
 function packedPreviousHzb(

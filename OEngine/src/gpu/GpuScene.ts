@@ -44,6 +44,8 @@ export interface InstanceTransformPatch {
 export interface InstanceMaterialPatch {
   readonly indices: Uint32Array;
   readonly materialHandles: Uint32Array;
+  /** Optional classification flags written atomically with each material handle. */
+  readonly flags?: Uint32Array;
 }
 
 /** One explicit frame batch. Duplicate indices use the final value in the batch. */
@@ -349,6 +351,10 @@ export class GpuScene {
       entry.count,
       "material"
     );
+    if (batch.materials?.flags !== undefined &&
+      batch.materials.flags.length !== batch.materials.materialHandles.length) {
+      throw new RangeError("material patch flags and materialHandles must match");
+    }
     if (batch.transforms !== undefined) {
       for (let index = 0; index < batch.transforms.transforms.length; index++) {
         if (!Number.isFinite(batch.transforms.transforms[index])) {
@@ -381,6 +387,7 @@ export class GpuScene {
     const transformValues = batch.transforms?.transforms;
     const materialIndices = batch.materials?.indices;
     const materialValues = batch.materials?.materialHandles;
+    const materialFlags = batch.materials?.flags;
     const recordView = new DataView(
       entry.bytes.buffer,
       entry.bytes.byteOffset,
@@ -461,6 +468,13 @@ export class GpuScene {
           material,
           true
         );
+        if (materialFlags !== undefined) {
+          const flagsOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
+            GPU_INSTANCE_RECORD_OFFSETS.flags;
+          const preserved = recordView.getUint32(flagsOffset, true) &
+            (GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.MotionInvalid);
+          recordView.setUint32(flagsOffset, (preserved | materialFlags[order]!) >>> 0, true);
+        }
       }
 
       const density = dirtyIndices.length / entry.count;
@@ -479,8 +493,8 @@ export class GpuScene {
         recordGpuQueueUpload(this.device.queue, "GpuScene/patch-instances", byteLength);
         uploadedBytes += byteLength;
       }
-      const sourceBytes =
-        transformOrders.length * 16 * 4 + materialOrders.length * 4;
+      const sourceBytes = transformOrders.length * 16 * 4 +
+        materialOrders.length * (materialFlags === undefined ? 4 : 8);
       const result = Object.freeze({
         transformCount: transformOrders.length,
         materialCount: materialOrders.length,

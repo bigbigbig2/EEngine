@@ -2,6 +2,8 @@ import type { GeometryAssetPackage } from "../assets/GeometryAssetPackage.js";
 import { computeIndexedPackedHierarchyWorkCapacity } from "../geometry/GeometryHierarchy.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
+import { ShadeDrawSide, ShadeTransparencyMode } from "../material/enums.js";
+import { GPU_INSTANCE_FLAGS } from "./GpuInstanceAbi.js";
 import type { Scene } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { GpuMaterialVisibilityBindings } from "./GpuMaterialVisibilityTable.js";
@@ -120,6 +122,14 @@ export class GpuPackedSceneRegistry {
     for (let index = 0; index < source.count; index++) {
       materialHandles[index] = materialStage.materialSlots[source.materialIndices[index]!]!;
     }
+    const normalizedFlags = new Uint32Array(source.count);
+    for (let index = 0; index < source.count; index++) {
+      const material = source.materials[source.materialIndices[index]!]!;
+      normalizedFlags[index] = materialClassificationFlags(
+        material,
+        source.flags?.[index] ?? 0
+      );
+    }
     const instanceSource: InstanceSource = {
       count: source.count,
       geometryHandles,
@@ -130,7 +140,7 @@ export class GpuPackedSceneRegistry {
       boundsSpheres: source.boundsSpheres,
       boundsMin: source.boundsMin,
       boundsMax: source.boundsMax,
-      flags: source.flags,
+      flags: normalizedFlags,
       debugIds: source.debugIds
     };
     const instanceHandle = this.graphics.gpu_scene.instantiate(instanceSource, command);
@@ -223,7 +233,11 @@ export class GpuPackedSceneRegistry {
     const pending = this.pendingPatches.get(scene);
     if (pending === undefined) return null;
     const runtime = this.byScene.get(scene)!;
-    const batch = toInstancePatchBatch(pending.batch, runtime.materialSlots);
+    const batch = toInstancePatchBatch(
+      pending.batch,
+      runtime.materialSlots,
+      runtime.materials
+    );
     const result = this.graphics.gpu_scene.patch(
       runtime.instanceHandle,
       batch,
@@ -276,7 +290,8 @@ export class GpuPackedSceneRegistry {
 
 function toInstancePatchBatch(
   batch: PackedScenePatchBatch,
-  materialSlots: readonly number[]
+  materialSlots: readonly number[],
+  materialsDictionary: readonly StandardShadeMaterial[]
 ): InstancePatchBatch {
   const materials = batch.materials;
   if (materials === undefined) {
@@ -286,6 +301,7 @@ function toInstancePatchBatch(
     throw new RangeError("Packed Scene material patch indices and materialIndices must match");
   }
   const materialHandles = new Uint32Array(materials.materialIndices.length);
+  const flags = new Uint32Array(materials.materialIndices.length);
   for (let index = 0; index < materials.materialIndices.length; index++) {
     const dictionaryIndex = materials.materialIndices[index]!;
     if (dictionaryIndex >= materialSlots.length) {
@@ -294,12 +310,31 @@ function toInstancePatchBatch(
       );
     }
     materialHandles[index] = materialSlots[dictionaryIndex]!;
+    flags[index] = materialClassificationFlags(materialsDictionary[dictionaryIndex]!, 0);
   }
   return {
     frameId: batch.frameId,
     transforms: batch.transforms,
-    materials: { indices: materials.indices, materialHandles }
+    materials: { indices: materials.indices, materialHandles, flags }
   };
+}
+
+function materialClassificationFlags(
+  material: StandardShadeMaterial,
+  sourceFlags: number
+): number {
+  let flags = sourceFlags & ~(
+    GPU_INSTANCE_FLAGS.AlphaTested |
+    GPU_INSTANCE_FLAGS.DoubleSided |
+    GPU_INSTANCE_FLAGS.Transparent
+  );
+  if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
+    flags |= GPU_INSTANCE_FLAGS.AlphaTested;
+  } else if (material.transparency_mode === ShadeTransparencyMode.Transparent) {
+    flags |= GPU_INSTANCE_FLAGS.Transparent;
+  }
+  if (material.draw_side === ShadeDrawSide.Double) flags |= GPU_INSTANCE_FLAGS.DoubleSided;
+  return flags >>> 0;
 }
 
 function validateSource(

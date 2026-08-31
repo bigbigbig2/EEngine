@@ -16,7 +16,8 @@ export const GPU_SECONDARY_RASTER_ABI_VERSION = 1;
 export const GPU_SECONDARY_RASTER_FLAGS = Object.freeze({
   CastsShadow: GPU_INSTANCE_FLAGS.CastsShadow,
   AlphaTested: GPU_INSTANCE_FLAGS.AlphaTested,
-  DoubleSided: GPU_INSTANCE_FLAGS.DoubleSided
+  DoubleSided: GPU_INSTANCE_FLAGS.DoubleSided,
+  Transparent: GPU_INSTANCE_FLAGS.Transparent
 } as const);
 
 export const GPU_SECONDARY_RASTER_SCHEMA = Object.freeze({

@@ -158,7 +158,10 @@ export class PackedCsmShadowPass {
       command.gpu_encoder,
       prepared,
       createPackedShadowHierarchyView(job.camera, job.viewport[3]),
-      { requiredInstanceFlags: GPU_INSTANCE_FLAGS.CastsShadow }
+      {
+        requiredInstanceFlags: GPU_INSTANCE_FLAGS.CastsShadow,
+        excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent
+      }
     );
     const group = this.graphics.bind_groups.obtain({
       layout: PACKED_CSM_GROUP,

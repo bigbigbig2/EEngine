@@ -13,8 +13,8 @@ globalThis.GPUBufferUsage ??= { COPY_DST: 1, MAP_READ: 2 };
 globalThis.GPUMapMode ??= { READ: 1 };
 
 test("GPU counter ABI is fixed, unique and 256-byte aligned", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 7);
-  assert.equal(GPU_COUNTER_BYTE_SIZE, 256);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 8);
+  assert.equal(GPU_COUNTER_BYTE_SIZE, 512);
   assert.equal(GPU_COUNTER_BYTE_SIZE % 256, 0);
   assert.equal(new Set(GPU_COUNTER_FIELDS.map((field) => field.name)).size,
     GPU_COUNTER_FIELDS.length);

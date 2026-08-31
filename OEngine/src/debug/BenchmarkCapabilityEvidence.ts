@@ -127,6 +127,16 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "shadowQueueOverflowMask"
     ]
   },
+  "packed-mboit-transparency": {
+    status: "supported",
+    requiredGpuCounters: [
+      "transparentRasterWork",
+      "transparentTriangles",
+      "transparentReactivePixels",
+      "transparentMomentFiniteFailures",
+      "transparentQueueOverflowMask"
+    ]
+  },
   "packed-instances": {
     status: "supported",
     requiredGpuCounters: [
@@ -279,7 +289,12 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   shadowCascade2RasterWork: supported("PackedCsmShadowPass/cascade-2 queue reducer"),
   shadowAtlasPixelsUpdated: supported("PackedCsmShadowPass/atlas update reducer"),
   shadowAlphaRasterWork: supported("PackedCsmShadowPass/alpha flag reducer"),
-  shadowQueueOverflowMask: supported("PackedCsmShadowPass/per-cascade overflow reducer")
+  shadowQueueOverflowMask: supported("PackedCsmShadowPass/per-cascade overflow reducer"),
+  transparentRasterWork: supported("PackedTransparentOitPass/bounded queue reducer"),
+  transparentTriangles: supported("PackedTransparentOitPass/exact meshlet triangle reducer"),
+  transparentReactivePixels: supported("PackedTransparentOitPass/reactive texture reducer"),
+  transparentMomentFiniteFailures: supported("PackedTransparentOitPass/power-moment finite reducer"),
+  transparentQueueOverflowMask: supported("PackedTransparentOitPass/queue overflow reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

@@ -94,6 +94,10 @@ export default defineConfig({
           examplesRoot,
           "r5-packed-csm-shadow/index.html"
         ),
+        r5PackedTransparency: path.resolve(
+          examplesRoot,
+          "r5-packed-transparency/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

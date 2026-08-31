@@ -73,6 +73,8 @@ export interface HierarchicalWorkFeatures {
   readonly coneEnabled?: boolean;
   /** Every selected instance must contain these bits; zero keeps the main view behavior. */
   readonly requiredInstanceFlags?: number;
+  /** Selected instances must contain none of these bits. */
+  readonly excludedInstanceFlags?: number;
   /** Null means history is invalid and the traversal must fail open. */
   readonly previousHzb?: Readonly<{
     view: GPUTextureView;
@@ -1264,6 +1266,9 @@ export function packHierarchyViewUniform(
     maxComputeWorkgroupsPerDimension,
     true
   );
+  const excludedInstanceFlags = features.excludedInstanceFlags ?? 0;
+  assertU32(excludedInstanceFlags, "R5 SecondaryRasterWork excluded instance flags");
+  data.setUint32(HIERARCHICAL_VIEW_OFFSETS.limits + 4, excludedInstanceFlags, true);
   const previousHzb = features.previousHzb ?? null;
   const worldToClip = previousHzb?.worldToClipMatrix;
   if (previousHzb !== null &&

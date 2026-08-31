@@ -4,8 +4,8 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 7;
-export const GPU_COUNTER_BYTE_SIZE = 256;
+export const GPU_COUNTER_SCHEMA_VERSION = 8;
+export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
 export const GPU_QUEUE_OVERFLOW_BITS = {
@@ -79,7 +79,12 @@ export const GPU_COUNTER_FIELDS = [
   { name: "shadowCascade2RasterWork", index: 60, semantic: "sampled SecondaryRasterWork written for directional cascade 2" },
   { name: "shadowAtlasPixelsUpdated", index: 61, semantic: "sampled directional shadow atlas pixels updated" },
   { name: "shadowAlphaRasterWork", index: 62, semantic: "sampled alpha-tested directional SecondaryRasterWork" },
-  { name: "shadowQueueOverflowMask", index: 63, semantic: "sampled per-cascade SecondaryRasterWork overflow bits" }
+  { name: "shadowQueueOverflowMask", index: 63, semantic: "sampled per-cascade SecondaryRasterWork overflow bits" },
+  { name: "transparentRasterWork", index: 64, semantic: "sampled bounded TransparentRasterWork written" },
+  { name: "transparentTriangles", index: 65, semantic: "sampled exact transparent meshlet triangles" },
+  { name: "transparentReactivePixels", index: 66, semantic: "sampled pixels covered by BLEND geometry" },
+  { name: "transparentMomentFiniteFailures", index: 67, semantic: "sampled non-finite optical or power-moment pixels" },
+  { name: "transparentQueueOverflowMask", index: 68, semantic: "sampled TransparentRasterWork overflow bit" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

@@ -244,10 +244,12 @@ const R3_CLUSTER_DOUBLE_SIDED: u32 = 16u;
 
 fn hierarchy_instance_enabled(
   instance: OEngineInstanceRecord,
-  required_flags: u32
+  required_flags: u32,
+  excluded_flags: u32
 ) -> bool {
   return oengine_instance_active(instance) &&
-    (instance.flags & required_flags) == required_flags;
+    (instance.flags & required_flags) == required_flags &&
+    (instance.flags & excluded_flags) == 0u;
 }
 
 struct OEngineWorldSphere {
@@ -488,7 +490,7 @@ fn r3_fused_root_cull(
       instance.bounds_sphere,
       instance.current_object_to_world
     );
-    if hierarchy_instance_enabled(instance, hierarchy_view.scene.w) &&
+    if hierarchy_instance_enabled(instance, hierarchy_view.scene.w, hierarchy_view.limits.y) &&
       hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
       atomicAdd(&hierarchy_wg_visible_instances, 1u);
       atomicAdd(&hierarchy_wg_visited_clusters, 1u);
@@ -927,7 +929,7 @@ fn r3_fused_leaf_work(
       instance.bounds_sphere,
       instance.current_object_to_world
     );
-    if hierarchy_instance_enabled(instance, leaf_view.scene.w) &&
+    if hierarchy_instance_enabled(instance, leaf_view.scene.w, leaf_view.limits.y) &&
       hierarchy_sphere_in_frustum(instance_sphere, &leaf_view) {
       atomicAdd(&hierarchy_wg_visible_instances, 1u);
       atomicAdd(&hierarchy_wg_visited_clusters, 1u);

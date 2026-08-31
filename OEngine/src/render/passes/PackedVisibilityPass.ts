@@ -4,6 +4,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
+import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
 import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
@@ -258,6 +259,7 @@ export class PackedVisibilityPass {
       job.hierarchyView,
       {
         coneEnabled: job.coneEnabled,
+        excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent,
         previousHzb: job.previousHzb
       }
     );

@@ -584,6 +584,17 @@ Hierarchy selection
 
 G5-S 退出：FX04/05 全部通过，Packed Shadow/Transparency 不再依赖 legacy MeshletDrawList/Material per-loop producer。
 
+## FX-05 当前落点
+
+- 页面：`examples/r5-packed-transparency/`
+- runner：`examples/scripts/run-r5-fx05-gate.mjs`
+- production 分辨率：internal `960 × 720`、DPR 1；每组 warm-up 6、sample 18，timestamp/counter interval 2。
+- 固定资源：`r32float optical + rgba32float moments + rgba16float resolved + r8unorm reactive = 29 B/pixel`。
+- 固定提交：1 moment indirect + 1 forward indirect + 1 composite，material `1/8/64` 均为 3 draw。
+- counter ABI：schema v8 / 512 B；work、exact meshlet triangles、reactive pixels、finite failure 和 overflow 均来自 sampled GPU pass，不用 CPU 或假 counter。
+- feature-off：coverage=0 使用 fresh Renderer 验证透明 graph/pass owner与 transient bytes为 0。
+- dirty production Gate 已通过全部 12 cases；正逆序截图 `RMS=0`、`maxChannelDifference=0`，无 console/page/WebGPU diagnostics。该结果只证明实现闭环，clean artifact/provenance 在提交后记录。
+
 ---
 
 # FX-06A · Temporal Foundation / DRS Contract / G5-T

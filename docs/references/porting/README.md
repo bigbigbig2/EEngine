@@ -46,3 +46,4 @@ R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；�
 - [R5 FX-02 Clustered Direct Lighting](./R5-FX02-clustered-direct-lighting.md)
 - [R5-01 Surface Lighting / FX-03 IBL Alignment](./R5-01-surface-lighting.md)
 - [R5-02 Packed CSM Shadow / FX-04](./R5-02-packed-csm-shadow.md)
+- [R5-03 Packed MBOIT Transparency / FX-05](./R5-03-packed-mboit-transparency.md)

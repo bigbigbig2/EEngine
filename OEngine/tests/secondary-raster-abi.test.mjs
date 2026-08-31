@@ -51,7 +51,7 @@ test("FX-04 SecondaryRasterWork v1 freezes queue, locator, flags and full indire
     raster_flags: 8
   });
   assert.equal(GPU_SECONDARY_RASTER_SCHEMA.drawIndirectBytes, 16);
-  assert.equal(new Set(Object.values(GPU_SECONDARY_RASTER_FLAGS)).size, 3);
+  assert.equal(new Set(Object.values(GPU_SECONDARY_RASTER_FLAGS)).size, 4);
   assert.equal(secondaryRasterQueueByteLength(4), 32 + 4 * 12);
   assert.throws(() => secondaryRasterQueueByteLength(0), /positive u32/);
 });

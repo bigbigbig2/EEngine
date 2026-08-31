@@ -310,6 +310,9 @@ function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
       if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
         instanceFlags |= GPU_INSTANCE_FLAGS.AlphaTested;
       }
+      if (material.transparency_mode === ShadeTransparencyMode.Transparent) {
+        instanceFlags |= GPU_INSTANCE_FLAGS.Transparent;
+      }
       const materialRange = source.materialRanges[0];
       if (materialRange?.doubleSided === true) instanceFlags |= GPU_INSTANCE_FLAGS.DoubleSided;
       geometryIndices.push(geometryIndex);
