@@ -17,6 +17,8 @@ import {
   SURFACE_FLAGS_DEBUG_WGSL,
   SURFACE_NORMAL_DEBUG_WGSL,
   SURFACE_PBR_DEBUG_WGSL,
+  SSR_HISTORY_CONFIDENCE_DEBUG_WGSL,
+  SSR_HIT_MISS_DEBUG_WGSL,
   VELOCITY_DEBUG_WGSL,
   VISIBILITY_KEY_DEBUG_WGSL
 } from "../.test-dist/shaders/render_debug_view.js";
@@ -32,8 +34,8 @@ const { RenderDebugViewPass } = await import(
 );
 
 test("unified render debug catalog reports supported and unsupported views", () => {
-  assert.equal(RENDER_DEBUG_VIEW_OPTIONS.length, 25);
-  assert.equal(new Set(RENDER_DEBUG_VIEW_OPTIONS.map((entry) => entry.view)).size, 25);
+  assert.equal(RENDER_DEBUG_VIEW_OPTIONS.length, 27);
+  assert.equal(new Set(RENDER_DEBUG_VIEW_OPTIONS.map((entry) => entry.view)).size, 27);
   assert.deepEqual(
     RENDER_DEBUG_VIEW_OPTIONS
       .filter((entry) => entry.status === "supported")
@@ -51,6 +53,8 @@ test("unified render debug catalog reports supported and unsupported views", () 
       RenderDebugView.AmbientOcclusionDenoised,
       RenderDebugView.AmbientOcclusionTemporal,
       RenderDebugView.Emissive,
+      RenderDebugView.ScreenSpaceReflectionHitMiss,
+      RenderDebugView.ScreenSpaceReflectionHistoryConfidence,
       RenderDebugView.Velocity,
       RenderDebugView.HistoryValidity,
       RenderDebugView.Reactive,
@@ -94,6 +98,10 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
   assert.match(DEPTH_DEBUG_WGSL, /pow\(clamp\(depth/);
   assert.match(VELOCITY_DEBUG_WGSL, /atan2/);
   assert.match(VELOCITY_DEBUG_WGSL, /length\(velocity\)/);
+  assert.match(SSR_HIT_MISS_DEBUG_WGSL, /texture_2d<u32>/);
+  assert.match(SSR_HIT_MISS_DEBUG_WGSL, /confidence/);
+  assert.match(SSR_HISTORY_CONFIDENCE_DEBUG_WGSL, /texture_2d<f32>/);
+  assert.match(SSR_HISTORY_CONFIDENCE_DEBUG_WGSL, /confidence/);
   assert.match(SURFACE_NORMAL_DEBUG_WGSL, /surface_metadata/);
   assert.match(SURFACE_NORMAL_DEBUG_WGSL, /OENGINE_SURFACE_FLAG_VALID/);
   assert.doesNotMatch(SURFACE_NORMAL_DEBUG_WGSL, /all\(encoded == vec2u\(0u\)\)/);

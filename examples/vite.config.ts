@@ -106,6 +106,10 @@ export default defineConfig({
           examplesRoot,
           "r5-ambient-occlusion/index.html"
         ),
+        r5ScreenSpaceReflections: path.resolve(
+          examplesRoot,
+          "r5-screen-space-reflections/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

@@ -132,6 +132,7 @@ export { ProjectionMappingType } from "./loaders/ProjectionMappingType.js";
 export {
   Renderer,
   type AmbientOcclusionRuntimeEvidence,
+  type ScreenSpaceReflectionsRuntimeEvidence,
   type TemporalRuntimeEvidence
 } from "./render/Renderer.js";
 export { STATIC_GRAPHICS_ENGINE_ASSETS } from "./render/STATIC_GRAPHICS_ENGINE_ASSETS.js";

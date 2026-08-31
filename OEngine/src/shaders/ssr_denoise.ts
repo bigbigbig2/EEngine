@@ -23,10 +23,12 @@ struct SpatialSettings { step_size: i32 };
 
 fn convert_specular(position: vec2i, source: texture_2d<f32>, channel: i32) -> f32 {
   const weights = array<f32, 3>(0.25, 0.125, 0.0625);
+  let maximum = vec2i(textureDimensions(source)) - vec2i(1);
   var result = 0.0;
   for (var y = -1; y <= 1; y++) {
     for (var x = -1; x <= 1; x++) {
-      result += textureLoad(source, position + vec2i(x, y), 0)[channel] * weights[abs(x) + abs(y)];
+      let sample_position = clamp(position + vec2i(x, y), vec2i(0), maximum);
+      result += textureLoad(source, sample_position, 0)[channel] * weights[abs(x) + abs(y)];
     }
   }
   return result;
@@ -84,6 +86,7 @@ ${SSR_CAMERA_WGSL}
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${SSR_MATH_WGSL}
 ${SSR_COLOR_HISTORY_WGSL}
+struct SsrTemporalSettings { history_valid: u32 };
 @group(0) @binding(0) var this_hit: texture_2d<f32>;
 @group(0) @binding(1) var header: texture_2d<f32>;
 @group(0) @binding(2) var top: texture_2d<f32>;
@@ -91,6 +94,7 @@ ${SSR_COLOR_HISTORY_WGSL}
 @group(0) @binding(4) var segment_height: sampler;
 @group(0) @binding(5) var<uniform> camera_current: CommandEncoder;
 @group(0) @binding(6) var<uniform> camera_previous: CommandEncoder;
+@group(0) @binding(7) var<uniform> settings: SsrTemporalSettings;
 
 fn velocity_confidence(velocity: vec2f) -> f32 {
   return saturate(1.0 - length(velocity) / 128.0);
@@ -119,8 +123,10 @@ fn sphere_sample_direction(
   var sum = center.rgb;
   var sum_squared = sum * sum;
   var alpha_sum = center.a;
+  let maximum_position = vec2i(textureDimensions(source)) - vec2i(1);
   for (var index = 0; index < 8; index++) {
-    let sample_value = textureLoad(source, position + offsets[index], 0);
+    let sample_position = clamp(position + offsets[index], vec2i(0), maximum_position);
+    let sample_value = textureLoad(source, sample_position, 0);
     let encoded = taa_encode_color(sample_value.rgb);
     sum += encoded;
     sum_squared += encoded * encoded;
@@ -143,6 +149,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   }
   let confidence = textureLoad(top, position, 0).r;
   let current = textureLoad(this_hit, position, 0);
+  if (settings.history_valid == 0u) { return current; }
   if (confidence <= 0.001) { return current; }
   let velocity = taa_get_velocity(header, position);
   let history_position = coord.xy - velocity;

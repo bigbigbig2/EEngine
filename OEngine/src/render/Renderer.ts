@@ -226,6 +226,23 @@ export interface AmbientOcclusionRuntimeEvidence {
   readonly historyInvalidationReason: string;
 }
 
+export interface ScreenSpaceReflectionsRuntimeEvidence {
+  readonly enabled: boolean;
+  readonly internalPixels: number;
+  readonly tracePasses: number;
+  readonly prefilterPasses: number;
+  readonly resolvePasses: number;
+  readonly spatialPasses: number;
+  readonly temporalPasses: number;
+  readonly compositePasses: number;
+  readonly historyTextureCount: number;
+  readonly historyBytes: number;
+  readonly historyValid: boolean;
+  readonly historyRevision: number;
+  readonly historyInvalidations: number;
+  readonly historyInvalidationReason: string;
+}
+
 type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
   readonly buffer: GPUBuffer;
   readonly bytesPerRow: number;
@@ -257,13 +274,16 @@ type MainFrameGraphBindings = {
   readonly ssaoHistoryValidity: number;
   readonly ssaoHistoryInputIndex: 0 | 1;
   readonly ssaoHistoryOutputIndex: 0 | 1;
+  readonly ssrHistoryValidity: number;
+  readonly ssrHistoryInputIndex: 0 | 1;
+  readonly ssrHistoryOutputIndex: 0 | 1;
   readonly motionBlurStrength: number;
   readonly nssSettings: NssSettings | null;
   readonly linearHdrCapture: PendingLinearHdrCapture | null;
 };
 
 const MAIN_GRAPH_CACHE_LIMIT = 16;
-const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 2;
+const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 3;
 const MAIN_GRAPH_INSTRUMENTATION_REVISION = 4;
 
 /**
@@ -328,6 +348,7 @@ export class Renderer {
   private _ssaoConfigurationKey = "";
   private _ssaoOwnerGeneration = 0;
   private _ssr: ScreenSpaceReflectionsPass | null = null;
+  private _ssrOwnerGeneration = 0;
   private _taa: TemporalAntiAliasingPass | null = null;
   private _temporalClassification: TemporalClassificationPass | null = null;
   private _nss: NeuralSuperSamplingPass | null = null;
@@ -337,7 +358,7 @@ export class Renderer {
   private _automaticExposure: AutomaticExposurePass | null = null;
   private readonly _taaJitter = new TemporalJitterController();
   private _taaHistory: [GPUTextureContext, GPUTextureContext] | null = null;
-  private readonly _temporalHistories = new TemporalHistoryRegistry(["color", "ssao"]);
+  private readonly _temporalHistories = new TemporalHistoryRegistry(["color", "ssao", "ssr"]);
   private readonly _dynamicResolution = new DynamicResolutionScaling();
   private _unsubscribeDynamicResolution: (() => void) | null = null;
   private _dynamicResolutionOwnsProfiler = false;
@@ -726,6 +747,31 @@ export class Renderer {
     });
   }
 
+  /** FX-08 bounded SSR phase/history evidence; GPU handles remain private. */
+  screenSpaceReflectionsEvidence(): ScreenSpaceReflectionsRuntimeEvidence {
+    const history = this._temporalHistories.state("ssr");
+    const pass = this._ssr;
+    return Object.freeze({
+      enabled: this.feature_ssr_enabled,
+      internalPixels: this.feature_ssr_enabled
+        ? this._render_resolution.x * this._render_resolution.y
+        : 0,
+      tracePasses: pass?.lastTracePasses ?? 0,
+      prefilterPasses: pass?.lastPrefilterPasses ?? 0,
+      resolvePasses: pass?.lastResolvePasses ?? 0,
+      spatialPasses: pass?.lastSpatialPasses ?? 0,
+      temporalPasses: pass?.lastTemporalPasses ?? 0,
+      compositePasses:
+        this.feature_ssr_enabled && this._indirectComposite?.lastRan === true ? 1 : 0,
+      historyTextureCount: pass?.historyTextureCount ?? 0,
+      historyBytes: pass?.historyBytes ?? 0,
+      historyValid: history.valid,
+      historyRevision: history.revision,
+      historyInvalidations: history.invalidationCount,
+      historyInvalidationReason: history.lastInvalidationReason
+    });
+  }
+
   get render_debug_view_status(): RenderDebugViewStatus {
     return getRenderDebugViewStatus(this.render_debug_view);
   }
@@ -1032,7 +1078,8 @@ export class Renderer {
       },
       [
         ...(featureTopology.temporal ? ["color"] : []),
-        ...(featureTopology.ssaoTemporal ? ["ssao"] : [])
+        ...(featureTopology.ssaoTemporal ? ["ssao"] : []),
+        ...(featureTopology.ssr ? ["ssr"] : [])
       ]
     );
     const temporalFrameIndex = this._frame_count;
@@ -1159,6 +1206,7 @@ export class Renderer {
       if (featureTopology.ssr) this._ssr!.resize(w, h);
       const temporalHistory = this._temporalHistories.state("color");
       const ssaoHistory = this._temporalHistories.state("ssao");
+      const ssrHistory = this._temporalHistories.state("ssr");
       const taaHistoryValidity = temporalHistory.valid ? 1 : 0;
       if (featureTopology.taa) {
         this._taaJitter.reset_history = false;
@@ -1171,6 +1219,8 @@ export class Renderer {
         ]);
       }
       this._taa?.resetFrameEvidence();
+      this._ssr?.resetFrameEvidence();
+      this._indirectComposite.lastRan = false;
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
       this._lastTemporalClassificationPassCount = featureTopology.temporal ? 1 : 0;
       const nssSettings = featureTopology.nss
@@ -1203,6 +1253,9 @@ export class Renderer {
         ssaoHistoryValidity: ssaoHistory.valid ? 1 : 0,
         ssaoHistoryInputIndex: ssaoHistory.readIndex,
         ssaoHistoryOutputIndex: ssaoHistory.writeIndex,
+        ssrHistoryValidity: ssrHistory.valid ? 1 : 0,
+        ssrHistoryInputIndex: ssrHistory.readIndex,
+        ssrHistoryOutputIndex: ssrHistory.writeIndex,
         motionBlurStrength: this.motion_blur_strength,
         nssSettings,
         linearHdrCapture: frameLinearHdrCapture
@@ -1817,6 +1870,8 @@ export class Renderer {
         let ssaoRawDebugRes: ResourceId | null = null;
         let ssaoDenoisedDebugRes: ResourceId | null = null;
         let ssaoTemporalDebugRes: ResourceId | null = null;
+        let ssrHitMissDebugRes: ResourceId | null = null;
+        let ssrHistoryConfidenceDebugRes: ResourceId | null = null;
         let indirectDiffuseDebugRes: ResourceId | null = null;
         let indirectSpecularDebugRes: ResourceId | null = null;
         let ssaoReady = !graphTopology.ssao;
@@ -1902,12 +1957,15 @@ export class Renderer {
               { kind: "imported", label: "STBN vec2 3D" },
               blueNoise.gpu_texture
             );
-            indirectSpecularRes = this._ssr!.addToGraph(
+            const ssr = this._ssr!.addToGraph(
               graph,
               bind("ssr-job", (bindings) => ({
                 width: bindings.internalWidth,
                 height: bindings.internalHeight,
                 frameIndex: bindings.frameIndex,
+                historyValid: bindings.ssrHistoryValidity >= 0.5,
+                historyInputIndex: bindings.ssrHistoryInputIndex,
+                historyOutputIndex: bindings.ssrHistoryOutputIndex,
                 samplers: this._graphics.samplers
               })),
               {
@@ -1926,11 +1984,14 @@ export class Renderer {
               },
               {
                 input: bind("ssr-history-input", (bindings) =>
-                  this._ssr!.historyTexture(bindings.frameIndex, false)),
+                  this._ssr!.historyTexture(bindings.ssrHistoryInputIndex)),
                 output: bind("ssr-history-output", (bindings) =>
-                  this._ssr!.historyTexture(bindings.frameIndex, true))
+                  this._ssr!.historyTexture(bindings.ssrHistoryOutputIndex))
               }
-            ).denoised;
+            );
+            indirectSpecularRes = ssr.denoised;
+            ssrHitMissDebugRes = ssr.trace;
+            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
           } else {
             indirectSpecularRes = this._iblSpecular.addToGraph(
               graph,
@@ -2117,12 +2178,15 @@ export class Renderer {
               { kind: "imported", label: "STBN vec2 3D" },
               blueNoise.gpu_texture
             );
-            indirectSpecularRes = this._ssr!.addToGraph(
+            const ssr = this._ssr!.addToGraph(
               graph,
               bind("ssr-job", (bindings) => ({
                 width: bindings.internalWidth,
                 height: bindings.internalHeight,
                 frameIndex: bindings.frameIndex,
+                historyValid: bindings.ssrHistoryValidity >= 0.5,
+                historyInputIndex: bindings.ssrHistoryInputIndex,
+                historyOutputIndex: bindings.ssrHistoryOutputIndex,
                 samplers: this._graphics.samplers
               })),
               {
@@ -2149,11 +2213,14 @@ export class Renderer {
               },
               {
                 input: bind("ssr-history-input", (bindings) =>
-                  this._ssr!.historyTexture(bindings.frameIndex, false)),
+                  this._ssr!.historyTexture(bindings.ssrHistoryInputIndex)),
                 output: bind("ssr-history-output", (bindings) =>
-                  this._ssr!.historyTexture(bindings.frameIndex, true))
+                  this._ssr!.historyTexture(bindings.ssrHistoryOutputIndex))
               }
-            ).denoised;
+            );
+            indirectSpecularRes = ssr.denoised;
+            ssrHitMissDebugRes = ssr.trace;
+            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
           } else {
             indirectSpecularRes = this._iblSpecular.addToGraph(
               graph,
@@ -2538,7 +2605,9 @@ export class Renderer {
               linearHdr: linearHdrDebugRes,
               ambientOcclusionRaw: ssaoRawDebugRes,
               ambientOcclusionDenoised: ssaoDenoisedDebugRes,
-              ambientOcclusionTemporal: ssaoTemporalDebugRes
+              ambientOcclusionTemporal: ssaoTemporalDebugRes,
+              screenSpaceReflectionHitMiss: ssrHitMissDebugRes,
+              screenSpaceReflectionHistoryConfidence: ssrHistoryConfidenceDebugRes
             },
             this._output_resolution.x,
             this._output_resolution.y
@@ -2638,6 +2707,9 @@ export class Renderer {
       if (graphTopology.ssaoTemporal) {
         this._temporalHistories.markProduced("ssao");
       }
+      if (graphTopology.ssr && this._ssr?.lastTemporalPasses === 1) {
+        this._temporalHistories.markProduced("ssr");
+      }
       view.finish_frame(cmd, this._frame_count);
       this.recordFrameCounters(
         viewHzb,
@@ -2703,11 +2775,13 @@ export class Renderer {
       sampleCount: 1,
       enabledFeatureBits: topology.enabledFeatureBits,
       visibilityImplementation: bindings.gpuPacked === null
-        ? `hardware-legacy-v1-ssao-owner${this._ssaoOwnerGeneration}`
+        ? `hardware-legacy-v1-ssao-owner${this._ssaoOwnerGeneration}` +
+          `-ssr-owner${this._ssrOwnerGeneration}`
         : `hardware-packed-r4-visibility-key-v1-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
           `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
           `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
-          `-ssao-owner${this._ssaoOwnerGeneration}`,
+          `-ssao-owner${this._ssaoOwnerGeneration}` +
+          `-ssr-owner${this._ssrOwnerGeneration}`,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
       instrumentationMode,
@@ -2816,7 +2890,10 @@ export class Renderer {
       this._ssaoConfigurationKey = "";
     }
     if (topology.ssr) {
-      this._ssr ??= new ScreenSpaceReflectionsPass(this._graphics);
+      if (this._ssr === null) {
+        this._ssr = new ScreenSpaceReflectionsPass(this._graphics);
+        this._ssrOwnerGeneration++;
+      }
     } else if (this._ssr !== null) {
       this.retireAfterSubmittedWork(this._ssr);
       this._ssr = null;
@@ -3113,6 +3190,17 @@ export class Renderer {
     profiler.recordCounter("ao.historyBytes", ao.historyBytes);
     profiler.recordCounter("ao.historyValid", ao.historyValid ? 1 : 0);
     profiler.recordCounter("ao.historyRevision", ao.historyRevision);
+    const ssr = this.screenSpaceReflectionsEvidence();
+    profiler.recordCounter("ssr.tracePasses", ssr.tracePasses);
+    profiler.recordCounter("ssr.prefilterPasses", ssr.prefilterPasses);
+    profiler.recordCounter("ssr.resolvePasses", ssr.resolvePasses);
+    profiler.recordCounter("ssr.spatialPasses", ssr.spatialPasses);
+    profiler.recordCounter("ssr.temporalPasses", ssr.temporalPasses);
+    profiler.recordCounter("ssr.compositePasses", ssr.compositePasses);
+    profiler.recordCounter("ssr.internalPixels", ssr.internalPixels);
+    profiler.recordCounter("ssr.historyBytes", ssr.historyBytes);
+    profiler.recordCounter("ssr.historyValid", ssr.historyValid ? 1 : 0);
+    profiler.recordCounter("ssr.historyRevision", ssr.historyRevision);
     profiler.recordCounter("gpu.residentBytes", this._graphics.gpu_memory_usage);
   }
 

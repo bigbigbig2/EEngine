@@ -20,6 +20,8 @@ import {
   SURFACE_FLAGS_DEBUG_WGSL,
   SURFACE_NORMAL_DEBUG_WGSL,
   SURFACE_PBR_DEBUG_WGSL,
+  SSR_HISTORY_CONFIDENCE_DEBUG_WGSL,
+  SSR_HIT_MISS_DEBUG_WGSL,
   VELOCITY_DEBUG_WGSL,
   VISIBILITY_KEY_DEBUG_WGSL,
   LINEAR_HDR_DEBUG_WGSL
@@ -44,6 +46,8 @@ export type RenderDebugViewResources = {
   ambientOcclusionRaw: ResourceId | null;
   ambientOcclusionDenoised: ResourceId | null;
   ambientOcclusionTemporal: ResourceId | null;
+  screenSpaceReflectionHitMiss: ResourceId | null;
+  screenSpaceReflectionHistoryConfidence: ResourceId | null;
 };
 
 export class RenderDebugViewPass {
@@ -129,6 +133,14 @@ export class RenderDebugViewPass {
       [
         RenderDebugViewValue.AmbientOcclusionTemporal,
         createPipeline("Render debug/AO temporal", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.ScreenSpaceReflectionHitMiss,
+        createPipeline("Render debug/SSR hit-miss", SSR_HIT_MISS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence,
+        createPipeline("Render debug/SSR history confidence", SSR_HISTORY_CONFIDENCE_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
       ],
       [
         RenderDebugViewValue.IndirectDiffuse,
@@ -238,6 +250,15 @@ export class RenderDebugViewPass {
       }
     );
     for (const input of inputIds) builder.read(input);
+    if (
+      view === RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence &&
+      resources.indirectSpecular !== null
+    ) {
+      // The confidence image is produced by the shared temporal classifier.
+      // Keep the SSR temporal consumer live so this debug view observes the
+      // same-frame confidence used by SSR rather than an otherwise dead input.
+      builder.read(resources.indirectSpecular);
+    }
     output = builder.create(`Render debug/${view} output`, {
       kind: "transient_texture",
       label: `Render debug/${view} rgba16float`,
@@ -297,6 +318,10 @@ function inputResourceIds(
       return [requireOptionalTexture(view, resources.ambientOcclusionDenoised)];
     case RenderDebugViewValue.AmbientOcclusionTemporal:
       return [requireOptionalTexture(view, resources.ambientOcclusionTemporal)];
+    case RenderDebugViewValue.ScreenSpaceReflectionHitMiss:
+      return [requireOptionalTexture(view, resources.screenSpaceReflectionHitMiss)];
+    case RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence:
+      return [requireOptionalTexture(view, resources.screenSpaceReflectionHistoryConfidence)];
     default:
       throw new Error(`RenderDebugViewPass has no resource contract for '${view}'`);
   }

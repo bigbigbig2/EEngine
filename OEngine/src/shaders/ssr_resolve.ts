@@ -135,10 +135,10 @@ fn texture_octahedral_sample_bilinear(source: texture_2d<f32>, resolution: u32, 
 fn get_ibl_radiance(view_direction: vec3f, normal: vec3f, roughness: f32) -> vec3f {
   let reflected = reflect(-view_direction, normal);
   let direction = normalize(mix(reflected, normal, roughness * roughness));
-  let ratio = mix(clamp(roughness / 0.7, 0.0, 1.0), sqrt(clamp(roughness / 0.7, 0.0, 1.0)), 0.4);
-  let lod = ratio * 4.0;
+  let level_count = textureNumLevels(sec_radix_passes);
+  let lod = clamp(roughness, 0.0, 1.0) * f32(level_count - 1u);
   let lower = u32(floor(lod));
-  let upper = min(lower + 1u, 4u);
+  let upper = min(lower + 1u, level_count - 1u);
   let lower_value = texture_octahedral_sample_bilinear(sec_radix_passes, textureDimensions(sec_radix_passes, i32(lower)).x, direction, lower).rgb;
   let upper_value = texture_octahedral_sample_bilinear(sec_radix_passes, textureDimensions(sec_radix_passes, i32(upper)).x, direction, upper).rgb;
   return mix(lower_value, upper_value, fract(lod));
@@ -172,9 +172,14 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   var radiance = traced * hit.confidence;
   var second_moment = pow2(rgb_to_luminance(traced));
   let hash = resolve_trigonometric_moments(vec3u(vec2u(position), settings.frame_index));
+  let maximum_position = vec2i(textureDimensions(valid_history_confidence)) - vec2i(1);
   for (var sample_index = 0u; sample_index < 4u; sample_index++) {
     let offset_index = (hash + sample_index) % 48u;
-    let neighbor_position = position + NEIGHBOR_OFFSETS[offset_index];
+    let neighbor_position = clamp(
+      position + NEIGHBOR_OFFSETS[offset_index],
+      vec2i(0),
+      maximum_position
+    );
     let neighbor_normal_view = direction_world_to_view(decode_g_buffer_normal(textureLoad(ray_ws, neighbor_position, 0).xy));
     let neighbor_roughness = decode_g_buffer_roughness(textureLoad(edge, neighbor_position, 0));
     let neighbor_hit = ssr_hit_unpack(textureLoad(valid_history_confidence, neighbor_position, 0).xy);

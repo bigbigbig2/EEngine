@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 72,
+  "shaderCount": 71,
   "summary": {
-    "authored-live": 62,
+    "authored-live": 61,
     "unknown": 5,
     "dead": 5
   },
@@ -2191,7 +2191,6 @@
       "directConsumers": [
         "src/shaders/motion_blur.ts",
         "src/shaders/render_debug_view.ts",
-        "src/shaders/ssr_composite.ts",
         "src/shaders/ssr_denoise.ts",
         "src/shaders/ssr_prefilter.ts",
         "src/shaders/ssr_resolve.ts",
@@ -2207,25 +2206,6 @@
       "pipelineOwners": [
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
-        "src/render/passes/ScreenSpaceReflectionsPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/ssr_composite.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/ScreenSpaceReflectionsPass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/index.ts",
-        "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
         "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "generatorCandidates": [],

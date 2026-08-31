@@ -139,6 +139,8 @@ function debugTopologyCode(view: RenderDebugViewT): number {
     case RenderDebugView.AmbientOcclusionRaw: return 16;
     case RenderDebugView.AmbientOcclusionDenoised: return 17;
     case RenderDebugView.AmbientOcclusionTemporal: return 18;
+    case RenderDebugView.ScreenSpaceReflectionHitMiss: return 19;
+    case RenderDebugView.ScreenSpaceReflectionHistoryConfidence: return 20;
     default: return 0;
   }
 }

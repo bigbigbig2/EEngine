@@ -233,7 +233,7 @@ fn fs_main(
   let most_detailed_mip = select(g_most_detailed_mip, 0, is_mirror);
   let mip_resolution = ffx_sssr_get_mip_resolution(vec2f(screen_size), most_detailed_mip);
   let depth = ffx_sssr_load_depth(vec2i(uv * mip_resolution), most_detailed_mip);
-  if (is_background(depth) || roughness > 0.3) { return INVALID_RESULT_VALUE; }
+  if (is_background(depth)) { return INVALID_RESULT_VALUE; }
   let screen_origin = vec3f(uv, depth);
   let view_origin = ffx_sssr_screen_space_to_view_space(screen_origin);
   let view_direction = normalize(view_origin);

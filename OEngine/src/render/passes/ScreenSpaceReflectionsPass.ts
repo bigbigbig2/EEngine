@@ -15,10 +15,6 @@ import {
   type GPUSamplerCache
 } from "../../gpu/GPUSamplerCache.js";
 import {
-  SSR_COMPOSITE_FORMAT,
-  SSR_COMPOSITE_WGSL
-} from "../../shaders/ssr_composite.js";
-import {
   SSR_DENOISE_FORMAT,
   SSR_SPATIAL_WGSL,
   SSR_TEMPORAL_WGSL
@@ -64,17 +60,20 @@ export type ScreenSpaceReflectionsInputs = {
 };
 
 export type ScreenSpaceReflectionsOutput = {
-  final: ResourceId;
   trace: ResourceId;
   denoised: ResourceId;
   denoised_1: ResourceId;
   reflections: ResourceId;
+  historyConfidence: ResourceId;
 };
 
 export type ScreenSpaceReflectionsJob = {
   width: number;
   height: number;
   frameIndex: number;
+  historyValid: boolean;
+  historyInputIndex: 0 | 1;
+  historyOutputIndex: 0 | 1;
   samplers: GPUSamplerCache;
 };
 
@@ -87,14 +86,19 @@ export class ScreenSpaceReflectionsPass {
   private readonly lpvResolvePipeline: CachedRenderPipelineDescriptor;
   private readonly spatialPipeline: CachedRenderPipelineDescriptor;
   private readonly temporalPipeline: CachedRenderPipelineDescriptor;
-  private readonly compositePipeline: CachedRenderPipelineDescriptor;
   private traceSettings: GPUBuffer | null = null;
   private resolveSettings: GPUBuffer | null = null;
+  private temporalSettings: GPUBuffer | null = null;
   private readonly spatialSettings: GPUBuffer[] = [];
   private readonly histories: [GPUTextureContext, GPUTextureContext];
   private readonly device: GPUDevice;
 
   lastRan = false;
+  lastTracePasses = 0;
+  lastPrefilterPasses = 0;
+  lastResolvePasses = 0;
+  lastSpatialPasses = 0;
+  lastTemporalPasses = 0;
 
   constructor(graphics: GraphicsContext) {
     if (graphics.device === null) {
@@ -110,7 +114,6 @@ export class ScreenSpaceReflectionsPass {
     this.lpvResolvePipeline = createSsrResolvePipelineDescriptor(true);
     this.spatialPipeline = createSsrSpatialPipelineDescriptor();
     this.temporalPipeline = createSsrTemporalPipelineDescriptor();
-    this.compositePipeline = createSsrCompositePipelineDescriptor();
     const descriptor: GPUTextureDescriptor = {
       label: "SSR history",
       size: [1, 1, 1],
@@ -132,6 +135,11 @@ export class ScreenSpaceReflectionsPass {
     });
     this.resolveSettings = this.device.createBuffer({
       label: "Renderer/SSR resolve settings",
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    this.temporalSettings = this.device.createBuffer({
+      label: "Renderer/SSR temporal settings",
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
@@ -159,18 +167,22 @@ export class ScreenSpaceReflectionsPass {
     historyBindings?: { readonly input: unknown; readonly output: unknown }
   ): ScreenSpaceReflectionsOutput {
     this.init();
+    this.resetFrameEvidence();
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
     this.resize(width, height);
+    if (!historyBindings) {
+      throw new Error("SSR temporal history bindings are required");
+    }
     const historyInputResource = graph.import_resource(
       "ssr_history",
       { kind: "imported", label: "ssr_history" },
-      historyBindings?.input ?? this.historyTexture(job.frameIndex, false)
+      historyBindings.input
     );
     const historyOutputResource = graph.import_resource(
       "ssr_output",
       { kind: "imported", label: "ssr_output" },
-      historyBindings?.output ?? this.historyTexture(job.frameIndex, true)
+      historyBindings.output
     );
 
     let trace = -1;
@@ -188,6 +200,8 @@ export class ScreenSpaceReflectionsPass {
           blueNoise: resolveTextureView(resources.get(inputs.blueNoise)),
           currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera")
         });
+        this.lastRan = true;
+        this.lastTracePasses = 1;
       }
     );
     trace = traceBuilder.create("SSR packed hit", {
@@ -219,6 +233,7 @@ export class ScreenSpaceReflectionsPass {
             depth: resolveDepthAttachmentView(resources.get(inputs.depth))
           }
         );
+        this.lastPrefilterPasses = 1;
       }
     );
     prefiltered = prefilterBuilder.create("prefiltered color", {
@@ -270,6 +285,7 @@ export class ScreenSpaceReflectionsPass {
               : undefined
           }
         );
+        this.lastResolvePasses = 1;
       }
     );
     reflections = resolveBuilder.create("SSR reflections", textureDescriptor(width, height, SSR_RESOLVE_FORMAT));
@@ -294,12 +310,13 @@ export class ScreenSpaceReflectionsPass {
     let temporal = -1;
     const temporalBuilder = graph.add(
       "SSR temporal jQ",
-      { samplers: job.samplers },
+      { samplers: job.samplers, historyValid: job.historyValid },
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         this.executeTemporal(
           command,
           data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+          data.historyValid,
           {
             output: resolveTextureView(resources.get(temporal)),
             current: resolveTextureView(resources.get(denoised1)),
@@ -310,6 +327,7 @@ export class ScreenSpaceReflectionsPass {
             previousCamera: resolveBuffer(resources.get(inputs.previousCamera), "previous camera")
           }
         );
+        this.lastTemporalPasses = 1;
       }
     );
     for (const input of [denoised1, historyInputResource, inputs.velocity, inputs.occlusionConfidence, inputs.currentCamera, inputs.previousCamera]) {
@@ -320,40 +338,39 @@ export class ScreenSpaceReflectionsPass {
     const denoised2 = this.addSpatial(graph, temporal, inputs.depth, inputs.normal, width, height, 1, "SSR spatial OQ step 2");
     const denoised = this.addSpatial(graph, denoised2, inputs.depth, inputs.normal, width, height, 2, "SSR spatial OQ step 4");
 
-    let final = -1;
-    const compositeBuilder = graph.add(
-      "SSR final material resolve tQ",
-      {},
-      (_data, resources, context) => {
-        const command = requireShadeCommandContext(context.encoder);
-        this.executeComposite(command, {
-          output: resolveTextureView(resources.get(final)),
-          sceneColor: resolveTextureView(resources.get(inputs.sceneColor)),
-          albedoAo: resolveTextureView(resources.get(inputs.albedoAo)),
-          depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
-          reflection: resolveTextureView(resources.get(denoised)),
-          normal: resolveTextureView(resources.get(inputs.normal)),
-          pbr: resolveTextureView(resources.get(inputs.pbr)),
-          currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera")
-        });
-      }
-    );
-    final = compositeBuilder.create("SSR final", textureDescriptor(width, height, SSR_COMPOSITE_FORMAT));
-    for (const input of [inputs.sceneColor, inputs.albedoAo, inputs.depth, denoised, inputs.normal, inputs.pbr, inputs.currentCamera]) {
-      compositeBuilder.read(input);
-    }
-
-    return { final, trace, denoised, denoised_1: denoised1, reflections };
+    return {
+      trace,
+      denoised,
+      denoised_1: denoised1,
+      reflections,
+      historyConfidence: inputs.occlusionConfidence
+    };
   }
 
-  historyTexture(frameIndex: number, output: boolean): GPUTexture {
-    const index = (frameIndex + (output ? 1 : 0)) % 2;
+  historyTexture(index: 0 | 1): GPUTexture {
     return this.histories[index]!.gpu_texture;
   }
 
   resize(width: number, height: number): void {
     this.histories[0].resize(width, height);
     this.histories[1].resize(width, height);
+  }
+
+  get historyTextureCount(): number {
+    return this.histories.length;
+  }
+
+  get historyBytes(): number {
+    return this.histories.reduce((sum, history) => sum + history.gpu_memory_usage, 0);
+  }
+
+  resetFrameEvidence(): void {
+    this.lastRan = false;
+    this.lastTracePasses = 0;
+    this.lastPrefilterPasses = 0;
+    this.lastResolvePasses = 0;
+    this.lastSpatialPasses = 0;
+    this.lastTemporalPasses = 0;
   }
 
   private addSpatial(
@@ -375,6 +392,7 @@ export class ScreenSpaceReflectionsPass {
         depth: resolveTextureView(resources.get(depth)),
         normal: resolveTextureView(resources.get(normal))
       });
+      this.lastSpatialPasses++;
     });
     output = builder.create(label, textureDescriptor(width, height, SSR_DENOISE_FORMAT));
     builder.read(input);
@@ -565,6 +583,7 @@ export class ScreenSpaceReflectionsPass {
   private executeTemporal(
     command: ShadeGPUCommandContext,
     sampler: GPUSampler,
+    historyValid: boolean,
     resources: {
       output: GPUTextureView;
       current: GPUTextureView;
@@ -575,6 +594,14 @@ export class ScreenSpaceReflectionsPass {
       previousCamera: GPUBuffer;
     }
   ): void {
+    if (!this.temporalSettings) throw new Error("SSR temporal settings are unavailable");
+    writeGpuBuffer(
+      this.device.queue,
+      "SSR/temporal-settings",
+      this.temporalSettings,
+      0,
+      new Uint32Array([historyValid ? 1 : 0, 0, 0, 0])
+    );
     drawFullscreen(
       command,
       "SSR temporal jQ",
@@ -586,52 +613,24 @@ export class ScreenSpaceReflectionsPass {
         resources.history,
         sampler,
         { buffer: resources.currentCamera },
-        { buffer: resources.previousCamera }
+        { buffer: resources.previousCamera },
+        { buffer: this.temporalSettings }
       ]],
       resources.output
     );
-  }
-
-  private executeComposite(
-    command: ShadeGPUCommandContext,
-    resources: {
-      output: GPUTextureView;
-      sceneColor: GPUTextureView;
-      albedoAo: GPUTextureView;
-      depth: GPUTextureView;
-      reflection: GPUTextureView;
-      normal: GPUTextureView;
-      pbr: GPUTextureView;
-      currentCamera: GPUBuffer;
-    }
-  ): void {
-    drawFullscreen(
-      command,
-      "SSR final material resolve tQ",
-      this.compositePipeline,
-      [[
-        resources.sceneColor,
-        resources.depth,
-        resources.albedoAo,
-        resources.normal,
-        resources.reflection,
-        resources.pbr,
-        { buffer: resources.currentCamera }
-      ]],
-      resources.output
-    );
-    this.lastRan = true;
   }
 
   destroy(): void {
     this.traceSettings?.destroy();
     this.resolveSettings?.destroy();
+    this.temporalSettings?.destroy();
     for (const buffer of this.spatialSettings) buffer.destroy();
     this.spatialSettings.length = 0;
     this.histories[0].destroy();
     this.histories[1].destroy();
     this.traceSettings = null;
     this.resolveSettings = null;
+    this.temporalSettings = null;
   }
 }
 
@@ -766,15 +765,6 @@ function createSsrTemporalPipelineDescriptor(): CachedRenderPipelineDescriptor {
     SSR_TEMPORAL_WGSL,
     SSR_DENOISE_FORMAT,
     [createSsrTemporalGroupLayout()]
-  );
-}
-
-function createSsrCompositePipelineDescriptor(): CachedRenderPipelineDescriptor {
-  return createSsrPipelineDescriptor(
-    "Renderer/SSR final material resolve tQ",
-    SSR_COMPOSITE_WGSL,
-    SSR_COMPOSITE_FORMAT,
-    [createSsrCompositeGroupLayout()]
   );
 }
 
@@ -916,23 +906,8 @@ function createSsrTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 3, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, sampler: { type: "filtering" } },
       { binding: 5, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 6, visibility: fragment, buffer: { type: "uniform" } }
-    ]
-  };
-}
-
-function createSsrCompositeGroupLayout(): GPUBindGroupLayoutDescriptor {
-  const fragment = GPUShaderStage.FRAGMENT;
-  return {
-    label: "Renderer/SSR final material resolve tQ group0",
-    entries: [
-      { binding: 0, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 3, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 4, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 6, visibility: fragment, buffer: { type: "uniform" } }
+      { binding: 6, visibility: fragment, buffer: { type: "uniform" } },
+      { binding: 7, visibility: fragment, buffer: { type: "uniform" } }
     ]
   };
 }
