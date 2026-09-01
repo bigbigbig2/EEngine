@@ -1007,11 +1007,21 @@ function mergeSpheres(
   }
   const radius = 0.5 * (distance + a.radius + b.radius);
   const t = (radius - a.radius) / distance;
+  // Cluster records serialize centers as float32. Re-evaluate the required
+  // radius after quantizing the merged center; otherwise large-coordinate,
+  // small-extent geometry can lose more than the validator epsilon here.
+  const centerX = Math.fround(a.centerX + dx * t);
+  const centerY = Math.fround(a.centerY + dy * t);
+  const centerZ = Math.fround(a.centerZ + dz * t);
+  const requiredRadius = Math.max(
+    Math.hypot(centerX - a.centerX, centerY - a.centerY, centerZ - a.centerZ) + a.radius,
+    Math.hypot(centerX - b.centerX, centerY - b.centerY, centerZ - b.centerZ) + b.radius
+  );
   return Object.freeze({
-    centerX: Math.fround(a.centerX + dx * t),
-    centerY: Math.fround(a.centerY + dy * t),
-    centerZ: Math.fround(a.centerZ + dz * t),
-    radius: conservativeRadius(radius)
+    centerX,
+    centerY,
+    centerZ,
+    radius: conservativeRadius(Math.max(radius, requiredRadius))
   });
 }
 

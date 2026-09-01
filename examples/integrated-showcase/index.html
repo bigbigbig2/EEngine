@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <link rel="icon" href="data:," />
+    <title>OEngine · Integrated Pipeline Showcase</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="showcase" id="showcase" data-state="loading">
+      <canvas id="gpu-canvas" aria-label="OEngine integrated WebGPU scene"></canvas>
+
+      <div class="loading-layer" id="loading-layer" role="status" aria-live="polite">
+        <section class="loading-card">
+          <span class="loading-kicker">OENGINE SHOWCASE</span>
+          <h1>Cyberpunk City</h1>
+          <p id="loading-detail">Initializing the WebGPU renderer…</p>
+          <div class="progress-track" aria-hidden="true">
+            <span id="loading-progress"></span>
+          </div>
+          <small id="loading-stage">Renderer setup</small>
+        </section>
+      </div>
+
+      <header class="scene-summary" aria-label="Scene summary">
+        <div>
+          <span class="eyebrow">INTEGRATED PIPELINE</span>
+          <strong>Cyberpunk City</strong>
+        </div>
+        <dl>
+          <div><dt>FPS</dt><dd id="metric-fps">—</dd></div>
+          <div><dt>Instances</dt><dd id="metric-instances">—</dd></div>
+          <div><dt>Geometry</dt><dd id="metric-geometries">—</dd></div>
+        </dl>
+      </header>
+
+      <button class="panel-toggle" id="panel-toggle" type="button" aria-controls="debug-panel" aria-expanded="true">
+        Controls
+      </button>
+
+      <aside class="debug-panel" id="debug-panel" aria-label="Renderer controls">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">LIVE DEBUG</span>
+            <h2>Render Pipeline</h2>
+          </div>
+          <span class="ready-pill" id="ready-pill">Loading</span>
+        </div>
+
+        <fieldset id="control-fieldset" disabled>
+          <section class="control-section">
+            <label class="field-label" for="debug-view">Debug view</label>
+            <select id="debug-view"></select>
+            <p class="field-help" id="debug-help">Final tonemapped output.</p>
+          </section>
+
+          <section class="control-section">
+            <h3>Lighting &amp; post</h3>
+            <label class="switch-row"><span><strong>Shadows</strong><small>Packed CSM</small></span><input type="checkbox" data-feature="shadows" checked /></label>
+            <label class="switch-row"><span><strong>Ambient occlusion</strong><small>GTAO + temporal</small></span><input type="checkbox" data-feature="ssao" checked /></label>
+            <label class="switch-row"><span><strong>Reflections</strong><small>Screen-space + IBL fallback</small></span><input type="checkbox" data-feature="ssr" /></label>
+            <label class="switch-row"><span><strong>Temporal AA</strong><small>History reconstruction</small></span><input type="checkbox" data-feature="taa" checked /></label>
+            <label class="switch-row"><span><strong>Bloom</strong><small>HDR highlight spread</small></span><input type="checkbox" data-feature="bloom" checked /></label>
+            <label class="switch-row"><span><strong>Auto exposure</strong><small>Scene luminance adaptation</small></span><input type="checkbox" data-feature="exposure" checked /></label>
+            <label class="switch-row"><span><strong>Sharpen</strong><small>Final reconstruction pass</small></span><input type="checkbox" data-feature="sharpen" checked /></label>
+            <label class="switch-row"><span><strong>Animated lights</strong><small>Clustered point lights</small></span><input type="checkbox" data-feature="lights" checked /></label>
+          </section>
+
+          <section class="control-section">
+            <h3>Geometry &amp; visibility</h3>
+            <label class="switch-row"><span><strong>Cone culling</strong><small>Meshlet normal cones</small></span><input type="checkbox" data-feature="cone" checked /></label>
+            <label class="switch-row"><span><strong>HZB occlusion</strong><small>Previous-frame hierarchy</small></span><input type="checkbox" data-feature="hzb" checked /></label>
+            <label class="range-row" for="lod-threshold">
+              <span><strong>LOD threshold</strong><output id="lod-value">4.0 px</output></span>
+              <input id="lod-threshold" type="range" min="1" max="12" step="0.5" value="4" />
+            </label>
+          </section>
+
+          <section class="control-section">
+            <h3>Resolution</h3>
+            <div class="segmented" id="resolution-scale" role="group" aria-label="Internal resolution scale">
+              <button type="button" data-scale="0.5">50%</button>
+              <button type="button" data-scale="0.75" class="active">75%</button>
+              <button type="button" data-scale="1">100%</button>
+            </div>
+          </section>
+
+          <section class="control-section actions">
+            <button class="secondary-button" id="reset-camera" type="button">Reset camera</button>
+          </section>
+        </fieldset>
+
+        <footer>
+          <p>Left drag orbit · Right drag pan · Wheel zoom</p>
+          <p>
+            <a href="https://sketchfab.com/3d-models/cyberpunk-city-3f24e5c5bf924f46b30d9a392afa9624" target="_blank" rel="noreferrer">Cyberpunk City</a>
+            by mortalityrexotable · CC BY 4.0
+          </p>
+          <p>
+            <a href="https://polyhaven.com/a/venice_sunset" target="_blank" rel="noreferrer">Venice Sunset</a>
+            by Greg Zaal · CC0
+          </p>
+        </footer>
+      </aside>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

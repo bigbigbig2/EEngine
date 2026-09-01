@@ -21,6 +21,7 @@ const preview: Preview = {
         order: [
           "Getting Started",
           "Basics",
+          "Showcase",
           "Scene & Geometry",
           "Visibility",
           "Lighting & Shading",

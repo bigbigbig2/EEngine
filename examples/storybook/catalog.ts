@@ -8,11 +8,23 @@ export interface ExampleCatalogEntry {
   readonly tags: readonly string[];
   readonly route: string;
   readonly sourcePath: string;
-  readonly scene: "packed" | "visibility" | "lighting" | "temporal" | "benchmark";
+  readonly scene: "showcase" | "packed" | "visibility" | "lighting" | "temporal" | "benchmark";
   readonly stats: readonly [string, string][];
 }
 
 export const exampleCatalog = {
+  integratedShowcase: {
+    id: "Showcase 01",
+    title: "Cyberpunk City · Integrated Pipeline",
+    description:
+      "A production-path GLB scene combining packed geometry, hierarchy visibility, PBR materials, clustered lights, IBL, shadows, temporal rendering, and unified debug views.",
+    status: "Integrated",
+    tags: ["GLB", "PBR / IBL", "Full pipeline"],
+    route: "integrated-showcase/",
+    sourcePath: "examples/integrated-showcase",
+    scene: "showcase",
+    stats: [["Input", "68 static primitives"], ["Lighting", "IBL + clustered + CSM"], ["Diagnostics", "Unified debug view"]]
+  },
   packedScene: {
     id: "R2-D",
     title: "Packed Instances · 100K",

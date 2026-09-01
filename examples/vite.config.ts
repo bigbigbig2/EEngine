@@ -113,6 +113,10 @@ export default defineConfig({
           examplesRoot,
           "r5-screen-space-reflections/index.html"
         ),
+        integratedShowcase: path.resolve(
+          examplesRoot,
+          "integrated-showcase/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

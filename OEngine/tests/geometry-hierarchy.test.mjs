@@ -150,6 +150,26 @@ test("R2-B-02 bounds keep multi-material synthetic roots inside meshoptimizer li
   }
 });
 
+test("R2-B-02 merged spheres remain conservative after float32 center quantization", async () => {
+  const cooked = await cookGeometryAssetPackage(
+    buildLargeCoordinateGridSourceGeometry(48, 48),
+    createGeometryCookRecipe()
+  );
+  const asset = await openGeometryAssetPackage(cooked.bytes);
+
+  assert.ok(asset.clusters.length > 1);
+  for (let parentIndex = 0; parentIndex < asset.clusters.length; parentIndex++) {
+    const parent = asset.clusters[parentIndex];
+    const children = asset.clusterChildren.subarray(
+      parent.childBegin,
+      parent.childBegin + parent.childCount
+    );
+    for (const childIndex of children) {
+      assertSphereContains(parent.bounds, asset.clusters[childIndex].bounds);
+    }
+  }
+});
+
 test("R2-B-02 validator rejects rehashed cycle, orphan and non-monotonic error", async () => {
   const cooked = await cookGeometryAssetPackage(
     buildGridSourceGeometry(32, 32),
@@ -234,6 +254,40 @@ function buildGridSourceGeometry(widthSegments, heightSegments, materialRanges) 
     indices,
     attributes: [{ semantic: "position", componentCount: 3, data: positions }],
     materialRanges
+  });
+}
+
+function buildLargeCoordinateGridSourceGeometry(widthSegments, heightSegments) {
+  const row = widthSegments + 1;
+  const positions = new Float32Array(row * (heightSegments + 1) * 3);
+  let vertexOffset = 0;
+  for (let y = 0; y <= heightSegments; y++) {
+    for (let x = 0; x <= widthSegments; x++) {
+      positions[vertexOffset++] = 50_000 + x * 0.01;
+      positions[vertexOffset++] = -32_000 + y * 0.01;
+      positions[vertexOffset++] = 12_000 + Math.sin(x * 0.3) * Math.cos(y * 0.2) * 0.002;
+    }
+  }
+  const indices = new Uint32Array(widthSegments * heightSegments * 6);
+  let indexOffset = 0;
+  for (let y = 0; y < heightSegments; y++) {
+    for (let x = 0; x < widthSegments; x++) {
+      const a = y * row + x;
+      const b = a + 1;
+      const c = a + row;
+      const d = c + 1;
+      indices[indexOffset++] = a;
+      indices[indexOffset++] = b;
+      indices[indexOffset++] = c;
+      indices[indexOffset++] = c;
+      indices[indexOffset++] = b;
+      indices[indexOffset++] = d;
+    }
+  }
+  return createSourceGeometry({
+    sourceId: "large-coordinate-grid",
+    indices,
+    attributes: [{ semantic: "position", componentCount: 3, data: positions }]
   });
 }
 
