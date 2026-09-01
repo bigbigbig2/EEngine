@@ -47,3 +47,19 @@ examples/
 - [benchmark-shared](./benchmark-shared/README.md)：A/B/C 的冻结输入、正式/烟雾 profile、资产归属和统一验收方法。三个页面默认使用 `?profile=smoke` 开发链接；无查询参数才加载完整实例数量。
 
 在本目录运行 `npm install` 后，可用 `npm run dev:host` 启动全部示例；`npm run build` 同时执行类型检查和生产构建。Teapot 输入由 `npm run generate:benchmark-assets` 从本地 three.js revision 确定性再生。
+
+## Storybook 示例库
+
+React Storybook 作为面向使用者的示例库入口，左侧按能力而不是实施轮次组织：
+
+- `开始使用`：示例库定位与阅读顺序；
+- `基础示例`：空场景、基础几何体、相机控制，直接运行真实 OEngine Renderer；
+- `场景与几何`、`可见性`、`光照与着色`、`时域与后处理`：能力示例与原浏览器入口；
+- `基准与诊断`：固定 A/B/C recipe 与 smoke/full Gate 入口。
+
+```powershell
+Set-Location examples
+npm run storybook
+```
+
+Storybook 默认运行在 `http://127.0.0.1:6006`。能力卡片的“打开运行示例”默认指向 `http://127.0.0.1:5173`，需要同时运行 `npm run dev:host`；可通过 `VITE_OENGINE_EXAMPLES_ORIGIN` 覆盖该地址。生产构建使用 `npm run build:storybook`。

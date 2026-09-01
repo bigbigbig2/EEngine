@@ -6,6 +6,7 @@ dist
 .vite
 .turbo
 coverage
+storybook-static
 .grok/
 .codex-temp/
 .three.js/

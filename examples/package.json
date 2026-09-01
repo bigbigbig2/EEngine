@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite --config vite.config.ts",
     "dev:host": "vite --config vite.config.ts --host 127.0.0.1",
+    "storybook": "storybook dev -p 6006 --no-open",
+    "typecheck:storybook": "tsc --noEmit -p tsconfig.storybook.json",
+    "build:storybook": "npm run typecheck:storybook && storybook build -o storybook-static",
     "build": "tsc --noEmit && vite build --config vite.config.ts",
     "gate:r5-fx01": "node scripts/run-r5-fx01-gate.mjs",
     "gate:r5-fx02": "node scripts/run-r5-fx02-gate.mjs",
@@ -19,8 +22,15 @@
     "generate:benchmark-assets": "node scripts/generate-teapot-benchmark-assets.mjs"
   },
   "devDependencies": {
+    "@storybook/addon-docs": "^10.5.10",
+    "@storybook/react-vite": "^10.5.10",
     "@types/node": "^24.0.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "@webgpu/types": "^0.1.64",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "storybook": "^10.5.10",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   }
