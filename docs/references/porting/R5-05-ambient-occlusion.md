@@ -66,6 +66,13 @@ decision: mathematical reference only; no source code copied
 
 - shader：`OEngine/src/shaders/ssao.ts`
 - pass：`OEngine/src/render/passes/ScreenSpaceAmbientOcclusionPass.ts`
+
+## 2026-09-01 Q03 migration delta
+
+- 状态仍为 `retained-current-authored`：没有复制 XeGTAO shader 表达式；上游只保留算法不变量与术语证据。
+- OEngine 差异：radius/falloff 进入统一 meters contract；AO domain 生成 linear/view-depth product；history blend 乘完整 velocity×validity×confidence 权重；half-res 默认通过 joint bilateral AO+bent-normal resolve 回到 internal-full。
+- 被删除 production 路径：对 `albedoAo.a` 的 alpha-min 写回、nearest bent-normal upsample。
+- 成本变化：新增一轮 AO-resolution `r32float` linear-depth pass；原 composite+nearest upsample 合并为一轮 full-resolution MRT joint resolve。必须由提交后的 clean/full FX-07 timing/memory A/B 决定是否达到预算，不能仅凭 pass 数宣称更快。
 - shared history：`OEngine/src/render/TemporalHistoryRegistry.ts`
 - owner/debug/evidence：`OEngine/src/render/Renderer.ts`、`OEngine/src/render/passes/RenderDebugViewPass.ts`
 - automated seam：`OEngine/tests/r5-fx07-ambient-occlusion.test.mjs`

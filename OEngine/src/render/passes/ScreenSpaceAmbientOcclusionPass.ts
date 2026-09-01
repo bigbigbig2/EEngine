@@ -21,10 +21,10 @@ import {
   type GPUSamplerCache
 } from "../../gpu/GPUSamplerCache.js";
 import {
-  SSAO_ALBEDO_AO_FORMAT,
-  SSAO_BENT_NORMAL_UPSAMPLE_WGSL,
   SSAO_BENT_NORMAL_FORMAT,
-  SSAO_COMPOSITE_WGSL,
+  SSAO_JOINT_BILATERAL_RESOLVE_WGSL,
+  SSAO_LINEAR_DEPTH_FORMAT,
+  SSAO_LINEAR_DEPTH_WGSL,
   SSAO_RAW_WGSL,
   SSAO_SPATIAL_WGSL,
   SSAO_TEMPORAL_WGSL,
@@ -43,7 +43,6 @@ export type ScreenSpaceAmbientOcclusionInputs = {
   normal: ResourceId;
   velocity: ResourceId;
   occlusionConfidence: ResourceId;
-  albedoAo: ResourceId;
   camera: ResourceId;
   counters?: ResourceId;
 };
@@ -51,8 +50,8 @@ export type ScreenSpaceAmbientOcclusionInputs = {
 export type ScreenSpaceAmbientOcclusionOutput = {
   rawVisibility: ResourceId;
   denoisedVisibility: ResourceId;
+  temporalVisibility: ResourceId;
   visibility: ResourceId;
-  occlusion: ResourceId;
   bentNormals: ResourceId;
   counters: ResourceId | null;
 };
@@ -66,7 +65,8 @@ export type ScreenSpaceAmbientOcclusionJob = {
   width: number;
   height: number;
   intensity: number;
-  falloff: number;
+  radiusWorldUnits: number;
+  falloffWorldUnits: number;
   sliceCount: number;
   stepCount: number;
   spatialStep: number;
@@ -77,8 +77,8 @@ export class ScreenSpaceAmbientOcclusionPass {
   private readonly rawPipeline: CachedRenderPipelineDescriptor;
   private readonly spatialPipeline: CachedRenderPipelineDescriptor;
   private readonly temporalPipeline: CachedRenderPipelineDescriptor;
-  private readonly compositePipeline: CachedRenderPipelineDescriptor;
-  private readonly bentNormalUpsamplePipeline: CachedRenderPipelineDescriptor;
+  private readonly linearDepthPipeline: CachedRenderPipelineDescriptor;
+  private readonly jointBilateralResolvePipeline: CachedRenderPipelineDescriptor;
   private rawSettingsBuffer: GPUBuffer | null = null;
   private hilbertView: GPUTextureView | null = null;
   private readonly histories: [GPUTextureContext, GPUTextureContext] | null;
@@ -94,7 +94,7 @@ export class ScreenSpaceAmbientOcclusionPass {
   constructor(
     private readonly graphics: GraphicsContext,
     readonly temporalEnabled = true,
-    readonly resolutionScale: 0.5 | 1 = 1
+    readonly resolutionScale: 0.5 | 1 = 0.5
   ) {
     const device = graphics.device;
     if (device === null) {
@@ -106,8 +106,8 @@ export class ScreenSpaceAmbientOcclusionPass {
     this.rawPipeline = createSsaoRawPipelineDescriptor();
     this.spatialPipeline = createSsaoSpatialPipelineDescriptor();
     this.temporalPipeline = createSsaoTemporalPipelineDescriptor();
-    this.compositePipeline = createSsaoCompositePipelineDescriptor();
-    this.bentNormalUpsamplePipeline = createSsaoBentNormalUpsamplePipelineDescriptor();
+    this.linearDepthPipeline = createSsaoLinearDepthPipelineDescriptor();
+    this.jointBilateralResolvePipeline = createSsaoJointBilateralResolvePipelineDescriptor();
     const descriptor: GPUTextureDescriptor = {
       label: "SSAO history",
       size: [1, 1, 1],
@@ -126,7 +126,7 @@ export class ScreenSpaceAmbientOcclusionPass {
     if (this.rawSettingsBuffer !== null) return;
     this.rawSettingsBuffer = this.device.createBuffer({
       label: "Renderer/SSAO raw settings",
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.hilbertView = this.graphics.textures
@@ -152,9 +152,33 @@ export class ScreenSpaceAmbientOcclusionPass {
       throw new Error("SSAO temporal history bindings are required");
     }
 
+    let linearDepth = -1;
+    const self = this;
+    const linearDepthBuilder = graph.add(
+      "GTAO linear/view-depth mip",
+      {},
+      (_data, resources, context) => {
+        const command = requireShadeCommandContext(context.encoder);
+        self.executeLinearDepth(command, {
+          output: resolveTextureView(resources.get(linearDepth)),
+          depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
+          camera: resolveBuffer(resources.get(inputs.camera), "GTAO linear depth camera")
+        });
+      }
+    );
+    linearDepth = linearDepthBuilder.create("GTAO linear/view-depth mip", {
+      kind: "transient_texture",
+      label: "GTAO linear/view-depth mip",
+      width,
+      height,
+      format: SSAO_LINEAR_DEPTH_FORMAT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    linearDepthBuilder.read(inputs.depth);
+    linearDepthBuilder.read(inputs.camera);
+
     let rawVisibility = -1;
     let bentNormals = -1;
-    const self = this;
     const rawBuilder = graph.add(
       "SSAO raw GTAO lD",
       job,
@@ -163,7 +187,8 @@ export class ScreenSpaceAmbientOcclusionPass {
         self.executeRaw(
           command,
           data.frameIndex,
-          data.falloff,
+          data.radiusWorldUnits,
+          data.falloffWorldUnits,
           data.sliceCount,
           data.stepCount,
           {
@@ -171,7 +196,8 @@ export class ScreenSpaceAmbientOcclusionPass {
           bentNormals: resolveTextureView(resources.get(bentNormals)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
           normal: resolveTextureView(resources.get(inputs.normal)),
-          camera: resolveBuffer(resources.get(inputs.camera), "SSAO camera")
+          camera: resolveBuffer(resources.get(inputs.camera), "SSAO camera"),
+          linearDepth: resolveTextureView(resources.get(linearDepth))
           }
         );
         self.lastRawPasses = 1;
@@ -196,6 +222,7 @@ export class ScreenSpaceAmbientOcclusionPass {
     rawBuilder.read(inputs.depth);
     rawBuilder.read(inputs.normal);
     rawBuilder.read(inputs.camera);
+    rawBuilder.read(linearDepth);
 
     let spatialVisibility = -1;
     const spatialBuilder = graph.add(
@@ -206,7 +233,7 @@ export class ScreenSpaceAmbientOcclusionPass {
         self.executeSpatial(command, data.spatialStep, {
           output: resolveTextureView(resources.get(spatialVisibility)),
           visibility: resolveTextureView(resources.get(rawVisibility)),
-          depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
+          depth: resolveTextureView(resources.get(linearDepth)),
           normal: resolveTextureView(resources.get(inputs.normal))
         });
         self.lastSpatialPasses = 1;
@@ -221,7 +248,7 @@ export class ScreenSpaceAmbientOcclusionPass {
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
     });
     spatialBuilder.read(rawVisibility);
-    spatialBuilder.read(inputs.depth);
+    spatialBuilder.read(linearDepth);
     spatialBuilder.read(inputs.normal);
 
     let resolvedVisibility = spatialVisibility;
@@ -267,7 +294,7 @@ export class ScreenSpaceAmbientOcclusionPass {
     }
 
     let counters: ResourceId | null = null;
-    if (inputs.counters !== undefined) {
+    if (inputs.counters !== undefined && this.temporalEnabled) {
       const evidenceBuilder = graph.add(
         "R5-Q00 GTAO sampled temporal evidence",
         {
@@ -309,57 +336,55 @@ export class ScreenSpaceAmbientOcclusionPass {
       evidenceBuilder.make_side_effect();
     }
 
-    let resolvedBentNormals = bentNormals;
-    if (this.resolutionScale < 1) {
-      const bentNormalUpsampleBuilder = graph.add(
-        "SSAO bent-normal upsample",
-        {},
-        (_data, resources, context) => {
-          const command = requireShadeCommandContext(context.encoder);
-          self.executeBentNormalUpsample(command, {
-            output: resolveTextureView(resources.get(resolvedBentNormals)),
-            source: resolveTextureView(resources.get(bentNormals))
-          });
-          self.lastBentNormalUpsamplePasses = 1;
-        }
-      );
-      bentNormalUpsampleBuilder.read(bentNormals);
-      resolvedBentNormals = bentNormalUpsampleBuilder.create("SSAO full-resolution bent normals", {
-        kind: "transient_texture",
-        label: "SSAO full-resolution bent normals",
-        width: fullWidth,
-        height: fullHeight,
-        format: SSAO_BENT_NORMAL_FORMAT,
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
-      });
-    }
-
-    let occlusion = -1;
-    const compositeBuilder = graph.add(
-      "SSAO alpha-min composite mD",
+    let ambientVisibility = -1;
+    let resolvedBentNormals = -1;
+    const resolveBuilder = graph.add(
+      "GTAO joint bilateral AO+bent-normal resolve",
       job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
-        self.executeComposite(
-          command,
-          job.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
-          data.intensity,
-          {
-          output: resolveTextureView(resources.get(occlusion)),
-          visibility: resolveTextureView(resources.get(resolvedVisibility))
-          }
-        );
+        self.executeJointBilateralResolve(command, data.intensity, {
+          visibilityOutput: resolveTextureView(resources.get(ambientVisibility)),
+          bentNormalOutput: resolveTextureView(resources.get(resolvedBentNormals)),
+          visibility: resolveTextureView(resources.get(resolvedVisibility)),
+          bentNormals: resolveTextureView(resources.get(bentNormals)),
+          linearDepth: resolveTextureView(resources.get(linearDepth)),
+          depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
+          normal: resolveTextureView(resources.get(inputs.normal)),
+          camera: resolveBuffer(resources.get(inputs.camera), "GTAO joint resolve camera")
+        });
         self.lastCompositePasses = 1;
+        self.lastBentNormalUpsamplePasses = self.resolutionScale < 1 ? 1 : 0;
       }
     );
-    compositeBuilder.read(resolvedVisibility);
-    occlusion = compositeBuilder.write(inputs.albedoAo);
+    ambientVisibility = resolveBuilder.create("GTAO ambient visibility", {
+      kind: "transient_texture",
+      label: "GTAO ambient visibility internal-full",
+      width: fullWidth,
+      height: fullHeight,
+      format: SSAO_VISIBILITY_FORMAT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    resolvedBentNormals = resolveBuilder.create("GTAO bent normals internal-full", {
+      kind: "transient_texture",
+      label: "GTAO bent normals internal-full",
+      width: fullWidth,
+      height: fullHeight,
+      format: SSAO_BENT_NORMAL_FORMAT,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    resolveBuilder.read(resolvedVisibility);
+    resolveBuilder.read(bentNormals);
+    resolveBuilder.read(linearDepth);
+    resolveBuilder.read(inputs.depth);
+    resolveBuilder.read(inputs.normal);
+    resolveBuilder.read(inputs.camera);
 
     return {
       rawVisibility,
       denoisedVisibility: spatialVisibility,
-      visibility: resolvedVisibility,
-      occlusion,
+      temporalVisibility: resolvedVisibility,
+      visibility: ambientVisibility,
       bentNormals: resolvedBentNormals,
       counters
     };
@@ -396,10 +421,30 @@ export class ScreenSpaceAmbientOcclusionPass {
     this.lastBentNormalUpsamplePasses = 0;
   }
 
+  private executeLinearDepth(
+    command: ShadeGPUCommandContext,
+    resources: { output: GPUTextureView; depth: GPUTextureView; camera: GPUBuffer }
+  ): void {
+    const pass = command.constructRenderPass({
+      label: "GTAO linear/view-depth mip",
+      pipeline: this.linearDepthPipeline,
+      bindings: [[resources.depth, { buffer: resources.camera }]],
+      colorAttachments: [{
+        view: resources.output,
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        loadOp: "clear",
+        storeOp: "store"
+      }]
+    });
+    pass.draw(3, 1, 0, 0);
+    pass.end();
+  }
+
   private executeRaw(
     command: ShadeGPUCommandContext,
     frameIndex: number,
-    falloff: number,
+    radiusWorldUnits: number,
+    falloffWorldUnits: number,
     sliceCount: number,
     stepCount: number,
     resources: {
@@ -408,6 +453,7 @@ export class ScreenSpaceAmbientOcclusionPass {
       depth: GPUTextureView;
       normal: GPUTextureView;
       camera: GPUBuffer;
+      linearDepth: GPUTextureView;
     }
   ): void {
     if (
@@ -416,12 +462,13 @@ export class ScreenSpaceAmbientOcclusionPass {
     ) {
       throw new Error("ScreenSpaceAmbientOcclusionPass not initialized");
     }
-    const settings = new ArrayBuffer(16);
+    const settings = new ArrayBuffer(32);
     const settingsView = new DataView(settings);
     settingsView.setUint32(0, frameIndex >>> 0, true);
-    settingsView.setFloat32(4, Math.max(0.001, falloff), true);
-    settingsView.setUint32(8, Math.max(1, Math.min(4, Math.round(sliceCount))), true);
-    settingsView.setUint32(12, Math.max(1, Math.min(8, Math.round(stepCount))), true);
+    settingsView.setUint32(4, Math.max(1, Math.min(4, Math.round(sliceCount))), true);
+    settingsView.setUint32(8, Math.max(1, Math.min(8, Math.round(stepCount))), true);
+    settingsView.setFloat32(12, Math.max(0.001, radiusWorldUnits), true);
+    settingsView.setFloat32(16, Math.max(0.001, falloffWorldUnits), true);
     writeGpuBuffer(
       this.device.queue,
       "SSAO/raw-settings",
@@ -437,7 +484,8 @@ export class ScreenSpaceAmbientOcclusionPass {
         resources.normal,
         this.hilbertView,
         { buffer: resources.camera },
-        { buffer: this.rawSettingsBuffer }
+        { buffer: this.rawSettingsBuffer },
+        resources.linearDepth
       ]],
       colorAttachments: [
         {
@@ -537,27 +585,47 @@ export class ScreenSpaceAmbientOcclusionPass {
     pass.end();
   }
 
-  private executeComposite(
+  private executeJointBilateralResolve(
     command: ShadeGPUCommandContext,
-    sampler: GPUSampler,
     intensity: number,
     resources: {
-      output: GPUTextureView;
+      visibilityOutput: GPUTextureView;
+      bentNormalOutput: GPUTextureView;
       visibility: GPUTextureView;
+      bentNormals: GPUTextureView;
+      linearDepth: GPUTextureView;
+      depth: GPUTextureView;
+      normal: GPUTextureView;
+      camera: GPUBuffer;
     }
   ): void {
     const settings = command.allocateTransientBufferAndLoad(
-      new Float32Array([Math.max(0, intensity), 0, 0, 0]).buffer,
+      new Float32Array([Math.max(0, intensity), 0, 0, 0, 0, 0, 0, 0]).buffer,
       GPUBufferUsage.UNIFORM
     );
     const pass = command.constructRenderPass({
-      label: "SSAO alpha-min composite mD",
-      pipeline: this.compositePipeline,
-      bindings: [[resources.visibility, sampler, { buffer: settings }]],
+      label: "GTAO joint bilateral AO+bent-normal resolve",
+      pipeline: this.jointBilateralResolvePipeline,
+      bindings: [[
+        resources.visibility,
+        resources.bentNormals,
+        resources.linearDepth,
+        resources.depth,
+        resources.normal,
+        { buffer: resources.camera },
+        { buffer: settings }
+      ]],
       colorAttachments: [
         {
-          view: resources.output,
-          loadOp: "load",
+          view: resources.visibilityOutput,
+          clearValue: { r: 1, g: 1, b: 0, a: 0 },
+          loadOp: "clear",
+          storeOp: "store"
+        },
+        {
+          view: resources.bentNormalOutput,
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: "clear",
           storeOp: "store"
         }
       ]
@@ -565,25 +633,6 @@ export class ScreenSpaceAmbientOcclusionPass {
     pass.draw(3, 1, 0, 0);
     pass.end();
     this.lastRan = true;
-  }
-
-  private executeBentNormalUpsample(
-    command: ShadeGPUCommandContext,
-    resources: { output: GPUTextureView; source: GPUTextureView }
-  ): void {
-    const pass = command.constructRenderPass({
-      label: "SSAO bent-normal upsample",
-      pipeline: this.bentNormalUpsamplePipeline,
-      bindings: [[resources.source]],
-      colorAttachments: [{
-        view: resources.output,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp: "clear",
-        storeOp: "store"
-      }]
-    });
-    pass.draw(3, 1, 0, 0);
-    pass.end();
   }
 
   destroy(): void {
@@ -720,34 +769,38 @@ function createSsaoTemporalPipelineDescriptor(): CachedRenderPipelineDescriptor 
   );
 }
 
-function createSsaoCompositePipelineDescriptor(): CachedRenderPipelineDescriptor {
+function createSsaoLinearDepthPipelineDescriptor(): CachedRenderPipelineDescriptor {
   return createSsaoPipelineDescriptor(
-    "Renderer/SSAO alpha-min mD",
-    SSAO_COMPOSITE_WGSL,
-    [createSsaoCompositeGroupLayout()],
+    "Renderer/GTAO linear/view-depth mip",
+    SSAO_LINEAR_DEPTH_WGSL,
     [{
-      format: SSAO_ALBEDO_AO_FORMAT,
-      blend: {
-        color: { operation: "add", srcFactor: "zero", dstFactor: "one" },
-        alpha: { operation: "min", srcFactor: "one", dstFactor: "one" }
-      }
-    }]
+      label: "Renderer/GTAO linear/view-depth mip group0",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+      ]
+    }],
+    [{ format: SSAO_LINEAR_DEPTH_FORMAT }]
   );
 }
 
-function createSsaoBentNormalUpsamplePipelineDescriptor(): CachedRenderPipelineDescriptor {
+function createSsaoJointBilateralResolvePipelineDescriptor(): CachedRenderPipelineDescriptor {
   return createSsaoPipelineDescriptor(
-    "Renderer/SSAO bent-normal upsample",
-    SSAO_BENT_NORMAL_UPSAMPLE_WGSL,
+    "Renderer/GTAO joint bilateral AO+bent-normal resolve",
+    SSAO_JOINT_BILATERAL_RESOLVE_WGSL,
     [{
-      label: "Renderer/SSAO bent-normal upsample group0",
-      entries: [{
-        binding: 0,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "uint", viewDimension: "2d" }
-      }]
+      label: "Renderer/GTAO joint bilateral resolve group0",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
+        { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+      ]
     }],
-    [{ format: SSAO_BENT_NORMAL_FORMAT }]
+    [{ format: SSAO_VISIBILITY_FORMAT }, { format: SSAO_BENT_NORMAL_FORMAT }]
   );
 }
 
@@ -786,7 +839,8 @@ function createSsaoRawGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 1, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 2, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 3, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 4, visibility: fragment, buffer: { type: "uniform" } }
+      { binding: 4, visibility: fragment, buffer: { type: "uniform" } },
+      { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } }
     ]
   };
 }
@@ -825,29 +879,6 @@ function createSsaoTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 3, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, sampler: { type: "filtering" } },
       { binding: 5, visibility: fragment, buffer: { type: "uniform" } }
-    ]
-  };
-}
-
-function createSsaoCompositeGroupLayout(): GPUBindGroupLayoutDescriptor {
-  return {
-    label: "Renderer/SSAO alpha-min mD group0",
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" }
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.FRAGMENT,
-        sampler: { type: "filtering" }
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" }
-      }
     ]
   };
 }

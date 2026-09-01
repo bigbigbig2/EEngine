@@ -441,15 +441,14 @@ async function captureKeyframe(
 }
 
 function configureRenderer(renderer: Renderer): void {
-  renderer.feature_shadows_enabled = false;
-  renderer.feature_ssr_enabled = true;
-  renderer.feature_ssao_enabled = true;
-  renderer.ssao_temporal_enabled = true;
-  renderer.feature_taa_enabled = true;
-  renderer.feature_bloom_enabled = false;
-  renderer.feature_automatic_exposure_enabled = false;
-  renderer.feature_motion_blur_enabled = false;
-  renderer.feature_sharpening_enabled = false;
+  renderer.configure({
+    features: {
+      shadows: false, screenSpaceReflections: true, ambientOcclusion: true,
+      temporalAntiAliasing: true, bloom: false, automaticExposure: false,
+      motionBlur: false, sharpening: false
+    },
+    ao: { temporalEnabled: true }
+  });
 }
 
 async function createFixture(renderer: Renderer) {
@@ -508,9 +507,11 @@ function prepareStage(
   fixture: Awaited<ReturnType<typeof createFixture>>,
   stage: StageDefinition
 ): void {
-  renderer.feature_taa_enabled = stage.temporal ?? true;
-  renderer.feature_ssao_enabled = stage.ssao === true;
-  renderer.feature_ssr_enabled = stage.ssr === true;
+  renderer.configure({ features: {
+    temporalAntiAliasing: stage.temporal ?? true,
+    ambientOcclusion: stage.ssao === true,
+    screenSpaceReflections: stage.ssr === true
+  } });
   if (stage.kind === "resize") {
     renderer.resize(1600, 900);
     camera.aspect = 1600 / 900;

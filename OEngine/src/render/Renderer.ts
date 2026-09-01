@@ -37,10 +37,7 @@ import {
   type LightClusterOutputs
 } from "./passes/LightClusterPass.js";
 import { EnvironmentBackgroundPass } from "./passes/EnvironmentBackgroundPass.js";
-import { IblSpecularPass } from "./passes/IblSpecularPass.js";
-import { IblDiffusePass } from "./passes/IblDiffusePass.js";
 import { LpvIndirectDiffusePass } from "./passes/LpvIndirectDiffusePass.js";
-import { IndirectCompositePass } from "./passes/IndirectCompositePass.js";
 import { TransparentOitPass } from "./passes/TransparentOitPass.js";
 import { PackedTransparentOitPass } from "./passes/PackedTransparentOitPass.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
@@ -55,6 +52,7 @@ import { RenderDebugViewPass } from "./passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
 import { ScreenSpaceAmbientOcclusionPass } from "./passes/ScreenSpaceAmbientOcclusionPass.js";
 import { ScreenSpaceReflectionsPass } from "./passes/ScreenSpaceReflectionsPass.js";
+import { SpecularCorrectionPass } from "./passes/SpecularCorrectionPass.js";
 import { TemporalAntiAliasingPass } from "./passes/TemporalAntiAliasingPass.js";
 import { TemporalClassificationPass } from "./passes/TemporalClassificationPass.js";
 import {
@@ -127,6 +125,14 @@ import { halfToFloat } from "../loaders/float16.js";
 import { TemporalHistoryRegistry } from "./TemporalHistoryRegistry.js";
 import { DynamicResolutionScaling } from "./DynamicResolutionScaling.js";
 import type { GraphicsMemoryEvidence } from "../gpu/GraphicsContext.js";
+import {
+  RenderSettings,
+  metersToWorldUnits,
+  type RenderSettingsChange,
+  type RenderSettingsPatch,
+  type RenderSettingsValues
+} from "./pipeline/RenderSettings.js";
+import { OpaqueLightingPipeline } from "./pipeline/OpaqueLightingPipeline.js";
 
 export {
   ShadeIndirectLightingMode
@@ -217,6 +223,9 @@ export interface AmbientOcclusionRuntimeEvidence {
   readonly enabled: boolean;
   readonly temporalEnabled: boolean;
   readonly resolutionScale: 0.5 | 1;
+  readonly radiusMeters: number;
+  readonly radiusWorldUnits: number;
+  readonly metersPerWorldUnit: number;
   readonly internalPixels: number;
   readonly aoPixels: number;
   readonly internalWidth: number;
@@ -321,7 +330,7 @@ export class Renderer {
   private _hzbCameraRevision = 0;
   private _hzbRenderScaleRevision = 0;
   private _pixel_ratio = window.devicePixelRatio;
-  private _internal_resolution_scale = 1;
+  private readonly _renderSettings = new RenderSettings();
   private readonly _render_resolution = new Vec2(1, 1);
   private _width = 1;
   private _height = 1;
@@ -352,10 +361,8 @@ export class Renderer {
   private _lighting!: LightingPass;
   private _lightCluster!: LightClusterPass;
   private _environmentBackground!: EnvironmentBackgroundPass;
-  private _iblSpecular!: IblSpecularPass;
-  private _iblDiffuse!: IblDiffusePass;
+  private _opaqueLighting!: OpaqueLightingPipeline;
   private _lpvIndirectDiffuse!: LpvIndirectDiffusePass;
-  private _indirectComposite!: IndirectCompositePass;
   private _transparentOit: TransparentOitPass | null = null;
   private _packedTransparentOit: PackedTransparentOitPass | null = null;
   private _packedTransparencyOwnerGeneration = 0;
@@ -371,6 +378,7 @@ export class Renderer {
   private _ssaoConfigurationKey = "";
   private _ssaoOwnerGeneration = 0;
   private _ssr: ScreenSpaceReflectionsPass | null = null;
+  private _specularCorrection: SpecularCorrectionPass | null = null;
   private _ssrOwnerGeneration = 0;
   private _taa: TemporalAntiAliasingPass | null = null;
   private _temporalClassification: TemporalClassificationPass | null = null;
@@ -395,88 +403,29 @@ export class Renderer {
     Scene,
     GPULightProbeVolumeRenderer
   >();
-  feature_shadows_enabled = true;
-  feature_ssr_enabled = false;
-  feature_ssao_enabled = true;
-  private _ssao_resolution_scale: 0.5 | 1 = 1;
-  private _ssao_temporal_enabled = true;
-  feature_taa_enabled = false;
-  feature_bloom_enabled = true;
-  feature_automatic_exposure_enabled = true;
-  feature_motion_blur_enabled = false;
-  feature_sharpening_enabled = true;
-  ssao_intensity = 1;
-  ssao_falloff = 0.615;
-  ssao_slice_count = 2;
-  ssao_step_count = 4;
-  ssao_spatial_step = 1;
-  ssao_temporal_blend = 0.95;
-  ssr_max_distance = 16;
-  ssr_edge_fade = 0.07;
-  ssr_max_steps = 128;
-  ssr_depth_thickness = 0.1;
-  ssr_roughness_thickness = 10;
-  ssr_distance_thickness = 0.01;
-  ssr_roughness_cutoff = 0.65;
-  ssr_temporal_strength = 1;
-  taa_history_strength = 1;
-  taa_variance_gamma = 1.25;
-  taa_min_history_weight = 0.65;
-  taa_max_history_weight = 0.92;
-  taa_history_lock_step = 1 / 16;
-  taa_reactive_threshold = 0.5;
-  taa_disocclusion_threshold = 0.2;
-  taa_motion_fade_pixels = 128;
-  shadow_cascade_lambda = 0.5;
-  shadow_maximum_distance = 80;
-  shadow_texel_guard_band = 2.5;
-  bloom_intensity = 1;
-  sharpening_strength = 0.8;
-  private _exposure_compensation = 1;
-  private _exposure_speed_up = 3;
-  private _exposure_speed_down = 1.2;
+  /** Immutable snapshot; use configure() to update it. */
+  get render_settings(): RenderSettingsValues {
+    return this._renderSettings.values;
+  }
 
-  get exposure_compensation(): number { return this._exposure_compensation; }
-  set exposure_compensation(value: number) {
-    this._exposure_compensation = Math.max(-8, Math.min(8, value));
+  /**
+   * The only render-quality mutation seam. Numeric uniforms do not change the
+   * topology revision; resource/domain changes invalidate the affected history.
+   */
+  configure(patch: RenderSettingsPatch): RenderSettingsChange {
+    const change = this._renderSettings.update(patch);
+    if (!change.changed) return change;
+    if (change.resolutionChanged) this._renderResolutionDirty = true;
+    if (change.historiesInvalidated.length > 0) {
+      this._temporalHistories.invalidate("explicit");
+    }
+    const post = this._renderSettings.values.post;
     if (this._automaticExposure !== null) {
-      this._automaticExposure.exposure_compensation = this._exposure_compensation;
+      this._automaticExposure.exposure_compensation = post.exposureCompensation;
+      this._automaticExposure.adaptation_speed_up = post.exposureSpeedUp;
+      this._automaticExposure.adaptation_speed_down = post.exposureSpeedDown;
     }
-  }
-
-  get exposure_speed_up(): number { return this._exposure_speed_up; }
-  set exposure_speed_up(value: number) {
-    this._exposure_speed_up = Math.max(0, value);
-    if (this._automaticExposure !== null) {
-      this._automaticExposure.adaptation_speed_up = this._exposure_speed_up;
-    }
-  }
-
-  get exposure_speed_down(): number { return this._exposure_speed_down; }
-  set exposure_speed_down(value: number) {
-    this._exposure_speed_down = Math.max(0, value);
-    if (this._automaticExposure !== null) {
-      this._automaticExposure.adaptation_speed_down = this._exposure_speed_down;
-    }
-  }
-
-  get ssao_resolution_scale(): 0.5 | 1 {
-    return this._ssao_resolution_scale;
-  }
-
-  set ssao_resolution_scale(value: 0.5 | 1) {
-    if (value !== 0.5 && value !== 1) {
-      throw new RangeError("ssao_resolution_scale must be 0.5 or 1");
-    }
-    this._ssao_resolution_scale = value;
-  }
-
-  get ssao_temporal_enabled(): boolean {
-    return this._ssao_temporal_enabled;
-  }
-
-  set ssao_temporal_enabled(value: boolean) {
-    this._ssao_temporal_enabled = value === true;
+    return change;
   }
   /** 单一调试视图选择；unsupported 条目不会向 FrameGraph 添加工作。 */
   render_debug_view: RenderDebugViewT = RenderDebugView.None;
@@ -525,12 +474,10 @@ export class Renderer {
   }
 
   get internal_resolution_scale(): number {
-    return this._internal_resolution_scale;
+    return this._renderSettings.values.resolution.internalScale;
   }
   set internal_resolution_scale(v: number) {
-    if (v === this._internal_resolution_scale) return;
-    this._internal_resolution_scale = v;
-    this._renderResolutionDirty = true;
+    this.configure({ resolution: { internalScale: v } });
   }
 
   get aspect_ratio(): number {
@@ -775,7 +722,7 @@ export class Renderer {
   temporalEvidence(): TemporalRuntimeEvidence {
     const history = this._temporalHistories.state("color");
     return Object.freeze({
-      enabled: this.feature_taa_enabled,
+      enabled: this._renderSettings.values.features.temporalAntiAliasing,
       taaPasses: this._lastTemporalTaaPassCount,
       classificationPasses: this._lastTemporalClassificationPassCount,
       historyTextureCount: this._taaHistory?.length ?? 0,
@@ -793,7 +740,7 @@ export class Renderer {
       internalHeight: this._render_resolution.y,
       outputWidth: this._output_resolution.x,
       outputHeight: this._output_resolution.y,
-      internalScale: this._internal_resolution_scale,
+      internalScale: this._renderSettings.values.resolution.internalScale,
       drsEnabled: this._dynamicResolution.enabled,
       drsLastGpuMs: this._dynamicResolution.last_gpu_frame_time_ms,
       drsFeedbackLatencyFrames:
@@ -806,18 +753,26 @@ export class Renderer {
     const history = this._temporalHistories.state("ssao");
     const pass = this._ssao;
     const internalPixels = this._render_resolution.x * this._render_resolution.y;
-    const aoWidth = Math.max(1, Math.ceil(this._render_resolution.x * this._ssao_resolution_scale));
-    const aoHeight = Math.max(1, Math.ceil(this._render_resolution.y * this._ssao_resolution_scale));
+    const aoSettings = this._renderSettings.values.ao;
+    const aoEnabled = this._renderSettings.values.features.ambientOcclusion;
+    const aoWidth = Math.max(1, Math.ceil(this._render_resolution.x * aoSettings.resolutionScale));
+    const aoHeight = Math.max(1, Math.ceil(this._render_resolution.y * aoSettings.resolutionScale));
     return Object.freeze({
-      enabled: this.feature_ssao_enabled,
-      temporalEnabled: this.feature_ssao_enabled && this._ssao_temporal_enabled,
-      resolutionScale: this._ssao_resolution_scale,
+      enabled: aoEnabled,
+      temporalEnabled: aoEnabled && aoSettings.temporalEnabled,
+      resolutionScale: aoSettings.resolutionScale,
+      radiusMeters: aoSettings.radiusMeters,
+      radiusWorldUnits: metersToWorldUnits(
+        aoSettings.radiusMeters,
+        this._renderSettings.values.physicalScale
+      ),
+      metersPerWorldUnit: this._renderSettings.values.physicalScale.metersPerWorldUnit,
       internalPixels,
-      aoPixels: this.feature_ssao_enabled ? aoWidth * aoHeight : 0,
+      aoPixels: aoEnabled ? aoWidth * aoHeight : 0,
       internalWidth: this._render_resolution.x,
       internalHeight: this._render_resolution.y,
-      aoWidth: this.feature_ssao_enabled ? aoWidth : 0,
-      aoHeight: this.feature_ssao_enabled ? aoHeight : 0,
+      aoWidth: aoEnabled ? aoWidth : 0,
+      aoHeight: aoEnabled ? aoHeight : 0,
       rawPasses: pass?.lastRawPasses ?? 0,
       spatialPasses: pass?.lastSpatialPasses ?? 0,
       temporalPasses: pass?.lastTemporalPasses ?? 0,
@@ -837,19 +792,19 @@ export class Renderer {
     const history = this._temporalHistories.state("ssr");
     const pass = this._ssr;
     return Object.freeze({
-      enabled: this.feature_ssr_enabled,
-      internalPixels: this.feature_ssr_enabled
+      enabled: this._renderSettings.values.features.screenSpaceReflections,
+      internalPixels: this._renderSettings.values.features.screenSpaceReflections
         ? this._render_resolution.x * this._render_resolution.y
         : 0,
-      internalWidth: this.feature_ssr_enabled ? this._render_resolution.x : 0,
-      internalHeight: this.feature_ssr_enabled ? this._render_resolution.y : 0,
+      internalWidth: this._renderSettings.values.features.screenSpaceReflections ? this._render_resolution.x : 0,
+      internalHeight: this._renderSettings.values.features.screenSpaceReflections ? this._render_resolution.y : 0,
       tracePasses: pass?.lastTracePasses ?? 0,
       prefilterPasses: pass?.lastPrefilterPasses ?? 0,
       resolvePasses: pass?.lastResolvePasses ?? 0,
       spatialPasses: pass?.lastSpatialPasses ?? 0,
       temporalPasses: pass?.lastTemporalPasses ?? 0,
       compositePasses:
-        this.feature_ssr_enabled && this._indirectComposite?.lastRan === true ? 1 : 0,
+        this._renderSettings.values.features.screenSpaceReflections && this._specularCorrection?.lastRan === true ? 1 : 0,
       historyTextureCount: pass?.historyTextureCount ?? 0,
       historyBytes: pass?.historyBytes ?? 0,
       historyValid: history.valid,
@@ -1059,6 +1014,9 @@ export class Renderer {
     this._occlusionConfidence = null;
     this._ssr?.destroy();
     this._ssr = null;
+    this._specularCorrection?.destroy();
+    this._specularCorrection = null;
+    this._opaqueLighting?.destroy();
     this._automaticExposure?.destroy();
     this._automaticExposure = null;
     this._taaHistory?.forEach((history) => history.destroy());
@@ -1279,9 +1237,12 @@ export class Renderer {
             "shadowQueueOverflowMask"
           ]);
         }
-        shadows.directional_cascade_lambda = this.shadow_cascade_lambda;
-        shadows.directional_maximum_distance = this.shadow_maximum_distance;
-        shadows.directional_texel_guard_band = this.shadow_texel_guard_band;
+        shadows.directional_cascade_lambda = this._renderSettings.values.shadows.cascadeLambda;
+        shadows.directional_maximum_distance = metersToWorldUnits(
+          this._renderSettings.values.shadows.maximumDistanceMeters,
+          this._renderSettings.values.physicalScale
+        );
+        shadows.directional_texel_guard_band = this._renderSettings.values.shadows.texelGuardBand;
         shadows.select_for_draw(camera, this._frame_count, [w, h]);
         const packedBindings = gpuPacked === null
           ? null
@@ -1313,8 +1274,8 @@ export class Renderer {
       }
       if (featureTopology.ssao) {
         this._ssao!.resize(
-          Math.max(1, Math.ceil(w * this._ssao_resolution_scale)),
-          Math.max(1, Math.ceil(h * this._ssao_resolution_scale))
+          Math.max(1, Math.ceil(w * this._renderSettings.values.ao.resolutionScale)),
+          Math.max(1, Math.ceil(h * this._renderSettings.values.ao.resolutionScale))
         );
       }
       if (featureTopology.ssr) this._ssr!.resize(w, h);
@@ -1334,7 +1295,8 @@ export class Renderer {
       }
       this._taa?.resetFrameEvidence();
       this._ssr?.resetFrameEvidence();
-      this._indirectComposite.lastRan = false;
+      this._opaqueLighting.resetFrameEvidence();
+      if (this._specularCorrection !== null) this._specularCorrection.lastRan = false;
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
       this._lastTemporalClassificationPassCount = featureTopology.temporal ? 1 : 0;
       const nssSettings = featureTopology.nss
@@ -1918,13 +1880,7 @@ export class Renderer {
               camera: bindings.camera,
               lights: bindings.gpuScene.lights,
               width: bindings.internalWidth,
-              height: bindings.internalHeight,
-              intensity: this.ssao_intensity,
-              falloff: this.ssao_falloff,
-              sliceCount: this.ssao_slice_count,
-              stepCount: this.ssao_step_count,
-              spatialStep: this.ssao_spatial_step,
-              temporalBlend: this.ssao_temporal_blend
+              height: bindings.internalHeight
             })),
             {
               camera: currentCameraRes,
@@ -1987,6 +1943,7 @@ export class Renderer {
         }
 
         let bentNormalRes = gNormalRes;
+        let ambientVisibilityRes: ResourceId | null = null;
         let ssaoRawDebugRes: ResourceId | null = null;
         let ssaoDenoisedDebugRes: ResourceId | null = null;
         let ssaoTemporalDebugRes: ResourceId | null = null;
@@ -2014,19 +1971,25 @@ export class Renderer {
               historyOutputIndex: bindings.ssaoHistoryOutputIndex,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
-              intensity: this.ssao_intensity,
-              falloff: this.ssao_falloff,
-              sliceCount: this.ssao_slice_count,
-              stepCount: this.ssao_step_count,
-              spatialStep: this.ssao_spatial_step,
-              temporalBlend: this.ssao_temporal_blend
+              intensity: this._renderSettings.values.ao.intensity,
+              radiusWorldUnits: metersToWorldUnits(
+                this._renderSettings.values.ao.radiusMeters,
+                this._renderSettings.values.physicalScale
+              ),
+              falloffWorldUnits: metersToWorldUnits(
+                this._renderSettings.values.ao.falloffMeters,
+                this._renderSettings.values.physicalScale
+              ),
+              sliceCount: this._renderSettings.values.ao.sliceCount,
+              stepCount: this._renderSettings.values.ao.stepCount,
+              spatialStep: this._renderSettings.values.ao.spatialStep,
+              temporalBlend: this._renderSettings.values.ao.temporalBlend
             })),
             {
               depth: depthRes,
               normal: gNormalRes,
               velocity: velocityRes ?? depthRes,
               occlusionConfidence: occlusionConfidenceRes ?? depthRes,
-              albedoAo: gAlbedoRes,
               camera: currentCameraRes,
               counters: gpuCounterRes ?? undefined
             },
@@ -2039,11 +2002,11 @@ export class Renderer {
                 }
               : undefined
           );
-          gAlbedoRes = ssao.occlusion;
+          ambientVisibilityRes = ssao.visibility;
           bentNormalRes = ssao.bentNormals;
           ssaoRawDebugRes = ssao.rawVisibility;
           ssaoDenoisedDebugRes = ssao.denoisedVisibility;
-          ssaoTemporalDebugRes = ssao.visibility;
+          ssaoTemporalDebugRes = ssao.temporalVisibility;
           if (ssao.counters !== null) gpuCounterRes = ssao.counters;
           ssaoReady = true;
         }
@@ -2077,7 +2040,31 @@ export class Renderer {
             { kind: "imported", label: "rg16float split_sum" },
             splitSum.gpu_texture
           );
-          let indirectSpecularRes: ResourceId;
+          const opaqueLighting = this._opaqueLighting.addIblBaseline(
+            graph,
+            { width: w, height: h },
+            {
+            hdr: hdrRes,
+            depth: depthRes,
+            normal: gNormalRes,
+            bentNormal: bentNormalRes,
+            albedoAo: gAlbedoRes,
+            pbr: gPbrRes,
+            environment: environmentRes,
+            diffuseIrradiance: diffuseIrradianceRes,
+            splitSum: splitSumRes,
+            camera: currentCameraRes,
+            metadata: packedResolveOut?.surfaceFlags,
+            ambientOcclusion: ambientVisibilityRes === null
+              ? undefined
+              : { visibility: ambientVisibilityRes }
+            }
+          );
+          const baselineSpecularRes = opaqueLighting.iblSpecular;
+          indirectDiffuseDebugRes = opaqueLighting.indirectDiffuse;
+          indirectSpecularDebugRes = baselineSpecularRes;
+          hdrRes = opaqueLighting.hdr;
+
           if (graphTopology.ssr) {
             const blueNoise = this._graphics.textures.obtain(
               STATIC_GRAPHICS_ENGINE_ASSETS.stbn_vec2
@@ -2097,14 +2084,20 @@ export class Renderer {
                 historyInputIndex: bindings.ssrHistoryInputIndex,
                 historyOutputIndex: bindings.ssrHistoryOutputIndex,
                 samplers: this._graphics.samplers,
-                maxDistance: this.ssr_max_distance,
-                edgeFade: this.ssr_edge_fade,
-                maxSteps: this.ssr_max_steps,
-                depthThickness: this.ssr_depth_thickness,
-                roughnessThickness: this.ssr_roughness_thickness,
-                distanceThickness: this.ssr_distance_thickness,
-                roughnessCutoff: this.ssr_roughness_cutoff,
-                temporalStrength: this.ssr_temporal_strength
+                maxDistance: metersToWorldUnits(
+                  this._renderSettings.values.ssr.maxDistanceMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                edgeFade: this._renderSettings.values.ssr.edgeFade,
+                maxSteps: this._renderSettings.values.ssr.maxSteps,
+                depthThickness: metersToWorldUnits(
+                  this._renderSettings.values.ssr.depthThicknessMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                roughnessThickness: this._renderSettings.values.ssr.roughnessThickness,
+                distanceThickness: this._renderSettings.values.ssr.distanceThickness,
+                roughnessCutoff: this._renderSettings.values.ssr.roughnessCutoff,
+                temporalStrength: this._renderSettings.values.ssr.temporalStrength
               })),
               {
                 depth: depthRes,
@@ -2128,51 +2121,27 @@ export class Renderer {
                   this._ssr!.historyTexture(bindings.ssrHistoryOutputIndex))
               }
             );
-            indirectSpecularRes = ssr.denoised;
+            hdrRes = this._specularCorrection!.addToGraph(graph, {
+              hdr: hdrRes,
+              depth: depthRes,
+              normal: gNormalRes,
+              bentNormal: bentNormalRes,
+              albedoAo: gAlbedoRes,
+              pbr: gPbrRes,
+              splitSum: splitSumRes,
+              baselineSpecular: baselineSpecularRes,
+              resolvedSpecular: ssr.denoised,
+              ambientVisibility: ambientVisibilityRes ?? undefined,
+              camera: currentCameraRes,
+              metadata: packedResolveOut?.surfaceFlags
+            });
+            indirectSpecularDebugRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
             ssrResolveDebugRes = ssr.denoised_1;
             ssrTemporalDebugRes = ssr.temporal;
             ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
             if (ssr.counters !== null) gpuCounterRes = ssr.counters;
-          } else {
-            indirectSpecularRes = this._iblSpecular.addToGraph(
-              graph,
-              { width: w, height: h },
-              {
-                bentNormal: bentNormalRes,
-                normal: gNormalRes,
-                environment: environmentRes,
-                pbr: gPbrRes,
-                depth: depthRes,
-                camera: currentCameraRes
-              }
-            ).indirectSpecular;
           }
-          const indirectDiffuseRes = this._iblDiffuse.addToGraph(
-            graph,
-            { width: w, height: h },
-            {
-              bentNormal: bentNormalRes,
-              albedoAo: gAlbedoRes,
-              environment: diffuseIrradianceRes,
-              depth: depthRes
-            }
-          ).indirectDiffuse;
-          indirectDiffuseDebugRes = indirectDiffuseRes;
-          indirectSpecularDebugRes = indirectSpecularRes;
-          hdrRes = this._indirectComposite.addToGraph(graph, {
-            hdr: hdrRes,
-            depth: depthRes,
-            normal: gNormalRes,
-            bentNormal: bentNormalRes,
-            albedoAo: gAlbedoRes,
-            pbr: gPbrRes,
-            splitSum: splitSumRes,
-            indirectDiffuse: indirectDiffuseRes,
-            indirectSpecular: indirectSpecularRes,
-            camera: currentCameraRes,
-            metadata: packedResolveOut?.surfaceFlags
-          }).hdr;
         }
 
         if (
@@ -2234,7 +2203,7 @@ export class Renderer {
               { width: w, height: h },
               { ...base, normal: bentNormalRes, albedoAo: gAlbedoRes }
             );
-            hdrRes = this._indirectComposite.addToGraph(graph, {
+            hdrRes = this._opaqueLighting.composeIndirect(graph, {
               hdr: hdrRes,
               depth: depthRes,
               normal: gNormalRes,
@@ -2244,9 +2213,10 @@ export class Renderer {
               splitSum: splitSumRes,
               indirectDiffuse,
               indirectSpecular,
+              ambientVisibility: ambientVisibilityRes ?? undefined,
               camera: currentCameraRes,
               metadata: packedResolveOut?.surfaceFlags
-            }).hdr;
+            });
           }
         }
 
@@ -2305,7 +2275,53 @@ export class Renderer {
             splitSum.gpu_texture
           );
 
-          let indirectSpecularRes: ResourceId;
+          const baselineSpecularRes = this._opaqueLighting.addBaselineSpecular(
+            graph,
+            { width: w, height: h },
+            {
+              bentNormal: bentNormalRes,
+              normal: gNormalRes,
+              environment: environmentRes,
+              pbr: gPbrRes,
+              depth: depthRes,
+              camera: currentCameraRes
+            }
+          );
+          const diffuse = this._lpvIndirectDiffuse.addToGraph(
+            graph,
+            bind("lpv-indirect-diffuse-job", (bindings) => ({
+              camera: bindings.camera,
+              samplers: this._graphics.samplers,
+              width: bindings.internalWidth,
+              height: bindings.internalHeight
+            })),
+            {
+              depth: depthRes,
+              normal: gNormalRes,
+              albedoAo: gAlbedoRes,
+              atlasRadiance: atlasRadianceRes,
+              atlasDepth: atlasDepthRes,
+              meshBvh: lpvMeshBvhRes,
+              metadata: lpvMetadataRes,
+              tetrahedra: lpvTetraRes,
+              probes: lpvProbesRes
+            }
+          );
+          hdrRes = this._opaqueLighting.composeIndirect(graph, {
+            hdr: hdrRes,
+            depth: depthRes,
+            normal: gNormalRes,
+            bentNormal: bentNormalRes,
+            albedoAo: gAlbedoRes,
+            pbr: gPbrRes,
+            splitSum: splitSumRes,
+            indirectDiffuse: diffuse.indirectDiffuse,
+            indirectSpecular: baselineSpecularRes,
+            ambientVisibility: ambientVisibilityRes ?? undefined,
+            camera: currentCameraRes,
+            metadata: packedResolveOut?.surfaceFlags
+          });
+
           if (
             graphTopology.ssr &&
             hzbRes !== null &&
@@ -2330,14 +2346,20 @@ export class Renderer {
                 historyInputIndex: bindings.ssrHistoryInputIndex,
                 historyOutputIndex: bindings.ssrHistoryOutputIndex,
                 samplers: this._graphics.samplers,
-                maxDistance: this.ssr_max_distance,
-                edgeFade: this.ssr_edge_fade,
-                maxSteps: this.ssr_max_steps,
-                depthThickness: this.ssr_depth_thickness,
-                roughnessThickness: this.ssr_roughness_thickness,
-                distanceThickness: this.ssr_distance_thickness,
-                roughnessCutoff: this.ssr_roughness_cutoff,
-                temporalStrength: this.ssr_temporal_strength
+                maxDistance: metersToWorldUnits(
+                  this._renderSettings.values.ssr.maxDistanceMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                edgeFade: this._renderSettings.values.ssr.edgeFade,
+                maxSteps: this._renderSettings.values.ssr.maxSteps,
+                depthThickness: metersToWorldUnits(
+                  this._renderSettings.values.ssr.depthThicknessMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                roughnessThickness: this._renderSettings.values.ssr.roughnessThickness,
+                distanceThickness: this._renderSettings.values.ssr.distanceThickness,
+                roughnessCutoff: this._renderSettings.values.ssr.roughnessCutoff,
+                temporalStrength: this._renderSettings.values.ssr.temporalStrength
               })),
               {
                 depth: depthRes,
@@ -2369,47 +2391,7 @@ export class Renderer {
                   this._ssr!.historyTexture(bindings.ssrHistoryOutputIndex))
               }
             );
-            indirectSpecularRes = ssr.denoised;
-            ssrHitMissDebugRes = ssr.trace;
-            ssrResolveDebugRes = ssr.denoised_1;
-            ssrTemporalDebugRes = ssr.temporal;
-            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
-            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
-          } else {
-            indirectSpecularRes = this._iblSpecular.addToGraph(
-              graph,
-              { width: w, height: h },
-              {
-                bentNormal: bentNormalRes,
-                normal: gNormalRes,
-                environment: environmentRes,
-                pbr: gPbrRes,
-                depth: depthRes,
-                camera: currentCameraRes
-              }
-            ).indirectSpecular;
-          }
-          const diffuse = this._lpvIndirectDiffuse.addToGraph(
-            graph,
-            bind("lpv-indirect-diffuse-job", (bindings) => ({
-              camera: bindings.camera,
-              samplers: this._graphics.samplers,
-              width: bindings.internalWidth,
-              height: bindings.internalHeight
-            })),
-            {
-              depth: depthRes,
-              normal: gNormalRes,
-              albedoAo: gAlbedoRes,
-              atlasRadiance: atlasRadianceRes,
-              atlasDepth: atlasDepthRes,
-              meshBvh: lpvMeshBvhRes,
-              metadata: lpvMetadataRes,
-              tetrahedra: lpvTetraRes,
-              probes: lpvProbesRes
-            }
-          );
-          hdrRes = this._indirectComposite.addToGraph(graph, {
+            hdrRes = this._specularCorrection!.addToGraph(graph, {
               hdr: hdrRes,
               depth: depthRes,
               normal: gNormalRes,
@@ -2417,11 +2399,19 @@ export class Renderer {
               albedoAo: gAlbedoRes,
               pbr: gPbrRes,
               splitSum: splitSumRes,
-              indirectDiffuse: diffuse.indirectDiffuse,
-              indirectSpecular: indirectSpecularRes,
+              baselineSpecular: baselineSpecularRes,
+              resolvedSpecular: ssr.denoised,
+              ambientVisibility: ambientVisibilityRes ?? undefined,
               camera: currentCameraRes,
               metadata: packedResolveOut?.surfaceFlags
-            }).hdr;
+            });
+            indirectSpecularDebugRes = ssr.denoised;
+            ssrHitMissDebugRes = ssr.trace;
+            ssrResolveDebugRes = ssr.denoised_1;
+            ssrTemporalDebugRes = ssr.temporal;
+            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
+            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
+          }
         }
 
         if (graphTopology.transparency && hdrRes !== null &&
@@ -2650,14 +2640,14 @@ export class Renderer {
                   bindings.outputHeight
                 ],
                 samplers: this._graphics.samplers,
-                historyStrength: this.taa_history_strength,
-                varianceGamma: this.taa_variance_gamma,
-                minimumHistoryWeight: this.taa_min_history_weight,
-                maximumHistoryWeight: this.taa_max_history_weight,
-                historyLockStep: this.taa_history_lock_step,
-                reactiveThreshold: this.taa_reactive_threshold,
-                disocclusionThreshold: this.taa_disocclusion_threshold,
-                motionFadePixels: this.taa_motion_fade_pixels
+                historyStrength: this._renderSettings.values.temporal.historyStrength,
+                varianceGamma: this._renderSettings.values.temporal.varianceGamma,
+                minimumHistoryWeight: this._renderSettings.values.temporal.minimumHistoryWeight,
+                maximumHistoryWeight: this._renderSettings.values.temporal.maximumHistoryWeight,
+                historyLockStep: this._renderSettings.values.temporal.historyLockStep,
+                reactiveThreshold: this._renderSettings.values.temporal.reactiveThreshold,
+                disocclusionThreshold: this._renderSettings.values.temporal.disocclusionThreshold,
+                motionFadePixels: this._renderSettings.values.temporal.motionFadePixels
               })),
               {
                 output: historyOutputRes,
@@ -2691,34 +2681,9 @@ export class Renderer {
           );
         }
 
-        if (graphTopology.sharpening && hdrRes !== null) {
-          hdrRes = this._sharpen!.addToGraph(
-            graph,
-            hdrRes,
-            this._output_resolution.x,
-            this._output_resolution.y,
-            bind("sharpen-job", () => ({ sharpness: this.sharpening_strength }))
-          );
-        }
-
         let exposureRes: ResourceId | null = null;
-        let exposureInput = hdrRes;
-        if (hdrRes !== null && graphTopology.bloom) {
-          const bloom = this._bloom!.addToGraph(
-            graph,
-            hdrRes,
-            bind("bloom-job", () => ({
-              width: this._output_resolution.x,
-              height: this._output_resolution.y,
-              intensity: this.bloom_intensity,
-              mipCount: 5,
-              samplers: this._graphics.samplers
-            }))
-          );
-          hdrRes = bloom.composited;
-          exposureInput = bloom.downsampled;
-        }
-        if (graphTopology.automaticExposure && exposureInput !== null) {
+        const exposureSourceHdr = hdrRes;
+        if (graphTopology.automaticExposure && exposureSourceHdr !== null) {
           const exposurePrevious = graph.import_resource(
             "Automatic exposure previous",
             { kind: "imported", label: "automatic exposure previous" },
@@ -2733,7 +2698,7 @@ export class Renderer {
           );
           exposureRes = this._automaticExposure!.update(
             graph,
-            exposureInput,
+            exposureSourceHdr,
             time_delta_seconds,
             {
               previous: exposurePrevious,
@@ -2742,6 +2707,32 @@ export class Renderer {
                 timeDeltaSeconds: bindings.timeDeltaSeconds
               }))
             }
+          );
+        }
+
+        if (hdrRes !== null && graphTopology.bloom) {
+          const bloom = this._bloom!.addToGraph(
+            graph,
+            hdrRes,
+            bind("bloom-job", () => ({
+              width: this._output_resolution.x,
+              height: this._output_resolution.y,
+              intensity: this._renderSettings.values.post.bloomIntensity,
+              mipCount: 5,
+              samplers: this._graphics.samplers
+            }))
+          );
+          hdrRes = bloom.composited;
+        }
+        if (graphTopology.sharpening && hdrRes !== null) {
+          hdrRes = this._sharpen!.addToGraph(
+            graph,
+            hdrRes,
+            this._output_resolution.x,
+            this._output_resolution.y,
+            bind("sharpen-job", () => ({
+              sharpness: this._renderSettings.values.post.sharpeningStrength
+            }))
           );
         }
 
@@ -2984,16 +2975,16 @@ export class Renderer {
     bindings?: MainFrameGraphBindings
   ): MainFrameFeatureTopology {
     return resolveMainFrameFeatureTopology({
-      shadows: this.feature_shadows_enabled,
-      ssr: this.feature_ssr_enabled,
-      ssao: this.feature_ssao_enabled,
-      ssaoTemporal: this._ssao_temporal_enabled,
-      ssaoHalfResolution: this._ssao_resolution_scale === 0.5,
-      temporal: this.feature_taa_enabled,
-      bloom: this.feature_bloom_enabled,
-      automaticExposure: this.feature_automatic_exposure_enabled,
-      motionBlur: this.feature_motion_blur_enabled,
-      sharpening: this.feature_sharpening_enabled,
+      shadows: this._renderSettings.values.features.shadows,
+      ssr: this._renderSettings.values.features.screenSpaceReflections,
+      ssao: this._renderSettings.values.features.ambientOcclusion,
+      ssaoTemporal: this._renderSettings.values.ao.temporalEnabled,
+      ssaoHalfResolution: this._renderSettings.values.ao.resolutionScale === 0.5,
+      temporal: this._renderSettings.values.features.temporalAntiAliasing,
+      bloom: this._renderSettings.values.features.bloom,
+      automaticExposure: this._renderSettings.values.features.automaticExposure,
+      motionBlur: this._renderSettings.values.features.motionBlur,
+      sharpening: this._renderSettings.values.features.sharpening,
       fusedIndirect: this.fused_indirect,
       upscaleType: this.upscale_type,
       debugView: this.render_debug_view,
@@ -3049,10 +3040,8 @@ export class Renderer {
     }
     this._lightCluster ??= new LightClusterPass(this._graphics);
     this._environmentBackground ??= new EnvironmentBackgroundPass(this._graphics);
-    this._iblSpecular ??= new IblSpecularPass(this._graphics);
-    this._iblDiffuse ??= new IblDiffusePass(this._graphics);
+    this._opaqueLighting ??= new OpaqueLightingPipeline(this._graphics);
     this._lpvIndirectDiffuse ??= new LpvIndirectDiffusePass(this._graphics);
-    this._indirectComposite ??= new IndirectCompositePass(this._graphics);
     this._brick4Diffuse ??= new Brick4DiffusePass(this._graphics);
     this._brick4Specular ??= new Brick4SpecularPass(this._graphics);
     this._brick4Fused ??= new Brick4FusedIndirectPass(this._graphics);
@@ -3085,9 +3074,14 @@ export class Renderer {
         this._ssr = new ScreenSpaceReflectionsPass(this._graphics);
         this._ssrOwnerGeneration++;
       }
+      this._specularCorrection ??= new SpecularCorrectionPass(this._graphics);
     } else if (this._ssr !== null) {
       this.retireAfterSubmittedWork(this._ssr);
       this._ssr = null;
+      if (this._specularCorrection !== null) {
+        this.retireAfterSubmittedWork(this._specularCorrection);
+        this._specularCorrection = null;
+      }
     }
     if (topology.taa) {
       this._taa ??= new TemporalAntiAliasingPass(this._graphics);
@@ -3140,9 +3134,9 @@ export class Renderer {
     }
     if (topology.automaticExposure) {
       this._automaticExposure ??= new AutomaticExposurePass(device);
-      this._automaticExposure.exposure_compensation = this._exposure_compensation;
-      this._automaticExposure.adaptation_speed_up = this._exposure_speed_up;
-      this._automaticExposure.adaptation_speed_down = this._exposure_speed_down;
+      this._automaticExposure.exposure_compensation = this._renderSettings.values.post.exposureCompensation;
+      this._automaticExposure.adaptation_speed_up = this._renderSettings.values.post.exposureSpeedUp;
+      this._automaticExposure.adaptation_speed_down = this._renderSettings.values.post.exposureSpeedDown;
     } else if (this._automaticExposure !== null) {
       this.retireAfterSubmittedWork(this._automaticExposure);
       this._automaticExposure = null;
@@ -3463,12 +3457,12 @@ export class Renderer {
     this._hzbRenderScaleRevision++;
     const limit = this.device.limits.maxTextureDimension2D;
     const width = clampInteger(
-      Math.floor(this._output_resolution.x * this._internal_resolution_scale),
+      Math.floor(this._output_resolution.x * this._renderSettings.values.resolution.internalScale),
       1,
       limit
     );
     const height = clampInteger(
-      Math.floor(this._output_resolution.y * this._internal_resolution_scale),
+      Math.floor(this._output_resolution.y * this._renderSettings.values.resolution.internalScale),
       1,
       limit
     );
@@ -3487,7 +3481,7 @@ export class Renderer {
       );
       this._nss.jitter_sequence_size = Math.ceil(
         NeuralSuperSamplingPass.recommended_jitter_sequence_size(
-          1 / this._internal_resolution_scale
+          1 / this._renderSettings.values.resolution.internalScale
         ) * areaRatio
       );
     }

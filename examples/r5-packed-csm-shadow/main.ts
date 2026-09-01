@@ -144,13 +144,13 @@ async function run(): Promise<void> {
       mainSubmits: patchFrame.submits.count,
       packedCascadeDraws: shadowContext.packed_cascade_draw_count
     };
-    renderer.feature_shadows_enabled = false;
+    renderer.configure({ features: { shadows: false } });
     for (let index = 0; index < 3; index++) {
       if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
     }
     await renderer.device.queue.onSubmittedWorkDone();
     const featureOff = shadowEvidence(shadowContext);
-    renderer.feature_shadows_enabled = true;
+    renderer.configure({ features: { shadows: true } });
     for (let index = 0; index < 3; index++) {
       if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
     }
@@ -170,7 +170,7 @@ async function run(): Promise<void> {
     window.__OENGINE_FX_04_RESULT__ = result;
     window.__OENGINE_FX_04__ = {
       renderFeature: async (enabled) => {
-        renderer.feature_shadows_enabled = enabled;
+        renderer.configure({ features: { shadows: enabled } });
         for (let index = 0; index < 2; index++) renderer.render(camera, fixture.scene, 1 / 60);
         await renderer.device.queue.onSubmittedWorkDone();
         return shadowEvidence(shadowContext);
@@ -269,14 +269,11 @@ function waitForGpuCounterFrame(renderer: Renderer, minimumFrame: number) {
 }
 
 function configureRenderer(renderer: Renderer): void {
-  renderer.feature_shadows_enabled = true;
-  renderer.feature_ssr_enabled = false;
-  renderer.feature_ssao_enabled = false;
-  renderer.feature_taa_enabled = false;
-  renderer.feature_bloom_enabled = false;
-  renderer.feature_automatic_exposure_enabled = false;
-  renderer.feature_motion_blur_enabled = false;
-  renderer.feature_sharpening_enabled = false;
+  renderer.configure({ features: {
+    shadows: true, screenSpaceReflections: false, ambientOcclusion: false,
+    temporalAntiAliasing: false, bloom: false, automaticExposure: false,
+    motionBlur: false, sharpening: false
+  } });
 }
 
 function median(values: number[]): number {

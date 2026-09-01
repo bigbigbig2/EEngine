@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 71,
+  "shaderCount": 72,
   "summary": {
-    "authored-live": 61,
+    "authored-live": 62,
     "unknown": 5,
     "dead": 5
   },
@@ -91,6 +91,7 @@
         "src/index.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -245,6 +246,7 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/SharpenPass.ts",
+        "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
@@ -252,6 +254,7 @@
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
@@ -415,6 +418,7 @@
       "runtimeConsumers": [
         "src/index.ts",
         "src/render/passes/IblSpecularPass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -434,6 +438,7 @@
       "runtimeConsumers": [
         "src/index.ts",
         "src/render/passes/IndirectCompositePass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -512,6 +517,7 @@
         "src/shaders/packed_visibility.ts",
         "src/shaders/path_tracer.ts",
         "src/shaders/shadow_raster.ts",
+        "src/shaders/specular_correction.ts",
         "src/shaders/ssao.ts",
         "src/shaders/ssr_common.ts",
         "src/shaders/transparent_oit.ts",
@@ -562,9 +568,11 @@
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -600,6 +608,7 @@
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
+        "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityPass.ts"
@@ -752,6 +761,7 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/SharpenPass.ts",
+        "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
@@ -759,6 +769,7 @@
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
@@ -871,6 +882,7 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/SharpenPass.ts",
+        "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
@@ -878,6 +890,7 @@
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
@@ -1403,6 +1416,7 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/SharpenPass.ts",
+        "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
@@ -1410,6 +1424,7 @@
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
@@ -2160,6 +2175,25 @@
       ],
       "pipelineOwners": [
         "src/render/passes/SharpenPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/specular_correction.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/SpecularCorrectionPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/SpecularCorrectionPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/SpecularCorrectionPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

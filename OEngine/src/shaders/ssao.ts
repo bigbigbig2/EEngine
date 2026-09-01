@@ -6,7 +6,7 @@ import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 
 export const SSAO_VISIBILITY_FORMAT = "rg16float" as const;
 export const SSAO_BENT_NORMAL_FORMAT = "rg16uint" as const;
-export const SSAO_ALBEDO_AO_FORMAT = "rgba8unorm" as const;
+export const SSAO_LINEAR_DEPTH_FORMAT = "r32float" as const;
 
 const FULLSCREEN_VERTEX_WGSL = /* wgsl */ `
 const FULLSCREEN_POSITIONS = array<vec2f, 3>(
@@ -35,9 +35,10 @@ ${LPV_CAMERA_TYPE.wgsl_declaration}
 
 struct SsaoRawSettings {
   frame_index: u32,
-  falloff_range: f32,
   slice_count: u32,
   step_count: u32,
+  radius_world: f32,
+  falloff_world: f32,
 };
 
 @group(0) @binding(0) var gr_bucket: texture_2d<f32>;
@@ -45,6 +46,7 @@ struct SsaoRawSettings {
 @group(0) @binding(2) var q: texture_2d<u32>;
 @group(0) @binding(3) var<uniform> camera: CommandEncoder;
 @group(0) @binding(4) var<uniform> settings: SsaoRawSettings;
+@group(0) @binding(5) var linear_depth_mip: texture_2d<f32>;
 
 fn saturate(value: f32) -> f32 {
   return clamp(value, 0.0, 1.0);
@@ -192,10 +194,10 @@ fn fs_main(
   @builtin(position) coord: vec4f,
   @location(0) uv: vec2f
 ) -> SsaoRawOutput {
-  let falloff_range = max(settings.falloff_range, 0.001);
-  let falloff_from = 1.0 - falloff_range;
-  let falloff_mul = -1.0 / falloff_range;
-  let falloff_add = falloff_from / falloff_range + 1.0;
+  let radius_world = max(settings.radius_world, 0.001);
+  let falloff_world = min(max(settings.falloff_world, 0.001), radius_world);
+  let falloff_mul = -1.0 / falloff_world;
+  let falloff_add = radius_world / falloff_world;
 
   let output_pixel = vec2u(coord.xy);
   let viewport_size = textureDimensions(gr_bucket);
@@ -208,7 +210,7 @@ fn fs_main(
     background.bent_normal = textureLoad(ray_ws, pixel, 0).xy;
     return background;
   }
-  var viewspace_z = get_view_space_depth(device_depth, camera);
+  var viewspace_z = textureLoad(linear_depth_mip, vec2i(output_pixel), 0).r;
   viewspace_z *= 0.99999;
 
   let position_ws = project_position_from_depth(
@@ -227,7 +229,7 @@ fn fs_main(
   let ndc_to_view_mul_x_pixel_size =
     2.0 * camera.device_depth_to_view_space.z * pixel_size.x;
   let pixel_viewspace_size_at_center_z = viewspace_z * ndc_to_view_mul_x_pixel_size;
-  let screenspace_radius = abs(1.0 / pixel_viewspace_size_at_center_z);
+  let screenspace_radius = abs(radius_world / pixel_viewspace_size_at_center_z);
   let min_s = pixel_too_close_threshold / screenspace_radius;
   let slice_count = clamp(i32(settings.slice_count), 1, 4);
   let step_count = clamp(i32(settings.step_count), 1, 8);
@@ -458,7 +460,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
   let standard_deviation = sqrt(max(0.0, epsilon + variance));
   let visibility_phi = phi_visibility_base * standard_deviation;
   let center_normal = decode_g_buffer_normal(textureLoad(ray_ws, center_source_pixel, 0).xy);
-  let center_depth = textureLoad(gr_bucket, center_source_pixel, 0).r;
+  let center_depth = textureLoad(gr_bucket, pixel, 0).r;
 
   var total_weight = 1.0;
   var filtered = center;
@@ -472,7 +474,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
     let sample_value = textureLoad(this_hit, sample_pixel, 0).rg;
     let sample_source_pixel = source_pixel(sample_pixel, dimensions, source_dimensions);
     let sample_normal = decode_g_buffer_normal(textureLoad(ray_ws, sample_source_pixel, 0).xy);
-    let sample_depth = textureLoad(gr_bucket, sample_source_pixel, 0).r;
+    let sample_depth = textureLoad(gr_bucket, sample_pixel, 0).r;
     let edge_weight = sample_weight(
       center.r,
       sample_value.r,
@@ -619,42 +621,125 @@ fn fs_main(
     let clamped_history = clamp(history_sample.x, lower, upper);
     let history_variance = max(history_sample.y - history_sample.x * history_sample.x, 0.0);
     let clamped_second_moment = clamped_history * clamped_history + history_variance;
-    let blend = clamp(settings.history_blend, 0.0, 0.99) * confidence;
+    let blend = clamp(settings.history_blend, 0.0, 0.99) * history_weight;
     output = mix(current, vec2f(clamped_history, clamped_second_moment), blend);
   }
   return output;
 }
 `;
 
-export const SSAO_COMPOSITE_WGSL = /* wgsl */ `
-@group(0) @binding(0) var this_hit: texture_2d<f32>;
-@group(0) @binding(1) var linear_clamp: sampler;
-@group(0) @binding(2) var<uniform> intensity: vec4f;
+export const SSAO_LINEAR_DEPTH_WGSL = /* wgsl */ `
+${LPV_CAMERA_TYPE.wgsl_declaration}
+
+@group(0) @binding(0) var device_depth_source: texture_2d<f32>;
+@group(0) @binding(1) var<uniform> camera: CommandEncoder;
+
+fn view_space_depth(depth: f32) -> f32 {
+  let conversion = camera.device_depth_to_view_space;
+  return select(0.0, abs(conversion.y / (depth + conversion.x)), depth > 0.0);
+}
 
 ${FULLSCREEN_VERTEX_WGSL}
 
 @fragment
-fn fs_main(
-  @builtin(position) position: vec4f,
-  @location(0) uv: vec2f
-) -> @location(0) vec4f {
-  let visibility = textureSampleLevel(this_hit, linear_clamp, uv, 0.0).r;
-  return vec4f(1.0, 1.0, 1.0, mix(1.0, visibility, intensity.x));
+fn fs_main(@location(0) uv: vec2f) -> @location(0) f32 {
+  let dimensions = textureDimensions(device_depth_source);
+  let pixel = min(vec2u(uv * vec2f(dimensions)), dimensions - vec2u(1u));
+  return view_space_depth(textureLoad(device_depth_source, pixel, 0).r);
 }
 `;
 
-export const SSAO_BENT_NORMAL_UPSAMPLE_WGSL = /* wgsl */ `
-@group(0) @binding(0) var bent_normal_source: texture_2d<u32>;
+export const SSAO_JOINT_BILATERAL_RESOLVE_WGSL = /* wgsl */ `
+${LPV_CAMERA_TYPE.wgsl_declaration}
+
+struct ResolveSettings {
+  intensity: f32,
+  _padding: vec3f,
+};
+
+@group(0) @binding(0) var visibility_source: texture_2d<f32>;
+@group(0) @binding(1) var bent_normal_source: texture_2d<u32>;
+@group(0) @binding(2) var linear_depth_source: texture_2d<f32>;
+@group(0) @binding(3) var device_depth_source: texture_2d<f32>;
+@group(0) @binding(4) var normal_source: texture_2d<u32>;
+@group(0) @binding(5) var<uniform> camera: CommandEncoder;
+@group(0) @binding(6) var<uniform> settings: ResolveSettings;
+
+fn oct_decode(encoded: vec2u) -> vec3f {
+  let projected = vec2f(encoded) * (2.0 / 65535.0) - vec2f(1.0);
+  var direction = vec3f(projected, 1.0 - abs(projected.x) - abs(projected.y));
+  let correction = max(-direction.z, 0.0);
+  direction.x += select(correction, -correction, direction.x > 0.0);
+  direction.y += select(correction, -correction, direction.y > 0.0);
+  return normalize(direction);
+}
+
+fn oct_encode(direction: vec3f) -> vec2u {
+  let denominator = abs(direction.x) + abs(direction.y) + abs(direction.z);
+  var projected = direction.xy / max(denominator, 1e-6);
+  if (direction.z < 0.0) {
+    projected = (1.0 - abs(projected.yx)) * select(vec2f(-1.0), vec2f(1.0), projected >= vec2f(0.0));
+  }
+  return vec2u(clamp(0.5 + 0.5 * projected, vec2f(0.0), vec2f(1.0)) * 65535.0);
+}
+
+fn view_space_depth(depth: f32) -> f32 {
+  let conversion = camera.device_depth_to_view_space;
+  return select(0.0, abs(conversion.y / (depth + conversion.x)), depth > 0.0);
+}
+
+fn full_source_pixel(low_pixel: vec2i, low_dimensions: vec2i, full_dimensions: vec2i) -> vec2i {
+  let uv = (vec2f(low_pixel) + 0.5) / vec2f(low_dimensions);
+  return min(vec2i(uv * vec2f(full_dimensions)), full_dimensions - vec2i(1));
+}
 
 ${FULLSCREEN_VERTEX_WGSL}
+
+struct ResolveOutput {
+  @location(0) visibility: vec2f,
+  @location(1) bent_normal: vec2u,
+};
 
 @fragment
 fn fs_main(
   @builtin(position) position: vec4f,
   @location(0) uv: vec2f
-) -> @location(0) vec2u {
-  let dimensions = textureDimensions(bent_normal_source);
-  let coordinate = min(vec2u(uv * vec2f(dimensions)), dimensions - vec2u(1u));
-  return textureLoad(bent_normal_source, coordinate, 0).xy;
+) -> ResolveOutput {
+  let full_dimensions = vec2i(textureDimensions(device_depth_source));
+  let low_dimensions = vec2i(textureDimensions(visibility_source));
+  let full_pixel = clamp(vec2i(position.xy), vec2i(0), full_dimensions - vec2i(1));
+  let device_depth = textureLoad(device_depth_source, full_pixel, 0).r;
+  let center_depth = view_space_depth(device_depth);
+  let center_normal = oct_decode(textureLoad(normal_source, full_pixel, 0).xy);
+  let low_position = uv * vec2f(low_dimensions) - 0.5;
+  let low_base = vec2i(floor(low_position));
+
+  var visibility_sum = vec2f(0.0);
+  var bent_sum = vec3f(0.0);
+  var total_weight = 0.0;
+  for (var y = 0; y <= 1; y++) {
+    for (var x = 0; x <= 1; x++) {
+      let candidate = clamp(low_base + vec2i(x, y), vec2i(0), low_dimensions - vec2i(1));
+      let source_pixel = full_source_pixel(candidate, low_dimensions, full_dimensions);
+      let sample_depth = textureLoad(linear_depth_source, candidate, 0).r;
+      let sample_normal = oct_decode(textureLoad(normal_source, source_pixel, 0).xy);
+      let depth_sigma = max(0.01, center_depth * 0.02);
+      let depth_weight = exp(-abs(sample_depth - center_depth) / depth_sigma);
+      let normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), 32.0);
+      let fractional = abs(vec2f(candidate) - low_position);
+      let bilinear_weight = max(0.0, 1.0 - fractional.x) * max(0.0, 1.0 - fractional.y);
+      let weight = max(1e-5, depth_weight * normal_weight * bilinear_weight);
+      visibility_sum += textureLoad(visibility_source, candidate, 0).rg * weight;
+      bent_sum += oct_decode(textureLoad(bent_normal_source, candidate, 0).xy) * weight;
+      total_weight += weight;
+    }
+  }
+  let resolved = visibility_sum / max(total_weight, 1e-5);
+  let visibility = clamp(mix(1.0, resolved.x, clamp(settings.intensity, 0.0, 4.0)), 0.0, 1.0);
+  let bent = select(center_normal, normalize(bent_sum), length(bent_sum) > 1e-5);
+  var output: ResolveOutput;
+  output.visibility = vec2f(visibility, visibility * visibility);
+  output.bent_normal = oct_encode(bent);
+  return output;
 }
 `;

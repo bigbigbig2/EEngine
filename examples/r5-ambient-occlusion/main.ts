@@ -35,6 +35,7 @@ type Stage = Readonly<{
   kind: StageKind;
   scale: 0.5 | 1;
   temporal: boolean;
+  metersPerWorldUnit?: number;
   view: (typeof RenderDebugView)[keyof typeof RenderDebugView];
 }>;
 
@@ -94,7 +95,7 @@ const contract = Object.freeze({
   sampleFramesPerStage: SAMPLES,
   gpuSampleInterval: 2,
   historyBytesPerAoPixel: 8,
-  sequence: "static/full-half/temporal-off-on/pan/disocclusion/off-on"
+  sequence: "static/full-half/temporal-off-on/physical-0.1x-1x-10x/pan/disocclusion/off-on"
 });
 
 const stages: readonly Stage[] = [
@@ -105,8 +106,14 @@ const stages: readonly Stage[] = [
   { id: "half-raw", kind: "static", scale: 0.5, temporal: false, view: RenderDebugView.AmbientOcclusionRaw },
   { id: "half-denoised", kind: "static", scale: 0.5, temporal: false, view: RenderDebugView.AmbientOcclusionDenoised },
   { id: "half-temporal", kind: "static", scale: 0.5, temporal: true, view: RenderDebugView.AmbientOcclusionTemporal },
-  { id: "camera-pan", kind: "pan", scale: 0.5, temporal: true, view: RenderDebugView.AmbientOcclusionTemporal },
-  { id: "disocclusion", kind: "disocclusion", scale: 0.5, temporal: true, view: RenderDebugView.AmbientOcclusionTemporal },
+  { id: "physical-scale-0.1x", kind: "static", scale: 0.5, temporal: true, metersPerWorldUnit: 0.1, view: RenderDebugView.LinearHdr },
+  { id: "physical-scale-1x", kind: "static", scale: 0.5, temporal: true, metersPerWorldUnit: 1, view: RenderDebugView.LinearHdr },
+  { id: "physical-scale-10x", kind: "static", scale: 0.5, temporal: true, metersPerWorldUnit: 10, view: RenderDebugView.LinearHdr },
+  // Motion acceptance must exercise the production composition. The AO-only
+  // debug view is retained by the earlier temporal stage for diagnosis, while
+  // these screenshots expose trails in the actual lit HDR result.
+  { id: "camera-pan", kind: "pan", scale: 0.5, temporal: true, view: RenderDebugView.LinearHdr },
+  { id: "disocclusion", kind: "disocclusion", scale: 0.5, temporal: true, view: RenderDebugView.LinearHdr },
   { id: "final-hdr", kind: "static", scale: 0.5, temporal: true, view: RenderDebugView.LinearHdr },
   { id: "feature-off", kind: "feature-off", scale: 1, temporal: false, view: RenderDebugView.None },
   { id: "feature-restored", kind: "static", scale: 0.5, temporal: true, view: RenderDebugView.LinearHdr }
@@ -247,20 +254,19 @@ async function run(): Promise<void> {
 }
 
 function configureRenderer(renderer: Renderer): void {
-  renderer.feature_shadows_enabled = false;
-  renderer.feature_ssr_enabled = false;
-  renderer.feature_ssao_enabled = true;
-  renderer.feature_taa_enabled = false;
-  renderer.feature_bloom_enabled = false;
-  renderer.feature_automatic_exposure_enabled = false;
-  renderer.feature_motion_blur_enabled = false;
-  renderer.feature_sharpening_enabled = false;
+  renderer.configure({ features: {
+    shadows: false, screenSpaceReflections: false, ambientOcclusion: true,
+    temporalAntiAliasing: false, bloom: false, automaticExposure: false,
+    motionBlur: false, sharpening: false
+  } });
 }
 
 function prepareStage(renderer: Renderer, camera: PerspectiveCamera, stage: Stage): void {
-  renderer.feature_ssao_enabled = stage.kind !== "feature-off";
-  renderer.ssao_resolution_scale = stage.scale;
-  renderer.ssao_temporal_enabled = stage.temporal;
+  renderer.configure({
+    features: { ambientOcclusion: stage.kind !== "feature-off" },
+    ao: { resolutionScale: stage.scale, temporalEnabled: stage.temporal },
+    physicalScale: { metersPerWorldUnit: stage.metersPerWorldUnit ?? 1 }
+  });
   renderer.render_debug_view = stage.view;
   if (stage.kind === "disocclusion") {
     setCamera(camera, -4.8, 2.8, 6.4, 0, -0.1, -0.2);
@@ -354,11 +360,12 @@ function summarizeStage(
 ): StageResult {
   const sampled = frames.filter((frame) => frame.gpu.sampled && !frame.gpu.pending);
   const labels = [
+    ["linearDepth", /GTAO linear\/view-depth mip/i],
     ["raw", /SSAO raw GTAO/i],
     ["spatial", /SSAO spatial filter/i],
     ["temporal", /SSAO temporal resolve/i],
-    ["composite", /SSAO alpha-min composite/i],
-    ["bentNormalUpsample", /SSAO bent-normal upsample/i]
+    ["composite", /GTAO joint bilateral AO\+bent-normal resolve/i],
+    ["bentNormalUpsample", /GTAO joint bilateral AO\+bent-normal resolve/i]
   ] as const;
   const gpu: Record<string, { p50: number | null; p95: number | null; p99: number | null }> = {};
   for (const [name, pattern] of labels) {
@@ -369,7 +376,7 @@ function summarizeStage(
     gpu[name] = distribution(values);
   }
   const totals = sampled.map((frame) => frame.gpu.segments
-    .filter((segment) => /SSAO/i.test(segment.label))
+    .filter((segment) => /SSAO|GTAO/i.test(segment.label))
     .reduce((sum, segment) => sum + segment.durationMs, 0))
     .filter((value) => value > 0);
   gpu.total = distribution(totals);
@@ -387,7 +394,7 @@ function summarizeStage(
     maxReadbackBytes: maximum(allFrames.map((frame) => frame.readbacks.bytes)),
     readbackLabels: sumRecords(allFrames.map((frame) => frame.readbacks.labels)),
     timestampLabels: [...new Set(sampled.flatMap((frame) => frame.gpu.segments
-      .filter((segment) => /SSAO/i.test(segment.label))
+      .filter((segment) => /SSAO|GTAO/i.test(segment.label))
       .map((segment) => segment.label)))]
   });
 }
@@ -443,6 +450,11 @@ function validate(
     } else if (
       evidence.temporalPasses !== 0 || evidence.historyTextureCount !== 0 || evidence.historyBytes !== 0
     ) issues.push(`${stage.definition.id}: temporal-off retained history work`);
+    const expectedScale = stage.definition.metersPerWorldUnit ?? 1;
+    if (evidence.metersPerWorldUnit !== expectedScale ||
+        Math.abs(evidence.radiusWorldUnits - evidence.radiusMeters / expectedScale) > 1e-6) {
+      issues.push(`${stage.definition.id}: physical-scale AO radius contract mismatch`);
+    }
   }
   const restored = results.find((stage) => stage.definition.id === "feature-restored");
   if (restored?.finalEvidence.historyValid !== true) issues.push("feature restore did not settle AO history");

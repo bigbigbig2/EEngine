@@ -96,7 +96,8 @@
             <div class="effect-block">
               <label class="switch-row"><span><strong>环境光遮蔽</strong><small>GTAO + 时域滤波</small></span><input type="checkbox" data-feature="ssao" checked /></label>
               <label class="range-row" for="ao-intensity"><span><strong>遮蔽强度</strong><output id="ao-intensity-value">1.00</output></span><input id="ao-intensity" type="range" min="0" max="2" step="0.05" value="1" /></label>
-              <label class="range-row" for="ao-falloff"><span><strong>衰减范围</strong><output id="ao-falloff-value">0.62</output></span><input id="ao-falloff" type="range" min="0.1" max="2" step="0.05" value="0.615" /></label>
+              <label class="range-row" for="ao-radius"><span><strong>物理半径</strong><output id="ao-radius-value">1.00 m</output></span><input id="ao-radius" type="range" min="0.05" max="5" step="0.05" value="1" /></label>
+              <label class="range-row" for="ao-falloff"><span><strong>衰减距离</strong><output id="ao-falloff-value">0.62 m</output></span><input id="ao-falloff" type="range" min="0.05" max="5" step="0.05" value="0.615" /></label>
               <label class="inline-field"><span>计算分辨率</span><select id="ao-resolution"><option value="0.5">半分辨率</option><option value="1">全分辨率</option></select></label>
               <label class="switch-row compact"><span><strong>时域累积</strong><small>降低噪声与闪烁</small></span><input id="ao-temporal" type="checkbox" checked /></label>
             </div>

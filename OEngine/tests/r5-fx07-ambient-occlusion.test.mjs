@@ -88,7 +88,10 @@ test("FX-07 shader keeps visibility/depth filter arguments in ABI order", () => 
   assert.match(shader, /center_depth,\s*sample_depth,\s*sigma_depth/s);
   assert.match(shader, /settings\.history_valid != 0u/);
   assert.match(shader, /velocity_full \* vec2f\(dimensions\) \/ vec2f\(full_dimensions\)/);
-  assert.match(shader, /SSAO_BENT_NORMAL_UPSAMPLE_WGSL/);
+  assert.match(shader, /SSAO_JOINT_BILATERAL_RESOLVE_WGSL/);
+  assert.match(shader, /history_blend, 0\.0, 0\.99\) \* history_weight/);
+  assert.match(shader, /radius_world/);
+  assert.match(shader, /linear_depth_source/);
   assert.doesNotMatch(shader, /const falloff_(?:mul|add)\s*=/);
 });
 
@@ -103,6 +106,9 @@ test("FX-07 pass has no frame-parity history owner and prunes temporal work", ()
   assert.match(source, /historyTexture\(index: 0 \| 1\)/);
   assert.match(source, /historyTextureCount/);
   assert.match(source, /historyBytes/);
+  assert.match(source, /GTAO linear\/view-depth mip/);
+  assert.match(source, /GTAO joint bilateral AO\+bent-normal resolve/);
+  assert.doesNotMatch(source, /inputs\.albedoAo/);
 });
 
 test("FX-07 raw, denoised and temporal AO debug views are production-supported", () => {

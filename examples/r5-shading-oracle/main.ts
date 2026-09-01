@@ -400,14 +400,11 @@ function validate(result: BenchmarkResult, stats: ReturnType<typeof summarize>):
 }
 
 function configureRenderer(renderer: Renderer): void {
-  renderer.feature_shadows_enabled = false;
-  renderer.feature_ssr_enabled = false;
-  renderer.feature_ssao_enabled = false;
-  renderer.feature_taa_enabled = false;
-  renderer.feature_bloom_enabled = false;
-  renderer.feature_automatic_exposure_enabled = false;
-  renderer.feature_motion_blur_enabled = false;
-  renderer.feature_sharpening_enabled = false;
+  renderer.configure({ features: {
+    shadows: false, screenSpaceReflections: false, ambientOcclusion: false,
+    temporalAntiAliasing: false, bloom: false, automaticExposure: false,
+    motionBlur: false, sharpening: false
+  } });
 }
 
 function setTranslation(

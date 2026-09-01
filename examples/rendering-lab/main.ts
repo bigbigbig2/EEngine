@@ -264,15 +264,15 @@ function installQ00Api(activeRenderer: Renderer): void {
       },
       sceneBounds,
       settings: {
-        shadows: activeRenderer.feature_shadows_enabled,
-        ssao: activeRenderer.feature_ssao_enabled,
-        ssaoResolutionScale: activeRenderer.ssao_resolution_scale,
-        ssaoTemporal: activeRenderer.ssao_temporal_enabled,
-        ssr: activeRenderer.feature_ssr_enabled,
-        taa: activeRenderer.feature_taa_enabled,
-        bloom: activeRenderer.feature_bloom_enabled,
-        automaticExposure: activeRenderer.feature_automatic_exposure_enabled,
-        sharpening: activeRenderer.feature_sharpening_enabled,
+        shadows: activeRenderer.render_settings.features.shadows,
+        ssao: activeRenderer.render_settings.features.ambientOcclusion,
+        ssaoResolutionScale: activeRenderer.render_settings.ao.resolutionScale,
+        ssaoTemporal: activeRenderer.render_settings.ao.temporalEnabled,
+        ssr: activeRenderer.render_settings.features.screenSpaceReflections,
+        taa: activeRenderer.render_settings.features.temporalAntiAliasing,
+        bloom: activeRenderer.render_settings.features.bloom,
+        automaticExposure: activeRenderer.render_settings.features.automaticExposure,
+        sharpening: activeRenderer.render_settings.features.sharpening,
         internalResolutionScale: activeRenderer.internal_resolution_scale,
         debugView: activeRenderer.render_debug_view
       },
@@ -299,16 +299,14 @@ function installQ00Api(activeRenderer: Renderer): void {
 }
 
 function configurePipeline(activeRenderer: Renderer): void {
-  activeRenderer.feature_shadows_enabled = true;
-  activeRenderer.feature_ssao_enabled = true;
-  activeRenderer.ssao_resolution_scale = 0.5;
-  activeRenderer.ssao_temporal_enabled = true;
-  activeRenderer.feature_ssr_enabled = false;
-  activeRenderer.feature_taa_enabled = true;
-  activeRenderer.feature_bloom_enabled = true;
-  activeRenderer.feature_automatic_exposure_enabled = true;
-  activeRenderer.feature_motion_blur_enabled = false;
-  activeRenderer.feature_sharpening_enabled = true;
+  activeRenderer.configure({
+    features: {
+      shadows: true, ambientOcclusion: true, screenSpaceReflections: false,
+      temporalAntiAliasing: true, bloom: true, automaticExposure: true,
+      motionBlur: false, sharpening: true
+    },
+    ao: { resolutionScale: 0.5, temporalEnabled: true }
+  });
   activeRenderer.internal_resolution_scale = 1;
   activeRenderer.packed_visibility_sse_threshold = 4;
   activeRenderer.packed_visibility_cone_enabled = true;
@@ -613,13 +611,13 @@ function bindRendererControls(activeRenderer: Renderer): void {
   for (const checkbox of checkboxes) {
     checkbox.addEventListener("change", () => {
       switch (checkbox.dataset.feature) {
-        case "shadows": activeRenderer.feature_shadows_enabled = checkbox.checked; break;
-        case "ssao": activeRenderer.feature_ssao_enabled = checkbox.checked; break;
-        case "ssr": activeRenderer.feature_ssr_enabled = checkbox.checked; break;
-        case "taa": activeRenderer.feature_taa_enabled = checkbox.checked; break;
-        case "bloom": activeRenderer.feature_bloom_enabled = checkbox.checked; break;
-        case "exposure": activeRenderer.feature_automatic_exposure_enabled = checkbox.checked; break;
-        case "sharpen": activeRenderer.feature_sharpening_enabled = checkbox.checked; break;
+        case "shadows": activeRenderer.configure({ features: { shadows: checkbox.checked } }); break;
+        case "ssao": activeRenderer.configure({ features: { ambientOcclusion: checkbox.checked } }); break;
+        case "ssr": activeRenderer.configure({ features: { screenSpaceReflections: checkbox.checked } }); break;
+        case "taa": activeRenderer.configure({ features: { temporalAntiAliasing: checkbox.checked } }); break;
+        case "bloom": activeRenderer.configure({ features: { bloom: checkbox.checked } }); break;
+        case "exposure": activeRenderer.configure({ features: { automaticExposure: checkbox.checked } }); break;
+        case "sharpen": activeRenderer.configure({ features: { sharpening: checkbox.checked } }); break;
         case "cone": activeRenderer.packed_visibility_cone_enabled = checkbox.checked; break;
         case "hzb": activeRenderer.packed_visibility_hzb_enabled = checkbox.checked; break;
       }
@@ -643,11 +641,11 @@ function bindRendererControls(activeRenderer: Renderer): void {
 
   const aoResolution = required<HTMLSelectElement>("ao-resolution");
   aoResolution.addEventListener("change", () => {
-    activeRenderer.ssao_resolution_scale = Number(aoResolution.value) as 0.5 | 1;
+    activeRenderer.configure({ ao: { resolutionScale: Number(aoResolution.value) as 0.5 | 1 } });
     activeRenderer.indicate_view_change();
   });
   required<HTMLInputElement>("ao-temporal").addEventListener("change", (event) => {
-    activeRenderer.ssao_temporal_enabled = (event.currentTarget as HTMLInputElement).checked;
+    activeRenderer.configure({ ao: { temporalEnabled: (event.currentTarget as HTMLInputElement).checked } });
     activeRenderer.indicate_view_change();
   });
 
@@ -665,65 +663,67 @@ function bindRendererControls(activeRenderer: Renderer): void {
     sunElevationDegrees = value;
     updateSunDirection();
   }, (value) => `${value.toFixed(0)}°`);
-  bindRange("shadow-distance", (value) => activeRenderer.shadow_maximum_distance = value,
+  bindRange("shadow-distance", (value) => activeRenderer.configure({ shadows: { maximumDistanceMeters: value } }),
     (value) => `${value.toFixed(0)} m`);
-  bindRange("shadow-lambda", (value) => activeRenderer.shadow_cascade_lambda = value,
+  bindRange("shadow-lambda", (value) => activeRenderer.configure({ shadows: { cascadeLambda: value } }),
     (value) => value.toFixed(2));
-  bindRange("shadow-guard", (value) => activeRenderer.shadow_texel_guard_band = value,
+  bindRange("shadow-guard", (value) => activeRenderer.configure({ shadows: { texelGuardBand: value } }),
     (value) => `${value.toFixed(1)} px`);
-  bindRange("ao-intensity", (value) => activeRenderer.ssao_intensity = value,
+  bindRange("ao-intensity", (value) => activeRenderer.configure({ ao: { intensity: value } }),
     (value) => value.toFixed(2));
-  bindRange("ao-falloff", (value) => activeRenderer.ssao_falloff = value,
+  bindRange("ao-radius", (value) => activeRenderer.configure({ ao: { radiusMeters: value } }),
+    (value) => `${value.toFixed(2)} m`);
+  bindRange("ao-falloff", (value) => activeRenderer.configure({ ao: { falloffMeters: value } }),
     (value) => value.toFixed(2));
-  bindRange("ao-slices", (value) => activeRenderer.ssao_slice_count = value,
+  bindRange("ao-slices", (value) => activeRenderer.configure({ ao: { sliceCount: value } }),
     (value) => value.toFixed(0));
-  bindRange("ao-steps", (value) => activeRenderer.ssao_step_count = value,
+  bindRange("ao-steps", (value) => activeRenderer.configure({ ao: { stepCount: value } }),
     (value) => value.toFixed(0));
-  bindRange("ao-spatial", (value) => activeRenderer.ssao_spatial_step = value,
+  bindRange("ao-spatial", (value) => activeRenderer.configure({ ao: { spatialStep: value } }),
     (value) => `${value.toFixed(0)} px`);
-  bindRange("ao-temporal-blend", (value) => activeRenderer.ssao_temporal_blend = value,
+  bindRange("ao-temporal-blend", (value) => activeRenderer.configure({ ao: { temporalBlend: value } }),
     (value) => value.toFixed(2));
-  bindRange("ssr-distance", (value) => activeRenderer.ssr_max_distance = value,
+  bindRange("ssr-distance", (value) => activeRenderer.configure({ ssr: { maxDistanceMeters: value } }),
     (value) => `${value.toFixed(0)} m`);
-  bindRange("ssr-edge", (value) => activeRenderer.ssr_edge_fade = value,
+  bindRange("ssr-edge", (value) => activeRenderer.configure({ ssr: { edgeFade: value } }),
     (value) => value.toFixed(2));
-  bindRange("ssr-steps", (value) => activeRenderer.ssr_max_steps = value,
+  bindRange("ssr-steps", (value) => activeRenderer.configure({ ssr: { maxSteps: value } }),
     (value) => value.toFixed(0));
-  bindRange("ssr-thickness", (value) => activeRenderer.ssr_depth_thickness = value,
+  bindRange("ssr-thickness", (value) => activeRenderer.configure({ ssr: { depthThicknessMeters: value } }),
     (value) => value.toFixed(2));
-  bindRange("ssr-roughness-thickness", (value) => activeRenderer.ssr_roughness_thickness = value,
+  bindRange("ssr-roughness-thickness", (value) => activeRenderer.configure({ ssr: { roughnessThickness: value } }),
     (value) => value.toFixed(1));
-  bindRange("ssr-distance-thickness", (value) => activeRenderer.ssr_distance_thickness = value,
+  bindRange("ssr-distance-thickness", (value) => activeRenderer.configure({ ssr: { distanceThickness: value } }),
     (value) => value.toFixed(3));
-  bindRange("ssr-roughness-cutoff", (value) => activeRenderer.ssr_roughness_cutoff = value,
+  bindRange("ssr-roughness-cutoff", (value) => activeRenderer.configure({ ssr: { roughnessCutoff: value } }),
     (value) => value.toFixed(2));
-  bindRange("ssr-temporal", (value) => activeRenderer.ssr_temporal_strength = value,
+  bindRange("ssr-temporal", (value) => activeRenderer.configure({ ssr: { temporalStrength: value } }),
     (value) => value.toFixed(2));
-  bindRange("taa-history", (value) => activeRenderer.taa_history_strength = value,
+  bindRange("taa-history", (value) => activeRenderer.configure({ temporal: { historyStrength: value } }),
     (value) => value.toFixed(2));
-  bindRange("taa-variance", (value) => activeRenderer.taa_variance_gamma = value,
+  bindRange("taa-variance", (value) => activeRenderer.configure({ temporal: { varianceGamma: value } }),
     (value) => `${value.toFixed(2)} σ`);
-  bindRange("taa-min-history", (value) => activeRenderer.taa_min_history_weight = value,
+  bindRange("taa-min-history", (value) => activeRenderer.configure({ temporal: { minimumHistoryWeight: value } }),
     (value) => value.toFixed(2));
-  bindRange("taa-max-history", (value) => activeRenderer.taa_max_history_weight = value,
+  bindRange("taa-max-history", (value) => activeRenderer.configure({ temporal: { maximumHistoryWeight: value } }),
     (value) => value.toFixed(2));
-  bindRange("taa-lock-step", (value) => activeRenderer.taa_history_lock_step = value,
+  bindRange("taa-lock-step", (value) => activeRenderer.configure({ temporal: { historyLockStep: value } }),
     (value) => value.toFixed(3));
-  bindRange("taa-reactive", (value) => activeRenderer.taa_reactive_threshold = value,
+  bindRange("taa-reactive", (value) => activeRenderer.configure({ temporal: { reactiveThreshold: value } }),
     (value) => value.toFixed(2));
-  bindRange("taa-disocclusion", (value) => activeRenderer.taa_disocclusion_threshold = value,
+  bindRange("taa-disocclusion", (value) => activeRenderer.configure({ temporal: { disocclusionThreshold: value } }),
     (value) => value.toFixed(2));
-  bindRange("taa-motion-fade", (value) => activeRenderer.taa_motion_fade_pixels = value,
+  bindRange("taa-motion-fade", (value) => activeRenderer.configure({ temporal: { motionFadePixels: value } }),
     (value) => `${value.toFixed(0)} px`);
-  bindRange("bloom-intensity", (value) => activeRenderer.bloom_intensity = value,
+  bindRange("bloom-intensity", (value) => activeRenderer.configure({ post: { bloomIntensity: value } }),
     (value) => value.toFixed(2));
-  bindRange("exposure-compensation", (value) => activeRenderer.exposure_compensation = value,
+  bindRange("exposure-compensation", (value) => activeRenderer.configure({ post: { exposureCompensation: value } }),
     (value) => value.toFixed(1));
-  bindRange("exposure-up", (value) => activeRenderer.exposure_speed_up = value,
+  bindRange("exposure-up", (value) => activeRenderer.configure({ post: { exposureSpeedUp: value } }),
     (value) => value.toFixed(1));
-  bindRange("exposure-down", (value) => activeRenderer.exposure_speed_down = value,
+  bindRange("exposure-down", (value) => activeRenderer.configure({ post: { exposureSpeedDown: value } }),
     (value) => value.toFixed(1));
-  bindRange("sharpen-strength", (value) => activeRenderer.sharpening_strength = value,
+  bindRange("sharpen-strength", (value) => activeRenderer.configure({ post: { sharpeningStrength: value } }),
     (value) => value.toFixed(2));
 
   for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-scale]")) {
@@ -742,10 +742,10 @@ function bindRendererControls(activeRenderer: Renderer): void {
 
 function ensureDebugProducer(activeRenderer: Renderer): void {
   const descriptor = debugDescriptors.find((entry) => entry.value === activeRenderer.render_debug_view);
-  if (descriptor?.requires === "ssao" && !activeRenderer.feature_ssao_enabled) {
+  if (descriptor?.requires === "ssao" && !activeRenderer.render_settings.features.ambientOcclusion) {
     selectFinalOutput(activeRenderer);
   }
-  if (descriptor?.requires === "ssr" && !activeRenderer.feature_ssr_enabled) {
+  if (descriptor?.requires === "ssr" && !activeRenderer.render_settings.features.screenSpaceReflections) {
     selectFinalOutput(activeRenderer);
   }
 }
@@ -753,8 +753,8 @@ function ensureDebugProducer(activeRenderer: Renderer): void {
 function enableFeature(feature: "ssao" | "ssr", activeRenderer: Renderer): void {
   const checkbox = document.querySelector<HTMLInputElement>(`input[data-feature="${feature}"]`);
   if (checkbox !== null) checkbox.checked = true;
-  if (feature === "ssao") activeRenderer.feature_ssao_enabled = true;
-  if (feature === "ssr") activeRenderer.feature_ssr_enabled = true;
+  if (feature === "ssao") activeRenderer.configure({ features: { ambientOcclusion: true } });
+  if (feature === "ssr") activeRenderer.configure({ features: { screenSpaceReflections: true } });
 }
 
 function selectFinalOutput(activeRenderer: Renderer): void {

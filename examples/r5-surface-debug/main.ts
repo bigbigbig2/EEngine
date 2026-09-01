@@ -726,14 +726,11 @@ function createEnvironmentTexture(): ShadeTexture {
 }
 
 function configureRenderer(activeRenderer: Renderer): void {
-  activeRenderer.feature_shadows_enabled = false;
-  activeRenderer.feature_ssr_enabled = false;
-  activeRenderer.feature_ssao_enabled = false;
-  activeRenderer.feature_taa_enabled = false;
-  activeRenderer.feature_bloom_enabled = false;
-  activeRenderer.feature_automatic_exposure_enabled = false;
-  activeRenderer.feature_motion_blur_enabled = false;
-  activeRenderer.feature_sharpening_enabled = false;
+  activeRenderer.configure({ features: {
+    shadows: false, screenSpaceReflections: false, ambientOcclusion: false,
+    temporalAntiAliasing: false, bloom: false, automaticExposure: false,
+    motionBlur: false, sharpening: false
+  } });
 }
 
 function setTranslationMatrix(

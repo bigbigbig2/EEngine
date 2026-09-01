@@ -99,11 +99,11 @@
 - 当前 FrameGraph `validate()` 恒为 true，compiled execution 按 insertion order；已有 resource version/culling/transient/cache 保留，但 producer/consumer、read-before-write、cycle、domain 和 stable topological validation 尚未建立。
 - Material Visibility 高分辨率池已在 bulk stage 按实际最大贴图边长选择 power-of-two bank，并在原 4K×16 texel budget 内选择 layer capacity；Dungeon 的 25 张 2K 贴图进入 `2048×2048×32` bank，保留 31 个可用 layer。真正 4K workload 仍使用 `4096×4096×16`。当前限制是 bank 创建后若后续独立 bulk stage 才出现更高分辨率贴图会明确拒绝，调用方应把同一场景贴图统一 bulk upload；resident cap 仍需 Q00/Q06 以真实 memory evidence 验收。
 - R4-A/B 已登记的 Hardware Raster `35–44 ms` P50 回退仍未解决；目标整帧预算为 `16.667 ms`。当前 focused Gate 和 screenshot 测试不能解释为 1080p/60 产品完成。
-- Surface ABI v1、VisibilityKey、Single Material Resolve、GPU producer→consumer 和统一主管线继续保留；综合重构执行设计见 [R5-Q](./implementation/11-render-pipeline-reconstruction.md)。`R5-Q00 Evidence Freeze` 的 Rendering Lab、中文参数面板、AO/SSR counters/debug views 和 ready/preview runner 已在当前工作树落地，但 before artifact、运动序列和完整 Gate 尚未关闭。示例只保留 IBL 与单个方向光，不再用点光源掩盖综合质量问题。
+- Surface ABI v1、VisibilityKey、Single Material Resolve、GPU producer→consumer 和统一主管线继续保留；综合重构执行设计见 [R5-Q](./implementation/11-render-pipeline-reconstruction.md)。`R5-Q01..Q03` 已迁移到 production：集中 RenderSettings/physical scale/domain contract、Material AO 与 Ambient Visibility 分离、Complete Opaque HDR 后 SSR correction、稳定 ExposureSourceHDR/Post 顺序，以及 half-res GTAO linear-depth/temporal/joint bilateral resolve。2026-09-01 dirty/full FX-07 与 FX-08 均 `passed=true`、issues 和 WebGPU diagnostics 为 0：AO static RMS 从 temporal-off `0.299` 降至 temporal-on `0.069`，pan/disocclusion settle RMS 为 `0.191/0.213`；SSR hit/miss 为 `40,550/879,297`，pan/disocclusion response RMS 为 `9.966/96.742`，settle 均为 `0`。artifact 位于 `temp/r5/fx-07|fx-08/1d4e84d...-dirty-0241dd82fc5f/`。因代码尚未提交，`gateEligible=false`，这些 full 结果是强运行证据但仍不替代提交后的 clean/full exit Gate。
 
 ## 当前下一步
 
-1. R4 core、R5-00、FX-01..08 的 focused Gate 已按计划完成；当前主线先执行 `R5-Q00 Evidence Freeze`，再按 [R5-Q](./implementation/11-render-pipeline-reconstruction.md) 完成 Contract/Composition/GTAO/SSR，并以 `R5-Q05/FX-06B` 完成 Temporal，最后关闭 FrameGraph/FramePlan 和 G5-P。G5-T 尚未关闭；现有 focused 结果不表示 1080p/60 FPS 或最终 R5 性能已经达成。
+1. R4 core、R5-00、FX-01..08 的历史 focused Gate 已按计划完成；当前主线从已落地的 `R5-Q01..Q03` 继续执行 `R5-Q04 SSR 2.0`，再以 `R5-Q05/FX-06B` 完成 Temporal，最后关闭 FrameGraph/FramePlan 和 G5-P。Q00 before artifact 仍是 exploratory；G5-T 尚未关闭；现有 focused/smoke 结果不表示 1080p/60 FPS 或最终 R5 性能已经达成。
 2. 保留 R4-A Hardware Raster 回退与 R4-B 的 B regression 为独立 phase 风险；若后续启动 R4-C，必须复用同一个 VisibilityKey/Depth/Material Resolve contract，HW-only 更快仍是合法结论。
 3. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；R4 core 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
 

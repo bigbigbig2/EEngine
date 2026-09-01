@@ -9,14 +9,18 @@ export interface AdapterIdentity {
 export class Renderer {
   readonly aspect_ratio: number;
   readonly adapter_info: AdapterIdentity | null;
-  feature_shadows_enabled: boolean;
-  feature_ssr_enabled: boolean;
-  feature_ssao_enabled: boolean;
-  feature_taa_enabled: boolean;
-  feature_bloom_enabled: boolean;
-  feature_automatic_exposure_enabled: boolean;
-  feature_motion_blur_enabled: boolean;
-  feature_sharpening_enabled: boolean;
+  configure(patch: {
+    readonly features?: Partial<{
+      shadows: boolean;
+      screenSpaceReflections: boolean;
+      ambientOcclusion: boolean;
+      temporalAntiAliasing: boolean;
+      bloom: boolean;
+      automaticExposure: boolean;
+      motionBlur: boolean;
+      sharpening: boolean;
+    }>;
+  }): unknown;
   initialize(options: {
     readonly context: GPUCanvasContext;
     readonly pixelRatio?: number;

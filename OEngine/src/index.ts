@@ -135,6 +135,27 @@ export {
   type ScreenSpaceReflectionsRuntimeEvidence,
   type TemporalRuntimeEvidence
 } from "./render/Renderer.js";
+export {
+  RENDER_FEATURE_CONTRACTS,
+  RenderSettings,
+  metersToWorldUnits,
+  qualityProfilePatch
+} from "./render/pipeline/RenderSettings.js";
+export type {
+  GtaoSettings,
+  PhysicalScaleContract,
+  PostSettings,
+  QualityProfile,
+  RenderFeatureContract,
+  RenderFeatureSettings,
+  RenderSettingsChange,
+  RenderSettingsPatch,
+  RenderSettingsValues,
+  ResolutionSettings,
+  ShadowSettings,
+  SsrSettings,
+  TemporalSettings
+} from "./render/pipeline/RenderSettings.js";
 export { STATIC_GRAPHICS_ENGINE_ASSETS } from "./render/STATIC_GRAPHICS_ENGINE_ASSETS.js";
 export { Scene } from "./scene/Scene.js";
 export type {

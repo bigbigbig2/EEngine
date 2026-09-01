@@ -246,19 +246,17 @@ async function run(): Promise<void> {
 }
 
 function configureRenderer(renderer: Renderer): void {
-  renderer.feature_shadows_enabled = false;
-  renderer.feature_ssr_enabled = true;
-  renderer.feature_ssao_enabled = false;
-  renderer.feature_taa_enabled = false;
-  renderer.feature_bloom_enabled = false;
-  renderer.feature_automatic_exposure_enabled = false;
-  renderer.feature_motion_blur_enabled = false;
-  renderer.feature_sharpening_enabled = false;
+  renderer.configure({ features: {
+    shadows: false, screenSpaceReflections: true, ambientOcclusion: false,
+    temporalAntiAliasing: false, bloom: false, automaticExposure: false,
+    motionBlur: false, sharpening: false
+  } });
 }
 
 function prepareStage(renderer: Renderer, camera: PerspectiveCamera, stage: Stage): void {
-  renderer.feature_ssr_enabled =
-    stage.kind !== "feature-off" && stage.id !== "roughness-0-05-1";
+  renderer.configure({ features: { screenSpaceReflections:
+    stage.kind !== "feature-off" && stage.id !== "roughness-0-05-1"
+  } });
   renderer.render_debug_view = stage.view;
   if (stage.kind === "screen-miss") {
     setCamera(camera, 4.8, 2.4, 7.4, 2.5, -0.65, 0.4);

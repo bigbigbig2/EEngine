@@ -46,7 +46,8 @@ const INDIRECT_COMPOSITE_GROUP1: GPUBindGroupLayoutDescriptor = {
     { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
+    { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+    { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } }
   ]
 };
 
@@ -99,6 +100,26 @@ const INDIRECT_COMPOSITE_LEGACY_PIPELINE: CachedRenderPipelineDescriptor = {
   }
 };
 
+const INDIRECT_COMPOSITE_NO_AO_PIPELINE: CachedRenderPipelineDescriptor = {
+  ...INDIRECT_COMPOSITE_PIPELINE,
+  label: "Renderer/Indirect composite TB no ambient AO",
+  fragment: {
+    module: INDIRECT_COMPOSITE_MODULE,
+    entryPoint: "fs_main_no_ao",
+    targets: INDIRECT_COMPOSITE_TARGETS
+  }
+};
+
+const INDIRECT_COMPOSITE_LEGACY_NO_AO_PIPELINE: CachedRenderPipelineDescriptor = {
+  ...INDIRECT_COMPOSITE_LEGACY_PIPELINE,
+  label: "Renderer/Indirect composite TB legacy no ambient AO",
+  fragment: {
+    module: INDIRECT_COMPOSITE_MODULE,
+    entryPoint: "fs_main_legacy_no_ao",
+    targets: INDIRECT_COMPOSITE_TARGETS
+  }
+};
+
 export type IndirectCompositeInputs = {
   hdr: ResourceId;
   depth: ResourceId;
@@ -109,6 +130,8 @@ export type IndirectCompositeInputs = {
   splitSum: ResourceId;
   indirectDiffuse: ResourceId;
   indirectSpecular: ResourceId;
+  /** GTAO ambient visibility; material AO remains in albedoAo.a. */
+  ambientVisibility?: ResourceId;
   camera: ResourceId;
   /** Packed Surface v1 metadata. Legacy Material Expand has no equivalent attachment. */
   metadata?: ResourceId;
@@ -121,6 +144,8 @@ export type IndirectCompositeOutput = {
 export class IndirectCompositePass {
   private surfacePipeline: GPURenderPipeline | null = null;
   private legacyPipeline: GPURenderPipeline | null = null;
+  private surfaceNoAoPipeline: GPURenderPipeline | null = null;
+  private legacyNoAoPipeline: GPURenderPipeline | null = null;
   lastRan = false;
 
   constructor(private readonly graphics: GraphicsContext) {}
@@ -131,6 +156,12 @@ export class IndirectCompositePass {
     );
     this.legacyPipeline ??= this.graphics.render_pipelines.obtain(
       INDIRECT_COMPOSITE_LEGACY_PIPELINE
+    );
+    this.surfaceNoAoPipeline ??= this.graphics.render_pipelines.obtain(
+      INDIRECT_COMPOSITE_NO_AO_PIPELINE
+    );
+    this.legacyNoAoPipeline ??= this.graphics.render_pipelines.obtain(
+      INDIRECT_COMPOSITE_LEGACY_NO_AO_PIPELINE
     );
   }
 
@@ -146,10 +177,13 @@ export class IndirectCompositePass {
       (data, resources, context) => {
         const encoder = context.gpu_encoder;
         const surfaceAware = data.metadata !== undefined;
-        const pipeline = surfaceAware ? this.surfacePipeline : this.legacyPipeline;
+        const aoAware = data.ambientVisibility !== undefined;
+        const pipeline = surfaceAware
+          ? (aoAware ? this.surfacePipeline : this.surfaceNoAoPipeline)
+          : (aoAware ? this.legacyPipeline : this.legacyNoAoPipeline);
         const descriptor = surfaceAware
-          ? INDIRECT_COMPOSITE_PIPELINE
-          : INDIRECT_COMPOSITE_LEGACY_PIPELINE;
+          ? (aoAware ? INDIRECT_COMPOSITE_PIPELINE : INDIRECT_COMPOSITE_NO_AO_PIPELINE)
+          : (aoAware ? INDIRECT_COMPOSITE_LEGACY_PIPELINE : INDIRECT_COMPOSITE_LEGACY_NO_AO_PIPELINE);
         if (!encoder) throw new Error("IndirectCompositePass: no encoder");
         if (!pipeline) throw new Error("IndirectCompositePass not initialized");
 
@@ -187,7 +221,8 @@ export class IndirectCompositePass {
               this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
               texture(resources.get(data.splitSum)),
               texture(resources.get(data.indirectDiffuse)),
-              texture(resources.get(data.indirectSpecular))
+              texture(resources.get(data.indirectSpecular)),
+              texture(resources.get(data.ambientVisibility ?? data.albedoAo))
             ]
           ]
         );
@@ -207,6 +242,8 @@ export class IndirectCompositePass {
   destroy(): void {
     this.surfacePipeline = null;
     this.legacyPipeline = null;
+    this.surfaceNoAoPipeline = null;
+    this.legacyNoAoPipeline = null;
   }
 }
 

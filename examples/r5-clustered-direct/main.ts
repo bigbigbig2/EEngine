@@ -59,14 +59,11 @@ async function run(): Promise<void> {
     if (context === null) throw new Error("WebGPU canvas context unavailable");
     const renderer = new Renderer();
     await renderer.initialize({ context, pixelRatio: 1 });
-    renderer.feature_shadows_enabled = false;
-    renderer.feature_ssr_enabled = false;
-    renderer.feature_ssao_enabled = false;
-    renderer.feature_taa_enabled = false;
-    renderer.feature_bloom_enabled = false;
-    renderer.feature_automatic_exposure_enabled = false;
-    renderer.feature_motion_blur_enabled = false;
-    renderer.feature_sharpening_enabled = false;
+    renderer.configure({ features: {
+      shadows: false, screenSpaceReflections: false, ambientOcclusion: false,
+      temporalAntiAliasing: false, bloom: false, automaticExposure: false,
+      motionBlur: false, sharpening: false
+    } });
     const runConfig = sequence
       ? { warmupFrames: 2, sampleFrames: 4, gpuSampleInterval: 1,
           gpuCounterSampleInterval: 1, readbackRingSlots: 8 }

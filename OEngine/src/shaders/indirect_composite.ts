@@ -27,6 +27,7 @@ const MIN_DIELECTRICS_F0: f32 = 0.04;
 @group(1) @binding(2) var dependencies: texture_2d<f32>;
 @group(1) @binding(3) var num_ints: texture_2d<f32>;
 @group(1) @binding(4) var bindings: texture_2d<f32>;
+@group(1) @binding(5) var ambient_visibility: texture_2d<f32>;
 
 fn saturate_f32(value: f32) -> f32 {
   return clamp(value, 0.0, 1.0);
@@ -174,12 +175,12 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertexOutput {
   return output;
 }
 
-fn indirect_contribution(pixel: vec2u, uv: vec2f) -> vec4f {
+fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32) -> vec4f {
   let depth = textureLoad(gr_bucket, vec2i(pixel), 0).r;
   let pbr = textureLoad(channel_count, vec2i(pixel), 0);
   let albedo_ao = textureLoad(radix, vec2i(pixel), 0);
   let albedo = albedo_ao.rgb;
-  let occlusion = albedo_ao.a;
+  let material_ao = albedo_ao.a;
   let metalness = decode_g_buffer_metalness(pbr);
   let roughness = max(decode_g_buffer_roughness(pbr), 0.02);
   let alpha = roughness * roughness;
@@ -210,10 +211,13 @@ fn indirect_contribution(pixel: vec2u, uv: vec2f) -> vec4f {
   let specular_occlusion = compute_specular_occlusion_bn(
     spec_direction,
     bent_normal,
-    occlusion,
+    material_ao * ambient_visibility_value,
     roughness
   );
-  return vec4f(indirect[0] * specular_occlusion + indirect[1], 1.0);
+  return vec4f(
+    indirect[0] * specular_occlusion + indirect[1] * ambient_visibility_value,
+    1.0
+  );
 }
 
 @fragment
@@ -228,7 +232,8 @@ fn fs_main(
     // The additive indirect pass must contribute nothing and must not emit it again.
     return vec4f(0.0);
   }
-  return indirect_contribution(pixel, uv);
+  let ambient = textureLoad(ambient_visibility, vec2i(pixel), 0).r;
+  return indirect_contribution(pixel, uv, ambient);
 }
 
 @fragment
@@ -236,6 +241,29 @@ fn fs_main_legacy(
   @builtin(position) coord: vec4f,
   @location(0) uv: vec2f
 ) -> @location(0) vec4f {
-  return indirect_contribution(vec2u(coord.xy), uv);
+  let pixel = vec2u(coord.xy);
+  let ambient = textureLoad(ambient_visibility, vec2i(pixel), 0).r;
+  return indirect_contribution(pixel, uv, ambient);
+}
+
+@fragment
+fn fs_main_no_ao(
+  @builtin(position) coord: vec4f,
+  @location(0) uv: vec2f
+) -> @location(0) vec4f {
+  let pixel = vec2u(coord.xy);
+  let metadata = textureLoad(surface_metadata, vec2i(pixel), 0).r;
+  if oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT) {
+    return vec4f(0.0);
+  }
+  return indirect_contribution(pixel, uv, 1.0);
+}
+
+@fragment
+fn fs_main_legacy_no_ao(
+  @builtin(position) coord: vec4f,
+  @location(0) uv: vec2f
+) -> @location(0) vec4f {
+  return indirect_contribution(vec2u(coord.xy), uv, 1.0);
 }
 `;
