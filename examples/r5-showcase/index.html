@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="data:," />
+    <title>OEngine · R5 综合场景</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <canvas id="gpu-canvas" tabindex="0" aria-label="OEngine R5 WebGPU viewport"></canvas>
+
+    <header class="hero">
+      <p class="eyebrow">OENGINE / WEBGPU</p>
+      <h1>R5 综合场景</h1>
+      <p id="status" class="status">初始化 WebGPU 与 glTF 资产…</p>
+      <p id="detail" class="detail">Flower.glb · Packed Scene · production Renderer</p>
+    </header>
+
+    <aside class="panel" aria-label="渲染控制">
+      <div class="panel-title">
+        <span>渲染控制</span>
+        <button id="reset-camera" type="button">重置视角</button>
+      </div>
+
+      <div class="toggle-grid">
+        <label><input id="feature-shadows" type="checkbox" checked /> CSM 阴影</label>
+        <label><input id="feature-ao" type="checkbox" checked /> GTAO</label>
+        <label><input id="feature-ssr" type="checkbox" checked /> SSR</label>
+        <label><input id="feature-taa" type="checkbox" checked /> TAA / TAAU</label>
+        <label><input id="ao-half" type="checkbox" checked /> AO 半分辨率</label>
+        <label><input id="animate-lights" type="checkbox" checked /> 动态灯光</label>
+      </div>
+
+      <label class="select-row">
+        <span>内部渲染比例</span>
+        <select id="render-scale">
+          <option value="1">100%</option>
+          <option value="0.85" selected>85%</option>
+          <option value="0.67">67%</option>
+          <option value="0.5">50%</option>
+        </select>
+      </label>
+
+      <label class="select-row">
+        <span>Debug View</span>
+        <select id="debug-view"></select>
+      </label>
+
+      <dl class="stats">
+        <div><dt>FPS</dt><dd id="fps">—</dd></div>
+        <div><dt>Output</dt><dd id="output-size">—</dd></div>
+        <div><dt>Internal</dt><dd id="internal-size">—</dd></div>
+        <div><dt>History</dt><dd id="history-bytes">—</dd></div>
+      </dl>
+    </aside>
+
+    <footer class="help">
+      <span>左键旋转</span><span>右键平移</span><span>滚轮缩放</span><span>WASD 移动</span>
+    </footer>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
