@@ -34,24 +34,24 @@ const MODEL_URL = new URL("../public/cyberpunk_city.glb", import.meta.url).href;
 const ENVIRONMENT_URL = new URL("./assets/venice_sunset_1k.hdr", import.meta.url).href;
 
 const debugDescriptors: readonly DebugDescriptor[] = [
-  { value: RenderDebugView.None, label: "Final output", help: "Final tonemapped output." },
-  { value: RenderDebugView.VisibilityKey, label: "Visibility key", help: "Packed instance, cluster, meshlet, and material identity." },
-  { value: RenderDebugView.Depth, label: "Reverse-Z depth", help: "Near geometry is bright; untouched background is black." },
-  { value: RenderDebugView.BaseColor, label: "Base color", help: "Linear base-color material channel." },
-  { value: RenderDebugView.ShadingNormal, label: "Shading normal", help: "Decoded world-facing surface normals." },
-  { value: RenderDebugView.Roughness, label: "Roughness", help: "Perceptual material roughness." },
-  { value: RenderDebugView.Metallic, label: "Metallic", help: "Metallic material response." },
-  { value: RenderDebugView.Occlusion, label: "Material occlusion", help: "Material-provided ambient occlusion." },
-  { value: RenderDebugView.AmbientOcclusionTemporal, label: "Ambient occlusion", help: "Final temporal GTAO visibility.", requires: "ssao" },
-  { value: RenderDebugView.Emissive, label: "Emissive", help: "Decoded emissive contribution from the GLB materials." },
-  { value: RenderDebugView.Velocity, label: "Velocity", help: "Screen-space motion direction and magnitude." },
-  { value: RenderDebugView.HistoryValidity, label: "History validity", help: "Temporal motion-valid and reactive state." },
-  { value: RenderDebugView.Reactive, label: "Reactive mask", help: "Pixels that reject temporal history." },
-  { value: RenderDebugView.IndirectDiffuse, label: "Diffuse IBL", help: "Cosine-convolved diffuse environment lighting." },
-  { value: RenderDebugView.IndirectSpecular, label: "Specular IBL", help: "GGX-prefiltered environment reflections." },
-  { value: RenderDebugView.ScreenSpaceReflectionHitMiss, label: "SSR hit / miss", help: "Screen-space reflection hit confidence.", requires: "ssr" },
-  { value: RenderDebugView.ScreenSpaceReflectionHistoryConfidence, label: "SSR history", help: "Temporal reflection history confidence.", requires: "ssr" },
-  { value: RenderDebugView.LinearHdr, label: "Linear HDR", help: "Scene-linear color before exposure and tonemapping." }
+  { value: RenderDebugView.None, label: "最终画面", help: "曝光、色调映射与后处理后的最终输出。" },
+  { value: RenderDebugView.VisibilityKey, label: "可见性键", help: "Packed Instance、Cluster、Meshlet 与材质标识。" },
+  { value: RenderDebugView.Depth, label: "反向 Z 深度", help: "近处更亮，未覆盖背景为黑色。" },
+  { value: RenderDebugView.BaseColor, label: "基础色", help: "线性空间的材质基础色通道。" },
+  { value: RenderDebugView.ShadingNormal, label: "着色法线", help: "解码后的世界空间表面法线。" },
+  { value: RenderDebugView.Roughness, label: "粗糙度", help: "材质感知粗糙度。" },
+  { value: RenderDebugView.Metallic, label: "金属度", help: "材质金属响应。" },
+  { value: RenderDebugView.Occlusion, label: "材质遮蔽", help: "材质纹理提供的环境遮蔽。" },
+  { value: RenderDebugView.AmbientOcclusionTemporal, label: "环境光遮蔽", help: "时域 GTAO 最终可见度。", requires: "ssao" },
+  { value: RenderDebugView.Emissive, label: "自发光", help: "从 GLB 材质解码的自发光贡献。" },
+  { value: RenderDebugView.Velocity, label: "运动矢量", help: "屏幕空间运动方向和幅度。" },
+  { value: RenderDebugView.HistoryValidity, label: "历史有效性", help: "时域运动有效与反应状态。" },
+  { value: RenderDebugView.Reactive, label: "反应遮罩", help: "拒绝使用时域历史的像素。" },
+  { value: RenderDebugView.IndirectDiffuse, label: "漫反射 IBL", help: "余弦卷积后的环境漫反射照明。" },
+  { value: RenderDebugView.IndirectSpecular, label: "镜面 IBL", help: "GGX 预过滤环境反射。" },
+  { value: RenderDebugView.ScreenSpaceReflectionHitMiss, label: "SSR 命中 / 未命中", help: "屏幕空间反射命中置信度。", requires: "ssr" },
+  { value: RenderDebugView.ScreenSpaceReflectionHistoryConfidence, label: "SSR 历史", help: "反射时域历史置信度。", requires: "ssr" },
+  { value: RenderDebugView.LinearHdr, label: "线性 HDR", help: "曝光和色调映射之前的场景线性颜色。" }
 ];
 
 const root = required<HTMLElement>("showcase");
@@ -80,6 +80,8 @@ let disposed = false;
 let sceneBounds: Bounds | null = null;
 let animatedLights = true;
 let pointLights: PointLight[] = [];
+let sunLight: DirectionalLight | null = null;
+let lightAnimationSpeed = 1;
 let framesSinceSample = 0;
 let lastFpsSample = performance.now();
 
@@ -94,7 +96,7 @@ async function initialize(): Promise<void> {
   const context = canvas.getContext("webgpu");
   if (context === null) throw new Error("Unable to create a WebGPU canvas context.");
 
-  setLoading("Initializing the WebGPU renderer…", "Renderer setup", 0.04);
+  setLoading("正在初始化 WebGPU 渲染器…", "渲染器初始化", 0.04);
   const activeRenderer = new Renderer();
   renderer = activeRenderer;
   await activeRenderer.initialize({
@@ -105,12 +107,12 @@ async function initialize(): Promise<void> {
   if (disposed) return;
 
   setLoading(
-    "Loading the 146.9 MB GLB and the HDR environment map…",
-    "Asset import",
+    "正在加载 146.9 MB GLB 与 HDR 环境贴图…",
+    "资产导入",
     0.1
   );
   const [imported, environment] = await Promise.all([
-    loadNormalizedPackedGltf(MODEL_URL),
+    load_gltf_packed(MODEL_URL),
     load_environment_map(ENVIRONMENT_URL)
   ]);
   if (disposed) return;
@@ -128,8 +130,8 @@ async function initialize(): Promise<void> {
   addShowcaseLights(activeScene, sceneBounds);
 
   setLoading(
-    `Uploading ${packages.length} cooked geometry packages and ${imported.materials.length} materials…`,
-    "GPU residency",
+    `正在上传 ${packages.length} 个几何包和 ${imported.materials.length} 个材质…`,
+    "GPU 驻留",
     0.88
   );
   await activeRenderer.uploadPackedScene(activeScene, {
@@ -155,11 +157,11 @@ async function initialize(): Promise<void> {
   bindRendererControls(activeRenderer);
   startResizeObserver(activeRenderer, activeCamera);
 
-  readyPill.textContent = "Live";
+  readyPill.textContent = "运行中";
   fieldset.disabled = false;
   root.dataset.state = "ready";
   root.dataset.debugView = RenderDebugView.None;
-  setLoading("Ready", "Rendering", 1);
+  setLoading("准备完成", "正在渲染", 1);
   startFrameLoop();
 }
 
@@ -174,129 +176,12 @@ function configurePipeline(activeRenderer: Renderer): void {
   activeRenderer.feature_automatic_exposure_enabled = true;
   activeRenderer.feature_motion_blur_enabled = false;
   activeRenderer.feature_sharpening_enabled = true;
-  activeRenderer.internal_resolution_scale = 0.75;
+  activeRenderer.internal_resolution_scale = 1;
   activeRenderer.packed_visibility_sse_threshold = 4;
   activeRenderer.packed_visibility_cone_enabled = true;
   activeRenderer.packed_visibility_hzb_enabled = true;
   activeRenderer.render_debug_view = RenderDebugView.None;
 }
-
-async function loadNormalizedPackedGltf(url: string): Promise<PackedGltfSource> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Cyberpunk City GLB: ${response.status} ${response.statusText}`);
-  }
-  const source = await response.arrayBuffer();
-  const normalized = normalizeGlbSharedUvMappings(source);
-  const normalizedUrl = URL.createObjectURL(new Blob([normalized], { type: "model/gltf-binary" }));
-  try {
-    return await load_gltf_packed(normalizedUrl);
-  } finally {
-    URL.revokeObjectURL(normalizedUrl);
-  }
-}
-
-function normalizeGlbSharedUvMappings(source: ArrayBuffer): ArrayBuffer {
-  const bytes = new Uint8Array(source);
-  const view = new DataView(source);
-  if (
-    bytes.length < 20 ||
-    view.getUint32(0, true) !== 0x46546c67 ||
-    view.getUint32(4, true) !== 2 ||
-    view.getUint32(16, true) !== 0x4e4f534a
-  ) {
-    throw new Error("Cyberpunk City must be an embedded glTF 2.0 binary (GLB).");
-  }
-  const jsonLength = view.getUint32(12, true);
-  const remainingChunksOffset = 20 + jsonLength;
-  if (remainingChunksOffset > bytes.length) throw new Error("Cyberpunk City GLB has a truncated JSON chunk.");
-  const json = JSON.parse(
-    new TextDecoder().decode(bytes.subarray(20, remainingChunksOffset)).replace(/[\u0000 ]+$/u, "")
-  ) as NormalizableGltf;
-  let normalizedTextureMappings = 0;
-  for (const material of json.materials ?? []) {
-    const textureInfos = [
-      material.pbrMetallicRoughness?.baseColorTexture,
-      material.normalTexture,
-      material.pbrMetallicRoughness?.metallicRoughnessTexture,
-      material.occlusionTexture,
-      material.emissiveTexture
-    ].filter((value): value is NormalizableTextureInfo => value !== undefined);
-    if (textureInfos.length === 0) continue;
-    const reference = textureInfos[0]!;
-    const referenceTexCoord = reference.extensions?.KHR_texture_transform?.texCoord ??
-      reference.texCoord ?? 0;
-    const referenceTransform = reference.extensions?.KHR_texture_transform;
-    for (const info of textureInfos) {
-      const currentTexCoord = info.extensions?.KHR_texture_transform?.texCoord ?? info.texCoord ?? 0;
-      const currentTransform = info.extensions?.KHR_texture_transform;
-      if (currentTexCoord !== referenceTexCoord || !sameTextureTransform(currentTransform, referenceTransform)) {
-        normalizedTextureMappings++;
-      }
-      if (referenceTexCoord === 0) delete info.texCoord;
-      else info.texCoord = referenceTexCoord;
-      if (referenceTransform === undefined) {
-        if (info.extensions !== undefined) {
-          delete info.extensions.KHR_texture_transform;
-          if (Object.keys(info.extensions).length === 0) delete info.extensions;
-        }
-      } else {
-        info.extensions ??= {};
-        info.extensions.KHR_texture_transform = structuredClone(referenceTransform);
-      }
-    }
-  }
-  console.info(`Cyberpunk City: normalized ${normalizedTextureMappings} texture UV mapping(s) to MaterialRecord v2.`);
-  const encodedJson = new TextEncoder().encode(JSON.stringify(json));
-  const paddedJsonLength = alignTo4(encodedJson.length);
-  const remainingLength = bytes.length - remainingChunksOffset;
-  const output = new Uint8Array(20 + paddedJsonLength + remainingLength);
-  output.set(bytes.subarray(0, 12), 0);
-  const outputView = new DataView(output.buffer);
-  outputView.setUint32(8, output.length, true);
-  outputView.setUint32(12, paddedJsonLength, true);
-  outputView.setUint32(16, 0x4e4f534a, true);
-  output.set(encodedJson, 20);
-  output.fill(0x20, 20 + encodedJson.length, 20 + paddedJsonLength);
-  output.set(bytes.subarray(remainingChunksOffset), 20 + paddedJsonLength);
-  return output.buffer;
-}
-
-function sameTextureTransform(
-  left: NormalizableTextureTransform | undefined,
-  right: NormalizableTextureTransform | undefined
-): boolean {
-  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
-}
-
-function alignTo4(value: number): number {
-  return (value + 3) & ~3;
-}
-
-type NormalizableTextureTransform = {
-  texCoord?: number;
-  offset?: number[];
-  scale?: number[];
-  rotation?: number;
-};
-
-type NormalizableTextureInfo = {
-  index: number;
-  texCoord?: number;
-  extensions?: { KHR_texture_transform?: NormalizableTextureTransform };
-};
-
-type NormalizableMaterial = {
-  pbrMetallicRoughness?: {
-    baseColorTexture?: NormalizableTextureInfo;
-    metallicRoughnessTexture?: NormalizableTextureInfo;
-  };
-  normalTexture?: NormalizableTextureInfo;
-  occlusionTexture?: NormalizableTextureInfo;
-  emissiveTexture?: NormalizableTextureInfo;
-};
-
-type NormalizableGltf = { materials?: NormalizableMaterial[] };
 
 async function cookGeometries(
   sources: PackedGltfSource["geometries"]
@@ -306,8 +191,8 @@ async function cookGeometries(
   for (let index = 0; index < sources.length; index++) {
     const ordinal = index + 1;
     setLoading(
-      `Building meshlets and renderable LOD hierarchy ${ordinal} of ${sources.length}…`,
-      "Geometry cooker",
+      `正在构建 Meshlet 与可渲染 LOD 层级 ${ordinal}/${sources.length}…`,
+      "几何处理",
       0.18 + index / Math.max(1, sources.length) * 0.66
     );
     packages.push((await cookGeometryAssetPackage(sources[index]!, recipe)).asset);
@@ -318,6 +203,7 @@ async function cookGeometries(
 
 function addShowcaseLights(activeScene: Scene, bounds: Bounds): void {
   const sun = new DirectionalLight();
+  sunLight = sun;
   sun.intensity = 2.8;
   sun.forward = [0.38, -1, -0.28];
   sun.casts_shadow = true;
@@ -420,7 +306,8 @@ function animateLights(activeScene: Scene, time: number): void {
   const { center, radius } = sceneBounds;
   for (let index = 0; index < pointLights.length; index++) {
     const light = pointLights[index]!;
-    const angle = time * (0.12 + index * 0.015) + index / pointLights.length * Math.PI * 2;
+    const angle = time * lightAnimationSpeed * (0.12 + index * 0.015) +
+      index / pointLights.length * Math.PI * 2;
     light.position = [
       center[0] + Math.cos(angle) * radius * 0.38,
       center[1] + radius * (0.08 + 0.04 * Math.sin(time * 0.7 + index)),
@@ -464,6 +351,58 @@ function bindRendererControls(activeRenderer: Renderer): void {
     activeRenderer.packed_visibility_sse_threshold = Number(lodThreshold.value);
     lodValue.value = `${Number(lodThreshold.value).toFixed(1)} px`;
   });
+
+  const aoResolution = required<HTMLSelectElement>("ao-resolution");
+  aoResolution.addEventListener("change", () => {
+    activeRenderer.ssao_resolution_scale = Number(aoResolution.value) as 0.5 | 1;
+    activeRenderer.indicate_view_change();
+  });
+  required<HTMLInputElement>("ao-temporal").addEventListener("change", (event) => {
+    activeRenderer.ssao_temporal_enabled = (event.currentTarget as HTMLInputElement).checked;
+    activeRenderer.indicate_view_change();
+  });
+
+  bindRange("sun-intensity", (value) => {
+    if (sunLight !== null) {
+      sunLight.intensity = value;
+      scene?.lights.markChanged(sunLight);
+    }
+  }, (value) => value.toFixed(1));
+  bindRange("ao-intensity", (value) => activeRenderer.ssao_intensity = value,
+    (value) => value.toFixed(2));
+  bindRange("ao-falloff", (value) => activeRenderer.ssao_falloff = value,
+    (value) => value.toFixed(2));
+  bindRange("ssr-distance", (value) => activeRenderer.ssr_max_distance = value,
+    (value) => `${value.toFixed(0)} m`);
+  bindRange("ssr-edge", (value) => activeRenderer.ssr_edge_fade = value,
+    (value) => value.toFixed(2));
+  bindRange("taa-history", (value) => activeRenderer.taa_history_strength = value,
+    (value) => value.toFixed(2));
+  bindRange("bloom-intensity", (value) => activeRenderer.bloom_intensity = value,
+    (value) => value.toFixed(2));
+  bindRange("exposure-compensation", (value) => activeRenderer.exposure_compensation = value,
+    (value) => value.toFixed(1));
+  bindRange("exposure-up", (value) => activeRenderer.exposure_speed_up = value,
+    (value) => value.toFixed(1));
+  bindRange("exposure-down", (value) => activeRenderer.exposure_speed_down = value,
+    (value) => value.toFixed(1));
+  bindRange("sharpen-strength", (value) => activeRenderer.sharpening_strength = value,
+    (value) => value.toFixed(2));
+  bindRange("light-intensity", (value) => {
+    for (const light of pointLights) {
+      light.intensity = value;
+      scene?.lights.markChanged(light);
+    }
+  }, (value) => value.toFixed(0));
+  bindRange("light-range", (value) => {
+    if (sceneBounds === null) return;
+    for (const light of pointLights) {
+      light.distance = sceneBounds.radius * value;
+      scene?.lights.markChanged(light);
+    }
+  }, (value) => `${value.toFixed(2)}×`);
+  bindRange("light-speed", (value) => lightAnimationSpeed = value,
+    (value) => `${value.toFixed(1)}×`);
 
   for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-scale]")) {
     button.addEventListener("click", () => {
@@ -522,8 +461,24 @@ function bindPanelShell(): void {
   panelToggle.addEventListener("click", () => {
     const collapsed = root.classList.toggle("panel-collapsed");
     panelToggle.setAttribute("aria-expanded", String(!collapsed));
-    panelToggle.textContent = collapsed ? "Controls" : "Close";
+    panelToggle.textContent = collapsed ? "调试面板" : "关闭";
   });
+}
+
+function bindRange(
+  id: string,
+  apply: (value: number) => void,
+  format: (value: number) => string
+): void {
+  const input = required<HTMLInputElement>(id);
+  const output = required<HTMLOutputElement>(`${id}-value`);
+  const update = (): void => {
+    const value = Number(input.value);
+    apply(value);
+    output.value = format(value);
+  };
+  input.addEventListener("input", update);
+  update();
 }
 
 function computeWorldBounds(source: PackedGltfSource): Bounds {
@@ -603,8 +558,8 @@ function showFatalError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   root.dataset.state = "error";
   root.dataset.error = message;
-  readyPill.textContent = "Error";
-  setLoading(message, "Unable to start the showcase", 1);
+  readyPill.textContent = "错误";
+  setLoading(message, "示例无法启动", 1);
   console.error(error);
 }
 

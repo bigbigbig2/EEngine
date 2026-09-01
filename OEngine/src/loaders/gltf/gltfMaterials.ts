@@ -111,19 +111,34 @@ export function parseGltfMaterial(
   const pbr = e.pbrMetallicRoughness;
   const unlit = e.extensions?.KHR_materials_unlit !== undefined;
   if (!unlit) validateOcclusionTextureContract(e);
-  const sharedUv = resolveSharedUvMapping(e, [
-    ["baseColorTexture", pbr?.baseColorTexture],
-    ...unlit ? [] : [
-      ["normalTexture", e.normalTexture],
-      ["metallicRoughnessTexture", pbr?.metallicRoughnessTexture],
-      ["occlusionTexture", e.occlusionTexture],
-      ["emissiveTexture", e.emissiveTexture]
-    ] as const
-  ]);
-  n.base_color_uv_set = sharedUv.texCoord;
-  n.base_color_uv_offset = sharedUv.offset;
-  n.base_color_uv_scale = sharedUv.scale;
-  n.base_color_uv_rotation = sharedUv.rotation;
+  assignUvMapping(n, "base_color", normalizeUvMapping(
+    pbr?.baseColorTexture, e.name, "baseColorTexture"
+  ));
+  if (!unlit) {
+    assignUvMapping(n, "normal", normalizeUvMapping(
+      e.normalTexture, e.name, "normalTexture"
+    ));
+    const ormUv = normalizeUvMapping(
+      pbr?.metallicRoughnessTexture, e.name, "metallicRoughnessTexture"
+    );
+    const occlusionUv = normalizeUvMapping(
+      e.occlusionTexture, e.name, "occlusionTexture"
+    );
+    if (
+      pbr?.metallicRoughnessTexture !== undefined &&
+      e.occlusionTexture !== undefined &&
+      !sameUvMapping(ormUv, occlusionUv)
+    ) {
+      throw new Error(
+        `glTF material '${e.name ?? "<unnamed>"}' uses one packed ORM texture with ` +
+        "different metallicRoughnessTexture and occlusionTexture UV mappings"
+      );
+    }
+    assignUvMapping(n, "orm", pbr?.metallicRoughnessTexture === undefined ? occlusionUv : ormUv);
+    assignUvMapping(n, "emissive", normalizeUvMapping(
+      e.emissiveTexture, e.name, "emissiveTexture"
+    ));
+  }
 
   n.is_unlit = unlit;
   const r = unlit ? undefined : e.normalTexture;
@@ -285,54 +300,27 @@ function validateOcclusionTextureContract(material: GltfMaterial): void {
   }
 }
 
-interface SharedUvMapping {
+interface UvMapping {
   readonly texCoord: number;
   readonly offset: [number, number];
   readonly scale: [number, number];
   readonly rotation: number;
 }
 
-function resolveSharedUvMapping(
-  material: GltfMaterial,
-  textureInfos: readonly (readonly [string, GltfTextureInfo | undefined])[]
-): SharedUvMapping {
-  let shared: SharedUvMapping | undefined;
-  let sharedRole = "";
-  for (const [role, info] of textureInfos) {
-    if (info === undefined) continue;
-    const mapping = normalizeUvMapping(info, material.name, role);
-    if (shared === undefined) {
-      shared = mapping;
-      sharedRole = role;
-      continue;
-    }
-    if (!sameUvMapping(shared, mapping)) {
-      throw new Error(
-        `glTF material '${material.name ?? "<unnamed>"}' requires per-texture UV mappings: ` +
-        `${role} differs from ${sharedRole}; OEngine MaterialRecord v2 requires one shared ` +
-        "texCoord/KHR_texture_transform across baseColor, normal, ORM and emissive textures"
-      );
-    }
-  }
-  return shared ?? {
-    texCoord: 0,
-    offset: [0, 0],
-    scale: [1, 1],
-    rotation: 0
-  };
-}
-
 function normalizeUvMapping(
-  info: GltfTextureInfo,
+  info: GltfTextureInfo | undefined,
   materialName: string | undefined,
   role: string
-): SharedUvMapping {
+): UvMapping {
+  if (info === undefined) {
+    return { texCoord: 0, offset: [0, 0], scale: [1, 1], rotation: 0 };
+  }
   const transform = info.extensions?.KHR_texture_transform;
   const texCoord = transform?.texCoord ?? info.texCoord ?? 0;
-  if (!Number.isInteger(texCoord) || texCoord < 0 || texCoord > 1) {
+  if (!Number.isInteger(texCoord) || texCoord < 0 || texCoord > 2) {
     throw new RangeError(
       `glTF material '${materialName ?? "<unnamed>"}' ${role} requests TEXCOORD_${texCoord}; ` +
-      "OEngine MaterialRecord v2 supports only TEXCOORD_0 and TEXCOORD_1"
+      "OEngine MaterialRecord v3 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2"
     );
   }
   const rotation = transform?.rotation ?? 0;
@@ -349,11 +337,22 @@ function normalizeUvMapping(
   };
 }
 
-function sameUvMapping(a: SharedUvMapping, b: SharedUvMapping): boolean {
+function sameUvMapping(a: UvMapping, b: UvMapping): boolean {
   return a.texCoord === b.texCoord &&
     a.offset[0] === b.offset[0] && a.offset[1] === b.offset[1] &&
     a.scale[0] === b.scale[0] && a.scale[1] === b.scale[1] &&
     a.rotation === b.rotation;
+}
+
+function assignUvMapping(
+  material: StandardShadeMaterial,
+  role: "base_color" | "normal" | "orm" | "emissive",
+  mapping: UvMapping
+): void {
+  material[`${role}_uv_set`] = mapping.texCoord;
+  material[`${role}_uv_offset`] = mapping.offset;
+  material[`${role}_uv_scale`] = mapping.scale;
+  material[`${role}_uv_rotation`] = mapping.rotation;
 }
 
 function finiteVec2(

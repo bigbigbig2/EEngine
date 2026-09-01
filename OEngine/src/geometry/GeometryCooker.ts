@@ -588,7 +588,7 @@ function alignUp(value: number, alignment: number): number {
 
 function vertexSemanticOrder(semantic: string): number {
   const order = [
-    "position", "normal", "tangent", "color", "uv0", "uv1", "joints", "weights"
+    "position", "normal", "tangent", "color", "uv0", "uv1", "uv2", "joints", "weights"
   ];
   const index = order.indexOf(semantic);
   return index < 0 ? order.length : index;

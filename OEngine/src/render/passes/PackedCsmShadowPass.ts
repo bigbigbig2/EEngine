@@ -32,7 +32,8 @@ const PACKED_CSM_GROUP: GPUBindGroupLayoutDescriptor = {
       buffer: { type: "read-only-storage" as GPUBufferBindingType }
     })),
     { binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-    { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } }
+    { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } },
+    { binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } }
   ]
 };
 
@@ -176,7 +177,8 @@ export class PackedCsmShadowPass {
         { buffer: generated.visibleClusters },
         { buffer: generated.rasterWork },
         { buffer: job.materials.materialRecords },
-        job.materials.alphaAtlas
+        job.materials.alphaAtlas,
+        job.materials.highResolutionAlphaAtlas
       ]
     });
     this.clearViewport(command, job.depthView, job.viewport);

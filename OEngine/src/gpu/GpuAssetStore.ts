@@ -535,6 +535,9 @@ export class GpuAssetStore {
     const uv1 = asset.vertexStreamDescriptors.find(
       (descriptor) => descriptor.semantic === "uv1"
     );
+    const uv2 = asset.vertexStreamDescriptors.find(
+      (descriptor) => descriptor.semantic === "uv2"
+    );
 
     const meshletRecords: GpuMeshletRecordCpu[] = asset.meshlets.map((meshlet) => ({
       vertexOffset: checkedAdd(meshletVertexBegin, meshlet.vertexOffset, "Meshlet vertex range"),
@@ -670,7 +673,10 @@ export class GpuAssetStore {
       uv0Format: uvFormat(uv0),
       uv1ByteOffset: uvByteOffset(uv1, vertexDataBegin),
       uv1Stride: uv1?.elementStride ?? 0,
-      uv1Format: uvFormat(uv1)
+      uv1Format: uvFormat(uv1),
+      uv2ByteOffset: uvByteOffset(uv2, vertexDataBegin),
+      uv2Stride: uv2?.elementStride ?? 0,
+      uv2Format: uvFormat(uv2)
     });
 
     const segments: UploadSegment[] = [];

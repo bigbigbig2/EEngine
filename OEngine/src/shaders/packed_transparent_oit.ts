@@ -75,10 +75,11 @@ struct TransparentVertexOutput {
   @location(0) world_position: vec3f,
   @location(1) uv0: vec2f,
   @location(2) uv1: vec2f,
-  @location(3) @interpolate(flat) uv_valid_mask: u32,
-  @location(4) @interpolate(flat) material_handle: u32,
-  @location(5) @interpolate(flat) mirrored: u32,
-  @location(6) @interpolate(flat) raster_flags: u32,
+  @location(3) uv2: vec2f,
+  @location(4) @interpolate(flat) uv_valid_mask: u32,
+  @location(5) @interpolate(flat) material_handle: u32,
+  @location(6) @interpolate(flat) mirrored: u32,
+  @location(7) @interpolate(flat) raster_flags: u32,
 }
 
 @group(0) @binding(0) var<uniform> camera: CommandEncoder;
@@ -98,6 +99,7 @@ struct TransparentVertexOutput {
 @group(0) @binding(14) var sampler_repeat_nearest: sampler;
 @group(0) @binding(15) var sampler_clamp_nearest: sampler;
 @group(0) @binding(16) var sampler_mirror_nearest: sampler;
+@group(0) @binding(17) var high_resolution_material_textures: texture_2d_array<f32>;
 
 fn read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
   let word = (*words)[byte_offset >> 2u];
@@ -149,13 +151,17 @@ fn packed_transparent_vertex(
     geometry.uv0_format, source_vertex);
   let uv1 = read_uv(&vertex_data, geometry.uv1_byte_offset, geometry.uv1_stride,
     geometry.uv1_format, source_vertex);
+  let uv2 = read_uv(&vertex_data, geometry.uv2_byte_offset, geometry.uv2_stride,
+    geometry.uv2_format, source_vertex);
   var output: TransparentVertexOutput;
   output.position = camera.view_projection_matrix * world;
   output.world_position = world.xyz / world.w;
   output.uv0 = select(vec2f(0.0), uv0.xy / uv0.z, uv0.z > 0.0);
   output.uv1 = select(vec2f(0.0), uv1.xy / uv1.z, uv1.z > 0.0);
+  output.uv2 = select(vec2f(0.0), uv2.xy / uv2.z, uv2.z > 0.0);
   output.uv_valid_mask = select(0u, 1u, uv0.z > 0.0) |
-    select(0u, 2u, uv1.z > 0.0);
+    select(0u, 2u, uv1.z > 0.0) |
+    select(0u, 4u, uv2.z > 0.0);
   output.material_handle = visible.material_handle;
   let linear = instance.current_object_to_world;
   output.mirrored = select(0u, 1u,
@@ -173,29 +179,60 @@ fn sample_material_texture(
   uv_dx: vec2f, uv_dy: vec2f, fallback: vec4f
 ) -> vec4f {
   if texture_ref == OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE { return fallback; }
+  let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;
+  let layer = i32(texture_ref & OENGINE_MATERIAL_TEXTURE_LAYER_MASK);
   let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
   let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
-  if linear {
-    if address == 0u { return textureSampleGrad(material_textures, sampler_clamp_linear, uv, i32(texture_ref), uv_dx, uv_dy); }
-    if address == 2u { return textureSampleGrad(material_textures, sampler_mirror_linear, uv, i32(texture_ref), uv_dx, uv_dy); }
-    return textureSampleGrad(material_textures, sampler_repeat_linear, uv, i32(texture_ref), uv_dx, uv_dy);
+  if high_resolution {
+    if linear {
+      if address == 0u { return textureSampleGrad(high_resolution_material_textures, sampler_clamp_linear, uv, layer, uv_dx, uv_dy); }
+      if address == 2u { return textureSampleGrad(high_resolution_material_textures, sampler_mirror_linear, uv, layer, uv_dx, uv_dy); }
+      return textureSampleGrad(high_resolution_material_textures, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
+    }
+    if address == 0u { return textureSampleGrad(high_resolution_material_textures, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy); }
+    if address == 2u { return textureSampleGrad(high_resolution_material_textures, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy); }
+    return textureSampleGrad(high_resolution_material_textures, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
   }
-  if address == 0u { return textureSampleGrad(material_textures, sampler_clamp_nearest, uv, i32(texture_ref), uv_dx, uv_dy); }
-  if address == 2u { return textureSampleGrad(material_textures, sampler_mirror_nearest, uv, i32(texture_ref), uv_dx, uv_dy); }
-  return textureSampleGrad(material_textures, sampler_repeat_nearest, uv, i32(texture_ref), uv_dx, uv_dy);
+  if linear {
+    if address == 0u { return textureSampleGrad(material_textures, sampler_clamp_linear, uv, layer, uv_dx, uv_dy); }
+    if address == 2u { return textureSampleGrad(material_textures, sampler_mirror_linear, uv, layer, uv_dx, uv_dy); }
+    return textureSampleGrad(material_textures, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
+  }
+  if address == 0u { return textureSampleGrad(material_textures, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy); }
+  if address == 2u { return textureSampleGrad(material_textures, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy); }
+  return textureSampleGrad(material_textures, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
 }
-fn transform_uv(record: OEngineMaterialVisibilityRecord, uv: vec2f) -> vec2f {
-  let scaled = uv * record.uv_offset_scale.zw;
-  return record.uv_offset_scale.xy + vec2f(
-    record.uv_rotation.x * scaled.x - record.uv_rotation.y * scaled.y,
-    record.uv_rotation.y * scaled.x + record.uv_rotation.x * scaled.y
+fn material_uv_set(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
+  return (material.texture_uv_sets >> (slot * 8u)) & 0xffu;
+}
+fn material_uv_offset_scale(material: OEngineMaterialVisibilityRecord, slot: u32) -> vec4f {
+  if slot == 1u { return material.normal_uv_offset_scale; }
+  if slot == 2u { return material.orm_uv_offset_scale; }
+  if slot == 3u { return material.emissive_uv_offset_scale; }
+  return material.uv_offset_scale;
+}
+fn material_uv_rotation(material: OEngineMaterialVisibilityRecord, slot: u32) -> vec4f {
+  if slot == 1u { return material.normal_uv_rotation; }
+  if slot == 2u { return material.orm_uv_rotation; }
+  if slot == 3u { return material.emissive_uv_rotation; }
+  return material.uv_rotation;
+}
+fn transform_uv(record: OEngineMaterialVisibilityRecord, slot: u32, uv: vec2f) -> vec2f {
+  let offset_scale = material_uv_offset_scale(record, slot);
+  let rotation = material_uv_rotation(record, slot);
+  let scaled = uv * offset_scale.zw;
+  return offset_scale.xy + vec2f(
+    rotation.x * scaled.x - rotation.y * scaled.y,
+    rotation.y * scaled.x + rotation.x * scaled.y
   );
 }
 fn transparent_material(input: TransparentVertexOutput) -> OEngineMaterialVisibilityRecord {
   return materials[min(input.material_handle, arrayLength(&materials) - 1u)];
 }
-fn material_uv(input: TransparentVertexOutput, material: OEngineMaterialVisibilityRecord) -> vec2f {
-  return transform_uv(material, select(input.uv0, input.uv1, material.uv_set == 1u));
+fn material_uv(input: TransparentVertexOutput, material: OEngineMaterialVisibilityRecord, slot: u32) -> vec2f {
+  let uv_set = material_uv_set(material, slot);
+  let source = select(select(input.uv0, input.uv1, uv_set == 1u), input.uv2, uv_set == 2u);
+  return transform_uv(material, slot, source);
 }
 fn validate_transparent_fragment(
   input: TransparentVertexOutput,
@@ -206,13 +243,13 @@ fn validate_transparent_fragment(
   if input.material_handle >= arrayLength(&materials) ||
     (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
     material.material_id != input.material_handle ||
-    material.alpha_mode != OENGINE_MATERIAL_ALPHA_BLEND ||
-    material.uv_set > 1u { return false; }
+    material.alpha_mode != OENGINE_MATERIAL_ALPHA_BLEND { return false; }
   let corrected_front = front != (input.mirrored != 0u);
   if (material.flags & OENGINE_MATERIAL_VISIBILITY_DOUBLE_SIDED) == 0u && !corrected_front {
     return false;
   }
-  let uv_bit = select(0u, 1u << material.uv_set, material.uv_set < 2u);
+  let uv_set = material_uv_set(material, 0u);
+  let uv_bit = select(0u, 1u << uv_set, uv_set < 3u);
   return material.texture_ref == OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE ||
     (input.uv_valid_mask & uv_bit) != 0u;
 }
@@ -234,7 +271,7 @@ fn packed_transparent_moment(
   @builtin(front_facing) front: bool
 ) -> MomentOutput {
   let material = transparent_material(input);
-  let uv = material_uv(input, material);
+  let uv = material_uv(input, material, 0u);
   let uv_dx = dpdx(uv);
   let uv_dy = dpdy(uv);
   if !validate_transparent_fragment(input, material, front) { discard; }
@@ -377,9 +414,18 @@ fn packed_transparent_forward(
   @builtin(front_facing) front: bool
 ) -> ForwardOutput {
   let material = transparent_material(input);
-  let uv = material_uv(input, material);
+  let uv = material_uv(input, material, 0u);
   let uv_dx = dpdx(uv);
   let uv_dy = dpdy(uv);
+  let normal_uv = material_uv(input, material, 1u);
+  let normal_uv_dx = dpdx(normal_uv);
+  let normal_uv_dy = dpdy(normal_uv);
+  let orm_uv = material_uv(input, material, 2u);
+  let orm_uv_dx = dpdx(orm_uv);
+  let orm_uv_dy = dpdy(orm_uv);
+  let emissive_uv = material_uv(input, material, 3u);
+  let emissive_uv_dx = dpdx(emissive_uv);
+  let emissive_uv_dy = dpdy(emissive_uv);
   let world_dx = dpdx(input.world_position);
   let world_dy = dpdy(input.world_position);
   if !validate_transparent_fragment(input, material, front) { discard; }
@@ -391,16 +437,17 @@ fn packed_transparent_forward(
   let base_sample = sample_material_texture(material.texture_ref,
     material_sampler_class(material, 0u), uv, uv_dx, uv_dy, vec4f(1.0));
   let orm = sample_material_texture(material.orm_texture_ref,
-    material_sampler_class(material, 2u), uv, uv_dx, uv_dy, vec4f(1.0));
+    material_sampler_class(material, 2u), orm_uv, orm_uv_dx, orm_uv_dy, vec4f(1.0));
   let emissive = sample_material_texture(material.emissive_texture_ref,
-    material_sampler_class(material, 3u), uv, uv_dx, uv_dy,
+    material_sampler_class(material, 3u), emissive_uv, emissive_uv_dx, emissive_uv_dy,
     vec4f(1.0)).rgb * material.emissive_factor.rgb;
   let albedo = base_sample.rgb * material.base_color_factor.rgb;
   let metallic = clamp(select(1.0, orm.b,
     (material.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u) * material.pbr_factors.x, 0.0, 1.0);
   let roughness = clamp(select(1.0, orm.g,
     (material.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u) * material.pbr_factors.y, 0.02, 1.0);
-  let normal = surface_normal(input, material, front, uv, uv_dx, uv_dy, world_dx, world_dy);
+  let normal = surface_normal(input, material, front, normal_uv,
+    normal_uv_dx, normal_uv_dy, world_dx, world_dy);
   let view_direction = normalize(camera.transform[3].xyz - input.world_position);
   var color = albedo + emissive;
   if (material.flags & OENGINE_MATERIAL_UNLIT) == 0u {

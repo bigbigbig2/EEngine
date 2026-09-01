@@ -75,6 +75,8 @@ export type ScreenSpaceReflectionsJob = {
   historyInputIndex: 0 | 1;
   historyOutputIndex: 0 | 1;
   samplers: GPUSamplerCache;
+  maxDistance: number;
+  edgeFade: number;
 };
 
 export class ScreenSpaceReflectionsPass {
@@ -191,7 +193,7 @@ export class ScreenSpaceReflectionsPass {
       job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
-        this.executeTrace(command, data.frameIndex, {
+        this.executeTrace(command, data.frameIndex, data.maxDistance, data.edgeFade, {
           output: resolveTextureView(resources.get(trace)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
           hzb: resolveTextureView(resources.get(inputs.hzb)),
@@ -404,6 +406,8 @@ export class ScreenSpaceReflectionsPass {
   private executeTrace(
     command: ShadeGPUCommandContext,
     frameIndex: number,
+    maxDistance: number,
+    edgeFade: number,
     resources: {
       output: GPUTextureView;
       depth: GPUTextureView;
@@ -417,9 +421,9 @@ export class ScreenSpaceReflectionsPass {
     if (!this.traceSettings) throw new Error("SSR trace is not initialized");
     const data = new ArrayBuffer(16);
     const view = new DataView(data);
-    view.setFloat32(0, 16, true);
+    view.setFloat32(0, Math.max(0.01, maxDistance), true);
     view.setUint32(4, frameIndex >>> 0, true);
-    view.setFloat32(8, 0.07, true);
+    view.setFloat32(8, Math.max(0, Math.min(0.5, edgeFade)), true);
     writeGpuBuffer(
       this.device.queue,
       "SSR/trace-settings",

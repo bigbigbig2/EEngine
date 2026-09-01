@@ -48,6 +48,11 @@ const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
       binding: 10,
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
+    },
+    {
+      binding: 11,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
     }
   ]
 };
@@ -300,7 +305,8 @@ export class PackedVisibilityPass {
         { buffer: generated.visibleClusters },
         { buffer: generated.rasterWork },
         { buffer: job.runtime.materialVisibility.materialRecords },
-        job.runtime.materialVisibility.alphaAtlas
+        job.runtime.materialVisibility.alphaAtlas,
+        job.runtime.materialVisibility.highResolutionAlphaAtlas
       ]
     });
     const render = command.beginRenderPass({

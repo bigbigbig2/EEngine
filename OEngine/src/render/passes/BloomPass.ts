@@ -138,18 +138,17 @@ export class BloomPass {
     upsampleBuilder.read(downsampled);
 
     let composited = -1;
-    const normalizedIntensity = (job.intensity ?? 1) / bloomWeightNormalization(mipCount);
     const compositeBuilder = graph.add(
       "Bloom composite GE",
-      { normalizedIntensity, samplers: job.samplers },
+      { job, normalization: bloomWeightNormalization(mipCount) },
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         this.executeComposite(
           command,
-          data.normalizedIntensity,
+          (data.job.intensity ?? 1) / data.normalization,
           resolveTextureView(resources.get(upsampled), { baseMipLevel: 0, mipLevelCount: 1 }),
           resolveTextureView(resources.get(input)),
-          data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+          data.job.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
           resolveTextureView(resources.get(composited))
         );
       }

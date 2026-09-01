@@ -35,6 +35,7 @@ ${LPV_CAMERA_TYPE.wgsl_declaration}
 
 struct SsaoRawSettings {
   frame_index: u32,
+  falloff_range: f32,
 };
 
 @group(0) @binding(0) var gr_bucket: texture_2d<f32>;
@@ -192,8 +193,8 @@ fn fs_main(
   @builtin(position) coord: vec4f,
   @location(0) uv: vec2f
 ) -> SsaoRawOutput {
-  const falloff_range = 0.615;
-  const falloff_from = 1.0 - 0.615;
+  let falloff_range = max(settings.falloff_range, 0.001);
+  let falloff_from = 1.0 - falloff_range;
   const falloff_mul = -1.0 / falloff_range;
   const falloff_add = falloff_from / falloff_range + 1.0;
 
@@ -627,6 +628,7 @@ fn fs_main(
 export const SSAO_COMPOSITE_WGSL = /* wgsl */ `
 @group(0) @binding(0) var this_hit: texture_2d<f32>;
 @group(0) @binding(1) var linear_clamp: sampler;
+@group(0) @binding(2) var<uniform> intensity: vec4f;
 
 ${FULLSCREEN_VERTEX_WGSL}
 
@@ -636,7 +638,7 @@ fn fs_main(
   @location(0) uv: vec2f
 ) -> @location(0) vec4f {
   let visibility = textureSampleLevel(this_hit, linear_clamp, uv, 0.0).r;
-  return vec4f(1.0, 1.0, 1.0, visibility);
+  return vec4f(1.0, 1.0, 1.0, mix(1.0, visibility, intensity.x));
 }
 `;
 

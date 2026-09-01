@@ -17,7 +17,7 @@ export const TAA_WGSL = /* wgsl */ `
 struct TemporalSettings {
   jitter: vec2f,
   history_validity: f32,
-  _padding0: f32,
+  history_strength: f32,
   internal_resolution: vec2f,
   output_resolution: vec2f,
 }
@@ -184,7 +184,7 @@ fn main(
     history_lock
   );
   let history_weight = clamp(
-    locked_weight_limit * motion_confidence *
+    locked_weight_limit * settings.history_strength * motion_confidence *
       luminance_confidence * (1.0 - reactive) * confidence,
     0.0,
     ${TEMPORAL_MAX_HISTORY_WEIGHT}

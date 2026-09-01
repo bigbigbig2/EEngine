@@ -25,6 +25,7 @@ export interface TemporalAntiAliasingJob {
   readonly internalResolution: readonly [number, number];
   readonly outputResolution: readonly [number, number];
   readonly samplers: GPUSamplerCache;
+  readonly historyStrength: number;
 }
 
 export class TemporalAntiAliasingPass {
@@ -115,7 +116,7 @@ export class TemporalAntiAliasingPass {
         job.jitter[0],
         job.jitter[1],
         job.historyValidity,
-        0,
+        Math.max(0, Math.min(1, job.historyStrength)),
         job.internalResolution[0],
         job.internalResolution[1],
         job.outputResolution[0],

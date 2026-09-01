@@ -56,6 +56,8 @@ export type ScreenSpaceAmbientOcclusionJob = {
   historyOutputIndex: 0 | 1;
   width: number;
   height: number;
+  intensity: number;
+  falloff: number;
 };
 
 export class ScreenSpaceAmbientOcclusionPass {
@@ -158,7 +160,7 @@ export class ScreenSpaceAmbientOcclusionPass {
       job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
-        self.executeRaw(command, data.frameIndex, {
+        self.executeRaw(command, data.frameIndex, data.falloff, {
           visibility: resolveTextureView(resources.get(rawVisibility)),
           bentNormals: resolveTextureView(resources.get(bentNormals)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
@@ -191,8 +193,8 @@ export class ScreenSpaceAmbientOcclusionPass {
     let spatialVisibility = -1;
     const spatialBuilder = graph.add(
       "SSAO spatial filter XC",
-      {},
-      (_data, resources, context) => {
+      job,
+      (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         self.executeSpatial(command, {
           output: resolveTextureView(resources.get(spatialVisibility)),
@@ -284,12 +286,13 @@ export class ScreenSpaceAmbientOcclusionPass {
     let occlusion = -1;
     const compositeBuilder = graph.add(
       "SSAO alpha-min composite mD",
-      {},
-      (_data, resources, context) => {
+      job,
+      (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         self.executeComposite(
           command,
           job.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+          data.intensity,
           {
           output: resolveTextureView(resources.get(occlusion)),
           visibility: resolveTextureView(resources.get(resolvedVisibility))
@@ -344,6 +347,7 @@ export class ScreenSpaceAmbientOcclusionPass {
   private executeRaw(
     command: ShadeGPUCommandContext,
     frameIndex: number,
+    falloff: number,
     resources: {
       visibility: GPUTextureView;
       bentNormals: GPUTextureView;
@@ -358,12 +362,16 @@ export class ScreenSpaceAmbientOcclusionPass {
     ) {
       throw new Error("ScreenSpaceAmbientOcclusionPass not initialized");
     }
+    const settings = new ArrayBuffer(16);
+    const settingsView = new DataView(settings);
+    settingsView.setUint32(0, frameIndex >>> 0, true);
+    settingsView.setFloat32(4, Math.max(0.001, falloff), true);
     writeGpuBuffer(
       this.device.queue,
       "SSAO/raw-settings",
       this.rawSettingsBuffer,
       0,
-      new Uint32Array([frameIndex >>> 0, 0, 0, 0])
+      settings
     );
     const pass = command.constructRenderPass({
       label: "SSAO raw GTAO lD",
@@ -469,15 +477,20 @@ export class ScreenSpaceAmbientOcclusionPass {
   private executeComposite(
     command: ShadeGPUCommandContext,
     sampler: GPUSampler,
+    intensity: number,
     resources: {
       output: GPUTextureView;
       visibility: GPUTextureView;
     }
   ): void {
+    const settings = command.allocateTransientBufferAndLoad(
+      new Float32Array([Math.max(0, intensity), 0, 0, 0]).buffer,
+      GPUBufferUsage.UNIFORM
+    );
     const pass = command.constructRenderPass({
       label: "SSAO alpha-min composite mD",
       pipeline: this.compositePipeline,
-      bindings: [[resources.visibility, sampler]],
+      bindings: [[resources.visibility, sampler, { buffer: settings }]],
       colorAttachments: [
         {
           view: resources.output,
@@ -680,6 +693,11 @@ function createSsaoCompositeGroupLayout(): GPUBindGroupLayoutDescriptor {
         binding: 1,
         visibility: GPUShaderStage.FRAGMENT,
         sampler: { type: "filtering" }
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "uniform" }
       }
     ]
   };

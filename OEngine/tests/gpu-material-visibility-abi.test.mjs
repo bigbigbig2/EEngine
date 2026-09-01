@@ -23,9 +23,16 @@ const { ShadeImage, ShadeTexture } = await import(
 const { parseGltfMaterial } = await import(
   "../.test-dist/loaders/gltf/gltfMaterials.js"
 );
+const { gltfAttributeName } = await import(
+  "../.test-dist/loaders/gltf/gltfGeometry.js"
+);
 
-test("R4-B-01 MaterialRecord freezes a 128-byte TS/WGSL Standard PBR layout", () => {
-  assert.equal(GPU_MATERIAL_VISIBILITY_RECORD_STRIDE, 128);
+test("R4-B glTF TEXCOORD_2 is canonicalized to the uv2 geometry semantic", () => {
+  assert.equal(gltfAttributeName("TEXCOORD_2"), "uv2");
+});
+
+test("R4-B-01 MaterialRecord v3 freezes a 224-byte per-texture UV layout", () => {
+  assert.equal(GPU_MATERIAL_VISIBILITY_RECORD_STRIDE, 224);
   assert.deepEqual(GPU_MATERIAL_VISIBILITY_OFFSETS, {
     material_id: 0,
     alpha_mode: 4,
@@ -33,19 +40,26 @@ test("R4-B-01 MaterialRecord freezes a 128-byte TS/WGSL Standard PBR layout", ()
     texture_ref: 12,
     base_color_factor_alpha: 16,
     alpha_cutoff: 20,
-    uv_set: 24,
+    texture_uv_sets: 24,
     sampler_class: 28,
     uv_offset_scale: 32,
     uv_rotation: 48,
     base_color_factor: 64,
     pbr_factors: 80,
     emissive_factor: 96,
-    texture_refs: 112
+    texture_refs: 112,
+    normal_uv_offset_scale: 128,
+    normal_uv_rotation: 144,
+    orm_uv_offset_scale: 160,
+    orm_uv_rotation: 176,
+    emissive_uv_offset_scale: 192,
+    emissive_uv_rotation: 208
   });
   assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /texture_ref: u32/);
   assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /uv_offset_scale: vec4f/);
   assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /base_color_factor: vec4f/);
   assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /texture_sampler_classes: u32/);
+  assert.match(GPU_MATERIAL_VISIBILITY_RECORD_WGSL, /normal_uv_offset_scale: vec4f/);
 
   const material = new StandardShadeMaterial();
   material.transparency_mode = ShadeTransparencyMode.AlphaTested;
@@ -58,7 +72,11 @@ test("R4-B-01 MaterialRecord freezes a 128-byte TS/WGSL Standard PBR layout", ()
   material.base_color_uv_rotation = Math.PI / 2;
   material.texture_albedo = validTexture();
   material.texture_normal = validTexture();
+  material.normal_uv_set = 2;
+  material.normal_uv_offset = [0.1, 0.2];
+  material.normal_uv_scale = [0.5, 0.75];
   material.texture_orm = validTexture();
+  material.orm_uv_set = 1;
   material.texture_emissive = validTexture();
   material.diffuse_color.setRGB(0.2, 0.3, 0.4);
   material.diffuse_color.a = 0.75;
@@ -75,7 +93,7 @@ test("R4-B-01 MaterialRecord freezes a 128-byte TS/WGSL Standard PBR layout", ()
   }, 42);
   const packed = packGpuMaterialVisibilityRecord(source.packed);
   const view = new DataView(packed);
-  assert.equal(packed.byteLength, 128);
+  assert.equal(packed.byteLength, 224);
   assert.equal(view.getUint32(0, true), 42);
   assert.equal(view.getUint32(4, true), GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Mask);
   assert.equal(
@@ -89,7 +107,7 @@ test("R4-B-01 MaterialRecord freezes a 128-byte TS/WGSL Standard PBR layout", ()
   assert.equal(view.getUint32(12, true), 7);
   assert.equal(view.getFloat32(16, true), 0.75);
   assert.equal(view.getFloat32(20, true), 0.375);
-  assert.equal(view.getUint32(24, true), 1);
+  assert.equal(view.getUint32(24, true), 0x00010201);
   assert.equal(view.getFloat32(32, true), 0.25);
   assert.equal(view.getFloat32(36, true), -0.5);
   assert.equal(view.getFloat32(40, true), 2);
@@ -109,6 +127,10 @@ test("R4-B-01 MaterialRecord freezes a 128-byte TS/WGSL Standard PBR layout", ()
   assert.equal(view.getUint32(112, true), 8);
   assert.equal(view.getUint32(116, true), 9);
   assert.equal(view.getUint32(120, true), 10);
+  assert.ok(Math.abs(view.getFloat32(128, true) - 0.1) < 1e-6);
+  assert.ok(Math.abs(view.getFloat32(132, true) - 0.2) < 1e-6);
+  assert.equal(view.getFloat32(136, true), 0.5);
+  assert.equal(view.getFloat32(140, true), 0.75);
 });
 
 test("R4-A-03 invalid texture and sampler fallbacks remain independent", () => {
@@ -166,12 +188,16 @@ test("R4-A-03 invalid texture and sampler fallbacks remain independent", () => {
   );
 });
 
-test("R4-B MaterialRecord rejects UV sets outside the Geometry UV0/UV1 ABI", () => {
+test("R4-B MaterialRecord supports TEXCOORD_2 and rejects UV sets outside v3", () => {
   const material = new StandardShadeMaterial();
   material.base_color_uv_set = 2;
+  assert.doesNotThrow(
+    () => materialVisibilitySource(material, GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE, 0)
+  );
+  material.emissive_uv_set = 3;
   assert.throws(
     () => materialVisibilitySource(material, GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE, 0),
-    /supports only TEXCOORD_0 and TEXCOORD_1/
+    /supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2/
   );
 });
 
@@ -203,24 +229,38 @@ test("R4-B glTF shared UV contract accepts matching mappings on every texture", 
   assert.equal(material.base_color_uv_rotation, 0.125);
 });
 
-test("R4-B glTF shared UV contract rejects per-texture texCoord or transform divergence", () => {
+test("R4-B glTF preserves per-texture texCoord and transform divergence", () => {
   const texture = validTexture();
+  const material = parseGltfMaterial({
+      normalTexture: { index: 0, texCoord: 1 },
+      emissiveTexture: {
+        index: 0,
+        extensions: { KHR_texture_transform: { offset: [0.5, 0], texCoord: 2 } }
+      },
+      pbrMetallicRoughness: { baseColorTexture: { index: 0, texCoord: 0 } }
+    }, [texture]);
+  assert.equal(material.base_color_uv_set, 0);
+  assert.equal(material.normal_uv_set, 1);
+  assert.equal(material.emissive_uv_set, 2);
+  assert.deepEqual(material.emissive_uv_offset, [0.5, 0]);
   assert.throws(
     () => parseGltfMaterial({
-      normalTexture: { index: 0, texCoord: 1 },
-      pbrMetallicRoughness: { baseColorTexture: { index: 0, texCoord: 0 } }
+      occlusionTexture: { index: 0, texCoord: 1 },
+      pbrMetallicRoughness: {
+        metallicRoughnessTexture: { index: 0, texCoord: 0 }
+      }
     }, [texture]),
-    /requires per-texture UV mappings/
+    /one packed ORM texture.*different/
   );
   assert.throws(
     () => parseGltfMaterial({
       emissiveTexture: {
         index: 0,
-        extensions: { KHR_texture_transform: { offset: [0.5, 0] } }
+        texCoord: 3
       },
       pbrMetallicRoughness: { baseColorTexture: { index: 0 } }
     }, [texture]),
-    /requires per-texture UV mappings/
+    /supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2/
   );
 });
 
@@ -232,7 +272,7 @@ test("R4-B glTF KHR_texture_transform texCoord override is authoritative", () =>
       extensions: { KHR_texture_transform: { texCoord: 1 } }
     }
   }, [validTexture()]);
-  assert.equal(material.base_color_uv_set, 1);
+  assert.equal(material.normal_uv_set, 1);
 });
 
 test("R4-B glTF rejects a separate occlusion texture before GPU residency", () => {
@@ -262,7 +302,7 @@ test("R4-B glTF shared TEXCOORD_1 preserves occlusion strength", () => {
       metallicRoughnessTexture: { index: 0, texCoord: 1 }
     }
   }, [texture]);
-  assert.equal(material.base_color_uv_set, 1);
+  assert.equal(material.orm_uv_set, 1);
   assert.equal(material.ambient_factors.a, 0.625);
   assert.equal(material.ambient_factors.b, 0);
 });

@@ -27,9 +27,21 @@ export class StandardShadeMaterial extends ShadeMaterial {
   base_color_uv_scale: [number, number] = [1, 1];
   base_color_uv_rotation = 0;
   texture_normal: ShadeTexture | undefined = undefined;
+  normal_uv_set = 0;
+  normal_uv_offset: [number, number] = [0, 0];
+  normal_uv_scale: [number, number] = [1, 1];
+  normal_uv_rotation = 0;
   normal_scale = 1;
   texture_orm: ShadeTexture | undefined = undefined;
+  orm_uv_set = 0;
+  orm_uv_offset: [number, number] = [0, 0];
+  orm_uv_scale: [number, number] = [1, 1];
+  orm_uv_rotation = 0;
   texture_emissive: ShadeTexture | undefined = undefined;
+  emissive_uv_set = 0;
+  emissive_uv_offset: [number, number] = [0, 0];
+  emissive_uv_scale: [number, number] = [1, 1];
+  emissive_uv_rotation = 0;
   is_unlit = false;
   roughness_factor = 1;
   metallic_factor = 0;
@@ -62,7 +74,25 @@ export class StandardShadeMaterial extends ShadeMaterial {
       hashFloat(this.base_color_uv_offset[1]),
       hashFloat(this.base_color_uv_scale[0]),
       hashFloat(this.base_color_uv_scale[1]),
-      hashFloat(this.base_color_uv_rotation)
+      hashFloat(this.base_color_uv_rotation),
+      this.normal_uv_set,
+      hashFloat(this.normal_uv_offset[0]),
+      hashFloat(this.normal_uv_offset[1]),
+      hashFloat(this.normal_uv_scale[0]),
+      hashFloat(this.normal_uv_scale[1]),
+      hashFloat(this.normal_uv_rotation),
+      this.orm_uv_set,
+      hashFloat(this.orm_uv_offset[0]),
+      hashFloat(this.orm_uv_offset[1]),
+      hashFloat(this.orm_uv_scale[0]),
+      hashFloat(this.orm_uv_scale[1]),
+      hashFloat(this.orm_uv_rotation),
+      this.emissive_uv_set,
+      hashFloat(this.emissive_uv_offset[0]),
+      hashFloat(this.emissive_uv_offset[1]),
+      hashFloat(this.emissive_uv_scale[0]),
+      hashFloat(this.emissive_uv_scale[1]),
+      hashFloat(this.emissive_uv_rotation)
     );
   }
 
@@ -82,6 +112,9 @@ export class StandardShadeMaterial extends ShadeMaterial {
       this.base_color_uv_scale[0] === other.base_color_uv_scale[0] &&
       this.base_color_uv_scale[1] === other.base_color_uv_scale[1] &&
       this.base_color_uv_rotation === other.base_color_uv_rotation &&
+      uvMappingEquals(this, other, "normal") &&
+      uvMappingEquals(this, other, "orm") &&
+      uvMappingEquals(this, other, "emissive") &&
       refOrDeepEquals(this.texture_albedo, other.texture_albedo) &&
       this.diffuse_color.equals(other.diffuse_color) &&
       refOrDeepEquals(this.texture_normal, other.texture_normal) &&
@@ -93,6 +126,19 @@ export class StandardShadeMaterial extends ShadeMaterial {
       this.ambient_factors.equals(other.ambient_factors)
     );
   }
+}
+
+function uvMappingEquals(
+  left: StandardShadeMaterial,
+  right: StandardShadeMaterial,
+  role: "normal" | "orm" | "emissive"
+): boolean {
+  return left[`${role}_uv_set`] === right[`${role}_uv_set`] &&
+    left[`${role}_uv_offset`][0] === right[`${role}_uv_offset`][0] &&
+    left[`${role}_uv_offset`][1] === right[`${role}_uv_offset`][1] &&
+    left[`${role}_uv_scale`][0] === right[`${role}_uv_scale`][0] &&
+    left[`${role}_uv_scale`][1] === right[`${role}_uv_scale`][1] &&
+    left[`${role}_uv_rotation`] === right[`${role}_uv_rotation`];
 }
 
 Object.assign(StandardShadeMaterial.prototype, { isStandardShadeMaterial: true });

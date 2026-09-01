@@ -64,9 +64,10 @@ struct R3VisibilityVertexOutput {
   @location(2) @interpolate(flat) visibility_key: u32,
   @location(3) uv0: vec2f,
   @location(4) uv1: vec2f,
-  @location(5) @interpolate(flat) uv_valid_mask: u32,
-  @location(6) @interpolate(flat) material_handle: u32,
-  @location(7) @interpolate(flat) mirrored: u32,
+  @location(5) uv2: vec2f,
+  @location(6) @interpolate(flat) uv_valid_mask: u32,
+  @location(7) @interpolate(flat) material_handle: u32,
+  @location(8) @interpolate(flat) mirrored: u32,
 }
 
 @group(0) @binding(0) var<uniform> r3_raster_camera: CommandEncoder;
@@ -80,6 +81,7 @@ struct R3VisibilityVertexOutput {
 @group(0) @binding(8) var<storage, read> r3_raster_work: R3RasterWorkQueueRead;
 @group(0) @binding(9) var<storage, read> r4_material_visibility: array<OEngineMaterialVisibilityRecord>;
 @group(0) @binding(10) var r4_alpha_atlas: texture_2d_array<f32>;
+@group(0) @binding(11) var r4_high_resolution_alpha_atlas: texture_2d_array<f32>;
 
 fn r3_read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
   let word = (*words)[byte_offset >> 2u];
@@ -165,6 +167,13 @@ fn raster_hierarchy_meshlets(
     geometry.uv1_format,
     source_vertex
   );
+  let uv2 = r4_read_uv(
+    &r3_raster_vertex_data,
+    geometry.uv2_byte_offset,
+    geometry.uv2_stride,
+    geometry.uv2_format,
+    source_vertex
+  );
   var output: R3VisibilityVertexOutput;
   output.position = r3_raster_camera.view_projection_matrix
     * instance.current_object_to_world
@@ -177,8 +186,10 @@ fn raster_hierarchy_meshlets(
   ).key;
   output.uv0 = select(vec2f(0.0), uv0.xy / uv0.z, uv0.z > 0.0);
   output.uv1 = select(vec2f(0.0), uv1.xy / uv1.z, uv1.z > 0.0);
+  output.uv2 = select(vec2f(0.0), uv2.xy / uv2.z, uv2.z > 0.0);
   output.uv_valid_mask = select(0u, 1u, uv0.z > 0.0) |
-    select(0u, 2u, uv1.z > 0.0);
+    select(0u, 2u, uv1.z > 0.0) |
+    select(0u, 4u, uv2.z > 0.0);
   output.material_handle = visible.material_handle;
   let linear = instance.current_object_to_world;
   let determinant = dot(linear[0].xyz, cross(linear[1].xyz, linear[2].xyz));
@@ -186,8 +197,7 @@ fn raster_hierarchy_meshlets(
   return output;
 }
 
-fn r4_wrap_texel(value: i32, mode: u32) -> u32 {
-  const size = ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE}i;
+fn r4_wrap_texel(value: i32, mode: u32, size: i32) -> u32 {
   if mode == 0u {
     return u32(clamp(value, 0i, size - 1i));
   }
@@ -203,18 +213,34 @@ fn r4_alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
   let address_u = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
   let address_v = (sampler_class >> OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS) &
     OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
-  let pixel = vec2u(
-    r4_wrap_texel(x, address_u),
-    r4_wrap_texel(y, address_v)
+  let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;
+  let layer = i32(texture_ref & OENGINE_MATERIAL_TEXTURE_LAYER_MASK);
+  let size = select(
+    i32(textureDimensions(r4_alpha_atlas).x),
+    i32(textureDimensions(r4_high_resolution_alpha_atlas).x),
+    high_resolution
   );
-  return textureLoad(r4_alpha_atlas, vec2i(pixel), i32(texture_ref), 0).a;
+  let pixel = vec2i(
+    r4_wrap_texel(x, address_u, size),
+    r4_wrap_texel(y, address_v, size)
+  );
+  if high_resolution {
+    return textureLoad(r4_high_resolution_alpha_atlas, pixel, layer, 0).a;
+  }
+  return textureLoad(r4_alpha_atlas, pixel, layer, 0).a;
 }
 
 fn r4_sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 {
-  let position = uv * ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE}.0 - 0.5;
+  let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;
+  let size = select(
+    f32(textureDimensions(r4_alpha_atlas).x),
+    f32(textureDimensions(r4_high_resolution_alpha_atlas).x),
+    high_resolution
+  );
+  let position = uv * size - 0.5;
   let base = vec2i(floor(position));
   if (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) == 0u {
-    let nearest = vec2i(floor(uv * ${GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE}.0));
+    let nearest = vec2i(floor(uv * size));
     return r4_alpha_texel(texture_ref, nearest.x, nearest.y, sampler_class);
   }
   let fraction = fract(position);
@@ -241,9 +267,10 @@ fn write_hierarchy_visibility(
   @location(2) @interpolate(flat) visibility_key: u32,
   @location(3) uv0: vec2f,
   @location(4) uv1: vec2f,
-  @location(5) @interpolate(flat) uv_valid_mask: u32,
-  @location(6) @interpolate(flat) material_handle: u32,
-  @location(7) @interpolate(flat) mirrored: u32,
+  @location(5) uv2: vec2f,
+  @location(6) @interpolate(flat) uv_valid_mask: u32,
+  @location(7) @interpolate(flat) material_handle: u32,
+  @location(8) @interpolate(flat) mirrored: u32,
   @builtin(front_facing) front_facing: bool
 ) -> @location(0) u32 {
   var record = OEngineMaterialVisibilityRecord(
@@ -263,7 +290,13 @@ fn write_hierarchy_visibility(
     OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE,
     OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE,
     OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE,
-    0u
+    0u,
+    vec4f(0.0, 0.0, 1.0, 1.0),
+    vec4f(1.0, 0.0, 0.0, 0.0),
+    vec4f(0.0, 0.0, 1.0, 1.0),
+    vec4f(1.0, 0.0, 0.0, 0.0),
+    vec4f(0.0, 0.0, 1.0, 1.0),
+    vec4f(1.0, 0.0, 0.0, 0.0)
   );
   if material_handle < arrayLength(&r4_material_visibility) {
     let candidate = r4_material_visibility[material_handle];
@@ -282,11 +315,12 @@ fn write_hierarchy_visibility(
   }
   if record.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK {
     var alpha = record.base_color_factor_alpha;
-    let uv_bit = select(0u, 1u << record.uv_set, record.uv_set < 2u);
+    let uv_set = record.texture_uv_sets & 0xffu;
+    let uv_bit = select(0u, 1u << uv_set, uv_set < 3u);
     if (record.flags & OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE) != 0u &&
       record.texture_ref != OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE &&
       (uv_valid_mask & uv_bit) != 0u {
-      let uv = select(uv0, uv1, record.uv_set == 1u);
+      let uv = select(select(uv0, uv1, uv_set == 1u), uv2, uv_set == 2u);
       alpha *= r4_sample_alpha(
         record.texture_ref,
         r4_transform_uv(record, uv),

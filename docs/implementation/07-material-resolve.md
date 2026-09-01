@@ -12,7 +12,7 @@
 
 `R4-B-01..06`、`R4-B-09` 已于 2026-08-28 集成，`R4-B-07/08` 按条件任务跳过，Packed 范围的 `R4-B-10` 已关闭。生产 Packed 主链现在只写 `VisibilityKey + depth`，随后由一次 `PackedMaterialResolvePass` 输出 Standard PBR Surface 与 velocity；active material 数不再增加 fullscreen draw。
 
-冻结结果：`MaterialRecord v2` 为 128 B；有界纹理 residency 为 64-layer、`256×256`、9-mip `texture_2d_array`，其中 layer 0 固定为 deterministic fallback，layer 1..63 是 63 个可驻留层；Surface 为 26 B/pixel；`GPU_COUNTER_SCHEMA_VERSION=4`。Packed Material Expand、Packed Velocity 与旧 auxiliary MRT 已删除。普通 `Scene` 的 legacy `MaterialExpandPass/VelocityPass` 因仍有公开 consumer 而保留为惰性路径，Packed 帧不创建其 owner、Pass 或资源，最终类级删除归 `FX-12`。
+当前结果：`MaterialRecord v3` 为 224 B；标准纹理 residency 为 64-layer、`256×256`、9-mip `texture_2d_array`，高分辨率 residency 为按需分配的 16-layer、`4096×4096`、13-mip array，两个池的 layer 0 都固定为 deterministic fallback。Surface 仍为 26 B/pixel。Packed Material Expand、Packed Velocity 与旧 auxiliary MRT 已删除。普通 `Scene` 的 legacy `MaterialExpandPass/VelocityPass` 因仍有公开 consumer 而保留为惰性路径，Packed 帧不创建其 owner、Pass 或资源，最终类级删除归 `FX-12`。
 
 ## 非目标
 
@@ -98,9 +98,9 @@ normal / ORM / emissive / extension TextureRef
 
 glTF 2.0 冻结字段语义；Filament、glTF Sample Viewer 和 three.js IBL baseline 冻结颜色空间、normal convention、BRDF/IBL 与可见画面对照。不能只凭肉眼猜 roughness/metallic 或曝光差异。
 
-### MaterialRecord v2 UV contract
+### MaterialRecord v3 UV contract
 
-- 当前 128 B record 只有一组 `uvSet + scale/rotation/offset`，由 baseColor、normal、ORM、emissive 共享；这是一条显式 v1 限制，不代表 glTF 的每纹理 UV 语义已完整实现。
+- 当前 224 B record 为 baseColor、normal、ORM、emissive 分别保存 `uvSet + scale/rotation/offset`，支持 Geometry ABI v3 的 UV0/UV1/UV2；Loader 保留 `KHR_texture_transform.texCoord` 的覆盖语义，不再把纹理映射强行归一化。
 - glTF loader 按 baseColor → normal → metallicRoughness/occlusion → emissive 归一化有效映射；`KHR_texture_transform.texCoord` 覆盖 TextureInfo `texCoord`，缺失 transform 归一化为 identity。
 - 只接受 `TEXCOORD_0/1`。任一已使用纹理的 texCoord、offset、scale 或 rotation 与共享映射不同，必须在进入 GPU residency 前明确拒绝，禁止静默按 baseColor UV 采样其它纹理。
 - Packed Material Resolve 根据 `MaterialRecord.uv_set` 选择 Geometry GPU ABI 的 UV0/UV1 descriptor，并保持同一套 analytic `dUVdx/dUVdy` 与 `textureSampleGrad` 路径。

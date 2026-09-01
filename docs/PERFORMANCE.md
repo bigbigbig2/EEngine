@@ -182,7 +182,7 @@ submitted fragments 没有可协商的 WebGPU pipeline-statistics producer，继
 | B | 1 | 1 | `1.559088 / 1.7152 / 2.05827136 ms` | 4 | `0 / 0` |
 | C | 3 | 1 | `0.66336 / 0.6934896 / 0.69565568 ms` | 0 | `0 / 0` |
 
-材质 `1 → 3` sweep 证明 fullscreen draw 恒为 1。Surface 物理布局为 26 B/pixel：PBR `rg8unorm` 2、normal `rgba16uint` 8、albedo/AO `rgba8unorm` 4、emissive `r32uint` 4、velocity `rg16float` 4、flags `r32uint` 4；旧 Packed Material Expand + Velocity 链为 34 B/pixel，因此少 8 B/pixel，在 1280×720 少 `7,372,800` transient bytes。Material/texture owner 分配 `22,893,824` B，其中 array texture resident bytes 为 `22,369,536`；固定 64 layers、`256×256`、9 mips 的方案换取 WebGPU baseline 下的确定容量、单 binding 与一致 mip 行为，代价是 C 即使没有 resident texture 也保留该固定 owner 内存，后续 texture streaming/size-class 需要另做同条件 benchmark。
+材质 `1 → 3` sweep 证明 fullscreen draw 恒为 1。Surface 物理布局为 26 B/pixel：PBR `rg8unorm` 2、normal `rgba16uint` 8、albedo/AO `rgba8unorm` 4、emissive `r32uint` 4、velocity `rg16float` 4、flags `r32uint` 4；旧 Packed Material Expand + Velocity 链为 34 B/pixel，因此少 8 B/pixel，在 1280×720 少 `7,372,800` transient bytes。原 v2 owner 固定分配 `22,893,824` B。v3 的 224 B material records 使无 4K 资产时固定 owner 变为 `23,287,040` B；遇到大于 256 的源贴图才惰性分配 16-layer、4096²、13-mip 高分辨率池。该池满配约 1.43 GiB，因此 4K 画质验收必须同时记录 adapter 显存压力、resident 高分辨率层数和帧时间；它是有界画质修复，不是 texture streaming/压缩的替代品。
 
 与 R4-A clean artifact `1c160d7` 的旧 Packed Material Expand 对照：
 

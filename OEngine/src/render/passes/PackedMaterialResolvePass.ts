@@ -49,6 +49,11 @@ const INPUT_GROUP: GPUBindGroupLayoutDescriptor = {
       binding: 10,
       visibility: GPUShaderStage.FRAGMENT,
       buffer: { type: "read-only-storage" }
+    },
+    {
+      binding: 11,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "float", viewDimension: "2d-array" }
     }
   ]
 };
@@ -184,7 +189,8 @@ export class PackedMaterialResolvePass {
             { buffer: this.previousViewProjectionBuffer },
             data.runtime.materialVisibility.textureArray,
             ...this.samplers,
-            { buffer: data.runtime.materialVisibility.materialRecords }
+            { buffer: data.runtime.materialVisibility.materialRecords },
+            data.runtime.materialVisibility.highResolutionTextureArray
           ]
         });
         const group1 = this.graphics.bind_groups.obtain({

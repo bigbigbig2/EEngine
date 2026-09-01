@@ -382,6 +382,40 @@ export class Renderer {
   feature_automatic_exposure_enabled = true;
   feature_motion_blur_enabled = false;
   feature_sharpening_enabled = true;
+  ssao_intensity = 1;
+  ssao_falloff = 0.615;
+  ssr_max_distance = 16;
+  ssr_edge_fade = 0.07;
+  taa_history_strength = 1;
+  bloom_intensity = 1;
+  sharpening_strength = 0.8;
+  private _exposure_compensation = 0;
+  private _exposure_speed_up = 3;
+  private _exposure_speed_down = 1.2;
+
+  get exposure_compensation(): number { return this._exposure_compensation; }
+  set exposure_compensation(value: number) {
+    this._exposure_compensation = Math.max(-8, Math.min(8, value));
+    if (this._automaticExposure !== null) {
+      this._automaticExposure.exposure_compensation = this._exposure_compensation;
+    }
+  }
+
+  get exposure_speed_up(): number { return this._exposure_speed_up; }
+  set exposure_speed_up(value: number) {
+    this._exposure_speed_up = Math.max(0, value);
+    if (this._automaticExposure !== null) {
+      this._automaticExposure.adaptation_speed_up = this._exposure_speed_up;
+    }
+  }
+
+  get exposure_speed_down(): number { return this._exposure_speed_down; }
+  set exposure_speed_down(value: number) {
+    this._exposure_speed_down = Math.max(0, value);
+    if (this._automaticExposure !== null) {
+      this._automaticExposure.adaptation_speed_down = this._exposure_speed_down;
+    }
+  }
 
   get ssao_resolution_scale(): 0.5 | 1 {
     return this._ssao_resolution_scale;
@@ -1804,7 +1838,9 @@ export class Renderer {
               camera: bindings.camera,
               lights: bindings.gpuScene.lights,
               width: bindings.internalWidth,
-              height: bindings.internalHeight
+              height: bindings.internalHeight,
+              intensity: this.ssao_intensity,
+              falloff: this.ssao_falloff
             })),
             {
               camera: currentCameraRes,
@@ -1891,7 +1927,9 @@ export class Renderer {
               historyInputIndex: bindings.ssaoHistoryInputIndex,
               historyOutputIndex: bindings.ssaoHistoryOutputIndex,
               width: bindings.internalWidth,
-              height: bindings.internalHeight
+              height: bindings.internalHeight,
+              intensity: this.ssao_intensity,
+              falloff: this.ssao_falloff
             })),
             {
               depth: depthRes,
@@ -1966,7 +2004,9 @@ export class Renderer {
                 historyValid: bindings.ssrHistoryValidity >= 0.5,
                 historyInputIndex: bindings.ssrHistoryInputIndex,
                 historyOutputIndex: bindings.ssrHistoryOutputIndex,
-                samplers: this._graphics.samplers
+                samplers: this._graphics.samplers,
+                maxDistance: this.ssr_max_distance,
+                edgeFade: this.ssr_edge_fade
               })),
               {
                 depth: depthRes,
@@ -2187,7 +2227,9 @@ export class Renderer {
                 historyValid: bindings.ssrHistoryValidity >= 0.5,
                 historyInputIndex: bindings.ssrHistoryInputIndex,
                 historyOutputIndex: bindings.ssrHistoryOutputIndex,
-                samplers: this._graphics.samplers
+                samplers: this._graphics.samplers,
+                maxDistance: this.ssr_max_distance,
+                edgeFade: this.ssr_edge_fade
               })),
               {
                 depth: depthRes,
@@ -2495,7 +2537,8 @@ export class Renderer {
                   bindings.outputWidth,
                   bindings.outputHeight
                 ],
-                samplers: this._graphics.samplers
+                samplers: this._graphics.samplers,
+                historyStrength: this.taa_history_strength
               })),
               {
                 output: historyOutputRes,
@@ -2535,20 +2578,24 @@ export class Renderer {
             hdrRes,
             this._output_resolution.x,
             this._output_resolution.y,
-            0.8
+            bind("sharpen-job", () => ({ sharpness: this.sharpening_strength }))
           );
         }
 
         let exposureRes: ResourceId | null = null;
         let exposureInput = hdrRes;
         if (hdrRes !== null && graphTopology.bloom) {
-          const bloom = this._bloom!.addToGraph(graph, hdrRes, {
-            width: this._output_resolution.x,
-            height: this._output_resolution.y,
-            intensity: 1,
-            mipCount: 5,
-            samplers: this._graphics.samplers
-          });
+          const bloom = this._bloom!.addToGraph(
+            graph,
+            hdrRes,
+            bind("bloom-job", () => ({
+              width: this._output_resolution.x,
+              height: this._output_resolution.y,
+              intensity: this.bloom_intensity,
+              mipCount: 5,
+              samplers: this._graphics.samplers
+            }))
+          );
           hdrRes = bloom.composited;
           exposureInput = bloom.downsampled;
         }
@@ -2948,6 +2995,9 @@ export class Renderer {
     }
     if (topology.automaticExposure) {
       this._automaticExposure ??= new AutomaticExposurePass(device);
+      this._automaticExposure.exposure_compensation = this._exposure_compensation;
+      this._automaticExposure.adaptation_speed_up = this._exposure_speed_up;
+      this._automaticExposure.adaptation_speed_down = this._exposure_speed_down;
     } else if (this._automaticExposure !== null) {
       this.retireAfterSubmittedWork(this._automaticExposure);
       this._automaticExposure = null;

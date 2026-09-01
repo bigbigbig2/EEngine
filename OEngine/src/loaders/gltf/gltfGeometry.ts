@@ -93,6 +93,8 @@ export function gltfAttributeName(semantic: string): string {
       return MeshletAttrName.Uv0;
     case "TEXCOORD_1":
       return MeshletAttrName.Uv1;
+    case "TEXCOORD_2":
+      return "uv2";
     case "TANGENT":
       return MeshletAttrName.Tangent;
     case "COLOR_0":

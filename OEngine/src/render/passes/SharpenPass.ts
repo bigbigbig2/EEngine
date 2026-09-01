@@ -60,9 +60,15 @@ export class SharpenPass {
     };
   }
 
-  addToGraph(graph: FrameGraph, input: ResourceId, width: number, height: number, sharpness = 0.8): ResourceId {
+  addToGraph(
+    graph: FrameGraph,
+    input: ResourceId,
+    width: number,
+    height: number,
+    job: { readonly sharpness: number }
+  ): ResourceId {
     let output = -1;
-    const builder = graph.add("Sharpen XE", { sharpness }, (data, resources, context) => {
+    const builder = graph.add("Sharpen XE", job, (data, resources, context) => {
       const command = context.encoder;
       if (!isShadeCommandContext(command)) {
         throw new Error("SharpenPass: cached XE requires ShadeGPUCommandContext");

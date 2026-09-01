@@ -310,6 +310,50 @@ select {
   border-top: 1px solid #f1f4f7;
 }
 
+.effect-block {
+  margin-top: 10px;
+  padding: 4px 11px 12px;
+  border: 1px solid #e7edf3;
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.effect-block:first-of-type {
+  margin-top: 0;
+}
+
+.effect-block .range-row {
+  margin-top: 8px;
+  padding-top: 9px;
+  border-top: 1px solid #edf2f6;
+}
+
+.switch-row.compact {
+  min-height: 38px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid #edf2f6;
+}
+
+.inline-field {
+  display: grid;
+  grid-template-columns: 1fr 112px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid #edf2f6;
+  color: #34455b;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.inline-field select {
+  height: 32px;
+  padding-left: 8px;
+  font-size: 10px;
+}
+
 .switch-row span {
   display: grid;
   gap: 2px;

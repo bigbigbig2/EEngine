@@ -7,6 +7,7 @@ import type { GPUTextureContext } from "./GPUTextureContext.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import {
   GPU_MATERIAL_VISIBILITY_ABI_VERSION,
+  GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_BIT,
   GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
   GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
   materialVisibilitySource,
@@ -20,6 +21,9 @@ export const GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY = 64;
 export const GPU_MATERIAL_VISIBILITY_TEXTURE_ATLAS_SIZE =
   GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE;
 export const GPU_MATERIAL_VISIBILITY_TEXTURE_MIP_COUNT = 9;
+export const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE = 4096;
+export const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY = 16;
+export const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIP_COUNT = 13;
 
 export interface GpuMaterialVisibilityBindings {
   readonly abiVersion: number;
@@ -27,8 +31,10 @@ export interface GpuMaterialVisibilityBindings {
   readonly textureCapacity: number;
   readonly materialRecords: GPUBuffer;
   readonly textureArray: GPUTextureView;
+  readonly highResolutionTextureArray: GPUTextureView;
   /** R4-A compatibility name; alpha and shading now share textureArray. */
   readonly alphaAtlas: GPUTextureView;
+  readonly highResolutionAlphaAtlas: GPUTextureView;
 }
 
 export interface GpuMaterialVisibilityStage {
@@ -38,7 +44,7 @@ export interface GpuMaterialVisibilityStage {
 }
 
 export interface GpuMaterialVisibilityEvidence {
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
   readonly abiVersion: number;
   readonly materialCapacity: number;
   readonly textureCapacity: number;
@@ -54,12 +60,19 @@ export interface GpuMaterialVisibilityEvidence {
   readonly residentTextureBytes: number;
   readonly textureSize: number;
   readonly mipLevelCount: number;
+  readonly highResolutionTextureSize: number;
+  readonly highResolutionTextureCapacity: number;
+  readonly highResolutionMipLevelCount: number;
+  readonly highResolutionArrayAllocated: boolean;
+  readonly residentHighResolutionTextureCount: number;
+  readonly freeHighResolutionTextureLayerCount: number;
   readonly privateSubmitCount: 0;
   readonly takeoverTask: null;
 }
 
 interface ResidentTexture {
   readonly layer: number;
+  readonly highResolution: boolean;
   readonly source: ShadeTexture;
   refCount: number;
   retireGeneration: number;
@@ -102,10 +115,14 @@ export class GpuMaterialVisibilityTable {
   private readonly textureArray: GPUTexture;
   private readonly textureArrayView: GPUTextureView;
   private readonly textureDescriptor: GPUTextureDescriptor;
+  private readonly highResolutionTextureDescriptor: GPUTextureDescriptor;
+  private highResolutionTextureArray: GPUTexture | null = null;
+  private highResolutionTextureArrayView: GPUTextureView | null = null;
   private readonly textures = new Map<ShadeTexture, ResidentTexture>();
   private readonly residentMaterials = new Map<StandardShadeMaterial, ResidentMaterial>();
   private readonly freeMaterialSlots: number[] = [];
   private readonly freeTextureLayers: number[] = [];
+  private readonly freeHighResolutionTextureLayers: number[] = [];
   private readonly textureFallbackMaterialIds = new Set<number>();
   private readonly samplerFallbackMaterialIds = new Set<number>();
   private resizePipeline: GPURenderPipeline | null = null;
@@ -148,12 +165,34 @@ export class GpuMaterialVisibilityTable {
     };
     this.textureArray = device.createTexture(this.textureDescriptor);
     this.textureArrayView = this.textureArray.createView({ dimension: "2d-array" });
+    this.highResolutionTextureDescriptor = {
+      label: "R4-B bounded 4K Standard PBR texture array",
+      size: [
+        GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE,
+        GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE,
+        GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY
+      ],
+      format: "rgba8unorm",
+      mipLevelCount: GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIP_COUNT,
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.COPY_SRC |
+        GPUTextureUsage.COPY_DST
+    };
     for (let slot = GPU_MATERIAL_VISIBILITY_CAPACITY - 1; slot >= 0; slot--) {
       this.freeMaterialSlots.push(slot);
     }
     // Layer 0 remains the deterministic fallback/cleared layer.
     for (let layer = GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 1; layer >= 1; layer--) {
       this.freeTextureLayers.push(layer);
+    }
+    for (
+      let layer = GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY - 1;
+      layer >= 1;
+      layer--
+    ) {
+      this.freeHighResolutionTextureLayers.push(layer);
     }
   }
 
@@ -210,16 +249,28 @@ export class GpuMaterialVisibilityTable {
         }
       }
       for (const entry of this.textures.values()) {
-        if (entry.refCount > 0) textureRefs.set(entry.source, entry.layer);
+        if (entry.refCount > 0) {
+          textureRefs.set(entry.source, entry.highResolution
+            ? (entry.layer | GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_BIT) >>> 0
+            : entry.layer);
+        }
       }
       this.graphics.textures.mipmaps.flush(command);
       for (const texture of newTextures) {
         this.encodeResizeCopy(command, texture);
       }
-      if (newTextures.length > 0) {
+      if (newTextures.some(({ highResolution }) => !highResolution)) {
         this.graphics.textures.mipmaps.generateMipmap(
           this.textureArray,
           this.textureDescriptor,
+          TextureFilterType.Linear,
+          command
+        );
+      }
+      if (newTextures.some(({ highResolution }) => highResolution)) {
+        this.graphics.textures.mipmaps.generateMipmap(
+          this.requireHighResolutionTextureArray(),
+          this.highResolutionTextureDescriptor,
           TextureFilterType.Linear,
           command
         );
@@ -309,7 +360,9 @@ export class GpuMaterialVisibilityTable {
       textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
       materialRecords: this.materialRecords,
       textureArray: this.textureArrayView,
-      alphaAtlas: this.textureArrayView
+      highResolutionTextureArray: this.highResolutionTextureArrayView ?? this.textureArrayView,
+      alphaAtlas: this.textureArrayView,
+      highResolutionAlphaAtlas: this.highResolutionTextureArrayView ?? this.textureArrayView
     });
   }
 
@@ -322,12 +375,16 @@ export class GpuMaterialVisibilityTable {
     }
     let residentTextureCount = 0;
     let retiringTextureCount = 0;
+    let residentHighResolutionTextureCount = 0;
     for (const entry of this.textures.values()) {
-      if (entry.refCount > 0) residentTextureCount++;
+      if (entry.refCount > 0) {
+        residentTextureCount++;
+        if (entry.highResolution) residentHighResolutionTextureCount++;
+      }
       else retiringTextureCount++;
     }
     return Object.freeze({
-      schemaVersion: 4,
+      schemaVersion: 5,
       abiVersion: GPU_MATERIAL_VISIBILITY_ABI_VERSION,
       materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
       textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
@@ -341,10 +398,20 @@ export class GpuMaterialVisibilityTable {
       samplerFallbackCount: this.samplerFallbackMaterialIds.size,
       allocatedBytes:
         GPU_MATERIAL_VISIBILITY_CAPACITY * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
-        textureArrayBytes(),
-      residentTextureBytes: textureArrayBytes(),
+        textureArrayBytes() + (this.highResolutionTextureArray === null
+          ? 0
+          : highResolutionTextureArrayBytes()),
+      residentTextureBytes: textureArrayBytes() + (this.highResolutionTextureArray === null
+        ? 0
+        : highResolutionTextureArrayBytes()),
       textureSize: GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
       mipLevelCount: GPU_MATERIAL_VISIBILITY_TEXTURE_MIP_COUNT,
+      highResolutionTextureSize: GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE,
+      highResolutionTextureCapacity: GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY,
+      highResolutionMipLevelCount: GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIP_COUNT,
+      highResolutionArrayAllocated: this.highResolutionTextureArray !== null,
+      residentHighResolutionTextureCount,
+      freeHighResolutionTextureLayerCount: this.freeHighResolutionTextureLayers.length,
       privateSubmitCount: 0,
       takeoverTask: null
     });
@@ -354,10 +421,12 @@ export class GpuMaterialVisibilityTable {
     this.destroyed = true;
     this.materialRecords.destroy();
     this.textureArray.destroy();
+    this.highResolutionTextureArray?.destroy();
     this.textures.clear();
     this.residentMaterials.clear();
     this.freeMaterialSlots.length = 0;
     this.freeTextureLayers.length = 0;
+    this.freeHighResolutionTextureLayers.length = 0;
     this.textureFallbackMaterialIds.clear();
     this.samplerFallbackMaterialIds.clear();
     this.resizePipeline = null;
@@ -366,16 +435,13 @@ export class GpuMaterialVisibilityTable {
   private preflight(materials: readonly StandardShadeMaterial[]): void {
     const newMaterials = new Set<StandardShadeMaterial>();
     const newTextures = new Set<ShadeTexture>();
+    const newHighResolutionTextures = new Set<ShadeTexture>();
     for (const material of materials) {
-      if (material.base_color_uv_set !== 0 && material.base_color_uv_set !== 1) {
-        throw new RangeError(
-          `Material '${material.name}' requests TEXCOORD_${material.base_color_uv_set}; ` +
-          "MaterialRecord v2 supports only TEXCOORD_0 and TEXCOORD_1"
-        );
-      }
       if (!this.residentMaterials.has(material)) newMaterials.add(material);
       for (const texture of material.textures) {
-        if (canStageTexture(texture) && !this.textures.has(texture)) newTextures.add(texture);
+        if (!canStageTexture(texture) || this.textures.has(texture)) continue;
+        if (requiresHighResolutionBank(texture)) newHighResolutionTextures.add(texture);
+        else newTextures.add(texture);
       }
     }
     if (newMaterials.size > this.freeMaterialSlots.length) {
@@ -390,6 +456,14 @@ export class GpuMaterialVisibilityTable {
         `${this.freeTextureLayers.length} of ${GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 1} are free`
       );
     }
+    if (newHighResolutionTextures.size > this.freeHighResolutionTextureLayers.length) {
+      throw new RangeError(
+        `R4-B 4K texture residency requires ${newHighResolutionTextures.size} new layers but only ` +
+        `${this.freeHighResolutionTextureLayers.length} of ` +
+        `${GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY - 1} are free`
+      );
+    }
+    if (newHighResolutionTextures.size > 0) this.ensureHighResolutionTextureArray();
   }
 
   private retainMaterialSlots(
@@ -463,9 +537,13 @@ export class GpuMaterialVisibilityTable {
       } catch {
         return null;
       }
-      const layer = this.freeTextureLayers.pop();
+      const highResolution = requiresHighResolutionBank(texture);
+      const freeLayers = highResolution
+        ? this.freeHighResolutionTextureLayers
+        : this.freeTextureLayers;
+      const layer = freeLayers.pop();
       if (layer === undefined) throw new RangeError("R4-B texture resident layer overflow");
-      entry = { layer, source: texture, refCount: 0, retireGeneration: 0 };
+      entry = { layer, highResolution, source: texture, refCount: 0, retireGeneration: 0 };
       this.textures.set(texture, entry);
       created = true;
     }
@@ -481,7 +559,7 @@ export class GpuMaterialVisibilityTable {
     entry.retireGeneration = operation.previousRetireGeneration;
     if (!operation.created || entry.refCount !== 0) return;
     if (this.textures.get(entry.source) === entry) this.textures.delete(entry.source);
-    this.freeTextureLayers.push(entry.layer);
+    this.freeLayers(entry).push(entry.layer);
   }
 
   private releaseTextureRefs(
@@ -502,7 +580,7 @@ export class GpuMaterialVisibilityTable {
     if (this.destroyed || entry.refCount !== 0 || entry.retireGeneration !== generation) return;
     if (this.textures.get(entry.source) !== entry) return;
     this.textures.delete(entry.source);
-    this.freeTextureLayers.push(entry.layer);
+    this.freeLayers(entry).push(entry.layer);
   }
 
   private encodeResizeCopy(
@@ -510,9 +588,15 @@ export class GpuMaterialVisibilityTable {
     tile: ResidentTexture
   ): void {
     const source = this.graphics.textures.obtain(tile.source);
+    const targetSize = tile.highResolution
+      ? GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE
+      : GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE;
+    const targetTexture = tile.highResolution
+      ? this.requireHighResolutionTextureArray()
+      : this.textureArray;
     const sourceMip = Math.max(0, Math.floor(Math.min(
-      Math.log2(source.width / GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE),
-      Math.log2(source.height / GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE)
+      Math.log2(source.width / targetSize),
+      Math.log2(source.height / targetSize)
     )));
     const sourceWidth = Math.max(1, source.width >> sourceMip);
     const sourceHeight = Math.max(1, source.height >> sourceMip);
@@ -531,7 +615,7 @@ export class GpuMaterialVisibilityTable {
     const pass = command.beginRenderPass({
       label: "R4-B texture array layer upload",
       colorAttachments: [{
-        view: this.textureArray.createView({
+        view: targetTexture.createView({
           dimension: "2d",
           baseMipLevel: 0,
           mipLevelCount: 1,
@@ -545,8 +629,8 @@ export class GpuMaterialVisibilityTable {
     pass.setViewport(
       0,
       0,
-      GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
-      GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
+      targetSize,
+      targetSize,
       0,
       1
     );
@@ -561,6 +645,38 @@ export class GpuMaterialVisibilityTable {
       RESIZE_COPY_PIPELINE
     );
     return this.resizePipeline;
+  }
+
+  private freeLayers(entry: ResidentTexture): number[] {
+    return entry.highResolution
+      ? this.freeHighResolutionTextureLayers
+      : this.freeTextureLayers;
+  }
+
+  private ensureHighResolutionTextureArray(): void {
+    if (this.highResolutionTextureArray !== null) return;
+    const limits = this.graphics.device.limits;
+    if (
+      Number(limits.maxTextureDimension2D) <
+        GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE ||
+      Number(limits.maxTextureArrayLayers) <
+        GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY
+    ) {
+      throw new RangeError(
+        "R4-B 4K texture residency exceeds this WebGPU device's texture limits"
+      );
+    }
+    this.highResolutionTextureArray = this.graphics.device.createTexture(
+      this.highResolutionTextureDescriptor
+    );
+    this.highResolutionTextureArrayView = this.highResolutionTextureArray.createView({
+      dimension: "2d-array"
+    });
+  }
+
+  private requireHighResolutionTextureArray(): GPUTexture {
+    this.ensureHighResolutionTextureArray();
+    return this.highResolutionTextureArray!;
   }
 }
 
@@ -636,6 +752,12 @@ function canStageTexture(texture: ShadeTexture): boolean {
   return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;
 }
 
+function requiresHighResolutionBank(texture: ShadeTexture): boolean {
+  const image = texture.image;
+  return image !== undefined && Math.max(image.width, image.height) >
+    GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE;
+}
+
 function writeSet(set: Set<number>, value: number, present: boolean): void {
   if (present) set.add(value);
   else set.delete(value);
@@ -648,4 +770,14 @@ function textureArrayBytes(): number {
     texels += size * size;
   }
   return texels * GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY * 4;
+}
+
+
+function highResolutionTextureArrayBytes(): number {
+  let texels = 0;
+  for (let mip = 0; mip < GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIP_COUNT; mip++) {
+    const size = Math.max(1, GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE >> mip);
+    texels += size * size;
+  }
+  return texels * GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY * 4;
 }

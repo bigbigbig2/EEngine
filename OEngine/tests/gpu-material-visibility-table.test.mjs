@@ -39,8 +39,8 @@ test("R4-B Material owner assigns dense slots independent of global material.id 
   assert.equal(new DataView(command.writes[0].bytes.buffer).getUint32(0, true), 0);
   assert.equal(command.renderPassCount, 1);
   assert.deepEqual(table.evidence(), {
-    schemaVersion: 4,
-    abiVersion: 2,
+    schemaVersion: 5,
+    abiVersion: 3,
     materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
     textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
     residentMaterialSlotCount: 1,
@@ -51,10 +51,16 @@ test("R4-B Material owner assigns dense slots independent of global material.id 
     freeTextureLayerCount: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 2,
     textureFallbackCount: 0,
     samplerFallbackCount: 0,
-    allocatedBytes: 22_893_824,
+    allocatedBytes: 23_287_040,
     residentTextureBytes: 22_369_536,
     textureSize: 256,
     mipLevelCount: 9,
+    highResolutionTextureSize: 4096,
+    highResolutionTextureCapacity: 16,
+    highResolutionMipLevelCount: 13,
+    highResolutionArrayAllocated: false,
+    residentHighResolutionTextureCount: 0,
+    freeHighResolutionTextureLayerCount: 15,
     privateSubmitCount: 0,
     takeoverTask: null
   });
@@ -174,15 +180,43 @@ test("R4-B Material owner refcounts shared residency and reuses slots only after
   table.destroy();
 });
 
-test("R4-B Material owner rejects unsupported UV and capacity overflow before GPU work", () => {
+test("R4-B 4K textures use the lazy bounded high-resolution array", () => {
+  const graphics = fakeGraphics();
+  const table = new GpuMaterialVisibilityTable(graphics);
+  const texture = validTexture();
+  texture.image.width = 4096;
+  texture.image.height = 4096;
+  const material = new StandardShadeMaterial();
+  material.texture_albedo = texture;
+  const command = new FakeCommand();
+  const staged = table.stage([material], command);
+  const ref = textureRef(command.writes[0]);
+  assert.equal((ref & 0x80000000) >>> 0, 0x80000000);
+  assert.equal(ref & 0x7fffffff, 1);
+  assert.notEqual(
+    staged.bindings.highResolutionTextureArray,
+    staged.bindings.textureArray
+  );
+  assert.equal(table.evidence().highResolutionArrayAllocated, true);
+  assert.equal(table.evidence().residentHighResolutionTextureCount, 1);
+  assert.equal(graphics.texturesCreated.length, 2);
+  assert.deepEqual(graphics.texturesCreated[1].descriptor.size, [4096, 4096, 16]);
+  table.destroy();
+});
+
+test("R4-B Material owner accepts UV2 and rejects UV3 before GPU work", () => {
   const graphics = fakeGraphics();
   const table = new GpuMaterialVisibilityTable(graphics);
   const invalidUv = new StandardShadeMaterial();
   invalidUv.base_color_uv_set = 2;
   const uvCommand = new FakeCommand();
-  assert.throws(() => table.stage([invalidUv], uvCommand), /supports only TEXCOORD_0/);
-  assert.equal(uvCommand.writes.length, 0);
-  assert.equal(uvCommand.renderPassCount, 0);
+  assert.doesNotThrow(() => table.stage([invalidUv], uvCommand));
+  uvCommand.abort();
+  invalidUv.base_color_uv_set = 3;
+  const invalidCommand = new FakeCommand();
+  assert.throws(() => table.stage([invalidUv], invalidCommand), /supports TEXCOORD_0/);
+  assert.equal(invalidCommand.writes.length, 0);
+  assert.equal(invalidCommand.renderPassCount, 0);
 
   const materials = Array.from(
     { length: GPU_MATERIAL_VISIBILITY_CAPACITY + 1 },
@@ -265,7 +299,9 @@ function fakeGraphics() {
     device: {
       limits: {
         maxBufferSize: 1 << 30,
-        maxStorageBufferBindingSize: 1 << 30
+        maxStorageBufferBindingSize: 1 << 30,
+        maxTextureDimension2D: 8192,
+        maxTextureArrayLayers: 256
       },
       createBuffer(descriptor) {
         const mapped = new ArrayBuffer(descriptor.size);

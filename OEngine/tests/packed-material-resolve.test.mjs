@@ -86,7 +86,7 @@ test("R4-B Single Resolve owns one fullscreen pass and the frozen 26 B/pixel Sur
   pass.destroy();
 });
 
-test("R4-B shader performs the complete key lookup and one analytic-gradient material sample path", () => {
+test("R4-B shader performs complete lookup and per-texture UV0/UV1/UV2 gradient sampling", () => {
   for (const lookup of [
     "raster_slot >= min(raster_work.header.written, raster_work.header.capacity)",
     "work.visible_cluster_slot >= min(visible_clusters.header.written, visible_clusters.header.capacity)",
@@ -103,12 +103,14 @@ test("R4-B shader performs the complete key lookup and one analytic-gradient mat
   ]) assert.match(PACKED_MATERIAL_RESOLVE_WGSL, new RegExp(lookup.replace(/[&()]/g, "\\$&")));
 
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /textureSampleGrad\(material_textures/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /material_info\.uv_set > 1u/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /textureSampleGrad\(high_resolution_material_textures/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /const SEMANTIC_UV1: u32 = 0x00317675u/);
-  assert.match(
-    PACKED_MATERIAL_RESOLVE_WGSL,
-    /select\(SEMANTIC_UV0, SEMANTIC_UV1, material_info\.uv_set == 1u\)/
-  );
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /const SEMANTIC_UV2: u32 = 0x00327675u/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /fn reconstruct_material_uv/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /reconstruct_material_uv\(material_info, 0u/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /reconstruct_material_uv\(material_info, 1u/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /reconstruct_material_uv\(material_info, 2u/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /reconstruct_material_uv\(material_info, 3u/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /perspective_barycentric_with_derivatives/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /\bdpdx\b|\bdpdy\b/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /mat4_inverse|inverse\s*\(/);

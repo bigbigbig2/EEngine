@@ -8,9 +8,9 @@
  * resident tables.
  */
 
-export const GPU_GEOMETRY_ABI_VERSION = 2;
+export const GPU_GEOMETRY_ABI_VERSION = 3;
 export const GPU_FALLBACK_RECORD_INDEX = 0;
-export const GPU_GEOMETRY_RECORD_STRIDE = 160;
+export const GPU_GEOMETRY_RECORD_STRIDE = 176;
 export const GPU_CLUSTER_RECORD_STRIDE = 128;
 export const GPU_MESHLET_RECORD_STRIDE = 112;
 
@@ -61,7 +61,11 @@ const GEOMETRY_FIELDS: readonly GpuAbiField[] = [
   { name: "uv1_byte_offset", kind: "u32", byteOffset: 144 },
   { name: "uv1_stride", kind: "u32", byteOffset: 148 },
   { name: "uv1_format", kind: "u32", byteOffset: 152 },
-  { name: "_pad0", kind: "u32", byteOffset: 156 }
+  { name: "uv2_byte_offset", kind: "u32", byteOffset: 156 },
+  { name: "uv2_stride", kind: "u32", byteOffset: 160 },
+  { name: "uv2_format", kind: "u32", byteOffset: 164 },
+  { name: "_pad0", kind: "u32", byteOffset: 168 },
+  { name: "_pad1", kind: "u32", byteOffset: 172 }
 ];
 
 const CLUSTER_FIELDS: readonly GpuAbiField[] = [
@@ -164,6 +168,9 @@ export interface GpuGeometryRecordCpu {
   readonly uv1ByteOffset: number;
   readonly uv1Stride: number;
   readonly uv1Format: number;
+  readonly uv2ByteOffset: number;
+  readonly uv2Stride: number;
+  readonly uv2Format: number;
 }
 
 export interface GpuClusterRecordCpu {
@@ -231,7 +238,10 @@ export function packGpuGeometryRecord(record: GpuGeometryRecordCpu): Uint8Array 
     record.uv0Format,
     record.uv1ByteOffset,
     record.uv1Stride,
-    record.uv1Format
+    record.uv1Format,
+    record.uv2ByteOffset,
+    record.uv2Stride,
+    record.uv2Format
   ];
   for (let index = 0; index < values.length; index++) {
     view.setUint32(48 + index * 4, checkedU32(values[index]!, "GeometryRecord"), true);

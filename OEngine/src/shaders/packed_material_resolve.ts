@@ -29,6 +29,7 @@ const SEMANTIC_TANGENT: u32 = 0x676e6174u;
 const SEMANTIC_COLOR: u32 = 0x6f6c6f63u;
 const SEMANTIC_UV0: u32 = 0x00307675u;
 const SEMANTIC_UV1: u32 = 0x00317675u;
+const SEMANTIC_UV2: u32 = 0x00327675u;
 const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
 
 struct R4ResolveQueueHeaderRead {
@@ -63,6 +64,7 @@ struct R4ResolveRasterWorkQueue {
 @group(0) @binding(8) var sampler_clamp_nearest: sampler;
 @group(0) @binding(9) var sampler_mirror_nearest: sampler;
 @group(0) @binding(10) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(11) var high_resolution_material_textures: texture_2d_array<f32>;
 
 @group(1) @binding(0) var<storage, read> instances: array<OEngineInstanceRecord>;
 @group(1) @binding(1) var<storage, read> geometries: array<GpuGeometryRecord>;
@@ -292,39 +294,112 @@ fn sample_material_texture(
   if texture_ref == OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE {
     return fallback;
   }
+  let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;
+  let layer = i32(texture_ref & OENGINE_MATERIAL_TEXTURE_LAYER_MASK);
   let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
   let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
-  if linear {
+  if high_resolution {
+    if linear {
+      if address == 0u {
+        return textureSampleGrad(high_resolution_material_textures, sampler_clamp_linear, uv, layer, uv_dx, uv_dy);
+      }
+      if address == 2u {
+        return textureSampleGrad(high_resolution_material_textures, sampler_mirror_linear, uv, layer, uv_dx, uv_dy);
+      }
+      return textureSampleGrad(high_resolution_material_textures, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
+    }
     if address == 0u {
-      return textureSampleGrad(material_textures, sampler_clamp_linear, uv, i32(texture_ref), uv_dx, uv_dy);
+      return textureSampleGrad(high_resolution_material_textures, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy);
     }
     if address == 2u {
-      return textureSampleGrad(material_textures, sampler_mirror_linear, uv, i32(texture_ref), uv_dx, uv_dy);
+      return textureSampleGrad(high_resolution_material_textures, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy);
     }
-    return textureSampleGrad(material_textures, sampler_repeat_linear, uv, i32(texture_ref), uv_dx, uv_dy);
+    return textureSampleGrad(high_resolution_material_textures, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
+  }
+  if linear {
+    if address == 0u {
+      return textureSampleGrad(material_textures, sampler_clamp_linear, uv, layer, uv_dx, uv_dy);
+    }
+    if address == 2u {
+      return textureSampleGrad(material_textures, sampler_mirror_linear, uv, layer, uv_dx, uv_dy);
+    }
+    return textureSampleGrad(material_textures, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
   }
   if address == 0u {
-    return textureSampleGrad(material_textures, sampler_clamp_nearest, uv, i32(texture_ref), uv_dx, uv_dy);
+    return textureSampleGrad(material_textures, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy);
   }
   if address == 2u {
-    return textureSampleGrad(material_textures, sampler_mirror_nearest, uv, i32(texture_ref), uv_dx, uv_dy);
+    return textureSampleGrad(material_textures, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy);
   }
-  return textureSampleGrad(material_textures, sampler_repeat_nearest, uv, i32(texture_ref), uv_dx, uv_dy);
+  return textureSampleGrad(material_textures, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
 }
 
-fn transform_material_uv(material: OEngineMaterialVisibilityRecord, uv: vec2f) -> vec2f {
-  let scaled = uv * material.uv_offset_scale.zw;
-  return material.uv_offset_scale.xy + vec2f(
-    material.uv_rotation.x * scaled.x - material.uv_rotation.y * scaled.y,
-    material.uv_rotation.y * scaled.x + material.uv_rotation.x * scaled.y
+fn material_uv_set(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
+  return (material.texture_uv_sets >> (slot * 8u)) & 0xffu;
+}
+
+fn material_uv_offset_scale(material: OEngineMaterialVisibilityRecord, slot: u32) -> vec4f {
+  if slot == 1u { return material.normal_uv_offset_scale; }
+  if slot == 2u { return material.orm_uv_offset_scale; }
+  if slot == 3u { return material.emissive_uv_offset_scale; }
+  return material.uv_offset_scale;
+}
+
+fn material_uv_rotation(material: OEngineMaterialVisibilityRecord, slot: u32) -> vec4f {
+  if slot == 1u { return material.normal_uv_rotation; }
+  if slot == 2u { return material.orm_uv_rotation; }
+  if slot == 3u { return material.emissive_uv_rotation; }
+  return material.uv_rotation;
+}
+
+fn transform_material_uv(material: OEngineMaterialVisibilityRecord, slot: u32, uv: vec2f) -> vec2f {
+  let offset_scale = material_uv_offset_scale(material, slot);
+  let rotation = material_uv_rotation(material, slot);
+  let scaled = uv * offset_scale.zw;
+  return offset_scale.xy + vec2f(
+    rotation.x * scaled.x - rotation.y * scaled.y,
+    rotation.y * scaled.x + rotation.x * scaled.y
   );
 }
 
-fn transform_material_gradient(material: OEngineMaterialVisibilityRecord, gradient: vec2f) -> vec2f {
-  let scaled = gradient * material.uv_offset_scale.zw;
+fn transform_material_gradient(material: OEngineMaterialVisibilityRecord, slot: u32, gradient: vec2f) -> vec2f {
+  let offset_scale = material_uv_offset_scale(material, slot);
+  let rotation = material_uv_rotation(material, slot);
+  let scaled = gradient * offset_scale.zw;
   return vec2f(
-    material.uv_rotation.x * scaled.x - material.uv_rotation.y * scaled.y,
-    material.uv_rotation.y * scaled.x + material.uv_rotation.x * scaled.y
+    rotation.x * scaled.x - rotation.y * scaled.y,
+    rotation.y * scaled.x + rotation.x * scaled.y
+  );
+}
+
+struct ReconstructedMaterialUv {
+  uv: vec2f,
+  ddx: vec2f,
+  ddy: vec2f,
+}
+
+fn reconstruct_material_uv(
+  material: OEngineMaterialVisibilityRecord,
+  slot: u32,
+  geometry: GpuGeometryRecord,
+  vertices: vec3u,
+  bary: PerspectiveBarycentric
+) -> ReconstructedMaterialUv {
+  let uv_set = material_uv_set(material, slot);
+  var uv_semantic = SEMANTIC_UV0;
+  if uv_set == 1u { uv_semantic = SEMANTIC_UV1; }
+  if uv_set == 2u { uv_semantic = SEMANTIC_UV2; }
+  let descriptor = find_stream(geometry, uv_semantic);
+  let value0 = read_stream4_from_descriptor(descriptor, vertices.x, vec4f(0.0)).xy;
+  let value1 = read_stream4_from_descriptor(descriptor, vertices.y, vec4f(0.0)).xy;
+  let value2 = read_stream4_from_descriptor(descriptor, vertices.z, vec4f(0.0)).xy;
+  let reconstructed = value0 * bary.weights.x + value1 * bary.weights.y + value2 * bary.weights.z;
+  let reconstructed_dx = (value0 * bary.ddx.x + value1 * bary.ddx.y + value2 * bary.ddx.z) / view.upscale_ratio.x;
+  let reconstructed_dy = (value0 * bary.ddy.x + value1 * bary.ddy.y + value2 * bary.ddy.z) / view.upscale_ratio.y;
+  return ReconstructedMaterialUv(
+    transform_material_uv(material, slot, reconstructed),
+    transform_material_gradient(material, slot, reconstructed_dx),
+    transform_material_gradient(material, slot, reconstructed_dy)
   );
 }
 
@@ -376,9 +451,6 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let position_descriptor = find_stream(geometry, SEMANTIC_POSITION);
   let normal_descriptor = find_stream(geometry, SEMANTIC_NORMAL);
   let tangent_descriptor = find_stream(geometry, SEMANTIC_TANGENT);
-  if material_info.uv_set > 1u { discard; }
-  let uv_semantic = select(SEMANTIC_UV0, SEMANTIC_UV1, material_info.uv_set == 1u);
-  let uv_descriptor = find_stream(geometry, uv_semantic);
   let color_descriptor = find_stream(geometry, SEMANTIC_COLOR);
   let local0 = read_stream4_from_descriptor(position_descriptor, vertices.x, vec4f(0.0)).xyz;
   let local1 = read_stream4_from_descriptor(position_descriptor, vertices.y, vec4f(0.0)).xyz;
@@ -402,18 +474,13 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let tangent0 = read_stream4_from_descriptor(tangent_descriptor, vertices.x, vec4f(1.0, 0.0, 0.0, 1.0));
   let tangent1 = read_stream4_from_descriptor(tangent_descriptor, vertices.y, vec4f(1.0, 0.0, 0.0, 1.0));
   let tangent2 = read_stream4_from_descriptor(tangent_descriptor, vertices.z, vec4f(1.0, 0.0, 0.0, 1.0));
-  let uv0 = read_stream4_from_descriptor(uv_descriptor, vertices.x, vec4f(0.0)).xy;
-  let uv1 = read_stream4_from_descriptor(uv_descriptor, vertices.y, vec4f(0.0)).xy;
-  let uv2 = read_stream4_from_descriptor(uv_descriptor, vertices.z, vec4f(0.0)).xy;
   let color0 = read_stream4_from_descriptor(color_descriptor, vertices.x, vec4f(1.0)).rgb;
   let color1 = read_stream4_from_descriptor(color_descriptor, vertices.y, vec4f(1.0)).rgb;
   let color2 = read_stream4_from_descriptor(color_descriptor, vertices.z, vec4f(1.0)).rgb;
-  let reconstructed_uv = uv0 * bary.weights.x + uv1 * bary.weights.y + uv2 * bary.weights.z;
-  let reconstructed_uv_dx = (uv0 * bary.ddx.x + uv1 * bary.ddx.y + uv2 * bary.ddx.z) / view.upscale_ratio.x;
-  let reconstructed_uv_dy = (uv0 * bary.ddy.x + uv1 * bary.ddy.y + uv2 * bary.ddy.z) / view.upscale_ratio.y;
-  let uv = transform_material_uv(material_info, reconstructed_uv);
-  let uv_dx = transform_material_gradient(material_info, reconstructed_uv_dx);
-  let uv_dy = transform_material_gradient(material_info, reconstructed_uv_dy);
+  let albedo_uv = reconstruct_material_uv(material_info, 0u, geometry, vertices, bary);
+  let normal_uv = reconstruct_material_uv(material_info, 1u, geometry, vertices, bary);
+  let orm_uv = reconstruct_material_uv(material_info, 2u, geometry, vertices, bary);
+  let emissive_uv = reconstruct_material_uv(material_info, 3u, geometry, vertices, bary);
   let vertex_color = color0 * bary.weights.x + color1 * bary.weights.y + color2 * bary.weights.z;
   let local_normal = safe_normalize(
     normal0 * bary.weights.x + normal1 * bary.weights.y + normal2 * bary.weights.z,
@@ -436,9 +503,9 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   var sampled_normal = sample_material_texture(
     material_info.normal_texture_ref,
     material_sampler_class(material_info, 1u),
-    uv,
-    uv_dx,
-    uv_dy,
+    normal_uv.uv,
+    normal_uv.ddx,
+    normal_uv.ddy,
     vec4f(0.5, 0.5, 1.0, 1.0)
   ).xyz * 2.0 - 1.0;
   sampled_normal = vec3f(
@@ -452,25 +519,25 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let orm = sample_material_texture(
     material_info.orm_texture_ref,
     material_sampler_class(material_info, 2u),
-    uv,
-    uv_dx,
-    uv_dy,
+    orm_uv.uv,
+    orm_uv.ddx,
+    orm_uv.ddy,
     vec4f(1.0)
   );
   let albedo_sample = sample_material_texture(
     material_info.texture_ref,
     material_sampler_class(material_info, 0u),
-    uv,
-    uv_dx,
-    uv_dy,
+    albedo_uv.uv,
+    albedo_uv.ddx,
+    albedo_uv.ddy,
     vec4f(1.0)
   );
   let emissive_sample = sample_material_texture(
     material_info.emissive_texture_ref,
     material_sampler_class(material_info, 3u),
-    uv,
-    uv_dx,
-    uv_dy,
+    emissive_uv.uv,
+    emissive_uv.ddx,
+    emissive_uv.ddy,
     vec4f(1.0)
   );
   let albedo = albedo_sample.rgb * vertex_color * material_info.base_color_factor.rgb;

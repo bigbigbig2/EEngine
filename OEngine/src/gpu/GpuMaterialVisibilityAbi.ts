@@ -2,9 +2,10 @@ import { ShadeDrawSide, ShadeTransparencyMode } from "../material/enums.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 
-export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 2;
-export const GPU_MATERIAL_VISIBILITY_RECORD_STRIDE = 128;
+export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 3;
+export const GPU_MATERIAL_VISIBILITY_RECORD_STRIDE = 224;
 export const GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE = 0xffffffff;
+export const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_BIT = 0x80000000;
 
 export const GPU_MATERIAL_VISIBILITY_ALPHA_MODE = Object.freeze({
   Opaque: 0,
@@ -45,14 +46,20 @@ export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
   texture_ref: 12,
   base_color_factor_alpha: 16,
   alpha_cutoff: 20,
-  uv_set: 24,
+  texture_uv_sets: 24,
   sampler_class: 28,
   uv_offset_scale: 32,
   uv_rotation: 48,
   base_color_factor: 64,
   pbr_factors: 80,
   emissive_factor: 96,
-  texture_refs: 112
+  texture_refs: 112,
+  normal_uv_offset_scale: 128,
+  normal_uv_rotation: 144,
+  orm_uv_offset_scale: 160,
+  orm_uv_rotation: 176,
+  emissive_uv_offset_scale: 192,
+  emissive_uv_rotation: 208
 });
 
 export interface GpuMaterialVisibilityPackedSource {
@@ -62,7 +69,7 @@ export interface GpuMaterialVisibilityPackedSource {
   readonly textureRef: number;
   readonly baseColorFactorAlpha: number;
   readonly alphaCutoff: number;
-  readonly uvSet: number;
+  readonly textureUvSets: number;
   readonly samplerClass: number;
   readonly uvOffset: ArrayLike<number>;
   readonly uvScale: ArrayLike<number>;
@@ -78,6 +85,18 @@ export interface GpuMaterialVisibilityPackedSource {
   readonly ormTextureRef: number;
   readonly emissiveTextureRef: number;
   readonly textureSamplerClasses: number;
+  readonly normalUvOffset: ArrayLike<number>;
+  readonly normalUvScale: ArrayLike<number>;
+  readonly normalRotationCos: number;
+  readonly normalRotationSin: number;
+  readonly ormUvOffset: ArrayLike<number>;
+  readonly ormUvScale: ArrayLike<number>;
+  readonly ormRotationCos: number;
+  readonly ormRotationSin: number;
+  readonly emissiveUvOffset: ArrayLike<number>;
+  readonly emissiveUvScale: ArrayLike<number>;
+  readonly emissiveRotationCos: number;
+  readonly emissiveRotationSin: number;
 }
 
 export interface GpuMaterialVisibilitySource {
@@ -96,7 +115,7 @@ struct OEngineMaterialVisibilityRecord {
   texture_ref: u32,
   base_color_factor_alpha: f32,
   alpha_cutoff: f32,
-  uv_set: u32,
+  texture_uv_sets: u32,
   sampler_class: u32,
   uv_offset_scale: vec4f,
   uv_rotation: vec4f,
@@ -107,6 +126,12 @@ struct OEngineMaterialVisibilityRecord {
   orm_texture_ref: u32,
   emissive_texture_ref: u32,
   texture_sampler_classes: u32,
+  normal_uv_offset_scale: vec4f,
+  normal_uv_rotation: vec4f,
+  orm_uv_offset_scale: vec4f,
+  orm_uv_rotation: vec4f,
+  emissive_uv_offset_scale: vec4f,
+  emissive_uv_rotation: vec4f,
 };
 
 const OENGINE_MATERIAL_ALPHA_OPAQUE: u32 = ${GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Opaque}u;
@@ -120,6 +145,8 @@ const OENGINE_MATERIAL_HAS_ORM_TEXTURE: u32 = ${GPU_MATERIAL_VISIBILITY_FLAGS.Ha
 const OENGINE_MATERIAL_HAS_EMISSIVE_TEXTURE: u32 = ${GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture}u;
 const OENGINE_MATERIAL_UNLIT: u32 = ${GPU_MATERIAL_VISIBILITY_FLAGS.Unlit}u;
 const OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE: u32 = 0xffffffffu;
+const OENGINE_MATERIAL_HIGH_RESOLUTION_BIT: u32 = 0x80000000u;
+const OENGINE_MATERIAL_TEXTURE_LAYER_MASK: u32 = 0x7fffffffu;
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask}u;
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits}u;
 const OENGINE_MATERIAL_SAMPLER_LINEAR: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit}u;
@@ -183,14 +210,11 @@ export function materialVisibilitySource(
   if (sampler.fallback || normalSampler.fallback || ormSampler.fallback || emissiveSampler.fallback) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.SamplerFallback;
   }
-  const rotation = finiteOr(material.base_color_uv_rotation, 0);
-  const uvSet = material.base_color_uv_set;
-  if (uvSet !== 0 && uvSet !== 1) {
-    throw new RangeError(
-      `Material '${material.name}' requests TEXCOORD_${uvSet}; ` +
-      "MaterialRecord v2 supports only TEXCOORD_0 and TEXCOORD_1"
-    );
-  }
+  const baseRotation = finiteOr(material.base_color_uv_rotation, 0);
+  const normalRotation = finiteOr(material.normal_uv_rotation, 0);
+  const ormRotation = finiteOr(material.orm_uv_rotation, 0);
+  const emissiveRotation = finiteOr(material.emissive_uv_rotation, 0);
+  const textureUvSets = packTextureUvSets(material);
   return Object.freeze({
     packed: Object.freeze({
       materialId: checkedU32(materialSlot, "resident material slot"),
@@ -199,12 +223,12 @@ export function materialVisibilitySource(
       textureRef: checkedU32(textureRef, "texture ref"),
       baseColorFactorAlpha: finiteOr(material.diffuse_color.a, 1),
       alphaCutoff: clamp01(finiteOr(material.alpha_cutoff, 0.5)),
-      uvSet,
+      textureUvSets,
       samplerClass: sampler.value,
       uvOffset: material.base_color_uv_offset,
       uvScale: material.base_color_uv_scale,
-      rotationCos: Math.cos(rotation),
-      rotationSin: Math.sin(rotation),
+      rotationCos: Math.cos(baseRotation),
+      rotationSin: Math.sin(baseRotation),
       baseColorFactor: [
         material.diffuse_color.r,
         material.diffuse_color.g,
@@ -227,7 +251,19 @@ export function materialVisibilitySource(
       textureSamplerClasses:
         (normalSampler.value & 0xff) |
         ((ormSampler.value & 0xff) << 8) |
-        ((emissiveSampler.value & 0xff) << 16)
+        ((emissiveSampler.value & 0xff) << 16),
+      normalUvOffset: material.normal_uv_offset,
+      normalUvScale: material.normal_uv_scale,
+      normalRotationCos: Math.cos(normalRotation),
+      normalRotationSin: Math.sin(normalRotation),
+      ormUvOffset: material.orm_uv_offset,
+      ormUvScale: material.orm_uv_scale,
+      ormRotationCos: Math.cos(ormRotation),
+      ormRotationSin: Math.sin(ormRotation),
+      emissiveUvOffset: material.emissive_uv_offset,
+      emissiveUvScale: material.emissive_uv_scale,
+      emissiveRotationCos: Math.cos(emissiveRotation),
+      emissiveRotationSin: Math.sin(emissiveRotation)
     }),
     texture: textureFallback ? null : texture,
     textures: Object.freeze(requestedTextures
@@ -257,7 +293,7 @@ export function packGpuMaterialVisibilityRecord(
   view.setUint32(12, checkedU32(source.textureRef, "texture ref"), true);
   view.setFloat32(16, finiteOr(source.baseColorFactorAlpha, 1), true);
   view.setFloat32(20, clamp01(finiteOr(source.alphaCutoff, 0.5)), true);
-  view.setUint32(24, checkedU32(source.uvSet, "UV set"), true);
+  view.setUint32(24, checkedU32(source.textureUvSets, "texture UV sets"), true);
   view.setUint32(28, checkedU32(source.samplerClass, "sampler class"), true);
   writeVec2(view, 32, source.uvOffset, [0, 0]);
   writeVec2(view, 40, source.uvScale, [1, 1]);
@@ -273,7 +309,48 @@ export function packGpuMaterialVisibilityRecord(
   view.setUint32(116, checkedU32(source.ormTextureRef, "ORM texture ref"), true);
   view.setUint32(120, checkedU32(source.emissiveTextureRef, "emissive texture ref"), true);
   view.setUint32(124, checkedU32(source.textureSamplerClasses, "texture sampler classes"), true);
+  writeUvTransform(view, 128, source.normalUvOffset, source.normalUvScale,
+    source.normalRotationCos, source.normalRotationSin);
+  writeUvTransform(view, 160, source.ormUvOffset, source.ormUvScale,
+    source.ormRotationCos, source.ormRotationSin);
+  writeUvTransform(view, 192, source.emissiveUvOffset, source.emissiveUvScale,
+    source.emissiveRotationCos, source.emissiveRotationSin);
   return target;
+}
+
+function packTextureUvSets(material: StandardShadeMaterial): number {
+  const sets = [
+    material.base_color_uv_set,
+    material.normal_uv_set,
+    material.orm_uv_set,
+    material.emissive_uv_set
+  ];
+  let packed = 0;
+  for (let index = 0; index < sets.length; index++) {
+    const set = sets[index]!;
+    if (!Number.isInteger(set) || set < 0 || set > 2) {
+      throw new RangeError(
+        `Material '${material.name}' requests TEXCOORD_${set}; ` +
+        "MaterialRecord v3 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2"
+      );
+    }
+    packed |= (set & 0xff) << (index * 8);
+  }
+  return packed >>> 0;
+}
+
+function writeUvTransform(
+  view: DataView,
+  byteOffset: number,
+  offset: ArrayLike<number>,
+  scale: ArrayLike<number>,
+  rotationCos: number,
+  rotationSin: number
+): void {
+  writeVec2(view, byteOffset, offset, [0, 0]);
+  writeVec2(view, byteOffset + 8, scale, [1, 1]);
+  view.setFloat32(byteOffset + 16, finiteOr(rotationCos, 1), true);
+  view.setFloat32(byteOffset + 20, finiteOr(rotationSin, 0), true);
 }
 
 function alphaMode(mode: number): number {
