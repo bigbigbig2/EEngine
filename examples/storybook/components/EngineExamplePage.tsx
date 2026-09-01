@@ -1,12 +1,12 @@
 import React from "react";
 import type { ReactNode } from "react";
-import type { ExampleCatalogEntry } from "../catalog";
+import type { ExampleCatalogEntry, ExamplePageStatus } from "../catalog";
 
 interface EngineExamplePageProps {
   readonly eyebrow: string;
   readonly title: string;
   readonly description: string;
-  readonly status: string;
+  readonly status: ExamplePageStatus;
   readonly tags: readonly string[];
   readonly stats?: readonly (readonly [string, string])[];
   readonly sourcePath?: string;
@@ -16,8 +16,12 @@ interface EngineExamplePageProps {
 }
 
 function exampleRunnerUrl(route: string): string {
-  const base = import.meta.env.VITE_OENGINE_EXAMPLES_ORIGIN ?? "http://127.0.0.1:5173";
-  return new URL(route, `${base.replace(/\/$/, "")}/`).href;
+  const explicitBase = import.meta.env.VITE_OENGINE_EXAMPLES_ORIGIN;
+  if (explicitBase !== undefined && explicitBase.length > 0) {
+    return new URL(route, `${explicitBase.replace(/\/$/, "")}/`).href;
+  }
+  const storybookBase = new URL(import.meta.env.BASE_URL, window.location.origin);
+  return new URL(`runtime/${route}`, storybookBase).href;
 }
 
 export function EngineExamplePage({
@@ -82,6 +86,7 @@ export function EngineExamplePage({
 }
 
 export function CatalogExample({ entry }: { readonly entry: ExampleCatalogEntry }): ReactNode {
+  const runtimeUrl = exampleRunnerUrl(entry.route);
   return (
     <EngineExamplePage
       eyebrow={entry.id}
@@ -92,9 +97,17 @@ export function CatalogExample({ entry }: { readonly entry: ExampleCatalogEntry 
       stats={entry.stats}
       sourcePath={entry.sourcePath}
       launchRoute={entry.route}
-      footer={<span>运行入口默认指向本地 examples Vite 服务。</span>}
+      footer={<span>运行入口由 Storybook 同源托管，也可通过环境变量切换到独立 examples 服务。</span>}
     >
       <CatalogScene variant={entry.scene} />
+      <iframe
+        className="oe-runtime-frame"
+        src={runtimeUrl}
+        title={`${entry.title} runtime`}
+        loading="eager"
+        sandbox="allow-scripts allow-same-origin allow-downloads"
+        allow="fullscreen"
+      />
     </EngineExamplePage>
   );
 }
@@ -112,9 +125,6 @@ function CatalogScene({ variant }: { readonly variant: ExampleCatalogEntry["scen
       <div className="oe-building oe-building-4" />
       <div className="oe-building oe-building-5" />
       <div className="oe-focus-object" />
-      <div className="oe-catalog-debug-label">
-        <span className="oe-live-dot" /> Live WebGPU example
-      </div>
     </div>
   );
 }

@@ -10,7 +10,7 @@ function BasicExample(args: OEngineCanvasProps) {
       eyebrow={metadata.eyebrow}
       title={metadata.title}
       description={metadata.description}
-      status="Validation"
+      status="Interactive"
       tags={metadata.tags}
       stats={metadata.stats}
       sourcePath="examples/storybook/stories/BasicExamples.stories.tsx"

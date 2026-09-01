@@ -1,4 +1,5 @@
 export type ExampleStatus = "Integrated" | "In progress" | "Gate" | "Validation";
+export type ExamplePageStatus = ExampleStatus | "Interactive";
 
 export interface ExampleCatalogEntry {
   readonly id: string;
@@ -108,5 +109,29 @@ export const exampleCatalog = {
     sourcePath: "examples/benchmark-c",
     scene: "benchmark",
     stats: [["输入", "Heterogeneous"], ["动态", "Lights + transforms"], ["Profile", "Smoke / Full"]]
+  },
+  observability: {
+    id: "R0",
+    title: "Renderer Observability",
+    description:
+      "初始化真实 GraphicsContext，导出 adapter、CPU、submit、readback、upload 与 counter 观测结果。",
+    status: "Validation",
+    tags: ["Diagnostics", "Counters", "Environment"],
+    route: "r0-observability/",
+    sourcePath: "examples/r0-observability",
+    scene: "benchmark",
+    stats: [["环境", "Adapter + limits"], ["帧证据", "CPU / submit"], ["I/O", "Upload / readback"]]
+  },
+  surfaceDebug: {
+    id: "FX-01",
+    title: "Surface Debug Views",
+    description:
+      "通过 2×3 Packed 材质板检查 Surface attachments、背景、Velocity、Reactive 与 History Validity。",
+    status: "Integrated",
+    tags: ["Diagnostics", "Surface", "Debug views"],
+    route: "r5-surface-debug/",
+    sourcePath: "examples/r5-surface-debug",
+    scene: "visibility",
+    stats: [["材质板", "2 × 3"], ["输出", "Surface debug views"], ["关闭语义", "Zero debug work"]]
   }
 } as const satisfies Record<string, ExampleCatalogEntry>;

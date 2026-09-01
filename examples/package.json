@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite --config vite.config.ts",
     "dev:host": "vite --config vite.config.ts --host 127.0.0.1",
+    "prestorybook": "npm run build",
     "storybook": "storybook dev -p 6006 --no-open",
     "typecheck:storybook": "tsc --noEmit -p tsconfig.storybook.json",
+    "prebuild:storybook": "npm run build",
     "build:storybook": "npm run typecheck:storybook && storybook build -o storybook-static",
     "build": "tsc --noEmit && vite build --config vite.config.ts",
     "gate:r5-fx01": "node scripts/run-r5-fx01-gate.mjs",

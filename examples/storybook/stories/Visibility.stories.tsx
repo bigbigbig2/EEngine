@@ -6,6 +6,7 @@ import { CatalogExample } from "../components/EngineExamplePage";
 const meta = {
   title: "可见性",
   component: CatalogExample,
+  tags: ["autodocs"],
   parameters: { controls: { disable: true } }
 } satisfies Meta<typeof CatalogExample>;
 

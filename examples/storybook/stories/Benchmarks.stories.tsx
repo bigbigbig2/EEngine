@@ -6,6 +6,7 @@ import { CatalogExample } from "../components/EngineExamplePage";
 const meta = {
   title: "基准与诊断",
   component: CatalogExample,
+  tags: ["autodocs"],
   parameters: { controls: { disable: true } }
 } satisfies Meta<typeof CatalogExample>;
 
@@ -25,4 +26,14 @@ export const BenchmarkB: Story = {
 export const BenchmarkC: Story = {
   name: "Benchmark C · Generality",
   args: { entry: exampleCatalog.benchmarkC as ExampleCatalogEntry }
+};
+
+export const Observability: Story = {
+  name: "Diagnostics · Observability",
+  args: { entry: exampleCatalog.observability as ExampleCatalogEntry }
+};
+
+export const SurfaceDebug: Story = {
+  name: "Diagnostics · Surface Debug",
+  args: { entry: exampleCatalog.surfaceDebug as ExampleCatalogEntry }
 };

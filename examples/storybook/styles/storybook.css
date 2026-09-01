@@ -110,6 +110,11 @@ select {
   border-color: rgba(102, 166, 255, 0.35);
 }
 
+.oe-status-interactive {
+  color: #65d9a3;
+  border-color: rgba(81, 212, 155, 0.35);
+}
+
 .oe-example-stage {
   position: relative;
   min-height: 540px;
@@ -209,11 +214,19 @@ select {
 
 .oe-runtime-preview,
 .oe-runtime-preview canvas,
-.oe-catalog-scene {
+.oe-catalog-scene,
+.oe-runtime-frame {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+.oe-runtime-frame {
+  z-index: 2;
+  display: block;
+  background: #070a0f;
+  border: 0;
 }
 
 .oe-runtime-preview canvas {
@@ -223,8 +236,7 @@ select {
 }
 
 .oe-runtime-status,
-.oe-camera-help,
-.oe-catalog-debug-label {
+.oe-camera-help {
   position: absolute;
   z-index: 3;
   display: flex;
@@ -376,11 +388,6 @@ select {
 
 .oe-catalog-scene-benchmark .oe-grid {
   background-size: 34px 34px;
-}
-
-.oe-catalog-debug-label {
-  top: 14px;
-  left: 14px;
 }
 
 .oe-library-home {

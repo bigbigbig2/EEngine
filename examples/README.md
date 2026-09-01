@@ -62,4 +62,4 @@ Set-Location examples
 npm run storybook
 ```
 
-Storybook 默认运行在 `http://127.0.0.1:6006`。能力卡片的“打开运行示例”默认指向 `http://127.0.0.1:5173`，需要同时运行 `npm run dev:host`；可通过 `VITE_OENGINE_EXAMPLES_ORIGIN` 覆盖该地址。生产构建使用 `npm run build:storybook`。
+Storybook 默认运行在 `http://127.0.0.1:6006`。启动和生产构建前会先生成 `dist/`，再将真实浏览器示例挂到 Storybook 的 `/runtime/`，所以能力页主视口和“打开运行示例”无需第二个服务。需要连接独立 examples 服务时，可通过 `VITE_OENGINE_EXAMPLES_ORIGIN` 覆盖运行地址。生产构建使用 `npm run build:storybook`。

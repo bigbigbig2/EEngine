@@ -1,3 +1,4 @@
+/** Minimal Storybook-facing declarations for the runtime bridge in OEngineRuntime.js. */
 export interface AdapterIdentity {
   readonly vendor: string;
   readonly architecture: string;

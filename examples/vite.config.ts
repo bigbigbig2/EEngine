@@ -10,6 +10,9 @@ const buildProvenance = captureGitBuildProvenance(repositoryRoot);
 
 export default defineConfig({
   root: examplesRoot,
+  // Keep every multi-page example relocatable (for example under Storybook's
+  // /runtime/ mount) instead of baking root-relative asset URLs into HTML.
+  base: "./",
   publicDir: false,
   define: {
     __BUILD_COMMIT__: JSON.stringify(buildProvenance.commit),

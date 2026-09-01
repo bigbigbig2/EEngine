@@ -66,7 +66,10 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
       initialized = true;
       configureBasicPipeline(renderer);
 
-      if (disposed) return;
+      if (disposed) {
+        releaseRenderer();
+        return;
+      }
       const scene = createBasicScene(mode, color);
       const camera = createCamera(renderer.aspect_ratio, mode);
       if (interactiveCamera) {
@@ -112,9 +115,16 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
       resizeObserver?.disconnect();
       controller?.pointer.stop();
       controller?.keyboard.stop();
-      if (initialized) renderer?.destroy();
-      context?.unconfigure();
+      releaseRenderer();
     };
+
+    function releaseRenderer(): void {
+      if (initialized && renderer !== null) {
+        initialized = false;
+        renderer.destroy();
+      }
+      context?.unconfigure();
+    }
   }, [mode, color, interactiveCamera]);
 
   return (
