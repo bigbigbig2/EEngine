@@ -130,14 +130,14 @@ fn packed_csm_vertex(
   return output;
 }
 
-fn wrap_texel(value: i32, mode: u32, size: i32) -> u32 {
-  if mode == 0u { return u32(clamp(value, 0i, size - 1i)); }
+fn wrap_texel(value: i32, mode: u32, size: i32) -> i32 {
+  if mode == 0u { return clamp(value, 0i, size - 1i); }
   if mode == 2u {
     let period = size * 2i;
     let wrapped = ((value % period) + period) % period;
-    return u32(select(wrapped, period - 1i - wrapped, wrapped >= size));
+    return select(wrapped, period - 1i - wrapped, wrapped >= size);
   }
-  return u32(((value % size) + size) % size);
+  return ((value % size) + size) % size;
 }
 fn alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
   let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;

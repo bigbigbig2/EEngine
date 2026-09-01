@@ -196,7 +196,7 @@ fn fs_main(
   let falloff_range = max(settings.falloff_range, 0.001);
   let falloff_from = 1.0 - falloff_range;
   let falloff_mul = -1.0 / falloff_range;
-  const falloff_add = falloff_from / falloff_range + 1.0;
+  let falloff_add = falloff_from / falloff_range + 1.0;
 
   let output_pixel = vec2u(coord.xy);
   let viewport_size = textureDimensions(gr_bucket);
