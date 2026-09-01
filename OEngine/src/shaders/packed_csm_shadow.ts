@@ -133,7 +133,7 @@ fn packed_csm_vertex(
 fn wrap_texel(value: i32, mode: u32, size: i32) -> u32 {
   if mode == 0u { return u32(clamp(value, 0i, size - 1i)); }
   if mode == 2u {
-    const period = size * 2i;
+    let period = size * 2i;
     let wrapped = ((value % period) + period) % period;
     return u32(select(wrapped, period - 1i - wrapped, wrapped >= size));
   }

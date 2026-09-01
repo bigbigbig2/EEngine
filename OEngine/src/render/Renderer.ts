@@ -389,7 +389,7 @@ export class Renderer {
   taa_history_strength = 1;
   bloom_intensity = 1;
   sharpening_strength = 0.8;
-  private _exposure_compensation = 0;
+  private _exposure_compensation = 1;
   private _exposure_speed_up = 3;
   private _exposure_speed_down = 1.2;
 

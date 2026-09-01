@@ -397,6 +397,10 @@ test("R3-C production Hardware consumer pulls RasterWork and issues the GPU draw
     PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
     /fn write_hierarchy_visibility\([\s\S]*\) -> @location\(0\) u32/
   );
+  assert.doesNotMatch(
+    PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
+    /const period = size \* 2i/
+  );
   const passSource = readFileSync(
     new URL("../src/render/passes/PackedVisibilityPass.ts", import.meta.url),
     "utf8"

@@ -64,6 +64,7 @@ test("FX-04 Packed CSM consumes SecondaryRasterWork with one indirect draw and a
   assert.match(PACKED_CSM_SHADOW_WGSL, /OENGINE_MATERIAL_ALPHA_MASK/);
   assert.match(PACKED_CSM_SHADOW_WGSL, /OENGINE_MATERIAL_ALPHA_BLEND \{ discard/);
   assert.match(PACKED_CSM_SHADOW_WGSL, /alpha < record\.alpha_cutoff \{ discard/);
+  assert.doesNotMatch(PACKED_CSM_SHADOW_WGSL, /const period = size \* 2i/);
   assert.doesNotMatch(source, /for \(const material/);
 });
 

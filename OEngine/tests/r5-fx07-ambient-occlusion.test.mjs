@@ -89,6 +89,7 @@ test("FX-07 shader keeps visibility/depth filter arguments in ABI order", () => 
   assert.match(shader, /settings\.history_valid != 0u/);
   assert.match(shader, /velocity_full \* vec2f\(dimensions\) \/ vec2f\(full_dimensions\)/);
   assert.match(shader, /SSAO_BENT_NORMAL_UPSAMPLE_WGSL/);
+  assert.doesNotMatch(shader, /const falloff_mul = -1\.0 \/ falloff_range/);
 });
 
 test("FX-07 pass has no frame-parity history owner and prunes temporal work", () => {
