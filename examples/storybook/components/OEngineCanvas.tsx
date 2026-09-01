@@ -26,7 +26,7 @@ type CanvasState = "initializing" | "ready" | "unsupported" | "error";
 export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasProps): ReactNode {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<CanvasState>("initializing");
-  const [detail, setDetail] = useState("正在申请 WebGPU device…");
+  const [detail, setDetail] = useState("Initializing the WebGPU renderer…");
 
   useEffect(() => {
     const canvasElement = canvasRef.current;
@@ -42,7 +42,7 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
     let context: GPUCanvasContext | null = null;
 
     setState("initializing");
-    setDetail("正在申请 WebGPU device…");
+    setDetail("Initializing the WebGPU renderer…");
 
     void initialize().catch((error: unknown) => {
       if (disposed) return;
@@ -54,11 +54,11 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
 
     async function initialize(): Promise<void> {
       if (!("gpu" in navigator)) {
-        throw new Error("当前浏览器未启用 WebGPU");
+        throw new Error("WebGPU is not available in this browser.");
       }
       context = targetCanvas.getContext("webgpu");
       if (context === null) {
-        throw new Error("无法创建 WebGPU canvas context");
+        throw new Error("Unable to create a WebGPU canvas context.");
       }
 
       renderer = new Renderer();
@@ -89,8 +89,6 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
       });
       resizeObserver.observe(targetCanvas);
 
-      setDetail(adapterLabel(renderer));
-
       let previousTime = performance.now();
       let presentedFrame = false;
       const frame = (now: number): void => {
@@ -103,7 +101,7 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
           camera.update();
           if (!renderer.render(camera, scene, deltaSeconds)) {
             setState("error");
-            setDetail("GPU device lost；渲染循环已停止");
+            setDetail("The GPU device was lost and the render loop stopped.");
             return;
           }
           if (!presentedFrame) {
@@ -140,14 +138,18 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
   }, [mode, color, interactiveCamera]);
 
   return (
-    <div className="oe-runtime-preview">
+    <div
+      className="oe-runtime-preview"
+      data-render-state={state}
+      aria-busy={state === "initializing"}
+    >
       <canvas ref={canvasRef} width="960" height="540" aria-label="OEngine WebGPU rendered scene" />
-      <div className={`oe-runtime-status oe-runtime-status-${state}`} role="status">
-        <span className="oe-live-dot" />
-        <span>{stateLabel(state)}</span>
-        <small>{detail}</small>
-      </div>
-      {interactiveCamera && <div className="oe-camera-help">左键旋转 · 右键平移 · 滚轮缩放</div>}
+      {(state === "unsupported" || state === "error") && (
+        <div className="oe-runtime-error" role="alert">
+          <strong>{state === "unsupported" ? "WebGPU unavailable" : "Unable to render"}</strong>
+          <span>{detail}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -224,21 +226,4 @@ function parseHexColor(color: string): [number, number, number] {
     Number.parseInt(value.slice(2, 4), 16) / 255,
     Number.parseInt(value.slice(4, 6), 16) / 255
   ];
-}
-
-function stateLabel(state: CanvasState): string {
-  switch (state) {
-    case "initializing": return "Initializing";
-    case "ready": return "Live WebGPU";
-    case "unsupported": return "Unsupported";
-    case "error": return "Render error";
-  }
-}
-
-function adapterLabel(renderer: Renderer): string {
-  const adapter = renderer.adapter_info;
-  if (adapter === null) return "GPU adapter ready";
-  return [adapter.vendor, adapter.architecture, adapter.device, adapter.description]
-    .filter((value) => value.length > 0)
-    .join(" · ") || "GPU adapter ready";
 }

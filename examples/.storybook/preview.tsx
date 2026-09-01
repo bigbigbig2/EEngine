@@ -19,13 +19,13 @@ const preview: Preview = {
     options: {
       storySort: {
         order: [
-          "开始使用",
-          "基础示例",
-          "场景与几何",
-          "可见性",
-          "光照与着色",
-          "时域与后处理",
-          "基准与诊断"
+          "Getting Started",
+          "Basics",
+          "Scene & Geometry",
+          "Visibility",
+          "Lighting & Shading",
+          "Temporal & Post",
+          "Benchmarks & Diagnostics"
         ]
       }
     }

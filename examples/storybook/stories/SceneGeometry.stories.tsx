@@ -4,7 +4,7 @@ import { exampleCatalog, type ExampleCatalogEntry } from "../catalog";
 import { CatalogExample } from "../components/EngineExamplePage";
 
 const meta = {
-  title: "场景与几何",
+  title: "Scene & Geometry",
   component: CatalogExample,
   tags: ["autodocs"],
   parameters: { controls: { disable: true } }

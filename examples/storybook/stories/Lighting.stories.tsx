@@ -4,7 +4,7 @@ import { exampleCatalog, type ExampleCatalogEntry } from "../catalog";
 import { CatalogExample } from "../components/EngineExamplePage";
 
 const meta = {
-  title: "光照与着色",
+  title: "Lighting & Shading",
   component: CatalogExample,
   tags: ["autodocs"],
   parameters: { controls: { disable: true } }
