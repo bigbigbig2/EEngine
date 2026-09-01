@@ -74,6 +74,7 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
       const camera = createCamera(renderer.aspect_ratio, mode);
       if (interactiveCamera) {
         controller = new OrbitalCameraController(camera, targetCanvas);
+        controller.look(camera.transform.position, { x: 0, y: 0, z: 0 });
         controller.distanceLimits.min = 2;
         controller.distanceLimits.max = 36;
       }
@@ -88,23 +89,34 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
       });
       resizeObserver.observe(targetCanvas);
 
-      setState("ready");
       setDetail(adapterLabel(renderer));
 
       let previousTime = performance.now();
+      let presentedFrame = false;
       const frame = (now: number): void => {
         if (disposed || renderer === null) return;
-        const deltaSeconds = Math.min(0.1, Math.max(0, (now - previousTime) / 1000));
-        previousTime = now;
-        controller?.update();
-        camera.aspect = renderer.aspect_ratio;
-        camera.update();
-        if (!renderer.render(camera, scene, deltaSeconds)) {
+        try {
+          const deltaSeconds = Math.min(0.1, Math.max(0, (now - previousTime) / 1000));
+          previousTime = now;
+          controller?.update();
+          camera.aspect = renderer.aspect_ratio;
+          camera.update();
+          if (!renderer.render(camera, scene, deltaSeconds)) {
+            setState("error");
+            setDetail("GPU device lost；渲染循环已停止");
+            return;
+          }
+          if (!presentedFrame) {
+            presentedFrame = true;
+            setState("ready");
+          }
+          animationFrame = requestAnimationFrame(frame);
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
           setState("error");
-          setDetail("GPU device lost；渲染循环已停止");
-          return;
+          setDetail(message);
+          console.error(error);
         }
-        animationFrame = requestAnimationFrame(frame);
       };
       animationFrame = requestAnimationFrame(frame);
     }

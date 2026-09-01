@@ -35,7 +35,12 @@ export class PerspectiveCamera {
   aspect: number;
   near: number;
   readonly transform: {
-    readonly position: { set(x: number, y: number, z: number): void };
+    readonly position: {
+      readonly x: number;
+      readonly y: number;
+      readonly z: number;
+      set(x: number, y: number, z: number): void;
+    };
     lookAt(target: { readonly x: number; readonly y: number; readonly z: number }): void;
   };
   update(): void;
@@ -68,6 +73,10 @@ export class OrbitalCameraController {
   readonly keyboard: { stop(): void };
   readonly distanceLimits: { min: number; max: number };
   constructor(camera: PerspectiveCamera, element: HTMLElement);
+  look(
+    from: { readonly x: number; readonly y: number; readonly z: number },
+    to: { readonly x: number; readonly y: number; readonly z: number }
+  ): void;
   update(): void;
 }
 

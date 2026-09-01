@@ -630,6 +630,9 @@ export class FrameGraph {
     const resources = this.__resource_nodes;
 
     for (const p of passes) {
+      this.assertPassResources(p, "create", p.resource_creates);
+      this.assertPassResources(p, "read", p.resource_reads);
+      this.assertPassResources(p, "write", p.resource_writes);
       p.ref_count = p.resource_writes.length;
       for (const r of p.resource_reads) {
         const node = resources[r];
@@ -683,6 +686,20 @@ export class FrameGraph {
     }
     for (const binding of bindingSlots) binding.releaseInitial();
     return this.__compiled;
+  }
+
+  private assertPassResources(
+    pass: PassNode,
+    usage: "create" | "read" | "write",
+    resourceIds: readonly ResourceId[]
+  ): void {
+    for (const id of resourceIds) {
+      if (!Number.isInteger(id) || this.__resource_nodes[id] === undefined) {
+        throw new Error(
+          `FrameGraph '${this.name}' pass '${pass.name}' declares invalid ${usage} resource ${String(id)}`
+        );
+      }
+    }
   }
 
   /** 按编译结果执行渲染阶段，并在资源最后一次使用后及时回收瞬态资源。 */

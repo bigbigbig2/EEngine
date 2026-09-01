@@ -199,7 +199,7 @@ export class IndirectCompositePass {
 
     output.hdr = builder.write(inputs.hdr);
     for (const [name, resource] of Object.entries(inputs)) {
-      if (name !== "hdr") builder.read(resource);
+      if (name !== "hdr" && resource !== undefined) builder.read(resource);
     }
     return output;
   }
