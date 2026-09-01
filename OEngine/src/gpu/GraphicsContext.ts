@@ -36,6 +36,19 @@ import { GpuAssetStore } from "./GpuAssetStore.js";
 import { GpuScene } from "./GpuScene.js";
 import { GpuPackedSceneRegistry } from "./GpuPackedSceneRegistry.js";
 import { GpuMaterialVisibilityTable } from "./GpuMaterialVisibilityTable.js";
+import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
+
+export interface GraphicsMemoryEvidence {
+  readonly schemaVersion: 1;
+  readonly allocatedBytes: number;
+  readonly residentLogicalBytes: number;
+  readonly transientPoolBytes: number;
+  readonly retiringBytes: number;
+  readonly reclaimableBytes: number;
+  readonly fragmentationBytes: number;
+  readonly owners: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  readonly limitations: readonly string[];
+}
 
 export class GraphicsContext {
   readonly isGraphicsContext = true;
@@ -61,6 +74,7 @@ export class GraphicsContext {
   private packedScenesValue: GpuPackedSceneRegistry | undefined;
   private materialVisibilityValue: GpuMaterialVisibilityTable | undefined;
   private timerIncrementValue = 0;
+  private destroyed = false;
 
   constructor(device: GPUDevice, profiler = new FrameProfiler()) {
     this.device = device;
@@ -202,7 +216,7 @@ export class GraphicsContext {
         command,
         this.buffer_allocator_main
       ).catch((error: unknown) => {
-        if (!command.isAborted) {
+        if (!command.isAborted && !this.destroyed) {
           console.error("Collection limit readback failed", error);
         }
       });
@@ -234,7 +248,97 @@ export class GraphicsContext {
     );
   }
 
+  /** Internal observability seam used by renderer evidence; it owns no resources. */
+  memoryEvidence(): GraphicsMemoryEvidence {
+    const assets = this.assetStoreValue?.evidence();
+    const scene = this.gpuSceneValue?.evidence();
+    const materials = this.materialVisibilityValue?.evidence();
+    const buffers = this.buffer_allocator_main.evidence();
+    const textures = this.allocator_textures.evidence();
+    const baseLayerBytes = materials === undefined
+      ? 0
+      : textureArrayLayerBytes(materials.textureSize, materials.mipLevelCount);
+    const highLayerBytes = materials === undefined
+      ? 0
+      : textureArrayLayerBytes(
+          materials.highResolutionTextureSize,
+          materials.highResolutionMipLevelCount
+        );
+    const residentMaterialBytes = materials === undefined
+      ? 0
+      : materials.residentMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
+        (materials.residentTextureCount - materials.residentHighResolutionTextureCount) * baseLayerBytes +
+        materials.residentHighResolutionTextureCount * highLayerBytes;
+    const retiringMaterialBytes = materials === undefined
+      ? 0
+      : materials.retiringMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
+        (materials.retiringTextureCount - materials.retiringHighResolutionTextureCount) * baseLayerBytes +
+        materials.retiringHighResolutionTextureCount * highLayerBytes;
+    const longLivedAllocatedBytes =
+      (assets?.allocatedBytes ?? 0) +
+      (scene?.allocatedBytes ?? 0) +
+      (materials?.allocatedBytes ?? 0);
+    const residentLogicalBytes =
+      (assets?.residentBytes ?? 0) +
+      (scene?.residentBytes ?? 0) +
+      residentMaterialBytes;
+    const retiringBytes =
+      (assets?.retiringBytes ?? 0) +
+      (scene?.retiringBytes ?? 0) +
+      retiringMaterialBytes;
+    const reclaimableBytes =
+      (assets?.reclaimableBytes ?? 0) +
+      (scene?.reclaimableBytes ?? 0) +
+      buffers.cachedBytes +
+      textures.cachedBytes;
+    const transientPoolBytes = buffers.allocatedBytes + textures.allocatedBytes;
+    const fragmentationBytes = Math.max(
+      0,
+      longLivedAllocatedBytes - residentLogicalBytes - retiringBytes
+    );
+    return Object.freeze({
+      schemaVersion: 1,
+      allocatedBytes: this.gpu_memory_usage,
+      residentLogicalBytes,
+      transientPoolBytes,
+      retiringBytes,
+      reclaimableBytes,
+      fragmentationBytes,
+      owners: Object.freeze({
+        assets: Object.freeze({
+          allocatedBytes: assets?.allocatedBytes ?? 0,
+          residentBytes: assets?.residentBytes ?? 0,
+          retiringBytes: assets?.retiringBytes ?? 0,
+          reclaimableBytes: assets?.reclaimableBytes ?? 0
+        }),
+        scene: Object.freeze({
+          allocatedBytes: scene?.allocatedBytes ?? 0,
+          residentBytes: scene?.residentBytes ?? 0,
+          retiringBytes: scene?.retiringBytes ?? 0,
+          reclaimableBytes: scene?.reclaimableBytes ?? 0
+        }),
+        materials: Object.freeze({
+          allocatedBytes: materials?.allocatedBytes ?? 0,
+          residentLogicalBytes: residentMaterialBytes,
+          retiringBytes: retiringMaterialBytes,
+          residentTextures: materials?.residentTextureCount ?? 0,
+          residentHighResolutionTextures: materials?.residentHighResolutionTextureCount ?? 0,
+          retiringHighResolutionTextures: materials?.retiringHighResolutionTextureCount ?? 0
+        }),
+        transientBuffers: Object.freeze({ ...buffers }),
+        transientTextures: Object.freeze({ ...textures })
+      }),
+      limitations: Object.freeze([
+        "fragmentationBytes covers capacity slack in asset, scene and material tables",
+        "transientPoolBytes reports shared allocator allocation after graph execution",
+        "non-table persistent textures are included in allocatedBytes but not residentLogicalBytes"
+      ])
+    });
+  }
+
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     unregisterGpuQueueProfiler(this.device, this.profiler);
     this.packedScenesValue?.destroy();
     this.packedScenesValue = undefined;
@@ -253,4 +357,13 @@ export class GraphicsContext {
     this.collectionLimitsValue.destroy();
     this.profiler.detachGpuDevice(this.device);
   }
+}
+
+function textureArrayLayerBytes(size: number, mipLevelCount: number): number {
+  let pixels = 0;
+  for (let level = 0; level < Math.max(1, mipLevelCount); level++) {
+    const extent = Math.max(1, size >> level);
+    pixels += extent * extent;
+  }
+  return pixels * 4;
 }

@@ -117,6 +117,10 @@ export default defineConfig({
           examplesRoot,
           "integrated-showcase/index.html"
         ),
+        renderingLab: path.resolve(
+          examplesRoot,
+          "rendering-lab/index.html"
+        ),
         benchmarkA: path.resolve(
           examplesRoot,
           "benchmark-a/index.html"

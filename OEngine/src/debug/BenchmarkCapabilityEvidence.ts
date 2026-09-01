@@ -305,7 +305,19 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   transparentQueueOverflowMask: supported("PackedTransparentOitPass/queue overflow reducer"),
   temporalReactivePixels: supported("TemporalClassificationPass/reactive reducer"),
   temporalDisoccludedPixels: supported("TemporalClassificationPass/disocclusion reducer"),
-  temporalHistoryRejectedPixels: supported("TemporalClassificationPass/history rejection reducer")
+  temporalHistoryRejectedPixels: supported("TemporalClassificationPass/history rejection reducer"),
+  aoEvaluatedPixels: supported("ScreenSpaceAmbientOcclusionPass/Q00 sampled temporal evidence reducer"),
+  aoHistoryAcceptedPixels: supported("ScreenSpaceAmbientOcclusionPass/Q00 sampled temporal evidence reducer"),
+  aoHistoryRejectedPixels: supported("ScreenSpaceAmbientOcclusionPass/Q00 sampled temporal evidence reducer"),
+  ssrTracePixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  ssrHitPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  ssrTraceSteps: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  ssrMaxTraceSteps: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  ssrRoughnessRejectedPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  ssrDistanceRejectedPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  ssrHighRoughnessTracePixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  ssrDistanceLimitExceededPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  ssrValidationRejectedPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

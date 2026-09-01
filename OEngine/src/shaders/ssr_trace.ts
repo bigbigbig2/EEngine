@@ -19,12 +19,20 @@ struct SsrTraceSettings {
   max_distance: f32,
   frame_index: u32,
   edge_fade: f32,
-  _padding: u32,
+  max_steps: u32,
+  depth_thickness: f32,
+  roughness_thickness: f32,
+  distance_thickness: f32,
+  roughness_cutoff: f32,
 };
 
 struct SsrHit {
   position: vec2u,
   confidence: f32,
+  iteration_count: u32,
+  outcome: u32,
+  distance_exceeded: bool,
+  high_roughness: bool,
 };
 
 @group(0) @binding(0) var<uniform> settings: SsrTraceSettings;
@@ -199,7 +207,8 @@ fn get_map(hit: vec3f, origin_uv: vec2f, ray_direction: vec3f, screen_size: vec2
 }
 
 fn find_strip_next(uv: vec2f, screen_size: vec2f) -> f32 {
-  let fade = 0.05 * vec2f(screen_size.y / screen_size.x, 1.0);
+  if (settings.edge_fade <= 0.0) { return 1.0; }
+  let fade = settings.edge_fade * vec2f(screen_size.y / screen_size.x, 1.0);
   let edge = smoothstep(vec2f(0.0), fade, uv) * (1.0 - smoothstep(vec2f(1.0) - fade, vec2f(1.0), uv));
   return edge.x * edge.y;
 }
@@ -209,10 +218,30 @@ fn ffx_sssr_validate_hit(hit: vec3f, origin_uv: vec2f, ray_direction: vec3f, scr
 }
 
 fn ssr_hit_pack(hit: SsrHit) -> vec2u {
+  let diagnostics =
+    (min(hit.iteration_count, 255u) << 8u) |
+    ((hit.outcome & 0xffu) << 16u) |
+    (select(0u, 1u << 24u, hit.distance_exceeded)) |
+    (select(0u, 1u << 25u, hit.high_roughness));
   return vec2u(
     (hit.position.x & 0xffffu) | (hit.position.y << 16u),
-    u32(round(saturate(hit.confidence) * 255.0))
+    u32(round(saturate(hit.confidence) * 255.0)) | diagnostics
   );
+}
+
+fn ssr_diagnostic_result(
+  outcome: u32,
+  iteration_count: u32,
+  high_roughness: bool
+) -> vec2u {
+  var result: SsrHit;
+  result.position = vec2u(0u);
+  result.confidence = 0.0;
+  result.iteration_count = iteration_count;
+  result.outcome = outcome;
+  result.distance_exceeded = false;
+  result.high_roughness = high_roughness;
+  return ssr_hit_pack(result);
 }
 
 @fragment
@@ -220,10 +249,7 @@ fn fs_main(
   @builtin(position) coord: vec4f,
   @location(0) uv: vec2f
 ) -> @location(0) vec2u {
-  const INVALID_RESULT_VALUE = vec2u(0u);
   const g_most_detailed_mip = 0;
-  const g_depth_buffer_thickness = 0.1;
-  const g_thickness_length_factor = 0.01;
   let pixel = vec2u(coord.xy);
   let roughness = decode_g_buffer_roughness(textureLoad(edge, pixel, 0));
   let screen_size = textureDimensions(gr_bucket, 0);
@@ -233,7 +259,9 @@ fn fs_main(
   let most_detailed_mip = select(g_most_detailed_mip, 0, is_mirror);
   let mip_resolution = ffx_sssr_get_mip_resolution(vec2f(screen_size), most_detailed_mip);
   let depth = ffx_sssr_load_depth(vec2i(uv * mip_resolution), most_detailed_mip);
-  if (is_background(depth)) { return INVALID_RESULT_VALUE; }
+  let high_roughness = roughness > settings.roughness_cutoff;
+  if (is_background(depth)) { return ssr_diagnostic_result(0u, 0u, high_roughness); }
+  if (high_roughness) { return ssr_diagnostic_result(4u, 0u, true); }
   let screen_origin = vec3f(uv, depth);
   let view_origin = ffx_sssr_screen_space_to_view_space(screen_origin);
   let view_direction = normalize(view_origin);
@@ -245,17 +273,26 @@ fn fs_main(
   var iterations: u32;
   let hit = ffx_sssr_hierarchical_raymarch(
     screen_origin, screen_direction, vec2f(screen_size), most_detailed_mip,
-    128u, &valid_hit, &iterations
+    settings.max_steps, &valid_hit, &iterations
   );
-  if (!valid_hit || is_background(hit.z) || hit.z > 1.0) { return INVALID_RESULT_VALUE; }
+  if (!valid_hit || is_background(hit.z) || hit.z > 1.0) {
+    return ssr_diagnostic_result(1u, iterations, high_roughness);
+  }
   let view_hit = ffx_sssr_screen_space_to_view_space(hit);
   let ray = view_hit - view_origin;
   let ray_length = length(ray);
-  let thickness = g_depth_buffer_thickness + roughness * 10.0 + ray_length * g_thickness_length_factor;
+  let thickness = settings.depth_thickness +
+    roughness * settings.roughness_thickness +
+    ray_length * settings.distance_thickness;
   let confidence = ffx_sssr_validate_hit(hit, uv, normalize(ray), vec2f(screen_size), thickness);
+  let distance_exceeded = ray_length > settings.max_distance;
   var encoded: SsrHit;
-  encoded.confidence = confidence;
+  encoded.confidence = select(confidence, 0.0, distance_exceeded);
   encoded.position = vec2u(hit.xy * vec2f(screen_size));
+  encoded.iteration_count = iterations;
+  encoded.outcome = select(select(2u, 3u, confidence > 0.0), 5u, distance_exceeded);
+  encoded.distance_exceeded = distance_exceeded;
+  encoded.high_roughness = high_roughness;
   return ssr_hit_pack(encoded);
 }
 `;

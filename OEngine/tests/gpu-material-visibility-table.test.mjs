@@ -39,7 +39,7 @@ test("R4-B Material owner assigns dense slots independent of global material.id 
   assert.equal(new DataView(command.writes[0].bytes.buffer).getUint32(0, true), 0);
   assert.equal(command.renderPassCount, 1);
   assert.deepEqual(table.evidence(), {
-    schemaVersion: 5,
+    schemaVersion: 6,
     abiVersion: 3,
     materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
     textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
@@ -60,6 +60,7 @@ test("R4-B Material owner assigns dense slots independent of global material.id 
     highResolutionMipLevelCount: 13,
     highResolutionArrayAllocated: false,
     residentHighResolutionTextureCount: 0,
+    retiringHighResolutionTextureCount: 0,
     freeHighResolutionTextureLayerCount: 15,
     privateSubmitCount: 0,
     takeoverTask: null
@@ -201,6 +202,30 @@ test("R4-B 4K textures use the lazy bounded high-resolution array", () => {
   assert.equal(table.evidence().residentHighResolutionTextureCount, 1);
   assert.equal(graphics.texturesCreated.length, 2);
   assert.deepEqual(graphics.texturesCreated[1].descriptor.size, [4096, 4096, 16]);
+  table.destroy();
+});
+
+test("R4-B 2K bulk residency selects a 32-layer bank without upscaling to 4K", () => {
+  const graphics = fakeGraphics();
+  const table = new GpuMaterialVisibilityTable(graphics);
+  const materials = Array.from({ length: 25 }, () => {
+    const texture = validTexture();
+    texture.image.width = 2048;
+    texture.image.height = 2048;
+    const material = new StandardShadeMaterial();
+    material.texture_orm = texture;
+    return material;
+  });
+  const command = new FakeCommand();
+
+  table.stage(materials, command);
+
+  assert.deepEqual(graphics.texturesCreated[1].descriptor.size, [2048, 2048, 32]);
+  assert.equal(graphics.texturesCreated[1].descriptor.mipLevelCount, 12);
+  assert.equal(table.evidence().highResolutionTextureSize, 2048);
+  assert.equal(table.evidence().highResolutionTextureCapacity, 32);
+  assert.equal(table.evidence().residentHighResolutionTextureCount, 25);
+  assert.equal(table.evidence().freeHighResolutionTextureLayerCount, 6);
   table.destroy();
 });
 

@@ -10,6 +10,7 @@ import { GPUSceneManager } from "../gpu/GPUSceneManager.js";
 import { SceneSdf } from "../gpu/SceneSdf.js";
 import { GPULightProbeVolumeRenderer } from "../gpu/GPULightProbeVolumeRenderer.js";
 import { FrameGraph, FrameGraphBindingLayout } from "../framegraph/FrameGraph.js";
+import type { CompiledFrameGraphDump } from "../framegraph/FrameGraph.js";
 import { CompiledFrameGraphCache } from "../framegraph/CompiledFrameGraphCache.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
@@ -125,6 +126,7 @@ import {
 import { halfToFloat } from "../loaders/float16.js";
 import { TemporalHistoryRegistry } from "./TemporalHistoryRegistry.js";
 import { DynamicResolutionScaling } from "./DynamicResolutionScaling.js";
+import type { GraphicsMemoryEvidence } from "../gpu/GraphicsContext.js";
 
 export {
   ShadeIndirectLightingMode
@@ -201,6 +203,10 @@ export interface TemporalRuntimeEvidence {
   readonly historyInvalidationReason: string;
   readonly internalPixels: number;
   readonly outputPixels: number;
+  readonly internalWidth: number;
+  readonly internalHeight: number;
+  readonly outputWidth: number;
+  readonly outputHeight: number;
   readonly internalScale: number;
   readonly drsEnabled: boolean;
   readonly drsLastGpuMs: number;
@@ -213,6 +219,10 @@ export interface AmbientOcclusionRuntimeEvidence {
   readonly resolutionScale: 0.5 | 1;
   readonly internalPixels: number;
   readonly aoPixels: number;
+  readonly internalWidth: number;
+  readonly internalHeight: number;
+  readonly aoWidth: number;
+  readonly aoHeight: number;
   readonly rawPasses: number;
   readonly spatialPasses: number;
   readonly temporalPasses: number;
@@ -229,6 +239,8 @@ export interface AmbientOcclusionRuntimeEvidence {
 export interface ScreenSpaceReflectionsRuntimeEvidence {
   readonly enabled: boolean;
   readonly internalPixels: number;
+  readonly internalWidth: number;
+  readonly internalHeight: number;
   readonly tracePasses: number;
   readonly prefilterPasses: number;
   readonly resolvePasses: number;
@@ -241,6 +253,16 @@ export interface ScreenSpaceReflectionsRuntimeEvidence {
   readonly historyRevision: number;
   readonly historyInvalidations: number;
   readonly historyInvalidationReason: string;
+}
+
+export interface RendererMemoryEvidence extends GraphicsMemoryEvidence {
+  readonly historyBytes: number;
+  readonly historyOwners: Readonly<Record<string, number>>;
+}
+
+export interface MainFrameGraphRuntimeEvidence {
+  readonly cacheKey: string;
+  readonly dump: CompiledFrameGraphDump;
 }
 
 type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
@@ -284,7 +306,7 @@ type MainFrameGraphBindings = {
 
 const MAIN_GRAPH_CACHE_LIMIT = 16;
 const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 3;
-const MAIN_GRAPH_INSTRUMENTATION_REVISION = 4;
+const MAIN_GRAPH_INSTRUMENTATION_REVISION = 5;
 
 /**
  * 渲染器运行时总控。
@@ -315,6 +337,7 @@ export class Renderer {
   private readonly _mainGraphCache = new CompiledFrameGraphCache(
     MAIN_GRAPH_CACHE_LIMIT
   );
+  private _lastMainGraphEvidence: MainFrameGraphRuntimeEvidence | null = null;
   private _scenes!: GPUSceneManager;
   private _cameraStates!: GPUCameraStateManager;
   private _meshletDrawList!: MeshletDrawList;
@@ -384,9 +407,29 @@ export class Renderer {
   feature_sharpening_enabled = true;
   ssao_intensity = 1;
   ssao_falloff = 0.615;
+  ssao_slice_count = 2;
+  ssao_step_count = 4;
+  ssao_spatial_step = 1;
+  ssao_temporal_blend = 0.95;
   ssr_max_distance = 16;
   ssr_edge_fade = 0.07;
+  ssr_max_steps = 128;
+  ssr_depth_thickness = 0.1;
+  ssr_roughness_thickness = 10;
+  ssr_distance_thickness = 0.01;
+  ssr_roughness_cutoff = 0.65;
+  ssr_temporal_strength = 1;
   taa_history_strength = 1;
+  taa_variance_gamma = 1.25;
+  taa_min_history_weight = 0.65;
+  taa_max_history_weight = 0.92;
+  taa_history_lock_step = 1 / 16;
+  taa_reactive_threshold = 0.5;
+  taa_disocclusion_threshold = 0.2;
+  taa_motion_fade_pixels = 128;
+  shadow_cascade_lambda = 0.5;
+  shadow_maximum_distance = 80;
+  shadow_texel_guard_band = 2.5;
   bloom_intensity = 1;
   sharpening_strength = 0.8;
   private _exposure_compensation = 1;
@@ -746,6 +789,10 @@ export class Renderer {
       historyInvalidationReason: history.lastInvalidationReason,
       internalPixels: this._render_resolution.x * this._render_resolution.y,
       outputPixels: this._output_resolution.x * this._output_resolution.y,
+      internalWidth: this._render_resolution.x,
+      internalHeight: this._render_resolution.y,
+      outputWidth: this._output_resolution.x,
+      outputHeight: this._output_resolution.y,
       internalScale: this._internal_resolution_scale,
       drsEnabled: this._dynamicResolution.enabled,
       drsLastGpuMs: this._dynamicResolution.last_gpu_frame_time_ms,
@@ -767,6 +814,10 @@ export class Renderer {
       resolutionScale: this._ssao_resolution_scale,
       internalPixels,
       aoPixels: this.feature_ssao_enabled ? aoWidth * aoHeight : 0,
+      internalWidth: this._render_resolution.x,
+      internalHeight: this._render_resolution.y,
+      aoWidth: this.feature_ssao_enabled ? aoWidth : 0,
+      aoHeight: this.feature_ssao_enabled ? aoHeight : 0,
       rawPasses: pass?.lastRawPasses ?? 0,
       spatialPasses: pass?.lastSpatialPasses ?? 0,
       temporalPasses: pass?.lastTemporalPasses ?? 0,
@@ -790,6 +841,8 @@ export class Renderer {
       internalPixels: this.feature_ssr_enabled
         ? this._render_resolution.x * this._render_resolution.y
         : 0,
+      internalWidth: this.feature_ssr_enabled ? this._render_resolution.x : 0,
+      internalHeight: this.feature_ssr_enabled ? this._render_resolution.y : 0,
       tracePasses: pass?.lastTracePasses ?? 0,
       prefilterPasses: pass?.lastPrefilterPasses ?? 0,
       resolvePasses: pass?.lastResolvePasses ?? 0,
@@ -804,6 +857,30 @@ export class Renderer {
       historyInvalidations: history.invalidationCount,
       historyInvalidationReason: history.lastInvalidationReason
     });
+  }
+
+  /** Q00 resource ownership evidence; values are sampled after graph execution. */
+  memoryEvidence(): RendererMemoryEvidence {
+    const graphics = this._graphics.memoryEvidence();
+    const historyOwners = Object.freeze({
+      temporal: this.temporalEvidence().historyBytes,
+      ambientOcclusion: this.ambientOcclusionEvidence().historyBytes,
+      screenSpaceReflections: this.screenSpaceReflectionsEvidence().historyBytes,
+      automaticExposure: this._automaticExposure?.historyBytes ?? 0
+    });
+    const historyBytes = Object.values(historyOwners).reduce(
+      (sum, bytes) => sum + bytes,
+      0
+    );
+    return Object.freeze({ ...graphics, historyBytes, historyOwners });
+  }
+
+  /** Immutable graph topology corresponding to the most recently encoded main view. */
+  mainFrameGraphEvidence(): MainFrameGraphRuntimeEvidence | null {
+    const evidence = this._lastMainGraphEvidence;
+    return evidence === null
+      ? null
+      : Object.freeze({ cacheKey: evidence.cacheKey, dump: evidence.dump });
   }
 
   get render_debug_view_status(): RenderDebugViewStatus {
@@ -1202,6 +1279,9 @@ export class Renderer {
             "shadowQueueOverflowMask"
           ]);
         }
+        shadows.directional_cascade_lambda = this.shadow_cascade_lambda;
+        shadows.directional_maximum_distance = this.shadow_maximum_distance;
+        shadows.directional_texel_guard_band = this.shadow_texel_guard_band;
         shadows.select_for_draw(camera, this._frame_count, [w, h]);
         const packedBindings = gpuPacked === null
           ? null
@@ -1840,7 +1920,11 @@ export class Renderer {
               width: bindings.internalWidth,
               height: bindings.internalHeight,
               intensity: this.ssao_intensity,
-              falloff: this.ssao_falloff
+              falloff: this.ssao_falloff,
+              sliceCount: this.ssao_slice_count,
+              stepCount: this.ssao_step_count,
+              spatialStep: this.ssao_spatial_step,
+              temporalBlend: this.ssao_temporal_blend
             })),
             {
               camera: currentCameraRes,
@@ -1907,6 +1991,8 @@ export class Renderer {
         let ssaoDenoisedDebugRes: ResourceId | null = null;
         let ssaoTemporalDebugRes: ResourceId | null = null;
         let ssrHitMissDebugRes: ResourceId | null = null;
+        let ssrResolveDebugRes: ResourceId | null = null;
+        let ssrTemporalDebugRes: ResourceId | null = null;
         let ssrHistoryConfidenceDebugRes: ResourceId | null = null;
         let indirectDiffuseDebugRes: ResourceId | null = null;
         let indirectSpecularDebugRes: ResourceId | null = null;
@@ -1929,7 +2015,11 @@ export class Renderer {
               width: bindings.internalWidth,
               height: bindings.internalHeight,
               intensity: this.ssao_intensity,
-              falloff: this.ssao_falloff
+              falloff: this.ssao_falloff,
+              sliceCount: this.ssao_slice_count,
+              stepCount: this.ssao_step_count,
+              spatialStep: this.ssao_spatial_step,
+              temporalBlend: this.ssao_temporal_blend
             })),
             {
               depth: depthRes,
@@ -1937,7 +2027,8 @@ export class Renderer {
               velocity: velocityRes ?? depthRes,
               occlusionConfidence: occlusionConfidenceRes ?? depthRes,
               albedoAo: gAlbedoRes,
-              camera: currentCameraRes
+              camera: currentCameraRes,
+              counters: gpuCounterRes ?? undefined
             },
             graphTopology.ssaoTemporal
               ? {
@@ -1953,6 +2044,7 @@ export class Renderer {
           ssaoRawDebugRes = ssao.rawVisibility;
           ssaoDenoisedDebugRes = ssao.denoisedVisibility;
           ssaoTemporalDebugRes = ssao.visibility;
+          if (ssao.counters !== null) gpuCounterRes = ssao.counters;
           ssaoReady = true;
         }
 
@@ -2006,7 +2098,13 @@ export class Renderer {
                 historyOutputIndex: bindings.ssrHistoryOutputIndex,
                 samplers: this._graphics.samplers,
                 maxDistance: this.ssr_max_distance,
-                edgeFade: this.ssr_edge_fade
+                edgeFade: this.ssr_edge_fade,
+                maxSteps: this.ssr_max_steps,
+                depthThickness: this.ssr_depth_thickness,
+                roughnessThickness: this.ssr_roughness_thickness,
+                distanceThickness: this.ssr_distance_thickness,
+                roughnessCutoff: this.ssr_roughness_cutoff,
+                temporalStrength: this.ssr_temporal_strength
               })),
               {
                 depth: depthRes,
@@ -2020,7 +2118,8 @@ export class Renderer {
                 environment: environmentRes,
                 blueNoise: blueNoiseRes,
                 currentCamera: currentCameraRes,
-                previousCamera: previousCameraRes
+                previousCamera: previousCameraRes,
+                counters: gpuCounterRes ?? undefined
               },
               {
                 input: bind("ssr-history-input", (bindings) =>
@@ -2031,7 +2130,10 @@ export class Renderer {
             );
             indirectSpecularRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
+            ssrResolveDebugRes = ssr.denoised_1;
+            ssrTemporalDebugRes = ssr.temporal;
             ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
+            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
           } else {
             indirectSpecularRes = this._iblSpecular.addToGraph(
               graph,
@@ -2229,7 +2331,13 @@ export class Renderer {
                 historyOutputIndex: bindings.ssrHistoryOutputIndex,
                 samplers: this._graphics.samplers,
                 maxDistance: this.ssr_max_distance,
-                edgeFade: this.ssr_edge_fade
+                edgeFade: this.ssr_edge_fade,
+                maxSteps: this.ssr_max_steps,
+                depthThickness: this.ssr_depth_thickness,
+                roughnessThickness: this.ssr_roughness_thickness,
+                distanceThickness: this.ssr_distance_thickness,
+                roughnessCutoff: this.ssr_roughness_cutoff,
+                temporalStrength: this.ssr_temporal_strength
               })),
               {
                 depth: depthRes,
@@ -2244,6 +2352,7 @@ export class Renderer {
                 blueNoise: blueNoiseRes,
                 currentCamera: currentCameraRes,
                 previousCamera: previousCameraRes,
+                counters: gpuCounterRes ?? undefined,
                 lpv: {
                   atlasRadiance: atlasRadianceRes,
                   atlasDepth: atlasDepthRes,
@@ -2262,7 +2371,10 @@ export class Renderer {
             );
             indirectSpecularRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
+            ssrResolveDebugRes = ssr.denoised_1;
+            ssrTemporalDebugRes = ssr.temporal;
             ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
+            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
           } else {
             indirectSpecularRes = this._iblSpecular.addToGraph(
               graph,
@@ -2538,7 +2650,14 @@ export class Renderer {
                   bindings.outputHeight
                 ],
                 samplers: this._graphics.samplers,
-                historyStrength: this.taa_history_strength
+                historyStrength: this.taa_history_strength,
+                varianceGamma: this.taa_variance_gamma,
+                minimumHistoryWeight: this.taa_min_history_weight,
+                maximumHistoryWeight: this.taa_max_history_weight,
+                historyLockStep: this.taa_history_lock_step,
+                reactiveThreshold: this.taa_reactive_threshold,
+                disocclusionThreshold: this.taa_disocclusion_threshold,
+                motionFadePixels: this.taa_motion_fade_pixels
               })),
               {
                 output: historyOutputRes,
@@ -2653,6 +2772,8 @@ export class Renderer {
               ambientOcclusionDenoised: ssaoDenoisedDebugRes,
               ambientOcclusionTemporal: ssaoTemporalDebugRes,
               screenSpaceReflectionHitMiss: ssrHitMissDebugRes,
+              screenSpaceReflectionResolve: ssrResolveDebugRes,
+              screenSpaceReflectionTemporal: ssrTemporalDebugRes,
               screenSpaceReflectionHistoryConfidence: ssrHistoryConfidenceDebugRes
             },
             this._output_resolution.x,
@@ -2676,6 +2797,10 @@ export class Renderer {
         hit: () => this._profiler.recordGraphCacheHit(),
         miss: () => this._profiler.recordGraphCacheMiss(),
         evict: () => this._profiler.recordGraphCacheEviction()
+      });
+      this._lastMainGraphEvidence = Object.freeze({
+        cacheKey: graphKey,
+        dump: compiledGraph.dump()
       });
       if (sampleGpuCounters) {
         this._profiler.registerGpuCounterFields([
@@ -2743,6 +2868,26 @@ export class Renderer {
             "transparentReactivePixels",
             "transparentMomentFiniteFailures",
             "transparentQueueOverflowMask"
+          ]);
+        }
+        if (graphTopology.ssao) {
+          this._profiler.registerGpuCounterFields([
+            "aoEvaluatedPixels",
+            "aoHistoryAcceptedPixels",
+            "aoHistoryRejectedPixels"
+          ]);
+        }
+        if (graphTopology.ssr) {
+          this._profiler.registerGpuCounterFields([
+            "ssrTracePixels",
+            "ssrHitPixels",
+            "ssrTraceSteps",
+            "ssrMaxTraceSteps",
+            "ssrRoughnessRejectedPixels",
+            "ssrDistanceRejectedPixels",
+            "ssrHighRoughnessTracePixels",
+            "ssrDistanceLimitExceededPixels",
+            "ssrValidationRejectedPixels"
           ]);
         }
       }

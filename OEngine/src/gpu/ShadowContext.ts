@@ -81,10 +81,23 @@ export class DirectionalShadowMap extends ShadowMapBase<DirectionalLight> {
   distance_max = 1;
   readonly splits = new Float32Array(3);
 
-  update(camera: Camera): void {
-    const far = camera.far;
+  update(
+    camera: Camera,
+    cascadeLambda = 0.5,
+    maximumDistance = Number.POSITIVE_INFINITY,
+    texelGuardBand = 2.5
+  ): void {
     const near = camera.near;
-    this.splits.set(computePracticalCascadeSplits(near, far, this.views.length));
+    const far = Math.min(
+      camera.far,
+      Math.max(near + 0.001, maximumDistance)
+    );
+    this.splits.set(computePracticalCascadeSplits(
+      near,
+      far,
+      this.views.length,
+      Math.max(0, Math.min(1, cascadeLambda))
+    ));
 
     const frustum = new Float32Array(camera.frustum);
     replaceInfiniteFarPlane(frustum, camera.view_matrix, far);
@@ -108,8 +121,9 @@ export class DirectionalShadowMap extends ShadowMapBase<DirectionalLight> {
       const bounds = transformedPointBounds(corners, lightView);
       bounds.z0 = Math.min(bounds.z0, -2 * far);
       const layout = this.layout[cascade]!;
-      const growX = (bounds.width / layout.width) * 2.5;
-      const growY = (bounds.height / layout.height) * 2.5;
+      const guardBand = Math.max(0, Math.min(8, texelGuardBand));
+      const growX = (bounds.width / layout.width) * guardBand;
+      const growY = (bounds.height / layout.height) * guardBand;
       bounds.x0 -= growX;
       bounds.x1 += growX;
       bounds.y0 -= growY;
@@ -200,6 +214,9 @@ export class SpotShadowMap extends ShadowMapBase<SpotLight> {
 }
 
 export class ShadowContext {
+  directional_cascade_lambda = 0.5;
+  directional_maximum_distance = Number.POSITIVE_INFINITY;
+  directional_texel_guard_band = 2.5;
   readonly atlas: ShadowAtlasAllocator;
   readonly maps: ShadowMapBase[] = [];
   readonly resolution_controller: ShadowAtlasResolutionController;
@@ -362,7 +379,12 @@ export class ShadowContext {
       const viewCount = map.views.length;
       if ((map.light as DirectionalLight).isDirectionalLight) {
         map.should_draw = true;
-        (map as DirectionalShadowMap).update(camera);
+        (map as DirectionalShadowMap).update(
+          camera,
+          this.directional_cascade_lambda,
+          this.directional_maximum_distance,
+          this.directional_texel_guard_band
+        );
         selectedViews += viewCount;
         continue;
       }

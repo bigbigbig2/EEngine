@@ -14,6 +14,14 @@ export type GPUTexturePoolDescriptor = {
   mipLevelCount?: number;
 };
 
+export interface GPUTextureAllocatorEvidence {
+  readonly allocatedBytes: number;
+  readonly pendingBytes: number;
+  readonly cachedBytes: number;
+  readonly pendingCount: number;
+  readonly cachedCount: number;
+}
+
 export class GPUTextureAllocator {
   readonly texture_cache: GPUTextureContext[] = [];
   private readonly pending = new Set<GPUTextureContext>();
@@ -97,6 +105,24 @@ export class GPUTextureAllocator {
 
   get pending_count(): number {
     return this.pending.size;
+  }
+
+  evidence(): GPUTextureAllocatorEvidence {
+    const cachedBytes = this.texture_cache.reduce(
+      (sum, texture) => sum + texture.gpu_memory_usage,
+      0
+    );
+    let pendingBytes = 0;
+    for (const texture of this.pending) {
+      pendingBytes += texture.gpu_memory_usage;
+    }
+    return Object.freeze({
+      allocatedBytes: cachedBytes + pendingBytes,
+      pendingBytes,
+      cachedBytes,
+      pendingCount: this.pending.size,
+      cachedCount: this.texture_cache.length
+    });
   }
 
   destroy(): void {

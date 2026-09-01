@@ -4,7 +4,7 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 9;
+export const GPU_COUNTER_SCHEMA_VERSION = 10;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -87,7 +87,19 @@ export const GPU_COUNTER_FIELDS = [
   { name: "transparentQueueOverflowMask", index: 68, semantic: "sampled TransparentRasterWork overflow bit" },
   { name: "temporalReactivePixels", index: 69, semantic: "sampled unified opaque/transparent reactive pixels consumed by Temporal" },
   { name: "temporalDisoccludedPixels", index: 70, semantic: "sampled pixels rejected by shared disocclusion confidence" },
-  { name: "temporalHistoryRejectedPixels", index: 71, semantic: "sampled pixels rejecting history for global validity, motion, reactive or disocclusion" }
+  { name: "temporalHistoryRejectedPixels", index: 71, semantic: "sampled pixels rejecting history for global validity, motion, reactive or disocclusion" },
+  { name: "aoEvaluatedPixels", index: 72, semantic: "sampled GTAO-resolution pixels evaluated by the temporal evidence reducer" },
+  { name: "aoHistoryAcceptedPixels", index: 73, semantic: "sampled GTAO pixels whose current temporal policy assigns non-zero history weight" },
+  { name: "aoHistoryRejectedPixels", index: 74, semantic: "sampled GTAO pixels whose current temporal policy rejects history" },
+  { name: "ssrTracePixels", index: 75, semantic: "sampled non-background pixels entering the current SSR hierarchical trace" },
+  { name: "ssrHitPixels", index: 76, semantic: "sampled SSR trace pixels producing non-zero validated hit confidence" },
+  { name: "ssrTraceSteps", index: 77, semantic: "sampled sum of hierarchical SSR trace iterations" },
+  { name: "ssrMaxTraceSteps", index: 78, semantic: "sampled maximum hierarchical SSR trace iterations for one pixel" },
+  { name: "ssrRoughnessRejectedPixels", index: 79, semantic: "sampled pixels rejected before SSR trace by the active roughness policy; zero on the pre-Q04 implementation" },
+  { name: "ssrDistanceRejectedPixels", index: 80, semantic: "sampled pixels rejected by max-distance termination; zero on the pre-Q04 implementation" },
+  { name: "ssrHighRoughnessTracePixels", index: 81, semantic: "sampled pixels above the Q00 diagnostic roughness threshold that still entered the pre-Q04 trace" },
+  { name: "ssrDistanceLimitExceededPixels", index: 82, semantic: "sampled validated rays longer than requested maxDistance that the pre-Q04 trace did not terminate" },
+  { name: "ssrValidationRejectedPixels", index: 83, semantic: "sampled hierarchical hits rejected by current depth, facing, edge or confidence validation" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

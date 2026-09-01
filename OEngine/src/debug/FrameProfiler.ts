@@ -529,6 +529,14 @@ export class FrameProfiler {
       (this.active.snapshot.counters[label] ?? 0) + validated;
   }
 
+  /** Records commands actually encoded through ShadeGPUCommandContext. */
+  recordGpuCommand(
+    kind: "renderPass" | "computePass" | "draw" | "dispatch" | "bundleExecution",
+    amount = 1
+  ): void {
+    this.addCounter(`gpu.commands.${kind}`, amount);
+  }
+
   endFrame(): FrameProfileSnapshot | undefined {
     const active = this.active;
     if (active === null) return undefined;

@@ -47,6 +47,8 @@ export type RenderDebugViewResources = {
   ambientOcclusionDenoised: ResourceId | null;
   ambientOcclusionTemporal: ResourceId | null;
   screenSpaceReflectionHitMiss: ResourceId | null;
+  screenSpaceReflectionResolve: ResourceId | null;
+  screenSpaceReflectionTemporal: ResourceId | null;
   screenSpaceReflectionHistoryConfidence: ResourceId | null;
 };
 
@@ -137,6 +139,14 @@ export class RenderDebugViewPass {
       [
         RenderDebugViewValue.ScreenSpaceReflectionHitMiss,
         createPipeline("Render debug/SSR hit-miss", SSR_HIT_MISS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.ScreenSpaceReflectionResolve,
+        createPipeline("Render debug/SSR resolve", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+      ],
+      [
+        RenderDebugViewValue.ScreenSpaceReflectionTemporal,
+        createPipeline("Render debug/SSR temporal", LINEAR_HDR_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
       ],
       [
         RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence,
@@ -320,6 +330,10 @@ function inputResourceIds(
       return [requireOptionalTexture(view, resources.ambientOcclusionTemporal)];
     case RenderDebugViewValue.ScreenSpaceReflectionHitMiss:
       return [requireOptionalTexture(view, resources.screenSpaceReflectionHitMiss)];
+    case RenderDebugViewValue.ScreenSpaceReflectionResolve:
+      return [requireOptionalTexture(view, resources.screenSpaceReflectionResolve)];
+    case RenderDebugViewValue.ScreenSpaceReflectionTemporal:
+      return [requireOptionalTexture(view, resources.screenSpaceReflectionTemporal)];
     case RenderDebugViewValue.ScreenSpaceReflectionHistoryConfidence:
       return [requireOptionalTexture(view, resources.screenSpaceReflectionHistoryConfidence)];
     default:

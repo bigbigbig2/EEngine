@@ -2,23 +2,25 @@ import {
   DirectionalLight,
   OrbitalCameraController,
   PerspectiveCamera,
-  PointLight,
   RENDER_DEBUG_VIEW_OPTIONS,
   RenderDebugView,
   Renderer,
   Scene,
+  StandardShadeMaterial,
+  buildBoxSourceGeometry,
   cookGeometryAssetPackage,
   createGeometryCookRecipe,
   load_environment_map,
   load_gltf_packed,
   type GeometryAssetPackage,
+  type PackedSceneSource,
   type PackedGltfSource,
   type RenderDebugViewName
 } from "../../OEngine/src/index.ts";
 import {
   SHOWCASE_GPU_DOMAINS,
   ShowcaseEvidenceWindow
-} from "./evidence.js";
+} from "../integrated-showcase/evidence.js";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -35,7 +37,7 @@ declare global {
 
 type Q00CaptureState = {
   readonly features?: Partial<Record<
-    "shadows" | "ssao" | "ssr" | "taa" | "bloom" | "exposure" | "sharpen" | "lights",
+    "shadows" | "ssao" | "ssr" | "taa" | "bloom" | "exposure" | "sharpen",
     boolean
   >>;
   readonly debugView?: RenderDebugViewName;
@@ -62,9 +64,8 @@ type DebugDescriptor = {
   readonly requires?: "ssao" | "ssr";
 };
 
-const MODEL_URL = new URL("../public/cyberpunk_city.glb", import.meta.url).href;
-const ENVIRONMENT_URL = new URL("./assets/venice_sunset_1k.hdr", import.meta.url).href;
-const MODEL_WORLD_SCALE = 10;
+const MODEL_URL = new URL("./assets/dungeon_warkarma.glb", import.meta.url).href;
+const ENVIRONMENT_URL = new URL("../integrated-showcase/assets/venice_sunset_1k.hdr", import.meta.url).href;
 
 const debugDescriptors: readonly DebugDescriptor[] = [
   { value: RenderDebugView.None, label: "最终画面", help: "曝光、色调映射与后处理后的最终输出。" },
@@ -125,10 +126,9 @@ let resizeObserver: ResizeObserver | null = null;
 let frameRequest = 0;
 let disposed = false;
 let sceneBounds: Bounds | null = null;
-let animatedLights = true;
-let pointLights: PointLight[] = [];
 let sunLight: DirectionalLight | null = null;
-let lightAnimationSpeed = 1;
+let sunAzimuthDegrees = -36;
+let sunElevationDegrees = 65;
 let framesSinceSample = 0;
 let lastFpsSample = performance.now();
 const evidenceWindow = new ShowcaseEvidenceWindow(1024);
@@ -166,7 +166,7 @@ async function initialize(): Promise<void> {
   if (disposed) return;
 
   setLoading(
-    "正在加载 146.9 MB GLB 与 HDR 环境贴图…",
+    "正在加载 Dungeon by Warkarma 与 HDR 环境贴图…",
     "资产导入",
     0.1
   );
@@ -176,43 +176,23 @@ async function initialize(): Promise<void> {
   ]);
   if (disposed) return;
 
-  const sourceBounds = computeWorldBounds(imported);
-  const showcaseTransforms = scalePackedTransforms(
-    imported.transforms,
-    MODEL_WORLD_SCALE,
-    sourceBounds.center
-  );
-  sceneBounds = computeWorldBounds(imported, showcaseTransforms);
-  metricInstances.textContent = formatInteger(imported.geometryIndices.length);
-  metricGeometries.textContent = formatInteger(imported.geometries.length);
-
-  const packages = await cookGeometries(imported.geometries);
+  const lab = await createRenderingLab(imported);
+  sceneBounds = lab.bounds;
+  metricInstances.textContent = formatInteger(lab.source.count);
+  metricGeometries.textContent = formatInteger(lab.source.geometries.length);
   if (disposed) return;
 
   const activeScene = new Scene();
   scene = activeScene;
   activeScene.lights.environment = environment;
-  addShowcaseLights(activeScene, sceneBounds);
+  addDirectionalLight(activeScene);
 
   setLoading(
-    `正在上传 ${packages.length} 个几何包和 ${imported.materials.length} 个材质…`,
+    `正在上传 ${lab.source.geometries.length} 个几何包和 ${lab.source.materials.length} 个材质…`,
     "GPU 驻留",
     0.88
   );
-  await activeRenderer.uploadPackedScene(activeScene, {
-    geometries: packages,
-    materials: imported.materials,
-    count: imported.geometryIndices.length,
-    geometryIndices: imported.geometryIndices,
-    materialIndices: imported.materialIndices,
-    currentTransforms: showcaseTransforms,
-    previousTransforms: showcaseTransforms.slice(),
-    boundsSpheres: imported.boundsSpheres,
-    boundsMin: imported.boundsMin,
-    boundsMax: imported.boundsMax,
-    flags: imported.flags,
-    debugIds: imported.debugIds
-  });
+  await activeRenderer.uploadPackedScene(activeScene, lab.source);
   if (disposed) return;
 
   const activeCamera = createCamera(activeRenderer, sceneBounds);
@@ -336,6 +316,175 @@ function configurePipeline(activeRenderer: Renderer): void {
   activeRenderer.render_debug_view = RenderDebugView.None;
 }
 
+async function createRenderingLab(imported: PackedGltfSource): Promise<{
+  readonly source: PackedSceneSource;
+  readonly bounds: Bounds;
+}> {
+  const generatedSources = [
+    buildBoxSourceGeometry(30, 0.2, 18),
+    buildBoxSourceGeometry(8, 6, 0.2),
+    buildBoxSourceGeometry(0.2, 6, 12),
+    buildBoxSourceGeometry(2.2, 0.06, 10),
+    buildBoxSourceGeometry(3.2, 0.4, 3.2),
+    buildBoxSourceGeometry(1.1, 1.1, 1.1),
+    buildBoxSourceGeometry(0.16, 3.2, 0.16),
+    buildBoxSourceGeometry(1.4, 0.32, 0.32)
+  ];
+  const geometrySources = [...imported.geometries, ...generatedSources];
+  const geometries = await cookGeometries(geometrySources);
+  const customMaterials = [
+    labMaterial([0.32, 0.35, 0.39], 0.88, 0),
+    labMaterial([0.56, 0.59, 0.64], 0.72, 0),
+    labMaterial([0.72, 0.74, 0.78], 0.03, 1),
+    labMaterial([0.54, 0.58, 0.63], 0.38, 1),
+    labMaterial([0.42, 0.46, 0.51], 0.82, 1),
+    labMaterial([0.86, 0.12, 0.08], 0.24, 0),
+    labMaterial([0.08, 0.42, 0.92], 0.52, 0),
+    labMaterial([0.06, 0.08, 0.11], 0.3, 0, [3.5, 0.35, 0.08])
+  ];
+  const materials = [...imported.materials, ...customMaterials];
+  const importedGeometryCount = imported.geometries.length;
+  const customMaterialBase = imported.materials.length;
+  const importedTransforms = fitPackedTransforms(imported, 5.4, [-5.8, -1, -0.4]);
+  const generatedInstances = [
+    { geometry: 0, material: 0, position: [0, -1.1, 0] },
+    { geometry: 1, material: 1, position: [8, 1.9, -6.5] },
+    { geometry: 2, material: 1, position: [12.2, 1.9, -0.4] },
+    { geometry: 3, material: 2, position: [5.2, -0.97, 0.4] },
+    { geometry: 3, material: 3, position: [8, -0.97, 0.4] },
+    { geometry: 3, material: 4, position: [10.8, -0.97, 0.4] },
+    { geometry: 4, material: 1, position: [8, -0.82, -2.1] },
+    { geometry: 5, material: 5, position: [5.2, -0.4, -0.8] },
+    { geometry: 5, material: 6, position: [10.8, -0.4, -0.8] },
+    { geometry: 5, material: 5, position: [6.1, -0.4, 3.1] },
+    { geometry: 5, material: 6, position: [9.9, -0.4, 3.1] },
+    { geometry: 6, material: 1, position: [6.2, 0.5, -4.8] },
+    { geometry: 6, material: 1, position: [9.8, 0.5, -4.8] },
+    { geometry: 7, material: 7, position: [5.2, 1.8, -6.2] },
+    { geometry: 7, material: 7, position: [8, 2.7, -6.2] },
+    { geometry: 7, material: 7, position: [10.8, 1.8, -6.2] }
+  ] as const;
+  const count = imported.geometryIndices.length + generatedInstances.length;
+  const geometryIndices = new Uint32Array(count);
+  const materialIndices = new Uint32Array(count);
+  const currentTransforms = new Float32Array(count * 16);
+  const boundsSpheres = new Float32Array(count * 4);
+  const boundsMin = new Float32Array(count * 3);
+  const boundsMax = new Float32Array(count * 3);
+  const flags = new Uint32Array(count);
+  const debugIds = new Uint32Array(count);
+  geometryIndices.set(imported.geometryIndices);
+  materialIndices.set(imported.materialIndices);
+  currentTransforms.set(importedTransforms);
+  boundsSpheres.set(imported.boundsSpheres);
+  boundsMin.set(imported.boundsMin);
+  boundsMax.set(imported.boundsMax);
+  flags.set(imported.flags);
+  debugIds.set(imported.debugIds);
+  for (let index = 0; index < generatedInstances.length; index++) {
+    const destination = imported.geometryIndices.length + index;
+    const instance = generatedInstances[index]!;
+    const source = generatedSources[instance.geometry]!;
+    geometryIndices[destination] = importedGeometryCount + instance.geometry;
+    materialIndices[destination] = customMaterialBase + instance.material;
+    writeTranslationTransform(
+      currentTransforms,
+      destination * 16,
+      instance.position[0],
+      instance.position[1],
+      instance.position[2]
+    );
+    boundsSpheres.set(source.bounds.sphere, destination * 4);
+    boundsMin.set(source.bounds.box.subarray(0, 3), destination * 3);
+    boundsMax.set(source.bounds.box.subarray(3, 6), destination * 3);
+    debugIds[destination] = destination + 1;
+  }
+  return Object.freeze({
+    source: Object.freeze({
+      geometries,
+      materials,
+      count,
+      geometryIndices,
+      materialIndices,
+      currentTransforms,
+      previousTransforms: currentTransforms.slice(),
+      boundsSpheres,
+      boundsMin,
+      boundsMax,
+      flags,
+      debugIds
+    }),
+    bounds: Object.freeze({
+      min: [-15, -1.2, -9],
+      max: [15, 5, 9],
+      center: [0, 1.9, 0],
+      radius: 18.1
+    })
+  });
+}
+
+function labMaterial(
+  color: readonly [number, number, number],
+  roughness: number,
+  metallic: number,
+  emissive: readonly [number, number, number] = [0, 0, 0]
+): StandardShadeMaterial {
+  const material = new StandardShadeMaterial();
+  material.diffuse_color.set(color[0], color[1], color[2], 1);
+  material.roughness_factor = roughness;
+  material.metallic_factor = metallic;
+  material.emissive_factor.set(emissive[0], emissive[1], emissive[2]);
+  return material;
+}
+
+function fitPackedTransforms(
+  source: PackedGltfSource,
+  targetHeight: number,
+  targetBase: readonly [number, number, number]
+): Float32Array {
+  const bounds = computeWorldBounds(source);
+  const height = Math.max(1e-5, bounds.max[1] - bounds.min[1]);
+  const scale = targetHeight / height;
+  const targetCenter: readonly [number, number, number] = [
+    targetBase[0],
+    targetBase[1] + (bounds.center[1] - bounds.min[1]) * scale,
+    targetBase[2]
+  ];
+  const output = source.transforms.slice();
+  for (let offset = 0; offset < output.length; offset += 16) {
+    for (let column = 0; column < 3; column++) {
+      for (let row = 0; row < 3; row++) {
+        const element = offset + column * 4 + row;
+        output[element] = output[element]! * scale;
+      }
+    }
+    output[offset + 12] = targetCenter[0] +
+      (output[offset + 12]! - bounds.center[0]) * scale;
+    output[offset + 13] = targetCenter[1] +
+      (output[offset + 13]! - bounds.center[1]) * scale;
+    output[offset + 14] = targetCenter[2] +
+      (output[offset + 14]! - bounds.center[2]) * scale;
+  }
+  return output;
+}
+
+function writeTranslationTransform(
+  target: Float32Array,
+  offset: number,
+  x: number,
+  y: number,
+  z: number
+): void {
+  target.fill(0, offset, offset + 16);
+  target[offset] = 1;
+  target[offset + 5] = 1;
+  target[offset + 10] = 1;
+  target[offset + 12] = x;
+  target[offset + 13] = y;
+  target[offset + 14] = z;
+  target[offset + 15] = 1;
+}
+
 async function cookGeometries(
   sources: PackedGltfSource["geometries"]
 ): Promise<readonly GeometryAssetPackage[]> {
@@ -354,37 +503,26 @@ async function cookGeometries(
   return Object.freeze(packages);
 }
 
-function addShowcaseLights(activeScene: Scene, bounds: Bounds): void {
+function addDirectionalLight(activeScene: Scene): void {
   const sun = new DirectionalLight();
   sunLight = sun;
   sun.intensity = 2.8;
-  sun.forward = [0.38, -1, -0.28];
+  updateSunDirection();
   sun.casts_shadow = true;
   activeScene.addChild(sun);
+}
 
-  const colors = [
-    [1, 0.12, 0.06],
-    [0.08, 0.42, 1],
-    [0.72, 0.08, 1],
-    [0.08, 1, 0.7]
-  ] as const;
-  pointLights = colors.map((color, index) => {
-    const light = new PointLight();
-    const angle = index / colors.length * Math.PI * 2;
-    light.color.set(color[0], color[1], color[2]);
-    light.intensity = 40;
-    light.distance = Math.max(4, bounds.radius * 0.75);
-    light.radius = Math.max(0.05, bounds.radius * 0.005);
-    light.casts_shadow = false;
-    light.position = [
-      bounds.center[0] + Math.cos(angle) * bounds.radius * 0.38,
-      bounds.center[1] + bounds.radius * 0.08,
-      bounds.center[2] + Math.sin(angle) * bounds.radius * 0.38
-    ];
-    light.updateMatrices();
-    activeScene.addChild(light);
-    return light;
-  });
+function updateSunDirection(): void {
+  if (sunLight === null) return;
+  const azimuth = sunAzimuthDegrees * Math.PI / 180;
+  const elevation = sunElevationDegrees * Math.PI / 180;
+  const horizontal = Math.cos(elevation);
+  sunLight.forward = [
+    horizontal * Math.cos(azimuth),
+    -Math.sin(elevation),
+    horizontal * Math.sin(azimuth)
+  ];
+  scene?.lights.markChanged(sunLight);
 }
 
 function createCamera(activeRenderer: Renderer, bounds: Bounds): PerspectiveCamera {
@@ -397,26 +535,12 @@ function createCamera(activeRenderer: Renderer, bounds: Bounds): PerspectiveCame
 }
 
 function resetCamera(): void {
-  if (camera === null || sceneBounds === null) return;
-  const { center, radius } = sceneBounds;
-  camera.transform.position.set(
-    center[0] + radius * 1.15,
-    center[1] + radius * 0.72,
-    center[2] + radius * 1.35
-  );
-  camera.transform.lookAt({ x: center[0], y: center[1], z: center[2] });
-  camera.update();
+  setCameraPose([17.5, 9.6, 21], [0, -0.1, -0.8]);
   if (controller !== null) {
-    controller.look(camera.transform.position, {
-      x: center[0],
-      y: center[1],
-      z: center[2]
-    });
-    controller.distanceLimits.min = Math.max(0.1, radius * 0.025);
-    controller.distanceLimits.max = radius * 8;
-    controller.movement_speed_scale = Math.max(0.5, radius * 0.12);
+    controller.distanceLimits.min = 0.25;
+    controller.distanceLimits.max = 80;
+    controller.movement_speed_scale = 1.8;
   }
-  renderer?.indicate_view_change();
 }
 
 function applyCameraPreset(preset: "overview" | "street" | "road" | "contact"): void {
@@ -425,24 +549,13 @@ function applyCameraPreset(preset: "overview" | "street" | "road" | "contact"): 
     resetCamera();
     return;
   }
-  const { center, radius } = sceneBounds;
-  const offset = preset === "street"
-    ? { position: [0.34, 0.09, 0.46], target: [0.0, -0.20, -0.02] }
-    : preset === "road"
-      ? { position: [0.25, 0.02, 0.34], target: [0.0, -0.27, -0.04] }
-      : { position: [0.20, 0.0, 0.30], target: [-0.02, -0.27, -0.06] };
-  setCameraPose(
-    [
-      center[0] + offset.position[0] * radius,
-      center[1] + offset.position[1] * radius,
-      center[2] + offset.position[2] * radius
-    ],
-    [
-      center[0] + offset.target[0] * radius,
-      center[1] + offset.target[1] * radius,
-      center[2] + offset.target[2] * radius
-    ]
-  );
+  if (preset === "street") {
+    setCameraPose([3.1, 4.8, 10.8], [-5.8, -0.2, -0.5]);
+  } else if (preset === "road") {
+    setCameraPose([14.2, 3.5, 9.4], [8, -0.45, -0.3]);
+  } else {
+    setCameraPose([3.2, 1.8, 5.6], [7.2, -0.8, 0.1]);
+  }
 }
 
 function setCameraPose(
@@ -482,7 +595,6 @@ function startFrameLoop(): void {
     previousTime = now;
     if (!document.hidden) {
       controller?.update();
-      animateLights(scene, now * 0.001);
       camera.aspect = renderer.aspect_ratio;
       camera.update();
       if (!renderer.render(camera, scene, deltaSeconds)) {
@@ -494,23 +606,6 @@ function startFrameLoop(): void {
     frameRequest = requestAnimationFrame(frame);
   };
   frameRequest = requestAnimationFrame(frame);
-}
-
-function animateLights(activeScene: Scene, time: number): void {
-  if (!animatedLights || sceneBounds === null) return;
-  const { center, radius } = sceneBounds;
-  for (let index = 0; index < pointLights.length; index++) {
-    const light = pointLights[index]!;
-    const angle = time * lightAnimationSpeed * (0.12 + index * 0.015) +
-      index / pointLights.length * Math.PI * 2;
-    light.position = [
-      center[0] + Math.cos(angle) * radius * 0.38,
-      center[1] + radius * (0.08 + 0.04 * Math.sin(time * 0.7 + index)),
-      center[2] + Math.sin(angle) * radius * 0.38
-    ];
-    light.updateMatrices();
-    activeScene.lights.markChanged(light);
-  }
 }
 
 function bindRendererControls(activeRenderer: Renderer): void {
@@ -527,7 +622,6 @@ function bindRendererControls(activeRenderer: Renderer): void {
         case "sharpen": activeRenderer.feature_sharpening_enabled = checkbox.checked; break;
         case "cone": activeRenderer.packed_visibility_cone_enabled = checkbox.checked; break;
         case "hzb": activeRenderer.packed_visibility_hzb_enabled = checkbox.checked; break;
-        case "lights": animatedLights = checkbox.checked; break;
       }
       ensureDebugProducer(activeRenderer);
     });
@@ -563,16 +657,64 @@ function bindRendererControls(activeRenderer: Renderer): void {
       scene?.lights.markChanged(sunLight);
     }
   }, (value) => value.toFixed(1));
+  bindRange("sun-azimuth", (value) => {
+    sunAzimuthDegrees = value;
+    updateSunDirection();
+  }, (value) => `${value.toFixed(0)}°`);
+  bindRange("sun-elevation", (value) => {
+    sunElevationDegrees = value;
+    updateSunDirection();
+  }, (value) => `${value.toFixed(0)}°`);
+  bindRange("shadow-distance", (value) => activeRenderer.shadow_maximum_distance = value,
+    (value) => `${value.toFixed(0)} m`);
+  bindRange("shadow-lambda", (value) => activeRenderer.shadow_cascade_lambda = value,
+    (value) => value.toFixed(2));
+  bindRange("shadow-guard", (value) => activeRenderer.shadow_texel_guard_band = value,
+    (value) => `${value.toFixed(1)} px`);
   bindRange("ao-intensity", (value) => activeRenderer.ssao_intensity = value,
     (value) => value.toFixed(2));
   bindRange("ao-falloff", (value) => activeRenderer.ssao_falloff = value,
+    (value) => value.toFixed(2));
+  bindRange("ao-slices", (value) => activeRenderer.ssao_slice_count = value,
+    (value) => value.toFixed(0));
+  bindRange("ao-steps", (value) => activeRenderer.ssao_step_count = value,
+    (value) => value.toFixed(0));
+  bindRange("ao-spatial", (value) => activeRenderer.ssao_spatial_step = value,
+    (value) => `${value.toFixed(0)} px`);
+  bindRange("ao-temporal-blend", (value) => activeRenderer.ssao_temporal_blend = value,
     (value) => value.toFixed(2));
   bindRange("ssr-distance", (value) => activeRenderer.ssr_max_distance = value,
     (value) => `${value.toFixed(0)} m`);
   bindRange("ssr-edge", (value) => activeRenderer.ssr_edge_fade = value,
     (value) => value.toFixed(2));
+  bindRange("ssr-steps", (value) => activeRenderer.ssr_max_steps = value,
+    (value) => value.toFixed(0));
+  bindRange("ssr-thickness", (value) => activeRenderer.ssr_depth_thickness = value,
+    (value) => value.toFixed(2));
+  bindRange("ssr-roughness-thickness", (value) => activeRenderer.ssr_roughness_thickness = value,
+    (value) => value.toFixed(1));
+  bindRange("ssr-distance-thickness", (value) => activeRenderer.ssr_distance_thickness = value,
+    (value) => value.toFixed(3));
+  bindRange("ssr-roughness-cutoff", (value) => activeRenderer.ssr_roughness_cutoff = value,
+    (value) => value.toFixed(2));
+  bindRange("ssr-temporal", (value) => activeRenderer.ssr_temporal_strength = value,
+    (value) => value.toFixed(2));
   bindRange("taa-history", (value) => activeRenderer.taa_history_strength = value,
     (value) => value.toFixed(2));
+  bindRange("taa-variance", (value) => activeRenderer.taa_variance_gamma = value,
+    (value) => `${value.toFixed(2)} σ`);
+  bindRange("taa-min-history", (value) => activeRenderer.taa_min_history_weight = value,
+    (value) => value.toFixed(2));
+  bindRange("taa-max-history", (value) => activeRenderer.taa_max_history_weight = value,
+    (value) => value.toFixed(2));
+  bindRange("taa-lock-step", (value) => activeRenderer.taa_history_lock_step = value,
+    (value) => value.toFixed(3));
+  bindRange("taa-reactive", (value) => activeRenderer.taa_reactive_threshold = value,
+    (value) => value.toFixed(2));
+  bindRange("taa-disocclusion", (value) => activeRenderer.taa_disocclusion_threshold = value,
+    (value) => value.toFixed(2));
+  bindRange("taa-motion-fade", (value) => activeRenderer.taa_motion_fade_pixels = value,
+    (value) => `${value.toFixed(0)} px`);
   bindRange("bloom-intensity", (value) => activeRenderer.bloom_intensity = value,
     (value) => value.toFixed(2));
   bindRange("exposure-compensation", (value) => activeRenderer.exposure_compensation = value,
@@ -583,21 +725,6 @@ function bindRendererControls(activeRenderer: Renderer): void {
     (value) => value.toFixed(1));
   bindRange("sharpen-strength", (value) => activeRenderer.sharpening_strength = value,
     (value) => value.toFixed(2));
-  bindRange("light-intensity", (value) => {
-    for (const light of pointLights) {
-      light.intensity = value;
-      scene?.lights.markChanged(light);
-    }
-  }, (value) => value.toFixed(0));
-  bindRange("light-range", (value) => {
-    if (sceneBounds === null) return;
-    for (const light of pointLights) {
-      light.distance = sceneBounds.radius * value;
-      scene?.lights.markChanged(light);
-    }
-  }, (value) => `${value.toFixed(2)}×`);
-  bindRange("light-speed", (value) => lightAnimationSpeed = value,
-    (value) => `${value.toFixed(1)}×`);
 
   for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-scale]")) {
     button.addEventListener("click", () => {
@@ -825,8 +952,8 @@ function updateProfilerEvidence(): void {
         `steps avg ${tracePixels > 0 ? (traceSteps / tracePixels).toFixed(1) : "—"} / max ${gpu.ssrMaxTraceSteps ?? 0}`,
         `roughness reject ${gpu.ssrRoughnessRejectedPixels ?? 0}`,
         `distance reject ${gpu.ssrDistanceRejectedPixels ?? 0}`,
-        `高粗糙仍追踪 ${formatInteger(gpu.ssrHighRoughnessTracePixels ?? 0)}`,
-        `超 maxDistance 仍保留 ${formatInteger(gpu.ssrDistanceLimitExceededPixels ?? 0)}`,
+        `高粗糙跳过 ${formatInteger(gpu.ssrHighRoughnessTracePixels ?? 0)}`,
+        `超距拒绝 ${formatInteger(gpu.ssrDistanceLimitExceededPixels ?? 0)}`,
         `validation reject ${formatInteger(gpu.ssrValidationRejectedPixels ?? 0)}`
       ].join(" · ")
     : "功能关闭；无 trace/resolve/temporal Pass 和历史资源。";

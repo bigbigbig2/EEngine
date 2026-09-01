@@ -138,6 +138,10 @@ export class AutomaticExposurePass {
     return this.adaptedBuffers[(frameIndex + (output ? 1 : 0)) % 2]!;
   }
 
+  get historyBytes(): number {
+    return this.adaptedBuffers.reduce((sum, buffer) => sum + buffer.size, 0);
+  }
+
   unadapted(graph: FrameGraph): ResourceId {
     let output = -1;
     const builder = graph.add(

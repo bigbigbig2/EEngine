@@ -5,9 +5,16 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import {
+  counterByteOffset,
+  GPU_COUNTER_BYTE_SIZE
+} from "../../debug/GpuFrameCounters.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
-import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import type {
+  CachedComputePipelineDescriptor,
+  CachedRenderPipelineDescriptor
+} from "../../gpu/GPUDescriptorCaches.js";
 import { GPUTextureContext, textureMipLevelCount } from "../../gpu/GPUTextureContext.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import {
@@ -49,6 +56,7 @@ export type ScreenSpaceReflectionsInputs = {
   blueNoise: ResourceId;
   currentCamera: ResourceId;
   previousCamera: ResourceId;
+  counters?: ResourceId;
   lpv?: {
     atlasRadiance: ResourceId;
     atlasDepth: ResourceId;
@@ -63,8 +71,10 @@ export type ScreenSpaceReflectionsOutput = {
   trace: ResourceId;
   denoised: ResourceId;
   denoised_1: ResourceId;
+  temporal: ResourceId;
   reflections: ResourceId;
   historyConfidence: ResourceId;
+  counters: ResourceId | null;
 };
 
 export type ScreenSpaceReflectionsJob = {
@@ -77,6 +87,12 @@ export type ScreenSpaceReflectionsJob = {
   samplers: GPUSamplerCache;
   maxDistance: number;
   edgeFade: number;
+  maxSteps: number;
+  depthThickness: number;
+  roughnessThickness: number;
+  distanceThickness: number;
+  roughnessCutoff: number;
+  temporalStrength: number;
 };
 
 export class ScreenSpaceReflectionsPass {
@@ -132,7 +148,7 @@ export class ScreenSpaceReflectionsPass {
     if (this.traceSettings !== null) return;
     this.traceSettings = this.device.createBuffer({
       label: "Renderer/SSR trace settings",
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
     this.resolveSettings = this.device.createBuffer({
@@ -193,7 +209,17 @@ export class ScreenSpaceReflectionsPass {
       job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
-        this.executeTrace(command, data.frameIndex, data.maxDistance, data.edgeFade, {
+        this.executeTrace(
+          command,
+          data.frameIndex,
+          data.maxDistance,
+          data.edgeFade,
+          data.maxSteps,
+          data.depthThickness,
+          data.roughnessThickness,
+          data.distanceThickness,
+          data.roughnessCutoff,
+          {
           output: resolveTextureView(resources.get(trace)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
           hzb: resolveTextureView(resources.get(inputs.hzb)),
@@ -201,7 +227,8 @@ export class ScreenSpaceReflectionsPass {
           normal: resolveTextureView(resources.get(inputs.normal)),
           blueNoise: resolveTextureView(resources.get(inputs.blueNoise)),
           currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera")
-        });
+          }
+        );
         this.lastRan = true;
         this.lastTracePasses = 1;
       }
@@ -216,6 +243,31 @@ export class ScreenSpaceReflectionsPass {
     });
     for (const input of [inputs.depth, inputs.hzb, inputs.pbr, inputs.normal, inputs.blueNoise, inputs.currentCamera]) {
       traceBuilder.read(input);
+    }
+
+    let counters: ResourceId | null = null;
+    if (inputs.counters !== undefined) {
+      const evidenceBuilder = graph.add(
+        "R5-Q00 SSR sampled trace evidence",
+        { width, height },
+        (data, resources, context) => {
+          const command = requireShadeCommandContext(context.encoder);
+          const pass = command.constructComputePass({
+            label: "R5-Q00 SSR sampled trace evidence",
+            pipeline: SSR_EVIDENCE_PIPELINE,
+            bindings: [[
+              resolveTextureView(resources.get(trace)),
+              { buffer: requireBuffer(resources.get(inputs.counters!), "SSR counters") }
+            ]]
+          });
+          pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8), 1);
+          pass.end();
+        }
+      );
+      evidenceBuilder.read(trace);
+      evidenceBuilder.read(inputs.counters);
+      counters = evidenceBuilder.write(inputs.counters);
+      evidenceBuilder.make_side_effect();
     }
 
     let prefiltered = -1;
@@ -312,13 +364,18 @@ export class ScreenSpaceReflectionsPass {
     let temporal = -1;
     const temporalBuilder = graph.add(
       "SSR temporal jQ",
-      { samplers: job.samplers, historyValid: job.historyValid },
+      {
+        samplers: job.samplers,
+        historyValid: job.historyValid,
+        temporalStrength: job.temporalStrength
+      },
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         this.executeTemporal(
           command,
           data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
           data.historyValid,
+          data.temporalStrength,
           {
             output: resolveTextureView(resources.get(temporal)),
             current: resolveTextureView(resources.get(denoised1)),
@@ -344,8 +401,10 @@ export class ScreenSpaceReflectionsPass {
       trace,
       denoised,
       denoised_1: denoised1,
+      temporal,
       reflections,
-      historyConfidence: inputs.occlusionConfidence
+      historyConfidence: inputs.occlusionConfidence,
+      counters
     };
   }
 
@@ -408,6 +467,11 @@ export class ScreenSpaceReflectionsPass {
     frameIndex: number,
     maxDistance: number,
     edgeFade: number,
+    maxSteps: number,
+    depthThickness: number,
+    roughnessThickness: number,
+    distanceThickness: number,
+    roughnessCutoff: number,
     resources: {
       output: GPUTextureView;
       depth: GPUTextureView;
@@ -419,11 +483,16 @@ export class ScreenSpaceReflectionsPass {
     }
   ): void {
     if (!this.traceSettings) throw new Error("SSR trace is not initialized");
-    const data = new ArrayBuffer(16);
+    const data = new ArrayBuffer(32);
     const view = new DataView(data);
     view.setFloat32(0, Math.max(0.01, maxDistance), true);
     view.setUint32(4, frameIndex >>> 0, true);
     view.setFloat32(8, Math.max(0, Math.min(0.5, edgeFade)), true);
+    view.setUint32(12, Math.max(8, Math.min(255, Math.round(maxSteps))), true);
+    view.setFloat32(16, Math.max(0.001, Math.min(2, depthThickness)), true);
+    view.setFloat32(20, Math.max(0, Math.min(20, roughnessThickness)), true);
+    view.setFloat32(24, Math.max(0, Math.min(0.2, distanceThickness)), true);
+    view.setFloat32(28, Math.max(0, Math.min(1, roughnessCutoff)), true);
     writeGpuBuffer(
       this.device.queue,
       "SSR/trace-settings",
@@ -588,6 +657,7 @@ export class ScreenSpaceReflectionsPass {
     command: ShadeGPUCommandContext,
     sampler: GPUSampler,
     historyValid: boolean,
+    temporalStrength: number,
     resources: {
       output: GPUTextureView;
       current: GPUTextureView;
@@ -604,7 +674,13 @@ export class ScreenSpaceReflectionsPass {
       "SSR/temporal-settings",
       this.temporalSettings,
       0,
-      new Uint32Array([historyValid ? 1 : 0, 0, 0, 0])
+      (() => {
+        const data = new ArrayBuffer(16);
+        const view = new DataView(data);
+        view.setUint32(0, historyValid ? 1 : 0, true);
+        view.setFloat32(4, Math.max(0, Math.min(1, temporalStrength)), true);
+        return data;
+      })()
     );
     drawFullscreen(
       command,
@@ -638,6 +714,67 @@ export class ScreenSpaceReflectionsPass {
   }
 }
 
+const SSR_TRACE_PIXEL_INDEX = counterByteOffset("ssrTracePixels") / 4;
+const SSR_HIT_PIXEL_INDEX = counterByteOffset("ssrHitPixels") / 4;
+const SSR_TRACE_STEP_INDEX = counterByteOffset("ssrTraceSteps") / 4;
+const SSR_MAX_TRACE_STEP_INDEX = counterByteOffset("ssrMaxTraceSteps") / 4;
+const SSR_HIGH_ROUGHNESS_TRACE_INDEX = counterByteOffset("ssrHighRoughnessTracePixels") / 4;
+const SSR_DISTANCE_EXCEEDED_INDEX = counterByteOffset("ssrDistanceLimitExceededPixels") / 4;
+const SSR_VALIDATION_REJECTED_INDEX = counterByteOffset("ssrValidationRejectedPixels") / 4;
+
+export const SSR_EVIDENCE_WGSL = /* wgsl */ `
+@group(0) @binding(0) var trace_source: texture_2d<u32>;
+@group(0) @binding(1) var<storage, read_write> counters: array<atomic<u32>>;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let dimensions = textureDimensions(trace_source);
+  if (any(id.xy >= dimensions)) { return; }
+  let packed = textureLoad(trace_source, vec2i(id.xy), 0).y;
+  let confidence = packed & 0xffu;
+  let iterations = (packed >> 8u) & 0xffu;
+  let outcome = (packed >> 16u) & 0xffu;
+  if (outcome == 0u) { return; }
+  atomicAdd(&counters[${SSR_TRACE_PIXEL_INDEX}u], 1u);
+  atomicAdd(&counters[${SSR_TRACE_STEP_INDEX}u], iterations);
+  atomicMax(&counters[${SSR_MAX_TRACE_STEP_INDEX}u], iterations);
+  if (confidence > 0u && outcome == 3u) {
+    atomicAdd(&counters[${SSR_HIT_PIXEL_INDEX}u], 1u);
+  }
+  if (outcome == 2u) {
+    atomicAdd(&counters[${SSR_VALIDATION_REJECTED_INDEX}u], 1u);
+  }
+  if ((packed & (1u << 24u)) != 0u) {
+    atomicAdd(&counters[${SSR_DISTANCE_EXCEEDED_INDEX}u], 1u);
+  }
+  if ((packed & (1u << 25u)) != 0u) {
+    atomicAdd(&counters[${SSR_HIGH_ROUGHNESS_TRACE_INDEX}u], 1u);
+  }
+}
+`;
+
+const SSR_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
+  label: "R5-Q00 SSR sampled trace evidence",
+  layout: {
+    label: "R5-Q00 SSR sampled trace evidence/layout",
+    bindGroupLayouts: [{
+      label: "R5-Q00 SSR sampled trace evidence/group0",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE }
+        }
+      ]
+    }]
+  },
+  compute: {
+    module: { label: "R5-Q00 SSR sampled trace evidence", code: SSR_EVIDENCE_WGSL },
+    entryPoint: "main"
+  }
+};
+
 function textureDescriptor(width: number, height: number, format: GPUTextureFormat) {
   return {
     kind: "transient_texture" as const,
@@ -663,6 +800,13 @@ function resolveBuffer(resource: unknown, label: string): GPUBuffer {
       const buffer = (resource as { buffer?: unknown }).buffer;
       if (buffer && typeof buffer === "object") return buffer as GPUBuffer;
     }
+  }
+  throw new Error(`ScreenSpaceReflectionsPass: missing ${label} buffer`);
+}
+
+function requireBuffer(resource: unknown, label: string): GPUBuffer {
+  if (resource && typeof resource === "object" && "size" in resource && "usage" in resource) {
+    return resource as GPUBuffer;
   }
   throw new Error(`ScreenSpaceReflectionsPass: missing ${label} buffer`);
 }

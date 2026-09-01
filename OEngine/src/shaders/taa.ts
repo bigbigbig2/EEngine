@@ -1,14 +1,4 @@
 import { FULLSCREEN_TRIANGLE_VERTEX_WGSL } from "./fullscreen_triangle.js";
-import {
-  TEMPORAL_HISTORY_LOCK_STEP,
-  TEMPORAL_DISOCCLUSION_REJECT_THRESHOLD,
-  TEMPORAL_MAX_HISTORY_WEIGHT,
-  TEMPORAL_MIN_LOCKED_HISTORY_WEIGHT,
-  TEMPORAL_MOTION_FADE_PIXELS,
-  TEMPORAL_REACTIVE_REJECT_THRESHOLD,
-  TEMPORAL_VARIANCE_GAMMA
-} from "../render/TemporalResolveContract.js";
-
 export const TAA_FORMAT = "rgba16float" as const;
 export const TAA_VERTEX_WGSL = FULLSCREEN_TRIANGLE_VERTEX_WGSL;
 
@@ -20,6 +10,14 @@ struct TemporalSettings {
   history_strength: f32,
   internal_resolution: vec2f,
   output_resolution: vec2f,
+  variance_gamma: f32,
+  minimum_history_weight: f32,
+  maximum_history_weight: f32,
+  history_lock_step: f32,
+  reactive_threshold: f32,
+  disocclusion_threshold: f32,
+  motion_fade_pixels: f32,
+  _padding: f32,
 }
 
 @group(0) @binding(0) var linear_clamp: sampler;
@@ -115,8 +113,8 @@ fn current_neighborhood_stats(center: vec2i, current: vec3f) -> NeighborhoodStat
 }
 
 fn clip_history(history: vec3f, stats: NeighborhoodStats) -> vec3f {
-  let lower = max(stats.minimum, stats.mean - stats.deviation * ${TEMPORAL_VARIANCE_GAMMA});
-  let upper = min(stats.maximum, stats.mean + stats.deviation * ${TEMPORAL_VARIANCE_GAMMA});
+  let lower = max(stats.minimum, stats.mean - stats.deviation * settings.variance_gamma);
+  let upper = min(stats.maximum, stats.mean + stats.deviation * settings.variance_gamma);
   let clipped = clamp(rgb_to_ycocg(history), lower, upper);
   return max(ycocg_to_rgb(clipped), vec3f(0.0));
 }
@@ -139,7 +137,7 @@ fn main(
   let reactive = clamp(classification.r, 0.0, 1.0);
   let motion_valid = classification.g >= 0.5;
   let globally_valid = settings.history_validity >= 0.5;
-  if !globally_valid || !motion_valid || reactive >= ${TEMPORAL_REACTIVE_REJECT_THRESHOLD} {
+  if !globally_valid || !motion_valid || reactive >= settings.reactive_threshold {
     return vec4f(current, 0.0);
   }
 
@@ -148,7 +146,7 @@ fn main(
     0.0,
     1.0
   );
-  if confidence < ${TEMPORAL_DISOCCLUSION_REJECT_THRESHOLD} {
+  if confidence < settings.disocclusion_threshold {
     return vec4f(current, 0.0);
   }
 
@@ -167,27 +165,27 @@ fn main(
   let history = clip_history(history_sample.rgb, stats);
 
   let motion_confidence = clamp(
-    1.0 - length(velocity) / ${TEMPORAL_MOTION_FADE_PIXELS},
+    1.0 - length(velocity) / max(settings.motion_fade_pixels, 1.0),
     0.0,
     1.0
   );
   let luminance_confidence = 1.0 /
     (1.0 + abs(luminance(current) - luminance(history)));
   let history_lock = clamp(
-    history_sample.a + ${TEMPORAL_HISTORY_LOCK_STEP},
+    history_sample.a + settings.history_lock_step,
     0.0,
     1.0
   );
   let locked_weight_limit = mix(
-    ${TEMPORAL_MIN_LOCKED_HISTORY_WEIGHT},
-    ${TEMPORAL_MAX_HISTORY_WEIGHT},
+    min(settings.minimum_history_weight, settings.maximum_history_weight),
+    max(settings.minimum_history_weight, settings.maximum_history_weight),
     history_lock
   );
   let history_weight = clamp(
     locked_weight_limit * settings.history_strength * motion_confidence *
       luminance_confidence * (1.0 - reactive) * confidence,
     0.0,
-    ${TEMPORAL_MAX_HISTORY_WEIGHT}
+    max(settings.minimum_history_weight, settings.maximum_history_weight)
   );
   return vec4f(mix(current, history, history_weight), history_lock);
 }

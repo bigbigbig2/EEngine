@@ -13,6 +13,18 @@ export interface ExampleCatalogEntry {
 }
 
 export const exampleCatalog = {
+  renderingLab: {
+    id: "Showcase 00",
+    title: "Rendering Lab · Integrated Quality Fixture",
+    description:
+      "A controlled production-path scene combining a traceable static three.js model with mirror/rough floors, contact geometry, thin poles, emissive markers, clustered lights, IBL, shadows, GTAO, SSR and temporal rendering.",
+    status: "Integrated",
+    tags: ["Quality fixture", "PBR / IBL", "Full pipeline"],
+    route: "rendering-lab/",
+    sourcePath: "examples/rendering-lab",
+    scene: "showcase",
+    stats: [["Subject", "Dungeon · Warkarma"], ["Surfaces", "Mirror / rough / contact"], ["Evidence", "Q00 GPU + temporal"]]
+  },
   integratedShowcase: {
     id: "Showcase 01",
     title: "Cyberpunk City · Integrated Pipeline",

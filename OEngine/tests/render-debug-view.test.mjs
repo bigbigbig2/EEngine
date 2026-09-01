@@ -34,8 +34,8 @@ const { RenderDebugViewPass } = await import(
 );
 
 test("unified render debug catalog reports supported and unsupported views", () => {
-  assert.equal(RENDER_DEBUG_VIEW_OPTIONS.length, 27);
-  assert.equal(new Set(RENDER_DEBUG_VIEW_OPTIONS.map((entry) => entry.view)).size, 27);
+  assert.equal(RENDER_DEBUG_VIEW_OPTIONS.length, 29);
+  assert.equal(new Set(RENDER_DEBUG_VIEW_OPTIONS.map((entry) => entry.view)).size, 29);
   assert.deepEqual(
     RENDER_DEBUG_VIEW_OPTIONS
       .filter((entry) => entry.status === "supported")
@@ -54,6 +54,8 @@ test("unified render debug catalog reports supported and unsupported views", () 
       RenderDebugView.AmbientOcclusionTemporal,
       RenderDebugView.Emissive,
       RenderDebugView.ScreenSpaceReflectionHitMiss,
+      RenderDebugView.ScreenSpaceReflectionResolve,
+      RenderDebugView.ScreenSpaceReflectionTemporal,
       RenderDebugView.ScreenSpaceReflectionHistoryConfidence,
       RenderDebugView.Velocity,
       RenderDebugView.HistoryValidity,

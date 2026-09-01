@@ -17,6 +17,17 @@ type CachedBuffer = {
   last_use_time: number;
 };
 
+export interface GPUBufferAllocatorEvidence {
+  readonly allocatedBytes: number;
+  readonly activeBytes: number;
+  readonly pendingBytes: number;
+  readonly cachedBytes: number;
+  readonly activeCount: number;
+  readonly pendingCount: number;
+  readonly cachedCount: number;
+  readonly creationCount: number;
+}
+
 export class GPUBufferAllocator {
   private recent: CachedBuffer[] = [];
   private recentBytes = 0;
@@ -112,6 +123,24 @@ export class GPUBufferAllocator {
 
   get pending_count(): number {
     return this.pending.size;
+  }
+
+  evidence(): GPUBufferAllocatorEvidence {
+    let activeBytes = 0;
+    let pendingBytes = 0;
+    for (const buffer of this.active) activeBytes += buffer.size;
+    for (const buffer of this.pending) pendingBytes += buffer.size;
+    const cachedBytes = this.recentBytes + this.agedBytes;
+    return Object.freeze({
+      allocatedBytes: activeBytes + pendingBytes + cachedBytes,
+      activeBytes,
+      pendingBytes,
+      cachedBytes,
+      activeCount: this.active.size,
+      pendingCount: this.pending.size,
+      cachedCount: this.recent.length + this.aged.length,
+      creationCount: this.creationCount
+    });
   }
 
   destroy(): void {

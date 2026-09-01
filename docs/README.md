@@ -17,6 +17,7 @@
 | 区分目标与当前代码 | [CURRENT-STATE.md](./CURRENT-STATE.md) |
 | 查看推进顺序 | [ROADMAP.md](./ROADMAP.md) |
 | 按任务实施、迁移和验收 | [implementation/README.md](./implementation/README.md) |
+| 执行综合渲染管线重构 | [implementation/11-render-pipeline-reconstruction.md](./implementation/11-render-pipeline-reconstruction.md) |
 | 查看长期决策 | [wiki/adr/README.md](./wiki/adr/README.md) |
 
 ## 参考与移植

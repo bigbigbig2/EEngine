@@ -131,6 +131,10 @@ test("frame profiler exposes CPU, submit, readback, upload and delayed GPU evide
   profiler.recordCounter("legacy.instances.candidate", 160000);
   profiler.addCounter("legacy.instances.rejected", 2);
   profiler.addCounter("legacy.instances.rejected", 3);
+  profiler.recordGpuCommand("renderPass");
+  profiler.recordGpuCommand("computePass", 2);
+  profiler.recordGpuCommand("draw", 7);
+  profiler.recordGpuCommand("dispatch", 3);
   now = 5;
 
   const initial = profiler.endFrame();
@@ -162,7 +166,11 @@ test("frame profiler exposes CPU, submit, readback, upload and delayed GPU evide
   });
   assert.deepEqual(initial.counters, {
     "legacy.instances.candidate": 160000,
-    "legacy.instances.rejected": 5
+    "legacy.instances.rejected": 5,
+    "gpu.commands.renderPass": 1,
+    "gpu.commands.computePass": 2,
+    "gpu.commands.draw": 7,
+    "gpu.commands.dispatch": 3
   });
   assert.deepEqual(initial.gpu, {
     available: true,

@@ -26,6 +26,13 @@ export interface TemporalAntiAliasingJob {
   readonly outputResolution: readonly [number, number];
   readonly samplers: GPUSamplerCache;
   readonly historyStrength: number;
+  readonly varianceGamma: number;
+  readonly minimumHistoryWeight: number;
+  readonly maximumHistoryWeight: number;
+  readonly historyLockStep: number;
+  readonly reactiveThreshold: number;
+  readonly disocclusionThreshold: number;
+  readonly motionFadePixels: number;
 }
 
 export class TemporalAntiAliasingPass {
@@ -120,7 +127,15 @@ export class TemporalAntiAliasingPass {
         job.internalResolution[0],
         job.internalResolution[1],
         job.outputResolution[0],
-        job.outputResolution[1]
+        job.outputResolution[1],
+        Math.max(0, Math.min(4, job.varianceGamma)),
+        Math.max(0, Math.min(1, job.minimumHistoryWeight)),
+        Math.max(0, Math.min(1, job.maximumHistoryWeight)),
+        Math.max(0, Math.min(1, job.historyLockStep)),
+        Math.max(0, Math.min(1, job.reactiveThreshold)),
+        Math.max(0, Math.min(1, job.disocclusionThreshold)),
+        Math.max(1, Math.min(1024, job.motionFadePixels)),
+        0
       ]).buffer,
       GPUBufferUsage.UNIFORM
     );

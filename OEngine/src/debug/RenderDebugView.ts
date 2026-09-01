@@ -25,6 +25,8 @@ export const RenderDebugView = {
   AmbientOcclusionDenoised: "ambient-occlusion-denoised",
   AmbientOcclusionTemporal: "ambient-occlusion-temporal",
   ScreenSpaceReflectionHitMiss: "screen-space-reflection-hit-miss",
+  ScreenSpaceReflectionResolve: "screen-space-reflection-resolve",
+  ScreenSpaceReflectionTemporal: "screen-space-reflection-temporal",
   ScreenSpaceReflectionHistoryConfidence: "screen-space-reflection-history-confidence",
   Emissive: "emissive",
   Velocity: "velocity",
@@ -111,6 +113,8 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
   descriptor(RenderDebugView.AmbientOcclusionTemporal, "AO temporal", "supported", "显示 FX-07 最终 temporal visibility；temporal 关闭时等于 denoised"),
   descriptor(RenderDebugView.Emissive, "Emissive", "supported", "显示解码后的 emissive"),
   descriptor(RenderDebugView.ScreenSpaceReflectionHitMiss, "SSR hit / miss", "supported", "FX-08 SSR trace hit confidence"),
+  descriptor(RenderDebugView.ScreenSpaceReflectionResolve, "SSR resolve", "supported", "FX-08 SSR spatial resolve before temporal accumulation"),
+  descriptor(RenderDebugView.ScreenSpaceReflectionTemporal, "SSR temporal", "supported", "FX-08 SSR temporal accumulation before final spatial filters"),
   descriptor(RenderDebugView.ScreenSpaceReflectionHistoryConfidence, "SSR history confidence", "supported", "FX-08 temporal history confidence"),
   descriptor(
     RenderDebugView.Velocity,

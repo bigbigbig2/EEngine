@@ -5,9 +5,16 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import {
+  counterByteOffset,
+  GPU_COUNTER_BYTE_SIZE
+} from "../../debug/GpuFrameCounters.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
-import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import type {
+  CachedComputePipelineDescriptor,
+  CachedRenderPipelineDescriptor
+} from "../../gpu/GPUDescriptorCaches.js";
 import { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
 import {
   LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
@@ -38,6 +45,7 @@ export type ScreenSpaceAmbientOcclusionInputs = {
   occlusionConfidence: ResourceId;
   albedoAo: ResourceId;
   camera: ResourceId;
+  counters?: ResourceId;
 };
 
 export type ScreenSpaceAmbientOcclusionOutput = {
@@ -46,6 +54,7 @@ export type ScreenSpaceAmbientOcclusionOutput = {
   visibility: ResourceId;
   occlusion: ResourceId;
   bentNormals: ResourceId;
+  counters: ResourceId | null;
 };
 
 export type ScreenSpaceAmbientOcclusionJob = {
@@ -58,6 +67,10 @@ export type ScreenSpaceAmbientOcclusionJob = {
   height: number;
   intensity: number;
   falloff: number;
+  sliceCount: number;
+  stepCount: number;
+  spatialStep: number;
+  temporalBlend: number;
 };
 
 export class ScreenSpaceAmbientOcclusionPass {
@@ -67,7 +80,6 @@ export class ScreenSpaceAmbientOcclusionPass {
   private readonly compositePipeline: CachedRenderPipelineDescriptor;
   private readonly bentNormalUpsamplePipeline: CachedRenderPipelineDescriptor;
   private rawSettingsBuffer: GPUBuffer | null = null;
-  private spatialSettingsBuffer: GPUBuffer | null = null;
   private hilbertView: GPUTextureView | null = null;
   private readonly histories: [GPUTextureContext, GPUTextureContext] | null;
   private readonly device: GPUDevice;
@@ -117,18 +129,6 @@ export class ScreenSpaceAmbientOcclusionPass {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    this.spatialSettingsBuffer = this.device.createBuffer({
-      label: "Renderer/SSAO spatial settings",
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
-    writeGpuBuffer(
-      this.device.queue,
-      "SSAO/spatial-settings",
-      this.spatialSettingsBuffer,
-      0,
-      new Int32Array([1, 0, 0, 0])
-    );
     this.hilbertView = this.graphics.textures
       .obtain(HILBERT_NOISE_TEXTURE)
       .obtainView();
@@ -160,13 +160,20 @@ export class ScreenSpaceAmbientOcclusionPass {
       job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
-        self.executeRaw(command, data.frameIndex, data.falloff, {
+        self.executeRaw(
+          command,
+          data.frameIndex,
+          data.falloff,
+          data.sliceCount,
+          data.stepCount,
+          {
           visibility: resolveTextureView(resources.get(rawVisibility)),
           bentNormals: resolveTextureView(resources.get(bentNormals)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
           normal: resolveTextureView(resources.get(inputs.normal)),
           camera: resolveBuffer(resources.get(inputs.camera), "SSAO camera")
-        });
+          }
+        );
         self.lastRawPasses = 1;
       }
     );
@@ -196,7 +203,7 @@ export class ScreenSpaceAmbientOcclusionPass {
       job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
-        self.executeSpatial(command, {
+        self.executeSpatial(command, data.spatialStep, {
           output: resolveTextureView(resources.get(spatialVisibility)),
           visibility: resolveTextureView(resources.get(rawVisibility)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
@@ -238,6 +245,7 @@ export class ScreenSpaceAmbientOcclusionPass {
             command,
             data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
             data.historyValid,
+            data.temporalBlend,
             {
               output: resolveTextureView(resources.get(resolvedVisibility)),
               current: resolveTextureView(resources.get(spatialVisibility)),
@@ -256,6 +264,49 @@ export class ScreenSpaceAmbientOcclusionPass {
       temporalBuilder.read(inputs.velocity);
       temporalBuilder.read(inputs.occlusionConfidence);
       resolvedVisibility = temporalBuilder.write(historyOutputResource);
+    }
+
+    let counters: ResourceId | null = null;
+    if (inputs.counters !== undefined) {
+      const evidenceBuilder = graph.add(
+        "R5-Q00 GTAO sampled temporal evidence",
+        {
+          width,
+          height,
+          fullWidth,
+          fullHeight,
+          historyValid: this.temporalEnabled && job.historyValid
+        },
+        (data, resources, context) => {
+          const command = requireShadeCommandContext(context.encoder);
+          const settings = command.allocateTransientBufferAndLoad(
+            new Uint32Array([
+              data.historyValid ? 1 : 0,
+              data.width,
+              data.height,
+              0
+            ]).buffer,
+            GPUBufferUsage.UNIFORM
+          );
+          const pass = command.constructComputePass({
+            label: "R5-Q00 GTAO sampled temporal evidence",
+            pipeline: GTAO_EVIDENCE_PIPELINE,
+            bindings: [[
+              resolveTextureView(resources.get(inputs.velocity)),
+              resolveTextureView(resources.get(inputs.occlusionConfidence)),
+              { buffer: requireBuffer(resources.get(inputs.counters!), "GTAO counters") },
+              { buffer: settings }
+            ]]
+          });
+          pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8), 1);
+          pass.end();
+        }
+      );
+      evidenceBuilder.read(inputs.velocity);
+      evidenceBuilder.read(inputs.occlusionConfidence);
+      evidenceBuilder.read(inputs.counters);
+      counters = evidenceBuilder.write(inputs.counters);
+      evidenceBuilder.make_side_effect();
     }
 
     let resolvedBentNormals = bentNormals;
@@ -309,7 +360,8 @@ export class ScreenSpaceAmbientOcclusionPass {
       denoisedVisibility: spatialVisibility,
       visibility: resolvedVisibility,
       occlusion,
-      bentNormals: resolvedBentNormals
+      bentNormals: resolvedBentNormals,
+      counters
     };
   }
 
@@ -348,6 +400,8 @@ export class ScreenSpaceAmbientOcclusionPass {
     command: ShadeGPUCommandContext,
     frameIndex: number,
     falloff: number,
+    sliceCount: number,
+    stepCount: number,
     resources: {
       visibility: GPUTextureView;
       bentNormals: GPUTextureView;
@@ -366,6 +420,8 @@ export class ScreenSpaceAmbientOcclusionPass {
     const settingsView = new DataView(settings);
     settingsView.setUint32(0, frameIndex >>> 0, true);
     settingsView.setFloat32(4, Math.max(0.001, falloff), true);
+    settingsView.setUint32(8, Math.max(1, Math.min(4, Math.round(sliceCount))), true);
+    settingsView.setUint32(12, Math.max(1, Math.min(8, Math.round(stepCount))), true);
     writeGpuBuffer(
       this.device.queue,
       "SSAO/raw-settings",
@@ -404,6 +460,7 @@ export class ScreenSpaceAmbientOcclusionPass {
 
   private executeSpatial(
     command: ShadeGPUCommandContext,
+    spatialStep: number,
     resources: {
       output: GPUTextureView;
       visibility: GPUTextureView;
@@ -411,15 +468,16 @@ export class ScreenSpaceAmbientOcclusionPass {
       normal: GPUTextureView;
     }
   ): void {
-    if (this.spatialSettingsBuffer === null) {
-      throw new Error("ScreenSpaceAmbientOcclusionPass not initialized");
-    }
+    const settings = command.allocateTransientBufferAndLoad(
+      new Int32Array([Math.max(1, Math.min(4, Math.round(spatialStep))), 0, 0, 0]).buffer,
+      GPUBufferUsage.UNIFORM
+    );
     const pass = command.constructRenderPass({
       label: "SSAO spatial filter XC",
       pipeline: this.spatialPipeline,
       bindings: [
         [resources.visibility, resources.depth, resources.normal],
-        [{ buffer: this.spatialSettingsBuffer }]
+        [{ buffer: settings }]
       ],
       colorAttachments: [
         {
@@ -438,6 +496,7 @@ export class ScreenSpaceAmbientOcclusionPass {
     command: ShadeGPUCommandContext,
     sampler: GPUSampler,
     historyValid: boolean,
+    temporalBlend: number,
     resources: {
       output: GPUTextureView;
       current: GPUTextureView;
@@ -446,8 +505,12 @@ export class ScreenSpaceAmbientOcclusionPass {
       occlusionConfidence: GPUTextureView;
     }
   ): void {
+    const settingsData = new ArrayBuffer(16);
+    const settingsView = new DataView(settingsData);
+    settingsView.setUint32(0, historyValid ? 1 : 0, true);
+    settingsView.setFloat32(4, Math.max(0, Math.min(0.99, temporalBlend)), true);
     const settings = command.allocateTransientBufferAndLoad(
-      new Uint32Array([historyValid ? 1 : 0, 0, 0, 0]).buffer,
+      settingsData,
       GPUBufferUsage.UNIFORM
     );
     const pass = command.constructRenderPass({
@@ -526,8 +589,6 @@ export class ScreenSpaceAmbientOcclusionPass {
   destroy(): void {
     this.rawSettingsBuffer?.destroy();
     this.rawSettingsBuffer = null;
-    this.spatialSettingsBuffer?.destroy();
-    this.spatialSettingsBuffer = null;
     this.hilbertView = null;
     this.histories?.[0].destroy();
     this.histories?.[1].destroy();
@@ -552,6 +613,94 @@ function createSsaoRawPipelineDescriptor(): CachedRenderPipelineDescriptor {
     ]
   );
 }
+
+const AO_EVALUATED_INDEX = counterByteOffset("aoEvaluatedPixels") / 4;
+const AO_HISTORY_ACCEPTED_INDEX = counterByteOffset("aoHistoryAcceptedPixels") / 4;
+const AO_HISTORY_REJECTED_INDEX = counterByteOffset("aoHistoryRejectedPixels") / 4;
+
+export const GTAO_EVIDENCE_WGSL = /* wgsl */ `
+struct EvidenceSettings {
+  history_valid: u32,
+  ao_width: u32,
+  ao_height: u32,
+  _padding: u32,
+};
+
+@group(0) @binding(0) var velocity_source: texture_2d<f32>;
+@group(0) @binding(1) var confidence_source: texture_2d<f32>;
+@group(0) @binding(2) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(3) var<uniform> settings: EvidenceSettings;
+
+fn largest_velocity(pixel: vec2i, dimensions: vec2i) -> vec2f {
+  var result = textureLoad(velocity_source, clamp(pixel, vec2i(0), dimensions - vec2i(1)), 0).rg;
+  var magnitude = dot(result, result);
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let candidate = textureLoad(
+        velocity_source,
+        clamp(pixel + vec2i(x, y), vec2i(0), dimensions - vec2i(1)),
+        0
+      ).rg;
+      let candidate_magnitude = dot(candidate, candidate);
+      if (candidate_magnitude > magnitude) {
+        result = candidate;
+        magnitude = candidate_magnitude;
+      }
+    }
+  }
+  return result;
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let ao_dimensions = vec2u(settings.ao_width, settings.ao_height);
+  if (any(id.xy >= ao_dimensions)) { return; }
+  atomicAdd(&counters[${AO_EVALUATED_INDEX}u], 1u);
+  let full_dimensions = textureDimensions(velocity_source);
+  let full_pixel = min(
+    vec2i((vec2f(id.xy) / vec2f(ao_dimensions)) * vec2f(full_dimensions)),
+    vec2i(full_dimensions) - vec2i(1)
+  );
+  let confidence = textureLoad(confidence_source, full_pixel, 0).r;
+  let velocity_full = largest_velocity(full_pixel, vec2i(full_dimensions));
+  let velocity = velocity_full * vec2f(ao_dimensions) / vec2f(full_dimensions);
+  let velocity_confidence = clamp(1.0 - length(velocity) / 128.0, 0.0, 1.0);
+  let history_pixel = vec2f(id.xy) + vec2f(0.5) - velocity;
+  let in_bounds = all(history_pixel >= vec2f(0.0)) &&
+    all(history_pixel < vec2f(ao_dimensions));
+  let history_weight = velocity_confidence * confidence *
+    select(0.0, 1.0, in_bounds && settings.history_valid != 0u);
+  if (history_weight > 0.001) {
+    atomicAdd(&counters[${AO_HISTORY_ACCEPTED_INDEX}u], 1u);
+  } else {
+    atomicAdd(&counters[${AO_HISTORY_REJECTED_INDEX}u], 1u);
+  }
+}
+`;
+
+const GTAO_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
+  label: "R5-Q00 GTAO sampled temporal evidence",
+  layout: {
+    label: "R5-Q00 GTAO sampled temporal evidence/layout",
+    bindGroupLayouts: [{
+      label: "R5-Q00 GTAO sampled temporal evidence/group0",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE }
+        },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+      ]
+    }]
+  },
+  compute: {
+    module: { label: "R5-Q00 GTAO sampled temporal evidence", code: GTAO_EVIDENCE_WGSL },
+    entryPoint: "main"
+  }
+};
 
 function createSsaoSpatialPipelineDescriptor(): CachedRenderPipelineDescriptor {
   return createSsaoPipelineDescriptor(
@@ -726,4 +875,11 @@ function resolveBuffer(resource: unknown, label: string): GPUBuffer {
     return resource as GPUBuffer;
   }
   throw new Error(`ScreenSpaceAmbientOcclusionPass: expected GPUBuffer for ${label}`);
+}
+
+function requireBuffer(resource: unknown, label: string): GPUBuffer {
+  if (resource && typeof resource === "object" && "size" in resource && "usage" in resource) {
+    return resource as GPUBuffer;
+  }
+  throw new Error(`ScreenSpaceAmbientOcclusionPass: missing ${label} buffer`);
 }

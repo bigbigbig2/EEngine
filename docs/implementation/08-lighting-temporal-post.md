@@ -113,7 +113,8 @@ FX-05 Packed MBOIT Transparency
 FX-06A Temporal foundation / DRS contract
 FX-07 AO
 FX-08 SSR
-FX-06B Final TAA/TAAU / Upscale closure
+R5-Q00..R5-Q04 Quality / Pipeline Architecture Closure
+R5-Q05 / FX-06B Final TAA/TAAU / Upscale closure
   ↓ G5-T · Temporal Quality
 
 FX-09 Post
@@ -290,7 +291,7 @@ SSAO/GTAO 选择由画质/性能对比决定，复用 final Depth/HZB/normal。�
 
 状态：已在 clean-scope commit `548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7` 关闭。先验证并修复当前 horizon-based GTAO-family authored WGSL，没有建立 XeGTAO 第二管线；来源、许可证、保留不变量和 WebGPU 差异见 [R5-05 porting ledger](../references/porting/R5-05-ambient-occlusion.md)。raw/spatial/optional temporal 以 full 或 half internal resolution 工作，half bent normal 只在 final consumer 存在时恢复到 full resolution；AO temporal 复用 FX-06A shared history registry，temporal-off 不分配 history，feature-off 的 owner/Pass/resource/history/timestamp 全为零。
 
-production Gate 固定 `1280×720`、DPR 1、每阶段 30 warm-up + 120 sample，覆盖 raw/denoised/temporal、full/half、static temporal off/on、camera pan、disocclusion 和 feature off/on，共保存 52 张 PNG。Gate 为 `passed/gateEligible/requireClean=true`，WebGPU/console/page diagnostics 与 issues 为零；完整 JSON、GPU phase、graph/history evidence 和截图位于 `temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/`。FX-07 只关闭 AO；FX-08 已随后关闭，当前进入 FX-06B，G5-T 仍未关闭。
+production Gate 固定 `1280×720`、DPR 1、每阶段 30 warm-up + 120 sample，覆盖 raw/denoised/temporal、full/half、static temporal off/on、camera pan、disocclusion 和 feature off/on，共保存 52 张 PNG。Gate 为 `passed/gateEligible/requireClean=true`，WebGPU/console/page diagnostics 与 issues 为零；完整 JSON、GPU phase、graph/history evidence 和截图位于 `temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/`。FX-07 只关闭当时 AO focused contract；综合产品 before/替换决策进入 [R5-Q](./11-render-pipeline-reconstruction.md)，不删除或伪造该历史 Gate。
 
 ### FX-08 · SSR
 
@@ -307,8 +308,7 @@ production Gate 固定 `1280×720`、DPR 1、每阶段 30 warm-up + 120 sample�
 screen miss、roughness `0/0.5/1`、offscreen target、pan/disocclusion 与 feature off/on，保存 18 张 PNG、
 scene-linear HDR readback、GPU phase 与 graph/history evidence。Gate 为
 `passed/gateEligible/requireClean=true`，完整 artifact 位于
-`temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`。FX-08 只关闭 SSR；下一步为
-FX-06B，G5-T 尚未关闭。
+`temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`。FX-08 只关闭当时 SSR focused contract；综合产品 before/替换决策进入 [R5-Q](./11-render-pipeline-reconstruction.md)。当前先执行 `R5-Q00`，之后才进入 FX-06B；G5-T 尚未关闭。
 
 ### FX-09 · Exposure、Bloom、Tonemap、Sharpen/Motion Blur
 

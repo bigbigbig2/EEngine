@@ -53,3 +53,4 @@ R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；�
 ## 示例资产登记
 
 - [SHOWCASE-01 Venice Sunset IBL asset](./SHOWCASE-01-venice-sunset-ibl.md)
+- [R5-Q00 Rendering Lab / Dungeon by Warkarma asset](./R5-Q00-RENDERING-LAB-ASSET.md)

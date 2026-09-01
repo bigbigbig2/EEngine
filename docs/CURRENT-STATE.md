@@ -89,9 +89,21 @@
 - Geometry 与 Instance residency 的 record/payload/upload/grow/patch 内存证据已接入；texture、全帧 transient 与统一显存/上传预算仍未完成。
 - Shader oracle/generated owner 尚未完全收口，部分 reconstructed/Shade 历史命名仍存在。
 
+## 2026-09-01 综合示例审视记录
+
+- Cyberpunk City 的 integrated screenshot 和运行状态暴露出 focused FX Gate 未覆盖的最终画质问题：SSR 噪声/破碎、AO 脏污、时域抖动与模糊同时存在；该观察是重构输入，不单独构成算法根因证明。
+- 当前 `Renderer` 集中拥有效果参数、Pass/owner/history 生命周期、FrameGraph 分支、证据与 submit；部分 graph 节点内部编码多个真实 GPU Pass，因此 graph 节点数量不能完整表达实际 GPU 工作。
+- production IBL 顺序在 IBL diffuse/indirect composite 前把当前 HDR 交给 SSR，SSR scene color 因此缺少完整 opaque indirect radiance。Q00 Rendering Lab 已把最大步数、厚度三项、粗糙度截止、edge fade 和 temporal strength 接入 production shader，并在超距时拒绝结果；但 max distance 尚未提前终止 traversal，edge fade 仍作用于 origin UV，thickness 仍无 physical-scale/ray-cone 合同，因此不能视为 SSR 2.0 完成。
+- GTAO temporal 的最终 blend 未消费已计算的 velocity confidence；GTAO composite 以 alpha-min 写回 `albedoAo`，不可逆合并 Material AO 与 screen-space Ambient Visibility。
+- Bloom 开关会把 Auto Exposure 输入从 HDR scene 改成 bloom downsample；Sharpen 位于 Bloom 前。Motion Blur 以 output 尺寸读取 internal velocity/depth，DRS 下缺少显式 resolution-domain conversion。
+- 当前 FrameGraph `validate()` 恒为 true，compiled execution 按 insertion order；已有 resource version/culling/transient/cache 保留，但 producer/consumer、read-before-write、cycle、domain 和 stable topological validation 尚未建立。
+- Material Visibility 高分辨率池已在 bulk stage 按实际最大贴图边长选择 power-of-two bank，并在原 4K×16 texel budget 内选择 layer capacity；Dungeon 的 25 张 2K 贴图进入 `2048×2048×32` bank，保留 31 个可用 layer。真正 4K workload 仍使用 `4096×4096×16`。当前限制是 bank 创建后若后续独立 bulk stage 才出现更高分辨率贴图会明确拒绝，调用方应把同一场景贴图统一 bulk upload；resident cap 仍需 Q00/Q06 以真实 memory evidence 验收。
+- R4-A/B 已登记的 Hardware Raster `35–44 ms` P50 回退仍未解决；目标整帧预算为 `16.667 ms`。当前 focused Gate 和 screenshot 测试不能解释为 1080p/60 产品完成。
+- Surface ABI v1、VisibilityKey、Single Material Resolve、GPU producer→consumer 和统一主管线继续保留；综合重构执行设计见 [R5-Q](./implementation/11-render-pipeline-reconstruction.md)。`R5-Q00 Evidence Freeze` 的 Rendering Lab、中文参数面板、AO/SSR counters/debug views 和 ready/preview runner 已在当前工作树落地，但 before artifact、运动序列和完整 Gate 尚未关闭。示例只保留 IBL 与单个方向光，不再用点光源掩盖综合质量问题。
+
 ## 当前下一步
 
-1. R4 core、R5-00、FX-01..08 已按计划完成；当前主线回到 `FX-06B Final TAA/TAAU / Upscale Closure`。G5-T 尚未关闭，必须等 FX-06B final composition sequence 通过；现有 focused 结果不表示 1080p/60 FPS 或最终 R5 性能已经达成。
+1. R4 core、R5-00、FX-01..08 的 focused Gate 已按计划完成；当前主线先执行 `R5-Q00 Evidence Freeze`，再按 [R5-Q](./implementation/11-render-pipeline-reconstruction.md) 完成 Contract/Composition/GTAO/SSR，并以 `R5-Q05/FX-06B` 完成 Temporal，最后关闭 FrameGraph/FramePlan 和 G5-P。G5-T 尚未关闭；现有 focused 结果不表示 1080p/60 FPS 或最终 R5 性能已经达成。
 2. 保留 R4-A Hardware Raster 回退与 R4-B 的 B regression 为独立 phase 风险；若后续启动 R4-C，必须复用同一个 VisibilityKey/Depth/Material Resolve contract，HW-only 更快仍是合法结论。
 3. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；R4 core 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
 

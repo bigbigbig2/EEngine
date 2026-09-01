@@ -36,6 +36,8 @@ ${LPV_CAMERA_TYPE.wgsl_declaration}
 struct SsaoRawSettings {
   frame_index: u32,
   falloff_range: f32,
+  slice_count: u32,
+  step_count: u32,
 };
 
 @group(0) @binding(0) var gr_bucket: texture_2d<f32>;
@@ -180,9 +182,6 @@ ${FULLSCREEN_VERTEX_WGSL}
 
 const SCALE: f32 = 1.0;
 const SAMPLE_DISTRIBUTION_POWER: f32 = 2.0;
-const SLICE_COUNT: i32 = 2;
-const STEPS: i32 = 4;
-
 struct SsaoRawOutput {
   @location(0) visibility: vec2f,
   @location(1) bent_normal: vec2u,
@@ -230,11 +229,13 @@ fn fs_main(
   let pixel_viewspace_size_at_center_z = viewspace_z * ndc_to_view_mul_x_pixel_size;
   let screenspace_radius = abs(1.0 / pixel_viewspace_size_at_center_z);
   let min_s = pixel_too_close_threshold / screenspace_radius;
-  const inv_slice_count = 1.0 / f32(SLICE_COUNT);
+  let slice_count = clamp(i32(settings.slice_count), 1, 4);
+  let step_count = clamp(i32(settings.step_count), 1, 8);
+  let inv_slice_count = 1.0 / f32(slice_count);
 
   var visibility = 0.0;
   var bent_normal = vec3f(0.0);
-  for (var slice = 0; slice < SLICE_COUNT; slice++) {
+  for (var slice = 0; slice < slice_count; slice++) {
     let slice_k = (f32(slice) + noise_slice) * inv_slice_count;
     let phi = slice_k * PI;
     let cos_phi = cos(phi);
@@ -264,10 +265,10 @@ fn fs_main(
     let low_horizon_cos_1 = -low_horizon_cos_0;
     var horizon_cos_0 = low_horizon_cos_0;
     var horizon_cos_1 = low_horizon_cos_1;
-    const inv_steps = 1.0 / f32(STEPS);
+    let inv_steps = 1.0 / f32(step_count);
 
-    for (var step_index = 0; step_index < STEPS; step_index++) {
-      let step_base_noise = f32(slice + step_index * STEPS) * 0.6180339887498948482;
+    for (var step_index = 0; step_index < step_count; step_index++) {
+      let step_base_noise = f32(slice + step_index * step_count) * 0.6180339887498948482;
       let step_noise = fract(noise_sample + step_base_noise);
       var sample_fraction = (f32(step_index) + step_noise) * inv_steps;
       sample_fraction = pow(sample_fraction, SAMPLE_DISTRIBUTION_POWER);
@@ -494,6 +495,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
 export const SSAO_TEMPORAL_WGSL = /* wgsl */ `
 struct SsaoTemporalSettings {
   history_valid: u32,
+  history_blend: f32,
 };
 
 @group(0) @binding(0) var this_hit: texture_2d<f32>;
@@ -617,8 +619,7 @@ fn fs_main(
     let clamped_history = clamp(history_sample.x, lower, upper);
     let history_variance = max(history_sample.y - history_sample.x * history_sample.x, 0.0);
     let clamped_second_moment = clamped_history * clamped_history + history_variance;
-    const history_blend = 0.95;
-    let blend = history_blend * confidence;
+    let blend = clamp(settings.history_blend, 0.0, 0.99) * confidence;
     output = mix(current, vec2f(clamped_history, clamped_second_moment), blend);
   }
   return output;

@@ -86,7 +86,10 @@ ${SSR_CAMERA_WGSL}
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${SSR_MATH_WGSL}
 ${SSR_COLOR_HISTORY_WGSL}
-struct SsrTemporalSettings { history_valid: u32 };
+struct SsrTemporalSettings {
+  history_valid: u32,
+  history_strength: f32,
+};
 @group(0) @binding(0) var this_hit: texture_2d<f32>;
 @group(0) @binding(1) var header: texture_2d<f32>;
 @group(0) @binding(2) var top: texture_2d<f32>;
@@ -166,6 +169,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   var current_weight = mix(1.0, 0.05, confidence * velocity_weight);
   current_weight *= mix(0.2, 1.0, pow2(saturate(features(encoded_current, clipped_history, minimum, maximum))));
   var history_weight = 1.0 - current_weight;
+  history_weight *= clamp(settings.history_strength, 0.0, 1.0);
   current_weight *= reciprocal_one_plus(current.a);
   history_weight *= reciprocal_one_plus(history.a);
   let normalization = 1.0 / (current_weight + history_weight);

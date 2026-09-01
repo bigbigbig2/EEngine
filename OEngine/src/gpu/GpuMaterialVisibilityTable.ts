@@ -24,6 +24,7 @@ export const GPU_MATERIAL_VISIBILITY_TEXTURE_MIP_COUNT = 9;
 export const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE = 4096;
 export const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY = 16;
 export const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIP_COUNT = 13;
+const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIN_CAPACITY = 16;
 
 export interface GpuMaterialVisibilityBindings {
   readonly abiVersion: number;
@@ -44,7 +45,7 @@ export interface GpuMaterialVisibilityStage {
 }
 
 export interface GpuMaterialVisibilityEvidence {
-  readonly schemaVersion: 5;
+  readonly schemaVersion: 6;
   readonly abiVersion: number;
   readonly materialCapacity: number;
   readonly textureCapacity: number;
@@ -65,6 +66,7 @@ export interface GpuMaterialVisibilityEvidence {
   readonly highResolutionMipLevelCount: number;
   readonly highResolutionArrayAllocated: boolean;
   readonly residentHighResolutionTextureCount: number;
+  readonly retiringHighResolutionTextureCount: number;
   readonly freeHighResolutionTextureLayerCount: number;
   readonly privateSubmitCount: 0;
   readonly takeoverTask: null;
@@ -115,9 +117,12 @@ export class GpuMaterialVisibilityTable {
   private readonly textureArray: GPUTexture;
   private readonly textureArrayView: GPUTextureView;
   private readonly textureDescriptor: GPUTextureDescriptor;
-  private readonly highResolutionTextureDescriptor: GPUTextureDescriptor;
+  private highResolutionTextureDescriptor: GPUTextureDescriptor;
   private highResolutionTextureArray: GPUTexture | null = null;
   private highResolutionTextureArrayView: GPUTextureView | null = null;
+  private highResolutionTextureSize = GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE;
+  private highResolutionTextureCapacity = GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY;
+  private highResolutionMipLevelCount = GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIP_COUNT;
   private readonly textures = new Map<ShadeTexture, ResidentTexture>();
   private readonly residentMaterials = new Map<StandardShadeMaterial, ResidentMaterial>();
   private readonly freeMaterialSlots: number[] = [];
@@ -376,15 +381,18 @@ export class GpuMaterialVisibilityTable {
     let residentTextureCount = 0;
     let retiringTextureCount = 0;
     let residentHighResolutionTextureCount = 0;
+    let retiringHighResolutionTextureCount = 0;
     for (const entry of this.textures.values()) {
       if (entry.refCount > 0) {
         residentTextureCount++;
         if (entry.highResolution) residentHighResolutionTextureCount++;
+      } else {
+        retiringTextureCount++;
+        if (entry.highResolution) retiringHighResolutionTextureCount++;
       }
-      else retiringTextureCount++;
     }
     return Object.freeze({
-      schemaVersion: 5,
+      schemaVersion: 6,
       abiVersion: GPU_MATERIAL_VISIBILITY_ABI_VERSION,
       materialCapacity: GPU_MATERIAL_VISIBILITY_CAPACITY,
       textureCapacity: GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY,
@@ -400,17 +408,26 @@ export class GpuMaterialVisibilityTable {
         GPU_MATERIAL_VISIBILITY_CAPACITY * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
         textureArrayBytes() + (this.highResolutionTextureArray === null
           ? 0
-          : highResolutionTextureArrayBytes()),
+          : highResolutionTextureArrayBytes(
+            this.highResolutionTextureSize,
+            this.highResolutionTextureCapacity,
+            this.highResolutionMipLevelCount
+          )),
       residentTextureBytes: textureArrayBytes() + (this.highResolutionTextureArray === null
         ? 0
-        : highResolutionTextureArrayBytes()),
+        : highResolutionTextureArrayBytes(
+          this.highResolutionTextureSize,
+          this.highResolutionTextureCapacity,
+          this.highResolutionMipLevelCount
+        )),
       textureSize: GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE,
       mipLevelCount: GPU_MATERIAL_VISIBILITY_TEXTURE_MIP_COUNT,
-      highResolutionTextureSize: GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE,
-      highResolutionTextureCapacity: GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY,
-      highResolutionMipLevelCount: GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIP_COUNT,
+      highResolutionTextureSize: this.highResolutionTextureSize,
+      highResolutionTextureCapacity: this.highResolutionTextureCapacity,
+      highResolutionMipLevelCount: this.highResolutionMipLevelCount,
       highResolutionArrayAllocated: this.highResolutionTextureArray !== null,
       residentHighResolutionTextureCount,
+      retiringHighResolutionTextureCount,
       freeHighResolutionTextureLayerCount: this.freeHighResolutionTextureLayers.length,
       privateSubmitCount: 0,
       takeoverTask: null
@@ -456,14 +473,17 @@ export class GpuMaterialVisibilityTable {
         `${this.freeTextureLayers.length} of ${GPU_MATERIAL_VISIBILITY_TEXTURE_CAPACITY - 1} are free`
       );
     }
+    if (newHighResolutionTextures.size > 0) {
+      this.ensureHighResolutionTextureArray(newHighResolutionTextures);
+    }
     if (newHighResolutionTextures.size > this.freeHighResolutionTextureLayers.length) {
       throw new RangeError(
-        `R4-B 4K texture residency requires ${newHighResolutionTextures.size} new layers but only ` +
+        `R4-B high-resolution texture residency requires ${newHighResolutionTextures.size} ` +
+        `new layers but only ` +
         `${this.freeHighResolutionTextureLayers.length} of ` +
-        `${GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY - 1} are free`
+        `${this.highResolutionTextureCapacity - 1} are free`
       );
     }
-    if (newHighResolutionTextures.size > 0) this.ensureHighResolutionTextureArray();
   }
 
   private retainMaterialSlots(
@@ -589,7 +609,7 @@ export class GpuMaterialVisibilityTable {
   ): void {
     const source = this.graphics.textures.obtain(tile.source);
     const targetSize = tile.highResolution
-      ? GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE
+      ? this.highResolutionTextureSize
       : GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE;
     const targetTexture = tile.highResolution
       ? this.requireHighResolutionTextureArray()
@@ -653,18 +673,50 @@ export class GpuMaterialVisibilityTable {
       : this.freeTextureLayers;
   }
 
-  private ensureHighResolutionTextureArray(): void {
-    if (this.highResolutionTextureArray !== null) return;
+  private ensureHighResolutionTextureArray(textures: ReadonlySet<ShadeTexture>): void {
+    const requiredSize = highResolutionBankSize(textures);
+    if (this.highResolutionTextureArray !== null) {
+      if (requiredSize > this.highResolutionTextureSize) {
+        throw new RangeError(
+          `R4-B high-resolution texture residency bank is ${this.highResolutionTextureSize}px ` +
+          `but this upload requires ${requiredSize}px; upload bulk scene textures together`
+        );
+      }
+      return;
+    }
     const limits = this.graphics.device.limits;
+    const requiredCapacity = Math.max(
+      GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIN_CAPACITY,
+      nextPowerOfTwo(textures.size + 1)
+    );
+    const budgetCapacity = Math.max(
+      1,
+      Math.floor(
+        GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY *
+        (GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE / requiredSize) ** 2
+      )
+    );
+    const capacity = Math.min(budgetCapacity, Number(limits.maxTextureArrayLayers));
     if (
-      Number(limits.maxTextureDimension2D) <
-        GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE ||
-      Number(limits.maxTextureArrayLayers) <
-        GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY
+      Number(limits.maxTextureDimension2D) < requiredSize ||
+      capacity < requiredCapacity
     ) {
       throw new RangeError(
-        "R4-B 4K texture residency exceeds this WebGPU device's texture limits"
+        `R4-B high-resolution texture residency requires ${requiredSize}px × ` +
+        `${requiredCapacity} layers but this device/budget permits ${capacity}`
       );
+    }
+    this.highResolutionTextureSize = requiredSize;
+    this.highResolutionTextureCapacity = requiredCapacity;
+    this.highResolutionMipLevelCount = Math.floor(Math.log2(requiredSize)) + 1;
+    this.highResolutionTextureDescriptor = {
+      ...this.highResolutionTextureDescriptor,
+      size: [requiredSize, requiredSize, requiredCapacity],
+      mipLevelCount: this.highResolutionMipLevelCount
+    };
+    this.freeHighResolutionTextureLayers.length = 0;
+    for (let layer = requiredCapacity - 1; layer >= 1; layer--) {
+      this.freeHighResolutionTextureLayers.push(layer);
     }
     this.highResolutionTextureArray = this.graphics.device.createTexture(
       this.highResolutionTextureDescriptor
@@ -675,8 +727,10 @@ export class GpuMaterialVisibilityTable {
   }
 
   private requireHighResolutionTextureArray(): GPUTexture {
-    this.ensureHighResolutionTextureArray();
-    return this.highResolutionTextureArray!;
+    if (this.highResolutionTextureArray === null) {
+      throw new Error("R4-B high-resolution texture array was not allocated during preflight");
+    }
+    return this.highResolutionTextureArray;
   }
 }
 
@@ -773,11 +827,31 @@ function textureArrayBytes(): number {
 }
 
 
-function highResolutionTextureArrayBytes(): number {
+function highResolutionTextureArrayBytes(
+  textureSize: number,
+  capacity: number,
+  mipLevelCount: number
+): number {
   let texels = 0;
-  for (let mip = 0; mip < GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_MIP_COUNT; mip++) {
-    const size = Math.max(1, GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE >> mip);
+  for (let mip = 0; mip < mipLevelCount; mip++) {
+    const size = Math.max(1, textureSize >> mip);
     texels += size * size;
   }
-  return texels * GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_CAPACITY * 4;
+  return texels * capacity * 4;
+}
+
+function highResolutionBankSize(textures: ReadonlySet<ShadeTexture>): number {
+  let required = GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE + 1;
+  for (const texture of textures) {
+    const image = texture.image;
+    if (image !== undefined) required = Math.max(required, image.width, image.height);
+  }
+  return Math.min(
+    GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_TEXTURE_SIZE,
+    nextPowerOfTwo(required)
+  );
+}
+
+function nextPowerOfTwo(value: number): number {
+  return 2 ** Math.ceil(Math.log2(Math.max(1, value)));
 }

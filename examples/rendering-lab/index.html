@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <link rel="icon" href="data:," />
-    <title>OEngine · Integrated Pipeline Showcase</title>
+    <title>OEngine · 综合渲染实验室</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -14,8 +14,8 @@
 
       <div class="loading-layer" id="loading-layer" role="status" aria-live="polite">
         <section class="loading-card">
-          <span class="loading-kicker">OENGINE 综合示例</span>
-          <h1>Cyberpunk City</h1>
+          <span class="loading-kicker">OENGINE 质量基准</span>
+          <h1>综合渲染实验室</h1>
           <p id="loading-detail">正在初始化 WebGPU 渲染器…</p>
           <div class="progress-track" aria-hidden="true">
             <span id="loading-progress"></span>
@@ -27,7 +27,7 @@
       <header class="scene-summary" aria-label="场景概览">
         <div>
           <span class="eyebrow">综合渲染管线</span>
-          <strong>Cyberpunk City</strong>
+          <strong>Rendering Lab</strong>
         </div>
         <dl>
           <div><dt>FPS</dt><dd id="metric-fps">—</dd></div>
@@ -92,22 +92,45 @@
             <div class="effect-block">
               <label class="switch-row"><span><strong>级联阴影</strong><small>Packed CSM</small></span><input type="checkbox" data-feature="shadows" checked /></label>
               <label class="range-row" for="sun-intensity"><span><strong>太阳光强度</strong><output id="sun-intensity-value">2.8</output></span><input id="sun-intensity" type="range" min="0" max="8" step="0.1" value="2.8" /></label>
+              <label class="range-row" for="sun-azimuth"><span><strong>太阳方位角</strong><output id="sun-azimuth-value">-36°</output></span><input id="sun-azimuth" type="range" min="-180" max="180" step="1" value="-36" /></label>
+              <label class="range-row" for="sun-elevation"><span><strong>太阳高度角</strong><output id="sun-elevation-value">65°</output></span><input id="sun-elevation" type="range" min="5" max="85" step="1" value="65" /></label>
+              <label class="range-row" for="shadow-distance"><span><strong>阴影最远距离</strong><output id="shadow-distance-value">80 m</output></span><input id="shadow-distance" type="range" min="10" max="200" step="5" value="80" /></label>
+              <label class="range-row" for="shadow-lambda"><span><strong>级联分割权衡</strong><output id="shadow-lambda-value">0.50</output></span><input id="shadow-lambda" type="range" min="0" max="1" step="0.05" value="0.5" /></label>
+              <label class="range-row" for="shadow-guard"><span><strong>Texel 防抖边界</strong><output id="shadow-guard-value">2.5 px</output></span><input id="shadow-guard" type="range" min="0" max="6" step="0.25" value="2.5" /></label>
+              <p class="field-help">3 级 CSM · 4096 px atlas；分割权衡 0 为均匀、1 为对数。</p>
             </div>
             <div class="effect-block">
               <label class="switch-row"><span><strong>环境光遮蔽</strong><small>GTAO + 时域滤波</small></span><input type="checkbox" data-feature="ssao" checked /></label>
               <label class="range-row" for="ao-intensity"><span><strong>遮蔽强度</strong><output id="ao-intensity-value">1.00</output></span><input id="ao-intensity" type="range" min="0" max="2" step="0.05" value="1" /></label>
               <label class="range-row" for="ao-falloff"><span><strong>衰减范围</strong><output id="ao-falloff-value">0.62</output></span><input id="ao-falloff" type="range" min="0.1" max="2" step="0.05" value="0.615" /></label>
+              <label class="range-row" for="ao-slices"><span><strong>方向切片数</strong><output id="ao-slices-value">2</output></span><input id="ao-slices" type="range" min="1" max="4" step="1" value="2" /></label>
+              <label class="range-row" for="ao-steps"><span><strong>每切片步数</strong><output id="ao-steps-value">4</output></span><input id="ao-steps" type="range" min="1" max="8" step="1" value="4" /></label>
+              <label class="range-row" for="ao-spatial"><span><strong>空间滤波半径</strong><output id="ao-spatial-value">1 px</output></span><input id="ao-spatial" type="range" min="1" max="4" step="1" value="1" /></label>
               <label class="inline-field"><span>计算分辨率</span><select id="ao-resolution"><option value="0.5">半分辨率</option><option value="1">全分辨率</option></select></label>
               <label class="switch-row compact"><span><strong>时域累积</strong><small>降低噪声与闪烁</small></span><input id="ao-temporal" type="checkbox" checked /></label>
+              <label class="range-row" for="ao-temporal-blend"><span><strong>AO 历史混合</strong><output id="ao-temporal-blend-value">0.95</output></span><input id="ao-temporal-blend" type="range" min="0" max="0.99" step="0.01" value="0.95" /></label>
             </div>
             <div class="effect-block">
               <label class="switch-row"><span><strong>屏幕空间反射</strong><small>SSR + IBL 回退</small></span><input type="checkbox" data-feature="ssr" /></label>
               <label class="range-row" for="ssr-distance"><span><strong>最大追踪距离</strong><output id="ssr-distance-value">16 m</output></span><input id="ssr-distance" type="range" min="2" max="64" step="1" value="16" /></label>
               <label class="range-row" for="ssr-edge"><span><strong>边缘淡出</strong><output id="ssr-edge-value">0.07</output></span><input id="ssr-edge" type="range" min="0" max="0.3" step="0.01" value="0.07" /></label>
+              <label class="range-row" for="ssr-steps"><span><strong>最大步数</strong><output id="ssr-steps-value">128</output></span><input id="ssr-steps" type="range" min="16" max="255" step="8" value="128" /></label>
+              <label class="range-row" for="ssr-thickness"><span><strong>基础厚度</strong><output id="ssr-thickness-value">0.10</output></span><input id="ssr-thickness" type="range" min="0.01" max="1" step="0.01" value="0.1" /></label>
+              <label class="range-row" for="ssr-roughness-thickness"><span><strong>粗糙度厚度增益</strong><output id="ssr-roughness-thickness-value">10.0</output></span><input id="ssr-roughness-thickness" type="range" min="0" max="20" step="0.5" value="10" /></label>
+              <label class="range-row" for="ssr-distance-thickness"><span><strong>距离厚度增益</strong><output id="ssr-distance-thickness-value">0.010</output></span><input id="ssr-distance-thickness" type="range" min="0" max="0.1" step="0.005" value="0.01" /></label>
+              <label class="range-row" for="ssr-roughness-cutoff"><span><strong>粗糙度截止</strong><output id="ssr-roughness-cutoff-value">0.65</output></span><input id="ssr-roughness-cutoff" type="range" min="0.05" max="1" step="0.05" value="0.65" /></label>
+              <label class="range-row" for="ssr-temporal"><span><strong>反射历史强度</strong><output id="ssr-temporal-value">1.00</output></span><input id="ssr-temporal" type="range" min="0" max="1" step="0.05" value="1" /></label>
             </div>
             <div class="effect-block">
               <label class="switch-row"><span><strong>时域抗锯齿</strong><small>TAA / TAAU 历史重建</small></span><input type="checkbox" data-feature="taa" checked /></label>
               <label class="range-row" for="taa-history"><span><strong>历史权重</strong><output id="taa-history-value">1.00</output></span><input id="taa-history" type="range" min="0" max="1" step="0.05" value="1" /></label>
+              <label class="range-row" for="taa-variance"><span><strong>历史裁剪范围</strong><output id="taa-variance-value">1.25 σ</output></span><input id="taa-variance" type="range" min="0.25" max="3" step="0.05" value="1.25" /></label>
+              <label class="range-row" for="taa-min-history"><span><strong>最小锁定权重</strong><output id="taa-min-history-value">0.65</output></span><input id="taa-min-history" type="range" min="0" max="1" step="0.05" value="0.65" /></label>
+              <label class="range-row" for="taa-max-history"><span><strong>最大历史权重</strong><output id="taa-max-history-value">0.92</output></span><input id="taa-max-history" type="range" min="0" max="0.99" step="0.01" value="0.92" /></label>
+              <label class="range-row" for="taa-lock-step"><span><strong>历史锁定速度</strong><output id="taa-lock-step-value">0.063</output></span><input id="taa-lock-step" type="range" min="0.01" max="0.25" step="0.01" value="0.0625" /></label>
+              <label class="range-row" for="taa-reactive"><span><strong>Reactive 拒绝阈值</strong><output id="taa-reactive-value">0.50</output></span><input id="taa-reactive" type="range" min="0" max="1" step="0.05" value="0.5" /></label>
+              <label class="range-row" for="taa-disocclusion"><span><strong>反遮挡置信阈值</strong><output id="taa-disocclusion-value">0.20</output></span><input id="taa-disocclusion" type="range" min="0" max="1" step="0.05" value="0.2" /></label>
+              <label class="range-row" for="taa-motion-fade"><span><strong>运动衰减尺度</strong><output id="taa-motion-fade-value">128 px</output></span><input id="taa-motion-fade" type="range" min="16" max="512" step="16" value="128" /></label>
             </div>
             <div class="effect-block">
               <label class="switch-row"><span><strong>泛光</strong><small>HDR 高亮扩散</small></span><input type="checkbox" data-feature="bloom" checked /></label>
@@ -122,12 +145,6 @@
             <div class="effect-block">
               <label class="switch-row"><span><strong>锐化</strong><small>最终重建锐化</small></span><input type="checkbox" data-feature="sharpen" checked /></label>
               <label class="range-row" for="sharpen-strength"><span><strong>锐化强度</strong><output id="sharpen-strength-value">0.80</output></span><input id="sharpen-strength" type="range" min="0" max="2" step="0.05" value="0.8" /></label>
-            </div>
-            <div class="effect-block">
-              <label class="switch-row"><span><strong>动态点光源</strong><small>Clustered 动态灯光</small></span><input type="checkbox" data-feature="lights" checked /></label>
-              <label class="range-row" for="light-intensity"><span><strong>灯光强度</strong><output id="light-intensity-value">40</output></span><input id="light-intensity" type="range" min="0" max="120" step="2" value="40" /></label>
-              <label class="range-row" for="light-range"><span><strong>照明范围</strong><output id="light-range-value">0.75×</output></span><input id="light-range" type="range" min="0.1" max="2" step="0.05" value="0.75" /></label>
-              <label class="range-row" for="light-speed"><span><strong>动画速度</strong><output id="light-speed-value">1.0×</output></span><input id="light-speed" type="range" min="0" max="3" step="0.1" value="1" /></label>
             </div>
           </section>
 
@@ -158,8 +175,8 @@
         <footer>
           <p>左键旋转 · 右键平移 · 滚轮缩放</p>
           <p>
-            <a href="https://sketchfab.com/3d-models/cyberpunk-city-3f24e5c5bf924f46b30d9a392afa9624" target="_blank" rel="noreferrer">Cyberpunk City</a>
-            by mortalityrexotable · CC BY 4.0
+            <a href="https://sketchfab.com/warkarma" target="_blank" rel="noreferrer">Dungeon · Warkarma</a>
+            by Tomás Laulhé · CC0 1.0 · copied from three.js
           </p>
           <p>
             <a href="https://polyhaven.com/a/venice_sunset" target="_blank" rel="noreferrer">Venice Sunset</a>

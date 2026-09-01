@@ -93,10 +93,13 @@ R4-C 是独立性能研究轨。只有同设备 profile 证明 Hardware Raster/�
 R5-00 Contract/Baseline
 → FX-01..03 → G5-L
 → FX-04..05 → G5-S
-→ FX-06A → FX-07..08 → FX-06B → G5-T
-→ FX-09..12 → G5-P
+→ FX-06A → FX-07..08
+→ R5-Q00..Q04 → R5-Q05/FX-06B → G5-T
+→ R5-Q06 → FX-09..12 → G5-P
 → R5 CLOSED
 ```
+
+Cyberpunk City 综合示例在 focused FX-07/08 关闭后暴露出 R5 composition contract 债务。`R5-Q00..Q06` 是 [Quality / Pipeline Architecture Closure](./implementation/11-render-pipeline-reconstruction.md)，不撤销历史 focused Gate，也不建立第二条 pipeline；它按 Evidence → Contract → Composition → GTAO → SSR → Temporal → FramePlan 顺序补齐 integrated quality/performance closure。Hardware Raster 和 4K texture residency 继续作为独立产品 P0 债务进入 Q00/G5-P，不借此推翻 R2–R4。
 
 - 扩展 Clustered Lighting 到大量动态灯光，并冻结 attempted/written/capacity/overflow 与 conservative fallback。
 - 保留 CSM，优化多 Cascade work generation、稳定性和过滤质量。

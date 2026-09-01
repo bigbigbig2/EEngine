@@ -283,7 +283,11 @@ export class ShadeGPUCommandContext {
         descriptor?.label
       );
     }
-    return this.#encoder!.beginComputePass(resolved);
+    const pass = this.#encoder!.beginComputePass(resolved);
+    const profiler = this.#graphics.profiler;
+    if (!profiler.enabled) return pass;
+    profiler.recordGpuCommand("computePass");
+    return profileComputePass(pass, profiler);
   }
 
   constructComputePass({
@@ -341,7 +345,11 @@ export class ShadeGPUCommandContext {
         descriptor.label
       );
     }
-    return this.#encoder!.beginRenderPass(descriptor);
+    const pass = this.#encoder!.beginRenderPass(descriptor);
+    const profiler = this.#graphics.profiler;
+    if (!profiler.enabled) return pass;
+    profiler.recordGpuCommand("renderPass");
+    return profileRenderPass(pass, profiler);
   }
 
   resolveQuerySet(
@@ -552,4 +560,67 @@ export class ShadeGPUCommandContext {
       stagingAllocator.release(buffer);
     }
   }
+}
+
+type GpuCommandCounter = Pick<
+  import("../debug/FrameProfiler.js").FrameProfiler,
+  "recordGpuCommand"
+>;
+
+function profileComputePass(
+  pass: GPUComputePassEncoder,
+  profiler: GpuCommandCounter
+): GPUComputePassEncoder {
+  return proxyEncoderMethods(pass, {
+    dispatchWorkgroups: () => profiler.recordGpuCommand("dispatch"),
+    dispatchWorkgroupsIndirect: () => profiler.recordGpuCommand("dispatch")
+  });
+}
+
+function profileRenderPass(
+  pass: GPURenderPassEncoder,
+  profiler: GpuCommandCounter
+): GPURenderPassEncoder {
+  return proxyEncoderMethods(pass, {
+    draw: () => profiler.recordGpuCommand("draw"),
+    drawIndexed: () => profiler.recordGpuCommand("draw"),
+    drawIndirect: () => profiler.recordGpuCommand("draw"),
+    drawIndexedIndirect: () => profiler.recordGpuCommand("draw"),
+    executeBundles: (args) => {
+      const bundles = args[0] as Iterable<GPURenderBundle> | undefined;
+      profiler.recordGpuCommand(
+        "bundleExecution",
+        bundles === undefined ? 0 : Array.from(bundles).length
+      );
+    }
+  });
+}
+
+function proxyEncoderMethods<T extends object>(
+  target: T,
+  before: Record<string, (args: unknown[]) => void>
+): T {
+  const boundMethods = new Map<PropertyKey, Function>();
+  return new Proxy(target, {
+    get(value, property): unknown {
+      const member = Reflect.get(value, property, value) as unknown;
+      if (typeof member !== "function") return member;
+      let bound = boundMethods.get(property);
+      if (bound === undefined) {
+        const invoke = before[String(property)];
+        const created = invoke === undefined
+          ? member.bind(value)
+          : (...args: unknown[]) => {
+              invoke(args);
+              return member.apply(value, args);
+            };
+        boundMethods.set(property, created);
+        bound = created;
+      }
+      return bound;
+    },
+    set(value, property, member): boolean {
+      return Reflect.set(value, property, member, value);
+    }
+  });
 }
