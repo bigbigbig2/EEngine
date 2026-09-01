@@ -2,6 +2,10 @@ import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.j
 import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import {
+  GPU_MATERIAL_SHADING_RECORD_WGSL,
+  STANDARD_PBR_FEATURE
+} from "../gpu/GpuMaterialShadingAbi.js";
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import {
@@ -11,12 +15,39 @@ import {
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
-export const PACKED_MATERIAL_RESOLVE_WGSL = /* wgsl */ `
+const MATERIAL_TEXTURE_BANK_NAMES = [
+  "material_textures",
+  "high_resolution_material_textures",
+  "compressed_material_textures_0",
+  "compressed_material_textures_1",
+  "compressed_material_textures_2",
+  "compressed_material_textures_3"
+] as const;
+
+const MATERIAL_TEXTURE_BANK_WGSL = MATERIAL_TEXTURE_BANK_NAMES.map((name, bank) => /* wgsl */ `
+fn sample_material_bank_${bank}(
+  layer: i32, sampler_class: u32, uv: vec2f, uv_dx: vec2f, uv_dy: vec2f
+) -> vec4f {
+  let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
+  let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
+  if linear {
+    if address == 0u { return textureSampleGrad(${name}, sampler_clamp_linear, uv, layer, uv_dx, uv_dy); }
+    if address == 2u { return textureSampleGrad(${name}, sampler_mirror_linear, uv, layer, uv_dx, uv_dy); }
+    return textureSampleGrad(${name}, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
+  }
+  if address == 0u { return textureSampleGrad(${name}, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy); }
+  if address == 2u { return textureSampleGrad(${name}, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy); }
+  return textureSampleGrad(${name}, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
+}
+`).join("\n");
+
+const PACKED_MATERIAL_RESOLVE_TEMPLATE = /* wgsl */ `
 ${GPU_VIEW_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_MATERIAL_SHADING_RECORD_WGSL}
 ${GPU_SURFACE_ABI_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.wgsl}
@@ -65,6 +96,13 @@ struct R4ResolveRasterWorkQueue {
 @group(0) @binding(9) var sampler_mirror_nearest: sampler;
 @group(0) @binding(10) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
 @group(0) @binding(11) var high_resolution_material_textures: texture_2d_array<f32>;
+
+@group(2) @binding(0) var<storage, read> material_shading: array<OEngineMaterialShadingRecord>;
+@group(2) @binding(1) var compressed_material_textures_0: texture_2d_array<f32>;
+@group(2) @binding(2) var compressed_material_textures_1: texture_2d_array<f32>;
+@group(2) @binding(3) var compressed_material_textures_2: texture_2d_array<f32>;
+@group(2) @binding(4) var compressed_material_textures_3: texture_2d_array<f32>;
+
 
 @group(1) @binding(0) var<storage, read> instances: array<OEngineInstanceRecord>;
 @group(1) @binding(1) var<storage, read> geometries: array<GpuGeometryRecord>;
@@ -291,48 +329,21 @@ fn sample_material_texture(
   uv_dy: vec2f,
   fallback: vec4f
 ) -> vec4f {
-  if texture_ref == OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE {
-    return fallback;
+  if texture_ref == OENGINE_MATERIAL_SHADING_INVALID_TEXTURE { return fallback; }
+  let bank = (texture_ref >> OENGINE_MATERIAL_SHADING_BANK_SHIFT) & 0x0fu;
+  let layer = i32(texture_ref & OENGINE_MATERIAL_SHADING_LAYER_MASK);
+  switch bank {
+    case 0u: { return sample_material_bank_0(layer, sampler_class, uv, uv_dx, uv_dy); }
+    case 1u: { return sample_material_bank_1(layer, sampler_class, uv, uv_dx, uv_dy); }
+    case 2u: { return sample_material_bank_2(layer, sampler_class, uv, uv_dx, uv_dy); }
+    case 3u: { return sample_material_bank_3(layer, sampler_class, uv, uv_dx, uv_dy); }
+    case 4u: { return sample_material_bank_4(layer, sampler_class, uv, uv_dx, uv_dy); }
+    case 5u: { return sample_material_bank_5(layer, sampler_class, uv, uv_dx, uv_dy); }
+    default: { return fallback; }
   }
-  let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;
-  let layer = i32(texture_ref & OENGINE_MATERIAL_TEXTURE_LAYER_MASK);
-  let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
-  let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
-  if high_resolution {
-    if linear {
-      if address == 0u {
-        return textureSampleGrad(high_resolution_material_textures, sampler_clamp_linear, uv, layer, uv_dx, uv_dy);
-      }
-      if address == 2u {
-        return textureSampleGrad(high_resolution_material_textures, sampler_mirror_linear, uv, layer, uv_dx, uv_dy);
-      }
-      return textureSampleGrad(high_resolution_material_textures, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
-    }
-    if address == 0u {
-      return textureSampleGrad(high_resolution_material_textures, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy);
-    }
-    if address == 2u {
-      return textureSampleGrad(high_resolution_material_textures, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy);
-    }
-    return textureSampleGrad(high_resolution_material_textures, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
-  }
-  if linear {
-    if address == 0u {
-      return textureSampleGrad(material_textures, sampler_clamp_linear, uv, layer, uv_dx, uv_dy);
-    }
-    if address == 2u {
-      return textureSampleGrad(material_textures, sampler_mirror_linear, uv, layer, uv_dx, uv_dy);
-    }
-    return textureSampleGrad(material_textures, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
-  }
-  if address == 0u {
-    return textureSampleGrad(material_textures, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy);
-  }
-  if address == 2u {
-    return textureSampleGrad(material_textures, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy);
-  }
-  return textureSampleGrad(material_textures, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
 }
+
+${MATERIAL_TEXTURE_BANK_WGSL}
 
 fn material_uv_set(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
   return (material.texture_uv_sets >> (slot * 8u)) & 0xffu;
@@ -403,6 +414,8 @@ fn reconstruct_material_uv(
   );
 }
 
+__OENGINE_MATERIAL_SPECIALIZATIONS__
+
 struct PackedMaterialOutput {
   @location(0) pbr: vec2f,
   @location(1) normal: vec4u,
@@ -425,7 +438,8 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   if visible.instance_record_index >= arrayLength(&instances) ||
     visible.geometry_record_index >= arrayLength(&geometries) ||
     work.meshlet_record_index >= arrayLength(&meshlets) ||
-    visible.material_handle >= arrayLength(&materials) {
+    visible.material_handle >= arrayLength(&materials) ||
+    visible.material_handle >= arrayLength(&material_shading) {
     discard;
   }
   let instance = instances[visible.instance_record_index];
@@ -443,6 +457,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let triangle_index = oengine_visibility_key_local_triangle(key);
   if triangle_index >= meshlet.triangle_count { discard; }
   let material_info = materials[visible.material_handle];
+  let shading_info = material_shading[visible.material_handle];
   if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
     material_info.material_id != visible.material_handle {
     discard;
@@ -450,7 +465,6 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let vertices = triangle_source_vertices(meshlet, triangle_index);
   let position_descriptor = find_stream(geometry, SEMANTIC_POSITION);
   let normal_descriptor = find_stream(geometry, SEMANTIC_NORMAL);
-  let tangent_descriptor = find_stream(geometry, SEMANTIC_TANGENT);
   let color_descriptor = find_stream(geometry, SEMANTIC_COLOR);
   let local0 = read_stream4_from_descriptor(position_descriptor, vertices.x, vec4f(0.0)).xyz;
   let local1 = read_stream4_from_descriptor(position_descriptor, vertices.y, vec4f(0.0)).xyz;
@@ -471,84 +485,54 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let normal0 = read_stream4_from_descriptor(normal_descriptor, vertices.x, vec4f(face_local, 0.0)).xyz;
   let normal1 = read_stream4_from_descriptor(normal_descriptor, vertices.y, vec4f(face_local, 0.0)).xyz;
   let normal2 = read_stream4_from_descriptor(normal_descriptor, vertices.z, vec4f(face_local, 0.0)).xyz;
-  let tangent0 = read_stream4_from_descriptor(tangent_descriptor, vertices.x, vec4f(1.0, 0.0, 0.0, 1.0));
-  let tangent1 = read_stream4_from_descriptor(tangent_descriptor, vertices.y, vec4f(1.0, 0.0, 0.0, 1.0));
-  let tangent2 = read_stream4_from_descriptor(tangent_descriptor, vertices.z, vec4f(1.0, 0.0, 0.0, 1.0));
   let color0 = read_stream4_from_descriptor(color_descriptor, vertices.x, vec4f(1.0)).rgb;
   let color1 = read_stream4_from_descriptor(color_descriptor, vertices.y, vec4f(1.0)).rgb;
   let color2 = read_stream4_from_descriptor(color_descriptor, vertices.z, vec4f(1.0)).rgb;
-  let albedo_uv = reconstruct_material_uv(material_info, 0u, geometry, vertices, bary);
-  let normal_uv = reconstruct_material_uv(material_info, 1u, geometry, vertices, bary);
-  let orm_uv = reconstruct_material_uv(material_info, 2u, geometry, vertices, bary);
-  let emissive_uv = reconstruct_material_uv(material_info, 3u, geometry, vertices, bary);
+  let material_samples = sample_material_specialized(
+    material_info, shading_info, geometry, vertices, bary
+  );
   let vertex_color = color0 * bary.weights.x + color1 * bary.weights.y + color2 * bary.weights.z;
   let local_normal = safe_normalize(
     normal0 * bary.weights.x + normal1 * bary.weights.y + normal2 * bary.weights.z,
     face_local
   );
-  let local_tangent4 = tangent0 * bary.weights.x + tangent1 * bary.weights.y + tangent2 * bary.weights.z;
   let frame = object_transform_frame(instance.current_object_to_world);
   let shading_normal = safe_normalize(frame.normal_matrix * local_normal, face_local);
   let geometric_normal = safe_normalize(frame.normal_matrix * face_local, shading_normal);
-  var tangent = frame.tangent_matrix * local_tangent4.xyz;
-  tangent = safe_normalize(
-    tangent - shading_normal * dot(shading_normal, tangent),
-    safe_normalize(cross(vec3f(0.0, 1.0, 0.0), shading_normal), vec3f(1.0, 0.0, 0.0))
-  );
-  let tangent_handedness = select(-1.0, 1.0, local_tangent4.w >= 0.0);
-  let bitangent = safe_normalize(
-    cross(shading_normal, tangent) * tangent_handedness * frame.orientation,
-    safe_normalize(cross(shading_normal, tangent), vec3f(0.0, 1.0, 0.0))
-  );
-  var sampled_normal = sample_material_texture(
-    material_info.normal_texture_ref,
-    material_sampler_class(material_info, 1u),
-    normal_uv.uv,
-    normal_uv.ddx,
-    normal_uv.ddy,
-    vec4f(0.5, 0.5, 1.0, 1.0)
-  ).xyz * 2.0 - 1.0;
-  sampled_normal = vec3f(
-    sampled_normal.xy * material_info.pbr_factors.z,
-    sampled_normal.z
-  );
-  let mapped_normal = safe_normalize(
-    mat3x3f(tangent, bitangent, shading_normal) * sampled_normal,
-    shading_normal
-  );
-  let orm = sample_material_texture(
-    material_info.orm_texture_ref,
-    material_sampler_class(material_info, 2u),
-    orm_uv.uv,
-    orm_uv.ddx,
-    orm_uv.ddy,
-    vec4f(1.0)
-  );
-  let albedo_sample = sample_material_texture(
-    material_info.texture_ref,
-    material_sampler_class(material_info, 0u),
-    albedo_uv.uv,
-    albedo_uv.ddx,
-    albedo_uv.ddy,
-    vec4f(1.0)
-  );
-  let emissive_sample = sample_material_texture(
-    material_info.emissive_texture_ref,
-    material_sampler_class(material_info, 3u),
-    emissive_uv.uv,
-    emissive_uv.ddx,
-    emissive_uv.ddy,
-    vec4f(1.0)
-  );
-  let albedo = albedo_sample.rgb * vertex_color * material_info.base_color_factor.rgb;
-  let is_unlit = (material_info.flags & OENGINE_MATERIAL_UNLIT) != 0u;
+  var mapped_normal = shading_normal;
+  if (shading_info.feature_key & OENGINE_STANDARD_PBR_NORMAL_TEXTURE) != 0u {
+    let tangent_descriptor = find_stream(geometry, SEMANTIC_TANGENT);
+    let tangent0 = read_stream4_from_descriptor(tangent_descriptor, vertices.x, vec4f(1.0, 0.0, 0.0, 1.0));
+    let tangent1 = read_stream4_from_descriptor(tangent_descriptor, vertices.y, vec4f(1.0, 0.0, 0.0, 1.0));
+    let tangent2 = read_stream4_from_descriptor(tangent_descriptor, vertices.z, vec4f(1.0, 0.0, 0.0, 1.0));
+    let local_tangent4 = tangent0 * bary.weights.x + tangent1 * bary.weights.y + tangent2 * bary.weights.z;
+    var tangent = frame.tangent_matrix * local_tangent4.xyz;
+    tangent = safe_normalize(
+      tangent - shading_normal * dot(shading_normal, tangent),
+      safe_normalize(cross(vec3f(0.0, 1.0, 0.0), shading_normal), vec3f(1.0, 0.0, 0.0))
+    );
+    let tangent_handedness = select(-1.0, 1.0, local_tangent4.w >= 0.0);
+    let bitangent = safe_normalize(
+      cross(shading_normal, tangent) * tangent_handedness * frame.orientation,
+      safe_normalize(cross(shading_normal, tangent), vec3f(0.0, 1.0, 0.0))
+    );
+    var sampled_normal = material_samples.normal.xyz * 2.0 - 1.0;
+    sampled_normal = vec3f(sampled_normal.xy * material_info.pbr_factors.z, sampled_normal.z);
+    mapped_normal = safe_normalize(
+      mat3x3f(tangent, bitangent, shading_normal) * sampled_normal,
+      shading_normal
+    );
+  }
+  let orm = material_samples.orm;
+  let albedo = material_samples.albedo.rgb * vertex_color * material_info.base_color_factor.rgb;
+  let is_unlit = (shading_info.feature_key & OENGINE_STANDARD_PBR_UNLIT) != 0u;
   let ambient = select(
     1.0,
     mix(1.0, orm.r, material_info.pbr_factors.w),
-    (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u
+    (shading_info.feature_key & OENGINE_STANDARD_PBR_ORM_TEXTURE) != 0u
   );
-  let metallic_sample = select(1.0, orm.b, (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u);
-  let roughness_sample = select(1.0, orm.g, (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u);
+  let metallic_sample = select(1.0, orm.b, (shading_info.feature_key & OENGINE_STANDARD_PBR_ORM_TEXTURE) != 0u);
+  let roughness_sample = select(1.0, orm.g, (shading_info.feature_key & OENGINE_STANDARD_PBR_ORM_TEXTURE) != 0u);
   var output: PackedMaterialOutput;
   output.pbr = vec2f(
     metallic_sample * material_info.pbr_factors.x,
@@ -559,7 +543,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     encode_g_buffer_normal(geometric_normal)
   );
   output.albedo = vec4f(albedo, ambient);
-  output.emissive = rgbe9995_encode(emissive_sample.rgb * material_info.emissive_factor.rgb);
+  output.emissive = rgbe9995_encode(material_samples.emissive.rgb * material_info.emissive_factor.rgb);
   if is_unlit {
     output.pbr = vec2f(0.0, 1.0);
     output.normal = vec4u(
@@ -571,16 +555,16 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   }
   output.velocity = vec2f(0.0);
   var surface_flags = OENGINE_SURFACE_FLAG_VALID;
-  if (material_info.flags & OENGINE_MATERIAL_HAS_NORMAL_TEXTURE) != 0u {
+  if (shading_info.feature_key & OENGINE_STANDARD_PBR_NORMAL_TEXTURE) != 0u {
     surface_flags |= OENGINE_SURFACE_FLAG_NORMAL_TEXTURE;
   }
-  if (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u {
+  if (shading_info.feature_key & OENGINE_STANDARD_PBR_ORM_TEXTURE) != 0u {
     surface_flags |= OENGINE_SURFACE_FLAG_ORM_TEXTURE;
   }
-  if (material_info.flags & OENGINE_MATERIAL_HAS_EMISSIVE_TEXTURE) != 0u {
+  if (shading_info.feature_key & OENGINE_STANDARD_PBR_EMISSIVE_TEXTURE) != 0u {
     surface_flags |= OENGINE_SURFACE_FLAG_EMISSIVE_TEXTURE;
   }
-  if (material_info.flags & OENGINE_MATERIAL_UNLIT) != 0u {
+  if (shading_info.feature_key & OENGINE_STANDARD_PBR_UNLIT) != 0u {
     surface_flags |= OENGINE_SURFACE_FLAG_UNLIT;
   }
   if bary.valid == 0u {
@@ -613,3 +597,121 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   return output;
 }
 `;
+
+export const MAX_STANDARD_PBR_FEATURE_CLASSES = 16;
+
+export function createPackedMaterialResolveWgsl(
+  featureKeys: readonly number[]
+): string {
+  const keys = [...new Set(featureKeys.map((key) => key >>> 0))]
+    .sort((left, right) => left - right)
+    .slice(0, MAX_STANDARD_PBR_FEATURE_CLASSES);
+  return PACKED_MATERIAL_RESOLVE_TEMPLATE.replace(
+    "__OENGINE_MATERIAL_SPECIALIZATIONS__",
+    materialSpecializationWgsl(keys)
+  );
+}
+
+export const PACKED_MATERIAL_RESOLVE_WGSL = createPackedMaterialResolveWgsl([]);
+
+function materialSpecializationWgsl(featureKeys: readonly number[]): string {
+  const functions = featureKeys.map((featureKey) =>
+    specializedMaterialSampleFunction(featureKey)
+  ).join("\n");
+  const cases = featureKeys.map((featureKey) =>
+    `case ${featureKey}u: { return sample_material_class_${featureKey.toString(16)}(material, shading, geometry, vertices, bary); }`
+  ).join("\n    ");
+  return /* wgsl */ `
+struct SpecializedMaterialSamples {
+  albedo: vec4f,
+  normal: vec4f,
+  orm: vec4f,
+  emissive: vec4f,
+}
+
+fn default_material_samples() -> SpecializedMaterialSamples {
+  return SpecializedMaterialSamples(
+    vec4f(1.0),
+    vec4f(0.5, 0.5, 1.0, 1.0),
+    vec4f(1.0),
+    vec4f(1.0)
+  );
+}
+
+fn sample_material_generic(
+  material: OEngineMaterialVisibilityRecord,
+  shading: OEngineMaterialShadingRecord,
+  geometry: GpuGeometryRecord,
+  vertices: vec3u,
+  bary: PerspectiveBarycentric
+) -> SpecializedMaterialSamples {
+  var result = default_material_samples();
+  if (shading.feature_key & OENGINE_STANDARD_PBR_ALBEDO_TEXTURE) != 0u {
+    let uv = reconstruct_material_uv(material, 0u, geometry, vertices, bary);
+    result.albedo = sample_material_texture(shading.base_color_texture_ref,
+      material_sampler_class(material, 0u), uv.uv, uv.ddx, uv.ddy, result.albedo);
+  }
+  if (shading.feature_key & OENGINE_STANDARD_PBR_NORMAL_TEXTURE) != 0u {
+    let uv = reconstruct_material_uv(material, 1u, geometry, vertices, bary);
+    result.normal = sample_material_texture(shading.normal_texture_ref,
+      material_sampler_class(material, 1u), uv.uv, uv.ddx, uv.ddy, result.normal);
+  }
+  if (shading.feature_key & OENGINE_STANDARD_PBR_ORM_TEXTURE) != 0u {
+    let uv = reconstruct_material_uv(material, 2u, geometry, vertices, bary);
+    result.orm = sample_material_texture(shading.orm_texture_ref,
+      material_sampler_class(material, 2u), uv.uv, uv.ddx, uv.ddy, result.orm);
+  }
+  if (shading.feature_key & OENGINE_STANDARD_PBR_EMISSIVE_TEXTURE) != 0u {
+    let uv = reconstruct_material_uv(material, 3u, geometry, vertices, bary);
+    result.emissive = sample_material_texture(shading.emissive_texture_ref,
+      material_sampler_class(material, 3u), uv.uv, uv.ddx, uv.ddy, result.emissive);
+  }
+  return result;
+}
+
+${functions}
+
+fn sample_material_specialized(
+  material: OEngineMaterialVisibilityRecord,
+  shading: OEngineMaterialShadingRecord,
+  geometry: GpuGeometryRecord,
+  vertices: vec3u,
+  bary: PerspectiveBarycentric
+) -> SpecializedMaterialSamples {
+  switch shading.feature_key {
+    ${cases}
+    default: { return sample_material_generic(material, shading, geometry, vertices, bary); }
+  }
+}
+`;
+}
+
+function specializedMaterialSampleFunction(featureKey: number): string {
+  const sample = (
+    feature: number,
+    slot: number,
+    field: "albedo" | "normal" | "orm" | "emissive",
+    ref: string
+  ): string => (featureKey & feature) === 0 ? "" : /* wgsl */ `
+  let ${field}_uv = reconstruct_material_uv(material, ${slot}u, geometry, vertices, bary);
+  result.${field} = sample_material_texture(
+    shading.${ref}, material_sampler_class(material, ${slot}u),
+    ${field}_uv.uv, ${field}_uv.ddx, ${field}_uv.ddy, result.${field}
+  );`;
+  return /* wgsl */ `
+fn sample_material_class_${featureKey.toString(16)}(
+  material: OEngineMaterialVisibilityRecord,
+  shading: OEngineMaterialShadingRecord,
+  geometry: GpuGeometryRecord,
+  vertices: vec3u,
+  bary: PerspectiveBarycentric
+) -> SpecializedMaterialSamples {
+  var result = default_material_samples();
+  ${sample(STANDARD_PBR_FEATURE.AlbedoTexture, 0, "albedo", "base_color_texture_ref")}
+  ${sample(STANDARD_PBR_FEATURE.NormalTexture, 1, "normal", "normal_texture_ref")}
+  ${sample(STANDARD_PBR_FEATURE.OrmTexture, 2, "orm", "orm_texture_ref")}
+  ${sample(STANDARD_PBR_FEATURE.EmissiveTexture, 3, "emissive", "emissive_texture_ref")}
+  return result;
+}
+`;
+}

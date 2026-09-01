@@ -32,6 +32,7 @@ import {
   applyDirSpotLookRotation,
   parsePunctualLight
 } from "./gltf/gltfLights.js";
+import type { MaterialTextureAssetPackage } from "../assets/MaterialTextureAssetPackage.js";
 
 function buildSceneBundle(doc: GltfDocument): SceneBundle {
   const nodes = doc.nodes!;
@@ -235,6 +236,7 @@ function buildSceneBundle(doc: GltfDocument): SceneBundle {
 export interface PackedGltfSource {
   readonly geometries: readonly SourceGeometry[];
   readonly materials: readonly StandardShadeMaterial[];
+  readonly materialTexturePackage?: MaterialTextureAssetPackage;
   readonly geometryIndices: Uint32Array;
   readonly materialIndices: Uint32Array;
   readonly transforms: Float32Array;
@@ -331,6 +333,7 @@ function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
   return Object.freeze({
     geometries: Object.freeze(packedGeometries),
     materials: Object.freeze(packedMaterials),
+    materialTexturePackage: doc.materialTexturePackage,
     geometryIndices: Uint32Array.from(geometryIndices),
     materialIndices: Uint32Array.from(materialIndices),
     transforms: Float32Array.from(transforms),

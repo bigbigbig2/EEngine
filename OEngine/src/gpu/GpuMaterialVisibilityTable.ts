@@ -1,6 +1,7 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
+import { isKtx2TextureSource } from "../assets/MaterialTextureAssetPackage.js";
 import { TextureFilterType } from "../texture/TextureFilterType.js";
 import type { CachedRenderPipelineDescriptor } from "./GPUDescriptorCaches.js";
 import type { GPUTextureContext } from "./GPUTextureContext.js";
@@ -42,6 +43,13 @@ export interface GpuMaterialVisibilityStage {
   readonly bindings: GpuMaterialVisibilityBindings;
   /** Dense resident slots aligned with the input material dictionary. */
   readonly materialSlots: readonly number[];
+  /** Legacy uncompressed array refs aligned with the material dictionary. */
+  readonly textureRefs: readonly Readonly<{
+    baseColor: number;
+    normal: number;
+    orm: number;
+    emissive: number;
+  }>[];
 }
 
 export interface GpuMaterialVisibilityEvidence {
@@ -311,6 +319,12 @@ export class GpuMaterialVisibilityTable {
         writeSet(this.textureFallbackMaterialIds, materialSlot, source.textureFallback);
         writeSet(this.samplerFallbackMaterialIds, materialSlot, source.samplerFallback);
       }
+      const materialTextureRefs = materials.map((material) => Object.freeze({
+        baseColor: textureRefOrInvalid(textureRefs, material.texture_albedo),
+        normal: textureRefOrInvalid(textureRefs, material.texture_normal),
+        orm: textureRefOrInvalid(textureRefs, material.texture_orm),
+        emissive: textureRefOrInvalid(textureRefs, material.texture_emissive)
+      }));
       command.onFinished.addOne(() => {
         for (const transition of textureTransitions) {
           this.releaseTextureRefs(transition.removed, command.gpuDone);
@@ -318,7 +332,8 @@ export class GpuMaterialVisibilityTable {
       });
       return Object.freeze({
         bindings: this.bindings(),
-        materialSlots: Object.freeze(materialSlots)
+        materialSlots: Object.freeze(materialSlots),
+        textureRefs: Object.freeze(materialTextureRefs)
       });
     } catch (error) {
       rollback();
@@ -803,7 +818,8 @@ const RESIZE_COPY_PIPELINE: CachedRenderPipelineDescriptor = {
 
 function canStageTexture(texture: ShadeTexture): boolean {
   const image = texture.image;
-  return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;
+  return image !== undefined && !isKtx2TextureSource(image.source) &&
+    image.width > 0 && image.height > 0 && image.depth <= 1;
 }
 
 function requiresHighResolutionBank(texture: ShadeTexture): boolean {
@@ -815,6 +831,15 @@ function requiresHighResolutionBank(texture: ShadeTexture): boolean {
 function writeSet(set: Set<number>, value: number, present: boolean): void {
   if (present) set.add(value);
   else set.delete(value);
+}
+
+function textureRefOrInvalid(
+  refs: ReadonlyMap<ShadeTexture, number>,
+  texture: ShadeTexture | undefined
+): number {
+  return texture === undefined
+    ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
+    : refs.get(texture) ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
 }
 
 function textureArrayBytes(): number {

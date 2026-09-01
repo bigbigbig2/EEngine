@@ -605,6 +605,7 @@ export class Renderer {
   ): Promise<PackedSceneHandle> {
     const handles: AssetHandle[] = [];
     try {
+      await this._graphics.material_shading.prepare(source.materials);
       for (let index = 0; index < source.geometries.length; index++) {
         const command = ShadeGPUCommandContext.create(
           this._graphics,
@@ -980,7 +981,10 @@ export class Renderer {
       ];
       const optionalFeatures: GPUFeatureName[] = [
         "timestamp-query",
-        "subgroups"
+        "subgroups",
+        "texture-compression-bc",
+        "texture-compression-astc",
+        "texture-compression-etc2"
       ];
       for (const feature of requiredFeatures) {
         if (!adapter.features.has(feature)) {

@@ -13,7 +13,10 @@ import {
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { ShadeTransparencyMode } from "../../material/enums.js";
-import { PACKED_MATERIAL_RESOLVE_WGSL } from "../../shaders/packed_material_resolve.js";
+import {
+  createPackedMaterialResolveWgsl,
+  MAX_STANDARD_PBR_FEATURE_CLASSES
+} from "../../shaders/packed_material_resolve.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import { resolveTextureView } from "./MaterialExpandPass.js";
 import {
@@ -67,18 +70,32 @@ const LOOKUP_GROUP: GPUBindGroupLayoutDescriptor = {
   }))
 };
 
-const PIPELINE: CachedRenderPipelineDescriptor = {
+const SHADING_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "R5 Standard PBR specialization group2",
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      binding: index + 1,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
+    }))
+  ]
+};
+
+function createPipeline(featureKeys: readonly number[]): CachedRenderPipelineDescriptor {
+  const code = createPackedMaterialResolveWgsl(featureKeys);
+  return {
   label: "R4-B Single Material Resolve",
   layout: {
     label: "R4-B Single Material Resolve/layout",
-    bindGroupLayouts: [INPUT_GROUP, LOOKUP_GROUP]
+    bindGroupLayouts: [INPUT_GROUP, LOOKUP_GROUP, SHADING_GROUP]
   },
   vertex: {
-    module: { label: "R4-B Single Material Resolve", code: PACKED_MATERIAL_RESOLVE_WGSL },
+    module: { label: "R4-B Single Material Resolve", code },
     entryPoint: "packed_material_vs"
   },
   fragment: {
-    module: { label: "R4-B Single Material Resolve", code: PACKED_MATERIAL_RESOLVE_WGSL },
+    module: { label: "R4-B Single Material Resolve", code },
     entryPoint: "packed_material_fs",
     targets: [
       { format: GPU_SURFACE_FORMATS.pbr },
@@ -90,7 +107,8 @@ const PIPELINE: CachedRenderPipelineDescriptor = {
     ]
   },
   primitive: { topology: "triangle-list", cullMode: "none" }
-};
+  };
+}
 
 export interface PackedMaterialResolveJob {
   readonly runtime: PackedSceneRuntime;
@@ -122,6 +140,10 @@ export class PackedMaterialResolvePass {
   private readonly unusedRotation = new Float32Array(16);
   private readonly previousViewProjectionBuffer: GPUBuffer;
   private readonly samplers: readonly GPUSampler[];
+  private readonly specializations = new Map<string, CachedRenderPipelineDescriptor>();
+  private specializationCompileCount = 0;
+  private specializationCacheHitCount = 0;
+  private specializationEvictionCount = 0;
   lastDrawCount = 0;
   lastActiveMaterialCount = 0;
   readonly surfaceBytesPerPixel = GPU_SURFACE_BYTES_PER_PIXEL;
@@ -180,17 +202,21 @@ export class PackedMaterialResolvePass {
           this.previousViewProjection
         );
         const visibility = data.visibility.resolve();
-        const pipeline = this.graphics.render_pipelines.obtain(PIPELINE);
+        const pipelineDescriptor = this.specializedPipeline(
+          data.runtime.materialShading.specializationKey,
+          data.runtime.materialShading.featureKeys
+        );
+        const pipeline = this.graphics.render_pipelines.obtain(pipelineDescriptor);
         const group0 = this.graphics.bind_groups.obtain({
           layout: INPUT_GROUP,
           entries: [
             resolveTextureView(resources.get(inputs.visibilityKey)),
             { buffer: requireBuffer(resources.get(inputs.view), "view") },
             { buffer: this.previousViewProjectionBuffer },
-            data.runtime.materialVisibility.textureArray,
+            data.runtime.materialShading.textureBanks[0]!,
             ...this.samplers,
             { buffer: data.runtime.materialVisibility.materialRecords },
-            data.runtime.materialVisibility.highResolutionTextureArray
+            data.runtime.materialShading.textureBanks[1]!
           ]
         });
         const group1 = this.graphics.bind_groups.obtain({
@@ -207,6 +233,13 @@ export class PackedMaterialResolvePass {
             { buffer: visibility.rasterWork }
           ]
         });
+        const group2 = this.graphics.bind_groups.obtain({
+          layout: SHADING_GROUP,
+          entries: [
+            { buffer: data.runtime.materialShading.records },
+            ...data.runtime.materialShading.textureBanks.slice(2, 6)
+          ]
+        });
         const pass = command.beginRenderPass({
           label: "R4-B Single Material Resolve/surface+velocity",
           colorAttachments: [
@@ -221,6 +254,7 @@ export class PackedMaterialResolvePass {
         pass.setPipeline(pipeline);
         pass.setBindGroup(0, group0);
         pass.setBindGroup(1, group1);
+        pass.setBindGroup(2, group2);
         pass.draw(3, 1, 0, 0);
         pass.end();
         this.lastDrawCount = 1;
@@ -273,6 +307,48 @@ export class PackedMaterialResolvePass {
 
   destroy(): void {
     this.previousViewProjectionBuffer.destroy();
+    this.specializations.clear();
+  }
+
+  specializationEvidence(): Readonly<{
+    active: number; compiled: number; cacheHits: number; evicted: number;
+  }> {
+    return Object.freeze({
+      active: this.specializations.size,
+      compiled: this.specializationCompileCount,
+      cacheHits: this.specializationCacheHitCount,
+      evicted: this.specializationEvictionCount
+    });
+  }
+
+  private specializedPipeline(
+    key: string,
+    featureKeys: readonly number[]
+  ): CachedRenderPipelineDescriptor {
+    const existing = this.specializations.get(key);
+    if (existing !== undefined) {
+      this.specializations.delete(key);
+      this.specializations.set(key, existing);
+      this.specializationCacheHitCount++;
+      return existing;
+    }
+    if (featureKeys.length > MAX_STANDARD_PBR_FEATURE_CLASSES) {
+      throw new RangeError(
+        `Standard PBR workload has ${featureKeys.length} feature classes; ` +
+        `hard limit is ${MAX_STANDARD_PBR_FEATURE_CLASSES}`
+      );
+    }
+    const descriptor = createPipeline(featureKeys);
+    this.specializations.set(key, descriptor);
+    this.specializationCompileCount++;
+    if (this.specializations.size > MAX_STANDARD_PBR_FEATURE_CLASSES) {
+      const oldest = this.specializations.keys().next().value as string | undefined;
+      if (oldest !== undefined && oldest !== key) {
+        this.specializations.delete(oldest);
+        this.specializationEvictionCount++;
+      }
+    }
+    return descriptor;
   }
 }
 

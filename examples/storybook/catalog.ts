@@ -25,6 +25,18 @@ export const exampleCatalog = {
     scene: "showcase",
     stats: [["Subject", "Dungeon · Warkarma"], ["Surfaces", "Mirror / rough / contact"], ["Evidence", "Q00 GPU + temporal"]]
   },
+  renderingLabPipeline: {
+    id: "Rendering Lab 00",
+    title: "Rendering Lab · GPU Pipeline",
+    description:
+      "A focused debug fixture for the GPU-ready asset to Surface path: cooker packages, residency, packed instances, hierarchy/SSE/Cone/HZB, GPU work generation, indirect RasterWork, VisibilityKey and material resolve.",
+    status: "Validation",
+    tags: ["Performance", "GPU-driven", "Debug panel"],
+    route: "rendering-lab/?mode=pipeline",
+    sourcePath: "examples/rendering-lab",
+    scene: "visibility",
+    stats: [["Model", "Dungeon · Warkarma"], ["Effects", "Advanced effects off"], ["Evidence", "Async GPU counters"]]
+  },
   integratedShowcase: {
     id: "Showcase 01",
     title: "Cyberpunk City · Integrated Pipeline",

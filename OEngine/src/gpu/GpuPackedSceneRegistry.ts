@@ -10,6 +10,7 @@ import {
 import type { Scene } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { GpuMaterialVisibilityBindings } from "./GpuMaterialVisibilityTable.js";
+import type { GpuMaterialShadingBindings } from "./GpuMaterialShadingTable.js";
 import type { AssetHandle, GpuAssetBindings } from "./GpuAssetStore.js";
 import type {
   GpuSceneBindings,
@@ -73,6 +74,7 @@ export interface PackedSceneRuntime {
   readonly materials: readonly StandardShadeMaterial[];
   readonly materialSlots: readonly number[];
   readonly materialVisibility: GpuMaterialVisibilityBindings;
+  readonly materialShading: GpuMaterialShadingBindings;
   readonly instanceBegin: number;
   readonly instanceCount: number;
   /** Number of resident instances whose current material class is BLEND. */
@@ -128,6 +130,14 @@ export class GpuPackedSceneRegistry {
       source.materials,
       command
     );
+    const materialShading = this.graphics.material_shading.stage(
+      source.materials,
+      materialStage.materialSlots,
+      materialStage.textureRefs,
+      materialStage.bindings.textureArray,
+      materialStage.bindings.highResolutionTextureArray,
+      command
+    );
     const geometryHandles = Object.freeze([...assetHandles]);
     const materialHandles = new Uint32Array(source.count);
     for (let index = 0; index < source.count; index++) {
@@ -177,6 +187,7 @@ export class GpuPackedSceneRegistry {
       materials: Object.freeze([...source.materials]),
       materialSlots: materialStage.materialSlots,
       materialVisibility: materialStage.bindings,
+      materialShading,
       instanceBegin: range.start,
       instanceCount: range.count,
       get transparentInstanceCount() {
@@ -225,6 +236,7 @@ export class GpuPackedSceneRegistry {
     this.releasingScenes.add(scene);
     try {
       this.graphics.material_visibility.release(runtime.materials, command);
+      this.graphics.material_shading.release(runtime.materials, command);
       this.graphics.gpu_scene.release(runtime.instanceHandle, command);
     } catch (error) {
       this.releasingScenes.delete(scene);

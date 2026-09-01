@@ -6,6 +6,10 @@ import { ShadeImage, ShadeTexture } from "../../texture/ShadeTexture.js";
 import { TextureFilterType } from "../../texture/TextureFilterType.js";
 import type { GltfDocument } from "./GltfLoader.js";
 import { dedupeByHashEquals } from "./gltfDedup.js";
+import {
+  isKtx2TextureSource,
+  type Ktx2TextureSource
+} from "../../assets/MaterialTextureAssetPackage.js";
 
 const GL_NEAREST = 9728;
 const GL_LINEAR = 9729;
@@ -54,11 +58,20 @@ export interface GltfTextureDef {
   sampler?: number;
   extensions?: {
     EXT_texture_webp?: { source?: number };
+    KHR_texture_basisu?: { source?: number };
   };
 }
 
 export function imageFromBitmap(bitmap: ImageBitmap): ShadeImage {
   return ShadeImage.fromImageBitmap(bitmap);
+}
+
+export function imageFromGltfSource(
+  source: ImageBitmap | Ktx2TextureSource
+): ShadeImage {
+  return isKtx2TextureSource(source)
+    ? ShadeImage.fromKtx2(source)
+    : imageFromBitmap(source);
 }
 
 export function textureFromGltf(
@@ -68,7 +81,9 @@ export function textureFromGltf(
 ): ShadeTexture {
   let sourceIndex: number | undefined;
   const s = texDef.extensions;
-  if (s !== undefined) sourceIndex = s.EXT_texture_webp?.source;
+  if (s !== undefined) {
+    sourceIndex = s.KHR_texture_basisu?.source ?? s.EXT_texture_webp?.source;
+  }
   if (sourceIndex === undefined) sourceIndex = texDef.source;
   const img = images[sourceIndex!]!;
 
@@ -85,8 +100,8 @@ export function textureFromGltf(
 }
 
 export function buildGltfTextures(doc: GltfDocument): ShadeTexture[] {
-  const rawImages = (doc.images ?? []) as ImageBitmap[];
-  const u = rawImages.map(imageFromBitmap);
+  const rawImages = (doc.images ?? []) as (ImageBitmap | Ktx2TextureSource)[];
+  const u = rawImages.map(imageFromGltfSource);
   const texDefs = (doc.textures ?? []) as GltfTextureDef[];
   const samplers = doc.samplers as GltfSamplerDef[] | undefined;
   const h = texDefs.map((t) => {

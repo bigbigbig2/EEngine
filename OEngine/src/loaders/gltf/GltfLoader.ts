@@ -13,6 +13,11 @@ import {
   shouldLoadImageSource
 } from "./gltfImageSlots.js";
 import { preprocessGltfWorldMatrices } from "./gltfNodeWorld.js";
+import {
+  cookMaterialTextureAssetPackage,
+  type Ktx2TextureSource,
+  type MaterialTextureAssetPackage
+} from "../../assets/MaterialTextureAssetPackage.js";
 
 export {
   baseUrlOf,
@@ -54,6 +59,7 @@ export interface GltfTextureDef {
   name?: string;
   extensions?: {
     EXT_texture_webp?: { source?: number };
+    KHR_texture_basisu?: { source?: number };
   };
 }
 
@@ -81,7 +87,8 @@ export interface GltfDocument {
       interpolation?: string;
     }[];
   }[];
-  images?: (ImageBitmap | GltfImageDef | undefined)[];
+  images?: (ImageBitmap | Ktx2TextureSource | GltfImageDef | undefined)[];
+  materialTexturePackage?: MaterialTextureAssetPackage;
   textures?: GltfTextureDef[];
   samplers?: GltfSamplerDef[];
   extensions?: {
@@ -379,56 +386,78 @@ export class GltfLoader {
       e.textures,
       this.loadImageSlots
     );
-    const i: Promise<ImageBitmap | undefined>[] = [];
+    const i: Promise<ImageBitmap | LoadedKtx2 | undefined>[] = [];
     const toBitmap = (blob: Blob): Promise<ImageBitmap> =>
       createImageBitmap(blob, { premultiplyAlpha: "none" });
 
     for (let v = 0; v < imageDefs.length; ++v) {
       if (!shouldLoadImageSource(allowedSources, v)) continue;
       const A = imageDefs[v]!;
+      const ktx2 = isKtx2Image(A);
       if (A.uri) {
         if (this.fileMap) {
           const x = findFileMapEntry(this.fileMap, A.uri);
           if (x !== undefined) {
-            const y = x instanceof Blob ? x : new Blob([x]);
-            i[v] = toBitmap(y);
+            if (ktx2) {
+              i[v] = bytesOfFileEntry(x).then((bytes) => ({ kind: "ktx2", bytes }));
+            } else {
+              const y = x instanceof Blob ? x : new Blob([x]);
+              i[v] = toBitmap(y);
+            }
             continue;
           }
         }
         const w = resolveUri(A.uri, baseUrl);
-        i[v] = fetch(w)
+        const response = fetch(w)
           .then((resp) => {
             if (!resp.ok) {
               throw new Error(
                 `Failed to fetch glTF image '${A.uri}': HTTP ${resp.status} ${resp.statusText}`
               );
             }
-            return resp.blob();
-          })
-          .then(toBitmap);
+            return resp;
+          });
+        i[v] = ktx2
+          ? response.then((resp) => resp.arrayBuffer())
+            .then((buffer) => ({ kind: "ktx2", bytes: new Uint8Array(buffer) }))
+          : response.then((resp) => resp.blob()).then(toBitmap);
       } else {
         const B = e.bufferViews![A.bufferView!]!;
-        i[v] = s[B.buffer]!.then((buf) =>
-          toBitmap(
-            new Blob(
-              [new Uint8Array(buf, B.byteOffset!, B.byteLength)],
-              { type: A.mimeType }
-            )
-          )
-        );
+        i[v] = s[B.buffer]!.then((buf) => {
+          const bytes = new Uint8Array(buf, B.byteOffset!, B.byteLength);
+          if (ktx2) return { kind: "ktx2" as const, bytes: bytes.slice() };
+          return toBitmap(new Blob([bytes], { type: A.mimeType }));
+        });
       }
     }
 
     preprocessGltfWorldMatrices(e);
 
     e.buffers = await Promise.all(s);
-    e.images = await Promise.all(i);
+    const loadedImages = await Promise.all(i);
+    const ktx2Inputs = loadedImages.flatMap((image, imageIndex) =>
+      image !== undefined && isLoadedKtx2(image)
+        ? [{ imageIndex, bytes: image.bytes }]
+        : []
+    );
+    if (ktx2Inputs.length > 0) {
+      const texturePackage = await cookMaterialTextureAssetPackage(ktx2Inputs);
+      e.materialTexturePackage = texturePackage;
+      e.images = loadedImages.map((image, imageIndex) =>
+        image !== undefined && isLoadedKtx2(image)
+          ? texturePackage.source(imageIndex)
+          : image
+      );
+    } else {
+      e.images = loadedImages;
+    }
     return e;
   }
 }
 
 const SUPPORTED_REQUIRED_EXTENSIONS = new Set([
   "EXT_texture_webp",
+  "KHR_texture_basisu",
   "KHR_lights_punctual",
   "KHR_materials_emissive_strength",
   "KHR_materials_ior",
@@ -449,8 +478,6 @@ function validateRequiredExtensions(extensions: readonly string[]): void {
         return `${extension} (Draco compressed geometry)`;
       case "EXT_meshopt_compression":
         return `${extension} (meshopt compressed buffers)`;
-      case "KHR_texture_basisu":
-        return `${extension} (KTX2/Basis textures)`;
       default:
         return extension;
     }
@@ -459,6 +486,29 @@ function validateRequiredExtensions(extensions: readonly string[]): void {
     `Unsupported required glTF extension(s): ${details.join(", ")}. ` +
       "Export an uncompressed GLB with PNG/JPEG/WebP textures or add the matching decoder."
   );
+}
+
+interface LoadedKtx2 {
+  readonly kind: "ktx2";
+  readonly bytes: Uint8Array;
+}
+
+function isLoadedKtx2(value: ImageBitmap | LoadedKtx2): value is LoadedKtx2 {
+  return typeof value === "object" && value !== null &&
+    "kind" in value && value.kind === "ktx2" && "bytes" in value;
+}
+
+function isKtx2Image(image: GltfImageDef): boolean {
+  if (image.mimeType?.toLowerCase() === "image/ktx2") return true;
+  const uri = image.uri?.split(/[?#]/, 1)[0]?.toLowerCase();
+  return uri?.endsWith(".ktx2") ?? false;
+}
+
+async function bytesOfFileEntry(
+  value: File | Blob | ArrayBuffer
+): Promise<Uint8Array> {
+  const buffer = value instanceof ArrayBuffer ? value : await value.arrayBuffer();
+  return new Uint8Array(buffer.slice(0));
 }
 
 function findFileMapEntry(

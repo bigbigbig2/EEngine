@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "cook:gltf:ktx2": "node tools/cook-gltf-ktx2.mjs",
     "build": "tsc --noEmit && vite build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "build:test": "tsc -p tsconfig.test.json",
@@ -20,6 +21,8 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "@babylonjs/core": "9.23.0",
+    "@babylonjs/ktx2decoder": "9.23.0",
     "gl-matrix": "3.4.4",
     "meshoptimizer": "1.0.0"
   }

@@ -3,6 +3,7 @@
  */
 
 import { inferDataTypeFromArray, ShadeDataType } from "./ShadeDataType.js";
+import type { Ktx2TextureSource } from "../assets/MaterialTextureAssetPackage.js";
 
 let nextShadeImageId = 0;
 
@@ -98,6 +99,18 @@ export class ShadeImage {
     t.#channelCount = 4;
     t.normalized = true;
     return t;
+  }
+
+  static fromKtx2(e: Ktx2TextureSource): ShadeImage {
+    const image = new ShadeImage();
+    image.#source = e;
+    image.#size[0] = e.width >>> 0;
+    image.#size[1] = e.height >>> 0;
+    image.#size[2] = e.depth >>> 0;
+    image.#dataType = ShadeDataType.Uint8;
+    image.#channelCount = 4;
+    image.normalized = true;
+    return image;
   }
 
   static fromSampler2D(e: Sampler2DLike): ShadeImage {

@@ -37,6 +37,7 @@ import { GpuScene } from "./GpuScene.js";
 import { GpuPackedSceneRegistry } from "./GpuPackedSceneRegistry.js";
 import { GpuMaterialVisibilityTable } from "./GpuMaterialVisibilityTable.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
+import { GpuMaterialShadingTable } from "./GpuMaterialShadingTable.js";
 
 export interface GraphicsMemoryEvidence {
   readonly schemaVersion: 1;
@@ -73,6 +74,7 @@ export class GraphicsContext {
   private gpuSceneValue: GpuScene | undefined;
   private packedScenesValue: GpuPackedSceneRegistry | undefined;
   private materialVisibilityValue: GpuMaterialVisibilityTable | undefined;
+  private materialShadingValue: GpuMaterialShadingTable | undefined;
   private timerIncrementValue = 0;
   private destroyed = false;
 
@@ -187,6 +189,16 @@ export class GraphicsContext {
     return this.materialVisibilityValue;
   }
 
+  /** Lazily creates compressed Standard PBR texture residency and specialization. */
+  get material_shading(): GpuMaterialShadingTable {
+    this.materialShadingValue ??= new GpuMaterialShadingTable(this);
+    return this.materialShadingValue;
+  }
+
+  get material_shading_if_created(): GpuMaterialShadingTable | undefined {
+    return this.materialShadingValue;
+  }
+
   /** Legacy Geometry owner, created only when an old Scene consumer asks for it. */
   get geometries(): MeshletGpuTable {
     this.geometryTableValue ??= new MeshletGpuTable(this);
@@ -241,6 +253,7 @@ export class GraphicsContext {
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
       (this.packedScenesValue?.evidence().flatWorkBytes ?? 0) +
       (this.materialVisibilityValue?.evidence().allocatedBytes ?? 0) +
+      (this.materialShadingValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
@@ -253,6 +266,7 @@ export class GraphicsContext {
     const assets = this.assetStoreValue?.evidence();
     const scene = this.gpuSceneValue?.evidence();
     const materials = this.materialVisibilityValue?.evidence();
+    const materialShading = this.materialShadingValue?.evidence();
     const buffers = this.buffer_allocator_main.evidence();
     const textures = this.allocator_textures.evidence();
     const baseLayerBytes = materials === undefined
@@ -277,11 +291,13 @@ export class GraphicsContext {
     const longLivedAllocatedBytes =
       (assets?.allocatedBytes ?? 0) +
       (scene?.allocatedBytes ?? 0) +
-      (materials?.allocatedBytes ?? 0);
+      (materials?.allocatedBytes ?? 0) +
+      (materialShading?.allocatedBytes ?? 0);
+    const shadingAllocatedBytes = materialShading?.allocatedBytes ?? 0;
     const residentLogicalBytes =
       (assets?.residentBytes ?? 0) +
       (scene?.residentBytes ?? 0) +
-      residentMaterialBytes;
+      residentMaterialBytes + (materialShading?.residentLogicalBytes ?? 0);
     const retiringBytes =
       (assets?.retiringBytes ?? 0) +
       (scene?.retiringBytes ?? 0) +
@@ -318,12 +334,20 @@ export class GraphicsContext {
           reclaimableBytes: scene?.reclaimableBytes ?? 0
         }),
         materials: Object.freeze({
-          allocatedBytes: materials?.allocatedBytes ?? 0,
-          residentLogicalBytes: residentMaterialBytes,
+          allocatedBytes: (materials?.allocatedBytes ?? 0) + shadingAllocatedBytes,
+          residentLogicalBytes: residentMaterialBytes +
+            (materialShading?.residentLogicalBytes ?? 0),
           retiringBytes: retiringMaterialBytes,
           residentTextures: materials?.residentTextureCount ?? 0,
           residentHighResolutionTextures: materials?.residentHighResolutionTextureCount ?? 0,
           retiringHighResolutionTextures: materials?.retiringHighResolutionTextureCount ?? 0
+        }),
+        materialShading: Object.freeze({
+          allocatedBytes: shadingAllocatedBytes,
+          residentLogicalBytes: materialShading?.residentLogicalBytes ?? 0,
+          compressedBanks: materialShading?.compressedBankCount ?? 0,
+          compressedTextures: materialShading?.residentCompressedTextureCount ?? 0,
+          evictions: materialShading?.evictionCount ?? 0
         }),
         transientBuffers: Object.freeze({ ...buffers }),
         transientTextures: Object.freeze({ ...textures })
@@ -344,6 +368,8 @@ export class GraphicsContext {
     this.packedScenesValue = undefined;
     this.materialVisibilityValue?.destroy();
     this.materialVisibilityValue = undefined;
+    this.materialShadingValue?.destroy();
+    this.materialShadingValue = undefined;
     this.gpuSceneValue?.destroy();
     this.gpuSceneValue = undefined;
     this.assetStoreValue?.destroy();
