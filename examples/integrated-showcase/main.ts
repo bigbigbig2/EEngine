@@ -32,6 +32,7 @@ type DebugDescriptor = {
 
 const MODEL_URL = new URL("../public/cyberpunk_city.glb", import.meta.url).href;
 const ENVIRONMENT_URL = new URL("./assets/venice_sunset_1k.hdr", import.meta.url).href;
+const MODEL_WORLD_SCALE = 10;
 
 const debugDescriptors: readonly DebugDescriptor[] = [
   { value: RenderDebugView.None, label: "最终画面", help: "曝光、色调映射与后处理后的最终输出。" },
@@ -117,7 +118,13 @@ async function initialize(): Promise<void> {
   ]);
   if (disposed) return;
 
-  sceneBounds = computeWorldBounds(imported);
+  const sourceBounds = computeWorldBounds(imported);
+  const showcaseTransforms = scalePackedTransforms(
+    imported.transforms,
+    MODEL_WORLD_SCALE,
+    sourceBounds.center
+  );
+  sceneBounds = computeWorldBounds(imported, showcaseTransforms);
   metricInstances.textContent = formatInteger(imported.geometryIndices.length);
   metricGeometries.textContent = formatInteger(imported.geometries.length);
 
@@ -140,8 +147,8 @@ async function initialize(): Promise<void> {
     count: imported.geometryIndices.length,
     geometryIndices: imported.geometryIndices,
     materialIndices: imported.materialIndices,
-    currentTransforms: imported.transforms,
-    previousTransforms: imported.transforms.slice(),
+    currentTransforms: showcaseTransforms,
+    previousTransforms: showcaseTransforms.slice(),
     boundsSpheres: imported.boundsSpheres,
     boundsMin: imported.boundsMin,
     boundsMax: imported.boundsMax,
@@ -481,7 +488,33 @@ function bindRange(
   update();
 }
 
-function computeWorldBounds(source: PackedGltfSource): Bounds {
+function scalePackedTransforms(
+  source: Float32Array,
+  scale: number,
+  pivot: readonly [number, number, number]
+): Float32Array {
+  const output = source.slice();
+  for (let matrixOffset = 0; matrixOffset < output.length; matrixOffset += 16) {
+    for (let column = 0; column < 3; column++) {
+      for (let row = 0; row < 3; row++) {
+        const offset = matrixOffset + column * 4 + row;
+        output[offset] = output[offset]! * scale;
+      }
+    }
+    output[matrixOffset + 12] = pivot[0] +
+      (output[matrixOffset + 12]! - pivot[0]) * scale;
+    output[matrixOffset + 13] = pivot[1] +
+      (output[matrixOffset + 13]! - pivot[1]) * scale;
+    output[matrixOffset + 14] = pivot[2] +
+      (output[matrixOffset + 14]! - pivot[2]) * scale;
+  }
+  return output;
+}
+
+function computeWorldBounds(
+  source: PackedGltfSource,
+  transforms: Float32Array = source.transforms
+): Bounds {
   const minimum = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
   const maximum = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
   for (let instance = 0; instance < source.geometryIndices.length; instance++) {
@@ -494,18 +527,18 @@ function computeWorldBounds(source: PackedGltfSource): Bounds {
       const localX = corner & 1 ? source.boundsMax[boundsOffset]! : x;
       const localY = corner & 2 ? source.boundsMax[boundsOffset + 1]! : y;
       const localZ = corner & 4 ? source.boundsMax[boundsOffset + 2]! : z;
-      const worldX = source.transforms[matrixOffset]! * localX +
-        source.transforms[matrixOffset + 4]! * localY +
-        source.transforms[matrixOffset + 8]! * localZ +
-        source.transforms[matrixOffset + 12]!;
-      const worldY = source.transforms[matrixOffset + 1]! * localX +
-        source.transforms[matrixOffset + 5]! * localY +
-        source.transforms[matrixOffset + 9]! * localZ +
-        source.transforms[matrixOffset + 13]!;
-      const worldZ = source.transforms[matrixOffset + 2]! * localX +
-        source.transforms[matrixOffset + 6]! * localY +
-        source.transforms[matrixOffset + 10]! * localZ +
-        source.transforms[matrixOffset + 14]!;
+      const worldX = transforms[matrixOffset]! * localX +
+        transforms[matrixOffset + 4]! * localY +
+        transforms[matrixOffset + 8]! * localZ +
+        transforms[matrixOffset + 12]!;
+      const worldY = transforms[matrixOffset + 1]! * localX +
+        transforms[matrixOffset + 5]! * localY +
+        transforms[matrixOffset + 9]! * localZ +
+        transforms[matrixOffset + 13]!;
+      const worldZ = transforms[matrixOffset + 2]! * localX +
+        transforms[matrixOffset + 6]! * localY +
+        transforms[matrixOffset + 10]! * localZ +
+        transforms[matrixOffset + 14]!;
       minimum[0] = Math.min(minimum[0]!, worldX);
       minimum[1] = Math.min(minimum[1]!, worldY);
       minimum[2] = Math.min(minimum[2]!, worldZ);
