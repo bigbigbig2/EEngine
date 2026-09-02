@@ -45,6 +45,23 @@ offscreen target, pan/disocclusion response and settling, shared temporal histor
 feature-off exact-zero SSR ownership, and phase timestamps. FX-06B and G5-T remain
 open.
 
+## Q04 deterministic reconstruction update
+
+2026-09-02 Q04 retains the same OEngine-authored implementation and does not
+adopt or copy FidelityFX SSSR. The production chain is now half-resolution by
+default: trace, resolve, one spatial filter, optional temporal accumulation,
+then full-resolution joint bilateral upscale. Full-resolution remains an
+explicit quality topology, not a second pipeline.
+
+The trace now terminates on physical max distance during marching, applies edge
+confidence at the hit coordinate, derives thickness from a meter-based base plus
+traveled-distance expansion, and rejects above the configured roughness cutoff.
+AO/SSR share the opaque temporal validity layer; final transparency validity is
+owned only by final TAA. The update reduces trace pixels and removes two spatial
+passes at the cost of one edge-aware upscale pass and half-resolution history.
+The focused RTX 2060 SUPER dirty/full result is recorded in
+`docs/PERFORMANCE.md`; clean/full provenance and G5-P remain open.
+
 ## FX-08 revalidation contract
 
 The production fixture and Gate must cover a mirror plane with a visible

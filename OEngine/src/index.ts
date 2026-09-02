@@ -122,6 +122,14 @@ export type {
 export { Camera } from "./camera/Camera.js";
 export { DirectionalLight } from "./light/DirectionalLight.js";
 export { DynamicResolutionScaling } from "./render/DynamicResolutionScaling.js";
+export {
+  FramePlan,
+  createRendererFramePlan,
+  type FramePlanDump,
+  type FramePlanStageDefinition,
+  type FramePlanStageDump,
+  type FramePlanFrequency
+} from "./render/pipeline/FramePlan.js";
 export { Light } from "./light/Light.js";
 export { Mesh } from "./scene/Mesh.js";
 export { Node3D } from "./scene/Node3D.js";

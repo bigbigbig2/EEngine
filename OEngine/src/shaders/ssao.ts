@@ -506,6 +506,7 @@ struct SsaoTemporalSettings {
 @group(0) @binding(3) var mean: texture_2d<f32>;
 @group(0) @binding(4) var segment_height: sampler;
 @group(0) @binding(5) var<uniform> settings: SsaoTemporalSettings;
+@group(0) @binding(6) var surface_validity: texture_2d<f32>;
 
 fn velocity_with_largest_magnitude(source: texture_2d<f32>, pixel: vec2i) -> vec2f {
   const offsets = array<vec2i, 8>(
@@ -591,6 +592,7 @@ fn fs_main(
     vec2i(full_dimensions) - vec2i(1)
   );
   let confidence = textureLoad(top, full_pixel, 0).r;
+  let validity = textureLoad(surface_validity, full_pixel, 0).rg;
   let current = textureLoad(this_hit, pixel, 0).rg;
   let velocity_full = velocity_with_largest_magnitude(header, full_pixel);
   let velocity = velocity_full * vec2f(dimensions) / vec2f(full_dimensions);
@@ -606,7 +608,8 @@ fn fs_main(
   );
   let history_valid = all(history_pixel >= vec2f(0.0)) &&
     all(history_pixel < vec2f(dimensions));
-  let history_weight = velocity_confidence * confidence *
+  let validity_weight = select(0.0, 1.0, validity.g >= 0.5 && validity.r < 0.5);
+  let history_weight = velocity_confidence * confidence * validity_weight *
     select(0.0, 1.0, history_valid && settings.history_valid != 0u);
   var output: vec2f;
   if (history_weight <= 0.001) {

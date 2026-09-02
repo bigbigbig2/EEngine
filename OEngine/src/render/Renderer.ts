@@ -133,6 +133,10 @@ import {
   type RenderSettingsValues
 } from "./pipeline/RenderSettings.js";
 import { OpaqueLightingPipeline } from "./pipeline/OpaqueLightingPipeline.js";
+import {
+  createRendererFramePlan,
+  type FramePlanDump
+} from "./pipeline/FramePlan.js";
 
 export {
   ShadeIndirectLightingMode
@@ -247,9 +251,13 @@ export interface AmbientOcclusionRuntimeEvidence {
 
 export interface ScreenSpaceReflectionsRuntimeEvidence {
   readonly enabled: boolean;
+  readonly resolutionScale: 0.5 | 1;
   readonly internalPixels: number;
   readonly internalWidth: number;
   readonly internalHeight: number;
+  readonly tracePixels: number;
+  readonly traceWidth: number;
+  readonly traceHeight: number;
   readonly tracePasses: number;
   readonly prefilterPasses: number;
   readonly resolvePasses: number;
@@ -378,6 +386,7 @@ export class Renderer {
   private _ssaoConfigurationKey = "";
   private _ssaoOwnerGeneration = 0;
   private _ssr: ScreenSpaceReflectionsPass | null = null;
+  private _ssrConfigurationKey = "";
   private _specularCorrection: SpecularCorrectionPass | null = null;
   private _ssrOwnerGeneration = 0;
   private _taa: TemporalAntiAliasingPass | null = null;
@@ -391,6 +400,7 @@ export class Renderer {
   private _taaHistory: [GPUTextureContext, GPUTextureContext] | null = null;
   private readonly _temporalHistories = new TemporalHistoryRegistry(["color", "ssao", "ssr"]);
   private readonly _dynamicResolution = new DynamicResolutionScaling();
+  private _lastFramePlan: FramePlanDump | null = null;
   private _unsubscribeDynamicResolution: (() => void) | null = null;
   private _dynamicResolutionOwnsProfiler = false;
   private _lastTemporalTaaPassCount = 0;
@@ -791,13 +801,21 @@ export class Renderer {
   screenSpaceReflectionsEvidence(): ScreenSpaceReflectionsRuntimeEvidence {
     const history = this._temporalHistories.state("ssr");
     const pass = this._ssr;
+    const enabled = this._renderSettings.values.features.screenSpaceReflections;
+    const resolutionScale = this._renderSettings.values.ssr.resolutionScale;
+    const traceWidth = enabled ? Math.max(1, Math.ceil(this._render_resolution.x * resolutionScale)) : 0;
+    const traceHeight = enabled ? Math.max(1, Math.ceil(this._render_resolution.y * resolutionScale)) : 0;
     return Object.freeze({
-      enabled: this._renderSettings.values.features.screenSpaceReflections,
-      internalPixels: this._renderSettings.values.features.screenSpaceReflections
+      enabled,
+      resolutionScale,
+      internalPixels: enabled
         ? this._render_resolution.x * this._render_resolution.y
         : 0,
-      internalWidth: this._renderSettings.values.features.screenSpaceReflections ? this._render_resolution.x : 0,
-      internalHeight: this._renderSettings.values.features.screenSpaceReflections ? this._render_resolution.y : 0,
+      internalWidth: enabled ? this._render_resolution.x : 0,
+      internalHeight: enabled ? this._render_resolution.y : 0,
+      tracePixels: traceWidth * traceHeight,
+      traceWidth,
+      traceHeight,
       tracePasses: pass?.lastTracePasses ?? 0,
       prefilterPasses: pass?.lastPrefilterPasses ?? 0,
       resolvePasses: pass?.lastResolvePasses ?? 0,
@@ -812,6 +830,10 @@ export class Renderer {
       historyInvalidations: history.invalidationCount,
       historyInvalidationReason: history.lastInvalidationReason
     });
+  }
+
+  get frame_plan_evidence(): FramePlanDump | null {
+    return this._lastFramePlan;
   }
 
   /** Q00 resource ownership evidence; values are sampled after graph execution. */
@@ -1148,7 +1170,7 @@ export class Renderer {
       [
         ...(featureTopology.temporal ? ["color"] : []),
         ...(featureTopology.ssaoTemporal ? ["ssao"] : []),
-        ...(featureTopology.ssr ? ["ssr"] : [])
+        ...(featureTopology.ssrTemporal ? ["ssr"] : [])
       ]
     );
     const temporalFrameIndex = this._frame_count;
@@ -1185,6 +1207,10 @@ export class Renderer {
     const gpuScene = view.scene;
     const gpuPacked =
       this._graphics.packed_scenes_if_created?.runtime(scene) ?? null;
+    const framePlan = createRendererFramePlan(this._frame_count, {
+      lpv: this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV,
+      shadows: featureTopology.shadows
+    });
     gpuScene.lights.shadow_context.setEnabled(featureTopology.shadows, cmd);
     view.setJitter(frameJitter[0], frameJitter[1]);
     view.setViewportSize(w, h);
@@ -1196,13 +1222,15 @@ export class Renderer {
       (2 * frameJitter[0]) / w,
       (2 * frameJitter[1]) / h
     );
-    this._profiler.measure("world-and-view-update", () => {
-      this._graphics.packed_scenes_if_created?.encodePendingPatch(scene, cmd);
-      gpuScene.encodeFrame(cmd, this._frame_count, time_delta_seconds);
-      view.update(cmd);
+    framePlan.execute("scene-update", () => {
+      this._profiler.measure("world-and-view-update", () => {
+        this._graphics.packed_scenes_if_created?.encodePendingPatch(scene, cmd);
+        gpuScene.encodeFrame(cmd, this._frame_count, time_delta_seconds);
+        view.update(cmd);
+      });
     });
     if (this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV) {
-      this.update_lpv(scene, cmd);
+      framePlan.execute("lpv-update", () => this.update_lpv(scene, cmd));
     }
     const viewHzb = view.hierarchical_z_buffer;
     viewHzb.resetFrameStatistics();
@@ -1226,6 +1254,7 @@ export class Renderer {
         });
       }
       if (featureTopology.shadows) {
+        framePlan.execute("shadow-update", () => {
         const shadows = gpuScene.lights.shadow_context;
         if (sampleGpuCounters && gpuPacked !== null) {
           this._profiler.registerGpuCounterFields([
@@ -1264,6 +1293,7 @@ export class Renderer {
                 sseThreshold: this.packed_visibility_sse_threshold
               }
         );
+        });
       }
 
       const gpuCounterBuffer = sampleGpuCounters
@@ -1278,7 +1308,12 @@ export class Renderer {
           Math.max(1, Math.ceil(h * this._renderSettings.values.ao.resolutionScale))
         );
       }
-      if (featureTopology.ssr) this._ssr!.resize(w, h);
+      if (featureTopology.ssr) {
+        this._ssr!.resize(
+          Math.max(1, Math.ceil(w * this._renderSettings.values.ssr.resolutionScale)),
+          Math.max(1, Math.ceil(h * this._renderSettings.values.ssr.resolutionScale))
+        );
+      }
       const temporalHistory = this._temporalHistories.state("color");
       const ssaoHistory = this._temporalHistories.state("ssao");
       const ssrHistory = this._temporalHistories.state("ssr");
@@ -1298,7 +1333,9 @@ export class Renderer {
       this._opaqueLighting.resetFrameEvidence();
       if (this._specularCorrection !== null) this._specularCorrection.lastRan = false;
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
-      this._lastTemporalClassificationPassCount = featureTopology.temporal ? 1 : 0;
+      this._lastTemporalClassificationPassCount =
+        (featureTopology.ssaoTemporal || featureTopology.ssrTemporal ? 1 : 0) +
+        (featureTopology.temporal ? 1 : 0);
       const nssSettings = featureTopology.nss
         ? this._nss!.prepareFrame({
             renderResolution: [w, h],
@@ -1763,6 +1800,7 @@ export class Renderer {
 
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
+        let opaqueTemporalValidityRes: ResourceId | null = null;
         const needsOcclusionConfidence =
           graphTopology.ssaoTemporal || graphTopology.ssr || graphTopology.temporal;
         const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
@@ -1826,6 +1864,31 @@ export class Renderer {
               }
             ).occlusionConfidence;
           }
+        }
+
+        if (needsOcclusionConfidence && occlusionConfidenceRes !== null) {
+          const opaqueMetadataRes =
+            packedResolveOut?.surfaceFlags ?? packedVisibilityKeyRes ?? meshIdRes;
+          if (opaqueMetadataRes === null) {
+            throw new Error("Opaque temporal validity has no uint metadata fallback");
+          }
+          const opaqueValidity = this._temporalClassification!.addToGraph(
+            graph,
+            bind("opaque-temporal-classification-job", (bindings) => ({
+              phase: "opaque" as const,
+              width: bindings.internalWidth,
+              height: bindings.internalHeight,
+              metadataAvailable: bindings.gpuPacked !== null,
+              transparencyAvailable: false,
+              historyValid: true
+            })),
+            {
+              surfaceMetadata: opaqueMetadataRes,
+              transparentReactive: occlusionConfidenceRes,
+              disocclusionConfidence: occlusionConfidenceRes
+            }
+          );
+          opaqueTemporalValidityRes = opaqueValidity.classification;
         }
 
         let hdrRes: ResourceId | null = null;
@@ -1990,6 +2053,7 @@ export class Renderer {
               normal: gNormalRes,
               velocity: velocityRes ?? depthRes,
               occlusionConfidence: occlusionConfidenceRes ?? depthRes,
+              surfaceValidity: opaqueTemporalValidityRes!,
               camera: currentCameraRes,
               counters: gpuCounterRes ?? undefined
             },
@@ -2090,13 +2154,12 @@ export class Renderer {
                 ),
                 edgeFade: this._renderSettings.values.ssr.edgeFade,
                 maxSteps: this._renderSettings.values.ssr.maxSteps,
-                depthThickness: metersToWorldUnits(
-                  this._renderSettings.values.ssr.depthThicknessMeters,
+                baseThickness: metersToWorldUnits(
+                  this._renderSettings.values.ssr.baseThicknessMeters,
                   this._renderSettings.values.physicalScale
                 ),
-                roughnessThickness: this._renderSettings.values.ssr.roughnessThickness,
-                distanceThickness: this._renderSettings.values.ssr.distanceThickness,
-                roughnessCutoff: this._renderSettings.values.ssr.roughnessCutoff,
+                distanceThicknessScale: this._renderSettings.values.ssr.distanceThicknessScale,
+                maxRoughness: this._renderSettings.values.ssr.maxRoughness,
                 temporalStrength: this._renderSettings.values.ssr.temporalStrength
               })),
               {
@@ -2107,6 +2170,7 @@ export class Renderer {
                 normal: gNormalRes,
                 velocity: velocityRes!,
                 occlusionConfidence: occlusionConfidenceRes!,
+                surfaceValidity: opaqueTemporalValidityRes!,
                 albedoAo: gAlbedoRes,
                 environment: environmentRes,
                 blueNoise: blueNoiseRes,
@@ -2352,13 +2416,12 @@ export class Renderer {
                 ),
                 edgeFade: this._renderSettings.values.ssr.edgeFade,
                 maxSteps: this._renderSettings.values.ssr.maxSteps,
-                depthThickness: metersToWorldUnits(
-                  this._renderSettings.values.ssr.depthThicknessMeters,
+                baseThickness: metersToWorldUnits(
+                  this._renderSettings.values.ssr.baseThicknessMeters,
                   this._renderSettings.values.physicalScale
                 ),
-                roughnessThickness: this._renderSettings.values.ssr.roughnessThickness,
-                distanceThickness: this._renderSettings.values.ssr.distanceThickness,
-                roughnessCutoff: this._renderSettings.values.ssr.roughnessCutoff,
+                distanceThicknessScale: this._renderSettings.values.ssr.distanceThicknessScale,
+                maxRoughness: this._renderSettings.values.ssr.maxRoughness,
                 temporalStrength: this._renderSettings.values.ssr.temporalStrength
               })),
               {
@@ -2369,6 +2432,7 @@ export class Renderer {
                 normal: gNormalRes,
                 velocity: velocityRes,
                 occlusionConfidence: occlusionConfidenceRes,
+                surfaceValidity: opaqueTemporalValidityRes!,
                 albedoAo: gAlbedoRes,
                 environment: environmentRes,
                 blueNoise: blueNoiseRes,
@@ -2569,6 +2633,7 @@ export class Renderer {
           const classification = this._temporalClassification!.addToGraph(
             graph,
             bind("temporal-classification-job", (bindings) => ({
+              phase: "final" as const,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
               metadataAvailable: bindings.gpuPacked !== null,
@@ -2656,6 +2721,7 @@ export class Renderer {
                 velocity: velocityRes,
                 disocclusionConfidence: occlusionConfidenceRes,
                 classification: classification.classification
+                ,depth: depthRes
               }
             );
           }
@@ -2882,7 +2948,11 @@ export class Renderer {
           ]);
         }
       }
-      cmd.encodeCompiledGraph(compiledGraph, mainBindings);
+      framePlan.execute("main-view-graph", () => {
+        cmd.encodeCompiledGraph(compiledGraph, mainBindings);
+      });
+      framePlan.assertComplete();
+      this._lastFramePlan = framePlan.dump();
       if (graphTopology.temporal) {
         this._temporalHistories.markProduced("color");
       }
@@ -2977,6 +3047,8 @@ export class Renderer {
     return resolveMainFrameFeatureTopology({
       shadows: this._renderSettings.values.features.shadows,
       ssr: this._renderSettings.values.features.screenSpaceReflections,
+      ssrTemporal: this._renderSettings.values.ssr.temporalEnabled,
+      ssrHalfResolution: this._renderSettings.values.ssr.resolutionScale === 0.5,
       ssao: this._renderSettings.values.features.ambientOcclusion,
       ssaoTemporal: this._renderSettings.values.ao.temporalEnabled,
       ssaoHalfResolution: this._renderSettings.values.ao.resolutionScale === 0.5,
@@ -3070,14 +3142,22 @@ export class Renderer {
       this._ssaoConfigurationKey = "";
     }
     if (topology.ssr) {
-      if (this._ssr === null) {
-        this._ssr = new ScreenSpaceReflectionsPass(this._graphics);
+      const configurationKey = `${topology.ssrTemporal ? 1 : 0}/${topology.ssrHalfResolution ? 1 : 0}`;
+      if (this._ssr === null || this._ssrConfigurationKey !== configurationKey) {
+        if (this._ssr !== null) this.retireAfterSubmittedWork(this._ssr);
+        this._ssr = new ScreenSpaceReflectionsPass(
+          this._graphics,
+          topology.ssrTemporal,
+          topology.ssrHalfResolution ? 0.5 : 1
+        );
         this._ssrOwnerGeneration++;
+        this._ssrConfigurationKey = configurationKey;
       }
       this._specularCorrection ??= new SpecularCorrectionPass(this._graphics);
     } else if (this._ssr !== null) {
       this.retireAfterSubmittedWork(this._ssr);
       this._ssr = null;
+      this._ssrConfigurationKey = "";
       if (this._specularCorrection !== null) {
         this.retireAfterSubmittedWork(this._specularCorrection);
         this._specularCorrection = null;
@@ -3090,7 +3170,7 @@ export class Renderer {
       this._taa = null;
       this._lastTemporalTaaPassCount = 0;
     }
-    if (topology.temporal) {
+    if (topology.temporal || topology.ssaoTemporal || topology.ssrTemporal) {
       this._temporalClassification ??= new TemporalClassificationPass(
         this._graphics
       );

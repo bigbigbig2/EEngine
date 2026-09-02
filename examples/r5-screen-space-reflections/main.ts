@@ -97,7 +97,8 @@ const contract = Object.freeze({
   warmupFramesPerStage: WARMUP,
   sampleFramesPerStage: SAMPLES,
   gpuSampleInterval: 2,
-  historyBytesPerPixel: 16,
+  // Two rgba16float histories at half resolution: 2 * 8 * 0.25.
+  historyBytesPerPixel: 4,
   roughnessSweep: [0, 0.5, 1] as const,
   sequence: "hit-miss/roughness/history/fallback/offscreen/pan/disocclusion/off-on"
 });
@@ -406,7 +407,7 @@ function validate(results: readonly StageResult[], diagnostics: FrameProfilerDia
       }
     } else if (
       evidence.tracePasses !== 1 || evidence.prefilterPasses !== 1 || evidence.resolvePasses !== 1 ||
-      evidence.spatialPasses !== 3 || evidence.temporalPasses !== 1 ||
+      evidence.spatialPasses !== 1 || evidence.temporalPasses !== 1 ||
       evidence.compositePasses !== (historyOnly ? 0 : 1)
     ) issues.push(`${stage.definition.id}: production SSR graph shape mismatch`);
     if (!roughnessOnly && evidence.historyTextureCount !== 2) {

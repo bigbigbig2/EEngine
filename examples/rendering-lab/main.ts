@@ -689,13 +689,13 @@ function bindRendererControls(activeRenderer: Renderer): void {
     (value) => value.toFixed(2));
   bindRange("ssr-steps", (value) => activeRenderer.configure({ ssr: { maxSteps: value } }),
     (value) => value.toFixed(0));
-  bindRange("ssr-thickness", (value) => activeRenderer.configure({ ssr: { depthThicknessMeters: value } }),
+  bindRange("ssr-thickness", (value) => activeRenderer.configure({ ssr: { baseThicknessMeters: value } }),
     (value) => value.toFixed(2));
-  bindRange("ssr-roughness-thickness", (value) => activeRenderer.configure({ ssr: { roughnessThickness: value } }),
+  bindRange("ssr-roughness-thickness", (value) => activeRenderer.configure({ ssr: { maxRoughness: value / 20 } }),
     (value) => value.toFixed(1));
-  bindRange("ssr-distance-thickness", (value) => activeRenderer.configure({ ssr: { distanceThickness: value } }),
+  bindRange("ssr-distance-thickness", (value) => activeRenderer.configure({ ssr: { distanceThicknessScale: value } }),
     (value) => value.toFixed(3));
-  bindRange("ssr-roughness-cutoff", (value) => activeRenderer.configure({ ssr: { roughnessCutoff: value } }),
+  bindRange("ssr-roughness-cutoff", (value) => activeRenderer.configure({ ssr: { maxRoughness: value } }),
     (value) => value.toFixed(2));
   bindRange("ssr-temporal", (value) => activeRenderer.configure({ ssr: { temporalStrength: value } }),
     (value) => value.toFixed(2));

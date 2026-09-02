@@ -7,6 +7,8 @@ import {
 export type MainFrameFeatureInputs = {
   shadows: boolean;
   ssr: boolean;
+  ssrTemporal?: boolean;
+  ssrHalfResolution?: boolean;
   ssao: boolean;
   ssaoTemporal?: boolean;
   ssaoHalfResolution?: boolean;
@@ -29,6 +31,8 @@ export type MainFrameFeatureInputs = {
 export type MainFrameFeatureTopology = Readonly<{
   shadows: boolean;
   ssr: boolean;
+  ssrTemporal: boolean;
+  ssrHalfResolution: boolean;
   ssao: boolean;
   ssaoTemporal: boolean;
   ssaoHalfResolution: boolean;
@@ -59,6 +63,8 @@ export function resolveMainFrameFeatureTopology(
   const debugTopology = debug ? debugTopologyCode(input.debugView) : 0;
   const ssaoTemporal = input.ssao && input.ssaoTemporal !== false;
   const ssaoHalfResolution = input.ssao && input.ssaoHalfResolution === true;
+  const ssrTemporal = input.ssr && input.ssrTemporal !== false;
+  const ssrHalfResolution = input.ssr && input.ssrHalfResolution === true;
 
   let bits = 0;
   if (input.shadows) bits += 2 ** 0;
@@ -80,10 +86,14 @@ export function resolveMainFrameFeatureTopology(
   if (input.highDynamicRange) bits += 2 ** 25;
   if (ssaoTemporal) bits += 2 ** 26;
   if (ssaoHalfResolution) bits += 2 ** 27;
+  if (ssrTemporal) bits += 2 ** 28;
+  if (ssrHalfResolution) bits += 2 ** 29;
 
   return Object.freeze({
     shadows: input.shadows,
     ssr: input.ssr,
+    ssrTemporal,
+    ssrHalfResolution,
     ssao: input.ssao,
     ssaoTemporal,
     ssaoHalfResolution,
@@ -111,7 +121,7 @@ export function resolveMainFrameFeatureTopology(
     ]),
     histories: Object.freeze([
       ...(ssaoTemporal ? ["ssao-history"] : []),
-      ...(input.ssr ? ["ssr-history"] : []),
+      ...(ssrTemporal ? ["ssr-history"] : []),
       ...(input.temporal ? ["temporal-color-history"] : []),
       ...(nss ? ["nss-feedback-history"] : []),
       ...(input.automaticExposure ? ["automatic-exposure-history"] : [])

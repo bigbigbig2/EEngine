@@ -330,6 +330,7 @@ const LPV_FALLBACK = `  let world_start = v3_matrix4_project(start_view, camera.
     radiance += textureLoad(light_dir, hit.position, 0).rgb * hit_irradiance * RECIPROCAL_PI;
   }
   let lpv_radiance = lpv_sample_radiance(world_start, normal_world, world_view, roughness);
+  let environment = lpv_radiance;
   let resolved = mix(lpv_radiance, radiance, maximum_confidence);`;
 
 export const SSR_LPV_RESOLVE_WGSL = buildLpvResolveShader();

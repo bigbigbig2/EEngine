@@ -43,6 +43,7 @@ export type ScreenSpaceAmbientOcclusionInputs = {
   normal: ResourceId;
   velocity: ResourceId;
   occlusionConfidence: ResourceId;
+  surfaceValidity: ResourceId;
   camera: ResourceId;
   counters?: ResourceId;
 };
@@ -280,7 +281,8 @@ export class ScreenSpaceAmbientOcclusionPass {
               velocity: resolveTextureView(resources.get(inputs.velocity)),
               occlusionConfidence: resolveTextureView(
                 resources.get(inputs.occlusionConfidence)
-              )
+              ),
+              surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity))
             }
           );
           self.lastTemporalPasses = 1;
@@ -290,6 +292,7 @@ export class ScreenSpaceAmbientOcclusionPass {
       temporalBuilder.read(historyInputResource);
       temporalBuilder.read(inputs.velocity);
       temporalBuilder.read(inputs.occlusionConfidence);
+      temporalBuilder.read(inputs.surfaceValidity);
       resolvedVisibility = temporalBuilder.write(historyOutputResource);
     }
 
@@ -551,6 +554,7 @@ export class ScreenSpaceAmbientOcclusionPass {
       history: GPUTextureView;
       velocity: GPUTextureView;
       occlusionConfidence: GPUTextureView;
+      surfaceValidity: GPUTextureView;
     }
   ): void {
     const settingsData = new ArrayBuffer(16);
@@ -570,7 +574,8 @@ export class ScreenSpaceAmbientOcclusionPass {
         resources.occlusionConfidence,
         resources.history,
         sampler,
-        { buffer: settings }
+        { buffer: settings },
+        resources.surfaceValidity
       ]],
       colorAttachments: [
         {
@@ -879,6 +884,7 @@ function createSsaoTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 3, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, sampler: { type: "filtering" } },
       { binding: 5, visibility: fragment, buffer: { type: "uniform" } }
+      ,{ binding: 6, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } }
     ]
   };
 }

@@ -76,6 +76,20 @@ Software Raster 是统一 Visibility 后的可选 adapter：
 - internal resolution 与 output resolution 分离，为 Dynamic Resolution、Temporal Reconstruction 和 Upscaling 建立统一 history contract。
 - Velocity、disocclusion/reactive 信息、camera cut、resize 和 LOD transition 必须有明确语义。
 
+当前 production contract 进一步冻结为：
+
+- Complete Opaque HDR 先包含 direct、emissive 与 IBL；SSR 只添加相对 IBL fallback 的 specular correction。
+- SSR 默认 half-resolution：trace → resolve → 一轮 spatial → 可选 temporal → full-resolution joint bilateral upscale；max distance/thickness 使用 physical meters。
+- `OpaqueTemporalValidity` 由 GTAO、SSR 共用；`FinalTemporalValidity` 在其上合入 transparent reactive，只供最终 TAA/TAAU。
+- velocity 使用 `current - previous` internal pixels 且已包含 jitter delta；TAA 从 reverse-Z 最近深度邻域选 velocity/motion-valid，不再二次补偿 jitter。当前颜色使用 bounded 4×4 Catmull-Rom reconstruction。
+- DRS 只在 `0.5/0.67/0.75/0.8/1.0` 桶间改变 internal resolution；跨 domain consumer 必须声明 conversion owner。
+
+## FramePlan 与 FrameGraph
+
+FramePlan 是跨 graph 的帧级 schedule：`scene-update → optional LPV/shadow → main-view-graph`。它只解释依赖、dirty frequency、persistent output 与 timing label；所有启用阶段仍编码到同一个 Renderer command encoder，并由一次 main submit 提交。
+
+每张 FrameGraph 负责自身 resource version、producer/consumer、dead-pass culling、read-before-write、resolution domain、cycle、stable topological schedule 和 transient lifetime。compiled dump 必须同时给出 graph node 与节点声明的真实 render/compute pass、draw、dispatch work；节点数不能冒充 GPU Pass 数。WebGPU 单队列下该调度是 correctness/lifetime/fusion seam，不宣称异步 compute 并行。
+
 ## 内容扩展
 
 当前只冻结通用输入输出 seam，不实现地形、角色、粒子、云、海洋或大气专用 Renderer。未来项目必须复用 GPU Tables、Visibility/Depth、Surface/Velocity 和 FrameGraph，不复制第二条主管线。

@@ -17,6 +17,7 @@ export interface TemporalAntiAliasingInputs {
   readonly velocity: ResourceId;
   readonly disocclusionConfidence: ResourceId;
   readonly classification: ResourceId;
+  readonly depth: ResourceId;
 }
 
 export interface TemporalAntiAliasingJob {
@@ -86,6 +87,7 @@ export class TemporalAntiAliasingPass {
               resources.get(inputs.disocclusionConfidence)
             ),
             classification: resolveTextureView(resources.get(inputs.classification))
+            ,depth: resolveTextureView(resources.get(inputs.depth))
           }
         );
       }
@@ -96,6 +98,7 @@ export class TemporalAntiAliasingPass {
       inputs.velocity,
       inputs.disocclusionConfidence,
       inputs.classification
+      ,inputs.depth
     ]) builder.read(input);
     output = builder.write(inputs.output);
     return output;
@@ -116,12 +119,11 @@ export class TemporalAntiAliasingPass {
       velocity: GPUTextureView;
       disocclusionConfidence: GPUTextureView;
       classification: GPUTextureView;
+      depth: GPUTextureView;
     }
   ): void {
     const settingsBuffer = command.allocateTransientBufferAndLoad(
       new Float32Array([
-        job.jitter[0],
-        job.jitter[1],
         job.historyValidity,
         Math.max(0, Math.min(1, job.historyStrength)),
         job.internalResolution[0],
@@ -135,6 +137,8 @@ export class TemporalAntiAliasingPass {
         Math.max(0, Math.min(1, job.reactiveThreshold)),
         Math.max(0, Math.min(1, job.disocclusionThreshold)),
         Math.max(1, Math.min(1024, job.motionFadePixels)),
+        0,
+        0,
         0
       ]).buffer,
       GPUBufferUsage.UNIFORM
@@ -149,6 +153,7 @@ export class TemporalAntiAliasingPass {
         resources.currentColor,
         resources.disocclusionConfidence,
         resources.classification,
+        resources.depth,
         { buffer: settingsBuffer }
       ]],
       colorAttachments: [{
@@ -177,7 +182,8 @@ function createTaaGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-      { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+      { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+      { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
     ]
   };
 }

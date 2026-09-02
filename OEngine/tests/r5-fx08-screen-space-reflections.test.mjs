@@ -71,7 +71,7 @@ test("FX-08 SSR history obeys the shared submission-aware registry", () => {
     "utf8"
   );
   assert.match(renderer, /new TemporalHistoryRegistry\(\["color", "ssao", "ssr"\]\)/);
-  assert.match(renderer, /featureTopology\.ssr \? \["ssr"\] : \[\]/);
+  assert.match(renderer, /featureTopology\.ssrTemporal \? \["ssr"\] : \[\]/);
   assert.match(renderer, /markProduced\("ssr"\)/);
   assert.match(renderer, /ssrHistoryValidity/);
   assert.match(renderer, /ssrHistoryInputIndex/);

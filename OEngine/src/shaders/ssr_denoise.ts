@@ -12,6 +12,60 @@ import {
 
 export const SSR_DENOISE_FORMAT = "rgba16float" as const;
 
+/** Full-resolution joint bilateral reconstruction for half-resolution SSR. */
+export const SSR_UPSAMPLE_WGSL = /* wgsl */ `
+${SSR_FULLSCREEN_VERTEX_WGSL}
+${SSR_MATH_WGSL}
+@group(0) @binding(0) var reflection_half: texture_2d<f32>;
+@group(0) @binding(1) var depth_full: texture_2d<f32>;
+@group(0) @binding(2) var normal_full: texture_2d<u32>;
+
+fn bilateral_weight(center_depth: f32, sample_depth: f32, center_normal: vec3f, sample_normal: vec3f) -> f32 {
+  let depth_term = exp(-abs(center_depth - sample_depth) * max(abs(center_depth), 1.0) * 8.0);
+  let normal_term = pow(max(dot(center_normal, sample_normal), 0.0), 64.0);
+  return depth_term * normal_term;
+}
+
+@fragment
+fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
+  let full_size = vec2i(textureDimensions(depth_full));
+  let half_size = vec2i(textureDimensions(reflection_half));
+  let full_pixel = clamp(vec2i(coord.xy), vec2i(0), full_size - vec2i(1));
+  let source = (vec2f(full_pixel) + 0.5) * vec2f(half_size) / vec2f(full_size) - 0.5;
+  let base = vec2i(floor(source));
+  let center_depth = textureLoad(depth_full, full_pixel, 0).r;
+  let center_normal = decode_g_buffer_normal(textureLoad(normal_full, full_pixel, 0).xy);
+  var sum = vec4f(0.0);
+  var weight_sum = 0.0;
+  for (var y = 0; y <= 1; y++) {
+    for (var x = 0; x <= 1; x++) {
+      let half_pixel = clamp(base + vec2i(x, y), vec2i(0), half_size - vec2i(1));
+      let mapped_full = clamp(
+        vec2i((vec2f(half_pixel) + 0.5) * vec2f(full_size) / vec2f(half_size)),
+        vec2i(0), full_size - vec2i(1)
+      );
+      let sample_depth = textureLoad(depth_full, mapped_full, 0).r;
+      let sample_normal = decode_g_buffer_normal(textureLoad(normal_full, mapped_full, 0).xy);
+      let bilinear = vec2f(1.0) - abs(source - vec2f(half_pixel));
+      let weight = max(0.001, bilinear.x * bilinear.y) *
+        bilateral_weight(center_depth, sample_depth, center_normal, sample_normal);
+      let raw_sample = textureLoad(reflection_half, half_pixel, 0);
+      let sample_value = select(
+        vec4f(0.0), raw_sample,
+        all(raw_sample == raw_sample) && all(abs(raw_sample) < vec4f(65504.0))
+      );
+      sum += sample_value * weight;
+      weight_sum += weight;
+    }
+  }
+  let resolved = sum / max(weight_sum, 1e-5);
+  return select(
+    vec4f(0.0), resolved,
+    all(resolved == resolved) && all(abs(resolved) < vec4f(65504.0))
+  );
+}
+`;
+
 export const SSR_SPATIAL_WGSL = /* wgsl */ `
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${SSR_MATH_WGSL}
@@ -50,12 +104,17 @@ fn relative_difference(center: f32, neighbor: f32, scale: f32) -> f32 {
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let position = vec2i(coord.xy);
   let dimensions = vec2i(textureDimensions(this_hit));
+  let surface_dimensions = vec2i(textureDimensions(gr_bucket));
+  let surface_position = clamp(
+    vec2i((coord.xy + vec2f(0.5)) * vec2f(surface_dimensions) / vec2f(dimensions)),
+    vec2i(0), surface_dimensions - vec2i(1)
+  );
   const kernel = array<f32, 3>(1.0, 2.0 / 3.0, 1.0 / 6.0);
   let center = textureLoad(this_hit, position, 0);
   let center_luminance = rgb_to_luminance(center.rgb);
   let variance = max(0.0, convert_specular(position, this_hit, 3));
-  let center_normal = decode_g_buffer_normal(textureLoad(ray_ws, position, 0).xy);
-  let center_depth = textureLoad(gr_bucket, position, 0).r;
+  let center_normal = decode_g_buffer_normal(textureLoad(ray_ws, surface_position, 0).xy);
+  let center_depth = textureLoad(gr_bucket, surface_position, 0).r;
   const offsets = array<vec2i, 8>(
     vec2i(-1, -1), vec2i(0, -1), vec2i(1, -1), vec2i(-1, 0),
     vec2i(1, 0), vec2i(-1, 1), vec2i(0, 1), vec2i(1, 1)
@@ -68,8 +127,12 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     let sample_position = position + offset * settings.step_size;
     if (any(sample_position < vec2i(0)) || any(sample_position >= dimensions)) { continue; }
     let sample_value = textureLoad(this_hit, sample_position, 0);
-    let sample_normal = decode_g_buffer_normal(textureLoad(ray_ws, sample_position, 0).xy);
-    let sample_depth = textureLoad(gr_bucket, sample_position, 0).r;
+    let sample_surface_position = clamp(
+      vec2i((vec2f(sample_position) + 0.5) * vec2f(surface_dimensions) / vec2f(dimensions)),
+      vec2i(0), surface_dimensions - vec2i(1)
+    );
+    let sample_normal = decode_g_buffer_normal(textureLoad(ray_ws, sample_surface_position, 0).xy);
+    let sample_depth = textureLoad(gr_bucket, sample_surface_position, 0).r;
     var weight = normal_weight(center_normal, sample_normal);
     weight *= depth_weight(center_depth, sample_depth);
     weight *= exp(-relative_difference(center_luminance, rgb_to_luminance(sample_value.rgb), phi_visibility));
@@ -77,7 +140,11 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     weight_sum += weight;
     accumulated += vec4f(vec3f(weight), weight * weight) * sample_value;
   }
-  return accumulated / vec4f(vec3f(weight_sum), weight_sum * weight_sum);
+  let resolved = accumulated / vec4f(vec3f(weight_sum), weight_sum * weight_sum);
+  return select(
+    center, resolved,
+    all(resolved == resolved) && all(abs(resolved) < vec4f(65504.0))
+  );
 }
 `;
 
@@ -98,6 +165,7 @@ struct SsrTemporalSettings {
 @group(0) @binding(5) var<uniform> camera_current: CommandEncoder;
 @group(0) @binding(6) var<uniform> camera_previous: CommandEncoder;
 @group(0) @binding(7) var<uniform> settings: SsrTemporalSettings;
+@group(0) @binding(8) var surface_validity: texture_2d<f32>;
 
 fn velocity_confidence(velocity: vec2f) -> f32 {
   return saturate(1.0 - length(velocity) / 128.0);
@@ -145,16 +213,24 @@ fn sphere_sample_direction(
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let position = vec2i(coord.xy);
+  let temporal_size = vec2i(textureDimensions(this_hit));
+  let velocity_size = vec2i(textureDimensions(header));
+  let velocity_position = clamp(
+    vec2i((coord.xy + vec2f(0.5)) * vec2f(velocity_size) / vec2f(temporal_size)),
+    vec2i(0), velocity_size - vec2i(1)
+  );
   // 绑定布局保留两份相机数据；当前路径使用运动矢量重投影，不直接读取它们。
   if (coord.x < 0.0) {
     _ = camera_current.device_depth_to_view_space.x;
     _ = camera_previous.device_depth_to_view_space.x;
   }
-  let confidence = textureLoad(top, position, 0).r;
+  let confidence = textureLoad(top, velocity_position, 0).r;
+  let validity = textureLoad(surface_validity, velocity_position, 0).rg;
   let current = textureLoad(this_hit, position, 0);
   if (settings.history_valid == 0u) { return current; }
-  if (confidence <= 0.001) { return current; }
-  let velocity = taa_get_velocity(header, position);
+  if (confidence <= 0.001 || validity.g < 0.5 || validity.r >= 0.5) { return current; }
+  let velocity = taa_get_velocity(header, velocity_position) *
+    vec2f(temporal_size) / vec2f(velocity_size);
   let history_position = coord.xy - velocity;
   let history_uv = history_position / vec2f(textureDimensions(mean));
   let history = max(vec4f(0.0), add_per_probe_roughness(mean, segment_height, history_uv));
@@ -175,9 +251,13 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let normalization = 1.0 / (current_weight + history_weight);
   current_weight *= normalization;
   history_weight *= normalization;
-  return vec4f(
+  let resolved = vec4f(
     taa_decode_color(mix(encoded_current, clipped_history, history_weight)),
     mix(current.a, history.a, history_weight)
+  );
+  return select(
+    current, resolved,
+    all(resolved == resolved) && all(abs(resolved) < vec4f(65504.0))
   );
 }
 `;

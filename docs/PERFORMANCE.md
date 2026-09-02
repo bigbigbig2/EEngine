@@ -396,6 +396,40 @@ disocclusion 和 feature off/on，共保存 18 张 PNG。
 `temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`。FX-08 据此关闭；当前进入
 FX-06B，G5-T 仍未关闭。
 
+## R5-Q04–Q06 dirty/full reconstruction evidence
+
+2026-09-02 在 base commit `4ff439fcd85dd8f408e0c417ed5628509f34e4f8` 的 dirty worktree、Chrome 151、
+NVIDIA GeForce RTX 2060 SUPER 上重新执行 production FX-08 与 FX-06B full runner。两者均
+`passed=true`、`issues=[]`；因为包含未提交的 Q04–Q06 代码，`gateEligible=false`，只能作为提交前强运行
+证据，不能替代 clean/full exit 或 G5-P。
+
+Q04 FX-08 artifact：
+`temp/r5/fx-08/4ff439fcd85dd8f408e0c417ed5628509f34e4f8-dirty-5b51c9be9a44/`。
+
+- 1280×720 internal、默认 0.5× trace；trace pixels 为 640×360，双 history 合计 `3,686,400 B`，
+  相对旧 full-resolution 双 history `14,745,600 B` 减少 75%。
+- final-reflection P50：trace `0.1968 ms`、scene-color prefilter `0.202112 ms`、resolve
+  `0.138176 ms`、单轮 spatial + temporal + joint upscale 汇总 `0.116096 ms`、shared composite
+  `0.031008 ms`；合计约 `0.684192 ms`。旧 clean FX-08 同 fixture 对应约 `2.696512 ms`，
+  focused SSR phase P50 减少约 74.6%。该 paired 数值不等于 Cyberpunk City all-on 整帧收益。
+- hit/miss 为 `27,947/889,568`；pan/disocclusion response RMS 为 `9.966212/96.741617 RGB8`，
+  settle-32→64 均为 `0`。roughness low/mid/high pixels 为 `693,616/45,050/48,967`；HDR finite，
+  runner 无 console/page/WebGPU validation、uncaptured error 或 device loss。
+
+Q05/Q06 FX-06B artifact：
+`temp/r5/fx-06b/4ff439fcd85dd8f408e0c417ed5628509f34e4f8-dirty-4366306bfc76/`。
+
+- 1920×1080、DPR 1 的 combined static Temporal P50/P95/P99 为 `0.93/0.94/2.50 ms`；
+  TAA-only P50 为 `0.75 ms`，均低于 focused native Temporal P50 `2 ms` 门槛。0.85/0.67/0.5
+  internal scale 的 P50 分别为 `0.93/0.78/0.65 ms`。
+- temporal static variance RMS 为 `0.68354 RGB8`，低于 no-history `1.226289 RGB8`；
+  disocclusion 在 16 帧持续收敛，settle-32 RMS/trail 为 `0.248786/14 px`。透明 reactive 在
+  32 帧持续收敛；settle-32 为 `0.437147 RGB8/18 px`，18 px 是 16 px
+  bevel 加 Catmull-Rom 两像素 filter support，关键帧已人工复核无可见拖影。
+- feature-off 两次输出 bit-identical；每段 main submit 保持 1，private temporal readback 为 0。
+  Q06 的 resource/domain/cycle/stable-topology 与 FramePlan dependency dump 另由 Node regression 固定；
+  FramePlan 不创建 encoder 或 submit。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。

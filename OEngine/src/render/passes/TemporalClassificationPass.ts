@@ -20,6 +20,7 @@ const DISOCCLUDED_INDEX = counterByteOffset("temporalDisoccludedPixels") / 4;
 const REJECTED_INDEX = counterByteOffset("temporalHistoryRejectedPixels") / 4;
 
 export interface TemporalClassificationJob {
+  readonly phase: "opaque" | "final";
   readonly width: number;
   readonly height: number;
   readonly metadataAvailable: boolean;
@@ -104,7 +105,7 @@ export class TemporalClassificationPass {
     const height = Math.max(1, job.height | 0);
     let classification = -1;
     const classify = graph.add(
-      "FX-06 Temporal reactive/motion classification",
+      `FX-06 ${job.phase} temporal validity classification`,
       { job, width, height },
       (data, resources, context) => {
         const command = requireCommand(context.encoder);
@@ -119,7 +120,7 @@ export class TemporalClassificationPass {
           GPUBufferUsage.UNIFORM
         );
         const pass = command.constructRenderPass({
-          label: "FX-06 Temporal reactive/motion classification",
+          label: `FX-06 ${data.job.phase} temporal validity classification`,
           pipeline: CLASSIFICATION_PIPELINE,
           bindings: [[
             resolveTextureView(resources.get(inputs.surfaceMetadata)),
@@ -137,7 +138,7 @@ export class TemporalClassificationPass {
         pass.end();
       }
     );
-    classification = classify.create("FX-06 temporal classification", {
+    classification = classify.create(`FX-06 ${job.phase} temporal classification`, {
       kind: "transient_texture",
       label: "FX-06 temporal classification rg8unorm",
       width,

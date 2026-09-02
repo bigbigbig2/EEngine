@@ -20,10 +20,10 @@ struct SsrTraceSettings {
   frame_index: u32,
   edge_fade: f32,
   max_steps: u32,
-  depth_thickness: f32,
-  roughness_thickness: f32,
-  distance_thickness: f32,
-  roughness_cutoff: f32,
+  base_thickness: f32,
+  distance_thickness_scale: f32,
+  max_roughness: f32,
+  _padding: f32,
 };
 
 struct SsrHit {
@@ -154,6 +154,8 @@ fn ffx_sssr_hierarchical_raymarch(
   screen_size: vec2f,
   most_detailed_mip: i32,
   max_iterations: u32,
+  origin_view: vec3f,
+  max_distance: f32,
   valid_hit: ptr<function, bool>,
   iteration_count: ptr<function, u32>
 ) -> vec3f {
@@ -171,6 +173,8 @@ fn ffx_sssr_hierarchical_raymarch(
   for (; iterations < max_iterations && mip >= most_detailed_mip; iterations++) {
     if (any(position.xy > vec2f(1.0)) || any(position.xy < vec2f(0.0))) { break; }
     if (is_background(position.z)) { break; }
+    let current_view = ffx_sssr_screen_space_to_view_space(position);
+    if (length(current_view - origin_view) > max_distance) { break; }
     let mip_position = mip_resolution * position.xy;
     let surface_depth = ffx_sssr_load_depth(vec2i(mip_position), mip);
     let crossed_cell = extend_error(
@@ -214,7 +218,7 @@ fn find_strip_next(uv: vec2f, screen_size: vec2f) -> f32 {
 }
 
 fn ffx_sssr_validate_hit(hit: vec3f, origin_uv: vec2f, ray_direction: vec3f, screen_size: vec2f, thickness: f32) -> f32 {
-  return get_map(hit, origin_uv, ray_direction, screen_size, thickness) * find_strip_next(origin_uv, screen_size);
+  return get_map(hit, origin_uv, ray_direction, screen_size, thickness) * find_strip_next(hit.xy, screen_size);
 }
 
 fn ssr_hit_pack(hit: SsrHit) -> vec2u {
@@ -251,21 +255,22 @@ fn fs_main(
 ) -> @location(0) vec2u {
   const g_most_detailed_mip = 0;
   let pixel = vec2u(coord.xy);
-  let roughness = decode_g_buffer_roughness(textureLoad(edge, pixel, 0));
   let screen_size = textureDimensions(gr_bucket, 0);
+  let full_pixel = min(vec2u(uv * vec2f(screen_size)), screen_size - vec2u(1u));
+  let roughness = decode_g_buffer_roughness(textureLoad(edge, full_pixel, 0));
   var sample_uv = stbn_sample_vec2(vec3u(pixel, settings.frame_index));
   sample_uv.x *= 0.8;
   let is_mirror = roughness < 0.0001;
   let most_detailed_mip = select(g_most_detailed_mip, 0, is_mirror);
   let mip_resolution = ffx_sssr_get_mip_resolution(vec2f(screen_size), most_detailed_mip);
   let depth = ffx_sssr_load_depth(vec2i(uv * mip_resolution), most_detailed_mip);
-  let high_roughness = roughness > settings.roughness_cutoff;
+  let high_roughness = roughness > settings.max_roughness;
   if (is_background(depth)) { return ssr_diagnostic_result(0u, 0u, high_roughness); }
   if (high_roughness) { return ssr_diagnostic_result(4u, 0u, true); }
   let screen_origin = vec3f(uv, depth);
   let view_origin = ffx_sssr_screen_space_to_view_space(screen_origin);
   let view_direction = normalize(view_origin);
-  let world_normal = ffx_sssr_load_world_space_normal(vec2i(pixel));
+  let world_normal = ffx_sssr_load_world_space_normal(vec2i(full_pixel));
   let view_normal = (camera.view_matrix * vec4f(world_normal, 0.0)).xyz;
   let reflected = sample_reflection_vector(-view_direction, view_normal, roughness, sample_uv);
   let screen_direction = project_direction(view_origin, reflected, screen_origin, camera.projection_matrix);
@@ -273,7 +278,7 @@ fn fs_main(
   var iterations: u32;
   let hit = ffx_sssr_hierarchical_raymarch(
     screen_origin, screen_direction, vec2f(screen_size), most_detailed_mip,
-    settings.max_steps, &valid_hit, &iterations
+    settings.max_steps, view_origin, settings.max_distance, &valid_hit, &iterations
   );
   if (!valid_hit || is_background(hit.z) || hit.z > 1.0) {
     return ssr_diagnostic_result(1u, iterations, high_roughness);
@@ -281,9 +286,8 @@ fn fs_main(
   let view_hit = ffx_sssr_screen_space_to_view_space(hit);
   let ray = view_hit - view_origin;
   let ray_length = length(ray);
-  let thickness = settings.depth_thickness +
-    roughness * settings.roughness_thickness +
-    ray_length * settings.distance_thickness;
+  let thickness = settings.base_thickness +
+    ray_length * settings.distance_thickness_scale;
   let confidence = ffx_sssr_validate_hit(hit, uv, normalize(ray), vec2f(screen_size), thickness);
   let distance_exceeded = ray_length > settings.max_distance;
   var encoded: SsrHit;

@@ -29,13 +29,14 @@ export interface GtaoSettings {
 }
 
 export interface SsrSettings {
+  readonly resolutionScale: 0.5 | 1;
+  readonly temporalEnabled: boolean;
   readonly maxDistanceMeters: number;
   readonly edgeFade: number;
   readonly maxSteps: number;
-  readonly depthThicknessMeters: number;
-  readonly roughnessThickness: number;
-  readonly distanceThickness: number;
-  readonly roughnessCutoff: number;
+  readonly baseThicknessMeters: number;
+  readonly distanceThicknessScale: number;
+  readonly maxRoughness: number;
   readonly temporalStrength: number;
 }
 
@@ -126,7 +127,11 @@ export const RENDER_FEATURE_CONTRACTS = Object.freeze({
     inputDomain: "internal-full",
     outputDomain: "internal-full",
     history: "ssr",
-    topologyKeys: Object.freeze(["features.screenSpaceReflections"]),
+    topologyKeys: Object.freeze([
+      "features.screenSpaceReflections",
+      "ssr.resolutionScale",
+      "ssr.temporalEnabled"
+    ]),
     prunedWhenDisabled: true
   }),
   temporalAntiAliasing: Object.freeze({
@@ -164,14 +169,15 @@ const DEFAULTS: RenderSettingsValues = {
     temporalBlend: 0.95
   },
   ssr: {
+    resolutionScale: 0.5,
+    temporalEnabled: true,
     maxDistanceMeters: 16,
     edgeFade: 0.07,
     maxSteps: 128,
-    depthThicknessMeters: 0.1,
-    roughnessThickness: 10,
-    distanceThickness: 0.01,
-    roughnessCutoff: 0.65,
-    temporalStrength: 1
+    baseThicknessMeters: 0.08,
+    distanceThicknessScale: 0.01,
+    maxRoughness: 0.65,
+    temporalStrength: 0.9
   },
   temporal: {
     historyStrength: 1,
@@ -201,15 +207,15 @@ const DEFAULTS: RenderSettingsValues = {
 const QUALITY_PATCHES: Readonly<Record<QualityProfile, RenderSettingsPatch>> = Object.freeze({
   medium: Object.freeze({
     ao: Object.freeze({ resolutionScale: 0.5, sliceCount: 1, stepCount: 3, spatialStep: 1 }),
-    ssr: Object.freeze({ maxSteps: 64 })
+    ssr: Object.freeze({ resolutionScale: 0.5, maxSteps: 64 })
   }),
   high: Object.freeze({
     ao: Object.freeze({ resolutionScale: 0.5, sliceCount: 2, stepCount: 4, spatialStep: 1 }),
-    ssr: Object.freeze({ maxSteps: 96 })
+    ssr: Object.freeze({ resolutionScale: 0.5, maxSteps: 96 })
   }),
   ultra: Object.freeze({
     ao: Object.freeze({ resolutionScale: 1, sliceCount: 3, stepCount: 6, spatialStep: 1 }),
-    ssr: Object.freeze({ maxSteps: 128 })
+    ssr: Object.freeze({ resolutionScale: 1, maxSteps: 128 })
   })
 });
 
@@ -244,7 +250,9 @@ export class RenderSettings {
     const topologyChanged =
       featuresChanged ||
       previous.ao.resolutionScale !== next.ao.resolutionScale ||
-      previous.ao.temporalEnabled !== next.ao.temporalEnabled;
+      previous.ao.temporalEnabled !== next.ao.temporalEnabled ||
+      previous.ssr.resolutionScale !== next.ssr.resolutionScale ||
+      previous.ssr.temporalEnabled !== next.ssr.temporalEnabled;
     const resolutionChanged = previous.resolution.internalScale !== next.resolution.internalScale;
     const resourcesChanged = topologyChanged || resolutionChanged;
     const histories = new Set<"color" | "ssao" | "ssr">();
@@ -317,8 +325,14 @@ function validate(value: RenderSettingsValues): void {
   assertIntegerRange(value.ao.stepCount, 1, 8, "ao.stepCount");
   assertIntegerRange(value.ao.spatialStep, 1, 4, "ao.spatialStep");
   assertRange(value.ao.temporalBlend, 0, 0.99, "ao.temporalBlend");
+  if (value.ssr.resolutionScale !== 0.5 && value.ssr.resolutionScale !== 1) {
+    throw new RangeError("ssr.resolutionScale must be 0.5 or 1");
+  }
   assertFinitePositive(value.ssr.maxDistanceMeters, "ssr.maxDistanceMeters");
-  assertFinitePositive(value.ssr.depthThicknessMeters, "ssr.depthThicknessMeters");
+  assertFinitePositive(value.ssr.baseThicknessMeters, "ssr.baseThicknessMeters");
+  assertRange(value.ssr.distanceThicknessScale, 0, 0.2, "ssr.distanceThicknessScale");
+  assertRange(value.ssr.maxRoughness, 0, 1, "ssr.maxRoughness");
+  assertRange(value.ssr.temporalStrength, 0, 1, "ssr.temporalStrength");
   assertIntegerRange(value.ssr.maxSteps, 1, 256, "ssr.maxSteps");
   assertRange(value.resolution.internalScale, 0.25, 1, "resolution.internalScale");
 }

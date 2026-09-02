@@ -4,9 +4,22 @@
 
 export type ResourceId = number;
 
+export type FrameGraphResourceDomain =
+  | "internal-full"
+  | "internal-half"
+  | "output-full"
+  | "tile"
+  | "fixed"
+  | "swapchain";
+
+type ResourceDomainDescriptor = {
+  /** Logical resolution domain; omitted only for non-texture/legacy resources. */
+  domain?: FrameGraphResourceDomain;
+};
+
 export type ResourceDescriptor =
-  | { kind: "imported"; label?: string }
-  | {
+  | ({ kind: "imported"; label?: string } & ResourceDomainDescriptor)
+  | ({
       kind: "transient_texture";
       label?: string;
       width: number;
@@ -16,15 +29,15 @@ export type ResourceDescriptor =
       depthOrArrayLayers?: number;
       dimension?: GPUTextureDimension;
       mipLevelCount?: number;
-    }
-  | {
+    } & ResourceDomainDescriptor)
+  | ({
       kind: "transient_buffer";
       label?: string;
       size: number;
       usage?: number;
       ensure_cleared?: readonly [offset: number, size: number];
-    }
-  | { kind: "opaque"; label?: string; [key: string]: unknown };
+    } & ResourceDomainDescriptor)
+  | ({ kind: "opaque"; label?: string; [key: string]: unknown } & ResourceDomainDescriptor);
 
 export interface ResourceNode {
   id: ResourceId;

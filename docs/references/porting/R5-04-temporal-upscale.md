@@ -4,8 +4,8 @@
 
 - **Reference ID**：`R5-04-temporal-upscale`
 - **decision**：`port algorithm and integration invariants / independently reimplement WebGPU owner`
-- **当前范围**：FX-06A 的共享 history 生命周期、reprojection/acceptance contract、reactive/disocclusion 分类、internal/output resolution contract 与异步 DRS feedback；FX-06B 的 authored final TAA/TAAU resolve、YCoCg variance clip、bounded history lock 与 output-resolution upscale composition。
-- **未闭环范围**：FX-06B 的目标机 clean/full performance Gate 尚未执行；当前 GTX 1650 Ti 只能提供 correctness 证据，不能关闭 FX-06B/G5-T，不能由本记录提前宣称完成。Sharpen 仍属于 FX-09，不并入本 pass。
+- **当前范围**：FX-06A 的共享 history 生命周期、reprojection/acceptance contract、reactive/disocclusion 分类、internal/output resolution contract 与异步 DRS feedback；FX-06B/Q05 的 opaque/final 两层 validity、closest-depth velocity selection、Catmull-Rom current reconstruction、YCoCg variance clip、bounded history lock 与 output-resolution upscale composition。
+- **未闭环范围**：Q05 已在 RTX 2060 SUPER 执行 dirty/full correctness Gate，但提交后的 clean/full provenance 与 G5-T/G5-P 整帧性能仍未关闭，不能由本记录提前宣称完成。Sharpen 仍属于 FX-09，不并入本 pass。
 
 仓库没有复制、翻译或改写下列 HLSL/CG/Unity 表达性代码。OEngine 保留公开的算法与集成不变量，并以 WGSL、FrameGraph 和现有 Surface/Packed ABI 独立实现。
 
@@ -67,7 +67,8 @@ decision: adopt integration contracts; reject direct dependency and shader port 
 ```text
 Surface metadata MotionValid/Reactive + Packed transparency reactive
   + disocclusion confidence + current-minus-previous velocity
-  -> RG8 Temporal classification (reactive, motion-valid)
+  -> opaque RG8 classification (reactive, motion-valid)
+  -> final RG8 classification (+ transparent reactive)
   -> native TAA / internal-to-output TAAU resolve
   -> rgba16float history write
   -> submission-aware history commit / abort invalidation
@@ -75,7 +76,7 @@ Surface metadata MotionValid/Reactive + Packed transparency reactive
 
 - `TemporalHistoryRegistry` 是 CPU source-of-truth，不拥有 GPU 对象；它定义 channel、read/write index、revision、无效化原因和 submitted commit。
 - `Renderer` 按需拥有两张 output-resolution `rgba16float` history，合计 `16 B/output pixel`；1080p 约 `31.64 MiB`，低于 `128 MiB` history cap。
-- `TemporalClassificationPass` 只在 Temporal topology 打开时创建 `rg8unorm` transient；R=reactive，G=motion-valid。
+- `TemporalClassificationPass` 按 consumer 创建 opaque/final `rg8unorm` transient；R=reactive，G=motion-valid。GTAO/SSR 只读 opaque，最终 TAA 读 final。
 - sampled evidence 复用全局 512 B GPU counter ABI 和三槽异步 readback ring，不增加私有 readback、encoder 或 submit。
 - DRS 只消费已完成、至少延迟一帧且未重复的 GPU timestamp；它复用 `FrameProfiler`，没有同步 `mapAsync`、额外 readback 或第二 submit。
 - public seam 只暴露控制器和有界数值 evidence；GPU texture/pass/shader owner 不从 `src/index.ts` 泄漏。
@@ -85,9 +86,9 @@ Surface metadata MotionValid/Reactive + Packed transparency reactive
 1. velocity 单位为 internal pixel，方向固定为 `current - previous`；history coordinate 为 `current - velocity`。
 2. camera cut、output/internal resize、render scale、feature、format、view switch 和 abort 都使 history 失效。
 3. ping-pong 只在已提交且确实产生 history 的 frame completion 上推进；编码失败不提交半帧 history。
-4. reactive、motion-invalid、history 越界或低 disocclusion confidence 保守拒绝 history。
+4. reactive、motion-invalid、history 越界或低 disocclusion confidence 保守拒绝 history；透明 reactive 从当前输出像素读取，不能随 closest-depth opaque velocity 采样而丢失。
 5. accepted history 先由中心 + 四邻域的 YCoCg mean/variance/min/max envelope 裁剪，再由 motion、luminance、reactive 和 disocclusion confidence 共同限制权重；history alpha 保存 bounded lock，权重上限 `0.92`。
-6. internal/output resolution 是显式输入；history 始终使用 output resolution。native current 使用精确 `textureLoad`，TAAU 使用 bounded five-tap current reconstruction；velocity/classification 使用 internal resolution。
+6. internal/output resolution 是显式输入；history 始终使用 output resolution。current 使用 bounded 4×4 Catmull-Rom reconstruction；velocity/motion-valid 使用 reverse-Z closest-depth internal pixel，final reactive 同时保留 current internal pixel。
 7. feature-off 不保留 Temporal pass、classification transient、history texture、私有 readback 或 submit。
 8. DRS 不读 CPU frame time作 GPU pressure proxy，只消费 profiler 已完成的 timestamp sample。
 
@@ -95,7 +96,7 @@ Surface metadata MotionValid/Reactive + Packed transparency reactive
 
 - FX-06A 使用普通 `rgba16float` history 与 FP32 WGSL 运算，不要求 shader-f16。
 - classification 采用保守二值/强度输入；透明贡献沿用 FX-05 `reactive=1`，在 transparent velocity 完成前拒绝累积。
-- FX-06B 使用 YCoCg variance history clipping、history alpha lock、native exact current load 与 TAAU five-tap reconstruction。完整 FSR2 lock/luma pyramid、Lanczos、RCAS、shader backend 和 exposure-aware recipe 未移植；Sharpen 留给 FX-09，避免双重锐化。
+- FX-06B/Q05 使用 YCoCg variance history clipping、history alpha lock、closest-depth velocity 和 4×4 Catmull-Rom reconstruction。完整 FSR2 lock/luma pyramid、Lanczos、RCAS、shader backend 和 exposure-aware recipe未移植；Sharpen 留给 FX-09，避免双重锐化。
 - 非有限/非法 DRS sample、current-frame sample 与重复 sample被拒绝，不改变 scale。
 - history 超过维度/格式契约不会继续复用；资源分配/编码错误进入 Renderer 既有 abort 和 WebGPU diagnostics。
 
@@ -125,3 +126,5 @@ Surface metadata MotionValid/Reactive + Packed transparency reactive
 - evidence：18 段 ×（30 warm-up + 120 measured）帧，覆盖 static repeat、slow/fast pan、moving object、disocclusion、transparent motion、真实 hierarchy LOD cut transition、camera cut、resize、四档内部分辨率、feature-off/on；输出 environment/result/graph-counters JSON 与逐段 PNG。
 
 FX-06B 的 GTX 1650 Ti full artifact `temp/r5/fx-06b/a0b25821e4aec95bba4fd749b24de43dfa9ebad7-dirty-a917d3248a32/` 通过 WebGPU diagnostics、single submit、history owner/revision、feature-off exact zero、static variance 与 32-frame settling；native 1080p Temporal P50 为 `2.544 ms`，不满足 `2 ms`，且该 adapter 不是冻结的 RTX 2060 SUPER 目标机，因此只登记 correctness，不作为性能 closure。CDP adapter identity smoke 位于 `temp/r5/fx-06b/a0b25821e4aec95bba4fd749b24de43dfa9ebad7-dirty-b6e482110f8b/`；正式 runner 只有 full profile、目标 GPU 匹配与 clean provenance 同时成立时才允许 `gateEligible=true`。
+
+2026-09-02 Q05 没有复制或翻译新的第三方 shader；仍是 OEngine-authored WGSL，并仅保留上述公开算法不变量。RTX 2060 SUPER dirty/full 运行覆盖 static/no-history、disocclusion、transparent motion、cut、resize、四档 resolution 与 feature-off/on；正式路径与最终数值登记在 `docs/PERFORMANCE.md`。Catmull-Rom 的两像素 filter support 已进入图像 Gate 的 reactive edge 容差，moving trail 仍由同一序列和 RMS 阈值独立约束。

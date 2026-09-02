@@ -3,7 +3,7 @@
 > 状态：**已批准的执行设计，尚未实施**
 > 冻结日期：2026-09-01
 > 源码基线：当前 `master` production source 复核
-> 当前入口：`R5-Q04 — SSR 2.0`。`R5-Q01..Q03` 已于 2026-09-01 合并到同一生产迁移；正式 clean/full Gate 证据仍须在提交后生成。
+> 当前状态：`R5-Q01..Q06` 已于 2026-09-02 合并到同一生产迁移；正式 clean/full Gate 证据仍须在提交后生成。下一入口是 Product Closure/G5-P，而不是继续叠加 focused 效果参数。
 > 适用范围：`G5-T`、`FX-09..12`、`G5-P` 关闭前的 R5 Shading / Screen-space / Temporal / Post Composition 重构
 
 相关权威与下一跳：
@@ -619,6 +619,13 @@ dead control，但必须在本文件记录；这类接线修复不能用于宣�
 
 退出：graph 执行顺序可由 dependency dump 证明；warm graph/cache 稳定；一个 main submit；feature-off 和 resource lifetime Gate 通过。
 
+#### 2026-09-02 执行记录（Q04–Q06）
+
+- Q04：SSR 默认改为 half-resolution trace/resolve，保留可配置 full-resolution；链路固定为 trace → resolve → 单轮 spatial → 可选 temporal → full-resolution joint bilateral upscale。`maxDistanceMeters` 在 march 内终止，edge fade 使用 hit UV，thickness 由 base meters + traveled-distance slope 构成，roughness cutoff、temporal owner 和 half/full topology 均进入统一 settings/cache key。SSR 仍是 Complete Opaque HDR 上的 specular correction，不复制第二条 composite。
+- Q05：Temporal classification 拆成 `OpaqueTemporalValidity` 与 `FinalTemporalValidity`。GTAO/SSR 消费 opaque validity；最终 TAA 合入 transparent reactive。TAA 从最近 reverse-Z depth 邻域选择 velocity/motion-valid，当前颜色使用 4×4 Catmull-Rom reconstruction；透明 reactive 保留当前输出像素坐标，避免最近深度选择丢失前景拒绝标记。Velocity 已含 jitter delta，resolve 不做二次 jitter 补偿。DRS 只在 `0.5/0.67/0.75/0.8/1.0` 资源桶间迁移。
+- Q06：FrameGraph 新增 resource/version/read-before-write、resolution-domain、duplicate producer、dependency cycle 校验，按 stable topological order 执行，并在 dump 中公开依赖、执行序号、domain conversion owner 与真实 encoder work 声明。FramePlan 在单帧上编排 scene update、LPV、shadow 与 main graph；所有阶段仍记录到 Renderer 同一 command encoder，保持一个 main submit。
+- 证据边界：dirty/full FX-08 与 FX-06B 已在 RTX 2060 SUPER 上执行；最终 artifact 路径与图像/时序数值登记在 `docs/PERFORMANCE.md`。这些结果可证明 production browser correctness 与 focused temporal/SSR contract，但由于工作树未提交，`gateEligible=false`，不能替代提交后的 clean/full exit，也不代表 G5-P 1080p/60 已达成。
+
 ### R5-Q Product Closure
 
 Q00..Q06 全部完成后，才执行 FX-12 legacy deletion 和 G5-P：1080p/High/Cyberpunk City all-on、A/B/C full、目标/最低 correctness adapter、显存/I/O cap 和 clean provenance。只有全部通过才能设置 `productPerformanceAchieved=true`。
@@ -704,7 +711,7 @@ temp/r5-quality/<phase>/<commit>/<profile>/<session>/
 
 ## 18. 首个实施入口
 
-当前执行入口为 `R5-Q04 — SSR 2.0`。Q01–Q03 的代码迁移已完成，但其正式 clean/full exit artifact 必须在提交后补采；若 full Gate 暴露回归，应回到对应 Q01–Q03 owner 修复，不能以迁移记录替代验收。
+当前执行入口为 `R5-Q Product Closure / G5-P`。Q01–Q06 的代码迁移已完成，但其正式 clean/full exit artifact 必须在提交后补采；若 full Gate 暴露回归，应回到对应 Q01–Q06 owner 修复，不能以迁移记录替代验收。
 
 在 Q00 完成前，不接受下列内容作为修复完成：
 

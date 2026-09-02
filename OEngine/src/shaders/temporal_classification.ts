@@ -31,7 +31,6 @@ fn main(@builtin(position) position: vec4f) -> @location(0) vec2f {
   if settings.transparency_available != 0u {
     let transparent = clamp(textureLoad(transparent_reactive, pixel, 0).r, 0.0, 1.0);
     reactive = max(reactive, transparent);
-    motion_valid = select(motion_valid, 0.0, transparent > 0.0);
   }
   return vec2f(reactive, motion_valid);
 }

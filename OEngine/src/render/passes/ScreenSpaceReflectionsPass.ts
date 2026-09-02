@@ -24,7 +24,8 @@ import {
 import {
   SSR_DENOISE_FORMAT,
   SSR_SPATIAL_WGSL,
-  SSR_TEMPORAL_WGSL
+  SSR_TEMPORAL_WGSL,
+  SSR_UPSAMPLE_WGSL
 } from "../../shaders/ssr_denoise.js";
 import {
   SSR_PREFILTER_COPY_WGSL,
@@ -51,6 +52,7 @@ export type ScreenSpaceReflectionsInputs = {
   normal: ResourceId;
   velocity: ResourceId;
   occlusionConfidence: ResourceId;
+  surfaceValidity: ResourceId;
   albedoAo: ResourceId;
   environment: ResourceId;
   blueNoise: ResourceId;
@@ -88,10 +90,9 @@ export type ScreenSpaceReflectionsJob = {
   maxDistance: number;
   edgeFade: number;
   maxSteps: number;
-  depthThickness: number;
-  roughnessThickness: number;
-  distanceThickness: number;
-  roughnessCutoff: number;
+  baseThickness: number;
+  distanceThicknessScale: number;
+  maxRoughness: number;
   temporalStrength: number;
 };
 
@@ -104,6 +105,7 @@ export class ScreenSpaceReflectionsPass {
   private readonly lpvResolvePipeline: CachedRenderPipelineDescriptor;
   private readonly spatialPipeline: CachedRenderPipelineDescriptor;
   private readonly temporalPipeline: CachedRenderPipelineDescriptor;
+  private readonly upsamplePipeline: CachedRenderPipelineDescriptor;
   private traceSettings: GPUBuffer | null = null;
   private resolveSettings: GPUBuffer | null = null;
   private temporalSettings: GPUBuffer | null = null;
@@ -118,7 +120,11 @@ export class ScreenSpaceReflectionsPass {
   lastSpatialPasses = 0;
   lastTemporalPasses = 0;
 
-  constructor(graphics: GraphicsContext) {
+  constructor(
+    graphics: GraphicsContext,
+    private readonly temporalEnabled = true,
+    private readonly resolutionScale: 0.5 | 1 = 0.5
+  ) {
     if (graphics.device === null) {
       throw new Error("ScreenSpaceReflectionsPass: GraphicsContext has no device");
     }
@@ -132,6 +138,7 @@ export class ScreenSpaceReflectionsPass {
     this.lpvResolvePipeline = createSsrResolvePipelineDescriptor(true);
     this.spatialPipeline = createSsrSpatialPipelineDescriptor();
     this.temporalPipeline = createSsrTemporalPipelineDescriptor();
+    this.upsamplePipeline = createSsrUpsamplePipelineDescriptor();
     const descriptor: GPUTextureDescriptor = {
       label: "SSR history",
       size: [1, 1, 1],
@@ -161,7 +168,7 @@ export class ScreenSpaceReflectionsPass {
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    for (const step of [1, 2, 4]) {
+    for (const step of [1]) {
       const buffer = this.device.createBuffer({
         label: `Renderer/SSR spatial step ${step}`,
         size: 16,
@@ -188,20 +195,22 @@ export class ScreenSpaceReflectionsPass {
     this.resetFrameEvidence();
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
-    this.resize(width, height);
-    if (!historyBindings) {
+    const traceWidth = Math.max(1, Math.ceil(width * this.resolutionScale));
+    const traceHeight = Math.max(1, Math.ceil(height * this.resolutionScale));
+    this.resize(traceWidth, traceHeight);
+    if (this.temporalEnabled && !historyBindings) {
       throw new Error("SSR temporal history bindings are required");
     }
-    const historyInputResource = graph.import_resource(
+    const historyInputResource = this.temporalEnabled ? graph.import_resource(
       "ssr_history",
-      { kind: "imported", label: "ssr_history" },
-      historyBindings.input
-    );
-    const historyOutputResource = graph.import_resource(
+      { kind: "imported", label: "ssr_history", domain: "internal-half" },
+      historyBindings!.input
+    ) : null;
+    const historyOutputResource = this.temporalEnabled ? graph.import_resource(
       "ssr_output",
-      { kind: "imported", label: "ssr_output" },
-      historyBindings.output
-    );
+      { kind: "imported", label: "ssr_output", domain: "internal-half" },
+      historyBindings!.output
+    ) : null;
 
     let trace = -1;
     const traceBuilder = graph.add(
@@ -215,10 +224,9 @@ export class ScreenSpaceReflectionsPass {
           data.maxDistance,
           data.edgeFade,
           data.maxSteps,
-          data.depthThickness,
-          data.roughnessThickness,
-          data.distanceThickness,
-          data.roughnessCutoff,
+          data.baseThickness,
+          data.distanceThicknessScale,
+          data.maxRoughness,
           {
           output: resolveTextureView(resources.get(trace)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
@@ -236,9 +244,10 @@ export class ScreenSpaceReflectionsPass {
     trace = traceBuilder.create("SSR packed hit", {
       kind: "transient_texture",
       label: "SSR trace uk rg32uint",
-      width,
-      height,
+      width: traceWidth,
+      height: traceHeight,
       format: SSR_TRACE_FORMAT,
+      domain: this.resolutionScale === 0.5 ? "internal-half" : "internal-full",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
     });
     for (const input of [inputs.depth, inputs.hzb, inputs.pbr, inputs.normal, inputs.blueNoise, inputs.currentCamera]) {
@@ -249,7 +258,7 @@ export class ScreenSpaceReflectionsPass {
     if (inputs.counters !== undefined) {
       const evidenceBuilder = graph.add(
         "R5-Q00 SSR sampled trace evidence",
-        { width, height },
+        { width: traceWidth, height: traceHeight },
         (data, resources, context) => {
           const command = requireShadeCommandContext(context.encoder);
           const pass = command.constructComputePass({
@@ -342,7 +351,11 @@ export class ScreenSpaceReflectionsPass {
         this.lastResolvePasses = 1;
       }
     );
-    reflections = resolveBuilder.create("SSR reflections", textureDescriptor(width, height, SSR_RESOLVE_FORMAT));
+    reflections = resolveBuilder.create(
+      "SSR reflections",
+      textureDescriptor(traceWidth, traceHeight, SSR_RESOLVE_FORMAT,
+        this.resolutionScale === 0.5 ? "internal-half" : "internal-full")
+    );
     for (const input of [trace, inputs.depth, inputs.pbr, inputs.normal, prefiltered, inputs.albedoAo, inputs.environment, inputs.currentCamera]) {
       resolveBuilder.read(input);
     }
@@ -359,10 +372,14 @@ export class ScreenSpaceReflectionsPass {
       }
     }
 
-    const denoised1 = this.addSpatial(graph, reflections, inputs.depth, inputs.normal, width, height, 0, "SSR spatial OQ step 1");
+    const denoised1 = this.addSpatial(
+      graph, reflections, inputs.depth, inputs.normal, traceWidth, traceHeight, 0,
+      "SSR spatial edge-aware step 1"
+    );
 
-    let temporal = -1;
-    const temporalBuilder = graph.add(
+    let temporal = denoised1;
+    if (this.temporalEnabled) {
+      const temporalBuilder = graph.add(
       "SSR temporal jQ",
       {
         samplers: job.samplers,
@@ -379,23 +396,26 @@ export class ScreenSpaceReflectionsPass {
           {
             output: resolveTextureView(resources.get(temporal)),
             current: resolveTextureView(resources.get(denoised1)),
-            history: resolveTextureView(resources.get(historyInputResource)),
+            history: resolveTextureView(resources.get(historyInputResource!)),
             velocity: resolveTextureView(resources.get(inputs.velocity)),
             occlusionConfidence: resolveTextureView(resources.get(inputs.occlusionConfidence)),
+            surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity)),
             currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera"),
             previousCamera: resolveBuffer(resources.get(inputs.previousCamera), "previous camera")
           }
         );
         this.lastTemporalPasses = 1;
       }
-    );
-    for (const input of [denoised1, historyInputResource, inputs.velocity, inputs.occlusionConfidence, inputs.currentCamera, inputs.previousCamera]) {
-      temporalBuilder.read(input);
+      );
+      for (const input of [denoised1, historyInputResource!, inputs.velocity, inputs.occlusionConfidence, inputs.surfaceValidity, inputs.currentCamera, inputs.previousCamera]) {
+        temporalBuilder.read(input);
+      }
+      temporal = temporalBuilder.write(historyOutputResource!);
     }
-    temporal = temporalBuilder.write(historyOutputResource);
 
-    const denoised2 = this.addSpatial(graph, temporal, inputs.depth, inputs.normal, width, height, 1, "SSR spatial OQ step 2");
-    const denoised = this.addSpatial(graph, denoised2, inputs.depth, inputs.normal, width, height, 2, "SSR spatial OQ step 4");
+    const denoised = this.resolutionScale === 0.5
+      ? this.addUpsample(graph, temporal, inputs.depth, inputs.normal, width, height)
+      : temporal;
 
     return {
       trace,
@@ -462,16 +482,52 @@ export class ScreenSpaceReflectionsPass {
     return output;
   }
 
+  private addUpsample(
+    graph: FrameGraph,
+    input: ResourceId,
+    depth: ResourceId,
+    normal: ResourceId,
+    width: number,
+    height: number
+  ): ResourceId {
+    let output = -1;
+    const builder = graph.add(
+      "SSR full-resolution joint bilateral upscale",
+      {},
+      (_data, resources, context) => {
+        drawFullscreen(
+          requireShadeCommandContext(context.encoder),
+          "SSR full-resolution joint bilateral upscale",
+          this.upsamplePipeline,
+          [[
+            resolveTextureView(resources.get(input)),
+            resolveTextureView(resources.get(depth)),
+            resolveTextureView(resources.get(normal))
+          ]],
+          resolveTextureView(resources.get(output))
+        );
+      }
+    );
+    output = builder.create(
+      "SSR full-resolution reflections",
+      textureDescriptor(width, height, SSR_DENOISE_FORMAT, "internal-full")
+    );
+    builder.readDomain(input, "internal-full", "SSR joint bilateral upscale");
+    builder.read(depth);
+    builder.read(normal);
+    builder.declareEncoderWork({ renderPasses: 1, draws: 1 });
+    return output;
+  }
+
   private executeTrace(
     command: ShadeGPUCommandContext,
     frameIndex: number,
     maxDistance: number,
     edgeFade: number,
     maxSteps: number,
-    depthThickness: number,
-    roughnessThickness: number,
-    distanceThickness: number,
-    roughnessCutoff: number,
+    baseThickness: number,
+    distanceThicknessScale: number,
+    maxRoughness: number,
     resources: {
       output: GPUTextureView;
       depth: GPUTextureView;
@@ -489,10 +545,10 @@ export class ScreenSpaceReflectionsPass {
     view.setUint32(4, frameIndex >>> 0, true);
     view.setFloat32(8, Math.max(0, Math.min(0.5, edgeFade)), true);
     view.setUint32(12, Math.max(8, Math.min(255, Math.round(maxSteps))), true);
-    view.setFloat32(16, Math.max(0.001, Math.min(2, depthThickness)), true);
-    view.setFloat32(20, Math.max(0, Math.min(20, roughnessThickness)), true);
-    view.setFloat32(24, Math.max(0, Math.min(0.2, distanceThickness)), true);
-    view.setFloat32(28, Math.max(0, Math.min(1, roughnessCutoff)), true);
+    view.setFloat32(16, Math.max(0.001, Math.min(2, baseThickness)), true);
+    view.setFloat32(20, Math.max(0, Math.min(0.2, distanceThicknessScale)), true);
+    view.setFloat32(24, Math.max(0, Math.min(1, maxRoughness)), true);
+    view.setFloat32(28, 0, true);
     writeGpuBuffer(
       this.device.queue,
       "SSR/trace-settings",
@@ -513,8 +569,7 @@ export class ScreenSpaceReflectionsPass {
         resources.pbr,
         resources.normal
       ]],
-      resources.output,
-      resources.depth
+      resources.output
     );
   }
 
@@ -631,9 +686,7 @@ export class ScreenSpaceReflectionsPass {
       resources.lpv ? "SSR reflection resolve VD" : "SSR reflection resolve QD",
       pipeline,
       bindings,
-      resources.output,
-      resources.depth,
-      "clear"
+      resources.output
     );
   }
 
@@ -664,6 +717,7 @@ export class ScreenSpaceReflectionsPass {
       history: GPUTextureView;
       velocity: GPUTextureView;
       occlusionConfidence: GPUTextureView;
+      surfaceValidity: GPUTextureView;
       currentCamera: GPUBuffer;
       previousCamera: GPUBuffer;
     }
@@ -695,6 +749,7 @@ export class ScreenSpaceReflectionsPass {
         { buffer: resources.currentCamera },
         { buffer: resources.previousCamera },
         { buffer: this.temporalSettings }
+        ,resources.surfaceValidity
       ]],
       resources.output
     );
@@ -775,13 +830,19 @@ const SSR_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
   }
 };
 
-function textureDescriptor(width: number, height: number, format: GPUTextureFormat) {
+function textureDescriptor(
+  width: number,
+  height: number,
+  format: GPUTextureFormat,
+  domain?: "internal-full" | "internal-half"
+) {
   return {
     kind: "transient_texture" as const,
     label: format,
     width,
     height,
     format,
+    ...(domain === undefined ? {} : { domain }),
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
   };
 }
@@ -845,8 +906,7 @@ function createSsrTracePipelineDescriptor(): CachedRenderPipelineDescriptor {
     "Renderer/SSR trace uk",
     SSR_TRACE_WGSL,
     SSR_TRACE_FORMAT,
-    [createSsrTraceGroupLayout()],
-    true
+    [createSsrTraceGroupLayout()]
   );
 }
 
@@ -893,8 +953,7 @@ function createSsrResolvePipelineDescriptor(
           createSsrLpvBufferGroupLayout(),
           createSsrLpvAtlasGroupLayout()
         ]
-      : [createSsrResolveGroupLayout()],
-    true
+      : [createSsrResolveGroupLayout()]
   );
 }
 
@@ -913,6 +972,15 @@ function createSsrTemporalPipelineDescriptor(): CachedRenderPipelineDescriptor {
     SSR_TEMPORAL_WGSL,
     SSR_DENOISE_FORMAT,
     [createSsrTemporalGroupLayout()]
+  );
+}
+
+function createSsrUpsamplePipelineDescriptor(): CachedRenderPipelineDescriptor {
+  return createSsrPipelineDescriptor(
+    "Renderer/SSR full-resolution joint bilateral upscale",
+    SSR_UPSAMPLE_WGSL,
+    SSR_DENOISE_FORMAT,
+    [createSsrUpsampleGroupLayout()]
   );
 }
 
@@ -1056,6 +1124,19 @@ function createSsrTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 5, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 6, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 7, visibility: fragment, buffer: { type: "uniform" } }
+      ,{ binding: 8, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } }
+    ]
+  };
+}
+
+function createSsrUpsampleGroupLayout(): GPUBindGroupLayoutDescriptor {
+  const fragment = GPUShaderStage.FRAGMENT;
+  return {
+    label: "Renderer/SSR full-resolution joint bilateral upscale/group0",
+    entries: [
+      { binding: 0, visibility: fragment, texture: { sampleType: "unfilterable-float" } },
+      { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float" } },
+      { binding: 2, visibility: fragment, texture: { sampleType: "uint" } }
     ]
   };
 }

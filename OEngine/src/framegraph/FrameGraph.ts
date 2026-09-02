@@ -4,6 +4,7 @@
 
 import { Signal } from "../core/Signal.js";
 import type {
+  FrameGraphResourceDomain,
   ResourceDescriptor,
   ResourceEntry,
   ResourceId,
@@ -187,6 +188,9 @@ export type CompiledFrameGraphPassDump = {
   readonly culled: boolean;
   readonly reads: readonly number[];
   readonly writes: readonly number[];
+  readonly dependencies: readonly number[];
+  readonly scheduleIndex?: number;
+  readonly encoderWork?: FrameGraphEncoderWork;
 };
 
 export type CompiledFrameGraphResourceDump = {
@@ -198,7 +202,15 @@ export type CompiledFrameGraphResourceDump = {
   readonly firstUsePass?: number;
   readonly lastUsePass?: number;
   readonly description?: string;
+  readonly domain?: FrameGraphResourceDomain;
 };
+
+export type FrameGraphEncoderWork = Readonly<{
+  readonly renderPasses: number;
+  readonly computePasses: number;
+  readonly dispatches: number;
+  readonly draws: number;
+}>;
 
 export type CompiledFrameGraphDump = {
   readonly name: string;
@@ -228,6 +240,35 @@ export class PassBuilder {
   read(id: ResourceId): ResourceId {
     this.graph.assertBuilding();
     return this.pass.read(id);
+  }
+
+  readDomain(
+    id: ResourceId,
+    expected: FrameGraphResourceDomain,
+    conversionOwner?: string
+  ): ResourceId {
+    this.graph.assertBuilding();
+    this.pass.readDomain(id, expected, conversionOwner);
+    return this.pass.read(id);
+  }
+
+  declareEncoderWork(work: Partial<FrameGraphEncoderWork>): void {
+    this.graph.assertBuilding();
+    this.pass.encoder_work = Object.freeze({
+      renderPasses: nonNegativeInteger(work.renderPasses ?? 0, "renderPasses"),
+      computePasses: nonNegativeInteger(work.computePasses ?? 0, "computePasses"),
+      dispatches: nonNegativeInteger(work.dispatches ?? 0, "dispatches"),
+      draws: nonNegativeInteger(work.draws ?? 0, "draws")
+    });
+  }
+
+  dependsOn(other: PassBuilder): void {
+    this.graph.assertBuilding();
+    if (other.graph !== this.graph) {
+      throw new Error("FrameGraph pass dependency must belong to the same graph");
+    }
+    if (other.pass === this.pass) throw new Error("FrameGraph pass cannot depend on itself");
+    this.pass.explicit_dependencies.add(other.pass.id);
   }
 
   write(id: ResourceId): ResourceId {
@@ -288,6 +329,13 @@ class PassNode {
   resource_creates: ResourceId[] = [];
   resource_reads: ResourceId[] = [];
   resource_writes: ResourceId[] = [];
+  readonly domain_reads = new Map<ResourceId, {
+    readonly expected: FrameGraphResourceDomain;
+    readonly conversionOwner?: string;
+  }>();
+  readonly dependencies = new Set<number>();
+  readonly explicit_dependencies = new Set<number>();
+  encoder_work: FrameGraphEncoderWork | null = null;
 
   creates(id: ResourceId): boolean {
     return this.resource_creates.includes(id);
@@ -305,6 +353,16 @@ class PassNode {
   read(id: ResourceId): ResourceId {
     if (!this.reads(id)) this.resource_reads.push(id);
     return id;
+  }
+  readDomain(
+    id: ResourceId,
+    expected: FrameGraphResourceDomain,
+    conversionOwner?: string
+  ): void {
+    this.domain_reads.set(id, {
+      expected,
+      ...(conversionOwner === undefined ? {} : { conversionOwner })
+    });
   }
   can_execute(): boolean {
     return this.ref_count > 0 || this.has_side_effects;
@@ -531,6 +589,7 @@ export class FrameGraph {
   private __resource_registry: ResourceEntry[] = [];
   private readonly __imported_bindings = new Map<number, FrameGraphBindingSlot>();
   private __compiled: CompiledFrameGraph | null = null;
+  private __execution_order: PassNode[] = [];
 
   constructor(name = "") {
     this.name = name;
@@ -620,7 +679,7 @@ export class FrameGraph {
   }
 
   validate(_resource: ResourceId, _pass: PassBuilder): boolean {
-    return true;
+    return Number.isInteger(_resource) && this.__resource_nodes[_resource] !== undefined;
   }
 
   /** 计算资源引用、剔除无效阶段，并确定瞬态资源的最后使用位置。 */
@@ -629,7 +688,24 @@ export class FrameGraph {
     const passes = this.__pass_nodes;
     const resources = this.__resource_nodes;
 
+    for (const node of resources) {
+      node.ref_count = 0;
+      node.producer = null;
+      const entry = this.__resource_registry[node.resource_id]!;
+      if (node.version < 0 || node.version > entry.resource_version) {
+        throw new Error(
+          `FrameGraph '${this.name}' resource '${node.name}' has invalid version ${node.version}`
+        );
+      }
+    }
+    for (const entry of this.__resource_registry) {
+      entry.producer = null;
+      entry.last = null;
+    }
+
     for (const p of passes) {
+      p.dependencies.clear();
+      for (const dependency of p.explicit_dependencies) p.dependencies.add(dependency);
       this.assertPassResources(p, "create", p.resource_creates);
       this.assertPassResources(p, "read", p.resource_reads);
       this.assertPassResources(p, "write", p.resource_writes);
@@ -640,6 +716,11 @@ export class FrameGraph {
       }
       for (const w of p.resource_writes) {
         const node = resources[w];
+        if (node !== undefined && node.producer !== null && node.producer !== p) {
+          throw new Error(
+            `FrameGraph '${this.name}' resource '${node.name}' v${node.version} has multiple producers`
+          );
+        }
         if (node) node.producer = p;
       }
     }
@@ -665,8 +746,37 @@ export class FrameGraph {
       }
     }
 
-    for (const p of passes) {
-      if (p.ref_count === 0) continue;
+    const executable = passes.filter((pass) => pass.can_execute());
+    for (const p of executable) {
+      for (const [id, requirement] of p.domain_reads) {
+        const descriptor = this.getDescriptor(id);
+        const actual = descriptor?.domain;
+        if (actual !== requirement.expected && !requirement.conversionOwner) {
+          throw new Error(
+            `FrameGraph '${this.name}' pass '${p.name}' reads ${actual ?? "untyped"} ` +
+            `resource '${resources[id]!.name}' as ${requirement.expected} without a conversion owner`
+          );
+        }
+      }
+      for (const r of p.resource_reads) {
+        const node = resources[r]!;
+        const entry = this.__resource_registry[node.resource_id]!;
+        const producer = node.producer as PassNode | null;
+        if (!entry.imported && producer === null) {
+          throw new Error(
+            `FrameGraph '${this.name}' pass '${p.name}' reads transient resource ` +
+            `'${node.name}' v${node.version} before it is written`
+          );
+        }
+        if (producer !== null && producer !== p && producer.can_execute()) {
+          p.dependencies.add(producer.id);
+        }
+      }
+    }
+    this.__execution_order = stableTopologicalOrder(this.name, executable);
+
+    for (const p of this.__execution_order) {
+      if (!p.can_execute()) continue;
       for (const e of p.resource_creates) {
         const entry = this.getResourceEntry(e);
         entry.producer = p;
@@ -722,8 +832,7 @@ export class FrameGraph {
       for (const [resourceId, binding] of this.__imported_bindings) {
         this.__resource_registry[resourceId]!.resource = binding.resolve(bindings);
       }
-      for (const pass of this.__pass_nodes) {
-      if (!pass.can_execute()) continue;
+      for (const pass of this.__execution_order) {
 
       for (const id of pass.resource_creates) {
         const entry = this.getResourceEntry(id);
@@ -923,12 +1032,11 @@ export class FrameGraph {
 
   /** @internal */
   createCompiledDump(): CompiledFrameGraphDump {
-    const executablePassOrder = this.__pass_nodes
-      .filter((pass) => pass.can_execute())
-      .map((pass) => pass.id);
+    const executablePassOrder = this.__execution_order.map((pass) => pass.id);
+    const scheduleIndex = new Map(executablePassOrder.map((id, index) => [id, index]));
     const resources = this.__resource_registry.map((entry, logicalSlot) => {
-      const uses = this.__pass_nodes.filter((pass) =>
-        pass.can_execute() && (
+      const uses = this.__execution_order.filter((pass) =>
+        (
           pass.resource_creates.some((id) => this.getResourceNode(id).resource_id === logicalSlot) ||
           pass.resource_reads.some((id) => this.getResourceNode(id).resource_id === logicalSlot) ||
           pass.resource_writes.some((id) => this.getResourceNode(id).resource_id === logicalSlot)
@@ -948,7 +1056,10 @@ export class FrameGraph {
           firstUsePass: uses[0]!.id,
           lastUsePass: uses[uses.length - 1]!.id
         }),
-        ...(description ? { description } : {})
+        ...(description ? { description } : {}),
+        ...(entry.resource_descriptor?.domain === undefined
+          ? {}
+          : { domain: entry.resource_descriptor.domain })
       };
       return Object.freeze(dump);
     });
@@ -960,7 +1071,10 @@ export class FrameGraph {
         name: pass.name,
         culled: !pass.can_execute(),
         reads: Object.freeze([...pass.resource_reads]),
-        writes: Object.freeze([...pass.resource_writes])
+        writes: Object.freeze([...pass.resource_writes]),
+        dependencies: Object.freeze([...pass.dependencies].sort((a, b) => a - b)),
+        ...(scheduleIndex.has(pass.id) ? { scheduleIndex: scheduleIndex.get(pass.id) } : {}),
+        ...(pass.encoder_work === null ? {} : { encoderWork: pass.encoder_work })
       }))),
       resources: Object.freeze(resources)
     });
@@ -997,6 +1111,55 @@ export class CompiledFrameGraph {
   destroy(): void {
     this.destroyed = true;
   }
+}
+
+function stableTopologicalOrder(name: string, passes: readonly PassNode[]): PassNode[] {
+  const byId = new Map(passes.map((pass) => [pass.id, pass]));
+  const indegree = new Map(passes.map((pass) => [pass.id, 0]));
+  const consumers = new Map<number, number[]>();
+  for (const pass of passes) {
+    for (const dependency of pass.dependencies) {
+      if (!byId.has(dependency)) continue;
+      indegree.set(pass.id, (indegree.get(pass.id) ?? 0) + 1);
+      const list = consumers.get(dependency) ?? [];
+      list.push(pass.id);
+      consumers.set(dependency, list);
+    }
+  }
+  const ready = passes
+    .filter((pass) => indegree.get(pass.id) === 0)
+    .sort((a, b) => a.id - b.id);
+  const result: PassNode[] = [];
+  while (ready.length > 0) {
+    const pass = ready.shift()!;
+    result.push(pass);
+    for (const consumerId of consumers.get(pass.id) ?? []) {
+      const next = (indegree.get(consumerId) ?? 0) - 1;
+      indegree.set(consumerId, next);
+      if (next === 0) {
+        ready.push(byId.get(consumerId)!);
+        ready.sort((a, b) => a.id - b.id);
+      }
+    }
+  }
+  if (result.length !== passes.length) {
+    const cyclic = passes
+      .filter((pass) => !result.includes(pass))
+      .map((pass) => pass.name);
+    throw new Error(
+      `FrameGraph '${name}' contains a resource dependency cycle: ${cyclic.join(", ")}`
+    );
+  }
+  return result;
+}
+
+function nonNegativeInteger(value: number, label: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(
+      `FrameGraph encoder work '${label}' must be a non-negative integer`
+    );
+  }
+  return value;
 }
 
 function objectBindingSlot(value: unknown): FrameGraphBindingSlot | null {

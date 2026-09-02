@@ -5,7 +5,6 @@ export const TAA_VERTEX_WGSL = FULLSCREEN_TRIANGLE_VERTEX_WGSL;
 /** FX-06B authored final TAA/TAAU resolve at output resolution. */
 export const TAA_WGSL = /* wgsl */ `
 struct TemporalSettings {
-  jitter: vec2f,
   history_validity: f32,
   history_strength: f32,
   internal_resolution: vec2f,
@@ -17,7 +16,9 @@ struct TemporalSettings {
   reactive_threshold: f32,
   disocclusion_threshold: f32,
   motion_fade_pixels: f32,
-  _padding: f32,
+  _padding0: f32,
+  _padding1: f32,
+  _padding2: f32,
 }
 
 @group(0) @binding(0) var linear_clamp: sampler;
@@ -26,7 +27,8 @@ struct TemporalSettings {
 @group(0) @binding(3) var current_color: texture_2d<f32>;
 @group(0) @binding(4) var disocclusion_confidence: texture_2d<f32>;
 @group(0) @binding(5) var temporal_classification: texture_2d<f32>;
-@group(0) @binding(6) var<uniform> settings: TemporalSettings;
+@group(0) @binding(6) var current_depth: texture_2d<f32>;
+@group(0) @binding(7) var<uniform> settings: TemporalSettings;
 
 fn luminance(color: vec3f) -> f32 {
   return dot(max(color, vec3f(0.0)), vec3f(0.2126, 0.7152, 0.0722));
@@ -59,24 +61,55 @@ fn sample_current(uv: vec2f) -> vec3f {
   );
 }
 
+fn catmull_rom_weights(value: f32) -> vec4f {
+  let x2 = value * value;
+  let x3 = x2 * value;
+  return vec4f(
+    -0.5 * value + x2 - 0.5 * x3,
+    1.0 - 2.5 * x2 + 1.5 * x3,
+    0.5 * value + 2.0 * x2 - 1.5 * x3,
+    -0.5 * x2 + 0.5 * x3
+  );
+}
+
+fn sample_current_catmull_rom(uv: vec2f, internal_size: vec2f) -> vec3f {
+  let texel_position = uv * internal_size - 0.5;
+  let base = floor(texel_position);
+  let fraction = fract(texel_position);
+  let wx = catmull_rom_weights(fraction.x);
+  let wy = catmull_rom_weights(fraction.y);
+  var result = vec3f(0.0);
+  for (var y = 0; y < 4; y++) {
+    for (var x = 0; x < 4; x++) {
+      let sample_uv = (base + vec2f(f32(x - 1), f32(y - 1)) + 0.5) / internal_size;
+      result += sample_current(sample_uv) * wx[x] * wy[y];
+    }
+  }
+  return max(result, vec3f(0.0));
+}
+
 fn reconstruct_current(uv: vec2f, pixel: vec2i, internal_size: vec2f) -> vec3f {
   if all(settings.output_resolution <= internal_size) {
     return max(textureLoad(current_color, pixel, 0).rgb, vec3f(0.0));
   }
-  let center = sample_current(uv);
-  let texel = vec2f(1.0) / internal_size;
-  let neighbors =
-    sample_current(uv + vec2f(texel.x, 0.0)) +
-    sample_current(uv - vec2f(texel.x, 0.0)) +
-    sample_current(uv + vec2f(0.0, texel.y)) +
-    sample_current(uv - vec2f(0.0, texel.y));
-  let ratio = max(
-    settings.output_resolution.x / internal_size.x,
-    settings.output_resolution.y / internal_size.y
-  );
-  let reconstruction_strength = clamp((ratio - 1.0) * 0.18, 0.0, 0.22);
-  let detail = center * 4.0 - neighbors;
-  return max(center + detail * reconstruction_strength, vec3f(0.0));
+  return sample_current_catmull_rom(uv, internal_size);
+}
+
+fn closest_depth_pixel(center: vec2i) -> vec2i {
+  let size = vec2i(textureDimensions(current_depth));
+  var closest = clamp(center, vec2i(0), size - vec2i(1));
+  var closest_depth = textureLoad(current_depth, closest, 0).r;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let candidate = clamp(center + vec2i(x, y), vec2i(0), size - vec2i(1));
+      let depth = textureLoad(current_depth, candidate, 0).r;
+      if (depth > closest_depth) {
+        closest = candidate;
+        closest_depth = depth;
+      }
+    }
+  }
+  return closest;
 }
 
 struct NeighborhoodStats {
@@ -133,16 +166,33 @@ fn main(
   );
   let current_uv = clamp(output_uv, vec2f(0.0), vec2f(1.0));
   let current = reconstruct_current(current_uv, current_pixel, internal_size);
-  let classification = textureLoad(temporal_classification, current_pixel, 0).rg;
-  let reactive = clamp(classification.r, 0.0, 1.0);
-  let motion_valid = classification.g >= 0.5;
+  let reprojection_pixel = closest_depth_pixel(current_pixel);
+  let surface_classification = textureLoad(
+    temporal_classification,
+    reprojection_pixel,
+    0
+  ).rg;
+  // Velocity follows the closest opaque depth sample, but final-layer reactive
+  // coverage belongs to the output pixel. Combining both prevents a transparent
+  // foreground from losing its rejection mask when the closest-depth search
+  // selects the opaque surface behind it.
+  let output_reactive = textureLoad(
+    temporal_classification,
+    current_pixel,
+    0
+  ).r;
+  let reactive = clamp(max(surface_classification.r, output_reactive), 0.0, 1.0);
+  let motion_valid = surface_classification.g >= 0.5;
   let globally_valid = settings.history_validity >= 0.5;
-  if !globally_valid || !motion_valid || reactive >= settings.reactive_threshold {
+  // Final-layer reactive coverage may not own a dedicated transparent velocity.
+  // It is allowed to rebuild a heavily clamped zero-motion history; opaque
+  // motion-invalid pixels still reject immediately.
+  if !globally_valid || (!motion_valid && reactive < settings.reactive_threshold) {
     return vec4f(current, 0.0);
   }
 
   let confidence = clamp(
-    textureLoad(disocclusion_confidence, current_pixel, 0).r,
+    textureLoad(disocclusion_confidence, reprojection_pixel, 0).r,
     0.0,
     1.0
   );
@@ -150,7 +200,9 @@ fn main(
     return vec4f(current, 0.0);
   }
 
-  let velocity = textureLoad(velocity_texture, current_pixel, 0).rg;
+  let velocity = textureLoad(velocity_texture, reprojection_pixel, 0).rg;
+  // Output/current sampling is already jittered by the projection contract;
+  // only velocity is selected from the closest-depth surface.
   let history_uv = (current_pixel_f - velocity) / internal_size;
   let history_inside = inside_unit_square(history_uv);
   if !history_inside {
@@ -181,9 +233,14 @@ fn main(
     max(settings.minimum_history_weight, settings.maximum_history_weight),
     history_lock
   );
+  let reactive_rejection = smoothstep(
+    settings.reactive_threshold,
+    1.0,
+    reactive
+  );
   let history_weight = clamp(
     locked_weight_limit * settings.history_strength * motion_confidence *
-      luminance_confidence * (1.0 - reactive) * confidence,
+      luminance_confidence * (1.0 - reactive_rejection) * confidence,
     0.0,
     max(settings.minimum_history_weight, settings.maximum_history_weight)
   );

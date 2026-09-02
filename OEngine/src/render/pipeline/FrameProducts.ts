@@ -1,12 +1,9 @@
-import type { ResourceId } from "../../framegraph/ResourceHandle.js";
+import type {
+  FrameGraphResourceDomain,
+  ResourceId
+} from "../../framegraph/ResourceHandle.js";
 
-export type ResolutionDomain =
-  | "internal-full"
-  | "internal-half"
-  | "output-full"
-  | "tile"
-  | "fixed"
-  | "swapchain";
+export type ResolutionDomain = FrameGraphResourceDomain;
 
 export interface TextureDomain<D extends ResolutionDomain = ResolutionDomain> {
   readonly domain: D;
@@ -59,6 +56,7 @@ export interface TemporalSurfaceFrame {
   readonly velocity: ResourceId;
   readonly historyConfidence: ResourceId;
   readonly reactive: ResourceId;
+  readonly classification: ResourceId;
   readonly domain: TextureDomain<"internal-full">;
 }
 

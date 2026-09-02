@@ -21,6 +21,8 @@ export class DynamicResolutionScaling {
 
   min_scale = 0.5;
   max_scale = 1;
+  /** Stable resource/history buckets; transitions occur only between these values. */
+  scale_buckets: readonly number[] = Object.freeze([0.5, 0.67, 0.75, 0.8, 1]);
   tolerance = 0.1;
   probe_step = 0.05;
   min_useful_slope = 0.005;
@@ -234,7 +236,14 @@ export class DynamicResolutionScaling {
   }
 
   #clamp(v: number): number {
-    return Math.max(this.min_scale, Math.min(this.max_scale, v));
+    const clamped = Math.max(this.min_scale, Math.min(this.max_scale, v));
+    const buckets = this.scale_buckets
+      .filter((bucket) => Number.isFinite(bucket) && bucket >= this.min_scale && bucket <= this.max_scale)
+      .sort((a, b) => a - b);
+    if (buckets.length === 0) return clamped;
+    return buckets.reduce((closest, bucket) =>
+      Math.abs(bucket - clamped) < Math.abs(closest - clamped) ? bucket : closest
+    );
   }
 
   #apply(v: number): void {

@@ -146,7 +146,13 @@ fn get_ibl_radiance(view_direction: vec3f, normal: vec3f, roughness: f32) -> vec
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
-  let position = vec2i(coord.xy);
+  let trace_position = vec2i(coord.xy);
+  let trace_size = vec2i(textureDimensions(valid_history_confidence));
+  let surface_size = vec2i(textureDimensions(gr_bucket));
+  let position = clamp(
+    vec2i((coord.xy + vec2f(0.5)) * vec2f(surface_size) / vec2f(trace_size)),
+    vec2i(0), surface_size - vec2i(1)
+  );
   // QD carries albedo/AO in its declared resource table although the base IBL
   // body does not consume it; retain the exact binding surface.
   if (coord.x < 0.0) {
@@ -159,7 +165,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let view_direction = normalize(-start_view);
   let color_size = textureDimensions(tv_y, 0).xy;
   let focal_length = f32(color_size.y) / (2.0 * camera.device_depth_to_view_space.w);
-  let hit = ssr_hit_unpack(textureLoad(valid_history_confidence, position, 0).xy);
+  let hit = ssr_hit_unpack(textureLoad(valid_history_confidence, trace_position, 0).xy);
   let hit_uv = texel_coordinate_to_uv(vec2f(hit.position), color_size);
   let hit_view = screen_coordinate_to_view(hit.position);
   let hit_normal_world = decode_g_buffer_normal(textureLoad(ray_ws, hit.position, 0).xy);
@@ -171,17 +177,21 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let traced = textureSampleLevel(tv_y, segment_height, hit_uv, mip).rgb;
   var radiance = traced * hit.confidence;
   var second_moment = pow2(rgb_to_luminance(traced));
-  let hash = resolve_trigonometric_moments(vec3u(vec2u(position), settings.frame_index));
+  let hash = resolve_trigonometric_moments(vec3u(vec2u(trace_position), settings.frame_index));
   let maximum_position = vec2i(textureDimensions(valid_history_confidence)) - vec2i(1);
   for (var sample_index = 0u; sample_index < 4u; sample_index++) {
     let offset_index = (hash + sample_index) % 48u;
     let neighbor_position = clamp(
-      position + NEIGHBOR_OFFSETS[offset_index],
+      trace_position + NEIGHBOR_OFFSETS[offset_index],
       vec2i(0),
       maximum_position
     );
-    let neighbor_normal_view = direction_world_to_view(decode_g_buffer_normal(textureLoad(ray_ws, neighbor_position, 0).xy));
-    let neighbor_roughness = decode_g_buffer_roughness(textureLoad(edge, neighbor_position, 0));
+    let neighbor_surface_position = clamp(
+      vec2i((vec2f(neighbor_position) + 0.5) * vec2f(surface_size) / vec2f(trace_size)),
+      vec2i(0), surface_size - vec2i(1)
+    );
+    let neighbor_normal_view = direction_world_to_view(decode_g_buffer_normal(textureLoad(ray_ws, neighbor_surface_position, 0).xy));
+    let neighbor_roughness = decode_g_buffer_roughness(textureLoad(edge, neighbor_surface_position, 0));
     let neighbor_hit = ssr_hit_unpack(textureLoad(valid_history_confidence, neighbor_position, 0).xy);
     let neighbor_hit_depth = textureLoad(gr_bucket, neighbor_hit.position, 0).r;
     let neighbor_hit_uv = texel_coordinate_to_uv(vec2f(neighbor_hit.position), color_size);
@@ -190,7 +200,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     let neighbor_hit_normal_view = direction_world_to_view(decode_g_buffer_normal(textureLoad(ray_ws, neighbor_hit.position, 0).xy));
     let front_facing = step(0.0, dot(-neighbor_ray, neighbor_hit_normal_view));
     let source_facing = step(0.0, dot(neighbor_ray, normal_view));
-    let neighbor_start_view = screen_coordinate_to_view(vec2u(neighbor_position));
+    let neighbor_start_view = screen_coordinate_to_view(vec2u(neighbor_surface_position));
     let neighbor_source_ray = normalize(neighbor_hit_view - neighbor_start_view);
     let hit_pdf = neighbour_pdf(neighbor_normal_view, view_direction, neighbor_source_ray, neighbor_roughness);
     let confidence = neighbor_hit.confidence * source_facing * front_facing;
@@ -211,6 +221,11 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let environment = get_ibl_radiance(world_view, normal_world, roughness);
   let resolved = mix(environment, radiance, maximum_confidence);
   let variance = max(second_moment - pow2(rgb_to_luminance(radiance)), 0.0);
-  return vec4f(resolved, variance);
+  let resolved_finite = all(resolved == resolved) && all(abs(resolved) < vec3f(65504.0));
+  let variance_finite = variance == variance && abs(variance) < 65504.0;
+  return vec4f(
+    select(max(environment, vec3f(0.0)), max(resolved, vec3f(0.0)), resolved_finite),
+    select(0.0, variance, variance_finite)
+  );
 }
 `;

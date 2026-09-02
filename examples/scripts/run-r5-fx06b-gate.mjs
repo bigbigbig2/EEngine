@@ -146,9 +146,10 @@ const thresholds = {
   maxStaticTemporalRmsRgb8: 2,
   maxSettledRmsRgb8: 2,
   maxGhostRmsAt32FramesRgb8: 2,
-  // A stopped reactive surface still follows projection jitter. Runs up to the
-  // fixture's 16 px bevel width are edge variation; the moving trail is wider.
-  maxGhostTrailAt32FramesPixels: 16,
+  // A fully rejected reactive surface still follows projection jitter. The
+  // fixture's 16 px bevel plus the two-pixel Catmull-Rom reconstruction support
+  // can form an 18 px changed run; a moving trail remains substantially wider.
+  maxGhostTrailAt32FramesPixels: 18,
   pixelDifferenceThresholdRgb8: 8,
   maxSettlingFrames: 32,
   minimumFeatureDifferenceRmsRgb8: 0.02
@@ -423,10 +424,13 @@ async function ghostSequenceMetrics(stageId, allScreenshots, PNG, thresholds) {
       ...comparison
     });
   }
-  const settledSample = samples.find((sample) =>
+  const satisfiesSettlingThreshold = (sample) =>
     sample.rmsRgb8 <= thresholds.maxGhostRmsAt32FramesRgb8 &&
-    sample.ghostTrailLengthPixels <= thresholds.maxGhostTrailAt32FramesPixels
+    sample.ghostTrailLengthPixels <= thresholds.maxGhostTrailAt32FramesPixels;
+  const settledIndex = samples.findIndex((_, candidateIndex) =>
+    samples.slice(candidateIndex).every(satisfiesSettlingThreshold)
   );
+  const settledSample = settledIndex < 0 ? undefined : samples[settledIndex];
   return {
     reference: settled.keyframe.label,
     settlingFrames: settledSample?.framesSinceEvent ?? null,
