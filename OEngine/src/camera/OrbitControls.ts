@@ -308,13 +308,15 @@ export class OrbitControls {
     const height = Math.max(1, this.domElement.clientHeight);
     const distance = this.spherical.radius * Math.tan(this.camera.fov * 0.5) / height * 2 * this.panSpeed;
     const matrix = this.camera.transform.matrix;
-    this.panOffset.x -= deltaX * distance * matrix[0]!;
-    this.panOffset.y -= deltaX * distance * matrix[1]!;
-    this.panOffset.z -= deltaX * distance * matrix[2]!;
+    // three.js cameras look down local -Z, while OEngine cameras look down local +Z.
+    // Flip both screen axes so drag-panning follows the pointer in screen space.
+    this.panOffset.x += deltaX * distance * matrix[0]!;
+    this.panOffset.y += deltaX * distance * matrix[1]!;
+    this.panOffset.z += deltaX * distance * matrix[2]!;
     if (this.screenSpacePanning) {
-      this.panOffset.x -= deltaY * distance * matrix[4]!;
-      this.panOffset.y -= deltaY * distance * matrix[5]!;
-      this.panOffset.z -= deltaY * distance * matrix[6]!;
+      this.panOffset.x += deltaY * distance * matrix[4]!;
+      this.panOffset.y += deltaY * distance * matrix[5]!;
+      this.panOffset.z += deltaY * distance * matrix[6]!;
     } else {
       this.panOffset.y += deltaY * distance;
     }
