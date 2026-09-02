@@ -3,7 +3,7 @@ import {
   BoxGeometry,
   DirectionalLight,
   Mesh,
-  OrbitalCameraController,
+  OrbitControls,
   PerspectiveCamera,
   Renderer,
   Scene,
@@ -38,7 +38,7 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
     let animationFrame = 0;
     let resizeObserver: ResizeObserver | null = null;
     let renderer: Renderer | null = null;
-    let controller: OrbitalCameraController | null = null;
+    let controller: OrbitControls | null = null;
     let context: GPUCanvasContext | null = null;
 
     setState("initializing");
@@ -73,7 +73,7 @@ export function OEngineCanvas({ mode, color, interactiveCamera }: OEngineCanvasP
       const scene = createBasicScene(mode, color);
       const camera = createCamera(renderer.aspect_ratio, mode);
       if (interactiveCamera) {
-        controller = new OrbitalCameraController(camera, targetCanvas);
+        controller = new OrbitControls(camera, targetCanvas);
         controller.look(camera.transform.position, { x: 0, y: 0, z: 0 });
         controller.distanceLimits.min = 2;
         controller.distanceLimits.max = 36;

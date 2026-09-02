@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <link rel="icon" href="data:," />
-    <title>OEngine · 综合渲染实验室</title>
+    <title>OEngine · Rendering Lab</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -26,13 +26,14 @@
 
       <header class="scene-summary" aria-label="场景概览">
         <div>
-          <span class="eyebrow">综合渲染管线</span>
+          <span class="eyebrow">GPU 性能实验台</span>
           <strong>Rendering Lab</strong>
         </div>
         <dl>
           <div><dt>FPS</dt><dd id="metric-fps">—</dd></div>
           <div><dt>实例</dt><dd id="metric-instances">—</dd></div>
-          <div><dt>几何体</dt><dd id="metric-geometries">—</dd></div>
+          <div><dt>几何包</dt><dd id="metric-geometries">—</dd></div>
+          <div><dt>材质</dt><dd id="metric-materials">—</dd></div>
         </dl>
       </header>
 
@@ -52,7 +53,7 @@
         <fieldset id="control-fieldset" disabled>
           <section class="control-section evidence-section" aria-labelledby="evidence-heading">
             <div class="section-heading-row">
-              <h3 id="evidence-heading">Q00 实测证据</h3>
+              <h3 id="evidence-heading">帧级性能证据</h3>
               <span class="sample-pill" id="evidence-samples">等待采样</span>
             </div>
             <div class="evidence-grid">
@@ -81,13 +82,32 @@
             <p class="field-help evidence-note">GPU timestamp 与 counter 均异步采样；Observability 开销单列，不用 FPS 反推。</p>
           </section>
 
+          <section class="control-section pipeline-section" aria-labelledby="pipeline-heading">
+            <div class="section-heading-row">
+              <h3 id="pipeline-heading">GPU-driven 主链</h3>
+              <span class="sample-pill" id="pipeline-sample">等待 counter</span>
+            </div>
+            <dl class="pipeline-list">
+              <div><dt>Asset → Versioned Package</dt><dd id="pipeline-asset">—</dd></div>
+              <div><dt>GpuAssetStore</dt><dd id="pipeline-residency">—</dd></div>
+              <div><dt>Packed Instance Tables</dt><dd id="pipeline-scene">—</dd></div>
+              <div><dt>Hierarchy / SSE / Cone / HZB</dt><dd id="pipeline-visibility">—</dd></div>
+              <div><dt>Work Generation</dt><dd id="pipeline-work">—</dd></div>
+              <div><dt>RasterWork → Indirect</dt><dd id="pipeline-raster">—</dd></div>
+              <div><dt>VisibilityKey + Reverse-Z</dt><dd id="pipeline-key">—</dd></div>
+              <div><dt>Material Resolve → Surface</dt><dd id="pipeline-surface">—</dd></div>
+              <div><dt>FrameGraph / submit</dt><dd id="pipeline-frame">—</dd></div>
+            </dl>
+            <p class="field-help">数值来自最近一次完成的异步 GPU counter；非采样帧不会伪造零值。</p>
+          </section>
+
           <section class="control-section">
             <label class="field-label" for="debug-view">调试视图</label>
             <select id="debug-view"></select>
             <p class="field-help" id="debug-help">曝光、色调映射与后处理后的最终输出。</p>
           </section>
 
-          <section class="control-section">
+          <section class="control-section" data-advanced-panel>
             <h3>光照与后处理</h3>
             <div class="effect-block">
               <label class="switch-row"><span><strong>级联阴影</strong><small>Packed CSM</small></span><input type="checkbox" data-feature="shadows" checked /></label>

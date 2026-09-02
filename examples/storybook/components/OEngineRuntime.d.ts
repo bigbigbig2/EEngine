@@ -72,17 +72,38 @@ export class DirectionalLight {
   forward: [number, number, number];
 }
 
-export class OrbitalCameraController {
+export class OrbitControls {
   readonly pointer: { stop(): void };
   readonly keyboard: { stop(): void };
   readonly distanceLimits: { min: number; max: number };
+  enabled: boolean;
+  enableDamping: boolean;
+  dampingFactor: number;
+  enableZoom: boolean;
+  zoomSpeed: number;
+  enableRotate: boolean;
+  rotateSpeed: number;
+  enablePan: boolean;
+  panSpeed: number;
+  minDistance: number;
+  maxDistance: number;
+  minPolarAngle: number;
+  maxPolarAngle: number;
+  autoRotate: boolean;
+  autoRotateSpeed: number;
   constructor(camera: PerspectiveCamera, element: HTMLElement);
   look(
     from: { readonly x: number; readonly y: number; readonly z: number },
     to: { readonly x: number; readonly y: number; readonly z: number }
   ): void;
-  update(): void;
+  dispose(): void;
+  addEventListener(type: "change" | "start" | "end", listener: (event: { type: "change" | "start" | "end" }) => void): void;
+  removeEventListener(type: "change" | "start" | "end", listener: (event: { type: "change" | "start" | "end" }) => void): void;
+  update(deltaTime?: number): boolean;
 }
+
+/** @deprecated Use OrbitControls. Kept for existing Storybook consumers. */
+export class OrbitalCameraController extends OrbitControls {}
 
 export const ShadeDataType: {
   readonly Float16: "float16";

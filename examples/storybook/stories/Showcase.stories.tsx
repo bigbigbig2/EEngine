@@ -18,6 +18,11 @@ export const RenderingLab: Story = {
   args: { entry: exampleCatalog.renderingLab as ExampleCatalogEntry }
 };
 
+export const RenderingLabGpuPipeline: Story = {
+  name: "Rendering Lab · GPU Pipeline",
+  args: { entry: exampleCatalog.renderingLabPipeline as ExampleCatalogEntry }
+};
+
 export const CyberpunkCity: Story = {
   name: "Cyberpunk City",
   args: { entry: exampleCatalog.integratedShowcase as ExampleCatalogEntry }

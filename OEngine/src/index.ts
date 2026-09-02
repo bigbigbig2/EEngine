@@ -134,6 +134,7 @@ export { Light } from "./light/Light.js";
 export { Mesh } from "./scene/Mesh.js";
 export { Node3D } from "./scene/Node3D.js";
 export { OrbitalCameraController } from "./camera/OrbitalCameraController.js";
+export { OrbitControls } from "./camera/OrbitControls.js";
 export { PerspectiveCamera } from "./camera/PerspectiveCamera.js";
 export { PointLight } from "./light/PointLight.js";
 export { ProjectionMappingType } from "./loaders/ProjectionMappingType.js";

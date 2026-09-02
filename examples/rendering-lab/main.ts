@@ -1,6 +1,6 @@
 import {
   DirectionalLight,
-  OrbitalCameraController,
+  OrbitControls,
   PerspectiveCamera,
   RENDER_DEBUG_VIEW_OPTIONS,
   RenderDebugView,
@@ -66,6 +66,7 @@ type DebugDescriptor = {
 
 const MODEL_URL = new URL("./assets/dungeon_warkarma.glb", import.meta.url).href;
 const ENVIRONMENT_URL = new URL("../integrated-showcase/assets/venice_sunset_1k.hdr", import.meta.url).href;
+const PIPELINE_MODE = new URLSearchParams(location.search).get("mode") === "pipeline";
 
 const debugDescriptors: readonly DebugDescriptor[] = [
   { value: RenderDebugView.None, label: "最终画面", help: "曝光、色调映射与后处理后的最终输出。" },
@@ -107,6 +108,7 @@ const panelToggle = required<HTMLButtonElement>("panel-toggle");
 const metricFps = required<HTMLElement>("metric-fps");
 const metricInstances = required<HTMLElement>("metric-instances");
 const metricGeometries = required<HTMLElement>("metric-geometries");
+const metricMaterials = required<HTMLElement>("metric-materials");
 const evidenceSamples = required<HTMLElement>("evidence-samples");
 const evidenceGpuP50 = required<HTMLElement>("evidence-gpu-p50");
 const evidenceGpuTail = required<HTMLElement>("evidence-gpu-tail");
@@ -117,15 +119,37 @@ const evidenceResolution = required<HTMLElement>("evidence-resolution");
 const evidenceAo = required<HTMLElement>("evidence-ao");
 const evidenceSsr = required<HTMLElement>("evidence-ssr");
 const evidenceSystem = required<HTMLElement>("evidence-system");
+const pipelineSample = required<HTMLElement>("pipeline-sample");
+const pipelineAsset = required<HTMLElement>("pipeline-asset");
+const pipelineResidency = required<HTMLElement>("pipeline-residency");
+const pipelineScene = required<HTMLElement>("pipeline-scene");
+const pipelineVisibility = required<HTMLElement>("pipeline-visibility");
+const pipelineWork = required<HTMLElement>("pipeline-work");
+const pipelineRaster = required<HTMLElement>("pipeline-raster");
+const pipelineKey = required<HTMLElement>("pipeline-key");
+const pipelineSurface = required<HTMLElement>("pipeline-surface");
+const pipelineFrame = required<HTMLElement>("pipeline-frame");
 
 let renderer: Renderer | null = null;
 let scene: Scene | null = null;
 let camera: PerspectiveCamera | null = null;
-let controller: OrbitalCameraController | null = null;
+let controller: OrbitControls | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let frameRequest = 0;
 let disposed = false;
 let sceneBounds: Bounds | null = null;
+let pipelineStats: {
+  instances: number;
+  geometries: number;
+  materials: number;
+  meshlets: number;
+  clusters: number;
+  bvhNodes: number;
+  vertices: number;
+  triangles: number;
+  packageBytes: number;
+  packageVersion: number;
+} | null = null;
 let sunLight: DirectionalLight | null = null;
 let sunAzimuthDegrees = -36;
 let sunElevationDegrees = 65;
@@ -134,6 +158,7 @@ let lastFpsSample = performance.now();
 const evidenceWindow = new ShowcaseEvidenceWindow(1024);
 let unsubscribeProfiler: (() => void) | null = null;
 
+root.dataset.mode = PIPELINE_MODE ? "pipeline" : "quality";
 populateDebugViews();
 bindPanelShell();
 void initialize().catch(showFatalError);
@@ -178,8 +203,10 @@ async function initialize(): Promise<void> {
 
   const lab = await createRenderingLab(imported);
   sceneBounds = lab.bounds;
+  pipelineStats = lab.stats;
   metricInstances.textContent = formatInteger(lab.source.count);
   metricGeometries.textContent = formatInteger(lab.source.geometries.length);
+  metricMaterials.textContent = formatInteger(lab.source.materials.length);
   if (disposed) return;
 
   const activeScene = new Scene();
@@ -197,7 +224,7 @@ async function initialize(): Promise<void> {
 
   const activeCamera = createCamera(activeRenderer, sceneBounds);
   camera = activeCamera;
-  controller = new OrbitalCameraController(activeCamera, canvas);
+  controller = new OrbitControls(activeCamera, canvas);
   resetCamera();
   bindRendererControls(activeRenderer);
   installQ00Api(activeRenderer);
@@ -214,6 +241,7 @@ async function initialize(): Promise<void> {
 function installQ00Api(activeRenderer: Renderer): void {
   window.__OENGINE_Q00_SET_STATE__ = (state) => {
     for (const [feature, enabled] of Object.entries(state.features ?? {})) {
+      if (PIPELINE_MODE && ["shadows", "ssao", "ssr", "taa", "bloom", "exposure", "sharpen"].includes(feature)) continue;
       const checkbox = document.querySelector<HTMLInputElement>(`input[data-feature="${feature}"]`);
       if (checkbox === null || enabled === undefined) continue;
       checkbox.checked = enabled;
@@ -300,12 +328,16 @@ function installQ00Api(activeRenderer: Renderer): void {
 
 function configurePipeline(activeRenderer: Renderer): void {
   activeRenderer.configure({
-    features: {
+    features: PIPELINE_MODE ? {
+      shadows: false, ambientOcclusion: false, screenSpaceReflections: false,
+      temporalAntiAliasing: false, bloom: false, automaticExposure: false,
+      motionBlur: false, sharpening: false
+    } : {
       shadows: true, ambientOcclusion: true, screenSpaceReflections: false,
       temporalAntiAliasing: true, bloom: true, automaticExposure: true,
       motionBlur: false, sharpening: true
     },
-    ao: { resolutionScale: 0.5, temporalEnabled: true }
+    ...(PIPELINE_MODE ? {} : { ao: { resolutionScale: 0.5, temporalEnabled: true } })
   });
   activeRenderer.internal_resolution_scale = 1;
   activeRenderer.packed_visibility_sse_threshold = 4;
@@ -317,6 +349,7 @@ function configurePipeline(activeRenderer: Renderer): void {
 async function createRenderingLab(imported: PackedGltfSource): Promise<{
   readonly source: PackedSceneSource;
   readonly bounds: Bounds;
+  readonly stats: NonNullable<typeof pipelineStats>;
 }> {
   const generatedSources = [
     buildBoxSourceGeometry(30, 0.2, 18),
@@ -397,6 +430,18 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
     boundsMax.set(source.bounds.box.subarray(3, 6), destination * 3);
     debugIds[destination] = destination + 1;
   }
+  const stats = {
+    instances: count,
+    geometries: geometries.length,
+    materials: materials.length,
+    meshlets: geometries.reduce((sum, geometry) => sum + geometry.meshlets.length, 0),
+    clusters: geometries.reduce((sum, geometry) => sum + geometry.clusters.length, 0),
+    bvhNodes: geometries.reduce((sum, geometry) => sum + geometry.bvh8Nodes.length, 0),
+    vertices: geometries.reduce((sum, geometry) => sum + geometry.vertexStreamDescriptors.reduce((inner, stream) => inner + stream.vertexCount, 0), 0),
+    triangles: geometries.reduce((sum, geometry) => sum + geometry.indices.length / 3, 0),
+    packageBytes: geometries.reduce((sum, geometry) => sum + geometry.package.manifest.totalByteLength, 0),
+    packageVersion: geometries[0]?.package.manifest.formatVersion ?? 0
+  };
   return Object.freeze({
     source: Object.freeze({
       geometries,
@@ -417,7 +462,8 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
       max: [15, 5, 9],
       center: [0, 1.9, 0],
       radius: 18.1
-    })
+    }),
+    stats: Object.freeze(stats)
   });
 }
 
@@ -771,6 +817,7 @@ function populateDebugViews(): void {
       .map((entry) => entry.view)
   );
   for (const descriptor of debugDescriptors) {
+    if (PIPELINE_MODE && (descriptor.requires !== undefined || /AO|SSR|Temporal|历史|反应|漫反射 IBL|镜面 IBL|线性 HDR/.test(descriptor.label))) continue;
     if (!supported.has(descriptor.value)) continue;
     const option = document.createElement("option");
     option.value = descriptor.value;
@@ -974,6 +1021,35 @@ function updateProfilerEvidence(): void {
     `validation ${diagnostics.validationErrorCount}`,
     `counter drop ${diagnostics.droppedGpuCounterSamples}`
   ].join(" · ");
+  updatePipelineEvidence(summary, renderer);
+}
+
+function updatePipelineEvidence(
+  summary: ReturnType<ShowcaseEvidenceWindow["summarize"]>,
+  activeRenderer: Renderer
+): void {
+  const counters = summary.latestGpuCounters;
+  const sampled = summary.latestCounterFrame !== null;
+  pipelineSample.textContent = sampled ? `frame ${summary.latestCounterFrame}` : "等待 counter";
+  if (pipelineStats === null) return;
+  const assets = activeRenderer.geometryAssetResidencyEvidence();
+  const gpuScene = activeRenderer.gpuSceneEvidence();
+  const packed = activeRenderer.packedSceneEvidence();
+  const visible = counters.visibleInstances ?? 0;
+  const candidate = counters.candidateInstances ?? 0;
+  const selected = counters.selectedClusters ?? 0;
+  const hw = counters.hwClusters ?? 0;
+  const shaded = counters.shadedPixels ?? 0;
+  const empty = counters.emptyVisibilityPixels ?? 0;
+  pipelineAsset.textContent = `v${pipelineStats.packageVersion} · ${pipelineStats.instances.toLocaleString()} instances · ${pipelineStats.geometries} packages · ${pipelineStats.materials} materials · ${pipelineStats.vertices.toLocaleString()} vertices · ${pipelineStats.triangles.toLocaleString()} triangles · ${pipelineStats.meshlets.toLocaleString()} meshlets · ${pipelineStats.clusters.toLocaleString()} clusters · ${pipelineStats.bvhNodes.toLocaleString()} BVH · ${formatBytes(pipelineStats.packageBytes)}`;
+  pipelineResidency.textContent = `${assets.residentAssetCount} resident · ${formatBytes(assets.residentBytes)} logical · ${formatBytes(assets.allocatedBytes)} allocated · ${assets.uploadCalls} uploads`;
+  pipelineScene.textContent = `${gpuScene.activeInstanceCount}/${gpuScene.highWaterInstanceCount} active · stride ${gpuScene.recordStride} B · ${formatBytes(gpuScene.residentBytes)} table · ${packed.sceneCount} packed scene`;
+  pipelineVisibility.textContent = sampled ? `${candidate.toLocaleString()} candidates → ${visible.toLocaleString()} visible · frustum ${counters.rejectedFrustum ?? 0} · cone ${counters.rejectedCone ?? 0} · HZB ${counters.rejectedHzb ?? 0}` : "尚未完成采样";
+  pipelineWork.textContent = sampled ? `${counters.visitedBvhNodes ?? 0} visited → ${selected} selected · root reserve ${counters.rootStageQueueReservations ?? 0} · traversal reserve ${counters.traversalQueueReservations ?? 0} · CAS retry ${counters.workGenerationCasRetries ?? 0}` : "尚未完成采样";
+  pipelineRaster.textContent = sampled ? `${hw} HW RasterWork · ${counters.hwTriangles ?? 0} triangles · SW ${counters.swClusters ?? 0} · overflow ${counters.queueOverflowMask ?? 0}` : "尚未完成采样";
+  pipelineKey.textContent = sampled ? `VisibilityKey ${shaded.toLocaleString()} shaded / ${empty.toLocaleString()} empty · invalid ${counters.invalidVisibilityKeys ?? 0} · reverse-Z depth` : "尚未完成采样";
+  pipelineSurface.textContent = sampled ? `${counters.activeMaterials ?? 0} materials · normal ${counters.normalTexturePixels ?? 0} · ORM ${counters.ormTexturePixels ?? 0} · emissive ${counters.emissiveTexturePixels ?? 0} · gradient fallback ${counters.gradientFallbackPixels ?? 0}` : "尚未完成采样";
+  pipelineFrame.textContent = `${summary.latestSubmitCount ?? "—"} submit · ${commandValue(summary.latestCommands, "renderPass")} render / ${commandValue(summary.latestCommands, "computePass")} compute · ${commandValue(summary.latestCommands, "draw")} draw / ${commandValue(summary.latestCommands, "dispatch")} dispatch · graph ${activeRenderer.mainFrameGraphEvidence()?.cacheKey ?? "—"}`;
 }
 
 function commandValue(counters: Readonly<Record<string, number>>, name: string): number | string {

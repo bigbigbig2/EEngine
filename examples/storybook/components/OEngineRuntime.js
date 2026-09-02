@@ -5,6 +5,7 @@ export {
   BoxGeometry,
   DirectionalLight,
   Mesh,
+  OrbitControls,
   OrbitalCameraController,
   PerspectiveCamera,
   Renderer,

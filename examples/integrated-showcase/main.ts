@@ -1,6 +1,6 @@
 import {
   DirectionalLight,
-  OrbitalCameraController,
+  OrbitControls,
   PerspectiveCamera,
   PointLight,
   RENDER_DEBUG_VIEW_OPTIONS,
@@ -120,7 +120,7 @@ const evidenceSystem = required<HTMLElement>("evidence-system");
 let renderer: Renderer | null = null;
 let scene: Scene | null = null;
 let camera: PerspectiveCamera | null = null;
-let controller: OrbitalCameraController | null = null;
+let controller: OrbitControls | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let frameRequest = 0;
 let disposed = false;
@@ -217,7 +217,7 @@ async function initialize(): Promise<void> {
 
   const activeCamera = createCamera(activeRenderer, sceneBounds);
   camera = activeCamera;
-  controller = new OrbitalCameraController(activeCamera, canvas);
+  controller = new OrbitControls(activeCamera, canvas);
   resetCamera();
   bindRendererControls(activeRenderer);
   installQ00Api(activeRenderer);
