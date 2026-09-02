@@ -91,7 +91,7 @@ export interface GpuAssetBindings {
 }
 
 export interface AssetResidencyEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly abiVersion: number;
   readonly residentAssetCount: number;
   readonly fallbackBytes: number;
@@ -112,6 +112,12 @@ export interface AssetResidencyEvidence {
   readonly rejectedPackageCount: number;
   readonly abortedResidencyCount: number;
   readonly releaseCount: number;
+  readonly committedResidencyTransactions: number;
+  readonly abortedResidencyTransactions: number;
+  readonly committedReleaseTransactions: number;
+  readonly abortedReleaseTransactions: number;
+  readonly largestTransactionPackageCount: number;
+  readonly largestTransactionSourceBytes: number;
   readonly privateSubmitCount: 0;
   readonly pendingMutation: "resident" | "release" | null;
   readonly tables: Readonly<Record<BufferName, AssetTableEvidence>>;
@@ -225,6 +231,12 @@ export class GpuAssetStore {
   private rejectedPackageCount = 0;
   private abortedResidencyCount = 0;
   private releaseCount = 0;
+  private committedResidencyTransactions = 0;
+  private abortedResidencyTransactions = 0;
+  private committedReleaseTransactions = 0;
+  private abortedReleaseTransactions = 0;
+  private largestTransactionPackageCount = 0;
+  private largestTransactionSourceBytes = 0;
 
   constructor(private readonly device: GPUDevice) {
     const definitions: readonly [BufferName, number][] = [
@@ -268,93 +280,117 @@ export class GpuAssetStore {
     asset: GeometryAssetPackage,
     command: ShadeGPUCommandContext | GpuAssetCommand
   ): AssetHandle {
+    return this.residentMany([asset], command)[0]!;
+  }
+
+  /**
+   * Reserves, uploads and publishes a complete geometry set as one command
+   * transaction. Any validation/encoding/command failure restores every
+   * cursor, slot and replacement buffer; partial scene residency is impossible.
+   */
+  residentMany(
+    assets: readonly GeometryAssetPackage[],
+    command: ShadeGPUCommandContext | GpuAssetCommand
+  ): readonly AssetHandle[] {
+    if (assets.length === 0) return Object.freeze([]);
     this.assertMutation(command, "resident");
-    let slot = -1;
-    let reusedSlot = false;
-    let entry: AssetEntry | undefined;
     const cursorSnapshot = new Map(
       this.orderedBuffers.map((buffer) => [buffer, buffer.cursorBytes] as const)
     );
+    const slotSnapshot = this.slots.map((slot) => ({
+      generation: slot.generation,
+      entry: slot.entry
+    }));
+    const freeSlotSnapshot = [...this.freeSlots];
     const replacements: BufferReplacement[] = [];
+    const entries: AssetEntry[] = [];
+    const handles: AssetHandle[] = [];
+    const plans: ResidencyPlan[] = [];
     try {
-      const report = asset.validate();
-      if (!report.valid) {
-        throw new Error("GpuAssetStore only accepts a fully validated Geometry package");
-      }
-      slot = this.freeSlots.length > 0
-        ? this.freeSlots[this.freeSlots.length - 1]!
-        : this.slots.length;
-      reusedSlot = slot < this.slots.length;
-      const generation = reusedSlot ? this.slots[slot]!.generation : 1;
-      const plan = this.buildResidencyPlan(asset, slot);
-      this.validatePlanCapacity(plan);
-
-      if (reusedSlot) this.freeSlots.pop();
-      else this.slots.push({ generation });
-
-      for (const [buffer, nextCursor] of plan.nextCursors) {
-        const required = Math.max(nextCursor, buffer.buffer.size);
-        if (required > buffer.buffer.size) {
-          replacements.push(this.growBuffer(buffer, required, command));
+      for (const asset of assets) {
+        const report = asset.validate();
+        if (!report.valid) {
+          throw new Error("GpuAssetStore only accepts fully validated Geometry packages");
         }
-        buffer.cursorBytes = nextCursor;
+        const reusedSlot = this.freeSlots.length > 0;
+        const slot = reusedSlot ? this.freeSlots.pop()! : this.slots.length;
+        const generation = reusedSlot ? this.slots[slot]!.generation : 1;
+        if (!reusedSlot) this.slots.push({ generation });
+        const plan = this.buildResidencyPlan(asset, slot);
+        this.validatePlanCapacity(plan);
+        plans.push(plan);
+        for (const [buffer, nextCursor] of plan.nextCursors) {
+          buffer.cursorBytes = nextCursor;
+        }
+        const handle = Object.freeze({}) as AssetHandle;
+        const entry: AssetEntry = {
+          handle,
+          slot,
+          generation,
+          logicalBytes: plan.logicalBytes,
+          residentBytes: plan.residentBytes,
+          sourcePackageBytes: asset.package.manifest.totalByteLength,
+          contentHash: asset.package.manifest.contentHash,
+          state: "pending"
+        };
+        this.slots[slot]!.entry = entry;
+        HANDLE_STATE.set(handle as object, { store: this, slot, generation });
+        entries.push(entry);
+        handles.push(handle);
+      }
+      for (const buffer of this.orderedBuffers) {
+        if (buffer.cursorBytes > buffer.buffer.size) {
+          replacements.push(this.growBuffer(buffer, buffer.cursorBytes, command));
+        }
       }
       this.recordProvisionalPeak(replacements);
-      const grew = replacements.length > 0;
-      for (const segment of plan.segments) {
-        this.uploadSegment(segment, command, grew);
+      for (const plan of plans) {
+        for (const segment of plan.segments) this.uploadSegment(segment, command, true);
       }
-
-      const handle = Object.freeze({}) as AssetHandle;
-      entry = {
-        handle,
-        slot,
-        generation,
-        logicalBytes: plan.logicalBytes,
-        residentBytes: plan.residentBytes,
-        sourcePackageBytes: asset.package.manifest.totalByteLength,
-        contentHash: asset.package.manifest.contentHash,
-        state: "pending"
-      };
-      this.slots[slot]!.entry = entry;
-      HANDLE_STATE.set(handle as object, { store: this, slot, generation });
-      const committedEntry = entry;
       command.onFinished.addOne(() => {
-        if (committedEntry.state !== "pending") return;
-        committedEntry.state = "resident";
-        this.residentAssetCount++;
-        this.logicalBytes += committedEntry.logicalBytes;
-        this.activeResidentBytes += committedEntry.residentBytes;
+        if (entries.some((entry) => entry.state !== "pending")) return;
+        for (const entry of entries) {
+          entry.state = "resident";
+          this.logicalBytes += entry.logicalBytes;
+          this.activeResidentBytes += entry.residentBytes;
+        }
+        this.residentAssetCount += entries.length;
+        this.committedResidencyTransactions++;
+        this.largestTransactionPackageCount = Math.max(
+          this.largestTransactionPackageCount,
+          entries.length
+        );
+        this.largestTransactionSourceBytes = Math.max(
+          this.largestTransactionSourceBytes,
+          entries.reduce((sum, entry) => sum + entry.sourcePackageBytes, 0)
+        );
         this.committedGrowCount += replacements.length;
         this.commitReplacements(replacements);
         this.pendingMutation = null;
       });
       command.onAborted.addOne(() => {
-        if (committedEntry.state !== "pending") return;
-        committedEntry.state = "aborted";
-        this.rollbackResidency(
-          committedEntry,
-          reusedSlot,
+        if (entries.every((entry) => entry.state !== "pending")) return;
+        for (const entry of entries) entry.state = "aborted";
+        this.rollbackResidencyBatch(
           cursorSnapshot,
+          slotSnapshot,
+          freeSlotSnapshot,
           replacements
         );
-        this.abortedResidencyCount++;
+        this.abortedResidencyCount += entries.length;
+        this.abortedResidencyTransactions++;
         this.pendingMutation = null;
       });
-      return handle;
+      return Object.freeze(handles);
     } catch (error) {
       this.rejectedPackageCount++;
-      if (entry !== undefined) entry.state = "aborted";
-      for (let index = replacements.length - 1; index >= 0; index--) {
-        const replacement = replacements[index]!;
-        replacement.owner.buffer = replacement.previous;
-        replacement.next.destroy();
-      }
-      for (const [buffer, cursor] of cursorSnapshot) buffer.cursorBytes = cursor;
-      if (slot >= 1) {
-        if (!reusedSlot && slot === this.slots.length - 1) this.slots.pop();
-        else if (reusedSlot && !this.freeSlots.includes(slot)) this.freeSlots.push(slot);
-      }
+      for (const entry of entries) entry.state = "aborted";
+      this.rollbackResidencyBatch(
+        cursorSnapshot,
+        slotSnapshot,
+        freeSlotSnapshot,
+        replacements
+      );
       this.pendingMutation = null;
       throw error;
     }
@@ -364,38 +400,63 @@ export class GpuAssetStore {
     handle: AssetHandle,
     command: ShadeGPUCommandContext | GpuAssetCommand
   ): void {
+    this.releaseMany([handle], command);
+  }
+
+  /** Invalidates an entire scene geometry dictionary in one command transaction. */
+  releaseMany(
+    handles: readonly AssetHandle[],
+    command: ShadeGPUCommandContext | GpuAssetCommand
+  ): void {
+    if (handles.length === 0) return;
     this.assertMutation(command, "release");
     try {
-      const entry = this.requireEntry(handle, "resident");
-      entry.state = "pending-release";
+      const entries = handles.map((handle) => this.requireEntry(handle, "resident"));
+      if (new Set(entries).size !== entries.length) {
+        throw new Error("GpuAssetStore release transaction contains duplicate handles");
+      }
       const recordBuffer = this.buffers.geometryRecords;
       const zero = new Uint8Array(GPU_GEOMETRY_RECORD_STRIDE);
-      const offset = entry.slot * GPU_GEOMETRY_RECORD_STRIDE;
-      command.writeBuffer(recordBuffer.buffer, offset, zero.buffer, 0, zero.byteLength);
-      this.recordUpload(zero.byteLength, zero.byteLength);
-      recordGpuQueueUpload(this.device.queue, "GpuAssetStore/release-record", zero.byteLength);
+      for (const entry of entries) {
+        entry.state = "pending-release";
+        const offset = entry.slot * GPU_GEOMETRY_RECORD_STRIDE;
+        command.writeBuffer(recordBuffer.buffer, offset, zero.buffer, 0, zero.byteLength);
+        this.recordUpload(zero.byteLength, zero.byteLength);
+        recordGpuQueueUpload(this.device.queue, "GpuAssetStore/release-record", zero.byteLength);
+      }
 
       command.onFinished.addOne(() => {
-        if (entry.state !== "pending-release") return;
-        entry.state = "released";
-        const slot = this.slots[entry.slot]!;
-        slot.entry = undefined;
-        slot.generation = nextGeneration(slot.generation);
-        this.freeSlots.push(entry.slot);
-        this.residentAssetCount--;
-        this.logicalBytes -= entry.logicalBytes;
-        this.activeResidentBytes -= entry.residentBytes;
-        this.reclaimableBytes += entry.residentBytes;
-        this.releaseCount++;
+        if (entries.some((entry) => entry.state !== "pending-release")) return;
+        for (const entry of entries) {
+          entry.state = "released";
+          const slot = this.slots[entry.slot]!;
+          slot.entry = undefined;
+          slot.generation = nextGeneration(slot.generation);
+          this.freeSlots.push(entry.slot);
+          this.residentAssetCount--;
+          this.logicalBytes -= entry.logicalBytes;
+          this.activeResidentBytes -= entry.residentBytes;
+          this.reclaimableBytes += entry.residentBytes;
+          this.releaseCount++;
+        }
+        this.committedReleaseTransactions++;
         this.epoch++;
         this.pendingMutation = null;
       });
       command.onAborted.addOne(() => {
-        if (entry.state !== "pending-release") return;
-        entry.state = "resident";
+        if (entries.every((entry) => entry.state !== "pending-release")) return;
+        for (const entry of entries) {
+          if (entry.state === "pending-release") entry.state = "resident";
+        }
+        this.abortedReleaseTransactions++;
         this.pendingMutation = null;
       });
     } catch (error) {
+      for (const handle of handles) {
+        const state = HANDLE_STATE.get(handle as object);
+        const entry = state?.store === this ? this.slots[state.slot]?.entry : undefined;
+        if (entry?.state === "pending-release") entry.state = "resident";
+      }
       this.pendingMutation = null;
       throw error;
     }
@@ -450,7 +511,7 @@ export class GpuAssetStore {
       });
     }
     return Object.freeze({
-      schemaVersion: 1,
+      schemaVersion: 2,
       abiVersion: GPU_GEOMETRY_ABI_VERSION,
       residentAssetCount: this.residentAssetCount,
       fallbackBytes: this.fallbackBytes(),
@@ -471,6 +532,12 @@ export class GpuAssetStore {
       rejectedPackageCount: this.rejectedPackageCount,
       abortedResidencyCount: this.abortedResidencyCount,
       releaseCount: this.releaseCount,
+      committedResidencyTransactions: this.committedResidencyTransactions,
+      abortedResidencyTransactions: this.abortedResidencyTransactions,
+      committedReleaseTransactions: this.committedReleaseTransactions,
+      abortedReleaseTransactions: this.abortedReleaseTransactions,
+      largestTransactionPackageCount: this.largestTransactionPackageCount,
+      largestTransactionSourceBytes: this.largestTransactionSourceBytes,
       privateSubmitCount: 0,
       pendingMutation: this.pendingMutation,
       tables: Object.freeze(tables)
@@ -832,10 +899,10 @@ export class GpuAssetStore {
     }
   }
 
-  private rollbackResidency(
-    entry: AssetEntry,
-    reusedSlot: boolean,
+  private rollbackResidencyBatch(
     cursors: ReadonlyMap<ResidentBuffer, number>,
+    slots: readonly SlotState[],
+    freeSlots: readonly number[],
     replacements: readonly BufferReplacement[]
   ): void {
     for (let index = replacements.length - 1; index >= 0; index--) {
@@ -844,10 +911,13 @@ export class GpuAssetStore {
       replacement.next.destroy();
     }
     for (const [buffer, cursor] of cursors) buffer.cursorBytes = cursor;
-    const slot = this.slots[entry.slot]!;
-    slot.entry = undefined;
-    if (reusedSlot) this.freeSlots.push(entry.slot);
-    else if (entry.slot === this.slots.length - 1) this.slots.pop();
+    this.slots.length = 0;
+    for (const slot of slots) this.slots.push({
+      generation: slot.generation,
+      entry: slot.entry
+    });
+    this.freeSlots.length = 0;
+    this.freeSlots.push(...freeSlots);
     this.epoch++;
   }
 

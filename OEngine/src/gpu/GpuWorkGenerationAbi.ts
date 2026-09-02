@@ -7,10 +7,12 @@
  * docs/references/porting/R3-01-hierarchical-work-generation.md.
  */
 
-export const GPU_WORK_GENERATION_ABI_VERSION = 3;
+export const GPU_WORK_GENERATION_ABI_VERSION = 5;
 export const GPU_WORK_QUEUE_INVALID_OFFSET = 0xffffffff;
 export const GPU_DISPATCH_INDIRECT_ARGS_SIZE = 12;
 export const GPU_DRAW_INDIRECT_ARGS_SIZE = 16;
+export const GPU_CLASSIFIED_RASTER_HEADER_COUNT = 2;
+export const GPU_CLASSIFIED_RASTER_HEADER_BYTES = 64;
 
 type GpuWorkAbiFieldKind = "u32" | "atomic_u32";
 
@@ -42,9 +44,12 @@ const VISIBLE_CLUSTER_FIELDS: readonly GpuWorkAbiField[] = [
 ];
 
 const RASTER_WORK_FIELDS: readonly GpuWorkAbiField[] = [
-  { name: "visible_cluster_slot", kind: "u32", byteOffset: 0 },
-  { name: "meshlet_record_index", kind: "u32", byteOffset: 4 },
-  { name: "raster_flags", kind: "u32", byteOffset: 8 }
+  { name: "instance_record_index", kind: "u32", byteOffset: 0 },
+  { name: "geometry_record_index", kind: "u32", byteOffset: 4 },
+  { name: "meshlet_record_index", kind: "u32", byteOffset: 8 },
+  { name: "local_triangle_index", kind: "u32", byteOffset: 12 },
+  { name: "material_handle", kind: "u32", byteOffset: 16 },
+  { name: "raster_flags", kind: "u32", byteOffset: 20 }
 ];
 
 const WORK_QUEUE_HEADER_FIELDS: readonly GpuWorkAbiField[] = [
@@ -72,7 +77,7 @@ export const GPU_VISIBLE_CLUSTER_RECORD_SCHEMA = createSchema(
 
 export const GPU_RASTER_WORK_SCHEMA = createSchema(
   "OEngineRasterWork",
-  12,
+  24,
   RASTER_WORK_FIELDS
 );
 
@@ -133,6 +138,20 @@ fn oengine_try_reserve_work_group(
 }
 `;
 
+export const GPU_CLASSIFIED_RASTER_WORK_WGSL = /* wgsl */ `
+struct OEngineClassifiedRasterWorkQueue {
+  opaque_header: OEngineWorkQueueHeader,
+  mask_header: OEngineWorkQueueHeader,
+  elements: array<OEngineRasterWork>,
+};
+
+struct OEngineClassifiedRasterWorkQueueRead {
+  opaque_header: OEngineWorkQueueHeaderRead,
+  mask_header: OEngineWorkQueueHeaderRead,
+  elements: array<OEngineRasterWork>,
+};
+`;
+
 export interface TraversalWorkCpu {
   readonly instanceRecordIndex: number;
   readonly clusterRecordIndex: number;
@@ -147,8 +166,11 @@ export interface VisibleClusterRecordCpu {
 }
 
 export interface RasterWorkCpu {
-  readonly visibleClusterSlot: number;
+  readonly instanceRecordIndex: number;
+  readonly geometryRecordIndex: number;
   readonly meshletRecordIndex: number;
+  readonly localTriangleIndex: number;
+  readonly materialHandle: number;
   readonly rasterFlags: number;
 }
 
@@ -193,8 +215,11 @@ export function packRasterWork(
   record: RasterWorkCpu
 ): Uint8Array<ArrayBuffer> {
   return packU32Record(GPU_RASTER_WORK_SCHEMA, [
-    record.visibleClusterSlot,
+    record.instanceRecordIndex,
+    record.geometryRecordIndex,
     record.meshletRecordIndex,
+    record.localTriangleIndex,
+    record.materialHandle,
     record.rasterFlags
   ]);
 }
@@ -213,6 +238,31 @@ export function packWorkQueueHeader(
     0,
     0
   ], GPU_WORK_QUEUE_HEADER_SCHEMA.stride, "work queue header");
+}
+
+export function classifiedRasterWorkBufferByteLength(capacityPerClass: number): number {
+  assertPositiveU32(capacityPerClass, "Classified RasterWork capacity");
+  const records = capacityPerClass * GPU_CLASSIFIED_RASTER_HEADER_COUNT;
+  const bytes = GPU_CLASSIFIED_RASTER_HEADER_BYTES + records * GPU_RASTER_WORK_SCHEMA.stride;
+  if (!Number.isSafeInteger(bytes)) {
+    throw new RangeError("Classified RasterWork buffer byte length is invalid");
+  }
+  return bytes;
+}
+
+export function packClassifiedRasterWorkHeaders(
+  capacityPerClass: number
+): Uint8Array<ArrayBuffer> {
+  assertPositiveU32(capacityPerClass, "Classified RasterWork capacity");
+  const bytes = new Uint8Array(GPU_CLASSIFIED_RASTER_HEADER_BYTES);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.capacity!, capacityPerClass, true);
+  view.setUint32(
+    GPU_WORK_QUEUE_HEADER_SCHEMA.stride + GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.capacity!,
+    capacityPerClass,
+    true
+  );
+  return bytes;
 }
 
 export function unpackWorkQueueHeader(
@@ -292,9 +342,12 @@ export function unpackRasterWorkRecords(
   for (let index = 0; index < count; index++) {
     const base = index * GPU_RASTER_WORK_SCHEMA.stride;
     records.push(Object.freeze({
-      visibleClusterSlot: view.getUint32(base, true),
-      meshletRecordIndex: view.getUint32(base + 4, true),
-      rasterFlags: view.getUint32(base + 8, true)
+      instanceRecordIndex: view.getUint32(base, true),
+      geometryRecordIndex: view.getUint32(base + 4, true),
+      meshletRecordIndex: view.getUint32(base + 8, true),
+      localTriangleIndex: view.getUint32(base + 12, true),
+      materialHandle: view.getUint32(base + 16, true),
+      rasterFlags: view.getUint32(base + 20, true)
     }));
   }
   return Object.freeze(records);

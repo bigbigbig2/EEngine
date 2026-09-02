@@ -72,7 +72,7 @@ test("R3-B preparation computes exact combined breadth and legal-cut capacities"
   );
 
   const singleLevel = createHierarchyAsset([], []);
-  singleLevel.meshlets = Array.from({ length: 3 }, () => ({}));
+  singleLevel.meshlets = Array.from({ length: 3 }, () => ({ triangleCount: 1 }));
   assert.deepEqual(
     computeIndexedPackedHierarchyWorkCapacity(
       [shallow, singleLevel],
@@ -227,7 +227,7 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
   const expansionLayout = gpu.layouts.find(
     (layout) => layout.label === "R3-C Hierarchy/RasterWork expansion group2"
   );
-  assert.equal(expansionLayout.entries[3].buffer.minBindingSize, 44);
+  assert.equal(expansionLayout.entries[3].buffer.minBindingSize, 56);
   const dispatchPreparationLayout = gpu.layouts.find(
     (layout) => layout.label === "R3-C Hierarchy/RasterWork dispatch preparation group2"
   );
@@ -293,16 +293,16 @@ test("R3-B pressure capacity is bounded and WGSL keeps the frozen producer invar
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_fused_leaf_work/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_traverse_clusters/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_expand_raster_work/);
-  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /leaf_draw_indirect\.instance_count/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /leaf_draw_indirect\.vertex_count/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /@builtin\(num_workgroups\)/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /workgroup_count_y: atomic<u32>/);
   assert.match(
     HIERARCHICAL_WORK_GENERATION_WGSL,
     /atomicAdd\(&hierarchy_counters\[R3_COUNTER_SELECTED_CLUSTERS\], selected_count\)/
   );
-  assert.match(
+  assert.doesNotMatch(
     HIERARCHICAL_WORK_GENERATION_WGSL,
-    /atomicAdd\(&leaf_counters\[R3_COUNTER_HW_CLUSTERS\], raster_count\)/
+    /R3_COUNTER_HW_(?:CLUSTERS|TRIANGLES)/
   );
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /oengine_try_reserve_work_group/);
   assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /var<workgroup> hierarchy_wg_child_count: atomic<u32>/);
@@ -387,11 +387,11 @@ test("R3-C production Hardware consumer pulls RasterWork and issues the GPU draw
   );
   assert.match(
     PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
-    /r3_visible_clusters\.elements\[work\.visible_cluster_slot\]/
+    /let corner = work\.local_triangle_index \* 3u \+ triangle_corner/
   );
   assert.match(
     PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
-    /oengine_visibility_key_try_encode\(\s*work_index,\s*triangle_index/s
+    /oengine_visibility_key_try_encode\(work_index\)/
   );
   assert.match(
     PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
@@ -409,7 +409,8 @@ test("R3-C production Hardware consumer pulls RasterWork and issues the GPU draw
     new URL("../src/render/passes/PackedVisibilityPass.ts", import.meta.url),
     "utf8"
   );
-  assert.match(passSource, /render\.drawIndirect\(generated\.drawIndirect, 0\)/);
+  assert.match(passSource, /render\.drawIndirect\(exact\.drawIndirect, exact\.opaqueDrawOffset\)/);
+  assert.match(passSource, /render\.drawIndirect\(exact\.drawIndirect, exact\.maskDrawOffset\)/);
   assert.match(passSource, /packedVisibilityAttachmentDescriptor\(job\.width, job\.height\)/);
   assert.match(passSource, /assertGpuVisibilityRasterWorkCapacity/);
   const rendererSource = readFileSync(
@@ -418,7 +419,7 @@ test("R3-C production Hardware consumer pulls RasterWork and issues the GPU draw
   );
   assert.match(
     rendererSource,
-    /hardware-packed-r4-visibility-key-v1-cone/
+    /hardware-packed-exact-visibility-key-cone/
   );
   assert.match(
     rendererSource,
@@ -450,11 +451,17 @@ function node(childBegin, childCount, depth, meshletCount) {
 }
 
 function createHierarchyAsset(clusters, children) {
+  let meshletCount = 0;
+  const packedClusters = clusters.map((cluster) => {
+    const packed = { ...cluster, meshletBegin: meshletCount };
+    meshletCount += cluster.meshletCount;
+    return packed;
+  });
   return {
     directory: { clusterRoot: 0 },
-    clusters,
+    clusters: packedClusters,
     clusterChildren: new Uint32Array(children),
-    meshlets: []
+    meshlets: Array.from({ length: meshletCount }, () => ({ triangleCount: 1 }))
   };
 }
 

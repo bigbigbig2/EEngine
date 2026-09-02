@@ -5,8 +5,7 @@ import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilit
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import {
-  GPU_RASTER_WORK_SCHEMA,
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA
+  GPU_RASTER_WORK_SCHEMA
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
@@ -19,7 +18,6 @@ ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
 ${GPU_SURFACE_ABI_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
-${GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.wgsl}
 ${GPU_RASTER_WORK_SCHEMA.wgsl}
 ${GBUFFER_ENCODE_WGSL}
 
@@ -43,13 +41,9 @@ struct R4ResolveQueueHeaderRead {
   rejected_hzb: u32,
 }
 
-struct R4ResolveVisibleClusterQueue {
-  header: R4ResolveQueueHeaderRead,
-  elements: array<OEngineVisibleClusterRecord>,
-}
-
 struct R4ResolveRasterWorkQueue {
-  header: R4ResolveQueueHeaderRead,
+  opaque_header: R4ResolveQueueHeaderRead,
+  mask_header: R4ResolveQueueHeaderRead,
   elements: array<OEngineRasterWork>,
 }
 
@@ -73,8 +67,7 @@ struct R4ResolveRasterWorkQueue {
 @group(1) @binding(4) var<storage, read> meshlet_triangles: array<u32>;
 @group(1) @binding(5) var<storage, read> stream_descriptors: array<u32>;
 @group(1) @binding(6) var<storage, read> vertex_data: array<u32>;
-@group(1) @binding(7) var<storage, read> visible_clusters: R4ResolveVisibleClusterQueue;
-@group(1) @binding(8) var<storage, read> raster_work: R4ResolveRasterWorkQueue;
+@group(1) @binding(7) var<storage, read> raster_work: R4ResolveRasterWorkQueue;
 
 fn read_u8(byte_offset: u32) -> u32 {
   let word = vertex_data[byte_offset >> 2u];
@@ -418,33 +411,40 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let key = textureLoad(visibility_keys, pixel, 0).r;
   if !oengine_visibility_key_is_valid(key) { discard; }
   let raster_slot = oengine_visibility_key_raster_work_slot(key);
-  if raster_slot >= min(raster_work.header.written, raster_work.header.capacity) { discard; }
+  let opaque_written = min(
+    raster_work.opaque_header.written,
+    raster_work.opaque_header.capacity
+  );
+  let mask_written = min(
+    raster_work.mask_header.written,
+    raster_work.mask_header.capacity
+  );
+  let valid_opaque = raster_slot < opaque_written;
+  let valid_mask = raster_slot >= raster_work.opaque_header.capacity &&
+    raster_slot - raster_work.opaque_header.capacity < mask_written;
+  if !valid_opaque && !valid_mask { discard; }
   let work = raster_work.elements[raster_slot];
-  if work.visible_cluster_slot >= min(visible_clusters.header.written, visible_clusters.header.capacity) { discard; }
-  let visible = visible_clusters.elements[work.visible_cluster_slot];
-  if visible.instance_record_index >= arrayLength(&instances) ||
-    visible.geometry_record_index >= arrayLength(&geometries) ||
+  if work.instance_record_index >= arrayLength(&instances) ||
+    work.geometry_record_index >= arrayLength(&geometries) ||
     work.meshlet_record_index >= arrayLength(&meshlets) ||
-    visible.material_handle >= arrayLength(&materials) {
+    work.material_handle >= arrayLength(&materials) {
     discard;
   }
-  let instance = instances[visible.instance_record_index];
-  let geometry = geometries[visible.geometry_record_index];
+  let instance = instances[work.instance_record_index];
+  let geometry = geometries[work.geometry_record_index];
   let meshlet = meshlets[work.meshlet_record_index];
   if !oengine_instance_active(instance) ||
-    instance.geometry_record_index != visible.geometry_record_index ||
-    instance.material_handle != visible.material_handle ||
-    visible.cluster_record_index < geometry.cluster_begin ||
-    visible.cluster_record_index - geometry.cluster_begin >= geometry.cluster_count ||
+    instance.geometry_record_index != work.geometry_record_index ||
+    instance.material_handle != work.material_handle ||
     work.meshlet_record_index < geometry.meshlet_begin ||
     work.meshlet_record_index - geometry.meshlet_begin >= geometry.meshlet_count {
     discard;
   }
-  let triangle_index = oengine_visibility_key_local_triangle(key);
+  let triangle_index = work.local_triangle_index;
   if triangle_index >= meshlet.triangle_count { discard; }
-  let material_info = materials[visible.material_handle];
+  let material_info = materials[work.material_handle];
   if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
-    material_info.material_id != visible.material_handle {
+    material_info.material_id != work.material_handle {
     discard;
   }
   let vertices = triangle_source_vertices(meshlet, triangle_index);
@@ -609,7 +609,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   } else {
     surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
   }
-  output.metadata = oengine_surface_pack(visible.material_handle, surface_flags);
+  output.metadata = oengine_surface_pack(work.material_handle, surface_flags);
   return output;
 }
 `;

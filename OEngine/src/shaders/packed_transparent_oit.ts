@@ -9,7 +9,6 @@ import { GPU_SECONDARY_RASTER_FLAGS } from "../gpu/GpuSecondaryRasterAbi.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 import { LIGHTING_DIRECT_WGSL } from "./lighting_direct.js";
 
-export const PACKED_TRANSPARENT_FIXED_VERTEX_COUNT = 384;
 export const PACKED_TRANSPARENT_OPTICAL_FORMAT = "r32float" as const;
 export const PACKED_TRANSPARENT_MOMENT_FORMAT = "rgba32float" as const;
 export const PACKED_TRANSPARENT_RESOLVED_FORMAT = "rgba16float" as const;
@@ -55,17 +54,12 @@ struct QueueHeaderRead {
   written: u32, attempted: u32, peak: u32, overflow: u32,
   fallback: u32, capacity: u32, rejected_cone: u32, rejected_hzb: u32,
 }
-struct VisibleClusterRecord {
+struct SecondaryRasterWork {
   instance_record_index: u32,
   geometry_record_index: u32,
-  cluster_record_index: u32,
-  material_handle: u32,
-  raster_flags: u32,
-}
-struct VisibleClusterQueue { header: QueueHeaderRead, elements: array<VisibleClusterRecord> }
-struct SecondaryRasterWork {
-  visible_cluster_slot: u32,
   meshlet_record_index: u32,
+  local_triangle_index: u32,
+  material_handle: u32,
   raster_flags: u32,
 }
 struct SecondaryRasterQueue { header: QueueHeaderRead, elements: array<SecondaryRasterWork> }
@@ -89,17 +83,16 @@ struct TransparentVertexOutput {
 @group(0) @binding(4) var<storage, read> meshlet_triangles: array<u32>;
 @group(0) @binding(5) var<storage, read> vertex_data: array<u32>;
 @group(0) @binding(6) var<storage, read> geometries: array<GpuGeometryRecord>;
-@group(0) @binding(7) var<storage, read> visible_clusters: VisibleClusterQueue;
-@group(0) @binding(8) var<storage, read> raster_work: SecondaryRasterQueue;
-@group(0) @binding(9) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
-@group(0) @binding(10) var material_textures: texture_2d_array<f32>;
-@group(0) @binding(11) var sampler_repeat_linear: sampler;
-@group(0) @binding(12) var sampler_clamp_linear: sampler;
-@group(0) @binding(13) var sampler_mirror_linear: sampler;
-@group(0) @binding(14) var sampler_repeat_nearest: sampler;
-@group(0) @binding(15) var sampler_clamp_nearest: sampler;
-@group(0) @binding(16) var sampler_mirror_nearest: sampler;
-@group(0) @binding(17) var high_resolution_material_textures: texture_2d_array<f32>;
+@group(0) @binding(7) var<storage, read> raster_work: SecondaryRasterQueue;
+@group(0) @binding(8) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(9) var material_textures: texture_2d_array<f32>;
+@group(0) @binding(10) var sampler_repeat_linear: sampler;
+@group(0) @binding(11) var sampler_clamp_linear: sampler;
+@group(0) @binding(12) var sampler_mirror_linear: sampler;
+@group(0) @binding(13) var sampler_repeat_nearest: sampler;
+@group(0) @binding(14) var sampler_clamp_nearest: sampler;
+@group(0) @binding(15) var sampler_mirror_nearest: sampler;
+@group(0) @binding(16) var high_resolution_material_textures: texture_2d_array<f32>;
 
 fn read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
   let word = (*words)[byte_offset >> 2u];
@@ -128,15 +121,15 @@ fn read_uv(
 
 @vertex
 fn packed_transparent_vertex(
-  @builtin(vertex_index) vertex_index: u32,
-  @builtin(instance_index) work_index: u32
+  @builtin(vertex_index) vertex_index: u32
 ) -> TransparentVertexOutput {
+  let work_index = vertex_index / 3u;
+  let triangle_corner = vertex_index % 3u;
   let work = raster_work.elements[work_index];
-  let visible = visible_clusters.elements[work.visible_cluster_slot];
-  let instance = instances[visible.instance_record_index];
-  let geometry = geometries[visible.geometry_record_index];
+  let instance = instances[work.instance_record_index];
+  let geometry = geometries[work.geometry_record_index];
   let meshlet = meshlets[work.meshlet_record_index];
-  let corner = min(vertex_index, max(meshlet.triangle_count * 3u, 1u) - 1u);
+  let corner = work.local_triangle_index * 3u + triangle_corner;
   let local_vertex = read_u8(&meshlet_triangles, meshlet.triangle_byte_offset + corner);
   let source_vertex = meshlet_vertices[meshlet.vertex_offset + local_vertex];
   let position_word = geometry.position_byte_offset / 4u +
@@ -162,7 +155,7 @@ fn packed_transparent_vertex(
   output.uv_valid_mask = select(0u, 1u, uv0.z > 0.0) |
     select(0u, 2u, uv1.z > 0.0) |
     select(0u, 4u, uv2.z > 0.0);
-  output.material_handle = visible.material_handle;
+  output.material_handle = work.material_handle;
   let linear = instance.current_object_to_world;
   output.mirrored = select(0u, 1u,
     dot(linear[0].xyz, cross(linear[1].xyz, linear[2].xyz)) < 0.0);
@@ -506,7 +499,11 @@ struct QueueHeaderRead {
   written: u32, attempted: u32, peak: u32, overflow: u32,
   fallback: u32, capacity: u32, rejected_cone: u32, rejected_hzb: u32,
 }
-struct SecondaryRasterWork { visible_cluster_slot: u32, meshlet_record_index: u32, raster_flags: u32 }
+struct SecondaryRasterWork {
+  instance_record_index: u32, geometry_record_index: u32,
+  meshlet_record_index: u32, local_triangle_index: u32,
+  material_handle: u32, raster_flags: u32,
+}
 struct SecondaryRasterQueue { header: QueueHeaderRead, elements: array<SecondaryRasterWork> }
 @group(0) @binding(0) var<storage, read> work: SecondaryRasterQueue;
 struct GpuMeshletRecord {

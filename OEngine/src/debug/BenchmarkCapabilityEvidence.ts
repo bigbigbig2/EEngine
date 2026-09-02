@@ -224,11 +224,11 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
     "VIS-05",
     "主链没有 Compute software raster triangle producer"
   ),
-  hwTriangles: supported("Packed Hardware Visibility fixed-384 submission reducer"),
+  hwTriangles: supported("ExactTriangleFilter compact OPAQUE/MASK reducer"),
   shadedPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   emptyVisibilityPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   invalidVisibilityKeys: supported(
-    "VisibilityCounterPass/VisibilityKey v1 reserved-slot reducer"
+    "VisibilityCounterPass/direct VisibilityKey reserved-key reducer"
   ),
   activeMaterials: supported("Material Resolve/active MaterialRecord counter"),
   activeLights: supported("Renderer/active-light-list reducer"),
@@ -317,7 +317,11 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   ssrDistanceRejectedPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
   ssrHighRoughnessTracePixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
   ssrDistanceLimitExceededPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
-  ssrValidationRejectedPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer")
+  ssrValidationRejectedPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
+  rasterCandidateTriangles: supported("ExactTriangleFilter candidate queue reducer"),
+  rasterRejectedTriangles: supported("ExactTriangleFilter compact difference reducer"),
+  opaqueRasterWork: supported("ExactTriangleFilter OPAQUE queue reducer"),
+  maskRasterWork: supported("ExactTriangleFilter MASK queue reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

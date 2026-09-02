@@ -34,7 +34,7 @@ export interface R4A06GateArtifact {
   issues: string[];
   pairing: {
     oracle: "existing-material-resolve-final-color";
-    producer: "hardware-packed-r4-visibility-key-v1";
+    producer: "hardware-packed-exact-visibility-key";
     sameRenderer: true;
     sameSceneState: true;
     currentFrameVisibilityCountReadback: false;
@@ -79,7 +79,7 @@ export function createR4A06GateArtifact(
     issues,
     pairing: {
       oracle: "existing-material-resolve-final-color",
-      producer: "hardware-packed-r4-visibility-key-v1",
+      producer: "hardware-packed-exact-visibility-key",
       sameRenderer: true,
       sameSceneState: true,
       currentFrameVisibilityCountReadback: false

@@ -8,7 +8,7 @@ GpuAssetStore + GpuScene
 -> HierarchicalWorkGenerator
 -> RasterWork + 16-byte drawIndirect
 -> PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
--> r32uint VisibilityKey v1 + depth32float reverse-Z
+-> direct r32uint VisibilityKey + depth32float reverse-Z
 -> validation-only readback
 ```
 

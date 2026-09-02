@@ -14,32 +14,28 @@ import {
 import { GpuAssetStore, type AssetHandle } from "../../OEngine/src/gpu/GpuAssetStore.ts";
 import { GpuScene } from "../../OEngine/src/gpu/GpuScene.ts";
 import {
-  GPU_MATERIAL_VISIBILITY_FLAGS,
-  GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
-  packGpuMaterialVisibilityRecord
-} from "../../OEngine/src/gpu/GpuMaterialVisibilityAbi.ts";
-import {
   GPU_VISIBILITY_KEY_EMPTY,
   decodeVisibilityKey,
   resolveVisibilityKeyReference
 } from "../../OEngine/src/gpu/GpuVisibilityKeyAbi.ts";
 import {
+  GPU_CLASSIFIED_RASTER_HEADER_BYTES,
+  GPU_WORK_QUEUE_HEADER_SCHEMA,
   unpackDrawIndirectArgs,
   unpackRasterWorkRecords,
-  unpackVisibleClusterRecords,
   unpackWorkQueueHeader
 } from "../../OEngine/src/gpu/GpuWorkGenerationAbi.ts";
 import { GPUCameraState } from "../../OEngine/src/render/GPUCameraState.ts";
+import { ExactTriangleFilter } from "../../OEngine/src/render/ExactTriangleFilter.ts";
 import { HierarchicalWorkGenerator } from "../../OEngine/src/render/HierarchicalWorkGenerator.ts";
-import { VIS_MESH_CLEAR_SENTINEL } from "../../OEngine/src/render/VisibilityBufferContract.ts";
 import {
   VISIBILITY_COUNTER_WGSL,
   VISIBILITY_COUNTER_WORKGROUP_SIZE
 } from "../../OEngine/src/render/passes/VisibilityCounterPass.ts";
 import { LPV_CAMERA_TYPE } from "../../OEngine/src/shaders/lpv_indirect_diffuse.ts";
 import {
-  PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT,
-  PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
+  PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE,
+  PACKED_OPAQUE_VISIBILITY_RASTER_WGSL
 } from "../../OEngine/src/shaders/packed_visibility.ts";
 
 declare const __BUILD_COMMIT__: string;
@@ -147,7 +143,7 @@ async function run(): Promise<void> {
   const capacity = computePackedHierarchyWorkCapacity(cpuInstances);
   const counterBuffer = device.createBuffer({
     label: "R4-A-02/counter sink",
-    size: 256,
+    size: 512,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
   });
   const generator = new HierarchicalWorkGenerator(device);
@@ -166,10 +162,22 @@ async function run(): Promise<void> {
     countersEnabled: false,
     diagnosticsEnabled: true
   });
+  const exactFilter = new ExactTriangleFilter(device);
+  const assetBindings = assets.bindings();
+  const sceneBindings = gpuScene.bindings();
+  const exactPrepared = exactFilter.prepare({
+    camera: cameraState.buffer,
+    candidates: prepared.generated.rasterWork,
+    candidateCapacity: prepared.generated.rasterWorkCapacity,
+    assets: assetBindings,
+    scene: sceneBindings,
+    counterBuffer,
+    countersEnabled: false
+  });
 
   const hardwareModule = device.createShaderModule({
     label: "R4-A-02 production Hardware opaque WGSL",
-    code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
+    code: PACKED_OPAQUE_VISIBILITY_RASTER_WGSL
   });
   const counterModule = device.createShaderModule({
     label: "R4-A-02 production VisibilityKey counter WGSL",
@@ -188,27 +196,21 @@ async function run(): Promise<void> {
     label: "R4-A-02 Hardware opaque group0",
     entries: [
       { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
-      ...Array.from({ length: 8 }, (_, index) => ({
+      ...Array.from({ length: 7 }, (_, index) => ({
         binding: index + 1,
         visibility: GPUShaderStage.VERTEX,
         buffer: { type: "read-only-storage" as GPUBufferBindingType }
-      })),
-      { binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-      { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } }
+      }))
     ]
   });
   const pipeline = await device.createRenderPipelineAsync({
     label: "R4-A-02 Hardware opaque producer",
     layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
-    vertex: { module: hardwareModule, entryPoint: "raster_hierarchy_meshlets" },
+    vertex: { module: hardwareModule, entryPoint: "raster_opaque_exact" },
     fragment: {
       module: hardwareModule,
-      entryPoint: "write_hierarchy_visibility",
-      targets: [
-        { format: "r32uint" },
-        { format: "r32uint" },
-        { format: "r32uint" }
-      ]
+      entryPoint: "write_opaque_visibility",
+      targets: [{ format: "r32uint" }]
     },
     primitive: { topology: "triangle-list", cullMode: "none" },
     depthStencil: {
@@ -218,9 +220,7 @@ async function run(): Promise<void> {
     }
   });
 
-  const visibilityKey = createTarget(device, "VisibilityKey v1", "r32uint");
-  const triangleId = createTarget(device, "legacy triangle ID", "r32uint");
-  const instanceId = createTarget(device, "legacy instance ID", "r32uint");
+  const visibilityKey = createTarget(device, "Direct VisibilityKey", "r32uint");
   const depth = createTarget(device, "reverse-Z depth", "depth32float");
   const counterBindGroupLayout = device.createBindGroupLayout({
     label: "R4-A-02 VisibilityKey counter group0",
@@ -252,8 +252,7 @@ async function run(): Promise<void> {
   });
   const keyReadback = createReadback(device, "VisibilityKey readback");
   const depthReadback = createReadback(device, "depth readback");
-  const visibleReadback = createBufferReadback(device, prepared.generated.visibleClusters, "VisibleCluster readback");
-  const rasterReadback = createBufferReadback(device, prepared.generated.rasterWork, "RasterWork readback");
+  const rasterReadback = createBufferReadback(device, exactPrepared.output.rasterWork, "Classified RasterWork readback");
   const indirectReadback = device.createBuffer({
     label: "R4-A-02 drawIndirect readback",
     size: 16,
@@ -265,34 +264,6 @@ async function run(): Promise<void> {
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
 
-  const assetBindings = assets.bindings();
-  const sceneBindings = gpuScene.bindings();
-  const materialBuffer = device.createBuffer({
-    label: "R4-A-02 opaque MaterialVisibilityRecord",
-    size: GPU_MATERIAL_VISIBILITY_RECORD_STRIDE * 18,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-  });
-  device.queue.writeBuffer(materialBuffer, GPU_MATERIAL_VISIBILITY_RECORD_STRIDE * 17,
-    packGpuMaterialVisibilityRecord({
-      materialId: 17,
-      alphaMode: 0,
-      flags: GPU_MATERIAL_VISIBILITY_FLAGS.Valid,
-      textureRef: 0xffffffff,
-      baseColorFactorAlpha: 1,
-      alphaCutoff: 0.5,
-      uvSet: 0,
-      samplerClass: 0,
-      uvOffset: [0, 0],
-      uvScale: [1, 1],
-      rotationCos: 1,
-      rotationSin: 0
-    }));
-  const alphaAtlas = device.createTexture({
-    label: "R4-A-02 unused alpha atlas",
-    size: [1, 1],
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-  });
   const bindGroup = device.createBindGroup({
     label: "R4-A-02 Hardware opaque bindings",
     layout: bindGroupLayout,
@@ -304,24 +275,17 @@ async function run(): Promise<void> {
       assetBindings.meshletTriangleIndices,
       assetBindings.vertexStreamData,
       assetBindings.geometryRecords,
-      prepared.generated.visibleClusters,
-      prepared.generated.rasterWork,
-      materialBuffer
-    ].map((buffer, binding) => ({ binding, resource: { buffer } })).concat([
-      { binding: 10, resource: alphaAtlas.createView() }
-    ])
+      exactPrepared.output.rasterWork
+    ].map((buffer, binding) => ({ binding, resource: { buffer } }))
   });
 
   const encoder = device.createCommandEncoder({ label: "R4-A-02 producer and evidence" });
-  encoder.clearBuffer(counterBuffer, 0, 256);
+  encoder.clearBuffer(counterBuffer, 0, 512);
   generator.encode(encoder, prepared, hierarchyView());
+  const exact = exactFilter.encode(encoder, exactPrepared, WIDTH, HEIGHT);
   const pass = encoder.beginRenderPass({
     label: "R4-A-02 Packed VisibilityKey/depth Hardware drawIndirect",
-    colorAttachments: [
-      colorAttachment(visibilityKey, GPU_VISIBILITY_KEY_EMPTY),
-      colorAttachment(triangleId, VIS_MESH_CLEAR_SENTINEL),
-      colorAttachment(instanceId, VIS_MESH_CLEAR_SENTINEL)
-    ],
+    colorAttachments: [colorAttachment(visibilityKey, GPU_VISIBILITY_KEY_EMPTY)],
     depthStencilAttachment: {
       view: depth.createView(),
       depthClearValue: 0,
@@ -331,7 +295,7 @@ async function run(): Promise<void> {
   });
   pass.setPipeline(pipeline);
   pass.setBindGroup(0, bindGroup);
-  pass.drawIndirect(prepared.generated.drawIndirect, 0);
+  pass.drawIndirect(exact.drawIndirect, exact.opaqueDrawOffset);
   pass.end();
   const countPass = encoder.beginComputePass({ label: "R4-A-02 VisibilityKey counter" });
   countPass.setPipeline(counterPipeline);
@@ -343,9 +307,8 @@ async function run(): Promise<void> {
   countPass.end();
   copyTextureToReadback(encoder, visibilityKey, keyReadback);
   copyTextureToReadback(encoder, depth, depthReadback);
-  encoder.copyBufferToBuffer(prepared.generated.visibleClusters, 0, visibleReadback, 0, prepared.generated.visibleClusters.size);
-  encoder.copyBufferToBuffer(prepared.generated.rasterWork, 0, rasterReadback, 0, prepared.generated.rasterWork.size);
-  encoder.copyBufferToBuffer(prepared.generated.drawIndirect, 0, indirectReadback, 0, 16);
+  encoder.copyBufferToBuffer(exact.rasterWork, 0, rasterReadback, 0, exact.rasterWork.size);
+  encoder.copyBufferToBuffer(exact.drawIndirect, exact.opaqueDrawOffset, indirectReadback, 0, 16);
   encoder.copyBufferToBuffer(counterBuffer, 0, counterReadback, 0, 256);
   device.queue.submit([encoder.finish()]);
   await device.queue.onSubmittedWorkDone();
@@ -353,36 +316,37 @@ async function run(): Promise<void> {
   await Promise.all([
     keyReadback.mapAsync(GPUMapMode.READ),
     depthReadback.mapAsync(GPUMapMode.READ),
-    visibleReadback.mapAsync(GPUMapMode.READ),
     rasterReadback.mapAsync(GPUMapMode.READ),
     indirectReadback.mapAsync(GPUMapMode.READ),
     counterReadback.mapAsync(GPUMapMode.READ)
   ]);
   const keyBytes = new Uint8Array(keyReadback.getMappedRange().slice(0));
   const depthBytes = new Uint8Array(depthReadback.getMappedRange().slice(0));
-  const visibleBytes = new Uint8Array(visibleReadback.getMappedRange().slice(0));
   const rasterBytes = new Uint8Array(rasterReadback.getMappedRange().slice(0));
   const indirectBytes = new Uint8Array(indirectReadback.getMappedRange().slice(0));
   const counterBytes = new Uint8Array(counterReadback.getMappedRange().slice(0));
-  const visibleHeader = unpackWorkQueueHeader(visibleBytes);
-  const rasterHeader = unpackWorkQueueHeader(rasterBytes);
-  const visibleRecords = unpackVisibleClusterRecords(visibleBytes, visibleHeader.written);
-  const rasterRecords = unpackRasterWorkRecords(rasterBytes, rasterHeader.written);
+  const rasterHeader = unpackWorkQueueHeader(rasterBytes, 0);
+  const maskHeader = unpackWorkQueueHeader(rasterBytes, GPU_WORK_QUEUE_HEADER_SCHEMA.stride);
+  const rasterRecords = unpackRasterWorkRecords(
+    rasterBytes,
+    rasterHeader.written,
+    GPU_CLASSIFIED_RASTER_HEADER_BYTES
+  );
   const drawIndirect = unpackDrawIndirectArgs(indirectBytes);
-  const pixelEvidence = inspectPixels(keyBytes, depthBytes, rasterRecords, visibleRecords);
+  const pixelEvidence = inspectPixels(keyBytes, depthBytes, rasterRecords);
   const gpuPixelCounters = unpackPixelCounters(counterBytes);
   drawPreview(keyBytes, depthBytes);
 
-  for (const buffer of [keyReadback, depthReadback, visibleReadback, rasterReadback, indirectReadback, counterReadback]) {
+  for (const buffer of [keyReadback, depthReadback, rasterReadback, indirectReadback, counterReadback]) {
     buffer.unmap();
   }
   const validationError = await device.popErrorScope();
   const passed = shaderErrors.length === 0 &&
     validationError === null && uncapturedErrors.length === 0 &&
-    visibleHeader.written > 0 && rasterHeader.written > 0 &&
-    visibleHeader.overflow === 0 && rasterHeader.overflow === 0 &&
-    drawIndirect.vertexCount === PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT &&
-    drawIndirect.instanceCount === rasterHeader.written &&
+    rasterHeader.written > 0 && rasterHeader.overflow === 0 && maskHeader.written === 0 &&
+    drawIndirect.vertexCount === rasterHeader.written *
+      PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE &&
+    drawIndirect.instanceCount === 1 &&
     drawIndirect.firstVertex === 0 && drawIndirect.firstInstance === 0 &&
     pixelEvidence.validPixels > 0 && pixelEvidence.emptyPixels > 0 &&
     pixelEvidence.invalidKeys === 0 && pixelEvidence.unresolvedKeys === 0 &&
@@ -411,7 +375,7 @@ async function run(): Promise<void> {
       depthClearValue: 0,
       depthCompare: "greater"
     },
-    work: { capacity, visibleHeader, rasterHeader, drawIndirect },
+    work: { capacity, rasterHeader, maskHeader, drawIndirect },
     pixels: { ...pixelEvidence, gpuCounters: gpuPixelCounters },
     shaderDiagnostics,
     validationError: validationError?.message ?? null,
@@ -424,16 +388,16 @@ async function run(): Promise<void> {
   status.className = passed ? "ok" : "error";
   download.disabled = false;
 
+  exactFilter.release(exactPrepared);
+  exactFilter.destroy();
   generator.release(prepared);
   generator.destroy();
   cameraState.destroy();
   gpuScene.destroy();
   assets.destroy();
   counterBuffer.destroy();
-  for (const texture of [visibilityKey, triangleId, instanceId, depth]) texture.destroy();
-  materialBuffer.destroy();
-  alphaAtlas.destroy();
-  for (const buffer of [keyReadback, depthReadback, visibleReadback, rasterReadback, indirectReadback, counterReadback]) buffer.destroy();
+  for (const texture of [visibilityKey, depth]) texture.destroy();
+  for (const buffer of [keyReadback, depthReadback, rasterReadback, indirectReadback, counterReadback]) buffer.destroy();
 }
 
 async function shaderDiagnosticsFor(module: GPUShaderModule, source: string) {
@@ -458,8 +422,7 @@ function unpackPixelCounters(bytes: Uint8Array) {
 function inspectPixels(
   keyBytes: Uint8Array,
   depthBytes: Uint8Array,
-  rasterRecords: ReturnType<typeof unpackRasterWorkRecords>,
-  visibleRecords: ReturnType<typeof unpackVisibleClusterRecords>
+  rasterRecords: ReturnType<typeof unpackRasterWorkRecords>
 ) {
   let validPixels = 0;
   let emptyPixels = 0;
@@ -487,7 +450,7 @@ function inspectPixels(
       }
       validPixels++;
       referencedRasterWorkSlots.add(decoded.rasterWorkSlot);
-      const resolved = resolveVisibilityKeyReference(key, rasterRecords, visibleRecords);
+      const resolved = resolveVisibilityKeyReference(key, rasterRecords);
       if (resolved.kind !== "valid") unresolvedKeys++;
       if (!(pixelDepth > 0 && pixelDepth <= 1)) depthMismatchPixels++;
       minimumVisibleDepth = Math.min(minimumVisibleDepth, pixelDepth);

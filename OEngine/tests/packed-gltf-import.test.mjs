@@ -37,8 +37,11 @@ test("R2-D static glTF import produces typed Packed input without runtime scene 
       name: "triangle",
       primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }]
     }],
-    nodes: [{ mesh: 0, translation: [3, 4, 5] }],
-    scenes: [{ nodes: [0] }],
+    nodes: [
+      { mesh: 0, translation: [3, 4, 5] },
+      { mesh: 0, translation: [-3, -4, -5] }
+    ],
+    scenes: [{ nodes: [0, 1] }],
     scene: 0
   };
   const url = `data:model/gltf+json,${encodeURIComponent(JSON.stringify(gltf))}`;
@@ -47,11 +50,13 @@ test("R2-D static glTF import produces typed Packed input without runtime scene 
 
   assert.equal(packed.geometries.length, 1);
   assert.equal(packed.materials.length, 1);
-  assert.deepEqual([...packed.geometryIndices], [0]);
-  assert.deepEqual([...packed.materialIndices], [0]);
-  assert.equal(packed.transforms.length, 16);
+  assert.deepEqual([...packed.geometryIndices], [0, 0]);
+  assert.deepEqual([...packed.materialIndices], [0, 0]);
+  assert.equal(packed.transforms.length, 32);
   assert.deepEqual([...packed.transforms.subarray(12, 15)], [3, 4, 5]);
+  assert.deepEqual([...packed.transforms.subarray(28, 31)], [-3, -4, -5]);
   assert.equal(packed.flags[0], (1 << 1) | (1 << 4));
+  assert.equal(packed.flags[1], (1 << 1) | (1 << 4));
   assert.equal(packed.geometries[0].triangleCount, 1);
 });
 

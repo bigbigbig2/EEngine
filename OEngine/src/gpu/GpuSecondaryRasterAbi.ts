@@ -1,17 +1,16 @@
 import {
   GPU_DRAW_INDIRECT_ARGS_SIZE,
   GPU_RASTER_WORK_SCHEMA,
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA
 } from "./GpuWorkGenerationAbi.js";
 import { GPU_INSTANCE_FLAGS } from "./GpuInstanceAbi.js";
 
 /**
- * SecondaryRasterWork v1 deliberately reuses the bounded R3 hierarchy family.
+ * SecondaryRasterWork reuses the bounded hierarchy family and exact triangle ABI.
  * Each shadow/secondary view owns independent queue headers and indirect args;
  * records contain stable table indices only and are consumed without readback.
  */
-export const GPU_SECONDARY_RASTER_ABI_VERSION = 1;
+export const GPU_SECONDARY_RASTER_ABI_VERSION = 2;
 
 export const GPU_SECONDARY_RASTER_FLAGS = Object.freeze({
   CastsShadow: GPU_INSTANCE_FLAGS.CastsShadow,
@@ -23,7 +22,6 @@ export const GPU_SECONDARY_RASTER_FLAGS = Object.freeze({
 export const GPU_SECONDARY_RASTER_SCHEMA = Object.freeze({
   abiVersion: GPU_SECONDARY_RASTER_ABI_VERSION,
   queueHeader: GPU_WORK_QUEUE_HEADER_SCHEMA,
-  visibleCluster: GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
   rasterWork: GPU_RASTER_WORK_SCHEMA,
   drawIndirectBytes: GPU_DRAW_INDIRECT_ARGS_SIZE,
   overflowBehavior: "all-or-nothing reservation; consumer reads written only",

@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  computeGeometryMaxCutMeshlets,
-  computePackedMaxCutMeshlets,
+  computeGeometryMaxCutTriangles,
+  computePackedMaxCutTriangles,
   selectGeometryHierarchyInstances
 } from "../.test-dist/geometry/GeometryHierarchy.js";
 
@@ -46,11 +46,11 @@ test("R3-A world-space selector applies instance translation and rejects an outs
     [[7, 1], [7, 2]]
   );
   assert.deepEqual(
-    result.selectedMeshlets.map((record) => [
-      record.visibleClusterSlot,
-      record.localMeshletIndex
+    result.rasterWork.map((record) => [
+      record.meshletRecordIndex,
+      record.localTriangleIndex
     ]),
-    [[0, 1], [1, 2]]
+    [[201, 0], [202, 0]]
   );
 });
 
@@ -75,7 +75,7 @@ test("R3-A selector treats a single-level package as one virtual resident Cluste
     localClusterIndex: 0
   }]);
   assert.deepEqual(
-    result.selectedMeshlets.map((record) => record.meshletRecordIndex),
+    result.rasterWork.map((record) => record.meshletRecordIndex),
     [200, 201, 202]
   );
   assert.deepEqual(result.traversalRounds, [{
@@ -246,8 +246,8 @@ test("R3-A traversal capacity reserves all children or selects the renderable pa
     [0]
   );
   assert.deepEqual(
-    result.selectedMeshlets.map((record) => record.localMeshletIndex),
-    [0]
+    result.rasterWork.map((record) => record.meshletRecordIndex),
+    [200]
   );
   assert.equal(result.capacityFallbacks, 1);
   assert.equal(result.traversalRounds[0].attempted, 2);
@@ -274,8 +274,8 @@ test("R3-A root queue overflow is a hard error rather than silent instance loss"
 
 test("R3-A max-cut capacity bounds every legal hierarchy cut and packed instances", () => {
   const asset = createCapacityAsset();
-  assert.equal(computeGeometryMaxCutMeshlets(asset), 7);
-  assert.equal(computePackedMaxCutMeshlets([
+  assert.equal(computeGeometryMaxCutTriangles(asset), 7);
+  assert.equal(computePackedMaxCutTriangles([
     { asset },
     { asset },
     { asset: createTwoLevelAsset() }
@@ -287,21 +287,23 @@ test("R3-A max-cut capacity matches exhaustive legal cuts for fixed random trees
     const generated = createRandomCapacityAsset(seed);
     const legalCuts = enumerateLegalCutMeshletCounts(generated.root);
     assert.equal(
-      computeGeometryMaxCutMeshlets(generated.asset),
+      computeGeometryMaxCutTriangles(generated.asset),
       Math.max(...legalCuts),
       `seed ${seed}`
     );
   }
 });
 
-test("R3-A max-cut capacity rejects a hierarchy whose legal cut exceeds u32", () => {
+test("R3-A max-cut capacity rejects a hierarchy whose exact triangle cut exceeds u32", () => {
   const asset = createAsset([
     cluster({ childBegin: 0, childCount: 2, meshletBegin: 0, meshletCount: 1, error: 1, radius: 1, depth: 0 }),
-    cluster({ childBegin: 2, childCount: 0, meshletBegin: 0, meshletCount: 0xffffffff, error: 0, radius: 1, depth: 1 }),
-    cluster({ childBegin: 2, childCount: 0, meshletBegin: 0, meshletCount: 0xffffffff, error: 0, radius: 1, depth: 1 })
-  ], [1, 2], 0, [0, 0, 0, 1]);
+    cluster({ childBegin: 2, childCount: 0, meshletBegin: 0, meshletCount: 1, error: 0, radius: 1, depth: 1 }),
+    cluster({ childBegin: 2, childCount: 0, meshletBegin: 1, meshletCount: 1, error: 0, radius: 1, depth: 1 })
+  ], [1, 2], 2, [0, 0, 0, 1]);
+  asset.meshlets[0].triangleCount = 0xffffffff;
+  asset.meshlets[1].triangleCount = 0xffffffff;
   assert.throws(
-    () => computeGeometryMaxCutMeshlets(asset),
+    () => computeGeometryMaxCutTriangles(asset),
     /outside u32/
   );
 });
@@ -357,7 +359,7 @@ function createAsset(clusters, children, meshletCount, boundsSphere) {
     },
     clusters,
     clusterChildren: new Uint32Array(children),
-    meshlets: Array.from({ length: meshletCount }, () => ({}))
+    meshlets: Array.from({ length: meshletCount }, () => ({ triangleCount: 1 }))
   };
 }
 

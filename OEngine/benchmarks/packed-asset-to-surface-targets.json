@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "targetId": "packed-asset-to-surface-reconstruction",
+  "status": "provisional-until-paired-browser-gate",
+  "conditions": {
+    "internalWidth": 1921,
+    "internalHeight": 913,
+    "outputWidth": 1921,
+    "outputHeight": 913,
+    "ao": false,
+    "ssr": false,
+    "temporal": false,
+    "sampleCount": 1
+  },
+  "metrics": {
+    "hierarchyAndExactFilterP50Ms": {
+      "baseline": 0.2,
+      "baselineExcludesExactFilter": true,
+      "maximum": 1.0
+    },
+    "hardwareVisibilityP50Ms": {
+      "baseline": 3.34,
+      "maximum": 2.0
+    },
+    "classificationMaterialResolveSurfaceP50Ms": {
+      "baseline": 15.66,
+      "maximum": 5.0
+    },
+    "workGenerationToSurfaceP50Ms": {
+      "baseline": 19.2,
+      "maximum": 8.0
+    },
+    "allocatedSceneMemoryMiB": {
+      "baseline": 1433.6,
+      "maximum": 450.0
+    }
+  }
+}

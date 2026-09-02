@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   GPU_DISPATCH_INDIRECT_ARGS_SIZE,
+  GPU_CLASSIFIED_RASTER_HEADER_BYTES,
   GPU_DRAW_INDIRECT_ARGS_SIZE,
   GPU_RASTER_WORK_SCHEMA,
   GPU_TRAVERSAL_WORK_SCHEMA,
@@ -12,8 +13,10 @@ import {
   GPU_WORK_QUEUE_HEADER_SCHEMA,
   GPU_WORK_QUEUE_INVALID_OFFSET,
   createWorkQueueReservationState,
+  classifiedRasterWorkBufferByteLength,
   packDispatchIndirectArgs,
   packDrawIndirectArgs,
+  packClassifiedRasterWorkHeaders,
   packRasterWork,
   packTraversalWork,
   packVisibleClusterRecord,
@@ -23,7 +26,7 @@ import {
 } from "../.test-dist/gpu/GpuWorkGenerationAbi.js";
 
 test("R3-A Work Generation TS and WGSL share the frozen queue ABI", () => {
-  assert.equal(GPU_WORK_GENERATION_ABI_VERSION, 3);
+  assert.equal(GPU_WORK_GENERATION_ABI_VERSION, 5);
   assert.equal(GPU_TRAVERSAL_WORK_SCHEMA.stride, 8);
   assert.deepEqual(GPU_TRAVERSAL_WORK_SCHEMA.offsets, {
     instance_record_index: 0,
@@ -37,11 +40,14 @@ test("R3-A Work Generation TS and WGSL share the frozen queue ABI", () => {
     material_handle: 12,
     raster_flags: 16
   });
-  assert.equal(GPU_RASTER_WORK_SCHEMA.stride, 12);
+  assert.equal(GPU_RASTER_WORK_SCHEMA.stride, 24);
   assert.deepEqual(GPU_RASTER_WORK_SCHEMA.offsets, {
-    visible_cluster_slot: 0,
-    meshlet_record_index: 4,
-    raster_flags: 8
+    instance_record_index: 0,
+    geometry_record_index: 4,
+    meshlet_record_index: 8,
+    local_triangle_index: 12,
+    material_handle: 16,
+    raster_flags: 20
   });
   assert.equal(GPU_WORK_QUEUE_HEADER_SCHEMA.stride, 32);
   assert.deepEqual(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets, {
@@ -57,6 +63,22 @@ test("R3-A Work Generation TS and WGSL share the frozen queue ABI", () => {
   assert.match(GPU_WORK_GENERATION_WGSL, /written: atomic<u32>/);
   assert.match(GPU_WORK_GENERATION_WGSL, /atomicCompareExchangeWeak/);
   assert.match(GPU_WORK_GENERATION_WGSL, /OENGINE_WORK_QUEUE_INVALID_OFFSET/);
+});
+
+test("classified exact RasterWork freezes two bounded queue headers and disjoint ranges", () => {
+  const capacity = 17;
+  assert.equal(
+    classifiedRasterWorkBufferByteLength(capacity),
+    GPU_CLASSIFIED_RASTER_HEADER_BYTES + capacity * 2 * GPU_RASTER_WORK_SCHEMA.stride
+  );
+  const headers = new Uint32Array(packClassifiedRasterWorkHeaders(capacity).buffer);
+  assert.equal(headers.length, GPU_CLASSIFIED_RASTER_HEADER_BYTES / 4);
+  assert.equal(headers[GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.capacity / 4], capacity);
+  assert.equal(
+    headers[(GPU_WORK_QUEUE_HEADER_SCHEMA.stride +
+      GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.capacity) / 4],
+    capacity
+  );
 });
 
 test("R3-A packers write record indices and complete indirect arguments", () => {
@@ -80,13 +102,19 @@ test("R3-A packers write record indices and complete indirect arguments", () => 
   );
 
   const raster = new DataView(packRasterWork({
-    visibleClusterSlot: 5,
-    meshletRecordIndex: 6,
-    rasterFlags: 7
+    instanceRecordIndex: 5,
+    geometryRecordIndex: 6,
+    meshletRecordIndex: 7,
+    localTriangleIndex: 8,
+    materialHandle: 9,
+    rasterFlags: 10
   }).buffer);
   assert.equal(raster.getUint32(0, true), 5);
   assert.equal(raster.getUint32(4, true), 6);
   assert.equal(raster.getUint32(8, true), 7);
+  assert.equal(raster.getUint32(12, true), 8);
+  assert.equal(raster.getUint32(16, true), 9);
+  assert.equal(raster.getUint32(20, true), 10);
 
   const dispatch = new Uint32Array(packDispatchIndirectArgs(7, 2, 1).buffer);
   assert.equal(dispatch.byteLength, GPU_DISPATCH_INDIRECT_ARGS_SIZE);

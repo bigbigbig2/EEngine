@@ -4,7 +4,7 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 10;
+export const GPU_COUNTER_SCHEMA_VERSION = 11;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -25,10 +25,10 @@ export const GPU_COUNTER_FIELDS = [
   { name: "rejectedCone", index: 6, semantic: "cone rejects" },
   { name: "rejectedHzb", index: 7, semantic: "HZB rejects" },
   { name: "swClusters", index: 8, semantic: "software raster clusters" },
-  { name: "hwClusters", index: 9, semantic: "hardware RasterWork Meshlet records consumed by drawIndirect" },
-  { name: "alphaClusters", index: 10, semantic: "alpha-tested clusters" },
+  { name: "hwClusters", index: 9, semantic: "exact-triangle RasterWork records consumed by drawIndirect; historical field name retained by result schema" },
+  { name: "alphaClusters", index: 10, semantic: "alpha-tested exact-triangle RasterWork records" },
   { name: "swTriangles", index: 11, semantic: "software raster triangles" },
-  { name: "hwTriangles", index: 12, semantic: "fixed-function raster primitives submitted" },
+  { name: "hwTriangles", index: 12, semantic: "exact fixed-function raster triangles submitted" },
   { name: "shadedPixels", index: 13, semantic: "resolved visible pixels" },
   { name: "emptyVisibilityPixels", index: 14, semantic: "empty resolve pixels" },
   { name: "activeMaterials", index: 15, semantic: "active non-transparent MaterialRecords consumed by one Material Resolve draw" },
@@ -99,7 +99,11 @@ export const GPU_COUNTER_FIELDS = [
   { name: "ssrDistanceRejectedPixels", index: 80, semantic: "sampled pixels rejected by max-distance termination; zero on the pre-Q04 implementation" },
   { name: "ssrHighRoughnessTracePixels", index: 81, semantic: "sampled pixels above the Q00 diagnostic roughness threshold that still entered the pre-Q04 trace" },
   { name: "ssrDistanceLimitExceededPixels", index: 82, semantic: "sampled validated rays longer than requested maxDistance that the pre-Q04 trace did not terminate" },
-  { name: "ssrValidationRejectedPixels", index: 83, semantic: "sampled hierarchical hits rejected by current depth, facing, edge or confidence validation" }
+  { name: "ssrValidationRejectedPixels", index: 83, semantic: "sampled hierarchical hits rejected by current depth, facing, edge or confidence validation" },
+  { name: "rasterCandidateTriangles", index: 84, semantic: "sampled exact triangle candidates entering classification/filter" },
+  { name: "rasterRejectedTriangles", index: 85, semantic: "sampled exact triangle candidates rejected before Hardware Visibility" },
+  { name: "opaqueRasterWork", index: 86, semantic: "sampled compact OPAQUE exact RasterWork records" },
+  { name: "maskRasterWork", index: 87, semantic: "sampled compact MASK exact RasterWork records" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

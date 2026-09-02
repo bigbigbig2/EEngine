@@ -24,7 +24,7 @@ test("R2-D Packed Scene rejects malformed source before allocating or mutating o
   source.currentTransforms = new Float32Array(15);
 
   assert.throws(
-    () => registry.stage(new Scene(), source, [Object.freeze({})], new FakeCommand()),
+    () => registry.stage(new Scene(), makeManifest(source), [Object.freeze({})], new FakeCommand()),
     /currentTransforms length/
   );
   assert.equal(graphics.obtainCount, 0);
@@ -39,13 +39,13 @@ test("R3-D Packed Scene abort rolls back its counter sink and release retires it
   const source = makeSource();
 
   const aborted = new FakeCommand();
-  registry.stage(scene, source, [Object.freeze({})], aborted);
+  registry.stage(scene, makeManifest(source), [Object.freeze({})], aborted);
   aborted.abort();
   assert.equal(registry.evidence().sceneCount, 0);
   assert.deepEqual(graphics.buffers.map((buffer) => buffer.destroyCount), [1]);
 
   const staged = new FakeCommand();
-  registry.stage(scene, source, [Object.freeze({})], staged);
+  registry.stage(scene, makeManifest(source), [Object.freeze({})], staged);
   staged.finish();
   assert.equal(registry.evidence().sceneCount, 1);
   assert.equal(registry.evidence().hierarchyRasterWorkCapacity, 2);
@@ -65,7 +65,7 @@ test("R3-D Packed Scene abort rolls back its counter sink and release retires it
   assert.equal(graphics.releaseCount, 1);
 });
 
-test("R2-D Renderer upload path explicitly rolls resident handles back on failure", () => {
+test("Packed Scene upload is one transactional residency command", () => {
   const source = readFileSync(
     new URL("../src/render/Renderer.ts", import.meta.url),
     "utf8"
@@ -74,7 +74,12 @@ test("R2-D Renderer upload path explicitly rolls resident handles back on failur
     source.indexOf("async uploadPackedScene"),
     source.indexOf("/** Releases one Packed Scene")
   );
-  assert.match(upload, /catch \(error\) \{\s*await this\.releasePackedAssetHandles\(handles\)/s);
+  assert.match(upload, /createSceneResidencyManifest\(source,/s);
+  assert.match(upload, /assets\.residentMany\(\s*manifest\.packages,\s*command/s);
+  assert.match(upload, /packed_scenes\.stage\(\s*scene,\s*manifest,\s*handles,\s*command/s);
+  assert.equal((upload.match(/command\.finish\(\)/g) ?? []).length, 1);
+  assert.equal((upload.match(/await command\.submitted/g) ?? []).length, 1);
+  assert.match(upload, /catch \(error\) \{\s*command\.abort\(error\)/s);
 });
 
 test("R3-D hierarchy capacity counts every instance sharing one Geometry without a flat owner", () => {
@@ -83,7 +88,7 @@ test("R3-D hierarchy capacity counts every instance sharing one Geometry without
   const scene = new Scene();
   const shared = makeSource(1_000, 7);
   const command = new FakeCommand();
-  registry.stage(scene, shared, [Object.freeze({})], command);
+  registry.stage(scene, makeManifest(shared), [Object.freeze({})], command);
   command.finish();
   assert.equal(registry.evidence().hierarchyVisibleClusterCapacity, 1_000);
   assert.equal(registry.evidence().hierarchyRasterWorkCapacity, 7_000);
@@ -99,7 +104,7 @@ test("R4-B Packed Scene writes dense resident material slots and patches by dict
   source.materialIndices = new Uint32Array([1, 0]);
 
   const stage = new FakeCommand();
-  registry.stage(scene, source, [Object.freeze({})], stage);
+  registry.stage(scene, makeManifest(source), [Object.freeze({})], stage);
   assert.deepEqual([...graphics.lastInstanceSource.materialHandles], [11, 7]);
   stage.finish();
 
@@ -145,10 +150,11 @@ function makeSource(count = 1, meshletCount = 2) {
         childBegin: 0,
         childCount: 0,
         depth: 0,
+        meshletBegin: 0,
         meshletCount
       }],
       clusterChildren: new Uint32Array(),
-      meshlets: Array.from({ length: meshletCount }, () => ({}))
+      meshlets: Array.from({ length: meshletCount }, () => ({ triangleCount: 1 }))
     }],
     materials: [new StandardShadeMaterial()],
     count,
@@ -157,6 +163,17 @@ function makeSource(count = 1, meshletCount = 2) {
     currentTransforms,
     boundsSpheres
   };
+}
+
+function makeManifest(source) {
+  return Object.freeze({
+    schemaVersion: 1,
+    source,
+    packages: source.geometries,
+    materials: source.materials,
+    packageContentHashes: [],
+    totals: {}
+  });
 }
 
 function createGraphics() {
@@ -178,16 +195,30 @@ function createGraphics() {
         graphics.obtainCount++;
       }
     },
-    material_visibility: {
+    texture_residency: {
+      stage() {
+        return {
+          bindings: {
+            textureCapacity: 256,
+            textureArray: {},
+            highResolutionTextureArray: {},
+            alphaAtlas: {},
+            highResolutionAlphaAtlas: {}
+          },
+          textureRefs: new Map()
+        };
+      },
+      release(_materials, command) {
+        command.onFinished.addOne(() => {});
+      }
+    },
+    material_store: {
       stage(materials) {
         return {
           bindings: {
             abiVersion: 1,
             materialCapacity: 4096,
-            textureCapacity: 256,
-            materialRecords: {},
-            textureArray: {},
-            alphaAtlas: {}
+            materialRecords: {}
           },
           materialSlots: materials.map((_, index) => index === 0 ? 7 : 11)
         };

@@ -20,15 +20,17 @@ const { GPUViewKey, ViewManager } = await import(
   "../.test-dist/render/ViewManager.js"
 );
 const {
+  GPU_CLASSIFIED_RASTER_HEADER_BYTES,
   GPU_RASTER_WORK_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA
 } = await import("../.test-dist/gpu/GpuWorkGenerationAbi.js");
 
 test("R4-A-05 prepare rejects capacity before generator allocation or encoding", () => {
   const adapterCapacity = 5;
-  const byteLimit = GPU_WORK_QUEUE_HEADER_SCHEMA.stride +
-    adapterCapacity * GPU_RASTER_WORK_SCHEMA.stride;
+  const byteLimit = GPU_CLASSIFIED_RASTER_HEADER_BYTES +
+    adapterCapacity * 2 * GPU_RASTER_WORK_SCHEMA.stride;
   const generator = createGenerator();
+  const exact = createExactFilter();
   const pass = new PackedVisibilityPass({
     device: {
       limits: {
@@ -36,13 +38,13 @@ test("R4-A-05 prepare rejects capacity before generator allocation or encoding",
         maxStorageBufferBindingSize: byteLimit
       }
     }
-  }, generator);
+  }, generator, exact);
   const command = createRetirementCommand();
   const job = createJob(adapterCapacity + 1);
 
   assert.throws(
-    () => pass.prepareHierarchy(job, {}, command),
-    /exceeds adapter capacity 5/
+    () => pass.prepareHierarchy(job, {}, {}, command),
+    /exceeds effective capacity 5/
   );
   assert.equal(generator.prepareCalls.length, 0);
   assert.equal(generator.encodeCalls, 0);
@@ -50,13 +52,14 @@ test("R4-A-05 prepare rejects capacity before generator allocation or encoding",
   assert.equal(pass.lastPreparation, null);
 
   job.runtime.hierarchyRasterWorkCapacity = adapterCapacity;
-  const prepared = pass.prepareHierarchy(job, {}, command);
+  const prepared = pass.prepareHierarchy(job, {}, {}, command);
   assert.equal(generator.prepareCalls.length, 1);
-  assert.equal(prepared, generator.prepared[0]);
+  assert.equal(prepared.prepared, generator.prepared[0]);
+  assert.equal(prepared.exact, exact.prepared[0]);
   assert.deepEqual(pass.lastPreparation, {
     requiredCapacity: adapterCapacity,
     requiredByteLength: byteLimit,
-    keyCapacity: 0x01ffffff,
+    keyCapacity: 0x7fffffff,
     adapterCapacity,
     effectiveCapacity: adapterCapacity,
     effectiveByteLimit: byteLimit
@@ -65,6 +68,7 @@ test("R4-A-05 prepare rejects capacity before generator allocation or encoding",
 
 test("R4-A-05 replacement and release retire prepared work through the command fence", () => {
   const generator = createGenerator();
+  const exact = createExactFilter();
   const pass = new PackedVisibilityPass({
     device: {
       limits: {
@@ -72,33 +76,58 @@ test("R4-A-05 replacement and release retire prepared work through the command f
         maxStorageBufferBindingSize: 1 << 20
       }
     }
-  }, generator);
+  }, generator, exact);
   const command = createRetirementCommand();
   const job = createJob(8);
   const counters = {};
 
-  const first = pass.prepareHierarchy(job, counters, command);
-  assert.equal(pass.prepareHierarchy(job, counters, command), first);
+  const camera = {};
+  const first = pass.prepareHierarchy(job, counters, camera, command);
+  assert.equal(pass.prepareHierarchy(job, counters, camera, command), first);
   assert.equal(generator.prepareCalls.length, 1, "stable epochs reuse prepared work");
 
   job.assets.epoch++;
-  const second = pass.prepareHierarchy(job, counters, command);
+  const second = pass.prepareHierarchy(job, counters, camera, command);
   assert.notEqual(second, first);
   assert.equal(generator.prepareCalls.length, 2);
   assert.equal(command.retired.length, 1);
   assert.deepEqual(generator.released, []);
   command.retired[0].destroy();
-  assert.deepEqual(generator.released, [first]);
+  assert.deepEqual(generator.released, [first.prepared]);
+  assert.deepEqual(exact.released, [first.exact]);
 
   pass.release(job.runtime, command);
   assert.equal(command.retired.length, 2);
   command.retired[1].destroy();
-  assert.deepEqual(generator.released, [first, second]);
+  assert.deepEqual(generator.released, [first.prepared, second.prepared]);
+  assert.deepEqual(exact.released, [first.exact, second.exact]);
 
-  const third = pass.prepareHierarchy(job, counters, command);
+  const third = pass.prepareHierarchy(job, counters, camera, command);
   assert.notEqual(third, second, "released runtime rebuilds instead of reusing stale work");
   pass.destroy();
   assert.equal(generator.destroyCount, 1);
+});
+
+test("exact-filter preparation failure immediately releases the unpublished hierarchy state", () => {
+  const generator = createGenerator();
+  const exact = createExactFilter();
+  exact.prepare = () => { throw new Error("exact filter allocation failed"); };
+  const pass = new PackedVisibilityPass({
+    device: {
+      limits: {
+        maxBufferSize: 1 << 20,
+        maxStorageBufferBindingSize: 1 << 20
+      }
+    }
+  }, generator, exact);
+
+  assert.throws(
+    () => pass.prepareHierarchy(createJob(8), {}, {}, createRetirementCommand()),
+    /exact filter allocation failed/
+  );
+  assert.deepEqual(generator.released, [generator.prepared[0]]);
+  assert.equal(exact.released.length, 0);
+  pass.destroy();
 });
 
 test("R4-A-05 aborted retirement still waits for prior submitted GPU work", async () => {
@@ -177,8 +206,8 @@ test("R4-A-05 feature-off source keeps counter reducer and debug resolve behind 
 
 test("R4-A-05 preparation evidence accepts the exact adapter boundary", () => {
   const capacity = 17;
-  const limit = GPU_WORK_QUEUE_HEADER_SCHEMA.stride +
-    capacity * GPU_RASTER_WORK_SCHEMA.stride;
+  const limit = GPU_CLASSIFIED_RASTER_HEADER_BYTES +
+    capacity * 2 * GPU_RASTER_WORK_SCHEMA.stride;
   assert.equal(
     validatePackedVisibilityPreparation(capacity, {
       maxBufferSize: limit,
@@ -219,12 +248,47 @@ function createGenerator() {
     destroyCount: 0,
     prepare(scene, config) {
       this.prepareCalls.push({ scene, config });
-      const prepared = { id: this.prepared.length };
+      const prepared = {
+        id: this.prepared.length,
+        generated: { rasterWork: {}, rasterWorkCapacity: scene.rasterWorkCapacity }
+      };
       this.prepared.push(prepared);
       return prepared;
     },
     encode() {
       this.encodeCalls++;
+      throw new Error("encode is not used by this lifecycle test");
+    },
+    release(prepared) {
+      this.released.push(prepared);
+    },
+    destroy() {
+      this.destroyCount++;
+    }
+  };
+}
+
+function createExactFilter() {
+  return {
+    prepared: [],
+    released: [],
+    destroyCount: 0,
+    prepare(inputs) {
+      const prepared = {
+        inputs,
+        output: {
+          rasterWork: {},
+          classCapacity: inputs.candidateCapacity,
+          totalCapacity: inputs.candidateCapacity * 2,
+          drawIndirect: {},
+          opaqueDrawOffset: 0,
+          maskDrawOffset: 16
+        }
+      };
+      this.prepared.push(prepared);
+      return prepared;
+    },
+    encode() {
       throw new Error("encode is not used by this lifecycle test");
     },
     release(prepared) {

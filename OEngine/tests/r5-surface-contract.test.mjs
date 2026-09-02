@@ -174,11 +174,11 @@ test("R5-00 metadata is 16-bit resident material slot plus 16-bit flags", () => 
   );
 
   const materialTableSource = readFileSync(
-    path.join(root, "src/gpu/GpuMaterialVisibilityTable.ts"),
+    path.join(root, "src/gpu/GpuMaterialStore.ts"),
     "utf8"
   );
   const capacityMatch = materialTableSource.match(
-    /GPU_MATERIAL_VISIBILITY_CAPACITY\s*=\s*(\d+)/
+    /GPU_MATERIAL_CAPACITY\s*=\s*(\d+)/
   );
   assert.notEqual(capacityMatch, null);
   const residentCapacity = Number(capacityMatch[1]);
@@ -300,7 +300,7 @@ test("R5-00 TS and WGSL share one metadata ABI truth source", () => {
 test("R5-00 Resolve, counters and debug consume the canonical Surface ABI", () => {
   assert.match(
     PACKED_MATERIAL_RESOLVE_WGSL,
-    /oengine_surface_pack\(visible\.material_handle, surface_flags\)/
+    /oengine_surface_pack\(work\.material_handle, surface_flags\)/
   );
   assert.match(
     PACKED_MATERIAL_RESOLVE_WGSL,

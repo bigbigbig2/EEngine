@@ -17,10 +17,7 @@ import {
   GPU_VISIBILITY_DEBUG_STATUS_WGSL
 } from "../gpu/GpuVisibilityDebugResolve.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import {
-  GPU_RASTER_WORK_SCHEMA,
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA
-} from "../gpu/GpuWorkGenerationAbi.js";
+import { GPU_RASTER_WORK_SCHEMA } from "../gpu/GpuWorkGenerationAbi.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../render/VisibilityBufferContract.js";
 import { SSR_FULLSCREEN_VERTEX_WGSL } from "./ssr_common.js";
 
@@ -287,7 +284,6 @@ ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
-${GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.wgsl}
 ${GPU_RASTER_WORK_SCHEMA.wgsl}
 ${GPU_VISIBILITY_DEBUG_STATUS_WGSL}
 
@@ -302,33 +298,28 @@ struct R4DebugQueueHeaderRead {
   rejected_hzb: u32,
 }
 
-struct R4DebugVisibleClusterQueue {
-  header: R4DebugQueueHeaderRead,
-  elements: array<OEngineVisibleClusterRecord>,
-}
-
 struct R4DebugRasterWorkQueue {
-  header: R4DebugQueueHeaderRead,
+  opaque_header: R4DebugQueueHeaderRead,
+  mask_header: R4DebugQueueHeaderRead,
   elements: array<OEngineRasterWork>,
 }
 
 struct R4DebugResolveSettings {
   output_size: vec2u,
   meshlet_record_count: u32,
-  cluster_record_count: u32,
   instance_record_count: u32,
   geometry_record_count: u32,
   material_capacity: u32,
   _pad0: u32,
+  _pad1: u32,
 }
 
 @group(0) @binding(0) var visibility_keys: texture_2d<u32>;
 @group(0) @binding(1) var<storage, read> debug_instances: array<OEngineInstanceRecord>;
 @group(0) @binding(2) var<storage, read> debug_meshlets: array<GpuMeshletRecord>;
-@group(0) @binding(3) var<storage, read> debug_visible_clusters: R4DebugVisibleClusterQueue;
-@group(0) @binding(4) var<storage, read> debug_raster_work: R4DebugRasterWorkQueue;
-@group(0) @binding(5) var<storage, read> debug_materials: array<OEngineMaterialVisibilityRecord>;
-@group(0) @binding(6) var<uniform> settings: R4DebugResolveSettings;
+@group(0) @binding(3) var<storage, read> debug_raster_work: R4DebugRasterWorkQueue;
+@group(0) @binding(4) var<storage, read> debug_materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(5) var<uniform> settings: R4DebugResolveSettings;
 
 ${DEBUG_VIEW_COORDINATE_WGSL}
 ${DEBUG_HASH_WGSL}
@@ -342,12 +333,6 @@ fn debug_failure_color(status: u32) -> vec3f {
   }
   if status == OENGINE_VIS_DEBUG_RASTER_WORK_OOB {
     return vec3f(${GPU_VISIBILITY_DEBUG_COLORS.RasterWorkOutOfRange.join(", ")});
-  }
-  if status == OENGINE_VIS_DEBUG_VISIBLE_CLUSTER_OOB {
-    return vec3f(${GPU_VISIBILITY_DEBUG_COLORS.VisibleClusterOutOfRange.join(", ")});
-  }
-  if status == OENGINE_VIS_DEBUG_CLUSTER_RECORD_OOB {
-    return vec3f(${GPU_VISIBILITY_DEBUG_COLORS.ClusterRecordOutOfRange.join(", ")});
   }
   if status == OENGINE_VIS_DEBUG_MESHLET_OOB {
     return vec3f(${GPU_VISIBILITY_DEBUG_COLORS.MeshletOutOfRange.join(", ")});
@@ -392,27 +377,22 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   }
 
   let raster_work_slot = oengine_visibility_key_raster_work_slot(key);
-  let local_triangle = oengine_visibility_key_local_triangle(key);
-  let raster_work_count = min(
-    debug_raster_work.header.written,
-    arrayLength(&debug_raster_work.elements)
+  let opaque_count = min(
+    debug_raster_work.opaque_header.written,
+    debug_raster_work.opaque_header.capacity
   );
-  if raster_work_slot >= raster_work_count {
+  let mask_count = min(
+    debug_raster_work.mask_header.written,
+    debug_raster_work.mask_header.capacity
+  );
+  let valid_opaque = raster_work_slot < opaque_count;
+  let valid_mask = raster_work_slot >= debug_raster_work.opaque_header.capacity &&
+    raster_work_slot - debug_raster_work.opaque_header.capacity < mask_count;
+  if (!valid_opaque && !valid_mask) ||
+    raster_work_slot >= arrayLength(&debug_raster_work.elements) {
     return fail(OENGINE_VIS_DEBUG_RASTER_WORK_OOB);
   }
   let work = debug_raster_work.elements[raster_work_slot];
-
-  let visible_cluster_count = min(
-    debug_visible_clusters.header.written,
-    arrayLength(&debug_visible_clusters.elements)
-  );
-  if work.visible_cluster_slot >= visible_cluster_count {
-    return fail(OENGINE_VIS_DEBUG_VISIBLE_CLUSTER_OOB);
-  }
-  let visible = debug_visible_clusters.elements[work.visible_cluster_slot];
-  if visible.cluster_record_index >= settings.cluster_record_count {
-    return fail(OENGINE_VIS_DEBUG_CLUSTER_RECORD_OOB);
-  }
   if work.meshlet_record_index >= min(
     settings.meshlet_record_count,
     arrayLength(&debug_meshlets)
@@ -420,35 +400,35 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
     return fail(OENGINE_VIS_DEBUG_MESHLET_OOB);
   }
   let meshlet = debug_meshlets[work.meshlet_record_index];
-  if local_triangle >= meshlet.triangle_count {
+  if work.local_triangle_index >= meshlet.triangle_count {
     return fail(OENGINE_VIS_DEBUG_TRIANGLE_OOB);
   }
-  if visible.instance_record_index >= min(
+  if work.instance_record_index >= min(
     settings.instance_record_count,
     arrayLength(&debug_instances)
   ) {
     return fail(OENGINE_VIS_DEBUG_INSTANCE_OOB);
   }
-  let instance = debug_instances[visible.instance_record_index];
+  let instance = debug_instances[work.instance_record_index];
   if !oengine_instance_active(instance) {
     return fail(OENGINE_VIS_DEBUG_INACTIVE_INSTANCE);
   }
-  if visible.geometry_record_index >= settings.geometry_record_count {
+  if work.geometry_record_index >= settings.geometry_record_count {
     return fail(OENGINE_VIS_DEBUG_GEOMETRY_OOB);
   }
-  if instance.geometry_record_index != visible.geometry_record_index ||
-    instance.material_handle != visible.material_handle {
+  if instance.geometry_record_index != work.geometry_record_index ||
+    instance.material_handle != work.material_handle {
     return fail(OENGINE_VIS_DEBUG_IDENTITY_MISMATCH);
   }
-  if visible.material_handle >= min(
+  if work.material_handle >= min(
     settings.material_capacity,
     arrayLength(&debug_materials)
   ) {
     return fail(OENGINE_VIS_DEBUG_MATERIAL_OOB);
   }
-  let material = debug_materials[visible.material_handle];
+  let material = debug_materials[work.material_handle];
   if (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
-    material.material_id != visible.material_handle {
+    material.material_id != work.material_handle {
     return fail(OENGINE_VIS_DEBUG_MATERIAL_INVALID);
   }
   if material.alpha_mode == OENGINE_MATERIAL_ALPHA_BLEND {
@@ -457,10 +437,10 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 
   let identity_hash = avalanche_hash(
     raster_work_slot ^
-    avalanche_hash(work.visible_cluster_slot + 0x9e3779b9u) ^
-    avalanche_hash(work.meshlet_record_index + local_triangle * 0x85ebca6bu) ^
-    avalanche_hash(instance.debug_id + visible.geometry_record_index * 0xc2b2ae35u) ^
-    avalanche_hash(visible.material_handle + visible.cluster_record_index)
+    avalanche_hash(work.instance_record_index + 0x9e3779b9u) ^
+    avalanche_hash(work.meshlet_record_index + work.local_triangle_index * 0x85ebca6bu) ^
+    avalanche_hash(instance.debug_id + work.geometry_record_index * 0xc2b2ae35u) ^
+    avalanche_hash(work.material_handle)
   );
   var color = 0.15 + vec3f(
     f32(identity_hash & 255u),

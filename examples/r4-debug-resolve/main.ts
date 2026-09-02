@@ -20,12 +20,11 @@ import {
   packGpuMaterialVisibilityRecord
 } from "../../OEngine/src/gpu/GpuMaterialVisibilityAbi.ts";
 import {
+  GPU_CLASSIFIED_RASTER_HEADER_BYTES,
   GPU_RASTER_WORK_SCHEMA,
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA,
+  packClassifiedRasterWorkHeaders,
   packRasterWork,
-  packVisibleClusterRecord,
-  packWorkQueueHeader
 } from "../../OEngine/src/gpu/GpuWorkGenerationAbi.ts";
 import {
   GPU_VISIBILITY_DEBUG_COLORS,
@@ -48,7 +47,7 @@ declare const __BUILD_DIRTY_REASONS__: readonly string[];
 
 const WIDTH = 768;
 const HEIGHT = 432;
-const CASE_COUNT = 16;
+const CASE_COUNT = 15;
 const ROW_BYTES = 256;
 const status = requiredElement<HTMLElement>("status");
 const result = requiredElement<HTMLElement>("result");
@@ -197,24 +196,19 @@ async function runFailureInjection(device: GPUDevice) {
     [CASE_COUNT, 1]
   );
 
-  const rasterWork = createQueueBuffer(device, "R4-A-04 injected RasterWork", [
-    [0, 0], [30, 0], [1, 0], [2, 5], [3, 0], [4, 0], [5, 0],
-    [6, 0], [7, 0], [8, 0], [9, 0], [10, 0], [11, 0]
-  ].map(([visibleClusterSlot, meshletRecordIndex]) => packRasterWork({
-    visibleClusterSlot: visibleClusterSlot!,
-    meshletRecordIndex: meshletRecordIndex!
-  })), GPU_RASTER_WORK_SCHEMA.stride);
-  const visibleClusters = createQueueBuffer(device, "R4-A-04 injected VisibleCluster", [
-    [0, 0, 0, 0], [0, 0, 5, 0], [0, 0, 0, 0], [0, 0, 0, 0],
-    [5, 0, 0, 0], [1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 0, 1],
-    [2, 0, 0, 5], [3, 0, 0, 1], [4, 0, 0, 2], [0, 0, 0, 0]
-  ].map(([instanceRecordIndex, geometryRecordIndex, clusterRecordIndex, materialHandle]) =>
-    packVisibleClusterRecord({
-      instanceRecordIndex: instanceRecordIndex!,
-      geometryRecordIndex: geometryRecordIndex!,
-      clusterRecordIndex: clusterRecordIndex!,
-      materialHandle: materialHandle!
-    })), GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride);
+  const rasterWork = createClassifiedRasterBuffer(device, "R4-A-04 injected RasterWork", [
+    rasterWorkRecord(0, 0, 5, 0, 0),
+    rasterWorkRecord(0, 0, 0, 1, 0),
+    rasterWorkRecord(5, 0, 0, 0, 0),
+    rasterWorkRecord(1, 0, 0, 0, 0),
+    rasterWorkRecord(0, 5, 0, 0, 0),
+    rasterWorkRecord(0, 1, 0, 0, 0),
+    rasterWorkRecord(0, 0, 0, 0, 1),
+    rasterWorkRecord(2, 0, 0, 0, 5),
+    rasterWorkRecord(3, 0, 0, 0, 1),
+    rasterWorkRecord(4, 0, 0, 0, 2),
+    rasterWorkRecord(0, 0, 0, 0, 0)
+  ]);
   const instances = createBufferWithData(
     device,
     "R4-A-04 injected instances",
@@ -253,7 +247,7 @@ async function runFailureInjection(device: GPUDevice) {
     device,
     "R4-A-04 debug settings",
     new Uint8Array(new Uint32Array([
-      CASE_COUNT, 1, 1, 1, 5, 1, 3, 0
+      CASE_COUNT, 1, 1, 5, 2, 3, 0, 0
     ]).buffer),
     GPUBufferUsage.UNIFORM
   );
@@ -275,12 +269,12 @@ async function runFailureInjection(device: GPUDevice) {
     label: "R4-A-04 injected debug group0",
     entries: [
       { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
-      ...Array.from({ length: 5 }, (_, index) => ({
+      ...Array.from({ length: 4 }, (_, index) => ({
         binding: index + 1,
         visibility: GPUShaderStage.FRAGMENT,
         buffer: { type: "read-only-storage" as GPUBufferBindingType }
       })),
-      { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: GPU_VISIBILITY_DEBUG_SETTINGS_SIZE } }
+      { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: GPU_VISIBILITY_DEBUG_SETTINGS_SIZE } }
     ]
   });
   device.pushErrorScope("validation");
@@ -309,10 +303,9 @@ async function runFailureInjection(device: GPUDevice) {
       { binding: 0, resource: keyTexture.createView() },
       { binding: 1, resource: { buffer: instances } },
       { binding: 2, resource: { buffer: meshlets } },
-      { binding: 3, resource: { buffer: visibleClusters } },
-      { binding: 4, resource: { buffer: rasterWork } },
-      { binding: 5, resource: { buffer: materials } },
-      { binding: 6, resource: { buffer: settings } }
+      { binding: 3, resource: { buffer: rasterWork } },
+      { binding: 4, resource: { buffer: materials } },
+      { binding: 5, resource: { buffer: settings } }
     ]
   });
   const encoder = device.createCommandEncoder({ label: "R4-A-04 fail-visible injection" });
@@ -354,7 +347,7 @@ async function runFailureInjection(device: GPUDevice) {
     cases.every((entry) => entry.matches);
 
   for (const resource of [keyTexture, output]) resource.destroy();
-  for (const resource of [rasterWork, visibleClusters, instances, meshlets, materials, settings, readback]) {
+  for (const resource of [rasterWork, instances, meshlets, materials, settings, readback]) {
     resource.destroy();
   }
   return {
@@ -371,20 +364,19 @@ function buildFailureCases() {
   return [
     { name: "empty", key: GPU_VISIBILITY_KEY_EMPTY, color: color.Empty },
     { name: "invalid-reserved", key: GPU_VISIBILITY_KEY_INVALID, color: color.InvalidKey },
-    { name: "maximum-valid-key", key: encodeVisibilityKey(GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT, 127), color: color.RasterWorkOutOfRange },
-    { name: "raster-work-oob", key: encodeVisibilityKey(30, 0), color: color.RasterWorkOutOfRange },
-    { name: "visible-cluster-oob", key: encodeVisibilityKey(1, 0), color: color.VisibleClusterOutOfRange },
-    { name: "cluster-record-oob", key: encodeVisibilityKey(2, 0), color: color.ClusterRecordOutOfRange },
-    { name: "meshlet-oob", key: encodeVisibilityKey(3, 0), color: color.MeshletOutOfRange },
-    { name: "triangle-oob", key: encodeVisibilityKey(4, 1), color: color.TriangleOutOfRange },
-    { name: "instance-oob", key: encodeVisibilityKey(5, 0), color: color.InstanceOutOfRange },
-    { name: "inactive-instance", key: encodeVisibilityKey(6, 0), color: color.InactiveInstance },
-    { name: "geometry-oob", key: encodeVisibilityKey(7, 0), color: color.GeometryOutOfRange },
-    { name: "identity-mismatch", key: encodeVisibilityKey(8, 0), color: color.IdentityMismatch },
-    { name: "material-oob", key: encodeVisibilityKey(9, 0), color: color.MaterialOutOfRange },
-    { name: "material-invalid", key: encodeVisibilityKey(10, 0), color: color.MaterialRecordInvalid },
-    { name: "blend-in-opaque", key: encodeVisibilityKey(11, 0), color: color.BlendMaterial },
-    { name: "valid-mask", key: encodeVisibilityKey(12, 0), color: null }
+    { name: "maximum-valid-key", key: encodeVisibilityKey(GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT), color: color.RasterWorkOutOfRange },
+    { name: "raster-work-oob", key: encodeVisibilityKey(30), color: color.RasterWorkOutOfRange },
+    { name: "meshlet-oob", key: encodeVisibilityKey(0), color: color.MeshletOutOfRange },
+    { name: "triangle-oob", key: encodeVisibilityKey(1), color: color.TriangleOutOfRange },
+    { name: "instance-oob", key: encodeVisibilityKey(2), color: color.InstanceOutOfRange },
+    { name: "inactive-instance", key: encodeVisibilityKey(3), color: color.InactiveInstance },
+    { name: "geometry-oob", key: encodeVisibilityKey(4), color: color.GeometryOutOfRange },
+    { name: "geometry-identity-mismatch", key: encodeVisibilityKey(5), color: color.IdentityMismatch },
+    { name: "material-identity-mismatch", key: encodeVisibilityKey(6), color: color.IdentityMismatch },
+    { name: "material-oob", key: encodeVisibilityKey(7), color: color.MaterialOutOfRange },
+    { name: "material-invalid", key: encodeVisibilityKey(8), color: color.MaterialRecordInvalid },
+    { name: "blend-in-opaque", key: encodeVisibilityKey(9), color: color.BlendMaterial },
+    { name: "valid-mask", key: encodeVisibilityKey(10), color: null }
   ] as const;
 }
 
@@ -436,23 +428,38 @@ function materialRecord(materialId: number, alphaMode: number, flags: number) {
   };
 }
 
-function createQueueBuffer(
+function rasterWorkRecord(
+  instanceRecordIndex: number,
+  geometryRecordIndex: number,
+  meshletRecordIndex: number,
+  localTriangleIndex: number,
+  materialHandle: number
+): Uint8Array {
+  return packRasterWork({
+    instanceRecordIndex,
+    geometryRecordIndex,
+    meshletRecordIndex,
+    localTriangleIndex,
+    materialHandle,
+    rasterFlags: 0
+  });
+}
+
+function createClassifiedRasterBuffer(
   device: GPUDevice,
   label: string,
-  records: readonly Uint8Array[],
-  stride: number
+  records: readonly Uint8Array[]
 ): GPUBuffer {
-  const bytes = new Uint8Array(GPU_WORK_QUEUE_HEADER_SCHEMA.stride + records.length * stride);
-  bytes.set(packWorkQueueHeader({
-    written: records.length,
-    attempted: records.length,
-    peak: records.length,
-    overflow: 0,
-    fallback: 0,
-    capacity: records.length
-  }));
+  const bytes = new Uint8Array(
+    GPU_CLASSIFIED_RASTER_HEADER_BYTES + records.length * 2 * GPU_RASTER_WORK_SCHEMA.stride
+  );
+  bytes.set(packClassifiedRasterWorkHeaders(records.length));
+  const header = new DataView(bytes.buffer);
+  header.setUint32(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.written, records.length, true);
+  header.setUint32(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.attempted, records.length, true);
+  header.setUint32(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.peak, records.length, true);
   for (let index = 0; index < records.length; index++) {
-    bytes.set(records[index]!, GPU_WORK_QUEUE_HEADER_SCHEMA.stride + index * stride);
+    bytes.set(records[index]!, GPU_CLASSIFIED_RASTER_HEADER_BYTES + index * GPU_RASTER_WORK_SCHEMA.stride);
   }
   return createBufferWithData(device, label, bytes);
 }

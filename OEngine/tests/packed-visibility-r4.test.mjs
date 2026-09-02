@@ -19,7 +19,7 @@ test("R4-A-02 VisibilityKey attachment freezes format, usage and dimensions", ()
   const descriptor = packedVisibilityAttachmentDescriptor(1280, 720);
   assert.deepEqual(descriptor, {
     kind: "transient_texture",
-    label: "R4 VisibilityKey v1 r32uint",
+    label: "Packed VisibilityKey r32uint",
     width: 1280,
     height: 720,
     format: "r32uint",
@@ -90,12 +90,12 @@ test("R4-A-02 FrameGraph owns the Key attachment only when the Packed pass exist
   graph.compile();
   assert.equal(
     graph.getResourceNode(outputs.visibilityKey).producer?.name,
-    "Packed Visibility/R4-A-03 Material Visibility alpha producer"
+    "Packed Visibility/exact OPAQUE+MASK producer"
   );
   assert.deepEqual(
     graph.listExecutablePasses().map(({ name, culled }) => ({ name, culled })),
     [{
-      name: "Packed Visibility/R4-A-03 Material Visibility alpha producer",
+      name: "Packed Visibility/exact OPAQUE+MASK producer",
       culled: false
     }]
   );
@@ -112,12 +112,12 @@ test("R4-A-02 fragment evidence is honest about the WebGPU baseline", () => {
     usefulFragments: {
       status: "supported",
       counter: "shadedPixels",
-      producer: "VisibilityCounterPass/VisibilityKey v1 final-pixel reducer"
+      producer: "VisibilityCounterPass/direct VisibilityKey final-pixel reducer"
     },
     invalidKeys: {
       status: "supported",
       counter: "invalidVisibilityKeys",
-      producer: "VisibilityCounterPass/VisibilityKey v1 invalid reducer"
+      producer: "VisibilityCounterPass/direct VisibilityKey invalid reducer"
     }
   });
 });

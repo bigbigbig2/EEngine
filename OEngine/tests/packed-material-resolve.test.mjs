@@ -88,16 +88,16 @@ test("R4-B Single Resolve owns one fullscreen pass and the frozen 26 B/pixel Sur
 
 test("R4-B shader performs complete lookup and per-texture UV0/UV1/UV2 gradient sampling", () => {
   for (const lookup of [
-    "raster_slot >= min(raster_work.header.written, raster_work.header.capacity)",
-    "work.visible_cluster_slot >= min(visible_clusters.header.written, visible_clusters.header.capacity)",
+    "raster_work.opaque_header.written",
+    "raster_work.mask_header.written",
+    "raster_slot - raster_work.opaque_header.capacity < mask_written",
     "work.meshlet_record_index >= arrayLength(&meshlets)",
-    "visible.instance_record_index >= arrayLength(&instances)",
-    "visible.geometry_record_index >= arrayLength(&geometries)",
-    "visible.material_handle >= arrayLength(&materials)",
+    "work.instance_record_index >= arrayLength(&instances)",
+    "work.geometry_record_index >= arrayLength(&geometries)",
+    "work.material_handle >= arrayLength(&materials)",
     "!oengine_instance_active(instance)",
-    "instance.geometry_record_index != visible.geometry_record_index",
-    "instance.material_handle != visible.material_handle",
-    "visible.cluster_record_index - geometry.cluster_begin >= geometry.cluster_count",
+    "instance.geometry_record_index != work.geometry_record_index",
+    "instance.material_handle != work.material_handle",
     "work.meshlet_record_index - geometry.meshlet_begin >= geometry.meshlet_count",
     "triangle_index >= meshlet.triangle_count"
   ]) assert.match(PACKED_MATERIAL_RESOLVE_WGSL, new RegExp(lookup.replace(/[&()]/g, "\\$&")));
@@ -131,7 +131,7 @@ test("R4-B shader performs complete lookup and per-texture UV0/UV1/UV2 gradient 
   );
   assert.match(
     PACKED_MATERIAL_RESOLVE_WGSL,
-    /output\.metadata = oengine_surface_pack\(visible\.material_handle, surface_flags\)/
+    /output\.metadata = oengine_surface_pack\(work\.material_handle, surface_flags\)/
   );
 });
 

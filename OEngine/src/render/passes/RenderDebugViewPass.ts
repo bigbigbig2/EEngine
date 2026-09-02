@@ -166,7 +166,7 @@ export class RenderDebugViewPass {
       ]
     ]);
     this.packedVisibilityPipeline = createPipeline(
-      "R4-A-04 Render debug/Packed Visibility resolve",
+      "Render debug/Packed Visibility resolve",
       PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL,
       [
         uintTextureEntry(0),
@@ -174,8 +174,7 @@ export class RenderDebugViewPass {
         storageBufferEntry(2),
         storageBufferEntry(3),
         storageBufferEntry(4),
-        storageBufferEntry(5),
-        uniformEntry(6, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE)
+        uniformEntry(5, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE)
       ]
     );
   }
@@ -215,10 +214,10 @@ export class RenderDebugViewPass {
               data.outputWidth,
               data.outputHeight,
               lookup.meshletRecordCount,
-              lookup.clusterRecordCount,
               lookup.instanceCount,
               lookup.geometryRecordCount,
               lookup.materialCapacity,
+              0,
               0
             ]).buffer,
           GPUBufferUsage.UNIFORM
@@ -230,7 +229,6 @@ export class RenderDebugViewPass {
           bindings.push(
             { buffer: lookup.instances },
             { buffer: lookup.meshlets },
-            { buffer: lookup.visibleClusters },
             { buffer: lookup.rasterWork },
             { buffer: lookup.materials }
           );

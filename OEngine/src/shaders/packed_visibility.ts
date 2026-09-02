@@ -5,15 +5,95 @@ import {
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
-import {
-  GPU_MATERIAL_VISIBILITY_TEXTURE_TILE_SIZE
-} from "../gpu/GpuMaterialVisibilityTable.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 
-export const PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT = 384;
+export const PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE = 3;
 
-/** R4 Hardware Visibility consumer for VisibleCluster -> RasterWork. */
+/** Position-only OPAQUE Visibility consumer; no material or texture binding. */
+export const PACKED_OPAQUE_VISIBILITY_RASTER_WGSL = /* wgsl */ `
+${LPV_CAMERA_TYPE.wgsl_declaration}
+${GPU_INSTANCE_RECORD_WGSL}
+${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_MESHLET_RECORD_WGSL}
+${GPU_VISIBILITY_KEY_WGSL}
+
+struct ExactQueueHeaderRead {
+  written: u32,
+  attempted: u32,
+  peak: u32,
+  overflow: u32,
+  fallback: u32,
+  capacity: u32,
+  rejected0: u32,
+  rejected1: u32,
+}
+struct ExactRasterWork {
+  instance_record_index: u32,
+  geometry_record_index: u32,
+  meshlet_record_index: u32,
+  local_triangle_index: u32,
+  material_handle: u32,
+  raster_flags: u32,
+}
+struct ExactRasterWorkQueueRead {
+  opaque_header: ExactQueueHeaderRead,
+  mask_header: ExactQueueHeaderRead,
+  elements: array<ExactRasterWork>,
+}
+struct ExactOpaqueVertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) @interpolate(flat) visibility_key: u32,
+}
+@group(0) @binding(0) var<uniform> opaque_camera: CommandEncoder;
+@group(0) @binding(1) var<storage, read> opaque_instances: array<OEngineInstanceRecord>;
+@group(0) @binding(2) var<storage, read> opaque_meshlets: array<GpuMeshletRecord>;
+@group(0) @binding(3) var<storage, read> opaque_meshlet_vertices: array<u32>;
+@group(0) @binding(4) var<storage, read> opaque_meshlet_triangles: array<u32>;
+@group(0) @binding(5) var<storage, read> opaque_vertex_data: array<u32>;
+@group(0) @binding(6) var<storage, read> opaque_geometries: array<GpuGeometryRecord>;
+@group(0) @binding(7) var<storage, read> opaque_work: ExactRasterWorkQueueRead;
+
+fn opaque_read_u8(byte_offset: u32) -> u32 {
+  let word = opaque_meshlet_triangles[byte_offset >> 2u];
+  return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;
+}
+
+@vertex
+fn raster_opaque_exact(@builtin(vertex_index) vertex_index: u32) -> ExactOpaqueVertexOutput {
+  let work_index = vertex_index / 3u;
+  let corner_index = vertex_index % 3u;
+  let work = opaque_work.elements[work_index];
+  let instance = opaque_instances[work.instance_record_index];
+  let geometry = opaque_geometries[work.geometry_record_index];
+  let meshlet = opaque_meshlets[work.meshlet_record_index];
+  let local_vertex = opaque_read_u8(
+    meshlet.triangle_byte_offset + work.local_triangle_index * 3u + corner_index
+  );
+  let source_vertex = opaque_meshlet_vertices[meshlet.vertex_offset + local_vertex];
+  let word = geometry.position_byte_offset / 4u +
+    source_vertex * (geometry.position_stride / 4u);
+  let local_position = vec3f(
+    bitcast<f32>(opaque_vertex_data[word]),
+    bitcast<f32>(opaque_vertex_data[word + 1u]),
+    bitcast<f32>(opaque_vertex_data[word + 2u])
+  );
+  var output: ExactOpaqueVertexOutput;
+  output.position = opaque_camera.view_projection_matrix *
+    instance.current_object_to_world * vec4f(local_position, 1.0);
+  output.visibility_key = oengine_visibility_key_try_encode(work_index).key;
+  return output;
+}
+
+@fragment
+fn write_opaque_visibility(
+  @location(0) @interpolate(flat) visibility_key: u32
+) -> @location(0) u32 {
+  return visibility_key;
+}
+`;
+
+/** Hardware Visibility consumer for exact-triangle RasterWork. */
 export const PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
@@ -33,27 +113,18 @@ struct R3QueueHeaderRead {
   _pad1: u32,
 }
 
-struct R3VisibleClusterRecord {
+struct R3RasterWork {
   instance_record_index: u32,
   geometry_record_index: u32,
-  cluster_record_index: u32,
+  meshlet_record_index: u32,
+  local_triangle_index: u32,
   material_handle: u32,
   raster_flags: u32,
 }
 
-struct R3VisibleClusterQueueRead {
-  header: R3QueueHeaderRead,
-  elements: array<R3VisibleClusterRecord>,
-}
-
-struct R3RasterWork {
-  visible_cluster_slot: u32,
-  meshlet_record_index: u32,
-  raster_flags: u32,
-}
-
 struct R3RasterWorkQueueRead {
-  header: R3QueueHeaderRead,
+  opaque_header: R3QueueHeaderRead,
+  mask_header: R3QueueHeaderRead,
   elements: array<R3RasterWork>,
 }
 
@@ -77,11 +148,10 @@ struct R3VisibilityVertexOutput {
 @group(0) @binding(4) var<storage, read> r3_raster_meshlet_triangles: array<u32>;
 @group(0) @binding(5) var<storage, read> r3_raster_vertex_data: array<u32>;
 @group(0) @binding(6) var<storage, read> r3_raster_geometries: array<GpuGeometryRecord>;
-@group(0) @binding(7) var<storage, read> r3_visible_clusters: R3VisibleClusterQueueRead;
-@group(0) @binding(8) var<storage, read> r3_raster_work: R3RasterWorkQueueRead;
-@group(0) @binding(9) var<storage, read> r4_material_visibility: array<OEngineMaterialVisibilityRecord>;
-@group(0) @binding(10) var r4_alpha_atlas: texture_2d_array<f32>;
-@group(0) @binding(11) var r4_high_resolution_alpha_atlas: texture_2d_array<f32>;
+@group(0) @binding(7) var<storage, read> r3_raster_work: R3RasterWorkQueueRead;
+@group(0) @binding(8) var<storage, read> r4_material_visibility: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(9) var r4_alpha_atlas: texture_2d_array<f32>;
+@group(0) @binding(10) var r4_high_resolution_alpha_atlas: texture_2d_array<f32>;
 
 fn r3_read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
   let word = (*words)[byte_offset >> 2u];
@@ -128,17 +198,15 @@ fn r4_read_uv(
 
 @vertex
 fn raster_hierarchy_meshlets(
-  @builtin(vertex_index) vertex_index: u32,
-  @builtin(instance_index) work_index: u32
+  @builtin(vertex_index) vertex_index: u32
 ) -> R3VisibilityVertexOutput {
+  let work_index = vertex_index / 3u;
+  let triangle_corner = vertex_index % 3u;
   let work = r3_raster_work.elements[work_index];
-  let visible = r3_visible_clusters.elements[work.visible_cluster_slot];
-  let instance = r3_raster_instances[visible.instance_record_index];
-  let geometry = r3_raster_geometries[visible.geometry_record_index];
+  let instance = r3_raster_instances[work.instance_record_index];
+  let geometry = r3_raster_geometries[work.geometry_record_index];
   let meshlet = r3_raster_meshlets[work.meshlet_record_index];
-  let last_corner = max(meshlet.triangle_count * 3u, 1u) - 1u;
-  let corner = min(vertex_index, last_corner);
-  let triangle_index = corner / 3u;
+  let corner = work.local_triangle_index * 3u + triangle_corner;
   let local_vertex = r3_read_u8(
     &r3_raster_meshlet_triangles,
     meshlet.triangle_byte_offset + corner
@@ -178,19 +246,17 @@ fn raster_hierarchy_meshlets(
   output.position = r3_raster_camera.view_projection_matrix
     * instance.current_object_to_world
     * vec4f(local_position, 1.0);
-  output.instance_record_index = visible.instance_record_index;
-  output.encoded_triangle = (work.meshlet_record_index << 8u) | triangle_index;
-  output.visibility_key = oengine_visibility_key_try_encode(
-    work_index,
-    triangle_index
-  ).key;
+  output.instance_record_index = work.instance_record_index;
+  output.encoded_triangle =
+    (work.meshlet_record_index << 8u) | work.local_triangle_index;
+  output.visibility_key = oengine_visibility_key_try_encode(work_index).key;
   output.uv0 = select(vec2f(0.0), uv0.xy / uv0.z, uv0.z > 0.0);
   output.uv1 = select(vec2f(0.0), uv1.xy / uv1.z, uv1.z > 0.0);
   output.uv2 = select(vec2f(0.0), uv2.xy / uv2.z, uv2.z > 0.0);
   output.uv_valid_mask = select(0u, 1u, uv0.z > 0.0) |
     select(0u, 2u, uv1.z > 0.0) |
     select(0u, 4u, uv2.z > 0.0);
-  output.material_handle = visible.material_handle;
+  output.material_handle = work.material_handle;
   let linear = instance.current_object_to_world;
   let determinant = dot(linear[0].xyz, cross(linear[1].xyz, linear[2].xyz));
   output.mirrored = select(0u, 1u, determinant < 0.0);

@@ -113,25 +113,25 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
   assert.match(SURFACE_FLAGS_DEBUG_WGSL, /OENGINE_SURFACE_FLAG_REACTIVE/);
   assert.doesNotMatch(SURFACE_FLAGS_DEBUG_WGSL, /0x00ffffffu|packed >> 24u/);
   for (const lookup of [
-    "raster_work_slot >= raster_work_count",
-    "work.visible_cluster_slot >= visible_cluster_count",
-    "visible.cluster_record_index >= settings.cluster_record_count",
+    "debug_raster_work.opaque_header.written",
+    "debug_raster_work.mask_header.written",
+    "raster_work_slot - debug_raster_work.opaque_header.capacity < mask_count",
     "work.meshlet_record_index >= min",
-    "local_triangle >= meshlet.triangle_count",
-    "visible.instance_record_index >= min",
-    "visible.geometry_record_index >= settings.geometry_record_count",
-    "instance.geometry_record_index != visible.geometry_record_index",
-    "visible.material_handle >= min",
-    "material.material_id != visible.material_handle"
+    "work.local_triangle_index >= meshlet.triangle_count",
+    "work.instance_record_index >= min",
+    "work.geometry_record_index >= settings.geometry_record_count",
+    "instance.geometry_record_index != work.geometry_record_index",
+    "work.material_handle >= min",
+    "material.material_id != work.material_handle"
   ]) {
     assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, new RegExp(lookup));
   }
   assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineRasterWork/);
-  assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineVisibleClusterRecord/);
+  assert.doesNotMatch(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineVisibleClusterRecord/);
   assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineInstanceRecord/);
   assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /GpuMeshletRecord/);
   assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineMaterialVisibilityRecord/);
-  assert.equal(Object.keys(GPU_VISIBILITY_DEBUG_STATUS).length, 15);
+  assert.equal(Object.keys(GPU_VISIBILITY_DEBUG_STATUS).length, 13);
 });
 
 test("FX-01 legacy payload shaders use the mesh-id clear sentinel", () => {
@@ -215,14 +215,14 @@ test("debug graph work exists only for a supported non-disabled selection", () =
 test("R4-A-04 packed VisibilityKey debug is one pass with the complete lookup binding ABI", () => {
   const pass = new RenderDebugViewPass({ device: {} });
   const entries = pass.packedVisibilityPipeline.layout.bindGroupLayouts[0].entries;
-  assert.equal(entries.length, 7);
+  assert.equal(entries.length, 6);
   assert.equal(entries[0].texture.sampleType, "uint");
   assert.deepEqual(
-    entries.slice(1, 6).map((entry) => entry.buffer.type),
-    Array(5).fill("read-only-storage")
+    entries.slice(1, 5).map((entry) => entry.buffer.type),
+    Array(4).fill("read-only-storage")
   );
-  assert.equal(entries[6].buffer.type, "uniform");
-  assert.equal(entries[6].buffer.minBindingSize, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE);
+  assert.equal(entries[5].buffer.type, "uniform");
+  assert.equal(entries[5].buffer.minBindingSize, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE);
 
   const graph = new FrameGraph("R4-A-04 packed debug");
   const imported = [

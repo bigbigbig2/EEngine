@@ -4,7 +4,7 @@ import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js"
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
-import type { GpuMaterialVisibilityBindings } from "../../gpu/GpuMaterialVisibilityTable.js";
+import type { GpuPackedMaterialBindings } from "../../gpu/GpuPackedMaterialBindings.js";
 import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
@@ -13,7 +13,6 @@ import { GPU_RASTER_WORK_SCHEMA, GPU_WORK_QUEUE_HEADER_SCHEMA } from "../../gpu/
 import { LPV_CAMERA_TYPE } from "../../shaders/lpv_indirect_diffuse.js";
 import {
   PACKED_CSM_COUNTER_WGSL,
-  PACKED_CSM_FIXED_VERTEX_COUNT,
   PACKED_CSM_SHADOW_WGSL
 } from "../../shaders/packed_csm_shadow.js";
 import { SHADOW_DEPTH_CLEAR_WGSL } from "../../shaders/shadow_raster.js";
@@ -26,14 +25,14 @@ const PACKED_CSM_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "FX-04 Packed CSM SecondaryRasterWork group0",
   entries: [
     { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
-    ...Array.from({ length: 8 }, (_, index) => ({
+    ...Array.from({ length: 7 }, (_, index) => ({
       binding: index + 1,
       visibility: GPUShaderStage.VERTEX,
       buffer: { type: "read-only-storage" as GPUBufferBindingType }
     })),
-    { binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-    { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } },
-    { binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } }
+    { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+    { binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } },
+    { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } }
   ]
 };
 
@@ -100,7 +99,7 @@ export interface PackedCsmShadowJob {
   readonly runtime: PackedSceneRuntime;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
-  readonly materials: GpuMaterialVisibilityBindings;
+  readonly materials: GpuPackedMaterialBindings;
   readonly camera: OrthographicCamera;
   readonly cameraBuffer: GPUBuffer;
   readonly cascadeIndex: number;
@@ -174,7 +173,6 @@ export class PackedCsmShadowPass {
         { buffer: job.assets.meshletTriangleIndices },
         { buffer: job.assets.vertexStreamData },
         { buffer: job.assets.geometryRecords },
-        { buffer: generated.visibleClusters },
         { buffer: generated.rasterWork },
         { buffer: job.materials.materialRecords },
         job.materials.alphaAtlas,

@@ -35,7 +35,8 @@ import {
 import { GpuAssetStore } from "./GpuAssetStore.js";
 import { GpuScene } from "./GpuScene.js";
 import { GpuPackedSceneRegistry } from "./GpuPackedSceneRegistry.js";
-import { GpuMaterialVisibilityTable } from "./GpuMaterialVisibilityTable.js";
+import { GpuMaterialStore } from "./GpuMaterialStore.js";
+import { TextureResidency } from "./TextureResidency.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
 
 export interface GraphicsMemoryEvidence {
@@ -72,7 +73,8 @@ export class GraphicsContext {
   private assetStoreValue: GpuAssetStore | undefined;
   private gpuSceneValue: GpuScene | undefined;
   private packedScenesValue: GpuPackedSceneRegistry | undefined;
-  private materialVisibilityValue: GpuMaterialVisibilityTable | undefined;
+  private materialStoreValue: GpuMaterialStore | undefined;
+  private textureResidencyValue: TextureResidency | undefined;
   private timerIncrementValue = 0;
   private destroyed = false;
 
@@ -177,14 +179,24 @@ export class GraphicsContext {
     return this.packedScenesValue;
   }
 
-  /** Lazily creates the bounded R4-A alpha-only material table. */
-  get material_visibility(): GpuMaterialVisibilityTable {
-    this.materialVisibilityValue ??= new GpuMaterialVisibilityTable(this);
-    return this.materialVisibilityValue;
+  /** Lazily creates the stable Packed MaterialRecord owner. */
+  get material_store(): GpuMaterialStore {
+    this.materialStoreValue ??= new GpuMaterialStore(this.device);
+    return this.materialStoreValue;
   }
 
-  get material_visibility_if_created(): GpuMaterialVisibilityTable | undefined {
-    return this.materialVisibilityValue;
+  get material_store_if_created(): GpuMaterialStore | undefined {
+    return this.materialStoreValue;
+  }
+
+  /** Lazily creates the independent Packed texture residency owner. */
+  get texture_residency(): TextureResidency {
+    this.textureResidencyValue ??= new TextureResidency(this);
+    return this.textureResidencyValue;
+  }
+
+  get texture_residency_if_created(): TextureResidency | undefined {
+    return this.textureResidencyValue;
   }
 
   /** Legacy Geometry owner, created only when an old Scene consumer asks for it. */
@@ -240,7 +252,8 @@ export class GraphicsContext {
       (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
       (this.packedScenesValue?.evidence().flatWorkBytes ?? 0) +
-      (this.materialVisibilityValue?.evidence().allocatedBytes ?? 0) +
+      (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
+      (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
@@ -252,32 +265,36 @@ export class GraphicsContext {
   memoryEvidence(): GraphicsMemoryEvidence {
     const assets = this.assetStoreValue?.evidence();
     const scene = this.gpuSceneValue?.evidence();
-    const materials = this.materialVisibilityValue?.evidence();
+    const materials = this.materialStoreValue?.evidence();
+    const textureResidency = this.textureResidencyValue?.evidence();
     const buffers = this.buffer_allocator_main.evidence();
     const textures = this.allocator_textures.evidence();
-    const baseLayerBytes = materials === undefined
+    const baseLayerBytes = textureResidency === undefined
       ? 0
-      : textureArrayLayerBytes(materials.textureSize, materials.mipLevelCount);
-    const highLayerBytes = materials === undefined
+      : textureArrayLayerBytes(textureResidency.textureSize, textureResidency.mipLevelCount);
+    const highLayerBytes = textureResidency === undefined
       ? 0
       : textureArrayLayerBytes(
-          materials.highResolutionTextureSize,
-          materials.highResolutionMipLevelCount
+          textureResidency.highResolutionTextureSize,
+          textureResidency.highResolutionMipLevelCount
         );
     const residentMaterialBytes = materials === undefined
       ? 0
       : materials.residentMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
-        (materials.residentTextureCount - materials.residentHighResolutionTextureCount) * baseLayerBytes +
-        materials.residentHighResolutionTextureCount * highLayerBytes;
+        ((textureResidency?.residentTextureCount ?? 0) -
+          (textureResidency?.residentHighResolutionTextureCount ?? 0)) * baseLayerBytes +
+        (textureResidency?.residentHighResolutionTextureCount ?? 0) * highLayerBytes;
     const retiringMaterialBytes = materials === undefined
       ? 0
       : materials.retiringMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
-        (materials.retiringTextureCount - materials.retiringHighResolutionTextureCount) * baseLayerBytes +
-        materials.retiringHighResolutionTextureCount * highLayerBytes;
+        ((textureResidency?.retiringTextureCount ?? 0) -
+          (textureResidency?.retiringHighResolutionTextureCount ?? 0)) * baseLayerBytes +
+        (textureResidency?.retiringHighResolutionTextureCount ?? 0) * highLayerBytes;
     const longLivedAllocatedBytes =
       (assets?.allocatedBytes ?? 0) +
       (scene?.allocatedBytes ?? 0) +
-      (materials?.allocatedBytes ?? 0);
+      (materials?.allocatedBytes ?? 0) +
+      (textureResidency?.allocatedBytes ?? 0);
     const residentLogicalBytes =
       (assets?.residentBytes ?? 0) +
       (scene?.residentBytes ?? 0) +
@@ -321,9 +338,9 @@ export class GraphicsContext {
           allocatedBytes: materials?.allocatedBytes ?? 0,
           residentLogicalBytes: residentMaterialBytes,
           retiringBytes: retiringMaterialBytes,
-          residentTextures: materials?.residentTextureCount ?? 0,
-          residentHighResolutionTextures: materials?.residentHighResolutionTextureCount ?? 0,
-          retiringHighResolutionTextures: materials?.retiringHighResolutionTextureCount ?? 0
+          residentTextures: textureResidency?.residentTextureCount ?? 0,
+          residentHighResolutionTextures: textureResidency?.residentHighResolutionTextureCount ?? 0,
+          retiringHighResolutionTextures: textureResidency?.retiringHighResolutionTextureCount ?? 0
         }),
         transientBuffers: Object.freeze({ ...buffers }),
         transientTextures: Object.freeze({ ...textures })
@@ -342,8 +359,10 @@ export class GraphicsContext {
     unregisterGpuQueueProfiler(this.device, this.profiler);
     this.packedScenesValue?.destroy();
     this.packedScenesValue = undefined;
-    this.materialVisibilityValue?.destroy();
-    this.materialVisibilityValue = undefined;
+    this.materialStoreValue?.destroy();
+    this.materialStoreValue = undefined;
+    this.textureResidencyValue?.destroy();
+    this.textureResidencyValue = undefined;
     this.gpuSceneValue?.destroy();
     this.gpuSceneValue = undefined;
     this.assetStoreValue?.destroy();

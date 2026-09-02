@@ -35,24 +35,20 @@ const view = {
   ]
 };
 
-test("FX-04 SecondaryRasterWork v1 freezes queue, locator, flags and full indirect ownership", () => {
-  assert.equal(GPU_SECONDARY_RASTER_ABI_VERSION, 1);
+test("FX-04 SecondaryRasterWork freezes exact-triangle queue, flags and indirect ownership", () => {
+  assert.equal(GPU_SECONDARY_RASTER_ABI_VERSION, 2);
   assert.equal(GPU_SECONDARY_RASTER_SCHEMA.queueHeader.stride, 32);
-  assert.deepEqual(GPU_SECONDARY_RASTER_SCHEMA.visibleCluster.offsets, {
+  assert.deepEqual(GPU_SECONDARY_RASTER_SCHEMA.rasterWork.offsets, {
     instance_record_index: 0,
     geometry_record_index: 4,
-    cluster_record_index: 8,
-    material_handle: 12,
-    raster_flags: 16
-  });
-  assert.deepEqual(GPU_SECONDARY_RASTER_SCHEMA.rasterWork.offsets, {
-    visible_cluster_slot: 0,
-    meshlet_record_index: 4,
-    raster_flags: 8
+    meshlet_record_index: 8,
+    local_triangle_index: 12,
+    material_handle: 16,
+    raster_flags: 20
   });
   assert.equal(GPU_SECONDARY_RASTER_SCHEMA.drawIndirectBytes, 16);
   assert.equal(new Set(Object.values(GPU_SECONDARY_RASTER_FLAGS)).size, 4);
-  assert.equal(secondaryRasterQueueByteLength(4), 32 + 4 * 12);
+  assert.equal(secondaryRasterQueueByteLength(4), 32 + 4 * 24);
   assert.throws(() => secondaryRasterQueueByteLength(0), /positive u32/);
 });
 

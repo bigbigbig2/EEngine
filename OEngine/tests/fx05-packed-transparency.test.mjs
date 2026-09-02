@@ -87,7 +87,7 @@ test("FX-05 transparent work uses all-or-nothing bounded reservations", () => {
 });
 
 test("FX-05 sampled evidence extends the additive counter ABI without fake zeros", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 10);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 11);
   assert.equal(GPU_COUNTER_BYTE_SIZE, 512);
   assert.equal(counterByteOffset("transparentRasterWork"), 256);
   assert.equal(counterByteOffset("transparentTriangles"), 260);

@@ -10,7 +10,11 @@ import { Mesh } from "../scene/Mesh.js";
 import { Node3D } from "../scene/Node3D.js";
 import { SkinnedMesh } from "../scene/SkinnedMesh.js";
 import type { MeshletGeometryBase } from "../geometry/BoxGeometry.js";
-import type { SourceGeometry } from "../assets/SourceGeometry.js";
+import {
+  createSourceGeometry,
+  type SourceGeometry,
+  type SourceNumericArray
+} from "../assets/SourceGeometry.js";
 import { SceneBundle } from "./SceneBundle.js";
 import {
   GltfLoader,
@@ -252,7 +256,10 @@ function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
   );
   const defaultMaterial = new StandardShadeMaterial();
   const geometryContext = createGltfGeometryBuildContext();
-  const geometryMap = new Map<SourceGeometry, number>();
+  // A glTF mesh primitive is immutable within one parsed document. Cache by
+  // its stable source identity so nodes that reference the same mesh become
+  // true Packed instances instead of duplicate Runtime geometry packages.
+  const geometryMap = new Map<string, number>();
   const packedGeometries: SourceGeometry[] = [];
   const packedMaterials = [...materials];
   let defaultMaterialIndex = -1;
@@ -265,6 +272,63 @@ function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
   const flags: number[] = [];
   const debugIds: number[] = [];
 
+  type NormalizedMeshPrimitive = Readonly<{
+    source: SourceGeometry;
+    materialIndex: number;
+  }>;
+  const normalizedMeshes = new Map<number, readonly NormalizedMeshPrimitive[]>();
+  const resolveMaterialIndex = (primitive: GltfPrimitive): number => {
+    let materialIndex = primitive.material;
+    if (materialIndex === undefined || materials[materialIndex] === undefined) {
+      if (defaultMaterialIndex < 0) {
+        defaultMaterialIndex = packedMaterials.length;
+        packedMaterials.push(defaultMaterial);
+      }
+      materialIndex = defaultMaterialIndex;
+    }
+    return materialIndex;
+  };
+  const normalizeMesh = (meshIndex: number): readonly NormalizedMeshPrimitive[] => {
+    const cached = normalizedMeshes.get(meshIndex);
+    if (cached !== undefined) return cached;
+    const mesh = meshes[meshIndex];
+    if (mesh === undefined) throw new Error(`glTF references missing mesh ${meshIndex}`);
+    const groups = new Map<string, {
+      materialIndex: number;
+      sources: SourceGeometry[];
+    }>();
+    for (let primitiveIndex = 0; primitiveIndex < mesh.primitives.length; primitiveIndex++) {
+      const primitive = mesh.primitives[primitiveIndex]!;
+      const source = primitiveToSourceGeometry(
+        doc,
+        primitive,
+        `${mesh.name ?? `mesh-${meshIndex}`}/primitive-${primitiveIndex}`,
+        geometryContext
+      );
+      const materialIndex = resolveMaterialIndex(primitive);
+      const key = `${materialIndex}|${sourceGeometryMergeKey(source)}`;
+      let group = groups.get(key);
+      if (group === undefined) {
+        group = { materialIndex, sources: [] };
+        groups.set(key, group);
+      }
+      group.sources.push(source);
+    }
+    const normalized = Object.freeze([...groups.values()].map((group, groupIndex) =>
+      Object.freeze({
+        source: group.sources.length === 1
+          ? group.sources[0]!
+          : mergeSourceGeometryGroup(
+              group.sources,
+              `${mesh.name ?? `mesh-${meshIndex}`}/static-merge-${groupIndex}`
+            ),
+        materialIndex: group.materialIndex
+      })
+    ));
+    normalizedMeshes.set(meshIndex, normalized);
+    return normalized;
+  };
+
   const nodes = doc.nodes ?? [];
   const meshes = doc.meshes ?? [];
   for (let nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
@@ -275,36 +339,22 @@ function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
         `Packed glTF import does not support skinned node ${nodeIndex}; use load_gltf() for the legacy animated path`
       );
     }
-    const mesh = meshes[node.mesh];
-    if (mesh === undefined) {
-      throw new Error(`glTF node ${nodeIndex} references missing mesh ${node.mesh}`);
-    }
+    const normalized = normalizeMesh(node.mesh);
     const world = node.worldMatrix;
     if (world === undefined || world.length !== 16) {
       throw new Error(`glTF node ${nodeIndex} has no validated world transform`);
     }
-    for (let primitiveIndex = 0; primitiveIndex < mesh.primitives.length; primitiveIndex++) {
-      const primitive = mesh.primitives[primitiveIndex]!;
-      const source = primitiveToSourceGeometry(
-        doc,
-        primitive,
-        `${mesh.name ?? `mesh-${node.mesh}`}/primitive-${primitiveIndex}`,
-        geometryContext
-      );
-      let geometryIndex = geometryMap.get(source);
+    for (let primitiveIndex = 0; primitiveIndex < normalized.length; primitiveIndex++) {
+      const product = normalized[primitiveIndex]!;
+      const geometryKey = `${node.mesh}:${primitiveIndex}`;
+      let geometryIndex = geometryMap.get(geometryKey);
       if (geometryIndex === undefined) {
         geometryIndex = packedGeometries.length;
-        packedGeometries.push(source);
-        geometryMap.set(source, geometryIndex);
+        packedGeometries.push(product.source);
+        geometryMap.set(geometryKey, geometryIndex);
       }
-      let materialIndex = primitive.material;
-      if (materialIndex === undefined || materials[materialIndex] === undefined) {
-        if (defaultMaterialIndex < 0) {
-          defaultMaterialIndex = packedMaterials.length;
-          packedMaterials.push(defaultMaterial);
-        }
-        materialIndex = defaultMaterialIndex;
-      }
+      const source = packedGeometries[geometryIndex]!;
+      const materialIndex = product.materialIndex;
       const material = packedMaterials[materialIndex]!;
       let instanceFlags = GPU_INSTANCE_FLAGS.CastsShadow;
       if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
@@ -339,6 +389,82 @@ function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
     boundsMax: Float32Array.from(boundsMax),
     flags: Uint32Array.from(flags),
     debugIds: Uint32Array.from(debugIds)
+  });
+}
+
+function sourceGeometryMergeKey(source: SourceGeometry): string {
+  const material = source.materialRanges[0];
+  return JSON.stringify({
+    topology: source.topology,
+    material: material && [material.materialId, material.alphaMode, material.doubleSided],
+    attributes: [...source.attributes.values()].map((stream) => [
+      stream.semantic,
+      stream.componentCount,
+      stream.normalized,
+      stream.dataType
+    ])
+  });
+}
+
+/** Merges material/layout-compatible primitives without baking node transforms. */
+function mergeSourceGeometryGroup(
+  sources: readonly SourceGeometry[],
+  sourceId: string
+): SourceGeometry {
+  if (sources.length < 2) throw new RangeError("Static merge requires at least two sources");
+  const first = sources[0]!;
+  const key = sourceGeometryMergeKey(first);
+  if (sources.some((source) => sourceGeometryMergeKey(source) !== key)) {
+    throw new Error("Static merge sources have incompatible material or attribute layouts");
+  }
+  const totalVertices = sources.reduce((sum, source) => sum + source.vertexCount, 0);
+  const totalIndices = sources.reduce((sum, source) => sum + source.indices.length, 0);
+  if (!Number.isSafeInteger(totalVertices) || totalVertices > 0xffffffff ||
+    !Number.isSafeInteger(totalIndices) || totalIndices > 0xffffffff) {
+    throw new RangeError("Static merge exceeds u32 geometry capacity");
+  }
+  const indices = new Uint32Array(totalIndices);
+  let indexCursor = 0;
+  let vertexBase = 0;
+  for (const source of sources) {
+    for (let index = 0; index < source.indices.length; index++) {
+      const value = vertexBase + source.indices[index]!;
+      if (value > 0xffffffff) throw new RangeError("Static merge index exceeds u32");
+      indices[indexCursor++] = value;
+    }
+    vertexBase += source.vertexCount;
+  }
+  const attributes = [...first.attributes.values()].map((firstStream) => {
+    const totalValues = totalVertices * firstStream.componentCount;
+    const Constructor = firstStream.data.constructor as unknown as
+      new (length: number) => SourceNumericArray;
+    const data = new Constructor(totalValues);
+    let valueCursor = 0;
+    for (const source of sources) {
+      const stream = source.attributes.get(firstStream.semantic)!;
+      (data as SourceNumericArray & { set(values: ArrayLike<number>, offset: number): void })
+        .set(stream.data, valueCursor);
+      valueCursor += stream.data.length;
+    }
+    return {
+      semantic: firstStream.semantic,
+      componentCount: firstStream.componentCount,
+      normalized: firstStream.normalized,
+      data
+    };
+  });
+  const material = first.materialRanges[0]!;
+  return createSourceGeometry({
+    sourceId,
+    indices,
+    attributes,
+    materialRanges: [{
+      firstTriangle: 0,
+      triangleCount: totalIndices / 3,
+      materialId: material.materialId,
+      alphaMode: material.alphaMode,
+      doubleSided: material.doubleSided
+    }]
   });
 }
 

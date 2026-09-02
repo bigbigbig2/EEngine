@@ -11,6 +11,7 @@ R0 Observe                         complete
 → R3 Hierarchy + HW Consumer        complete
 → R4-A Visibility Contract            complete
 → R4-B Single Material Resolve        complete for Packed production
+→ Packed Asset → Surface direct reconstruction   designed / two-step migration
 → R5 Lighting + CSM + Temporal/Upscaling   current mainline
 ↘ R4-C Optional SW/Hybrid performance track
 ```
@@ -35,6 +36,7 @@ R4 core（A/B）已经关闭。R4-C 只在 profile 证明 HW raster 是主要瓶
 | [09-migration-and-deletion](./09-migration-and-deletion.md) | 旧链保留、重写和删除 | 全阶段 |
 | [10-verification-matrix](./10-verification-matrix.md) | 正确性、性能、内存和回归 Gate | 全阶段 |
 | [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md) | R5 Shading/Screen-space/Temporal/Post 的 contract-first 重构与综合证据基线 | R5-Q00..Q06，G5-T/G5-P 前置 |
+| [12-packed-asset-to-surface-reconstruction](./12-packed-asset-to-surface-reconstruction.md) | 从 Packed glTF 到 Surface 的单链直接重构：资产聚合、事务驻留、精确 RasterWork/Key、材质分类和紧凑 Surface | 两步直接迁移，设计完成、代码未实施 |
 
 ## 当前唯一入口
 
@@ -53,6 +55,8 @@ R4 已完成执行前设计冻结，长期边界见 [ADR-0010](../wiki/adr/0010-
 R5-00、FX-01 Surface、FX-02 Clustered Direct、FX-03 IBL Alignment、G5-L、FX-04 Packed CSM Shadow、FX-05 Packed MBOIT Transparency、G5-S、FX-06A Temporal Foundation、FX-07 AO 与 FX-08 SSR 已关闭。FX-06A 由 commit `c52ef48` 冻结 shared history/invalidation、reactive/disocclusion、jitter/internal-output resolution 和 delayed DRS feedback；FX-07 clean-scope commit `548f18d` 关闭 AO；FX-08 clean commit `62158e9` 保留并 revalidate 当前 authored SSR，接入 shared history、FX-03 miss fallback、hit/miss/history debug 与 feature-off 零 owner/Pass/history/timestamp，并删除重复 final composite。证据分别见 `temp/r5/fx-06/c52ef486917913ca7951b568a8db519980a40e73-dirty-c500aa424fc6/`、`temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/` 与 `temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`。根 `performance-targets.json` 已冻结目标机器与产品/回归预算且明确产品目标尚未达成。
 
 2026-09-01 Cyberpunk City 综合示例暴露出 focused Gate 未覆盖的产品级画质、性能与显存问题。当前执行入口调整为 [R5-Q Quality / Pipeline Architecture Closure](./11-render-pipeline-reconstruction.md)：先完成 `R5-Q00` before artifact，再依次建立 Render Contract、重建 Composition、升级 GTAO/SSR，并以 `R5-Q05/FX-06B` 完成 Temporal，最后关闭 FrameGraph/FramePlan。历史 FX-07/08 Gate 仍作为局部合同证据保留，但不能关闭 G5-T/G5-P；R5-Q 不建立第二条主管线，也不撤销 R2–R4 已接受契约。
+
+2026-09-03 的 production Dungeon 分段证据进一步确认：`Hierarchy / Work Generation P50 0.20 ms`、`Hardware Raster P50 3.34 ms`、`Material Resolve / Surface P50 15.66 ms`，同时存在 806 tiny packages、7,958 uploads、固定 384-vertex RasterWork、通用逐像素 stream 解释和约 1.4 GiB allocated memory。新的执行设计见 [Packed Asset 到 Surface 主链直接重构](./12-packed-asset-to-surface-reconstruction.md)。它只处理 `Packed glTF → Surface`，不决定 Surface 之后的 Forward/Deferred/Lighting；实施时沿用现有产品名称直接迁移并删除旧 ABI，不建立 `V2` 或第二条生产路径。执行只分两步：第一步完成资产到 VisibilityKey，第二步完成 Material Resolve 到 Surface、删除旧链并验收。
 
 R3 集中为四个可运行包：
 

@@ -203,10 +203,12 @@ export interface GeometryHierarchySelectedCluster {
   readonly materialHandle: number;
 }
 
-export interface GeometryHierarchySelectedMeshlet {
-  readonly visibleClusterSlot: number;
+export interface GeometryHierarchyRasterWork {
+  readonly instanceRecordIndex: number;
+  readonly geometryRecordIndex: number;
   readonly meshletRecordIndex: number;
-  readonly localMeshletIndex: number;
+  readonly localTriangleIndex: number;
+  readonly materialHandle: number;
 }
 
 export interface GeometryHierarchyTraversalRoundEvidence {
@@ -230,7 +232,7 @@ export interface GeometryHierarchyQueueEvidence {
 
 export interface GeometryHierarchyInstanceSelection {
   readonly selectedClusters: readonly GeometryHierarchySelectedCluster[];
-  readonly selectedMeshlets: readonly GeometryHierarchySelectedMeshlet[];
+  readonly rasterWork: readonly GeometryHierarchyRasterWork[];
   readonly rootQueue: GeometryHierarchyQueueEvidence;
   readonly traversalRounds: readonly GeometryHierarchyTraversalRoundEvidence[];
   readonly candidateInstances: number;
@@ -316,7 +318,7 @@ export function selectGeometryHierarchyInstances(
   }
 
   const selectedClusters: GeometryHierarchySelectedCluster[] = [];
-  const selectedMeshlets: GeometryHierarchySelectedMeshlet[] = [];
+  const rasterWork: GeometryHierarchyRasterWork[] = [];
   const traversalRounds: GeometryHierarchyTraversalRoundEvidence[] = [];
   let current = roots;
   let visitedClusters = 0;
@@ -355,15 +357,23 @@ export function selectGeometryHierarchyInstances(
       throw new RangeError(`Cluster ${work.localClusterIndex} Meshlet range is invalid`);
     }
     for (let localMeshletIndex = meshletBegin; localMeshletIndex < meshletEnd; localMeshletIndex++) {
-      selectedMeshlets.push(Object.freeze({
-        visibleClusterSlot,
-        meshletRecordIndex: addU32(
+      const meshletRecordIndex = addU32(
           source.meshletRecordBegin,
           localMeshletIndex,
           "Selected Meshlet record index"
-        ),
-        localMeshletIndex
-      }));
+        );
+      const meshlet = source.asset.meshlets[localMeshletIndex]!;
+      for (let localTriangleIndex = 0;
+        localTriangleIndex < meshlet.triangleCount;
+        localTriangleIndex++) {
+        rasterWork.push(Object.freeze({
+          instanceRecordIndex: source.instanceRecordIndex,
+          geometryRecordIndex: source.geometryRecordIndex,
+          meshletRecordIndex,
+          localTriangleIndex,
+          materialHandle: source.materialHandle
+        }));
+      }
     }
   };
 
@@ -449,7 +459,7 @@ export function selectGeometryHierarchyInstances(
 
   return Object.freeze({
     selectedClusters: Object.freeze(selectedClusters),
-    selectedMeshlets: Object.freeze(selectedMeshlets),
+    rasterWork: Object.freeze(rasterWork),
     rootQueue: Object.freeze({
       capacity: rootQueueCapacity,
       written: roots.length,
@@ -470,26 +480,25 @@ export function selectGeometryHierarchyInstances(
   });
 }
 
-/** Maximum Meshlet count of any legal parent/children-exclusive hierarchy cut. */
-export function computeGeometryMaxCutMeshlets(
+/** Maximum exact triangle count of any legal parent/children-exclusive cut. */
+export function computeGeometryMaxCutTriangles(
   asset: GeometryAssetPackage
 ): number {
   if (asset.clusters.length === 0) {
-    assertU32(asset.meshlets.length, "Geometry Meshlet count");
-    return asset.meshlets.length;
+    return sumMeshletTriangles(asset, 0, asset.meshlets.length, "Geometry triangle count");
   }
-  return analyzeGeometryHierarchy(asset).maxCutMeshlets;
+  return analyzeGeometryHierarchy(asset).maxCutTriangles;
 }
 
-export function computePackedMaxCutMeshlets(
+export function computePackedMaxCutTriangles(
   instances: readonly Pick<GeometryHierarchyInstanceReference, "asset">[]
 ): number {
   let total = 0;
   for (const instance of instances) {
     total = addU32(
       total,
-      computeGeometryMaxCutMeshlets(instance.asset),
-      "Packed max-cut Meshlet count"
+      computeGeometryMaxCutTriangles(instance.asset),
+      "Packed max-cut triangle count"
     );
   }
   return total;
@@ -533,7 +542,7 @@ export function computePackedHierarchyWorkCapacity(
     );
     rasterWorkCapacity = addU32(
       rasterWorkCapacity,
-      analysis.maxCutMeshlets,
+      analysis.maxCutTriangles,
       "Packed RasterWork capacity"
     );
     maxHierarchyDepth = Math.max(maxHierarchyDepth, analysis.maxDepth);
@@ -608,7 +617,7 @@ export function computeIndexedPackedHierarchyWorkCapacity(
     rasterWorkCapacity = addU32(
       rasterWorkCapacity,
       multiplyU32(
-        analysis.maxCutMeshlets,
+        analysis.maxCutTriangles,
         instanceCount,
         `Geometry ${geometryIndex} RasterWork capacity`
       ),
@@ -641,7 +650,7 @@ export function computeIndexedPackedHierarchyWorkCapacity(
 
 interface GeometryHierarchyAnalysis {
   readonly maxCutClusters: number;
-  readonly maxCutMeshlets: number;
+  readonly maxCutTriangles: number;
   readonly maxDepth: number;
   readonly depthWidths: readonly number[];
 }
@@ -650,10 +659,14 @@ function analyzeGeometryHierarchy(
   asset: GeometryAssetPackage
 ): GeometryHierarchyAnalysis {
   if (asset.clusters.length === 0) {
-    assertU32(asset.meshlets.length, "Geometry Meshlet count");
     return Object.freeze({
       maxCutClusters: 1,
-      maxCutMeshlets: asset.meshlets.length,
+      maxCutTriangles: sumMeshletTriangles(
+        asset,
+        0,
+        asset.meshlets.length,
+        "Geometry triangle count"
+      ),
       maxDepth: 0,
       depthWidths: Object.freeze([1])
     });
@@ -668,7 +681,7 @@ function analyzeGeometryHierarchy(
   const visit = (
     clusterIndex: number,
     expectedDepth: number
-  ): Readonly<{ clusters: number; meshlets: number }> => {
+  ): Readonly<{ clusters: number; triangles: number }> => {
     if (state[clusterIndex] === 1) {
       throw new Error(`Geometry hierarchy contains a cycle at Cluster ${clusterIndex}`);
     }
@@ -692,9 +705,15 @@ function analyzeGeometryHierarchy(
     );
     maxDepth = Math.max(maxDepth, expectedDepth);
     assertU32(cluster.meshletCount, `Cluster ${clusterIndex} Meshlet count`);
+    const ownTriangles = sumMeshletTriangles(
+      asset,
+      cluster.meshletBegin,
+      cluster.meshletCount,
+      `Cluster ${clusterIndex} triangle count`
+    );
     validateChildren(asset, clusterIndex, cluster);
     let childCutClusters = 0;
-    let childCutMeshlets = 0;
+    let childCutTriangles = 0;
     for (let child = 0; child < cluster.childCount; child++) {
       const childIndex = asset.clusterChildren[cluster.childBegin + child]!;
       const childCut = visit(childIndex, expectedDepth + 1);
@@ -703,16 +722,16 @@ function analyzeGeometryHierarchy(
         childCut.clusters,
         `Cluster ${clusterIndex} child cut Cluster count`
       );
-      childCutMeshlets = addU32(
-        childCutMeshlets,
-        childCut.meshlets,
-        `Cluster ${clusterIndex} child cut Meshlet count`
+      childCutTriangles = addU32(
+        childCutTriangles,
+        childCut.triangles,
+        `Cluster ${clusterIndex} child cut triangle count`
       );
     }
     state[clusterIndex] = 2;
     return {
       clusters: Math.max(1, childCutClusters),
-      meshlets: Math.max(cluster.meshletCount, childCutMeshlets)
+      triangles: Math.max(ownTriangles, childCutTriangles)
     };
   };
   const cut = visit(root, 0);
@@ -721,10 +740,33 @@ function analyzeGeometryHierarchy(
   }
   return Object.freeze({
     maxCutClusters: cut.clusters,
-    maxCutMeshlets: cut.meshlets,
+    maxCutTriangles: cut.triangles,
     maxDepth,
     depthWidths: Object.freeze(depthWidths)
   });
+}
+
+function sumMeshletTriangles(
+  asset: GeometryAssetPackage,
+  meshletBegin: number,
+  meshletCount: number,
+  label: string
+): number {
+  assertU32(meshletBegin, `${label} Meshlet begin`);
+  assertU32(meshletCount, `${label} Meshlet count`);
+  const end = meshletBegin + meshletCount;
+  if (!Number.isSafeInteger(end) || end > asset.meshlets.length) {
+    throw new RangeError(`${label} Meshlet range is invalid`);
+  }
+  let total = 0;
+  for (let index = meshletBegin; index < end; index++) {
+    total = addU32(
+      total,
+      asset.meshlets[index]!.triangleCount,
+      label
+    );
+  }
+  return total;
 }
 
 function multiplyU32(left: number, right: number, label: string): number {

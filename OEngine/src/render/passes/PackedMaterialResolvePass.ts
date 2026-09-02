@@ -60,7 +60,7 @@ const INPUT_GROUP: GPUBindGroupLayoutDescriptor = {
 
 const LOOKUP_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "R4-B Material Resolve/lookup group1",
-  entries: Array.from({ length: 9 }, (_, binding) => ({
+  entries: Array.from({ length: 8 }, (_, binding) => ({
     binding,
     visibility: GPUShaderStage.FRAGMENT,
     buffer: { type: "read-only-storage" as GPUBufferBindingType }
@@ -187,10 +187,10 @@ export class PackedMaterialResolvePass {
             resolveTextureView(resources.get(inputs.visibilityKey)),
             { buffer: requireBuffer(resources.get(inputs.view), "view") },
             { buffer: this.previousViewProjectionBuffer },
-            data.runtime.materialVisibility.textureArray,
+            data.runtime.materialResources.textureArray,
             ...this.samplers,
-            { buffer: data.runtime.materialVisibility.materialRecords },
-            data.runtime.materialVisibility.highResolutionTextureArray
+            { buffer: data.runtime.materialResources.materialRecords },
+            data.runtime.materialResources.highResolutionTextureArray
           ]
         });
         const group1 = this.graphics.bind_groups.obtain({
@@ -203,7 +203,6 @@ export class PackedMaterialResolvePass {
             { buffer: data.assets.meshletTriangleIndices },
             { buffer: data.assets.vertexStreamDescriptors },
             { buffer: data.assets.vertexStreamData },
-            { buffer: visibility.visibleClusters },
             { buffer: visibility.rasterWork }
           ]
         });

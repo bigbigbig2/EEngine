@@ -125,11 +125,11 @@ test("R3-D RasterWork expansion reserves once per Cluster workgroup", () => {
   );
   assert.match(
     HIERARCHICAL_WORK_GENERATION_WGSL,
-    /for \(var local_meshlet = lane;[\s\S]*local_meshlet \+= 64u\)/
+    /for \(var local_meshlet = 0u;[\s\S]*local_triangle \+= 64u\)/
   );
-  assert.match(
+  assert.doesNotMatch(
     HIERARCHICAL_WORK_GENERATION_WGSL,
-    /atomicAdd\([\s\S]*R3_COUNTER_HW_CLUSTERS[\s\S]*cluster\.meshlet_count/
+    /R3_COUNTER_HW_(?:CLUSTERS|TRIANGLES)/
   );
   assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, /r3_write_work_counters/);
   assert.match(

@@ -13,7 +13,7 @@ const SHADED_PIXEL_INDEX = counterByteOffset("shadedPixels") / 4;
 const EMPTY_PIXEL_INDEX = counterByteOffset("emptyVisibilityPixels") / 4;
 const INVALID_KEY_INDEX = counterByteOffset("invalidVisibilityKeys") / 4;
 
-export type VisibilityCounterContract = "legacy-id" | "visibility-key-v1";
+export type VisibilityCounterContract = "legacy-id" | "visibility-key";
 
 export const VISIBILITY_COUNTER_WGSL = /* wgsl */ `
 const MESH_SENTINEL: u32 = ${VIS_MESH_CLEAR_SENTINEL}u;
@@ -106,7 +106,7 @@ const VISIBILITY_COUNTER_PIPELINES: Readonly<
   Record<VisibilityCounterContract, CachedComputePipelineDescriptor>
 > = Object.freeze({
   "legacy-id": createPipeline("count_legacy_ids", "legacy IDs"),
-  "visibility-key-v1": createPipeline("count_visibility_keys", "VisibilityKey v1")
+  "visibility-key": createPipeline("count_visibility_keys", "VisibilityKey")
 });
 
 function createPipeline(

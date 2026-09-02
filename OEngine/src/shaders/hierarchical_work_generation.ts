@@ -1,6 +1,7 @@
 import {
   GPU_CLUSTER_RECORD_WGSL,
-  GPU_GEOMETRY_RECORD_WGSL
+  GPU_GEOMETRY_RECORD_WGSL,
+  GPU_MESHLET_RECORD_WGSL
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
@@ -152,6 +153,7 @@ return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_CLUSTER_RECORD_WGSL}
+${GPU_MESHLET_RECORD_WGSL}
 ${GPU_WORK_GENERATION_WGSL}
 
 struct OEngineHierarchyView {
@@ -213,8 +215,8 @@ struct OEngineDispatchIndirectArgs {
 };
 
 struct OEngineDrawIndirectArgs {
-  vertex_count: u32,
-  instance_count: atomic<u32>,
+  vertex_count: atomic<u32>,
+  instance_count: u32,
   first_vertex: u32,
   first_instance: u32,
 };
@@ -227,8 +229,6 @@ const R3_COUNTER_SELECTED_CLUSTERS: u32 = 4u;
 const R3_COUNTER_REJECTED_FRUSTUM: u32 = 5u;
 const R3_COUNTER_REJECTED_CONE: u32 = 6u;
 const R3_COUNTER_REJECTED_HZB: u32 = 7u;
-const R3_COUNTER_HW_CLUSTERS: u32 = 9u;
-const R3_COUNTER_HW_TRIANGLES: u32 = 12u;
 const R3_COUNTER_OVERFLOW_MASK: u32 = 17u;
 const R3_COUNTER_ROOT_STAGE_QUEUE_RESERVATIONS: u32 = 18u;
 const R3_COUNTER_TRAVERSAL_QUEUE_RESERVATIONS: u32 = 19u;
@@ -881,6 +881,7 @@ fn r3_traverse_clusters(
 @group(3) @binding(5) var<storage, read_write> leaf_raster: OEngineRasterWorkQueue;
 @group(3) @binding(6) var<storage, read_write> leaf_draw_indirect: OEngineDrawIndirectArgs;
 @group(3) @binding(7) var<storage, read_write> leaf_counters: array<atomic<u32>>;
+@group(3) @binding(8) var<storage, read> leaf_meshlets: array<GpuMeshletRecord>;
 
 var<workgroup> leaf_wg_raster_count: atomic<u32>;
 var<workgroup> leaf_wg_raster_base: u32;
@@ -921,6 +922,7 @@ fn r3_fused_leaf_work(
   var selected_raster_flags = 0u;
   var meshlet_begin = 0u;
   var meshlet_count = 0u;
+  var triangle_count = 0u;
 
   if invocation_index < leaf_view.scene.y {
     let instance_record_index = leaf_view.scene.x + invocation_index;
@@ -957,6 +959,10 @@ fn r3_fused_leaf_work(
           selected_raster_flags = instance.flags;
           meshlet_begin = cluster.meshlet_begin;
           meshlet_count = cluster.meshlet_count;
+          for (var local_meshlet = 0u; local_meshlet < meshlet_count;
+            local_meshlet++) {
+            triangle_count += leaf_meshlets[meshlet_begin + local_meshlet].triangle_count;
+          }
         }
       }
     }
@@ -964,7 +970,7 @@ fn r3_fused_leaf_work(
 
   if selected {
     selected_local = atomicAdd(&hierarchy_wg_selected_count, 1u);
-    raster_local = atomicAdd(&leaf_wg_raster_count, meshlet_count);
+    raster_local = atomicAdd(&leaf_wg_raster_count, triangle_count);
   }
   workgroupBarrier();
   if lane == 0u {
@@ -999,13 +1005,24 @@ fn r3_fused_leaf_work(
       selected_material,
       selected_raster_flags
     );
+    var triangle_begin = 0u;
     for (var local_meshlet = 0u; local_meshlet < meshlet_count; local_meshlet++) {
-      leaf_raster.elements[leaf_wg_raster_base + raster_local + local_meshlet] =
-        OEngineRasterWork(
-          visible_slot,
-          meshlet_begin + local_meshlet,
+      let meshlet_record_index = meshlet_begin + local_meshlet;
+      let meshlet = leaf_meshlets[meshlet_record_index];
+      for (var local_triangle = 0u; local_triangle < meshlet.triangle_count;
+        local_triangle++) {
+        leaf_raster.elements[
+          leaf_wg_raster_base + raster_local + triangle_begin + local_triangle
+        ] = OEngineRasterWork(
+          selected_instance,
+          selected_geometry,
+          meshlet_record_index,
+          local_triangle,
+          selected_material,
           selected_raster_flags
         );
+      }
+      triangle_begin += meshlet.triangle_count;
     }
   }
   workgroupBarrier();
@@ -1013,8 +1030,8 @@ fn r3_fused_leaf_work(
   if lane == 0u {
     if valid_group && group_raster_count > 0u {
       atomicMax(
-        &leaf_draw_indirect.instance_count,
-        leaf_wg_raster_base + group_raster_count
+        &leaf_draw_indirect.vertex_count,
+        (leaf_wg_raster_base + group_raster_count) * 3u
       );
     }
     if (leaf_view.hzb.w & R3_FEATURE_COUNTERS) != 0u {
@@ -1043,8 +1060,6 @@ fn r3_fused_leaf_work(
       atomicAdd(&leaf_counters[R3_COUNTER_SELECTED_CLUSTERS], selected_count);
       atomicAdd(&leaf_counters[R3_COUNTER_REJECTED_CONE], rejected_cone);
       atomicAdd(&leaf_counters[R3_COUNTER_REJECTED_HZB], rejected_hzb);
-      atomicAdd(&leaf_counters[R3_COUNTER_HW_CLUSTERS], raster_count);
-      atomicAdd(&leaf_counters[R3_COUNTER_HW_TRIANGLES], raster_count * 128u);
       atomicAdd(
         &leaf_counters[R3_COUNTER_ROOT_STAGE_QUEUE_RESERVATIONS],
         atomicLoad(&hierarchy_wg_queue_reservations)
@@ -1072,8 +1087,10 @@ fn r3_fused_leaf_work(
 @group(2) @binding(4) var<storage, read_write> hierarchy_draw_indirect: OEngineDrawIndirectArgs;
 @group(2) @binding(5) var<storage, read_write> raster_work_dispatch: OEngineDispatchIndirectArgs;
 @group(2) @binding(6) var<storage, read_write> raster_work_counters: array<atomic<u32>>;
+@group(2) @binding(7) var<storage, read> raster_work_meshlets: array<GpuMeshletRecord>;
 
 var<workgroup> raster_work_group_base: u32;
+var<workgroup> raster_work_group_count: u32;
 
 @compute @workgroup_size(1)
 fn r3_prepare_raster_dispatch() {
@@ -1114,9 +1131,17 @@ fn r3_expand_raster_work(
   let visible = raster_work_selected.elements[invocation_index];
   let cluster = raster_work_clusters[visible.cluster_record_index];
   if lane == 0u {
+    var triangle_count = 0u;
+    for (var local_meshlet = 0u; local_meshlet < cluster.meshlet_count;
+      local_meshlet++) {
+      triangle_count += raster_work_meshlets[
+        cluster.meshlet_begin + local_meshlet
+      ].triangle_count;
+    }
+    raster_work_group_count = triangle_count;
     raster_work_group_base = oengine_try_reserve_work_group(
       &raster_work_output.header,
-      cluster.meshlet_count
+      triangle_count
     );
   }
   workgroupBarrier();
@@ -1130,26 +1155,29 @@ fn r3_expand_raster_work(
     }
     return;
   }
-  for (var local_meshlet = lane; local_meshlet < cluster.meshlet_count;
-    local_meshlet += ${HIERARCHICAL_WORKGROUP_SIZE}u) {
-    raster_work_output.elements[base + local_meshlet] = OEngineRasterWork(
-      invocation_index,
-      cluster.meshlet_begin + local_meshlet,
-      visible.raster_flags
-    );
+  var triangle_begin = 0u;
+  for (var local_meshlet = 0u; local_meshlet < cluster.meshlet_count;
+    local_meshlet++) {
+    let meshlet_record_index = cluster.meshlet_begin + local_meshlet;
+    let meshlet = raster_work_meshlets[meshlet_record_index];
+    for (var local_triangle = lane; local_triangle < meshlet.triangle_count;
+      local_triangle += ${HIERARCHICAL_WORKGROUP_SIZE}u) {
+      raster_work_output.elements[base + triangle_begin + local_triangle] =
+        OEngineRasterWork(
+          visible.instance_record_index,
+          visible.geometry_record_index,
+          meshlet_record_index,
+          local_triangle,
+          visible.material_handle,
+          visible.raster_flags
+        );
+    }
+    triangle_begin += meshlet.triangle_count;
   }
   if lane == 0u {
-    let published_end = base + cluster.meshlet_count;
-    atomicMax(&hierarchy_draw_indirect.instance_count, published_end);
+    let published_end = base + raster_work_group_count;
+    atomicMax(&hierarchy_draw_indirect.vertex_count, published_end * 3u);
     if (raster_work_view.hzb.w & R3_FEATURE_COUNTERS) != 0u {
-      atomicAdd(
-        &raster_work_counters[R3_COUNTER_HW_CLUSTERS],
-        cluster.meshlet_count
-      );
-      atomicAdd(
-        &raster_work_counters[R3_COUNTER_HW_TRIANGLES],
-        cluster.meshlet_count * 128u
-      );
     }
   }
 }

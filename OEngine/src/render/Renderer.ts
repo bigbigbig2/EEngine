@@ -104,6 +104,7 @@ import type {
   InstanceSetHandle,
   InstanceSource
 } from "../gpu/GpuScene.js";
+import { createSceneResidencyManifest } from "../gpu/GpuSceneResidencyManifest.js";
 import type {
   PackedSceneEvidence,
   PackedSceneHandle,
@@ -560,46 +561,30 @@ export class Renderer {
     scene: Scene,
     source: PackedSceneSource
   ): Promise<PackedSceneHandle> {
-    const handles: AssetHandle[] = [];
+    const manifest = createSceneResidencyManifest(source, {
+      maxBufferSize: Number(this.device.limits.maxBufferSize),
+      maxStorageBufferBindingSize: Number(this.device.limits.maxStorageBufferBindingSize)
+    });
+    const command = ShadeGPUCommandContext.create(
+      this._graphics,
+      "Renderer/PackedScene/residency-transaction"
+    );
     try {
-      for (let index = 0; index < source.geometries.length; index++) {
-        const command = ShadeGPUCommandContext.create(
-          this._graphics,
-          "Renderer/PackedScene/resident"
-        );
-        try {
-          const handle = this._graphics.assets.resident(
-            source.geometries[index]!,
-            command
-          );
-          command.finish();
-          await command.submitted;
-          handles.push(handle);
-        } catch (error) {
-          command.abort(error);
-          throw error;
-        }
-      }
-      const command = ShadeGPUCommandContext.create(
-        this._graphics,
-        "Renderer/PackedScene/instantiate"
+      const handles = this._graphics.assets.residentMany(
+        manifest.packages,
+        command
       );
-      try {
-        const handle = this._graphics.packed_scenes.stage(
-          scene,
-          source,
-          handles,
-          command
-        );
-        command.finish();
-        await command.submitted;
-        return handle;
-      } catch (error) {
-        command.abort(error);
-        throw error;
-      }
+      const handle = this._graphics.packed_scenes.stage(
+        scene,
+        manifest,
+        handles,
+        command
+      );
+      command.finish();
+      await command.submitted;
+      return handle;
     } catch (error) {
-      await this.releasePackedAssetHandles(handles);
+      command.abort(error);
       throw error;
     }
   }
@@ -608,7 +593,7 @@ export class Renderer {
   async releasePackedScene(scene: Scene): Promise<void> {
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/PackedScene/release-instances"
+      "Renderer/PackedScene/release-transaction"
     );
     let handles: readonly AssetHandle[];
     try {
@@ -622,13 +607,13 @@ export class Renderer {
         );
       }
       handles = this._graphics.packed_scenes.release(scene, command);
+      this._graphics.assets.releaseMany(handles, command);
       command.finish();
       await command.submitted;
     } catch (error) {
       command.abort(error);
       throw error;
     }
-    await this.releasePackedAssetHandles(handles);
   }
 
   /** Queues one explicit patch batch for the next main frame command. */
@@ -694,25 +679,6 @@ export class Renderer {
         reject
       };
     });
-  }
-
-  private async releasePackedAssetHandles(
-    handles: readonly AssetHandle[]
-  ): Promise<void> {
-    for (let index = handles.length - 1; index >= 0; index--) {
-      const command = ShadeGPUCommandContext.create(
-        this._graphics,
-        "Renderer/PackedScene/release-asset"
-      );
-      try {
-        this._graphics.assets.release(handles[index]!, command);
-        command.finish();
-        await command.submitted;
-      } catch (error) {
-        command.abort(error);
-        throw error;
-      }
-    }
   }
 
   /**
@@ -1699,7 +1665,7 @@ export class Renderer {
             },
             packedVisibilityKeyRes === null
               ? "legacy-id"
-              : "visibility-key-v1"
+              : "visibility-key"
           );
           this._profiler.registerGpuCounterFields([
             "candidateInstances",
@@ -3027,9 +2993,9 @@ export class Renderer {
       sampleCount: 1,
       enabledFeatureBits: topology.enabledFeatureBits,
       visibilityImplementation: bindings.gpuPacked === null
-        ? `hardware-legacy-v1-ssao-owner${this._ssaoOwnerGeneration}` +
+        ? `hardware-object-visibility-ssao-owner${this._ssaoOwnerGeneration}` +
           `-ssr-owner${this._ssrOwnerGeneration}`
-        : `hardware-packed-r4-visibility-key-v1-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
+        : `hardware-packed-exact-visibility-key-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
           `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
           `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
           `-ssao-owner${this._ssaoOwnerGeneration}` +
@@ -3307,8 +3273,8 @@ export class Renderer {
         this._packedVisibility.lastDrawIndirect ? 1 : 0
       );
       profiler.recordCounter(
-        "packed.visibility.fixedVertexCount",
-        this._packedVisibility.lastFixedVertexCount
+        "packed.visibility.verticesPerTriangle",
+        this._packedVisibility.lastVerticesPerTriangle
       );
       profiler.recordCounter(
         "packed.visibility.keyAttachmentBytes",
@@ -3379,7 +3345,8 @@ export class Renderer {
         : this._materialExpand!.lastDrawCount
     );
     if (packedPath) {
-      const materialEvidence = this._graphics.material_visibility_if_created?.evidence();
+      const materialEvidence = this._graphics.material_store_if_created?.evidence();
+      const textureEvidence = this._graphics.texture_residency_if_created?.evidence();
       profiler.recordCounter(
         "packed.material.activeMaterials",
         this._packedMaterialResolve.lastActiveMaterialCount
@@ -3395,7 +3362,7 @@ export class Renderer {
       );
       profiler.recordCounter(
         "packed.material.residentTextures",
-        materialEvidence?.residentTextureCount ?? 0
+        textureEvidence?.residentTextureCount ?? 0
       );
       profiler.recordCounter(
         "packed.material.textureFallbacks",
@@ -3407,7 +3374,7 @@ export class Renderer {
       );
       profiler.recordCounter(
         "packed.material.residentTextureBytes",
-        materialEvidence?.residentTextureBytes ?? 0
+        textureEvidence?.residentTextureBytes ?? 0
       );
     }
     profiler.recordCounter(

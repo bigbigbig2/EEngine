@@ -20,7 +20,6 @@ import {
 import {
   PACKED_TRANSPARENT_COMPOSITE_WGSL,
   PACKED_TRANSPARENT_EVIDENCE_WGSL,
-  PACKED_TRANSPARENT_FIXED_VERTEX_COUNT,
   PACKED_TRANSPARENT_FORWARD_WGSL,
   PACKED_TRANSPARENT_MOMENT_FORMAT,
   PACKED_TRANSPARENT_MOMENT_WGSL,
@@ -35,21 +34,21 @@ const COMMON_GROUP: GPUBindGroupLayoutDescriptor = {
   entries: [
     { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
       buffer: { type: "uniform" } },
-    ...Array.from({ length: 8 }, (_, index) => ({
+    ...Array.from({ length: 7 }, (_, index) => ({
       binding: index + 1,
       visibility: GPUShaderStage.VERTEX,
       buffer: { type: "read-only-storage" as GPUBufferBindingType }
     })),
-    { binding: 9, visibility: GPUShaderStage.FRAGMENT,
+    { binding: 8, visibility: GPUShaderStage.FRAGMENT,
       buffer: { type: "read-only-storage" } },
-    { binding: 10, visibility: GPUShaderStage.FRAGMENT,
+    { binding: 9, visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "float", viewDimension: "2d-array" } },
     ...Array.from({ length: 6 }, (_, index) => ({
-      binding: index + 11,
+      binding: index + 10,
       visibility: GPUShaderStage.FRAGMENT,
       sampler: { type: "filtering" as GPUSamplerBindingType }
     })),
-    { binding: 17, visibility: GPUShaderStage.FRAGMENT,
+    { binding: 16, visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "float", viewDimension: "2d-array" } }
   ]
 };
@@ -498,12 +497,11 @@ export class PackedTransparentOitPass {
         { buffer: job.assets.meshletTriangleIndices },
         { buffer: job.assets.vertexStreamData },
         { buffer: job.assets.geometryRecords },
-        { buffer: generated.visibleClusters },
         { buffer: generated.rasterWork },
-        { buffer: job.runtime.materialVisibility.materialRecords },
-        job.runtime.materialVisibility.textureArray,
+        { buffer: job.runtime.materialResources.materialRecords },
+        job.runtime.materialResources.textureArray,
         ...this.samplers,
-        job.runtime.materialVisibility.highResolutionTextureArray
+        job.runtime.materialResources.highResolutionTextureArray
       ]
     });
   }

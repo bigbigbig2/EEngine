@@ -59,7 +59,7 @@ export interface R4BGateArtifact {
   passed: boolean;
   issues: string[];
   contract: {
-    producer: "hardware-packed-r4-visibility-key-v1";
+    producer: "hardware-packed-exact-visibility-key";
     consumer: "single-standard-pbr-material-resolve-v1";
     fullscreenDrawsPerFrame: 1;
     currentFrameVisibilityCountReadback: false;
@@ -112,7 +112,7 @@ export function createR4BGateArtifact(
     passed: issues.length === 0,
     issues,
     contract: {
-      producer: "hardware-packed-r4-visibility-key-v1",
+      producer: "hardware-packed-exact-visibility-key",
       consumer: "single-standard-pbr-material-resolve-v1",
       fullscreenDrawsPerFrame: 1,
       currentFrameVisibilityCountReadback: false,

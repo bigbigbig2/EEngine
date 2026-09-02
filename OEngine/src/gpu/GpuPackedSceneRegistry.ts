@@ -9,7 +9,11 @@ import {
 } from "./GpuInstanceAbi.js";
 import type { Scene } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import type { GpuMaterialVisibilityBindings } from "./GpuMaterialVisibilityTable.js";
+import type { SceneResidencyManifest } from "./GpuSceneResidencyManifest.js";
+import {
+  composeGpuPackedMaterialBindings,
+  type GpuPackedMaterialBindings
+} from "./GpuPackedMaterialBindings.js";
 import type { AssetHandle, GpuAssetBindings } from "./GpuAssetStore.js";
 import type {
   GpuSceneBindings,
@@ -72,7 +76,7 @@ export interface PackedSceneRuntime {
   readonly instanceHandle: InstanceSetHandle;
   readonly materials: readonly StandardShadeMaterial[];
   readonly materialSlots: readonly number[];
-  readonly materialVisibility: GpuMaterialVisibilityBindings;
+  readonly materialResources: GpuPackedMaterialBindings;
   readonly instanceBegin: number;
   readonly instanceCount: number;
   /** Number of resident instances whose current material class is BLEND. */
@@ -111,12 +115,17 @@ export class GpuPackedSceneRegistry {
 
   stage(
     scene: Scene,
-    source: PackedSceneSource,
+    manifest: SceneResidencyManifest,
     assetHandles: readonly AssetHandle[],
     command: ShadeGPUCommandContext
   ): PackedSceneHandle {
     if (this.byScene.has(scene)) {
       throw new Error("Scene already has a Packed Scene registration");
+    }
+    const source = manifest.source;
+    if (manifest.packages.length !== source.geometries.length ||
+      manifest.materials.length !== source.materials.length) {
+      throw new Error("Packed Scene manifest dictionaries do not match its source");
     }
     validateSource(source, assetHandles);
     const hierarchyCapacity = computeIndexedPackedHierarchyWorkCapacity(
@@ -124,8 +133,10 @@ export class GpuPackedSceneRegistry {
       source.geometryIndices
     );
     for (const material of source.materials) this.graphics.materials.obtain(material);
-    const materialStage = this.graphics.material_visibility.stage(
+    const textureStage = this.graphics.texture_residency.stage(source.materials, command);
+    const materialStage = this.graphics.material_store.stage(
       source.materials,
+      textureStage.textureRefs,
       command
     );
     const geometryHandles = Object.freeze([...assetHandles]);
@@ -176,7 +187,10 @@ export class GpuPackedSceneRegistry {
       instanceHandle,
       materials: Object.freeze([...source.materials]),
       materialSlots: materialStage.materialSlots,
-      materialVisibility: materialStage.bindings,
+      materialResources: composeGpuPackedMaterialBindings(
+        materialStage.bindings,
+        textureStage.bindings
+      ),
       instanceBegin: range.start,
       instanceCount: range.count,
       get transparentInstanceCount() {
@@ -224,7 +238,8 @@ export class GpuPackedSceneRegistry {
     }
     this.releasingScenes.add(scene);
     try {
-      this.graphics.material_visibility.release(runtime.materials, command);
+      this.graphics.material_store.release(runtime.materials, command);
+      this.graphics.texture_residency.release(runtime.materials, command);
       this.graphics.gpu_scene.release(runtime.instanceHandle, command);
     } catch (error) {
       this.releasingScenes.delete(scene);

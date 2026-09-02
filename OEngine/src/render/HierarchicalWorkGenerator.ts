@@ -37,9 +37,9 @@ const RASTER_WORK_QUEUE_MIN_BINDING_SIZE =
   GPU_WORK_QUEUE_HEADER_SCHEMA.stride + GPU_RASTER_WORK_SCHEMA.stride;
 
 // First production crossover is deliberately bounded to the measured C case
-// (144 instances / 144 proven RasterWork capacity, 127 actually emitted).
+// (144 instances / 144 proven exact-triangle RasterWork capacity).
 // Broaden only with another same-condition wavefront-vs-fused GPU sweep; the
-// fused shader serializes Meshlets per lane.
+// fused shader serializes tiny exact-triangle groups per instance.
 export const FUSED_LEAF_INSTANCE_THRESHOLD = 144;
 export const FUSED_LEAF_RASTER_WORK_THRESHOLD = 144;
 export type HierarchicalWorkImplementation = "wavefront" | "fused-leaf";
@@ -216,7 +216,8 @@ const EXPANSION_GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: VISIBLE_CLUSTER_QUEUE_MIN_BINDING_SIZE } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: RASTER_WORK_QUEUE_MIN_BINDING_SIZE } },
     { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DRAW_INDIRECT_ARGS_SIZE } },
-    { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 256 } }
+    { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 256 } },
+    { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
   ]
 };
 
@@ -239,7 +240,8 @@ const LEAF_GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: VISIBLE_CLUSTER_QUEUE_MIN_BINDING_SIZE } },
     { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: RASTER_WORK_QUEUE_MIN_BINDING_SIZE } },
     { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DRAW_INDIRECT_ARGS_SIZE } },
-    { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 256 } }
+    { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 256 } },
+    { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
   ]
 };
 
@@ -446,7 +448,7 @@ export class HierarchicalWorkGenerator {
         size: GPU_DRAW_INDIRECT_ARGS_SIZE,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT |
           GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
-      }, new Uint8Array(new Uint32Array([384, 0, 0, 0]).buffer), buffers);
+      }, new Uint8Array(new Uint32Array([0, 1, 0, 0]).buffer), buffers);
       const evidenceHeaderCount = checkedAddU32(
         roundCount,
         3,
@@ -514,7 +516,8 @@ export class HierarchicalWorkGenerator {
           { binding: 2, resource: { buffer: selectedQueue } },
           { binding: 3, resource: { buffer: rasterQueue } },
           { binding: 4, resource: { buffer: drawIndirect } },
-          { binding: 6, resource: { buffer: scene.counterBuffer } }
+          { binding: 6, resource: { buffer: scene.counterBuffer } },
+          { binding: 7, resource: { buffer: scene.assets.meshletRecords } }
         ]
       })
         : null;
@@ -640,9 +643,9 @@ export class HierarchicalWorkGenerator {
         state.roundCount + 3
       );
     }
-    // vertexCount/firstVertex/firstInstance are immutable initialized lanes;
-    // the GPU resets and publishes only the dynamic instanceCount lane.
-    encoder.clearBuffer(state.drawIndirect, 4, 4);
+    // instanceCount/firstVertex/firstInstance are immutable initialized lanes;
+    // the GPU resets and publishes only exact vertexCount = triangles * 3.
+    encoder.clearBuffer(state.drawIndirect, 0, 4);
     const rootGrid = computeHierarchicalDispatchGrid(
       state.scene.instanceCount,
       Number(this.device.limits.maxComputeWorkgroupsPerDimension)
@@ -898,6 +901,7 @@ export class HierarchicalWorkGenerator {
         { binding: 5, resource: { buffer: raster } },
         { binding: 6, resource: { buffer: drawIndirect } },
         { binding: 7, resource: { buffer: scene.counterBuffer } },
+        { binding: 8, resource: { buffer: scene.assets.meshletRecords } },
         ...(hzbView === undefined ? [] : [{ binding: 10, resource: hzbView }])
       ]
     });

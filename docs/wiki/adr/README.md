@@ -26,3 +26,4 @@ ADR 记录已经接受、会长期约束实现的决策。普通实现细节、�
 - [0008 · Runtime Asset Package Kernel v1](./0008-runtime-asset-package-kernel-v1.md)
 - [0009 · R3 以 Cluster hierarchy 生成 GPU Raster Work](./0009-r3-cluster-hierarchy-work-generation.md)
 - [0010 · R4 统一 Visibility Key、光栅语义与 Resolve 边界](./0010-r4-unified-visibility-contract.md)
+- [0011 · Exact RasterWork 与 Direct VisibilityKey](./0011-exact-raster-work-and-direct-visibility-key.md)

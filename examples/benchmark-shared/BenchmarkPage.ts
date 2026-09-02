@@ -127,8 +127,30 @@ export async function startBenchmarkPage(manifestUrl: URL): Promise<void> {
       }
     });
     const completedOrdinal = run.warmupFrames + run.sampleFrames - 1;
-    const materialEvidence =
-      renderer.graphics.material_visibility_if_created?.evidence() ?? null;
+    const materialState = renderer.graphics.material_store_if_created?.evidence();
+    const textureState = renderer.graphics.texture_residency_if_created?.evidence();
+    const materialEvidence = materialState === undefined || textureState === undefined
+      ? null
+      : {
+          schemaVersion: 4,
+          abiVersion: materialState.abiVersion,
+          materialCapacity: materialState.materialCapacity,
+          textureCapacity: textureState.textureCapacity,
+          residentMaterialSlotCount: materialState.residentMaterialSlotCount,
+          retiringMaterialSlotCount: materialState.retiringMaterialSlotCount,
+          freeMaterialSlotCount: materialState.freeMaterialSlotCount,
+          residentTextureCount: textureState.residentTextureCount,
+          retiringTextureCount: textureState.retiringTextureCount,
+          freeTextureLayerCount: textureState.freeTextureLayerCount,
+          textureFallbackCount: materialState.textureFallbackCount,
+          samplerFallbackCount: materialState.samplerFallbackCount,
+          allocatedBytes: materialState.allocatedBytes + textureState.allocatedBytes,
+          residentTextureBytes: textureState.residentTextureBytes,
+          textureSize: textureState.textureSize,
+          mipLevelCount: textureState.mipLevelCount,
+          privateSubmitCount: 0 as const,
+          takeoverTask: null
+        };
     const gates = finishPage(
       elements,
       manifest,

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 const {
   GPU_VISIBILITY_DEBUG_COLORS,
+  GPU_VISIBILITY_DEBUG_RESOLVE_ABI_VERSION,
   GPU_VISIBILITY_DEBUG_SETTINGS_SIZE,
   GPU_VISIBILITY_DEBUG_STATUS,
   GPU_VISIBILITY_DEBUG_STATUS_WGSL,
@@ -12,9 +13,7 @@ const {
   GPU_MATERIAL_VISIBILITY_ALPHA_MODE,
   GPU_MATERIAL_VISIBILITY_FLAGS
 } = await import("../.test-dist/gpu/GpuMaterialVisibilityAbi.js");
-const { GPU_INSTANCE_FLAGS } = await import(
-  "../.test-dist/gpu/GpuInstanceAbi.js"
-);
+const { GPU_INSTANCE_FLAGS } = await import("../.test-dist/gpu/GpuInstanceAbi.js");
 const {
   GPU_VISIBILITY_KEY_EMPTY,
   GPU_VISIBILITY_KEY_INVALID,
@@ -22,11 +21,13 @@ const {
   encodeVisibilityKey
 } = await import("../.test-dist/gpu/GpuVisibilityKeyAbi.js");
 
-test("R4-A-04 debug resolve freezes status/color ABI and max-key fail-visible", () => {
+test("debug resolve freezes the direct RasterWork status/color ABI", () => {
+  assert.equal(GPU_VISIBILITY_DEBUG_RESOLVE_ABI_VERSION, 2);
   assert.equal(GPU_VISIBILITY_DEBUG_SETTINGS_SIZE, 32);
-  assert.equal(new Set(Object.values(GPU_VISIBILITY_DEBUG_STATUS)).size, 15);
-  assert.equal(Object.keys(GPU_VISIBILITY_DEBUG_COLORS).length, 14);
+  assert.equal(new Set(Object.values(GPU_VISIBILITY_DEBUG_STATUS)).size, 13);
+  assert.equal(Object.keys(GPU_VISIBILITY_DEBUG_COLORS).length, 12);
   assert.match(GPU_VISIBILITY_DEBUG_STATUS_WGSL, /OENGINE_VIS_DEBUG_MATERIAL_INVALID/);
+  assert.doesNotMatch(GPU_VISIBILITY_DEBUG_STATUS_WGSL, /VISIBLE_CLUSTER|CLUSTER_RECORD/);
   assert.equal(
     resolveVisibilityDebugReference(GPU_VISIBILITY_KEY_EMPTY, validTables()).status,
     GPU_VISIBILITY_DEBUG_STATUS.Empty
@@ -37,18 +38,16 @@ test("R4-A-04 debug resolve freezes status/color ABI and max-key fail-visible", 
   );
   assert.equal(
     resolveVisibilityDebugReference(
-      encodeVisibilityKey(GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT, 127),
+      encodeVisibilityKey(GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT),
       validTables()
     ).status,
     GPU_VISIBILITY_DEBUG_STATUS.RasterWorkOutOfRange
   );
 });
 
-test("R4-A-04 CPU oracle identifies every GPU lookup failure layer", () => {
+test("CPU oracle identifies every direct lookup failure layer", () => {
   const cases = [
     ["rasterWork", [], GPU_VISIBILITY_DEBUG_STATUS.RasterWorkOutOfRange],
-    ["visibleClusters", [], GPU_VISIBILITY_DEBUG_STATUS.VisibleClusterOutOfRange],
-    ["clusterRecordCount", 0, GPU_VISIBILITY_DEBUG_STATUS.ClusterRecordOutOfRange],
     ["meshlets", [], GPU_VISIBILITY_DEBUG_STATUS.MeshletOutOfRange],
     ["meshlets", [{ triangleCount: 0 }], GPU_VISIBILITY_DEBUG_STATUS.TriangleOutOfRange],
     ["instances", [], GPU_VISIBILITY_DEBUG_STATUS.InstanceOutOfRange],
@@ -57,72 +56,57 @@ test("R4-A-04 CPU oracle identifies every GPU lookup failure layer", () => {
   ];
   for (const [field, value, expected] of cases) {
     const tables = { ...validTables(), [field]: value };
-    assert.equal(
-      resolveVisibilityDebugReference(encodeVisibilityKey(0, 0), tables).status,
-      expected,
-      field
-    );
+    assert.equal(resolveVisibilityDebugReference(0, tables).status, expected, field);
   }
 
   const inactive = validTables();
   inactive.instances[0].flags = 0;
-  assert.equal(
-    resolveVisibilityDebugReference(0, inactive).status,
-    GPU_VISIBILITY_DEBUG_STATUS.InactiveInstance
-  );
+  assert.equal(resolveVisibilityDebugReference(0, inactive).status,
+    GPU_VISIBILITY_DEBUG_STATUS.InactiveInstance);
 
   const mismatch = validTables();
   mismatch.instances[0].geometryRecordIndex = 1;
-  assert.equal(
-    resolveVisibilityDebugReference(0, mismatch).status,
-    GPU_VISIBILITY_DEBUG_STATUS.IdentityMismatch
-  );
+  assert.equal(resolveVisibilityDebugReference(0, mismatch).status,
+    GPU_VISIBILITY_DEBUG_STATUS.IdentityMismatch);
 
   const invalidMaterial = validTables();
   invalidMaterial.materials[0].flags = 0;
-  assert.equal(
-    resolveVisibilityDebugReference(0, invalidMaterial).status,
-    GPU_VISIBILITY_DEBUG_STATUS.MaterialRecordInvalid
-  );
+  assert.equal(resolveVisibilityDebugReference(0, invalidMaterial).status,
+    GPU_VISIBILITY_DEBUG_STATUS.MaterialRecordInvalid);
 
   const blend = validTables();
   blend.materials[0].alphaMode = GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Blend;
-  assert.equal(
-    resolveVisibilityDebugReference(0, blend).status,
-    GPU_VISIBILITY_DEBUG_STATUS.BlendMaterial
-  );
+  assert.equal(resolveVisibilityDebugReference(0, blend).status,
+    GPU_VISIBILITY_DEBUG_STATUS.BlendMaterial);
 });
 
-test("R4-A-04 valid resolve returns the complete identity and alpha class", () => {
-  const resolved = resolveVisibilityDebugReference(encodeVisibilityKey(0, 0), validTables());
-  assert.deepEqual(resolved, {
+test("valid resolve returns direct exact-triangle identity", () => {
+  assert.deepEqual(resolveVisibilityDebugReference(0, validTables()), {
     kind: "valid",
     status: GPU_VISIBILITY_DEBUG_STATUS.Valid,
     reason: "valid",
     rasterWorkSlot: 0,
-    visibleClusterSlot: 0,
     meshletRecordIndex: 0,
     localTriangle: 0,
     instanceRecordIndex: 0,
     instanceDebugId: 77,
     geometryRecordIndex: 0,
-    clusterRecordIndex: 0,
     materialHandle: 0,
     alphaMode: GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Mask,
-    materialFlags:
-      GPU_MATERIAL_VISIBILITY_FLAGS.Valid |
+    materialFlags: GPU_MATERIAL_VISIBILITY_FLAGS.Valid |
       GPU_MATERIAL_VISIBILITY_FLAGS.DoubleSided
   });
 });
 
 function validTables() {
   return {
-    rasterWork: [{ visibleClusterSlot: 0, meshletRecordIndex: 0 }],
-    visibleClusters: [{
+    rasterWork: [{
       instanceRecordIndex: 0,
       geometryRecordIndex: 0,
-      clusterRecordIndex: 0,
-      materialHandle: 0
+      meshletRecordIndex: 0,
+      localTriangleIndex: 0,
+      materialHandle: 0,
+      rasterFlags: 0
     }],
     meshlets: [{ triangleCount: 1 }],
     instances: [{
@@ -132,12 +116,10 @@ function validTables() {
       debugId: 77
     }],
     geometryRecordCount: 1,
-    clusterRecordCount: 1,
     materials: [{
       materialId: 0,
       alphaMode: GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Mask,
-      flags:
-        GPU_MATERIAL_VISIBILITY_FLAGS.Valid |
+      flags: GPU_MATERIAL_VISIBILITY_FLAGS.Valid |
         GPU_MATERIAL_VISIBILITY_FLAGS.DoubleSided
     }]
   };

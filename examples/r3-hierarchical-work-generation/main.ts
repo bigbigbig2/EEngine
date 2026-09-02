@@ -439,11 +439,9 @@ async function runCase(
   const cpuKeys = cpu.selectedClusters.map(recordKey).sort();
   const raster = unpackWorkQueueHeader(rasterBytes);
   const rasterKeys = unpackRasterWorkRecords(rasterBytes, raster.written)
-    .map((work) => `${recordKey(gpuVisibleRecords[work.visibleClusterSlot]!)}:${work.meshletRecordIndex}`)
+    .map(exactRasterKey)
     .sort();
-  const cpuRasterKeys = cpu.selectedMeshlets.map((work) =>
-    `${recordKey(cpu.selectedClusters[work.visibleClusterSlot]!)}:${work.meshletRecordIndex}`
-  ).sort();
+  const cpuRasterKeys = cpu.rasterWork.map(exactRasterKey).sort();
   const drawIndirect = unpackDrawIndirectArgs(indirectBytes);
   const layout = generated.evidenceLayout;
   const root = unpackWorkQueueHeader(
@@ -468,8 +466,8 @@ async function runCase(
     JSON.stringify(rasterKeys) === JSON.stringify(cpuRasterKeys) &&
     selected.overflow === 0 && selected.written === selectedEvidence.written &&
     raster.overflow === 0 && raster.written === rasterEvidence.written &&
-    drawIndirect.vertexCount === 384 &&
-    drawIndirect.instanceCount === raster.written &&
+    drawIndirect.vertexCount === raster.written * 3 &&
+    drawIndirect.instanceCount === 1 &&
     drawIndirect.firstVertex === 0 && drawIndirect.firstInstance === 0 &&
     root.overflow === 0 && rounds.at(-1)?.written === 0;
   return {
@@ -486,6 +484,17 @@ async function runCase(
     cpuRasterKeys,
     drawIndirect
   };
+}
+
+function exactRasterKey(work: {
+  instanceRecordIndex: number;
+  geometryRecordIndex: number;
+  meshletRecordIndex: number;
+  localTriangleIndex: number;
+  materialHandle: number;
+}): string {
+  return `${work.instanceRecordIndex}:${work.geometryRecordIndex}:` +
+    `${work.meshletRecordIndex}:${work.localTriangleIndex}:${work.materialHandle}`;
 }
 
 function recordKey(record: {

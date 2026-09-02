@@ -17,7 +17,8 @@ import {
 import { LPV_CAMERA_TYPE } from "../../shaders/lpv_indirect_diffuse.js";
 import {
   PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
-  PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT
+  PACKED_OPAQUE_VISIBILITY_RASTER_WGSL,
+  PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE
 } from "../../shaders/packed_visibility.js";
 import {
   HierarchicalWorkGenerator,
@@ -28,29 +29,67 @@ import {
   resolveDepthAttachmentView,
   resolveTextureView
 } from "./MaterialExpandPass.js";
-import { encodePackedVisibilityAlphaCounter } from "./PackedVisibilityAlphaCounterPass.js";
+import {
+  ExactTriangleFilter,
+  type PreparedExactTriangleFilter
+} from "../ExactTriangleFilter.js";
 
-const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "R4-A-03 Packed Visibility material alpha group0",
+const OPAQUE_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "Packed Visibility position-only OPAQUE group0",
   entries: [
     { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
-    ...Array.from({ length: 8 }, (_, index) => ({
+    ...Array.from({ length: 7 }, (_, index) => ({
+      binding: index + 1,
+      visibility: GPUShaderStage.VERTEX,
+      buffer: { type: "read-only-storage" as GPUBufferBindingType }
+    }))
+  ]
+};
+
+const OPAQUE_RASTER_PIPELINE: CachedRenderPipelineDescriptor = {
+  label: "Packed Visibility position-only OPAQUE consumer",
+  layout: {
+    label: "Packed Visibility position-only OPAQUE layout",
+    bindGroupLayouts: [OPAQUE_RASTER_GROUP]
+  },
+  vertex: {
+    module: { label: "Packed Visibility OPAQUE", code: PACKED_OPAQUE_VISIBILITY_RASTER_WGSL },
+    entryPoint: "raster_opaque_exact"
+  },
+  fragment: {
+    module: { label: "Packed Visibility OPAQUE", code: PACKED_OPAQUE_VISIBILITY_RASTER_WGSL },
+    entryPoint: "write_opaque_visibility",
+    targets: [{ format: "r32uint" }]
+  },
+  primitive: { topology: "triangle-list", cullMode: "none" },
+  depthStencil: {
+    format: "depth32float",
+    depthWriteEnabled: true,
+    depthCompare: "greater"
+  }
+};
+
+const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "Packed Visibility MASK alpha group0",
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
+    ...Array.from({ length: 7 }, (_, index) => ({
       binding: index + 1,
       visibility: GPUShaderStage.VERTEX,
       buffer: { type: "read-only-storage" as GPUBufferBindingType }
     })),
     {
-      binding: 9,
+      binding: 8,
       visibility: GPUShaderStage.FRAGMENT,
       buffer: { type: "read-only-storage" }
     },
     {
-      binding: 10,
+      binding: 9,
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
     },
     {
-      binding: 11,
+      binding: 10,
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
     }
@@ -58,21 +97,21 @@ const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
 };
 
 const HIERARCHY_RASTER_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "R4-A-03 Packed Visibility material alpha consumer",
+  label: "Packed Visibility MASK alpha consumer",
   layout: {
-    label: "R4-A-03 Packed Visibility material alpha layout",
+    label: "Packed Visibility MASK alpha layout",
     bindGroupLayouts: [HIERARCHY_RASTER_GROUP]
   },
   vertex: {
     module: {
-      label: "R4-A-03 Packed Visibility material alpha consumer",
+      label: "Packed Visibility MASK alpha consumer",
       code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
     },
     entryPoint: "raster_hierarchy_meshlets"
   },
   fragment: {
     module: {
-      label: "R4-A-03 Packed Visibility material alpha consumer",
+      label: "Packed Visibility MASK alpha consumer",
       code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
     },
     entryPoint: "write_hierarchy_visibility",
@@ -121,12 +160,10 @@ export interface PackedVisibilityOutputs {
 export interface PackedVisibilityDebugBindings {
   readonly instances: GPUBuffer;
   readonly meshlets: GPUBuffer;
-  readonly visibleClusters: GPUBuffer;
   readonly rasterWork: GPUBuffer;
   readonly materials: GPUBuffer;
   readonly instanceCount: number;
   readonly geometryRecordCount: number;
-  readonly clusterRecordCount: number;
   readonly meshletRecordCount: number;
   readonly materialCapacity: number;
 }
@@ -150,6 +187,11 @@ type PackedVisibilityHierarchyGenerator = Pick<
   "prepare" | "encode" | "release" | "destroy"
 >;
 
+type PackedVisibilityExactFilter = Pick<
+  ExactTriangleFilter,
+  "prepare" | "encode" | "release" | "destroy"
+>;
+
 export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
   submittedFragments: Object.freeze({
     status: "unsupported" as const,
@@ -159,12 +201,12 @@ export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
   usefulFragments: Object.freeze({
     status: "supported" as const,
     counter: "shadedPixels" as const,
-    producer: "VisibilityCounterPass/VisibilityKey v1 final-pixel reducer"
+    producer: "VisibilityCounterPass/direct VisibilityKey final-pixel reducer"
   }),
   invalidKeys: Object.freeze({
     status: "supported" as const,
     counter: "invalidVisibilityKeys" as const,
-    producer: "VisibilityCounterPass/VisibilityKey v1 invalid reducer"
+    producer: "VisibilityCounterPass/direct VisibilityKey invalid reducer"
   })
 });
 
@@ -172,11 +214,12 @@ export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
 export class PackedVisibilityPass {
   lastDrawIndirect = false;
   lastCandidateCapacity = 0;
-  lastFixedVertexCount = PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT;
+  lastVerticesPerTriangle = PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE;
   lastVisibilityKeyAttachmentBytes = 0;
   readonly lastImplementation = "hierarchy" as const;
   lastPreparation: Readonly<PackedVisibilityPreparationEvidence> | null = null;
   private readonly hierarchyGenerator: PackedVisibilityHierarchyGenerator;
+  private readonly exactFilter: PackedVisibilityExactFilter;
   private readonly hierarchyPrepared = new Map<
     PackedSceneRuntime,
     Map<GPUBuffer, HierarchyPreparedCacheEntry>
@@ -188,10 +231,12 @@ export class PackedVisibilityPass {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    hierarchyGenerator?: PackedVisibilityHierarchyGenerator
+    hierarchyGenerator?: PackedVisibilityHierarchyGenerator,
+    exactFilter?: PackedVisibilityExactFilter
   ) {
     this.hierarchyGenerator = hierarchyGenerator ??
       new HierarchicalWorkGenerator(graphics.device);
+    this.exactFilter = exactFilter ?? new ExactTriangleFilter(graphics.device);
   }
 
   addToGraph(
@@ -201,7 +246,7 @@ export class PackedVisibilityPass {
   ): PackedVisibilityOutputs {
     const output = { visibilityKey: -1 };
     const builder = graph.add(
-      "Packed Visibility/R4-A-03 Material Visibility alpha producer",
+      "Packed Visibility/exact OPAQUE+MASK producer",
       job,
       (data, resources, context) => {
         const command = requireCommand(context.encoder);
@@ -223,7 +268,7 @@ export class PackedVisibilityPass {
     builder.write(inputs.depth);
     const counters = builder.write(inputs.counters);
     output.visibilityKey = builder.create(
-      "R4 VisibilityKey v1",
+      "Packed VisibilityKey",
       packedVisibilityAttachmentDescriptor(job.width, job.height)
     );
     builder.make_side_effect();
@@ -240,13 +285,14 @@ export class PackedVisibilityPass {
     this.debugBindings.delete(runtime);
     if (entries === undefined) return;
     this.hierarchyPrepared.delete(runtime);
-    for (const entry of entries.values()) this.retirePrepared(entry.prepared, command);
+    for (const entry of entries.values()) this.retirePrepared(entry, command);
   }
 
   destroy(): void {
     this.debugBindings.clear();
     this.hierarchyPrepared.clear();
     this.hierarchyGenerator.destroy();
+    this.exactFilter.destroy();
   }
 
   private encodeHierarchy(
@@ -257,7 +303,8 @@ export class PackedVisibilityPass {
     visibilityKey: GPUTextureView,
     depth: GPUTextureView
   ): void {
-    const prepared = this.prepareHierarchy(job, counters, command);
+    const entry = this.prepareHierarchy(job, counters, camera, command);
+    const prepared = entry.prepared;
     const generated = this.hierarchyGenerator.encode(
       command.gpu_encoder,
       prepared,
@@ -268,31 +315,42 @@ export class PackedVisibilityPass {
         previousHzb: job.previousHzb
       }
     );
-    if (job.countersEnabled) {
-      encodePackedVisibilityAlphaCounter(command, {
-        visibleClusters: generated.visibleClusters,
-        rasterWork: generated.rasterWork,
-        materials: job.runtime.materialVisibility.materialRecords,
-        counters,
-        rasterWorkCapacity: generated.rasterWorkCapacity
-      });
-    }
+    const exact = this.exactFilter.encode(
+      command.gpu_encoder,
+      entry.exact,
+      job.width,
+      job.height
+    );
     this.debugBindings.set(job.runtime, Object.freeze({
       instances: job.scene.instances,
       meshlets: job.assets.meshletRecords,
-      visibleClusters: generated.visibleClusters,
-      rasterWork: generated.rasterWork,
-      materials: job.runtime.materialVisibility.materialRecords,
+      rasterWork: exact.rasterWork,
+      materials: job.runtime.materialResources.materialRecords,
       instanceCount: job.scene.highWaterCount,
       geometryRecordCount: job.assets.highWaterCounts.geometryRecords,
-      clusterRecordCount: job.assets.highWaterCounts.clusterRecords,
       meshletRecordCount: job.assets.highWaterCounts.meshletRecords,
-      materialCapacity: job.runtime.materialVisibility.materialCapacity
+      materialCapacity: job.runtime.materialResources.materialCapacity
     }));
-    const pipeline = this.graphics.render_pipelines.obtain(
+    const opaquePipeline = this.graphics.render_pipelines.obtain(
+      OPAQUE_RASTER_PIPELINE
+    );
+    const maskPipeline = this.graphics.render_pipelines.obtain(
       HIERARCHY_RASTER_PIPELINE
     );
-    const group = this.graphics.bind_groups.obtain({
+    const opaqueGroup = this.graphics.bind_groups.obtain({
+      layout: OPAQUE_RASTER_GROUP,
+      entries: [
+        { buffer: camera },
+        { buffer: job.scene.instances },
+        { buffer: job.assets.meshletRecords },
+        { buffer: job.assets.meshletVertexIndices },
+        { buffer: job.assets.meshletTriangleIndices },
+        { buffer: job.assets.vertexStreamData },
+        { buffer: job.assets.geometryRecords },
+        { buffer: exact.rasterWork }
+      ]
+    });
+    const maskGroup = this.graphics.bind_groups.obtain({
       layout: HIERARCHY_RASTER_GROUP,
       entries: [
         { buffer: camera },
@@ -302,15 +360,14 @@ export class PackedVisibilityPass {
         { buffer: job.assets.meshletTriangleIndices },
         { buffer: job.assets.vertexStreamData },
         { buffer: job.assets.geometryRecords },
-        { buffer: generated.visibleClusters },
-        { buffer: generated.rasterWork },
-        { buffer: job.runtime.materialVisibility.materialRecords },
-        job.runtime.materialVisibility.alphaAtlas,
-        job.runtime.materialVisibility.highResolutionAlphaAtlas
+        { buffer: exact.rasterWork },
+        { buffer: job.runtime.materialResources.materialRecords },
+        job.runtime.materialResources.alphaAtlas,
+        job.runtime.materialResources.highResolutionAlphaAtlas
       ]
     });
     const render = command.beginRenderPass({
-      label: "R4-A-03 Packed VisibilityKey/depth alpha drawIndirect",
+      label: "Packed VisibilityKey/depth exact drawIndirect",
       colorAttachments: [
         {
           view: visibilityKey,
@@ -326,9 +383,12 @@ export class PackedVisibilityPass {
         depthStoreOp: "store"
       }
     });
-    render.setPipeline(pipeline);
-    render.setBindGroup(0, group);
-    render.drawIndirect(generated.drawIndirect, 0);
+    render.setPipeline(opaquePipeline);
+    render.setBindGroup(0, opaqueGroup);
+    render.drawIndirect(exact.drawIndirect, exact.opaqueDrawOffset);
+    render.setPipeline(maskPipeline);
+    render.setBindGroup(0, maskGroup);
+    render.drawIndirect(exact.drawIndirect, exact.maskDrawOffset);
     render.end();
     this.lastDrawIndirect = true;
     this.lastCandidateCapacity = job.runtime.hierarchyRasterWorkCapacity;
@@ -339,8 +399,9 @@ export class PackedVisibilityPass {
   prepareHierarchy(
     job: PackedVisibilityJob,
     counters: GPUBuffer,
+    camera: GPUBuffer,
     command: ShadeGPUCommandContext
-  ): PreparedHierarchyWork {
+  ): HierarchyPreparedCacheEntry {
     this.lastPreparation = validatePackedVisibilityPreparation(
       job.runtime.hierarchyRasterWorkCapacity,
       {
@@ -360,8 +421,9 @@ export class PackedVisibilityPass {
       existing.assetEpoch === job.assets.epoch &&
       existing.sceneEpoch === job.scene.epoch &&
       existing.sseThreshold === job.sseThreshold &&
-      existing.countersEnabled === job.countersEnabled) {
-      return existing.prepared;
+      existing.countersEnabled === job.countersEnabled &&
+      existing.camera === camera) {
+      return existing;
     }
     const prepared = this.hierarchyGenerator.prepare({
       assets: job.assets,
@@ -377,23 +439,44 @@ export class PackedVisibilityPass {
       sseThreshold: job.sseThreshold,
       countersEnabled: job.countersEnabled
     });
-    byCounter.set(counters, {
+    let exact: PreparedExactTriangleFilter;
+    try {
+      exact = this.exactFilter.prepare({
+        camera,
+        candidates: prepared.generated.rasterWork,
+        candidateCapacity: prepared.generated.rasterWorkCapacity,
+        assets: job.assets,
+        scene: job.scene,
+        counterBuffer: counters,
+        countersEnabled: job.countersEnabled
+      });
+    } catch (error) {
+      this.hierarchyGenerator.release(prepared);
+      throw error;
+    }
+    const next: HierarchyPreparedCacheEntry = {
       prepared,
+      exact,
+      camera,
       assetEpoch: job.assets.epoch,
       sceneEpoch: job.scene.epoch,
       sseThreshold: job.sseThreshold,
       countersEnabled: job.countersEnabled
-    });
-    if (existing !== undefined) this.retirePrepared(existing.prepared, command);
-    return prepared;
+    };
+    byCounter.set(counters, next);
+    if (existing !== undefined) this.retirePrepared(existing, command);
+    return next;
   }
 
   private retirePrepared(
-    prepared: PreparedHierarchyWork,
+    entry: HierarchyPreparedCacheEntry,
     command: ShadeGPUCommandContext
   ): void {
     command.destroyAfterGpuDone({
-      destroy: () => this.hierarchyGenerator.release(prepared)
+      destroy: () => {
+        this.exactFilter.release(entry.exact);
+        this.hierarchyGenerator.release(entry.prepared);
+      }
     });
   }
 
@@ -403,14 +486,14 @@ export class PackedVisibilityPass {
     const bindings = this.debugBindings.get(runtime);
     if (bindings === undefined) {
       throw new Error(
-        "R4-A-04 debug resolve executed before Packed Visibility produced work"
+        "Packed Visibility debug resolve executed before work was produced"
       );
     }
     return bindings;
   }
 }
 
-/** Internal R4 prepare contract; intentionally not exported from src/index.ts. */
+/** Internal Packed Visibility prepare contract; intentionally not public. */
 export function validatePackedVisibilityPreparation(
   requiredCapacity: number,
   limits: GpuVisibilityBufferLimits
@@ -437,7 +520,7 @@ export function packedVisibilityAttachmentDescriptor(
   assertPositiveDimension(height, "height");
   return Object.freeze({
     kind: "transient_texture" as const,
-    label: "R4 VisibilityKey v1 r32uint",
+    label: "Packed VisibilityKey r32uint",
     width,
     height,
     format: "r32uint" as const,
@@ -450,6 +533,8 @@ export function packedVisibilityAttachmentDescriptor(
 
 interface HierarchyPreparedCacheEntry {
   readonly prepared: PreparedHierarchyWork;
+  readonly exact: PreparedExactTriangleFilter;
+  readonly camera: GPUBuffer;
   readonly assetEpoch: number;
   readonly sceneEpoch: number;
   readonly sseThreshold: number;

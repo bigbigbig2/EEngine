@@ -258,6 +258,51 @@ test("R2-C rejects invalid packages before changing capacity or allocating a han
   store.destroy();
 });
 
+test("scene geometry residency commits or rolls back as one transaction", async () => {
+  const gpu = createFakeGpu();
+  const asset = (await cookGeometryAssetPackage(
+    buildBoxSourceGeometry(),
+    createGeometryCookRecipe()
+  )).asset;
+  const store = new GpuAssetStore(gpu.device);
+
+  const abort = new FakeAssetCommand(gpu.device);
+  const aborted = store.residentMany([asset, asset], abort);
+  assert.deepEqual(aborted.map((handle) => store.recordIndex(handle)), [1, 2]);
+  assert.equal(store.evidence().residentAssetCount, 0);
+  abort.abort();
+  assert.equal(store.evidence().residentAssetCount, 0);
+  assert.equal(store.evidence().abortedResidencyCount, 2);
+  assert.equal(store.evidence().tables.geometryRecords.highWaterCount, 1);
+
+  const commit = new FakeAssetCommand(gpu.device);
+  const handles = store.residentMany([asset, asset], commit);
+  assert.deepEqual(handles.map((handle) => store.recordIndex(handle)), [1, 2]);
+  commit.finish();
+  assert.equal(store.evidence().residentAssetCount, 2);
+  assert.equal(store.evidence().pendingMutation, null);
+  assert.equal(store.evidence().committedResidencyTransactions, 1);
+  assert.equal(store.evidence().abortedResidencyTransactions, 1);
+  assert.equal(store.evidence().largestTransactionPackageCount, 2);
+  assert.ok(store.evidence().largestTransactionSourceBytes > 0);
+  assert.equal(gpu.queue.submitCount, 0);
+
+  const abortedRelease = new FakeAssetCommand(gpu.device);
+  store.releaseMany(handles, abortedRelease);
+  assert.equal(store.evidence().pendingMutation, "release");
+  abortedRelease.abort();
+  assert.equal(store.evidence().residentAssetCount, 2);
+  assert.equal(store.evidence().abortedReleaseTransactions, 1);
+
+  const committedRelease = new FakeAssetCommand(gpu.device);
+  store.releaseMany(handles, committedRelease);
+  committedRelease.finish();
+  assert.equal(store.evidence().residentAssetCount, 0);
+  assert.equal(store.evidence().releaseCount, 2);
+  assert.equal(store.evidence().committedReleaseTransactions, 1);
+  store.destroy();
+});
+
 class FakeSignal {
   listeners = [];
   addOne(listener) {

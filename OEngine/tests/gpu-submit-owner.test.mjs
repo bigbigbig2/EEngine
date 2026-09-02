@@ -42,10 +42,8 @@ test("Renderer command contexts are limited to classified Packed Scene tools", (
   const labels = [...source.matchAll(/ShadeGPUCommandContext\.create\(\s*this\._graphics,\s*"([^"]+)"/g)]
     .map((match) => match[1]);
   assert.deepEqual(labels.sort(), [
-    "Renderer/PackedScene/instantiate",
-    "Renderer/PackedScene/release-asset",
-    "Renderer/PackedScene/release-instances",
-    "Renderer/PackedScene/resident"
+    "Renderer/PackedScene/release-transaction",
+    "Renderer/PackedScene/residency-transaction"
   ]);
   for (const label of labels) assert.equal(classifyGpuSubmitLabel(label), "tool");
 });
@@ -86,10 +84,8 @@ test("every known submit label has an explicit owner class", () => {
     ["GPUTextureContext/resize-copy", "recovery"],
     ["MeshletGpuPool/compact", "tool"],
     ["MipmapGenerator/generate", "one-shot"],
-    ["Renderer/PackedScene/resident", "tool"],
-    ["Renderer/PackedScene/instantiate", "tool"],
-    ["Renderer/PackedScene/release-instances", "tool"],
-    ["Renderer/PackedScene/release-asset", "tool"],
+    ["Renderer/PackedScene/residency-transaction", "tool"],
+    ["Renderer/PackedScene/release-transaction", "tool"],
     ["Renderer/View/release", "tool"]
   ]);
   for (const [label, kind] of expected) {

@@ -6,10 +6,7 @@ import {
   packGpuGeometryRecord,
   packGpuMeshletRecords
 } from "../../OEngine/src/gpu/GpuGeometryAbi.ts";
-import {
-  GPU_INSTANCE_RECORD_STRIDE,
-  packGpuInstanceRecords
-} from "../../OEngine/src/gpu/GpuInstanceAbi.ts";
+import { packGpuInstanceRecords } from "../../OEngine/src/gpu/GpuInstanceAbi.ts";
 import {
   GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
   GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
@@ -17,12 +14,11 @@ import {
   packGpuMaterialVisibilityRecord
 } from "../../OEngine/src/gpu/GpuMaterialVisibilityAbi.ts";
 import {
+  GPU_CLASSIFIED_RASTER_HEADER_BYTES,
   GPU_RASTER_WORK_SCHEMA,
-  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA,
+  packClassifiedRasterWorkHeaders,
   packRasterWork,
-  packVisibleClusterRecord,
-  packWorkQueueHeader
 } from "../../OEngine/src/gpu/GpuWorkGenerationAbi.ts";
 import {
   GPU_VISIBILITY_KEY_EMPTY,
@@ -33,7 +29,7 @@ import { StandardShadeMaterial } from "../../OEngine/src/material/StandardShadeM
 import { GPUCameraState } from "../../OEngine/src/render/GPUCameraState.ts";
 import { LPV_CAMERA_TYPE } from "../../OEngine/src/shaders/lpv_indirect_diffuse.ts";
 import {
-  PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT,
+  PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE,
   PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
 } from "../../OEngine/src/shaders/packed_visibility.ts";
 import { ShadeImage, ShadeTexture } from "../../OEngine/src/texture/ShadeTexture.ts";
@@ -126,32 +122,24 @@ async function run(): Promise<void> {
     }))),
     GPUBufferUsage.STORAGE
   );
-  const visibleClusters = createQueueBuffer(
-    device,
-    "R4-A-03 VisibleCluster queue",
-    materials.map((_material, index) => packVisibleClusterRecord({
-      instanceRecordIndex: index,
-      geometryRecordIndex: 0,
-      clusterRecordIndex: 0,
-      materialHandle: index
-    })),
-    GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride
-  );
-  const rasterWork = createQueueBuffer(
+  const rasterWork = createClassifiedRasterBuffer(
     device,
     "R4-A-03 RasterWork queue",
     materials.map((_, index) => packRasterWork({
-      visibleClusterSlot: index,
-      meshletRecordIndex: 0
-    })),
-    GPU_RASTER_WORK_SCHEMA.stride
+      instanceRecordIndex: index,
+      geometryRecordIndex: 0,
+      meshletRecordIndex: 0,
+      localTriangleIndex: 0,
+      materialHandle: index,
+      rasterFlags: 1
+    }))
   );
   const drawIndirect = createBufferWithData(
     device,
     "R4-A-03 drawIndirect",
     u32Bytes([
-      PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT,
-      materials.length,
+      PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE * materials.length,
+      1,
       0,
       0
     ]),
@@ -181,7 +169,7 @@ async function run(): Promise<void> {
     label: "R4-A-03 production alpha group0",
     entries: [
       { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
-      ...Array.from({ length: 8 }, (_, index) => ({
+      ...Array.from({ length: 7 }, (_, index) => ({
         binding: index + 1,
         visibility: GPUShaderStage.VERTEX,
         buffer: { type: "read-only-storage" as GPUBufferBindingType }
@@ -189,6 +177,11 @@ async function run(): Promise<void> {
       { binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       {
         binding: 10,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
+      },
+      {
+        binding: 11,
         visibility: GPUShaderStage.FRAGMENT,
         texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
       }
@@ -221,11 +214,11 @@ async function run(): Promise<void> {
       geometry.meshletTriangles,
       geometry.vertexData,
       geometry.geometryRecords,
-      visibleClusters,
       rasterWork,
       materialRecords
     ].map((buffer, binding) => ({ binding, resource: { buffer } })).concat([
-      { binding: 10, resource: alphaAtlas.createView({ dimension: "2d-array" }) }
+      { binding: 10, resource: alphaAtlas.createView({ dimension: "2d-array" }) },
+      { binding: 11, resource: alphaAtlas.createView({ dimension: "2d-array" }) }
     ])
   });
 
@@ -296,7 +289,12 @@ async function run(): Promise<void> {
     },
     producer: {
       drawCalls: 1,
-      drawIndirect: [PACKED_HIERARCHY_VISIBILITY_FIXED_VERTEX_COUNT, materials.length, 0, 0],
+      drawIndirect: [
+        PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE * materials.length,
+        1,
+        0,
+        0
+      ],
       rasterWorkSlots: materials.length,
       cpuMaterialDrawLoops: 0
     },
@@ -321,7 +319,6 @@ async function run(): Promise<void> {
     geometry.meshletTriangles,
     geometry.vertexData,
     geometry.geometryRecords,
-    visibleClusters,
     rasterWork,
     drawIndirect,
     materialRecords,
@@ -519,23 +516,21 @@ function fixtureTexture(): ShadeTexture {
   return ShadeTexture.from(image);
 }
 
-function createQueueBuffer(
+function createClassifiedRasterBuffer(
   device: GPUDevice,
   label: string,
-  records: readonly Uint8Array[],
-  stride: number
+  records: readonly Uint8Array[]
 ): GPUBuffer {
-  const bytes = new Uint8Array(GPU_WORK_QUEUE_HEADER_SCHEMA.stride + records.length * stride);
-  bytes.set(packWorkQueueHeader({
-    written: records.length,
-    attempted: records.length,
-    peak: records.length,
-    overflow: 0,
-    fallback: 0,
-    capacity: records.length
-  }));
+  const bytes = new Uint8Array(
+    GPU_CLASSIFIED_RASTER_HEADER_BYTES + records.length * 2 * GPU_RASTER_WORK_SCHEMA.stride
+  );
+  bytes.set(packClassifiedRasterWorkHeaders(records.length));
+  const header = new DataView(bytes.buffer);
+  header.setUint32(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.written, records.length, true);
+  header.setUint32(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.attempted, records.length, true);
+  header.setUint32(GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.peak, records.length, true);
   for (let index = 0; index < records.length; index++) {
-    bytes.set(records[index]!, GPU_WORK_QUEUE_HEADER_SCHEMA.stride + index * stride);
+    bytes.set(records[index]!, GPU_CLASSIFIED_RASTER_HEADER_BYTES + index * GPU_RASTER_WORK_SCHEMA.stride);
   }
   return createBufferWithData(device, label, bytes, GPUBufferUsage.STORAGE);
 }

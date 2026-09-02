@@ -456,7 +456,7 @@ export class ShadowContext {
               runtime: packed.runtime,
               assets: packed.assets,
               scene: packed.scene,
-              materials: packed.runtime.materialVisibility,
+              materials: packed.runtime.materialResources,
               camera,
               cameraBuffer: shadowView.packed_camera_state.buffer,
               cascadeIndex: viewIndex,
