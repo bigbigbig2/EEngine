@@ -36,6 +36,8 @@ matrix, event dispatcher or allocation enters the render hot path.
   import `OrbitControls` and call `dispose()`.
 - OEngine's `ChangeSignal` backs the typed `onChange/onStart/onEnd` signals while the
   three.js-style `addEventListener/removeEventListener` surface is also provided.
+- Damping is enabled by default (`dampingFactor = 0.08`) for all OEngine examples that
+  construct `OrbitControls`; callers can still disable it explicitly.
 
 ## Performance and fallback
 

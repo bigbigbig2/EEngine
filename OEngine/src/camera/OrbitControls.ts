@@ -70,7 +70,7 @@ export class OrbitControls {
   readonly distanceLimits = new NumericInterval();
 
   enabled = true;
-  enableDamping = false;
+  enableDamping = true;
   dampingFactor = 0.08;
   enableZoom = true;
   zoomSpeed = 1;
@@ -199,14 +199,16 @@ export class OrbitControls {
         const beforeDistance = this.touchDistance;
         this.updateTouchReference();
         if (this.enablePan) this.pan(this.touchMidpoint.x - before.x, this.touchMidpoint.y - before.y);
-        if (this.enableZoom && beforeDistance > EPS && this.touchDistance > EPS) this.dollyIn(this.touchDistance / beforeDistance);
+        if (this.enableZoom && beforeDistance > EPS && this.touchDistance > EPS) this.dollyOut(this.touchDistance / beforeDistance);
       }
     } else if (this.state === "rotate" && this.enableRotate) {
       this.rotate((current.x - previous.x) * TWO_PI / height, (current.y - previous.y) * TWO_PI / height);
     } else if (this.state === "pan" && this.enablePan) this.pan(current.x - previous.x, current.y - previous.y);
     else if (this.state === "dolly" && this.enableZoom) {
-      const factor = Math.pow(0.95, (current.y - previous.y) * 0.01);
-      if (factor < 1) this.dollyIn(factor); else this.dollyOut(factor);
+      const deltaY = current.y - previous.y;
+      const factor = Math.pow(0.95, this.zoomSpeed * Math.abs(deltaY * 0.01));
+      if (deltaY < 0) this.dollyIn(factor);
+      else if (deltaY > 0) this.dollyOut(factor);
     }
     event.preventDefault();
   };
@@ -225,9 +227,10 @@ export class OrbitControls {
 
   private readonly onWheel = (event: WheelEvent): void => {
     if (!this.enabled || !this.enableZoom) return;
-    const delta = event.deltaY < 0 ? 1 : -1;
-    const factor = Math.pow(0.95, this.zoomSpeed * delta);
-    if (delta > 0) this.dollyIn(factor); else this.dollyOut(factor);
+    const normalizedDelta = Math.abs(event.deltaY * 0.01);
+    const factor = Math.pow(0.95, this.zoomSpeed * normalizedDelta);
+    if (event.deltaY < 0) this.dollyIn(factor);
+    else if (event.deltaY > 0) this.dollyOut(factor);
     this.dispatch("start");
     this.dispatch("end");
     event.preventDefault();
@@ -317,8 +320,8 @@ export class OrbitControls {
     }
   }
 
-  dollyIn(scale = 0.95): void { this.scale /= Math.max(scale, EPS); }
-  dollyOut(scale = 0.95): void { this.scale *= Math.max(scale, EPS); }
+  dollyIn(scale = 0.95): void { this.scale *= Math.max(scale, EPS); }
+  dollyOut(scale = 0.95): void { this.scale /= Math.max(scale, EPS); }
 
   getPolarAngle(): number { return this.spherical.phi; }
   getAzimuthalAngle(): number { return this.spherical.theta; }
