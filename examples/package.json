@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:evidence": "node --test tests/showcase-evidence.test.mjs",
     "dev": "vite --config vite.config.ts",
     "dev:host": "vite --config vite.config.ts --host 127.0.0.1",
     "prestorybook": "npm run build",

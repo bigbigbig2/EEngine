@@ -352,6 +352,31 @@ fieldset:disabled {
   font-weight: 750;
 }
 
+.evidence-scope {
+  margin: 9px 0 0;
+  color: #5f7188;
+  font-size: 9px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.evidence-details {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #edf2f6;
+  color: #52667e;
+  font-size: 10px;
+}
+
+.evidence-details summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.raw-pass-list dt {
+  overflow-wrap: anywhere;
+}
+
 .evidence-subsection {
   margin-top: 9px;
   padding-top: 8px;

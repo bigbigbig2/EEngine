@@ -57,12 +57,21 @@
               <span class="sample-pill" id="evidence-samples">等待采样</span>
             </div>
             <div class="evidence-grid">
-              <div><span>GPU 总计 P50</span><strong id="evidence-gpu-p50">—</strong></div>
-              <div><span>P95 / P99</span><strong id="evidence-gpu-tail">—</strong></div>
+              <div><span>RAF 帧间隔 P50</span><strong id="evidence-raf-p50">—</strong></div>
+              <div><span>RAF P95 / P99</span><strong id="evidence-raf-tail">—</strong></div>
+              <div><span>CPU Renderer P50</span><strong id="evidence-cpu-p50">—</strong></div>
+              <div><span>CPU P95 / P99</span><strong id="evidence-cpu-tail">—</strong></div>
+              <div><span>GPU Pass Sum P50</span><strong id="evidence-gpu-p50">—</strong></div>
+              <div><span>GPU Pass P95 / P99</span><strong id="evidence-gpu-tail">—</strong></div>
               <div><span>Render / Compute Pass</span><strong id="evidence-passes">—</strong></div>
               <div><span>Draw / Dispatch</span><strong id="evidence-commands">—</strong></div>
             </div>
-            <dl class="domain-list" id="evidence-domains" aria-label="GPU 阶段耗时"></dl>
+            <p class="evidence-scope" id="evidence-scope">等待稳定测量窗口</p>
+            <dl class="domain-list" id="evidence-domains" aria-label="原生 GPU phase 耗时"></dl>
+            <details class="evidence-details">
+              <summary>原始 GPU Pass 明细</summary>
+              <dl class="domain-list raw-pass-list" id="evidence-raw-passes"></dl>
+            </details>
             <div class="evidence-subsection">
               <strong>分辨率域</strong>
               <p id="evidence-resolution">—</p>
@@ -79,7 +88,7 @@
               <strong>Temporal / 内存 / 诊断</strong>
               <p id="evidence-system">—</p>
             </div>
-            <p class="field-help evidence-note">GPU timestamp 与 counter 均异步采样；Observability 开销单列，不用 FPS 反推。</p>
+            <p class="field-help evidence-note">RAF 是实际呈现节奏；CPU Renderer 是提交前 CPU 帧耗时；GPU Pass Sum 只累加 timestamp 覆盖的 render/compute pass，不含 copy、queue gap、present 与浏览器 compositor。counter 注入帧和 Observability 不进入生产基线。</p>
           </section>
 
           <section class="control-section pipeline-section" aria-labelledby="pipeline-heading">

@@ -1,5 +1,6 @@
 import {
   DirectionalLight,
+  GPU_FRAME_PHASES,
   OrbitControls,
   PerspectiveCamera,
   RENDER_DEBUG_VIEW_OPTIONS,
@@ -18,7 +19,6 @@ import {
   type RenderDebugViewName
 } from "../../OEngine/src/index.ts";
 import {
-  SHOWCASE_GPU_DOMAINS,
   ShowcaseEvidenceWindow
 } from "../integrated-showcase/evidence.js";
 
@@ -67,6 +67,23 @@ type DebugDescriptor = {
 const MODEL_URL = new URL("./assets/dungeon_warkarma.glb", import.meta.url).href;
 const ENVIRONMENT_URL = new URL("../integrated-showcase/assets/venice_sunset_1k.hdr", import.meta.url).href;
 const PIPELINE_MODE = new URLSearchParams(location.search).get("mode") === "pipeline";
+const GPU_PHASE_LABELS: Partial<Record<(typeof GPU_FRAME_PHASES)[number], string>> = {
+  upload: "Upload",
+  animation: "Animation",
+  "instance-cull": "Instance Cull",
+  "hierarchy-and-cluster-cull": "Hierarchy / Work Generation",
+  "software-raster": "Software Raster",
+  "hardware-raster": "Hardware Raster",
+  hzb: "HZB",
+  "material-resolve": "Material Resolve / Surface",
+  "light-cluster": "Light Cluster",
+  "lighting-and-ibl": "Lighting & IBL",
+  shadow: "Shadow",
+  transparency: "Transparency",
+  temporal: "Temporal",
+  post: "Post",
+  unclassified: "Unclassified"
+};
 
 const debugDescriptors: readonly DebugDescriptor[] = [
   { value: RenderDebugView.None, label: "最终画面", help: "曝光、色调映射与后处理后的最终输出。" },
@@ -110,11 +127,17 @@ const metricInstances = required<HTMLElement>("metric-instances");
 const metricGeometries = required<HTMLElement>("metric-geometries");
 const metricMaterials = required<HTMLElement>("metric-materials");
 const evidenceSamples = required<HTMLElement>("evidence-samples");
+const evidenceRafP50 = required<HTMLElement>("evidence-raf-p50");
+const evidenceRafTail = required<HTMLElement>("evidence-raf-tail");
+const evidenceCpuP50 = required<HTMLElement>("evidence-cpu-p50");
+const evidenceCpuTail = required<HTMLElement>("evidence-cpu-tail");
 const evidenceGpuP50 = required<HTMLElement>("evidence-gpu-p50");
 const evidenceGpuTail = required<HTMLElement>("evidence-gpu-tail");
 const evidencePasses = required<HTMLElement>("evidence-passes");
 const evidenceCommands = required<HTMLElement>("evidence-commands");
 const evidenceDomains = required<HTMLElement>("evidence-domains");
+const evidenceScope = required<HTMLElement>("evidence-scope");
+const evidenceRawPasses = required<HTMLElement>("evidence-raw-passes");
 const evidenceResolution = required<HTMLElement>("evidence-resolution");
 const evidenceAo = required<HTMLElement>("evidence-ao");
 const evidenceSsr = required<HTMLElement>("evidence-ssr");
@@ -156,6 +179,8 @@ let sunElevationDegrees = 65;
 let framesSinceSample = 0;
 let lastFpsSample = performance.now();
 const evidenceWindow = new ShowcaseEvidenceWindow(1024);
+const PERFORMANCE_WARMUP_FRAMES = 60;
+let measurementReason = "初始化";
 let unsubscribeProfiler: (() => void) | null = null;
 
 root.dataset.mode = PIPELINE_MODE ? "pipeline" : "quality";
@@ -312,6 +337,16 @@ function installQ00Api(activeRenderer: Renderer): void {
       diagnostics: activeRenderer.profiler.diagnostics,
       summary: {
         timestampSampleCount: profile.timestampSampleCount,
+        counterSampleCount: profile.counterSampleCount,
+        counterInstrumentedTimestampSampleCount: profile.counterInstrumentedTimestampSampleCount,
+        sampleEpoch: profile.sampleEpoch,
+        sampleKey: profile.sampleKey,
+        frameInterval: profile.frameInterval,
+        cpuFrame: profile.cpuFrame,
+        gpuPassSum: profile.gpuPassSum,
+        gpuPhases: Object.fromEntries(profile.gpuPhases),
+        gpuPasses: profile.gpuPasses,
+        observability: profile.observability,
         gpuTotal: profile.gpuTotal,
         gpuDomains: Object.fromEntries(profile.gpuDomains),
         latestCommands: profile.latestCommands,
@@ -619,12 +654,18 @@ function setCameraPose(
 }
 
 function startResizeObserver(activeRenderer: Renderer, activeCamera: PerspectiveCamera): void {
+  let previousWidth = 0;
+  let previousHeight = 0;
   const resize = (): void => {
     const width = Math.max(1, Math.round(canvas.clientWidth));
     const height = Math.max(1, Math.round(canvas.clientHeight));
+    const changed = width !== previousWidth || height !== previousHeight;
+    previousWidth = width;
+    previousHeight = height;
     activeRenderer.resize(width, height);
     activeCamera.aspect = activeRenderer.aspect_ratio;
     activeCamera.update();
+    if (changed && activeRenderer.frame_count > 0) restartPerformanceEvidence("分辨率变化");
   };
   resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
@@ -633,14 +674,21 @@ function startResizeObserver(activeRenderer: Renderer, activeCamera: Perspective
 
 function startFrameLoop(): void {
   let previousTime = performance.now();
+  restartPerformanceEvidence("初始稳定窗口");
   const frame = (now: number): void => {
     if (disposed || renderer === null || scene === null || camera === null) return;
-    const deltaSeconds = Math.min(0.1, Math.max(0, (now - previousTime) / 1000));
+    const rafIntervalMs = Math.max(0, now - previousTime);
+    const deltaSeconds = Math.min(0.1, rafIntervalMs / 1000);
     previousTime = now;
     if (!document.hidden) {
-      controller?.update();
+      if (controller?.update(deltaSeconds) === true) restartPerformanceEvidence("相机移动");
       camera.aspect = renderer.aspect_ratio;
       camera.update();
+      evidenceWindow.registerFrame(renderer.frame_count, {
+        rafIntervalMs,
+        sampleKey: createPerformanceSampleKey(renderer),
+        warmupFrames: PERFORMANCE_WARMUP_FRAMES
+      });
       if (!renderer.render(camera, scene, deltaSeconds)) {
         showFatalError(new Error("The WebGPU device was lost and rendering stopped."));
         return;
@@ -650,6 +698,37 @@ function startFrameLoop(): void {
     frameRequest = requestAnimationFrame(frame);
   };
   frameRequest = requestAnimationFrame(frame);
+}
+
+function restartPerformanceEvidence(reason: string): void {
+  if (renderer === null) return;
+  measurementReason = reason;
+  evidenceWindow.beginEpoch(createPerformanceSampleKey(renderer), PERFORMANCE_WARMUP_FRAMES);
+}
+
+function createPerformanceSampleKey(activeRenderer: Renderer): string {
+  const temporal = activeRenderer.temporalEvidence();
+  const features = activeRenderer.render_settings.features;
+  return JSON.stringify([
+    PIPELINE_MODE ? "pipeline" : "quality",
+    temporal.internalWidth,
+    temporal.internalHeight,
+    temporal.outputWidth,
+    temporal.outputHeight,
+    activeRenderer.internal_resolution_scale,
+    features.shadows,
+    features.ambientOcclusion,
+    features.screenSpaceReflections,
+    features.temporalAntiAliasing,
+    features.bloom,
+    features.automaticExposure,
+    features.motionBlur,
+    features.sharpening,
+    activeRenderer.packed_visibility_cone_enabled,
+    activeRenderer.packed_visibility_hzb_enabled,
+    activeRenderer.packed_visibility_sse_threshold,
+    activeRenderer.render_debug_view
+  ]);
 }
 
 function bindRendererControls(activeRenderer: Renderer): void {
@@ -780,10 +859,13 @@ function bindRendererControls(activeRenderer: Renderer): void {
       for (const candidate of document.querySelectorAll<HTMLButtonElement>("button[data-scale]")) {
         candidate.classList.toggle("active", candidate === button);
       }
+      restartPerformanceEvidence("内部渲染分辨率变化");
     });
   }
 
   required<HTMLButtonElement>("reset-camera").addEventListener("click", resetCamera);
+  fieldset.addEventListener("input", () => restartPerformanceEvidence("渲染参数变化"));
+  fieldset.addEventListener("change", () => restartPerformanceEvidence("渲染配置变化"));
 }
 
 function ensureDebugProducer(activeRenderer: Renderer): void {
@@ -946,29 +1028,56 @@ function updateFps(now: number): void {
 function updateProfilerEvidence(): void {
   if (renderer === null) return;
   const summary = evidenceWindow.summarize();
-  evidenceSamples.textContent = summary.timestampSampleCount > 0
-    ? `${summary.timestampSampleCount} 个 timestamp 样本`
-    : "等待 GPU timestamp";
-  evidenceGpuP50.textContent = formatMilliseconds(summary.gpuTotal?.p50);
-  evidenceGpuTail.textContent = summary.gpuTotal === null
-    ? "—"
-    : `${formatMilliseconds(summary.gpuTotal.p95)} / ${formatMilliseconds(summary.gpuTotal.p99)}`;
+  evidenceSamples.textContent = summary.warmupFramesRemaining > 0
+    ? `warm-up ${summary.warmupFramesRemaining} 帧`
+    : summary.timestampSampleCount > 0
+      ? `${summary.timestampSampleCount} timestamp · ${summary.counterSampleCount} counter`
+      : "等待稳定 GPU timestamp";
+  evidenceRafP50.textContent = formatMilliseconds(summary.frameInterval?.p50);
+  evidenceRafTail.textContent = formatTimingTail(summary.frameInterval);
+  evidenceCpuP50.textContent = formatMilliseconds(summary.cpuFrame?.p50);
+  evidenceCpuTail.textContent = formatTimingTail(summary.cpuFrame);
+  evidenceGpuP50.textContent = formatMilliseconds(summary.gpuPassSum?.p50);
+  evidenceGpuTail.textContent = formatTimingTail(summary.gpuPassSum);
+  evidenceScope.textContent = [
+    `epoch ${summary.sampleEpoch}（${measurementReason}）`,
+    `RAF n=${summary.frameInterval?.sampleCount ?? 0}`,
+    `CPU n=${summary.cpuFrame?.sampleCount ?? 0}`,
+    `GPU baseline n=${summary.timestampSampleCount}`,
+    `counter n=${summary.counterSampleCount}`,
+    `排除 counter 注入 timestamp n=${summary.counterInstrumentedTimestampSampleCount}`,
+    `timestamp frame ${summary.latestTimestampFrame ?? "—"}`,
+    `counter frame ${summary.latestCounterFrame ?? "—"}`
+  ].join(" · ");
 
   const commands = summary.latestCommands;
   evidencePasses.textContent = `${commandValue(commands, "renderPass")} / ${commandValue(commands, "computePass")}`;
   evidenceCommands.textContent = `${commandValue(commands, "draw")} / ${commandValue(commands, "dispatch")}`;
 
   evidenceDomains.replaceChildren();
-  for (const domain of SHOWCASE_GPU_DOMAINS) {
-    const timing = summary.gpuDomains.get(domain);
+  for (const phase of GPU_FRAME_PHASES) {
+    if (phase === "frame" || phase === "observability") continue;
+    const timing = summary.gpuPhases.get(phase);
     if (timing === undefined) continue;
     const row = document.createElement("div");
     const label = document.createElement("dt");
     const value = document.createElement("dd");
-    label.textContent = domain;
-    value.textContent = `${formatMilliseconds(timing.p50)} · ${formatMilliseconds(timing.p95)} · ${formatMilliseconds(timing.p99)}`;
+    label.textContent = GPU_PHASE_LABELS[phase] ?? phase;
+    value.textContent = `${formatMilliseconds(timing.p50)} · ${formatMilliseconds(timing.p95)} · ${formatMilliseconds(timing.p99)} · n=${timing.sampleCount}`;
     row.append(label, value);
     evidenceDomains.append(row);
+  }
+  if (summary.observability !== null) {
+    appendTimingRow(evidenceDomains, "Observability（单列）", summary.observability);
+  }
+
+  evidenceRawPasses.replaceChildren();
+  for (const pass of summary.gpuPasses) {
+    appendTimingRow(
+      evidenceRawPasses,
+      `${pass.label} [${pass.type} · ${pass.phase}]`,
+      pass
+    );
   }
 
   const temporal = renderer.temporalEvidence();
@@ -1030,7 +1139,7 @@ function updatePipelineEvidence(
 ): void {
   const counters = summary.latestGpuCounters;
   const sampled = summary.latestCounterFrame !== null;
-  pipelineSample.textContent = sampled ? `frame ${summary.latestCounterFrame}` : "等待 counter";
+  pipelineSample.textContent = sampled ? `counter frame ${summary.latestCounterFrame}` : "等待 counter";
   if (pipelineStats === null) return;
   const assets = activeRenderer.geometryAssetResidencyEvidence();
   const gpuScene = activeRenderer.gpuSceneEvidence();
@@ -1049,7 +1158,21 @@ function updatePipelineEvidence(
   pipelineRaster.textContent = sampled ? `${hw} HW RasterWork · ${counters.hwTriangles ?? 0} triangles · SW ${counters.swClusters ?? 0} · overflow ${counters.queueOverflowMask ?? 0}` : "尚未完成采样";
   pipelineKey.textContent = sampled ? `VisibilityKey ${shaded.toLocaleString()} shaded / ${empty.toLocaleString()} empty · invalid ${counters.invalidVisibilityKeys ?? 0} · reverse-Z depth` : "尚未完成采样";
   pipelineSurface.textContent = sampled ? `${counters.activeMaterials ?? 0} materials · normal ${counters.normalTexturePixels ?? 0} · ORM ${counters.ormTexturePixels ?? 0} · emissive ${counters.emissiveTexturePixels ?? 0} · gradient fallback ${counters.gradientFallbackPixels ?? 0}` : "尚未完成采样";
-  pipelineFrame.textContent = `${summary.latestSubmitCount ?? "—"} submit · ${commandValue(summary.latestCommands, "renderPass")} render / ${commandValue(summary.latestCommands, "computePass")} compute · ${commandValue(summary.latestCommands, "draw")} draw / ${commandValue(summary.latestCommands, "dispatch")} dispatch · graph ${activeRenderer.mainFrameGraphEvidence()?.cacheKey ?? "—"}`;
+  pipelineFrame.textContent = `timestamp frame ${summary.latestTimestampFrame ?? "—"} · ${summary.latestSubmitCount ?? "—"} submit · ${commandValue(summary.latestCommands, "renderPass")} render / ${commandValue(summary.latestCommands, "computePass")} compute · ${commandValue(summary.latestCommands, "draw")} draw / ${commandValue(summary.latestCommands, "dispatch")} dispatch · current graph ${activeRenderer.mainFrameGraphEvidence()?.cacheKey ?? "—"}`;
+}
+
+function appendTimingRow(
+  container: HTMLElement,
+  name: string,
+  timing: { readonly p50: number; readonly p95: number; readonly p99: number; readonly sampleCount: number }
+): void {
+  const row = document.createElement("div");
+  const label = document.createElement("dt");
+  const value = document.createElement("dd");
+  label.textContent = name;
+  value.textContent = `${formatMilliseconds(timing.p50)} · ${formatMilliseconds(timing.p95)} · ${formatMilliseconds(timing.p99)} · n=${timing.sampleCount}`;
+  row.append(label, value);
+  container.append(row);
 }
 
 function commandValue(counters: Readonly<Record<string, number>>, name: string): number | string {
@@ -1058,6 +1181,12 @@ function commandValue(counters: Readonly<Record<string, number>>, name: string):
 
 function formatMilliseconds(value: number | undefined): string {
   return value === undefined ? "—" : `${value.toFixed(2)} ms`;
+}
+
+function formatTimingTail(
+  timing: { readonly p95: number; readonly p99: number } | null
+): string {
+  return timing === null ? "—" : `${formatMilliseconds(timing.p95)} / ${formatMilliseconds(timing.p99)}`;
 }
 
 function formatRatio(value: number, total: number): string {
