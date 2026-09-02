@@ -5,7 +5,7 @@ import type {
   FrameProfilerDiagnostics
 } from "../../OEngine/src/index.ts";
 
-export const R4_B_GATE_SCHEMA_VERSION = 1;
+export const R4_B_GATE_SCHEMA_VERSION = 2;
 export const R4_B_SURFACE_BYTES_PER_PIXEL = 26;
 export const R4_B_RETIRED_MATERIAL_CHAIN_BYTES_PER_PIXEL = 34;
 export const R4_B_MAX_REACTIVE_SURFACE_PIXELS = Object.freeze({
@@ -60,8 +60,10 @@ export interface R4BGateArtifact {
   issues: string[];
   contract: {
     producer: "hardware-packed-exact-visibility-key";
-    consumer: "single-standard-pbr-material-resolve-v1";
-    fullscreenDrawsPerFrame: 1;
+    consumer: "classified-specialized-standard-pbr-material-resolve-v1";
+    boundedKernelClasses: 7;
+    fullscreenDrawsPerFrame: 0;
+    indirectKernelDrawsPerFrame: 7;
     currentFrameVisibilityCountReadback: false;
     perMaterialBindGroups: false;
     packedVelocityPass: false;
@@ -84,7 +86,7 @@ export interface R4BMaterialSweepReport {
   cases: Array<{
     caseId: string;
     activeMaterials: number;
-    fullscreenDraws: number;
+    kernelDraws: number;
   }>;
 }
 
@@ -113,8 +115,10 @@ export function createR4BGateArtifact(
     issues,
     contract: {
       producer: "hardware-packed-exact-visibility-key",
-      consumer: "single-standard-pbr-material-resolve-v1",
-      fullscreenDrawsPerFrame: 1,
+      consumer: "classified-specialized-standard-pbr-material-resolve-v1",
+      boundedKernelClasses: 7,
+      fullscreenDrawsPerFrame: 0,
+      indirectKernelDrawsPerFrame: 7,
       currentFrameVisibilityCountReadback: false,
       perMaterialBindGroups: false,
       packedVelocityPass: false
@@ -140,8 +144,8 @@ export function validateR4BMaterialSweep(
     caseId: artifact.caseId,
     activeMaterials:
       artifact.result.summary.counters["packed.material.activeMaterials"]?.p50 ?? -1,
-    fullscreenDraws:
-      artifact.result.summary.counters["packed.material.fullscreenDraws"]?.p50 ?? -1
+    kernelDraws:
+      artifact.result.summary.counters["packed.material.kernelDraws"]?.p50 ?? -1
   }));
   const issues: string[] = [];
   if (cases.length < 2) issues.push("material sweep requires at least two cases");
@@ -149,8 +153,8 @@ export function validateR4BMaterialSweep(
     issues.push("material sweep did not vary active material count");
   }
   for (const entry of cases) {
-    if (entry.fullscreenDraws !== 1) {
-      issues.push(`${entry.caseId}: fullscreen Resolve draw count is not one`);
+    if (entry.kernelDraws !== 7) {
+      issues.push(`${entry.caseId}: bounded MaterialKernel draw count is not seven`);
     }
   }
   return { passed: issues.length === 0, issues, cases };
@@ -201,9 +205,9 @@ function validateR4BGate(
     issues.push("material-resolve GPU phase is missing");
   }
   if (!Object.keys(result.summary.gpuMs).some((label) =>
-    /R4-B Single Material Resolve/.test(label)
+    /Material Resolve\/specialized Surface/.test(label)
   )) {
-    issues.push("R4-B Single Material Resolve timestamp label is missing");
+    issues.push("specialized Material Resolve timestamp label is missing");
   }
 
   if (materialEvidence === null) {
@@ -254,8 +258,8 @@ function validateR4BGate(
 
   let sampledCounters = 0;
   for (const frame of result.frames) {
-    if (frame.counters["packed.material.fullscreenDraws"] !== 1) {
-      issues.push(`frame ${frame.frameIndex}: Material Resolve must use one fullscreen draw`);
+    if (frame.counters["packed.material.kernelDraws"] !== 7) {
+      issues.push(`frame ${frame.frameIndex}: Material Resolve must issue seven bounded indirect kernel draws`);
     }
     if (frame.counters["packed.material.activeMaterials"] !== expectedMaterials) {
       issues.push(`frame ${frame.frameIndex}: active MaterialRecord count mismatch`);

@@ -8,12 +8,17 @@ import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
   GPU_SURFACE_BYTES_PER_PIXEL,
-  GPU_SURFACE_FORMATS
+  GPU_SURFACE_FORMATS,
+  gpuSurfaceBytesPerPixel
 } from "../../gpu/GpuSurfaceAbi.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
-import { ShadeTransparencyMode } from "../../material/enums.js";
 import { PACKED_MATERIAL_RESOLVE_WGSL } from "../../shaders/packed_material_resolve.js";
+import {
+  GPU_MATERIAL_KERNEL_CLASS_COUNT,
+  GPU_SHADE_DRAW_INDIRECT_STRIDE
+} from "../../gpu/GpuMaterialKernelAbi.js";
+import { VisiblePixelClassifier } from "../VisiblePixelClassifier.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import { resolveTextureView } from "./MaterialExpandPass.js";
 import {
@@ -54,6 +59,11 @@ const INPUT_GROUP: GPUBindGroupLayoutDescriptor = {
       binding: 11,
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "float", viewDimension: "2d-array" }
+    },
+    {
+      binding: 12,
+      visibility: GPUShaderStage.VERTEX,
+      buffer: { type: "read-only-storage" }
     }
   ]
 };
@@ -67,30 +77,39 @@ const LOOKUP_GROUP: GPUBindGroupLayoutDescriptor = {
   }))
 };
 
-const PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "R4-B Single Material Resolve",
-  layout: {
-    label: "R4-B Single Material Resolve/layout",
-    bindGroupLayouts: [INPUT_GROUP, LOOKUP_GROUP]
-  },
-  vertex: {
-    module: { label: "R4-B Single Material Resolve", code: PACKED_MATERIAL_RESOLVE_WGSL },
-    entryPoint: "packed_material_vs"
-  },
-  fragment: {
-    module: { label: "R4-B Single Material Resolve", code: PACKED_MATERIAL_RESOLVE_WGSL },
-    entryPoint: "packed_material_fs",
-    targets: [
-      { format: GPU_SURFACE_FORMATS.pbr },
-      { format: GPU_SURFACE_FORMATS.normal },
-      { format: GPU_SURFACE_FORMATS.albedoAo },
-      { format: GPU_SURFACE_FORMATS.emissive },
-      { format: GPU_SURFACE_FORMATS.velocity },
-      { format: GPU_SURFACE_FORMATS.metadata }
-    ]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" }
-};
+function materialKernelPipeline(
+  kernelClass: number,
+  velocityEnabled: boolean
+): CachedRenderPipelineDescriptor {
+  return {
+    label: `Material Resolve/kernel ${kernelClass}`,
+    layout: {
+      label: "Material Resolve/specialized kernel layout",
+      bindGroupLayouts: [INPUT_GROUP, LOOKUP_GROUP]
+    },
+    vertex: {
+      module: { label: "Material Resolve/specialized", code: PACKED_MATERIAL_RESOLVE_WGSL },
+      entryPoint: "packed_material_vs"
+    },
+    fragment: {
+      module: { label: "Material Resolve/specialized", code: PACKED_MATERIAL_RESOLVE_WGSL },
+      entryPoint: "packed_material_fs",
+      constants: {
+        OENGINE_ACTIVE_KERNEL_CLASS: kernelClass,
+        OENGINE_VELOCITY_ENABLED: velocityEnabled ? 1 : 0
+      },
+      targets: [
+        { format: GPU_SURFACE_FORMATS.pbr },
+        { format: GPU_SURFACE_FORMATS.normal },
+        { format: GPU_SURFACE_FORMATS.albedoAo },
+        { format: GPU_SURFACE_FORMATS.emissive },
+        velocityEnabled ? { format: GPU_SURFACE_FORMATS.velocity } : null,
+        { format: GPU_SURFACE_FORMATS.metadata }
+      ]
+    },
+    primitive: { topology: "point-list", cullMode: "none" }
+  };
+}
 
 export interface PackedMaterialResolveJob {
   readonly runtime: PackedSceneRuntime;
@@ -108,25 +127,38 @@ export interface PackedMaterialResolveOutputs {
   readonly gNormal: ResourceId;
   readonly gAlbedo: ResourceId;
   readonly gEmissive: ResourceId;
-  readonly velocity: ResourceId;
+  readonly velocity: ResourceId | null;
   /** R4-B compatibility property; resource semantic is Surface metadata. */
   readonly surfaceFlags: ResourceId;
   readonly counters: ResourceId | null;
 }
 
-/** One visible-pixel draw; active material count affects data only, never draw count. */
+/** Count/prefix/scatter visible pixels, then issue one bounded indirect draw per kernel class. */
 export class PackedMaterialResolvePass {
   private readonly counterAdder = new GpuCounterAtomicAdder();
+  private readonly classifier: VisiblePixelClassifier;
+  private readonly pipelines: readonly (readonly CachedRenderPipelineDescriptor[])[];
   private readonly previousViewProjection = new Float32Array(16);
   private readonly inverseCurrent = new Float32Array(16);
   private readonly unusedRotation = new Float32Array(16);
   private readonly previousViewProjectionBuffer: GPUBuffer;
   private readonly samplers: readonly GPUSampler[];
-  lastDrawCount = 0;
+  lastKernelDrawCount = 0;
   lastActiveMaterialCount = 0;
-  readonly surfaceBytesPerPixel = GPU_SURFACE_BYTES_PER_PIXEL;
+  private currentSurfaceBytesPerPixel = GPU_SURFACE_BYTES_PER_PIXEL;
+
+  get surfaceBytesPerPixel(): number {
+    return this.currentSurfaceBytesPerPixel;
+  }
 
   constructor(private readonly graphics: GraphicsContext) {
+    this.classifier = new VisiblePixelClassifier(graphics.device);
+    this.pipelines = Object.freeze([false, true].map((velocityEnabled) =>
+      Object.freeze(Array.from(
+        { length: GPU_MATERIAL_KERNEL_CLASS_COUNT },
+        (_, kernelClass) => materialKernelPipeline(kernelClass, velocityEnabled)
+      ))
+    ));
     this.previousViewProjectionBuffer = graphics.device.createBuffer({
       label: "R4-B Material Resolve/previous view projection",
       size: 64,
@@ -145,7 +177,8 @@ export class PackedMaterialResolvePass {
   addToGraph(
     graph: FrameGraph,
     job: PackedMaterialResolveJob,
-    inputs: { visibilityKey: ResourceId; view: ResourceId; counters?: ResourceId }
+    inputs: { visibilityKey: ResourceId; view: ResourceId; counters?: ResourceId },
+    options: Readonly<{ velocity: boolean }> = { velocity: true }
   ): PackedMaterialResolveOutputs {
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
@@ -154,12 +187,12 @@ export class PackedMaterialResolvePass {
       gNormal: -1,
       gAlbedo: -1,
       gEmissive: -1,
-      velocity: -1,
+      velocity: null as ResourceId | null,
       surfaceFlags: -1,
       counters: null as ResourceId | null
     };
     const builder = graph.add(
-      "R4-B Single Material Resolve",
+      "Material Resolve/classified visible pixels",
       job,
       (data, resources, context) => {
         const command = requireCommand(context.encoder);
@@ -180,7 +213,16 @@ export class PackedMaterialResolvePass {
           this.previousViewProjection
         );
         const visibility = data.visibility.resolve();
-        const pipeline = this.graphics.render_pipelines.obtain(PIPELINE);
+        const classified = this.classifier.encode(command, {
+          visibilityKeys: resolveTextureView(resources.get(inputs.visibilityKey)),
+          materials: data.runtime.materialResources,
+          visibility,
+          width: data.width,
+          height: data.height,
+          counterBuffer: inputs.counters === undefined
+            ? undefined
+            : requireBuffer(resources.get(inputs.counters), "GPU counters")
+        });
         const group0 = this.graphics.bind_groups.obtain({
           layout: INPUT_GROUP,
           entries: [
@@ -190,7 +232,8 @@ export class PackedMaterialResolvePass {
             data.runtime.materialResources.textureArray,
             ...this.samplers,
             { buffer: data.runtime.materialResources.materialRecords },
-            data.runtime.materialResources.highResolutionTextureArray
+            data.runtime.materialResources.highResolutionTextureArray,
+            { buffer: classified.shadeWork }
           ]
         });
         const group1 = this.graphics.bind_groups.obtain({
@@ -207,25 +250,30 @@ export class PackedMaterialResolvePass {
           ]
         });
         const pass = command.beginRenderPass({
-          label: "R4-B Single Material Resolve/surface+velocity",
+          label: "Material Resolve/specialized Surface",
           colorAttachments: [
             attachment(resources, output.gPbr),
             attachment(resources, output.gNormal),
             attachment(resources, output.gAlbedo),
             attachment(resources, output.gEmissive),
-            attachment(resources, output.velocity),
+            output.velocity === null ? null : attachment(resources, output.velocity),
             attachment(resources, output.surfaceFlags)
           ]
         });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, group0);
-        pass.setBindGroup(1, group1);
-        pass.draw(3, 1, 0, 0);
+        for (let kernelClass = 0; kernelClass < GPU_MATERIAL_KERNEL_CLASS_COUNT; kernelClass++) {
+          pass.setPipeline(this.graphics.render_pipelines.obtain(
+            this.pipelines[options.velocity ? 1 : 0]![kernelClass]!
+          ));
+          pass.setBindGroup(0, group0);
+          pass.setBindGroup(1, group1);
+          pass.drawIndirect(
+            classified.drawIndirect,
+            kernelClass * GPU_SHADE_DRAW_INDIRECT_STRIDE
+          );
+        }
         pass.end();
-        this.lastDrawCount = 1;
-        this.lastActiveMaterialCount = data.runtime.materials.filter(
-          (material) => material.transparency_mode !== ShadeTransparencyMode.Transparent
-        ).length;
+        this.lastKernelDrawCount = GPU_MATERIAL_KERNEL_CLASS_COUNT;
+        this.lastActiveMaterialCount = data.runtime.opaqueMaterialCount;
         if (inputs.counters !== undefined) {
           this.counterAdder.encode(
             command,
@@ -253,10 +301,12 @@ export class PackedMaterialResolvePass {
       "surface/emissive",
       texture(width, height, GPU_SURFACE_FORMATS.emissive, usage)
     );
-    output.velocity = builder.create(
-      "surface/velocity",
-      texture(width, height, GPU_SURFACE_FORMATS.velocity, usage)
-    );
+    if (options.velocity) {
+      output.velocity = builder.create(
+        "surface/velocity",
+        texture(width, height, GPU_SURFACE_FORMATS.velocity, usage)
+      );
+    }
     output.surfaceFlags = builder.create(
       "surface/metadata",
       texture(width, height, GPU_SURFACE_FORMATS.metadata, usage)
@@ -267,10 +317,12 @@ export class PackedMaterialResolvePass {
       builder.read(inputs.counters);
       output.counters = builder.write(inputs.counters);
     }
+    this.currentSurfaceBytesPerPixel = gpuSurfaceBytesPerPixel(options);
     return output;
   }
 
   destroy(): void {
+    this.classifier.destroy();
     this.previousViewProjectionBuffer.destroy();
   }
 }

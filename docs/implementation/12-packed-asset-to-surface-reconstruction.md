@@ -1,11 +1,13 @@
 # 12 · Packed Asset 到 Surface 主链直接重构
 
-> 状态：**已批准；第一步代码迁移完成，浏览器与性能 Gate 待实机执行**  
+> 状态：**已批准；两个步骤的生产代码迁移完成，浏览器与性能 Gate 待实机执行**
 > 冻结日期：2026-09-03  
 > 适用范围：`Packed glTF → Geometry Cooker → Runtime Package → GpuAssetStore → Packed Instance Tables → Hierarchy/SSE/Cone/HZB → GPU Work Generation → RasterWork → drawIndirect → VisibilityKey/Reverse-Z → Material Resolve → Surface`  
 > 明确终点：`Surface`；本文不决定 Forward、Deferred、Lighting、IBL、AO、SSR、Temporal 或 Post 架构。
 
 2026-09-03 第一步代码迁移证据：24 B exact `RasterWork`、direct `VisibilityKey`、OPAQUE/MASK 双队列、The Forge 23.8 triangle filter、position-only OPAQUE Visibility、SceneResidencyManifest、geometry 字典单事务 resident/release、glTF 同 mesh true instancing/兼容 primitive merge，以及 debug/counter/示例调用方已进入同一生产 ABI。旧 `GpuMaterialVisibilityTable` 已删除，稳定 MaterialRecord 与 TextureRef 分别由 `GpuMaterialStore`、`TextureResidency` 持有；高分辨率 RGBA8 bank 按事务实际尺寸与 layer 数分配，不再无条件创建 `16 × 4096²`。非浏览器全量测试通过。由于调用方明确要求不启动浏览器，WebGPU diagnostics 与 paired 性能/显存 Gate 尚未执行；KTX2/Basis 压缩产品和跨 node spatial static merge 仍是资产生产增强项，不作为本次未经实机 Gate 的已完成能力宣称。可机读停止预算保存在 `OEngine/benchmarks/packed-asset-to-surface-targets.json`。
+
+2026-09-03 第二步代码迁移证据：MaterialRecord ABI 直接携带有界 `MaterialKernelClass`，GeometryRecord 直接携带 normal/tangent/color/UV canonical descriptor；生产 shader 已删除 `find_stream`。`VisiblePixelClassifier` 以 workgroup 计数、递归 exclusive prefix scan、scatter 生成一像素一记录的有界 `ShadeWorkQueue`，再由固定 7 个 class 的 `drawIndirect` 专用 kernel 写 Surface，材质数量不再改变 draw 数或 shader 热分支集合。Velocity 只在 Temporal/AO/SSR/MotionBlur 存在消费者时创建并通过 pipeline override 编译进 shader，feature-off Surface 从 26 B/pixel 降到 22 B/pixel。counter schema v12 增加 7 类像素与 ShadeWork overflow 证据；旧 fullscreen Resolve 证据合同已迁移为 bounded kernel contract。Node/build/example 验证结果见提交记录；按调用方要求未启动浏览器，因此 WGSL runtime diagnostics、Dungeon/dense paired timestamp、显存与截图 Gate 仍待实机执行，不把目标预算写成已达成事实。
 
 相关权威：
 

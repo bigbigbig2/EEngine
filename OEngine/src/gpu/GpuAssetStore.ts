@@ -605,6 +605,21 @@ export class GpuAssetStore {
     const uv2 = asset.vertexStreamDescriptors.find(
       (descriptor) => descriptor.semantic === "uv2"
     );
+    const normalDescriptor = globalDescriptorIndex(
+      asset.vertexStreamDescriptors,
+      descriptorBegin,
+      "normal"
+    );
+    const tangentDescriptor = globalDescriptorIndex(
+      asset.vertexStreamDescriptors,
+      descriptorBegin,
+      "tangent"
+    );
+    const colorDescriptor = globalDescriptorIndex(
+      asset.vertexStreamDescriptors,
+      descriptorBegin,
+      "color"
+    );
 
     const meshletRecords: GpuMeshletRecordCpu[] = asset.meshlets.map((meshlet) => ({
       vertexOffset: checkedAdd(meshletVertexBegin, meshlet.vertexOffset, "Meshlet vertex range"),
@@ -743,7 +758,10 @@ export class GpuAssetStore {
       uv1Format: uvFormat(uv1),
       uv2ByteOffset: uvByteOffset(uv2, vertexDataBegin),
       uv2Stride: uv2?.elementStride ?? 0,
-      uv2Format: uvFormat(uv2)
+      uv2Format: uvFormat(uv2),
+      normalDescriptor,
+      tangentDescriptor,
+      colorDescriptor
     });
 
     const segments: UploadSegment[] = [];
@@ -1022,6 +1040,15 @@ function uvFormat(
     return GPU_UV_FORMAT.Unorm16x2;
   }
   return GPU_UV_FORMAT.Unknown;
+}
+
+function globalDescriptorIndex(
+  descriptors: GeometryAssetPackage["vertexStreamDescriptors"],
+  descriptorBegin: number,
+  semantic: string
+): number {
+  const local = descriptors.findIndex((descriptor) => descriptor.semantic === semantic);
+  return local < 0 ? 0xffffffff : checkedAdd(descriptorBegin, local, `${semantic} descriptor`);
 }
 
 function rebaseBvhNode(

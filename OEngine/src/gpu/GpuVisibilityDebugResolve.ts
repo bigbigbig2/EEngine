@@ -82,7 +82,7 @@ export interface GpuVisibilityDebugResolveTables {
   readonly geometryRecordCount: number;
   readonly materials: readonly Pick<
     GpuMaterialVisibilityPackedSource,
-    "materialId" | "alphaMode" | "flags"
+    "kernelClass" | "alphaMode" | "flags"
   >[];
 }
 
@@ -186,10 +186,7 @@ export function resolveVisibilityDebugReference(
       instance
     );
   }
-  if (
-    material.materialId !== rasterWork.materialHandle ||
-    (material.flags & GPU_MATERIAL_VISIBILITY_FLAGS.Valid) === 0
-  ) {
+  if ((material.flags & GPU_MATERIAL_VISIBILITY_FLAGS.Valid) === 0) {
     return invalid(
       decoded,
       GPU_VISIBILITY_DEBUG_STATUS.MaterialRecordInvalid,

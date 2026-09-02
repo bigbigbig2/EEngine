@@ -24,7 +24,7 @@ const SSR_TRACE_SOURCE = readFileSync(
 );
 
 test("R5-Q00 additive GPU evidence ABI owns stable AO/SSR offsets", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 11);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 12);
   assert.equal(counterByteOffset("aoEvaluatedPixels"), 288);
   assert.equal(counterByteOffset("aoHistoryAcceptedPixels"), 292);
   assert.equal(counterByteOffset("aoHistoryRejectedPixels"), 296);

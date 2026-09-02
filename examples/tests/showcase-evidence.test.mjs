@@ -58,7 +58,7 @@ function segment(label, phase, durationMs, type = "compute") {
 
 test("native material-resolve phase wins over a misleading velocity label", () => {
   assert.equal(classifyShowcaseGpuDomain(segment(
-    "R4-B Single Material Resolve/surface+velocity",
+    "Material Resolve/specialized Surface",
     "material-resolve",
     12.26,
     "render"

@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 globalThis.GPUShaderStage ??= { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
-globalThis.GPUBufferUsage ??= { COPY_DST: 1 << 3, UNIFORM: 1 << 6, STORAGE: 1 << 7 };
+globalThis.GPUBufferUsage ??= { COPY_DST: 1 << 3, UNIFORM: 1 << 6, STORAGE: 1 << 7, INDIRECT: 1 << 8 };
 globalThis.GPUTextureUsage ??= { TEXTURE_BINDING: 1 << 2, RENDER_ATTACHMENT: 1 << 4 };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -18,18 +18,26 @@ const { PACKED_MATERIAL_RESOLVE_WGSL } = await import(
   "../.test-dist/shaders/packed_material_resolve.js"
 );
 
-test("R4-B Single Resolve owns one fullscreen pass and the frozen 26 B/pixel Surface", () => {
-  const buffers = [];
-  const pass = new PackedMaterialResolvePass({
+function fakeGraphics(buffers = []) {
+  return {
     device: {
       createBuffer: (descriptor) => {
         const buffer = { ...descriptor, destroy() {} };
         buffers.push(buffer);
         return buffer;
       },
-      createSampler: (descriptor) => ({ descriptor })
+      createSampler: (descriptor) => ({ descriptor }),
+      createShaderModule: (descriptor) => ({ descriptor }),
+      createBindGroupLayout: (descriptor) => ({ descriptor }),
+      createPipelineLayout: (descriptor) => ({ descriptor }),
+      createComputePipeline: (descriptor) => ({ descriptor })
     }
-  });
+  };
+}
+
+test("classified Material Resolve declares a bounded specialized Surface pass", () => {
+  const buffers = [];
+  const pass = new PackedMaterialResolvePass(fakeGraphics(buffers));
   const graph = new FrameGraph("R4-B Single Resolve");
   const visibilityKey = graph.import_resource(
     "visibility-key",
@@ -80,13 +88,57 @@ test("R4-B Single Resolve owns one fullscreen pass and the frozen 26 B/pixel Sur
   assert.equal(graph.getDescriptor(outputs.surfaceFlags).format, PACKED_SURFACE_FLAGS_FORMAT);
   assert.deepEqual(
     graph.listExecutablePasses().map(({ name }) => name),
-    ["R4-B Single Material Resolve", "R4-B sink"]
+    ["Material Resolve/classified visible pixels", "R4-B sink"]
   );
   assert.deepEqual(graph.exportToJson().passes[0].reads, [visibilityKey, view]);
   pass.destroy();
 });
 
-test("R4-B shader performs complete lookup and per-texture UV0/UV1/UV2 gradient sampling", () => {
+test("velocity feature-off allocates no attachment and freezes a 22 B/pixel Surface", () => {
+  const pass = new PackedMaterialResolvePass(fakeGraphics());
+  const graph = new FrameGraph("Material Resolve velocity off");
+  const visibilityKey = graph.import_resource(
+    "visibility-key",
+    { kind: "imported", label: "visibility-key" },
+    {}
+  );
+  const view = graph.import_resource("view", { kind: "imported", label: "view" }, {});
+  const outputs = pass.addToGraph(
+    graph,
+    {
+      runtime: {},
+      assets: {},
+      scene: {},
+      visibility: {},
+      width: 1921,
+      height: 913,
+      currentCamera: {},
+      previousCamera: {}
+    },
+    { visibilityKey, view },
+    { velocity: false }
+  );
+  const sink = graph.add("velocity-off sink", {}, () => {});
+  for (const resource of [
+    outputs.gPbr,
+    outputs.gNormal,
+    outputs.gAlbedo,
+    outputs.gEmissive,
+    outputs.surfaceFlags
+  ]) sink.read(resource);
+  sink.make_side_effect();
+  graph.compile();
+
+  assert.equal(outputs.velocity, null);
+  assert.equal(pass.surfaceBytesPerPixel, 22);
+  assert.doesNotMatch(
+    JSON.stringify(graph.exportToJson()),
+    /surface\/velocity/
+  );
+  pass.destroy();
+});
+
+test("specialized shader uses direct canonical streams and analytic UV0/UV1/UV2 gradients", () => {
   for (const lookup of [
     "raster_work.opaque_header.written",
     "raster_work.mask_header.written",
@@ -104,8 +156,10 @@ test("R4-B shader performs complete lookup and per-texture UV0/UV1/UV2 gradient 
 
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /textureSampleGrad\(material_textures/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /textureSampleGrad\(high_resolution_material_textures/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /const SEMANTIC_UV1: u32 = 0x00317675u/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /const SEMANTIC_UV2: u32 = 0x00327675u/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv1_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv2_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.normal_descriptor/);
+  assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /fn find_stream/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /fn reconstruct_material_uv/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /reconstruct_material_uv\(material_info, 0u/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /reconstruct_material_uv\(material_info, 1u/);
@@ -115,6 +169,8 @@ test("R4-B shader performs complete lookup and per-texture UV0/UV1/UV2 gradient 
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /\bdpdx\b|\bdpdy\b/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /mat4_inverse|inverse\s*\(/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /instance\.previous_from_current/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /override OENGINE_VELOCITY_ENABLED: bool/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /if OENGINE_VELOCITY_ENABLED &&/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK \| OENGINE_SURFACE_FLAG_REACTIVE/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= OENGINE_SURFACE_FLAG_MOTION_VALID/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /surface_flags \|= OENGINE_SURFACE_FLAG_NORMAL_TEXTURE/);
@@ -135,13 +191,14 @@ test("R4-B shader performs complete lookup and per-texture UV0/UV1/UV2 gradient 
   );
 });
 
-test("R4-B Packed runtime has no material-count draw loop or retired Packed passes", () => {
+test("Packed runtime has bounded kernel indirect draws and no material-count loop", () => {
   const passSource = readFileSync(
     path.join(root, "src/render/passes/PackedMaterialResolvePass.ts"),
     "utf8"
   );
   const rendererSource = readFileSync(path.join(root, "src/render/Renderer.ts"), "utf8");
-  assert.equal((passSource.match(/pass\.draw\(3, 1, 0, 0\)/g) ?? []).length, 1);
+  assert.equal((passSource.match(/pass\.drawIndirect\(/g) ?? []).length, 1);
+  assert.match(passSource, /kernelClass < GPU_MATERIAL_KERNEL_CLASS_COUNT/);
   assert.doesNotMatch(passSource, /for\s*\([^)]*material|for\s*\([^)]*materials/);
   assert.doesNotMatch(rendererSource, /PackedMaterialExpandPass|PackedVelocityPass/);
   const initializeRenderPasses = rendererSource.slice(

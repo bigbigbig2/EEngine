@@ -94,12 +94,14 @@ test("R2-D singular motion is explicitly flagged and Packed Velocity cannot exec
   assert.equal(computePreviousFromCurrent(motion, smallButConditioned, mat4.create()), true);
 });
 
-test("R2-D Packed Material uses one descriptor lookup per semantic and analytic gradients", () => {
-  assert.equal(
-    [...PACKED_MATERIAL_RESOLVE_WGSL.matchAll(/find_stream\(geometry, SEMANTIC_/g)].length,
-    4
-  );
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /find_stream\(geometry, uv_semantic\)/);
+test("R2-D Packed Material uses canonical direct descriptors and analytic gradients", () => {
+  assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /find_stream/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.normal_descriptor/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.tangent_descriptor/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.color_descriptor/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv0_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv1_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv2_byte_offset/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /\bdpdx\b|\bdpdy\b/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /perspective_barycentric_with_derivatives/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /return projected\.xy \/ projected\.w/);

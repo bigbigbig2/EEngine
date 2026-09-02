@@ -31,10 +31,10 @@ test("R4-B glTF TEXCOORD_2 is canonicalized to the uv2 geometry semantic", () =>
   assert.equal(gltfAttributeName("TEXCOORD_2"), "uv2");
 });
 
-test("R4-B-01 MaterialRecord v3 freezes a 224-byte per-texture UV layout", () => {
+test("MaterialRecord v4 freezes kernel class and the 224-byte per-texture UV layout", () => {
   assert.equal(GPU_MATERIAL_VISIBILITY_RECORD_STRIDE, 224);
   assert.deepEqual(GPU_MATERIAL_VISIBILITY_OFFSETS, {
-    material_id: 0,
+    kernel_class: 0,
     alpha_mode: 4,
     flags: 8,
     texture_ref: 12,
@@ -94,7 +94,7 @@ test("R4-B-01 MaterialRecord v3 freezes a 224-byte per-texture UV layout", () =>
   const packed = packGpuMaterialVisibilityRecord(source.packed);
   const view = new DataView(packed);
   assert.equal(packed.byteLength, 224);
-  assert.equal(view.getUint32(0, true), 42);
+  assert.equal(view.getUint32(0, true), 4);
   assert.equal(view.getUint32(4, true), GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Mask);
   assert.equal(
     view.getUint32(8, true) & GPU_MATERIAL_VISIBILITY_FLAGS.DoubleSided,
@@ -188,7 +188,7 @@ test("R4-A-03 invalid texture and sampler fallbacks remain independent", () => {
   );
 });
 
-test("R4-B MaterialRecord supports TEXCOORD_2 and rejects UV sets outside v3", () => {
+test("MaterialRecord supports TEXCOORD_2 and rejects UV sets outside v4", () => {
   const material = new StandardShadeMaterial();
   material.base_color_uv_set = 2;
   assert.doesNotThrow(

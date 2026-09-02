@@ -75,6 +75,8 @@ export interface PackedSceneRuntime {
   readonly assetHandles: readonly AssetHandle[];
   readonly instanceHandle: InstanceSetHandle;
   readonly materials: readonly StandardShadeMaterial[];
+  /** Frozen material-dictionary population addressable by opaque Material Resolve. */
+  readonly opaqueMaterialCount: number;
   readonly materialSlots: readonly number[];
   readonly materialResources: GpuPackedMaterialBindings;
   readonly instanceBegin: number;
@@ -186,6 +188,9 @@ export class GpuPackedSceneRegistry {
       assetHandles: geometryHandles,
       instanceHandle,
       materials: Object.freeze([...source.materials]),
+      opaqueMaterialCount: source.materials.filter(
+        (material) => material.transparency_mode !== ShadeTransparencyMode.Transparent
+      ).length,
       materialSlots: materialStage.materialSlots,
       materialResources: composeGpuPackedMaterialBindings(
         materialStage.bindings,

@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 73,
+  "shaderCount": 74,
   "summary": {
-    "authored-live": 63,
+    "authored-live": 64,
     "unknown": 5,
     "dead": 5
   },
@@ -283,7 +283,8 @@
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
-        "src/render/ViewManager.ts"
+        "src/render/ViewManager.ts",
+        "src/render/VisiblePixelClassifier.ts"
       ],
       "pipelineOwners": [
         "src/gpu/GPUMaterialContext.ts",
@@ -805,7 +806,8 @@
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
-        "src/render/ViewManager.ts"
+        "src/render/ViewManager.ts",
+        "src/render/VisiblePixelClassifier.ts"
       ],
       "pipelineOwners": [
         "src/gpu/GPUMaterialContext.ts"
@@ -929,7 +931,8 @@
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
-        "src/render/ViewManager.ts"
+        "src/render/ViewManager.ts",
+        "src/render/VisiblePixelClassifier.ts"
       ],
       "pipelineOwners": [
         "src/gpu/GPUMaterialContext.ts"
@@ -1466,7 +1469,8 @@
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
-        "src/render/ViewManager.ts"
+        "src/render/ViewManager.ts",
+        "src/render/VisiblePixelClassifier.ts"
       ],
       "pipelineOwners": [
         "src/gpu/MipmapGenerator.ts"
@@ -2599,6 +2603,26 @@
       ],
       "pipelineOwners": [
         "src/render/passes/VisibilityPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/visible_pixel_classification.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/VisiblePixelClassifier.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/passes/PackedMaterialResolvePass.ts",
+        "src/render/Renderer.ts",
+        "src/render/VisiblePixelClassifier.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/VisiblePixelClassifier.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

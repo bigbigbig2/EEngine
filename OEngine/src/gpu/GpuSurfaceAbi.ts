@@ -58,6 +58,13 @@ export const GPU_SURFACE_BYTES_PER_PIXEL =
   GPU_SURFACE_ATTACHMENT_BYTES.velocity +
   GPU_SURFACE_ATTACHMENT_BYTES.metadata;
 
+export function gpuSurfaceBytesPerPixel(
+  options: Readonly<{ velocity: boolean }>
+): number {
+  return GPU_SURFACE_BYTES_PER_PIXEL -
+    (options.velocity ? 0 : GPU_SURFACE_ATTACHMENT_BYTES.velocity);
+}
+
 export const GPU_SURFACE_MATERIAL_SLOT_BITS = 16;
 export const GPU_SURFACE_MATERIAL_SLOT_SHIFT = 0;
 export const GPU_SURFACE_MATERIAL_SLOT_MASK = 0x0000ffff;

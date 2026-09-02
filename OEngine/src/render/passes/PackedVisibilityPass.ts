@@ -166,6 +166,7 @@ export interface PackedVisibilityDebugBindings {
   readonly geometryRecordCount: number;
   readonly meshletRecordCount: number;
   readonly materialCapacity: number;
+  readonly classCapacity: number;
 }
 
 export interface PackedVisibilityDebugSource {
@@ -329,7 +330,8 @@ export class PackedVisibilityPass {
       instanceCount: job.scene.highWaterCount,
       geometryRecordCount: job.assets.highWaterCounts.geometryRecords,
       meshletRecordCount: job.assets.highWaterCounts.meshletRecords,
-      materialCapacity: job.runtime.materialResources.materialCapacity
+      materialCapacity: job.runtime.materialResources.materialCapacity,
+      classCapacity: exact.classCapacity
     }));
     const opaquePipeline = this.graphics.render_pipelines.obtain(
       OPAQUE_RASTER_PIPELINE

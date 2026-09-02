@@ -321,7 +321,19 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   rasterCandidateTriangles: supported("ExactTriangleFilter candidate queue reducer"),
   rasterRejectedTriangles: supported("ExactTriangleFilter compact difference reducer"),
   opaqueRasterWork: supported("ExactTriangleFilter OPAQUE queue reducer"),
-  maskRasterWork: supported("ExactTriangleFilter MASK queue reducer")
+  maskRasterWork: supported("ExactTriangleFilter MASK queue reducer"),
+  kernelBaseFactorPixels: supported("VisiblePixelClassifier/BaseFactor class reducer"),
+  kernelBaseTexturePixels: supported("VisiblePixelClassifier/BaseTexture class reducer"),
+  kernelBaseOrmPixels: supported("VisiblePixelClassifier/BaseOrm class reducer"),
+  kernelBaseOrmNormalPixels: supported("VisiblePixelClassifier/BaseOrmNormal class reducer"),
+  kernelBaseOrmNormalEmissivePixels: supported(
+    "VisiblePixelClassifier/BaseOrmNormalEmissive class reducer"
+  ),
+  kernelUnlitPixels: supported("VisiblePixelClassifier/Unlit class reducer"),
+  kernelGenericFallbackPixels: supported(
+    "VisiblePixelClassifier/GenericStandardPbrFallback class reducer"
+  ),
+  shadeWorkOverflow: supported("VisiblePixelClassifier/bounded ShadeWork overflow reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

@@ -1710,6 +1710,10 @@ export class Renderer {
                 bindings.gpuScene.meshlets.dataBuffer)
             );
 
+        const needsOcclusionConfidence =
+          graphTopology.ssaoTemporal || graphTopology.ssr || graphTopology.temporal;
+        const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
+          this.render_debug_view === RenderDebugView.Velocity;
         const packedResolveOut = packedPath
           ? this._packedMaterialResolve.addToGraph(
               graph,
@@ -1731,7 +1735,8 @@ export class Renderer {
                 visibilityKey: packedVisibilityKeyRes!,
                 view: viewUniformRes,
                 counters: gpuCounterRes ?? undefined
-              }
+              },
+              { velocity: needsVelocity }
             )
           : null;
         const matOut = packedResolveOut ?? this.obtainLegacyMaterialExpand().addToGraph(
@@ -1758,6 +1763,18 @@ export class Renderer {
           gpuCounterRes = matOut.counters;
           this._profiler.registerGpuCounterFields(["activeMaterials"]);
         }
+        if (packedResolveOut !== null && packedResolveOut.counters !== null) {
+          this._profiler.registerGpuCounterFields([
+            "kernelBaseFactorPixels",
+            "kernelBaseTexturePixels",
+            "kernelBaseOrmPixels",
+            "kernelBaseOrmNormalPixels",
+            "kernelBaseOrmNormalEmissivePixels",
+            "kernelUnlitPixels",
+            "kernelGenericFallbackPixels",
+            "shadeWorkOverflow"
+          ]);
+        }
         let gPbrRes = matOut.gPbr;
         let gNormalRes = matOut.gNormal;
         let gAlbedoRes = matOut.gAlbedo;
@@ -1767,10 +1784,6 @@ export class Renderer {
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
         let opaqueTemporalValidityRes: ResourceId | null = null;
-        const needsOcclusionConfidence =
-          graphTopology.ssaoTemporal || graphTopology.ssr || graphTopology.temporal;
-        const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
-          this.render_debug_view === RenderDebugView.Velocity;
         if (needsVelocity) {
           const previousOffsetsBuffer =
             gpuScene.skinning.prev_position_offsets_buffer;
@@ -1793,7 +1806,7 @@ export class Renderer {
               )
             : null;
           velocityRes = packedResolveOut !== null
-            ? packedResolveOut.velocity
+            ? packedResolveOut.velocity!
             : this.obtainLegacyVelocity().addToGraph(
                 graph,
                 bind("velocity-job", (bindings) => ({
@@ -3338,10 +3351,10 @@ export class Renderer {
     profiler.recordCounter("shadow.atlasPixelsUpdated", shadows.packed_atlas_pixels_updated);
     profiler.recordCounter(
       packedPath
-        ? "packed.material.fullscreenDraws"
+        ? "packed.material.kernelDraws"
         : "legacy.material.fullscreenDraws",
       packedPath
-        ? this._packedMaterialResolve.lastDrawCount
+        ? this._packedMaterialResolve.lastKernelDrawCount
         : this._materialExpand!.lastDrawCount
     );
     if (packedPath) {

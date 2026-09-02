@@ -85,7 +85,7 @@ test("FX-03 production WGSL owns independent diffuse/GGX convolution and dynamic
 });
 
 test("FX-03 sampled-mip evidence remains present in the additive counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 11);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 12);
   const names = new Set(GPU_COUNTER_FIELDS.map((field) => field.name));
   assert.ok(names.has("iblSampledPixels"));
   for (let mip = 0; mip <= 8; mip++) assert.ok(names.has(`iblMip${mip}`));

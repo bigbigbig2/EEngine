@@ -53,6 +53,7 @@ R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；�
 ## Packed Asset 到 Surface 重构
 
 - [第一步：Packed Asset 到 Visibility 重构移植登记](./PACKED-ASSET-TO-VISIBILITY-RECONSTRUCTION.md)
+- [第二步：可见像素分类、专用 Material Resolve 与按需 Surface](./PACKED-MATERIAL-CLASSIFICATION-RECONSTRUCTION.md)
 
 ## 示例资产登记
 

@@ -1,8 +1,12 @@
 import { ShadeDrawSide, ShadeTransparencyMode } from "../material/enums.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
+import {
+  GPU_MATERIAL_KERNEL_WGSL,
+  materialKernelClass
+} from "./GpuMaterialKernelAbi.js";
 
-export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 3;
+export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 4;
 export const GPU_MATERIAL_VISIBILITY_RECORD_STRIDE = 224;
 export const GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE = 0xffffffff;
 export const GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_BIT = 0x80000000;
@@ -40,7 +44,7 @@ export const GPU_MATERIAL_VISIBILITY_SAMPLER = Object.freeze({
 });
 
 export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
-  material_id: 0,
+  kernel_class: 0,
   alpha_mode: 4,
   flags: 8,
   texture_ref: 12,
@@ -63,7 +67,7 @@ export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
 });
 
 export interface GpuMaterialVisibilityPackedSource {
-  readonly materialId: number;
+  readonly kernelClass: number;
   readonly alphaMode: number;
   readonly flags: number;
   readonly textureRef: number;
@@ -109,7 +113,7 @@ export interface GpuMaterialVisibilitySource {
 
 export const GPU_MATERIAL_VISIBILITY_RECORD_WGSL = /* wgsl */ `
 struct OEngineMaterialVisibilityRecord {
-  material_id: u32,
+  kernel_class: u32,
   alpha_mode: u32,
   flags: u32,
   texture_ref: u32,
@@ -150,6 +154,7 @@ const OENGINE_MATERIAL_TEXTURE_LAYER_MASK: u32 = 0x7fffffffu;
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask}u;
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits}u;
 const OENGINE_MATERIAL_SAMPLER_LINEAR: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit}u;
+${GPU_MATERIAL_KERNEL_WGSL}
 `;
 
 export function materialVisibilitySource(
@@ -162,6 +167,7 @@ export function materialVisibilitySource(
   }> | number,
   materialSlot: number
 ): GpuMaterialVisibilitySource {
+  checkedU32(materialSlot, "resident material slot");
   const refs = typeof textureRefs === "number"
     ? { baseColor: textureRefs }
     : textureRefs;
@@ -217,7 +223,7 @@ export function materialVisibilitySource(
   const textureUvSets = packTextureUvSets(material);
   return Object.freeze({
     packed: Object.freeze({
-      materialId: checkedU32(materialSlot, "resident material slot"),
+      kernelClass: materialKernelClass(material),
       alphaMode: alphaMode(material.transparency_mode),
       flags,
       textureRef: checkedU32(textureRef, "texture ref"),
@@ -287,7 +293,7 @@ export function packGpuMaterialVisibilityRecord(
     throw new RangeError("MaterialVisibilityRecord target is too small");
   }
   const view = new DataView(target, byteOffset, GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
-  view.setUint32(0, checkedU32(source.materialId, "material id"), true);
+  view.setUint32(0, checkedU32(source.kernelClass, "material kernel class"), true);
   view.setUint32(4, checkedU32(source.alphaMode, "alpha mode"), true);
   view.setUint32(8, checkedU32(source.flags, "flags"), true);
   view.setUint32(12, checkedU32(source.textureRef, "texture ref"), true);
@@ -331,7 +337,7 @@ function packTextureUvSets(material: StandardShadeMaterial): number {
     if (!Number.isInteger(set) || set < 0 || set > 2) {
       throw new RangeError(
         `Material '${material.name}' requests TEXCOORD_${set}; ` +
-        "MaterialRecord v3 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2"
+        "MaterialRecord v4 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2"
       );
     }
     packed |= (set & 0xff) << (index * 8);

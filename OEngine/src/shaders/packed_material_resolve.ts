@@ -1,5 +1,10 @@
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.js";
-import { GPU_GEOMETRY_RECORD_WGSL, GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
+import {
+  GPU_GEOMETRY_RECORD_WGSL,
+  GPU_MESHLET_RECORD_WGSL,
+  GPU_POSITION_FORMAT,
+  GPU_UV_FORMAT
+} from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
@@ -21,13 +26,6 @@ ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_RASTER_WORK_SCHEMA.wgsl}
 ${GBUFFER_ENCODE_WGSL}
 
-const SEMANTIC_POSITION: u32 = 0x69736f70u;
-const SEMANTIC_NORMAL: u32 = 0x6d726f6eu;
-const SEMANTIC_TANGENT: u32 = 0x676e6174u;
-const SEMANTIC_COLOR: u32 = 0x6f6c6f63u;
-const SEMANTIC_UV0: u32 = 0x00307675u;
-const SEMANTIC_UV1: u32 = 0x00317675u;
-const SEMANTIC_UV2: u32 = 0x00327675u;
 const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
 
 struct R4ResolveQueueHeaderRead {
@@ -122,16 +120,6 @@ fn component_bytes(data_type: u32) -> u32 {
   return 4u;
 }
 
-fn find_stream(geometry: GpuGeometryRecord, semantic: u32) -> u32 {
-  for (var index = 0u; index < geometry.stream_descriptor_count; index++) {
-    let descriptor = geometry.stream_descriptor_begin + index;
-    if stream_descriptors[descriptor * STREAM_DESCRIPTOR_WORDS] == semantic {
-      return descriptor;
-    }
-  }
-  return 0xffffffffu;
-}
-
 fn read_stream4_from_descriptor(
   descriptor: u32,
   vertex: u32,
@@ -154,6 +142,49 @@ fn read_stream4_from_descriptor(
     );
   }
   return result;
+}
+
+fn read_position_direct(geometry: GpuGeometryRecord, vertex: u32) -> vec3f {
+  let offset = geometry.position_byte_offset + vertex * geometry.position_stride;
+  if geometry.position_format == ${GPU_POSITION_FORMAT.Float32x3}u ||
+      geometry.position_format == ${GPU_POSITION_FORMAT.Float32x4}u {
+    return vec3f(
+      bitcast<f32>(vertex_data[offset >> 2u]),
+      bitcast<f32>(vertex_data[(offset >> 2u) + 1u]),
+      bitcast<f32>(vertex_data[(offset >> 2u) + 2u])
+    );
+  }
+  return vec3f(0.0);
+}
+
+fn read_uv_direct(geometry: GpuGeometryRecord, uv_set: u32, vertex: u32) -> vec2f {
+  var offset = geometry.uv0_byte_offset;
+  var stride = geometry.uv0_stride;
+  var format = geometry.uv0_format;
+  if uv_set == 1u {
+    offset = geometry.uv1_byte_offset;
+    stride = geometry.uv1_stride;
+    format = geometry.uv1_format;
+  }
+  if uv_set == 2u {
+    offset = geometry.uv2_byte_offset;
+    stride = geometry.uv2_stride;
+    format = geometry.uv2_format;
+  }
+  offset += vertex * stride;
+  if format == ${GPU_UV_FORMAT.Float32x2}u {
+    return vec2f(
+      bitcast<f32>(vertex_data[offset >> 2u]),
+      bitcast<f32>(vertex_data[(offset >> 2u) + 1u])
+    );
+  }
+  if format == ${GPU_UV_FORMAT.Unorm8x2}u {
+    return vec2f(read_u8(offset), read_u8(offset + 1u)) / 255.0;
+  }
+  if format == ${GPU_UV_FORMAT.Unorm16x2}u {
+    return vec2f(read_u16(offset), read_u16(offset + 2u)) / 65535.0;
+  }
+  return vec2f(0.0);
 }
 
 fn triangle_source_vertices(meshlet: GpuMeshletRecord, triangle: u32) -> vec3u {
@@ -262,13 +293,22 @@ fn object_transform_frame(matrix: mat4x4f) -> ObjectTransformFrame {
   return output;
 }
 
-const FULLSCREEN = array<vec2f, 3>(
-  vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0)
-);
+@group(0) @binding(12) var<storage, read> shade_work: array<u32>;
+override OENGINE_ACTIVE_KERNEL_CLASS: u32 = OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR;
+override OENGINE_VELOCITY_ENABLED: bool = true;
 
 @vertex
 fn packed_material_vs(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4f {
-  return vec4f(FULLSCREEN[vertex_index], 0.0, 1.0);
+  let linear_pixel = shade_work[vertex_index];
+  let pixel = vec2f(
+    f32(linear_pixel % view.width) + 0.5,
+    f32(linear_pixel / view.width) + 0.5
+  );
+  let ndc = vec2f(
+    pixel.x / f32(view.width) * 2.0 - 1.0,
+    1.0 - pixel.y / f32(view.height) * 2.0
+  );
+  return vec4f(ndc, 0.0, 1.0);
 }
 
 fn material_sampler_class(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
@@ -379,13 +419,9 @@ fn reconstruct_material_uv(
   bary: PerspectiveBarycentric
 ) -> ReconstructedMaterialUv {
   let uv_set = material_uv_set(material, slot);
-  var uv_semantic = SEMANTIC_UV0;
-  if uv_set == 1u { uv_semantic = SEMANTIC_UV1; }
-  if uv_set == 2u { uv_semantic = SEMANTIC_UV2; }
-  let descriptor = find_stream(geometry, uv_semantic);
-  let value0 = read_stream4_from_descriptor(descriptor, vertices.x, vec4f(0.0)).xy;
-  let value1 = read_stream4_from_descriptor(descriptor, vertices.y, vec4f(0.0)).xy;
-  let value2 = read_stream4_from_descriptor(descriptor, vertices.z, vec4f(0.0)).xy;
+  let value0 = read_uv_direct(geometry, uv_set, vertices.x);
+  let value1 = read_uv_direct(geometry, uv_set, vertices.y);
+  let value2 = read_uv_direct(geometry, uv_set, vertices.z);
   let reconstructed = value0 * bary.weights.x + value1 * bary.weights.y + value2 * bary.weights.z;
   let reconstructed_dx = (value0 * bary.ddx.x + value1 * bary.ddx.y + value2 * bary.ddx.z) / view.upscale_ratio.x;
   let reconstructed_dy = (value0 * bary.ddy.x + value1 * bary.ddy.y + value2 * bary.ddy.z) / view.upscale_ratio.y;
@@ -443,18 +479,17 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let triangle_index = work.local_triangle_index;
   if triangle_index >= meshlet.triangle_count { discard; }
   let material_info = materials[work.material_handle];
-  if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
-    material_info.material_id != work.material_handle {
+  if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
     discard;
   }
+  if material_info.kernel_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
   let vertices = triangle_source_vertices(meshlet, triangle_index);
-  let position_descriptor = find_stream(geometry, SEMANTIC_POSITION);
-  let normal_descriptor = find_stream(geometry, SEMANTIC_NORMAL);
-  let tangent_descriptor = find_stream(geometry, SEMANTIC_TANGENT);
-  let color_descriptor = find_stream(geometry, SEMANTIC_COLOR);
-  let local0 = read_stream4_from_descriptor(position_descriptor, vertices.x, vec4f(0.0)).xyz;
-  let local1 = read_stream4_from_descriptor(position_descriptor, vertices.y, vec4f(0.0)).xyz;
-  let local2 = read_stream4_from_descriptor(position_descriptor, vertices.z, vec4f(0.0)).xyz;
+  let normal_descriptor = geometry.normal_descriptor;
+  let tangent_descriptor = geometry.tangent_descriptor;
+  let color_descriptor = geometry.color_descriptor;
+  let local0 = read_position_direct(geometry, vertices.x);
+  let local1 = read_position_direct(geometry, vertices.y);
+  let local2 = read_position_direct(geometry, vertices.z);
   let world0 = instance.current_object_to_world * vec4f(local0, 1.0);
   let world1 = instance.current_object_to_world * vec4f(local1, 1.0);
   let world2 = instance.current_object_to_world * vec4f(local2, 1.0);
@@ -477,10 +512,29 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let color0 = read_stream4_from_descriptor(color_descriptor, vertices.x, vec4f(1.0)).rgb;
   let color1 = read_stream4_from_descriptor(color_descriptor, vertices.y, vec4f(1.0)).rgb;
   let color2 = read_stream4_from_descriptor(color_descriptor, vertices.z, vec4f(1.0)).rgb;
-  let albedo_uv = reconstruct_material_uv(material_info, 0u, geometry, vertices, bary);
-  let normal_uv = reconstruct_material_uv(material_info, 1u, geometry, vertices, bary);
-  let orm_uv = reconstruct_material_uv(material_info, 2u, geometry, vertices, bary);
-  let emissive_uv = reconstruct_material_uv(material_info, 3u, geometry, vertices, bary);
+  let empty_uv = ReconstructedMaterialUv(vec2f(0.0), vec2f(0.0), vec2f(0.0));
+  var albedo_uv = empty_uv;
+  var normal_uv = empty_uv;
+  var orm_uv = empty_uv;
+  var emissive_uv = empty_uv;
+  if OENGINE_ACTIVE_KERNEL_CLASS != OENGINE_MATERIAL_KERNEL_BASE_FACTOR {
+    albedo_uv = reconstruct_material_uv(material_info, 0u, geometry, vertices, bary);
+  }
+  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
+    normal_uv = reconstruct_material_uv(material_info, 1u, geometry, vertices, bary);
+  }
+  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
+    orm_uv = reconstruct_material_uv(material_info, 2u, geometry, vertices, bary);
+  }
+  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
+    emissive_uv = reconstruct_material_uv(material_info, 3u, geometry, vertices, bary);
+  }
   let vertex_color = color0 * bary.weights.x + color1 * bary.weights.y + color2 * bary.weights.z;
   let local_normal = safe_normalize(
     normal0 * bary.weights.x + normal1 * bary.weights.y + normal2 * bary.weights.z,
@@ -500,46 +554,61 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     cross(shading_normal, tangent) * tangent_handedness * frame.orientation,
     safe_normalize(cross(shading_normal, tangent), vec3f(0.0, 1.0, 0.0))
   );
-  var sampled_normal = sample_material_texture(
-    material_info.normal_texture_ref,
-    material_sampler_class(material_info, 1u),
-    normal_uv.uv,
-    normal_uv.ddx,
-    normal_uv.ddy,
-    vec4f(0.5, 0.5, 1.0, 1.0)
-  ).xyz * 2.0 - 1.0;
-  sampled_normal = vec3f(
-    sampled_normal.xy * material_info.pbr_factors.z,
-    sampled_normal.z
-  );
-  let mapped_normal = safe_normalize(
-    mat3x3f(tangent, bitangent, shading_normal) * sampled_normal,
-    shading_normal
-  );
-  let orm = sample_material_texture(
-    material_info.orm_texture_ref,
-    material_sampler_class(material_info, 2u),
-    orm_uv.uv,
-    orm_uv.ddx,
-    orm_uv.ddy,
-    vec4f(1.0)
-  );
-  let albedo_sample = sample_material_texture(
-    material_info.texture_ref,
-    material_sampler_class(material_info, 0u),
-    albedo_uv.uv,
-    albedo_uv.ddx,
-    albedo_uv.ddy,
-    vec4f(1.0)
-  );
-  let emissive_sample = sample_material_texture(
-    material_info.emissive_texture_ref,
-    material_sampler_class(material_info, 3u),
-    emissive_uv.uv,
-    emissive_uv.ddx,
-    emissive_uv.ddy,
-    vec4f(1.0)
-  );
+  var mapped_normal = shading_normal;
+  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
+    var sampled_normal = sample_material_texture(
+      material_info.normal_texture_ref,
+      material_sampler_class(material_info, 1u),
+      normal_uv.uv,
+      normal_uv.ddx,
+      normal_uv.ddy,
+      vec4f(0.5, 0.5, 1.0, 1.0)
+    ).xyz * 2.0 - 1.0;
+    sampled_normal = vec3f(sampled_normal.xy * material_info.pbr_factors.z, sampled_normal.z);
+    mapped_normal = safe_normalize(
+      mat3x3f(tangent, bitangent, shading_normal) * sampled_normal,
+      shading_normal
+    );
+  }
+  var orm = vec4f(1.0);
+  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
+    orm = sample_material_texture(
+      material_info.orm_texture_ref,
+      material_sampler_class(material_info, 2u),
+      orm_uv.uv,
+      orm_uv.ddx,
+      orm_uv.ddy,
+      vec4f(1.0)
+    );
+  }
+  var albedo_sample = vec4f(1.0);
+  if OENGINE_ACTIVE_KERNEL_CLASS != OENGINE_MATERIAL_KERNEL_BASE_FACTOR {
+    albedo_sample = sample_material_texture(
+      material_info.texture_ref,
+      material_sampler_class(material_info, 0u),
+      albedo_uv.uv,
+      albedo_uv.ddx,
+      albedo_uv.ddy,
+      vec4f(1.0)
+    );
+  }
+  var emissive_sample = vec4f(1.0);
+  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
+      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
+    emissive_sample = sample_material_texture(
+      material_info.emissive_texture_ref,
+      material_sampler_class(material_info, 3u),
+      emissive_uv.uv,
+      emissive_uv.ddx,
+      emissive_uv.ddy,
+      vec4f(1.0)
+    );
+  }
   let albedo = albedo_sample.rgb * vertex_color * material_info.base_color_factor.rgb;
   let is_unlit = (material_info.flags & OENGINE_MATERIAL_UNLIT) != 0u;
   let ambient = select(
@@ -586,7 +655,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   if bary.valid == 0u {
     surface_flags |= OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK | OENGINE_SURFACE_FLAG_REACTIVE;
   }
-  if oengine_instance_motion_valid(instance) && bary.valid != 0u {
+  if OENGINE_VELOCITY_ENABLED && oengine_instance_motion_valid(instance) && bary.valid != 0u {
     let current_world = world0 * bary.weights.x + world1 * bary.weights.y + world2 * bary.weights.z;
     let previous_world_h = instance.previous_from_current * current_world;
     if previous_world_h.w > 1e-8 {

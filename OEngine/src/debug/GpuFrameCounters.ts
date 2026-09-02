@@ -4,7 +4,7 @@ import {
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 11;
+export const GPU_COUNTER_SCHEMA_VERSION = 12;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -31,7 +31,7 @@ export const GPU_COUNTER_FIELDS = [
   { name: "hwTriangles", index: 12, semantic: "exact fixed-function raster triangles submitted" },
   { name: "shadedPixels", index: 13, semantic: "resolved visible pixels" },
   { name: "emptyVisibilityPixels", index: 14, semantic: "empty resolve pixels" },
-  { name: "activeMaterials", index: 15, semantic: "active non-transparent MaterialRecords consumed by one Material Resolve draw" },
+  { name: "activeMaterials", index: 15, semantic: "active non-transparent MaterialRecords addressable by the bounded Material Resolve kernel set" },
   { name: "activeLights", index: 16, semantic: "active local lights" },
   { name: "queueOverflowMask", index: 17, semantic: "registered queue overflow bits" },
   { name: "rootStageQueueReservations", index: 18, semantic: "sampled fused root/leaf global bounded queue reservation attempts" },
@@ -103,7 +103,15 @@ export const GPU_COUNTER_FIELDS = [
   { name: "rasterCandidateTriangles", index: 84, semantic: "sampled exact triangle candidates entering classification/filter" },
   { name: "rasterRejectedTriangles", index: 85, semantic: "sampled exact triangle candidates rejected before Hardware Visibility" },
   { name: "opaqueRasterWork", index: 86, semantic: "sampled compact OPAQUE exact RasterWork records" },
-  { name: "maskRasterWork", index: 87, semantic: "sampled compact MASK exact RasterWork records" }
+  { name: "maskRasterWork", index: 87, semantic: "sampled compact MASK exact RasterWork records" },
+  { name: "kernelBaseFactorPixels", index: 88, semantic: "sampled visible pixels classified as BaseFactor" },
+  { name: "kernelBaseTexturePixels", index: 89, semantic: "sampled visible pixels classified as BaseTexture" },
+  { name: "kernelBaseOrmPixels", index: 90, semantic: "sampled visible pixels classified as BaseOrm" },
+  { name: "kernelBaseOrmNormalPixels", index: 91, semantic: "sampled visible pixels classified as BaseOrmNormal" },
+  { name: "kernelBaseOrmNormalEmissivePixels", index: 92, semantic: "sampled visible pixels classified as BaseOrmNormalEmissive" },
+  { name: "kernelUnlitPixels", index: 93, semantic: "sampled visible pixels classified as Unlit" },
+  { name: "kernelGenericFallbackPixels", index: 94, semantic: "sampled visible pixels classified as GenericStandardPbrFallback" },
+  { name: "shadeWorkOverflow", index: 95, semantic: "sampled ShadeWork records rejected by bounded class ranges" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

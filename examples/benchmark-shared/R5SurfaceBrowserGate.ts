@@ -36,7 +36,7 @@ export interface R500GateArtifact {
   passed: boolean;
   issues: string[];
   contract: {
-    producer: "single-standard-pbr-material-resolve-v1";
+    producer: "classified-specialized-standard-pbr-material-resolve-v1";
     consumer: "oengine-surface-v1";
     hardwareVisibilityOnly: true;
     newR5EffectPasses: 0;
@@ -72,7 +72,7 @@ export function createR500GateArtifact(
     passed: issues.length === 0,
     issues,
     contract: {
-      producer: "single-standard-pbr-material-resolve-v1",
+      producer: "classified-specialized-standard-pbr-material-resolve-v1",
       consumer: "oengine-surface-v1",
       hardwareVisibilityOnly: true,
       newR5EffectPasses: 0
