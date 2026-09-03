@@ -78,3 +78,18 @@ decision: mathematical reference only; no source code copied
 - automated seam：`OEngine/tests/r5-fx07-ambient-occlusion.test.mjs`
 - production page：`examples/r5-ambient-occlusion/`
 - runner：`examples/scripts/run-r5-fx07-gate.mjs`
+
+## 2026-09-04 P5/C3 four-channel AO separation evidence
+
+§7.3 的四通道 AO 语义已结构性地落地，且「GTAO 写回 Material AO」「把 AO 乘到最终颜色」两条已知问题在当前代码中不存在：
+
+- **Material AO**：Surface ABI `albedoAo.a`（`GpuSurfaceAbi.ts`，`rgba8unorm`）。全仓库对该通道只有读，无写回：`lighting_direct.ts`、`indirect_composite.ts`、`brick4_indirect.ts`、`specular_correction.ts`。
+- **Diffuse Visibility**：独立 `ambientVisibility` 纹理（`rg16float`，存 visibility 与 visibility² moment）。`IndirectCompositePass` 作为单独 binding 读入，默认回退到 `albedoAo`（feature-off），不写入 `albedoAo.a`。
+- **Specular Visibility**：由 bent normal 派生，非独立纹理：`compute_specular_occlusion_bn(spec_direction, bent_normal, material_ao * ambient_visibility_value, roughness)`。
+- **Bent Normal**：独立 `rg16uint` octahedral 编码纹理（`SSAO_BENT_NORMAL_FORMAT`），供间接 diffuse/specular 重定向。
+
+最终合成（`indirect_composite.ts`）为 `vec4f(indirect[0] * specular_occlusion + indirect[1] * ambient_visibility_value, 1.0)`，specular 走 specular occlusion、diffuse 走 diffuse visibility，不是把 AO 简单乘到最终颜色。composite 唯一写入的 color attachment 是 `output.hdr`。
+
+temporal 最终 blend 已消费 velocity confidence：`ssao.ts` 的 `velocity_confidence` 同时进入 `deviation_scale`（`mix(deviation_min, deviation_max, velocity_confidence²)`）与 `history_weight`（`velocity_confidence * confidence * validity_weight * history_valid`），与 CURRENT-STATE.md 2026-09-01 第 100 条的两条 stale 记录不符。
+
+`AOService`（`OEngine/src/render/features/AOService.ts`）是 Material AO 之外的 GTAO visibility/bent normal 的 owner；具体采样、空间滤波与时域算法仍由 `ScreenSpaceAmbientOcclusionPass` 持有。
