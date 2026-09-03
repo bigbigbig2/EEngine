@@ -33,12 +33,8 @@ import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
 import { VisibilityFeature } from "./features/VisibilityFeature.js";
 import { SurfaceFeature } from "./features/SurfaceFeature.js";
 import { PackedSurfaceCounterPass } from "./passes/PackedSurfaceCounterPass.js";
-import { LightingPass } from "./passes/LightingPass.js";
-import {
-  LightClusterPass,
-  type LightClusterOutputs
-} from "./passes/LightClusterPass.js";
-import { EnvironmentBackgroundPass } from "./passes/EnvironmentBackgroundPass.js";
+import { LightingFeature } from "./features/LightingFeature.js";
+import type { LightClusterOutputs } from "./passes/LightClusterPass.js";
 import { LpvIndirectDiffusePass } from "./passes/LpvIndirectDiffusePass.js";
 import { TransparentOitPass } from "./passes/TransparentOitPass.js";
 import { PackedTransparentOitPass } from "./passes/PackedTransparentOitPass.js";
@@ -394,9 +390,7 @@ export class Renderer {
   private _materialExpand: MaterialExpandPass | null = null;
   private _surfaceFeature!: SurfaceFeature;
   private _packedSurfaceCounters!: PackedSurfaceCounterPass;
-  private _lighting!: LightingPass;
-  private _lightCluster!: LightClusterPass;
-  private _environmentBackground!: EnvironmentBackgroundPass;
+  private _lightingFeature!: LightingFeature;
   private _opaqueLighting!: OpaqueLightingPipeline;
   private _lpvIndirectDiffuse!: LpvIndirectDiffusePass;
   private _transparentOit: TransparentOitPass | null = null;
@@ -644,7 +638,7 @@ export class Renderer {
       if (runtime !== null && this._visibilityFeature) {
         this._visibilityFeature.release(runtime, command);
         this._packedTransparentOit?.release(runtime, command);
-        this._scenes.obtain(scene).lights.shadow_context.releasePackedScene(
+        this._scenes.obtain(scene).lights.shadow_service.releasePackedScene(
           runtime,
           command
         );
@@ -1078,6 +1072,7 @@ export class Renderer {
     this._specularCorrection?.destroy();
     this._specularCorrection = null;
     this._opaqueLighting?.destroy();
+    this._lightingFeature?.destroy();
     this._automaticExposure?.destroy();
     this._automaticExposure = null;
     this._taaHistory?.forEach((history) => history.destroy());
@@ -1262,7 +1257,7 @@ export class Renderer {
       lpv: this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV,
       shadows: featureTopology.shadows
     });
-    gpuScene.lights.shadow_context.setEnabled(featureTopology.shadows, cmd);
+    gpuScene.lights.shadow_service.setEnabled(featureTopology.shadows, cmd);
     view.setJitter(this._lastFrameContract.jitter[0], this._lastFrameContract.jitter[1]);
     view.setViewportSize(this._lastFrameContract.internalWidth, this._lastFrameContract.internalHeight);
     view.setUpscaleRatio(
@@ -1306,7 +1301,7 @@ export class Renderer {
       }
       if (featureTopology.shadows) {
         framePlan.execute("shadow-update", () => {
-        const shadows = gpuScene.lights.shadow_context;
+        const shadows = gpuScene.lights.shadow_service;
         if (sampleGpuCounters && gpuPacked !== null) {
           this._profiler.registerGpuCounterFields([
             "shadowCascade0RasterWork",
@@ -1998,24 +1993,35 @@ export class Renderer {
                 "Ch/pass_descriptor",
                 { kind: "imported", label: "depth32float shadow atlas" },
                 bind("shadow-atlas", (bindings) =>
-                  bindings.gpuScene.lights.shadow_context.texture.gpu_texture)
+                  bindings.gpuScene.lights.shadow_service.texture.gpu_texture)
               )
             : depthRes;
-          clusters = this._lightCluster.addToGraph(
+          const lightingFeatureOutput = this._lightingFeature.addToGraph(
             graph,
-            bind("light-cluster-job", (bindings) => ({
+            bind("lighting-feature-job", (bindings) => ({
               camera: bindings.camera,
               lights: bindings.gpuScene.lights,
               width: bindings.internalWidth,
-              height: bindings.internalHeight
+              height: bindings.internalHeight,
+              surfaceMetadataAvailable: packedResolveOut !== null
             })),
             {
-              camera: currentCameraRes,
+              gPbr: gPbrRes,
+              gNormal: gNormalRes,
+              gAlbedo: gAlbedoRes,
+              gEmissive: gEmissiveRes,
+              gMetadata: gMetadataRes,
+              depth: depthRes,
               lightDatabase: lightDatabaseRes,
+              environment: environmentRes,
               hzb: hzbRes,
+              camera: currentCameraRes,
+              view: viewUniformRes,
+              shadowAtlas: shadowAtlasRes,
               counters: gpuCounterRes ?? undefined
             }
           );
+          clusters = lightingFeatureOutput.clusters;
           if (clusters.counters !== null) {
             gpuCounterRes = clusters.counters;
             this._profiler.registerGpuCounterFields([
@@ -2041,32 +2047,7 @@ export class Renderer {
               "clusterHistogram256"
             ]);
           }
-          const lightOut = this._lighting.addToGraph(
-            graph,
-            {
-              width: w,
-              height: h,
-              surfaceMetadataAvailable: packedResolveOut !== null
-            },
-            {
-              gPbr: gPbrRes,
-              gNormal: gNormalRes,
-              gAlbedo: gAlbedoRes,
-              gEmissive: gEmissiveRes,
-              gMetadata: gMetadataRes,
-              depth: depthRes,
-              lightDatabase: lightDatabaseRes,
-              environment: environmentRes,
-              clusterParameters: clusters.parameters,
-              clusterLookup: clusters.lookup,
-              clusterData: clusters.data,
-              activeLightList: clusters.activeLightList,
-              shadowAtlas: shadowAtlasRes,
-              camera: currentCameraRes,
-              view: viewUniformRes
-            }
-          );
-          hdrRes = lightOut.hdr;
+          hdrRes = lightingFeatureOutput.hdr;
         }
 
         let bentNormalRes = gNormalRes;
@@ -2140,7 +2121,7 @@ export class Renderer {
         }
 
         if (hdrRes !== null && environmentRes !== null) {
-          hdrRes = this._environmentBackground.addToGraph(graph, {
+          hdrRes = this._lightingFeature.addEnvironmentBackground(graph, {
             hdr: hdrRes,
             depth: depthRes,
             camera: currentCameraRes,
@@ -3030,7 +3011,7 @@ export class Renderer {
       view.finish_frame(cmd, this._frame_count);
       this.recordFrameCounters(
         viewHzb,
-        gpuScene.lights.shadow_context,
+        gpuScene.lights.shadow_service,
         gpuPacked !== null,
         gpuScene.lights.environmentEvidence
       );
@@ -3171,12 +3152,7 @@ export class Renderer {
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     this._surfaceFeature ??= new SurfaceFeature(this._graphics);
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
-    if (!this._lighting) {
-      this._lighting = new LightingPass(this._graphics);
-      this._lighting.init();
-    }
-    this._lightCluster ??= new LightClusterPass(this._graphics);
-    this._environmentBackground ??= new EnvironmentBackgroundPass(this._graphics);
+    this._lightingFeature ??= new LightingFeature(this._graphics);
     this._opaqueLighting ??= new OpaqueLightingPipeline(this._graphics);
     this._lpvIndirectDiffuse ??= new LpvIndirectDiffusePass(this._graphics);
     this._brick4Diffuse ??= new Brick4DiffusePass(this._graphics);
@@ -3478,11 +3454,11 @@ export class Renderer {
     }
     profiler.recordCounter(
       "lighting.clusterCount",
-      this._lightCluster.lastClusterCount
+      this._lightingFeature.lastClusterCount
     );
     profiler.recordCounter(
       "lighting.localLightCount",
-      this._lightCluster.lastLocalLightCount
+      this._lightingFeature.lastLocalLightCount
     );
     profiler.recordCounter("lighting.environment.specularAllocatedBytes", environment.specularAllocatedBytes);
     profiler.recordCounter("lighting.environment.diffuseAllocatedBytes", environment.diffuseAllocatedBytes);

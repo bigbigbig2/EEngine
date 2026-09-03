@@ -42,6 +42,7 @@ R4 core（A/B）已经关闭。R4-C 只在 profile 证明 HW raster 是主要瓶
 | [15-p1-frame-infrastructure](./15-p1-frame-infrastructure.md) | Render Feature 注册表、FrameGraph 资源生命周期摘要和主帧证据接线 | P1，已实现 |
 | [16-p2-scene-contract-and-config](./16-p2-scene-contract-and-config.md) | GPU Scene/Frame Contract、初始化配置归一化和 WebGPU 能力 fail-fast | P2，已实现基础合同 |
 | [17-p3-visibility-surface-contract](./17-p3-visibility-surface-contract.md) | VisibilityFeature、SurfaceFeature 与 GPU Visibility→Surface 单链边界 | P3，已实现 Packed 基础边界 |
+| [18-p4-lighting-shadow-composition](./18-p4-lighting-shadow-composition.md) | LightingFeature、ShadowService、Clustered Direct 与 HDR composition owner 边界 | P4，已实现 owner 基础边界 |
 
 ## 当前唯一入口
 

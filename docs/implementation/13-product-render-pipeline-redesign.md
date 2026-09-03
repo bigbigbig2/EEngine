@@ -532,6 +532,8 @@ P3 Packed 主链执行记录见 [17-p3-visibility-surface-contract.md](./17-p3-v
 
 ## 23. P4：Clustered Lighting、Shadow Service 和 HDR Composition
 
+P4 owner/composition 执行记录见 [18-p4-lighting-shadow-composition.md](./18-p4-lighting-shadow-composition.md)。本工作包已接入 LightingFeature 与 ShadowService；具体光照/阴影画质和性能 Gate 仍以 production GPU artifact 为准。
+
 ### 目标
 
 先建立稳定的直接光照和阴影组合，为 GI、Reflection 和 AO 提供明确的光照输入。

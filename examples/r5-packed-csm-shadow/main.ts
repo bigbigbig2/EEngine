@@ -106,8 +106,8 @@ async function run(): Promise<void> {
       gpuWaitTimeoutMs: 20_000
     });
     const statistics = summarize(benchmark);
-    const shadowContext = renderer.scenes.obtain(fixture.scene).lights.shadow_context;
-    const featureOn = shadowEvidence(shadowContext);
+    const shadowService = renderer.scenes.obtain(fixture.scene).lights.shadow_service;
+    const featureOn = shadowEvidence(shadowService);
     renderer.profiler.configure({
       enabled: true,
       gpuSampleInterval: 1,
@@ -142,20 +142,20 @@ async function run(): Promise<void> {
       ],
       overflowMask: patchFrame.gpuCounters.values.shadowQueueOverflowMask ?? 0,
       mainSubmits: patchFrame.submits.count,
-      packedCascadeDraws: shadowContext.packed_cascade_draw_count
+      packedCascadeDraws: shadowService.packed_cascade_draw_count
     };
     renderer.configure({ features: { shadows: false } });
     for (let index = 0; index < 3; index++) {
       if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
     }
     await renderer.device.queue.onSubmittedWorkDone();
-    const featureOff = shadowEvidence(shadowContext);
+    const featureOff = shadowEvidence(shadowService);
     renderer.configure({ features: { shadows: true } });
     for (let index = 0; index < 3; index++) {
       if (!renderer.render(camera, fixture.scene, 1 / 60)) throw new Error("GPU device lost");
     }
     await renderer.device.queue.onSubmittedWorkDone();
-    const featureRestored = shadowEvidence(shadowContext);
+    const featureRestored = shadowEvidence(shadowService);
     const sequence = { featureOn, patchedCaster, featureOff, featureRestored };
     const issues = validate(benchmark, statistics, sequence);
     const result: Fx04Result = {
@@ -173,7 +173,7 @@ async function run(): Promise<void> {
         renderer.configure({ features: { shadows: enabled } });
         for (let index = 0; index < 2; index++) renderer.render(camera, fixture.scene, 1 / 60);
         await renderer.device.queue.onSubmittedWorkDone();
-        return shadowEvidence(shadowContext);
+        return shadowEvidence(shadowService);
       }
     };
     status.textContent = result.passed ? "FX-04 production Gate passed" : "FX-04 production Gate failed";
