@@ -27,13 +27,11 @@ import { RenderTargets } from "./RenderTargets.js";
 import { GPUViewKey, ViewManager } from "./ViewManager.js";
 import { GPUCameraStateManager } from "./GPUCameraState.js";
 import { VisibilityPass } from "./passes/VisibilityPass.js";
-import {
-  PackedVisibilityPass,
-  type PackedVisibilityDebugSource
-} from "./passes/PackedVisibilityPass.js";
+import type { PackedVisibilityDebugSource } from "./passes/PackedVisibilityPass.js";
 import { VisibilityCounterPass } from "./passes/VisibilityCounterPass.js";
 import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
-import { PackedMaterialResolvePass } from "./passes/PackedMaterialResolvePass.js";
+import { VisibilityFeature } from "./features/VisibilityFeature.js";
+import { SurfaceFeature } from "./features/SurfaceFeature.js";
 import { PackedSurfaceCounterPass } from "./passes/PackedSurfaceCounterPass.js";
 import { LightingPass } from "./passes/LightingPass.js";
 import {
@@ -391,10 +389,10 @@ export class Renderer {
   private _views!: ViewManager;
   private readonly _output_resolution = new Vec2(1, 1);
   private _visibility!: VisibilityPass;
-  private _packedVisibility!: PackedVisibilityPass;
+  private _visibilityFeature!: VisibilityFeature;
   private _visibilityCounters: VisibilityCounterPass | null = null;
   private _materialExpand: MaterialExpandPass | null = null;
-  private _packedMaterialResolve!: PackedMaterialResolvePass;
+  private _surfaceFeature!: SurfaceFeature;
   private _packedSurfaceCounters!: PackedSurfaceCounterPass;
   private _lighting!: LightingPass;
   private _lightCluster!: LightClusterPass;
@@ -643,8 +641,8 @@ export class Renderer {
     let handles: readonly AssetHandle[];
     try {
       const runtime = this._graphics.packed_scenes.runtime(scene);
-      if (runtime !== null && this._packedVisibility) {
-        this._packedVisibility.release(runtime, command);
+      if (runtime !== null && this._visibilityFeature) {
+        this._visibilityFeature.release(runtime, command);
         this._packedTransparentOit?.release(runtime, command);
         this._scenes.obtain(scene).lights.shadow_context.releasePackedScene(
           runtime,
@@ -1099,8 +1097,8 @@ export class Renderer {
     this._materialExpand = null;
     this._velocity?.destroy();
     this._velocity = null;
-    this._packedMaterialResolve?.destroy();
-    this._packedVisibility?.destroy();
+    this._surfaceFeature?.destroy();
+    this._visibilityFeature?.destroy();
     this._meshletDrawList?.destroy();
     this._nss?.destroy();
     this._nss = null;
@@ -1531,7 +1529,7 @@ export class Renderer {
             bind("packed-counter-sink", (bindings) =>
               bindings.gpuPacked!.counterSink)
           );
-          const packedOutput = this._packedVisibility.addToGraph(
+          const packedOutput = this._visibilityFeature.addToGraph(
             graph,
             bind("packed-visibility-main-job", (bindings) => {
               const registryBindings =
@@ -1802,7 +1800,7 @@ export class Renderer {
         const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
           this.render_debug_view === RenderDebugView.Velocity;
         const packedResolveOut = packedPath
-          ? this._packedMaterialResolve.addToGraph(
+          ? this._surfaceFeature.addToGraph(
               graph,
               bind("packed-material-resolve-job", (bindings) => {
                 const registryBindings =
@@ -3170,8 +3168,8 @@ export class Renderer {
       this._visibility = new VisibilityPass(this._graphics);
       this._visibility.init();
     }
-    this._packedVisibility ??= new PackedVisibilityPass(this._graphics);
-    this._packedMaterialResolve ??= new PackedMaterialResolvePass(this._graphics);
+    this._visibilityFeature ??= new VisibilityFeature(this._graphics);
+    this._surfaceFeature ??= new SurfaceFeature(this._graphics);
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     if (!this._lighting) {
       this._lighting = new LightingPass(this._graphics);
@@ -3367,23 +3365,23 @@ export class Renderer {
     if (packedPath) {
       profiler.recordCounter(
         "packed.visibility.rasterWorkCapacity",
-        this._packedVisibility.lastCandidateCapacity
+        this._visibilityFeature.lastCandidateCapacity
       );
       profiler.recordCounter(
         "packed.visibility.drawIndirect",
-        this._packedVisibility.lastDrawIndirect ? 1 : 0
+        this._visibilityFeature.lastDrawIndirect ? 1 : 0
       );
       profiler.recordCounter(
         "packed.visibility.verticesPerTriangle",
-        this._packedVisibility.lastVerticesPerTriangle
+        this._visibilityFeature.lastVerticesPerTriangle
       );
       profiler.recordCounter(
         "packed.visibility.keyAttachmentBytes",
-        this._packedVisibility.lastVisibilityKeyAttachmentBytes
+        this._visibilityFeature.lastVisibilityKeyAttachmentBytes
       );
       profiler.recordCounter(
         "packed.visibility.hierarchy",
-        this._packedVisibility.lastImplementation === "hierarchy" ? 1 : 0
+        this._visibilityFeature.lastImplementation === "hierarchy" ? 1 : 0
       );
     } else {
       const visibility = this._visibility;
@@ -3442,7 +3440,7 @@ export class Renderer {
         ? "packed.material.kernelDraws"
         : "legacy.material.fullscreenDraws",
       packedPath
-        ? this._packedMaterialResolve.lastKernelDrawCount
+        ? this._surfaceFeature.lastKernelDrawCount
         : this._materialExpand!.lastDrawCount
     );
     if (packedPath) {
@@ -3450,16 +3448,16 @@ export class Renderer {
       const textureEvidence = this._graphics.texture_residency_if_created?.evidence();
       profiler.recordCounter(
         "packed.material.activeMaterials",
-        this._packedMaterialResolve.lastActiveMaterialCount
+        this._surfaceFeature.lastActiveMaterialCount
       );
       profiler.recordCounter(
         "packed.material.surfaceBytesPerPixel",
-        this._packedMaterialResolve.surfaceBytesPerPixel
+        this._surfaceFeature.surfaceBytesPerPixel
       );
       profiler.recordCounter(
         "packed.material.surfaceAttachmentBytes",
         this._render_resolution.x * this._render_resolution.y *
-          this._packedMaterialResolve.surfaceBytesPerPixel
+          this._surfaceFeature.surfaceBytesPerPixel
       );
       profiler.recordCounter(
         "packed.material.residentTextures",

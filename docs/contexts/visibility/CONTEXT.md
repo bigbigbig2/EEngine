@@ -35,6 +35,7 @@ Instance Cull
 - `R4-A-05` 已把 key/adapter capacity guard 固定在 hierarchy prepare 分配前，并以 GPU completion fence 覆盖 epoch replacement、release 和 abort；resize/camera cut/view recreate/in-flight re-upload/device destroy + fresh Renderer 已通过 production Chrome。counter/debug off 不创建 reducer/readback/额外 submit；256 B disabled sink 仅服务固定 shader binding ABI。
 - `R4-A-06` 已用 clean/full A/B/C 关闭 G4-A：同一 production Renderer 保存 final-color oracle、Key heatmap、reverse-Z depth、GPU time、queue/counter 与 diagnostics；三组均一个 main submit/一个 Packed drawIndirect、zero invalid/overflow/WebGPU error，C sampled alpha RasterWork 为 40/127。A/B Hardware Raster P50 约 `35–44 ms`，B 已观察到 `84.260 ms` P99 长尾；这是后续 profile 风险，不阻塞 Hardware contract 正确性关闭。
 - `R4-B` 已在同一 VisibilityKey contract 上接通一次 Standard PBR Surface + velocity Resolve，active material `1 → 3` 时 draw 恒为 1；旧 Packed auxiliary MRT、Material Expand 与 Velocity 已删除。当前入口为 `R4-C-01`，SW/Hybrid 只能替换 key/depth producer，并复用同一 Resolve。
+- P3 `VisibilityFeature` 现为 Renderer 对 Packed VisibilityPass 的唯一 owner 边界；它保留 GPU hierarchy/work generation → `drawIndirect` → VisibilityKey/depth 的 producer/consumer 闭环和原有容量/overflow 语义，不让 CPU 读取可见列表。
 - Hardware fragment depth 是规范 oracle；SW/CPU 按 WebGPU 语义插值 post-clip viewport depth。reciprocal-W perspective correction 只用于后续 attributes。
 - HZB 只负责遮挡，不负责决定当前帧 LOD。
 - HZB 是 per-view ping-pong history：initial 只能读已 commit 的 previous，late/alpha/lighting 读本帧 current/final；resize、camera cut 和 view discontinuity 后 previous 无效。

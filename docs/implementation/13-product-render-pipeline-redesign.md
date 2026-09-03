@@ -509,6 +509,9 @@ P2 基础合同执行记录见 [16-p2-scene-contract-and-config.md](./16-p2-scen
 
 保留 GPU-driven 前端，但重建从 VisibilityKey 到 Surface 的单链路，删除重复材质解释和旧 Surface consumer。
 
+P3 Packed 主链执行记录见 [17-p3-visibility-surface-contract.md](./17-p3-visibility-surface-contract.md)。
+本阶段先完成 Feature owner/composition seam；普通 Scene legacy consumer 的最终删除必须在后续迁移和证据满足后进行。
+
 ### 实现顺序
 
 1. 冻结 Visibility Buffer、Depth、Velocity 和 Surface ABI；
