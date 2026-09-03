@@ -187,6 +187,68 @@ fn read_uv_direct(geometry: GpuGeometryRecord, uv_set: u32, vertex: u32) -> vec2
   return vec2f(0.0);
 }
 
+fn read_stream_direct(
+  byte_offset: u32,
+  stride: u32,
+  format: u32,
+  normalized_flag: u32,
+  component_count: u32,
+  vertex: u32,
+  fallback: vec4f
+) -> vec4f {
+  if format == 0u { return fallback; }
+  let offset = byte_offset + vertex * stride;
+  var result = fallback;
+  if format == ${GEOMETRY_VERTEX_DATA_TYPE_CODE.float32}u {
+    for (var component = 0u; component < min(component_count, 4u); component++) {
+      result[component] = bitcast<f32>(vertex_data[(offset >> 2u) + component]);
+    }
+  } else {
+    let bytes = component_bytes(format);
+    let normalized = normalized_flag != 0u;
+    for (var component = 0u; component < min(component_count, 4u); component++) {
+      result[component] = stream_component(offset + component * bytes, format, normalized);
+    }
+  }
+  return result;
+}
+
+fn read_normal_direct(geometry: GpuGeometryRecord, vertex: u32, fallback: vec4f) -> vec3f {
+  return read_stream_direct(
+    geometry.normal_byte_offset,
+    geometry.normal_stride,
+    geometry.normal_format,
+    geometry.normal_normalized,
+    3u,
+    vertex,
+    fallback
+  ).xyz;
+}
+
+fn read_tangent_direct(geometry: GpuGeometryRecord, vertex: u32, fallback: vec4f) -> vec4f {
+  return read_stream_direct(
+    geometry.tangent_byte_offset,
+    geometry.tangent_stride,
+    geometry.tangent_format,
+    geometry.tangent_normalized,
+    4u,
+    vertex,
+    fallback
+  );
+}
+
+fn read_color_direct(geometry: GpuGeometryRecord, vertex: u32, fallback: vec4f) -> vec3f {
+  return read_stream_direct(
+    geometry.color_byte_offset,
+    geometry.color_stride,
+    geometry.color_format,
+    geometry.color_normalized,
+    3u,
+    vertex,
+    fallback
+  ).xyz;
+}
+
 fn triangle_source_vertices(meshlet: GpuMeshletRecord, triangle: u32) -> vec3u {
   let byte_offset = meshlet.triangle_byte_offset + triangle * 3u;
   return vec3u(
@@ -484,9 +546,6 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   }
   if material_info.kernel_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
   let vertices = triangle_source_vertices(meshlet, triangle_index);
-  let normal_descriptor = geometry.normal_descriptor;
-  let tangent_descriptor = geometry.tangent_descriptor;
-  let color_descriptor = geometry.color_descriptor;
   let local0 = read_position_direct(geometry, vertices.x);
   let local1 = read_position_direct(geometry, vertices.y);
   let local2 = read_position_direct(geometry, vertices.z);
@@ -503,15 +562,15 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     projected2
   );
   let face_local = safe_normalize(cross(local2 - local1, local0 - local1), vec3f(0.0, 0.0, 1.0));
-  let normal0 = read_stream4_from_descriptor(normal_descriptor, vertices.x, vec4f(face_local, 0.0)).xyz;
-  let normal1 = read_stream4_from_descriptor(normal_descriptor, vertices.y, vec4f(face_local, 0.0)).xyz;
-  let normal2 = read_stream4_from_descriptor(normal_descriptor, vertices.z, vec4f(face_local, 0.0)).xyz;
-  let tangent0 = read_stream4_from_descriptor(tangent_descriptor, vertices.x, vec4f(1.0, 0.0, 0.0, 1.0));
-  let tangent1 = read_stream4_from_descriptor(tangent_descriptor, vertices.y, vec4f(1.0, 0.0, 0.0, 1.0));
-  let tangent2 = read_stream4_from_descriptor(tangent_descriptor, vertices.z, vec4f(1.0, 0.0, 0.0, 1.0));
-  let color0 = read_stream4_from_descriptor(color_descriptor, vertices.x, vec4f(1.0)).rgb;
-  let color1 = read_stream4_from_descriptor(color_descriptor, vertices.y, vec4f(1.0)).rgb;
-  let color2 = read_stream4_from_descriptor(color_descriptor, vertices.z, vec4f(1.0)).rgb;
+  let normal0 = read_normal_direct(geometry, vertices.x, vec4f(face_local, 0.0));
+  let normal1 = read_normal_direct(geometry, vertices.y, vec4f(face_local, 0.0));
+  let normal2 = read_normal_direct(geometry, vertices.z, vec4f(face_local, 0.0));
+  let tangent0 = read_tangent_direct(geometry, vertices.x, vec4f(1.0, 0.0, 0.0, 1.0));
+  let tangent1 = read_tangent_direct(geometry, vertices.y, vec4f(1.0, 0.0, 0.0, 1.0));
+  let tangent2 = read_tangent_direct(geometry, vertices.z, vec4f(1.0, 0.0, 0.0, 1.0));
+  let color0 = read_color_direct(geometry, vertices.x, vec4f(1.0));
+  let color1 = read_color_direct(geometry, vertices.y, vec4f(1.0));
+  let color2 = read_color_direct(geometry, vertices.z, vec4f(1.0));
   let empty_uv = ReconstructedMaterialUv(vec2f(0.0), vec2f(0.0), vec2f(0.0));
   var albedo_uv = empty_uv;
   var normal_uv = empty_uv;

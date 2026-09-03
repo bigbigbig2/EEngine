@@ -8,9 +8,9 @@
  * resident tables.
  */
 
-export const GPU_GEOMETRY_ABI_VERSION = 4;
+export const GPU_GEOMETRY_ABI_VERSION = 5;
 export const GPU_FALLBACK_RECORD_INDEX = 0;
-export const GPU_GEOMETRY_RECORD_STRIDE = 192;
+export const GPU_GEOMETRY_RECORD_STRIDE = 240;
 export const GPU_CLUSTER_RECORD_STRIDE = 128;
 export const GPU_MESHLET_RECORD_STRIDE = 112;
 
@@ -67,9 +67,21 @@ const GEOMETRY_FIELDS: readonly GpuAbiField[] = [
   { name: "normal_descriptor", kind: "u32", byteOffset: 168 },
   { name: "tangent_descriptor", kind: "u32", byteOffset: 172 },
   { name: "color_descriptor", kind: "u32", byteOffset: 176 },
-  { name: "_pad0", kind: "u32", byteOffset: 180 },
-  { name: "_pad1", kind: "u32", byteOffset: 184 },
-  { name: "_pad2", kind: "u32", byteOffset: 188 }
+  { name: "normal_byte_offset", kind: "u32", byteOffset: 180 },
+  { name: "normal_stride", kind: "u32", byteOffset: 184 },
+  { name: "normal_format", kind: "u32", byteOffset: 188 },
+  { name: "normal_normalized", kind: "u32", byteOffset: 192 },
+  { name: "tangent_byte_offset", kind: "u32", byteOffset: 196 },
+  { name: "tangent_stride", kind: "u32", byteOffset: 200 },
+  { name: "tangent_format", kind: "u32", byteOffset: 204 },
+  { name: "tangent_normalized", kind: "u32", byteOffset: 208 },
+  { name: "color_byte_offset", kind: "u32", byteOffset: 212 },
+  { name: "color_stride", kind: "u32", byteOffset: 216 },
+  { name: "color_format", kind: "u32", byteOffset: 220 },
+  { name: "color_normalized", kind: "u32", byteOffset: 224 },
+  { name: "_pad0", kind: "u32", byteOffset: 228 },
+  { name: "_pad1", kind: "u32", byteOffset: 232 },
+  { name: "_pad2", kind: "u32", byteOffset: 236 }
 ];
 
 const CLUSTER_FIELDS: readonly GpuAbiField[] = [
@@ -178,6 +190,18 @@ export interface GpuGeometryRecordCpu {
   readonly normalDescriptor?: number;
   readonly tangentDescriptor?: number;
   readonly colorDescriptor?: number;
+  readonly normalByteOffset?: number;
+  readonly normalStride?: number;
+  readonly normalFormat?: number;
+  readonly normalNormalized?: number;
+  readonly tangentByteOffset?: number;
+  readonly tangentStride?: number;
+  readonly tangentFormat?: number;
+  readonly tangentNormalized?: number;
+  readonly colorByteOffset?: number;
+  readonly colorStride?: number;
+  readonly colorFormat?: number;
+  readonly colorNormalized?: number;
 }
 
 export interface GpuClusterRecordCpu {
@@ -251,7 +275,19 @@ export function packGpuGeometryRecord(record: GpuGeometryRecordCpu): Uint8Array 
     record.uv2Format,
     record.normalDescriptor ?? 0xffffffff,
     record.tangentDescriptor ?? 0xffffffff,
-    record.colorDescriptor ?? 0xffffffff
+    record.colorDescriptor ?? 0xffffffff,
+    record.normalByteOffset ?? 0,
+    record.normalStride ?? 0,
+    record.normalFormat ?? 0,
+    record.normalNormalized ?? 0,
+    record.tangentByteOffset ?? 0,
+    record.tangentStride ?? 0,
+    record.tangentFormat ?? 0,
+    record.tangentNormalized ?? 0,
+    record.colorByteOffset ?? 0,
+    record.colorStride ?? 0,
+    record.colorFormat ?? 0,
+    record.colorNormalized ?? 0
   ];
   for (let index = 0; index < values.length; index++) {
     view.setUint32(48 + index * 4, checkedU32(values[index]!, "GeometryRecord"), true);

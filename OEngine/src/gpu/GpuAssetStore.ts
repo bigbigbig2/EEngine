@@ -5,6 +5,7 @@ import {
   GEOMETRY_SECTION_TYPES,
   GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
   encodeGeometryBvh8Nodes,
+  encodeGeometryVertexDataType,
   type GeometryAssetPackage,
   type GeometryBvh8Node
 } from "../assets/GeometryAssetPackage.js";
@@ -620,6 +621,15 @@ export class GpuAssetStore {
       descriptorBegin,
       "color"
     );
+    const normal = asset.vertexStreamDescriptors.find(
+      (descriptor) => descriptor.semantic === "normal"
+    );
+    const tangent = asset.vertexStreamDescriptors.find(
+      (descriptor) => descriptor.semantic === "tangent"
+    );
+    const color = asset.vertexStreamDescriptors.find(
+      (descriptor) => descriptor.semantic === "color"
+    );
 
     const meshletRecords: GpuMeshletRecordCpu[] = asset.meshlets.map((meshlet) => ({
       vertexOffset: checkedAdd(meshletVertexBegin, meshlet.vertexOffset, "Meshlet vertex range"),
@@ -761,7 +771,19 @@ export class GpuAssetStore {
       uv2Format: uvFormat(uv2),
       normalDescriptor,
       tangentDescriptor,
-      colorDescriptor
+      colorDescriptor,
+      normalByteOffset: directByteOffset(normal, vertexDataBegin, "Normal stream offset"),
+      normalStride: normal?.elementStride ?? 0,
+      normalFormat: normal === undefined ? 0 : encodeGeometryVertexDataType(normal.dataType),
+      normalNormalized: normal?.normalized ? 1 : 0,
+      tangentByteOffset: directByteOffset(tangent, vertexDataBegin, "Tangent stream offset"),
+      tangentStride: tangent?.elementStride ?? 0,
+      tangentFormat: tangent === undefined ? 0 : encodeGeometryVertexDataType(tangent.dataType),
+      tangentNormalized: tangent?.normalized ? 1 : 0,
+      colorByteOffset: directByteOffset(color, vertexDataBegin, "Color stream offset"),
+      colorStride: color?.elementStride ?? 0,
+      colorFormat: color === undefined ? 0 : encodeGeometryVertexDataType(color.dataType),
+      colorNormalized: color?.normalized ? 1 : 0
     });
 
     const segments: UploadSegment[] = [];
@@ -1021,9 +1043,17 @@ function uvByteOffset(
   descriptor: GeometryAssetPackage["vertexStreamDescriptors"][number] | undefined,
   vertexDataBegin: number
 ): number {
+  return directByteOffset(descriptor, vertexDataBegin, "UV stream offset");
+}
+
+function directByteOffset(
+  descriptor: GeometryAssetPackage["vertexStreamDescriptors"][number] | undefined,
+  vertexDataBegin: number,
+  label: string
+): number {
   return descriptor === undefined
     ? 0
-    : checkedAdd(vertexDataBegin, descriptor.dataByteOffset, "UV stream offset");
+    : checkedAdd(vertexDataBegin, descriptor.dataByteOffset, label);
 }
 
 function uvFormat(

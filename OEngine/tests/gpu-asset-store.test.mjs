@@ -44,7 +44,7 @@ const { cookGeometryAssetPackage } = await import(
 );
 
 test("R2-C TS packers and generated WGSL share one explicit aligned ABI", () => {
-  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.stride, 192);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.stride, 240);
   assert.equal(GPU_CLUSTER_RECORD_SCHEMA.stride, 128);
   assert.equal(GPU_MESHLET_RECORD_SCHEMA.stride, 112);
   assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.position_byte_offset, 116);
@@ -54,6 +54,18 @@ test("R2-C TS packers and generated WGSL share one explicit aligned ABI", () => 
   assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.normal_descriptor, 168);
   assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.tangent_descriptor, 172);
   assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.color_descriptor, 176);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.normal_byte_offset, 180);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.normal_stride, 184);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.normal_format, 188);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.normal_normalized, 192);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.tangent_byte_offset, 196);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.tangent_stride, 200);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.tangent_format, 204);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.tangent_normalized, 208);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.color_byte_offset, 212);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.color_stride, 216);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.color_format, 220);
+  assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.offsets.color_normalized, 224);
   assert.equal(GPU_CLUSTER_RECORD_SCHEMA.offsets.bounds_min, 48);
   assert.equal(GPU_MESHLET_RECORD_SCHEMA.offsets.bounds_sphere, 64);
   assert.match(GPU_GEOMETRY_RECORD_WGSL, /bounds_sphere: vec4f/);
@@ -97,7 +109,19 @@ test("R2-C TS packers and generated WGSL share one explicit aligned ABI", () => 
     uv2Format: 1,
     normalDescriptor: 101,
     tangentDescriptor: 102,
-    colorDescriptor: 103
+    colorDescriptor: 103,
+    normalByteOffset: 104,
+    normalStride: 12,
+    normalFormat: 7,
+    normalNormalized: 0,
+    tangentByteOffset: 120,
+    tangentStride: 16,
+    tangentFormat: 7,
+    tangentNormalized: 0,
+    colorByteOffset: 136,
+    colorStride: 12,
+    colorFormat: 2,
+    colorNormalized: 1
   });
   assert.equal(geometry.byteLength, GPU_GEOMETRY_RECORD_STRIDE);
   const geometryView = new DataView(geometry.buffer);
@@ -112,6 +136,18 @@ test("R2-C TS packers and generated WGSL share one explicit aligned ABI", () => 
   assert.equal(geometryView.getUint32(168, true), 101);
   assert.equal(geometryView.getUint32(172, true), 102);
   assert.equal(geometryView.getUint32(176, true), 103);
+  assert.equal(geometryView.getUint32(180, true), 104);
+  assert.equal(geometryView.getUint32(184, true), 12);
+  assert.equal(geometryView.getUint32(188, true), 7);
+  assert.equal(geometryView.getUint32(192, true), 0);
+  assert.equal(geometryView.getUint32(196, true), 120);
+  assert.equal(geometryView.getUint32(200, true), 16);
+  assert.equal(geometryView.getUint32(204, true), 7);
+  assert.equal(geometryView.getUint32(208, true), 0);
+  assert.equal(geometryView.getUint32(212, true), 136);
+  assert.equal(geometryView.getUint32(216, true), 12);
+  assert.equal(geometryView.getUint32(220, true), 2);
+  assert.equal(geometryView.getUint32(224, true), 1);
 
   const cluster = packGpuClusterRecords([{
     childBegin: 1,

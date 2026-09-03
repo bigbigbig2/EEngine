@@ -159,7 +159,16 @@ test("specialized shader uses direct canonical streams and analytic UV0/UV1/UV2 
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /textureSampleGrad\(high_resolution_material_textures/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv1_byte_offset/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv2_byte_offset/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.normal_descriptor/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.normal_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.normal_stride/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.normal_format/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.tangent_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.tangent_format/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.color_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.color_normalized/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /fn read_normal_direct/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /fn read_tangent_direct/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /fn read_color_direct/);
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /fn find_stream/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /fn reconstruct_material_uv/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /reconstruct_material_uv\(material_info, 0u/);
