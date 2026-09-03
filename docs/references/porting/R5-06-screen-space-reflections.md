@@ -68,3 +68,24 @@ The production fixture and Gate must cover a mirror plane with a visible
 reflected object, screen miss, roughness `0 / 0.5 / 1`, an offscreen target,
 camera pan/disocclusion, feature-off exact-zero ownership, SSR hit/miss and
 history-confidence debug outputs, and trace/denoise/composite GPU timing.
+
+## 2026-09-04 P5/C2 correction & fallback evidence
+
+`retained-current-authored` 依旧成立：本条目不采用 FidelityFX SSSR，仅确认并
+接线 authored 实现的 correction/fallback 不变量。
+
+- **Delta correction（修正而非替换）**：`specular_correction.ts` 实现
+  `resolved - baseline` 后乘 `weight * occlusion`，并以 `one/one` additive blend
+  累加回 HDR —— 即 `resolved = (resolved - baseline) * weight * occlusion`，SSR
+  命中只做局部修正，不替换 Local Probe / IBL 基线。
+- **IBL miss/低置信度 fallback**：resolve 阶段实现
+  `resolved = mix(environment, radiance, maximum_confidence)`，miss、低置信度、
+  越界与超粗糙时连续回退到环境/IBL 路径，不产生黑反射。
+- **完整 Scene Radiance 输入**：SSR 的 `sceneColor` 读完整 opaque HDR 合成结果，
+  不再是局部分辨。
+- **三条分支统一接线**：IBL 分支（约 Renderer.ts L2184）、Brick4/Lightmap 分支
+  （L2207-2255）、LPV 分支（L2410）现在都经 `ReflectionService.addCorrection`
+  消费 specular 基线。其中 Brick4 分支此前丢弃非 fused 的 `Brick4SpecularPass`
+  基线，现由 `GIService.addLightmapIndirect` 以 `LightmapIndirectOutput
+  { hdr, indirectSpecular }` 返回并喂给 `addCorrection`；fused 路径无独立基线，
+  `indirectSpecular` 为 `null`。ABI 见 `R5-08-gi-provider-composition.md`。

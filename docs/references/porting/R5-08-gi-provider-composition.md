@@ -38,6 +38,7 @@ Renderer 预导入 ResourceId + late-bound job
 - `LightmapIndirectInputs`：`hdr/depth/normal/bentNormal/albedoAo/pbr/splitSum/stbn/view/camera/lightMap` + 可选 `ambientVisibility/metadata` + `extent{width,height}` + `fused`。
 - `ProbeVolumeIndirectInputs`：`hdr/depth/normal/bentNormal/albedoAo/pbr/splitSum/environment/camera` + 可选 `ambientVisibility/metadata` + `atlasRadiance/atlasDepth/meshBvh/metadataBuffer/tetrahedra/probes` + `extent` + `job`（late-bound camera/sampler/尺寸）。
 - `ProbeVolumeIndirectOutput`：`{ hdr, indirectSpecular }`；`indirectSpecular` 即 IBL specular 基线，供后续 SSSR delta correction 消费。
+- `LightmapIndirectOutput`：`{ hdr, indirectSpecular }`；非 fused 路径 `indirectSpecular` 为 `Brick4SpecularPass` 输出（specular 基线），供后续 SSSR delta correction 消费；fused 路径直接累加 hdr、无独立 specular 基线，`indirectSpecular` 为 `null`。
 - 三种 provider 的输出都汇入同一个 `IndirectComposite`，不复制 Surface 解释。
 
 ## Retained Invariants

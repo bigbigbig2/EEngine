@@ -2235,7 +2235,7 @@ export class Renderer {
             bind("brick4-light-map", (bindings) =>
               bindings.gpuScene.volumetric_light_map.buffer)
           );
-          hdrRes = this._giService.addLightmapIndirect(graph, {
+          const lightmap = this._giService.addLightmapIndirect(graph, {
             hdr: hdrRes,
             depth: depthRes,
             normal: gNormalRes,
@@ -2252,6 +2252,84 @@ export class Renderer {
             extent: { width: w, height: h },
             fused: this.fused_indirect && !graphTopology.ssr
           });
+          hdrRes = lightmap.hdr;
+
+          if (
+            graphTopology.ssr &&
+            environmentRes !== null &&
+            hzbRes !== null &&
+            velocityRes !== null &&
+            occlusionConfidenceRes !== null &&
+            lightmap.indirectSpecular !== null
+          ) {
+            const ssr = this._reflectionService!.addToGraph(
+              graph,
+              bind("ssr-job", (bindings) => ({
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
+                frameIndex: bindings.frameIndex,
+                historyValid: bindings.ssrHistoryValidity >= 0.5,
+                historyInputIndex: bindings.ssrHistoryInputIndex,
+                historyOutputIndex: bindings.ssrHistoryOutputIndex,
+                samplers: this._graphics.samplers,
+                maxDistance: metersToWorldUnits(
+                  this._renderSettings.values.ssr.maxDistanceMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                edgeFade: this._renderSettings.values.ssr.edgeFade,
+                maxSteps: this._renderSettings.values.ssr.maxSteps,
+                baseThickness: metersToWorldUnits(
+                  this._renderSettings.values.ssr.baseThicknessMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                distanceThicknessScale: this._renderSettings.values.ssr.distanceThicknessScale,
+                maxRoughness: this._renderSettings.values.ssr.maxRoughness,
+                temporalStrength: this._renderSettings.values.ssr.temporalStrength
+              })),
+              {
+                depth: depthRes,
+                hzb: hzbRes,
+                sceneColor: hdrRes,
+                pbr: gPbrRes,
+                normal: gNormalRes,
+                velocity: velocityRes,
+                occlusionConfidence: occlusionConfidenceRes,
+                surfaceValidity: opaqueTemporalValidityRes!,
+                albedoAo: gAlbedoRes,
+                environment: environmentRes,
+                blueNoise: stbnRes,
+                currentCamera: currentCameraRes,
+                previousCamera: previousCameraRes,
+                counters: gpuCounterRes ?? undefined
+              },
+              {
+                input: bind("ssr-history-input", (bindings) =>
+                  this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
+                output: bind("ssr-history-output", (bindings) =>
+                  this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
+              }
+            );
+            hdrRes = this._reflectionService!.addCorrection(graph, {
+              hdr: hdrRes,
+              depth: depthRes,
+              normal: gNormalRes,
+              bentNormal: bentNormalRes,
+              albedoAo: gAlbedoRes,
+              pbr: gPbrRes,
+              splitSum: splitSumRes,
+              baselineSpecular: lightmap.indirectSpecular,
+              resolvedSpecular: ssr.denoised,
+              ambientVisibility: ambientVisibilityRes ?? undefined,
+              camera: currentCameraRes,
+              metadata: packedResolveOut?.surfaceFlags
+            });
+            indirectSpecularDebugRes = ssr.denoised;
+            ssrHitMissDebugRes = ssr.trace;
+            ssrResolveDebugRes = ssr.denoised_1;
+            ssrTemporalDebugRes = ssr.temporal;
+            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
+            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
+          }
         }
 
         if (

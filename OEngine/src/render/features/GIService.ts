@@ -80,6 +80,12 @@ export interface ProbeVolumeIndirectOutput {
   readonly indirectSpecular: ResourceId;
 }
 
+export interface LightmapIndirectOutput {
+  readonly hdr: ResourceId;
+  /** Brick4 非 fused 路径的 specular 基线，供 SSSR delta correction 消费；fused 路径无独立基线，为 null。 */
+  readonly indirectSpecular: ResourceId | null;
+}
+
 export class GIService {
   readonly implementation: OpaqueLightingPipeline;
   private readonly graphics: GraphicsContext;
@@ -118,7 +124,7 @@ export class GIService {
   }
 
   /** 静态 GI Provider（Lightmap）：Brick4 diffuse/specular（或 fused）→ IndirectComposite。 */
-  addLightmapIndirect(graph: FrameGraph, inputs: LightmapIndirectInputs): ResourceId {
+  addLightmapIndirect(graph: FrameGraph, inputs: LightmapIndirectInputs): LightmapIndirectOutput {
     const base: Brick4BaseInputs = {
       depth: inputs.depth,
       stbn: inputs.stbn,
@@ -127,7 +133,7 @@ export class GIService {
       lightMap: inputs.lightMap
     };
     if (inputs.fused) {
-      return this.brick4Fused!.addToGraph(graph, {
+      const hdr = this.brick4Fused!.addToGraph(graph, {
         ...base,
         hdr: inputs.hdr,
         normal: inputs.normal,
@@ -136,6 +142,7 @@ export class GIService {
         pbr: inputs.pbr,
         splitSum: inputs.splitSum
       });
+      return { hdr, indirectSpecular: null };
     }
     const job: Brick4IndirectJob = {
       width: inputs.extent.width,
@@ -151,7 +158,7 @@ export class GIService {
       job,
       { ...base, normal: inputs.bentNormal, albedoAo: inputs.albedoAo }
     );
-    return this.composeIndirect(graph, {
+    const hdr = this.composeIndirect(graph, {
       hdr: inputs.hdr,
       depth: inputs.depth,
       normal: inputs.normal,
@@ -165,6 +172,7 @@ export class GIService {
       camera: inputs.camera,
       metadata: inputs.metadata
     });
+    return { hdr, indirectSpecular };
   }
 
   /** 动态 GI Provider（Probe Volume）：LPV diffuse + IBL specular 基线 → IndirectComposite。 */
