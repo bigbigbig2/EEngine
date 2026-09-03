@@ -37,6 +37,7 @@ R4 core（A/B）已经关闭。R4-C 只在 profile 证明 HW raster 是主要瓶
 | [10-verification-matrix](./10-verification-matrix.md) | 正确性、性能、内存和回归 Gate | 全阶段 |
 | [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md) | R5 Shading/Screen-space/Temporal/Post 的 contract-first 重构与综合证据基线 | R5-Q00..Q06，G5-T/G5-P 前置 |
 | [12-packed-asset-to-surface-reconstruction](./12-packed-asset-to-surface-reconstruction.md) | 从 Packed glTF 到 Surface 的单链直接重构：资产聚合、事务驻留、精确 RasterWork/Key、材质分类和紧凑 Surface | 两步直接迁移，设计完成、代码未实施 |
+| [13-product-render-pipeline-redesign](./13-product-render-pipeline-redesign.md) | 本次确认的产品级目标架构、效果组合、开源移植和硬切换重构策略 | 新渲染管线总设计，实施前置 |
 
 ## 当前唯一入口
 
