@@ -606,6 +606,8 @@ P5 owner/composition 执行记录见 [19-p5-gi-reflection-ao-services.md](./19-p
 - OIT overflow、容量和 fallback 有计数；
 - 透明关闭时不分配 OIT 资源、不提交 OIT Pass。
 
+当前执行记录：[P6 TransparencyFeature](./20-p6-transparency-feature.md)。本阶段先完成 owner/lifecycle 收拢，OIT 数学与 G5-S 生产 Gate 仍按后续验证门禁执行。
+
 ## 26. P7：Temporal Reconstruction、TAAU 和 DRS
 
 ### 目标

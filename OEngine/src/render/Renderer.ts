@@ -36,8 +36,7 @@ import { PackedSurfaceCounterPass } from "./passes/PackedSurfaceCounterPass.js";
 import { LightingFeature } from "./features/LightingFeature.js";
 import type { LightClusterOutputs } from "./passes/LightClusterPass.js";
 import { LpvIndirectDiffusePass } from "./passes/LpvIndirectDiffusePass.js";
-import { TransparentOitPass } from "./passes/TransparentOitPass.js";
-import { PackedTransparentOitPass } from "./passes/PackedTransparentOitPass.js";
+import { TransparencyFeature } from "./features/TransparencyFeature.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
 import { PathTracer } from "./passes/PathTracer.js";
 import {
@@ -392,8 +391,7 @@ export class Renderer {
   private _lightingFeature!: LightingFeature;
   private _giService!: GIService;
   private _lpvIndirectDiffuse!: LpvIndirectDiffusePass;
-  private _transparentOit: TransparentOitPass | null = null;
-  private _packedTransparentOit: PackedTransparentOitPass | null = null;
+  private _transparencyFeature: TransparencyFeature | null = null;
   private _packedTransparencyOwnerGeneration = 0;
   private _pendingLinearHdrCapture: PendingLinearHdrCapture | null = null;
   private _pathTracer: PathTracer | undefined;
@@ -635,7 +633,7 @@ export class Renderer {
       const runtime = this._graphics.packed_scenes.runtime(scene);
       if (runtime !== null && this._visibilityFeature) {
         this._visibilityFeature.release(runtime, command);
-        this._packedTransparentOit?.release(runtime, command);
+        this._transparencyFeature?.releasePacked(runtime, command);
         this._scenes.obtain(scene).lights.shadow_service.releasePackedScene(
           runtime,
           command
@@ -670,16 +668,16 @@ export class Renderer {
     transientBytesPerPixel: number;
     motionContract: "reactive-all-velocity-invalid-v1";
   }> | null {
-    const pass = this._packedTransparentOit;
-    if (pass === null) return null;
+    const feature = this._transparencyFeature;
+    if (feature === null || feature.packed() === null) return null;
     return Object.freeze({
-      rasterStateBinLimit: pass.rasterStateBinLimit,
-      drawCount: pass.lastDrawCount,
-      momentPasses: pass.lastMomentPasses,
-      forwardPasses: pass.lastForwardPasses,
-      compositePasses: pass.lastCompositePasses,
-      transientBytesPerPixel: pass.transientBytesPerPixel,
-      motionContract: pass.motionContract
+      rasterStateBinLimit: feature.rasterStateBinLimit!,
+      drawCount: feature.drawCount,
+      momentPasses: feature.momentPasses,
+      forwardPasses: feature.forwardPasses,
+      compositePasses: feature.compositePasses,
+      transientBytesPerPixel: feature.transientBytesPerPixel!,
+      motionContract: feature.motionContract!
     });
   }
 
@@ -1056,10 +1054,8 @@ export class Renderer {
       pending.buffer.destroy();
       pending.reject(new Error("Renderer destroyed before Linear HDR capture"));
     }
-    this._transparentOit?.destroy();
-    this._transparentOit = null;
-    this._packedTransparentOit?.destroy();
-    this._packedTransparentOit = null;
+    this._transparencyFeature?.destroy();
+    this._transparencyFeature = null;
     this._aoService?.destroy();
     this._aoService = null;
     this._ssaoConfigurationKey = "";
@@ -2529,11 +2525,11 @@ export class Renderer {
             splitSum.gpu_texture
           );
           if (packedPath) {
-            const packedTransparency = this._packedTransparentOit;
+            const packedTransparency = this._transparencyFeature?.packed();
             if (packedTransparency === null) {
               throw new Error("Packed transparency topology has no active owner");
             }
-            const output = packedTransparency.addToGraph(
+            const output = this._transparencyFeature!.addPackedToGraph(
               graph,
               bind("packed-transparent-oit-job", (bindings) => {
                 const registryBindings = this._graphics.packed_scenes.bindings();
@@ -2574,7 +2570,6 @@ export class Renderer {
             }
           } else if (hzbRes !== null && lightDatabaseRes !== null &&
             shadowAtlasRes !== null && clusters !== null) {
-            this._transparentOit ??= new TransparentOitPass(this._graphics);
             const brick4LightMapRes =
               this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4
                 ? graph.import_resource(
@@ -2584,7 +2579,7 @@ export class Renderer {
                       bindings.gpuScene.volumetric_light_map.buffer)
                   )
                 : undefined;
-            hdrRes = this._transparentOit.addToGraph(
+            hdrRes = this._transparencyFeature!.addLegacyToGraph(
               graph,
               bind("transparent-oit-job", (bindings) => ({
                 width: bindings.internalWidth,
@@ -3124,16 +3119,19 @@ export class Renderer {
     command: ShadeGPUCommandContext
   ): void {
     if (runtime !== null && enabled) {
-      if (this._packedTransparentOit === null) {
-        this._packedTransparentOit = new PackedTransparentOitPass(this._graphics);
+      if (this._transparencyFeature === null) {
+        this._transparencyFeature = new TransparencyFeature(this._graphics);
+      }
+      if (this._transparencyFeature.packed() === null) {
+        this._transparencyFeature.obtainPacked();
         this._packedTransparencyOwnerGeneration++;
       }
       return;
     }
-    const previous = this._packedTransparentOit;
-    if (previous === null) return;
-    this._packedTransparentOit = null;
-    previous.retire(command);
+    const feature = this._transparencyFeature;
+    if (feature === null || feature.packed() === null) return;
+    // previous.retire(command) 由 TransparencyFeature 在统一 owner 内执行。
+    feature.retirePacked(command);
   }
 
   private initializeRenderPasses(
@@ -3145,6 +3143,8 @@ export class Renderer {
       this._visibility.init();
     }
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
+    // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
+    this._transparencyFeature ??= new TransparencyFeature(this._graphics);
     this._surfaceFeature ??= new SurfaceFeature(this._graphics);
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     this._lightingFeature ??= new LightingFeature(this._graphics);
