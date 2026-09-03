@@ -80,7 +80,9 @@ P0 必须完成：
 | `render/passes/PackedMaterialResolvePass.ts` | 重写为唯一 Surface Feature | 统一 VisibilityKey、Material、Texture、Velocity 和 Surface 输出 |
 | `render/VisiblePixelClassifier.ts` | 迁移为 Resolve 内部分类阶段 | 不允许恢复每材质全屏扫描 |
 | `render/passes/MaterialExpandPass.ts` | 删除 | 与 Single Material Resolve 和硬切换策略冲突 |
-| `shaders/material_expand.ts`、`material_expand_oracle.ts` | 删除或仅保留有明确 oracle 引用者 | 旧 Material Expand 不得成为生产 consumer |
+| `shaders/material_expand.ts`、`material_sr.ts` | 已删除（P9 硬切换） | 无 runtime owner 的旧 Material Expand / Surface Resolve 分支 |
+| `shaders/material_expand_oracle.ts` | 保留 | 由 `GPUMaterialContext.ts` 消费，为当前 Material Expand 运行源，删除并入后续 authored 迁移 |
+| `shaders/mesh_instance_cull.ts`、`meshlet_expand_counts.ts`、`meshlet_expand.ts` | 已删除（P9 硬切换） | 无 runtime owner 的旧 Visibility work-generation 分支；`mesh_instance_cull_dual.ts` 仍在运行 |
 | `shaders/packed_material_resolve.ts` | 重写并保留为 Surface 生产 shader | 以目标 Surface ABI 为准 |
 | `gpu/GpuSurfaceAbi.ts`、`GpuMaterial*`、`GpuVisibilityKeyAbi.ts` | 保留并按 ADR-0011 校准 | ABI 是 P3 前置合同，不在 P0 改数值 |
 

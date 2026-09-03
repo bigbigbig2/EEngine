@@ -12,11 +12,10 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 74,
+  "shaderCount": 70,
   "summary": {
-    "authored-live": 64,
-    "unknown": 5,
-    "dead": 5
+    "authored-live": 65,
+    "unknown": 5
   },
   "entries": [
     {
@@ -69,6 +68,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/passes/Brick4IndirectPass.ts",
         "src/render/passes/TransparentOitPass.ts",
@@ -77,6 +77,26 @@
       "pipelineOwners": [
         "src/render/passes/Brick4IndirectPass.ts",
         "src/render/passes/TransparentOitPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/color_grading.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ColorGradingPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/features/PostFeature.ts",
+        "src/render/passes/ColorGradingPass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ColorGradingPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -129,6 +149,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -271,6 +292,7 @@
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/ColorGradingPass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
@@ -323,7 +345,6 @@
       "classification": "authored-live",
       "directConsumers": [
         "src/shaders/lighting_direct.ts",
-        "src/shaders/material_expand.ts",
         "src/shaders/packed_material_resolve.ts",
         "src/shaders/probe_gbuffer.ts",
         "src/shaders/render_debug_view.ts"
@@ -344,6 +365,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -395,6 +417,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -444,6 +467,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -578,7 +602,6 @@
         "src/shaders/indirect_composite.ts",
         "src/shaders/light_cluster.ts",
         "src/shaders/lighting_direct.ts",
-        "src/shaders/material_expand.ts",
         "src/shaders/occlusion_confidence.ts",
         "src/shaders/packed_csm_shadow.ts",
         "src/shaders/packed_transparent_oit.ts",
@@ -720,6 +743,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -836,6 +860,7 @@
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/ColorGradingPass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
@@ -972,6 +997,7 @@
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/ColorGradingPass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
@@ -1017,28 +1043,6 @@
       "status": "Runtime pipeline reachable, but oracle/generated ownership is unresolved."
     },
     {
-      "shader": "src/shaders/material_expand.ts",
-      "sourceKind": "authored",
-      "classification": "dead",
-      "directConsumers": [],
-      "runtimeConsumers": [],
-      "pipelineOwners": [],
-      "generatorCandidates": [],
-      "deletionCandidate": true,
-      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
-    },
-    {
-      "shader": "src/shaders/material_sr.ts",
-      "sourceKind": "authored",
-      "classification": "dead",
-      "directConsumers": [],
-      "runtimeConsumers": [],
-      "pipelineOwners": [],
-      "generatorCandidates": [],
-      "deletionCandidate": true,
-      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
-    },
-    {
       "shader": "src/shaders/mesh_instance_cull_dual.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -1061,6 +1065,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1086,17 +1091,6 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
-      "shader": "src/shaders/mesh_instance_cull.ts",
-      "sourceKind": "authored",
-      "classification": "dead",
-      "directConsumers": [],
-      "runtimeConsumers": [],
-      "pipelineOwners": [],
-      "generatorCandidates": [],
-      "deletionCandidate": true,
-      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
-    },
-    {
       "shader": "src/shaders/meshlet_bucket_ka.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -1119,6 +1113,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1166,6 +1161,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1191,28 +1187,6 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
-      "shader": "src/shaders/meshlet_expand_counts.ts",
-      "sourceKind": "authored",
-      "classification": "dead",
-      "directConsumers": [],
-      "runtimeConsumers": [],
-      "pipelineOwners": [],
-      "generatorCandidates": [],
-      "deletionCandidate": true,
-      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
-    },
-    {
-      "shader": "src/shaders/meshlet_expand.ts",
-      "sourceKind": "authored",
-      "classification": "dead",
-      "directConsumers": [],
-      "runtimeConsumers": [],
-      "pipelineOwners": [],
-      "generatorCandidates": [],
-      "deletionCandidate": true,
-      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
-    },
-    {
       "shader": "src/shaders/meshlet_hzb_cull_dual.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -1235,6 +1209,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1283,6 +1258,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1334,6 +1310,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1385,6 +1362,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1414,7 +1392,6 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/shaders/material_expand.ts",
         "src/shaders/ray_query.ts"
       ],
       "runtimeConsumers": [
@@ -1433,6 +1410,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1553,6 +1531,7 @@
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/ColorGradingPass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
@@ -1678,6 +1657,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1723,6 +1703,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1851,6 +1832,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1896,6 +1878,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1943,6 +1926,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -1989,6 +1973,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -2072,6 +2057,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -2117,6 +2103,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -2167,6 +2154,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -2229,6 +2217,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -2280,6 +2269,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -2349,6 +2339,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -2737,7 +2728,6 @@
       "classification": "authored-live",
       "directConsumers": [
         "src/shaders/mesh_instance_cull_dual.ts",
-        "src/shaders/mesh_instance_cull.ts",
         "src/shaders/meshlet_hzb_cull_dual.ts",
         "src/shaders/meshlet_hzb_cull.ts"
       ],
@@ -2757,6 +2747,7 @@
         "src/gpu/ShadowContext.ts",
         "src/gpu/ShadowService.ts",
         "src/index.ts",
+        "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
