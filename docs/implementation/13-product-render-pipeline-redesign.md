@@ -346,8 +346,334 @@ new Renderer({
 
 本文是本次讨论形成的产品级重构设计。实施前需要：
 
-- 创建或更新对应 ADR，明确替代现有冲突决策；
-- 建立“现有源码 → 目标模块 → 上游参考 → 重写/删除动作”映射表；
+- 对应长期决策已登记为 [ADR-0012](../wiki/adr/0012-product-render-pipeline-redesign.md)，明确替代现有冲突决策；
+- 建立“现有源码 → 目标模块 → 上游参考 → 重写/删除动作”映射表，见 [P0 源码映射与删除清单](./14-p0-source-mapping-and-deletion.md)；
 - 为每次开源移植补充 porting ledger；
 - 用实现证据更新 `CURRENT-STATE.md`，不能提前把目标写成已完成事实。
 
+## 18. 可执行的阶段实施蓝图
+
+本节把前面的目标架构转换为执行顺序。阶段是依赖边界，不是兼容版本，也不是要求长期同时存在的新旧管线。实施采用硬切换：旧实现可以在开发中被删除，直到新阶段完成前不建立第二条生产路径。
+
+### 18.1 总体依赖图
+
+```text
+P0 目标冻结 / 源码盘点 / ADR
+ ↓
+P1 FrameGraph + Feature + View + Resource 基础设施
+ ↓
+P2 GPU Scene / Frame Contract / Config / Capability
+ ↓
+P3 GPU Visibility + Surface Contract + Material Resolve
+ ↓
+P4 Clustered Lighting + Shadow Service + HDR Composition
+ ↓
+P5 GI Service + Reflection Service + AO Service
+ ↓
+P6 Transparency Forward / OIT
+ ↓
+P7 Temporal Reconstruction + TAAU / DRS
+ ↓
+P8 HDR Post + Present + Debug Composition
+ ↓
+P9 旧路径删除、示例、Browser/GPU Gate、性能闭环
+```
+
+依赖关系的含义：
+
+- P1 先提供承载新实现的图、资源和调试边界；不要求保留旧画面。
+- P2 冻结 GPU Scene、View 和初始化配置，避免后续效果各自定义数据来源。
+- P3 先稳定 Surface 数据，P4 以后所有光照效果只消费 Surface，不再重复解释材质。
+- P4 先解决直接光照和阴影组合，P5 再接入间接光、反射和 AO，避免同时排查所有能量来源。
+- P6 透明路径在不透明 HDR 场景颜色稳定后接入。
+- P7 必须在 AO、SSR、透明和运动矢量输入稳定后实现，不使用 Temporal 掩盖上游错误。
+- P8 是最终色彩和输出边界；P9 才开始建立正式产品示例和完整 Gate。
+
+### 18.2 每阶段统一交付格式
+
+每个阶段的实现任务必须包含以下内容：
+
+1. 目标合同：输入、输出、依赖和不变量；
+2. 源码 owner：新增、迁移、删除的模块和 shader；
+3. 开源参考：仓库、commit/tag、路径、许可证和适配差异；
+4. 运行证据：GPU producer/consumer、计数器、timestamp、Debug View；
+5. 删除清单：旧 consumer、资源 owner、shader、配置和死代码；
+6. 退出 Gate：正确性、性能、显存、feature-off 和回归结果。
+
+不以“类已经创建”“Pass 已注册”或“能显示一张图”作为完成依据。
+
+## 19. P0：目标冻结与源码盘点
+
+### 目标
+
+把本设计转成可执行的重构边界，明确哪些现有文档和实现被替代，避免实现过程中重新引入旧路线。
+
+### 架构动作
+
+- 为本设计创建对应 ADR，明确替代与现有 ADR/实施文档冲突的部分；
+- 冻结 `RendererConfig`、ViewContext、FrameProducts、Surface 和 Lighting 的概念接口；
+- 建立“现有模块 → 目标 Feature → 参考实现 → 重写/删除”的映射表；
+- 标注每个现有 Pass 是保留、完整移植、重写或删除，不建立 `V2` 命名体系。
+
+### 当前代码盘点重点
+
+- `OEngine/src/render/Renderer.ts`：当前主图编排、资源绑定和提交 owner；
+- `OEngine/src/render/MainFrameFeatureTopology.ts`、`pipeline/FramePlan.ts`、`pipeline/FrameProducts.ts`：目标编排边界候选；
+- `OEngine/src/framegraph/*`：现有 FrameGraph、编译缓存、资源管理和计时能力；
+- `OEngine/src/render/passes/*`：逐项标注迁移到哪个 Feature 或删除；
+- `OEngine/src/gpu/GpuScene.ts`、`GpuPackedSceneRegistry.ts`、`GpuAssetStore.ts`：GPU Scene 与资产 owner；
+- `OEngine/src/shaders/*`：确认真实生产 shader、生成来源和 legacy 文件。
+
+### 退出条件
+
+- 映射表完整覆盖生产 consumer；
+- 冲突文档和 ADR 有替代关系；
+- 删除清单通过源码引用检查；
+- 不存在“先保留以防万一”的未归属生产路径。
+
+## 20. P1：FrameGraph、Feature、View 和资源基础设施
+
+### 目标
+
+把当前手工主图改造成统一的 Feature 贡献模型，为后续新效果提供稳定承载层。
+
+### 目标架构
+
+```text
+Renderer
+  └─ FrameCoordinator
+      └─ FrameGraph
+          ├─ SceneUpdateFeature
+          ├─ VisibilityFeature
+          ├─ SurfaceFeature
+          ├─ LightingFeature
+          ├─ SecondaryFeature
+          ├─ TransparencyFeature
+          ├─ TemporalFeature
+          └─ PostFeature
+```
+
+每个 Feature 只声明输入、输出、依赖、配置和调试信息。FrameGraph 负责拓扑排序、Pass 剔除、资源生命周期和 transient 复用。
+
+### 实现顺序
+
+1. 把现有 FrameGraph 的资源句柄、编译缓存、计时器和单 submit 逻辑收拢到 `FrameCoordinator`；
+2. 定义 `ViewContext` 与每帧 `FrameProducts` 的生命周期；
+3. 定义 Persistent/Transient 资源注册和 feature-off 剔除规则；
+4. 把当前主图的每个现有 Pass 迁移为 Feature 的内部贡献，不保留独立 submit；
+5. 加入统一 Debug View、GPU timestamp 和资源统计；
+6. 删除 Renderer 中重复的手工拓扑、资源创建和 feature 开关分支。
+
+### 退出条件
+
+- 单一 FrameGraph 可编译并执行；
+- 默认单 CommandEncoder、单主 Queue Submit；
+- 关闭 Feature 时无无消费者 Pass、资源、History、readback；
+- 主视图、阴影视图和 Probe/Reflection 辅助视图都能使用同一 Feature 接口；
+- 资源生命周期和 timestamp 可在 Debug 输出中解释。
+
+## 21. P2：GPU Scene、Frame Contract、配置和能力检查
+
+### 目标
+
+冻结所有 Feature 消费的场景、视图和初始化配置边界，消除效果模块各自读取旧 Scene/Renderer 状态的问题。
+
+### 实现顺序
+
+1. 以 `GpuScene`、`GpuPackedSceneRegistry`、`GpuAssetStore` 为基础，确认 Runtime Asset 与 GPU owner 分离；
+2. 定义静态数据、动态 Patch、灯光变化和局部缓存失效的统一事件；
+3. 定义 `ViewContext` 的相机、输出尺寸、jitter、历史句柄和辅助视图标识；
+4. 定义中等偏高默认 `RendererConfig`，所有数值参数和 Feature 开关从初始化配置进入；
+5. 在 Renderer 创建阶段检查目标 WebGPU 能力，不满足则 fail-fast；
+6. 删除各 Pass 内部自行推导分辨率、场景 owner 和默认参数的重复逻辑。
+
+### 退出条件
+
+- CPU 只提交 Patch、Frame 参数和 Graph 配置；
+- GPU Scene 是所有可见性和光照 Feature 的唯一场景数据来源；
+- 多 View 使用同一 GPU Scene、独立 View 状态；
+- 初始化配置能完整控制默认开关和预算；
+- 能力不足时有明确错误，不进入半兼容路径。
+
+## 22. P3：GPU Visibility、Surface Contract 和 Material Resolve
+
+### 目标
+
+保留 GPU-driven 前端，但重建从 VisibilityKey 到 Surface 的单链路，删除重复材质解释和旧 Surface consumer。
+
+### 实现顺序
+
+1. 冻结 Visibility Buffer、Depth、Velocity 和 Surface ABI；
+2. 迁移 `PackedVisibilityPass`、Hierarchy/SSE/Work Generation 和 Hardware Raster consumer 到 `VisibilityFeature`；
+3. 确认 GPU producer 直接生成 indirect draw/work，并由 GPU consumer 消费；
+4. 将 `PackedMaterialResolvePass` 和 `VisiblePixelClassifier` 收拢为唯一 `SurfaceFeature`；
+5. 统一输出 Standard PBR Surface、Normal、Velocity、Material AO、Emissive 和 metadata；
+6. 迁移 Alpha-Test 规则到同一 Visibility/Surface 合同；
+7. 删除旧 `MaterialExpandPass`、每材质全屏扫描、重复 Material Expand shader 和 Packed 旧 Surface consumer。
+
+### 退出条件
+
+- Opaque/Alpha-Test 只有一条 Visibility → Material Resolve → Surface 路径；
+- Resolve draw、Surface bytes、overflow、invalid 和 fallback 有 GPU 计数；
+- CPU 不生成最终可见列表；
+- Material AO 不再与 GTAO 合并；
+- Surface Debug View 能单独显示 BaseColor、Normal、AO、Velocity、Emissive 和 material classification。
+
+## 23. P4：Clustered Lighting、Shadow Service 和 HDR Composition
+
+### 目标
+
+先建立稳定的直接光照和阴影组合，为 GI、Reflection 和 AO 提供明确的光照输入。
+
+### 实现顺序
+
+1. 将动态 Directional/Point/Spot 灯光统一写入 GPU Light Buffer；
+2. 迁移 `LightClusterPass` 为 GPU Cluster/Froxel assignment Feature；
+3. 统一直接光照、物理光单位和线性 HDR 输出；
+4. 将 `PackedCsmShadowPass`、`ShadowRasterPass`、Shadow Atlas 和 Contact Shadow 收拢为 Shadow Service；
+5. 统一 shadow visibility 采样和软阴影过滤入口；
+6. 删除直接光照前后重复的颜色 composite、旧灯光列表和独立阴影组合路径；
+7. 接入 Lighting Debug View、cluster overflow、灯光遍历和阴影 tile/cascade 统计。
+
+### 退出条件
+
+- 每个像素只消费所属 Cluster 的动态灯光；
+- Directional、Point、Spot 默认产生阴影；
+- Shadow Service 输出只表示可见性/过滤结果，不直接改写最终颜色；
+- Direct Lighting + Shadow 在统一 HDR 方程中稳定；
+- 没有依赖未来 GI/SSR 才能成立的直接光照结果。
+
+## 24. P5：GI、Reflection 和 AO
+
+### 目标
+
+把所有间接光、反射和环境遮蔽接入统一 Lighting Composition，解决当前效果互相覆盖、错误 fallback 和顺序错误。
+
+### 实现顺序
+
+1. 建立 `GIService`：Lightmap Provider、Probe Volume Provider 和 IBL fallback；
+2. 接入离线 Lightmap、静态 Probe 数据和运行时局部 Probe 更新；
+3. 建立 `ReflectionService`：Local Reflection Probe、SSSR correction、IBL fallback；
+4. 确保 SSSR 读取完整 Scene Radiance，使用命中置信度做修正而非替换 Probe；
+5. 建立 `AOService`：Material AO、GTAO diffuse visibility、specular visibility、bent normal 分离；
+6. 迁移现有 `ScreenSpaceAmbientOcclusionPass`、`ScreenSpaceReflectionsPass`、IBL、Indirect Composite 和 Probe Pass 到对应 Service；
+7. 删除 GTAO 写回 Material AO、SSR 重复 final composite、读取不完整 Scene Radiance 的旧组合路径；
+8. 加入 GI 来源、SSR hit/miss/confidence、AO 通道和 fallback Debug View。
+
+### 退出条件
+
+- Diffuse fallback 为 `Lightmap → Probe Volume → IBL → 无间接光`；
+- Reflection fallback 为 `Local Probe → SSSR correction → IBL`；
+- SSSR miss/低置信度不会产生黑色反射；
+- GTAO 不修改 Material AO，也不直接乘最终颜色；
+- 动态灯光能通过 Probe Volume 影响静态场景间接光；
+- AO、SSR、GI 的资源和历史归属明确且可单独关闭。
+
+## 25. P6：透明 Forward/OIT
+
+### 目标
+
+在不透明 HDR 场景和光照服务稳定后，接入透明对象，不让透明路径反向污染 Opaque Surface 合同。
+
+### 实现顺序
+
+1. 定义透明 View 输入：Depth、Clustered Lighting、Shadow、GI、Reflection 和 HDR Scene Color；
+2. 迁移 `PackedTransparentOitPass`、`TransparentOitPass` 和透明 shader 到 `TransparencyFeature`；
+3. 保留 Forward/OIT 的独立资源与合成边界；
+4. 为透明对象输出 Velocity、Reactive Mask 和必要的历史分类；
+5. 删除透明路径对旧 Material Expand、旧最终颜色 composite 和重复光照列表的依赖；
+6. 明确当前不实现 Transmission、Refraction 和透明对象动态 GI。
+
+### 退出条件
+
+- 透明路径复用统一灯光和阴影服务；
+- 不透明 Visibility Buffer 不被透明路径破坏；
+- OIT overflow、容量和 fallback 有计数；
+- 透明关闭时不分配 OIT 资源、不提交 OIT Pass。
+
+## 26. P7：Temporal Reconstruction、TAAU 和 DRS
+
+### 目标
+
+在上游 Surface、Lighting、AO、SSR、Transparency 和 Velocity 都稳定后，彻底替换旧 TAA 组合，建立统一时域服务。
+
+### 实现顺序
+
+1. 冻结输出分辨率、内部渲染分辨率、jitter、Velocity、Depth 和 Reactive Mask 合同；
+2. 建立 Temporal History Registry 的颜色、AO、Reflection/Confidence 独立历史；
+3. 迁移 `TemporalClassificationPass`、`TemporalAntiAliasingPass`、`DynamicResolutionScaling` 和历史导入/导出到 `TemporalFeature`；
+4. 实现 TAAU + DRS 默认路径，初始化参数控制预算，不接入运行时自动降级；
+5. 实现历史失效：摄像机切换、场景重载、重大灯光变化、输出尺寸变化和资源重建；
+6. 删除旧 `taa`、重复 final temporal composite、错误的固定 history blend 和无 owner 的历史资源；
+7. 加入 history weight、rejection、disocclusion、reactive 和 reset Debug View。
+
+### 退出条件
+
+- TAA/TAAU 只负责最终重建，不替代 AO/SSR 自己的历史；
+- 透明和快速变化区域不会污染不透明历史；
+- 快速相机运动、细小几何和 SSR 变化没有明显拖影或抖动；
+- DRS 只由初始化配置决定，不存在隐藏自动 Governor；
+- resize、cut 和资源重建后的历史行为可验证。
+
+## 27. P8：HDR Post、Present 和最终调试组合
+
+### 目标
+
+固定最终颜色边界，保证所有后处理在正确的线性 HDR/显示变换顺序中执行。
+
+### 实现顺序
+
+1. 统一 Scene HDR、Exposure、Bloom、Color Grading、Tone Mapping 和 Present 的资源域；
+2. 迁移 `AutomaticExposurePass`、`BloomPass`、`TonemapPass`、`SharpenPass` 等到 `PostFeature`；
+3. 删除中间 LDR、重复 gamma/sRGB 转换和旧 Post composite；
+4. 将 Motion Blur 保持为可选扩展，默认关闭，不让它承担 TAA 修复职责；
+5. 将最终 Debug View 接在 Post 前后，避免调试输出改变真实产品链；
+6. 统一 Swapchain format、HDR output 和颜色空间错误处理。
+
+### 退出条件
+
+- 线性 HDR 贯穿 Lighting → Temporal → Post；
+- Exposure、Bloom、Color Grading、Tone Mapping 顺序固定且可观察；
+- Feature-off 不保留无消费者 Post 资源或 Pass；
+- 最终输出与截图/数值回归工具使用同一颜色域定义。
+
+## 28. P9：硬切换、删除、示例和完整 Gate
+
+### 目标
+
+新管线主体完成后一次性进入产品验证，清理全部旧 owner 和兼容残留。
+
+### 删除顺序
+
+1. 删除旧 Renderer 手工编排和重复 FramePlan；
+2. 删除旧 Visibility/HZB/Material Expand consumer；
+3. 删除旧 Lighting、IBL、Indirect Composite、AO、SSR、TAA 和 Post 组合路径；
+4. 删除未被新 Feature 引用的 shader、generated owner、资源表和配置；
+5. 删除旧 readback、调试面板和只服务旧路径的统计；
+6. 使用全仓库引用搜索确认没有死代码、重复 owner 或隐式 fallback。
+
+### 示例接入时机
+
+只有在 P1–P8 的主要模块完成、FrameGraph 拓扑稳定、旧路径已删除大部分后，才正式建立固定验证场景。示例不作为临时兼容层，也不反向决定架构。
+
+### 最终 Gate
+
+- Static Geometry；
+- Dynamic Lighting；
+- Indoor GI；
+- Reflection；
+- Temporal Stress；
+- Heavy Workload。
+
+每个场景必须输出截图、固定帧序列、GPU timestamp、Debug View、关键计数器、显存统计和 Feature-off 结果。最终 Gate 通过后，才更新 `CURRENT-STATE.md` 和相关 ADR 的实施状态。
+
+## 29. 阶段之间的禁止事项
+
+- 不在 P1/P2 引入第二条“临时新管线”并长期维护；
+- 不在 P3 之前为 AO、SSR 或 GI 增加新的独立表面解释；
+- 不在 Surface Contract 稳定前通过后期乘法修正光照；
+- 不在 Temporal 之前用 TAA 掩盖上游闪烁、黑块或错误 fallback；
+- 不因为现有类名、旧 shader 或旧示例仍能运行而推迟删除；
+- 不把某个上游实现改写成只剩几步的简化版；
+- 不在没有 GPU producer/consumer、计数器和浏览器证据时宣称阶段完成；
+- 不为兼容低端设备扩张当前 WebGPU 主路径。
