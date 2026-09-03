@@ -483,6 +483,9 @@ Renderer
 
 冻结所有 Feature 消费的场景、视图和初始化配置边界，消除效果模块各自读取旧 Scene/Renderer 状态的问题。
 
+P2 基础合同执行记录见 [16-p2-scene-contract-and-config.md](./16-p2-scene-contract-and-config.md)。
+该工作包先冻结配置、能力检查和 CPU 帧合同；具体 GPU Scene consumer 迁移与算法改造仍按 P3–P8 顺序执行。
+
 ### 实现顺序
 
 1. 以 `GpuScene`、`GpuPackedSceneRegistry`、`GpuAssetStore` 为基础，确认 Runtime Asset 与 GPU owner 分离；

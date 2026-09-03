@@ -141,9 +141,19 @@ export { ProjectionMappingType } from "./loaders/ProjectionMappingType.js";
 export {
   Renderer,
   type AmbientOcclusionRuntimeEvidence,
+  type RendererCapabilities,
   type ScreenSpaceReflectionsRuntimeEvidence,
   type TemporalRuntimeEvidence
 } from "./render/Renderer.js";
+export {
+  DEFAULT_RENDERER_CONFIG,
+  mergeRendererConfig,
+  rendererConfigSettingsPatch,
+  validateRendererConfig
+} from "./render/RendererConfig.js";
+export type { RendererConfig } from "./render/RendererConfig.js";
+export { createRenderFrameContract } from "./render/RenderFrameContract.js";
+export type { RenderFrameContract } from "./render/RenderFrameContract.js";
 export {
   RENDER_FEATURE_CONTRACTS,
   RenderSettings,

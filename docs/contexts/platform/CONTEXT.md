@@ -14,3 +14,4 @@
 - capability adapter 共享主管线 ABI，不形成 Core/Quality/Experimental 三档管线。
 - `rg16float` storage HZB 和同 texture 跨 mip compute dispatch 必须由 `examples/r1-compute-hzb` 在目标 adapter 验证；production build 不能替代设备 validation。
 - transient 复用遵循 WebGPU queue ordering：同一 command 内可按 last-use alias，同一 queue 的不可映射 transient 可 ordered reuse；CPU mapping/readback、显式 fenced 资源、跨 owner 退休和真正 destroy 必须等待对应 GPU completion。
+- P2 `RendererConfig` 在初始化前归一化为单一 RenderSettings patch；Renderer 对 adapter 创建和外部传入 Device 使用同一必需 Feature/Limit 校验，缺失时 fail-fast，不进入半兼容路径。每帧 `RenderFrameContract` 只携带冻结标量，不能持有 GPU 对象或触发额外 submit。

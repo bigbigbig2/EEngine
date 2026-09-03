@@ -40,6 +40,7 @@ R4 core（A/B）已经关闭。R4-C 只在 profile 证明 HW raster 是主要瓶
 | [13-product-render-pipeline-redesign](./13-product-render-pipeline-redesign.md) | 本次确认的产品级目标架构、效果组合、开源移植和硬切换重构策略 | 新渲染管线总设计，实施前置 |
 | [14-p0-source-mapping-and-deletion](./14-p0-source-mapping-and-deletion.md) | P0 真实源码映射、目标 Feature owner、删除候选和 P1 入口 Gate | P0，实施前置 |
 | [15-p1-frame-infrastructure](./15-p1-frame-infrastructure.md) | Render Feature 注册表、FrameGraph 资源生命周期摘要和主帧证据接线 | P1，已实现 |
+| [16-p2-scene-contract-and-config](./16-p2-scene-contract-and-config.md) | GPU Scene/Frame Contract、初始化配置归一化和 WebGPU 能力 fail-fast | P2，已实现基础合同 |
 
 ## 当前唯一入口
 

@@ -142,6 +142,19 @@ import {
   createRendererFramePlan,
   type FramePlanDump
 } from "./pipeline/FramePlan.js";
+import {
+  DEFAULT_RENDERER_CONFIG,
+  mergeRendererConfig,
+  rendererConfigSettingsPatch,
+  validateRendererConfig,
+  type RendererConfig
+} from "./RendererConfig.js";
+import {
+  createRenderFrameContract,
+  type RenderFrameContract
+} from "./RenderFrameContract.js";
+
+const HZB_STORAGE_FORMAT_FEATURE: GPUFeatureName = "texture-formats-tier1";
 
 export {
   ShadeIndirectLightingMode
@@ -192,7 +205,14 @@ export type RendererInitializeOptions = {
   context?: GPUCanvasContext;
   device?: GPUDevice;
   pixelRatio?: number;
+  /** 初始化时覆盖构造器配置；只在初始化前应用一次。 */
+  config?: RendererConfig;
 };
+
+export interface RendererCapabilities {
+  readonly features: readonly string[];
+  readonly limits: Readonly<Record<string, number>>;
+}
 
 export interface LinearHdrCaptureRegion {
   readonly x: number;
@@ -355,6 +375,9 @@ export class Renderer {
   private _peakNits = 1000;
   private _deviceLost = false;
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
+  private _capabilities: RendererCapabilities | null = null;
+  private readonly _rendererConfig: RendererConfig;
+  private _lastFrameContract: RenderFrameContract | null = null;
   private readonly _profiler = new FrameProfiler();
   private _graphics!: GraphicsContext;
   private _frameCoordinator!: FrameCoordinator;
@@ -463,7 +486,10 @@ export class Renderer {
     this.updateDynamicRangeState();
   };
 
-  constructor() {
+  constructor(config: RendererConfig = {}) {
+    this._rendererConfig = mergeRendererConfig(DEFAULT_RENDERER_CONFIG, config);
+    validateRendererConfig(this._rendererConfig);
+    this._renderSettings.update(rendererConfigSettingsPatch(this._rendererConfig));
     this._dynamicResolution.get_scale = () => this.internal_resolution_scale;
     this._dynamicResolution.set_scale = (scale) => {
       this.internal_resolution_scale = scale;
@@ -503,6 +529,19 @@ export class Renderer {
 
   get graphics(): GraphicsContext {
     return this._graphics;
+  }
+
+  /** 初始化后公开能力快照；GPU 对象和资源 owner 保持内部。 */
+  get capabilities(): RendererCapabilities {
+    if (this._capabilities === null) {
+      throw new Error("Renderer capabilities are available after initialize()");
+    }
+    return this._capabilities;
+  }
+
+  /** 最近一次提交给 View/FrameGraph 的无 GPU 句柄帧合同。 */
+  get frame_contract(): RenderFrameContract | null {
+    return this._lastFrameContract;
   }
 
   /**
@@ -888,10 +927,16 @@ export class Renderer {
   async initialize({
     context,
     device,
-    pixelRatio = window.devicePixelRatio
+    pixelRatio = window.devicePixelRatio,
+    config
   }: RendererInitializeOptions = {}): Promise<void> {
     if (!("gpu" in navigator)) {
       throw new Error("navigator.gpu not available — WebGPU disabled or unsupported");
+    }
+    const effectiveConfig = mergeRendererConfig(this._rendererConfig, config);
+    validateRendererConfig(effectiveConfig);
+    if (config !== undefined) {
+      this.configure(rendererConfigSettingsPatch(effectiveConfig));
     }
     this.updateCanvasFormat();
     this.updateDynamicRangeState();
@@ -925,13 +970,16 @@ export class Renderer {
           `Engine requires at least 10 storage buffers per shader stage, actual is ${storageBufferLimit}`
         );
       }
-      const requiredFeatures: GPUFeatureName[] = [
+      const requiredFeatures = new Set<GPUFeatureName>([
         "indirect-first-instance",
         "float32-blendable",
         // HZB is a core render path and unconditionally uses rg16float storage.
-        "texture-formats-tier1"
-      ];
-      const optionalFeatures: GPUFeatureName[] = [
+        HZB_STORAGE_FORMAT_FEATURE
+      ]);
+      for (const feature of effectiveConfig.requiredFeatures ?? []) {
+        requiredFeatures.add(feature);
+      }
+      const optionalFeatureNames: GPUFeatureName[] = [
         "timestamp-query",
         "subgroups"
       ];
@@ -940,19 +988,36 @@ export class Renderer {
           throw new Error(`Adapter does not support required feature '${feature}'`);
         }
       }
-      for (const feature of optionalFeatures) {
-        if (adapter.features.has(feature)) requiredFeatures.push(feature);
+      for (const feature of optionalFeatureNames) {
+        if (adapter.features.has(feature)) requiredFeatures.add(feature);
       }
       device = await adapter.requestDevice({
         requiredLimits: {
-          maxColorAttachmentBytesPerSample: 32,
+          maxColorAttachmentBytesPerSample: Math.max(
+            32,
+            effectiveConfig.requiredLimits?.maxColorAttachmentBytesPerSample ?? 0
+          ),
           maxBufferSize: adapter.limits.maxBufferSize,
           maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-          maxStorageBuffersPerShaderStage: 10
+          maxStorageBuffersPerShaderStage: Math.max(
+            10,
+            effectiveConfig.requiredLimits?.maxStorageBuffersPerShaderStage ?? 0
+          )
         },
-        requiredFeatures
+        requiredFeatures: [...requiredFeatures] // texture-formats-tier1 必须随请求进入设备。
       });
     }
+
+    validateRendererDevice(device, effectiveConfig);
+    this._capabilities = Object.freeze({
+      features: Object.freeze([...device.features].sort()),
+      limits: Object.freeze({
+        maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage),
+        maxColorAttachmentBytesPerSample: Number(device.limits.maxColorAttachmentBytesPerSample),
+        maxBufferSize: Number(device.limits.maxBufferSize),
+        maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize)
+      })
+    });
 
     device.lost.then((info) => this.onDeviceLost(info));
     this.context = context;
@@ -1179,6 +1244,18 @@ export class Renderer {
     );
     const viewKey = GPUViewKey.from(camera, scene);
     viewKey.label = "check_assertions";
+    this._lastFrameContract = createRenderFrameContract({
+      frameIndex: this._frame_count,
+      cameraId: camera.id,
+      sceneId: scene.id,
+      internalWidth: w,
+      internalHeight: h,
+      outputWidth,
+      outputHeight,
+      jitter: frameJitter,
+      enabledFeatureBits: featureTopology.enabledFeatureBits,
+      historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION
+    });
     const view = this.views.obtain(viewKey, cmd);
     const gpuScene = view.scene;
     const gpuPacked =
@@ -1188,8 +1265,8 @@ export class Renderer {
       shadows: featureTopology.shadows
     });
     gpuScene.lights.shadow_context.setEnabled(featureTopology.shadows, cmd);
-    view.setJitter(frameJitter[0], frameJitter[1]);
-    view.setViewportSize(w, h);
+    view.setJitter(this._lastFrameContract.jitter[0], this._lastFrameContract.jitter[1]);
+    view.setViewportSize(this._lastFrameContract.internalWidth, this._lastFrameContract.internalHeight);
     view.setUpscaleRatio(
       outputWidth / w,
       outputHeight / h
@@ -3771,5 +3848,40 @@ async function settleLinearHdrCapture(
   } finally {
     if (mapped) capture.buffer.unmap();
     capture.buffer.destroy();
+  }
+}
+
+function validateRendererDevice(
+  device: GPUDevice,
+  config: RendererConfig
+): void {
+  const requiredFeatures = new Set<GPUFeatureName>([
+    "indirect-first-instance",
+    "float32-blendable",
+    HZB_STORAGE_FORMAT_FEATURE,
+    ...(config.requiredFeatures ?? [])
+  ]);
+  for (const feature of requiredFeatures) {
+    if (!device.features.has(feature)) {
+      throw new Error(`Device does not support required feature '${feature}'`);
+    }
+  }
+  const requiredLimits = {
+    maxStorageBuffersPerShaderStage: Math.max(
+      10,
+      config.requiredLimits?.maxStorageBuffersPerShaderStage ?? 0
+    ),
+    maxColorAttachmentBytesPerSample: Math.max(
+      32,
+      config.requiredLimits?.maxColorAttachmentBytesPerSample ?? 0
+    )
+  };
+  for (const [name, required] of Object.entries(requiredLimits)) {
+    const actual = Number(device.limits[name as keyof GPUSupportedLimits]);
+    if (!Number.isFinite(actual) || actual < required) {
+      throw new Error(
+        `Device limit '${name}' is ${actual}, but renderer requires at least ${required}`
+      );
+    }
   }
 }

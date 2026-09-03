@@ -14,6 +14,7 @@
 - 当前 Hardware consumer 是 GPU list count → `vertexCount=384`/`instanceCount=count` → single `drawIndirect`；CPU 不读取 count 决定该 draw。
 - Material Expand、Clustered Lighting、IBL、CSM、SSAO、SSR、OIT、TAA、Bloom、Exposure、Tonemap 等旧效果路径。
 - 一条主管线和单一 `render_debug_view`；关闭/unsupported debug view 不添加额外工作。
+- P2 `RendererConfig` 已把中等偏高默认、Feature 开关和分辨率便捷参数归一化到单一 `RenderSettings`；`Renderer.capabilities` 提供冻结能力快照，`RenderFrameContract` 统一每帧尺寸、jitter、Feature bits 和 history revision。
 
 ## 可观测性
 
@@ -103,7 +104,7 @@
 
 ## 当前下一步
 
-1. P1 已建立 Render Feature 注册表和 compiled FrameGraph 资源生命周期摘要，并接入 `Renderer.mainFrameGraphEvidence()`；下一步进入 P2 的 Render Contract/Surface 与资源域收敛。
+1. P1 已建立 Render Feature 注册表和 compiled FrameGraph 资源生命周期摘要；P2 已冻结 `RendererConfig`、WebGPU 能力 fail-fast 和 CPU `RenderFrameContract`，下一步进入 P3 的 Visibility/Surface Contract 收敛。
 2. R4 core、R5-00、FX-01..08 的历史 focused Gate 与 `R5-Q01..Q06` production 迁移已完成；提交后仍需补采 clean/full Q04–Q06 exit artifact，再进入 G5-P 的 1080p/High/Cyberpunk City all-on、A/B/C、显存/I/O 和目标帧预算闭环。现有 focused 结果不表示 1080p/60 FPS 或最终 R5 性能已经达成。
 3. 保留 R4-A Hardware Raster 回退与 R4-B 的 B regression 为独立 phase 风险；若后续启动 R4-C，必须复用同一个 VisibilityKey/Depth/Material Resolve contract，HW-only 更快仍是合法结论。
 4. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；R4 core 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
