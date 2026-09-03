@@ -29,11 +29,12 @@ test("Q02 traces SSR from Complete Opaque HDR and applies a delta correction", (
   assert.match(shader, /\(resolved - baseline\) \* weight \* occlusion/);
 });
 
-test("Q02 exposure source is bloom-independent and sharpen follows bloom", () => {
+test("Q02 exposure source is bloom-independent and color grading follows bloom before sharpen", () => {
   const renderer = readFileSync(new URL("../src/render/Renderer.ts", import.meta.url), "utf8");
   const exposure = renderer.indexOf("const exposureSourceHdr = hdrRes");
   const bloom = renderer.indexOf("this._postFeature!.addBloomToGraph", exposure);
-  const sharpen = renderer.indexOf("this._postFeature!.addSharpenToGraph", bloom);
-  assert.ok(exposure >= 0 && bloom > exposure && sharpen > bloom);
+  const colorGrading = renderer.indexOf("this._postFeature!.addColorGradingToGraph", bloom);
+  const sharpen = renderer.indexOf("this._postFeature!.addSharpenToGraph", colorGrading);
+  assert.ok(exposure >= 0 && bloom > exposure && colorGrading > bloom && sharpen > colorGrading);
   assert.doesNotMatch(renderer, /exposureInput = bloom\.downsampled/);
 });

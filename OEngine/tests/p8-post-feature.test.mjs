@@ -24,18 +24,21 @@ test("P8 Renderer no longer constructs post passes directly", async () => {
   assert.doesNotMatch(renderer, /new MotionBlurPass\(/);
 });
 
-test("P8 linear-HDR post order: exposure -> bloom -> sharpen -> tonemap", async () => {
+test("P8 linear-HDR post order: exposure -> bloom -> color grading -> sharpen -> tonemap", async () => {
   const renderer = await readFile(new URL("../src/render/Renderer.ts", import.meta.url), "utf8");
   const exposure = renderer.indexOf("exposureRes = this._postFeature!.obtainAutomaticExposure().update(");
   const bloom = renderer.indexOf("this._postFeature!.addBloomToGraph(");
+  const colorGrading = renderer.indexOf("this._postFeature!.addColorGradingToGraph(");
   const sharpen = renderer.indexOf("this._postFeature!.addSharpenToGraph(");
   const tonemap = renderer.indexOf("this._postFeature!.obtainTonemap(this._format).addToGraph(");
   assert.ok(exposure !== -1, "exposure stage present");
   assert.ok(bloom !== -1, "bloom stage present");
+  assert.ok(colorGrading !== -1, "color grading stage present");
   assert.ok(sharpen !== -1, "sharpen stage present");
   assert.ok(tonemap !== -1, "tonemap stage present");
   assert.ok(exposure < bloom, "exposure precedes bloom");
-  assert.ok(bloom < sharpen, "bloom precedes sharpen");
+  assert.ok(bloom < colorGrading, "bloom precedes color grading");
+  assert.ok(colorGrading < sharpen, "color grading precedes sharpen");
   assert.ok(sharpen < tonemap, "sharpen precedes tonemap");
 });
 

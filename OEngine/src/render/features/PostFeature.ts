@@ -17,6 +17,7 @@ import { BloomPass, type BloomJob } from "../passes/BloomPass.js";
 import { SharpenPass } from "../passes/SharpenPass.js";
 import { TonemapPass } from "../passes/TonemapPass.js";
 import { MotionBlurPass } from "../passes/MotionBlurPass.js";
+import { ColorGradingPass, type ColorGradingJob } from "../passes/ColorGradingPass.js";
 
 /** AutomaticExposure 的可调参数快照，用于 owner 创建/配置时同步。 */
 export type PostExposureSettings = {
@@ -30,6 +31,7 @@ export class PostFeature {
   private _bloom: BloomPass | null = null;
   private _sharpen: SharpenPass | null = null;
   private _motionBlur: MotionBlurPass | null = null;
+  private _colorGrading: ColorGradingPass | null = null;
   private _tonemap: TonemapPass | null = null;
 
   constructor(private readonly _graphics: GraphicsContext) {}
@@ -59,6 +61,15 @@ export class PostFeature {
 
   sharpen(): SharpenPass | null {
     return this._sharpen;
+  }
+
+  /** ColorGrading 为常开阶段，不属于 feature flag；owner 懒创建。 */
+  obtainColorGrading(): ColorGradingPass {
+    return this._colorGrading ??= new ColorGradingPass(this._graphics);
+  }
+
+  colorGrading(): ColorGradingPass | null {
+    return this._colorGrading;
   }
 
   obtainMotionBlur(): MotionBlurPass {
@@ -129,6 +140,13 @@ export class PostFeature {
     this.retireAfterSubmittedWork(previous);
   }
 
+  retireColorGrading(): void {
+    const previous = this._colorGrading;
+    if (previous === null) return;
+    this._colorGrading = null;
+    this.retireAfterSubmittedWork(previous);
+  }
+
   retireMotionBlur(): void {
     const previous = this._motionBlur;
     if (previous === null) return;
@@ -143,6 +161,16 @@ export class PostFeature {
     job: BloomJob
   ): { composited: ResourceId; downsampled: ResourceId } {
     return this.obtainBloom().addToGraph(graph, input, job);
+  }
+
+  addColorGradingToGraph(
+    graph: FrameGraph,
+    input: ResourceId,
+    width: number,
+    height: number,
+    job: ColorGradingJob
+  ): ResourceId {
+    return this.obtainColorGrading().addToGraph(graph, input, width, height, job);
   }
 
   addSharpenToGraph(
@@ -165,6 +193,8 @@ export class PostFeature {
     this._sharpen = null;
     this._motionBlur?.destroy();
     this._motionBlur = null;
+    this._colorGrading?.destroy();
+    this._colorGrading = null;
     this._tonemap?.destroy();
     this._tonemap = null;
   }

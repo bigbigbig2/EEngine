@@ -2795,6 +2795,23 @@ export class Renderer {
           );
           hdrRes = bloom.composited;
         }
+        // ColorGrading 是常开的线性 HDR 色阶阶段，固定插在 Bloom 之后、
+        // Sharpen 之前；不参与 feature flag，恒等参数不改变像素值。
+        if (hdrRes !== null) {
+          hdrRes = this._postFeature!.addColorGradingToGraph(
+            graph,
+            hdrRes,
+            this._output_resolution.x,
+            this._output_resolution.y,
+            bind("color-grading-job", () => ({
+              lift: this._renderSettings.values.post.colorGradingLift,
+              gamma: this._renderSettings.values.post.colorGradingGamma,
+              gain: this._renderSettings.values.post.colorGradingGain,
+              saturation: this._renderSettings.values.post.colorGradingSaturation,
+              contrast: this._renderSettings.values.post.colorGradingContrast
+            }))
+          );
+        }
         if (graphTopology.sharpening && hdrRes !== null) {
           hdrRes = this._postFeature!.addSharpenToGraph(
             graph,
@@ -3191,6 +3208,8 @@ export class Renderer {
       this._temporalFeature.retireColorHistory();
     }
     this._postFeature ??= new PostFeature(this._graphics);
+    // ColorGrading 常开，不属于 feature flag；懒创建，参数在 graph 构建时绑定。
+    this._postFeature.obtainColorGrading();
     if (topology.motionBlur) {
       this._postFeature.obtainMotionBlur();
     } else if (this._postFeature.motionBlur() !== null) {

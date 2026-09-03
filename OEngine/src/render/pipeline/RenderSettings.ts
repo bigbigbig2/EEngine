@@ -63,6 +63,16 @@ export interface PostSettings {
   readonly exposureCompensation: number;
   readonly exposureSpeedUp: number;
   readonly exposureSpeedDown: number;
+  /** ASC CDL lift（暗部加性偏移，线性域），默认 0 = 恒等。 */
+  readonly colorGradingLift: number;
+  /** ASC CDL gamma（幂指数），默认 1 = 恒等。 */
+  readonly colorGradingGamma: number;
+  /** ASC CDL gain（高光乘性增益），默认 1 = 恒等。 */
+  readonly colorGradingGain: number;
+  /** 饱和度，默认 1 = 恒等。 */
+  readonly colorGradingSaturation: number;
+  /** 对比度（log2 域斜率），默认 1 = 恒等。 */
+  readonly colorGradingContrast: number;
 }
 
 export interface ResolutionSettings {
@@ -199,7 +209,12 @@ const DEFAULTS: RenderSettingsValues = {
     sharpeningStrength: 0.8,
     exposureCompensation: 1,
     exposureSpeedUp: 3,
-    exposureSpeedDown: 1.2
+    exposureSpeedDown: 1.2,
+    colorGradingLift: 0,
+    colorGradingGamma: 1,
+    colorGradingGain: 1,
+    colorGradingSaturation: 1,
+    colorGradingContrast: 1
   },
   resolution: { internalScale: 1 }
 };
