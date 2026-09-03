@@ -50,8 +50,7 @@ import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
 import { AOService } from "./features/AOService.js";
 import { ReflectionService } from "./features/ReflectionService.js";
 import { GIService } from "./features/GIService.js";
-import { TemporalAntiAliasingPass } from "./passes/TemporalAntiAliasingPass.js";
-import { TemporalClassificationPass } from "./passes/TemporalClassificationPass.js";
+import { TemporalFeature } from "./features/TemporalFeature.js";
 import {
   NeuralSuperSamplingPass,
   type NssSettings
@@ -60,13 +59,9 @@ import { MotionBlurPass } from "./passes/MotionBlurPass.js";
 import { SharpenPass } from "./passes/SharpenPass.js";
 import { BloomPass } from "./passes/BloomPass.js";
 import { AutomaticExposurePass } from "./passes/AutomaticExposurePass.js";
-import {
-  TemporalJitterController,
-  recommendedTaaJitterSequenceSize,
-  resolveFrameJitter
-} from "./TemporalJitterController.js";
+import { resolveFrameJitter } from "./TemporalJitterController.js";
 import { GPUTextureContext } from "../gpu/GPUTextureContext.js";
-import { createNativeTextureView, id } from "../gpu/GPUTextureDescriptors.js";
+import { createNativeTextureView } from "../gpu/GPUTextureDescriptors.js";
 import { TonemapPass } from "./passes/TonemapPass.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
@@ -121,7 +116,7 @@ import {
 } from "./MainFrameFeatureTopology.js";
 import { halfToFloat } from "../loaders/float16.js";
 import { TemporalHistoryRegistry } from "./TemporalHistoryRegistry.js";
-import { DynamicResolutionScaling } from "./DynamicResolutionScaling.js";
+import type { DynamicResolutionScaling } from "./DynamicResolutionScaling.js";
 import type { GraphicsMemoryEvidence } from "../gpu/GraphicsContext.js";
 import {
   RenderSettings,
@@ -407,17 +402,13 @@ export class Renderer {
   private _reflectionService: ReflectionService | null = null;
   private _ssrConfigurationKey = "";
   private _ssrOwnerGeneration = 0;
-  private _taa: TemporalAntiAliasingPass | null = null;
-  private _temporalClassification: TemporalClassificationPass | null = null;
+  private readonly _temporalFeature = new TemporalFeature();
   private _nss: NeuralSuperSamplingPass | null = null;
   private _motionBlur: MotionBlurPass | null = null;
   private _sharpen: SharpenPass | null = null;
   private _bloom: BloomPass | null = null;
   private _automaticExposure: AutomaticExposurePass | null = null;
-  private readonly _taaJitter = new TemporalJitterController();
-  private _taaHistory: [GPUTextureContext, GPUTextureContext] | null = null;
   private readonly _temporalHistories = new TemporalHistoryRegistry(["color", "ssao", "ssr"]);
-  private readonly _dynamicResolution = new DynamicResolutionScaling();
   private _lastFramePlan: FramePlanDump | null = null;
   private _unsubscribeDynamicResolution: (() => void) | null = null;
   private _dynamicResolutionOwnsProfiler = false;
@@ -478,8 +469,8 @@ export class Renderer {
     this._rendererConfig = mergeRendererConfig(DEFAULT_RENDERER_CONFIG, config);
     validateRendererConfig(this._rendererConfig);
     this._renderSettings.update(rendererConfigSettingsPatch(this._rendererConfig));
-    this._dynamicResolution.get_scale = () => this.internal_resolution_scale;
-    this._dynamicResolution.set_scale = (scale) => {
+    this._temporalFeature.dynamicResolution.get_scale = () => this.internal_resolution_scale;
+    this._temporalFeature.dynamicResolution.set_scale = (scale) => {
       this.internal_resolution_scale = scale;
     };
     this._unsubscribeDynamicResolution = this._profiler.subscribe((snapshot) => {
@@ -724,7 +715,7 @@ export class Renderer {
 
   /** FX-06 delayed GPU timing controller; disabled until explicitly enabled. */
   get dynamic_resolution_scaling(): DynamicResolutionScaling {
-    return this._dynamicResolution;
+    return this._temporalFeature.dynamicResolution;
   }
 
   /** Bounded production evidence; no GPU handle or mutable owner escapes. */
@@ -734,11 +725,8 @@ export class Renderer {
       enabled: this._renderSettings.values.features.temporalAntiAliasing,
       taaPasses: this._lastTemporalTaaPassCount,
       classificationPasses: this._lastTemporalClassificationPassCount,
-      historyTextureCount: this._taaHistory?.length ?? 0,
-      historyBytes: this._taaHistory?.reduce(
-        (sum, texture) => sum + texture.gpu_memory_usage,
-        0
-      ) ?? 0,
+      historyTextureCount: this._temporalFeature.colorHistoryCount(),
+      historyBytes: this._temporalFeature.colorHistoryBytes(),
       historyValid: history.valid,
       historyRevision: history.revision,
       historyInvalidations: history.invalidationCount,
@@ -750,10 +738,10 @@ export class Renderer {
       outputWidth: this._output_resolution.x,
       outputHeight: this._output_resolution.y,
       internalScale: this._renderSettings.values.resolution.internalScale,
-      drsEnabled: this._dynamicResolution.enabled,
-      drsLastGpuMs: this._dynamicResolution.last_gpu_frame_time_ms,
+      drsEnabled: this._temporalFeature.dynamicResolution.enabled,
+      drsLastGpuMs: this._temporalFeature.dynamicResolution.last_gpu_frame_time_ms,
       drsFeedbackLatencyFrames:
-        this._dynamicResolution.last_feedback_latency_frames
+        this._temporalFeature.dynamicResolution.last_feedback_latency_frames
     });
   }
 
@@ -1067,11 +1055,7 @@ export class Renderer {
     this._lightingFeature?.destroy();
     this._automaticExposure?.destroy();
     this._automaticExposure = null;
-    this._taaHistory?.forEach((history) => history.destroy());
-    this._taaHistory = null;
-    this._taa?.destroy();
-    this._taa = null;
-    this._temporalClassification = null;
+    this._temporalFeature.destroy();
     this._motionBlur?.destroy();
     this._motionBlur = null;
     this._sharpen?.destroy();
@@ -1210,7 +1194,7 @@ export class Renderer {
       this._nss!.frame_count = this._frame_count;
       this._nss!.frame_index = this._frame_count;
     } else if (featureTopology.temporal) {
-      this._taaJitter.frame_index = this._frame_count;
+      this._temporalFeature.jitter.frame_index = this._frame_count;
     }
 
     const outputWidth = this._output_resolution.x;
@@ -1224,8 +1208,8 @@ export class Renderer {
     const frameJitter = resolveFrameJitter(
       featureTopology.temporal,
       featureTopology.nss,
-      this._taaJitter.Jitter,
-      this._nss?.Jitter ?? this._taaJitter.Jitter
+      this._temporalFeature.jitter.Jitter,
+      this._nss?.Jitter ?? this._temporalFeature.jitter.Jitter
     );
     const viewKey = GPUViewKey.from(camera, scene);
     viewKey.label = "check_assertions";
@@ -1357,7 +1341,7 @@ export class Renderer {
       const ssrHistory = this._temporalHistories.state("ssr");
       const taaHistoryValidity = temporalHistory.valid ? 1 : 0;
       if (featureTopology.taa) {
-        this._taaJitter.reset_history = false;
+        this._temporalFeature.jitter.reset_history = false;
       }
       if (sampleGpuCounters && featureTopology.temporal) {
         this._profiler.registerGpuCounterFields([
@@ -1366,7 +1350,7 @@ export class Renderer {
           "temporalHistoryRejectedPixels"
         ]);
       }
-      this._taa?.resetFrameEvidence();
+      this._temporalFeature.resetFrameEvidence();
       this._reflectionService?.resetFrameEvidence();
       this._giService.resetFrameEvidence();
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
@@ -1922,7 +1906,7 @@ export class Renderer {
           if (opaqueMetadataRes === null) {
             throw new Error("Opaque temporal validity has no uint metadata fallback");
           }
-          const opaqueValidity = this._temporalClassification!.addToGraph(
+          const opaqueValidity = this._temporalFeature.addClassificationToGraph(
             graph,
             bind("opaque-temporal-classification-job", (bindings) => ({
               phase: "opaque" as const,
@@ -2665,7 +2649,7 @@ export class Renderer {
           if (metadataRes === null) {
             throw new Error("FX-06 Temporal has no uint metadata fallback");
           }
-          const classification = this._temporalClassification!.addToGraph(
+          const classification = this._temporalFeature.addClassificationToGraph(
             graph,
             bind("temporal-classification-job", (bindings) => ({
               phase: "final" as const,
@@ -2690,13 +2674,13 @@ export class Renderer {
             "taa_history",
             { kind: "imported", label: "TAA history input rgba16float" },
             bind("taa-history-input", (bindings) =>
-              this._taaHistory![bindings.taaHistoryInputIndex]!.gpu_texture)
+              this._temporalFeature.colorHistory(bindings.taaHistoryInputIndex).gpu_texture)
           );
           const historyOutputRes = graph.import_resource(
             "taa_output",
             { kind: "imported", label: "TAA history output rgba16float" },
             bind("taa-history-output", (bindings) =>
-              this._taaHistory![bindings.taaHistoryOutputIndex]!.gpu_texture)
+              this._temporalFeature.colorHistory(bindings.taaHistoryOutputIndex).gpu_texture)
           );
           if (graphTopology.nss) {
             hdrRes = this._nss!.addToGraph(
@@ -2726,7 +2710,7 @@ export class Renderer {
               }
             );
           } else {
-            hdrRes = this._taa!.addToGraph(
+            hdrRes = this._temporalFeature.addTaaToGraph(
               graph,
               bind("taa-job", (bindings) => ({
                 jitter: bindings.taaJitter,
@@ -3142,6 +3126,7 @@ export class Renderer {
       this._visibility = new VisibilityPass(this._graphics);
       this._visibility.init();
     }
+    this._temporalFeature.attachGraphics(this._graphics);
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
     this._transparencyFeature ??= new TransparencyFeature(this._graphics);
@@ -3195,19 +3180,15 @@ export class Renderer {
       this._ssrConfigurationKey = "";
     }
     if (topology.taa) {
-      this._taa ??= new TemporalAntiAliasingPass(this._graphics);
-    } else if (this._taa !== null) {
-      this.retireAfterSubmittedWork(this._taa);
-      this._taa = null;
+      this._temporalFeature.obtainTaa();
+    } else if (this._temporalFeature.taa() !== null) {
+      this._temporalFeature.retireTaa();
       this._lastTemporalTaaPassCount = 0;
     }
     if (topology.temporal || topology.ssaoTemporal || topology.ssrTemporal) {
-      this._temporalClassification ??= new TemporalClassificationPass(
-        this._graphics
-      );
-    } else if (this._temporalClassification !== null) {
-      this.retireAfterSubmittedWork(this._temporalClassification);
-      this._temporalClassification = null;
+      this._temporalFeature.obtainClassification();
+    } else if (this._temporalFeature.classification() !== null) {
+      this._temporalFeature.retireClassification();
       this._lastTemporalClassificationPassCount = 0;
     }
     if (topology.nss) {
@@ -3217,13 +3198,12 @@ export class Renderer {
       this._nss = null;
     }
     if (topology.temporal) {
-      this.ensureTemporalColorHistory();
-    } else if (this._taaHistory !== null) {
-      for (const history of this._taaHistory) {
-        this.retireAfterSubmittedWork(history);
-      }
-      this._taaHistory = null;
-      this._taaJitter.reset_history = true;
+      this._temporalFeature.ensureColorHistory(
+        this._output_resolution.x,
+        this._output_resolution.y
+      );
+    } else if (this._temporalFeature.colorHistoryCount() > 0) {
+      this._temporalFeature.retireColorHistory();
     }
     if (topology.motionBlur) {
       this._motionBlur ??= new MotionBlurPass(this._graphics);
@@ -3278,30 +3258,6 @@ export class Renderer {
   private obtainLegacyVelocity(): VelocityPass {
     this._velocity ??= new VelocityPass(this._graphics);
     return this._velocity;
-  }
-
-  private ensureTemporalColorHistory(): void {
-    if (this._taaHistory !== null) return;
-    const historyDescriptor = id.from({
-      label: "Renderer/temporal-color-history",
-      size: this._output_resolution.asArray(),
-      format: "rgba16float",
-      mipLevelCount: 1,
-      usage:
-        GPUTextureUsage.RENDER_ATTACHMENT |
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.COPY_SRC
-    });
-    this._taaHistory = [
-      this._graphics.textures.contextFromDescriptor(
-        new id().copy(historyDescriptor)
-      ),
-      this._graphics.textures.contextFromDescriptor(
-        new id().copy(historyDescriptor)
-      )
-    ];
-    this._taaJitter.reset_history = true;
   }
 
   private retireAfterSubmittedWork(resource: { destroy(): void }): void {
@@ -3505,9 +3461,9 @@ export class Renderer {
   }
 
   private reconcileDynamicResolutionProfiler(): void {
-    this._dynamicResolution.consume_delayed_gpu_timing(this._frame_count);
+    this._temporalFeature.dynamicResolution.consume_delayed_gpu_timing(this._frame_count);
     const supported = this.device.features.has("timestamp-query");
-    if (this._dynamicResolution.enabled && supported) {
+    if (this._temporalFeature.dynamicResolution.enabled && supported) {
       if (!this._profiler.enabled) {
         this._profiler.configure({ enabled: true, gpuSampleInterval: 4 });
         this._dynamicResolutionOwnsProfiler = true;
@@ -3522,7 +3478,7 @@ export class Renderer {
 
   private consumeDynamicResolutionSnapshot(snapshot: FrameProfileSnapshot): void {
     if (
-      !this._dynamicResolution.enabled ||
+      !this._temporalFeature.dynamicResolution.enabled ||
       !snapshot.gpu.sampled ||
       snapshot.gpu.pending ||
       snapshot.gpu.segments.length === 0
@@ -3531,7 +3487,7 @@ export class Renderer {
       (sum, segment) => sum + segment.durationMs,
       0
     );
-    this._dynamicResolution.notify_gpu_timing({
+    this._temporalFeature.dynamicResolution.notify_gpu_timing({
       sampleFrameIndex: snapshot.frameIndex,
       currentFrameIndex: this._frame_count,
       gpuFrameTimeMs
@@ -3544,7 +3500,7 @@ export class Renderer {
 
   indicate_view_change(): void {
     this._hzbCameraRevision++;
-    this._taaJitter.reset_history = true;
+    this._temporalFeature.jitter.reset_history = true;
     if (this._pathTracer !== undefined) this._pathTracer.clear_history = true;
     if (this._nss) this._nss.reset_history = true;
   }
@@ -3579,7 +3535,7 @@ export class Renderer {
       limit
     );
     this._render_resolution.set(width, height);
-    this._taaJitter.jitter_sequence_size = recommendedTaaJitterSequenceSize(
+    this._temporalFeature.configureJitterSequence(
       width,
       height,
       this._output_resolution.x,
@@ -3605,7 +3561,7 @@ export class Renderer {
     this.recalculateOutputResolution();
     if (this._renderResolutionDirty) this.recalculateRenderResolution();
     this.resizeColorHistories();
-    this._taaJitter.reset_history = true;
+    this._temporalFeature.jitter.reset_history = true;
     if (this._pathTracer !== undefined) this._pathTracer.clear_history = true;
     if (this._nss) this._nss.reset_history = true;
   }
@@ -3616,12 +3572,10 @@ export class Renderer {
   }
 
   private resizeColorHistories(): void {
-    this._taaHistory?.forEach((history) => {
-      history.resize(
-        this._output_resolution.x,
-        this._output_resolution.y
-      );
-    });
+    this._temporalFeature.resizeColorHistory(
+      this._output_resolution.x,
+      this._output_resolution.y
+    );
     this._canvasNeedsConfigure = true;
   }
 

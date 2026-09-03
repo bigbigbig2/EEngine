@@ -632,6 +632,8 @@ P5 owner/composition 执行记录见 [19-p5-gi-reflection-ao-services.md](./19-p
 - DRS 只由初始化配置决定，不存在隐藏自动 Governor；
 - resize、cut 和资源重建后的历史行为可验证。
 
+当前执行记录：[P7 TemporalFeature](./21-p7-temporal-feature.md)。本阶段完成时域 owner/lifecycle 收拢，最终 TAAU 画质、DRS sweep 与 G5-T/G5-P 生产 Gate 仍需独立验证。
+
 ## 27. P8：HDR Post、Present 和最终调试组合
 
 ### 目标

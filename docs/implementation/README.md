@@ -45,6 +45,7 @@ R4 core（A/B）已经关闭。R4-C 只在 profile 证明 HW raster 是主要瓶
 | [18-p4-lighting-shadow-composition](./18-p4-lighting-shadow-composition.md) | LightingFeature、ShadowService、Clustered Direct 与 HDR composition owner 边界 | P4，已实现 owner 基础边界 |
 | [19-p5-gi-reflection-ao-services](./19-p5-gi-reflection-ao-services.md) | GIService、ReflectionService、AOService 与统一间接光/反射/AO fallback 边界 | P5，已实现 owner 基础边界 |
 | [20-p6-transparency-feature](./20-p6-transparency-feature.md) | TransparencyFeature 统一 Packed MBOIT 与 legacy OIT owner、生命周期和 reactive/counter 接口 | P6，已实现 owner 基础边界 |
+| [21-p7-temporal-feature](./21-p7-temporal-feature.md) | TemporalFeature 统一 TAA/TAAU、Classification、颜色 history、jitter 与 DRS owner 边界 | P7，已实现 owner 基础边界 |
 
 ## 当前唯一入口
 

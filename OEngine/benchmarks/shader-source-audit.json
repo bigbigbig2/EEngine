@@ -257,6 +257,7 @@
         "src/render/features/LightingFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
+        "src/render/features/TemporalFeature.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/features/VisibilityFeature.ts",
         "src/render/FrameCoordinator.ts",
@@ -819,6 +820,7 @@
         "src/render/features/LightingFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
+        "src/render/features/TemporalFeature.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/features/VisibilityFeature.ts",
         "src/render/FrameCoordinator.ts",
@@ -953,6 +955,7 @@
         "src/render/features/LightingFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
+        "src/render/features/TemporalFeature.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/features/VisibilityFeature.ts",
         "src/render/FrameCoordinator.ts",
@@ -1532,6 +1535,7 @@
         "src/render/features/LightingFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
+        "src/render/features/TemporalFeature.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/features/VisibilityFeature.ts",
         "src/render/FrameCoordinator.ts",
@@ -2560,6 +2564,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/TemporalFeature.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/Renderer.ts"
       ],
@@ -2579,6 +2584,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/TemporalFeature.ts",
         "src/render/passes/TemporalClassificationPass.ts",
         "src/render/Renderer.ts"
       ],
