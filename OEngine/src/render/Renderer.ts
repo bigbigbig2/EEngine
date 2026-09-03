@@ -35,15 +35,9 @@ import { SurfaceFeature } from "./features/SurfaceFeature.js";
 import { PackedSurfaceCounterPass } from "./passes/PackedSurfaceCounterPass.js";
 import { LightingFeature } from "./features/LightingFeature.js";
 import type { LightClusterOutputs } from "./passes/LightClusterPass.js";
-import { LpvIndirectDiffusePass } from "./passes/LpvIndirectDiffusePass.js";
 import { TransparencyFeature } from "./features/TransparencyFeature.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
 import { PathTracer } from "./passes/PathTracer.js";
-import {
-  Brick4DiffusePass,
-  Brick4FusedIndirectPass,
-  Brick4SpecularPass
-} from "./passes/Brick4IndirectPass.js";
 import { VelocityPass } from "./passes/VelocityPass.js";
 import { RenderDebugViewPass } from "./passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
@@ -381,14 +375,10 @@ export class Renderer {
   private _packedSurfaceCounters!: PackedSurfaceCounterPass;
   private _lightingFeature!: LightingFeature;
   private _giService!: GIService;
-  private _lpvIndirectDiffuse!: LpvIndirectDiffusePass;
   private _transparencyFeature: TransparencyFeature | null = null;
   private _packedTransparencyOwnerGeneration = 0;
   private _pendingLinearHdrCapture: PendingLinearHdrCapture | null = null;
   private _pathTracer: PathTracer | undefined;
-  private _brick4Diffuse!: Brick4DiffusePass;
-  private _brick4Specular!: Brick4SpecularPass;
-  private _brick4Fused!: Brick4FusedIndirectPass;
   private _velocity: VelocityPass | null = null;
   private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence: OcclusionConfidencePass | null = null;
@@ -2245,49 +2235,23 @@ export class Renderer {
             bind("brick4-light-map", (bindings) =>
               bindings.gpuScene.volumetric_light_map.buffer)
           );
-          const base = {
+          hdrRes = this._giService.addLightmapIndirect(graph, {
+            hdr: hdrRes,
             depth: depthRes,
+            normal: gNormalRes,
+            bentNormal: bentNormalRes,
+            albedoAo: gAlbedoRes,
+            pbr: gPbrRes,
+            splitSum: splitSumRes,
             stbn: stbnRes,
             view: viewUniformRes,
             camera: currentCameraRes,
-            lightMap: lightMapRes
-          };
-          if (this.fused_indirect && !graphTopology.ssr) {
-            hdrRes = this._brick4Fused.addToGraph(graph, {
-              ...base,
-              hdr: hdrRes,
-              normal: gNormalRes,
-              bentNormal: bentNormalRes,
-              albedoAo: gAlbedoRes,
-              pbr: gPbrRes,
-              splitSum: splitSumRes
-            });
-          } else {
-            const indirectSpecular = this._brick4Specular.addToGraph(
-              graph,
-              { width: w, height: h },
-              { ...base, normal: gNormalRes, pbr: gPbrRes }
-            );
-            const indirectDiffuse = this._brick4Diffuse.addToGraph(
-              graph,
-              { width: w, height: h },
-              { ...base, normal: bentNormalRes, albedoAo: gAlbedoRes }
-            );
-            hdrRes = this._giService.composeIndirect(graph, {
-              hdr: hdrRes,
-              depth: depthRes,
-              normal: gNormalRes,
-              bentNormal: bentNormalRes,
-              albedoAo: gAlbedoRes,
-              pbr: gPbrRes,
-              splitSum: splitSumRes,
-              indirectDiffuse,
-              indirectSpecular,
-              ambientVisibility: ambientVisibilityRes ?? undefined,
-              camera: currentCameraRes,
-              metadata: packedResolveOut?.surfaceFlags
-            });
-          }
+            lightMap: lightMapRes,
+            ambientVisibility: ambientVisibilityRes ?? undefined,
+            metadata: packedResolveOut?.surfaceFlags,
+            extent: { width: w, height: h },
+            fused: this.fused_indirect && !graphTopology.ssr
+          });
         }
 
         if (
@@ -2345,39 +2309,7 @@ export class Renderer {
             splitSum.gpu_texture
           );
 
-          const baselineSpecularRes = this._giService.addBaselineSpecular(
-            graph,
-            { width: w, height: h },
-            {
-              bentNormal: bentNormalRes,
-              normal: gNormalRes,
-              environment: environmentRes,
-              pbr: gPbrRes,
-              depth: depthRes,
-              camera: currentCameraRes
-            }
-          );
-          const diffuse = this._lpvIndirectDiffuse.addToGraph(
-            graph,
-            bind("lpv-indirect-diffuse-job", (bindings) => ({
-              camera: bindings.camera,
-              samplers: this._graphics.samplers,
-              width: bindings.internalWidth,
-              height: bindings.internalHeight
-            })),
-            {
-              depth: depthRes,
-              normal: gNormalRes,
-              albedoAo: gAlbedoRes,
-              atlasRadiance: atlasRadianceRes,
-              atlasDepth: atlasDepthRes,
-              meshBvh: lpvMeshBvhRes,
-              metadata: lpvMetadataRes,
-              tetrahedra: lpvTetraRes,
-              probes: lpvProbesRes
-            }
-          );
-          hdrRes = this._giService.composeIndirect(graph, {
+          const probeVolume = this._giService.addProbeVolumeIndirect(graph, {
             hdr: hdrRes,
             depth: depthRes,
             normal: gNormalRes,
@@ -2385,12 +2317,26 @@ export class Renderer {
             albedoAo: gAlbedoRes,
             pbr: gPbrRes,
             splitSum: splitSumRes,
-            indirectDiffuse: diffuse.indirectDiffuse,
-            indirectSpecular: baselineSpecularRes,
-            ambientVisibility: ambientVisibilityRes ?? undefined,
+            environment: environmentRes,
             camera: currentCameraRes,
-            metadata: packedResolveOut?.surfaceFlags
+            ambientVisibility: ambientVisibilityRes ?? undefined,
+            metadata: packedResolveOut?.surfaceFlags,
+            atlasRadiance: atlasRadianceRes,
+            atlasDepth: atlasDepthRes,
+            meshBvh: lpvMeshBvhRes,
+            metadataBuffer: lpvMetadataRes,
+            tetrahedra: lpvTetraRes,
+            probes: lpvProbesRes,
+            extent: { width: w, height: h },
+            job: bind("lpv-indirect-diffuse-job", (bindings) => ({
+              camera: bindings.camera,
+              samplers: this._graphics.samplers,
+              width: bindings.internalWidth,
+              height: bindings.internalHeight
+            }))
           });
+          hdrRes = probeVolume.hdr;
+          const baselineSpecularRes = probeVolume.indirectSpecular;
 
           if (
             graphTopology.ssr &&
@@ -3136,10 +3082,6 @@ export class Renderer {
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     this._lightingFeature ??= new LightingFeature(this._graphics);
     this._giService ??= new GIService(this._graphics);
-    this._lpvIndirectDiffuse ??= new LpvIndirectDiffusePass(this._graphics);
-    this._brick4Diffuse ??= new Brick4DiffusePass(this._graphics);
-    this._brick4Specular ??= new Brick4SpecularPass(this._graphics);
-    this._brick4Fused ??= new Brick4FusedIndirectPass(this._graphics);
     const needsOcclusionConfidence = topology.ssaoTemporal || topology.ssr || topology.temporal;
     if (needsOcclusionConfidence) {
       this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);

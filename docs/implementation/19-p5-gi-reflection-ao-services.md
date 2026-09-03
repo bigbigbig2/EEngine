@@ -21,7 +21,7 @@
 
 ## 实现内容
 
-- 新增 [GIService](../../OEngine/src/render/features/GIService.ts)，封装 `OpaqueLightingPipeline` 的 IBL baseline、IndirectComposite 和 provider 接入口。
+- 新增 [GIService](../../OEngine/src/render/features/GIService.ts)，收拢静态 Lightmap（Brick4 diffuse/specular/fused）与动态 Probe Volume（LPV diffuse + IBL specular 基线）两个 provider 的所有权，并封装 `OpaqueLightingPipeline` 的 IBL baseline 与 `IndirectComposite` 合成入口；Renderer 只预导入资源并传入，Provider 组合与 fallback 决策收敛在 GIService 内部。
 - 新增 [ReflectionService](../../OEngine/src/render/features/ReflectionService.ts)，封装 SSR pass 与 SpecularCorrection，统一历史纹理、resize、reset 和 correction 输出。
 - 新增 [AOService](../../OEngine/src/render/features/AOService.ts)，封装 GTAO pass 的独立 visibility/bent normal 输出和历史生命周期。
 - Renderer 迁移到三个 Service owner，删除直接构造 `OpaqueLightingPipeline`、`ScreenSpaceReflectionsPass`、`SpecularCorrectionPass`、`ScreenSpaceAmbientOcclusionPass` 的路径。

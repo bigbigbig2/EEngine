@@ -49,6 +49,9 @@ R0/R1 已有历史移植记录暂保存在 [GPU-DRIVEN.md](../GPU-DRIVEN.md)；�
 - [R5-03 Packed MBOIT Transparency / FX-05](./R5-03-packed-mboit-transparency.md)
 - [R5-04 Temporal / Upscale Foundation / FX-06A](./R5-04-temporal-upscale.md)
 - [R5-05 Ambient Occlusion / FX-07](./R5-05-ambient-occlusion.md)
+- [R5-06 Screen-Space Reflections revalidation](./R5-06-screen-space-reflections.md)
+- [R5-07 Color Grading](./R5-07-color-grading.md)
+- [R5-08 GI Provider Composition（静态 Lightmap / 动态 Probe Volume / IBL 基线）](./R5-08-gi-provider-composition.md)
 
 ## Packed Asset 到 Surface 重构
 
