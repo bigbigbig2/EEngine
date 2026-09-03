@@ -1085,7 +1085,9 @@ export class SceneLights {
     return this._environment;
   }
   set environment(e: ShadeTexture) {
+    if (this._environment === e) return;
     this._environment = e;
+    this._version++;
   }
 
   add(light: Light): void {

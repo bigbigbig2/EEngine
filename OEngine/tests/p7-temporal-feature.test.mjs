@@ -45,5 +45,7 @@ test("P7 history lifecycle is submission-safe and feature-off is lazy", async ()
   assert.match(history, /output-resize/);
   assert.match(history, /internal-resize/);
   assert.match(history, /camera-cut/);
+  assert.match(history, /lighting-change/);
   assert.match(history, /abort/);
+  assert.match(renderer, /light:\s*scene\.lights\.version/);
 });

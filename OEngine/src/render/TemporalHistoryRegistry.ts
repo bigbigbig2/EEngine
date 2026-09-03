@@ -7,6 +7,7 @@ export type TemporalHistoryInvalidationReason =
   | "feature-toggle"
   | "format-change"
   | "view-switch"
+  | "lighting-change"
   | "explicit"
   | "abort";
 
@@ -19,6 +20,7 @@ export interface TemporalHistoryRevision {
   readonly renderScale: number;
   readonly feature: number;
   readonly format: number;
+  readonly light: number;
   readonly view: string;
 }
 
@@ -196,6 +198,7 @@ function invalidationReason(
   if (previous.renderScale !== next.renderScale) return "render-scale";
   if (previous.feature !== next.feature) return "feature-toggle";
   if (previous.format !== next.format) return "format-change";
+  if (previous.light !== next.light) return "lighting-change";
   return null;
 }
 

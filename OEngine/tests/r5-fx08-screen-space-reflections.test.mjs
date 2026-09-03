@@ -34,6 +34,7 @@ const revision = (feature = 0) => ({
   renderScale: 0,
   feature,
   format: 3,
+  light: 0,
   view: "camera-0/scene-0"
 });
 

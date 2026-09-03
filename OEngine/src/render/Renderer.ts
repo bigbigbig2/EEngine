@@ -1151,6 +1151,7 @@ export class Renderer {
         renderScale: this._hzbRenderScaleRevision,
         feature: featureTopology.enabledFeatureBits,
         format: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
+        light: scene.lights.version + scene.light_probe_volume.version,
         view: `${camera.id}/${scene.id}`
       },
       [

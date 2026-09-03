@@ -26,6 +26,7 @@ const revision = (overrides = {}) => ({
   renderScale: 0,
   feature: 0,
   format: 1,
+  light: 0,
   view: "camera-0/scene-0",
   ...overrides
 });
@@ -56,6 +57,7 @@ test("FX-06 shared history invalidates cut, output resize, scale and feature tra
     [revision({ internalWidth: 1280 }), "internal-resize"],
     [revision({ renderScale: 1 }), "render-scale"],
     [revision({ format: 2 }), "format-change"],
+    [revision({ light: 1 }), "lighting-change"],
     [revision({ view: "camera-1/scene-0" }), "view-switch"]
   ];
   for (const [next, reason] of cases) {

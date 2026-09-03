@@ -84,7 +84,7 @@ Surface metadata MotionValid/Reactive + Packed transparency reactive
 ## 保留的不变量
 
 1. velocity 单位为 internal pixel，方向固定为 `current - previous`；history coordinate 为 `current - velocity`。
-2. camera cut、output/internal resize、render scale、feature、format、view switch 和 abort 都使 history 失效。
+2. camera cut、output/internal resize、render scale、feature、format、view switch、重大灯光变化（lighting-change）和 abort 都使 history 失效。
 3. ping-pong 只在已提交且确实产生 history 的 frame completion 上推进；编码失败不提交半帧 history。
 4. reactive、motion-invalid、history 越界或低 disocclusion confidence 保守拒绝 history；透明 reactive 从当前输出像素读取，不能随 closest-depth opaque velocity 采样而丢失。
 5. accepted history 先由中心 + 四邻域的 YCoCg mean/variance/min/max envelope 裁剪，再由 motion、luminance、reactive 和 disocclusion confidence 共同限制权重；history alpha 保存 bounded lock，权重上限 `0.92`。
