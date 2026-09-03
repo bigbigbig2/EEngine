@@ -235,7 +235,6 @@ fn validate_transparent_fragment(
   if (input.raster_flags & ${GPU_SECONDARY_RASTER_FLAGS.Transparent}u) == 0u { return false; }
   if input.material_handle >= arrayLength(&materials) ||
     (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
-    material.material_id != input.material_handle ||
     material.alpha_mode != OENGINE_MATERIAL_ALPHA_BLEND { return false; }
   let corrected_front = front != (input.mirrored != 0u);
   if (material.flags & OENGINE_MATERIAL_VISIBILITY_DOUBLE_SIDED) == 0u && !corrected_front {

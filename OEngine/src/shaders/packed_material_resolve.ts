@@ -179,10 +179,10 @@ fn read_uv_direct(geometry: GpuGeometryRecord, uv_set: u32, vertex: u32) -> vec2
     );
   }
   if format == ${GPU_UV_FORMAT.Unorm8x2}u {
-    return vec2f(read_u8(offset), read_u8(offset + 1u)) / 255.0;
+    return vec2f(f32(read_u8(offset)), f32(read_u8(offset + 1u))) / 255.0;
   }
   if format == ${GPU_UV_FORMAT.Unorm16x2}u {
-    return vec2f(read_u16(offset), read_u16(offset + 2u)) / 65535.0;
+    return vec2f(f32(read_u16(offset)), f32(read_u16(offset + 2u))) / 65535.0;
   }
   return vec2f(0.0);
 }

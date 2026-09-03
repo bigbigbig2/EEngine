@@ -139,6 +139,7 @@ test("velocity feature-off allocates no attachment and freezes a 22 B/pixel Surf
 });
 
 test("specialized shader uses direct canonical streams and analytic UV0/UV1/UV2 gradients", () => {
+  assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /vec2f\(read_u(?:8|16)\(/);
   for (const lookup of [
     "raster_work.opaque_header.written",
     "raster_work.mask_header.written",
@@ -197,6 +198,10 @@ test("Packed runtime has bounded kernel indirect draws and no material-count loo
     "utf8"
   );
   const rendererSource = readFileSync(path.join(root, "src/render/Renderer.ts"), "utf8");
+  assert.match(
+    passSource,
+    /binding: 1,[\s\S]*?visibility: GPUShaderStage\.VERTEX \| GPUShaderStage\.FRAGMENT/
+  );
   assert.equal((passSource.match(/pass\.drawIndirect\(/g) ?? []).length, 1);
   assert.match(passSource, /kernelClass < GPU_MATERIAL_KERNEL_CLASS_COUNT/);
   assert.doesNotMatch(passSource, /for\s*\([^)]*material|for\s*\([^)]*materials/);

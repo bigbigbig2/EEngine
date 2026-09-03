@@ -40,6 +40,7 @@ test("R3-D Packed Scene abort rolls back its counter sink and release retires it
 
   const aborted = new FakeCommand();
   registry.stage(scene, makeManifest(source), [Object.freeze({})], aborted);
+  assert.equal(graphics.buffers[0].size, 512);
   aborted.abort();
   assert.equal(registry.evidence().sceneCount, 0);
   assert.deepEqual(graphics.buffers.map((buffer) => buffer.destroyCount), [1]);

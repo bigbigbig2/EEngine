@@ -176,8 +176,7 @@ fn packed_csm_fragment(input: ShadowVertexOutput, @builtin(front_facing) front: 
   if (input.raster_flags & ${GPU_SECONDARY_RASTER_FLAGS.CastsShadow}u) == 0u { discard; }
   if input.material_handle >= arrayLength(&materials) { return; }
   let record = materials[input.material_handle];
-  if (record.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
-    record.material_id != input.material_handle { return; }
+  if (record.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u { return; }
   let corrected_front = front != (input.mirrored != 0u);
   if (record.flags & OENGINE_MATERIAL_VISIBILITY_DOUBLE_SIDED) == 0u && !corrected_front {
     discard;

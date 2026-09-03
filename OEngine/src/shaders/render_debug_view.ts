@@ -427,8 +427,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
     return fail(OENGINE_VIS_DEBUG_MATERIAL_OOB);
   }
   let material = debug_materials[work.material_handle];
-  if (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
-    material.material_id != work.material_handle {
+  if (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
     return fail(OENGINE_VIS_DEBUG_MATERIAL_INVALID);
   }
   if material.alpha_mode == OENGINE_MATERIAL_ALPHA_BLEND {

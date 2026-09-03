@@ -121,11 +121,11 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
     "work.instance_record_index >= min",
     "work.geometry_record_index >= settings.geometry_record_count",
     "instance.geometry_record_index != work.geometry_record_index",
-    "work.material_handle >= min",
-    "material.material_id != work.material_handle"
+    "work.material_handle >= min"
   ]) {
     assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, new RegExp(lookup));
   }
+  assert.doesNotMatch(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /material\.material_id/);
   assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineRasterWork/);
   assert.doesNotMatch(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineVisibleClusterRecord/);
   assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineInstanceRecord/);

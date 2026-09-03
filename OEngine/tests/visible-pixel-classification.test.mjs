@@ -27,3 +27,7 @@ test("classification validates a direct VisibilityKey slot before reading exact 
   assert.match(VISIBLE_PIXEL_CLASSIFICATION_WGSL, /slot >= settings\.raster_class_capacity/);
   assert.match(VISIBLE_PIXEL_CLASSIFICATION_WGSL, /return raster_work\.elements\[oengine_visibility_key_raster_work_slot\(key\)\]/);
 });
+
+test("classification WGSL does not use reserved identifiers", () => {
+  assert.doesNotMatch(VISIBLE_PIXEL_CLASSIFICATION_WGSL, /\bactive\b/);
+});

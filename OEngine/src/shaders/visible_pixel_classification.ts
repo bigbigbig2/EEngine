@@ -105,14 +105,14 @@ fn scan_blocks(
   }
   workgroupBarrier();
   var offset = 1u;
-  var active = BLOCK_SIZE >> 1u;
-  while (active > 0u) {
-    if lane < active {
+  var active_lane_count = BLOCK_SIZE >> 1u;
+  while (active_lane_count > 0u) {
+    if lane < active_lane_count {
       let right = (lane + 1u) * offset * 2u - 1u;
       scan_values[right] += scan_values[right - offset];
     }
     offset <<= 1u;
-    active >>= 1u;
+    active_lane_count >>= 1u;
     workgroupBarrier();
   }
   if lane == 0u {

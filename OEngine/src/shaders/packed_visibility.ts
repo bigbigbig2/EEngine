@@ -366,8 +366,7 @@ fn write_hierarchy_visibility(
   );
   if material_handle < arrayLength(&r4_material_visibility) {
     let candidate = r4_material_visibility[material_handle];
-    if (candidate.flags & OENGINE_MATERIAL_VISIBILITY_VALID) != 0u &&
-      candidate.material_id == material_handle {
+    if (candidate.flags & OENGINE_MATERIAL_VISIBILITY_VALID) != 0u {
       record = candidate;
     }
   }

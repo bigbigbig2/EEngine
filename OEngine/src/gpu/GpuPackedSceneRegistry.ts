@@ -1,4 +1,5 @@
 import type { GeometryAssetPackage } from "../assets/GeometryAssetPackage.js";
+import { GPU_COUNTER_BYTE_SIZE } from "../debug/GpuFrameCounters.js";
 import { computeIndexedPackedHierarchyWorkCapacity } from "../geometry/GeometryHierarchy.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
@@ -178,7 +179,7 @@ export class GpuPackedSceneRegistry {
     const range = this.graphics.gpu_scene.range(instanceHandle);
     const counterSink = this.graphics.device.createBuffer({
       label: "PackedScene/disabled-counter-sink",
-      size: 256,
+      size: GPU_COUNTER_BYTE_SIZE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     const handle = Object.freeze({}) as PackedSceneHandle;
