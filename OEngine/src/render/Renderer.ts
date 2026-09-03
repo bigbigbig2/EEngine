@@ -51,18 +51,14 @@ import { AOService } from "./features/AOService.js";
 import { ReflectionService } from "./features/ReflectionService.js";
 import { GIService } from "./features/GIService.js";
 import { TemporalFeature } from "./features/TemporalFeature.js";
+import { PostFeature } from "./features/PostFeature.js";
 import {
   NeuralSuperSamplingPass,
   type NssSettings
 } from "./passes/NeuralSuperSamplingPass.js";
-import { MotionBlurPass } from "./passes/MotionBlurPass.js";
-import { SharpenPass } from "./passes/SharpenPass.js";
-import { BloomPass } from "./passes/BloomPass.js";
-import { AutomaticExposurePass } from "./passes/AutomaticExposurePass.js";
 import { resolveFrameJitter } from "./TemporalJitterController.js";
 import { GPUTextureContext } from "../gpu/GPUTextureContext.js";
 import { createNativeTextureView } from "../gpu/GPUTextureDescriptors.js";
-import { TonemapPass } from "./passes/TonemapPass.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
 import type { FrameProfileSnapshot } from "../debug/FrameProfiler.js";
@@ -404,17 +400,13 @@ export class Renderer {
   private _ssrOwnerGeneration = 0;
   private readonly _temporalFeature = new TemporalFeature();
   private _nss: NeuralSuperSamplingPass | null = null;
-  private _motionBlur: MotionBlurPass | null = null;
-  private _sharpen: SharpenPass | null = null;
-  private _bloom: BloomPass | null = null;
-  private _automaticExposure: AutomaticExposurePass | null = null;
+  private _postFeature: PostFeature | null = null;
   private readonly _temporalHistories = new TemporalHistoryRegistry(["color", "ssao", "ssr"]);
   private _lastFramePlan: FramePlanDump | null = null;
   private _unsubscribeDynamicResolution: (() => void) | null = null;
   private _dynamicResolutionOwnsProfiler = false;
   private _lastTemporalTaaPassCount = 0;
   private _lastTemporalClassificationPassCount = 0;
-  private _tonemap!: TonemapPass;
   private _renderTargets = new RenderTargets();
   private _format: GPUTextureFormat = "rgba8unorm";
   private readonly _sceneSdfs = new Map<Scene, SceneSdf>();
@@ -439,11 +431,11 @@ export class Renderer {
       this._temporalHistories.invalidate("explicit");
     }
     const post = this._renderSettings.values.post;
-    if (this._automaticExposure !== null) {
-      this._automaticExposure.exposure_compensation = post.exposureCompensation;
-      this._automaticExposure.adaptation_speed_up = post.exposureSpeedUp;
-      this._automaticExposure.adaptation_speed_down = post.exposureSpeedDown;
-    }
+    this._postFeature?.syncExposure({
+      exposureCompensation: post.exposureCompensation,
+      exposureSpeedUp: post.exposureSpeedUp,
+      exposureSpeedDown: post.exposureSpeedDown
+    });
     return change;
   }
   /** 单一调试视图选择；unsupported 条目不会向 FrameGraph 添加工作。 */
@@ -830,7 +822,7 @@ export class Renderer {
       temporal: this.temporalEvidence().historyBytes,
       ambientOcclusion: this.ambientOcclusionEvidence().historyBytes,
       screenSpaceReflections: this.screenSpaceReflectionsEvidence().historyBytes,
-      automaticExposure: this._automaticExposure?.historyBytes ?? 0
+      automaticExposure: this._postFeature?.automaticExposureHistoryBytes ?? 0
     });
     const historyBytes = Object.values(historyOwners).reduce(
       (sum, bytes) => sum + bytes,
@@ -1053,15 +1045,9 @@ export class Renderer {
     this._reflectionService = null;
     this._giService?.destroy();
     this._lightingFeature?.destroy();
-    this._automaticExposure?.destroy();
-    this._automaticExposure = null;
+    this._postFeature?.destroy();
+    this._postFeature = null;
     this._temporalFeature.destroy();
-    this._motionBlur?.destroy();
-    this._motionBlur = null;
-    this._sharpen?.destroy();
-    this._sharpen = null;
-    this._bloom?.destroy();
-    this._bloom = null;
     this._renderDebug?.destroy();
     this._renderDebug = null;
     this._materialExpand?.destroy();
@@ -1163,7 +1149,7 @@ export class Renderer {
       );
     });
     const featureTopology = this.resolveFeatureTopology();
-    this.initializeRenderPasses(this.device, featureTopology);
+    this.initializeRenderPasses(featureTopology);
     this._temporalHistories.beginFrame(
       this._frame_count,
       {
@@ -2751,7 +2737,7 @@ export class Renderer {
           hdrRes !== null &&
           velocityRes !== null
         ) {
-          hdrRes = this._motionBlur!.addToGraph(
+          hdrRes = this._postFeature!.obtainMotionBlur().addToGraph(
             graph,
             bind("motion-blur-job", (bindings) => ({
               width: bindings.outputWidth,
@@ -2773,15 +2759,15 @@ export class Renderer {
             "Automatic exposure previous",
             { kind: "imported", label: "automatic exposure previous" },
             bind("automatic-exposure-previous", (bindings) =>
-              this._automaticExposure!.historyBuffer(bindings.frameIndex, false))
+              this._postFeature!.obtainAutomaticExposure().historyBuffer(bindings.frameIndex, false))
           );
           const exposureAdapted = graph.import_resource(
             "Automatic exposure adapted",
             { kind: "imported", label: "automatic exposure adapted" },
             bind("automatic-exposure-adapted", (bindings) =>
-              this._automaticExposure!.historyBuffer(bindings.frameIndex, true))
+              this._postFeature!.obtainAutomaticExposure().historyBuffer(bindings.frameIndex, true))
           );
-          exposureRes = this._automaticExposure!.update(
+          exposureRes = this._postFeature!.obtainAutomaticExposure().update(
             graph,
             exposureSourceHdr,
             time_delta_seconds,
@@ -2796,7 +2782,7 @@ export class Renderer {
         }
 
         if (hdrRes !== null && graphTopology.bloom) {
-          const bloom = this._bloom!.addToGraph(
+          const bloom = this._postFeature!.addBloomToGraph(
             graph,
             hdrRes,
             bind("bloom-job", () => ({
@@ -2810,7 +2796,7 @@ export class Renderer {
           hdrRes = bloom.composited;
         }
         if (graphTopology.sharpening && hdrRes !== null) {
-          hdrRes = this._sharpen!.addToGraph(
+          hdrRes = this._postFeature!.addSharpenToGraph(
             graph,
             hdrRes,
             this._output_resolution.x,
@@ -2858,7 +2844,7 @@ export class Renderer {
         }
 
         if (hdrRes !== null) {
-          this._tonemap.addToGraph(graph, {
+          this._postFeature!.obtainTonemap(this._format).addToGraph(graph, {
             swapchain: swapId,
             hdr: hdrRes,
             exposure: exposureRes ?? undefined
@@ -3119,7 +3105,6 @@ export class Renderer {
   }
 
   private initializeRenderPasses(
-    device: GPUDevice,
     topology: MainFrameFeatureTopology
   ): void {
     if (!this._visibility) {
@@ -3205,43 +3190,38 @@ export class Renderer {
     } else if (this._temporalFeature.colorHistoryCount() > 0) {
       this._temporalFeature.retireColorHistory();
     }
+    this._postFeature ??= new PostFeature(this._graphics);
     if (topology.motionBlur) {
-      this._motionBlur ??= new MotionBlurPass(this._graphics);
-    } else if (this._motionBlur !== null) {
-      this.retireAfterSubmittedWork(this._motionBlur);
-      this._motionBlur = null;
+      this._postFeature.obtainMotionBlur();
+    } else if (this._postFeature.motionBlur() !== null) {
+      this._postFeature.retireMotionBlur();
     }
     if (topology.sharpening) {
-      this._sharpen ??= new SharpenPass(this._graphics);
-    } else if (this._sharpen !== null) {
-      this.retireAfterSubmittedWork(this._sharpen);
-      this._sharpen = null;
+      this._postFeature.obtainSharpen();
+    } else if (this._postFeature.sharpen() !== null) {
+      this._postFeature.retireSharpen();
     }
     if (topology.bloom) {
-      this._bloom ??= new BloomPass(this._graphics);
-    } else if (this._bloom !== null) {
-      this.retireAfterSubmittedWork(this._bloom);
-      this._bloom = null;
+      this._postFeature.obtainBloom();
+    } else if (this._postFeature.bloom() !== null) {
+      this._postFeature.retireBloom();
     }
     if (topology.automaticExposure) {
-      this._automaticExposure ??= new AutomaticExposurePass(device);
-      this._automaticExposure.exposure_compensation = this._renderSettings.values.post.exposureCompensation;
-      this._automaticExposure.adaptation_speed_up = this._renderSettings.values.post.exposureSpeedUp;
-      this._automaticExposure.adaptation_speed_down = this._renderSettings.values.post.exposureSpeedDown;
-    } else if (this._automaticExposure !== null) {
-      this.retireAfterSubmittedWork(this._automaticExposure);
-      this._automaticExposure = null;
+      this._postFeature.obtainAutomaticExposure();
+      this._postFeature.syncExposure({
+        exposureCompensation: this._renderSettings.values.post.exposureCompensation,
+        exposureSpeedUp: this._renderSettings.values.post.exposureSpeedUp,
+        exposureSpeedDown: this._renderSettings.values.post.exposureSpeedDown
+      });
+    } else if (this._postFeature.automaticExposure() !== null) {
+      this._postFeature.retireAutomaticExposure();
     }
     if (!topology.debug && this._renderDebug !== null) {
       this.retireAfterSubmittedWork(this._renderDebug);
       this._renderDebug = null;
     }
-    if (!this._tonemap) {
-      this._tonemap = new TonemapPass(device, this._format);
-      this._tonemap.hdrEnabled = this._highDynamicRange;
-      this._tonemap.peakNits = this._peakNits;
-      this._tonemap.init();
-    }
+    this._postFeature.obtainTonemap(this._format);
+    this._postFeature.updateTonemap(this._format, this._highDynamicRange, this._peakNits);
   }
 
   private obtainLegacyMaterialExpand(): MaterialExpandPass {
@@ -3607,11 +3587,7 @@ export class Renderer {
     this._highDynamicRange = highDynamicRange;
     this._peakNits = highDynamicRange ? 1000 : 80;
     if (changed) this.updateCanvasFormat();
-    if (this._tonemap) {
-      this._tonemap.hdrEnabled = highDynamicRange;
-      this._tonemap.peakNits = this._peakNits;
-      this._tonemap.setCanvasFormat(this._format);
-    }
+    this._postFeature?.updateTonemap(this._format, highDynamicRange, this._peakNits);
     if (changed) this._canvasNeedsConfigure = true;
   }
 

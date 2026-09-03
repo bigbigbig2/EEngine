@@ -96,9 +96,9 @@ test("R2-D singular motion is explicitly flagged and Packed Velocity cannot exec
 
 test("R2-D Packed Material uses canonical direct descriptors and analytic gradients", () => {
   assert.doesNotMatch(PACKED_MATERIAL_RESOLVE_WGSL, /find_stream/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.normal_descriptor/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.tangent_descriptor/);
-  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.color_descriptor/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.normal_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.tangent_byte_offset/);
+  assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.color_byte_offset/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv0_byte_offset/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv1_byte_offset/);
   assert.match(PACKED_MATERIAL_RESOLVE_WGSL, /geometry\.uv2_byte_offset/);

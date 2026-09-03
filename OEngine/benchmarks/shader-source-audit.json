@@ -28,6 +28,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/Renderer.ts"
       ],
@@ -47,6 +48,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/passes/BloomPass.ts",
         "src/render/Renderer.ts"
       ],
@@ -255,6 +257,7 @@
         "src/render/features/AOService.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TemporalFeature.ts",
@@ -617,6 +620,7 @@
         "src/render/features/AOService.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -818,6 +822,7 @@
         "src/render/features/AOService.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TemporalFeature.ts",
@@ -953,6 +958,7 @@
         "src/render/features/AOService.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TemporalFeature.ts",
@@ -1533,6 +1539,7 @@
         "src/render/features/AOService.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TemporalFeature.ts",
@@ -1599,6 +1606,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/Renderer.ts"
       ],
@@ -2375,6 +2383,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/Renderer.ts"
       ],
@@ -2439,6 +2448,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
@@ -2606,6 +2616,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",
         "src/render/passes/SharpenPass.ts",
@@ -2629,6 +2640,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/Renderer.ts"
       ],
@@ -2648,6 +2660,7 @@
       ],
       "runtimeConsumers": [
         "src/index.ts",
+        "src/render/features/PostFeature.ts",
         "src/render/passes/TonemapPass.ts",
         "src/render/Renderer.ts"
       ],
