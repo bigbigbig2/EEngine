@@ -16,10 +16,10 @@ test("Q02 keeps material AO and ambient visibility as separate products", () => 
 
 test("Q02 traces SSR from Complete Opaque HDR and applies a delta correction", () => {
   const renderer = readFileSync(new URL("../src/render/Renderer.ts", import.meta.url), "utf8");
-  const completeOpaque = renderer.indexOf("this._opaqueLighting.addIblBaseline");
+  const completeOpaque = renderer.indexOf("this._giService.addIblBaseline");
   const baseline = renderer.indexOf("baselineSpecularRes", completeOpaque);
-  const trace = renderer.indexOf("this._ssr!.addToGraph", baseline);
-  const correction = renderer.indexOf("this._specularCorrection!.addToGraph", trace);
+  const trace = renderer.indexOf("this._reflectionService!.addToGraph", baseline);
+  const correction = renderer.indexOf("this._reflectionService!.addCorrection", trace);
   assert.ok(completeOpaque >= 0 && baseline > completeOpaque && trace > baseline && correction > trace);
 
   const shader = readFileSync(

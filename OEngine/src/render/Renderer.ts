@@ -48,9 +48,9 @@ import {
 import { VelocityPass } from "./passes/VelocityPass.js";
 import { RenderDebugViewPass } from "./passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "./passes/OcclusionConfidencePass.js";
-import { ScreenSpaceAmbientOcclusionPass } from "./passes/ScreenSpaceAmbientOcclusionPass.js";
-import { ScreenSpaceReflectionsPass } from "./passes/ScreenSpaceReflectionsPass.js";
-import { SpecularCorrectionPass } from "./passes/SpecularCorrectionPass.js";
+import { AOService } from "./features/AOService.js";
+import { ReflectionService } from "./features/ReflectionService.js";
+import { GIService } from "./features/GIService.js";
 import { TemporalAntiAliasingPass } from "./passes/TemporalAntiAliasingPass.js";
 import { TemporalClassificationPass } from "./passes/TemporalClassificationPass.js";
 import {
@@ -131,7 +131,6 @@ import {
   type RenderSettingsPatch,
   type RenderSettingsValues
 } from "./pipeline/RenderSettings.js";
-import { OpaqueLightingPipeline } from "./pipeline/OpaqueLightingPipeline.js";
 import {
   createRendererFramePlan,
   type FramePlanDump
@@ -391,7 +390,7 @@ export class Renderer {
   private _surfaceFeature!: SurfaceFeature;
   private _packedSurfaceCounters!: PackedSurfaceCounterPass;
   private _lightingFeature!: LightingFeature;
-  private _opaqueLighting!: OpaqueLightingPipeline;
+  private _giService!: GIService;
   private _lpvIndirectDiffuse!: LpvIndirectDiffusePass;
   private _transparentOit: TransparentOitPass | null = null;
   private _packedTransparentOit: PackedTransparentOitPass | null = null;
@@ -404,12 +403,11 @@ export class Renderer {
   private _velocity: VelocityPass | null = null;
   private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence: OcclusionConfidencePass | null = null;
-  private _ssao: ScreenSpaceAmbientOcclusionPass | null = null;
+  private _aoService: AOService | null = null;
   private _ssaoConfigurationKey = "";
   private _ssaoOwnerGeneration = 0;
-  private _ssr: ScreenSpaceReflectionsPass | null = null;
+  private _reflectionService: ReflectionService | null = null;
   private _ssrConfigurationKey = "";
-  private _specularCorrection: SpecularCorrectionPass | null = null;
   private _ssrOwnerGeneration = 0;
   private _taa: TemporalAntiAliasingPass | null = null;
   private _temporalClassification: TemporalClassificationPass | null = null;
@@ -764,7 +762,7 @@ export class Renderer {
   /** FX-07 bounded AO phase/history evidence; GPU handles remain private. */
   ambientOcclusionEvidence(): AmbientOcclusionRuntimeEvidence {
     const history = this._temporalHistories.state("ssao");
-    const pass = this._ssao;
+    const pass = this._aoService;
     const internalPixels = this._render_resolution.x * this._render_resolution.y;
     const aoSettings = this._renderSettings.values.ao;
     const aoEnabled = this._renderSettings.values.features.ambientOcclusion;
@@ -803,7 +801,7 @@ export class Renderer {
   /** FX-08 bounded SSR phase/history evidence; GPU handles remain private. */
   screenSpaceReflectionsEvidence(): ScreenSpaceReflectionsRuntimeEvidence {
     const history = this._temporalHistories.state("ssr");
-    const pass = this._ssr;
+    const pass = this._reflectionService;
     const enabled = this._renderSettings.values.features.screenSpaceReflections;
     const resolutionScale = this._renderSettings.values.ssr.resolutionScale;
     const traceWidth = enabled ? Math.max(1, Math.ceil(this._render_resolution.x * resolutionScale)) : 0;
@@ -825,7 +823,7 @@ export class Renderer {
       spatialPasses: pass?.lastSpatialPasses ?? 0,
       temporalPasses: pass?.lastTemporalPasses ?? 0,
       compositePasses:
-        this._renderSettings.values.features.screenSpaceReflections && this._specularCorrection?.lastRan === true ? 1 : 0,
+        this._renderSettings.values.features.screenSpaceReflections && this._reflectionService?.lastCorrectionRan === true ? 1 : 0,
       historyTextureCount: pass?.historyTextureCount ?? 0,
       historyBytes: pass?.historyBytes ?? 0,
       historyValid: history.valid,
@@ -1062,16 +1060,14 @@ export class Renderer {
     this._transparentOit = null;
     this._packedTransparentOit?.destroy();
     this._packedTransparentOit = null;
-    this._ssao?.destroy();
-    this._ssao = null;
+    this._aoService?.destroy();
+    this._aoService = null;
     this._ssaoConfigurationKey = "";
     this._occlusionConfidence?.destroy();
     this._occlusionConfidence = null;
-    this._ssr?.destroy();
-    this._ssr = null;
-    this._specularCorrection?.destroy();
-    this._specularCorrection = null;
-    this._opaqueLighting?.destroy();
+    this._reflectionService?.destroy();
+    this._reflectionService = null;
+    this._giService?.destroy();
     this._lightingFeature?.destroy();
     this._automaticExposure?.destroy();
     this._automaticExposure = null;
@@ -1349,13 +1345,13 @@ export class Renderer {
         throw new Error("GPU counter sampling has no counter buffer");
       }
       if (featureTopology.ssao) {
-        this._ssao!.resize(
+        this._aoService!.resize(
           Math.max(1, Math.ceil(w * this._renderSettings.values.ao.resolutionScale)),
           Math.max(1, Math.ceil(h * this._renderSettings.values.ao.resolutionScale))
         );
       }
       if (featureTopology.ssr) {
-        this._ssr!.resize(
+        this._reflectionService!.resize(
           Math.max(1, Math.ceil(w * this._renderSettings.values.ssr.resolutionScale)),
           Math.max(1, Math.ceil(h * this._renderSettings.values.ssr.resolutionScale))
         );
@@ -1375,9 +1371,8 @@ export class Renderer {
         ]);
       }
       this._taa?.resetFrameEvidence();
-      this._ssr?.resetFrameEvidence();
-      this._opaqueLighting.resetFrameEvidence();
-      if (this._specularCorrection !== null) this._specularCorrection.lastRan = false;
+      this._reflectionService?.resetFrameEvidence();
+      this._giService.resetFrameEvidence();
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
       this._lastTemporalClassificationPassCount =
         (featureTopology.ssaoTemporal || featureTopology.ssrTemporal ? 1 : 0) +
@@ -2069,7 +2064,7 @@ export class Renderer {
           (!graphTopology.ssaoTemporal ||
             (velocityRes !== null && occlusionConfidenceRes !== null))
         ) {
-          const ssao = this._ssao!.addToGraph(
+          const ssao = this._aoService!.addToGraph(
             graph,
             bind("ssao-job", (bindings) => ({
               samplers: this._graphics.samplers,
@@ -2105,9 +2100,9 @@ export class Renderer {
             graphTopology.ssaoTemporal
               ? {
                   input: bind("ssao-history-input", (bindings) =>
-                    this._ssao!.historyTexture(bindings.ssaoHistoryInputIndex)),
+                    this._aoService!.historyTexture(bindings.ssaoHistoryInputIndex)),
                   output: bind("ssao-history-output", (bindings) =>
-                    this._ssao!.historyTexture(bindings.ssaoHistoryOutputIndex))
+                    this._aoService!.historyTexture(bindings.ssaoHistoryOutputIndex))
                 }
               : undefined
           );
@@ -2149,7 +2144,7 @@ export class Renderer {
             { kind: "imported", label: "rg16float split_sum" },
             splitSum.gpu_texture
           );
-          const opaqueLighting = this._opaqueLighting.addIblBaseline(
+          const opaqueLighting = this._giService.addIblBaseline(
             graph,
             { width: w, height: h },
             {
@@ -2183,7 +2178,7 @@ export class Renderer {
               { kind: "imported", label: "STBN vec2 3D" },
               blueNoise.gpu_texture
             );
-            const ssr = this._ssr!.addToGraph(
+            const ssr = this._reflectionService!.addToGraph(
               graph,
               bind("ssr-job", (bindings) => ({
                 width: bindings.internalWidth,
@@ -2225,12 +2220,12 @@ export class Renderer {
               },
               {
                 input: bind("ssr-history-input", (bindings) =>
-                  this._ssr!.historyTexture(bindings.ssrHistoryInputIndex)),
+                  this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
                 output: bind("ssr-history-output", (bindings) =>
-                  this._ssr!.historyTexture(bindings.ssrHistoryOutputIndex))
+                  this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
               }
             );
-            hdrRes = this._specularCorrection!.addToGraph(graph, {
+            hdrRes = this._reflectionService!.addCorrection(graph, {
               hdr: hdrRes,
               depth: depthRes,
               normal: gNormalRes,
@@ -2312,7 +2307,7 @@ export class Renderer {
               { width: w, height: h },
               { ...base, normal: bentNormalRes, albedoAo: gAlbedoRes }
             );
-            hdrRes = this._opaqueLighting.composeIndirect(graph, {
+            hdrRes = this._giService.composeIndirect(graph, {
               hdr: hdrRes,
               depth: depthRes,
               normal: gNormalRes,
@@ -2384,7 +2379,7 @@ export class Renderer {
             splitSum.gpu_texture
           );
 
-          const baselineSpecularRes = this._opaqueLighting.addBaselineSpecular(
+          const baselineSpecularRes = this._giService.addBaselineSpecular(
             graph,
             { width: w, height: h },
             {
@@ -2416,7 +2411,7 @@ export class Renderer {
               probes: lpvProbesRes
             }
           );
-          hdrRes = this._opaqueLighting.composeIndirect(graph, {
+          hdrRes = this._giService.composeIndirect(graph, {
             hdr: hdrRes,
             depth: depthRes,
             normal: gNormalRes,
@@ -2445,7 +2440,7 @@ export class Renderer {
               { kind: "imported", label: "STBN vec2 3D" },
               blueNoise.gpu_texture
             );
-            const ssr = this._ssr!.addToGraph(
+            const ssr = this._reflectionService!.addToGraph(
               graph,
               bind("ssr-job", (bindings) => ({
                 width: bindings.internalWidth,
@@ -2495,12 +2490,12 @@ export class Renderer {
               },
               {
                 input: bind("ssr-history-input", (bindings) =>
-                  this._ssr!.historyTexture(bindings.ssrHistoryInputIndex)),
+                  this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
                 output: bind("ssr-history-output", (bindings) =>
-                  this._ssr!.historyTexture(bindings.ssrHistoryOutputIndex))
+                  this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
               }
             );
-            hdrRes = this._specularCorrection!.addToGraph(graph, {
+            hdrRes = this._reflectionService!.addCorrection(graph, {
               hdr: hdrRes,
               depth: depthRes,
               normal: gNormalRes,
@@ -3005,7 +3000,7 @@ export class Renderer {
       if (graphTopology.ssaoTemporal) {
         this._temporalHistories.markProduced("ssao");
       }
-      if (graphTopology.ssr && this._ssr?.lastTemporalPasses === 1) {
+      if (graphTopology.ssr && this._reflectionService?.lastTemporalPasses === 1) {
         this._temporalHistories.markProduced("ssr");
       }
       view.finish_frame(cmd, this._frame_count);
@@ -3153,7 +3148,7 @@ export class Renderer {
     this._surfaceFeature ??= new SurfaceFeature(this._graphics);
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     this._lightingFeature ??= new LightingFeature(this._graphics);
-    this._opaqueLighting ??= new OpaqueLightingPipeline(this._graphics);
+    this._giService ??= new GIService(this._graphics);
     this._lpvIndirectDiffuse ??= new LpvIndirectDiffusePass(this._graphics);
     this._brick4Diffuse ??= new Brick4DiffusePass(this._graphics);
     this._brick4Specular ??= new Brick4SpecularPass(this._graphics);
@@ -3167,9 +3162,9 @@ export class Renderer {
     }
     if (topology.ssao) {
       const configurationKey = `${topology.ssaoTemporal ? 1 : 0}/${topology.ssaoHalfResolution ? 1 : 0}`;
-      if (this._ssao === null || this._ssaoConfigurationKey !== configurationKey) {
-        if (this._ssao !== null) this.retireAfterSubmittedWork(this._ssao);
-        this._ssao = new ScreenSpaceAmbientOcclusionPass(
+      if (this._aoService === null || this._ssaoConfigurationKey !== configurationKey) {
+        if (this._aoService !== null) this.retireAfterSubmittedWork(this._aoService);
+        this._aoService = new AOService(
           this._graphics,
           topology.ssaoTemporal,
           topology.ssaoHalfResolution ? 0.5 : 1
@@ -3177,16 +3172,16 @@ export class Renderer {
         this._ssaoOwnerGeneration++;
         this._ssaoConfigurationKey = configurationKey;
       }
-    } else if (this._ssao !== null) {
-      this.retireAfterSubmittedWork(this._ssao);
-      this._ssao = null;
+    } else if (this._aoService !== null) {
+      this.retireAfterSubmittedWork(this._aoService);
+      this._aoService = null;
       this._ssaoConfigurationKey = "";
     }
     if (topology.ssr) {
       const configurationKey = `${topology.ssrTemporal ? 1 : 0}/${topology.ssrHalfResolution ? 1 : 0}`;
-      if (this._ssr === null || this._ssrConfigurationKey !== configurationKey) {
-        if (this._ssr !== null) this.retireAfterSubmittedWork(this._ssr);
-        this._ssr = new ScreenSpaceReflectionsPass(
+      if (this._reflectionService === null || this._ssrConfigurationKey !== configurationKey) {
+        if (this._reflectionService !== null) this.retireAfterSubmittedWork(this._reflectionService);
+        this._reflectionService = new ReflectionService(
           this._graphics,
           topology.ssrTemporal,
           topology.ssrHalfResolution ? 0.5 : 1
@@ -3194,15 +3189,10 @@ export class Renderer {
         this._ssrOwnerGeneration++;
         this._ssrConfigurationKey = configurationKey;
       }
-      this._specularCorrection ??= new SpecularCorrectionPass(this._graphics);
-    } else if (this._ssr !== null) {
-      this.retireAfterSubmittedWork(this._ssr);
-      this._ssr = null;
+    } else if (this._reflectionService !== null) {
+      this.retireAfterSubmittedWork(this._reflectionService);
+      this._reflectionService = null;
       this._ssrConfigurationKey = "";
-      if (this._specularCorrection !== null) {
-        this.retireAfterSubmittedWork(this._specularCorrection);
-        this._specularCorrection = null;
-      }
     }
     if (topology.taa) {
       this._taa ??= new TemporalAntiAliasingPass(this._graphics);

@@ -558,6 +558,8 @@ P4 owner/composition 执行记录见 [18-p4-lighting-shadow-composition.md](./18
 
 ## 24. P5：GI、Reflection 和 AO
 
+P5 owner/composition 执行记录见 [19-p5-gi-reflection-ao-services.md](./19-p5-gi-reflection-ao-services.md)。本工作包已接入 GIService、ReflectionService 与 AOService；具体算法画质和性能 Gate 仍以 production GPU artifact 为准。
+
 ### 目标
 
 把所有间接光、反射和环境遮蔽接入统一 Lighting Composition，解决当前效果互相覆盖、错误 fallback 和顺序错误。
