@@ -12,7 +12,7 @@ import {
   SHARPEN_VERTEX_WGSL,
   SHARPEN_WGSL
 } from "../../shaders/sharpen.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 export class SharpenPass {
   private readonly pipelineDescriptor: CachedRenderPipelineDescriptor;

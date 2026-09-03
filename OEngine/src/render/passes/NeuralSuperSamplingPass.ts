@@ -23,7 +23,7 @@ import {
   NSS_PREPROCESS_WGSL,
   NSS_RESOLVE_WGSL
 } from "../../shaders/nss.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 const NSS_BODY = [
   { inChannels: 12, outChannels: 32 },

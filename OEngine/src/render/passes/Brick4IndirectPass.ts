@@ -16,7 +16,7 @@ import {
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 const UINT_TEXTURE = {
   visibility: GPUShaderStage.FRAGMENT,

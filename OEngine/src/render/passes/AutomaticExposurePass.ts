@@ -13,7 +13,7 @@ import {
   EXPOSURE_REDUCE_WGSL,
   EXPOSURE_VALUE_BUFFER_SIZE
 } from "../../shaders/automatic_exposure.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 export class AutomaticExposurePass {
   adaptation_speed_up = 3;

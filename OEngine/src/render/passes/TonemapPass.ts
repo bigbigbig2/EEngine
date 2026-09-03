@@ -15,7 +15,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 export const TONEMAP_STEPS = [
   "detect #Go matchMedia (dynamic-range: high)",

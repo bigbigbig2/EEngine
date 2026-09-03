@@ -28,7 +28,7 @@ import { VIS_MESH_CLEAR_SENTINEL } from "../VisibilityBufferContract.js";
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 import {
   ExactTriangleFilter,
   type PreparedExactTriangleFilter

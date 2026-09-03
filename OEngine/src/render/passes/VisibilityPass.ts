@@ -48,7 +48,7 @@ import {
   ShadeTransparencyMode
 } from "../../material/enums.js";
 import { MATERIAL_SORT_DRAW_ARGS_BYTES } from "../../shaders/meshlet_material_sort.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 import { GPU_VIEW_TYPE } from "../ViewManager.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";

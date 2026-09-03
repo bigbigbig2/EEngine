@@ -14,7 +14,7 @@ import {
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 const ENVIRONMENT_BACKGROUND_LAYOUT: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/Ku/group0-layout",

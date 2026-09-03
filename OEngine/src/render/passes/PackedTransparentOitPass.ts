@@ -27,7 +27,7 @@ import {
   PACKED_TRANSPARENT_REACTIVE_FORMAT,
   PACKED_TRANSPARENT_RESOLVED_FORMAT
 } from "../../shaders/packed_transparent_oit.js";
-import { resolveDepthAttachmentView, resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveDepthAttachmentView, resolveTextureView } from "../RenderTargetViews.js";
 
 const COMMON_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "FX-05 Packed MBOIT Geometry/Material group0",

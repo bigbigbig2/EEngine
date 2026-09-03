@@ -17,7 +17,7 @@ import { HDR_COLOR_FORMAT } from "../RenderTargets.js";
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 export const LIGHTING_MIGRATION_GAP = [
   "authored lighting_direct.ts owns the runtime pipeline"

@@ -13,7 +13,7 @@ import {
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 const IBL_SPECULAR_LAYOUT: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/hw/group0-layout",

@@ -14,7 +14,7 @@ import {
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 const INDIRECT_COMPOSITE_GROUP0: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/TB/group0-layout",

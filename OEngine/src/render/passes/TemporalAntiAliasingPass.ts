@@ -8,7 +8,7 @@ import {
   type GPUSamplerCache
 } from "../../gpu/GPUSamplerCache.js";
 import { TAA_FORMAT, TAA_VERTEX_WGSL, TAA_WGSL } from "../../shaders/taa.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 export interface TemporalAntiAliasingInputs {
   readonly output: ResourceId;

@@ -42,7 +42,7 @@ import { SSR_TRACE_FORMAT, SSR_TRACE_WGSL } from "../../shaders/ssr_trace.js";
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 export type ScreenSpaceReflectionsInputs = {
   depth: ResourceId;

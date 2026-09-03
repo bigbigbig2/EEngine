@@ -20,7 +20,7 @@ import { PackedCameraUniform } from "../PackedCameraUniform.js";
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 export type LpvIndirectDiffuseInputs = {
   depth: ResourceId;

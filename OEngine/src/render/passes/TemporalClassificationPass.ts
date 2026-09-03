@@ -13,7 +13,7 @@ import {
   TEMPORAL_CLASSIFICATION_WGSL,
   temporalEvidenceWgsl
 } from "../../shaders/temporal_classification.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 const REACTIVE_INDEX = counterByteOffset("temporalReactivePixels") / 4;
 const DISOCCLUDED_INDEX = counterByteOffset("temporalDisoccludedPixels") / 4;

@@ -5,7 +5,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { GPU_SURFACE_ABI_WGSL } from "../../gpu/GpuSurfaceAbi.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 const WORKGROUP = 8;
 const GRADIENT_INDEX = counterByteOffset("gradientFallbackPixels") / 4;

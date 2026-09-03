@@ -11,7 +11,7 @@ import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCach
 import { textureMipLevelCount } from "../../gpu/GPUTextureContext.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import { VELOCITY_FORMAT, VELOCITY_WGSL } from "../../shaders/velocity.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 export type VelocityCameraMatrices = {
   projection_matrix: ArrayLike<number>;

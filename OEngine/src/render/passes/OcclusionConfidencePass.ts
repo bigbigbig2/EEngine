@@ -13,7 +13,7 @@ import {
   OCCLUSION_CONFIDENCE_FORMAT,
   OCCLUSION_CONFIDENCE_WGSL
 } from "../../shaders/occlusion_confidence.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 export type OcclusionConfidenceInputs = {
   currentDepth: ResourceId;

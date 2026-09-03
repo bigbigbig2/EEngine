@@ -34,7 +34,7 @@ import { HILBERT_NOISE_TEXTURE } from "../HilbertNoiseTexture.js";
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 export { hilbertIndex } from "../HilbertNoiseTexture.js";
 

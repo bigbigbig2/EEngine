@@ -4,7 +4,7 @@ import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { LINEAR_CLAMP_SAMPLER_DESCRIPTOR } from "../../gpu/GPUSamplerCache.js";
 import { SPECULAR_CORRECTION_WGSL } from "../../shaders/specular_correction.js";
-import { resolveDepthAttachmentView, resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveDepthAttachmentView, resolveTextureView } from "../RenderTargetViews.js";
 
 const GROUP0: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/SpecularCorrection/group0",

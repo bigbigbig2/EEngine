@@ -42,7 +42,7 @@ import { ShadeIndirectLightingMode } from "../ShadeIndirectLightingMode.js";
 import {
   resolveDepthAttachmentView,
   resolveTextureView
-} from "./MaterialExpandPass.js";
+} from "../RenderTargetViews.js";
 
 const VERTEX_FRAGMENT = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
 const STORAGE_READ = {

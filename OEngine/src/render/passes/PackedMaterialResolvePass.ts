@@ -20,7 +20,7 @@ import {
 } from "../../gpu/GpuMaterialKernelAbi.js";
 import { VisiblePixelClassifier } from "../VisiblePixelClassifier.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 import {
   prepareVelocityMatrices,
   type VelocityCameraMatrices

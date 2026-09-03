@@ -14,7 +14,7 @@ import {
   MOTION_BLUR_TILE_FORMAT,
   MOTION_BLUR_TILE_MAX_WGSL
 } from "../../shaders/motion_blur.js";
-import { resolveTextureView } from "./MaterialExpandPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
 export type MotionBlurInputs = {
   color: ResourceId;
