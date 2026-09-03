@@ -3,6 +3,7 @@ import {
   isRenderableRenderDebugView,
   type RenderDebugView as RenderDebugViewT
 } from "../debug/RenderDebugView.js";
+import { RenderFeatureRegistry } from "./RenderFeatureRegistry.js";
 
 export type MainFrameFeatureInputs = {
   shadows: boolean;
@@ -50,6 +51,56 @@ export type MainFrameFeatureTopology = Readonly<{
   histories: readonly string[];
 }>;
 
+const MAIN_FRAME_FEATURES = new RenderFeatureRegistry<MainFrameFeatureInputs>([
+  {
+    id: "shadows",
+    enabled: (input) => input.shadows,
+    outputs: ["shadow-atlas", "shadow-factor"],
+    persistentOwner: "shadow"
+  },
+  {
+    id: "ssr",
+    enabled: (input) => input.ssr,
+    inputs: ["scene-depth", "opaque-hdr", "scene-normal"],
+    outputs: ["ssr-specular"],
+    persistentOwner: "ssr",
+    history: (input) => input.ssrTemporal === false ? undefined : "ssr-history"
+  },
+  {
+    id: "ssao",
+    enabled: (input) => input.ssao,
+    inputs: ["scene-depth", "scene-normal"],
+    outputs: ["ambient-visibility"],
+    persistentOwner: "ssao",
+    history: (input) => input.ssaoTemporal === false ? undefined : "ssao-history"
+  },
+  {
+    id: "temporal",
+    enabled: (input) => input.temporal,
+    inputs: ["current-hdr", "velocity", "reactive-mask"],
+    outputs: ["temporal-hdr"],
+    persistentOwner: (input) => input.upscaleType === 1 ? "nss" : "taa",
+    history: (input) => input.upscaleType === 1 ? "nss-feedback-history" : "temporal-color-history"
+  },
+  {
+    id: "bloom",
+    enabled: (input) => input.bloom,
+    inputs: ["scene-hdr"],
+    outputs: ["bloom-hdr"],
+    persistentOwner: "bloom"
+  },
+  {
+    id: "automatic-exposure",
+    enabled: (input) => input.automaticExposure,
+    persistentOwner: "automatic-exposure",
+    history: "automatic-exposure-history"
+  },
+  { id: "motion-blur", enabled: (input) => input.motionBlur, persistentOwner: "motion-blur" },
+  { id: "sharpen", enabled: (input) => input.sharpening, persistentOwner: "sharpen" },
+  { id: "transparency", enabled: (input) => input.transparency === true, persistentOwner: "transparency" },
+  { id: "render-debug", enabled: (input) => isRenderableRenderDebugView(input.debugView), persistentOwner: "render-debug" }
+]);
+
 /**
  * Single source of truth for optional main-frame topology and persistent
  * owners. Dynamic GPU handles and scene counts intentionally do not enter it.
@@ -65,6 +116,7 @@ export function resolveMainFrameFeatureTopology(
   const ssaoHalfResolution = input.ssao && input.ssaoHalfResolution === true;
   const ssrTemporal = input.ssr && input.ssrTemporal !== false;
   const ssrHalfResolution = input.ssr && input.ssrHalfResolution === true;
+  const featureSelection = MAIN_FRAME_FEATURES.resolve(input);
 
   let bits = 0;
   if (input.shadows) bits += 2 ** 0;
@@ -107,25 +159,8 @@ export function resolveMainFrameFeatureTopology(
     transparency: input.transparency === true,
     debug,
     enabledFeatureBits: bits,
-    persistentOwners: Object.freeze([
-      ...(input.ssao ? ["ssao"] : []),
-      ...(input.ssr ? ["ssr"] : []),
-      ...(taa ? ["taa"] : []),
-      ...(nss ? ["nss"] : []),
-      ...(input.motionBlur ? ["motion-blur"] : []),
-      ...(input.sharpening ? ["sharpen"] : []),
-      ...(input.bloom ? ["bloom"] : []),
-      ...(input.automaticExposure ? ["automatic-exposure"] : []),
-      ...(input.transparency ? ["transparency"] : []),
-      ...(debug ? ["render-debug"] : [])
-    ]),
-    histories: Object.freeze([
-      ...(ssaoTemporal ? ["ssao-history"] : []),
-      ...(ssrTemporal ? ["ssr-history"] : []),
-      ...(input.temporal ? ["temporal-color-history"] : []),
-      ...(nss ? ["nss-feedback-history"] : []),
-      ...(input.automaticExposure ? ["automatic-exposure-history"] : [])
-    ])
+    persistentOwners: featureSelection.persistentOwners,
+    histories: featureSelection.histories
   });
 }
 

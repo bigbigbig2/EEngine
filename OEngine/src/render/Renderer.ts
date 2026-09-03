@@ -12,6 +12,10 @@ import { GPULightProbeVolumeRenderer } from "../gpu/GPULightProbeVolumeRenderer.
 import { FrameGraph, FrameGraphBindingLayout } from "../framegraph/FrameGraph.js";
 import type { CompiledFrameGraphDump } from "../framegraph/FrameGraph.js";
 import { CompiledFrameGraphCache } from "../framegraph/CompiledFrameGraphCache.js";
+import {
+  summarizeFrameGraphResources,
+  type FrameResourceSummary
+} from "../framegraph/FrameResourceSummary.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   FrameCoordinator,
@@ -281,6 +285,8 @@ export interface RendererMemoryEvidence extends GraphicsMemoryEvidence {
 export interface MainFrameGraphRuntimeEvidence {
   readonly cacheKey: string;
   readonly dump: CompiledFrameGraphDump;
+  /** 编译后资源生命周期摘要；不触发 GPU readback。 */
+  readonly resources: FrameResourceSummary;
 }
 
 type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
@@ -823,7 +829,11 @@ export class Renderer {
     const evidence = this._lastMainGraphEvidence;
     return evidence === null
       ? null
-      : Object.freeze({ cacheKey: evidence.cacheKey, dump: evidence.dump });
+      : Object.freeze({
+        cacheKey: evidence.cacheKey,
+        dump: evidence.dump,
+        resources: evidence.resources
+      });
   }
 
   get render_debug_view_status(): RenderDebugViewStatus {
@@ -2836,7 +2846,8 @@ export class Renderer {
       });
       this._lastMainGraphEvidence = Object.freeze({
         cacheKey: graphKey,
-        dump: compiledGraph.dump()
+        dump: compiledGraph.dump(),
+        resources: summarizeFrameGraphResources(compiledGraph)
       });
       if (sampleGpuCounters) {
         this._profiler.registerGpuCounterFields([

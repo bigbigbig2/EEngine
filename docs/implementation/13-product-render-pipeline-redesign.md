@@ -437,6 +437,11 @@ P9 旧路径删除、示例、Browser/GPU Gate、性能闭环
 
 把当前手工主图改造成统一的 Feature 贡献模型，为后续新效果提供稳定承载层。
 
+P1 的首个执行包已落地，详见 [15-p1-frame-infrastructure.md](./15-p1-frame-infrastructure.md)：
+注册表、输入/输出声明、依赖校验、compiled FrameGraph 资源摘要和主帧证据已经接线。
+具体效果 Pass 的完整 Feature 化迁移仍按 P2–P8 的算法重构顺序进行，不能把本基础设施包解释为
+TAA/SSR/SSAO 画质已经修复。
+
 ### 目标架构
 
 ```text
