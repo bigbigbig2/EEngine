@@ -104,6 +104,14 @@ R5-Q00 证据基线
 
 下一阶段任务必须先回答“要替换哪一个真实算法 consumer、删除哪些旧路径、通过什么 GPU/浏览器 Gate”，不能只新增 owner 类或重命名 Pass。
 
+### Stage 0 当前进度（2026-09-04）
+
+Q00 采集器已在当前提交上完成 smoke/full 运行，能够输出图像、运动序列、Feature on/off、
+GPU phase/timestamp、counter、FrameGraph、memory 和 provenance。该结果只属于“基线候选”：
+工作树受用户已有 `three.js` gitlink 修改影响而为 dirty，且阶段窗口的完成 timestamp 样本不足以
+冻结稳定分位数。正式 Stage 0 退出条件仍是提交后的 clean/full 三 session 采集、问题→phase/resource/
+domain 映射和可回查 artifact；在此之前不把 Q00 写成产品完成，也不开始用参数掩盖算法问题。
+
 ## 7. 文档维护规则
 
 - [CURRENT-STATE](../CURRENT-STATE.md) 只写当前源码事实和已保存 artifact；不要把目标合同写成事实。

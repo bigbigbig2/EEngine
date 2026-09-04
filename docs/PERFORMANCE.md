@@ -430,6 +430,34 @@ Q05/Q06 FX-06B artifact：
   Q06 的 resource/domain/cycle/stable-topology 与 FramePlan dependency dump 另由 Node regression 固定；
   FramePlan 不创建 encoder 或 submit。
 
+## R5-Q00 Stage 0 baseline capture（2026-09-04）
+
+在当前源码提交 `fe3159aada328b186e354b379a7b9c0a6a07864c` 上执行了 Q00 smoke 与 full
+采集器。两次 runner 均 `passed=true`、`issues=[]`，环境为 Chrome/WebGPU、1920×1080、DPR 1；
+采集内容包括基础/CSM/GTAO/SSR/TAA/Post/all-on 图像、TAA 运动序列、7 组 Feature on/off、
+GPU phase/timestamp、commands、counters、FrameGraph、memory 和 provenance。
+
+当前 full artifact：
+`temp/r5-quality/R5-Q00/fe3159aada328b186e354b379a7b9c0a6a07864c-dirty-8e170e68ae24/desktop-high-full/2026-09-04T03-09-21-929Z/`。
+
+本次只作为 Stage 0 的基线候选，不是产品 Gate：
+
+- 工作树包含用户已有的 `three.js` gitlink 修改，`gateEligible=false`；不得据此宣称 clean/full
+  通过，也不把该 gitlink 纳入本阶段代码提交。
+- all-on 截图窗口的完成 timestamp 样本数为 3；Q00 runner 的完整长时间采样结构已验证，
+  但该窗口不足以冻结稳定 P50/P95/P99，正式性能基线必须在 clean worktree 重采并按三 session
+  中位数规则汇总。
+- 本次观测的候选量级为：all-on GPU pass sum P50/P95/P99 `8.83/8.91/8.91 ms`，
+  resident logical bytes `568,697,392`，transient pool bytes 约 `202,929,443`；这些数字只用于
+  定位后续测量轴，不能作为 1080p/60 产品预算结论。
+- Feature paired smoke/full 观察中，shadow、SSAO、SSR 的 GPU 增量分别约 `1.77 ms`、
+  `0.77 ms`、`1.81 ms`；TAA、Bloom、Exposure、Sharpen 增量约 `0.14/0.16/0.02/0.04 ms`。
+  由于样本窗口和当前场景仍受 composition、Material Resolve 与 full-screen 带宽影响，不能
+  将这些增量解释为单独算法成本。
+
+Stage 0 的下一步是提交后重采 clean/full baseline，并将 Q00 的图像、GPU phase、资源域和
+  memory evidence 与固定三 session 统计写入同一 artifact；在此之前不进入 GTAO/SSR/TAA 算法替换。
+
 ## 性能变更完成标准
 
 1. 提供基线和变更后的同条件数据。
