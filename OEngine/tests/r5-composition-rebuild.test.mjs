@@ -12,11 +12,14 @@ test("Q02 keeps material AO and ambient visibility as separate products", () => 
   assert.doesNotMatch(renderer, /gAlbedoRes = ssao\./);
   assert.doesNotMatch(aoPass, /inputs\.albedoAo/);
   assert.doesNotMatch(aoPass, /alpha-min composite/);
+  assert.doesNotMatch(aoPass, /nearest bent-normal upsample/);
 });
 
 test("Q02 traces SSR from Complete Opaque HDR and applies a delta correction", () => {
   const renderer = readFileSync(new URL("../src/render/Renderer.ts", import.meta.url), "utf8");
-  const completeOpaque = renderer.indexOf("this._giService.addIblBaseline");
+  assert.equal((renderer.match(/_giService\.resolveOpaqueLighting\(/g) ?? []).length, 3);
+  assert.doesNotMatch(renderer, /_giService\.(addIblBaseline|addLightmapIndirect|addProbeVolumeIndirect)\(/);
+  const completeOpaque = renderer.indexOf("this._giService.resolveOpaqueLighting");
   const baseline = renderer.indexOf("baselineSpecularRes", completeOpaque);
   const trace = renderer.indexOf("this._reflectionService!.addToGraph", baseline);
   const correction = renderer.indexOf("this._reflectionService!.addCorrection", trace);

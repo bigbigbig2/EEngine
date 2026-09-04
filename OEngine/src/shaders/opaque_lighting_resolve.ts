@@ -1,13 +1,13 @@
 /**
- * indirect_composite：定义对应渲染阶段使用的 WGSL 着色器代码。
+ * opaque_lighting_resolve：定义统一 Opaque Lighting resolve 阶段使用的 WGSL 着色器代码。
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 
-export const INDIRECT_COMPOSITE_FORMAT = "rgba16float" as const;
+export const OPAQUE_LIGHTING_RESOLVE_FORMAT = "rgba16float" as const;
 
-export const INDIRECT_COMPOSITE_WGSL = /* wgsl */ `
+export const OPAQUE_LIGHTING_RESOLVE_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SURFACE_ABI_WGSL}
 

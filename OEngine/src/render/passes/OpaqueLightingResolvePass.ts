@@ -1,5 +1,5 @@
 /**
- * IndirectCompositePass：实现渲染管线中的独立渲染阶段。
+ * OpaqueLightingResolvePass：统一不透明 HDR 的 IBL/间接光解析阶段。
  */
 
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -8,15 +8,15 @@ import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { LINEAR_CLAMP_SAMPLER_DESCRIPTOR } from "../../gpu/GPUSamplerCache.js";
 import {
-  INDIRECT_COMPOSITE_FORMAT,
-  INDIRECT_COMPOSITE_WGSL
-} from "../../shaders/indirect_composite.js";
+  OPAQUE_LIGHTING_RESOLVE_FORMAT,
+  OPAQUE_LIGHTING_RESOLVE_WGSL
+} from "../../shaders/opaque_lighting_resolve.js";
 import {
   resolveDepthAttachmentView,
   resolveTextureView
 } from "../RenderTargetViews.js";
 
-const INDIRECT_COMPOSITE_GROUP0: GPUBindGroupLayoutDescriptor = {
+const OPAQUE_LIGHTING_RESOLVE_GROUP0: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/TB/group0-layout",
   entries: [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
@@ -28,7 +28,7 @@ const INDIRECT_COMPOSITE_GROUP0: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
-const INDIRECT_COMPOSITE_LEGACY_GROUP0: GPUBindGroupLayoutDescriptor = {
+const OPAQUE_LIGHTING_RESOLVE_LEGACY_GROUP0: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/TB/legacy-group0-layout",
   entries: [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
@@ -39,7 +39,7 @@ const INDIRECT_COMPOSITE_LEGACY_GROUP0: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
-const INDIRECT_COMPOSITE_GROUP1: GPUBindGroupLayoutDescriptor = {
+const OPAQUE_LIGHTING_RESOLVE_GROUP1: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/TB/group1-layout",
   entries: [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
@@ -51,14 +51,14 @@ const INDIRECT_COMPOSITE_GROUP1: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
-const INDIRECT_COMPOSITE_MODULE: GPUShaderModuleDescriptor = {
-  label: "Renderer/Indirect composite TB",
-  code: INDIRECT_COMPOSITE_WGSL
+const OPAQUE_LIGHTING_RESOLVE_MODULE: GPUShaderModuleDescriptor = {
+  label: "Renderer/Opaque lighting resolve",
+  code: OPAQUE_LIGHTING_RESOLVE_WGSL
 };
 
-const INDIRECT_COMPOSITE_TARGETS: readonly GPUColorTargetState[] = [
+const OPAQUE_LIGHTING_RESOLVE_TARGETS: readonly GPUColorTargetState[] = [
   {
-    format: INDIRECT_COMPOSITE_FORMAT,
+    format: OPAQUE_LIGHTING_RESOLVE_FORMAT,
     blend: {
       color: { operation: "add", srcFactor: "one", dstFactor: "one" },
       alpha: { operation: "add", srcFactor: "zero", dstFactor: "one" }
@@ -66,17 +66,17 @@ const INDIRECT_COMPOSITE_TARGETS: readonly GPUColorTargetState[] = [
   }
 ];
 
-const INDIRECT_COMPOSITE_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "Renderer/Indirect composite TB",
+const OPAQUE_LIGHTING_RESOLVE_PIPELINE: CachedRenderPipelineDescriptor = {
+  label: "Renderer/Opaque lighting resolve",
   layout: {
     label: "Renderer/TB/pipeline-layout",
-    bindGroupLayouts: [INDIRECT_COMPOSITE_GROUP0, INDIRECT_COMPOSITE_GROUP1]
+    bindGroupLayouts: [OPAQUE_LIGHTING_RESOLVE_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1]
   },
-  vertex: { module: INDIRECT_COMPOSITE_MODULE, entryPoint: "vs_main" },
+  vertex: { module: OPAQUE_LIGHTING_RESOLVE_MODULE, entryPoint: "vs_main" },
   fragment: {
-    module: INDIRECT_COMPOSITE_MODULE,
+    module: OPAQUE_LIGHTING_RESOLVE_MODULE,
     entryPoint: "fs_main",
-    targets: INDIRECT_COMPOSITE_TARGETS
+    targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
   },
   primitive: { topology: "triangle-list", cullMode: "none" },
   depthStencil: {
@@ -86,41 +86,41 @@ const INDIRECT_COMPOSITE_PIPELINE: CachedRenderPipelineDescriptor = {
   }
 };
 
-const INDIRECT_COMPOSITE_LEGACY_PIPELINE: CachedRenderPipelineDescriptor = {
-  ...INDIRECT_COMPOSITE_PIPELINE,
-  label: "Renderer/Indirect composite TB legacy",
+const OPAQUE_LIGHTING_RESOLVE_LEGACY_PIPELINE: CachedRenderPipelineDescriptor = {
+  ...OPAQUE_LIGHTING_RESOLVE_PIPELINE,
+  label: "Renderer/Opaque lighting resolve legacy",
   layout: {
     label: "Renderer/TB/legacy-pipeline-layout",
-    bindGroupLayouts: [INDIRECT_COMPOSITE_LEGACY_GROUP0, INDIRECT_COMPOSITE_GROUP1]
+    bindGroupLayouts: [OPAQUE_LIGHTING_RESOLVE_LEGACY_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1]
   },
   fragment: {
-    module: INDIRECT_COMPOSITE_MODULE,
+    module: OPAQUE_LIGHTING_RESOLVE_MODULE,
     entryPoint: "fs_main_legacy",
-    targets: INDIRECT_COMPOSITE_TARGETS
+    targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
   }
 };
 
-const INDIRECT_COMPOSITE_NO_AO_PIPELINE: CachedRenderPipelineDescriptor = {
-  ...INDIRECT_COMPOSITE_PIPELINE,
-  label: "Renderer/Indirect composite TB no ambient AO",
+const OPAQUE_LIGHTING_RESOLVE_NO_AO_PIPELINE: CachedRenderPipelineDescriptor = {
+  ...OPAQUE_LIGHTING_RESOLVE_PIPELINE,
+  label: "Renderer/Opaque lighting resolve no ambient AO",
   fragment: {
-    module: INDIRECT_COMPOSITE_MODULE,
+    module: OPAQUE_LIGHTING_RESOLVE_MODULE,
     entryPoint: "fs_main_no_ao",
-    targets: INDIRECT_COMPOSITE_TARGETS
+    targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
   }
 };
 
-const INDIRECT_COMPOSITE_LEGACY_NO_AO_PIPELINE: CachedRenderPipelineDescriptor = {
-  ...INDIRECT_COMPOSITE_LEGACY_PIPELINE,
-  label: "Renderer/Indirect composite TB legacy no ambient AO",
+const OPAQUE_LIGHTING_RESOLVE_LEGACY_NO_AO_PIPELINE: CachedRenderPipelineDescriptor = {
+  ...OPAQUE_LIGHTING_RESOLVE_LEGACY_PIPELINE,
+  label: "Renderer/Opaque lighting resolve legacy no ambient AO",
   fragment: {
-    module: INDIRECT_COMPOSITE_MODULE,
+    module: OPAQUE_LIGHTING_RESOLVE_MODULE,
     entryPoint: "fs_main_legacy_no_ao",
-    targets: INDIRECT_COMPOSITE_TARGETS
+    targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
   }
 };
 
-export type IndirectCompositeInputs = {
+export type OpaqueLightingResolveInputs = {
   hdr: ResourceId;
   depth: ResourceId;
   normal: ResourceId;
@@ -137,11 +137,11 @@ export type IndirectCompositeInputs = {
   metadata?: ResourceId;
 };
 
-export type IndirectCompositeOutput = {
+export type OpaqueLightingResolveOutput = {
   hdr: ResourceId;
 };
 
-export class IndirectCompositePass {
+export class OpaqueLightingResolvePass {
   private surfacePipeline: GPURenderPipeline | null = null;
   private legacyPipeline: GPURenderPipeline | null = null;
   private surfaceNoAoPipeline: GPURenderPipeline | null = null;
@@ -152,27 +152,27 @@ export class IndirectCompositePass {
 
   init(): void {
     this.surfacePipeline ??= this.graphics.render_pipelines.obtain(
-      INDIRECT_COMPOSITE_PIPELINE
+      OPAQUE_LIGHTING_RESOLVE_PIPELINE
     );
     this.legacyPipeline ??= this.graphics.render_pipelines.obtain(
-      INDIRECT_COMPOSITE_LEGACY_PIPELINE
+      OPAQUE_LIGHTING_RESOLVE_LEGACY_PIPELINE
     );
     this.surfaceNoAoPipeline ??= this.graphics.render_pipelines.obtain(
-      INDIRECT_COMPOSITE_NO_AO_PIPELINE
+      OPAQUE_LIGHTING_RESOLVE_NO_AO_PIPELINE
     );
     this.legacyNoAoPipeline ??= this.graphics.render_pipelines.obtain(
-      INDIRECT_COMPOSITE_LEGACY_NO_AO_PIPELINE
+      OPAQUE_LIGHTING_RESOLVE_LEGACY_NO_AO_PIPELINE
     );
   }
 
   addToGraph(
     graph: FrameGraph,
-    inputs: IndirectCompositeInputs
-  ): IndirectCompositeOutput {
+    inputs: OpaqueLightingResolveInputs
+  ): OpaqueLightingResolveOutput {
     this.init();
-    const output: IndirectCompositeOutput = { hdr: -1 };
+    const output: OpaqueLightingResolveOutput = { hdr: -1 };
     const builder = graph.add(
-      "Indirect composite TB",
+      "Opaque lighting resolve",
       inputs,
       (data, resources, context) => {
         const encoder = context.gpu_encoder;
@@ -182,13 +182,13 @@ export class IndirectCompositePass {
           ? (aoAware ? this.surfacePipeline : this.surfaceNoAoPipeline)
           : (aoAware ? this.legacyPipeline : this.legacyNoAoPipeline);
         const descriptor = surfaceAware
-          ? (aoAware ? INDIRECT_COMPOSITE_PIPELINE : INDIRECT_COMPOSITE_NO_AO_PIPELINE)
-          : (aoAware ? INDIRECT_COMPOSITE_LEGACY_PIPELINE : INDIRECT_COMPOSITE_LEGACY_NO_AO_PIPELINE);
-        if (!encoder) throw new Error("IndirectCompositePass: no encoder");
-        if (!pipeline) throw new Error("IndirectCompositePass not initialized");
+          ? (aoAware ? OPAQUE_LIGHTING_RESOLVE_PIPELINE : OPAQUE_LIGHTING_RESOLVE_NO_AO_PIPELINE)
+          : (aoAware ? OPAQUE_LIGHTING_RESOLVE_LEGACY_PIPELINE : OPAQUE_LIGHTING_RESOLVE_LEGACY_NO_AO_PIPELINE);
+        if (!encoder) throw new Error("OpaqueLightingResolvePass: no encoder");
+        if (!pipeline) throw new Error("OpaqueLightingResolvePass not initialized");
 
         const pass = encoder.beginRenderPass({
-          label: "Indirect composite TB",
+          label: "Opaque lighting resolve",
           colorAttachments: [
             {
               view: texture(resources.get(output.hdr)),
@@ -255,5 +255,5 @@ function buffer(value: unknown): GPUBuffer {
   if (value && typeof value === "object" && "size" in value && "usage" in value) {
     return value as GPUBuffer;
   }
-  throw new Error("IndirectCompositePass: expected GPUBuffer");
+  throw new Error("OpaqueLightingResolvePass: expected GPUBuffer");
 }

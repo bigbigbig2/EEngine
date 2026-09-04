@@ -86,6 +86,6 @@ history-confidence debug outputs, and trace/denoise/composite GPU timing.
 - **三条分支统一接线**：IBL 分支（约 Renderer.ts L2184）、Brick4/Lightmap 分支
   （L2207-2255）、LPV 分支（L2410）现在都经 `ReflectionService.addCorrection`
   消费 specular 基线。其中 Brick4 分支此前丢弃非 fused 的 `Brick4SpecularPass`
-  基线，现由 `GIService.addLightmapIndirect` 以 `LightmapIndirectOutput
-  { hdr, indirectSpecular }` 返回并喂给 `addCorrection`；fused 路径无独立基线，
+  基线，现由 `GIService.resolveOpaqueLighting(mode=brick4)` 以 `LightmapIndirectOutput
+  { hdr, indirectDiffuse, indirectSpecular }` 返回并喂给 `addCorrection`；fused 路径无独立基线，
   `indirectSpecular` 为 `null`。ABI 见 `R5-08-gi-provider-composition.md`。

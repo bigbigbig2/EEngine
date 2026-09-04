@@ -26,7 +26,7 @@ test("P5 services own GI, reflection correction and GTAO without duplicating Sur
 test("P5 preserves fallback and independent AO/SSR products", async () => {
   const pipeline = await readFile(new URL("../src/render/pipeline/OpaqueLightingPipeline.ts", import.meta.url), "utf8");
   const renderer = await readFile(new URL("../src/render/Renderer.ts", import.meta.url), "utf8");
-  assert.match(pipeline, /addIblBaseline/);
+  assert.match(pipeline, /resolveIblBaseline/);
   assert.match(pipeline, /indirectDiffuse/);
   assert.match(pipeline, /indirectSpecular/);
   assert.match(renderer, /ambientVisibilityRes = ssao\.frame\.visibility/);

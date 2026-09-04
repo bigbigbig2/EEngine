@@ -48,7 +48,7 @@ GPU Scene / View
 | P2 | `RendererConfig`、`RenderFrameContract`、能力 fail-fast 已接入 | 不包含效果算法迁移 | 旧参数/consumer 尚未全清 | P2 合同测试 | `边界已接入` |
 | P3 | `VisibilityFeature`、`SurfaceFeature` 作为 Renderer owner | Packed 主链复用已验证实现 | Renderer 仍有 `packedResolveOut ?? obtainLegacyMaterialExpand()` | Packed Gate；普通 Scene 未闭环 | `边界已接入` |
 | P4 | `LightingFeature`、`ShadowService` 收拢 cluster/direct/CSM owner | direct shader 和 Packed directional CSM 有局部 Gate | `ShadowRasterPass`、legacy light/scene 分支仍存在；Packed point/spot 未完成 | G5-L/FX-04 局部证据 | `算法局部修正` |
-| P5 | `GIService`、`ReflectionService`、`AOService` 负责 provider/历史/合成边界 | GI fallback、SSR delta correction、AO 四通道分离已改；底层仍是 Brick4/LPV/SSR/GTAO 旧 Pass | `OpaqueLightingPipeline`、`IndirectCompositePass`、SSAO/SSR Pass 仍为实现 owner | FX-07/08 与 P5 focused artifact | `算法局部修正` |
+| P5 | `GIService`、`ReflectionService`、`AOService` 负责 provider/历史/合成边界 | GI fallback、统一 OpaqueLighting resolve、SSR delta correction、AO 四通道分离已改；底层仍是 Brick4/LPV/SSR/GTAO 旧 Pass | `OpaqueLightingPipeline`、`OpaqueLightingResolvePass`、SSAO/SSR Pass 仍为实现 owner | FX-07/08 与 P5 focused artifact | `算法局部修正` |
 | P6 | `TransparencyFeature` 同时选择 Packed MBOIT 与 legacy OIT | Packed MBOIT 有 focused Gate；不是全透明路径替换 | `TransparentOitPass` 仍保留 | G5-S 仅覆盖 Packed 范围 | `focused Gate` |
 | P7 | `TemporalFeature` 收拢 TAA、Classification、颜色 history、jitter、DRS | YCoCg clip、closest-depth velocity、Catmull-Rom、history lock 等已存在；完整 TAAU/TSR 产品质量未验收 | `TemporalAntiAliasingPass` 和 `TemporalClassificationPass` 仍是内部算法实现 | FX-06A/局部 Q05 evidence | `算法局部修正` |
 | P8 | `PostFeature` 收拢 Exposure、Bloom、Color Grading、Sharpen、Tonemap、Motion Blur | 新增基础线性 HDR Color Grading；没有完整 LUT/ACES/HDR 产品 Gate | 具体 `*Pass` 仍持有算法 | 没有独立 P8 执行记录和 G5-P artifact | `边界已接入` |
@@ -78,7 +78,7 @@ Feature 目前主要是深模块边界和生命周期包装，不能仅凭 Featu
 |---|---|---|
 | Stage 0 | [证据基线与合同冻结](./14-stage-0-evidence-and-contract-freeze.md) | `focused Gate`；基线候选已采集，clean/full 补采不阻塞重构 |
 | Stage 1 | [Surface / Opaque HDR 组合边界](./15-stage-1-frame-products-and-composition-seam.md) | `focused Gate`（架构边界）；提交 `f7782dc`；Surface debug 数值/资源证据待验收，截图可选 |
-| Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | `doing`；S2-06 按用户指示跳过 clean Gate；Stage 2B visibility seam 与 2C AO/HZB 产品 seam 已接入，Shadow cascade-0、FX-07 A/B 和 2D 删除仍阻塞 |
+| Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | `doing`；S2-06 按用户指示跳过 clean Gate；2D 统一 OpaqueLighting interface、旧 composite/AO upsample 已清理；Shadow cascade-0、cache/pressure、FX-07 A/B 与 clean timestamp/memory 仍阻塞退出 Gate |
 | Stage 3 | [Local Probe / SSSR / TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md) | 待执行 |
 | Stage 4 | [Transparency / HDR Post / FrameGraph](./18-stage-4-transparency-post-and-framegraph.md) | 待执行 |
 | Stage 5 | [Legacy Deletion / Product Closure](./19-stage-5-legacy-deletion-and-product-closure.md) | 待执行 |

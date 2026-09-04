@@ -28,7 +28,7 @@ Renderer 不再知道 Direct、IBL Diffuse、IBL Specular、Background、Indirec
 | `LightingPass.ts` | 重写 direct BRDF 与 HDR composition |
 | `ShadowService`、`PackedCsmShadowPass` | 收拢 shadow visibility |
 | `ScreenSpaceAmbientOcclusionPass.ts`、`ssao.ts` | GTAO 2.0 候选实现 |
-| `OpaqueLightingPipeline.ts`、`IndirectCompositePass.ts` | 迁移 consumer 后删除 |
+| `OpaqueLightingPipeline.ts`、`OpaqueLightingResolvePass.ts` | 作为单一 OpaqueLighting owner，删除旧 `IndirectCompositePass` |
 
 ## 3. 开源参考与采用规则
 
@@ -69,9 +69,9 @@ Renderer 不再知道 Direct、IBL Diffuse、IBL Specular、Background、Indirec
 
 ### 2D 删除
 
-- [ ] S2-18 迁移 Renderer 的 direct/IBL/indirect 分支到单一 OpaqueLighting interface；
-- [ ] S2-19 删除 `IndirectCompositePass`、重复 IBL composite 和旧 direct owner；
-- [ ] S2-20 删除 GTAO alpha-min composite、nearest bent-normal upsample 和 dead uniforms。
+- [x] S2-18 迁移 Renderer 的 direct/IBL/indirect 分支到单一 `GIService.resolveOpaqueLighting` / `OpaqueLightingResolvePass` interface；Renderer 仅提交带 `mode=ibl|brick4|lpv` 的统一 ABI，不再调用 provider-specific 入口；
+- [x] S2-19 删除旧 `IndirectCompositePass` owner；IBL/间接光解析已收敛为 `OpaqueLightingResolvePass`，重复 composite 入口已移除；
+- [x] S2-20 删除 GTAO alpha-min composite、nearest bent-normal upsample 和 dead uniforms；当前 AO 仅保留 joint bilateral resolve 与有效的 temporal/evidence uniforms。
 
 ## 5. 退出 Gate
 
@@ -165,4 +165,4 @@ clean/full timestamp 对照并关闭 S2-06；该例外不改变后续数值、�
 - radius/falloff 仍由 `PhysicalScaleContract` 转换，默认 AO 为 half-resolution，history 继续由共享 submission-aware registry 管理；
 - XeGTAO 采用状态为 `retained-current-authored`，未复制其 HLSL/D3D owner；S2-17 只要求固定输入下的数值、GPU timestamp、显存和 diagnostics A/B，截图不再作为 runner 或 Gate 输入。当前仍缺正式 paired A/B，故保持 partial。
 
-当前 2C 状态：S2-11～S2-16 `[x]`；S2-17 `[~]`。2D S2-18～S2-20 仍未完成，不能删除仍被 `GIService/OpaqueLightingPipeline` 使用的 `IndirectCompositePass`。
+当前 2C 状态：S2-11～S2-16 `[x]`；S2-17 `[~]`。2D 的 S2-18～S2-20 已完成：Renderer 只调用统一 `resolveOpaqueLighting`，旧 `IndirectCompositePass` owner、旧 AO composite/nearest upsample 以及对应死入口已删除。Stage 2 Exit Gate 仍保持 `focused Gate`，因为 contact-shadow/cache-pressure 专项证据、XeGTAO paired A/B 与 clean timestamp/memory 对照尚未具备；不得将单元测试通过写成产品 Gate 已通过。

@@ -4,9 +4,9 @@ import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { IblDiffusePass } from "../passes/IblDiffusePass.js";
 import { IblSpecularPass } from "../passes/IblSpecularPass.js";
 import {
-  IndirectCompositePass,
-  type IndirectCompositeInputs
-} from "../passes/IndirectCompositePass.js";
+  OpaqueLightingResolvePass,
+  type OpaqueLightingResolveInputs
+} from "../passes/OpaqueLightingResolvePass.js";
 import {
   opaqueLightingFrame,
   type AmbientOcclusionFrame,
@@ -37,20 +37,20 @@ export interface OpaqueIblInputs {
 export class OpaqueLightingPipeline {
   private readonly specular: IblSpecularPass;
   private readonly diffuse: IblDiffusePass;
-  private readonly composite: IndirectCompositePass;
+  private readonly resolvePass: OpaqueLightingResolvePass;
 
   constructor(graphics: GraphicsContext) {
     this.specular = new IblSpecularPass(graphics);
     this.diffuse = new IblDiffusePass(graphics);
-    this.composite = new IndirectCompositePass(graphics);
+    this.resolvePass = new OpaqueLightingResolvePass(graphics);
   }
 
-  addIblBaseline(
+  resolveIblBaseline(
     graph: FrameGraph,
     extent: { readonly width: number; readonly height: number },
     inputs: OpaqueIblInputs
   ): OpaqueLightingFrame {
-    const iblSpecular = this.addBaselineSpecular(graph, extent, {
+    const iblSpecular = this.resolveBaselineSpecular(graph, extent, {
       bentNormal: inputs.bentNormal,
       normal: inputs.normal,
       environment: inputs.environment,
@@ -64,7 +64,7 @@ export class OpaqueLightingPipeline {
       environment: inputs.diffuseIrradiance,
       depth: inputs.depth
     }).indirectDiffuse;
-    const hdr = this.composeIndirect(graph, {
+    const hdr = this.resolve(graph, {
       hdr: inputs.hdr,
       depth: inputs.depth,
       normal: inputs.normal,
@@ -91,7 +91,7 @@ export class OpaqueLightingPipeline {
     });
   }
 
-  addBaselineSpecular(
+  resolveBaselineSpecular(
     graph: FrameGraph,
     extent: { readonly width: number; readonly height: number },
     inputs: Pick<OpaqueIblInputs, "bentNormal" | "normal" | "environment" | "pbr" | "depth" | "camera">
@@ -99,17 +99,17 @@ export class OpaqueLightingPipeline {
     return this.specular.addToGraph(graph, extent, inputs).indirectSpecular;
   }
 
-  composeIndirect(graph: FrameGraph, inputs: IndirectCompositeInputs): ResourceId {
-    return this.composite.addToGraph(graph, inputs).hdr;
+  resolve(graph: FrameGraph, inputs: OpaqueLightingResolveInputs): ResourceId {
+    return this.resolvePass.addToGraph(graph, inputs).hdr;
   }
 
   resetFrameEvidence(): void {
-    this.composite.lastRan = false;
+    this.resolvePass.lastRan = false;
   }
 
   destroy(): void {
     this.specular.destroy();
     this.diffuse.destroy();
-    this.composite.destroy();
+    this.resolvePass.destroy();
   }
 }

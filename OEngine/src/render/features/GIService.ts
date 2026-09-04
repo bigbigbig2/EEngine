@@ -6,8 +6,9 @@
  * - 动态 GI Provider（Probe Volume）由 LpvIndirectDiffusePass 消费 Probe Volume；
  * - IBL baseline 由 OpaqueLightingPipeline 提供 IBL diffuse/specular 基线。
  *
- * 三个 Provider 通过同一 IndirectComposite 合成，不复制 Surface 解释；Renderer
- * 只预导入资源并传入，具体的 Provider 组合与 fallback 决策收敛在 GIService。
+ * 三个 Provider 通过同一 OpaqueLightingResolvePass 合成，不复制 Surface 解释；
+ * Renderer 只预导入资源并传入，具体的 Provider 组合与 fallback 决策收敛在
+ * GIService 的单一 OpaqueLighting 接口。
  */
 
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -15,10 +16,9 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
   OpaqueLightingPipeline,
-  type OpaqueIblInputs,
-  type OpaqueLightingFrame
+  type OpaqueIblInputs
 } from "../pipeline/OpaqueLightingPipeline.js";
-import type { IndirectCompositeInputs } from "../passes/IndirectCompositePass.js";
+import type { OpaqueLightingResolveInputs } from "../passes/OpaqueLightingResolvePass.js";
 import {
   Brick4DiffusePass,
   Brick4FusedIndirectPass,
@@ -77,11 +77,59 @@ export interface ProbeVolumeIndirectInputs {
 
 export interface ProbeVolumeIndirectOutput {
   readonly hdr: ResourceId;
+  readonly indirectDiffuse: ResourceId;
   readonly indirectSpecular: ResourceId;
+}
+
+/** Shared inputs consumed by the single opaque-lighting owner. */
+export interface OpaqueLightingCommonInputs {
+  readonly hdr: ResourceId;
+  readonly depth: ResourceId;
+  readonly normal: ResourceId;
+  readonly bentNormal: ResourceId;
+  readonly albedoAo: ResourceId;
+  readonly pbr: ResourceId;
+  readonly camera: ResourceId;
+  readonly splitSum: ResourceId;
+  readonly ambientVisibility?: ResourceId;
+  readonly metadata?: ResourceId;
+  readonly extent: { readonly width: number; readonly height: number };
+}
+
+export type OpaqueLightingRequest =
+  | (OpaqueLightingCommonInputs & {
+      readonly mode: "ibl";
+      readonly environment: ResourceId;
+      readonly diffuseIrradiance: ResourceId;
+    })
+  | (OpaqueLightingCommonInputs & {
+      readonly mode: "brick4";
+      readonly stbn: ResourceId;
+      readonly view: ResourceId;
+      readonly lightMap: ResourceId;
+      readonly fused: boolean;
+    })
+  | (OpaqueLightingCommonInputs & {
+      readonly mode: "lpv";
+      readonly environment: ResourceId;
+      readonly atlasRadiance: ResourceId;
+      readonly atlasDepth: ResourceId;
+      readonly meshBvh: ResourceId;
+      readonly metadataBuffer: ResourceId;
+      readonly tetrahedra: ResourceId;
+      readonly probes: ResourceId;
+      readonly job: LpvIndirectDiffuseJob;
+    });
+
+export interface OpaqueLightingResult {
+  readonly hdr: ResourceId;
+  readonly indirectDiffuse: ResourceId | null;
+  readonly indirectSpecular: ResourceId | null;
 }
 
 export interface LightmapIndirectOutput {
   readonly hdr: ResourceId;
+  readonly indirectDiffuse: ResourceId | null;
   /** Brick4 非 fused 路径的 specular 基线，供 SSSR delta correction 消费；fused 路径无独立基线，为 null。 */
   readonly indirectSpecular: ResourceId | null;
 }
@@ -103,28 +151,64 @@ export class GIService {
     this.lpvDiffuse = null;
   }
 
-  addIblBaseline(
+  /** Single Renderer-facing opaque lighting interface. */
+  resolveOpaqueLighting(
     graph: FrameGraph,
-    extent: { readonly width: number; readonly height: number },
-    inputs: OpaqueIblInputs
-  ): OpaqueLightingFrame {
-    return this.implementation.addIblBaseline(graph, extent, inputs);
+    inputs: OpaqueLightingRequest
+  ): OpaqueLightingResult {
+    const common = {
+      hdr: inputs.hdr,
+      depth: inputs.depth,
+      normal: inputs.normal,
+      bentNormal: inputs.bentNormal,
+      albedoAo: inputs.albedoAo,
+      pbr: inputs.pbr,
+      splitSum: inputs.splitSum,
+      camera: inputs.camera,
+      ambientVisibility: inputs.ambientVisibility,
+      metadata: inputs.metadata
+    };
+    if (inputs.mode === "ibl") {
+      const frame = this.implementation.resolveIblBaseline(graph, inputs.extent, {
+        ...common,
+        environment: inputs.environment,
+        diffuseIrradiance: inputs.diffuseIrradiance
+      });
+      return {
+        hdr: frame.hdr,
+        indirectDiffuse: frame.indirectDiffuse,
+        indirectSpecular: frame.iblSpecular
+      };
+    }
+    if (inputs.mode === "brick4") {
+      const result = this.addLightmapIndirect(graph, {
+        ...common,
+        ...inputs
+      });
+      return result;
+    }
+    const result = this.addProbeVolumeIndirect(graph, {
+      ...common,
+      ...inputs,
+      environment: inputs.environment
+    });
+    return result;
   }
 
-  addBaselineSpecular(
+  private resolveBaselineSpecular(
     graph: FrameGraph,
     extent: { readonly width: number; readonly height: number },
     inputs: Pick<OpaqueIblInputs, "bentNormal" | "normal" | "environment" | "pbr" | "depth" | "camera">
   ): ResourceId {
-    return this.implementation.addBaselineSpecular(graph, extent, inputs);
+    return this.implementation.resolveBaselineSpecular(graph, extent, inputs);
   }
 
-  composeIndirect(graph: FrameGraph, inputs: IndirectCompositeInputs): ResourceId {
-    return this.implementation.composeIndirect(graph, inputs);
+  private resolveHdr(graph: FrameGraph, inputs: OpaqueLightingResolveInputs): ResourceId {
+    return this.implementation.resolve(graph, inputs);
   }
 
-  /** 静态 GI Provider（Lightmap）：Brick4 diffuse/specular（或 fused）→ IndirectComposite。 */
-  addLightmapIndirect(graph: FrameGraph, inputs: LightmapIndirectInputs): LightmapIndirectOutput {
+  /** 静态 GI Provider（Lightmap）：Brick4 diffuse/specular（或 fused）→ OpaqueLighting resolve。 */
+  private addLightmapIndirect(graph: FrameGraph, inputs: LightmapIndirectInputs): LightmapIndirectOutput {
     const base: Brick4BaseInputs = {
       depth: inputs.depth,
       stbn: inputs.stbn,
@@ -142,7 +226,7 @@ export class GIService {
         pbr: inputs.pbr,
         splitSum: inputs.splitSum
       });
-      return { hdr, indirectSpecular: null };
+      return { hdr, indirectDiffuse: null, indirectSpecular: null };
     }
     const job: Brick4IndirectJob = {
       width: inputs.extent.width,
@@ -158,7 +242,7 @@ export class GIService {
       job,
       { ...base, normal: inputs.bentNormal, albedoAo: inputs.albedoAo }
     );
-    const hdr = this.composeIndirect(graph, {
+    const hdr = this.resolveHdr(graph, {
       hdr: inputs.hdr,
       depth: inputs.depth,
       normal: inputs.normal,
@@ -172,15 +256,15 @@ export class GIService {
       camera: inputs.camera,
       metadata: inputs.metadata
     });
-    return { hdr, indirectSpecular };
+    return { hdr, indirectDiffuse, indirectSpecular };
   }
 
-  /** 动态 GI Provider（Probe Volume）：LPV diffuse + IBL specular 基线 → IndirectComposite。 */
-  addProbeVolumeIndirect(
+  /** 动态 GI Provider（Probe Volume）：LPV diffuse + IBL specular 基线 → OpaqueLighting resolve。 */
+  private addProbeVolumeIndirect(
     graph: FrameGraph,
     inputs: ProbeVolumeIndirectInputs
   ): ProbeVolumeIndirectOutput {
-    const baselineSpecularRes = this.addBaselineSpecular(graph, inputs.extent, {
+    const baselineSpecularRes = this.resolveBaselineSpecular(graph, inputs.extent, {
       bentNormal: inputs.bentNormal,
       normal: inputs.normal,
       environment: inputs.environment,
@@ -200,7 +284,7 @@ export class GIService {
       tetrahedra: inputs.tetrahedra,
       probes: inputs.probes
     });
-    const hdr = this.composeIndirect(graph, {
+    const hdr = this.resolveHdr(graph, {
       hdr: inputs.hdr,
       depth: inputs.depth,
       normal: inputs.normal,
@@ -214,7 +298,7 @@ export class GIService {
       camera: inputs.camera,
       metadata: inputs.metadata
     });
-    return { hdr, indirectSpecular: baselineSpecularRes };
+    return { hdr, indirectDiffuse: diffuse.indirectDiffuse, indirectSpecular: baselineSpecularRes };
   }
 
   resetFrameEvidence(): void {

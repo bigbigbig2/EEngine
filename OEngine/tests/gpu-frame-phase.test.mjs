@@ -75,7 +75,7 @@ test("GPU phase classifier freezes all 40 labels from the RTX 2060 SUPER smoke",
       "Environment background Ku",
       "IBL indirect diffuse uw",
       "IBL indirect specular hw",
-      "Indirect composite TB"
+      "Opaque lighting resolve"
     ]],
     ["post", ["Tonemap $h"]]
   ]);

@@ -2127,10 +2127,11 @@ export class Renderer {
             { kind: "imported", label: "rg16float split_sum" },
             splitSum.gpu_texture
           );
-          const opaqueLighting = this._giService.addIblBaseline(
+          const opaqueLighting = this._giService.resolveOpaqueLighting(
             graph,
-            { width: w, height: h },
             {
+            mode: "ibl",
+            extent: { width: w, height: h },
             hdr: hdrRes,
             depth: depthRes,
             normal: gNormalRes,
@@ -2142,12 +2143,12 @@ export class Renderer {
             splitSum: splitSumRes,
             camera: currentCameraRes,
             metadata: packedResolveOut?.surfaceFlags,
-            ambientOcclusion: ambientVisibilityRes === null
+            ambientVisibility: ambientVisibilityRes === null
               ? undefined
-              : { visibility: ambientVisibilityRes }
+              : ambientVisibilityRes
             }
           );
-          const baselineSpecularRes = opaqueLighting.iblSpecular;
+          const baselineSpecularRes = opaqueLighting.indirectSpecular!;
           indirectDiffuseDebugRes = opaqueLighting.indirectDiffuse;
           indirectSpecularDebugRes = baselineSpecularRes;
           hdrRes = opaqueLighting.hdr;
@@ -2265,7 +2266,8 @@ export class Renderer {
             bind("brick4-light-map", (bindings) =>
               bindings.gpuScene.volumetric_light_map.buffer)
           );
-          const lightmap = this._giService.addLightmapIndirect(graph, {
+          const lightmap = this._giService.resolveOpaqueLighting(graph, {
+            mode: "brick4",
             hdr: hdrRes,
             depth: depthRes,
             normal: gNormalRes,
@@ -2417,7 +2419,8 @@ export class Renderer {
             splitSum.gpu_texture
           );
 
-          const probeVolume = this._giService.addProbeVolumeIndirect(graph, {
+          const probeVolume = this._giService.resolveOpaqueLighting(graph, {
+            mode: "lpv",
             hdr: hdrRes,
             depth: depthRes,
             normal: gNormalRes,
@@ -2444,7 +2447,7 @@ export class Renderer {
             }))
           });
           hdrRes = probeVolume.hdr;
-          const baselineSpecularRes = probeVolume.indirectSpecular;
+          const baselineSpecularRes = probeVolume.indirectSpecular!;
 
           if (
             graphTopology.ssr &&

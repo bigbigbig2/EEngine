@@ -19,7 +19,7 @@ export function iblRoughnessToLod(perceptualRoughness: number, mipLevelCount: nu
   return Math.min(1, Math.max(0, perceptualRoughness)) * (mipLevelCount - 1);
 }
 
-/** CPU oracle for the metallic workflow consumed by INDIRECT_COMPOSITE_WGSL. */
+/** CPU oracle for the metallic workflow consumed by OPAQUE_LIGHTING_RESOLVE_WGSL. */
 export function iblMaterialTerms(
   baseColor: readonly [number, number, number],
   metallic: number

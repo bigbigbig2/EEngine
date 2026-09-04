@@ -14,7 +14,7 @@ Stage 0–4 的退出 Gate 全部有 artifact；任何阶段只有“边界已�
 
 1. `Renderer.ts` 手工 topology、重复 HDR composite、legacy 私有 owner；
 2. `MaterialExpandPass`、重复 Velocity 和普通 Scene 的旧 Surface consumer（先完成其迁移）；
-3. `OpaqueLightingPipeline`、`IndirectCompositePass`、旧 IBL/Indirect owner；
+3. `OpaqueLightingPipeline`、旧 IBL/Indirect owner；`OpaqueLightingResolvePass` 保留为唯一解析 owner；
 4. `ScreenSpaceAmbientOcclusionPass`、旧 AO alpha composite；
 5. `ScreenSpaceReflectionsPass` 的旧 final override；
 6. `TemporalClassificationPass`/`TemporalAntiAliasingPass` 的重复路径；

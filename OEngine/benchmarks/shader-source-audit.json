@@ -296,7 +296,6 @@
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
-        "src/render/passes/IndirectCompositePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
@@ -304,6 +303,7 @@
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
@@ -515,27 +515,6 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
-      "shader": "src/shaders/indirect_composite.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/IndirectCompositePass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/index.ts",
-        "src/render/features/GIService.ts",
-        "src/render/passes/IndirectCompositePass.ts",
-        "src/render/pipeline/OpaqueLightingPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/IndirectCompositePass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
       "shader": "src/shaders/light_cluster.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -599,10 +578,10 @@
         "src/shaders/environment_ibl.ts",
         "src/shaders/exact_triangle_filter.ts",
         "src/shaders/ibl_specular.ts",
-        "src/shaders/indirect_composite.ts",
         "src/shaders/light_cluster.ts",
         "src/shaders/lighting_direct.ts",
         "src/shaders/occlusion_confidence.ts",
+        "src/shaders/opaque_lighting_resolve.ts",
         "src/shaders/packed_csm_shadow.ts",
         "src/shaders/packed_transparent_oit.ts",
         "src/shaders/packed_visibility.ts",
@@ -654,12 +633,12 @@
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
-        "src/render/passes/IndirectCompositePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -695,12 +674,12 @@
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
-        "src/render/passes/IndirectCompositePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -864,7 +843,6 @@
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
-        "src/render/passes/IndirectCompositePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
@@ -872,6 +850,7 @@
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
@@ -1001,7 +980,6 @@
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
-        "src/render/passes/IndirectCompositePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
@@ -1009,6 +987,7 @@
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
@@ -1535,7 +1514,6 @@
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
         "src/render/passes/IblSpecularPass.ts",
-        "src/render/passes/IndirectCompositePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
@@ -1543,6 +1521,7 @@
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
@@ -1629,6 +1608,27 @@
       ],
       "pipelineOwners": [
         "src/render/passes/OcclusionConfidencePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/opaque_lighting_resolve.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/OpaqueLightingResolvePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/index.ts",
+        "src/render/features/GIService.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
+        "src/render/pipeline/OpaqueLightingPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/OpaqueLightingResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

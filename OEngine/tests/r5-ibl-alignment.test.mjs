@@ -16,7 +16,7 @@ import { GPU_COUNTER_FIELDS, GPU_COUNTER_SCHEMA_VERSION } from "../.test-dist/de
 import { ENVIRONMENT_PREFILTER_WGSL } from "../.test-dist/shaders/environment_prefilter.js";
 import { IBL_DIFFUSE_WGSL } from "../.test-dist/shaders/environment_ibl.js";
 import { IBL_SPECULAR_WGSL } from "../.test-dist/shaders/ibl_specular.js";
-import { INDIRECT_COMPOSITE_WGSL } from "../.test-dist/shaders/indirect_composite.js";
+import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../.test-dist/shaders/opaque_lighting_resolve.js";
 import { RenderDebugView } from "../.test-dist/debug/RenderDebugView.js";
 import { resolveMainFrameFeatureTopology } from "../.test-dist/render/MainFrameFeatureTopology.js";
 import { GPU_SURFACE_ABI_WGSL } from "../.test-dist/gpu/GpuSurfaceAbi.js";
@@ -41,9 +41,9 @@ test("FX-03 metallic endpoints freeze dielectric and conductor energy inputs", (
     diffuseColor: [0, 0, 0],
     specularF0: [0.8, 0.4, 0.2]
   });
-  assert.match(INDIRECT_COMPOSITE_WGSL, /mix\(vec3f\(MIN_DIELECTRICS_F0\), albedo, metalness\)/);
-  assert.match(INDIRECT_COMPOSITE_WGSL, /diffuse = albedo \* \(1\.0 - metalness\)/);
-  assert.match(INDIRECT_COMPOSITE_WGSL, /textureSampleLevel\([\s\S]*vec2f\(no_v, roughness\)/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /mix\(vec3f\(MIN_DIELECTRICS_F0\), albedo, metalness\)/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /diffuse = albedo \* \(1\.0 - metalness\)/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /textureSampleLevel\([\s\S]*vec2f\(no_v, roughness\)/);
 });
 
 test("FX-03 octahedral orientation round-trips canonical and oblique directions", () => {
@@ -121,13 +121,13 @@ test("FX-03 debug views own distinct FrameGraph topology keys", () => {
 
 test("FX-03 Packed indirect composite suppresses IBL for Unlit Surface metadata", async () => {
   const [pass, renderer] = await Promise.all([
-    readFile(new URL("../src/render/passes/IndirectCompositePass.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/render/passes/OpaqueLightingResolvePass.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/render/Renderer.ts", import.meta.url), "utf8")
   ]);
-  assert.ok(INDIRECT_COMPOSITE_WGSL.includes(GPU_SURFACE_ABI_WGSL));
-  assert.match(INDIRECT_COMPOSITE_WGSL, /OENGINE_SURFACE_FLAG_UNLIT/);
-  assert.match(INDIRECT_COMPOSITE_WGSL, /return vec4f\(0\.0\)/);
-  assert.match(INDIRECT_COMPOSITE_WGSL, /fn fs_main_legacy/);
+  assert.ok(OPAQUE_LIGHTING_RESOLVE_WGSL.includes(GPU_SURFACE_ABI_WGSL));
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /OENGINE_SURFACE_FLAG_UNLIT/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /return vec4f\(0\.0\)/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /fn fs_main_legacy/);
   assert.match(pass, /metadata\?: ResourceId/);
   assert.match(renderer, /metadata: packedResolveOut\?\.surfaceFlags/);
 });

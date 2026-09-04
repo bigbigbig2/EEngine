@@ -4,20 +4,20 @@ import test from "node:test";
 globalThis.GPUShaderStage ??= { FRAGMENT: 2, VERTEX: 4 };
 
 const { FrameGraph } = await import("../.test-dist/framegraph/FrameGraph.js");
-const { IndirectCompositePass } = await import(
-  "../.test-dist/render/passes/IndirectCompositePass.js"
+const { OpaqueLightingResolvePass } = await import(
+  "../.test-dist/render/passes/OpaqueLightingResolvePass.js"
 );
 
 function imported(graph, name) {
   return graph.import_resource(name, { kind: "imported", label: name }, {});
 }
 
-test("legacy indirect composite omits the optional Surface metadata read", () => {
+test("opaque lighting resolve omits the optional Surface metadata read", () => {
   const graphics = {
     render_pipelines: { obtain: () => ({}) }
   };
-  const pass = new IndirectCompositePass(graphics);
-  const graph = new FrameGraph("legacy-indirect-composite");
+  const pass = new OpaqueLightingResolvePass(graphics);
+  const graph = new FrameGraph("opaque-lighting-resolve");
   const output = pass.addToGraph(graph, {
     hdr: imported(graph, "hdr"),
     depth: imported(graph, "depth"),

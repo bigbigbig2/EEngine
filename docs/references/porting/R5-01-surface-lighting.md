@@ -66,7 +66,7 @@ ShadeTexture working-linear HDR octahedral base mip
      -> GGX specular rgba16float mip chain
      -> cosine-convolved rgba16float diffuse irradiance
   -> IblSpecularPass / IblDiffusePass
-  -> split-sum IndirectCompositePass
+  -> split-sum OpaqueLightingResolvePass
   -> working-linear rgba16float scene HDR
 ```
 
@@ -79,7 +79,7 @@ ShadeTexture working-linear HDR octahedral base mip
 - 输入为 `rgba16float`、octahedral、working-linear、scene-referred radiance。
 - Specular 输出为完整 mip chain；mip 0 保留输入，mip `i` 的 perceptual roughness
   为 `i / (mipCount - 1)`。
-- Diffuse 输出为 32×32 单 mip irradiance integral；`IndirectCompositePass` 使用
+- Diffuse 输出为 32×32 单 mip irradiance integral；`OpaqueLightingResolvePass` 使用
   `diffuseColor * irradiance * 1/PI`，禁止重复或遗漏 π。
 - Runtime roughness 从 Surface ABI v1 `PBR.g` 读取，使用 `textureNumLevels()` 动态
   映射，不假设 5 mip。
