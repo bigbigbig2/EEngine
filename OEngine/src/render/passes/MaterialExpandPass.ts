@@ -23,6 +23,11 @@ import {
   GBUF_PBR_FORMAT,
   MATERIAL_DEPTH_FORMAT
 } from "../RenderTargets.js";
+import {
+  surfaceFrame,
+  textureDomain,
+  type SurfaceFrame
+} from "../pipeline/FrameProducts.js";
 
 export const GBUFFER_LAYOUT = {
   g_pbr: { format: "rg8unorm" as const, label: "g-buffer / PBR" },
@@ -73,6 +78,8 @@ export type MaterialExpandGraphOutputs = {
   gAlbedo: ResourceId;
   gEmissive: ResourceId;
   materialDepth: ResourceId;
+  /** 迁移期间的统一 Surface 产品；legacy producer 不拥有 metadata。 */
+  surface: SurfaceFrame;
   counters: ResourceId | null;
 };
 
@@ -143,6 +150,7 @@ export class MaterialExpandPass {
       gAlbedo: -1,
       gEmissive: -1,
       materialDepth: -1,
+      surface: null as unknown as SurfaceFrame,
       counters: null
     };
 
@@ -267,6 +275,16 @@ export class MaterialExpandPass {
           GPUTextureUsage.TEXTURE_BINDING
       )
     );
+    outputs.surface = surfaceFrame({
+      depth: null,
+      pbr: outputs.gPbr,
+      normal: outputs.gNormal,
+      albedoAo: outputs.gAlbedo,
+      emissive: outputs.gEmissive,
+      velocity: null,
+      metadata: null,
+      domain: textureDomain("internal-full", width, height, 1)
+    });
     for (const resource of Object.values(inputs)) {
       if (resource !== undefined) builder.read(resource);
     }

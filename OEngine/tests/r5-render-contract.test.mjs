@@ -9,6 +9,7 @@ import {
 import {
   opaqueLightingFrame,
   requireDomain,
+  surfaceFrameWithVelocity,
   surfaceFrame,
   textureDomain
 } from "../.test-dist/render/pipeline/FrameProducts.js";
@@ -61,6 +62,24 @@ test("Q01 Surface product freezes attachment semantics and allows missing veloci
   assert.equal(frame.velocity, null);
   assert.equal(Object.isFrozen(frame), true);
   assert.throws(() => surfaceFrame({ ...frame, pbr: -1 }), /resource id/);
+});
+
+test("Q01 legacy Surface producer joins the same immutable product seam", () => {
+  const base = surfaceFrame({
+    depth: null,
+    pbr: 1,
+    normal: 2,
+    albedoAo: 3,
+    emissive: 4,
+    velocity: null,
+    metadata: null,
+    domain: textureDomain("internal-full", 1920, 1080, 1)
+  });
+  const withVelocity = surfaceFrameWithVelocity(base, 5);
+  assert.equal(withVelocity.velocity, 5);
+  assert.equal(withVelocity.pbr, base.pbr);
+  assert.equal(Object.isFrozen(withVelocity), true);
+  assert.equal(base.velocity, null);
 });
 
 test("Q01 opaque lighting product rejects non-internal output domains", () => {
