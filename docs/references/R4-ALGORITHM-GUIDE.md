@@ -2,7 +2,7 @@
 
 Status: research guide
 
-本文件只负责回答“R4 应阅读、比较和复用哪些外部证据”。它不拥有任务状态、ABI 或 Gate；长期决策见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，执行步骤见 [06-hybrid-visibility](../implementation/06-hybrid-visibility.md) 与 [07-material-resolve](../implementation/07-material-resolve.md)，正式采用记录见 [porting](./porting/README.md)。
+本文件只负责回答“R4 应阅读、比较和复用哪些外部证据”。它不拥有任务状态、ABI 或 Gate；当前状态见 [STATUS](../implementation/STATUS.md)，长期决策见 [ADR-0010](../wiki/adr/0010-r4-unified-visibility-contract.md)，正式采用记录见 [porting](./porting/README.md)。
 
 ## 已冻结方向
 

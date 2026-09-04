@@ -1,9 +1,9 @@
 # R5-Q Quality / Pipeline Architecture Closure
 
-> 状态：**已批准的执行设计，尚未实施**
+> 状态：**执行设计与收口基线**
 > 冻结日期：2026-09-01
 > 源码基线：当前 `master` production source 复核
-> 当前状态：`R5-Q01..Q06` 已于 2026-09-02 合并到同一生产迁移；正式 clean/full Gate 证据仍须在提交后生成。下一入口是 Product Closure/G5-P，而不是继续叠加 focused 效果参数。
+> 当前状态：`R5-Q01..Q06` 已迁移到同一生产路径；正式 clean/full Gate、旧路径删除和 G5-P 产品闭环仍未完成。下一入口是 Product Closure/G5-P，而不是继续叠加 focused 效果参数。
 > 适用范围：`G5-T`、`FX-09..12`、`G5-P` 关闭前的 R5 Shading / Screen-space / Temporal / Post Composition 重构
 
 相关权威与下一跳：

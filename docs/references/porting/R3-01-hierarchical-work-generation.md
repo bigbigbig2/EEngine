@@ -1,10 +1,10 @@
 # R3-01 · Cluster hierarchy GPU work generation
 
-Status: R3-A/R3-B/R3-C/R3-D Completed；G3 functional + performance Completed
+历史证据：R3-A/R3-B/R3-C/R3-D 已有对应 artifact；当前阶段状态以 [implementation/STATUS](../../implementation/STATUS.md) 为准。
 
 Reference ID: `R3-01`
 
-本记录冻结 R3 的上游来源、许可证、采用与拒绝范围。长期结构决策见 [ADR-0009](../../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md)，具体执行、ABI 和 Gate 见 [05-hierarchical-work-generation](../../implementation/05-hierarchical-work-generation.md)。开始复制或翻译任何表达性代码前，提交必须在本文件补充真实函数/行区段和保留的 notice。
+本记录冻结 R3 的上游来源、许可证、采用与拒绝范围。长期结构决策见 [ADR-0009](../../wiki/adr/0009-r3-cluster-hierarchy-work-generation.md)，当前执行状态见 [STATUS](../../implementation/STATUS.md)。开始复制或翻译任何表达性代码前，提交必须在本文件补充真实函数/行区段和保留的 notice。
 
 ## OEngine 输入与输出
 
@@ -253,7 +253,7 @@ R3 只消费 R2 已冻结的 Meshlet、bounds/cone、Cluster hierarchy 和 geome
 
 R3-C clean/full paired 证据已于 2026-08-28 基于 commit `0b77ce8cf67e110aef5d6cf82ee9e0e2f9c837d0` 采集，环境为 NVIDIA Turing / Chrome 150 / 1280×720 / DPR 1 / 60 warm-up + 180 sample frames。六组 artifact 均 clean、gate eligible、zero counter issue/overflow/WebGPU diagnostics。结果：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 Visibility P50 改善 69.6%；C 两路均为 127 RasterWork，hierarchy 多约 0.262 ms 固定成本。A 的三个阶段是热点，但不是三个 `workgroup_size(1)`；R3-D 只对真实串行的 Cluster Meshlet expansion 改成 one-cluster/64-lane workgroup，并继续保留 queue/atomic 假设待测。
 
-R3-D 没有采用 Prefix Scan：当前 Cluster meshlet count 有界，lane-0 每 Cluster 一次 all-or-nothing atomic reservation 保留已有 ABI/fallback，且不增加 scan/scatter buffer 与 dispatch。clean/full after 已证明该选择把 A/B/C expansion P50 从 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms；但它没有关闭总时间 Gate，A P95 长尾与 C 低密度固定成本仍由 `R3-D-08/09` 处理。完整分位数和采集条件见 [05 实施文档](../../implementation/05-hierarchical-work-generation.md) 与 [PERFORMANCE](../../PERFORMANCE.md)。
+R3-D 没有采用 Prefix Scan：当前 Cluster meshlet count 有界，lane-0 每 Cluster 一次 all-or-nothing atomic reservation 保留已有 ABI/fallback，且不增加 scan/scatter buffer 与 dispatch。clean/full after 已证明该选择把 A/B/C expansion P50 从 38.54/2.49/0.131 ms 降至 6.82/1.31/0.066 ms；完整分位数和采集条件见 [PERFORMANCE](../../PERFORMANCE.md)，当前阶段结论见 [STATUS](../../implementation/STATUS.md)。
 
 R3-D-08/09 的 dirty tuning probe 只用于冻结实现选择，不作为 Gate artifact。最终 Gate 基于 clean commit `aff3ab8`：A/B/C Visibility P50/P95/P99 分别为 `16.777/17.511/18.234`、`11.534/11.665/11.758`、`0/0.066/0.066 ms`；三组均 clean/gate eligible/zero overflow/WebGPU diagnostics，C Pass label 证明真实命中 fused-leaf。A 的 sampled CAS retry 仍高，但 Producer P95 已通过；保留 counter 供后续更大 workload 调查，不因此引入无证据 Prefix Scan。
 

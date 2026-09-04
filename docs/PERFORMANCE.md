@@ -80,7 +80,7 @@ C 的 HZB counter 在最终提交前发现只统计 primary view 3 builds，但 
 
 G1 的结构硬门槛已全部关闭：一次 main submit、非采样零 readback、scene prepare 一次、warm graph 不 rebuild/compile、逐 mip HZB Render Pass 为零、feature off 无对应 owner/Pass/history/readback/timestamp/submit、持久资源安全退休。
 
-R1 修改前没有同条件 clean/full bundle，因此无法诚实计算 CPU/GPU paired 百分比。R1 只声明减少了 submit、graph rebuild、持续 readback 和逐 mip Render Pass 这些结构工作，不声明总帧性能提升。尤其 A full 的 CPU P50 仍为 260.5 ms，说明 flat 160k instance/meshlet 路径远未达到最低性能线；下一步必须通过 R2 compact data/Packed Instances 和 R3 hierarchy/SSE 在展开前真正减量，而不是继续把 R1 当性能完成证明。详细实现证据见 [R1 文档](./implementation/02-runtime-submit-and-framegraph.md)。
+R1 修改前没有同条件 clean/full bundle，因此无法诚实计算 CPU/GPU paired 百分比。R1 只声明减少了 submit、graph rebuild、持续 readback 和逐 mip Render Pass 这些结构工作，不声明总帧性能提升。尤其 A full 的 CPU P50 仍为 260.5 ms，说明 flat 160k instance/meshlet 路径远未达到最低性能线；下一步必须通过 R2 compact data/Packed Instances 和 R3 hierarchy/SSE 在展开前真正减量，而不是继续把 R1 当性能完成证明。该段属于历史性能证据，当前状态见 [STATUS](./implementation/STATUS.md)。
 
 ## R3-C paired 证据与结论
 

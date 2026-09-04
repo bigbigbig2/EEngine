@@ -40,4 +40,4 @@ Nanite streaming、World Partition、3D Tiles、Virtual Shadow Map、ReSTIR/Falc
 4. 将上游算法转换成 OEngine 自己的 ABI、owner、capacity、overflow/fallback 和 WebGPU consumer。
 5. 以本地 reference test、浏览器 example 和固定 benchmark 关闭任务。
 
-研究指南不拥有任务 ID、ABI 或完成状态；R4 的冻结决策与执行步骤分别由 ADR-0010 和 `docs/implementation/06/07` 拥有。
+研究指南不拥有任务 ID、ABI 或当前完成状态；当前阶段状态统一由 `docs/implementation/STATUS.md` 拥有。R4 的历史冻结决策与执行步骤分别由 ADR-0010 和 `docs/implementation/06/07` 记录；R5 当前执行由 `docs/implementation/11-render-pipeline-reconstruction.md` 拥有。

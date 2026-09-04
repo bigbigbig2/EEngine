@@ -43,7 +43,7 @@ FX-12 Legacy deletion
   ↓ G5-P / R5 CLOSED
 ```
 
-每个 Gate 的 production browser、自动截图/数值/sequence 预期见 `docs/implementation/R5-BROWSER-GATES.md`。
+每个 Gate 的 production browser、自动截图/数值/sequence 预期见 `docs/implementation/R5-BROWSER-GATES.md`；当前阶段状态见 `docs/implementation/STATUS.md`。
 
 ## Deferred
 

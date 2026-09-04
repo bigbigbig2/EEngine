@@ -1,121 +1,76 @@
 # OEngine 当前实现事实
 
-本文只描述当前 `OEngine/src` 和尚未关闭的执行状态。历史基线和 artifact 等级见 [BASELINE-ARTIFACTS](./BASELINE-ARTIFACTS.md)，执行流水见 [implementation](./implementation/README.md)。当前存在不代表长期接受。
+更新时间：2026-09-04
 
-## 已接入主帧
+本文只回答“当前源码实际上做了什么”。阶段状态、算法成熟度和未关闭 Gate 的唯一入口是 [implementation/STATUS](./implementation/STATUS.md)；目标架构见 [13-product-render-pipeline-redesign](./implementation/13-product-render-pipeline-redesign.md)，当前执行设计见 [11-render-pipeline-reconstruction](./implementation/11-render-pipeline-reconstruction.md)。历史性能数字和完整 artifact 索引见 [PERFORMANCE](./PERFORMANCE.md) 与 [BASELINE-ARTIFACTS](./BASELINE-ARTIFACTS.md)。
 
-- WebGPU Device/Canvas、资源缓存、统一 FrameCoordinator 和一个 steady main submit。
-- Compiled FrameGraph topology cache、feature pruning、late-bound frame resources。
-- CPU Scene/Node/Mesh/Light/Animation 基础对象，以及部分 scene/database 增量同步。
-- GPU Scene、Geometry/Material/Texture 数据库和 allocator。
-- Packed Cluster hierarchy/SSE/Cone/previous-HZB work generation、VisibleCluster/RasterWork、GPU indirect args 与 Hardware consumer；Packed flat 链已删除，legacy Scene 仍有独立 Meshlet/bucket/scan/expand consumer。
-- Hardware Visibility Buffer、reverse-Z、alpha-tested 路径和 same-frame second chance。
-- Compute HZB：`rg16float` min/max pyramid、per-view previous/current ping-pong 和显式 commit/abort。
-- 当前 Hardware consumer 是 GPU list count → `vertexCount=384`/`instanceCount=count` → single `drawIndirect`；CPU 不读取 count 决定该 draw。
-- Material Expand、Clustered Lighting、IBL、CSM、SSAO、SSR、OIT、TAA、Bloom、Exposure、Tonemap 等旧效果路径。
-- 一条主管线和单一 `render_debug_view`；关闭/unsupported debug view 不添加额外工作。
-- P2 `RendererConfig` 已把中等偏高默认、Feature 开关和分辨率便捷参数归一化到单一 `RenderSettings`；`Renderer.capabilities` 提供冻结能力快照，`RenderFrameContract` 统一每帧尺寸、jitter、Feature bits 和 history revision。
+## 当前生产帧
 
-## 可观测性
+```text
+Scene/GPU Scene updates
+  → Instance cull + hierarchy/SSE/cone/previous-HZB work generation
+  → Packed RasterWork → drawIndirect → VisibilityKey + reverse-Z depth
+  → Packed Material Resolve → Surface + Velocity
+  → Clustered Direct + CSM/Shadow
+  → GI/IBL + AO + SSR correction
+  → Transparency/OIT
+  → Temporal/TAAU + DRS
+  → Exposure/Bloom/Color Grading/Sharpen/Tonemap
+  → Present
+```
 
-- R0 Result Schema v3、CPU/submit/readback/upload、可选 GPU timestamp、256-byte GPU counter ABI 和异步 readback ring 已接入。
-- feature-to-counter 矩阵区分真实 `0`、required/supported 缺失和 `unsupported + blockerTaskId`。
-- 已有真实 producer 覆盖 Visibility 像素、instance/frustum、visited hierarchy node、selected Cluster、Cone/HZB reject、HW RasterWork、active material/light 和 queue overflow。
-- A/B/C 与 Frame Smoke 根目录 examples 共用公开 OEngine interface、`Renderer.render()` 和 benchmark writer。
-- R0/G0 已完成，不再接受把后续算法或额外观测工作倒灌为 G0 blocker。
+WebGPU 主帧目前使用单一 `Renderer` command encoder 和 steady main submit。Compiled FrameGraph、feature pruning、HZB previous/current history、GPU producer → GPU indirect consumer、Surface ABI 和统一 debug view 已接入。功能关闭时，已迁移的 owner 会跳过对应 Pass/resource/history；仍有 legacy consumer 的普通 `Scene` 分支暂不能宣称零成本删除。
 
-## R1 当前状态
+## 已验证的基础能力
 
-- R1/G1 已于 2026-08-27 关闭；最终 clean 浏览器证据基于 commit `7934db1`。
-- `R1-A`：Frame Smoke/A/B/C steady 主帧只有一个 `Renderer/main-0` submit，非采样 readback 为零，每 scene/frame 只 prepare 一次。
-- `R1-B`：相同 graph key 的 warm frame `build=0/compile=0/execute=1/cacheHit=1`；可选 feature 不创建 owner、Pass 或 history，关闭后安全退休。
-- `R1-C`：旧逐 mip HZB Render Pass 已删除；每 build 一个 Compute Pass、每 mip 一个 dispatch；history owner 明确 previous/current/final。独立真实 GPU prototype 为 `computePasses=1`、`dispatches=3`、`maxError=0`。
-- `R1-D`：View 从 lookup 立即移除，持久 owner/history 在 GPU completion 后销毁；FrameGraph 保留 command 内 last-use alias 和同 queue ordered reuse，mapping/readback、显式 fenced 资源与 destroy 才等待 completion。
-- 最终 A/B/Frame Smoke 的 HZB 总量均为 `2 builds / 2 Compute Passes / 20 dispatches`；C 为 `12/12/120`，其中主视图 3 次、实际更新的阴影视图 9 次，counter 与 timestamp 标签逐帧一致。
-- clean/full after bundle 证明结构 Gate，但 R1 修改前没有同条件 clean/full bundle，因此不伪造 CPU/GPU 性能提升百分比；绝对 after 数据登记在 `PERFORMANCE.md`。
+- R0–R1：观测 schema、CPU/GPU phase、counter、单主提交、compiled graph、Compute HZB 和 completion-safe resource lifecycle。
+- R2：versioned Runtime Asset/Geometry package、Geometry/Cluster/Instance GPU records、GpuAssetStore、Packed Instance bulk/patch/residency。
+- R3：hierarchy/SSE/cone/previous-HZB、VisibleCluster/RasterWork、GPU work queue、完整 indirect args 和 Hardware `drawIndirect()`；Packed flat producer 已删除。
+- R4-A：`VisibilityKey v1`、reverse-Z depth、alpha-tested、capacity/overflow/fallback 和 key lookup。
+- R4-B：Packed 路径单次 `PackedMaterialResolvePass` 输出 Surface + Velocity；普通 `Scene` 的 Material Expand/Velocity 仍有真实 consumer。
 
-## 关键缺口
+这些条目表示对应 focused/核心 Gate 的证据，不表示最终产品画质或 1080p/60 整帧性能已达成。具体阶段分层只看 [STATUS](./implementation/STATUS.md)。
 
-- R2-A/B 设备无关数据基础已完成；R2-C core 也已落地：validated Geometry package 可进入惰性 `GpuAssetStore`，并重排为显式对齐的 Geometry 144 B、Cluster 128 B、Meshlet 112 B GPU records 与连续 payload buffers。
-- R2-C 已有 opaque generation handle、0 号 fallback、bulk upload、grow/copy/abort/completion-safe retirement、release/stale-handle 语义，以及 logical/resident/allocated/peak/retiring/reclaimable 和 upload/grow/reject counters。`GraphicsContext.assets` 惰性创建，legacy-only 页面不承担额外 store Buffer。
-- `examples/r2-gpu-residency` 已形成 package → resident tables → Compute 写 indirect args → Hardware `drawIndirect()` 的 flat 黄金资产闭环。2026-08-27 人工浏览器证据为 `passed=true`、GPU roundtrip `6/6` 一致、211,600 个非背景像素、`validationError=null`、无 uncaptured error/shader diagnostic、abort/release handle 均失效且 `privateSubmitCount=0`；R2-C 已关闭。
-- R2-D compact Instance 基础已落地：`InstanceRecord` v2 保持 192 B，包含 Geometry record index、material handle、flags/debug ID、object bounds、current object-to-world 与 CPU 预计算 `previous_from_current`；奇异变换设置 `MotionInvalid`，Packed Velocity 输出零。TS packer、offset 和 WGSL struct 共用同一冻结 schema。
-- 惰性 `GpuScene` 是新 Instance table 唯一 owner，提供 opaque generation `InstanceSetHandle`、1k/10k/100k bulk、grow/abort/release、显式 transform/material patch、同帧 previous 保持、dirty span 合并和 logical/resident/allocated/CPU shadow/upload/patch/grow 证据；稳定空 batch 不编码 copy/pass/submit，`privateSubmitCount=0`。
-- `createInstanceSourceFromScene()` 已让普通 `Scene/Mesh` 一次性写入同一个 `InstanceSource`，Packed source 只使用 typed arrays + 少量 geometry handle，不构造等量 JS 对象。`Renderer` 已公开 instantiate/patch/release/evidence seam，GPU Buffer/range 保持内部。
-- `examples/r2-packed-scene` 已形成 Geometry package + Instance table → Compute compact active indices/完整 indirect args → Hardware `drawIndirect()` 的真实双 binding consumer。G2 关闭时 v1 浏览器证据为 `passed=true`、1k/10k/100k bulk、四档 patch、41,733 非背景像素且 diagnostics 为空；页面现已随 v2 改为验证 `previous_from_current`，本轮完成 production build 和 Node reference，尚未重采浏览器 artifact。
-- R2-D/G2 已关闭：`load_gltf_packed()` 直接输出 SourceGeometry、材质 dictionary、transform/bounds/flags typed arrays；A/B 的 Teapot/Damaged Helmet 和 C 的三份程序化几何均经过 Cooker/package，由 `Renderer.uploadPackedScene()` 进入生产 Packed Visibility 与 Single Material Resolve。G2 当时接入的 Packed Material Expand/Velocity 已由 R4-B 替换。
-- R2 provenance 清算已补齐 Packed glTF 的 Khronos 规范台账与 multi-primitive/material/nested-transform fixture；Packed Material 的 glTF 8/16 位 normalized 与 OEngine 32 位扩展 CPU/WGSL 边界也已冻结。Packed flat Visibility 已由 R3-D 删除；Packed 每材质 fullscreen 已由 R4-B Single Resolve 替换。
-- 生产 Packed Visibility 现执行 InstanceCull → Cluster hierarchy/Frustum/SSE/Cone/previous-HZB → VisibleCluster → RasterWork → GPU 写完整 16 B indirect record → Hardware `drawIndirect()`，数量不经 CPU readback。Material 每 semantic 只扫描一次 descriptor，使用解析 perspective UV gradient 并修正重复 viewport、镜像/非均匀 normal-tangent；Velocity 已删除每可见像素 `mat4_inverse`。稳定帧不重复 residency/instantiate。
-- package 主路径不创建等量 `Mesh/Node3D`，也不创建 legacy `MeshletGpuTable`；旧 Geometry owner 改为 legacy Scene consumer 请求时惰性创建。普通对象、旧 Loader、shadow/transparent 等尚未迁移 consumer 仍保留旧路径，后续按 R3/R4/R5 迁移删除，不能解释为 Packed 主路径双 owner。
-- R3-A 已完成 CPU/ABI 冻结：multi-instance world-space selector 覆盖完整 Instance transform、透视/正交、Frustum、near-plane、parent/child 与容量 fallback；Work ABI 为 Traversal 8 B、VisibleCluster 16 B、Raster 8 B、Queue header 32 B，并冻结完整 12 B dispatch/16 B draw indirect records。`maxCutMeshlets` 已与固定随机树全部合法 cut 穷举对照。
-- R3-B 的历史 GPU selected-set producer已由 R3-D 收口为 fused InstanceCull + root Cluster → 可选 ping/pong traversal → VisibleCluster；旧 RootTraversalQueue 已删除。owner 管理 traversal/selected/raster/dispatch、sampled evidence 与 view 资源，不创建私有 submit。R2 BVH8 仍因缺少 parent/descendant cut 语义而不进入 R3 v1 热路径。
-- `examples/r3-hierarchical-work-generation` 的 live WebGPU 结果为 `passed=true`：Perspective 68、Orthographic 16、empty 0、capacity parent fallback 3 个 selected Cluster，GPU/CPU set 全部一致；pressure 首轮真实计数为 `attempted=6/written=0/overflow=1/fallback=3/capacity=1`，Shader/validation/uncaptured/console errors 均为空。
-- R3-C 已完成 GPU producer → GPU Hardware consumer 垂直闭环：VisibleCluster 展开为 RasterWork，GPU 写满 `[384, written, 0, 0]` 的 16 B record，生产 `PackedVisibilityPass` 直接消费；线性 workgroup 超过 65,535 时映射为二维 indirect dispatch。`NoHierarchy` tiny Geometry 以 runtime-only virtual leaf Cluster 归一化到同一 ABI，不改 R2 Package。
-- R3-C clean/full flat/hierarchy paired A/B/C 基于 clean commit `0b77ce8`：A 减少 90.1% RasterWork 但 Visibility P50 回退 14.1%；B 减少 80.4% 且 P50 改善 69.6%；C 工作量相同但 hierarchy 多约 0.262 ms 固定成本。六组均无 overflow/WebGPU diagnostics，不能由此宣称 hierarchy 普遍更快。InstanceCull、round 0 和 expansion 是热点，但并非三个 `workgroup_size(1)` 阶段。
-- R3-D 代码/功能结构已完成：expansion 改为每 selected Cluster 一个 64-lane workgroup且一次预约；Cone 使用 meshoptimizer 公式并对 mirrored/non-uniform/shear fail-open；previous HZB 使用上一帧 camera 与 Instance motion 变换做 Niagara reverse-Z 保守投影，MotionInvalid/无效 history fail-open；Work Queue ABI v2 输出真实 `visitedBvhNodes/rejectedCone/rejectedHzb`；Packed flat shader/mode/owner 全部删除。
-- R3-D 自动证据已扩展为 OEngine `npm test` 162/162 与 examples build；live GPU/CPU oracle 页面为 `passed=true`，Perspective、Perspective + empty previous HZB、Orthographic、empty、capacity pressure、depth-zero fused-leaf 六组的 VisibleCluster、RasterWork 和完整 16 B indirect record 全部一致，Shader/validation/uncaptured diagnostics 为空。
-- R3-D clean/full A/B/C after 已在 clean commit `1f3a2d7` 上由浏览器采集：NVIDIA Turing、Chrome 150、1280×720、DPR 1、60 warm-up + 180 sample。三组均 `dirty=false`、`gateEligible=true`、`counterIssues=0`、`queueOverflowMask=0`，WebGPU validation/uncaptured/device-lost/timestamp/counter diagnostics 全为 0；`capabilityComplete=false` 只来自诚实的 `VIS-05` Software Visibility blocker。
-- commit `1f3a2d7` 的历史 after 曾证明 64-lane expansion 局部优化成立，但当时仍被 A P95 124.95 ms 和 C P95 0.495 ms 阻塞；真实 `rejectedCone=16`、`rejectedHzb=40` 也证明两条 reject 分支已在生产 Renderer 执行。该历史 blocker 已由下一条 `aff3ab8` 结果关闭，不能再解释为当前状态。
-- `R3-D-08/09` 与 G3 performance 已关闭。clean commit `aff3ab8` 的 A/B/C full 全部 `dirty=false`、`gateEligible=true`、zero counter issue/overflow/WebGPU diagnostics；Visibility P50/P95/P99 分别为 A `16.777/17.511/18.234 ms`、B `11.534/11.665/11.758 ms`、C `0/0.066/0.066 ms`。A/B 运行 wavefront + fused-root，C 真实命中 fused-leaf；RasterWork 保持 `273,750 / ≈281,191 / 127`，没有以漏绘换性能。
-- sampled contention counter 已保存 root/traversal reservation、dispatch update 与 CAS retry。A 的 CAS retry P50 仍为 18,428，但 Producer P50/P95 只有 `6.291/7.120 ms`，因此登记为更大 workload 的后续 profile 风险，不继续阻塞 G3。
-- 当前 `MeshletDrawList` 有多阶段 bucket/scan/expand 固定成本，固定 384 vertices/meshlet 的无效提交尚未量化。
-- `R4-A-01` 工作项已验收，治理状态为 `Implemented`：`GpuVisibilityKeyAbi.ts` 以共享 TS 常量生成 WGSL codec，冻结 frame-local `VisibilityKey v1 = rasterWorkSlot + localTriangle`、`0xFFFFFFFF` empty、完整 reserved slot、最大 RasterWork capacity、adapter buffer limit 与显式 producer failure；CPU reference 已通过 multi-Meshlet fixture 证明 `RasterWork → VisibleCluster/Meshlet` 唯一回查，未修改 R3 Package ABI。
-- `R4-A-02` 已验收，治理状态为 `Integrated`：生产 Packed Hardware shader 在原有单次 `drawIndirect` 中写 `VisibilityKey v1 + reverse-Z depth`；Key 是 FrameGraph transient `r32uint` attachment，Packed feature-off 不创建资源，resize 进入 descriptor/graph signature，RasterWork capacity 在 producer 前按 key/adapter limit 显式拒绝。R4-B 已删除旧 triangle/instance/material-depth MRT。
-- sampled `VisibilityCounterPass` 已切换为 legacy/key 双 contract，新增 `invalidVisibilityKeys`，useful fragments 复用 `shadedPixels`；submitted fragments 因 WebGPU baseline 没有 pipeline-statistics producer，诚实登记为 `unsupported / WEBGPU-01-PIPELINE-STATISTICS`。`examples/r4-hardware-opaque-producer` 的 live Chrome 结果为 `passed=true`、`6820` valid、`69980` empty、invalid/unresolved/depth mismatch 全为 `0`、depth `0.025`，Shader/validation/uncaptured diagnostics 为空；Benchmark A production Renderer smoke 的 3 个 sampled frame 也全部导出 `invalidVisibilityKeys=0` 且 runtime diagnostics 为零，但 smoke 不作为 R4-A paired Gate artifact。
-- `R4-A-03` 已验收，治理状态为 `Integrated`：64 B `MaterialVisibilityRecord v1` 与 4,096 material/256 alpha-tile 临时 owner 已接入 Packed Scene staging；Geometry GPU ABI 升为 v2/160 B 并加入 UV0/UV1 fast path，Package ABI 不变。生产 Hardware fragment 从 GPU record 完成 opaque/mask/blend、factor/texture、glTF UV transform、cutoff、double-sided/mirrored 与 invalid texture/sampler fallback，仍只使用原单次 `RasterWork → drawIndirect → VisibilityKey/depth`，没有 CPU 最终可见循环。Chrome 8-slot fixture 像素为 `2892/2177/0/0/2913/2849/2850/1440`，invalid key/depth mismatch 与 WGSL/validation/uncaptured/device-lost diagnostics 全为 `0`。
-- `R4-A-04` 已验收，治理状态为 `Integrated`：Packed `RenderDebugView.VisibilityKey` 用单个全屏 pass 从生产 Key 回查同帧 RasterWork/VisibleCluster/Meshlet/Instance/Material GPU 表；32 B settings、15 状态与每层 fail-visible color 已由共享 TS/WGSL ABI 和 CPU oracle 冻结。debug-off 不创建 pass、纹理、uniform、readback、encoder 或 submit；debug source 随 Packed runtime release/destroy 清除。真实 MASK + alpha texture + `KHR_texture_transform` glTF 已走 `load_gltf_packed → Cooker → uploadPackedScene → Renderer` 并保存 heatmap；生产 WGSL 的 16-case GPU 注入覆盖 empty/reserved/max 与所有 lookup failure，全部颜色匹配且 WebGPU diagnostics 为零。
-- `R4-A-05` 已验收，治理状态为 `Integrated`：production prepare 在 generator 分配/编码前验证 key + adapter capacity 并导出 required/effective bytes；epoch replacement、release 和 abort 都经 GPU completion fence 退休。Chrome production Packed alpha fixture 已覆盖 feature-off 0 readback、sampled overflow/invalid key 为 0、resize、camera cut、view recreate、提交后立即 release/re-upload、intentional device destroy 和 fresh Renderer/device 重建；目标 adapter exact key boundary `33,554,431` 通过，`33,554,432` 零分配明确失败，fresh Renderer 三帧 diagnostics 为零。counter-off 仅保留 shader ABI 必需的 256 B sink，不保留 reducer/readback/额外 submit。
-- `R4-A-06` 与 G4-A 已于 2026-08-28 关闭。production A/B/C full Gate 使用 `1280×720`、DPR 1、60 warm-up + 180 sample、timestamp/counter 每 6 帧采样；三组均为 clean/gate eligible、一个 main submit、一个 Packed drawIndirect、zero invalid key/overflow/WebGPU diagnostics，且 `shadedPixels + emptyVisibilityPixels = 921,600`。final-color oracle、VisibilityKey heatmap 与 reverse-Z depth 截图轮廓一致；C 的真实 sampled alpha RasterWork 为 40/127。artifact 位于 `temp/r4-a-06/full/`。
-- G4-A 只关闭 Hardware key/depth/lookup/alpha/debug/lifecycle contract，不关闭 R4-C SW/Hybrid。Material Visibility owner 当前为 224 B `MaterialRecord v3` 与标准/4K 双纹理池共享 residency，不存在第二套 Packed 材质真相来源。
-- R4-A Gate 同时暴露 A/B Hardware Raster P50 从 R3 clean 约 `10.4 ms` 回退到约 `35–44 ms`，且 B 已观察到 `84.260 ms` P99 长尾；RasterWork 数量基本不变。该风险必须在 R4-B 前后分段保留并做单变量 profile，不能把它解释为 G4-A 性能完成或静默并入 Material Resolve。
-- `R4-B-01..06/09` 已集成，`R4-B-07/08` 按文档条件跳过，Packed `R4-B-10` 已关闭。生产 `PackedMaterialResolvePass` 一次回查 VisibilityKey/RasterWork/VisibleCluster/Instance/Geometry/Meshlet/Material，复用 R2-D-08 analytic gradients/frame 与 R2-D-09 `previous_from_current`，输出 26 B/pixel Surface + velocity；当前 `MaterialRecord v3` 为 224 B，支持四类纹理独立 UV0/UV1/UV2 映射。纹理 owner 保留 64-layer `256×256` 标准池，并在大于 256 的源贴图出现时惰性建立 16-layer `4096×4096` 高分辨率池。
-- 2026-08-28 的 R4-B P1 修正已进入代码：Resolve 按 `MaterialRecord.uv_set` 选择 UV0/UV1；v2 明确只支持 baseColor/normal/ORM/emissive 共用 texCoord/transform，glTF 每纹理 mapping 不一致或请求 `TEXCOORD_2+` 时在 residency 前拒绝。Material GPU table 已脱离全局递增 `material.id`，由 4,096-slot dense resident free-list、引用计数、abort rollback 和 GPU-completion-safe retirement 管理；Packed Scene stage/patch 只通过 material dictionary 映射内部 slot。Chrome focused UV1 fixture 已 `passed=true`，UV1 alpha case 产生 38 pixels 且 validation/uncaptured/device-lost/shader diagnostics 全为 0；Benchmark B smoke 的生产 Single Resolve 为 1 fullscreen draw、1 active/4095 free dense slots、4 resident textures、0 fallback 和 0 WebGPU diagnostics，unexpected issues 为 0。artifact 位于 `temp/r4-b/p1/`；因本轮 worktree dirty 且 smoke cadence 非 full，不能替代 clean full R4-B Gate。
-- 2026-08-30 R4-B lifecycle/material-contract 修正已进入代码：64-layer texture array 的 layer 0 固定为 fallback，63 个可驻留层由共享引用计数与 free-list 管理；最后引用释放、材质换纹理和重新驻留均绑定 owning command 的 `gpuDone` 与 generation，stage abort 回滚 retain。evidence schema v4 报告 resident/retiring/free texture layer，并由浏览器 Gate 校验 layer 0 保留与结束时零 retiring。glTF separate occlusion texture 现在显式拒绝；`normalTexture.scale` 进入 MaterialRecord/WGSL；`KHR_materials_unlit` 只消费 baseColor 并以 emissive Surface 绕过 lighting，残留 PBR 纹理不占 residency、不置 feature/fallback bit。
-- 上述修正在 clean commit `74e61c02f3fd66d30bafbf02d8b2472305c9347e` 完成 Chrome 151 / Intel Gen9 B/C full Gate：两组均 `passed=true`、`gateEligible=true`，issues/counter issues/console/page/WebGPU diagnostics 为 0；active materials `1/3` 时 fullscreen draw 恒为 1。B texture `resident/retiring/free = 4/0/59`，C 为 `0/0/63`，fallback 为 0；13 个 canvas view 加 page screenshot 已保存并人工核对 final-color、normal、occlusion、emissive。artifact 位于 `temp/r4-b/full/`。
-- R4 core milestone 已关闭：G4-A Hardware Unified Visibility 与 G4-B Single Material Resolve 均为 closed；R4-C Software/Hybrid Raster 转为 optional performance track。只有同 GPU/profile 证明 Hardware Raster 在目标 workload 是主要瓶颈且 SW/Hybrid 有净收益时才重开，HW-only 是合法终态。
-- 2026-08-28 clean commit `4e1206b` 的 Chrome 151 B/C full Gate 均通过：`1280×720`、DPR 1、60 warm-up + 180 sample，一个 Packed Hardware drawIndirect、一个 Resolve draw，invalid key/gradient fallback/reactive/texture/sampler fallback/overflow 与 WebGPU diagnostics 全为 0。active materials 为 1/3，Resolve P50/P95/P99 分别为 B `1.559088/1.7152/2.05827136 ms`、C `0.66336/0.6934896/0.69565568 ms`；artifact 位于 `temp/r4-b/full/`。
-- 旧 Packed material/velocity attachments 为 34 B/pixel，新 Surface 为 26 B/pixel，在 1280×720 少 `7,372,800` transient bytes。B 使用 4 个 resident texture，resident bytes `22,369,536`，fallback 为 0。相对 R4-A 旧链，B 因新增完整纹理采样与 velocity 回退；C 从 3 draws 收为 1 draw且 P50 改善约 11.9%，因此只声明结构伸缩性，不声明普遍提速。
-- Packed Material Expand、Packed Velocity producer/shader 与辅助 MRT 已删除。普通 `Scene` 的 legacy `MaterialExpandPass/VelocityPass` 仍有公开 consumer，现为惰性创建且 Packed 帧零 owner/Pass/resource；最终类级删除归普通 Scene consumer 迁移与 `FX-12`。
-- 当前没有 Compute Software Raster；Hardware 是唯一真实 triangle raster path。
-- R2-C/D 的 owner、flat work、属性重建和 motion 数学已有独立 porting ledger；R4-B 已用同条件浏览器 artifact 验证 Packed Material/Velocity 迁移。Lighting、IBL、CSM、Transparency、FX-06A temporal foundation、AO 与 SSR 已完成所属 R5 focused Gate；final TAAU/upscale 和 Post 仍未验收，最终质量目标继续由 G5-T/G5-P 约束。
-- R5-00 Surface ABI v1 已由 commit `c632b2d` 落地，A 场景 Gate 校准由 `0cb3445` 修正；A/B/C clean/full 均已完成 3 个独立 session，C artifact 位于 `temp/r5/r5-00/7b036316b818eef63f1f3a8a03de65f7498ef986/`。2026-08-31 已在根 `performance-targets.json` 冻结 NVIDIA Turing 目标机、Intel Gen9 correctness profile、1080p/60 FPS 产品预算、A/B/C 回归上限、feature 增量及 memory/I/O cap；文件明确记录产品目标尚未达成，不能据此宣称最终性能或 three.js parity。FX-01 已在不修改 ABI 的前提下关闭：2×3 Packed 材质板通过 production `Renderer.render()` 输出 Depth/Normal/PBR/AlbedoAO/Emissive/Velocity/Reactive/MaterialId/HistoryValidity；legacy Scene payload debug 使用真实 `1 << 24` mesh-id empty sentinel，metadata-only view 对无 Surface metadata 的路径显式拒绝。TAA/NSS 都关闭时 projection jitter 归零，静态与 motion-invalid tile 的 Velocity 均为 zero；同一 motion-invalid GPU micro pixel同时证明 `zero velocity + !motion-valid + reactive`。feature-off 的 debug Pass/resource/readback 为 0，clean artifact 位于 `temp/r5/fx-01/<commit>/`。
-- 2026-08-31 的 FX-02 Clustered Direct 已在 clean commit `45d05b9b98313b324ae97c6b3796001dd5de294c` 关闭。LightList/ClusterData 冻结为 `attempted/written/capacity/overflow` 16 B header，consumer 只读 `written`；per-cluster point/spot 超过 128 或 ClusterData exhaustion 会设置 flags 并回退到完整 active list。local light 总数超过固定 16,380 capacity、directional 超过 32 都在 GPU 工作前显式拒绝。Direct Lighting 已消费 Surface metadata，invalid 为 black、Unlit 为 emissive-only；`lighting_ch_oracle.ts` 已由 authored `lighting_direct.ts`/`fullscreen_triangle.ts` 替换。counter schema v5、CPU reference、WebGPU bounded-list micro 与 C-light `0/1/16/64/256/1024 x spread/overlap` clean/full Gate 15/15 通过，`passed/gateEligible/cleanEligible=true`，issues 与 WebGPU/console/page diagnostics 为 0；256/1024 pressure 命中显式 overflow/fallback，没有静默少灯。零 local light 时不再编码 list/filter/assign/stats Compute Pass，采样帧仅以 4 B staging copy 写入 `clusterHistogram0=22080`，Direct Lighting 在 directional 后提前返回。artifact 位于 `temp/r5/fx-02/45d05b9b98313b324ae97c6b3796001dd5de294c/full/`。
-- 2026-08-31 的 FX-03 IBL Alignment 已在 clean commit `86e9ebd1423b8237500f82e1f3878773c28d35f6` 关闭。环境 owner 现在分离持有 7-mip GGX specular radiance 与 32×32 cosine-convolved diffuse irradiance；runtime roughness 使用真实 `textureNumLevels()`，不再固定 5 mip、递归上一 mip或把最粗 specular mip冒充 diffuse。生产 WGSL constant-HDR micro 的 specular 实测 `[0.25, 0.5, 2]`，diffuse 实测 `[0.78515625, 1.5703125, 6.28125]`，与 `πL` 容差 Gate 一致；resident split-sum LUT 为 64×64 `rg16float`、4,096 samples、finite、单通道范围 `[0,1]`。schema v6 sampled frame 记录 `158,086` pixels，mip histogram `[88766,34540,14269,6263,4549,7587,2112,0,0]` 与总数完全相等；specular/diffuse 分配分别为 `43,688/8,192 B`。八个 production debug view、provenance 与 WebGPU/console/page diagnostics clean Gate 全部通过，artifact 位于 `temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。
-- 当前 direct Lighting 已消费 Packed Resolve 的 Surface attachments。FX-04 Packed directional CSM 已在 clean commit `8986dc6256e31a5c3630935d1fff2aed08f7a3bf` 关闭：production `HierarchicalWorkGenerator -> per-cascade SecondaryRasterWork -> drawIndirect -> reverse-Z atlas` 不读取 GPU count、不走 Packed legacy `MeshletDrawList`，MASK/double-sided/mirrored caster读取同一 material visibility owner。Work ABI v3新增 raster flags，SecondaryRasterWork v1按 cascade独立有界；FX-04证据由当时schema v7冻结，当前additive counter ABI已随FX-05升级到schema v8/512 B。4096² `depth32float` atlas按需分配，shadow off completion-safe退休 atlas/pass/work/view state。clean Gate的cascade work为`5/64/47`、alpha work `38`、overflow `0`、Shadow GPU P50/P95 `0.228096/0.884528 ms`，on/off/on资源为`64 MiB/0/64 MiB`；artifact位于`temp/r5/fx-04/8986dc6256e31a5c3630935d1fff2aed08f7a3bf/`。Packed point/spot shadows仍未支持，legacy non-Packed path仍保留。
-- FX-05 Packed MBOIT Transparency 已在受测源码 clean commit `ee576a574d0776b9d429c6befc240c3478e05528` 关闭：BLEND 从 bulk/material patch 进入 instance flags，opaque Visibility和CSM显式排除；独立bounded main-view hierarchy生成`SecondaryRasterWork v1`，固定两个indirect raster + 一个composite，不依赖legacy `MaterialMeshletDrawList`或per-material draw。4 power moments来源、官方archive hash和CC0登记于`R5-03-packed-mboit-transparency.md`；schema v8 real sampled counters覆盖work/triangle/reactive/finite/overflow。transparent forward复用FX-02 bounded cluster/light/shadow与FX-03 IBL输入。C-transparent 12组正式Gate全部通过，material 1→64 draw恒为3、finite/overflow为0、order PNG RMS/max为`0/0`；16层50% coverage压力case的moment/forward/composite P50为`1.550464/3.798848/0.02544 ms`。Gate以受测范围clean方式运行，唯一排除并记录的是用户已有`M three.js`参考子模块工作树，任何OEngine/docs/examples或其他路径dirty仍会失败；artifact位于`temp/r5/fx-05/ee576a574d0776b9d429c6befc240c3478e05528-dirty-bbb10831fccd/`。FX-04与FX-05共同关闭G5-S；legacy non-Packed `TransparentOitPass`仍保留到FX-12。
-- FX-06A 已在受测 commit `c52ef486917913ca7951b568a8db519980a40e73` 关闭：共享 `TemporalHistoryRegistry` 统一 submit-aware ping-pong 与 cut/resize/render-scale/feature/view/abort invalidation；最小 TAA、reactive/disocclusion、jitter/internal-output resolution 和延迟 completed-timestamp DRS feedback 通过 static/pan/motion/disocclusion/transparent/LOD/cut/resize/scale/off-on production sequence。Gate 为 `passed/gateEligible/requireClean=true`，76 张 PNG 与完整证据位于 `temp/r5/fx-06/c52ef486917913ca7951b568a8db519980a40e73-dirty-c500aa424fc6/`。该结论不包含 final TAAU/upscale。
-- FX-07 AO 已在 clean-scope commit `548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7` 关闭：保留并修复当前 GTAO-family authored WGSL，修正 spatial ABI 参数错接、half-resolution 坐标/attachment、reverse-Z background、数值边界和私有 frame-parity history。AO temporal 复用 FX-06A registry；full/half temporal history 分别为 `7,372,800/1,843,200 B`，temporal-off 与 feature-off 为 0。正式 Gate 的 52 张 PNG、static variance、pan/disocclusion settling、GPU phase P50/P95/P99、graph/resource/history 和 diagnostics 全部通过；feature-off AO owner/Pass/pixels/history/timestamp 为零。artifact 位于 `temp/r5/fx-07/548f18d0fbf5dc60c00cee4b7b057646a0fd6ba7-dirty-7caa62fbab90/`。
-- FX-08 SSR 已在 clean commit `62158e9f20c081d12a832f01ae057678346e3796` 关闭：保留并 revalidate 当前 authored trace/prefilter/resolve/denoise，未采用 FidelityFX SSSR。SSR temporal 已接入 FX-06A shared registry，移除 frame-index parity policy 和重复 final composite；FX-03 environment mip contract 负责 miss fallback，roughness `0/0.5/1` 均进入有效路径。10-stage production Gate 保存 18 张 PNG 与 scene-linear HDR readback；hit/miss 为 `45,634/874,110` pixels，pan/disocclusion event response RMS 为 `9.966/96.742`，settle-32→64 均为 `0`。feature-off 的 SSR owner/Pass/history/bytes/timestamp 为零，off→on owner generation 防止 graph cache 复用已退休资源。`passed/gateEligible/requireClean=true`，artifact 位于 `temp/r5/fx-08/62158e9f20c081d12a832f01ae057678346e3796/`。
-- `Renderer` 当前历史默认仍开启 Shadows/SSAO/TAA/Bloom/Automatic Exposure/Sharpen；AO 已具备 lazy/completion-safe feature-off owner，其他未过所属 Gate 的 IBL/LPV/Brick4/Post 等 owner/default 仍需按 maturity-gated recipe 收口，不能把历史默认视为产品设计。
-- 2026-09-04 P5/C1 GI Provider 组合已落地：`GIService` 现直接持有静态 Lightmap（Brick4 diffuse/specular/fused）与动态 Probe Volume（LPV diffuse）provider，IBL 基线经 `OpaqueLightingPipeline` 提供；Renderer 通过 `addLightmapIndirect` / `addProbeVolumeIndirect` / `addIblBaseline` 三条互斥入口表达 Diffuse fallback 链 `Lightmap → Probe Volume → IBL → 无间接光`（§7.1），动态 Probe Volume 的 specular 仍走 IBL 基线并输出 `indirectSpecular` 供 SSR delta correction 复用。Transparency/OIT 路径独立消费 `bindings.gpuScene.volumetric_light_map.buffer`。porting ledger 见 `docs/references/porting/R5-08-gi-provider-composition.md`。
-- 2026-09-04 P5/C2 ReflectionService SSR 修正/回退落地：SSR 的 `sceneColor` 读完整 opaque HDR 合成结果，以命中置信度做 delta correction（`resolved - baseline` 乘 `weight * occlusion`，`one/one` additive blend）而非替换，miss/低置信度/越界/超粗糙经 `mix(environment, radiance, maximum_confidence)` 连续回退 IBL，不产生黑反射。IBL、Brick4/Lightmap、LPV 三条间接光分支现在都经 `ReflectionService.addCorrection` 消费 specular 基线；其中 Brick4 分支此前丢弃非 fused 的 `Brick4SpecularPass` 基线，现由 `GIService.addLightmapIndirect` 以 `{ hdr, indirectSpecular }` 返回（fused 路径 `indirectSpecular` 为 `null`）并喂给 `addCorrection`。porting ledger 见 `docs/references/porting/R5-06-screen-space-reflections.md`。
-- 2026-09-04 P5/C3 AO 四通道分离与 GTAO 不写回 Material AO 已确认落地（§7.3）：Material AO 存于 Surface ABI `albedoAo.a`，Diffuse Visibility 为独立 `ambientVisibility`（`rg16float` visibility + visibility² moment），Specular Visibility 由 `compute_specular_occlusion_bn(spec_direction, bent_normal, material_ao * ambient_visibility_value, roughness)` 派生，Bent Normal 为独立 `rg16uint` octahedral 编码。GTAO 不写回 `albedoAo`：全仓库对 `albedoAo.a` 只有读（`lighting_direct.ts` / `indirect_composite.ts` / `brick4_indirect.ts` / `specular_correction.ts`），composite 只写 HDR，最终合成按 `indirect[0] * specular_occlusion + indirect[1] * ambient_visibility_value` 分 specular/diffuse 而非 naive final-color 相乘。SSAO temporal 最终 blend 已消费 velocity confidence（`ssao.ts` 的 `velocity_confidence` 同时驱动 `deviation_scale` 与 `history_weight`）。owner `AOService`，ledger 见 `docs/references/porting/R5-05-ambient-occlusion.md`。
-- 2026-09-04 P7 TemporalFeature 已是唯一 TAAU + DRS 算法 owner：`TemporalFeature` 独立拥有 TAA/Classification/历史与 `DynamicResolutionScaling`，Renderer 不再直接 `new` 这些 pass（`p7-temporal-feature.test.mjs` 断言）。TAAU 保留 R5-04 已登记不变量——YCoCg variance clip、closest-depth velocity selection、4×4 Catmull-Rom reconstruction、bounded history lock（权重上限 0.92）、reactive/disocclusion rejection；DRS 为 bucketed scale，只消费延迟一帧且已完成、未重复的 GPU timestamp（`FrameProfiler` 复用），无 CPU frame-time proxy、无隐藏 Governor（§26.4）。
-- 2026-09-04 P7 历史失效矩阵补齐「重大灯光变化」：`TemporalHistoryRevision` 新增 `light` 字段与 `lighting-change` 失效原因，`Renderer.render()` 的 `beginFrame` 以 `scene.lights.version + scene.light_probe_volume.version` 喂入（`SceneLights` 的 `environment` setter 现递增 `_version`，`LightProbeVolume` 的 `update/add_point/remove_point` 递增 `#version`）。至此 §26.5 要求的历史失效原因全部落地：camera-cut / view-switch / output-resize / internal-resize / render-scale / feature-toggle / format-change / lighting-change / abort / explicit。porting ledger 见 `docs/references/porting/R5-04-temporal-upscale.md`（不变量 #2 已同步）。
-- Geometry 与 Instance residency 的 record/payload/upload/grow/patch 内存证据已接入；texture、全帧 transient 与统一显存/上传预算仍未完成。
-- Shader oracle/generated owner 尚未完全收口，部分 reconstructed/Shade 历史命名仍存在。
+## R5 当前真实 owner
 
-## 2026-09-01 综合示例审视记录
+| Owner | 当前底层实现 | 真实边界 |
+|---|---|---|
+| `VisibilityFeature` | `PackedVisibilityPass`、`HierarchicalWorkGenerator` | Packed visibility/work generation |
+| `SurfaceFeature` | `PackedMaterialResolvePass`、Surface ABI v1 | Packed Surface/Velocity |
+| `LightingFeature` | `LightClusterPass`、`LightingPass`、`EnvironmentBackgroundPass` | clustered direct + HDR background |
+| `ShadowService` | Packed CSM work + 现有 shadow raster | directional CSM；point/spot Packed 未完成 |
+| `GIService` | `OpaqueLightingPipeline`、Brick4、LPV | Lightmap/Probe/IBL provider composition |
+| `ReflectionService` | `ScreenSpaceReflectionsPass`、`SpecularCorrectionPass` | SSR delta correction + IBL fallback |
+| `AOService` | `ScreenSpaceAmbientOcclusionPass` | GTAO visibility/bent normal output |
+| `TransparencyFeature` | `PackedTransparentOitPass`、`TransparentOitPass` | Packed MBOIT 与普通 Scene OIT |
+| `TemporalFeature` | `TemporalAntiAliasingPass`、`TemporalClassificationPass`、DRS | TAA/TAAU、history、jitter、DRS |
+| `PostFeature` | Exposure、Bloom、Color Grading、Sharpen、Tonemap passes | HDR post composition |
 
-- Cyberpunk City 的 integrated screenshot 和运行状态暴露出 focused FX Gate 未覆盖的最终画质问题：SSR 噪声/破碎、AO 脏污、时域抖动与模糊同时存在；该观察是重构输入，不单独构成算法根因证明。
-- 当前 `Renderer` 集中拥有效果参数、Pass/owner/history 生命周期、FrameGraph 分支、证据与 submit；部分 graph 节点内部编码多个真实 GPU Pass，因此 graph 节点数量不能完整表达实际 GPU 工作。
-- SSR 2.0 已读取 Complete Opaque HDR 并作为 specular correction 合成；默认 half-resolution，执行 trace/resolve/一轮 spatial/可选 temporal/joint bilateral upscale。max distance 已在 traversal 内终止，edge fade 作用于 hit UV，base thickness 使用 physical-scale meters 并随 traveled distance 扩张；roughness cutoff、temporal 与 half/full resolution 均属于 topology/settings contract。
-- ~~GTAO temporal 的最终 blend 未消费已计算的 velocity confidence；GTAO composite 以 alpha-min 写回 `albedoAo`，不可逆合并 Material AO 与 screen-space Ambient Visibility。~~（此两条已随 FX-07 `548f18d0` 与 Q03 migration 消除，属 stale；见上文 2026-09-04 P5/C3。）
-- Bloom 开关会把 Auto Exposure 输入从 HDR scene 改成 bloom downsample；Sharpen 位于 Bloom 前。Motion Blur 以 output 尺寸读取 internal velocity/depth，DRS 下缺少显式 resolution-domain conversion。
-- FrameGraph 已在 dead-pass culling 后校验 resource/version、duplicate producer、read-before-write、resolution domain/conversion owner 和 dependency cycle，并按 stable topological order 执行；compiled dump 公开执行序号、依赖、domain 与真实 encoder work。FramePlan 在同一 Renderer command encoder 中编排 scene、LPV、shadow 与 main graph，不增加第二 submit。
-- Material Visibility 高分辨率池已在 bulk stage 按实际最大贴图边长选择 power-of-two bank，并在原 4K×16 texel budget 内选择 layer capacity；Dungeon 的 25 张 2K 贴图进入 `2048×2048×32` bank，保留 31 个可用 layer。真正 4K workload 仍使用 `4096×4096×16`。当前限制是 bank 创建后若后续独立 bulk stage 才出现更高分辨率贴图会明确拒绝，调用方应把同一场景贴图统一 bulk upload；resident cap 仍需 Q00/Q06 以真实 memory evidence 验收。
-- R4-A/B 已登记的 Hardware Raster `35–44 ms` P50 回退仍未解决；目标整帧预算为 `16.667 ms`。当前 focused Gate 和 screenshot 测试不能解释为 1080p/60 产品完成。
-- Surface ABI v1、VisibilityKey、Single Material Resolve、GPU producer→consumer 和统一主管线继续保留；综合重构执行设计见 [R5-Q](./implementation/11-render-pipeline-reconstruction.md)。`R5-Q01..Q06` 已迁移到 production：在 Q01–Q03 的 settings/composition/GTAO 基础上，新增 deterministic half-res SSR、opaque/final 两层 temporal validity、closest-depth velocity + Catmull-Rom TAA、bucketed DRS，以及 validated FrameGraph/FramePlan。2026-09-02 dirty/full FX-08 与 FX-06B 在 RTX 2060 SUPER 上执行，production browser、WebGPU diagnostics、single-submit、feature-off 与运动/反遮挡序列是当前强运行证据；因代码尚未提交，`gateEligible=false`，不能替代提交后的 clean/full exit Gate，也不能宣称 G5-P 已关闭。
+因此当前架构事实是“新 owner 统一生命周期和组合入口，底层仍部分复用旧/现有算法 Pass”。不能因为 Feature 类已创建，就把对应算法写成已整体重构。
 
-## 当前下一步
+## R5 已有证据与未闭环范围
 
-1. P1 已建立 Render Feature 注册表和 compiled FrameGraph 资源生命周期摘要；P2 已冻结 `RendererConfig`、WebGPU 能力 fail-fast 和 CPU `RenderFrameContract`，下一步进入 P3 的 Visibility/Surface Contract 收敛。
-2. R4 core、R5-00、FX-01..08 的历史 focused Gate 与 `R5-Q01..Q06` production 迁移已完成；提交后仍需补采 clean/full Q04–Q06 exit artifact，再进入 G5-P 的 1080p/High/Cyberpunk City all-on、A/B/C、显存/I/O 和目标帧预算闭环。现有 focused 结果不表示 1080p/60 FPS 或最终 R5 性能已经达成。
-3. 保留 R4-A Hardware Raster 回退与 R4-B 的 B regression 为独立 phase 风险；若后续启动 R4-C，必须复用同一个 VisibilityKey/Depth/Material Resolve contract，HW-only 更快仍是合法结论。
-4. A/B 的 `COOK-11`、`VIS-05` 和 B 环境/画质输入仍是产品基线 blocker；R4 core 完成不等于 A/B capabilityComplete，也不等于引擎最终完成。
+- FX-01–03：Surface、Clustered Direct、IBL focused Gate 已有 clean artifact。
+- FX-04–05：Packed directional CSM、Packed MBOIT focused Gate 已有 artifact；普通 Scene shadow/OIT 仍保留。
+- FX-06A/07/08：Temporal foundation、AO、SSR revalidation 已有 focused artifact；它们不等于整帧 TAAU、综合画质或 G5-T。
+- R5-Q01–Q06：Render Contract、composition、GTAO/SSR correction、两层 temporal validity、Catmull-Rom TAA、bucketed DRS、FramePlan/FrameGraph 校验已迁入生产路径；当前提交后的 clean/full exit artifact 尚未补齐。
 
-## 本地参考状态
+仍未闭环的产品问题：
 
-- `three.js/` 是本地上游参考，不是 OEngine runtime dependency。
-- 根工作树的 `three.js` gitlink 修改属于用户现有状态；普通 OEngine 任务不得覆盖。
+- 普通 `Scene` 的 Material Expand、Velocity、Shadow/OIT 和部分旧 indirect consumer 尚未迁移删除；`Renderer.ts` 仍是大型 composition root。
+- GI、SSR、GTAO 的底层实现仍未全部替换为目标参考实现；已有证据只覆盖局部合同和 focused 场景。
+- 最终 TAAU/Temporal 综合序列、Post、综合画质和 1920×1080/DPR1/60 FPS 产品 Gate 未通过。
+- Hardware Raster 的历史 `35–44 ms` P50 风险、纹理/全帧 transient/history 显存预算和上传预算仍需 G5-P 关闭。
+- Shader oracle/generated source-of-truth 仍有 `unknown` 项；以 [SHADER-SOURCES](./SHADER-SOURCES.md) 的审计结果为准。
+
+## 下一跳
+
+1. 在代码提交后重新运行 R5-Q04–Q06 的 clean/full 浏览器证据，并更新 `PERFORMANCE.md` 和 `STATUS.md`。
+2. 按 FX-09 → FX-12 顺序收口 Post、融合和旧 consumer/shader 删除；每次删除必须先有真实引用和替代 consumer 证据。
+3. 执行 G5-P：目标场景 all-on、A/B/C、正确性 adapter、GPU phase、显存/I/O、feature-off 和 clean provenance 全部通过后，才可把 R5 标为 `产品闭环`。
+
+## 本地参考边界
+
+- `three.js/` 是本地参考，不是 OEngine runtime dependency；其 gitlink 修改属于用户现有工作树。
 - `webgpufundamentals/` 是学习资料，不是架构权威。
+- 外部算法采用、移植或拒绝记录在 [references/porting](./references/porting/README.md)；不能以博客、类名或单张截图替代实现和 Gate 证据。

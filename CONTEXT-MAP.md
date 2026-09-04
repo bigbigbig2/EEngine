@@ -12,7 +12,7 @@
 | 材质解析、GBuffer、光照、阴影、TAA、SSR | `docs/contexts/shading/CONTEXT.md` | `OEngine/src/render/passes`、`OEngine/src/material`、`OEngine/src/shaders` |
 | Device、WebGPU limits、Canvas、资源缓存 | `docs/contexts/platform/CONTEXT.md` | `OEngine/src/gpu/GraphicsContext.ts`、`OEngine/src/core/WebGPUTypes.ts` |
 | FPS、GPU timestamp、带宽、benchmark | `docs/contexts/performance/CONTEXT.md` | `docs/PERFORMANCE.md`、`OEngine/src/framegraph`、相关 Pass |
-| 实施步骤、任务拆分、迁移、删除、验收 | `docs/implementation/README.md` | `docs/implementation`、命中的代码领域 |
+| 实施状态、步骤、迁移、删除、验收 | `docs/implementation/STATUS.md` → `docs/implementation/README.md` | `docs/implementation`、命中的代码领域 |
 
 ## 共享入口
 

@@ -41,7 +41,7 @@ JSON 中可用于下一阶段调查的 smoke 数值如下；它们只说明当�
 | B smoke | 3.050 ms | 3 | 225/107 | 15,202/11,724 | 1/0 | Helmet 原始几何/PBR 运行，LOD/SW 与参考环境仍 blocked |
 | C smoke | 9.300 ms | 13 | 64/64 | 64/64 | 3/6 | shadow + 动态异构场景把 submit 放大到 13，应进入 R1 提交路径调查 |
 
-R1 规划进一步从逐帧明细确认：Frame Smoke/A/B 的 3 次提交固定来自 `GraphicsContext.update`、`GPUSceneContext/animation-flush` 和 `Renderer/main-0`；C 的 13 次提交来自 `GraphicsContext.update ×1`、`animation-flush ×10`、`database-incremental-update ×1` 和 `Renderer/main-0 ×1`。五份结果中的 collection-limits 都是每帧 readback。Frame Smoke/A/B/C 每个记录帧均重新 build/compile/execute FrameGraph；Frame Smoke/A/B 每帧构建 2 次 10-mip HZB、产生 20 个 HZB Render Pass，C 每帧构建 3 次并产生 30 个。详细根因和重构门禁见 [R1 实施计划](./implementation/02-runtime-submit-and-framegraph.md#r0-输入证据与根因)。
+R1 规划进一步从逐帧明细确认：Frame Smoke/A/B 的 3 次提交固定来自 `GraphicsContext.update`、`GPUSceneContext/animation-flush` 和 `Renderer/main-0`；C 的 13 次提交来自 `GraphicsContext.update ×1`、`animation-flush ×10`、`database-incremental-update ×1` 和 `Renderer/main-0 ×1`。五份结果中的 collection-limits 都是每帧 readback。Frame Smoke/A/B/C 每个记录帧均重新 build/compile/execute FrameGraph；Frame Smoke/A/B 每帧构建 2 次 10-mip HZB、产生 20 个 HZB Render Pass，C 每帧构建 3 次并产生 30 个。该数据是历史 artifact，不参与当前阶段判断；当前状态见 [STATUS](./implementation/STATUS.md)。
 
 ## 升级条件
 

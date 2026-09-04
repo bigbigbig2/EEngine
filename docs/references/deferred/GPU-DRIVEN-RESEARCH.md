@@ -4,7 +4,7 @@
 >
 > 本文档用于为 OEngine 的 Runtime Asset、GPU Render World、层次几何、GPU 工作生成、Visibility、Material Resolve、Streaming、Lighting 和 Temporal/Post 寻找可验证的外部参考。外部项目只提供证据、算法和工程对照；任何移植都必须经过许可证、ABI、WebGPU 能力和本地 benchmark 验证。
 >
-> 文中的 `VIS-*`、`MAT-*`、`WORK-*` 是历史研究映射，不是当前任务 ID。R4 当前编号与决策见 `docs/implementation/06-hybrid-visibility.md`、`07-material-resolve.md` 和 ADR-0010。
+> 文中的 `VIS-*`、`MAT-*`、`WORK-*` 是历史研究映射，不是当前任务 ID。当前状态见 `docs/implementation/STATUS.md`，长期可见性决策见 ADR-0010/0011。
 
 ## 1. 研究结论
 

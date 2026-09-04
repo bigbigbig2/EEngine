@@ -16,10 +16,10 @@ npm run audit:shaders
 | 分类 | 数量 | 含义 |
 |---|---:|---|
 | `authored-live` | 65 | 能到达 runtime pipeline，当前 authored 文件是运行事实源 |
-| `dead` | 0 | 没有 runtime pipeline owner，是删除候选；删除前仍需核对 feature 注册与动态路径 |
+| `dead` | 0 | 当前审计未发现无 owner 的 shader；后续删除必须仍核对 feature 注册与动态路径 |
 | `unknown` | 5 | runtime pipeline 正在使用 oracle/generated 文件，但仓库内没有登记 generator/source，所有权尚未闭环 |
 
-5 项 `dead` 已在 P9 硬切换删除（见「删除候选边界」），删除后 `audit:shaders` 复核 `dead=0`；`unknown` 仍保留 5 项 oracle/generated，其所有权闭环归对应模块的 authored/generator 迁移波次。
+历史上曾有 5 项 `dead` shader，已在 P9 硬切换删除；当前 `audit:shaders` 复核为 `dead=0`。`unknown` 仍保留 5 项 oracle/generated，其所有权闭环归对应模块的 authored/generator 迁移波次。
 
 当前总数为 70、`authored-live` 为 65。R4-B 新增 authored `packed_material_resolve.ts` 并扩展统一 `render_debug_view.ts`，旧 `packed_velocity.ts` 已删除；FX-02 又以 authored `lighting_direct.ts` 和 `fullscreen_triangle.ts` 替换 Lighting runtime 对 `lighting_ch_oracle.ts` 的依赖。上述文件均由明确 runtime pipeline owner 消费。
 

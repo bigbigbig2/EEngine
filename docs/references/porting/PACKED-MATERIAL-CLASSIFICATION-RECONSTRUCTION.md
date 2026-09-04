@@ -4,7 +4,7 @@ Reference ID: `PACKED-MATERIAL-CLASSIFICATION-RECONSTRUCTION`
 
 Status: production code migrated; WebGPU diagnostics and paired performance Gate pending
 
-对应实施设计：[12-packed-asset-to-surface-reconstruction](../../implementation/12-packed-asset-to-surface-reconstruction.md)。本登记覆盖第二步 `VisibilityKey → Material Resolve → Surface`，不把尚未执行的浏览器或性能 Gate 写成已完成证据。
+对应当前事实：[STATUS](../../implementation/STATUS.md)。本登记覆盖第二步 `VisibilityKey → Material Resolve → Surface`，不把尚未执行的浏览器或性能 Gate 写成已完成证据。
 
 ## 采用矩阵
 

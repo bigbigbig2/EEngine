@@ -1,6 +1,6 @@
 # OEngine 文档入口
 
-本目录只保存当前仍有效的产品方向、架构、性能契约、长期决策和协作知识。旧的 three.js 兼容路线、Shade-like 产品叙事、00–09 重复分册和母本文档不再是权威。
+本目录只保存当前有效的产品方向、架构、性能契约、长期决策和协作知识。当前源码事实只有 [CURRENT-STATE](./CURRENT-STATE.md)，实施阶段状态只有 [implementation/STATUS](./implementation/STATUS.md)。旧实施分册和历史 artifact 只用于追溯，不得覆盖这两个入口。
 
 ## 阅读顺序
 
@@ -16,8 +16,9 @@
 | 核对 Shader 事实源和删除候选 | [SHADER-SOURCES.md](./SHADER-SOURCES.md) |
 | 区分目标与当前代码 | [CURRENT-STATE.md](./CURRENT-STATE.md) |
 | 查看推进顺序 | [ROADMAP.md](./ROADMAP.md) |
+| 查看实施状态、真实 owner 和未关闭 Gate | [implementation/STATUS.md](./implementation/STATUS.md) |
 | 按任务实施、迁移和验收 | [implementation/README.md](./implementation/README.md) |
-| 查看产品级渲染管线重构设计 | [implementation/13-product-render-pipeline-redesign.md](./implementation/13-product-render-pipeline-redesign.md) |
+| 查看产品级目标架构 | [implementation/13-product-render-pipeline-redesign.md](./implementation/13-product-render-pipeline-redesign.md) |
 | 执行综合渲染管线重构 | [implementation/11-render-pipeline-reconstruction.md](./implementation/11-render-pipeline-reconstruction.md) |
 | 查看长期决策 | [wiki/adr/README.md](./wiki/adr/README.md) |
 
@@ -35,7 +36,9 @@ AGENTS.md                     全仓库稳定约束
 CONTEXT-MAP.md                任务 → 领域 → 搜索根
 docs/CONTEXT.md               共享术语
 docs/contexts/*/CONTEXT.md    领域语言与职责
-docs/implementation/          分阶段实施、迁移、删除与验证手册
+docs/implementation/STATUS.md  唯一实施状态入口
+docs/implementation/README.md  当前执行入口与完成规则
+docs/implementation/          当前执行、Gate 与删除收口文档
 OEngine/**/AGENTS.md          靠近代码的所有权规则
 docs/wiki/adr/                长期架构决策
 docs/wiki/agents/             Agent 工作流程
@@ -48,6 +51,6 @@ docs/wiki/tracker/            PRD/Issue 约定
 - 方向、目标和事实分开写；当前代码存在不代表长期接受。
 - ADR 只记录已接受决策；尚未决定的内容留在讨论或 tracker。
 - 同一规则只保留一个 owner，其他文档使用链接。
-- `CURRENT-STATE` 只拥有当前代码事实；`ROADMAP` 只拥有阶段依赖；`implementation/README` 只拥有当前执行入口；任务级状态只在对应 implementation package 维护。
+- `CURRENT-STATE` 只拥有当前代码事实；`STATUS` 只拥有当前阶段状态；`ROADMAP` 只拥有阶段依赖；`implementation/README` 只拥有当前执行入口。
 - 文档必须提供下一跳，不创建孤立长文。
-- 过期内容直接删除；只有仍有调查价值且不会误导时才保留为 reference。
+- 过期内容从当前导航移出；只有仍有调查价值且明确标注历史时才保留为 reference。

@@ -4,7 +4,7 @@ Reference ID: `PACKED-ASSET-TO-VISIBILITY-RECONSTRUCTION`
 
 Status: in progress
 
-对应实施设计：[12-packed-asset-to-surface-reconstruction](../../implementation/12-packed-asset-to-surface-reconstruction.md)。本登记只覆盖第一步 `Packed glTF → VisibilityKey/Reverse-Z`，不把第二步 Material Resolve/Surface 的计划冒充已完成移植。
+对应当前事实：[STATUS](../../implementation/STATUS.md)。本登记只覆盖第一步 `Packed glTF → VisibilityKey/Reverse-Z`，不把第二步 Material Resolve/Surface 的计划冒充已完成移植。
 
 ## 采用矩阵
 

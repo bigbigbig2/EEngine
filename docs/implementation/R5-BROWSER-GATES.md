@@ -1,6 +1,6 @@
 # R5 浏览器 Gate 与截图回归
 
-本文是 `08-lighting-temporal-post.md` 的 production browser Gate companion，沿用 R4 的证据规则。每个 FX 合入前必须由可重复脚本驱动真实 WebGPU 页面，自动导出 JSON、graph/counter、canvas/page screenshot 和 diagnostics；G5-L/G5-S/G5-T/G5-P 再升级为 clean/full 证据。人工查看 artifact 只用于复核自动结论，不得通过点击、肉眼判断或手写 notes 决定 Gate 通过。
+本文是当前 R5-Q 执行设计 [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md) 的 production browser Gate companion，沿用 R4 的证据规则。每个 FX 合入前必须由可重复脚本驱动真实 WebGPU 页面，自动导出 JSON、graph/counter、canvas/page screenshot 和 diagnostics；G5-L/G5-S/G5-T/G5-P 再升级为 clean/full 证据。人工查看 artifact 只用于复核自动结论，不得通过点击、肉眼判断或手写 notes 决定 Gate 通过。旧 R5 总设计已删除，历史版本通过 Git 追溯。
 
 ## 0. 通用预检
 
