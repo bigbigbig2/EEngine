@@ -14,6 +14,7 @@ import {
   directLightingFrame,
   type DirectLightingFrame
 } from "../pipeline/FrameProducts.js";
+import type { SurfaceFrame } from "../pipeline/FrameProducts.js";
 import {
   EnvironmentBackgroundPass,
   type EnvironmentBackgroundInputs
@@ -32,15 +33,12 @@ export interface LightingFeatureJob {
   readonly lights: GPULightCollection;
   readonly width: number;
   readonly height: number;
-  readonly surfaceMetadataAvailable: boolean;
 }
 
 export interface LightingFeatureInputs {
-  readonly gPbr: ResourceId;
-  readonly gNormal: ResourceId;
-  readonly gAlbedo: ResourceId;
-  readonly gEmissive: ResourceId;
-  readonly gMetadata: ResourceId;
+  /** Stage 1 product seam; LightingFeature owns attachment interpretation. */
+  readonly surface: SurfaceFrame;
+  /** Depth remains Visibility-owned because Surface Resolve does not produce it. */
   readonly depth: ResourceId;
   readonly lightDatabase: ResourceId;
   readonly environment: ResourceId;
@@ -112,11 +110,12 @@ export class LightingFeature {
       }
     );
     const lightingInputs: LightingInputs = {
-      gPbr: inputs.gPbr,
-      gNormal: inputs.gNormal,
-      gAlbedo: inputs.gAlbedo,
-      gEmissive: inputs.gEmissive,
-      gMetadata: inputs.gMetadata,
+      gPbr: inputs.surface.pbr,
+      gNormal: inputs.surface.normal,
+      gAlbedo: inputs.surface.albedoAo,
+      gEmissive: inputs.surface.emissive,
+      // Legacy Surface has no metadata; the shader variant ignores this binding.
+      gMetadata: inputs.surface.metadata ?? inputs.surface.emissive,
       depth: inputs.depth,
       lightDatabase: inputs.lightDatabase,
       environment: inputs.environment,
@@ -133,7 +132,7 @@ export class LightingFeature {
       {
         width: job.width,
         height: job.height,
-        surfaceMetadataAvailable: job.surfaceMetadataAvailable
+        surfaceMetadataAvailable: inputs.surface.metadata !== null
       },
       lightingInputs
     );

@@ -1813,7 +1813,6 @@ export class Renderer {
         const gNormalRes = surface.normal;
         const gAlbedoRes = surface.albedoAo;
         const gEmissiveRes = surface.emissive;
-        const gMetadataRes = surface.metadata ?? gEmissiveRes;
 
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
@@ -1961,14 +1960,9 @@ export class Renderer {
               lights: bindings.gpuScene.lights,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
-              surfaceMetadataAvailable: packedResolveOut !== null
             })),
             {
-              gPbr: gPbrRes,
-              gNormal: gNormalRes,
-              gAlbedo: gAlbedoRes,
-              gEmissive: gEmissiveRes,
-              gMetadata: gMetadataRes,
+              surface,
               depth: depthRes,
               lightDatabase: lightDatabaseRes,
               environment: environmentRes,
