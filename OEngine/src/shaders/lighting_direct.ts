@@ -226,100 +226,31 @@ fn V_GGX_SmithCorrelated(alpha: f32, no_l: f32, no_v: f32) -> f32 {
   return 0.5 / max(lambda_v + lambda_l, EPSILON);
 }
 
-fn F_Hauber(f0: vec3f, f90: f32, cosine: f32) -> vec3f {
-  let one_minus = 1.0 - cosine;
-  let fourth = one_minus * one_minus * one_minus * one_minus;
-  return mix(f0, vec3f(f90 - cosine), fourth);
+fn F_Schlick(f0: vec3f, f90: f32, cosine: f32) -> vec3f {
+  // Filament surface BRDF invariant: Schlick's fifth-power Fresnel, with
+  // scene-linear F0/F90 endpoints. The old implementation interpolated to
+  // (F90 - cosine) with a fourth power, which darkened grazing highlights.
+  let one_minus = 1.0 - saturate(cosine);
+  let fifth = one_minus * one_minus * one_minus * one_minus * one_minus;
+  return f0 + (vec3f(f90) - f0) * fifth;
 }
 
 fn BRDF_GGX(
   no_l: f32,
   no_v: f32,
-  vo_h_squared: f32,
-  no_h: f32,
+  no_h_squared: f32,
+  vo_h: f32,
   f0: vec3f,
   f90: f32,
   alpha: f32
 ) -> vec3f {
-  return F_Hauber(f0, f90, no_h) *
+  return F_Schlick(f0, f90, vo_h) *
     V_GGX_SmithCorrelated(alpha, no_l, no_v) *
-    D_GGX(alpha * alpha, vo_h_squared);
+    D_GGX(alpha * alpha, no_h_squared);
 }
 
-fn oren_nayar_fujii_diffuse_dir_albedo(no_x: f32, roughness: f32, a: f32) -> f32 {
-  let one_minus = 1.0 - no_x;
-  let p0 = fma(one_minus, 0.0714429953, -0.332181442);
-  let p1 = fma(one_minus, p0, 0.491881867);
-  let p2 = fma(one_minus, p1, 0.0571085289);
-  return a * fma(roughness, one_minus * p2, 1.0);
-}
-
-fn oren_nayar_fujii_diffuse_avg_albedo(roughness: f32, a: f32) -> f32 {
-  return a * fma(0.0724882124569239, roughness, 1.0);
-}
-
-fn oren_nayar_compensated_diffuse(
-  no_v: f32,
-  no_l: f32,
-  lo_v: f32,
-  roughness: f32,
-  color: vec3f
-) -> vec3f {
-  let a = 1.0 / fma(0.287793409210806, roughness, 1.0);
-  let directional_v = oren_nayar_fujii_diffuse_dir_albedo(no_v, roughness, a);
-  let directional_l = oren_nayar_fujii_diffuse_dir_albedo(no_l, roughness, a);
-  let average = oren_nayar_fujii_diffuse_avg_albedo(roughness, a);
-  let cross_term = lo_v - no_l * no_v;
-  let corrected_cross = select(
-    cross_term,
-    cross_term / max(1e-7, max(no_l, no_v)),
-    cross_term > 0.0
-  );
-  let single = color * a * fma(roughness, corrected_cross, 1.0);
-  let color_squared = color * color;
-  let multi_color = color_squared * average /
-    (vec3f(1.0) - color * max(0.0, 1.0 - average));
-  let multi = multi_color *
-    max(1e-8, 1.0 - directional_v) *
-    max(1e-8, 1.0 - directional_l) /
-    max(1e-8, 1.0 - average);
-  return single + multi;
-}
-
-fn get_bent_noh_squared(no_l: f32, no_v: f32, lo_v: f32, cot_radius: f32) -> f32 {
-  let inv_length = inverseSqrt(1.0 + cot_radius * cot_radius);
-  let t = 2.0 * no_l * no_v - lo_v;
-  if (t >= inv_length) { return 1.0; }
-  if (t <= -inv_length) {
-    let sum = no_l + no_v;
-    return saturate(sum * sum / max(2.0 + 2.0 * lo_v, 1e-6));
-  }
-  let scale = inv_length * cot_radius / sqrt(max(1.0 - t * t, 1e-6));
-  var a = scale * (no_v - t * no_l);
-  var b = scale * (2.0 * no_v * no_v - 1.0 - t * lo_v);
-  let triple = sqrt(saturate(
-    1.0 - no_l * no_l - no_v * no_v - lo_v * lo_v + 2.0 * no_l * no_v * lo_v
-  ));
-  let c = scale * triple;
-  let d = scale * (2.0 * triple * no_v);
-  let e = no_l * inv_length + no_v + a;
-  let f = lo_v * inv_length + 1.0 + b;
-  let g = c * f;
-  let h = e * f;
-  let i = d * e;
-  let numerator = h * (0.25 * i - 0.5 * g);
-  let denominator = g * g + i * (i - 2.0 * g) + e *
-    ((no_l * inv_length + no_v) * f * f - h * (0.5 * (f + lo_v * inv_length) + 0.5));
-  let rotation = 2.0 * numerator /
-    (denominator * denominator + numerator * numerator + 1e-8);
-  let cosine = rotation * denominator;
-  let sine = 1.0 - rotation * numerator;
-  a = sine * a + cosine * c;
-  b = sine * b + cosine * d;
-  let bent_no_l = no_l * inv_length + a;
-  let bent_lo_v = lo_v * inv_length + b;
-  let total = no_v + bent_no_l;
-  return saturate(total * total / max(2.0 * bent_lo_v + 2.0, 1e-6));
+fn finite_f32(value: f32) -> bool {
+  return value == value && abs(value) <= 3.402823e38;
 }
 
 fn re_direct_physical(
@@ -332,37 +263,32 @@ fn re_direct_physical(
   let l = incident.direction;
   let v = geometry.view_direction;
   let h = normalize(l + v);
-  let raw_no_l = dot(n, l);
-  let no_l = saturate(raw_no_l);
+  let no_l = saturate(dot(n, l));
   let no_v = saturate(dot(n, v));
   let vo_h = saturate(dot(v, h));
-  let lo_v = saturate(dot(v, l));
-  let roughness_squared = material.roughness * material.roughness;
-  let radius = clamp(incident.radius, 0.0, 0.999);
-  let radius_z = sqrt(1.0 - radius * radius);
-  let cot_radius = radius / radius_z;
-  let bent_no_h_squared = get_bent_noh_squared(no_l, no_v, lo_v, cot_radius);
-  let alpha = saturate(roughness_squared + radius / 3.0);
-  let normalization = (roughness_squared / alpha) * (roughness_squared / alpha);
-  let bent_no_l = saturate((raw_no_l + radius) / (1.0 + radius));
-  let radiance = bent_no_l * incident.color;
+  let no_h = saturate(dot(n, h));
+  let alpha = max(material.roughness * material.roughness, 0.02);
+  let radiance = no_l * incident.color;
+  let fresnel = F_Schlick(material.specularF0, material.specularF90, vo_h);
   let specular = BRDF_GGX(
-    bent_no_l,
+    no_l,
     no_v,
-    bent_no_h_squared,
+    no_h * no_h,
     vo_h,
     material.specularF0,
     material.specularF90,
     alpha
   );
-  (*reflected).specular += radiance * specular * normalization;
-  let diffuse = oren_nayar_compensated_diffuse(
-    no_v,
-    bent_no_l,
-    lo_v,
-    material.roughness,
-    material.diffuse
-  );
+  // Filament's direct-light baseline: Lambert diffuse multiplied by the
+  // complementary Fresnel energy, plus GGX microfacet specular.
+  let diffuse = material.diffuse * max(vec3f(0.0), vec3f(1.0) - fresnel);
+  let contribution = radiance * (specular + diffuse * RECIPROCAL_PI);
+  if !all(vec3<bool>(
+    finite_f32(contribution.x), finite_f32(contribution.y), finite_f32(contribution.z)
+  )) {
+    return;
+  }
+  (*reflected).specular += radiance * specular;
   (*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI;
 }
 

@@ -142,6 +142,15 @@ test("FX-02 authored direct shader owns runtime and consumes Surface metadata", 
   assert.match(shader, /CLUSTER_METADATA_FLAG_FALLBACK/);
 });
 
+test("S2A direct BRDF uses Filament Schlick energy invariants and finite guard", async () => {
+  const shader = await readFile(new URL("../src/shaders/lighting_direct.ts", import.meta.url), "utf8");
+  assert.match(shader, /fn F_Schlick\(f0: vec3f, f90: f32, cosine: f32\)/);
+  assert.match(shader, /one_minus \* one_minus \* one_minus \* one_minus \* one_minus/);
+  assert.match(shader, /vec3f\(1\.0\) - fresnel/);
+  assert.match(shader, /fn finite_f32\(value: f32\)/);
+  assert.doesNotMatch(shader, /fn F_Hauber\(/);
+});
+
 test("FX-02 legacy direct-lighting oracle source is removed", async () => {
   await assert.rejects(
     readFile(new URL("../src/shaders/lighting_ch_oracle.ts", import.meta.url), "utf8"),

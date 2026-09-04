@@ -46,9 +46,9 @@ Renderer 不再知道 Direct、IBL Diffuse、IBL Specular、Background、Indirec
 - [x] S2-01 固定 Light GPU ABI：directional/point/spot 对齐、单位、shadow index；现有 `LightDatabase`/cluster ABI 已冻结，并由 `LightClusterFrame` 暴露固定 producer/consumer 产品；
 - [x] S2-02 GPU 生成 cluster header/index list；`LightClusterPass` 保持 candidate → HZB filtered → cluster lookup/data 的 GPU 闭环；
 - [x] S2-03 记录 cluster overflow、链长、像素遍历灯数；FX-02 stats producer 已接入 counters，空灯光走零成本 fast path；
-- [ ] S2-04 重写 direct BRDF，处理 roughness、metallic、normal、energy conservation、NaN/Inf；
+- [x] S2-04 重写 direct BRDF，处理 roughness、metallic、normal、energy conservation、NaN/Inf；本轮修正 Fresnel 与 direct energy split，并加入有限值保护；
 - [x] S2-05 Direct-only 输出线性 HDR，不接 GI/SSR/AO/Temporal；`LightingFeature` 现在返回 `DirectLightingFrame`（仅边界接入，尚未代表算法完成）；
-- [ ] S2-06 通过 direct-only screenshot、numeric oracle 和 timestamp Gate。
+- [~] S2-06 FX-02 full direct/cluster Gate 与 CPU PBR numeric oracle 已通过，但 artifact 为 dirty，且 direct-only 专用截图/clean timestamp 对照尚未建立；不能关闭 Stage 2A。
 
 ### 2B Shadow
 
@@ -118,4 +118,25 @@ AO artifact：
   资源以及 `32×32×24` cluster layout；
 - `LightClusterPass` 返回该产品，LightingFeature 仅消费产品字段，不向 Renderer 泄漏 list/lookup 的构造细节；
 - 该切片复用已登记的 FX-02 clustered-lighting 论文/Filament numeric ledger，不复制外部表达性代码；
-- direct shader 尚未改写，当前切片只完成 ABI、GPU producer→consumer seam 和统计可观测性冻结。
+- direct shader 已完成首轮 BRDF 修正，当前仍未完成独立 numeric oracle 和 Stage 2A 产品 Gate。
+
+### 6.2 Direct BRDF 修正与 FX-02 验证
+
+`lighting_direct.ts` 的 Fresnel helper 已从错误的四次方 `(F90 - cosine)` 插值改为 Filament
+语义的 Schlick 五次方 `F0 + (F90 - F0) * (1 - cos)^5`。direct diffuse 现在按同一 Fresnel
+响应做能量分配，并在累加前拒绝 NaN/Inf contribution。没有复制 Filament 表达性源码，差异和
+保留不变量登记在 [R5-FX02 porting ledger](../references/porting/R5-FX02-clustered-direct-lighting.md)。
+
+FX-02 full（dirty exploratory artifact）结果：
+
+```text
+artifact: temp/r5/fx-02/7127427cab7fed462f076a1345036e17bcb3eb2d-dirty-209d780e817b/full/
+passed: true
+issues: []
+diagnostics: validation=0, uncaptured=0, deviceLost=0
+coverage: point 0/1/16/64/256/1024, spot, directional, dynamic same graph
+directLightingGpuMs: 0.03 ms (zero-light) → 18.55 ms P50 (1024 overlap)
+```
+
+该结果只证明真实 shader 与 GPU producer/consumer 闭环仍可执行，不关闭 S2-06；CPU PBR
+reference vectors 已建立，下一步仍需 direct-only 专用场景和 clean/full timestamp 对照。

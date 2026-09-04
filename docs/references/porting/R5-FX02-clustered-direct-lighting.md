@@ -182,3 +182,32 @@ examples/scripts/run-r5-fx02-gate.mjs
 OEngine owner; `reference` the clustered-lighting paper and Filament numeric semantics;
 `reject` silent truncation, CPU current-frame consumption, unbounded buffers and native
 GPU capabilities outside the WebGPU baseline.
+
+## Stage 2A correction (2026-09-04)
+
+The first Direct-only pass exposed a real shader defect rather than an interface problem:
+the Fresnel helper interpolated to `(F90 - cosine)` with a fourth power. This is not the
+Filament Schlick invariant and causes grazing highlights to lose energy. The runtime shader
+now uses an OEngine-authored `F_Schlick` implementation with the fifth-power term and an
+explicit diffuse/specular energy split. The existing bounded area-light/bent-N·L treatment
+is retained until the later light-shape task is benchmarked.
+
+```text
+decision: reimplement (algorithm invariant, no expressive source copied)
+authority: Google Filament bdd01e82539938db70c60259e4e6c17bc2bdaba4
+source paths: shaders/src/surface_brdf.fs, shaders/src/surface_shading_lit.fs
+license: Apache-2.0 (numeric/semantic reference only)
+runtime: OEngine/src/shaders/lighting_direct.ts
+cpu oracle: OEngine/src/render/DirectLightingReference.ts
+retained invariants: scene-linear F0/F90, Schlick fifth power, GGX D/V, metallic diffuse energy split
+WebGPU difference: authored WGSL, no Filament material system or GLSL copy
+```
+
+The correction is intentionally local to the Direct-only consumer. The independent CPU oracle
+in `OEngine/src/render/DirectLightingReference.ts` now covers Schlick endpoints, GGX finite
+contributions, dielectric energy and metallic diffuse suppression. FX-02 full exploratory
+validation after the change passed all 16 cases with zero validation/uncaptured/device-loss
+diagnostics (`temp/r5/fx-02/7127427cab7fed462f076a1345036e17bcb3eb2d-dirty-209d780e817b/full/`).
+The artifact is dirty and the independent CPU PBR oracle is not yet present, so this does not
+close the Stage 2A exit Gate; clean/full timestamp and numeric comparison remain required
+before Shadow or GTAO work starts.

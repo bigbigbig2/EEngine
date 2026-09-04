@@ -14,6 +14,10 @@ import {
   surfaceFrame,
   textureDomain
 } from "../.test-dist/render/pipeline/FrameProducts.js";
+import {
+  evaluateDirectLighting,
+  schlickFresnel
+} from "../.test-dist/render/DirectLightingReference.js";
 
 test("Q01 physical scale is the single meters-to-world conversion", () => {
   assert.equal(metersToWorldUnits(2, { metersPerWorldUnit: 0.1 }), 20);
@@ -115,4 +119,24 @@ test("S2A clustered-light product freezes GPU producer/consumer ABI", () => {
   assert.equal(frame.depthSlices, 24);
   assert.throws(() => lightClusterFrame({ ...frame, activeLightList: -1 }), /resource id/);
   assert.throws(() => lightClusterFrame({ ...frame, tileSize: 0 }), /layout/);
+});
+
+test("S2A CPU direct-lighting oracle freezes Schlick, GGX and metallic energy", () => {
+  assert.deepEqual(schlickFresnel([0.04, 0.04, 0.04], 1, 1), [0.04, 0.04, 0.04]);
+  assert.deepEqual(schlickFresnel([0.04, 0.04, 0.04], 1, 0), [1, 1, 1]);
+  const dielectric = evaluateDirectLighting({
+    albedo: [0.8, 0.2, 0.1], metallic: 0, roughness: 0.5,
+    noL: 1, noV: 1, noH: 1, voH: 1, radiance: [1, 1, 1]
+  });
+  assert.ok(dielectric.contribution.every((value) => Number.isFinite(value) && value >= 0));
+  const metal = evaluateDirectLighting({
+    albedo: [0.8, 0.2, 0.1], metallic: 1, roughness: 0.5,
+    noL: 1, noV: 1, noH: 1, voH: 1, radiance: [1, 1, 1]
+  });
+  assert.deepEqual(metal.diffuse, [0, 0, 0]);
+  const invalid = evaluateDirectLighting({
+    albedo: [0.8, 0.2, 0.1], metallic: 0, roughness: 0.5,
+    noL: 1, noV: 1, noH: 1, voH: 1, radiance: [Infinity, 1, 1]
+  });
+  assert.deepEqual(invalid.contribution, [0, 0, 0]);
 });
