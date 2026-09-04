@@ -93,3 +93,12 @@ decision: mathematical reference only; no source code copied
 temporal 最终 blend 已消费 velocity confidence：`ssao.ts` 的 `velocity_confidence` 同时进入 `deviation_scale`（`mix(deviation_min, deviation_max, velocity_confidence²)`）与 `history_weight`（`velocity_confidence * confidence * validity_weight * history_valid`）。当前状态以 [implementation/STATUS](../../implementation/STATUS.md) 为准。
 
 `AOService`（`OEngine/src/render/features/AOService.ts`）是 Material AO 之外的 GTAO visibility/bent normal 的 owner；具体采样、空间滤波与时域算法仍由 `ScreenSpaceAmbientOcclusionPass` 持有。
+
+Stage 2C 将该 owner 的最终输出固定为 `AmbientOcclusionFrame`（`FrameProducts.ts`）。
+Renderer/GI 只消费其 visibility 与 bent-normal 资源，Surface 的 Material AO 不接受写回。
+
+2026-09-04 FX-07 exploratory full 在当前提交运行通过：`passed=true`、`issues=[]`；
+raw P01/P95 luma 为 `220/232`，half/full denoised RMS 为 `0.672051`，temporal
+off/on variance 为 `0.298584/0.069136`，camera-pan 与 disocclusion settle RMS 为
+`0.190592/0.212688`。因工作区包含本轮代码，artifact 为 dirty、`gateEligible=false`；
+该证据不替代 clean/full 性能 Gate，也未证明 raw shader 已接入主 HZB mip。

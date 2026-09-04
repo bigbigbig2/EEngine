@@ -232,3 +232,21 @@ export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisib
   }
   return Object.freeze({ ...input });
 }
+
+/** Freeze the independent GTAO visibility/bent-normal product. */
+export function ambientOcclusionFrame(input: AmbientOcclusionFrame): AmbientOcclusionFrame {
+  requireResourceId(input.visibility, "AmbientOcclusionFrame.visibility");
+  requireResourceId(input.bentNormal, "AmbientOcclusionFrame.bentNormal");
+  if (input.domain.domain !== "internal-full") {
+    throw new Error("AmbientOcclusionFrame must be resolved at internal-full resolution");
+  }
+  return Object.freeze({
+    ...input,
+    domain: textureDomain(
+      "internal-full",
+      input.domain.width,
+      input.domain.height,
+      input.domain.scale
+    )
+  });
+}

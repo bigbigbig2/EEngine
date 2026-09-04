@@ -109,6 +109,7 @@ test("FX-07 pass has no frame-parity history owner and prunes temporal work", ()
   assert.match(source, /historyBytes/);
   assert.match(source, /GTAO linear\/view-depth mip/);
   assert.match(source, /GTAO joint bilateral AO\+bent-normal resolve/);
+  assert.match(source, /frame: ambientOcclusionFrame\(/);
   assert.doesNotMatch(source, /inputs\.albedoAo/);
 });
 

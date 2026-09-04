@@ -59,13 +59,13 @@ Renderer 不再知道 Direct、IBL Diffuse、IBL Specular、Background、Indirec
 
 ### 2C GTAO
 
-- [ ] S2-11 radius/falloff 统一使用 PhysicalScaleContract；
-- [ ] S2-12 raw sampling 使用 linear/view depth 和适当 HZB mip；
-- [ ] S2-13 默认 half-resolution；
-- [ ] S2-14 temporal blend 消费 velocity、history confidence、validity；
-- [ ] S2-15 joint bilateral upsample 同时处理 visibility 和 bent normal；
-- [ ] S2-16 输出独立 `AmbientOcclusionFrame`，禁止写回 Surface；
-- [ ] S2-17 对当前 GTAO 与 XeGTAO 做 A/B，完成 adopt/port/reimplement/reject 决策。
+- [x] S2-11 radius/falloff 统一使用 PhysicalScaleContract；Renderer 统一通过 `metersToWorldUnits` 注入 world units；
+- [~] S2-12 raw sampling 使用 linear/view depth 和适当 HZB mip；当前已生成 AO-resolution linear/view-depth product，但 raw shader 仍固定读取 mip 0，主 HZB mip 接线待补；
+- [x] S2-13 默认 half-resolution；AOService 默认 `resolutionScale=0.5`，full 模式仍可显式选择；
+- [x] S2-14 temporal blend 消费 velocity、history confidence、validity；共享 TemporalHistoryRegistry 负责 slot/lifecycle；
+- [x] S2-15 joint bilateral upsample 同时处理 visibility 和 bent normal；单个 full-resolution MRT resolve 完成两者恢复；
+- [x] S2-16 输出独立 `AmbientOcclusionFrame`，禁止写回 Surface；Renderer/GI 只消费 visibility/bent-normal 产品；
+- [~] S2-17 对当前 GTAO 与 XeGTAO 做 A/B，完成 adopt/port/reimplement/reject 决策；移植决策已记录为保留并修复当前 authored 实现，正式 A/B artifact 待运行。
 
 ### 2D 删除
 
@@ -157,3 +157,28 @@ clean/full timestamp 对照并关闭 S2-06；该例外不改变后续产品性�
 结果仍为 `passed=false`，`gateEligible=true`，`issues=[one or more CSM cascades produced no RasterWork, material-patched CastsShadow instances stopped producing ShadowRasterWork]`；
 采样 cascade RasterWork 为 `[0, 684, 720]`，overflow 为 `0`，feature-off atlas bytes 为 `0`，submit mean 为 `1`。
 这确认 cascade 0 空工作是 Stage 2B 进入前的既有算法 blocker，不是本轮 `ShadowVisibilityFrame` seam 引入的回归；本轮不伪造 Shadow Gate 通过。
+
+### 6.4 Stage 2C GTAO：独立 AO 产品
+
+- `ScreenSpaceAmbientOcclusionPass` 已经完成 linear/view-depth、horizon sampling、spatial filter、可选 temporal 和 joint bilateral AO+bent-normal resolve；本轮将最终输出包装为不可变 `AmbientOcclusionFrame`；
+- Renderer 不再从 AO 输出的裸字段组装最终 consumer，GI/SSR 只读取 `AmbientOcclusionFrame.visibility` 与 `.bentNormal`；Surface 的 Material AO 通道保持只读；
+- radius/falloff 仍由 `PhysicalScaleContract` 转换，默认 AO 为 half-resolution，history 继续由共享 submission-aware registry 管理；
+- XeGTAO 采用状态为 `retained-current-authored`，未复制其 HLSL/D3D owner；完整 A/B 由 FX-07 runner 负责，不以静态测试替代画质和性能证据。
+
+当前 2C 状态：S2-11、S2-13～S2-16 `[x]`；S2-12、S2-17 `[~]`。2D S2-18～S2-20 仍未完成，不能删除仍被 `GIService/OpaqueLightingPipeline` 使用的 `IndirectCompositePass`。
+
+FX-07 exploratory full（当前提交、`FX07_REQUIRE_CLEAN=0`）结果：
+
+```text
+artifact: temp/r5/fx-07/93faa84009823ef9c241bfe0dcd928629dc87703-dirty-4d779de77047/
+passed: true
+gateEligible: false
+issues: []
+raw P01/P95 luma: 220 / 232
+half/full denoised RMS: 0.672051
+temporal off/on variance RMS: 0.298584 / 0.069136
+camera-pan settle RMS: 0.190592
+disocclusion settle RMS: 0.212688
+```
+
+该结果关闭了当前实现的 correctness blocker，但不关闭 S2-12 的 HZB mip 接线、S2-17 的正式 XeGTAO paired A/B，也不替代 clean/full 性能证据。

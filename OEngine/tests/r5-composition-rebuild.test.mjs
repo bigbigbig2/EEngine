@@ -8,7 +8,7 @@ test("Q02 keeps material AO and ambient visibility as separate products", () => 
     new URL("../src/render/passes/ScreenSpaceAmbientOcclusionPass.ts", import.meta.url),
     "utf8"
   );
-  assert.match(renderer, /ambientVisibilityRes = ssao\.visibility/);
+  assert.match(renderer, /ambientVisibilityRes = ssao\.frame\.visibility/);
   assert.doesNotMatch(renderer, /gAlbedoRes = ssao\./);
   assert.doesNotMatch(aoPass, /inputs\.albedoAo/);
   assert.doesNotMatch(aoPass, /alpha-min composite/);

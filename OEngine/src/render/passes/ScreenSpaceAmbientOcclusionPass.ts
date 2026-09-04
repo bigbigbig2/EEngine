@@ -35,6 +35,11 @@ import {
   resolveDepthAttachmentView,
   resolveTextureView
 } from "../RenderTargetViews.js";
+import {
+  ambientOcclusionFrame,
+  textureDomain,
+  type AmbientOcclusionFrame
+} from "../pipeline/FrameProducts.js";
 
 export { hilbertIndex } from "../HilbertNoiseTexture.js";
 
@@ -49,6 +54,7 @@ export type ScreenSpaceAmbientOcclusionInputs = {
 };
 
 export type ScreenSpaceAmbientOcclusionOutput = {
+  frame: AmbientOcclusionFrame;
   rawVisibility: ResourceId;
   denoisedVisibility: ResourceId;
   temporalVisibility: ResourceId;
@@ -384,6 +390,11 @@ export class ScreenSpaceAmbientOcclusionPass {
     resolveBuilder.read(inputs.camera);
 
     return {
+      frame: ambientOcclusionFrame({
+        visibility: ambientVisibility,
+        bentNormal: resolvedBentNormals,
+        domain: textureDomain("internal-full", fullWidth, fullHeight, 1)
+      }),
       rawVisibility,
       denoisedVisibility: spatialVisibility,
       temporalVisibility: resolvedVisibility,

@@ -2088,8 +2088,8 @@ export class Renderer {
                 }
               : undefined
           );
-          ambientVisibilityRes = ssao.visibility;
-          bentNormalRes = ssao.bentNormals;
+          ambientVisibilityRes = ssao.frame.visibility;
+          bentNormalRes = ssao.frame.bentNormal;
           ssaoRawDebugRes = ssao.rawVisibility;
           ssaoDenoisedDebugRes = ssao.denoisedVisibility;
           ssaoTemporalDebugRes = ssao.temporalVisibility;

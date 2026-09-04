@@ -9,6 +9,7 @@ import {
 import {
   opaqueLightingFrame,
   lightClusterFrame,
+  ambientOcclusionFrame,
   shadowVisibilityFrame,
   requireDomain,
   surfaceFrameWithVelocity,
@@ -159,4 +160,19 @@ test("S2B shadow product exposes visibility-only resources and frozen filter par
   assert.equal(frame.cascadeCount, 3);
   assert.throws(() => shadowVisibilityFrame({ ...frame, depthBias: -1 }), /non-negative/);
   assert.throws(() => shadowVisibilityFrame({ ...frame, atlasWidth: 0 }), /dimensions/);
+});
+
+test("S2C ambient occlusion product keeps visibility and bent normal independent from Surface", () => {
+  const frame = ambientOcclusionFrame({
+    visibility: 8,
+    bentNormal: 9,
+    domain: textureDomain("internal-full", 1280, 720, 1)
+  });
+  assert.equal(Object.isFrozen(frame), true);
+  assert.equal(frame.visibility, 8);
+  assert.equal(frame.bentNormal, 9);
+  assert.throws(() => ambientOcclusionFrame({
+    ...frame,
+    domain: textureDomain("output-full", 1280, 720, 1)
+  }), /internal-full/);
 });

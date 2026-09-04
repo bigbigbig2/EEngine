@@ -29,8 +29,8 @@ test("P5 preserves fallback and independent AO/SSR products", async () => {
   assert.match(pipeline, /addIblBaseline/);
   assert.match(pipeline, /indirectDiffuse/);
   assert.match(pipeline, /indirectSpecular/);
-  assert.match(renderer, /ambientVisibilityRes = ssao\.visibility/);
-  assert.match(renderer, /bentNormalRes = ssao\.bentNormals/);
+  assert.match(renderer, /ambientVisibilityRes = ssao\.frame\.visibility/);
+  assert.match(renderer, /bentNormalRes = ssao\.frame\.bentNormal/);
   assert.match(renderer, /baselineSpecular/);
   assert.match(renderer, /resolvedSpecular: ssr\.denoised/);
   assert.match(renderer, /hdrRes = this\._reflectionService!\.addCorrection/);
