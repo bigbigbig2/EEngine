@@ -10,6 +10,10 @@
 4. [STATUS.md](./STATUS.md)：唯一可变状态和下一步。
 5. [VALIDATION.md](./VALIDATION.md)：完成与性能证据合同。
 
+专项设计：
+
+- [PERFORMANCE-INSPECTOR.md](./PERFORMANCE-INSPECTOR.md)：性能监视器的数据合同、UI、开源参考和实施步骤。
+
 ## 权威关系
 
 - 协作规则：仓库及最近的 `AGENTS.md`。

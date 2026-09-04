@@ -46,8 +46,9 @@ Shader audit 当前记录 69 个 Shader：65 个 `authored-live`、4 个 `unknow
 
 ## 下一步
 
-1. 用 Rendering Lab 固定真实 Packed 多资产 workload，获得 GPU/counter/memory 基线。
-2. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
-3. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。
-4. 拆分 Renderer composition，保持一条主管线和单提交合同。
-5. 为四个 unknown Shader 确认 authored owner 或可追溯生成源。
+1. 按 [PERFORMANCE-INSPECTOR.md](./PERFORMANCE-INSPECTOR.md) 建立有类型的 profiler 核心、捕获格式和性能 Inspector。
+2. 用 Rendering Lab 固定真实 Packed 多资产 workload，获得 GPU/counter/memory 基线。
+3. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
+4. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。
+5. 拆分 Renderer composition，保持一条主管线和单提交合同。
+6. 为四个 unknown Shader 确认 authored owner 或可追溯生成源。
