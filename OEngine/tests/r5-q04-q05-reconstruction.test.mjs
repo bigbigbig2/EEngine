@@ -38,6 +38,9 @@ test("Q04 SSR defaults to a half-resolution configurable reconstruction chain", 
   assert.match(trace, /settings\.distance_thickness_scale/);
   assert.match(trace, /find_strip_next\(hit\.xy/);
   assert.match(trace, /roughness\s*>\s*settings\.max_roughness/);
+  assert.match(trace, /distance_confidence\s*=\s*1\.0\s*-\s*smoothstep/);
+  assert.match(trace, /roughness_confidence\s*=\s*1\.0\s*-\s*smoothstep/);
+  assert.match(trace, /edge_confidence \* distance_confidence \* roughness_confidence/);
 });
 
 test("Q04 SSR temporal and half-resolution modes are topology keys", () => {

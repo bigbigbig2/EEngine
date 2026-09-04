@@ -288,7 +288,20 @@ fn fs_main(
   let ray_length = length(ray);
   let thickness = settings.base_thickness +
     ray_length * settings.distance_thickness_scale;
-  let confidence = ffx_sssr_validate_hit(hit, uv, normalize(ray), vec2f(screen_size), thickness);
+  let edge_confidence = ffx_sssr_validate_hit(hit, uv, normalize(ray), vec2f(screen_size), thickness);
+  // Confidence is intentionally continuous: grazing/far/rough hits should
+  // converge toward the stable probe/IBL baseline instead of replacing it.
+  let distance_confidence = 1.0 - smoothstep(
+    settings.max_distance * 0.5,
+    settings.max_distance,
+    ray_length
+  );
+  let roughness_confidence = 1.0 - smoothstep(
+    settings.max_roughness * 0.5,
+    settings.max_roughness,
+    roughness
+  );
+  let confidence = edge_confidence * distance_confidence * roughness_confidence;
   let distance_exceeded = ray_length > settings.max_distance;
   var encoded: SsrHit;
   encoded.confidence = select(confidence, 0.0, distance_exceeded);

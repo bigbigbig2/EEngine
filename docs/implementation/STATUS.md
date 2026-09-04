@@ -79,7 +79,7 @@ Feature 目前主要是深模块边界和生命周期包装，不能仅凭 Featu
 | Stage 0 | [证据基线与合同冻结](./14-stage-0-evidence-and-contract-freeze.md) | `focused Gate`；基线候选已采集，clean/full 补采不阻塞重构 |
 | Stage 1 | [Surface / Opaque HDR 组合边界](./15-stage-1-frame-products-and-composition-seam.md) | `focused Gate`（架构边界）；提交 `f7782dc`；Surface debug 数值/资源证据待验收，截图可选 |
 | Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | `doing`；S2-06 按用户指示跳过 clean Gate；2D 统一 OpaqueLighting interface、旧 composite/AO upsample 已清理；Shadow cascade-0、cache/pressure、FX-07 A/B 与 clean timestamp/memory 仍阻塞退出 Gate |
-| Stage 3 | [Local Probe / SSSR / TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md) | 待执行 |
+| Stage 3 | [Local Probe / SSSR / TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md) | `doing`；SSSR/TAAU/History/DRS 代码与合同已接入，Local Reflection Probe producer、paired 质量/性能 Gate 仍待完成 |
 | Stage 4 | [Transparency / HDR Post / FrameGraph](./18-stage-4-transparency-post-and-framegraph.md) | 待执行 |
 | Stage 5 | [Legacy Deletion / Product Closure](./19-stage-5-legacy-deletion-and-product-closure.md) | 待执行 |
 
