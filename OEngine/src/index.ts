@@ -299,10 +299,62 @@ export type {
   FrameProfileListener,
   FrameProfileSnapshot,
   FrameProfilerOptions,
+  FrameProfilerMode,
   FrameProfilerDiagnostics,
   FrameReadbackEvidence,
   FrameUploadEvidence
 } from "./debug/FrameProfiler.js";
+export {
+  MetricRegistry,
+  DEFAULT_METRIC_DESCRIPTORS,
+  summarizeProfileSeries
+} from "./debug/profiling/MetricRegistry.js";
+export { summarizeMetricCoverage } from "./debug/profiling/ProfileStatistics.js";
+export type {
+  ProfileCoverageSummary,
+  ProfileSeriesSummary
+} from "./debug/profiling/ProfileStatistics.js";
+export type {
+  MetricDescriptor,
+  MetricSample,
+  MetricSampleAvailability,
+  MetricSource,
+  MetricUnit,
+  MetricMeasurement,
+  MetricCost,
+  MetricScope,
+  MetricAggregation
+} from "./debug/profiling/Metric.js";
+export { ProfileHistory } from "./debug/profiling/ProfileHistory.js";
+export type {
+  ProfileFrame,
+  ProfileFramePatch
+} from "./debug/profiling/ProfileFrame.js";
+export type { ProfileSpan, ProfileClockDomain } from "./debug/profiling/ProfileSpan.js";
+export {
+  ResourceAccounting,
+  estimateTextureBytes
+} from "./debug/profiling/ResourceAccounting.js";
+export type {
+  AccountedResourceKind,
+  ResourceAccountedInput,
+  ResourceAccountingSnapshot,
+  ResourceHandle
+} from "./debug/profiling/ResourceAccounting.js";
+export {
+  createPerformanceCapture,
+  parsePerformanceCapture,
+  serializePerformanceCapture
+} from "./debug/profiling/PerformanceCapture.js";
+export type {
+  PerformanceCapture,
+  PerformanceCaptureInput
+} from "./debug/profiling/PerformanceCapture.js";
+export { exportChromeTrace } from "./debug/profiling/ChromeTraceExporter.js";
+export type {
+  ChromeTraceDocument,
+  ChromeTraceEvent
+} from "./debug/profiling/ChromeTraceExporter.js";
 export {
   GPU_COUNTER_BYTE_SIZE,
   GPU_COUNTER_FIELDS,

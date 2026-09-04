@@ -518,11 +518,11 @@ OEngine/src/addons/inspector/
 
 **产出接口：** `MetricDescriptor`、`MetricSample`、`MetricRegistry.register()`、`MetricRegistry.get()`、`summarizeProfileSeries()`。
 
-- [ ] 写失败用例：重复 ID 但语义不同必须抛错；空序列返回 `null`；非有限值被拒绝；P50/P95/P99 使用固定 nearest-rank 规则。
-- [ ] 运行 `npm run build:test` 和单个 Node 测试，确认失败原因只来自缺失模块。
-- [ ] 实现冻结 descriptor、稳定排序和统计函数，不引入 UI 依赖。
-- [ ] 注册第一批 frame、CPU、GPU、I/O、FrameGraph 和 profiler overhead 指标。
-- [ ] 运行单测与 typecheck，提交 `feat(profiler): add typed metric registry`。
+- [x] 写失败用例：重复 ID 但语义不同必须抛错；空序列返回 `null`；非有限值被拒绝；P50/P95/P99 使用固定 nearest-rank 规则。
+- [x] 运行 `npm run build:test` 和单个 Node 测试，确认失败原因只来自缺失模块。
+- [x] 实现冻结 descriptor、稳定排序和统计函数，不引入 UI 依赖。
+- [x] 注册第一批 frame、CPU、GPU、I/O、FrameGraph 和 profiler overhead 指标。
+- [x] 运行单测与 typecheck，提交 `feat(profiler): add typed metric registry`。
 
 ### Task 2：建立 immutable 帧、Span 和历史窗口
 
@@ -535,11 +535,11 @@ OEngine/src/addons/inspector/
 
 **产出接口：** `ProfileFrame`、`ProfileFramePatch`、`ProfileHistory.add()`、`ProfileHistory.patch()`、`ProfileHistory.subscribe()`、`ProfileHistory.selectRange()`。
 
-- [ ] 写失败用例：GPU 结果乱序返回仍更新原始帧；旧 snapshot 不被原地修改；淘汰帧 patch 返回 `orphaned`；状态转换不合法时抛错。
-- [ ] 实现以 `frameIndex` 为键的有界 Map 和单调 revision。
-- [ ] 实现 CPU/GPU 独立 clock domain 的 span，并允许 GPU `start=null`。
-- [ ] 实现范围统计时对 pending/invalid/dropped 的 coverage 计算。
-- [ ] 运行相关单测与 typecheck，提交 `feat(profiler): add asynchronous frame history`。
+- [x] 写失败用例：GPU 结果乱序返回仍更新原始帧；旧 snapshot 不被原地修改；淘汰帧 patch 返回 `orphaned`；状态转换不合法时抛错。
+- [x] 实现以 `frameIndex` 为键的有界 Map 和单调 revision。
+- [x] 实现 CPU/GPU 独立 clock domain 的 span，并允许 GPU `start=null`。
+- [x] 实现范围统计时对 pending/invalid/dropped 的 coverage 计算。
+- [x] 运行相关单测与 typecheck，提交 `feat(profiler): add asynchronous frame history`。
 
 ### Task 3：将 FrameProfiler 迁移到新数据契约
 
@@ -554,12 +554,12 @@ OEngine/src/addons/inspector/
 
 **产出接口：** 保留 `Renderer.profiler` 和 `FrameProfiler`；新增 `setMode()`、typed `recordMetric()`、span API 和 `historyStore` 只读访问。
 
-- [ ] 先为现有 snapshot、GPU batch 合并、counter ring、disabled no-op 写回归用例。
+- [x] 先为现有 snapshot、GPU batch 合并、counter ring、disabled no-op 写回归用例。
 - [ ] 把自由字符串调用迁移到已注册 metric ID；未知 ID 在开发构建抛错。
-- [ ] 将 GPU timing 保存为原始可用字段；backend 缺少 begin/end 时保留 duration-only 状态。
+- [x] 将 GPU timing 保存为原始可用字段；backend 缺少 begin/end 时保留 duration-only 状态。
 - [ ] 实现 Live/Record/Deep Capture cadence 和 epoch/warm-up 切换。
-- [ ] 保持 counter 插桩帧不进入生产 timing baseline。
-- [ ] 运行 observability、readback ring、GPU phase、counter ABI 测试和 build，提交 `refactor(profiler): adopt typed frame records`。
+- [x] 保持 counter 插桩帧不进入生产 timing baseline。
+- [x] 运行 observability、readback ring、GPU phase、counter ABI 测试和 build，提交 `refactor(profiler): adopt typed frame records`。
 
 ### Task 4：补齐资源、Pipeline 和 FrameGraph 指标
 
@@ -582,7 +582,7 @@ OEngine/src/addons/inspector/
 - [ ] 分开 resident、transient、history、atlas、upload 和 readback owner。
 - [ ] 为 Pipeline host call、cache hit/miss 和 first-use frame 插桩，明确 lazy compile 限制。
 - [ ] 为 FrameGraph 记录 active/pruned pass 和逻辑临时资源峰值，不增加独立 submit。
-- [ ] 运行资源、FrameGraph、feature-off 和 build 验证，提交 `feat(profiler): account resources and pipelines`。
+- [x] 运行资源、FrameGraph、feature-off 和 build 验证，提交 `feat(profiler): account resources and pipelines`。
 
 ### Task 5：实现 Capture schema、导入和 Trace 导出
 
@@ -596,9 +596,9 @@ OEngine/src/addons/inspector/
 **产出接口：** `createPerformanceCapture()`、`parsePerformanceCapture()`、`serializePerformanceCapture()`、`exportChromeTrace()`。
 
 - [ ] 写 schema golden file，覆盖正常导入、未知字段、未来 schema、NaN/Infinity、重复帧和非单调帧。
-- [ ] 捕获 engine/environment/sampling/metric catalog/frame/diagnostics，不包含 GPU 对象或 DOM。
-- [ ] 实现 CPU slice、GPU 独立 track、metric counter 和 clock alignment metadata。
-- [ ] GPU duration-only 数据只导出 counter，不生成伪造起点的 slice。
+- [x] 捕获 engine/environment/sampling/metric catalog/frame/diagnostics，不包含 GPU 对象或 DOM。
+- [x] 实现 CPU slice、GPU 独立 track、metric counter 和 clock alignment metadata。
+- [x] GPU duration-only 数据只导出 counter，不生成伪造起点的 slice。
 - [ ] 验证两次序列化字节稳定、导入后派生统计一致，提交 `feat(profiler): add capture and trace codecs`。
 
 ### Task 6：建立 Inspector addon 生命周期和无框架 UI Shell

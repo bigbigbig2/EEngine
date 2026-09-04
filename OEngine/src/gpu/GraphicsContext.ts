@@ -22,6 +22,7 @@ import {
   PipelineLayoutCache,
   RenderPipelineCache,
   ShaderModuleCache,
+  type PipelineCacheObserver,
   type CachedComputePipelineDescriptor,
   type CachedPipelineLayoutDescriptor,
   type CachedRenderPipelineDescriptor
@@ -38,6 +39,10 @@ import { GpuPackedSceneRegistry } from "./GpuPackedSceneRegistry.js";
 import { GpuMaterialStore } from "./GpuMaterialStore.js";
 import { TextureResidency } from "./TextureResidency.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
+import {
+  ResourceAccounting,
+  type ResourceAccountingSnapshot
+} from "../debug/profiling/ResourceAccounting.js";
 
 export interface GraphicsMemoryEvidence {
   readonly schemaVersion: 1;
@@ -70,6 +75,7 @@ export class GraphicsContext {
   readonly materials: GPUMaterialRegistry;
   readonly samplers: GPUSamplerCache;
   readonly profiler: FrameProfiler;
+  readonly resource_accounting = new ResourceAccounting();
   private assetStoreValue: GpuAssetStore | undefined;
   private gpuSceneValue: GpuScene | undefined;
   private packedScenesValue: GpuPackedSceneRegistry | undefined;
@@ -94,15 +100,25 @@ export class GraphicsContext {
     this.shader_modules = new ShaderModuleCache(device);
     this.pipeline_layouts = new PipelineLayoutCache(device);
     this.bind_groups = new BindGroupCache(device, this.pipeline_layouts);
+    const pipelineObserver: PipelineCacheObserver = {
+      onPipelineCacheHit: (kind) => profiler.addCounter(`pipeline.${kind}.cacheHits`, 1),
+      onPipelineCacheMiss: (kind) => profiler.addCounter(`pipeline.${kind}.cacheMisses`, 1),
+      onPipelineCreated: (kind, hostCallMs) => {
+        profiler.addCounter(`pipeline.${kind}.createCount`, 1);
+        profiler.addCounter(`pipeline.${kind}.hostCallMs`, hostCallMs);
+      }
+    };
     this.render_pipelines = new RenderPipelineCache(
       device,
       this.pipeline_layouts,
-      this.shader_modules
+      this.shader_modules,
+      pipelineObserver
     );
     this.compute_pipelines = new ComputePipelineCache(
       device,
       this.pipeline_layouts,
-      this.shader_modules
+      this.shader_modules,
+      pipelineObserver
     );
     this.textures = new GPUTextureManager(this);
     this.materials = new GPUMaterialRegistry(
@@ -147,7 +163,19 @@ export class GraphicsContext {
 
   createBuffer(descriptor: GPUBufferDescriptor): GPUBufferWrapper {
     const buffer = this.device.createBuffer(descriptor);
-    return GPUBufferWrapper.from(descriptor, buffer);
+    const accounting = this.resource_accounting.created({
+      kind: "buffer",
+      owner: descriptor.label?.split("/", 1)[0] || "graphics",
+      bytes: descriptor.size,
+      label: descriptor.label
+    });
+    return GPUBufferWrapper.from(descriptor, buffer, () => {
+      this.resource_accounting.destroyed(accounting);
+    });
+  }
+
+  profilingResourceSnapshot(): ResourceAccountingSnapshot {
+    return this.resource_accounting.snapshot();
   }
 
   get materials_resident(): GPUResidentMaterialContext {

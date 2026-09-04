@@ -80,14 +80,17 @@ export class GPUBufferWrapper {
   readonly id = nextGPUBufferWrapperId++;
   readonly descriptor = new GPUBufferDescriptorState();
   private bufferValue: GPUBuffer | undefined;
+  private onDestroyValue: (() => void) | undefined;
 
   static from(
     descriptor: GPUBufferDescriptorLike,
-    buffer: GPUBuffer
+    buffer: GPUBuffer,
+    onDestroy?: () => void
   ): GPUBufferWrapper {
     const result = new GPUBufferWrapper();
     result.descriptor.copy(descriptor);
     result.bufferValue = buffer;
+    result.onDestroyValue = onDestroy;
     return result;
   }
 
@@ -110,6 +113,8 @@ export class GPUBufferWrapper {
     if (this.bufferValue !== undefined) {
       this.bufferValue.destroy();
       this.bufferValue = undefined;
+      this.onDestroyValue?.();
+      this.onDestroyValue = undefined;
     }
   }
 }

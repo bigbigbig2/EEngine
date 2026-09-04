@@ -67,6 +67,16 @@ export class FrameGraphContext {
 
 export type FrameGraphExecuteContext = FrameGraphContext;
 
+export interface FrameGraphEvidence {
+  readonly builds: number;
+  readonly compiled: boolean;
+  readonly totalPasses: number;
+  readonly executablePasses: number;
+  readonly culledPasses: number;
+  readonly resources: number;
+  readonly transientResources: number;
+}
+
 export function resolveGpuEncoder(ctx: FrameGraphContext): GPUCommandEncoder | undefined {
   const e = ctx.encoder;
   if (!e) return undefined;
@@ -601,6 +611,23 @@ export class FrameGraph {
 
   get resourceNodeCount(): number {
     return this.__resource_nodes.length;
+  }
+
+  evidence(): FrameGraphEvidence {
+    const executable = this.__execution_order.length;
+    const transientResources = this.__resource_registry.reduce(
+      (count, entry) => count + (isTransientEntry(entry) ? 1 : 0),
+      0
+    );
+    return Object.freeze({
+      builds: this.__compiled === null ? 0 : 1,
+      compiled: this.__compiled !== null,
+      totalPasses: this.__pass_nodes.length,
+      executablePasses: executable,
+      culledPasses: Math.max(0, this.__pass_nodes.length - executable),
+      resources: this.__resource_registry.length,
+      transientResources
+    });
   }
 
   getResourceNode(id: ResourceId): ResourceNode {

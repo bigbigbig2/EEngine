@@ -57,6 +57,12 @@ export type CachedBindGroupDescriptor = {
   entries: readonly GPUBindingResource[];
 };
 
+export interface PipelineCacheObserver {
+  onPipelineCacheHit?(kind: "render" | "compute"): void;
+  onPipelineCacheMiss?(kind: "render" | "compute"): void;
+  onPipelineCreated?(kind: "render" | "compute", hostCallMs: number): void;
+}
+
 class iu implements GPUBindGroupLayoutDescriptor {
   readonly entries: readonly GPUBindGroupLayoutEntry[];
   readonly #label: string;
@@ -467,7 +473,8 @@ export class RenderPipelineCache {
   constructor(
     private readonly device: GPUDevice,
     readonly layouts: PipelineLayoutCache,
-    private readonly shaders: ShaderModuleCache
+    private readonly shaders: ShaderModuleCache,
+    private readonly observer?: PipelineCacheObserver
   ) {}
 
   obtain(
@@ -478,7 +485,20 @@ export class RenderPipelineCache {
       ? { ...descriptor, primitive }
       : descriptor);
     const key = new DescriptorKey(resolved);
-    return this.cache.getOrCompute(key, () => this.create(resolved));
+    const cached = this.cache.get(key);
+    if (cached !== undefined) {
+      this.observer?.onPipelineCacheHit?.("render");
+      return cached;
+    }
+    this.observer?.onPipelineCacheMiss?.("render");
+    const started = typeof performance === "undefined" ? 0 : performance.now();
+    const pipeline = this.create(resolved);
+    this.observer?.onPipelineCreated?.(
+      "render",
+      Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started)
+    );
+    this.cache.set(key, pipeline);
+    return pipeline;
   }
 
   clear(): void {
@@ -541,22 +561,34 @@ export class ComputePipelineCache {
   constructor(
     private readonly device: GPUDevice,
     readonly layouts: PipelineLayoutCache,
-    private readonly shaders: ShaderModuleCache
+    private readonly shaders: ShaderModuleCache,
+    private readonly observer?: PipelineCacheObserver
   ) {}
 
   obtain(descriptor: CachedComputePipelineDescriptor): GPUComputePipeline {
     const normalized = normalizeComputePipelineDescriptor(descriptor);
     const key = new DescriptorKey(normalized);
-    return this.cache.getOrCompute(key, () =>
-      this.device.createComputePipeline({
+    const cached = this.cache.get(key);
+    if (cached !== undefined) {
+      this.observer?.onPipelineCacheHit?.("compute");
+      return cached;
+    }
+    this.observer?.onPipelineCacheMiss?.("compute");
+    const started = typeof performance === "undefined" ? 0 : performance.now();
+    const pipeline = this.device.createComputePipeline({
         label: normalized.label,
         layout: this.layouts.obtainPipelineLayout(normalized.layout),
         compute: {
           ...normalized.compute,
           module: this.shaders.obtain(normalized.compute.module)
         }
-      })
+      });
+    this.observer?.onPipelineCreated?.(
+      "compute",
+      Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started)
     );
+    this.cache.set(key, pipeline);
+    return pipeline;
   }
 
   clear(): void {
