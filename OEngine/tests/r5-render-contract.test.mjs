@@ -9,6 +9,7 @@ import {
 import {
   opaqueLightingFrame,
   lightClusterFrame,
+  shadowVisibilityFrame,
   requireDomain,
   surfaceFrameWithVelocity,
   surfaceFrame,
@@ -139,4 +140,23 @@ test("S2A CPU direct-lighting oracle freezes Schlick, GGX and metallic energy", 
     noL: 1, noV: 1, noH: 1, voH: 1, radiance: [Infinity, 1, 1]
   });
   assert.deepEqual(invalid.contribution, [0, 0, 0]);
+});
+
+test("S2B shadow product exposes visibility-only resources and frozen filter parameters", () => {
+  const frame = shadowVisibilityFrame({
+    atlas: 7,
+    contactVisibility: null,
+    cascadeCount: 3,
+    pcfTapCount: 5,
+    normalOffsetScale: 0.5,
+    depthBias: 2,
+    slopeScale: 1.5,
+    atlasWidth: 4096,
+    atlasHeight: 4096
+  });
+  assert.equal(Object.isFrozen(frame), true);
+  assert.equal(frame.contactVisibility, null);
+  assert.equal(frame.cascadeCount, 3);
+  assert.throws(() => shadowVisibilityFrame({ ...frame, depthBias: -1 }), /non-negative/);
+  assert.throws(() => shadowVisibilityFrame({ ...frame, atlasWidth: 0 }), /dimensions/);
 });

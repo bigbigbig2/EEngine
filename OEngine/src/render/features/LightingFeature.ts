@@ -14,7 +14,7 @@ import {
   directLightingFrame,
   type DirectLightingFrame
 } from "../pipeline/FrameProducts.js";
-import type { SurfaceFrame } from "../pipeline/FrameProducts.js";
+import type { ShadowVisibilityFrame, SurfaceFrame } from "../pipeline/FrameProducts.js";
 import {
   EnvironmentBackgroundPass,
   type EnvironmentBackgroundInputs
@@ -45,7 +45,7 @@ export interface LightingFeatureInputs {
   readonly hzb: ResourceId;
   readonly camera: ResourceId;
   readonly view: ResourceId;
-  readonly shadowAtlas: ResourceId;
+  readonly shadow: ShadowVisibilityFrame;
   readonly counters?: ResourceId;
 }
 
@@ -123,7 +123,7 @@ export class LightingFeature {
       clusterLookup: clusters.lookup,
       clusterData: clusters.data,
       activeLightList: clusters.activeLightList,
-      shadowAtlas: inputs.shadowAtlas,
+      shadowAtlas: inputs.shadow.atlas,
       camera: inputs.camera,
       view: inputs.view
     };

@@ -142,3 +142,15 @@ Production browser:
 - result: `passed=true`、`gateEligible=true`、issues/overflow/WebGPU diagnostics为零，
   cascade work `5/64/47`，alpha work `38`，shadow GPU P50/P95
   `0.228096/0.884528 ms`；dirty artifact只作探索证据。
+
+## Stage 2B visibility seam (2026-09-04)
+
+Stage 2B 将 FX-04 的 atlas producer 与 Opaque Lighting consumer 固定在
+`ShadowVisibilityFrame`：`atlas` 是唯一必需资源，`contactVisibility` 为可选资源，
+并携带 `cascadeCount`、PCF kernel、normal offset、depth bias、slope scale 和 atlas 尺寸。
+该产品禁止携带 HDR/color target；`LightingFeature` 不再接收裸 `shadowAtlas` 参数。
+
+`ShadowContract.ts` 是 CSM/PCF 参数的单一 ABI 来源：3 级 cascade、5-kernel filter、
+0.5 normal offset、depth bias 2、slope scale 1.5。Packed CSM raster 与 direct shader
+共享这些常量，避免 producer/consumer 漂移。contact-shadow producer 尚未实现，当前以
+`null` 明确表示 unsupported；不得把点光源的 contact-hardening PCF 误报为屏幕空间 contact shadow。

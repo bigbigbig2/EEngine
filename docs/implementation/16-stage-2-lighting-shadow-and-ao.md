@@ -48,14 +48,14 @@ Renderer 不再知道 Direct、IBL Diffuse、IBL Specular、Background、Indirec
 - [x] S2-03 记录 cluster overflow、链长、像素遍历灯数；FX-02 stats producer 已接入 counters，空灯光走零成本 fast path；
 - [x] S2-04 重写 direct BRDF，处理 roughness、metallic、normal、energy conservation、NaN/Inf；本轮修正 Fresnel 与 direct energy split，并加入有限值保护；
 - [x] S2-05 Direct-only 输出线性 HDR，不接 GI/SSR/AO/Temporal；`LightingFeature` 现在返回 `DirectLightingFrame`（仅边界接入，尚未代表算法完成）；
-- [~] S2-06 FX-02 full direct/cluster Gate 与 CPU PBR numeric oracle 已通过，但 artifact 为 dirty，且 direct-only 专用截图/clean timestamp 对照尚未建立；不能关闭 Stage 2A。
+- [x] S2-06 FX-02 full direct/cluster Gate 与 CPU PBR numeric oracle 已通过；按用户明确指示跳过 clean/timestamp Gate，保留 dirty exploratory artifact 作为当前基线，不将其描述为 clean 性能证据。
 
 ### 2B Shadow
 
-- [ ] S2-07 收拢 CSM、spot atlas、point atlas、contact shadow；
-- [ ] S2-08 固定 cascade split、stabilization、bias、normal offset、PCF/filter；
-- [ ] S2-09 Shadow Service 只输出 visibility，不写最终颜色；
-- [ ] S2-10 验证 shadow cache、dirty propagation、atlas capacity 和 fallback。
+- [~] S2-07 收拢 CSM、spot atlas、point atlas、contact shadow；CSM/spot/point atlas 已统一到 ShadowContext，contact visibility producer 尚未接入；
+- [x] S2-08 固定 cascade split、stabilization、bias、normal offset、PCF/filter；参数已冻结到 `ShadowContract.ts` 并由 Packed CSM/direct shader 共用；
+- [x] S2-09 Shadow Service 只输出 visibility，不写最终颜色；`ShadowVisibilityFrame` 已成为 LightingFeature 的唯一阴影输入；
+- [~] S2-10 验证 shadow cache、dirty propagation、atlas capacity 和 fallback；已有 FX-04 计数与生命周期测试，Stage 2B 专用 cache/pressure 证据待补。
 
 ### 2C GTAO
 
@@ -138,5 +138,22 @@ coverage: point 0/1/16/64/256/1024, spot, directional, dynamic same graph
 directLightingGpuMs: 0.03 ms (zero-light) → 18.55 ms P50 (1024 overlap)
 ```
 
-该结果只证明真实 shader 与 GPU producer/consumer 闭环仍可执行，不关闭 S2-06；CPU PBR
-reference vectors 已建立，下一步仍需 direct-only 专用场景和 clean/full timestamp 对照。
+该结果证明真实 shader 与 GPU producer/consumer 闭环仍可执行。按用户明确指示，本轮跳过
+clean/full timestamp 对照并关闭 S2-06；该例外不改变后续产品性能 Gate 的要求。
+
+### 6.3 Stage 2B Shadow：visibility 产品 seam
+
+本轮开始 Shadow，不新增第二套管线，也不把 shadow atlas 当成 HDR/color owner：
+
+- `FrameProducts.ts` 新增不可变 `ShadowVisibilityFrame`，固定 atlas、可选 contact visibility、CSM 数量、PCF、normal offset、depth bias、slope scale 与 atlas 尺寸；
+- `LightingFeature` 改为消费 `ShadowVisibilityFrame`，禁止继续接收裸 `shadowAtlas` 字段；
+- `Renderer` 在 shadow-update 完成后创建 visibility 产品，LightingPass 只读取 `shadow.atlas`；Shadow Service/ShadowContext 仍负责 atlas 写入，绝不写最终 HDR；
+- 新增 `ShadowContract.ts`，冻结 3 级 CSM、PCF kernel、normal offset、depth bias 和 slope scale，Packed CSM pipeline 与 direct shader 共用同一常量；
+- CSM 的 practical split、texel snapping、Packed hierarchy producer、spot/point atlas 与现有 shadow counters 继续复用已登记的 FX-04 实现；contact visibility 目前明确为 `null`，不得冒充已实现。
+
+当前 2B 状态：S2-07 `[~]`、S2-08 `[x]`、S2-09 `[x]`、S2-10 `[~]`。尚未完成的是 contact-shadow producer、Shadow cache/dirty/atlas-pressure 的新增专用验证和 Direct+Shadow browser evidence。
+
+验证记录：在未包含本轮改动的 `d653351` clean worktree 中运行 FX-04（1280×720、DPR 1、CSM on/off/on），
+结果仍为 `passed=false`，`gateEligible=true`，`issues=[one or more CSM cascades produced no RasterWork, material-patched CastsShadow instances stopped producing ShadowRasterWork]`；
+采样 cascade RasterWork 为 `[0, 684, 720]`，overflow 为 `0`，feature-off atlas bytes 为 `0`，submit mean 为 `1`。
+这确认 cascade 0 空工作是 Stage 2B 进入前的既有算法 blocker，不是本轮 `ShadowVisibilityFrame` seam 引入的回归；本轮不伪造 Shadow Gate 通过。

@@ -52,6 +52,13 @@ import {
 } from "./passes/NeuralSuperSamplingPass.js";
 import { resolveFrameJitter } from "./TemporalJitterController.js";
 import { GPUTextureContext } from "../gpu/GPUTextureContext.js";
+import {
+  SHADOW_CASCADE_COUNT,
+  SHADOW_DEPTH_BIAS,
+  SHADOW_DEPTH_SLOPE_SCALE,
+  SHADOW_NORMAL_OFFSET_SCALE,
+  SHADOW_PCF_TAP_COUNT
+} from "../gpu/ShadowContract.js";
 import { createNativeTextureView } from "../gpu/GPUTextureDescriptors.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
@@ -115,7 +122,10 @@ import {
   type RenderSettingsPatch,
   type RenderSettingsValues
 } from "./pipeline/RenderSettings.js";
-import { surfaceFrameWithVelocity } from "./pipeline/FrameProducts.js";
+import {
+  shadowVisibilityFrame,
+  surfaceFrameWithVelocity
+} from "./pipeline/FrameProducts.js";
 import {
   createRendererFramePlan,
   type FramePlanDump
@@ -1953,6 +1963,21 @@ export class Renderer {
                   bindings.gpuScene.lights.shadow_service.texture.gpu_texture)
               )
             : depthRes;
+          const shadowVisibility = shadowVisibilityFrame({
+            atlas: shadowAtlasRes,
+            contactVisibility: null,
+            cascadeCount: graphTopology.shadows ? SHADOW_CASCADE_COUNT : 0,
+            pcfTapCount: SHADOW_PCF_TAP_COUNT,
+            normalOffsetScale: SHADOW_NORMAL_OFFSET_SCALE,
+            depthBias: SHADOW_DEPTH_BIAS,
+            slopeScale: SHADOW_DEPTH_SLOPE_SCALE,
+            atlasWidth: graphTopology.shadows
+              ? gpuScene.lights.shadow_service.atlas_width
+              : w,
+            atlasHeight: graphTopology.shadows
+              ? gpuScene.lights.shadow_service.atlas_height
+              : h
+          });
           const lightingFeatureOutput = this._lightingFeature.addToGraph(
             graph,
             bind("lighting-feature-job", (bindings) => ({
@@ -1969,7 +1994,7 @@ export class Renderer {
               hzb: hzbRes,
               camera: currentCameraRes,
               view: viewUniformRes,
-              shadowAtlas: shadowAtlasRes,
+              shadow: shadowVisibility,
               counters: gpuCounterRes ?? undefined
             }
           );

@@ -27,6 +27,7 @@ const {
   GPU_COUNTER_FIELDS,
   GPU_COUNTER_SCHEMA_VERSION
 } = await import("../.test-dist/debug/GpuFrameCounters.js");
+const shadowContract = await import("../.test-dist/gpu/ShadowContract.js");
 
 test("FX-04 practical CSM splits are monotonic, finite and end at the camera far plane", () => {
   const splits = [...computePracticalCascadeSplits(0.1, 1000, 3, 0.5)];
@@ -121,4 +122,27 @@ test("FX-04 orthographic hierarchy view preserves cascade frustum and scale", ()
   assert.equal(view.viewportHeight, 1440);
   assert.equal(view.verticalWorldSize, 10);
   assert.deepEqual(view.frustumPlanes[0], [1, 2, 3, 4]);
+});
+
+test("S2B shadow contract is shared and visibility-only at the lighting seam", async () => {
+  assert.deepEqual({
+    cascadeCount: shadowContract.SHADOW_CASCADE_COUNT,
+    pcfTapCount: shadowContract.SHADOW_PCF_TAP_COUNT,
+    normalOffsetScale: shadowContract.SHADOW_NORMAL_OFFSET_SCALE,
+    depthBias: shadowContract.SHADOW_DEPTH_BIAS,
+    slopeScale: shadowContract.SHADOW_DEPTH_SLOPE_SCALE
+  }, {
+    cascadeCount: 3,
+    pcfTapCount: 5,
+    normalOffsetScale: 0.5,
+    depthBias: 2,
+    slopeScale: 1.5
+  });
+  const lighting = await readFile(
+    new URL("../src/render/features/LightingFeature.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(lighting, /readonly shadow: ShadowVisibilityFrame/);
+  assert.match(lighting, /shadowAtlas: inputs\.shadow\.atlas/);
+  assert.doesNotMatch(lighting, /readonly shadowAtlas: ResourceId/);
 });

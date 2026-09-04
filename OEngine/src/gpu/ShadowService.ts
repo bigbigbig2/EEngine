@@ -45,6 +45,14 @@ export class ShadowService {
     return this.implementation.atlas_allocated_bytes;
   }
 
+  get atlas_width(): number {
+    return this.implementation.atlas_width;
+  }
+
+  get atlas_height(): number {
+    return this.implementation.atlas_height;
+  }
+
   get packed_cascade_draw_count(): number {
     return this.implementation.packed_cascade_draw_count;
   }

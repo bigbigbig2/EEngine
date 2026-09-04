@@ -17,6 +17,7 @@ import { CLUSTER_METADATA_FLAG_FALLBACK } from "../render/ClusteredLightingRefer
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
+import { SHADOW_NORMAL_OFFSET_SCALE } from "../gpu/ShadowContract.js";
 
 export const LIGHTING_DIRECT_FORMAT = "rgba16float" as const;
 
@@ -361,7 +362,7 @@ fn sample_shadowmap_atlas_for_light(
   let projection_scale = m4_projection_size(projection_matrix);
   let world_pixel_size = max(projection_scale.x, projection_scale.y) / atlas_aabb.z;
   let offsets = get_shadow_offsets(surface_normal, incident.direction);
-  let normal_offset = world_pixel_size * offsets.x * surface_normal * 0.5;
+  let normal_offset = world_pixel_size * offsets.x * surface_normal * ${SHADOW_NORMAL_OFFSET_SCALE};
   let clip = projection_matrix * vec4f(position_ws + normal_offset, 1.0);
   let projected = clip.xyz / clip.w;
   let texel_size = 1.0 / vec2f(textureDimensions(pass_descriptor));

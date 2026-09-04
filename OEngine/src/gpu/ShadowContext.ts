@@ -41,6 +41,7 @@ import {
   ShadowAtlasResolutionController,
   type AdaptiveShadowMap
 } from "./ShadowAtlas.js";
+import { SHADOW_CASCADE_COUNT } from "./ShadowContract.js";
 
 export const SHADOW_ATLAS_MAX_SIZE = 4096;
 export const DIRECTIONAL_SHADOW_INITIAL_SIZES = [1740, 1440] as const;
@@ -95,7 +96,7 @@ export class DirectionalShadowMap extends ShadowMapBase<DirectionalLight> {
     this.splits.set(computePracticalCascadeSplits(
       near,
       far,
-      this.views.length,
+      SHADOW_CASCADE_COUNT,
       Math.max(0, Math.min(1, cascadeLambda))
     ));
 
@@ -145,8 +146,8 @@ export class DirectionalShadowMap extends ShadowMapBase<DirectionalLight> {
   }
 
   make_record(): Array<{ atlas: Float32Array; projection: Float32Array }> {
-    const records = new Array<{ atlas: Float32Array; projection: Float32Array }>(3);
-    for (let cascade = 0; cascade < 3; cascade++) {
+    const records = new Array<{ atlas: Float32Array; projection: Float32Array }>(SHADOW_CASCADE_COUNT);
+    for (let cascade = 0; cascade < SHADOW_CASCADE_COUNT; cascade++) {
       const layout = this.layout[cascade]!;
       records[cascade] = {
         atlas: new Float32Array([layout.x0, layout.y0, layout.width, layout.height]),
@@ -259,6 +260,9 @@ export class ShadowContext {
     const texture = this._texture;
     return texture === null ? 0 : texture.width * texture.height * 4;
   }
+
+  get atlas_width(): number { return this.atlas.size.x; }
+  get atlas_height(): number { return this.atlas.size.y; }
 
   get packed_cascade_draw_count(): number {
     return this.packedRasterPass?.lastCascadeDraws ?? 0;
@@ -703,7 +707,7 @@ export class ShadowContext {
       const map = new DirectionalShadowMap(light as DirectionalLight);
       const allocated: AABB2[] = [];
       try {
-        for (let cascade = 0; cascade < 3; cascade++) {
+        for (let cascade = 0; cascade < SHADOW_CASCADE_COUNT; cascade++) {
           const size = DIRECTIONAL_SHADOW_INITIAL_SIZES[Math.min(cascade, DIRECTIONAL_SHADOW_INITIAL_SIZES.length - 1)]!;
           const layout = this.bind(size);
           allocated.push(layout);

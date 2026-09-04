@@ -20,6 +20,11 @@ import {
   HierarchicalWorkGenerator,
   type PreparedHierarchyWork
 } from "../HierarchicalWorkGenerator.js";
+import {
+  SHADOW_CASCADE_COUNT,
+  SHADOW_DEPTH_BIAS,
+  SHADOW_DEPTH_SLOPE_SCALE
+} from "../../gpu/ShadowContract.js";
 
 const PACKED_CSM_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "FX-04 Packed CSM SecondaryRasterWork group0",
@@ -53,8 +58,8 @@ const PACKED_CSM_PIPELINE: CachedRenderPipelineDescriptor = {
     format: "depth32float",
     depthWriteEnabled: true,
     depthCompare: "greater",
-    depthBias: 2,
-    depthBiasSlopeScale: 1.5,
+    depthBias: SHADOW_DEPTH_BIAS,
+    depthBiasSlopeScale: SHADOW_DEPTH_SLOPE_SCALE,
     depthBiasClamp: 0
   }
 };
@@ -324,8 +329,8 @@ export function createPackedShadowHierarchyView(
 }
 
 function validateJob(job: PackedCsmShadowJob): void {
-  if (!Number.isInteger(job.cascadeIndex) || job.cascadeIndex < 0 || job.cascadeIndex > 2) {
-    throw new RangeError("Packed CSM cascade index must be 0..2");
+  if (!Number.isInteger(job.cascadeIndex) || job.cascadeIndex < 0 || job.cascadeIndex >= SHADOW_CASCADE_COUNT) {
+    throw new RangeError(`Packed CSM cascade index must be 0..${SHADOW_CASCADE_COUNT - 1}`);
   }
   if (!Number.isFinite(job.sseThreshold) || job.sseThreshold < 0) {
     throw new RangeError("Packed CSM SSE threshold must be finite and non-negative");

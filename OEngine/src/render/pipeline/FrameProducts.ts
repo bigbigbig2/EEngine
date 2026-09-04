@@ -77,6 +77,25 @@ export interface LightClusterFrame {
   readonly depthSlices: number;
 }
 
+/**
+ * Shadow producer output consumed by opaque lighting.
+ *
+ * The product intentionally contains visibility resources and sampling
+ * parameters only; it cannot carry an HDR/color target. This keeps CSM,
+ * spot/point atlas and future contact-shadow producers on the same seam.
+ */
+export interface ShadowVisibilityFrame {
+  readonly atlas: ResourceId;
+  readonly contactVisibility: ResourceId | null;
+  readonly cascadeCount: number;
+  readonly pcfTapCount: number;
+  readonly normalOffsetScale: number;
+  readonly depthBias: number;
+  readonly slopeScale: number;
+  readonly atlasWidth: number;
+  readonly atlasHeight: number;
+}
+
 /** SSR/Local Probe 输出的镜面结果，供 correction consumer 使用。 */
 export interface ReflectionFrame {
   readonly resolvedSpecular: ResourceId;
@@ -184,6 +203,32 @@ export function lightClusterFrame(input: LightClusterFrame): LightClusterFrame {
   if (!Number.isInteger(input.tileSize) || input.tileSize <= 0 ||
       !Number.isInteger(input.depthSlices) || input.depthSlices <= 0) {
     throw new RangeError("LightClusterFrame layout must be positive integers");
+  }
+  return Object.freeze({ ...input });
+}
+
+/** Freeze and validate the Stage 2B shadow producer/consumer ABI. */
+export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisibilityFrame {
+  requireResourceId(input.atlas, "ShadowVisibilityFrame.atlas");
+  requireResourceId(input.contactVisibility, "ShadowVisibilityFrame.contactVisibility");
+  if (!Number.isInteger(input.cascadeCount) || input.cascadeCount < 0 || input.cascadeCount > 3) {
+    throw new RangeError("ShadowVisibilityFrame cascadeCount must be an integer in [0, 3]");
+  }
+  if (!Number.isInteger(input.pcfTapCount) || input.pcfTapCount <= 0) {
+    throw new RangeError("ShadowVisibilityFrame pcfTapCount must be a positive integer");
+  }
+  for (const [name, value] of [
+    ["normalOffsetScale", input.normalOffsetScale],
+    ["depthBias", input.depthBias],
+    ["slopeScale", input.slopeScale]
+  ] as const) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new RangeError(`ShadowVisibilityFrame ${name} must be finite and non-negative`);
+    }
+  }
+  if (!Number.isInteger(input.atlasWidth) || input.atlasWidth <= 0 ||
+      !Number.isInteger(input.atlasHeight) || input.atlasHeight <= 0) {
+    throw new RangeError("ShadowVisibilityFrame atlas dimensions must be positive integers");
   }
   return Object.freeze({ ...input });
 }
