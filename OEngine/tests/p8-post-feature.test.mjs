@@ -54,3 +54,17 @@ test("P8 feature-off is lazy and tonemap is destroyed on teardown", async () => 
   assert.match(feature, /this\._tonemap = null/);
   assert.match(renderer, /this\._postFeature\?\.destroy\(\)/);
 });
+
+test("P8 production post shaders are authored source-of-truth", async () => {
+  const exposure = await readFile(new URL("../src/shaders/automatic_exposure.ts", import.meta.url), "utf8");
+  const bloom = await readFile(new URL("../src/shaders/bloom.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(exposure, /temporal_post_legacy\.generated/);
+  assert.doesNotMatch(bloom, /temporal_post_legacy\.generated/);
+  assert.match(exposure, /EXPOSURE_HISTOGRAM_WGSL/);
+  assert.match(exposure, /EXPOSURE_REDUCE_WGSL/);
+  assert.match(exposure, /EXPOSURE_ADAPT_WGSL/);
+  assert.match(bloom, /BLOOM_PREFILTER_WGSL/);
+  assert.match(bloom, /BLOOM_DOWNSAMPLE_WGSL/);
+  assert.match(bloom, /BLOOM_UPSAMPLE_WGSL/);
+  assert.match(bloom, /BLOOM_COMPOSITE_WGSL/);
+});

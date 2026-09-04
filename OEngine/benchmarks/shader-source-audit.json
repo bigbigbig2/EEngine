@@ -2601,21 +2601,15 @@
       "sourceKind": "generated",
       "classification": "unknown",
       "directConsumers": [
-        "src/shaders/automatic_exposure.ts",
-        "src/shaders/bloom.ts",
         "src/shaders/sharpen.ts"
       ],
       "runtimeConsumers": [
         "src/index.ts",
         "src/render/features/PostFeature.ts",
-        "src/render/passes/AutomaticExposurePass.ts",
-        "src/render/passes/BloomPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
-        "src/render/passes/AutomaticExposurePass.ts",
-        "src/render/passes/BloomPass.ts",
         "src/render/passes/SharpenPass.ts"
       ],
       "generatorCandidates": [],

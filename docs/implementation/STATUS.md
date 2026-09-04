@@ -80,7 +80,7 @@ Feature 目前主要是深模块边界和生命周期包装，不能仅凭 Featu
 | Stage 1 | [Surface / Opaque HDR 组合边界](./15-stage-1-frame-products-and-composition-seam.md) | `focused Gate`（架构边界）；提交 `f7782dc`；Surface debug 数值/资源证据待验收，截图可选 |
 | Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | `doing`；S2-06 按用户指示跳过 clean Gate；2D 统一 OpaqueLighting interface、旧 composite/AO upsample 已清理；Shadow cascade-0、cache/pressure、FX-07 A/B 与 clean timestamp/memory 仍阻塞退出 Gate |
 | Stage 3 | [Local Probe / SSSR / TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md) | `doing`；SSSR/TAAU/History/DRS 代码与合同已接入，Local Reflection Probe producer、paired 质量/性能 Gate 仍待完成 |
-| Stage 4 | [Transparency / HDR Post / FrameGraph](./18-stage-4-transparency-post-and-framegraph.md) | 待执行 |
+| Stage 4 | [Transparency / HDR Post / FrameGraph](./18-stage-4-transparency-post-and-framegraph.md) | `doing`；HDR Post production shader 已从 legacy generated 迁出，FrameGraph validation 与 feature-off prune 有契约测试；TransparentOit legacy consumer、weighted-OIT A/B 和 GPU 质量/性能 Gate 仍待完成 |
 | Stage 5 | [Legacy Deletion / Product Closure](./19-stage-5-legacy-deletion-and-product-closure.md) | 待执行 |
 
 因此当前架构事实是“新 owner + 旧/现有算法实现”，而不是“所有算法已被新实现替换”。
@@ -153,3 +153,18 @@ Stage 1 当前执行记录：`MaterialExpandPass` 已加入统一 `SurfaceFrame`
 - `15–21` 是阶段交付记录，必须标明边界、算法和产品 Gate 的差异。
 - `00–10` 是早期实施/历史证据。除非任务明确复盘历史，否则不作为当前执行入口。
 - 只有在算法、producer/consumer、旧路径删除、正确性、性能、显存和 feature-off 全部满足后，才能把状态提升为 `产品闭环`。
+
+### Stage 4 当前进度（2026-09-04）
+
+Stage 4 已进入 `doing`：Renderer 的唯一 HDR 顺序、ExposureSourceHDR 与 Bloom 解耦、Color
+Grading/Sharpen/Tonemap 颜色域边界、FrameGraph compiled validation、稳定拓扑调度、历史/瞬态
+资源生命周期和 feature-off prune 均已有源码与契约测试。Exposure/Bloom 的生产 WGSL 已从
+`temporal_post_legacy.generated.ts` 迁回 `src/shaders/automatic_exposure.ts` 与
+`src/shaders/bloom.ts`；shader-source audit 已重新生成并通过。
+
+透明路径当前由 `TransparencyFeature` 统一选择 Packed MBOIT 与普通 OIT。Packed MBOIT 的
+bounded queue、moment finite fallback、reactive 输出和 counter 已有 focused 证据，但普通
+`TransparentOitPass` 仍持有旧 `GPUMaterialRegistry`/light-list consumer，weighted-OIT A/B、
+SDR/HDR 数值、GPU timestamp/显存和浏览器 paired evidence 尚未关闭。因此 Stage 4 目前是
+架构/源码 focused Gate，不能提升为 `产品闭环`；S4-06 与 S4-23 继续作为下一步真实 consumer
+迁移和质量验收入口。
