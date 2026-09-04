@@ -177,6 +177,7 @@ export type {
 } from "./render/pipeline/RenderSettings.js";
 export {
   directLightingFrame,
+  lightClusterFrame,
   opaqueLightingFrame,
   requireDomain,
   surfaceFrame,
@@ -186,6 +187,7 @@ export type {
   AmbientOcclusionFrame,
   FinalTemporalSurfaceFrame,
   DirectLightingFrame,
+  LightClusterFrame,
   OpaqueLightingFrame,
   OpaqueTemporalSurfaceFrame,
   ReflectionFrame,

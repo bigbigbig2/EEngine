@@ -63,6 +63,20 @@ export interface DirectLightingFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
+/** GPU-produced clustered-light products consumed by direct lighting. */
+export interface LightClusterFrame {
+  readonly parameters: ResourceId;
+  readonly lookup: ResourceId;
+  readonly data: ResourceId;
+  readonly candidateLightList: ResourceId;
+  readonly activeLightList: ResourceId;
+  readonly counters: ResourceId | null;
+  readonly width: number;
+  readonly height: number;
+  readonly tileSize: number;
+  readonly depthSlices: number;
+}
+
 /** SSR/Local Probe 输出的镜面结果，供 correction consumer 使用。 */
 export interface ReflectionFrame {
   readonly resolvedSpecular: ResourceId;
@@ -153,4 +167,23 @@ export function directLightingFrame(input: DirectLightingFrame): DirectLightingF
       input.domain.scale
     )
   });
+}
+
+/** Freeze the producer/consumer ABI for one clustered-light frame. */
+export function lightClusterFrame(input: LightClusterFrame): LightClusterFrame {
+  for (const name of [
+    "parameters", "lookup", "data", "candidateLightList", "activeLightList"
+  ] as const) {
+    requireResourceId(input[name], `LightClusterFrame.${name}`);
+  }
+  requireResourceId(input.counters, "LightClusterFrame.counters");
+  if (!Number.isInteger(input.width) || input.width <= 0 ||
+      !Number.isInteger(input.height) || input.height <= 0) {
+    throw new RangeError("LightClusterFrame dimensions must be positive integers");
+  }
+  if (!Number.isInteger(input.tileSize) || input.tileSize <= 0 ||
+      !Number.isInteger(input.depthSlices) || input.depthSlices <= 0) {
+    throw new RangeError("LightClusterFrame layout must be positive integers");
+  }
+  return Object.freeze({ ...input });
 }

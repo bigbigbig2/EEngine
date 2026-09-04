@@ -16,6 +16,10 @@ import {
 } from "../../debug/GpuFrameCounters.js";
 import type { GPULightCollection } from "../../gpu/LightDatabase.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import {
+  lightClusterFrame,
+  type LightClusterFrame
+} from "../pipeline/FrameProducts.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
@@ -38,16 +42,7 @@ import {
   LIGHT_CLUSTER_TILE_SIZE
 } from "../../shaders/light_cluster.js";
 
-export type LightClusterOutputs = {
-  parameters: ResourceId;
-  lookup: ResourceId;
-  data: ResourceId;
-  /** GPU frustum-list producer before the HZB filter. */
-  candidateLightList: ResourceId;
-  /** GPU-produced count/list consumed by cluster assignment. */
-  activeLightList: ResourceId;
-  counters: ResourceId | null;
-};
+export type LightClusterOutputs = LightClusterFrame;
 
 export type LightClusterJob = {
   camera: PerspectiveCamera;
@@ -525,14 +520,18 @@ export class LightClusterPass {
       statsBuilder.make_side_effect();
     }
 
-    return {
+    return lightClusterFrame({
       parameters,
       lookup,
       data,
       candidateLightList: visibleList,
       activeLightList: filteredList,
-      counters
-    };
+      counters,
+      width,
+      height,
+      tileSize: LIGHT_CLUSTER_TILE_SIZE,
+      depthSlices: LIGHT_CLUSTER_DEPTH_SLICES
+    });
   }
 
   private dispatchPagedList(

@@ -8,6 +8,7 @@ import {
 } from "../.test-dist/render/pipeline/RenderSettings.js";
 import {
   opaqueLightingFrame,
+  lightClusterFrame,
   requireDomain,
   surfaceFrameWithVelocity,
   surfaceFrame,
@@ -95,4 +96,23 @@ test("Q01 opaque lighting product rejects non-internal output domains", () => {
     ...valid,
     domain: textureDomain("output-full", 1920, 1080, 1)
   }), /internal-full/);
+});
+
+test("S2A clustered-light product freezes GPU producer/consumer ABI", () => {
+  const frame = lightClusterFrame({
+    parameters: 1,
+    lookup: 2,
+    data: 3,
+    candidateLightList: 4,
+    activeLightList: 5,
+    counters: null,
+    width: 1920,
+    height: 1080,
+    tileSize: 32,
+    depthSlices: 24
+  });
+  assert.equal(Object.isFrozen(frame), true);
+  assert.equal(frame.depthSlices, 24);
+  assert.throws(() => lightClusterFrame({ ...frame, activeLightList: -1 }), /resource id/);
+  assert.throws(() => lightClusterFrame({ ...frame, tileSize: 0 }), /layout/);
 });

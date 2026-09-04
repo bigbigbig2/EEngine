@@ -43,9 +43,9 @@ Renderer 不再知道 Direct、IBL Diffuse、IBL Specular、Background、Indirec
 
 ### 2A Direct-only
 
-- [~] S2-01 固定 Light GPU ABI：directional/point/spot 对齐、单位、shadow index；现有 `LightDatabase`/cluster ABI 已冻结，Stage 2 首个切片先把 Direct-only 输出产品化，算法数值仍待验证；
-- [ ] S2-02 GPU 生成 cluster header/index list；
-- [ ] S2-03 记录 cluster overflow、链长、像素遍历灯数；
+- [x] S2-01 固定 Light GPU ABI：directional/point/spot 对齐、单位、shadow index；现有 `LightDatabase`/cluster ABI 已冻结，并由 `LightClusterFrame` 暴露固定 producer/consumer 产品；
+- [x] S2-02 GPU 生成 cluster header/index list；`LightClusterPass` 保持 candidate → HZB filtered → cluster lookup/data 的 GPU 闭环；
+- [x] S2-03 记录 cluster overflow、链长、像素遍历灯数；FX-02 stats producer 已接入 counters，空灯光走零成本 fast path；
 - [ ] S2-04 重写 direct BRDF，处理 roughness、metallic、normal、energy conservation、NaN/Inf；
 - [x] S2-05 Direct-only 输出线性 HDR，不接 GI/SSR/AO/Temporal；`LightingFeature` 现在返回 `DirectLightingFrame`（仅边界接入，尚未代表算法完成）；
 - [ ] S2-06 通过 direct-only screenshot、numeric oracle 和 timestamp Gate。
@@ -111,3 +111,11 @@ AO artifact：
 
 当前仍未完成：Filament 数值对照、Direct-only screenshot/numeric/timestamp Gate、Shadow 和 GTAO。
 早期阶段截图不作为本切片的阻塞条件；Stage 2 的 Direct-only 算法 Gate 仍必须在 S2-06 独立关闭。
+
+### 6.1 Stage 2A ABI/cluster 切片
+
+- 新增 `LightClusterFrame` immutable 产品，固定 `parameters/lookup/data`、candidate/active list、counter
+  资源以及 `32×32×24` cluster layout；
+- `LightClusterPass` 返回该产品，LightingFeature 仅消费产品字段，不向 Renderer 泄漏 list/lookup 的构造细节；
+- 该切片复用已登记的 FX-02 clustered-lighting 论文/Filament numeric ledger，不复制外部表达性代码；
+- direct shader 尚未改写，当前切片只完成 ABI、GPU producer→consumer seam 和统计可观测性冻结。
