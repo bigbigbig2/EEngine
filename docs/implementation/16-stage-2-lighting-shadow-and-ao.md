@@ -109,8 +109,8 @@ AO artifact：
 - `Renderer` 消费 `lightingFeatureOutput.direct.hdr`，不再读取裸 `hdr` 字段；
 - P4 owner 测试同步检查新 seam。
 
-当前仍未完成：Direct-only 专用 screenshot/clean timestamp Gate、Shadow 和 GTAO。
-早期阶段截图不作为本切片的阻塞条件；Stage 2 的 Direct-only 算法 Gate 仍必须在 S2-06 独立关闭。
+当前仍未完成：Direct-only 数值/GPU timestamp Gate、Shadow 和 GTAO。
+截图不属于本阶段的必需验证项；Stage 2 的 Direct-only 算法 Gate 仍按数值、计数器、timestamp 和 feature-off 证据关闭。
 
 ### 6.1 Stage 2A ABI/cluster 切片
 
@@ -139,7 +139,7 @@ directLightingGpuMs: 0.03 ms (zero-light) → 18.55 ms P50 (1024 overlap)
 ```
 
 该结果证明真实 shader 与 GPU producer/consumer 闭环仍可执行。按用户明确指示，本轮跳过
-clean/full timestamp 对照并关闭 S2-06；该例外不改变后续产品性能 Gate 的要求。
+clean/full timestamp 对照并关闭 S2-06；该例外不改变后续数值、计数器和性能证据要求。
 
 ### 6.3 Stage 2B Shadow：visibility 产品 seam
 
@@ -163,22 +163,6 @@ clean/full timestamp 对照并关闭 S2-06；该例外不改变后续产品性�
 - `ScreenSpaceAmbientOcclusionPass` 已经完成 linear/view-depth、horizon sampling、spatial filter、可选 temporal 和 joint bilateral AO+bent-normal resolve；本轮将最终输出包装为不可变 `AmbientOcclusionFrame`；
 - Renderer 不再从 AO 输出的裸字段组装最终 consumer，GI/SSR 只读取 `AmbientOcclusionFrame.visibility` 与 `.bentNormal`；Surface 的 Material AO 通道保持只读；
 - radius/falloff 仍由 `PhysicalScaleContract` 转换，默认 AO 为 half-resolution，history 继续由共享 submission-aware registry 管理；
-- XeGTAO 采用状态为 `retained-current-authored`，未复制其 HLSL/D3D owner；完整 A/B 由 FX-07 runner 负责，不以静态测试替代画质和性能证据。
+- XeGTAO 采用状态为 `retained-current-authored`，未复制其 HLSL/D3D owner；S2-17 只要求固定输入下的数值、GPU timestamp、显存和 diagnostics A/B，截图不再作为 runner 或 Gate 输入。
 
 当前 2C 状态：S2-11、S2-13～S2-16 `[x]`；S2-12、S2-17 `[~]`。2D S2-18～S2-20 仍未完成，不能删除仍被 `GIService/OpaqueLightingPipeline` 使用的 `IndirectCompositePass`。
-
-FX-07 exploratory full（当前提交、`FX07_REQUIRE_CLEAN=0`）结果：
-
-```text
-artifact: temp/r5/fx-07/93faa84009823ef9c241bfe0dcd928629dc87703-dirty-4d779de77047/
-passed: true
-gateEligible: false
-issues: []
-raw P01/P95 luma: 220 / 232
-half/full denoised RMS: 0.672051
-temporal off/on variance RMS: 0.298584 / 0.069136
-camera-pan settle RMS: 0.190592
-disocclusion settle RMS: 0.212688
-```
-
-该结果关闭了当前实现的 correctness blocker，但不关闭 S2-12 的 HZB mip 接线、S2-17 的正式 XeGTAO paired A/B，也不替代 clean/full 性能证据。

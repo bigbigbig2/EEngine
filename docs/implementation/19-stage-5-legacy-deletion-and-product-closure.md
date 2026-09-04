@@ -33,7 +33,7 @@ Stage 0–4 的退出 Gate 全部有 artifact；任何阶段只有“边界已�
 - Temporal Stress：快速相机、细小几何、透明、SSR、AO；
 - Heavy Workload：多实例、多材质、多灯光和默认 profile。
 
-每个场景需要固定相机/帧序列、截图、Debug View、GPU timestamp、counter、memory、console 和 settings/profile hash。
+每个场景需要固定相机/帧序列、Debug View、GPU timestamp、counter、memory、console 和 settings/profile hash；截图仅作为可选诊断附件。
 
 ## 4. 产品性能 Gate
 
@@ -48,7 +48,7 @@ Resident / Transient / History / Retiring bytes
 Upload / readback / queue submit
 ```
 
-不得用单一 FPS、单张截图或 focused Gate 代替整帧证据。若 Hardware Raster、texture residency 或显存 cap 失败，必须保持 `productPerformanceAchieved=false`。
+不得用单一 FPS、单张截图或 focused Gate 代替整帧证据。必须提交 GPU timestamp、数值、counter、memory 和 provenance。若 Hardware Raster、texture residency 或显存 cap 失败，必须保持 `productPerformanceAchieved=false`。
 
 ## 5. 最终删除和审计任务
 

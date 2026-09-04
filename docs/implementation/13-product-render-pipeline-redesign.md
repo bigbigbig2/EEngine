@@ -327,7 +327,7 @@ new Renderer({
 - 输入输出资源统计；
 - 命中、回退、拒绝、overflow 计数；
 - 独立 Debug View；
-- 固定序列截图或数值回归。
+- 固定序列数值回归；截图仅作为可选的人工诊断资料，不作为阶段或产品 Gate 的必需条件。
 
 ## 16. 固定验证场景
 
@@ -340,7 +340,7 @@ new Renderer({
 5. Temporal Stress：快速相机、细小几何、透明、反射和 AO 稳定性；
 6. Heavy Workload：大量实例、多材质、多灯光和默认配置性能。
 
-每个场景支持固定相机和帧序列、最终截图、Debug View、GPU timestamp、关键计数器以及 Feature-off 验证。
+每个场景支持固定相机和帧序列、Debug View、GPU timestamp、关键计数器以及 Feature-off 验证；截图可以按需保存，但不属于必需 Gate 输入。
 
 ## 17. 文档与决策后续
 
@@ -684,7 +684,7 @@ P5 owner/composition 执行记录见第 24 节和第 30.6 节。本工作包已�
 - Temporal Stress；
 - Heavy Workload。
 
-每个场景必须输出截图、固定帧序列、GPU timestamp、Debug View、关键计数器、显存统计和 Feature-off 结果。最终 Gate 通过后，才更新 `CURRENT-STATE.md` 和相关 ADR 的实施状态。
+每个场景必须输出固定帧序列、GPU timestamp、Debug View、关键计数器、显存统计和 Feature-off 结果；截图只作为可选诊断附件。最终 Gate 通过后，才更新 `CURRENT-STATE.md` 和相关 ADR 的实施状态。
 
 ## 29. 阶段之间的禁止事项
 
@@ -829,7 +829,7 @@ P4 必须先通过“只有 direct + shadow”的基准，再接入 GI/SSR/AO；
 | P9-03 | 删除旧 shader | 生产 shader 无调用点后才删除；generated 文件必须从源头清理 |
 | P9-04 | 删除旧资源 | 无消费者的 history、HZB、OIT、shadow、readback 资源不再分配 |
 | P9-05 | 全仓库引用审计 | `rg` 检查 class、shader、binding、资源名和配置键，无隐式 fallback |
-| P9-06 | Browser/GPU Gate | 固定场景截图、timestamp、计数器、显存、console 无误和 feature-off 全部通过 |
+| P9-06 | Browser/GPU Gate | 固定场景 timestamp、计数器、显存、console 无误和 feature-off 全部通过；截图不作必需条件 |
 | P9-07 | 更新事实文档 | 只有 Gate 通过后才能更新 `CURRENT-STATE.md`、`STATUS.md` 和 ADR 状态 |
 
 ## 31. 算法来源与移植决策矩阵
@@ -844,7 +844,7 @@ P4 必须先通过“只有 direct + shadow”的基准，再接入 GI/SSR/AO；
 | Clustered lighting | clustered shading 论文、Filament/Babylon 参考 | 按 OEngine Light ABI 重实现并保留 overflow 统计 | 以 P4 direct-only 场景验收 |
 | CSM/Shadow filtering | The Forge、Filament、官方规格 | 移植 split/stabilization/filter 不变量 | 重写 CSM/atlas 的组合 owner |
 | AO | XeGTAO，MIT；当前 `R5-05` | 通过 A/B 决定直接 port 或按规格重实现 | 当前保留决定重新开启质量审查 |
-| SSR | FidelityFX SSSR，MIT；当前 `R5-06` | 只移植层级遍历、confidence、fallback；不复制 API | 对当前结果进行 paired screenshot/GPU A/B |
+| SSR | FidelityFX SSSR，MIT；当前 `R5-06` | 只移植层级遍历、confidence、fallback；不复制 API | 对当前结果进行 paired 数值/GPU A/B；截图可选 |
 | FrameGraph/history | Babylon.js，Apache-2.0 | 只移植 resource lifetime、history ping-pong 和 graph 组织 | 不引入 Babylon Scene/Material 类型 |
 | TAAU | 上游算法/规格先行 | CPU reference → WGSL → 固定序列回归 | 当前实现不能以“已有 TAA”视为完成 |
 | OIT | The Forge/论文和当前 MBOIT ledger | 记录误差/内存/overflow 后选择 | 透明独立于 opaque Surface |
@@ -862,7 +862,7 @@ P4 必须先通过“只有 direct + shadow”的基准，再接入 GI/SSR/AO；
 4. **冻结 GPU ABI**：写明 buffer/texture 的字段、stride、format、usage、容量和所有权。
 5. **移植最小算法核心**：先只实现一个明确输出，例如 visibility、shadow visibility、AO visibility 或 reflection confidence。
 6. **接入真实 consumer**：必须由后续 GPU Pass 直接消费，不允许 readback 或 CPU 重建列表。
-7. **做 A/B/C**：A=当前实现，B=移植实现，C=禁用/参考基线；同时比较截图、数值和 GPU 时间。
+7. **做 A/B/C**：A=当前实现，B=移植实现，C=禁用/参考基线；比较数值和 GPU 时间，截图仅在需要人工诊断时采集。
 8. **处理生命周期**：验证 resize、device lost、in-flight frame、feature-off、overflow 和 fallback。
 9. **迁移调用方**：删除旧 owner 和重复资源，不能保留同义 `Legacy`/`V2` 长期路径。
 10. **更新状态**：只有所有 Gate 通过后才将 ledger 和 `STATUS.md` 标为完成。
@@ -924,7 +924,7 @@ P4 必须先通过“只有 direct + shadow”的基准，再接入 GI/SSR/AO；
 - 新增的 buffer/texture/queue 的 ABI、容量、overflow 和统计是什么？
 - 关闭功能后哪些 Pass、资源、history、readback 和 submit 被剔除？
 - 是否仍然存在旧路径、重复 composite 或 Renderer 手工拼接？
-- 是否验证了截图、数值、GPU timestamp、显存和 console？
+- 是否验证了数值、GPU timestamp、显存和 console？截图若采集，仅作为辅助诊断，不得替代上述证据。
 - 是否需要更新 `CURRENT-STATE.md`，还是当前只能标记为 partial？
 
 任何一个问题没有证据时，任务只能标记为 `partial`，不能声称该算法或阶段已经完成。

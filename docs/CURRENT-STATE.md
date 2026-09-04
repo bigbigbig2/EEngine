@@ -56,7 +56,7 @@ WebGPU 主帧目前使用单一 `Renderer` command encoder 和 steady main submi
 - FX-01–03：Surface、Clustered Direct、IBL focused Gate 已有 clean artifact。
 - FX-04–05：Packed directional CSM、Packed MBOIT focused Gate 已有 artifact；普通 Scene shadow/OIT 仍保留。
 - FX-06A/07/08：Temporal foundation、AO、SSR revalidation 已有 focused artifact；它们不等于整帧 TAAU、综合画质或 G5-T。
-- R5-Q01–Q06：Render Contract、composition、GTAO/SSR correction、两层 temporal validity、Catmull-Rom TAA、bucketed DRS、FramePlan/FrameGraph 校验已迁入生产路径；当前提交后的 clean/full exit artifact 尚未补齐。
+- R5-Q01–Q06：Render Contract、composition、GTAO/SSR correction、两层 temporal validity、Catmull-Rom TAA、bucketed DRS、FramePlan/FrameGraph 校验已迁入生产路径；当前提交后的 clean/full 数值/timestamp/memory artifact 尚未补齐，截图不属于必需证据。
 
 仍未闭环的产品问题：
 
@@ -68,7 +68,7 @@ WebGPU 主帧目前使用单一 `Renderer` command encoder 和 steady main submi
 
 ## 下一跳
 
-1. 在代码提交后重新运行 R5-Q04–Q06 的 clean/full 浏览器证据，并更新 `PERFORMANCE.md` 和 `STATUS.md`。
+1. 在代码提交后重新运行 R5-Q04–Q06 的 clean/full 数值、timestamp、memory 和 diagnostics 证据，并更新 `PERFORMANCE.md` 和 `STATUS.md`；不要求截图回归。
 2. 按 FX-09 → FX-12 顺序收口 Post、融合和旧 consumer/shader 删除；每次删除必须先有真实引用和替代 consumer 证据。
 3. 执行 G5-P：目标场景 all-on、A/B/C、正确性 adapter、GPU phase、显存/I/O、feature-off 和 clean provenance 全部通过后，才可把 R5 标为 `产品闭环`。
 

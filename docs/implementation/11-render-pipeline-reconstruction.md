@@ -597,7 +597,7 @@ dead control，但必须在本文件记录；这类接线修复不能用于宣�
 - Q02：GTAO 输出独立 Ambient Visibility/Bent Normal，不再写 `albedoAo.a`；Indirect composition 分别消费 Material AO 与 Ambient Visibility。IBL baseline 先进入 Complete Opaque HDR，SSR 读取该 HDR 后由 `SpecularCorrectionPass` 添加 `resolved - baseline`。Exposure 固定读取 Bloom 前 HDR，Sharpen 在 Bloom composite 后执行。
 - Q03：生产默认 half resolution；raw radius/falloff 以 meters 配置后换算 world units；新增 AO-resolution linear/view-depth product；Temporal blend 使用完整 `history_weight`；联合 bilateral resolve 同时输出 full-resolution visibility 与 bent normal，并读取深度/法线边界。FX-07 增加 0.1x/1x/10x physical-scale contract stage。
 - 删除/替代：production AO alpha-min composite 与 nearest bent-normal upsample 已移除；SSR 不再替代 baseline IBL specular。
-- 当前验证：TypeScript/build 与 317 项 Node tests 通过。dirty/full FX-07 和 FX-08 浏览器 Gate 均 `passed=true`、issues 与 WebGPU validation/uncaptured/device-lost 为 0；FX-07 static temporal RMS `0.299 -> 0.069`，pan/disocclusion settle RMS `0.191/0.213`；FX-08 hit/miss `40,550/879,297`，pan/disocclusion response RMS `9.966/96.742` 且 settle 均为 `0`。运动验收截图使用 production Linear HDR，AO raw/denoised/temporal debug view 只承担静态诊断。当前 artifact 绑定 dirty worktree，故 `gateEligible=false`；提交后的 clean/full runner 仍是正式退出证据。
+- 当前验证：TypeScript/build 与 317 项 Node tests 通过。dirty/full FX-07 和 FX-08 的历史数值、history、feature-off、diagnostics 和局部 GPU 证据已登记；截图只承担可选静态诊断。当前 artifact 绑定 dirty worktree，故 `gateEligible=false`；提交后的 clean/full 数值/timestamp/memory runner 仍是正式退出证据，不要求截图。
 
 ### R5-Q04 — SSR 2.0
 
@@ -705,13 +705,13 @@ temp/r5-quality/<phase>/<commit>/<profile>/<session>/
   sequences/
 ```
 
-每个 Gate 在 `PERFORMANCE.md` 登记 commit、路径、环境、settings/profile hash、P50/P95/P99、工作量、显存、截图/序列 hash 和结论。算法采用同步更新 porting ledger；长期决策改变才新增 ADR；代码真正改变后才更新 `CURRENT-STATE`。
+每个 Gate 在 `PERFORMANCE.md` 登记 commit、路径、环境、settings/profile hash、P50/P95/P99、工作量、显存、数值/序列结果和结论；截图 hash 如有采集可附带但不作为必需字段。算法采用同步更新 porting ledger；长期决策改变才新增 ADR；代码真正改变后才更新 `CURRENT-STATE`。
 
 新测试从深模块 interface 验证行为。替换完成后删除旧浅模块测试，禁止保留第二条 production 路径或继续叠加只验证内部实现细节的测试。
 
 ## 18. 首个实施入口
 
-当前执行入口为 `R5-Q Product Closure / G5-P`。Q01–Q06 的代码迁移已完成，但其正式 clean/full exit artifact 必须在提交后补采；若 full Gate 暴露回归，应回到对应 Q01–Q06 owner 修复，不能以迁移记录替代验收。
+当前执行入口为 `R5-Q Product Closure / G5-P`。Q01–Q06 的代码迁移已完成，但其正式 clean/full 数值/timestamp/memory exit artifact 必须在提交后补采；若 full Gate 暴露回归，应回到对应 Q01–Q06 owner 修复，不能以迁移记录替代验收。
 
 在 Q00 完成前，不接受下列内容作为修复完成：
 

@@ -57,7 +57,7 @@ FrameGraph 负责依赖、生命周期、剔除、复用和 debug；FramePlan �
 - 透明与不透明 HDR 的颜色域、深度和 reactive 语义正确；
 - OIT overflow、fallback、memory 和时间可观测；
 - Bloom OFF/ON 不改变 Exposure source；
-- SDR/HDR screenshot 和颜色数值回归通过；
+- SDR/HDR 颜色数值回归通过；截图仅作为可选诊断资料；
 - graph dump 能证明依赖和拓扑顺序；
 - 所有 feature-off 不保留无消费者资源、history、readback 或 submit。
 

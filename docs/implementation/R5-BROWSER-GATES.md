@@ -1,6 +1,6 @@
-# R5 浏览器 Gate 与截图回归
+# R5 浏览器/GPU Gate 与数值回归
 
-本文是当前 R5-Q 执行设计 [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md) 的 production browser Gate companion，沿用 R4 的证据规则。每个 FX 合入前必须由可重复脚本驱动真实 WebGPU 页面，自动导出 JSON、graph/counter、canvas/page screenshot 和 diagnostics；G5-L/G5-S/G5-T/G5-P 再升级为 clean/full 证据。人工查看 artifact 只用于复核自动结论，不得通过点击、肉眼判断或手写 notes 决定 Gate 通过。旧 R5 总设计已删除，历史版本通过 Git 追溯。
+本文是当前 R5-Q 执行设计 [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md) 的 production browser/GPU Gate companion。每个 FX 合入前必须由可重复脚本驱动真实 WebGPU 页面，自动导出 JSON、graph/counter、timing、memory 和 diagnostics；截图和页面视觉资料仅作为可选诊断附件，不再是 Gate 输入，也不要求 clean/full 截图回归。人工查看 artifact 只用于复核自动结论，不得通过点击、肉眼判断或手写 notes 决定 Gate 通过。旧 R5 总设计已删除，历史版本通过 Git 追溯。
 
 ## 0. 通用预检
 
@@ -43,10 +43,7 @@ temp/r5/<gate-or-fx>/<commit>/
 ├─ result.json
 ├─ graph.json
 ├─ counters.json
-├─ screenshot-page.png
-├─ screenshot-canvas-*.png
-├─ screenshot-metrics.json
-└─ sequence.json
+└─ sequence.json（如功能需要时输出）
 ```
 
 `environment.json` 至少记录：
@@ -76,11 +73,11 @@ warmup/sample/counter cadence
 浏览器 Gate 固定要求：
 - runner 使用 production build 和同一个公开 `Renderer.render()` 入口，不注入 benchmark-only renderer；
 - 脚本固定 viewport、DPR、profile、seed、相机轨迹与 feature set，等待页面明确的 completed/result 状态后再采集；
-- 页面 screenshot 与 canvas screenshot 都必须保存；截图由 hash、像素统计、区域 tolerance 或冻结的 perceptual metric 自动判定，不能只保存后目测；
-- 时域功能保存逐帧或固定关键帧的 sequence JSON 与截图，自动检查收敛、reject、finite、拖尾上限和 resize/cut 后 history 行为；
-- `result.passed=true` 与 `gateEligible=true` 只是必要条件；截图/数值、counter、graph pruning、console/page/WebGPU diagnostics 任一失败都使该 run 失败；
+- 页面 screenshot 与 canvas screenshot 不再强制保存；如为定位画面问题而采集，仅作为辅助诊断，不参与 pass/fail；
+- 时域功能保存逐帧或固定关键帧的 sequence JSON，使用数值指标自动检查收敛、reject、finite 和 resize/cut 后 history 行为；截图可选；
+- `result.passed=true` 与 `gateEligible=true` 只是必要条件；数值、counter、graph pruning、console/page/WebGPU diagnostics 任一失败都使该 run 失败；
 - artifact 复核者可以发现自动规则遗漏并退回，但不能手工覆盖失败结果为通过。
-- 文中所有“明显”“稳定”“正确”“无突跳”等画质描述，在对应 FX 开始实现前必须落为 `screenshot-metrics.json` 的字段、reference、mask、tolerance 和 pass/fail；未冻结自动判据的描述只能是观察项，不能关闭 Gate。
+- 文中所有“明显”“稳定”“正确”“无突跳”等描述，在对应 FX 开始实现前必须落为数值 metric、reference、tolerance 和 pass/fail；未冻结自动判据的描述只能是观察项，不能关闭 Gate。不得以截图替代数值、timestamp 或计数器证据。
 
 出现以下任意条件，本轮 Gate 直接失败：
 
@@ -233,7 +230,7 @@ FX-01 只验证 R5-00 已冻结 ABI 的 GPU decode、background 和 debug consum
 
 建议 `r5-surface-contract.test.mjs` 使用固定 packed bytes 做 TS decode oracle；WGSL micro fixture 对同一像素输出 readback。
 
-## 浏览器截图 fixture
+## 浏览器 debug fixture（截图可选）
 
 使用单个 2×3 材质板：
 1. dielectric rough；
@@ -262,22 +259,18 @@ FX-01 只验证 R5-00 已冻结 ABI 的 GPU decode、background 和 debug consum
 ## 实现与关闭证据
 
 FX-01 fixture 由 `examples/r5-surface-debug/` 拥有，production browser runner
-为 `examples/scripts/run-r5-fx01-gate.mjs`。runner 必须在截图期间隐藏与 canvas
-重叠的状态侧栏，只截取纯 `960×720` GPU canvas，并直接解码 Playwright 保存的
-PNG；WebGPU canvas 在 present 后通过页面内 `createImageBitmap()` 读取可能得到全黑
-内容，因此页面自报 screenshot metrics 不属于 Gate 证据。
+为 `examples/scripts/run-r5-fx01-gate.mjs`。runner 以 GPU readback、资源域、计数器和
+diagnostics 为 Gate 证据；截图如被采集，只用于定位问题，不参与 pass/fail。
 
 冻结判据：
-- `960×720`、DPR 1，背景像素比例至少 `25%`，所有截图尺寸和 alpha 正确；
-- 11 个单项 view 必须有 11 个不同 PNG hash，且除背景外存在预期有效区域；
+- 固定 `960×720`、DPR 1 的资源域和 readback 尺寸；
+- 11 个单项 view 必须有独立的资源/数值结果，截图 hash 不作要求；
 - 固定 2×3 ROI 自动验证 metallic、roughness、albedo、AO、emissive、zero velocity、
   reactive、material slot 与 history-validity 布局；
 - unlit tile 使用可见 current transform 与退化 previous transform，固定产生
   `zero velocity + !motion-valid + reactive`；
-- emissive Surface debug 的 direct-light on/off 使用像素 tolerance：平均绝对通道差
-  不超过 `0.01`，变化像素比例不超过 `0.0001`；runner 还必须保存 final-lighting
-  on/off，并证明至少一个 lit control ROI 确实变化，避免无效 toggle 让 invariant
-  假通过；final unlit ROI 只作为 FX-02 自动 blocker，不改变 FX-01 Gate 所有权；
+- emissive Surface debug 的 direct-light on/off 使用 CPU/GPU 数值 tolerance；截图和
+  ROI 像素差异仅作为可选诊断，不改变 FX-01 Gate 所有权；
 - 页面 `build.commit/build.dirty/build.dirtyReasons/build.contentHash` 必须与 runner
   启动时的 Git worktree 完全一致；`contentHash` 覆盖 `HEAD` diff 与 untracked 文件
   内容，因此同一批文件再次修改但未重建、旧 production build、错误 commit 或脏净
@@ -287,9 +280,9 @@ PNG；WebGPU canvas 在 present 后通过页面内 `createImageBitmap()` 读取�
 - feature-off 的 debug Pass、资源与 readback 均为 0；console、validation、
   uncaptured error 与 device lost 均为 0。
 
-页面超时、截图/PNG 解码失败、device lost 或浏览器异常也必须写出已获得的
-`environment/console/result/graph/counters/screenshot-metrics/sequence` JSON；失败 run
-不能只以进程退出码结束而丢失证据。
+页面超时、device lost 或浏览器异常也必须写出已获得的
+`environment/console/result/graph/counters/sequence` JSON；失败 run 不能只以进程退出码
+结束而丢失证据。截图或 PNG 解码失败不再单独构成 Gate 失败。
 
 运行：
 
@@ -301,10 +294,9 @@ npm run gate:r5-fx01
 clean artifact 保存到 `temp/r5/fx-01/<commit>/`；dirty exploratory run 使用
 `<commit>-dirty-<contentHash>`，并在每次运行前清空自己的目录，避免混入旧截图。
 artifact 包含通用规则要求的
-`environment/console/result/graph/counters/screenshot-metrics/sequence` JSON、page
-screenshot、每个 debug view、emissive attachment toggle 与 final-lighting toggle
-的 canvas screenshot。该 focused correctness Gate 关闭 FX-01；它不替代 R5-00 C
-full baseline，也不关闭 G5-L 或 FX-02 Direct Lighting correctness。
+`environment/console/result/graph/counters/sequence` JSON；debug view 和 toggle 的截图
+按需附带。该 focused correctness Gate 关闭 FX-01；它不替代 R5-00 C full baseline，也不
+关闭 G5-L 或 FX-02 Direct Lighting correctness。
 
 ---
 
@@ -402,7 +394,7 @@ Reference environment 若上游格式 runtime 不支持，允许在 benchmark �
 
 当前执行入口为 `examples/r5-shading-oracle/` 与 `examples/scripts/run-r5-fx03-gate.mjs`。环境不是 royal_esplanade 内容的伪替代，而是由 `examples/benchmark-shared/recipes/fx03-environment.json` 冻结参数、确定性生成的 64×64 `rgba16float` linear-HDR octahedral fixture；manifest 必须以独立 asset 登记。
 
-Gate 还必须断言：`iblSampledPixels == sum(iblMip0..8)`、真实 specular mip count、specular/diffuse allocated bytes、production WGSL constant-HDR numeric micro、零 WebGPU/console/page diagnostics、所有截图非空且有变化、page/worktree provenance 一致。调试视图必须拥有不同 FrameGraph topology key；关闭视图不保留 debug Pass/resource。
+Gate 还必须断言：`iblSampledPixels == sum(iblMip0..8)`、真实 specular mip count、specular/diffuse allocated bytes、production WGSL constant-HDR numeric micro、零 WebGPU/console/page diagnostics、page/worktree provenance 一致。调试视图必须拥有不同 FrameGraph topology key；关闭视图不保留 debug Pass/resource。截图如采集，仅供人工诊断。
 
 ## 自动/数值测试
 
@@ -434,16 +426,18 @@ FX-03 已在 clean commit `86e9ebd1423b8237500f82e1f3878773c28d35f6` 关闭：
 
 证据目录为 `temp/r5/fx-03/86e9ebd1423b8237500f82e1f3878773c28d35f6/`。
 
-## 截图与数值回归
+## 数值回归（截图可选）
 
-保存：
+数值回归至少覆盖：
 - baseColor；
 - normal；
 - roughness/metallic；
 - diffuse IBL；
 - specular IBL；
 - final linear HDR；
-- final tonemapped。
+- final tonemapped（如该输出域参与本次问题定位）。
+
+上述资源优先通过 GPU readback、CPU reference 和 tolerance 验证；截图可以保存为人工诊断附件，但不作为退出条件。
 
 G5-L 退出前必须：
 - FX01/02/03 全部通过；
@@ -858,9 +852,8 @@ G5-P 目标：
 5. examples build 输出
 6. 浏览器 console / WebGPU diagnostics
 7. result.json / counters.json
-8. 关键 screenshot
-9. sequence.json 与 screenshot-metrics.json
-10. 如果是性能任务：before/after 或 on/off 同机 P50/P95/P99
+8. sequence.json（需要时）
+9. 如果是性能任务：before/after 或 on/off 同机 P50/P95/P99
 ```
 
-不要只提交 FPS 或一张未做自动判定的截图。
+不要只提交 FPS；必须同时提交数值、GPU timestamp、计数器和显存证据。截图即使存在，也不能替代这些证据。

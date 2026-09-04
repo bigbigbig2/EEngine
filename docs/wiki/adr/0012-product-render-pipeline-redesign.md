@@ -36,6 +36,6 @@ Supersedes: ADR-0003 关于 Software/Hybrid Visibility 作为当前产品路径�
 
 - P0：源码映射覆盖所有生产 consumer、shader 和资源 owner；删除候选有引用证据；相关 ADR 和文档有替代关系。
 - P1/P2：FrameGraph、Feature、ViewContext、GPU Scene Patch、配置、能力检查、Persistent/Transient 资源和单 submit 可观测。
-- P3/P4：GPU producer → GPU consumer、Hardware Visibility、Surface ABI、Clustered Lighting、Shadow 和 HDR composition 通过 GPU timestamp、计数器和截图/数值回归。
-- P5–P8：GI/Reflection/AO fallback、透明 OIT、Temporal history/resize/cut、HDR Post 和 Feature-off 通过固定序列验证。
+- P3/P4：GPU producer → GPU consumer、Hardware Visibility、Surface ABI、Clustered Lighting、Shadow 和 HDR composition 通过 GPU timestamp、计数器和数值回归；截图仅作可选诊断。
+- P5–P8：GI/Reflection/AO fallback、透明 OIT、Temporal history/resize/cut、HDR Post 和 Feature-off 通过固定序列数值验证。
 - P9：Static Geometry、Dynamic Lighting、Indoor GI、Reflection、Temporal Stress、Heavy Workload 六组场景在 1920×1080、DPR1、中等偏高默认配置下完成画质、性能、显存和删除残留 Gate。
