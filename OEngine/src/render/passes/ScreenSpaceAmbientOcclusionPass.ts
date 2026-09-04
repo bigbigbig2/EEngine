@@ -45,6 +45,8 @@ export { hilbertIndex } from "../HilbertNoiseTexture.js";
 
 export type ScreenSpaceAmbientOcclusionInputs = {
   depth: ResourceId;
+  /** Current reverse-Z HZB pyramid used for footprint-sized raw samples. */
+  hzb: ResourceId;
   normal: ResourceId;
   velocity: ResourceId;
   occlusionConfidence: ResourceId;
@@ -202,6 +204,7 @@ export class ScreenSpaceAmbientOcclusionPass {
           visibility: resolveTextureView(resources.get(rawVisibility)),
           bentNormals: resolveTextureView(resources.get(bentNormals)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
+          hzb: resolveTextureView(resources.get(inputs.hzb)),
           normal: resolveTextureView(resources.get(inputs.normal)),
           camera: resolveBuffer(resources.get(inputs.camera), "SSAO camera"),
           linearDepth: resolveTextureView(resources.get(linearDepth))
@@ -227,6 +230,7 @@ export class ScreenSpaceAmbientOcclusionPass {
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
     });
     rawBuilder.read(inputs.depth);
+    rawBuilder.read(inputs.hzb);
     rawBuilder.read(inputs.normal);
     rawBuilder.read(inputs.camera);
     rawBuilder.read(linearDepth);
@@ -465,6 +469,7 @@ export class ScreenSpaceAmbientOcclusionPass {
       visibility: GPUTextureView;
       bentNormals: GPUTextureView;
       depth: GPUTextureView;
+      hzb: GPUTextureView;
       normal: GPUTextureView;
       camera: GPUBuffer;
       linearDepth: GPUTextureView;
@@ -499,7 +504,8 @@ export class ScreenSpaceAmbientOcclusionPass {
         this.hilbertView,
         { buffer: resources.camera },
         { buffer: this.rawSettingsBuffer },
-        resources.linearDepth
+        resources.linearDepth,
+        resources.hzb
       ]],
       colorAttachments: [
         {
@@ -856,7 +862,8 @@ function createSsaoRawGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 2, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 3, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 4, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } }
+      { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 6, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } }
     ]
   };
 }

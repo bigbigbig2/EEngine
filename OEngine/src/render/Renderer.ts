@@ -2072,6 +2072,7 @@ export class Renderer {
             })),
             {
               depth: depthRes,
+              hzb: hzbRes,
               normal: gNormalRes,
               velocity: velocityRes ?? depthRes,
               occlusionConfidence: occlusionConfidenceRes ?? depthRes,

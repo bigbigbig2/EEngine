@@ -60,7 +60,7 @@ Renderer 不再知道 Direct、IBL Diffuse、IBL Specular、Background、Indirec
 ### 2C GTAO
 
 - [x] S2-11 radius/falloff 统一使用 PhysicalScaleContract；Renderer 统一通过 `metersToWorldUnits` 注入 world units；
-- [~] S2-12 raw sampling 使用 linear/view depth 和适当 HZB mip；当前已生成 AO-resolution linear/view-depth product，但 raw shader 仍固定读取 mip 0，主 HZB mip 接线待补；
+- [x] S2-12 raw sampling 使用 linear/view depth 和适当 HZB mip；raw shader 依据 sample footprint 从当前 HZB pyramid 选择 mip，并在空 HZB 样本时回退 mip-0 depth；
 - [x] S2-13 默认 half-resolution；AOService 默认 `resolutionScale=0.5`，full 模式仍可显式选择；
 - [x] S2-14 temporal blend 消费 velocity、history confidence、validity；共享 TemporalHistoryRegistry 负责 slot/lifecycle；
 - [x] S2-15 joint bilateral upsample 同时处理 visibility 和 bent normal；单个 full-resolution MRT resolve 完成两者恢复；
@@ -163,6 +163,6 @@ clean/full timestamp 对照并关闭 S2-06；该例外不改变后续数值、�
 - `ScreenSpaceAmbientOcclusionPass` 已经完成 linear/view-depth、horizon sampling、spatial filter、可选 temporal 和 joint bilateral AO+bent-normal resolve；本轮将最终输出包装为不可变 `AmbientOcclusionFrame`；
 - Renderer 不再从 AO 输出的裸字段组装最终 consumer，GI/SSR 只读取 `AmbientOcclusionFrame.visibility` 与 `.bentNormal`；Surface 的 Material AO 通道保持只读；
 - radius/falloff 仍由 `PhysicalScaleContract` 转换，默认 AO 为 half-resolution，history 继续由共享 submission-aware registry 管理；
-- XeGTAO 采用状态为 `retained-current-authored`，未复制其 HLSL/D3D owner；S2-17 只要求固定输入下的数值、GPU timestamp、显存和 diagnostics A/B，截图不再作为 runner 或 Gate 输入。
+- XeGTAO 采用状态为 `retained-current-authored`，未复制其 HLSL/D3D owner；S2-17 只要求固定输入下的数值、GPU timestamp、显存和 diagnostics A/B，截图不再作为 runner 或 Gate 输入。当前仍缺正式 paired A/B，故保持 partial。
 
-当前 2C 状态：S2-11、S2-13～S2-16 `[x]`；S2-12、S2-17 `[~]`。2D S2-18～S2-20 仍未完成，不能删除仍被 `GIService/OpaqueLightingPipeline` 使用的 `IndirectCompositePass`。
+当前 2C 状态：S2-11～S2-16 `[x]`；S2-17 `[~]`。2D S2-18～S2-20 仍未完成，不能删除仍被 `GIService/OpaqueLightingPipeline` 使用的 `IndirectCompositePass`。

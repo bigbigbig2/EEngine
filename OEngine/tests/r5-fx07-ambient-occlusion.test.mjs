@@ -93,6 +93,9 @@ test("FX-07 shader keeps visibility/depth filter arguments in ABI order", () => 
   assert.match(shader, /history_blend, 0\.0, 0\.99\) \* history_weight/);
   assert.match(shader, /radius_world/);
   assert.match(shader, /linear_depth_source/);
+  assert.match(shader, /hzb_sample_depth/);
+  assert.match(shader, /textureNumLevels\(hzb\)/);
+  assert.match(shader, /floor\(log2\(max\(footprint, 1\.0\)\)\)/);
   assert.doesNotMatch(shader, /const falloff_(?:mul|add)\s*=/);
 });
 
@@ -108,6 +111,8 @@ test("FX-07 pass has no frame-parity history owner and prunes temporal work", ()
   assert.match(source, /historyTextureCount/);
   assert.match(source, /historyBytes/);
   assert.match(source, /GTAO linear\/view-depth mip/);
+  assert.match(source, /hzb: resolveTextureView\(resources\.get\(inputs\.hzb\)\)/);
+  assert.match(source, /rawBuilder\.read\(inputs\.hzb\)/);
   assert.match(source, /GTAO joint bilateral AO\+bent-normal resolve/);
   assert.match(source, /frame: ambientOcclusionFrame\(/);
   assert.doesNotMatch(source, /inputs\.albedoAo/);

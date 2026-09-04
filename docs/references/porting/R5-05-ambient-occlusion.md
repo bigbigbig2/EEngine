@@ -96,9 +96,11 @@ temporal 最终 blend 已消费 velocity confidence：`ssao.ts` 的 `velocity_co
 
 Stage 2C 将该 owner 的最终输出固定为 `AmbientOcclusionFrame`（`FrameProducts.ts`）。
 Renderer/GI 只消费其 visibility 与 bent-normal 资源，Surface 的 Material AO 不接受写回。
+raw GTAO 现在同时读取当前 HZB pyramid：按屏幕 sample footprint 选择 mip，空样本回退
+mip-0 depth；linear/view-depth product 仍作为中心像素和 bilateral edge-stop 输入。
 
 2026-09-04 FX-07 exploratory full 在当前提交运行通过：`passed=true`、`issues=[]`；
 raw P01/P95 luma 为 `220/232`，half/full denoised RMS 为 `0.672051`，temporal
 off/on variance 为 `0.298584/0.069136`，camera-pan 与 disocclusion settle RMS 为
 `0.190592/0.212688`。因工作区包含本轮代码，artifact 为 dirty、`gateEligible=false`；
-该证据不替代 clean/full 性能 Gate，也未证明 raw shader 已接入主 HZB mip。
+该证据不替代数值/timestamp/memory 性能 Gate，也不替代正式 XeGTAO paired A/B。

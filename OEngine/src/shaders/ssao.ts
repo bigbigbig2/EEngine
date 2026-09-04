@@ -47,6 +47,7 @@ struct SsaoRawSettings {
 @group(0) @binding(3) var<uniform> camera: CommandEncoder;
 @group(0) @binding(4) var<uniform> settings: SsaoRawSettings;
 @group(0) @binding(5) var linear_depth_mip: texture_2d<f32>;
+@group(0) @binding(6) var hzb: texture_2d<f32>;
 
 fn saturate(value: f32) -> f32 {
   return clamp(value, 0.0, 1.0);
@@ -130,6 +131,18 @@ fn texture_sample_nearest_uv(
     resolution - vec2u(1u)
   );
   return textureLoad(source, coordinate, mip_level);
+}
+
+fn hzb_sample_depth(uv: vec2f, footprint: f32) -> f32 {
+  let levels = textureNumLevels(hzb);
+  let max_mip = levels - 1u;
+  let mip = min(
+    u32(max(0.0, floor(log2(max(footprint, 1.0))))),
+    max_mip
+  );
+  // HZB stores reverse-Z farthest in .x and nearest in .y. Nearest is the
+  // conservative occluder for horizon sampling; mip 0 is exact depth.
+  return texture_sample_nearest_uv(hzb, uv, mip).y;
 }
 
 fn convert_specular_ao(value: u32) -> vec2f {
@@ -276,26 +289,29 @@ fn fs_main(
       sample_fraction = pow(sample_fraction, SAMPLE_DISTRIBUTION_POWER);
       sample_fraction += min_s;
       var sample_offset = sample_fraction * omega;
-      const mip_level = 0u;
       sample_offset = round(sample_offset) * pixel_size;
 
       let sample_uv_0 = uv + sample_offset;
-      let sample_depth_0 = texture_sample_nearest_uv(
-        gr_bucket,
+      var sample_depth_0 = hzb_sample_depth(
         sample_uv_0,
-        mip_level
-      ).x;
+        length(sample_offset * vec2f(viewport_size))
+      );
+      if (sample_depth_0 <= 0.0) {
+        sample_depth_0 = texture_sample_nearest_uv(gr_bucket, sample_uv_0, 0u).x;
+      }
       let reconstructed_position_0 = project_position_from_depth(
         sample_uv_0,
         select(device_depth, sample_depth_0, sample_depth_0 > 0.0),
         camera.view_projection_matrix_inverse
       );
       let sample_uv_1 = uv - sample_offset;
-      let sample_depth_1 = texture_sample_nearest_uv(
-        gr_bucket,
+      var sample_depth_1 = hzb_sample_depth(
         sample_uv_1,
-        mip_level
-      ).x;
+        length(sample_offset * vec2f(viewport_size))
+      );
+      if (sample_depth_1 <= 0.0) {
+        sample_depth_1 = texture_sample_nearest_uv(gr_bucket, sample_uv_1, 0u).x;
+      }
       let reconstructed_position_1 = project_position_from_depth(
         sample_uv_1,
         select(device_depth, sample_depth_1, sample_depth_1 > 0.0),
