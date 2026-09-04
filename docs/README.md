@@ -1,56 +1,26 @@
-# OEngine 文档入口
+# OEngine 内部文档
 
-本目录只保存当前有效的产品方向、架构、性能契约、长期决策和协作知识。当前源码事实只有 [CURRENT-STATE](./CURRENT-STATE.md)，实施阶段状态只有 [implementation/STATUS](./implementation/STATUS.md)。旧实施分册和历史 artifact 只用于追溯，不得覆盖这两个入口。
+这里仅保存当前有效的工程事实。历史阶段、旧指标和被否决方案不在工作树保留，需要时使用 Git 查询。
 
 ## 阅读顺序
 
-| 目的 | 文档 |
-|---|---|
-| 了解项目词汇 | [CONTEXT.md](./CONTEXT.md) |
-| 了解引擎要成为什么 | [DIRECTION.md](./DIRECTION.md) |
-| 了解当前目标平台和 workload | [TARGETS.md](./TARGETS.md) |
-| 理解整体分层和数据所有权 | [ARCHITECTURE.md](./ARCHITECTURE.md) |
-| 理解一帧和软硬件混合渲染 | [RENDER-PIPELINE.md](./RENDER-PIPELINE.md) |
-| 做性能工作或对比 three.js | [PERFORMANCE.md](./PERFORMANCE.md) |
-| 查看已采集基线及其证据等级 | [BASELINE-ARTIFACTS.md](./BASELINE-ARTIFACTS.md) |
-| 核对 Shader 事实源和删除候选 | [SHADER-SOURCES.md](./SHADER-SOURCES.md) |
-| 区分目标与当前代码 | [CURRENT-STATE.md](./CURRENT-STATE.md) |
-| 查看推进顺序 | [ROADMAP.md](./ROADMAP.md) |
-| 查看实施状态、真实 owner 和未关闭 Gate | [implementation/STATUS.md](./implementation/STATUS.md) |
-| 按任务实施、迁移和验收 | [implementation/README.md](./implementation/README.md) |
-| 查看产品级目标架构 | [implementation/13-product-render-pipeline-redesign.md](./implementation/13-product-render-pipeline-redesign.md) |
-| 执行综合渲染管线重构 | [implementation/11-render-pipeline-reconstruction.md](./implementation/11-render-pipeline-reconstruction.md) |
-| 查看长期决策 | [wiki/adr/README.md](./wiki/adr/README.md) |
+1. [PRODUCT.md](./PRODUCT.md)：产品范围、目标平台与非目标。
+2. [ARCHITECTURE.md](./ARCHITECTURE.md)：当前模块、owner 和架构债务。
+3. [PIPELINE.md](./PIPELINE.md)：真实帧流程与跨模块数据合同。
+4. [STATUS.md](./STATUS.md)：唯一可变状态和下一步。
+5. [VALIDATION.md](./VALIDATION.md)：完成与性能证据合同。
 
-## 参考与移植
+## 权威关系
 
-- [references/README.md](./references/README.md)：当前参考路由与优先级。
-- [GPU-DRIVEN.md](./references/GPU-DRIVEN.md)：核心项目映射和历史移植记录。
-- [OPEN-SOURCE-REUSE.md](./references/OPEN-SOURCE-REUSE.md)：许可证、性能和 WebGPU 适配规范。
-- [references/deferred](./references/deferred/README.md)：不支配当前路线的超大世界、高级 GI 等研究。
+- 协作规则：仓库及最近的 `AGENTS.md`。
+- 长期决策：[adr/](./adr/README.md)。
+- 外部算法、资产和许可证：[porting/](./porting/README.md)。
+- 当前事实：源码、WGSL、测试和 Rendering Lab；文档与代码冲突时先修正文档。
 
-## 文档系统
+## 决策与来源
 
-```text
-AGENTS.md                     全仓库稳定约束
-CONTEXT-MAP.md                任务 → 领域 → 搜索根
-docs/CONTEXT.md               共享术语
-docs/contexts/*/CONTEXT.md    领域语言与职责
-docs/implementation/STATUS.md  唯一实施状态入口
-docs/implementation/README.md  当前执行入口与完成规则
-docs/implementation/          当前执行、Gate 与删除收口文档
-OEngine/**/AGENTS.md          靠近代码的所有权规则
-docs/wiki/adr/                长期架构决策
-docs/wiki/agents/             Agent 工作流程
-docs/wiki/lessons/            已验证的疑难经验
-docs/wiki/tracker/            PRD/Issue 约定
-```
+架构变更先查 ADR。采用或改写外部实现前先查 porting ledger；未登记的表达性代码不得进入运行路径。
 
-## 写作纪律
+## 历史查询
 
-- 方向、目标和事实分开写；当前代码存在不代表长期接受。
-- ADR 只记录已接受决策；尚未决定的内容留在讨论或 tracker。
-- 同一规则只保留一个 owner，其他文档使用链接。
-- `CURRENT-STATE` 只拥有当前代码事实；`STATUS` 只拥有当前阶段状态；`ROADMAP` 只拥有阶段依赖；`implementation/README` 只拥有当前执行入口。
-- 文档必须提供下一跳，不创建孤立长文。
-- 过期内容从当前导航移出；只有仍有调查价值且明确标注历史时才保留为 reference。
+工作树不设 archive。使用 `git log -- docs`、`git show <commit>:<path>` 查询旧阶段文档。

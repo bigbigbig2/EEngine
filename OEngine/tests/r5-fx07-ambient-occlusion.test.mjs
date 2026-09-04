@@ -130,7 +130,7 @@ test("FX-07 raw, denoised and temporal AO debug views are production-supported",
 
 test("FX-07 reference record pins XeGTAO provenance and retained-current decision", () => {
   const ledger = readFileSync(
-    new URL("../../docs/references/porting/R5-05-ambient-occlusion.md", import.meta.url),
+    new URL("../../docs/porting/shading.md", import.meta.url),
     "utf8"
   );
   assert.match(ledger, /0d177ce06bfa642f64d8af4de1197ad1bcb862d4/);

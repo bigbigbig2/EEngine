@@ -148,7 +148,7 @@ test("FX-08 hit-miss and history-confidence debug views are production-supported
 
 test("FX-08 reference record retains current authored SSR before considering replacement", () => {
   const ledger = readFileSync(
-    new URL("../../docs/references/porting/R5-06-screen-space-reflections.md", import.meta.url),
+    new URL("../../docs/porting/shading.md", import.meta.url),
     "utf8"
   );
   assert.match(ledger, /FidelityFX SSSR/);

@@ -232,7 +232,7 @@ test("FX-06 temporal evidence extends the additive sampled counter ABI", () => {
 
 test("FX-06 porting ledger freezes exact licensed sources and A/B scope", () => {
   const ledger = readFileSync(
-    new URL("../../docs/references/porting/R5-04-temporal-upscale.md", import.meta.url),
+    new URL("../../docs/porting/shading.md", import.meta.url),
     "utf8"
   );
   assert.match(ledger, /4795aa0007d464371abe60b7b28a1cf893a4e349/);

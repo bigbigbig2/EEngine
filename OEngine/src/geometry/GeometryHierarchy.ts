@@ -894,7 +894,7 @@ function projectedWorldGeometryErrorPixels(
   conservativeScale: number,
   view: GeometryHierarchyView
 ): number {
-  // Algorithm provenance: docs/references/porting/R3-01-hierarchical-work-generation.md
+  // Algorithm provenance: docs/porting/geometry.md
   // Bevy meshlet_cull_shared.wgsl:14-36 supplies the scale/nearest-distance and
   // perspective/orthographic structure. OEngine keeps worldError scaled in
   // both branches and uses its explicit viewport-height convention.

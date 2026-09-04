@@ -4,7 +4,7 @@
  * The records contain only stable table indices. Queue ownership, capacity and
  * lifetime remain internal to the future HierarchicalWorkGenerator module.
  * Reservation provenance and WebGPU differences are recorded in
- * docs/references/porting/R3-01-hierarchical-work-generation.md.
+ * docs/porting/visibility.md.
  */
 
 export const GPU_WORK_GENERATION_ABI_VERSION = 5;

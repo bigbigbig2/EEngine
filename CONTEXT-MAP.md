@@ -1,42 +1,26 @@
 # OEngine 领域路由
 
-第一次搜索或修改前完整阅读本文件。先在首选搜索根中定位 owner；只有命中跨领域符号或 Context 无法解释时才扩大范围。
+第一次搜索或修改前读本页。先从首选源码根定位真实 owner，再读一份权威文档；不要从历史任务编号扩大搜索范围。
 
-| 任务关键词 | 领域 Context | 首选搜索根 |
-|---|---|---|
-| 导入、Cook、meshopt、压缩、运行时资产 | `docs/contexts/asset-pipeline/CONTEXT.md` | `OEngine/src/loaders`、`OEngine/src/geometry` |
-| Scene、Node、World、Change Set、实例 | `docs/contexts/world-runtime/CONTEXT.md` | `OEngine/src/scene`、`OEngine/src/animation` |
-| GPU Scene、表、handle、resident、allocator | `docs/contexts/gpu-world/CONTEXT.md` | `OEngine/src/gpu` |
-| Meshlet、Cluster、LOD、BVH、几何误差 | `docs/contexts/geometry/CONTEXT.md` | `OEngine/src/geometry`、`OEngine/src/gpu/GeometryBlasPool.ts` |
-| Culling、HZB、Indirect、Visibility、软光栅 | `docs/contexts/visibility/CONTEXT.md` | `OEngine/src/render/passes/VisibilityPass.ts`、`OEngine/src/gpu/MeshletDrawList.ts`、`OEngine/src/shaders` |
-| 材质解析、GBuffer、光照、阴影、TAA、SSR | `docs/contexts/shading/CONTEXT.md` | `OEngine/src/render/passes`、`OEngine/src/material`、`OEngine/src/shaders` |
-| Device、WebGPU limits、Canvas、资源缓存 | `docs/contexts/platform/CONTEXT.md` | `OEngine/src/gpu/GraphicsContext.ts`、`OEngine/src/core/WebGPUTypes.ts` |
-| FPS、GPU timestamp、带宽、benchmark | `docs/contexts/performance/CONTEXT.md` | `docs/PERFORMANCE.md`、`OEngine/src/framegraph`、相关 Pass |
-| 实施状态、步骤、迁移、删除、验收 | `docs/implementation/STATUS.md` → `docs/implementation/README.md` | `docs/implementation`、命中的代码领域 |
+| 任务 | 首选源码根 | 权威文档 |
+| --- | --- | --- |
+| 产品范围、平台、workload | `OEngine/src/index.ts`、Renderer capability | `docs/PRODUCT.md` |
+| 导入、Cook、meshoptimizer、Runtime Asset | `OEngine/src/loaders`、`OEngine/src/geometry` | `docs/ARCHITECTURE.md`、`docs/porting/geometry.md` |
+| Scene、实例、patch | `OEngine/src/scene`、`OEngine/src/gpu/GpuScene.ts` | `docs/ARCHITECTURE.md` |
+| GPU 资产、表、resident、Packed Scene | `OEngine/src/gpu` | `docs/ARCHITECTURE.md`、`docs/adr/0002-runtime-assets-and-gpu-driven.md` |
+| Meshlet、Cluster、hierarchy、SSE | `OEngine/src/geometry`、`OEngine/src/gpu` | `docs/PIPELINE.md`、`docs/porting/geometry.md` |
+| Culling、HZB、Indirect、VisibilityKey | `OEngine/src/gpu`、`OEngine/src/render/passes`、`OEngine/src/shaders` | `docs/PIPELINE.md`、`docs/porting/visibility.md` |
+| Surface、材质、光照、阴影、GI/AO/SSR/OIT/TAA/Post | `OEngine/src/render`、`OEngine/src/material`、`OEngine/src/shaders` | `docs/PIPELINE.md`、`docs/porting/shading.md` |
+| Device、limits、FrameGraph、cache、readback | `OEngine/src/gpu/GraphicsContext.ts`、`OEngine/src/framegraph` | `docs/ARCHITECTURE.md`、`docs/porting/platform.md` |
+| 性能、内存、counter、browser evidence | `OEngine/src/debug`、`OEngine/benchmarks`、`examples/rendering-lab` | `docs/VALIDATION.md` |
+| 当前风险、迁移顺序 | 命中的生产 owner | `docs/STATUS.md` |
 
 ## 共享入口
 
-- 项目词汇：`docs/CONTEXT.md`
-- 产品方向：`docs/DIRECTION.md`
-- 当前目标平台与 workload：`docs/TARGETS.md`
-- 总体架构：`docs/ARCHITECTURE.md`
-- 一帧主管线：`docs/RENDER-PIPELINE.md`
-- 当前事实：`docs/CURRENT-STATE.md`
-- 长期决策：`docs/wiki/adr/`
-- 详细执行：`docs/implementation/README.md`
-- Agent 工作方法：`docs/wiki/agents/`
-- 外部项目路由：`docs/references/README.md`
+- 文档总入口：`docs/README.md`
+- 长期架构决策：`docs/adr/`
+- 外部来源与许可证：`docs/porting/`
+- 公开 interface：`OEngine/src/index.ts`
+- 当前浏览器 fixture：`examples/rendering-lab/`
 
-## 研究与移植参考
-
-- 当前 GPU-driven 核心、Visibility/Material、画质与 WebGPU 工程参考：`docs/references/README.md`。
-- 开源复用、许可证、性能和 WebGPU 适配门槛：docs/references/OPEN-SOURCE-REUSE.md。
-- 简要项目映射和已有 OEngine 移植记录：docs/references/GPU-DRIVEN.md。
-- 超大世界、虚拟化几何、高级 GI 等非当前范围研究：`docs/references/deferred/`。
-
-## 本地参考边界
-
-- `three.js/examples/webgpu_compute_rasterizer*.html`：性能和算法基线。
-- `three.js/src`、`three.js/examples/jsm`：three.js authored source。
-- `webgpufundamentals/`：WebGPU 学习材料。
-- 参考代码只能提供证据；许可证、WebGPU 能力和 OEngine ABI 必须重新核对。
+外部项目不在本仓库保存镜像。需要采用算法时，从 porting ledger 的固定 URL/revision 路由到上游；无许可证或未登记来源的表达性代码不得复制。

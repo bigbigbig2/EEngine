@@ -1,7 +1,7 @@
 /**
  * color_grading：线性 HDR 色彩分级着色器。
  *
- * 参考 Filament ColorGrading（Apache-2.0，见 docs/references/porting/R5-0x-color-grading.md）
+ * 参考 Filament ColorGrading（Apache-2.0，见 docs/porting/shading.md）
  * 的 lift/gamma/gain、saturation、contrast 不变量，全程保持在线性 HDR 域；
  * tone mapping 与 sRGB 编码由后续 TonemapPass 完成，本阶段不做任何非线性输出变换。
  *

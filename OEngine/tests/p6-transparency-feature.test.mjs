@@ -31,7 +31,9 @@ test("P6 keeps GPU OIT contracts and explicit lifecycle", async () => {
   assert.match(renderer, /this\._transparencyFeature!\.addLegacyToGraph/);
 });
 
-test("P6 scope explicitly excludes transmission, refraction and transparent dynamic GI", async () => {
-  const design = await readFile(new URL("../../docs/implementation/13-product-render-pipeline-redesign.md", import.meta.url), "utf8");
-  assert.match(design, /不实现 Transmission、Refraction 和透明对象动态 GI/);
+test("transparency feature keeps the current bounded OIT scope", async () => {
+  const feature = await readFile(new URL("../src/render/features/TransparencyFeature.ts", import.meta.url), "utf8");
+  assert.match(feature, /PackedTransparentOitPass/);
+  assert.match(feature, /TransparentOitPass/);
+  assert.doesNotMatch(feature, /TransmissionPass|RefractionPass|TransparentDynamicGi/);
 });

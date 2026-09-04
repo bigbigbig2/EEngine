@@ -1,87 +1,55 @@
-# OEngine 目标架构
+# OEngine 架构
 
-## 总体分层
+## 当前实现
+
+公开入口由 `OEngine/src/index.ts` 控制。生产依赖大体沿 `core → runtime assets/loaders → gpu → framegraph/render → public interface` 流动；内部 Pass、GPU 表和 Shader ABI 默认不公开。
+
+`OEngine/src/render/Renderer.ts` 当前为 3853 行的大型 composition root。它拥有设备初始化、FramePlan、主 FrameGraph、Feature/Service 装配、采样证据和生命周期收尾；这是现状，不是目标形态。
+
+## 依赖方向
 
 ```text
-Offline Cooker / Validator
-          │
-Compact Runtime Asset Package
-          │
-GPU Asset Tables + Mostly-static GPU Scene
-          │
-Hierarchical Work Generator
-          │
-Hardware-first Visibility Consumer
-          │
-Unified VisibilityKey / Depth
-          │
-Single Material Resolve
-          │
-Lighting / Shadow / Temporal / Post
-          │
-Present
+Source asset
+  → validated Runtime Asset package
+  → GpuAssetStore / GpuScene / GpuPackedSceneRegistry
+  → FramePlan + FrameGraph
+  → Visibility / Surface / Lighting / Transparency / Temporal / Post
+  → present and asynchronous evidence
 ```
 
-架构围绕深 module 组织：复杂算法、容量、fallback 和生命周期隐藏在小 interface 后，Renderer 只拥有组合与调度，不吸收算法实现。
+CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见工作必须由 GPU 队列直接供 GPU consumer 使用，不能回读后由 CPU 重建 draw list。
 
-## Module 与所有权
+## 模块与 Owner
 
-### Asset Cooker
+| 边界 | 当前 owner | 责任 |
+| --- | --- | --- |
+| Runtime Asset | `src/geometry/GeometryAssetPackage.ts`、loaders | 验证、recipe、稳定记录 |
+| GPU 资产 | `src/gpu/GpuAssetStore.ts` | geometry/material/texture residency |
+| 场景实例 | `src/gpu/GpuScene.ts` | instance 数据和显式 patch |
+| Packed 场景 | `src/gpu/GpuPackedSceneRegistry.ts` | Packed runtime 生命周期 |
+| GPU 工作 | `src/gpu/GpuWorkGenerationAbi.ts` 及 work-generation owners | 队列 ABI、容量、overflow、indirect args |
+| 帧资源 | `src/framegraph/FrameGraph.ts` | 资源、依赖、pruning 和执行 |
+| 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/shadow/main-view 顺序 |
+| 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | Surface、lighting、AO、reflection、temporal 合同 |
+| 功能组合 | `src/render/features/*.ts` | Feature/Service 生命周期与 feature-off |
+| 总装 | `src/render/Renderer.ts` | 单帧 composition 和提交 |
 
-拥有源资产规范化、Meshlet、Cluster hierarchy、BVH8、几何误差、压缩顶点流、纹理预处理和 Runtime Asset 校验。输出设备无关、可版本化；Loader 临时对象不得进入 GPU 热路径。
+## 生命周期与资源所有权
 
-### GPU Asset Tables
+Runtime Asset 是设备无关事实；GPU owner 由设备和 Renderer 生命周期控制。资源释放必须经过提交边界，不能让 Loader、Scene 临时对象或 FrameGraph 外部引用隐式延长 GPU 对象寿命。持久 history、shadow atlas、LPV 和 asset residency 与 transient frame attachment 分开统计。
 
-拥有 Geometry、Cluster、Material、Texture 和 Light 的紧凑 GPU 记录、容量和 resident bytes。当前优先全驻留和批量上传，给可选 texture residency 保留稳定 handle，不提前实现虚拟几何页系统。
+## 公开接口
 
-### GPU Scene
+`src/index.ts` 是唯一公开 interface。新增内部 Feature、Pass、Shader 或 ABI 不应自动导出；只有稳定且被外部调用方需要的能力才进入入口。
 
-拥有 mostly-static Instance Table、Packed Instance Set、当前/上一帧变换和少量增量更新。当前 interface 优先 bulk create/upload 与 transform/material patch，不建设完整 Gameplay 生命周期或通用 ECS。
+## 当前双路径
 
-### Hierarchical Work Generator
+Packed 路径已经输出 `VisibilityKey`、Surface 和 velocity，但普通 Scene 仍保留 legacy 路径。`Renderer.ts` 仍通过 `packedResolveOut ?? obtainLegacyMaterialExpand()` 选择材质解析；legacy 场景还使用 `MaterialExpandPass`、`VelocityPass` 和 `TransparentOitPass`。Packed transparency 则由 `PackedTransparentOitPass` 提供。AO、SSR 与 GI 已经由 `AOService`、`ReflectionService`、`GIService` 组合，但底层旧 owner 尚未全部消失。
 
-从 instance cull 进入 Cluster hierarchy traversal，在展开大量 Meshlet 前完成 SSE LOD、frustum/cone/HZB culling，输出 compact `VisibleCluster`、Hardware RasterWork 和 indirect args。R3 v1 以 Cluster hierarchy root→children 作为正确性主干；当前 R2 BVH8 同时索引不同 LOD 层的 Cluster，没有 parent/descendant 互斥 cut 语义，因此不进入首版热路径。所有真实队列必须定义 ABI、capacity、attempted/written/peak/overflow/fallback、producer 和 consumer；没有 SW consumer 时不创建 SW queue。
+## 目标差距
 
-该 module 的外部 interface 只接受 Packed Scene/View/配置并返回 RasterWork、indirect args 和 evidence。ping/pong rounds、原子预约、SSE、容量与 fallback 隐藏在 implementation 内；frame-local work resources 不由长期 Scene registry 拥有。
-
-### Hardware Visibility Consumer
-
-WebGPU baseline 采用现有 single `drawIndirect` consumer：GPU 将可见 Meshlet 数写入 `instanceCount`，固定功能光栅通过 `instance_index`/vertex pulling 读取 compact list。当前 `384 vertices × visible meshlet instances` 是已存在 baseline，需要继续验证不足 128 triangles 的无效工作、随机读取和多 bucket 成本。
-
-MDI、mesh/task shader、buffer device address 不属于 baseline。Compute Micro Raster 是同一 Visibility module 的可选 adapter，不替代 Hardware correctness path。
-
-### Unified Visibility
-
-HW、Alpha 和可选 SW 路径输出同一 frame-local VisibilityKey 与 reverse-Z depth。Key 编码 `rasterWorkSlot + localTriangle`，再经 `RasterWork → VisibleCluster + Meshlet` 唯一定位 multi-Meshlet Cluster 内 triangle。该 module 隐藏 key 分配、depth tie、overflow、transfer 和 debug 逻辑；下游 Material Resolve 不知道像素来自哪种光栅实现。
-
-### Material Resolve
-
-一次扫描可见像素，按 VisibilityKey 回查 RasterWork、VisibleCluster/Meshlet、Geometry、Instance、MaterialTable 和有界 TextureRef，重建 PBR surface 与 Velocity。当前每材质全屏 Material Expand 属于明确删除对象；未来自定义材质使用有证据且有硬上限的 Shader Bin，不恢复无界全屏循环。
-
-### Lighting / Temporal
-
-Clustered Lighting、IBL、CSM、Transparency、Temporal Reconstruction、Upscaling 和 Post 共用 Depth/HZB/Velocity/Surface。Decal 只保留 receiver/material 接入 seam，当前未定义 producer/Gate 并延期；地形、植被、角色、云、水等项目通过这些稳定输入输出接入，不进入当前核心实现。
-
-### FrameGraph
-
-拥有 Pass 依赖、feature pruning、瞬态资源生命周期、拓扑缓存和命令编码。算法 module 向 FrameGraph 声明完整 read/write/create；功能关闭后对应节点和资源必须消失。
-
-## 关键 seam
-
-| Seam | 输入 | 输出 | 不允许泄漏 |
-|---|---|---|---|
-| Source → Runtime Asset | glTF/源资产 | versioned package | Loader 临时对象、GPU handle |
-| Runtime Asset → GPU Tables | package handle | resident table ranges | 裸 Buffer 地址、源格式对象 |
-| Scene → Work Generator | compact instance tables + view | VisibleCluster + RasterWork + indirect args | CPU 可见列表、round/queue 内部布局 |
-| Work Generator → HW Consumer | visible meshlet list + indirect args | VisibilityKey + depth | CPU draw loop、未 clamp raw count |
-| Raster → Resolve | VisibilityKey + depth | Surface + Velocity | 光栅实现特有材质逻辑 |
-| Resolve → Effects | Surface/Depth/Velocity | HDR/history | 每材质全屏扫描 |
-| Pass → FrameGraph | 完整资源依赖 | encoded commands | 隐式跨 Pass 资源 |
-
-## WebGPU capability profile
-
-- 主要性能目标是桌面级 WebGPU adapter。
-- 核显或较低能力 adapter 先保证明确 capability 结果与正确 fallback，不作为近期主要性能 Gate。
-- 可选 feature 选择同一 module 的 adapter，不产生第二条产品管线。
-- `texture-formats-tier1` 等 required feature 必须在设备创建前协商；若无兼容 adapter，则明确拒绝启动该实现或选择共享正确性 ABI 的 fallback。
-- 64 位原子、multi-draw-indirect、mesh/task shader、buffer device address 不得成为正确性前提。
+- 把 Renderer 缩成 composition shell，资源和路径选择下沉到稳定 Feature/Service。
+- 移除最终 legacy consumer，使 Packed Surface/Velocity/Transparency 成为唯一生产路径。
+- 以真实多资产 Packed Instances、hierarchy/SSE 和固定目标设备证明 GPU 闭环。
+- 关闭四个仍为 unknown 的 oracle/generated shader ownership 风险。
+- 用同条件 GPU timestamp、counter、memory 和 feature-off 证据证明统一主管线，而不是继续增加结构名。

@@ -97,7 +97,7 @@ test("FX-04 shadow atlas stays under the frozen cap and is lazy when feature-off
 
 test("FX-04 porting ledger freezes exact licensed sources and WebGPU differences", async () => {
   const ledger = await readFile(
-    new URL("../../docs/references/porting/R5-02-packed-csm-shadow.md", import.meta.url),
+    new URL("../../docs/porting/shading.md", import.meta.url),
     "utf8"
   );
   assert.match(ledger, /DirectX-SDK-Samples/);
