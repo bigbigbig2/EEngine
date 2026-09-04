@@ -189,8 +189,8 @@ The first Direct-only pass exposed a real shader defect rather than an interface
 the Fresnel helper interpolated to `(F90 - cosine)` with a fourth power. This is not the
 Filament Schlick invariant and causes grazing highlights to lose energy. The runtime shader
 now uses an OEngine-authored `F_Schlick` implementation with the fifth-power term and an
-explicit diffuse/specular energy split. The existing bounded area-light/bent-N·L treatment
-is retained until the later light-shape task is benchmarked.
+explicit diffuse/specular energy split. The previous Oren–Nayar and bent-N·L direct BRDF path
+was removed from this baseline; light-shape broadening remains a separate later task.
 
 ```text
 decision: reimplement (algorithm invariant, no expressive source copied)
@@ -207,7 +207,6 @@ The correction is intentionally local to the Direct-only consumer. The independe
 in `OEngine/src/render/DirectLightingReference.ts` now covers Schlick endpoints, GGX finite
 contributions, dielectric energy and metallic diffuse suppression. FX-02 full exploratory
 validation after the change passed all 16 cases with zero validation/uncaptured/device-loss
-diagnostics (`temp/r5/fx-02/7127427cab7fed462f076a1345036e17bcb3eb2d-dirty-209d780e817b/full/`).
-The artifact is dirty and the independent CPU PBR oracle is not yet present, so this does not
-close the Stage 2A exit Gate; clean/full timestamp and numeric comparison remain required
-before Shadow or GTAO work starts.
+diagnostics (`temp/r5/fx-02/7127427cab7fed462f076a1345036e17bcb3eb2d-dirty-d97a52c3c1df/full/`).
+The artifact is dirty, so this does not close the Stage 2A exit Gate; clean/full timestamp and
+direct-only numeric comparison remain required before Shadow or GTAO work starts.

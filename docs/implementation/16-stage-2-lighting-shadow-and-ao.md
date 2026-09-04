@@ -107,9 +107,9 @@ AO artifact：
 - `FrameProducts.ts` 新增 immutable `DirectLightingFrame` 与 `directLightingFrame()` 校验；
 - `LightingFeature` 将 `LightingPass` 的结果包装为 `direct` 产品；
 - `Renderer` 消费 `lightingFeatureOutput.direct.hdr`，不再读取裸 `hdr` 字段；
-- 公开类型从 `OEngine/src/index.ts` 导出，P4 owner 测试同步检查新 seam。
+- P4 owner 测试同步检查新 seam。
 
-当前仍未完成：Filament 数值对照、Direct-only screenshot/numeric/timestamp Gate、Shadow 和 GTAO。
+当前仍未完成：Direct-only 专用 screenshot/clean timestamp Gate、Shadow 和 GTAO。
 早期阶段截图不作为本切片的阻塞条件；Stage 2 的 Direct-only 算法 Gate 仍必须在 S2-06 独立关闭。
 
 ### 6.1 Stage 2A ABI/cluster 切片
@@ -118,7 +118,7 @@ AO artifact：
   资源以及 `32×32×24` cluster layout；
 - `LightClusterPass` 返回该产品，LightingFeature 仅消费产品字段，不向 Renderer 泄漏 list/lookup 的构造细节；
 - 该切片复用已登记的 FX-02 clustered-lighting 论文/Filament numeric ledger，不复制外部表达性代码；
-- direct shader 已完成首轮 BRDF 修正，当前仍未完成独立 numeric oracle 和 Stage 2A 产品 Gate。
+- direct shader 已完成首轮 BRDF 修正，独立 CPU numeric oracle 已建立，Stage 2A 产品 Gate 仍待 clean/timestamp 对照。
 
 ### 6.2 Direct BRDF 修正与 FX-02 验证
 
@@ -130,7 +130,7 @@ AO artifact：
 FX-02 full（dirty exploratory artifact）结果：
 
 ```text
-artifact: temp/r5/fx-02/7127427cab7fed462f076a1345036e17bcb3eb2d-dirty-209d780e817b/full/
+artifact: temp/r5/fx-02/7127427cab7fed462f076a1345036e17bcb3eb2d-dirty-d97a52c3c1df/full/
 passed: true
 issues: []
 diagnostics: validation=0, uncaptured=0, deviceLost=0
