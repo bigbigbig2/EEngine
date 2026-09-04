@@ -64,7 +64,7 @@ WebGPU 主帧目前使用单一 `Renderer` command encoder 和 steady main submi
 - GI、SSR、GTAO 的底层实现仍未全部替换为目标参考实现；已有证据只覆盖局部合同和 focused 场景。
 - 最终 TAAU/Temporal 综合序列、Post、综合画质和 1920×1080/DPR1/60 FPS 产品 Gate 未通过。
 - Hardware Raster 的历史 `35–44 ms` P50 风险、纹理/全帧 transient/history 显存预算和上传预算仍需 G5-P 关闭。
-- Shader oracle/generated source-of-truth 仍有 `unknown` 项；以 [SHADER-SOURCES](./SHADER-SOURCES.md) 的审计结果为准。
+- Shader oracle/generated source-of-truth 仍有 4 项 `unknown`；Sharpen 已迁移 authored WGSL，`temporal_post_legacy.generated.ts` 已删除。其余状态以 [SHADER-SOURCES](./SHADER-SOURCES.md) 的审计结果为准。
 
 ## 下一跳
 

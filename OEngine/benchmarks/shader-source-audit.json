@@ -12,10 +12,10 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 70,
+  "shaderCount": 69,
   "summary": {
     "authored-live": 65,
-    "unknown": 5
+    "unknown": 4
   },
   "entries": [
     {
@@ -2595,26 +2595,6 @@
       "generatorCandidates": [],
       "deletionCandidate": false,
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/temporal_post_legacy.generated.ts",
-      "sourceKind": "generated",
-      "classification": "unknown",
-      "directConsumers": [
-        "src/shaders/sharpen.ts"
-      ],
-      "runtimeConsumers": [
-        "src/index.ts",
-        "src/render/features/PostFeature.ts",
-        "src/render/passes/SharpenPass.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/SharpenPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable, but oracle/generated ownership is unresolved."
     },
     {
       "shader": "src/shaders/tonemap_hdr.ts",

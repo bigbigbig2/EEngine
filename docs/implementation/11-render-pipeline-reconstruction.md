@@ -162,7 +162,7 @@ Sharpen 在 Bloom 前会放大 TAA/SSR noise、subpixel highlight 和 ringing，
 
 - `Renderer` free-floating settings 已发生跨模块泄漏，LightCluster job 甚至收到不属于它的 AO intensity/falloff 字段；
 - TAA uniform 中仍有未消费的 jitter 字段；当前 velocity 已包含 current/previous jittered projection 的差值，Temporal resolve 不应再次补偿；
-- `bloom.ts` 仍从 `temporal_post_legacy.generated.ts` re-export production WGSL；
+- Exposure/Bloom/Sharpen production WGSL 已迁回各自 authored source；`temporal_post_legacy.generated.ts` 已删除。
 - Shadow 在 Main FrameGraph 前独立 encode，LPV 使用另一张 graph；它们需要统一 FramePlan，但不应粗暴塞进一张超级 FrameGraph；
 - Profiler 已支持 timestamp、segment、async readback、counter 和 frame history，不应重造，只需给 Showcase 暴露真实数据。
 

@@ -81,7 +81,7 @@ Feature 目前主要是深模块边界和生命周期包装，不能仅凭 Featu
 | Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | `doing`；S2-06 按用户指示跳过 clean Gate；2D 统一 OpaqueLighting interface、旧 composite/AO upsample 已清理；Shadow cascade-0、cache/pressure、FX-07 A/B 与 clean timestamp/memory 仍阻塞退出 Gate |
 | Stage 3 | [Local Probe / SSSR / TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md) | `doing`；SSSR/TAAU/History/DRS 代码与合同已接入，Local Reflection Probe producer、paired 质量/性能 Gate 仍待完成 |
 | Stage 4 | [Transparency / HDR Post / FrameGraph](./18-stage-4-transparency-post-and-framegraph.md) | `doing`；HDR Post production shader 已从 legacy generated 迁出，FrameGraph validation 与 feature-off prune 有契约测试；TransparentOit legacy consumer、weighted-OIT A/B 和 GPU 质量/性能 Gate 仍待完成 |
-| Stage 5 | [Legacy Deletion / Product Closure](./19-stage-5-legacy-deletion-and-product-closure.md) | 待执行 |
+| Stage 5 | [Legacy Deletion / Product Closure](./19-stage-5-legacy-deletion-and-product-closure.md) | `doing`；已完成一次无 owner generated shader 删除与 Sharpen authored 迁移；普通 Scene/Lighting/AO/SSR/TAA/OIT legacy consumer 和产品性能 Gate 仍未关闭 |
 
 因此当前架构事实是“新 owner + 旧/现有算法实现”，而不是“所有算法已被新实现替换”。
 
@@ -168,3 +168,16 @@ bounded queue、moment finite fallback、reactive 输出和 counter 已有 focus
 SDR/HDR 数值、GPU timestamp/显存和浏览器 paired evidence 尚未关闭。因此 Stage 4 目前是
 架构/源码 focused Gate，不能提升为 `产品闭环`；S4-06 与 S4-23 继续作为下一步真实 consumer
 迁移和质量验收入口。
+
+### Stage 5 当前进度（2026-09-04）
+
+Stage 5 已进入 `doing`。本轮先执行可安全完成的删除波次：`SharpenPass` 已脱离
+`temporal_post_legacy.generated.ts`，并将其 WGSL 迁回 `src/shaders/sharpen.ts`；确认该
+generated 文件没有任何生产 import 后删除。shader-source audit 结果为 `69 shaders`、
+`authored-live=65`、`unknown=4`、`dead=0`。
+
+这不是产品闭环：`MaterialExpandPass`、`VelocityPass`、`OpaqueLightingPipeline`、
+`ScreenSpaceAmbientOcclusionPass`、`ScreenSpaceReflectionsPass`、Temporal passes 和
+`TransparentOitPass` 仍有真实 consumer，必须先完成调用方迁移与质量/性能证据才能删除。
+按用户要求，本轮未运行 Browser/GPU gates，因此没有把 `productPerformanceAchieved` 改为
+`true`，也没有将 Stage 5 标记为 `产品闭环`。

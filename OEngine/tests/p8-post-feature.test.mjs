@@ -68,3 +68,10 @@ test("P8 production post shaders are authored source-of-truth", async () => {
   assert.match(bloom, /BLOOM_UPSAMPLE_WGSL/);
   assert.match(bloom, /BLOOM_COMPOSITE_WGSL/);
 });
+
+test("P9 sharpen no longer depends on deleted temporal generated shader", async () => {
+  const sharpen = await readFile(new URL("../src/shaders/sharpen.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(sharpen, /temporal_post_legacy\.generated/);
+  assert.match(sharpen, /SHARPEN_VERTEX_WGSL/);
+  assert.match(sharpen, /SHARPEN_WGSL/);
+});

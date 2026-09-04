@@ -1,6 +1,6 @@
 # Stage 5：Legacy 删除与产品闭环
 
-> 状态：`todo`
+> 状态：`doing`
 >
 > 本阶段不再增加效果。目标是证明只有一条生产路径，并用综合场景、性能、显存、feature-off 和 provenance Gate 关闭重构。
 
@@ -52,14 +52,14 @@ Upload / readback / queue submit
 
 ## 5. 最终删除和审计任务
 
-- [ ] S5-01 全仓库引用审计：class、shader、binding、resource、配置键；
-- [ ] S5-02 检查 Renderer 是否只调用统一 Feature/product interface；
-- [ ] S5-03 检查没有 CPU 最终可见列表、GPU readback 遍历或私有 submit；
-- [ ] S5-04 检查所有队列 ABI、capacity、overflow、fallback、计数器；
-- [ ] S5-05 检查所有 feature-off 的 compiled graph/resource diff；
-- [ ] S5-06 删除无 owner 的测试和生成物，但保留 CPU/reference/regression evidence；
-- [ ] S5-07 运行 npm build、相关 Node tests、Browser/GPU gates；
-- [ ] S5-08 更新 `STATUS.md`、`CURRENT-STATE.md`、`PERFORMANCE.md`、porting ledgers 和 ADR；
+- [~] S5-01 已完成 shader-source audit 与关键 legacy symbol `rg` 审计；普通 Scene/Lighting/AO/SSR/TAA/OIT 仍有真实 consumer，不能伪报清零；
+- [~] S5-02 Renderer 的 Packed/效果路径已调用 Feature/product interface，但普通 Scene 的 Material/Velocity/OIT legacy consumer 仍在；
+- [x] S5-03 主帧保持 GPU producer→GPU consumer、无 CPU 最终可见列表、无 steady-frame 私有 submit；已有 frame coordinator/submit contract 测试；
+- [~] S5-04 Packed visibility/transparency/light queues 已有 ABI、capacity、overflow、fallback、counter；尚未完成所有 shadow/普通 Scene 队列的统一审计 artifact；
+- [x] S5-05 compiled FrameGraph feature-off prune、history/transient 生命周期已有契约测试；浏览器 paired diff 未采集；
+- [x] S5-06 Sharpen 已迁移 authored WGSL，删除无 owner 的 `temporal_post_legacy.generated.ts`；保留 CPU/reference/regression evidence；
+- [~] S5-07 `npm run build`、`npm test`、shader audit 已运行并通过；按用户要求未运行 Browser/GPU gates；
+- [~] S5-08 已更新 `STATUS.md`、`SHADER-SOURCES.md` 与本 Stage 文档；`CURRENT-STATE.md`、`PERFORMANCE.md`、porting ledger/ADR 的产品闭环结论仍待最终 GPU artifact；
 - [ ] S5-09 仅在全部 Gate 通过后设置 `productPerformanceAchieved=true`。
 
 ## 6. 退出标准
@@ -77,12 +77,16 @@ Upload / readback / queue submit
 ## 7. 状态记录
 
 ```text
-状态：todo | doing | focused Gate | 产品闭环
-删除提交：
-全仓库审计结果：
-六场景 artifact：
-性能结论：
-显存结论：
-未关闭 Gate：
-最终 ADR/CURRENT-STATE 更新：
+状态：`doing`（完成一次可回查的 generated shader 删除，产品 Gate 未关闭）
+删除提交：本次 Stage 5 提交记录在 git log；`temporal_post_legacy.generated.ts` 无运行时引用后删除
+全仓库审计结果：shader audit `69 shaders / authored-live 65 / unknown 4 / dead 0`；legacy class consumer 仍存在
+六场景 artifact：未采集（Browser/GPU gate 按用户要求跳过）
+性能结论：未宣称；缺少目标机 1920×1080 GPU timestamp、P50/P95/P99 和 submit 对照
+显存结论：未宣称；缺少 resident/transient/history/shadow atlas clean artifact
+未关闭 Gate：普通 Scene Material/Velocity/OIT、OpaqueLighting/GI/AO/SSR/TAA legacy consumer；weighted OIT A/B；SDR/HDR 数值；GPU 质量/性能；feature-off browser paired diff
+最终 ADR/CURRENT-STATE 更新：暂不写产品闭环结论，待全部退出 Gate 通过后更新
+
+### 本轮删除边界
+
+只删除了经过 `rg` 和 shader-source audit 双重确认的无 owner generated shader，并将其最后一个生产 consumer（Sharpen）迁移到 authored source。没有删除仍被 Renderer/Feature/Pass 真实调用的 MaterialExpand、Velocity、OpaqueLighting、AO、SSR、Temporal 或 TransparentOit 实现，避免把“文件不存在”误写成“consumer 已迁移”。
 ```

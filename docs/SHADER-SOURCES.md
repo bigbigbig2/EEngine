@@ -17,11 +17,11 @@ npm run audit:shaders
 |---|---:|---|
 | `authored-live` | 65 | 能到达 runtime pipeline，当前 authored 文件是运行事实源 |
 | `dead` | 0 | 当前审计未发现无 owner 的 shader；后续删除必须仍核对 feature 注册与动态路径 |
-| `unknown` | 5 | runtime pipeline 正在使用 oracle/generated 文件，但仓库内没有登记 generator/source，所有权尚未闭环 |
+| `unknown` | 4 | runtime pipeline 正在使用 oracle/generated 文件，但仓库内没有登记 generator/source，所有权尚未闭环 |
 
-历史上曾有 5 项 `dead` shader，已在 P9 硬切换删除；当前 `audit:shaders` 复核为 `dead=0`。`unknown` 仍保留 5 项 oracle/generated，其所有权闭环归对应模块的 authored/generator 迁移波次。
+历史上曾有 5 项 `dead` shader，已在 P9 硬切换删除；当前 `audit:shaders` 复核为 `dead=0`。Stage 5 已迁移 Sharpen 并删除无 owner 的 `temporal_post_legacy.generated.ts`；`unknown` 仍保留 4 项 oracle/generated，其所有权闭环归对应模块的 authored/generator 迁移波次。
 
-当前总数为 70、`authored-live` 为 65。R4-B 新增 authored `packed_material_resolve.ts` 并扩展统一 `render_debug_view.ts`，旧 `packed_velocity.ts` 已删除；FX-02 又以 authored `lighting_direct.ts` 和 `fullscreen_triangle.ts` 替换 Lighting runtime 对 `lighting_ch_oracle.ts` 的依赖。上述文件均由明确 runtime pipeline owner 消费。
+当前总数为 69、`authored-live` 为 65。R4-B 新增 authored `packed_material_resolve.ts` 并扩展统一 `render_debug_view.ts`，旧 `packed_velocity.ts` 已删除；FX-02 又以 authored `lighting_direct.ts` 和 `fullscreen_triangle.ts` 替换 Lighting runtime 对 `lighting_ch_oracle.ts` 的依赖；Stage 5 再将 Sharpen 迁移到 authored source 并删除无 owner 的 temporal post generated 文件。上述文件均由明确 runtime pipeline owner 消费。
 
 ## 正在运行但所有权未闭环
 
@@ -31,9 +31,8 @@ npm run audit:shaders
 | `material_expand_oracle.ts` | `GPUMaterialContext.ts` | oracle 文件是 Material Expand 的实际运行源 |
 | `oracle_visibility_work_generation.ts` | `MeshletDrawList.ts` | oracle 文件直接驱动 instance cull、prefix/expand 和 indirect work generation |
 | `probe_legacy.generated.ts` | `GPULightProbeVolumeRenderer.ts` | generated 文件在运行，但仓库内没有 generator/source |
-| `temporal_post_legacy.generated.ts` | `AutomaticExposurePass.ts` | generated 文件经 `automatic_exposure.ts` 转发进入运行管线，但仓库内没有 generator/source |
 
-这些文件不能被当作长期设计权威，也不能仅因文件名含 `oracle/generated` 就直接删除。后续修改对应模块前必须先选择并登记 authored source 或可重复 generator，添加视觉/数值回归，再迁移 pipeline owner。
+这些文件不能被当作长期设计权威，也不能仅因文件名含 `oracle/generated` 就直接删除。后续修改对应模块前必须先选择并登记 authored source 或可重复 generator，添加视觉/数值回归，再迁移 pipeline owner。`temporal_post_legacy.generated.ts` 已完成该流程并删除。
 
 FX-02 已完成 Lighting source-of-truth 迁移：`LightingPass.ts` 直接消费 authored
 `lighting_direct.ts`，`GPUMaterialContext.ts` 的通用 fullscreen vertex 改由
