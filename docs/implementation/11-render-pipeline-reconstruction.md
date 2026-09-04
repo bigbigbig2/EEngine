@@ -721,6 +721,21 @@ temp/r5-quality/<phase>/<commit>/<profile>/<session>/
 - 只保存一张“看起来更好”的截图；
 - 用历史 focused Gate 代替 integrated evidence。
 
+## 18A. 当前阶段文档路由
+
+为避免把大量历史 P 阶段误认为当前执行顺序，现行重构只使用六个宏观阶段。每个阶段都有独立设计、代码范围、算法边界、验证和删除条件：
+
+| 阶段 | 详细设计 | 真实重构重点 |
+|---|---|---|
+| Stage 0 | [证据基线与合同冻结](./14-stage-0-evidence-and-contract-freeze.md) | 固定输入、GPU/显存/画面证据 |
+| Stage 1 | [Surface / Opaque HDR 组合边界](./15-stage-1-frame-products-and-composition-seam.md) | 产品 ABI 与 producer/consumer seam |
+| Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | 完整 Opaque HDR、阴影和 GTAO 算法 |
+| Stage 3 | [Local Probe / SSSR / TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md) | 反射校正、history、时域重建 |
+| Stage 4 | [Transparency / HDR Post / FrameGraph](./18-stage-4-transparency-post-and-framegraph.md) | OIT、颜色域、调度和资源生命周期 |
+| Stage 5 | [Legacy Deletion / Product Closure](./19-stage-5-legacy-deletion-and-product-closure.md) | 删除旧 consumer，完成综合 Gate |
+
+历史 Q/P 编号保留用于 artifact 和提交追溯，不再作为新的拆分层级。
+
 ## 19. Stage 1：统一 Surface / Opaque HDR 产品（当前执行切片）
 
 Stage 1 采用一个纵向切片完成，不再拆成多个 wrapper 子阶段。目标是先冻结效果

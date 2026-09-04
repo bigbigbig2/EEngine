@@ -5,25 +5,29 @@
 ## 阅读顺序
 
 1. [STATUS](./STATUS.md)：当前唯一阶段状态、真实 owner、算法完成度和未关闭 Gate。
-2. [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md)：当前 R5-Q 综合质量/管线收口执行设计。
-3. [R5-BROWSER-GATES](./R5-BROWSER-GATES.md)：浏览器/GPU 证据格式和 Gate。
-4. [R5-BENCHMARK-MATRIX](./R5-BENCHMARK-MATRIX.md)：性能、显存和带宽测量轴。
-5. [13-product-render-pipeline-redesign](./13-product-render-pipeline-redesign.md)：已确认的目标架构，不是当前完成报告。
+2. [13-product-render-pipeline-redesign](./13-product-render-pipeline-redesign.md)：已确认的目标架构，不是当前完成报告。
+3. [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md)：阶段总路线、依赖和删除规则。
+4. 按当前阶段阅读详细设计：
+   - [Stage 0：证据基线与合同冻结](./14-stage-0-evidence-and-contract-freeze.md)
+   - [Stage 1：Surface、Opaque HDR 与组合边界](./15-stage-1-frame-products-and-composition-seam.md)
+   - [Stage 2：不透明光照、阴影与 GTAO](./16-stage-2-lighting-shadow-and-ao.md)
+   - [Stage 3：Local Probe、SSSR 与 TAA/TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md)
+   - [Stage 4：透明、HDR Post 与 FrameGraph](./18-stage-4-transparency-post-and-framegraph.md)
+   - [Stage 5：旧路径删除与产品闭环](./19-stage-5-legacy-deletion-and-product-closure.md)
+5. [R5-BROWSER-GATES](./R5-BROWSER-GATES.md)：浏览器/GPU 证据格式和 Gate。
+6. [R5-BENCHMARK-MATRIX](./R5-BENCHMARK-MATRIX.md)：性能、显存和带宽测量轴。
 
 ## 当前执行入口
 
 ```text
-R5-Q00 证据基线
-  → Q01 Contract
-  → Q02 Composition
-  → Q03 GTAO
-  → Q04 SSR
-  → Q05/FX-06B Final Temporal/TAAU
-  → Q06 FramePlan/FrameGraph
-  → FX-09 Post
-  → FX-10/11 选择性扩展与融合
-  → FX-12 Legacy Deletion
-  → G5-P Product Closure
+Stage 0 证据基线与合同冻结
+  → Stage 1 Surface / Opaque HDR 组合边界
+  → Stage 2 Lighting / Shadow / GTAO
+  → Stage 3 Local Probe / SSSR / TAAU
+  → Stage 4 Transparency / HDR Post / FrameGraph
+  → Stage 5 Legacy Deletion / Product Closure
+
+每个 Stage 是一个可独立提交的纵向切片；文档内再列出实现顺序，但不再拆成 P1-P9 wrapper 子阶段。
 ```
 
 R5-Q 不建立第二条管线，也不推翻已经接受的 GPU Scene、Hierarchy、VisibilityKey、Surface ABI、GPU producer→consumer 和单主提交合同。当前重点是把现有算法从局部修正推进到综合画质、性能和删除闭环。

@@ -70,6 +70,19 @@ Feature 目前主要是深模块边界和生命周期包装，不能仅凭 Featu
 | `TemporalFeature` | `TemporalAntiAliasingPass`、`TemporalClassificationPass`、`DynamicResolutionScaling` |
 | `PostFeature` | `AutomaticExposurePass`、`BloomPass`、`ColorGradingPass`、`SharpenPass`、`TonemapPass` |
 
+## 4A. 宏观阶段设计状态
+
+下表是当前执行层级；上面的 P/Q/FX 矩阵是历史证据索引，不是新的实施拆分。
+
+| 阶段 | 设计文档 | 当前状态 |
+|---|---|---|
+| Stage 0 | [证据基线与合同冻结](./14-stage-0-evidence-and-contract-freeze.md) | 基线候选已采集，clean/full 正式 Gate 未关闭 |
+| Stage 1 | [Surface / Opaque HDR 组合边界](./15-stage-1-frame-products-and-composition-seam.md) | 边界已接入；提交 `fcd53d1` |
+| Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | 待执行 |
+| Stage 3 | [Local Probe / SSSR / TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md) | 待执行 |
+| Stage 4 | [Transparency / HDR Post / FrameGraph](./18-stage-4-transparency-post-and-framegraph.md) | 待执行 |
+| Stage 5 | [Legacy Deletion / Product Closure](./19-stage-5-legacy-deletion-and-product-closure.md) | 待执行 |
+
 因此当前架构事实是“新 owner + 旧/现有算法实现”，而不是“所有算法已被新实现替换”。
 
 ## 5. 尚未关闭的产品问题
@@ -86,23 +99,18 @@ Feature 目前主要是深模块边界和生命周期包装，不能仅凭 Featu
 
 ## 6. 当前执行顺序
 
-当前执行入口是 [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md) 的 R5-Q 质量/架构收口，而不是继续创建新的 Feature wrapper：
+当前执行入口是 [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md) 路由的六个宏观阶段，而不是继续创建新的 Feature wrapper：
 
 ```text
-R5-Q00 证据基线
-  → Q01 Contract
-  → Q02 Composition
-  → Q03 GTAO
-  → Q04 SSR
-  → Q05/FX-06B Final Temporal/TAAU
-  → Q06 FramePlan/FrameGraph
-  → FX-09 Post
-  → FX-10/11 选择性扩展与融合
-  → FX-12 Legacy Deletion
-  → G5-P Product Closure
+Stage 0 证据基线与合同冻结
+  → Stage 1 Surface / Opaque HDR 组合边界
+  → Stage 2 Lighting / Shadow / GTAO
+  → Stage 3 Local Probe / SSSR / TAAU
+  → Stage 4 Transparency / HDR Post / FrameGraph
+  → Stage 5 Legacy Deletion / Product Closure
 ```
 
-下一阶段任务必须先回答“要替换哪一个真实算法 consumer、删除哪些旧路径、通过什么 GPU/浏览器 Gate”，不能只新增 owner 类或重命名 Pass。
+每个阶段的详细执行合同见 `implementation/14` 至 `implementation/19`。历史 P/Q/FX 编号只用于追溯旧 artifact，不再代表新的拆分层级。下一阶段任务必须先回答“要替换哪一个真实算法 consumer、删除哪些旧路径、通过什么 GPU/浏览器 Gate”，不能只新增 owner 类或重命名 Pass。
 
 ### Stage 0 当前进度（2026-09-04）
 
