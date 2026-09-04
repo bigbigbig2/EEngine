@@ -176,6 +176,7 @@ export type {
   TemporalSettings
 } from "./render/pipeline/RenderSettings.js";
 export {
+  directLightingFrame,
   opaqueLightingFrame,
   requireDomain,
   surfaceFrame,
@@ -184,6 +185,7 @@ export {
 export type {
   AmbientOcclusionFrame,
   FinalTemporalSurfaceFrame,
+  DirectLightingFrame,
   OpaqueLightingFrame,
   OpaqueTemporalSurfaceFrame,
   ReflectionFrame,

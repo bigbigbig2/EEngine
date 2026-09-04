@@ -1,6 +1,6 @@
 # Stage 2：不透明光照、阴影与 GTAO
 
-> 状态：`todo`
+> 状态：`doing`
 >
 > 这是第一個真实算法重构阶段。必须先完成 Direct-only，再接入 AO；不要在基础光照未稳定时修 SSR/TAA。
 
@@ -43,11 +43,11 @@ Renderer 不再知道 Direct、IBL Diffuse、IBL Specular、Background、Indirec
 
 ### 2A Direct-only
 
-- [ ] S2-01 固定 Light GPU ABI：directional/point/spot 对齐、单位、shadow index；
+- [~] S2-01 固定 Light GPU ABI：directional/point/spot 对齐、单位、shadow index；现有 `LightDatabase`/cluster ABI 已冻结，Stage 2 首个切片先把 Direct-only 输出产品化，算法数值仍待验证；
 - [ ] S2-02 GPU 生成 cluster header/index list；
 - [ ] S2-03 记录 cluster overflow、链长、像素遍历灯数；
 - [ ] S2-04 重写 direct BRDF，处理 roughness、metallic、normal、energy conservation、NaN/Inf；
-- [ ] S2-05 Direct-only 输出线性 HDR，不接 GI/SSR/AO/Temporal；
+- [x] S2-05 Direct-only 输出线性 HDR，不接 GI/SSR/AO/Temporal；`LightingFeature` 现在返回 `DirectLightingFrame`（仅边界接入，尚未代表算法完成）；
 - [ ] S2-06 通过 direct-only screenshot、numeric oracle 和 timestamp Gate。
 
 ### 2B Shadow
@@ -94,3 +94,20 @@ AO artifact：
 删除的旧 consumer：
 未解决问题：
 ```
+
+## 6. 2026-09-04 执行记录（Stage 2A 首个切片）
+
+本轮开始 Stage 2，不新增第二套管线，也不先改 AO/SSR/TAA。先把 Direct-only 的产品边界从
+`LightingFeature` 中明确出来：`LightClusterPass → LightingPass → DirectLightingFrame`。新的
+`DirectLightingFrame` 只承载 `internal-full` 线性 HDR 和 domain，不携带 GI、AO 或 temporal
+资源，避免 Renderer 把“direct 已运行”误认为“完整 OpaqueLightingFrame 已完成”。
+
+已修改：
+
+- `FrameProducts.ts` 新增 immutable `DirectLightingFrame` 与 `directLightingFrame()` 校验；
+- `LightingFeature` 将 `LightingPass` 的结果包装为 `direct` 产品；
+- `Renderer` 消费 `lightingFeatureOutput.direct.hdr`，不再读取裸 `hdr` 字段；
+- 公开类型从 `OEngine/src/index.ts` 导出，P4 owner 测试同步检查新 seam。
+
+当前仍未完成：Filament 数值对照、Direct-only screenshot/numeric/timestamp Gate、Shadow 和 GTAO。
+早期阶段截图不作为本切片的阻塞条件；Stage 2 的 Direct-only 算法 Gate 仍必须在 S2-06 独立关闭。

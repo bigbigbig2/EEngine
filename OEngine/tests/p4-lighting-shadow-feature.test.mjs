@@ -17,7 +17,8 @@ test("P4 LightingFeature owns clustered producer, direct HDR consumer and backgr
   assert.match(feature, /new EnvironmentBackgroundPass/);
   assert.match(feature, /clusterParameters: clusters\.parameters/);
   assert.match(feature, /activeLightList: clusters\.activeLightList/);
-  assert.match(feature, /return Object\.freeze\(\{ hdr: direct\.hdr, clusters \}\)/);
+  assert.match(feature, /directLightingFrame\(/);
+  assert.match(feature, /domain: \{\s*domain: "internal-full"/);
   assert.match(renderer, /new LightingFeature\(this\._graphics\)/);
   assert.doesNotMatch(renderer, /new LightClusterPass\(/);
   assert.doesNotMatch(renderer, /new LightingPass\(/);

@@ -2005,7 +2005,7 @@ export class Renderer {
               "clusterHistogram256"
             ]);
           }
-          hdrRes = lightingFeatureOutput.hdr;
+          hdrRes = lightingFeatureOutput.direct.hdr;
         }
 
         let bentNormalRes = gNormalRes;

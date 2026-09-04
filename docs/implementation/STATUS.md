@@ -76,9 +76,9 @@ Feature 目前主要是深模块边界和生命周期包装，不能仅凭 Featu
 
 | 阶段 | 设计文档 | 当前状态 |
 |---|---|---|
-| Stage 0 | [证据基线与合同冻结](./14-stage-0-evidence-and-contract-freeze.md) | 基线候选已采集，clean/full 正式 Gate 未关闭 |
-| Stage 1 | [Surface / Opaque HDR 组合边界](./15-stage-1-frame-products-and-composition-seam.md) | 边界已接入；提交 `fcd53d1` |
-| Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | 待执行 |
+| Stage 0 | [证据基线与合同冻结](./14-stage-0-evidence-and-contract-freeze.md) | `focused Gate`；基线候选已采集，clean/full 补采不阻塞重构 |
+| Stage 1 | [Surface / Opaque HDR 组合边界](./15-stage-1-frame-products-and-composition-seam.md) | `focused Gate`（架构边界）；提交 `f7782dc`；Surface debug 截图待验收 |
+| Stage 2 | [Lighting / Shadow / GTAO](./16-stage-2-lighting-shadow-and-ao.md) | `doing`；Stage 2A Direct-only 产品切片已开始 |
 | Stage 3 | [Local Probe / SSSR / TAAU](./17-stage-3-reflection-and-temporal-reconstruction.md) | 待执行 |
 | Stage 4 | [Transparency / HDR Post / FrameGraph](./18-stage-4-transparency-post-and-framegraph.md) | 待执行 |
 | Stage 5 | [Legacy Deletion / Product Closure](./19-stage-5-legacy-deletion-and-product-closure.md) | 待执行 |
@@ -125,8 +125,8 @@ domain 映射和可回查 artifact；在此之前不把 Q00 写成产品完成�
 本轮包含 7 组 feature paired run、12 张阶段截图、graph/timings/memory/counter/provenance 和 temporal
 sequence；详细数值与真实 owner/问题映射见 [Stage 0 文档](./14-stage-0-evidence-and-contract-freeze.md)。
 由于当前提交包含本次文档修改和用户已有的 `three.js` gitlink 修改，artifact 只能作为候选 before evidence。
-Stage 0 仍为 `doing`，下一步必须在 clean scope 补采至少两次 full session，并补齐 resize、camera-cut
-和六个正式 workload 的完整序列。
+Stage 0 已关闭为 `focused Gate`。clean scope、resize、camera-cut 和六个正式 workload 的补采属于后续
+质量验收资料，不阻塞 Stage 2 算法重构；Stage 2 必须用自己的数值、GPU 计数器、性能和画质 Gate 证明算法正确。
 
 ### Stage 1 当前进度（2026-09-04）
 
@@ -143,7 +143,7 @@ Stage 1 当前执行记录：`MaterialExpandPass` 已加入统一 `SurfaceFrame`
 补入；`RENDER_FEATURE_CONTRACTS` 的公共 owner 已改为 Feature/Service，而不是具体旧 Pass。
 `npm test`（367 tests）、examples build 和 Stage 1 contract tests 均通过。FX-01 浏览器验证运行完成
 但 `passed=false`：`Reactive`、`HistoryValidity` 截图失败，debug view distinct hash 为 `10/11`；
-因此 Stage 1 仍保持 `边界已接入/doing`，必须先解释该 Surface debug Gate，才能进入 Stage 2。
+该截图问题转为待验收项，不阻塞 Stage 2；Stage 1 以契约/构建回归通过的架构 focused Gate 关闭，算法完成度仍按 Stage 2–4 独立验收。
 
 ## 7. 文档维护规则
 

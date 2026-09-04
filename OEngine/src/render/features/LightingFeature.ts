@@ -11,6 +11,10 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GPULightCollection } from "../../gpu/LightDatabase.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
+  directLightingFrame,
+  type DirectLightingFrame
+} from "../pipeline/FrameProducts.js";
+import {
   EnvironmentBackgroundPass,
   type EnvironmentBackgroundInputs
 } from "../passes/EnvironmentBackgroundPass.js";
@@ -48,7 +52,8 @@ export interface LightingFeatureInputs {
 }
 
 export interface LightingFeatureOutputs {
-  readonly hdr: ResourceId;
+  /** Stage 2A direct-only linear HDR product; GI/AO/SSR are later consumers. */
+  readonly direct: DirectLightingFrame;
   readonly clusters: LightClusterOutputs;
 }
 
@@ -132,7 +137,18 @@ export class LightingFeature {
       },
       lightingInputs
     );
-    return Object.freeze({ hdr: direct.hdr, clusters });
+    return Object.freeze({
+      direct: directLightingFrame({
+        hdr: direct.hdr,
+        domain: {
+          domain: "internal-full",
+          width: job.width,
+          height: job.height,
+          scale: 1
+        }
+      }),
+      clusters
+    });
   }
 
   addEnvironmentBackground(

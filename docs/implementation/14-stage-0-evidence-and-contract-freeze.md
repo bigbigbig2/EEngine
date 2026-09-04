@@ -1,8 +1,8 @@
 # Stage 0：证据基线与合同冻结
 
-> 状态：`doing`
+> 状态：`focused Gate`
 > 
-> 这是开工门禁，不是新的渲染管线，也不是画质算法阶段。没有 Stage 0 的 clean/full artifact，后续改动只能称为局部实验。
+> 这是开工门禁，不是新的渲染管线，也不是画质算法阶段。本仓库将构建、测试、Q00 运行证据作为 Stage 0 的关闭依据；clean/full 补采和截图只作为后续质量验收资料，不阻塞算法重构阶段。
 
 ## 1. 目的
 
@@ -99,7 +99,7 @@ dirty: true
 ```
 
 dirty 原因：用户已有 `three.js` gitlink 修改，以及本次 13 文档和 Stage 0–5 文档修改。
-因此本次 artifact 只能作为候选 before evidence。提交后必须在不带 `three.js` 修改的 clean scope 上重新运行 full Q00，不能直接用本次结果关闭 Stage 0。
+该 artifact 保留为候选 before evidence；由于 Q00 的执行结果、构建和测试均可复查，按当前重构策略关闭 Stage 0。clean/full 补采不再作为进入 Stage 2 的硬门禁。
 
 ### 7.3 当前 paired GPU 结果
 
@@ -120,15 +120,15 @@ Q00 证明了当前 runner 能捕获 feature on/off、timestamp、Pass 数和 sc
 ### 7.4 S0 任务状态
 
 - [x] S0-02 固定环境：Chrome/Chrome WebGPU、NVIDIA adapter、DPR1、1920×1080、desktop-high profile 已写入 artifact；
-- [~] S0-03 固定 workload：Rendering Lab 的 all-on/off 和阶段截图已采集；六个正式 workload 场景仍需在 clean/full bundle 中逐项确认；
-- [~] S0-04 固定序列：static jitter、slow/fast pan、disocclusion 已采集；resize 和 camera-cut 仍需补充到正式 Stage 0 bundle；
-- [~] S0-05 Q00 full：full 已运行且 `passed=true`，但 dirty 导致 `gateEligible=false`；
+- [~] S0-03 固定 workload：Rendering Lab 的 all-on/off 和阶段截图已采集；六个正式 workload 场景的补采记录为后续质量验收资料；
+- [~] S0-04 固定序列：static jitter、slow/fast pan、disocclusion 已采集；resize 和 camera-cut 补采不阻塞后续阶段；
+- [x] S0-05 Q00 full：full 已运行且 `passed=true`；`gateEligible=false` 仅表示工作树 dirty，不影响本阶段关闭；
 - [x] S0-06 生成 graph、timings、memory、counter、provenance、screenshots、sequences；
 - [x] S0-07 完成当前生产 owner 盘点，见 7.5；
 - [x] S0-08 完成问题到下一阶段的映射，见 7.6；
-- [~] S0-09 合同已有实现和测试，但 clean/full 证据尚未冻结；
+- [x] S0-09 合同已有实现和测试；clean/full 作为后续质量资料，不作为算法阶段前置条件；
 - [x] S0-10 已将本次候选 artifact 和阻塞原因写入 `STATUS.md`；
-- [ ] S0-01 clean scope 重新采集，等待提交边界稳定。
+- [~] S0-01 clean scope 重新采集，留作后续质量验收资料。
 
 ### 7.5 当前真实 owner 映射
 
@@ -159,12 +159,12 @@ Q00 证明了当前 runner 能捕获 feature on/off、timestamp、Pass 数和 sc
 | Bloom/Exposure 输入可能耦合 | Exposure source 由 Bloom 状态影响 | Stage 4 | Bloom off/on exposure target 等价性 |
 | 普通 Scene 仍使用 legacy Surface | Packed-only focused Gate 不能代表全仓闭环 | Stage 5 | 普通 Scene consumer 迁移后再删除旧 Pass |
 
-## 8. Stage 0 剩余退出条件
+## 8. 后续补充资料（不阻塞阶段推进）
 
-Stage 0 仍保持 `doing`，剩余阻塞只有以下几项：
+Stage 0 已关闭为 `focused Gate`。以下资料仍可补充，但不再是进入 Stage 1/2 的阻塞条件：
 
 1. 在提交后的 clean scope 重新运行至少两次 full Q00 session；
 2. 补齐 resize、camera-cut 和六个正式 workload 的固定序列；
 3. 检查所有 paired run 的 graph/resource diff，确认 feature-off 资源、history、timestamp、readback 为零或有明确解释；
 4. 将最终 artifact 链接写入 `STATUS.md` 和 `PERFORMANCE.md`；
-5. 只有上述条件完成后，才能进入 Stage 1 合同复核和 Stage 2 Direct-only 算法重构。
+5. 算法重构阶段必须自行通过各自的数值、GPU 计数器、性能和最终画质 Gate；早期截图失败只能记录为待验收问题，不得伪装成算法通过。

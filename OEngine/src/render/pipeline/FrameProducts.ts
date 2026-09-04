@@ -57,6 +57,12 @@ export interface OpaqueLightingFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
+/** Direct-only linear HDR product produced before GI/AO/SSR/temporal composition. */
+export interface DirectLightingFrame {
+  readonly hdr: ResourceId;
+  readonly domain: TextureDomain<"internal-full">;
+}
+
 /** SSR/Local Probe 输出的镜面结果，供 correction consumer 使用。 */
 export interface ReflectionFrame {
   readonly resolvedSpecular: ResourceId;
@@ -120,6 +126,23 @@ export function opaqueLightingFrame(input: OpaqueLightingFrame): OpaqueLightingF
   requireResourceId(input.indirectDiffuse, "OpaqueLightingFrame.indirectDiffuse");
   if (input.domain.domain !== "internal-full") {
     throw new Error("OpaqueLightingFrame must be produced at internal-full resolution");
+  }
+  return Object.freeze({
+    ...input,
+    domain: textureDomain(
+      "internal-full",
+      input.domain.width,
+      input.domain.height,
+      input.domain.scale
+    )
+  });
+}
+
+/** Validate the Stage 2A direct-lighting seam without implying GI ownership. */
+export function directLightingFrame(input: DirectLightingFrame): DirectLightingFrame {
+  requireResourceId(input.hdr, "DirectLightingFrame.hdr");
+  if (input.domain.domain !== "internal-full") {
+    throw new Error("DirectLightingFrame must be produced at internal-full resolution");
   }
   return Object.freeze({
     ...input,

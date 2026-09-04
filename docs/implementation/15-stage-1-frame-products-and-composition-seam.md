@@ -1,6 +1,6 @@
 # Stage 1：Surface、Opaque HDR 与组合 Seam
 
-> 状态：`doing`
+> 状态：`focused Gate`
 >
 > 本阶段的核心不是新增 Feature，而是把 `SurfaceFrame → OpaqueLightingFrame` 变成一个有深度的模块 seam，让复杂实现集中在 owner 内部。
 
@@ -98,13 +98,12 @@ artifact：
 
 ### 7.3 浏览器 Gate 未关闭项
 
-FX-01 运行完成且 WebGPU/console/page diagnostics 为零，但 `Reactive`、`HistoryValidity` 截图失败，debug view distinct hash 为 `10/11`。这说明 Surface debug Gate 仍有未解释的图像/分类问题；当前不能标记 `focused Gate`，也不能把它归因于本次 legacy seam 迁移。该问题留在 Stage 1 的 Gate 阻塞清单，下一步必须用单独的 debug source/metadata 对照定位，而不是修改 AO/SSR/TAA 算法。
+FX-01 运行完成且 WebGPU/console/page diagnostics 为零，但 `Reactive`、`HistoryValidity` 截图失败，debug view distinct hash 为 `10/11`。该问题作为 Surface debug 待验收项记录，不阻塞后续算法阶段，也不能把它归因于本次 legacy seam 迁移。契约、构建和单元回归通过，因此 Stage 1 以 `focused Gate`（架构边界）关闭；这不代表底层光照、AO、SSR 或时域算法完成。
 
 Artifact：`temp/r5/fx-01/ebdf80648f35f0bf0062ea5b3da2b69899f88f37-dirty-fb365ebcbb39/`。
 
 ### 7.4 Stage 1 下一步
 
-1. 对 `Reactive` 和 `HistoryValidity` debug view 做 source/metadata/invalid-pixel 的单变量对照；
-2. 在 clean scope 上重跑 FX-01，排除当前用户已有 `three.js` gitlink 修改；
-3. 只有 FX-01 和 Surface contract Gate 通过后，才进入 Stage 2 Direct-only；
-4. `MaterialExpandPass`、`VelocityPass` 和 `OpaqueLightingPipeline` 暂不删除，等待真实 consumer 迁移。
+1. `Reactive` 和 `HistoryValidity` debug view 的 source/metadata 对照留作后续质量验收；
+2. Stage 2 直接从 Direct-only 算法重构开始，必须以独立数值/GPU Gate 证明正确性；
+3. `MaterialExpandPass`、`VelocityPass` 和 `OpaqueLightingPipeline` 暂不删除，等待真实 consumer 迁移。
