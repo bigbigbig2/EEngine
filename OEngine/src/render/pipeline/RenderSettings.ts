@@ -125,7 +125,7 @@ export interface RenderFeatureContract {
 
 export const RENDER_FEATURE_CONTRACTS = Object.freeze({
   ambientOcclusion: Object.freeze({
-    owner: "ScreenSpaceAmbientOcclusionPass",
+    owner: "AOService",
     inputDomain: "internal-full",
     outputDomain: "internal-full",
     history: "ssao",
@@ -133,7 +133,7 @@ export const RENDER_FEATURE_CONTRACTS = Object.freeze({
     prunedWhenDisabled: true
   }),
   screenSpaceReflections: Object.freeze({
-    owner: "ScreenSpaceReflectionsPass",
+    owner: "ReflectionService",
     inputDomain: "internal-full",
     outputDomain: "internal-full",
     history: "ssr",
@@ -145,7 +145,7 @@ export const RENDER_FEATURE_CONTRACTS = Object.freeze({
     prunedWhenDisabled: true
   }),
   temporalAntiAliasing: Object.freeze({
-    owner: "TemporalAntiAliasingPass",
+    owner: "TemporalFeature",
     inputDomain: "internal-full",
     outputDomain: "output-full",
     history: "color",

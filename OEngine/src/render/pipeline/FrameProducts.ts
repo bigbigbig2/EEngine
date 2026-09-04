@@ -105,6 +105,14 @@ export function surfaceFrame(input: SurfaceFrame): SurfaceFrame {
   });
 }
 
+/** 为迁移中的 Surface producer 补入 velocity，返回新的 immutable product。 */
+export function surfaceFrameWithVelocity(
+  frame: SurfaceFrame,
+  velocity: ResourceId | null
+): SurfaceFrame {
+  return surfaceFrame({ ...frame, velocity });
+}
+
 /** 创建统一的 Opaque HDR 产品，并在 composition seam 处验证 internal-full 域。 */
 export function opaqueLightingFrame(input: OpaqueLightingFrame): OpaqueLightingFrame {
   requireResourceId(input.hdr, "OpaqueLightingFrame.hdr");

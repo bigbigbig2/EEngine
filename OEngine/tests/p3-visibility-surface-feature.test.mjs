@@ -33,3 +33,11 @@ test("P3 关闭 Packed feature 时不创建 VisibilityKey 或 Surface owner", ()
   assert.match(renderer, /packedResolveOut \?\? this\.obtainLegacyMaterialExpand\(\)/);
   assert.match(renderer, /gpuPacked !== null/);
 });
+
+test("S1 legacy and Packed producers cross one immutable Surface seam", () => {
+  const renderer = source("render/Renderer.ts");
+  const legacy = source("render/passes/MaterialExpandPass.ts");
+  assert.match(legacy, /surface: SurfaceFrame/);
+  assert.match(renderer, /packedResolveOut\?\.surface \?\? matOut\.surface/);
+  assert.doesNotMatch(renderer, /matOut\.gPbr|matOut\.gNormal|matOut\.gAlbedo|matOut\.gEmissive/);
+});

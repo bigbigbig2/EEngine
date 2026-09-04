@@ -138,6 +138,13 @@ Stage 0 仍为 `doing`，下一步必须在 clean scope 补采至少两次 full 
 该状态仍是“边界已接入”，不是算法完成：GTAO、SSR、TAA、GI 和 Post 的底层 consumer 尚未
 整体替换，Renderer 的 legacy 分支仍在，旧路径删除和综合产品 Gate 均未关闭。
 
+Stage 1 当前执行记录：`MaterialExpandPass` 已加入统一 `SurfaceFrame` producer seam，Renderer
+消费 `packedResolveOut.surface ?? matOut.surface`，legacy velocity 通过 immutable product helper
+补入；`RENDER_FEATURE_CONTRACTS` 的公共 owner 已改为 Feature/Service，而不是具体旧 Pass。
+`npm test`（367 tests）、examples build 和 Stage 1 contract tests 均通过。FX-01 浏览器验证运行完成
+但 `passed=false`：`Reactive`、`HistoryValidity` 截图失败，debug view distinct hash 为 `10/11`；
+因此 Stage 1 仍保持 `边界已接入/doing`，必须先解释该 Surface debug Gate，才能进入 Stage 2。
+
 ## 7. 文档维护规则
 
 - [CURRENT-STATE](../CURRENT-STATE.md) 只写当前源码事实和已保存 artifact；不要把目标合同写成事实。

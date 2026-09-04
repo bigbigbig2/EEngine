@@ -115,6 +115,7 @@ import {
   type RenderSettingsPatch,
   type RenderSettingsValues
 } from "./pipeline/RenderSettings.js";
+import { surfaceFrameWithVelocity } from "./pipeline/FrameProducts.js";
 import {
   createRendererFramePlan,
   type FramePlanDump
@@ -1807,11 +1808,12 @@ export class Renderer {
             "shadeWorkOverflow"
           ]);
         }
-        let gPbrRes = matOut.gPbr;
-        let gNormalRes = matOut.gNormal;
-        let gAlbedoRes = matOut.gAlbedo;
-        const gEmissiveRes = matOut.gEmissive;
-        const gMetadataRes = packedResolveOut?.surfaceFlags ?? gEmissiveRes;
+        let surface = packedResolveOut?.surface ?? matOut.surface;
+        const gPbrRes = surface.pbr;
+        const gNormalRes = surface.normal;
+        const gAlbedoRes = surface.albedoAo;
+        const gEmissiveRes = surface.emissive;
+        const gMetadataRes = surface.metadata ?? gEmissiveRes;
 
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
@@ -1859,6 +1861,10 @@ export class Renderer {
                   previousPositions: previousPositionsRes
                 }
               ).velocity;
+          if (packedResolveOut === null) {
+            surface = surfaceFrameWithVelocity(surface, velocityRes);
+            velocityRes = surface.velocity ?? velocityRes;
+          }
           if (needsOcclusionConfidence) {
             occlusionConfidenceRes = this._occlusionConfidence!.addToGraph(
               graph,
