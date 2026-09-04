@@ -120,6 +120,14 @@ GPU phase/timestamp、counter、FrameGraph、memory 和 provenance。该结果�
 冻结稳定分位数。正式 Stage 0 退出条件仍是提交后的 clean/full 三 session 采集、问题→phase/resource/
 domain 映射和可回查 artifact；在此之前不把 Q00 写成产品完成，也不开始用参数掩盖算法问题。
 
+本轮已实际运行 `R5-Q00 full`：`passed=true`、`gateEligible=false`、`issues=[]`。artifact：
+`temp/r5-quality/R5-Q00/db9d7a83fcdb93ad9ffae34ffdb8655916531fa4-dirty-6410bce26fa5/desktop-high-full/2026-09-04T07-37-54-924Z/`。
+本轮包含 7 组 feature paired run、12 张阶段截图、graph/timings/memory/counter/provenance 和 temporal
+sequence；详细数值与真实 owner/问题映射见 [Stage 0 文档](./14-stage-0-evidence-and-contract-freeze.md)。
+由于当前提交包含本次文档修改和用户已有的 `three.js` gitlink 修改，artifact 只能作为候选 before evidence。
+Stage 0 仍为 `doing`，下一步必须在 clean scope 补采至少两次 full session，并补齐 resize、camera-cut
+和六个正式 workload 的完整序列。
+
 ### Stage 1 当前进度（2026-09-04）
 
 阶段一按单个纵向切片推进，已将 `SurfaceFrame` 与 `OpaqueLightingFrame` 作为真实 producer

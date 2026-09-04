@@ -347,7 +347,7 @@ new Renderer({
 本文是本次讨论形成的产品级重构设计。实施前需要：
 
 - 对应长期决策已登记为 [ADR-0012](../wiki/adr/0012-product-render-pipeline-redesign.md)，明确替代现有冲突决策；
-- 建立“现有源码 → 目标模块 → 上游参考 → 重写/删除动作”映射表，见 [P0 源码映射与删除清单](./14-p0-source-mapping-and-deletion.md)；
+- 建立“现有源码 → 目标模块 → 上游参考 → 重写/删除动作”映射表，见第 19 节和第 30.1 节；后续若拆分为独立文档，必须保持本节为入口。
 - 为每次开源移植补充 porting ledger；
 - 用实现证据更新 `CURRENT-STATE.md`，不能提前把目标写成已完成事实。
 
@@ -437,7 +437,7 @@ P9 旧路径删除、示例、Browser/GPU Gate、性能闭环
 
 把当前手工主图改造成统一的 Feature 贡献模型，为后续新效果提供稳定承载层。
 
-P1 的首个执行包已落地，详见 [15-p1-frame-infrastructure.md](./15-p1-frame-infrastructure.md)：
+P1 的首个执行包已落地，详见第 20 节和第 30.2 节：
 注册表、输入/输出声明、依赖校验、compiled FrameGraph 资源摘要和主帧证据已经接线。
 具体效果 Pass 的完整 Feature 化迁移仍按 P2–P8 的算法重构顺序进行，不能把本基础设施包解释为
 TAA/SSR/SSAO 画质已经修复。
@@ -483,7 +483,7 @@ Renderer
 
 冻结所有 Feature 消费的场景、视图和初始化配置边界，消除效果模块各自读取旧 Scene/Renderer 状态的问题。
 
-P2 基础合同执行记录见 [16-p2-scene-contract-and-config.md](./16-p2-scene-contract-and-config.md)。
+P2 基础合同执行记录见第 21 节和第 30.3 节。
 该工作包先冻结配置、能力检查和 CPU 帧合同；具体 GPU Scene consumer 迁移与算法改造仍按 P3–P8 顺序执行。
 
 ### 实现顺序
@@ -509,7 +509,7 @@ P2 基础合同执行记录见 [16-p2-scene-contract-and-config.md](./16-p2-scen
 
 保留 GPU-driven 前端，但重建从 VisibilityKey 到 Surface 的单链路，删除重复材质解释和旧 Surface consumer。
 
-P3 Packed 主链执行记录见 [17-p3-visibility-surface-contract.md](./17-p3-visibility-surface-contract.md)。
+P3 Packed 主链执行记录见第 22 节和第 30.4 节。
 本阶段先完成 Feature owner/composition seam；普通 Scene legacy consumer 的最终删除必须在后续迁移和证据满足后进行。
 
 ### 实现顺序
@@ -532,7 +532,7 @@ P3 Packed 主链执行记录见 [17-p3-visibility-surface-contract.md](./17-p3-v
 
 ## 23. P4：Clustered Lighting、Shadow Service 和 HDR Composition
 
-P4 owner/composition 执行记录见 [18-p4-lighting-shadow-composition.md](./18-p4-lighting-shadow-composition.md)。本工作包已接入 LightingFeature 与 ShadowService；具体光照/阴影画质和性能 Gate 仍以 production GPU artifact 为准。
+P4 owner/composition 执行记录见第 23 节和第 30.5 节。本工作包已接入 LightingFeature 与 ShadowService；具体光照/阴影画质和性能 Gate 仍以 production GPU artifact 为准。
 
 ### 目标
 
@@ -558,7 +558,7 @@ P4 owner/composition 执行记录见 [18-p4-lighting-shadow-composition.md](./18
 
 ## 24. P5：GI、Reflection 和 AO
 
-P5 owner/composition 执行记录见 [19-p5-gi-reflection-ao-services.md](./19-p5-gi-reflection-ao-services.md)。本工作包已接入 GIService、ReflectionService 与 AOService；具体算法画质和性能 Gate 仍以 production GPU artifact 为准。
+P5 owner/composition 执行记录见第 24 节和第 30.6 节。本工作包已接入 GIService、ReflectionService 与 AOService；具体算法画质和性能 Gate 仍以 production GPU artifact 为准。
 
 ### 目标
 
@@ -606,7 +606,7 @@ P5 owner/composition 执行记录见 [19-p5-gi-reflection-ao-services.md](./19-p
 - OIT overflow、容量和 fallback 有计数；
 - 透明关闭时不分配 OIT 资源、不提交 OIT Pass。
 
-当前执行记录：[P6 TransparencyFeature](./20-p6-transparency-feature.md)。本阶段先完成 owner/lifecycle 收拢，OIT 数学与 G5-S 生产 Gate 仍按后续验证门禁执行。
+当前执行记录见第 25 节和第 30.7 节。本阶段先完成 owner/lifecycle 收拢，OIT 数学与 G5-S 生产 Gate 仍按后续验证门禁执行。
 
 ## 26. P7：Temporal Reconstruction、TAAU 和 DRS
 
@@ -632,7 +632,7 @@ P5 owner/composition 执行记录见 [19-p5-gi-reflection-ao-services.md](./19-p
 - DRS 只由初始化配置决定，不存在隐藏自动 Governor；
 - resize、cut 和资源重建后的历史行为可验证。
 
-当前执行记录：[P7 TemporalFeature](./21-p7-temporal-feature.md)。本阶段完成时域 owner/lifecycle 收拢，最终 TAAU 画质、DRS sweep 与 G5-T/G5-P 生产 Gate 仍需独立验证。
+当前执行记录见第 26 节和第 30.8 节。本阶段完成时域 owner/lifecycle 收拢，最终 TAAU 画质、DRS sweep 与 G5-T/G5-P 生产 Gate 仍需独立验证。
 
 ## 27. P8：HDR Post、Present 和最终调试组合
 
@@ -696,3 +696,243 @@ P5 owner/composition 执行记录见 [19-p5-gi-reflection-ao-services.md](./19-p
 - 不把某个上游实现改写成只剩几步的简化版；
 - 不在没有 GPU producer/consumer、计数器和浏览器证据时宣称阶段完成；
 - 不为兼容低端设备扩张当前 WebGPU 主路径。
+
+## 30. 颗粒度重构任务清单
+
+本节是实施清单，不是新的架构层。每个任务都必须在真实调用方、真实 shader 和真实 GPU consumer 上完成；只新增接口、注册类或包装类不算完成。任务状态只能使用 `todo`、`doing`、`blocked`、`done`，并且 `done` 必须附带运行证据。
+
+### 30.1 P0-BASE：冻结边界和删除对象
+
+| ID | 动作 | 主要源码 | 完成证据 |
+|---|---|---|---|
+| P0-01 | 导出 `Renderer.ts` 的实际 Pass/资源/提交调用图 | `OEngine/src/render/Renderer.ts` | 生成一份带 producer/consumer 的调用图 |
+| P0-02 | 为每个 Pass 标记 `retain / port / rewrite / delete` | `OEngine/src/render/passes/*` | 全部生产 consumer 均有归属 |
+| P0-03 | 冻结 `FrameProducts`、`SurfaceFrame`、`OpaqueLightingFrame`、`TemporalFrame` 字段 | `OEngine/src/render/pipeline/FrameProducts.ts` | TypeScript 合同测试和一份 ABI 表 |
+| P0-04 | 冻结 Feature-off 规则 | `MainFrameFeatureTopology.ts`、`RenderSettings.ts` | 关闭每项功能时 compiled graph 无无消费者节点 |
+| P0-05 | 检查生成 shader 的真实来源 | `OEngine/src/shaders/*`、构建脚本 | 每个生产 shader 能追溯到源文件 |
+| P0-06 | 建立旧代码删除清单 | Renderer、legacy passes、旧 shader | `rg` 无未归属生产引用 |
+| P0-07 | 将上游来源登记到 `docs/references/porting/` | 相关 ledger | 仓库、commit、路径、许可证、不变量齐全 |
+
+P0 禁止改算法。它的目标是先回答“谁生产、谁消费、谁删除”，防止重构继续在旧路径外面加壳。
+
+### 30.2 P1-FRAME：统一 FrameGraph 和资源生命周期
+
+| ID | 动作 | 具体要求 |
+|---|---|---|
+| P1-01 | 收拢主帧入口 | `Renderer.render()` 只创建一个 `FrameCoordinator`、一个 encoder、一个主 submit |
+| P1-02 | 定义 Feature 注册表 | 每项 Feature 声明 `enabled`、输入、输出、依赖、debug、统计 |
+| P1-03 | 定义资源声明 | Persistent 由 owner 创建；Transient 只能由 FrameGraph 创建和复用 |
+| P1-04 | 增加拓扑校验 | 禁止读未声明资源、写后读冲突、循环依赖和无消费者输出 |
+| P1-05 | 增加 compiled graph 摘要 | 输出节点、资源、别名复用、timestamp 和被剔除节点 |
+| P1-06 | 迁移历史资源 | TAA/AO/SSR 历史必须通过 History Registry 注册，不能由 Pass 私自持有 |
+| P1-07 | 清除手工顺序 | 删除 Renderer 中与 Graph 重复的排序、资源释放和 feature 分支 |
+
+P1 完成后仍然允许画面不正确；但不允许出现第二套提交器、私有 readback 或脱离 Graph 的资源生命周期。
+
+### 30.3 P2-SCENE：GPU Scene、ViewContext 和配置合同
+
+| ID | 动作 | 具体要求 |
+|---|---|---|
+| P2-01 | 固定 Runtime Asset/GPU owner 边界 | Loader 临时对象不能进入长期 GPU 表 |
+| P2-02 | 固定实例 ABI | current/previous transform、geometry handle、material handle、flags、bounds 的字节布局和对齐写入文档 |
+| P2-03 | 固定 Patch 流程 | transform/material/light patch 具有容量、overflow、失效传播和计数器 |
+| P2-04 | 固定 ViewContext | main、shadow、probe、probe-volume view 共享 GPU Scene，独立相机、裁剪、临时资源和 history |
+| P2-05 | 固定配置入口 | 所有缩放、shadow cascade、probe budget、feature 开关从 `RendererConfig` 进入 |
+| P2-06 | 能力检查 | 不把 64-bit atomic、MDI、mesh/task shader、BDA、bindless 当作 baseline；缺失能力明确 fail-fast 或使用已定义 fallback |
+| P2-07 | 删除隐式全局读取 | Pass 不得直接读取 Renderer 私有状态、旧 Scene 列表或自行推导默认值 |
+
+### 30.4 P3-VIS-SURFACE：Visibility 到 Surface 的硬切换
+
+| ID | 动作 | 具体要求 |
+|---|---|---|
+| P3-01 | 冻结 VisibilityKey ABI | key 必须能唯一索引 RasterWork → VisibleCluster/Meshlet → triangle/local primitive |
+| P3-02 | 冻结可见性队列 ABI | 定义元素、容量、生产者、消费者、overflow、parent fallback、计数器 |
+| P3-03 | 迁移 hierarchy/LOD/culling | SSE、frustum、cone、previous-HZB 的判定都在 GPU producer 中完成 |
+| P3-04 | 迁移 indirect consumer | `drawIndirect`/`dispatchIndirect` 直接消费 GPU 生成参数，禁止 readback 后 CPU 遍历 |
+| P3-05 | 统一硬件可见性 | opaque/mask 使用同一 Visibility Buffer、reverse-Z depth 和 key 编码 |
+| P3-06 | 统一 Material Resolve | `PackedMaterialResolvePass` 成为唯一 opaque/mask surface producer |
+| P3-07 | 冻结 Surface ABI | baseColor、normal、roughness、metallic、emissive、material AO、velocity、bent normal、metadata 分通道定义 |
+| P3-08 | 迁移 alpha-test | alpha cutoff 与材质纹理采样发生在同一 resolve/visibility 语义内 |
+| P3-09 | 删除旧路径 | 删除 `MaterialExpandPass`、每材质 fullscreen loop、legacy velocity 和重复 surface 解释 |
+
+P3 的质量验证必须包含 normal map、alpha-test、快速运动、LOD 切换、遮挡恢复和 invalid key，而不是只验证一张静态颜色图。
+
+### 30.5 P4-LIGHT：Clustered Lighting、Shadow 和统一 HDR
+
+| ID | 动作 | 具体要求 |
+|---|---|---|
+| P4-01 | 固定 Light GPU ABI | directional/point/spot 的位置、方向、颜色、强度、范围、cookie、shadow index 对齐 |
+| P4-02 | 重写 Cluster assignment | GPU 生成 cluster header/index list；记录 overflow、最大链长度和像素遍历灯数 |
+| P4-03 | 固定光单位和坐标 | 明确世界单位、radiometric unit、view/depth convention、NaN/Inf 处理 |
+| P4-04 | 重写 direct BRDF | 采用已登记的 Filament PBR 数值不变量；不得把上游材质对象或渲染器抽象带入热路径 |
+| P4-05 | 收拢 Shadow Service | CSM、spot atlas、point atlas、contact shadow、filter 只输出 visibility/filtered visibility |
+| P4-06 | 固定 CSM 规则 | cascade split、稳定化、bias、normal offset、PCF kernel、atlas tile 生命周期可复现 |
+| P4-07 | 建立 Opaque HDR composition | direct、shadow、emissive、environment 在一个明确方程中合成，禁止后期 pass 互相硬乘/覆盖 |
+| P4-08 | 删除重复 owner | `ShadowRasterPass`、旧灯光列表、旧 direct composite 只保留一个真实生产 owner |
+
+P4 必须先通过“只有 direct + shadow”的基准，再接入 GI/SSR/AO；否则无法判断能量错误来自哪一层。
+
+### 30.6 P5-SECONDARY：GI、Reflection、AO
+
+| ID | 动作 | 具体要求 |
+|---|---|---|
+| P5-01 | GI provider 合同 | provider 返回 diffuse indirect、有效性、来源和局部失效范围，不返回最终颜色 |
+| P5-02 | Lightmap provider | 校验 UV、解码、颜色域、曝光和静态/动态灯光边界 |
+| P5-03 | Probe Volume provider | 定义 probe brick、更新预算、传播次数、局部更新和缺失 brick fallback |
+| P5-04 | 固定 GI fallback | `Lightmap → Probe Volume → IBL → no indirect`，每次选择有统计 |
+| P5-05 | Reflection probe producer | 定义 probe atlas、更新触发、box projection、粗糙度 mip 和失效传播 |
+| P5-06 | SSSR correction | 采用命中置信度校正 probe，不替换稳定基底；miss、越界、roughness 过高回退 |
+| P5-07 | SSSR 输入合同 | 必须消费完整 opaque HDR scene radiance、linear depth、normal、roughness、velocity |
+| P5-08 | AO 四通道语义 | Material AO、diffuse visibility、specular visibility、bent normal 不得复用同一含义 |
+| P5-09 | AO 算法重评估 | 当前 GTAO 与 XeGTAO 进行固定序列 A/B；决定 port/reimplement/retain 必须写 ledger |
+| P5-10 | 删除重复 composite | 删除 SSR final override、GTAO 写回 Material AO、重复 IBL/indirect composite |
+
+### 30.7 P6-TRANSPARENCY：Forward/OIT
+
+| ID | 动作 | 具体要求 |
+|---|---|---|
+| P6-01 | 固定透明输入 | scene color、depth、cluster、shadow、GI、reflection、velocity、reactive mask |
+| P6-02 | 选择 OIT 算法 | 对 MBOIT/加权 OIT 记录误差、内存、overflow 和排序假设，不以现有实现自动作为正确答案 |
+| P6-03 | 迁移 transparent producer | Packed 和 legacy 透明对象统一进入 `TransparencyFeature`，但不污染 Opaque Visibility ABI |
+| P6-04 | 固定容量行为 | fragment/node/accumulation overflow 必须有计数和确定性 fallback |
+| P6-05 | 删除旧透明 consumer | 清除旧 material expand、旧 light list 和重复透明 composite |
+
+### 30.8 P7-TEMPORAL：TAAU、History、DRS
+
+| ID | 动作 | 具体要求 |
+|---|---|---|
+| P7-01 | 固定 internal/output resolution | 所有 pass 使用同一 `ViewContext` 尺寸合同，禁止各自乘 DPR 或 renderScale |
+| P7-02 | 固定 jitter 序列 | 记录序列、phase、projection offset、camera cut 行为 |
+| P7-03 | 固定 velocity 语义 | motion vector 的方向、单位、像素/UV 域、反转深度规则有 CPU/GPU 对照测试 |
+| P7-04 | 分离 history | color、AO、reflection confidence、reactive/disocclusion mask 不能共享未声明的 ping-pong 资源 |
+| P7-05 | 重写 resolve | history reprojection、neighborhood clamp、variance/weight、disocclusion 和 sharpen 顺序固定 |
+| P7-06 | DRS 只改配置 | 本轮不引入隐藏 runtime governor；DRS sweep 只用于验证质量/性能曲线 |
+| P7-07 | 删除旧 TAA | 迁移 `TemporalClassificationPass`、`TemporalAntiAliasingPass` 后删除重复 temporal composite 和固定 blend |
+
+### 30.9 P8-POST：HDR Post 和 Present
+
+| ID | 动作 | 具体要求 |
+|---|---|---|
+| P8-01 | 固定颜色域 | Lighting/Temporal 保持线性 HDR；只在 Post/Present 明确完成显示变换 |
+| P8-02 | 固定顺序 | exposure → bloom extraction/blur/composite → color grading → tone mapping → output transform |
+| P8-03 | 重写曝光 | histogram/average luminance、adaptation speed、min/max clamp、history reset 可观测 |
+| P8-04 | 重写 tone mapping | 明确 SDR/HDR 输出、paper white、peak luminance、gamut mapping 和 gamma |
+| P8-05 | 删除重复转换 | 删除中间 LDR、重复 gamma/sRGB、旧 post composite 和隐式 swapchain conversion |
+| P8-06 | 固定 debug 位置 | Debug View 可选择 Post 前或 Present 前，但不得改写产品资源 |
+
+### 30.10 P9-DELETE-GATE：删除和产品 Gate
+
+| ID | 动作 | 完成条件 |
+|---|---|---|
+| P9-01 | 删除旧字段 | `Renderer` 不再持有被替代 Pass 的私有 owner |
+| P9-02 | 删除旧配置 | `RenderSettings` 不再把具体 legacy Pass 作为 contract owner |
+| P9-03 | 删除旧 shader | 生产 shader 无调用点后才删除；generated 文件必须从源头清理 |
+| P9-04 | 删除旧资源 | 无消费者的 history、HZB、OIT、shadow、readback 资源不再分配 |
+| P9-05 | 全仓库引用审计 | `rg` 检查 class、shader、binding、资源名和配置键，无隐式 fallback |
+| P9-06 | Browser/GPU Gate | 固定场景截图、timestamp、计数器、显存、console 无误和 feature-off 全部通过 |
+| P9-07 | 更新事实文档 | 只有 Gate 通过后才能更新 `CURRENT-STATE.md`、`STATUS.md` 和 ADR 状态 |
+
+## 31. 算法来源与移植决策矩阵
+
+下表规定候选来源，不代表已经完成移植。每一项必须先在对应 ledger 中完成许可证、commit、源码路径和测试路径登记。
+
+| 能力 | 主参考 | OEngine 采用方式 | 当前动作 |
+|---|---|---|---|
+| PBR/IBL/BRDF | Filament，Apache-2.0，commit 见 `R4-ALGORITHM-GUIDE.md` | 移植数值不变量和边界测试；保留 OEngine Surface ABI | 对当前 shader 做差异审计和 A/B |
+| Meshlet/几何分块 | meshoptimizer、Bevy Meshlet | 复用 cooker/算法，GPU ABI 由 OEngine 冻结 | 保留已登记移植，补齐质量 benchmark |
+| GPU hierarchy/visibility | The Forge TVB、Scthe/nanite-webgpu、three.js baseline | 移植 producer/consumer 协议，不复制 renderer abstraction | 重写错误的 fallback 和容量策略 |
+| Clustered lighting | clustered shading 论文、Filament/Babylon 参考 | 按 OEngine Light ABI 重实现并保留 overflow 统计 | 以 P4 direct-only 场景验收 |
+| CSM/Shadow filtering | The Forge、Filament、官方规格 | 移植 split/stabilization/filter 不变量 | 重写 CSM/atlas 的组合 owner |
+| AO | XeGTAO，MIT；当前 `R5-05` | 通过 A/B 决定直接 port 或按规格重实现 | 当前保留决定重新开启质量审查 |
+| SSR | FidelityFX SSSR，MIT；当前 `R5-06` | 只移植层级遍历、confidence、fallback；不复制 API | 对当前结果进行 paired screenshot/GPU A/B |
+| FrameGraph/history | Babylon.js，Apache-2.0 | 只移植 resource lifetime、history ping-pong 和 graph 组织 | 不引入 Babylon Scene/Material 类型 |
+| TAAU | 上游算法/规格先行 | CPU reference → WGSL → 固定序列回归 | 当前实现不能以“已有 TAA”视为完成 |
+| OIT | The Forge/论文和当前 MBOIT ledger | 记录误差/内存/overflow 后选择 | 透明独立于 opaque Surface |
+| Color science | Filament、官方 HDR/色彩规格 | 迁移曝光、色调映射、颜色空间不变量 | 先固定 SDR，再验证 HDR |
+
+如果候选实现依赖 WebGPU baseline 不具备的能力，必须记录为“按规格重实现”或“拒绝采用”，不能通过增加隐式 capability 把它伪装成 baseline。
+
+## 32. 每个算法包的实际执行模板
+
+每个算法不得直接在 `Renderer.ts` 中边查边改，必须按以下顺序执行：
+
+1. **建立输入样本**：固定相机、几何、材质、灯光、输出尺寸和随机种子。
+2. **建立 CPU reference**：至少覆盖正常值、边界值、空输入、overflow、NaN/Inf 和历史 reset。
+3. **登记上游来源**：填写 `docs/references/porting/<task>-<algorithm>.md`。
+4. **冻结 GPU ABI**：写明 buffer/texture 的字段、stride、format、usage、容量和所有权。
+5. **移植最小算法核心**：先只实现一个明确输出，例如 visibility、shadow visibility、AO visibility 或 reflection confidence。
+6. **接入真实 consumer**：必须由后续 GPU Pass 直接消费，不允许 readback 或 CPU 重建列表。
+7. **做 A/B/C**：A=当前实现，B=移植实现，C=禁用/参考基线；同时比较截图、数值和 GPU 时间。
+8. **处理生命周期**：验证 resize、device lost、in-flight frame、feature-off、overflow 和 fallback。
+9. **迁移调用方**：删除旧 owner 和重复资源，不能保留同义 `Legacy`/`V2` 长期路径。
+10. **更新状态**：只有所有 Gate 通过后才将 ledger 和 `STATUS.md` 标为完成。
+
+## 33. 后续实际提交顺序
+
+推荐按以下垂直切片提交，而不是按目录批量改名：
+
+### Slice A：P0 + P1 基础承载
+
+- 完成 owner/consumer 映射；
+- 修正 FrameGraph 资源和 feature-off 剔除；
+- 输出 compiled graph 摘要；
+- 保持现有算法，但禁止新增旧路径调用。
+
+### Slice B：P2 + P3 Surface 闭环
+
+- 冻结 GPU Scene/View/Surface ABI；
+- 让 VisibilityKey → Material Resolve → Surface 成为唯一 opaque/mask 路径；
+- 删除 `MaterialExpandPass` 和重复 velocity；
+- 验证静态、LOD、alpha-test、运动和遮挡恢复。
+
+### Slice C：P4 Direct Lighting 闭环
+
+- 只启用 direct + shadow；
+- 重写 cluster assignment、BRDF、CSM/atlas 和 HDR composition；
+- 通过 direct-only 画质和 timestamp Gate 后再继续。
+
+### Slice D：P5 Secondary Lighting
+
+- 依次接入 GI、Reflection、AO，每次只启用一个 provider；
+- 每个 provider 输出中间产品，不输出最终颜色；
+- 完成 fallback、confidence、AO 四通道和局部失效验证。
+
+### Slice E：P6 Transparency
+
+- 在稳定 opaque HDR 上接入透明 Forward/OIT；
+- 验证排序近似、overflow、reactive mask 和关闭零成本。
+
+### Slice F：P7 Temporal
+
+- 先关闭 SSR/AO/透明验证基础 TAAU；
+- 再逐项开启并验证 history contamination、disocclusion、camera cut 和 resize；
+- 最后验证 DRS sweep。
+
+### Slice G：P8 + P9 产品输出和删除
+
+- 固定曝光、Bloom、Color Grading、Tone Mapping 和 Present；
+- 删除全部无 owner 的 legacy 路径；
+- 建立六个固定 Browser/GPU 场景并完成最终 Gate。
+
+## 34. 重构期间的代码审查清单
+
+每个提交都要回答以下问题：
+
+- 这个改动替换的是哪个真实算法 owner，而不是增加了哪一个 wrapper？
+- 上游来源、commit、许可证和源码路径在哪里？
+- GPU producer 生成的结果由哪个 GPU consumer 直接消费？
+- 新增的 buffer/texture/queue 的 ABI、容量、overflow 和统计是什么？
+- 关闭功能后哪些 Pass、资源、history、readback 和 submit 被剔除？
+- 是否仍然存在旧路径、重复 composite 或 Renderer 手工拼接？
+- 是否验证了截图、数值、GPU timestamp、显存和 console？
+- 是否需要更新 `CURRENT-STATE.md`，还是当前只能标记为 partial？
+
+任何一个问题没有证据时，任务只能标记为 `partial`，不能声称该算法或阶段已经完成。
+
+## 35. 文档维护规则
+
+- 本文件维护目标架构和阶段执行顺序；不记录未经验证的“已完成”事实。
+- `docs/references/porting/` 维护每个外部算法的来源和差异；禁止只在本文件写一句“参考 Babylon/three.js”。
+- `docs/implementation/STATUS.md` 只记录当前阶段和 Gate 证据链接。
+- `docs/CURRENT-STATE.md` 只记录源码已经达到并经过运行验证的状态。
+- 若实现过程中发现目标设计与 WebGPU baseline、性能或画质证据冲突，必须新增/更新 ADR，并在本文件标注替代关系，不得悄悄改变架构语义。
