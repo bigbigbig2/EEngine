@@ -157,33 +157,3 @@ test("FX-08 reference record retains current authored SSR before considering rep
   assert.match(ledger, /retained-current-authored/i);
   assert.match(ledger, /not adopted/i);
 });
-
-test("FX-08 production Gate covers the documented fixture and evidence contract", () => {
-  const fixture = readFileSync(
-    new URL("../../examples/r5-screen-space-reflections/main.ts", import.meta.url),
-    "utf8"
-  );
-  const runner = readFileSync(
-    new URL("../../examples/scripts/run-r5-fx08-gate.mjs", import.meta.url),
-    "utf8"
-  );
-  for (const requirement of [
-    "hit-miss",
-    "roughness-0-05-1",
-    "screen-miss-fallback",
-    "offscreen-target",
-    "camera-pan",
-    "disocclusion",
-    "feature-off",
-    "feature-restored"
-  ]) {
-    assert.match(fixture, new RegExp(requirement));
-  }
-  assert.match(fixture, /requestLinearHdrCapture/);
-  assert.match(fixture, /screenSpaceReflectionsEvidence/);
-  assert.match(runner, /minimumEventResponseRmsRgb8/);
-  assert.match(runner, /maximumSettle32To64RmsRgb8/);
-  assert.match(runner, /performance\.json/);
-  assert.match(runner, /graph-counters\.json/);
-  assert.match(runner, /screenshot-metrics\.json/);
-});

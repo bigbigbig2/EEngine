@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "fx03-linear-hdr-octahedral",
-  "storage": { "width": 64, "height": 64, "format": "rgba16float", "colorSpace": "working-linear-scene-referred" },
-  "sky": { "base": [0.025, 0.035, 0.055], "zenith": [0.12, 0.22, 0.42] },
-  "horizon": { "power": 4, "tint": [0.08, 0.045, 0.025] },
-  "sun": { "direction": [0.35, 0.82, 0.45], "power": 512, "radiance": [18, 12.96, 7.56] },
-  "purpose": "FX-03 deterministic orientation, roughness/mip and linear-HDR benchmark fixture"
-}

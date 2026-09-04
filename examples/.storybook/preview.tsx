@@ -18,16 +18,7 @@ const preview: Preview = {
     },
     options: {
       storySort: {
-        order: [
-          "Getting Started",
-          "Basics",
-          "Showcase",
-          "Scene & Geometry",
-          "Visibility",
-          "Lighting & Shading",
-          "Temporal & Post",
-          "Benchmarks & Diagnostics"
-        ]
+        order: ["Showcase"]
       }
     }
   }

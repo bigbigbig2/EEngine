@@ -20,7 +20,7 @@ import {
 } from "../../OEngine/src/index.ts";
 import {
   ShowcaseEvidenceWindow
-} from "../integrated-showcase/evidence.js";
+} from "./evidence.js";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -65,7 +65,7 @@ type DebugDescriptor = {
 };
 
 const MODEL_URL = new URL("./assets/dungeon_warkarma.glb", import.meta.url).href;
-const ENVIRONMENT_URL = new URL("../integrated-showcase/assets/venice_sunset_1k.hdr", import.meta.url).href;
+const ENVIRONMENT_URL = new URL("./assets/venice_sunset_1k.hdr", import.meta.url).href;
 const PIPELINE_MODE = new URLSearchParams(location.search).get("mode") === "pipeline";
 const GPU_PHASE_LABELS: Partial<Record<(typeof GPU_FRAME_PHASES)[number], string>> = {
   upload: "Upload",
@@ -493,9 +493,9 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
       debugIds
     }),
     bounds: Object.freeze({
-      min: [-15, -1.2, -9],
-      max: [15, 5, 9],
-      center: [0, 1.9, 0],
+      min: [-15, -1.2, -9] as [number, number, number],
+      max: [15, 5, 9] as [number, number, number],
+      center: [0, 1.9, 0] as [number, number, number],
       radius: 18.1
     }),
     stats: Object.freeze(stats)
@@ -645,11 +645,7 @@ function setCameraPose(
   camera.transform.position.set(position[0], position[1], position[2]);
   camera.transform.lookAt({ x: target[0], y: target[1], z: target[2] });
   camera.update();
-  controller?.look(camera.transform.position, {
-    x: target[0],
-    y: target[1],
-    z: target[2]
-  });
+  controller?.from_transform(camera.transform);
   renderer?.indicate_view_change();
 }
 

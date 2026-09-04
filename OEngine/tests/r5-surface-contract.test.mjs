@@ -411,40 +411,6 @@ test("R5-00 velocity is current-minus-previous internal pixels with fail-open in
   );
 });
 
-test("R5-00 browser evidence exposes the canonical Surface ABI for A/B/C", () => {
-  const gateSource = readFileSync(
-    path.join(root, "../examples/benchmark-shared/R5SurfaceBrowserGate.ts"),
-    "utf8"
-  );
-  const r4GateSource = readFileSync(
-    path.join(root, "../examples/benchmark-shared/R4BBrowserGate.ts"),
-    "utf8"
-  );
-  const pageSource = readFileSync(
-    path.join(root, "../examples/benchmark-shared/BenchmarkPage.ts"),
-    "utf8"
-  );
-
-  assert.match(gateSource, /taskId:\s*"R5-00"/);
-  assert.match(gateSource, /GPU_SURFACE_ABI_SCHEMA/);
-  assert.match(gateSource, /GPU_SURFACE_ABI_VERSION/);
-  assert.match(gateSource, /GPU_SURFACE_BYTES_PER_PIXEL/);
-  assert.match(gateSource, /GPU_SURFACE_MATERIAL_SLOT_BITS/);
-  assert.match(gateSource, /GPU_SURFACE_FLAGS_BITS/);
-  assert.match(gateSource, /GPU_SURFACE_DEFINED_FLAGS_MASK/);
-  assert.match(gateSource, /GPU_SURFACE_RESERVED_FLAGS_MASK/);
-  assert.match(gateSource, /GPU_SURFACE_VELOCITY_CONVENTION/);
-  assert.match(gateSource, /software-visibility/);
-  assert.match(gateSource, /hybrid-visibility/);
-  assert.match(gateSource, /sameFeatureSet/);
-  assert.match(r4GateSource, /R4_B_MAX_REACTIVE_SURFACE_PIXELS/);
-  assert.match(r4GateSource, /A:\s*1/);
-  assert.match(r4GateSource, /B:\s*0/);
-  assert.match(r4GateSource, /C:\s*0/);
-  assert.match(pageSource, /__OENGINE_R5_00_GATE__/);
-  assert.match(pageSource, /createR500GateArtifact/);
-});
-
 function decodeUnorm8(value) {
   return value / 255;
 }
@@ -605,50 +571,4 @@ test("FX-01 payload shaders reject empty metadata before loading random Surface 
     /all\(encoded == vec2u\(0u\)\)/,
     "zero octahedral bytes are valid when metadata says the Surface is valid"
   );
-});
-
-test("FX-01 production browser Gate owns PNG metrics and rejects blank or collapsed views", () => {
-  const runnerSource = readFileSync(
-    path.join(root, "../examples/scripts/run-r5-fx01-gate.mjs"),
-    "utf8"
-  );
-  const fixtureSource = readFileSync(
-    path.join(root, "../examples/r5-surface-debug/main.ts"),
-    "utf8"
-  );
-  const examplesTsconfig = readFileSync(
-    path.join(root, "../examples/tsconfig.json"),
-    "utf8"
-  );
-
-  assert.match(examplesTsconfig, /"r5-\*\/\*\*\/\*\.ts"/);
-  assert.match(runnerSource, /screenshot-metrics\.json/);
-  assert.match(runnerSource, /locator\("#gpu-canvas"\)\.screenshot/);
-  assert.match(runnerSource, /captureCanvasScreenshot/);
-  assert.match(runnerSource, /sidebar\.style\.visibility = "hidden"/);
-  assert.match(runnerSource, /PNG\.sync\.read/);
-  assert.match(runnerSource, /backgroundRatio/);
-  assert.match(runnerSource, /nonBackgroundCoverage/);
-  assert.match(runnerSource, /tileSamples/);
-  assert.match(runnerSource, /distinctViewHashes/);
-  assert.match(runnerSource, /allBlack/);
-  assert.match(
-    runnerSource,
-    /const gateEligible = cleanEligible && buildProvenance\.passed;/
-  );
-  assert.match(runnerSource, /evaluateBuildProvenance/);
-  assert.match(runnerSource, /evaluateDiagnosticSnapshots/);
-  assert.match(runnerSource, /screenshot-canvas-final-direct-light-on\.png/);
-  assert.match(runnerSource, /FX-02: legacy Direct Lighting changes the final unlit tile/);
-  assert.match(runnerSource, /writeGateArtifacts/);
-  assert.match(runnerSource, /__OENGINE_FX_01__\.renderView/);
-  assert.match(fixtureSource, /previousTransforms/);
-  assert.match(fixtureSource, /motionInvalidMetadata/);
-  assert.match(fixtureSource, /sameMotionInvalidPixel/);
-  assert.match(fixtureSource, /captureWebGpuLimits/);
-  assert.match(fixtureSource, /renderer\.adapter_info/);
-  assert.match(fixtureSource, /floatToHalf/);
-  assert.match(fixtureSource, /halfToFloat/);
-  assert.doesNotMatch(fixtureSource, /createImageBitmap\(canvas\)/);
-  assert.doesNotMatch(fixtureSource, /function float32ToFloat16/);
 });

@@ -19,5 +19,4 @@ features and FrameGraph command counts. GPU timestamps and counters are
 asynchronous; an unsampled frame is shown as unavailable rather than inferred
 to be zero.
 
-Run from `examples` with `npm run storybook` and open **Showcase / Rendering
-Lab · GPU Pipeline**.
+Run from `examples` with `yarn storybook` and open **Showcase / Rendering Lab**.

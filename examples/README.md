@@ -1,65 +1,16 @@
-# OEngine Examples
+# OEngine Rendering Lab
 
-`r4-hardware-opaque-producer/` is the R4-A-02 browser gate for the production
-Hardware opaque shader, GPU-generated `drawIndirect`, direct `VisibilityKey` and
-reverse-Z depth contract.
-
-本目录逐步收纳可在浏览器运行、可截图和可采集 counter 的垂直验证场景。示例通过相对路径引用 `../OEngine`，用于验证真实 WebGPU 主链，不复制引擎实现，也不承担 three.js API 兼容。
-
-## 目录约定
-
-```text
-examples/
-├─ README.md
-├─ r0-observability/       # profiler、环境清单、结果导出
-├─ r0-frame-smoke/         # 真实 Renderer 主帧 smoke
-├─ r2-package-kernel/      # SourceGeometry 与 Package Kernel 浏览器验证
-├─ r2-meshlet-cooker/      # meshoptimizer 与新 Meshlet sections 浏览器验证
-├─ r2-geometry-package/    # 完整 hierarchy/BVH8/streams/material package
-├─ r2-gpu-residency/       # package → compact GPU records → Hardware indirect
-├─ r2-packed-scene/        # Packed Instance/Geometry 双 binding 纵切
-├─ r3-hierarchical-work-generation/ # Cluster hierarchy GPU selected-set
-├─ r4-hardware-opaque-producer/ # direct VisibilityKey + reverse-Z Hardware gate
-├─ benchmark-shared/       # A/B/C manifest、fixture 与统一 runner
-├─ benchmark-a/            # 160k Teapot 最低线
-├─ benchmark-b/            # 15,625 Helmet PBR/IBL 最低线
-└─ benchmark-c/            # OEngine 异构动态世界通用性输入
-```
-
-每个示例目录应包含：
-
-- 独立启动命令和所需浏览器能力；
-- 从 `../../OEngine/src/index.ts` 或明确的相对包入口导入引擎；
-- 固定资产、seed、相机轨迹和 feature set；
-- 预期画面、counter/debug view 与不允许出现的 validation error；
-- 对应实施任务 ID，以及需要保存的 JSON/截图路径。
-
-## 当前示例
-
-- [r0-observability](./r0-observability/README.md)：真实初始化 WebGPU/OEngine，并导出 GraphicsContext 更新的 R0 观测结果。
-- [r0-frame-smoke](./r0-frame-smoke/README.md)：运行真实 `Renderer.render()`、固定 Box 场景和 GPU timestamp/counter 采样；采集后可切换统一 Render Debug View，并查看 unsupported 原因。
-- [r2-package-kernel](./r2-package-kernel/README.md)：验证 Box → SourceGeometry → deterministic package → reopen/corruption reject，不创建 GPU 资源。
-- [r2-meshlet-cooker](./r2-meshlet-cooker/README.md)：运行官方 meshoptimizer 1.0.0 WASM，验证 32/64、64/64、64/128 variants、新 Meshlet sections 和 reopen validator。
-- [r2-geometry-package](./r2-geometry-package/README.md)：验证可绘制层次/error、未量化保守 BVH8、未压缩 streams/material、完整 validator、CPU selector 与纯 package reopen。
-- [r2-gpu-residency](./r2-gpu-residency/README.md)：验证 package residency、紧凑 Geometry/Cluster/Meshlet records、GPU readback 和 Hardware `drawIndirect()` consumer。
-- [r2-packed-scene](./r2-packed-scene/README.md)：验证 1k/10k/100k Packed Instances、显式 patch、previous-from-current、stable-frame 与 Instance + Geometry Hardware consumer。
-- [r3-hierarchical-work-generation](./r3-hierarchical-work-generation/README.md)：验证 R2 resident tables 上的 InstanceCull、Cluster Frustum/SSE、ping/pong indirect rounds、容量 fallback 与 CPU/GPU selected-set 对齐。
-- [benchmark-shared](./benchmark-shared/README.md)：A/B/C 的冻结输入、正式/烟雾 profile、资产归属和统一验收方法。三个页面默认使用 `?profile=smoke` 开发链接；无查询参数才加载完整实例数量。
-
-在本目录运行 `npm install` 后，可用 `npm run dev:host` 启动全部示例；`npm run build` 同时执行类型检查和生产构建。Teapot 输入由 `npm run generate:benchmark-assets` 从本地 three.js revision 确定性再生。
-
-## Storybook 示例库
-
-React Storybook 作为面向使用者的示例库入口，左侧按能力而不是实施轮次组织：
-
-- `开始使用`：示例库定位与阅读顺序；
-- `基础示例`：空场景、基础几何体、相机控制，直接运行真实 OEngine Renderer；
-- `场景与几何`、`可见性`、`光照与着色`、`时域与后处理`：能力示例与原浏览器入口；
-- `基准与诊断`：固定 A/B/C recipe 与 smoke/full Gate 入口。
+`rendering-lab/` is the only browser fixture kept in this workspace. It is a
+single Storybook story backed by the real OEngine renderer and the packed static
+scene path. The page includes quality controls, GPU counters, debug views and a
+focused `?mode=pipeline` mode for isolating the Surface path.
 
 ```powershell
 Set-Location examples
-npm run storybook
+yarn install
+yarn storybook
 ```
 
-Storybook 默认运行在 `http://127.0.0.1:6006`。启动和生产构建前会先生成 `dist/`，再将真实浏览器示例挂到 Storybook 的 `/runtime/`，所以能力页主视口和“打开运行示例”无需第二个服务。需要连接独立 examples 服务时，可通过 `VITE_OENGINE_EXAMPLES_ORIGIN` 覆盖运行地址。生产构建使用 `npm run build:storybook`。
+Storybook serves the lab at `Showcase / Rendering Lab`. The production build is
+available with `yarn build:storybook`; the standalone Vite build is
+`yarn build`.

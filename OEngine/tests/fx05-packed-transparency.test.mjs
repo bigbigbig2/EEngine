@@ -103,38 +103,3 @@ test("P0-2 transparent lit shading emits emissive exactly once", async () => {
   assert.match(PACKED_TRANSPARENT_FORWARD_WGSL, /color = direct \+ diffuse \+ specular;/);
   assert.doesNotMatch(PACKED_TRANSPARENT_FORWARD_WGSL, /direct \+ diffuse \+ specular \+ emissive/);
 });
-
-test("FX-05 production source excludes BLEND from opaque and CSM and has no per-material Packed loop", async () => {
-  const [hierarchy, visibility, shadow, loader, pass, shader, renderer, ledger, gateRunner] = await Promise.all([
-    readFile(new URL("../src/render/HierarchicalWorkGenerator.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/render/passes/PackedVisibilityPass.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/render/passes/PackedCsmShadowPass.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/loaders/load_gltf.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/render/passes/PackedTransparentOitPass.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/shaders/packed_transparent_oit.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/render/Renderer.ts", import.meta.url), "utf8"),
-    readFile(new URL("../../docs/references/porting/R5-03-packed-mboit-transparency.md", import.meta.url), "utf8"),
-    readFile(new URL("../../examples/scripts/run-r5-fx05-gate.mjs", import.meta.url), "utf8")
-  ]);
-  assert.match(hierarchy, /excludedInstanceFlags/);
-  assert.match(visibility, /excludedInstanceFlags:\s*GPU_INSTANCE_FLAGS\.Transparent/);
-  assert.match(shadow, /excludedInstanceFlags:\s*GPU_INSTANCE_FLAGS\.Transparent/);
-  assert.match(loader, /GPU_INSTANCE_FLAGS\.Transparent/);
-  assert.match(pass, /pass\.drawIndirect\(generated\.drawIndirect, 0\)/);
-  assert.match(pass, /lastDrawCount = 3/);
-  assert.match(pass, /transientBytesPerPixel = 29/);
-  assert.doesNotMatch(pass, /MaterialMeshletDrawList|for \(const material/);
-  assert.match(shader, /textureSampleGrad/);
-  assert.match(shader, /shade_standard_material_direct/);
-  assert.match(shader, /moments = mix\(moments, vec4f\(0\.0, 0\.375, 0\.0, 0\.375\), 0\.0000005\)/);
-  assert.match(renderer, /reconcilePackedTransparencyOwner/);
-  assert.match(renderer, /transparentInstanceCount > 0/);
-  assert.match(renderer, /previous\.retire\(command\)/);
-  assert.match(pass, /destroyAfterGpuDone/);
-  assert.match(ledger, /3A09C53B232908B356633D7BC1D9D651AE502E9A73E4E161527A73305B55C1FC/);
-  assert.match(ledger, /CC0/);
-  assert.match(ledger, /computeTransmittanceAtDepthFrom4PowerMoments/);
-  assert.match(gateRunner, /\^M three\\\.js\$/);
-  assert.match(gateRunner, /scopedDirtyReasons/);
-  assert.match(gateRunner, /three\.js reference submodule worktree excluded/);
-});

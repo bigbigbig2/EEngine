@@ -160,16 +160,6 @@ test("HZB history commit is attached to submission, while abort invalidates it",
   );
 });
 
-test("R1-C requests the storage-texture feature and captures WGSL diagnostics", () => {
-  const example = readFileSync(new URL("../../examples/r1-compute-hzb/main.ts", import.meta.url), "utf8");
-  assert.match(example, /requiredFeature[^\n]*texture-formats-tier1/);
-  assert.match(example, /requestDevice\(\{ requiredFeatures: \[requiredFeature\] \}/);
-  assert.match(example, /getCompilationInfo\(\)/);
-  for (const field of ["label", "type", "message", "lineNum", "linePos", "offset", "length"]) {
-    assert.match(example, new RegExp("\\b" + field + "\\b"));
-  }
-});
-
 test("shader module cache retains compilation diagnostics for runtime owners", () => {
   const cache = readFileSync(new URL("../src/gpu/GPUDescriptorCaches.ts", import.meta.url), "utf8");
   assert.match(cache, /getCompilationInfo\(\)/);

@@ -91,12 +91,3 @@ test("Q05 DRS decisions snap to stable resource/history buckets", () => {
   assert.equal(scale, 0.75);
   assert.deepEqual(drs.scale_buckets, [0.5, 0.67, 0.75, 0.8, 1]);
 });
-
-test("Q05 motion Gate requires sustained settling, not one lucky keyframe", () => {
-  const runner = readFileSync(
-    new URL("../../examples/scripts/run-r5-fx06b-gate.mjs", import.meta.url),
-    "utf8"
-  );
-  assert.match(runner, /samples\.slice\(candidateIndex\)\.every/);
-  assert.match(runner, /maxGhostTrailAt32FramesPixels:\s*18/);
-});
