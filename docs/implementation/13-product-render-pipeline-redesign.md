@@ -68,7 +68,7 @@ AO 独立输出 Material AO、Diffuse Visibility、Specular Visibility 和 Bent 
 
 ### Transparency
 
-透明对象使用独立 Forward/OIT 资源和合成，复用同一 Light/Shadow/GI/Reflection 输入，不破坏不透明 Visibility/Surface。透明贡献写入 Reactive/Velocity 语义，Transmission、Refraction 和透明动态 GI 留作扩展。
+透明对象使用独立 Forward/OIT 资源和合成，复用同一 Light/Shadow/GI/Reflection 输入，不破坏不透明 Visibility/Surface。透明贡献写入 Reactive/Velocity 语义；当前不实现 Transmission、Refraction 和透明对象动态 GI，这些能力作为后续扩展保留。
 
 ### Temporal / Upscale
 

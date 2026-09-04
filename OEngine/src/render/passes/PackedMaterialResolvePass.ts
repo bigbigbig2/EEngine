@@ -22,6 +22,11 @@ import { VisiblePixelClassifier } from "../VisiblePixelClassifier.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import {
+  surfaceFrame,
+  textureDomain,
+  type SurfaceFrame
+} from "../pipeline/FrameProducts.js";
+import {
   prepareVelocityMatrices,
   type VelocityCameraMatrices
 } from "./VelocityPass.js";
@@ -134,6 +139,8 @@ export interface PackedMaterialResolveOutputs {
   readonly velocity: ResourceId | null;
   /** R4-B compatibility property; resource semantic is Surface metadata. */
   readonly surfaceFlags: ResourceId;
+  /** Surface ABI v1 的不可变产品视图，避免调用方按 attachment 顺序重组。 */
+  readonly surface: SurfaceFrame;
   readonly counters: ResourceId | null;
 }
 
@@ -193,6 +200,7 @@ export class PackedMaterialResolvePass {
       gEmissive: -1,
       velocity: null as ResourceId | null,
       surfaceFlags: -1,
+      surface: null as unknown as SurfaceFrame,
       counters: null as ResourceId | null
     };
     const builder = graph.add(
@@ -322,7 +330,17 @@ export class PackedMaterialResolvePass {
       output.counters = builder.write(inputs.counters);
     }
     this.currentSurfaceBytesPerPixel = gpuSurfaceBytesPerPixel(options);
-    return output;
+    output.surface = surfaceFrame({
+      depth: null,
+      pbr: output.gPbr,
+      normal: output.gNormal,
+      albedoAo: output.gAlbedo,
+      emissive: output.gEmissive,
+      velocity: output.velocity,
+      metadata: output.surfaceFlags,
+      domain: textureDomain("internal-full", width, height, 1)
+    });
+    return Object.freeze(output);
   }
 
   destroy(): void {

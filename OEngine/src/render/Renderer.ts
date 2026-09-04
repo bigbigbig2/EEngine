@@ -2127,6 +2127,9 @@ export class Renderer {
           hdrRes = opaqueLighting.hdr;
 
           if (graphTopology.ssr) {
+            // 固定本次 SSR 的 opaque HDR 输入，避免后续 correction 写回 hdrRes
+            // 后 TypeScript 无法证明 trace/resolve 读取的是同一版本。
+            const completeOpaqueHdr = hdrRes;
             const blueNoise = this._graphics.textures.obtain(
               STATIC_GRAPHICS_ENGINE_ASSETS.stbn_vec2
             );
@@ -2162,7 +2165,7 @@ export class Renderer {
               {
                 depth: depthRes,
                 hzb: hzbRes!,
-                sceneColor: hdrRes,
+                sceneColor: completeOpaqueHdr,
                 pbr: gPbrRes,
                 normal: gNormalRes,
                 velocity: velocityRes!,
@@ -2183,7 +2186,7 @@ export class Renderer {
               }
             );
             hdrRes = this._reflectionService!.addCorrection(graph, {
-              hdr: hdrRes,
+              hdr: completeOpaqueHdr,
               depth: depthRes,
               normal: gNormalRes,
               bentNormal: bentNormalRes,

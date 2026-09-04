@@ -7,7 +7,9 @@ import {
   qualityProfilePatch
 } from "../.test-dist/render/pipeline/RenderSettings.js";
 import {
+  opaqueLightingFrame,
   requireDomain,
+  surfaceFrame,
   textureDomain
 } from "../.test-dist/render/pipeline/FrameProducts.js";
 
@@ -43,4 +45,35 @@ test("Q01 quality profiles only configure the unified pipeline", () => {
   settings.update({ qualityProfile: "ultra" });
   assert.equal(settings.values.ao.resolutionScale, 1);
   assert.equal(settings.values.qualityProfile, "ultra");
+});
+
+test("Q01 Surface product freezes attachment semantics and allows missing velocity", () => {
+  const frame = surfaceFrame({
+    depth: null,
+    pbr: 1,
+    normal: 2,
+    albedoAo: 3,
+    emissive: 4,
+    velocity: null,
+    metadata: 5,
+    domain: textureDomain("internal-full", 1920, 1080, 1)
+  });
+  assert.equal(frame.velocity, null);
+  assert.equal(Object.isFrozen(frame), true);
+  assert.throws(() => surfaceFrame({ ...frame, pbr: -1 }), /resource id/);
+});
+
+test("Q01 opaque lighting product rejects non-internal output domains", () => {
+  const valid = opaqueLightingFrame({
+    hdr: 1,
+    iblSpecular: 2,
+    indirectDiffuse: 3,
+    domain: textureDomain("internal-full", 1920, 1080, 1)
+  });
+  assert.equal(valid.domain.domain, "internal-full");
+  assert.equal(Object.isFrozen(valid), true);
+  assert.throws(() => opaqueLightingFrame({
+    ...valid,
+    domain: textureDomain("output-full", 1920, 1080, 1)
+  }), /internal-full/);
 });

@@ -7,7 +7,13 @@ import {
   IndirectCompositePass,
   type IndirectCompositeInputs
 } from "../passes/IndirectCompositePass.js";
-import type { AmbientOcclusionFrame, TextureDomain } from "./FrameProducts.js";
+import {
+  opaqueLightingFrame,
+  type AmbientOcclusionFrame,
+  type OpaqueLightingFrame
+} from "./FrameProducts.js";
+
+export type { OpaqueLightingFrame } from "./FrameProducts.js";
 
 export interface OpaqueIblInputs {
   readonly hdr: ResourceId;
@@ -22,13 +28,6 @@ export interface OpaqueIblInputs {
   readonly camera: ResourceId;
   readonly metadata?: ResourceId;
   readonly ambientOcclusion?: Pick<AmbientOcclusionFrame, "visibility">;
-}
-
-export interface OpaqueLightingFrame {
-  readonly hdr: ResourceId;
-  readonly iblSpecular: ResourceId;
-  readonly indirectDiffuse: ResourceId;
-  readonly domain: TextureDomain<"internal-full">;
 }
 
 /**
@@ -79,16 +78,16 @@ export class OpaqueLightingPipeline {
       camera: inputs.camera,
       metadata: inputs.metadata
     });
-    return Object.freeze({
+    return opaqueLightingFrame({
       hdr,
       iblSpecular,
       indirectDiffuse,
-      domain: Object.freeze({
+      domain: {
         domain: "internal-full" as const,
         width: extent.width,
         height: extent.height,
         scale: 1
-      })
+      }
     });
   }
 

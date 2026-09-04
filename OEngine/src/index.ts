@@ -175,6 +175,22 @@ export type {
   SsrSettings,
   TemporalSettings
 } from "./render/pipeline/RenderSettings.js";
+export {
+  opaqueLightingFrame,
+  requireDomain,
+  surfaceFrame,
+  textureDomain
+} from "./render/pipeline/FrameProducts.js";
+export type {
+  AmbientOcclusionFrame,
+  FinalTemporalSurfaceFrame,
+  OpaqueLightingFrame,
+  OpaqueTemporalSurfaceFrame,
+  ReflectionFrame,
+  SurfaceFrame,
+  TemporalSurfaceFrame,
+  TextureDomain
+} from "./render/pipeline/FrameProducts.js";
 export { STATIC_GRAPHICS_ENGINE_ASSETS } from "./render/STATIC_GRAPHICS_ENGINE_ASSETS.js";
 export { Scene } from "./scene/Scene.js";
 export type {

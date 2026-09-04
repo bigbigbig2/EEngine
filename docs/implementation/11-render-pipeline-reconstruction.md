@@ -720,3 +720,28 @@ temp/r5-quality/<phase>/<commit>/<profile>/<session>/
 - 统一降低 internal scale；
 - 只保存一张“看起来更好”的截图；
 - 用历史 focused Gate 代替 integrated evidence。
+
+## 19. Stage 1：统一 Surface / Opaque HDR 产品（当前执行切片）
+
+Stage 1 采用一个纵向切片完成，不再拆成多个 wrapper 子阶段。目标是先冻结效果
+consumer 之间的产品边界，再进入 GTAO、SSR、TAA 的真实算法替换。
+
+本切片已落地：
+
+- `FrameProducts` 提供不可变 `SurfaceFrame` 与 `OpaqueLightingFrame`，统一 internal-full
+  resolution domain；Surface 明确允许未启用时域时没有 velocity，以及普通 legacy Scene 没有
+  metadata 的事实。
+- `PackedMaterialResolvePass` 在创建 Surface attachments 后直接产出 `SurfaceFrame` 产品视图，
+  调用方不得再次依赖 attachment 顺序重组 Surface ABI。
+- `OpaqueLightingPipeline` 使用共享 `OpaqueLightingFrame` 类型，并在返回处验证资源 id 与
+  resolution domain；SSR、Temporal 后续只能消费该产品。
+- 公开 index 只导出产品类型和纯校验 helper，不暴露 GPU Pass、Buffer 或 Shader 类型。
+
+本切片明确未完成：
+
+- 没有替换 GTAO、SSR、TAA、GI 或 Post 的核心采样/重建算法；
+- 没有删除 MaterialExpand、Velocity、旧 GI/SSR/AO/TAA consumer；
+- 没有把 Renderer 的三段 GI/SSR 分支合并为最终 provider 实现。
+
+退出证据：`npm run build`、`npm run build:test`、R5 contract/composition/P3 tests 通过；算法
+替换和 legacy deletion 仍由后续同一主管线切片完成，不能把本阶段标为产品闭环。

@@ -112,6 +112,16 @@ GPU phase/timestamp、counter、FrameGraph、memory 和 provenance。该结果�
 冻结稳定分位数。正式 Stage 0 退出条件仍是提交后的 clean/full 三 session 采集、问题→phase/resource/
 domain 映射和可回查 artifact；在此之前不把 Q00 写成产品完成，也不开始用参数掩盖算法问题。
 
+### Stage 1 当前进度（2026-09-04）
+
+阶段一按单个纵向切片推进，已将 `SurfaceFrame` 与 `OpaqueLightingFrame` 作为真实 producer
+输出产品接入 `FrameProducts`，并加入资源 id、internal-full domain、velocity/depth/metadata
+缺失语义校验。`PackedMaterialResolvePass` 现在直接生成 Surface 产品视图，`OpaqueLightingPipeline`
+复用统一产品类型；相关构建与 12 项契约/组合测试通过。
+
+该状态仍是“边界已接入”，不是算法完成：GTAO、SSR、TAA、GI 和 Post 的底层 consumer 尚未
+整体替换，Renderer 的 legacy 分支仍在，旧路径删除和综合产品 Gate 均未关闭。
+
 ## 7. 文档维护规则
 
 - [CURRENT-STATE](../CURRENT-STATE.md) 只写当前源码事实和已保存 artifact；不要把目标合同写成事实。

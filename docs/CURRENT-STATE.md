@@ -28,6 +28,9 @@ WebGPU 主帧目前使用单一 `Renderer` command encoder 和 steady main submi
 - R3：hierarchy/SSE/cone/previous-HZB、VisibleCluster/RasterWork、GPU work queue、完整 indirect args 和 Hardware `drawIndirect()`；Packed flat producer 已删除。
 - R4-A：`VisibilityKey v1`、reverse-Z depth、alpha-tested、capacity/overflow/fallback 和 key lookup。
 - R4-B：Packed 路径单次 `PackedMaterialResolvePass` 输出 Surface + Velocity；普通 `Scene` 的 Material Expand/Velocity 仍有真实 consumer。
+- Stage 1：`FrameProducts` 现在为 Packed Material Resolve 输出不可变 `SurfaceFrame`，并由
+  `OpaqueLightingPipeline` 复用统一 `OpaqueLightingFrame`；这只是产品边界收敛，不代表底层
+  GTAO/SSR/TAA/GI 算法或 legacy consumer 已替换。
 
 这些条目表示对应 focused/核心 Gate 的证据，不表示最终产品画质或 1080p/60 整帧性能已达成。具体阶段分层只看 [STATUS](./implementation/STATUS.md)。
 
