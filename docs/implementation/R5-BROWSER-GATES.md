@@ -2,6 +2,8 @@
 
 本文是当前 R5-Q 执行设计 [11-render-pipeline-reconstruction](./11-render-pipeline-reconstruction.md) 的 production browser/GPU Gate companion。每个 FX 合入前必须由可重复脚本驱动真实 WebGPU 页面，自动导出 JSON、graph/counter、timing、memory 和 diagnostics；截图和页面视觉资料仅作为可选诊断附件，不再是 Gate 输入，也不要求 clean/full 截图回归。人工查看 artifact 只用于复核自动结论，不得通过点击、肉眼判断或手写 notes 决定 Gate 通过。旧 R5 总设计已删除，历史版本通过 Git 追溯。
 
+文档后续保留的历史 artifact、截图路径和 PNG 指标只用于说明既有运行记录，不构成新的必需测试或退出条件；新增 Gate 以本节的数值、timestamp、counter、memory、diagnostics 和 provenance 规则为准。
+
 ## 0. 通用预检
 
 Windows CMD：
