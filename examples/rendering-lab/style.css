@@ -147,20 +147,6 @@ input:focus-visible {
   box-shadow: 0 10px 30px rgb(28 62 96 / 12%);
 }
 
-.inspector-toggle {
-  position: absolute;
-  z-index: 8;
-  top: 16px;
-  right: 16px;
-  min-height: 42px;
-  padding: 0 16px;
-  border: 1px solid #cdd9e5;
-  border-radius: 12px;
-  color: #244368;
-  background: rgb(255 255 255 / 94%);
-  box-shadow: 0 10px 30px rgb(28 62 96 / 12%);
-}
-
 .debug-panel {
   position: absolute;
   z-index: 7;
@@ -563,7 +549,6 @@ footer a {
 
 .showcase.q00-capture-clean .debug-panel,
 .showcase.q00-capture-clean .panel-toggle,
-.showcase.q00-capture-clean .inspector-toggle,
 .showcase.q00-capture-clean .loading-layer {
   display: none !important;
 }

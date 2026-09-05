@@ -9,6 +9,9 @@
   清理 seam；实时 profiler 历史仍是默认帧源。
 - Inspector Shell 增加 Start/Stop/Capture/Export/Trace/Import/Clear 操作区，
   通过文件选择器接入既有 Capture parser，并保留 Shadow DOM 隔离。
+- 对照 three.js r185 `Profiler`/`Style` 重排 Shell：右上角 Inspector toggle、
+  底部 dock panel、header/tab/control 分层、显隐过渡和顶部 resize handle；
+  Rendering Lab 原有重复的白色 Inspector 按钮已移除。
 - Inspector facade 增加 `importCapture()`、`clear()`；导出操作使用浏览器 Blob
   下载适配器，未引入额外 GPU 工作。
 - 补充回放模型回归测试与文档入口。

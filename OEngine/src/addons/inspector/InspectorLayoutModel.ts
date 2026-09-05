@@ -14,7 +14,7 @@ export interface InspectorLayoutStorage {
 export type InspectorLayoutListener = (layout: InspectorLayout) => void;
 
 const STORAGE_KEY = "oengine-performance-inspector-layout-v1";
-const DEFAULT_LAYOUT: InspectorLayout = Object.freeze({ left: 12, top: 96, width: 520, height: 420 });
+const DEFAULT_LAYOUT: InspectorLayout = Object.freeze({ left: 12, top: 96, width: 520, height: 350 });
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 220;
 const MAX_WIDTH = 960;

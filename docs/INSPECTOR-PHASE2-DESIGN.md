@@ -8,6 +8,12 @@
 导出 Capture/Chrome Trace，并把 Capture 导回同一视图进行选帧查看。回放只
 替换 `InspectorViewModel` 的帧源，不写入 Renderer、FrameGraph 或 GPU 资源。
 
+同时将 Phase 1 的普通浮窗外壳对齐到 three.js r185 Inspector 的真实 Profiler
+布局：右上角 toggle、底部 dock 面板、header/tab/control 分层、显隐过渡和
+顶部 resize seam。参考源码为 [Inspector.js](https://raw.githubusercontent.com/mrdoob/three.js/r185/examples/jsm/inspector/Inspector.js)、
+[Profiler.js](https://raw.githubusercontent.com/mrdoob/three.js/r185/examples/jsm/inspector/ui/Profiler.js)
+和 [Style.js](https://raw.githubusercontent.com/mrdoob/three.js/r185/examples/jsm/inspector/ui/Style.js)。
+
 ## 深模块与边界
 
 ```text
@@ -22,6 +28,8 @@ Inspector facade
   Renderer 私有对象。
 - `InspectorShell` 只绑定按钮、文件选择和文本状态；所有外部文本使用
   `textContent`，导入错误不会改变渲染管线。
+- Shell 的视觉层采用 three.js 的 Profiler 分层语义，但指标内容、Capture
+  schema 和数据 owner 仍为 OEngine 自有实现。
 
 ## 操作语义
 

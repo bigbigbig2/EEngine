@@ -77,3 +77,38 @@ button:hover { border-color: var(--inspector-accent); background: #263852; }
 .summary { justify-content: space-between; padding: 8px; border-radius: 5px; background: var(--inspector-panel); font-variant-numeric: tabular-nums; }
 .panel { position: relative; min-height: 52px; padding: 8px; border: 1px solid var(--inspector-border-soft); border-radius: 5px; }
 .resize-handle { position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px; cursor: nwse-resize; opacity: .7; background: linear-gradient(135deg, transparent 45%, var(--inspector-accent) 46%, var(--inspector-accent) 54%, transparent 55%), linear-gradient(135deg, transparent 62%, var(--inspector-accent) 63%, var(--inspector-accent) 71%, transparent 72%); }
+
+:host { pointer-events: none; }
+.profiler-toggle {
+  pointer-events: auto; position: fixed; top: 15px; right: 15px; z-index: 1001;
+  display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px;
+  border: 1px solid #4a4a5a54; border-radius: 12px 6px 6px 12px;
+  background: rgba(30, 30, 36, .85); color: var(--inspector-text-primary);
+  font: 600 13px 'Segoe UI', Tahoma, sans-serif; box-shadow: 0 4px 15px #0005;
+  backdrop-filter: blur(8px); transition: all .2s ease-in-out; overflow: hidden;
+}
+.profiler-toggle-graph { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .5; pointer-events: none; }
+.toggle-text { position: relative; z-index: 1; min-width: 70px; text-align: right; }
+.profiler-toggle:hover { border-color: var(--inspector-accent); background: #252532e8; }
+.profiler-toggle.panel-open { color: var(--inspector-accent); box-shadow: 0 0 0 1px #00aaff33, 0 4px 15px #0005; }
+.inspector.profiler-panel {
+  pointer-events: auto; left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important;
+  width: auto !important; height: 350px; max-width: none; max-height: calc(100vh - 50px);
+  padding: 0; border-width: 2px 0 0; border-radius: 8px 8px 0 0;
+  display: flex; flex-direction: column; overflow: hidden;
+  transform: translateY(100%); transition: transform .35s cubic-bezier(.25,.46,.45,.94), height .3s ease-out;
+}
+.inspector.profiler-panel.visible { transform: translateY(0); }
+.inspector.profiler-panel.position-right { left: auto !important; right: 0 !important; top: 0 !important; bottom: 0 !important; width: 350px !important; height: 100% !important; border-width: 0 0 0 2px; border-radius: 8px 0 0 8px; transform: translateX(100%); }
+.inspector.profiler-panel.position-right.visible { transform: translateX(0); }
+.inspector.profiler-panel.maximized { left: 0 !important; right: 0 !important; top: 0 !important; bottom: 0 !important; width: 100vw !important; height: 100vh !important; border-radius: 0; }
+.inspector.profiler-panel .toolbar { height: 32px; min-height: 32px; padding: 0 8px; margin: 0; background: #2a2a33aa; border-bottom: 1px solid var(--inspector-border); font-family: 'Segoe UI', Tahoma, sans-serif; }
+.profiler-controls { display: flex; align-items: stretch; height: 100%; margin-left: auto; }
+.profiler-controls button { height: 100%; min-width: 32px; padding: 0 9px; border: 0; border-left: 1px solid var(--inspector-border); border-radius: 0; background: transparent; }
+.inspector.profiler-panel .tabs, .inspector.profiler-panel .actions { padding: 4px 8px; margin: 0; background: #1e1e24aa; }
+.inspector.profiler-panel > .panel { flex: 1; overflow: auto; margin: 0 8px 8px; }
+.inspector.profiler-panel .resize-handle { top: 0; bottom: auto; left: 0; right: 0; width: 100%; height: 5px; cursor: ns-resize; }
+.inspector.profiler-panel.position-right .resize-handle { top: 0; bottom: 0; left: auto; right: auto; width: 5px; height: 100%; cursor: ew-resize; }
+.inspector.profiler-panel .panel-tabs { overflow-x: auto; flex-wrap: nowrap; }
+.inspector.profiler-panel .panel-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 7px 15px; font: 600 13px 'Segoe UI', Tahoma, sans-serif; color: var(--inspector-text-secondary); white-space: nowrap; }
+.inspector.profiler-panel .panel-tabs button[aria-pressed="true"] { border-bottom-color: var(--inspector-accent); color: #fff; background: transparent; }

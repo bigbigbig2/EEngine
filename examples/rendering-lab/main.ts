@@ -104,7 +104,6 @@ const debugHelp = required<HTMLElement>("debug-help");
 const lodThreshold = required<HTMLInputElement>("lod-threshold");
 const lodValue = required<HTMLOutputElement>("lod-value");
 const panelToggle = required<HTMLButtonElement>("panel-toggle");
-const inspectorToggle = required<HTMLButtonElement>("inspector-toggle");
 
 let renderer: Renderer | null = null;
 let scene: Scene | null = null;
@@ -841,19 +840,6 @@ function bindPanelShell(): void {
     const collapsed = root.classList.toggle("panel-collapsed");
     panelToggle.setAttribute("aria-expanded", String(!collapsed));
     panelToggle.textContent = collapsed ? "调试面板" : "关闭";
-  });
-  inspectorToggle.addEventListener("click", () => {
-    if (inspector === null) return;
-    const open = inspectorToggle.getAttribute("aria-pressed") === "true";
-    if (open) {
-      inspector.close();
-      inspectorToggle.setAttribute("aria-pressed", "false");
-      inspectorToggle.textContent = "打开性能 Inspector";
-    } else {
-      inspector.open();
-      inspectorToggle.setAttribute("aria-pressed", "true");
-      inspectorToggle.textContent = "关闭性能 Inspector";
-    }
   });
 }
 

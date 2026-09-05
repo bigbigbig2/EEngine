@@ -34,6 +34,6 @@ test("InspectorLayoutModel reset and subscriptions are deterministic", () => {
   model.setLayout({ left: 40 });
   assert.deepEqual(updates.map(({ left, top, width, height }) => [left, top, width, height]), [
     [80, 120, 640, 480],
-    [12, 96, 520, 420]
+    [12, 96, 520, 350]
   ]);
 });
