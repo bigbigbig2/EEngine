@@ -37,6 +37,7 @@
 - Retained invariants: camera frustum slices、light-space orthographic fit、texel snapping、explicit depth/slope/normal bias and atlas viewport isolation。
 - OEngine/WebGPU differences: Packed hierarchy selects casters and GPU indirect consumer records draws；不依赖 MDI、mesh shader、64-bit atomic，也不复制 CPU scene traversal。
 - Fallback/lifecycle: feature-off retires atlas/owners；invalid capacity is counted/fail-visible；three cascades and filter contract come from local ABI。
+- Scope exclusions: Packed point/spot shadow 保持未支持；legacy non-Packed Scene 暂保留原 ShadowRaster consumer。
 - Local validation: `packed-csm-shadow.test.mjs`、shadow contract/counter/debug and Rendering Lab。
 
 ## SHADE-OIT · Packed MBOIT transparency
@@ -63,6 +64,7 @@
 - Retained invariants: jitter、motion reprojection、neighborhood/history clamp、reactive/disocclusion、render/output resolution separation、submitted-history commit and cut/resize reset。
 - OEngine/WebGPU differences: current-minus-previous internal-pixel velocity、OEngine FrameGraph/history slots；不采用 Unity components、DX/Vulkan backend、wave/FP16 recipe or direct dependency。
 - Fallback/lifecycle: invalid motion/history forces current-frame result；abort、resize、scale、camera cut、feature toggle invalidate affected histories。
+- Completion claim: Q05 的 clean/full provenance 与整帧性能仍未闭环，不能由本记录提前宣称完成；Sharpen 保持在独立 Post owner。
 - Local validation: temporal/history/velocity/classification tests and Rendering Lab camera sequences。
 
 ## SHADE-AO · GTAO ambient occlusion
