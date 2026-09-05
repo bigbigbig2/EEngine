@@ -107,11 +107,13 @@ export class PostFeature {
   updateTonemap(
     format: GPUTextureFormat,
     hdrEnabled: boolean,
-    peakNits: number
+    peakNits: number,
+    exposureCompensation = 1
   ): void {
     if (this._tonemap === null) return;
     this._tonemap.hdrEnabled = hdrEnabled;
     this._tonemap.peakNits = peakNits;
+    this._tonemap.exposureCompensation = exposureCompensation;
     this._tonemap.setCanvasFormat(format);
   }
 

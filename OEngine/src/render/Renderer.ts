@@ -207,6 +207,7 @@ export interface LinearHdrCaptureRegion {
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  readonly stage?: "lighting" | "post-color-grading";
 }
 
 export interface LinearHdrCaptureResult extends LinearHdrCaptureRegion {
@@ -437,6 +438,12 @@ export class Renderer {
       exposureSpeedUp: post.exposureSpeedUp,
       exposureSpeedDown: post.exposureSpeedDown
     });
+    this._postFeature?.updateTonemap(
+      this._format,
+      this._highDynamicRange,
+      this._peakNits,
+      post.exposureCompensation
+    );
     return change;
   }
   /** 单一调试视图选择；unsupported 条目不会向 FrameGraph 添加工作。 */
@@ -676,11 +683,14 @@ export class Renderer {
     if (this._pendingLinearHdrCapture !== null) {
       throw new Error("A Linear HDR capture is already pending");
     }
-    const validated = validateLinearHdrCaptureRegion(
-      region,
-      this._render_resolution.x,
-      this._render_resolution.y
-    );
+    const validated = Object.freeze({
+      ...validateLinearHdrCaptureRegion(
+        region,
+        this._render_resolution.x,
+        this._render_resolution.y
+      ),
+      stage: region.stage ?? "lighting"
+    });
     const bytesPerRow = alignTo(validated.width * 8, 256);
     const buffer = this.device.createBuffer({
       label: "Renderer/one-shot linear HDR capture",
@@ -1394,7 +1404,7 @@ export class Renderer {
         sampleGpuTimestamps,
         sampleGpuCounters,
         debugFrameIndex !== null,
-        frameLinearHdrCapture !== null
+        frameLinearHdrCapture?.stage ?? null
       ));
       const compiledGraph = this._mainGraphCache.getOrCreate(graphKey, () => {
         this._profiler.recordGraphBuild();
@@ -2639,7 +2649,11 @@ export class Renderer {
           }
         }
 
-        if (mainBindings.linearHdrCapture !== null && hdrRes !== null) {
+        if (
+          mainBindings.linearHdrCapture !== null &&
+          mainBindings.linearHdrCapture.stage !== "post-color-grading" &&
+          hdrRes !== null
+        ) {
           const captureSource = hdrRes;
           let captureBuffer = graph.import_resource(
             "R5 one-shot linear HDR capture buffer",
@@ -2869,6 +2883,50 @@ export class Renderer {
             }))
           );
         }
+        if (
+          mainBindings.linearHdrCapture?.stage === "post-color-grading" &&
+          hdrRes !== null
+        ) {
+          const captureSource = hdrRes;
+          let captureBuffer = graph.import_resource(
+            "R5 one-shot post-color-grading capture buffer",
+            { kind: "imported", label: "rgba16float post-color-grading capture" },
+            bind("post-color-grading-capture-buffer", (bindings) =>
+              bindings.linearHdrCapture!.buffer)
+          );
+          const captureBuilder = graph.add(
+            "R5 one-shot post-color-grading capture",
+            bind("post-color-grading-capture-job", (bindings) =>
+              bindings.linearHdrCapture!),
+            (capture, resources, context) => {
+              const encoder = resolveGpuEncoder(context);
+              if (encoder === undefined) {
+                throw new Error("Post-color-grading capture has no GPU encoder");
+              }
+              encoder.copyTextureToBuffer(
+                {
+                  texture: resolveGpuTexture(
+                    resources.get(captureSource),
+                    "Post-color-grading capture source"
+                  ),
+                  origin: [capture.x, capture.y, 0]
+                },
+                {
+                  buffer: requireGpuBuffer(
+                    resources.get(captureBuffer),
+                    "Post-color-grading capture buffer"
+                  ),
+                  bytesPerRow: capture.bytesPerRow,
+                  rowsPerImage: capture.height
+                },
+                [capture.width, capture.height, 1]
+              );
+            }
+          );
+          captureBuilder.read(captureSource);
+          captureBuffer = captureBuilder.write(captureBuffer);
+          captureBuilder.make_side_effect();
+        }
         if (graphTopology.sharpening && hdrRes !== null) {
           hdrRes = this._postFeature!.addSharpenToGraph(
             graph,
@@ -3088,13 +3146,15 @@ export class Renderer {
     sampleGpuTimestamps: boolean,
     sampleGpuCounters: boolean,
     debugFrame: boolean,
-    linearHdrCapture: boolean
+    linearHdrCaptureStage: "lighting" | "post-color-grading" | null
   ): FrameGraphKey {
     const instrumentationMode = [
       sampleGpuTimestamps ? "timestamps" : "",
       sampleGpuCounters ? "counters" : "",
       debugFrame ? "debug" : "",
-      linearHdrCapture ? "linear-hdr-capture" : ""
+      linearHdrCaptureStage === null
+        ? ""
+        : `linear-hdr-capture-${linearHdrCaptureStage}`
     ].filter(Boolean).join("+") || "none";
 
     return {
@@ -3293,7 +3353,12 @@ export class Renderer {
       this._renderDebug = null;
     }
     this._postFeature.obtainTonemap(this._format);
-    this._postFeature.updateTonemap(this._format, this._highDynamicRange, this._peakNits);
+    this._postFeature.updateTonemap(
+      this._format,
+      this._highDynamicRange,
+      this._peakNits,
+      this._renderSettings.values.post.exposureCompensation
+    );
   }
 
   private obtainLegacyMaterialExpand(): MaterialExpandPass {
@@ -3659,7 +3724,12 @@ export class Renderer {
     this._highDynamicRange = highDynamicRange;
     this._peakNits = highDynamicRange ? 1000 : 80;
     if (changed) this.updateCanvasFormat();
-    this._postFeature?.updateTonemap(this._format, highDynamicRange, this._peakNits);
+    this._postFeature?.updateTonemap(
+      this._format,
+      highDynamicRange,
+      this._peakNits,
+      this._renderSettings.values.post.exposureCompensation
+    );
     if (changed) this._canvasNeedsConfigure = true;
   }
 
@@ -3739,7 +3809,7 @@ function validateLinearHdrCaptureRegion(
   renderWidth: number,
   renderHeight: number
 ): LinearHdrCaptureRegion {
-  for (const [name, value] of Object.entries(region)) {
+  for (const [name, value] of Object.entries(region).filter(([name]) => name !== "stage")) {
     if (!Number.isSafeInteger(value)) {
       throw new RangeError(`Linear HDR capture ${name} must be an integer`);
     }

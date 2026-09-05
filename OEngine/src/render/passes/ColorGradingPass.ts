@@ -93,7 +93,10 @@ export class ColorGradingPass {
       width,
       height,
       format: COLOR_GRADING_FORMAT,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+      usage:
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.COPY_SRC
     });
     builder.read(input);
     return output;
@@ -106,13 +109,15 @@ export class ColorGradingPass {
     output: GPUTextureView
   ): void {
     const uniform = new Float32Array(16);
-    // ASC CDL：lift=0/1/2(3 pad)，gamma=4/5/6(7 pad)，gain=8/9/10(11 pad)，
-    // saturation=12，contrast=13，14/15 pad，与 WGSL 结构体布局对齐。
+    // WGSL uniform layout：lift=0/1/2(3 pad)，gamma=4/5/6(7 pad)，
+    // gain=8/9/10，saturation=11，contrast=12，13/14/15 pad。
+    // vec3f 的 16-byte 对齐只会把后续 vec3f 推到下一个 16-byte 边界；
+    // 标量 saturation/contrast 紧跟在 gain 的 12-byte payload 后面。
     uniform[0] = uniform[1] = uniform[2] = job.lift;
     uniform[4] = uniform[5] = uniform[6] = job.gamma;
     uniform[8] = uniform[9] = uniform[10] = job.gain;
-    uniform[12] = job.saturation;
-    uniform[13] = job.contrast;
+    uniform[11] = job.saturation;
+    uniform[12] = job.contrast;
     const settings = command.allocateTransientBufferAndLoad(
       uniform.buffer,
       GPUBufferUsage.UNIFORM

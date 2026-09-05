@@ -43,6 +43,10 @@ export default defineConfig({
         geometryPreprocess: path.resolve(
           examplesRoot,
           "geometry-preprocess/index.html"
+        ),
+        minimalScene: path.resolve(
+          examplesRoot,
+          "minimal-scene/index.html"
         )
       }
     }

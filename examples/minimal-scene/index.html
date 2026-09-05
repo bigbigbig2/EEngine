@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>OEngine · Minimal Scene</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #05070a; }
+      body { position: relative; font-family: system-ui, sans-serif; }
+      canvas { display: block; width: 100%; height: 100%; }
+      .status { position: fixed; right: 16px; top: 16px; padding: 6px 10px; border-radius: 999px; color: #cdebd7; background: #10351fcc; font-size: 12px; }
+      .help { position: fixed; left: 16px; bottom: 16px; padding: 8px 12px; color: #dce7f5; background: #101b2bd9; border: 1px solid #ffffff2b; border-radius: 8px; font-size: 12px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="gpu-canvas" aria-label="Minimal OEngine cube and plane scene"></canvas>
+    <div class="status" id="scene-status">正在初始化 WebGPU…</div>
+    <div class="help">拖动旋转 · 滚轮缩放 · DPR=1 · 无 Inspector / Shadow / TAA</div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
