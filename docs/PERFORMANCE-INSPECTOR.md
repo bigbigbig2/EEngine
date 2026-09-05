@@ -165,6 +165,8 @@ class Inspector {
   stopRecording(options?: RecordingStopOptions): Promise<PerformanceCapture>;
   captureNextFrame(): Promise<PerformanceCapture>;
   selectFrame(frameIndex: number): void;
+  clear(): void;
+  importCapture(capture: PerformanceCapture | string): void;
   exportCapture(capture?: PerformanceCapture): Blob;
   exportTrace(capture?: PerformanceCapture): Blob;
   dispose(): void;
