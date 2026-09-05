@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OEngine · Feature 02 · Model Loading</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #111827; }
+      body { position: relative; font-family: system-ui, sans-serif; }
+      canvas { display: block; width: 100%; height: 100%; }
+      .status { position: fixed; top: 16px; right: 16px; max-width: 42vw; padding: 7px 10px; border-radius: 999px; color: #d7f9e2; background: #123522e8; font-size: 12px; }
+      .tools { position: fixed; top: 16px; left: 16px; display: flex; gap: 6px; }
+      button { border: 1px solid #ffffff2f; border-radius: 6px; padding: 6px 9px; color: #e5edf7; background: #172238e8; cursor: pointer; }
+      .metrics { position: fixed; left: 16px; bottom: 16px; max-width: 460px; padding: 10px 12px; border: 1px solid #ffffff22; border-radius: 8px; color: #dce7f5; background: #101827df; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+      .help { position: fixed; right: 16px; bottom: 16px; padding: 8px 10px; color: #cbd5e1; background: #101827c7; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="gpu-canvas" aria-label="Packed glTF model loading fixture"></canvas>
+    <div class="status" id="fixture-status">正在加载模型…</div>
+    <div class="tools">
+      <button id="download-json" type="button">导出 JSON</button>
+      <button id="capture-png" type="button">截图</button>
+      <button id="reset-camera" type="button">重置相机</button>
+    </div>
+    <div class="metrics" id="fixture-metrics">Feature 02 · Packed glTF
+等待加载…</div>
+    <div class="help">左键旋转 · 右键平移 · 滚轮缩放</div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

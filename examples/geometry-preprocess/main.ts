@@ -8,8 +8,9 @@ import {
   buildBoxSourceGeometry,
   cookGeometryAssetPackage,
   createGeometryCookRecipe,
+  openGeometryAssetPackage,
   type GeometryAssetPackage,
-  type PackedSceneSource
+  type GeometryCookEvidence
 } from "../../OEngine/src/index.ts";
 import { Inspector } from "../../OEngine/src/addons/inspector/index.ts";
 
@@ -20,7 +21,7 @@ declare const __BUILD_CONTENT_HASH__: string;
 type FixtureStatus = "booting" | "ready" | "failed" | "device-lost";
 type FixtureResult = {
   readonly schemaVersion: 1;
-  readonly caseId: "basic-scene";
+  readonly caseId: "geometry-preprocess";
   readonly status: FixtureStatus;
   readonly build: { readonly commit: string; readonly dirty: boolean; readonly contentHash: string };
   readonly environment: { readonly width: number; readonly height: number; readonly dpr: number };
@@ -32,7 +33,7 @@ type FixtureResult = {
 
 declare global {
   interface Window {
-    __OENGINE_BASIC_SCENE_FIXTURE__?: {
+    __OENGINE_GEOMETRY_PREPROCESS_FIXTURE__?: {
       getSnapshot: () => FixtureResult;
       downloadJson: () => void;
       captureScreenshot: () => Promise<void>;
@@ -41,9 +42,9 @@ declare global {
 }
 
 const canvas = required<HTMLCanvasElement>("gpu-canvas");
-const status = required<HTMLElement>("scene-status");
-const downloadJsonButton = required<HTMLButtonElement>("download-json");
-const capturePngButton = required<HTMLButtonElement>("capture-png");
+const status = required<HTMLElement>("fixture-status");
+const metrics = required<HTMLElement>("fixture-metrics");
+const startedAt = performance.now();
 
 let renderer: Renderer | null = null;
 let scene: Scene | null = null;
@@ -53,14 +54,18 @@ let inspector: Inspector | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let frameRequest = 0;
 let disposed = false;
-const startedAt = performance.now();
+let initialized = false;
 let fixtureStatus: FixtureStatus = "booting";
 let fixtureError: FixtureResult["error"];
-let initialized = false;
+let cookedAssets: readonly GeometryAssetPackage[] = [];
+let cookEvidence: readonly GeometryCookEvidence[] = [];
+let deterministic = false;
+let reopened = false;
 
-downloadJsonButton.addEventListener("click", downloadJson);
-capturePngButton.addEventListener("click", () => void captureScreenshot());
-window.__OENGINE_BASIC_SCENE_FIXTURE__ = { getSnapshot, downloadJson, captureScreenshot };
+required<HTMLButtonElement>("download-json").addEventListener("click", downloadJson);
+required<HTMLButtonElement>("capture-png").addEventListener("click", () => void captureScreenshot());
+required<HTMLButtonElement>("reset-camera").addEventListener("click", resetCamera);
+window.__OENGINE_GEOMETRY_PREPROCESS_FIXTURE__ = { getSnapshot, downloadJson, captureScreenshot };
 
 void initialize().catch((error: unknown) => {
   fixtureStatus = "failed";
@@ -70,14 +75,29 @@ void initialize().catch((error: unknown) => {
   };
   status.textContent = fixtureError.message;
   status.dataset.fixtureStatus = fixtureStatus;
-  status.style.background = "#4a1720e6";
+  status.style.background = "#4a1720e8";
+  metrics.textContent = `Feature 03 · Geometry Preprocess\n失败：${fixtureError.message}`;
   console.error(error);
 });
 
 async function initialize(): Promise<void> {
-  if (!("gpu" in navigator)) throw new Error("WebGPU is unavailable in this browser.");
+  if (!("gpu" in navigator)) throw new Error("WebGPU 在当前浏览器不可用");
   const context = canvas.getContext("webgpu");
-  if (context === null) throw new Error("Unable to create a WebGPU canvas context.");
+  if (context === null) throw new Error("无法创建 WebGPU canvas context");
+
+  const recipe = createGeometryCookRecipe();
+  const sources = [
+    buildBoxSourceGeometry(2, 2, 2),
+    buildBoxSourceGeometry(10, 0.2, 10)
+  ];
+  status.textContent = "正在 Cook Meshlet / hierarchy / BVH…";
+  const first = await cookGeometryAssetPackage(sources[0]!, recipe);
+  const second = await cookGeometryAssetPackage(sources[1]!, recipe);
+  cookedAssets = [first.asset, second.asset];
+  cookEvidence = [first.evidence, second.evidence];
+  deterministic = first.evidence.contentHash === (await cookGeometryAssetPackage(sources[0]!, recipe)).evidence.contentHash;
+  reopened = (await openGeometryAssetPackage(first.bytes)).validate().valid &&
+    (await openGeometryAssetPackage(second.bytes)).validate().valid;
 
   const activeRenderer = new Renderer();
   renderer = activeRenderer;
@@ -87,7 +107,7 @@ async function initialize(): Promise<void> {
       shadows: true,
       ambientOcclusion: false,
       screenSpaceReflections: false,
-      temporalAntiAliasing: true,
+      temporalAntiAliasing: false,
       bloom: false,
       automaticExposure: false,
       motionBlur: false,
@@ -103,8 +123,26 @@ async function initialize(): Promise<void> {
   light.casts_shadow = true;
   activeScene.addChild(light);
 
-  const source = await createBasicSceneSource();
-  await activeRenderer.uploadPackedScene(activeScene, source);
+  const cubeMaterial = new StandardShadeMaterial();
+  cubeMaterial.diffuse_color.set(0.08, 0.38, 0.92, 1);
+  cubeMaterial.roughness_factor = 0.32;
+  const planeMaterial = new StandardShadeMaterial();
+  planeMaterial.diffuse_color.set(0.18, 0.2, 0.25, 1);
+  planeMaterial.roughness_factor = 0.9;
+  await activeRenderer.uploadPackedScene(activeScene, {
+    geometries: cookedAssets,
+    materials: [cubeMaterial, planeMaterial],
+    count: 2,
+    geometryIndices: new Uint32Array([0, 1]),
+    materialIndices: new Uint32Array([0, 1]),
+    currentTransforms: transforms(),
+    previousTransforms: transforms(),
+    boundsSpheres: new Float32Array([0, 1.06, 0, 1.7321, 0, -0.06, 0, 7.08]),
+    boundsMin: new Float32Array([-1, 0.06, -1, -5, -0.16, -5]),
+    boundsMax: new Float32Array([1, 2.06, 1, 5, 0.04, 5]),
+    flags: new Uint32Array([0, 0]),
+    debugIds: new Uint32Array([1, 2])
+  });
 
   const activeCamera = new PerspectiveCamera();
   camera = activeCamera;
@@ -118,19 +156,15 @@ async function initialize(): Promise<void> {
   controls = activeControls;
   activeControls.distanceLimits.min = 2;
   activeControls.distanceLimits.max = 30;
-  activeControls.movement_speed_scale = 1.2;
   activeControls.from_transform(activeCamera.transform);
 
   resizeObserver = new ResizeObserver(() => resize(activeRenderer, activeCamera));
   resizeObserver.observe(canvas);
   resize(activeRenderer, activeCamera);
-
-  // This example owns its Inspector instance. It does not share UI state with
-  // Rendering Lab; the addon only observes this example's renderer profiler.
   inspector = new Inspector(activeRenderer, {
     container: document.body,
     initialMode: "live",
-    historyCapacity: 512,
+    historyCapacity: 256,
     uiRefreshHz: 5,
     styles: "inline"
   });
@@ -139,45 +173,16 @@ async function initialize(): Promise<void> {
   initialized = true;
   fixtureStatus = "ready";
   status.dataset.fixtureStatus = fixtureStatus;
-  status.textContent = "运行中 · WebGPU";
+  status.textContent = "Feature 03 · 几何预处理完成";
+  updateMetrics();
   startFrameLoop();
 }
 
-async function createBasicSceneSource(): Promise<PackedSceneSource> {
-  const geometrySources = [
-    buildBoxSourceGeometry(2, 2, 2),
-    buildBoxSourceGeometry(12, 0.12, 12)
-  ];
-  const recipe = createGeometryCookRecipe();
-  const geometries: GeometryAssetPackage[] = [];
-  for (const source of geometrySources) {
-    geometries.push((await cookGeometryAssetPackage(source, recipe)).asset);
-  }
-
-  const cubeMaterial = new StandardShadeMaterial();
-  cubeMaterial.diffuse_color.set(0.1, 0.42, 0.95, 1);
-  cubeMaterial.roughness_factor = 0.34;
-  const planeMaterial = new StandardShadeMaterial();
-  planeMaterial.diffuse_color.set(0.18, 0.2, 0.24, 1);
-  planeMaterial.roughness_factor = 0.9;
-
-  const currentTransforms = new Float32Array(32);
-  writeTranslation(currentTransforms, 0, 0, 1.06, 0);
-  writeTranslation(currentTransforms, 16, 0, -0.06, 0);
-  return {
-    geometries,
-    materials: [cubeMaterial, planeMaterial],
-    count: 2,
-    geometryIndices: new Uint32Array([0, 1]),
-    materialIndices: new Uint32Array([0, 1]),
-    currentTransforms,
-    previousTransforms: currentTransforms.slice(),
-    boundsSpheres: new Float32Array([0, 1.06, 0, 1.7321, 0, -0.06, 0, 8.4853]),
-    boundsMin: new Float32Array([-1, 0.06, -1, -6, -0.12, -6]),
-    boundsMax: new Float32Array([1, 2.06, 1, 6, 0, 6]),
-    flags: new Uint32Array([0, 0]),
-    debugIds: new Uint32Array([1, 2])
-  };
+function transforms(): Float32Array {
+  const output = new Float32Array(32);
+  writeTranslation(output, 0, 0, 1.06, 0);
+  writeTranslation(output, 16, 0, -0.06, 0);
+  return output;
 }
 
 function writeTranslation(target: Float32Array, offset: number, x: number, y: number, z: number): void {
@@ -191,23 +196,15 @@ function writeTranslation(target: Float32Array, offset: number, x: number, y: nu
   target[offset + 15] = 1;
 }
 
-function resize(activeRenderer: Renderer, activeCamera: PerspectiveCamera): void {
-  activeRenderer.resize(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight));
-  activeCamera.aspect = activeRenderer.aspect_ratio;
-  activeCamera.update();
-}
-
 function startFrameLoop(): void {
   let previousTime = performance.now();
   const frame = (now: number): void => {
     if (disposed || renderer === null || scene === null || camera === null) return;
-    const rafIntervalMs = Math.max(0, now - previousTime);
-    const deltaSeconds = Math.min(0.1, rafIntervalMs / 1000);
+    const deltaSeconds = Math.min(0.1, Math.max(0, now - previousTime) / 1000);
     previousTime = now;
     controls?.update(deltaSeconds);
     camera.aspect = renderer.aspect_ratio;
     camera.update();
-    renderer.profiler.recordExternalMetric("frame.rafIntervalMs", rafIntervalMs);
     if (!renderer.render(camera, scene, deltaSeconds)) {
       fixtureStatus = "device-lost";
       status.dataset.fixtureStatus = fixtureStatus;
@@ -219,77 +216,78 @@ function startFrameLoop(): void {
   frameRequest = requestAnimationFrame(frame);
 }
 
-function dispose(): void {
-  if (disposed) return;
-  disposed = true;
-  cancelAnimationFrame(frameRequest);
-  resizeObserver?.disconnect();
-  controls?.pointer.stop();
-  controls?.keyboard.stop();
-  inspector?.dispose();
-  inspector = null;
-  renderer?.destroy();
-  canvas.getContext("webgpu")?.unconfigure();
-  delete window.__OENGINE_BASIC_SCENE_FIXTURE__;
+function resetCamera(): void {
+  if (camera === null) return;
+  camera.transform.position.set(7, 5.5, 8);
+  camera.transform.lookAt({ x: 0, y: 0.5, z: 0 });
+  camera.update();
+  controls?.from_transform(camera.transform);
 }
 
-window.addEventListener("pagehide", dispose, { once: true });
+function resize(activeRenderer: Renderer, activeCamera: PerspectiveCamera): void {
+  activeRenderer.resize(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight));
+  activeCamera.aspect = activeRenderer.aspect_ratio;
+  activeCamera.update();
+}
 
-function required<T extends HTMLElement>(id: string): T {
-  const element = document.getElementById(id);
-  if (element === null) throw new Error(`Missing #${id}`);
-  return element as T;
+function updateMetrics(): void {
+  metrics.textContent = [
+    "Feature 03 · Geometry Preprocess",
+    `packages: ${cookedAssets.length}`,
+    `meshlets: ${sumEvidence("meshletCount")}`,
+    `clusters: ${sumEvidence("clusterCount")}`,
+    `BVH8 nodes: ${sumEvidence("bvh8NodeCount")}`,
+    `package bytes: ${sumEvidence("packageBytes")}`,
+    `deterministic: ${deterministic}`,
+    `reopen valid: ${reopened}`
+  ].join("\n");
+}
+
+function sumEvidence(key: keyof GeometryCookEvidence): number {
+  return cookEvidence.reduce((sum, evidence) => sum + Number(evidence[key]), 0);
 }
 
 function getSnapshot(): FixtureResult {
-  const activeCamera = camera;
-  const position = activeCamera?.transform.position;
+  const position = camera?.transform.position;
   const residency = renderer?.geometryAssetResidencyEvidence();
   const sceneEvidence = renderer?.gpuSceneEvidence();
   return {
     schemaVersion: 1,
-    caseId: "basic-scene",
+    caseId: "geometry-preprocess",
     status: fixtureStatus,
     build: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__, contentHash: __BUILD_CONTENT_HASH__ },
-    environment: {
-      width: canvas.width,
-      height: canvas.height,
-      dpr: window.devicePixelRatio
-    },
+    environment: { width: canvas.width, height: canvas.height, dpr: window.devicePixelRatio },
     lifecycle: {
       frame: renderer?.frame_count ?? 0,
       elapsedMs: Math.round(performance.now() - startedAt),
       initialized
     },
-    camera: activeCamera === null || position === undefined
+    camera: camera === null || position === undefined
       ? null
-      : {
-          position: [position.x, position.y, position.z],
-          near: activeCamera.near,
-          far: activeCamera.far
-        },
+      : { position: [position.x, position.y, position.z], near: camera.near, far: camera.far },
     metrics: {
+      packageCount: cookedAssets.length,
+      meshletCount: sumEvidence("meshletCount"),
+      clusterCount: sumEvidence("clusterCount"),
+      bvh8NodeCount: sumEvidence("bvh8NodeCount"),
+      packageBytes: sumEvidence("packageBytes"),
+      deterministic,
+      reopened,
       residentAssetCount: residency?.residentAssetCount ?? 0,
       residentBytes: residency?.residentBytes ?? 0,
-      activeInstanceCount: sceneEvidence?.activeInstanceCount ?? 0,
-      highWaterInstanceCount: sceneEvidence?.highWaterInstanceCount ?? 0,
-      recordStride: sceneEvidence?.recordStride ?? 0
+      activeInstanceCount: sceneEvidence?.activeInstanceCount ?? 0
     },
     ...(fixtureError === undefined ? {} : { error: fixtureError })
   };
 }
 
 function downloadJson(): void {
-  downloadBlob(
-    new Blob([JSON.stringify(getSnapshot(), null, 2)], { type: "application/json" }),
-    "basic-scene.result.json"
-  );
+  downloadBlob(new Blob([JSON.stringify(getSnapshot(), null, 2)], { type: "application/json" }), "geometry-preprocess.result.json");
 }
 
 async function captureScreenshot(): Promise<void> {
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-  if (blob === null) return;
-  downloadBlob(blob, "basic-scene.png");
+  if (blob !== null) downloadBlob(blob, "geometry-preprocess.png");
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -299,4 +297,25 @@ function downloadBlob(blob: Blob, filename: string): void {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function dispose(): void {
+  if (disposed) return;
+  disposed = true;
+  cancelAnimationFrame(frameRequest);
+  resizeObserver?.disconnect();
+  controls?.pointer.stop();
+  controls?.keyboard.stop();
+  inspector?.dispose();
+  renderer?.destroy();
+  canvas.getContext("webgpu")?.unconfigure();
+  delete window.__OENGINE_GEOMETRY_PREPROCESS_FIXTURE__;
+}
+
+window.addEventListener("pagehide", dispose, { once: true });
+
+function required<T extends HTMLElement>(id: string): T {
+  const element = document.getElementById(id);
+  if (element === null) throw new Error(`Missing #${id}`);
+  return element as T;
 }

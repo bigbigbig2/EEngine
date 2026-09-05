@@ -22,3 +22,13 @@ export const BasicScene: Story = {
   name: "Basic Scene · Cube + Plane",
   args: { entry: exampleCatalog.basicScene }
 };
+
+export const ModelLoading: Story = {
+  name: "Feature 02 · Model Loading",
+  args: { entry: exampleCatalog.modelLoading }
+};
+
+export const GeometryPreprocess: Story = {
+  name: "Feature 03 · Geometry Preprocess",
+  args: { entry: exampleCatalog.geometryPreprocess }
+};

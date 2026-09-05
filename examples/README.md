@@ -11,8 +11,14 @@ yarn install
 yarn storybook
 ```
 
-Storybook serves the examples at `Showcase / Basic Scene · Cube + Plane` and
-`Showcase / Rendering Lab`. The basic scene demonstrates a packed cube and
-ground plane with `PerspectiveCamera` + `OrbitControls`, and mounts its own
-Performance Inspector instance. The production build is available with
-`yarn build:storybook`; the standalone Vite build is `yarn build`.
+Storybook serves independent cases at `Showcase / Basic Scene · Cube + Plane`,
+`Showcase / Feature 02 · Model Loading` and `Showcase / Feature 03 · Geometry
+Preprocess`, alongside the integrated Rendering Lab. Each case owns its own
+HTML page, renderer, scene, camera, controls, Inspector and failure state; the
+cases intentionally do not share a runtime harness. Every case has **导出
+JSON**, **截图** and **重置相机** controls. JSON includes case status, build
+provenance, lifecycle, camera and feature evidence; startup failures remain
+exportable for manual capture.
+
+The production build is available with `yarn build:storybook`; the standalone
+Vite build is `yarn build`.

@@ -14,5 +14,15 @@ export const exampleCatalog = {
     id: "Showcase 00",
     title: "Rendering Lab · Integrated Quality Fixture",
     route: "rendering-lab/"
+  },
+  modelLoading: {
+    id: "Feature 02",
+    title: "Model Loading · Packed glTF",
+    route: "model-loading/"
+  },
+  geometryPreprocess: {
+    id: "Feature 03",
+    title: "Geometry Preprocess · Cook + Reopen",
+    route: "geometry-preprocess/"
   }
 } as const satisfies Record<string, ExampleCatalogEntry>;

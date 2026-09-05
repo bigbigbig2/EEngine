@@ -35,6 +35,14 @@ export default defineConfig({
         renderingLab: path.resolve(
           examplesRoot,
           "rendering-lab/index.html"
+        ),
+        modelLoading: path.resolve(
+          examplesRoot,
+          "model-loading/index.html"
+        ),
+        geometryPreprocess: path.resolve(
+          examplesRoot,
+          "geometry-preprocess/index.html"
         )
       }
     }

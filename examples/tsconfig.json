@@ -11,5 +11,10 @@
     "strict": true,
     "noEmit": true
   },
-  "include": ["rendering-lab/**/*.ts"]
+  "include": [
+    "basic-scene/**/*.ts",
+    "rendering-lab/**/*.ts",
+    "model-loading/**/*.ts",
+    "geometry-preprocess/**/*.ts"
+  ]
 }
