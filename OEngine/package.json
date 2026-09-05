@@ -5,7 +5,9 @@
   "description": "A WebGPU renderer focused on GPU-driven visibility and modern real-time rendering",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./addons/inspector": "./src/addons/inspector/index.ts",
+    "./addons/inspector/style.css": "./src/addons/inspector/inspector.css"
   },
   "scripts": {
     "build": "tsc --noEmit && vite build && tsc -p tsconfig.build.json",

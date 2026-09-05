@@ -26,6 +26,8 @@
         "src/render/passes/AutomaticExposurePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/AutomaticExposurePass.ts",
@@ -46,6 +48,8 @@
         "src/render/passes/BloomPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/BloomPass.ts",
@@ -67,6 +71,8 @@
         "src/shaders/transparent_oit.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/GIService.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -90,6 +96,8 @@
         "src/render/passes/ColorGradingPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/ColorGradingPass.ts",
@@ -111,6 +119,8 @@
         "src/render/passes/IblDiffusePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
@@ -135,6 +145,8 @@
         "src/gpu/EnvironmentPrefilterPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/EnvironmentPrefilterPass.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
@@ -182,6 +194,8 @@
         "src/render/ExactTriangleFilter.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/ExactTriangleFilter.ts",
         "src/render/features/SurfaceFeature.ts",
@@ -208,6 +222,10 @@
         "src/shaders/taa.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/addons/inspector/InspectorShell.ts",
+        "src/addons/inspector/InspectorViewModel.ts",
         "src/debug/BenchmarkHarness.ts",
         "src/debug/BenchmarkRunController.ts",
         "src/debug/BenchmarkSceneManifest.ts",
@@ -350,6 +368,8 @@
         "src/shaders/render_debug_view.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -404,6 +424,8 @@
         "src/render/HierarchicalWorkGenerator.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -454,6 +476,8 @@
         "src/render/HierarchicalZBuffer.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -501,6 +525,8 @@
         "src/render/passes/IblSpecularPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/GIService.ts",
         "src/render/passes/IblSpecularPass.ts",
@@ -522,6 +548,8 @@
         "src/render/passes/LightClusterPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/passes/LightClusterPass.ts",
@@ -544,6 +572,8 @@
         "src/shaders/transparent_oit.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/features/TransparencyFeature.ts",
@@ -596,6 +626,8 @@
         "src/shaders/visibility_meshlet.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/AnimationDatabase.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
@@ -707,6 +739,8 @@
         "src/shaders/meshlet_bucket_qb.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -755,6 +789,10 @@
         "src/gpu/GPUMaterialContext.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/addons/inspector/InspectorShell.ts",
+        "src/addons/inspector/InspectorViewModel.ts",
         "src/debug/BenchmarkHarness.ts",
         "src/debug/BenchmarkRunController.ts",
         "src/debug/BenchmarkSceneManifest.ts",
@@ -892,6 +930,10 @@
         "src/gpu/GPUMaterialContext.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/addons/inspector/InspectorShell.ts",
+        "src/addons/inspector/InspectorViewModel.ts",
         "src/debug/BenchmarkHarness.ts",
         "src/debug/BenchmarkRunController.ts",
         "src/debug/BenchmarkSceneManifest.ts",
@@ -1029,6 +1071,8 @@
         "src/gpu/MeshletDrawList.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1077,6 +1121,8 @@
         "src/gpu/MeshletDrawList.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1125,6 +1171,8 @@
         "src/gpu/MeshletDrawList.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1173,6 +1221,8 @@
         "src/gpu/MeshletDrawList.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1222,6 +1272,8 @@
         "src/shaders/meshlet_hzb_cull_dual.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1274,6 +1326,8 @@
         "src/shaders/meshlet_prefix_scan.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1326,6 +1380,8 @@
         "src/gpu/MeshletDrawList.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1374,6 +1430,8 @@
         "src/shaders/ray_query.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1426,6 +1484,10 @@
         "src/gpu/MipmapGenerator.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/addons/inspector/InspectorShell.ts",
+        "src/addons/inspector/InspectorViewModel.ts",
         "src/debug/BenchmarkHarness.ts",
         "src/debug/BenchmarkRunController.ts",
         "src/debug/BenchmarkSceneManifest.ts",
@@ -1563,6 +1625,8 @@
         "src/render/passes/MotionBlurPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/MotionBlurPass.ts",
@@ -1583,6 +1647,8 @@
         "src/render/passes/NeuralSuperSamplingPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/Renderer.ts"
@@ -1602,6 +1668,8 @@
         "src/render/passes/OcclusionConfidencePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/Renderer.ts"
@@ -1621,6 +1689,8 @@
         "src/render/passes/OpaqueLightingResolvePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/GIService.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
@@ -1642,6 +1712,8 @@
         "src/gpu/MeshletDrawList.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1690,6 +1762,8 @@
         "src/render/passes/PackedCsmShadowPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1736,6 +1810,8 @@
         "src/render/passes/PackedMaterialResolvePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
@@ -1756,6 +1832,8 @@
         "src/render/passes/PackedTransparentOitPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -1776,6 +1854,8 @@
         "src/render/passes/PackedVisibilityPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/VisibilityFeature.ts",
@@ -1799,6 +1879,8 @@
         "src/render/passes/PathTracer.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/PathTracer.ts",
         "src/render/Renderer.ts"
@@ -1818,6 +1900,8 @@
         "src/gpu/LightProbeAtlasBorderUpdatePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1865,6 +1949,8 @@
         "src/gpu/LightProbeDepthUpdatePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1911,6 +1997,8 @@
         "src/gpu/LightProbeGBufferPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -1959,6 +2047,8 @@
         "src/gpu/LightProbeIndirectPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -2006,6 +2096,8 @@
         "src/gpu/GPULightProbeVolumeRenderer.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/index.ts",
         "src/render/Renderer.ts"
@@ -2025,6 +2117,8 @@
         "src/gpu/GPULightProbeVolumeRenderer.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/index.ts",
         "src/render/Renderer.ts"
@@ -2044,6 +2138,8 @@
         "src/gpu/LightProbeRadianceAccumulatePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -2090,6 +2186,8 @@
         "src/gpu/LightProbeShCommitPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -2139,6 +2237,8 @@
         "src/shaders/probe_sh_reduce.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -2203,6 +2303,8 @@
         "src/gpu/LightProbeShReducePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -2254,6 +2356,8 @@
         "src/shaders/probe_radiance_accumulate.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -2306,6 +2410,8 @@
         "src/render/passes/RenderDebugViewPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/Renderer.ts"
@@ -2326,6 +2432,8 @@
         "src/render/passes/ShadowRasterPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -2373,6 +2481,8 @@
         "src/render/passes/SharpenPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/SharpenPass.ts",
@@ -2393,6 +2503,8 @@
         "src/render/passes/SpecularCorrectionPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
@@ -2413,6 +2525,8 @@
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/AOService.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
@@ -2438,6 +2552,8 @@
         "src/shaders/ssr_trace.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
@@ -2463,6 +2579,8 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
@@ -2483,6 +2601,8 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
@@ -2503,6 +2623,8 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
@@ -2524,6 +2646,8 @@
         "src/shaders/ssr_resolve_lpv.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
@@ -2544,6 +2668,8 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
@@ -2564,6 +2690,8 @@
         "src/render/passes/TemporalAntiAliasingPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/TemporalFeature.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
@@ -2584,6 +2712,8 @@
         "src/render/passes/TemporalClassificationPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/TemporalFeature.ts",
         "src/render/passes/TemporalClassificationPass.ts",
@@ -2604,6 +2734,8 @@
         "src/render/passes/TonemapPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/TonemapPass.ts",
@@ -2624,6 +2756,8 @@
         "src/render/passes/TonemapPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/TonemapPass.ts",
@@ -2644,6 +2778,8 @@
         "src/render/passes/TransparentOitPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/passes/TransparentOitPass.ts",
@@ -2664,6 +2800,8 @@
         "src/render/passes/VelocityPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
@@ -2685,6 +2823,8 @@
         "src/render/passes/VisibilityPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/VisibilityPass.ts",
         "src/render/Renderer.ts"
@@ -2706,6 +2846,8 @@
         "src/shaders/meshlet_hzb_cull.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolume.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/gpu/GPUSceneContext.ts",
@@ -2754,6 +2896,8 @@
         "src/render/passes/VisibilityPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/VisibilityPass.ts",
         "src/render/Renderer.ts"
@@ -2773,6 +2917,8 @@
         "src/render/VisiblePixelClassifier.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",

@@ -1,0 +1,45 @@
+:host {
+  all: initial;
+  contain: content;
+  color: #e7edf6;
+  font: 12px/1.4 system-ui, sans-serif;
+}
+
+.inspector {
+  position: fixed;
+  inset: auto 12px 12px auto;
+  z-index: 2147483647;
+  width: min(520px, calc(100vw - 24px));
+  max-height: min(70vh, 640px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #3a4b63;
+  border-radius: 8px;
+  background: #111923ee;
+  box-shadow: 0 8px 30px #0008;
+  backdrop-filter: blur(8px);
+}
+
+.toolbar,
+.tabs,
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar { justify-content: space-between; margin-bottom: 8px; }
+.tabs { margin-bottom: 8px; flex-wrap: wrap; }
+button {
+  border: 1px solid #43556e;
+  border-radius: 4px;
+  padding: 3px 7px;
+  color: inherit;
+  background: #1a2635;
+  cursor: pointer;
+}
+button:hover { background: #263852; }
+.title { font-weight: 650; }
+.muted { color: #9aabc1; }
+.summary { justify-content: space-between; padding: 8px; border-radius: 5px; background: #172333; }
+.panel { min-height: 52px; padding: 8px; border: 1px solid #2b3b50; border-radius: 5px; }

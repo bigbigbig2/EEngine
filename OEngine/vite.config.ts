@@ -15,15 +15,19 @@ const sourcePackage = JSON.parse(
 
 const distributableExports = Object.fromEntries(
   Object.entries(sourcePackage.exports)
-    .map(([subpath, sourceTarget]) => [
-      subpath,
-      {
+    .map(([subpath, sourceTarget]) => {
+      if (sourceTarget.endsWith(".css")) {
+        return [subpath, "./addons/inspector/inspector.css"];
+      }
+      return [subpath, {
         types: sourceTarget
           .replace(/^\.\/src\//, "./types/")
           .replace(/\.ts$/, ".d.ts"),
-        import: "./shade-reconstructed.js"
-      }
-    ])
+        import: subpath === "."
+          ? "./shade-reconstructed.js"
+          : "./addons/inspector/index.js"
+      }];
+    })
 );
 
 const distributablePackage = {
@@ -111,6 +115,11 @@ export default defineConfig({
                 fileName: "package.json",
                 source: `${JSON.stringify(distributablePackage, null, 2)}\n`
               });
+              this.emitFile({
+                type: "asset",
+                fileName: "addons/inspector/inspector.css",
+                source: readFileSync(path.resolve(root, "src/addons/inspector/inspector.css"))
+              });
               for (const [fileName, sourcePath] of nativeAssets) {
                 this.emitFile({
                   type: "asset",
@@ -123,11 +132,16 @@ export default defineConfig({
         ],
     build: {
           lib: {
-            entry: path.resolve(root, "src/index.ts"),
-            name: "ShadeReconstructed",
-            formats: ["es"],
-            fileName: "shade-reconstructed"
+          entry: {
+            index: path.resolve(root, "src/index.ts"),
+            "addons/inspector/index": path.resolve(root, "src/addons/inspector/index.ts")
           },
+          name: "ShadeReconstructed",
+          formats: ["es"],
+          fileName: (_format, entryName) => entryName === "index"
+            ? "shade-reconstructed.js"
+            : `${entryName}.js`
+        },
           outDir: "dist",
           emptyOutDir: true,
           sourcemap: true,

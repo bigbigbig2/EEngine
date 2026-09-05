@@ -615,12 +615,12 @@ OEngine/src/addons/inspector/
 
 **产出接口：** 本文 4.2 定义的 `Inspector`、`InspectorOptions` 和 `InspectorMode`。
 
-- [ ] 先测试 mode transition、pause/resume、选帧、范围、异步 replacement 和 dispose 后不再接收更新。
-- [ ] 在 package exports 添加 `./addons/inspector` 和 `./addons/inspector/style.css`，不污染根入口。
-- [ ] 实现 Shadow DOM shell、toolbar 和 tab 生命周期；所有外部文本使用 `textContent`。
-- [ ] 实现 inline/nonce/external/none 样式策略和完整 `dispose()`。
-- [ ] 用 `requestAnimationFrame` 限制 UI 刷新，数据回填与 UI cadence 解耦。
-- [ ] 运行 view-model 测试和 build，提交 `feat(inspector): add addon shell`。
+- [x] 先测试 mode transition、pause/resume、选帧、范围、异步 replacement 和 dispose 后不再接收更新。
+- [x] 在 package exports 添加 `./addons/inspector` 和 `./addons/inspector/style.css`，不污染根入口。
+- [x] 实现 Shadow DOM shell、toolbar 和 tab 生命周期；所有外部文本使用 `textContent`。
+- [x] 实现 inline/nonce/external/none 样式策略和完整 `dispose()`。
+- [x] 用 `requestAnimationFrame` 限制 UI 刷新，数据回填与 UI cadence 解耦。
+- [x] 运行 view-model 测试和 build，提交 `feat(inspector): add addon shell`。
 
 ### Task 7：实现 Overview 和 Timeline
 
