@@ -12,6 +12,8 @@
 - 对照 three.js r185 `Profiler`/`Style` 重排 Shell：右上角 Inspector toggle、
   底部 dock panel、header/tab/control 分层、显隐过渡和顶部 resize handle；
   Rendering Lab 原有重复的白色 Inspector 按钮已移除。
+- 进一步将内容 tab 提升到 header 主导航，录制/导出等操作改为紧凑 icon controls，
+  并支持右侧 dock、最大化和 FPS mini graph，避免多行大按钮堆叠。
 - Inspector facade 增加 `importCapture()`、`clear()`；导出操作使用浏览器 Blob
   下载适配器，未引入额外 GPU 工作。
 - 补充回放模型回归测试与文档入口。
