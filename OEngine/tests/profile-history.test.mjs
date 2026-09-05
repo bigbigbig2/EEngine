@@ -39,3 +39,33 @@ test("profile history selects an inclusive frame range", () => {
   assert.deepEqual(history.selectRange(3, 6).map((value) => value.frameIndex), [4, 6]);
   assert.throws(() => history.selectRange(6, 3), /range/);
 });
+
+test("profile history rejects changes to terminal sample states", () => {
+  const history = new ProfileHistory();
+  history.add({
+    ...frame(7),
+    samples: {
+      "gpu.passSumMs": {
+        metricId: "gpu.passSumMs",
+        value: 1,
+        availability: "available",
+        sourceFrameIndex: 7,
+        resolvedAtFrameIndex: 8,
+        instrumented: true
+      }
+    }
+  });
+
+  assert.throws(() => history.patch(7, {
+    samples: {
+      "gpu.passSumMs": {
+        metricId: "gpu.passSumMs",
+        value: null,
+        availability: "pending",
+        sourceFrameIndex: 7,
+        resolvedAtFrameIndex: null,
+        instrumented: true
+      }
+    }
+  }), /state transition/);
+});

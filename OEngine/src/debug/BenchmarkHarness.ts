@@ -160,16 +160,20 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
     for (const [label, value] of Object.entries(frame.cpuMs)) {
       append(cpuValues, label, value);
     }
-    for (const segment of frame.gpu.segments) {
-      append(gpuValues, segment.label, segment.durationMs);
-      const phase = segment.phase ?? classifyGpuFramePhase(segment.label);
-      framePhaseTotals.set(
-        phase,
-        (framePhaseTotals.get(phase) ?? 0) + segment.durationMs
-      );
-    }
-    for (const [phase, durationMs] of framePhaseTotals) {
-      append(gpuPhaseValues, phase, durationMs);
+    // Counter collection adds GPU work. Preserve the raw evidence in `frames`,
+    // but exclude instrumented frames from the normal GPU timing baseline.
+    if (!frame.gpuCounters.sampled) {
+      for (const segment of frame.gpu.segments) {
+        append(gpuValues, segment.label, segment.durationMs);
+        const phase = segment.phase ?? classifyGpuFramePhase(segment.label);
+        framePhaseTotals.set(
+          phase,
+          (framePhaseTotals.get(phase) ?? 0) + segment.durationMs
+        );
+      }
+      for (const [phase, durationMs] of framePhaseTotals) {
+        append(gpuPhaseValues, phase, durationMs);
+      }
     }
     for (const [label, value] of Object.entries(frame.counters)) {
       append(counterValues, label, value);

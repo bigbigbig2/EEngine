@@ -126,7 +126,16 @@ function assertOneOf<T extends string>(value: string, allowed: readonly T[], nam
 }
 
 function sameDescriptor(a: MetricDescriptor, b: MetricDescriptor): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return a.id === b.id &&
+    a.label === b.label &&
+    a.group === b.group &&
+    a.unit === b.unit &&
+    a.source === b.source &&
+    a.measurement === b.measurement &&
+    a.cost === b.cost &&
+    a.scope === b.scope &&
+    a.aggregation === b.aggregation &&
+    a.description === b.description;
 }
 
 export type { MetricDescriptor, MetricSample };

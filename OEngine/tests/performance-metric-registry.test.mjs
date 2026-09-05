@@ -25,6 +25,18 @@ test("metric registry rejects semantic conflicts and freezes descriptors", () =>
   assert.equal(registry.get("cpu.frameMs"), descriptor);
   assert.throws(() => registry.register({ ...descriptor, unit: "bytes" }), /conflict/);
   assert.equal(registry.register(descriptor), descriptor);
+  assert.equal(registry.register({
+    description: descriptor.description,
+    aggregation: descriptor.aggregation,
+    scope: descriptor.scope,
+    cost: descriptor.cost,
+    measurement: descriptor.measurement,
+    source: descriptor.source,
+    unit: descriptor.unit,
+    group: descriptor.group,
+    label: descriptor.label,
+    id: descriptor.id
+  }), descriptor);
 });
 
 test("profile series uses deterministic nearest-rank percentiles and rejects invalid values", () => {

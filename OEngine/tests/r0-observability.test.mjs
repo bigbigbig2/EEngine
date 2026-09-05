@@ -464,6 +464,29 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
     gpuCounters: emptyGpuCounters()
   });
 
+  harness.recordFrame({
+    frameIndex: 2,
+    cpuMs: { frame: 2 },
+    submits: { count: 1, labels: { main: 1 } },
+    readbacks: { count: 0, bytes: 0, labels: {} },
+    uploads: { writes: 0, bytes: 0, labels: {} },
+    graph: { builds: 1, compiles: 1, executes: 1 },
+    counters: {},
+    gpu: {
+      available: true,
+      sampled: true,
+      pending: false,
+      segments: [
+        { label: "visibility", type: "render", durationMs: 100 }
+      ]
+    },
+    gpuCounters: {
+      ...emptyGpuCounters(),
+      available: true,
+      sampled: true
+    }
+  });
+
   const result = harness.complete({
     validationErrorCount: 0,
     uncapturedErrorCount: 0,

@@ -593,11 +593,11 @@ OEngine/src/addons/inspector/
 - 新建 `OEngine/tests/performance-capture.test.mjs`
 - 新建 `OEngine/tests/chrome-trace-exporter.test.mjs`
 
-**产出接口：** `createPerformanceCapture()`、`parsePerformanceCapture()`、`serializePerformanceCapture()`、`exportChromeTrace()`。
+**产出接口：** `createPerformanceCapture()`、`parsePerformanceCapture()`、`serializePerformanceCapture()`、`exportChromeTrace()`、`streamChromeTrace()`、`serializeChromeTrace()`。
 
 - [x] 写 schema golden file，覆盖正常导入、未知字段、未来 schema、NaN/Infinity、重复帧和非单调帧。
 - [x] 捕获 engine/environment/sampling/metric catalog/frame/diagnostics，不包含 GPU 对象或 DOM。
-- [x] 实现 CPU slice、GPU 独立 track、metric counter 和 clock alignment metadata。
+- [x] 实现 CPU slice、GPU 独立 track、metric counter、不可用状态和 clock alignment metadata；Trace 分块序列化使用独立 golden file 验证。
 - [x] GPU duration-only 数据只导出 counter，不生成伪造起点的 slice。
 - [x] 验证两次序列化字节稳定、导入后派生统计一致，提交 `feat(profiler): add capture and trace codecs`。
 

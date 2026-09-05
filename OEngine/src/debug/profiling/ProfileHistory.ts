@@ -123,9 +123,11 @@ function validateProfileFrame(frame: ProfileFrame): void {
 function validateStateTransitions(previous: ProfileFrame, next: ProfileFrame): void {
   for (const [id, before] of Object.entries(previous.samples)) {
     const after = next.samples[id];
-    if (after === undefined || before.availability !== "pending") continue;
-    if (after.availability === "pending") continue;
-    if (!["available", "invalid", "dropped"].includes(after.availability)) {
+    if (after === undefined || after.availability === before.availability) continue;
+    if (
+      before.availability !== "pending" ||
+      !["available", "invalid", "dropped"].includes(after.availability)
+    ) {
       throw new Error(`Invalid profile sample state transition for '${id}'`);
     }
   }

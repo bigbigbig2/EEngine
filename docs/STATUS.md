@@ -10,13 +10,13 @@
 - Task 2：immutable `ProfileFrame`/`ProfileSpan`、有界 `ProfileHistory`、按 `frameIndex` 的异步 patch 和状态校验。
 - Task 3：`FrameProfiler` 已收敛注册指标、CPU/GPU span、Live/Record/Deep Capture cadence、epoch/warm-up、GPU timestamp/counter 异步回填和状态化 sample；未知 metric ID 会直接拒绝。
 - Task 4：资源账本已接入 GPU Asset、Scene、Packed Scene、Texture Residency、transient Buffer/Texture pool、temporal history、shadow/LPV atlas、upload staging 和 profiler readback 的创建/销毁边界，并按 resident/transient/history/atlas/upload/readback/profiler 分类；Pipeline 已记录 cache、host-call 和 first-use，FrameGraph 已记录 active/pruned 与逻辑瞬态峰值。
-- Task 5：Capture v1 已提供 canonical schema、golden fixture、严格导入校验、未知字段规范化、递归深冻结、稳定序列化和导入后统计一致性；Trace 保持 CPU/GPU 独立时钟域，duration-only GPU 数据不伪造 slice 起点。
+- Task 5：Capture v1 已提供 canonical schema、golden fixture、严格导入校验、未知字段规范化、递归深冻结、稳定序列化和导入后统计一致性；Trace 保持 CPU/GPU 独立时钟域，duration-only GPU 数据不伪造 slice 起点，并支持带独立 golden 验证的流式/分块序列化。
 
 Task 3–5 的文档契约已收尾。Inspector UI（Task 6–9）尚未开始；真实 adapter 上的 off/Live/Record/Deep Capture A/B 和 1080p 性能证据属于 Task 9，当前不能宣称已经达标。
 
 资源数值统一表示 OEngine owner 在实际创建/销毁边界登记的 accounted/estimated bytes，不是物理 VRAM、驱动分配或硬件利用率；history/atlas 与 resident/transient 分账，禁止重复计数。
 
-验证：`npm run build`、`npm run build:test` 通过；Task 3–5 命中测试 64/64 通过。全量测试 394/396 通过，仅有既有 FX-04/FX-06 porting ledger 的 2 个文档断言失败，这两项与本次性能监视器实现无关。
+验证：`npm run build`、`npm run build:test` 通过；Task 1–5 命中测试 74/74 通过。全量测试 396/398 通过，仅有既有 FX-04/FX-06 porting ledger 的 2 个文档断言失败，这两项与本次性能监视器实现无关。
 
 ## 已验证基础
 

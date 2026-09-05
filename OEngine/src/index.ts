@@ -353,10 +353,15 @@ export type {
   PerformanceCapture,
   PerformanceCaptureInput
 } from "./debug/profiling/PerformanceCapture.js";
-export { exportChromeTrace } from "./debug/profiling/ChromeTraceExporter.js";
+export {
+  exportChromeTrace,
+  serializeChromeTrace,
+  streamChromeTrace
+} from "./debug/profiling/ChromeTraceExporter.js";
 export type {
   ChromeTraceDocument,
-  ChromeTraceEvent
+  ChromeTraceEvent,
+  ChromeTraceInput
 } from "./debug/profiling/ChromeTraceExporter.js";
 export {
   GPU_COUNTER_BYTE_SIZE,
