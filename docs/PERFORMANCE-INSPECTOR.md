@@ -634,11 +634,11 @@ OEngine/src/addons/inspector/
 
 **产出接口：** 帧条、趋势图、预算线、帧/范围选择、CPU/GPU 轨道和统计详情。
 
-- [ ] 为状态颜色、预算分类、frame selection 和范围 percentile 写纯 view-model 测试。
-- [ ] Canvas 图表只保存有界 typed arrays；resize 时按 DPR 重建 backing store。
-- [ ] Timeline 明确区分 available/pending/unsupported/invalid/dropped 和 instrumented。
-- [ ] GPU 无起点时切换为 duration table，并显示“CPU/GPU clock not aligned”。
-- [ ] 验证 2048 帧下 UI 更新不重建完整 DOM，提交 `feat(inspector): add overview and timeline`。
+- [x] 为状态颜色、预算分类、frame selection 和范围 percentile 写纯 view-model 测试。
+- [x] Canvas 图表只保存有界 typed arrays；resize 时按 DPR 重建 backing store。
+- [x] Timeline 明确区分 available/pending/unsupported/invalid/dropped 和 instrumented。
+- [x] GPU 无起点时切换为 duration table，并显示“CPU/GPU clock not aligned”。
+- [x] 验证 2048 帧下 UI 更新不重建完整 DOM，提交 `feat(inspector): add overview and timeline`。
 
 ### Task 8：实现领域面板
 

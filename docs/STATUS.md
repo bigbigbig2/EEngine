@@ -12,11 +12,11 @@
 - Task 4：资源账本已接入 GPU Asset、Scene、Packed Scene、Texture Residency、transient Buffer/Texture pool、temporal history、shadow/LPV atlas、upload staging 和 profiler readback 的创建/销毁边界，并按 resident/transient/history/atlas/upload/readback/profiler 分类；Pipeline 已记录 cache、host-call 和 first-use，FrameGraph 已记录 active/pruned 与逻辑瞬态峰值。
 - Task 5：Capture v1 已提供 canonical schema、golden fixture、严格导入校验、未知字段规范化、递归深冻结、稳定序列化和导入后统计一致性；Trace 保持 CPU/GPU 独立时钟域，duration-only GPU 数据不伪造 slice 起点，并支持带独立 golden 验证的流式/分块序列化。
 
-Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、view-model 和 package subpath 已实现。Inspector 领域面板（Task 7–8）尚未开始；真实 adapter 上的 off/Live/Record/Deep Capture A/B 和 1080p 性能证据属于 Task 9，当前不能宣称已经达标。
+Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、view-model 和 package subpath 已实现；Task 7 的 Overview/Timeline 图表、预算分类、范围统计和双时钟轨道已实现。GPU-driven、FrameGraph、Resources、Diagnostics 领域面板（Task 8）尚未开始；真实 adapter 上的 off/Live/Record/Deep Capture A/B 和 1080p 性能证据属于 Task 9，当前不能宣称已经达标。
 
 资源数值统一表示 OEngine owner 在实际创建/销毁边界登记的 accounted/estimated bytes，不是物理 VRAM、驱动分配或硬件利用率；history/atlas 与 resident/transient 分账，禁止重复计数。
 
-验证：`npm run build`、`npm run build:test`、`npm run audit:shaders` 通过；Task 1–5 命中测试 74/74 通过；当前全量测试 401/401 通过。
+验证：`npm run build`、`npm run build:test`、`npm run audit:shaders` 通过；Task 1–5 命中测试 74/74 通过；当前全量测试 404/404 通过。
 
 ## 已验证基础
 

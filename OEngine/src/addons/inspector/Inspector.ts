@@ -95,7 +95,9 @@ export class Inspector {
       onMode: (mode) => this.viewModel.setMode(mode),
       onPause: () => this.pause(),
       onResume: () => this.resume(),
-      onClose: () => this.close()
+      onClose: () => this.close(),
+      onSelectFrame: (frameIndex) => this.selectFrame(frameIndex),
+      onSelectRange: (startFrameIndex, endFrameIndex) => this.viewModel.selectRange(startFrameIndex, endFrameIndex)
     });
     this.shell.mount();
     this.unsubscribeView = this.viewModel.subscribe((state) => {
