@@ -11,6 +11,7 @@ import {
   type GeometryAssetPackage,
   type PackedSceneSource
 } from "../../OEngine/src/index.ts";
+import { Inspector } from "../../OEngine/src/addons/inspector/index.ts";
 
 const canvas = required<HTMLCanvasElement>("gpu-canvas");
 const status = required<HTMLElement>("scene-status");
@@ -19,6 +20,7 @@ let renderer: Renderer | null = null;
 let scene: Scene | null = null;
 let camera: PerspectiveCamera | null = null;
 let controls: OrbitControls | null = null;
+let inspector: Inspector | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let frameRequest = 0;
 let disposed = false;
@@ -80,6 +82,18 @@ async function initialize(): Promise<void> {
   resizeObserver = new ResizeObserver(() => resize(activeRenderer, activeCamera));
   resizeObserver.observe(canvas);
   resize(activeRenderer, activeCamera);
+
+  // This example owns its Inspector instance. It does not share UI state with
+  // Rendering Lab; the addon only observes this example's renderer profiler.
+  inspector = new Inspector(activeRenderer, {
+    container: document.body,
+    initialMode: "live",
+    historyCapacity: 512,
+    uiRefreshHz: 5,
+    styles: "inline"
+  });
+  inspector.open();
+
   status.textContent = "运行中 · WebGPU";
   startFrameLoop();
 }
@@ -163,6 +177,8 @@ function dispose(): void {
   resizeObserver?.disconnect();
   controls?.pointer.stop();
   controls?.keyboard.stop();
+  inspector?.dispose();
+  inspector = null;
   renderer?.destroy();
   canvas.getContext("webgpu")?.unconfigure();
 }
