@@ -31,7 +31,7 @@ export interface InspectorDomainState {
 
 const INLINE_CSS = `
 :host{all:initial;contain:content;color:#e7edf6;font:12px/1.4 system-ui,sans-serif}
-.inspector{position:fixed;inset:auto 12px 12px auto;z-index:2147483647;width:min(520px,calc(100vw - 24px));max-height:min(70vh,640px);overflow:auto;padding:10px;border:1px solid #3a4b63;border-radius:8px;background:#111923ee;box-shadow:0 8px 30px #0008;backdrop-filter:blur(8px)}
+.inspector{position:fixed;inset:auto auto 12px 12px;z-index:2147483647;width:min(520px,calc(100vw - 24px));max-height:min(70vh,640px);overflow:auto;padding:10px;border:1px solid #3a4b63;border-radius:8px;background:#111923ee;box-shadow:0 8px 30px #0008;backdrop-filter:blur(8px)}
 .toolbar,.tabs,.summary{display:flex;align-items:center;gap:6px}.toolbar{justify-content:space-between;margin-bottom:8px}.tabs{margin-bottom:8px;flex-wrap:wrap}button{border:1px solid #43556e;border-radius:4px;padding:3px 7px;color:inherit;background:#1a2635;cursor:pointer}button:hover{background:#263852}.title{font-weight:650}.muted{color:#9aabc1}.summary{justify-content:space-between;padding:8px;border-radius:5px;background:#172333}.panel{min-height:52px;padding:8px;border:1px solid #2b3b50;border-radius:5px}
 .panel h3{margin:0 0 6px;font-size:13px}.panel-tabs{margin-top:2px}.overview-stats{white-space:pre-line;color:#c4d0df;margin-bottom:6px}.inspector-chart{display:block;width:100%;height:64px;margin:4px 0;background:#0b121b;border-radius:4px}.timeline-warning{color:#facc15;min-height:18px}.timeline-details{white-space:pre-wrap;margin:6px 0 0;font:11px/1.45 ui-monospace,monospace;color:#c4d0df}.timeline-strip{height:72px}
 .domain-panel pre,.domain-panel div{white-space:pre-wrap;margin:4px 0;font:11px/1.45 ui-monospace,monospace;color:#c4d0df}

@@ -24,21 +24,11 @@
         </section>
       </div>
 
-      <header class="scene-summary" aria-label="场景概览">
-        <div>
-          <span class="eyebrow">GPU 性能实验台</span>
-          <strong>Rendering Lab</strong>
-        </div>
-        <dl>
-          <div><dt>FPS</dt><dd id="metric-fps">—</dd></div>
-          <div><dt>实例</dt><dd id="metric-instances">—</dd></div>
-          <div><dt>几何包</dt><dd id="metric-geometries">—</dd></div>
-          <div><dt>材质</dt><dd id="metric-materials">—</dd></div>
-        </dl>
-      </header>
-
       <button class="panel-toggle" id="panel-toggle" type="button" aria-controls="debug-panel" aria-expanded="true">
         调试面板
+      </button>
+      <button class="inspector-toggle" id="inspector-toggle" type="button" aria-pressed="true">
+        性能 Inspector
       </button>
 
       <aside class="debug-panel" id="debug-panel" aria-label="渲染器调试面板">
@@ -51,65 +41,6 @@
         </div>
 
         <fieldset id="control-fieldset" disabled>
-          <section class="control-section evidence-section" aria-labelledby="evidence-heading">
-            <div class="section-heading-row">
-              <h3 id="evidence-heading">帧级性能证据</h3>
-              <span class="sample-pill" id="evidence-samples">等待采样</span>
-            </div>
-            <div class="evidence-grid">
-              <div><span>RAF 帧间隔 P50</span><strong id="evidence-raf-p50">—</strong></div>
-              <div><span>RAF P95 / P99</span><strong id="evidence-raf-tail">—</strong></div>
-              <div><span>CPU Renderer P50</span><strong id="evidence-cpu-p50">—</strong></div>
-              <div><span>CPU P95 / P99</span><strong id="evidence-cpu-tail">—</strong></div>
-              <div><span>GPU Pass Sum P50</span><strong id="evidence-gpu-p50">—</strong></div>
-              <div><span>GPU Pass P95 / P99</span><strong id="evidence-gpu-tail">—</strong></div>
-              <div><span>Render / Compute Pass</span><strong id="evidence-passes">—</strong></div>
-              <div><span>Draw / Dispatch</span><strong id="evidence-commands">—</strong></div>
-            </div>
-            <p class="evidence-scope" id="evidence-scope">等待稳定测量窗口</p>
-            <dl class="domain-list" id="evidence-domains" aria-label="原生 GPU phase 耗时"></dl>
-            <details class="evidence-details">
-              <summary>原始 GPU Pass 明细</summary>
-              <dl class="domain-list raw-pass-list" id="evidence-raw-passes"></dl>
-            </details>
-            <div class="evidence-subsection">
-              <strong>分辨率域</strong>
-              <p id="evidence-resolution">—</p>
-            </div>
-            <div class="evidence-subsection">
-              <strong>GTAO 实测</strong>
-              <p id="evidence-ao">—</p>
-            </div>
-            <div class="evidence-subsection">
-              <strong>SSR 实测</strong>
-              <p id="evidence-ssr">功能关闭</p>
-            </div>
-            <div class="evidence-subsection">
-              <strong>Temporal / 内存 / 诊断</strong>
-              <p id="evidence-system">—</p>
-            </div>
-            <p class="field-help evidence-note">RAF 是实际呈现节奏；CPU Renderer 是提交前 CPU 帧耗时；GPU Pass Sum 只累加 timestamp 覆盖的 render/compute pass，不含 copy、queue gap、present 与浏览器 compositor。counter 注入帧和 Observability 不进入生产基线。</p>
-          </section>
-
-          <section class="control-section pipeline-section" aria-labelledby="pipeline-heading">
-            <div class="section-heading-row">
-              <h3 id="pipeline-heading">GPU-driven 主链</h3>
-              <span class="sample-pill" id="pipeline-sample">等待 counter</span>
-            </div>
-            <dl class="pipeline-list">
-              <div><dt>Asset → Versioned Package</dt><dd id="pipeline-asset">—</dd></div>
-              <div><dt>GpuAssetStore</dt><dd id="pipeline-residency">—</dd></div>
-              <div><dt>Packed Instance Tables</dt><dd id="pipeline-scene">—</dd></div>
-              <div><dt>Hierarchy / SSE / Cone / HZB</dt><dd id="pipeline-visibility">—</dd></div>
-              <div><dt>Work Generation</dt><dd id="pipeline-work">—</dd></div>
-              <div><dt>RasterWork → Indirect</dt><dd id="pipeline-raster">—</dd></div>
-              <div><dt>VisibilityKey + Reverse-Z</dt><dd id="pipeline-key">—</dd></div>
-              <div><dt>Material Resolve → Surface</dt><dd id="pipeline-surface">—</dd></div>
-              <div><dt>FrameGraph / submit</dt><dd id="pipeline-frame">—</dd></div>
-            </dl>
-            <p class="field-help">数值来自最近一次完成的异步 GPU counter；非采样帧不会伪造零值。</p>
-          </section>
-
           <section class="control-section">
             <label class="field-label" for="debug-view">调试视图</label>
             <select id="debug-view"></select>

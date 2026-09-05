@@ -82,6 +82,11 @@ type PassAccumulator = {
  * GPU readbacks replace their original frame asynchronously. Registering before render preserves
  * the epoch and warm-up identity when that delayed evidence eventually arrives.
  */
+/**
+ * Machine-readable capture helper for the Q00 browser API. Rendering Lab no
+ * longer renders this data into a duplicate statistics panel; the shared
+ * Performance Inspector is the canonical visible consumer.
+ */
 export class ShowcaseEvidenceWindow {
   private readonly frames = new Map<number, FrameRecord>();
   private activeEpoch = 0;

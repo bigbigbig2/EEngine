@@ -5,6 +5,13 @@ GPU-driven static scene path. It loads the unchanged `dungeon_warkarma.glb`
 asset, cooks imported geometry into versioned runtime packages, uploads those
 packages through `GpuAssetStore`, and renders one Packed Instance table.
 
+Performance telemetry is provided by the shared `OEngine` Performance Inspector
+(`OEngine/src/addons/inspector`). The former Rendering Lab statistics and
+pipeline panels have been removed so there is a single source of truth for
+timings, counters, FrameGraph, resources and diagnostics. The **性能 Inspector**
+button toggles the shared panel; scene controls and debug views remain in the
+Rendering Lab panel.
+
 ## Modes
 
 - `rendering-lab/` keeps the quality fixture for visual debugging.
@@ -12,10 +19,10 @@ packages through `GpuAssetStore`, and renders one Packed Instance table.
   shadows, AO, SSR, TAA, bloom, exposure and sharpening so the panel isolates
   the path through Surface.
 
-The pipeline panel reports package statistics, residency, packed instance
-tables, hierarchy/SSE/Cone/HZB counters, work-generation reservations,
-RasterWork/indirect consumption, VisibilityKey/reverse-Z coverage, material
-features and FrameGraph command counts. GPU timestamps and counters are
+The Inspector reports package/residency and packed-scene evidence, visibility
+and work-generation counters, RasterWork/indirect consumption,
+VisibilityKey/reverse-Z coverage, material features, FrameGraph command counts,
+resource/memory state and diagnostics. GPU timestamps and counters are
 asynchronous; an unsampled frame is shown as unavailable rather than inferred
 to be zero.
 

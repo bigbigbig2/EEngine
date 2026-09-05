@@ -671,7 +671,7 @@ OEngine/src/addons/inspector/
 
 **产出：** Rendering Lab 中可直接打开 Inspector；现有 evidence 统计迁移到共享核心；固定场景下有 off/Live/Record/Deep Capture 开销报告。
 
-- [ ] 用 Inspector 替换 Rendering Lab 中重复的性能展示逻辑，保留场景控制和必要 debug view。
+- [x] 用 Inspector 替换 Rendering Lab 中重复的性能展示逻辑，保留场景控制和必要 debug view。
 - [ ] 对 capture 导出→清空→导入→选帧执行浏览器闭环。
 - [ ] 导出 trace 并在 Perfetto UI 打开，核对轨道、frameIndex、counter 和未对齐警告。
 - [ ] 固定 1920×1080、DPR 1、相同 adapter/浏览器/feature set/camera/warm-up，运行 profiler off、Live、Record、Deep Capture。

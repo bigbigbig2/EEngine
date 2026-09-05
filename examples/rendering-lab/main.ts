@@ -1,6 +1,5 @@
 import {
   DirectionalLight,
-  GPU_FRAME_PHASES,
   OrbitControls,
   PerspectiveCamera,
   RENDER_DEBUG_VIEW_OPTIONS,
@@ -18,6 +17,7 @@ import {
   type PackedGltfSource,
   type RenderDebugViewName
 } from "../../OEngine/src/index.ts";
+import { Inspector } from "../../OEngine/src/addons/inspector/index.ts";
 import {
   ShowcaseEvidenceWindow
 } from "./evidence.js";
@@ -67,24 +67,6 @@ type DebugDescriptor = {
 const MODEL_URL = new URL("./assets/dungeon_warkarma.glb", import.meta.url).href;
 const ENVIRONMENT_URL = new URL("./assets/venice_sunset_1k.hdr", import.meta.url).href;
 const PIPELINE_MODE = new URLSearchParams(location.search).get("mode") === "pipeline";
-const GPU_PHASE_LABELS: Partial<Record<(typeof GPU_FRAME_PHASES)[number], string>> = {
-  upload: "Upload",
-  animation: "Animation",
-  "instance-cull": "Instance Cull",
-  "hierarchy-and-cluster-cull": "Hierarchy / Work Generation",
-  "software-raster": "Software Raster",
-  "hardware-raster": "Hardware Raster",
-  hzb: "HZB",
-  "material-resolve": "Material Resolve / Surface",
-  "light-cluster": "Light Cluster",
-  "lighting-and-ibl": "Lighting & IBL",
-  shadow: "Shadow",
-  transparency: "Transparency",
-  temporal: "Temporal",
-  post: "Post",
-  unclassified: "Unclassified"
-};
-
 const debugDescriptors: readonly DebugDescriptor[] = [
   { value: RenderDebugView.None, label: "最终画面", help: "曝光、色调映射与后处理后的最终输出。" },
   { value: RenderDebugView.VisibilityKey, label: "可见性键", help: "Packed Instance、Cluster、Meshlet 与材质标识。" },
@@ -122,36 +104,7 @@ const debugHelp = required<HTMLElement>("debug-help");
 const lodThreshold = required<HTMLInputElement>("lod-threshold");
 const lodValue = required<HTMLOutputElement>("lod-value");
 const panelToggle = required<HTMLButtonElement>("panel-toggle");
-const metricFps = required<HTMLElement>("metric-fps");
-const metricInstances = required<HTMLElement>("metric-instances");
-const metricGeometries = required<HTMLElement>("metric-geometries");
-const metricMaterials = required<HTMLElement>("metric-materials");
-const evidenceSamples = required<HTMLElement>("evidence-samples");
-const evidenceRafP50 = required<HTMLElement>("evidence-raf-p50");
-const evidenceRafTail = required<HTMLElement>("evidence-raf-tail");
-const evidenceCpuP50 = required<HTMLElement>("evidence-cpu-p50");
-const evidenceCpuTail = required<HTMLElement>("evidence-cpu-tail");
-const evidenceGpuP50 = required<HTMLElement>("evidence-gpu-p50");
-const evidenceGpuTail = required<HTMLElement>("evidence-gpu-tail");
-const evidencePasses = required<HTMLElement>("evidence-passes");
-const evidenceCommands = required<HTMLElement>("evidence-commands");
-const evidenceDomains = required<HTMLElement>("evidence-domains");
-const evidenceScope = required<HTMLElement>("evidence-scope");
-const evidenceRawPasses = required<HTMLElement>("evidence-raw-passes");
-const evidenceResolution = required<HTMLElement>("evidence-resolution");
-const evidenceAo = required<HTMLElement>("evidence-ao");
-const evidenceSsr = required<HTMLElement>("evidence-ssr");
-const evidenceSystem = required<HTMLElement>("evidence-system");
-const pipelineSample = required<HTMLElement>("pipeline-sample");
-const pipelineAsset = required<HTMLElement>("pipeline-asset");
-const pipelineResidency = required<HTMLElement>("pipeline-residency");
-const pipelineScene = required<HTMLElement>("pipeline-scene");
-const pipelineVisibility = required<HTMLElement>("pipeline-visibility");
-const pipelineWork = required<HTMLElement>("pipeline-work");
-const pipelineRaster = required<HTMLElement>("pipeline-raster");
-const pipelineKey = required<HTMLElement>("pipeline-key");
-const pipelineSurface = required<HTMLElement>("pipeline-surface");
-const pipelineFrame = required<HTMLElement>("pipeline-frame");
+const inspectorToggle = required<HTMLButtonElement>("inspector-toggle");
 
 let renderer: Renderer | null = null;
 let scene: Scene | null = null;
@@ -161,23 +114,10 @@ let resizeObserver: ResizeObserver | null = null;
 let frameRequest = 0;
 let disposed = false;
 let sceneBounds: Bounds | null = null;
-let pipelineStats: {
-  instances: number;
-  geometries: number;
-  materials: number;
-  meshlets: number;
-  clusters: number;
-  bvhNodes: number;
-  vertices: number;
-  triangles: number;
-  packageBytes: number;
-  packageVersion: number;
-} | null = null;
+let inspector: Inspector | null = null;
 let sunLight: DirectionalLight | null = null;
 let sunAzimuthDegrees = -36;
 let sunElevationDegrees = 65;
-let framesSinceSample = 0;
-let lastFpsSample = performance.now();
 const evidenceWindow = new ShowcaseEvidenceWindow(1024);
 const PERFORMANCE_WARMUP_FRAMES = 60;
 let measurementReason = "初始化";
@@ -228,10 +168,6 @@ async function initialize(): Promise<void> {
 
   const lab = await createRenderingLab(imported);
   sceneBounds = lab.bounds;
-  pipelineStats = lab.stats;
-  metricInstances.textContent = formatInteger(lab.source.count);
-  metricGeometries.textContent = formatInteger(lab.source.geometries.length);
-  metricMaterials.textContent = formatInteger(lab.source.materials.length);
   if (disposed) return;
 
   const activeScene = new Scene();
@@ -254,6 +190,17 @@ async function initialize(): Promise<void> {
   bindRendererControls(activeRenderer);
   installQ00Api(activeRenderer);
   startResizeObserver(activeRenderer, activeCamera);
+
+  // Mount the Inspector only after the scene, camera and resize path are live.
+  // This keeps loading/render initialization independent from UI work.
+  inspector = new Inspector(activeRenderer, {
+    container: document.body,
+    initialMode: "live",
+    historyCapacity: 2048,
+    uiRefreshHz: 5,
+    styles: "inline"
+  });
+  inspector.open();
 
   readyPill.textContent = "运行中";
   fieldset.disabled = false;
@@ -384,7 +331,6 @@ function configurePipeline(activeRenderer: Renderer): void {
 async function createRenderingLab(imported: PackedGltfSource): Promise<{
   readonly source: PackedSceneSource;
   readonly bounds: Bounds;
-  readonly stats: NonNullable<typeof pipelineStats>;
 }> {
   const generatedSources = [
     buildBoxSourceGeometry(30, 0.2, 18),
@@ -465,18 +411,6 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
     boundsMax.set(source.bounds.box.subarray(3, 6), destination * 3);
     debugIds[destination] = destination + 1;
   }
-  const stats = {
-    instances: count,
-    geometries: geometries.length,
-    materials: materials.length,
-    meshlets: geometries.reduce((sum, geometry) => sum + geometry.meshlets.length, 0),
-    clusters: geometries.reduce((sum, geometry) => sum + geometry.clusters.length, 0),
-    bvhNodes: geometries.reduce((sum, geometry) => sum + geometry.bvh8Nodes.length, 0),
-    vertices: geometries.reduce((sum, geometry) => sum + geometry.vertexStreamDescriptors.reduce((inner, stream) => inner + stream.vertexCount, 0), 0),
-    triangles: geometries.reduce((sum, geometry) => sum + geometry.indices.length / 3, 0),
-    packageBytes: geometries.reduce((sum, geometry) => sum + geometry.package.manifest.totalByteLength, 0),
-    packageVersion: geometries[0]?.package.manifest.formatVersion ?? 0
-  };
   return Object.freeze({
     source: Object.freeze({
       geometries,
@@ -497,8 +431,7 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
       max: [15, 5, 9] as [number, number, number],
       center: [0, 1.9, 0] as [number, number, number],
       radius: 18.1
-    }),
-    stats: Object.freeze(stats)
+    })
   });
 }
 
@@ -689,7 +622,6 @@ function startFrameLoop(): void {
         showFatalError(new Error("The WebGPU device was lost and rendering stopped."));
         return;
       }
-      updateFps(now);
     }
     frameRequest = requestAnimationFrame(frame);
   };
@@ -910,6 +842,19 @@ function bindPanelShell(): void {
     panelToggle.setAttribute("aria-expanded", String(!collapsed));
     panelToggle.textContent = collapsed ? "调试面板" : "关闭";
   });
+  inspectorToggle.addEventListener("click", () => {
+    if (inspector === null) return;
+    const open = inspectorToggle.getAttribute("aria-pressed") === "true";
+    if (open) {
+      inspector.close();
+      inspectorToggle.setAttribute("aria-pressed", "false");
+      inspectorToggle.textContent = "打开性能 Inspector";
+    } else {
+      inspector.open();
+      inspectorToggle.setAttribute("aria-pressed", "true");
+      inspectorToggle.textContent = "关闭性能 Inspector";
+    }
+  });
 }
 
 function bindRange(
@@ -1011,6 +956,7 @@ function computeWorldBounds(
   };
 }
 
+/* Legacy statistics panel removed in Task9; Inspector is the sole visible profiler UI.
 function updateFps(now: number): void {
   framesSinceSample++;
   const elapsed = now - lastFpsSample;
@@ -1200,6 +1146,7 @@ function formatBytes(value: number): string {
   }
   return `${scaled.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
+*/
 
 function setLoading(detail: string, stage: string, progress: number): void {
   loadingDetail.textContent = detail;
@@ -1229,6 +1176,8 @@ function dispose(): void {
   resizeObserver?.disconnect();
   controller?.pointer.stop();
   controller?.keyboard.stop();
+  inspector?.dispose();
+  inspector = null;
   renderer?.destroy();
   const context = canvas.getContext("webgpu");
   context?.unconfigure();
@@ -1238,10 +1187,6 @@ window.addEventListener("pagehide", dispose, { once: true });
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
-}
-
-function formatInteger(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
 }
 
 function required<T extends HTMLElement>(id: string): T {
