@@ -136,10 +136,10 @@ export class Inspector {
 
   async stopRecording(options: RecordingStopOptions = {}): Promise<PerformanceCapture> {
     this.assertAlive();
-    if (options.awaitPending !== false) {
-      await this.waitForPending(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-    }
     const start = this.recordingStartFrame ?? this.oldestFrameIndex();
+    if (options.awaitPending !== false) {
+      await this.waitForPending(start, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    }
     const end = this.profiler.latest?.frameIndex ?? start - 1;
     this.recordingStartFrame = null;
     return this.createCapture(start, end);
@@ -224,9 +224,11 @@ export class Inspector {
     return result;
   }
 
-  private async waitForPending(timeoutMs: number): Promise<void> {
+  private async waitForPending(startFrameIndex: number, timeoutMs: number): Promise<void> {
     if (!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new RangeError("timeoutMs must be non-negative");
-    const pending = (): boolean => this.viewModel.frames.some((frame) => !frame.complete);
+    const pending = (): boolean => this.viewModel.frames.some((frame) =>
+      frame.frameIndex >= startFrameIndex && !frame.complete
+    );
     if (!pending()) return;
     await new Promise<void>((resolve) => {
       const started = Date.now();
