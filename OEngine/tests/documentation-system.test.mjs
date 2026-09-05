@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const docsRoot = path.join(repoRoot, "docs");
 const finalDocs = [
-  "ARCHITECTURE.md", "PERFORMANCE-INSPECTOR.md", "PIPELINE.md", "PRODUCT.md", "README.md", "STATUS.md", "VALIDATION.md",
+  "ARCHITECTURE.md", "INSPECTOR-PHASE1-DESIGN.md", "INSPECTOR-PHASE1-EXECUTION.md", "PERFORMANCE-INSPECTOR.md", "PIPELINE.md", "PRODUCT.md", "README.md", "STATUS.md", "VALIDATION.md",
   "adr/0001-gpu-first-scope.md", "adr/0002-runtime-assets-and-gpu-driven.md",
   "adr/0003-unified-render-pipeline.md", "adr/README.md",
   "porting/geometry.md", "porting/platform.md", "porting/README.md",

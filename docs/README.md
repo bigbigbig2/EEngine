@@ -13,6 +13,8 @@
 专项设计：
 
 - [PERFORMANCE-INSPECTOR.md](./PERFORMANCE-INSPECTOR.md)：性能监视器的数据合同、UI、开源参考和实施步骤。
+- [INSPECTOR-PHASE1-DESIGN.md](./INSPECTOR-PHASE1-DESIGN.md)：three.js 风格 Inspector Phase 1 设计边界。
+- [INSPECTOR-PHASE1-EXECUTION.md](./INSPECTOR-PHASE1-EXECUTION.md)：Phase 1 执行记录与验证状态。
 
 ## 权威关系
 
