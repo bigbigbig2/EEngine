@@ -652,12 +652,12 @@ OEngine/src/addons/inspector/
 
 **产出接口：** GPU-driven funnel、队列容量、FrameGraph 表、资源账本和 diagnostics/capability 表。
 
-- [ ] 测试 funnel 分母为零、缺失 counter、overflow、feature-off 和资源释放后的展示。
-- [ ] GPU-driven 面板从注册指标组合数据，不读取 GPU buffer。
-- [ ] FrameGraph 面板展示 active/pruned 和资源读写摘要。
-- [ ] Resources 强制附带 accounted/estimated 标签。
-- [ ] Diagnostics 列出 unsupported 原因和 Inspector 自身开销。
-- [ ] 运行面板模型测试和 build，提交 `feat(inspector): add engine performance panels`。
+- [x] 测试 funnel 分母为零、缺失 counter、overflow、feature-off 和资源释放后的展示。
+- [x] GPU-driven 面板从注册指标组合数据，不读取 GPU buffer。
+- [x] FrameGraph 面板展示 active/pruned 和资源读写摘要。
+- [x] Resources 强制附带 accounted/estimated 标签。
+- [x] Diagnostics 列出 unsupported 原因和 Inspector 自身开销。
+- [x] 运行面板模型测试和 build，提交 `feat(inspector): add engine performance panels`。
 
 ### Task 9：接入 Rendering Lab 并完成准确性门禁
 

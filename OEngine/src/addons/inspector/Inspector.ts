@@ -11,7 +11,7 @@ import {
   type InspectorMode,
   type InspectorViewState
 } from "./InspectorViewModel.js";
-import { InspectorShell, type InspectorStyleMode } from "./InspectorShell.js";
+import { InspectorShell, type InspectorDomainState, type InspectorStyleMode } from "./InspectorShell.js";
 
 export type { InspectorMode } from "./InspectorViewModel.js";
 
@@ -97,7 +97,8 @@ export class Inspector {
       onResume: () => this.resume(),
       onClose: () => this.close(),
       onSelectFrame: (frameIndex) => this.selectFrame(frameIndex),
-      onSelectRange: (startFrameIndex, endFrameIndex) => this.viewModel.selectRange(startFrameIndex, endFrameIndex)
+      onSelectRange: (startFrameIndex, endFrameIndex) => this.viewModel.selectRange(startFrameIndex, endFrameIndex),
+      onDomainState: () => this.domainState()
     });
     this.shell.mount();
     this.unsubscribeView = this.viewModel.subscribe((state) => {
@@ -224,6 +225,32 @@ export class Inspector {
     try { result.adapter = this.renderer.adapter_info; } catch { result.adapter = null; }
     try { result.capabilities = this.renderer.capabilities; } catch { result.capabilities = null; }
     return result;
+  }
+
+  private domainState(): InspectorDomainState {
+    let frameGraph: InspectorDomainState["frameGraph"] = null;
+    let resources: InspectorDomainState["resources"] = null;
+    let memory: InspectorDomainState["memory"] = null;
+    try { frameGraph = this.renderer.mainFrameGraphEvidence(); } catch { /* renderer not initialized */ }
+    try { resources = this.renderer.graphics.profilingResourceSnapshot(); } catch { /* renderer not initialized */ }
+    try { memory = this.renderer.memoryEvidence(); } catch { /* renderer not initialized */ }
+    const frame = this.viewModel.frames.at(-1);
+    const overhead = frame?.samples["profiler.overheadMs"];
+    return {
+      frameGraph,
+      resources,
+      memory,
+      diagnostics: {
+        diagnostics: this.profiler.diagnostics,
+        metricCatalog: this.profiler.metricCatalog,
+        frame,
+        mode: this.profiler.mode,
+        gpuTimestampAvailable: this.profiler.gpuTimestampAvailable,
+        gpuSampleInterval: this.profiler.gpuSampleInterval,
+        gpuCounterSampleInterval: this.profiler.gpuCounterSampleInterval,
+        inspectorOverheadMs: overhead?.availability === "available" ? overhead.value : null
+      }
+    };
   }
 
   private async waitForPending(startFrameIndex: number, timeoutMs: number): Promise<void> {
