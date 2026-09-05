@@ -108,7 +108,7 @@ button:hover { border-color: var(--inspector-accent); background: #263852; }
 .inspector.profiler-panel .tabs, .inspector.profiler-panel .actions { padding: 4px 8px; margin: 0; background: #1e1e24aa; }
 .inspector.profiler-panel > .panel { flex: 1; overflow: auto; margin: 0 8px 8px; }
 .inspector.profiler-panel .resize-handle { top: 0; bottom: auto; left: 0; right: 0; width: 100%; height: 5px; cursor: ns-resize; }
-.inspector.profiler-panel.position-right .resize-handle { top: 0; bottom: 0; left: auto; right: auto; width: 5px; height: 100%; cursor: ew-resize; }
+.inspector.profiler-panel.position-right .resize-handle { top: 0; bottom: 0; left: -2px; right: auto; width: 5px; height: 100%; cursor: ew-resize; }
 .inspector.profiler-panel .panel-tabs { overflow-x: auto; flex-wrap: nowrap; }
 .inspector.profiler-panel .panel-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 7px 15px; font: 600 13px 'Segoe UI', Tahoma, sans-serif; color: var(--inspector-text-secondary); white-space: nowrap; }
 .inspector.profiler-panel .panel-tabs button[aria-pressed="true"] { border-bottom-color: var(--inspector-accent); color: #fff; background: transparent; }
