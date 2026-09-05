@@ -123,6 +123,17 @@ test("counter APIs reject metric IDs that were not registered", () => {
   profiler.endFrame();
 });
 
+test("renderer material counters are registered in the profiler catalog", () => {
+  const profiler = new FrameProfiler({ enabled: true });
+  const ids = new Set(profiler.metricCatalog.map(({ id }) => id));
+  assert.equal(ids.has("packed.material.kernelDraws"), true);
+  assert.equal(ids.has("legacy.material.fullscreenDraws"), true);
+  profiler.beginFrame(1);
+  assert.doesNotThrow(() => profiler.recordCounter("packed.material.kernelDraws", 1));
+  assert.doesNotThrow(() => profiler.recordCounter("legacy.material.fullscreenDraws", 1));
+  profiler.endFrame();
+});
+
 test("profiler catalog covers named CPU section samples for capture export", () => {
   const profiler = new FrameProfiler({ enabled: true });
   profiler.beginFrame(1);
