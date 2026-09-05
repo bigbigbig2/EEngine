@@ -3,6 +3,7 @@
  */
 
 import { GPUTextureContext } from "./GPUTextureContext.js";
+import type { ResourceAccounting } from "../debug/profiling/ResourceAccounting.js";
 
 export type GPUTexturePoolDescriptor = {
   width: number;
@@ -30,7 +31,10 @@ export class GPUTextureAllocator {
   private scanIndex = 0;
   private lastScanTime = now();
 
-  constructor(private readonly device: GPUDevice) {}
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly resourceAccounting?: ResourceAccounting
+  ) {}
 
   get(descriptor: GPUTexturePoolDescriptor): GPUTextureContext {
     if (this.destroyed) {
@@ -57,6 +61,10 @@ export class GPUTextureAllocator {
         format: normalized.format,
         usage: normalized.usage,
         mipLevelCount: normalized.mipLevelCount
+      }, {
+        accounting: this.resourceAccounting,
+        category: "transient",
+        owner: "GPUTextureAllocator"
       });
     }
     this.lastUse.set(context, now());

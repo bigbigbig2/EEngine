@@ -8,15 +8,15 @@
 
 - Task 1：typed `MetricDescriptor`/`MetricSample`、注册表、默认指标目录、nearest-rank 统计和 coverage 统计。
 - Task 2：immutable `ProfileFrame`/`ProfileSpan`、有界 `ProfileHistory`、按 `frameIndex` 的异步 patch 和状态校验。
-- Task 3：`FrameProfiler` 接入历史帧、CPU/GPU span、Live/Record/Deep Capture 基础 cadence、GPU timestamp/counter 异步回填及不可用状态。
-- Task 4：`GraphicsContext` Buffer 账本、Pipeline cache/host-call 观测和 FrameGraph active/culled 证据。
-- Task 5：Capture schema 校验、深冻结、JSON 序列化/导入和 CPU/GPU 分轨 Trace 导出。
+- Task 3：`FrameProfiler` 已收敛注册指标、CPU/GPU span、Live/Record/Deep Capture cadence、epoch/warm-up、GPU timestamp/counter 异步回填和状态化 sample；未知 metric ID 会直接拒绝。
+- Task 4：资源账本已接入 GPU Asset、Scene、Packed Scene、Texture Residency、transient Buffer/Texture pool、temporal history、shadow/LPV atlas、upload staging 和 profiler readback 的创建/销毁边界，并按 resident/transient/history/atlas/upload/readback/profiler 分类；Pipeline 已记录 cache、host-call 和 first-use，FrameGraph 已记录 active/pruned 与逻辑瞬态峰值。
+- Task 5：Capture v1 已提供 canonical schema、golden fixture、严格导入校验、未知字段规范化、递归深冻结、稳定序列化和导入后统计一致性；Trace 保持 CPU/GPU 独立时钟域，duration-only GPU 数据不伪造 slice 起点。
 
-Task 3–5 仍有明确未完成项：完整 typed metric 调用迁移与 epoch/warm-up；所有 GPU owner 的资源生命周期接入、压缩纹理估算、first-use pipeline 证据和 FrameGraph 临时资源峰值；Capture golden fixture、未知字段/未来 schema 兼容矩阵和派生统计一致性验证。Inspector UI（Task 6–9）尚未开始。
+Task 3–5 的文档契约已收尾。Inspector UI（Task 6–9）尚未开始；真实 adapter 上的 off/Live/Record/Deep Capture A/B 和 1080p 性能证据属于 Task 9，当前不能宣称已经达标。
 
-资源账本当前只对 `GraphicsContext.createBuffer()` 的真实 Buffer 生命周期提供运行时接入；不能据此声称覆盖全部 WebGPU resident/transient/history/atlas/upload/readback 资源或物理 VRAM。
+资源数值统一表示 OEngine owner 在实际创建/销毁边界登记的 accounted/estimated bytes，不是物理 VRAM、驱动分配或硬件利用率；history/atlas 与 resident/transient 分账，禁止重复计数。
 
-验证：`npm run build` 通过；性能监视器定向测试 26/26 通过。全量 `npm test` 的唯一失败来自既有 FX-04/FX-06 porting ledger 文档断言，与本次性能监视器实现无关。
+验证：`npm run build`、`npm run build:test` 通过；Task 3–5 命中测试 64/64 通过。全量测试 394/396 通过，仅有既有 FX-04/FX-06 porting ledger 的 2 个文档断言失败，这两项与本次性能监视器实现无关。
 
 ## 已验证基础
 
@@ -62,10 +62,8 @@ Shader audit 当前记录 69 个 Shader：65 个 `authored-live`、4 个 `unknow
 
 ## 下一步
 
-1. 完成 Performance Inspector Task 3–5 的剩余契约：typed metric 全量迁移、epoch/warm-up、Capture golden fixtures 和派生统计校验。
-2. 将资源账本接入 `GpuAssetStore`、`GpuScene`、Packed registry 及 transient/history/atlas/upload/readback owner，并补齐压缩纹理与 first-use pipeline 证据。
-3. 建立 Inspector addon（Task 6–8），再接入 Rendering Lab 完成固定 workload 的 off/Live/Record/Deep Capture A/B（Task 9）。
-4. 用 Rendering Lab 固定真实 Packed 多资产 workload，获得 GPU/counter/memory 基线。
-5. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
-6. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。
-7. 为四个 unknown Shader 确认 authored owner 或可追溯生成源。
+1. 建立 Inspector addon（Task 6–8），再接入 Rendering Lab 完成固定 workload 的 off/Live/Record/Deep Capture A/B（Task 9）。
+2. 用 Rendering Lab 固定真实 Packed 多资产 workload，获得 GPU/counter/memory 基线。
+3. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
+4. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。
+5. 为四个 unknown Shader 确认 authored owner 或可追溯生成源。

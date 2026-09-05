@@ -90,13 +90,14 @@ export class GraphicsContext {
     this.profiler.configure({
       gpuTimestampAvailable: device.features.has("timestamp-query")
     });
+    this.profiler.attachResourceAccounting(this.resource_accounting);
     this.profiler.attachGpuDevice(device);
     registerGpuQueueProfiler(device, profiler);
     this.collectionLimitsValue = new GPUCollectionLimits(device);
-    this.buffer_allocator_main = new GPUBufferAllocator(device);
+    this.buffer_allocator_main = new GPUBufferAllocator(device, this.resource_accounting);
     this.buffer_allocator_native = new GPUNativeBufferAllocator(device);
-    this.buffer_allocator_staging = new GPUStagingBufferAllocator(device);
-    this.allocator_textures = new GPUTextureAllocator(device);
+    this.buffer_allocator_staging = new GPUStagingBufferAllocator(device, this.resource_accounting);
+    this.allocator_textures = new GPUTextureAllocator(device, this.resource_accounting);
     this.shader_modules = new ShaderModuleCache(device);
     this.pipeline_layouts = new PipelineLayoutCache(device);
     this.bind_groups = new BindGroupCache(device, this.pipeline_layouts);
@@ -106,7 +107,8 @@ export class GraphicsContext {
       onPipelineCreated: (kind, hostCallMs) => {
         profiler.addCounter(`pipeline.${kind}.createCount`, 1);
         profiler.addCounter(`pipeline.${kind}.hostCallMs`, hostCallMs);
-      }
+      },
+      onPipelineFirstUse: (kind) => profiler.addCounter(`pipeline.${kind}.firstUseCount`, 1)
     };
     this.render_pipelines = new RenderPipelineCache(
       device,
@@ -187,13 +189,13 @@ export class GraphicsContext {
 
   /** Lazily creates the R2 package residency owner; legacy-only pages pay zero cost. */
   get assets(): GpuAssetStore {
-    this.assetStoreValue ??= new GpuAssetStore(this.device);
+    this.assetStoreValue ??= new GpuAssetStore(this.device, this.resource_accounting);
     return this.assetStoreValue;
   }
 
   /** Lazily creates the R2 compact Instance table; legacy-only pages pay zero cost. */
   get gpu_scene(): GpuScene {
-    this.gpuSceneValue ??= new GpuScene(this.device, this.assets);
+    this.gpuSceneValue ??= new GpuScene(this.device, this.assets, this.resource_accounting);
     return this.gpuSceneValue;
   }
 
@@ -401,6 +403,7 @@ export class GraphicsContext {
     this.buffer_allocator_main.destroy();
     this.buffer_allocator_native.destroy();
     this.buffer_allocator_staging.destroy();
+    this.allocator_textures.destroy();
     this.collectionLimitsValue.destroy();
     this.profiler.detachGpuDevice(this.device);
   }

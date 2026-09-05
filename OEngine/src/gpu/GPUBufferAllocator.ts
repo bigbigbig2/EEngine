@@ -1,6 +1,10 @@
 /**
  * GPUBufferAllocator：负责 GPU 资源、数据上传或 GPU 驱动渲染基础设施。
  */
+import type {
+  ResourceAccounting,
+  ResourceHandle as AccountingResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
 
 export type GPUBufferPoolDescriptor = {
   size: number;
@@ -40,8 +44,12 @@ export class GPUBufferAllocator {
   private scanIndex = 0;
   private creationCount = 0;
   private readonly recentAge = 4;
+  private readonly accountingHandles = new Map<GPUBuffer, AccountingResourceHandle>();
 
-  constructor(private device: GPUDevice) {}
+  constructor(
+    private device: GPUDevice,
+    private readonly resourceAccounting?: ResourceAccounting
+  ) {}
 
   increment_time(): void {
     this.time++;
@@ -69,6 +77,14 @@ export class GPUBufferAllocator {
         size: request.size,
         usage: request.usage
       });
+      if (this.resourceAccounting !== undefined) {
+        this.accountingHandles.set(buffer, this.resourceAccounting.created({
+          kind: "buffer",
+          category: "transient",
+          owner: "GPUBufferAllocator",
+          bytes: request.size
+        }));
+      }
       this.creationCount++;
     } else {
       const clear = request.ensure_cleared;
@@ -146,11 +162,11 @@ export class GPUBufferAllocator {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    for (const buffer of this.active) buffer.destroy();
+    for (const buffer of this.active) this.destroyBuffer(buffer);
     this.active.clear();
-    for (const entry of this.recent) entry.buffer.destroy();
+    for (const entry of this.recent) this.destroyBuffer(entry.buffer);
     this.recent.length = 0;
-    for (const entry of this.aged) entry.buffer.destroy();
+    for (const entry of this.aged) this.destroyBuffer(entry.buffer);
     this.aged.length = 0;
     this.recentBytes = 0;
     this.agedBytes = 0;
@@ -165,7 +181,7 @@ export class GPUBufferAllocator {
   private finishPendingRelease(buffer: GPUBuffer): void {
     if (!this.pending.delete(buffer)) return;
     if (this.destroyed) {
-      buffer.destroy();
+      this.destroyBuffer(buffer);
       return;
     }
     this.cacheReleased(buffer);
@@ -238,8 +254,17 @@ export class GPUBufferAllocator {
     const [entry] = this.aged.splice(oldestIndex, 1);
     if (!entry) return false;
     this.agedBytes -= entry.buffer.size;
-    entry.buffer.destroy();
+    this.destroyBuffer(entry.buffer);
     return true;
+  }
+
+  private destroyBuffer(buffer: GPUBuffer): void {
+    const handle = this.accountingHandles.get(buffer);
+    if (handle !== undefined) {
+      this.accountingHandles.delete(buffer);
+      this.resourceAccounting!.destroyed(handle);
+    }
+    buffer.destroy();
   }
 }
 

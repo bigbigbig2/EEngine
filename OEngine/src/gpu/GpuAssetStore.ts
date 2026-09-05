@@ -28,6 +28,10 @@ import {
   recordGpuQueueUpload,
   writeGpuBuffer
 } from "./GpuQueueEvidence.js";
+import type {
+  ResourceAccounting,
+  ResourceHandle as AccountingResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
 
 declare const ASSET_HANDLE_BRAND: unique symbol;
 
@@ -238,8 +242,12 @@ export class GpuAssetStore {
   private abortedReleaseTransactions = 0;
   private largestTransactionPackageCount = 0;
   private largestTransactionSourceBytes = 0;
+  private readonly accountedBuffers = new Map<GPUBuffer, AccountingResourceHandle>();
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly resourceAccounting?: ResourceAccounting
+  ) {
     const definitions: readonly [BufferName, number][] = [
       ["geometryRecords", GPU_GEOMETRY_RECORD_STRIDE],
       ["meshletRecords", GPU_MESHLET_RECORD_STRIDE],
@@ -269,7 +277,7 @@ export class GpuAssetStore {
         };
       }
     } catch (error) {
-      for (const buffer of created) buffer.destroy();
+      for (const buffer of created) this.destroyBuffer(buffer);
       throw error;
     }
     this.buffers = record;
@@ -551,7 +559,7 @@ export class GpuAssetStore {
       throw new Error("GpuAssetStore cannot be destroyed during a pending mutation");
     }
     this.destroyed = true;
-    for (const buffer of this.orderedBuffers) buffer.buffer.destroy();
+    for (const buffer of this.orderedBuffers) this.destroyBuffer(buffer.buffer);
     for (const slot of this.slots) {
       if (slot.entry !== undefined) slot.entry.state = "released";
       slot.entry = undefined;
@@ -877,7 +885,7 @@ export class GpuAssetStore {
     let size = Math.max(required, previous.size + Math.max(previous.size >>> 1, 4096));
     size = align4(Math.min(size, limit));
     if (size < required) size = align4(required);
-    const next = this.device.createBuffer({
+    const next = this.createBuffer({
       label: `${owner.label}/grow-${size}`,
       size,
       usage: STORAGE_USAGE
@@ -931,7 +939,7 @@ export class GpuAssetStore {
       this.retiredBufferCount++;
       this.retiringBytes += replacement.previous.size;
       const destroy = (): void => {
-        replacement.previous.destroy();
+        this.destroyBuffer(replacement.previous);
         this.retiringBytes -= replacement.previous.size;
         this.destroyedRetiredBufferCount++;
       };
@@ -948,7 +956,7 @@ export class GpuAssetStore {
     for (let index = replacements.length - 1; index >= 0; index--) {
       const replacement = replacements[index]!;
       replacement.owner.buffer = replacement.previous;
-      replacement.next.destroy();
+      this.destroyBuffer(replacement.next);
     }
     for (const [buffer, cursor] of cursors) buffer.cursorBytes = cursor;
     this.slots.length = 0;
@@ -1014,7 +1022,7 @@ export class GpuAssetStore {
       Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER)
     );
     if (size > limit) throw new RangeError(`${label} exceeds adapter storage buffer limit`);
-    const buffer = this.device.createBuffer({
+    const buffer = this.createBuffer({
       label,
       size,
       usage: STORAGE_USAGE,
@@ -1025,6 +1033,29 @@ export class GpuAssetStore {
     new Uint8Array(buffer.getMappedRange()).fill(0);
     buffer.unmap();
     return buffer;
+  }
+
+  private createBuffer(descriptor: GPUBufferDescriptor): GPUBuffer {
+    const buffer = this.device.createBuffer(descriptor);
+    if (this.resourceAccounting !== undefined) {
+      this.accountedBuffers.set(buffer, this.resourceAccounting.created({
+        kind: "buffer",
+        category: "resident",
+        owner: "GpuAssetStore",
+        bytes: descriptor.size,
+        label: descriptor.label
+      }));
+    }
+    return buffer;
+  }
+
+  private destroyBuffer(buffer: GPUBuffer): void {
+    const handle = this.accountedBuffers.get(buffer);
+    if (handle !== undefined) {
+      this.accountedBuffers.delete(buffer);
+      this.resourceAccounting!.destroyed(handle);
+    }
+    buffer.destroy();
   }
 
   private currentAllocatedBytes(): number {

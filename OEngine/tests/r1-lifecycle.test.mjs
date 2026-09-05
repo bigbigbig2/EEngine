@@ -23,6 +23,9 @@ globalThis.GPUTextureUsage ??= {
 const { GPUBufferAllocator } = await import(
   "../.test-dist/gpu/GPUBufferAllocator.js"
 );
+const { ResourceAccounting } = await import(
+  "../.test-dist/debug/profiling/ResourceAccounting.js"
+);
 const { FrameGraphResourceManager } = await import(
   "../.test-dist/framegraph/FrameGraph.js"
 );
@@ -102,6 +105,24 @@ test("allocator destruction retires pending buffers only after their fence", asy
   await fence;
   await Promise.resolve();
   assert.equal(buffer.destroyCount, 1);
+});
+
+test("transient buffer allocator accounts pooled and checked-out allocations", () => {
+  const accounting = new ResourceAccounting();
+  const allocator = new GPUBufferAllocator({
+    limits: { maxBufferSize: 1 << 20 },
+    createBuffer(descriptor) {
+      return { ...descriptor, destroy() {} };
+    }
+  }, accounting);
+  allocator.get({ size: 63, usage: GPUBufferUsage.STORAGE });
+  assert.deepEqual(accounting.snapshot().categories.transient, {
+    bytes: 64,
+    peakBytes: 64,
+    count: 1
+  });
+  allocator.destroy();
+  assert.equal(accounting.snapshot().totalBytes, 0);
 });
 
 test("FrameGraph aliases locally and returns resources to queue-ordered pools", () => {

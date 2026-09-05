@@ -3,6 +3,10 @@ import {
   type GpuReadbackRingStats,
   type GpuReadbackTicket
 } from "./GpuReadbackRing.js";
+import type {
+  ResourceAccounting,
+  ResourceHandle as AccountingResourceHandle
+} from "./profiling/ResourceAccounting.js";
 
 export const GPU_COUNTER_SCHEMA_VERSION = 12;
 export const GPU_COUNTER_BYTE_SIZE = 512;
@@ -121,14 +125,18 @@ export interface GpuFrameCounterBufferOptions {
   slotCount?: number;
   onResult: (frameIndex: number, values: GpuCounterValues) => void;
   onError?: (frameIndex: number, error: unknown) => void;
+  resourceAccounting?: ResourceAccounting;
 }
 
 /** Owner of the fixed GPU counter ABI and its sampled readback ring. */
 export class GpuFrameCounterBuffer {
   readonly buffer: GPUBuffer;
   private readonly ring: GpuReadbackRing;
+  private readonly accountingHandle?: AccountingResourceHandle;
+  private readonly resourceAccounting?: ResourceAccounting;
 
   constructor(device: GPUDevice, options: GpuFrameCounterBufferOptions) {
+    this.resourceAccounting = options.resourceAccounting;
     this.buffer = device.createBuffer({
       label: "FrameProfiler/GPU counters v1",
       size: GPU_COUNTER_BYTE_SIZE,
@@ -137,10 +145,20 @@ export class GpuFrameCounterBuffer {
         GPUBufferUsage.COPY_SRC |
         GPUBufferUsage.COPY_DST
     });
+    this.accountingHandle = options.resourceAccounting?.created({
+      kind: "buffer",
+      category: "profiler",
+      owner: "FrameProfiler/GPU counters",
+      bytes: GPU_COUNTER_BYTE_SIZE,
+      label: "FrameProfiler/GPU counters v1"
+    });
     this.ring = new GpuReadbackRing(device, {
       byteLength: GPU_COUNTER_BYTE_SIZE,
       slotCount: options.slotCount ?? 3,
       label: "FrameProfiler/GPU counter readback",
+      resourceAccounting: options.resourceAccounting,
+      resourceCategory: "readback",
+      resourceOwner: "FrameProfiler/GPU counter readback",
       onResult: ({ frameIndex, data }) => {
         options.onResult(frameIndex, decodeGpuCounterValues(new Uint32Array(data)));
       },
@@ -189,6 +207,11 @@ export class GpuFrameCounterBuffer {
   destroy(): void {
     this.ring.destroy();
     this.buffer.destroy();
+    if (this.accountingHandle !== undefined) {
+      // The counter storage and staging ring have distinct categories.
+      // Both are released only by this owner.
+      this.resourceAccounting!.destroyed(this.accountingHandle);
+    }
   }
 }
 

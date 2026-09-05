@@ -1,0 +1,64 @@
+{
+  "format": "oengine-performance-capture",
+  "schemaVersion": 1,
+  "createdAt": "2026-09-05T00:00:00.000Z",
+  "engine": {
+    "commit": "test",
+    "version": "0.0.0"
+  },
+  "environment": {
+    "adapter": {
+      "architecture": "fake",
+      "vendor": "test"
+    },
+    "z": 2
+  },
+  "sampling": {
+    "mode": "record",
+    "warmupFrames": 0,
+    "timestampInterval": 1,
+    "counterInterval": 4,
+    "historyCapacity": 8
+  },
+  "metricCatalog": [
+    {
+      "id": "cpu.frameMs",
+      "label": "CPU frame",
+      "group": "cpu",
+      "unit": "ms",
+      "source": "cpu-clock",
+      "measurement": "measured",
+      "cost": "low",
+      "scope": "frame",
+      "aggregation": "last",
+      "description": "CPU frame duration"
+    }
+  ],
+  "frames": [
+    {
+      "schemaVersion": 1,
+      "frameIndex": 1,
+      "epoch": 1,
+      "warmup": false,
+      "visibilityState": "visible",
+      "samples": {
+        "cpu.frameMs": {
+          "metricId": "cpu.frameMs",
+          "value": 2,
+          "availability": "available",
+          "sourceFrameIndex": 1,
+          "resolvedAtFrameIndex": 1,
+          "instrumented": false
+        }
+      },
+      "spans": [],
+      "gpuCounterSchemaVersion": 12,
+      "timestampInstrumented": false,
+      "counterInstrumented": false,
+      "complete": true
+    }
+  ],
+  "diagnostics": {
+    "validationErrorCount": 0
+  }
+}

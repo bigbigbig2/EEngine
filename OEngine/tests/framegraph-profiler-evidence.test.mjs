@@ -21,4 +21,6 @@ test("frame graph evidence distinguishes compiled executable and culled passes",
   assert.equal(evidence.executablePasses, 2);
   assert.equal(evidence.culledPasses, 1);
   assert.equal(evidence.transientResources, 2);
+  assert.equal(evidence.transientResourcePeak, 1);
+  assert.equal(evidence.builds, 1);
 });

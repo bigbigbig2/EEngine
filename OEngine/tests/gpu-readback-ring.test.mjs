@@ -8,6 +8,7 @@ import {
   decodeGpuCounterValues
 } from "../.test-dist/debug/GpuFrameCounters.js";
 import { GpuReadbackRing } from "../.test-dist/debug/GpuReadbackRing.js";
+import { ResourceAccounting } from "../.test-dist/debug/profiling/ResourceAccounting.js";
 
 globalThis.GPUBufferUsage ??= { COPY_DST: 1, MAP_READ: 2 };
 globalThis.GPUMapMode ??= { READ: 1 };
@@ -124,6 +125,27 @@ test("an encoded readback can be cancelled when frame encoding aborts", () => {
   assert.match(String(failures[0].error), /frame aborted/);
   assert.ok(ring.encodeCopy(new FakeEncoder(), source, 0, 12));
   ring.destroy();
+});
+
+test("readback ring accounts fixed staging slots and releases them", () => {
+  const device = new FakeDevice();
+  const accounting = new ResourceAccounting();
+  const ring = new GpuReadbackRing(device, {
+    byteLength: 16,
+    slotCount: 3,
+    resourceAccounting: accounting,
+    resourceCategory: "readback",
+    resourceOwner: "profiler-readback",
+    onResult() {}
+  });
+  assert.deepEqual(accounting.snapshot().categories.readback, {
+    bytes: 48,
+    peakBytes: 48,
+    count: 3
+  });
+  ring.destroy();
+  assert.equal(accounting.snapshot().totalBytes, 0);
+  assert.equal(accounting.snapshot().createdCount, accounting.snapshot().destroyedCount);
 });
 
 class FakeDevice {

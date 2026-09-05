@@ -13,8 +13,20 @@ import {
   type NativeTextureExtent
 } from "./GPUTextureDescriptors.js";
 import { submitGpuCommands } from "./GpuQueueEvidence.js";
+import {
+  estimateTextureBytes,
+  type AccountedResourceCategory,
+  type ResourceAccounting,
+  type ResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
 
 let nextTextureContextId = 0;
+
+export interface GPUTextureAccountingOptions {
+  readonly accounting?: ResourceAccounting;
+  readonly category: AccountedResourceCategory;
+  readonly owner: string;
+}
 
 export class GPUTextureContext {
   readonly id = nextTextureContextId++;
@@ -24,10 +36,12 @@ export class GPUTextureContext {
   private state: 0 | 1 | 2 = 0;
   private versionValue = 0;
   private readonly views = new Map<string, GPUTextureView>();
+  private resourceHandle: ResourceHandle | null = null;
 
   constructor(
     private readonly device: GPUDevice,
-    descriptor?: GPUTextureDescriptor
+    descriptor?: GPUTextureDescriptor,
+    private readonly accounting?: GPUTextureAccountingOptions
   ) {
     this.descriptor = descriptor === undefined
       ? new id()
@@ -146,23 +160,46 @@ export class GPUTextureContext {
     }
 
     const next = createNativeTexture(this.device, this.descriptor);
-    if (preserve && previous !== null) {
-      const encoder = this.device.createCommandEncoder({ label: "" });
-      encoder.copyTextureToTexture(
-        { texture: previous, origin: [0, 0, 0], mipLevel: 0 },
-        { texture: next, origin: [0, 0, 0], mipLevel: 0 },
-        [
-          Math.min(previous.width, next.width),
-          Math.min(previous.height, next.height),
-          Math.min(previous.depthOrArrayLayers, next.depthOrArrayLayers)
-        ]
-      );
-      submitGpuCommands(this.device, "GPUTextureContext/resize-copy", [
-        encoder.finish()
-      ]);
-      previous.destroy();
+    const nextHandle = this.accounting?.accounting?.created({
+      kind: "texture",
+      category: this.accounting.category,
+      owner: this.accounting.owner,
+      bytes: estimateTextureBytes({
+        format: this.format,
+        width: this.width,
+        height: this.height,
+        depthOrArrayLayers: this.depthOrArrayLayers,
+        mipLevelCount: this.mipLevelCount,
+        sampleCount: this.sampleCount,
+        dimension: this.dimension
+      }),
+      label: this.label
+    }) ?? null;
+    try {
+      if (preserve && previous !== null) {
+        const encoder = this.device.createCommandEncoder({ label: "" });
+        encoder.copyTextureToTexture(
+          { texture: previous, origin: [0, 0, 0], mipLevel: 0 },
+          { texture: next, origin: [0, 0, 0], mipLevel: 0 },
+          [
+            Math.min(previous.width, next.width),
+            Math.min(previous.height, next.height),
+            Math.min(previous.depthOrArrayLayers, next.depthOrArrayLayers)
+          ]
+        );
+        submitGpuCommands(this.device, "GPUTextureContext/resize-copy", [
+          encoder.finish()
+        ]);
+        previous.destroy();
+        this.releaseResourceHandle();
+      }
+    } catch (error) {
+      next.destroy();
+      if (nextHandle !== null) this.accounting?.accounting?.destroyed(nextHandle);
+      throw error;
     }
     this.textureValue = next;
+    this.resourceHandle = nextHandle;
     this.state = 1;
     this.views.clear();
   }
@@ -178,6 +215,7 @@ export class GPUTextureContext {
   destroy(): void {
     this.textureValue?.destroy();
     this.textureValue = null;
+    this.releaseResourceHandle();
     this.views.clear();
     this.state = 2;
   }
@@ -194,6 +232,12 @@ export class GPUTextureContext {
     ) {
       this.allocate(preserveData);
     }
+  }
+
+  private releaseResourceHandle(): void {
+    if (this.resourceHandle === null) return;
+    this.accounting?.accounting?.destroyed(this.resourceHandle);
+    this.resourceHandle = null;
   }
 }
 

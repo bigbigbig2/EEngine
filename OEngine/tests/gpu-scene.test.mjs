@@ -23,6 +23,9 @@ const {
   packGpuInstanceRecord
 } = await import("../.test-dist/gpu/GpuInstanceAbi.js");
 const { GpuScene } = await import("../.test-dist/gpu/GpuScene.js");
+const { ResourceAccounting } = await import(
+  "../.test-dist/debug/profiling/ResourceAccounting.js"
+);
 const { createInstanceSourceFromScene } = await import(
   "../.test-dist/gpu/GpuSceneAdapter.js"
 );
@@ -32,6 +35,16 @@ const { StandardShadeMaterial } = await import(
 );
 const { Mesh } = await import("../.test-dist/scene/Mesh.js");
 const { Scene } = await import("../.test-dist/scene/Scene.js");
+
+test("GpuScene accounts and releases its resident instance buffer", () => {
+  const gpu = createFakeGpu();
+  const accounting = new ResourceAccounting();
+  const scene = new GpuScene(gpu.device, { recordIndex: () => 1 }, accounting);
+  assert.equal(accounting.snapshot().owners.GpuScene.buffer, GPU_INSTANCE_RECORD_STRIDE);
+  scene.destroy();
+  assert.equal(accounting.snapshot().totalBytes, 0);
+  assert.equal(accounting.snapshot().createdCount, accounting.snapshot().destroyedCount);
+});
 
 test("R2-D Instance TS packer and WGSL share the frozen 192-byte ABI", () => {
   assert.equal(GPU_INSTANCE_RECORD_SCHEMA.abiVersion, 2);

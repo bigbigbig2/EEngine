@@ -1,11 +1,21 @@
+import type {
+  ResourceAccounting,
+  ResourceHandle as AccountingResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
+
 /**
  * GPUStagingBufferAllocator：负责 GPU 资源、数据上传或 GPU 驱动渲染基础设施。
  */
 
 export class GPUStagingBufferAllocator {
   private readonly cache: GPUBuffer[] = [];
+  private readonly buffers = new Set<GPUBuffer>();
+  private readonly accountingHandles = new Map<GPUBuffer, AccountingResourceHandle>();
 
-  constructor(private readonly device: GPUDevice) {}
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly resourceAccounting?: ResourceAccounting
+  ) {}
 
   get gpu_memory_usage(): number {
     let bytes = 0;
@@ -19,12 +29,23 @@ export class GPUStagingBufferAllocator {
     const cached = index < this.cache.length
       ? this.cache.splice(index, 1)[0]
       : undefined;
-    return cached ?? this.device.createBuffer({
+    if (cached !== undefined) return cached;
+    const buffer = this.device.createBuffer({
       label: "",
       size: resolvedSize,
       usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
       mappedAtCreation: true
     });
+    this.buffers.add(buffer);
+    if (this.resourceAccounting !== undefined) {
+      this.accountingHandles.set(buffer, this.resourceAccounting.created({
+        kind: "buffer",
+        category: "upload",
+        owner: "GPUStagingBufferAllocator",
+        bytes: resolvedSize
+      }));
+    }
+    return buffer;
   }
 
   release(buffer: GPUBuffer): void {
@@ -43,8 +64,14 @@ export class GPUStagingBufferAllocator {
   }
 
   destroy(): void {
-    for (const buffer of this.cache) buffer.destroy();
+    for (const buffer of this.buffers) {
+      buffer.destroy();
+      const handle = this.accountingHandles.get(buffer);
+      if (handle !== undefined) this.resourceAccounting!.destroyed(handle);
+    }
     this.cache.length = 0;
+    this.buffers.clear();
+    this.accountingHandles.clear();
   }
 
   private lowerBound(size: number): number {

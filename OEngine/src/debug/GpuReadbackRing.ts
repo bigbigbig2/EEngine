@@ -1,9 +1,18 @@
+import type {
+  AccountedResourceCategory,
+  ResourceAccounting,
+  ResourceHandle as AccountingResourceHandle
+} from "./profiling/ResourceAccounting.js";
+
 export interface GpuReadbackRingOptions {
   byteLength: number;
   slotCount?: number;
   label?: string;
   onResult: (result: GpuReadbackResult) => void;
   onError?: (failure: GpuReadbackFailure) => void;
+  resourceAccounting?: ResourceAccounting;
+  resourceCategory?: AccountedResourceCategory;
+  resourceOwner?: string;
 }
 
 export interface GpuReadbackResult {
@@ -34,6 +43,7 @@ type SlotState = "idle" | "encoded" | "mapping";
 
 interface GpuReadbackSlot {
   buffer: GPUBuffer;
+  accountingHandle?: AccountingResourceHandle;
   state: SlotState;
   generation: number;
   frameIndex: number;
@@ -49,6 +59,7 @@ export class GpuReadbackRing {
   private readonly slots: GpuReadbackSlot[];
   private readonly onResult: GpuReadbackRingOptions["onResult"];
   private readonly onError: NonNullable<GpuReadbackRingOptions["onError"]>;
+  private readonly resourceAccounting?: ResourceAccounting;
   private cursor = 0;
   private completedCount = 0;
   private droppedCount = 0;
@@ -63,17 +74,29 @@ export class GpuReadbackRing {
     }
     this.onResult = options.onResult;
     this.onError = options.onError ?? (() => {});
+    this.resourceAccounting = options.resourceAccounting;
     const label = options.label ?? "gpu-readback";
-    this.slots = Array.from({ length: this.slotCount }, (_, index) => ({
-      buffer: device.createBuffer({
+    this.slots = Array.from({ length: this.slotCount }, (_, index) => {
+      const buffer = device.createBuffer({
         label: `${label}/slot-${index}`,
         size: this.byteLength,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-      }),
-      state: "idle" as const,
-      generation: 0,
-      frameIndex: -1
-    }));
+      });
+      const accountingHandle = options.resourceAccounting?.created({
+        kind: "buffer",
+        category: options.resourceCategory ?? "readback",
+        owner: options.resourceOwner ?? label,
+        bytes: this.byteLength,
+        label: `${label}/slot-${index}`
+      });
+      return {
+        buffer,
+        ...(accountingHandle === undefined ? {} : { accountingHandle }),
+        state: "idle" as const,
+        generation: 0,
+        frameIndex: -1
+      };
+    });
   }
 
   get stats(): GpuReadbackRingStats {
@@ -162,6 +185,9 @@ export class GpuReadbackRing {
     for (const slot of this.slots) {
       if (slot.buffer.mapState === "mapped") slot.buffer.unmap();
       slot.buffer.destroy();
+      if (slot.accountingHandle !== undefined) {
+        this.resourceAccounting!.destroyed(slot.accountingHandle);
+      }
       slot.state = "idle";
     }
   }

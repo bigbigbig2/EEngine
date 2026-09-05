@@ -555,9 +555,9 @@ OEngine/src/addons/inspector/
 **产出接口：** 保留 `Renderer.profiler` 和 `FrameProfiler`；新增 `setMode()`、typed `recordMetric()`、span API 和 `historyStore` 只读访问。
 
 - [x] 先为现有 snapshot、GPU batch 合并、counter ring、disabled no-op 写回归用例。
-- [ ] 把自由字符串调用迁移到已注册 metric ID；未知 ID 在开发构建抛错。
+- [x] 把自由字符串调用迁移到已注册 metric ID；未知 ID 在开发构建抛错。
 - [x] 将 GPU timing 保存为原始可用字段；backend 缺少 begin/end 时保留 duration-only 状态。
-- [ ] 实现 Live/Record/Deep Capture cadence 和 epoch/warm-up 切换。
+- [x] 实现 Live/Record/Deep Capture cadence 和 epoch/warm-up 切换。
 - [x] 保持 counter 插桩帧不进入生产 timing baseline。
 - [x] 运行 observability、readback ring、GPU phase、counter ABI 测试和 build，提交 `refactor(profiler): adopt typed frame records`。
 
@@ -577,11 +577,11 @@ OEngine/src/addons/inspector/
 
 **产出接口：** `ResourceAccounting.created()`、`destroyed()`、`snapshot()`；Pipeline host-call/cache 指标；FrameGraph active/pruned/resource lifetime 指标。
 
-- [ ] 写 Buffer、Texture mip/sample/layer 字节估算 golden cases，并覆盖压缩格式和未知格式拒绝。
-- [ ] 在真实 owner 创建和销毁边界记账；禁止 Inspector 扫描对象重建账本。
-- [ ] 分开 resident、transient、history、atlas、upload 和 readback owner。
-- [ ] 为 Pipeline host call、cache hit/miss 和 first-use frame 插桩，明确 lazy compile 限制。
-- [ ] 为 FrameGraph 记录 active/pruned pass 和逻辑临时资源峰值，不增加独立 submit。
+- [x] 写 Buffer、Texture mip/sample/layer 字节估算 golden cases，并覆盖压缩格式和未知格式拒绝。
+- [x] 在真实 owner 创建和销毁边界记账；禁止 Inspector 扫描对象重建账本。
+- [x] 分开 resident、transient、history、atlas、upload 和 readback owner。
+- [x] 为 Pipeline host call、cache hit/miss 和 first-use frame 插桩，明确 lazy compile 限制。
+- [x] 为 FrameGraph 记录 active/pruned pass 和逻辑临时资源峰值，不增加独立 submit。
 - [x] 运行资源、FrameGraph、feature-off 和 build 验证，提交 `feat(profiler): account resources and pipelines`。
 
 ### Task 5：实现 Capture schema、导入和 Trace 导出
@@ -595,11 +595,11 @@ OEngine/src/addons/inspector/
 
 **产出接口：** `createPerformanceCapture()`、`parsePerformanceCapture()`、`serializePerformanceCapture()`、`exportChromeTrace()`。
 
-- [ ] 写 schema golden file，覆盖正常导入、未知字段、未来 schema、NaN/Infinity、重复帧和非单调帧。
+- [x] 写 schema golden file，覆盖正常导入、未知字段、未来 schema、NaN/Infinity、重复帧和非单调帧。
 - [x] 捕获 engine/environment/sampling/metric catalog/frame/diagnostics，不包含 GPU 对象或 DOM。
 - [x] 实现 CPU slice、GPU 独立 track、metric counter 和 clock alignment metadata。
 - [x] GPU duration-only 数据只导出 counter，不生成伪造起点的 slice。
-- [ ] 验证两次序列化字节稳定、导入后派生统计一致，提交 `feat(profiler): add capture and trace codecs`。
+- [x] 验证两次序列化字节稳定、导入后派生统计一致，提交 `feat(profiler): add capture and trace codecs`。
 
 ### Task 6：建立 Inspector addon 生命周期和无框架 UI Shell
 

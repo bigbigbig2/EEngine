@@ -146,8 +146,16 @@ export class ScreenSpaceReflectionsPass {
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
     };
     this.histories = [
-      new GPUTextureContext(device, { ...descriptor, label: "SSR history 0" }),
-      new GPUTextureContext(device, { ...descriptor, label: "SSR history 1" })
+      new GPUTextureContext(device, { ...descriptor, label: "SSR history 0" }, {
+        accounting: graphics.resource_accounting,
+        category: "history",
+        owner: "ScreenSpaceReflectionsPass"
+      }),
+      new GPUTextureContext(device, { ...descriptor, label: "SSR history 1" }, {
+        accounting: graphics.resource_accounting,
+        category: "history",
+        owner: "ScreenSpaceReflectionsPass"
+      })
     ];
   }
 

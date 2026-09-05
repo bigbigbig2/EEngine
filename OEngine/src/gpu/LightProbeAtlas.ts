@@ -30,6 +30,11 @@ import { LightProbeShCommitPass } from "./LightProbeShCommitPass.js";
 import { LightProbeShProjectPass } from "./LightProbeShProjectPass.js";
 import { LightProbeShReducePass } from "./LightProbeShReducePass.js";
 import { probeShProjectBufferBytes } from "../shaders/probe_sh_project.js";
+import {
+  estimateTextureBytes,
+  type ResourceAccounting,
+  type ResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
 
 export const LIGHT_PROBE_ATLAS_PROBE_RESOLUTION = 64;
 export const LIGHT_PROBE_ATLAS_PADDED_RESOLUTION = 66;
@@ -205,6 +210,7 @@ function asTextureView(value: unknown): GPUTextureView {
 
 export class LightProbeAtlasTexture {
   private textureValue: GPUTexture | null = null;
+  private resourceHandle: ResourceHandle | null = null;
 
   constructor(
     private readonly device: GPUDevice,
@@ -212,7 +218,12 @@ export class LightProbeAtlasTexture {
     readonly format: GPUTextureFormat,
     readonly usage: GPUTextureUsageFlags,
     private widthValue: number,
-    private heightValue: number
+    private heightValue: number,
+    private readonly accounting?: {
+      readonly accounting?: ResourceAccounting;
+      readonly category: "atlas";
+      readonly owner: string;
+    }
   ) {}
 
   get width(): number {
@@ -239,22 +250,26 @@ export class LightProbeAtlasTexture {
     this.widthValue = width;
     this.heightValue = height;
     if (this.textureValue) {
-      this.textureValue.destroy();
+      this.releaseTexture();
       this.textureValue = this.allocate();
     }
   }
 
   get gpu_memory_usage(): number {
-    return this.widthValue * this.heightValue * 32;
+    return estimateTextureBytes({
+      format: this.format,
+      width: this.widthValue,
+      height: this.heightValue
+    });
   }
 
   destroy(): void {
-    this.textureValue?.destroy();
-    this.textureValue = null;
+    this.releaseTexture();
   }
 
   private allocate(): GPUTexture {
-    return createNativeTexture(this.device, {
+    const bytes = this.gpu_memory_usage;
+    const texture = createNativeTexture(this.device, {
       label: this.label,
       size: [this.widthValue, this.heightValue, 1],
       dimension: "2d",
@@ -263,6 +278,22 @@ export class LightProbeAtlasTexture {
       sampleCount: 1,
       usage: this.usage
     });
+    this.resourceHandle = this.accounting?.accounting?.created({
+      kind: "texture",
+      category: this.accounting.category,
+      owner: this.accounting.owner,
+      bytes,
+      label: this.label
+    }) ?? null;
+    return texture;
+  }
+
+  private releaseTexture(): void {
+    this.textureValue?.destroy();
+    this.textureValue = null;
+    if (this.resourceHandle === null) return;
+    this.accounting?.accounting?.destroyed(this.resourceHandle);
+    this.resourceHandle = null;
   }
 }
 
@@ -291,7 +322,12 @@ export class LightProbeAtlas {
         GPUTextureUsage.RENDER_ATTACHMENT |
         GPUTextureUsage.STORAGE_BINDING,
       this.maximumDimension,
-      initialHeight
+      initialHeight,
+      {
+        accounting: graphics.resource_accounting,
+        category: "atlas",
+        owner: "LightProbeAtlas"
+      }
     );
     this.texture_depth = new LightProbeAtlasTexture(
       device,
@@ -299,7 +335,12 @@ export class LightProbeAtlas {
       LIGHT_PROBE_ATLAS_DEPTH_FORMAT,
       GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
       this.maximumDimension,
-      initialHeight
+      initialHeight,
+      {
+        accounting: graphics.resource_accounting,
+        category: "atlas",
+        owner: "LightProbeAtlas"
+      }
     );
   }
 

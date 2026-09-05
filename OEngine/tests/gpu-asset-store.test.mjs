@@ -29,6 +29,9 @@ const {
 const { GpuAssetStore } = await import(
   "../.test-dist/gpu/GpuAssetStore.js"
 );
+const { ResourceAccounting } = await import(
+  "../.test-dist/debug/profiling/ResourceAccounting.js"
+);
 const {
   GEOMETRY_MATERIAL_RANGE_STRIDE,
   GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE
@@ -42,6 +45,21 @@ const { buildBoxSourceGeometry } = await import(
 const { cookGeometryAssetPackage } = await import(
   "../.test-dist/geometry/GeometryCooker.js"
 );
+
+test("GpuAssetStore accounts and releases buffers at its ownership boundary", () => {
+  const gpu = createFakeGpu();
+  const accounting = new ResourceAccounting();
+  const store = new GpuAssetStore(gpu.device, accounting);
+  const live = accounting.snapshot();
+  assert.ok(live.totalBytes > 0);
+  assert.ok(live.owners.GpuAssetStore.buffer > 0);
+  assert.equal(live.categories.resident.bytes, live.totalBytes);
+
+  store.destroy();
+  const released = accounting.snapshot();
+  assert.equal(released.totalBytes, 0);
+  assert.equal(released.createdCount, released.destroyedCount);
+});
 
 test("R2-C TS packers and generated WGSL share one explicit aligned ABI", () => {
   assert.equal(GPU_GEOMETRY_RECORD_SCHEMA.stride, 240);

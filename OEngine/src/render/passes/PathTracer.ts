@@ -178,16 +178,24 @@ export class PathTracer {
 
   constructor(private readonly graphics: GraphicsContext) {
     this.device = graphics.device;
-    this.history = [0, 1].map((index) => new GPUTextureContext(this.device, {
-      label: `accumulating-path-tracer-history-${index}`,
-      size: [1, 1, 1],
-      format: PATH_TRACER_HISTORY_FORMAT,
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.COPY_SRC |
-        GPUTextureUsage.COPY_DST
-    })) as [GPUTextureContext, GPUTextureContext];
+    this.history = [0, 1].map((index) => new GPUTextureContext(
+      this.device,
+      {
+        label: `accumulating-path-tracer-history-${index}`,
+        size: [1, 1, 1],
+        format: PATH_TRACER_HISTORY_FORMAT,
+        usage:
+          GPUTextureUsage.TEXTURE_BINDING |
+          GPUTextureUsage.STORAGE_BINDING |
+          GPUTextureUsage.COPY_SRC |
+          GPUTextureUsage.COPY_DST
+      },
+      {
+        accounting: graphics.resource_accounting,
+        category: "history",
+        owner: "PathTracer"
+      }
+    )) as [GPUTextureContext, GPUTextureContext];
   }
 
   render({ view, graph }: PathTracerRenderOptions): ResourceId {

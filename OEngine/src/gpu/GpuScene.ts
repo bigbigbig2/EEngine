@@ -11,6 +11,10 @@ import {
   GPU_INSTANCE_RECORD_STRIDE
 } from "./GpuInstanceAbi.js";
 import { recordGpuQueueUpload } from "./GpuQueueEvidence.js";
+import type {
+  ResourceAccounting,
+  ResourceHandle as AccountingResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
 
 declare const INSTANCE_SET_HANDLE_BRAND: unique symbol;
 
@@ -227,10 +231,12 @@ export class GpuScene {
   private abortedMutationCount = 0;
   private releaseCount = 0;
   private lastPatch: InstancePatchResult | null = null;
+  private readonly accountedBuffers = new Map<GPUBuffer, AccountingResourceHandle>();
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly assets: GpuAssetStore
+    private readonly assets: GpuAssetStore,
+    private readonly resourceAccounting?: ResourceAccounting
   ) {
     this.buffer = this.createZeroBuffer(
       "GpuScene/instances/fallback",
@@ -662,7 +668,7 @@ export class GpuScene {
       throw new Error("GpuScene cannot be destroyed during a pending mutation");
     }
     this.destroyed = true;
-    this.buffer.destroy();
+    this.destroyBuffer(this.buffer);
     for (const slot of this.slots) {
       if (slot.entry !== undefined) slot.entry.state = "released";
       slot.entry = undefined;
@@ -745,7 +751,7 @@ export class GpuScene {
     );
     nextSize = align4(Math.min(nextSize, limit));
     if (nextSize < requiredBytes) nextSize = requiredBytes;
-    const next = this.device.createBuffer({
+    const next = this.createBuffer({
       label: `GpuScene/instances/grow-${nextSize}`,
       size: nextSize,
       usage: STORAGE_USAGE
@@ -765,7 +771,7 @@ export class GpuScene {
     this.retiredBufferCount++;
     this.retiringBytes += replacement.previous.size;
     const destroy = (): void => {
-      replacement.previous.destroy();
+      this.destroyBuffer(replacement.previous);
       this.retiringBytes -= replacement.previous.size;
       this.destroyedRetiredBufferCount++;
     };
@@ -774,7 +780,7 @@ export class GpuScene {
 
   private rollbackReplacement(replacement: BufferReplacement): void {
     this.buffer = replacement.previous;
-    replacement.next.destroy();
+    this.destroyBuffer(replacement.next);
   }
 
   private commitUpload(upload: MutationUpload): void {
@@ -836,7 +842,7 @@ export class GpuScene {
 
   private createZeroBuffer(label: string, size: number): GPUBuffer {
     if (size > this.storageLimit()) throw new RangeError(`${label} exceeds adapter limit`);
-    const buffer = this.device.createBuffer({
+    const buffer = this.createBuffer({
       label,
       size,
       usage: STORAGE_USAGE,
@@ -845,6 +851,29 @@ export class GpuScene {
     new Uint8Array(buffer.getMappedRange()).fill(0);
     buffer.unmap();
     return buffer;
+  }
+
+  private createBuffer(descriptor: GPUBufferDescriptor): GPUBuffer {
+    const buffer = this.device.createBuffer(descriptor);
+    if (this.resourceAccounting !== undefined) {
+      this.accountedBuffers.set(buffer, this.resourceAccounting.created({
+        kind: "buffer",
+        category: "resident",
+        owner: "GpuScene",
+        bytes: descriptor.size,
+        label: descriptor.label
+      }));
+    }
+    return buffer;
+  }
+
+  private destroyBuffer(buffer: GPUBuffer): void {
+    const handle = this.accountedBuffers.get(buffer);
+    if (handle !== undefined) {
+      this.accountedBuffers.delete(buffer);
+      this.resourceAccounting!.destroyed(handle);
+    }
+    buffer.destroy();
   }
 
   private assertAlive(): void {

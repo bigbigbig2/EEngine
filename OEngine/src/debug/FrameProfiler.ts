@@ -1,5 +1,6 @@
 import {
   GPU_COUNTER_BYTE_SIZE,
+  GPU_COUNTER_FIELDS,
   GPU_COUNTER_SCHEMA_VERSION,
   GpuFrameCounterBuffer,
   type GpuCounterFieldName,
@@ -13,6 +14,7 @@ import {
 } from "./GpuFramePhase.js";
 import {
   MetricRegistry,
+  CPU_SECTION_METRIC_IDS,
   DEFAULT_METRIC_DESCRIPTORS,
   type MetricDescriptor
 } from "./profiling/MetricRegistry.js";
@@ -20,12 +22,14 @@ import type { MetricSample, MetricSampleAvailability } from "./profiling/Metric.
 import { ProfileHistory } from "./profiling/ProfileHistory.js";
 import type { ProfileFrame } from "./profiling/ProfileFrame.js";
 import type { ProfileSpan } from "./profiling/ProfileSpan.js";
+import type { ResourceAccounting } from "./profiling/ResourceAccounting.js";
 
 export interface FrameProfilerOptions {
   enabled?: boolean;
   gpuSampleInterval?: number;
   gpuCounterSampleInterval?: number;
   gpuTimestampAvailable?: boolean;
+  warmupFrames?: number;
   historyCapacity?: number;
   readbackRingSlots?: number;
   now?: () => number;
@@ -113,8 +117,116 @@ export interface FrameGpuTimingInput {
 
 export type FrameProfileListener = (snapshot: FrameProfileSnapshot) => void;
 
+const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
+  "ao.bentNormalUpsamplePasses",
+  "ao.compositePasses",
+  "ao.historyBytes",
+  "ao.historyRevision",
+  "ao.historyValid",
+  "ao.internalPixels",
+  "ao.pixels",
+  "ao.rawPasses",
+  "ao.spatialPasses",
+  "ao.temporalPasses",
+  "gpu.commands.bundleExecution",
+  "gpu.commands.computePass",
+  "gpu.commands.dispatch",
+  "gpu.commands.draw",
+  "gpu.commands.renderPass",
+  "gpu.residentBytes",
+  "hzb.computeBuilds",
+  "hzb.computePasses",
+  "hzb.dispatches",
+  "hzb.historyInvalidations",
+  "hzb.historyValid",
+  "hzb.outputPixels",
+  "legacy.instances.candidate",
+  "legacy.instances.frustumCulled",
+  "legacy.instances.frustumUnculled",
+  "legacy.instances.rejected",
+  "legacy.visibility.activeMaterialBuckets",
+  "legacy.visibility.bucketPasses",
+  "legacy.visibility.drawCount",
+  "legacy.visibility.secondChance",
+  "lighting.clusterCount",
+  "lighting.environment.diffuseAllocatedBytes",
+  "lighting.environment.specularAllocatedBytes",
+  "lighting.environment.specularMipLevelCount",
+  "lighting.localLightCount",
+  "packed.material.activeMaterials",
+  "packed.material.residentTextureBytes",
+  "packed.material.residentTextures",
+  "packed.material.samplerFallbacks",
+  "packed.material.surfaceAttachmentBytes",
+  "packed.material.surfaceBytesPerPixel",
+  "packed.material.textureFallbacks",
+  "packed.visibility.drawIndirect",
+  "packed.visibility.hierarchy",
+  "packed.visibility.keyAttachmentBytes",
+  "packed.visibility.rasterWorkCapacity",
+  "packed.visibility.verticesPerTriangle",
+  "pipeline.compute.cacheHits",
+  "pipeline.compute.cacheMisses",
+  "pipeline.compute.createCount",
+  "pipeline.compute.firstUseCount",
+  "pipeline.compute.hostCallMs",
+  "pipeline.render.cacheHits",
+  "pipeline.render.cacheMisses",
+  "pipeline.render.createCount",
+  "pipeline.render.firstUseCount",
+  "pipeline.render.hostCallMs",
+  "runtime.scenePrepareCount",
+  "runtime.viewPrepareCount",
+  "shadow.atlasBytes",
+  "shadow.atlasPixelsUpdated",
+  "shadow.packedCascadeDraws",
+  "ssr.compositePasses",
+  "ssr.historyBytes",
+  "ssr.historyRevision",
+  "ssr.historyValid",
+  "ssr.internalPixels",
+  "ssr.prefilterPasses",
+  "ssr.resolvePasses",
+  "ssr.spatialPasses",
+  "ssr.temporalPasses",
+  "ssr.tracePasses",
+  "temporal.classificationPasses",
+  "temporal.drsFeedbackLatencyFrames",
+  "temporal.drsGpuMs",
+  "temporal.historyBytes",
+  "temporal.historyInvalidations",
+  "temporal.historyRevision",
+  "temporal.historyValid",
+  "temporal.internalPixels",
+  "temporal.outputPixels",
+  "temporal.taaPasses"
+]);
+
+const KNOWN_SUM_METRIC_IDS = new Set([
+  "gpu.commands.bundleExecution",
+  "gpu.commands.computePass",
+  "gpu.commands.dispatch",
+  "gpu.commands.draw",
+  "gpu.commands.renderPass",
+  "legacy.instances.rejected",
+  "pipeline.compute.cacheHits",
+  "pipeline.compute.cacheMisses",
+  "pipeline.compute.createCount",
+  "pipeline.compute.firstUseCount",
+  "pipeline.compute.hostCallMs",
+  "pipeline.render.cacheHits",
+  "pipeline.render.cacheMisses",
+  "pipeline.render.createCount",
+  "pipeline.render.firstUseCount",
+  "pipeline.render.hostCallMs",
+  "runtime.scenePrepareCount",
+  "runtime.viewPrepareCount"
+]);
+
 type ActiveFrame = {
   startedAt: number;
+  epoch: number;
+  warmup: boolean;
   snapshot: FrameProfileSnapshot;
   gpuCounterSampleEncoded: boolean;
   gpuCounterFields: Set<GpuCounterFieldName>;
@@ -143,6 +255,7 @@ export class FrameProfiler {
   private gpuCounterSampleIntervalValue: number;
   private configuredGpuSampleIntervalValue: number;
   private configuredGpuCounterSampleIntervalValue: number;
+  private configuredWarmupFramesValue: number;
   private gpuCounterSamplingEnabledValue = false;
   private gpuTimestampAvailableValue: boolean;
   private historyCapacityValue: number;
@@ -156,6 +269,7 @@ export class FrameProfiler {
   private readonly listeners = new Set<FrameProfileListener>();
   private gpuDevice: GPUDevice | null = null;
   private gpuFrameCounters: GpuFrameCounterBuffer | null = null;
+  private resourceAccounting: ResourceAccounting | undefined;
   private validationErrorCount = 0;
   private uncapturedErrorCount = 0;
   private deviceLostCount = 0;
@@ -174,6 +288,8 @@ export class FrameProfiler {
   >();
   private readonly metricSamplesByFrame = new Map<number, Readonly<Record<string, MetricSample>>>();
   private readonly failedGpuTimingFrames = new Set<number>();
+  private epochValue = 0;
+  private warmupRemainingValue = 0;
   private deviceEpoch = 0;
   private readonly onUncapturedError = (event: GPUUncapturedErrorEvent): void => {
     const error = event.error;
@@ -195,6 +311,10 @@ export class FrameProfiler {
     );
     this.configuredGpuSampleIntervalValue = this.gpuSampleIntervalValue;
     this.configuredGpuCounterSampleIntervalValue = this.gpuCounterSampleIntervalValue;
+    this.configuredWarmupFramesValue = nonNegativeInteger(
+      options.warmupFrames ?? 0,
+      "warmupFrames"
+    );
     this.gpuCounterSamplingEnabledValue = options.gpuCounterSampleInterval !== undefined;
     this.gpuTimestampAvailableValue = options.gpuTimestampAvailable ?? false;
     this.historyCapacityValue = positiveInteger(
@@ -210,6 +330,10 @@ export class FrameProfiler {
     }
     this.now = options.now ?? (() => performance.now());
     for (const descriptor of DEFAULT_METRIC_DESCRIPTORS) this.metricRegistry.register(descriptor);
+    for (const id of KNOWN_RUNTIME_METRIC_IDS) {
+      this.ensureMetric(id, "counted", KNOWN_SUM_METRIC_IDS.has(id) ? "sum" : "last");
+    }
+    for (const field of GPU_COUNTER_FIELDS) this.ensureMetric(`gpu.counter.${field.name}`, "counted", "last");
     if (this.enabledValue) this.profileHistoryValue = new ProfileHistory(this.historyCapacityValue);
   }
 
@@ -237,27 +361,40 @@ export class FrameProfiler {
     return this.modeValue;
   }
 
+  get epoch(): number {
+    return this.epochValue;
+  }
+
+  get warmupRemaining(): number {
+    return this.warmupRemainingValue;
+  }
+
+  startEpoch(warmupFrames = 0, epoch = this.epochValue + 1): void {
+    if (this.active !== null) throw new Error("Cannot change profiler epoch during a frame");
+    if (!Number.isInteger(epoch) || epoch < 0) throw new RangeError("epoch must be a non-negative integer");
+    if (!Number.isInteger(warmupFrames) || warmupFrames < 0) throw new RangeError("warmupFrames must be a non-negative integer");
+    this.epochValue = epoch;
+    this.warmupRemainingValue = warmupFrames;
+  }
+
   setMode(mode: FrameProfilerMode): void {
     if (this.active !== null) throw new Error("Cannot change FrameProfiler mode during a frame");
     this.modeValue = mode;
     if (mode === "live") {
       this.gpuCounterSamplingEnabledValue = false;
       const configuredInterval = this.configuredGpuSampleIntervalValue;
-      this.configure({
-        gpuSampleInterval: Math.max(4, configuredInterval),
-        gpuCounterSampleInterval: this.configuredGpuCounterSampleIntervalValue
-      });
-      this.configuredGpuSampleIntervalValue = configuredInterval;
+      this.gpuSampleIntervalValue = Math.max(4, configuredInterval);
+      this.gpuCounterSampleIntervalValue = this.configuredGpuCounterSampleIntervalValue;
     } else if (mode === "record") {
       this.gpuCounterSamplingEnabledValue = true;
-      this.configure({
-        gpuSampleInterval: this.configuredGpuSampleIntervalValue,
-        gpuCounterSampleInterval: this.configuredGpuCounterSampleIntervalValue
-      });
+      this.gpuSampleIntervalValue = 1;
+      this.gpuCounterSampleIntervalValue = this.configuredGpuCounterSampleIntervalValue;
     } else if (mode === "deep-capture") {
       this.gpuCounterSamplingEnabledValue = true;
-      this.configure({ gpuSampleInterval: 1, gpuCounterSampleInterval: 1 });
+      this.gpuSampleIntervalValue = 1;
+      this.gpuCounterSampleIntervalValue = 1;
     }
+    this.startEpoch(this.configuredWarmupFramesValue);
   }
 
   get historyStore(): ProfileHistory | null {
@@ -272,10 +409,11 @@ export class FrameProfiler {
     return this.metricRegistry.register(descriptor);
   }
 
-  recordMetric(id: string, value: number, availability: MetricSampleAvailability = "available"): void {
+  recordMetric(id: string, value: number | null, availability: MetricSampleAvailability = "available"): void {
     const descriptor = this.metricRegistry.require(id);
     if (this.active === null) return;
     if (availability === "available") {
+      if (value === null) throw new TypeError(`Available metric '${id}' requires a number`);
       const validated = nonNegativeFinite(value, id);
       this.active.snapshot.counters[id] = validated;
       this.active.metricSamples[id] = sample(
@@ -286,6 +424,7 @@ export class FrameProfiler {
         descriptor.cost === "instrumented"
       );
     } else {
+      if (value !== null) throw new TypeError(`Unavailable metric '${id}' requires a null value`);
       this.active.metricSamples[id] = sample(
         id,
         null,
@@ -336,22 +475,30 @@ export class FrameProfiler {
       this.gpuTimestampAvailableValue = options.gpuTimestampAvailable;
     }
     if (options.gpuSampleInterval !== undefined) {
-      this.gpuSampleIntervalValue = positiveInteger(
+      const interval = positiveInteger(
         options.gpuSampleInterval,
         "gpuSampleInterval"
       );
-      if (this.modeValue !== "deep-capture") {
-        this.configuredGpuSampleIntervalValue = this.gpuSampleIntervalValue;
-      }
+      this.configuredGpuSampleIntervalValue = interval;
+      this.gpuSampleIntervalValue = this.modeValue === "deep-capture" || this.modeValue === "record"
+        ? 1
+        : this.modeValue === "live" ? Math.max(4, interval) : interval;
+    }
+    if (options.warmupFrames !== undefined) {
+      this.configuredWarmupFramesValue = nonNegativeInteger(
+        options.warmupFrames,
+        "warmupFrames"
+      );
     }
     if (options.gpuCounterSampleInterval !== undefined) {
-      this.gpuCounterSampleIntervalValue = positiveInteger(
+      const interval = positiveInteger(
         options.gpuCounterSampleInterval,
         "gpuCounterSampleInterval"
       );
-      if (this.modeValue !== "deep-capture") {
-        this.configuredGpuCounterSampleIntervalValue = this.gpuCounterSampleIntervalValue;
-      }
+      this.configuredGpuCounterSampleIntervalValue = interval;
+      this.gpuCounterSampleIntervalValue = this.modeValue === "deep-capture"
+        ? 1
+        : interval;
     }
     if (options.historyCapacity !== undefined) {
       this.historyCapacityValue = positiveInteger(
@@ -385,6 +532,12 @@ export class FrameProfiler {
     });
   }
 
+  attachResourceAccounting(accounting: ResourceAccounting | undefined): void {
+    if (this.resourceAccounting === accounting) return;
+    this.destroyGpuCounterResources();
+    this.resourceAccounting = accounting;
+  }
+
   detachGpuDevice(device?: GPUDevice): void {
     if (device !== undefined && this.gpuDevice !== device) return;
     const current = this.gpuDevice;
@@ -409,6 +562,8 @@ export class FrameProfiler {
       frameIndex % this.gpuSampleIntervalValue === 0;
     this.active = {
       startedAt: this.now(),
+      epoch: this.epochValue,
+      warmup: this.warmupRemainingValue > 0,
       gpuCounterSampleEncoded: false,
       gpuCounterFields: new Set(),
       spans: [],
@@ -445,6 +600,7 @@ export class FrameProfiler {
         }
       }
     };
+    if (this.warmupRemainingValue > 0) this.warmupRemainingValue--;
     const counters = this.active.snapshot.gpuCounters;
     counters.sampled = this.gpuCounterSamplingEnabledValue && counters.available &&
       frameIndex % this.gpuCounterSampleIntervalValue === 0;
@@ -642,14 +798,14 @@ export class FrameProfiler {
   }
 
   recordCounter(label: string, value: number): void {
+    this.metricRegistry.require(label);
     if (this.active === null) return;
-    this.ensureMetric(label, "counted", "last");
     this.active.snapshot.counters[label] = nonNegativeFinite(value, label);
   }
 
   addCounter(label: string, value: number): void {
+    this.metricRegistry.require(label);
     if (this.active === null) return;
-    this.ensureMetric(label, "counted", "sum");
     const validated = nonNegativeFinite(value, label);
     this.active.snapshot.counters[label] =
       (this.active.snapshot.counters[label] ?? 0) + validated;
@@ -692,7 +848,9 @@ export class FrameProfiler {
       active.snapshot,
       active.spans,
       active.metricSamples,
-      active.gpuCounterFields
+      active.gpuCounterFields,
+      active.epoch,
+      active.warmup
     ));
     const completed = cloneSnapshot(active.snapshot);
     this.notify(completed);
@@ -779,6 +937,7 @@ export class FrameProfiler {
     if (device === null) throw new Error("FrameProfiler has no attached GPUDevice");
     this.gpuFrameCounters ??= new GpuFrameCounterBuffer(device, {
       slotCount: this.readbackRingSlotsValue,
+      resourceAccounting: this.resourceAccounting,
       onResult: (frameIndex, values) => this.recordGpuCounters(frameIndex, values),
       onError: (frameIndex, error) => {
         this.failedGpuCounterSamples++;
@@ -1007,17 +1166,26 @@ function appendBounded(values: string[], value: string, capacity = 64): void {
   if (values.length < capacity) values.push(value);
 }
 
+function nonNegativeInteger(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
 function toProfileFrame(
   snapshot: FrameProfileSnapshot,
   spans: readonly ProfileSpan[],
   customSamples: Readonly<Record<string, MetricSample>> = {},
-  gpuCounterFields: ReadonlySet<GpuCounterFieldName> = new Set()
+  gpuCounterFields: ReadonlySet<GpuCounterFieldName> = new Set(),
+  epoch = 0,
+  warmup = false
 ): ProfileFrame {
   return Object.freeze({
     schemaVersion: 1,
     frameIndex: snapshot.frameIndex,
-    epoch: 0,
-    warmup: false,
+    epoch,
+    warmup,
     visibilityState: "visible",
     samples: profileSamples(snapshot, customSamples, gpuCounterFields),
     spans: Object.freeze([...spans, ...profileGpuSpans(snapshot)]),
@@ -1037,7 +1205,8 @@ function profileSamples(
 ): Readonly<Record<string, MetricSample>> {
   const samples: Record<string, MetricSample> = { ...customSamples };
   for (const [label, value] of Object.entries(snapshot.cpuMs)) {
-    const id = label === "frame" ? "cpu.frameMs" : `cpu.${label}`;
+    const id = label === "frame" ? "cpu.frameMs" : CPU_SECTION_METRIC_IDS[label];
+    if (id === undefined) continue;
     if (samples[id] === undefined) {
       samples[id] = sample(id, value, snapshot.frameIndex, "cpu-clock", false, "available", resolvedAtFrameIndex);
     }
@@ -1152,7 +1321,6 @@ function inferMetricUnit(id: string): MetricDescriptor["unit"] {
 
 function inferMetricSource(id: string): MetricDescriptor["source"] {
   if (id.startsWith("gpu.counter.")) return "gpu-counter";
-  if (id.startsWith("gpu.")) return "gpu-timestamp";
   if (id.startsWith("cpu.")) return "cpu-clock";
   return "engine-accounting";
 }

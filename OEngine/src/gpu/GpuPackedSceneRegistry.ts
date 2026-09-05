@@ -24,6 +24,7 @@ import type {
   InstanceSource,
   InstanceTransformPatch
 } from "./GpuScene.js";
+import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 
 declare const PACKED_SCENE_HANDLE_BRAND: unique symbol;
 
@@ -109,6 +110,7 @@ const HANDLE_RUNTIME = new WeakMap<object, PackedSceneRuntime>();
  * GpuScene; frame-local hierarchy work is owned by HierarchicalWorkGenerator.
  */
 export class GpuPackedSceneRegistry {
+  private readonly accountedCounterSinks = new Map<GPUBuffer, AccountingResourceHandle>();
   private readonly byScene = new Map<Scene, PackedSceneRuntime>();
   private readonly pendingPatches = new Map<Scene, PendingPatch>();
   private readonly releasingScenes = new Set<Scene>();
@@ -177,7 +179,7 @@ export class GpuPackedSceneRegistry {
     };
     const instanceHandle = this.graphics.gpu_scene.instantiate(instanceSource, command);
     const range = this.graphics.gpu_scene.range(instanceHandle);
-    const counterSink = this.graphics.device.createBuffer({
+    const counterSink = this.createCounterSink({
       label: "PackedScene/disabled-counter-sink",
       size: GPU_COUNTER_BYTE_SIZE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
@@ -214,7 +216,7 @@ export class GpuPackedSceneRegistry {
       HANDLE_RUNTIME.set(handle as object, runtime);
     });
     command.onAborted.addOne(() => {
-      counterSink.destroy();
+      this.destroyCounterSink(counterSink);
     });
     return handle;
   }
@@ -257,7 +259,7 @@ export class GpuPackedSceneRegistry {
       HANDLE_RUNTIME.delete(runtime.handle as object);
       this.releasingScenes.delete(scene);
       const destroy = (): void => {
-        runtime.counterSink.destroy();
+        this.destroyCounterSink(runtime.counterSink);
       };
       void this.graphics.device.queue.onSubmittedWorkDone().then(destroy, destroy);
     });
@@ -332,12 +334,36 @@ export class GpuPackedSceneRegistry {
 
   destroy(): void {
     for (const runtime of this.byScene.values()) {
-      runtime.counterSink.destroy();
+      this.destroyCounterSink(runtime.counterSink);
     }
     this.byScene.clear();
     this.pendingPatches.clear();
     this.releasingScenes.clear();
     this.classificationByScene.clear();
+  }
+
+  private createCounterSink(descriptor: GPUBufferDescriptor): GPUBuffer {
+    const buffer = this.graphics.device.createBuffer(descriptor);
+    const accounting = this.graphics.resource_accounting;
+    if (accounting !== undefined) {
+      this.accountedCounterSinks.set(buffer, accounting.created({
+        kind: "buffer",
+        category: "resident",
+        owner: "GpuPackedSceneRegistry",
+        bytes: descriptor.size,
+        label: descriptor.label
+      }));
+    }
+    return buffer;
+  }
+
+  private destroyCounterSink(buffer: GPUBuffer): void {
+    const handle = this.accountedCounterSinks.get(buffer);
+    if (handle !== undefined) {
+      this.accountedCounterSinks.delete(buffer);
+      this.graphics.resource_accounting?.destroyed(handle);
+    }
+    buffer.destroy();
   }
 }
 

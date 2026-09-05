@@ -5,6 +5,10 @@ import { TextureFilterType } from "../texture/TextureFilterType.js";
 import type { CachedRenderPipelineDescriptor } from "./GPUDescriptorCaches.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import { GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_BIT } from "./GpuMaterialVisibilityAbi.js";
+import {
+  estimateTextureBytes,
+  type ResourceHandle as AccountingResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
 
 export const TEXTURE_RESIDENCY_BASE_SIZE = 256;
 export const TEXTURE_RESIDENCY_BASE_CAPACITY = 64;
@@ -85,9 +89,11 @@ interface TextureTransition {
 export class TextureResidency {
   private readonly baseDescriptor: GPUTextureDescriptor;
   private readonly baseTexture: GPUTexture;
+  private readonly baseAccountingHandle: AccountingResourceHandle | undefined;
   private readonly baseView: GPUTextureView;
   private highDescriptor: GPUTextureDescriptor;
   private highTexture: GPUTexture | null = null;
+  private highAccountingHandle: AccountingResourceHandle | null = null;
   private highView: GPUTextureView | null = null;
   private highSize = TEXTURE_RESIDENCY_MAX_SIZE;
   private highCapacity = 0;
@@ -109,6 +115,19 @@ export class TextureResidency {
         GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
     };
     this.baseTexture = graphics.device.createTexture(this.baseDescriptor);
+    this.baseAccountingHandle = graphics.resource_accounting?.created({
+      kind: "texture",
+      category: "resident",
+      owner: "TextureResidency/base-bank",
+      bytes: estimateTextureBytes({
+        format: "rgba8unorm",
+        width: TEXTURE_RESIDENCY_BASE_SIZE,
+        height: TEXTURE_RESIDENCY_BASE_SIZE,
+        depthOrArrayLayers: TEXTURE_RESIDENCY_BASE_CAPACITY,
+        mipLevelCount: TEXTURE_RESIDENCY_BASE_MIP_COUNT
+      }),
+      label: this.baseDescriptor.label
+    });
     this.baseView = this.baseTexture.createView({ dimension: "2d-array" });
     this.highDescriptor = {
       label: "TextureResidency/high-resolution-bank",
@@ -279,7 +298,14 @@ export class TextureResidency {
     if (this.destroyed) return;
     this.destroyed = true;
     this.baseTexture.destroy();
+    if (this.baseAccountingHandle !== undefined) {
+      this.graphics.resource_accounting?.destroyed(this.baseAccountingHandle);
+    }
     this.highTexture?.destroy();
+    if (this.highAccountingHandle !== null) {
+      this.graphics.resource_accounting?.destroyed(this.highAccountingHandle);
+      this.highAccountingHandle = null;
+    }
     this.textures.clear();
     this.materials.clear();
     this.freeBaseLayers.length = 0;
@@ -449,6 +475,19 @@ export class TextureResidency {
     };
     for (let layer = requiredCapacity - 1; layer >= 1; layer--) this.freeHighLayers.push(layer);
     this.highTexture = this.graphics.device.createTexture(this.highDescriptor);
+    this.highAccountingHandle = this.graphics.resource_accounting?.created({
+      kind: "texture",
+      category: "resident",
+      owner: "TextureResidency/high-resolution-bank",
+      bytes: estimateTextureBytes({
+        format: "rgba8unorm",
+        width: requiredSize,
+        height: requiredSize,
+        depthOrArrayLayers: requiredCapacity,
+        mipLevelCount: this.highMipCount
+      }),
+      label: this.highDescriptor.label
+    });
     this.highView = this.highTexture.createView({ dimension: "2d-array" });
   }
 

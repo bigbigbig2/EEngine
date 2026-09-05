@@ -782,6 +782,10 @@ export class ShadowContext {
       dimension: "2d",
       format: "depth32float",
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC
+    }, {
+      accounting: this.graphics.resource_accounting,
+      category: "atlas",
+      owner: "ShadowService"
     });
     return this._texture;
   }

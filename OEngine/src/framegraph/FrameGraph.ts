@@ -75,6 +75,7 @@ export interface FrameGraphEvidence {
   readonly culledPasses: number;
   readonly resources: number;
   readonly transientResources: number;
+  readonly transientResourcePeak: number;
 }
 
 export function resolveGpuEncoder(ctx: FrameGraphContext): GPUCommandEncoder | undefined {
@@ -600,6 +601,7 @@ export class FrameGraph {
   private readonly __imported_bindings = new Map<number, FrameGraphBindingSlot>();
   private __compiled: CompiledFrameGraph | null = null;
   private __execution_order: PassNode[] = [];
+  private __build_count = 0;
 
   constructor(name = "") {
     this.name = name;
@@ -620,13 +622,14 @@ export class FrameGraph {
       0
     );
     return Object.freeze({
-      builds: this.__compiled === null ? 0 : 1,
+      builds: this.__build_count,
       compiled: this.__compiled !== null,
       totalPasses: this.__pass_nodes.length,
       executablePasses: executable,
       culledPasses: Math.max(0, this.__pass_nodes.length - executable),
       resources: this.__resource_registry.length,
-      transientResources
+      transientResources,
+      transientResourcePeak: this.transientResourcePeak()
     });
   }
 
@@ -712,6 +715,7 @@ export class FrameGraph {
   /** 计算资源引用、剔除无效阶段，并确定瞬态资源的最后使用位置。 */
   compile(): CompiledFrameGraph {
     if (this.__compiled !== null) return this.__compiled;
+    this.__build_count++;
     const passes = this.__pass_nodes;
     const resources = this.__resource_nodes;
 
@@ -823,6 +827,27 @@ export class FrameGraph {
     }
     for (const binding of bindingSlots) binding.releaseInitial();
     return this.__compiled;
+  }
+
+  private transientResourcePeak(): number {
+    if (this.__execution_order.length === 0) return 0;
+    const schedule = new Map(this.__execution_order.map((pass, index) => [pass.id, index]));
+    const deltas = new Int32Array(this.__execution_order.length + 1);
+    for (const entry of this.__resource_registry) {
+      if (!isTransientEntry(entry) || entry.producer === null || entry.last === null) continue;
+      const first = schedule.get(entry.producer.id);
+      const last = schedule.get(entry.last.id);
+      if (first === undefined || last === undefined) continue;
+      deltas[first] = (deltas[first] ?? 0) + 1;
+      deltas[last + 1] = (deltas[last + 1] ?? 0) - 1;
+    }
+    let active = 0;
+    let peak = 0;
+    for (let index = 0; index < this.__execution_order.length; index++) {
+      active += deltas[index]!;
+      peak = Math.max(peak, active);
+    }
+    return peak;
   }
 
   private assertPassResources(

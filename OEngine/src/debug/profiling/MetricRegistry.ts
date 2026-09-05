@@ -7,9 +7,21 @@ export { summarizeMetricCoverage, summarizeProfileSeries } from "./ProfileStatis
 
 export type MetricDescriptorInput = MetricDescriptor;
 
+export const CPU_SECTION_METRIC_IDS: Readonly<Record<string, string>> = Object.freeze({
+  "graph-build": "cpu.graphBuildMs",
+  "graph-compile": "cpu.graphCompileMs",
+  "graph-execute": "cpu.graphExecuteMs",
+  "graphics-update": "cpu.graphicsUpdateMs",
+  "queue-submit": "cpu.queueSubmitMs",
+  "world-and-view-update": "cpu.worldAndViewUpdateMs"
+});
+
 export const DEFAULT_METRIC_DESCRIPTORS: readonly MetricDescriptor[] = Object.freeze([
   descriptor("frame.rafIntervalMs", "RAF interval", "frame", "ms", "browser-observer", "measured", "low", "frame", "last", "Browser RAF callback interval."),
   descriptor("cpu.frameMs", "CPU frame", "cpu", "ms", "cpu-clock", "measured", "low", "frame", "last", "OEngine render call wall time."),
+  ...Object.entries(CPU_SECTION_METRIC_IDS).map(([section, id]) =>
+    descriptor(id, `CPU ${section}`, "cpu", "ms", "cpu-clock", "measured", "low", "frame", "sum", `Wall time accumulated for the '${section}' CPU section.`)
+  ),
   descriptor("gpu.passSumMs", "GPU Pass Sum", "gpu", "ms", "gpu-timestamp", "measured", "instrumented", "frame", "sum", "Sum of instrumented GPU pass durations; not complete GPU frame time."),
   descriptor("io.uploadBytes", "Upload bytes", "io", "bytes", "engine-accounting", "counted", "low", "frame", "sum", "Bytes submitted through tracked upload paths."),
   descriptor("io.readbackBytes", "Readback bytes", "io", "bytes", "engine-accounting", "counted", "low", "frame", "sum", "Bytes copied into tracked readback paths."),
@@ -19,10 +31,23 @@ export const DEFAULT_METRIC_DESCRIPTORS: readonly MetricDescriptor[] = Object.fr
   descriptor("framegraph.executeCount", "FrameGraph executes", "framegraph", "count", "engine-accounting", "counted", "low", "frame", "sum", "Executable FrameGraph runs."),
   descriptor("framegraph.cache.hitCount", "FrameGraph cache hits", "framegraph", "count", "engine-accounting", "counted", "low", "frame", "sum", "FrameGraph cache hits."),
   descriptor("framegraph.cache.missCount", "FrameGraph cache misses", "framegraph", "count", "engine-accounting", "counted", "low", "frame", "sum", "FrameGraph cache misses."),
+  ...pipelineDescriptors("render"),
+  ...pipelineDescriptors("compute"),
   descriptor("memory.resident.accountedBytes", "Resident accounted bytes", "memory", "bytes", "engine-accounting", "estimated", "low", "resource-lifetime", "last", "OEngine-owned resident bytes; not physical VRAM."),
   descriptor("profiler.readbackBytes", "Profiler readback bytes", "profiler", "bytes", "engine-accounting", "counted", "instrumented", "frame", "sum", "Bytes used by profiler readback operations."),
   descriptor("profiler.overheadMs", "Profiler overhead", "profiler", "ms", "cpu-clock", "measured", "instrumented", "frame", "last", "CPU time attributable to profiling instrumentation.")
 ]);
+
+function pipelineDescriptors(kind: "render" | "compute"): readonly MetricDescriptor[] {
+  const label = kind === "render" ? "Render" : "Compute";
+  return [
+    descriptor(`pipeline.${kind}.cacheHits`, `${label} pipeline cache hits`, "pipeline", "count", "engine-accounting", "counted", "low", "frame", "sum", `Cached ${kind} pipeline obtains.`),
+    descriptor(`pipeline.${kind}.cacheMisses`, `${label} pipeline cache misses`, "pipeline", "count", "engine-accounting", "counted", "low", "frame", "sum", `Uncached ${kind} pipeline obtains.`),
+    descriptor(`pipeline.${kind}.createCount`, `${label} pipeline creates`, "pipeline", "count", "engine-accounting", "counted", "low", "frame", "sum", `Synchronous WebGPU ${kind} pipeline creation calls.`),
+    descriptor(`pipeline.${kind}.firstUseCount`, `${label} pipeline first uses`, "pipeline", "count", "engine-accounting", "counted", "low", "frame", "sum", `First obtain of a ${kind} pipeline cache key.`),
+    descriptor(`pipeline.${kind}.hostCallMs`, `${label} pipeline host call`, "pipeline", "ms", "cpu-clock", "measured", "low", "frame", "sum", `Host time inside create${label}Pipeline; native compilation may be lazy and is not proven complete.`)
+  ];
+}
 
 export class MetricRegistry {
   private readonly descriptors = new Map<string, MetricDescriptor>();

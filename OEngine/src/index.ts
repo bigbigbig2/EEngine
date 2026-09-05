@@ -333,10 +333,13 @@ export type {
 export type { ProfileSpan, ProfileClockDomain } from "./debug/profiling/ProfileSpan.js";
 export {
   ResourceAccounting,
+  estimateBufferBytes,
   estimateTextureBytes
 } from "./debug/profiling/ResourceAccounting.js";
 export type {
+  AccountedResourceCategory,
   AccountedResourceKind,
+  ResourceCategorySnapshot,
   ResourceAccountedInput,
   ResourceAccountingSnapshot,
   ResourceHandle

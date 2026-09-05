@@ -125,8 +125,16 @@ export class ScreenSpaceAmbientOcclusionPass {
     };
     this.histories = temporalEnabled
       ? [
-          new GPUTextureContext(device, { ...descriptor, label: "SSAO history 0" }),
-          new GPUTextureContext(device, { ...descriptor, label: "SSAO history 1" })
+          new GPUTextureContext(device, { ...descriptor, label: "SSAO history 0" }, {
+            accounting: graphics.resource_accounting,
+            category: "history",
+            owner: "ScreenSpaceAmbientOcclusionPass"
+          }),
+          new GPUTextureContext(device, { ...descriptor, label: "SSAO history 1" }, {
+            accounting: graphics.resource_accounting,
+            category: "history",
+            owner: "ScreenSpaceAmbientOcclusionPass"
+          })
         ]
       : null;
   }

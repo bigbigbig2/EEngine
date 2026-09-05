@@ -61,6 +61,8 @@ export interface PipelineCacheObserver {
   onPipelineCacheHit?(kind: "render" | "compute"): void;
   onPipelineCacheMiss?(kind: "render" | "compute"): void;
   onPipelineCreated?(kind: "render" | "compute", hostCallMs: number): void;
+  /** First obtain for one cache key. This does not prove native compilation completed. */
+  onPipelineFirstUse?(kind: "render" | "compute"): void;
 }
 
 class iu implements GPUBindGroupLayoutDescriptor {
@@ -498,6 +500,7 @@ export class RenderPipelineCache {
       Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started)
     );
     this.cache.set(key, pipeline);
+    this.observer?.onPipelineFirstUse?.("render");
     return pipeline;
   }
 
@@ -588,6 +591,7 @@ export class ComputePipelineCache {
       Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started)
     );
     this.cache.set(key, pipeline);
+    this.observer?.onPipelineFirstUse?.("compute");
     return pipeline;
   }
 
