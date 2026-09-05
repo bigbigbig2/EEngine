@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { FrameProfiler } from "../.test-dist/debug/FrameProfiler.js";
 import { Inspector } from "../.test-dist/addons/inspector/Inspector.js";
 import { InspectorViewModel } from "../.test-dist/addons/inspector/InspectorViewModel.js";
+import { createPerformanceCapture } from "../.test-dist/debug/profiling/PerformanceCapture.js";
 
 function createProfiler() {
   return new FrameProfiler({
@@ -71,6 +72,45 @@ test("InspectorViewModel follows asynchronous frame replacement and rejects stal
   assert.ok(updates.length >= 3);
 
   model.dispose();
+  profiler.destroy();
+});
+
+test("InspectorViewModel can replay an imported capture and restore live frames", () => {
+  const profiler = createProfiler();
+  profiler.beginFrame(7);
+  profiler.endFrame();
+  const capture = createPerformanceCapture({
+    engine: { name: "test" },
+    sampling: {
+      mode: "record",
+      warmupFrames: 0,
+      timestampInterval: 1,
+      counterInterval: 1,
+      historyCapacity: 8
+    },
+    metricCatalog: profiler.metricCatalog,
+    frames: [{
+      schemaVersion: 1,
+      frameIndex: 42,
+      epoch: 0,
+      warmup: false,
+      visibilityState: "visible",
+      samples: {},
+      spans: [],
+      gpuCounterSchemaVersion: 1,
+      timestampInstrumented: false,
+      counterInstrumented: false,
+      complete: true
+    }]
+  });
+  const model = new InspectorViewModel(profiler);
+  model.loadCapture(capture);
+  assert.equal(model.mode, "record");
+  assert.deepEqual(model.frames.map((frame) => frame.frameIndex), [42]);
+  model.selectFrame(42);
+  assert.equal(model.selectedFrame?.frameIndex, 42);
+  model.clearLoadedCapture();
+  assert.deepEqual(model.frames.map((frame) => frame.frameIndex), [7]);
   profiler.destroy();
 });
 

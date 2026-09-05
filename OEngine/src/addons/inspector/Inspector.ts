@@ -2,6 +2,7 @@ import type { Renderer } from "../../render/Renderer.js";
 import type { FrameProfiler } from "../../debug/FrameProfiler.js";
 import {
   createPerformanceCapture,
+  parsePerformanceCapture,
   serializePerformanceCapture,
   type PerformanceCapture
 } from "../../debug/profiling/PerformanceCapture.js";
@@ -96,6 +97,13 @@ export class Inspector {
       onPause: () => this.pause(),
       onResume: () => this.resume(),
       onClose: () => this.close(),
+      onStartRecording: () => this.startRecording(),
+      onStopRecording: () => { void this.stopRecording().then((capture) => downloadBlob(this.exportCapture(capture), "oengine-capture.json")).catch((error) => console.error(error)); },
+      onCaptureNextFrame: () => { void this.captureNextFrame().then((capture) => downloadBlob(this.exportCapture(capture), "oengine-frame.json")).catch((error) => console.error(error)); },
+      onExportCapture: () => downloadBlob(this.exportCapture(), "oengine-capture.json"),
+      onExportTrace: () => downloadBlob(this.exportTrace(), "oengine-trace.json"),
+      onClear: () => this.clear(),
+      onImportCapture: (file) => { void file.text().then((serialized) => this.importCapture(serialized)).catch((error) => console.error(error)); },
       onSelectFrame: (frameIndex) => this.selectFrame(frameIndex),
       onSelectRange: (startFrameIndex, endFrameIndex) => this.viewModel.selectRange(startFrameIndex, endFrameIndex),
       onDomainState: () => this.domainState()
@@ -133,6 +141,7 @@ export class Inspector {
 
   startRecording(): void {
     this.assertAlive();
+    this.viewModel.clearLoadedCapture();
     this.viewModel.setMode("record");
     this.recordingStartFrame = (this.profiler.latest?.frameIndex ?? -1) + 1;
   }
@@ -150,6 +159,7 @@ export class Inspector {
 
   captureNextFrame(): Promise<PerformanceCapture> {
     this.assertAlive();
+    this.viewModel.clearLoadedCapture();
     this.viewModel.setMode("deep-capture");
     const target = (this.profiler.latest?.frameIndex ?? -1) + 1;
     return new Promise((resolve, reject) => {
@@ -174,15 +184,26 @@ export class Inspector {
     this.viewModel.selectFrame(frameIndex);
   }
 
+  clear(): void {
+    this.assertAlive();
+    this.viewModel.clear();
+  }
+
+  importCapture(capture: PerformanceCapture | string): void {
+    this.assertAlive();
+    const parsed = typeof capture === "string" ? parsePerformanceCapture(capture) : capture;
+    this.viewModel.loadCapture(parsed);
+  }
+
   exportCapture(capture?: PerformanceCapture): Blob {
     this.assertAlive();
-    const value = capture ?? this.createCapture(this.oldestFrameIndex(), this.latestFrameIndex());
+    const value = capture ?? this.viewModel.loadedCapture ?? this.createCapture(this.oldestFrameIndex(), this.latestFrameIndex());
     return new Blob([serializePerformanceCapture(value)], { type: "application/json" });
   }
 
   exportTrace(capture?: PerformanceCapture): Blob {
     this.assertAlive();
-    const value = capture ?? this.createCapture(this.oldestFrameIndex(), this.latestFrameIndex());
+    const value = capture ?? this.viewModel.loadedCapture ?? this.createCapture(this.oldestFrameIndex(), this.latestFrameIndex());
     return new Blob([serializeChromeTrace({ frames: value.frames })], { type: "application/json" });
   }
 
@@ -203,7 +224,7 @@ export class Inspector {
   private createCapture(start: number, end: number): PerformanceCapture {
     const frames = start > end
       ? []
-      : this.profiler.historyStore?.selectRange(start, end) ?? [];
+      : this.viewModel.frames.filter((frame) => frame.frameIndex >= start && frame.frameIndex <= end);
     return createPerformanceCapture({
       engine: { name: "OEngine", profiler: "FrameProfiler" },
       environment: this.environment(),
@@ -300,4 +321,13 @@ export class Inspector {
   private assertAlive(): void {
     if (this.disposed) throw new Error("Inspector has been disposed");
   }
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  if (typeof document === "undefined" || typeof URL === "undefined") return;
+  const anchor = document.createElement("a");
+  anchor.href = URL.createObjectURL(blob);
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(anchor.href), 0);
 }

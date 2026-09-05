@@ -1,10 +1,12 @@
 import type { FrameProfiler, FrameProfileSnapshot } from "../../debug/FrameProfiler.js";
 import type { ProfileFrame } from "../../debug/profiling/ProfileFrame.js";
+import type { PerformanceCapture } from "../../debug/profiling/PerformanceCapture.js";
 
 export type InspectorMode = "live" | "record" | "deep-capture";
 
 export interface InspectorViewState {
   readonly mode: InspectorMode;
+  readonly source: "live" | "capture";
   readonly paused: boolean;
   readonly selectedFrameIndex: number | null;
   readonly range: readonly [number, number] | null;
@@ -27,6 +29,7 @@ export class InspectorViewModel {
   private pausedValue = false;
   private selectedFrameIndexValue: number | null = null;
   private rangeValue: readonly [number, number] | null = null;
+  private captureValue: PerformanceCapture | null = null;
   private disposed = false;
 
   constructor(profiler: FrameProfiler) {
@@ -44,17 +47,23 @@ export class InspectorViewModel {
     return this.pausedValue;
   }
 
-  get selectedFrame(): FrameProfileSnapshot | undefined {
+  get selectedFrame(): FrameProfileSnapshot | ProfileFrame | undefined {
     if (this.selectedFrameIndexValue === null) return undefined;
-    return this.profiler.getFrame(this.selectedFrameIndexValue);
+    if (this.captureValue === null) return this.profiler.getFrame(this.selectedFrameIndexValue);
+    return this.frames.find((frame) => frame.frameIndex === this.selectedFrameIndexValue);
   }
 
-  get latestFrame(): FrameProfileSnapshot | undefined {
+  get latestFrame(): FrameProfileSnapshot | ProfileFrame | undefined {
+    if (this.captureValue !== null) return this.frames.at(-1);
     return this.profiler.latest;
   }
 
   get frames(): readonly ProfileFrame[] {
-    return this.profiler.historyStore?.values() ?? [];
+    return this.captureValue?.frames ?? this.profiler.historyStore?.values() ?? [];
+  }
+
+  get loadedCapture(): PerformanceCapture | null {
+    return this.captureValue;
   }
 
   get range(): readonly [number, number] | null {
@@ -88,7 +97,7 @@ export class InspectorViewModel {
     if (!Number.isInteger(frameIndex) || frameIndex < 0) {
       throw new RangeError("frameIndex must be a non-negative integer");
     }
-    if (this.profiler.historyStore?.get(frameIndex) === undefined) {
+    if (!this.frames.some((frame) => frame.frameIndex === frameIndex)) {
       throw new RangeError(`Unknown frame '${frameIndex}'`);
     }
     this.selectedFrameIndexValue = frameIndex;
@@ -101,8 +110,9 @@ export class InspectorViewModel {
       throw new RangeError("Frame range must use integer indexes");
     }
     if (startFrameIndex > endFrameIndex) throw new RangeError("Invalid frame range");
-    const history = this.profiler.historyStore;
-    const frames = history?.selectRange(startFrameIndex, endFrameIndex) ?? [];
+    const frames = this.frames.filter((frame) =>
+      frame.frameIndex >= startFrameIndex && frame.frameIndex <= endFrameIndex
+    );
     this.rangeValue = Object.freeze([startFrameIndex, endFrameIndex]);
     this.notify();
     return Object.freeze([...frames]);
@@ -118,20 +128,41 @@ export class InspectorViewModel {
   clear(): void {
     this.assertAlive();
     this.profiler.clear();
+    this.captureValue = null;
     this.clearSelection();
+  }
+
+  /** Replaces the visible frame source with an immutable imported capture. */
+  loadCapture(capture: PerformanceCapture): void {
+    this.assertAlive();
+    this.captureValue = capture;
+    this.modeValue = capture.sampling.mode;
+    this.selectedFrameIndexValue = null;
+    this.rangeValue = null;
+    this.notify();
+  }
+
+  clearLoadedCapture(): void {
+    this.assertAlive();
+    if (this.captureValue === null) return;
+    this.captureValue = null;
+    this.selectedFrameIndexValue = null;
+    this.rangeValue = null;
+    this.notify();
   }
 
   snapshot(): InspectorViewState {
     return Object.freeze({
       mode: this.modeValue,
+      source: this.captureValue === null ? "live" : "capture",
       paused: this.pausedValue,
       selectedFrameIndex: this.selectedFrameIndexValue,
       range: this.rangeValue,
-      latest: this.profiler.historyStore?.latest(),
+      latest: this.frames.at(-1),
       selected: this.selectedFrameIndexValue === null
         ? undefined
-        : this.profiler.historyStore?.get(this.selectedFrameIndexValue),
-      frames: this.profiler.historyStore?.values() ?? []
+        : this.frames.find((frame) => frame.frameIndex === this.selectedFrameIndexValue),
+      frames: this.frames
     });
   }
 

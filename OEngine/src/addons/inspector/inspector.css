@@ -40,6 +40,14 @@
   gap: 6px;
 }
 
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
 .toolbar { cursor: move; user-select: none; }
 .toolbar button { cursor: pointer; }
 
@@ -63,7 +71,7 @@ button {
   cursor: pointer;
 }
 button:hover { border-color: var(--inspector-accent); background: #263852; }
-.tabs button[aria-pressed="true"] { border-color: var(--inspector-accent); background: #14527d; }
+.tabs button[aria-pressed="true"] { border-color: var(--inspector-accent); background: #14527d; color: #fff; }
 .title { font-weight: 650; }
 .muted { color: var(--inspector-text-secondary); }
 .summary { justify-content: space-between; padding: 8px; border-radius: 5px; background: var(--inspector-panel); font-variant-numeric: tabular-nums; }

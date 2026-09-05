@@ -12,7 +12,7 @@
 - Task 4：资源账本已接入 GPU Asset、Scene、Packed Scene、Texture Residency、transient Buffer/Texture pool、temporal history、shadow/LPV atlas、upload staging 和 profiler readback 的创建/销毁边界，并按 resident/transient/history/atlas/upload/readback/profiler 分类；Pipeline 已记录 cache、host-call 和 first-use，FrameGraph 已记录 active/pruned 与逻辑瞬态峰值。
 - Task 5：Capture v1 已提供 canonical schema、golden fixture、严格导入校验、未知字段规范化、递归深冻结、稳定序列化和导入后统计一致性；Trace 保持 CPU/GPU 独立时钟域，duration-only GPU 数据不伪造 slice 起点，并支持带独立 golden 验证的流式/分块序列化。
 
-Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、view-model 和 package subpath 已实现；Task 7 的 Overview/Timeline 图表、预算分类、范围统计和双时钟轨道已实现；Task 8 的 GPU-driven、FrameGraph、Resources、Diagnostics 领域面板已实现；Task 9 已将 Rendering Lab 接入共享 Inspector 并移除旧统计面板；Phase 1 已完成 Inspector 的 three.js 风格外壳升级（浮动布局、拖动/缩放、状态高亮和布局持久化）。真实 adapter 上的 off/Live/Record/Deep Capture A/B 和 1080p 性能证据仍待采集，当前不能宣称性能目标已经达标。
+Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、view-model 和 package subpath 已实现；Task 7 的 Overview/Timeline 图表、预算分类、范围统计和双时钟轨道已实现；Task 8 的 GPU-driven、FrameGraph、Resources、Diagnostics 领域面板已实现；Task 9 已将 Rendering Lab 接入共享 Inspector 并移除旧统计面板；Phase 1 已完成 Inspector 的 three.js 风格外壳升级（浮动布局、拖动/缩放、状态高亮和布局持久化）；Phase 2 已增加 Capture/Trace 操作区和只读 Capture 回放 seam。真实 adapter 上的 off/Live/Record/Deep Capture A/B 和 1080p 性能证据仍待采集，当前不能宣称性能目标已经达标。
 
 资源数值统一表示 OEngine owner 在实际创建/销毁边界登记的 accounted/estimated bytes，不是物理 VRAM、驱动分配或硬件利用率；history/atlas 与 resident/transient 分账，禁止重复计数。
 

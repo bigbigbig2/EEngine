@@ -679,6 +679,18 @@ OEngine/src/addons/inspector/
 - [ ] 检查 profiler disabled 时无 query、counter buffer、readback、DOM 和额外 submit。
 - [ ] 运行命中单测、`npm run build`、Rendering Lab 浏览器示例和文档静态检查，提交 `feat(inspector): integrate performance inspector`。
 
+## Phase 2：Capture/Trace 回放闭环
+
+Phase 1 完成浮动外壳后，阶段 2 先收敛 Task 9 中仍缺失、且不依赖浏览器
+Perfetto 的最小证据闭环。设计与执行记录分别见
+[INSPECTOR-PHASE2-DESIGN.md](./INSPECTOR-PHASE2-DESIGN.md) 与
+[INSPECTOR-PHASE2-EXECUTION.md](./INSPECTOR-PHASE2-EXECUTION.md)。
+
+- [x] 在 Shell 提供 Start/Stop/Capture/Export/Trace/Import/Clear 操作。
+- [x] Capture 导入复用 schema parser，回放帧不写回生产 profiler 历史。
+- [x] 回放状态支持 Timeline 选帧和范围选择，并标记 `source=capture`。
+- [ ] 浏览器端实际下载、清空、文件导入和选帧闭环（受 Browser 会话可用性约束）。
+
 ## 13. 完成门禁
 
 以下条件全部满足才算第一版完成：

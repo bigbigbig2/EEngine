@@ -18,6 +18,13 @@ export interface InspectorShellOptions {
   readonly onPause: () => void;
   readonly onResume: () => void;
   readonly onClose: () => void;
+  readonly onStartRecording: () => void;
+  readonly onStopRecording: () => void;
+  readonly onCaptureNextFrame: () => void;
+  readonly onExportCapture: () => void;
+  readonly onExportTrace: () => void;
+  readonly onClear: () => void;
+  readonly onImportCapture: (file: File) => void;
   readonly onSelectFrame: (frameIndex: number) => void;
   readonly onSelectRange: (startFrameIndex: number, endFrameIndex: number) => void;
   readonly onDomainState: () => InspectorDomainState;
@@ -35,7 +42,7 @@ type InspectorPanel = "overview" | "timeline" | "gpu-driven" | "framegraph" | "r
 const INLINE_CSS = `
 :host{all:initial;contain:content;color:var(--inspector-text-primary);font:12px/1.4 system-ui,sans-serif;--inspector-bg:#111923f2;--inspector-panel:#172333;--inspector-border:#3a4b63;--inspector-border-soft:#2b3b50;--inspector-text-primary:#e7edf6;--inspector-text-secondary:#9aabc1;--inspector-accent:#36a3ff;--inspector-warning:#facc15;--inspector-error:#fb7185}
 .inspector{position:fixed;z-index:2147483647;overflow:auto;padding:10px;border:1px solid var(--inspector-border);border-radius:10px;background:var(--inspector-bg);box-shadow:0 8px 30px #0008;backdrop-filter:blur(8px);min-width:320px;min-height:220px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);resize:none}
-.toolbar,.tabs,.summary{display:flex;align-items:center;gap:6px}.toolbar{justify-content:space-between;margin-bottom:8px;cursor:move;user-select:none}.toolbar button{cursor:pointer}.tabs{margin-bottom:8px;flex-wrap:wrap}button{border:1px solid var(--inspector-border);border-radius:5px;padding:4px 8px;color:var(--inspector-text-primary);background:#1a2635;cursor:pointer}button:hover{border-color:var(--inspector-accent);background:#263852}.tabs button[aria-pressed="true"]{border-color:var(--inspector-accent);color:#fff;background:#14527d}.title{font-weight:700;letter-spacing:.01em}.muted{color:var(--inspector-text-secondary)}.summary{justify-content:space-between;padding:8px;border-radius:6px;background:var(--inspector-panel);font-variant-numeric:tabular-nums}.summary[data-severity="warning"]{color:var(--inspector-warning)}.summary[data-severity="error"]{color:var(--inspector-error)}.panel{position:relative;min-height:52px;padding:8px;border:1px solid var(--inspector-border-soft);border-radius:6px}
+.toolbar,.tabs,.summary{display:flex;align-items:center;gap:6px}.toolbar{justify-content:space-between;margin-bottom:8px;cursor:move;user-select:none}.toolbar button{cursor:pointer}.tabs{margin-bottom:8px;flex-wrap:wrap}.actions{display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap}button{border:1px solid var(--inspector-border);border-radius:5px;padding:4px 8px;color:var(--inspector-text-primary);background:#1a2635;cursor:pointer}button:hover{border-color:var(--inspector-accent);background:#263852}.tabs button[aria-pressed="true"]{border-color:var(--inspector-accent);color:#fff;background:#14527d}.title{font-weight:700;letter-spacing:.01em}.muted{color:var(--inspector-text-secondary)}.summary{justify-content:space-between;padding:8px;border-radius:6px;background:var(--inspector-panel);font-variant-numeric:tabular-nums}.summary[data-severity="warning"]{color:var(--inspector-warning)}.summary[data-severity="error"]{color:var(--inspector-error)}.panel{position:relative;min-height:52px;padding:8px;border:1px solid var(--inspector-border-soft);border-radius:6px}
 .panel h3{margin:0 0 6px;font-size:13px}.panel-tabs{margin-top:2px}.overview-stats{white-space:pre-line;color:#c4d0df;margin-bottom:6px}.inspector-chart{display:block;width:100%;height:64px;margin:4px 0;background:#0b121b;border-radius:4px}.timeline-warning{min-height:18px;color:var(--inspector-warning)}.timeline-details{white-space:pre-wrap;margin:6px 0 0;font:11px/1.45 ui-monospace,monospace;color:#c4d0df}.timeline-strip{height:72px}.domain-panel pre,.domain-panel div{white-space:pre-wrap;margin:4px 0;font:11px/1.45 ui-monospace,monospace;color:#c4d0df}.resize-handle{position:absolute;right:2px;bottom:2px;width:14px;height:14px;cursor:nwse-resize;opacity:.7;background:linear-gradient(135deg,transparent 45%,var(--inspector-accent) 46%,var(--inspector-accent) 54%,transparent 55%),linear-gradient(135deg,transparent 62%,var(--inspector-accent) 63%,var(--inspector-accent) 71%,transparent 72%)}
 `;
 
@@ -88,6 +95,27 @@ export class InspectorShell {
     }
     tabs.append(this.button("Pause", options.onPause), this.button("Resume", options.onResume));
 
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.append(
+      this.button("Start", options.onStartRecording),
+      this.button("Stop", options.onStopRecording),
+      this.button("Capture", options.onCaptureNextFrame),
+      this.button("Export", options.onExportCapture),
+      this.button("Trace", options.onExportTrace),
+      this.button("Clear", options.onClear)
+    );
+    const importInput = document.createElement("input");
+    importInput.type = "file";
+    importInput.accept = "application/json,.json";
+    importInput.hidden = true;
+    importInput.addEventListener("change", () => {
+      const file = importInput.files?.[0];
+      if (file !== undefined) options.onImportCapture(file);
+      importInput.value = "";
+    });
+    actions.append(this.button("Import", () => importInput.click()), importInput);
+
     const panelTabs = document.createElement("div");
     panelTabs.className = "tabs panel-tabs";
     for (const [panel, label] of [["overview", "Overview"], ["timeline", "Timeline"], ["gpu-driven", "GPU-driven"], ["framegraph", "FrameGraph"], ["resources", "Resources"], ["diagnostics", "Diagnostics"]] as const) {
@@ -122,7 +150,7 @@ export class InspectorShell {
     this.frameGraph.element.hidden = true;
     this.resources.element.hidden = true;
     this.diagnostics.element.hidden = true;
-    wrapper.append(toolbar, tabs, panelTabs, summary, this.panel, this.resizeHandle);
+    wrapper.append(toolbar, tabs, actions, panelTabs, summary, this.panel, this.resizeHandle);
     this.root.append(wrapper);
     this.layoutModel.subscribe((layout) => this.applyLayout(layout));
     this.applyLayout(this.layoutModel.layout);
@@ -137,7 +165,7 @@ export class InspectorShell {
 
   update(state: InspectorViewState): void {
     if (this.disposed) return;
-    this.status.textContent = `${state.mode}${state.paused ? " · paused" : ""} · ${state.frames.length} frames`;
+    this.status.textContent = `${state.mode}${state.paused ? " · paused" : ""} · ${state.source} · ${state.frames.length} frames`;
     this.status.dataset.mode = state.mode;
     this.modeButtons.forEach((button, mode) => button.setAttribute("aria-pressed", String(mode === state.mode)));
     this.panelButtons.forEach((button, panel) => button.setAttribute("aria-pressed", String(panel === this.activePanel)));
