@@ -156,11 +156,13 @@ function startFrameLoop(): void {
   let previousTime = performance.now();
   const frame = (now: number): void => {
     if (disposed || renderer === null || scene === null || camera === null) return;
-    const deltaSeconds = Math.min(0.1, Math.max(0, now - previousTime) / 1000);
+    const rafIntervalMs = Math.max(0, now - previousTime);
+    const deltaSeconds = Math.min(0.1, rafIntervalMs / 1000);
     previousTime = now;
     controls?.update(deltaSeconds);
     camera.aspect = renderer.aspect_ratio;
     camera.update();
+    renderer.profiler.recordExternalMetric("frame.rafIntervalMs", rafIntervalMs);
     if (!renderer.render(camera, scene, deltaSeconds)) {
       status.textContent = "WebGPU device lost";
       return;

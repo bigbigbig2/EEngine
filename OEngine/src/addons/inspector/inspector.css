@@ -119,3 +119,42 @@ button:hover { border-color: var(--inspector-accent); background: #263852; }
 .inspector.profiler-panel .panel-tabs { overflow-x: auto; flex-wrap: nowrap; }
 .inspector.profiler-panel .panel-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 7px 15px; font: 600 13px 'Segoe UI', Tahoma, sans-serif; color: var(--inspector-text-secondary); white-space: nowrap; }
 .inspector.profiler-panel .panel-tabs button[aria-pressed="true"] { border-bottom-color: var(--inspector-accent); color: #fff; background: transparent; }
+
+/* Phase 3 layout: clear hierarchy, responsive overview metrics and neutral dark palette. */
+:host { --inspector-bg: #151a22f5; --inspector-panel: #1d2632; --inspector-border: #334155; --inspector-border-soft: #2a3748; --inspector-text-primary: #e5edf7; --inspector-text-secondary: #91a0b5; --inspector-accent: #4ea1ff; }
+.inspector.profiler-panel { height: min(360px, 55vh); background: var(--inspector-bg); border-color: var(--inspector-border); box-shadow: 0 -12px 40px #0009; }
+.inspector.profiler-panel .toolbar { display: flex; gap: 12px; height: 38px; min-height: 38px; padding: 0 10px; background: #192231; border-bottom: 1px solid var(--inspector-border); }
+.inspector.profiler-panel .toolbar > .title { font-size: 12px; letter-spacing: .02em; }
+.inspector.profiler-panel .toolbar > .panel-tabs { display: none; }
+.profiler-toggle { padding: 0 0 0 10px; border-radius: 10px 5px 5px 10px; }
+.profiler-toggle .toggle-icon { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; width: 34px; height: 36px; background: #1d2e45; color: var(--inspector-accent); }
+.profiler-toggle .toggle-icon svg, .profiler-controls svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.profiler-toggle .toggle-text { min-width: 58px; padding-inline: 8px; text-align: center; font-variant-numeric: tabular-nums; }
+.profiler-controls { gap: 0; }
+.profiler-controls button { min-width: 34px; color: var(--inspector-text-secondary); }
+.inspector.profiler-panel .control-strip { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; background: #111923; border-bottom: 1px solid var(--inspector-border); }
+.inspector.profiler-panel .control-strip .tabs, .inspector.profiler-panel .control-strip .actions { display: flex; gap: 4px; flex-wrap: nowrap; margin: 0; }
+.inspector.profiler-panel .control-strip button { padding: 4px 9px; border-color: transparent; background: transparent; color: var(--inspector-text-secondary); font-size: 11px; }
+.inspector.profiler-panel .control-strip button:hover { background: #263447; color: var(--inspector-text-primary); }
+.inspector.profiler-panel .control-strip .tabs button[aria-pressed="true"] { border-color: #397fca; background: #173b63; color: #fff; }
+.inspector.profiler-panel .control-strip .actions { margin-left: auto; }
+.inspector.profiler-panel > .panel-tabs { display: flex; gap: 2px; overflow-x: auto; flex-wrap: nowrap; padding: 0 10px; background: #182231; border-bottom: 1px solid var(--inspector-border); }
+.inspector.profiler-panel > .panel-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 7px 12px; color: var(--inspector-text-secondary); font-size: 11px; white-space: nowrap; }
+.inspector.profiler-panel > .panel-tabs button[aria-pressed="true"] { border-bottom-color: var(--inspector-accent); color: #fff; background: transparent; }
+.inspector.profiler-panel > .summary { order: 4; padding: 6px 10px; border-radius: 0; background: #111923; font-size: 11px; }
+.inspector.profiler-panel > .panel { order: 5; margin: 0 10px 10px; padding: 10px; border-color: var(--inspector-border-soft); background: #141c27; }
+.inspector.profiler-panel > .resize-handle { order: 6; }
+.overview-panel { display: block; max-width: 1100px; margin: 0 auto; }
+.panel-subtitle { margin: 0 0 10px; color: var(--inspector-text-secondary); font-size: 11px; }
+.overview-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.kpi-card { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--inspector-border-soft); border-radius: 6px; background: #1a2431; }
+.kpi-label, .kpi-meta { color: var(--inspector-text-secondary); font-size: 10px; }
+.kpi-value { font: 600 17px/1.2 ui-monospace, monospace; color: var(--inspector-text-primary); font-variant-numeric: tabular-nums; }
+.overview-meta { margin: 6px 0 8px; color: var(--inspector-text-secondary); font: 10px/1.5 ui-monospace, monospace; white-space: pre-line; }
+.inspector-chart { width: 100% !important; height: 78px !important; margin: 6px 0; background: #0d141d; border: 1px solid #243244; border-radius: 5px; }
+@media (max-width: 700px) {
+  .overview-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inspector.profiler-panel .control-strip { gap: 4px; overflow-x: auto; }
+  .inspector.profiler-panel .control-strip .actions { margin-left: 0; }
+  .inspector.profiler-panel > .panel-tabs button { padding-inline: 9px; }
+}

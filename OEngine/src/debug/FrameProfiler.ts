@@ -237,6 +237,11 @@ type ActiveFrame = {
   metricSamples: Record<string, MetricSample>;
 };
 
+type PendingExternalMetric = {
+  readonly value: number | null;
+  readonly availability: MetricSampleAvailability;
+};
+
 type GpuTimingBatch = {
   contextLabel: string;
   timings: FrameGpuTimingInput[] | null;
@@ -289,6 +294,7 @@ export class FrameProfiler {
     GpuTimingBatchState
   >();
   private readonly metricSamplesByFrame = new Map<number, Readonly<Record<string, MetricSample>>>();
+  private readonly pendingExternalMetrics = new Map<string, PendingExternalMetric>();
   private readonly failedGpuTimingFrames = new Set<number>();
   private epochValue = 0;
   private warmupRemainingValue = 0;
@@ -436,6 +442,27 @@ export class FrameProfiler {
         availability
       );
     }
+  }
+
+  /**
+   * Queues a metric observed outside Renderer (for example RAF cadence) for the
+   * next frame. The value is consumed when beginFrame() creates the active
+   * profiler sample, preserving the metric's frame association.
+   */
+  recordExternalMetric(
+    id: string,
+    value: number | null,
+    availability: MetricSampleAvailability = "available"
+  ): void {
+    if (!this.enabledValue) return;
+    this.metricRegistry.require(id);
+    if (availability === "available") {
+      if (value === null) throw new TypeError(`Available metric '${id}' requires a number`);
+      this.pendingExternalMetrics.set(id, { value: nonNegativeFinite(value, id), availability });
+      return;
+    }
+    if (value !== null) throw new TypeError(`Unavailable metric '${id}' requires a null value`);
+    this.pendingExternalMetrics.set(id, { value: null, availability });
   }
 
   get diagnostics(): FrameProfilerDiagnostics {
@@ -607,6 +634,11 @@ export class FrameProfiler {
     counters.sampled = this.gpuCounterSamplingEnabledValue && counters.available &&
       frameIndex % this.gpuCounterSampleIntervalValue === 0;
     counters.pending = counters.sampled;
+    const pendingExternalMetrics = [...this.pendingExternalMetrics.entries()];
+    this.pendingExternalMetrics.clear();
+    for (const [id, metric] of pendingExternalMetrics) {
+      this.recordMetric(id, metric.value, metric.availability);
+    }
   }
 
   beginCpuSection(label: string): () => void {
@@ -920,6 +952,7 @@ export class FrameProfiler {
     this.gpuCounterFieldsByFrame.clear();
     this.gpuTimingBatchesByFrame.clear();
     this.metricSamplesByFrame.clear();
+    this.pendingExternalMetrics.clear();
     this.failedGpuTimingFrames.clear();
     this.profileHistoryValue?.clear();
   }
@@ -931,6 +964,7 @@ export class FrameProfiler {
     this.profileHistoryValue?.clear();
     this.gpuTimingBatchesByFrame.clear();
     this.metricSamplesByFrame.clear();
+    this.pendingExternalMetrics.clear();
     this.failedGpuTimingFrames.clear();
   }
 

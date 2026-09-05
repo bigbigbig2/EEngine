@@ -38,3 +38,16 @@
 - OEngine/WebGPU differences: sampling cadence and ring slots are explicit；unsupported timestamp/counter stays unavailable instead of being fabricated。
 - Fallback/lifecycle: ring full drops a sample with diagnostics；map/device failures do not block rendering；destroyed owner retires buffers after submit boundary。
 - Local validation: cache tests、profiler schema、readback ordering、dropped/failed sample counters。
+
+## PLAT-INSPECTOR-UI · three.js Inspector shell reference
+
+- Local owner/source: `OEngine/src/addons/inspector/InspectorShell.ts`、`inspector.css`。
+- Upstream: <https://github.com/mrdoob/three.js>。
+- Revision: `r185`。
+- Upstream source: `examples/jsm/inspector/Inspector.js`、`examples/jsm/inspector/ui/Profiler.js`、`examples/jsm/inspector/ui/Style.js`。
+- License: MIT (three.js)。
+- Adoption: traceable local port of profiler shell interaction model and SVG icon language。
+- Retained invariants: floating toggle with FPS readout、bottom/right dock、maximize/hide controls、scrollable tab strip、dark profiler palette、persisted layout。
+- OEngine/WebGPU differences: framework-free Shadow DOM、typed Live/Record/Deep Capture、GPU-driven/FrameGraph/Resources/Diagnostics panels；不依赖 three.js runtime objects。
+- Fallback/lifecycle: `styles: inline | external | none`；每个 `Inspector` 独立拥有并销毁 shell；unsupported metrics 保持 `—`，不合成数值。
+- Local validation: `OEngine npm test`、`examples npm run build`、`examples npm run build:storybook`。

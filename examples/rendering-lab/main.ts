@@ -612,6 +612,7 @@ function startFrameLoop(): void {
       if (controller?.update(deltaSeconds) === true) restartPerformanceEvidence("相机移动");
       camera.aspect = renderer.aspect_ratio;
       camera.update();
+      renderer.profiler.recordExternalMetric("frame.rafIntervalMs", rafIntervalMs);
       evidenceWindow.registerFrame(renderer.frame_count, {
         rafIntervalMs,
         sampleKey: createPerformanceSampleKey(renderer),

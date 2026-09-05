@@ -58,6 +58,7 @@ function formatSummary(summary: ProfileSeriesSummary | null): string {
 /** Overview panel keeps one DOM tree and only replaces text/canvas pixels. */
 export class OverviewPanel {
   readonly element: HTMLElement;
+  private readonly kpis: ReadonlyMap<string, { value: HTMLElement; meta: HTMLElement }>;
   private readonly stats: HTMLElement;
   private readonly frameCanvas: HTMLCanvasElement;
   private readonly cpuCanvas: HTMLCanvasElement;
@@ -66,6 +67,7 @@ export class OverviewPanel {
   private readonly cpuChart: SeriesChart;
   private readonly gpuChart: SeriesChart;
   private readonly budgetMs: number;
+  private chartWidth = 0;
 
   constructor(document: Document, budgetMs = 16.667) {
     if (!Number.isFinite(budgetMs) || budgetMs <= 0) throw new RangeError("budgetMs must be positive");
@@ -74,28 +76,50 @@ export class OverviewPanel {
     this.element.className = "overview-panel";
     const heading = document.createElement("h3");
     heading.textContent = "Overview";
+    const subtitle = document.createElement("p");
+    subtitle.className = "panel-subtitle";
+    subtitle.textContent = "Presented cadence and render cost over the visible frame window.";
+    const kpiGrid = document.createElement("div");
+    kpiGrid.className = "overview-kpis";
+    const kpis = new Map<string, { value: HTMLElement; meta: HTMLElement }>();
+    for (const [id, label] of [["fps", "Presented FPS"], ["frame", "Frame interval"], ["cpu", "CPU render"], ["gpu", "GPU pass sum"]] as const) {
+      const card = document.createElement("div");
+      card.className = "kpi-card";
+      const cardLabel = document.createElement("span");
+      cardLabel.className = "kpi-label";
+      cardLabel.textContent = label;
+      const value = document.createElement("strong");
+      value.className = "kpi-value";
+      value.textContent = "—";
+      const meta = document.createElement("span");
+      meta.className = "kpi-meta";
+      meta.textContent = "waiting for samples";
+      card.append(cardLabel, value, meta);
+      kpiGrid.append(card);
+      kpis.set(id, { value, meta });
+    }
+    this.kpis = kpis;
     this.stats = document.createElement("div");
-    this.stats.className = "overview-stats";
+    this.stats.className = "overview-meta";
     this.frameCanvas = this.canvas(document, "Frame budget");
     this.cpuCanvas = this.canvas(document, "CPU frame");
     this.gpuCanvas = this.canvas(document, "GPU Pass Sum");
     this.frameChart = new FrameChart(this.frameCanvas);
     this.cpuChart = new SeriesChart(this.cpuCanvas);
     this.gpuChart = new SeriesChart(this.gpuCanvas);
-    this.frameChart.resize(420, 64, 1);
-    this.cpuChart.resize(420, 64, 1);
-    this.gpuChart.resize(420, 64, 1);
-    this.element.append(heading, this.stats, this.frameCanvas, this.cpuCanvas, this.gpuCanvas);
+    this.element.append(heading, subtitle, kpiGrid, this.stats, this.frameCanvas, this.cpuCanvas, this.gpuCanvas);
   }
 
   update(frames: readonly ProfileFrame[], range: readonly [number, number] | null): void {
     const stats = buildOverviewStats(frames, range);
+    this.resizeCharts();
+    this.setKpi("fps", stats.fps === null ? "—" : stats.fps.toFixed(0), "RAF cadence · selected window");
+    this.setKpi("frame", stats.raf === null ? "—" : `${stats.raf.mean.toFixed(2)} ms`, "RAF interval · mean");
+    this.setKpi("cpu", stats.cpu === null ? "—" : `${stats.cpu.mean.toFixed(2)} ms`, "CPU clock · mean");
+    this.setKpi("gpu", stats.gpu === null ? "—" : `${stats.gpu.mean.toFixed(2)} ms`, "GPU timestamp · mean");
     this.stats.textContent = [
-      `Frames ${stats.frameCount}`,
-      `FPS ${stats.fps === null ? "unsupported" : stats.fps.toFixed(1)}`,
-      `CPU ${formatSummary(stats.cpu)}`,
-      `GPU Pass Sum ${formatSummary(stats.gpu)}`,
-      `RAF ${formatSummary(stats.raf)}`,
+      `${stats.frameCount} frames · ${range === null ? "live window" : `range ${range[0]}–${range[1]}`}`,
+      `CPU ${formatSummary(stats.cpu)} · GPU ${formatSummary(stats.gpu)}`,
       `Highest phase ${stats.highestCostPhase ?? "none"}`
     ].join("\n");
     this.frameChart.setFrames(frames, this.budgetMs);
@@ -104,6 +128,23 @@ export class OverviewPanel {
     this.cpuChart.render();
     this.gpuChart.setFrames(frames, "gpu.passSumMs");
     this.gpuChart.render();
+  }
+
+  private setKpi(id: string, value: string, meta: string): void {
+    const kpi = this.kpis.get(id);
+    if (kpi === undefined) return;
+    kpi.value.textContent = value;
+    kpi.meta.textContent = meta;
+  }
+
+  private resizeCharts(): void {
+    const width = Math.max(280, Math.floor(this.element.clientWidth || 640) - 16);
+    if (width === this.chartWidth) return;
+    this.chartWidth = width;
+    const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+    this.frameChart.resize(width, 78, dpr);
+    this.cpuChart.resize(width, 78, dpr);
+    this.gpuChart.resize(width, 78, dpr);
   }
 
   private canvas(document: Document, label: string): HTMLCanvasElement {

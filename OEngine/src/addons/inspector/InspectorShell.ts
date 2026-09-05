@@ -39,12 +39,33 @@ export interface InspectorDomainState {
 
 type InspectorPanel = "overview" | "timeline" | "gpu-driven" | "framegraph" | "resources" | "diagnostics";
 
+const ICON_DOCK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="15" y1="3" x2="15" y2="21"></line></svg>';
+const ICON_MAXIMIZE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>';
+const ICON_RESTORE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>';
+const ICON_INSPECTOR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.5 20h-6.5a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5.5"></path><path d="M9 17h2"></path><circle cx="18" cy="18" r="3"></circle><path d="m20.2 20.2 1.8 1.8"></path></svg>';
+
 const INLINE_CSS = `
 :host{all:initial;contain:content;color:var(--inspector-text-primary);font:12px/1.4 system-ui,sans-serif;--inspector-bg:#111923f2;--inspector-panel:#172333;--inspector-border:#3a4b63;--inspector-border-soft:#2b3b50;--inspector-text-primary:#e7edf6;--inspector-text-secondary:#9aabc1;--inspector-accent:#36a3ff;--inspector-warning:#facc15;--inspector-error:#fb7185}
 .inspector{position:fixed;z-index:2147483647;overflow:auto;padding:10px;border:1px solid var(--inspector-border);border-radius:10px;background:var(--inspector-bg);box-shadow:0 8px 30px #0008;backdrop-filter:blur(8px);min-width:320px;min-height:220px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);resize:none}
 .toolbar,.tabs,.summary{display:flex;align-items:center;gap:6px}.toolbar{justify-content:space-between;margin-bottom:8px;cursor:move;user-select:none}.toolbar button{cursor:pointer}.tabs{margin-bottom:8px;flex-wrap:wrap}.actions{display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap}button{border:1px solid var(--inspector-border);border-radius:5px;padding:4px 8px;color:var(--inspector-text-primary);background:#1a2635;cursor:pointer}button:hover{border-color:var(--inspector-accent);background:#263852}.tabs button[aria-pressed="true"]{border-color:var(--inspector-accent);color:#fff;background:#14527d}.title{font-weight:700;letter-spacing:.01em}.muted{color:var(--inspector-text-secondary)}.summary{justify-content:space-between;padding:8px;border-radius:6px;background:var(--inspector-panel);font-variant-numeric:tabular-nums}.summary[data-severity="warning"]{color:var(--inspector-warning)}.summary[data-severity="error"]{color:var(--inspector-error)}.panel{position:relative;min-height:52px;padding:8px;border:1px solid var(--inspector-border-soft);border-radius:6px}
 .panel h3{margin:0 0 6px;font-size:13px}.panel-tabs{margin-top:2px}.overview-stats{white-space:pre-line;color:#c4d0df;margin-bottom:6px}.inspector-chart{display:block;width:100%;height:64px;margin:4px 0;background:#0b121b;border-radius:4px}.timeline-warning{min-height:18px;color:var(--inspector-warning)}.timeline-details{white-space:pre-wrap;margin:6px 0 0;font:11px/1.45 ui-monospace,monospace;color:#c4d0df}.timeline-strip{height:72px}.domain-panel pre,.domain-panel div{white-space:pre-wrap;margin:4px 0;font:11px/1.45 ui-monospace,monospace;color:#c4d0df}.resize-handle{position:absolute;right:2px;bottom:2px;width:14px;height:14px;cursor:nwse-resize;opacity:.7;background:linear-gradient(135deg,transparent 45%,var(--inspector-accent) 46%,var(--inspector-accent) 54%,transparent 55%),linear-gradient(135deg,transparent 62%,var(--inspector-accent) 63%,var(--inspector-accent) 71%,transparent 72%)}
 :host{pointer-events:none}.profiler-toggle{pointer-events:auto;position:fixed;top:15px;right:15px;z-index:1001;display:flex;align-items:center;gap:8px;padding:0 12px;height:36px;border:1px solid #4a4a5a54;border-radius:12px 6px 6px 12px;background:#1e1e24d9;color:var(--inspector-text-primary);font:600 13px 'Segoe UI',Tahoma,sans-serif;box-shadow:0 4px 15px #0005;backdrop-filter:blur(8px);transition:all .2s ease-in-out;overflow:hidden}.profiler-toggle:hover{border-color:var(--inspector-accent);background:#252532e8}.profiler-toggle.panel-open{color:var(--inspector-accent);box-shadow:0 0 0 1px #00aaff33,0 4px 15px #0005}.profiler-toggle-graph{position:absolute;inset:0;width:100%;height:100%;opacity:.5;pointer-events:none}.toggle-text{position:relative;z-index:1;min-width:70px;text-align:right}.inspector.profiler-panel{pointer-events:auto;left:0!important;right:0!important;top:auto!important;bottom:0!important;width:auto!important;height:350px;max-width:none;max-height:calc(100vh - 50px);padding:0;border-width:2px 0 0;border-radius:8px 8px 0 0;display:flex;flex-direction:column;overflow:hidden;transform:translateY(100%);transition:transform .35s cubic-bezier(.25,.46,.45,.94),height .3s ease-out}.inspector.profiler-panel.visible{transform:translateY(0)}.inspector.profiler-panel.position-right{left:auto!important;right:0!important;top:0!important;bottom:0!important;width:350px!important;height:100%!important;border-width:0 0 0 2px;border-radius:8px 0 0 8px;transform:translateX(100%)}.inspector.profiler-panel.position-right.visible{transform:translateX(0)}.inspector.profiler-panel.maximized{left:0!important;right:0!important;top:0!important;bottom:0!important;width:100vw!important;height:100vh!important;border-radius:0}.inspector.profiler-panel .toolbar{height:32px;min-height:32px;padding:0 8px;margin:0;background:#2a2a33aa;border-bottom:1px solid var(--inspector-border);font-family:'Segoe UI',Tahoma,sans-serif;cursor:default}.inspector.profiler-panel .toolbar>.title{flex:0 0 auto;margin-right:10px;font-size:12px;white-space:nowrap}.inspector.profiler-panel .toolbar>.panel-tabs{flex:1 1 auto;min-width:0;margin:0;padding:0;background:transparent}.profiler-controls{display:flex;align-items:stretch;height:100%;margin-left:auto}.profiler-controls button{height:100%;min-width:32px;padding:0 9px;border:0;border-left:1px solid var(--inspector-border);border-radius:0;background:transparent}.inspector.profiler-panel .control-strip{display:flex;align-items:center;flex-wrap:wrap;gap:2px;padding:3px 8px;background:#1e1e24aa;border-bottom:1px solid #2a2a33}.inspector.profiler-panel .control-strip .tabs,.inspector.profiler-panel .control-strip .actions{padding:0;margin:0;background:transparent}.inspector.profiler-panel .control-strip button{padding:3px 7px;font-size:11px}.inspector.profiler-panel .control-strip .icon-button{width:30px;min-width:30px;padding:0;font-size:13px;border:0;border-radius:3px;color:var(--inspector-text-secondary);background:transparent}.inspector.profiler-panel .control-strip .icon-button:hover{color:var(--inspector-text-primary);background:rgba(255,255,255,.08)}.inspector.profiler-panel>.panel{flex:1;overflow:auto;margin:0 8px 8px}.inspector.profiler-panel .resize-handle{top:0;bottom:auto;left:0;right:0;width:100%;height:5px;cursor:ns-resize}.inspector.profiler-panel.position-right .resize-handle{top:0;bottom:0;left:-2px;right:auto;width:5px;height:100%;cursor:ew-resize}.inspector.profiler-panel .panel-tabs{overflow-x:auto;flex-wrap:nowrap}.inspector.profiler-panel .panel-tabs button{background:transparent;border:0;border-bottom:2px solid transparent;border-radius:0;padding:7px 15px;font:600 13px 'Segoe UI',Tahoma,sans-serif;color:var(--inspector-text-secondary);white-space:nowrap}.inspector.profiler-panel .panel-tabs button[aria-pressed="true"]{border-bottom-color:var(--inspector-accent);color:#fff;background:transparent}
+:host{--inspector-bg:#151a22f5;--inspector-panel:#1d2632;--inspector-border:#334155;--inspector-border-soft:#2a3748;--inspector-text-primary:#e5edf7;--inspector-text-secondary:#91a0b5;--inspector-accent:#4ea1ff}
+.inspector.profiler-panel{height:min(360px,55vh);background:var(--inspector-bg);border-color:var(--inspector-border);box-shadow:0 -12px 40px #0009}
+.inspector.profiler-panel .toolbar{display:flex;gap:12px;height:38px;min-height:38px;padding:0 10px;background:#192231;border-bottom:1px solid var(--inspector-border)}
+.inspector.profiler-panel .toolbar>.title{font-size:12px;letter-spacing:.02em}.inspector.profiler-panel .toolbar>.panel-tabs{display:none}
+.profiler-toggle{padding:0 0 0 10px;border-radius:10px 5px 5px 10px}.profiler-toggle .toggle-icon{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;width:34px;height:36px;background:#1d2e45;color:var(--inspector-accent)}.profiler-toggle .toggle-icon svg,.profiler-controls svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.profiler-toggle .toggle-text{min-width:58px;padding-inline:8px;text-align:center;font-variant-numeric:tabular-nums}
+.profiler-controls{gap:0}.profiler-controls button{min-width:34px;color:var(--inspector-text-secondary)}
+.inspector.profiler-panel .control-strip{display:flex;justify-content:space-between;gap:12px;padding:6px 10px;background:#111923;border-bottom:1px solid var(--inspector-border)}
+.inspector.profiler-panel .control-strip .tabs,.inspector.profiler-panel .control-strip .actions{display:flex;gap:4px;flex-wrap:nowrap;margin:0}
+.inspector.profiler-panel .control-strip button{padding:4px 9px;border-color:transparent;background:transparent;color:var(--inspector-text-secondary);font-size:11px}.inspector.profiler-panel .control-strip button:hover{background:#263447;color:var(--inspector-text-primary)}
+.inspector.profiler-panel .control-strip .tabs button[aria-pressed="true"]{border-color:#397fca;background:#173b63;color:#fff}.inspector.profiler-panel .control-strip .actions{margin-left:auto}
+.inspector.profiler-panel>.panel-tabs{display:flex;gap:2px;overflow-x:auto;flex-wrap:nowrap;padding:0 10px;background:#182231;border-bottom:1px solid var(--inspector-border)}
+.inspector.profiler-panel>.panel-tabs button{background:transparent;border:0;border-bottom:2px solid transparent;border-radius:0;padding:7px 12px;color:var(--inspector-text-secondary);font-size:11px;white-space:nowrap}.inspector.profiler-panel>.panel-tabs button[aria-pressed="true"]{border-bottom-color:var(--inspector-accent);color:#fff;background:transparent}
+.inspector.profiler-panel>.summary{order:4;padding:6px 10px;border-radius:0;background:#111923;font-size:11px}.inspector.profiler-panel>.panel{order:5;margin:0 10px 10px;padding:10px;border-color:var(--inspector-border-soft);background:#141c27}.inspector.profiler-panel>.resize-handle{order:6}
+.overview-panel{display:block;max-width:1100px;margin:0 auto}.panel-subtitle{margin:0 0 10px;color:var(--inspector-text-secondary);font-size:11px}.overview-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.kpi-card{display:grid;gap:2px;padding:8px 10px;border:1px solid var(--inspector-border-soft);border-radius:6px;background:#1a2431}.kpi-label,.kpi-meta{color:var(--inspector-text-secondary);font-size:10px}.kpi-value{font:600 17px/1.2 ui-monospace,monospace;color:var(--inspector-text-primary);font-variant-numeric:tabular-nums}.overview-meta{margin:6px 0 8px;color:var(--inspector-text-secondary);font:10px/1.5 ui-monospace,monospace;white-space:pre-line}
+.inspector-chart{width:100%!important;height:78px!important;margin:6px 0;background:#0d141d;border:1px solid #243244;border-radius:5px}@media (max-width:700px){.overview-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.inspector.profiler-panel .control-strip{gap:4px;overflow-x:auto}.inspector.profiler-panel .control-strip .actions{margin-left:0}.inspector.profiler-panel>.panel-tabs button{padding-inline:9px}}
 `;
 
 /** Framework-free Shadow DOM shell. All user-visible text is assigned via textContent. */
@@ -93,8 +114,11 @@ export class InspectorShell {
     this.toggleGraph.height = 36;
     this.toggleLabel = document.createElement("span");
     this.toggleLabel.className = "toggle-text";
-    this.toggleLabel.textContent = "Inspector";
-    this.floatingToggle.append(this.toggleGraph, this.toggleLabel);
+    this.toggleLabel.textContent = "— FPS";
+    const toggleIcon = document.createElement("span");
+    toggleIcon.className = "toggle-icon";
+    toggleIcon.innerHTML = ICON_INSPECTOR;
+    this.floatingToggle.append(this.toggleGraph, this.toggleLabel, toggleIcon);
     const toolbar = document.createElement("div");
     toolbar.className = "toolbar";
     const title = document.createElement("span");
@@ -102,9 +126,9 @@ export class InspectorShell {
     title.textContent = "OEngine Performance Inspector";
     const controls = document.createElement("span");
     controls.className = "profiler-controls";
-    this.positionButton = this.button("⇆", () => this.toggleDockMode());
+    this.positionButton = this.svgButton(ICON_DOCK, "Switch dock position", () => this.toggleDockMode());
     this.positionButton.title = "Switch dock position";
-    this.maximizeButton = this.button("□", () => this.toggleMaximize());
+    this.maximizeButton = this.svgButton(ICON_MAXIMIZE, "Maximize Inspector", () => this.toggleMaximize());
     this.maximizeButton.title = "Maximize Inspector";
     this.hideButton = this.button("−", () => this.togglePanel());
     this.hideButton.title = "Hide Inspector";
@@ -116,8 +140,8 @@ export class InspectorShell {
 
     const tabs = document.createElement("div");
     tabs.className = "tabs";
-    for (const mode of ["live", "record", "deep-capture"] as const) {
-      const button = this.button(mode, () => options.onMode(mode));
+    for (const [mode, label] of [["live", "Live"], ["record", "Record"], ["deep-capture", "Deep capture"]] as const) {
+      const button = this.button(label, () => options.onMode(mode));
       this.modeButtons.set(mode, button);
       tabs.append(button);
     }
@@ -126,12 +150,12 @@ export class InspectorShell {
     const actions = document.createElement("div");
     actions.className = "actions";
     actions.append(
-      this.iconButton("●", "Start recording", options.onStartRecording),
-      this.iconButton("■", "Stop recording", options.onStopRecording),
-      this.iconButton("◉", "Capture next frame", options.onCaptureNextFrame),
-      this.iconButton("↓", "Export capture", options.onExportCapture),
-      this.iconButton("⇩", "Export Chrome Trace", options.onExportTrace),
-      this.iconButton("⌫", "Clear frames", options.onClear)
+      this.button("Start", options.onStartRecording),
+      this.button("Stop", options.onStopRecording),
+      this.button("Capture", options.onCaptureNextFrame),
+      this.button("Export", options.onExportCapture),
+      this.button("Trace", options.onExportTrace),
+      this.button("Clear", options.onClear)
     );
     const importInput = document.createElement("input");
     importInput.type = "file";
@@ -142,7 +166,7 @@ export class InspectorShell {
       if (file !== undefined) options.onImportCapture(file);
       importInput.value = "";
     });
-    actions.append(this.iconButton("↑", "Import capture", () => importInput.click()), importInput);
+    actions.append(this.button("Import", () => importInput.click()), importInput);
 
     const panelTabs = document.createElement("div");
     panelTabs.className = "tabs panel-tabs";
@@ -151,8 +175,6 @@ export class InspectorShell {
       this.panelButtons.set(panel, button);
       panelTabs.append(button);
     }
-    toolbar.insertBefore(panelTabs, controls);
-
     const controlStrip = document.createElement("div");
     controlStrip.className = "control-strip";
     controlStrip.append(tabs, actions);
@@ -183,7 +205,7 @@ export class InspectorShell {
     this.frameGraph.element.hidden = true;
     this.resources.element.hidden = true;
     this.diagnostics.element.hidden = true;
-    wrapper.append(toolbar, summary, controlStrip, this.panel, this.resizeHandle);
+    wrapper.append(toolbar, controlStrip, panelTabs, summary, this.panel, this.resizeHandle);
     this.root.append(this.floatingToggle, wrapper);
     this.layoutModel.subscribe((layout) => this.applyLayout(layout));
     this.applyLayout(this.layoutModel.layout);
@@ -198,18 +220,17 @@ export class InspectorShell {
 
   update(state: InspectorViewState): void {
     if (this.disposed) return;
-    this.status.textContent = `${state.mode}${state.paused ? " · paused" : ""} · ${state.source} · ${state.frames.length} frames`;
-    const cpuFrame = state.latest?.samples["cpu.frameMs"];
-    const fps = cpuFrame?.availability === "available" && cpuFrame.value !== null && cpuFrame.value > 0
-      ? Math.round(1000 / cpuFrame.value)
-      : null;
+    const modeLabel = state.mode === "deep-capture" ? "Deep capture" : state.mode === "record" ? "Record" : "Live";
+    const sourceLabel = state.source === "capture" ? "imported capture" : "live data";
+    this.status.textContent = `${modeLabel}${state.paused ? " · paused" : ""} · ${sourceLabel} · ${state.frames.length} frames`;
+    const fps = presentedFps(state.frames);
     this.toggleLabel.textContent = fps === null ? "Inspector" : `${fps} FPS`;
     this.drawToggleGraph(state);
     this.status.dataset.mode = state.mode;
     this.modeButtons.forEach((button, mode) => button.setAttribute("aria-pressed", String(mode === state.mode)));
     this.panelButtons.forEach((button, panel) => button.setAttribute("aria-pressed", String(panel === this.activePanel)));
     this.selected.textContent = state.selectedFrameIndex === null
-      ? "no frame selected"
+      ? "select a frame for details"
       : `frame ${state.selectedFrameIndex}`;
     this.overview.update(state.frames, state.range);
     this.timeline.update(state.frames, state.selectedFrameIndex, state.range);
@@ -240,8 +261,9 @@ export class InspectorShell {
     return button;
   }
 
-  private iconButton(icon: string, label: string, callback: () => void): HTMLButtonElement {
-    const button = this.button(icon, callback);
+  private svgButton(icon: string, label: string, callback: () => void): HTMLButtonElement {
+    const button = this.button("", callback);
+    button.innerHTML = icon;
     button.title = label;
     button.setAttribute("aria-label", label);
     button.classList.add("icon-button");
@@ -297,7 +319,7 @@ export class InspectorShell {
     if (element === null) return;
     this.dockMode = this.dockMode === "bottom" ? "right" : "bottom";
     element.classList.toggle("position-right", this.dockMode === "right");
-    this.positionButton.textContent = this.dockMode === "right" ? "⇄" : "⇆";
+    this.positionButton.innerHTML = ICON_DOCK;
   }
 
   private toggleMaximize(): void {
@@ -305,7 +327,7 @@ export class InspectorShell {
     if (element === null) return;
     this.maximized = !this.maximized;
     element.classList.toggle("maximized", this.maximized);
-    this.maximizeButton.textContent = this.maximized ? "❐" : "□";
+    this.maximizeButton.innerHTML = this.maximized ? ICON_RESTORE : ICON_MAXIMIZE;
   }
 
   private drawToggleGraph(state: InspectorViewState): void {
@@ -320,10 +342,11 @@ export class InspectorShell {
     context.lineWidth = 1;
     context.beginPath();
     frames.forEach((frame, index) => {
-      const sample = frame.samples["cpu.frameMs"];
+      const sample = frame.samples["frame.rafIntervalMs"];
       const value = sample?.availability === "available" && sample.value !== null ? sample.value : 16.67;
       const x = index / (frames.length - 1) * width;
-      const y = Math.max(2, Math.min(height - 2, height - Math.min(32, 1000 / Math.max(1, value))));
+      const clampedInterval = Math.min(50, Math.max(0, value));
+      const y = 2 + clampedInterval / 50 * (height - 4);
       if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
     });
     context.stroke();
@@ -356,4 +379,16 @@ export class InspectorShell {
     target.addEventListener("pointerup", end);
     target.addEventListener("pointercancel", end);
   }
+}
+
+function presentedFps(frames: readonly InspectorViewState["frames"][number][]): number | null {
+  let elapsed = 0;
+  let count = 0;
+  for (let index = frames.length - 1; index >= 0 && elapsed < 1000; index--) {
+    const sample = frames[index]?.samples["frame.rafIntervalMs"];
+    if (sample?.availability !== "available" || sample.value === null || sample.value <= 0 || sample.value > 1000) continue;
+    elapsed += sample.value;
+    count++;
+  }
+  return count >= 2 && elapsed > 0 ? count * 1000 / elapsed : null;
 }

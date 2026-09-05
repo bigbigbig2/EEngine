@@ -123,6 +123,17 @@ test("counter APIs reject metric IDs that were not registered", () => {
   profiler.endFrame();
 });
 
+test("external frame metrics are attached to the next profiler frame", () => {
+  const profiler = new FrameProfiler({ enabled: true });
+  profiler.recordExternalMetric("frame.rafIntervalMs", 16.667);
+  profiler.beginFrame(1);
+  profiler.endFrame();
+  const sample = profiler.historyStore.get(1).samples["frame.rafIntervalMs"];
+  assert.equal(sample.value, 16.667);
+  assert.equal(sample.availability, "available");
+  assert.equal(sample.sourceFrameIndex, 1);
+});
+
 test("renderer material counters are registered in the profiler catalog", () => {
   const profiler = new FrameProfiler({ enabled: true });
   const ids = new Set(profiler.metricCatalog.map(({ id }) => id));
