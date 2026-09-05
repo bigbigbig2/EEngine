@@ -28,6 +28,50 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
+        pureGeometry: path.resolve(
+          examplesRoot,
+          "runtime/00-foundations/pure-geometry/index.html"
+        ),
+        directionalLight: path.resolve(
+          examplesRoot,
+          "runtime/00-foundations/directional-light/index.html"
+        ),
+        baseColorSanity: path.resolve(
+          examplesRoot,
+          "runtime/00-foundations/base-color-sanity/index.html"
+        ),
+        sourceGeometry: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/source-geometry/index.html"
+        ),
+        vertexAttributes: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/vertex-attributes/index.html"
+        ),
+        meshletPartition: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/meshlet-partition/index.html"
+        ),
+        meshletBounds: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/meshlet-bounds/index.html"
+        ),
+        meshletCone: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/meshlet-cone/index.html"
+        ),
+        clusterBuild: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/cluster-build/index.html"
+        ),
+        clusterHierarchy: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/cluster-hierarchy/index.html"
+        ),
+        sseLodSelection: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/sse-lod-selection/index.html"
+        ),
         basicScene: path.resolve(
           examplesRoot,
           "basic-scene/index.html"

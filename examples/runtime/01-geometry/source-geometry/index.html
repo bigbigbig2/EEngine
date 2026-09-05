@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>OEngine · 01 Geometry · Source Geometry</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #0b1220; }
+      body { position: relative; font-family: system-ui, sans-serif; } canvas { display: block; width: 100%; height: 100%; }
+      .panel { position: fixed; left: 16px; top: 16px; width: 290px; padding: 14px; border: 1px solid #ffffff2b; border-radius: 10px; color: #dce7f5; background: #101b2bd9; backdrop-filter: blur(10px); font-size: 12px; }
+      h1 { margin: 0 0 8px; font-size: 15px; } h2 { margin: 14px 0 6px; color: #8fb8e8; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+      p { margin: 4px 0; line-height: 1.4; } .status { display: inline-block; padding: 5px 8px; border-radius: 999px; color: #a7f3d0; background: #10351fcc; }
+      .metrics { margin: 8px 0 0; color: #cbd5e1; white-space: pre-wrap; font: 11px/1.45 ui-monospace, Consolas, monospace; }
+      .tools { position: fixed; right: 16px; top: 16px; display: flex; gap: 6px; } button { border: 1px solid #ffffff2b; border-radius: 6px; padding: 6px 9px; color: #dce7f5; background: #101b2bd9; cursor: pointer; }
+      .help { position: fixed; right: 16px; bottom: 16px; padding: 8px 10px; color: #cbd5e1; background: #101827c7; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="gpu-canvas" aria-label="Source geometry fixture"></canvas>
+    <section class="panel">
+      <h1>01 Geometry · 01 Source Geometry</h1>
+      <p>观察进入 Cooker 之前的 SourceGeometry 顶点、索引、属性和 Bounds。</p>
+      <h2>Pipeline</h2><p>procedural source → validated vertices / indices → bounds</p>
+      <h2>Input / Output</h2><p>Input：BoxGeometry source<br />Output：SourceGeometry artifact</p>
+      <h2>Baseline</h2><p>DPR 1 · Shadow OFF · TAA OFF · Inspector OFF</p>
+      <h2>Runtime</h2>
+      <div id="scene-status" class="status">正在初始化…</div>
+      <pre id="scene-metrics" class="metrics">等待数据…</pre>
+    </section>
+    <div class="tools"><button id="download-json" type="button">导出 JSON</button><button id="capture-png" type="button">截图</button><button id="reset-camera" type="button">重置相机</button></div>
+    <div class="help">左键旋转 · 右键平移 · 滚轮缩放</div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

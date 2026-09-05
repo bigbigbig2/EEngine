@@ -4,28 +4,40 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="data:," />
-    <title>OEngine · Feature 02 · Model Loading</title>
+    <title>OEngine · 00 Foundations · Pure Model Loading</title>
     <style>
       html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #111827; }
       body { position: relative; font-family: system-ui, sans-serif; }
       canvas { display: block; width: 100%; height: 100%; }
-      .status { position: fixed; top: 16px; right: 16px; max-width: 42vw; padding: 7px 10px; border-radius: 999px; color: #d7f9e2; background: #123522e8; font-size: 12px; }
+      .status { display: inline-block; max-width: 100%; padding: 5px 8px; border-radius: 999px; color: #d7f9e2; background: #123522e8; font-size: 12px; }
       .tools { position: fixed; top: 16px; left: 16px; display: flex; gap: 6px; }
       button { border: 1px solid #ffffff2f; border-radius: 6px; padding: 6px 9px; color: #e5edf7; background: #172238e8; cursor: pointer; }
-      .metrics { position: fixed; left: 16px; bottom: 16px; max-width: 460px; padding: 10px 12px; border: 1px solid #ffffff22; border-radius: 8px; color: #dce7f5; background: #101827df; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+      .panel { position: fixed; left: 16px; top: 16px; width: 280px; padding: 14px; border: 1px solid #ffffff22; border-radius: 10px; color: #dce7f5; background: #101827df; backdrop-filter: blur(10px); font-size: 12px; }
+      .panel h1 { margin: 0 0 8px; font-size: 15px; }
+      .panel h2 { margin: 14px 0 6px; color: #8fb8e8; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+      .panel p { margin: 4px 0; line-height: 1.4; }
+      .metrics { margin: 0; white-space: pre-wrap; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
       .help { position: fixed; right: 16px; bottom: 16px; padding: 8px 10px; color: #cbd5e1; background: #101827c7; font-size: 12px; }
     </style>
   </head>
   <body>
     <canvas id="gpu-canvas" aria-label="Packed glTF model loading fixture"></canvas>
-    <div class="status" id="fixture-status">正在加载模型…</div>
+    <section class="panel" aria-label="Pure model loading case information">
+      <h1>00 Foundations · 02 Pure Model Loading</h1>
+      <p>只验证 glTF → Cook → Packed Scene → GPU 驻留。</p>
+      <h2>Pipeline</h2>
+      <p>glTF bytes → PackedGltfSource → cooked geometry → uploadPackedScene</p>
+      <h2>Baseline</h2>
+      <p>DPR 1 · Shadow OFF · TAA OFF · Inspector OFF</p>
+      <h2>Runtime</h2>
+      <div class="status" id="fixture-status">正在加载模型…</div>
+      <pre class="metrics" id="fixture-metrics">等待加载…</pre>
+    </section>
     <div class="tools">
       <button id="download-json" type="button">导出 JSON</button>
       <button id="capture-png" type="button">截图</button>
       <button id="reset-camera" type="button">重置相机</button>
     </div>
-    <div class="metrics" id="fixture-metrics">Feature 02 · Packed glTF
-等待加载…</div>
     <div class="help">左键旋转 · 右键平移 · 滚轮缩放</div>
     <script type="module" src="./main.ts"></script>
   </body>

@@ -4,18 +4,40 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:," />
-    <title>OEngine · Minimal Scene</title>
+    <title>OEngine · 00 Foundations · Renderer Baseline</title>
     <style>
       html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #05070a; }
       body { position: relative; font-family: system-ui, sans-serif; }
       canvas { display: block; width: 100%; height: 100%; }
-      .status { position: fixed; right: 16px; top: 16px; padding: 6px 10px; border-radius: 999px; color: #cdebd7; background: #10351fcc; font-size: 12px; }
-      .help { position: fixed; left: 16px; bottom: 16px; padding: 8px 12px; color: #dce7f5; background: #101b2bd9; border: 1px solid #ffffff2b; border-radius: 8px; font-size: 12px; pointer-events: none; }
+      .panel { position: fixed; left: 16px; top: 16px; width: 270px; padding: 14px; border: 1px solid #ffffff2b; border-radius: 10px; color: #dce7f5; background: #101b2bd9; backdrop-filter: blur(10px); font-size: 12px; }
+      .panel h1 { margin: 0 0 8px; font-size: 15px; }
+      .panel h2 { margin: 14px 0 6px; color: #8fb8e8; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+      .panel p { margin: 4px 0; line-height: 1.4; }
+      .status { display: inline-block; padding: 5px 8px; border-radius: 999px; color: #cdebd7; background: #10351fcc; font-size: 12px; }
+      .metrics { margin: 8px 0 0; white-space: pre-wrap; color: #cbd5e1; font: 11px/1.45 ui-monospace, Consolas, monospace; }
+      .tools { position: fixed; right: 16px; top: 16px; display: flex; gap: 6px; }
+      button { border: 1px solid #ffffff2b; border-radius: 6px; padding: 6px 9px; color: #dce7f5; background: #101b2bd9; cursor: pointer; }
+      .help { position: fixed; right: 16px; bottom: 16px; padding: 8px 12px; color: #dce7f5; background: #101b2bd9; border: 1px solid #ffffff2b; border-radius: 8px; font-size: 12px; pointer-events: none; }
     </style>
   </head>
   <body>
     <canvas id="gpu-canvas" aria-label="Minimal OEngine cube and plane scene"></canvas>
-    <div class="status" id="scene-status">正在初始化 WebGPU…</div>
+    <section class="panel" aria-label="Renderer baseline case information">
+      <h1>00 Foundations · 03 Renderer Baseline</h1>
+      <p>固定两个几何实例，只观察 Renderer 最小配置的初始化和帧循环。</p>
+      <h2>Pipeline</h2>
+      <p>Scene → GPU Scene → Visibility → Lighting → Present</p>
+      <h2>Baseline</h2>
+      <p>DPR 1 · Shadow OFF · TAA OFF · AO OFF · Post OFF · Inspector OFF</p>
+      <h2>Runtime</h2>
+      <div class="status" id="scene-status">正在初始化 WebGPU…</div>
+      <pre class="metrics" id="scene-metrics">等待数据…</pre>
+    </section>
+    <div class="tools" aria-label="fixture controls">
+      <button id="download-json" type="button">导出 JSON</button>
+      <button id="capture-png" type="button">截图</button>
+      <button id="reset-camera" type="button">重置相机</button>
+    </div>
     <div class="help">拖动旋转 · 滚轮缩放 · DPR=1 · 无 Inspector / Shadow / TAA</div>
     <script type="module" src="./main.ts"></script>
   </body>

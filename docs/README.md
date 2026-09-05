@@ -17,6 +17,7 @@
 - [INSPECTOR-PHASE1-EXECUTION.md](./INSPECTOR-PHASE1-EXECUTION.md)：Phase 1 执行记录与验证状态。
 - [INSPECTOR-PHASE2-DESIGN.md](./INSPECTOR-PHASE2-DESIGN.md)：Capture/Trace 回放闭环设计边界。
 - [INSPECTOR-PHASE2-EXECUTION.md](./INSPECTOR-PHASE2-EXECUTION.md)：Phase 2 执行记录与验证状态。
+- [SHOWCASE-LAB-DESIGN.md](./SHOWCASE-LAB-DESIGN.md)：Storybook 颗粒化 Example Lab v0.2 设计和实施边界。
 
 ## 权威关系
 

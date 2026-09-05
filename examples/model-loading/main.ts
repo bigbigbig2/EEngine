@@ -10,7 +10,6 @@ import {
   Scene,
   type PackedGltfSource
 } from "../../OEngine/src/index.ts";
-import { Inspector } from "../../OEngine/src/addons/inspector/index.ts";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -50,7 +49,6 @@ let rendererInitialized = false;
 let scene: Scene | null = null;
 let camera: PerspectiveCamera | null = null;
 let controls: OrbitControls | null = null;
-let inspector: Inspector | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let frameRequest = 0;
 let disposed = false;
@@ -75,7 +73,7 @@ void initialize().catch((error: unknown) => {
   status.textContent = fixtureError.message;
   status.dataset.fixtureStatus = fixtureStatus;
   status.style.background = "#4a1720e8";
-  metrics.textContent = `Feature 02 · Packed glTF\n失败：${fixtureError.message}`;
+  metrics.textContent = `Pure Model Loading\n失败：${fixtureError.message}`;
   console.error(error);
 });
 
@@ -86,11 +84,11 @@ async function initialize(): Promise<void> {
 
   const activeRenderer = new Renderer();
   renderer = activeRenderer;
-  await activeRenderer.initialize({ context, pixelRatio: Math.min(window.devicePixelRatio, 2) });
+  await activeRenderer.initialize({ context, pixelRatio: 1 });
   rendererInitialized = true;
   activeRenderer.configure({
     features: {
-      shadows: true,
+      shadows: false,
       ambientOcclusion: false,
       screenSpaceReflections: false,
       temporalAntiAliasing: false,
@@ -104,9 +102,9 @@ async function initialize(): Promise<void> {
   const activeScene = new Scene();
   scene = activeScene;
   const light = new DirectionalLight();
-  light.intensity = 3.5;
+  light.intensity = 1;
   light.forward = [-0.45, -0.8, -0.35];
-  light.casts_shadow = true;
+  light.casts_shadow = false;
   activeScene.addChild(light);
 
   status.textContent = "正在解析 Packed glTF…";
@@ -150,20 +148,10 @@ async function initialize(): Promise<void> {
   resizeObserver.observe(canvas);
   resize(activeRenderer, activeCamera);
 
-  inspector = new Inspector(activeRenderer, {
-    container: document.body,
-    initialMode: "live",
-    historyCapacity: 256,
-    uiRefreshHz: 5,
-    initiallyCollapsed: true,
-    styles: "inline"
-  });
-  inspector.open();
-
   initialized = true;
   fixtureStatus = "ready";
   status.dataset.fixtureStatus = fixtureStatus;
-  status.textContent = "Feature 02 · 模型已加载";
+  status.textContent = "运行中 · Pure Model Loading";
   updateMetrics(bounds);
   startFrameLoop();
 }
@@ -212,7 +200,7 @@ function updateMetrics(bounds: Bounds): void {
   if (loadedSource === null || renderer === null) return;
   const residency = renderer.geometryAssetResidencyEvidence();
   metrics.textContent = [
-    "Feature 02 · Packed glTF",
+    "Pure Model Loading · Packed glTF",
     `geometries: ${loadedSource.geometries.length}`,
     `materials: ${loadedSource.materials.length}`,
     `instances: ${loadedSource.geometryIndices.length}`,
@@ -231,7 +219,7 @@ function getSnapshot(): FixtureResult {
     caseId: "model-loading",
     status: fixtureStatus,
     build: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__, contentHash: __BUILD_CONTENT_HASH__ },
-    environment: { width: canvas.width, height: canvas.height, dpr: window.devicePixelRatio },
+    environment: { width: canvas.width, height: canvas.height, dpr: 1 },
     lifecycle: {
       frame: renderer?.frame_count ?? 0,
       elapsedMs: Math.round(performance.now() - startedAt),
@@ -247,7 +235,10 @@ function getSnapshot(): FixtureResult {
       instanceCount: loadedSource?.geometryIndices.length ?? 0,
       residentAssetCount: residency?.residentAssetCount ?? 0,
       residentBytes: residency?.residentBytes ?? 0,
-      activeInstanceCount: sceneEvidence?.activeInstanceCount ?? 0
+      activeInstanceCount: sceneEvidence?.activeInstanceCount ?? 0,
+      shadows: false,
+      temporalAntiAliasing: false,
+      inspector: false
     },
     ...(fixtureError === undefined ? {} : { error: fixtureError })
   };
@@ -279,8 +270,6 @@ function releaseRuntime(destroyRenderer = true): void {
   controls?.pointer.stop();
   controls?.keyboard.stop();
   controls = null;
-  inspector?.dispose();
-  inspector = null;
   if (destroyRenderer && rendererInitialized) renderer?.destroy();
   rendererInitialized = false;
   renderer = null;

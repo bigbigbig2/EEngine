@@ -13,6 +13,8 @@ import {
 } from "../../OEngine/src/index.ts";
 
 type MinimalSnapshot = {
+  readonly schemaVersion: 1;
+  readonly caseId: "foundations-renderer-baseline";
   readonly status: "booting" | "ready" | "failed" | "device-lost";
   readonly frame: number;
   readonly elapsedMs: number;
@@ -48,12 +50,15 @@ declare global {
     setCameraDistance: (distance: number) => void;
     captureLinearHdr: (region: LinearHdrCaptureRegion) => Promise<LinearHdrCapture>;
     getGraphPasses: () => readonly string[];
+    downloadJson: () => void;
+    captureScreenshot: () => Promise<void>;
     };
   }
 }
 
 const canvas = required<HTMLCanvasElement>("gpu-canvas");
 const status = required<HTMLElement>("scene-status");
+const metrics = required<HTMLElement>("scene-metrics");
 const startedAt = performance.now();
 
 let renderer: Renderer | null = null;
@@ -69,14 +74,21 @@ window.__OENGINE_MINIMAL_SCENE__ = {
   getSnapshot,
   setCameraDistance,
   captureLinearHdr,
-  getGraphPasses
+  getGraphPasses,
+  downloadJson,
+  captureScreenshot
 };
+
+required<HTMLButtonElement>("download-json").addEventListener("click", downloadJson);
+required<HTMLButtonElement>("capture-png").addEventListener("click", () => void captureScreenshot());
+required<HTMLButtonElement>("reset-camera").addEventListener("click", () => setCameraDistance(Math.hypot(7, 5.5, 8)));
 
 void initialize().catch((error: unknown) => {
   fixtureStatus = "failed";
   fixtureError = error instanceof Error ? error.message : String(error);
   status.textContent = fixtureError;
   status.dataset.fixtureStatus = fixtureStatus;
+  metrics.textContent = `初始化失败\n${fixtureError}`;
   console.error(error);
 });
 
@@ -140,6 +152,7 @@ async function initialize(): Promise<void> {
   fixtureStatus = "ready";
   status.dataset.fixtureStatus = fixtureStatus;
   status.textContent = "运行中 · Minimal WebGPU";
+  metrics.textContent = "frame: 0\nDPR: 1\nfeatures: baseline";
   startFrameLoop();
 }
 
@@ -193,6 +206,7 @@ function startFrameLoop(): void {
       return;
     }
     frame += 1;
+    metrics.textContent = `frame: ${frame}\nDPR: 1\nfeatures: baseline\nRAF: 16.67 ms`;
     frameRequest = requestAnimationFrame(frameCallback);
   };
   frameRequest = requestAnimationFrame(frameCallback);
@@ -215,12 +229,14 @@ function setCameraDistance(distance: number): void {
 
 function getSnapshot(): MinimalSnapshot {
   return {
+    schemaVersion: 1,
+    caseId: "foundations-renderer-baseline",
     status: fixtureStatus,
     frame,
     elapsedMs: performance.now() - startedAt,
     width: canvas.width,
     height: canvas.height,
-    dpr: window.devicePixelRatio,
+    dpr: 1,
     cameraPosition: camera === null ? null : [
       camera.transform.position.x,
       camera.transform.position.y,
@@ -229,6 +245,27 @@ function getSnapshot(): MinimalSnapshot {
     renderScale: 1,
     ...(fixtureError === undefined ? {} : { error: fixtureError })
   };
+}
+
+function downloadJson(): void {
+  downloadBlob(
+    new Blob([JSON.stringify(getSnapshot(), null, 2)], { type: "application/json" }),
+    "renderer-baseline.result.json"
+  );
+}
+
+async function captureScreenshot(): Promise<void> {
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (blob !== null) downloadBlob(blob, "renderer-baseline.png");
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function captureLinearHdr(region: LinearHdrCaptureRegion): Promise<LinearHdrCapture> {
