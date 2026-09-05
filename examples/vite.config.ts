@@ -28,6 +28,10 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
+        basicScene: path.resolve(
+          examplesRoot,
+          "basic-scene/index.html"
+        ),
         renderingLab: path.resolve(
           examplesRoot,
           "rendering-lab/index.html"

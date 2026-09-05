@@ -17,3 +17,8 @@ export const RenderingLab: Story = {
   name: "Rendering Lab",
   args: { entry: exampleCatalog.renderingLab }
 };
+
+export const BasicScene: Story = {
+  name: "Basic Scene · Cube + Plane",
+  args: { entry: exampleCatalog.basicScene }
+};

@@ -11,6 +11,8 @@ yarn install
 yarn storybook
 ```
 
-Storybook serves the lab at `Showcase / Rendering Lab`. The production build is
-available with `yarn build:storybook`; the standalone Vite build is
+Storybook serves the examples at `Showcase / Basic Scene · Cube + Plane` and
+`Showcase / Rendering Lab`. The basic scene demonstrates a packed cube and
+ground plane with `PerspectiveCamera` + `OrbitControls`; the production build
+is available with `yarn build:storybook`; the standalone Vite build is
 `yarn build`.
