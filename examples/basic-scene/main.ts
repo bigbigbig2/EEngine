@@ -44,8 +44,10 @@ const canvas = required<HTMLCanvasElement>("gpu-canvas");
 const status = required<HTMLElement>("scene-status");
 const downloadJsonButton = required<HTMLButtonElement>("download-json");
 const capturePngButton = required<HTMLButtonElement>("capture-png");
+const resetCameraButton = required<HTMLButtonElement>("reset-camera");
 
 let renderer: Renderer | null = null;
+let rendererInitialized = false;
 let scene: Scene | null = null;
 let camera: PerspectiveCamera | null = null;
 let controls: OrbitControls | null = null;
@@ -60,9 +62,11 @@ let initialized = false;
 
 downloadJsonButton.addEventListener("click", downloadJson);
 capturePngButton.addEventListener("click", () => void captureScreenshot());
+resetCameraButton.addEventListener("click", resetCamera);
 window.__OENGINE_BASIC_SCENE_FIXTURE__ = { getSnapshot, downloadJson, captureScreenshot };
 
 void initialize().catch((error: unknown) => {
+  releaseRuntime();
   fixtureStatus = "failed";
   fixtureError = {
     name: error instanceof Error ? error.name : "Error",
@@ -82,6 +86,7 @@ async function initialize(): Promise<void> {
   const activeRenderer = new Renderer();
   renderer = activeRenderer;
   await activeRenderer.initialize({ context, pixelRatio: Math.min(window.devicePixelRatio, 2) });
+  rendererInitialized = true;
   activeRenderer.configure({
     features: {
       shadows: true,
@@ -132,6 +137,7 @@ async function initialize(): Promise<void> {
     initialMode: "live",
     historyCapacity: 512,
     uiRefreshHz: 5,
+    initiallyCollapsed: true,
     styles: "inline"
   });
   inspector.open();
@@ -212,6 +218,7 @@ function startFrameLoop(): void {
       fixtureStatus = "device-lost";
       status.dataset.fixtureStatus = fixtureStatus;
       status.textContent = "WebGPU device lost";
+      releaseRuntime();
       return;
     }
     frameRequest = requestAnimationFrame(frame);
@@ -219,17 +226,36 @@ function startFrameLoop(): void {
   frameRequest = requestAnimationFrame(frame);
 }
 
+function resetCamera(): void {
+  if (camera === null) return;
+  camera.transform.position.set(7, 5.5, 8);
+  camera.transform.lookAt({ x: 0, y: 0.5, z: 0 });
+  camera.update();
+  controls?.from_transform(camera.transform);
+}
+
+function releaseRuntime(destroyRenderer = true): void {
+  cancelAnimationFrame(frameRequest);
+  frameRequest = 0;
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  controls?.pointer.stop();
+  controls?.keyboard.stop();
+  controls = null;
+  inspector?.dispose();
+  inspector = null;
+  if (destroyRenderer && rendererInitialized) renderer?.destroy();
+  rendererInitialized = false;
+  renderer = null;
+  scene = null;
+  camera = null;
+  canvas.getContext("webgpu")?.unconfigure();
+}
+
 function dispose(): void {
   if (disposed) return;
   disposed = true;
-  cancelAnimationFrame(frameRequest);
-  resizeObserver?.disconnect();
-  controls?.pointer.stop();
-  controls?.keyboard.stop();
-  inspector?.dispose();
-  inspector = null;
-  renderer?.destroy();
-  canvas.getContext("webgpu")?.unconfigure();
+  releaseRuntime(false);
   delete window.__OENGINE_BASIC_SCENE_FIXTURE__;
 }
 
@@ -244,8 +270,8 @@ function required<T extends HTMLElement>(id: string): T {
 function getSnapshot(): FixtureResult {
   const activeCamera = camera;
   const position = activeCamera?.transform.position;
-  const residency = renderer?.geometryAssetResidencyEvidence();
-  const sceneEvidence = renderer?.gpuSceneEvidence();
+  const residency = rendererInitialized ? renderer?.geometryAssetResidencyEvidence() : undefined;
+  const sceneEvidence = rendererInitialized ? renderer?.gpuSceneEvidence() : undefined;
   return {
     schemaVersion: 1,
     caseId: "basic-scene",

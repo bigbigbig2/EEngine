@@ -19,6 +19,8 @@ export type { InspectorMode } from "./InspectorViewModel.js";
 export interface InspectorOptions {
   readonly container?: HTMLElement;
   readonly initialMode?: InspectorMode;
+  /** Mount the shell folded while keeping the floating toggle visible. */
+  readonly initiallyCollapsed?: boolean;
   readonly historyCapacity?: number;
   readonly uiRefreshHz?: number;
   readonly nonce?: string;
@@ -34,6 +36,7 @@ interface ResolvedInspectorOptions {
   readonly container?: HTMLElement;
   readonly nonce?: string;
   readonly initialMode: InspectorMode;
+  readonly initiallyCollapsed: boolean;
   readonly historyCapacity: number;
   readonly uiRefreshHz: number;
   readonly styles: InspectorStyleMode;
@@ -73,6 +76,7 @@ export class Inspector {
       container: options.container,
       nonce: options.nonce,
       initialMode: options.initialMode ?? "live",
+      initiallyCollapsed: options.initiallyCollapsed ?? false,
       historyCapacity,
       uiRefreshHz: options.uiRefreshHz ?? 5,
       styles: options.styles ?? "inline"
@@ -109,6 +113,7 @@ export class Inspector {
       onDomainState: () => this.domainState()
     });
     this.shell.mount();
+    if (this.options.initiallyCollapsed) this.shell.setPanelVisible(false);
     this.unsubscribeView = this.viewModel.subscribe((state) => {
       this.pendingState = state;
       this.schedulePaint();

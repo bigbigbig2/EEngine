@@ -253,6 +253,14 @@ export class InspectorShell {
     this.host.remove();
   }
 
+  setPanelVisible(visible: boolean): void {
+    const element = this.root.querySelector<HTMLElement>(".inspector");
+    if (element === null) return;
+    element.classList.toggle("visible", visible);
+    this.floatingToggle.classList.toggle("panel-open", visible);
+    this.floatingToggle.setAttribute("aria-expanded", String(visible));
+  }
+
   private button(label: string, callback: () => void): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
@@ -309,9 +317,7 @@ export class InspectorShell {
   private togglePanel(): void {
     const element = this.root.querySelector<HTMLElement>(".inspector");
     if (element === null) return;
-    const visible = element.classList.toggle("visible");
-    this.floatingToggle.classList.toggle("panel-open", visible);
-    this.floatingToggle.setAttribute("aria-expanded", String(visible));
+    this.setPanelVisible(!element.classList.contains("visible"));
   }
 
   private toggleDockMode(): void {

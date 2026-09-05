@@ -1,8 +1,10 @@
 # OEngine Rendering Lab
 
-`rendering-lab/` is the only browser fixture kept in this workspace. It is a
-single Storybook story backed by the real OEngine renderer and the packed static
-scene path. The page includes quality controls, GPU counters, debug views and a
+The `examples/` directory contains independent browser fixtures backed by the
+real OEngine renderer. `rendering-lab/` remains the integrated quality fixture;
+the feature cases under `basic-scene/`, `model-loading/` and
+`geometry-preprocess/` each own their own renderer, scene and evidence bridge.
+The integrated page includes quality controls, GPU counters, debug views and a
 focused `?mode=pipeline` mode for isolating the Surface path.
 
 ```powershell
@@ -21,4 +23,11 @@ provenance, lifecycle, camera and feature evidence; startup failures remain
 exportable for manual capture.
 
 The production build is available with `yarn build:storybook`; the standalone
-Vite build is `yarn build`.
+Vite build is `yarn build`. Browser smoke testing uses the installed Google
+Chrome when available (otherwise Playwright Chromium), launches each case in a
+fresh browser context, and writes screenshots plus JSON results under
+`../temp/fixture-results/`:
+
+```powershell
+yarn test:fixtures
+```

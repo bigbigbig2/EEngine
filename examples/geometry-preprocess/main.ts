@@ -47,6 +47,7 @@ const metrics = required<HTMLElement>("fixture-metrics");
 const startedAt = performance.now();
 
 let renderer: Renderer | null = null;
+let rendererInitialized = false;
 let scene: Scene | null = null;
 let camera: PerspectiveCamera | null = null;
 let controls: OrbitControls | null = null;
@@ -68,6 +69,7 @@ required<HTMLButtonElement>("reset-camera").addEventListener("click", resetCamer
 window.__OENGINE_GEOMETRY_PREPROCESS_FIXTURE__ = { getSnapshot, downloadJson, captureScreenshot };
 
 void initialize().catch((error: unknown) => {
+  releaseRuntime();
   fixtureStatus = "failed";
   fixtureError = {
     name: error instanceof Error ? error.name : "Error",
@@ -102,6 +104,7 @@ async function initialize(): Promise<void> {
   const activeRenderer = new Renderer();
   renderer = activeRenderer;
   await activeRenderer.initialize({ context, pixelRatio: Math.min(window.devicePixelRatio, 2) });
+  rendererInitialized = true;
   activeRenderer.configure({
     features: {
       shadows: true,
@@ -166,6 +169,7 @@ async function initialize(): Promise<void> {
     initialMode: "live",
     historyCapacity: 256,
     uiRefreshHz: 5,
+    initiallyCollapsed: true,
     styles: "inline"
   });
   inspector.open();
@@ -209,6 +213,7 @@ function startFrameLoop(): void {
       fixtureStatus = "device-lost";
       status.dataset.fixtureStatus = fixtureStatus;
       status.textContent = "WebGPU device lost";
+      releaseRuntime();
       return;
     }
     frameRequest = requestAnimationFrame(frame);
@@ -249,8 +254,8 @@ function sumEvidence(key: keyof GeometryCookEvidence): number {
 
 function getSnapshot(): FixtureResult {
   const position = camera?.transform.position;
-  const residency = renderer?.geometryAssetResidencyEvidence();
-  const sceneEvidence = renderer?.gpuSceneEvidence();
+  const residency = rendererInitialized ? renderer?.geometryAssetResidencyEvidence() : undefined;
+  const sceneEvidence = rendererInitialized ? renderer?.gpuSceneEvidence() : undefined;
   return {
     schemaVersion: 1,
     caseId: "geometry-preprocess",
@@ -299,16 +304,28 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+function releaseRuntime(destroyRenderer = true): void {
+  cancelAnimationFrame(frameRequest);
+  frameRequest = 0;
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  controls?.pointer.stop();
+  controls?.keyboard.stop();
+  controls = null;
+  inspector?.dispose();
+  inspector = null;
+  if (destroyRenderer && rendererInitialized) renderer?.destroy();
+  rendererInitialized = false;
+  renderer = null;
+  scene = null;
+  camera = null;
+  canvas.getContext("webgpu")?.unconfigure();
+}
+
 function dispose(): void {
   if (disposed) return;
   disposed = true;
-  cancelAnimationFrame(frameRequest);
-  resizeObserver?.disconnect();
-  controls?.pointer.stop();
-  controls?.keyboard.stop();
-  inspector?.dispose();
-  renderer?.destroy();
-  canvas.getContext("webgpu")?.unconfigure();
+  releaseRuntime(false);
   delete window.__OENGINE_GEOMETRY_PREPROCESS_FIXTURE__;
 }
 
