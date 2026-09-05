@@ -103,9 +103,16 @@ button:hover { border-color: var(--inspector-accent); background: #263852; }
 .inspector.profiler-panel.position-right.visible { transform: translateX(0); }
 .inspector.profiler-panel.maximized { left: 0 !important; right: 0 !important; top: 0 !important; bottom: 0 !important; width: 100vw !important; height: 100vh !important; border-radius: 0; }
 .inspector.profiler-panel .toolbar { height: 32px; min-height: 32px; padding: 0 8px; margin: 0; background: #2a2a33aa; border-bottom: 1px solid var(--inspector-border); font-family: 'Segoe UI', Tahoma, sans-serif; }
+.inspector.profiler-panel .toolbar { cursor: default; }
+.inspector.profiler-panel .toolbar > .title { flex: 0 0 auto; margin-right: 10px; font-size: 12px; white-space: nowrap; }
+.inspector.profiler-panel .toolbar > .panel-tabs { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; background: transparent; }
 .profiler-controls { display: flex; align-items: stretch; height: 100%; margin-left: auto; }
 .profiler-controls button { height: 100%; min-width: 32px; padding: 0 9px; border: 0; border-left: 1px solid var(--inspector-border); border-radius: 0; background: transparent; }
-.inspector.profiler-panel .tabs, .inspector.profiler-panel .actions { padding: 4px 8px; margin: 0; background: #1e1e24aa; }
+.inspector.profiler-panel .control-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 3px 8px; background: #1e1e24aa; border-bottom: 1px solid #2a2a33; }
+.inspector.profiler-panel .control-strip .tabs, .inspector.profiler-panel .control-strip .actions { padding: 0; margin: 0; background: transparent; }
+.inspector.profiler-panel .control-strip button { padding: 3px 7px; font-size: 11px; }
+.inspector.profiler-panel .control-strip .icon-button { width: 30px; min-width: 30px; padding: 0; font-size: 13px; border: 0; border-radius: 3px; color: var(--inspector-text-secondary); background: transparent; }
+.inspector.profiler-panel .control-strip .icon-button:hover { color: var(--inspector-text-primary); background: rgba(255, 255, 255, .08); }
 .inspector.profiler-panel > .panel { flex: 1; overflow: auto; margin: 0 8px 8px; }
 .inspector.profiler-panel .resize-handle { top: 0; bottom: auto; left: 0; right: 0; width: 100%; height: 5px; cursor: ns-resize; }
 .inspector.profiler-panel.position-right .resize-handle { top: 0; bottom: 0; left: -2px; right: auto; width: 5px; height: 100%; cursor: ew-resize; }
