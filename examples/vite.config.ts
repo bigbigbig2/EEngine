@@ -72,6 +72,18 @@ export default defineConfig({
           examplesRoot,
           "runtime/01-geometry/sse-lod-selection/index.html"
         ),
+        bvh8: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/bvh8/index.html"
+        ),
+        runtimeAssetPackage: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/runtime-asset-package/index.html"
+        ),
+        packageValidation: path.resolve(
+          examplesRoot,
+          "runtime/01-geometry/package-validation/index.html"
+        ),
         basicScene: path.resolve(
           examplesRoot,
           "basic-scene/index.html"

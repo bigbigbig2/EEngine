@@ -230,6 +230,9 @@ downloadJson()
 | `01 Geometry/06 Cluster Build` | `runtime/01-geometry/cluster-build` | 已接入 | 使用 renderable Cook 生成 Cluster，显示 parent/child、Meshlet range、depth 和 bounds |
 | `01 Geometry/07 Cluster Hierarchy` | `runtime/01-geometry/cluster-hierarchy` | 已接入 | 从 clusterChildren 重建树，显示 root、depth levels、parent/child 连线和拓扑验证 |
 | `01 Geometry/08 SSE / LOD Selection` | `runtime/01-geometry/sse-lod-selection` | 已接入 | 使用 GeometryHierarchy oracle 计算屏幕空间误差，并显示 threshold 下的 Cluster/Meshlet 选择 |
+| `01 Geometry/09 BVH8` | `runtime/01-geometry/bvh8` | 已接入 | 显示 BVH8 节点 depth、valid/leaf mask、child refs 和 child bounds |
+| `01 Geometry/10 Runtime Asset Package` | `runtime/01-geometry/runtime-asset-package` | 已接入 | 显示 manifest、section layout、bytes、stride/count、content hash 和 reopen validation |
+| `01 Geometry/11 Package Validation` | `runtime/01-geometry/package-validation` | 已接入 | 展示 RuntimeAsset 与 GeometryAsset 的 validation issue、severity、code 和 message |
 
 后续 Geometry 页面继续按一个处理阶段一个 Runtime 的方式增加，不把 Cook、Meshlet、Cluster 等阶段合并回 Source Geometry 页面。
 

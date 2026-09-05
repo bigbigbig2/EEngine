@@ -60,6 +60,21 @@ export const exampleCatalog = {
     title: "SSE / LOD Selection · Screen Error",
     route: "runtime/01-geometry/sse-lod-selection/"
   },
+  bvh8: {
+    id: "Geometry 09",
+    title: "BVH8 · Child Bounds + Refs",
+    route: "runtime/01-geometry/bvh8/"
+  },
+  runtimeAssetPackage: {
+    id: "Geometry 10",
+    title: "Runtime Asset Package · Sections + Hash",
+    route: "runtime/01-geometry/runtime-asset-package/"
+  },
+  packageValidation: {
+    id: "Geometry 11",
+    title: "Package Validation · Issues + Contracts",
+    route: "runtime/01-geometry/package-validation/"
+  },
   minimalScene: {
     id: "Foundation 03",
     title: "Renderer Baseline · Minimal Scene",

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><link rel="icon" href="data:," />
+    <title>OEngine · 01 Geometry · Package Validation</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #0b1220; } body { position: relative; font-family: system-ui, sans-serif; } canvas { display: block; width: 100%; height: 100%; }
+      .panel { position: fixed; left: 16px; top: 16px; width: 440px; max-height: calc(100vh - 32px); overflow: auto; padding: 14px; border: 1px solid #ffffff2b; border-radius: 10px; color: #dce7f5; background: #101b2bd9; backdrop-filter: blur(10px); font-size: 12px; }
+      h1 { margin: 0 0 8px; font-size: 15px; } h2 { margin: 14px 0 6px; color: #8fb8e8; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; } p { margin: 4px 0; line-height: 1.4; }
+      .status { display: inline-block; padding: 5px 8px; border-radius: 999px; color: #a7f3d0; background: #10351fcc; } .metrics { margin: 8px 0 0; color: #cbd5e1; white-space: pre-wrap; font: 11px/1.45 ui-monospace, Consolas, monospace; }
+      .report { display: grid; gap: 5px; } .report-card { padding: 7px; border-radius: 6px; background: #172238c7; font: 10px/1.4 ui-monospace, Consolas, monospace; } .report-card.valid { border-left: 3px solid #34d399; } .report-card.invalid { border-left: 3px solid #fb7185; } .issue { margin-top: 5px; padding: 5px; border-radius: 4px; background: #2a1b2ac7; } .issue.warning { color: #facc15; } .issue.error { color: #fb7185; }
+      .tools { position: fixed; right: 16px; top: 16px; display: flex; gap: 6px; } button { border: 1px solid #ffffff2b; border-radius: 6px; padding: 6px 9px; color: #dce7f5; background: #101b2bd9; cursor: pointer; } .help { position: fixed; right: 16px; bottom: 16px; padding: 8px 10px; color: #cbd5e1; background: #101827c7; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="gpu-canvas" aria-label="Package validation fixture"></canvas>
+    <section class="panel"><h1>01 Geometry · 11 Package Validation</h1><p>展示当前 Cook 产物的 Runtime Asset 与 Geometry Asset 验证报告。页面只读验证结果，不修改 package bytes。</p><h2>Pipeline</h2><p>RuntimeAssetPackage.validate() + GeometryAssetPackage.validate() → issue report</p><h2>Validation Reports</h2><div id="validation-report" class="report"></div><h2>Baseline</h2><p>DPR 1 · Shadow OFF · TAA OFF · Inspector OFF</p><h2>Runtime</h2><div id="scene-status" class="status">正在初始化…</div><pre id="scene-metrics" class="metrics">等待数据…</pre></section>
+    <div class="tools"><button id="download-json" type="button">导出 JSON</button><button id="capture-png" type="button">截图</button><button id="reset-camera" type="button">重置相机</button></div><div class="help">左键旋转 · 右键平移 · 滚轮缩放</div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
