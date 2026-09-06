@@ -1246,9 +1246,11 @@ export class Renderer {
       (2 * frameJitter[0]) / w,
       (2 * frameJitter[1]) / h
     );
+    let packedPatchRevision = 0;
     framePlan.execute("scene-update", () => {
       this._profiler.measure("world-and-view-update", () => {
-        this._graphics.packed_scenes_if_created?.encodePendingPatch(scene, cmd);
+        const patch = this._graphics.packed_scenes_if_created?.encodePendingPatch(scene, cmd);
+        if (patch !== null && patch !== undefined) packedPatchRevision = this._frame_count + 1;
         gpuScene.encodeFrame(cmd, this._frame_count, time_delta_seconds);
         view.update(cmd);
       });
@@ -1297,10 +1299,12 @@ export class Renderer {
               this._renderSettings.values.physicalScale
             );
             shadows.directional_texel_guard_band = this._renderSettings.values.shadows.texelGuardBand;
-            shadows.select_for_draw(camera, this._frame_count, [w, h]);
             const packedBindings = gpuPacked === null
               ? null
               : this._graphics.packed_scenes.bindings();
+            const shadowContentRevision = scene.change_revision * 1_048_576 +
+              (packedBindings?.scene.epoch ?? 0) + packedPatchRevision;
+            shadows.select_for_draw(camera, this._frame_count, [w, h], shadowContentRevision);
             shadows.draw(
               cmd,
               gpuScene,
@@ -3400,6 +3404,8 @@ export class Renderer {
       readonly packed_atlas_pixels_updated: number;
       readonly lastDirectionalCameraUpdates: number;
       readonly lastDirectionalCameraCacheHits: number;
+      readonly lastDirectionalRasterDraws: number;
+      readonly lastDirectionalRasterSkips: number;
     },
     packedPath: boolean,
     environment: {
@@ -3484,6 +3490,8 @@ export class Renderer {
     profiler.recordCounter("shadow.atlasPixelsUpdated", shadows.packed_atlas_pixels_updated);
     profiler.recordCounter("shadow.directionalCameraUpdates", shadows.lastDirectionalCameraUpdates);
     profiler.recordCounter("shadow.directionalCameraCacheHits", shadows.lastDirectionalCameraCacheHits);
+    profiler.recordCounter("shadow.directionalRasterDraws", shadows.lastDirectionalRasterDraws);
+    profiler.recordCounter("shadow.directionalRasterSkips", shadows.lastDirectionalRasterSkips);
     profiler.recordCounter(
       packedPath
         ? "packed.material.kernelDraws"

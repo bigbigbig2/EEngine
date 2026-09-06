@@ -60,6 +60,7 @@ export abstract class ShadowMapBase<TLight extends Light = Light> implements Ada
   views: ShadowView[] = [];
   projected_area_px = 0;
   last_updated_frame_index = -1;
+  last_raster_revision = -1;
   last_resize_frame_index = -1;
   is_invalid = true;
   should_draw = false;
@@ -319,6 +320,9 @@ export class ShadowContext {
   lastHzbOutputPixels = 0;
   lastDirectionalCameraUpdates = 0;
   lastDirectionalCameraCacheHits = 0;
+  lastDirectionalRasterDraws = 0;
+  lastDirectionalRasterSkips = 0;
+  private shadowContentRevision = 0;
 
   private debugRenderCount = 0;
   private frameIndex = -1;
@@ -460,11 +464,19 @@ export class ShadowContext {
     return changed;
   }
 
-  select_for_draw(camera: Camera, frameIndex: number, resolution: ArrayLike<number>): void {
+  select_for_draw(
+    camera: Camera,
+    frameIndex: number,
+    resolution: ArrayLike<number>,
+    contentRevision = 0
+  ): void {
     camera.update();
     this.frameIndex = frameIndex;
+    this.shadowContentRevision = contentRevision;
     this.lastDirectionalCameraUpdates = 0;
     this.lastDirectionalCameraCacheHits = 0;
+    this.lastDirectionalRasterDraws = 0;
+    this.lastDirectionalRasterSkips = 0;
     for (const map of this.maps) map.should_draw = false;
     for (const map of this.maps) map.projected_area_px = projectedShadowArea(map.light, camera, resolution);
     this.resolution_controller.adjust(this.maps, frameIndex);
@@ -477,7 +489,6 @@ export class ShadowContext {
       const map = entry.map;
       const viewCount = map.views.length;
       if ((map.light as DirectionalLight).isDirectionalLight) {
-        map.should_draw = true;
         const updated = (map as DirectionalShadowMap).updateIfChanged(
           camera,
           this.directional_cascade_lambda,
@@ -486,6 +497,8 @@ export class ShadowContext {
         );
         if (updated) this.lastDirectionalCameraUpdates++;
         else this.lastDirectionalCameraCacheHits++;
+        map.should_draw = updated || map.is_invalid || map.last_raster_revision !== contentRevision;
+        if (!map.should_draw) this.lastDirectionalRasterSkips++;
         selectedViews += viewCount;
         continue;
       }
@@ -626,7 +639,9 @@ export class ShadowContext {
         map.should_draw = false;
         map.is_invalid = false;
         map.last_updated_frame_index = this.frameIndex;
+        map.last_raster_revision = this.shadowContentRevision;
         this.debugRenderCount++;
+        if ((map.light as DirectionalLight).isDirectionalLight) this.lastDirectionalRasterDraws++;
       }
     }
 

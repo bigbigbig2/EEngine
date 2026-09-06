@@ -97,6 +97,14 @@ export class ShadowService {
     return this.implementation.lastDirectionalCameraCacheHits;
   }
 
+  get lastDirectionalRasterDraws(): number {
+    return this.implementation.lastDirectionalRasterDraws;
+  }
+
+  get lastDirectionalRasterSkips(): number {
+    return this.implementation.lastDirectionalRasterSkips;
+  }
+
   get directional_cascade_lambda(): number {
     return this.implementation.directional_cascade_lambda;
   }
@@ -129,8 +137,13 @@ export class ShadowService {
     return this.implementation.process_lights();
   }
 
-  select_for_draw(camera: Camera, frameIndex: number, resolution: ArrayLike<number>): void {
-    this.implementation.select_for_draw(camera, frameIndex, resolution);
+  select_for_draw(
+    camera: Camera,
+    frameIndex: number,
+    resolution: ArrayLike<number>,
+    contentRevision = 0
+  ): void {
+    this.implementation.select_for_draw(camera, frameIndex, resolution, contentRevision);
   }
 
   draw(

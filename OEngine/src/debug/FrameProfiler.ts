@@ -187,6 +187,8 @@ const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
   "shadow.atlasPixelsUpdated",
   "shadow.directionalCameraCacheHits",
   "shadow.directionalCameraUpdates",
+  "shadow.directionalRasterDraws",
+  "shadow.directionalRasterSkips",
   "shadow.packedCascadeDraws",
   "ssr.compositePasses",
   "ssr.historyBytes",
