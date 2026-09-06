@@ -166,7 +166,7 @@ async function initialize(): Promise<void> {
   resize(activeRenderer, activeCamera);
   inspector = new Inspector(activeRenderer, {
     container: document.body,
-    initialMode: "live",
+    initialMode: "monitor",
     historyCapacity: 256,
     uiRefreshHz: 5,
     initiallyCollapsed: true,

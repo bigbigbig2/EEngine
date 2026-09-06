@@ -9,6 +9,8 @@ function exampleRunnerUrl(route: string): string {
     return new URL(documentRoute, `${explicitBase.replace(/\/$/, "")}/`).href;
   }
   const storybookBase = new URL(import.meta.env.BASE_URL, window.location.origin);
+  // Storybook staticDirs mounts the complete Vite dist at `/runtime`, so the
+  // runtime catalog prefix remains part of the mounted path.
   return new URL(`runtime/${documentRoute}`, storybookBase).href;
 }
 

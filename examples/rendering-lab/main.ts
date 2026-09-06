@@ -194,7 +194,7 @@ async function initialize(): Promise<void> {
   // This keeps loading/render initialization independent from UI work.
   inspector = new Inspector(activeRenderer, {
     container: document.body,
-    initialMode: "live",
+    initialMode: "monitor",
     historyCapacity: 2048,
     uiRefreshHz: 5,
     styles: "inline"

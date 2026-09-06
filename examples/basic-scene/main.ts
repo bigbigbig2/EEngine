@@ -134,7 +134,7 @@ async function initialize(): Promise<void> {
   // Rendering Lab; the addon only observes this example's renderer profiler.
   inspector = new Inspector(activeRenderer, {
     container: document.body,
-    initialMode: "live",
+    initialMode: "monitor",
     historyCapacity: 512,
     uiRefreshHz: 5,
     initiallyCollapsed: true,
