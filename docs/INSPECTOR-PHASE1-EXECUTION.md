@@ -12,7 +12,7 @@
 ## 当前验证
 
 - `cd OEngine; npm run build`：通过。
-- `cd OEngine; node --test tests/*.test.mjs`：414 个测试通过。
+- `cd OEngine; node --test tests/*.test.mjs`：415 个测试通过。
 - Phase 2 已补充 Playwright 浏览器验收，实时 Record/Stop、Tab 切换、整数 FPS 和无 Capture 控件均已验证。
 
 ## 后续
