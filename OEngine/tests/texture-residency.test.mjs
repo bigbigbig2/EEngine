@@ -23,6 +23,8 @@ test("TextureResidency shares TextureRef and retires layers after GPU completion
   const staged = residency.stage([a, b], stage);
   assert.equal(staged.textureRefs.get(shared), 1);
   assert.equal(residency.evidence().residentTextureCount, 1);
+  assert.ok(residency.evidence().residentTextureBytes > 0);
+  assert.ok(residency.evidence().residentTextureBytes < residency.evidence().allocatedBytes);
   stage.finish();
   const releaseA = new FakeCommand();
   residency.release([a], releaseA);
@@ -37,6 +39,7 @@ test("TextureResidency shares TextureRef and retires layers after GPU completion
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(residency.evidence().retiringTextureCount, 0);
+  assert.equal(residency.evidence().residentTextureBytes, 0);
   residency.destroy();
 });
 
@@ -53,6 +56,7 @@ test("4K residency uses transaction-sized bank instead of fixed 16-layer allocat
   assert.equal(ref & 0x7fffffff, 1);
   assert.deepEqual(graphics.texturesCreated[1].descriptor.size, [4096, 4096, 2]);
   assert.equal(residency.evidence().highResolutionTextureCapacity, 2);
+  assert.ok(residency.evidence().residentTextureBytes < residency.evidence().allocatedBytes);
   residency.destroy();
 });
 
@@ -68,6 +72,7 @@ test("bulk 2K residency preflights one exact power-of-two bank", () => {
   assert.deepEqual(graphics.texturesCreated[1].descriptor.size, [2048, 2048, 32]);
   assert.equal(residency.evidence().residentHighResolutionTextureCount, 25);
   assert.equal(residency.evidence().freeHighResolutionTextureLayerCount, 6);
+  assert.ok(residency.evidence().residentTextureBytes < residency.evidence().allocatedBytes);
   residency.destroy();
 });
 

@@ -122,6 +122,8 @@ Feature-off 对照已经对全部 9 个 minus case 执行 active-pass gate；报
 - readback ring 从 3 增大到 16，避免 headless/慢 adapter 在 benchmark window 内溢出；本次 smoke 和相机实验 dropped counter 均为 0。
 - 增加 Inspector visible/hidden A/B 和逐帧 GPU counter coverage profile；后者在 60/60 measured frames 完成 readback，0 dropped/failed，证明 counter producer→readback consumer 链路可独立验证。
 - 报告明确区分 CPU wall、timestamped GPU pass sum、counter coverage 和 diagnostics，避免把缺采样写成 0 ms 或把 CPU/GPU 时钟相加。
+- 修正 `TextureResidency.evidence().residentTextureBytes`：它现在只统计仍被材质引用的 live layers；整张 texture-array bank 的物理 capacity 继续由 `allocatedBytes` 表示。此前该字段错误复用了 capacity，导致 Profiler 的 `packed.material.residentTextureBytes` 与 `GraphicsContext.memoryEvidence().owners.materials.residentLogicalBytes` 口径冲突。
+- 尝试过把 FrameGraph 的创建/释放表和 `PassResources` 预编译复用；同条件浏览器回归未证明 `graph-execute` 下降，因此已撤回该实验。`graph-execute` 包含所有 pass callback 的命令编码时间，不能再把它整体误判为 FrameGraph 调度器自身开销；下一步需先取得逐 pass CPU encoding 分解。
 
 ## 7. 当前限制与后续执行顺序
 

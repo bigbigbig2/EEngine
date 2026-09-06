@@ -265,6 +265,12 @@ export class TextureResidency {
     const highBytes = this.highTexture === null
       ? 0
       : arrayBytes(this.highSize, this.highCapacity, this.highMipCount);
+    const baseLayerBytes = arrayBytes(
+      TEXTURE_RESIDENCY_BASE_SIZE,
+      1,
+      TEXTURE_RESIDENCY_BASE_MIP_COUNT
+    );
+    const highLayerBytes = arrayBytes(this.highSize, 1, this.highMipCount);
     return Object.freeze({
       schemaVersion: 1,
       textureCapacity: TEXTURE_RESIDENCY_BASE_CAPACITY,
@@ -276,11 +282,12 @@ export class TextureResidency {
         TEXTURE_RESIDENCY_BASE_CAPACITY,
         TEXTURE_RESIDENCY_BASE_MIP_COUNT
       ) + highBytes,
-      residentTextureBytes: arrayBytes(
-        TEXTURE_RESIDENCY_BASE_SIZE,
-        TEXTURE_RESIDENCY_BASE_CAPACITY,
-        TEXTURE_RESIDENCY_BASE_MIP_COUNT
-      ) + highBytes,
+      // This is the logical live footprint, not the physical bank capacity.
+      // Keep allocatedBytes as the capacity number so callers can distinguish
+      // committed storage from layers currently referenced by materials.
+      residentTextureBytes:
+        (residentTextureCount - residentHighResolutionTextureCount) * baseLayerBytes +
+        residentHighResolutionTextureCount * highLayerBytes,
       textureSize: TEXTURE_RESIDENCY_BASE_SIZE,
       mipLevelCount: TEXTURE_RESIDENCY_BASE_MIP_COUNT,
       highResolutionTextureSize: this.highSize,
