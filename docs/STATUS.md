@@ -4,7 +4,7 @@
 
 ## Performance Inspector 状态
 
-`docs/PERFORMANCE-INSPECTOR.md` 的 Task 1–5 已完成核心数据层实现，当前提交包含：
+`docs/PERFORMANCE-INSPECTOR.md` 的 Task 1–5 已完成核心数据层实现，Inspector v2 已收敛为实时 Profiler + 内存 Timeline，当前提交包含：
 
 - Task 1：typed `MetricDescriptor`/`MetricSample`、注册表、默认指标目录、nearest-rank 统计和 coverage 统计。
 - Task 2：immutable `ProfileFrame`/`ProfileSpan`、有界 `ProfileHistory`、按 `frameIndex` 的异步 patch 和状态校验。
@@ -12,11 +12,11 @@
 - Task 4：资源账本已接入 GPU Asset、Scene、Packed Scene、Texture Residency、transient Buffer/Texture pool、temporal history、shadow/LPV atlas、upload staging 和 profiler readback 的创建/销毁边界，并按 resident/transient/history/atlas/upload/readback/profiler 分类；Pipeline 已记录 cache、host-call 和 first-use，FrameGraph 已记录 active/pruned 与逻辑瞬态峰值。
 - Task 5：Capture v1 已提供 canonical schema、golden fixture、严格导入校验、未知字段规范化、递归深冻结、稳定序列化和导入后统计一致性；Trace 保持 CPU/GPU 独立时钟域，duration-only GPU 数据不伪造 slice 起点，并支持带独立 golden 验证的流式/分块序列化。
 
-Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、view-model 和 package subpath 已实现；Task 7 的 Overview/Timeline 图表、预算分类、范围统计和双时钟轨道已实现；Task 8 的 GPU-driven、FrameGraph、Resources、Diagnostics 领域面板已实现；Task 9 已将 Rendering Lab 接入共享 Inspector 并移除旧统计面板；Phase 1 已完成基础布局状态；Phase 2 已按 three.js r185 Profiler/Style 的真实结构改为右上角 toggle + 底部 dock，并增加 Capture/Trace 操作区和只读 Capture 回放 seam。真实 adapter 上的 off/Live/Record/Deep Capture A/B 和 1080p 性能证据仍待采集，当前不能宣称性能目标已经达标。
+Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、view-model 和 package subpath 已实现；Task 7 的 Performance/Timeline 图表、预算分类、范围统计和双时钟轨道已实现；Task 8 的 Work、FrameGraph、Memory、Diagnostics 领域面板已实现；Task 9 已将 Rendering Lab 接入共享 Inspector 并移除旧统计面板。Phase 1–4 的实时 Inspector 基线已完成：右上角整数 FPS toggle、底部 dock、Monitor/Record/High detail、Follow latest、Pin frame、独立有界 Timeline 录制窗口和 Playwright story smoke。Inspector 公共路径不再暴露 Capture/Trace 编解码器；内部 codec 仅供 benchmark/test 使用。真实 adapter 上的固定 workload/1080p 性能证据仍待采集，当前不能宣称性能目标已经达标。
 
 资源数值统一表示 OEngine owner 在实际创建/销毁边界登记的 accounted/estimated bytes，不是物理 VRAM、驱动分配或硬件利用率；history/atlas 与 resident/transient 分账，禁止重复计数。
 
-验证：`npm run build`、`npm run build:test`、`npm run audit:shaders` 通过；Task 1–5 命中测试 74/74 通过；当前全量测试 408/408 通过。
+验证：`npm run build`、`npm run build:test`、`npm run audit:shaders` 通过；Inspector 命中测试和 Storybook typecheck 通过；当前全量测试 415/415 通过。
 
 ## 已验证基础
 
@@ -62,8 +62,8 @@ Shader audit 当前记录 69 个 Shader：65 个 `authored-live`、4 个 `unknow
 
 ## 下一步
 
-1. 在固定 workload 上完成 Inspector 的 off/Live/Record/Deep Capture A/B（Task 9）并归档浏览器证据。
-2. 用 Rendering Lab 固定真实 Packed 多资产 workload，获得 GPU/counter/memory 基线。
+1. 用 Rendering Lab 固定真实 Packed 多资产 workload，获得 GPU/counter/memory 基线。
+2. 继续补齐逐帧 FrameGraph/resource evidence，并记录 device loss、resize、feature toggle 后的浏览器证据。
 3. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
 4. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。
 5. 为四个 unknown Shader 确认 authored owner 或可追溯生成源。

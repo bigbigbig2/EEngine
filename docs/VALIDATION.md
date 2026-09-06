@@ -17,7 +17,7 @@ npm test
 Rendering Lab 使用共享 `OEngine` Performance Inspector 作为唯一统计面板；
 旧的场景摘要、evidence 和 pipeline 统计 DOM 已删除，调试视图与场景控制仍
 由 Rendering Lab 面板提供。启动后可通过“性能 Inspector”按钮开关 Inspector，
-并用 Inspector 的 Overview/Timeline/GPU-driven/FrameGraph/Resources/Diagnostics
+并用 Inspector 的 Performance/Timeline/Work/Graph/Memory/Diagnostics
 标签查看统一证据。
 
 ```powershell
