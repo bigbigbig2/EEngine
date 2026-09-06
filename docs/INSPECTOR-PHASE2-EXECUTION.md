@@ -6,6 +6,7 @@
 
 - [x] `LiveProfilerStore` 使用有界环形历史，不在稳定帧执行无消费者的 readback。
 - [x] Record/Stop/Clear 的状态转移可观察且不会停止 Renderer。
+- [x] Timeline 使用独立的有界录制窗口；Stop 后保留已录制帧，同时 Monitor 历史继续实时更新。
 - [x] Pin frame 后 Graph/Memory 读取该帧保存的 domain evidence；Diagnostics 明确标注为 session cumulative，帧级 coverage/pending 仍读取选中 `ProfileFrame`。
 - [x] GPU pending、dropped、not-sampled 与 unsupported 的文案和颜色可区分。
 - [x] Rendering Lab Playwright 验收保存 Inspector 截图并检查控制台。

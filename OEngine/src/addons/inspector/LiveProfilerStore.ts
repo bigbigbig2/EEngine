@@ -38,6 +38,7 @@ export class LiveProfilerStore {
     this.profiler = profiler;
     this.modeValue = fromProfilerMode(profiler.mode);
     this.recordingValue = this.modeValue === "record";
+    if (this.recordingValue) this.seedTimelineFromLatest();
     this.unsubscribeHistory = profiler.historyStore?.subscribe((frame) => {
       this.syncTimeline(frame);
       if (!this.pausedValue) this.notify();
