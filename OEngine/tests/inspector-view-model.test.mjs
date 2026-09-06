@@ -126,3 +126,26 @@ test("LiveProfilerStore keeps bounded live selection state independent from the 
   store.dispose();
   profiler.destroy();
 });
+
+test("LiveProfilerStore keeps a bounded Timeline recording after Stop", () => {
+  const profiler = createProfiler();
+  const store = new LiveProfilerStore(profiler);
+  store.setMode("record");
+  profiler.beginFrame(21);
+  profiler.endFrame();
+  profiler.beginFrame(22);
+  profiler.endFrame();
+  assert.deepEqual(store.timelineFrames.map((frame) => frame.frameIndex), [21, 22]);
+
+  store.setMode("monitor");
+  profiler.beginFrame(23);
+  profiler.endFrame();
+  assert.equal(store.recording, false);
+  assert.deepEqual(store.timelineFrames.map((frame) => frame.frameIndex), [21, 22]);
+  assert.deepEqual(store.frames.map((frame) => frame.frameIndex), [21, 22, 23]);
+
+  store.clear();
+  assert.deepEqual(store.timelineFrames, []);
+  store.dispose();
+  profiler.destroy();
+});

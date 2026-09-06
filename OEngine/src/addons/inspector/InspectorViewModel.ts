@@ -10,6 +10,7 @@ export type InspectorMode = LiveProfilerMode;
 
 export interface InspectorViewState {
   readonly mode: InspectorMode;
+  readonly recording: boolean;
   readonly source: "live";
   readonly paused: boolean;
   readonly followLatest: boolean;
@@ -18,6 +19,7 @@ export interface InspectorViewState {
   readonly latest: ProfileFrame | undefined;
   readonly selected: ProfileFrame | undefined;
   readonly frames: readonly ProfileFrame[];
+  readonly timelineFrames: readonly ProfileFrame[];
 }
 
 export type InspectorViewModelListener = (state: InspectorViewState) => void;
@@ -35,11 +37,13 @@ export class InspectorViewModel {
   }
 
   get mode(): InspectorMode { return this.store.state.mode; }
+  get recording(): boolean { return this.store.state.recording; }
   get paused(): boolean { return this.store.state.paused; }
   get followLatest(): boolean { return this.store.state.followLatest; }
   get selectedFrame(): ProfileFrame | undefined { return this.store.selectedFrame; }
   get latestFrame(): ProfileFrame | undefined { return this.store.latestFrame; }
   get frames(): readonly ProfileFrame[] { return this.store.frames; }
+  get timelineFrames(): readonly ProfileFrame[] { return this.store.timelineFrames; }
 
   setMode(mode: InspectorMode): void { this.store.setMode(mode); }
   pause(): void { this.store.pause(); }

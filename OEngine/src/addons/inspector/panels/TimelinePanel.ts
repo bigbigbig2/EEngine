@@ -76,6 +76,10 @@ export class TimelinePanel {
       : display === "unsupported" && selected !== undefined
         ? "GPU timing unsupported"
         : "";
+    if (frames.length === 0) {
+      this.details.textContent = "Start recording to populate the live Timeline.";
+      return;
+    }
     if (selected === undefined) {
       this.details.textContent = range === null
         ? "Select a frame; Shift-click another frame to select a range."

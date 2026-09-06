@@ -221,7 +221,9 @@ export class InspectorShell {
   update(state: InspectorViewState): void {
     if (this.disposed) return;
     const modeLabel = state.mode === "high-detail" ? "High detail" : state.mode === "record" ? "Recording" : "Monitor";
-    this.status.textContent = `${modeLabel}${state.paused ? " · view paused" : ""} · live data · ${state.frames.length} frames`;
+    const statusSource = state.recording ? "timeline" : "live data";
+    const statusCount = state.recording ? state.timelineFrames.length : state.frames.length;
+    this.status.textContent = `${modeLabel}${state.paused ? " · view paused" : ""} · ${statusSource} · ${statusCount} frames`;
     const fps = presentedFps(state.frames);
     this.toggleLabel.textContent = fps === null ? "Inspector" : `${Math.round(fps)} FPS`;
     this.drawToggleGraph(state);
@@ -237,7 +239,7 @@ export class InspectorShell {
       ? "select a frame for details"
       : `frame ${state.selectedFrameIndex}`;
     this.overview.update(state.frames, state.range);
-    this.timeline.update(state.frames, state.selectedFrameIndex, state.range);
+    this.timeline.update(state.timelineFrames, state.selectedFrameIndex, state.range);
     const domains = this.options.onDomainState();
     this.gpuDriven.update(state.frames, state.selected ?? state.latest);
     this.frameGraph.update(domains.frameGraph, state.selected);

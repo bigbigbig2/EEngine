@@ -28,6 +28,10 @@ export class ProfileHistory {
     return this.revisionValue;
   }
 
+  get capacity(): number {
+    return this.capacityValue;
+  }
+
   add(frame: ProfileFrame): ProfileFrame {
     if (!Number.isInteger(frame.frameIndex) || frame.frameIndex < 0) {
       throw new RangeError("frameIndex must be a non-negative integer");
