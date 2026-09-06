@@ -15,16 +15,11 @@ export interface InspectorShellOptions {
   readonly styles: InspectorStyleMode;
   readonly nonce?: string;
   readonly onMode: (mode: "live" | "record" | "deep-capture") => void;
-  readonly onPause: () => void;
-  readonly onResume: () => void;
+  readonly onFollowLatest: (follow: boolean) => void;
   readonly onClose: () => void;
   readonly onStartRecording: () => void;
   readonly onStopRecording: () => void;
-  readonly onCaptureNextFrame: () => void;
-  readonly onExportCapture: () => void;
-  readonly onExportTrace: () => void;
   readonly onClear: () => void;
-  readonly onImportCapture: (file: File) => void;
   readonly onSelectFrame: (frameIndex: number) => void;
   readonly onSelectRange: (startFrameIndex: number, endFrameIndex: number) => void;
   readonly onDomainState: () => InspectorDomainState;
@@ -102,6 +97,12 @@ export class InspectorShell {
     this.host = document.createElement("oengine-inspector");
     this.root = this.host.attachShadow({ mode: "open" });
     this.root.append(this.createStyle(options.styles, options.nonce));
+    // Keep panel visibility deterministic across inline and external themes.
+    // The external stylesheet intentionally styles .overview-panel, so the
+    // hidden attribute needs an explicit higher-priority rule.
+    const visibilityStyle = document.createElement("style");
+    visibilityStyle.textContent = ".panel > [hidden]{display:none!important}.overview-panel{display:block}";
+    this.root.append(visibilityStyle);
 
     const wrapper = document.createElement("div");
     wrapper.className = "inspector profiler-panel visible";
@@ -140,37 +141,30 @@ export class InspectorShell {
 
     const tabs = document.createElement("div");
     tabs.className = "tabs";
-    for (const [mode, label] of [["live", "Live"], ["record", "Record"], ["deep-capture", "Deep capture"]] as const) {
+    for (const [mode, label] of [["live", "Monitor"], ["record", "Record"], ["deep-capture", "High detail"]] as const) {
       const button = this.button(label, () => options.onMode(mode));
       this.modeButtons.set(mode, button);
       tabs.append(button);
     }
-    tabs.append(this.button("Pause", options.onPause), this.button("Resume", options.onResume));
+    const followLatest = this.button("Follow latest", () => {
+      const next = followLatest.getAttribute("aria-pressed") !== "true";
+      followLatest.setAttribute("aria-pressed", String(next));
+      options.onFollowLatest(next);
+    });
+    followLatest.setAttribute("aria-pressed", "true");
+    tabs.append(followLatest);
 
     const actions = document.createElement("div");
     actions.className = "actions";
     actions.append(
       this.button("Start", options.onStartRecording),
       this.button("Stop", options.onStopRecording),
-      this.button("Capture", options.onCaptureNextFrame),
-      this.button("Export", options.onExportCapture),
-      this.button("Trace", options.onExportTrace),
       this.button("Clear", options.onClear)
     );
-    const importInput = document.createElement("input");
-    importInput.type = "file";
-    importInput.accept = "application/json,.json";
-    importInput.hidden = true;
-    importInput.addEventListener("change", () => {
-      const file = importInput.files?.[0];
-      if (file !== undefined) options.onImportCapture(file);
-      importInput.value = "";
-    });
-    actions.append(this.button("Import", () => importInput.click()), importInput);
 
     const panelTabs = document.createElement("div");
     panelTabs.className = "tabs panel-tabs";
-    for (const [panel, label] of [["overview", "Overview"], ["timeline", "Timeline"], ["gpu-driven", "GPU-driven"], ["framegraph", "FrameGraph"], ["resources", "Resources"], ["diagnostics", "Diagnostics"]] as const) {
+    for (const [panel, label] of [["overview", "Performance"], ["timeline", "Timeline"], ["gpu-driven", "Work"], ["framegraph", "Graph"], ["resources", "Memory"], ["diagnostics", "Diagnostics"]] as const) {
       const button = this.button(label, () => this.showPanel(panel));
       this.panelButtons.set(panel, button);
       panelTabs.append(button);
@@ -187,7 +181,6 @@ export class InspectorShell {
     summary.append(this.status, this.selected);
     this.panel = document.createElement("div");
     this.panel.className = "panel";
-    this.panel.textContent = "Overview";
     this.overview = new OverviewPanel(document);
     this.timeline = new TimelinePanel(document, options.onSelectFrame, options.onSelectRange);
     this.gpuDriven = new GpuDrivenPanel(document);
@@ -220,7 +213,7 @@ export class InspectorShell {
 
   update(state: InspectorViewState): void {
     if (this.disposed) return;
-    const modeLabel = state.mode === "deep-capture" ? "Deep capture" : state.mode === "record" ? "Record" : "Live";
+    const modeLabel = state.mode === "deep-capture" ? "High detail" : state.mode === "record" ? "Recording" : "Monitor";
     const sourceLabel = state.source === "capture" ? "imported capture" : "live data";
     this.status.textContent = `${modeLabel}${state.paused ? " · paused" : ""} · ${sourceLabel} · ${state.frames.length} frames`;
     const fps = presentedFps(state.frames);
@@ -228,6 +221,9 @@ export class InspectorShell {
     this.drawToggleGraph(state);
     this.status.dataset.mode = state.mode;
     this.modeButtons.forEach((button, mode) => button.setAttribute("aria-pressed", String(mode === state.mode)));
+    const followButton = [...this.root.querySelectorAll<HTMLButtonElement>(".control-strip .tabs button")]
+      .find((button) => button.textContent === "Follow latest");
+    followButton?.setAttribute("aria-pressed", String(state.followLatest));
     this.panelButtons.forEach((button, panel) => button.setAttribute("aria-pressed", String(panel === this.activePanel)));
     this.selected.textContent = state.selectedFrameIndex === null
       ? "select a frame for details"

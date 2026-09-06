@@ -12,7 +12,9 @@ const STATUS_CODES: Readonly<Record<MetricSampleAvailability, number>> = Object.
   pending: 1,
   unsupported: 2,
   invalid: 3,
-  dropped: 4
+  dropped: 4,
+  "not-sampled": 5,
+  "not-applicable": 6
 });
 
 export function metricStatusCode(status: MetricSampleAvailability): number {

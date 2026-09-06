@@ -8,6 +8,8 @@ export interface InspectorViewState {
   readonly mode: InspectorMode;
   readonly source: "live" | "capture";
   readonly paused: boolean;
+  /** When true the view follows the newest live frame; false means a pinned frame. */
+  readonly followLatest: boolean;
   readonly selectedFrameIndex: number | null;
   readonly range: readonly [number, number] | null;
   readonly latest: ProfileFrame | undefined;
@@ -27,6 +29,7 @@ export class InspectorViewModel {
   private readonly unsubscribeProfiler: () => void;
   private modeValue: InspectorMode;
   private pausedValue = false;
+  private followLatestValue = true;
   private selectedFrameIndexValue: number | null = null;
   private rangeValue: readonly [number, number] | null = null;
   private captureValue: PerformanceCapture | null = null;
@@ -36,7 +39,12 @@ export class InspectorViewModel {
     this.profiler = profiler;
     this.modeValue = profiler.mode;
     const history = profiler.historyStore;
-    this.unsubscribeProfiler = history?.subscribe(() => this.notify()) ?? (() => {});
+    this.unsubscribeProfiler = history?.subscribe(() => {
+      // Pausing freezes the view, not the renderer. This is the same distinction
+      // as a pinned frame in a real-time profiler and avoids pretending that the
+      // engine stopped producing evidence.
+      if (!this.pausedValue) this.notify();
+    }) ?? (() => {});
   }
 
   get mode(): InspectorMode {
@@ -45,6 +53,10 @@ export class InspectorViewModel {
 
   get paused(): boolean {
     return this.pausedValue;
+  }
+
+  get followLatest(): boolean {
+    return this.followLatestValue;
   }
 
   get selectedFrame(): FrameProfileSnapshot | ProfileFrame | undefined {
@@ -101,6 +113,7 @@ export class InspectorViewModel {
       throw new RangeError(`Unknown frame '${frameIndex}'`);
     }
     this.selectedFrameIndexValue = frameIndex;
+    this.followLatestValue = false;
     this.notify();
   }
 
@@ -122,6 +135,17 @@ export class InspectorViewModel {
     this.assertAlive();
     this.selectedFrameIndexValue = null;
     this.rangeValue = null;
+    this.followLatestValue = true;
+    this.notify();
+  }
+
+  setFollowLatest(follow: boolean): void {
+    this.assertAlive();
+    this.followLatestValue = follow;
+    if (follow) {
+      this.selectedFrameIndexValue = null;
+      this.rangeValue = null;
+    }
     this.notify();
   }
 
@@ -156,6 +180,7 @@ export class InspectorViewModel {
       mode: this.modeValue,
       source: this.captureValue === null ? "live" : "capture",
       paused: this.pausedValue,
+      followLatest: this.followLatestValue,
       selectedFrameIndex: this.selectedFrameIndexValue,
       range: this.rangeValue,
       latest: this.frames.at(-1),

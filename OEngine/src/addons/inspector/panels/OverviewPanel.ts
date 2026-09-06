@@ -78,11 +78,11 @@ export class OverviewPanel {
     heading.textContent = "Overview";
     const subtitle = document.createElement("p");
     subtitle.className = "panel-subtitle";
-    subtitle.textContent = "Presented cadence and render cost over the visible frame window.";
+    subtitle.textContent = "Real-time RAF cadence and measured render cost over the visible frame window.";
     const kpiGrid = document.createElement("div");
     kpiGrid.className = "overview-kpis";
     const kpis = new Map<string, { value: HTMLElement; meta: HTMLElement }>();
-    for (const [id, label] of [["fps", "Presented FPS"], ["frame", "Frame interval"], ["cpu", "CPU render"], ["gpu", "GPU pass sum"]] as const) {
+    for (const [id, label] of [["fps", "RAF FPS"], ["frame", "RAF interval"], ["cpu", "CPU frame wall"], ["gpu", "GPU pass sum"]] as const) {
       const card = document.createElement("div");
       card.className = "kpi-card";
       const cardLabel = document.createElement("span");

@@ -98,16 +98,11 @@ export class Inspector {
       styles: this.options.styles,
       nonce: this.options.nonce,
       onMode: (mode) => this.viewModel.setMode(mode),
-      onPause: () => this.pause(),
-      onResume: () => this.resume(),
+      onFollowLatest: (follow) => this.viewModel.setFollowLatest(follow),
       onClose: () => this.close(),
       onStartRecording: () => this.startRecording(),
-      onStopRecording: () => { void this.stopRecording().then((capture) => downloadBlob(this.exportCapture(capture), "oengine-capture.json")).catch((error) => console.error(error)); },
-      onCaptureNextFrame: () => { void this.captureNextFrame().then((capture) => downloadBlob(this.exportCapture(capture), "oengine-frame.json")).catch((error) => console.error(error)); },
-      onExportCapture: () => downloadBlob(this.exportCapture(), "oengine-capture.json"),
-      onExportTrace: () => downloadBlob(this.exportTrace(), "oengine-trace.json"),
+      onStopRecording: () => { void this.stopRecording().catch((error) => console.error(error)); },
       onClear: () => this.clear(),
-      onImportCapture: (file) => { void file.text().then((serialized) => this.importCapture(serialized)).catch((error) => console.error(error)); },
       onSelectFrame: (frameIndex) => this.selectFrame(frameIndex),
       onSelectRange: (startFrameIndex, endFrameIndex) => this.viewModel.selectRange(startFrameIndex, endFrameIndex),
       onDomainState: () => this.domainState()
@@ -144,9 +139,15 @@ export class Inspector {
     this.viewModel.resume();
   }
 
+  setFollowLatest(follow: boolean): void {
+    this.assertAlive();
+    this.viewModel.setFollowLatest(follow);
+  }
+
   startRecording(): void {
     this.assertAlive();
     this.viewModel.clearLoadedCapture();
+    this.viewModel.setFollowLatest(true);
     this.viewModel.setMode("record");
     this.recordingStartFrame = (this.profiler.latest?.frameIndex ?? -1) + 1;
   }
@@ -274,7 +275,8 @@ export class Inspector {
         gpuTimestampAvailable: this.profiler.gpuTimestampAvailable,
         gpuSampleInterval: this.profiler.gpuSampleInterval,
         gpuCounterSampleInterval: this.profiler.gpuCounterSampleInterval,
-        inspectorOverheadMs: overhead?.availability === "available" ? overhead.value : null
+        inspectorOverheadMs: overhead?.availability === "available" ? overhead.value : null,
+        latestFrameIndex: this.profiler.latest?.frameIndex
       }
     };
   }
@@ -326,13 +328,4 @@ export class Inspector {
   private assertAlive(): void {
     if (this.disposed) throw new Error("Inspector has been disposed");
   }
-}
-
-function downloadBlob(blob: Blob, filename: string): void {
-  if (typeof document === "undefined" || typeof URL === "undefined") return;
-  const anchor = document.createElement("a");
-  anchor.href = URL.createObjectURL(blob);
-  anchor.download = filename;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(anchor.href), 0);
 }

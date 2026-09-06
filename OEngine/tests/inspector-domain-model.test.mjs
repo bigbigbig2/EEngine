@@ -28,20 +28,20 @@ function frame(samples) {
 
 test("GPU-driven funnel is fail-visible for zero denominators and missing counters", () => {
   const current = frame({
-    "legacy.instances.candidate": sample(10, "legacy.instances.candidate", 0),
-    "packed.visibility.hierarchy": sample(10, "packed.visibility.hierarchy", 0),
-    "lighting.clusterCount": sample(10, "lighting.clusterCount", 4),
-    "packed.visibility.drawIndirect": sample(10, "packed.visibility.drawIndirect", 2),
-    "temporal.outputPixels": sample(10, "temporal.outputPixels", null, "unsupported")
+    "gpu.counter.candidateInstances": sample(10, "gpu.counter.candidateInstances", 0),
+    "gpu.counter.visibleInstances": sample(10, "gpu.counter.visibleInstances", 0),
+    "gpu.counter.candidateClusters": sample(10, "gpu.counter.candidateClusters", 4),
+    "gpu.counter.selectedClusters": sample(10, "gpu.counter.selectedClusters", 2),
+    "gpu.counter.shadedPixels": sample(10, "gpu.counter.shadedPixels", null, "unsupported")
   });
   const funnel = buildGpuDrivenFunnel([current]);
   assert.equal(funnel[0].ratio, null);
   assert.equal(funnel[1].ratio, null);
-  assert.equal(funnel[4].availability, "unsupported");
+  assert.equal(funnel[5].availability, "unsupported");
 
   const queues = buildQueueSummaries([current], [{
     label: "Raster",
-    current: "packed.visibility.drawIndirect",
+    current: "gpu.counter.selectedClusters",
     capacity: "queue.raster.capacity",
     peak: "queue.raster.peak",
     overflow: "queue.raster.overflow"
@@ -60,7 +60,7 @@ test("GPU-driven queue preserves explicit overflow and feature-off state", () =>
   });
   const queue = buildQueueSummaries([current], [{ label: "Raster", current: "queue.current", capacity: "queue.capacity", peak: "queue.peak", overflow: "queue.overflow" }])[0];
   assert.deepEqual(queue, { label: "Raster", current: 8, capacity: 4, peak: 9, overflow: 1, available: true });
-  assert.ok(buildGpuDrivenFunnel([]).every((stage) => stage.availability === "unsupported"));
+  assert.ok(buildGpuDrivenFunnel([]).every((stage) => stage.availability === "not-sampled"));
 });
 
 test("FrameGraph rows expose active/pruned phases and resource read/write counts", () => {
@@ -110,6 +110,6 @@ test("Resources and Diagnostics keep accounted/estimated labels and unsupported 
     gpuCounterSampleInterval: 8,
     inspectorOverheadMs: 0.25
   });
-  assert.equal(diagnostics.find((row) => row.label === "Unsupported metrics").severity, "warning");
+  assert.equal(diagnostics.find((row) => row.label === "Metric coverage").severity, "info");
   assert.equal(diagnostics.find((row) => row.label === "Inspector overhead").value, "0.250 ms");
 });

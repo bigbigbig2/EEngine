@@ -28,23 +28,24 @@ export interface QueueSummary {
 
 const DEFAULT_QUEUE_SPECS: readonly QueueMetricSpec[] = Object.freeze([
   {
-    label: "Hierarchy",
-    current: "packed.visibility.hierarchy",
+    label: "Selected clusters",
+    current: "gpu.counter.selectedClusters",
     capacity: "packed.visibility.rasterWorkCapacity"
   },
   {
-    label: "RasterWork",
-    current: "packed.visibility.drawIndirect",
+    label: "Hardware clusters",
+    current: "gpu.counter.hwClusters",
     capacity: "packed.visibility.rasterWorkCapacity"
   }
 ]);
 
 const FUNNEL_SPECS = Object.freeze([
-  ["Candidate", "legacy.instances.candidate"],
-  ["Hierarchy", "packed.visibility.hierarchy"],
-  ["Cluster", "lighting.clusterCount"],
-  ["Raster", "packed.visibility.drawIndirect"],
-  ["Shaded pixel", "temporal.outputPixels"]
+  ["Candidate instances", "gpu.counter.candidateInstances", "instances"],
+  ["Visible instances", "gpu.counter.visibleInstances", "instances"],
+  ["Candidate clusters", "gpu.counter.candidateClusters", "clusters"],
+  ["Selected clusters", "gpu.counter.selectedClusters", "clusters"],
+  ["Hardware clusters", "gpu.counter.hwClusters", "clusters"],
+  ["Shaded pixels", "gpu.counter.shadedPixels", "pixels"]
 ] as const);
 
 function latest(frames: readonly ProfileFrame[]): ProfileFrame | undefined {
@@ -53,19 +54,22 @@ function latest(frames: readonly ProfileFrame[]): ProfileFrame | undefined {
 
 function read(frame: ProfileFrame | undefined, metricId: string): Pick<FunnelStage, "value" | "availability"> {
   const sample = frame?.samples[metricId];
-  if (sample === undefined) return { value: null, availability: "unsupported" };
+  if (sample === undefined) return { value: null, availability: "not-sampled" };
   return { value: sample.availability === "available" ? sample.value : null, availability: sample.availability };
 }
 
 export function buildGpuDrivenFunnel(frames: readonly ProfileFrame[]): readonly FunnelStage[] {
   const frame = latest(frames);
   let previous: number | null = null;
-  return FUNNEL_SPECS.map(([label, metricId]) => {
+  let previousGroup: string | null = null;
+  return FUNNEL_SPECS.map(([label, metricId, group]) => {
     const sample = read(frame, metricId);
+    if (group !== previousGroup) previous = null;
     const ratio = sample.value !== null && previous !== null && previous > 0
       ? sample.value / previous
       : null;
     if (sample.value !== null) previous = sample.value;
+    previousGroup = group;
     return Object.freeze({ label, metricId, ...sample, ratio });
   });
 }

@@ -31,10 +31,18 @@ test("InspectorViewModel owns mode, pause and frame selection state", () => {
   assert.equal(model.mode, "record");
   model.pause();
   assert.equal(model.paused, true);
+  const pausedUpdateCount = updates.length;
+  profiler.beginFrame(3);
+  profiler.endFrame();
+  assert.equal(updates.length, pausedUpdateCount);
   model.resume();
   assert.equal(model.paused, false);
 
+  model.setFollowLatest(true);
+  assert.equal(model.followLatest, true);
+  assert.equal(model.snapshot().selectedFrameIndex, null);
   model.selectFrame(1);
+  assert.equal(model.followLatest, false);
   assert.equal(model.selectedFrame?.frameIndex, 1);
   assert.deepEqual(
     model.selectRange(1, 2).map((frame) => frame.frameIndex),

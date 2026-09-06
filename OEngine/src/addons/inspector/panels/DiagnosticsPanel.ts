@@ -11,6 +11,7 @@ export interface DiagnosticsInput {
   readonly gpuSampleInterval: number;
   readonly gpuCounterSampleInterval: number;
   readonly inspectorOverheadMs: number | null;
+  readonly latestFrameIndex?: number;
 }
 
 export interface DiagnosticRow {
@@ -37,26 +38,36 @@ export function buildDiagnostics(input: DiagnosticsInput): readonly DiagnosticRo
       { label: "Failed counters", value: String(diagnostics.failedGpuCounterSamples), severity: diagnostics.failedGpuCounterSamples > 0 ? "warning" : "info" }
     );
   }
-  const unsupported = input.frame === undefined
+  const unavailable = input.frame === undefined
     ? []
     : input.metricCatalog.filter((descriptor) => {
       const sample = input.frame!.samples[descriptor.id];
-      return sample === undefined || sample.availability === "unsupported";
+      return sample === undefined || ["not-sampled", "not-applicable", "unsupported"].includes(sample.availability);
     });
-  if (unsupported.length > 0) {
-    rows.push({ label: "Unsupported metrics", value: unsupported.map((metric) => `${metric.id}: ${input.frame!.samples[metric.id] === undefined ? "not sampled in this frame" : metric.description}`).join("; "), severity: "warning" });
+  if (unavailable.length > 0) {
+    const counts = new Map<string, number>();
+    for (const metric of unavailable) {
+      const availability = input.frame!.samples[metric.id]?.availability ?? "not-sampled";
+      counts.set(availability, (counts.get(availability) ?? 0) + 1);
+    }
+    rows.push({
+      label: "Metric coverage",
+      value: [...counts.entries()].map(([availability, count]) => `${availability}: ${count}`).join(" · "),
+      severity: "info"
+    });
   }
   const pending = input.frame === undefined
     ? []
     : Object.values(input.frame.samples).filter((sample) => sample.availability === "pending");
   if (pending.length > 0) {
-    const age = Math.max(...pending.map((sample) => input.frame!.frameIndex - sample.sourceFrameIndex));
+    const latestFrameIndex = input.latestFrameIndex ?? input.frame!.frameIndex;
+    const age = Math.max(...pending.map((sample) => Math.max(0, latestFrameIndex - sample.sourceFrameIndex)));
     rows.push({ label: "Pending age", value: `${age} frame(s)`, severity: "warning" });
   }
   rows.push({
     label: "Inspector overhead",
-    value: input.inspectorOverheadMs === null ? "unsupported" : `${input.inspectorOverheadMs.toFixed(3)} ms`,
-    severity: input.inspectorOverheadMs === null ? "warning" : "info"
+    value: input.inspectorOverheadMs === null ? "not-sampled" : `${input.inspectorOverheadMs.toFixed(3)} ms`,
+    severity: "info"
   });
   return Object.freeze(rows.map((row) => Object.freeze(row)));
 }

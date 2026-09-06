@@ -33,6 +33,8 @@ export interface MetricDescriptor {
 
 export type MetricSampleAvailability =
   | "available"
+  | "not-sampled"
+  | "not-applicable"
   | "pending"
   | "unsupported"
   | "invalid"

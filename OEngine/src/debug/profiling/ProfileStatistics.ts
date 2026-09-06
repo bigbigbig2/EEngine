@@ -44,6 +44,8 @@ export function summarizeMetricCoverage(
 ): ProfileCoverageSummary {
   const counts: Record<MetricSampleAvailability, number> = {
     available: 0,
+    "not-sampled": 0,
+    "not-applicable": 0,
     pending: 0,
     unsupported: 0,
     invalid: 0,
