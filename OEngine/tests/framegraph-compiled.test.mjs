@@ -184,3 +184,28 @@ test("disabled feature contributes no pass, resource or history binding", () => 
     true
   );
 });
+
+test("FrameGraph pass CPU hook is opt-in and wraps executable passes", () => {
+  const graph = new FrameGraph("pass-cpu-hook");
+  const output = graph.import_resource(
+    "output",
+    { kind: "imported", label: "output" },
+    {}
+  );
+  const labels = [];
+  const order = [];
+  const pass = graph.add("present", {}, (_data, resources) => {
+    order.push(resources.pass_name);
+  });
+  pass.write(output);
+
+  graph.compile().execute(new FrameGraphContext({
+    passCpuProfiler(label, callback) {
+      labels.push(label);
+      callback();
+    }
+  }), {});
+
+  assert.deepEqual(labels, ["FrameGraph/present"]);
+  assert.deepEqual(order, ["present"]);
+});

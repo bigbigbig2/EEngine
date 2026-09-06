@@ -34,24 +34,33 @@ export type FrameGraphGraphicsResources = {
   readonly allocator_textures: GPUTextureAllocator;
 };
 
+/** Optional deep-capture hook for attributing CPU command-encoding cost per pass. */
+export type FrameGraphPassCpuProfiler = (
+  label: string,
+  callback: () => void
+) => void;
+
 /** 帧图执行期间共享的设备、命令编码器和资源管理上下文。 */
 export class FrameGraphContext {
   encoder: FrameGraphCommandEncoder | GPUCommandEncoder | null;
   device?: GPUDevice;
   graphics?: unknown;
   resource_manager: FrameGraphResourceManager;
+  readonly pass_cpu_profiler?: FrameGraphPassCpuProfiler;
 
   constructor(opts: {
     encoder?: FrameGraphCommandEncoder | GPUCommandEncoder | null;
     device?: GPUDevice;
     graphics?: unknown;
     resource_manager?: FrameGraphResourceManager;
+    passCpuProfiler?: FrameGraphPassCpuProfiler;
   } = {}) {
     this.encoder = opts.encoder ?? null;
     this.device = opts.device;
     this.graphics = opts.graphics;
     this.resource_manager =
       opts.resource_manager ?? new FrameGraphResourceManager(opts.device ?? null);
+    this.pass_cpu_profiler = opts.passCpuProfiler;
     if (isFrameGraphGraphicsResources(opts.graphics)) {
       this.resource_manager.attachGraphics(opts.graphics, this.encoder);
     }
@@ -894,16 +903,20 @@ export class FrameGraph {
       }
 
       const resources = new PassResources(this, pass);
-      try {
-        const data = pass.data_binding === null
-          ? pass.data
-          : pass.data_binding.resolve(bindings);
-        pass.execute(data, resources, ctx);
-      } catch (cause) {
-        const err = new Error(`RenderPass '${pass.name}' failed to execute`);
-        (err as Error & { cause?: unknown }).cause = cause;
-        throw err;
-      }
+      const executePass = (): void => {
+        try {
+          const data = pass.data_binding === null
+            ? pass.data
+            : pass.data_binding.resolve(bindings);
+          pass.execute(data, resources, ctx);
+        } catch (cause) {
+          const err = new Error(`RenderPass '${pass.name}' failed to execute`);
+          (err as Error & { cause?: unknown }).cause = cause;
+          throw err;
+        }
+      };
+      if (ctx.pass_cpu_profiler === undefined) executePass();
+      else ctx.pass_cpu_profiler(`FrameGraph/${pass.name}`, executePass);
 
       for (const entry of this.__resource_registry) {
         if (entry.last === pass && isTransientEntry(entry)) {

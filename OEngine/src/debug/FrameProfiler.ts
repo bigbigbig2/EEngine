@@ -371,6 +371,15 @@ export class FrameProfiler {
     return this.modeValue;
   }
 
+  /**
+   * Deep capture may add one CPU section per executable FrameGraph pass. Keep
+   * this disabled for live/record modes so the normal render loop pays no
+   * per-pass timing overhead.
+   */
+  shouldSampleCpuPasses(): boolean {
+    return this.enabledValue && this.modeValue === "deep-capture";
+  }
+
   get epoch(): number {
     return this.epochValue;
   }

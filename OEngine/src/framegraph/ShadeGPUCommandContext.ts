@@ -180,11 +180,15 @@ export class ShadeGPUCommandContext {
   }
 
   createFrameGraphContext(): FrameGraphContext {
+    const profiler = this.#graphics.profiler;
     return new FrameGraphContext({
       encoder: this,
       device: this.device,
       graphics: this.#graphics,
-      resource_manager: new FrameGraphResourceManager(this.device)
+      resource_manager: new FrameGraphResourceManager(this.device),
+      passCpuProfiler: profiler.shouldSampleCpuPasses()
+        ? (label, callback) => profiler.measure(label, callback)
+        : undefined
     });
   }
 

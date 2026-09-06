@@ -33,10 +33,14 @@ test("frame profiler modes keep cadence and counter instrumentation explicit", (
   assert.equal(record.gpuCounters.sampled, true);
 
   profiler.setMode("deep-capture");
+  assert.equal(profiler.shouldSampleCpuPasses(), true);
   profiler.beginFrame(7);
   const deep = profiler.endFrame();
   assert.equal(deep.gpu.sampled, true);
   assert.equal(deep.gpuCounters.sampled, true);
+
+  profiler.setMode("record");
+  assert.equal(profiler.shouldSampleCpuPasses(), false);
 });
 
 
