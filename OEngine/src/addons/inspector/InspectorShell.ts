@@ -216,7 +216,7 @@ export class InspectorShell {
     const modeLabel = state.mode === "high-detail" ? "High detail" : state.mode === "record" ? "Recording" : "Monitor";
     this.status.textContent = `${modeLabel}${state.paused ? " · view paused" : ""} · live data · ${state.frames.length} frames`;
     const fps = presentedFps(state.frames);
-    this.toggleLabel.textContent = fps === null ? "Inspector" : `${fps} FPS`;
+    this.toggleLabel.textContent = fps === null ? "Inspector" : `${Math.round(fps)} FPS`;
     this.drawToggleGraph(state);
     this.status.dataset.mode = state.mode;
     this.modeButtons.forEach((button, mode) => button.setAttribute("aria-pressed", String(mode === state.mode)));

@@ -44,7 +44,7 @@ Renderer / GPU owners
 1. CPU wall time、GPU pass sum 和 GPU frame total 分开显示；没有时钟映射时不计算 `CPU + GPU`。
 2. 所有 ratio 只能在相同单位和相同 producer/consumer 语义之间计算。
 3. GPU counter 缺失显示 `not-sampled`、`pending`、`dropped` 或 `unsupported`，不显示伪造零。
-4. RAF 频率标记为 `RAF FPS`，不称为 Presented FPS。
+4. RAF 频率标记为 `RAF FPS`，不称为 Presented FPS；浮动开关显示四舍五入后的整数 FPS，底层序列仍保留小数精度。
 5. owner accounting、estimated GPU size 和真实物理显存必须分栏显示。
 6. 指标 descriptor 必须声明 unit、source、measurement、scope、aggregation 和 cost。
 
@@ -94,4 +94,3 @@ Renderer / GPU owners
 - [Phase 1 execution](./INSPECTOR-PHASE1-EXECUTION.md)
 - [Phase 2 design](./INSPECTOR-PHASE2-DESIGN.md)
 - [Phase 2 execution](./INSPECTOR-PHASE2-EXECUTION.md)
-
