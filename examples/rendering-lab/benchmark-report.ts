@@ -27,6 +27,14 @@ export interface RenderingLabBenchmarkReport {
   readonly featureOffGates: readonly RenderingLabFeatureOffGate[];
   readonly domainEvidence: Readonly<Record<string, unknown>>;
   readonly errors: readonly string[];
+  readonly measurement?: RenderingLabMeasurementProfile;
+}
+
+export interface RenderingLabMeasurementProfile {
+  readonly inspectorVisible: boolean;
+  readonly gpuCounterSampleInterval: number;
+  readonly readbackRingSlots: number;
+  readonly awaitGpuEachFrame: boolean;
 }
 
 export interface RenderingLabCameraSegmentStats {
@@ -65,6 +73,7 @@ export function buildRenderingLabBenchmarkReport(input: {
   readonly cases: readonly BenchmarkResult[];
   readonly domainEvidence?: Readonly<Record<string, unknown>>;
   readonly errors?: readonly string[];
+  readonly measurement?: RenderingLabMeasurementProfile;
 }): RenderingLabBenchmarkReport {
   const full = input.cases.find((result) => result.case.id === "full");
   const base = input.cases.find((result) => result.case.id === "base");
@@ -94,7 +103,8 @@ export function buildRenderingLabBenchmarkReport(input: {
     evidence: Object.freeze(evidence),
     featureOffGates: Object.freeze(featureOffGates),
     domainEvidence: input.domainEvidence ?? Object.freeze({}),
-    errors
+    errors,
+    ...(input.measurement === undefined ? {} : { measurement: Object.freeze({ ...input.measurement }) })
   });
 }
 

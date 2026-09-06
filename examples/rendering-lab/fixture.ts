@@ -25,6 +25,14 @@ export interface RenderingLabFixture {
     readonly smoke?: boolean;
     readonly cameraExperiment?: "none" | CameraExperimentKind | "path";
     readonly cameraLodMode?: CameraLodMode;
+    /** Include/exclude the Inspector shell while measuring the same workload. */
+    readonly inspectorVisible?: boolean;
+    /** Counter cadence for this run; timestamps remain at record-mode cadence. */
+    readonly gpuCounterSampleInterval?: number;
+    /** Capacity of the asynchronous GPU counter readback ring. */
+    readonly readbackRingSlots?: number;
+    /** Serialize each frame behind queue completion for counter-coverage tests. */
+    readonly awaitGpuEachFrame?: boolean;
   }): Promise<RenderingLabBenchmarkReport>;
   downloadBenchmarkReport(): void;
   captureScreenshot(): Promise<void>;

@@ -123,6 +123,11 @@ export class Inspector {
     this.shell = null;
   }
 
+  /** Whether the Inspector shell is currently mounted in the document. */
+  get isOpen(): boolean {
+    return this.shell !== null;
+  }
+
   pause(): void {
     this.assertAlive();
     this.viewModel.pause();

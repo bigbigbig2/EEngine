@@ -12,7 +12,8 @@
     "prebuild:storybook": "npm run build",
     "build:storybook": "npm run typecheck:storybook && storybook build -o storybook-static",
     "build": "tsc --noEmit && vite build --config vite.config.ts",
-    "test:fixtures": "node ./fixture-smoke.mjs"
+    "test:fixtures": "node ./fixture-smoke.mjs",
+    "test:rendering-lab:profiles": "node ./rendering-lab/profile-smoke.mjs"
   },
   "devDependencies": {
     "@storybook/addon-docs": "^10.5.10",

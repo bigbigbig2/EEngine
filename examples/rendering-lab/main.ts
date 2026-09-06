@@ -46,7 +46,8 @@ import {
 import {
   buildRenderingLabBenchmarkReport,
   downloadRenderingLabBenchmarkReport,
-  type RenderingLabBenchmarkReport
+  type RenderingLabBenchmarkReport,
+  type RenderingLabMeasurementProfile
 } from "./benchmark-report.js";
 import {
   RenderingLabBenchmarkSuite,
@@ -173,6 +174,7 @@ let benchmarkError: { name: string; message: string } | undefined;
 let benchmarkRunning = false;
 let benchmarkMaterialPatch: Uint32Array | null = null;
 let benchmarkCameraPathMode = false;
+let benchmarkAwaitGpuEachFrame = false;
 
 root.dataset.mode = PIPELINE_MODE ? "pipeline" : "quality";
 populateDebugViews();
@@ -400,7 +402,11 @@ function installRenderingLabFixture(
       options?.smoke ?? false,
       options?.cases,
       options?.cameraExperiment,
-      options?.cameraLodMode
+      options?.cameraLodMode,
+      options?.inspectorVisible,
+      options?.gpuCounterSampleInterval,
+      options?.readbackRingSlots,
+      options?.awaitGpuEachFrame
     ),
     downloadBenchmarkReport: () => {
       if (benchmarkReport !== null) downloadRenderingLabBenchmarkReport(benchmarkReport);
@@ -452,7 +458,11 @@ async function runRenderingLabBenchmark(
   smoke: boolean,
   requestedCases?: readonly RenderingLabCaseId[],
   cameraExperimentOverride?: "none" | CameraExperimentKind | "path",
-  cameraLodModeOverride?: CameraLodMode
+  cameraLodModeOverride?: CameraLodMode,
+  inspectorVisibleOverride?: boolean,
+  gpuCounterSampleIntervalOverride?: number,
+  readbackRingSlotsOverride?: number,
+  awaitGpuEachFrameOverride?: boolean
 ): Promise<RenderingLabBenchmarkReport> {
   if (benchmarkRunning) throw new Error("A Rendering Lab benchmark is already running");
   if (root.dataset.state !== "ready") throw new Error("Rendering Lab is not ready");
@@ -465,7 +475,22 @@ async function runRenderingLabBenchmark(
   benchmarkDownloadButton.disabled = true;
   cancelAnimationFrame(frameRequest);
   const previousProfilerMode = activeRenderer.profiler.mode;
+  const previousInspectorVisible = inspector?.isOpen ?? false;
+  const previousCounterInterval = activeRenderer.profiler.gpuCounterSampleInterval;
+  const previousReadbackSlots = activeRenderer.profiler.readbackRingSlots;
+  const inspectorVisible = inspectorVisibleOverride ?? previousInspectorVisible;
+  const counterInterval = gpuCounterSampleIntervalOverride ?? previousCounterInterval;
+  const readbackSlots = readbackRingSlotsOverride ?? previousReadbackSlots;
+  benchmarkAwaitGpuEachFrame = awaitGpuEachFrameOverride ?? false;
+  if (inspector !== null) {
+    if (inspectorVisible) inspector.open();
+    else inspector.close();
+  }
   activeRenderer.profiler.setMode("record");
+  activeRenderer.profiler.configure({
+    gpuCounterSampleInterval: counterInterval,
+    readbackRingSlots: readbackSlots
+  });
   const startedAt = new Date().toISOString();
   const caseIds = requestedCases === undefined || requestedCases.length === 0
     ? (smoke ? ["base", "full", "full-minus-ssr"] as const : undefined)
@@ -504,6 +529,12 @@ async function runRenderingLabBenchmark(
       cameraSweep: sweep.filter((entry): entry is CameraSweepCase => entry !== null),
       cameraPathId: RENDERING_LAB_CAMERA_PATH_ID,
       cases: allResults,
+      measurement: {
+        inspectorVisible,
+        gpuCounterSampleInterval: activeRenderer.profiler.gpuCounterSampleInterval,
+        readbackRingSlots: activeRenderer.profiler.readbackRingSlots,
+        awaitGpuEachFrame: benchmarkAwaitGpuEachFrame
+      } satisfies RenderingLabMeasurementProfile,
       domainEvidence: {
         graph: activeRenderer.mainFrameGraphEvidence(),
         memory: activeRenderer.memoryEvidence(),
@@ -521,7 +552,16 @@ async function runRenderingLabBenchmark(
     showBenchmarkError(error);
     throw error;
   } finally {
+    activeRenderer.profiler.configure({
+      gpuCounterSampleInterval: previousCounterInterval,
+      readbackRingSlots: previousReadbackSlots
+    });
     activeRenderer.profiler.setMode(previousProfilerMode);
+    if (inspector !== null) {
+      if (previousInspectorVisible) inspector.open();
+      else inspector.close();
+    }
+    benchmarkAwaitGpuEachFrame = false;
     benchmarkRunning = false;
     benchmarkMaterialPatch = null;
     benchmarkCameraPathMode = false;
@@ -630,7 +670,7 @@ function prepareBenchmarkCase(
   benchmarkStatus.textContent = `准备 ${caseId} · ${benchmarkSweepCase?.id ?? "overview"}`;
 }
 
-function renderBenchmarkFrame(activeRenderer: Renderer, activeScene: Scene, activeCamera: PerspectiveCamera, ordinal = 0): void {
+async function renderBenchmarkFrame(activeRenderer: Renderer, activeScene: Scene, activeCamera: PerspectiveCamera, ordinal = 0): Promise<void> {
   if (benchmarkCameraPathMode) {
     const sample = sampleRenderingLabCameraPath(benchmarkCameraPathTime(ordinal));
     applyRenderingLabCameraPath(activeCamera, sample);
@@ -648,6 +688,7 @@ function renderBenchmarkFrame(activeRenderer: Renderer, activeScene: Scene, acti
   if (!activeRenderer.render(activeCamera, activeScene, 1 / 60)) {
     throw new Error("The WebGPU device was lost during benchmark rendering.");
   }
+  if (benchmarkAwaitGpuEachFrame) await activeRenderer.device.queue.onSubmittedWorkDone();
 }
 
 async function settleBenchmarkCase(activeRenderer: Renderer): Promise<void> {

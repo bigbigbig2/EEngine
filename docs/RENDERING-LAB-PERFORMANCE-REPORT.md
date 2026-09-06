@@ -11,23 +11,35 @@
 
 ## 2. 正式完整套件结果（本地 Chrome）
 
-以下数据来自 `rendering-lab-none-automatic-1920x1080.json`，11 个 case 均完成，诊断错误为 0；timestamped GPU phase 的有效窗口为 436/480，GPU counter readback 为 5–6/480，CPU/runtime counters 为 480/480。工作区处于 dirty 状态，因此 evidence gate 仍按安全规则标记为不可提交基线，但不影响数值和 feature-off 归因。
+以下数据来自 `rendering-lab-none-automatic-1920x1080.json`，11 个 case 均完成，诊断错误为 0；timestamped GPU phase 的有效窗口为 436/480，GPU counter readback 为 5–6/480，CPU/runtime counters 为 480/480。该次运行时工作区处于 dirty 状态，因此 artifact 的 evidence gate 按安全规则标记为不可提交基线；本次代码已提交，后续需在 clean workspace 重新跑 gate 才能升级为发布基线，但不影响本轮数值和 feature-off 归因。
 
 | Case | CPU P50 / P95 / P99 (ms) | GPU phase P50 / P95 / P99 (ms) | timestamp frames | diagnostics |
 | --- | ---: | ---: | ---: | ---: |
-| `base` | 10.00 / 11.40 / 12.30 | 0.682 / 0.703 / 0.971 | 436/480 | 0 |
-| `full` | 17.00 / 19.20 / 20.80 | 1.445 / 1.636 / 1.793 | 436/480 | 0 |
-| `full-minus-shadow` | 14.00 / 16.00 / 16.74 | 0.995 / 1.255 / 1.324 | 437/480 | 0 |
-| `full-minus-gtao` | 17.50 / 22.20 / 23.62 | 1.205 / 1.436 / 1.506 | 436/480 | 0 |
-| `full-minus-ssr` | 16.05 / 18.30 / 19.12 | 1.446 / 1.727 / 1.849 | 437/480 | 0 |
-| `full-minus-transparency` | 15.10 / 16.90 / 17.74 | 1.356 / 1.632 / 1.699 | 436/480 | 0 |
-| `full-minus-temporal` | 17.40 / 20.40 / 25.58 | 1.443 / 1.712 / 1.753 | 437/480 | 0 |
-| `full-minus-bloom` | 17.00 / 19.61 / 21.24 | 1.445 / 1.724 / 1.764 | 436/480 | 0 |
-| `full-minus-exposure` | 17.00 / 18.80 / 19.62 | 1.444 / 1.730 / 1.906 | 437/480 | 0 |
-| `full-minus-motion-blur` | 16.90 / 19.00 / 19.80 | 1.444 / 1.720 / 1.753 | 436/480 | 0 |
-| `full-minus-sharpen` | 17.30 / 19.50 / 20.84 | 1.442 / 1.569 / 1.774 | 436/480 | 0 |
+| `base` | 10.10 / 12.30 / 13.22 | 0.678 / 0.697 / 0.970 | 436/480 | 0 |
+| `full` | 16.80 / 20.80 / 22.60 | 1.442 / 1.716 / 1.767 | 436/480 | 0 |
+| `full-minus-shadow` | 13.70 / 16.31 / 17.80 | 0.989 / 1.017 / 1.307 | 437/480 | 0 |
+| `full-minus-gtao` | 16.40 / 21.91 / 25.74 | 1.196 / 1.468 / 1.763 | 436/480 | 0 |
+| `full-minus-ssr` | 15.40 / 18.40 / 20.04 | 1.438 / 1.712 / 1.746 | 437/480 | 0 |
+| `full-minus-transparency` | 14.40 / 17.31 / 18.40 | 1.354 / 1.639 / 1.703 | 436/480 | 0 |
+| `full-minus-temporal` | 16.90 / 21.40 / 23.70 | 1.441 / 1.717 / 1.767 | 437/480 | 0 |
+| `full-minus-bloom` | 16.10 / 19.20 / 21.10 | 1.443 / 1.547 / 1.898 | 436/480 | 0 |
+| `full-minus-exposure` | 16.20 / 19.11 / 20.62 | 1.441 / 1.692 / 1.948 | 437/480 | 0 |
+| `full-minus-motion-blur` | 16.70 / 19.80 / 21.01 | 1.442 / 1.711 / 1.798 | 436/480 | 0 |
+| `full-minus-sharpen` | 16.60 / 20.61 / 22.66 | 1.442 / 1.720 / 1.769 | 436/480 | 0 |
 
-从 `full` 到 minus case 的 counter/active-pass gate 全部通过。CPU 端最明显的去除项是 CSM shadow（P50 下降 3.0 ms），其次是 transparency（1.9 ms）、SSR（1.0 ms）和 motion blur（0.1 ms）；这些是当前 workload 的相关性结果，不等同于单个 feature 的纯 GPU 成本。`full` 相对 `base` 的 CPU P50 增量为 7.0 ms，timestamped GPU phase 增量为 0.763 ms。
+从 `full` 到 minus case 的 counter/active-pass gate 全部通过。CPU 端最明显的去除项是 CSM shadow（P50 下降 3.1 ms），其次是 transparency（2.4 ms）、SSR（1.4 ms）和 GTAO（0.4 ms）；这些是当前 workload 的相关性结果，不等同于单个 feature 的纯 GPU 成本。`full` 相对 `base` 的 CPU P50 增量为 6.7 ms，timestamped GPU phase 增量为 0.764 ms。
+
+### 2.1 测量配置 A/B 与 counter 覆盖
+
+为排除 Inspector 自身和异步 readback 对结果的影响，新增了同一页面、同一 workload 的可见/隐藏 A/B，以及独立 counter-coverage profile。可复跑入口是 `examples/yarn test:rendering-lab:profiles 1920 1080`，产物写入 gitignored 的 `temp/rendering-lab-profiles-1920x1080.json`：
+
+| Profile | Inspector | Counter cadence / ring | GPU wait | `full` CPU P50 / P95 | `full` GPU phase P50 | counter coverage |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| visible | visible | 11 / 16 | no | 16.40 / 19.71 ms | 1.441 ms | 6/60，0 dropped |
+| hidden | hidden | 11 / 16 | no | 16.45 / 18.41 ms | 1.440 ms | 5/60，0 dropped |
+| counter-coverage | hidden | 1 / 64 | every frame | 15.80 / 18.61 ms* | unavailable† | 60/60，0 dropped |
+
+这次同页 A/B 的 `full` CPU P50 差为 0.05 ms、GPU phase 差为 0.001 ms，低于该短 smoke 的运行噪声；因此目前只能确认 Inspector shell 没有可见的 GPU 成本，不能把一次 A/B 宣称为固定 CPU 开销。该 A/B 保留 profiler 记录本身，只隔离 Inspector shell 的 DOM/layout/paint；若要测 profiler instrumentation，还应另跑 profiler disabled 的渲染 smoke。后续目标硬件需重复多轮并报告置信区间。*counter-coverage 为逐帧等待 GPU 的测量 profile，CPU 数值不与普通实时 cadence 直接横比。†逐帧 counter 会使所有帧进入 instrumented 集合，普通 GPU timing summary 按合同排除这些帧，因此显示 unavailable 而不是 0。
 
 ## 3. Smoke 结果（快速回归，1280×720）
 
@@ -77,7 +89,7 @@
 
 ## 5. 渲染链路架构证据
 
-`full` 的 FrameGraph 在本次运行中包含 42 个 executable passes、24 个 imported resources、44 个 transient resources（36 textures、8 buffers），无被错误保留的 culled resources。图中可以直接看到：
+`full` 的 FrameGraph 在本次运行中包含 48 个 executable passes、24 个 imported resources、43 个 transient resources（35 textures、8 buffers），无被错误保留的 culled resources。图中可以直接看到：
 
 ```text
 Packed Visibility → Material Resolve → HZB/Hierarchy → Clustered Lighting
@@ -108,6 +120,7 @@ Feature-off 对照已经对全部 9 个 minus case 执行 active-pass gate；报
 - 修复 Packed MBOIT forward WGSL 从共享 lighting core 引入 `finite_f32` 后的重复声明；此前会产生真实 shader validation error。
 - Benchmark 独占 `record` profiler mode，确保 manifest 中声明的 GPU counter cadence 真正启用，结束后恢复实时 profiler mode。
 - readback ring 从 3 增大到 16，避免 headless/慢 adapter 在 benchmark window 内溢出；本次 smoke 和相机实验 dropped counter 均为 0。
+- 增加 Inspector visible/hidden A/B 和逐帧 GPU counter coverage profile；后者在 60/60 measured frames 完成 readback，0 dropped/failed，证明 counter producer→readback consumer 链路可独立验证。
 - 报告明确区分 CPU wall、timestamped GPU pass sum、counter coverage 和 diagnostics，避免把缺采样写成 0 ms 或把 CPU/GPU 时钟相加。
 
 ## 7. 当前限制与后续执行顺序
