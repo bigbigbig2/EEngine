@@ -46,10 +46,14 @@ export function classifyFrame(frame: ProfileFrame, budgetMs: number): FrameBarSt
     if (samples.some((sample) => sample?.availability === availability)) return availability;
   }
   const cpu = frame.samples["cpu.frameMs"];
-  if (frame.counterInstrumented || frame.timestampInstrumented) return "instrumented";
-  if (cpu?.availability === "available" && cpu.value !== null && cpu.value > budgetMs) {
+  const gpu = frame.samples["gpu.passSumMs"];
+  if (
+    (cpu?.availability === "available" && cpu.value !== null && cpu.value > budgetMs) ||
+    (gpu?.availability === "available" && gpu.value !== null && gpu.value > budgetMs)
+  ) {
     return "over-budget";
   }
+  if (frame.counterInstrumented || frame.timestampInstrumented) return "instrumented";
   return "normal";
 }
 

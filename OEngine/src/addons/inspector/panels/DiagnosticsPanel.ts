@@ -23,6 +23,7 @@ export interface DiagnosticRow {
 export function buildDiagnostics(input: DiagnosticsInput): readonly DiagnosticRow[] {
   const rows: DiagnosticRow[] = [
     { label: "Mode", value: input.mode, severity: "info" },
+    { label: "Diagnostics scope", value: "session cumulative", severity: "info" },
     { label: "GPU timestamps", value: input.gpuTimestampAvailable ? "available" : "unsupported", severity: input.gpuTimestampAvailable ? "info" : "warning" },
     { label: "Timestamp cadence", value: `${input.gpuSampleInterval} frame(s)`, severity: "info" },
     { label: "Counter cadence", value: `${input.gpuCounterSampleInterval} frame(s)`, severity: "info" }

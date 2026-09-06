@@ -62,6 +62,9 @@ export class TimelinePanel {
     range: readonly [number, number] | null
   ): void {
     this.frames = frames;
+    const width = Math.max(280, Math.floor(this.element.clientWidth || 420) - 16);
+    const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+    this.chart.resize(width, 72, dpr);
     this.chart.setFrames(frames);
     this.chart.render();
     const selected = selectedFrameIndex === null
@@ -75,7 +78,7 @@ export class TimelinePanel {
         : "";
     if (selected === undefined) {
       this.details.textContent = range === null
-        ? "Select a frame or drag with Shift to select a range."
+        ? "Select a frame; Shift-click another frame to select a range."
         : `Range ${range[0]}–${range[1]}`;
       return;
     }

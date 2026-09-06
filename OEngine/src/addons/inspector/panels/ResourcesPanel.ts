@@ -75,7 +75,7 @@ export class ResourcesPanel {
     this.element = document.createElement("section");
     this.element.className = "domain-panel resources-panel";
     const heading = document.createElement("h3");
-    heading.textContent = "Resources";
+    heading.textContent = "Memory & Resources";
     this.table = document.createElement("pre");
     this.element.append(heading, this.table);
   }
@@ -84,6 +84,6 @@ export class ResourcesPanel {
     const rows = buildResourceRows(accounting, memory);
     this.table.textContent = rows.length === 0
       ? "Resource accounting unavailable"
-      : rows.map((row) => `${row.owner} · ${row.kind} · count ${row.count ?? "unsupported"} · current ${row.currentBytes} B · peak ${row.peakBytes ?? "unsupported"} B · ${row.measurement}`).join("\n");
+      : rows.map((row) => `${row.owner} · ${row.kind} · count ${row.count ?? "not-sampled"} · current ${row.currentBytes} B · peak ${row.peakBytes ?? "not-sampled"} B · ${row.measurement}`).join("\n");
   }
 }

@@ -6,7 +6,7 @@
 
 - [x] `LiveProfilerStore` 使用有界环形历史，不在稳定帧执行无消费者的 readback。
 - [x] Record/Stop/Clear 的状态转移可观察且不会停止 Renderer。
-- [ ] Pin frame 后 Graph/Memory/Diagnostics 也读取同一个 `ProfileFrame` 的 domain evidence（当前版本先避免混入实时数据）。
+- [x] Pin frame 后 Graph/Memory 读取该帧保存的 domain evidence；Diagnostics 明确标注为 session cumulative，帧级 coverage/pending 仍读取选中 `ProfileFrame`。
 - [x] GPU pending、dropped、not-sampled 与 unsupported 的文案和颜色可区分。
 - [x] Rendering Lab Playwright 验收保存 Inspector 截图并检查控制台。
 - [x] `cd OEngine; npm run build`、命中测试和文档静态检查全部通过。

@@ -92,7 +92,7 @@ export class FrameGraphPanel {
     this.element = document.createElement("section");
     this.element.className = "domain-panel framegraph-panel";
     const heading = document.createElement("h3");
-    heading.textContent = "FrameGraph";
+    heading.textContent = "FrameGraph / Passes";
     this.summary = document.createElement("div");
     this.table = document.createElement("pre");
     this.element.append(heading, this.summary, this.table);
@@ -104,7 +104,9 @@ export class FrameGraphPanel {
     const resources = evidence?.resources;
     this.summary.textContent = dump === undefined
       ? "FrameGraph unavailable"
-      : `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · resources ${resources?.imported ?? dump.resources.length}`;
+      : resources === undefined
+        ? `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · resources ${dump.resources.length}`
+        : `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · imported ${resources.imported} · transient ${resources.transient}`;
     this.table.textContent = rows.length === 0
       ? "No pass evidence"
       : rows.map((row) => `${row.scheduleIndex ?? "—"} ${row.state} ${row.phase} ${row.name} · R${row.reads}/W${row.writes} · GPU ${row.gpuDurationMs === null ? "unsupported" : `${row.gpuDurationMs.toFixed(2)} ms`}`).join("\n");

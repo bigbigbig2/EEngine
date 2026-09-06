@@ -50,6 +50,7 @@ function frame(frameIndex, cpuMs, gpuMs, availability = "available", options = {
 test("FrameChart classifies budget, instrumentation and unavailable states", () => {
   assert.equal(classifyFrame(frame(0, 8, 4), 16.667), "normal");
   assert.equal(classifyFrame(frame(1, 20, 4), 16.667), "over-budget");
+  assert.equal(classifyFrame(frame(1, 8, 20), 16.667), "over-budget");
   assert.equal(classifyFrame(frame(2, 8, 4, "pending"), 16.667), "pending");
   const gpuPending = frame(2, 8, 4);
   gpuPending.samples["gpu.passSumMs"].availability = "pending";

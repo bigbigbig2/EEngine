@@ -104,7 +104,7 @@ export class GpuDrivenPanel {
     this.element = document.createElement("section");
     this.element.className = "domain-panel gpu-driven-panel";
     const heading = document.createElement("h3");
-    heading.textContent = "GPU-driven";
+    heading.textContent = "Visibility & Work";
     this.funnel = document.createElement("div");
     this.queues = document.createElement("div");
     this.element.append(heading, this.funnel, this.queues);

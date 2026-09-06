@@ -75,7 +75,7 @@ export class OverviewPanel {
     this.element = document.createElement("section");
     this.element.className = "overview-panel";
     const heading = document.createElement("h3");
-    heading.textContent = "Overview";
+    heading.textContent = "Performance";
     const subtitle = document.createElement("p");
     subtitle.className = "panel-subtitle";
     subtitle.textContent = "Real-time RAF cadence and measured render cost over the visible frame window.";

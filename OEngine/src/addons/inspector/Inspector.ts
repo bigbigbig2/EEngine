@@ -121,7 +121,6 @@ export class Inspector {
     this.unsubscribeView = null;
     this.shell?.unmount();
     this.shell = null;
-    this.domainEvidenceByFrame.clear();
   }
 
   pause(): void {
@@ -165,6 +164,7 @@ export class Inspector {
     this.close();
     this.disposed = true;
     this.viewModel.dispose();
+    this.domainEvidenceByFrame.clear();
     if (!this.wasProfilerEnabled) {
       this.profiler.configure({ enabled: false });
     } else if (this.profiler.mode !== this.previousMode) {
