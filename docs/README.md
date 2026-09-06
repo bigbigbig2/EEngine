@@ -21,6 +21,8 @@
 - [RENDERING-LAB-BENCHMARK-DESIGN.md](./RENDERING-LAB-BENCHMARK-DESIGN.md)：综合 Rendering Lab、实时 Inspector、Benchmark Suite 与相机距离归因实验设计。
 - [RENDERING-LAB-PERFORMANCE-REPORT.md](./RENDERING-LAB-PERFORMANCE-REPORT.md)：Rendering Lab 浏览器实测、相机距离归因与渲染链路架构证据。
 - [RENDERING-LAB-ARCHITECTURE-REPORT.md](./RENDERING-LAB-ARCHITECTURE-REPORT.md)：Rendering Lab 的 FrameGraph、GPU producer/consumer、资源生命周期与预算分析。
+- [OEngine_Visibility_to_Surface_WebGPU_RFC.md](./OEngine_Visibility_to_Surface_WebGPU_RFC.md)：VisibilityKey → Surface 执行架构、分阶段迁移、回滚与量化 Gate。
+- [OEngine_Visibility_to_Surface_WebGPU_EXECUTION.md](./OEngine_Visibility_to_Surface_WebGPU_EXECUTION.md)：RFC 的 M0-M7 测试驱动执行计划、阶段依赖与证据记录。
 
 ## 权威关系
 

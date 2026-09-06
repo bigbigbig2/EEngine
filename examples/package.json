@@ -13,7 +13,9 @@
     "build:storybook": "npm run typecheck:storybook && storybook build -o storybook-static",
     "build": "tsc --noEmit && vite build --config vite.config.ts",
     "test:fixtures": "node ./fixture-smoke.mjs",
-    "test:rendering-lab:profiles": "node ./rendering-lab/profile-smoke.mjs"
+    "test:rendering-lab:profiles": "node ./rendering-lab/profile-smoke.mjs",
+    "test:rendering-lab:workload": "node ./rendering-lab/benchmark-workload-smoke.mjs",
+    "profile:rendering-lab:formal": "npm --prefix ../OEngine run build:test && node ./rendering-lab/profile-formal.mjs"
   },
   "devDependencies": {
     "@storybook/addon-docs": "^10.5.10",

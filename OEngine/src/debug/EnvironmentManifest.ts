@@ -1,5 +1,5 @@
 /** Version of the JSON contract shared by OEngine benchmark artifacts. */
-export const BENCHMARK_RESULT_SCHEMA_VERSION = 3;
+export const BENCHMARK_RESULT_SCHEMA_VERSION = 4;
 
 export type BenchmarkPowerPreference = GPUPowerPreference | "unknown";
 
@@ -45,6 +45,10 @@ export interface BenchmarkFrameEnvironment {
 }
 
 export interface BenchmarkRunEnvironmentInput {
+  runId: string;
+  runGroupId: string;
+  sessionId: string;
+  runOrdinal: number;
   baselineRole: BenchmarkBaselineRole;
   featureSet: Iterable<string>;
   warmupFrames: number;
@@ -78,6 +82,10 @@ export interface BenchmarkEnvironmentManifest {
   };
   frame: BenchmarkFrameEnvironment;
   run: {
+    runId: string;
+    runGroupId: string;
+    sessionId: string;
+    runOrdinal: number;
     baselineRole: BenchmarkBaselineRole;
     featureSet: string[];
     warmupFrames: number;
@@ -169,6 +177,10 @@ export function createEnvironmentManifest(
   assertPositiveInteger(input.frame.internalWidth, "frame.internalWidth");
   assertPositiveInteger(input.frame.internalHeight, "frame.internalHeight");
   assertPositiveNumber(input.frame.dpr, "frame.dpr");
+  assertNonEmpty(input.run.runId, "run.runId");
+  assertNonEmpty(input.run.runGroupId, "run.runGroupId");
+  assertNonEmpty(input.run.sessionId, "run.sessionId");
+  assertNonNegativeInteger(input.run.runOrdinal, "run.runOrdinal");
   assertNonNegativeInteger(input.run.warmupFrames, "run.warmupFrames");
   assertPositiveInteger(input.run.sampleFrames, "run.sampleFrames");
   assertPositiveInteger(input.run.gpuSampleInterval, "run.gpuSampleInterval");
@@ -210,6 +222,10 @@ export function createEnvironmentManifest(
     },
     frame: { ...input.frame },
     run: {
+      runId: input.run.runId,
+      runGroupId: input.run.runGroupId,
+      sessionId: input.run.sessionId,
+      runOrdinal: input.run.runOrdinal,
       baselineRole: input.run.baselineRole,
       featureSet,
       warmupFrames: input.run.warmupFrames,

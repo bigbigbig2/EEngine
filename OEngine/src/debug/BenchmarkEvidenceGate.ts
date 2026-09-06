@@ -16,6 +16,11 @@ import {
   GPU_FRAME_PHASES,
   type GpuFramePhase
 } from "./GpuFramePhase.js";
+import {
+  surfaceTimingTotalsForFrame,
+  type SurfaceTimingPhase,
+  type SurfaceTimingSegment
+} from "./SurfacePhaseTiming.js";
 
 export type BenchmarkEvidenceSeverity = "error" | "warning";
 
@@ -44,6 +49,21 @@ export type BenchmarkCapabilityBlocker = {
   reason: string;
 };
 
+export type BenchmarkRunIdentityEvidence = {
+  runId: string;
+  runGroupId: string;
+  sessionId: string;
+  runOrdinal: number;
+};
+
+export type IndependentBenchmarkRunGroupReport = {
+  gateEligible: boolean;
+  runGroupId: string | null;
+  requiredRunCount: number;
+  observedRunCount: number;
+  errors: BenchmarkEvidenceIssue[];
+};
+
 const GATE_BASELINE_ROLES = new Set([
   "minimum-a",
   "minimum-b",
@@ -62,6 +82,7 @@ type FrameEvidenceStats = {
   timestampSamples: number;
   gpuValues: Map<string, number[]>;
   gpuPhaseValues: Map<GpuFramePhase, number[]>;
+  surfacePhaseValues: Map<SurfaceTimingPhase, number[]>;
   gpuCounterValues: Map<GpuCounterFieldName, number[]>;
 };
 
@@ -157,6 +178,30 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
   }
 
   if (run !== null) {
+    for (const [field, code] of [
+      ["runId", "run-id-missing"],
+      ["runGroupId", "run-group-id-missing"],
+      ["sessionId", "run-session-id-missing"]
+    ] as const) {
+      if (typeof run[field] !== "string" || run[field].trim().length === 0) {
+        add(
+          issues,
+          code,
+          "error",
+          `$.environment.run.${field}`,
+          `${field} 必须是非空字符串`
+        );
+      }
+    }
+    if (!Number.isInteger(run.runOrdinal) || (run.runOrdinal as number) < 0) {
+      add(
+        issues,
+        "run-ordinal-invalid",
+        "error",
+        "$.environment.run.runOrdinal",
+        "runOrdinal 必须是非负整数"
+      );
+    }
     positiveInteger(issues, run.warmupFrames, "$.environment.run.warmupFrames", true);
     positiveInteger(issues, run.sampleFrames, "$.environment.run.sampleFrames");
     positiveInteger(issues, run.gpuSampleInterval, "$.environment.run.gpuSampleInterval");
@@ -206,6 +251,80 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
   );
   validateSummary(issues, root.summary, frameStats);
   return finish(issues, role, capability.blockers);
+}
+
+/** Validate that a formal comparison came from separate browser sessions. */
+export function validateIndependentBenchmarkRunGroup(
+  runs: readonly BenchmarkRunIdentityEvidence[],
+  requiredRunCount = 3
+): IndependentBenchmarkRunGroupReport {
+  if (!Number.isInteger(requiredRunCount) || requiredRunCount <= 0) {
+    throw new RangeError("requiredRunCount must be a positive integer");
+  }
+  const issues: BenchmarkEvidenceIssue[] = [];
+  const runIds = new Set<string>();
+  const sessionIds = new Set<string>();
+  const ordinals = new Set<number>();
+  const firstGroup = runs[0]?.runGroupId ?? null;
+
+  if (runs.length < requiredRunCount) {
+    add(
+      issues,
+      "independent-run-count",
+      "error",
+      "$",
+      `至少需要 ${requiredRunCount} 个独立 run，实际为 ${runs.length}`
+    );
+  }
+  runs.forEach((run, index) => {
+    const path = `$[${index}]`;
+    for (const [value, code, field] of [
+      [run.runId, "run-id-missing", "runId"],
+      [run.runGroupId, "run-group-id-missing", "runGroupId"],
+      [run.sessionId, "run-session-id-missing", "sessionId"]
+    ] as const) {
+      if (typeof value !== "string" || value.trim().length === 0) {
+        add(issues, code, "error", `${path}.${field}`, `${field} 必须是非空字符串`);
+      }
+    }
+    if (firstGroup !== null && run.runGroupId !== firstGroup) {
+      add(
+        issues,
+        "run-group-mismatch",
+        "error",
+        `${path}.runGroupId`,
+        "所有 run 必须属于同一个 runGroupId"
+      );
+    }
+    if (runIds.has(run.runId)) {
+      add(issues, "run-id-duplicate", "error", `${path}.runId`, "runId 必须唯一");
+    }
+    if (sessionIds.has(run.sessionId)) {
+      add(
+        issues,
+        "run-session-duplicate",
+        "error",
+        `${path}.sessionId`,
+        "正式 run 必须来自不同浏览器 session"
+      );
+    }
+    if (!Number.isInteger(run.runOrdinal) || run.runOrdinal < 0) {
+      add(issues, "run-ordinal-invalid", "error", `${path}.runOrdinal`, "runOrdinal 必须是非负整数");
+    } else if (ordinals.has(run.runOrdinal)) {
+      add(issues, "run-ordinal-duplicate", "error", `${path}.runOrdinal`, "runOrdinal 必须唯一");
+    }
+    runIds.add(run.runId);
+    sessionIds.add(run.sessionId);
+    ordinals.add(run.runOrdinal);
+  });
+
+  return {
+    gateEligible: issues.length === 0,
+    runGroupId: firstGroup,
+    requiredRunCount,
+    observedRunCount: runs.length,
+    errors: issues
+  };
 }
 
 function validateCapabilityEvidence(
@@ -670,6 +789,7 @@ function validateFrames(
     timestampSamples: 0,
     gpuValues: new Map(),
     gpuPhaseValues: new Map(),
+    surfacePhaseValues: new Map(),
     gpuCounterValues: new Map()
   };
   if (!Array.isArray(value)) {
@@ -693,15 +813,7 @@ function validateFrames(
     if (frame === null) continue;
     // Counter-instrumented frames are intentionally excluded from the normal
     // timestamp baseline, matching BenchmarkHarness.summarizeFrames().
-    const counterSampled =
-      asRecord(frame.gpuCounters)?.sampled === true &&
-      // A cadence of one is the deterministic contract used by the gate
-      // fixtures: every frame is both timestamped and counter-instrumented.
-      // The production harness uses a sparse counter cadence (11), and its
-      // summary intentionally omits those frames from the timestamp baseline.
-      (typeof run?.gpuCounterSampleInterval === "number"
-        ? run.gpuCounterSampleInterval
-        : 1) > 1;
+    const counterSampled = asRecord(frame.gpuCounters)?.sampled === true;
     if (
       typeof frame.frameIndex !== "number" ||
       !Number.isInteger(frame.frameIndex) ||
@@ -727,6 +839,7 @@ function validateFrames(
         stats.timestampSamples++;
       }
       const framePhaseTotals = new Map<GpuFramePhase, number>();
+      const surfaceSegments: SurfaceTimingSegment[] = [];
       for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
         const segment = asRecord(segments[segmentIndex]);
         const segmentPath = `$.frames[${index}].gpu.segments[${segmentIndex}]`;
@@ -773,10 +886,18 @@ function validateFrames(
             phase,
             (framePhaseTotals.get(phase) ?? 0) + (segment.durationMs as number)
           );
+          surfaceSegments.push({
+            label: segment.label as string,
+            durationMs: segment.durationMs as number,
+            phase
+          });
         }
       }
       for (const [phase, durationMs] of framePhaseTotals) {
         append(stats.gpuPhaseValues, phase, durationMs);
+      }
+      for (const [phase, durationMs] of surfaceTimingTotalsForFrame(surfaceSegments)) {
+        append(stats.surfacePhaseValues, phase, durationMs);
       }
     }
     const counters = asRecord(frame.gpuCounters);
@@ -895,6 +1016,13 @@ function validateSummary(
     stats.gpuPhaseValues,
     "$.summary.gpuPhaseMs",
     "gpu-phase-summary"
+  );
+  validateGpuSummaryMap(
+    issues,
+    summary.surfacePhaseMs,
+    stats.surfacePhaseValues,
+    "$.summary.surfacePhaseMs",
+    "surface-phase-summary"
   );
   validateGpuSummaryMap(
     issues,

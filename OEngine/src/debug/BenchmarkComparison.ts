@@ -40,6 +40,7 @@ const SUMMARY_GROUPS = [
   "cpuMs",
   "gpuMs",
   "gpuPhaseMs",
+  "surfacePhaseMs",
   "counters",
   "gpuCounters"
 ] as const satisfies readonly (keyof BenchmarkSummary)[];

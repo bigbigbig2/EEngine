@@ -1,6 +1,7 @@
 import type { RenderingLabBenchmarkReport } from "./benchmark-report.js";
 import type { CameraExperimentKind, CameraLodMode } from "./camera-experiments.js";
 import type { RenderingLabCaseId } from "./quality-profile.js";
+import type { RenderingLabWorkloadId } from "./benchmark-workloads.js";
 
 export interface RenderingLabFixtureSnapshot {
   readonly schemaVersion: 2;
@@ -37,6 +38,12 @@ export interface RenderingLabFixture {
     readonly awaitGpuEachFrame?: boolean;
     /** Keep the scene static to measure cacheable shadow/visibility work. */
     readonly animateScene?: boolean;
+    /** Stable id shared by independent browser runs in one formal comparison. */
+    readonly runGroupId?: string;
+    /** Zero-based position within the independent run group. */
+    readonly runOrdinal?: number;
+    /** Deterministic scene/camera contract used by migration benchmarks. */
+    readonly workloadId?: RenderingLabWorkloadId;
   }): Promise<RenderingLabBenchmarkReport>;
   downloadBenchmarkReport(): void;
   captureScreenshot(): Promise<void>;

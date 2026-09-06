@@ -59,6 +59,10 @@ test("environment manifest canonicalizes comparable WebGPU run metadata", () => 
       dpr: 1.5
     },
     run: {
+      runId: "run-0001",
+      runGroupId: "surface-migration-a",
+      sessionId: "browser-session-0001",
+      runOrdinal: 0,
       baselineRole: "minimum-a",
       featureSet: ["ibl", "visibility", "ibl"],
       warmupFrames: 120,
@@ -70,6 +74,20 @@ test("environment manifest canonicalizes comparable WebGPU run metadata", () => 
   });
 
   assert.equal(manifest.schemaVersion, BENCHMARK_RESULT_SCHEMA_VERSION);
+  assert.deepEqual(
+    {
+      runId: manifest.run.runId,
+      runGroupId: manifest.run.runGroupId,
+      sessionId: manifest.run.sessionId,
+      runOrdinal: manifest.run.runOrdinal
+    },
+    {
+      runId: "run-0001",
+      runGroupId: "surface-migration-a",
+      sessionId: "browser-session-0001",
+      runOrdinal: 0
+    }
+  );
   assert.deepEqual(manifest.webgpu.features, [
     "float32-blendable",
     "timestamp-query"
@@ -86,6 +104,13 @@ test("environment manifest canonicalizes comparable WebGPU run metadata", () => 
   assert.throws(
     () => createEnvironmentManifest({ ...manifest, frame: { ...manifest.frame, dpr: 0 } }),
     /dpr/
+  );
+  assert.throws(
+    () => createEnvironmentManifest({
+      ...manifest,
+      run: { ...manifest.run, sessionId: "" }
+    }),
+    /run\.sessionId/
   );
 });
 
@@ -408,6 +433,10 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
       dpr: 1
     },
     run: {
+      runId: "harness-run",
+      runGroupId: "harness-group",
+      sessionId: "harness-session",
+      runOrdinal: 0,
       baselineRole: "minimum-a",
       featureSet: [],
       warmupFrames: 1,
@@ -458,7 +487,14 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
       pending: false,
       segments: [
         { label: "visibility", type: "render", durationMs: 0.75 },
-        { label: "Visibility/ID+Depth/second", type: "render", durationMs: 0.25 }
+        { label: "Visibility/ID+Depth/second", type: "render", durationMs: 0.25 },
+        { label: "MaterialKernel/count visible pixels", type: "compute", durationMs: 0.2 },
+        { label: "MaterialKernel/prefix scan level 0", type: "compute", durationMs: 0.1 },
+        { label: "MaterialKernel/scatter ShadeWork", type: "compute", durationMs: 0.3 },
+        { label: "MaterialClassDepth", type: "render", durationMs: 0.4 },
+        { label: "Material Resolve/specialized Surface", type: "render", durationMs: 1.5 },
+        { label: "Direct lighting", type: "render", durationMs: 0.75 },
+        { label: "Opaque lighting resolve", type: "render", durationMs: 0.25 }
       ]
     },
     gpuCounters: emptyGpuCounters()
@@ -477,7 +513,11 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
       sampled: true,
       pending: false,
       segments: [
-        { label: "visibility", type: "render", durationMs: 100 }
+        { label: "visibility", type: "render", durationMs: 100 },
+        { label: "MaterialKernel/count visible pixels", type: "compute", durationMs: 100 },
+        { label: "MaterialClassDepth", type: "render", durationMs: 100 },
+        { label: "Material Resolve/specialized Surface", type: "render", durationMs: 100 },
+        { label: "Direct lighting", type: "render", durationMs: 100 }
       ]
     },
     gpuCounters: {
@@ -529,6 +569,20 @@ test("benchmark harness drops warmup frames and reports reproducible percentiles
     p95: 1,
     p99: 1
   });
+  assert.deepEqual(result.summary.surfacePhaseMs, {
+    classify: {
+      count: 1, mean: 0.6, min: 0.6, max: 0.6, p50: 0.6, p95: 0.6, p99: 0.6
+    },
+    classDepth: {
+      count: 1, mean: 0.4, min: 0.4, max: 0.4, p50: 0.4, p95: 0.4, p99: 0.4
+    },
+    resolve: {
+      count: 1, mean: 1.5, min: 1.5, max: 1.5, p50: 1.5, p95: 1.5, p99: 1.5
+    },
+    lighting: {
+      count: 1, mean: 1, min: 1, max: 1, p50: 1, p95: 1, p99: 1
+    }
+  });
   assert.equal(result.diagnostics.validationErrorCount, 0);
   assert.deepEqual(JSON.parse(serializeBenchmarkResult(result)), result);
 });
@@ -560,6 +614,10 @@ test("benchmark run controller owns cadence and waits for delayed GPU evidence",
       dpr: 1
     },
     run: {
+      runId: "controller-run",
+      runGroupId: "controller-group",
+      sessionId: "controller-session",
+      runOrdinal: 0,
       baselineRole: "frame-smoke",
       featureSet: [],
       warmupFrames: 1,
@@ -632,6 +690,10 @@ test("benchmark run controller waits for delayed GPU counter evidence", async ()
       dpr: 1
     },
     run: {
+      runId: "counter-run",
+      runGroupId: "counter-group",
+      sessionId: "counter-session",
+      runOrdinal: 0,
       baselineRole: "observability-smoke",
       featureSet: [],
       warmupFrames: 0,

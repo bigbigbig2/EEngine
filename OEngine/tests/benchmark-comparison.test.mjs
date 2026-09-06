@@ -21,6 +21,7 @@ function result(id, frameP50, sampleFrames = 10, includeGpuFrame = false) {
       cpuMs: { frame: series(frameP50, sampleFrames) },
       gpuMs: {},
       gpuPhaseMs: includeGpuFrame ? { frame: series(1, sampleFrames) } : {},
+      surfacePhaseMs: {},
       counters: {},
       gpuCounters: {},
       submits: series(1, sampleFrames),

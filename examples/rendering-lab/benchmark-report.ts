@@ -31,6 +31,10 @@ export interface RenderingLabBenchmarkReport {
 }
 
 export interface RenderingLabMeasurementProfile {
+  readonly runId: string;
+  readonly runGroupId: string;
+  readonly sessionId: string;
+  readonly runOrdinal: number;
   readonly inspectorVisible: boolean;
   readonly gpuCounterSampleInterval: number;
   readonly readbackRingSlots: number;

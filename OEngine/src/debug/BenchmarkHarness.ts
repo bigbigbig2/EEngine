@@ -11,6 +11,10 @@ import {
   createBenchmarkCapabilityEvidence,
   type BenchmarkCapabilityEvidence
 } from "./BenchmarkCapabilityEvidence.js";
+import {
+  surfaceTimingTotalsForFrame,
+  type SurfaceTimingPhase
+} from "./SurfacePhaseTiming.js";
 
 export interface BenchmarkCaseManifest {
   id: string;
@@ -36,6 +40,8 @@ export interface BenchmarkSummary {
   gpuMs: Record<string, SeriesSummary>;
   /** 同一帧内先求和后的稳定逻辑阶段，供跨版本比较。 */
   gpuPhaseMs: Record<string, SeriesSummary>;
+  /** Visibility-to-Surface 迁移的稳定子阶段；同一帧内先求和。 */
+  surfacePhaseMs: Partial<Record<SurfaceTimingPhase, SeriesSummary>>;
   counters: Record<string, SeriesSummary>;
   gpuCounters: Record<string, SeriesSummary>;
   submits: SeriesSummary;
@@ -153,6 +159,7 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
   const cpuValues = new Map<string, number[]>();
   const gpuValues = new Map<string, number[]>();
   const gpuPhaseValues = new Map<string, number[]>();
+  const surfacePhaseValues = new Map<SurfaceTimingPhase, number[]>();
   const counterValues = new Map<string, number[]>();
   const gpuCounterValues = new Map<string, number[]>();
   for (const frame of frames) {
@@ -174,6 +181,9 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
       for (const [phase, durationMs] of framePhaseTotals) {
         append(gpuPhaseValues, phase, durationMs);
       }
+      for (const [phase, durationMs] of surfaceTimingTotalsForFrame(frame.gpu.segments)) {
+        append(surfacePhaseValues, phase, durationMs);
+      }
     }
     for (const [label, value] of Object.entries(frame.counters)) {
       append(counterValues, label, value);
@@ -188,6 +198,7 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
     cpuMs: summarizeMap(cpuValues),
     gpuMs: summarizeMap(gpuValues),
     gpuPhaseMs: summarizeMap(gpuPhaseValues),
+    surfacePhaseMs: summarizeMap(surfacePhaseValues),
     counters: summarizeMap(counterValues),
     gpuCounters: summarizeMap(gpuCounterValues),
     submits: summarizeSeries(frames.map((frame) => frame.submits.count)),

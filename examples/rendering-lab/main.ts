@@ -22,7 +22,8 @@ import {
   captureWebGpuLimits,
   createEnvironmentManifest,
   type BenchmarkCaseManifest,
-  type BenchmarkEnvironmentManifest
+  type BenchmarkEnvironmentManifest,
+  type BenchmarkRunIdentityEvidence
 } from "../../OEngine/src/index.ts";
 import { Inspector } from "../../OEngine/src/addons/inspector/index.ts";
 import {
@@ -56,6 +57,11 @@ import {
 } from "./benchmark-suite.js";
 import type { RenderingLabCaseId } from "./quality-profile.js";
 import type { RenderingLabFixture } from "./fixture.js";
+import {
+  resolveRenderingLabWorkload,
+  type RenderingLabWorkloadId,
+  type RenderingLabWorkloadProfile
+} from "./benchmark-workloads.js";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -175,6 +181,14 @@ let benchmarkRunning = false;
 let benchmarkMaterialPatch: Uint32Array | null = null;
 let benchmarkCameraPathMode = false;
 let benchmarkAwaitGpuEachFrame = false;
+let benchmarkWorkload: RenderingLabWorkloadProfile = resolveRenderingLabWorkload();
+const benchmarkSessionId = crypto.randomUUID();
+let benchmarkRunIdentity: Readonly<BenchmarkRunIdentityEvidence> = Object.freeze({
+  runId: "not-started",
+  runGroupId: "not-started",
+  sessionId: benchmarkSessionId,
+  runOrdinal: 0
+});
 
 root.dataset.mode = PIPELINE_MODE ? "pipeline" : "quality";
 populateDebugViews();
@@ -413,7 +427,10 @@ function installRenderingLabFixture(
       options?.readbackRingSlots,
       options?.cpuPassTimings,
       options?.awaitGpuEachFrame,
-      options?.animateScene
+      options?.animateScene,
+      options?.runGroupId,
+      options?.runOrdinal,
+      options?.workloadId
     ),
     downloadBenchmarkReport: () => {
       if (benchmarkReport !== null) downloadRenderingLabBenchmarkReport(benchmarkReport);
@@ -471,13 +488,24 @@ async function runRenderingLabBenchmark(
   readbackRingSlotsOverride?: number,
   cpuPassTimingsOverride?: boolean,
   awaitGpuEachFrameOverride?: boolean,
-  animateSceneOverride?: boolean
+  animateSceneOverride?: boolean,
+  runGroupIdOverride?: string,
+  runOrdinalOverride?: number,
+  workloadIdOverride?: RenderingLabWorkloadId
 ): Promise<RenderingLabBenchmarkReport> {
   if (benchmarkRunning) throw new Error("A Rendering Lab benchmark is already running");
   if (root.dataset.state !== "ready") throw new Error("Rendering Lab is not ready");
   benchmarkRunning = true;
   benchmarkError = undefined;
   benchmarkReport = null;
+  benchmarkWorkload = resolveRenderingLabWorkload(workloadIdOverride);
+  const runId = crypto.randomUUID();
+  benchmarkRunIdentity = Object.freeze({
+    runId,
+    runGroupId: runGroupIdOverride ?? runId,
+    sessionId: benchmarkSessionId,
+    runOrdinal: runOrdinalOverride ?? 0
+  });
   benchmarkRunConfig = smoke ? { warmupFrames: 30, sampleFrames: 60 } : { warmupFrames: 120, sampleFrames: 480 };
   benchmarkSmokeButton.disabled = true;
   benchmarkFullButton.disabled = true;
@@ -492,7 +520,7 @@ async function runRenderingLabBenchmark(
   const counterInterval = gpuCounterSampleIntervalOverride ?? previousCounterInterval;
   const readbackSlots = readbackRingSlotsOverride ?? previousReadbackSlots;
   const cpuPassTimings = cpuPassTimingsOverride ?? previousCpuPassTimings;
-  const animateScene = animateSceneOverride ?? true;
+  const animateScene = animateSceneOverride ?? benchmarkWorkload.animateScene;
   benchmarkAwaitGpuEachFrame = awaitGpuEachFrameOverride ?? false;
   if (inspector !== null) {
     if (inspectorVisible) inspector.open();
@@ -506,9 +534,12 @@ async function runRenderingLabBenchmark(
   });
   const startedAt = new Date().toISOString();
   const caseIds = requestedCases === undefined || requestedCases.length === 0
-    ? (smoke ? ["base", "full", "full-minus-ssr"] as const : undefined)
+    ? benchmarkWorkload.caseIds
     : requestedCases;
-  const experiment = cameraExperimentOverride ?? (benchmarkExperiment.value as "none" | CameraExperimentKind | "path");
+  const workloadExperiment = benchmarkWorkload.camera.kind === "projection-normalized"
+    ? "projection-normalized"
+    : undefined;
+  const experiment = workloadExperiment ?? cameraExperimentOverride ?? (benchmarkExperiment.value as "none" | CameraExperimentKind | "path");
   const lodMode = cameraLodModeOverride ?? (benchmarkLod.value as CameraLodMode);
   benchmarkCameraPathMode = experiment === "path";
   const sweep = experiment === "none" || experiment === "path"
@@ -543,6 +574,7 @@ async function runRenderingLabBenchmark(
       cameraPathId: RENDERING_LAB_CAMERA_PATH_ID,
       cases: allResults,
         measurement: {
+        ...benchmarkRunIdentity,
         inspectorVisible,
         gpuCounterSampleInterval: activeRenderer.profiler.gpuCounterSampleInterval,
         readbackRingSlots: activeRenderer.profiler.readbackRingSlots,
@@ -582,6 +614,7 @@ async function runRenderingLabBenchmark(
     benchmarkMaterialPatch = null;
     benchmarkCameraPathMode = false;
     benchmarkSweepCase = null;
+    benchmarkWorkload = resolveRenderingLabWorkload();
     benchmarkSuite = null;
     benchmarkSmokeButton.disabled = false;
     benchmarkFullButton.disabled = false;
@@ -608,6 +641,7 @@ function benchmarkEnvironment(activeRenderer: Renderer, caseId: RenderingLabCase
       dpr: activeRenderer.pixel_ratio
     },
     run: {
+      ...benchmarkRunIdentity,
       baselineRole: "minimum-a",
       featureSet: benchmarkFeatureSet(activeRenderer, caseId),
       warmupFrames: benchmarkRunConfig.warmupFrames,
@@ -656,7 +690,9 @@ function prepareBenchmarkCase(
   applyCase(activeRenderer, caseId);
   // The diagnostic locked mode deliberately pins the hierarchy selector to a
   // conservative coarse cut. It is not used by the formal full case.
-  activeRenderer.packed_visibility_sse_threshold = benchmarkSweepCase?.lodMode === "locked" ? 1e6 : 4;
+  activeRenderer.packed_visibility_sse_threshold = benchmarkSweepCase?.lodMode === "locked"
+    ? 1e6
+    : benchmarkWorkload.sseThreshold;
   const transparent = caseId !== "base" && caseId !== "full-minus-transparency";
   const transparentMaterialIndex = packedSceneSource?.materials.findIndex(
     (material) => material.transparency_mode === ShadeTransparencyMode.Transparent
@@ -678,7 +714,7 @@ function prepareBenchmarkCase(
   } else if (benchmarkCameraPathMode) {
     applyRenderingLabCameraPath(activeCamera, sampleRenderingLabCameraPath(0));
   } else {
-    resetCamera();
+    applyBenchmarkWorkloadCamera(activeCamera, benchmarkWorkload);
   }
   activeRenderer.indicate_view_change();
   activeRenderer.profiler.clear();
@@ -693,6 +729,15 @@ async function renderBenchmarkFrame(
   ordinal = 0,
   animateScene = true
 ): Promise<void> {
+  if (benchmarkWorkload.camera.kind === "near-plane-motion") {
+    const workloadCamera = benchmarkWorkload.camera;
+    const position: readonly [number, number, number] = [
+      workloadCamera.position[0],
+      workloadCamera.position[1],
+      workloadCamera.position[2] + Math.sin(ordinal * Math.PI / 30) * 0.24
+    ];
+    applyCameraPose(activeCamera, position, workloadCamera.target);
+  }
   if (benchmarkCameraPathMode) {
     const sample = sampleRenderingLabCameraPath(benchmarkCameraPathTime(ordinal));
     applyRenderingLabCameraPath(activeCamera, sample);
@@ -753,6 +798,7 @@ function annotateBenchmarkResult(
     const pathDistance = pathSample === null ? distanceM : cameraDistance(pathSample.position, pathSample.target);
     const pathFov = pathSample === null ? fovDeg : activeCamera.fov_degrees;
     return Object.freeze({
+      workload: Object.freeze({ id: benchmarkWorkload.id }),
       camera: Object.freeze({
         distanceM: pathDistance,
         fovDeg: pathFov,
@@ -783,8 +829,15 @@ function showBenchmarkError(error: unknown): void {
 
 function workloadEvidence(): Readonly<Record<string, unknown>> {
   const source = packedSceneSource;
-  if (source === null) return { seed: 20260906, instances: 0, geometries: 0, materials: 0 };
+  const benchmark = {
+    id: benchmarkWorkload.id,
+    camera: benchmarkWorkload.camera.kind,
+    sseThreshold: benchmarkWorkload.sseThreshold,
+    animateScene: benchmarkWorkload.animateScene
+  };
+  if (source === null) return { ...benchmark, seed: 20260906, instances: 0, geometries: 0, materials: 0 };
   return {
+    ...benchmark,
     seed: 20260906,
     instances: source.count,
     geometries: source.geometries.length,
@@ -1055,11 +1108,31 @@ function setCameraPose(
   target: readonly [number, number, number]
 ): void {
   if (camera === null) return;
-  camera.transform.position.set(position[0], position[1], position[2]);
-  camera.transform.lookAt({ x: target[0], y: target[1], z: target[2] });
-  camera.update();
+  applyCameraPose(camera, position, target);
   controller?.from_transform(camera.transform);
   renderer?.indicate_view_change();
+}
+
+function applyBenchmarkWorkloadCamera(
+  activeCamera: PerspectiveCamera,
+  workload: RenderingLabWorkloadProfile
+): void {
+  if (workload.camera.kind === "overview" || workload.camera.kind === "projection-normalized") {
+    resetCamera();
+    return;
+  }
+  applyCameraPose(activeCamera, workload.camera.position, workload.camera.target);
+  controller?.from_transform(activeCamera.transform);
+}
+
+function applyCameraPose(
+  activeCamera: PerspectiveCamera,
+  position: readonly [number, number, number],
+  target: readonly [number, number, number]
+): void {
+  activeCamera.transform.position.set(position[0], position[1], position[2]);
+  activeCamera.transform.lookAt({ x: target[0], y: target[1], z: target[2] });
+  activeCamera.update();
 }
 
 function startResizeObserver(activeRenderer: Renderer, activeCamera: PerspectiveCamera): void {

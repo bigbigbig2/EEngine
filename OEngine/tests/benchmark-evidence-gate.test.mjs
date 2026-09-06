@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { validateBenchmarkEvidence } from "../.test-dist/debug/BenchmarkEvidenceGate.js";
+import * as benchmarkEvidenceGate from "../.test-dist/debug/BenchmarkEvidenceGate.js";
 import { createBenchmarkCapabilityEvidence } from "../.test-dist/debug/BenchmarkCapabilityEvidence.js";
 import { GPU_COUNTER_SCHEMA_VERSION } from "../.test-dist/debug/GpuFrameCounters.js";
 
@@ -12,6 +13,39 @@ test("complete clean A/B/C evidence is gate eligible", () => {
   assert.deepEqual(report.blockedCapabilities, []);
   assert.equal(report.baselineRole, "minimum-a");
   assert.deepEqual(report.errors, []);
+});
+
+test("formal run groups require three distinct browser sessions", () => {
+  const validate = benchmarkEvidenceGate.validateIndependentBenchmarkRunGroup;
+  const complete = typeof validate === "function"
+    ? validate([
+        runIdentity("run-a", "session-a", 0),
+        runIdentity("run-b", "session-b", 1),
+        runIdentity("run-c", "session-c", 2)
+      ])
+    : null;
+  assert.deepEqual(complete, {
+    gateEligible: true,
+    runGroupId: "surface-migration-a",
+    requiredRunCount: 3,
+    observedRunCount: 3,
+    errors: []
+  });
+
+  const duplicateSession = validate([
+    runIdentity("run-a", "session-a", 0),
+    runIdentity("run-b", "session-a", 1),
+    runIdentity("run-c", "session-c", 2)
+  ]);
+  assert.equal(duplicateSession.gateEligible, false);
+  assert.ok(duplicateSession.errors.some((issue) => issue.code === "run-session-duplicate"));
+
+  const insufficient = validate([
+    runIdentity("run-a", "session-a", 0),
+    runIdentity("run-b", "session-b", 1)
+  ]);
+  assert.equal(insufficient.gateEligible, false);
+  assert.ok(insufficient.errors.some((issue) => issue.code === "independent-run-count"));
 });
 
 test("supported zero is evidence, while missing and unsupported values are rejected", () => {
@@ -99,6 +133,7 @@ test("old dirty smoke artifacts remain exploratory instead of passing a gate", (
   result.case.cameraPathHash = "none:static";
   delete result.diagnostics;
   delete result.summary.gpuPhaseMs;
+  delete result.summary.surfacePhaseMs;
   result.frames[0].gpu.pending = true;
   result.frames[0].gpu.segments[0].phase = "unclassified";
   result.frames[0].gpuCounters.pending = true;
@@ -118,20 +153,35 @@ test("old dirty smoke artifacts remain exploratory instead of passing a gate", (
     "gpu-timestamp-pending",
     "gpu-counter-pending",
     "gpu-phase-unclassified",
-    "gpu-phase-summary-missing"
+    "gpu-phase-summary-missing",
+    "surface-phase-summary-missing"
   ]) {
     assert.ok(codes.has(code), code);
   }
 });
 
 test("gate rejects phase, summary, counter and diagnostics corruption", () => {
+  const missingRunIdentity = validResult();
+  missingRunIdentity.environment.run.sessionId = "";
+  assert.ok(errorCodes(missingRunIdentity).has("run-session-id-missing"));
+
+  const invalidRunOrdinal = validResult();
+  invalidRunOrdinal.environment.run.runOrdinal = -1;
+  assert.ok(errorCodes(invalidRunOrdinal).has("run-ordinal-invalid"));
+
   const invalidPhase = validResult();
   invalidPhase.frames[0].gpu.segments[0].phase = "invented-phase";
   assert.ok(errorCodes(invalidPhase).has("gpu-phase-invalid"));
 
   const invalidSummary = validResult();
-  invalidSummary.summary.gpuPhaseMs["hardware-raster"].mean = 2;
-  assert.ok(errorCodes(invalidSummary).has("gpu-phase-summary-value-mismatch"));
+  invalidSummary.summary.gpuPhaseMs["hardware-raster"] = series(2);
+  assert.ok(errorCodes(invalidSummary).has("gpu-phase-summary-unexpected-label"));
+
+  const invalidSurfaceSummary = validResult();
+  invalidSurfaceSummary.summary.surfacePhaseMs.resolve = series(1);
+  assert.ok(
+    errorCodes(invalidSurfaceSummary).has("surface-phase-summary-unexpected-label")
+  );
 
   const pendingCounter = validResult();
   pendingCounter.frames[0].gpuCounters.pending = true;
@@ -213,9 +263,9 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
       }
     : {};
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     environment: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       capturedAt: "2026-08-26T00:00:00.000Z",
       engine: {
         commit: "0123456789abcdef",
@@ -238,6 +288,10 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
         dpr: 1
       },
       run: {
+        runId: "run-0001",
+        runGroupId: "surface-migration-a",
+        sessionId: "browser-session-0001",
+        runOrdinal: 0,
         baselineRole: "minimum-a",
         featureSet,
         warmupFrames: 120,
@@ -280,8 +334,9 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
     }],
     summary: {
       cpuMs: {},
-      gpuMs: { Visibility: { count: 1, mean: 1, min: 1, max: 1, p50: 1, p95: 1, p99: 1 } },
-      gpuPhaseMs: { "hardware-raster": { count: 1, mean: 1, min: 1, max: 1, p50: 1, p95: 1, p99: 1 } },
+      gpuMs: {},
+      gpuPhaseMs: {},
+      surfacePhaseMs: {},
       counters: {},
       gpuCounters: Object.fromEntries(
         Object.entries(gpuCounterValues).map(([name, value]) => [name, series(value)])
@@ -305,4 +360,13 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
 
 function series(value) {
   return { count: 1, mean: value, min: value, max: value, p50: value, p95: value, p99: value };
+}
+
+function runIdentity(runId, sessionId, runOrdinal) {
+  return {
+    runId,
+    runGroupId: "surface-migration-a",
+    sessionId,
+    runOrdinal
+  };
 }

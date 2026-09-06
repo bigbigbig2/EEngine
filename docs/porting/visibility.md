@@ -38,3 +38,16 @@
 - OEngine/WebGPU differences: recursive scan handles arbitrary legal framebuffer workgroup count；不采用 wave intrinsic、bindless、64-bit atomic 或 material-count CPU loop。
 - Fallback/lifecycle: overflow is counted and fails visible；feature-off removes classification/resolve resources。
 - Local validation: packed material classification、scan CPU oracle、Surface ABI、counter 和 source-audit tests。
+
+## VIS-MATERIAL-DEPTH · Bounded MaterialClassDepth and adaptive setup
+
+- Local owner/source: `docs/OEngine_Visibility_to_Surface_WebGPU_RFC.md`；后续由 `OEngine/src/render/material-depth/`、`OEngine/src/render/surface/` 与 FrameGraph owner 承载。
+- Upstream: Bevy <https://github.com/bevyengine/bevy>；Burns & Hunt, *The Visibility Buffer*；DAIS, *Deferred Attribute Interpolation Shading*；*NanoMesh: GPU-Driven Rendering for Particle-Based Discrete LOD Meshes*。
+- Revision: Bevy `b70463f072a3380ebb37c8803f1c4941357e64fa`；论文分别采用 JCGT 2013、HPG 2015 与 SIGGRAPH 2024 公开版本。
+- Upstream source: Bevy `crates/bevy_pbr/src/render/meshlet/resolve_render_targets.wesl`、`crates/bevy_pbr/src/render/meshlet/material_shade_nodes.rs`、`crates/bevy_pbr/src/render/meshlet/visibility_buffer_resolve.wesl`；论文仅作为算法与语义参考。
+- License: Bevy MIT OR Apache-2.0（本迁移按 MIT 条款追踪）；论文仅作为非代码语义参考，未复制表达性源码。
+- Adoption: proposed traceable reimplementation；在 RFC 的对应阶段门禁通过前，不声明运行时采用完成。
+- Retained invariants: material-depth 选择、固定且有界的 kernel class、解析式 barycentric derivative、候选 setup cache 的确定性容量与 fail-visible fallback。
+- OEngine/WebGPU differences: 采用 3-bit kernel class 与 `r32uint` VisibilityKey、固定 7 个 class、`class-discard` 正确性 fallback；不依赖 bindless、subgroup、64-bit atomic、multi-draw-indirect 或 mesh shader。
+- Fallback/lifecycle: 非法 key 与容量 overflow 必须计数并 fail-visible；depth parity 不成立时切到 `class-discard`；资源按需创建并按提交完成点退役；feature-off 不保留 profiler pass、copy 或 readback。
+- Local validation: RFC M0-M7 的 ABI oracle、截图/数值回归、P50/P95、overflow、生命周期与预算门禁；当前仅完成设计登记，不构成实现完成证据。

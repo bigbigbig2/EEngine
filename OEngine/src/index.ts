@@ -249,7 +249,10 @@ export type {
   BenchmarkWebGpuEnvironmentInput
 } from "./debug/EnvironmentManifest.js";
 export { FrameProfiler } from "./debug/FrameProfiler.js";
-export { validateBenchmarkEvidence } from "./debug/BenchmarkEvidenceGate.js";
+export {
+  validateBenchmarkEvidence,
+  validateIndependentBenchmarkRunGroup
+} from "./debug/BenchmarkEvidenceGate.js";
 export {
   BENCHMARK_CAPABILITY_EVIDENCE_SCHEMA_VERSION,
   BENCHMARK_FEATURE_SET_EVIDENCE,
@@ -271,7 +274,9 @@ export type {
   BenchmarkCapabilityBlocker,
   BenchmarkEvidenceIssue,
   BenchmarkEvidenceReport,
-  BenchmarkEvidenceSeverity
+  BenchmarkEvidenceSeverity,
+  BenchmarkRunIdentityEvidence,
+  IndependentBenchmarkRunGroupReport
 } from "./debug/BenchmarkEvidenceGate.js";
 export {
   GPU_FRAME_PHASES,
@@ -373,6 +378,15 @@ export type {
   BenchmarkDeltaStatus,
   BenchmarkMetricDelta
 } from "./debug/BenchmarkComparison.js";
+export {
+  SURFACE_TIMING_PHASES,
+  classifySurfaceTimingPhase,
+  surfaceTimingTotalsForFrame
+} from "./debug/SurfacePhaseTiming.js";
+export type {
+  SurfaceTimingPhase,
+  SurfaceTimingSegment
+} from "./debug/SurfacePhaseTiming.js";
 export { BenchmarkRunController } from "./debug/BenchmarkRunController.js";
 export type {
   BenchmarkRunOptions,
