@@ -11,10 +11,10 @@
 
 ## 当前验证
 
-- `cd OEngine; npm test`：410 个测试通过；3 个文档系统测试因缺少本阶段文档而失败，文档补齐后应重新运行。
-- 浏览器验收待 Phase 2 的实时 Timeline 接线完成后执行。
+- `cd OEngine; npm run build`：通过。
+- `cd OEngine; node --test tests/*.test.mjs`：414 个测试通过。
+- Phase 2 已补充 Playwright 浏览器验收，实时 Record/Stop、Tab 切换、整数 FPS 和无 Capture 控件均已验证。
 
 ## 后续
 
-下一阶段建立 `LiveProfilerStore`，统一历史帧、录制状态、选中帧和所有领域证据，彻底避免历史 Timeline 与当前 Renderer 状态混用。
-
+`LiveProfilerStore` 已在 Phase 2 建立；后续只保留性能增强和更多 OEngine 领域证据的增量工作，不再恢复离线 Capture 主流程。
