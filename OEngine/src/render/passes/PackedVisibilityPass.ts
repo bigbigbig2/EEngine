@@ -322,6 +322,7 @@ export class PackedVisibilityPass {
       job.width,
       job.height
     );
+    const { opaqueGroup, maskGroup } = this.ensureBindGroups(entry, job, camera);
     this.debugBindings.set(job.runtime, Object.freeze({
       instances: job.scene.instances,
       meshlets: job.assets.meshletRecords,
@@ -339,35 +340,6 @@ export class PackedVisibilityPass {
     const maskPipeline = this.graphics.render_pipelines.obtain(
       HIERARCHY_RASTER_PIPELINE
     );
-    const opaqueGroup = this.graphics.bind_groups.obtain({
-      layout: OPAQUE_RASTER_GROUP,
-      entries: [
-        { buffer: camera },
-        { buffer: job.scene.instances },
-        { buffer: job.assets.meshletRecords },
-        { buffer: job.assets.meshletVertexIndices },
-        { buffer: job.assets.meshletTriangleIndices },
-        { buffer: job.assets.vertexStreamData },
-        { buffer: job.assets.geometryRecords },
-        { buffer: exact.rasterWork }
-      ]
-    });
-    const maskGroup = this.graphics.bind_groups.obtain({
-      layout: HIERARCHY_RASTER_GROUP,
-      entries: [
-        { buffer: camera },
-        { buffer: job.scene.instances },
-        { buffer: job.assets.meshletRecords },
-        { buffer: job.assets.meshletVertexIndices },
-        { buffer: job.assets.meshletTriangleIndices },
-        { buffer: job.assets.vertexStreamData },
-        { buffer: job.assets.geometryRecords },
-        { buffer: exact.rasterWork },
-        { buffer: job.runtime.materialResources.materialRecords },
-        job.runtime.materialResources.alphaAtlas,
-        job.runtime.materialResources.highResolutionAlphaAtlas
-      ]
-    });
     const render = command.beginRenderPass({
       label: "Packed VisibilityKey/depth exact drawIndirect",
       colorAttachments: [
@@ -470,6 +442,47 @@ export class PackedVisibilityPass {
     return next;
   }
 
+  private ensureBindGroups(
+    entry: HierarchyPreparedCacheEntry,
+    job: PackedVisibilityJob,
+    camera: GPUBuffer
+  ): { opaqueGroup: GPUBindGroup; maskGroup: GPUBindGroup } {
+    if (entry.opaqueGroup !== undefined && entry.maskGroup !== undefined) {
+      return { opaqueGroup: entry.opaqueGroup, maskGroup: entry.maskGroup };
+    }
+    const rasterWork = entry.exact.output.rasterWork;
+    entry.opaqueGroup = this.graphics.bind_groups.obtain({
+      layout: OPAQUE_RASTER_GROUP,
+      entries: [
+        { buffer: camera },
+        { buffer: job.scene.instances },
+        { buffer: job.assets.meshletRecords },
+        { buffer: job.assets.meshletVertexIndices },
+        { buffer: job.assets.meshletTriangleIndices },
+        { buffer: job.assets.vertexStreamData },
+        { buffer: job.assets.geometryRecords },
+        { buffer: rasterWork }
+      ]
+    });
+    entry.maskGroup = this.graphics.bind_groups.obtain({
+      layout: HIERARCHY_RASTER_GROUP,
+      entries: [
+        { buffer: camera },
+        { buffer: job.scene.instances },
+        { buffer: job.assets.meshletRecords },
+        { buffer: job.assets.meshletVertexIndices },
+        { buffer: job.assets.meshletTriangleIndices },
+        { buffer: job.assets.vertexStreamData },
+        { buffer: job.assets.geometryRecords },
+        { buffer: rasterWork },
+        { buffer: job.runtime.materialResources.materialRecords },
+        job.runtime.materialResources.alphaAtlas,
+        job.runtime.materialResources.highResolutionAlphaAtlas
+      ]
+    });
+    return { opaqueGroup: entry.opaqueGroup, maskGroup: entry.maskGroup };
+  }
+
   private retirePrepared(
     entry: HierarchyPreparedCacheEntry,
     command: ShadeGPUCommandContext
@@ -536,6 +549,8 @@ export function packedVisibilityAttachmentDescriptor(
 interface HierarchyPreparedCacheEntry {
   readonly prepared: PreparedHierarchyWork;
   readonly exact: PreparedExactTriangleFilter;
+  opaqueGroup?: GPUBindGroup;
+  maskGroup?: GPUBindGroup;
   readonly camera: GPUBuffer;
   readonly assetEpoch: number;
   readonly sceneEpoch: number;

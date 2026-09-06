@@ -31,6 +31,8 @@ export interface RenderingLabFixture {
     readonly gpuCounterSampleInterval?: number;
     /** Capacity of the asynchronous GPU counter readback ring. */
     readonly readbackRingSlots?: number;
+    /** Add per-FrameGraph-pass CPU encoding sections to a record profile. */
+    readonly cpuPassTimings?: boolean;
     /** Serialize each frame behind queue completion for counter-coverage tests. */
     readonly awaitGpuEachFrame?: boolean;
   }): Promise<RenderingLabBenchmarkReport>;

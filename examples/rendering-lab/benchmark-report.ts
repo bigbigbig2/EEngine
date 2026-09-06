@@ -34,6 +34,7 @@ export interface RenderingLabMeasurementProfile {
   readonly inspectorVisible: boolean;
   readonly gpuCounterSampleInterval: number;
   readonly readbackRingSlots: number;
+  readonly cpuPassTimings: boolean;
   readonly awaitGpuEachFrame: boolean;
 }
 

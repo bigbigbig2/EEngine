@@ -406,6 +406,7 @@ function installRenderingLabFixture(
       options?.inspectorVisible,
       options?.gpuCounterSampleInterval,
       options?.readbackRingSlots,
+      options?.cpuPassTimings,
       options?.awaitGpuEachFrame
     ),
     downloadBenchmarkReport: () => {
@@ -462,6 +463,7 @@ async function runRenderingLabBenchmark(
   inspectorVisibleOverride?: boolean,
   gpuCounterSampleIntervalOverride?: number,
   readbackRingSlotsOverride?: number,
+  cpuPassTimingsOverride?: boolean,
   awaitGpuEachFrameOverride?: boolean
 ): Promise<RenderingLabBenchmarkReport> {
   if (benchmarkRunning) throw new Error("A Rendering Lab benchmark is already running");
@@ -478,9 +480,11 @@ async function runRenderingLabBenchmark(
   const previousInspectorVisible = inspector?.isOpen ?? false;
   const previousCounterInterval = activeRenderer.profiler.gpuCounterSampleInterval;
   const previousReadbackSlots = activeRenderer.profiler.readbackRingSlots;
+  const previousCpuPassTimings = activeRenderer.profiler.cpuPassTimings;
   const inspectorVisible = inspectorVisibleOverride ?? previousInspectorVisible;
   const counterInterval = gpuCounterSampleIntervalOverride ?? previousCounterInterval;
   const readbackSlots = readbackRingSlotsOverride ?? previousReadbackSlots;
+  const cpuPassTimings = cpuPassTimingsOverride ?? previousCpuPassTimings;
   benchmarkAwaitGpuEachFrame = awaitGpuEachFrameOverride ?? false;
   if (inspector !== null) {
     if (inspectorVisible) inspector.open();
@@ -489,7 +493,8 @@ async function runRenderingLabBenchmark(
   activeRenderer.profiler.setMode("record");
   activeRenderer.profiler.configure({
     gpuCounterSampleInterval: counterInterval,
-    readbackRingSlots: readbackSlots
+    readbackRingSlots: readbackSlots,
+    cpuPassTimings
   });
   const startedAt = new Date().toISOString();
   const caseIds = requestedCases === undefined || requestedCases.length === 0
@@ -533,6 +538,7 @@ async function runRenderingLabBenchmark(
         inspectorVisible,
         gpuCounterSampleInterval: activeRenderer.profiler.gpuCounterSampleInterval,
         readbackRingSlots: activeRenderer.profiler.readbackRingSlots,
+        cpuPassTimings: activeRenderer.profiler.cpuPassTimings,
         awaitGpuEachFrame: benchmarkAwaitGpuEachFrame
       } satisfies RenderingLabMeasurementProfile,
       domainEvidence: {
@@ -554,7 +560,8 @@ async function runRenderingLabBenchmark(
   } finally {
     activeRenderer.profiler.configure({
       gpuCounterSampleInterval: previousCounterInterval,
-      readbackRingSlots: previousReadbackSlots
+      readbackRingSlots: previousReadbackSlots,
+      cpuPassTimings: previousCpuPassTimings
     });
     activeRenderer.profiler.setMode(previousProfilerMode);
     if (inspector !== null) {

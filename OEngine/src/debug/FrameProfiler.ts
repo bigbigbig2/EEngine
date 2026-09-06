@@ -32,6 +32,8 @@ export interface FrameProfilerOptions {
   warmupFrames?: number;
   historyCapacity?: number;
   readbackRingSlots?: number;
+  /** Attribute FrameGraph pass CPU encoding in addition to the normal sections. */
+  cpuPassTimings?: boolean;
   now?: () => number;
 }
 
@@ -269,6 +271,7 @@ export class FrameProfiler {
   private gpuTimestampAvailableValue: boolean;
   private historyCapacityValue: number;
   private readbackRingSlotsValue: number;
+  private cpuPassTimingsValue: boolean;
   private readonly now: () => number;
   readonly metricRegistry = new MetricRegistry();
   private profileHistoryValue: ProfileHistory | null = null;
@@ -335,6 +338,7 @@ export class FrameProfiler {
       options.readbackRingSlots ?? 3,
       "readbackRingSlots"
     );
+    this.cpuPassTimingsValue = options.cpuPassTimings ?? false;
     if (this.readbackRingSlotsValue < 3) {
       throw new RangeError("readbackRingSlots must be at least 3");
     }
@@ -372,12 +376,16 @@ export class FrameProfiler {
   }
 
   /**
-   * Deep capture may add one CPU section per executable FrameGraph pass. Keep
-   * this disabled for live/record modes so the normal render loop pays no
-   * per-pass timing overhead.
+   * Deep capture, or an explicit CPU attribution profile, may add one CPU
+   * section per executable FrameGraph pass. The normal render loop keeps this
+   * disabled so it pays no per-pass timing overhead.
    */
   shouldSampleCpuPasses(): boolean {
-    return this.enabledValue && this.modeValue === "deep-capture";
+    return this.enabledValue && (this.modeValue === "deep-capture" || this.cpuPassTimingsValue);
+  }
+
+  get cpuPassTimings(): boolean {
+    return this.cpuPassTimingsValue;
   }
 
   get epoch(): number {
@@ -555,6 +563,9 @@ export class FrameProfiler {
         this.readbackRingSlotsValue = slots;
         this.destroyGpuCounterResources();
       }
+    }
+    if (options.cpuPassTimings !== undefined) {
+      this.cpuPassTimingsValue = options.cpuPassTimings;
     }
     if (!this.enabledValue) this.destroyGpuCounterResources();
   }

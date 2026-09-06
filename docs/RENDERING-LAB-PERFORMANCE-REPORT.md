@@ -133,5 +133,6 @@ Feature-off 对照已经对全部 9 个 minus case 执行 active-pass gate；报
 4. 当前 1080p resident logical 超出 512 MiB 预算约 30.4 MiB，transient 仅剩约 4.7 MiB 余量；需要先优化纹理 residency 和 transient 峰值，再评估目标硬件是否满足预算。
 5. Inspector 的实时页应优先显示 phase P50/P95、counter coverage、history bytes、FrameGraph active/pruned 和 evidence status；不显示没有 producer 的“估算 GPU 利用率”。
 6. 已增加一个只在 Inspector `High detail`/`deep-capture` 模式启用的逐 pass CPU 编码分解 seam。一次 1280×720 本地 Chrome 探查中，`Packed Visibility/exact OPAQUE+MASK producer` 约 5.5 ms、`Material Resolve/classified visible pixels` 约 5.1 ms；由于 deep-capture 同时逐帧启用 timestamp/counter，样本速率很低（本次仅 1 个稳定样本），这些数字只用于定位候选，不是发布基线。下一步应在目标硬件以独立 deep-capture profile 收集至少 30 个稳定样本，再决定是否采用 render bundle、持久 bind group 或 pass 合并。
+7. 针对上述热点已将 Packed Visibility 的 opaque/mask bind group，以及 Material Resolve 的静态 lookup bind group，移入资源 epoch 驱动的缓存。60 帧 `cpuPassTimings` smoke 中缓存前后 Packed Visibility 约为 4.8→4.6 ms、Material Resolve 约为 4.4→4.4 ms；总 CPU P50 在 28.45–29.15 ms 间波动，尚不足以宣称稳定收益。该切片的确定收益是减少每帧 descriptor 数组构造和 BindGroupCache key 计算；是否继续引入 render bundle，必须以目标硬件的稳定 pass 级样本为准。
 
 原始浏览器产物保存在工作区外部临时目录的 `rendering-lab-none-automatic.json`、`rendering-lab-fixed-fov-locked.json`、`rendering-lab-path-automatic.json` 等文件；仓库只提交可复核的实现与本报告，避免把单机瞬时数值伪装成稳定基线。

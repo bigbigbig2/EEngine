@@ -154,6 +154,8 @@ export class PackedMaterialResolvePass {
   private readonly unusedRotation = new Float32Array(16);
   private readonly previousViewProjectionBuffer: GPUBuffer;
   private readonly samplers: readonly GPUSampler[];
+  private cachedLookupGroup: GPUBindGroup | null = null;
+  private cachedLookupInputs: PackedMaterialLookupInputs | null = null;
   lastKernelDrawCount = 0;
   lastActiveMaterialCount = 0;
   private currentSurfaceBytesPerPixel = GPU_SURFACE_BYTES_PER_PIXEL;
@@ -248,19 +250,33 @@ export class PackedMaterialResolvePass {
             { buffer: classified.shadeWork }
           ]
         });
-        const group1 = this.graphics.bind_groups.obtain({
-          layout: LOOKUP_GROUP,
-          entries: [
-            { buffer: data.scene.instances },
-            { buffer: data.assets.geometryRecords },
-            { buffer: data.assets.meshletRecords },
-            { buffer: data.assets.meshletVertexIndices },
-            { buffer: data.assets.meshletTriangleIndices },
-            { buffer: data.assets.vertexStreamDescriptors },
-            { buffer: data.assets.vertexStreamData },
-            { buffer: visibility.rasterWork }
-          ]
-        });
+        const lookupInputs: PackedMaterialLookupInputs = {
+          instances: data.scene.instances,
+          geometryRecords: data.assets.geometryRecords,
+          meshletRecords: data.assets.meshletRecords,
+          meshletVertexIndices: data.assets.meshletVertexIndices,
+          meshletTriangleIndices: data.assets.meshletTriangleIndices,
+          vertexStreamDescriptors: data.assets.vertexStreamDescriptors,
+          vertexStreamData: data.assets.vertexStreamData,
+          rasterWork: visibility.rasterWork
+        };
+        if (!sameLookupInputs(this.cachedLookupInputs, lookupInputs)) {
+          this.cachedLookupInputs = lookupInputs;
+          this.cachedLookupGroup = this.graphics.bind_groups.obtain({
+            layout: LOOKUP_GROUP,
+            entries: [
+              { buffer: lookupInputs.instances },
+              { buffer: lookupInputs.geometryRecords },
+              { buffer: lookupInputs.meshletRecords },
+              { buffer: lookupInputs.meshletVertexIndices },
+              { buffer: lookupInputs.meshletTriangleIndices },
+              { buffer: lookupInputs.vertexStreamDescriptors },
+              { buffer: lookupInputs.vertexStreamData },
+              { buffer: lookupInputs.rasterWork }
+            ]
+          });
+        }
+        const group1 = this.cachedLookupGroup!;
         const pass = command.beginRenderPass({
           label: "Material Resolve/specialized Surface",
           colorAttachments: [
@@ -346,7 +362,35 @@ export class PackedMaterialResolvePass {
   destroy(): void {
     this.classifier.destroy();
     this.previousViewProjectionBuffer.destroy();
+    this.cachedLookupGroup = null;
+    this.cachedLookupInputs = null;
   }
+}
+
+interface PackedMaterialLookupInputs {
+  readonly instances: GPUBuffer;
+  readonly geometryRecords: GPUBuffer;
+  readonly meshletRecords: GPUBuffer;
+  readonly meshletVertexIndices: GPUBuffer;
+  readonly meshletTriangleIndices: GPUBuffer;
+  readonly vertexStreamDescriptors: GPUBuffer;
+  readonly vertexStreamData: GPUBuffer;
+  readonly rasterWork: GPUBuffer;
+}
+
+function sameLookupInputs(
+  previous: PackedMaterialLookupInputs | null,
+  next: PackedMaterialLookupInputs
+): boolean {
+  return previous !== null &&
+    previous.instances === next.instances &&
+    previous.geometryRecords === next.geometryRecords &&
+    previous.meshletRecords === next.meshletRecords &&
+    previous.meshletVertexIndices === next.meshletVertexIndices &&
+    previous.meshletTriangleIndices === next.meshletTriangleIndices &&
+    previous.vertexStreamDescriptors === next.vertexStreamDescriptors &&
+    previous.vertexStreamData === next.vertexStreamData &&
+    previous.rasterWork === next.rasterWork;
 }
 
 function createSampler(

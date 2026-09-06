@@ -41,6 +41,9 @@ test("frame profiler modes keep cadence and counter instrumentation explicit", (
 
   profiler.setMode("record");
   assert.equal(profiler.shouldSampleCpuPasses(), false);
+  profiler.configure({ cpuPassTimings: true });
+  assert.equal(profiler.cpuPassTimings, true);
+  assert.equal(profiler.shouldSampleCpuPasses(), true);
 });
 
 
