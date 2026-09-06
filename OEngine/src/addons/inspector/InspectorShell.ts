@@ -239,7 +239,7 @@ export class InspectorShell {
     this.overview.update(state.frames, state.range);
     this.timeline.update(state.frames, state.selectedFrameIndex, state.range);
     const domains = this.options.onDomainState();
-    this.gpuDriven.update(state.frames);
+    this.gpuDriven.update(state.frames, state.selected ?? state.latest);
     this.frameGraph.update(domains.frameGraph, state.selected);
     this.resources.update(domains.resources, domains.memory);
     this.diagnostics.update(domains.diagnostics);

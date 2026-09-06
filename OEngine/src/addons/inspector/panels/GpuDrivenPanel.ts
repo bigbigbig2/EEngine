@@ -110,11 +110,12 @@ export class GpuDrivenPanel {
     this.element.append(heading, this.funnel, this.queues);
   }
 
-  update(frames: readonly ProfileFrame[]): void {
-    this.funnel.textContent = buildGpuDrivenFunnel(frames).map((stage) =>
+  update(frames: readonly ProfileFrame[], focusFrame: ProfileFrame | undefined = latest(frames)): void {
+    const focused = focusFrame === undefined ? [] : [focusFrame];
+    this.funnel.textContent = buildGpuDrivenFunnel(focused).map((stage) =>
       `${stage.label}: ${stage.value === null ? stage.availability : stage.value} (${stage.ratio === null ? "—" : `${(stage.ratio * 100).toFixed(1)}%`})`
     ).join("\n");
-    this.queues.textContent = buildQueueSummaries(frames).map((queue) =>
+    this.queues.textContent = buildQueueSummaries(focused).map((queue) =>
       `${queue.label}: current ${queue.current ?? "unsupported"} / capacity ${queue.capacity ?? "unsupported"} / peak ${queue.peak ?? "unsupported"} / overflow ${queue.overflow ?? "unsupported"}`
     ).join("\n");
   }
