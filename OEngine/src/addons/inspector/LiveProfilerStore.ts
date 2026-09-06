@@ -38,7 +38,6 @@ export class LiveProfilerStore {
     this.profiler = profiler;
     this.modeValue = fromProfilerMode(profiler.mode);
     this.recordingValue = this.modeValue === "record";
-    if (this.recordingValue) this.seedTimelineFromLatest();
     this.unsubscribeHistory = profiler.historyStore?.subscribe((frame) => {
       this.syncTimeline(frame);
       if (!this.pausedValue) this.notify();
@@ -80,7 +79,6 @@ export class LiveProfilerStore {
     this.profiler.setMode(toProfilerMode(mode));
     this.modeValue = mode;
     this.recordingValue = mode === "record";
-    if (this.recordingValue) this.seedTimelineFromLatest();
     this.notify();
   }
 
@@ -175,11 +173,6 @@ export class LiveProfilerStore {
       if (oldest === undefined) break;
       this.timelineFrameMap.delete(oldest);
     }
-  }
-
-  private seedTimelineFromLatest(): void {
-    const latest = this.latestFrame;
-    if (latest !== undefined) this.timelineFrameMap.set(frameKey(latest), latest);
   }
 
   private get timelineCapacity(): number {
