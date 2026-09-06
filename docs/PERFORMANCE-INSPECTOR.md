@@ -85,10 +85,10 @@ Renderer / GPU owners
 
 ## 分阶段交付
 
-1. Phase 1：Profiler Shell、Monitor/Record/High detail、Follow latest、面板切换和状态合同。
-2. Phase 2：LiveProfilerStore、实时 Timeline Record/Stop/Clear、统一 ProfileFrame。
-3. Phase 3：Performance、Timeline、Work、Graph、Memory、Diagnostics 完整迁移。
-4. Phase 4：Rendering Lab Playwright 验收、GPU counter/coverage 证据、删除旧 Capture 路径。
+1. **已完成** Phase 1：Profiler Shell、Monitor/Record/High detail、Follow latest、面板切换和状态合同。
+2. **已完成** Phase 2：LiveProfilerStore、实时 Timeline Record/Stop/Clear、统一 ProfileFrame。
+3. **已完成基线** Phase 3：Performance、Timeline、Work、Graph、Memory、Diagnostics 已迁移；后续只增加更多 OEngine 证据。
+4. **已完成基线** Phase 4：Rendering Lab Playwright 验收、GPU counter/coverage 证据、Inspector 公共路径移除 Capture/Trace；内部 codec 仅供 benchmark/test 使用。
 
 设计与执行记录：
 
