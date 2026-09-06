@@ -2,7 +2,7 @@
 
 ## 目标
 
-建立一个有界、内存内的实时 Timeline 录制器。录制停止后冻结查看窗口，但不生成离线 Capture 文件，也不改变 Renderer 的提交循环。
+建立一个有界、内存内的实时 Timeline 录制器。停止后退出录制态，Renderer 继续提交并保持有界实时历史；需要冻结查看时使用 Pin frame 或 Pause，不生成离线 Capture 文件。
 
 ## 模块 seam
 
@@ -30,4 +30,3 @@ Renderer / GPU owners
 ## 验收
 
 Record/Stop/Clear、Follow latest、Pin frame、异步 GPU 结果和跨 Tab 帧一致性必须通过浏览器自动化验证，并保存截图和控制台结果。
-
