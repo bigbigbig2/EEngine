@@ -5,7 +5,7 @@
 
 ## 1. 本次实际执行
 
-测试入口是 `examples/rendering-lab/`，通过 Playwright 控制本地 Chrome，WebGPU canvas 为 1280×720、DPR 1，固定 seed `20260906`。正式长跑为每个 case 120 warm-up + 480 measured frames；GPU timestamp cadence 为 8，GPU counter cadence 为 11，readback ring 为 16 slots。另保留 30+60 的快速 smoke 配置用于开发迭代。
+测试入口是 `examples/rendering-lab/`，通过 Playwright 控制本地 Chrome，正式长跑 WebGPU canvas 为 1920×1080、DPR 1；固定 seed `20260906`。正式长跑为每个 case 120 warm-up + 480 measured frames；GPU timestamp cadence 为 8，GPU counter cadence 为 11，readback ring 为 16 slots。另保留 1280×720、30+60 的快速 smoke 配置用于开发迭代。
 
 工作负载 manifest 已固定并写入报告：816 instances、806 geometries、34 materials、2 个透明实例，Dungeon GLB 与 Venice HDR 都记录 SHA-256。全效果请求包含 CSM、GTAO、SSR、MBOIT、TAA、motion blur、自动曝光、Bloom、color grading、sharpening 和 tonemap。
 
@@ -68,10 +68,10 @@
 
 | segment | 原始帧 | 稳定帧 | cut 帧 | CPU P50 (ms) | GPU phase P50 (ms) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| overview | 10 | 10 | 0 | 22.50 | 8.605 |
-| occlusion-run | 20 | 20 | 0 | 23.60 | 10.228 |
-| transparent-close | 9 | 9 | 0 | 22.50 | 11.117 |
-| cut-recovery | 21 | 15 | 2 | 24.70 | 7.738 |
+| overview | 10 | 10 | 0 | 21.70 | 1.446 |
+| occlusion-run | 20 | 20 | 0 | 22.90 | 1.281 |
+| transparent-close | 9 | 9 | 0 | 21.00 | 1.235 |
+| cut-recovery | 21 | 15 | 2 | 23.20 | 1.446 |
 
 这组结果说明运动段的成本明显高于静止 full summary，尤其是遮挡和透明近景；但它仍是短 smoke，不能替代正式稳定基线。路径原始帧、稳定帧数量和 cut 标记都保留在 JSON 的 `camera.segments` 中，后续目标硬件可以直接复跑同一统计口径。
 

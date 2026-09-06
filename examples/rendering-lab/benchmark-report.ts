@@ -124,7 +124,9 @@ function buildCameraSegmentStats(result: BenchmarkResult): readonly RenderingLab
     const cpu = stable.map((frame) => frame.cpuMs.frame).filter(isFiniteNumber);
     const gpu = stable
       .filter((frame) => frame.gpu.sampled && !frame.gpu.pending && !frame.gpuCounters.sampled)
-      .map((frame) => frame.gpu.segments.reduce((sum, segment) => sum + segment.durationMs, 0))
+      .map((frame) => frame.gpu.segments
+        .filter((segment) => segment.phase === "frame")
+        .reduce((sum, segment) => sum + segment.durationMs, 0))
       .filter(isFiniteNumber);
     return {
       caseId: result.case.id,

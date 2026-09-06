@@ -69,7 +69,7 @@ resident 不是物理 VRAM 查询；它是 OEngine resource accounting 的 logic
 
 ## 6. 性能瓶颈定位建议
 
-在当前本地 adapter 上，`full` 的 CPU P50 为 17.0 ms、timestamped GPU phase P50 为 1.445 ms。相机运动路径中，`occlusion-run` 和 `transparent-close` 的稳定 GPU phase 分别约 10.228 ms 和 11.117 ms，显著高于静止 full；这说明需要把运动段的 visibility、透明和后处理拆开看，而不能只看静止平均值。
+在当前本地 adapter 上，`full` 的 CPU P50 为 17.0 ms、timestamped GPU phase P50 为 1.445 ms。相机运动路径中，`occlusion-run` 和 `transparent-close` 的稳定 CPU P50 分别约 22.9 ms 和 21.0 ms，但 GPU frame phase 分别约 1.281 ms 和 1.235 ms；运动段的额外成本主要出现在 CPU/提交与阶段组合，而不是简单的 GPU frame span 单调增长。这说明需要把运动段的 visibility、透明和后处理拆开看，而不能只看静止平均值。
 
 下一轮优化顺序建议：
 
@@ -81,4 +81,3 @@ resident 不是物理 VRAM 查询；它是 OEngine resource accounting 的 logic
 ## 7. 证据边界
 
 当前证据不能推出 SM occupancy、驱动排队、物理 VRAM 或 Presented FPS。目标产品的 1920×1080、DPR 1、60 FPS 仍未被目标硬件证明；本报告用于建立可复跑的架构和优化基线。
-
