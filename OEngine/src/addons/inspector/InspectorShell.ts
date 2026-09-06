@@ -86,6 +86,7 @@ export class InspectorShell {
   private readonly positionButton: HTMLButtonElement;
   private readonly maximizeButton: HTMLButtonElement;
   private readonly hideButton: HTMLButtonElement;
+  private readonly followLatestButton: HTMLButtonElement;
   private readonly onWindowResize = (): void => this.applyLayout(this.layoutModel.layout);
   private activePanel: InspectorPanel = "overview";
   private dockMode: "bottom" | "right" = "bottom";
@@ -143,6 +144,7 @@ export class InspectorShell {
     tabs.className = "tabs";
     for (const [mode, label] of [["monitor", "Monitor"], ["record", "Record"], ["high-detail", "High detail"]] as const) {
       const button = this.button(label, () => options.onMode(mode));
+      button.dataset.inspectorMode = mode;
       this.modeButtons.set(mode, button);
       tabs.append(button);
     }
@@ -151,6 +153,8 @@ export class InspectorShell {
       followLatest.setAttribute("aria-pressed", String(next));
       options.onFollowLatest(next);
     });
+    this.followLatestButton = followLatest;
+    followLatest.dataset.inspectorAction = "follow-latest";
     followLatest.setAttribute("aria-pressed", "true");
     tabs.append(followLatest);
 
@@ -164,8 +168,11 @@ export class InspectorShell {
 
     const panelTabs = document.createElement("div");
     panelTabs.className = "tabs panel-tabs";
+    panelTabs.setAttribute("role", "tablist");
     for (const [panel, label] of [["overview", "Performance"], ["timeline", "Timeline"], ["gpu-driven", "Work"], ["framegraph", "Graph"], ["resources", "Memory"], ["diagnostics", "Diagnostics"]] as const) {
       const button = this.button(label, () => this.showPanel(panel));
+      button.dataset.inspectorTab = panel;
+      button.setAttribute("role", "tab");
       this.panelButtons.set(panel, button);
       panelTabs.append(button);
     }
@@ -220,10 +227,12 @@ export class InspectorShell {
     this.drawToggleGraph(state);
     this.status.dataset.mode = state.mode;
     this.modeButtons.forEach((button, mode) => button.setAttribute("aria-pressed", String(mode === state.mode)));
-    const followButton = [...this.root.querySelectorAll<HTMLButtonElement>(".control-strip .tabs button")]
-      .find((button) => button.textContent === "Follow latest");
-    followButton?.setAttribute("aria-pressed", String(state.followLatest));
-    this.panelButtons.forEach((button, panel) => button.setAttribute("aria-pressed", String(panel === this.activePanel)));
+    this.followLatestButton.setAttribute("aria-pressed", String(state.followLatest));
+    this.panelButtons.forEach((button, panel) => {
+      const selected = panel === this.activePanel;
+      button.setAttribute("aria-pressed", String(selected));
+      button.setAttribute("aria-selected", String(selected));
+    });
     this.selected.textContent = state.selectedFrameIndex === null
       ? "select a frame for details"
       : `frame ${state.selectedFrameIndex}`;
@@ -295,7 +304,11 @@ export class InspectorShell {
     this.frameGraph.element.hidden = panel !== "framegraph";
     this.resources.element.hidden = panel !== "resources";
     this.diagnostics.element.hidden = panel !== "diagnostics";
-    this.panelButtons.forEach((button, candidate) => button.setAttribute("aria-pressed", String(candidate === panel)));
+    this.panelButtons.forEach((button, candidate) => {
+      const selected = candidate === panel;
+      button.setAttribute("aria-pressed", String(selected));
+      button.setAttribute("aria-selected", String(selected));
+    });
   }
 
   private applyLayout(layout: InspectorLayout): void {

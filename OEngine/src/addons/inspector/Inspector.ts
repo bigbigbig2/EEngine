@@ -5,6 +5,7 @@ import {
   type InspectorMode,
   type InspectorViewState
 } from "./InspectorViewModel.js";
+import type { ProfileFrame } from "../../debug/profiling/ProfileFrame.js";
 import { InspectorShell, type InspectorDomainState, type InspectorStyleMode } from "./InspectorShell.js";
 
 export type { InspectorMode } from "./InspectorViewModel.js";
@@ -30,6 +31,12 @@ interface ResolvedInspectorOptions {
   readonly styles: InspectorStyleMode;
 }
 
+interface StoredDomainEvidence {
+  readonly frameGraph: InspectorDomainState["frameGraph"];
+  readonly resources: InspectorDomainState["resources"];
+  readonly memory: InspectorDomainState["memory"];
+}
+
 /** Public lifecycle and real-time profiling facade for the framework-free Inspector addon. */
 export class Inspector {
   readonly viewModel: InspectorViewModel;
@@ -43,6 +50,7 @@ export class Inspector {
   private animationFrame: number | null = null;
   private lastPaintAt = -Infinity;
   private pendingState: InspectorViewState | null = null;
+  private readonly domainEvidenceByFrame = new Map<number, StoredDomainEvidence>();
   private disposed = false;
 
   constructor(renderer: Renderer, options: InspectorOptions = {}) {
@@ -94,10 +102,12 @@ export class Inspector {
     this.shell.mount();
     if (this.options.initiallyCollapsed) this.shell.setPanelVisible(false);
     this.unsubscribeView = this.viewModel.subscribe((state) => {
+      this.captureDomainEvidence(state.latest);
       this.pendingState = state;
       this.schedulePaint();
     });
     this.pendingState = this.viewModel.snapshot();
+    this.captureDomainEvidence(this.pendingState.latest);
     this.schedulePaint(true);
   }
 
@@ -111,6 +121,7 @@ export class Inspector {
     this.unsubscribeView = null;
     this.shell?.unmount();
     this.shell = null;
+    this.domainEvidenceByFrame.clear();
   }
 
   pause(): void {
@@ -167,13 +178,17 @@ export class Inspector {
     let memory: InspectorDomainState["memory"] = null;
     const frame = this.viewModel.selectedFrame ?? this.viewModel.latestFrame;
     const latest = this.viewModel.latestFrame;
-    const pinned = frame !== undefined && latest !== undefined && frame.frameIndex !== latest.frameIndex;
-    // Renderer domain APIs describe the current frame. Do not mix those values
-    // into a pinned historical frame until the store owns domain snapshots.
-    if (!pinned) {
-      try { frameGraph = this.renderer.mainFrameGraphEvidence(); } catch { /* renderer not initialized */ }
-      try { resources = this.renderer.graphics.profilingResourceSnapshot(); } catch { /* renderer not initialized */ }
-      try { memory = this.renderer.memoryEvidence(); } catch { /* renderer not initialized */ }
+    const stored = frame === undefined ? undefined : this.domainEvidenceByFrame.get(frame.frameIndex);
+    if (stored !== undefined) {
+      frameGraph = stored.frameGraph;
+      resources = stored.resources;
+      memory = stored.memory;
+    } else if (frame === undefined || latest?.frameIndex === frame.frameIndex) {
+      this.captureDomainEvidence(frame);
+      const current = frame === undefined ? undefined : this.domainEvidenceByFrame.get(frame.frameIndex);
+      frameGraph = current?.frameGraph ?? null;
+      resources = current?.resources ?? null;
+      memory = current?.memory ?? null;
     }
     const overhead = frame?.samples["profiler.overheadMs"];
     return {
@@ -192,6 +207,23 @@ export class Inspector {
         latestFrameIndex: this.profiler.latest?.frameIndex
       }
     };
+  }
+
+  private captureDomainEvidence(frame: ProfileFrame | undefined): void {
+    if (frame === undefined) return;
+    if (this.domainEvidenceByFrame.has(frame.frameIndex)) return;
+    let frameGraph: StoredDomainEvidence["frameGraph"] = null;
+    let resources: StoredDomainEvidence["resources"] = null;
+    let memory: StoredDomainEvidence["memory"] = null;
+    try { frameGraph = cloneEvidence(this.renderer.mainFrameGraphEvidence()); } catch { /* renderer not initialized */ }
+    try { resources = cloneEvidence(this.renderer.graphics.profilingResourceSnapshot()); } catch { /* renderer not initialized */ }
+    try { memory = cloneEvidence(this.renderer.memoryEvidence()); } catch { /* renderer not initialized */ }
+    this.domainEvidenceByFrame.set(frame.frameIndex, Object.freeze({ frameGraph, resources, memory }));
+    while (this.domainEvidenceByFrame.size > this.options.historyCapacity) {
+      const oldest = this.domainEvidenceByFrame.keys().next().value;
+      if (oldest === undefined) break;
+      this.domainEvidenceByFrame.delete(oldest);
+    }
   }
 
   private schedulePaint(immediate = false): void {
@@ -214,4 +246,10 @@ export class Inspector {
   private assertAlive(): void {
     if (this.disposed) throw new Error("Inspector has been disposed");
   }
+}
+
+function cloneEvidence<T>(value: T): T {
+  if (value === null || value === undefined) return value;
+  if (typeof structuredClone === "function") return structuredClone(value);
+  return JSON.parse(JSON.stringify(value)) as T;
 }
