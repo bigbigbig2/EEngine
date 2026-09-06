@@ -407,7 +407,8 @@ function installRenderingLabFixture(
       options?.gpuCounterSampleInterval,
       options?.readbackRingSlots,
       options?.cpuPassTimings,
-      options?.awaitGpuEachFrame
+      options?.awaitGpuEachFrame,
+      options?.animateScene
     ),
     downloadBenchmarkReport: () => {
       if (benchmarkReport !== null) downloadRenderingLabBenchmarkReport(benchmarkReport);
@@ -464,7 +465,8 @@ async function runRenderingLabBenchmark(
   gpuCounterSampleIntervalOverride?: number,
   readbackRingSlotsOverride?: number,
   cpuPassTimingsOverride?: boolean,
-  awaitGpuEachFrameOverride?: boolean
+  awaitGpuEachFrameOverride?: boolean,
+  animateSceneOverride?: boolean
 ): Promise<RenderingLabBenchmarkReport> {
   if (benchmarkRunning) throw new Error("A Rendering Lab benchmark is already running");
   if (root.dataset.state !== "ready") throw new Error("Rendering Lab is not ready");
@@ -485,6 +487,7 @@ async function runRenderingLabBenchmark(
   const counterInterval = gpuCounterSampleIntervalOverride ?? previousCounterInterval;
   const readbackSlots = readbackRingSlotsOverride ?? previousReadbackSlots;
   const cpuPassTimings = cpuPassTimingsOverride ?? previousCpuPassTimings;
+  const animateScene = animateSceneOverride ?? true;
   benchmarkAwaitGpuEachFrame = awaitGpuEachFrameOverride ?? false;
   if (inspector !== null) {
     if (inspectorVisible) inspector.open();
@@ -516,7 +519,7 @@ async function runRenderingLabBenchmark(
         environmentForCase: (caseId) => benchmarkEnvironment(activeRenderer, caseId),
         caseManifestForCase: (caseId) => benchmarkCaseManifest(caseId),
         prepareCase: (caseId) => prepareBenchmarkCase(activeRenderer, activeScene, activeCamera, caseId),
-        renderCaseFrame: (ordinal) => renderBenchmarkFrame(activeRenderer, activeScene, activeCamera, ordinal),
+        renderCaseFrame: (ordinal) => renderBenchmarkFrame(activeRenderer, activeScene, activeCamera, ordinal, animateScene),
         settleCase: () => settleBenchmarkCase(activeRenderer)
       };
       benchmarkSuite = new RenderingLabBenchmarkSuite(host, suiteCases);
@@ -534,12 +537,13 @@ async function runRenderingLabBenchmark(
       cameraSweep: sweep.filter((entry): entry is CameraSweepCase => entry !== null),
       cameraPathId: RENDERING_LAB_CAMERA_PATH_ID,
       cases: allResults,
-      measurement: {
+        measurement: {
         inspectorVisible,
         gpuCounterSampleInterval: activeRenderer.profiler.gpuCounterSampleInterval,
         readbackRingSlots: activeRenderer.profiler.readbackRingSlots,
         cpuPassTimings: activeRenderer.profiler.cpuPassTimings,
-        awaitGpuEachFrame: benchmarkAwaitGpuEachFrame
+          awaitGpuEachFrame: benchmarkAwaitGpuEachFrame,
+          animateScene
       } satisfies RenderingLabMeasurementProfile,
       domainEvidence: {
         graph: activeRenderer.mainFrameGraphEvidence(),
@@ -677,7 +681,13 @@ function prepareBenchmarkCase(
   benchmarkStatus.textContent = `准备 ${caseId} · ${benchmarkSweepCase?.id ?? "overview"}`;
 }
 
-async function renderBenchmarkFrame(activeRenderer: Renderer, activeScene: Scene, activeCamera: PerspectiveCamera, ordinal = 0): Promise<void> {
+async function renderBenchmarkFrame(
+  activeRenderer: Renderer,
+  activeScene: Scene,
+  activeCamera: PerspectiveCamera,
+  ordinal = 0,
+  animateScene = true
+): Promise<void> {
   if (benchmarkCameraPathMode) {
     const sample = sampleRenderingLabCameraPath(benchmarkCameraPathTime(ordinal));
     applyRenderingLabCameraPath(activeCamera, sample);
@@ -685,7 +695,7 @@ async function renderBenchmarkFrame(activeRenderer: Renderer, activeScene: Scene
   }
   activeCamera.aspect = activeRenderer.aspect_ratio;
   activeCamera.update();
-  if (benchmarkSweepCase === null) queueAnimatedScenePatch(
+  if (animateScene && benchmarkSweepCase === null) queueAnimatedScenePatch(
     activeRenderer,
     activeScene,
     activeRenderer.frame_count + 1,

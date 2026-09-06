@@ -36,6 +36,7 @@ export interface RenderingLabMeasurementProfile {
   readonly readbackRingSlots: number;
   readonly cpuPassTimings: boolean;
   readonly awaitGpuEachFrame: boolean;
+  readonly animateScene: boolean;
 }
 
 export interface RenderingLabCameraSegmentStats {

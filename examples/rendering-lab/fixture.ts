@@ -35,6 +35,8 @@ export interface RenderingLabFixture {
     readonly cpuPassTimings?: boolean;
     /** Serialize each frame behind queue completion for counter-coverage tests. */
     readonly awaitGpuEachFrame?: boolean;
+    /** Keep the scene static to measure cacheable shadow/visibility work. */
+    readonly animateScene?: boolean;
   }): Promise<RenderingLabBenchmarkReport>;
   downloadBenchmarkReport(): void;
   captureScreenshot(): Promise<void>;
