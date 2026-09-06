@@ -40,6 +40,16 @@ test("P2 初始化配置覆盖便捷字段但不产生第二套管线", () => {
   );
 });
 
+test("P2 texture residency cap is explicit and validated", () => {
+  const merged = mergeRendererConfig(DEFAULT_RENDERER_CONFIG, { textureMaxResolution: 1024 });
+  assert.equal(merged.textureMaxResolution, 1024);
+  validateRendererConfig(merged);
+  assert.throws(
+    () => validateRendererConfig({ textureMaxResolution: 1000 }),
+    /textureMaxResolution/
+  );
+});
+
 test("P2 帧合同冻结 View/FrameGraph 共用的尺寸、jitter 和拓扑", () => {
   const contract = createRenderFrameContract({
     frameIndex: 3,

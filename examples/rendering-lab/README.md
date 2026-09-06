@@ -18,6 +18,10 @@ Rendering Lab panel.
 - `rendering-lab/?mode=pipeline` is the focused pipeline mode. It disables
   shadows, AO, SSR, TAA, bloom, exposure and sharpening so the panel isolates
   the path through Surface.
+- `rendering-lab/?textureMaxResolution=1024` is an explicit texture-residency
+  quality experiment. It caps the high-resolution bank at 1024²; the default
+  remains uncapped (up to 4096²). Use the Inspector Memory tab and a screenshot
+  comparison together—this is a quality/memory trade-off, not a free reduction.
 
 The Inspector reports package/residency and packed-scene evidence, visibility
 and work-generation counters, RasterWork/indirect consumption,

@@ -189,7 +189,12 @@ async function initialize(): Promise<void> {
   if (context === null) throw new Error("Unable to create a WebGPU canvas context.");
 
   setLoading("正在初始化 WebGPU 渲染器…", "渲染器初始化", 0.04);
-  const activeRenderer = new Renderer();
+  const textureMaxResolution = parseTextureMaxResolution(
+    new URLSearchParams(window.location.search).get("textureMaxResolution")
+  );
+  const activeRenderer = new Renderer(
+    textureMaxResolution === undefined ? undefined : { textureMaxResolution }
+  );
   renderer = activeRenderer;
   await activeRenderer.initialize({
     context,
@@ -1103,6 +1108,14 @@ function startFrameLoop(): void {
     frameRequest = requestAnimationFrame(frame);
   };
   frameRequest = requestAnimationFrame(frame);
+}
+
+function parseTextureMaxResolution(value: string | null): 256 | 512 | 1024 | 2048 | 4096 | undefined {
+  if (value === null || value.length === 0) return undefined;
+  const parsed = Number(value);
+  return parsed === 256 || parsed === 512 || parsed === 1024 || parsed === 2048 || parsed === 4096
+    ? parsed
+    : undefined;
 }
 
 function queueAnimatedScenePatch(

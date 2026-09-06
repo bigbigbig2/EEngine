@@ -5,6 +5,7 @@
 import { ChangeSignal } from "../core/Signal.js";
 import { Vec2 } from "../core/math/Vec2.js";
 import { GraphicsContext } from "../gpu/GraphicsContext.js";
+import { TEXTURE_RESIDENCY_MAX_SIZE } from "../gpu/TextureResidency.js";
 import { MeshletDrawList } from "../gpu/MeshletDrawList.js";
 import { GPUSceneManager } from "../gpu/GPUSceneManager.js";
 import { SceneSdf } from "../gpu/SceneSdf.js";
@@ -1014,7 +1015,11 @@ export class Renderer {
     this._profiler.configure({
       gpuTimestampAvailable: device.features.has("timestamp-query")
     });
-    this._graphics = new GraphicsContext(device, this._profiler);
+    this._graphics = new GraphicsContext(
+      device,
+      this._profiler,
+      effectiveConfig.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE
+    );
     this._frameCoordinator = new FrameCoordinator(this._graphics);
     await this._graphics.initialize();
     this._meshletDrawList = new MeshletDrawList(this._graphics);

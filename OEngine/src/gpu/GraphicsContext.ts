@@ -37,7 +37,10 @@ import { GpuAssetStore } from "./GpuAssetStore.js";
 import { GpuScene } from "./GpuScene.js";
 import { GpuPackedSceneRegistry } from "./GpuPackedSceneRegistry.js";
 import { GpuMaterialStore } from "./GpuMaterialStore.js";
-import { TextureResidency } from "./TextureResidency.js";
+import {
+  TextureResidency,
+  TEXTURE_RESIDENCY_MAX_SIZE
+} from "./TextureResidency.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "./GpuMaterialVisibilityAbi.js";
 import {
   ResourceAccounting,
@@ -81,12 +84,18 @@ export class GraphicsContext {
   private packedScenesValue: GpuPackedSceneRegistry | undefined;
   private materialStoreValue: GpuMaterialStore | undefined;
   private textureResidencyValue: TextureResidency | undefined;
+  private readonly textureMaxResolution: number;
   private timerIncrementValue = 0;
   private destroyed = false;
 
-  constructor(device: GPUDevice, profiler = new FrameProfiler()) {
+  constructor(
+    device: GPUDevice,
+    profiler = new FrameProfiler(),
+    textureMaxResolution = TEXTURE_RESIDENCY_MAX_SIZE
+  ) {
     this.device = device;
     this.profiler = profiler;
+    this.textureMaxResolution = textureMaxResolution;
     this.profiler.configure({
       gpuTimestampAvailable: device.features.has("timestamp-query")
     });
@@ -221,7 +230,7 @@ export class GraphicsContext {
 
   /** Lazily creates the independent Packed texture residency owner. */
   get texture_residency(): TextureResidency {
-    this.textureResidencyValue ??= new TextureResidency(this);
+    this.textureResidencyValue ??= new TextureResidency(this, this.textureMaxResolution);
     return this.textureResidencyValue;
   }
 

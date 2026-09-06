@@ -14,6 +14,8 @@ export interface RendererConfig {
   readonly enableGTAO?: boolean;
   readonly enableSSSR?: boolean;
   readonly enableTAAU?: boolean;
+  /** Maximum per-layer resolution used by the packed texture residency bank. */
+  readonly textureMaxResolution?: 256 | 512 | 1024 | 2048 | 4096;
   /** 提交给 adapter/device 的额外必需能力；缺失时初始化明确失败。 */
   readonly requiredFeatures?: readonly GPUFeatureName[];
   /** 额外的最小设备限制；缺失时初始化明确失败。 */
@@ -103,6 +105,10 @@ export function rendererConfigSettingsPatch(
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  if (config.textureMaxResolution !== undefined &&
+      ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)) {
+    throw new RangeError("textureMaxResolution must be one of 256, 512, 1024, 2048 or 4096");
+  }
   for (const feature of config.requiredFeatures ?? []) {
     if (feature.length === 0) throw new Error("Renderer required feature must not be empty");
   }

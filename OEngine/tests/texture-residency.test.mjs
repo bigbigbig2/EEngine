@@ -76,6 +76,19 @@ test("bulk 2K residency preflights one exact power-of-two bank", () => {
   residency.destroy();
 });
 
+test("texture residency quality cap downsamples without losing texture refs", () => {
+  const graphics = fakeGraphics();
+  const residency = new TextureResidency(graphics, 1024);
+  const texture = validTexture(2048, 2048);
+  const material = new StandardShadeMaterial();
+  material.texture_albedo = texture;
+  const stage = residency.stage([material], new FakeCommand());
+  assert.equal(graphics.texturesCreated[1].descriptor.size[0], 1024);
+  assert.equal((stage.textureRefs.get(texture) & 0x80000000) >>> 0, 0x80000000);
+  assert.equal(residency.evidence().residentHighResolutionTextureCount, 1);
+  residency.destroy();
+});
+
 test("base bank capacity fails before upload work", () => {
   const graphics = fakeGraphics();
   const residency = new TextureResidency(graphics);

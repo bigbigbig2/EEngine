@@ -105,7 +105,13 @@ export class TextureResidency {
   private resizePipeline: GPURenderPipeline | null = null;
   private destroyed = false;
 
-  constructor(private readonly graphics: GraphicsContext) {
+  constructor(
+    private readonly graphics: GraphicsContext,
+    private readonly highResolutionMaxSize = TEXTURE_RESIDENCY_MAX_SIZE
+  ) {
+    if (![256, 512, 1024, 2048, 4096].includes(highResolutionMaxSize)) {
+      throw new RangeError("TextureResidency highResolutionMaxSize must be a supported power-of-two size");
+    }
     this.baseDescriptor = {
       label: "TextureResidency/base-bank",
       size: [TEXTURE_RESIDENCY_BASE_SIZE, TEXTURE_RESIDENCY_BASE_SIZE, TEXTURE_RESIDENCY_BASE_CAPACITY],
@@ -449,7 +455,7 @@ export class TextureResidency {
   }
 
   private ensureHighBank(textures: ReadonlySet<ShadeTexture>): void {
-    const requiredSize = highBankSize(textures);
+    const requiredSize = highBankSize(textures, this.highResolutionMaxSize);
     if (this.highTexture !== null) {
       if (requiredSize > this.highSize) {
         throw new RangeError(
@@ -463,6 +469,9 @@ export class TextureResidency {
     const limits = this.graphics.device.limits;
     const budgetCapacity = Math.max(
       1,
+      // Keep the physical texel budget tied to the engine-wide 4K reference;
+      // lowering the quality cap must not accidentally reduce array capacity
+      // and reject a valid transaction with many smaller layers.
       Math.floor(16 * (TEXTURE_RESIDENCY_MAX_SIZE / requiredSize) ** 2)
     );
     const capacity = Math.min(budgetCapacity, Number(limits.maxTextureArrayLayers));
@@ -585,13 +594,13 @@ function requiresHighBank(texture: ShadeTexture): boolean {
   return image !== undefined && Math.max(image.width, image.height) > TEXTURE_RESIDENCY_BASE_SIZE;
 }
 
-function highBankSize(textures: ReadonlySet<ShadeTexture>): number {
+function highBankSize(textures: ReadonlySet<ShadeTexture>, maxSize: number): number {
   let required = TEXTURE_RESIDENCY_BASE_SIZE + 1;
   for (const texture of textures) {
     const image = texture.image;
     if (image !== undefined) required = Math.max(required, image.width, image.height);
   }
-  return Math.min(TEXTURE_RESIDENCY_MAX_SIZE, nextPowerOfTwo(required));
+    return Math.min(maxSize, nextPowerOfTwo(required));
 }
 
 function nextPowerOfTwo(value: number): number {
