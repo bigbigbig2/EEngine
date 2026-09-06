@@ -345,25 +345,6 @@ export type {
   ResourceHandle
 } from "./debug/profiling/ResourceAccounting.js";
 export {
-  createPerformanceCapture,
-  parsePerformanceCapture,
-  serializePerformanceCapture
-} from "./debug/profiling/PerformanceCapture.js";
-export type {
-  PerformanceCapture,
-  PerformanceCaptureInput
-} from "./debug/profiling/PerformanceCapture.js";
-export {
-  exportChromeTrace,
-  serializeChromeTrace,
-  streamChromeTrace
-} from "./debug/profiling/ChromeTraceExporter.js";
-export type {
-  ChromeTraceDocument,
-  ChromeTraceEvent,
-  ChromeTraceInput
-} from "./debug/profiling/ChromeTraceExporter.js";
-export {
   GPU_COUNTER_BYTE_SIZE,
   GPU_COUNTER_FIELDS,
   GPU_COUNTER_SCHEMA_VERSION,

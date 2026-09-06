@@ -6,6 +6,8 @@ Inspector v2 是实时工具，不是离线 Capture Viewer。主流程只有 Mon
 
 不提供 Capture Import、Capture Replay、Trace 导入或单帧 Capture 按钮。未来若需要持久化记录，必须另立产品决策。
 
+实时 Inspector 也不从 `OEngine/src/index.ts` 暴露 Capture/Chrome Trace 编解码器；仓库中的 codec 仅保留给现有内部 benchmark/test，不属于 Inspector 运行时路径。
+
 ## 参考边界
 
 three.js revision [`c4ffe022`](https://github.com/mrdoob/three.js/tree/c4ffe022f2a4f982b42b7da5af79a87066a138ae/examples/jsm/inspector) 作为 MIT 许可下的交互参考：Dock、浮动开关、Tab Registry、Performance 层级树、Memory 列表和 Timeline Record/Clear。OEngine 只做可追溯的本地交互移植，不引入 three.js runtime 对象。
