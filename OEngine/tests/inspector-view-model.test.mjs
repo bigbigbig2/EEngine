@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { FrameProfiler } from "../.test-dist/debug/FrameProfiler.js";
 import { Inspector } from "../.test-dist/addons/inspector/Inspector.js";
 import { InspectorViewModel } from "../.test-dist/addons/inspector/InspectorViewModel.js";
-import { createPerformanceCapture } from "../.test-dist/debug/profiling/PerformanceCapture.js";
+import { LiveProfilerStore } from "../.test-dist/addons/inspector/LiveProfilerStore.js";
 
 function createProfiler() {
   return new FrameProfiler({
@@ -26,7 +26,7 @@ test("InspectorViewModel owns mode, pause and frame selection state", () => {
   profiler.beginFrame(2);
   profiler.endFrame();
 
-  assert.equal(model.mode, "live");
+  assert.equal(model.mode, "monitor");
   model.setMode("record");
   assert.equal(model.mode, "record");
   model.pause();
@@ -72,9 +72,9 @@ test("InspectorViewModel follows asynchronous frame replacement and rejects stal
     { label: "visibility", type: "render", duration_ms: 1.25 }
   ]);
 
-  assert.equal(model.selectedFrame?.gpu.pending, false);
+  assert.equal(model.selectedFrame?.samples["gpu.passSumMs"]?.availability, "available");
   assert.notEqual(model.selectedFrame, before);
-  assert.equal(model.selectedFrame?.gpu.segments[0].durationMs, 1.25);
+  assert.equal(model.selectedFrame?.samples["gpu.passSumMs"]?.value, 1.25);
   assert.throws(() => model.selectFrame(999), /unknown frame/i);
   assert.throws(() => model.selectRange(3, 2), /range/i);
   assert.ok(updates.length >= 3);
@@ -83,42 +83,15 @@ test("InspectorViewModel follows asynchronous frame replacement and rejects stal
   profiler.destroy();
 });
 
-test("InspectorViewModel can replay an imported capture and restore live frames", () => {
+test("InspectorViewModel keeps one live source and exposes high-detail mode", () => {
   const profiler = createProfiler();
   profiler.beginFrame(7);
   profiler.endFrame();
-  const capture = createPerformanceCapture({
-    engine: { name: "test" },
-    sampling: {
-      mode: "record",
-      warmupFrames: 0,
-      timestampInterval: 1,
-      counterInterval: 1,
-      historyCapacity: 8
-    },
-    metricCatalog: profiler.metricCatalog,
-    frames: [{
-      schemaVersion: 1,
-      frameIndex: 42,
-      epoch: 0,
-      warmup: false,
-      visibilityState: "visible",
-      samples: {},
-      spans: [],
-      gpuCounterSchemaVersion: 1,
-      timestampInstrumented: false,
-      counterInstrumented: false,
-      complete: true
-    }]
-  });
   const model = new InspectorViewModel(profiler);
-  model.loadCapture(capture);
-  assert.equal(model.mode, "record");
-  assert.deepEqual(model.frames.map((frame) => frame.frameIndex), [42]);
-  model.selectFrame(42);
-  assert.equal(model.selectedFrame?.frameIndex, 42);
-  model.clearLoadedCapture();
+  assert.equal(model.snapshot().source, "live");
   assert.deepEqual(model.frames.map((frame) => frame.frameIndex), [7]);
+  model.setMode("high-detail");
+  assert.equal(model.mode, "high-detail");
   profiler.destroy();
 });
 
@@ -131,5 +104,25 @@ test("Inspector lifecycle restores a profiler that it enabled", () => {
   assert.equal(profiler.mode, "record");
   inspector.dispose();
   assert.equal(profiler.enabled, false);
+  profiler.destroy();
+});
+
+test("LiveProfilerStore keeps bounded live selection state independent from the renderer", () => {
+  const profiler = createProfiler();
+  const store = new LiveProfilerStore(profiler);
+  const updates = [];
+  store.subscribe((state) => updates.push(state));
+  profiler.beginFrame(11);
+  profiler.endFrame();
+  profiler.beginFrame(12);
+  profiler.endFrame();
+  store.selectFrame(11);
+  assert.equal(store.state.followLatest, false);
+  assert.equal(store.selectedFrame?.frameIndex, 11);
+  store.setFollowLatest(true);
+  assert.equal(store.selectedFrame, undefined);
+  assert.equal(store.state.frames.at(-1)?.frameIndex, 12);
+  assert.ok(updates.length >= 3);
+  store.dispose();
   profiler.destroy();
 });

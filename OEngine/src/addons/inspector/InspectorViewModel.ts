@@ -1,14 +1,17 @@
-import type { FrameProfiler, FrameProfileSnapshot } from "../../debug/FrameProfiler.js";
+import type { FrameProfiler } from "../../debug/FrameProfiler.js";
 import type { ProfileFrame } from "../../debug/profiling/ProfileFrame.js";
-import type { PerformanceCapture } from "../../debug/profiling/PerformanceCapture.js";
+import {
+  LiveProfilerStore,
+  type LiveProfilerMode,
+  type LiveProfilerStoreState
+} from "./LiveProfilerStore.js";
 
-export type InspectorMode = "live" | "record" | "deep-capture";
+export type InspectorMode = LiveProfilerMode;
 
 export interface InspectorViewState {
   readonly mode: InspectorMode;
-  readonly source: "live" | "capture";
+  readonly source: "live";
   readonly paused: boolean;
-  /** When true the view follows the newest live frame; false means a pinned frame. */
   readonly followLatest: boolean;
   readonly selectedFrameIndex: number | null;
   readonly range: readonly [number, number] | null;
@@ -19,176 +22,39 @@ export interface InspectorViewState {
 
 export type InspectorViewModelListener = (state: InspectorViewState) => void;
 
-/**
- * Pure state seam for Inspector UI. It consumes immutable profiler frames and
- * never reaches into Renderer, GPU buffers or Pass implementations.
- */
+/** Presentation adapter over the deep LiveProfilerStore seam. */
 export class InspectorViewModel {
-  private readonly profiler: FrameProfiler;
+  readonly store: LiveProfilerStore;
   private readonly listeners = new Set<InspectorViewModelListener>();
-  private readonly unsubscribeProfiler: () => void;
-  private modeValue: InspectorMode;
-  private pausedValue = false;
-  private followLatestValue = true;
-  private selectedFrameIndexValue: number | null = null;
-  private rangeValue: readonly [number, number] | null = null;
-  private captureValue: PerformanceCapture | null = null;
+  private readonly unsubscribeStore: () => void;
   private disposed = false;
 
   constructor(profiler: FrameProfiler) {
-    this.profiler = profiler;
-    this.modeValue = profiler.mode;
-    const history = profiler.historyStore;
-    this.unsubscribeProfiler = history?.subscribe(() => {
-      // Pausing freezes the view, not the renderer. This is the same distinction
-      // as a pinned frame in a real-time profiler and avoids pretending that the
-      // engine stopped producing evidence.
-      if (!this.pausedValue) this.notify();
-    }) ?? (() => {});
+    this.store = new LiveProfilerStore(profiler);
+    this.unsubscribeStore = this.store.subscribe(() => this.notify());
   }
 
-  get mode(): InspectorMode {
-    return this.modeValue;
-  }
+  get mode(): InspectorMode { return this.store.state.mode; }
+  get paused(): boolean { return this.store.state.paused; }
+  get followLatest(): boolean { return this.store.state.followLatest; }
+  get selectedFrame(): ProfileFrame | undefined { return this.store.selectedFrame; }
+  get latestFrame(): ProfileFrame | undefined { return this.store.latestFrame; }
+  get frames(): readonly ProfileFrame[] { return this.store.frames; }
 
-  get paused(): boolean {
-    return this.pausedValue;
-  }
-
-  get followLatest(): boolean {
-    return this.followLatestValue;
-  }
-
-  get selectedFrame(): FrameProfileSnapshot | ProfileFrame | undefined {
-    if (this.selectedFrameIndexValue === null) return undefined;
-    if (this.captureValue === null) return this.profiler.getFrame(this.selectedFrameIndexValue);
-    return this.frames.find((frame) => frame.frameIndex === this.selectedFrameIndexValue);
-  }
-
-  get latestFrame(): FrameProfileSnapshot | ProfileFrame | undefined {
-    if (this.captureValue !== null) return this.frames.at(-1);
-    return this.profiler.latest;
-  }
-
-  get frames(): readonly ProfileFrame[] {
-    return this.captureValue?.frames ?? this.profiler.historyStore?.values() ?? [];
-  }
-
-  get loadedCapture(): PerformanceCapture | null {
-    return this.captureValue;
-  }
-
-  get range(): readonly [number, number] | null {
-    return this.rangeValue;
-  }
-
-  setMode(mode: InspectorMode): void {
-    this.assertAlive();
-    if (this.modeValue === mode) return;
-    this.profiler.setMode(mode);
-    this.modeValue = mode;
-    this.notify();
-  }
-
-  pause(): void {
-    this.assertAlive();
-    if (this.pausedValue) return;
-    this.pausedValue = true;
-    this.notify();
-  }
-
-  resume(): void {
-    this.assertAlive();
-    if (!this.pausedValue) return;
-    this.pausedValue = false;
-    this.notify();
-  }
-
-  selectFrame(frameIndex: number): void {
-    this.assertAlive();
-    if (!Number.isInteger(frameIndex) || frameIndex < 0) {
-      throw new RangeError("frameIndex must be a non-negative integer");
-    }
-    if (!this.frames.some((frame) => frame.frameIndex === frameIndex)) {
-      throw new RangeError(`Unknown frame '${frameIndex}'`);
-    }
-    this.selectedFrameIndexValue = frameIndex;
-    this.followLatestValue = false;
-    this.notify();
-  }
-
+  setMode(mode: InspectorMode): void { this.store.setMode(mode); }
+  pause(): void { this.store.pause(); }
+  resume(): void { this.store.resume(); }
+  setFollowLatest(follow: boolean): void { this.store.setFollowLatest(follow); }
+  selectFrame(frameIndex: number): void { this.store.selectFrame(frameIndex); }
   selectRange(startFrameIndex: number, endFrameIndex: number): readonly ProfileFrame[] {
-    this.assertAlive();
-    if (!Number.isInteger(startFrameIndex) || !Number.isInteger(endFrameIndex)) {
-      throw new RangeError("Frame range must use integer indexes");
-    }
-    if (startFrameIndex > endFrameIndex) throw new RangeError("Invalid frame range");
-    const frames = this.frames.filter((frame) =>
-      frame.frameIndex >= startFrameIndex && frame.frameIndex <= endFrameIndex
-    );
-    this.rangeValue = Object.freeze([startFrameIndex, endFrameIndex]);
-    this.notify();
-    return Object.freeze([...frames]);
+    return this.store.selectRange(startFrameIndex, endFrameIndex);
   }
-
-  clearSelection(): void {
-    this.assertAlive();
-    this.selectedFrameIndexValue = null;
-    this.rangeValue = null;
-    this.followLatestValue = true;
-    this.notify();
-  }
-
-  setFollowLatest(follow: boolean): void {
-    this.assertAlive();
-    this.followLatestValue = follow;
-    if (follow) {
-      this.selectedFrameIndexValue = null;
-      this.rangeValue = null;
-    }
-    this.notify();
-  }
-
-  clear(): void {
-    this.assertAlive();
-    this.profiler.clear();
-    this.captureValue = null;
-    this.clearSelection();
-  }
-
-  /** Replaces the visible frame source with an immutable imported capture. */
-  loadCapture(capture: PerformanceCapture): void {
-    this.assertAlive();
-    this.captureValue = capture;
-    this.modeValue = capture.sampling.mode;
-    this.selectedFrameIndexValue = null;
-    this.rangeValue = null;
-    this.notify();
-  }
-
-  clearLoadedCapture(): void {
-    this.assertAlive();
-    if (this.captureValue === null) return;
-    this.captureValue = null;
-    this.selectedFrameIndexValue = null;
-    this.rangeValue = null;
-    this.notify();
-  }
+  clearSelection(): void { this.store.clearSelection(); }
+  clear(): void { this.store.clear(); }
 
   snapshot(): InspectorViewState {
-    return Object.freeze({
-      mode: this.modeValue,
-      source: this.captureValue === null ? "live" : "capture",
-      paused: this.pausedValue,
-      followLatest: this.followLatestValue,
-      selectedFrameIndex: this.selectedFrameIndexValue,
-      range: this.rangeValue,
-      latest: this.frames.at(-1),
-      selected: this.selectedFrameIndexValue === null
-        ? undefined
-        : this.frames.find((frame) => frame.frameIndex === this.selectedFrameIndexValue),
-      frames: this.frames
-    });
+    const state = this.store.state;
+    return Object.freeze({ ...state, source: "live" as const, latest: this.latestFrame, selected: this.selectedFrame });
   }
 
   subscribe(listener: InspectorViewModelListener): () => void {
@@ -200,7 +66,8 @@ export class InspectorViewModel {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.unsubscribeProfiler();
+    this.unsubscribeStore();
+    this.store.dispose();
     this.listeners.clear();
   }
 
@@ -214,3 +81,5 @@ export class InspectorViewModel {
     if (this.disposed) throw new Error("InspectorViewModel has been disposed");
   }
 }
+
+export type { LiveProfilerStoreState };

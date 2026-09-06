@@ -1,12 +1,5 @@
 import type { Renderer } from "../../render/Renderer.js";
-import type { FrameProfiler } from "../../debug/FrameProfiler.js";
-import {
-  createPerformanceCapture,
-  parsePerformanceCapture,
-  serializePerformanceCapture,
-  type PerformanceCapture
-} from "../../debug/profiling/PerformanceCapture.js";
-import { serializeChromeTrace } from "../../debug/profiling/ChromeTraceExporter.js";
+import type { FrameProfiler, FrameProfilerMode } from "../../debug/FrameProfiler.js";
 import {
   InspectorViewModel,
   type InspectorMode,
@@ -27,11 +20,6 @@ export interface InspectorOptions {
   readonly styles?: InspectorStyleMode;
 }
 
-export interface RecordingStopOptions {
-  readonly awaitPending?: boolean;
-  readonly timeoutMs?: number;
-}
-
 interface ResolvedInspectorOptions {
   readonly container?: HTMLElement;
   readonly nonce?: string;
@@ -42,23 +30,19 @@ interface ResolvedInspectorOptions {
   readonly styles: InspectorStyleMode;
 }
 
-const DEFAULT_TIMEOUT_MS = 1000;
-
-/** Public lifecycle and capture facade for the framework-free Inspector addon. */
+/** Public lifecycle and real-time profiling facade for the framework-free Inspector addon. */
 export class Inspector {
   readonly viewModel: InspectorViewModel;
   private readonly profiler: FrameProfiler;
   private readonly renderer: Renderer;
   private readonly options: ResolvedInspectorOptions;
   private readonly wasProfilerEnabled: boolean;
-  private readonly previousMode: InspectorMode;
+  private readonly previousMode: FrameProfilerMode;
   private shell: InspectorShell | null = null;
   private unsubscribeView: (() => void) | null = null;
   private animationFrame: number | null = null;
   private lastPaintAt = -Infinity;
   private pendingState: InspectorViewState | null = null;
-  private recordingStartFrame: number | null = null;
-  private pendingCaptureReject: ((error: Error) => void) | null = null;
   private disposed = false;
 
   constructor(renderer: Renderer, options: InspectorOptions = {}) {
@@ -75,7 +59,7 @@ export class Inspector {
     this.options = {
       container: options.container,
       nonce: options.nonce,
-      initialMode: options.initialMode ?? "live",
+      initialMode: options.initialMode ?? "monitor",
       initiallyCollapsed: options.initiallyCollapsed ?? false,
       historyCapacity,
       uiRefreshHz: options.uiRefreshHz ?? 5,
@@ -101,7 +85,7 @@ export class Inspector {
       onFollowLatest: (follow) => this.viewModel.setFollowLatest(follow),
       onClose: () => this.close(),
       onStartRecording: () => this.startRecording(),
-      onStopRecording: () => { void this.stopRecording().catch((error) => console.error(error)); },
+      onStopRecording: () => this.stopRecording(),
       onClear: () => this.clear(),
       onSelectFrame: (frameIndex) => this.selectFrame(frameIndex),
       onSelectRange: (startFrameIndex, endFrameIndex) => this.viewModel.selectRange(startFrameIndex, endFrameIndex),
@@ -146,43 +130,13 @@ export class Inspector {
 
   startRecording(): void {
     this.assertAlive();
-    this.viewModel.clearLoadedCapture();
     this.viewModel.setFollowLatest(true);
     this.viewModel.setMode("record");
-    this.recordingStartFrame = (this.profiler.latest?.frameIndex ?? -1) + 1;
   }
 
-  async stopRecording(options: RecordingStopOptions = {}): Promise<PerformanceCapture> {
+  stopRecording(): void {
     this.assertAlive();
-    const start = this.recordingStartFrame ?? this.oldestFrameIndex();
-    if (options.awaitPending !== false) {
-      await this.waitForPending(start, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-    }
-    const end = this.profiler.latest?.frameIndex ?? start - 1;
-    this.recordingStartFrame = null;
-    return this.createCapture(start, end);
-  }
-
-  captureNextFrame(): Promise<PerformanceCapture> {
-    this.assertAlive();
-    this.viewModel.clearLoadedCapture();
-    this.viewModel.setMode("deep-capture");
-    const target = (this.profiler.latest?.frameIndex ?? -1) + 1;
-    return new Promise((resolve, reject) => {
-      this.pendingCaptureReject = reject;
-      const unsubscribe = this.viewModel.subscribe((state) => {
-        const frame = state.frames.find((candidate) => candidate.frameIndex >= target);
-        if (frame === undefined) return;
-        unsubscribe();
-        this.pendingCaptureReject = null;
-        resolve(this.createCapture(frame.frameIndex, frame.frameIndex));
-      });
-      if (this.disposed) {
-        unsubscribe();
-        this.pendingCaptureReject = null;
-        reject(new Error("Inspector has been disposed"));
-      }
-    });
+    this.viewModel.setMode("monitor");
   }
 
   selectFrame(frameIndex: number): void {
@@ -195,30 +149,10 @@ export class Inspector {
     this.viewModel.clear();
   }
 
-  importCapture(capture: PerformanceCapture | string): void {
-    this.assertAlive();
-    const parsed = typeof capture === "string" ? parsePerformanceCapture(capture) : capture;
-    this.viewModel.loadCapture(parsed);
-  }
-
-  exportCapture(capture?: PerformanceCapture): Blob {
-    this.assertAlive();
-    const value = capture ?? this.viewModel.loadedCapture ?? this.createCapture(this.oldestFrameIndex(), this.latestFrameIndex());
-    return new Blob([serializePerformanceCapture(value)], { type: "application/json" });
-  }
-
-  exportTrace(capture?: PerformanceCapture): Blob {
-    this.assertAlive();
-    const value = capture ?? this.viewModel.loadedCapture ?? this.createCapture(this.oldestFrameIndex(), this.latestFrameIndex());
-    return new Blob([serializeChromeTrace({ frames: value.frames })], { type: "application/json" });
-  }
-
   dispose(): void {
     if (this.disposed) return;
     this.close();
     this.disposed = true;
-    this.pendingCaptureReject?.(new Error("Inspector has been disposed"));
-    this.pendingCaptureReject = null;
     this.viewModel.dispose();
     if (!this.wasProfilerEnabled) {
       this.profiler.configure({ enabled: false });
@@ -227,41 +161,20 @@ export class Inspector {
     }
   }
 
-  private createCapture(start: number, end: number): PerformanceCapture {
-    const frames = start > end
-      ? []
-      : this.viewModel.frames.filter((frame) => frame.frameIndex >= start && frame.frameIndex <= end);
-    return createPerformanceCapture({
-      engine: { name: "OEngine", profiler: "FrameProfiler" },
-      environment: this.environment(),
-      sampling: {
-        mode: this.profiler.mode,
-        warmupFrames: this.profiler.warmupRemaining,
-        timestampInterval: this.profiler.gpuSampleInterval,
-        counterInterval: this.profiler.gpuCounterSampleInterval,
-        historyCapacity: this.options.historyCapacity
-      },
-      metricCatalog: this.profiler.metricCatalog,
-      frames,
-      diagnostics: { ...this.profiler.diagnostics }
-    });
-  }
-
-  private environment(): Readonly<Record<string, unknown>> {
-    const result: Record<string, unknown> = {};
-    try { result.adapter = this.renderer.adapter_info; } catch { result.adapter = null; }
-    try { result.capabilities = this.renderer.capabilities; } catch { result.capabilities = null; }
-    return result;
-  }
-
   private domainState(): InspectorDomainState {
     let frameGraph: InspectorDomainState["frameGraph"] = null;
     let resources: InspectorDomainState["resources"] = null;
     let memory: InspectorDomainState["memory"] = null;
-    try { frameGraph = this.renderer.mainFrameGraphEvidence(); } catch { /* renderer not initialized */ }
-    try { resources = this.renderer.graphics.profilingResourceSnapshot(); } catch { /* renderer not initialized */ }
-    try { memory = this.renderer.memoryEvidence(); } catch { /* renderer not initialized */ }
-    const frame = this.viewModel.frames.at(-1);
+    const frame = this.viewModel.selectedFrame ?? this.viewModel.latestFrame;
+    const latest = this.viewModel.latestFrame;
+    const pinned = frame !== undefined && latest !== undefined && frame.frameIndex !== latest.frameIndex;
+    // Renderer domain APIs describe the current frame. Do not mix those values
+    // into a pinned historical frame until the store owns domain snapshots.
+    if (!pinned) {
+      try { frameGraph = this.renderer.mainFrameGraphEvidence(); } catch { /* renderer not initialized */ }
+      try { resources = this.renderer.graphics.profilingResourceSnapshot(); } catch { /* renderer not initialized */ }
+      try { memory = this.renderer.memoryEvidence(); } catch { /* renderer not initialized */ }
+    }
     const overhead = frame?.samples["profiler.overheadMs"];
     return {
       frameGraph,
@@ -271,7 +184,7 @@ export class Inspector {
         diagnostics: this.profiler.diagnostics,
         metricCatalog: this.profiler.metricCatalog,
         frame,
-        mode: this.profiler.mode,
+        mode: this.viewModel.mode,
         gpuTimestampAvailable: this.profiler.gpuTimestampAvailable,
         gpuSampleInterval: this.profiler.gpuSampleInterval,
         gpuCounterSampleInterval: this.profiler.gpuCounterSampleInterval,
@@ -279,25 +192,6 @@ export class Inspector {
         latestFrameIndex: this.profiler.latest?.frameIndex
       }
     };
-  }
-
-  private async waitForPending(startFrameIndex: number, timeoutMs: number): Promise<void> {
-    if (!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new RangeError("timeoutMs must be non-negative");
-    const pending = (): boolean => this.viewModel.frames.some((frame) =>
-      frame.frameIndex >= startFrameIndex && !frame.complete
-    );
-    if (!pending()) return;
-    await new Promise<void>((resolve) => {
-      const started = Date.now();
-      let unsubscribe: (() => void) | null = null;
-      const finish = (): void => { unsubscribe?.(); unsubscribe = null; resolve(); };
-      const check = (): void => {
-        if (!pending() || Date.now() - started >= timeoutMs) finish();
-        else setTimeout(check, 4);
-      };
-      unsubscribe = this.viewModel.subscribe(check);
-      check();
-    });
   }
 
   private schedulePaint(immediate = false): void {
@@ -315,14 +209,6 @@ export class Inspector {
       if (this.pendingState !== null && now - this.lastPaintAt < interval) this.schedulePaint();
     };
     this.animationFrame = requestAnimationFrame(callback);
-  }
-
-  private oldestFrameIndex(): number {
-    return this.viewModel.frames[0]?.frameIndex ?? 0;
-  }
-
-  private latestFrameIndex(): number {
-    return this.profiler.latest?.frameIndex ?? this.oldestFrameIndex();
   }
 
   private assertAlive(): void {

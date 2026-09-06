@@ -14,7 +14,7 @@ export interface InspectorShellOptions {
   readonly container: HTMLElement;
   readonly styles: InspectorStyleMode;
   readonly nonce?: string;
-  readonly onMode: (mode: "live" | "record" | "deep-capture") => void;
+  readonly onMode: (mode: InspectorMode) => void;
   readonly onFollowLatest: (follow: boolean) => void;
   readonly onClose: () => void;
   readonly onStartRecording: () => void;
@@ -141,7 +141,7 @@ export class InspectorShell {
 
     const tabs = document.createElement("div");
     tabs.className = "tabs";
-    for (const [mode, label] of [["live", "Monitor"], ["record", "Record"], ["deep-capture", "High detail"]] as const) {
+    for (const [mode, label] of [["monitor", "Monitor"], ["record", "Record"], ["high-detail", "High detail"]] as const) {
       const button = this.button(label, () => options.onMode(mode));
       this.modeButtons.set(mode, button);
       tabs.append(button);
@@ -213,9 +213,8 @@ export class InspectorShell {
 
   update(state: InspectorViewState): void {
     if (this.disposed) return;
-    const modeLabel = state.mode === "deep-capture" ? "High detail" : state.mode === "record" ? "Recording" : "Monitor";
-    const sourceLabel = state.source === "capture" ? "imported capture" : "live data";
-    this.status.textContent = `${modeLabel}${state.paused ? " · paused" : ""} · ${sourceLabel} · ${state.frames.length} frames`;
+    const modeLabel = state.mode === "high-detail" ? "High detail" : state.mode === "record" ? "Recording" : "Monitor";
+    this.status.textContent = `${modeLabel}${state.paused ? " · view paused" : ""} · live data · ${state.frames.length} frames`;
     const fps = presentedFps(state.frames);
     this.toggleLabel.textContent = fps === null ? "Inspector" : `${fps} FPS`;
     this.drawToggleGraph(state);
