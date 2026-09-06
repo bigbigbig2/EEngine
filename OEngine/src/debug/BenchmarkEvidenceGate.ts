@@ -691,6 +691,17 @@ function validateFrames(
   for (let index = 0; index < value.length; index++) {
     const frame = asRecord(value[index]);
     if (frame === null) continue;
+    // Counter-instrumented frames are intentionally excluded from the normal
+    // timestamp baseline, matching BenchmarkHarness.summarizeFrames().
+    const counterSampled =
+      asRecord(frame.gpuCounters)?.sampled === true &&
+      // A cadence of one is the deterministic contract used by the gate
+      // fixtures: every frame is both timestamped and counter-instrumented.
+      // The production harness uses a sparse counter cadence (11), and its
+      // summary intentionally omits those frames from the timestamp baseline.
+      (typeof run?.gpuCounterSampleInterval === "number"
+        ? run.gpuCounterSampleInterval
+        : 1) > 1;
     if (
       typeof frame.frameIndex !== "number" ||
       !Number.isInteger(frame.frameIndex) ||
@@ -753,6 +764,7 @@ function validateFrames(
         if (
           gpu.sampled === true &&
           gpu.pending !== true &&
+          !counterSampled &&
           labelValid &&
           durationValid
         ) {

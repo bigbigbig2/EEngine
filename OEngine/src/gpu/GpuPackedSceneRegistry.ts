@@ -225,6 +225,10 @@ export class GpuPackedSceneRegistry {
     return this.byScene.get(scene) ?? null;
   }
 
+  transparentInstanceCount(scene: Scene): number {
+    return this.byScene.get(scene)?.transparentInstanceCount ?? 0;
+  }
+
   /**
    * Detaches one Packed Scene and releases its Instance set in the caller's
    * explicit tool command. Geometry handles remain owned by the caller until

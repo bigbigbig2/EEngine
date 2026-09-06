@@ -99,6 +99,8 @@ export interface FrameProfilerDiagnostics {
 
 export interface FrameProfileSnapshot {
   frameIndex: number;
+  /** Benchmark-owned immutable context (camera segment, distance, LOD mode, etc.). */
+  metadata?: Readonly<Record<string, unknown>>;
   cpuMs: Record<string, number>;
   submits: FrameCountEvidence;
   readbacks: FrameReadbackEvidence;

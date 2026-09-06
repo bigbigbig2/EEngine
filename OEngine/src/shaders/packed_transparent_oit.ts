@@ -37,6 +37,10 @@ function packedDirectLightingCore(): string {
     .replace(/@group\(1\)/g, "@group(2)")
     .replace(/^@group\(3\) @binding\(1\) var<uniform> camera.*$/gm, "");
   source = removeWgslFunction(source, "read_gBuffer_material");
+  // The packed forward shader also provides the finite-value helper for the
+  // MBOIT resolve path.  Remove the copy pulled in from the shared lighting
+  // module so the composed WGSL module has a single declaration.
+  source = removeWgslFunction(source, "finite_f32");
   const fullscreen = source.indexOf("const FULLSCREEN_POSITIONS");
   return fullscreen < 0 ? source : source.slice(0, fullscreen);
 }

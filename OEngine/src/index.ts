@@ -359,12 +359,20 @@ export {
   serializeBenchmarkResult,
   summarizeSeries
 } from "./debug/BenchmarkHarness.js";
+export {
+  compareBenchmarkResults
+} from "./debug/BenchmarkComparison.js";
 export type {
   BenchmarkCaseManifest,
   BenchmarkResult,
   BenchmarkSummary,
   SeriesSummary
 } from "./debug/BenchmarkHarness.js";
+export type {
+  BenchmarkComparison,
+  BenchmarkDeltaStatus,
+  BenchmarkMetricDelta
+} from "./debug/BenchmarkComparison.js";
 export { BenchmarkRunController } from "./debug/BenchmarkRunController.js";
 export type {
   BenchmarkRunOptions,

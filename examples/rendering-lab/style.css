@@ -553,6 +553,25 @@ footer a {
   display: none !important;
 }
 
+.benchmark-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-bottom: 9px;
+}
+
+.benchmark-section .secondary-button {
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+#benchmark-status {
+  min-height: 30px;
+  margin: 8px 0;
+  white-space: pre-line;
+}
+
 body:has(.showcase.q00-capture-clean) > oengine-inspector {
   display: none !important;
 }

@@ -145,6 +145,30 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "temporalHistoryRejectedPixels"
     ]
   },
+  gtao: {
+    status: "supported",
+    requiredGpuCounters: ["aoEvaluatedPixels", "aoHistoryAcceptedPixels", "aoHistoryRejectedPixels"]
+  },
+  ssr: {
+    status: "supported",
+    requiredGpuCounters: ["ssrTracePixels", "ssrHitPixels", "ssrTraceSteps", "ssrMaxTraceSteps"]
+  },
+  bloom: {
+    status: "supported",
+    requiredGpuCounters: []
+  },
+  "automatic-exposure": {
+    status: "supported",
+    requiredGpuCounters: []
+  },
+  "motion-blur": {
+    status: "supported",
+    requiredGpuCounters: []
+  },
+  sharpening: {
+    status: "supported",
+    requiredGpuCounters: []
+  },
   "packed-instances": {
     status: "supported",
     requiredGpuCounters: [

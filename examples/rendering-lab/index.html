@@ -37,6 +37,21 @@
         </div>
 
         <fieldset id="control-fieldset" disabled>
+          <section class="control-section benchmark-section">
+            <div class="section-heading-row">
+              <h3>性能基准</h3>
+              <span class="sample-pill">PROFILER</span>
+            </div>
+            <p class="field-help">Benchmark 暂停交互 RAF，串行记录 FrameProfiler 的 CPU、GPU、counter、FrameGraph 和内存证据。</p>
+            <div class="benchmark-row">
+              <button class="secondary-button" id="benchmark-smoke" type="button">运行 Smoke</button>
+              <button class="secondary-button" id="benchmark-full" type="button">运行完整套件</button>
+            </div>
+            <label class="inline-field" for="benchmark-experiment"><span>相机实验</span><select id="benchmark-experiment"><option value="none">当前视角</option><option value="fixed-fov">固定 FOV 距离扫描</option><option value="projection-normalized">投影面积归一化</option><option value="path">正式运动路径 + cut</option></select></label>
+            <label class="inline-field" for="benchmark-lod"><span>距离实验 LOD</span><select id="benchmark-lod"><option value="automatic">自动 LOD</option><option value="locked">锁定粗层级</option></select></label>
+            <p class="field-help" id="benchmark-status">尚未运行；结果只代表当前浏览器与 adapter。</p>
+            <button class="secondary-button" id="benchmark-download" type="button" disabled>下载 JSON 报告</button>
+          </section>
           <section class="control-section">
             <label class="field-label" for="debug-view">调试视图</label>
             <select id="debug-view"></select>
@@ -88,6 +103,9 @@
               <label class="range-row" for="taa-reactive"><span><strong>Reactive 拒绝阈值</strong><output id="taa-reactive-value">0.50</output></span><input id="taa-reactive" type="range" min="0" max="1" step="0.05" value="0.5" /></label>
               <label class="range-row" for="taa-disocclusion"><span><strong>反遮挡置信阈值</strong><output id="taa-disocclusion-value">0.20</output></span><input id="taa-disocclusion" type="range" min="0" max="1" step="0.05" value="0.2" /></label>
               <label class="range-row" for="taa-motion-fade"><span><strong>运动衰减尺度</strong><output id="taa-motion-fade-value">128 px</output></span><input id="taa-motion-fade" type="range" min="16" max="512" step="16" value="128" /></label>
+            </div>
+            <div class="effect-block">
+              <label class="switch-row"><span><strong>运动模糊</strong><small>Velocity-driven post pass</small></span><input type="checkbox" data-feature="motionBlur" checked /></label>
             </div>
             <div class="effect-block">
               <label class="switch-row"><span><strong>泛光</strong><small>HDR 高亮扩散</small></span><input type="checkbox" data-feature="bloom" checked /></label>

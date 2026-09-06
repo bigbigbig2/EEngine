@@ -649,6 +649,10 @@ export class Renderer {
     return this._graphics.packed_scenes.evidence();
   }
 
+  packedTransparentInstanceCount(scene: Scene): number {
+    return this._graphics.packed_scenes.transparentInstanceCount(scene);
+  }
+
   /** FX-05 bounded owner/draw evidence; null means the Packed feature owner was never created. */
   packedTransparencyEvidence(): Readonly<{
     rasterStateBinLimit: number;

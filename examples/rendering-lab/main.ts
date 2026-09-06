@@ -6,6 +6,7 @@ import {
   RenderDebugView,
   Renderer,
   Scene,
+  ShadeTransparencyMode,
   StandardShadeMaterial,
   buildBoxSourceGeometry,
   cookGeometryAssetPackage,
@@ -17,10 +18,43 @@ import {
   type PackedGltfSource,
   type RenderDebugViewName
 } from "../../OEngine/src/index.ts";
+import {
+  captureWebGpuLimits,
+  createEnvironmentManifest,
+  type BenchmarkCaseManifest,
+  type BenchmarkEnvironmentManifest
+} from "../../OEngine/src/index.ts";
 import { Inspector } from "../../OEngine/src/addons/inspector/index.ts";
 import {
   ShowcaseEvidenceWindow
 } from "./evidence.js";
+import { applyCase } from "./quality-profile.js";
+import {
+  applyCameraSweepCase,
+  cameraDistance,
+  createCameraSweep,
+  projectedHeightPx,
+  type CameraSweepCase,
+  type CameraExperimentKind,
+  type CameraLodMode
+} from "./camera-experiments.js";
+import {
+  applyRenderingLabCameraPath,
+  RENDERING_LAB_CAMERA_PATH_ID,
+  sampleRenderingLabCameraPath
+} from "./camera-path.js";
+import {
+  buildRenderingLabBenchmarkReport,
+  downloadRenderingLabBenchmarkReport,
+  type RenderingLabBenchmarkReport
+} from "./benchmark-report.js";
+import {
+  RenderingLabBenchmarkSuite,
+  type RenderingLabBenchmarkSuiteHost,
+  type RenderingLabBenchmarkProgress
+} from "./benchmark-suite.js";
+import type { RenderingLabCaseId } from "./quality-profile.js";
+import type { RenderingLabFixture } from "./fixture.js";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -32,12 +66,13 @@ declare global {
     __OENGINE_Q00_SET_STATE__?: (state: Q00CaptureState) => void;
     __OENGINE_Q00_SNAPSHOT__?: () => unknown;
     __OENGINE_Q00_FRAME__?: () => number;
+    __OENGINE_RENDERING_LAB_FIXTURE__?: RenderingLabFixture;
   }
 }
 
 type Q00CaptureState = {
   readonly features?: Partial<Record<
-    "shadows" | "ssao" | "ssr" | "taa" | "bloom" | "exposure" | "sharpen",
+    "shadows" | "ssao" | "ssr" | "taa" | "bloom" | "exposure" | "motionBlur" | "sharpen",
     boolean
   >>;
   readonly debugView?: RenderDebugViewName;
@@ -104,6 +139,12 @@ const debugHelp = required<HTMLElement>("debug-help");
 const lodThreshold = required<HTMLInputElement>("lod-threshold");
 const lodValue = required<HTMLOutputElement>("lod-value");
 const panelToggle = required<HTMLButtonElement>("panel-toggle");
+const benchmarkSmokeButton = required<HTMLButtonElement>("benchmark-smoke");
+const benchmarkFullButton = required<HTMLButtonElement>("benchmark-full");
+const benchmarkDownloadButton = required<HTMLButtonElement>("benchmark-download");
+const benchmarkStatus = required<HTMLElement>("benchmark-status");
+const benchmarkExperiment = required<HTMLSelectElement>("benchmark-experiment");
+const benchmarkLod = required<HTMLSelectElement>("benchmark-lod");
 
 let renderer: Renderer | null = null;
 let scene: Scene | null = null;
@@ -113,6 +154,9 @@ let resizeObserver: ResizeObserver | null = null;
 let frameRequest = 0;
 let disposed = false;
 let sceneBounds: Bounds | null = null;
+let animatedInstanceIndices: Uint32Array | null = null;
+let packedSceneSource: PackedSceneSource | null = null;
+let assetHashes: readonly string[] = [];
 let inspector: Inspector | null = null;
 let sunLight: DirectionalLight | null = null;
 let sunAzimuthDegrees = -36;
@@ -121,6 +165,14 @@ const evidenceWindow = new ShowcaseEvidenceWindow(1024);
 const PERFORMANCE_WARMUP_FRAMES = 60;
 let measurementReason = "初始化";
 let unsubscribeProfiler: (() => void) | null = null;
+let benchmarkReport: RenderingLabBenchmarkReport | null = null;
+let benchmarkSuite: RenderingLabBenchmarkSuite | null = null;
+let benchmarkSweepCase: CameraSweepCase | null = null;
+let benchmarkRunConfig = { warmupFrames: 120, sampleFrames: 480 };
+let benchmarkError: { name: string; message: string } | undefined;
+let benchmarkRunning = false;
+let benchmarkMaterialPatch: Uint32Array | null = null;
+let benchmarkCameraPathMode = false;
 
 root.dataset.mode = PIPELINE_MODE ? "pipeline" : "quality";
 populateDebugViews();
@@ -146,7 +198,9 @@ async function initialize(): Promise<void> {
     gpuSampleInterval: 8,
     gpuCounterSampleInterval: 11,
     historyCapacity: 2048,
-    readbackRingSlots: 3
+    // Counter readbacks are asynchronous; the larger ring keeps a full
+    // benchmark window from overflowing on slower/headless adapters.
+    readbackRingSlots: 16
   });
   unsubscribeProfiler = activeRenderer.profiler.subscribe((snapshot) => {
     evidenceWindow.update(snapshot);
@@ -159,13 +213,18 @@ async function initialize(): Promise<void> {
     "资产导入",
     0.1
   );
-  const [imported, environment] = await Promise.all([
+  const [imported, environment, modelHash, environmentHash] = await Promise.all([
     load_gltf_packed(MODEL_URL),
-    load_environment_map(ENVIRONMENT_URL)
+    load_environment_map(ENVIRONMENT_URL),
+    sha256Url(MODEL_URL),
+    sha256Url(ENVIRONMENT_URL)
   ]);
+  assetHashes = Object.freeze([modelHash, environmentHash]);
   if (disposed) return;
 
   const lab = await createRenderingLab(imported);
+  packedSceneSource = lab.source;
+  animatedInstanceIndices = new Uint32Array([lab.source.count - 2, lab.source.count - 1]);
   sceneBounds = lab.bounds;
   if (disposed) return;
 
@@ -188,6 +247,8 @@ async function initialize(): Promise<void> {
   resetCamera();
   bindRendererControls(activeRenderer);
   installQ00Api(activeRenderer);
+  bindBenchmarkControls(activeRenderer, activeScene, activeCamera);
+  installRenderingLabFixture(activeRenderer, activeScene, activeCamera);
   startResizeObserver(activeRenderer, activeCamera);
 
   // Mount the Inspector only after the scene, camera and resize path are live.
@@ -212,7 +273,7 @@ async function initialize(): Promise<void> {
 function installQ00Api(activeRenderer: Renderer): void {
   window.__OENGINE_Q00_SET_STATE__ = (state) => {
     for (const [feature, enabled] of Object.entries(state.features ?? {})) {
-      if (PIPELINE_MODE && ["shadows", "ssao", "ssr", "taa", "bloom", "exposure", "sharpen"].includes(feature)) continue;
+      if (PIPELINE_MODE && ["shadows", "ssao", "ssr", "taa", "bloom", "exposure", "motionBlur", "sharpen"].includes(feature)) continue;
       const checkbox = document.querySelector<HTMLInputElement>(`input[data-feature="${feature}"]`);
       if (checkbox === null || enabled === undefined) continue;
       checkbox.checked = enabled;
@@ -271,6 +332,7 @@ function installQ00Api(activeRenderer: Renderer): void {
         taa: activeRenderer.render_settings.features.temporalAntiAliasing,
         bloom: activeRenderer.render_settings.features.bloom,
         automaticExposure: activeRenderer.render_settings.features.automaticExposure,
+        motionBlur: activeRenderer.render_settings.features.motionBlur,
         sharpening: activeRenderer.render_settings.features.sharpening,
         internalResolutionScale: activeRenderer.internal_resolution_scale,
         debugView: activeRenderer.render_debug_view
@@ -307,23 +369,374 @@ function installQ00Api(activeRenderer: Renderer): void {
   window.__OENGINE_Q00_FRAME__ = () => activeRenderer.frame_count;
 }
 
-function configurePipeline(activeRenderer: Renderer): void {
-  activeRenderer.configure({
-    features: PIPELINE_MODE ? {
-      shadows: false, ambientOcclusion: false, screenSpaceReflections: false,
-      temporalAntiAliasing: false, bloom: false, automaticExposure: false,
-      motionBlur: false, sharpening: false
-    } : {
-      shadows: true, ambientOcclusion: true, screenSpaceReflections: false,
-      temporalAntiAliasing: true, bloom: true, automaticExposure: true,
-      motionBlur: false, sharpening: true
-    },
-    ...(PIPELINE_MODE ? {} : { ao: { resolutionScale: 0.5, temporalEnabled: true } })
+function bindBenchmarkControls(
+  activeRenderer: Renderer,
+  activeScene: Scene,
+  activeCamera: PerspectiveCamera
+): void {
+  benchmarkSmokeButton.addEventListener("click", () => {
+    void runRenderingLabBenchmark(activeRenderer, activeScene, activeCamera, true).catch(showBenchmarkError);
   });
-  activeRenderer.internal_resolution_scale = 1;
-  activeRenderer.packed_visibility_sse_threshold = 4;
-  activeRenderer.packed_visibility_cone_enabled = true;
-  activeRenderer.packed_visibility_hzb_enabled = true;
+  benchmarkFullButton.addEventListener("click", () => {
+    void runRenderingLabBenchmark(activeRenderer, activeScene, activeCamera, false).catch(showBenchmarkError);
+  });
+  benchmarkDownloadButton.addEventListener("click", () => {
+    if (benchmarkReport !== null) downloadRenderingLabBenchmarkReport(benchmarkReport);
+  });
+}
+
+function installRenderingLabFixture(
+  activeRenderer: Renderer,
+  activeScene: Scene,
+  activeCamera: PerspectiveCamera
+): void {
+  const fixture: RenderingLabFixture = {
+    getSnapshot: () => renderingLabFixtureSnapshot(activeRenderer),
+    getBenchmarkReport: () => benchmarkReport,
+    runBenchmark: (options) => runRenderingLabBenchmark(
+      activeRenderer,
+      activeScene,
+      activeCamera,
+      options?.smoke ?? false,
+      options?.cases,
+      options?.cameraExperiment,
+      options?.cameraLodMode
+    ),
+    downloadBenchmarkReport: () => {
+      if (benchmarkReport !== null) downloadRenderingLabBenchmarkReport(benchmarkReport);
+    },
+    captureScreenshot: async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      // Playwright captures the page; this method is intentionally side-effect free.
+    }
+  };
+  window.__OENGINE_RENDERING_LAB_FIXTURE__ = fixture;
+}
+
+function renderingLabFixtureSnapshot(activeRenderer: Renderer): ReturnType<RenderingLabFixture["getSnapshot"]> {
+  const features = activeRenderer.render_settings.features;
+  return {
+    schemaVersion: 2,
+    status: benchmarkRunning ? "benchmark-running" : root.dataset.state === "error" ? "failed" : benchmarkReport === null ? "ready" : "benchmark-completed",
+    frame: activeRenderer.frame_count,
+    settings: {
+      ...features,
+      internalResolutionScale: activeRenderer.internal_resolution_scale,
+      internalWidth: activeRenderer.temporalEvidence().internalWidth,
+      internalHeight: activeRenderer.temporalEvidence().internalHeight,
+      ao: activeRenderer.ambientOcclusionEvidence(),
+      ssr: activeRenderer.screenSpaceReflectionsEvidence(),
+      temporal: activeRenderer.temporalEvidence(),
+      packedTransparentInstances: scene === null ? 0 : activeRenderer.packedTransparentInstanceCount(scene),
+      memory: activeRenderer.memoryEvidence(),
+      graph: activeRenderer.mainFrameGraphEvidence(),
+      diagnostics: activeRenderer.profiler.diagnostics
+    },
+    workload: workloadEvidence(),
+    ...(benchmarkSuite === null ? {} : {
+      benchmark: {
+        state: benchmarkSuite.state,
+        caseId: benchmarkSuite.progress.caseId,
+        caseIndex: benchmarkSuite.progress.caseIndex,
+        caseCount: benchmarkSuite.progress.caseCount
+      }
+    }),
+    ...(benchmarkError === undefined ? {} : { error: benchmarkError })
+  };
+}
+
+async function runRenderingLabBenchmark(
+  activeRenderer: Renderer,
+  activeScene: Scene,
+  activeCamera: PerspectiveCamera,
+  smoke: boolean,
+  requestedCases?: readonly RenderingLabCaseId[],
+  cameraExperimentOverride?: "none" | CameraExperimentKind | "path",
+  cameraLodModeOverride?: CameraLodMode
+): Promise<RenderingLabBenchmarkReport> {
+  if (benchmarkRunning) throw new Error("A Rendering Lab benchmark is already running");
+  if (root.dataset.state !== "ready") throw new Error("Rendering Lab is not ready");
+  benchmarkRunning = true;
+  benchmarkError = undefined;
+  benchmarkReport = null;
+  benchmarkRunConfig = smoke ? { warmupFrames: 30, sampleFrames: 60 } : { warmupFrames: 120, sampleFrames: 480 };
+  benchmarkSmokeButton.disabled = true;
+  benchmarkFullButton.disabled = true;
+  benchmarkDownloadButton.disabled = true;
+  cancelAnimationFrame(frameRequest);
+  const previousProfilerMode = activeRenderer.profiler.mode;
+  activeRenderer.profiler.setMode("record");
+  const startedAt = new Date().toISOString();
+  const caseIds = requestedCases === undefined || requestedCases.length === 0
+    ? (smoke ? ["base", "full", "full-minus-ssr"] as const : undefined)
+    : requestedCases;
+  const experiment = cameraExperimentOverride ?? (benchmarkExperiment.value as "none" | CameraExperimentKind | "path");
+  const lodMode = cameraLodModeOverride ?? (benchmarkLod.value as CameraLodMode);
+  benchmarkCameraPathMode = experiment === "path";
+  const sweep = experiment === "none" || experiment === "path"
+    ? [null]
+    : createCameraSweep(experiment, [0, 1.9, 0], Math.max(1, canvas.clientHeight), lodMode);
+  const allResults: import("../../OEngine/src/index.ts").BenchmarkResult[] = [];
+  try {
+    for (const sweepCase of sweep) {
+      benchmarkSweepCase = sweepCase;
+      const suiteCases = sweepCase === null && !benchmarkCameraPathMode ? caseIds : ["full"] as const;
+      const host: RenderingLabBenchmarkSuiteHost = {
+        profiler: activeRenderer.profiler,
+        environmentForCase: (caseId) => benchmarkEnvironment(activeRenderer, caseId),
+        caseManifestForCase: (caseId) => benchmarkCaseManifest(caseId),
+        prepareCase: (caseId) => prepareBenchmarkCase(activeRenderer, activeScene, activeCamera, caseId),
+        renderCaseFrame: (ordinal) => renderBenchmarkFrame(activeRenderer, activeScene, activeCamera, ordinal),
+        settleCase: () => settleBenchmarkCase(activeRenderer)
+      };
+      benchmarkSuite = new RenderingLabBenchmarkSuite(host, suiteCases);
+      const suiteResult = await benchmarkSuite.run(updateBenchmarkProgress);
+      allResults.push(...suiteResult.cases.map((result) => {
+        const annotated = annotateBenchmarkResult(result, sweepCase, activeCamera);
+        return sweepCase === null ? annotated : renameBenchmarkResult(annotated, `${result.case.id}@${sweepCase.id}`);
+      }));
+    }
+    benchmarkSweepCase = null;
+    const report = buildRenderingLabBenchmarkReport({
+      startedAt,
+      environment: benchmarkEnvironment(activeRenderer, "full"),
+      workload: workloadEvidence(),
+      cameraSweep: sweep.filter((entry): entry is CameraSweepCase => entry !== null),
+      cameraPathId: RENDERING_LAB_CAMERA_PATH_ID,
+      cases: allResults,
+      domainEvidence: {
+        graph: activeRenderer.mainFrameGraphEvidence(),
+        memory: activeRenderer.memoryEvidence(),
+        temporal: activeRenderer.temporalEvidence(),
+        ao: activeRenderer.ambientOcclusionEvidence(),
+        ssr: activeRenderer.screenSpaceReflectionsEvidence()
+      }
+    });
+    benchmarkReport = report;
+    benchmarkStatus.textContent = `完成 ${allResults.length} case · ${report.status} · Inspector 可查看实时证据`;
+    benchmarkDownloadButton.disabled = false;
+    root.dataset.state = "ready";
+    return report;
+  } catch (error) {
+    showBenchmarkError(error);
+    throw error;
+  } finally {
+    activeRenderer.profiler.setMode(previousProfilerMode);
+    benchmarkRunning = false;
+    benchmarkMaterialPatch = null;
+    benchmarkCameraPathMode = false;
+    benchmarkSweepCase = null;
+    benchmarkSuite = null;
+    benchmarkSmokeButton.disabled = false;
+    benchmarkFullButton.disabled = false;
+    if (root.dataset.state === "ready") startFrameLoop();
+  }
+}
+
+function benchmarkEnvironment(activeRenderer: Renderer, caseId: RenderingLabCaseId): BenchmarkEnvironmentManifest {
+  const temporal = activeRenderer.temporalEvidence();
+  return createEnvironmentManifest({
+    engine: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__, dirtyReasons: [...__BUILD_DIRTY_REASONS__] },
+    platform: { os: navigator.platform || "unknown", browser: "Chromium", userAgent: navigator.userAgent },
+    adapter: activeRenderer.adapter_info,
+    webgpu: {
+      features: activeRenderer.capabilities.features,
+      limits: captureWebGpuLimits(activeRenderer.device.limits),
+      powerPreference: "high-performance"
+    },
+    frame: {
+      canvasWidth: Math.max(1, canvas.clientWidth),
+      canvasHeight: Math.max(1, canvas.clientHeight),
+      internalWidth: temporal.internalWidth,
+      internalHeight: temporal.internalHeight,
+      dpr: activeRenderer.pixel_ratio
+    },
+    run: {
+      baselineRole: "minimum-a",
+      featureSet: benchmarkFeatureSet(activeRenderer, caseId),
+      warmupFrames: benchmarkRunConfig.warmupFrames,
+      sampleFrames: benchmarkRunConfig.sampleFrames,
+      gpuSampleInterval: activeRenderer.profiler.gpuSampleInterval,
+      gpuCounterSampleInterval: activeRenderer.profiler.gpuCounterSampleInterval,
+      readbackRingSlots: activeRenderer.profiler.readbackRingSlots
+    }
+  });
+}
+
+function benchmarkFeatureSet(activeRenderer: Renderer, caseId: RenderingLabCaseId): readonly string[] {
+  const features = activeRenderer.render_settings.features;
+  return [
+    "hardware-visibility", "hzb-culling", "cone-culling", "material-expand",
+    "single-material-resolve", "clustered-lighting", "ibl", "packed-instances",
+    "hierarchy-sse-lod",
+    ...(features.shadows ? ["packed-csm-shadow"] : []),
+    ...(features.ambientOcclusion ? ["gtao"] : []),
+    ...(features.screenSpaceReflections ? ["ssr"] : []),
+    ...(features.temporalAntiAliasing ? ["temporal"] : []),
+    ...(features.bloom ? ["bloom"] : []),
+    ...(features.automaticExposure ? ["automatic-exposure"] : []),
+    ...(features.motionBlur ? ["motion-blur"] : []),
+    ...(features.sharpening ? ["sharpening"] : []),
+    ...(caseId === "base" || caseId === "full-minus-transparency" ? [] : ["packed-mboit-transparency"])
+  ];
+}
+
+function benchmarkCaseManifest(caseId: RenderingLabCaseId): BenchmarkCaseManifest {
+  return {
+    id: caseId,
+    name: `Rendering Lab ${caseId}`,
+    sceneAssetHashes: assetHashes.map((hash) => `sha256:${hash}`),
+    seed: 20260906,
+    cameraPathHash: `sha256:${__BUILD_CONTENT_HASH__}`
+  };
+}
+
+function prepareBenchmarkCase(
+  activeRenderer: Renderer,
+  activeScene: Scene,
+  activeCamera: PerspectiveCamera,
+  caseId: RenderingLabCaseId
+): void {
+  applyCase(activeRenderer, caseId);
+  // The diagnostic locked mode deliberately pins the hierarchy selector to a
+  // conservative coarse cut. It is not used by the formal full case.
+  activeRenderer.packed_visibility_sse_threshold = benchmarkSweepCase?.lodMode === "locked" ? 1e6 : 4;
+  const transparent = caseId !== "base" && caseId !== "full-minus-transparency";
+  const transparentMaterialIndex = packedSceneSource?.materials.findIndex(
+    (material) => material.transparency_mode === ShadeTransparencyMode.Transparent
+  ) ?? -1;
+  benchmarkMaterialPatch = transparentMaterialIndex >= 0
+    ? new Uint32Array([transparent ? transparentMaterialIndex : 0, transparent ? transparentMaterialIndex : 0])
+    : null;
+  if (animatedInstanceIndices !== null) {
+    activeRenderer.queuePackedScenePatch(activeScene, {
+      frameId: activeRenderer.frame_count + 1,
+      materials: {
+        indices: animatedInstanceIndices,
+        materialIndices: benchmarkMaterialPatch ?? new Uint32Array([0, 0])
+      }
+    });
+  }
+  if (benchmarkSweepCase !== null) {
+    applyCameraSweepCase(activeCamera, benchmarkSweepCase, [0.62, 0.34, 0.70]);
+  } else if (benchmarkCameraPathMode) {
+    applyRenderingLabCameraPath(activeCamera, sampleRenderingLabCameraPath(0));
+  } else {
+    resetCamera();
+  }
+  activeRenderer.indicate_view_change();
+  activeRenderer.profiler.clear();
+  activeRenderer.profiler.startEpoch(benchmarkRunConfig.warmupFrames);
+  benchmarkStatus.textContent = `准备 ${caseId} · ${benchmarkSweepCase?.id ?? "overview"}`;
+}
+
+function renderBenchmarkFrame(activeRenderer: Renderer, activeScene: Scene, activeCamera: PerspectiveCamera, ordinal = 0): void {
+  if (benchmarkCameraPathMode) {
+    const sample = sampleRenderingLabCameraPath(benchmarkCameraPathTime(ordinal));
+    applyRenderingLabCameraPath(activeCamera, sample);
+    if (sample.cutId !== null) activeRenderer.indicate_view_change();
+  }
+  activeCamera.aspect = activeRenderer.aspect_ratio;
+  activeCamera.update();
+  if (benchmarkSweepCase === null) queueAnimatedScenePatch(
+    activeRenderer,
+    activeScene,
+    activeRenderer.frame_count + 1,
+    activeRenderer.frame_count / 60,
+    benchmarkMaterialPatch
+  );
+  if (!activeRenderer.render(activeCamera, activeScene, 1 / 60)) {
+    throw new Error("The WebGPU device was lost during benchmark rendering.");
+  }
+}
+
+async function settleBenchmarkCase(activeRenderer: Renderer): Promise<void> {
+  await activeRenderer.device.queue.onSubmittedWorkDone();
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+}
+
+function updateBenchmarkProgress(progress: RenderingLabBenchmarkProgress): void {
+  benchmarkStatus.textContent = `${progress.caseId ?? "完成"} · ${progress.measuredFrames}/${progress.totalFrames - (progress.totalFrames - benchmarkRunConfig.sampleFrames)} measured · ${progress.pendingGpuFrames} pending · case ${progress.caseIndex + 1}/${progress.caseCount}`;
+}
+
+function renameBenchmarkResult(
+  result: import("../../OEngine/src/index.ts").BenchmarkResult,
+  id: string
+): import("../../OEngine/src/index.ts").BenchmarkResult {
+  return { ...result, case: { ...result.case, id, name: `${result.case.name} (${id})` } };
+}
+
+function annotateBenchmarkResult(
+  result: import("../../OEngine/src/index.ts").BenchmarkResult,
+  sweepCase: CameraSweepCase | null,
+  activeCamera: PerspectiveCamera
+): import("../../OEngine/src/index.ts").BenchmarkResult {
+  const target: readonly [number, number, number] = [0, 1.9, 0];
+  const distanceM = sweepCase?.distanceM ?? cameraDistance(
+    [activeCamera.transform.position.x, activeCamera.transform.position.y, activeCamera.transform.position.z],
+    target
+  );
+  const fovDeg = sweepCase?.fovDeg ?? activeCamera.fov_degrees;
+  const height = sweepCase?.projectedReferenceHeightPx ?? projectedHeightPx(
+    3,
+    Math.max(0.001, distanceM),
+    fovDeg,
+    Math.max(1, canvas.clientHeight)
+  );
+  const metadataForFrame = (index: number): Readonly<Record<string, unknown>> => {
+    const pathSample = benchmarkCameraPathMode
+      ? sampleRenderingLabCameraPath(benchmarkCameraPathTime(benchmarkRunConfig.warmupFrames + index))
+      : null;
+    const pathDistance = pathSample === null ? distanceM : cameraDistance(pathSample.position, pathSample.target);
+    const pathFov = pathSample === null ? fovDeg : activeCamera.fov_degrees;
+    return Object.freeze({
+      camera: Object.freeze({
+        distanceM: pathDistance,
+        fovDeg: pathFov,
+        segment: pathSample?.segment ?? (sweepCase === null ? "overview" : "distance-sweep"),
+        projectedReferenceHeightPx: pathSample === null ? height : projectedHeightPx(3, Math.max(0.001, pathDistance), pathFov, Math.max(1, canvas.clientHeight)),
+        cutId: pathSample?.cutId ?? null,
+        lodMode: sweepCase?.lodMode ?? "automatic"
+      })
+    });
+  };
+  return {
+    ...result,
+    frames: result.frames.map((frame, index) => ({ ...frame, metadata: metadataForFrame(index) }))
+  };
+}
+
+function benchmarkCameraPathTime(ordinal: number): number {
+  const measuredOrdinal = Math.max(0, ordinal - benchmarkRunConfig.warmupFrames);
+  return measuredOrdinal / Math.max(1, benchmarkRunConfig.sampleFrames - 1) * 9;
+}
+
+function showBenchmarkError(error: unknown): void {
+  const value = error instanceof Error ? error : new Error(String(error));
+  benchmarkError = { name: value.name, message: value.message };
+  benchmarkStatus.textContent = `失败：${value.message}`;
+  benchmarkDownloadButton.disabled = benchmarkReport === null;
+}
+
+function workloadEvidence(): Readonly<Record<string, unknown>> {
+  const source = packedSceneSource;
+  if (source === null) return { seed: 20260906, instances: 0, geometries: 0, materials: 0 };
+  return {
+    seed: 20260906,
+    instances: source.count,
+    geometries: source.geometries.length,
+    materials: source.materials.length,
+    transparentInstances: animatedInstanceIndices?.length ?? 0,
+    transparentMaterialIndices: source.materials
+      .map((material, index) => material.transparency_mode === ShadeTransparencyMode.Transparent ? index : -1)
+      .filter((index) => index >= 0),
+    assetHashes,
+    geometryPackageBytes: source.geometries.reduce((sum, entry) => sum + entry.package.manifest.totalByteLength, 0)
+  };
+}
+
+function configurePipeline(activeRenderer: Renderer): void {
+  applyCase(activeRenderer, PIPELINE_MODE ? "base" : "full");
   activeRenderer.render_debug_view = RenderDebugView.None;
 }
 
@@ -351,7 +764,8 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
     labMaterial([0.42, 0.46, 0.51], 0.82, 1),
     labMaterial([0.86, 0.12, 0.08], 0.24, 0),
     labMaterial([0.08, 0.42, 0.92], 0.52, 0),
-    labMaterial([0.06, 0.08, 0.11], 0.3, 0, [3.5, 0.35, 0.08])
+    labMaterial([0.06, 0.08, 0.11], 0.3, 0, [3.5, 0.35, 0.08]),
+    labMaterial([0.20, 0.55, 0.95], 0.08, 1, [0.1, 0.2, 0.5], ShadeTransparencyMode.Transparent)
   ];
   const materials = [...imported.materials, ...customMaterials];
   const importedGeometryCount = imported.geometries.length;
@@ -373,7 +787,9 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
     { geometry: 6, material: 1, position: [9.8, 0.5, -4.8] },
     { geometry: 7, material: 7, position: [5.2, 1.8, -6.2] },
     { geometry: 7, material: 7, position: [8, 2.7, -6.2] },
-    { geometry: 7, material: 7, position: [10.8, 1.8, -6.2] }
+    { geometry: 7, material: 7, position: [10.8, 1.8, -6.2] },
+    { geometry: 4, material: 8, position: [3.4, 0.5, 1.8] },
+    { geometry: 4, material: 8, position: [12.6, 0.5, 1.8] }
   ] as const;
   const count = imported.geometryIndices.length + generatedInstances.length;
   const geometryIndices = new Uint32Array(count);
@@ -438,10 +854,12 @@ function labMaterial(
   color: readonly [number, number, number],
   roughness: number,
   metallic: number,
-  emissive: readonly [number, number, number] = [0, 0, 0]
+  emissive: readonly [number, number, number] = [0, 0, 0],
+  transparencyMode: ShadeTransparencyMode = ShadeTransparencyMode.Opaque
 ): StandardShadeMaterial {
   const material = new StandardShadeMaterial();
-  material.diffuse_color.set(color[0], color[1], color[2], 1);
+  material.diffuse_color.set(color[0], color[1], color[2], transparencyMode === ShadeTransparencyMode.Transparent ? 0.52 : 1);
+  material.transparency_mode = transparencyMode;
   material.roughness_factor = roughness;
   material.metallic_factor = metallic;
   material.emissive_factor.set(emissive[0], emissive[1], emissive[2]);
@@ -618,6 +1036,7 @@ function startFrameLoop(): void {
         sampleKey: createPerformanceSampleKey(renderer),
         warmupFrames: PERFORMANCE_WARMUP_FRAMES
       });
+      queueAnimatedScenePatch(renderer, scene, renderer.frame_count + 1, now / 1000);
       if (!renderer.render(camera, scene, deltaSeconds)) {
         showFatalError(new Error("The WebGPU device was lost and rendering stopped."));
         return;
@@ -626,6 +1045,33 @@ function startFrameLoop(): void {
     frameRequest = requestAnimationFrame(frame);
   };
   frameRequest = requestAnimationFrame(frame);
+}
+
+function queueAnimatedScenePatch(
+  activeRenderer: Renderer,
+  activeScene: Scene,
+  frameId: number,
+  timeSeconds: number,
+  materialIndices: Uint32Array | null = null
+): void {
+  const indices = animatedInstanceIndices;
+  if (indices === null || indices.length === 0) return;
+  const transforms = new Float32Array(indices.length * 16);
+  for (let index = 0; index < indices.length; index++) {
+    const phase = timeSeconds * 1.4 + index * Math.PI;
+    writeTranslationTransform(
+      transforms,
+      index * 16,
+      index === 0 ? 3.4 : 12.6,
+      0.5 + Math.sin(phase) * 0.35,
+      1.8 + Math.cos(phase) * 0.45
+    );
+  }
+  activeRenderer.queuePackedScenePatch(activeScene, {
+    frameId,
+    transforms: { indices, transforms },
+    ...(materialIndices === null ? {} : { materials: { indices, materialIndices } })
+  });
 }
 
 function restartPerformanceEvidence(reason: string): void {
@@ -670,6 +1116,7 @@ function bindRendererControls(activeRenderer: Renderer): void {
         case "taa": activeRenderer.configure({ features: { temporalAntiAliasing: checkbox.checked } }); break;
         case "bloom": activeRenderer.configure({ features: { bloom: checkbox.checked } }); break;
         case "exposure": activeRenderer.configure({ features: { automaticExposure: checkbox.checked } }); break;
+        case "motionBlur": activeRenderer.configure({ features: { motionBlur: checkbox.checked } }); break;
         case "sharpen": activeRenderer.configure({ features: { sharpening: checkbox.checked } }); break;
         case "cone": activeRenderer.packed_visibility_cone_enabled = checkbox.checked; break;
         case "hzb": activeRenderer.packed_visibility_hzb_enabled = checkbox.checked; break;
@@ -1159,6 +1606,7 @@ function dispose(): void {
   delete window.__OENGINE_Q00_SET_STATE__;
   delete window.__OENGINE_Q00_SNAPSHOT__;
   delete window.__OENGINE_Q00_FRAME__;
+  delete window.__OENGINE_RENDERING_LAB_FIXTURE__;
   cancelAnimationFrame(frameRequest);
   resizeObserver?.disconnect();
   controller?.pointer.stop();
@@ -1180,4 +1628,11 @@ function required<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (element === null) throw new Error(`Missing #${id}`);
   return element as T;
+}
+
+async function sha256Url(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Unable to hash asset ${url}: ${response.status}`);
+  const digest = await crypto.subtle.digest("SHA-256", await response.arrayBuffer());
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
