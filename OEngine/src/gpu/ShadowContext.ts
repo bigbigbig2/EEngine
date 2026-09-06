@@ -81,6 +81,97 @@ export class DirectionalShadowMap extends ShadowMapBase<DirectionalLight> {
   distance_min = 0;
   distance_max = 1;
   readonly splits = new Float32Array(3);
+  private readonly cachedFrustum = new Float32Array(24);
+  private readonly cachedViewMatrix = new Float32Array(16);
+  private readonly cachedLightRotation = new Float32Array(4);
+  private cachedCascadeLambda = Number.NaN;
+  private cachedMaximumDistance = Number.NaN;
+  private cachedTexelGuardBand = Number.NaN;
+  private cachedNear = Number.NaN;
+  private cachedFar = Number.NaN;
+  private cachedDistanceMin = Number.NaN;
+  private readonly cachedLayout = new Float32Array(SHADOW_CASCADE_COUNT * 4);
+  private hasCachedUpdate = false;
+
+  /**
+   * Recompute the cascade cameras only when inputs affecting their projection
+   * changed. Shadow rasterization still runs every frame; this cache only
+   * removes the CPU-side frustum slicing/matrix work on stable camera frames.
+   */
+  updateIfChanged(
+    camera: Camera,
+    cascadeLambda = 0.5,
+    maximumDistance = Number.POSITIVE_INFINITY,
+    texelGuardBand = 2.5
+  ): boolean {
+    const lightRotation = this.light.transform_global.rotation;
+    let unchanged = this.hasCachedUpdate &&
+      shadowCacheValueEqual(this.cachedCascadeLambda, cascadeLambda) &&
+      shadowCacheValueEqual(this.cachedMaximumDistance, maximumDistance) &&
+      shadowCacheValueEqual(this.cachedTexelGuardBand, texelGuardBand) &&
+      shadowCacheValueEqual(this.cachedNear, camera.near) &&
+      shadowCacheValueEqual(this.cachedFar, camera.far) &&
+      shadowCacheValueEqual(this.cachedDistanceMin, this.distance_min) &&
+      shadowCacheValueEqual(this.cachedLightRotation[0]!, lightRotation.x) &&
+      shadowCacheValueEqual(this.cachedLightRotation[1]!, lightRotation.y) &&
+      shadowCacheValueEqual(this.cachedLightRotation[2]!, lightRotation.z) &&
+      shadowCacheValueEqual(this.cachedLightRotation[3]!, lightRotation.w);
+    if (unchanged) {
+      for (let i = 0; i < SHADOW_CASCADE_COUNT; i++) {
+        const layout = this.layout[i];
+        const offset = i * 4;
+        if (layout === undefined ||
+            !shadowCacheValueEqual(this.cachedLayout[offset]!, layout.x0) ||
+            !shadowCacheValueEqual(this.cachedLayout[offset + 1]!, layout.y0) ||
+            !shadowCacheValueEqual(this.cachedLayout[offset + 2]!, layout.width) ||
+            !shadowCacheValueEqual(this.cachedLayout[offset + 3]!, layout.height)) {
+          unchanged = false;
+          break;
+        }
+      }
+    }
+    if (unchanged) {
+      for (let i = 0; i < 24; i++) {
+        if (!shadowCacheValueEqual(this.cachedFrustum[i]!, camera.frustum[i]!)) {
+          unchanged = false;
+          break;
+        }
+      }
+    }
+    if (unchanged) {
+      for (let i = 0; i < 16; i++) {
+        if (!shadowCacheValueEqual(this.cachedViewMatrix[i]!, camera.view_matrix[i]!)) {
+          unchanged = false;
+          break;
+        }
+      }
+    }
+    if (unchanged) return false;
+
+    this.update(camera, cascadeLambda, maximumDistance, texelGuardBand);
+    this.cachedFrustum.set(camera.frustum);
+    this.cachedViewMatrix.set(camera.view_matrix);
+    this.cachedLightRotation[0] = lightRotation.x;
+    this.cachedLightRotation[1] = lightRotation.y;
+    this.cachedLightRotation[2] = lightRotation.z;
+    this.cachedLightRotation[3] = lightRotation.w;
+    this.cachedCascadeLambda = cascadeLambda;
+    this.cachedMaximumDistance = maximumDistance;
+    this.cachedTexelGuardBand = texelGuardBand;
+    this.cachedNear = camera.near;
+    this.cachedFar = camera.far;
+    this.cachedDistanceMin = this.distance_min;
+    for (let i = 0; i < SHADOW_CASCADE_COUNT; i++) {
+      const layout = this.layout[i];
+      const offset = i * 4;
+      this.cachedLayout[offset] = layout?.x0 ?? Number.NaN;
+      this.cachedLayout[offset + 1] = layout?.y0 ?? Number.NaN;
+      this.cachedLayout[offset + 2] = layout?.width ?? Number.NaN;
+      this.cachedLayout[offset + 3] = layout?.height ?? Number.NaN;
+    }
+    this.hasCachedUpdate = true;
+    return true;
+  }
 
   update(
     camera: Camera,
@@ -226,6 +317,8 @@ export class ShadowContext {
   lastHzbComputePassCount = 0;
   lastHzbDispatchCount = 0;
   lastHzbOutputPixels = 0;
+  lastDirectionalCameraUpdates = 0;
+  lastDirectionalCameraCacheHits = 0;
 
   private debugRenderCount = 0;
   private frameIndex = -1;
@@ -370,6 +463,8 @@ export class ShadowContext {
   select_for_draw(camera: Camera, frameIndex: number, resolution: ArrayLike<number>): void {
     camera.update();
     this.frameIndex = frameIndex;
+    this.lastDirectionalCameraUpdates = 0;
+    this.lastDirectionalCameraCacheHits = 0;
     for (const map of this.maps) map.should_draw = false;
     for (const map of this.maps) map.projected_area_px = projectedShadowArea(map.light, camera, resolution);
     this.resolution_controller.adjust(this.maps, frameIndex);
@@ -383,12 +478,14 @@ export class ShadowContext {
       const viewCount = map.views.length;
       if ((map.light as DirectionalLight).isDirectionalLight) {
         map.should_draw = true;
-        (map as DirectionalShadowMap).update(
+        const updated = (map as DirectionalShadowMap).updateIfChanged(
           camera,
           this.directional_cascade_lambda,
           this.directional_maximum_distance,
           this.directional_texel_guard_band
         );
+        if (updated) this.lastDirectionalCameraUpdates++;
+        else this.lastDirectionalCameraCacheHits++;
         selectedViews += viewCount;
         continue;
       }
@@ -802,6 +899,12 @@ export class ShadowContext {
 }
 
 /** Practical split (uniform/log blend) used by three.js CSM and PSSM references. */
+function shadowCacheValueEqual(a: number, b: number, epsilon = 1e-5): boolean {
+  return Number.isFinite(a) && Number.isFinite(b)
+    ? Math.abs(a - b) <= epsilon
+    : a === b;
+}
+
 export function computePracticalCascadeSplits(
   near: number,
   far: number,

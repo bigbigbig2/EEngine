@@ -89,6 +89,14 @@ export class ShadowService {
     return this.implementation.lastHzbOutputPixels;
   }
 
+  get lastDirectionalCameraUpdates(): number {
+    return this.implementation.lastDirectionalCameraUpdates;
+  }
+
+  get lastDirectionalCameraCacheHits(): number {
+    return this.implementation.lastDirectionalCameraCacheHits;
+  }
+
   get directional_cascade_lambda(): number {
     return this.implementation.directional_cascade_lambda;
   }

@@ -1279,44 +1279,46 @@ export class Renderer {
       }
       if (featureTopology.shadows) {
         framePlan.execute("shadow-update", () => {
-        const shadows = gpuScene.lights.shadow_service;
-        if (sampleGpuCounters && gpuPacked !== null) {
-          this._profiler.registerGpuCounterFields([
-            "shadowCascade0RasterWork",
-            "shadowCascade1RasterWork",
-            "shadowCascade2RasterWork",
-            "shadowAtlasPixelsUpdated",
-            "shadowAlphaRasterWork",
-            "shadowQueueOverflowMask"
-          ]);
-        }
-        shadows.directional_cascade_lambda = this._renderSettings.values.shadows.cascadeLambda;
-        shadows.directional_maximum_distance = metersToWorldUnits(
-          this._renderSettings.values.shadows.maximumDistanceMeters,
-          this._renderSettings.values.physicalScale
-        );
-        shadows.directional_texel_guard_band = this._renderSettings.values.shadows.texelGuardBand;
-        shadows.select_for_draw(camera, this._frame_count, [w, h]);
-        const packedBindings = gpuPacked === null
-          ? null
-          : this._graphics.packed_scenes.bindings();
-        shadows.draw(
-          cmd,
-          gpuScene,
-          gpuScene.lights.database,
-          this._meshletDrawList,
-          gpuPacked === null || packedBindings === null
-            ? null
-            : {
-                runtime: gpuPacked,
-                assets: packedBindings.assets,
-                scene: packedBindings.scene,
-                counterBuffer: sampleGpuCounters
-                  ? this._profiler.gpuCounterBuffer
-                  : null,
-                sseThreshold: this.packed_visibility_sse_threshold
-              }
-        );
+          this._profiler.measure("shadow-update", () => {
+            const shadows = gpuScene.lights.shadow_service;
+            if (sampleGpuCounters && gpuPacked !== null) {
+              this._profiler.registerGpuCounterFields([
+                "shadowCascade0RasterWork",
+                "shadowCascade1RasterWork",
+                "shadowCascade2RasterWork",
+                "shadowAtlasPixelsUpdated",
+                "shadowAlphaRasterWork",
+                "shadowQueueOverflowMask"
+              ]);
+            }
+            shadows.directional_cascade_lambda = this._renderSettings.values.shadows.cascadeLambda;
+            shadows.directional_maximum_distance = metersToWorldUnits(
+              this._renderSettings.values.shadows.maximumDistanceMeters,
+              this._renderSettings.values.physicalScale
+            );
+            shadows.directional_texel_guard_band = this._renderSettings.values.shadows.texelGuardBand;
+            shadows.select_for_draw(camera, this._frame_count, [w, h]);
+            const packedBindings = gpuPacked === null
+              ? null
+              : this._graphics.packed_scenes.bindings();
+            shadows.draw(
+              cmd,
+              gpuScene,
+              gpuScene.lights.database,
+              this._meshletDrawList,
+              gpuPacked === null || packedBindings === null
+                ? null
+                : {
+                    runtime: gpuPacked,
+                    assets: packedBindings.assets,
+                    scene: packedBindings.scene,
+                    counterBuffer: sampleGpuCounters
+                      ? this._profiler.gpuCounterBuffer
+                      : null,
+                    sseThreshold: this.packed_visibility_sse_threshold
+                  }
+            );
+          });
         });
       }
 
@@ -3396,6 +3398,8 @@ export class Renderer {
       readonly atlas_allocated_bytes: number;
       readonly packed_cascade_draw_count: number;
       readonly packed_atlas_pixels_updated: number;
+      readonly lastDirectionalCameraUpdates: number;
+      readonly lastDirectionalCameraCacheHits: number;
     },
     packedPath: boolean,
     environment: {
@@ -3478,6 +3482,8 @@ export class Renderer {
     profiler.recordCounter("shadow.atlasBytes", shadows.atlas_allocated_bytes);
     profiler.recordCounter("shadow.packedCascadeDraws", shadows.packed_cascade_draw_count);
     profiler.recordCounter("shadow.atlasPixelsUpdated", shadows.packed_atlas_pixels_updated);
+    profiler.recordCounter("shadow.directionalCameraUpdates", shadows.lastDirectionalCameraUpdates);
+    profiler.recordCounter("shadow.directionalCameraCacheHits", shadows.lastDirectionalCameraCacheHits);
     profiler.recordCounter(
       packedPath
         ? "packed.material.kernelDraws"

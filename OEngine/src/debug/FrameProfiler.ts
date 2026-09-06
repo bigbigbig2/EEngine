@@ -185,6 +185,8 @@ const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
   "runtime.viewPrepareCount",
   "shadow.atlasBytes",
   "shadow.atlasPixelsUpdated",
+  "shadow.directionalCameraCacheHits",
+  "shadow.directionalCameraUpdates",
   "shadow.packedCascadeDraws",
   "ssr.compositePasses",
   "ssr.historyBytes",
