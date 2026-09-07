@@ -6,9 +6,10 @@ import {
   type PackedMaterialResolveJob,
   type PackedMaterialResolveOutputs
 } from "../passes/PackedMaterialResolvePass.js";
+import type { VisibilityFrame } from "../pipeline/FrameProducts.js";
 
 export interface SurfaceFeatureInputs {
-  readonly visibilityKey: ResourceId;
+  readonly visibility: VisibilityFrame;
   readonly view: ResourceId;
   readonly counters?: ResourceId;
 }

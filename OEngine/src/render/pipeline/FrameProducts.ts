@@ -12,6 +12,29 @@ export interface TextureDomain<D extends ResolutionDomain = ResolutionDomain> {
   readonly scale: number;
 }
 
+/** GPU exact-raster work consumed directly by visibility and Surface passes. */
+export interface ExactRasterFrame {
+  readonly records: ResourceId;
+  readonly drawIndirect: ResourceId;
+  readonly classCapacity: number;
+  readonly setupRecords: ResourceId | null;
+  readonly setupCount: ResourceId | null;
+}
+
+/** Final Packed visibility product. Runtime state stays in its owning feature. */
+export interface VisibilityFrame {
+  readonly visibilityKey: ResourceId;
+  readonly depth: ResourceId;
+  readonly exactRaster: ExactRasterFrame;
+  readonly domain: TextureDomain<"internal-full">;
+}
+
+/** Material-selection product. The class-depth attachment arrives in M3. */
+export interface MaterialClassificationFrame {
+  readonly classDepth: ResourceId;
+  readonly domain: TextureDomain<"internal-full">;
+}
+
 export function textureDomain<D extends ResolutionDomain>(
   domain: D,
   width: number,
@@ -125,6 +148,55 @@ function requireResourceId(value: ResourceId | null, name: string): void {
   if (value !== null && (!Number.isSafeInteger(value) || value < 0)) {
     throw new RangeError(`${name} must be a non-negative resource id or null`);
   }
+}
+
+export function exactRasterFrame(input: ExactRasterFrame): ExactRasterFrame {
+  requireResourceId(input.records, "ExactRasterFrame.records");
+  requireResourceId(input.drawIndirect, "ExactRasterFrame.drawIndirect");
+  requireResourceId(input.setupRecords, "ExactRasterFrame.setupRecords");
+  requireResourceId(input.setupCount, "ExactRasterFrame.setupCount");
+  if (!Number.isSafeInteger(input.classCapacity) || input.classCapacity <= 0) {
+    throw new RangeError("ExactRasterFrame.classCapacity must be a positive integer");
+  }
+  return Object.freeze({ ...input });
+}
+
+export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
+  requireResourceId(input.visibilityKey, "VisibilityFrame.visibilityKey");
+  requireResourceId(input.depth, "VisibilityFrame.depth");
+  if (input.domain.domain !== "internal-full") {
+    throw new Error("VisibilityFrame must be produced at internal-full resolution");
+  }
+  return Object.freeze({
+    ...input,
+    exactRaster: exactRasterFrame(input.exactRaster),
+    domain: textureDomain(
+      "internal-full",
+      input.domain.width,
+      input.domain.height,
+      input.domain.scale
+    )
+  });
+}
+
+export function materialClassificationFrame(
+  input: MaterialClassificationFrame
+): MaterialClassificationFrame {
+  requireResourceId(input.classDepth, "MaterialClassificationFrame.classDepth");
+  if (input.domain.domain !== "internal-full") {
+    throw new Error(
+      "MaterialClassificationFrame must be produced at internal-full resolution"
+    );
+  }
+  return Object.freeze({
+    ...input,
+    domain: textureDomain(
+      "internal-full",
+      input.domain.width,
+      input.domain.height,
+      input.domain.scale
+    )
+  });
 }
 
 /** 从 producer 输出创建不可变 Surface 产品，禁止 Renderer 重新解释 attachment 顺序。 */

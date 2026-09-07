@@ -1,5 +1,9 @@
 import type { GeometryHierarchyView } from "../geometry/GeometryHierarchy.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
+import type {
+  ResourceAccounting,
+  ResourceHandle as AccountingResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
 import type { FrameGraph } from "../framegraph/FrameGraph.js";
 import { resolveGpuEncoder } from "../framegraph/FrameGraph.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
@@ -69,6 +73,12 @@ export interface HierarchicalWorkConfig {
   readonly traversalWorkCapacity?: number;
 }
 
+export interface HierarchicalWorkBindingInputs {
+  readonly counterBuffer: GPUBuffer;
+  readonly sseThreshold: number;
+  readonly countersEnabled: boolean;
+}
+
 export interface HierarchicalWorkFeatures {
   readonly coneEnabled?: boolean;
   /** Every selected instance must contain these bits; zero keeps the main view behavior. */
@@ -125,8 +135,8 @@ export interface HierarchicalWorkGraphJob {
 
 interface PreparedState {
   readonly owner: HierarchicalWorkGenerator;
-  readonly scene: HierarchicalWorkSceneDescriptor;
-  readonly sseThreshold: number;
+  scene: HierarchicalWorkSceneDescriptor;
+  sseThreshold: number;
   readonly traversalCapacity: number;
   readonly roundCount: number;
   readonly implementation: HierarchicalWorkImplementation;
@@ -138,15 +148,15 @@ interface PreparedState {
   readonly evidence: GPUBuffer | null;
   readonly evidenceLayout: HierarchicalWorkEvidenceLayout;
   readonly viewUniform: GPUBuffer;
-  readonly rootBindGroup: GPUBindGroup | null;
-  readonly hzbRootBindGroups: WeakMap<GPUTextureView, GPUBindGroup>;
-  readonly traversalBindGroups: readonly [GPUBindGroup, GPUBindGroup] | null;
-  readonly hzbTraversalBindGroups: WeakMap<GPUTextureView, readonly [GPUBindGroup, GPUBindGroup]>;
-  readonly expansionBindGroup: GPUBindGroup | null;
+  rootBindGroup: GPUBindGroup | null;
+  hzbRootBindGroups: WeakMap<GPUTextureView, GPUBindGroup>;
+  traversalBindGroups: readonly [GPUBindGroup, GPUBindGroup] | null;
+  hzbTraversalBindGroups: WeakMap<GPUTextureView, readonly [GPUBindGroup, GPUBindGroup]>;
+  expansionBindGroup: GPUBindGroup | null;
   readonly dispatchPreparationBindGroup: GPUBindGroup | null;
-  readonly leafBindGroup: GPUBindGroup | null;
-  readonly hzbLeafBindGroups: WeakMap<GPUTextureView, GPUBindGroup>;
-  readonly countersEnabled: boolean;
+  leafBindGroup: GPUBindGroup | null;
+  hzbLeafBindGroups: WeakMap<GPUTextureView, GPUBindGroup>;
+  countersEnabled: boolean;
   readonly diagnosticsEnabled: boolean;
   readonly buffers: readonly GPUBuffer[];
   destroyed: boolean;
@@ -284,9 +294,14 @@ export class HierarchicalWorkGenerator {
   private readonly dispatchPreparationLayout: GPUBindGroupLayout;
   private readonly emptyLayout: GPUBindGroupLayout;
   private readonly prepared = new Set<PreparedHierarchyWork>();
+  private readonly accountingHandles = new WeakMap<GPUBuffer, AccountingResourceHandle>();
   private destroyed = false;
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly resourceAccounting?: ResourceAccounting,
+    private readonly accountingOwner = "VisibilityWorkSet"
+  ) {
     const module = device.createShaderModule({
       label: "R3-B Hierarchical Work Generation",
       code: HIERARCHICAL_WORK_GENERATION_WGSL
@@ -601,8 +616,98 @@ export class HierarchicalWorkGenerator {
       this.prepared.add(prepared);
       return prepared;
     } catch (error) {
-      for (const buffer of buffers) buffer.destroy();
+      for (const buffer of buffers) this.destroyBuffer(buffer);
       throw error;
+    }
+  }
+
+  /** Rebuilds only lightweight bind groups and uniforms for a stable work set. */
+  rebind(
+    prepared: PreparedHierarchyWork,
+    bindings: HierarchicalWorkBindingInputs
+  ): void {
+    const state = this.requirePrepared(prepared);
+    if (!Number.isFinite(bindings.sseThreshold) || bindings.sseThreshold < 0) {
+      throw new RangeError("R3-B sseThreshold must be non-negative and finite");
+    }
+    if (typeof bindings.countersEnabled !== "boolean") {
+      throw new TypeError("R3-C countersEnabled must be boolean");
+    }
+    if (state.scene.counterBuffer === bindings.counterBuffer &&
+      state.sseThreshold === bindings.sseThreshold &&
+      state.countersEnabled === bindings.countersEnabled) {
+      return;
+    }
+
+    state.scene = Object.freeze({
+      ...state.scene,
+      counterBuffer: bindings.counterBuffer
+    });
+    state.sseThreshold = bindings.sseThreshold;
+    state.countersEnabled = bindings.countersEnabled;
+    state.hzbRootBindGroups = new WeakMap();
+    state.hzbTraversalBindGroups = new WeakMap();
+    state.hzbLeafBindGroups = new WeakMap();
+
+    if (state.implementation === "wavefront") {
+      const queues = state.traversalQueues!;
+      const args = state.dispatchArgs!;
+      state.rootBindGroup = this.createRootBindGroup(
+        this.instanceLayout,
+        "R3-D/fused root bindings",
+        state.scene,
+        state.viewUniform,
+        queues[0],
+        state.selectedQueue,
+        args[0]
+      );
+      const createTraversalGroup = (
+        label: string,
+        input: GPUBuffer,
+        output: GPUBuffer,
+        outputArgs: GPUBuffer
+      ): GPUBindGroup => this.device.createBindGroup({
+        label,
+        layout: this.traversalLayout,
+        entries: [
+          { binding: 0, resource: { buffer: state.viewUniform } },
+          { binding: 1, resource: { buffer: state.scene.scene.instances } },
+          { binding: 3, resource: { buffer: state.scene.assets.clusterRecords } },
+          { binding: 4, resource: { buffer: state.scene.assets.clusterChildren } },
+          { binding: 5, resource: { buffer: input } },
+          { binding: 6, resource: { buffer: output } },
+          { binding: 7, resource: { buffer: state.selectedQueue } },
+          { binding: 8, resource: { buffer: outputArgs } },
+          { binding: 9, resource: { buffer: state.scene.counterBuffer } }
+        ]
+      });
+      state.traversalBindGroups = Object.freeze([
+        createTraversalGroup("R3-D/ping → pong", queues[0], queues[1], args[1]),
+        createTraversalGroup("R3-D/pong → ping", queues[1], queues[0], args[0])
+      ] as const);
+      state.expansionBindGroup = this.device.createBindGroup({
+        label: "R3-C/VisibleCluster → RasterWork bindings",
+        layout: this.expansionLayout,
+        entries: [
+          { binding: 0, resource: { buffer: state.viewUniform } },
+          { binding: 1, resource: { buffer: state.scene.assets.clusterRecords } },
+          { binding: 2, resource: { buffer: state.selectedQueue } },
+          { binding: 3, resource: { buffer: state.rasterQueue } },
+          { binding: 4, resource: { buffer: state.drawIndirect } },
+          { binding: 6, resource: { buffer: state.scene.counterBuffer } },
+          { binding: 7, resource: { buffer: state.scene.assets.meshletRecords } }
+        ]
+      });
+    } else {
+      state.leafBindGroup = this.createLeafBindGroup(
+        this.leafLayout,
+        "R3-D/fused leaf bindings",
+        state.scene,
+        state.viewUniform,
+        state.selectedQueue,
+        state.rasterQueue,
+        state.drawIndirect
+      );
     }
   }
 
@@ -758,7 +863,7 @@ export class HierarchicalWorkGenerator {
   release(prepared: PreparedHierarchyWork): void {
     const state = this.requirePrepared(prepared);
     state.destroyed = true;
-    for (const buffer of state.buffers) buffer.destroy();
+    for (const buffer of state.buffers) this.destroyBuffer(buffer);
     PREPARED_STATE.delete(prepared as object);
     this.prepared.delete(prepared);
   }
@@ -1012,6 +1117,7 @@ export class HierarchicalWorkGenerator {
       ...descriptor,
       mappedAtCreation: true
     });
+    this.accountBuffer(buffer, descriptor);
     buffers.push(buffer);
     new Uint8Array(buffer.getMappedRange()).set(initial);
     buffer.unmap();
@@ -1028,8 +1134,29 @@ export class HierarchicalWorkGenerator {
       );
     }
     const buffer = this.device.createBuffer(descriptor);
+    this.accountBuffer(buffer, descriptor);
     buffers.push(buffer);
     return buffer;
+  }
+
+  private accountBuffer(buffer: GPUBuffer, descriptor: GPUBufferDescriptor): void {
+    if (this.resourceAccounting === undefined) return;
+    this.accountingHandles.set(buffer, this.resourceAccounting.created({
+      kind: "buffer",
+      category: "resident",
+      owner: this.accountingOwner,
+      bytes: Number(descriptor.size),
+      label: descriptor.label
+    }));
+  }
+
+  private destroyBuffer(buffer: GPUBuffer): void {
+    const accounting = this.accountingHandles.get(buffer);
+    if (accounting !== undefined) {
+      this.accountingHandles.delete(buffer);
+      this.resourceAccounting!.destroyed(accounting);
+    }
+    buffer.destroy();
   }
 
   private requirePrepared(prepared: PreparedHierarchyWork): PreparedState {

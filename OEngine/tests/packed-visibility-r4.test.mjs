@@ -68,13 +68,14 @@ test("R4-A-02 FrameGraph owns the Key attachment only when the Packed pass exist
       hierarchyView: {},
       sseThreshold: 4,
       coneEnabled: false,
-      previousHzb: null
+      previousHzb: null,
+      prepared: { workSet: { classCapacity: 64 } }
     },
     {
       camera: imported[0],
       counters: imported[1],
-      triangleId: imported[2],
-      instanceId: imported[3],
+      exactRasterRecords: imported[2],
+      exactDrawIndirect: imported[3],
       depth: imported[4]
     }
   );
@@ -84,12 +85,12 @@ test("R4-A-02 FrameGraph owns the Key attachment only when the Packed pass exist
     graph.getResourceNode(outputs.counters).resource_id,
     graph.getResourceNode(imported[1]).resource_id
   );
-  assert.deepEqual(graph.getDescriptor(outputs.visibilityKey),
+  assert.deepEqual(graph.getDescriptor(outputs.frame.visibilityKey),
     packedVisibilityAttachmentDescriptor(640, 360));
   assert.equal(typeof outputs.debugResolve.resolve, "function");
   graph.compile();
   assert.equal(
-    graph.getResourceNode(outputs.visibilityKey).producer?.name,
+    graph.getResourceNode(outputs.frame.visibilityKey).producer?.name,
     "Packed Visibility/exact OPAQUE+MASK producer"
   );
   assert.deepEqual(
@@ -99,6 +100,67 @@ test("R4-A-02 FrameGraph owns the Key attachment only when the Packed pass exist
       culled: false
     }]
   );
+  pass.destroy();
+});
+
+test("M1 Packed visibility publishes exact work as formal FrameGraph resources", () => {
+  const graph = new FrameGraph("M1 formal visibility products");
+  const imported = Array.from({ length: 5 }, (_, index) =>
+    graph.import_resource(
+      `m1-input-${index}`,
+      { kind: "imported", label: `m1-input-${index}` },
+      { index }
+    )
+  );
+  const pass = new PackedVisibilityPass({
+    device: {
+      limits: {
+        maxBufferSize: 1 << 28,
+        maxStorageBufferBindingSize: 1 << 28
+      },
+      createShaderModule: (descriptor) => ({ descriptor }),
+      createBindGroupLayout: (descriptor) => ({ descriptor }),
+      createPipelineLayout: (descriptor) => ({ descriptor }),
+      createComputePipeline: (descriptor) => ({ descriptor })
+    }
+  });
+  const outputs = pass.addToGraph(
+    graph,
+    {
+      runtime: {},
+      assets: {},
+      scene: {},
+      countersEnabled: false,
+      width: 640,
+      height: 360,
+      hierarchyView: {},
+      sseThreshold: 4,
+      coneEnabled: false,
+      previousHzb: null,
+      prepared: { workSet: { classCapacity: 64 } }
+    },
+    {
+      camera: imported[0],
+      counters: imported[1],
+      exactRasterRecords: imported[2],
+      exactDrawIndirect: imported[3],
+      depth: imported[4]
+    }
+  );
+
+  assert.equal(outputs.frame.exactRaster.records, graph.getResourceNode(outputs.frame.exactRaster.records).id);
+  assert.equal(
+    graph.getResourceNode(outputs.frame.exactRaster.records).resource_id,
+    graph.getResourceNode(imported[2]).resource_id
+  );
+  assert.equal(
+    graph.getResourceNode(outputs.frame.exactRaster.drawIndirect).resource_id,
+    graph.getResourceNode(imported[3]).resource_id
+  );
+  assert.equal(outputs.frame.exactRaster.setupRecords, null);
+  assert.equal(outputs.frame.exactRaster.setupCount, null);
+  assert.equal(outputs.frame.domain.domain, "internal-full");
+  assert.equal(typeof outputs.debugResolve.resolve, "function");
   pass.destroy();
 });
 

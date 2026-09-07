@@ -46,6 +46,50 @@ test("GpuScene accounts and releases its resident instance buffer", () => {
   assert.equal(accounting.snapshot().createdCount, accounting.snapshot().destroyedCount);
 });
 
+test("M1 content patches preserve resource identity while buffer growth advances it", () => {
+  const gpu = createFakeGpu();
+  const geometryHandle = Object.freeze({});
+  const scene = new GpuScene(gpu.device, { recordIndex: () => 1 });
+  const initial = scene.bindings();
+  assert.equal(initial.resourceEpoch, 1);
+  assert.equal(initial.contentRevision, 1);
+  assert.equal("epoch" in initial, false);
+
+  const create = new FakeSceneCommand(gpu.device);
+  const handle = scene.instantiate(makeSource(4, geometryHandle), create);
+  create.finish();
+  const resident = scene.bindings();
+  assert.ok(resident.resourceEpoch > initial.resourceEpoch);
+  assert.ok(resident.contentRevision > initial.contentRevision);
+
+  const patch = new FakeSceneCommand(gpu.device);
+  scene.patch(handle, {
+    frameId: 1,
+    materials: {
+      indices: new Uint32Array([0]),
+      materialHandles: new Uint32Array([7])
+    }
+  }, patch);
+  patch.finish();
+  const patched = scene.bindings();
+  assert.equal(patched.instances, resident.instances);
+  assert.equal(patched.resourceEpoch, resident.resourceEpoch);
+  assert.equal(patched.contentRevision, resident.contentRevision + 1);
+
+  const aborted = new FakeSceneCommand(gpu.device);
+  scene.patch(handle, {
+    frameId: 2,
+    materials: {
+      indices: new Uint32Array([0]),
+      materialHandles: new Uint32Array([8])
+    }
+  }, aborted);
+  aborted.abort();
+  assert.equal(scene.bindings().resourceEpoch, patched.resourceEpoch);
+  assert.equal(scene.bindings().contentRevision, patched.contentRevision);
+  scene.destroy();
+});
+
 test("R2-D Instance TS packer and WGSL share the frozen 192-byte ABI", () => {
   assert.equal(GPU_INSTANCE_RECORD_SCHEMA.abiVersion, 2);
   assert.equal(GPU_INSTANCE_RECORD_SCHEMA.stride, 192);

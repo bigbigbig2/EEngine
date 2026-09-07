@@ -229,7 +229,7 @@ export class PackedCsmShadowPass {
     }
     const previous = byCamera.get(job.camera);
     if (previous !== undefined && previous.assetEpoch === job.assets.epoch &&
-      previous.sceneEpoch === job.scene.epoch && previous.sseThreshold === job.sseThreshold) {
+      previous.sceneEpoch === job.scene.resourceEpoch && previous.sseThreshold === job.sseThreshold) {
       return previous.prepared;
     }
     const prepared = this.generator.prepare({
@@ -250,7 +250,7 @@ export class PackedCsmShadowPass {
     byCamera.set(job.camera, {
       prepared,
       assetEpoch: job.assets.epoch,
-      sceneEpoch: job.scene.epoch,
+      sceneEpoch: job.scene.resourceEpoch,
       sseThreshold: job.sseThreshold
     });
     if (previous !== undefined) {

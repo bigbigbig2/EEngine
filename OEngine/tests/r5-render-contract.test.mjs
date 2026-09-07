@@ -7,6 +7,8 @@ import {
   qualityProfilePatch
 } from "../.test-dist/render/pipeline/RenderSettings.js";
 import {
+  exactRasterFrame,
+  materialClassificationFrame,
   opaqueLightingFrame,
   lightClusterFrame,
   ambientOcclusionFrame,
@@ -14,7 +16,8 @@ import {
   requireDomain,
   surfaceFrameWithVelocity,
   surfaceFrame,
-  textureDomain
+  textureDomain,
+  visibilityFrame
 } from "../.test-dist/render/pipeline/FrameProducts.js";
 import {
   evaluateDirectLighting,
@@ -69,6 +72,47 @@ test("Q01 Surface product freezes attachment semantics and allows missing veloci
   assert.equal(frame.velocity, null);
   assert.equal(Object.isFrozen(frame), true);
   assert.throws(() => surfaceFrame({ ...frame, pbr: -1 }), /resource id/);
+});
+
+test("M1 visibility products freeze exact GPU resources without runtime snapshots", () => {
+  const exact = exactRasterFrame({
+    records: 11,
+    drawIndirect: 12,
+    classCapacity: 4096,
+    setupRecords: null,
+    setupCount: null
+  });
+  const visibility = visibilityFrame({
+    visibilityKey: 13,
+    depth: 14,
+    exactRaster: exact,
+    domain: textureDomain("internal-full", 1920, 1080, 1)
+  });
+  const classification = materialClassificationFrame({
+    classDepth: 15,
+    domain: visibility.domain
+  });
+
+  assert.equal(Object.isFrozen(exact), true);
+  assert.equal(exact.setupRecords, null);
+  assert.equal(exact.setupCount, null);
+  assert.equal(Object.isFrozen(visibility), true);
+  assert.equal(Object.isFrozen(classification), true);
+  assert.deepEqual(visibility.exactRaster, exact);
+  assert.equal(classification.classDepth, 15);
+  assert.equal("activeKernelMask" in visibility, false);
+  assert.throws(
+    () => exactRasterFrame({ ...exact, classCapacity: 0 }),
+    /classCapacity/
+  );
+  assert.throws(
+    () => visibilityFrame({ ...visibility, visibilityKey: -1 }),
+    /resource id/
+  );
+  assert.throws(
+    () => materialClassificationFrame({ ...classification, classDepth: -1 }),
+    /resource id/
+  );
 });
 
 test("Q01 legacy Surface producer joins the same immutable product seam", () => {

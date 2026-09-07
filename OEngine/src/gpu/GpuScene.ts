@@ -88,7 +88,10 @@ export interface GpuSceneCommand {
 
 export interface GpuSceneBindings {
   readonly abiVersion: number;
-  readonly epoch: number;
+  /** Changes only when the bound GPU buffer identity changes. */
+  readonly resourceEpoch: number;
+  /** Changes after a committed instance/content mutation. */
+  readonly contentRevision: number;
   readonly instances: GPUBuffer;
   readonly recordStride: number;
   readonly highWaterCount: number;
@@ -206,7 +209,8 @@ export class GpuScene {
   private cursorCount = 1;
   private activeInstanceCount = 0;
   private instanceSetCount = 0;
-  private epoch = 1;
+  private resourceEpoch = 1;
+  private contentRevision = 1;
   private destroyed = false;
   private pendingMutation: GpuSceneEvidence["pendingMutation"] = null;
   private logicalBytes = 0;
@@ -307,8 +311,11 @@ export class GpuScene {
         this.bulkInstantiateCount++;
         this.bulkInstanceCount += committed.count;
         this.commitUpload(upload);
-        if (replacement !== null) this.commitReplacement(replacement);
-        this.epoch++;
+        if (replacement !== null) {
+          this.commitReplacement(replacement);
+          this.resourceEpoch++;
+        }
+        this.contentRevision++;
         this.pendingMutation = null;
       });
       command.onAborted.addOne(() => {
@@ -528,7 +535,7 @@ export class GpuScene {
         this.dirtySpanCount += result.dirtySpanCount;
         this.lastPatch = result;
         this.commitUpload(upload);
-        this.epoch++;
+        this.contentRevision++;
         this.pendingMutation = null;
       });
       command.onAborted.addOne(() => {
@@ -590,7 +597,7 @@ export class GpuScene {
           sourceBytes: zero.byteLength,
           uploadedBytes: zero.byteLength
         });
-        this.epoch++;
+        this.contentRevision++;
         this.pendingMutation = null;
       });
       command.onAborted.addOne(() => {
@@ -609,7 +616,8 @@ export class GpuScene {
     this.assertAlive();
     return Object.freeze({
       abiVersion: GPU_INSTANCE_ABI_VERSION,
-      epoch: this.epoch,
+      resourceEpoch: this.resourceEpoch,
+      contentRevision: this.contentRevision,
       instances: this.buffer,
       recordStride: GPU_INSTANCE_RECORD_STRIDE,
       highWaterCount: this.cursorCount,

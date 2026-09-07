@@ -11,7 +11,9 @@ import {
   type PackedVisibilityInputs,
   type PackedVisibilityJob,
   type PackedVisibilityOutputs,
-  type PackedVisibilityPreparationEvidence
+  type PackedVisibilityPreparationEvidence,
+  type PackedVisibilityPrepareJob,
+  type PreparedPackedVisibility
 } from "../passes/PackedVisibilityPass.js";
 
 /**
@@ -44,6 +46,15 @@ export class VisibilityFeature {
     return this.implementation.addToGraph(graph, job, inputs);
   }
 
+  prepare(
+    job: PackedVisibilityPrepareJob,
+    counters: GPUBuffer,
+    camera: GPUBuffer,
+    command: ShadeGPUCommandContext
+  ): PreparedPackedVisibility {
+    return this.implementation.prepareHierarchy(job, counters, camera, command);
+  }
+
   release(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {
     this.implementation.release(runtime, command);
   }
@@ -58,6 +69,8 @@ export type {
   PackedVisibilityJob,
   PackedVisibilityOutputs,
   PackedVisibilityPreparationEvidence,
+  PackedVisibilityPrepareJob,
+  PreparedPackedVisibility,
   GeometryHierarchyView,
   GpuAssetBindings,
   GpuSceneBindings,

@@ -27,6 +27,12 @@ const {
   packHierarchyViewUniform,
   selectHierarchicalWorkImplementation
 } = await import("../.test-dist/render/HierarchicalWorkGenerator.js");
+const { ExactTriangleFilter } = await import(
+  "../.test-dist/render/ExactTriangleFilter.js"
+);
+const { ResourceAccounting } = await import(
+  "../.test-dist/debug/profiling/ResourceAccounting.js"
+);
 const {
   HIERARCHICAL_VIEW_OFFSETS,
   HIERARCHICAL_VIEW_UNIFORM_SIZE,
@@ -264,6 +270,76 @@ test("R3-B owner allocates only root/ping-pong/selected resources and encodes GP
     /stale/
   );
   generator.destroy();
+});
+
+test("M1 visibility work buffers stay resident across lightweight rebinds and retire to zero", () => {
+  const gpu = createFakeGpu();
+  const accounting = new ResourceAccounting();
+  const hierarchy = new HierarchicalWorkGenerator(
+    gpu.device,
+    accounting,
+    "VisibilityWorkSet"
+  );
+  const scene = createSceneDescriptor(gpu, {
+    instanceCount: 3,
+    maxHierarchyDepth: 2,
+    traversalWorkCapacity: 5,
+    visibleClusterCapacity: 6
+  });
+  const preparedHierarchy = hierarchy.prepare(scene, {
+    sseThreshold: 24,
+    countersEnabled: false,
+    diagnosticsEnabled: false
+  });
+  const exact = new ExactTriangleFilter(
+    gpu.device,
+    accounting,
+    "VisibilityWorkSet"
+  );
+  const cameraA = gpu.createExternalBuffer("camera-a", 512);
+  const cameraB = gpu.createExternalBuffer("camera-b", 512);
+  const counterB = gpu.createExternalBuffer("counter-b", 256);
+  const assets = {
+    ...scene.assets,
+    meshletRecords: gpu.createExternalBuffer("meshlets", 4096),
+    meshletVertexIndices: gpu.createExternalBuffer("meshlet vertices", 4096),
+    meshletTriangleIndices: gpu.createExternalBuffer("meshlet triangles", 4096),
+    vertexStreamData: gpu.createExternalBuffer("vertex streams", 4096)
+  };
+  const preparedExact = exact.prepare({
+    camera: cameraA,
+    candidates: preparedHierarchy.generated.rasterWork,
+    candidateCapacity: preparedHierarchy.generated.rasterWorkCapacity,
+    assets,
+    scene: scene.scene,
+    counterBuffer: scene.counterBuffer,
+    countersEnabled: false
+  });
+  const before = accounting.snapshot();
+  assert.ok(before.categories.resident.bytes > 0);
+  assert.ok(before.owners.VisibilityWorkSet.buffer > 0);
+
+  hierarchy.rebind(preparedHierarchy, {
+    counterBuffer: counterB,
+    countersEnabled: true,
+    sseThreshold: 12
+  });
+  exact.rebind(preparedExact, {
+    camera: cameraB,
+    counterBuffer: counterB,
+    countersEnabled: true
+  });
+  const rebound = accounting.snapshot();
+  assert.equal(rebound.totalBytes, before.totalBytes);
+  assert.equal(rebound.counts.buffer, before.counts.buffer);
+  assert.equal(rebound.createdCount, before.createdCount);
+
+  exact.release(preparedExact);
+  hierarchy.release(preparedHierarchy);
+  const released = accounting.snapshot();
+  assert.equal(released.totalBytes, 0);
+  assert.equal(released.counts.buffer, 0);
+  assert.equal(released.destroyedCount, before.createdCount);
 });
 
 test("R3-B pressure capacity is bounded and WGSL keeps the frozen producer invariants", () => {

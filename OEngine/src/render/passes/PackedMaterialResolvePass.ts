@@ -19,12 +19,12 @@ import {
   GPU_SHADE_DRAW_INDIRECT_STRIDE
 } from "../../gpu/GpuMaterialKernelAbi.js";
 import { VisiblePixelClassifier } from "../VisiblePixelClassifier.js";
-import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import {
   surfaceFrame,
   textureDomain,
-  type SurfaceFrame
+  type SurfaceFrame,
+  type VisibilityFrame
 } from "../pipeline/FrameProducts.js";
 import {
   prepareVelocityMatrices,
@@ -124,7 +124,6 @@ export interface PackedMaterialResolveJob {
   readonly runtime: PackedSceneRuntime;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
-  readonly visibility: PackedVisibilityDebugSource;
   readonly width: number;
   readonly height: number;
   readonly currentCamera: VelocityCameraMatrices;
@@ -190,7 +189,7 @@ export class PackedMaterialResolvePass {
   addToGraph(
     graph: FrameGraph,
     job: PackedMaterialResolveJob,
-    inputs: { visibilityKey: ResourceId; view: ResourceId; counters?: ResourceId },
+    inputs: { visibility: VisibilityFrame; view: ResourceId; counters?: ResourceId },
     options: Readonly<{ velocity: boolean }> = { velocity: true }
   ): PackedMaterialResolveOutputs {
     const width = Math.max(1, job.width | 0);
@@ -226,9 +225,24 @@ export class PackedMaterialResolvePass {
           0,
           this.previousViewProjection
         );
-        const visibility = data.visibility.resolve();
+        const visibility = Object.freeze({
+          instances: data.scene.instances,
+          meshlets: data.assets.meshletRecords,
+          rasterWork: requireBuffer(
+            resources.get(inputs.visibility.exactRaster.records),
+            "exact RasterWork"
+          ),
+          materials: data.runtime.materialResources.materialRecords,
+          instanceCount: data.scene.highWaterCount,
+          geometryRecordCount: data.assets.highWaterCounts.geometryRecords,
+          meshletRecordCount: data.assets.highWaterCounts.meshletRecords,
+          materialCapacity: data.runtime.materialResources.materialCapacity,
+          classCapacity: inputs.visibility.exactRaster.classCapacity
+        });
         const classified = this.classifier.encode(command, {
-          visibilityKeys: resolveTextureView(resources.get(inputs.visibilityKey)),
+          visibilityKeys: resolveTextureView(
+            resources.get(inputs.visibility.visibilityKey)
+          ),
           materials: data.runtime.materialResources,
           visibility,
           width: data.width,
@@ -240,7 +254,7 @@ export class PackedMaterialResolvePass {
         const group0 = this.graphics.bind_groups.obtain({
           layout: INPUT_GROUP,
           entries: [
-            resolveTextureView(resources.get(inputs.visibilityKey)),
+            resolveTextureView(resources.get(inputs.visibility.visibilityKey)),
             { buffer: requireBuffer(resources.get(inputs.view), "view") },
             { buffer: this.previousViewProjectionBuffer },
             data.runtime.materialResources.textureArray,
@@ -339,7 +353,8 @@ export class PackedMaterialResolvePass {
       "surface/metadata",
       texture(width, height, GPU_SURFACE_FORMATS.metadata, usage)
     );
-    builder.read(inputs.visibilityKey);
+    builder.read(inputs.visibility.visibilityKey);
+    builder.read(inputs.visibility.exactRaster.records);
     builder.read(inputs.view);
     if (inputs.counters !== undefined) {
       builder.read(inputs.counters);
@@ -347,7 +362,7 @@ export class PackedMaterialResolvePass {
     }
     this.currentSurfaceBytesPerPixel = gpuSurfaceBytesPerPixel(options);
     output.surface = surfaceFrame({
-      depth: null,
+      depth: inputs.visibility.depth,
       pbr: output.gPbr,
       normal: output.gNormal,
       albedoAo: output.gAlbedo,

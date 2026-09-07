@@ -198,12 +198,11 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/ExactTriangleFilter.ts",
-        "src/render/features/SurfaceFeature.ts",
         "src/render/features/VisibilityFeature.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
-        "src/render/Renderer.ts"
+        "src/render/Renderer.ts",
+        "src/render/VisibilityWorkSet.ts"
       ],
       "pipelineOwners": [
         "src/render/ExactTriangleFilter.ts"
@@ -349,6 +348,7 @@
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts",
+        "src/render/VisibilityWorkSet.ts",
         "src/render/VisiblePixelClassifier.ts"
       ],
       "pipelineOwners": [
@@ -462,7 +462,8 @@
         "src/render/passes/VisibilityPass.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
-        "src/render/ViewManager.ts"
+        "src/render/ViewManager.ts",
+        "src/render/VisibilityWorkSet.ts"
       ],
       "pipelineOwners": [
         "src/render/HierarchicalWorkGenerator.ts"
@@ -690,7 +691,8 @@
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
-        "src/render/ViewManager.ts"
+        "src/render/ViewManager.ts",
+        "src/render/VisibilityWorkSet.ts"
       ],
       "pipelineOwners": [
         "src/gpu/AnimationDatabase.ts",
@@ -919,6 +921,7 @@
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts",
+        "src/render/VisibilityWorkSet.ts",
         "src/render/VisiblePixelClassifier.ts"
       ],
       "pipelineOwners": [
@@ -1063,6 +1066,7 @@
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts",
+        "src/render/VisibilityWorkSet.ts",
         "src/render/VisiblePixelClassifier.ts"
       ],
       "pipelineOwners": [
@@ -1620,6 +1624,7 @@
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts",
+        "src/render/VisibilityWorkSet.ts",
         "src/render/VisiblePixelClassifier.ts"
       ],
       "pipelineOwners": [
@@ -1869,9 +1874,7 @@
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
-        "src/render/features/SurfaceFeature.ts",
         "src/render/features/VisibilityFeature.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/Renderer.ts"

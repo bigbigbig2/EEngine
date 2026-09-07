@@ -1,6 +1,10 @@
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";
 import { GPU_COUNTER_BYTE_SIZE } from "../debug/GpuFrameCounters.js";
+import type {
+  ResourceAccounting,
+  ResourceHandle as AccountingResourceHandle
+} from "../debug/profiling/ResourceAccounting.js";
 import {
   GPU_CLASSIFIED_RASTER_HEADER_BYTES,
   GPU_DISPATCH_INDIRECT_ARGS_SIZE,
@@ -29,6 +33,12 @@ export interface ExactTriangleFilterInputs {
   readonly countersEnabled: boolean;
 }
 
+export interface ExactTriangleFilterBindingInputs {
+  readonly camera: GPUBuffer;
+  readonly counterBuffer: GPUBuffer;
+  readonly countersEnabled: boolean;
+}
+
 export interface ExactTriangleFilterOutput {
   /** Two 32 B class headers followed by OPAQUE then MASK exact records. */
   readonly rasterWork: GPUBuffer;
@@ -50,11 +60,16 @@ interface PreparedState {
   readonly dispatchIndirect: GPUBuffer;
   readonly rasterWork: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
-  readonly filterGroup: GPUBindGroup;
-  readonly drawGroup: GPUBindGroup;
+  filterGroup: GPUBindGroup;
+  drawGroup: GPUBindGroup;
   readonly dispatchGroup: GPUBindGroup;
   readonly candidateCapacity: number;
-  readonly countersEnabled: boolean;
+  readonly candidates: GPUBuffer;
+  readonly assets: GpuAssetBindings;
+  readonly scene: GpuSceneBindings;
+  camera: GPUBuffer;
+  counterBuffer: GPUBuffer;
+  countersEnabled: boolean;
   readonly buffers: readonly GPUBuffer[];
   destroyed: boolean;
 }
@@ -70,9 +85,14 @@ export class ExactTriangleFilter {
   private readonly drawLayout: GPUBindGroupLayout;
   private readonly dispatchLayout: GPUBindGroupLayout;
   private readonly prepared = new Set<PreparedExactTriangleFilter>();
+  private readonly accountingHandles = new WeakMap<GPUBuffer, AccountingResourceHandle>();
   private destroyed = false;
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly resourceAccounting?: ResourceAccounting,
+    private readonly accountingOwner = "VisibilityWorkSet"
+  ) {
     const module = device.createShaderModule({
       label: "Exact triangle filter/compact",
       code: EXACT_TRIANGLE_FILTER_WGSL
@@ -211,6 +231,11 @@ export class ExactTriangleFilter {
         drawGroup,
         dispatchGroup,
         candidateCapacity: inputs.candidateCapacity,
+        candidates: inputs.candidates,
+        assets: inputs.assets,
+        scene: inputs.scene,
+        camera: inputs.camera,
+        counterBuffer: inputs.counterBuffer,
         countersEnabled: inputs.countersEnabled,
         buffers,
         destroyed: false
@@ -218,9 +243,52 @@ export class ExactTriangleFilter {
       this.prepared.add(prepared);
       return prepared;
     } catch (error) {
-      for (const buffer of buffers) buffer.destroy();
+      for (const buffer of buffers) this.destroyBuffer(buffer);
       throw error;
     }
+  }
+
+  /** Rebuilds only lightweight bind groups for camera/counter cadence changes. */
+  rebind(
+    prepared: PreparedExactTriangleFilter,
+    bindings: ExactTriangleFilterBindingInputs
+  ): void {
+    const state = this.requirePrepared(prepared);
+    if (state.camera === bindings.camera &&
+      state.counterBuffer === bindings.counterBuffer &&
+      state.countersEnabled === bindings.countersEnabled) {
+      return;
+    }
+    state.camera = bindings.camera;
+    state.counterBuffer = bindings.counterBuffer;
+    state.countersEnabled = bindings.countersEnabled;
+    state.filterGroup = this.device.createBindGroup({
+      label: "Exact triangle filter bindings",
+      layout: this.filterLayout,
+      entries: [
+        { binding: 0, resource: { buffer: state.camera } },
+        { binding: 1, resource: { buffer: state.settings } },
+        { binding: 2, resource: { buffer: state.candidates } },
+        { binding: 3, resource: { buffer: state.rasterWork } },
+        { binding: 4, resource: { buffer: state.scene.instances } },
+        { binding: 5, resource: { buffer: state.assets.geometryRecords } },
+        { binding: 6, resource: { buffer: state.assets.meshletRecords } },
+        { binding: 7, resource: { buffer: state.assets.meshletVertexIndices } },
+        { binding: 8, resource: { buffer: state.assets.meshletTriangleIndices } },
+        { binding: 9, resource: { buffer: state.assets.vertexStreamData } }
+      ]
+    });
+    state.drawGroup = this.device.createBindGroup({
+      label: "Exact triangle draw preparation bindings",
+      layout: this.drawLayout,
+      entries: [
+        { binding: 0, resource: { buffer: state.rasterWork } },
+        { binding: 1, resource: { buffer: state.drawIndirect } },
+        { binding: 2, resource: { buffer: state.counterBuffer } },
+        { binding: 3, resource: { buffer: state.settings } },
+        { binding: 4, resource: { buffer: state.candidates } }
+      ]
+    });
   }
 
   encode(
@@ -268,7 +336,7 @@ export class ExactTriangleFilter {
   release(prepared: PreparedExactTriangleFilter): void {
     const state = this.requirePrepared(prepared);
     state.destroyed = true;
-    for (const buffer of state.buffers) buffer.destroy();
+    for (const buffer of state.buffers) this.destroyBuffer(buffer);
     PREPARED_STATE.delete(prepared as object);
     this.prepared.delete(prepared);
   }
@@ -281,6 +349,7 @@ export class ExactTriangleFilter {
 
   private createBuffer(descriptor: GPUBufferDescriptor, buffers: GPUBuffer[]): GPUBuffer {
     const buffer = this.device.createBuffer(descriptor);
+    this.accountBuffer(buffer, descriptor);
     buffers.push(buffer);
     return buffer;
   }
@@ -291,10 +360,31 @@ export class ExactTriangleFilter {
     buffers: GPUBuffer[]
   ): GPUBuffer {
     const buffer = this.device.createBuffer({ ...descriptor, mappedAtCreation: true });
+    this.accountBuffer(buffer, descriptor);
     new Uint8Array(buffer.getMappedRange()).set(initial);
     buffer.unmap();
     buffers.push(buffer);
     return buffer;
+  }
+
+  private accountBuffer(buffer: GPUBuffer, descriptor: GPUBufferDescriptor): void {
+    if (this.resourceAccounting === undefined) return;
+    this.accountingHandles.set(buffer, this.resourceAccounting.created({
+      kind: "buffer",
+      category: "resident",
+      owner: this.accountingOwner,
+      bytes: Number(descriptor.size),
+      label: descriptor.label
+    }));
+  }
+
+  private destroyBuffer(buffer: GPUBuffer): void {
+    const accounting = this.accountingHandles.get(buffer);
+    if (accounting !== undefined) {
+      this.accountingHandles.delete(buffer);
+      this.resourceAccounting!.destroyed(accounting);
+    }
+    buffer.destroy();
   }
 
   private requirePrepared(prepared: PreparedExactTriangleFilter): PreparedState {

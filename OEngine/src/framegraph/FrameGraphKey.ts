@@ -9,6 +9,8 @@ export type FrameGraphKey = {
   readonly sampleCount: number;
   readonly enabledFeatureBits: number;
   readonly visibilityImplementation: string;
+  /** Static exact-raster resource shape; zero when the Packed path is absent. */
+  readonly visibilityClassCapacity: number;
   readonly historyFormatRevision: number;
   readonly outputFormat: GPUTextureFormat;
   readonly instrumentationMode: string;
@@ -24,6 +26,7 @@ export function canonicalFrameGraphKey(key: FrameGraphKey): string {
     key.viewCount,
     key.sampleCount,
     key.enabledFeatureBits,
+    key.visibilityClassCapacity,
     key.historyFormatRevision,
     key.instrumentationRevision
   ];
@@ -42,6 +45,7 @@ export function canonicalFrameGraphKey(key: FrameGraphKey): string {
     key.sampleCount,
     key.enabledFeatureBits,
     key.visibilityImplementation,
+    key.visibilityClassCapacity,
     key.historyFormatRevision,
     key.outputFormat,
     key.instrumentationMode,

@@ -54,8 +54,8 @@ test("R4-A-05 prepare rejects capacity before generator allocation or encoding",
   job.runtime.hierarchyRasterWorkCapacity = adapterCapacity;
   const prepared = pass.prepareHierarchy(job, {}, {}, command);
   assert.equal(generator.prepareCalls.length, 1);
-  assert.equal(prepared.prepared, generator.prepared[0]);
-  assert.equal(prepared.exact, exact.prepared[0]);
+  assert.equal(prepared.workSet.hierarchy, generator.prepared[0]);
+  assert.equal(prepared.workSet.exact, exact.prepared[0]);
   assert.deepEqual(pass.lastPreparation, {
     requiredCapacity: adapterCapacity,
     requiredByteLength: byteLimit,
@@ -83,29 +83,88 @@ test("R4-A-05 replacement and release retire prepared work through the command f
 
   const camera = {};
   const first = pass.prepareHierarchy(job, counters, camera, command);
-  assert.equal(pass.prepareHierarchy(job, counters, camera, command), first);
+  assert.equal(
+    pass.prepareHierarchy(job, counters, camera, command).workSet,
+    first.workSet
+  );
   assert.equal(generator.prepareCalls.length, 1, "stable epochs reuse prepared work");
 
   job.assets.epoch++;
   const second = pass.prepareHierarchy(job, counters, camera, command);
-  assert.notEqual(second, first);
+  assert.notEqual(second.workSet, first.workSet);
   assert.equal(generator.prepareCalls.length, 2);
   assert.equal(command.retired.length, 1);
   assert.deepEqual(generator.released, []);
   command.retired[0].destroy();
-  assert.deepEqual(generator.released, [first.prepared]);
-  assert.deepEqual(exact.released, [first.exact]);
+  assert.deepEqual(generator.released, [first.workSet.hierarchy]);
+  assert.deepEqual(exact.released, [first.workSet.exact]);
 
   pass.release(job.runtime, command);
   assert.equal(command.retired.length, 2);
   command.retired[1].destroy();
-  assert.deepEqual(generator.released, [first.prepared, second.prepared]);
-  assert.deepEqual(exact.released, [first.exact, second.exact]);
+  assert.deepEqual(generator.released, [first.workSet.hierarchy, second.workSet.hierarchy]);
+  assert.deepEqual(exact.released, [first.workSet.exact, second.workSet.exact]);
 
   const third = pass.prepareHierarchy(job, counters, camera, command);
-  assert.notEqual(third, second, "released runtime rebuilds instead of reusing stale work");
+  assert.notEqual(
+    third.workSet,
+    second.workSet,
+    "released runtime rebuilds instead of reusing stale work"
+  );
   pass.destroy();
   assert.equal(generator.destroyCount, 1);
+});
+
+test("M1 camera, counter cadence and content patches rebind without replacing work", () => {
+  const generator = createGenerator();
+  const exact = createExactFilter();
+  const pass = new PackedVisibilityPass({
+    device: {
+      limits: {
+        maxBufferSize: 1 << 20,
+        maxStorageBufferBindingSize: 1 << 20
+      }
+    }
+  }, generator, exact);
+  const command = createRetirementCommand();
+  const job = createJob(8);
+  const first = pass.prepareHierarchy(
+    job,
+    { id: "counters-a" },
+    { id: "camera-a" },
+    command
+  );
+
+  job.scene.contentRevision++;
+  job.sseThreshold = 2;
+  job.countersEnabled = true;
+  const second = pass.prepareHierarchy(
+    job,
+    { id: "counters-b" },
+    { id: "camera-b" },
+    command
+  );
+
+  assert.equal(second.workSet, first.workSet);
+  assert.notEqual(second.bindings, first.bindings);
+  assert.equal(generator.prepareCalls.length, 1);
+  assert.equal(exact.prepared.length, 1);
+  assert.equal(generator.rebindCalls.length, 1);
+  assert.equal(exact.rebindCalls.length, 1);
+  assert.equal(command.retired.length, 0);
+
+  job.scene.resourceEpoch++;
+  const third = pass.prepareHierarchy(
+    job,
+    { id: "counters-b" },
+    { id: "camera-b" },
+    command
+  );
+  assert.notEqual(third.workSet, first.workSet);
+  assert.equal(generator.prepareCalls.length, 2);
+  assert.equal(exact.prepared.length, 2);
+  assert.equal(command.retired.length, 1);
+  pass.destroy();
 });
 
 test("exact-filter preparation failure immediately releases the unpublished hierarchy state", () => {
@@ -228,7 +287,7 @@ function createJob(rasterWorkCapacity) {
       instanceCount: 1
     },
     assets: { epoch: 1 },
-    scene: { epoch: 1 },
+    scene: { resourceEpoch: 1, contentRevision: 1 },
     countersEnabled: false,
     hierarchyView: {},
     sseThreshold: 4,
@@ -244,6 +303,7 @@ function createGenerator() {
     prepared: [],
     prepareCalls: [],
     encodeCalls: 0,
+    rebindCalls: [],
     released: [],
     destroyCount: 0,
     prepare(scene, config) {
@@ -259,6 +319,9 @@ function createGenerator() {
       this.encodeCalls++;
       throw new Error("encode is not used by this lifecycle test");
     },
+    rebind(prepared, bindings) {
+      this.rebindCalls.push({ prepared, bindings });
+    },
     release(prepared) {
       this.released.push(prepared);
     },
@@ -272,6 +335,7 @@ function createExactFilter() {
   return {
     prepared: [],
     released: [],
+    rebindCalls: [],
     destroyCount: 0,
     prepare(inputs) {
       const prepared = {
@@ -290,6 +354,9 @@ function createExactFilter() {
     },
     encode() {
       throw new Error("encode is not used by this lifecycle test");
+    },
+    rebind(prepared, bindings) {
+      this.rebindCalls.push({ prepared, bindings });
     },
     release(prepared) {
       this.released.push(prepared);

@@ -11,6 +11,11 @@ globalThis.GPUTextureUsage ??= { TEXTURE_BINDING: 1 << 2, RENDER_ATTACHMENT: 1 <
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { FrameGraph } = await import("../.test-dist/framegraph/FrameGraph.js");
 const {
+  exactRasterFrame,
+  textureDomain,
+  visibilityFrame
+} = await import("../.test-dist/render/pipeline/FrameProducts.js");
+const {
   PACKED_SURFACE_FLAGS_FORMAT,
   PackedMaterialResolvePass
 } = await import("../.test-dist/render/passes/PackedMaterialResolvePass.js");
@@ -35,6 +40,36 @@ function fakeGraphics(buffers = []) {
   };
 }
 
+function formalVisibility(graph, visibilityKey, width, height) {
+  const records = graph.import_resource(
+    "exact-raster-records",
+    { kind: "imported", label: "exact-raster-records" },
+    {}
+  );
+  const drawIndirect = graph.import_resource(
+    "exact-draw-indirect",
+    { kind: "imported", label: "exact-draw-indirect" },
+    {}
+  );
+  const depth = graph.import_resource(
+    "visibility-depth",
+    { kind: "imported", label: "visibility-depth" },
+    {}
+  );
+  return visibilityFrame({
+    visibilityKey,
+    depth,
+    exactRaster: exactRasterFrame({
+      records,
+      drawIndirect,
+      classCapacity: 64,
+      setupRecords: null,
+      setupCount: null
+    }),
+    domain: textureDomain("internal-full", width, height, 1)
+  });
+}
+
 test("classified Material Resolve declares a bounded specialized Surface pass", () => {
   const buffers = [];
   const pass = new PackedMaterialResolvePass(fakeGraphics(buffers));
@@ -45,19 +80,19 @@ test("classified Material Resolve declares a bounded specialized Surface pass", 
     {}
   );
   const view = graph.import_resource("view", { kind: "imported", label: "view" }, {});
+  const visibility = formalVisibility(graph, visibilityKey, 1280, 720);
   const outputs = pass.addToGraph(
     graph,
     {
       runtime: {},
       assets: {},
       scene: {},
-      visibility: {},
       width: 1280,
       height: 720,
       currentCamera: {},
       previousCamera: {}
     },
-    { visibilityKey, view }
+    { visibility, view }
   );
   const sink = graph.add("R4-B sink", {}, () => {});
   for (const resource of [
@@ -90,7 +125,10 @@ test("classified Material Resolve declares a bounded specialized Surface pass", 
     graph.listExecutablePasses().map(({ name }) => name),
     ["Material Resolve/classified visible pixels", "R4-B sink"]
   );
-  assert.deepEqual(graph.exportToJson().passes[0].reads, [visibilityKey, view]);
+  assert.deepEqual(
+    graph.exportToJson().passes[0].reads,
+    [visibilityKey, visibility.exactRaster.records, view]
+  );
   pass.destroy();
 });
 
@@ -103,19 +141,19 @@ test("velocity feature-off allocates no attachment and freezes a 22 B/pixel Surf
     {}
   );
   const view = graph.import_resource("view", { kind: "imported", label: "view" }, {});
+  const visibility = formalVisibility(graph, visibilityKey, 1921, 913);
   const outputs = pass.addToGraph(
     graph,
     {
       runtime: {},
       assets: {},
       scene: {},
-      visibility: {},
       width: 1921,
       height: 913,
       currentCamera: {},
       previousCamera: {}
     },
-    { visibilityKey, view },
+    { visibility, view },
     { velocity: false }
   );
   const sink = graph.add("velocity-off sink", {}, () => {});
@@ -134,6 +172,65 @@ test("velocity feature-off allocates no attachment and freezes a 22 B/pixel Surf
   assert.doesNotMatch(
     JSON.stringify(graph.exportToJson()),
     /surface\/velocity/
+  );
+  pass.destroy();
+});
+
+test("M1 Surface consumes VisibilityFrame instead of a debug resolver", () => {
+  const pass = new PackedMaterialResolvePass(fakeGraphics());
+  const graph = new FrameGraph("M1 formal Surface input");
+  const visibilityKey = graph.import_resource(
+    "visibility-key",
+    { kind: "imported", label: "visibility-key" },
+    {}
+  );
+  const exactRecords = graph.import_resource(
+    "exact-raster-records",
+    { kind: "imported", label: "exact-raster-records" },
+    {}
+  );
+  const exactIndirect = graph.import_resource(
+    "exact-draw-indirect",
+    { kind: "imported", label: "exact-draw-indirect" },
+    {}
+  );
+  const depth = graph.import_resource("depth", { kind: "imported", label: "depth" }, {});
+  const view = graph.import_resource("view", { kind: "imported", label: "view" }, {});
+  const visibility = visibilityFrame({
+    visibilityKey,
+    depth,
+    exactRaster: exactRasterFrame({
+      records: exactRecords,
+      drawIndirect: exactIndirect,
+      classCapacity: 64,
+      setupRecords: null,
+      setupCount: null
+    }),
+    domain: textureDomain("internal-full", 64, 64, 1)
+  });
+  const outputs = pass.addToGraph(
+    graph,
+    {
+      runtime: {},
+      assets: {},
+      scene: {},
+      width: 64,
+      height: 64,
+      currentCamera: {},
+      previousCamera: {}
+    },
+    { visibility, view },
+    { velocity: false }
+  );
+  const sink = graph.add("M1 Surface sink", {}, () => {});
+  sink.read(outputs.surface.pbr);
+  sink.make_side_effect();
+  graph.compile();
+
+  assert.equal(outputs.surface.depth, depth);
+  assert.deepEqual(
+    graph.exportToJson().passes[0].reads,
+    [visibilityKey, exactRecords, view]
   );
   pass.destroy();
 });

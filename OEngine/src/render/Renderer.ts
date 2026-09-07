@@ -31,7 +31,10 @@ import { VisibilityPass } from "./passes/VisibilityPass.js";
 import type { PackedVisibilityDebugSource } from "./passes/PackedVisibilityPass.js";
 import { VisibilityCounterPass } from "./passes/VisibilityCounterPass.js";
 import { MaterialExpandPass } from "./passes/MaterialExpandPass.js";
-import { VisibilityFeature } from "./features/VisibilityFeature.js";
+import {
+  VisibilityFeature,
+  type PackedVisibilityJob
+} from "./features/VisibilityFeature.js";
 import { SurfaceFeature } from "./features/SurfaceFeature.js";
 import { PackedSurfaceCounterPass } from "./passes/PackedSurfaceCounterPass.js";
 import { LightingFeature } from "./features/LightingFeature.js";
@@ -125,7 +128,8 @@ import {
 } from "./pipeline/RenderSettings.js";
 import {
   shadowVisibilityFrame,
-  surfaceFrameWithVelocity
+  surfaceFrameWithVelocity,
+  type VisibilityFrame
 } from "./pipeline/FrameProducts.js";
 import {
   createRendererFramePlan,
@@ -312,6 +316,7 @@ type MainFrameGraphBindings = {
   readonly view: ReturnType<ViewManager["obtain"]>;
   readonly gpuScene: ReturnType<GPUSceneManager["obtain"]>;
   readonly gpuPacked: PackedSceneRuntime | null;
+  readonly packedVisibilityJob: PackedVisibilityJob | null;
   readonly viewHzb: HierarchicalZBuffer;
   readonly colorView: GPUTextureView;
   readonly renderTargets: ReturnType<RenderTargets["asImportBundle"]>;
@@ -1308,7 +1313,7 @@ export class Renderer {
               ? null
               : this._graphics.packed_scenes.bindings();
             const shadowContentRevision = scene.change_revision * 1_048_576 +
-              (packedBindings?.scene.epoch ?? 0) + packedPatchRevision;
+              (packedBindings?.scene.contentRevision ?? 0) + packedPatchRevision;
             shadows.select_for_draw(camera, this._frame_count, [w, h], shadowContentRevision);
             shadows.draw(
               cmd,
@@ -1376,12 +1381,44 @@ export class Renderer {
             outputResolution: [outputWidth, outputHeight]
           })
         : null;
+      let packedVisibilityJob: PackedVisibilityJob | null = null;
+      if (gpuPacked !== null) {
+        const registryBindings = this._graphics.packed_scenes.bindings();
+        const counters = gpuCounterBuffer ?? gpuPacked.counterSink;
+        const prepareJob = {
+          runtime: gpuPacked,
+          assets: registryBindings.assets,
+          scene: registryBindings.scene,
+          countersEnabled: gpuCounterBuffer !== null,
+          width: w,
+          height: h,
+          hierarchyView: createPackedHierarchyView(camera, h),
+          sseThreshold: this.packed_visibility_sse_threshold,
+          coneEnabled: this.packed_visibility_cone_enabled,
+          previousHzb: this.packed_visibility_hzb_enabled
+            ? packedPreviousHzb(
+              viewHzb,
+              view.gpu_previous_camera_state.view_projection_matrix
+            )
+            : null
+        };
+        packedVisibilityJob = Object.freeze({
+          ...prepareJob,
+          prepared: this._visibilityFeature.prepare(
+            prepareJob,
+            counters,
+            view.gpu_camera_state.buffer,
+            cmd
+          )
+        });
+      }
       const mainBindings: MainFrameGraphBindings = {
         camera,
         scene,
         view,
         gpuScene,
         gpuPacked,
+        packedVisibilityJob,
         viewHzb,
         colorView,
         renderTargets: this._renderTargets.asImportBundle(),
@@ -1459,7 +1496,7 @@ export class Renderer {
           { kind: "imported", label: "r32uint triangle id" },
           bind("target-triangle-id", (bindings) => bindings.renderTargets.triangleId)
         );
-        const depthRes = graph.import_resource(
+        let depthRes = graph.import_resource(
           "main_depth",
           { kind: "imported", label: "depth32float" },
           bind("target-depth", (bindings) => bindings.renderTargets.depth)
@@ -1495,7 +1532,7 @@ export class Renderer {
           bind("hzb-previous-texture", (bindings) => bindings.viewHzb.getPreviousTexture())
         );
         let gpuCounterRes: ResourceId | null = null;
-        let packedVisibilityKeyRes: ResourceId | null = null;
+        let packedVisibilityFrame: VisibilityFrame | null = null;
         let packedVisibilityDebug: PackedVisibilityDebugSource | null = null;
         if (sampleGpuCounters) {
           gpuCounterRes = graph.import_resource(
@@ -1512,42 +1549,35 @@ export class Renderer {
             bind("packed-counter-sink", (bindings) =>
               bindings.gpuPacked!.counterSink)
           );
+          const exactRasterRecords = graph.import_resource(
+            "packed_exact_raster_records",
+            { kind: "imported", label: "Exact OPAQUE/MASK RasterWork" },
+            bind("packed-exact-raster-records", (bindings) =>
+              bindings.packedVisibilityJob!.prepared.workSet.exactRasterRecords)
+          );
+          const exactDrawIndirect = graph.import_resource(
+            "packed_exact_draw_indirect",
+            { kind: "imported", label: "Exact OPAQUE/MASK drawIndirect" },
+            bind("packed-exact-draw-indirect", (bindings) =>
+              bindings.packedVisibilityJob!.prepared.workSet.exactDrawIndirect)
+          );
           const packedOutput = this._visibilityFeature.addToGraph(
             graph,
-            bind("packed-visibility-main-job", (bindings) => {
-              const registryBindings =
-                this._graphics.packed_scenes.bindings();
-              return {
-                runtime: bindings.gpuPacked!,
-                assets: registryBindings.assets,
-                scene: registryBindings.scene,
-                countersEnabled: bindings.gpuCounterBuffer !== null,
-                width: bindings.internalWidth,
-                height: bindings.internalHeight,
-                hierarchyView: createPackedHierarchyView(
-                  bindings.camera,
-                  bindings.internalHeight
-                ),
-                sseThreshold: this.packed_visibility_sse_threshold,
-                coneEnabled: this.packed_visibility_cone_enabled,
-                previousHzb: this.packed_visibility_hzb_enabled
-                  ? packedPreviousHzb(
-                    bindings.viewHzb,
-                    bindings.view.gpu_previous_camera_state.view_projection_matrix
-                  )
-                  : null
-              };
-            }),
+            bind("packed-visibility-main-job", (bindings) =>
+              bindings.packedVisibilityJob!),
             {
               camera: currentCameraRes,
               counters: packedCounterRes,
+              exactRasterRecords,
+              exactDrawIndirect,
               previousHzb: this.packed_visibility_hzb_enabled
                 ? previousHzbRes
                 : undefined,
               depth: depthRes
             }
           );
-          packedVisibilityKeyRes = packedOutput.visibilityKey;
+          packedVisibilityFrame = packedOutput.frame;
+          depthRes = packedOutput.frame.depth;
           packedVisibilityDebug = packedOutput.debugResolve;
           gpuCounterRes = sampleGpuCounters ? packedOutput.counters : null;
         } else {
@@ -1728,10 +1758,10 @@ export class Renderer {
             graph,
             { width: w, height: h },
             {
-              visibility: (packedVisibilityKeyRes ?? meshIdRes)!,
+              visibility: (packedVisibilityFrame?.visibilityKey ?? meshIdRes)!,
               counters: gpuCounterRes
             },
-            packedVisibilityKeyRes === null
+            packedVisibilityFrame === null
               ? "legacy-id"
               : "visibility-key"
           );
@@ -1786,13 +1816,10 @@ export class Renderer {
           ? this._surfaceFeature.addToGraph(
               graph,
               bind("packed-material-resolve-job", (bindings) => {
-                const registryBindings =
-                  this._graphics.packed_scenes.bindings();
                 return {
-                  runtime: bindings.gpuPacked!,
-                  assets: registryBindings.assets,
-                  scene: registryBindings.scene,
-                  visibility: packedVisibilityDebug!,
+                  runtime: bindings.packedVisibilityJob!.runtime,
+                  assets: bindings.packedVisibilityJob!.assets,
+                  scene: bindings.packedVisibilityJob!.scene,
                   width: bindings.internalWidth,
                   height: bindings.internalHeight,
                   currentCamera: bindings.view.gpu_camera_state.camera,
@@ -1800,7 +1827,7 @@ export class Renderer {
                 };
               }),
               {
-                visibilityKey: packedVisibilityKeyRes!,
+                visibility: packedVisibilityFrame!,
                 view: viewUniformRes,
                 counters: gpuCounterRes ?? undefined
               },
@@ -1919,7 +1946,8 @@ export class Renderer {
 
         if (needsOcclusionConfidence && occlusionConfidenceRes !== null) {
           const opaqueMetadataRes =
-            packedResolveOut?.surfaceFlags ?? packedVisibilityKeyRes ?? meshIdRes;
+            packedResolveOut?.surfaceFlags ??
+              packedVisibilityFrame?.visibilityKey ?? meshIdRes;
           if (opaqueMetadataRes === null) {
             throw new Error("Opaque temporal validity has no uint metadata fallback");
           }
@@ -2717,7 +2745,8 @@ export class Renderer {
           occlusionConfidenceRes !== null
         ) {
           const metadataRes =
-            packedResolveOut?.surfaceFlags ?? packedVisibilityKeyRes ?? meshIdRes;
+            packedResolveOut?.surfaceFlags ??
+              packedVisibilityFrame?.visibilityKey ?? meshIdRes;
           if (metadataRes === null) {
             throw new Error("FX-06 Temporal has no uint metadata fallback");
           }
@@ -2965,7 +2994,7 @@ export class Renderer {
             {
               meshId: meshIdRes,
               triangleId: triIdRes,
-              visibilityKey: packedVisibilityKeyRes,
+              visibilityKey: packedVisibilityFrame?.visibilityKey ?? null,
               packedVisibility: packedVisibilityDebug,
               depth: depthRes,
               velocity: velocityRes,
@@ -3189,6 +3218,8 @@ export class Renderer {
           `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
           `-ssao-owner${this._ssaoOwnerGeneration}` +
           `-ssr-owner${this._ssrOwnerGeneration}`,
+      visibilityClassCapacity:
+        bindings.packedVisibilityJob?.prepared.workSet.classCapacity ?? 0,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
       instrumentationMode,

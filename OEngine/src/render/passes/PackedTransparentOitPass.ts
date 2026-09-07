@@ -450,7 +450,7 @@ export class PackedTransparentOitPass {
   private generate(job: PackedTransparentOitJob, command: ShadeGPUCommandContext): GeneratedHierarchyWork {
     let entry = this.prepared.get(job.runtime);
     if (entry === undefined || entry.assetEpoch !== job.assets.epoch ||
-      entry.sceneEpoch !== job.scene.epoch || entry.sseThreshold !== job.sseThreshold) {
+      entry.sceneEpoch !== job.scene.resourceEpoch || entry.sseThreshold !== job.sseThreshold) {
       const previous = entry;
       const prepared = this.generator.prepare({
         assets: job.assets,
@@ -467,7 +467,7 @@ export class PackedTransparentOitPass {
         countersEnabled: false,
         diagnosticsEnabled: false
       });
-      entry = { prepared, assetEpoch: job.assets.epoch, sceneEpoch: job.scene.epoch,
+      entry = { prepared, assetEpoch: job.assets.epoch, sceneEpoch: job.scene.resourceEpoch,
         sseThreshold: job.sseThreshold };
       this.prepared.set(job.runtime, entry);
       if (previous !== undefined) {

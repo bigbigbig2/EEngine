@@ -81,7 +81,7 @@ test("CompiledFrameGraph freezes pruning, logical slots and last-use plan", () =
   );
 });
 
-test("canonical FrameGraph key excludes dynamic handles and counts", () => {
+test("canonical FrameGraph key excludes dynamic handles but includes resource shape", () => {
   const topology = {
     capabilityProfile: "webgpu:subgroups,timestamp-query",
     internalWidth: 960,
@@ -92,6 +92,7 @@ test("canonical FrameGraph key excludes dynamic handles and counts", () => {
     sampleCount: 1,
     enabledFeatureBits: 0b10101,
     visibilityImplementation: "hardware-v1",
+    visibilityClassCapacity: 4096,
     historyFormatRevision: 1,
     outputFormat: "bgra8unorm",
     instrumentationMode: "none",
@@ -111,6 +112,11 @@ test("canonical FrameGraph key excludes dynamic handles and counts", () => {
   assert.notEqual(
     first,
     canonicalFrameGraphKey({ ...topology, instrumentationMode: "timestamps" })
+  );
+  assert.notEqual(
+    first,
+    canonicalFrameGraphKey({ ...topology, visibilityClassCapacity: 8192 }),
+    "a FrameProduct capacity change alters the compiled resource shape"
   );
 });
 
