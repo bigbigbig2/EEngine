@@ -123,11 +123,19 @@ test("classified Material Resolve declares a bounded specialized Surface pass", 
   assert.equal(graph.getDescriptor(outputs.surfaceFlags).format, PACKED_SURFACE_FLAGS_FORMAT);
   assert.deepEqual(
     graph.listExecutablePasses().map(({ name }) => name),
-    ["Material Resolve/classified visible pixels", "R4-B sink"]
+    ["MaterialClassDepth/classify visibility", "Material Resolve/fullscreen kernels", "R4-B sink"]
   );
   assert.deepEqual(
     graph.exportToJson().passes[0].reads,
-    [visibilityKey, visibility.exactRaster.records, view]
+    [visibilityKey]
+  );
+  assert.deepEqual(
+    graph.exportToJson().passes[1].reads,
+    [visibilityKey, visibility.exactRaster.records, outputs.classification.classDepth, view]
+  );
+  assert.doesNotMatch(
+    JSON.stringify(graph.exportToJson()),
+    /count visible pixels|prefix scan|add block prefixes|scatter ShadeWork|ShadeWork/
   );
   pass.destroy();
 });
@@ -230,7 +238,11 @@ test("M1 Surface consumes VisibilityFrame instead of a debug resolver", () => {
   assert.equal(outputs.surface.depth, depth);
   assert.deepEqual(
     graph.exportToJson().passes[0].reads,
-    [visibilityKey, exactRecords, view]
+    [visibilityKey]
+  );
+  assert.deepEqual(
+    graph.exportToJson().passes[1].reads,
+    [visibilityKey, exactRecords, outputs.classification.classDepth, view]
   );
   pass.destroy();
 });
@@ -298,7 +310,7 @@ test("specialized shader uses direct canonical streams and analytic UV0/UV1/UV2 
   );
 });
 
-test("Packed runtime has bounded kernel indirect draws and no material-count loop", () => {
+test("Packed runtime has bounded fullscreen kernel draws and no material-count loop", () => {
   const passSource = readFileSync(
     path.join(root, "src/render/passes/PackedMaterialResolvePass.ts"),
     "utf8"
@@ -308,7 +320,9 @@ test("Packed runtime has bounded kernel indirect draws and no material-count loo
     passSource,
     /binding: 1,[\s\S]*?visibility: GPUShaderStage\.VERTEX \| GPUShaderStage\.FRAGMENT/
   );
-  assert.equal((passSource.match(/pass\.drawIndirect\(/g) ?? []).length, 1);
+  assert.equal((passSource.match(/pass\.draw\(3, 1, 0, 0\)/g) ?? []).length, 1);
+  assert.doesNotMatch(passSource, /pass\.drawIndirect\(/);
+  assert.doesNotMatch(passSource, /VisiblePixelClassifier|ShadeWork/);
   assert.match(passSource, /kernelClass < GPU_MATERIAL_KERNEL_CLASS_COUNT/);
   assert.doesNotMatch(passSource, /for\s*\([^)]*material|for\s*\([^)]*materials/);
   assert.doesNotMatch(rendererSource, /PackedMaterialExpandPass|PackedVelocityPass/);

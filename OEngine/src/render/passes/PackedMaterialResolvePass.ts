@@ -15,10 +15,8 @@ import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { PACKED_MATERIAL_RESOLVE_WGSL } from "../../shaders/packed_material_resolve.js";
 import {
-  GPU_MATERIAL_KERNEL_CLASS_COUNT,
-  GPU_SHADE_DRAW_INDIRECT_STRIDE
+  GPU_MATERIAL_KERNEL_CLASS_COUNT
 } from "../../gpu/GpuMaterialKernelAbi.js";
-import { VisiblePixelClassifier } from "../VisiblePixelClassifier.js";
 import {
   isMaterialResolveBackend,
   type MaterialResolveBackend as MaterialResolveBackendType
@@ -76,11 +74,6 @@ const INPUT_GROUP: GPUBindGroupLayoutDescriptor = {
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "float", viewDimension: "2d-array" }
     },
-    {
-      binding: 12,
-      visibility: GPUShaderStage.VERTEX,
-      buffer: { type: "read-only-storage" }
-    }
   ]
 };
 
@@ -114,8 +107,7 @@ function materialKernelPipeline(
       constants: {
         OENGINE_ACTIVE_KERNEL_CLASS: kernelClass,
         OENGINE_VELOCITY_ENABLED: velocityEnabled ? 1 : 0,
-        OENGINE_CLASS_DISCARD: backend === "class-discard" ? 1 : 0,
-        OENGINE_CLASS_DEPTH: backend === "class-depth" ? 1 : 0
+        OENGINE_CLASS_DISCARD: backend === "class-discard" ? 1 : 0
       },
       targets: [
         { format: GPU_SURFACE_FORMATS.pbr },
@@ -126,14 +118,12 @@ function materialKernelPipeline(
         { format: GPU_SURFACE_FORMATS.metadata }
       ]
     },
-    primitive: { topology: backend === "legacy-pixel-queue" ? "point-list" : "triangle-list", cullMode: "none" },
-    ...(backend !== "legacy-pixel-queue" ? {
-      depthStencil: {
+    primitive: { topology: "triangle-list", cullMode: "none" },
+    depthStencil: {
         format: "depth32float" as GPUTextureFormat,
         depthWriteEnabled: false,
         depthCompare: (backend === "class-depth" ? "equal" : "always") as GPUCompareFunction
-      }
-    } : {})
+    }
   };
 }
 
@@ -161,10 +151,9 @@ export interface PackedMaterialResolveOutputs {
   readonly counters: ResourceId | null;
 }
 
-/** Count/prefix/scatter visible pixels, then issue one bounded indirect draw per kernel class. */
+/** Resolve Surface with one bounded fullscreen draw per active kernel class. */
 export class PackedMaterialResolvePass {
   private readonly counterAdder = new GpuCounterAtomicAdder();
-  private readonly classifier: VisiblePixelClassifier;
   private readonly classDepthPass: PackedMaterialClassDepthPass;
   private readonly backend: MaterialResolveBackendType;
   private readonly pipelines: readonly (readonly CachedRenderPipelineDescriptor[])[];
@@ -189,11 +178,10 @@ export class PackedMaterialResolvePass {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    backend: MaterialResolveBackendType = "legacy-pixel-queue"
+    backend: MaterialResolveBackendType = "class-depth"
   ) {
     if (!isMaterialResolveBackend(backend)) throw new Error(`Unknown material resolve backend: ${backend}`);
     this.backend = backend;
-    this.classifier = new VisiblePixelClassifier(graphics.device);
     this.classDepthPass = new PackedMaterialClassDepthPass(graphics);
     this.pipelines = Object.freeze([false, true].map((velocityEnabled) =>
       Object.freeze(Array.from(
@@ -249,7 +237,7 @@ export class PackedMaterialResolvePass {
       });
     }
     const builder = graph.add(
-      "Material Resolve/classified visible pixels",
+      "Material Resolve/fullscreen kernels",
       job,
       (data, resources, context) => {
         const command = requireCommand(context.encoder);
@@ -269,30 +257,10 @@ export class PackedMaterialResolvePass {
           0,
           this.previousViewProjection
         );
-        const visibility = Object.freeze({
-          instances: data.scene.instances,
-          meshlets: data.assets.meshletRecords,
-          rasterWork: requireBuffer(
-            resources.get(inputs.visibility.exactRaster.records),
-            "exact RasterWork"
-          ),
-          materials: data.runtime.materialResources.materialRecords,
-          instanceCount: data.scene.highWaterCount,
-          geometryRecordCount: data.assets.highWaterCounts.geometryRecords,
-          meshletRecordCount: data.assets.highWaterCounts.meshletRecords,
-          materialCapacity: data.runtime.materialResources.materialCapacity,
-          classCapacity: inputs.visibility.exactRaster.classCapacity
-        });
-        const classified = this.backend === "legacy-pixel-queue"
-          ? this.classifier.encode(command, {
-              visibilityKeys: resolveTextureView(resources.get(inputs.visibility.visibilityKey)),
-              materials: data.runtime.materialResources,
-              visibility,
-              width: data.width,
-              height: data.height,
-              counterBuffer: inputs.counters === undefined ? undefined : requireBuffer(resources.get(inputs.counters), "GPU counters")
-            })
-          : null;
+        const rasterWork = requireBuffer(
+          resources.get(inputs.visibility.exactRaster.records),
+          "exact RasterWork"
+        );
         const group0 = this.graphics.bind_groups.obtain({
           layout: INPUT_GROUP,
           entries: [
@@ -302,8 +270,7 @@ export class PackedMaterialResolvePass {
             data.runtime.materialResources.textureArray,
             ...this.samplers,
             { buffer: data.runtime.materialResources.materialRecords },
-            data.runtime.materialResources.highResolutionTextureArray,
-            { buffer: classified?.shadeWork ?? data.runtime.materialResources.materialRecords }
+            data.runtime.materialResources.highResolutionTextureArray
           ]
         });
         const lookupInputs: PackedMaterialLookupInputs = {
@@ -314,7 +281,7 @@ export class PackedMaterialResolvePass {
           meshletTriangleIndices: data.assets.meshletTriangleIndices,
           vertexStreamDescriptors: data.assets.vertexStreamDescriptors,
           vertexStreamData: data.assets.vertexStreamData,
-          rasterWork: visibility.rasterWork
+          rasterWork
         };
         if (!sameLookupInputs(this.cachedLookupInputs, lookupInputs)) {
           this.cachedLookupInputs = lookupInputs;
@@ -343,32 +310,22 @@ export class PackedMaterialResolvePass {
             output.velocity === null ? null : attachment(resources, output.velocity),
             attachment(resources, output.surfaceFlags)
           ],
-          ...(this.backend === "legacy-pixel-queue" ? {} : {
-            depthStencilAttachment: {
-              view: resolveDepthAttachmentView(resources.get(classDepth ?? inputs.visibility.depth)),
-              depthLoadOp: "load" as GPULoadOp,
-              depthStoreOp: "store" as GPUStoreOp
-            }
-          })
+          depthStencilAttachment: {
+            view: resolveDepthAttachmentView(resources.get(classDepth ?? inputs.visibility.depth)),
+            depthReadOnly: true
+          }
         });
         for (let kernelClass = 0; kernelClass < GPU_MATERIAL_KERNEL_CLASS_COUNT; kernelClass++) {
-          if (this.backend !== "legacy-pixel-queue" &&
-              (data.runtime.activeKernelMask & (1 << kernelClass)) === 0) continue;
+          if ((data.runtime.activeKernelMask & (1 << kernelClass)) === 0) continue;
           pass.setPipeline(this.graphics.render_pipelines.obtain(
             this.pipelines[options.velocity ? 1 : 0]![kernelClass]!
           ));
           pass.setBindGroup(0, group0);
           pass.setBindGroup(1, group1);
-          if (this.backend === "legacy-pixel-queue") {
-            pass.drawIndirect(classified!.drawIndirect, kernelClass * GPU_SHADE_DRAW_INDIRECT_STRIDE);
-          } else {
-            pass.draw(3, 1, 0, 0);
-          }
+          pass.draw(3, 1, 0, 0);
         }
         pass.end();
-        this.lastKernelDrawCount = this.backend === "legacy-pixel-queue"
-          ? GPU_MATERIAL_KERNEL_CLASS_COUNT
-          : countActiveKernelClasses(data.runtime.activeKernelMask);
+        this.lastKernelDrawCount = countActiveKernelClasses(data.runtime.activeKernelMask);
         this.lastActiveMaterialCount = data.runtime.opaqueMaterialCount;
         if (inputs.counters !== undefined) {
           this.counterAdder.encode(
@@ -377,14 +334,12 @@ export class PackedMaterialResolvePass {
             "activeMaterials",
             this.lastActiveMaterialCount
           );
-          if (this.backend !== "legacy-pixel-queue") {
-            this.counterAdder.encode(
-              command,
-              requireBuffer(resources.get(inputs.counters), "GPU counters"),
-              "classDraws",
-              this.lastKernelDrawCount
-            );
-          }
+          this.counterAdder.encode(
+            command,
+            requireBuffer(resources.get(inputs.counters), "GPU counters"),
+            "classDraws",
+            this.lastKernelDrawCount
+          );
         }
       }
     );
@@ -439,7 +394,6 @@ export class PackedMaterialResolvePass {
   }
 
   destroy(): void {
-    this.classifier.destroy();
     this.classDepthPass.destroy();
     this.previousViewProjectionBuffer.destroy();
     this.cachedLookupGroup = null;

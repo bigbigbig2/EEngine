@@ -346,19 +346,15 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   rasterRejectedTriangles: supported("ExactTriangleFilter compact difference reducer"),
   opaqueRasterWork: supported("ExactTriangleFilter OPAQUE queue reducer"),
   maskRasterWork: supported("ExactTriangleFilter MASK queue reducer"),
-  kernelBaseFactorPixels: supported("VisiblePixelClassifier/BaseFactor class reducer"),
-  kernelBaseTexturePixels: supported("VisiblePixelClassifier/BaseTexture class reducer"),
-  kernelBaseOrmPixels: supported("VisiblePixelClassifier/BaseOrm class reducer"),
-  kernelBaseOrmNormalPixels: supported("VisiblePixelClassifier/BaseOrmNormal class reducer"),
-  kernelBaseOrmNormalEmissivePixels: supported(
-    "VisiblePixelClassifier/BaseOrmNormalEmissive class reducer"
-  ),
-  kernelUnlitPixels: supported("VisiblePixelClassifier/Unlit class reducer"),
-  kernelGenericFallbackPixels: supported(
-    "VisiblePixelClassifier/GenericStandardPbrFallback class reducer"
-  ),
-  shadeWorkOverflow: supported("VisiblePixelClassifier/bounded ShadeWork overflow reducer"),
-  classDepthPixels: supported("PackedMaterialClassDepthPass/valid VisibilityKey pixels"),
+  kernelBaseFactorPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseTexturePixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseOrmPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseOrmNormalPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseOrmNormalEmissivePixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
+  kernelUnlitPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
+  kernelGenericFallbackPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
+  shadeWorkOverflow: unsupported("M4-REMOVED-PIXEL-QUEUE", "ShadeWork queue no longer exists"),
+  classDepthPixels: unsupported("M3-CLASS-HISTOGRAM", "sampled class histogram reduction is not implemented"),
   classDraws: supported("PackedMaterialResolvePass/bounded fullscreen kernel draws")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 

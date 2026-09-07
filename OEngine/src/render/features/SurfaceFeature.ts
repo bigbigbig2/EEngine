@@ -22,7 +22,7 @@ export interface SurfaceFeatureInputs {
 export class SurfaceFeature {
   private readonly implementation: PackedMaterialResolvePass;
 
-  constructor(graphics: GraphicsContext, backend: MaterialResolveBackend = "legacy-pixel-queue") {
+  constructor(graphics: GraphicsContext, backend: MaterialResolveBackend = "class-depth") {
     this.implementation = new PackedMaterialResolvePass(graphics, backend);
   }
 

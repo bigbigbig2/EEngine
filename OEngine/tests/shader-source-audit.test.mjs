@@ -25,9 +25,9 @@ test("shader source audit reaches runtime pipeline owners deterministically", ()
   assert.equal(report.schemaVersion, 2);
   assert.equal(report.generatedBy, "tools/audit-shader-sources.mjs");
   assert.equal(report.shaderCount, report.entries.length);
-  assert.equal(new Set(report.entries.map((entry) => entry.shader)).size, 70);
+  assert.equal(new Set(report.entries.map((entry) => entry.shader)).size, 69);
   assert.deepEqual(report.summary, {
-    "authored-live": 66,
+    "authored-live": 65,
     unknown: 4
   });
 

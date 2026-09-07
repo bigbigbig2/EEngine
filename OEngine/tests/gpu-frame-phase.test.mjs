@@ -15,6 +15,8 @@ test("GPU phase classifier covers current main-frame labels without hiding unkno
     ["HZB/build_mip4", "hzb"],
     ["HZB/compute-pyramid", "hzb"],
     ["Material Expand/gbuffer", "material-resolve"],
+    ["MaterialClassDepth/classify visibility", "material-resolve"],
+    ["Material Resolve/fullscreen kernels", "material-resolve"],
     ["MaterialKernel/count visible pixels", "material-resolve"],
     ["MaterialKernel/prefix scan level 0", "material-resolve"],
     ["MaterialKernel/add block prefixes level 0", "material-resolve"],

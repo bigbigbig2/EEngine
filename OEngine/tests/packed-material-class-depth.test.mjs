@@ -26,4 +26,7 @@ test("Surface backend keeps class-depth and class-discard as explicit depth poli
   assert.match(source, /OENGINE_CLASS_DISCARD/);
   assert.match(source, /pass\.draw\(3, 1, 0, 0\)/);
   assert.match(source, /activeKernelMask/);
+  const shader = readFileSync(new URL("../src/shaders/packed_material_resolve.ts", import.meta.url), "utf8");
+  assert.match(shader, /let class_depth = \(f32\(OENGINE_ACTIVE_KERNEL_CLASS\) \+ 1\.0\) \/ 8\.0/);
+  assert.doesNotMatch(shader, /@builtin\(frag_depth\)/);
 });

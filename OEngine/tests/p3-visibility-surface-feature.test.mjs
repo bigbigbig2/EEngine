@@ -24,8 +24,8 @@ test("P3 Feature wrapper 保留 GPU producer→consumer 与 Surface ABI", () => 
   assert.match(surface, /唯一 Surface producer 边界/);
   assert.match(packedVisibility, /drawIndirect/);
   assert.match(packedResolve, /GPU_SURFACE_BYTES_PER_PIXEL/);
-  assert.match(packedResolve, /pass\.drawIndirect\(/);
-  assert.equal((packedResolve.match(/pass\.drawIndirect\(/g) ?? []).length, 1);
+  assert.match(packedResolve, /pass\.draw\(3, 1, 0, 0\)/);
+  assert.doesNotMatch(packedResolve, /pass\.drawIndirect\(/);
 });
 
 test("P3 关闭 Packed feature 时不创建 VisibilityKey 或 Surface owner", () => {

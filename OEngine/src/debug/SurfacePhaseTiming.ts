@@ -43,7 +43,7 @@ export function classifySurfaceTimingPhase(
     return "classify";
   }
   if (
-    /material resolve\/specialized surface/.test(label) ||
+    /material resolve\/(?:specialized surface|fullscreen kernels)/.test(label) ||
     /material surface kernel/.test(label)
   ) {
     return "resolve";

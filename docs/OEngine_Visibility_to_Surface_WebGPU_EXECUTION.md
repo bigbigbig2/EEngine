@@ -369,7 +369,7 @@ git commit -m "feat: add bounded material depth surface backend"
 - Consumes: M3 Gate 的三次正式 A/B 通过证据。
 - Produces: 单一 Surface backend；保留 `class-discard` 作为 adapter correctness fallback，删除 `legacy-pixel-queue`。
 
-- [ ] **Step 1: 写 source-shape/FrameGraph 失败测试**
+- [x] **Step 1: 写 source-shape/FrameGraph 失败测试**
 
 ```js
 for (const forbidden of ["count", "prefix", "scatter", "ShadeWork"]) {
@@ -378,23 +378,23 @@ for (const forbidden of ["count", "prefix", "scatter", "ShadeWork"]) {
 assert.equal(resourceSnapshot.resources.some((r) => r.label.includes("ShadeWork")), false);
 ```
 
-- [ ] **Step 2: 确认旧路径仍使测试失败**
+- [x] **Step 2: 确认旧路径仍使测试失败**
 
 Run: `node --test tests/visible-pixel-classification.test.mjs tests/source-geometry.test.mjs tests/resource-accounting.test.mjs`
 
 Expected: FAIL，列出仍存在的 pass/resource/source。
 
-- [ ] **Step 3: 删除 classifier、scan、scatter、ShadeWork 与迁移 flag**
+- [x] **Step 3: 删除 classifier、scan、scatter、ShadeWork 与迁移 flag**
 
 同步删除 imports、pipeline cache、buffer allocation、counter copy、readback 和 profiler label。不得留下无消费者资源或 dead compatibility shim。
 
-- [ ] **Step 4: 验证 feature-off 与普通帧零成本**
+- [x] **Step 4: 验证 feature-off 与普通帧零成本**
 
 Run: `node --test tests/visible-pixel-classification.test.mjs tests/source-geometry.test.mjs tests/resource-accounting.test.mjs tests/framegraph-profiler-evidence.test.mjs`
 
 Expected: PASS；FrameGraph、resource snapshot 和 readback coverage 均无旧路径实体。
 
-- [ ] **Step 5: 提交 M4**
+- [x] **Step 5: 提交 M4**
 
 ```bash
 git add -A OEngine/src/render OEngine/src/shaders OEngine/src/debug OEngine/tests
@@ -589,9 +589,9 @@ git commit -m "docs: record visibility surface migration evidence"
 | --- | --- | --- | --- | --- |
 | M0 | complete (`5615ba0`, `67ffc3d`) | 33/33 targeted tests | Chrome smoke, 30+60 only | closed as measurement harness; release performance gate not claimed |
 | M1 | complete (`1dbadc5`) | targeted lifecycle/product tests pass | exercised by M2 Chrome smoke | closed; formal FrameProducts are the production path |
-| M2 | complete in working tree | 45/45 targeted; 427/427 non-doc tests; GPU oracle 6213/6213 | Chrome 152 / NVIDIA Turing / 1920×1080 smoke | RFC correctness/capacity gate closed; Step 5 screenshot parity open |
-| M3 | implemented-awaiting-evidence (working tree) | targeted shader/FrameProduct tests pass | browser formal A/B not run | pending correctness/performance gate |
-| M4 | blocked by M3 Gate | pending | pending | pending |
+| M2 | complete (`68750c2`) | 45/45 targeted; 427/427 non-doc tests; GPU oracle 6213/6213 | Chrome 152 / NVIDIA Turing / 1920×1080 smoke | RFC correctness/capacity gate closed; Step 5 screenshot parity open |
+| M3 | implemented-awaiting-evidence (`68750c2`) | targeted shader/FrameProduct tests pass | browser formal A/B not run | pending correctness/performance gate |
+| M4 | implementation complete (this change) | 31/31 targeted tests | Rendering Lab WebGPU workload smoke | architecture gate closed; release acceptance still awaits M3 formal evidence |
 | M5 | pending | pending | pending | pending |
 | M6 | pending | pending | pending | pending |
 | M7 | evidence-conditional | pending | pending | pending |
@@ -638,3 +638,13 @@ git commit -m "docs: record visibility surface migration evidence"
 - Verification: `npm run build`、`npm run build:test`；M3 专项 `packed-material-class-depth.test.mjs` 3/3，通过现有 Material/FrameGraph/P3 targeted tests。Shader source audit 已更新为 70 个 authored/live 条目。
 - Not run: Rendering Lab 三次独立 legacy/class-depth/class-discard 正式 A/B、截图 bit parity、真实 adapter depth-equal 性能与 feature-off 浏览器证据；当前环境没有可复用的 M3 release profile，不能宣称 RFC 的 15%/10% 性能 Gate 或 M3 完成。
 - Gate conclusion: M3 代码路径已接通，状态为 `implemented-awaiting-evidence`；M4 继续 blocked，Pixel Queue 与 `VisiblePixelClassifier` 暂不删除。
+
+### 2026-09-07 M4 implementation closure
+
+- Direction: 用户明确要求在不扩散冗余测试的前提下继续完成 M4，因此实现删除继续推进；这不补写、替代或伪造尚缺的 M3 三次正式性能 A/B。
+- Implementation: 删除 `VisiblePixelClassifier.ts` 与 `visible_pixel_classification.ts`；删除 ShadeWork capacity、recursive scan/prefix/scatter ABI 与 CPU oracle；Packed Surface 默认且唯一生产路径为 `MaterialClassDepth → bounded fullscreen kernels`，仅保留内部 `class-discard` correctness fallback。公开 `RendererConfig` 不再暴露迁移 backend flag。
+- WebGPU correction: Surface kernel 的 class depth 由 vertex position 固定提供，fragment 不再输出 `frag_depth`，避免关闭 early depth testing；Surface depth attachment 标记为 read-only。
+- Observability: FrameGraph 不再包含旧 count/prefix/add/scatter Pass 或 ShadeWork resource；历史固定 counter slots 标记为 unsupported/retired，不再注册或生产。新增 class-depth/fullscreen labels 已接入稳定 GPU phase 与 Surface timing 分类。
+- Verification: `npm run build`、`npm run build:test`；M4/Material/FrameGraph/resource/profiler targeted tests 31/31 通过；`examples` 本地 Vite 下 `npm run test:rendering-lab:workload` 退出码 0。
+- Not run: 全量测试、三次正式 A/B、截图数值 parity 与多 adapter performance Gate，遵循用户“不需要跑太多冗余测试”的要求。工作树中预存的 Inspector 文档删除和 examples oracle 文件不属于本提交。
+- Gate conclusion: M4 的源代码、FrameGraph 与资源移除 Gate 已关闭；由于 M3 正式性能/图像证据仍缺失，release acceptance 继续标记待证据，不据此宣称性能达标。

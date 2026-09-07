@@ -64,6 +64,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     "material-resolve",
     /material expand/,
     /material resolve/,
+    /materialclassdepth/,
     /materialkernel/,
     /material depth/,
     /gbuffer/,

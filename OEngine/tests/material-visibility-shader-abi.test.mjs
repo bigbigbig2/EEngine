@@ -7,9 +7,6 @@ const {
   PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
   PACKED_OPAQUE_VISIBILITY_RASTER_WGSL
 } = await import("../.test-dist/shaders/packed_visibility.js");
-const { VISIBLE_PIXEL_CLASSIFICATION_WGSL } = await import(
-  "../.test-dist/shaders/visible_pixel_classification.js"
-);
 const { PACKED_MATERIAL_RESOLVE_WGSL } = await import(
   "../.test-dist/shaders/packed_material_resolve.js"
 );
@@ -51,7 +48,7 @@ test("M2 visibility producers encode the instance-owned kernel class without add
 });
 
 test("M2 legacy Surface consumers decode only the v3 raster slot through the central helper", () => {
-  for (const source of [VISIBLE_PIXEL_CLASSIFICATION_WGSL, PACKED_MATERIAL_RESOLVE_WGSL]) {
+  for (const source of [PACKED_MATERIAL_RESOLVE_WGSL]) {
     assert.match(source, /oengine_visibility_key_raster_work_slot\(key\)/);
     assert.doesNotMatch(source, /key\s*&\s*0x1fffffff|key\s*>>\s*29/);
   }

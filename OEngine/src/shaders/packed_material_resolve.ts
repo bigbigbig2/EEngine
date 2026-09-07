@@ -355,30 +355,17 @@ fn object_transform_frame(matrix: mat4x4f) -> ObjectTransformFrame {
   return output;
 }
 
-@group(0) @binding(12) var<storage, read> shade_work: array<u32>;
 override OENGINE_ACTIVE_KERNEL_CLASS: u32 = OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR;
 override OENGINE_VELOCITY_ENABLED: bool = true;
 override OENGINE_CLASS_DISCARD: bool = false;
-override OENGINE_CLASS_DEPTH: bool = false;
 
 @vertex
 fn packed_material_vs(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4f {
-  if OENGINE_CLASS_DEPTH || OENGINE_CLASS_DISCARD {
-    var positions = array<vec2f, 3>(
-      vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0)
-    );
-    return vec4f(positions[vertex_index], 0.0, 1.0);
-  }
-  let linear_pixel = shade_work[vertex_index];
-  let pixel = vec2f(
-    f32(linear_pixel % view.width) + 0.5,
-    f32(linear_pixel / view.width) + 0.5
+  var positions = array<vec2f, 3>(
+    vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0)
   );
-  let ndc = vec2f(
-    pixel.x / f32(view.width) * 2.0 - 1.0,
-    1.0 - pixel.y / f32(view.height) * 2.0
-  );
-  return vec4f(ndc, 0.0, 1.0);
+  let class_depth = (f32(OENGINE_ACTIVE_KERNEL_CLASS) + 1.0) / 8.0;
+  return vec4f(positions[vertex_index], class_depth, 1.0);
 }
 
 fn material_sampler_class(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
@@ -509,7 +496,6 @@ struct PackedMaterialOutput {
   @location(3) emissive: u32,
   @location(4) velocity: vec2f,
   @location(5) metadata: u32,
-  @builtin(frag_depth) frag_depth: f32,
 }
 
 @fragment
@@ -519,10 +505,6 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   if !oengine_visibility_key_is_valid(key) { discard; }
   let key_class = oengine_visibility_key_kernel_class(key);
   if OENGINE_CLASS_DISCARD && key_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
-  if OENGINE_CLASS_DEPTH {
-    // Match the value written by MaterialClassDepth (strictly separated classes).
-    // The assignment is repeated below after output construction for all paths.
-  }
   let raster_slot = oengine_visibility_key_raster_work_slot(key);
   let opaque_written = min(
     raster_work.opaque_header.written,
@@ -753,7 +735,6 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
   }
   output.metadata = oengine_surface_pack(work.material_handle, surface_flags);
-  output.frag_depth = select(0.0, (f32(OENGINE_ACTIVE_KERNEL_CLASS) + 1.0) / 8.0, OENGINE_CLASS_DEPTH);
   return output;
 }
 `;
