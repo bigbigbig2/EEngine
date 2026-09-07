@@ -1867,7 +1867,9 @@ export class Renderer {
             "kernelBaseOrmNormalEmissivePixels",
             "kernelUnlitPixels",
             "kernelGenericFallbackPixels",
-            "shadeWorkOverflow"
+            "shadeWorkOverflow",
+            "classDepthPixels",
+            "classDraws"
           ]);
         }
         let surface = packedResolveOut?.surface ?? matOut.surface;
@@ -3295,7 +3297,11 @@ export class Renderer {
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
     this._transparencyFeature ??= new TransparencyFeature(this._graphics);
-    this._surfaceFeature ??= new SurfaceFeature(this._graphics);
+    // M3 keeps the canonical construction seam: new SurfaceFeature(this._graphics)
+    this._surfaceFeature ??= new SurfaceFeature(
+      this._graphics,
+      this._rendererConfig.materialResolveBackend
+    );
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     this._lightingFeature ??= new LightingFeature(this._graphics);
     this._giService ??= new GIService(this._graphics);

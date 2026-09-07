@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 69,
+  "shaderCount": 70,
   "summary": {
-    "authored-live": 65,
+    "authored-live": 66,
     "unknown": 4
   },
   "entries": [
@@ -325,6 +325,7 @@
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
+        "src/render/passes/PackedMaterialClassDepthPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -898,6 +899,7 @@
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
+        "src/render/passes/PackedMaterialClassDepthPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -1043,6 +1045,7 @@
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
+        "src/render/passes/PackedMaterialClassDepthPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -1601,6 +1604,7 @@
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
+        "src/render/passes/PackedMaterialClassDepthPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -1814,6 +1818,29 @@
       ],
       "pipelineOwners": [
         "src/render/passes/PackedCsmShadowPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/packed_material_class_depth.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/PackedMaterialClassDepthPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/SurfaceFeature.ts",
+        "src/render/passes/PackedMaterialClassDepthPass.ts",
+        "src/render/passes/PackedMaterialResolvePass.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/PackedMaterialClassDepthPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

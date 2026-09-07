@@ -467,7 +467,7 @@ test("R3-C production Hardware consumer pulls RasterWork and issues the GPU draw
   );
   assert.match(
     PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
-    /oengine_visibility_key_try_encode\(work_index\)/
+    /oengine_visibility_key_try_encode\(\s*work_index,\s*oengine_instance_material_kernel_class\(instance\.flags\)\s*\)/s
   );
   assert.match(
     PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
@@ -557,7 +557,7 @@ function createSceneDescriptor(gpu, values) {
       highWaterCounts: { clusterRecords: 32 }
     },
     scene: {
-      abiVersion: 2,
+      abiVersion: 3,
       epoch: 1,
       instances: instanceBuffer,
       recordStride: 192,

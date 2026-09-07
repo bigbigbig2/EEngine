@@ -1,4 +1,8 @@
 import type { RenderSettingsPatch } from "./pipeline/RenderSettings.js";
+import {
+  isMaterialResolveBackend,
+  type MaterialResolveBackend
+} from "./MaterialResolveBackend.js";
 
 /**
  * Renderer 初始化配置。配置只在创建/初始化时作为默认值应用，运行时数值调整
@@ -14,6 +18,8 @@ export interface RendererConfig {
   readonly enableGTAO?: boolean;
   readonly enableSSSR?: boolean;
   readonly enableTAAU?: boolean;
+  /** Internal migration A/B switch; not exported from the public engine entrypoint. */
+  readonly materialResolveBackend?: MaterialResolveBackend;
   /** Maximum per-layer resolution used by the packed texture residency bank. */
   readonly textureMaxResolution?: 256 | 512 | 1024 | 2048 | 4096;
   /** 提交给 adapter/device 的额外必需能力；缺失时初始化明确失败。 */
@@ -34,7 +40,8 @@ export const DEFAULT_RENDERER_CONFIG: RendererConfig = Object.freeze({
   ssrScale: 0.5,
   enableGTAO: true,
   enableSSSR: true,
-  enableTAAU: true
+  enableTAAU: true,
+  materialResolveBackend: "legacy-pixel-queue"
 });
 
 export function mergeRendererConfig(
@@ -105,6 +112,10 @@ export function rendererConfigSettingsPatch(
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  if (config.materialResolveBackend !== undefined &&
+      !isMaterialResolveBackend(config.materialResolveBackend)) {
+    throw new RangeError("materialResolveBackend must be legacy-pixel-queue, class-depth or class-discard");
+  }
   if (config.textureMaxResolution !== undefined &&
       ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)) {
     throw new RangeError("textureMaxResolution must be one of 256, 512, 1024, 2048 or 4096");

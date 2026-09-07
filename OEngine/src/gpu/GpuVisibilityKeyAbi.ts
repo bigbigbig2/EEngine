@@ -5,11 +5,17 @@ import {
 } from "./GpuWorkGenerationAbi.js";
 
 /** One frame-local key directly addresses one exact-triangle RasterWork. */
-export const GPU_VISIBILITY_KEY_ABI_VERSION = 2;
+export const GPU_VISIBILITY_KEY_ABI_VERSION = 3;
 export const GPU_VISIBILITY_KEY_EMPTY = 0xffffffff;
 export const GPU_VISIBILITY_KEY_INVALID = 0xfffffffe;
-export const GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT = 0xfffffffd;
-export const GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY = 0xfffffffe;
+export const GPU_VISIBILITY_KEY_SLOT_BITS = 29;
+export const GPU_VISIBILITY_KEY_SLOT_MASK = 0x1fffffff;
+export const GPU_VISIBILITY_KEY_CLASS_SHIFT = 29;
+export const GPU_VISIBILITY_KEY_CLASS_MASK = 0xe0000000;
+export const GPU_VISIBILITY_KEY_CLASS_INVALID = 7;
+export const GPU_VISIBILITY_KEY_MAX_KERNEL_CLASS = 6;
+export const GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT = GPU_VISIBILITY_KEY_SLOT_MASK;
+export const GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY = GPU_VISIBILITY_KEY_SLOT_MASK + 1;
 export const GPU_VISIBILITY_KEY_MAX_CLASS_CAPACITY =
   Math.floor(GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY / 2);
 
@@ -21,21 +27,30 @@ export const GPU_VISIBILITY_KEY_SCHEMA = Object.freeze({
     Object.freeze({
       name: "rasterWorkSlot" as const,
       bitOffset: 0,
-      bitCount: 32,
-      mask: 0xffffffff,
+      bitCount: GPU_VISIBILITY_KEY_SLOT_BITS,
+      mask: GPU_VISIBILITY_KEY_SLOT_MASK,
       maxValue: GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT
+    }),
+    Object.freeze({
+      name: "kernelClass" as const,
+      bitOffset: GPU_VISIBILITY_KEY_CLASS_SHIFT,
+      bitCount: 3,
+      mask: GPU_VISIBILITY_KEY_CLASS_MASK,
+      maxValue: GPU_VISIBILITY_KEY_MAX_KERNEL_CLASS
     })
   ]),
   empty: GPU_VISIBILITY_KEY_EMPTY,
   invalid: GPU_VISIBILITY_KEY_INVALID,
-  maxRasterWorkCapacity: GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY
+  maxRasterWorkCapacity: GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY,
+  maxClassCapacity: GPU_VISIBILITY_KEY_MAX_CLASS_CAPACITY
 });
 
 export const GPU_VISIBILITY_KEY_WGSL = /* wgsl */ `
 const OENGINE_VISIBILITY_KEY_EMPTY: u32 = ${GPU_VISIBILITY_KEY_EMPTY}u;
 const OENGINE_VISIBILITY_KEY_INVALID: u32 = ${GPU_VISIBILITY_KEY_INVALID}u;
-const OENGINE_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT: u32 =
-  ${GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT}u;
+const OENGINE_VISIBILITY_KEY_SLOT_MASK: u32 = ${GPU_VISIBILITY_KEY_SLOT_MASK}u;
+const OENGINE_VISIBILITY_KEY_CLASS_SHIFT: u32 = ${GPU_VISIBILITY_KEY_CLASS_SHIFT}u;
+const OENGINE_VISIBILITY_KEY_CLASS_INVALID: u32 = ${GPU_VISIBILITY_KEY_CLASS_INVALID}u;
 
 struct OEngineVisibilityKeyEncodeResult {
   key: u32,
@@ -44,37 +59,50 @@ struct OEngineVisibilityKeyEncodeResult {
 
 struct OEngineVisibilityKeyDecodeResult {
   raster_work_slot: u32,
+  kernel_class: u32,
   valid: u32,
   empty: u32,
 };
 
 fn oengine_visibility_key_try_encode(
-  raster_work_slot: u32
+  raster_work_slot: u32,
+  kernel_class: u32
 ) -> OEngineVisibilityKeyEncodeResult {
-  if raster_work_slot > OENGINE_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT {
+  if raster_work_slot > OENGINE_VISIBILITY_KEY_SLOT_MASK ||
+    kernel_class >= OENGINE_VISIBILITY_KEY_CLASS_INVALID {
     return OEngineVisibilityKeyEncodeResult(
       OENGINE_VISIBILITY_KEY_INVALID,
       0u
     );
   }
-  return OEngineVisibilityKeyEncodeResult(raster_work_slot, 1u);
+  return OEngineVisibilityKeyEncodeResult(
+    raster_work_slot | (kernel_class << OENGINE_VISIBILITY_KEY_CLASS_SHIFT),
+    1u
+  );
 }
 
 fn oengine_visibility_key_decode(
   key: u32
 ) -> OEngineVisibilityKeyDecodeResult {
   if key == OENGINE_VISIBILITY_KEY_EMPTY {
-    return OEngineVisibilityKeyDecodeResult(0u, 0u, 1u);
+    return OEngineVisibilityKeyDecodeResult(0u, 0u, 0u, 1u);
   }
   if key == OENGINE_VISIBILITY_KEY_INVALID ||
-    key > OENGINE_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT {
-    return OEngineVisibilityKeyDecodeResult(0u, 0u, 0u);
+    (key >> OENGINE_VISIBILITY_KEY_CLASS_SHIFT) >= OENGINE_VISIBILITY_KEY_CLASS_INVALID {
+    return OEngineVisibilityKeyDecodeResult(0u, 0u, 0u, 0u);
   }
-  return OEngineVisibilityKeyDecodeResult(key, 1u, 0u);
+  return OEngineVisibilityKeyDecodeResult(
+    key & OENGINE_VISIBILITY_KEY_SLOT_MASK,
+    key >> OENGINE_VISIBILITY_KEY_CLASS_SHIFT,
+    1u,
+    0u
+  );
 }
 
 fn oengine_visibility_key_is_valid(key: u32) -> bool {
-  return key <= OENGINE_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT;
+  return key != OENGINE_VISIBILITY_KEY_EMPTY &&
+    key != OENGINE_VISIBILITY_KEY_INVALID &&
+    (key >> OENGINE_VISIBILITY_KEY_CLASS_SHIFT) < OENGINE_VISIBILITY_KEY_CLASS_INVALID;
 }
 
 fn oengine_visibility_key_is_empty(key: u32) -> bool {
@@ -82,14 +110,18 @@ fn oengine_visibility_key_is_empty(key: u32) -> bool {
 }
 
 fn oengine_visibility_key_raster_work_slot(key: u32) -> u32 {
-  return key;
+  return key & OENGINE_VISIBILITY_KEY_SLOT_MASK;
+}
+
+fn oengine_visibility_key_kernel_class(key: u32) -> u32 {
+  return key >> OENGINE_VISIBILITY_KEY_CLASS_SHIFT;
 }
 `;
 
 export type VisibilityKeyDecodeResult =
   | Readonly<{ kind: "empty" }>
   | Readonly<{ kind: "invalid"; key: number }>
-  | Readonly<{ kind: "valid"; rasterWorkSlot: number }>;
+  | Readonly<{ kind: "valid"; rasterWorkSlot: number; kernelClass: number }>;
 
 export type VisibilityKeyLookupResult =
   | Extract<VisibilityKeyDecodeResult, { kind: "empty" }>
@@ -103,6 +135,7 @@ export type VisibilityKeyLookupResult =
       kind: "valid";
       key: number;
       rasterWorkSlot: number;
+      kernelClass: number;
       rasterWork: RasterWorkCpu;
     }>;
 
@@ -119,14 +152,37 @@ export interface GpuVisibilityRasterWorkCapacity {
   readonly queueHeaderFits: boolean;
 }
 
-export function encodeVisibilityKey(rasterWorkSlot: number): number {
+export function tryEncodeVisibilityKey(
+  rasterWorkSlot: number,
+  kernelClass: number
+): Readonly<{ key: number; valid: boolean }> {
+  const valid = Number.isInteger(rasterWorkSlot) &&
+    rasterWorkSlot >= 0 && rasterWorkSlot <= GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT &&
+    Number.isInteger(kernelClass) &&
+    kernelClass >= 0 && kernelClass <= GPU_VISIBILITY_KEY_MAX_KERNEL_CLASS;
+  return Object.freeze({
+    key: valid
+      ? (((kernelClass << GPU_VISIBILITY_KEY_CLASS_SHIFT) | rasterWorkSlot) >>> 0)
+      : GPU_VISIBILITY_KEY_INVALID,
+    valid
+  });
+}
+
+/** Strict convenience encoder for CPU fixtures and reference paths. */
+export function encodeVisibilityKey(rasterWorkSlot: number, kernelClass: number): number {
   assertIntegerInRange(
     rasterWorkSlot,
     0,
     GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT,
     "VisibilityKey rasterWorkSlot"
   );
-  return rasterWorkSlot >>> 0;
+  assertIntegerInRange(
+    kernelClass,
+    0,
+    GPU_VISIBILITY_KEY_MAX_KERNEL_CLASS,
+    "VisibilityKey kernelClass"
+  );
+  return tryEncodeVisibilityKey(rasterWorkSlot, kernelClass).key;
 }
 
 export function decodeVisibilityKey(key: number): VisibilityKeyDecodeResult {
@@ -135,10 +191,14 @@ export function decodeVisibilityKey(key: number): VisibilityKeyDecodeResult {
     return Object.freeze({ kind: "empty" });
   }
   if (key === GPU_VISIBILITY_KEY_INVALID ||
-    key > GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT) {
+    (key >>> GPU_VISIBILITY_KEY_CLASS_SHIFT) >= GPU_VISIBILITY_KEY_CLASS_INVALID) {
     return Object.freeze({ kind: "invalid", key });
   }
-  return Object.freeze({ kind: "valid", rasterWorkSlot: key });
+  return Object.freeze({
+    kind: "valid",
+    rasterWorkSlot: key & GPU_VISIBILITY_KEY_SLOT_MASK,
+    kernelClass: key >>> GPU_VISIBILITY_KEY_CLASS_SHIFT
+  });
 }
 
 export function isVisibilityKeyEmpty(key: number): boolean {
@@ -154,8 +214,8 @@ export function visibilityRasterWorkBufferByteLength(capacity: number): number {
   assertIntegerInRange(
     capacity,
     0,
-    GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY,
-    "Visibility RasterWork capacity"
+    GPU_VISIBILITY_KEY_MAX_CLASS_CAPACITY,
+    "Visibility RasterWork class capacity"
   );
   const bytes = GPU_CLASSIFIED_RASTER_HEADER_BYTES +
     capacity * 2 * GPU_RASTER_WORK_SCHEMA.stride;
@@ -254,6 +314,7 @@ export function resolveVisibilityKeyReference(
     kind: "valid",
     key,
     rasterWorkSlot: decoded.rasterWorkSlot,
+    kernelClass: decoded.kernelClass,
     rasterWork
   });
 }

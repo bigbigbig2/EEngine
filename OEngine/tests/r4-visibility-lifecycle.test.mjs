@@ -59,7 +59,7 @@ test("R4-A-05 prepare rejects capacity before generator allocation or encoding",
   assert.deepEqual(pass.lastPreparation, {
     requiredCapacity: adapterCapacity,
     requiredByteLength: byteLimit,
-    keyCapacity: 0x7fffffff,
+    keyCapacity: 0x10000000,
     adapterCapacity,
     effectiveCapacity: adapterCapacity,
     effectiveByteLimit: byteLimit

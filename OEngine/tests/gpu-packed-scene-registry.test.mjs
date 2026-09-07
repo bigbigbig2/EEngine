@@ -16,6 +16,11 @@ const { StandardShadeMaterial } = await import(
   "../.test-dist/material/StandardShadeMaterial.js"
 );
 const { Scene } = await import("../.test-dist/scene/Scene.js");
+const { ShadeTransparencyMode } = await import("../.test-dist/material/enums.js");
+const {
+  GPU_INSTANCE_MATERIAL_KERNEL_MASK,
+  GPU_INSTANCE_MATERIAL_KERNEL_SHIFT
+} = await import("../.test-dist/gpu/GpuInstanceAbi.js");
 
 test("R2-D Packed Scene rejects malformed source before allocating or mutating owners", () => {
   const graphics = createGraphics();
@@ -130,6 +135,70 @@ test("R4-B Packed Scene writes dense resident material slots and patches by dict
     () => registry.encodePendingPatch(scene, new FakeCommand()),
     /outside the material dictionary/
   );
+});
+
+test("M2 Packed Scene owns one material kernel class in instance flags for stage and patch", () => {
+  const graphics = createGraphics();
+  const registry = new GpuPackedSceneRegistry(graphics);
+  const scene = new Scene();
+  const base = new StandardShadeMaterial();
+  const unlit = new StandardShadeMaterial();
+  unlit.is_unlit = true;
+  const transparent = new StandardShadeMaterial();
+  transparent.transparency_mode = ShadeTransparencyMode.Transparent;
+  const source = makeSource(2, 1);
+  source.materials = [base, unlit, transparent];
+  source.materialIndices = new Uint32Array([0, 1]);
+  source.flags = new Uint32Array([0x80000000, 0]);
+
+  const stage = new FakeCommand();
+  registry.stage(scene, makeManifest(source), [Object.freeze({})], stage);
+  const stagedFlags = [...graphics.lastInstanceSource.flags];
+  assert.equal((stagedFlags[0] & 0x80000000) >>> 0, 0x80000000);
+  assert.equal((stagedFlags[0] & GPU_INSTANCE_MATERIAL_KERNEL_MASK) >> GPU_INSTANCE_MATERIAL_KERNEL_SHIFT, 0);
+  assert.equal((stagedFlags[1] & GPU_INSTANCE_MATERIAL_KERNEL_MASK) >> GPU_INSTANCE_MATERIAL_KERNEL_SHIFT, 5);
+  stage.finish();
+  assert.equal(registry.runtime(scene).activeKernelMask, 0b0100001);
+
+  registry.queuePatch(scene, {
+    frameId: 9,
+    materials: {
+      indices: new Uint32Array([0]),
+      materialIndices: new Uint32Array([1])
+    }
+  });
+  const abortedPatch = new FakeCommand();
+  registry.encodePendingPatch(scene, abortedPatch);
+  const patched = graphics.lastPatch.materials.flags[0];
+  assert.equal((patched & GPU_INSTANCE_MATERIAL_KERNEL_MASK) >> GPU_INSTANCE_MATERIAL_KERNEL_SHIFT, 5);
+  assert.equal(registry.runtime(scene).activeKernelMask, 0b0100000);
+  abortedPatch.abort();
+  assert.equal(registry.runtime(scene).activeKernelMask, 0b0100001);
+
+  const committedPatch = new FakeCommand();
+  registry.encodePendingPatch(scene, committedPatch);
+  committedPatch.finish();
+  assert.equal(registry.runtime(scene).activeKernelMask, 0b0100000);
+
+  registry.queuePatch(scene, {
+    frameId: 10,
+    materials: {
+      indices: new Uint32Array([0]),
+      materialIndices: new Uint32Array([2])
+    }
+  });
+  const abortedTransparentPatch = new FakeCommand();
+  registry.encodePendingPatch(scene, abortedTransparentPatch);
+  assert.equal(registry.runtime(scene).transparentInstanceCount, 1);
+  abortedTransparentPatch.abort();
+  assert.equal(registry.runtime(scene).transparentInstanceCount, 0);
+  assert.equal(registry.runtime(scene).activeKernelMask, 0b0100000);
+
+  const committedTransparentPatch = new FakeCommand();
+  registry.encodePendingPatch(scene, committedTransparentPatch);
+  committedTransparentPatch.finish();
+  assert.equal(registry.runtime(scene).transparentInstanceCount, 1);
+  assert.equal(registry.runtime(scene).activeKernelMask, 0b0100000);
 });
 
 function makeSource(count = 1, meshletCount = 2) {

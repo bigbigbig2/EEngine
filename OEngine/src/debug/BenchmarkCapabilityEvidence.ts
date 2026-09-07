@@ -357,7 +357,9 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   kernelGenericFallbackPixels: supported(
     "VisiblePixelClassifier/GenericStandardPbrFallback class reducer"
   ),
-  shadeWorkOverflow: supported("VisiblePixelClassifier/bounded ShadeWork overflow reducer")
+  shadeWorkOverflow: supported("VisiblePixelClassifier/bounded ShadeWork overflow reducer"),
+  classDepthPixels: supported("PackedMaterialClassDepthPass/valid VisibilityKey pixels"),
+  classDraws: supported("PackedMaterialResolvePass/bounded fullscreen kernel draws")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

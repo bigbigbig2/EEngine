@@ -6,8 +6,13 @@ import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js
 import { ShadeDrawSide, ShadeTransparencyMode } from "../material/enums.js";
 import {
   GPU_INSTANCE_FLAGS,
-  GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK
+  GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK,
+  encodeInstanceMaterialKernelClass
 } from "./GpuInstanceAbi.js";
+import {
+  GPU_MATERIAL_KERNEL_CLASS_COUNT,
+  materialKernelClass
+} from "./GpuMaterialKernelAbi.js";
 import type { Scene } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { SceneResidencyManifest } from "./GpuSceneResidencyManifest.js";
@@ -85,6 +90,8 @@ export interface PackedSceneRuntime {
   readonly instanceCount: number;
   /** Number of resident instances whose current material class is BLEND. */
   readonly transparentInstanceCount: number;
+  /** Bit N is set when at least one resident OPAQUE/MASK instance uses kernel class N. */
+  readonly activeKernelMask: number;
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
   readonly hierarchyRasterWorkCapacity: number;
@@ -99,6 +106,7 @@ interface PendingPatch {
 
 interface PackedSceneClassificationState {
   readonly materialIndices: Uint32Array;
+  readonly opaqueKernelClassCounts: Uint32Array;
   transparentInstanceCount: number;
 }
 
@@ -159,6 +167,10 @@ export class GpuPackedSceneRegistry {
     }
     const classification: PackedSceneClassificationState = {
       materialIndices: source.materialIndices.slice(),
+      opaqueKernelClassCounts: countOpaqueKernelClasses(
+        source.materialIndices,
+        source.materials
+      ),
       transparentInstanceCount: countTransparentInstances(
         source.materialIndices,
         source.materials
@@ -203,6 +215,9 @@ export class GpuPackedSceneRegistry {
       instanceCount: range.count,
       get transparentInstanceCount() {
         return classification.transparentInstanceCount;
+      },
+      get activeKernelMask() {
+        return activeKernelMask(classification.opaqueKernelClassCounts);
       },
       hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,
       hierarchyVisibleClusterCapacity: hierarchyCapacity.visibleClusterCapacity,
@@ -382,6 +397,35 @@ function countTransparentInstances(
   return count;
 }
 
+function countOpaqueKernelClasses(
+  materialIndices: ArrayLike<number>,
+  materials: readonly StandardShadeMaterial[]
+): Uint32Array {
+  const counts = new Uint32Array(GPU_MATERIAL_KERNEL_CLASS_COUNT);
+  for (let index = 0; index < materialIndices.length; index++) {
+    const material = materials[materialIndices[index]!]!;
+    if (!isTransparentMaterial(material)) counts[materialKernelClass(material)]!++;
+  }
+  return counts;
+}
+
+function activeKernelMask(counts: Uint32Array): number {
+  let mask = 0;
+  for (let kernelClass = 0; kernelClass < counts.length; kernelClass++) {
+    if (counts[kernelClass]! > 0) mask |= 1 << kernelClass;
+  }
+  return mask >>> 0;
+}
+
+function restoreOpaqueKernelClassCounts(
+  state: PackedSceneClassificationState,
+  materials: readonly StandardShadeMaterial[]
+): void {
+  state.opaqueKernelClassCounts.set(
+    countOpaqueKernelClasses(state.materialIndices, materials)
+  );
+}
+
 function applyMaterialClassificationPatch(
   patch: PackedSceneMaterialPatch | undefined,
   state: PackedSceneClassificationState,
@@ -401,6 +445,18 @@ function applyMaterialClassificationPatch(
     if (!previous.has(instanceIndex)) previous.set(instanceIndex, previousMaterialIndex);
     const wasTransparent = isTransparentMaterial(materials[previousMaterialIndex]!);
     const isTransparent = isTransparentMaterial(materials[nextMaterialIndex]!);
+    if (!wasTransparent) {
+      const previousKernelClass = materialKernelClass(materials[previousMaterialIndex]!);
+      const previousCount = state.opaqueKernelClassCounts[previousKernelClass]!;
+      if (previousCount === 0) {
+        throw new Error("Packed Scene opaque kernel class count underflow");
+      }
+      state.opaqueKernelClassCounts[previousKernelClass] = previousCount - 1;
+    }
+    if (!isTransparent) {
+      const nextKernelClass = materialKernelClass(materials[nextMaterialIndex]!);
+      state.opaqueKernelClassCounts[nextKernelClass]!++;
+    }
     if (wasTransparent !== isTransparent) {
       state.transparentInstanceCount += isTransparent ? 1 : -1;
     }
@@ -414,6 +470,7 @@ function applyMaterialClassificationPatch(
       state.materialIndices,
       materials
     );
+    restoreOpaqueKernelClassCounts(state, materials);
   };
 }
 
@@ -456,14 +513,14 @@ function materialClassificationFlags(
   material: StandardShadeMaterial,
   sourceFlags: number
 ): number {
-  let flags = sourceFlags & ~GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK;
+  let flags = (sourceFlags & ~GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK) >>> 0;
   if (material.transparency_mode === ShadeTransparencyMode.AlphaTested) {
     flags |= GPU_INSTANCE_FLAGS.AlphaTested;
   } else if (material.transparency_mode === ShadeTransparencyMode.Transparent) {
     flags |= GPU_INSTANCE_FLAGS.Transparent;
   }
   if (material.draw_side === ShadeDrawSide.Double) flags |= GPU_INSTANCE_FLAGS.DoubleSided;
-  return flags >>> 0;
+  return encodeInstanceMaterialKernelClass(flags, materialKernelClass(material));
 }
 
 function validateSource(

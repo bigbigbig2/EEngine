@@ -361,9 +361,9 @@ export class ExactTriangleFilter {
   ): GPUBuffer {
     const buffer = this.device.createBuffer({ ...descriptor, mappedAtCreation: true });
     this.accountBuffer(buffer, descriptor);
+    buffers.push(buffer);
     new Uint8Array(buffer.getMappedRange()).set(initial);
     buffer.unmap();
-    buffers.push(buffer);
     return buffer;
   }
 

@@ -81,7 +81,10 @@ fn raster_opaque_exact(@builtin(vertex_index) vertex_index: u32) -> ExactOpaqueV
   var output: ExactOpaqueVertexOutput;
   output.position = opaque_camera.view_projection_matrix *
     instance.current_object_to_world * vec4f(local_position, 1.0);
-  output.visibility_key = oengine_visibility_key_try_encode(work_index).key;
+  output.visibility_key = oengine_visibility_key_try_encode(
+    work_index,
+    oengine_instance_material_kernel_class(instance.flags)
+  ).key;
   return output;
 }
 
@@ -249,7 +252,10 @@ fn raster_hierarchy_meshlets(
   output.instance_record_index = work.instance_record_index;
   output.encoded_triangle =
     (work.meshlet_record_index << 8u) | work.local_triangle_index;
-  output.visibility_key = oengine_visibility_key_try_encode(work_index).key;
+  output.visibility_key = oengine_visibility_key_try_encode(
+    work_index,
+    oengine_instance_material_kernel_class(instance.flags)
+  ).key;
   output.uv0 = select(vec2f(0.0), uv0.xy / uv0.z, uv0.z > 0.0);
   output.uv1 = select(vec2f(0.0), uv1.xy / uv1.z, uv1.z > 0.0);
   output.uv2 = select(vec2f(0.0), uv2.xy / uv2.z, uv2.z > 0.0);

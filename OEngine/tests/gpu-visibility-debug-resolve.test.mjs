@@ -38,7 +38,7 @@ test("debug resolve freezes the direct RasterWork status/color ABI", () => {
   );
   assert.equal(
     resolveVisibilityDebugReference(
-      encodeVisibilityKey(GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT),
+      encodeVisibilityKey(GPU_VISIBILITY_KEY_MAX_RASTER_WORK_SLOT, 0),
       validTables()
     ).status,
     GPU_VISIBILITY_DEBUG_STATUS.RasterWorkOutOfRange

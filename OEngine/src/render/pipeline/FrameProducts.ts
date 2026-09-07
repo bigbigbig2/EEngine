@@ -29,9 +29,10 @@ export interface VisibilityFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-/** Material-selection product. The class-depth attachment arrives in M3. */
+/** Material-selection product produced by the bounded ClassDepth backend. */
 export interface MaterialClassificationFrame {
   readonly classDepth: ResourceId;
+  readonly format?: "depth32float";
   readonly domain: TextureDomain<"internal-full">;
 }
 
@@ -183,6 +184,9 @@ export function materialClassificationFrame(
   input: MaterialClassificationFrame
 ): MaterialClassificationFrame {
   requireResourceId(input.classDepth, "MaterialClassificationFrame.classDepth");
+  if (input.format !== undefined && input.format !== "depth32float") {
+    throw new Error("MaterialClassificationFrame currently requires depth32float");
+  }
   if (input.domain.domain !== "internal-full") {
     throw new Error(
       "MaterialClassificationFrame must be produced at internal-full resolution"
@@ -190,6 +194,7 @@ export function materialClassificationFrame(
   }
   return Object.freeze({
     ...input,
+    format: "depth32float" as const,
     domain: textureDomain(
       "internal-full",
       input.domain.width,

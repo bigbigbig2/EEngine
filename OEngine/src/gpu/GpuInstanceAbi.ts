@@ -1,9 +1,13 @@
 import { mat4 } from "gl-matrix";
+import { GPU_MATERIAL_KERNEL_CLASS_COUNT } from "./GpuMaterialKernelAbi.js";
 
-export const GPU_INSTANCE_ABI_VERSION = 2;
+export const GPU_INSTANCE_ABI_VERSION = 3;
 export const GPU_INSTANCE_RECORD_STRIDE = 192;
 export const GPU_INSTANCE_FALLBACK_RECORD_INDEX = 0;
 export const GPU_INSTANCE_MOTION_RELATIVE_DETERMINANT_EPSILON = 1e-8;
+export const GPU_INSTANCE_MATERIAL_KERNEL_SHIFT = 8;
+export const GPU_INSTANCE_MATERIAL_KERNEL_MASK =
+  ((1 << 3) - 1) << GPU_INSTANCE_MATERIAL_KERNEL_SHIFT;
 
 export const GPU_INSTANCE_FLAGS = Object.freeze({
   Active: 1 << 0,
@@ -21,7 +25,8 @@ export const GPU_INSTANCE_FLAGS = Object.freeze({
 export const GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK =
   GPU_INSTANCE_FLAGS.AlphaTested |
   GPU_INSTANCE_FLAGS.DoubleSided |
-  GPU_INSTANCE_FLAGS.Transparent;
+  GPU_INSTANCE_FLAGS.Transparent |
+  GPU_INSTANCE_MATERIAL_KERNEL_MASK;
 
 export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   geometry_record_index: 0,
@@ -81,7 +86,30 @@ fn oengine_instance_active(instance: OEngineInstanceRecord) -> bool {
 fn oengine_instance_motion_valid(instance: OEngineInstanceRecord) -> bool {
   return (instance.flags & ${GPU_INSTANCE_FLAGS.MotionInvalid}u) == 0u;
 }
+
+fn oengine_instance_material_kernel_class(flags: u32) -> u32 {
+  return (flags >> ${GPU_INSTANCE_MATERIAL_KERNEL_SHIFT}u) &
+    ${(GPU_INSTANCE_MATERIAL_KERNEL_MASK >>> GPU_INSTANCE_MATERIAL_KERNEL_SHIFT)}u;
+}
 `;
+
+export function encodeInstanceMaterialKernelClass(flags: number, kernelClass: number): number {
+  if (!Number.isInteger(flags) || flags < 0 || flags > 0xffffffff) {
+    throw new RangeError("Instance flags must be a u32");
+  }
+  if (!Number.isInteger(kernelClass) || kernelClass < 0 || kernelClass >= GPU_MATERIAL_KERNEL_CLASS_COUNT) {
+    throw new RangeError(`Instance material kernel class must be in [0, ${GPU_MATERIAL_KERNEL_CLASS_COUNT - 1}]`);
+  }
+  return ((flags & ~GPU_INSTANCE_MATERIAL_KERNEL_MASK) |
+    (kernelClass << GPU_INSTANCE_MATERIAL_KERNEL_SHIFT)) >>> 0;
+}
+
+export function decodeInstanceMaterialKernelClass(flags: number): number {
+  if (!Number.isInteger(flags) || flags < 0 || flags > 0xffffffff) {
+    throw new RangeError("Instance flags must be a u32");
+  }
+  return (flags & GPU_INSTANCE_MATERIAL_KERNEL_MASK) >> GPU_INSTANCE_MATERIAL_KERNEL_SHIFT;
+}
 
 export function packGpuInstanceRecord(
   record: GpuInstanceRecordCpu

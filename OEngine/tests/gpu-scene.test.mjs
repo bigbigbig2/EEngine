@@ -16,6 +16,7 @@ globalThis.GPUBufferUsage ??= {
 
 const {
   GPU_INSTANCE_FLAGS,
+  GPU_INSTANCE_MATERIAL_KERNEL_SHIFT,
   GPU_INSTANCE_RECORD_OFFSETS,
   GPU_INSTANCE_RECORD_SCHEMA,
   GPU_INSTANCE_RECORD_STRIDE,
@@ -91,7 +92,7 @@ test("M1 content patches preserve resource identity while buffer growth advances
 });
 
 test("R2-D Instance TS packer and WGSL share the frozen 192-byte ABI", () => {
-  assert.equal(GPU_INSTANCE_RECORD_SCHEMA.abiVersion, 2);
+  assert.equal(GPU_INSTANCE_RECORD_SCHEMA.abiVersion, 3);
   assert.equal(GPU_INSTANCE_RECORD_SCHEMA.stride, 192);
   assert.equal(GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world, 64);
   assert.equal(GPU_INSTANCE_RECORD_OFFSETS.previous_from_current, 128);
@@ -371,11 +372,26 @@ test("R2-D abort restores CPU shadow and release invalidates the generation hand
     transforms: {
       indices: new Uint32Array([0]),
       transforms: identity(999, 0, 0)
+    },
+    materials: {
+      indices: new Uint32Array([0]),
+      materialHandles: new Uint32Array([99]),
+      flags: new Uint32Array([
+        GPU_INSTANCE_FLAGS.Transparent | (5 << GPU_INSTANCE_MATERIAL_KERNEL_SHIFT)
+      ])
     }
   }, abortedPatch);
   abortedPatch.abort();
   assert.equal(scene.evidence().patchBatchCount, before.patchBatchCount);
   assert.equal(scene.evidence().abortedMutationCount, before.abortedMutationCount + 1);
+  const firstRecord = new DataView(scene.bindings().instances.data);
+  const firstBase = scene.range(handle).start * GPU_INSTANCE_RECORD_STRIDE;
+  assert.equal(firstRecord.getUint32(firstBase + GPU_INSTANCE_RECORD_OFFSETS.material_handle, true), 0);
+  assert.equal(
+    firstRecord.getUint32(firstBase + GPU_INSTANCE_RECORD_OFFSETS.flags, true) >>
+      GPU_INSTANCE_MATERIAL_KERNEL_SHIFT,
+    0
+  );
 
   const releaseAbort = new FakeSceneCommand(gpu.device);
   scene.release(handle, releaseAbort);

@@ -115,7 +115,9 @@ export const GPU_COUNTER_FIELDS = [
   { name: "kernelBaseOrmNormalEmissivePixels", index: 92, semantic: "sampled visible pixels classified as BaseOrmNormalEmissive" },
   { name: "kernelUnlitPixels", index: 93, semantic: "sampled visible pixels classified as Unlit" },
   { name: "kernelGenericFallbackPixels", index: 94, semantic: "sampled visible pixels classified as GenericStandardPbrFallback" },
-  { name: "shadeWorkOverflow", index: 95, semantic: "sampled ShadeWork records rejected by bounded class ranges" }
+  { name: "shadeWorkOverflow", index: 95, semantic: "sampled ShadeWork records rejected by bounded class ranges" },
+  { name: "classDepthPixels", index: 96, semantic: "sampled valid VisibilityKey pixels entering MaterialClassDepth" },
+  { name: "classDraws", index: 97, semantic: "number of bounded fullscreen material kernel draws encoded for the frame" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

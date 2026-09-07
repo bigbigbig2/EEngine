@@ -57,7 +57,7 @@
 - Produces: `SurfacePhaseTiming = { classifyMs, classDepthMs, resolveMs, lightingMs }`，字段缺样本时为 `null`，不得用 CPU 时间代替 GPU 时间。
 - Produces: workload ids `cube-far-effects-off`、`cube-near-effects-off`、`projection-normalized`、`microtriangle-stress`、`heavy-overdraw-large-occluder`、`material-mosaic-7`、`near-plane-motion`。
 
-- [ ] **Step 1: 写 evidence gate 失败测试**
+- [x] **Step 1: 写 evidence gate 失败测试**
 
 ```js
 test("surface migration requires independent GPU-timestamp runs", () => {
@@ -71,13 +71,13 @@ test("surface migration requires independent GPU-timestamp runs", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试并确认因缺少三次独立 run/phase 合同而失败**
+- [x] **Step 2: 运行测试并确认因缺少三次独立 run/phase 合同而失败**
 
 Run: `node --test tests/performance-capture.test.mjs tests/benchmark-evidence-gate.test.mjs`
 
 Expected: FAIL，且失败点指向新增字段或 Gate，而不是语法错误。
 
-- [ ] **Step 3: 实现最小 timing 与 workload metadata**
+- [x] **Step 3: 实现最小 timing 与 workload metadata**
 
 ```ts
 export interface SurfacePhaseTiming {
@@ -90,19 +90,19 @@ export interface SurfacePhaseTiming {
 
 FrameGraph timing label 固定使用 `surface.classify`、`surface.classDepth`、`surface.resolve`、`lighting`；报告必须保留 adapter、浏览器、分辨率、DPR、seed、warm-up、measured、cadence 与 run id。
 
-- [ ] **Step 4: 加入 Rendering Lab 固定场景并运行命中测试**
+- [x] **Step 4: 加入 Rendering Lab 固定场景并运行命中测试**
 
 Run: `node --test tests/performance-capture.test.mjs tests/benchmark-evidence-gate.test.mjs tests/pipeline-profile-evidence.test.mjs`
 
 Expected: PASS；旧渲染路径输出不变。
 
-- [ ] **Step 5: 运行 smoke，保存 baseline 而不宣称 release Gate**
+- [x] **Step 5: 运行 smoke，保存 baseline 而不宣称 release Gate**
 
 Run: `node examples/rendering-lab/profile-smoke.mjs`
 
 Expected: 30 warm-up + 60 measured；报告包含四个 GPU phase、样本覆盖、workload id 和 adapter 信息。
 
-- [ ] **Step 6: 提交 M0**
+- [x] **Step 6: 提交 M0**
 
 ```bash
 git add OEngine/src/debug OEngine/tests examples/rendering-lab
@@ -206,6 +206,11 @@ git commit -m "refactor: formalize visibility frame products"
 - Test: `OEngine/tests/gpu-packed-scene-registry.test.mjs`
 - Test: `OEngine/tests/material-visibility-shader-abi.test.mjs`
 - Test: `OEngine/tests/shader-source-audit.test.mjs`
+- Create: `examples/rendering-lab/visibility-key-oracle.html`
+- Create: `examples/rendering-lab/visibility-key-oracle.ts`
+- Create: `examples/rendering-lab/visibility-key-oracle.mjs`
+- Modify: `examples/package.json`
+- Modify: `examples/vite.config.ts`
 
 **Interfaces:**
 
@@ -213,7 +218,7 @@ git commit -m "refactor: formalize visibility frame products"
 - Produces: `tryEncodeVisibilityKey(slot, kernelClass): { key: number; valid: boolean }`；越界永远返回 invalid，禁止 mask 截断别名。
 - Produces: `materialKernelClass(material): 0 | 1 | 2 | 3 | 4 | 5 | 6` 作为 stage、patch 与 shader flags 的唯一分类函数。
 
-- [ ] **Step 1: 写 CPU/WGSL vector 与 overflow 失败测试**
+- [x] **Step 1: 写 CPU/WGSL vector 与 overflow 失败测试**
 
 ```js
 assert.deepEqual(tryEncodeVisibilityKey(0x1fffffff, 6), {
@@ -227,13 +232,13 @@ assert.deepEqual(tryEncodeVisibilityKey(0x20000000, 0), {
 assert.notEqual(tryEncodeVisibilityKey(0x20000000, 0).key, 0);
 ```
 
-- [ ] **Step 2: 运行测试确认 v2 ABI 失败**
+- [x] **Step 2: 运行测试确认 v2 ABI 失败**
 
 Run: `node --test tests/gpu-visibility-key-abi.test.mjs tests/gpu-packed-scene-registry.test.mjs tests/material-visibility-shader-abi.test.mjs`
 
 Expected: FAIL，当前版本为 2 且没有 kernel class。
 
-- [ ] **Step 3: 实现集中式 v3 encode/decode 和 instance flag**
+- [x] **Step 3: 实现集中式 v3 encode/decode 和 instance flag**
 
 ```ts
 export const GPU_VISIBILITY_KEY_SLOT_BITS = 29;
@@ -251,19 +256,21 @@ export function tryEncodeVisibilityKey(slot: number, kernelClass: number) {
 
 WGSL 必须使用 range guard；不得写 `slot & SLOT_MASK` 作为 encode。所有 consumer 用 helper 取低 29 bit 和 class，不得散落 magic shift/mask。
 
-- [ ] **Step 4: stage/material patch 共用分类并测试 abort rollback**
+- [x] **Step 4: stage/material patch 共用分类并测试 abort rollback**
 
 Run: `node --test tests/gpu-visibility-key-abi.test.mjs tests/gpu-packed-scene-registry.test.mjs tests/material-visibility-shader-abi.test.mjs tests/shader-source-audit.test.mjs`
 
 Expected: PASS；非法 encode counter 在正式 workload 为 0；patch abort 后 flags/class count 恢复。
 
-- [ ] **Step 5: 运行一个旧路径浏览器 parity smoke**
+GPU oracle: `cd examples && npm run test:visibility-key-oracle`。该 oracle 在真实 WebGPU compute pipeline 中执行同一份 WGSL encode/decode，并与 seeded CPU vectors readback 对比。
+
+- [ ] **Step 5: 运行一个旧路径浏览器 parity smoke（runtime smoke 已完成；缺少 v2 screenshot baseline）**
 
 Run: `node examples/rendering-lab/profile-smoke.mjs`
 
 Expected: 截图与 v2 baseline bit-identical，invalid/overflow 为 0。
 
-- [ ] **Step 6: 提交 M2**
+- [ ] **Step 6: 提交 M2（等待用户确认提交）**
 
 ```bash
 git add OEngine/src/gpu OEngine/src/render OEngine/src/shaders OEngine/tests
@@ -294,7 +301,7 @@ git commit -m "feat: encode material kernel class in visibility key"
 - Produces: internal `MaterialResolveBackend = "legacy-pixel-queue" | "class-depth" | "class-discard"`，仅用于迁移 A/B，不从 `OEngine/src/index.ts` 导出。
 - Produces: `MaterialClassDepthFrame = { depth: ResourceId, format: "depth32float" }`；Surface backend 固定注册 7 个 pipeline。
 
-- [ ] **Step 1: 写 class-depth 与 cached-graph late-binding 失败测试**
+- [x] **Step 1: 写 class-depth 与 cached-graph late-binding 失败测试**
 
 ```js
 test("cached graph reads the current active kernel mask", () => {
@@ -310,17 +317,17 @@ test("cached graph reads the current active kernel mask", () => {
 
 再加入 EMPTY discard、7 类深度值、depth32/depth16 parity、same-pass attachment sampling 禁止项和 class-discard fallback 测试。
 
-- [ ] **Step 2: 运行测试确认 backend/pass 尚不存在**
+- [x] **Step 2: 运行测试确认 backend/pass 尚不存在**
 
 Run: `node --test tests/packed-material-class-depth.test.mjs tests/packed-material-resolve.test.mjs tests/framegraph-compiled.test.mjs`
 
 Expected: FAIL，缺少 pass/backend 与 late-bound 行为。
 
-- [ ] **Step 3: 实现 class-depth producer 与 7 个 bounded draws**
+- [x] **Step 3: 实现 class-depth producer 与 7 个 bounded draws**
 
 ClassDepth pass 与 Surface pass 必须是不同 render pass；不得在同一 pass 采样正在作为 attachment 写入的 texture。第一版始终编码 7 个 draw 以先验证正确性；active-mask skipping 只能在 cached graph 测试通过后启用。
 
-- [ ] **Step 4: 实现 correctness fallback**
+- [x] **Step 4: 实现 correctness fallback**
 
 `class-depth` 使用 `depthCompare: "equal"`；adapter/image parity 不成立时选择 `class-discard`：Surface pipeline 使用 `depthCompare: "always"`，fragment 读取 VisibilityKey 后按 class discard。fallback 必须记录 diagnostics，不得形成第三条长期产品管线。
 
@@ -580,10 +587,10 @@ git commit -m "docs: record visibility surface migration evidence"
 
 | Phase | Implementation | Correctness | Browser/GPU evidence | Gate |
 | --- | --- | --- | --- | --- |
-| M0 | pending | pending | pending | pending |
-| M1 | pending | pending | pending | pending |
-| M2 | pending | pending | pending | pending |
-| M3 | pending | pending | pending | pending |
+| M0 | complete (`5615ba0`, `67ffc3d`) | 33/33 targeted tests | Chrome smoke, 30+60 only | closed as measurement harness; release performance gate not claimed |
+| M1 | complete (`1dbadc5`) | targeted lifecycle/product tests pass | exercised by M2 Chrome smoke | closed; formal FrameProducts are the production path |
+| M2 | complete in working tree | 45/45 targeted; 427/427 non-doc tests; GPU oracle 6213/6213 | Chrome 152 / NVIDIA Turing / 1920×1080 smoke | RFC correctness/capacity gate closed; Step 5 screenshot parity open |
+| M3 | implemented-awaiting-evidence (working tree) | targeted shader/FrameProduct tests pass | browser formal A/B not run | pending correctness/performance gate |
 | M4 | blocked by M3 Gate | pending | pending | pending |
 | M5 | pending | pending | pending | pending |
 | M6 | pending | pending | pending | pending |
@@ -597,3 +604,37 @@ git commit -m "docs: record visibility surface migration evidence"
 - Exploratory result: Inspector hidden 时，base/full 的 `material-resolve` P50 分别为 7.524256/6.369408 ms，P95 分别为 8.4280384/35.562928 ms。该 smoke 是串行单次运行且工作区为 dirty，只用于暴露当前成本和离散度，不能作为 release Gate 或优化百分比基线。
 - Confirmed M0 gaps: 没有 migration-specific independent run id/group；没有 `cube-near-effects-off`、`projection-normalized`、`microtriangle-stress`、`heavy-overdraw-large-occluder`、`material-mosaic-7`、`near-plane-motion` workload；report 还不能直接给出 classify/classDepth/resolve/lighting 四段的统一 `SurfacePhaseTiming`。
 - Artifact: `temp/rendering-lab-profiles-1920x1080.json`（本地临时证据，不进入提交）。Evidence gate 正确拒绝该结果，原因是 `engine-dirty` 与 `dirty-reasons-present`。
+
+### 2026-09-07 M0 closure
+
+- Implementation commits: `5615ba0`、`67ffc3d`。
+- Targeted verification: `npm run build:test` 后运行 benchmark/evidence/profiler 命中测试，33/33 通过。
+- Browser workload smoke: 本地 Vite + Chrome WebGPU，`benchmark-workload-smoke.mjs` 退出码 0。
+- Browser profile smoke: 同一浏览器 session 完成 visible、hidden 与 counter-coverage；页面错误为 0，counter sampled/completed 分别为 6/6、5/5、60/60，dropped 为 0。
+- Smoke run ids: visible `868d25af-7a14-41cf-8819-a17c8a639400`；hidden `b2702e02-0b3b-4b9e-95e7-c0241da32c2d`；counter coverage `2aca5b69-83e9-49a5-ad45-b27a59ba3098`。
+- Gate conclusion: M0 measurement harness 关闭并允许进入 M1。该证据仍是 30 warm-up + 60 measured 的开发 smoke，不是 120+480、三独立 session 的 release 性能 Gate。
+
+### 2026-09-07 M1 closure
+
+- Implementation commit: `1dbadc5` (`refactor: formalize visibility frame products`)。
+- Current verification: M1 FrameProduct、resource identity、rebind、retirement 与 Surface consumer 命中测试包含在 M2 的 427/427 non-doc suite 中并通过。
+- Gate conclusion: `ExactRasterFrame` / `VisibilityFrame` 已进入生产链路，camera、counter cadence 和 content patch 不替换 persistent WorkSet；允许进入 M2。
+
+### 2026-09-07 M2 closure
+
+- Implementation: working tree，尚未提交；VisibilityKey ABI v3 为 29-bit exact slot + 3-bit kernel class，`EMPTY=0xffffffff`，`INVALID=0xfffffffe`。
+- CPU/WGSL contract: 集中式 guarded encode/decode；slot/class 越界返回 invalid，禁止 encode 时 mask 截断；`GPU_INSTANCE_ABI_VERSION` 提升为 3，OPAQUE/MASK producer 都从 instance flags 读取 kernel class，OPAQUE 未新增 Material Buffer binding。
+- Ownership: `materialKernelClass(material)` 同时驱动 material record 与 Packed Scene stage/material patch；instance material-classification mask 覆盖完整 3-bit kernel class。Registry 持有 7 类非 BLEND instance count，late-bound `activeKernelMask` 可供 M3 消费，patch abort 会连同 material index shadow、透明计数和 class count 一起恢复。
+- Verification: `npm run build` 与 examples `npm run build` 通过；M2 targeted tests 45/45 通过；排除任务开始前已删除 Inspector 文档对应的 `documentation-system.test.mjs` 后，完整 suite 427/427 通过。原始 `npm test` 的 3 个剩余失败均由这 4 个预存在的文档删除导致。
+- CPU/WGSL oracle: Chrome 152 headless、NVIDIA Turing；4159 个 encode vectors + 2054 个 decode vectors，共 6213/6213 readback 一致，mismatch 0；覆盖 seeded random u32、全部合法 class、slot 边界、越界与 `EMPTY`/`INVALID`。
+- Browser smoke: Chrome 152 headless、NVIDIA Turing、1920×1080、DPR 1、30 warm-up + 60 measured；console/page errors 0；counter coverage 60/60、dropped 0；`invalidVisibilityKeys=0`、`queueOverflowMask=0`、`shadowQueueOverflowMask=0`、`transparentQueueOverflowMask=0`。Run ids: visible `f1ca2eac-17c2-482e-93e3-ec679208d0e5`，hidden `84f2fbe2-7290-4ad6-bfc9-1b42d527d434`，counter coverage `71d35ed1-a9b1-4c6e-9692-e0ec406e95fd`。
+- Not run: v2/v3 screenshot numerical diff，因为仓库没有保留可比较的 v2 screenshot artifact；本 smoke 证明 shader compilation、生产链路与 key/overflow counters，不替代正式 release A/B。
+- Gate conclusion: RFC 定义的 M2 key correctness/capacity Gate 已关闭，允许进入 M3；执行计划 Step 5 的 v2/v3 screenshot parity 仍因缺少 v2 artifact 保持打开，不能把当前 runtime smoke 表述成 image parity。M3 性能 Gate 尚未开始。
+
+### 2026-09-07 M3 implementation checkpoint
+
+- Implementation: working tree。新增内部 `MaterialResolveBackend`（legacy pixel queue / class-depth / class-discard）、独立 `PackedMaterialClassDepthPass` 和 `depth32float` `MaterialClassificationFrame`；RendererConfig 可选择迁移期 backend，默认仍为 legacy，避免在 Gate 前改变发布基线。
+- ClassDepth producer：独立 render pass 清空并写入 visibility-derived class depth（7 个严格区分的值）；Surface resolve 在 class-depth/class-discard 下改用 fullscreen triangle，class-depth 使用 `depthCompare=equal`，class-discard 使用 `depthCompare=always` + key class discard。`activeKernelMask` 在 execute callback late-bound，仅用于减少实际 draw 数。
+- Verification: `npm run build`、`npm run build:test`；M3 专项 `packed-material-class-depth.test.mjs` 3/3，通过现有 Material/FrameGraph/P3 targeted tests。Shader source audit 已更新为 70 个 authored/live 条目。
+- Not run: Rendering Lab 三次独立 legacy/class-depth/class-discard 正式 A/B、截图 bit parity、真实 adapter depth-equal 性能与 feature-off 浏览器证据；当前环境没有可复用的 M3 release profile，不能宣称 RFC 的 15%/10% 性能 Gate 或 M3 完成。
+- Gate conclusion: M3 代码路径已接通，状态为 `implemented-awaiting-evidence`；M4 继续 blocked，Pixel Queue 与 `VisiblePixelClassifier` 暂不删除。

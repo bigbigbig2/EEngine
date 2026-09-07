@@ -7,6 +7,7 @@ import {
   type PackedMaterialResolveOutputs
 } from "../passes/PackedMaterialResolvePass.js";
 import type { VisibilityFrame } from "../pipeline/FrameProducts.js";
+import type { MaterialResolveBackend } from "../MaterialResolveBackend.js";
 
 export interface SurfaceFeatureInputs {
   readonly visibility: VisibilityFrame;
@@ -21,13 +22,16 @@ export interface SurfaceFeatureInputs {
 export class SurfaceFeature {
   private readonly implementation: PackedMaterialResolvePass;
 
-  constructor(graphics: GraphicsContext) {
-    this.implementation = new PackedMaterialResolvePass(graphics);
+  constructor(graphics: GraphicsContext, backend: MaterialResolveBackend = "legacy-pixel-queue") {
+    this.implementation = new PackedMaterialResolvePass(graphics, backend);
   }
 
   get lastKernelDrawCount(): number { return this.implementation.lastKernelDrawCount; }
   get lastActiveMaterialCount(): number { return this.implementation.lastActiveMaterialCount; }
   get surfaceBytesPerPixel(): number { return this.implementation.surfaceBytesPerPixel; }
+  get materialResolveBackend(): MaterialResolveBackend {
+    return this.implementation.materialResolveBackend;
+  }
 
   addToGraph(
     graph: FrameGraph,
