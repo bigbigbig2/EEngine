@@ -69,6 +69,8 @@ const GATE_BASELINE_ROLES = new Set([
   "minimum-b",
   "engine-generality-c"
 ]);
+const FORMAL_WARMUP_FRAMES = 120;
+const FORMAL_SAMPLE_FRAMES = 480;
 const GPU_FRAME_PHASE_SET = new Set<string>(GPU_FRAME_PHASES);
 const GPU_COUNTER_FIELD_SET = new Set<string>(
   GPU_COUNTER_FIELDS.map((field) => field.name)
@@ -204,6 +206,34 @@ export function validateBenchmarkEvidence(value: unknown): BenchmarkEvidenceRepo
     }
     positiveInteger(issues, run.warmupFrames, "$.environment.run.warmupFrames", true);
     positiveInteger(issues, run.sampleFrames, "$.environment.run.sampleFrames");
+    if (
+      role !== null &&
+      GATE_BASELINE_ROLES.has(role) &&
+      typeof run.warmupFrames === "number" &&
+      run.warmupFrames < FORMAL_WARMUP_FRAMES
+    ) {
+      add(
+        issues,
+        "formal-warmup-frames-insufficient",
+        "error",
+        "$.environment.run.warmupFrames",
+        `正式 gate 至少需要 ${FORMAL_WARMUP_FRAMES} 个 warm-up frames`
+      );
+    }
+    if (
+      role !== null &&
+      GATE_BASELINE_ROLES.has(role) &&
+      typeof run.sampleFrames === "number" &&
+      run.sampleFrames < FORMAL_SAMPLE_FRAMES
+    ) {
+      add(
+        issues,
+        "formal-sample-frames-insufficient",
+        "error",
+        "$.environment.run.sampleFrames",
+        `正式 gate 至少需要 ${FORMAL_SAMPLE_FRAMES} 个 measured frames`
+      );
+    }
     positiveInteger(issues, run.gpuSampleInterval, "$.environment.run.gpuSampleInterval");
     positiveInteger(
       issues,

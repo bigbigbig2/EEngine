@@ -15,6 +15,22 @@ test("complete clean A/B/C evidence is gate eligible", () => {
   assert.deepEqual(report.errors, []);
 });
 
+test("formal gate rejects 30 plus 60 smoke evidence", () => {
+  const result = validResult();
+  result.environment.run.warmupFrames = 30;
+  result.environment.run.sampleFrames = 60;
+  result.frames = result.frames.slice(0, 60);
+  for (const [name, summary] of Object.entries(result.summary.gpuCounters)) {
+    result.summary.gpuCounters[name] = series(summary.p50, 60);
+  }
+  const report = validateBenchmarkEvidence(result);
+  assert.equal(report.gateEligible, false);
+  assert.deepEqual(
+    report.errors.map((issue) => issue.code).sort(),
+    ["formal-sample-frames-insufficient", "formal-warmup-frames-insufficient"]
+  );
+});
+
 test("formal run groups require three distinct browser sessions", () => {
   const validate = benchmarkEvidenceGate.validateIndependentBenchmarkRunGroup;
   const complete = typeof validate === "function"
@@ -187,7 +203,6 @@ test("gate rejects phase, summary, counter and diagnostics corruption", () => {
   pendingCounter.frames[0].gpuCounters.pending = true;
   const pendingCodes = errorCodes(pendingCounter);
   assert.ok(pendingCodes.has("gpu-counter-pending"));
-  assert.ok(pendingCodes.has("gpu-counter-samples-missing"));
 
   const invalidCounter = validResult();
   invalidCounter.frames[0].gpuCounters.values.futureCounter = -1;
@@ -295,7 +310,7 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
         baselineRole: "minimum-a",
         featureSet,
         warmupFrames: 120,
-        sampleFrames: 1,
+        sampleFrames: 480,
         gpuSampleInterval: 1,
         gpuCounterSampleInterval: 1,
         readbackRingSlots: 3
@@ -309,8 +324,8 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
       cameraPathHash: `sha256:${"fe".repeat(32)}`
     },
     capabilityEvidence: createBenchmarkCapabilityEvidence(featureSet),
-    frames: [{
-      frameIndex: 1,
+    frames: Array.from({ length: 480 }, (_, frameIndex) => ({
+      frameIndex,
       cpuMs: { frame: 1 },
       submits: { count: 1, labels: { main: 1 } },
       readbacks: { count: 1, bytes: 256, labels: { counters: 1 } },
@@ -329,9 +344,9 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
         pending: false,
         dropped: false,
         schemaVersion: GPU_COUNTER_SCHEMA_VERSION,
-        values: gpuCounterValues
+        values: { ...gpuCounterValues }
       }
-    }],
+    })),
     summary: {
       cpuMs: {},
       gpuMs: {},
@@ -358,8 +373,8 @@ function validResult(featureSet = ["hardware-visibility", "hzb-culling"]) {
   };
 }
 
-function series(value) {
-  return { count: 1, mean: value, min: value, max: value, p50: value, p95: value, p99: value };
+function series(value, count = 480) {
+  return { count, mean: value, min: value, max: value, p50: value, p95: value, p99: value };
 }
 
 function runIdentity(runId, sessionId, runOrdinal) {

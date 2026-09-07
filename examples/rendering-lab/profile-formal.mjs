@@ -4,6 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { validateIndependentBenchmarkRunGroup } from "../../OEngine/.test-dist/debug/BenchmarkEvidenceGate.js";
+import {
+  captureGitBuildProvenance,
+  compareGitBuildProvenance
+} from "../build-provenance.mjs";
 import { resolveRenderingLabWorkload } from "./benchmark-workloads.ts";
 
 const workloadId = process.argv[2] ?? "cube-near-effects-off";
@@ -14,6 +18,7 @@ const height = Number(process.env.OENGINE_BENCHMARK_HEIGHT ?? 1080);
 const baseUrl = process.env.OENGINE_RENDERING_LAB_BASE_URL ?? "http://127.0.0.1:5173";
 const runGroupId = randomUUID();
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const runnerProvenance = captureGitBuildProvenance(repoRoot);
 const outputDir = path.join(repoRoot, "temp", "visibility-to-surface", runGroupId);
 await mkdir(outputDir, { recursive: true });
 
@@ -61,6 +66,10 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
 const runGroupEvidence = validateIndependentBenchmarkRunGroup(
   runs.map((report) => report.measurement)
 );
+const provenanceErrors = runs.flatMap((report, runOrdinal) =>
+  compareGitBuildProvenance(runnerProvenance, report.environment.engine)
+    .map((code) => `run ${runOrdinal}: ${code}`)
+);
 const gateErrors = runs.flatMap((report, runOrdinal) =>
   Object.entries(report.evidence).flatMap(([caseId, evidence]) =>
     evidence.errors.map((issue) => `run ${runOrdinal}/${caseId}: ${issue.code}`)
@@ -74,6 +83,7 @@ const artifact = {
   width,
   height,
   runGroupEvidence,
+  provenanceErrors,
   browserErrors,
   gateErrors,
   runs
@@ -89,10 +99,14 @@ if (!runGroupEvidence.gateEligible) {
 if (browserErrors.length > 0) {
   throw new Error(`Browser errors: ${browserErrors.join(" | ")}`);
 }
+if (provenanceErrors.length > 0) {
+  throw new Error(`Stale build provenance: ${provenanceErrors.join(" | ")}`);
+}
 console.log(JSON.stringify({
   outputDir,
   workloadId,
   smoke,
   runGroupEvidence,
+  provenanceErrors,
   gateErrors
 }, null, 2));

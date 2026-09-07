@@ -38,6 +38,19 @@ export function captureGitBuildProvenance(repoRoot) {
   };
 }
 
+/** Compare runner-time Git state with the state embedded by the Vite server. */
+export function compareGitBuildProvenance(current, embedded) {
+  const errors = [];
+  if (current.commit !== embedded.commit) errors.push("build-commit-mismatch");
+  if (current.dirty !== embedded.dirty) errors.push("build-dirty-state-mismatch");
+  const currentReasons = [...current.dirtyReasons].sort();
+  const embeddedReasons = [...embedded.dirtyReasons].sort();
+  if (JSON.stringify(currentReasons) !== JSON.stringify(embeddedReasons)) {
+    errors.push("build-dirty-reasons-mismatch");
+  }
+  return errors;
+}
+
 function git(repoRoot, args) {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
 }
