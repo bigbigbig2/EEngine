@@ -1,13 +1,13 @@
 # OEngine Visibility-to-Surface 架构重构设计
 
-**Material Resolve v2 / WebGPU Portable Rendering RFC**
+**Material Resolve / WebGPU Portable Rendering RFC**
 
 | 仓库 | bigbigbig2/EEngine |
 | --- | --- |
 | 基线提交 | a5ea18f494ebfaaf6cdff77503c951339ce70948 |
 | 设计日期 | 2026-09-07 |
 | 目标平台 | 桌面浏览器 WebGPU / wgpu-compatible baseline |
-| 状态 | Conditionally Accepted — M0/M1 可执行；后续阶段按风险逐步验证 |
+| 状态 | Implementation baseline closed — 生产路径已收敛；剩余 GPU 证据按风险跟踪 |
 
 ## 核心决策
 
@@ -75,20 +75,22 @@ GpuPackedSceneRegistry
   → exact OPAQUE / MASK RasterWork
   → PackedVisibilityPass
   → r32uint VisibilityKey + depth32float
-  → VisiblePixelClassifier
-       count → recursive scan → add → prepare → scatter
-  → ShadeWork[pixelIndex]
-  → 7 × point-list drawIndirect
+  → MaterialClassDepth / class-discard
+  → 7 × bounded fullscreen class draw
   → PackedMaterialResolvePass
   → Surface MRT
   → LightingFeature / GI / AO / SSR / Temporal / Post
 ```
 
+Pixel Queue、recursive scan、scatter、ShadeWork 和 point-list resolve 属于重构前基线，已不再是当前生产链路。
+
 `ExactTriangleFilter` 当前已经在 compute 中读取三角形三个源顶点、变换到 clip space、执行 clip/orientation/backface/small-primitive 判定，并把保留下来的三角形写进 OPAQUE/MASK exact queue。这意味着 Phase 2 所需的三角形 screen-space setup 数据已经在一个天然合适的位置被计算过。
 
 当前 `GpuWorkGenerationAbi.ts` 的 `OEngineRasterWork` 只有 24 B：instance、geometry、meshlet、local triangle、material handle、raster flags。VisibilityKey v2 则把整个 32-bit key 都用作 `rasterWorkSlot`。
 
-## 2.2 当前 Material Resolve 的结构性成本
+## 2.2 重构前 Material Resolve 的结构性成本
+
+下表记录删除 Pixel Queue 前的成本模型，用于解释迁移动机；它不是当前生产实现的调用图。
 
 | 阶段 | 复杂度 | 主要问题 |
 | --- | --- | --- |
@@ -368,13 +370,11 @@ ClassDepth 快路径必须保留一个无需该附件的 correctness fallback：
 
 该 mask 是 late-bound runtime state，不属于建图时冻结的 `MaterialClassificationFrame`。Surface pass 的 execute callback 每帧从当前 runtime 读取它。M3 的 correctness baseline 先固定发出 7 个 draw；只有 late-binding/patch/abort 测试通过后才允许启用 mask 跳过。mask 只能减少 draw，绝不能决定 key 的合法性。
 
-## 7.6 Phase 1 删除内容
+## 7.6 Phase 1 已删除内容
 
-- `render/VisiblePixelClassifier.ts`
-- `shaders/visible_pixel_classification.ts`
-- `GPU_SHADE_WORK_RECORD_STRIDE` 与 screen-sized ShadeWork capacity 计算（确认无其它消费者后删除）
-- `PackedMaterialResolvePass` 中 `classifier.encode()`、scan scratch、pixel queue drawIndirect
-- point-list vertex shader 与 `shade_work` binding
+- 已删除 `render/VisiblePixelClassifier.ts` 与 `shaders/visible_pixel_classification.ts`。
+- 已删除 `GPU_SHADE_WORK_RECORD_STRIDE`、screen-sized ShadeWork capacity、scan scratch 和 pixel queue drawIndirect。
+- 已删除 point-list vertex shader 与 `shade_work` binding。
 # 8. Phase 2：Adaptive TriangleSetup Cache
 
 > **为什么不是“所有 exact triangle 都分配 48 B setup”**
@@ -556,7 +556,6 @@ const surface = surfaceFeature.resolveToGraph(
 // Renderer 不再持有：
 // packedVisibilityDebug
 // PackedVisibilityDebugSource
-// ShadeWork details
 ```
 
 Renderer 只做 feature orchestration，不关心 ExactRasterRecord、setup queue、material class depth 的具体 layout。SurfaceFeature 变成真正的 owner，而不是 `PackedMaterialResolvePass` 的薄壳。
@@ -605,8 +604,8 @@ export interface MaterialResolveBackend {
 | 重写 | OEngine/src/render/passes/PackedMaterialResolvePass.ts | 移除 classifier/point-list；7 bounded fullscreen class draws。 |
 | 重写 | OEngine/src/shaders/packed_material_resolve.ts | 直接按 frag_coord 取 key；setup fast path + fallback。 |
 | 修改 | OEngine/src/render/features/SurfaceFeature.ts | 成为 classifier + backend owner。 |
-| 删除* | OEngine/src/render/VisiblePixelClassifier.ts | Phase 1 A/B 通过后删除。 |
-| 删除* | OEngine/src/shaders/visible_pixel_classification.ts | 同上。 |
+| 删除 | OEngine/src/render/VisiblePixelClassifier.ts | 已完成；不再属于生产链路。 |
+| 删除 | OEngine/src/shaders/visible_pixel_classification.ts | 已完成；不再属于生产链路。 |
 | 修改 | OEngine/src/render/Renderer.ts | 只传正式 FrameProduct；删除 packedVisibilityDebug 生产依赖。 |
 | 修改 | OEngine/src/debug/GpuFrameCounters.ts | 新增 class-depth/setup hit/fallback/overflow counters。 |
 | 修改 | OEngine/src/debug/profiling/ResourceAccounting.ts 及 owner 接入点 | exact/setup persistent cache 与 ClassDepth transient 分类、创建/销毁证据。 |
@@ -621,7 +620,7 @@ export interface MaterialResolveBackend {
 | M1 — Formal Products | 拆分 resourceEpoch/contentRevision；把 debugResolve 生产依赖替换成 ExactRasterFrame / VisibilityFrame；WorkSet 与 diagnostic bindings 分离，不改变 shader。 |
 | M2 — VisibilityKey v3 | 加入 kernelClass bits；所有旧算法 consumer 同时改用 v3 helper 只解低 29 bit；CPU/WGSL oracle 验证越界不别名。 |
 | M3 — ClassDepth Backend | 实现 MaterialClassDepth + fullscreen kernel material；用 config/benchmark flag A/B。 |
-| M4 — Remove Pixel Queue | 新路径满足 correctness + perf gate 后删除 VisiblePixelClassifier / ShadeWork。 |
+| M4 — Remove Pixel Queue | 已删除 VisiblePixelClassifier / ShadeWork；发布性能证据继续由 M3/M5 Gate 跟踪。 |
 | M5 — Adaptive TriangleSetup | 先以 8 MiB bounded cache + 32 pixel threshold 落地；保留每像素 fallback。 |
 | M6 — Surface ABI 稳定化 | 统一 producer/consumer 合同，补齐 attachment、带宽和内存证据。 |
 | M7 — Tile backend（如需要） | 只有跨浏览器/硬件数据证明 class-depth fullscreen 固定成本是热点才实现。 |
@@ -707,7 +706,7 @@ export interface MaterialResolveBackend {
 | 不可见大三角占满 setup queue | 可见像素 hit ratio 低且 run 不稳定 | heavy-overdraw Gate；coverage bucket/sidecar/visibility 后 producer 备选 |
 | TriangleSetup 数值误差 | 纹理 mip/normal 抖动 | CPU oracle + image diff；near crossing fallback |
 | Phase 1 对微三角回归 | 破坏核心定位 | microtriangle acceptance gate ≤5% 回归 |
-| 同时改 Surface ABI | 难以定位 correctness/perf | Phase 3 延后，逐阶段 A/B |
+| 同时改 Surface ABI | 难以定位 correctness/perf | 统一 ABI；任何后续格式研究停留在 schema/oracle，不创建第二套 runtime |
 | Renderer 再次吸收 backend 细节 | 架构重新耦合 | Renderer 只传 FrameProduct；backend 内部资源不可外泄 |
 
 # 17. 验收参考与当前边界
@@ -719,6 +718,13 @@ export interface MaterialResolveBackend {
 1. M5 correctness/evidence path：`heavy-overdraw-large-occluder` 三次 on run 的 setup hit ratio 为 `1.0/1.0/1.0`；`near-plane-motion` 三次 on run 为 `0.998685/0.998685/0.998685`，fallback、overflow、validation、uncaptured error 和 device loss 均为 0。该结果满足 hit-ratio 子门槛，但不替代 attachment/image parity、P99 数值误差与 off/on GPU 性能 Gate。
 2. M6 unified ABI：已有报告包含 Surface bytes、resolve timing 和 resident 观察值，但没有完整的统一路径 attachment/readback parity、transient peak 与 consumer 覆盖证据，因此 M6 仍为 `insufficient-evidence`；生产继续使用唯一 Surface ABI。
 3. M3/M7 final blockers：历史 NVIDIA/Turing artifact 的 depth-equal probe 曾 fallback 到 class-discard，本批已修复只读 depth 描述符但尚未有 clean 重跑 artifact；M3 legacy baseline 必须从 clean `68750c2` 采集，M7 仍缺第二 GPU vendor，因此两者均不能标记完成，也不创建 Tile backend。
+
+## RFC 收尾结论（2026-09-09）
+
+- 本 RFC 的实现基线已收敛到当前生产代码：Visibility producer → MaterialClassDepth/class-discard → Surface producer → downstream consumers；Pixel Queue/`ShadeWork` 不再属于生产路径。
+- Surface ABI 采用单一路径。Renderer、Packed/legacy producer、FrameProduct 和主要 lighting/temporal consumers 不再提供 ABI profile 切换；格式研究只能停留在 schema/oracle，不得创建第二套 runtime。
+- M0–M4 的架构迁移已落地；M5 TriangleSetup 保持 opt-in；M6 统一 ABI 的完整 composition/内存证据、M3 legacy parity 和 M7 第二 vendor 证据仍未完成。
+- 这些未完成项是发布验收证据，不阻塞继续开发；唯一状态源为 `docs/STATUS.md`，后续只在产生新 artifact 时更新本 RFC 的边界记录。
 
 | 领域 | 建议观察项 |
 | --- | --- |

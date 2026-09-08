@@ -10,6 +10,8 @@
 
 **Spec:** [OEngine_Visibility_to_Surface_WebGPU_RFC.md](./OEngine_Visibility_to_Surface_WebGPU_RFC.md)
 
+> **收尾说明（2026-09-09）：** 本文保留阶段实施记录和历史验证命令。未勾选的 red-green 步骤不再作为普通开发阻塞条件；当前实现状态以 RFC 收尾结论和 `docs/STATUS.md` 为准。缺少 GPU/browser artifact 时仍必须标记为未验证。
+
 ## Global Constraints
 
 - WebGPU baseline 不依赖 64-bit atomic、multi-draw-indirect、mesh/task shader、buffer device address、bindless 或 subgroup。
@@ -726,7 +728,7 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 
 - 新增内部 `VisibilitySurfaceMigrationGates.ts`：M5 只有带唯一 `runGroupId/runId` 的三次独立 run，且 visible setup hit ratio 均达到 90% 才允许 candidate cache 成为默认；否则 `disabled-by-evidence`。M6 只判断统一 Surface ABI 的 producer/consumer、资源峰值和诊断字段是否完整；证据缺失时返回 `insufficient-evidence`，不创建第二套 Surface runtime。M7 仍要求 vendor 摘要和 identity-bearing vendor-run 判定，证据不足时不创建 Tile backend。
 - Rendering Lab report 保留 `surfaceAbiRuns` / `tileBackendRuns` 作为可选证据输入，统一写入 `domainEvidence.surfaceAbi` 与 `domainEvidence.migrationGates`；缺失 artifact 时明确报告“统一 Surface ABI 证据不足 / 不创建 Tile runtime”，不会把缺失数据伪装成通过。
-- `SurfaceFrame` 现在携带显式 `abiVersion`；Packed Resolve 与 legacy MaterialExpand producer 均声明 v1，FrameProduct validator 和 Lighting consumer 都拒绝未知版本，避免未来 v2 只改 attachment format 却让旧 consumer 静默读取。
+- `SurfaceFrame` 现在携带显式 `abiVersion`；Packed Resolve 与 legacy MaterialExpand producer 共享同一版本，FrameProduct validator 和 Lighting consumer 都拒绝未知版本，避免格式变化让旧 consumer 静默读取。
 - M6 不新增 Surface profile 或第二条 runtime；`GpuSurfaceAbi.ts` 的现有 schema/oracle 只作为统一 ABI 的格式与编码真相，任何压缩研究都不进入 Renderer/RenderTargets。
 - Packed Resolve、legacy MaterialExpand、Direct Lighting、AO、SSR、GI/IBL/LPV/Brick4、Opaque Resolve 和 Render Debug 都继续消费同一 Surface ABI；若某个 consumer 未覆盖，记录为未验证而不是引入兼容分支。
 - M7 新增 `TileBackendCostModel.ts` 作为 evidence-only model：固定 tile size、7-bit class mask、bounded capacity/overflow（含 tile-record `overflowRate`）和 class-tile dispatch work 计数；没有创建 `PackedMaterialTilePass`、shader、queue 或额外 submit。
@@ -749,7 +751,7 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - M5 观测：三次 `visibleHitRatio=1.0`；`setupVisiblePixelFallbacks=0`；`setupOverflow=0`；`workCacheBytes=5,788,240`、`workCachePeakBytes=5,788,240`。`triangleSetupGate` 返回 `default-eligible`，但这只关闭 hit-ratio 子门槛，不关闭 RFC 的 correctness、near-plane、off/on 性能和内存 Gate。
 - 已完成对应 off 基线：`temp/visibility-to-surface/b24b94a5-3169-4c10-a58e-dce610e0a7f5/report.json`，同样 3/3、clean provenance、零浏览器/GPU diagnostics；其 `triangleSetupGate` 正确保持 `insufficient-evidence`，因为 setup 未启用。
 
-### 2026-09-08 三步收口进度：M5 near-plane 与 M6 A/B
+### 2026-09-08 三步收口进度：M5 near-plane 与 M6 统一 ABI 证据
 
 - Step 1 / M5 near-plane: off artifact `temp/visibility-to-surface/0a5df5e3-1d42-4c7f-9a73-e20f3d308d80/report.json` 与 on artifact `temp/visibility-to-surface/5d231cab-0661-4216-af18-dcfc56126270/report.json` 均为三次独立 session，`provenanceErrors=[]`、`browserErrors=[]`、`gateErrors=[]`，validation/uncaptured/deviceLost 均为 0。on 的 `visibleHitRatio` 为 `0.9986851093` 三次，达到 90% 子门槛；near-plane 的完整图像/数值 parity 仍未由 runner 证明。
 - Step 2 / M6 unified ABI: 历史 artifact 只能作为阶段观察，尚未形成统一路径的完整 attachment/readback parity、transient peak 和 consumer coverage 证据，因此 `surfaceAbi` 仍保持 `insufficient-evidence`；不会启动第二套 ABI。
@@ -796,13 +798,13 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - ClassDepth producer：独立 render pass 清空并写入 visibility-derived class depth（7 个严格区分的值）；Surface resolve 在 class-depth/class-discard 下改用 fullscreen triangle，class-depth 使用 `depthCompare=equal`，class-discard 使用 `depthCompare=always` + key class discard。`activeKernelMask` 在 execute callback late-bound，仅用于减少实际 draw 数。
 - Verification: `npm run build`、`npm run build:test`；M3 专项 `packed-material-class-depth.test.mjs` 3/3，通过现有 Material/FrameGraph/P3 targeted tests。Shader source audit 已更新为 70 个 authored/live 条目。
 - Not run: Rendering Lab 三次独立 legacy/class-depth/class-discard 正式 A/B、截图 bit parity、真实 adapter depth-equal 性能与 feature-off 浏览器证据；当前环境没有可复用的 M3 release profile，不能宣称 RFC 的 15%/10% 性能 Gate 或 M3 完成。
-- Gate conclusion: M3 代码路径已接通，状态为 `implemented-awaiting-evidence`；M4 继续 blocked，Pixel Queue 与 `VisiblePixelClassifier` 暂不删除。
+- Gate conclusion（历史快照）：M3 代码路径已接通，状态为 `implemented-awaiting-evidence`。该记录形成时 M4 尚未收口；当前 Pixel Queue 与 `VisiblePixelClassifier` 已删除，生产路径状态以 RFC 收尾结论和 `docs/STATUS.md` 为准。
 
 ### 2026-09-08 三步批次追加：M3 probe 修复与证据边界
 
 - Step 1 / M3 implementation correction: `MaterialClassDepthProbe` 的只读 depth verification pass 已移除 `depthLoadOp`/`depthStoreOp`。WebGPU 规定 `depthReadOnly=true` 时不得提供这两个字段；此前 NVIDIA/Turing 的 fallback 原因就是该 validation error。
 - Step 2 / regression coverage: 新增 source-level 回归测试，固定只读 attachment 描述符不再回归；`OEngine/npm test` 当前 440/440 通过。
-- Step 3 / formal evidence: 已重新启动 `comprehensive-full` formal runner，但本次浏览器 fixture 尚未返回 ready/report，故没有生成新的 GPU artifact。旧的 M5/M6 artifact 继续按此前记录使用，M3 class-depth A/B 仍必须在新 probe 修复后的 clean commit 上重跑，不能把本次代码修复当成正式 Gate 通过。
+- Step 3 / formal evidence（历史快照）：当时重新启动 `comprehensive-full` formal runner，但浏览器 fixture 尚未返回 ready/report，故没有生成新的 GPU artifact。该记录中的旧 M5/M6 artifact 仅用于当时的阶段判断，不代表当前统一 ABI 的完整证据；M3 class-depth A/B 也仍未达到发布 Gate。当前实现和未完成项以 RFC 收尾结论和 `docs/STATUS.md` 为准。
 - Clean rerun result: `temp/visibility-to-surface/7ccf8b4e-bbfb-45aa-a5cc-78b8c938c11f/report.json` 在提交 `b8df85e` 上完成 3/3 独立 session，`provenanceErrors=[]`、`browserErrors=[]`、`gateErrors=[]`；三次 `materialResolveBackend=class-depth` 且 `source=adapter-probe`。这只关闭 probe validation blocker，不替代 M3 legacy/class-depth/class-discard correctness、性能和截图 parity Gate。
 - 2026-09-08 Playwright M3 A/B 发现 correctness blocker：同一 `cube-near-effects-off`、1920x1080、DPR 1、三次独立 Chrome session 下，`class-discard` artifact `temp/visibility-to-surface/cff35f68-d006-4a95-a229-9fe82f52a136/report.json` 的截图显示正常场景，而 `class-depth` artifact `temp/visibility-to-surface/94539da3-80be-456b-8884-af4bc9f16d24/report.json` 的截图接近全黑。两组 `gateErrors=[]` 只说明 GPU/浏览器诊断干净，当前 runner 尚未做逐像素 parity，因此 M3 correctness Gate 明确不通过，后续必须先定位 depth-equal resolve 的实际像素失败。
 
