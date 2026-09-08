@@ -221,9 +221,11 @@ export class ExactTriangleFilter {
           { binding: 7, resource: { buffer: inputs.assets.meshletVertexIndices } },
           { binding: 8, resource: { buffer: inputs.assets.meshletTriangleIndices } },
           { binding: 9, resource: { buffer: inputs.assets.vertexStreamData } },
-          // setup_capacity=0 makes binding 10 unreachable. Reuse the existing
-          // writable counter buffer so feature-off owns no setup allocation.
-          { binding: 10, resource: { buffer: setupRecords ?? inputs.counterBuffer } },
+          // setup_capacity=0 makes binding 10 unreachable. Keep it on an
+          // already-owned, distinct storage buffer so WebGPU does not reject
+          // writable aliasing with the counter binding; feature-off still
+          // owns no setup allocation.
+          { binding: 10, resource: { buffer: setupRecords ?? dispatchIndirect } },
           { binding: 11, resource: { buffer: inputs.counterBuffer } }
         ]
       });
@@ -318,7 +320,7 @@ export class ExactTriangleFilter {
          { binding: 7, resource: { buffer: state.assets.meshletVertexIndices } },
          { binding: 8, resource: { buffer: state.assets.meshletTriangleIndices } },
          { binding: 9, resource: { buffer: state.assets.vertexStreamData } },
-         { binding: 10, resource: { buffer: state.setupRecords ?? state.counterBuffer } },
+         { binding: 10, resource: { buffer: state.setupRecords ?? state.dispatchIndirect } },
          { binding: 11, resource: { buffer: state.counterBuffer } }
       ]
     });

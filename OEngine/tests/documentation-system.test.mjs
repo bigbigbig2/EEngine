@@ -11,7 +11,8 @@ const finalDocs = [
   "adr/0001-gpu-first-scope.md", "adr/0002-runtime-assets-and-gpu-driven.md",
   "adr/0003-unified-render-pipeline.md", "adr/README.md",
   "porting/geometry.md", "porting/platform.md", "porting/README.md",
-  "porting/shading.md", "porting/visibility.md"
+  "porting/shading.md", "porting/visibility.md",
+  "superpowers/plans/2026-09-08-visibility-to-surface-closure.md"
 ].sort();
 
 function markdownFiles(directory, prefix = "") {
