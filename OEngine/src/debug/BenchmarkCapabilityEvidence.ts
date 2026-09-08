@@ -105,6 +105,16 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "queueOverflowMask"
     ]
   },
+  "triangle-setup-candidate-cache": {
+    status: "supported",
+    requiredGpuCounters: [
+      "setupAttempted",
+      "setupWritten",
+      "setupVisiblePixelHits",
+      "setupVisiblePixelFallbacks",
+      "setupOverflow"
+    ]
+  },
   "clustered-lighting": {
     status: "supported",
     requiredGpuCounters: ["activeLights", "queueOverflowMask"]
