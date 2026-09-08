@@ -148,6 +148,13 @@ P 是内部渲染像素数，Nvisible 是最终几何覆盖像素。1920×1080 �
 | Wicked Engine | 按 material type bin screen tiles；compute shading optional | Phase 4 参考，保留“可选”而不是强制 |
 | John Hable 2021 | count/prefix/reorder 在大三角形场景有额外 VisUtil 成本 | 直接支持删除当前 pixel reorder 层 |
 
+### 2026-09-08 ClassDepth equality correctness fix
+
+- Root cause: the resolve vertex only supplied `position.z`; Chrome/Dawn's fixed-function clip-space depth reconstruction did not compare bit-identically with the producer's explicit `frag_depth`, so `depthCompare="equal"` rejected the Surface fragments even though the adapter probe passed.
+- Implementation: `PackedMaterialOutput` now writes `@builtin(frag_depth)` with the same `(activeKernelClass + 1) / 8` value used by `PackedMaterialClassDepthPass`. The pipeline remains `depthCompare="equal"`; no `always` or class-discard relaxation is used on the class-depth path.
+- Evidence: Playwright/Chrome smoke artifact `temp/visibility-to-surface/2d43f99c-e967-43d6-b753-1fea54b48fe6/` rendered the red cube with class-depth + equal. Diagnostic artifacts showed `greater` rendered and `less` rejected, isolating the failure to exact depth equality. The smoke artifact is exploratory (dirty source and 30+60 cadence), not a release Gate.
+- Verification: `OEngine/npm test` 440/440 passed. A clean three-session formal A/B is still required before closing M3 correctness/performance; the single active Vite server must be reused for that run.
+
 ## 4.1 为什么不直接“第二遍重画所有三角形 + depth equal”
 
 二次 triangle raster 对大三角形非常自然，硬件插值便宜；但 OEngine 的产品定位包含高几何密度、小三角形场景。Visibility Buffer 的重要优势恰恰是避免小三角形的 fragment quad helper 浪费。Hable 的测试显示，当三角形缩小到约 1 pixel 量级时 Visibility 路径显著领先 Deferred。故“二次 triangle material raster”可以作为实验 backend，但不作为唯一新架构。

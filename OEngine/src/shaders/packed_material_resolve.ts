@@ -506,6 +506,7 @@ struct PackedMaterialOutput {
   @location(3) emissive: u32,
   @location(4) velocity: vec2f,
   @location(5) metadata: u32,
+  @builtin(frag_depth) depth: f32,
 }
 
 @fragment
@@ -691,6 +692,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let metallic_sample = select(1.0, orm.b, (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u);
   let roughness_sample = select(1.0, orm.g, (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u);
   var output: PackedMaterialOutput;
+  output.depth = (f32(OENGINE_ACTIVE_KERNEL_CLASS) + 1.0) / 8.0;
   output.pbr = vec2f(
     metallic_sample * material_info.pbr_factors.x,
     clamp(roughness_sample * material_info.pbr_factors.y, 0.0, 1.0)
