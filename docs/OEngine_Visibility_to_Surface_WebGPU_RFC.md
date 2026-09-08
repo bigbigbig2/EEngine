@@ -840,6 +840,8 @@ Adaptive cache 的关键是：这个 setup 只有在 triangle 的 screen coverag
 
 补充：clean commit `b8df85e` 的 `comprehensive-full` artifact `7ccf8b4e-bbfb-45aa-a5cc-78b8c938c11f` 已在 3/3 独立 session 中通过 provenance/browser/gate diagnostics，且三次均由 adapter probe 选择 `class-depth`。这关闭了 probe validation blocker，但不等同于 M3 legacy A/B 或完整 correctness/performance Gate。
 
+最新 Playwright A/B 已暴露 M3 correctness 阻塞：相同 `cube-near-effects-off`、1920x1080、DPR 1 条件下，class-discard 截图正常，而 class-depth 截图接近全黑。对应 artifact 为 `cff35f68-d006-4a95-a229-9fe82f52a136` 与 `94539da3-80be-456b-8884-af4bc9f16d24`。当前无浏览器/GPU validation error，但没有逐像素 parity 就不能把 class-depth 视为正确；M3 performance 数字暂时也不能用于 Gate。
+
 # 附录 C. Benchmark 矩阵
 
 | 变量 | 取值 |

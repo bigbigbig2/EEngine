@@ -818,6 +818,7 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - Step 2 / regression coverage: 新增 source-level 回归测试，固定只读 attachment 描述符不再回归；`OEngine/npm test` 当前 440/440 通过。
 - Step 3 / formal evidence: 已重新启动 `comprehensive-full` formal runner，但本次浏览器 fixture 尚未返回 ready/report，故没有生成新的 GPU artifact。旧的 M5/M6 artifact 继续按此前记录使用，M3 class-depth A/B 仍必须在新 probe 修复后的 clean commit 上重跑，不能把本次代码修复当成正式 Gate 通过。
 - Clean rerun result: `temp/visibility-to-surface/7ccf8b4e-bbfb-45aa-a5cc-78b8c938c11f/report.json` 在提交 `b8df85e` 上完成 3/3 独立 session，`provenanceErrors=[]`、`browserErrors=[]`、`gateErrors=[]`；三次 `materialResolveBackend=class-depth` 且 `source=adapter-probe`。这只关闭 probe validation blocker，不替代 M3 legacy/class-depth/class-discard correctness、性能和截图 parity Gate。
+- 2026-09-08 Playwright M3 A/B 发现 correctness blocker：同一 `cube-near-effects-off`、1920x1080、DPR 1、三次独立 Chrome session 下，`class-discard` artifact `temp/visibility-to-surface/cff35f68-d006-4a95-a229-9fe82f52a136/report.json` 的截图显示正常场景，而 `class-depth` artifact `temp/visibility-to-surface/94539da3-80be-456b-8884-af4bc9f16d24/report.json` 的截图接近全黑。两组 `gateErrors=[]` 只说明 GPU/浏览器诊断干净，当前 runner 尚未做逐像素 parity，因此 M3 correctness Gate 明确不通过，后续必须先定位 depth-equal resolve 的实际像素失败。
 
 ### 2026-09-07 M4 implementation closure
 
