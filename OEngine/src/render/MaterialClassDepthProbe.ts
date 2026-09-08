@@ -119,8 +119,6 @@ export async function selectMaterialResolveBackend(
       }],
       depthStencilAttachment: {
         view: classDepth.createView(),
-        depthLoadOp: "load",
-        depthStoreOp: "store",
         depthReadOnly: true
       }
     });

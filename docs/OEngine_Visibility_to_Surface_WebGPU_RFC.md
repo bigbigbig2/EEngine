@@ -712,6 +712,12 @@ export interface MaterialResolveBackend {
 
 # 17. 验收标准
 
+## 当前三步收口结果（2026-09-08）
+
+1. M5 correctness/evidence path：`heavy-overdraw-large-occluder` 三次 on run 的 setup hit ratio 为 `1.0/1.0/1.0`；`near-plane-motion` 三次 on run 为 `0.998685/0.998685/0.998685`，fallback、overflow、validation、uncaptured error 和 device loss 均为 0。该结果满足 hit-ratio 子门槛，但不替代 attachment/image parity、P99 数值误差与 off/on GPU 性能 Gate。
+2. M6 isolated A/B：clean `comprehensive-full` v1/v2 candidate profiles 均完成三次独立 session。v1 为 26 B/pixel、resolve P50 6.063872 ms；v2 candidate 为 22 B/pixel、resolve P50 4.113392 ms，且 candidate resident P95 更低。由于当前 artifact 没有同一 runGroup 的 paired attachment readback parity、conversion pass 和 transient peak，M6 按合同保持 `insufficient-evidence`，生产 ABI 仍为 v1。
+3. M3/M7 final blockers：历史 NVIDIA/Turing artifact 的 depth-equal probe 曾 fallback 到 class-discard，本批已修复只读 depth 描述符但尚未有 clean 重跑 artifact；M3 legacy baseline 必须从 clean `68750c2` 采集，M7 仍缺第二 GPU vendor，因此两者均不能标记完成，也不创建 Tile backend。
+
 | Gate | 验收条件 |
 | --- | --- |
 | Correctness | 按 M3/M5 数值阈值验证 7 个 kernel class、MASK、motion、near-plane；不得以“无不可解释差异”代替阈值 |
@@ -825,6 +831,12 @@ dλ2/dy = -(dλ0/dy + dλ1/dy)
 在 reference point c 计算 λ(c)，再乘 `invW` 得 q。透视正确权重是 `q / Σq`。对于 UV/normal/color 等顶点属性都可共用同一 bary；只对 UV 额外用 quotient rule 求 dUVdx/dUVdy。OEngine 当前 Y 轴与 viewport transform 约定必须通过 CPU oracle 对齐，不能直接复制论文符号方向。
 
 Adaptive cache 的关键是：这个 setup 只有在 triangle 的 screen coverage 足够大时才值得存。ExactTriangleFilter 已有 fixed-point small-primitive 判断，可复用其 screen-space 坐标，并新增粗略 bbox/area 估计。第一版 threshold 不应硬编码为最终产品值，而应配置到 benchmark profile 中。
+
+# 三步批次追加（2026-09-08）
+
+1. 修复 M3 `MaterialClassDepthProbe`：只读 depth attachment 不再携带 `depthLoadOp`/`depthStoreOp`，符合 WebGPU validation 规则，避免无谓 fallback 到 `class-discard`。
+2. 新增回归断言并完成本地全量测试 440/440；这证明描述符和代码路径正确，不等同于浏览器 GPU A/B Gate。
+3. formal runner 已启动但本次未产出 ready artifact，因此 M3 正式 legacy/class-depth/class-discard parity、M5 完整正确性/性能 Gate、M6 paired parity/transient evidence、M7 第二 vendor 仍保持未完成。生产 Surface ABI 继续 v1，Tile runtime 不创建。
 
 # 附录 C. Benchmark 矩阵
 

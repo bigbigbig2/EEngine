@@ -763,6 +763,12 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - M5 观测：三次 `visibleHitRatio=1.0`；`setupVisiblePixelFallbacks=0`；`setupOverflow=0`；`workCacheBytes=5,788,240`、`workCachePeakBytes=5,788,240`。`triangleSetupGate` 返回 `default-eligible`，但这只关闭 hit-ratio 子门槛，不关闭 RFC 的 correctness、near-plane、off/on 性能和内存 Gate。
 - 已完成对应 off 基线：`temp/visibility-to-surface/b24b94a5-3169-4c10-a58e-dce610e0a7f5/report.json`，同样 3/3、clean provenance、零浏览器/GPU diagnostics；其 `triangleSetupGate` 正确保持 `insufficient-evidence`，因为 setup 未启用。
 
+### 2026-09-08 三步收口进度：M5 near-plane 与 M6 A/B
+
+- Step 1 / M5 near-plane: off artifact `temp/visibility-to-surface/0a5df5e3-1d42-4c7f-9a73-e20f3d308d80/report.json` 与 on artifact `temp/visibility-to-surface/5d231cab-0661-4216-af18-dcfc56126270/report.json` 均为三次独立 session，`provenanceErrors=[]`、`browserErrors=[]`、`gateErrors=[]`，validation/uncaptured/deviceLost 均为 0。on 的 `visibleHitRatio` 为 `0.9986851093` 三次，达到 90% 子门槛；near-plane 的完整图像/数值 parity 仍未由 runner 证明。
+- Step 2 / M6 v1/v2 candidate: v1 artifact `temp/visibility-to-surface/f9d12b06-1a20-4694-83b0-c4aa4f36f5b3/report.json`，v2 artifact `temp/visibility-to-surface/0adf7117-320d-404d-9fe6-4c073abd49c2/report.json`，均为 `comprehensive-full` 三次独立 session且 diagnostics 全 0。v1 Surface 为 26 B/pixel、attachment 53,913,600 B、resolve P50 6.063872 ms；v2 candidate 为 22 B/pixel、attachment 45,619,200 B、resolve P50 4.113392 ms，candidate resident P95 1,603,876,119 B 低于 v1 1,612,170,519 B。由于两组尚未产出同一 runGroup 的 paired readback parity、conversion pass 和 transient peak，`surfaceAbiV2` 仍保持 `insufficient-evidence`，生产继续 v1。
+- Step 3 / final synchronization: 旧 artifact 中 NVIDIA/Turing adapter 的 `depth32float + depthCompare=equal` probe 曾因 read-only depth attachment validation 被拒绝；本批已修复描述符，后续必须在 clean commit 上重跑以确认 `class-depth`。旧 artifact 仍不关闭 M3 class-depth 性能 Gate。M7 仍缺第二 GPU vendor，保持 `insufficient-evidence`，不创建 Tile runtime。
+
 ### 2026-09-07 M0 pre-implementation audit
 
 - Unit evidence baseline: `performance-capture.test.mjs`、`benchmark-evidence-gate.test.mjs`、`pipeline-profile-evidence.test.mjs` 共 15 项通过。
@@ -805,6 +811,12 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - Verification: `npm run build`、`npm run build:test`；M3 专项 `packed-material-class-depth.test.mjs` 3/3，通过现有 Material/FrameGraph/P3 targeted tests。Shader source audit 已更新为 70 个 authored/live 条目。
 - Not run: Rendering Lab 三次独立 legacy/class-depth/class-discard 正式 A/B、截图 bit parity、真实 adapter depth-equal 性能与 feature-off 浏览器证据；当前环境没有可复用的 M3 release profile，不能宣称 RFC 的 15%/10% 性能 Gate 或 M3 完成。
 - Gate conclusion: M3 代码路径已接通，状态为 `implemented-awaiting-evidence`；M4 继续 blocked，Pixel Queue 与 `VisiblePixelClassifier` 暂不删除。
+
+### 2026-09-08 三步批次追加：M3 probe 修复与证据边界
+
+- Step 1 / M3 implementation correction: `MaterialClassDepthProbe` 的只读 depth verification pass 已移除 `depthLoadOp`/`depthStoreOp`。WebGPU 规定 `depthReadOnly=true` 时不得提供这两个字段；此前 NVIDIA/Turing 的 fallback 原因就是该 validation error。
+- Step 2 / regression coverage: 新增 source-level 回归测试，固定只读 attachment 描述符不再回归；`OEngine/npm test` 当前 440/440 通过。
+- Step 3 / formal evidence: 已重新启动 `comprehensive-full` formal runner，但本次浏览器 fixture 尚未返回 ready/report，故没有生成新的 GPU artifact。旧的 M5/M6 artifact 继续按此前记录使用，M3 class-depth A/B 仍必须在新 probe 修复后的 clean commit 上重跑，不能把本次代码修复当成正式 Gate 通过。
 
 ### 2026-09-07 M4 implementation closure
 

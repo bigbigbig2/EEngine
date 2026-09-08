@@ -30,3 +30,11 @@ test("Renderer records and consumes the adapter backend selection", () => {
   assert.match(source, /_materialResolveSelection\?\.backend \?\? "class-discard"/);
   assert.match(source, /MaterialClassDepth validation failed; using class-discard correctness fallback/);
 });
+
+test("depth-equal verification keeps read-only depth attachment fields omitted", () => {
+  const source = readFileSync(new URL("../src/render/MaterialClassDepthProbe.ts", import.meta.url), "utf8");
+  const verifyAttachment = source.match(/label: "MaterialClassDepth probe\/verify equal"[\s\S]*?depthStencilAttachment: \{([\s\S]*?)\n      \}/)?.[1];
+  assert.ok(verifyAttachment, "verification pass depth attachment should remain explicit");
+  assert.match(verifyAttachment, /depthReadOnly: true/);
+  assert.doesNotMatch(verifyAttachment, /depth(?:Load|Store)Op/);
+});
