@@ -19,6 +19,7 @@ import { resolveRenderingLabWorkload } from "./benchmark-workloads.ts";
 const workloadId = process.argv[2] ?? "cube-near-effects-off";
 resolveRenderingLabWorkload(workloadId);
 const smoke = process.env.OENGINE_BENCHMARK_SMOKE === "true";
+const awaitGpuEachFrame = process.env.OENGINE_BENCHMARK_AWAIT_GPU === "true";
 const width = Number(process.env.OENGINE_BENCHMARK_WIDTH ?? 1920);
 const height = Number(process.env.OENGINE_BENCHMARK_HEIGHT ?? 1080);
 const baseUrl = process.env.OENGINE_RENDERING_LAB_BASE_URL ?? "http://127.0.0.1:5173";
@@ -78,6 +79,7 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
       smoke,
       triangleSetupEnabled,
       triangleSetupThresholdPixels
+      ,awaitGpuEachFrame
     }) => {
       const fixture = window.__OENGINE_RENDERING_LAB_FIXTURE__;
       if (!fixture) throw new Error("Rendering Lab fixture bridge missing");
@@ -91,7 +93,8 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
         // turning a slow adapter into artificial dropped-counter evidence.
         readbackRingSlots: 64,
         triangleSetupEnabled,
-        triangleSetupThresholdPixels
+        triangleSetupThresholdPixels,
+        awaitGpuEachFrame
       });
     }, {
       workloadId,
@@ -99,7 +102,8 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
       runOrdinal,
       smoke,
       triangleSetupEnabled,
-      triangleSetupThresholdPixels
+      triangleSetupThresholdPixels,
+      awaitGpuEachFrame
     });
     await page.screenshot({
       path: path.join(outputDir, `run-${runOrdinal}.png`),
