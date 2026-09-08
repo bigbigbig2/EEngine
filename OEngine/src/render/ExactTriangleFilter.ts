@@ -178,10 +178,7 @@ export class ExactTriangleFilter {
       }, buffers);
       const dispatchIndirect = this.createInitializedBuffer({
         label: "Exact triangle filter dispatchIndirect",
-        // The filter shader keeps a setup-record binding in its fixed ABI.
-        // When setup is disabled this buffer is the unreachable dummy, but it
-        // still needs to satisfy that binding's minimum array element size.
-        size: Math.max(GPU_DISPATCH_INDIRECT_ARGS_SIZE, GPU_TRIANGLE_SETUP_RECORD_STRIDE),
+        size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
       }, new Uint8Array(new Uint32Array([0, 1, 1]).buffer), buffers);
       const rasterWork = this.createInitializedBuffer({
@@ -207,7 +204,10 @@ export class ExactTriangleFilter {
           });
       const drawIndirect = this.createInitializedBuffer({
         label: "Exact OPAQUE/MASK drawIndirect",
-        size: GPU_DRAW_INDIRECT_ARGS_SIZE * 2,
+        // When setup is disabled this existing buffer is also the unreachable
+        // setup-record dummy. Keep one full record of binding capacity without
+        // adding a feature-off allocation.
+        size: Math.max(GPU_DRAW_INDIRECT_ARGS_SIZE * 2, GPU_TRIANGLE_SETUP_RECORD_STRIDE),
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
       }, new Uint8Array(new Uint32Array([0, 1, 0, 0, 0, 1, inputs.candidateCapacity * 3, 0]).buffer), buffers);
       const filterGroup = this.device.createBindGroup({
@@ -228,7 +228,7 @@ export class ExactTriangleFilter {
           // already-owned, distinct storage buffer so WebGPU does not reject
           // writable aliasing with the counter binding; feature-off still
           // owns no setup allocation.
-          { binding: 10, resource: { buffer: setupRecords ?? dispatchIndirect } },
+          { binding: 10, resource: { buffer: setupRecords ?? drawIndirect } },
           { binding: 11, resource: { buffer: inputs.counterBuffer } }
         ]
       });
@@ -323,7 +323,7 @@ export class ExactTriangleFilter {
          { binding: 7, resource: { buffer: state.assets.meshletVertexIndices } },
          { binding: 8, resource: { buffer: state.assets.meshletTriangleIndices } },
          { binding: 9, resource: { buffer: state.assets.vertexStreamData } },
-         { binding: 10, resource: { buffer: state.setupRecords ?? state.dispatchIndirect } },
+         { binding: 10, resource: { buffer: state.setupRecords ?? state.drawIndirect } },
          { binding: 11, resource: { buffer: state.counterBuffer } }
       ]
     });
