@@ -81,7 +81,7 @@ const browserErrors = [];
         smoke: true,
         workloadId,
         runGroupId: `preflight-${crypto.randomUUID()}`,
-        runOrdinal: -1,
+        runOrdinal: 0,
         inspectorVisible: false,
         readbackRingSlots: 64,
         triangleSetupEnabled,
