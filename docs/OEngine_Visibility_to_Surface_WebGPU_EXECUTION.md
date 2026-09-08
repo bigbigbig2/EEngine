@@ -817,6 +817,7 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - Step 1 / M3 implementation correction: `MaterialClassDepthProbe` 的只读 depth verification pass 已移除 `depthLoadOp`/`depthStoreOp`。WebGPU 规定 `depthReadOnly=true` 时不得提供这两个字段；此前 NVIDIA/Turing 的 fallback 原因就是该 validation error。
 - Step 2 / regression coverage: 新增 source-level 回归测试，固定只读 attachment 描述符不再回归；`OEngine/npm test` 当前 440/440 通过。
 - Step 3 / formal evidence: 已重新启动 `comprehensive-full` formal runner，但本次浏览器 fixture 尚未返回 ready/report，故没有生成新的 GPU artifact。旧的 M5/M6 artifact 继续按此前记录使用，M3 class-depth A/B 仍必须在新 probe 修复后的 clean commit 上重跑，不能把本次代码修复当成正式 Gate 通过。
+- Clean rerun result: `temp/visibility-to-surface/7ccf8b4e-bbfb-45aa-a5cc-78b8c938c11f/report.json` 在提交 `b8df85e` 上完成 3/3 独立 session，`provenanceErrors=[]`、`browserErrors=[]`、`gateErrors=[]`；三次 `materialResolveBackend=class-depth` 且 `source=adapter-probe`。这只关闭 probe validation blocker，不替代 M3 legacy/class-depth/class-discard correctness、性能和截图 parity Gate。
 
 ### 2026-09-07 M4 implementation closure
 

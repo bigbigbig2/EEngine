@@ -838,6 +838,8 @@ Adaptive cache 的关键是：这个 setup 只有在 triangle 的 screen coverag
 2. 新增回归断言并完成本地全量测试 440/440；这证明描述符和代码路径正确，不等同于浏览器 GPU A/B Gate。
 3. formal runner 已启动但本次未产出 ready artifact，因此 M3 正式 legacy/class-depth/class-discard parity、M5 完整正确性/性能 Gate、M6 paired parity/transient evidence、M7 第二 vendor 仍保持未完成。生产 Surface ABI 继续 v1，Tile runtime 不创建。
 
+补充：clean commit `b8df85e` 的 `comprehensive-full` artifact `7ccf8b4e-bbfb-45aa-a5cc-78b8c938c11f` 已在 3/3 独立 session 中通过 provenance/browser/gate diagnostics，且三次均由 adapter probe 选择 `class-depth`。这关闭了 probe validation blocker，但不等同于 M3 legacy A/B 或完整 correctness/performance Gate。
+
 # 附录 C. Benchmark 矩阵
 
 | 变量 | 取值 |
