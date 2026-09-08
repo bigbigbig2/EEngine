@@ -49,6 +49,51 @@ await mkdir(outputDir, { recursive: true });
 
 const runs = [];
 const browserErrors = [];
+// Warm the selected backend once so first-use shader/frame-graph compilation
+// cannot change the first measured session's visibility result. This run is
+// deliberately excluded from the formal three-session artifact.
+{
+  const browser = await chromium.launch({
+    channel: "chrome",
+    headless: process.env.OENGINE_HEADLESS !== "false",
+    args: ["--enable-unsafe-webgpu", "--ignore-gpu-blocklist"]
+  });
+  try {
+    const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+    page.on("console", (message) => {
+      if (message.type() === "error") browserErrors.push(`preflight console: ${message.text()}`);
+    });
+    page.on("pageerror", (error) => browserErrors.push(`preflight pageerror: ${error.message}`));
+    const preflightUrl = new URL("/rendering-lab/", baseUrl);
+    preflightUrl.searchParams.set("surfaceAbiProfile", surfaceAbiProfile);
+    if (materialResolveBackend !== "auto") preflightUrl.searchParams.set("materialResolveBackend", materialResolveBackend);
+    await page.goto(preflightUrl.toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.waitForFunction(
+      () => document.querySelector("#showcase")?.dataset.state === "ready",
+      null,
+      { timeout: 120_000 }
+    );
+    await page.waitForTimeout(1500);
+    const fixture = await page.evaluateHandle(() => window.__OENGINE_RENDERING_LAB_FIXTURE__);
+    await page.evaluate(async ({ fixture, workloadId, triangleSetupEnabled, triangleSetupThresholdPixels, awaitGpuEachFrame }) => {
+      if (!fixture) throw new Error("Rendering Lab fixture bridge missing during preflight");
+      await fixture.runBenchmark({
+        smoke: true,
+        workloadId,
+        runGroupId: `preflight-${crypto.randomUUID()}`,
+        runOrdinal: -1,
+        inspectorVisible: false,
+        readbackRingSlots: 64,
+        triangleSetupEnabled,
+        triangleSetupThresholdPixels,
+        awaitGpuEachFrame
+      });
+    }, { fixture, workloadId, triangleSetupEnabled, triangleSetupThresholdPixels, awaitGpuEachFrame });
+    await fixture.dispose().catch(() => {});
+  } finally {
+    await browser.close();
+  }
+}
 for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
   const browser = await chromium.launch({
     channel: "chrome",
