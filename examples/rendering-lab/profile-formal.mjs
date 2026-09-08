@@ -72,6 +72,11 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
       null,
       { timeout: 120_000 }
     );
+    // Let the ready page finish its startup render/pipeline warm-up before the
+    // benchmark controller starts its measured epoch. This is outside the
+    // formal 120+480 cadence and prevents first-session initialization from
+    // contaminating visibility parity.
+    await page.waitForTimeout(1500);
     const report = await page.evaluate(async ({
       workloadId,
       runGroupId,
