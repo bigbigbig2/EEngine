@@ -106,7 +106,7 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
       fullPage: true
     });
     const canvasPath = path.join(outputDir, `canvas-${runOrdinal}.png`);
-    await page.locator("canvas").screenshot({ path: canvasPath });
+    await page.locator("#gpu-canvas").screenshot({ path: canvasPath });
     const canvasSha256 = createHash("sha256")
       .update(await readFile(canvasPath))
       .digest("hex");
