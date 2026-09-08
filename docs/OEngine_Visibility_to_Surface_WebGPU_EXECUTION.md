@@ -826,6 +826,8 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - Change: resolve fragment output now adds `@builtin(frag_depth)` and writes the same `(OENGINE_ACTIVE_KERNEL_CLASS + 1) / 8` value as the producer. `class-depth` remains `depthCompare="equal"`; `class-discard` remains the correctness fallback.
 - Browser evidence: `temp/visibility-to-surface/2d43f99c-e967-43d6-b753-1fea54b48fe6/` shows the red cube restored under class-depth. It is a dirty 30+60 development smoke and does not close the formal Gate; the earlier `cff35f...`/`94539...` black-screen A/B remains the regression artifact.
 - Test evidence: `OEngine/npm test` 440/440. Formal three-session A/B, pixel parity, M3 P50/P95 and legacy baseline remain open, so M3 stays `implemented-awaiting-evidence`.
+- Clean formal rerun: class-depth `temp/visibility-to-surface/2c09e8eb-0a9a-44ab-ac1a-4a258cd7446f/report.json` and class-discard `temp/visibility-to-surface/361d9a01-4563-41c8-bc02-1c660ce80e1e/report.json` each passed 3 independent sessions at 1920x1080/DPR1, 120+480 cadence, with empty provenance/browser/GPU diagnostics. Screenshots from both groups show the restored red cube. Resolve P50s: class-depth 2.370464/2.579264/2.535376 ms; class-discard 2.476624/2.510848/2.462496 ms.
+- Status: the black-screen correctness regression is fixed and the clean backend A/B evidence is recorded. M3 is still not release-complete because the harness does not yet produce identity-bearing per-attachment pixel parity against a clean legacy baseline; performance numbers are therefore comparative evidence, not the final 15%/10% Gate result.
 
 ### 2026-09-07 M4 implementation closure
 
