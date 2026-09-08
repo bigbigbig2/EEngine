@@ -23,10 +23,6 @@ const awaitGpuEachFrame = process.env.OENGINE_BENCHMARK_AWAIT_GPU === "true";
 const width = Number(process.env.OENGINE_BENCHMARK_WIDTH ?? 1920);
 const height = Number(process.env.OENGINE_BENCHMARK_HEIGHT ?? 1080);
 const baseUrl = process.env.OENGINE_RENDERING_LAB_BASE_URL ?? "http://127.0.0.1:5173";
-const surfaceAbiProfile = process.env.OENGINE_SURFACE_ABI_PROFILE ?? "v1";
-if (surfaceAbiProfile !== "v1" && surfaceAbiProfile !== "v2-candidate") {
-  throw new Error(`Unsupported OENGINE_SURFACE_ABI_PROFILE: ${surfaceAbiProfile}`);
-}
 const materialResolveBackend = process.env.OENGINE_MATERIAL_RESOLVE_BACKEND ?? "auto";
 if (!["auto", "class-depth", "class-discard"].includes(materialResolveBackend)) {
   throw new Error(`Unsupported OENGINE_MATERIAL_RESOLVE_BACKEND: ${materialResolveBackend}`);
@@ -65,7 +61,6 @@ const browserErrors = [];
     });
     page.on("pageerror", (error) => browserErrors.push(`preflight pageerror: ${error.message}`));
     const preflightUrl = new URL("/rendering-lab/", baseUrl);
-    preflightUrl.searchParams.set("surfaceAbiProfile", surfaceAbiProfile);
     if (materialResolveBackend !== "auto") preflightUrl.searchParams.set("materialResolveBackend", materialResolveBackend);
     await page.goto(preflightUrl.toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });
     await page.waitForFunction(
@@ -107,7 +102,6 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
     });
     page.on("pageerror", (error) => browserErrors.push(`run ${runOrdinal} pageerror: ${error.message}`));
     const renderingLabUrl = new URL("/rendering-lab/", baseUrl);
-    renderingLabUrl.searchParams.set("surfaceAbiProfile", surfaceAbiProfile);
     if (materialResolveBackend !== "auto") {
       renderingLabUrl.searchParams.set("materialResolveBackend", materialResolveBackend);
     }
@@ -179,7 +173,7 @@ const triangleSetupGate = evaluateTriangleSetupDefaultNeed(
   runs.map((report) => triangleSetupRunEvidence(report, triangleSetupCaseId))
 );
 const migrationGates = {
-  surfaceAbiV2: evaluateSurfaceAbiV2RunGroupNeed(
+  surfaceAbi: evaluateSurfaceAbiV2RunGroupNeed(
     runs.flatMap((report) => surfaceAbiRunEvidence(report))
   ),
   tileBackend: evaluateTileBackendRunGroupNeed(
@@ -198,7 +192,6 @@ const gateErrors = runs.flatMap((report, runOrdinal) =>
 const artifact = {
   schemaVersion: 1,
   workloadId,
-  surfaceAbiProfile,
   materialResolveBackend,
   triangleSetupEnabled,
   triangleSetupThresholdPixels,

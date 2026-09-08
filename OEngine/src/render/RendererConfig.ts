@@ -14,8 +14,6 @@ export interface RendererConfig {
   readonly enableGTAO?: boolean;
   readonly enableSSSR?: boolean;
   readonly enableTAAU?: boolean;
-  /** Surface ABI profile; v2 candidate is isolated and never the default. */
-  readonly surfaceAbiProfile?: "v1" | "v2-candidate";
   /** Maximum per-layer resolution used by the packed texture residency bank. */
   readonly textureMaxResolution?: 256 | 512 | 1024 | 2048 | 4096;
   /** 提交给 adapter/device 的额外必需能力；缺失时初始化明确失败。 */
@@ -107,11 +105,6 @@ export function rendererConfigSettingsPatch(
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
-  if (config.surfaceAbiProfile !== undefined &&
-      config.surfaceAbiProfile !== "v1" &&
-      config.surfaceAbiProfile !== "v2-candidate") {
-    throw new RangeError("surfaceAbiProfile must be 'v1' or 'v2-candidate'");
-  }
   if (config.textureMaxResolution !== undefined &&
       ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)) {
     throw new RangeError("textureMaxResolution must be one of 256, 512, 1024, 2048 or 4096");

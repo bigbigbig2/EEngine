@@ -18,9 +18,7 @@ import {
 } from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
 import {
   GPU_SURFACE_ABI_VERSION,
-  GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA,
-  gpuSurfaceBytesPerPixel,
-  gpuSurfaceCandidateBytesPerPixel
+  gpuSurfaceBytesPerPixel
 } from "../../OEngine/src/gpu/GpuSurfaceAbi.js";
 import {
   modelTileBackendCost,
@@ -113,22 +111,11 @@ export interface RenderingLabTriangleSetupCaseEvidence {
 export interface RenderingLabSurfaceAbiEvidence {
   readonly schemaVersion: 1;
   readonly activeAbiVersion: number;
-  readonly activeAbiProfile: "v1" | "v2-candidate" | "unknown";
-  readonly candidateContractVersion: number;
-  readonly promotionGate: typeof GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.promotionGate;
+  readonly bytesPerPixelWithVelocity: number;
+  readonly bytesPerPixelWithoutVelocity: number;
   readonly cases: Readonly<Record<string, RenderingLabSurfaceAbiCaseEvidence>>;
-  readonly candidateLayout: Readonly<{
-    readonly schemaVersion: 2;
-    readonly normalFormat: string;
-    readonly normalEncodingMaxValue: number;
-    readonly normalEncodingScheme: string;
-    readonly baselineBytesPerPixelWithVelocity: number;
-    readonly candidateBytesPerPixelWithVelocity: number;
-    readonly baselineBytesPerPixelWithoutVelocity: number;
-    readonly candidateBytesPerPixelWithoutVelocity: number;
-  }>;
-  /** M6 remains evidence-gated; absent candidate artifacts are explicit. */
-  readonly v2Gate: SurfaceAbiDecision;
+  /** M6 evidence remains optional; missing fields stay explicit. */
+  readonly evidenceGate: SurfaceAbiDecision;
 }
 
 export interface RenderingLabSurfaceAbiCaseEvidence {
@@ -270,24 +257,13 @@ function buildSurfaceAbiEvidence(
   return Object.freeze({
     schemaVersion: 1,
     activeAbiVersion: migration?.surfaceAbiVersion ?? GPU_SURFACE_ABI_VERSION,
-    activeAbiProfile: migration?.surfaceAbiProfile ?? "unknown",
-    candidateContractVersion: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.version,
-    promotionGate: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.promotionGate,
     cases: Object.freeze(byCase),
-    candidateLayout: Object.freeze({
-      schemaVersion: 2 as const,
-      normalFormat: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.formats.normal,
-      normalEncodingMaxValue: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.normalEncoding.maxValue,
-      normalEncodingScheme: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.normalEncoding.scheme,
-      baselineBytesPerPixelWithVelocity: gpuSurfaceBytesPerPixel({ velocity: true }),
-      candidateBytesPerPixelWithVelocity: gpuSurfaceCandidateBytesPerPixel({ velocity: true }),
-      baselineBytesPerPixelWithoutVelocity: gpuSurfaceBytesPerPixel({ velocity: false }),
-      candidateBytesPerPixelWithoutVelocity: gpuSurfaceCandidateBytesPerPixel({ velocity: false })
-    }),
-    v2Gate: runs === null
+    bytesPerPixelWithVelocity: gpuSurfaceBytesPerPixel({ velocity: true }),
+    bytesPerPixelWithoutVelocity: gpuSurfaceBytesPerPixel({ velocity: false }),
+    evidenceGate: runs === null
       ? Object.freeze({
         status: "insufficient-evidence",
-        reason: "no identity-bearing Surface ABI candidate run group was supplied"
+        reason: "no identity-bearing unified Surface ABI run group was supplied"
       })
       : evaluateSurfaceAbiV2RunGroupNeed(runs)
   });
@@ -295,28 +271,25 @@ function buildSurfaceAbiEvidence(
 
 function migrationEvidence(
   domainEvidence?: Readonly<Record<string, unknown>>
-): { readonly surfaceAbiVersion: number; readonly surfaceAbiProfile: "v1" | "v2-candidate" } | null {
+): { readonly surfaceAbiVersion: number } | null {
   const migration = domainEvidence?.migration;
   if (typeof migration !== "object" || migration === null || Array.isArray(migration)) return null;
   const value = migration as {
     readonly surfaceAbiVersion?: unknown;
-    readonly surfaceAbiProfile?: unknown;
   };
   if (
     typeof value.surfaceAbiVersion !== "number" ||
     !Number.isInteger(value.surfaceAbiVersion) ||
-    value.surfaceAbiVersion <= 0 ||
-    (value.surfaceAbiProfile !== "v1" && value.surfaceAbiProfile !== "v2-candidate")
+    value.surfaceAbiVersion <= 0
   ) return null;
   return {
-    surfaceAbiVersion: value.surfaceAbiVersion,
-    surfaceAbiProfile: value.surfaceAbiProfile
+    surfaceAbiVersion: value.surfaceAbiVersion
   };
 }
 
 interface RenderingLabMigrationGates {
   readonly schemaVersion: 1;
-  readonly surfaceAbiV2: SurfaceAbiDecision;
+  readonly surfaceAbi: SurfaceAbiDecision;
   readonly tileBackend: TileBackendDecision;
 }
 
@@ -327,10 +300,10 @@ function buildMigrationGates(
   const tileRuns = readTileBackendRuns(domainEvidence);
   return Object.freeze({
     schemaVersion: 1,
-    surfaceAbiV2: surfaceRuns === null
+    surfaceAbi: surfaceRuns === null
       ? Object.freeze({
         status: "insufficient-evidence",
-        reason: "M6 candidate artifacts are not present; keep Surface ABI v1"
+        reason: "M6 unified Surface ABI evidence is not present"
       })
       : evaluateSurfaceAbiV2RunGroupNeed(surfaceRuns),
     tileBackend: tileRuns === null

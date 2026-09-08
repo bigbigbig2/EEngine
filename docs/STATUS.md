@@ -73,7 +73,7 @@ Shader audit 当前记录 70 个 Shader：66 个 `authored-live`、4 个 `unknow
 
 1. 在 clean commit 上按执行文档分别运行 `class-depth` / `class-discard` 与 TriangleSetup off/on 的三次正式 profile；历史 legacy 基线从 clean `68750c2` 采集，不在当前源码恢复旧 backend。
 2. 已完成 `heavy-overdraw-large-occluder` 的 M5 opt-in 三次 run；下一步补齐同一 adapter 的 `near-plane-motion` 三次 run，并将 off/on 的 attachment parity、GPU P50/P95、P99、fallback 和 memory peak 汇总后再决定是否把 cache 改为默认。
-3. 运行 v1/v2-candidate 完整 composition A/B，并补齐两个 GPU vendor 的 M7 timing evidence；Gate 不触发则继续不创建 tile runtime。
+3. 补齐统一 Surface ABI 的 composition/内存证据，并补齐两个 GPU vendor 的 M7 timing evidence；Gate 不触发则继续不创建 tile runtime。
 4. 继续补齐逐帧 FrameGraph/resource evidence，并记录 device loss、resize、feature toggle 后的浏览器证据。
 5. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
 6. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。

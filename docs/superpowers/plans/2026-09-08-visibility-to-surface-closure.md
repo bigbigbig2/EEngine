@@ -104,7 +104,7 @@
 - Modify: `docs/OEngine_Visibility_to_Surface_WebGPU_EXECUTION.md`
 
 **Interfaces:**
-- Consumes: v1/v2-candidate captures for comprehensive-full, material-mosaic-7, and near-plane-motion.
+- Consumes: unified Surface ABI captures for comprehensive-full, material-mosaic-7, and near-plane-motion.
 - Produces: three paired identity-bearing `SurfaceAbiRunEvidence` entries per workload and an accepted/rejected M6 decision.
 
 - [ ] **Step 1: Build paired Surface ABI evidence**

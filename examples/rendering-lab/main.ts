@@ -212,19 +212,15 @@ async function initialize(): Promise<void> {
   const textureMaxResolution = parseTextureMaxResolution(
     new URLSearchParams(window.location.search).get("textureMaxResolution")
   );
-  const surfaceAbiProfile = parseSurfaceAbiProfile(
-    new URLSearchParams(window.location.search).get("surfaceAbiProfile")
-  );
   const materialResolveBackend = parseMaterialResolveBackend(
     new URLSearchParams(window.location.search).get("materialResolveBackend")
   );
   setMaterialResolveBackendBenchmarkOverride(materialResolveBackend);
   const activeRenderer = new Renderer(
-    textureMaxResolution === undefined && surfaceAbiProfile === undefined
+    textureMaxResolution === undefined
       ? undefined
       : {
-        ...(textureMaxResolution === undefined ? {} : { textureMaxResolution }),
-        ...(surfaceAbiProfile === undefined ? {} : { surfaceAbiProfile })
+        ...(textureMaxResolution === undefined ? {} : { textureMaxResolution })
       }
   );
   renderer = activeRenderer;
@@ -1239,11 +1235,6 @@ function parseTextureMaxResolution(value: string | null): 256 | 512 | 1024 | 204
   return parsed === 256 || parsed === 512 || parsed === 1024 || parsed === 2048 || parsed === 4096
     ? parsed
     : undefined;
-}
-
-function parseSurfaceAbiProfile(value: string | null): "v1" | "v2-candidate" | undefined {
-  if (value === "v1" || value === "v2-candidate") return value;
-  return undefined;
 }
 
 function parseMaterialResolveBackend(value: string | null): "class-depth" | "class-discard" | null {

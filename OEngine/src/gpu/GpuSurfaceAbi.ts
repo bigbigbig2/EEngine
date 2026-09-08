@@ -19,20 +19,9 @@ export const GPU_SURFACE_FORMATS = Object.freeze({
   hdrColor: "rgba16float"
 } as const);
 
-/**
- * M6 candidate only.  This is deliberately not wired into RenderTargets or
- * any pipeline until the identity-bearing parity/bytes/memory gate passes.
- * Keeping the candidate here gives the A/B harness one canonical layout to
- * compare instead of letting each benchmark invent a format contract.
- */
-export const GPU_SURFACE_ABI_V2_CANDIDATE_FORMATS = Object.freeze({
-  ...GPU_SURFACE_FORMATS,
-  normal: "rgba8uint"
-} as const);
-
 export interface GpuSurfaceNormalEncoding {
-  readonly format: "rgba16uint" | "rgba8uint";
-  readonly maxValue: 255 | 65535;
+  readonly format: "rgba16uint";
+  readonly maxValue: 65535;
 }
 
 export const GPU_SURFACE_NORMAL_OVERRIDE_NAME = "OENGINE_SURFACE_NORMAL_MAX_VALUE" as const;
@@ -40,11 +29,6 @@ export const GPU_SURFACE_NORMAL_OVERRIDE_NAME = "OENGINE_SURFACE_NORMAL_MAX_VALU
 export const GPU_SURFACE_NORMAL_ENCODING_V1: GpuSurfaceNormalEncoding = Object.freeze({
   format: "rgba16uint",
   maxValue: 65535
-});
-
-export const GPU_SURFACE_NORMAL_ENCODING_V2_CANDIDATE: GpuSurfaceNormalEncoding = Object.freeze({
-  format: "rgba8uint",
-  maxValue: 255
 });
 
 /** WGSL declaration shared by Surface-normal consumers; pipeline may override the default. */
@@ -56,7 +40,7 @@ override ${GPU_SURFACE_NORMAL_OVERRIDE_NAME}: f32 = ${GPU_SURFACE_NORMAL_ENCODIN
 export function gpuSurfaceNormalPipelineConstants(
   encoding: GpuSurfaceNormalEncoding = GPU_SURFACE_NORMAL_ENCODING_V1
 ): Readonly<Record<typeof GPU_SURFACE_NORMAL_OVERRIDE_NAME, number>> {
-  if (encoding.maxValue !== 255 && encoding.maxValue !== 65535) {
+  if (encoding.maxValue !== 65535) {
     throw new RangeError("Unsupported Surface normal encoding max value");
   }
   return Object.freeze({
@@ -103,10 +87,6 @@ export const GPU_SURFACE_BYTES_PER_PIXEL =
   GPU_SURFACE_ATTACHMENT_BYTES.velocity +
   GPU_SURFACE_ATTACHMENT_BYTES.metadata;
 
-/** Candidate layout byte count; GPU_SURFACE_ABI_VERSION remains v1. */
-export const GPU_SURFACE_ABI_V2_CANDIDATE_BYTES_PER_PIXEL =
-  GPU_SURFACE_BYTES_PER_PIXEL - GPU_SURFACE_ATTACHMENT_BYTES.normal + 4;
-
 export function gpuSurfaceBytesPerPixel(
   options: Readonly<{ velocity: boolean }>
 ): number {
@@ -114,25 +94,16 @@ export function gpuSurfaceBytesPerPixel(
     (options.velocity ? 0 : GPU_SURFACE_ATTACHMENT_BYTES.velocity);
 }
 
-export function gpuSurfaceCandidateBytesPerPixel(
-  options: Readonly<{ velocity: boolean }>
-): number {
-  return GPU_SURFACE_ABI_V2_CANDIDATE_BYTES_PER_PIXEL -
-    (options.velocity ? 0 : GPU_SURFACE_ATTACHMENT_BYTES.velocity);
-}
-
 export interface GpuSurfaceAbiProfile {
   readonly version: number;
-  readonly formats:
-    | typeof GPU_SURFACE_FORMATS
-    | typeof GPU_SURFACE_ABI_V2_CANDIDATE_FORMATS;
+  readonly formats: typeof GPU_SURFACE_FORMATS;
   readonly normalEncoding: GpuSurfaceNormalEncoding;
   readonly bytesPerPixelWithVelocity: number;
   readonly bytesPerPixelWithoutVelocity: number;
   readonly benchmarkOnly: boolean;
 }
 
-/** Active production profile; changing this requires the M6 promotion gate. */
+/** The only runtime Surface profile. */
 export const GPU_SURFACE_ABI_V1_PROFILE: GpuSurfaceAbiProfile = Object.freeze({
   version: GPU_SURFACE_ABI_VERSION,
   formats: GPU_SURFACE_FORMATS,
@@ -140,16 +111,6 @@ export const GPU_SURFACE_ABI_V1_PROFILE: GpuSurfaceAbiProfile = Object.freeze({
   bytesPerPixelWithVelocity: gpuSurfaceBytesPerPixel({ velocity: true }),
   bytesPerPixelWithoutVelocity: gpuSurfaceBytesPerPixel({ velocity: false }),
   benchmarkOnly: false
-});
-
-/** Isolated M6 candidate profile; never selected by the production Renderer. */
-export const GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE: GpuSurfaceAbiProfile = Object.freeze({
-  version: 2,
-  formats: GPU_SURFACE_ABI_V2_CANDIDATE_FORMATS,
-  normalEncoding: GPU_SURFACE_NORMAL_ENCODING_V2_CANDIDATE,
-  bytesPerPixelWithVelocity: gpuSurfaceCandidateBytesPerPixel({ velocity: true }),
-  bytesPerPixelWithoutVelocity: gpuSurfaceCandidateBytesPerPixel({ velocity: false }),
-  benchmarkOnly: true
 });
 
 /** CPU oracle shared by M6 artifact preparation; WGSL must match truncation. */
@@ -263,30 +224,6 @@ export const GPU_SURFACE_ABI_SCHEMA = Object.freeze({
     })
   }),
   velocity: GPU_SURFACE_VELOCITY_CONVENTION
-});
-
-/** Serializable M6 candidate schema; never used by the v1 runtime producer. */
-export const GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA = Object.freeze({
-  ...GPU_SURFACE_ABI_SCHEMA,
-  name: "OEngineSurfaceV2Candidate",
-  version: GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE.version,
-  formats: GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE.formats,
-  bytesPerPixel: GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE.bytesPerPixelWithVelocity,
-  bytesPerPixelWithVelocity: GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE.bytesPerPixelWithVelocity,
-  bytesPerPixelWithoutVelocity: GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE.bytesPerPixelWithoutVelocity,
-  normalEncoding: Object.freeze({
-    format: GPU_SURFACE_NORMAL_ENCODING_V2_CANDIDATE.format,
-    maxValue: GPU_SURFACE_NORMAL_ENCODING_V2_CANDIDATE.maxValue,
-    scheme: "octahedral-unorm-trunc" as const
-  }),
-  promotionGate: Object.freeze({
-    activeRuntimeVersion: GPU_SURFACE_ABI_VERSION,
-    minimumIndependentRuns: 3,
-    requireCorrectnessParity: true,
-    requireConversionPassesAdded: 0,
-    requireResidentPeakNonIncrease: true,
-    requireTransientPeakNonIncrease: true
-  })
 });
 
 export function packGpuSurfaceMetadata(

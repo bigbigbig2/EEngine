@@ -10,7 +10,6 @@ import { GPU_VISIBILITY_KEY_ABI_VERSION } from "../gpu/GpuVisibilityKeyAbi.js";
 import {
   GPU_SURFACE_ABI_VERSION,
   GPU_SURFACE_ABI_V1_PROFILE,
-  GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE,
   type GpuSurfaceAbiProfile
 } from "../gpu/GpuSurfaceAbi.js";
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../gpu/TextureResidency.js";
@@ -313,7 +312,6 @@ export interface VisibilitySurfaceMigrationEvidence {
   readonly visibilityKeyAbiVersion: number;
   readonly exactRasterAbiVersion: number;
   readonly surfaceAbiVersion: number;
-  readonly surfaceAbiProfile: "v1" | "v2-candidate";
   readonly materialResolveBackend: string;
   readonly materialResolveBackendSelection: Readonly<{
     readonly source: string;
@@ -321,7 +319,7 @@ export interface VisibilitySurfaceMigrationEvidence {
   }>;
   readonly triangleSetupEnabled: boolean;
   readonly triangleSetupThresholdPixels: number;
-  readonly surfaceAbiV2: Readonly<{
+  readonly surfaceAbiEvidence: Readonly<{
     readonly status: "insufficient-evidence";
     readonly reason: string;
   }>;
@@ -514,9 +512,7 @@ export class Renderer {
   constructor(config: RendererConfig = {}) {
     this._rendererConfig = mergeRendererConfig(DEFAULT_RENDERER_CONFIG, config);
     validateRendererConfig(this._rendererConfig);
-    this._surfaceAbiProfile = this._rendererConfig.surfaceAbiProfile === "v2-candidate"
-      ? GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE
-      : GPU_SURFACE_ABI_V1_PROFILE;
+    this._surfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE;
     this._renderSettings.update(rendererConfigSettingsPatch(this._rendererConfig));
     this._temporalFeature.dynamicResolution.get_scale = () => this.internal_resolution_scale;
     this._temporalFeature.dynamicResolution.set_scale = (scale) => {
@@ -902,9 +898,6 @@ export class Renderer {
       visibilityKeyAbiVersion: GPU_VISIBILITY_KEY_ABI_VERSION,
       exactRasterAbiVersion: GPU_EXACT_RASTER_ABI_VERSION,
       surfaceAbiVersion: this._surfaceAbiProfile.version,
-      surfaceAbiProfile: this._surfaceAbiProfile.version === GPU_SURFACE_ABI_VERSION
-        ? "v1"
-        : "v2-candidate",
       materialResolveBackend: this._surfaceFeature?.materialResolveBackend ?? "uninitialized",
       materialResolveBackendSelection: Object.freeze({
         source: this._materialResolveSelection?.source ?? "uninitialized",
@@ -912,9 +905,9 @@ export class Renderer {
       }),
       triangleSetupEnabled: this.packed_triangle_setup_enabled,
       triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
-      surfaceAbiV2: Object.freeze({
+      surfaceAbiEvidence: Object.freeze({
         status: "insufficient-evidence",
-        reason: "M6 requires identity-bearing parity, attachment-byte, and memory-peak evidence before changing Surface ABI v1"
+        reason: "M6 requires complete unified Surface ABI correctness, attachment, and memory evidence before any future ABI change"
       }),
       tileBackend: Object.freeze({
         status: "insufficient-evidence",
@@ -1554,11 +1547,6 @@ export class Renderer {
       );
 
       const packedPath = mainBindings.gpuPacked !== null;
-      if (this._surfaceAbiProfile.benchmarkOnly && !packedPath) {
-        throw new Error(
-          "Surface ABI v2 candidate requires a Packed Scene producer; legacy MaterialExpand cannot emit the candidate ABI"
-        );
-      }
       const sceneDatabaseRes = packedPath
         ? null
         : graph.import_resource(
