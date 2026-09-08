@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -104,6 +105,12 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
       path: path.join(outputDir, `run-${runOrdinal}.png`),
       fullPage: true
     });
+    const canvasPath = path.join(outputDir, `canvas-${runOrdinal}.png`);
+    await page.locator("canvas").screenshot({ path: canvasPath });
+    const canvasSha256 = createHash("sha256")
+      .update(await readFile(canvasPath))
+      .digest("hex");
+    report.canvasSha256 = canvasSha256;
     runs.push(report);
   } finally {
     await browser.close();
