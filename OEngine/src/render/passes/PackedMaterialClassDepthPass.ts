@@ -27,7 +27,7 @@ const PIPELINE: CachedRenderPipelineDescriptor = {
   depthStencil: {
     format: "depth32float",
     depthWriteEnabled: true,
-    depthCompare: "greater"
+    depthCompare: "always"
   }
 };
 

@@ -22,6 +22,8 @@ test("ClassDepth shader discards EMPTY/invalid keys and is a separate fullscreen
 
 test("Surface backend keeps class-depth and class-discard as explicit depth policies", () => {
   const source = readFileSync(new URL("../src/render/passes/PackedMaterialResolvePass.ts", import.meta.url), "utf8");
+  const producer = readFileSync(new URL("../src/render/passes/PackedMaterialClassDepthPass.ts", import.meta.url), "utf8");
+  assert.match(producer, /depthCompare: "always"/);
   assert.match(source, /depthCompare: \(backend === "class-depth" \? "equal" : "always"\)/);
   assert.match(source, /OENGINE_CLASS_DISCARD/);
   assert.match(source, /pass\.draw\(3, 1, 0, 0\)/);
