@@ -817,6 +817,15 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - Clean formal rerun: class-depth `temp/visibility-to-surface/2c09e8eb-0a9a-44ab-ac1a-4a258cd7446f/report.json` and class-discard `temp/visibility-to-surface/361d9a01-4563-41c8-bc02-1c660ce80e1e/report.json` each passed 3 independent sessions at 1920x1080/DPR1, 120+480 cadence, with empty provenance/browser/GPU diagnostics. Screenshots from both groups show the restored red cube. Resolve P50s: class-depth 2.370464/2.579264/2.535376 ms; class-discard 2.476624/2.510848/2.462496 ms.
 - Status: the black-screen correctness regression is fixed and the clean backend A/B evidence is recorded. M3 is still not release-complete because the harness does not yet produce identity-bearing per-attachment pixel parity against a clean legacy baseline; performance numbers are therefore comparative evidence, not the final 15%/10% Gate result.
 
+### 2026-09-09 comprehensive-full browser evidence
+
+- Command: `OENGINE_RENDERING_LAB_BASE_URL=http://127.0.0.1:5173 npm run profile:rendering-lab:formal -- comprehensive-full`。
+- Artifact: `temp/visibility-to-surface/ce60cf64-6ed4-4852-9303-3b6c1880aba6/report.json`，同时保存 `run-0..2.png` 和 `canvas-0..2.png`。commit provenance 为 clean `90ceb6a`；Chrome 152 headless、NVIDIA Turing、1920×1080、DPR 1、120 warm-up + 480 sampled frames，3 个独立 session 均完成。
+- Backend: 三次均由真实 adapter probe 选择 `class-depth`，选择原因是 `depth32float` class values 与 fixed-function `equal` comparison 通过；没有回退到 `class-discard`。
+- Screenshot check: 三张 canvas 截图均包含非空 Dungeon 场景、Surface resolve、光照/阴影、透明物体和后处理结果；三次 canvas SHA-256 分别为 `0331df647ed0ec3e0d2c9cfced3c686800e78b535ceb6e3da7d96f3808b2d17f`、`11b6ef61aaedd6b69a621d009d9893772860d4ec184f05f5b12031adef97b3b5`、`0ead88b51d18f0f8eb6be2e4acaff62c03b8869d1920193f1b815b87ca7a500e`。动画场景导致帧间 hash 不同，不能把它们当作 bit parity。
+- Runtime evidence: `browserErrors=[]`、`provenanceErrors=[]`、`gateErrors=[]`；每次 validation/uncaptured/deviceLost 均为 `0/0/0`，`invalidVisibilityKeys` 与 `queueOverflowMask` 的 P99 均为 0。GPU frame P50/P95/P99 分别为 `11.236/14.965/17.066 ms`、`12.507/14.953/16.045 ms`、`12.861/15.506/16.080 ms`；Surface attachment 为 `53,913,600 B`（26 B/pixel），resident bytes P95 约 `1,553.7 MiB`。
+- Gate conclusion: 该 artifact 关闭了当前统一生产路径的浏览器 smoke/capture 验证，并证明 class-depth 在本机真实运行；TriangleSetup 仍关闭，M6 unified Surface ABI 仍为 `insufficient-evidence`，M7 仍缺第二 vendor，未把这次 full workload 误写成 release parity 或性能 Gate 通过。
+
 ### 2026-09-07 M4 implementation closure
 
 - Direction: 用户明确要求在不扩散冗余测试的前提下继续完成 M4，因此实现删除继续推进；这不补写、替代或伪造尚缺的 M3 三次正式性能 A/B。

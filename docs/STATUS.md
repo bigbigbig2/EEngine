@@ -39,6 +39,11 @@ Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、v
 
 ## 当前生产 Owner
 
+### 2026-09-09 Browser evidence checkpoint
+
+- `comprehensive-full` formal runner 在 clean `90ceb6a` 上完成 3/3 独立 Chrome 152 headless session（NVIDIA Turing、1920×1080、DPR 1、120 warm-up + 480 sampled frames）。三次均由真实 adapter probe 选择 `class-depth`，截图非空，`browserErrors`、`provenanceErrors`、`gateErrors` 以及 validation/uncaptured/deviceLost 均为 0。
+- Artifact：`temp/visibility-to-surface/ce60cf64-6ed4-4852-9303-3b6c1880aba6/`。该证据确认统一 Visibility → MaterialClassDepth → Surface 生产链路可在本机真实运行；不关闭 M5 完整 Gate、M6 unified ABI evidence 或 M7 第二 vendor Gate。
+
 - 总装：`Renderer.ts` 与 `render/features/*`。
 - GPU 资产/场景：`GpuAssetStore`、`GpuScene`、`GpuPackedSceneRegistry`。
 - 工作/可见性：`GpuWorkGenerationAbi`、Packed visibility owners。

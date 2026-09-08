@@ -726,6 +726,8 @@ export interface MaterialResolveBackend {
 - M0–M4 的架构迁移已落地；M5 TriangleSetup 保持 opt-in；M6 统一 ABI 的完整 composition/内存证据、M3 legacy parity 和 M7 第二 vendor 证据仍未完成。
 - 这些未完成项是发布验收证据，不阻塞继续开发；唯一状态源为 `docs/STATUS.md`，后续只在产生新 artifact 时更新本 RFC 的边界记录。
 
+- 2026-09-09 的 `comprehensive-full` clean browser artifact 已验证统一 Surface 生产路径：3/3 独立 session、真实 class-depth probe、截图非空、GPU/浏览器诊断全为 0；该结果仍不等同于 legacy image parity、M6 完整 ABI evidence 或跨 vendor Gate。
+
 | 领域 | 建议观察项 |
 | --- | --- |
 | Correctness | 覆盖 7 个 kernel class、MASK、motion、near-plane；有数值误差时优先记录误差范围和复现条件 |
