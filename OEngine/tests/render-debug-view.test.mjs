@@ -126,7 +126,7 @@ test("supported debug shaders share HDR output and explicit source scaling", () 
     assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, new RegExp(lookup));
   }
   assert.doesNotMatch(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /material\.material_id/);
-  assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineRasterWork/);
+  assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /R4DebugExactRasterWork/);
   assert.doesNotMatch(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineVisibleClusterRecord/);
   assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /OEngineInstanceRecord/);
   assert.match(PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL, /GpuMeshletRecord/);

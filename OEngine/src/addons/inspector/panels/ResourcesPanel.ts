@@ -20,7 +20,7 @@ export interface ResourceDisplayRow {
 }
 
 const CATEGORIES: readonly AccountedResourceCategory[] = [
-  "resident", "transient", "history", "atlas", "upload", "readback", "profiler"
+  "resident", "work-cache", "transient", "history", "atlas", "upload", "readback", "profiler"
 ];
 
 export function buildResourceRows(

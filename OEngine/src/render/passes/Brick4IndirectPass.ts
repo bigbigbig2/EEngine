@@ -6,6 +6,11 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile,
+  gpuSurfaceNormalPipelineConstants
+} from "../../gpu/GpuSurfaceAbi.js";
 import { LINEAR_CLAMP_SAMPLER_DESCRIPTOR } from "../../gpu/GPUSamplerCache.js";
 import {
   BRICK4_DIFFUSE_WGSL,
@@ -108,70 +113,29 @@ const DEPTH_STATE: GPUDepthStencilState = {
   depthCompare: "not-equal"
 };
 
-const BRICK4_DIFFUSE_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "Renderer/Brick4 diffuse Vb",
-  layout: {
-    label: "Renderer/Vb/pipeline-layout",
-    bindGroupLayouts: [BRICK4_DIFFUSE_GROUP0, BRICK4_STORAGE_GROUP]
-  },
-  vertex: {
-    module: { label: "Renderer/Brick4 diffuse Vb", code: BRICK4_DIFFUSE_WGSL },
-    entryPoint: "vs_main"
-  },
-  fragment: {
-    module: { label: "Renderer/Brick4 diffuse Vb", code: BRICK4_DIFFUSE_WGSL },
-    entryPoint: "fs_main",
-    targets: [{ format: BRICK4_INDIRECT_FORMAT }]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: DEPTH_STATE
-};
-
-const BRICK4_SPECULAR_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "Renderer/Brick4 specular _w",
-  layout: {
-    label: "Renderer/_w/pipeline-layout",
-    bindGroupLayouts: [BRICK4_SPECULAR_GROUP0, BRICK4_STORAGE_GROUP]
-  },
-  vertex: {
-    module: { label: "Renderer/Brick4 specular _w", code: BRICK4_SPECULAR_WGSL },
-    entryPoint: "vs_main"
-  },
-  fragment: {
-    module: { label: "Renderer/Brick4 specular _w", code: BRICK4_SPECULAR_WGSL },
-    entryPoint: "fs_main",
-    targets: [{ format: BRICK4_INDIRECT_FORMAT }]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: DEPTH_STATE
-};
-
-const BRICK4_FUSED_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "Renderer/Brick4 fused indirect sw",
-  layout: {
-    label: "Renderer/sw/pipeline-layout",
-    bindGroupLayouts: [BRICK4_FUSED_GROUP0, BRICK4_FUSED_STORAGE_GROUP]
-  },
-  vertex: {
-    module: { label: "Renderer/Brick4 fused indirect sw", code: BRICK4_FUSED_WGSL },
-    entryPoint: "vs_main"
-  },
-  fragment: {
-    module: { label: "Renderer/Brick4 fused indirect sw", code: BRICK4_FUSED_WGSL },
-    entryPoint: "fs_main",
-    targets: [
-      {
-        format: BRICK4_INDIRECT_FORMAT,
-        blend: {
-          color: { operation: "add", srcFactor: "one", dstFactor: "one" },
-          alpha: { operation: "add", srcFactor: "zero", dstFactor: "one" }
-        }
-      }
-    ]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: DEPTH_STATE
-};
+function createBrick4Pipeline(
+  label: string,
+  code: string,
+  bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[],
+  targets: readonly GPUColorTargetState[],
+  surfaceProfile: GpuSurfaceAbiProfile
+): CachedRenderPipelineDescriptor {
+  return {
+    label,
+    layout: { label: `${label}/pipeline-layout`, bindGroupLayouts },
+    vertex: { module: { label, code }, entryPoint: "vs_main" },
+    fragment: {
+      module: { label, code },
+      entryPoint: "fs_main",
+      constants: {
+        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+      },
+      targets
+    },
+    primitive: { topology: "triangle-list", cullMode: "none" },
+    depthStencil: DEPTH_STATE
+  };
+}
 
 export type Brick4BaseInputs = {
   depth: ResourceId;
@@ -206,10 +170,22 @@ export type Brick4IndirectJob = {
 };
 
 export class Brick4DiffusePass {
+  private readonly descriptor: CachedRenderPipelineDescriptor;
   private pipeline: GPURenderPipeline | null = null;
   lastRan = false;
 
-  constructor(private readonly graphics: GraphicsContext) {}
+  constructor(
+    private readonly graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.descriptor = createBrick4Pipeline(
+      "Renderer/Brick4 diffuse Vb",
+      BRICK4_DIFFUSE_WGSL,
+      [BRICK4_DIFFUSE_GROUP0, BRICK4_STORAGE_GROUP],
+      [{ format: BRICK4_INDIRECT_FORMAT }],
+      surfaceProfile
+    );
+  }
 
   addToGraph(
     graph: FrameGraph,
@@ -217,7 +193,7 @@ export class Brick4DiffusePass {
     inputs: Brick4DiffuseInputs
   ): ResourceId {
     this.pipeline ??= this.graphics.render_pipelines.obtain(
-      BRICK4_DIFFUSE_PIPELINE
+      this.descriptor
     );
     let output = -1;
     const builder = graph.add("Brick4 indirect diffuse Vb", inputs, (data, resources, context) => {
@@ -231,7 +207,7 @@ export class Brick4DiffusePass {
         depthStencilAttachment: depthAttachment(resources.get(data.depth))
       });
       pass.setPipeline(this.pipeline);
-      this.graphics.setPipelineBindings(pass, BRICK4_DIFFUSE_PIPELINE, [
+      this.graphics.setPipelineBindings(pass, this.descriptor, [
         [
           texture(resources.get(data.depth)),
           texture(resources.get(data.normal)),
@@ -253,10 +229,22 @@ export class Brick4DiffusePass {
 }
 
 export class Brick4SpecularPass {
+  private readonly descriptor: CachedRenderPipelineDescriptor;
   private pipeline: GPURenderPipeline | null = null;
   lastRan = false;
 
-  constructor(private readonly graphics: GraphicsContext) {}
+  constructor(
+    private readonly graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.descriptor = createBrick4Pipeline(
+      "Renderer/Brick4 specular _w",
+      BRICK4_SPECULAR_WGSL,
+      [BRICK4_SPECULAR_GROUP0, BRICK4_STORAGE_GROUP],
+      [{ format: BRICK4_INDIRECT_FORMAT }],
+      surfaceProfile
+    );
+  }
 
   addToGraph(
     graph: FrameGraph,
@@ -264,7 +252,7 @@ export class Brick4SpecularPass {
     inputs: Brick4SpecularInputs
   ): ResourceId {
     this.pipeline ??= this.graphics.render_pipelines.obtain(
-      BRICK4_SPECULAR_PIPELINE
+      this.descriptor
     );
     let output = -1;
     const builder = graph.add("Brick4 indirect specular _w", inputs, (data, resources, context) => {
@@ -278,7 +266,7 @@ export class Brick4SpecularPass {
         depthStencilAttachment: depthAttachment(resources.get(data.depth))
       });
       pass.setPipeline(this.pipeline);
-      this.graphics.setPipelineBindings(pass, BRICK4_SPECULAR_PIPELINE, [
+      this.graphics.setPipelineBindings(pass, this.descriptor, [
         [
           texture(resources.get(data.depth)),
           texture(resources.get(data.normal)),
@@ -300,13 +288,31 @@ export class Brick4SpecularPass {
 }
 
 export class Brick4FusedIndirectPass {
+  private readonly descriptor: CachedRenderPipelineDescriptor;
   private pipeline: GPURenderPipeline | null = null;
   lastRan = false;
 
-  constructor(private readonly graphics: GraphicsContext) {}
+  constructor(
+    private readonly graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.descriptor = createBrick4Pipeline(
+      "Renderer/Brick4 fused indirect sw",
+      BRICK4_FUSED_WGSL,
+      [BRICK4_FUSED_GROUP0, BRICK4_FUSED_STORAGE_GROUP],
+      [{
+        format: BRICK4_INDIRECT_FORMAT,
+        blend: {
+          color: { operation: "add", srcFactor: "one", dstFactor: "one" },
+          alpha: { operation: "add", srcFactor: "zero", dstFactor: "one" }
+        }
+      }],
+      surfaceProfile
+    );
+  }
 
   addToGraph(graph: FrameGraph, inputs: Brick4FusedInputs): ResourceId {
-    this.pipeline ??= this.graphics.render_pipelines.obtain(BRICK4_FUSED_PIPELINE);
+    this.pipeline ??= this.graphics.render_pipelines.obtain(this.descriptor);
     let output = inputs.hdr;
     const builder = graph.add("Brick4 fused indirect sw", inputs, (data, resources, context) => {
       const encoder = context.gpu_encoder;
@@ -319,7 +325,7 @@ export class Brick4FusedIndirectPass {
         depthStencilAttachment: depthAttachment(resources.get(data.depth))
       });
       pass.setPipeline(this.pipeline);
-      this.graphics.setPipelineBindings(pass, BRICK4_FUSED_PIPELINE, [
+      this.graphics.setPipelineBindings(pass, this.descriptor, [
         [
           texture(resources.get(data.depth)),
           texture(resources.get(data.normal)),

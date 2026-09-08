@@ -10,6 +10,11 @@ import {
   GPU_COUNTER_BYTE_SIZE
 } from "../../debug/GpuFrameCounters.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile,
+  gpuSurfaceNormalPipelineConstants
+} from "../../gpu/GpuSurfaceAbi.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type {
   CachedComputePipelineDescriptor,
@@ -103,7 +108,8 @@ export class ScreenSpaceAmbientOcclusionPass {
   constructor(
     private readonly graphics: GraphicsContext,
     readonly temporalEnabled = true,
-    readonly resolutionScale: 0.5 | 1 = 0.5
+    readonly resolutionScale: 0.5 | 1 = 0.5,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
   ) {
     const device = graphics.device;
     if (device === null) {
@@ -112,11 +118,11 @@ export class ScreenSpaceAmbientOcclusionPass {
       );
     }
     this.device = device;
-    this.rawPipeline = createSsaoRawPipelineDescriptor();
-    this.spatialPipeline = createSsaoSpatialPipelineDescriptor();
-    this.temporalPipeline = createSsaoTemporalPipelineDescriptor();
-    this.linearDepthPipeline = createSsaoLinearDepthPipelineDescriptor();
-    this.jointBilateralResolvePipeline = createSsaoJointBilateralResolvePipelineDescriptor();
+    this.rawPipeline = createSsaoRawPipelineDescriptor(surfaceProfile);
+    this.spatialPipeline = createSsaoSpatialPipelineDescriptor(surfaceProfile);
+    this.temporalPipeline = createSsaoTemporalPipelineDescriptor(surfaceProfile);
+    this.linearDepthPipeline = createSsaoLinearDepthPipelineDescriptor(surfaceProfile);
+    this.jointBilateralResolvePipeline = createSsaoJointBilateralResolvePipelineDescriptor(surfaceProfile);
     const descriptor: GPUTextureDescriptor = {
       label: "SSAO history",
       size: [1, 1, 1],
@@ -674,7 +680,9 @@ export class ScreenSpaceAmbientOcclusionPass {
   }
 }
 
-function createSsaoRawPipelineDescriptor(): CachedRenderPipelineDescriptor {
+function createSsaoRawPipelineDescriptor(
+  surfaceProfile: GpuSurfaceAbiProfile
+): CachedRenderPipelineDescriptor {
   const label = "Renderer/SSAO raw lD";
   return createSsaoPipelineDescriptor(
     label,
@@ -689,7 +697,8 @@ function createSsaoRawPipelineDescriptor(): CachedRenderPipelineDescriptor {
         }
       },
       { format: SSAO_BENT_NORMAL_FORMAT }
-    ]
+    ],
+    surfaceProfile
   );
 }
 
@@ -781,25 +790,33 @@ const GTAO_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
   }
 };
 
-function createSsaoSpatialPipelineDescriptor(): CachedRenderPipelineDescriptor {
+function createSsaoSpatialPipelineDescriptor(
+  surfaceProfile: GpuSurfaceAbiProfile
+): CachedRenderPipelineDescriptor {
   return createSsaoPipelineDescriptor(
     "Renderer/SSAO spatial XC",
     SSAO_SPATIAL_WGSL,
     [createSsaoSpatialTextureLayout(), createSsaoSpatialSettingsLayout()],
-    [{ format: SSAO_VISIBILITY_FORMAT }]
+    [{ format: SSAO_VISIBILITY_FORMAT }],
+    surfaceProfile
   );
 }
 
-function createSsaoTemporalPipelineDescriptor(): CachedRenderPipelineDescriptor {
+function createSsaoTemporalPipelineDescriptor(
+  surfaceProfile: GpuSurfaceAbiProfile
+): CachedRenderPipelineDescriptor {
   return createSsaoPipelineDescriptor(
     "Renderer/SSAO temporal ZC",
     SSAO_TEMPORAL_WGSL,
     [createSsaoTemporalGroupLayout()],
-    [{ format: SSAO_VISIBILITY_FORMAT }]
+    [{ format: SSAO_VISIBILITY_FORMAT }],
+    surfaceProfile
   );
 }
 
-function createSsaoLinearDepthPipelineDescriptor(): CachedRenderPipelineDescriptor {
+function createSsaoLinearDepthPipelineDescriptor(
+  surfaceProfile: GpuSurfaceAbiProfile
+): CachedRenderPipelineDescriptor {
   return createSsaoPipelineDescriptor(
     "Renderer/GTAO linear/view-depth mip",
     SSAO_LINEAR_DEPTH_WGSL,
@@ -810,11 +827,14 @@ function createSsaoLinearDepthPipelineDescriptor(): CachedRenderPipelineDescript
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
       ]
     }],
-    [{ format: SSAO_LINEAR_DEPTH_FORMAT }]
+    [{ format: SSAO_LINEAR_DEPTH_FORMAT }],
+    surfaceProfile
   );
 }
 
-function createSsaoJointBilateralResolvePipelineDescriptor(): CachedRenderPipelineDescriptor {
+function createSsaoJointBilateralResolvePipelineDescriptor(
+  surfaceProfile: GpuSurfaceAbiProfile
+): CachedRenderPipelineDescriptor {
   return createSsaoPipelineDescriptor(
     "Renderer/GTAO joint bilateral AO+bent-normal resolve",
     SSAO_JOINT_BILATERAL_RESOLVE_WGSL,
@@ -830,7 +850,8 @@ function createSsaoJointBilateralResolvePipelineDescriptor(): CachedRenderPipeli
         { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
       ]
     }],
-    [{ format: SSAO_VISIBILITY_FORMAT }, { format: SSAO_BENT_NORMAL_FORMAT }]
+    [{ format: SSAO_VISIBILITY_FORMAT }, { format: SSAO_BENT_NORMAL_FORMAT }],
+    surfaceProfile
   );
 }
 
@@ -839,14 +860,23 @@ function createSsaoPipelineDescriptor(
   code: string,
   bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[],
   targets: readonly (GPUColorTargetState | null)[],
+  surfaceProfile: GpuSurfaceAbiProfile,
   depth = false
 ): CachedRenderPipelineDescriptor {
   const module = { label, code };
+  const constants = code.includes("OENGINE_SURFACE_NORMAL_MAX_VALUE")
+    ? gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+    : undefined;
   return {
     label,
     layout: { label: `${label} layout`, bindGroupLayouts },
     vertex: { module, entryPoint: "vs_main" },
-    fragment: { module, entryPoint: "fs_main", targets },
+    fragment: {
+      module,
+      entryPoint: "fs_main",
+      ...(constants === undefined ? {} : { constants }),
+      targets
+    },
     primitive: { topology: "triangle-list", cullMode: "none" },
     ...(depth
       ? {

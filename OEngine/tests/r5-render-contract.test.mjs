@@ -60,6 +60,7 @@ test("Q01 quality profiles only configure the unified pipeline", () => {
 
 test("Q01 Surface product freezes attachment semantics and allows missing velocity", () => {
   const frame = surfaceFrame({
+    abiVersion: 1,
     depth: null,
     pbr: 1,
     normal: 2,
@@ -117,6 +118,7 @@ test("M1 visibility products freeze exact GPU resources without runtime snapshot
 
 test("Q01 legacy Surface producer joins the same immutable product seam", () => {
   const base = surfaceFrame({
+    abiVersion: 1,
     depth: null,
     pbr: 1,
     normal: 2,

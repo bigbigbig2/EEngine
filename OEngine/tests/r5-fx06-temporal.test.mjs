@@ -224,7 +224,7 @@ test("FX-06 feature-off topology owns no temporal pass or history", () => {
 });
 
 test("FX-06 temporal evidence extends the additive sampled counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 12);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 13);
   assert.equal(counterByteOffset("temporalReactivePixels"), 276);
   assert.equal(counterByteOffset("temporalDisoccludedPixels"), 280);
   assert.equal(counterByteOffset("temporalHistoryRejectedPixels"), 284);

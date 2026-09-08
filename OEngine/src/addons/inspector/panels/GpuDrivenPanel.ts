@@ -12,7 +12,7 @@ export interface FunnelStage {
 export interface QueueMetricSpec {
   readonly label: string;
   readonly current: string;
-  readonly capacity: string;
+  readonly capacity?: string;
   readonly peak?: string;
   readonly overflow?: string;
 }
@@ -36,6 +36,11 @@ const DEFAULT_QUEUE_SPECS: readonly QueueMetricSpec[] = Object.freeze([
     label: "Hardware clusters",
     current: "gpu.counter.hwClusters",
     capacity: "packed.visibility.rasterWorkCapacity"
+  },
+  {
+    label: "TriangleSetup candidates",
+    current: "gpu.counter.setupWritten",
+    overflow: "gpu.counter.setupOverflow"
   }
 ]);
 
@@ -81,7 +86,9 @@ export function buildQueueSummaries(
   const frame = latest(frames);
   return specs.map((spec) => {
     const current = read(frame, spec.current);
-    const capacity = read(frame, spec.capacity);
+    const capacity = spec.capacity === undefined
+      ? { value: null, availability: "unsupported" as const }
+      : read(frame, spec.capacity);
     const peak = spec.peak === undefined ? { value: null, availability: "unsupported" as const } : read(frame, spec.peak);
     const overflow = spec.overflow === undefined ? { value: null, availability: "unsupported" as const } : read(frame, spec.overflow);
     return Object.freeze({
@@ -115,8 +122,18 @@ export class GpuDrivenPanel {
     this.funnel.textContent = buildGpuDrivenFunnel(focused).map((stage) =>
       `${stage.label}: ${stage.value === null ? stage.availability : stage.value} (${stage.ratio === null ? "—" : `${(stage.ratio * 100).toFixed(1)}%`})`
     ).join("\n");
-    this.queues.textContent = buildQueueSummaries(focused).map((queue) =>
+    const queueLines = buildQueueSummaries(focused).map((queue) =>
       `${queue.label}: current ${queue.current ?? "unsupported"} / capacity ${queue.capacity ?? "unsupported"} / peak ${queue.peak ?? "unsupported"} / overflow ${queue.overflow ?? "unsupported"}`
-    ).join("\n");
+    );
+    queueLines.push(triangleSetupHitRatio(focused[0]));
+    this.queues.textContent = queueLines.join("\n");
   }
+}
+
+function triangleSetupHitRatio(frame: ProfileFrame | undefined): string {
+  const hits = read(frame, "gpu.counter.setupVisiblePixelHits").value;
+  const fallbacks = read(frame, "gpu.counter.setupVisiblePixelFallbacks").value;
+  if (hits === null || fallbacks === null) return "TriangleSetup visible hit ratio: unsupported";
+  const samples = hits + fallbacks;
+  return `TriangleSetup visible hit ratio: ${samples > 0 ? `${((hits / samples) * 100).toFixed(1)}%` : "0.0%"} (${hits} hit / ${fallbacks} fallback)`;
 }

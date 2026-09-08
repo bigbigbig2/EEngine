@@ -1,8 +1,8 @@
 import {
   GPU_CLASSIFIED_RASTER_HEADER_BYTES,
-  GPU_RASTER_WORK_SCHEMA,
   type RasterWorkCpu
 } from "./GpuWorkGenerationAbi.js";
+import { GPU_EXACT_RASTER_RECORD_STRIDE } from "./GpuExactRasterAbi.js";
 
 /** One frame-local key directly addresses one exact-triangle RasterWork. */
 export const GPU_VISIBILITY_KEY_ABI_VERSION = 3;
@@ -218,7 +218,7 @@ export function visibilityRasterWorkBufferByteLength(capacity: number): number {
     "Visibility RasterWork class capacity"
   );
   const bytes = GPU_CLASSIFIED_RASTER_HEADER_BYTES +
-    capacity * 2 * GPU_RASTER_WORK_SCHEMA.stride;
+    capacity * 2 * GPU_EXACT_RASTER_RECORD_STRIDE;
   if (!Number.isSafeInteger(bytes)) {
     throw new RangeError("Visibility RasterWork byte length is not a safe integer");
   }
@@ -237,8 +237,8 @@ export function getGpuVisibilityRasterWorkCapacity(
   const queueHeaderFits = effectiveByteLimit >= GPU_CLASSIFIED_RASTER_HEADER_BYTES;
   const adapterCapacity = queueHeaderFits
     ? Math.floor(
-        (effectiveByteLimit - GPU_CLASSIFIED_RASTER_HEADER_BYTES) /
-          (GPU_RASTER_WORK_SCHEMA.stride * 2)
+          (effectiveByteLimit - GPU_CLASSIFIED_RASTER_HEADER_BYTES) /
+          (GPU_EXACT_RASTER_RECORD_STRIDE * 2)
       )
     : 0;
   return Object.freeze({

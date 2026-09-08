@@ -3,6 +3,7 @@
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 
 export const SSAO_VISIBILITY_FORMAT = "rg16float" as const;
 export const SSAO_BENT_NORMAL_FORMAT = "rg16uint" as const;
@@ -32,6 +33,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertexOutput {
 
 export const SSAO_RAW_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 
 struct SsaoRawSettings {
   frame_index: u32,
@@ -83,7 +85,7 @@ fn uv_octahedral_unit_decode(encoded: vec2f) -> vec3f {
 }
 
 fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
-  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
+  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / OENGINE_SURFACE_NORMAL_MAX_VALUE));
 }
 
 fn encode_g_buffer_normal(direction: vec3f) -> vec2u {
@@ -383,6 +385,7 @@ fn fs_main(
 `;
 
 export const SSAO_SPATIAL_WGSL = /* wgsl */ `
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 struct SsaoSpatialSettings {
   step_size: i32,
 };
@@ -406,7 +409,7 @@ fn uv_octahedral_unit_decode(encoded: vec2f) -> vec3f {
 }
 
 fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
-  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
+  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / OENGINE_SURFACE_NORMAL_MAX_VALUE));
 }
 
 fn visibility_variance(pixel: vec2i, dimensions: vec2i) -> f32 {
@@ -511,6 +514,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
 `;
 
 export const SSAO_TEMPORAL_WGSL = /* wgsl */ `
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 struct SsaoTemporalSettings {
   history_valid: u32,
   history_blend: f32,
@@ -670,6 +674,7 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) f32 {
 
 export const SSAO_JOINT_BILATERAL_RESOLVE_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 
 struct ResolveSettings {
   intensity: f32,
@@ -686,6 +691,15 @@ struct ResolveSettings {
 
 fn oct_decode(encoded: vec2u) -> vec3f {
   let projected = vec2f(encoded) * (2.0 / 65535.0) - vec2f(1.0);
+  var direction = vec3f(projected, 1.0 - abs(projected.x) - abs(projected.y));
+  let correction = max(-direction.z, 0.0);
+  direction.x += select(correction, -correction, direction.x > 0.0);
+  direction.y += select(correction, -correction, direction.y > 0.0);
+  return normalize(direction);
+}
+
+fn surface_oct_decode(encoded: vec2u) -> vec3f {
+  let projected = vec2f(encoded) * (2.0 / OENGINE_SURFACE_NORMAL_MAX_VALUE) - vec2f(1.0);
   var direction = vec3f(projected, 1.0 - abs(projected.x) - abs(projected.y));
   let correction = max(-direction.z, 0.0);
   direction.x += select(correction, -correction, direction.x > 0.0);
@@ -729,7 +743,7 @@ fn fs_main(
   let full_pixel = clamp(vec2i(position.xy), vec2i(0), full_dimensions - vec2i(1));
   let device_depth = textureLoad(device_depth_source, full_pixel, 0).r;
   let center_depth = view_space_depth(device_depth);
-  let center_normal = oct_decode(textureLoad(normal_source, full_pixel, 0).xy);
+  let center_normal = surface_oct_decode(textureLoad(normal_source, full_pixel, 0).xy);
   let low_position = uv * vec2f(low_dimensions) - 0.5;
   let low_base = vec2i(floor(low_position));
 
@@ -741,7 +755,7 @@ fn fs_main(
       let candidate = clamp(low_base + vec2i(x, y), vec2i(0), low_dimensions - vec2i(1));
       let source_pixel = full_source_pixel(candidate, low_dimensions, full_dimensions);
       let sample_depth = textureLoad(linear_depth_source, candidate, 0).r;
-      let sample_normal = oct_decode(textureLoad(normal_source, source_pixel, 0).xy);
+      let sample_normal = surface_oct_decode(textureLoad(normal_source, source_pixel, 0).xy);
       let depth_sigma = max(0.01, center_depth * 0.02);
       let depth_weight = exp(-abs(sample_depth - center_depth) / depth_sigma);
       let normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), 32.0);

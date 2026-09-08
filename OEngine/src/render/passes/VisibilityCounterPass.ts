@@ -12,8 +12,12 @@ const WORKGROUP_ELEMENT_COUNT =
 const SHADED_PIXEL_INDEX = counterByteOffset("shadedPixels") / 4;
 const EMPTY_PIXEL_INDEX = counterByteOffset("emptyVisibilityPixels") / 4;
 const INVALID_KEY_INDEX = counterByteOffset("invalidVisibilityKeys") / 4;
+const CLASS_DEPTH_PIXEL_INDEX = counterByteOffset("classDepthPixels") / 4;
 
-export type VisibilityCounterContract = "legacy-id" | "visibility-key";
+export type VisibilityCounterContract =
+  | "legacy-id"
+  | "visibility-key"
+  | "visibility-key-class-depth";
 
 export const VISIBILITY_COUNTER_WGSL = /* wgsl */ `
 const MESH_SENTINEL: u32 = ${VIS_MESH_CLEAR_SENTINEL}u;
@@ -41,7 +45,8 @@ fn classify_visibility(value: u32, key_contract: bool) -> vec3u {
 fn count_visibility(
   global_id: vec3u,
   local_index: u32,
-  key_contract: bool
+  key_contract: bool,
+  class_depth_contract: bool
 ) {
   let dimensions = textureDimensions(visibility_values);
   var pixel_counts = vec3u(0u);
@@ -64,6 +69,11 @@ fn count_visibility(
 
   if (local_index == 0u) {
     atomicAdd(&frame_counters[${SHADED_PIXEL_INDEX}u], local_counts[0].x);
+    if (class_depth_contract) {
+      // MaterialClassDepth consumes the same set of valid VisibilityKey pixels.
+      // Reuse this sampled reducer instead of adding another fullscreen pass.
+      atomicAdd(&frame_counters[${CLASS_DEPTH_PIXEL_INDEX}u], local_counts[0].x);
+    }
     atomicAdd(&frame_counters[${EMPTY_PIXEL_INDEX}u], local_counts[0].y);
     atomicAdd(&frame_counters[${INVALID_KEY_INDEX}u], local_counts[0].z);
   }
@@ -74,7 +84,7 @@ fn count_legacy_ids(
   @builtin(global_invocation_id) global_id: vec3u,
   @builtin(local_invocation_index) local_index: u32
 ) {
-  count_visibility(global_id, local_index, false);
+  count_visibility(global_id, local_index, false, false);
 }
 
 @compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
@@ -82,7 +92,15 @@ fn count_visibility_keys(
   @builtin(global_invocation_id) global_id: vec3u,
   @builtin(local_invocation_index) local_index: u32
 ) {
-  count_visibility(global_id, local_index, true);
+  count_visibility(global_id, local_index, true, false);
+}
+
+@compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
+fn count_visibility_keys_class_depth(
+  @builtin(global_invocation_id) global_id: vec3u,
+  @builtin(local_invocation_index) local_index: u32
+) {
+  count_visibility(global_id, local_index, true, true);
 }
 `;
 
@@ -106,11 +124,15 @@ const VISIBILITY_COUNTER_PIPELINES: Readonly<
   Record<VisibilityCounterContract, CachedComputePipelineDescriptor>
 > = Object.freeze({
   "legacy-id": createPipeline("count_legacy_ids", "legacy IDs"),
-  "visibility-key": createPipeline("count_visibility_keys", "VisibilityKey")
+  "visibility-key": createPipeline("count_visibility_keys", "VisibilityKey"),
+  "visibility-key-class-depth": createPipeline(
+    "count_visibility_keys_class_depth",
+    "VisibilityKey + MaterialClassDepth"
+  )
 });
 
 function createPipeline(
-  entryPoint: "count_legacy_ids" | "count_visibility_keys",
+  entryPoint: "count_legacy_ids" | "count_visibility_keys" | "count_visibility_keys_class_depth",
   contractLabel: string
 ): CachedComputePipelineDescriptor {
   return {

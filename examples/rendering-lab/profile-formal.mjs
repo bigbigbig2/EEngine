@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { validateIndependentBenchmarkRunGroup } from "../../OEngine/.test-dist/debug/BenchmarkEvidenceGate.js";
 import {
+  evaluateSurfaceAbiV2RunGroupNeed,
+  evaluateTileBackendRunGroupNeed,
+  evaluateTriangleSetupDefaultNeed
+} from "../../OEngine/.test-dist/debug/VisibilitySurfaceMigrationGates.js";
+import {
   captureGitBuildProvenance,
   compareGitBuildProvenance
 } from "../build-provenance.mjs";
@@ -16,6 +21,24 @@ const smoke = process.env.OENGINE_BENCHMARK_SMOKE === "true";
 const width = Number(process.env.OENGINE_BENCHMARK_WIDTH ?? 1920);
 const height = Number(process.env.OENGINE_BENCHMARK_HEIGHT ?? 1080);
 const baseUrl = process.env.OENGINE_RENDERING_LAB_BASE_URL ?? "http://127.0.0.1:5173";
+const surfaceAbiProfile = process.env.OENGINE_SURFACE_ABI_PROFILE ?? "v1";
+if (surfaceAbiProfile !== "v1" && surfaceAbiProfile !== "v2-candidate") {
+  throw new Error(`Unsupported OENGINE_SURFACE_ABI_PROFILE: ${surfaceAbiProfile}`);
+}
+const materialResolveBackend = process.env.OENGINE_MATERIAL_RESOLVE_BACKEND ?? "auto";
+if (!["auto", "class-depth", "class-discard"].includes(materialResolveBackend)) {
+  throw new Error(`Unsupported OENGINE_MATERIAL_RESOLVE_BACKEND: ${materialResolveBackend}`);
+}
+const triangleSetupEnabled = parseBooleanEnvironment(
+  "OENGINE_TRIANGLE_SETUP_ENABLED",
+  false
+);
+const triangleSetupThresholdPixels = Number(
+  process.env.OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS ?? 32
+);
+if (!Number.isFinite(triangleSetupThresholdPixels) || triangleSetupThresholdPixels < 0) {
+  throw new Error("OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS must be a non-negative number");
+}
 const runGroupId = randomUUID();
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const runnerProvenance = captureGitBuildProvenance(repoRoot);
@@ -36,13 +59,25 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
       if (message.type() === "error") browserErrors.push(`run ${runOrdinal} console: ${message.text()}`);
     });
     page.on("pageerror", (error) => browserErrors.push(`run ${runOrdinal} pageerror: ${error.message}`));
-    await page.goto(`${baseUrl}/rendering-lab/`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    const renderingLabUrl = new URL("/rendering-lab/", baseUrl);
+    renderingLabUrl.searchParams.set("surfaceAbiProfile", surfaceAbiProfile);
+    if (materialResolveBackend !== "auto") {
+      renderingLabUrl.searchParams.set("materialResolveBackend", materialResolveBackend);
+    }
+    await page.goto(renderingLabUrl.toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });
     await page.waitForFunction(
       () => document.querySelector("#showcase")?.dataset.state === "ready",
       null,
       { timeout: 120_000 }
     );
-    const report = await page.evaluate(async ({ workloadId, runGroupId, runOrdinal, smoke }) => {
+    const report = await page.evaluate(async ({
+      workloadId,
+      runGroupId,
+      runOrdinal,
+      smoke,
+      triangleSetupEnabled,
+      triangleSetupThresholdPixels
+    }) => {
       const fixture = window.__OENGINE_RENDERING_LAB_FIXTURE__;
       if (!fixture) throw new Error("Rendering Lab fixture bridge missing");
       return fixture.runBenchmark({
@@ -50,9 +85,21 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
         workloadId,
         runGroupId,
         runOrdinal,
-        inspectorVisible: false
+        inspectorVisible: false,
+        // Formal cadence is non-blocking; keep enough staging slots to avoid
+        // turning a slow adapter into artificial dropped-counter evidence.
+        readbackRingSlots: 64,
+        triangleSetupEnabled,
+        triangleSetupThresholdPixels
       });
-    }, { workloadId, runGroupId, runOrdinal, smoke });
+    }, {
+      workloadId,
+      runGroupId,
+      runOrdinal,
+      smoke,
+      triangleSetupEnabled,
+      triangleSetupThresholdPixels
+    });
     await page.screenshot({
       path: path.join(outputDir, `run-${runOrdinal}.png`),
       fullPage: true
@@ -66,6 +113,18 @@ for (let runOrdinal = 0; runOrdinal < 3; runOrdinal++) {
 const runGroupEvidence = validateIndependentBenchmarkRunGroup(
   runs.map((report) => report.measurement)
 );
+const triangleSetupCaseId = workloadId === "comprehensive-full" ? "full" : "base";
+const triangleSetupGate = evaluateTriangleSetupDefaultNeed(
+  runs.map((report) => triangleSetupRunEvidence(report, triangleSetupCaseId))
+);
+const migrationGates = {
+  surfaceAbiV2: evaluateSurfaceAbiV2RunGroupNeed(
+    runs.flatMap((report) => surfaceAbiRunEvidence(report))
+  ),
+  tileBackend: evaluateTileBackendRunGroupNeed(
+    runs.flatMap((report) => tileBackendRunEvidence(report))
+  )
+};
 const provenanceErrors = runs.flatMap((report, runOrdinal) =>
   compareGitBuildProvenance(runnerProvenance, report.environment.engine)
     .map((code) => `run ${runOrdinal}: ${code}`)
@@ -78,11 +137,18 @@ const gateErrors = runs.flatMap((report, runOrdinal) =>
 const artifact = {
   schemaVersion: 1,
   workloadId,
+  surfaceAbiProfile,
+  materialResolveBackend,
+  triangleSetupEnabled,
+  triangleSetupThresholdPixels,
   runGroupId,
   smoke,
   width,
   height,
   runGroupEvidence,
+  triangleSetupCaseId,
+  triangleSetupGate,
+  migrationGates,
   provenanceErrors,
   browserErrors,
   gateErrors,
@@ -106,7 +172,43 @@ console.log(JSON.stringify({
   outputDir,
   workloadId,
   smoke,
+  materialResolveBackend,
+  triangleSetupEnabled,
+  triangleSetupThresholdPixels,
   runGroupEvidence,
+  triangleSetupGate,
+  migrationGates,
   provenanceErrors,
   gateErrors
 }, null, 2));
+
+function triangleSetupRunEvidence(report, caseId) {
+  const triangleSetup = report?.domainEvidence?.triangleSetup?.cases?.[caseId];
+  return {
+    runId: report?.measurement?.runId,
+    runGroupId: report?.measurement?.runGroupId,
+    setupVisiblePixelHits: triangleSetup?.setupVisiblePixelHits ?? 0,
+    setupVisiblePixelFallbacks: triangleSetup?.setupVisiblePixelFallbacks ?? 0,
+    setupAttempted: triangleSetup?.setupAttempted ?? 0,
+    setupWritten: triangleSetup?.setupWritten ?? 0,
+    setupOverflow: triangleSetup?.setupOverflow ?? 0
+  };
+}
+
+function surfaceAbiRunEvidence(report) {
+  const runs = report?.domainEvidence?.surfaceAbiRuns;
+  return Array.isArray(runs) ? runs : [];
+}
+
+function tileBackendRunEvidence(report) {
+  const runs = report?.domainEvidence?.tileBackendRuns;
+  return Array.isArray(runs) ? runs : [];
+}
+
+function parseBooleanEnvironment(name, fallback) {
+  const value = process.env[name];
+  if (value === undefined) return fallback;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${name} must be 'true' or 'false'`);
+}

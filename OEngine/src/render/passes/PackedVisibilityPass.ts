@@ -151,6 +151,9 @@ export interface PackedVisibilityPrepareJob {
   readonly hierarchyView: GeometryHierarchyView;
   readonly sseThreshold: number;
   readonly coneEnabled: boolean;
+  /** Evidence-gated TriangleSetup candidate cache; false keeps fallback-only Surface reconstruction. */
+  readonly triangleSetupEnabled?: boolean;
+  readonly triangleSetupThresholdPixels?: number;
   readonly previousHzb: Readonly<{
     view: GPUTextureView;
     width: number;
@@ -170,6 +173,7 @@ export interface PackedVisibilityInputs {
   readonly previousHzb?: ResourceId;
   readonly exactRasterRecords: ResourceId;
   readonly exactDrawIndirect: ResourceId;
+  readonly setupRecords?: ResourceId;
   readonly depth: ResourceId;
 }
 
@@ -305,6 +309,9 @@ export class PackedVisibilityPass {
     const depth = builder.write(inputs.depth);
     const exactRasterRecords = builder.write(inputs.exactRasterRecords);
     const exactDrawIndirect = builder.write(inputs.exactDrawIndirect);
+    const setupRecords = inputs.setupRecords === undefined
+      ? null
+      : builder.write(inputs.setupRecords);
     const counters = builder.write(inputs.counters);
     output.visibilityKey = builder.create(
       "Packed VisibilityKey",
@@ -322,7 +329,8 @@ export class PackedVisibilityPass {
         records: exactRasterRecords,
         drawIndirect: exactDrawIndirect,
         classCapacity: job.prepared.workSet.classCapacity,
-        setupRecords: null,
+        setupRecords,
+        setupCapacity: job.prepared.workSet.setupCapacity,
         setupCount: null
       }),
       domain: textureDomain("internal-full", job.width, job.height, 1)
@@ -435,6 +443,7 @@ export class PackedVisibilityPass {
         )
       }
     );
+    const triangleSetupEnabled = job.triangleSetupEnabled ?? false;
     const key = visibilityWorkSetKey({
       runtime: job.runtime,
       assetEpoch: job.assets.epoch,
@@ -444,7 +453,11 @@ export class PackedVisibilityPass {
       maxHierarchyDepth: job.runtime.hierarchyMaxDepth,
       traversalCapacity: job.runtime.hierarchyTraversalCapacity,
       visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
-      rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity
+      rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
+      triangleSetupEnabled,
+      triangleSetupThresholdPixels: triangleSetupEnabled
+        ? normalizeTriangleSetupThreshold(job.triangleSetupThresholdPixels)
+        : 0
     });
     const bindings = visibilityBindingSet({
       camera,
@@ -489,7 +502,9 @@ export class PackedVisibilityPass {
         assets: job.assets,
         scene: job.scene,
         counterBuffer: counters,
-        countersEnabled: job.countersEnabled
+        countersEnabled: job.countersEnabled,
+        setupEnabled: key.triangleSetupEnabled,
+        setupThresholdPixels: key.triangleSetupThresholdPixels
       });
     } catch (error) {
       this.hierarchyGenerator.release(prepared);
@@ -501,6 +516,8 @@ export class PackedVisibilityPass {
       exact,
       exactRasterRecords: exact.output.rasterWork,
       exactDrawIndirect: exact.output.drawIndirect,
+      setupRecords: exact.output.setupRecords,
+      setupCapacity: exact.output.setupCapacity,
       classCapacity: exact.output.classCapacity
     });
     this.hierarchyPrepared.set(job.runtime, next);
@@ -620,6 +637,14 @@ function requireCommand(value: unknown): ShadeGPUCommandContext {
     return value as ShadeGPUCommandContext;
   }
   throw new Error("PackedVisibilityPass requires ShadeGPUCommandContext");
+}
+
+function normalizeTriangleSetupThreshold(value: number | undefined): number {
+  if (value === undefined) return 32;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError("Packed Visibility TriangleSetup threshold must be finite and non-negative");
+  }
+  return Math.min(0xffffffff, Math.floor(value));
 }
 
 function requireBuffer(value: unknown, label: string): GPUBuffer {

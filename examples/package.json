@@ -14,6 +14,7 @@
     "build": "tsc --noEmit && vite build --config vite.config.ts",
     "test:fixtures": "node ./fixture-smoke.mjs",
     "test:rendering-lab:profiles": "node ./rendering-lab/profile-smoke.mjs",
+    "test:visibility-key-oracle": "node ./rendering-lab/visibility-key-oracle.mjs",
     "test:rendering-lab:workload": "node ./rendering-lab/benchmark-workload-smoke.mjs",
     "profile:rendering-lab:formal": "npm --prefix ../OEngine run build:test && node ./rendering-lab/profile-formal.mjs"
   },

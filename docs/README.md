@@ -13,10 +13,6 @@
 专项设计：
 
 - [PERFORMANCE-INSPECTOR.md](./PERFORMANCE-INSPECTOR.md)：性能监视器的数据合同、UI、开源参考和实施步骤。
-- [INSPECTOR-PHASE1-DESIGN.md](./INSPECTOR-PHASE1-DESIGN.md)：three.js 风格 Inspector Phase 1 设计边界。
-- [INSPECTOR-PHASE1-EXECUTION.md](./INSPECTOR-PHASE1-EXECUTION.md)：Phase 1 执行记录与验证状态。
-- [INSPECTOR-PHASE2-DESIGN.md](./INSPECTOR-PHASE2-DESIGN.md)：实时 Timeline 录制与 OEngine 证据设计边界。
-- [INSPECTOR-PHASE2-EXECUTION.md](./INSPECTOR-PHASE2-EXECUTION.md)：实时 Timeline 执行记录与验证状态。
 - [SHOWCASE-LAB-DESIGN.md](./SHOWCASE-LAB-DESIGN.md)：Storybook 颗粒化 Example Lab v0.2 设计和实施边界。
 - [RENDERING-LAB-BENCHMARK-DESIGN.md](./RENDERING-LAB-BENCHMARK-DESIGN.md)：综合 Rendering Lab、实时 Inspector、Benchmark Suite 与相机距离归因实验设计。
 - [RENDERING-LAB-PERFORMANCE-REPORT.md](./RENDERING-LAB-PERFORMANCE-REPORT.md)：Rendering Lab 浏览器实测、相机距离归因与渲染链路架构证据。

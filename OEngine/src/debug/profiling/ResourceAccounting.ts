@@ -4,6 +4,7 @@ export type AccountedResourceCategory =
   | "transient"
   | "history"
   | "atlas"
+  | "work-cache"
   | "upload"
   | "readback"
   | "profiler";
@@ -203,7 +204,7 @@ function textureBlockInfo(format: string): TextureBlockInfo | undefined {
 
 function validateInput(input: ResourceAccountedInput): void {
   if (!input.owner) throw new TypeError("Resource owner is required");
-  if (input.category !== undefined && !["resident", "transient", "history", "atlas", "upload", "readback", "profiler"].includes(input.category)) {
+  if (input.category !== undefined && !["resident", "transient", "history", "atlas", "work-cache", "upload", "readback", "profiler"].includes(input.category)) {
     throw new TypeError(`Unknown resource category '${String(input.category)}'`);
   }
   if (!Number.isFinite(input.bytes) || input.bytes < 0) throw new RangeError("Resource bytes must be finite and non-negative");

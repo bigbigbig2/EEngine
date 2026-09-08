@@ -11,10 +11,16 @@ import {
   GPU_DRAW_INDIRECT_ARGS_SIZE,
   GPU_RASTER_WORK_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA,
-  classifiedRasterWorkBufferByteLength,
   packClassifiedRasterWorkHeaders
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
+import {
+  GPU_EXACT_RASTER_RECORD_STRIDE,
+  exactRasterWorkBufferByteLength,
+  GPU_TRIANGLE_SETUP_DEFAULT_THRESHOLD_PIXELS,
+  GPU_TRIANGLE_SETUP_MAX_BYTES,
+  GPU_TRIANGLE_SETUP_RECORD_STRIDE
+} from "../gpu/GpuExactRasterAbi.js";
 import { LPV_CAMERA_TYPE } from "../shaders/lpv_indirect_diffuse.js";
 import {
   EXACT_TRIANGLE_FILTER_SETTINGS_SIZE,
@@ -31,6 +37,9 @@ export interface ExactTriangleFilterInputs {
   readonly scene: GpuSceneBindings;
   readonly counterBuffer: GPUBuffer;
   readonly countersEnabled: boolean;
+  /** Candidate cache is an evidence-gated experiment; disabled means fallback-only. */
+  readonly setupEnabled?: boolean;
+  readonly setupThresholdPixels?: number;
 }
 
 export interface ExactTriangleFilterBindingInputs {
@@ -48,6 +57,9 @@ export interface ExactTriangleFilterOutput {
   readonly drawIndirect: GPUBuffer;
   readonly opaqueDrawOffset: 0;
   readonly maskDrawOffset: 16;
+  /** Null when the evidence-gated TriangleSetup cache is disabled. */
+  readonly setupRecords: GPUBuffer | null;
+  readonly setupCapacity: number;
 }
 
 export interface PreparedExactTriangleFilter {
@@ -60,6 +72,8 @@ interface PreparedState {
   readonly dispatchIndirect: GPUBuffer;
   readonly rasterWork: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
+  readonly setupRecords: GPUBuffer | null;
+  readonly setupCapacity: number;
   filterGroup: GPUBindGroup;
   drawGroup: GPUBindGroup;
   readonly dispatchGroup: GPUBindGroup;
@@ -70,6 +84,7 @@ interface PreparedState {
   camera: GPUBuffer;
   counterBuffer: GPUBuffer;
   countersEnabled: boolean;
+  readonly setupThresholdPixels: number;
   readonly buffers: readonly GPUBuffer[];
   destroyed: boolean;
 }
@@ -108,13 +123,15 @@ export class ExactTriangleFilter {
           buffer: {
             type: index === 1 ? "storage" as GPUBufferBindingType : "read-only-storage" as GPUBufferBindingType
           }
-        }))
+        })),
+        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+        { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
       ]
     });
     this.drawLayout = device.createBindGroupLayout({
       label: "Exact triangle filter draw preparation group1",
       entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: GPU_CLASSIFIED_RASTER_HEADER_BYTES + GPU_RASTER_WORK_SCHEMA.stride } },
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: GPU_CLASSIFIED_RASTER_HEADER_BYTES + GPU_EXACT_RASTER_RECORD_STRIDE } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_DRAW_INDIRECT_ARGS_SIZE * 2 } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: EXACT_TRIANGLE_FILTER_SETTINGS_SIZE } },
@@ -150,7 +167,7 @@ export class ExactTriangleFilter {
   prepare(inputs: ExactTriangleFilterInputs): PreparedExactTriangleFilter {
     this.assertAlive();
     assertPositiveU32(inputs.candidateCapacity, "Exact triangle candidate capacity");
-    const outputBytes = classifiedRasterWorkBufferByteLength(inputs.candidateCapacity);
+    const outputBytes = exactRasterWorkBufferByteLength(inputs.candidateCapacity);
     validateStorageSize(this.device, outputBytes, "classified RasterWork");
     const buffers: GPUBuffer[] = [];
     try {
@@ -169,6 +186,22 @@ export class ExactTriangleFilter {
         size: outputBytes,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
       }, packClassifiedRasterWorkHeaders(inputs.candidateCapacity), buffers);
+      const setupCapacity = inputs.setupEnabled === true
+        ? Math.min(
+            inputs.candidateCapacity * 2,
+            Math.floor(GPU_TRIANGLE_SETUP_MAX_BYTES / GPU_TRIANGLE_SETUP_RECORD_STRIDE)
+          )
+        : 0;
+      const setupRecords = setupCapacity === 0
+        ? null
+        : this.createInitializedBuffer({
+            label: "Exact TriangleSetup candidate cache",
+            size: setupCapacity * GPU_TRIANGLE_SETUP_RECORD_STRIDE,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+          }, new Uint8Array(setupCapacity * GPU_TRIANGLE_SETUP_RECORD_STRIDE), buffers, {
+            owner: "VisibilityWorkSet/TriangleSetupCandidateCache",
+            category: "work-cache"
+          });
       const drawIndirect = this.createInitializedBuffer({
         label: "Exact OPAQUE/MASK drawIndirect",
         size: GPU_DRAW_INDIRECT_ARGS_SIZE * 2,
@@ -187,7 +220,11 @@ export class ExactTriangleFilter {
           { binding: 6, resource: { buffer: inputs.assets.meshletRecords } },
           { binding: 7, resource: { buffer: inputs.assets.meshletVertexIndices } },
           { binding: 8, resource: { buffer: inputs.assets.meshletTriangleIndices } },
-          { binding: 9, resource: { buffer: inputs.assets.vertexStreamData } }
+          { binding: 9, resource: { buffer: inputs.assets.vertexStreamData } },
+          // setup_capacity=0 makes binding 10 unreachable. Reuse the existing
+          // writable counter buffer so feature-off owns no setup allocation.
+          { binding: 10, resource: { buffer: setupRecords ?? inputs.counterBuffer } },
+          { binding: 11, resource: { buffer: inputs.counterBuffer } }
         ]
       });
       const drawGroup = this.device.createBindGroup({
@@ -215,6 +252,8 @@ export class ExactTriangleFilter {
         classCapacity: inputs.candidateCapacity,
         totalCapacity: inputs.candidateCapacity * 2,
         drawIndirect,
+        setupRecords,
+        setupCapacity,
         opaqueDrawOffset: 0 as const,
         maskDrawOffset: GPU_DRAW_INDIRECT_ARGS_SIZE as 16
       });
@@ -237,6 +276,9 @@ export class ExactTriangleFilter {
         camera: inputs.camera,
         counterBuffer: inputs.counterBuffer,
         countersEnabled: inputs.countersEnabled,
+        setupThresholdPixels: inputs.setupThresholdPixels ?? GPU_TRIANGLE_SETUP_DEFAULT_THRESHOLD_PIXELS,
+        setupRecords,
+        setupCapacity,
         buffers,
         destroyed: false
       });
@@ -273,9 +315,11 @@ export class ExactTriangleFilter {
         { binding: 4, resource: { buffer: state.scene.instances } },
         { binding: 5, resource: { buffer: state.assets.geometryRecords } },
         { binding: 6, resource: { buffer: state.assets.meshletRecords } },
-        { binding: 7, resource: { buffer: state.assets.meshletVertexIndices } },
-        { binding: 8, resource: { buffer: state.assets.meshletTriangleIndices } },
-        { binding: 9, resource: { buffer: state.assets.vertexStreamData } }
+         { binding: 7, resource: { buffer: state.assets.meshletVertexIndices } },
+         { binding: 8, resource: { buffer: state.assets.meshletTriangleIndices } },
+         { binding: 9, resource: { buffer: state.assets.vertexStreamData } },
+         { binding: 10, resource: { buffer: state.setupRecords ?? state.counterBuffer } },
+         { binding: 11, resource: { buffer: state.counterBuffer } }
       ]
     });
     state.drawGroup = this.device.createBindGroup({
@@ -307,11 +351,16 @@ export class ExactTriangleFilter {
     settings[3] = state.candidateCapacity;
     settings[4] = Number(this.device.limits.maxComputeWorkgroupsPerDimension);
     settings[5] = state.countersEnabled ? 1 : 0;
+    settings[6] = Math.max(0, Math.min(0xffffffff, Math.floor(state.setupThresholdPixels)));
+    settings[7] = state.setupCapacity;
     writeGpuBuffer(this.device.queue, "ExactTriangleFilter/settings", state.settings, 0, settings);
     clearQueueCounters(encoder, state.rasterWork, 0);
     clearQueueCounters(encoder, state.rasterWork, GPU_WORK_QUEUE_HEADER_SCHEMA.stride);
     encoder.clearBuffer(state.dispatchIndirect, 0, GPU_DISPATCH_INDIRECT_ARGS_SIZE);
     encoder.clearBuffer(state.drawIndirect, 0, GPU_DRAW_INDIRECT_ARGS_SIZE * 2);
+    if (state.setupRecords !== null) {
+      encoder.clearBuffer(state.setupRecords, 0, state.setupRecords.size);
+    }
 
     const prepareDispatch = encoder.beginComputePass({ label: "Exact triangle filter/prepare dispatch" });
     prepareDispatch.setPipeline(this.dispatchPipeline);
@@ -357,22 +406,27 @@ export class ExactTriangleFilter {
   private createInitializedBuffer(
     descriptor: GPUBufferDescriptor,
     initial: Uint8Array,
-    buffers: GPUBuffer[]
+    buffers: GPUBuffer[],
+    accounting?: Readonly<{ owner: string; category: "resident" | "work-cache" }>
   ): GPUBuffer {
     const buffer = this.device.createBuffer({ ...descriptor, mappedAtCreation: true });
-    this.accountBuffer(buffer, descriptor);
+    this.accountBuffer(buffer, descriptor, accounting);
     buffers.push(buffer);
     new Uint8Array(buffer.getMappedRange()).set(initial);
     buffer.unmap();
     return buffer;
   }
 
-  private accountBuffer(buffer: GPUBuffer, descriptor: GPUBufferDescriptor): void {
+  private accountBuffer(
+    buffer: GPUBuffer,
+    descriptor: GPUBufferDescriptor,
+    accounting?: Readonly<{ owner: string; category: "resident" | "work-cache" }>
+  ): void {
     if (this.resourceAccounting === undefined) return;
     this.accountingHandles.set(buffer, this.resourceAccounting.created({
       kind: "buffer",
-      category: "resident",
-      owner: this.accountingOwner,
+      category: accounting?.category ?? "resident",
+      owner: accounting?.owner ?? this.accountingOwner,
       bytes: Number(descriptor.size),
       label: descriptor.label
     }));

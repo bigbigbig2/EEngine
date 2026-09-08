@@ -3,11 +3,13 @@
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 
 export const ENVIRONMENT_BACKGROUND_FORMAT = "rgba16float" as const;
 export const IBL_DIFFUSE_FORMAT = "rgba16float" as const;
 
 const OCTAHEDRAL_SAMPLE_WGSL = /* wgsl */ `
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 fn oct_sign(value: vec2f) -> vec2f {
   return select(vec2f(1.0), vec2f(-1.0), value < vec2f(0.0));
 }
@@ -33,7 +35,11 @@ fn oct_decode(encoded: vec2f) -> vec3f {
   return normalize(direction);
 }
 
-fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
+fn decode_surface_normal(encoded: vec2u) -> vec3f {
+  return oct_decode(vec2f(encoded) * (1.0 / OENGINE_SURFACE_NORMAL_MAX_VALUE));
+}
+
+fn decode_bent_normal(encoded: vec2u) -> vec3f {
   return oct_decode(vec2f(encoded) * (1.0 / 65535.0));
 }
 
@@ -190,7 +196,7 @@ fn fs_main(
   @location(0) uv: vec2f
 ) -> @location(0) vec4f {
   let pixel = vec2i(coord.xy);
-  let normal = decode_g_buffer_normal(textureLoad(count, pixel, 0).rg);
+  let normal = decode_bent_normal(textureLoad(count, pixel, 0).rg);
   let occlusion = textureLoad(radix, pixel, 0).a;
   let irradiance = sample_prefiltered_environment(
     sec_radix_passes,

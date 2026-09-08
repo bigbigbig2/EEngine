@@ -57,6 +57,12 @@ import {
 } from "./benchmark-suite.js";
 import type { RenderingLabCaseId } from "./quality-profile.js";
 import type { RenderingLabFixture } from "./fixture.js";
+import type {
+  SurfaceAbiRunEvidence,
+  TileBackendVendorRunEvidence
+} from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
+import type { TileBackendCostModelInput } from "../../OEngine/src/debug/TileBackendCostModel.js";
+import { setMaterialResolveBackendBenchmarkOverride } from "../../OEngine/src/render/MaterialClassDepthProbe.js";
 import {
   resolveRenderingLabWorkload,
   type RenderingLabWorkloadId,
@@ -206,8 +212,20 @@ async function initialize(): Promise<void> {
   const textureMaxResolution = parseTextureMaxResolution(
     new URLSearchParams(window.location.search).get("textureMaxResolution")
   );
+  const surfaceAbiProfile = parseSurfaceAbiProfile(
+    new URLSearchParams(window.location.search).get("surfaceAbiProfile")
+  );
+  const materialResolveBackend = parseMaterialResolveBackend(
+    new URLSearchParams(window.location.search).get("materialResolveBackend")
+  );
+  setMaterialResolveBackendBenchmarkOverride(materialResolveBackend);
   const activeRenderer = new Renderer(
-    textureMaxResolution === undefined ? undefined : { textureMaxResolution }
+    textureMaxResolution === undefined && surfaceAbiProfile === undefined
+      ? undefined
+      : {
+        ...(textureMaxResolution === undefined ? {} : { textureMaxResolution }),
+        ...(surfaceAbiProfile === undefined ? {} : { surfaceAbiProfile })
+      }
   );
   renderer = activeRenderer;
   await activeRenderer.initialize({
@@ -359,6 +377,8 @@ function installQ00Api(activeRenderer: Renderer): void {
         debugView: activeRenderer.render_debug_view
       },
       temporal: activeRenderer.temporalEvidence(),
+      triangleSetupEnabled: activeRenderer.packed_triangle_setup_enabled,
+      triangleSetupThresholdPixels: activeRenderer.packed_triangle_setup_threshold_pixels,
       ao: activeRenderer.ambientOcclusionEvidence(),
       ssr: activeRenderer.screenSpaceReflectionsEvidence(),
       memory: activeRenderer.memoryEvidence(),
@@ -430,7 +450,12 @@ function installRenderingLabFixture(
       options?.animateScene,
       options?.runGroupId,
       options?.runOrdinal,
-      options?.workloadId
+      options?.workloadId,
+      options?.triangleSetupEnabled,
+      options?.triangleSetupThresholdPixels,
+      options?.surfaceAbiRuns,
+      options?.tileBackendRuns,
+      options?.tileBackendModelInput
     ),
     downloadBenchmarkReport: () => {
       if (benchmarkReport !== null) downloadRenderingLabBenchmarkReport(benchmarkReport);
@@ -491,8 +516,17 @@ async function runRenderingLabBenchmark(
   animateSceneOverride?: boolean,
   runGroupIdOverride?: string,
   runOrdinalOverride?: number,
-  workloadIdOverride?: RenderingLabWorkloadId
+  workloadIdOverride?: RenderingLabWorkloadId,
+  triangleSetupEnabledOverride?: boolean,
+  triangleSetupThresholdPixelsOverride?: number,
+  surfaceAbiRunsOverride?: readonly SurfaceAbiRunEvidence[],
+  tileBackendRunsOverride?: readonly TileBackendVendorRunEvidence[],
+  tileBackendModelInputOverride?: TileBackendCostModelInput
 ): Promise<RenderingLabBenchmarkReport> {
+  if (triangleSetupThresholdPixelsOverride !== undefined &&
+      (!Number.isFinite(triangleSetupThresholdPixelsOverride) || triangleSetupThresholdPixelsOverride < 0)) {
+    throw new RangeError("triangleSetupThresholdPixels must be a non-negative finite number");
+  }
   if (benchmarkRunning) throw new Error("A Rendering Lab benchmark is already running");
   if (root.dataset.state !== "ready") throw new Error("Rendering Lab is not ready");
   benchmarkRunning = true;
@@ -516,11 +550,19 @@ async function runRenderingLabBenchmark(
   const previousCounterInterval = activeRenderer.profiler.gpuCounterSampleInterval;
   const previousReadbackSlots = activeRenderer.profiler.readbackRingSlots;
   const previousCpuPassTimings = activeRenderer.profiler.cpuPassTimings;
+  const previousTriangleSetupEnabled = activeRenderer.packed_triangle_setup_enabled;
+  const previousTriangleSetupThresholdPixels = activeRenderer.packed_triangle_setup_threshold_pixels;
   const inspectorVisible = inspectorVisibleOverride ?? previousInspectorVisible;
   const counterInterval = gpuCounterSampleIntervalOverride ?? previousCounterInterval;
   const readbackSlots = readbackRingSlotsOverride ?? previousReadbackSlots;
   const cpuPassTimings = cpuPassTimingsOverride ?? previousCpuPassTimings;
   const animateScene = animateSceneOverride ?? benchmarkWorkload.animateScene;
+  if (triangleSetupEnabledOverride !== undefined) {
+    activeRenderer.packed_triangle_setup_enabled = triangleSetupEnabledOverride;
+  }
+  if (triangleSetupThresholdPixelsOverride !== undefined) {
+    activeRenderer.packed_triangle_setup_threshold_pixels = triangleSetupThresholdPixelsOverride;
+  }
   benchmarkAwaitGpuEachFrame = awaitGpuEachFrameOverride ?? false;
   if (inspector !== null) {
     if (inspectorVisible) inspector.open();
@@ -585,6 +627,11 @@ async function runRenderingLabBenchmark(
       domainEvidence: {
         graph: activeRenderer.mainFrameGraphEvidence(),
         memory: activeRenderer.memoryEvidence(),
+        resourceAccounting: activeRenderer.graphics.profilingResourceSnapshot(),
+        migration: activeRenderer.visibilitySurfaceMigrationEvidence(),
+        ...(surfaceAbiRunsOverride === undefined ? {} : { surfaceAbiRuns: surfaceAbiRunsOverride }),
+        ...(tileBackendRunsOverride === undefined ? {} : { tileBackendRuns: tileBackendRunsOverride }),
+        ...(tileBackendModelInputOverride === undefined ? {} : { tileBackendModelInput: tileBackendModelInputOverride }),
         temporal: activeRenderer.temporalEvidence(),
         ao: activeRenderer.ambientOcclusionEvidence(),
         ssr: activeRenderer.screenSpaceReflectionsEvidence()
@@ -604,6 +651,8 @@ async function runRenderingLabBenchmark(
       readbackRingSlots: previousReadbackSlots,
       cpuPassTimings: previousCpuPassTimings
     });
+    activeRenderer.packed_triangle_setup_enabled = previousTriangleSetupEnabled;
+    activeRenderer.packed_triangle_setup_threshold_pixels = previousTriangleSetupThresholdPixels;
     activeRenderer.profiler.setMode(previousProfilerMode);
     if (inspector !== null) {
       if (previousInspectorVisible) inspector.open();
@@ -659,6 +708,7 @@ function benchmarkFeatureSet(activeRenderer: Renderer, caseId: RenderingLabCaseI
     "hardware-visibility", "hzb-culling", "cone-culling", "material-expand",
     "single-material-resolve", "clustered-lighting", "ibl", "packed-instances",
     "hierarchy-sse-lod",
+    ...(activeRenderer.packed_triangle_setup_enabled ? ["triangle-setup-candidate-cache"] : []),
     ...(features.shadows ? ["packed-csm-shadow"] : []),
     ...(features.ambientOcclusion ? ["gtao"] : []),
     ...(features.screenSpaceReflections ? ["ssr"] : []),
@@ -1189,6 +1239,16 @@ function parseTextureMaxResolution(value: string | null): 256 | 512 | 1024 | 204
   return parsed === 256 || parsed === 512 || parsed === 1024 || parsed === 2048 || parsed === 4096
     ? parsed
     : undefined;
+}
+
+function parseSurfaceAbiProfile(value: string | null): "v1" | "v2-candidate" | undefined {
+  if (value === "v1" || value === "v2-candidate") return value;
+  return undefined;
+}
+
+function parseMaterialResolveBackend(value: string | null): "class-depth" | "class-discard" | null {
+  if (value === "class-depth" || value === "class-discard") return value;
+  return null;
 }
 
 function queueAnimatedScenePatch(

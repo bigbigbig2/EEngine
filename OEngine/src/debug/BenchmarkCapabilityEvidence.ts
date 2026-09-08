@@ -346,16 +346,21 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   rasterRejectedTriangles: supported("ExactTriangleFilter compact difference reducer"),
   opaqueRasterWork: supported("ExactTriangleFilter OPAQUE queue reducer"),
   maskRasterWork: supported("ExactTriangleFilter MASK queue reducer"),
-  kernelBaseFactorPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
-  kernelBaseTexturePixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
-  kernelBaseOrmPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
-  kernelBaseOrmNormalPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
-  kernelBaseOrmNormalEmissivePixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
-  kernelUnlitPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
-  kernelGenericFallbackPixels: unsupported("M4-REMOVED-PIXEL-QUEUE", "legacy classifier counter retired with Pixel Queue"),
-  shadeWorkOverflow: unsupported("M4-REMOVED-PIXEL-QUEUE", "ShadeWork queue no longer exists"),
-  classDepthPixels: unsupported("M3-CLASS-HISTOGRAM", "sampled class histogram reduction is not implemented"),
-  classDraws: supported("PackedMaterialResolvePass/bounded fullscreen kernel draws")
+  kernelBaseFactorPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseTexturePixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseOrmPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseOrmNormalPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseOrmNormalEmissivePixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
+  kernelUnlitPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
+  kernelGenericFallbackPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
+  shadeWorkOverflow: unsupported("VIS-06", "ShadeWork queue no longer exists"),
+  classDepthPixels: supported("VisibilityCounterPass/valid VisibilityKey reducer"),
+  classDraws: supported("PackedMaterialResolvePass/bounded fullscreen kernel draws"),
+  setupAttempted: supported("ExactTriangleFilter/TriangleSetup candidate reducer"),
+  setupWritten: supported("ExactTriangleFilter/TriangleSetup candidate reducer"),
+  setupVisiblePixelHits: supported("PackedMaterialResolvePass/TriangleSetup evidence compute"),
+  setupVisiblePixelFallbacks: supported("PackedMaterialResolvePass/per-pixel fallback evidence compute"),
+  setupOverflow: supported("ExactTriangleFilter/TriangleSetup bounded capacity reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

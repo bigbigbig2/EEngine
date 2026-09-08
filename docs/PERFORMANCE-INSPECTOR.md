@@ -91,8 +91,3 @@ Renderer / GPU owners
 4. **已完成基线** Phase 4：Rendering Lab Playwright 验收、GPU counter/coverage 证据、Inspector 公共路径移除 Capture/Trace；内部 codec 仅供 benchmark/test 使用。
 
 设计与执行记录：
-
-- [Phase 1 design](./INSPECTOR-PHASE1-DESIGN.md)
-- [Phase 1 execution](./INSPECTOR-PHASE1-EXECUTION.md)
-- [Phase 2 design](./INSPECTOR-PHASE2-DESIGN.md)
-- [Phase 2 execution](./INSPECTOR-PHASE2-EXECUTION.md)

@@ -2,6 +2,10 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile
+} from "../../gpu/GpuSurfaceAbi.js";
+import {
   PackedMaterialResolvePass,
   type PackedMaterialResolveJob,
   type PackedMaterialResolveOutputs
@@ -22,8 +26,12 @@ export interface SurfaceFeatureInputs {
 export class SurfaceFeature {
   private readonly implementation: PackedMaterialResolvePass;
 
-  constructor(graphics: GraphicsContext, backend: MaterialResolveBackend = "class-depth") {
-    this.implementation = new PackedMaterialResolvePass(graphics, backend);
+  constructor(
+    graphics: GraphicsContext,
+    backend: MaterialResolveBackend = "class-depth",
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.implementation = new PackedMaterialResolvePass(graphics, backend, surfaceProfile);
   }
 
   get lastKernelDrawCount(): number { return this.implementation.lastKernelDrawCount; }

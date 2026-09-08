@@ -6,6 +6,11 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile,
+  gpuSurfaceNormalPipelineConstants
+} from "../../gpu/GpuSurfaceAbi.js";
 import { LINEAR_CLAMP_SAMPLER_DESCRIPTOR } from "../../gpu/GPUSamplerCache.js";
 import {
   OPAQUE_LIGHTING_RESOLVE_FORMAT,
@@ -66,59 +71,35 @@ const OPAQUE_LIGHTING_RESOLVE_TARGETS: readonly GPUColorTargetState[] = [
   }
 ];
 
-const OPAQUE_LIGHTING_RESOLVE_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "Renderer/Opaque lighting resolve",
-  layout: {
-    label: "Renderer/TB/pipeline-layout",
-    bindGroupLayouts: [OPAQUE_LIGHTING_RESOLVE_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1]
-  },
-  vertex: { module: OPAQUE_LIGHTING_RESOLVE_MODULE, entryPoint: "vs_main" },
-  fragment: {
-    module: OPAQUE_LIGHTING_RESOLVE_MODULE,
-    entryPoint: "fs_main",
-    targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: {
-    format: "depth32float",
-    depthWriteEnabled: false,
-    depthCompare: "not-equal"
-  }
-};
-
-const OPAQUE_LIGHTING_RESOLVE_LEGACY_PIPELINE: CachedRenderPipelineDescriptor = {
-  ...OPAQUE_LIGHTING_RESOLVE_PIPELINE,
-  label: "Renderer/Opaque lighting resolve legacy",
-  layout: {
-    label: "Renderer/TB/legacy-pipeline-layout",
-    bindGroupLayouts: [OPAQUE_LIGHTING_RESOLVE_LEGACY_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1]
-  },
-  fragment: {
-    module: OPAQUE_LIGHTING_RESOLVE_MODULE,
-    entryPoint: "fs_main_legacy",
-    targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
-  }
-};
-
-const OPAQUE_LIGHTING_RESOLVE_NO_AO_PIPELINE: CachedRenderPipelineDescriptor = {
-  ...OPAQUE_LIGHTING_RESOLVE_PIPELINE,
-  label: "Renderer/Opaque lighting resolve no ambient AO",
-  fragment: {
-    module: OPAQUE_LIGHTING_RESOLVE_MODULE,
-    entryPoint: "fs_main_no_ao",
-    targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
-  }
-};
-
-const OPAQUE_LIGHTING_RESOLVE_LEGACY_NO_AO_PIPELINE: CachedRenderPipelineDescriptor = {
-  ...OPAQUE_LIGHTING_RESOLVE_LEGACY_PIPELINE,
-  label: "Renderer/Opaque lighting resolve legacy no ambient AO",
-  fragment: {
-    module: OPAQUE_LIGHTING_RESOLVE_MODULE,
-    entryPoint: "fs_main_legacy_no_ao",
-    targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
-  }
-};
+function createOpaqueLightingPipeline(
+  label: string,
+  entryPoint: string,
+  bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[],
+  surfaceProfile: GpuSurfaceAbiProfile
+): CachedRenderPipelineDescriptor {
+  return {
+    label,
+    layout: {
+      label: `${label}/pipeline-layout`,
+      bindGroupLayouts
+    },
+    vertex: { module: OPAQUE_LIGHTING_RESOLVE_MODULE, entryPoint: "vs_main" },
+    fragment: {
+      module: OPAQUE_LIGHTING_RESOLVE_MODULE,
+      entryPoint,
+      constants: {
+        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+      },
+      targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
+    },
+    primitive: { topology: "triangle-list", cullMode: "none" },
+    depthStencil: {
+      format: "depth32float",
+      depthWriteEnabled: false,
+      depthCompare: "not-equal"
+    }
+  };
+}
 
 export type OpaqueLightingResolveInputs = {
   hdr: ResourceId;
@@ -142,26 +123,58 @@ export type OpaqueLightingResolveOutput = {
 };
 
 export class OpaqueLightingResolvePass {
+  private readonly surfaceDescriptor: CachedRenderPipelineDescriptor;
+  private readonly legacyDescriptor: CachedRenderPipelineDescriptor;
+  private readonly surfaceNoAoDescriptor: CachedRenderPipelineDescriptor;
+  private readonly legacyNoAoDescriptor: CachedRenderPipelineDescriptor;
   private surfacePipeline: GPURenderPipeline | null = null;
   private legacyPipeline: GPURenderPipeline | null = null;
   private surfaceNoAoPipeline: GPURenderPipeline | null = null;
   private legacyNoAoPipeline: GPURenderPipeline | null = null;
   lastRan = false;
 
-  constructor(private readonly graphics: GraphicsContext) {}
+  constructor(
+    private readonly graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.surfaceDescriptor = createOpaqueLightingPipeline(
+      "Renderer/Opaque lighting resolve",
+      "fs_main",
+      [OPAQUE_LIGHTING_RESOLVE_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
+      surfaceProfile
+    );
+    this.legacyDescriptor = createOpaqueLightingPipeline(
+      "Renderer/Opaque lighting resolve legacy",
+      "fs_main_legacy",
+      [OPAQUE_LIGHTING_RESOLVE_LEGACY_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
+      surfaceProfile
+    );
+    this.surfaceNoAoDescriptor = createOpaqueLightingPipeline(
+      "Renderer/Opaque lighting resolve no ambient AO",
+      "fs_main_no_ao",
+      [OPAQUE_LIGHTING_RESOLVE_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
+      surfaceProfile
+    );
+    this.legacyNoAoDescriptor = createOpaqueLightingPipeline(
+      "Renderer/Opaque lighting resolve legacy no ambient AO",
+      "fs_main_legacy_no_ao",
+      [OPAQUE_LIGHTING_RESOLVE_LEGACY_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
+      surfaceProfile
+    );
+  }
 
   init(): void {
     this.surfacePipeline ??= this.graphics.render_pipelines.obtain(
-      OPAQUE_LIGHTING_RESOLVE_PIPELINE
+      this.surfaceDescriptor
     );
     this.legacyPipeline ??= this.graphics.render_pipelines.obtain(
-      OPAQUE_LIGHTING_RESOLVE_LEGACY_PIPELINE
+      this.legacyDescriptor
     );
     this.surfaceNoAoPipeline ??= this.graphics.render_pipelines.obtain(
-      OPAQUE_LIGHTING_RESOLVE_NO_AO_PIPELINE
+      this.surfaceNoAoDescriptor
     );
     this.legacyNoAoPipeline ??= this.graphics.render_pipelines.obtain(
-      OPAQUE_LIGHTING_RESOLVE_LEGACY_NO_AO_PIPELINE
+      this.legacyNoAoDescriptor
     );
   }
 
@@ -182,8 +195,8 @@ export class OpaqueLightingResolvePass {
           ? (aoAware ? this.surfacePipeline : this.surfaceNoAoPipeline)
           : (aoAware ? this.legacyPipeline : this.legacyNoAoPipeline);
         const descriptor = surfaceAware
-          ? (aoAware ? OPAQUE_LIGHTING_RESOLVE_PIPELINE : OPAQUE_LIGHTING_RESOLVE_NO_AO_PIPELINE)
-          : (aoAware ? OPAQUE_LIGHTING_RESOLVE_LEGACY_PIPELINE : OPAQUE_LIGHTING_RESOLVE_LEGACY_NO_AO_PIPELINE);
+          ? (aoAware ? this.surfaceDescriptor : this.surfaceNoAoDescriptor)
+          : (aoAware ? this.legacyDescriptor : this.legacyNoAoDescriptor);
         if (!encoder) throw new Error("OpaqueLightingResolvePass: no encoder");
         if (!pipeline) throw new Error("OpaqueLightingResolvePass not initialized");
 

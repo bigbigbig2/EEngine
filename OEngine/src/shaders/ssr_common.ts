@@ -3,6 +3,7 @@
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 
 export const SSR_CAMERA_WGSL = LPV_CAMERA_TYPE.wgsl_declaration;
 
@@ -29,6 +30,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertexOutput {
 `;
 
 export const SSR_MATH_WGSL = /* wgsl */ `
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.31830988618379067153776752674503;
 const EPSILON: f32 = 1e-6;
@@ -86,7 +88,7 @@ fn uv_octahedral_unit_decode(encoded: vec2f) -> vec3f {
 }
 
 fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
-  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
+  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / OENGINE_SURFACE_NORMAL_MAX_VALUE));
 }
 
 fn decode_g_buffer_metalness(pbr: vec4f) -> f32 {

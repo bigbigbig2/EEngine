@@ -10,7 +10,7 @@ const source = (relative) => readFileSync(
 test("P3 Renderer 使用统一 VisibilityFeature 与 SurfaceFeature 边界", () => {
   const renderer = source("render/Renderer.ts");
   assert.match(renderer, /new VisibilityFeature\(this\._graphics\)/);
-  assert.match(renderer, /new SurfaceFeature\(this\._graphics\)/);
+  assert.match(renderer, /new SurfaceFeature\(\s*this\._graphics,/);
   assert.doesNotMatch(renderer, /new PackedVisibilityPass\(/);
   assert.doesNotMatch(renderer, /new PackedMaterialResolvePass\(/);
 });

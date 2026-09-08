@@ -92,6 +92,10 @@ export default defineConfig({
           examplesRoot,
           "rendering-lab/index.html"
         ),
+        visibilityKeyOracle: path.resolve(
+          examplesRoot,
+          "rendering-lab/visibility-key-oracle.html"
+        ),
         modelLoading: path.resolve(
           examplesRoot,
           "model-loading/index.html"

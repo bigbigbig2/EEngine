@@ -2,6 +2,7 @@ import type {
   FrameGraphResourceDomain,
   ResourceId
 } from "../../framegraph/ResourceHandle.js";
+import { GPU_SURFACE_ABI_VERSION } from "../../gpu/GpuSurfaceAbi.js";
 
 export type ResolutionDomain = FrameGraphResourceDomain;
 
@@ -18,6 +19,8 @@ export interface ExactRasterFrame {
   readonly drawIndirect: ResourceId;
   readonly classCapacity: number;
   readonly setupRecords: ResourceId | null;
+  /** Zero when the evidence-gated TriangleSetup cache is disabled. */
+  readonly setupCapacity?: number;
   readonly setupCount: ResourceId | null;
 }
 
@@ -60,6 +63,8 @@ export function requireDomain(
 }
 
 export interface SurfaceFrame {
+  /** Explicit Surface ABI version; consumers must not infer semantics from attachment order. */
+  readonly abiVersion: number;
   /** 深度由 Visibility producer 提供；Material Resolve 单独不能拥有它。 */
   readonly depth: ResourceId | null;
   readonly pbr: ResourceId;
@@ -159,6 +164,10 @@ export function exactRasterFrame(input: ExactRasterFrame): ExactRasterFrame {
   if (!Number.isSafeInteger(input.classCapacity) || input.classCapacity <= 0) {
     throw new RangeError("ExactRasterFrame.classCapacity must be a positive integer");
   }
+  if (input.setupCapacity !== undefined &&
+      (!Number.isSafeInteger(input.setupCapacity) || input.setupCapacity < 0)) {
+    throw new RangeError("ExactRasterFrame.setupCapacity must be a non-negative integer");
+  }
   return Object.freeze({ ...input });
 }
 
@@ -205,9 +214,13 @@ export function materialClassificationFrame(
 }
 
 /** 从 producer 输出创建不可变 Surface 产品，禁止 Renderer 重新解释 attachment 顺序。 */
-export function surfaceFrame(input: SurfaceFrame): SurfaceFrame {
+export function surfaceFrame(
+  input: SurfaceFrame,
+  expectedAbiVersion = GPU_SURFACE_ABI_VERSION
+): SurfaceFrame {
+  requireSurfaceAbiVersion(input, expectedAbiVersion);
   for (const [name, value] of Object.entries(input)) {
-    if (name === "domain") continue;
+    if (name === "domain" || name === "abiVersion") continue;
     requireResourceId(value as ResourceId | null, `SurfaceFrame.${name}`);
   }
   return Object.freeze({
@@ -221,12 +234,24 @@ export function surfaceFrame(input: SurfaceFrame): SurfaceFrame {
   });
 }
 
+/** Consumer-side ABI seam; v2 consumers must opt in explicitly in one commit. */
+export function requireSurfaceAbiVersion(
+  input: Pick<SurfaceFrame, "abiVersion">,
+  expected = GPU_SURFACE_ABI_VERSION
+): void {
+  if (input.abiVersion !== expected) {
+    throw new Error(
+      `SurfaceFrame ABI version ${input.abiVersion} is incompatible with expected ${expected}`
+    );
+  }
+}
+
 /** 为迁移中的 Surface producer 补入 velocity，返回新的 immutable product。 */
 export function surfaceFrameWithVelocity(
   frame: SurfaceFrame,
   velocity: ResourceId | null
 ): SurfaceFrame {
-  return surfaceFrame({ ...frame, velocity });
+  return surfaceFrame({ ...frame, velocity }, frame.abiVersion);
 }
 
 /** 创建统一的 Opaque HDR 产品，并在 composition seam 处验证 internal-full 域。 */

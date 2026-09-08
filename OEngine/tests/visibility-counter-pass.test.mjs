@@ -19,6 +19,8 @@ test("visibility counter shader targets the fixed GPU counter ABI", () => {
     Uint32Array.BYTES_PER_ELEMENT;
   const invalidIndex = counterByteOffset("invalidVisibilityKeys") /
     Uint32Array.BYTES_PER_ELEMENT;
+  const classDepthIndex = counterByteOffset("classDepthPixels") /
+    Uint32Array.BYTES_PER_ELEMENT;
 
   assert.match(VISIBILITY_COUNTER_WGSL, /const MESH_SENTINEL: u32 = 16777216u;/);
   assert.match(VISIBILITY_COUNTER_WGSL, /fn count_legacy_ids/);
@@ -36,6 +38,12 @@ test("visibility counter shader targets the fixed GPU counter ABI", () => {
     VISIBILITY_COUNTER_WGSL,
     new RegExp(`atomicAdd\\(&frame_counters\\[${invalidIndex}u\\]`)
   );
+  assert.match(
+    VISIBILITY_COUNTER_WGSL,
+    new RegExp(`atomicAdd\\(&frame_counters\\[${classDepthIndex}u\\]`)
+  );
+  assert.match(VISIBILITY_COUNTER_WGSL, /if \(class_depth_contract\)/);
+  assert.match(VISIBILITY_COUNTER_WGSL, /fn count_visibility_keys_class_depth/);
   assert.match(
     VISIBILITY_COUNTER_WGSL,
     new RegExp(`@workgroup_size\\(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE}\\)`)

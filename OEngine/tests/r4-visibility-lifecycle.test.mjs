@@ -24,11 +24,13 @@ const {
   GPU_RASTER_WORK_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA
 } = await import("../.test-dist/gpu/GpuWorkGenerationAbi.js");
+const { exactRasterWorkBufferByteLength } = await import(
+  "../.test-dist/gpu/GpuExactRasterAbi.js"
+);
 
 test("R4-A-05 prepare rejects capacity before generator allocation or encoding", () => {
   const adapterCapacity = 5;
-  const byteLimit = GPU_CLASSIFIED_RASTER_HEADER_BYTES +
-    adapterCapacity * 2 * GPU_RASTER_WORK_SCHEMA.stride;
+  const byteLimit = exactRasterWorkBufferByteLength(adapterCapacity);
   const generator = createGenerator();
   const exact = createExactFilter();
   const pass = new PackedVisibilityPass({
@@ -265,8 +267,7 @@ test("R4-A-05 feature-off source keeps counter reducer and debug resolve behind 
 
 test("R4-A-05 preparation evidence accepts the exact adapter boundary", () => {
   const capacity = 17;
-  const limit = GPU_CLASSIFIED_RASTER_HEADER_BYTES +
-    capacity * 2 * GPU_RASTER_WORK_SCHEMA.stride;
+  const limit = exactRasterWorkBufferByteLength(capacity);
   assert.equal(
     validatePackedVisibilityPreparation(capacity, {
       maxBufferSize: limit,
@@ -345,6 +346,8 @@ function createExactFilter() {
           classCapacity: inputs.candidateCapacity,
           totalCapacity: inputs.candidateCapacity * 2,
           drawIndirect: {},
+          setupRecords: null,
+          setupCapacity: 0,
           opaqueDrawOffset: 0,
           maskDrawOffset: 16
         }

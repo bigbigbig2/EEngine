@@ -424,7 +424,7 @@ git commit -m "refactor: remove visible pixel queue backend"
 - Produces: 固定 8 MiB `TriangleSetupCandidateQueue`，默认 coverage threshold 为 32 pixels。
 - Produces: `setupAttempted`、`setupWritten`、`setupVisiblePixelHits`、`setupVisiblePixelFallbacks`、`setupOverflow`，只在 profiler cadence 开启需要的 reduction/readback。
 
-- [ ] **Step 1: 写 ABI、数学 oracle、near-plane 与 overflow 失败测试**
+- [x] **Step 1: 写 ABI、数学 oracle、near-plane 与 overflow 失败测试**
 
 ```js
 test("queue overflow cannot change the reconstructed surface", () => {
@@ -440,17 +440,17 @@ test("queue overflow cannot change the reconstructed surface", () => {
 
 随机三角形 oracle 必须覆盖 perspective barycentric derivatives、mirrored、double-sided、degenerate、near crossing 和 camera motion。
 
-- [ ] **Step 2: 运行测试确认 24 B record/无 setup 路径失败**
+- [x] **Step 2: 运行测试确认 32 B exact record / 40 B setup ABI**
 
 Run: `node --test tests/gpu-exact-raster-abi.test.mjs tests/triangle-filter-reference.test.mjs tests/packed-material-resolve.test.mjs`
 
 Expected: FAIL，指出 ABI stride 或 setup consumer 缺失。
 
-- [ ] **Step 3: 实现 bounded candidate producer 与 Surface fast path**
+- [x] **Step 3: 实现 bounded candidate producer 与 Surface fast path**
 
 Reservation 必须有确定容量；queue full、near crossing、degenerate 或 invalid handle 全部走现有逐像素公式。velocity 关闭只允许删除 previous-frame/motion 计算，不得声称消除当前 position 读取，因为 face/geometric normal 仍需要 position。
 
-- [ ] **Step 4: 接入生命周期与 sampled diagnostics**
+- [x] **Step 4: 接入生命周期与 sampled diagnostics**
 
 8 MiB cache 记为 persistent work-cache；ExactRaster 从 24 B 增至 32 B 的双 class delta 记为 `16 × classCapacity`；销毁、device loss、scene release 后归零。普通稳定帧不得新增 fragment atomic 或 counter readback。
 
@@ -489,7 +489,7 @@ git commit -m "perf: cache bounded exact triangle setup"
 - Consumes: M5 已稳定的 class Surface producer；不得同时改变 TriangleSetup 算法。
 - Produces: versioned `GPU_SURFACE_ABI_VERSION = 2` 与唯一 encode/decode helpers；所有 consumers 同一提交迁移。
 
-- [ ] **Step 1: 写 attachment layout 与 consumer compatibility 失败测试**
+- [x] **Step 1: 写 attachment layout 与 consumer compatibility 失败测试**
 
 ```js
 assert.equal(GPU_SURFACE_ABI_VERSION, 2);
@@ -497,13 +497,13 @@ assert.deepEqual(surfaceAttachmentFormats(), expectedV2Formats);
 assert.equal(allSurfaceConsumersDeclareVersion(2), true);
 ```
 
-- [ ] **Step 2: 运行命中测试确认仍为 v1**
+- [x] **Step 2: 运行命中测试确认仍为 v1**
 
 Run: `node --test tests/r5-surface-contract.test.mjs tests/packed-material-resolve.test.mjs tests/resource-accounting.test.mjs`
 
 Expected: FAIL，且只涉及 ABI/layout，不涉及 M5 算法。
 
-- [ ] **Step 3: 实现最小 v2 layout 并迁移所有消费者**
+- [x] **Step 3: 实现隔离的最小 v2 candidate layout 并迁移所有 Packed Surface 消费者**
 
 格式选择必须由同机 A/B 证明；若没有节省 attachment bytes 或增加转换 pass，则保持 v1 并把 M6 记录为 `rejected-by-evidence`。
 
@@ -540,7 +540,7 @@ git commit -m "perf: validate surface abi v2"
 - Entry Gate: 至少两个 GPU vendor 上，M3 `MaterialClassDepth + Resolve` 的 P50 或 P95 比已验证 tile prototype/模型高 10% 以上。
 - Produces: Gate 未触发时明确状态 `not-needed-by-evidence`；Gate 触发时才产生固定容量 tile queue ABI 与 backend。
 
-- [ ] **Step 1: 写 M7 判定失败测试**
+- [x] **Step 1: 写 M7 判定失败测试**
 
 ```js
 assert.equal(evaluateTileBackendNeed(oneVendorEvidence).status, "insufficient-evidence");
@@ -548,7 +548,7 @@ assert.equal(evaluateTileBackendNeed(twoVendorUnderThreshold).status, "not-neede
 assert.equal(evaluateTileBackendNeed(twoVendorOverTenPercent).status, "required");
 ```
 
-- [ ] **Step 2: 运行测试并实现纯证据判定器**
+- [x] **Step 2: 运行测试并实现纯证据判定器**
 
 Run: `node --test tests/benchmark-evidence-gate.test.mjs`
 
@@ -564,13 +564,9 @@ Expected: PASS；没有足够证据时不得创建 runtime tile 文件。
 
 - [ ] **Step 4: 运行最终验证矩阵**
 
-Run: `npm test`
+按下方“**M7 结束后的统一未完成验证**”逐项执行。这里不再用一次 `npm test` 概括浏览器、正确性、性能和内存 Gate。
 
-Run: `npm run audit:shaders`
-
-Run: Chrome Rendering Lab 全部 formal profiles，每个 backend/关键 workload 三个独立 session，并保存截图、控制台、GPU timestamps、counter coverage、resource snapshot 和报告。
-
-Expected: 所有适用的 M1-M7 Gate 通过；feature-off 无残余；GPU producer→consumer 闭环完整；没有用 source-shape test 代替浏览器证据。
+Expected: 下方所有适用项均勾选完成；M3/M5/M6/M7 都有 identity-bearing artifact；feature-off 无残余；GPU producer→consumer 闭环完整；没有用 source-shape test、历史 dirty report 或 CPU timing 代替浏览器 GPU 证据。
 
 - [ ] **Step 5: 更新最终状态并提交**
 
@@ -578,6 +574,99 @@ Expected: 所有适用的 M1-M7 Gate 通过；feature-off 无残余；GPU produc
 git add OEngine examples docs
 git commit -m "docs: record visibility surface migration evidence"
 ```
+
+---
+
+## M7 结束后的统一未完成验证
+
+本节是 M7 得出最终结论后一次性执行的收口清单，只列当前仍未完成或必须在最终合并状态重跑的验证。已有 `temp/visibility-to-surface/` 报告均早于当前 migration artifact schema，且包含 dirty、capability、counter 或 validation Gate error，不得用于关闭下列 Gate。
+
+### 0. 最终证据前置条件
+
+- [ ] 当前实现、runner 与文档位于一个 clean commit；记录 commit、浏览器版本、adapter/vendor/device、分辨率、DPR、feature set、seed、warm-up、measured frames、timestamp cadence、counter cadence、`runGroupId`、`runId` 和 `sessionId`。
+- [ ] 正式 workload 固定为 1920×1080、DPR 1、120 warm-up + 480 measured frames、timestamp cadence 8、counter cadence 11；每个比较项至少三个独立浏览器 session。
+- [ ] 所有报告的 `browserErrors`、`provenanceErrors`、`gateErrors` 均为空；GPU timestamp 不可用时直接把性能 Gate 标为 `insufficient-evidence`，不得用 CPU 时间替代。
+- [ ] M3 legacy 基线从删除 Pixel Queue 前、同时包含三个 backend 的 clean `68750c2` 版本采集。必须在该版本增加并提交仅供 benchmark 使用的 backend 选择 seam，保证 `legacy-pixel-queue`、`class-depth`、`class-discard` 在同一 commit、同一 harness 和同一设置下 A/B；不得在当前 M4+ 源码中临时恢复 legacy 后用 dirty worktree 出报告。
+
+### 1. 最终合并状态的构建、全量测试与 Shader 审计
+
+- [ ] 在 `OEngine/` 执行：
+
+```powershell
+npm ci
+npm test
+npm run audit:shaders
+```
+
+Expected: build、test build、全部 `tests/*.test.mjs` 与 Shader provenance/source audit 全部通过；不排除 documentation、browser 或 migration tests。
+
+- [ ] 在 `examples/` 执行：
+
+```powershell
+yarn install --frozen-lockfile
+yarn build
+yarn test:visibility-key-oracle
+yarn test:rendering-lab:workload
+```
+
+Expected: examples typecheck/Vite build 通过；VisibilityKey GPU oracle 全部向量一致；Rendering Lab workload smoke 无 page error、console error、validation error 或 device loss。
+
+### 2. M2 遗留：VisibilityKey v2/v3 parity
+
+- [ ] 使用相同 Packed scene、相机、分辨率和 seed，分别从 M1 clean baseline `1dbadc5` 与最终实现采集 VisibilityKey、depth 和 Surface attachment readback。
+- [ ] 验证 v3 的 7 个 kernel class、EMPTY/INVALID sentinel、slot 容量边界和越界 encode；非法 encode 只能得到 INVALID，`invalidVisibilityKeys` 与正式 workload overflow 必须为 0。
+- [ ] 完成此前缺失的 v2/v3 image/attachment parity；不能只用当前 runtime smoke 或 CPU oracle 关闭这一项。
+
+### 3. M3/M4 遗留：ClassDepth、fallback 与 Pixel Queue 删除 Gate
+
+- [ ] 在 clean `68750c2` benchmark 版本上，对 `legacy-pixel-queue`、`class-depth`、`class-discard` 分别运行以下 workload，每项三个独立 session：
+
+```text
+cube-near-effects-off
+microtriangle-stress
+material-mosaic-7
+near-plane-motion
+```
+
+- [ ] 逐 attachment 比较 7 个 kernel class、MASK、motion 与 near-plane；`class-depth` 和 `class-discard` 相对 legacy 必须满足 RFC 的 bit/数值 parity。
+- [ ] `cube-near-effects-off` 的 ClassDepth Surface GPU P50 至少改善 15%、P95 至少改善 10%；`microtriangle-stress` total GPU P50/P95 回归均不超过 5%。
+- [ ] 在最终版本验证 adapter/image-parity 失败能实际选择 `class-discard`，并记录 fallback diagnostics；仅有未被 Renderer 使用的 backend 类型或 shader branch 不算完成。
+- [ ] 检查最终 FrameGraph、resource snapshot、readback 和 submit evidence：不得再出现 count/prefix/add/scatter、`ShadeWork`、Pixel Queue Buffer、旧 counter copy/readback 或额外 submit。
+
+### 4. M5 遗留：TriangleSetup 正确性、命中率与默认值 Gate
+
+- [ ] 对 TriangleSetup `off` 与 `threshold=32` 分别运行以下 workload，每项三个独立 session：
+
+```text
+cube-near-effects-off
+microtriangle-stress
+heavy-overdraw-large-occluder
+near-plane-motion
+```
+
+- [ ] 验证 near-plane、mirrored、double-sided、degenerate、MASK、velocity on/off；metadata/emissive 必须 bit-identical，albedoAo/PBR P99 绝对误差不超过 1/255，normal P99 角误差不超过 0.5°，velocity P99 误差不超过 0.05 internal pixel，且没有 NaN/Inf。
+- [ ] 三次 `heavy-overdraw-large-occluder` 的 `visiblePixelSetupHitRatio` 均不低于 90%；同时保存 `setupAttempted`、`setupWritten`、`setupVisiblePixelHits`、`setupVisiblePixelFallbacks`、`setupOverflow`、`workCacheBytes` 和 `workCachePeakBytes`。
+- [ ] 比较 `cube-near-effects-off` 与 `microtriangle-stress` 的 Surface/total GPU P50/P95/P99；只有正确性、命中率、内存和性能同时通过，才把 candidate cache 改为默认，否则保持关闭并记录 `disabled-by-evidence`。
+- [ ] TriangleSetup 关闭时确认没有 setup cache allocation、clear、evidence pass、counter copy 或 readback；4 B dummy Buffer 和每帧 `clearBuffer` 也必须计入并消除或明确判定 Gate 失败。
+
+### 5. M6 遗留：Surface ABI v2 完整 A/B
+
+- [ ] 分别以启动期 `surfaceAbiProfile=v1` 和 `surfaceAbiProfile=v2-candidate` 运行 `comprehensive-full`、`material-mosaic-7`、`near-plane-motion`，每个 profile/workload 三个独立 session；禁止运行时热切换 ABI。
+- [ ] 每个 paired run 同时记录 attachment readback parity、velocity on/off Bpp、conversion pass 数、resident peak、transient peak、全局预算状态和 active runtime ABI/profile。
+- [ ] candidate 必须在完整 Packed composition 中覆盖 Direct Lighting、AO、SSR、IBL、LPV、Brick4、Opaque Resolve、Temporal 与 Render Debug；legacy MaterialExpand 对 v2 必须明确拒绝。
+- [ ] 三次 paired run 全部满足：correctness parity、attachment bytes 下降、conversion pass 数为 0、resident/transient peak 不增加。任一条件失败则生产继续使用 v1，并记录 `rejected-by-evidence`；缺字段则记录 `insufficient-evidence`。
+
+### 6. M7 最终分支
+
+- [ ] 至少两个 GPU vendor 分别采集 `material-mosaic-7`、`cube-near-effects-off` 和 `microtriangle-stress`；每个 vendor/backend/workload 至少三个独立 session，并在相同 `runGroupId` 下记录 ClassDepth+Resolve 与已验证 tile prototype/model 的 P50/P95 和 sample coverage。
+- [ ] 如果两个 vendor 的 ClassDepth P50 或 P95 都没有比 tile 对照高 10%，记录 `not-needed-by-evidence`，确认源码中不存在 `PackedMaterialTilePass`、tile queue、tile shader、无消费者资源或额外 submit。
+- [ ] 如果 Gate 返回 `required`，运行 `packed-material-tile.test.mjs` 和全量 `npm test`，并在真实 tile backend 上重跑本节全部三个 workload；验证 tile ABI、capacity、overflow、GPU producer→consumer、class-discard fail-visible fallback、feature-off 与 ClassDepth/Surface parity。
+
+### 7. 生命周期、Feature-off 与最终报告
+
+- [ ] 在真实浏览器逐项覆盖 Packed Scene release、resource epoch replacement、Renderer destroy、device loss、resize、counter cadence 切换、TriangleSetup off/on、Surface ABI profile 启动和全部相关 feature-off 状态。
+- [ ] 每个 feature-off 状态确认无对应 Pass、资源、history、readback、counter copy 或独立 submit；正常主帧保持一个 main command encoder/submit。
+- [ ] 汇总 M2–M7 artifact，更新本页 Phase Completion Record、`docs/STATUS.md` 与 `docs/porting/visibility.md`。只有适用 Gate 全部通过或按 RFC 得到正式 `not-needed-by-evidence`/`rejected-by-evidence` 结论后，才能把 Visibility-to-Surface RFC 标记完成。
 
 ---
 
@@ -592,9 +681,78 @@ git commit -m "docs: record visibility surface migration evidence"
 | M2 | complete (`68750c2`) | 45/45 targeted; 427/427 non-doc tests; GPU oracle 6213/6213 | Chrome 152 / NVIDIA Turing / 1920×1080 smoke | RFC correctness/capacity gate closed; Step 5 screenshot parity open |
 | M3 | implemented-awaiting-evidence (`68750c2`) | targeted shader/FrameProduct tests pass | browser formal A/B not run | pending correctness/performance gate |
 | M4 | implementation complete (this change) | 31/31 targeted tests | Rendering Lab WebGPU workload smoke | architecture gate closed; release acceptance still awaits M3 formal evidence |
-| M5 | pending | pending | pending | pending |
-| M6 | pending | pending | pending | pending |
-| M7 | evidence-conditional | pending | pending | pending |
+| M5 | implemented-awaiting-evidence | ABI/producer/consumer path and fallback implemented; default cache remains off | formal profile has explicit opt-in and emits three-run setup Gate, not run in this phase | pending hit/fallback ratio and image/perf Gate |
+| M6 | evidence-gate implemented; v1 retained | v1 contract unchanged | no formal attachment A/B yet | pending isolated A/B |
+| M7 | evidence-gate implemented; no tile runtime | gate evaluator targeted test passes | no two-vendor tile comparison yet | insufficient-evidence |
+
+### 2026-09-08 runtime/evidence readiness closure
+
+- `Renderer.initialize()` 现在对 7 个二进制精确 class depth 值执行一次真实 GPU `depth32float + depthCompare="equal"` readback probe。probe 的 backend、来源和原因写入 `visibilitySurfaceMigrationEvidence()`；validation error、readback mismatch 或异常会在创建 Surface owner 前选择 `class-discard` 并输出 diagnostics。该 probe 只关闭 adapter 首次验证闭环，不替代完整场景 image parity。
+- `class-discard` 的 Rendering Lab 选择 seam 保持内部，不加入公开 `RendererConfig`。smoke/formal runner 通过 `OENGINE_MATERIAL_RESOLVE_BACKEND=class-depth|class-discard` 生成页面参数；默认 `auto` 使用上述 adapter probe。
+- TriangleSetup 默认关闭时 `setupRecords=null`，不再创建 4 B placeholder、不再导入 FrameGraph setup resource，也不再发出 setup `clearBuffer`；binding 10 复用已有 counter sink，但 `setup_capacity=0` 保证 shader 不访问。正式 runner 不再硬编码开启，改由 `OENGINE_TRIANGLE_SETUP_ENABLED=true|false` 与 `OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS` 显式控制。
+- `classDepthPixels` 复用 cadence-controlled `VisibilityCounterPass` 的 valid VisibilityKey reduction；没有新增 fullscreen pass、readback 或 submit。该 counter 只在 VisibilityKey 合同分支生产。
+- 验证：`OEngine/npm test` 439/439；Shader audit 70/70（66 authored-live、4 unknown）；`examples/npm run build`；VisibilityKey GPU oracle 6213/6213；NVIDIA/Turing Chrome WebGPU 上 workload smoke 的 `auto`、显式 `class-depth`、显式 `class-discard` 路径通过。正式 profile 未运行，因为当前工作树不是 clean commit，产物不能满足 provenance Gate。
+- 尚未关闭：M2 v2/v3 attachment parity；M3 历史 legacy 三组 A/B 与场景 image parity；M5 off/on 三组正确性、命中率、性能和内存 Gate；M6 v1/v2 三组完整 composition A/B；M7 两 vendor evidence；device-loss/resize/toggle 生命周期矩阵。
+
+正式 runner 示例（每条命令内部生成三个独立 browser session）：
+
+```powershell
+Set-Location examples
+$env:OENGINE_MATERIAL_RESOLVE_BACKEND = "class-discard"
+$env:OENGINE_TRIANGLE_SETUP_ENABLED = "false"
+npm run profile:rendering-lab:formal -- cube-near-effects-off
+
+$env:OENGINE_MATERIAL_RESOLVE_BACKEND = "class-depth"
+$env:OENGINE_TRIANGLE_SETUP_ENABLED = "true"
+$env:OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS = "32"
+npm run profile:rendering-lab:formal -- heavy-overdraw-large-occluder
+
+$env:OENGINE_SURFACE_ABI_PROFILE = "v2-candidate"
+npm run profile:rendering-lab:formal -- comprehensive-full
+```
+
+### 2026-09-07 M5 producer/consumer checkpoint
+
+- Implementation: working tree。`GpuExactRasterAbi.ts` 冻结 32 B `ExactRasterRecord`（24 B RasterWork 前缀 + setupIndex/exactFlags）和 RFC Appendix B 的 40 B q-center/dqdx/dqdy `TriangleSetupRecord` sidecar；ExactTriangleFilter 的正式 exact queue 已升级为 32 B，并在显式 benchmark-only opt-in 时分配/清零最多 8 MiB setup cache，作为独立 `work-cache` resource category 记账；默认关闭时不创建 setup buffer、不导入对应 FrameGraph resource、不执行 setup clear，并走逐像素 fallback；按可配置 screen-coverage threshold 写 setup；Visibility、Material Resolve、Debug consumers 同步使用 exact stride，setup 无效/near crossing/容量外自动回退现有逐像素公式。
+- Correctness: `gpu-exact-raster-abi.test.mjs` 3/3、Material/Visibility/Hierarchy 命中测试 26/26 通过；`npm run typecheck`、`npm run build:test`、`npm run build` 通过；Rendering Lab workload/profile smoke 无 page/console error。
+- Observability: GPU counter ABI 增加 `setupAttempted`、`setupWritten`、`setupVisiblePixelHits`、`setupVisiblePixelFallbacks`、`setupOverflow`（schema v13）；producer 与 sampled-only TriangleSetup evidence compute 均已接线。
+- Reporting: Rendering Lab benchmark report 现在按 case 汇总上述 setup counters，并输出 `triangleSetup.cases[*].visibleHitRatio`、counter coverage、overflow/写入统计以及 `workCacheBytes/workCachePeakBytes`；`profile-formal.mjs` 通过 `OENGINE_TRIANGLE_SETUP_ENABLED` 与 `OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS` 显式选择 M5 off/on，并把三次 run 的判定写入 `triangleSetupGate`。报告同时输出 `surfaceAbi.cases[*]` 的 attachment bytes、resident bytes、classDepth/resolve P50/P95/P99 及样本数，并保存 `resourceAccounting`（含 `work-cache` category）供 M5/M6/M7 evidence 汇总使用。只有三次正式 run 均达 90% 才允许后续把 cache 设为默认。
+- Inspector: GPU-driven 面板增加 TriangleSetup candidate 写入/overflow 与 visible hit ratio 行；默认关闭时显示 unsupported，不创建额外采样或资源。
+- Graph identity: packed FrameGraph cache key includes `setup0/setup1`, so switching benchmark opt-in cannot reuse a graph compiled for the fallback-only mode.
+- Migration snapshot: `Renderer.visibilitySurfaceMigrationEvidence()` and benchmark `domainEvidence.migration` record VisibilityKey/ExactRaster/Surface ABI versions, active backend, TriangleSetup opt-in state, and explicit M7 `tileBackend.status: insufficient-evidence`; these fields describe implementation state only and do not close performance Gates.
+- Observability: `profile-formal.mjs` 的正式 cadence 使用 64 个 readback slots，避免慢 adapter 把 counter 丢弃误报为 workload 失败；unsupported counter blocker IDs 统一为稳定 `VIS-*` 任务号。
+- Not run: near-plane image parity、heavy-overdraw 三次正式 run、setup hit ratio 与正式性能 Gate；曾做过一次 near-plane exploratory 3-run，但工作树 dirty，不能作为 release evidence。
+- Gate conclusion: producer→consumer 与 fallback 闭环已成立，M5 状态为 `implemented-awaiting-evidence`；candidate cache 尚未取得默认启用的 RFC 数值 Gate。
+
+### 2026-09-08 M6/M7 evidence gates checkpoint
+
+- 新增内部 `VisibilitySurfaceMigrationGates.ts`：M5 只有带唯一 `runGroupId/runId` 的三次独立 run，且 visible setup hit ratio 均达到 90% 才允许 candidate cache 成为默认；否则 `disabled-by-evidence`。M6 现在同时提供 aggregate 判定和 identity-bearing run-group 判定：三次独立 run 必须证明 parity、attachment bytes 下降、无 conversion pass，且 resident/transient peak 不增加；否则明确 `rejected-by-evidence` 或 `insufficient-evidence`。M7 现在同时提供 vendor 摘要和 identity-bearing vendor-run 判定，后者要求每个 vendor 的独立 session/run 数量满足门槛，再比较 ClassDepth 与 tile prototype/model；未达到 10% 时返回 `not-needed-by-evidence`，证据缺失时返回 `insufficient-evidence`，不创建 Tile backend。
+- Rendering Lab report 将可选的 `surfaceAbiRuns` / `tileBackendRuns` 原样作为证据输入，生成 `domainEvidence.surfaceAbi.v2Gate` 与 `domainEvidence.migrationGates`；没有候选 artifact 时明确报告“保持 Surface ABI v1 / 不创建 Tile runtime”，不会把缺失数据伪装成通过。
+- `SurfaceFrame` 现在携带显式 `abiVersion`；Packed Resolve 与 legacy MaterialExpand producer 均声明 v1，FrameProduct validator 和 Lighting consumer 都拒绝未知版本，避免未来 v2 只改 attachment format 却让旧 consumer 静默读取。
+- M6 candidate contract 已冻结为 benchmark-only `rgba8uint` normal（v1 `rgba16uint`），schema 同时声明 `octahedral-unorm-trunc`、normal max value=255、velocity-on/off Bpp 和三次独立 run promotion gate，并提供 CPU octahedral pack/unpack oracle；候选预计 velocity-on 为 22 B/pixel，但未接入生产 targets，不能视为 v2 已接受。
+- Surface normal 的 encode 与下游 consumer 现在共享 `OENGINE_SURFACE_NORMAL_MAX_VALUE` override；生产 pipeline 明确固定为 65535，candidate 只能在隔离 A/B pipeline 中切换，bent-normal 仍保持独立的 16-bit 解码合同。
+- `gpuSurfaceNormalPipelineConstants()` 已成为生产与 candidate pipeline 的统一 specialization 入口；当前 Packed Resolve / Direct Lighting 显式使用 v1 常量，后续 candidate 只需在隔离 descriptor 中传入 255。
+- `GpuSurfaceAbi.ts` 现在同时冻结 `GPU_SURFACE_ABI_V1_PROFILE`（active）与 `GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE`（benchmark-only），isolated runner 可直接消费 profile，避免重复拼接格式和 Bpp。
+- `PackedMaterialResolvePass` / `SurfaceFeature` 已接受显式 `GpuSurfaceAbiProfile`；默认仍创建 v1，显式 candidate 才会产出 v2 SurfaceFrame 和 `rgba8uint` normal target。未显式 profile 的 consumer 仍拒绝 v2，避免半迁移路径。
+- Direct Lighting 已加入同一 profile seam：candidate profile 会使用 max value=255 并校验对应 SurfaceFrame ABI；AO/SSR/GI 等其它 consumer 尚未切换，生产 Renderer 仍全部使用 v1。
+- Opaque Lighting Resolve 的 descriptor 也已参数化 profile，但尚未由 GIService 传入 candidate；这保持 IBL/LPV/Brick4 混合链路不会半迁移。
+- IBL specular 与 LPV diffuse 的 Surface-normal consumers 也已参数化 profile；IBL diffuse 的 bent-normal 输入明确保留 16-bit 解码。GIService 仍默认构造 v1，candidate 只在后续 isolated composition 中启用。
+- SSR 的 trace/resolve/denoise/upscale descriptors 现在只对实际包含 Surface normal decoder 的 shader 注入 profile constant；prefilter-only shader 不注入无效 override。默认 SSR 仍使用 v1。
+- SSAO raw/spatial/joint-resolve descriptors 也已支持 profile specialization；bent-normal encode/decode 仍固定 16-bit，linear-depth/temporal-only stages 不会注入无效 normal override。
+- Brick4 diffuse/specular/fused descriptors 也已支持 profile specialization；默认 GIService 仍传 v1，candidate 只有在完整 GI composition A/B 中才可启用。
+- `GIService` / `OpaqueLightingPipeline` 现在把一个 profile 原子地传给 IBL specular、Opaque resolve、Brick4 与 lazy LPV provider；默认仍是 v1，isolated candidate 不再需要逐 pass 手工切换。
+- RendererConfig 与 Rendering Lab 已支持启动期 `surfaceAbiProfile: "v2-candidate"`（页面参数 `?surfaceAbiProfile=v2-candidate`）；这是独立实验入口，不能在已初始化 Renderer 上热切换，也不会改变默认 v1。
+- Render Debug 的 shading-normal pipeline 也使用同一 profile specialization；candidate 报告从 runtime migration evidence 写入真实 `activeAbiVersion/activeAbiProfile`，不再把 v2 capture 错标为 v1。candidate 仅支持 Packed Scene；legacy MaterialExpand 会在建图边界明确拒绝，而不是让 v1 Surface 流入 v2 consumer。
+- M7 新增 `TileBackendCostModel.ts` 作为 evidence-only model：固定 tile size、7-bit class mask、bounded capacity/overflow（含 tile-record `overflowRate`）和 class-tile dispatch work 计数；没有创建 `PackedMaterialTilePass`、shader、queue 或额外 submit。
+- Rendering Lab 仅在调用方显式提供 `domainEvidence.tileBackendModelInput` 时生成 `domainEvidence.tileBackendModel`；默认报告为 `not-sampled`，不会偷偷把 CPU model 当作跨 vendor 性能证据。
+- `profile-formal.mjs` 现在把每组三次 run 的 `migrationGates.surfaceAbiV2` / `migrationGates.tileBackend` 写入 artifact；当前无 candidate/tile artifact 时明确保存 `insufficient-evidence`，不会把普通 v1 run 冒充 A/B 证据。
+- Rendering Lab fixture 的 `runBenchmark` 已接受可选 `surfaceAbiRuns`、`tileBackendRuns` 与 `tileBackendModelInput`，并原样写入 report domain evidence；默认调用不传这些字段，因此不会产生额外资源或 runtime backend。
+- `profile-formal.mjs` 支持 `OENGINE_SURFACE_ABI_PROFILE=v1|v2-candidate`，把同一 workload 以独立启动期 profile 采集；脚本 artifact 同时记录 profile，便于后续把 baseline/candidate 配对生成 M6 identity-bearing evidence。当前未宣称该配对已通过 correctness/memory Gate。
+- `surfaceAbi` report 现在同时保存 active ABI version、candidate contract version 和 schema promotion gate，避免把 candidate layout 描述误读成生产 ABI 已切换。
+- M6/M7 artifact 边界现在对缺字段、错误类型、非法 memory peak、非法 vendor metric 和重复身份统一返回 `insufficient-evidence`，不会因脏 JSON 在 gate evaluator 内抛异常；这仍不会把缺失 evidence 转换成通过。
+- 本次变更仅运行 `OEngine/npm run typecheck` 与 `examples/npx tsc --noEmit -p tsconfig.json`；没有运行测试矩阵、浏览器 profile 或正式性能 A/B。
+- Targeted verification: `visibility-surface-migration-gates.test.mjs` 2/2 通过；未运行全量 suite。
+- Current status: M6 与 M7 仍等待正式 evidence；当前没有足够数据把 Surface ABI v2 或 Tile backend 标为完成，保持 v1/class-depth 生产路径。
 
 ### 2026-09-07 M0 pre-implementation audit
 

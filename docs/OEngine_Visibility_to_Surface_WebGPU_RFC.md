@@ -491,6 +491,8 @@ velocity-on 可以在独立后续实验中尝试用主 depth + inverse view-proj
 
 性能目标不是一个固定“16 Bpp”数字，而是按 downstream consumers 做证据驱动删减：关闭某 feature 时，其 attachment 必须能被 FrameGraph prune；SurfaceFrame 保留语义字段，不允许 Renderer 按 attachment 顺序猜含义。
 
+`SurfaceFrame` 同时携带 `abiVersion`。所有 producer/consumer 必须在 seam 处校验该版本；M6 v2 不能只替换纹理格式而让 v1 consumer 静默读取。当前 v1 producer 和 Lighting consumer 已接入该检查。
+
 # 10. Phase 4：Tile Material Backend（可选）
 
 如果 Phase 1 在某些 WebGPU 实现上出现 7 个 fullscreen depth-equal pass 固定成本过高，或未来 kernel class 超过 7 类，再引入 NanoMesh/Wicked 风格 tile backend。它不是第一阶段依赖。
@@ -511,6 +513,29 @@ Surface
 ```
 
 桌面 WebGPU 初始建议测试 32×32；NanoMesh 的 64×64 是移动平台与其材质系统下的经验值，不能直接当作 OEngine 常数。若只有 1~2 类材质覆盖整屏，tile build 可能得不偿失，因此 backend 应由 benchmark 选择而不是默认打开。
+
+## 10.1 M6/M7 证据 artifact 合同
+
+后续阶段的实现触发必须由可审计 artifact 驱动，而不是由源码形状或一次本地测量推断：
+
+- **M6 Surface ABI v2**：每个候选 run 必须携带唯一 `runId`、`runGroupId`、`sessionId`，并同时记录 baseline/candidate 的 attachment bytes per pixel、resident bytes、transient peak、conversion pass 数和 correctness parity。至少三个独立 session 全部 parity、每次 attachment bytes 下降、无 conversion pass 且 resident/transient peak 不增加，才允许把 v2 layout 接入生产 consumer；缺少任一字段时保持 v1 并报告 `insufficient-evidence`，有明确负收益时报告 `rejected-by-evidence`。
+- 当前 M6 candidate contract 只冻结 `normal: rgba8uint`（v1 为 `rgba16uint`）、`octahedral-unorm-trunc`（candidate max value=255）对应 schema 和 CPU oracle，预期在 velocity-on 时从 26 B/pixel 降至 22 B/pixel；schema 还固定 velocity-off Bpp 与三次独立 run 的 parity/conversion/resident/transient promotion gate。它不接入默认 RenderTargets，也不改变 `GPU_SURFACE_ABI_VERSION = 1`，直到上述 gate 通过。
+- 实现中以 `GPU_SURFACE_ABI_V1_PROFILE` 与 `GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE` 作为 active/candidate 的单一 profile 来源；candidate profile 仅供 isolated benchmark 使用。
+- `PackedMaterialResolvePass` / `SurfaceFeature` 的 profile seam 允许 isolated producer 生成版本化 v2 SurfaceFrame；默认 Renderer 仍构造 v1，所有 consumer 在 seam 处按同一 profile 校验，避免半迁移路径静默混用。
+- Direct Lighting、AO、SSR、GI/IBL/LPV/Brick4、Opaque Resolve 与 Render Debug shading-normal 已支持显式 profile specialization；candidate 可以进入完整 Packed composition A/B，bent-normal 仍保持独立 16-bit 合同。
+- SSR descriptor 仅对包含 Surface normal decoder 的阶段注入 candidate specialization，prefilter-only 阶段保持无 override；默认仍是 v1。
+- SSAO raw/spatial/joint-resolve 具备同一 specialization seam；bent-normal 仍固定 16-bit，避免 candidate 压缩改变 AO 方向语义。
+- Brick4 diffuse/specular/fused descriptor 已具备同一 profile specialization；GIService 仍默认 v1，candidate 只能在完整 GI composition A/B 中启用。
+- `GIService` / `OpaqueLightingPipeline` 以单一 profile 原子配置 IBL specular、Opaque resolve、Brick4 与 LPV provider，isolated candidate 不需要逐 pass 切换；生产默认仍为 v1。
+- RendererConfig 提供启动期 `surfaceAbiProfile`，Rendering Lab 通过 `?surfaceAbiProfile=v2-candidate` 启动独立实验；禁止在已初始化 Renderer 上热切换 profile，以保持 FrameGraph/resource identity 稳定。
+- candidate profile 只接受 Packed Scene producer；legacy MaterialExpand 仍生产 v1，若误用 candidate 会在 FrameGraph 建图边界明确失败。Rendering Lab report 从 runtime migration evidence 写入真实 active ABI/profile，保证候选 capture 不会被静态 v1 常量误标。
+- **M7 Tile backend**：每个 vendor 至少提供满足正式 run 数量的独立 artifact，记录 ClassDepth+Resolve 与已验证 tile prototype/model 的 P50/P95、样本覆盖和同一 `runGroupId` 下的 run/session 身份。只有至少两个 vendor 的 P50 或 P95 均超过 tile 对照 10% 才创建 tile queue/backend；否则报告 `not-needed-by-evidence` 或 `insufficient-evidence`，不保留无消费者的 tile 资源、pass 或 submit。
+- 在 gate 触发前，`TileBackendCostModel` 只作为 debug/benchmark model：输入 row-major class ids，输出固定 16/32/64 tile 的 7-bit mask、bounded record overflow 和 class-tile dispatch 工作量；它不创建 GPU queue、pass 或 runtime backend，也不替代跨 vendor 的真实 prototype/model timing。
+- Rendering Lab report 将这些输入保存在 `domainEvidence.surfaceAbiRuns` / `tileBackendRuns`，并生成 `surfaceAbi.v2Gate` 与 `migrationGates`；没有候选 artifact 不得被序列化为通过。
+- Rendering Lab fixture 的 benchmark API 可以显式接收上述 identity-bearing artifacts 以及 evidence-only tile model input；默认 run 不提供这些字段，不会伪造候选证据或创建 tile runtime。
+- `profile-formal.mjs` 支持通过 `OENGINE_SURFACE_ABI_PROFILE=v1|v2-candidate` 选择独立启动期 profile，并将 profile 写入 artifact；baseline/candidate 的配对与 correctness/memory 字段仍必须来自正式 A/B 采集，不能由脚本默认推断。
+- Renderer 在设备初始化时用 7 个 class 的真实 GPU readback 验证 `depth32float + depthCompare="equal"`；失败会在 Surface owner 创建前选择 `class-discard`，并记录 backend、选择来源和原因。Rendering Lab 可用内部 `OENGINE_MATERIAL_RESOLVE_BACKEND=class-depth|class-discard` seam 固定 A/B，公开 `RendererConfig` 不暴露迁移 backend。
+- formal runner 默认保持 TriangleSetup off；只有 `OENGINE_TRIANGLE_SETUP_ENABLED=true` 才分配 setup cache，threshold 由 `OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS` 控制。off 状态必须保持 `setupRecords=null`，没有 setup FrameGraph resource 与 setup clear。
 
 # 11. 与 Renderer / FrameGraph 的集成
 

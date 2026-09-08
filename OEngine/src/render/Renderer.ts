@@ -5,6 +5,14 @@
 import { ChangeSignal } from "../core/Signal.js";
 import { Vec2 } from "../core/math/Vec2.js";
 import { GraphicsContext } from "../gpu/GraphicsContext.js";
+import { GPU_EXACT_RASTER_ABI_VERSION } from "../gpu/GpuExactRasterAbi.js";
+import { GPU_VISIBILITY_KEY_ABI_VERSION } from "../gpu/GpuVisibilityKeyAbi.js";
+import {
+  GPU_SURFACE_ABI_VERSION,
+  GPU_SURFACE_ABI_V1_PROFILE,
+  GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE,
+  type GpuSurfaceAbiProfile
+} from "../gpu/GpuSurfaceAbi.js";
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../gpu/TextureResidency.js";
 import { MeshletDrawList } from "../gpu/MeshletDrawList.js";
 import { GPUSceneManager } from "../gpu/GPUSceneManager.js";
@@ -36,6 +44,10 @@ import {
   type PackedVisibilityJob
 } from "./features/VisibilityFeature.js";
 import { SurfaceFeature } from "./features/SurfaceFeature.js";
+import {
+  selectMaterialResolveBackend,
+  type MaterialResolveBackendSelection
+} from "./MaterialClassDepthProbe.js";
 import { PackedSurfaceCounterPass } from "./passes/PackedSurfaceCounterPass.js";
 import { LightingFeature } from "./features/LightingFeature.js";
 import type { LightClusterOutputs } from "./passes/LightClusterPass.js";
@@ -296,6 +308,29 @@ export interface RendererMemoryEvidence extends GraphicsMemoryEvidence {
   readonly historyOwners: Readonly<Record<string, number>>;
 }
 
+export interface VisibilitySurfaceMigrationEvidence {
+  readonly schemaVersion: 1;
+  readonly visibilityKeyAbiVersion: number;
+  readonly exactRasterAbiVersion: number;
+  readonly surfaceAbiVersion: number;
+  readonly surfaceAbiProfile: "v1" | "v2-candidate";
+  readonly materialResolveBackend: string;
+  readonly materialResolveBackendSelection: Readonly<{
+    readonly source: string;
+    readonly reason: string;
+  }>;
+  readonly triangleSetupEnabled: boolean;
+  readonly triangleSetupThresholdPixels: number;
+  readonly surfaceAbiV2: Readonly<{
+    readonly status: "insufficient-evidence";
+    readonly reason: string;
+  }>;
+  readonly tileBackend: Readonly<{
+    readonly status: "insufficient-evidence";
+    readonly reason: string;
+  }>;
+}
+
 export interface MainFrameGraphRuntimeEvidence {
   readonly cacheKey: string;
   readonly dump: CompiledFrameGraphDump;
@@ -372,6 +407,8 @@ export class Renderer {
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _capabilities: RendererCapabilities | null = null;
   private readonly _rendererConfig: RendererConfig;
+  private readonly _surfaceAbiProfile: GpuSurfaceAbiProfile;
+  private _materialResolveSelection: MaterialResolveBackendSelection | null = null;
   private _lastFrameContract: RenderFrameContract | null = null;
   private readonly _profiler = new FrameProfiler();
   private _graphics!: GraphicsContext;
@@ -462,6 +499,9 @@ export class Renderer {
   packed_visibility_sse_threshold = 4;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
+  /** Candidate cache remains fallback-only until the M5 evidence gate passes. */
+  packed_triangle_setup_enabled = false;
+  packed_triangle_setup_threshold_pixels = 32;
 
   onFrameFinished = new ChangeSignal<number>();
   onFrameDebug = new ChangeSignal<number, any[]>();
@@ -474,6 +514,9 @@ export class Renderer {
   constructor(config: RendererConfig = {}) {
     this._rendererConfig = mergeRendererConfig(DEFAULT_RENDERER_CONFIG, config);
     validateRendererConfig(this._rendererConfig);
+    this._surfaceAbiProfile = this._rendererConfig.surfaceAbiProfile === "v2-candidate"
+      ? GPU_SURFACE_ABI_V2_CANDIDATE_PROFILE
+      : GPU_SURFACE_ABI_V1_PROFILE;
     this._renderSettings.update(rendererConfigSettingsPatch(this._rendererConfig));
     this._temporalFeature.dynamicResolution.get_scale = () => this.internal_resolution_scale;
     this._temporalFeature.dynamicResolution.set_scale = (scale) => {
@@ -852,6 +895,34 @@ export class Renderer {
     return Object.freeze({ ...graphics, historyBytes, historyOwners });
   }
 
+  /** Machine-readable migration state; does not imply any performance Gate passed. */
+  visibilitySurfaceMigrationEvidence(): VisibilitySurfaceMigrationEvidence {
+    return Object.freeze({
+      schemaVersion: 1,
+      visibilityKeyAbiVersion: GPU_VISIBILITY_KEY_ABI_VERSION,
+      exactRasterAbiVersion: GPU_EXACT_RASTER_ABI_VERSION,
+      surfaceAbiVersion: this._surfaceAbiProfile.version,
+      surfaceAbiProfile: this._surfaceAbiProfile.version === GPU_SURFACE_ABI_VERSION
+        ? "v1"
+        : "v2-candidate",
+      materialResolveBackend: this._surfaceFeature?.materialResolveBackend ?? "uninitialized",
+      materialResolveBackendSelection: Object.freeze({
+        source: this._materialResolveSelection?.source ?? "uninitialized",
+        reason: this._materialResolveSelection?.reason ?? "Renderer has not initialized a GPU device"
+      }),
+      triangleSetupEnabled: this.packed_triangle_setup_enabled,
+      triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
+      surfaceAbiV2: Object.freeze({
+        status: "insufficient-evidence",
+        reason: "M6 requires identity-bearing parity, attachment-byte, and memory-peak evidence before changing Surface ABI v1"
+      }),
+      tileBackend: Object.freeze({
+        status: "insufficient-evidence",
+        reason: "M7 requires two-vendor ClassDepth versus tile evidence before creating a runtime backend"
+      })
+    });
+  }
+
   /** Immutable graph topology corresponding to the most recently encoded main view. */
   mainFrameGraphEvidence(): MainFrameGraphRuntimeEvidence | null {
     const evidence = this._lastMainGraphEvidence;
@@ -1009,6 +1080,12 @@ export class Renderer {
     });
 
     device.lost.then((info) => this.onDeviceLost(info));
+    this._materialResolveSelection = await selectMaterialResolveBackend(device);
+    if (this._materialResolveSelection.backend === "class-discard") {
+      console.warn(
+        `MaterialClassDepth validation failed; using class-discard correctness fallback: ${this._materialResolveSelection.reason}`
+      );
+    }
     this.context = context;
     this.device = device;
     this._pixel_ratio = pixelRatio;
@@ -1395,6 +1472,8 @@ export class Renderer {
           hierarchyView: createPackedHierarchyView(camera, h),
           sseThreshold: this.packed_visibility_sse_threshold,
           coneEnabled: this.packed_visibility_cone_enabled,
+          triangleSetupEnabled: this.packed_triangle_setup_enabled,
+          triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
           previousHzb: this.packed_visibility_hzb_enabled
             ? packedPreviousHzb(
               viewHzb,
@@ -1475,6 +1554,11 @@ export class Renderer {
       );
 
       const packedPath = mainBindings.gpuPacked !== null;
+      if (this._surfaceAbiProfile.benchmarkOnly && !packedPath) {
+        throw new Error(
+          "Surface ABI v2 candidate requires a Packed Scene producer; legacy MaterialExpand cannot emit the candidate ABI"
+        );
+      }
       const sceneDatabaseRes = packedPath
         ? null
         : graph.import_resource(
@@ -1561,6 +1645,19 @@ export class Renderer {
             bind("packed-exact-draw-indirect", (bindings) =>
               bindings.packedVisibilityJob!.prepared.workSet.exactDrawIndirect)
           );
+          const triangleSetupRecords = this.packed_triangle_setup_enabled
+            ? graph.import_resource(
+                "packed_triangle_setup_records",
+                { kind: "imported", label: "TriangleSetup candidate cache" },
+                bind("packed-triangle-setup-records", (bindings) => {
+                  const buffer = bindings.packedVisibilityJob!.prepared.workSet.setupRecords;
+                  if (buffer === null) {
+                    throw new Error("TriangleSetup graph requires an allocated setup cache");
+                  }
+                  return buffer;
+                })
+              )
+            : undefined;
           const packedOutput = this._visibilityFeature.addToGraph(
             graph,
             bind("packed-visibility-main-job", (bindings) =>
@@ -1570,6 +1667,7 @@ export class Renderer {
               counters: packedCounterRes,
               exactRasterRecords,
               exactDrawIndirect,
+              setupRecords: triangleSetupRecords,
               previousHzb: this.packed_visibility_hzb_enabled
                 ? previousHzbRes
                 : undefined,
@@ -1763,7 +1861,9 @@ export class Renderer {
             },
             packedVisibilityFrame === null
               ? "legacy-id"
-              : "visibility-key"
+              : this._materialResolveSelection?.backend === "class-depth"
+                ? "visibility-key-class-depth"
+                : "visibility-key"
           );
           this._profiler.registerGpuCounterFields([
             "candidateInstances",
@@ -2979,7 +3079,10 @@ export class Renderer {
         // Debug 是主管线最终 HDR 的观察覆盖：不经过 TAA/Bloom 等处理，也不
         // 改写它们的历史；关闭或 unsupported 时不创建 Pass、纹理或 readback。
         if (graphTopology.debug) {
-          this._renderDebug ??= new RenderDebugViewPass(this._graphics);
+          this._renderDebug ??= new RenderDebugViewPass(
+            this._graphics,
+            this._surfaceAbiProfile
+          );
           const linearHdrDebugRes = hdrRes;
           hdrRes = this._renderDebug.addToGraph(
             graph,
@@ -3090,10 +3193,19 @@ export class Renderer {
           "iblMip6",
           "iblMip7",
           "iblMip8",
-          "queueOverflowMask"
+          "queueOverflowMask",
         ]);
         if (gpuPacked !== null) {
           this._profiler.registerGpuCounterFields(["invalidVisibilityKeys"]);
+          if (this.packed_triangle_setup_enabled) {
+            this._profiler.registerGpuCounterFields([
+              "setupAttempted",
+              "setupWritten",
+              "setupVisiblePixelHits",
+              "setupVisiblePixelFallbacks",
+              "setupOverflow"
+            ]);
+          }
           this._profiler.registerGpuCounterFields([
             "transparentRasterWork",
             "transparentTriangles",
@@ -3208,6 +3320,7 @@ export class Renderer {
           `-ssr-owner${this._ssrOwnerGeneration}`
         : `hardware-packed-exact-visibility-key-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
           `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
+          `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +
           `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
           `-ssao-owner${this._ssaoOwnerGeneration}` +
           `-ssr-owner${this._ssrOwnerGeneration}`,
@@ -3288,10 +3401,14 @@ export class Renderer {
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
     this._transparencyFeature ??= new TransparencyFeature(this._graphics);
-    this._surfaceFeature ??= new SurfaceFeature(this._graphics);
+    this._surfaceFeature ??= new SurfaceFeature(
+      this._graphics,
+      this._materialResolveSelection?.backend ?? "class-discard",
+      this._surfaceAbiProfile
+    );
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
-    this._lightingFeature ??= new LightingFeature(this._graphics);
-    this._giService ??= new GIService(this._graphics);
+    this._lightingFeature ??= new LightingFeature(this._graphics, this._surfaceAbiProfile);
+    this._giService ??= new GIService(this._graphics, this._surfaceAbiProfile);
     const needsOcclusionConfidence = topology.ssaoTemporal || topology.ssr || topology.temporal;
     if (needsOcclusionConfidence) {
       this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
@@ -3306,7 +3423,8 @@ export class Renderer {
         this._aoService = new AOService(
           this._graphics,
           topology.ssaoTemporal,
-          topology.ssaoHalfResolution ? 0.5 : 1
+          topology.ssaoHalfResolution ? 0.5 : 1,
+          this._surfaceAbiProfile
         );
         this._ssaoOwnerGeneration++;
         this._ssaoConfigurationKey = configurationKey;
@@ -3323,7 +3441,8 @@ export class Renderer {
         this._reflectionService = new ReflectionService(
           this._graphics,
           topology.ssrTemporal,
-          topology.ssrHalfResolution ? 0.5 : 1
+          topology.ssrHalfResolution ? 0.5 : 1,
+          this._surfaceAbiProfile
         );
         this._ssrOwnerGeneration++;
         this._ssrConfigurationKey = configurationKey;

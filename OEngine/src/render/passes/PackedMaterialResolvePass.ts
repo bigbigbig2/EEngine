@@ -9,11 +9,14 @@ import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
   GPU_SURFACE_BYTES_PER_PIXEL,
   GPU_SURFACE_FORMATS,
-  gpuSurfaceBytesPerPixel
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile,
+  gpuSurfaceNormalPipelineConstants
 } from "../../gpu/GpuSurfaceAbi.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { PACKED_MATERIAL_RESOLVE_WGSL } from "../../shaders/packed_material_resolve.js";
+import { PACKED_TRIANGLE_SETUP_EVIDENCE_WGSL } from "../../shaders/packed_triangle_setup_evidence.js";
 import {
   GPU_MATERIAL_KERNEL_CLASS_COUNT
 } from "../../gpu/GpuMaterialKernelAbi.js";
@@ -79,17 +82,28 @@ const INPUT_GROUP: GPUBindGroupLayoutDescriptor = {
 
 const LOOKUP_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "R4-B Material Resolve/lookup group1",
-  entries: Array.from({ length: 8 }, (_, binding) => ({
+  entries: Array.from({ length: 9 }, (_, binding) => ({
     binding,
     visibility: GPUShaderStage.FRAGMENT,
     buffer: { type: "read-only-storage" as GPUBufferBindingType }
   }))
 };
 
+const SETUP_EVIDENCE_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "R4-B Material Resolve/TriangleSetup evidence group",
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+  ]
+};
+
 function materialKernelPipeline(
   kernelClass: number,
   velocityEnabled: boolean,
-  backend: MaterialResolveBackendType
+  backend: MaterialResolveBackendType,
+  surfaceProfile: GpuSurfaceAbiProfile
 ): CachedRenderPipelineDescriptor {
   return {
     label: `Material Resolve/kernel ${kernelClass}`,
@@ -107,15 +121,16 @@ function materialKernelPipeline(
       constants: {
         OENGINE_ACTIVE_KERNEL_CLASS: kernelClass,
         OENGINE_VELOCITY_ENABLED: velocityEnabled ? 1 : 0,
-        OENGINE_CLASS_DISCARD: backend === "class-discard" ? 1 : 0
+        OENGINE_CLASS_DISCARD: backend === "class-discard" ? 1 : 0,
+        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
       },
       targets: [
-        { format: GPU_SURFACE_FORMATS.pbr },
-        { format: GPU_SURFACE_FORMATS.normal },
-        { format: GPU_SURFACE_FORMATS.albedoAo },
-        { format: GPU_SURFACE_FORMATS.emissive },
-        velocityEnabled ? { format: GPU_SURFACE_FORMATS.velocity } : null,
-        { format: GPU_SURFACE_FORMATS.metadata }
+        { format: surfaceProfile.formats.pbr },
+        { format: surfaceProfile.formats.normal },
+        { format: surfaceProfile.formats.albedoAo },
+        { format: surfaceProfile.formats.emissive },
+        velocityEnabled ? { format: surfaceProfile.formats.velocity } : null,
+        { format: surfaceProfile.formats.metadata }
       ]
     },
     primitive: { topology: "triangle-list", cullMode: "none" },
@@ -155,7 +170,9 @@ export interface PackedMaterialResolveOutputs {
 export class PackedMaterialResolvePass {
   private readonly counterAdder = new GpuCounterAtomicAdder();
   private readonly classDepthPass: PackedMaterialClassDepthPass;
+  private setupEvidencePipeline: GPUComputePipeline | null = null;
   private readonly backend: MaterialResolveBackendType;
+  private readonly surfaceProfile: GpuSurfaceAbiProfile;
   private readonly pipelines: readonly (readonly CachedRenderPipelineDescriptor[])[];
   private readonly previousViewProjection = new Float32Array(16);
   private readonly inverseCurrent = new Float32Array(16);
@@ -178,15 +195,22 @@ export class PackedMaterialResolvePass {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    backend: MaterialResolveBackendType = "class-depth"
+    backend: MaterialResolveBackendType = "class-depth",
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
   ) {
     if (!isMaterialResolveBackend(backend)) throw new Error(`Unknown material resolve backend: ${backend}`);
     this.backend = backend;
+    this.surfaceProfile = surfaceProfile;
     this.classDepthPass = new PackedMaterialClassDepthPass(graphics);
     this.pipelines = Object.freeze([false, true].map((velocityEnabled) =>
       Object.freeze(Array.from(
         { length: GPU_MATERIAL_KERNEL_CLASS_COUNT },
-        (_, kernelClass) => materialKernelPipeline(kernelClass, velocityEnabled, this.backend)
+        (_, kernelClass) => materialKernelPipeline(
+          kernelClass,
+          velocityEnabled,
+          this.backend,
+          this.surfaceProfile
+        )
       ))
     ));
     this.previousViewProjectionBuffer = graphics.device.createBuffer({
@@ -261,6 +285,12 @@ export class PackedMaterialResolvePass {
           resources.get(inputs.visibility.exactRaster.records),
           "exact RasterWork"
         );
+        const setupRecords = inputs.visibility.exactRaster.setupRecords === null
+          ? rasterWork
+          : requireBuffer(
+            resources.get(inputs.visibility.exactRaster.setupRecords),
+            "TriangleSetup records"
+          );
         const group0 = this.graphics.bind_groups.obtain({
           layout: INPUT_GROUP,
           entries: [
@@ -281,7 +311,8 @@ export class PackedMaterialResolvePass {
           meshletTriangleIndices: data.assets.meshletTriangleIndices,
           vertexStreamDescriptors: data.assets.vertexStreamDescriptors,
           vertexStreamData: data.assets.vertexStreamData,
-          rasterWork
+          rasterWork,
+          setupRecords
         };
         if (!sameLookupInputs(this.cachedLookupInputs, lookupInputs)) {
           this.cachedLookupInputs = lookupInputs;
@@ -295,7 +326,8 @@ export class PackedMaterialResolvePass {
               { buffer: lookupInputs.meshletTriangleIndices },
               { buffer: lookupInputs.vertexStreamDescriptors },
               { buffer: lookupInputs.vertexStreamData },
-              { buffer: lookupInputs.rasterWork }
+              { buffer: lookupInputs.rasterWork },
+              { buffer: lookupInputs.setupRecords }
             ]
           });
         }
@@ -325,6 +357,29 @@ export class PackedMaterialResolvePass {
           pass.draw(3, 1, 0, 0);
         }
         pass.end();
+        if (inputs.counters !== undefined && (inputs.visibility.exactRaster.setupCapacity ?? 0) > 0) {
+          const setupEvidence = this.ensureSetupEvidencePipeline();
+          const evidenceGroup = this.graphics.bind_groups.obtain({
+            layout: SETUP_EVIDENCE_GROUP,
+            entries: [
+              resolveTextureView(resources.get(inputs.visibility.visibilityKey)),
+              { buffer: rasterWork },
+              { buffer: setupRecords },
+              { buffer: requireBuffer(resources.get(inputs.counters), "GPU counters") }
+            ]
+          });
+          const evidence = command.beginComputePass({
+            label: "Material Resolve/TriangleSetup evidence"
+          });
+          evidence.setPipeline(setupEvidence.pipeline);
+          evidence.setBindGroup(0, evidenceGroup);
+          evidence.dispatchWorkgroups(
+            Math.ceil(width / 8),
+            Math.ceil(height / 8),
+            1
+          );
+          evidence.end();
+        }
         this.lastKernelDrawCount = countActiveKernelClasses(data.runtime.activeKernelMask);
         this.lastActiveMaterialCount = data.runtime.opaqueMaterialCount;
         if (inputs.counters !== undefined) {
@@ -346,32 +401,35 @@ export class PackedMaterialResolvePass {
     const usage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
     output.gPbr = builder.create(
       "surface/PBR",
-      texture(width, height, GPU_SURFACE_FORMATS.pbr, usage)
+      texture(width, height, this.surfaceProfile.formats.pbr, usage)
     );
     output.gNormal = builder.create(
       "surface/normal",
-      texture(width, height, GPU_SURFACE_FORMATS.normal, usage)
+      texture(width, height, this.surfaceProfile.formats.normal, usage)
     );
     output.gAlbedo = builder.create(
       "surface/albedo+AO",
-      texture(width, height, GPU_SURFACE_FORMATS.albedoAo, usage)
+      texture(width, height, this.surfaceProfile.formats.albedoAo, usage)
     );
     output.gEmissive = builder.create(
       "surface/emissive",
-      texture(width, height, GPU_SURFACE_FORMATS.emissive, usage)
+      texture(width, height, this.surfaceProfile.formats.emissive, usage)
     );
     if (options.velocity) {
       output.velocity = builder.create(
         "surface/velocity",
-        texture(width, height, GPU_SURFACE_FORMATS.velocity, usage)
+        texture(width, height, this.surfaceProfile.formats.velocity, usage)
       );
     }
     output.surfaceFlags = builder.create(
       "surface/metadata",
-      texture(width, height, GPU_SURFACE_FORMATS.metadata, usage)
+      texture(width, height, this.surfaceProfile.formats.metadata, usage)
     );
     builder.read(inputs.visibility.visibilityKey);
     builder.read(inputs.visibility.exactRaster.records);
+    if (inputs.visibility.exactRaster.setupRecords !== null) {
+      builder.read(inputs.visibility.exactRaster.setupRecords);
+    }
     if (classDepth !== null) builder.read(classDepth);
     if (this.backend === "class-discard") builder.read(inputs.visibility.depth);
     builder.read(inputs.view);
@@ -379,8 +437,11 @@ export class PackedMaterialResolvePass {
       builder.read(inputs.counters);
       output.counters = builder.write(inputs.counters);
     }
-    this.currentSurfaceBytesPerPixel = gpuSurfaceBytesPerPixel(options);
+    this.currentSurfaceBytesPerPixel = options.velocity
+      ? this.surfaceProfile.bytesPerPixelWithVelocity
+      : this.surfaceProfile.bytesPerPixelWithoutVelocity;
     output.surface = surfaceFrame({
+      abiVersion: this.surfaceProfile.version,
       depth: inputs.visibility.depth,
       pbr: output.gPbr,
       normal: output.gNormal,
@@ -389,7 +450,7 @@ export class PackedMaterialResolvePass {
       velocity: output.velocity,
       metadata: output.surfaceFlags,
       domain: textureDomain("internal-full", width, height, 1)
-    });
+    }, this.surfaceProfile.version);
     return Object.freeze(output);
   }
 
@@ -398,6 +459,30 @@ export class PackedMaterialResolvePass {
     this.previousViewProjectionBuffer.destroy();
     this.cachedLookupGroup = null;
     this.cachedLookupInputs = null;
+  }
+
+  private ensureSetupEvidencePipeline(): Readonly<{
+    pipeline: GPUComputePipeline;
+  }> {
+    if (this.setupEvidencePipeline !== null) {
+      return { pipeline: this.setupEvidencePipeline };
+    }
+    const pipeline = this.graphics.compute_pipelines.obtain({
+      label: "R4-B Material Resolve/TriangleSetup evidence",
+      layout: {
+        label: "R4-B Material Resolve/TriangleSetup evidence layout",
+        bindGroupLayouts: [SETUP_EVIDENCE_GROUP]
+      },
+      compute: {
+        module: {
+          label: "R4-B Material Resolve/TriangleSetup evidence",
+          code: PACKED_TRIANGLE_SETUP_EVIDENCE_WGSL
+        },
+        entryPoint: "packed_triangle_setup_evidence"
+      }
+    });
+    this.setupEvidencePipeline = pipeline;
+    return { pipeline };
   }
 }
 
@@ -410,6 +495,7 @@ interface PackedMaterialLookupInputs {
   readonly vertexStreamDescriptors: GPUBuffer;
   readonly vertexStreamData: GPUBuffer;
   readonly rasterWork: GPUBuffer;
+  readonly setupRecords: GPUBuffer;
 }
 
 function sameLookupInputs(
@@ -424,7 +510,8 @@ function sameLookupInputs(
     previous.meshletTriangleIndices === next.meshletTriangleIndices &&
     previous.vertexStreamDescriptors === next.vertexStreamDescriptors &&
     previous.vertexStreamData === next.vertexStreamData &&
-    previous.rasterWork === next.rasterWork;
+    previous.rasterWork === next.rasterWork &&
+    previous.setupRecords === next.setupRecords;
 }
 
 function createSampler(

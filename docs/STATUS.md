@@ -16,7 +16,7 @@ Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、v
 
 资源数值统一表示 OEngine owner 在实际创建/销毁边界登记的 accounted/estimated bytes，不是物理 VRAM、驱动分配或硬件利用率；history/atlas 与 resident/transient 分账，禁止重复计数。
 
-验证：`npm run build`、`npm run build:test`、`npm run audit:shaders` 通过；Inspector 命中测试和 Storybook typecheck 通过；当前全量测试 415/415 通过。
+验证：`npm run build`、`npm run build:test`、`npm run audit:shaders` 通过；Inspector 命中测试和 Storybook typecheck 通过；当前全量测试 439/439 通过。
 
 ## 已验证基础
 
@@ -27,6 +27,15 @@ Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、v
 - Rendering Lab 是工作树唯一保留的浏览器 fixture。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
+
+## Visibility→Surface RFC 状态（2026-09-08）
+
+- M0–M4：生产路径已迁移到 MaterialClassDepth + fullscreen Surface Resolve；旧 Pixel Queue/ ShadeWork 生产链已移除。初始化会执行 7 类 `depth32float/equal` GPU probe，失败时在创建 Surface owner 前切换到 `class-discard`，选择来源与原因进入 migration evidence。正式多 run correctness/performance Gate 仍未宣称通过。
+- M5：32 B ExactRaster + 有界 40 B TriangleSetup sidecar、逐像素 fallback 和 sampled evidence counters 已实现。candidate cache 默认关闭；关闭时没有 setup allocation、FrameGraph resource 或 clear。Rendering Lab formal profile 通过显式环境参数采集 off/on 与 threshold evidence。报告输出 `triangleSetup` 与 `surfaceAbi` case 级证据。
+- M6：Surface ABI v1 保持不变。已冻结 benchmark-only `rgba8uint` normal candidate（velocity-on 预计 22 B/pixel）及 CPU oracle，并完成 Packed Resolve、Lighting、AO、SSR、GI/IBL/LPV/Brick4、Opaque Resolve 与 Render Debug 的原子 profile seam；candidate 只允许 Packed Scene，legacy MaterialExpand 会明确拒绝。`VisibilitySurfaceMigrationGates` 支持带唯一 run/session 身份的三次 parity、attachment bytes、conversion pass 和 resident/transient peak 联合判定。Rendering Lab report 会从 runtime evidence 记录真实 active ABI/profile。当前没有正式候选证据，因此生产默认仍为 v1。
+- M7：Tile backend 尚未创建。identity-bearing gate 现在要求至少两个 vendor、每 vendor 足够的独立 session/run，并且 ClassDepth 相对已验证 tile prototype/model 的 P50 或 P95 差距达到 10% 才允许进入实现；`TileBackendCostModel.ts` 已提供 evidence-only 的 16/32/64 tile mask/overflow/work model，Rendering Lab 可显式采样它，但不替代真实跨 vendor timing。当前证据不足，保持 `insufficient-evidence`，不把缺失实现误写成完成。报告输出 `migrationGates.tileBackend`。
+
+本阶段已运行 `OEngine/npm test`（439/439）、Shader audit（70/70）、`examples/npm run build`、VisibilityKey GPU oracle（6213/6213），并在 NVIDIA/Turing Chrome WebGPU 上验证 Rendering Lab workload smoke 的自动 probe、显式 `class-depth` 与显式 `class-discard` 路径。正式三次 A/B 未运行：当前工作树非 clean commit，不能满足 provenance Gate；M2–M7 的正式证据矩阵仍按执行文档保持未完成。
 
 ## 当前生产 Owner
 
@@ -58,12 +67,14 @@ Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、v
 
 ## 来源与发布风险
 
-Shader audit 当前记录 69 个 Shader：65 个 `authored-live`、4 个 `unknown`。风险项为 `material_depth_oracle.ts`、`material_expand_oracle.ts`、`oracle_visibility_work_generation.ts` 和 `probe_legacy.generated.ts`；它们仍有 runtime consumer，不能当作死文件删除，也不能把 generator/oracle 当设计权威。
+Shader audit 当前记录 70 个 Shader：66 个 `authored-live`、4 个 `unknown`。风险项为 `material_depth_oracle.ts`、`material_expand_oracle.ts`、`oracle_visibility_work_generation.ts` 和 `probe_legacy.generated.ts`；它们仍有 runtime consumer，不能当作死文件删除，也不能把 generator/oracle 当设计权威。
 
 ## 下一步
 
-1. 用 Rendering Lab 固定真实 Packed 多资产 workload，获得 GPU/counter/memory 基线。
-2. 继续补齐逐帧 FrameGraph/resource evidence，并记录 device loss、resize、feature toggle 后的浏览器证据。
-3. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
-4. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。
-5. 为四个 unknown Shader 确认 authored owner 或可追溯生成源。
+1. 在 clean commit 上按执行文档分别运行 `class-depth` / `class-discard` 与 TriangleSetup off/on 的三次正式 profile；历史 legacy 基线从 clean `68750c2` 采集，不在当前源码恢复旧 backend。
+2. 在同一 adapter 上运行 M5 opt-in 的 `near-plane-motion` 与 `heavy-overdraw-large-occluder` 三次独立 profile，保存 `triangleSetupGate`、`workCacheBytes` 和图像/性能误差；在此之前不得把 cache 改为默认。
+3. 运行 v1/v2-candidate 完整 composition A/B，并补齐两个 GPU vendor 的 M7 timing evidence；Gate 不触发则继续不创建 tile runtime。
+4. 继续补齐逐帧 FrameGraph/resource evidence，并记录 device loss、resize、feature toggle 后的浏览器证据。
+5. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
+6. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。
+7. 为四个 unknown Shader 确认 authored owner 或可追溯生成源。

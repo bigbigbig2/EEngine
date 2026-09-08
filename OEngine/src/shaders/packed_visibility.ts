@@ -35,6 +35,8 @@ struct ExactRasterWork {
   local_triangle_index: u32,
   material_handle: u32,
   raster_flags: u32,
+  setup_index: u32,
+  exact_flags: u32,
 }
 struct ExactRasterWorkQueueRead {
   opaque_header: ExactQueueHeaderRead,
@@ -123,6 +125,8 @@ struct R3RasterWork {
   local_triangle_index: u32,
   material_handle: u32,
   raster_flags: u32,
+  setup_index: u32,
+  exact_flags: u32,
 }
 
 struct R3RasterWorkQueueRead {

@@ -8,7 +8,7 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 12;
+export const GPU_COUNTER_SCHEMA_VERSION = 13;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -117,7 +117,12 @@ export const GPU_COUNTER_FIELDS = [
   { name: "kernelGenericFallbackPixels", index: 94, semantic: "sampled visible pixels classified as GenericStandardPbrFallback" },
   { name: "shadeWorkOverflow", index: 95, semantic: "sampled ShadeWork records rejected by bounded class ranges" },
   { name: "classDepthPixels", index: 96, semantic: "sampled valid VisibilityKey pixels entering MaterialClassDepth" },
-  { name: "classDraws", index: 97, semantic: "number of bounded fullscreen material kernel draws encoded for the frame" }
+  { name: "classDraws", index: 97, semantic: "number of bounded fullscreen material kernel draws encoded for the frame" },
+  { name: "setupAttempted", index: 98, semantic: "sampled large-triangle setup candidates considered by ExactTriangleFilter" },
+  { name: "setupWritten", index: 99, semantic: "sampled bounded TriangleSetup records written" },
+  { name: "setupVisiblePixelHits", index: 100, semantic: "sampled visible pixels reconstructed from TriangleSetup" },
+  { name: "setupVisiblePixelFallbacks", index: 101, semantic: "sampled visible pixels falling back to per-pixel setup" },
+  { name: "setupOverflow", index: 102, semantic: "sampled TriangleSetup queue reservation failures" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

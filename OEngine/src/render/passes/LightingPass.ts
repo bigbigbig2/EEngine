@@ -7,6 +7,11 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile,
+  gpuSurfaceNormalPipelineConstants
+} from "../../gpu/GpuSurfaceAbi.js";
+import {
   LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
   SHADOW_COMPARISON_SAMPLER_DESCRIPTOR
 } from "../../gpu/GPUSamplerCache.js";
@@ -99,16 +104,9 @@ const CH_COLOR_TARGET = {
   format: HDR_COLOR_FORMAT
 } as GPUColorTargetState & { label: string };
 
-const CH_PIPELINE = createLightingPipeline(LIGHTING_DIRECT_WGSL);
-const CH_LEGACY_PIPELINE = createLightingPipeline(
-  LIGHTING_DIRECT_WGSL.replace(
-    "const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = true;",
-    "const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = false;"
-  )
-);
-
 function createLightingPipeline(
-  code: string
+  code: string,
+  surfaceProfile: GpuSurfaceAbiProfile
 ): CachedRenderPipelineDescriptor {
   return {
   label: "",
@@ -135,6 +133,9 @@ function createLightingPipeline(
   fragment: {
     module: { label: "", code },
     entryPoint: "fs_main",
+      constants: {
+        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+      },
     targets: [CH_COLOR_TARGET]
   }
   };
@@ -143,8 +144,22 @@ function createLightingPipeline(
 /** 汇总材质表面、灯光簇、阴影和环境光数据，输出 HDR 光照结果。 */
 export class LightingPass {
   lastRan = false;
+  private readonly surfacePipeline: CachedRenderPipelineDescriptor;
+  private readonly legacyPipeline: CachedRenderPipelineDescriptor;
 
-  constructor(private readonly graphics: GraphicsContext) {}
+  constructor(
+    private readonly graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.surfacePipeline = createLightingPipeline(LIGHTING_DIRECT_WGSL, surfaceProfile);
+    this.legacyPipeline = createLightingPipeline(
+      LIGHTING_DIRECT_WGSL.replace(
+        "const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = true;",
+        "const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = false;"
+      ),
+      surfaceProfile
+    );
+  }
 
   init(): void {}
 
@@ -194,8 +209,8 @@ export class LightingPass {
           resources.get(inputs.depth)
         );
         const descriptor = passJob.surfaceMetadataAvailable
-          ? CH_PIPELINE
-          : CH_LEGACY_PIPELINE;
+          ? this.surfacePipeline
+          : this.legacyPipeline;
         const pipeline = this.graphics.render_pipelines.obtain(descriptor);
         const pass = encoder.beginRenderPass({
           label: "Direct lighting Ch",

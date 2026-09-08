@@ -2,7 +2,17 @@
  * gbuffer_encode：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
+import {
+  GPU_SURFACE_NORMAL_ENCODING_V1,
+  GPU_SURFACE_NORMAL_OVERRIDE_NAME
+} from "../gpu/GpuSurfaceAbi.js";
+
+/** Pipeline-overridable constant used by the M6 candidate normal layout. */
+export const GBUFFER_NORMAL_MAX_VALUE_OVERRIDE = GPU_SURFACE_NORMAL_OVERRIDE_NAME;
+
 export const GBUFFER_ENCODE_WGSL = /* wgsl */ `
+override ${GBUFFER_NORMAL_MAX_VALUE_OVERRIDE}: f32 = ${GPU_SURFACE_NORMAL_ENCODING_V1.maxValue}.0;
+
 fn store_uint4(value: vec2f) -> vec2f {
   return select(vec2f(1.0), vec2f(-1.0), value < vec2f(0.0));
 }
@@ -17,7 +27,7 @@ fn uv_octahedral_unit_encode(value: vec3f) -> vec2f {
 }
 
 fn encode_g_buffer_normal(normal: vec3f) -> vec2u {
-  return vec2u(uv_octahedral_unit_encode(normal) * 65535.0);
+  return vec2u(uv_octahedral_unit_encode(normal) * ${GBUFFER_NORMAL_MAX_VALUE_OVERRIDE});
 }
 
 fn uv_octahedral_unit_decode(value: vec2f) -> vec3f {
@@ -33,7 +43,7 @@ fn uv_octahedral_unit_decode(value: vec2f) -> vec3f {
 }
 
 fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
-  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
+  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / ${GBUFFER_NORMAL_MAX_VALUE_OVERRIDE}));
 }
 
 fn rgbe9995_encode(rgb: vec3f) -> u32 {

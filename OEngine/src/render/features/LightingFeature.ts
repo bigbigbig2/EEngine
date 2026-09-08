@@ -11,7 +11,12 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GPULightCollection } from "../../gpu/LightDatabase.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile
+} from "../../gpu/GpuSurfaceAbi.js";
+import {
   directLightingFrame,
+  requireSurfaceAbiVersion,
   type DirectLightingFrame
 } from "../pipeline/FrameProducts.js";
 import type { ShadowVisibilityFrame, SurfaceFrame } from "../pipeline/FrameProducts.js";
@@ -65,10 +70,15 @@ export class LightingFeature {
   private readonly clusters: LightClusterPass;
   private readonly direct: LightingPass;
   private readonly background: EnvironmentBackgroundPass;
+  private readonly surfaceProfile: GpuSurfaceAbiProfile;
 
-  constructor(graphics: GraphicsContext) {
+  constructor(
+    graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.surfaceProfile = surfaceProfile;
     this.clusters = new LightClusterPass(graphics);
-    this.direct = new LightingPass(graphics);
+    this.direct = new LightingPass(graphics, surfaceProfile);
     this.direct.init();
     this.background = new EnvironmentBackgroundPass(graphics);
   }
@@ -94,6 +104,7 @@ export class LightingFeature {
     job: LightingFeatureJob,
     inputs: LightingFeatureInputs
   ): LightingFeatureOutputs {
+    requireSurfaceAbiVersion(inputs.surface, this.surfaceProfile.version);
     const clusters = this.clusters.addToGraph(
       graph,
       {

@@ -4,12 +4,14 @@
 
 import { GPU_VIEW_TYPE } from "../render/ViewContext.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 
 export const BRICK4_INDIRECT_FORMAT = "rgba16float" as const;
 
 export const BRICK4_COMMON_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_VIEW_TYPE.wgsl_declaration}
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 
 struct Brick4Bounds {
   min: vec3f,
@@ -57,7 +59,11 @@ fn uv_octahedral_unit_decode(encoded: vec2f) -> vec3f {
   return normalize(direction);
 }
 
-fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
+fn decode_surface_normal(encoded: vec2u) -> vec3f {
+  return uv_octahedral_unit_decode(vec2f(encoded) / OENGINE_SURFACE_NORMAL_MAX_VALUE);
+}
+
+fn decode_bent_normal(encoded: vec2u) -> vec3f {
   return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
 }
 
@@ -410,7 +416,7 @@ fn fs_main(
     depth,
     camera.view_projection_matrix_inverse
   );
-  let normal = decode_g_buffer_normal(textureLoad(count, vec2i(pixel), 0).xy);
+  let normal = decode_surface_normal(textureLoad(count, vec2i(pixel), 0).xy);
   let node = brick4_node_by_position(position);
   let meta = brick4_node_sample_probes_meta(node.bounds, position, normal);
   let noise = stbn_sample_vec2(vec3u(pixel, view.frame_index));
@@ -455,7 +461,7 @@ fn fs_main(
   );
   let view_direction = normalize(camera.transform[3].xyz - position);
   let packed_normals = textureLoad(chunk_brick4, vec2i(pixel), 0);
-  let normal = decode_g_buffer_normal(packed_normals.xy);
+  let normal = decode_surface_normal(packed_normals.xy);
   let roughness = decode_g_buffer_roughness(textureLoad(edge, vec2i(pixel), 0));
   let alpha = roughness * roughness;
   let reflection = reflect(-view_direction, normal);
@@ -566,8 +572,8 @@ fn fs_main(
   let depth = textureLoad(gr_bucket, vec2i(pixel), 0).r;
   let pbr = textureLoad(channel_count, vec2i(pixel), 0);
   let albedo_ao = textureLoad(radix, vec2i(pixel), 0);
-  let normal = decode_g_buffer_normal(textureLoad(n, vec2i(pixel), 0).xy);
-  let bent_normal = decode_g_buffer_normal(textureLoad(count, vec2i(pixel), 0).xy);
+  let normal = decode_surface_normal(textureLoad(n, vec2i(pixel), 0).xy);
+  let bent_normal = decode_bent_normal(textureLoad(count, vec2i(pixel), 0).xy);
   let albedo = albedo_ao.rgb;
   let occlusion = albedo_ao.a;
   let metalness = decode_g_buffer_metalness(pbr);

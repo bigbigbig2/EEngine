@@ -13,6 +13,7 @@ import {
   type GPUMaterialRegistry
 } from "../../gpu/GPUMaterialContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { GPU_SURFACE_ABI_VERSION } from "../../gpu/GpuSurfaceAbi.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import { ShadeTransparencyMode } from "../../material/enums.js";
 import type { Scene } from "../../scene/Scene.js";
@@ -276,6 +277,7 @@ export class MaterialExpandPass {
       )
     );
     outputs.surface = surfaceFrame({
+      abiVersion: GPU_SURFACE_ABI_VERSION,
       depth: null,
       pbr: outputs.gPbr,
       normal: outputs.gNormal,

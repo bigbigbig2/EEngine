@@ -342,6 +342,45 @@ test("M1 visibility work buffers stay resident across lightweight rebinds and re
   assert.equal(released.destroyedCount, before.createdCount);
 });
 
+test("M5 TriangleSetup feature-off owns no cache buffer and encodes no cache clear", () => {
+  const gpu = createFakeGpu();
+  const exact = new ExactTriangleFilter(gpu.device, new ResourceAccounting());
+  const scene = createSceneDescriptor(gpu, {
+    instanceCount: 1,
+    maxHierarchyDepth: 1,
+    traversalWorkCapacity: 1,
+    visibleClusterCapacity: 1
+  });
+  const prepared = exact.prepare({
+    camera: gpu.createExternalBuffer("camera", 512),
+    candidates: gpu.createExternalBuffer("candidates", 256),
+    candidateCapacity: 1,
+    assets: {
+      ...scene.assets,
+      meshletRecords: gpu.createExternalBuffer("meshlets", 4096),
+      meshletVertexIndices: gpu.createExternalBuffer("meshlet vertices", 4096),
+      meshletTriangleIndices: gpu.createExternalBuffer("meshlet triangles", 4096),
+      vertexStreamData: gpu.createExternalBuffer("vertex streams", 4096)
+    },
+    scene: scene.scene,
+    counterBuffer: scene.counterBuffer,
+    countersEnabled: false,
+    setupEnabled: false
+  });
+  assert.equal(prepared.output.setupRecords, null);
+  assert.equal(prepared.output.setupCapacity, 0);
+  assert.equal(gpu.buffers.some((buffer) => buffer.label === "Exact TriangleSetup candidate cache"), false);
+
+  const encoder = new FakeEncoder();
+  exact.encode(encoder, prepared, 64, 64);
+  assert.equal(
+    encoder.clears.some((clear) => clear.buffer.label === "Exact TriangleSetup candidate cache"),
+    false
+  );
+  exact.release(prepared);
+  exact.destroy();
+});
+
 test("R3-B pressure capacity is bounded and WGSL keeps the frozen producer invariants", () => {
   const gpu = createFakeGpu();
   const generator = new HierarchicalWorkGenerator(gpu.device);

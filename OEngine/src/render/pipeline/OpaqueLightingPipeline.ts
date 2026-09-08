@@ -1,6 +1,10 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile
+} from "../../gpu/GpuSurfaceAbi.js";
 import { IblDiffusePass } from "../passes/IblDiffusePass.js";
 import { IblSpecularPass } from "../passes/IblSpecularPass.js";
 import {
@@ -39,10 +43,13 @@ export class OpaqueLightingPipeline {
   private readonly diffuse: IblDiffusePass;
   private readonly resolvePass: OpaqueLightingResolvePass;
 
-  constructor(graphics: GraphicsContext) {
-    this.specular = new IblSpecularPass(graphics);
+  constructor(
+    graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.specular = new IblSpecularPass(graphics, surfaceProfile);
     this.diffuse = new IblDiffusePass(graphics);
-    this.resolvePass = new OpaqueLightingResolvePass(graphics);
+    this.resolvePass = new OpaqueLightingResolvePass(graphics, surfaceProfile);
   }
 
   resolveIblBaseline(

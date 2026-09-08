@@ -23,9 +23,9 @@ import {
   tryEncodeVisibilityKey,
   visibilityRasterWorkBufferByteLength
 } from "../.test-dist/gpu/GpuVisibilityKeyAbi.js";
+import { GPU_EXACT_RASTER_RECORD_STRIDE } from "../.test-dist/gpu/GpuExactRasterAbi.js";
 import {
   GPU_CLASSIFIED_RASTER_HEADER_BYTES,
-  GPU_RASTER_WORK_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA
 } from "../.test-dist/gpu/GpuWorkGenerationAbi.js";
 
@@ -118,7 +118,7 @@ test("RasterWork capacity obeys direct-key and adapter limits", () => {
   assert.equal(
     keyLimitBytes,
     GPU_CLASSIFIED_RASTER_HEADER_BYTES +
-      GPU_VISIBILITY_KEY_MAX_RASTER_WORK_CAPACITY * GPU_RASTER_WORK_SCHEMA.stride
+      GPU_VISIBILITY_KEY_MAX_CLASS_CAPACITY * 2 * GPU_EXACT_RASTER_RECORD_STRIDE
   );
   assert.throws(
     () => visibilityRasterWorkBufferByteLength(GPU_VISIBILITY_KEY_MAX_CLASS_CAPACITY + 1),

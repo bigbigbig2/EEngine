@@ -9,6 +9,10 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile
+} from "../../gpu/GpuSurfaceAbi.js";
+import {
   ScreenSpaceReflectionsPass,
   type ScreenSpaceReflectionsInputs,
   type ScreenSpaceReflectionsJob,
@@ -28,14 +32,16 @@ export class ReflectionService {
   constructor(
     graphics: GraphicsContext,
     temporalEnabled: boolean,
-    resolutionScale: 0.5 | 1
+    resolutionScale: 0.5 | 1,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
   ) {
     this.temporalEnabled = temporalEnabled;
     this.resolutionScale = resolutionScale;
     this.implementation = new ScreenSpaceReflectionsPass(
       graphics,
       temporalEnabled,
-      resolutionScale
+      resolutionScale,
+      surfaceProfile
     );
     this.correction = new SpecularCorrectionPass(graphics);
   }

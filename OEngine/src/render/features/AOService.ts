@@ -9,6 +9,10 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile
+} from "../../gpu/GpuSurfaceAbi.js";
+import {
   ScreenSpaceAmbientOcclusionPass,
   type ScreenSpaceAmbientOcclusionInputs,
   type ScreenSpaceAmbientOcclusionJob,
@@ -21,12 +25,14 @@ export class AOService {
   constructor(
     graphics: GraphicsContext,
     temporalEnabled: boolean,
-    resolutionScale: 0.5 | 1
+    resolutionScale: 0.5 | 1,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
   ) {
     this.implementation = new ScreenSpaceAmbientOcclusionPass(
       graphics,
       temporalEnabled,
-      resolutionScale
+      resolutionScale,
+      surfaceProfile
     );
   }
 

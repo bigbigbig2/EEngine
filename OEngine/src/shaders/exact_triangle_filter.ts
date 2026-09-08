@@ -5,11 +5,14 @@ import {
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
-  GPU_CLASSIFIED_RASTER_WORK_WGSL,
   GPU_WORK_GENERATION_WGSL
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
+import {
+  GPU_EXACT_RASTER_RECORD_WGSL,
+  GPU_TRIANGLE_SETUP_RECORD_WGSL
+} from "../gpu/GpuExactRasterAbi.js";
 
 export const EXACT_TRIANGLE_FILTER_WORKGROUP_SIZE = 64;
 export const EXACT_TRIANGLE_FILTER_SETTINGS_SIZE = 32;
@@ -21,6 +24,9 @@ const COUNTER_CANDIDATES = counterByteOffset("rasterCandidateTriangles") / 4;
 const COUNTER_REJECTED = counterByteOffset("rasterRejectedTriangles") / 4;
 const COUNTER_OPAQUE = counterByteOffset("opaqueRasterWork") / 4;
 const COUNTER_MASK = counterByteOffset("maskRasterWork") / 4;
+const COUNTER_SETUP_ATTEMPTED = counterByteOffset("setupAttempted") / 4;
+const COUNTER_SETUP_WRITTEN = counterByteOffset("setupWritten") / 4;
+const COUNTER_SETUP_OVERFLOW = counterByteOffset("setupOverflow") / 4;
 
 /**
  * WebGPU port of The Forge triangle-filtering invariants. The source/commit,
@@ -49,7 +55,8 @@ struct OEngineWorkQueueHeaderRead {
   rejected_hzb: u32,
 };
 
-${GPU_CLASSIFIED_RASTER_WORK_WGSL}
+${GPU_EXACT_RASTER_RECORD_WGSL}
+${GPU_TRIANGLE_SETUP_RECORD_WGSL}
 
 struct OEngineRasterCandidateQueueRead {
   header: OEngineWorkQueueHeaderRead,
@@ -62,20 +69,22 @@ struct OEngineTriangleFilterSettings {
   class_capacity: u32,
   max_workgroups_per_dimension: u32,
   counters_enabled: u32,
-  _pad1: u32,
-  _pad2: u32,
+  setup_threshold_pixels: u32,
+  setup_capacity: u32,
 };
 
 @group(0) @binding(0) var<uniform> filter_camera: CommandEncoder;
 @group(0) @binding(1) var<uniform> filter_settings: OEngineTriangleFilterSettings;
 @group(0) @binding(2) var<storage, read> filter_candidates: OEngineRasterCandidateQueueRead;
-@group(0) @binding(3) var<storage, read_write> filter_output: OEngineClassifiedRasterWorkQueue;
+@group(0) @binding(3) var<storage, read_write> filter_output: OEngineClassifiedExactRasterWorkQueue;
 @group(0) @binding(4) var<storage, read> filter_instances: array<OEngineInstanceRecord>;
 @group(0) @binding(5) var<storage, read> filter_geometries: array<GpuGeometryRecord>;
 @group(0) @binding(6) var<storage, read> filter_meshlets: array<GpuMeshletRecord>;
 @group(0) @binding(7) var<storage, read> filter_meshlet_vertices: array<u32>;
 @group(0) @binding(8) var<storage, read> filter_meshlet_triangles: array<u32>;
 @group(0) @binding(9) var<storage, read> filter_vertex_data: array<u32>;
+@group(0) @binding(10) var<storage, read_write> filter_setup_records: array<OEngineTriangleSetupRecord>;
+@group(0) @binding(11) var<storage, read_write> filter_counters: array<atomic<u32>>;
 
 var<workgroup> filter_opaque_count: atomic<u32>;
 var<workgroup> filter_mask_count: atomic<u32>;
@@ -189,6 +198,75 @@ fn filter_keep_triangle(work: OEngineRasterWork) -> bool {
   return !filter_small_primitive_rejected(a, b, c);
 }
 
+fn filter_empty_setup() -> OEngineTriangleSetupRecord {
+  return OEngineTriangleSetupRecord(
+    0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0,
+    0u
+  );
+}
+
+// Builds the triangle-constant portion of perspective barycentric setup. It
+// deliberately returns coverage=-1 for near crossings, degenerates and small
+// triangles so the Surface consumer can fail open to its existing formula.
+fn filter_setup_for_work(work: OEngineRasterWork) -> OEngineTriangleSetupRecord {
+  if work.instance_record_index >= arrayLength(&filter_instances) ||
+    work.geometry_record_index >= arrayLength(&filter_geometries) ||
+    work.meshlet_record_index >= arrayLength(&filter_meshlets) {
+    return filter_empty_setup();
+  }
+  let instance = filter_instances[work.instance_record_index];
+  let geometry = filter_geometries[work.geometry_record_index];
+  let meshlet = filter_meshlets[work.meshlet_record_index];
+  if work.local_triangle_index >= meshlet.triangle_count { return filter_empty_setup(); }
+  let triangle_byte = meshlet.triangle_byte_offset + work.local_triangle_index * 3u;
+  let local0 = filter_read_u8(triangle_byte);
+  let local1 = filter_read_u8(triangle_byte + 1u);
+  let local2 = filter_read_u8(triangle_byte + 2u);
+  if local0 >= meshlet.vertex_count || local1 >= meshlet.vertex_count || local2 >= meshlet.vertex_count {
+    return filter_empty_setup();
+  }
+  let source0 = filter_meshlet_vertices[meshlet.vertex_offset + local0];
+  let source1 = filter_meshlet_vertices[meshlet.vertex_offset + local1];
+  let source2 = filter_meshlet_vertices[meshlet.vertex_offset + local2];
+  let transform = filter_camera.view_projection_matrix * instance.current_object_to_world;
+  let a = transform * vec4f(filter_position(geometry, source0), 1.0);
+  let b = transform * vec4f(filter_position(geometry, source1), 1.0);
+  let c = transform * vec4f(filter_position(geometry, source2), 1.0);
+  if !filter_finite(a) || !filter_finite(b) || !filter_finite(c) ||
+    a.w <= 0.0 || b.w <= 0.0 || c.w <= 0.0 ||
+    a.z < 0.0 || b.z < 0.0 || c.z < 0.0 {
+    return filter_empty_setup();
+  }
+  let viewport = vec2f(filter_settings.viewport);
+  let p0 = vec2f(a.x / a.w * 0.5 + 0.5, 0.5 - a.y / a.w * 0.5) * viewport;
+  let p1 = vec2f(b.x / b.w * 0.5 + 0.5, 0.5 - b.y / b.w * 0.5) * viewport;
+  let p2 = vec2f(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5) * viewport;
+  let denominator = (p1.y - p2.y) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.y - p2.y);
+  if abs(denominator) < 1e-8 { return filter_empty_setup(); }
+  let coverage = abs(denominator) * 0.5;
+  if coverage < f32(filter_settings.setup_threshold_pixels) { return filter_empty_setup(); }
+  let viewport_center = viewport * 0.5;
+  let lambda0 = ((p1.y - p2.y) * (viewport_center.x - p2.x) +
+    (p2.x - p1.x) * (viewport_center.y - p2.y)) / denominator;
+  let lambda1 = ((p2.y - p0.y) * (viewport_center.x - p2.x) +
+    (p0.x - p2.x) * (viewport_center.y - p2.y)) / denominator;
+  let lambda = vec3f(lambda0, lambda1, 1.0 - lambda0 - lambda1);
+  let reciprocal_w = vec3f(1.0 / a.w, 1.0 / b.w, 1.0 / c.w);
+  let q_center = lambda * reciprocal_w;
+  return OEngineTriangleSetupRecord(
+    q_center.x, q_center.y, q_center.z,
+    (p1.y - p2.y) / denominator * reciprocal_w.x,
+    (p2.y - p0.y) / denominator * reciprocal_w.y,
+    (p0.y - p1.y) / denominator * reciprocal_w.z,
+    (p2.x - p1.x) / denominator * reciprocal_w.x,
+    (p0.x - p2.x) / denominator * reciprocal_w.y,
+    (p1.x - p0.x) / denominator * reciprocal_w.z,
+    1u
+  );
+}
+
 @compute @workgroup_size(${EXACT_TRIANGLE_FILTER_WORKGROUP_SIZE})
 fn exact_triangle_filter(
   @builtin(local_invocation_index) lane: u32,
@@ -244,9 +322,47 @@ fn exact_triangle_filter(
   if keep {
     if mask && filter_mask_base != OENGINE_WORK_QUEUE_INVALID_OFFSET {
       let slot = filter_settings.class_capacity + filter_mask_base + local_index;
-      filter_output.elements[slot] = work;
+      var setup = filter_empty_setup();
+      if filter_settings.setup_capacity != 0u { setup = filter_setup_for_work(work); }
+      let setup_valid = slot < filter_settings.setup_capacity && setup.flags != 0u;
+      filter_output.elements[slot] = OEngineExactRasterRecord(
+        work.instance_record_index, work.geometry_record_index,
+        work.meshlet_record_index, work.local_triangle_index,
+        work.material_handle, work.raster_flags,
+        select(0xffffffffu, slot, setup_valid),
+        select(0u, 1u, setup_valid)
+      );
+      if filter_settings.counters_enabled != 0u && setup.flags != 0u {
+        atomicAdd(&filter_counters[${COUNTER_SETUP_ATTEMPTED}u], 1u);
+      }
+      if setup_valid {
+        filter_setup_records[slot] = setup;
+        if filter_settings.counters_enabled != 0u { atomicAdd(&filter_counters[${COUNTER_SETUP_WRITTEN}u], 1u); }
+      } else if filter_settings.counters_enabled != 0u {
+        if setup.flags != 0u { atomicAdd(&filter_counters[${COUNTER_SETUP_OVERFLOW}u], 1u); }
+      }
     } else if !mask && filter_opaque_base != OENGINE_WORK_QUEUE_INVALID_OFFSET {
-      filter_output.elements[filter_opaque_base + local_index] = work;
+      let exact_slot = filter_opaque_base + local_index;
+      var setup = filter_empty_setup();
+      if filter_settings.setup_capacity != 0u { setup = filter_setup_for_work(work); }
+      let setup_valid = exact_slot < filter_settings.setup_capacity && setup.flags != 0u;
+      filter_output.elements[exact_slot] = OEngineExactRasterRecord(
+        work.instance_record_index, work.geometry_record_index,
+        work.meshlet_record_index, work.local_triangle_index,
+        work.material_handle, work.raster_flags,
+        select(0xffffffffu, exact_slot, setup_valid),
+        select(0u, 1u, setup_valid)
+      );
+      let slot = exact_slot;
+      if filter_settings.counters_enabled != 0u && setup.flags != 0u {
+        atomicAdd(&filter_counters[${COUNTER_SETUP_ATTEMPTED}u], 1u);
+      }
+      if setup_valid {
+        filter_setup_records[slot] = setup;
+        if filter_settings.counters_enabled != 0u { atomicAdd(&filter_counters[${COUNTER_SETUP_WRITTEN}u], 1u); }
+      } else if filter_settings.counters_enabled != 0u {
+        if setup.flags != 0u { atomicAdd(&filter_counters[${COUNTER_SETUP_OVERFLOW}u], 1u); }
+      }
     }
   }
 }
@@ -262,7 +378,7 @@ struct OEngineFilterDispatchArgs {
   z: u32,
 };
 
-@group(1) @binding(0) var<storage, read> classified_input: OEngineClassifiedRasterWorkQueueRead;
+@group(1) @binding(0) var<storage, read> classified_input: OEngineClassifiedExactRasterWorkQueueRead;
 @group(1) @binding(1) var<storage, read_write> classified_draw: OEngineClassifiedDrawArgs;
 @group(1) @binding(2) var<storage, read_write> classified_counters: array<atomic<u32>>;
 @group(1) @binding(3) var<uniform> classified_settings: OEngineTriangleFilterSettings;

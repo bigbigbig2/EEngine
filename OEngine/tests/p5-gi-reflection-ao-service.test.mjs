@@ -14,7 +14,7 @@ test("P5 services own GI, reflection correction and GTAO without duplicating Sur
   assert.match(reflection, /lastCorrectionRan/);
   assert.match(ao, /Material AO 之外的 GTAO visibility/);
   assert.match(ao, /ScreenSpaceAmbientOcclusionPass/);
-  assert.match(renderer, /new GIService\(this\._graphics\)/);
+  assert.match(renderer, /new GIService\(this\._graphics, this\._surfaceAbiProfile\)/);
   assert.match(renderer, /new AOService\(/);
   assert.match(renderer, /new ReflectionService\(/);
   assert.doesNotMatch(renderer, /new OpaqueLightingPipeline\(/);

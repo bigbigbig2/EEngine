@@ -9,9 +9,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import {
-  GPU_RASTER_WORK_SCHEMA
-} from "../gpu/GpuWorkGenerationAbi.js";
+import { GPU_TRIANGLE_SETUP_RECORD_WGSL } from "../gpu/GpuExactRasterAbi.js";
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
@@ -23,7 +21,7 @@ ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
 ${GPU_SURFACE_ABI_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
-${GPU_RASTER_WORK_SCHEMA.wgsl}
+${GPU_TRIANGLE_SETUP_RECORD_WGSL}
 ${GBUFFER_ENCODE_WGSL}
 
 const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
@@ -39,10 +37,21 @@ struct R4ResolveQueueHeaderRead {
   rejected_hzb: u32,
 }
 
+struct R4ResolveExactRasterWork {
+  instance_record_index: u32,
+  geometry_record_index: u32,
+  meshlet_record_index: u32,
+  local_triangle_index: u32,
+  material_handle: u32,
+  raster_flags: u32,
+  setup_index: u32,
+  exact_flags: u32,
+}
+
 struct R4ResolveRasterWorkQueue {
   opaque_header: R4ResolveQueueHeaderRead,
   mask_header: R4ResolveQueueHeaderRead,
-  elements: array<OEngineRasterWork>,
+  elements: array<R4ResolveExactRasterWork>,
 }
 
 @group(0) @binding(0) var visibility_keys: texture_2d<u32>;
@@ -66,6 +75,7 @@ struct R4ResolveRasterWorkQueue {
 @group(1) @binding(5) var<storage, read> stream_descriptors: array<u32>;
 @group(1) @binding(6) var<storage, read> vertex_data: array<u32>;
 @group(1) @binding(7) var<storage, read> raster_work: R4ResolveRasterWorkQueue;
+@group(1) @binding(8) var<storage, read> triangle_setups: array<OEngineTriangleSetupRecord>;
 
 fn read_u8(byte_offset: u32) -> u32 {
   let word = vertex_data[byte_offset >> 2u];
@@ -552,12 +562,18 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let projected0 = view.projection_matrix * world0;
   let projected1 = view.projection_matrix * world1;
   let projected2 = view.projection_matrix * world2;
-  let bary = perspective_barycentric_with_derivatives(
+  var bary = perspective_barycentric_with_derivatives(
     position.xy,
     projected0,
     projected1,
     projected2
   );
+  if work.setup_index != 0xffffffffu && work.setup_index < arrayLength(&triangle_setups) {
+    let setup = triangle_setups[work.setup_index];
+    if setup.flags != 0u {
+      bary = perspective_barycentric_from_setup(position.xy, setup);
+    }
+  }
   let face_local = safe_normalize(cross(local2 - local1, local0 - local1), vec3f(0.0, 0.0, 1.0));
   let normal0 = read_normal_direct(geometry, vertices.x, vec4f(face_local, 0.0));
   let normal1 = read_normal_direct(geometry, vertices.y, vec4f(face_local, 0.0));
@@ -735,6 +751,36 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
   }
   output.metadata = oengine_surface_pack(work.material_handle, surface_flags);
+  return output;
+}
+
+fn perspective_barycentric_from_setup(
+  pixel: vec2f,
+  setup: OEngineTriangleSetupRecord
+) -> PerspectiveBarycentric {
+  let delta = pixel - vec2f(f32(view.width) * 0.5, f32(view.height) * 0.5);
+  let weighted = vec3f(
+    setup.q_center0 + delta.x * setup.dqdx0 + delta.y * setup.dqdy0,
+    setup.q_center1 + delta.x * setup.dqdx1 + delta.y * setup.dqdy1,
+    setup.q_center2 + delta.x * setup.dqdx2 + delta.y * setup.dqdy2
+  );
+  let weighted_sum = dot(weighted, vec3f(1.0));
+  var output: PerspectiveBarycentric;
+  output.weights = vec3f(1.0, 0.0, 0.0);
+  output.ddx = vec3f(0.0);
+  output.ddy = vec3f(0.0);
+  output.valid = 0u;
+  if abs(weighted_sum) < 1e-8 { return output; }
+  let weighted_ddx = vec3f(setup.dqdx0, setup.dqdx1, setup.dqdx2);
+  let weighted_ddy = vec3f(setup.dqdy0, setup.dqdy1, setup.dqdy2);
+  let sum_ddx = dot(weighted_ddx, vec3f(1.0));
+  let sum_ddy = dot(weighted_ddy, vec3f(1.0));
+  let inverse_sum = 1.0 / weighted_sum;
+  let inverse_sum_squared = inverse_sum * inverse_sum;
+  output.weights = weighted * inverse_sum;
+  output.ddx = (weighted_ddx * weighted_sum - weighted * sum_ddx) * inverse_sum_squared;
+  output.ddy = (weighted_ddy * weighted_sum - weighted * sum_ddy) * inverse_sum_squared;
+  output.valid = 1u;
   return output;
 }
 `;

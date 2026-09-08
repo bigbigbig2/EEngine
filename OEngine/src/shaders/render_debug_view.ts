@@ -17,7 +17,6 @@ import {
   GPU_VISIBILITY_DEBUG_STATUS_WGSL
 } from "../gpu/GpuVisibilityDebugResolve.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import { GPU_RASTER_WORK_SCHEMA } from "../gpu/GpuWorkGenerationAbi.js";
 import { VIS_MESH_CLEAR_SENTINEL } from "../render/VisibilityBufferContract.js";
 import { SSR_FULLSCREEN_VERTEX_WGSL } from "./ssr_common.js";
 
@@ -284,7 +283,6 @@ ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
-${GPU_RASTER_WORK_SCHEMA.wgsl}
 ${GPU_VISIBILITY_DEBUG_STATUS_WGSL}
 
 struct R4DebugQueueHeaderRead {
@@ -298,10 +296,21 @@ struct R4DebugQueueHeaderRead {
   rejected_hzb: u32,
 }
 
+struct R4DebugExactRasterWork {
+  instance_record_index: u32,
+  geometry_record_index: u32,
+  meshlet_record_index: u32,
+  local_triangle_index: u32,
+  material_handle: u32,
+  raster_flags: u32,
+  setup_index: u32,
+  exact_flags: u32,
+}
+
 struct R4DebugRasterWorkQueue {
   opaque_header: R4DebugQueueHeaderRead,
   mask_header: R4DebugQueueHeaderRead,
-  elements: array<OEngineRasterWork>,
+  elements: array<R4DebugExactRasterWork>,
 }
 
 struct R4DebugResolveSettings {

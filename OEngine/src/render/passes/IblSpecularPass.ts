@@ -7,6 +7,11 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile,
+  gpuSurfaceNormalPipelineConstants
+} from "../../gpu/GpuSurfaceAbi.js";
+import {
   IBL_SPECULAR_FORMAT,
   IBL_SPECULAR_WGSL
 } from "../../shaders/ibl_specular.js";
@@ -56,25 +61,32 @@ const IBL_SPECULAR_MODULE: GPUShaderModuleDescriptor = {
   code: IBL_SPECULAR_WGSL
 };
 
-const IBL_SPECULAR_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "Renderer/IBL specular hw",
-  layout: {
-    label: "Renderer/hw/pipeline-layout",
-    bindGroupLayouts: [IBL_SPECULAR_LAYOUT]
-  },
-  vertex: { module: IBL_SPECULAR_MODULE, entryPoint: "vs_main" },
-  fragment: {
-    module: IBL_SPECULAR_MODULE,
-    entryPoint: "fs_main",
-    targets: [{ format: IBL_SPECULAR_FORMAT }]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: {
-    format: "depth32float",
-    depthWriteEnabled: false,
-    depthCompare: "not-equal"
-  }
-};
+function createIblSpecularPipeline(
+  surfaceProfile: GpuSurfaceAbiProfile
+): CachedRenderPipelineDescriptor {
+  return {
+    label: "Renderer/IBL specular hw",
+    layout: {
+      label: "Renderer/hw/pipeline-layout",
+      bindGroupLayouts: [IBL_SPECULAR_LAYOUT]
+    },
+    vertex: { module: IBL_SPECULAR_MODULE, entryPoint: "vs_main" },
+    fragment: {
+      module: IBL_SPECULAR_MODULE,
+      entryPoint: "fs_main",
+      constants: {
+        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+      },
+      targets: [{ format: IBL_SPECULAR_FORMAT }]
+    },
+    primitive: { topology: "triangle-list", cullMode: "none" },
+    depthStencil: {
+      format: "depth32float",
+      depthWriteEnabled: false,
+      depthCompare: "not-equal"
+    }
+  };
+}
 
 export type IblSpecularInputs = {
   bentNormal: ResourceId;
@@ -95,13 +107,19 @@ export type IblSpecularJob = {
 };
 
 export class IblSpecularPass {
+  private readonly descriptor: CachedRenderPipelineDescriptor;
   private pipeline: GPURenderPipeline | null = null;
   lastRan = false;
 
-  constructor(private readonly graphics: GraphicsContext) {}
+  constructor(
+    private readonly graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
+    this.descriptor = createIblSpecularPipeline(surfaceProfile);
+  }
 
   init(): void {
-    this.pipeline ??= this.graphics.render_pipelines.obtain(IBL_SPECULAR_PIPELINE);
+    this.pipeline ??= this.graphics.render_pipelines.obtain(this.descriptor);
   }
 
   addToGraph(
@@ -136,7 +154,7 @@ export class IblSpecularPass {
           }
         });
         pass.setPipeline(pipeline);
-        this.graphics.setPipelineBindings(pass, IBL_SPECULAR_PIPELINE, [[
+        this.graphics.setPipelineBindings(pass, this.descriptor, [[
           texture(resources.get(data.bentNormal)),
           texture(resources.get(data.normal)),
           texture(resources.get(data.environment)),

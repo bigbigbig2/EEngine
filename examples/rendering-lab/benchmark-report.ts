@@ -8,6 +8,25 @@ import {
 } from "../../OEngine/src/index.ts";
 import type { CameraSweepCase } from "./camera-experiments.js";
 import type { RenderingLabCaseId } from "./quality-profile.js";
+import {
+  evaluateSurfaceAbiV2RunGroupNeed,
+  evaluateTileBackendRunGroupNeed,
+  type SurfaceAbiDecision,
+  type SurfaceAbiRunEvidence,
+  type TileBackendDecision,
+  type TileBackendVendorRunEvidence
+} from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
+import {
+  GPU_SURFACE_ABI_VERSION,
+  GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA,
+  gpuSurfaceBytesPerPixel,
+  gpuSurfaceCandidateBytesPerPixel
+} from "../../OEngine/src/gpu/GpuSurfaceAbi.js";
+import {
+  modelTileBackendCost,
+  type TileBackendCostModelInput,
+  type TileBackendCostModelResult
+} from "../../OEngine/src/debug/TileBackendCostModel.js";
 
 export interface RenderingLabBenchmarkReport {
   readonly schemaVersion: 1;
@@ -69,6 +88,64 @@ export interface RenderingLabFeatureOffGate {
   readonly reason: string;
 }
 
+export interface RenderingLabTriangleSetupEvidence {
+  readonly schemaVersion: 1;
+  readonly cases: Readonly<Record<string, RenderingLabTriangleSetupCaseEvidence>>;
+  readonly workCacheBytes: number | null;
+  readonly workCachePeakBytes: number | null;
+}
+
+export interface RenderingLabTriangleSetupCaseEvidence {
+  /** Frames with a completed GPU counter readback, including zero-valued fields. */
+  readonly counterFrames: number;
+  /** Number of completed frames that actually exposed each M5 counter field. */
+  readonly fieldFrames: Readonly<Record<string, number>>;
+  readonly setupAttempted: number;
+  readonly setupWritten: number;
+  readonly setupVisiblePixelHits: number;
+  readonly setupVisiblePixelFallbacks: number;
+  readonly setupOverflow: number;
+  readonly visiblePixelSamples: number;
+  /** Null means this capture did not expose both visible-pixel counters. */
+  readonly visibleHitRatio: number | null;
+}
+
+export interface RenderingLabSurfaceAbiEvidence {
+  readonly schemaVersion: 1;
+  readonly activeAbiVersion: number;
+  readonly activeAbiProfile: "v1" | "v2-candidate" | "unknown";
+  readonly candidateContractVersion: number;
+  readonly promotionGate: typeof GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.promotionGate;
+  readonly cases: Readonly<Record<string, RenderingLabSurfaceAbiCaseEvidence>>;
+  readonly candidateLayout: Readonly<{
+    readonly schemaVersion: 2;
+    readonly normalFormat: string;
+    readonly normalEncodingMaxValue: number;
+    readonly normalEncodingScheme: string;
+    readonly baselineBytesPerPixelWithVelocity: number;
+    readonly candidateBytesPerPixelWithVelocity: number;
+    readonly baselineBytesPerPixelWithoutVelocity: number;
+    readonly candidateBytesPerPixelWithoutVelocity: number;
+  }>;
+  /** M6 remains evidence-gated; absent candidate artifacts are explicit. */
+  readonly v2Gate: SurfaceAbiDecision;
+}
+
+export interface RenderingLabSurfaceAbiCaseEvidence {
+  readonly surfaceBytesPerPixel: BenchmarkSeriesTiming | null;
+  readonly surfaceAttachmentBytes: BenchmarkSeriesTiming | null;
+  readonly residentBytes: BenchmarkSeriesTiming | null;
+  readonly classDepthMs: BenchmarkSeriesTiming | null;
+  readonly resolveMs: BenchmarkSeriesTiming | null;
+}
+
+interface BenchmarkSeriesTiming {
+  readonly p50: number;
+  readonly p95: number;
+  readonly p99: number;
+  readonly sampleCount: number;
+}
+
 export function buildRenderingLabBenchmarkReport(input: {
   readonly startedAt: string;
   readonly completedAt?: string;
@@ -108,10 +185,222 @@ export function buildRenderingLabBenchmarkReport(input: {
     comparisons: Object.freeze(comparisons),
     evidence: Object.freeze(evidence),
     featureOffGates: Object.freeze(featureOffGates),
-    domainEvidence: input.domainEvidence ?? Object.freeze({}),
+    domainEvidence: Object.freeze({
+      ...(input.domainEvidence ?? {}),
+      triangleSetup: buildTriangleSetupEvidence(input.cases, input.domainEvidence),
+      surfaceAbi: buildSurfaceAbiEvidence(input.cases, input.domainEvidence),
+      migrationGates: buildMigrationGates(input.domainEvidence),
+      tileBackendModel: buildTileBackendModelEvidence(input.domainEvidence)
+    }),
     errors,
     ...(input.measurement === undefined ? {} : { measurement: Object.freeze({ ...input.measurement }) })
   });
+}
+
+function buildTriangleSetupEvidence(
+  cases: readonly BenchmarkResult[],
+  domainEvidence?: Readonly<Record<string, unknown>>
+): RenderingLabTriangleSetupEvidence {
+  const byCase: Record<string, RenderingLabTriangleSetupCaseEvidence> = {};
+  for (const result of cases) byCase[result.case.id] = summarizeTriangleSetupCase(result);
+  const category = resourceCategory(domainEvidence, "work-cache");
+  return Object.freeze({
+    schemaVersion: 1,
+    cases: Object.freeze(byCase),
+    workCacheBytes: category?.bytes ?? null,
+    workCachePeakBytes: category?.peakBytes ?? null
+  });
+}
+
+function summarizeTriangleSetupCase(result: BenchmarkResult): RenderingLabTriangleSetupCaseEvidence {
+  const names = [
+    "setupAttempted",
+    "setupWritten",
+    "setupVisiblePixelHits",
+    "setupVisiblePixelFallbacks",
+    "setupOverflow"
+  ] as const;
+  const totals: Record<string, number> = Object.fromEntries(names.map((name) => [name, 0]));
+  const fieldFrames: Record<string, number> = Object.fromEntries(names.map((name) => [name, 0]));
+  let counterFrames = 0;
+  for (const frame of result.frames) {
+    if (!frame.gpuCounters.sampled || frame.gpuCounters.pending || frame.gpuCounters.dropped) continue;
+    counterFrames++;
+    const values = frame.gpuCounters.values as Record<string, unknown>;
+    for (const name of names) {
+      const value = values[name];
+      if (typeof value !== "number" || !Number.isFinite(value)) continue;
+      totals[name]! += value;
+      fieldFrames[name]!++;
+    }
+  }
+  const visiblePixelSamples = totals.setupVisiblePixelHits! + totals.setupVisiblePixelFallbacks!;
+  return Object.freeze({
+    counterFrames,
+    fieldFrames: Object.freeze(fieldFrames),
+    setupAttempted: totals.setupAttempted!,
+    setupWritten: totals.setupWritten!,
+    setupVisiblePixelHits: totals.setupVisiblePixelHits!,
+    setupVisiblePixelFallbacks: totals.setupVisiblePixelFallbacks!,
+    setupOverflow: totals.setupOverflow!,
+    visiblePixelSamples,
+    visibleHitRatio: visiblePixelSamples > 0
+      ? totals.setupVisiblePixelHits! / visiblePixelSamples
+      : null
+  });
+}
+
+function buildSurfaceAbiEvidence(
+  cases: readonly BenchmarkResult[],
+  domainEvidence?: Readonly<Record<string, unknown>>
+): RenderingLabSurfaceAbiEvidence {
+  const byCase: Record<string, RenderingLabSurfaceAbiCaseEvidence> = {};
+  for (const result of cases) {
+    const counters = result.summary.counters;
+    byCase[result.case.id] = {
+      surfaceBytesPerPixel: summaryTiming(counters["packed.material.surfaceBytesPerPixel"]),
+      surfaceAttachmentBytes: summaryTiming(counters["packed.material.surfaceAttachmentBytes"]),
+      residentBytes: summaryTiming(counters["gpu.residentBytes"]),
+      classDepthMs: summaryTiming(result.summary.surfacePhaseMs.classDepth),
+      resolveMs: summaryTiming(result.summary.surfacePhaseMs.resolve)
+    };
+  }
+  const runs = readSurfaceAbiRuns(domainEvidence);
+  const migration = migrationEvidence(domainEvidence);
+  return Object.freeze({
+    schemaVersion: 1,
+    activeAbiVersion: migration?.surfaceAbiVersion ?? GPU_SURFACE_ABI_VERSION,
+    activeAbiProfile: migration?.surfaceAbiProfile ?? "unknown",
+    candidateContractVersion: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.version,
+    promotionGate: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.promotionGate,
+    cases: Object.freeze(byCase),
+    candidateLayout: Object.freeze({
+      schemaVersion: 2 as const,
+      normalFormat: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.formats.normal,
+      normalEncodingMaxValue: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.normalEncoding.maxValue,
+      normalEncodingScheme: GPU_SURFACE_ABI_V2_CANDIDATE_SCHEMA.normalEncoding.scheme,
+      baselineBytesPerPixelWithVelocity: gpuSurfaceBytesPerPixel({ velocity: true }),
+      candidateBytesPerPixelWithVelocity: gpuSurfaceCandidateBytesPerPixel({ velocity: true }),
+      baselineBytesPerPixelWithoutVelocity: gpuSurfaceBytesPerPixel({ velocity: false }),
+      candidateBytesPerPixelWithoutVelocity: gpuSurfaceCandidateBytesPerPixel({ velocity: false })
+    }),
+    v2Gate: runs === null
+      ? Object.freeze({
+        status: "insufficient-evidence",
+        reason: "no identity-bearing Surface ABI candidate run group was supplied"
+      })
+      : evaluateSurfaceAbiV2RunGroupNeed(runs)
+  });
+}
+
+function migrationEvidence(
+  domainEvidence?: Readonly<Record<string, unknown>>
+): { readonly surfaceAbiVersion: number; readonly surfaceAbiProfile: "v1" | "v2-candidate" } | null {
+  const migration = domainEvidence?.migration;
+  if (typeof migration !== "object" || migration === null || Array.isArray(migration)) return null;
+  const value = migration as {
+    readonly surfaceAbiVersion?: unknown;
+    readonly surfaceAbiProfile?: unknown;
+  };
+  if (
+    typeof value.surfaceAbiVersion !== "number" ||
+    !Number.isInteger(value.surfaceAbiVersion) ||
+    value.surfaceAbiVersion <= 0 ||
+    (value.surfaceAbiProfile !== "v1" && value.surfaceAbiProfile !== "v2-candidate")
+  ) return null;
+  return {
+    surfaceAbiVersion: value.surfaceAbiVersion,
+    surfaceAbiProfile: value.surfaceAbiProfile
+  };
+}
+
+interface RenderingLabMigrationGates {
+  readonly schemaVersion: 1;
+  readonly surfaceAbiV2: SurfaceAbiDecision;
+  readonly tileBackend: TileBackendDecision;
+}
+
+function buildMigrationGates(
+  domainEvidence?: Readonly<Record<string, unknown>>
+): RenderingLabMigrationGates {
+  const surfaceRuns = readSurfaceAbiRuns(domainEvidence);
+  const tileRuns = readTileBackendRuns(domainEvidence);
+  return Object.freeze({
+    schemaVersion: 1,
+    surfaceAbiV2: surfaceRuns === null
+      ? Object.freeze({
+        status: "insufficient-evidence",
+        reason: "M6 candidate artifacts are not present; keep Surface ABI v1"
+      })
+      : evaluateSurfaceAbiV2RunGroupNeed(surfaceRuns),
+    tileBackend: tileRuns === null
+      ? Object.freeze({
+        status: "insufficient-evidence",
+        reason: "M7 requires identity-bearing runs from at least two GPU vendors"
+      })
+      : evaluateTileBackendRunGroupNeed(tileRuns)
+  });
+}
+
+function buildTileBackendModelEvidence(
+  domainEvidence?: Readonly<Record<string, unknown>>
+): TileBackendCostModelResult | Readonly<{ status: "not-sampled"; reason: string }> {
+  const raw = domainEvidence?.tileBackendModelInput;
+  if (!isTileBackendModelInput(raw)) {
+    return Object.freeze({
+      status: "not-sampled",
+      reason: "tile backend model input was not supplied"
+    });
+  }
+  return modelTileBackendCost(raw);
+}
+
+function isTileBackendModelInput(value: unknown): value is TileBackendCostModelInput {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const input = value as Partial<TileBackendCostModelInput>;
+  return Number.isInteger(input.width) && input.width! > 0 &&
+    Number.isInteger(input.height) && input.height! > 0 &&
+    (input.tileSize === 16 || input.tileSize === 32 || input.tileSize === 64) &&
+    Array.isArray(input.classIds) &&
+    Number.isInteger(input.tileCapacity) && input.tileCapacity! >= 0;
+}
+
+function readSurfaceAbiRuns(
+  domainEvidence?: Readonly<Record<string, unknown>>
+): readonly SurfaceAbiRunEvidence[] | null {
+  const value = domainEvidence?.surfaceAbiRuns;
+  return Array.isArray(value) ? value as readonly SurfaceAbiRunEvidence[] : null;
+}
+
+function readTileBackendRuns(
+  domainEvidence?: Readonly<Record<string, unknown>>
+): readonly TileBackendVendorRunEvidence[] | null {
+  const value = domainEvidence?.tileBackendRuns;
+  return Array.isArray(value) ? value as readonly TileBackendVendorRunEvidence[] : null;
+}
+
+function summaryTiming(
+  value: { readonly p50: number; readonly p95: number; readonly p99: number; readonly count: number } | undefined
+): BenchmarkSeriesTiming | null {
+  if (value === undefined || value.count <= 0) return null;
+  return Object.freeze({ p50: value.p50, p95: value.p95, p99: value.p99, sampleCount: value.count });
+}
+
+function resourceCategory(
+  domainEvidence: Readonly<Record<string, unknown>> | undefined,
+  name: string
+): { readonly bytes: number; readonly peakBytes: number } | null {
+  const accounting = domainEvidence?.resourceAccounting;
+  if (typeof accounting !== "object" || accounting === null) return null;
+  const categories = (accounting as { readonly categories?: unknown }).categories;
+  if (typeof categories !== "object" || categories === null) return null;
+  const value = (categories as Record<string, unknown>)[name];
+  if (typeof value !== "object" || value === null) return null;
+  const bytes = (value as { readonly bytes?: unknown }).bytes;
+  const peakBytes = (value as { readonly peakBytes?: unknown }).peakBytes;
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) ||
+      typeof peakBytes !== "number" || !Number.isFinite(peakBytes)) return null;
+  return { bytes, peakBytes };
 }
 
 function buildCameraSegmentStats(result: BenchmarkResult): readonly RenderingLabCameraSegmentStats[] {

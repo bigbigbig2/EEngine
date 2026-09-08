@@ -3,13 +3,17 @@
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
-import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import {
+  GPU_SURFACE_ABI_WGSL,
+  GPU_SURFACE_NORMAL_ABI_WGSL
+} from "../gpu/GpuSurfaceAbi.js";
 
 export const OPAQUE_LIGHTING_RESOLVE_FORMAT = "rgba16float" as const;
 
 export const OPAQUE_LIGHTING_RESOLVE_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SURFACE_ABI_WGSL}
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
@@ -58,7 +62,11 @@ fn uv_octahedral_unit_decode(encoded: vec2f) -> vec3f {
   return normalize(direction);
 }
 
-fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
+fn decode_surface_normal(encoded: vec2u) -> vec3f {
+  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / OENGINE_SURFACE_NORMAL_MAX_VALUE));
+}
+
+fn decode_bent_normal(encoded: vec2u) -> vec3f {
   return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
 }
 
@@ -192,8 +200,8 @@ fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32)
     camera.view_projection_matrix_inverse
   );
   let view_direction = normalize(camera.transform[3].xyz - position);
-  let shading_normal = decode_g_buffer_normal(textureLoad(n, vec2i(pixel), 0).xy);
-  let bent_normal = decode_g_buffer_normal(textureLoad(count, vec2i(pixel), 0).xy);
+  let shading_normal = decode_surface_normal(textureLoad(n, vec2i(pixel), 0).xy);
+  let bent_normal = decode_bent_normal(textureLoad(count, vec2i(pixel), 0).xy);
   let irradiance = textureLoad(num_ints, vec2i(pixel), 0).rgb;
   let radiance = textureLoad(bindings, vec2i(pixel), 0).rgb;
   let indirect = compute_indirect_specular(

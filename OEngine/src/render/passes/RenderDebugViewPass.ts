@@ -7,6 +7,11 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile,
+  gpuSurfaceNormalPipelineConstants
+} from "../../gpu/GpuSurfaceAbi.js";
 import { GPU_VISIBILITY_DEBUG_SETTINGS_SIZE } from "../../gpu/GpuVisibilityDebugResolve.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import {
@@ -59,7 +64,10 @@ export class RenderDebugViewPass {
   >;
   private readonly packedVisibilityPipeline: CachedRenderPipelineDescriptor;
 
-  constructor(graphics: GraphicsContext) {
+  constructor(
+    graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
     if (graphics.device === null) {
       throw new Error("RenderDebugViewPass: GraphicsContext has no device");
     }
@@ -69,7 +77,8 @@ export class RenderDebugViewPass {
         createPipeline(
           "Render debug/Visibility key",
           VISIBILITY_KEY_DEBUG_WGSL,
-          [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)]
+          [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)],
+          surfaceProfile
         )
       ],
       [
@@ -77,7 +86,8 @@ export class RenderDebugViewPass {
         createPipeline(
           "Render debug/Reverse-Z depth",
           DEPTH_DEBUG_WGSL,
-          [depthTextureEntry(0), uniformEntry(1)]
+          [depthTextureEntry(0), uniformEntry(1)],
+          surfaceProfile
         )
       ],
       [
@@ -85,56 +95,57 @@ export class RenderDebugViewPass {
         createPipeline(
           "Render debug/Velocity",
           VELOCITY_DEBUG_WGSL,
-          [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)]
+          [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)],
+          surfaceProfile
         )
       ],
       [
         RenderDebugViewValue.BaseColor,
-        createPipeline("Render debug/Base color", SURFACE_COLOR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)])
+        createPipeline("Render debug/Base color", SURFACE_COLOR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.ShadingNormal,
-        createPipeline("Render debug/Shading normal", SURFACE_NORMAL_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)])
+        createPipeline("Render debug/Shading normal", SURFACE_NORMAL_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.Metallic,
-        createPipeline("Render debug/Metallic", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)])
+        createPipeline("Render debug/Metallic", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.Roughness,
-        createPipeline("Render debug/Roughness", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)])
+        createPipeline("Render debug/Roughness", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.Occlusion,
-        createPipeline("Render debug/Occlusion", SURFACE_AO_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)])
+        createPipeline("Render debug/Occlusion", SURFACE_AO_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.Emissive,
-        createPipeline("Render debug/Emissive", SURFACE_EMISSIVE_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)])
+        createPipeline("Render debug/Emissive", SURFACE_EMISSIVE_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.MaterialId,
-        createPipeline("Render debug/Material ID", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+        createPipeline("Render debug/Material ID", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.HistoryValidity,
-        createPipeline("Render debug/History validity", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+        createPipeline("Render debug/History validity", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.Reactive,
-        createPipeline("Render debug/Reactive", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)])
+        createPipeline("Render debug/Reactive", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), uniformEntry(1), uniformEntry(2, 16)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.AmbientOcclusionRaw,
-        createPipeline("Render debug/AO raw", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/AO raw", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.AmbientOcclusionDenoised,
-        createPipeline("Render debug/AO denoised", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/AO denoised", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.AmbientOcclusionTemporal,
-        createPipeline("Render debug/AO temporal", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)])
+        createPipeline("Render debug/AO temporal", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.ScreenSpaceReflectionHitMiss,
@@ -175,7 +186,8 @@ export class RenderDebugViewPass {
         storageBufferEntry(3),
         storageBufferEntry(4),
         uniformEntry(5, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE)
-      ]
+      ],
+      surfaceProfile
     );
   }
 
@@ -347,9 +359,15 @@ function requireOptionalTexture(view: RenderDebugView, resource: ResourceId | nu
 function createPipeline(
   label: string,
   code: string,
-  entries: GPUBindGroupLayoutEntry[]
+  entries: GPUBindGroupLayoutEntry[],
+  surfaceProfile?: GpuSurfaceAbiProfile
 ): CachedRenderPipelineDescriptor {
   const module = { label, code };
+  const constants = code.includes("OENGINE_SURFACE_NORMAL_MAX_VALUE")
+    ? gpuSurfaceNormalPipelineConstants(
+      surfaceProfile?.normalEncoding ?? GPU_SURFACE_ABI_V1_PROFILE.normalEncoding
+    )
+    : undefined;
   return {
     label,
     layout: {
@@ -360,6 +378,7 @@ function createPipeline(
     fragment: {
       module,
       entryPoint: "fs_main",
+      ...(constants === undefined ? {} : { constants }),
       targets: [{ format: RENDER_DEBUG_VIEW_FORMAT }]
     },
     primitive: { topology: "triangle-list", cullMode: "none" }

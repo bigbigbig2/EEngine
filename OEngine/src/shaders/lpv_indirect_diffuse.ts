@@ -5,6 +5,7 @@
 import { ArrayType, WGSL_mat4x4f, WGSL_vec4f } from "../core/WebGPUTypes.js";
 import { StructType } from "../core/WgslStruct.js";
 import { LIGHT_PROBE_RECORD_WGSL } from "../gpu/LightProbeRecord.js";
+import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 
 export const LPV_CAMERA_TYPE = StructType.from(
   {
@@ -27,6 +28,7 @@ export const LPV_INDIRECT_DIFFUSE_FORMAT = "rgba16float" as const;
 export const LPV_INDIRECT_DIFFUSE_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${LIGHT_PROBE_RECORD_WGSL}
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 
 const BVH_NULL_NODE: u32 = 0xffffffffu;
 const INVALID_TET: u32 = 1073741823u;
@@ -71,7 +73,7 @@ fn project_position_from_depth(uv: vec2f, depth: f32, inverse: mat4x4f) -> vec3f
 }
 
 fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
-  let projected = fma(vec2f(encoded) / 65535.0, vec2f(2.0), vec2f(-1.0));
+  let projected = fma(vec2f(encoded) / OENGINE_SURFACE_NORMAL_MAX_VALUE, vec2f(2.0), vec2f(-1.0));
   var direction = vec3f(
     projected,
     1.0 - abs(projected.x) - abs(projected.y)

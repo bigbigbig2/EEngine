@@ -15,6 +15,10 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
+  GPU_SURFACE_ABI_V1_PROFILE,
+  type GpuSurfaceAbiProfile
+} from "../../gpu/GpuSurfaceAbi.js";
+import {
   OpaqueLightingPipeline,
   type OpaqueIblInputs
 } from "../pipeline/OpaqueLightingPipeline.js";
@@ -137,17 +141,22 @@ export interface LightmapIndirectOutput {
 export class GIService {
   readonly implementation: OpaqueLightingPipeline;
   private readonly graphics: GraphicsContext;
+  private readonly surfaceProfile: GpuSurfaceAbiProfile;
   private brick4Diffuse: Brick4DiffusePass | null;
   private brick4Specular: Brick4SpecularPass | null;
   private brick4Fused: Brick4FusedIndirectPass | null;
   private lpvDiffuse: LpvIndirectDiffusePass | null;
 
-  constructor(graphics: GraphicsContext) {
+  constructor(
+    graphics: GraphicsContext,
+    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+  ) {
     this.graphics = graphics;
-    this.implementation = new OpaqueLightingPipeline(graphics);
-    this.brick4Diffuse = new Brick4DiffusePass(graphics);
-    this.brick4Specular = new Brick4SpecularPass(graphics);
-    this.brick4Fused = new Brick4FusedIndirectPass(graphics);
+    this.surfaceProfile = surfaceProfile;
+    this.implementation = new OpaqueLightingPipeline(graphics, surfaceProfile);
+    this.brick4Diffuse = new Brick4DiffusePass(graphics, surfaceProfile);
+    this.brick4Specular = new Brick4SpecularPass(graphics, surfaceProfile);
+    this.brick4Fused = new Brick4FusedIndirectPass(graphics, surfaceProfile);
     this.lpvDiffuse = null;
   }
 
@@ -272,7 +281,7 @@ export class GIService {
       depth: inputs.depth,
       camera: inputs.camera
     });
-    this.lpvDiffuse ??= new LpvIndirectDiffusePass(this.graphics);
+    this.lpvDiffuse ??= new LpvIndirectDiffusePass(this.graphics, this.surfaceProfile);
     const diffuse = this.lpvDiffuse.addToGraph(graph, inputs.job, {
       depth: inputs.depth,
       normal: inputs.normal,

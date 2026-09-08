@@ -3,11 +3,13 @@
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 
 export const IBL_SPECULAR_FORMAT = "rgba16float" as const;
 
 export const IBL_SPECULAR_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
+${GPU_SURFACE_NORMAL_ABI_WGSL}
 
 @group(0) @binding(0) var count: texture_2d<u32>;
 @group(0) @binding(1) var chunk_brick4: texture_2d<u32>;
@@ -41,7 +43,11 @@ fn uv_octahedral_unit_decode(encoded: vec2f) -> vec3f {
   return normalize(direction);
 }
 
-fn decode_g_buffer_normal(encoded: vec2u) -> vec3f {
+fn decode_surface_normal(encoded: vec2u) -> vec3f {
+  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / OENGINE_SURFACE_NORMAL_MAX_VALUE));
+}
+
+fn decode_bent_normal(encoded: vec2u) -> vec3f {
   return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
 }
 
@@ -171,9 +177,9 @@ fn fs_main(
   let pixel = vec2u(coord.xy);
   let pbr = textureLoad(edge, vec2i(pixel), 0);
   let roughness = decode_g_buffer_roughness(pbr);
-  let bent_normal = decode_g_buffer_normal(textureLoad(count, vec2i(pixel), 0).rg);
+  let bent_normal = decode_bent_normal(textureLoad(count, vec2i(pixel), 0).rg);
   _ = bent_normal;
-  let shading_normal = decode_g_buffer_normal(
+  let shading_normal = decode_surface_normal(
     textureLoad(chunk_brick4, vec2i(pixel), 0).rg
   );
   let depth = textureLoad(gr_bucket, vec2i(pixel), 0).r;
