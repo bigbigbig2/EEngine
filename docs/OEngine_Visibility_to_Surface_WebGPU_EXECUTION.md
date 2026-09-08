@@ -681,7 +681,7 @@ near-plane-motion
 | M2 | complete (`68750c2`) | 45/45 targeted; 427/427 non-doc tests; GPU oracle 6213/6213 | Chrome 152 / NVIDIA Turing / 1920×1080 smoke | RFC correctness/capacity gate closed; Step 5 screenshot parity open |
 | M3 | implemented-awaiting-evidence (`68750c2`) | targeted shader/FrameProduct tests pass | browser formal A/B not run | pending correctness/performance gate |
 | M4 | implementation complete (this change) | 31/31 targeted tests | Rendering Lab WebGPU workload smoke | architecture gate closed; release acceptance still awaits M3 formal evidence |
-| M5 | implemented-awaiting-evidence | ABI/producer/consumer path and fallback implemented; default cache remains off | formal profile has explicit opt-in and emits three-run setup Gate, not run in this phase | pending hit/fallback ratio and image/perf Gate |
+| M5 | implementation complete; default promotion pending | ABI/producer/consumer path and fallback implemented; clean formal opt-in run reached 3/3 hit-ratio eligibility | `heavy-overdraw-large-occluder` clean three-session artifact has hit ratio 1.0, zero fallback/overflow and zero diagnostics | pending off/on correctness, near-plane, image/perf and memory Gate |
 | M6 | evidence-gate implemented; v1 retained | v1 contract unchanged | no formal attachment A/B yet | pending isolated A/B |
 | M7 | evidence-gate implemented; no tile runtime | gate evaluator targeted test passes | no two-vendor tile comparison yet | insufficient-evidence |
 
@@ -689,9 +689,9 @@ near-plane-motion
 
 - `Renderer.initialize()` 现在对 7 个二进制精确 class depth 值执行一次真实 GPU `depth32float + depthCompare="equal"` readback probe。probe 的 backend、来源和原因写入 `visibilitySurfaceMigrationEvidence()`；validation error、readback mismatch 或异常会在创建 Surface owner 前选择 `class-discard` 并输出 diagnostics。该 probe 只关闭 adapter 首次验证闭环，不替代完整场景 image parity。
 - `class-discard` 的 Rendering Lab 选择 seam 保持内部，不加入公开 `RendererConfig`。smoke/formal runner 通过 `OENGINE_MATERIAL_RESOLVE_BACKEND=class-depth|class-discard` 生成页面参数；默认 `auto` 使用上述 adapter probe。
-- TriangleSetup 默认关闭时 `setupRecords=null`，不再创建 4 B placeholder、不再导入 FrameGraph setup resource，也不再发出 setup `clearBuffer`；binding 10 复用已有 counter sink，但 `setup_capacity=0` 保证 shader 不访问。正式 runner 不再硬编码开启，改由 `OENGINE_TRIANGLE_SETUP_ENABLED=true|false` 与 `OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS` 显式控制。
+- TriangleSetup 默认关闭时 `setupRecords=null`，不再创建 4 B placeholder、不再导入 FrameGraph setup resource，也不再发出 setup `clearBuffer`；binding 10 复用已有、扩容到一个 setup record 大小的 `drawIndirect` dummy，避免与 counter 或 indirect usage alias，但 `setup_capacity=0` 保证 shader 不访问。正式 runner 不再硬编码开启，改由 `OENGINE_TRIANGLE_SETUP_ENABLED=true|false` 与 `OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS` 显式控制。
 - `classDepthPixels` 复用 cadence-controlled `VisibilityCounterPass` 的 valid VisibilityKey reduction；没有新增 fullscreen pass、readback 或 submit。该 counter 只在 VisibilityKey 合同分支生产。
-- 验证：`OEngine/npm test` 439/439；Shader audit 70/70（66 authored-live、4 unknown）；`examples/npm run build`；VisibilityKey GPU oracle 6213/6213；NVIDIA/Turing Chrome WebGPU 上 workload smoke 的 `auto`、显式 `class-depth`、显式 `class-discard` 路径通过。正式 profile 未运行，因为当前工作树不是 clean commit，产物不能满足 provenance Gate。
+- 历史验证记录：`OEngine/npm test` 439/439；Shader audit 70/70（66 authored-live、4 unknown）；`examples/npm run build`；VisibilityKey GPU oracle 6213/6213；NVIDIA/Turing Chrome WebGPU 上 workload smoke 的 `auto`、显式 `class-depth`、显式 `class-discard` 路径通过。该记录中的“正式 profile 未运行”仅适用于当时 dirty 工作树；2026-09-08 已在 clean commit 上补充 M5 off/on 正式 profile，见本页的 M5 clean formal evidence checkpoint。
 - 尚未关闭：M2 v2/v3 attachment parity；M3 历史 legacy 三组 A/B 与场景 image parity；M5 off/on 三组正确性、命中率、性能和内存 Gate；M6 v1/v2 三组完整 composition A/B；M7 两 vendor evidence；device-loss/resize/toggle 生命周期矩阵。
 
 正式 runner 示例（每条命令内部生成三个独立 browser session）：
@@ -721,8 +721,8 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - Graph identity: packed FrameGraph cache key includes `setup0/setup1`, so switching benchmark opt-in cannot reuse a graph compiled for the fallback-only mode.
 - Migration snapshot: `Renderer.visibilitySurfaceMigrationEvidence()` and benchmark `domainEvidence.migration` record VisibilityKey/ExactRaster/Surface ABI versions, active backend, TriangleSetup opt-in state, and explicit M7 `tileBackend.status: insufficient-evidence`; these fields describe implementation state only and do not close performance Gates.
 - Observability: `profile-formal.mjs` 的正式 cadence 使用 64 个 readback slots，避免慢 adapter 把 counter 丢弃误报为 workload 失败；unsupported counter blocker IDs 统一为稳定 `VIS-*` 任务号。
-- Not run: near-plane image parity、heavy-overdraw 三次正式 run、setup hit ratio 与正式性能 Gate；曾做过一次 near-plane exploratory 3-run，但工作树 dirty，不能作为 release evidence。
-- Gate conclusion: producer→consumer 与 fallback 闭环已成立，M5 状态为 `implemented-awaiting-evidence`；candidate cache 尚未取得默认启用的 RFC 数值 Gate。
+- Not run at this historical checkpoint: near-plane image parity、heavy-overdraw 三次正式 run、setup hit ratio 与正式性能 Gate；后续已补齐 clean heavy-overdraw 三次 run，near-plane 和完整性能 Gate 仍未完成。
+- Gate conclusion: producer→consumer 与 fallback 闭环已成立；该历史 checkpoint 的 M5 状态为 `implemented-awaiting-evidence`。后续 clean heavy-overdraw run 已取得 hit-ratio `default-eligible` 子结论，但 RFC 的完整默认启用 Gate 仍未关闭。
 
 ### 2026-09-08 M6/M7 evidence gates checkpoint
 
@@ -753,6 +753,15 @@ npm run profile:rendering-lab:formal -- comprehensive-full
 - 本次变更仅运行 `OEngine/npm run typecheck` 与 `examples/npx tsc --noEmit -p tsconfig.json`；没有运行测试矩阵、浏览器 profile 或正式性能 A/B。
 - Targeted verification: `visibility-surface-migration-gates.test.mjs` 2/2 通过；未运行全量 suite。
 - Current status: M6 与 M7 仍等待正式 evidence；当前没有足够数据把 Surface ABI v2 或 Tile backend 标为完成，保持 v1/class-depth 生产路径。
+
+### 2026-09-08 M5 clean formal evidence checkpoint
+
+- 修复了 feature-off TriangleSetup dummy binding 的三个实际 WebGPU 约束问题：writable storage alias、binding 最小数组元素大小，以及 indirect/storage 同一同步范围冲突。修复保持 `setupRecords=null` 时不分配 setup cache，只复用已有 `drawIndirect` 作为不可达 ABI dummy。
+- `BenchmarkCapabilityEvidence` 新增 `triangle-setup-candidate-cache` feature contract，声明 `setupAttempted/setupWritten/setupVisiblePixelHits/setupVisiblePixelFallbacks/setupOverflow` 五个真实 GPU counters；启用 M5 不再因未知 feature set 中止采样。
+- 正式命令：`OENGINE_TRIANGLE_SETUP_ENABLED=true`、`OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS=32`、`npm run profile:rendering-lab:formal -- heavy-overdraw-large-occluder`。
+- Artifact：`temp/visibility-to-surface/3aff174f-1345-468a-bab0-761eba443a65/report.json`；runGroup `3aff174f-1345-468a-bab0-761eba443a65`，三个 session/run 均有唯一身份，`provenanceErrors=[]`、`browserErrors=[]`、`gateErrors=[]`，三次 diagnostics 均为 validation/uncaptured/deviceLost 全 0。
+- M5 观测：三次 `visibleHitRatio=1.0`；`setupVisiblePixelFallbacks=0`；`setupOverflow=0`；`workCacheBytes=5,788,240`、`workCachePeakBytes=5,788,240`。`triangleSetupGate` 返回 `default-eligible`，但这只关闭 hit-ratio 子门槛，不关闭 RFC 的 correctness、near-plane、off/on 性能和内存 Gate。
+- 已完成对应 off 基线：`temp/visibility-to-surface/b24b94a5-3169-4c10-a58e-dce610e0a7f5/report.json`，同样 3/3、clean provenance、零浏览器/GPU diagnostics；其 `triangleSetupGate` 正确保持 `insufficient-evidence`，因为 setup 未启用。
 
 ### 2026-09-07 M0 pre-implementation audit
 

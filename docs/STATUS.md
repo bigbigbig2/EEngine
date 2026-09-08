@@ -1,6 +1,6 @@
 # OEngine 当前状态
 
-更新时间：2026-09-05。本文件是唯一可变状态页；完成过程从 Git 查询。
+更新时间：2026-09-08。本文件是唯一可变状态页；完成过程从 Git 查询。
 
 ## Performance Inspector 状态
 
@@ -31,11 +31,11 @@ Task 3–5 的核心数据契约已收尾；Task 6 的 Inspector addon shell、v
 ## Visibility→Surface RFC 状态（2026-09-08）
 
 - M0–M4：生产路径已迁移到 MaterialClassDepth + fullscreen Surface Resolve；旧 Pixel Queue/ ShadeWork 生产链已移除。初始化会执行 7 类 `depth32float/equal` GPU probe，失败时在创建 Surface owner 前切换到 `class-discard`，选择来源与原因进入 migration evidence。正式多 run correctness/performance Gate 仍未宣称通过。
-- M5：32 B ExactRaster + 有界 40 B TriangleSetup sidecar、逐像素 fallback 和 sampled evidence counters 已实现。candidate cache 默认关闭；关闭时没有 setup allocation、FrameGraph resource 或 clear。Rendering Lab formal profile 通过显式环境参数采集 off/on 与 threshold evidence。报告输出 `triangleSetup` 与 `surfaceAbi` case 级证据。
+- M5：32 B ExactRaster + 有界 40 B TriangleSetup sidecar、逐像素 fallback 和 sampled evidence counters 已实现。candidate cache 默认关闭；关闭时没有 setup allocation、FrameGraph resource 或 clear。已修复 feature-off dummy binding 的 WebGPU storage alias、最小绑定大小和 indirect/storage usage 冲突；`triangle-setup-candidate-cache` 已加入 benchmark capability contract。clean formal `heavy-overdraw-large-occluder` 三次 run 的 visible hit ratio 均为 1.0，fallback/overflow/diagnostics 均为 0，work-cache peak 为 5,788,240 B，因此达到 candidate default 的 hit-ratio 子门槛；RFC 要求的 off/on correctness、near-plane、GPU P50/P95 和 memory Gate 仍未关闭，生产默认继续 off。
 - M6：Surface ABI v1 保持不变。已冻结 benchmark-only `rgba8uint` normal candidate（velocity-on 预计 22 B/pixel）及 CPU oracle，并完成 Packed Resolve、Lighting、AO、SSR、GI/IBL/LPV/Brick4、Opaque Resolve 与 Render Debug 的原子 profile seam；candidate 只允许 Packed Scene，legacy MaterialExpand 会明确拒绝。`VisibilitySurfaceMigrationGates` 支持带唯一 run/session 身份的三次 parity、attachment bytes、conversion pass 和 resident/transient peak 联合判定。Rendering Lab report 会从 runtime evidence 记录真实 active ABI/profile。当前没有正式候选证据，因此生产默认仍为 v1。
 - M7：Tile backend 尚未创建。identity-bearing gate 现在要求至少两个 vendor、每 vendor 足够的独立 session/run，并且 ClassDepth 相对已验证 tile prototype/model 的 P50 或 P95 差距达到 10% 才允许进入实现；`TileBackendCostModel.ts` 已提供 evidence-only 的 16/32/64 tile mask/overflow/work model，Rendering Lab 可显式采样它，但不替代真实跨 vendor timing。当前证据不足，保持 `insufficient-evidence`，不把缺失实现误写成完成。报告输出 `migrationGates.tileBackend`。
 
-本阶段已运行 `OEngine/npm test`（439/439）、Shader audit（70/70）、`examples/npm run build`、VisibilityKey GPU oracle（6213/6213），并在 NVIDIA/Turing Chrome WebGPU 上验证 Rendering Lab workload smoke 的自动 probe、显式 `class-depth` 与显式 `class-discard` 路径。正式三次 A/B 未运行：当前工作树非 clean commit，不能满足 provenance Gate；M2–M7 的正式证据矩阵仍按执行文档保持未完成。
+本阶段已运行 `OEngine/npm test`（439/439）、Shader audit（70/70）、`examples/npm run build`、VisibilityKey GPU oracle（6213/6213），并在 NVIDIA/Turing Chrome WebGPU 上验证 Rendering Lab workload smoke 的自动 probe、显式 `class-depth` 与显式 `class-discard` 路径。另已在 clean commits `e2e9328`/`8acd6ac` 上完成 `cube-near-effects-off` off 基线和 `heavy-overdraw-large-occluder` TriangleSetup on 三次正式 profile，provenance、browser errors、validation/uncaptured/deviceLost 均为 0；M5 的 correctness/performance/memory 组合 Gate、M2–M7 其余正式证据矩阵仍未完成。
 
 ## 当前生产 Owner
 
@@ -72,7 +72,7 @@ Shader audit 当前记录 70 个 Shader：66 个 `authored-live`、4 个 `unknow
 ## 下一步
 
 1. 在 clean commit 上按执行文档分别运行 `class-depth` / `class-discard` 与 TriangleSetup off/on 的三次正式 profile；历史 legacy 基线从 clean `68750c2` 采集，不在当前源码恢复旧 backend。
-2. 在同一 adapter 上运行 M5 opt-in 的 `near-plane-motion` 与 `heavy-overdraw-large-occluder` 三次独立 profile，保存 `triangleSetupGate`、`workCacheBytes` 和图像/性能误差；在此之前不得把 cache 改为默认。
+2. 已完成 `heavy-overdraw-large-occluder` 的 M5 opt-in 三次 run；下一步补齐同一 adapter 的 `near-plane-motion` 三次 run，并将 off/on 的 attachment parity、GPU P50/P95、P99、fallback 和 memory peak 汇总后再决定是否把 cache 改为默认。
 3. 运行 v1/v2-candidate 完整 composition A/B，并补齐两个 GPU vendor 的 M7 timing evidence；Gate 不触发则继续不创建 tile runtime。
 4. 继续补齐逐帧 FrameGraph/resource evidence，并记录 device loss、resize、feature toggle 后的浏览器证据。
 5. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
