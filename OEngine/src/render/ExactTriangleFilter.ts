@@ -178,7 +178,10 @@ export class ExactTriangleFilter {
       }, buffers);
       const dispatchIndirect = this.createInitializedBuffer({
         label: "Exact triangle filter dispatchIndirect",
-        size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
+        // The filter shader keeps a setup-record binding in its fixed ABI.
+        // When setup is disabled this buffer is the unreachable dummy, but it
+        // still needs to satisfy that binding's minimum array element size.
+        size: Math.max(GPU_DISPATCH_INDIRECT_ARGS_SIZE, GPU_TRIANGLE_SETUP_RECORD_STRIDE),
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
       }, new Uint8Array(new Uint32Array([0, 1, 1]).buffer), buffers);
       const rasterWork = this.createInitializedBuffer({
