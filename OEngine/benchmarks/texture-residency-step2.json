@@ -4,7 +4,7 @@
   "decision": "bounded-size-class-banks",
   "comparison": {
     "baselineCommit": "98bc7e6ced19742702b261d8c5caed9cd8542e81",
-    "candidateCommit": "e631f0a3faafad347f4f9a75d2c7bfa098edde65",
+    "candidateCommit": "272dba0499efbefce5ea2ef2e67257f43bb21a6e",
     "cleanCommits": true,
     "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
     "adapter": {
@@ -39,20 +39,20 @@
         "measuredGraphCompiles": 0
       },
       "candidate": {
-        "cpuFrameMs": { "p50": 3.59999999404, "p95": 4.605000008643 },
-        "cpuGraphExecuteMs": { "p50": 2.79999999702, "p95": 3.809999997169 },
-        "cpuQueueSubmitMs": { "p50": 0, "p95": 0.100000008941 },
-        "gpuFrameMs": { "p50": 0.670688, "p95": 0.689824 },
+        "cpuFrameMs": { "p50": 3.25, "p95": 3.904999991506 },
+        "cpuGraphExecuteMs": { "p50": 2.59999999404, "p95": 3.105000008643 },
+        "cpuQueueSubmitMs": { "p50": 0, "p95": 0.099999994785 },
+        "gpuFrameMs": { "p50": 0.667872, "p95": 0.696032 },
         "mainSubmits": { "p50": 1, "p95": 1 },
         "uploadBytes": { "p50": 736, "p95": 736 },
         "measuredGraphBuilds": 0,
         "measuredGraphCompiles": 0
       },
       "deltaPercent": {
-        "cpuFrameP50": 9.091,
-        "cpuFrameP95": 2.22,
-        "gpuFrameP50": 1.066,
-        "gpuFrameP95": 0.519
+        "cpuFrameP50": -1.515,
+        "cpuFrameP95": -13.319,
+        "gpuFrameP50": 0.641,
+        "gpuFrameP95": 1.424
       }
     },
     {
@@ -68,10 +68,10 @@
         "measuredGraphCompiles": 0
       },
       "candidate": {
-        "cpuFrameMs": { "p50": 10.20000000298, "p95": 11.79999999702 },
-        "cpuGraphExecuteMs": { "p50": 8.10000000149, "p95": 9.5 },
-        "cpuQueueSubmitMs": { "p50": 0, "p95": 0.100000008941 },
-        "gpuFrameMs": { "p50": 1.437856, "p95": 1.4778336 },
+        "cpuFrameMs": { "p50": 8.70000000298, "p95": 9.405000005662 },
+        "cpuGraphExecuteMs": { "p50": 6.850000008941, "p95": 7.604999994487 },
+        "cpuQueueSubmitMs": { "p50": 0, "p95": 0.099999994785 },
+        "gpuFrameMs": { "p50": 1.428864, "p95": 1.455792 },
         "mainSubmits": { "p50": 1, "p95": 1 },
         "uploadBytes": { "p50": 1856, "p95": 1856 },
         "measuredGraphBuilds": 0,
@@ -113,7 +113,7 @@
       "the target 25-texture workload fits the declared transaction-peak budget",
       "resident logical quality is unchanged while allocated texture bytes decrease",
       "one main submit, stable graph build/compile, upload bytes, and transient pool are unchanged",
-      "GPU P50/P95 deltas are bounded to +1.066%/+0.519% in the base case"
+      "GPU P50/P95 deltas are bounded to +0.641%/+1.424% in the base case"
     ],
     "limitations": [
       "this is a clean-commit smoke A/B with one run per revision, not a release formal run group",
