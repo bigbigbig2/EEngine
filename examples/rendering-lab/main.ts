@@ -673,7 +673,12 @@ async function runRenderingLabBenchmark(
 function benchmarkEnvironment(activeRenderer: Renderer, caseId: RenderingLabCaseId): BenchmarkEnvironmentManifest {
   const temporal = activeRenderer.temporalEvidence();
   return createEnvironmentManifest({
-    engine: { commit: __BUILD_COMMIT__, dirty: __BUILD_DIRTY__, dirtyReasons: [...__BUILD_DIRTY_REASONS__] },
+    engine: {
+      commit: __BUILD_COMMIT__,
+      dirty: __BUILD_DIRTY__,
+      dirtyReasons: [...__BUILD_DIRTY_REASONS__],
+      contentHash: __BUILD_CONTENT_HASH__
+    },
     platform: { os: navigator.platform || "unknown", browser: "Chromium", userAgent: navigator.userAgent },
     adapter: activeRenderer.adapter_info,
     webgpu: {

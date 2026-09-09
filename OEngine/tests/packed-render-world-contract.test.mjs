@@ -10,6 +10,7 @@ const [
   { GPUSceneContext },
   { GpuPackedSceneRegistry },
   { TextureResidency },
+  { createEnvironmentManifest },
   {
     createWorkQueueReservationState,
     reserveWorkQueueGroupReference,
@@ -31,12 +32,49 @@ const [
   import("../.test-dist/gpu/GPUSceneContext.js"),
   import("../.test-dist/gpu/GpuPackedSceneRegistry.js"),
   import("../.test-dist/gpu/TextureResidency.js"),
+  import("../.test-dist/debug/EnvironmentManifest.js"),
   import("../.test-dist/gpu/GpuWorkGenerationAbi.js"),
   import("../.test-dist/gpu/GpuTextureRefAbi.js"),
   import("../.test-dist/material/StandardShadeMaterial.js"),
   import("../.test-dist/material/enums.js"),
   import("../.test-dist/texture/ShadeTexture.js")
 ]);
+
+test("benchmark environment preserves clean-build content provenance", () => {
+  const manifest = createEnvironmentManifest({
+    capturedAt: "2026-09-09T00:00:00.000Z",
+    engine: {
+      commit: "abc",
+      dirty: false,
+      dirtyReasons: [],
+      contentHash: "sha256-content",
+    },
+    platform: { os: "test", browser: "test", userAgent: "test" },
+    adapter: null,
+    webgpu: { features: [], limits: {}, powerPreference: "unknown" },
+    frame: {
+      canvasWidth: 1,
+      canvasHeight: 1,
+      internalWidth: 1,
+      internalHeight: 1,
+      dpr: 1,
+    },
+    run: {
+      runId: "run",
+      runGroupId: "group",
+      sessionId: "session",
+      runOrdinal: 0,
+      baselineRole: "minimum-a",
+      featureSet: [],
+      warmupFrames: 120,
+      sampleFrames: 480,
+      gpuSampleInterval: 1,
+      gpuCounterSampleInterval: 1,
+      readbackRingSlots: 4,
+    },
+  });
+  assert.equal(manifest.engine.contentHash, "sha256-content");
+});
 
 const { resolveFrameSceneOwners } = await import(
   "../.test-dist/render/pipeline/SceneFrameBindings.js"

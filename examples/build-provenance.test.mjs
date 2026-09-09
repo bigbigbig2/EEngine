@@ -16,3 +16,13 @@ test("runner rejects a dev server whose embedded git state is stale", () => {
     "build-dirty-reasons-mismatch"
   ]);
 });
+
+test("runner rejects an environment manifest that omitted its content hash", () => {
+  assert.deepEqual(
+    provenance.compareGitBuildProvenance(
+      { commit: "abc", dirty: false, dirtyReasons: [], contentHash: "expected" },
+      { commit: "abc", dirty: false, dirtyReasons: [] }
+    ),
+    ["build-content-hash-mismatch"]
+  );
+});

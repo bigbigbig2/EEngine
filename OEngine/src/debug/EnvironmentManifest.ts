@@ -7,6 +7,7 @@ export interface BenchmarkEngineIdentity {
   commit: string;
   dirty: boolean;
   dirtyReasons: string[];
+  contentHash: string;
 }
 
 export interface BenchmarkPlatformIdentity {
@@ -208,7 +209,8 @@ export function createEnvironmentManifest(
     engine: {
       commit: input.engine.commit,
       dirty: input.engine.dirty,
-      dirtyReasons: canonicalStrings(input.engine.dirtyReasons)
+      dirtyReasons: canonicalStrings(input.engine.dirtyReasons),
+      contentHash: input.engine.contentHash
     },
     platform: { ...input.platform },
     adapter: input.adapter === null
