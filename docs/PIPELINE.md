@@ -18,21 +18,31 @@ scene-update
 
 ## GPU Work Contract
 
-`GpuWorkGenerationAbi.ts` 当前 ABI version 为 5。每个新增 GPU 队列必须同时定义元素 schema/stride、header、capacity、overflow、producer、consumer、indirect 参数和统计 counter。`attempted` 反映真实申请，`written` 只能反映安全写入；overflow 不得通过截断伪装成功。
+`GpuWorkGenerationAbi.ts` 定义当前工作队列 ABI。每个新增 GPU 队列必须同时定义元素 schema/stride、header、capacity、overflow、producer、consumer、indirect 参数和统计 counter。`attempted` 反映真实申请，`written` 只能反映安全写入；overflow 不得通过截断伪装成功。
 
 工作生成只有在 GPU producer 产生的 buffer/indirect args 被 GPU raster/compute consumer 直接使用时才完成。CPU 可以配置 dispatch，不能遍历原始对象重建最终可见列表。
 
-## Visibility Contract
+## Visibility-to-Surface Contract
 
-Hardware-first Visibility 使用 reverse-Z depth 和直接 `VisibilityKey`。Key 必须能稳定定位 instance、geometry/cluster/primitive 与材质重建所需数据；无效 key 使用明确 sentinel，并由 counter/debug view 暴露。Software/Hybrid raster 不是当前正确性依赖。
+Hardware Visibility 使用 reverse-Z depth 并直接输出 `VisibilityKey`。Key 必须稳定定位 exact-raster identity 和材质 kernel class；无效 key 使用明确 sentinel，并由 counter/debug view 暴露。
+
+SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
+
+1. 初始化时对 `depth32float/equal` 做真实设备 probe。
+2. probe 成功时使用 MaterialClassDepth；失败时在创建 Surface owner 前选择 `class-discard` fallback。
+3. fullscreen material kernel 通过统一 `GpuSurfaceAbi` 输出 Surface；consumer 不根据附件顺序猜测语义。
+4. TriangleSetup candidate cache 默认是显式 opt-in；关闭时没有 setup allocation、FrameGraph resource 或 clear。
+5. Tile backend 目前只有 evidence gate，不存在生产 queue、pass、shader 或 submit。
+
+长期决定和进入新 backend 的门槛见 [ADR-0004](./adr/0004-visibility-to-surface.md)。
 
 ## Frame Products
 
 `FrameProducts.ts` 是跨 Pass 资源字段的事实源：
 
-- `SurfaceFrame`：`depth`、`pbr`、`normal`、`albedoAo`、`emissive`、可选 `velocity`、可选 `metadata`，域为 `internal-full`。
+- `SurfaceFrame`：depth、PBR、normal、albedo/AO、emissive、可选 velocity/metadata，域为 `internal-full`。
 - `DirectLightingFrame`：direct-only linear HDR。
-- `OpaqueLightingFrame`：完整不透明 `hdr`、`iblSpecular`、`indirectDiffuse`。
+- `OpaqueLightingFrame`：完整不透明 HDR、IBL specular、indirect diffuse。
 - `LightClusterFrame`：parameters/lookup/data、candidate/active light list 与可选 counters。
 - `ShadowVisibilityFrame`：atlas、可选 contact visibility 与 cascade/filter 参数，不拥有 HDR target。
 - `AmbientOcclusionFrame`：visibility 与 bent normal。
@@ -55,4 +65,4 @@ Feature 关闭时不得构造对应 GPU owner、Pass、attachment、history、re
 
 ## 尚未统一的路径
 
-普通 Scene 的 Material Expand、独立 Velocity 和 legacy OIT 仍与 Packed 路径并存；它们是迁移债务。任何新功能只能接入统一产品合同，不得再扩张旧路径。
+普通 Scene 的 Material Expand、独立 Velocity 和 legacy OIT 仍与 Packed 路径并存；它们是迁移债务。新功能只能接入统一产品合同，不得再扩张旧路径。

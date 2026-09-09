@@ -6,14 +6,39 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const docsRoot = path.join(repoRoot, "docs");
+
+const coreDocs = [
+  "ARCHITECTURE.md",
+  "PIPELINE.md",
+  "PRODUCT.md",
+  "README.md",
+  "STATUS.md",
+  "VALIDATION.md",
+];
+
 const finalDocs = [
-  "ARCHITECTURE.md", "OEngine_Visibility_to_Surface_WebGPU_EXECUTION.md", "OEngine_Visibility_to_Surface_WebGPU_RFC.md", "PERFORMANCE-INSPECTOR.md", "PIPELINE.md", "PRODUCT.md", "README.md", "RENDERING-LAB-ARCHITECTURE-REPORT.md", "RENDERING-LAB-BENCHMARK-DESIGN.md", "RENDERING-LAB-PERFORMANCE-REPORT.md", "SHOWCASE-LAB-DESIGN.md", "STATUS.md", "VALIDATION.md",
-  "adr/0001-gpu-first-scope.md", "adr/0002-runtime-assets-and-gpu-driven.md",
-  "adr/0003-unified-render-pipeline.md", "adr/README.md",
-  "porting/geometry.md", "porting/platform.md", "porting/README.md",
-  "porting/shading.md", "porting/visibility.md",
-  "superpowers/plans/2026-09-08-visibility-to-surface-closure.md"
+  ...coreDocs,
+  "adr/0001-gpu-first-scope.md",
+  "adr/0002-runtime-assets-and-gpu-driven.md",
+  "adr/0003-unified-render-pipeline.md",
+  "adr/0004-visibility-to-surface.md",
+  "adr/README.md",
+  "porting/geometry.md",
+  "porting/platform.md",
+  "porting/README.md",
+  "porting/shading.md",
+  "porting/visibility.md",
 ].sort();
+
+const routedDocs = [
+  "README.md",
+  "CONTEXT-MAP.md",
+  ...finalDocs.map((relativePath) => path.posix.join("docs", relativePath)),
+  "examples/README.md",
+  "examples/rendering-lab/README.md",
+  "OEngine/benchmarks/README.md",
+  "OEngine/src/addons/inspector/README.md",
+];
 
 function markdownFiles(directory, prefix = "") {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -24,42 +49,102 @@ function markdownFiles(directory, prefix = "") {
   });
 }
 
-test("docs tree matches the internal allowlist", () => {
+function resolveMarkdownLinks(relativePath) {
+  const absolutePath = path.join(repoRoot, relativePath);
+  const source = readFileSync(absolutePath, "utf8");
+  for (const match of source.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
+    const target = match[1].replace(/^<|>$/g, "").split("#", 1)[0];
+    if (!target || /^(?:https?:|mailto:)/.test(target)) continue;
+    const resolved = path.resolve(path.dirname(absolutePath), target);
+    assert.equal(existsSync(resolved), true, `${relativePath} -> ${target}`);
+  }
+}
+
+test("docs tree matches the current-facts allowlist", () => {
   assert.deepEqual(markdownFiles(docsRoot).sort(), finalDocs);
 });
 
-test("relative Markdown links resolve", () => {
+test("all routed Markdown links resolve", () => {
+  for (const relativePath of routedDocs) resolveMarkdownLinks(relativePath);
+});
+
+test("docs index routes every core fact page", () => {
+  const source = readFileSync(path.join(docsRoot, "README.md"), "utf8");
+  for (const relativePath of coreDocs.filter((name) => name !== "README.md")) {
+    assert.match(source, new RegExp(`\\((?:\\./)?${relativePath.replace(".", "\\.")}\\)`));
+  }
+});
+
+test("authoritative docs do not depend on ephemeral or machine-local paths", () => {
+  const forbidden = [
+    /(?:^|[\\/])temp[\\/]/i,
+    /[A-Z]:[\\/](?:Users|Documents|code|shu)[\\/]/i,
+    /docs[\\/](?:contexts|implementation|references|wiki|superpowers)[\\/]/i,
+  ];
   for (const relativePath of finalDocs) {
     const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
-    for (const match of source.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
-      const target = match[1].replace(/^<|>$/g, "").split("#", 1)[0];
-      if (!target || /^(?:https?:|mailto:)/.test(target)) continue;
-      const absolute = path.resolve(path.dirname(path.join(docsRoot, relativePath)), target);
-      assert.equal(existsSync(absolute), true, `${relativePath} -> ${target}`);
+    for (const pattern of forbidden) assert.doesNotMatch(source, pattern, relativePath);
+    if (relativePath !== "VALIDATION.md") {
+      assert.doesNotMatch(source, /`temp[\\/]/i, relativePath);
     }
   }
 });
 
-test("current docs do not route to the retired system", () => {
+test("non-status docs do not accumulate execution checkpoints or mutable totals", () => {
   const forbidden = [
-    /docs[\\/](?:contexts|implementation|references|wiki)[\\/]/,
-    /performance-targets\.json/,
-    /examples[\\/](?:benchmark-[abc]|r[0-9]-|integrated-showcase|scripts)[\\/]/
+    /^#{1,6}\s+.*(?:checkpoint|closure|收口记录|完成记录)/im,
+    /(?:当前全量测试|current full test|npm test)[^\n]*\b\d+\s*\/\s*\d+\b/i,
   ];
-  for (const relativePath of finalDocs) {
+  for (const relativePath of finalDocs.filter((name) => name !== "STATUS.md")) {
     const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
     for (const pattern of forbidden) assert.doesNotMatch(source, pattern, relativePath);
   }
 });
 
+test("root-anchored repository paths in docs exist", () => {
+  for (const relativePath of finalDocs) {
+    const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
+    for (const line of source.split(/\r?\n/)) {
+      if (/^- Upstream(?: source)?:/i.test(line)) continue;
+      for (const match of line.matchAll(/`((?:OEngine|docs|examples|src)[\\/][^`\n]+)`/g)) {
+        const target = match[1];
+        if (/[*?<>]/.test(target)) continue;
+        const base = target.startsWith("src/") || target.startsWith("src\\")
+          ? path.join(repoRoot, "OEngine")
+          : repoRoot;
+        assert.equal(existsSync(path.join(base, target)), true, `${relativePath} -> ${target}`);
+      }
+    }
+  }
+});
+
+test("ADRs keep the accepted decision shape", () => {
+  for (const relativePath of finalDocs.filter((name) => /^adr\/\d{4}-/.test(name))) {
+    const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
+    assert.match(source, /^Status: accepted$/m, relativePath);
+    for (const heading of ["Context", "Decision", "Consequences", "Verification"]) {
+      assert.match(source, new RegExp(`^## ${heading}$`, "m"), `${relativePath}: ${heading}`);
+    }
+  }
+});
+
 test("porting ledgers keep required provenance fields", () => {
   const fields = [
-    "Local owner/source:", "Upstream:", "Revision:", "Upstream source:", "License:",
-    "Adoption:", "Retained invariants:", "OEngine/WebGPU differences:",
-    "Fallback/lifecycle:", "Local validation:"
+    "Local owner/source:",
+    "Upstream:",
+    "Revision:",
+    "Upstream source:",
+    "License:",
+    "Adoption:",
+    "Retained invariants:",
+    "OEngine/WebGPU differences:",
+    "Fallback/lifecycle:",
+    "Local validation:",
   ];
   for (const relativePath of ["geometry.md", "visibility.md", "shading.md", "platform.md"]) {
     const source = readFileSync(path.join(docsRoot, "porting", relativePath), "utf8");
-    for (const field of fields) assert.match(source, new RegExp(field, "i"), `${relativePath}: ${field}`);
+    for (const field of fields) {
+      assert.match(source, new RegExp(field, "i"), `${relativePath}: ${field}`);
+    }
   }
 });

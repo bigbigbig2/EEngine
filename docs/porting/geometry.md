@@ -2,7 +2,7 @@
 
 ## GEO-MESHOPT · meshoptimizer Cooker
 
-- Local owner/source: `OEngine/src/geometry/GeometryAssetPackage.ts`、Cooker 与 `meshoptimizer@1.0.0`。
+- Local owner/source: `OEngine/src/assets/GeometryAssetPackage.ts`、`OEngine/src/geometry/GeometryCooker.ts` 与 `meshoptimizer@1.0.0`。
 - Upstream: <https://github.com/zeux/meshoptimizer>
 - Revision: tag `v1.0`, commit `73583c335e541c139821d0de2bf5f12960a04941`；npm integrity `sha512-xsmHsLUFiImOMBwFUqXLqYniaA5rJPZYhgJvyuBsk3cfMWJi8S3BPLkvU2KvYciAV3dwrON20GiiwQJ9eTO/uA==`。
 - Upstream source: `meshopt_clusterizer.js`、`meshopt_clusterizer.d.ts`、`meshopt_clusterizer.test.js`。
@@ -28,7 +28,7 @@
 
 ## GEO-CONTROLS · Orbit camera controls
 
-- Local owner/source: `OEngine/src/core/OrbitControls.ts` 及 Rendering Lab。
+- Local owner/source: `OEngine/src/camera/OrbitControls.ts` 及 Rendering Lab。
 - Upstream: <https://github.com/mrdoob/three.js>
 - Revision: `7cda7e710d884827fc73ff1a3aa63270846513d7`。
 - Upstream source: `examples/jsm/controls/OrbitControls.js`。

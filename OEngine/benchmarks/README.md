@@ -32,7 +32,7 @@ Set-Location OEngine
 npm run audit:shaders
 ```
 
-当前审计记录 69 个 Shader：65 个 `authored-live`，4 个仍有 runtime consumer 但 ownership 未闭环的 `unknown`。实际名单与 consumer 以 JSON 为准；运行审计后必须检查生成物 diff，不能手工修改计数。
+Shader 数量、分类、实际 consumer 和 deletion candidate 只以生成的 `benchmarks/shader-source-audit.json` 为准；README 不复制会随源码变化的计数。运行审计后必须检查生成物 diff，不能手工修改结果。
 
 ## 结果解释
 
