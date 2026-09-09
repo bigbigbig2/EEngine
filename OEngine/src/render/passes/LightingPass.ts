@@ -41,7 +41,6 @@ export const LIGHTING_STEPS = [
 export type LightingJob = {
   width: number;
   height: number;
-  surfaceMetadataAvailable: boolean;
 };
 
 export type LightingInputs = {
@@ -145,20 +144,12 @@ function createLightingPipeline(
 export class LightingPass {
   lastRan = false;
   private readonly surfacePipeline: CachedRenderPipelineDescriptor;
-  private readonly legacyPipeline: CachedRenderPipelineDescriptor;
 
   constructor(
     private readonly graphics: GraphicsContext,
     surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
   ) {
     this.surfacePipeline = createLightingPipeline(LIGHTING_DIRECT_WGSL, surfaceProfile);
-    this.legacyPipeline = createLightingPipeline(
-      LIGHTING_DIRECT_WGSL.replace(
-        "const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = true;",
-        "const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = false;"
-      ),
-      surfaceProfile
-    );
   }
 
   init(): void {}
@@ -208,9 +199,7 @@ export class LightingPass {
         const depthView = resolveDepthAttachmentView(
           resources.get(inputs.depth)
         );
-        const descriptor = passJob.surfaceMetadataAvailable
-          ? this.surfacePipeline
-          : this.legacyPipeline;
+        const descriptor = this.surfacePipeline;
         const pipeline = this.graphics.render_pipelines.obtain(descriptor);
         const pass = encoder.beginRenderPass({
           label: "Direct lighting Ch",

@@ -22,9 +22,8 @@ let nextEnvironmentId = 1;
 /**
  * Scene-scoped GPU data shared by Packed and ordinary Render World inputs.
  *
- * This owner deliberately contains no geometry, material, skinning, TLAS, or
- * SceneDatabase state. Packed frames may create and update it without paying
- * for the temporary legacy render world.
+ * This owner deliberately contains no geometry, material, skinning, or TLAS
+ * state and remains independent from the geometry Render World.
  */
 export class GPUSceneEnvironmentContext {
   readonly isGPUSceneEnvironmentContext = true;

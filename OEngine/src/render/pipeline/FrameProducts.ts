@@ -73,8 +73,8 @@ export interface SurfaceFrame {
   readonly emissive: ResourceId;
   /** 未启用时域功能时可以没有 velocity；消费者必须显式声明需要它。 */
   readonly velocity: ResourceId | null;
-  /** Production Render World always publishes this; nullable until Step 7 removes dead legacy graph code. */
-  readonly metadata: ResourceId | null;
+  /** Unified Surface metadata is mandatory for every production consumer. */
+  readonly metadata: ResourceId;
   readonly domain: TextureDomain<"internal-full">;
 }
 
@@ -244,14 +244,6 @@ export function requireSurfaceAbiVersion(
       `SurfaceFrame ABI version ${input.abiVersion} is incompatible with expected ${expected}`
     );
   }
-}
-
-/** 为迁移中的 Surface producer 补入 velocity，返回新的 immutable product。 */
-export function surfaceFrameWithVelocity(
-  frame: SurfaceFrame,
-  velocity: ResourceId | null
-): SurfaceFrame {
-  return surfaceFrame({ ...frame, velocity }, frame.abiVersion);
 }
 
 /** 创建统一的 Opaque HDR 产品，并在 composition seam 处验证 internal-full 域。 */

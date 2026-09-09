@@ -56,14 +56,12 @@ Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证�
 
 ## 当前帧输入边界
 
-Packed source 通过 `uploadPackedScene()`、普通 Application Scene 通过 `uploadScene()` 汇入同一个 `GpuRenderWorld`。普通 Scene adapter 只接受调用方显式提供的已 Cook `GeometryAssetPackage`，首次同步生成 bulk structure-of-arrays source；后续 transform/material assignment 从 `SceneChangeSet` 生成确定性 `GpuScene.patch()`。add/remove/geometry 结构变化必须由 `resyncScene()` 明确 full-resync；未注册 Scene 在 `render()` 前失败，不再自动取得 `GPUSceneContext`。
+Packed source 通过 `uploadPackedScene()`、普通 Application Scene 通过 `uploadScene()` 汇入同一个 `GpuRenderWorld`。普通 Scene adapter 只接受调用方显式提供的已 Cook `GeometryAssetPackage`，首次同步生成 bulk structure-of-arrays source；后续 transform/material assignment 从 `SceneChangeSet` 生成确定性 `GpuScene.patch()`。add/remove/geometry 结构变化必须由 `resyncScene()` 明确 full-resync；未注册 Scene 在 `render()` 前失败。
 
-两种输入都由 GPU hierarchy/work generation 直接供 indirect Visibility consumer，输出统一 `VisibilityKey`、Surface metadata、velocity、shadow work 与透明 reactive 数据。普通 Scene 不创建 legacy SceneDatabase、geometry/material table、skinning、MeshletDrawList、Material Expand、独立 Velocity 或 legacy OIT owner。完整动画/蒙皮仍属产品 Deferred；`SkinnedMesh` 会显式报 unsupported。AO、SSR 与 GI 由 Service 组合；Shadow atlas、cascade/cache、work generation、raster 和 retire 归 `src/render/features/ShadowFeature.ts` 单一所有。
+两种输入都由 GPU hierarchy/work generation 直接供 indirect Visibility consumer，输出统一 `VisibilityKey`、必有 metadata 的 Surface、可选 velocity、shadow work 与透明 reactive 数据。旧对象场景 GPU runtime、双 ID visibility attachment、fullscreen material expand、独立 velocity 和旧 OIT/Shadow raster 实现已经删除；不存在隐藏 fallback。完整动画/蒙皮仍属产品 Deferred；`SkinnedMesh` 会显式报 unsupported。AO、SSR 与 GI 由 Service 组合；Shadow atlas、cascade/cache、work generation、raster 和 retire 归 `src/render/features/ShadowFeature.ts` 单一所有。
 
 ## 目标差距
 
 - Packed Render World 的固定收敛顺序、owner 删除条件和逐步验证见 [ADR-0006](./adr/0006-packed-render-world-convergence.md)。
-- Step 7 删除已经退出默认生产帧的 legacy runtime、Pass、shader 和 graph 分支。
 - 以真实多资产 Packed Instances、hierarchy/SSE 和固定目标设备证明 GPU 闭环。
-- 关闭仍为 unknown 的 oracle/generated Shader ownership 风险。
 - 用同条件 GPU timestamp、counter、memory 和 feature-off 证据证明统一主管线。

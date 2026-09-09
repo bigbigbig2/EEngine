@@ -11,13 +11,8 @@ import {
   type GpuSurfaceAbiProfile
 } from "../../gpu/GpuSurfaceAbi.js";
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
-import { MeshletDrawList } from "../../gpu/MeshletDrawList.js";
-import { GPUSceneManager } from "../../gpu/GPUSceneManager.js";
-import type { GPUSceneContext } from "../../gpu/GPUSceneContext.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
 import type { GPUSceneEnvironmentContext } from "../../gpu/GPUSceneEnvironmentContext.js";
-import { SceneSdf } from "../../gpu/SceneSdf.js";
-import { GPULightProbeVolumeRenderer } from "../../gpu/GPULightProbeVolumeRenderer.js";
 import { FrameGraph, FrameGraphBindingLayout } from "../../framegraph/FrameGraph.js";
 import type { CompiledFrameGraphDump } from "../../framegraph/FrameGraph.js";
 import { CompiledFrameGraphCache } from "../../framegraph/CompiledFrameGraphCache.js";
@@ -35,10 +30,8 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { RenderTargets } from "../RenderTargets.js";
 import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
-import { VisibilityPass } from "../passes/VisibilityPass.js";
 import type { PackedVisibilityDebugSource } from "../passes/PackedVisibilityPass.js";
 import { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
-import { MaterialExpandPass } from "../passes/MaterialExpandPass.js";
 import {
   VisibilityFeature,
   type PackedVisibilityJob
@@ -57,9 +50,6 @@ import {
 import { ShadowFeatureManager } from "../features/ShadowFeatureManager.js";
 import type { LightClusterOutputs } from "../passes/LightClusterPass.js";
 import { TransparencyFeature } from "../features/TransparencyFeature.js";
-import { ShadeTransparencyMode } from "../../material/enums.js";
-import { PathTracer } from "../passes/PathTracer.js";
-import { VelocityPass } from "../passes/VelocityPass.js";
 import { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "../passes/OcclusionConfidencePass.js";
 import { AOService } from "../features/AOService.js";
@@ -143,10 +133,7 @@ import {
   type RenderSettingsPatch,
   type RenderSettingsValues
 } from "./RenderSettings.js";
-import {
-  surfaceFrameWithVelocity,
-  type VisibilityFrame
-} from "./FrameProducts.js";
+import type { VisibilityFrame } from "./FrameProducts.js";
 import {
   createRendererFramePlan,
   type FramePlanDump
@@ -204,19 +191,6 @@ export const RENDER_FRAME_PHASES = [
 ] as const;
 
 export type RenderFramePhase = (typeof RENDER_FRAME_PHASES)[number];
-
-export const MAIN_RENDER_TARGET_LAYOUT = {
-  color0: { format: "r32uint", role: "viz_triangle_id" },
-  color1: { format: "r32uint", role: "viz_mesh_id" },
-  depth: { format: "depth32float", role: "main_depth_double_buffered" }
-} as const;
-
-export const GBUFFER_AFTER_VIZ = {
-  g_pbr: "rg8unorm",
-  g_normal: "rgba16uint",
-  g_albedo: "/* package format TP */",
-  g_emissive: "/* package format */"
-} as const;
 
 export type RendererInitializeOptions = {
   context?: GPUCanvasContext;
@@ -355,19 +329,14 @@ export interface RendererGpuOwnerCreationEvidence extends GraphicsOwnerCreationE
   readonly scene: Readonly<{
     readonly environmentContextCount: number;
     readonly environmentPrepareCount: number;
-    readonly legacyGeometryContextCount: number;
-    readonly legacySceneDatabaseCount: number;
-    readonly legacySkinningContextCount: number;
-    readonly legacyMeshletDrawListCreated: boolean;
   }>;
   readonly shadow: Readonly<{
     readonly featureCount: number;
     readonly atlasCount: number;
     readonly atlasAllocatedBytes: number;
-    readonly packedRasterPassCount: number;
-    readonly legacyRasterPassCount: number;
-    readonly packedWorkSetCount: number;
-    readonly packedWorkBytes: number;
+    readonly rasterPassCount: number;
+    readonly workSetCount: number;
+    readonly workBytes: number;
     readonly shadowViewOwnerCount: number;
     readonly directionalCameraRevision: number;
     readonly directionalCascadeSplits: readonly number[];
@@ -382,16 +351,10 @@ type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
   readonly reject: (error: unknown) => void;
 };
 
-type MainFrameGeometrySource =
-  | Readonly<{
-      readonly kind: "packed";
-      readonly runtime: GpuRenderWorldRuntime;
-      readonly visibilityJob: PackedVisibilityJob;
-    }>
-  | Readonly<{
-      readonly kind: "legacy";
-      readonly context: GPUSceneContext;
-    }>;
+type MainFrameGeometrySource = Readonly<{
+  readonly runtime: GpuRenderWorldRuntime;
+  readonly visibilityJob: PackedVisibilityJob;
+}>;
 
 type MainFrameGraphBindings = {
   readonly context: FrameContext<
@@ -478,17 +441,13 @@ export class MainRenderPipeline {
     MAIN_GRAPH_CACHE_LIMIT
   );
   private _lastMainGraphEvidence: MainFrameGraphEvidence | null = null;
-  private _scenes!: GPUSceneManager;
   private _environments!: GPUSceneEnvironmentManager;
   private _shadowFeatures!: ShadowFeatureManager;
   private _cameraStates!: GPUCameraStateManager;
-  private _meshletDrawList: MeshletDrawList | null = null;
   private _views!: ViewManager;
   private readonly _output_resolution = new Vec2(1, 1);
-  private _visibility: VisibilityPass | null = null;
   private _visibilityFeature!: VisibilityFeature;
   private _visibilityCounters: VisibilityCounterPass | null = null;
-  private _materialExpand: MaterialExpandPass | null = null;
   private _surfaceFeature!: SurfaceFeature;
   private _packedSurfaceCounters!: PackedSurfaceCounterPass;
   private _lightingFeature!: LightingFeature;
@@ -496,8 +455,6 @@ export class MainRenderPipeline {
   private _transparencyFeature: TransparencyFeature | null = null;
   private _packedTransparencyOwnerGeneration = 0;
   private _pendingLinearHdrCapture: PendingLinearHdrCapture | null = null;
-  private _pathTracer: PathTracer | undefined;
-  private _velocity: VelocityPass | null = null;
   private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence: OcclusionConfidencePass | null = null;
   private _aoService: AOService | null = null;
@@ -517,11 +474,6 @@ export class MainRenderPipeline {
   private _lastTemporalClassificationPassCount = 0;
   private _renderTargets = new RenderTargets();
   private _format: GPUTextureFormat = "rgba8unorm";
-  private readonly _sceneSdfs = new Map<Scene, SceneSdf>();
-  private readonly _probeRenderers = new Map<
-    Scene,
-    GPULightProbeVolumeRenderer
-  >();
   /** Immutable snapshot; use configure() to update it. */
   get render_settings(): RenderSettingsValues {
     return this._renderSettings.values;
@@ -775,7 +727,7 @@ export class MainRenderPipeline {
       if (runtime !== null && this._visibilityFeature) {
         this._visibilityFeature.release(runtime, command);
         this._transparencyFeature?.releasePacked(runtime, command);
-        this._shadowFeatures.releasePackedScene(scene, runtime, command);
+        this._shadowFeatures.releaseRenderWorld(scene, runtime, command);
       }
       handles = this._graphics.render_world.release(scene, command);
       this._graphics.assets.releaseMany(handles, command);
@@ -1005,17 +957,12 @@ export class MainRenderPipeline {
   gpuOwnerCreationEvidence(): RendererGpuOwnerCreationEvidence {
     const graphics = this._graphics.ownerCreationEvidence();
     const environment = this._environments.evidence();
-    const legacy = this._scenes.evidence();
     const shadow = this._shadowFeatures.evidence();
     return Object.freeze({
       ...graphics,
       scene: Object.freeze({
         environmentContextCount: environment.contextCount,
-        environmentPrepareCount: environment.prepareCount,
-        legacyGeometryContextCount: legacy.geometryContextCount,
-        legacySceneDatabaseCount: legacy.sceneDatabaseCount,
-        legacySkinningContextCount: legacy.skinningContextCount,
-        legacyMeshletDrawListCreated: this._meshletDrawList !== null
+        environmentPrepareCount: environment.prepareCount
       }),
       shadow
     });
@@ -1067,10 +1014,6 @@ export class MainRenderPipeline {
     return this._adapterInfo === null ? null : { ...this._adapterInfo };
   }
 
-  get scenes(): GPUSceneManager {
-    return this._scenes;
-  }
-
   get views(): ViewManager {
     return this._views;
   }
@@ -1092,11 +1035,6 @@ export class MainRenderPipeline {
       }
     }
     return this._nss;
-  }
-
-  get path_tracer(): PathTracer {
-    this._pathTracer ??= new PathTracer(this._graphics);
-    return this._pathTracer;
   }
 
   get texture_depth_current(): GPUTextureContext {
@@ -1229,7 +1167,6 @@ export class MainRenderPipeline {
     await this._graphics.initialize();
     this._environments = new GPUSceneEnvironmentManager(this._graphics);
     this._shadowFeatures = new ShadowFeatureManager(this._graphics);
-    this._scenes = new GPUSceneManager(this._graphics, this._environments);
     this._cameraStates = new GPUCameraStateManager(device);
     this._views = new ViewManager(
       this._graphics,
@@ -1241,7 +1178,6 @@ export class MainRenderPipeline {
       this._render_resolution.y
     );
     this.configureCanvas();
-    this.init_render_targets();
     window
       .matchMedia("(dynamic-range: high)")
       .addEventListener("change", this._onDynamicRangeChange);
@@ -1275,67 +1211,16 @@ export class MainRenderPipeline {
     this._temporalFeature.destroy();
     this._renderDebug?.destroy();
     this._renderDebug = null;
-    this._materialExpand?.destroy();
-    this._materialExpand = null;
-    this._velocity?.destroy();
-    this._velocity = null;
     this._surfaceFeature?.destroy();
     this._visibilityFeature?.destroy();
-    this._visibility?.destroy();
-    this._visibility = null;
-    this._meshletDrawList?.destroy();
-    this._meshletDrawList = null;
     this._nss?.destroy();
     this._nss = null;
     this._views?.destroy();
-    this._scenes?.destroy();
     this._shadowFeatures?.destroy();
     this._environments?.destroy();
-    this._probeRenderers.clear();
     this._mainGraphCache.destroy();
     this._frameCoordinator?.destroy();
     this._graphics.destroy();
-  }
-
-  obtains_scene_sdf(scene: Scene): SceneSdf {
-    let sdf = this._sceneSdfs.get(scene);
-    if (!sdf) {
-      sdf = new SceneSdf(this._graphics);
-      this._sceneSdfs.set(scene, sdf);
-    }
-    return sdf;
-  }
-
-  getProbeRendererForScene(scene: Scene): GPULightProbeVolumeRenderer {
-    const gpuScene = this._scenes.obtain(scene);
-    let renderer = this._probeRenderers.get(scene);
-    if (!renderer) {
-      renderer = new GPULightProbeVolumeRenderer(this._graphics, gpuScene);
-      this._probeRenderers.set(scene, renderer);
-    }
-    return renderer;
-  }
-
-  update_lpv(scene: Scene, command: ShadeGPUCommandContext): void {
-    const gpuScene = this._scenes.obtain(scene);
-    command.recordGraphBuild();
-    const graph = new FrameGraph("LPV");
-    gpuScene.light_probe_volume.atlas.graph_update({
-      graph,
-      scene: gpuScene,
-      graphics: this._graphics,
-      command,
-      update_ray_count: 100000
-    });
-    command.encodeGraph(graph);
-  }
-
-  init_render_targets(): void {
-    this._renderTargets.initializeVisibility(
-      this._graphics.textures,
-      this._render_resolution.x,
-      this._render_resolution.y
-    );
   }
 
   resize(x: number, y: number): void {
@@ -1444,8 +1329,7 @@ export class MainRenderPipeline {
     });
     const sceneOwners = resolveFrameSceneOwners<
       GPUSceneEnvironmentContext,
-      GpuRenderWorldRuntime,
-      GPUSceneContext
+      GpuRenderWorldRuntime
     >(
       scene,
       this._graphics.render_world_if_created,
@@ -1453,9 +1337,7 @@ export class MainRenderPipeline {
     );
     const environment = sceneOwners.environment;
     const geometryOwner = sceneOwners.geometry;
-    const gpuPacked = geometryOwner.kind === "packed"
-      ? geometryOwner.runtime
-      : null;
+    const gpuPacked = geometryOwner.runtime;
     const shadowFeature = this._shadowFeatures.reconcile(
       scene,
       environment,
@@ -1464,7 +1346,7 @@ export class MainRenderPipeline {
     );
     const view = this.views.obtain(viewKey, environment, cmd);
     const framePlan = createRendererFramePlan(this._frame_count, {
-      lpv: this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV,
+      lpv: false,
       shadows: featureTopology.shadows
     });
     view.setJitter(this._lastFrameContract.jitter[0], this._lastFrameContract.jitter[1]);
@@ -1483,17 +1365,9 @@ export class MainRenderPipeline {
         const patch = this._graphics.render_world_if_created?.encodePendingPatch(scene, cmd);
         if (patch !== null && patch !== undefined) packedPatchRevision = this._frame_count + 1;
         environment.encodeFrame(cmd, this._frame_count, time_delta_seconds);
-        if (geometryOwner.kind === "legacy") {
-          geometryOwner.context.encodeFrame(cmd, this._frame_count, time_delta_seconds);
-        }
         view.update(cmd);
       });
     });
-    if (this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV) {
-      framePlan.execute("lpv-update", () => {
-        if (geometryOwner.kind === "legacy") this.update_lpv(scene, cmd);
-      });
-    }
     const viewHzb = view.hierarchical_z_buffer;
     viewHzb.resetFrameStatistics();
     viewHzb.beginFrame(this._frame_count, {
@@ -1519,7 +1393,7 @@ export class MainRenderPipeline {
         framePlan.execute("shadow-update", () => {
           this._profiler.measure("shadow-update", () => {
             const shadows = requireShadowFeature(shadowFeature);
-            if (sampleGpuCounters && gpuPacked !== null) {
+            if (sampleGpuCounters) {
               this._profiler.registerGpuCounterFields([
                 "shadowCascade0RasterWork",
                 "shadowCascade1RasterWork",
@@ -1529,9 +1403,7 @@ export class MainRenderPipeline {
                 "shadowQueueOverflowMask"
               ]);
             }
-            const packedBindings = gpuPacked === null
-              ? null
-              : this._graphics.render_world.bindings();
+            const packedBindings = this._graphics.render_world.bindings();
             const shadowContentRevision = scene.change_revision * 1_048_576 +
               (packedBindings?.scene.contentRevision ?? 0) + packedPatchRevision;
             shadows.encode(cmd, {
@@ -1547,22 +1419,15 @@ export class MainRenderPipeline {
                 ),
                 texelGuardBand: this._renderSettings.values.shadows.texelGuardBand
               },
-              geometry: gpuPacked !== null && packedBindings !== null
-                ? {
-                    kind: "packed",
-                    runtime: gpuPacked,
-                    assets: packedBindings.assets,
-                    scene: packedBindings.scene,
-                    counterBuffer: sampleGpuCounters
-                      ? this._profiler.gpuCounterBuffer
-                      : null,
-                    sseThreshold: this.packed_visibility_sse_threshold
-                  }
-                : {
-                    kind: "legacy",
-                    context: requireLegacyGeometryOwner(geometryOwner),
-                    drawList: this.obtainLegacyMeshletDrawList()
-                  }
+              geometry: {
+                runtime: gpuPacked,
+                assets: packedBindings.assets,
+                scene: packedBindings.scene,
+                counterBuffer: sampleGpuCounters
+                  ? this._profiler.gpuCounterBuffer
+                  : null,
+                sseThreshold: this.packed_visibility_sse_threshold
+              }
             });
           });
         });
@@ -1613,49 +1478,40 @@ export class MainRenderPipeline {
             outputResolution: [outputWidth, outputHeight]
           })
         : null;
-      let packedVisibilityJob: PackedVisibilityJob | null = null;
-      if (gpuPacked !== null) {
-        const registryBindings = this._graphics.render_world.bindings();
-        const counters = gpuCounterBuffer ?? gpuPacked.counterSink;
-        const prepareJob = {
-          runtime: gpuPacked,
-          assets: registryBindings.assets,
-          scene: registryBindings.scene,
-          countersEnabled: gpuCounterBuffer !== null,
-          width: w,
-          height: h,
-          hierarchyView: createPackedHierarchyView(camera, h),
-          sseThreshold: this.packed_visibility_sse_threshold,
-          coneEnabled: this.packed_visibility_cone_enabled,
-          triangleSetupEnabled: this.packed_triangle_setup_enabled,
-          triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
-          previousHzb: this.packed_visibility_hzb_enabled
-            ? packedPreviousHzb(
-              viewHzb,
-              view.gpu_previous_camera_state.view_projection_matrix
-            )
-            : null
-        };
-        packedVisibilityJob = Object.freeze({
-          ...prepareJob,
-          prepared: this._visibilityFeature.prepare(
-            prepareJob,
-            counters,
-            view.gpu_camera_state.buffer,
-            cmd
+      const registryBindings = this._graphics.render_world.bindings();
+      const counters = gpuCounterBuffer ?? gpuPacked.counterSink;
+      const prepareJob = {
+        runtime: gpuPacked,
+        assets: registryBindings.assets,
+        scene: registryBindings.scene,
+        countersEnabled: gpuCounterBuffer !== null,
+        width: w,
+        height: h,
+        hierarchyView: createPackedHierarchyView(camera, h),
+        sseThreshold: this.packed_visibility_sse_threshold,
+        coneEnabled: this.packed_visibility_cone_enabled,
+        triangleSetupEnabled: this.packed_triangle_setup_enabled,
+        triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
+        previousHzb: this.packed_visibility_hzb_enabled
+          ? packedPreviousHzb(
+            viewHzb,
+            view.gpu_previous_camera_state.view_projection_matrix
           )
-        });
-      }
-      const frameGeometry: MainFrameGeometrySource = packedVisibilityJob === null
-        ? Object.freeze({
-            kind: "legacy",
-            context: requireLegacyGeometryOwner(geometryOwner)
-          })
-        : Object.freeze({
-            kind: "packed",
-            runtime: gpuPacked!,
-            visibilityJob: packedVisibilityJob
-          });
+          : null
+      };
+      const packedVisibilityJob: PackedVisibilityJob = Object.freeze({
+        ...prepareJob,
+        prepared: this._visibilityFeature.prepare(
+          prepareJob,
+          counters,
+          view.gpu_camera_state.buffer,
+          cmd
+        )
+      });
+      const frameGeometry: MainFrameGeometrySource = Object.freeze({
+        runtime: gpuPacked,
+        visibilityJob: packedVisibilityJob
+      });
       const graphTopology = this.resolveFeatureTopology({
         geometry: frameGeometry,
         scene
@@ -1754,28 +1610,8 @@ export class MainRenderPipeline {
         bind("swapchain", (bindings) => bindings.colorView)
       );
 
-      const packedPath = mainBindings.geometry.kind === "packed";
-      const sceneDatabaseRes = packedPath
-        ? null
-        : graph.import_resource(
-            "scene_database_buffer",
-            { kind: "imported", label: "scene_database" },
-            bind("scene-database", (bindings) =>
-              requireLegacyGeometryOwner(bindings.geometry).scene_database_buffer!)
-          );
-
       {
         const rt = mainBindings.renderTargets;
-        const meshIdRes = packedPath ? null : graph.import_resource(
-          "texture_viz_mesh",
-          { kind: "imported", label: "r32uint mesh id" },
-          bind("target-mesh-id", (bindings) => bindings.renderTargets.meshId)
-        );
-        const triIdRes = packedPath ? null : graph.import_resource(
-          "texture_viz_triangle",
-          { kind: "imported", label: "r32uint triangle id" },
-          bind("target-triangle-id", (bindings) => bindings.renderTargets.triangleId)
-        );
         let depthRes = graph.import_resource(
           "main_depth",
           { kind: "imported", label: "depth32float" },
@@ -1822,7 +1658,7 @@ export class MainRenderPipeline {
           );
         }
 
-        if (packedPath) {
+        {
           const packedCounterRes = gpuCounterRes ?? graph.import_resource(
             "packed_visibility_counter_sink",
             { kind: "imported", label: "Packed Visibility disabled counter sink" },
@@ -1875,42 +1711,6 @@ export class MainRenderPipeline {
           depthRes = packedOutput.frame.depth;
           packedVisibilityDebug = packedOutput.debugResolve;
           gpuCounterRes = sampleGpuCounters ? packedOutput.counters : null;
-        } else {
-          gpuCounterRes = this.obtainLegacyVisibility().addToGraph(
-            graph,
-            bind("visibility-main-job", (bindings) => ({
-              camera: bindings.camera,
-              gpuCameraBuffer: bindings.view.gpu_camera_state.buffer,
-              gpuPreviousCameraBuffer:
-                bindings.view.gpu_previous_camera_state.buffer,
-              gpuViewBuffer: bindings.view.uniform_buffer,
-              scene: bindings.scene,
-              targets: this._renderTargets,
-              meshCount: requireLegacyGeometryOwner(bindings.geometry).mesh_count,
-              meshlets: requireLegacyGeometryOwner(bindings.geometry).meshlets,
-              drawList: this.obtainLegacyMeshletDrawList(),
-              meshTable: requireLegacyGeometryOwner(bindings.geometry).meshSlice,
-              transformTable: requireLegacyGeometryOwner(bindings.geometry).transformSlice,
-              sceneDatabase: requireLegacyGeometryOwner(bindings.geometry).scene_database,
-              materialMetadata: requireLegacyGeometryOwner(bindings.geometry).material_metadata,
-              enableFrustumCull: true,
-              hzbView: bindings.viewHzb.obtainPreviousView(),
-              viewportWidth: bindings.internalWidth,
-              viewportHeight: bindings.internalHeight,
-              enableHzbCull: true,
-              enableInstanceCull: true,
-              clearTargets: true,
-              secondChance: false
-            })),
-            {
-              meshId: meshIdRes!,
-              triangleId: triIdRes!,
-              depth: depthRes,
-              hzb: previousHzbRes,
-              counters: gpuCounterRes ?? undefined
-            },
-            "Visibility"
-          ) ?? gpuCounterRes;
         }
 
         {
@@ -1930,137 +1730,18 @@ export class MainRenderPipeline {
           hzbRes = hzbBuilder.write(hzbRes!);
         }
 
-        {
-          const sameFrameHzbView = packedPath
-            ? null
-            : viewHzb.obtainCurrentView();
-          if (sameFrameHzbView) {
-            gpuCounterRes = this.obtainLegacyVisibility().addToGraph(
-              graph,
-              bind("visibility-second-chance-job", (bindings) => ({
-                camera: bindings.camera,
-                gpuCameraBuffer: bindings.view.gpu_camera_state.buffer,
-                gpuPreviousCameraBuffer:
-                  bindings.view.gpu_previous_camera_state.buffer,
-                gpuViewBuffer: bindings.view.uniform_buffer,
-                scene: bindings.scene,
-                targets: this._renderTargets,
-                meshCount: requireLegacyGeometryOwner(bindings.geometry).mesh_count,
-                meshlets: requireLegacyGeometryOwner(bindings.geometry).meshlets,
-                drawList: this.obtainLegacyMeshletDrawList(),
-                meshTable: requireLegacyGeometryOwner(bindings.geometry).meshSlice,
-                transformTable: requireLegacyGeometryOwner(bindings.geometry).transformSlice,
-                sceneDatabase: requireLegacyGeometryOwner(bindings.geometry).scene_database,
-                materialMetadata: requireLegacyGeometryOwner(bindings.geometry).material_metadata,
-                enableFrustumCull: false,
-                hzbView: bindings.viewHzb.obtainCurrentView(),
-                viewportWidth: bindings.internalWidth,
-                viewportHeight: bindings.internalHeight,
-                enableHzbCull: true,
-                enableInstanceCull: true,
-                clearTargets: false,
-                secondChance: true
-              })),
-              {
-                meshId: meshIdRes!,
-                triangleId: triIdRes!,
-                depth: depthRes,
-                hzb: hzbRes!,
-                counters: gpuCounterRes ?? undefined
-              },
-              "Visibility/second-chance"
-            ) ?? gpuCounterRes;
-
-            const hzb2Builder = graph.add(
-              "graph_rasterize_triangle_closest/second",
-              bind("hzb-second-chance-job", (bindings) => ({
-                depthTex: bindings.renderTargets.depth,
-                hzb: bindings.viewHzb
-              })),
-              (data, _res, ctx: FrameGraphContext) => {
-                const enc = resolveGpuEncoder(ctx);
-                if (!enc || !data.depthTex) return;
-                data.hzb.build(enc, data.depthTex);
-              }
-            );
-            hzb2Builder.read(depthRes);
-            hzbRes = hzb2Builder.write(hzbRes!);
-          }
-        }
-
-        const hasAlphaTested = !packedPath &&
-          this.obtainLegacyVisibility().hasAlphaTestedMaterials(scene);
-        if (hasAlphaTested) {
-          gpuCounterRes = this.obtainLegacyVisibility().addToGraph(
-            graph,
-            bind("visibility-alpha-tested-job", (bindings) => ({
-              camera: bindings.camera,
-              gpuCameraBuffer: bindings.view.gpu_camera_state.buffer,
-              gpuPreviousCameraBuffer:
-                bindings.view.gpu_previous_camera_state.buffer,
-              gpuViewBuffer: bindings.view.uniform_buffer,
-              scene: bindings.scene,
-              targets: this._renderTargets,
-              meshCount: requireLegacyGeometryOwner(bindings.geometry).mesh_count,
-              meshlets: requireLegacyGeometryOwner(bindings.geometry).meshlets,
-              drawList: this.obtainLegacyMeshletDrawList(),
-              meshTable: requireLegacyGeometryOwner(bindings.geometry).meshSlice,
-              transformTable: requireLegacyGeometryOwner(bindings.geometry).transformSlice,
-              sceneDatabase: requireLegacyGeometryOwner(bindings.geometry).scene_database,
-              materialMetadata: requireLegacyGeometryOwner(bindings.geometry).material_metadata,
-              materialRegistry: requireLegacyGeometryOwner(bindings.geometry).materials,
-              enableFrustumCull: true,
-              hzbView: bindings.viewHzb.obtainCurrentView(),
-              viewportWidth: bindings.internalWidth,
-              viewportHeight: bindings.internalHeight,
-              enableHzbCull: true,
-              enableInstanceCull: true,
-              clearTargets: false,
-              secondChance: false,
-              alphaTestedPass: true
-            })),
-            {
-              meshId: meshIdRes!,
-              triangleId: triIdRes!,
-              depth: depthRes,
-              hzb: hzbRes!,
-              counters: gpuCounterRes ?? undefined
-            },
-            "Visibility/alpha-tested"
-          ) ?? gpuCounterRes;
-
-          {
-            const hzbABuilder = graph.add(
-              "graph_rasterize_triangle_closest/alpha",
-              bind("hzb-alpha-tested-job", (bindings) => ({
-                depthTex: bindings.renderTargets.depth,
-                hzb: bindings.viewHzb
-              })),
-              (data, _res, ctx: FrameGraphContext) => {
-                const enc = resolveGpuEncoder(ctx);
-                if (!enc || !data.depthTex) return;
-                data.hzb.build(enc, data.depthTex);
-              }
-            );
-            hzbABuilder.read(depthRes);
-            hzbRes = hzbABuilder.write(hzbRes!);
-          }
-        }
-
         if (gpuCounterRes !== null) {
           this._visibilityCounters ??= new VisibilityCounterPass();
           gpuCounterRes = this._visibilityCounters.addToGraph(
             graph,
             { width: w, height: h },
             {
-              visibility: (packedVisibilityFrame?.visibilityKey ?? meshIdRes)!,
+              visibility: packedVisibilityFrame!.visibilityKey,
               counters: gpuCounterRes
             },
-            packedVisibilityFrame === null
-              ? "legacy-id"
-              : this._materialResolveSelection?.backend === "class-depth"
-                ? "visibility-key-class-depth"
-                : "visibility-key"
+            this._materialResolveSelection?.backend === "class-depth"
+              ? "visibility-key-class-depth"
+              : "visibility-key"
           );
           this._profiler.registerGpuCounterFields([
             "candidateInstances",
@@ -2080,88 +1761,39 @@ export class MainRenderPipeline {
           ]);
         }
 
-        const geometryMetaRes = packedPath
-          ? null
-          : graph.import_resource(
-              "geometries/Jg",
-              { kind: "imported", label: "geometry metadata Jg" },
-              bind("geometry-metadata", (bindings) =>
-                requireLegacyGeometryOwner(bindings.geometry).meshlets.meshMetaBuffer!)
-            );
-        const meshletHeadersRes = packedPath
-          ? null
-          : graph.import_resource(
-              "meshlets/ki",
-              { kind: "imported", label: "meshlet headers ki" },
-              bind("meshlet-headers", (bindings) =>
-                requireLegacyGeometryOwner(bindings.geometry).meshlets.headerBuffer)
-            );
-        const meshletDataRes = packedPath
-          ? null
-          : graph.import_resource(
-              "meshlets/data",
-              { kind: "imported", label: "meshlet data" },
-              bind("meshlet-data", (bindings) =>
-                requireLegacyGeometryOwner(bindings.geometry).meshlets.dataBuffer)
-            );
-
         const needsOcclusionConfidence =
           graphTopology.ssaoTemporal || graphTopology.ssr || graphTopology.temporal;
         const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
           this.render_debug_view === RenderDebugView.Velocity;
-        const packedResolveOut = packedPath
-          ? this._surfaceFeature.addToGraph(
-              graph,
-              bind("packed-material-resolve-job", (bindings) => {
-                const packed = requirePackedGeometryOwner(bindings.geometry);
-                return {
-                  runtime: packed.visibilityJob.runtime,
-                  assets: packed.visibilityJob.assets,
-                  scene: packed.visibilityJob.scene,
-                  width: bindings.internalWidth,
-                  height: bindings.internalHeight,
-                  currentCamera: bindings.view.gpu_camera_state.camera,
-                  previousCamera: bindings.view.gpu_previous_camera_state.camera
-                };
-              }),
-              {
-                visibility: packedVisibilityFrame!,
-                view: viewUniformRes,
-                counters: gpuCounterRes ?? undefined
-              },
-              { velocity: needsVelocity }
-            )
-          : null;
-        const matOut = packedResolveOut ?? this.obtainLegacyMaterialExpand().addToGraph(
-              graph,
-              bind("material-expand-job", (bindings) => ({
-                scene: bindings.scene,
-                materials: requireLegacyGeometryOwner(bindings.geometry).materials,
-                width: bindings.internalWidth,
-                height: bindings.internalHeight
-              })),
-              {
-                meshId: meshIdRes!,
-                triangleId: triIdRes!,
-                sceneDatabase: sceneDatabaseRes!,
-                geometries: geometryMetaRes!,
-                meshletHeaders: meshletHeadersRes!,
-                meshletData: meshletDataRes!,
-                view: viewUniformRes,
-                camera: currentCameraRes,
-                counters: gpuCounterRes ?? undefined
-              }
-            );
-        if (matOut.counters !== null) {
-          gpuCounterRes = matOut.counters;
+        const packedResolveOut = this._surfaceFeature.addToGraph(
+          graph,
+          bind("packed-material-resolve-job", (bindings) => {
+            const packed = requirePackedGeometryOwner(bindings.geometry);
+            return {
+              runtime: packed.visibilityJob.runtime,
+              assets: packed.visibilityJob.assets,
+              scene: packed.visibilityJob.scene,
+              width: bindings.internalWidth,
+              height: bindings.internalHeight,
+              currentCamera: bindings.view.gpu_camera_state.camera,
+              previousCamera: bindings.view.gpu_previous_camera_state.camera
+            };
+          }),
+          {
+            visibility: packedVisibilityFrame!,
+            view: viewUniformRes,
+            counters: gpuCounterRes ?? undefined
+          },
+          { velocity: needsVelocity }
+        );
+        if (packedResolveOut.counters !== null) {
+          gpuCounterRes = packedResolveOut.counters;
           this._profiler.registerGpuCounterFields(["activeMaterials"]);
-        }
-        if (packedResolveOut !== null && packedResolveOut.counters !== null) {
           this._profiler.registerGpuCounterFields([
             "classDraws"
           ]);
         }
-        let surface = packedResolveOut?.surface ?? matOut.surface;
+        const surface = packedResolveOut.surface;
         const gPbrRes = surface.pbr;
         const gNormalRes = surface.normal;
         const gAlbedoRes = surface.albedoAo;
@@ -2171,55 +1803,7 @@ export class MainRenderPipeline {
         let occlusionConfidenceRes: ResourceId | null = null;
         let opaqueTemporalValidityRes: ResourceId | null = null;
         if (needsVelocity) {
-          const legacyGeometry = packedPath
-            ? null
-            : requireLegacyGeometryOwner(mainBindings.geometry);
-          const previousOffsetsBuffer =
-            legacyGeometry?.skinning.prev_position_offsets_buffer ?? null;
-          const previousPositionsBuffer =
-            legacyGeometry?.skinning.prev_positions_buffer ?? null;
-          const previousOffsetsRes = previousOffsetsBuffer
-            ? graph.import_resource(
-                "velocity/previous-position offsets",
-                { kind: "imported", label: "previous-position offsets" },
-                bind("previous-position-offsets", (bindings) =>
-                  requireLegacyGeometryOwner(bindings.geometry).skinning.prev_position_offsets_buffer!)
-              )
-            : null;
-          const previousPositionsRes = previousPositionsBuffer
-            ? graph.import_resource(
-                "velocity/previous positions",
-                { kind: "imported", label: "previous positions" },
-                bind("previous-positions", (bindings) =>
-                  requireLegacyGeometryOwner(bindings.geometry).skinning.prev_positions_buffer!)
-              )
-            : null;
-          velocityRes = packedResolveOut !== null
-            ? packedResolveOut.velocity!
-            : this.obtainLegacyVelocity().addToGraph(
-                graph,
-                bind("velocity-job", (bindings) => ({
-                  width: bindings.internalWidth,
-                  height: bindings.internalHeight,
-                  currentCamera: bindings.view.gpu_camera_state.camera,
-                  previousCamera:
-                    bindings.view.gpu_previous_camera_state.camera
-                })),
-                {
-                  depth: depthRes,
-                  meshId: meshIdRes!,
-                  triangleId: triIdRes!,
-                  sceneDatabase: sceneDatabaseRes!,
-                  meshletHeaders: meshletHeadersRes!,
-                  meshletData: meshletDataRes!,
-                  previousPositionOffsets: previousOffsetsRes,
-                  previousPositions: previousPositionsRes
-                }
-              ).velocity;
-          if (packedResolveOut === null) {
-            surface = surfaceFrameWithVelocity(surface, velocityRes);
-            velocityRes = surface.velocity ?? velocityRes;
-          }
+          velocityRes = packedResolveOut.velocity!;
           if (needsOcclusionConfidence) {
             occlusionConfidenceRes = this._occlusionConfidence!.addToGraph(
               graph,
@@ -2239,19 +1823,14 @@ export class MainRenderPipeline {
         }
 
         if (needsOcclusionConfidence && occlusionConfidenceRes !== null) {
-          const opaqueMetadataRes =
-            packedResolveOut?.surfaceFlags ??
-              packedVisibilityFrame?.visibilityKey ?? meshIdRes;
-          if (opaqueMetadataRes === null) {
-            throw new Error("Opaque temporal validity has no uint metadata fallback");
-          }
+          const opaqueMetadataRes = packedResolveOut.surfaceFlags;
           const opaqueValidity = this._temporalFeature.addClassificationToGraph(
             graph,
             bind("opaque-temporal-classification-job", (bindings) => ({
               phase: "opaque" as const,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
-              metadataAvailable: bindings.geometry.kind === "packed",
+              metadataAvailable: true,
               transparencyAvailable: false,
               historyValid: true
             })),
@@ -2477,7 +2056,7 @@ export class MainRenderPipeline {
             diffuseIrradiance: diffuseIrradianceRes,
             splitSum: splitSumRes,
             camera: currentCameraRes,
-            metadata: packedResolveOut?.surfaceFlags,
+            metadata: packedResolveOut.surfaceFlags,
             ambientVisibility: ambientVisibilityRes === null
               ? undefined
               : ambientVisibilityRes
@@ -2559,7 +2138,7 @@ export class MainRenderPipeline {
               resolvedSpecular: ssr.denoised,
               ambientVisibility: ambientVisibilityRes ?? undefined,
               camera: currentCameraRes,
-              metadata: packedResolveOut?.surfaceFlags
+              metadata: packedResolveOut.surfaceFlags
             });
             indirectSpecularDebugRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
@@ -2615,7 +2194,7 @@ export class MainRenderPipeline {
             camera: currentCameraRes,
             lightMap: lightMapRes,
             ambientVisibility: ambientVisibilityRes ?? undefined,
-            metadata: packedResolveOut?.surfaceFlags,
+            metadata: packedResolveOut.surfaceFlags,
             extent: { width: w, height: h },
             fused: this.fused_indirect && !graphTopology.ssr
           });
@@ -2688,7 +2267,7 @@ export class MainRenderPipeline {
               resolvedSpecular: ssr.denoised,
               ambientVisibility: ambientVisibilityRes ?? undefined,
               camera: currentCameraRes,
-              metadata: packedResolveOut?.surfaceFlags
+              metadata: packedResolveOut.surfaceFlags
             });
             indirectSpecularDebugRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
@@ -2766,7 +2345,7 @@ export class MainRenderPipeline {
             environment: environmentRes,
             camera: currentCameraRes,
             ambientVisibility: ambientVisibilityRes ?? undefined,
-            metadata: packedResolveOut?.surfaceFlags,
+            metadata: packedResolveOut.surfaceFlags,
             atlasRadiance: atlasRadianceRes,
             atlasDepth: atlasDepthRes,
             meshBvh: lpvMeshBvhRes,
@@ -2865,7 +2444,7 @@ export class MainRenderPipeline {
               resolvedSpecular: ssr.denoised,
               ambientVisibility: ambientVisibilityRes ?? undefined,
               camera: currentCameraRes,
-              metadata: packedResolveOut?.surfaceFlags
+              metadata: packedResolveOut.surfaceFlags
             });
             indirectSpecularDebugRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
@@ -2886,17 +2465,16 @@ export class MainRenderPipeline {
             { kind: "imported", label: "OIT rg16float split_sum" },
             splitSum.gpu_texture
           );
-          if (packedPath) {
-            const packedTransparency = this._transparencyFeature?.packed();
-            if (packedTransparency === null) {
-              throw new Error("Packed transparency topology has no active owner");
-            }
-            const output = this._transparencyFeature!.addPackedToGraph(
+          const transparency = this._transparencyFeature?.packed();
+          if (transparency === null) {
+            throw new Error("Transparency topology has no active owner");
+          }
+          const output = this._transparencyFeature!.addPackedToGraph(
               graph,
               bind("packed-transparent-oit-job", (bindings) => {
                 const registryBindings = this._graphics.render_world.bindings();
                 return {
-                  runtime: requirePackedGeometryOwner(bindings.geometry).runtime,
+                  runtime: bindings.geometry.runtime,
                   assets: registryBindings.assets,
                   scene: registryBindings.scene,
                   width: bindings.internalWidth,
@@ -2924,53 +2502,11 @@ export class MainRenderPipeline {
                 shadowAtlas: shadowAtlasRes!,
                 counters: gpuCounterRes ?? undefined
               }
-            );
-            hdrRes = output.hdr;
-            transparentReactiveRes = output.reactive;
-            if (output.counters !== null) {
-              gpuCounterRes = output.counters;
-            }
-          } else if (hzbRes !== null && lightDatabaseRes !== null &&
-            shadowAtlasRes !== null && clusters !== null) {
-            const brick4LightMapRes =
-              this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4
-                ? graph.import_resource(
-                    "OIT/Brick4 volumetric light map",
-                    { kind: "imported", label: "OIT Brick4 Av storage" },
-                    bind("oit-brick4-light-map", (bindings) =>
-                      bindings.environment.volumetric_light_map.buffer)
-                  )
-                : undefined;
-            hdrRes = this._transparencyFeature!.addLegacyToGraph(
-              graph,
-              bind("transparent-oit-job", (bindings) => ({
-                width: bindings.internalWidth,
-                height: bindings.internalHeight,
-                scene: bindings.scene,
-                materials: requireLegacyGeometryOwner(bindings.geometry).materials,
-                drawList: this.obtainLegacyMeshletDrawList(),
-                indirectLightingMode: this.indirect_lighting_mode
-              })),
-              {
-                hdr: hdrRes,
-                depth: depthRes,
-                hzb: hzbRes,
-                camera: currentCameraRes,
-                view: viewUniformRes,
-                sceneDatabase: sceneDatabaseRes!,
-                geometryMetadata: geometryMetaRes!,
-                meshletHeaders: meshletHeadersRes!,
-                meshletData: meshletDataRes!,
-                lightDatabase: lightDatabaseRes,
-                environment: environmentRes,
-                clusterParameters: clusters.parameters,
-                clusterLookup: clusters.lookup,
-                clusterData: clusters.data,
-                shadowAtlas: shadowAtlasRes,
-                splitSum: oitSplitSumRes,
-                brick4LightMap: brick4LightMapRes
-              }
-            );
+          );
+          hdrRes = output.hdr;
+          transparentReactiveRes = output.reactive;
+          if (output.counters !== null) {
+            gpuCounterRes = output.counters;
           }
         }
 
@@ -3026,19 +2562,14 @@ export class MainRenderPipeline {
           velocityRes !== null &&
           occlusionConfidenceRes !== null
         ) {
-          const metadataRes =
-            packedResolveOut?.surfaceFlags ??
-              packedVisibilityFrame?.visibilityKey ?? meshIdRes;
-          if (metadataRes === null) {
-            throw new Error("FX-06 Temporal has no uint metadata fallback");
-          }
+          const metadataRes = packedResolveOut.surfaceFlags;
           const classification = this._temporalFeature.addClassificationToGraph(
             graph,
             bind("temporal-classification-job", (bindings) => ({
               phase: "final" as const,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
-              metadataAvailable: bindings.geometry.kind === "packed",
+              metadataAvailable: true,
               transparencyAvailable: transparentReactiveRes !== null,
               historyValid: bindings.taaHistoryValidity >= 0.5
             })),
@@ -3277,9 +2808,7 @@ export class MainRenderPipeline {
             graph,
             this.render_debug_view,
             {
-              meshId: meshIdRes,
-              triangleId: triIdRes,
-              visibilityKey: packedVisibilityFrame?.visibilityKey ?? null,
+              visibilityKey: packedVisibilityFrame.visibilityKey,
               packedVisibility: packedVisibilityDebug,
               depth: depthRes,
               velocity: velocityRes,
@@ -3287,7 +2816,7 @@ export class MainRenderPipeline {
               gNormal: gNormalRes,
               gAlbedo: gAlbedoRes,
               gEmissive: gEmissiveRes,
-              surfaceFlags: packedResolveOut?.surfaceFlags ?? null,
+              surfaceFlags: packedResolveOut.surfaceFlags,
               indirectDiffuse: indirectDiffuseDebugRes,
               indirectSpecular: indirectSpecularDebugRes,
               linearHdr: linearHdrDebugRes,
@@ -3442,7 +2971,6 @@ export class MainRenderPipeline {
       this.recordFrameCounters(
         viewHzb,
         shadowFeature,
-        gpuPacked !== null,
         environment.lights.environmentEvidence
       );
       this._profiler.encodeGpuCounterReadback(cmd);
@@ -3499,19 +3027,14 @@ export class MainRenderPipeline {
       capability: [...this.device.features].sort().join(","),
       resolution: bindings.context.resolution,
       featureTopology: topology.enabledFeatureBits,
-      visibilityBackend: bindings.geometry.kind === "legacy"
-        ? `hardware-object-visibility-ssao-owner${this._ssaoOwnerGeneration}` +
-          `-ssr-owner${this._ssrOwnerGeneration}`
-        : `hardware-packed-exact-visibility-key-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
-          `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
-          `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +
-          `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
-          `-ssao-owner${this._ssaoOwnerGeneration}` +
-          `-ssr-owner${this._ssrOwnerGeneration}`,
-      visibilityClassCapacity:
-        bindings.geometry.kind === "packed"
-          ? bindings.geometry.visibilityJob.prepared.workSet.classCapacity
-          : 0,
+      visibilityConfiguration:
+        `hardware-exact-visibility-key-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
+        `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
+        `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +
+        `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
+        `-ssao-owner${this._ssaoOwnerGeneration}` +
+        `-ssr-owner${this._ssrOwnerGeneration}`,
+      visibilityClassCapacity: bindings.geometry.visibilityJob.prepared.workSet.classCapacity,
       historyFormat: bindings.context.history.formatRevision,
       outputFormat: this._format,
       instrumentation: instrumentationMode,
@@ -3522,9 +3045,6 @@ export class MainRenderPipeline {
   private resolveFeatureTopology(
     bindings?: Pick<MainFrameGraphBindings, "geometry" | "scene">
   ): MainFrameFeatureTopology {
-    const legacyGeometry = bindings?.geometry.kind === "legacy"
-      ? bindings.geometry.context
-      : null;
     return resolveMainFrameFeatureTopology({
       shadows: this._renderSettings.values.features.shadows,
       ssr: this._renderSettings.values.features.screenSpaceReflections,
@@ -3542,17 +3062,9 @@ export class MainRenderPipeline {
       upscaleType: this.upscale_type,
       debugView: this.render_debug_view,
       indirectLightingMode: this.indirect_lighting_mode,
-      alphaTested: legacyGeometry !== null &&
-        this.obtainLegacyVisibility().hasAlphaTestedMaterials(bindings!.scene),
-      previousSkinOffsets: legacyGeometry !== null &&
-        legacyGeometry.skinning.prev_position_offsets_buffer !== null,
-      previousSkinPositions: legacyGeometry !== null &&
-        legacyGeometry.skinning.prev_positions_buffer !== null,
       transparency: bindings === undefined
         ? false
-        : bindings.geometry.kind === "legacy"
-          ? hasLegacyTransparentMaterials(bindings.scene)
-          : bindings.geometry.runtime.transparentInstanceCount > 0,
+        : bindings.geometry.runtime.transparentInstanceCount > 0,
       highDynamicRange: this._highDynamicRange
     });
   }
@@ -3703,35 +3215,6 @@ export class MainRenderPipeline {
     );
   }
 
-  private obtainLegacyMaterialExpand(): MaterialExpandPass {
-    if (this._materialExpand === null) {
-      this._materialExpand = new MaterialExpandPass(
-        this._graphics,
-        this._graphics.materials
-      );
-      this._materialExpand.init();
-    }
-    return this._materialExpand;
-  }
-
-  private obtainLegacyVisibility(): VisibilityPass {
-    if (this._visibility === null) {
-      this._visibility = new VisibilityPass(this._graphics);
-      this._visibility.init();
-    }
-    return this._visibility;
-  }
-
-  private obtainLegacyMeshletDrawList(): MeshletDrawList {
-    this._meshletDrawList ??= new MeshletDrawList(this._graphics);
-    return this._meshletDrawList;
-  }
-
-  private obtainLegacyVelocity(): VelocityPass {
-    this._velocity ??= new VelocityPass(this._graphics);
-    return this._velocity;
-  }
-
   private retireAfterSubmittedWork(resource: { destroy(): void }): void {
     const destroy = (): void => resource.destroy();
     void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
@@ -3752,7 +3235,6 @@ export class MainRenderPipeline {
       readonly lastDirectionalRasterDraws: number;
       readonly lastDirectionalRasterSkips: number;
     } | null,
-    packedPath: boolean,
     environment: {
       specularAllocatedBytes: number;
       diffuseAllocatedBytes: number;
@@ -3760,8 +3242,7 @@ export class MainRenderPipeline {
     }
   ): void {
     const profiler = this._profiler;
-    if (packedPath) {
-      profiler.recordCounter(
+    profiler.recordCounter(
         "packed.visibility.rasterWorkCapacity",
         this._visibilityFeature.lastCandidateCapacity
       );
@@ -3781,37 +3262,6 @@ export class MainRenderPipeline {
         "packed.visibility.hierarchy",
         this._visibilityFeature.lastImplementation === "hierarchy" ? 1 : 0
       );
-    } else {
-      const visibility = this.obtainLegacyVisibility();
-      profiler.recordCounter(
-        "legacy.instances.candidate",
-        visibility.lastFrustumCulled + visibility.lastFrustumUnculled
-      );
-      profiler.recordCounter(
-        "legacy.instances.frustumCulled",
-        visibility.lastFrustumCulled
-      );
-      profiler.recordCounter(
-        "legacy.instances.frustumUnculled",
-        visibility.lastFrustumUnculled
-      );
-      profiler.recordCounter(
-        "legacy.visibility.drawCount",
-        visibility.lastDrawCount
-      );
-      profiler.recordCounter(
-        "legacy.visibility.bucketPasses",
-        visibility.lastBucketPasses
-      );
-      profiler.recordCounter(
-        "legacy.visibility.activeMaterialBuckets",
-        visibility.lastActiveBucketCount
-      );
-      profiler.recordCounter(
-        "legacy.visibility.secondChance",
-        visibility.lastSecondChance ? 1 : 0
-      );
-    }
     profiler.recordCounter(
       "hzb.computeBuilds",
       hzb.lastBuildCount + (shadows?.lastHzbBuildCount ?? 0)
@@ -3838,14 +3288,10 @@ export class MainRenderPipeline {
     profiler.recordCounter("shadow.directionalRasterDraws", shadows?.lastDirectionalRasterDraws ?? 0);
     profiler.recordCounter("shadow.directionalRasterSkips", shadows?.lastDirectionalRasterSkips ?? 0);
     profiler.recordCounter(
-      packedPath
-        ? "packed.material.kernelDraws"
-        : "legacy.material.fullscreenDraws",
-      packedPath
-        ? this._surfaceFeature.lastKernelDrawCount
-        : this._materialExpand!.lastDrawCount
+      "packed.material.kernelDraws",
+      this._surfaceFeature.lastKernelDrawCount
     );
-    if (packedPath) {
+    {
       const materialEvidence = this._graphics.material_store_if_created?.evidence();
       const textureEvidence = this._graphics.texture_residency_if_created?.evidence();
       profiler.recordCounter(
@@ -3981,7 +3427,6 @@ export class MainRenderPipeline {
   indicate_view_change(): void {
     this._hzbCameraRevision++;
     this._temporalFeature.jitter.reset_history = true;
-    if (this._pathTracer !== undefined) this._pathTracer.clear_history = true;
     if (this._nss) this._nss.reset_history = true;
   }
 
@@ -4042,7 +3487,6 @@ export class MainRenderPipeline {
     if (this._renderResolutionDirty) this.recalculateRenderResolution();
     this.resizeColorHistories();
     this._temporalFeature.jitter.reset_history = true;
-    if (this._pathTracer !== undefined) this._pathTracer.clear_history = true;
     if (this._nss) this._nss.reset_history = true;
   }
 
@@ -4137,29 +3581,9 @@ function createPackedHierarchyView(
   };
 }
 
-function hasLegacyTransparentMaterials(scene: Scene): boolean {
-  return scene.instances.materials.some(
-    (material) => material.transparency_mode === ShadeTransparencyMode.Transparent
-  );
-}
-
-function requireLegacyGeometryOwner(
-  source:
-    | Readonly<{ readonly kind: "legacy"; readonly context: GPUSceneContext }>
-    | Readonly<{ readonly kind: "packed" }>
-): GPUSceneContext {
-  if (source.kind !== "legacy") {
-    throw new Error("Legacy geometry consumer received a Packed geometry source");
-  }
-  return source.context;
-}
-
 function requirePackedGeometryOwner(
   source: MainFrameGeometrySource
-): Extract<MainFrameGeometrySource, { readonly kind: "packed" }> {
-  if (source.kind !== "packed") {
-    throw new Error("Packed geometry consumer received a legacy geometry source");
-  }
+): MainFrameGeometrySource {
   return source;
 }
 

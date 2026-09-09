@@ -22,9 +22,6 @@ export type MainFrameFeatureInputs = {
   upscaleType: number;
   debugView: RenderDebugViewT;
   indirectLightingMode: number;
-  alphaTested?: boolean;
-  previousSkinPositions?: boolean;
-  previousSkinOffsets?: boolean;
   transparency?: boolean;
   highDynamicRange?: boolean;
 };
@@ -128,9 +125,6 @@ export function resolveMainFrameFeatureTopology(
   if (input.motionBlur) bits += 2 ** 6;
   if (input.sharpening) bits += 2 ** 7;
   if (input.fusedIndirect) bits += 2 ** 8;
-  if (input.alphaTested) bits += 2 ** 9;
-  if (input.previousSkinOffsets) bits += 2 ** 10;
-  if (input.previousSkinPositions) bits += 2 ** 11;
   bits += debugTopology * 2 ** 12;
   bits += input.indirectLightingMode * 2 ** 17;
   bits += (input.temporal ? input.upscaleType : 0) * 2 ** 20;

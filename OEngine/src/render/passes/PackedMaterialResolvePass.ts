@@ -37,7 +37,7 @@ import {
 import {
   prepareVelocityMatrices,
   type VelocityCameraMatrices
-} from "./VelocityPass.js";
+} from "../VelocityMatrices.js";
 
 /** R4-B compatibility name; the attachment stores R5 Surface metadata. */
 export const PACKED_SURFACE_FLAGS_FORMAT = GPU_SURFACE_FORMATS.metadata;

@@ -4,7 +4,6 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
-import { VIS_MESH_CLEAR_SENTINEL } from "../VisibilityBufferContract.js";
 
 export const VISIBILITY_COUNTER_WORKGROUP_SIZE = 8;
 const WORKGROUP_ELEMENT_COUNT =
@@ -15,12 +14,10 @@ const INVALID_KEY_INDEX = counterByteOffset("invalidVisibilityKeys") / 4;
 const CLASS_DEPTH_PIXEL_INDEX = counterByteOffset("classDepthPixels") / 4;
 
 export type VisibilityCounterContract =
-  | "legacy-id"
   | "visibility-key"
   | "visibility-key-class-depth";
 
 export const VISIBILITY_COUNTER_WGSL = /* wgsl */ `
-const MESH_SENTINEL: u32 = ${VIS_MESH_CLEAR_SENTINEL}u;
 ${GPU_VISIBILITY_KEY_WGSL}
 
 @group(0) @binding(0) var visibility_values: texture_2d<u32>;
@@ -29,10 +26,7 @@ ${GPU_VISIBILITY_KEY_WGSL}
 
 var<workgroup> local_counts: array<vec3u, ${WORKGROUP_ELEMENT_COUNT}>;
 
-fn classify_visibility(value: u32, key_contract: bool) -> vec3u {
-  if (!key_contract) {
-    return select(vec3u(1u, 0u, 0u), vec3u(0u, 1u, 0u), value == MESH_SENTINEL);
-  }
+fn classify_visibility(value: u32) -> vec3u {
   if (oengine_visibility_key_is_empty(value)) {
     return vec3u(0u, 1u, 0u);
   }
@@ -45,14 +39,13 @@ fn classify_visibility(value: u32, key_contract: bool) -> vec3u {
 fn count_visibility(
   global_id: vec3u,
   local_index: u32,
-  key_contract: bool,
   class_depth_contract: bool
 ) {
   let dimensions = textureDimensions(visibility_values);
   var pixel_counts = vec3u(0u);
   if (global_id.x < dimensions.x && global_id.y < dimensions.y) {
     let value = textureLoad(visibility_values, vec2i(global_id.xy), 0).r;
-    pixel_counts = classify_visibility(value, key_contract);
+    pixel_counts = classify_visibility(value);
   }
   local_counts[local_index] = pixel_counts;
   workgroupBarrier();
@@ -80,19 +73,11 @@ fn count_visibility(
 }
 
 @compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
-fn count_legacy_ids(
-  @builtin(global_invocation_id) global_id: vec3u,
-  @builtin(local_invocation_index) local_index: u32
-) {
-  count_visibility(global_id, local_index, false, false);
-}
-
-@compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
 fn count_visibility_keys(
   @builtin(global_invocation_id) global_id: vec3u,
   @builtin(local_invocation_index) local_index: u32
 ) {
-  count_visibility(global_id, local_index, true, false);
+  count_visibility(global_id, local_index, false);
 }
 
 @compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
@@ -100,7 +85,7 @@ fn count_visibility_keys_class_depth(
   @builtin(global_invocation_id) global_id: vec3u,
   @builtin(local_invocation_index) local_index: u32
 ) {
-  count_visibility(global_id, local_index, true, true);
+  count_visibility(global_id, local_index, true);
 }
 `;
 
@@ -123,7 +108,6 @@ const VISIBILITY_COUNTER_LAYOUT: GPUBindGroupLayoutDescriptor = {
 const VISIBILITY_COUNTER_PIPELINES: Readonly<
   Record<VisibilityCounterContract, CachedComputePipelineDescriptor>
 > = Object.freeze({
-  "legacy-id": createPipeline("count_legacy_ids", "legacy IDs"),
   "visibility-key": createPipeline("count_visibility_keys", "VisibilityKey"),
   "visibility-key-class-depth": createPipeline(
     "count_visibility_keys_class_depth",
@@ -132,7 +116,7 @@ const VISIBILITY_COUNTER_PIPELINES: Readonly<
 });
 
 function createPipeline(
-  entryPoint: "count_legacy_ids" | "count_visibility_keys" | "count_visibility_keys_class_depth",
+  entryPoint: "count_visibility_keys" | "count_visibility_keys_class_depth",
   contractLabel: string
 ): CachedComputePipelineDescriptor {
   return {
@@ -156,7 +140,7 @@ export class VisibilityCounterPass {
     graph: FrameGraph,
     size: { width: number; height: number },
     inputs: { visibility: ResourceId; counters: ResourceId },
-    contract: VisibilityCounterContract = "legacy-id"
+    contract: VisibilityCounterContract = "visibility-key"
   ): ResourceId {
     const dispatch = visibilityCounterDispatchSize(size.width, size.height);
     const builder = graph.add(

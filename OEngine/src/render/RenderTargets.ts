@@ -7,8 +7,6 @@ import { gd, id } from "../gpu/GPUTextureDescriptors.js";
 import type { GPUTextureManager } from "../gpu/GPUTextureManager.js";
 import { GPU_SURFACE_FORMATS } from "../gpu/GpuSurfaceAbi.js";
 
-export const VIS_MESH_ID_FORMAT: GPUTextureFormat = "r32uint";
-export const VIS_TRI_ID_FORMAT: GPUTextureFormat = "r32uint";
 export const VIS_DEPTH_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.depth;
 
 export const GBUF_PBR_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.pbr;
@@ -20,16 +18,12 @@ export const MATERIAL_DEPTH_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.depth
 export const HDR_COLOR_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.hdrColor;
 
 export type RenderTargetImportBundle = {
-  meshId: GPUTextureContext;
-  triangleId: GPUTextureContext;
   depth: GPUTextureContext;
   width: number;
   height: number;
 };
 
 export class RenderTargets {
-  meshId!: GPUTextureContext;
-  triangleId!: GPUTextureContext;
   readonly depthBuffers = new Array(2) as [
     GPUTextureContext,
     GPUTextureContext
@@ -85,44 +79,11 @@ export class RenderTargets {
     this.height = height;
   }
 
-  initializeVisibility(
-    textures: GPUTextureManager,
-    width: number,
-    height: number
-  ): void {
-    const colorDescriptor = (format: GPUTextureFormat): id => id.from({
-      label: "",
-      size: [width, height, 1],
-      format,
-      usage:
-        GPUTextureUsage.RENDER_ATTACHMENT |
-        GPUTextureUsage.TEXTURE_BINDING
-    });
-    this.triangleId = textures.contextFromDescriptor(
-      colorDescriptor(VIS_TRI_ID_FORMAT)
-    );
-    this.meshId = textures.contextFromDescriptor(
-      colorDescriptor(VIS_MESH_ID_FORMAT)
-    );
-    this.width = width;
-    this.height = height;
-  }
-
   resize(width: number, height: number): void {
     this.depthBuffers[0].resize(width, height);
     this.depthBuffers[1].resize(width, height);
-    this.triangleId.resize(width, height);
-    this.meshId.resize(width, height);
     this.width = width;
     this.height = height;
-  }
-
-  get meshIdViewOrThrow(): GPUTextureView {
-    return this.meshId.obtainView();
-  }
-
-  get triangleIdViewOrThrow(): GPUTextureView {
-    return this.triangleId.obtainView();
   }
 
   get depthViewOrThrow(): GPUTextureView {
@@ -131,8 +92,6 @@ export class RenderTargets {
 
   asImportBundle(): RenderTargetImportBundle {
     return {
-      meshId: this.meshId,
-      triangleId: this.triangleId,
       depth: this.depthCurrent,
       width: this.width,
       height: this.height
@@ -140,8 +99,6 @@ export class RenderTargets {
   }
 
   destroy(): void {
-    this.meshId.destroy();
-    this.triangleId.destroy();
     this.depthBuffers[0].destroy();
     this.depthBuffers[1].destroy();
     this.width = 0;

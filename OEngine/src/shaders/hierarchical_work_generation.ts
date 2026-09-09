@@ -418,7 +418,7 @@ var<workgroup> hierarchy_wg_cas_retries: atomic<u32>;
 var<workgroup> hierarchy_wg_dispatch_end: atomic<u32>;
 var<workgroup> hierarchy_wg_overflow: atomic<u32>;
 
-// SceneDatabase.ts uses the same proven compact invariant: local atomic index,
+// The hierarchy uses the proven compact invariant: local atomic index,
 // one global reservation by lane 0, then contiguous lane writes. The queue
 // reservation remains OEngine's bounded all-or-nothing WebGPU adaptation.
 fn hierarchy_try_reserve_profiled(

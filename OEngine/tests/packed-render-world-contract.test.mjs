@@ -7,7 +7,6 @@ const [
   { FrameProfiler },
   { FrameCoordinator },
   { ResourceAccounting },
-  { GPUSceneContext },
   { GpuRenderWorld },
   { createPackedSceneSourceFromScene },
   { TextureResidency },
@@ -36,7 +35,6 @@ const [
   import("../.test-dist/debug/FrameProfiler.js"),
   import("../.test-dist/render/FrameCoordinator.js"),
   import("../.test-dist/debug/profiling/ResourceAccounting.js"),
-  import("../.test-dist/gpu/GPUSceneContext.js"),
   import("../.test-dist/gpu/GpuRenderWorld.js"),
   import("../.test-dist/gpu/GpuSceneAdapter.js"),
   import("../.test-dist/gpu/TextureResidency.js"),
@@ -144,7 +142,7 @@ test("main graph key changes for every compiled topology dimension", () => {
       outputHeight: 1080,
     },
     featureTopology: 3,
-    visibilityBackend: "packed",
+    visibilityConfiguration: "exact-visibility-key",
     visibilityClassCapacity: 64,
     instrumentation: "none",
     instrumentationRevision: 5,
@@ -156,7 +154,7 @@ test("main graph key changes for every compiled topology dimension", () => {
     { capability: "" },
     { resolution: { ...base.resolution, internalWidth: 959 } },
     { featureTopology: 4 },
-    { visibilityBackend: "legacy" },
+    { visibilityConfiguration: "exact-visibility-key-hzb" },
     { instrumentation: "counters" },
     { historyFormat: 4 },
   ];
@@ -196,25 +194,7 @@ test("FrameCoordinator owns one close path for each render tick", () => {
   assert.equal(commands[1].closed, true);
 });
 
-test("GPU Scene defers its legacy material owner until a legacy consumer requests it", () => {
-  const legacyRegistry = { metadata_table: {} };
-  let requests = 0;
-  const sceneContext = Object.create(GPUSceneContext.prototype);
-  Object.defineProperty(sceneContext, "obtainSharedMaterials", {
-    value: () => {
-      requests++;
-      return legacyRegistry;
-    }
-  });
-
-  assert.equal(requests, 0);
-  assert.equal(sceneContext.materials, legacyRegistry);
-  assert.equal(requests, 1);
-  assert.equal(sceneContext.material_metadata, legacyRegistry.metadata_table);
-  assert.equal(requests, 2);
-});
-
-test("Packed frame resolves shared environment without obtaining legacy geometry", () => {
+test("Frame resolves the shared environment and authoritative Render World", () => {
   const scene = {};
   const environment = {};
   const runtime = {};
@@ -232,7 +212,7 @@ test("Packed frame resolves shared environment without obtaining legacy geometry
   );
 
   assert.equal(owners.environment, environment);
-  assert.deepEqual(owners.geometry, { kind: "packed", runtime });
+  assert.deepEqual(owners.geometry, { runtime });
   assert.equal(environmentObtains, 1);
 });
 
@@ -371,7 +351,6 @@ test("GPU Render World publishes stage and release only when their command commi
   assert.equal(runtime?.handle, handle);
   assert.equal(fixture.registry.evidence().sceneCount, 1);
   assert.equal(fixture.registry.evidence().instanceCount, 1);
-  assert.equal(fixture.calls.legacyMaterialObtains, 0);
   assert.deepEqual(fixture.calls.stages, ["texture", "material", "instance"]);
 
   const stable = new FakeCommand("packed-stable-frame");
@@ -846,17 +825,14 @@ test("Frame evidence detects extra submit, stable-graph rebuild, IO, and feature
     owner: "disabled-feature",
     bytes: 256
   });
-  const issues = stableFrameContractIssues(profile, accounting.snapshot(), {
-    legacyMaterialContextCount: 1
-  });
+  const issues = stableFrameContractIssues(profile, accounting.snapshot());
 
   assert.deepEqual(issues, [
     "expected exactly one main submit",
     "stable frame rebuilt or missed the graph cache",
     "unexpected stable-frame upload",
     "unexpected stable-frame readback",
-    "disabled feature retained resources",
-    "forbidden legacy material owner was created"
+    "disabled feature retained resources"
   ]);
 });
 
@@ -864,7 +840,6 @@ function createPackedRegistryFixture() {
   const accounting = new ResourceAccounting();
   const buffers = [];
   const calls = {
-    legacyMaterialObtains: 0,
     stages: [],
     releases: [],
     patches: [],
@@ -904,12 +879,6 @@ function createPackedRegistryFixture() {
       queue: { onSubmittedWorkDone: () => Promise.resolve() }
     },
     resource_accounting: accounting,
-    materials: {
-      obtain() {
-        calls.legacyMaterialObtains++;
-        return {};
-      }
-    },
     texture_residency: {
       stage(_materials, command) {
         calls.stages.push("texture");
@@ -1101,7 +1070,7 @@ function translatedMatrix(x, y, z) {
   return matrix;
 }
 
-function stableFrameContractIssues(profile, resources, owners) {
+function stableFrameContractIssues(profile, resources) {
   const issues = [];
   if (profile.submits.count !== 1 || profile.submits.labels.main !== 1) {
     issues.push("expected exactly one main submit");
@@ -1118,9 +1087,6 @@ function stableFrameContractIssues(profile, resources, owners) {
   if (profile.readbacks.bytes !== 0) issues.push("unexpected stable-frame readback");
   if (resources.owners["disabled-feature"] !== undefined) {
     issues.push("disabled feature retained resources");
-  }
-  if (owners.legacyMaterialContextCount !== 0) {
-    issues.push("forbidden legacy material owner was created");
   }
   return issues;
 }

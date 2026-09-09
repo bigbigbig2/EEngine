@@ -12,10 +12,9 @@ export interface ShadowFeatureManagerEvidence {
   readonly featureCount: number;
   readonly atlasCount: number;
   readonly atlasAllocatedBytes: number;
-  readonly packedRasterPassCount: number;
-  readonly legacyRasterPassCount: number;
-  readonly packedWorkSetCount: number;
-  readonly packedWorkBytes: number;
+  readonly rasterPassCount: number;
+  readonly workSetCount: number;
+  readonly workBytes: number;
   readonly shadowViewOwnerCount: number;
   readonly directionalCameraRevision: number;
   readonly directionalCascadeSplits: readonly number[];
@@ -64,12 +63,12 @@ export class ShadowFeatureManager {
     return this.features.get(scene);
   }
 
-  releasePackedScene(
+  releaseRenderWorld(
     scene: Scene,
     runtime: GpuRenderWorldRuntime,
     command: ShadeGPUCommandContext
   ): void {
-    this.features.get(scene)?.releasePackedScene(runtime, command);
+    this.features.get(scene)?.releaseRenderWorld(runtime, command);
   }
 
   release(scene: Scene, command: ShadeGPUCommandContext): boolean {
@@ -93,10 +92,9 @@ export class ShadowFeatureManager {
       featureCount: this.features.size,
       atlasCount: 0,
       atlasAllocatedBytes: 0,
-      packedRasterPassCount: 0,
-      legacyRasterPassCount: 0,
-      packedWorkSetCount: 0,
-      packedWorkBytes: 0,
+      rasterPassCount: 0,
+      workSetCount: 0,
+      workBytes: 0,
       shadowViewOwnerCount: 0,
       directionalCameraRevision: 0,
       directionalCascadeSplits: Object.freeze([]) as readonly number[],
@@ -106,10 +104,9 @@ export class ShadowFeatureManager {
       const evidence: ShadowFeatureEvidence = feature.evidence();
       if (evidence.atlasAllocatedBytes > 0) total.atlasCount++;
       total.atlasAllocatedBytes += evidence.atlasAllocatedBytes;
-      if (evidence.packedRasterPassCreated) total.packedRasterPassCount++;
-      if (evidence.legacyRasterPassCreated) total.legacyRasterPassCount++;
-      total.packedWorkSetCount += evidence.packedWorkSetCount;
-      total.packedWorkBytes += evidence.packedWorkBytes;
+      if (evidence.rasterPassCreated) total.rasterPassCount++;
+      total.workSetCount += evidence.workSetCount;
+      total.workBytes += evidence.workBytes;
       total.shadowViewOwnerCount += evidence.shadowViewOwnerCount;
       total.directionalCameraRevision += evidence.directionalCameraRevision;
       if (total.directionalCascadeSplits.length === 0) {

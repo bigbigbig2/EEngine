@@ -4,7 +4,7 @@
 
 ```text
 scene-update
-  → optional lpv-update / shadow-update
+  → optional shadow-update
   → main-view-graph
   → VisibilityKey + depth
   → Surface + optional velocity
@@ -14,11 +14,11 @@ scene-update
   → HDR post + present
 ```
 
-`FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。`main-view-graph` 必须等待本帧启用的 scene、LPV 和 shadow 更新。
+`FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。`main-view-graph` 必须等待本帧启用的 scene 和 shadow 更新。旧对象 runtime 驱动的 probe-atlas 更新已经删除；现有 LPV atlas 是只读采样资源，不会生成独立更新图或 submit。
 
-`FrameContext` 是每次 encode 的冻结值合同，只发布 camera/view、internal/output resolution、feature topology、history validity、互斥 scene bindings、instrumentation 和一次性 capture 请求。Pass 不接收公开 Renderer 或 GraphicsContext service locator。`MainRenderPipeline` 是 Feature 顺序、FrameProducts 连接、FrameGraph recipe、compiled graph cache 与 graph evidence 的唯一 owner；cache key 同时覆盖 capability、分辨率、feature topology、visibility backend、instrumentation 和 history format。
+`FrameContext` 是每次 encode 的冻结值合同，只发布 camera/view、internal/output resolution、feature topology、history validity、单一 Render World scene bindings、instrumentation 和一次性 capture 请求。Pass 不接收公开 Renderer 或 GraphicsContext service locator。`MainRenderPipeline` 是 Feature 顺序、FrameProducts 连接、FrameGraph recipe、compiled graph cache 与 graph evidence 的唯一 owner；cache key 覆盖 capability、分辨率、feature topology、唯一 visibility 实现的可变配置、instrumentation 和 history format，不再包含路径选择维度。
 
-`scene-update` 开始前必须从 `GpuRenderWorld` 解析已注册 runtime；未注册 Scene 直接失败，不再进入 legacy fallback。Packed source 的显式 batch 与普通 Scene adapter 的 `SceneChangeSet` 都由 `GpuRenderWorld.encodePendingPatch()` 转为同一 `GpuScene` patch。普通 Scene 稳定帧不扫描对象树；transform/material assignment 增量提交，add/remove/geometry 变化要求调用 `resyncScene()`。共享 `GPUSceneEnvironmentContext` 独立同步 light/environment，`GPUViewContext` 只绑定环境和 camera/view/HZB。
+`scene-update` 开始前必须从 `GpuRenderWorld` 解析已注册 runtime；未注册 Scene 直接失败。Packed source 的显式 batch 与普通 Scene adapter 的 `SceneChangeSet` 都由 `GpuRenderWorld.encodePendingPatch()` 转为同一 `GpuScene` patch。普通 Scene 稳定帧不扫描对象树；transform/material assignment 增量提交，add/remove/geometry 变化要求调用 `resyncScene()`。共享 `GPUSceneEnvironmentContext` 独立同步 light/environment，`GPUViewContext` 只绑定环境和 camera/view/HZB。
 
 `shadow-update` 由 Scene-scoped `ShadowFeature` 单入口编码。该 Feature 同时拥有 atlas、directional cascade fit/texel snapping、camera/content revision cache、统一 Render World hierarchy work generation/raster 和 GPU-completion retire；Packed source 与普通 Scene adapter 发布同一 `ShadowVisibilityFrame`、atlas、counter 与设置合同。关闭阴影时 `ShadowFeatureManager` 不创建 owner；已有 owner 在当前提交完成后销毁，Lighting 收到 cascade count 为零的产品。
 
@@ -46,7 +46,7 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
 `FrameProducts.ts` 是跨 Pass 资源字段的事实源：
 
-- `SurfaceFrame`：depth、PBR、normal、albedo/AO、emissive、可选 velocity/metadata，域为 `internal-full`。
+- `SurfaceFrame`：depth、PBR、normal、albedo/AO、emissive、必有 metadata 与可选 velocity，域为 `internal-full`。
 - `DirectLightingFrame`：direct-only linear HDR。
 - `OpaqueLightingFrame`：完整不透明 HDR、IBL specular、indirect diffuse。
 - `LightClusterFrame`：parameters/lookup/data、candidate/active light list 与可选 counters。
@@ -59,7 +59,7 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
 ## Lighting、Transparency 与 Temporal
 
-Direct lighting 先消费 Surface、cluster 和 shadow。GI/AO/reflection 通过各自 Service 组合到统一 opaque HDR。生产 Scene runtime 统一使用有界 TransparentRasterWork 与 MBOIT，并输出 reactive/counters。Temporal 对两种输入消费相同 velocity、reactive、classification 和 history confidence；camera cut、尺寸、配置或提交失败必须使相应 history 失效。
+Direct lighting 先消费 Surface、cluster 和 shadow。GI/AO/reflection 通过各自 Service 组合到统一 opaque HDR。生产 Scene runtime 统一使用有界 TransparentRasterWork 与 MBOIT，并输出 reactive/counters。Temporal 对两种输入消费相同 velocity、reactive、classification 和 history confidence；camera cut、尺寸、配置或提交失败必须使相应 history 失效。Lighting、GI、SSR correction 和 debug view 只接受带 metadata 的统一 Surface，不再编译无 metadata shader 变体。
 
 ## FrameGraph 与提交
 
@@ -69,8 +69,8 @@ FrameGraph 声明读写依赖、资源域和 enabled 条件，编译后裁剪无
 
 Feature 关闭时不得构造对应 GPU owner、Pass、attachment、history、readback、counter copy 或额外 submit。延迟创建 owner 必须有明确 destroy/retire 路径。Shadow 关闭态的机器门禁额外检查 atlas/work owner、Shadow GPU/CPU phase、I/O label 和 counter 均缺席或为零，同时保持一个 main submit。
 
-## 待删除的退出路径
+## 已收敛的运行路径
 
-`GPUSceneContext`、legacy Visibility、Material Expand、独立 Velocity 与 legacy OIT 已经没有默认生产 Scene 入口；它们只等待 ADR-0006 Step 7 做静态删除。任何新功能不得引用这些 owner、Pass 或 shader。
+生产代码只有一个 GPU Render World、一个 VisibilityKey-to-Surface 合同和一条主管线。旧 owner、Pass、shader、attachment、公开 evidence 字段与 packed/legacy graph 分支已删除；新增功能只能扩展统一合同，不能恢复隐藏 fallback。
 
-统一 GPU Render World、主管线和剩余 legacy 删除顺序由 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 固定；Step 6 已关闭默认 legacy Scene adapter，下一步只做 dead runtime/graph 清理与全量证据。
+收敛顺序与验证合同由 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 固定。

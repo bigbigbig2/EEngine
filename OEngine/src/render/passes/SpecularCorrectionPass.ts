@@ -58,9 +58,7 @@ function descriptor(entryPoint: string): CachedRenderPipelineDescriptor {
 
 const DESCRIPTORS = {
   surfaceAo: descriptor("fs_main"),
-  surface: descriptor("fs_main_no_ao"),
-  legacyAo: descriptor("fs_main_legacy"),
-  legacy: descriptor("fs_main_legacy_no_ao")
+  surface: descriptor("fs_main_no_ao")
 } as const;
 
 export interface SpecularCorrectionInputs {
@@ -75,7 +73,7 @@ export interface SpecularCorrectionInputs {
   readonly resolvedSpecular: ResourceId;
   readonly camera: ResourceId;
   readonly ambientVisibility?: ResourceId;
-  readonly metadata?: ResourceId;
+  readonly metadata: ResourceId;
 }
 
 export class SpecularCorrectionPass {
@@ -85,9 +83,9 @@ export class SpecularCorrectionPass {
   constructor(private readonly graphics: GraphicsContext) {}
 
   addToGraph(graph: FrameGraph, inputs: SpecularCorrectionInputs): ResourceId {
-    const key: keyof typeof DESCRIPTORS = inputs.metadata !== undefined
-      ? (inputs.ambientVisibility !== undefined ? "surfaceAo" : "surface")
-      : (inputs.ambientVisibility !== undefined ? "legacyAo" : "legacy");
+    const key: keyof typeof DESCRIPTORS = inputs.ambientVisibility !== undefined
+      ? "surfaceAo"
+      : "surface";
     const pipeline = this.obtain(key);
     const passDescriptor = DESCRIPTORS[key];
     let output = -1;
@@ -110,7 +108,7 @@ export class SpecularCorrectionPass {
           texture(resources.get(data.albedoAo)),
           texture(resources.get(data.pbr)),
           texture(resources.get(data.depth)),
-          texture(resources.get(data.metadata ?? data.normal))
+          texture(resources.get(data.metadata))
         ],
         [
           { buffer: buffer(resources.get(data.camera)) },

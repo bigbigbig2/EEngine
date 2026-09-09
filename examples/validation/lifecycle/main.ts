@@ -133,8 +133,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const diagnostics = diagnosticsBeforeDestroy ?? validationDiagnostics(runtime.renderer?.profiler.diagnostics);
     ownerCreation ??= runtime.renderer?.gpuOwnerCreationEvidence() ?? null;
     evidence.ownerCreation = ownerCreation;
-    assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== null && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed lifecycle transitions retained only one shared environment and no legacy geometry runtime", ownerCreation?.scene));
-    assertions.push(validationAssertion("shadow-feature-owned-by-render", ownerCreation !== null && ownerCreation.shadow.featureCount === 1 && ownerCreation.shadow.atlasCount === 1 && ownerCreation.shadow.packedRasterPassCount === 1 && ownerCreation.shadow.legacyRasterPassCount === 0 && ownerCreation.shadow.packedWorkSetCount > 0 && ownerCreation.shadow.packedWorkBytes > 0, "Lifecycle transitions retained exactly one Render-owned Packed Shadow Feature", ownerCreation?.shadow));
+    assertions.push(validationAssertion("single-geometry-owner", ownerCreation !== null && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Lifecycle transitions retained one shared environment and one Render World", ownerCreation?.scene));
+    assertions.push(validationAssertion("shadow-feature-owned-by-render", ownerCreation !== null && ownerCreation.shadow.featureCount === 1 && ownerCreation.shadow.atlasCount === 1 && ownerCreation.shadow.rasterPassCount === 1 && ownerCreation.shadow.workSetCount > 0 && ownerCreation.shadow.workBytes > 0, "Lifecycle transitions retained exactly one Render-owned Shadow Feature", ownerCreation?.shadow));
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
     assertions.push(validationAssertion("frame-evidence-produced", profile !== null && profile.frameIndex > evidenceStartedFrame, "Scenario produced fresh frame evidence", profile?.frameIndex, `> ${evidenceStartedFrame}`));
     if (profile !== null) {

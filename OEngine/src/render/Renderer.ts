@@ -14,8 +14,6 @@ import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
 import type { Scene } from "../scene/Scene.js";
 
 export {
-  GBUFFER_AFTER_VIZ,
-  MAIN_RENDER_TARGET_LAYOUT,
   RENDER_FRAME_PHASES,
   ShadeIndirectLightingMode
 } from "./pipeline/MainRenderPipeline.js";

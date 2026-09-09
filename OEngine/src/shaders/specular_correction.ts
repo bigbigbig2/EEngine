@@ -131,14 +131,4 @@ fn fs_main_no_ao(@builtin(position) coord: vec4f, @location(0) uv: vec2f) -> @lo
   return correction(pixel, uv, 1.0);
 }
 
-@fragment
-fn fs_main_legacy(@builtin(position) coord: vec4f, @location(0) uv: vec2f) -> @location(0) vec4f {
-  let pixel = vec2i(coord.xy);
-  return correction(pixel, uv, textureLoad(ambient_visibility_source, pixel, 0).r);
-}
-
-@fragment
-fn fs_main_legacy_no_ao(@builtin(position) coord: vec4f, @location(0) uv: vec2f) -> @location(0) vec4f {
-  return correction(vec2i(coord.xy), uv, 1.0);
-}
 `;

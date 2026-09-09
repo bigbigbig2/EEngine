@@ -232,17 +232,17 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
     "HierarchicalWorkGenerator/consumed traversal queue reducer"
   ),
   candidateClusters: supported(
-    "MeshletDrawList legacy reducer or HierarchicalWorkGenerator/consumed traversal queue reducer"
+    "HierarchicalWorkGenerator/consumed traversal queue reducer"
   ),
   selectedClusters: supported(
     "HierarchicalWorkGenerator/VisibleCluster reducer"
   ),
   rejectedFrustum: supported(
-    "VisibilityPass or HierarchicalWorkGenerator/instance frustum reducer"
+    "HierarchicalWorkGenerator/instance frustum reducer"
   ),
   rejectedCone: supported("HierarchicalWorkGenerator/Cluster cone reject branch"),
   rejectedHzb: supported(
-    "MeshletDrawList or HierarchicalWorkGenerator/previous-HZB reject branch"
+    "HierarchicalWorkGenerator/previous-HZB reject branch"
   ),
   swClusters: unsupported(
     "VIS-05",
@@ -252,7 +252,7 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
     "Packed Hardware Visibility RasterWork reducer"
   ),
   alphaClusters: supported(
-    "VisibilityPass legacy alpha list or Packed RasterWork material reducer"
+    "RasterWork material reducer"
   ),
   swTriangles: unsupported(
     "VIS-05",
@@ -356,13 +356,13 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   rasterRejectedTriangles: supported("ExactTriangleFilter compact difference reducer"),
   opaqueRasterWork: supported("ExactTriangleFilter OPAQUE queue reducer"),
   maskRasterWork: supported("ExactTriangleFilter MASK queue reducer"),
-  kernelBaseFactorPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
-  kernelBaseTexturePixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
-  kernelBaseOrmPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
-  kernelBaseOrmNormalPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
-  kernelBaseOrmNormalEmissivePixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
-  kernelUnlitPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
-  kernelGenericFallbackPixels: unsupported("VIS-06", "legacy classifier counter retired with Pixel Queue"),
+  kernelBaseFactorPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
+  kernelBaseTexturePixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
+  kernelBaseOrmPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
+  kernelBaseOrmNormalPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
+  kernelBaseOrmNormalEmissivePixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
+  kernelUnlitPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
+  kernelGenericFallbackPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
   shadeWorkOverflow: unsupported("VIS-06", "ShadeWork queue no longer exists"),
   classDepthPixels: supported("VisibilityCounterPass/valid VisibilityKey reducer"),
   classDraws: supported("PackedMaterialResolvePass/bounded fullscreen kernel draws"),

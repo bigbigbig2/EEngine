@@ -37,7 +37,7 @@ test("Shadow implementation is owned by the Render feature layer", () => {
   );
   assert.match(feature, /export class ShadowFeature/);
   assert.match(feature, /PackedCsmShadowPass/);
-  assert.match(feature, /ShadowRasterPass/);
+  assert.doesNotMatch(feature, /ShadowRasterPass/);
   assert.equal(existsSync(path.join(gpuRoot, "ShadowContext.ts")), false);
   assert.equal(existsSync(path.join(gpuRoot, "ShadowService.ts")), false);
 });
@@ -79,7 +79,7 @@ test("FrameContext is an immutable value contract without renderer service locat
   assert.match(frameContext, /capture/);
 });
 
-test("main graph cache identity covers every Step 5 topology dimension", () => {
+test("main graph cache identity covers every current topology dimension", () => {
   const graphKey = readFileSync(
     path.join(sourceRoot, "render", "pipeline", "MainRenderPipelineGraphKey.ts"),
     "utf8"
@@ -89,10 +89,49 @@ test("main graph cache identity covers every Step 5 topology dimension", () => {
     "capability",
     "resolution",
     "featureTopology",
-    "visibilityBackend",
+    "visibilityConfiguration",
     "instrumentation",
     "historyFormat",
   ]) {
     assert.match(graphKey, new RegExp(dimension), dimension);
+  }
+});
+
+test("Step 7 removes the legacy render-world runtime and graph consumers", () => {
+  const removed = [
+    ["gpu", "GPUSceneManager.ts"],
+    ["gpu", "GPUSceneContext.ts"],
+    ["gpu", "GPUMaterialContext.ts"],
+    ["gpu", "MaterialMetadataTable.ts"],
+    ["gpu", "SceneDatabase.ts"],
+    ["gpu", "MeshletDrawList.ts"],
+    ["gpu", "MaterialMeshletDrawList.ts"],
+    ["render", "passes", "VisibilityPass.ts"],
+    ["render", "passes", "MaterialExpandPass.ts"],
+    ["render", "passes", "VelocityPass.ts"],
+    ["render", "passes", "TransparentOitPass.ts"],
+    ["render", "passes", "ShadowRasterPass.ts"],
+  ];
+  for (const parts of removed) {
+    assert.equal(
+      existsSync(path.join(sourceRoot, ...parts)),
+      false,
+      parts.join("/")
+    );
+  }
+
+  for (const relative of [
+    ["render", "pipeline", "MainRenderPipeline.ts"],
+    ["render", "pipeline", "SceneFrameBindings.ts"],
+    ["render", "features", "ShadowFeature.ts"],
+    ["render", "features", "TransparencyFeature.ts"],
+    ["gpu", "GraphicsContext.ts"],
+  ]) {
+    const source = readFileSync(path.join(sourceRoot, ...relative), "utf8");
+    assert.doesNotMatch(
+      source,
+      /\b(?:GPUSceneContext|GPUSceneManager|GPUMaterialContext|MaterialMetadataTable|SceneDatabase|MeshletDrawList|MaterialExpandPass|VelocityPass|TransparentOitPass|ShadowRasterPass)\b|kind:\s*"legacy"/,
+      relative.join("/")
+    );
   }
 });

@@ -13,7 +13,6 @@ export type GpuSubmitOwnerKind =
 const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["Renderer/main-0", "render-frame"],
   ["GraphicsContext/one-shot-maintenance", "one-shot"],
-  ["GPUResidentMaterialContext/one-shot-update", "one-shot"],
   ["LPV/generate-locations", "tool"],
   ["LPV/dering", "tool"],
   ["LPV/bake", "tool"],
@@ -22,7 +21,6 @@ const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["GPUCollectionLimits/read", "debug-readback"],
   ["LightProbeVolume/read", "debug-readback"],
   ["GPUIndexedRecordTable/read", "debug-readback"],
-  ["SceneSdf/read", "debug-readback"],
   ["GPUTextureContext/resize-copy", "recovery"],
   ["MeshletGpuPool/compact", "tool"],
   ["MipmapGenerator/generate", "one-shot"],

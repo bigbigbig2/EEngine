@@ -245,16 +245,6 @@ fn fs_main(
 }
 
 @fragment
-fn fs_main_legacy(
-  @builtin(position) coord: vec4f,
-  @location(0) uv: vec2f
-) -> @location(0) vec4f {
-  let pixel = vec2u(coord.xy);
-  let ambient = textureLoad(ambient_visibility, vec2i(pixel), 0).r;
-  return indirect_contribution(pixel, uv, ambient);
-}
-
-@fragment
 fn fs_main_no_ao(
   @builtin(position) coord: vec4f,
   @location(0) uv: vec2f
@@ -267,11 +257,4 @@ fn fs_main_no_ao(
   return indirect_contribution(pixel, uv, 1.0);
 }
 
-@fragment
-fn fs_main_legacy_no_ao(
-  @builtin(position) coord: vec4f,
-  @location(0) uv: vec2f
-) -> @location(0) vec4f {
-  return indirect_contribution(vec2u(coord.xy), uv, 1.0);
-}
 `;

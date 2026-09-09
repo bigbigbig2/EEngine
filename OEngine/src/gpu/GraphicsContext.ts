@@ -2,8 +2,6 @@
  * GraphicsContext：负责 GPU 资源、数据上传或 GPU 驱动渲染基础设施。
  */
 
-import { GPUResidentMaterialContext } from "./GPUResidentMaterialContext.js";
-import { GPUMaterialRegistry } from "./GPUMaterialContext.js";
 import { GPUTextureManager } from "./GPUTextureManager.js";
 import { GPUSamplerCache } from "./GPUSamplerCache.js";
 import { STATIC_GRAPHICS_ENGINE_ASSETS } from "../render/STATIC_GRAPHICS_ENGINE_ASSETS.js";
@@ -14,7 +12,6 @@ import {
 import { GPUTextureAllocator } from "./GPUTextureAllocator.js";
 import { GPUStagingBufferAllocator } from "./GPUStagingBufferAllocator.js";
 import { GPUCollectionLimits } from "./GPUCollectionLimits.js";
-import { MeshletGpuTable } from "./MeshletGpuTable.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   BindGroupCache,
@@ -59,18 +56,8 @@ export interface GraphicsMemoryEvidence {
   readonly limitations: readonly string[];
 }
 export interface GraphicsOwnerCreationEvidence {
-  readonly schemaVersion: 1;
-  readonly legacy: Readonly<{
-    readonly materialRegistryCreated: boolean;
-    readonly materialContextCount: number;
-    readonly materialMetadataTableCreated: boolean;
-    readonly materialDefaultTexturesCreated: boolean;
-    readonly materialDepthPipelineCreated: boolean;
-    readonly materialExpandPipelineCreated: boolean;
-    readonly geometryTableCreated: boolean;
-    readonly residentMaterialContextCreated: boolean;
-  }>;
-  readonly packed: Readonly<{
+  readonly schemaVersion: 2;
+  readonly renderWorld: Readonly<{
     readonly assetStoreCreated: boolean;
     readonly instanceTableCreated: boolean;
     readonly sceneRegistryCreated: boolean;
@@ -84,7 +71,6 @@ export interface GraphicsOwnerCreationEvidence {
 export class GraphicsContext {
   readonly isGraphicsContext = true;
   readonly device: GPUDevice;
-  private residentMaterials: GPUResidentMaterialContext | undefined;
   private readonly collectionLimitsValue: GPUCollectionLimits;
   readonly buffer_allocator_main: GPUBufferAllocator;
   readonly buffer_allocator_native: GPUNativeBufferAllocator;
@@ -96,8 +82,6 @@ export class GraphicsContext {
   readonly bind_groups: BindGroupCache;
   readonly render_pipelines: RenderPipelineCache;
   readonly compute_pipelines: ComputePipelineCache;
-  private geometryTableValue: MeshletGpuTable | undefined;
-  private materialsValue: GPUMaterialRegistry | undefined;
   readonly samplers: GPUSamplerCache;
   readonly profiler: FrameProfiler;
   readonly resource_accounting = new ResourceAccounting();
@@ -207,21 +191,10 @@ export class GraphicsContext {
 
   /** Monotonic owner-creation evidence used by architecture and browser gates. */
   ownerCreationEvidence(): GraphicsOwnerCreationEvidence {
-    const legacyMaterial = this.materialsValue?.evidence();
     const textureResidency = this.textureResidencyValue?.evidence();
     return Object.freeze({
-      schemaVersion: 1,
-      legacy: Object.freeze({
-        materialRegistryCreated: legacyMaterial !== undefined,
-        materialContextCount: legacyMaterial?.materialContextCount ?? 0,
-        materialMetadataTableCreated: legacyMaterial?.metadataTableCreated ?? false,
-        materialDefaultTexturesCreated: legacyMaterial?.defaultTexturesCreated ?? false,
-        materialDepthPipelineCreated: legacyMaterial?.materialDepthPipelineCreated ?? false,
-        materialExpandPipelineCreated: legacyMaterial?.materialExpandPipelineCreated ?? false,
-        geometryTableCreated: this.geometryTableValue !== undefined,
-        residentMaterialContextCreated: this.residentMaterials !== undefined
-      }),
-      packed: Object.freeze({
+      schemaVersion: 2,
+      renderWorld: Object.freeze({
         assetStoreCreated: this.assetStoreValue !== undefined,
         instanceTableCreated: this.gpuSceneValue !== undefined,
         sceneRegistryCreated: this.renderWorldValue !== undefined,
@@ -234,41 +207,19 @@ export class GraphicsContext {
     });
   }
 
-  get materials_resident(): GPUResidentMaterialContext {
-    if (this.residentMaterials === undefined) {
-      this.residentMaterials = new GPUResidentMaterialContext(this.device, this);
-    }
-    return this.residentMaterials;
-  }
-
-  /** Legacy material owner, created only when an old Scene consumer asks for it. */
-  get materials(): GPUMaterialRegistry {
-    this.materialsValue ??= new GPUMaterialRegistry(
-      this.device,
-      this.textures,
-      this.render_pipelines,
-      this.bind_groups
-    );
-    return this.materialsValue;
-  }
-
-  get materials_if_created(): GPUMaterialRegistry | undefined {
-    return this.materialsValue;
-  }
-
-  /** Lazily creates the R2 package residency owner; legacy-only pages pay zero cost. */
+  /** Lazily creates the package residency owner. */
   get assets(): GpuAssetStore {
     this.assetStoreValue ??= new GpuAssetStore(this.device, this.resource_accounting);
     return this.assetStoreValue;
   }
 
-  /** Lazily creates the R2 compact Instance table; legacy-only pages pay zero cost. */
+  /** Lazily creates the compact Instance table. */
   get gpu_scene(): GpuScene {
     this.gpuSceneValue ??= new GpuScene(this.device, this.assets, this.resource_accounting);
     return this.gpuSceneValue;
   }
 
-  /** Lazily creates the Scene → Packed Geometry/Instance association owner. */
+  /** Lazily creates the authoritative Scene → GPU Render World owner. */
   get render_world(): GpuRenderWorld {
     this.renderWorldValue ??= new GpuRenderWorld(this);
     return this.renderWorldValue;
@@ -278,7 +229,7 @@ export class GraphicsContext {
     return this.renderWorldValue;
   }
 
-  /** Lazily creates the stable Packed MaterialRecord owner. */
+  /** Lazily creates the stable MaterialRecord owner. */
   get material_store(): GpuMaterialStore {
     this.materialStoreValue ??= new GpuMaterialStore(this.device);
     return this.materialStoreValue;
@@ -288,7 +239,7 @@ export class GraphicsContext {
     return this.materialStoreValue;
   }
 
-  /** Lazily creates the independent Packed texture residency owner. */
+  /** Lazily creates the independent texture residency owner. */
   get texture_residency(): TextureResidency {
     this.textureResidencyValue ??= new TextureResidency(this, this.textureMaxResolution);
     return this.textureResidencyValue;
@@ -296,16 +247,6 @@ export class GraphicsContext {
 
   get texture_residency_if_created(): TextureResidency | undefined {
     return this.textureResidencyValue;
-  }
-
-  /** Legacy Geometry owner, created only when an old Scene consumer asks for it. */
-  get geometries(): MeshletGpuTable {
-    this.geometryTableValue ??= new MeshletGpuTable(this);
-    return this.geometryTableValue;
-  }
-
-  get geometries_if_created(): MeshletGpuTable | undefined {
-    return this.geometryTableValue;
   }
 
   async initialize(): Promise<void> {
@@ -316,9 +257,7 @@ export class GraphicsContext {
     command: ShadeGPUCommandContext,
     sampleCollectionLimits = false
   ): void {
-    this.geometryTableValue?.update(command, "GraphicsContext");
     this.textures.update(command);
-    this.materialsValue?.update(command);
     this.bind_groups.update();
     this.increment_time();
     this.allocator_textures.update();
@@ -347,7 +286,6 @@ export class GraphicsContext {
 
   get gpu_memory_usage(): number {
     return (
-      (this.geometryTableValue?.gpu_memory_usage ?? 0) +
       (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
       (this.renderWorldValue?.evidence().flatWorkBytes ?? 0) +
@@ -453,11 +391,6 @@ export class GraphicsContext {
     this.gpuSceneValue = undefined;
     this.assetStoreValue?.destroy();
     this.assetStoreValue = undefined;
-    this.geometryTableValue?.destroy();
-    this.geometryTableValue = undefined;
-    this.materialsValue?.destroy();
-    this.materialsValue = undefined;
-    this.residentMaterials?.destroy();
     this.buffer_allocator_main.destroy();
     this.buffer_allocator_native.destroy();
     this.buffer_allocator_staging.destroy();

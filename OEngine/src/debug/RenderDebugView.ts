@@ -53,7 +53,7 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     RenderDebugView.VisibilityKey,
     "Visibility Key",
     "supported",
-    "Packed 路径回查 RasterWork/Cluster/Meshlet/Instance/Material；legacy 路径哈希 mesh/triangle ID"
+    "回查 RasterWork/Cluster/Meshlet/Instance/Material 的统一 VisibilityKey"
   ),
   descriptor(
     RenderDebugView.Depth,

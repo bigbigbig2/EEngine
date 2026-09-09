@@ -38,7 +38,6 @@ ${DIRECT_LIGHT_DATABASE_WGSL}
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
 const EPSILON: f32 = 1e-6;
-const OENGINE_LIGHTING_HAS_SURFACE_METADATA: bool = true;
 const CLUSTER_METADATA_FLAG_FALLBACK: u32 = ${CLUSTER_METADATA_FLAG_FALLBACK}u;
 const CLUSTER_LIGHT_TYPE_POINT: u32 = 0u;
 const CLUSTER_LIGHT_TYPE_SPOT: u32 = 1u;
@@ -673,10 +672,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertex {
 fn fs_main(input: FullscreenVertex) -> @location(0) vec4f {
   let i_coord = vec2u(input.position.xy);
   random_initialize(vec3u(i_coord, view.frame_index), vec3u(0xEE6B2807u, 7u, 0xD0974829u));
-  var metadata = oengine_surface_pack(0u, OENGINE_SURFACE_FLAG_VALID);
-  if (OENGINE_LIGHTING_HAS_SURFACE_METADATA) {
-    metadata = textureLoad(surface_metadata, i_coord, 0).r;
-  }
+  let metadata = textureLoad(surface_metadata, i_coord, 0).r;
   if (!oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0);
   }

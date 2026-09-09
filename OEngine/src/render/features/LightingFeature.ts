@@ -125,8 +125,7 @@ export class LightingFeature {
       gNormal: inputs.surface.normal,
       gAlbedo: inputs.surface.albedoAo,
       gEmissive: inputs.surface.emissive,
-      // Legacy Surface has no metadata; the shader variant ignores this binding.
-      gMetadata: inputs.surface.metadata ?? inputs.surface.emissive,
+      gMetadata: inputs.surface.metadata,
       depth: inputs.depth,
       lightDatabase: inputs.lightDatabase,
       environment: inputs.environment,
@@ -140,11 +139,7 @@ export class LightingFeature {
     };
     const direct = this.direct.addToGraph(
       graph,
-      {
-        width: job.width,
-        height: job.height,
-        surfaceMetadataAvailable: inputs.surface.metadata !== null
-      },
+      { width: job.width, height: job.height },
       lightingInputs
     );
     return Object.freeze({

@@ -177,8 +177,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "scene-adapter") {
       assertions.push(validationAssertion("ordinary-transparent-work-produced", (gpu.transparentRasterWork ?? 0) > 0 && (gpu.transparentTriangles ?? 0) > 0, "Ordinary Scene transparency used the shared bounded raster and MBOIT consumer", { rasterWork: gpu.transparentRasterWork ?? 0, triangles: gpu.transparentTriangles ?? 0 }, "> 0"));
     }
-    assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Surface and Transparency did not create the legacy material owner", ownerCreation?.legacy));
-    assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed Surface, patches and Transparency did not create legacy geometry, SceneDatabase, skinning, or MeshletDrawList owners", ownerCreation?.scene));
+    assertions.push(validationAssertion("single-material-owner", ownerCreation !== undefined && ownerCreation.renderWorld.materialStoreCreated, "Surface and Transparency used the authoritative material owner", ownerCreation?.renderWorld));
+    assertions.push(validationAssertion("single-geometry-owner", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Surface, patches and Transparency used one Render World", ownerCreation?.scene));
     const diagnostics = validationDiagnostics(runtime.renderer?.profiler.diagnostics);
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
 

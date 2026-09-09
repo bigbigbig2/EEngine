@@ -30,7 +30,7 @@ export interface OpaqueIblInputs {
   readonly diffuseIrradiance: ResourceId;
   readonly splitSum: ResourceId;
   readonly camera: ResourceId;
-  readonly metadata?: ResourceId;
+  readonly metadata: ResourceId;
   readonly ambientOcclusion?: Pick<AmbientOcclusionFrame, "visibility">;
 }
 

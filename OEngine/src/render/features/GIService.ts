@@ -49,7 +49,7 @@ export interface LightmapIndirectInputs {
   readonly camera: ResourceId;
   readonly lightMap: ResourceId;
   readonly ambientVisibility?: ResourceId;
-  readonly metadata?: ResourceId;
+  readonly metadata: ResourceId;
   readonly extent: { readonly width: number; readonly height: number };
   /** true 时走 Brick4 fused 路径（直接累加 hdr），否则 diffuse/specular 分离后合成。 */
   readonly fused: boolean;
@@ -67,7 +67,7 @@ export interface ProbeVolumeIndirectInputs {
   readonly environment: ResourceId;
   readonly camera: ResourceId;
   readonly ambientVisibility?: ResourceId;
-  readonly metadata?: ResourceId;
+  readonly metadata: ResourceId;
   readonly atlasRadiance: ResourceId;
   readonly atlasDepth: ResourceId;
   readonly meshBvh: ResourceId;
@@ -96,7 +96,7 @@ export interface OpaqueLightingCommonInputs {
   readonly camera: ResourceId;
   readonly splitSum: ResourceId;
   readonly ambientVisibility?: ResourceId;
-  readonly metadata?: ResourceId;
+  readonly metadata: ResourceId;
   readonly extent: { readonly width: number; readonly height: number };
 }
 

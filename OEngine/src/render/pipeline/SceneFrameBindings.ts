@@ -1,29 +1,28 @@
 import type { Scene } from "../../scene/Scene.js";
 
-export type FrameGeometrySource<TPacked, TLegacy> =
-  | Readonly<{ readonly kind: "packed"; readonly runtime: TPacked }>
-  | Readonly<{ readonly kind: "legacy"; readonly context: TLegacy }>;
+export type FrameGeometrySource<TRuntime> = Readonly<{
+  readonly runtime: TRuntime;
+}>;
 
-export interface ResolvedFrameSceneOwners<TEnvironment, TPacked, TLegacy> {
+export interface ResolvedFrameSceneOwners<TEnvironment, TRuntime> {
   readonly environment: TEnvironment;
-  readonly geometry: FrameGeometrySource<TPacked, TLegacy>;
+  readonly geometry: FrameGeometrySource<TRuntime>;
 }
 
 /**
- * Resolves the mutually-exclusive geometry owner before any legacy obtain.
+ * Resolves the authoritative Render World owner before frame encoding.
  * The shared environment is present for both render-world inputs.
  */
 export function resolveFrameSceneOwners<
   TEnvironment,
-  TPacked,
-  TLegacy
+  TRuntime
 >(
   scene: Scene,
-  packedScenes: Readonly<{ runtime(scene: Scene): TPacked | null }> | undefined,
+  renderWorld: Readonly<{ runtime(scene: Scene): TRuntime | null }> | undefined,
   environments: Readonly<{ obtain(scene: Scene): TEnvironment }>
-): ResolvedFrameSceneOwners<TEnvironment, TPacked, TLegacy> {
-  const packed = packedScenes?.runtime(scene) ?? null;
-  if (packed === null) {
+): ResolvedFrameSceneOwners<TEnvironment, TRuntime> {
+  const runtime = renderWorld?.runtime(scene) ?? null;
+  if (runtime === null) {
     throw new Error(
       `Scene ${scene.id ?? "<unknown>"} has no GPU Render World registration; ` +
       "call uploadScene() with cooked geometry packages before render()"
@@ -32,6 +31,6 @@ export function resolveFrameSceneOwners<
   const environment = environments.obtain(scene);
   return Object.freeze({
     environment,
-    geometry: Object.freeze({ kind: "packed" as const, runtime: packed })
+    geometry: Object.freeze({ runtime })
   });
 }

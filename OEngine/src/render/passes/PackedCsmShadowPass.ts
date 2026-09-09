@@ -15,7 +15,7 @@ import {
   PACKED_CSM_COUNTER_WGSL,
   PACKED_CSM_SHADOW_WGSL
 } from "../../shaders/packed_csm_shadow.js";
-import { SHADOW_DEPTH_CLEAR_WGSL } from "../../shaders/shadow_raster.js";
+import { SHADOW_DEPTH_CLEAR_WGSL } from "../../shaders/shadow_depth_clear.js";
 import {
   HierarchicalWorkGenerator,
   type PreparedHierarchyWork

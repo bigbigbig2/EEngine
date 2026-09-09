@@ -193,7 +193,7 @@ function assertShadowFeatureComparison(evidence) {
       evidence.off.shadowGpuPassLabels.length !== 0 ||
       evidence.off.shadowIoLabels.length !== 0 || evidence.off.shadowResourceOwners.length !== 0 ||
       owner === null || owner.featureCount !== 0 || owner.atlasCount !== 0 ||
-      owner.packedWorkSetCount !== 0 || owner.packedWorkBytes !== 0 ||
+      owner.workSetCount !== 0 || owner.workBytes !== 0 ||
       Object.values(evidence.off.shadowCounterMaximums).some((value) => value !== 0)) {
     throw new Error(`Disabled shadow feature retained work or resources: ${JSON.stringify(evidence.off)}`);
   }

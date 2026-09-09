@@ -33,17 +33,6 @@ const OPAQUE_LIGHTING_RESOLVE_GROUP0: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
-const OPAQUE_LIGHTING_RESOLVE_LEGACY_GROUP0: GPUBindGroupLayoutDescriptor = {
-  label: "Renderer/TB/legacy-group0-layout",
-  entries: [
-    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
-    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
-    { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } }
-  ]
-};
-
 const OPAQUE_LIGHTING_RESOLVE_GROUP1: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/TB/group1-layout",
   entries: [
@@ -114,8 +103,8 @@ export type OpaqueLightingResolveInputs = {
   /** GTAO ambient visibility; material AO remains in albedoAo.a. */
   ambientVisibility?: ResourceId;
   camera: ResourceId;
-  /** Packed Surface v1 metadata. Legacy Material Expand has no equivalent attachment. */
-  metadata?: ResourceId;
+  /** Unified Surface v1 metadata. */
+  metadata: ResourceId;
 };
 
 export type OpaqueLightingResolveOutput = {
@@ -124,13 +113,9 @@ export type OpaqueLightingResolveOutput = {
 
 export class OpaqueLightingResolvePass {
   private readonly surfaceDescriptor: CachedRenderPipelineDescriptor;
-  private readonly legacyDescriptor: CachedRenderPipelineDescriptor;
   private readonly surfaceNoAoDescriptor: CachedRenderPipelineDescriptor;
-  private readonly legacyNoAoDescriptor: CachedRenderPipelineDescriptor;
   private surfacePipeline: GPURenderPipeline | null = null;
-  private legacyPipeline: GPURenderPipeline | null = null;
   private surfaceNoAoPipeline: GPURenderPipeline | null = null;
-  private legacyNoAoPipeline: GPURenderPipeline | null = null;
   lastRan = false;
 
   constructor(
@@ -143,22 +128,10 @@ export class OpaqueLightingResolvePass {
       [OPAQUE_LIGHTING_RESOLVE_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
       surfaceProfile
     );
-    this.legacyDescriptor = createOpaqueLightingPipeline(
-      "Renderer/Opaque lighting resolve legacy",
-      "fs_main_legacy",
-      [OPAQUE_LIGHTING_RESOLVE_LEGACY_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
-      surfaceProfile
-    );
     this.surfaceNoAoDescriptor = createOpaqueLightingPipeline(
       "Renderer/Opaque lighting resolve no ambient AO",
       "fs_main_no_ao",
       [OPAQUE_LIGHTING_RESOLVE_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
-      surfaceProfile
-    );
-    this.legacyNoAoDescriptor = createOpaqueLightingPipeline(
-      "Renderer/Opaque lighting resolve legacy no ambient AO",
-      "fs_main_legacy_no_ao",
-      [OPAQUE_LIGHTING_RESOLVE_LEGACY_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
       surfaceProfile
     );
   }
@@ -167,14 +140,8 @@ export class OpaqueLightingResolvePass {
     this.surfacePipeline ??= this.graphics.render_pipelines.obtain(
       this.surfaceDescriptor
     );
-    this.legacyPipeline ??= this.graphics.render_pipelines.obtain(
-      this.legacyDescriptor
-    );
     this.surfaceNoAoPipeline ??= this.graphics.render_pipelines.obtain(
       this.surfaceNoAoDescriptor
-    );
-    this.legacyNoAoPipeline ??= this.graphics.render_pipelines.obtain(
-      this.legacyNoAoDescriptor
     );
   }
 
@@ -189,14 +156,9 @@ export class OpaqueLightingResolvePass {
       inputs,
       (data, resources, context) => {
         const encoder = context.gpu_encoder;
-        const surfaceAware = data.metadata !== undefined;
         const aoAware = data.ambientVisibility !== undefined;
-        const pipeline = surfaceAware
-          ? (aoAware ? this.surfacePipeline : this.surfaceNoAoPipeline)
-          : (aoAware ? this.legacyPipeline : this.legacyNoAoPipeline);
-        const descriptor = surfaceAware
-          ? (aoAware ? this.surfaceDescriptor : this.surfaceNoAoDescriptor)
-          : (aoAware ? this.legacyDescriptor : this.legacyNoAoDescriptor);
+        const pipeline = aoAware ? this.surfacePipeline : this.surfaceNoAoPipeline;
+        const descriptor = aoAware ? this.surfaceDescriptor : this.surfaceNoAoDescriptor;
         if (!encoder) throw new Error("OpaqueLightingResolvePass: no encoder");
         if (!pipeline) throw new Error("OpaqueLightingResolvePass not initialized");
 
@@ -225,9 +187,7 @@ export class OpaqueLightingResolvePass {
               texture(resources.get(data.albedoAo)),
               texture(resources.get(data.pbr)),
               texture(resources.get(data.depth)),
-              ...(data.metadata === undefined
-                ? []
-                : [texture(resources.get(data.metadata))])
+              texture(resources.get(data.metadata))
             ],
             [
               { buffer: buffer(resources.get(data.camera)) },
@@ -254,9 +214,7 @@ export class OpaqueLightingResolvePass {
 
   destroy(): void {
     this.surfacePipeline = null;
-    this.legacyPipeline = null;
     this.surfaceNoAoPipeline = null;
-    this.legacyNoAoPipeline = null;
   }
 }
 
