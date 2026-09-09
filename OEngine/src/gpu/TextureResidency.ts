@@ -19,6 +19,7 @@ export const TEXTURE_RESIDENCY_BASE_SIZE = GPU_TEXTURE_BANK_SIZES[0];
 export const TEXTURE_RESIDENCY_BASE_CAPACITY = GPU_TEXTURE_BANK_MAX_CAPACITIES[0];
 export const TEXTURE_RESIDENCY_BASE_MIP_COUNT = mipCount(TEXTURE_RESIDENCY_BASE_SIZE);
 export const TEXTURE_RESIDENCY_MAX_SIZE = GPU_TEXTURE_BANK_SIZES[GPU_TEXTURE_BANK_COUNT - 1]!;
+export const TEXTURE_RESIDENCY_BUDGET_BYTES = 1024 * 1024 * 1024;
 
 export interface TextureResidencyBindings {
   readonly textureCapacity: number;
@@ -342,11 +343,21 @@ export class TextureResidency {
       const freshCount = freshByBank[bank.bankClass]!.size;
       if (freshCount === 0) continue;
       const occupied = Math.max(0, bank.capacity - 1 - bank.freeLayers.length);
-      const requiredCapacity = nextPowerOfTwo(occupied + freshCount + 1);
+      const exactCapacity = occupied + freshCount + 1;
+      const requiredCapacity = bank.size >= 2048 ? exactCapacity : nextPowerOfTwo(exactCapacity);
       if (bank.maxCapacity === 0 || requiredCapacity > bank.maxCapacity) {
         throw new RangeError(`TextureResidency ${bank.size}px bank requires ${requiredCapacity} layers but policy/device permits ${bank.maxCapacity}`);
       }
       if (requiredCapacity > bank.capacity) plans.push({ bank, nextCapacity: requiredCapacity });
+    }
+    const transactionPeakBytes = this.allocatedBytes() + plans.reduce(
+      (sum, plan) => sum + arrayBytes(plan.bank.physicalSize, plan.nextCapacity),
+      0
+    );
+    if (transactionPeakBytes > TEXTURE_RESIDENCY_BUDGET_BYTES) {
+      throw new RangeError(
+        `TextureResidency transaction peak ${transactionPeakBytes} bytes exceeds the ${TEXTURE_RESIDENCY_BUDGET_BYTES} byte budget`
+      );
     }
     return plans;
   }

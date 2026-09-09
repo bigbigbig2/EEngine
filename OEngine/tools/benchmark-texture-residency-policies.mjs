@@ -5,7 +5,7 @@ const sizeClassCapacities = Object.freeze(new Map([
   [256, 64],
   [512, 32],
   [1024, 16],
-  [2048, 8],
+  [2048, 32],
   [4096, 2]
 ]));
 
@@ -19,7 +19,7 @@ const result = {
     permutationCount: permutations.length,
     format: "rgba8unorm with full mip chain",
     reservedFallbackLayersPerBank: 1,
-    residentBudgetBytes: 512 * 1024 * 1024
+    residentBudgetBytes: 1024 * 1024 * 1024
   },
   candidates: [
     summarize("bounded-size-class-banks", {
@@ -58,7 +58,8 @@ function runSizeClassBanks(order) {
   for (const size of order) {
     const classSize = nextPowerOfTwo(size);
     let bank = banks.get(classSize) ?? { capacity: 0, count: 0 };
-    const requiredCapacity = nextPowerOfTwo(bank.count + 2);
+    const exactCapacity = bank.count + 2;
+    const requiredCapacity = classSize >= 2048 ? exactCapacity : nextPowerOfTwo(exactCapacity);
     if (requiredCapacity > bank.capacity) {
       const nextCapacity = Math.min(requiredCapacity, sizeClassCapacities.get(classSize));
       const oldBytes = mipBytes(classSize) * bank.capacity;
@@ -131,12 +132,13 @@ function summarize(id, contract, runs) {
     fragmentationBytes: range(runs.map((run) => run.fragmentationBytes)),
     resizeDispatches: range(runs.map((run) => run.resizeDispatches)),
     copyOperations: range(runs.map((run) => run.copyOperations)),
-    withinResidentBudgetForEveryPermutation: runs.every((run) => run.allocatedBytes <= resultBudget())
+    withinFinalAllocationBudgetForEveryPermutation: runs.every((run) => run.allocatedBytes <= resultBudget()),
+    withinTransactionPeakBudgetForEveryPermutation: runs.every((run) => run.peakBytes <= resultBudget())
   };
 }
 
 function resultBudget() {
-  return 512 * 1024 * 1024;
+  return 1024 * 1024 * 1024;
 }
 
 function range(values) {

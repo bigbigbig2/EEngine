@@ -407,7 +407,7 @@ test("Texture residency quality and device resolution caps preserve logical text
   const fixture = createTextureResidencyFixture({ maxTextureDimension2D: 1024 });
   const residency = new TextureResidency(fixture.graphics, 1024);
   const before = residency.evidence();
-  assert.equal(before.textureCapacity, 117);
+  assert.equal(before.textureCapacity, 141);
   assert.deepEqual(before.banks.map(({ physicalSize }) => physicalSize), [256, 512, 1024, 1024, 1024]);
   const texture = createTexture(4096, "quality-capped-large");
   const command = new FakeCommand("texture-quality-cap");

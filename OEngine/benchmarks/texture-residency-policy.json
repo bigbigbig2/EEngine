@@ -11,7 +11,7 @@
     "permutationCount": 60,
     "format": "rgba8unorm with full mip chain",
     "reservedFallbackLayersPerBank": 1,
-    "residentBudgetBytes": 536870912
+    "residentBudgetBytes": 1073741824
   },
   "candidates": [
     {
@@ -46,7 +46,8 @@
         "min": 10,
         "max": 10
       },
-      "withinResidentBudgetForEveryPermutation": true
+      "withinFinalAllocationBudgetForEveryPermutation": true,
+      "withinTransactionPeakBudgetForEveryPermutation": true
     },
     {
       "id": "stable-ref-migrating-high-bank",
@@ -80,7 +81,8 @@
         "min": 0,
         "max": 52
       },
-      "withinResidentBudgetForEveryPermutation": false
+      "withinFinalAllocationBudgetForEveryPermutation": true,
+      "withinTransactionPeakBudgetForEveryPermutation": false
     }
   ]
 }

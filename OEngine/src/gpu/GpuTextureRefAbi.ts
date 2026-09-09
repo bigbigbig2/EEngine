@@ -7,7 +7,7 @@ export const GPU_TEXTURE_REF_BANK_MASK = 0x0f000000;
 export const GPU_TEXTURE_REF_LAYER_MASK = 0x00ffffff;
 
 export const GPU_TEXTURE_BANK_SIZES = Object.freeze([256, 512, 1024, 2048, 4096] as const);
-export const GPU_TEXTURE_BANK_MAX_CAPACITIES = Object.freeze([64, 32, 16, 8, 2] as const);
+export const GPU_TEXTURE_BANK_MAX_CAPACITIES = Object.freeze([64, 32, 16, 32, 2] as const);
 export const GPU_TEXTURE_BANK_COUNT = GPU_TEXTURE_BANK_SIZES.length;
 
 export interface GpuTextureRef {
