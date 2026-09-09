@@ -327,6 +327,29 @@ test("Texture residency keeps bank choice legal for multiple small textures foll
   residency.destroy();
 });
 
+test("Texture residency preserves success while a 2048 bank grows one layer at a time", async () => {
+  const fixture = createTextureResidencyFixture();
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const materials = [];
+  for (let index = 0; index < 31; index++) {
+    const material = createTexturedMaterial(createTexture(2048, `incremental-2048-${index}`), `incremental-material-${index}`);
+    materials.push(material);
+    const command = new FakeCommand(`texture-incremental-2048-${index}`);
+    residency.stage([material], command);
+    command.finish();
+    await settlePromises();
+  }
+  const evidence = residency.evidence();
+  assert.equal(evidence.banks[3].residentTextureCount, 31);
+  assert.equal(evidence.banks[3].allocatedCapacity, 32);
+  assert.ok(evidence.allocatedPeakBytes < 2 * 1024 * 1024 * 1024);
+  const release = new FakeCommand("texture-incremental-release");
+  residency.release(materials, release);
+  release.finish();
+  await settlePromises();
+  residency.destroy();
+});
+
 test("Texture residency accepts every permutation of the same legal texture set", () => {
   const sizes = [256, 512, 1024, 2048, 4096];
   for (const [permutationIndex, permutation] of permutations(sizes).entries()) {

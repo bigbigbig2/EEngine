@@ -11,7 +11,7 @@
     "permutationCount": 60,
     "format": "rgba8unorm with full mip chain",
     "reservedFallbackLayersPerBank": 1,
-    "residentBudgetBytes": 1073741824
+    "residentBudgetBytes": 2147483648
   },
   "candidates": [
     {
@@ -82,7 +82,7 @@
         "max": 52
       },
       "withinFinalAllocationBudgetForEveryPermutation": true,
-      "withinTransactionPeakBudgetForEveryPermutation": false
+      "withinTransactionPeakBudgetForEveryPermutation": true
     }
   ]
 }

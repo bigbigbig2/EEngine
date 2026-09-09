@@ -52,6 +52,8 @@
 
 Step 0 门禁已经建立。Step 1 已消除 Packed material 双 owner：`GpuPackedSceneRegistry` 只按 Texture Residency → Material Store → Instance 顺序提交，`GraphicsContext` 与 `GPUSceneContext` 仅在普通 Scene consumer 首次请求时创建 legacy material registry。Packed Visibility、Surface、CSM、Transparency、debug 和 material patch 使用 Packed material bindings；浏览器 owner evidence 确认 legacy material metadata、默认纹理、depth/expand pipeline 与 per-material context 均未创建。普通 Scene 的 legacy getter 和 consumer 合同继续保留。
 
-1. 执行 Step 2：为 Texture Residency 的有界 size-class 与稳定引用可迁移方案补齐来源、ABI、内存和同条件性能比较，再选择并实现加载顺序无关的方案。
+Step 2 已完成。Texture Residency 采用五个有界 size-class bank（256/512/1024/2048/4096）和 version/bank/layer 稳定 TextureRef；高分辨率 bank 按需分配，transaction 在 2 GiB hard peak budget、bank capacity 与 device limits 下 preflight，abort 不发布 ref，旧 bank 等 GPU 完成后销毁。Surface、Transparency、MASK Visibility 与 CSM alpha 使用同一 CPU/WGSL decode；CPU/WGSL oracle、120 个全排列、逐层增长、容量/故障注入、真实 Chrome 场景均通过。方案与 clean-commit A/B 证据见 `OEngine/benchmarks/texture-residency-policy.json` 和 `OEngine/benchmarks/texture-residency-step2.json`；目标 workload 保持 25 个纹理与 559240500 resident logical bytes，实测 texture peak/allocation 从 738197376 降到 603979656 bytes，base GPU P50/P95 为 +1.066%/+0.519%。该结果是 smoke A/B，不替代发布级 formal run group。
+
+1. 执行 Step 3：让 Packed frame 脱离完整 `GPUSceneContext`，移除 Packed stable frame 的 legacy geometry/scene/skinning 更新。
 2. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
 3. 保持 Tile backend 为 evidence-only，并为 shader audit 中的 unknown 项确认 authored owner 或可追溯生成源。

@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted",
+  "decision": "bounded-size-class-banks",
+  "comparison": {
+    "baselineCommit": "98bc7e6ced19742702b261d8c5caed9cd8542e81",
+    "candidateCommit": "e631f0a3faafad347f4f9a75d2c7bfa098edde65",
+    "cleanCommits": true,
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "timestampQuery": true
+    },
+    "frame": {
+      "width": 1920,
+      "height": 1080,
+      "dpr": 1
+    },
+    "workload": "comprehensive-full",
+    "camera": "overview",
+    "seed": 20260906,
+    "inspectorVisible": false,
+    "warmupFrames": 30,
+    "measuredFrames": 60,
+    "gpuTimestampSamplesPerCase": 55
+  },
+  "cases": [
+    {
+      "id": "base",
+      "baseline": {
+        "cpuFrameMs": { "p50": 3.300000011921, "p95": 4.505000000447 },
+        "cpuGraphExecuteMs": { "p50": 2.54999999702, "p95": 3.5 },
+        "cpuQueueSubmitMs": { "p50": 0, "p95": 0.100000008941 },
+        "gpuFrameMs": { "p50": 0.663616, "p95": 0.6862592 },
+        "mainSubmits": { "p50": 1, "p95": 1 },
+        "uploadBytes": { "p50": 736, "p95": 736 },
+        "measuredGraphBuilds": 0,
+        "measuredGraphCompiles": 0
+      },
+      "candidate": {
+        "cpuFrameMs": { "p50": 3.59999999404, "p95": 4.605000008643 },
+        "cpuGraphExecuteMs": { "p50": 2.79999999702, "p95": 3.809999997169 },
+        "cpuQueueSubmitMs": { "p50": 0, "p95": 0.100000008941 },
+        "gpuFrameMs": { "p50": 0.670688, "p95": 0.689824 },
+        "mainSubmits": { "p50": 1, "p95": 1 },
+        "uploadBytes": { "p50": 736, "p95": 736 },
+        "measuredGraphBuilds": 0,
+        "measuredGraphCompiles": 0
+      },
+      "deltaPercent": {
+        "cpuFrameP50": 9.091,
+        "cpuFrameP95": 2.22,
+        "gpuFrameP50": 1.066,
+        "gpuFrameP95": 0.519
+      }
+    },
+    {
+      "id": "full",
+      "baseline": {
+        "cpuFrameMs": { "p50": 8.399999991059, "p95": 9.710000003129 },
+        "cpuGraphExecuteMs": { "p50": 6.79999999702, "p95": 8.005000000447 },
+        "cpuQueueSubmitMs": { "p50": 0, "p95": 0.100000008941 },
+        "gpuFrameMs": { "p50": 1.434048, "p95": 2.0404704 },
+        "mainSubmits": { "p50": 1, "p95": 1 },
+        "uploadBytes": { "p50": 1856, "p95": 1856 },
+        "measuredGraphBuilds": 0,
+        "measuredGraphCompiles": 0
+      },
+      "candidate": {
+        "cpuFrameMs": { "p50": 10.20000000298, "p95": 11.79999999702 },
+        "cpuGraphExecuteMs": { "p50": 8.10000000149, "p95": 9.5 },
+        "cpuQueueSubmitMs": { "p50": 0, "p95": 0.100000008941 },
+        "gpuFrameMs": { "p50": 1.437856, "p95": 1.4778336 },
+        "mainSubmits": { "p50": 1, "p95": 1 },
+        "uploadBytes": { "p50": 1856, "p95": 1856 },
+        "measuredGraphBuilds": 0,
+        "measuredGraphCompiles": 0
+      }
+    }
+  ],
+  "memory": {
+    "residentTextureCount": 25,
+    "residentTextureLogicalBytes": {
+      "baseline": 559240500,
+      "candidate": 559240500
+    },
+    "textureAllocatedBytes": {
+      "baseline": 738197376,
+      "candidate": 603979656,
+      "deltaPercent": -18.182
+    },
+    "candidateTextureTransactionPeakBytes": 603979656,
+    "declaredTextureTransactionBudgetBytes": 2147483648,
+    "transientPoolBytes": {
+      "baseline": 271466527,
+      "candidate": 271466527
+    },
+    "graphicsAllocatedBytes": {
+      "baseline": 1630016239,
+      "candidate": 1495798519,
+      "deltaPercent": -8.234
+    },
+    "fragmentationBytes": {
+      "baseline": 179866764,
+      "candidate": 45649044,
+      "deltaPercent": -74.621
+    }
+  },
+  "interpretation": {
+    "acceptedBecause": [
+      "all legal texture permutations have order-independent success semantics",
+      "the target 25-texture workload fits the declared transaction-peak budget",
+      "resident logical quality is unchanged while allocated texture bytes decrease",
+      "one main submit, stable graph build/compile, upload bytes, and transient pool are unchanged",
+      "GPU P50/P95 deltas are bounded to +1.066%/+0.519% in the base case"
+    ],
+    "limitations": [
+      "this is a clean-commit smoke A/B with one run per revision, not a release formal run group",
+      "full-case CPU variance is retained as measured and is not attributed to texture sampling without repeated formal runs"
+    ]
+  }
+}

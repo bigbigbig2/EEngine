@@ -19,7 +19,7 @@ const result = {
     permutationCount: permutations.length,
     format: "rgba8unorm with full mip chain",
     reservedFallbackLayersPerBank: 1,
-    residentBudgetBytes: 1024 * 1024 * 1024
+    residentBudgetBytes: 2 * 1024 * 1024 * 1024
   },
   candidates: [
     summarize("bounded-size-class-banks", {
@@ -138,7 +138,7 @@ function summarize(id, contract, runs) {
 }
 
 function resultBudget() {
-  return 1024 * 1024 * 1024;
+  return 2 * 1024 * 1024 * 1024;
 }
 
 function range(values) {
