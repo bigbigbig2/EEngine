@@ -7,7 +7,7 @@ Status: accepted
 OEngine 已有两组同时存在的场景 GPU owner：
 
 - 普通 Scene 通过 `GPUSceneManager` 和 `GPUSceneContext` 持有 legacy geometry、material、skinning、light、environment 与 shadow 状态；
-- Packed Scene 通过 `GpuPackedSceneRegistry` 组合 `GpuAssetStore`、`GpuScene`、`GpuMaterialStore` 与 `TextureResidency`，并由 GPU hierarchy、exact raster work 和 indirect draw 形成 VisibilityKey producer/consumer 闭环。
+- Packed Scene 通过当前 `GpuRenderWorld` 组合 `GpuAssetStore`、`GpuScene`、`GpuMaterialStore` 与 `TextureResidency`，并由 GPU hierarchy、exact raster work 和 indirect draw 形成 VisibilityKey producer/consumer 闭环。
 
 Packed 主路径仍会先创建和更新 `GPUSceneContext`。Packed 注册还会向 `GPUMaterialRegistry` 注册相同材质，因此一个 Packed 材质同时触发 legacy material uniform、texture/bind-group、Material Expand pipeline，以及 Packed material/texture residency。Lighting、environment 和 shadow 又继续从 legacy scene context 取得资源。`Renderer.ts` 因而同时承担双路径选择、FrameGraph recipe、Feature/Service 组合、history、evidence 和生命周期收尾。
 
@@ -100,7 +100,7 @@ npm run verify -- surface.textured
 
 实施内容：
 
-1. 删除 `GpuPackedSceneRegistry.stage()` 对 `GPUMaterialRegistry.obtain()` 的调用。
+1. 删除现 `GpuRenderWorld.stage()` 对 `GPUMaterialRegistry.obtain()` 的调用。
 2. 将 `GraphicsContext` 中的 legacy material registry 改为只在 legacy consumer 首次请求时创建；Packed-only 初始化不得创建 legacy material metadata、默认纹理、Material Expand pipeline 或 per-material uniform/bind group。
 3. 确认 Packed shadow、transparency、debug 与 material patch 全部使用 `GpuPackedMaterialBindings`，不得从 legacy registry 回取资源。
 4. 保持 TextureResidency stage 与 GpuMaterialStore stage 的事务顺序；任一阶段失败时恢复 texture refcount、material slots 和 pending mutation。
@@ -116,7 +116,7 @@ npm run verify -- surface.textured
 
 退出条件：
 
-- `GpuPackedSceneRegistry`、Packed Visibility、Packed Surface、Packed Shadow 和 Packed Transparency 到 `GPUMaterialRegistry` 的生产依赖为零；
+- `GpuRenderWorld`、Packed Visibility、Packed Surface、Packed Shadow 和 Packed Transparency 到 `GPUMaterialRegistry` 的生产依赖为零；
 - Packed-only 帧没有 legacy material upload、pipeline 或 bind-group 创建；
 - 普通 Scene 的 legacy 材质行为保持不变，直到 Step 6 迁移它的消费者。
 
@@ -163,7 +163,7 @@ npm run verify -- surface.textured
 1. 将当前 `GPUSceneContext` 拆为共享场景环境 owner 与临时 legacy geometry owner。共享 owner 只包含 lights、environment 和当前仍需要的 light-probe 数据。
 2. 让 `GPUViewContext` 依赖 camera/view/HZB 与共享场景环境，不依赖 legacy geometry/material/skinning context。
 3. Renderer 先判断场景是否有 Packed runtime；Packed 分支不得调用 `GPUSceneManager.obtain()` 创建 legacy geometry context，也不得调用 legacy `encodeFrame()`。
-4. SceneChangeSet 继续为普通 Scene consumer 提供独立 revision；Packed patch 继续由 `GpuPackedSceneRegistry` 和 `GpuScene` 的显式 batch 负责。
+4. SceneChangeSet 继续为普通 Scene consumer 提供独立 revision；Packed patch 继续由当前 `GpuRenderWorld` 和 `GpuScene` 的显式 batch 负责。
 5. 在 frame bindings 中把 geometry source 表达为互斥输入；不得同时发布 packed 与 legacy geometry consumer。
 
 必须验证：

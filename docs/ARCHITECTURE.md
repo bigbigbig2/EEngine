@@ -11,7 +11,7 @@
 ```text
 Source asset
   → validated Runtime Asset package
-  → GpuAssetStore / GpuScene / GpuPackedSceneRegistry
+  → GpuAssetStore / GpuScene / GpuRenderWorld
   → FramePlan + FrameGraph
   → Visibility / Surface / Lighting / Transparency / Temporal / Post
   → present and asynchronous evidence
@@ -26,9 +26,8 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | Runtime Asset | `src/assets/GeometryAssetPackage.ts`、loaders | 验证、recipe、稳定记录 |
 | GPU 资产 | `src/gpu/GpuAssetStore.ts` | geometry/material/texture residency |
 | 场景实例 | `src/gpu/GpuScene.ts` | instance 数据和显式 patch |
-| Packed 场景 | `src/gpu/GpuPackedSceneRegistry.ts` | Packed runtime 生命周期 |
+| GPU Render World | `src/gpu/GpuRenderWorld.ts` | Packed source 与普通 Scene adapter 的统一 runtime 生命周期 |
 | 场景环境 | `src/gpu/GPUSceneEnvironmentContext.ts` | Packed/普通 Scene 共享的 light、environment、light-probe 与 volumetric 数据 |
-| Legacy geometry | `src/gpu/GPUSceneContext.ts` | 仅普通 Scene consumer 使用的 SceneDatabase、TLAS、animation 与 skinning 临时 owner |
 | GPU 工作 | `src/gpu/GpuWorkGenerationAbi.ts` 及 work-generation owners | 队列 ABI、容量、overflow、indirect args |
 | 可见像素身份 | `src/gpu/GpuVisibilityKeyAbi.ts`、Visibility owners | key ABI、sentinel、reverse-Z、diagnostics |
 | Surface ABI | `src/gpu/GpuSurfaceAbi.ts` | attachment 格式、编码和版本 |
@@ -37,7 +36,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/shadow/main-view 顺序 |
 | 帧输入 | `src/render/pipeline/FrameContext.ts` | camera/view、分辨率域、feature topology、history validity、scene bindings、instrumentation 与 capture 请求 |
 | 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | Surface、lighting、AO、reflection、temporal 合同 |
-| 阴影功能 | `src/render/features/ShadowFeature.ts`、`ShadowFeatureManager.ts` | Scene-scoped atlas、cascade/cache、Packed/legacy caster adapter、work generation、raster 与 retire |
+| 阴影功能 | `src/render/features/ShadowFeature.ts`、`ShadowFeatureManager.ts` | Scene-scoped atlas、cascade/cache、统一 Render World work generation/raster 与 retire |
 | 功能组合 | `src/render/features/*.ts` | Feature/Service 生命周期与 feature-off |
 | 实时证据 UI | `src/addons/inspector` | 有界历史、view-model、实时面板 |
 | 主管线 | `src/render/pipeline/MainRenderPipeline.ts` | 唯一 Feature 顺序、FrameGraph recipe/cache/evidence 和单帧 encode |
@@ -53,16 +52,18 @@ Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证�
 
 `src/index.ts` 是唯一公开 interface。新增内部 Feature、Pass、Shader、Profiler codec 或 ABI 不应自动导出；只有稳定且被外部调用方需要的能力才进入入口。
 
+`Renderer.uploadScene(scene, geometryAssets)` 建立普通 Scene adapter，`geometryAssets` 明确绑定 CPU geometry identity 与已 Cook package；缺失绑定、空 Scene、非 Standard material、`SkinnedMesh` 或设备容量失败都会在发布 runtime 前抛错。`Renderer.resyncScene()` 是 add/remove/geometry 结构变化的显式冷路径，会先释放旧 registration 再重新驻留；稳定帧只走 `SceneChangeSet` patch。`releaseScene()` 释放任一种 adapter registration；这些异步工具命令不属于 main-frame submit。
+
 ## 当前帧输入边界
 
-Renderer 在取得场景环境后、创建 geometry owner 前先查询 Packed registry。帧绑定只发布一种互斥 geometry source：Packed runtime，或普通 Scene 的 legacy `GPUSceneContext`。Packed 帧只执行共享 light/environment 同步和 `GpuPackedSceneRegistry` 的显式 patch，不创建或更新 legacy SceneDatabase、geometry table、skinning 或 MeshletDrawList；`GPUViewContext` 只依赖 camera/view/HZB 与共享场景环境。
+Packed source 通过 `uploadPackedScene()`、普通 Application Scene 通过 `uploadScene()` 汇入同一个 `GpuRenderWorld`。普通 Scene adapter 只接受调用方显式提供的已 Cook `GeometryAssetPackage`，首次同步生成 bulk structure-of-arrays source；后续 transform/material assignment 从 `SceneChangeSet` 生成确定性 `GpuScene.patch()`。add/remove/geometry 结构变化必须由 `resyncScene()` 明确 full-resync；未注册 Scene 在 `render()` 前失败，不再自动取得 `GPUSceneContext`。
 
-Packed 路径已经输出 `VisibilityKey`、统一 Surface 和 velocity。普通 Scene 仍保留 legacy Material Expand、独立 Velocity 和旧 OIT consumer；`MainRenderPipeline` 仍存在显式 Packed/legacy geometry 选路。AO、SSR 与 GI 已由 Service 组合；Shadow atlas、cascade/cache、work generation、raster 和 retire 已归 `src/render/features/ShadowFeature.ts` 单一所有。`GPULightCollection` 只拥有稳定 light database 与 environment 纹理，不再 import 或构造 Render Pass、`GPUViewContext` 或 `GPUCameraState`。
+两种输入都由 GPU hierarchy/work generation 直接供 indirect Visibility consumer，输出统一 `VisibilityKey`、Surface metadata、velocity、shadow work 与透明 reactive 数据。普通 Scene 不创建 legacy SceneDatabase、geometry/material table、skinning、MeshletDrawList、Material Expand、独立 Velocity 或 legacy OIT owner。完整动画/蒙皮仍属产品 Deferred；`SkinnedMesh` 会显式报 unsupported。AO、SSR 与 GI 由 Service 组合；Shadow atlas、cascade/cache、work generation、raster 和 retire 归 `src/render/features/ShadowFeature.ts` 单一所有。
 
 ## 目标差距
 
 - Packed Render World 的固定收敛顺序、owner 删除条件和逐步验证见 [ADR-0006](./adr/0006-packed-render-world-convergence.md)。
-- 移除普通 Scene 的最终 legacy consumer，使统一 Surface/Velocity/Transparency 成为唯一生产合同。
+- Step 7 删除已经退出默认生产帧的 legacy runtime、Pass、shader 和 graph 分支。
 - 以真实多资产 Packed Instances、hierarchy/SSE 和固定目标设备证明 GPU 闭环。
 - 关闭仍为 unknown 的 oracle/generated Shader ownership 风险。
 - 用同条件 GPU timestamp、counter、memory 和 feature-off 证据证明统一主管线。

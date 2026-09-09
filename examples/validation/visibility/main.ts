@@ -1,5 +1,8 @@
 import {
   BoxGeometry,
+  buildBoxSourceGeometry,
+  cookGeometryAssetPackage,
+  createGeometryCookRecipe,
   Mesh,
   ShadeDataType,
   ShadeImage,
@@ -82,7 +85,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-legacy-parity", "transform-patch"];
+  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -196,7 +199,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       }
       const onOwners = renderer.gpuOwnerCreationEvidence();
       assertions.push(validationAssertion("shadow-toggle-on-restored", onOwners.shadow.featureCount === 1 && onOwners.shadow.atlasCount === 1 && onOwners.shadow.packedRasterPassCount === 1 && (completed.counters["shadow.packedCascadeDraws"] ?? 0) > 0, "Toggling shadows on recreated exactly one Render-owned Shadow Feature and resumed cascade raster", { owners: onOwners.shadow, cascadeDraws: completed.counters["shadow.packedCascadeDraws"] ?? 0 }));
-    } else if (request.scenarioId === "shadow-legacy-parity") {
+    } else if (request.scenarioId === "shadow-scene-parity") {
       const renderer = runtime.renderer;
       const scene = runtime.scene;
       if (renderer === null || scene === null) throw new Error("Visibility runtime is not initialized");
@@ -216,33 +219,52 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       runtime.stop();
       await renderer.releasePackedScene(scene);
       const material = solidMaterial([0.2, 0.72, 0.92, 1], 0.4);
-      const caster = Mesh.from(new BoxGeometry(3, 3, 3), material);
+      const casterGeometry = new BoxGeometry(3, 3, 3);
+      const caster = Mesh.from(casterGeometry, material);
       caster.transform_local.position.set(0, 1.5, 0);
       scene.addChild(caster);
-      const ground = Mesh.from(new BoxGeometry(14, 0.2, 14), solidMaterial([0.22, 0.24, 0.28, 1], 0.9));
+      const groundGeometry = new BoxGeometry(14, 0.2, 14);
+      const ground = Mesh.from(groundGeometry, solidMaterial([0.22, 0.24, 0.28, 1], 0.9));
       ground.transform_local.position.set(0, -0.1, 0);
       scene.addChild(ground);
+      const recipe = createGeometryCookRecipe();
+      await renderer.uploadScene(scene, [
+        {
+          geometry: casterGeometry,
+          asset: (await cookGeometryAssetPackage(
+            buildBoxSourceGeometry(3, 3, 3),
+            recipe
+          )).asset
+        },
+        {
+          geometry: groundGeometry,
+          asset: (await cookGeometryAssetPackage(
+            buildBoxSourceGeometry(14, 0.2, 14),
+            recipe
+          )).asset
+        }
+      ]);
       runtime.start();
       completed = await runtime.waitForCounters(packedProfile.frameIndex);
       for (let attempt = 0; attempt < 8 &&
-        (completed.counters["shadow.directionalRasterDraws"] ?? 0) === 0; attempt++) {
+        (completed.counters["shadow.packedCascadeDraws"] ?? 0) === 0; attempt++) {
         completed = await runtime.waitForCounters(completed.frameIndex);
       }
-      const legacyShadow = renderer.gpuOwnerCreationEvidence().shadow;
+      const ordinaryShadow = renderer.gpuOwnerCreationEvidence().shadow;
       const splitDelta = maximumArrayDelta(
         packedShadow.directionalCascadeSplits,
-        legacyShadow.directionalCascadeSplits
+        ordinaryShadow.directionalCascadeSplits
       );
       const layoutDelta = maximumArrayDelta(
         packedShadow.directionalCascadeLayouts.flat(),
-        legacyShadow.directionalCascadeLayouts.flat()
+        ordinaryShadow.directionalCascadeLayouts.flat()
       );
       evidence.packedShadow = packedShadow;
-      evidence.legacyShadow = legacyShadow;
+      evidence.ordinaryShadow = ordinaryShadow;
       evidence.cascadeSplitMaximumDelta = splitDelta;
       evidence.cascadeLayoutMaximumDelta = layoutDelta;
-      assertions.push(validationAssertion("packed-legacy-cascade-parity", splitDelta <= 1e-6 && layoutDelta <= 1e-6, "Packed and ordinary Scene caster adapters produced the same cascade splits and atlas layout", { splitDelta, layoutDelta }, "<= 1e-6"));
-      assertions.push(validationAssertion("legacy-shadow-adapter-active", legacyShadow.featureCount === 1 && legacyShadow.atlasCount === 1 && legacyShadow.legacyRasterPassCount === 1 && legacyShadow.packedRasterPassCount === 0 && (completed.counters["shadow.directionalRasterDraws"] ?? 0) > 0, "The ordinary Scene adapter used the same Shadow Feature and legacy raster consumer", { owner: legacyShadow, rasterDraws: completed.counters["shadow.directionalRasterDraws"] ?? 0 }));
+      assertions.push(validationAssertion("packed-scene-cascade-parity", splitDelta <= 1e-6 && layoutDelta <= 1e-6, "Packed and ordinary Scene adapters produced the same cascade splits and atlas layout", { splitDelta, layoutDelta }, "<= 1e-6"));
+      assertions.push(validationAssertion("ordinary-scene-shadow-unified", ordinaryShadow.featureCount === 1 && ordinaryShadow.atlasCount === 1 && ordinaryShadow.packedRasterPassCount === 1 && ordinaryShadow.legacyRasterPassCount === 0 && (completed.counters["shadow.packedCascadeDraws"] ?? 0) > 0, "The ordinary Scene adapter used the shared Packed shadow work and raster consumer", { owner: ordinaryShadow, rasterDraws: completed.counters["shadow.packedCascadeDraws"] ?? 0 }));
     } else if (request.scenarioId === "transform-patch") {
       const renderer = runtime.renderer;
       const scene = runtime.scene;
@@ -285,7 +307,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       queueOverflowMask: counters.queueOverflowMask ?? 0,
       gpuCounterSchemaVersion: completed.gpuCounters.schemaVersion
     });
-    if (request.scenarioId !== "shadow-legacy-parity") {
+    if (request.scenarioId !== "shadow-scene-parity") {
       assertions.push(validationAssertion("candidate-work-produced", (counters.candidateInstances ?? 0) >= 6, "All fixed visibility candidates reached GPU work generation", counters.candidateInstances, ">= 6"));
       assertions.push(validationAssertion("visible-work-produced", (counters.visibleInstances ?? 0) > 0, "At least one instance remained visible", counters.visibleInstances, "> 0"));
       assertions.push(validationAssertion("raster-work-produced", (counters.hwTriangles ?? 0) > 0, "Hardware Visibility consumed triangle work", counters.hwTriangles, "> 0"));
@@ -309,11 +331,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     }
     const ownerCreation = runtime.renderer?.gpuOwnerCreationEvidence();
     evidence.ownerCreation = ownerCreation;
-    if (request.scenarioId !== "shadow-legacy-parity") {
-      assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Visibility and Shadow did not create the legacy material owner", ownerCreation?.legacy));
-      assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed Visibility, HZB and Shadow did not create legacy geometry, SceneDatabase, skinning, or MeshletDrawList owners", ownerCreation?.scene));
-      assertions.push(validationAssertion("render-shadow-owner", ownerCreation !== undefined && ownerCreation.shadow.featureCount === 1 && ownerCreation.shadow.atlasCount === 1 && ownerCreation.shadow.packedRasterPassCount === 1 && ownerCreation.shadow.legacyRasterPassCount === 0 && ownerCreation.shadow.packedWorkSetCount > 0 && ownerCreation.shadow.packedWorkBytes > 0, "Packed shadows are owned only by one Render-layer Shadow Feature", ownerCreation?.shadow));
-    }
+    assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Visibility and Shadow did not create the legacy material owner", ownerCreation?.legacy));
+    assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Visibility, HZB and Shadow did not create legacy geometry, SceneDatabase, skinning, or MeshletDrawList owners", ownerCreation?.scene));
+    assertions.push(validationAssertion("render-shadow-owner", ownerCreation !== undefined && ownerCreation.shadow.featureCount === 1 && ownerCreation.shadow.atlasCount === 1 && ownerCreation.shadow.packedRasterPassCount === 1 && ownerCreation.shadow.legacyRasterPassCount === 0 && ownerCreation.shadow.packedWorkSetCount > 0 && ownerCreation.shadow.packedWorkBytes > 0, "Shadows are owned only by one Render-layer Shadow Feature with the unified raster consumer", ownerCreation?.shadow));
     if (request.scenarioId === "shadow") {
       const splits = ownerCreation?.shadow.directionalCascadeSplits ?? [];
       const layouts = ownerCreation?.shadow.directionalCascadeLayouts ?? [];

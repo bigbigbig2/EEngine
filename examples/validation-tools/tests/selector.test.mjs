@@ -49,6 +49,7 @@ test("cross-cutting renderer changes stay within the lightweight registry set", 
     "visibility.basic",
     "visibility.shadow",
     "visibility.debug",
-    "surface.transparent"
+    "surface.transparent",
+    "surface.scene-adapter"
   ]);
 });

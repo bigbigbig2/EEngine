@@ -1,7 +1,7 @@
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GPUSceneEnvironmentContext } from "../../gpu/GPUSceneEnvironmentContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { Scene } from "../../scene/Scene.js";
 import {
   ShadowFeature,
@@ -66,7 +66,7 @@ export class ShadowFeatureManager {
 
   releasePackedScene(
     scene: Scene,
-    runtime: PackedSceneRuntime,
+    runtime: GpuRenderWorldRuntime,
     command: ShadeGPUCommandContext
   ): void {
     this.features.get(scene)?.releasePackedScene(runtime, command);

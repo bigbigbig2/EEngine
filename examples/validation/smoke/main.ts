@@ -118,7 +118,7 @@ async function initialize(): Promise<void> {
 async function runScenario(
   request: ValidationScenarioRequest
 ): Promise<ValidationScenarioResult> {
-  if (!["basic", "legacy"].includes(request.scenarioId)) {
+  if (!["basic", "scene-adapter", "scene-resync"].includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown smoke scenario '${request.scenarioId}'`));
   }
   if (renderer === null || scene === null || camera === null) {
@@ -130,16 +130,27 @@ async function runScenario(
   state.start(request.runId, request.scenarioId);
   showStatus();
   try {
-    const legacyMode = request.scenarioId === "legacy";
-    if (legacyMode) {
+    const ordinarySceneMode = request.scenarioId === "scene-adapter";
+    const ordinaryResyncMode = request.scenarioId === "scene-resync";
+    const ordinaryMode = ordinarySceneMode || ordinaryResyncMode;
+    if (ordinaryMode) {
       cancelAnimationFrame(frameRequest);
       frameRequest = 0;
       await activeRenderer.releasePackedScene(scene);
-      const material = new StandardShadeMaterial();
-      material.diffuse_color.set(0.12, 0.62, 0.95, 1);
-      const mesh = Mesh.from(new BoxGeometry(2, 2, 2), material);
-      mesh.transform_local.position.set(0, 1, 0);
-      scene.addChild(mesh);
+      const ordinary = await createOrdinarySmokeScene();
+      scene = ordinary.scene;
+      await activeRenderer.uploadScene(ordinary.scene, ordinary.geometryAssets);
+      if (ordinarySceneMode) {
+        ordinary.cube.transform_local.position.set(0.75, 1.06, 0);
+        ordinary.cube.material = ordinary.groundMaterial;
+      } else {
+        const added = Mesh.from(ordinary.cubeGeometry, ordinary.groundMaterial);
+        added.transform_local.position.set(-2.5, 0.5, 0);
+        ordinary.scene.add(added);
+        await activeRenderer.resyncScene(ordinary.scene, ordinary.geometryAssets);
+        ordinary.scene.remove(added);
+        await activeRenderer.resyncScene(ordinary.scene, ordinary.geometryAssets);
+      }
       startFrameLoop();
     }
     const counterPromise = waitForCompletedGpuCounters(activeRenderer.profiler, startedFrame);
@@ -158,6 +169,7 @@ async function runScenario(
     const diagnostics = validationDiagnostics(activeRenderer.profiler.diagnostics);
     const residency = activeRenderer.geometryAssetResidencyEvidence();
     const sceneEvidence = activeRenderer.gpuSceneEvidence();
+    const renderWorldEvidence = activeRenderer.gpuRenderWorldEvidence();
     const ownerCreation = activeRenderer.gpuOwnerCreationEvidence();
     const forbiddenLegacyUploads = legacySceneUploadLabels(stableProfile.uploads.labels);
     const temporal = activeRenderer.temporalEvidence();
@@ -190,19 +202,15 @@ async function runScenario(
       validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0),
       validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics)
     ];
-    if (legacyMode) {
-      assertions.push(validationAssertion(
-        "legacy-geometry-branch-active",
-        ownerCreation.scene.environmentContextCount === 1 &&
-          ownerCreation.scene.legacyGeometryContextCount === 1 &&
-          ownerCreation.scene.legacySceneDatabaseCount === 1 &&
-          ownerCreation.scene.legacySkinningContextCount === 1 &&
-          ownerCreation.scene.legacyMeshletDrawListCreated &&
-          ownerCreation.legacy.geometryTableCreated &&
-          ownerCreation.legacy.materialRegistryCreated,
-        "The ordinary Scene retained its isolated legacy geometry branch",
-        { scene: ownerCreation.scene, legacy: ownerCreation.legacy }
-      ));
+    if (ordinaryMode) {
+      assertions.push(
+        validationAssertion("ordinary-scene-adapter-active", renderWorldEvidence.ordinarySceneAdapterCount === 1 && renderWorldEvidence.packedSourceCount === 0, "The ordinary Scene is registered through the authoritative GPU Render World", renderWorldEvidence),
+        validationAssertion("ordinary-scene-update-consumed", ordinarySceneMode ? renderWorldEvidence.ordinaryScenePatchCount >= 1 && sceneEvidence.patchedTransformCount >= 1 && sceneEvidence.patchedMaterialCount >= 1 : sceneEvidence.bulkInstantiateCount >= 4 && sceneEvidence.releaseCount >= 3 && sceneEvidence.activeInstanceCount === 2, ordinarySceneMode ? "SceneChangeSet transform/material deltas reached the compact GPU Instance table" : "Explicit full resync committed add/remove replacements and retained the final active set", { renderWorldEvidence, sceneEvidence }),
+        validationAssertion("ordinary-scene-unified-consumers", (counters.hwTriangles ?? 0) > 0 && (counters.shadedPixels ?? 0) > 0, "The ordinary Scene reached the shared VisibilityKey and Surface consumers", { hwTriangles: counters.hwTriangles ?? 0, shadedPixels: counters.shadedPixels ?? 0 }),
+        validationAssertion("ordinary-scene-no-legacy-material", !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "The ordinary Scene did not create legacy material owners", ownerCreation.legacy),
+        validationAssertion("ordinary-scene-no-legacy-geometry", packedFrameHasNoLegacyGeometryOwners(ownerCreation), "The ordinary Scene did not create legacy SceneDatabase, geometry, skinning or draw-list owners", ownerCreation.scene),
+        validationAssertion("ordinary-scene-stable-upload-absent", forbiddenLegacyUploads.length === 0 && (stableProfile.counters["runtime.scenePrepareCount"] ?? 0) === 0, "A stable ordinary Scene frame scanned or uploaded no scene data", { forbiddenLegacyUploads, scenePrepareCount: stableProfile.counters["runtime.scenePrepareCount"] ?? 0, uploads: stableProfile.uploads }, { forbiddenLegacyUploads: [], scenePrepareCount: 0 })
+      );
     } else {
       assertions.push(
         validationAssertion("packed-assets-resident", residency.residentAssetCount >= 2, "Cube and ground assets are resident", residency.residentAssetCount, ">= 2"),
@@ -226,6 +234,7 @@ async function runScenario(
       evidence: {
         residentAssetCount: residency.residentAssetCount,
         activeInstanceCount: sceneEvidence.activeInstanceCount,
+        renderWorldEvidence,
         hwTriangles: counters.hwTriangles ?? 0,
         shadedPixels: counters.shadedPixels ?? 0,
         queueOverflowMask: counters.queueOverflowMask ?? 0,
@@ -319,6 +328,47 @@ async function createSmokeSceneSource(): Promise<PackedSceneSource> {
     boundsMax: new Float32Array([1, 2.06, 1, 6, 0, 6]),
     flags: new Uint32Array([0, 0]),
     debugIds: new Uint32Array([1, 2])
+  };
+}
+
+async function createOrdinarySmokeScene() {
+  const ordinaryScene = new Scene();
+  const light = new DirectionalLight();
+  light.intensity = 2.8;
+  light.forward = [-0.45, -0.8, -0.35];
+  light.casts_shadow = false;
+  const cubeGeometry = new BoxGeometry(2, 2, 2);
+  const groundGeometry = new BoxGeometry(12, 0.12, 12);
+  const cubeMaterial = new StandardShadeMaterial();
+  cubeMaterial.diffuse_color.set(0.1, 0.42, 0.95, 1);
+  cubeMaterial.roughness_factor = 0.34;
+  const groundMaterial = new StandardShadeMaterial();
+  groundMaterial.diffuse_color.set(0.18, 0.2, 0.24, 1);
+  groundMaterial.roughness_factor = 0.9;
+  const cube = Mesh.from(cubeGeometry, cubeMaterial);
+  cube.transform_local.position.set(0, 1.06, 0);
+  const ground = Mesh.from(groundGeometry, groundMaterial);
+  ground.transform_local.position.set(0, -0.06, 0);
+  ordinaryScene.add([cube, ground, light]);
+
+  const recipe = createGeometryCookRecipe();
+  const cubeAsset = (await cookGeometryAssetPackage(
+    buildBoxSourceGeometry(2, 2, 2),
+    recipe
+  )).asset;
+  const groundAsset = (await cookGeometryAssetPackage(
+    buildBoxSourceGeometry(12, 0.12, 12),
+    recipe
+  )).asset;
+  return {
+    scene: ordinaryScene,
+    cube,
+    cubeGeometry,
+    groundMaterial,
+    geometryAssets: [
+      { geometry: cubeGeometry, asset: cubeAsset },
+      { geometry: groundGeometry, asset: groundAsset }
+    ]
   };
 }
 

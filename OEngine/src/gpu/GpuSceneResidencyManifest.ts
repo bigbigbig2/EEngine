@@ -1,7 +1,7 @@
 import type { GeometryAssetPackage } from "../assets/GeometryAssetPackage.js";
 import { computeIndexedPackedHierarchyWorkCapacity } from "../geometry/GeometryHierarchy.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
-import type { PackedSceneSource } from "./GpuPackedSceneRegistry.js";
+import type { PackedSceneSource } from "./GpuRenderWorld.js";
 import { visibilityRasterWorkBufferByteLength } from "./GpuVisibilityKeyAbi.js";
 
 export const SCENE_RESIDENCY_MANIFEST_SCHEMA_VERSION = 1;

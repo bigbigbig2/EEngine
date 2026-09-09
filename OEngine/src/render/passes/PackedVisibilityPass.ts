@@ -5,7 +5,7 @@ import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js"
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import {
@@ -147,7 +147,7 @@ const HIERARCHY_RASTER_PIPELINE: CachedRenderPipelineDescriptor = {
 };
 
 export interface PackedVisibilityPrepareJob {
-  readonly runtime: PackedSceneRuntime;
+  readonly runtime: GpuRenderWorldRuntime;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
   readonly countersEnabled: boolean;
@@ -257,13 +257,13 @@ export class PackedVisibilityPass {
   lastPreparation: Readonly<PackedVisibilityPreparationEvidence> | null = null;
   private readonly hierarchyGenerator: PackedVisibilityHierarchyGenerator;
   private readonly exactFilter: PackedVisibilityExactFilter;
-  private readonly hierarchyPrepared = new Map<PackedSceneRuntime, VisibilityWorkSet>();
+  private readonly hierarchyPrepared = new Map<GpuRenderWorldRuntime, VisibilityWorkSet>();
   private readonly rasterBindings = new WeakMap<
     VisibilityWorkSet,
     Readonly<{ camera: GPUBuffer; opaqueGroup: GPUBindGroup; maskGroup: GPUBindGroup }>
   >();
   private readonly debugBindings = new Map<
-    PackedSceneRuntime,
+    GpuRenderWorldRuntime,
     PackedVisibilityDebugBindings
   >();
 
@@ -344,7 +344,7 @@ export class PackedVisibilityPass {
   }
 
   /** Retires all prepared hierarchy bindings for a Packed Scene in queue order. */
-  release(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {
+  release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
     const workSet = this.hierarchyPrepared.get(runtime);
     this.debugBindings.delete(runtime);
     if (workSet === undefined) return;
@@ -586,7 +586,7 @@ export class PackedVisibilityPass {
   }
 
   private requireDebugBindings(
-    runtime: PackedSceneRuntime
+    runtime: GpuRenderWorldRuntime
   ): PackedVisibilityDebugBindings {
     const bindings = this.debugBindings.get(runtime);
     if (bindings === undefined) {

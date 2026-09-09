@@ -4,7 +4,7 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
   GPU_SURFACE_BYTES_PER_PIXEL,
@@ -148,7 +148,7 @@ function materialKernelPipeline(
 }
 
 export interface PackedMaterialResolveJob {
-  readonly runtime: PackedSceneRuntime;
+  readonly runtime: GpuRenderWorldRuntime;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
   readonly width: number;

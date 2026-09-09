@@ -20,15 +20,18 @@ export function resolveFrameSceneOwners<
 >(
   scene: Scene,
   packedScenes: Readonly<{ runtime(scene: Scene): TPacked | null }> | undefined,
-  environments: Readonly<{ obtain(scene: Scene): TEnvironment }>,
-  legacyScenes: Readonly<{ obtain(scene: Scene): TLegacy }>
+  environments: Readonly<{ obtain(scene: Scene): TEnvironment }>
 ): ResolvedFrameSceneOwners<TEnvironment, TPacked, TLegacy> {
   const packed = packedScenes?.runtime(scene) ?? null;
+  if (packed === null) {
+    throw new Error(
+      `Scene ${scene.id ?? "<unknown>"} has no GPU Render World registration; ` +
+      "call uploadScene() with cooked geometry packages before render()"
+    );
+  }
   const environment = environments.obtain(scene);
   return Object.freeze({
     environment,
-    geometry: packed === null
-      ? Object.freeze({ kind: "legacy" as const, context: legacyScenes.obtain(scene) })
-      : Object.freeze({ kind: "packed" as const, runtime: packed })
+    geometry: Object.freeze({ kind: "packed" as const, runtime: packed })
   });
 }

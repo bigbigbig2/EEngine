@@ -73,7 +73,7 @@ export interface SurfaceFrame {
   readonly emissive: ResourceId;
   /** 未启用时域功能时可以没有 velocity；消费者必须显式声明需要它。 */
   readonly velocity: ResourceId | null;
-  /** 普通 Scene legacy 路径可能没有 Surface metadata。 */
+  /** Production Render World always publishes this; nullable until Step 7 removes dead legacy graph code. */
   readonly metadata: ResourceId | null;
   readonly domain: TextureDomain<"internal-full">;
 }

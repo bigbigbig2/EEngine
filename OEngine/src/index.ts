@@ -101,15 +101,22 @@ export type {
   InstanceTransformPatch
 } from "./gpu/GpuScene.js";
 export { INSTANCE_SOURCE_FLAGS } from "./gpu/GpuScene.js";
-export { createInstanceSourceFromScene } from "./gpu/GpuSceneAdapter.js";
-export type { SceneInstanceAdapterOptions } from "./gpu/GpuSceneAdapter.js";
+export {
+  createInstanceSourceFromScene,
+  createPackedSceneSourceFromScene
+} from "./gpu/GpuSceneAdapter.js";
 export type {
-  PackedSceneEvidence,
-  PackedSceneHandle,
+  AdaptedSceneSource,
+  SceneGeometryAssetBinding,
+  SceneInstanceAdapterOptions
+} from "./gpu/GpuSceneAdapter.js";
+export type {
+  GpuRenderWorldEvidence,
+  GpuRenderWorldHandle,
   PackedSceneMaterialPatch,
   PackedScenePatchBatch,
   PackedSceneSource
-} from "./gpu/GpuPackedSceneRegistry.js";
+} from "./gpu/GpuRenderWorld.js";
 export type { GraphicsOwnerCreationEvidence } from "./gpu/GraphicsContext.js";
 export {
   projectedGeometryErrorPixels,

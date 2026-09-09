@@ -14,6 +14,7 @@ import {
   materialKernelClass
 } from "./GpuMaterialKernelAbi.js";
 import type { Scene } from "../scene/Scene.js";
+import type { Mesh } from "../scene/Mesh.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { SceneResidencyManifest } from "./GpuSceneResidencyManifest.js";
 import {
@@ -31,10 +32,10 @@ import type {
 } from "./GpuScene.js";
 import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 
-declare const PACKED_SCENE_HANDLE_BRAND: unique symbol;
+declare const GPU_RENDER_WORLD_HANDLE_BRAND: unique symbol;
 
-export interface PackedSceneHandle {
-  readonly [PACKED_SCENE_HANDLE_BRAND]: true;
+export interface GpuRenderWorldHandle {
+  readonly [GPU_RENDER_WORLD_HANDLE_BRAND]: true;
 }
 
 /** Device-independent input for one static/mostly-static Packed Scene set. */
@@ -65,9 +66,14 @@ export interface PackedScenePatchBatch {
   readonly materials?: PackedSceneMaterialPatch;
 }
 
-export interface PackedSceneEvidence {
-  readonly schemaVersion: 2;
+export interface GpuRenderWorldEvidence {
+  readonly schemaVersion: 3;
   readonly sceneCount: number;
+  readonly packedSourceCount: number;
+  readonly ordinarySceneAdapterCount: number;
+  readonly ordinaryScenePatchCount: number;
+  readonly ordinarySceneStableFrameCount: number;
+  readonly ordinarySceneFullResyncRequiredCount: number;
   readonly instanceCount: number;
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
@@ -76,9 +82,10 @@ export interface PackedSceneEvidence {
   readonly privateSubmitCount: 0;
 }
 
-export interface PackedSceneRuntime {
-  readonly handle: PackedSceneHandle;
+export interface GpuRenderWorldRuntime {
+  readonly handle: GpuRenderWorldHandle;
   readonly scene: Scene;
+  readonly sourceKind: "packed" | "ordinary-scene";
   readonly assetHandles: readonly AssetHandle[];
   readonly instanceHandle: InstanceSetHandle;
   readonly materials: readonly StandardShadeMaterial[];
@@ -110,19 +117,30 @@ interface PackedSceneClassificationState {
   transparentInstanceCount: number;
 }
 
-const HANDLE_RUNTIME = new WeakMap<object, PackedSceneRuntime>();
+interface OrdinarySceneAdapterState {
+  readonly meshes: readonly Mesh[];
+  readonly instanceIndexByMesh: ReadonlyMap<Mesh, number>;
+  readonly materialIndexByMaterial: ReadonlyMap<StandardShadeMaterial, number>;
+  lastRevision: number;
+}
+
+const HANDLE_RUNTIME = new WeakMap<object, GpuRenderWorldRuntime>();
 
 /**
  * Associates a CPU Scene's lights/environment with one compact Geometry +
  * Instance set. Residency remains uniquely owned by GpuAssetStore and
  * GpuScene; frame-local hierarchy work is owned by HierarchicalWorkGenerator.
  */
-export class GpuPackedSceneRegistry {
+export class GpuRenderWorld {
   private readonly accountedCounterSinks = new Map<GPUBuffer, AccountingResourceHandle>();
-  private readonly byScene = new Map<Scene, PackedSceneRuntime>();
+  private readonly byScene = new Map<Scene, GpuRenderWorldRuntime>();
   private readonly pendingPatches = new Map<Scene, PendingPatch>();
   private readonly releasingScenes = new Set<Scene>();
   private readonly classificationByScene = new Map<Scene, PackedSceneClassificationState>();
+  private readonly ordinaryAdapters = new Map<Scene, OrdinarySceneAdapterState>();
+  private ordinaryScenePatchCount = 0;
+  private ordinarySceneStableFrameCount = 0;
+  private ordinarySceneFullResyncRequiredCount = 0;
 
   constructor(private readonly graphics: GraphicsContext) {}
 
@@ -130,15 +148,16 @@ export class GpuPackedSceneRegistry {
     scene: Scene,
     manifest: SceneResidencyManifest,
     assetHandles: readonly AssetHandle[],
-    command: ShadeGPUCommandContext
-  ): PackedSceneHandle {
+    command: ShadeGPUCommandContext,
+    ordinaryMeshes?: readonly Mesh[]
+  ): GpuRenderWorldHandle {
     if (this.byScene.has(scene)) {
-      throw new Error("Scene already has a Packed Scene registration");
+      throw new Error("Scene already has a GPU Render World registration");
     }
     const source = manifest.source;
     if (manifest.packages.length !== source.geometries.length ||
       manifest.materials.length !== source.materials.length) {
-      throw new Error("Packed Scene manifest dictionaries do not match its source");
+      throw new Error("GPU Render World manifest dictionaries do not match its source");
     }
     validateSource(source, assetHandles);
     const hierarchyCapacity = computeIndexedPackedHierarchyWorkCapacity(
@@ -191,14 +210,15 @@ export class GpuPackedSceneRegistry {
     const instanceHandle = this.graphics.gpu_scene.instantiate(instanceSource, command);
     const range = this.graphics.gpu_scene.range(instanceHandle);
     const counterSink = this.createCounterSink({
-      label: "PackedScene/disabled-counter-sink",
+      label: "GpuRenderWorld/disabled-counter-sink",
       size: GPU_COUNTER_BYTE_SIZE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
-    const handle = Object.freeze({}) as PackedSceneHandle;
-    const runtime: PackedSceneRuntime = Object.freeze({
+    const handle = Object.freeze({}) as GpuRenderWorldHandle;
+    const runtime: GpuRenderWorldRuntime = Object.freeze({
       handle,
       scene,
+      sourceKind: ordinaryMeshes === undefined ? "packed" : "ordinary-scene",
       assetHandles: geometryHandles,
       instanceHandle,
       materials: Object.freeze([...source.materials]),
@@ -228,6 +248,16 @@ export class GpuPackedSceneRegistry {
       this.byScene.set(scene, runtime);
       this.classificationByScene.set(scene, classification);
       HANDLE_RUNTIME.set(handle as object, runtime);
+      if (ordinaryMeshes !== undefined) {
+        this.ordinaryAdapters.set(
+          scene,
+          createOrdinarySceneAdapterState(
+            ordinaryMeshes,
+            source.materials,
+            scene.change_revision
+          )
+        );
+      }
     });
     command.onAborted.addOne(() => {
       this.destroyCounterSink(counterSink);
@@ -235,7 +265,21 @@ export class GpuPackedSceneRegistry {
     return handle;
   }
 
-  runtime(scene: Scene): PackedSceneRuntime | null {
+  /** Registers an ordinary Scene adapter in the same GPU Render World owner. */
+  stageOrdinaryScene(
+    scene: Scene,
+    manifest: SceneResidencyManifest,
+    assetHandles: readonly AssetHandle[],
+    meshes: readonly Mesh[],
+    command: ShadeGPUCommandContext
+  ): GpuRenderWorldHandle {
+    if (meshes.length !== manifest.source.count) {
+      throw new RangeError("Ordinary Scene adapter mesh count does not match its source");
+    }
+    return this.stage(scene, manifest, assetHandles, command, meshes);
+  }
+
+  runtime(scene: Scene): GpuRenderWorldRuntime | null {
     return this.byScene.get(scene) ?? null;
   }
 
@@ -244,7 +288,7 @@ export class GpuPackedSceneRegistry {
   }
 
   /**
-   * Detaches one Packed Scene and releases its Instance set in the caller's
+   * Detaches one render-world runtime and releases its Instance set in the caller's
    * explicit tool command. Geometry handles remain owned by the caller until
    * the command commits, so Renderer can release them through GpuAssetStore.
    */
@@ -254,13 +298,13 @@ export class GpuPackedSceneRegistry {
   ): readonly AssetHandle[] {
     const runtime = this.byScene.get(scene);
     if (runtime === undefined) {
-      throw new Error("Scene has no Packed Scene registration");
+      throw new Error("Scene has no GPU Render World registration");
     }
     if (this.releasingScenes.has(scene)) {
-      throw new Error("Packed Scene release is already pending");
+      throw new Error("GPU Render World release is already pending");
     }
     if (this.pendingPatches.has(scene)) {
-      throw new Error("Packed Scene must not be released with a queued patch");
+      throw new Error("GPU Render World runtime must not be released with a queued patch");
     }
     this.releasingScenes.add(scene);
     try {
@@ -274,6 +318,7 @@ export class GpuPackedSceneRegistry {
     command.onFinished.addOne(() => {
       this.byScene.delete(scene);
       this.classificationByScene.delete(scene);
+      this.ordinaryAdapters.delete(scene);
       HANDLE_RUNTIME.delete(runtime.handle as object);
       this.releasingScenes.delete(scene);
       const destroy = (): void => {
@@ -286,7 +331,11 @@ export class GpuPackedSceneRegistry {
   }
 
   queuePatch(scene: Scene, batch: PackedScenePatchBatch): void {
-    if (!this.byScene.has(scene)) throw new Error("Scene has no Packed Scene registration");
+    const runtime = this.byScene.get(scene);
+    if (runtime === undefined) throw new Error("Scene has no GPU Render World registration");
+    if (runtime.sourceKind !== "packed") {
+      throw new Error("Ordinary Scene adapters are patched only through SceneChangeSet");
+    }
     this.pendingPatches.set(scene, { batch });
   }
 
@@ -295,7 +344,9 @@ export class GpuPackedSceneRegistry {
     command: ShadeGPUCommandContext
   ): InstancePatchResult | null {
     const pending = this.pendingPatches.get(scene);
-    if (pending === undefined) return null;
+    if (pending === undefined) {
+      return this.encodeOrdinarySceneChanges(scene, command);
+    }
     const runtime = this.byScene.get(scene)!;
     const batch = toInstancePatchBatch(
       pending.batch,
@@ -320,6 +371,83 @@ export class GpuPackedSceneRegistry {
     return result;
   }
 
+  private encodeOrdinarySceneChanges(
+    scene: Scene,
+    command: ShadeGPUCommandContext
+  ): InstancePatchResult | null {
+    const adapter = this.ordinaryAdapters.get(scene);
+    if (adapter === undefined) return null;
+    const snapshot = scene.changesSince(adapter.lastRevision);
+    if (snapshot.fullResyncRequired || snapshot.instanceStructureChanged) {
+      this.ordinarySceneFullResyncRequiredCount++;
+      throw new Error(
+        `Ordinary Scene ${scene.id} requires explicit resyncScene() after a structural change`
+      );
+    }
+
+    const transformIndices: number[] = [];
+    const transformValues: number[] = [];
+    for (const change of snapshot.transformedNodes) {
+      const mesh = change.node as Mesh;
+      const index = adapter.instanceIndexByMesh.get(mesh);
+      if (index === undefined) continue;
+      transformIndices.push(index);
+      transformValues.push(...mesh.transform_global.matrix);
+    }
+
+    const materialIndices: number[] = [];
+    const materialDictionaryIndices: number[] = [];
+    for (const mesh of snapshot.changedMeshMaterials) {
+      const index = adapter.instanceIndexByMesh.get(mesh);
+      if (index === undefined) continue;
+      const material = mesh.material as StandardShadeMaterial;
+      const dictionaryIndex = adapter.materialIndexByMaterial.get(material);
+      if (dictionaryIndex === undefined) {
+        this.ordinarySceneFullResyncRequiredCount++;
+        throw new Error(
+          `Ordinary Scene ${scene.id} requires explicit resyncScene() for a new material`
+        );
+      }
+      materialIndices.push(index);
+      materialDictionaryIndices.push(dictionaryIndex);
+    }
+
+    if (transformIndices.length === 0 && materialIndices.length === 0) {
+      adapter.lastRevision = snapshot.revision;
+      this.ordinarySceneStableFrameCount++;
+      return null;
+    }
+
+    const runtime = this.byScene.get(scene)!;
+    const batch: PackedScenePatchBatch = {
+      frameId: snapshot.revision,
+      transforms: transformIndices.length === 0 ? undefined : {
+        indices: Uint32Array.from(transformIndices),
+        transforms: Float32Array.from(transformValues)
+      },
+      materials: materialIndices.length === 0 ? undefined : {
+        indices: Uint32Array.from(materialIndices),
+        materialIndices: Uint32Array.from(materialDictionaryIndices)
+      }
+    };
+    const result = this.graphics.gpu_scene.patch(
+      runtime.instanceHandle,
+      toInstancePatchBatch(batch, runtime.materialSlots, runtime.materials),
+      command
+    );
+    const rollbackClassification = applyMaterialClassificationPatch(
+      batch.materials,
+      this.classificationByScene.get(scene)!,
+      runtime.materials
+    );
+    command.onFinished.addOne(() => {
+      adapter.lastRevision = snapshot.revision;
+      this.ordinaryScenePatchCount++;
+    });
+    command.onAborted.addOne(rollbackClassification);
+    return result;
+  }
+
   bindings(): { assets: GpuAssetBindings; scene: GpuSceneBindings } {
     return {
       assets: this.graphics.assets.bindings(),
@@ -327,7 +455,7 @@ export class GpuPackedSceneRegistry {
     };
   }
 
-  evidence(): PackedSceneEvidence {
+  evidence(): GpuRenderWorldEvidence {
     let instanceCount = 0;
     let hierarchyTraversalCapacity = 0;
     let hierarchyVisibleClusterCapacity = 0;
@@ -339,8 +467,13 @@ export class GpuPackedSceneRegistry {
       hierarchyRasterWorkCapacity += runtime.hierarchyRasterWorkCapacity;
     }
     return Object.freeze({
-      schemaVersion: 2,
+      schemaVersion: 3,
       sceneCount: this.byScene.size,
+      packedSourceCount: this.byScene.size - this.ordinaryAdapters.size,
+      ordinarySceneAdapterCount: this.ordinaryAdapters.size,
+      ordinaryScenePatchCount: this.ordinaryScenePatchCount,
+      ordinarySceneStableFrameCount: this.ordinarySceneStableFrameCount,
+      ordinarySceneFullResyncRequiredCount: this.ordinarySceneFullResyncRequiredCount,
       instanceCount,
       hierarchyTraversalCapacity,
       hierarchyVisibleClusterCapacity,
@@ -358,6 +491,7 @@ export class GpuPackedSceneRegistry {
     this.pendingPatches.clear();
     this.releasingScenes.clear();
     this.classificationByScene.clear();
+    this.ordinaryAdapters.clear();
   }
 
   private createCounterSink(descriptor: GPUBufferDescriptor): GPUBuffer {
@@ -367,7 +501,7 @@ export class GpuPackedSceneRegistry {
       this.accountedCounterSinks.set(buffer, accounting.created({
         kind: "buffer",
         category: "resident",
-        owner: "GpuPackedSceneRegistry",
+        owner: "GpuRenderWorld",
         bytes: descriptor.size,
         label: descriptor.label
       }));
@@ -394,6 +528,31 @@ function countTransparentInstances(
     if (isTransparentMaterial(materials[materialIndices[index]!]!)) count++;
   }
   return count;
+}
+
+function createOrdinarySceneAdapterState(
+  meshes: readonly Mesh[],
+  materials: readonly StandardShadeMaterial[],
+  lastRevision: number
+): OrdinarySceneAdapterState {
+  const instanceIndexByMesh = new Map<Mesh, number>();
+  for (let index = 0; index < meshes.length; index++) {
+    const mesh = meshes[index]!;
+    if (instanceIndexByMesh.has(mesh)) {
+      throw new Error("Ordinary Scene adapter contains a duplicate Mesh");
+    }
+    instanceIndexByMesh.set(mesh, index);
+  }
+  const materialIndexByMaterial = new Map<StandardShadeMaterial, number>();
+  for (let index = 0; index < materials.length; index++) {
+    materialIndexByMaterial.set(materials[index]!, index);
+  }
+  return {
+    meshes: Object.freeze([...meshes]),
+    instanceIndexByMesh,
+    materialIndexByMaterial,
+    lastRevision
+  };
 }
 
 function countOpaqueKernelClasses(

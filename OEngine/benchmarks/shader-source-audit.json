@@ -31,6 +31,7 @@
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/AutomaticExposurePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -53,6 +54,7 @@
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/BloomPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -78,6 +80,7 @@
         "src/render/features/TransparencyFeature.ts",
         "src/render/passes/Brick4IndirectPass.ts",
         "src/render/passes/TransparentOitPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -101,6 +104,7 @@
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/ColorGradingPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -126,6 +130,7 @@
         "src/render/features/LightingFeature.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
@@ -177,6 +182,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -203,6 +209,7 @@
         "src/render/features/VisibilityFeature.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/VisibilityWorkSet.ts"
       ],
@@ -255,8 +262,8 @@
         "src/gpu/GPUMaterialContext.ts",
         "src/gpu/GpuMaterialStore.ts",
         "src/gpu/GpuPackedMaterialBindings.ts",
-        "src/gpu/GpuPackedSceneRegistry.ts",
         "src/gpu/GpuQueueEvidence.ts",
+        "src/gpu/GpuRenderWorld.ts",
         "src/gpu/GPUResidentMaterialContext.ts",
         "src/gpu/GpuScene.ts",
         "src/gpu/GpuSceneAdapter.ts",
@@ -348,6 +355,7 @@
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
@@ -407,6 +415,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -443,6 +452,7 @@
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/VisibilityWorkSet.ts"
       ],
@@ -480,6 +490,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -504,6 +515,7 @@
         "src/index.ts",
         "src/render/features/GIService.ts",
         "src/render/passes/IblSpecularPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
@@ -527,6 +539,7 @@
         "src/index.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/passes/LightClusterPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -554,6 +567,7 @@
         "src/render/passes/LightingPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/TransparentOitPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -659,6 +673,7 @@
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
@@ -726,6 +741,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -775,8 +791,8 @@
         "src/gpu/GPUMaterialContext.ts",
         "src/gpu/GpuMaterialStore.ts",
         "src/gpu/GpuPackedMaterialBindings.ts",
-        "src/gpu/GpuPackedSceneRegistry.ts",
         "src/gpu/GpuQueueEvidence.ts",
+        "src/gpu/GpuRenderWorld.ts",
         "src/gpu/GPUResidentMaterialContext.ts",
         "src/gpu/GpuScene.ts",
         "src/gpu/GpuSceneAdapter.ts",
@@ -868,6 +884,7 @@
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
@@ -922,8 +939,8 @@
         "src/gpu/GPUMaterialContext.ts",
         "src/gpu/GpuMaterialStore.ts",
         "src/gpu/GpuPackedMaterialBindings.ts",
-        "src/gpu/GpuPackedSceneRegistry.ts",
         "src/gpu/GpuQueueEvidence.ts",
+        "src/gpu/GpuRenderWorld.ts",
         "src/gpu/GPUResidentMaterialContext.ts",
         "src/gpu/GpuScene.ts",
         "src/gpu/GpuSceneAdapter.ts",
@@ -1015,6 +1032,7 @@
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
@@ -1048,6 +1066,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1076,6 +1095,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1104,6 +1124,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1132,6 +1153,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1161,6 +1183,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1193,6 +1216,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1225,6 +1249,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1273,6 +1298,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -1328,8 +1354,8 @@
         "src/gpu/GPUMaterialContext.ts",
         "src/gpu/GpuMaterialStore.ts",
         "src/gpu/GpuPackedMaterialBindings.ts",
-        "src/gpu/GpuPackedSceneRegistry.ts",
         "src/gpu/GpuQueueEvidence.ts",
+        "src/gpu/GpuRenderWorld.ts",
         "src/gpu/GPUResidentMaterialContext.ts",
         "src/gpu/GpuScene.ts",
         "src/gpu/GpuSceneAdapter.ts",
@@ -1421,6 +1447,7 @@
         "src/render/passes/VelocityPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
@@ -1448,6 +1475,7 @@
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/MotionBlurPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1469,6 +1497,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/NeuralSuperSamplingPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1490,6 +1519,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1512,6 +1542,7 @@
         "src/index.ts",
         "src/render/features/GIService.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
@@ -1541,6 +1572,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1564,6 +1596,7 @@
         "src/render/features/ShadowFeature.ts",
         "src/render/features/ShadowFeatureManager.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1589,6 +1622,7 @@
         "src/render/MaterialClassDepthProbe.ts",
         "src/render/passes/PackedMaterialClassDepthPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1612,6 +1646,7 @@
         "src/index.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1634,6 +1669,7 @@
         "src/index.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1656,6 +1692,7 @@
         "src/index.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1679,6 +1716,7 @@
         "src/render/features/VisibilityFeature.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1700,6 +1738,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/PathTracer.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1746,6 +1785,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -1793,6 +1833,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -1843,6 +1884,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -1891,6 +1933,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -1914,6 +1957,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/index.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1935,6 +1979,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/gpu/GPULightProbeVolumeRenderer.ts",
         "src/index.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -1981,6 +2026,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -2028,6 +2074,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -2080,6 +2127,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -2142,6 +2190,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -2196,6 +2245,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -2223,6 +2273,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2248,6 +2299,7 @@
         "src/render/features/ShadowFeatureManager.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/ShadowRasterPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2271,6 +2323,7 @@
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/SharpenPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2293,6 +2346,7 @@
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2315,6 +2369,7 @@
         "src/index.ts",
         "src/render/features/AOService.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2345,6 +2400,7 @@
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2369,6 +2425,7 @@
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2391,6 +2448,7 @@
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2413,6 +2471,7 @@
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2436,6 +2495,7 @@
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2458,6 +2518,7 @@
         "src/index.ts",
         "src/render/features/ReflectionService.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2480,6 +2541,7 @@
         "src/index.ts",
         "src/render/features/TemporalFeature.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2502,6 +2564,7 @@
         "src/index.ts",
         "src/render/features/TemporalFeature.ts",
         "src/render/passes/TemporalClassificationPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2524,6 +2587,7 @@
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/TonemapPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2546,6 +2610,7 @@
         "src/index.ts",
         "src/render/features/PostFeature.ts",
         "src/render/passes/TonemapPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2568,6 +2633,7 @@
         "src/index.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/passes/TransparentOitPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2591,6 +2657,7 @@
         "src/render/features/SurfaceFeature.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/VelocityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2612,6 +2679,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2642,6 +2710,7 @@
         "src/render/passes/ShadowRasterPass.ts",
         "src/render/passes/TransparentOitPass.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
@@ -2663,6 +2732,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/passes/VisibilityPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [

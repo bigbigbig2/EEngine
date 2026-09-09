@@ -5,7 +5,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
 import type { GpuPackedMaterialBindings } from "../../gpu/GpuPackedMaterialBindings.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
@@ -106,7 +106,7 @@ const COUNTER_GROUP: GPUBindGroupLayoutDescriptor = {
 };
 
 export interface PackedCsmShadowJob {
-  readonly runtime: PackedSceneRuntime;
+  readonly runtime: GpuRenderWorldRuntime;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
   readonly materials: GpuPackedMaterialBindings;
@@ -132,7 +132,7 @@ export class PackedCsmShadowPass {
   lastAtlasPixelsUpdated = 0;
   lastIndirectBytes = 0;
   private readonly generator: HierarchicalWorkGenerator;
-  private readonly prepared = new Map<PackedSceneRuntime, Map<OrthographicCamera, CacheEntry>>();
+  private readonly prepared = new Map<GpuRenderWorldRuntime, Map<OrthographicCamera, CacheEntry>>();
   private readonly counterLayout: GPUBindGroupLayout;
   private readonly counterPipeline: GPUComputePipeline;
 
@@ -227,7 +227,7 @@ export class PackedCsmShadowPass {
     this.lastIndirectBytes += 16;
   }
 
-  release(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {
+  release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
     const entries = this.prepared.get(runtime);
     if (entries === undefined) return;
     this.prepared.delete(runtime);

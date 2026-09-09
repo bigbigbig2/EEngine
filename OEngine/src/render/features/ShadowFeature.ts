@@ -22,7 +22,7 @@ import { GPUCameraState } from "../GPUCameraState.js";
 import { GPUViewContext } from "../ViewContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { GPUSceneContext } from "../../gpu/GPUSceneContext.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { MeshletDrawList } from "../../gpu/MeshletDrawList.js";
@@ -63,7 +63,7 @@ export type ShadowView = {
 export type ShadowGeometrySource =
   | Readonly<{
       readonly kind: "packed";
-      readonly runtime: PackedSceneRuntime;
+      readonly runtime: GpuRenderWorldRuntime;
       readonly assets: GpuAssetBindings;
       readonly scene: GpuSceneBindings;
       readonly counterBuffer: GPUBuffer | null;
@@ -984,7 +984,7 @@ export class ShadowFeature {
   }
 
   releasePackedScene(
-    runtime: PackedSceneRuntime,
+    runtime: GpuRenderWorldRuntime,
     command: ShadeGPUCommandContext
   ): void {
     this.packedRasterPass?.release(runtime, command);

@@ -1,4 +1,7 @@
 import {
+  BoxGeometry,
+  Mesh,
+  ShadeDrawSide,
   ShadeImage,
   ShadeDataType,
   ShadeTexture,
@@ -66,7 +69,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "transparent"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "transparent", "scene-adapter"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -78,7 +81,33 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "texture-ref-oracle") {
+    if (request.scenarioId === "scene-adapter") {
+      const renderer = runtime.renderer;
+      const scene = runtime.scene;
+      if (renderer === null || scene === null) throw new Error("Surface runtime is not initialized");
+      runtime.stop();
+      await renderer.releasePackedScene(scene);
+      const ordinary = await createOrdinarySurfaceScene(scene);
+      await renderer.uploadScene(scene, ordinary.geometryAssets);
+      renderer.configure({ features: { temporalAntiAliasing: true } });
+      ordinary.meshes[0]!.transform_local.position.set(-4.1, 1.2, 0);
+      ordinary.meshes[0]!.material = ordinary.materials[1]!;
+      runtime.start();
+      profile = await runtime.waitForCounters(startedFrame);
+      for (let attempt = 0; attempt < 8 && (
+        (profile.gpuCounters.values.transparentRasterWork ?? 0) === 0 ||
+        (profile.gpuCounters.values.temporalReactivePixels ?? 0) === 0
+      ); attempt++) {
+        profile = await runtime.waitForCounters(profile.frameIndex);
+      }
+      const renderWorld = renderer.gpuRenderWorldEvidence();
+      const gpuScene = renderer.gpuSceneEvidence();
+      evidence.renderWorld = renderWorld;
+      evidence.gpuScene = gpuScene;
+      assertions.push(validationAssertion("ordinary-scene-surface-adapter", renderWorld.ordinarySceneAdapterCount === 1 && renderWorld.packedSourceCount === 0 && renderWorld.ordinaryScenePatchCount >= 1, "The ordinary Scene adapter supplied the unified Surface pipeline and consumed its SceneChangeSet patch", renderWorld));
+      assertions.push(validationAssertion("ordinary-scene-material-classes", (profile.gpuCounters.values.alphaClusters ?? 0) > 0 && (profile.gpuCounters.values.transparentRasterWork ?? 0) > 0, "Ordinary alpha-tested and transparent instances entered the shared bounded raster work", { alphaClusters: profile.gpuCounters.values.alphaClusters ?? 0, transparentRasterWork: profile.gpuCounters.values.transparentRasterWork ?? 0 }, "> 0"));
+      assertions.push(validationAssertion("ordinary-scene-temporal-metadata", (profile.gpuCounters.values.transparentReactivePixels ?? 0) > 0 && (profile.gpuCounters.values.temporalReactivePixels ?? 0) > 0, "Ordinary Scene transparency published reactive metadata consumed by Temporal", { transparentReactivePixels: profile.gpuCounters.values.transparentReactivePixels ?? 0, temporalReactivePixels: profile.gpuCounters.values.temporalReactivePixels ?? 0 }, "> 0"));
+    } else if (request.scenarioId === "texture-ref-oracle") {
       const oracle = await runTextureRefOracle();
       Object.assign(evidence, oracle);
       assertions.push(validationAssertion(
@@ -144,6 +173,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "transparent") {
       assertions.push(validationAssertion("transparent-work-produced", (gpu.transparentRasterWork ?? 0) > 0 && (gpu.transparentTriangles ?? 0) > 0, "Packed transparency produced bounded raster work and triangle work", { rasterWork: gpu.transparentRasterWork ?? 0, triangles: gpu.transparentTriangles ?? 0 }, "> 0"));
       assertions.push(validationAssertion("transparent-queue-no-overflow", (gpu.transparentQueueOverflowMask ?? 0) === 0, "Packed transparency work did not overflow", gpu.transparentQueueOverflowMask, 0));
+    }
+    if (request.scenarioId === "scene-adapter") {
+      assertions.push(validationAssertion("ordinary-transparent-work-produced", (gpu.transparentRasterWork ?? 0) > 0 && (gpu.transparentTriangles ?? 0) > 0, "Ordinary Scene transparency used the shared bounded raster and MBOIT consumer", { rasterWork: gpu.transparentRasterWork ?? 0, triangles: gpu.transparentTriangles ?? 0 }, "> 0"));
     }
     assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Surface and Transparency did not create the legacy material owner", ownerCreation?.legacy));
     assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed Surface, patches and Transparency did not create legacy geometry, SceneDatabase, skinning, or MeshletDrawList owners", ownerCreation?.scene));
@@ -276,19 +308,50 @@ async function dispose(): Promise<void> {
 async function createSurfaceSource(): Promise<PackedSceneSource> {
   const red = solidMaterial([0.9, 0.08, 0.06, 1], 0.7, 0);
   const metal = solidMaterial([0.72, 0.76, 0.82, 1], 0.18, 1);
+  metal.draw_side = ShadeDrawSide.Double;
   const textured = solidMaterial([1, 1, 1, 1], 0.5, 0);
   textured.texture_albedo = createCheckerTexture();
   const fallback = solidMaterial([0.85, 0.2, 0.85, 1], 0.8, 0);
   fallback.texture_albedo = new ShadeTexture();
   const transparent = solidMaterial([0.1, 0.7, 0.95, 0.5], 0.25, 0);
   transparent.transparency_mode = ShadeTransparencyMode.Transparent;
+  const alphaTested = solidMaterial([0.85, 0.8, 0.2, 1], 0.55, 0);
+  alphaTested.transparency_mode = ShadeTransparencyMode.AlphaTested;
+  alphaTested.texture_albedo = createCheckerTexture();
   return createPackedBoxScene([
     { size: [2.4, 2.4, 2.4], position: [-4.5, 1.2, 0], materialIndex: 0, debugId: 1 },
     { size: [2.4, 2.4, 2.4], position: [-1.5, 1.2, 0], materialIndex: 1, debugId: 2 },
     { size: [2.4, 2.4, 2.4], position: [1.5, 1.2, 0], materialIndex: 2, debugId: 3 },
     { size: [2.4, 2.4, 2.4], position: [4.5, 1.2, 0], materialIndex: 3, debugId: 4 },
-    { size: [1.8, 1.8, 1.8], position: [0, 1.2, 2.2], materialIndex: 4, debugId: 5 }
-  ], [red, metal, textured, fallback, transparent]);
+    { size: [1.8, 1.8, 1.8], position: [0, 1.2, 2.2], materialIndex: 4, debugId: 5 },
+    { size: [1.8, 1.8, 1.8], position: [0, 1.2, -2.2], materialIndex: 5, debugId: 6 }
+  ], [red, metal, textured, fallback, transparent, alphaTested]);
+}
+
+async function createOrdinarySurfaceScene(scene: NonNullable<typeof runtime.scene>) {
+  const source = await createSurfaceSource();
+  const sizes: readonly (readonly [number, number, number])[] = [
+    [2.4, 2.4, 2.4],
+    [2.4, 2.4, 2.4],
+    [2.4, 2.4, 2.4],
+    [2.4, 2.4, 2.4],
+    [1.8, 1.8, 1.8],
+    [1.8, 1.8, 1.8]
+  ];
+  const meshes: Mesh[] = [];
+  const geometryAssets = sizes.map((size, index) => {
+    const geometry = new BoxGeometry(size[0], size[1], size[2]);
+    const materialIndex = source.materialIndices[index]!;
+    const mesh = Mesh.from(
+      geometry,
+      source.materials[materialIndex]!,
+      source.currentTransforms.subarray(index * 16, (index + 1) * 16)
+    );
+    meshes.push(mesh);
+    scene.add(mesh);
+    return { geometry, asset: source.geometries[index]! };
+  });
+  return { meshes, materials: source.materials, geometryAssets };
 }
 
 function createCheckerTexture(): ShadeTexture {

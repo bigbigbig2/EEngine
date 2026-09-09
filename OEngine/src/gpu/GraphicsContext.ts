@@ -35,7 +35,7 @@ import {
 } from "./GpuQueueEvidence.js";
 import { GpuAssetStore } from "./GpuAssetStore.js";
 import { GpuScene } from "./GpuScene.js";
-import { GpuPackedSceneRegistry } from "./GpuPackedSceneRegistry.js";
+import { GpuRenderWorld } from "./GpuRenderWorld.js";
 import { GpuMaterialStore } from "./GpuMaterialStore.js";
 import {
   TextureResidency,
@@ -103,7 +103,7 @@ export class GraphicsContext {
   readonly resource_accounting = new ResourceAccounting();
   private assetStoreValue: GpuAssetStore | undefined;
   private gpuSceneValue: GpuScene | undefined;
-  private packedScenesValue: GpuPackedSceneRegistry | undefined;
+  private renderWorldValue: GpuRenderWorld | undefined;
   private materialStoreValue: GpuMaterialStore | undefined;
   private textureResidencyValue: TextureResidency | undefined;
   private readonly textureMaxResolution: number;
@@ -224,7 +224,7 @@ export class GraphicsContext {
       packed: Object.freeze({
         assetStoreCreated: this.assetStoreValue !== undefined,
         instanceTableCreated: this.gpuSceneValue !== undefined,
-        sceneRegistryCreated: this.packedScenesValue !== undefined,
+        sceneRegistryCreated: this.renderWorldValue !== undefined,
         materialStoreCreated: this.materialStoreValue !== undefined,
         textureResidencyCreated: this.textureResidencyValue !== undefined,
         baseTextureBankCreated: this.textureResidencyValue !== undefined,
@@ -269,13 +269,13 @@ export class GraphicsContext {
   }
 
   /** Lazily creates the Scene → Packed Geometry/Instance association owner. */
-  get packed_scenes(): GpuPackedSceneRegistry {
-    this.packedScenesValue ??= new GpuPackedSceneRegistry(this);
-    return this.packedScenesValue;
+  get render_world(): GpuRenderWorld {
+    this.renderWorldValue ??= new GpuRenderWorld(this);
+    return this.renderWorldValue;
   }
 
-  get packed_scenes_if_created(): GpuPackedSceneRegistry | undefined {
-    return this.packedScenesValue;
+  get render_world_if_created(): GpuRenderWorld | undefined {
+    return this.renderWorldValue;
   }
 
   /** Lazily creates the stable Packed MaterialRecord owner. */
@@ -350,7 +350,7 @@ export class GraphicsContext {
       (this.geometryTableValue?.gpu_memory_usage ?? 0) +
       (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
-      (this.packedScenesValue?.evidence().flatWorkBytes ?? 0) +
+      (this.renderWorldValue?.evidence().flatWorkBytes ?? 0) +
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
@@ -443,8 +443,8 @@ export class GraphicsContext {
     if (this.destroyed) return;
     this.destroyed = true;
     unregisterGpuQueueProfiler(this.device, this.profiler);
-    this.packedScenesValue?.destroy();
-    this.packedScenesValue = undefined;
+    this.renderWorldValue?.destroy();
+    this.renderWorldValue = undefined;
     this.materialStoreValue?.destroy();
     this.materialStoreValue = undefined;
     this.textureResidencyValue?.destroy();

@@ -14,7 +14,7 @@ const DOMAIN_RULES = Object.freeze([
   rule("graphics-context", /^OEngine\/src\/gpu\/GraphicsContext\.ts$/),
   rule("visibility", /^OEngine\/src\/(?:render\/(?:Hierarchical|Visibility|Triangle|passes\/.*(?:Visibility|HZB|Raster))|gpu\/GpuVisibility|shaders\/.*(?:visibility|hzb|raster))/i),
   rule("hzb", /^OEngine\/src\/(?:render\/HierarchicalZBuffer|render\/passes\/.*HZB|shaders\/.*hzb)/i),
-  rule("gpu-scene", /^OEngine\/src\/gpu\/(?:GpuScene|GpuPackedSceneRegistry|GpuAssetStore|GpuSceneResidencyManifest)/),
+  rule("gpu-scene", /^OEngine\/src\/gpu\/(?:GpuScene|GpuRenderWorld|GpuAssetStore|GpuSceneResidencyManifest)/),
   rule("asset", /^OEngine\/src\/(?:geometry|loaders)\//),
   rule("surface", /^OEngine\/src\/(?:render\/(?:features\/SurfaceFeature|passes\/.*(?:Material|Surface))|shaders\/.*(?:material|surface|shade))/i),
   rule("material", /^OEngine\/src\/(?:material|gpu\/GpuMaterialStore)/),

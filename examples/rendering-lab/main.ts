@@ -1722,7 +1722,7 @@ function updatePipelineEvidence(
   if (pipelineStats === null) return;
   const assets = activeRenderer.geometryAssetResidencyEvidence();
   const gpuScene = activeRenderer.gpuSceneEvidence();
-  const packed = activeRenderer.packedSceneEvidence();
+  const packed = activeRenderer.gpuRenderWorldEvidence();
   const visible = counters.visibleInstances ?? 0;
   const candidate = counters.candidateInstances ?? 0;
   const selected = counters.selectedClusters ?? 0;

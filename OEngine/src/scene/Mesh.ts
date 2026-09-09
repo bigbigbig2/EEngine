@@ -11,17 +11,42 @@ import {
   mat4TransformPoint
 } from "../core/math/Mat4.js";
 import { deepOrRefEquals } from "../core/math/mathUtils.js";
+import { ChangeSignal } from "../core/Signal.js";
 
 export class Mesh extends Node3D {
   declare isMesh: boolean;
-  geometry!: MeshletGeometryBase;
-  material!: ShadeMaterial;
+  private _geometry: MeshletGeometryBase | undefined;
+  private _material: ShadeMaterial | undefined;
+  readonly onGeometryChanged = new ChangeSignal<Mesh>();
+  readonly onMaterialChanged = new ChangeSignal<Mesh>();
   bounding_box: Float32Array = new Float32Array(6);
   bounding_sphere: Float32Array = new Float32Array(4);
   #version = 0;
 
   get version(): number {
     return this.#version;
+  }
+
+  get geometry(): MeshletGeometryBase {
+    return this._geometry!;
+  }
+
+  set geometry(value: MeshletGeometryBase) {
+    if (this._geometry === value) return;
+    this._geometry = value;
+    this.#version++;
+    this.onGeometryChanged.send1(this);
+  }
+
+  get material(): ShadeMaterial {
+    return this._material!;
+  }
+
+  set material(value: ShadeMaterial) {
+    if (this._material === value) return;
+    this._material = value;
+    this.#version++;
+    this.onMaterialChanged.send1(this);
   }
 
   set needsUpdate(v: boolean) {

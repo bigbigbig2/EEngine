@@ -8,7 +8,8 @@ const [
   { FrameCoordinator },
   { ResourceAccounting },
   { GPUSceneContext },
-  { GpuPackedSceneRegistry },
+  { GpuRenderWorld },
+  { createPackedSceneSourceFromScene },
   { TextureResidency },
   { createEnvironmentManifest },
   {
@@ -23,21 +24,34 @@ const [
     GPU_TEXTURE_BANK_MAX_CAPACITIES
   },
   { StandardShadeMaterial },
-  { ShadeTransparencyMode },
-  { ShadeTexture, ShadeImage }
+  { ShadeDrawSide, ShadeTransparencyMode },
+  { GPU_INSTANCE_FLAGS },
+  { ShadeTexture, ShadeImage },
+  { BoxGeometry },
+  { Mesh },
+  { Node3D },
+  { Scene },
+  { SkinnedMesh }
 ] = await Promise.all([
   import("../.test-dist/debug/FrameProfiler.js"),
   import("../.test-dist/render/FrameCoordinator.js"),
   import("../.test-dist/debug/profiling/ResourceAccounting.js"),
   import("../.test-dist/gpu/GPUSceneContext.js"),
-  import("../.test-dist/gpu/GpuPackedSceneRegistry.js"),
+  import("../.test-dist/gpu/GpuRenderWorld.js"),
+  import("../.test-dist/gpu/GpuSceneAdapter.js"),
   import("../.test-dist/gpu/TextureResidency.js"),
   import("../.test-dist/debug/EnvironmentManifest.js"),
   import("../.test-dist/gpu/GpuWorkGenerationAbi.js"),
   import("../.test-dist/gpu/GpuTextureRefAbi.js"),
   import("../.test-dist/material/StandardShadeMaterial.js"),
   import("../.test-dist/material/enums.js"),
-  import("../.test-dist/texture/ShadeTexture.js")
+  import("../.test-dist/gpu/GpuInstanceAbi.js"),
+  import("../.test-dist/texture/ShadeTexture.js"),
+  import("../.test-dist/geometry/BoxGeometry.js"),
+  import("../.test-dist/scene/Mesh.js"),
+  import("../.test-dist/scene/Node3D.js"),
+  import("../.test-dist/scene/Scene.js"),
+  import("../.test-dist/scene/SkinnedMesh.js")
 ]);
 
 test("benchmark environment preserves clean-build content provenance", () => {
@@ -205,7 +219,6 @@ test("Packed frame resolves shared environment without obtaining legacy geometry
   const environment = {};
   const runtime = {};
   let environmentObtains = 0;
-  let legacyObtains = 0;
   const owners = resolveFrameSceneOwners(
     scene,
     { runtime: (candidate) => candidate === scene ? runtime : null },
@@ -215,42 +228,82 @@ test("Packed frame resolves shared environment without obtaining legacy geometry
         environmentObtains++;
         return environment;
       }
-    },
-    {
-      obtain() {
-        legacyObtains++;
-        return {};
-      }
     }
   );
 
   assert.equal(owners.environment, environment);
   assert.deepEqual(owners.geometry, { kind: "packed", runtime });
   assert.equal(environmentObtains, 1);
-  assert.equal(legacyObtains, 0);
 });
 
-test("Legacy frame publishes exactly one legacy geometry source", () => {
+test("Unregistered ordinary Scene fails instead of entering the legacy renderer", () => {
   const scene = {};
-  const environment = {};
-  const legacy = {};
-  let legacyObtains = 0;
-  const owners = resolveFrameSceneOwners(
-    scene,
-    { runtime: () => null },
-    { obtain: () => environment },
-    {
-      obtain(candidate) {
-        assert.equal(candidate, scene);
-        legacyObtains++;
-        return legacy;
-      }
+  let environmentObtains = 0;
+  assert.throws(
+    () => resolveFrameSceneOwners(
+      scene,
+      { runtime: () => null },
+      { obtain: () => { environmentObtains++; return {}; } }
+    ),
+    /has no GPU Render World registration/
+  );
+  assert.equal(environmentObtains, 0);
+});
+
+test("Ordinary Scene adapter creates deterministic Packed dictionaries without GPU ownership", () => {
+  const scene = new Scene();
+  const geometry = new BoxGeometry(2, 2, 2);
+  const material = new StandardShadeMaterial();
+  const first = Mesh.from(geometry, material, translatedMatrix(1, 2, 3));
+  const second = Mesh.from(geometry, material, translatedMatrix(4, 5, 6));
+  scene.add([first, second]);
+  const asset = {
+    package: { manifest: { contentHash: "scene-asset" } },
+    directory: {
+      boundsSphere: new Float32Array([7, 8, 9, 10]),
+      boundsBox: new Float32Array([-7, -8, -9, 7, 8, 9])
     }
+  };
+
+  const adapted = createPackedSceneSourceFromScene(scene, [
+    { geometry, asset }
+  ]);
+
+  assert.equal(adapted.source.count, 2);
+  assert.deepEqual(adapted.meshes, [first, second]);
+  assert.deepEqual(adapted.source.geometries, [asset]);
+  assert.deepEqual(adapted.source.materials, [material]);
+  assert.deepEqual([...adapted.source.geometryIndices], [0, 0]);
+  assert.deepEqual([...adapted.source.materialIndices], [0, 0]);
+  assert.deepEqual([...adapted.source.boundsSpheres.slice(0, 4)], [7, 8, 9, 10]);
+  assert.deepEqual([...adapted.source.boundsMin.slice(0, 3)], [-7, -8, -9]);
+  assert.deepEqual([...adapted.source.boundsMax.slice(0, 3)], [7, 8, 9]);
+  assert.deepEqual(
+    [...adapted.source.currentTransforms.slice(12, 15)],
+    [1, 2, 3]
+  );
+});
+
+test("Ordinary Scene adapter fails visibly for missing residency and deferred skinning", () => {
+  const material = new StandardShadeMaterial();
+  const missing = new Scene();
+  missing.add(Mesh.from(new BoxGeometry(1, 1, 1), material));
+  assert.throws(
+    () => createPackedSceneSourceFromScene(missing, []),
+    /has no cooked GeometryAssetPackage binding/
   );
 
-  assert.equal(owners.environment, environment);
-  assert.deepEqual(owners.geometry, { kind: "legacy", context: legacy });
-  assert.equal(legacyObtains, 1);
+  const skinned = new Scene();
+  const geometry = new BoxGeometry(1, 1, 1);
+  const skinnedMesh = new SkinnedMesh();
+  skinnedMesh.geometry = geometry;
+  skinnedMesh.material = material;
+  skinnedMesh.updateMatrices();
+  skinned.add(skinnedMesh);
+  assert.throws(
+    () => createPackedSceneSourceFromScene(skinned, [{ geometry, asset: {} }]),
+    /SkinnedMesh is unsupported/
+  );
 });
 
 test("Directional shadow practical splits are monotonic and close the far cascade", () => {
@@ -300,7 +353,7 @@ test("Shadow work queue overflow is fail-visible and never partially publishes a
   assert.equal(state.attempted, 6);
 });
 
-test("Packed registry publishes stage and release only when their command commits", async () => {
+test("GPU Render World publishes stage and release only when their command commits", async () => {
   const fixture = createPackedRegistryFixture();
   const command = new FakeCommand("packed-stage");
   const handle = fixture.registry.stage(
@@ -339,7 +392,7 @@ test("Packed registry publishes stage and release only when their command commit
   assert.equal(runtime.counterSink.destroyed, true);
 });
 
-test("Packed registry abort leaves no published scene and release abort preserves ownership", () => {
+test("GPU Render World abort leaves no published scene and release abort preserves ownership", () => {
   const fixture = createPackedRegistryFixture();
   const abortedStage = new FakeCommand("packed-stage-abort");
   fixture.registry.stage(
@@ -412,6 +465,114 @@ test("Packed material patch commits classification and restores the queued patch
   retry.finish();
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 1);
   assert.equal(fixture.calls.patches.length, 2);
+});
+
+test("Ordinary Scene registration consumes transform and material SceneChangeSet patches", () => {
+  const fixture = createPackedRegistryFixture();
+  const scene = new Scene();
+  const geometry = new BoxGeometry(1, 1, 1);
+  const firstMaterial = fixture.manifest.source.materials[0];
+  firstMaterial.transparency_mode = ShadeTransparencyMode.AlphaTested;
+  firstMaterial.draw_side = ShadeDrawSide.Double;
+  const secondMaterial = new StandardShadeMaterial();
+  secondMaterial.name = "ordinary-second-material";
+  fixture.manifest.source.materials.push(secondMaterial);
+  const mesh = Mesh.from(geometry, firstMaterial);
+  const firstParent = new Node3D();
+  const secondParent = new Node3D();
+  secondParent.transform_local.position.set(10, 0, 0);
+  scene.add(firstParent);
+  scene.add(secondParent);
+  firstParent.addChild(mesh);
+
+  const stage = new FakeCommand("ordinary-scene-stage");
+  fixture.registry.stageOrdinaryScene(
+    scene,
+    fixture.manifest,
+    fixture.assetHandles,
+    [mesh],
+    stage
+  );
+  stage.finish();
+  const stagedFlags = fixture.calls.instanceSources.at(-1).flags[0];
+  assert.notEqual(stagedFlags & GPU_INSTANCE_FLAGS.AlphaTested, 0);
+  assert.notEqual(stagedFlags & GPU_INSTANCE_FLAGS.DoubleSided, 0);
+  assert.equal(fixture.registry.runtime(scene)?.sourceKind, "ordinary-scene");
+  assert.equal(fixture.registry.evidence().ordinarySceneAdapterCount, 1);
+  assert.throws(
+    () => fixture.registry.queuePatch(scene, { frameId: 1 }),
+    /patched only through SceneChangeSet/
+  );
+
+  mesh.transform_local.position.set(2, 3, 4);
+  mesh.material = secondMaterial;
+  const patch = new FakeCommand("ordinary-scene-patch");
+  const result = fixture.registry.encodePendingPatch(scene, patch);
+  assert.equal(result?.patchedTransforms, 1);
+  assert.equal(result?.patchedMaterials, 1);
+  assert.deepEqual([...fixture.calls.patches.at(-1).transforms.indices], [0]);
+  assert.deepEqual(
+    [...fixture.calls.patches.at(-1).transforms.transforms.slice(12, 15)],
+    [2, 3, 4]
+  );
+  assert.deepEqual([...fixture.calls.patches.at(-1).materials.materialHandles], [8]);
+  patch.finish();
+  assert.equal(fixture.registry.evidence().ordinaryScenePatchCount, 1);
+
+  const stable = new FakeCommand("ordinary-scene-stable");
+  assert.equal(fixture.registry.encodePendingPatch(scene, stable), null);
+  stable.finish();
+  assert.equal(fixture.registry.evidence().ordinarySceneStableFrameCount, 1);
+
+  mesh.reparent(secondParent);
+  const reparent = new FakeCommand("ordinary-scene-reparent");
+  const reparentResult = fixture.registry.encodePendingPatch(scene, reparent);
+  assert.equal(reparentResult?.patchedTransforms, 1);
+  assert.deepEqual(
+    [...fixture.calls.patches.at(-1).transforms.transforms.slice(12, 15)],
+    [12, 3, 4]
+  );
+  reparent.finish();
+  assert.equal(fixture.registry.evidence().ordinaryScenePatchCount, 2);
+});
+
+test("Ordinary Scene patch abort retries and structural edits require explicit full resync", () => {
+  const fixture = createPackedRegistryFixture();
+  const scene = new Scene();
+  const geometry = new BoxGeometry(1, 1, 1);
+  const mesh = Mesh.from(geometry, fixture.manifest.source.materials[0]);
+  scene.add(mesh);
+  const stage = new FakeCommand("ordinary-scene-stage");
+  fixture.registry.stageOrdinaryScene(
+    scene,
+    fixture.manifest,
+    fixture.assetHandles,
+    [mesh],
+    stage
+  );
+  stage.finish();
+
+  mesh.transform_local.position.set(5, 0, 0);
+  const aborted = new FakeCommand("ordinary-scene-patch-abort");
+  assert.notEqual(fixture.registry.encodePendingPatch(scene, aborted), null);
+  aborted.abort(new Error("injected ordinary patch failure"));
+  const retry = new FakeCommand("ordinary-scene-patch-retry");
+  assert.notEqual(fixture.registry.encodePendingPatch(scene, retry), null);
+  retry.finish();
+  assert.equal(fixture.registry.evidence().ordinaryScenePatchCount, 1);
+
+  scene.add(Mesh.from(geometry, fixture.manifest.source.materials[0]));
+  assert.throws(
+    () => fixture.registry.encodePendingPatch(
+      scene,
+      new FakeCommand("ordinary-scene-structural-change")
+    ),
+    /requires explicit resyncScene\(\)/
+  );
+  assert.equal(
+    fixture.registry.evidence().ordinarySceneFullResyncRequiredCount,
+    1
+  );
 });
 
 test("Texture residency rolls back failed commands and reuses a released base layer", async () => {
@@ -706,7 +867,8 @@ function createPackedRegistryFixture() {
     legacyMaterialObtains: 0,
     stages: [],
     releases: [],
-    patches: []
+    patches: [],
+    instanceSources: []
   };
   const dummyBuffer = {};
   const dummyView = {};
@@ -780,8 +942,9 @@ function createPackedRegistryFixture() {
       }
     },
     gpu_scene: {
-      instantiate(_source, command) {
+      instantiate(source, command) {
         calls.stages.push("instance");
+        calls.instanceSources.push(source);
         command.onAborted.addOne(() => calls.stages.push("instance-abort"));
         return instanceHandle;
       },
@@ -806,7 +969,7 @@ function createPackedRegistryFixture() {
     assets: { bindings: () => ({}) }
   };
   return {
-    registry: new GpuPackedSceneRegistry(graphics),
+    registry: new GpuRenderWorld(graphics),
     scene: {},
     manifest: { source, packages: source.geometries, materials: source.materials },
     assetHandles: [{}],
@@ -928,6 +1091,14 @@ function identityMatrices(count) {
     matrices[offset + 15] = 1;
   }
   return matrices;
+}
+
+function translatedMatrix(x, y, z) {
+  const matrix = identityMatrices(1);
+  matrix[12] = x;
+  matrix[13] = y;
+  matrix[14] = z;
+  return matrix;
 }
 
 function stableFrameContractIssues(profile, resources, owners) {

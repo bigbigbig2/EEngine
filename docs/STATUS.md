@@ -5,8 +5,8 @@
 ## 当前基线
 
 - WebGPU Renderer、FrameGraph、FramePlan、Feature/Service 组合和公开入口已经存在。
-- GPU-ready geometry package、`GpuAssetStore`、`GpuScene` 与 Packed registry 已形成资源边界。
-- Packed frame 已脱离完整 `GPUSceneContext`：共享场景环境与 legacy geometry runtime 分离，frame geometry binding 为互斥 Packed/legacy 输入。
+- GPU-ready geometry package、`GpuAssetStore`、`GpuScene` 与 `GpuRenderWorld` 已形成资源边界。
+- Packed source 与普通 Scene adapter 已汇入同一 GPU Render World；未注册 Scene 不再默认创建 `GPUSceneContext`。
 - Packed hierarchy/work generation、Hardware Visibility、直接 `VisibilityKey`、MaterialClassDepth/class-discard 选择和统一 Surface ABI 已有生产 owner。
 - 旧 Pixel Queue、ShadeWork 和可见像素 scan/scatter 生产链已退出生产路径。
 - direct lighting、CSM、GI、AO、SSR、MBOIT、Temporal 与 HDR post 接入同一 Renderer 主流程。
@@ -18,7 +18,7 @@
 ## 当前生产 Owner
 
 - 总装：公开 `Renderer.ts` shell、唯一 `render/pipeline/MainRenderPipeline.ts` recipe owner 与 `render/features/*`。
-- GPU 资产/场景：`GpuAssetStore`、`GpuScene`、`GpuPackedSceneRegistry`。
+- GPU 资产/场景：`GpuAssetStore`、`GpuScene`、`GpuRenderWorld`。
 - 工作/可见性：`GpuWorkGenerationAbi`、`GpuVisibilityKeyAbi`、Packed visibility owners。
 - Surface：`GpuSurfaceAbi`、`SurfaceFeature`、MaterialClassDepth probe/pass 和 Material Resolve。
 - 效果：Lighting Feature，Render-owned Shadow Feature，AO/Reflection/GI Service，Transparency/Temporal/Post Feature。
@@ -35,8 +35,8 @@
 
 ### Legacy 与生命周期
 
-- 普通 Scene 仍有 Material Expand、独立 Velocity 和 legacy OIT 最终 consumer。
-- Packed 与普通 Scene 的 Surface metadata、velocity、transparency 生命周期尚未完全统一。
+- legacy SceneDatabase、Material Expand、独立 Velocity 和 legacy OIT 已退出默认生产 Scene 入口，但其 dead runtime/graph/shader 仍待 Step 7 静态删除。
+- 普通 Scene 的当前产品 adapter 不支持 `SkinnedMesh`；完整蒙皮/动画仍为 Deferred，并显式报 unsupported。
 - Shadow 的 device loss、resize、scene replace、feature toggle 与 camera cut 已有浏览器证据；其他 Feature 和提交失败后的 history/resource invalidation 仍需继续补齐。
 
 ### 性能、内存与来源
@@ -50,16 +50,18 @@
 
 架构优化按 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 的垂直顺序执行；本页只保留当前最近工作：
 
-Step 0 门禁已经建立。Step 1 已消除 Packed material 双 owner：`GpuPackedSceneRegistry` 只按 Texture Residency → Material Store → Instance 顺序提交，`GraphicsContext` 与 `GPUSceneContext` 仅在普通 Scene consumer 首次请求时创建 legacy material registry。Packed Visibility、Surface、CSM、Transparency、debug 和 material patch 使用 Packed material bindings；浏览器 owner evidence 确认 legacy material metadata、默认纹理、depth/expand pipeline 与 per-material context 均未创建。普通 Scene 的 legacy getter 和 consumer 合同继续保留。
+Step 0 门禁已经建立。Step 1 已消除 Packed material 双 owner：当前 `GpuRenderWorld` 只按 Texture Residency → Material Store → Instance 顺序提交；Packed Visibility、Surface、CSM、Transparency、debug 和 material patch 使用统一 material bindings，浏览器 owner evidence 确认 legacy material metadata、默认纹理、depth/expand pipeline 与 per-material context 均未创建。
 
 Step 2 已完成。Texture Residency 采用五个有界 size-class bank（256/512/1024/2048/4096）和 version/bank/layer 稳定 TextureRef；高分辨率 bank 按需分配，transaction 在 2 GiB hard peak budget、bank capacity 与 device limits 下 preflight，abort 不发布 ref，旧 bank 等 GPU 完成后销毁。Surface、Transparency、MASK Visibility 与 CSM alpha 使用同一 CPU/WGSL decode；CPU/WGSL oracle、120 个全排列、逐层增长、容量/故障注入、真实 Chrome 场景均通过。方案与 clean-commit A/B 证据见 `OEngine/benchmarks/texture-residency-policy.json` 和 `OEngine/benchmarks/texture-residency-step2.json`；目标 workload 保持 25 个纹理与 559240500 resident logical bytes，实测 texture peak/allocation 从 738197376 降到 603979656 bytes，base GPU P50/P95 为 +0.641%/+1.424%。该结果是 smoke A/B，不替代发布级 formal run group。
 
-Step 3 已完成。`GPUSceneEnvironmentContext` 独立拥有 light、environment、light-probe 与 volumetric 数据；`GPUSceneContext` 缩为普通 Scene 的 legacy geometry runtime。Renderer 在 legacy obtain 前查询 Packed registry，`GPUViewContext` 只依赖共享环境与 camera/view/HZB，frame binding 只发布 Packed 或 legacy 一种 geometry source。Packed stable frame、显式 transform/material patch、replace、release/re-register、Lifecycle、Visibility/HZB/LOD/camera-cut 与普通 Scene 回归均有真实浏览器证据；Packed owner evidence 中 legacy geometry table、SceneDatabase、skinning、MeshletDrawList 和 legacy scene upload 均为零，并保持一个 main submit。
+Step 3 已完成。`GPUSceneEnvironmentContext` 独立拥有 light、environment、light-probe 与 volumetric 数据，`GPUViewContext` 只依赖共享环境与 camera/view/HZB。Step 6 随后关闭 legacy obtain；`GPUSceneContext`、SceneDatabase、skinning 与 MeshletDrawList 现在只剩待 Step 7 删除的静态实现，Packed 与普通 Scene 帧均不创建或更新它们。
 
-Step 4 已完成。Scene-scoped `ShadowFeature` 是 atlas、cascade selection、camera/content cache、Packed hierarchy work、Packed/legacy raster adapter 和 GPU-completion retire 的唯一 owner；`GPULightCollection` 只发布稳定 light/environment 数据，`src/gpu` 对具体 render Pass、`GPUViewContext` 和 `GPUCameraState` 的生产依赖为零。Packed/legacy fixture 共用 `ShadowVisibilityFrame`，cascade split/layout 数值一致；alpha-tested caster、overflow counter、cache hit/miss、resize、camera cut、replace、toggle 和 device-loss recreate 均纳入真实 Chrome 门禁。Rendering Lab 的 `comprehensive-full` 动态 workload 对照记录一个 main submit、Shadow GPU/CPU phase 与 atlas memory，关闭态无 Shadow owner、atlas、work set、GPU/CPU phase、I/O label 或非零 Shadow counter。该结果是开发 smoke evidence，不是发布级性能基线。
+Step 4 已完成。Scene-scoped `ShadowFeature` 是 atlas、cascade selection、camera/content cache、hierarchy work、raster 和 GPU-completion retire 的唯一 owner；`GPULightCollection` 只发布稳定 light/environment 数据，`src/gpu` 对具体 render Pass、`GPUViewContext` 和 `GPUCameraState` 的生产依赖为零。Packed/普通 Scene adapter 共用 `ShadowVisibilityFrame` 和 Render World raster consumer，cascade split/layout 数值一致；alpha-tested caster、overflow counter、cache hit/miss、resize、camera cut、replace、toggle 和 device-loss recreate 均纳入真实 Chrome 门禁。
 
 Step 5 已完成。`Renderer.ts` 缩为公开生命周期与顶层组合 shell；`MainRenderPipeline` 是 Feature 顺序、FrameProducts、FrameGraph recipe、compiled graph cache 与 graph evidence 的唯一 owner，不再由公开入口直接 import 算法 Pass 或 Shadow/AO/SSR/Post owner。每帧实际创建冻结的 `FrameContext`，其合同限定为 camera/view、resolution domain、feature topology、history validity、scene bindings、instrumentation 与 capture 请求；主管线 cache key 显式覆盖 capability、size、feature topology、visibility backend、instrumentation 和 history format。固定矩阵覆盖 full、base、每个 feature-off、debug、capture、resize、camera cut 与 abort；stable frame 保持一个 main submit、一次 cache hit/execute、零 build/compile/pipeline/bind-group create。相同 NVIDIA Turing、Chrome 152、1920×1080、`comprehensive-full` 的 clean-commit 正式 A/B 每侧执行 3×(120 warm-up + 480 measured)，graph/resource/memory/I/O 完全相同，CPU frame P50/P95 为 -0.362%/-3.399%，GPU frame P50/P95 为 +0.239%/-3.509%；证据见 `OEngine/benchmarks/main-render-pipeline-step5.json`，不外推为跨 vendor 结论。
 
-1. 执行 Step 6：统一 GPU Scene 与 Packed Scene 的生产语义，并在 owner/patch/replace/release 门禁通过后关闭默认 legacy scene adapter。
+Step 6 已完成。`GpuRenderWorld` 同时接收 Packed source 与普通 Application Scene adapter，二者共享 `GpuAssetStore`、`GpuScene`、`GpuMaterialStore`、Texture Residency、hierarchy/work generation、VisibilityKey、Surface/velocity、Shadow 和 MBOIT/Temporal consumer。普通 Scene 首次绑定只接受已 Cook package；transform/material assignment 由 `SceneChangeSet` 生成确定性 patch，abort 会重试，add/remove/geometry 通过显式 `resyncScene()` full-resync。未注册 Scene 直接失败，`SkinnedMesh` 显式 unsupported；真实 Chrome 覆盖稳定帧、patch、add/remove resync、shadow parity、alpha-tested、double-sided、transparent 和 reactive/Temporal，并确认一个 main submit、无 legacy owner/scene upload、无 overflow 或 GPU error。
+
+1. 执行 Step 7：静态删除已经退出默认入口的 legacy runtime、graph branch、Pass、shader、附件和公开 evidence 字段，并完成 clean-commit 全量与正式性能证据。
 2. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
 3. 保持 Tile backend 为 evidence-only，并为 shader audit 中的 unknown 项确认 authored owner 或可追溯生成源。

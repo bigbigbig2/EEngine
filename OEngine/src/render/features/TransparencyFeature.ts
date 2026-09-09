@@ -10,7 +10,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { Scene } from "../../scene/Scene.js";
 import { PackedTransparentOitPass, type PackedTransparentOitInputs, type PackedTransparentOitJob } from "../passes/PackedTransparentOitPass.js";
 import { TransparentOitPass, type TransparentOitInputs, type TransparentOitJob } from "../passes/TransparentOitPass.js";
@@ -43,7 +43,7 @@ export class TransparencyFeature {
   }
 
   /** 释放 Packed 场景 residency 对应的 GPU 工作队列。 */
-  releasePacked(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {
+  releasePacked(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
     this._packed?.release(runtime, command);
   }
 

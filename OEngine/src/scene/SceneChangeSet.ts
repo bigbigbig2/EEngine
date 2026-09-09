@@ -20,6 +20,7 @@ export interface SceneChangeSnapshot {
   readonly instanceStructureChanged: boolean;
   readonly transformedNodes: readonly SceneTransformChange[];
   readonly changedMeshBounds: readonly Mesh[];
+  readonly changedMeshMaterials: readonly Mesh[];
   readonly changedLights: readonly Light[];
 }
 
@@ -32,7 +33,8 @@ type SceneChangeEvent =
       previousGlobal: Float32Array;
       boundsChanged: boolean;
     }
-  | { revision: number; kind: "light"; light: Light };
+  | { revision: number; kind: "light"; light: Light }
+  | { revision: number; kind: "material"; mesh: Mesh };
 
 const DEFAULT_HISTORY_CAPACITY = 4096;
 
@@ -81,12 +83,21 @@ export class SceneChangeSet {
     });
   }
 
+  recordMaterial(mesh: Mesh): void {
+    this.push({
+      revision: ++this.currentRevision,
+      kind: "material",
+      mesh
+    });
+  }
+
   changesSince(lastRevision: number): SceneChangeSnapshot {
     const fullResyncRequired =
       lastRevision < this.historyFloorRevision ||
       lastRevision > this.currentRevision;
     const firstPreviousGlobal = new Map<Node3D, Float32Array>();
     const changedMeshBounds = new Set<Mesh>();
+    const changedMeshMaterials = new Set<Mesh>();
     const changedLights = new Set<Light>();
     let instanceStructureChanged = fullResyncRequired;
 
@@ -103,8 +114,10 @@ export class SceneChangeSet {
           if (event.boundsChanged) {
             changedMeshBounds.add(event.node as Mesh);
           }
-        } else {
+        } else if (event.kind === "light") {
           changedLights.add(event.light);
+        } else {
+          changedMeshMaterials.add(event.mesh);
         }
       }
     }
@@ -118,6 +131,7 @@ export class SceneChangeSet {
         ([node, previousGlobal]) => ({ node, previousGlobal })
       ),
       changedMeshBounds: Array.from(changedMeshBounds),
+      changedMeshMaterials: Array.from(changedMeshMaterials),
       changedLights: Array.from(changedLights)
     };
   }

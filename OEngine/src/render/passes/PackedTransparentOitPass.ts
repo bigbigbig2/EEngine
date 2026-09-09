@@ -5,7 +5,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
@@ -170,7 +170,7 @@ const COMPOSITE_PIPELINE: CachedRenderPipelineDescriptor = {
 };
 
 export interface PackedTransparentOitJob {
-  readonly runtime: PackedSceneRuntime;
+  readonly runtime: GpuRenderWorldRuntime;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
   readonly width: number;
@@ -220,8 +220,8 @@ export class PackedTransparentOitPass {
   lastCompositePasses = 0;
   lastDrawCount = 0;
   private readonly generator: HierarchicalWorkGenerator;
-  private readonly prepared = new Map<PackedSceneRuntime, CacheEntry>();
-  private readonly generated = new Map<PackedSceneRuntime, GeneratedHierarchyWork>();
+  private readonly prepared = new Map<GpuRenderWorldRuntime, CacheEntry>();
+  private readonly generated = new Map<GpuRenderWorldRuntime, GeneratedHierarchyWork>();
   private readonly samplers: readonly GPUSampler[];
   private readonly evidenceLayout: GPUBindGroupLayout;
   private readonly evidencePipeline: GPUComputePipeline;
@@ -426,7 +426,7 @@ export class PackedTransparentOitPass {
     });
   }
 
-  release(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {
+  release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
     if (this.retired) return;
     this.generated.delete(runtime);
     const entry = this.prepared.get(runtime);
@@ -511,7 +511,7 @@ export class PackedTransparentOitPass {
     });
   }
 
-  private requireGenerated(runtime: PackedSceneRuntime): GeneratedHierarchyWork {
+  private requireGenerated(runtime: GpuRenderWorldRuntime): GeneratedHierarchyWork {
     const value = this.generated.get(runtime);
     if (value === undefined) throw new Error("FX-05 transparent producer did not run before consumer");
     return value;

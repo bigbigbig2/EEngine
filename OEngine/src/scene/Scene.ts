@@ -1419,6 +1419,11 @@ export class Scene extends Node3D {
       node._onChildAdded.add(this.onHierarchyChildAdded, this);
       node._onChildRemoved.add(this.onHierarchyChildRemoved, this);
       node._onReparented.add(this.onNodeReparented, this);
+      if ((node as Mesh).isMesh === true) {
+        const mesh = node as Mesh;
+        mesh.onMaterialChanged.add(this.onMeshMaterialChanged, this);
+        mesh.onGeometryChanged.add(this.onMeshGeometryChanged, this);
+      }
     });
     if (instanceStructureChanged) {
       this.changeSet.recordInstanceStructureChanged();
@@ -1432,6 +1437,11 @@ export class Scene extends Node3D {
       node._onChildAdded.remove(this.onHierarchyChildAdded, this);
       node._onChildRemoved.remove(this.onHierarchyChildRemoved, this);
       node._onReparented.remove(this.onNodeReparented, this);
+      if ((node as Mesh).isMesh === true) {
+        const mesh = node as Mesh;
+        mesh.onMaterialChanged.remove(this.onMeshMaterialChanged, this);
+        mesh.onGeometryChanged.remove(this.onMeshGeometryChanged, this);
+      }
       if ((node as Light).isLight === true) {
         const light = node as Light;
         if (this.lights.remove(light)) this.changeSet.recordLight(light);
@@ -1513,6 +1523,14 @@ export class Scene extends Node3D {
         );
       }
     }
+  }
+
+  private onMeshMaterialChanged(mesh: Mesh): void {
+    if (this.instances.has(mesh)) this.changeSet.recordMaterial(mesh);
+  }
+
+  private onMeshGeometryChanged(mesh: Mesh): void {
+    if (this.instances.has(mesh)) this.changeSet.recordInstanceStructureChanged();
   }
 }
 

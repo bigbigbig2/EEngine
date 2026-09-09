@@ -109,12 +109,16 @@ import type {
 } from "../../gpu/GpuScene.js";
 import { createSceneResidencyManifest } from "../../gpu/GpuSceneResidencyManifest.js";
 import type {
-  PackedSceneEvidence,
-  PackedSceneHandle,
+  GpuRenderWorldEvidence,
+  GpuRenderWorldHandle,
   PackedScenePatchBatch,
   PackedSceneSource
-} from "../../gpu/GpuPackedSceneRegistry.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+} from "../../gpu/GpuRenderWorld.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
+import {
+  createPackedSceneSourceFromScene,
+  type SceneGeometryAssetBinding
+} from "../../gpu/GpuSceneAdapter.js";
 import {
   RenderDebugView,
   getRenderDebugViewStatus,
@@ -381,7 +385,7 @@ type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
 type MainFrameGeometrySource =
   | Readonly<{
       readonly kind: "packed";
-      readonly runtime: PackedSceneRuntime;
+      readonly runtime: GpuRenderWorldRuntime;
       readonly visibilityJob: PackedVisibilityJob;
     }>
   | Readonly<{
@@ -481,7 +485,7 @@ export class MainRenderPipeline {
   private _meshletDrawList: MeshletDrawList | null = null;
   private _views!: ViewManager;
   private readonly _output_resolution = new Vec2(1, 1);
-  private _visibility!: VisibilityPass;
+  private _visibility: VisibilityPass | null = null;
   private _visibilityFeature!: VisibilityFeature;
   private _visibilityCounters: VisibilityCounterPass | null = null;
   private _materialExpand: MaterialExpandPass | null = null;
@@ -690,26 +694,66 @@ export class MainRenderPipeline {
   async uploadPackedScene(
     scene: Scene,
     source: PackedSceneSource
-  ): Promise<PackedSceneHandle> {
+  ): Promise<GpuRenderWorldHandle> {
+    return this.uploadRenderWorldSource(scene, source);
+  }
+
+  /**
+   * Registers an ordinary Application Scene through the unified GPU Render
+   * World. Geometry must already be cooked; the renderer never cooks in the
+   * frame loop and the adapter owns no GPU resources.
+   */
+  async uploadScene(
+    scene: Scene,
+    geometryAssets: readonly SceneGeometryAssetBinding[]
+  ): Promise<GpuRenderWorldHandle> {
+    const adapted = createPackedSceneSourceFromScene(scene, geometryAssets);
+    return this.uploadRenderWorldSource(scene, adapted.source, adapted.meshes);
+  }
+
+  /** Explicit structural full-resync for add/remove or geometry changes. */
+  async resyncScene(
+    scene: Scene,
+    geometryAssets: readonly SceneGeometryAssetBinding[]
+  ): Promise<GpuRenderWorldHandle> {
+    const adapted = createPackedSceneSourceFromScene(scene, geometryAssets);
+    // Validate the replacement before retiring the current runtime. GPU
+    // allocation still happens only after the explicit release commits.
+    createSceneResidencyManifest(adapted.source, {
+      maxBufferSize: Number(this.device.limits.maxBufferSize),
+      maxStorageBufferBindingSize: Number(this.device.limits.maxStorageBufferBindingSize)
+    });
+    await this.releaseScene(scene);
+    return this.uploadRenderWorldSource(scene, adapted.source, adapted.meshes);
+  }
+
+  private async uploadRenderWorldSource(
+    scene: Scene,
+    source: PackedSceneSource,
+    ordinaryMeshes?: readonly import("../../scene/Mesh.js").Mesh[]
+  ): Promise<GpuRenderWorldHandle> {
     const manifest = createSceneResidencyManifest(source, {
       maxBufferSize: Number(this.device.limits.maxBufferSize),
       maxStorageBufferBindingSize: Number(this.device.limits.maxStorageBufferBindingSize)
     });
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/PackedScene/residency-transaction"
+      "Renderer/GpuRenderWorld/residency-transaction"
     );
     try {
       const handles = this._graphics.assets.residentMany(
         manifest.packages,
         command
       );
-      const handle = this._graphics.packed_scenes.stage(
-        scene,
-        manifest,
-        handles,
-        command
-      );
+      const handle = ordinaryMeshes === undefined
+        ? this._graphics.render_world.stage(scene, manifest, handles, command)
+        : this._graphics.render_world.stageOrdinaryScene(
+            scene,
+            manifest,
+            handles,
+            ordinaryMeshes,
+            command
+          );
       command.finish();
       await command.submitted;
       return handle;
@@ -723,17 +767,17 @@ export class MainRenderPipeline {
   async releasePackedScene(scene: Scene): Promise<void> {
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/PackedScene/release-transaction"
+      "Renderer/GpuRenderWorld/release-transaction"
     );
     let handles: readonly AssetHandle[];
     try {
-      const runtime = this._graphics.packed_scenes.runtime(scene);
+      const runtime = this._graphics.render_world.runtime(scene);
       if (runtime !== null && this._visibilityFeature) {
         this._visibilityFeature.release(runtime, command);
         this._transparencyFeature?.releasePacked(runtime, command);
         this._shadowFeatures.releasePackedScene(scene, runtime, command);
       }
-      handles = this._graphics.packed_scenes.release(scene, command);
+      handles = this._graphics.render_world.release(scene, command);
       this._graphics.assets.releaseMany(handles, command);
       this._views.releaseScene(scene, command);
       this._shadowFeatures.release(scene, command);
@@ -748,15 +792,15 @@ export class MainRenderPipeline {
 
   /** Queues one explicit patch batch for the next main frame command. */
   queuePackedScenePatch(scene: Scene, batch: PackedScenePatchBatch): void {
-    this._graphics.packed_scenes.queuePatch(scene, batch);
+    this._graphics.render_world.queuePatch(scene, batch);
   }
 
-  packedSceneEvidence(): PackedSceneEvidence {
-    return this._graphics.packed_scenes.evidence();
+  gpuRenderWorldEvidence(): GpuRenderWorldEvidence {
+    return this._graphics.render_world.evidence();
   }
 
   packedTransparentInstanceCount(scene: Scene): number {
-    return this._graphics.packed_scenes.transparentInstanceCount(scene);
+    return this._graphics.render_world.transparentInstanceCount(scene);
   }
 
   /** FX-05 bounded owner/draw evidence; null means the Packed feature owner was never created. */
@@ -950,6 +994,11 @@ export class MainRenderPipeline {
       0
     );
     return Object.freeze({ ...graphics, historyBytes, historyOwners });
+  }
+
+  /** Releases either Packed input or an ordinary Scene adapter registration. */
+  async releaseScene(scene: Scene): Promise<void> {
+    return this.releasePackedScene(scene);
   }
 
   /** Architecture gate evidence; reports owner creation without exposing GPU resources. */
@@ -1232,6 +1281,8 @@ export class MainRenderPipeline {
     this._velocity = null;
     this._surfaceFeature?.destroy();
     this._visibilityFeature?.destroy();
+    this._visibility?.destroy();
+    this._visibility = null;
     this._meshletDrawList?.destroy();
     this._meshletDrawList = null;
     this._nss?.destroy();
@@ -1391,11 +1442,14 @@ export class MainRenderPipeline {
       enabledFeatureBits: featureTopology.enabledFeatureBits,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION
     });
-    const sceneOwners = resolveFrameSceneOwners(
+    const sceneOwners = resolveFrameSceneOwners<
+      GPUSceneEnvironmentContext,
+      GpuRenderWorldRuntime,
+      GPUSceneContext
+    >(
       scene,
-      this._graphics.packed_scenes_if_created,
-      this._environments,
-      this._scenes
+      this._graphics.render_world_if_created,
+      this._environments
     );
     const environment = sceneOwners.environment;
     const geometryOwner = sceneOwners.geometry;
@@ -1426,7 +1480,7 @@ export class MainRenderPipeline {
     let packedPatchRevision = 0;
     framePlan.execute("scene-update", () => {
       this._profiler.measure("world-and-view-update", () => {
-        const patch = this._graphics.packed_scenes_if_created?.encodePendingPatch(scene, cmd);
+        const patch = this._graphics.render_world_if_created?.encodePendingPatch(scene, cmd);
         if (patch !== null && patch !== undefined) packedPatchRevision = this._frame_count + 1;
         environment.encodeFrame(cmd, this._frame_count, time_delta_seconds);
         if (geometryOwner.kind === "legacy") {
@@ -1477,7 +1531,7 @@ export class MainRenderPipeline {
             }
             const packedBindings = gpuPacked === null
               ? null
-              : this._graphics.packed_scenes.bindings();
+              : this._graphics.render_world.bindings();
             const shadowContentRevision = scene.change_revision * 1_048_576 +
               (packedBindings?.scene.contentRevision ?? 0) + packedPatchRevision;
             shadows.encode(cmd, {
@@ -1561,7 +1615,7 @@ export class MainRenderPipeline {
         : null;
       let packedVisibilityJob: PackedVisibilityJob | null = null;
       if (gpuPacked !== null) {
-        const registryBindings = this._graphics.packed_scenes.bindings();
+        const registryBindings = this._graphics.render_world.bindings();
         const counters = gpuCounterBuffer ?? gpuPacked.counterSink;
         const prepareJob = {
           runtime: gpuPacked,
@@ -1822,7 +1876,7 @@ export class MainRenderPipeline {
           packedVisibilityDebug = packedOutput.debugResolve;
           gpuCounterRes = sampleGpuCounters ? packedOutput.counters : null;
         } else {
-          gpuCounterRes = this._visibility.addToGraph(
+          gpuCounterRes = this.obtainLegacyVisibility().addToGraph(
             graph,
             bind("visibility-main-job", (bindings) => ({
               camera: bindings.camera,
@@ -1881,7 +1935,7 @@ export class MainRenderPipeline {
             ? null
             : viewHzb.obtainCurrentView();
           if (sameFrameHzbView) {
-            gpuCounterRes = this._visibility.addToGraph(
+            gpuCounterRes = this.obtainLegacyVisibility().addToGraph(
               graph,
               bind("visibility-second-chance-job", (bindings) => ({
                 camera: bindings.camera,
@@ -1935,9 +1989,9 @@ export class MainRenderPipeline {
         }
 
         const hasAlphaTested = !packedPath &&
-          this._visibility.hasAlphaTestedMaterials(scene);
+          this.obtainLegacyVisibility().hasAlphaTestedMaterials(scene);
         if (hasAlphaTested) {
-          gpuCounterRes = this._visibility.addToGraph(
+          gpuCounterRes = this.obtainLegacyVisibility().addToGraph(
             graph,
             bind("visibility-alpha-tested-job", (bindings) => ({
               camera: bindings.camera,
@@ -2840,7 +2894,7 @@ export class MainRenderPipeline {
             const output = this._transparencyFeature!.addPackedToGraph(
               graph,
               bind("packed-transparent-oit-job", (bindings) => {
-                const registryBindings = this._graphics.packed_scenes.bindings();
+                const registryBindings = this._graphics.render_world.bindings();
                 return {
                   runtime: requirePackedGeometryOwner(bindings.geometry).runtime,
                   assets: registryBindings.assets,
@@ -3489,7 +3543,7 @@ export class MainRenderPipeline {
       debugView: this.render_debug_view,
       indirectLightingMode: this.indirect_lighting_mode,
       alphaTested: legacyGeometry !== null &&
-        this._visibility.hasAlphaTestedMaterials(bindings!.scene),
+        this.obtainLegacyVisibility().hasAlphaTestedMaterials(bindings!.scene),
       previousSkinOffsets: legacyGeometry !== null &&
         legacyGeometry.skinning.prev_position_offsets_buffer !== null,
       previousSkinPositions: legacyGeometry !== null &&
@@ -3505,7 +3559,7 @@ export class MainRenderPipeline {
 
   private reconcilePackedTransparencyOwner(
     enabled: boolean,
-    runtime: PackedSceneRuntime | null,
+    runtime: GpuRenderWorldRuntime | null,
     command: ShadeGPUCommandContext
   ): void {
     if (runtime !== null && enabled) {
@@ -3527,10 +3581,6 @@ export class MainRenderPipeline {
   private initializeRenderPasses(
     topology: MainFrameFeatureTopology
   ): void {
-    if (!this._visibility) {
-      this._visibility = new VisibilityPass(this._graphics);
-      this._visibility.init();
-    }
     this._temporalFeature.attachGraphics(this._graphics);
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
@@ -3664,6 +3714,14 @@ export class MainRenderPipeline {
     return this._materialExpand;
   }
 
+  private obtainLegacyVisibility(): VisibilityPass {
+    if (this._visibility === null) {
+      this._visibility = new VisibilityPass(this._graphics);
+      this._visibility.init();
+    }
+    return this._visibility;
+  }
+
   private obtainLegacyMeshletDrawList(): MeshletDrawList {
     this._meshletDrawList ??= new MeshletDrawList(this._graphics);
     return this._meshletDrawList;
@@ -3724,7 +3782,7 @@ export class MainRenderPipeline {
         this._visibilityFeature.lastImplementation === "hierarchy" ? 1 : 0
       );
     } else {
-      const visibility = this._visibility;
+      const visibility = this.obtainLegacyVisibility();
       profiler.recordCounter(
         "legacy.instances.candidate",
         visibility.lastFrustumCulled + visibility.lastFrustumUnculled

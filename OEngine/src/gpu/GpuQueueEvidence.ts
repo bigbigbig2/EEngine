@@ -26,8 +26,8 @@ const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["GPUTextureContext/resize-copy", "recovery"],
   ["MeshletGpuPool/compact", "tool"],
   ["MipmapGenerator/generate", "one-shot"],
-  ["Renderer/PackedScene/residency-transaction", "tool"],
-  ["Renderer/PackedScene/release-transaction", "tool"],
+  ["Renderer/GpuRenderWorld/residency-transaction", "tool"],
+  ["Renderer/GpuRenderWorld/release-transaction", "tool"],
   ["Renderer/View/release", "tool"]
 ]);
 

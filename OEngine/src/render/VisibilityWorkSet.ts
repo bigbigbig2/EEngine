@@ -1,9 +1,9 @@
-import type { PackedSceneRuntime } from "../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import type { PreparedExactTriangleFilter } from "./ExactTriangleFilter.js";
 import type { PreparedHierarchyWork } from "./HierarchicalWorkGenerator.js";
 
 export interface VisibilityWorkSetKey {
-  readonly runtime: PackedSceneRuntime;
+  readonly runtime: GpuRenderWorldRuntime;
   readonly assetEpoch: number;
   readonly sceneResourceEpoch: number;
   readonly instanceBegin: number;

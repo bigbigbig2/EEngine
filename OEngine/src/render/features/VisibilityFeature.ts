@@ -4,7 +4,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
-import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
   PackedVisibilityPass,
@@ -55,7 +55,7 @@ export class VisibilityFeature {
     return this.implementation.prepareHierarchy(job, counters, camera, command);
   }
 
-  release(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {
+  release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
     this.implementation.release(runtime, command);
   }
 
@@ -74,5 +74,5 @@ export type {
   GeometryHierarchyView,
   GpuAssetBindings,
   GpuSceneBindings,
-  PackedSceneRuntime
+  GpuRenderWorldRuntime
 };
