@@ -1,5 +1,7 @@
 import {
   DirectionalLight,
+  BoxGeometry,
+  Mesh,
   PerspectiveCamera,
   Renderer,
   Scene,
@@ -22,6 +24,10 @@ import {
   type ValidationScenarioResult
 } from "../fixture-protocol.ts";
 import { FixtureState } from "../shared/fixture-state.ts";
+import {
+  legacySceneUploadLabels,
+  packedFrameHasNoLegacyGeometryOwners
+} from "../shared/packed-owner-evidence.ts";
 import {
   hasGpuFailure,
   settleRendererForValidationDestroy,
@@ -111,7 +117,7 @@ async function initialize(): Promise<void> {
 async function runScenario(
   request: ValidationScenarioRequest
 ): Promise<ValidationScenarioResult> {
-  if (request.scenarioId !== "basic") {
+  if (!["basic", "legacy"].includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown smoke scenario '${request.scenarioId}'`));
   }
   if (renderer === null || scene === null || camera === null) {
@@ -123,6 +129,18 @@ async function runScenario(
   state.start(request.runId, request.scenarioId);
   showStatus();
   try {
+    const legacyMode = request.scenarioId === "legacy";
+    if (legacyMode) {
+      cancelAnimationFrame(frameRequest);
+      frameRequest = 0;
+      await activeRenderer.releasePackedScene(scene);
+      const material = new StandardShadeMaterial();
+      material.diffuse_color.set(0.12, 0.62, 0.95, 1);
+      const mesh = Mesh.from(new BoxGeometry(2, 2, 2), material);
+      mesh.transform_local.position.set(0, 1, 0);
+      scene.addChild(mesh);
+      startFrameLoop();
+    }
     const counterPromise = waitForCompletedGpuCounters(activeRenderer.profiler, startedFrame);
     const capturePromise = activeRenderer.requestLinearHdrCapture({
       x: Math.max(0, Math.floor(canvas.width / 2) - 2),
@@ -140,6 +158,7 @@ async function runScenario(
     const residency = activeRenderer.geometryAssetResidencyEvidence();
     const sceneEvidence = activeRenderer.gpuSceneEvidence();
     const ownerCreation = activeRenderer.gpuOwnerCreationEvidence();
+    const forbiddenLegacyUploads = legacySceneUploadLabels(stableProfile.uploads.labels);
     const temporal = activeRenderer.temporalEvidence();
     const ambientOcclusion = activeRenderer.ambientOcclusionEvidence();
     const reflections = activeRenderer.screenSpaceReflectionsEvidence();
@@ -162,19 +181,38 @@ async function runScenario(
     const assertions: ValidationAssertion[] = [
       validationAssertion("frame-advanced", stableProfile.frameIndex > startedFrame, "A newer rendered frame supplied the evidence", stableProfile.frameIndex, `> ${startedFrame}`),
       validationAssertion("adapter-created", activeRenderer.adapter_info !== null, "Renderer captured its originating GPU adapter"),
-      validationAssertion("packed-assets-resident", residency.residentAssetCount >= 2, "Cube and ground assets are resident", residency.residentAssetCount, ">= 2"),
-      validationAssertion("packed-instances-active", sceneEvidence.activeInstanceCount >= 2, "Cube and ground instances are active", sceneEvidence.activeInstanceCount, ">= 2"),
-      validationAssertion("packed-owner-evidence", ownerCreation.packed.assetStoreCreated && ownerCreation.packed.instanceTableCreated && ownerCreation.packed.sceneRegistryCreated && ownerCreation.packed.materialStoreCreated && ownerCreation.packed.textureResidencyCreated && ownerCreation.packed.baseTextureBankCreated, "Packed asset, instance, scene, material and texture owners were observed", ownerCreation.packed),
-      validationAssertion("legacy-material-owner-absent", !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed-only rendering did not create legacy material metadata, textures, pipelines, uniforms or bind groups", ownerCreation.legacy),
       validationAssertion("single-main-submit", stableProfile.submits.count === 1 && stableProfile.submits.labels["Renderer/main-0"] === 1, "A stable frame used exactly one main submission", stableProfile.submits, { count: 1, label: "Renderer/main-0" }),
       validationAssertion("stable-graph-cache-hit", stableProfile.graph.builds === 0 && stableProfile.graph.compiles === 0 && stableProfile.graph.cacheHits === 1 && stableProfile.graph.cacheMisses === 0, "A stable frame reused the compiled main graph", stableProfile.graph, { builds: 0, compiles: 0, cacheHits: 1, cacheMisses: 0 }),
       validationAssertion("disabled-features-cold", disabledFeaturesCold, "Disabled temporal, AO and SSR features retained no Pass or history resources", { temporal, ambientOcclusion, reflections, historyOwners: memory.historyOwners }),
       validationAssertion("gpu-raster-work", (counters.hwTriangles ?? 0) > 0, "Hardware visibility consumed triangle work", counters.hwTriangles, "> 0"),
       validationAssertion("gpu-shaded-pixels", (counters.shadedPixels ?? 0) > 0, "Material resolve shaded visible pixels", counters.shadedPixels, "> 0"),
       validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0),
-      validationAssertion("linear-hdr-non-empty", luminanceMaximum > 0.001, "The rendered HDR sample contains visible output", luminanceMaximum, "> 0.001"),
       validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics)
     ];
+    if (legacyMode) {
+      assertions.push(validationAssertion(
+        "legacy-geometry-branch-active",
+        ownerCreation.scene.environmentContextCount === 1 &&
+          ownerCreation.scene.legacyGeometryContextCount === 1 &&
+          ownerCreation.scene.legacySceneDatabaseCount === 1 &&
+          ownerCreation.scene.legacySkinningContextCount === 1 &&
+          ownerCreation.scene.legacyMeshletDrawListCreated &&
+          ownerCreation.legacy.geometryTableCreated &&
+          ownerCreation.legacy.materialRegistryCreated,
+        "The ordinary Scene retained its isolated legacy geometry branch",
+        { scene: ownerCreation.scene, legacy: ownerCreation.legacy }
+      ));
+    } else {
+      assertions.push(
+        validationAssertion("packed-assets-resident", residency.residentAssetCount >= 2, "Cube and ground assets are resident", residency.residentAssetCount, ">= 2"),
+        validationAssertion("packed-instances-active", sceneEvidence.activeInstanceCount >= 2, "Cube and ground instances are active", sceneEvidence.activeInstanceCount, ">= 2"),
+        validationAssertion("packed-owner-evidence", ownerCreation.packed.assetStoreCreated && ownerCreation.packed.instanceTableCreated && ownerCreation.packed.sceneRegistryCreated && ownerCreation.packed.materialStoreCreated && ownerCreation.packed.textureResidencyCreated && ownerCreation.packed.baseTextureBankCreated, "Packed asset, instance, scene, material and texture owners were observed", ownerCreation.packed),
+        validationAssertion("linear-hdr-non-empty", luminanceMaximum > 0.001, "The rendered HDR sample contains visible output", luminanceMaximum, "> 0.001"),
+        validationAssertion("legacy-material-owner-absent", !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed-only rendering did not create legacy material metadata, textures, pipelines, uniforms or bind groups", ownerCreation.legacy),
+        validationAssertion("legacy-geometry-owner-absent", packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed-only rendering created only the shared scene environment and no legacy geometry, SceneDatabase, skinning, or MeshletDrawList owner", ownerCreation.scene),
+        validationAssertion("legacy-scene-upload-absent", forbiddenLegacyUploads.length === 0 && (stableProfile.counters["runtime.scenePrepareCount"] ?? 0) === 0, "A stable Packed frame encoded no legacy scene update or upload", { forbiddenLegacyUploads, scenePrepareCount: stableProfile.counters["runtime.scenePrepareCount"] ?? 0 }, { forbiddenLegacyUploads: [], scenePrepareCount: 0 })
+      );
+    }
     const result: ValidationScenarioResult = {
       schemaVersion: VALIDATION_PROTOCOL_SCHEMA_VERSION,
       fixtureId: "smoke",

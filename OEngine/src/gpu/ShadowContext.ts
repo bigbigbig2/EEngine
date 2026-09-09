@@ -53,6 +53,21 @@ export type ShadowView = {
   packed_camera_state?: GPUCameraState;
 };
 
+export type ShadowGeometrySource =
+  | Readonly<{
+      readonly kind: "packed";
+      readonly runtime: PackedSceneRuntime;
+      readonly assets: GpuAssetBindings;
+      readonly scene: GpuSceneBindings;
+      readonly counterBuffer: GPUBuffer | null;
+      readonly sseThreshold: number;
+    }>
+  | Readonly<{
+      readonly kind: "legacy";
+      readonly context: GPUSceneContext;
+      readonly drawList: MeshletDrawList;
+    }>;
+
 export abstract class ShadowMapBase<TLight extends Light = Light> implements AdaptiveShadowMap {
   id = 0;
   layout: AABB2[] = [];
@@ -517,16 +532,8 @@ export class ShadowContext {
 
   draw(
     command: ShadeGPUCommandContext,
-    scene: GPUSceneContext,
     database: GPUDatabase,
-    drawList: MeshletDrawList,
-    packed: Readonly<{
-      runtime: PackedSceneRuntime;
-      assets: GpuAssetBindings;
-      scene: GpuSceneBindings;
-      counterBuffer: GPUBuffer | null;
-      sseThreshold: number;
-    }> | null = null
+    geometry: ShadowGeometrySource
   ): number {
     this.debugRenderCount = 0;
     this.lastHzbBuildCount = 0;
@@ -534,10 +541,17 @@ export class ShadowContext {
     this.lastHzbDispatchCount = 0;
     this.lastHzbOutputPixels = 0;
     this.packedRasterPass?.beginFrame();
-    const meshlets = scene.meshlets;
-    const sceneDatabaseBuffer = scene.scene_database_buffer;
-    const meshTable = scene.meshSlice;
+    const packed = geometry.kind === "packed" ? geometry : null;
+    const legacy = geometry.kind === "legacy" ? geometry : null;
+    const scene = legacy?.context ?? null;
+    const drawList = legacy?.drawList ?? null;
+    const meshlets = scene?.meshlets ?? null;
+    const sceneDatabaseBuffer = scene?.scene_database_buffer ?? null;
+    const meshTable = scene?.meshSlice ?? null;
     const canRaster =
+      scene !== null &&
+      meshlets !== null &&
+      drawList !== null &&
       sceneDatabaseBuffer !== null &&
       meshTable !== null &&
       meshlets.headerBuffer !== null &&
@@ -587,12 +601,12 @@ export class ShadowContext {
         } else if ((map.light as PointLight).isPointLight) {
           drew = this.drawPointMap(
             command,
-            scene,
+            scene!,
             map as PointShadowMap,
             atlasView,
             sceneDatabaseBuffer!,
             meshTable!,
-            drawList
+            drawList!
           );
         } else {
           for (let viewIndex = 0; viewIndex < map.views.length; viewIndex++) {
@@ -601,7 +615,7 @@ export class ShadowContext {
             const viewContext = this.prepareViewContext(
               command,
               shadowView,
-              scene,
+              scene!,
               layout.width,
               layout.height
             );
@@ -611,15 +625,15 @@ export class ShadowContext {
               depthView: atlasView,
               depthTexture: this.texture,
               viewContext,
-              scene: scene.scene,
-              sceneDatabase: scene.scene_database,
+              scene: scene!.scene,
+              sceneDatabase: scene!.scene_database,
               sceneDatabaseBuffer: sceneDatabaseBuffer!,
               meshTable: meshTable!,
-              materialMetadata: scene.material_metadata,
-              materialRegistry: scene.materials,
-              meshlets,
-              drawList,
-              meshCount: scene.mesh_count
+              materialMetadata: scene!.material_metadata,
+              materialRegistry: scene!.materials,
+              meshlets: meshlets!,
+              drawList: drawList!,
+              meshCount: scene!.mesh_count
             });
           }
         }
@@ -756,7 +770,7 @@ export class ShadowContext {
     if (!context) {
       context = new GPUViewContext(
         this.graphics,
-        scene,
+        scene.environment,
         new GPUCameraState(this.device, shadowView.camera),
         command
       );

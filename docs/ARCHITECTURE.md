@@ -27,6 +27,8 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | GPU 资产 | `src/gpu/GpuAssetStore.ts` | geometry/material/texture residency |
 | 场景实例 | `src/gpu/GpuScene.ts` | instance 数据和显式 patch |
 | Packed 场景 | `src/gpu/GpuPackedSceneRegistry.ts` | Packed runtime 生命周期 |
+| 场景环境 | `src/gpu/GPUSceneEnvironmentContext.ts` | Packed/普通 Scene 共享的 light、environment、light-probe 与 volumetric 数据 |
+| Legacy geometry | `src/gpu/GPUSceneContext.ts` | 仅普通 Scene consumer 使用的 SceneDatabase、TLAS、animation 与 skinning 临时 owner |
 | GPU 工作 | `src/gpu/GpuWorkGenerationAbi.ts` 及 work-generation owners | 队列 ABI、容量、overflow、indirect args |
 | 可见像素身份 | `src/gpu/GpuVisibilityKeyAbi.ts`、Visibility owners | key ABI、sentinel、reverse-Z、diagnostics |
 | Surface ABI | `src/gpu/GpuSurfaceAbi.ts` | attachment 格式、编码和版本 |
@@ -48,9 +50,11 @@ Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证�
 
 `src/index.ts` 是唯一公开 interface。新增内部 Feature、Pass、Shader、Profiler codec 或 ABI 不应自动导出；只有稳定且被外部调用方需要的能力才进入入口。
 
-## 当前双路径
+## 当前帧输入边界
 
-Packed 路径已经输出 `VisibilityKey`、统一 Surface 和 velocity。普通 Scene 仍保留 legacy Material Expand、独立 Velocity 和旧 OIT consumer；Renderer 仍存在 Packed/legacy 选路。AO、SSR 与 GI 已由 Service 组合，但底层旧 owner 尚未全部消失。
+Renderer 在取得场景环境后、创建 geometry owner 前先查询 Packed registry。帧绑定只发布一种互斥 geometry source：Packed runtime，或普通 Scene 的 legacy `GPUSceneContext`。Packed 帧只执行共享 light/environment 同步和 `GpuPackedSceneRegistry` 的显式 patch，不创建或更新 legacy SceneDatabase、geometry table、skinning 或 MeshletDrawList；`GPUViewContext` 只依赖 camera/view/HZB 与共享场景环境。
+
+Packed 路径已经输出 `VisibilityKey`、统一 Surface 和 velocity。普通 Scene 仍保留 legacy Material Expand、独立 Velocity 和旧 OIT consumer；Renderer 仍存在显式 Packed/legacy geometry 选路。AO、SSR 与 GI 已由 Service 组合，但 Shadow orchestration 仍位于 `src/gpu`，其归属迁移属于 ADR-0006 Step 4。
 
 ## 目标差距
 

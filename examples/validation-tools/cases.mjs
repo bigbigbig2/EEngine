@@ -2,10 +2,12 @@ const chromeWebGpu = Object.freeze({ localChrome: true, webgpu: true });
 
 export const VALIDATION_CASES = Object.freeze([
   defineCase("smoke.basic", "smoke", "basic", ["smoke", "renderer", "graphics-context", "gpu-scene"], ["validation-system", "rendering-lab", "public-interface", "framegraph", "renderer", "graphics-context", "gpu-scene", "asset", "observability", "build"], "always"),
+  defineCase("smoke.legacy", "smoke", "legacy", ["smoke", "renderer", "graphics-context", "gpu-scene", "legacy"], ["gpu-scene"]),
   defineCase("lifecycle.init-destroy", "lifecycle", "init-destroy", ["lifecycle", "renderer", "graphics-context", "gpu-resource"], ["validation-system", "public-interface", "framegraph", "renderer", "graphics-context", "lifecycle", "build"]),
   defineCase("lifecycle.resize", "lifecycle", "resize", ["lifecycle", "renderer", "graphics-context"], ["lifecycle"]),
   defineCase("lifecycle.recreate-renderer", "lifecycle", "recreate-renderer", ["lifecycle", "renderer", "graphics-context", "gpu-resource"]),
   defineCase("lifecycle.replace-scene", "lifecycle", "replace-scene", ["lifecycle", "renderer", "gpu-scene", "gpu-resource"], ["gpu-scene"]),
+  defineCase("lifecycle.release-reregister", "lifecycle", "release-reregister", ["lifecycle", "renderer", "gpu-scene", "gpu-resource"], ["gpu-scene"]),
   defineCase("visibility.basic", "visibility", "basic", ["visibility", "gpu-driven", "hierarchy", "raster"], ["framegraph", "renderer", "graphics-context", "visibility"]),
   defineCase("visibility.shadow", "visibility", "shadow", ["visibility", "gpu-driven", "shadow", "material"], ["renderer", "graphics-context", "visibility", "shadow", "material"]),
   defineCase("visibility.frustum", "visibility", "frustum", ["visibility", "gpu-driven", "frustum"]),
@@ -13,6 +15,7 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("visibility.lod-near", "visibility", "lod-near", ["visibility", "gpu-driven", "hierarchy", "lod"]),
   defineCase("visibility.lod-far", "visibility", "lod-far", ["visibility", "gpu-driven", "hierarchy", "lod"]),
   defineCase("visibility.camera-cut", "visibility", "camera-cut", ["visibility", "gpu-driven", "hzb", "temporal"], ["hzb"]),
+  defineCase("visibility.transform-patch", "visibility", "transform-patch", ["visibility", "gpu-driven", "gpu-scene"], ["gpu-scene"]),
   defineCase("surface.basic", "surface", "basic", ["surface", "material-resolve"], ["surface", "material"], "always"),
   defineCase("surface.textured", "surface", "textured", ["surface", "material", "texture-residency"], ["surface", "texture-residency"], "always"),
   defineCase("surface.material-switch", "surface", "material-switch", ["surface", "material", "gpu-scene"], ["material"]),

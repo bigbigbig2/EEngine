@@ -3,7 +3,7 @@
  */
 
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
-import type { GPUSceneManager } from "../gpu/GPUSceneManager.js";
+import type { GPUSceneEnvironmentContext } from "../gpu/GPUSceneEnvironmentContext.js";
 import type { Camera } from "../camera/Camera.js";
 import type { Scene } from "../scene/Scene.js";
 import type { GPUCameraStateManager } from "./GPUCameraState.js";
@@ -13,7 +13,7 @@ import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContex
 
 type ViewContextFactory = (
   graphics: GraphicsContext,
-  scene: ReturnType<GPUSceneManager["obtain"]>,
+  environment: GPUSceneEnvironmentContext,
   camera: ReturnType<GPUCameraStateManager["obtain"]>,
   command: ShadeGPUCommandContext
 ) => GPUViewContext;
@@ -50,7 +50,6 @@ export class ViewManager {
   readonly isViewManager = true;
 
   private readonly _graphics: GraphicsContext;
-  private readonly _scenes: GPUSceneManager;
   private readonly _cameraStates: GPUCameraStateManager;
   private readonly _contexts = new Map<
     Camera,
@@ -60,28 +59,26 @@ export class ViewManager {
   constructor(
     graphics: GraphicsContext,
     cameraStates: GPUCameraStateManager,
-    scenes: GPUSceneManager,
     private readonly createContext: ViewContextFactory = (
       owner,
-      scene,
+      environment,
       camera,
       command
-    ) => new GPUViewContext(owner, scene, camera, command)
+    ) => new GPUViewContext(owner, environment, camera, command)
   ) {
     this._graphics = graphics;
     this._cameraStates = cameraStates;
-    this._scenes = scenes;
   }
 
   get graphics(): GraphicsContext {
     return this._graphics;
   }
 
-  get scenes(): GPUSceneManager {
-    return this._scenes;
-  }
-
-  obtain(key: GPUViewKey, command: ShadeGPUCommandContext): ViewHandle {
+  obtain(
+    key: GPUViewKey,
+    environment: GPUSceneEnvironmentContext,
+    command: ShadeGPUCommandContext
+  ): ViewHandle {
     const { camera, scene } = key;
     let byScene = this._contexts.get(camera);
     if (byScene === undefined) {
@@ -92,7 +89,7 @@ export class ViewManager {
     if (context === undefined) {
       context = this.createContext(
         this._graphics,
-        this._scenes.obtain(scene),
+        environment,
         this._cameraStates.obtain(camera),
         command
       );
@@ -115,6 +112,29 @@ export class ViewManager {
     if (byScene.size === 0) this._contexts.delete(key.camera);
     command.destroyAfterGpuDone(context);
     return true;
+  }
+
+  /** Retires every camera view for a Scene only after the release commits. */
+  releaseScene(scene: Scene, command: ShadeGPUCommandContext): number {
+    const matches: Array<readonly [Camera, GPUViewContext]> = [];
+    for (const [camera, byScene] of this._contexts) {
+      const context = byScene.get(scene);
+      if (context !== undefined) matches.push([camera, context]);
+    }
+    if (matches.length === 0) return 0;
+    command.onFinished.addOne(() => {
+      for (const [camera, context] of matches) {
+        const byScene = this._contexts.get(camera);
+        if (byScene?.get(scene) !== context) continue;
+        byScene.delete(scene);
+        if (byScene.size === 0) this._contexts.delete(camera);
+        void command.gpuDone.then(
+          () => context.destroy(),
+          () => context.destroy()
+        );
+      }
+    });
+    return matches.length;
   }
 
   destroy(): void {

@@ -28,6 +28,7 @@ import {
   type ValidationScenarioResult
 } from "../fixture-protocol.ts";
 import { CanonicalPackedRuntime } from "../shared/canonical-runtime.ts";
+import { packedFrameHasNoLegacyGeometryOwners } from "../shared/packed-owner-evidence.ts";
 import { FixtureState } from "../shared/fixture-state.ts";
 import { createPackedBoxScene, solidMaterial } from "../shared/packed-scene.ts";
 import {
@@ -145,6 +146,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       assertions.push(validationAssertion("transparent-queue-no-overflow", (gpu.transparentQueueOverflowMask ?? 0) === 0, "Packed transparency work did not overflow", gpu.transparentQueueOverflowMask, 0));
     }
     assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Surface and Transparency did not create the legacy material owner", ownerCreation?.legacy));
+    assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed Surface, patches and Transparency did not create legacy geometry, SceneDatabase, skinning, or MeshletDrawList owners", ownerCreation?.scene));
     const diagnostics = validationDiagnostics(runtime.renderer?.profiler.diagnostics);
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
 

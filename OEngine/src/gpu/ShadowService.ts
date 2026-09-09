@@ -8,22 +8,13 @@
 import type { Camera } from "../camera/Camera.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { PackedSceneRuntime } from "./GpuPackedSceneRegistry.js";
-import type { GpuAssetBindings } from "./GpuAssetStore.js";
-import type { GpuSceneBindings } from "./GpuScene.js";
 import type { GPUDatabase } from "./GPUDatabase.js";
-import type { GPUSceneContext } from "./GPUSceneContext.js";
-import type { MeshletDrawList } from "./MeshletDrawList.js";
-import { ShadowContext } from "./ShadowContext.js";
+import {
+  ShadowContext,
+  type ShadowGeometrySource
+} from "./ShadowContext.js";
 import type { SceneLights } from "../scene/Scene.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-
-export type ShadowServicePackedInput = Readonly<{
-  readonly runtime: PackedSceneRuntime;
-  readonly assets: GpuAssetBindings;
-  readonly scene: GpuSceneBindings;
-  readonly counterBuffer: GPUBuffer | null;
-  readonly sseThreshold: number;
-}>;
 
 /** 阴影服务的稳定入口；不改变现有 ShadowContext 的算法和 GPU ABI。 */
 export class ShadowService {
@@ -148,12 +139,10 @@ export class ShadowService {
 
   draw(
     command: ShadeGPUCommandContext,
-    scene: GPUSceneContext,
     database: GPUDatabase,
-    drawList: MeshletDrawList,
-    packed: ShadowServicePackedInput | null = null
+    geometry: ShadowGeometrySource
   ): number {
-    return this.implementation.draw(command, scene, database, drawList, packed);
+    return this.implementation.draw(command, database, geometry);
   }
 
   releasePackedScene(runtime: PackedSceneRuntime, command: ShadeGPUCommandContext): void {

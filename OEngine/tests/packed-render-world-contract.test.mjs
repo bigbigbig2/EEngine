@@ -32,6 +32,10 @@ const [
   import("../.test-dist/texture/ShadeTexture.js")
 ]);
 
+const { resolveFrameSceneOwners } = await import(
+  "../.test-dist/render/pipeline/SceneFrameBindings.js"
+);
+
 test("FrameCoordinator owns one close path for each render tick", () => {
   const commands = [];
   const coordinator = new FrameCoordinator({}, (_graphics, label) => {
@@ -75,6 +79,59 @@ test("GPU Scene defers its legacy material owner until a legacy consumer request
   assert.equal(requests, 1);
   assert.equal(sceneContext.material_metadata, legacyRegistry.metadata_table);
   assert.equal(requests, 2);
+});
+
+test("Packed frame resolves shared environment without obtaining legacy geometry", () => {
+  const scene = {};
+  const environment = {};
+  const runtime = {};
+  let environmentObtains = 0;
+  let legacyObtains = 0;
+  const owners = resolveFrameSceneOwners(
+    scene,
+    { runtime: (candidate) => candidate === scene ? runtime : null },
+    {
+      obtain(candidate) {
+        assert.equal(candidate, scene);
+        environmentObtains++;
+        return environment;
+      }
+    },
+    {
+      obtain() {
+        legacyObtains++;
+        return {};
+      }
+    }
+  );
+
+  assert.equal(owners.environment, environment);
+  assert.deepEqual(owners.geometry, { kind: "packed", runtime });
+  assert.equal(environmentObtains, 1);
+  assert.equal(legacyObtains, 0);
+});
+
+test("Legacy frame publishes exactly one legacy geometry source", () => {
+  const scene = {};
+  const environment = {};
+  const legacy = {};
+  let legacyObtains = 0;
+  const owners = resolveFrameSceneOwners(
+    scene,
+    { runtime: () => null },
+    { obtain: () => environment },
+    {
+      obtain(candidate) {
+        assert.equal(candidate, scene);
+        legacyObtains++;
+        return legacy;
+      }
+    }
+  );
+
+  assert.equal(owners.environment, environment);
+  assert.deepEqual(owners.geometry, { kind: "legacy", context: legacy });
+  assert.equal(legacyObtains, 1);
 });
 
 test("Packed registry publishes stage and release only when their command commits", async () => {

@@ -15,6 +15,7 @@ import type {
 } from "../../gpu/GPUDescriptorCaches.js";
 import { GPUTextureContext, textureMipLevelCount } from "../../gpu/GPUTextureContext.js";
 import type { GPUViewContext } from "../ViewContext.js";
+import type { GPUSceneContext } from "../../gpu/GPUSceneContext.js";
 import {
   PATH_TRACER_HISTORY_FORMAT,
   PATH_TRACER_OUTPUT_FORMAT,
@@ -144,6 +145,7 @@ const PATH_TRACER_FLOOD_PIPELINE = postPipeline(
 
 export type PathTracerRenderOptions = {
   view: GPUViewContext;
+  scene: GPUSceneContext;
   graph: FrameGraph;
 };
 
@@ -198,7 +200,7 @@ export class PathTracer {
     )) as [GPUTextureContext, GPUTextureContext];
   }
 
-  render({ view, graph }: PathTracerRenderOptions): ResourceId {
+  render({ view, scene, graph }: PathTracerRenderOptions): ResourceId {
     if (!this.previousCamera.equals(view.camera.camera)) {
       this.clear_history = true;
       this.previousCamera.copy(view.camera.camera);
@@ -244,7 +246,6 @@ export class PathTracer {
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         const resident = this.graphics.materials_resident;
-        const scene = view.scene;
         resident.ensure_scene_materials(scene.scene);
         resident.update(command);
 

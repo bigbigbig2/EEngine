@@ -11,6 +11,7 @@ import {
 } from "../fixture-protocol.ts";
 import { CanonicalPackedRuntime } from "../shared/canonical-runtime.ts";
 import { FixtureState } from "../shared/fixture-state.ts";
+import { packedFrameHasNoLegacyGeometryOwners } from "../shared/packed-owner-evidence.ts";
 import { createPackedBoxScene, solidMaterial } from "../shared/packed-scene.ts";
 import {
   hasGpuFailure,
@@ -52,7 +53,7 @@ function createRuntime(): CanonicalPackedRuntime {
 }
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  if (!["init-destroy", "resize", "recreate-renderer", "replace-scene"].includes(request.scenarioId)) {
+  if (!["init-destroy", "resize", "recreate-renderer", "replace-scene", "release-reregister"].includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown lifecycle scenario '${request.scenarioId}'`));
   }
   const startedFrame = runtime.frame;
@@ -61,6 +62,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
   showStatus();
   try {
     let profile: FrameProfileSnapshot | null = null;
+    let ownerCreation: ReturnType<NonNullable<CanonicalPackedRuntime["renderer"]>["gpuOwnerCreationEvidence"]> | null = null;
     let diagnosticsBeforeDestroy: ReturnType<typeof validationDiagnostics> | null = null;
     const evidence: Record<string, unknown> = {};
     const assertions: ValidationAssertion[] = [];
@@ -81,6 +83,13 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       evidence.activeInstanceCount = sceneEvidence?.activeInstanceCount ?? 0;
       assertions.push(validationAssertion("scene-identity-replaced", runtime.scene !== oldScene, "The active Scene owner was replaced"));
       assertions.push(validationAssertion("replacement-visible", (profile.gpuCounters.values.shadedPixels ?? 0) > 0, "The replacement scene rendered visible pixels", profile.gpuCounters.values.shadedPixels, "> 0"));
+    } else if (request.scenarioId === "release-reregister") {
+      const scene = runtime.scene;
+      await runtime.releaseAndReregister(await createLifecycleSource());
+      profile = await runtime.waitForCounters(startedFrame);
+      evidence.sceneIdentityPreserved = runtime.scene === scene;
+      assertions.push(validationAssertion("scene-reregistered", runtime.scene === scene, "The same Application Scene was released and registered again"));
+      assertions.push(validationAssertion("reregistered-scene-visible", (profile.gpuCounters.values.shadedPixels ?? 0) > 0, "The re-registered Packed scene rendered visible pixels", profile.gpuCounters.values.shadedPixels, "> 0"));
     } else if (request.scenarioId === "recreate-renderer") {
       const oldRenderer = runtime.renderer;
       await runtime.recreate();
@@ -93,6 +102,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     } else {
       profile = await runtime.waitForCounters(startedFrame);
       diagnosticsBeforeDestroy = validationDiagnostics(runtime.renderer?.profiler.diagnostics);
+      ownerCreation = runtime.renderer?.gpuOwnerCreationEvidence() ?? null;
       await runtime.destroy();
       evidence.runtimeDestroyed = runtime.renderer === null;
       evidence.diagnosticsBeforeDestroy = diagnosticsBeforeDestroy;
@@ -101,6 +111,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     }
 
     const diagnostics = diagnosticsBeforeDestroy ?? validationDiagnostics(runtime.renderer?.profiler.diagnostics);
+    ownerCreation ??= runtime.renderer?.gpuOwnerCreationEvidence() ?? null;
+    evidence.ownerCreation = ownerCreation;
+    assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== null && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed lifecycle transitions retained only one shared environment and no legacy geometry runtime", ownerCreation?.scene));
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
     assertions.push(validationAssertion("frame-evidence-produced", profile !== null && profile.frameIndex > evidenceStartedFrame, "Scenario produced fresh frame evidence", profile?.frameIndex, `> ${evidenceStartedFrame}`));
     if (profile !== null) {

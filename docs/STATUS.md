@@ -6,6 +6,7 @@
 
 - WebGPU Renderer、FrameGraph、FramePlan、Feature/Service 组合和公开入口已经存在。
 - GPU-ready geometry package、`GpuAssetStore`、`GpuScene` 与 Packed registry 已形成资源边界。
+- Packed frame 已脱离完整 `GPUSceneContext`：共享场景环境与 legacy geometry runtime 分离，frame geometry binding 为互斥 Packed/legacy 输入。
 - Packed hierarchy/work generation、Hardware Visibility、直接 `VisibilityKey`、MaterialClassDepth/class-discard 选择和统一 Surface ABI 已有生产 owner。
 - 旧 Pixel Queue、ShadeWork 和可见像素 scan/scatter 生产链已退出生产路径。
 - direct lighting、CSM、GI、AO、SSR、MBOIT、Temporal 与 HDR post 接入同一 Renderer 主流程。
@@ -35,6 +36,7 @@
 ### Legacy 与生命周期
 
 - `Renderer.ts` 仍是大型 composition root。
+- Shadow orchestration 及其具体 Pass 依赖仍位于 `src/gpu`，尚未完成 ADR-0006 Step 4 的 Render 层归属迁移。
 - 普通 Scene 仍有 Material Expand、独立 Velocity 和 legacy OIT 最终 consumer。
 - Packed 与普通 Scene 的 Surface metadata、velocity、transparency 生命周期尚未完全统一。
 - device loss、resize、feature toggle、camera cut 和提交失败后的 history/resource invalidation 仍需浏览器证据。
@@ -54,6 +56,8 @@ Step 0 门禁已经建立。Step 1 已消除 Packed material 双 owner：`GpuPac
 
 Step 2 已完成。Texture Residency 采用五个有界 size-class bank（256/512/1024/2048/4096）和 version/bank/layer 稳定 TextureRef；高分辨率 bank 按需分配，transaction 在 2 GiB hard peak budget、bank capacity 与 device limits 下 preflight，abort 不发布 ref，旧 bank 等 GPU 完成后销毁。Surface、Transparency、MASK Visibility 与 CSM alpha 使用同一 CPU/WGSL decode；CPU/WGSL oracle、120 个全排列、逐层增长、容量/故障注入、真实 Chrome 场景均通过。方案与 clean-commit A/B 证据见 `OEngine/benchmarks/texture-residency-policy.json` 和 `OEngine/benchmarks/texture-residency-step2.json`；目标 workload 保持 25 个纹理与 559240500 resident logical bytes，实测 texture peak/allocation 从 738197376 降到 603979656 bytes，base GPU P50/P95 为 +0.641%/+1.424%。该结果是 smoke A/B，不替代发布级 formal run group。
 
-1. 执行 Step 3：让 Packed frame 脱离完整 `GPUSceneContext`，移除 Packed stable frame 的 legacy geometry/scene/skinning 更新。
+Step 3 已完成。`GPUSceneEnvironmentContext` 独立拥有 light、environment、light-probe 与 volumetric 数据；`GPUSceneContext` 缩为普通 Scene 的 legacy geometry runtime。Renderer 在 legacy obtain 前查询 Packed registry，`GPUViewContext` 只依赖共享环境与 camera/view/HZB，frame binding 只发布 Packed 或 legacy 一种 geometry source。Packed stable frame、显式 transform/material patch、replace、release/re-register、Lifecycle、Visibility/HZB/LOD/camera-cut 与普通 Scene 回归均有真实浏览器证据；Packed owner evidence 中 legacy geometry table、SceneDatabase、skinning、MeshletDrawList 和 legacy scene upload 均为零，并保持一个 main submit。
+
+1. 执行 Step 4：将 Shadow atlas、work generation、raster 与 light orchestration 移回 Render Feature/Service，消除 `src/gpu` 对具体 Pass、ViewContext 和 CameraState 的反向依赖。
 2. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
 3. 保持 Tile backend 为 evidence-only，并为 shader audit 中的 unknown 项确认 authored owner 或可追溯生成源。

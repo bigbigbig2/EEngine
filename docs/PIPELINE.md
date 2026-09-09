@@ -16,6 +16,8 @@ scene-update
 
 `FramePlan` 只验证跨图依赖顺序；启用阶段仍记录到 Renderer 的主 command context。`main-view-graph` 必须等待本帧启用的 scene、LPV 和 shadow 更新。
 
+`scene-update` 开始前先解析场景 owner：共享 `GPUSceneEnvironmentContext` 对两种输入都存在，geometry source 则是 `packed` 或 `legacy` 的判别联合，不能同时发布。Packed 分支由 `GpuPackedSceneRegistry.encodePendingPatch()` 消费显式 transform/material patch，并跳过 `GPUSceneManager.obtain()` 与 legacy `GPUSceneContext.encodeFrame()`；普通 Scene 分支以自己的 SceneChangeSet revision 更新 legacy geometry runtime。`GPUViewContext` 只绑定共享环境和 camera/view/HZB，因此 Packed 视图不会间接取得 legacy geometry、material 或 skinning owner。
+
 ## GPU Work Contract
 
 `GpuWorkGenerationAbi.ts` 定义当前工作队列 ABI。每个新增 GPU 队列必须同时定义元素 schema/stride、header、capacity、overflow、producer、consumer、indirect 参数和统计 counter。`attempted` 反映真实申请，`written` 只能反映安全写入；overflow 不得通过截断伪装成功。
@@ -65,6 +67,6 @@ Feature 关闭时不得构造对应 GPU owner、Pass、attachment、history、re
 
 ## 尚未统一的路径
 
-普通 Scene 的 Material Expand、独立 Velocity 和 legacy OIT 仍与 Packed 路径并存；它们是迁移债务。新功能只能接入统一产品合同，不得再扩张旧路径。
+普通 Scene 的 legacy geometry runtime、Material Expand、独立 Velocity 和 legacy OIT 仍与 Packed 路径并存；它们是迁移债务。该 runtime 只能由互斥 frame geometry binding 的 legacy 分支取得，新功能只能接入统一产品合同，不得再扩张旧路径。
 
 Packed material、scene owner、shadow/light 边界、MainRenderPipeline 和普通 Scene 的迁移顺序由 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 固定。

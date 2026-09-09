@@ -118,12 +118,24 @@ export class CanonicalPackedRuntime {
 
   async replaceScene(source: PackedSceneSource): Promise<void> {
     if (this.renderer === null || this.scene === null) throw new Error("Canonical runtime is not initialized");
+    const resume = this.running;
+    this.stop();
     const previous = this.scene;
     await this.renderer.releasePackedScene(previous);
     const replacement = new Scene();
     addLight(replacement, this.options.shadows ?? false);
     await this.renderer.uploadPackedScene(replacement, source);
     this.scene = replacement;
+    if (resume) this.start();
+  }
+
+  async releaseAndReregister(source: PackedSceneSource): Promise<void> {
+    if (this.renderer === null || this.scene === null) throw new Error("Canonical runtime is not initialized");
+    const resume = this.running;
+    this.stop();
+    await this.renderer.releasePackedScene(this.scene);
+    await this.renderer.uploadPackedScene(this.scene, source);
+    if (resume) this.start();
   }
 
   async recreate(): Promise<void> {

@@ -22,6 +22,7 @@ import {
   type CanonicalRuntimeCameraPose
 } from "../shared/canonical-runtime.ts";
 import { FixtureState } from "../shared/fixture-state.ts";
+import { packedFrameHasNoLegacyGeometryOwners } from "../shared/packed-owner-evidence.ts";
 import { createPackedBoxScene, solidMaterial } from "../shared/packed-scene.ts";
 import {
   hasGpuFailure,
@@ -75,7 +76,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "shadow"];
+  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "shadow", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -134,6 +135,31 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       ); attempt++) {
         completed = await runtime.waitForCounters(completed.frameIndex);
       }
+    } else if (request.scenarioId === "transform-patch") {
+      const renderer = runtime.renderer;
+      const scene = runtime.scene;
+      if (renderer === null || scene === null) throw new Error("Visibility runtime is not initialized");
+      const before = renderer.gpuSceneEvidence().patchedTransformCount;
+      const transform = new Float32Array(16);
+      transform[0] = 1;
+      transform[5] = 1;
+      transform[10] = 1;
+      transform[12] = -3.5;
+      transform[13] = 1.25;
+      transform[15] = 1;
+      renderer.queuePackedScenePatch(scene, {
+        frameId: renderer.frame_count + 1,
+        transforms: { indices: new Uint32Array([0]), transforms: transform }
+      });
+      completed = await runtime.waitForCounters(runtime.frame);
+      let after = renderer.gpuSceneEvidence().patchedTransformCount;
+      for (let attempt = 0; attempt < 6 && after === before; attempt++) {
+        completed = await runtime.waitForCounters(completed.frameIndex);
+        after = renderer.gpuSceneEvidence().patchedTransformCount;
+      }
+      evidence.patchedTransformsBefore = before;
+      evidence.patchedTransformsAfter = after;
+      assertions.push(validationAssertion("transform-patch-applied", after === before + 1, "The explicit Packed transform patch was consumed", { before, after }, "after = before + 1"));
     } else {
       runtime.setCamera(DEFAULT_POSE);
       if (request.scenarioId === "occlusion") await runtime.waitForFrames(8);
@@ -172,6 +198,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const ownerCreation = runtime.renderer?.gpuOwnerCreationEvidence();
     evidence.ownerCreation = ownerCreation;
     assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Visibility and Shadow did not create the legacy material owner", ownerCreation?.legacy));
+    assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed Visibility, HZB and Shadow did not create legacy geometry, SceneDatabase, skinning, or MeshletDrawList owners", ownerCreation?.scene));
     const diagnostics = validationDiagnostics(runtime.renderer?.profiler.diagnostics);
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
 

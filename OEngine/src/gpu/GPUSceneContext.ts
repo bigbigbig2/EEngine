@@ -1,14 +1,8 @@
 /**
- * @module reconstructed/src/gpu/GPUSceneContext
- * @evidence isGPUSceneContext → aL; pretty L35849–36018; [S]
- * @status migrated (aL owner/update/build ordering aligned through B12)
- * @module-dissection artifacts/slices/REBOOT-R4-gpuscene/
+ * Temporary geometry runtime for ordinary Scene consumers.
  *
- * GPU Scene：`_g/cg/dg` → paged `oI`，dirty work 编码到帧协调器持有的 command。
- * G6-17：materials.metadata_table 使用 lm.pack() 80B ABI，仍为 dense lifecycle。
- * `qz/Nz -> nE -> yh -> Ch/qf` shadow/cluster direct-light consumer 已接；
- * B3 已闭合 source/clone geometry index → BLAS address 与当前 ray-query consumer；
- * 其余渲染域继续按后续批次收口。
+ * Lights, probes and volumetrics live in the independently owned
+ * GPUSceneEnvironmentContext. Packed frames must not obtain this context.
  */
 
 import type { Scene } from "../scene/Scene.js";
@@ -21,26 +15,19 @@ import {
   type GpuBufferSlice,
 } from "./SceneDatabase.js";
 import { MeshletGpuTable } from "./MeshletGpuTable.js";
-import { GPULightCollection } from "./LightDatabase.js";
 import { GPUAnimationManager } from "./AnimationDatabase.js";
 import { TopLevelAccelerationStructure } from "./TopLevelAccelerationStructure.js";
 import { GPUSkinningManager } from "./GPUSkinningManager.js";
-import { GPULightProbeVolume } from "./GPULightProbeVolume.js";
-import { Brick4LightMap } from "./Brick4LightMap.js";
-import { GPUVolumetrics } from "./GPUVolumetrics.js";
 import type { GPUMaterialRegistry } from "./GPUMaterialContext.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import type { SceneChangeSnapshot } from "../scene/SceneChangeSet.js";
 import { applySceneTransformChanges } from "./GPUSceneChangeSynchronizer.js";
+import type { GPUSceneEnvironmentContext } from "./GPUSceneEnvironmentContext.js";
 
 export interface GPUSceneContextMembers {
   geometries: MeshletGpuTable;
   materials: GPUMaterialRegistry;
-  volumetric_light_map: Brick4LightMap;
-  volumetrics: GPUVolumetrics;
   scene: Scene;
-  lights: GPULightCollection;
-  light_probe_volume: GPULightProbeVolume;
   tlas: TopLevelAccelerationStructure;
   scene_database: SceneDatabase;
   scene_database_buffer: GPUBuffer | null;
@@ -77,10 +64,6 @@ export class GPUSceneContext implements GPUSceneContextMembers {
   /** @evidence iL.#it: both owners are injected from GraphicsContext. */
   readonly geometries: MeshletGpuTable;
   private readonly obtainSharedMaterials: () => GPUMaterialRegistry;
-  readonly volumetric_light_map: Brick4LightMap;
-  readonly volumetrics: GPUVolumetrics;
-  readonly lights: GPULightCollection;
-  readonly light_probe_volume: GPULightProbeVolume;
   readonly tlas: TopLevelAccelerationStructure;
   readonly animation_manager: GPUAnimationManager;
   private _skinning: GPUSkinningManager | null = null;
@@ -110,7 +93,8 @@ export class GPUSceneContext implements GPUSceneContextMembers {
     graphics: GraphicsContext,
     scene: Scene,
     sharedGeometries: MeshletGpuTable,
-    obtainSharedMaterials: () => GPUMaterialRegistry
+    obtainSharedMaterials: () => GPUMaterialRegistry,
+    readonly environment: GPUSceneEnvironmentContext
   ) {
     const device = graphics.device;
     if (device === null) {
@@ -125,13 +109,6 @@ export class GPUSceneContext implements GPUSceneContextMembers {
     this.obtainSharedMaterials = obtainSharedMaterials;
     this.tlas = new TopLevelAccelerationStructure(device);
     this.scene_database = new SceneDatabase(graphics);
-    this.lights = new GPULightCollection(graphics, scene.lights);
-    this.light_probe_volume = new GPULightProbeVolume(
-      graphics,
-      scene.light_probe_volume,
-    );
-    this.volumetric_light_map = new Brick4LightMap(device);
-    this.volumetrics = new GPUVolumetrics(device, scene.volumetrics);
     this.animation_manager = new GPUAnimationManager(
       graphics,
       `GPUSceneContext[${this.id}]/Animation`,
@@ -142,6 +119,24 @@ export class GPUSceneContext implements GPUSceneContextMembers {
   /** Keeps Packed-only scene setup from constructing the legacy material owner. */
   get materials(): GPUMaterialRegistry {
     return this.obtainSharedMaterials();
+  }
+
+  /** Temporary legacy adapter; the environment remains independently owned. */
+  get lights() {
+    return this.environment.lights;
+  }
+
+  /** Temporary legacy adapter for LPV tooling until its Step 4 ownership move. */
+  get light_probe_volume() {
+    return this.environment.light_probe_volume;
+  }
+
+  get volumetric_light_map() {
+    return this.environment.volumetric_light_map;
+  }
+
+  get volumetrics() {
+    return this.environment.volumetrics;
   }
 
   /**
@@ -169,12 +164,7 @@ export class GPUSceneContext implements GPUSceneContextMembers {
 
   /** @evidence aL.gpu_memory_usage L35917-L35924. */
   get gpu_memory_usage(): number {
-    return (
-      this.scene_database.gpu_memory_usage +
-      this.lights.gpu_memory_usage +
-      this.light_probe_volume.gpu_memory_usage +
-      this.volumetric_light_map.gpu_memory_usage
-    );
+    return this.scene_database.gpu_memory_usage;
   }
 
   /**
@@ -337,13 +327,6 @@ export class GPUSceneContext implements GPUSceneContextMembers {
       this._dirty = true;
     });
     const changes = this.scene.changesSince(this._lastSceneChangeRevision);
-    this.light_probe_volume.update();
-    this.lights.update(
-      command,
-      changes.fullResyncRequired || changes.changedLights.length > 0
-    );
-    this.volumetrics.update(command, timeDeltaSeconds);
-
     const fullRebuild =
       this._dirty ||
       changes.fullResyncRequired ||
@@ -366,7 +349,7 @@ export class GPUSceneContext implements GPUSceneContextMembers {
       scenePrepareCount: 1,
       transformedNodes: changes.transformedNodes.length,
       changedMeshBounds: changes.changedMeshBounds.length,
-      changedLights: changes.changedLights.length,
+      changedLights: 0,
       structureChanged: changes.instanceStructureChanged,
       fullRebuild
     };
@@ -374,13 +357,8 @@ export class GPUSceneContext implements GPUSceneContextMembers {
 
   /** Encode-only update for explicit tools that own their command context. */
   update(command: ShadeGPUCommandContext): void {
+    this.environment.update(command);
     const changes = this.scene.changesSince(this._lastSceneChangeRevision);
-    this.light_probe_volume.update();
-    this.lights.update(
-      command,
-      changes.fullResyncRequired || changes.changedLights.length > 0
-    );
-    this.volumetrics.update(command, 0);
     this.animation_manager.update(command);
     if (
       this._dirty ||
@@ -404,15 +382,16 @@ export class GPUSceneContext implements GPUSceneContextMembers {
 
   destroy(): void {
     this.scene_database.destroy();
-    this.lights.destroy();
     this.animation_manager.destroy();
     this._skinning?.destroy();
     this._skinning = null;
     this.tlas.destroy();
-    this.light_probe_volume.destroy();
-    this.volumetric_light_map.destroy();
     this.id_mapping.clear();
     this.meshRowByCpuId.clear();
+  }
+
+  get skinningCreated(): boolean {
+    return this._skinning !== null;
   }
 
   /** Encode geometry and scene database uploads into the caller-owned command. */

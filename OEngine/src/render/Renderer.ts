@@ -15,6 +15,9 @@ import {
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../gpu/TextureResidency.js";
 import { MeshletDrawList } from "../gpu/MeshletDrawList.js";
 import { GPUSceneManager } from "../gpu/GPUSceneManager.js";
+import type { GPUSceneContext } from "../gpu/GPUSceneContext.js";
+import { GPUSceneEnvironmentManager } from "../gpu/GPUSceneEnvironmentManager.js";
+import type { GPUSceneEnvironmentContext } from "../gpu/GPUSceneEnvironmentContext.js";
 import { SceneSdf } from "../gpu/SceneSdf.js";
 import { GPULightProbeVolumeRenderer } from "../gpu/GPULightProbeVolumeRenderer.js";
 import { FrameGraph, FrameGraphBindingLayout } from "../framegraph/FrameGraph.js";
@@ -160,6 +163,9 @@ import {
   createRenderFrameContract,
   type RenderFrameContract
 } from "./RenderFrameContract.js";
+import {
+  resolveFrameSceneOwners
+} from "./pipeline/SceneFrameBindings.js";
 
 const HZB_STORAGE_FORMAT_FEATURE: GPUFeatureName = "texture-formats-tier1";
 
@@ -339,6 +345,17 @@ export interface MainFrameGraphRuntimeEvidence {
   readonly resources: FrameResourceSummary;
 }
 
+export interface RendererGpuOwnerCreationEvidence extends GraphicsOwnerCreationEvidence {
+  readonly scene: Readonly<{
+    readonly environmentContextCount: number;
+    readonly environmentPrepareCount: number;
+    readonly legacyGeometryContextCount: number;
+    readonly legacySceneDatabaseCount: number;
+    readonly legacySkinningContextCount: number;
+    readonly legacyMeshletDrawListCreated: boolean;
+  }>;
+}
+
 type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
   readonly buffer: GPUBuffer;
   readonly bytesPerRow: number;
@@ -346,13 +363,23 @@ type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
   readonly reject: (error: unknown) => void;
 };
 
+type MainFrameGeometrySource =
+  | Readonly<{
+      readonly kind: "packed";
+      readonly runtime: PackedSceneRuntime;
+      readonly visibilityJob: PackedVisibilityJob;
+    }>
+  | Readonly<{
+      readonly kind: "legacy";
+      readonly context: GPUSceneContext;
+    }>;
+
 type MainFrameGraphBindings = {
   readonly camera: PerspectiveCamera;
   readonly scene: Scene;
   readonly view: ReturnType<ViewManager["obtain"]>;
-  readonly gpuScene: ReturnType<GPUSceneManager["obtain"]>;
-  readonly gpuPacked: PackedSceneRuntime | null;
-  readonly packedVisibilityJob: PackedVisibilityJob | null;
+  readonly environment: GPUSceneEnvironmentContext;
+  readonly geometry: MainFrameGeometrySource;
   readonly viewHzb: HierarchicalZBuffer;
   readonly colorView: GPUTextureView;
   readonly renderTargets: ReturnType<RenderTargets["asImportBundle"]>;
@@ -419,8 +446,9 @@ export class Renderer {
   );
   private _lastMainGraphEvidence: MainFrameGraphRuntimeEvidence | null = null;
   private _scenes!: GPUSceneManager;
+  private _environments!: GPUSceneEnvironmentManager;
   private _cameraStates!: GPUCameraStateManager;
-  private _meshletDrawList!: MeshletDrawList;
+  private _meshletDrawList: MeshletDrawList | null = null;
   private _views!: ViewManager;
   private readonly _output_resolution = new Vec2(1, 1);
   private _visibility!: VisibilityPass;
@@ -673,13 +701,15 @@ export class Renderer {
       if (runtime !== null && this._visibilityFeature) {
         this._visibilityFeature.release(runtime, command);
         this._transparencyFeature?.releasePacked(runtime, command);
-        this._scenes.obtain(scene).lights.shadow_service.releasePackedScene(
+        this._environments.get(scene)?.lights.shadow_service.releasePackedScene(
           runtime,
           command
         );
       }
       handles = this._graphics.packed_scenes.release(scene, command);
       this._graphics.assets.releaseMany(handles, command);
+      this._views.releaseScene(scene, command);
+      this._environments.release(scene, command);
       command.finish();
       await command.submitted;
     } catch (error) {
@@ -895,8 +925,21 @@ export class Renderer {
   }
 
   /** Architecture gate evidence; reports owner creation without exposing GPU resources. */
-  gpuOwnerCreationEvidence(): GraphicsOwnerCreationEvidence {
-    return this._graphics.ownerCreationEvidence();
+  gpuOwnerCreationEvidence(): RendererGpuOwnerCreationEvidence {
+    const graphics = this._graphics.ownerCreationEvidence();
+    const environment = this._environments.evidence();
+    const legacy = this._scenes.evidence();
+    return Object.freeze({
+      ...graphics,
+      scene: Object.freeze({
+        environmentContextCount: environment.contextCount,
+        environmentPrepareCount: environment.prepareCount,
+        legacyGeometryContextCount: legacy.geometryContextCount,
+        legacySceneDatabaseCount: legacy.sceneDatabaseCount,
+        legacySkinningContextCount: legacy.skinningContextCount,
+        legacyMeshletDrawListCreated: this._meshletDrawList !== null
+      })
+    });
   }
 
   /** Machine-readable migration state; does not imply any performance Gate passed. */
@@ -1105,13 +1148,12 @@ export class Renderer {
     );
     this._frameCoordinator = new FrameCoordinator(this._graphics);
     await this._graphics.initialize();
-    this._meshletDrawList = new MeshletDrawList(this._graphics);
-    this._scenes = new GPUSceneManager(this._graphics);
+    this._environments = new GPUSceneEnvironmentManager(this._graphics);
+    this._scenes = new GPUSceneManager(this._graphics, this._environments);
     this._cameraStates = new GPUCameraStateManager(device);
     this._views = new ViewManager(
       this._graphics,
-      this._cameraStates,
-      this._scenes
+      this._cameraStates
     );
     this._renderTargets.initializeDepth(
       this._graphics.textures,
@@ -1160,10 +1202,12 @@ export class Renderer {
     this._surfaceFeature?.destroy();
     this._visibilityFeature?.destroy();
     this._meshletDrawList?.destroy();
+    this._meshletDrawList = null;
     this._nss?.destroy();
     this._nss = null;
     this._views?.destroy();
     this._scenes?.destroy();
+    this._environments?.destroy();
     this._probeRenderers.clear();
     this._mainGraphCache.destroy();
     this._frameCoordinator?.destroy();
@@ -1315,15 +1359,23 @@ export class Renderer {
       enabledFeatureBits: featureTopology.enabledFeatureBits,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION
     });
-    const view = this.views.obtain(viewKey, cmd);
-    const gpuScene = view.scene;
-    const gpuPacked =
-      this._graphics.packed_scenes_if_created?.runtime(scene) ?? null;
+    const sceneOwners = resolveFrameSceneOwners(
+      scene,
+      this._graphics.packed_scenes_if_created,
+      this._environments,
+      this._scenes
+    );
+    const environment = sceneOwners.environment;
+    const geometryOwner = sceneOwners.geometry;
+    const gpuPacked = geometryOwner.kind === "packed"
+      ? geometryOwner.runtime
+      : null;
+    const view = this.views.obtain(viewKey, environment, cmd);
     const framePlan = createRendererFramePlan(this._frame_count, {
       lpv: this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV,
       shadows: featureTopology.shadows
     });
-    gpuScene.lights.shadow_service.setEnabled(featureTopology.shadows, cmd);
+    environment.lights.shadow_service.setEnabled(featureTopology.shadows, cmd);
     view.setJitter(this._lastFrameContract.jitter[0], this._lastFrameContract.jitter[1]);
     view.setViewportSize(this._lastFrameContract.internalWidth, this._lastFrameContract.internalHeight);
     view.setUpscaleRatio(
@@ -1339,12 +1391,17 @@ export class Renderer {
       this._profiler.measure("world-and-view-update", () => {
         const patch = this._graphics.packed_scenes_if_created?.encodePendingPatch(scene, cmd);
         if (patch !== null && patch !== undefined) packedPatchRevision = this._frame_count + 1;
-        gpuScene.encodeFrame(cmd, this._frame_count, time_delta_seconds);
+        environment.encodeFrame(cmd, this._frame_count, time_delta_seconds);
+        if (geometryOwner.kind === "legacy") {
+          geometryOwner.context.encodeFrame(cmd, this._frame_count, time_delta_seconds);
+        }
         view.update(cmd);
       });
     });
     if (this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV) {
-      framePlan.execute("lpv-update", () => this.update_lpv(scene, cmd));
+      framePlan.execute("lpv-update", () => {
+        if (geometryOwner.kind === "legacy") this.update_lpv(scene, cmd);
+      });
     }
     const viewHzb = view.hierarchical_z_buffer;
     viewHzb.resetFrameStatistics();
@@ -1370,7 +1427,7 @@ export class Renderer {
       if (featureTopology.shadows) {
         framePlan.execute("shadow-update", () => {
           this._profiler.measure("shadow-update", () => {
-            const shadows = gpuScene.lights.shadow_service;
+            const shadows = environment.lights.shadow_service;
             if (sampleGpuCounters && gpuPacked !== null) {
               this._profiler.registerGpuCounterFields([
                 "shadowCascade0RasterWork",
@@ -1395,12 +1452,10 @@ export class Renderer {
             shadows.select_for_draw(camera, this._frame_count, [w, h], shadowContentRevision);
             shadows.draw(
               cmd,
-              gpuScene,
-              gpuScene.lights.database,
-              this._meshletDrawList,
-              gpuPacked === null || packedBindings === null
-                ? null
-                : {
+              environment.lights.database,
+              gpuPacked !== null && packedBindings !== null
+                ? {
+                    kind: "packed",
                     runtime: gpuPacked,
                     assets: packedBindings.assets,
                     scene: packedBindings.scene,
@@ -1408,6 +1463,11 @@ export class Renderer {
                       ? this._profiler.gpuCounterBuffer
                       : null,
                     sseThreshold: this.packed_visibility_sse_threshold
+                  }
+                : {
+                    kind: "legacy",
+                    context: requireLegacyGeometryOwner(geometryOwner),
+                    drawList: this.obtainLegacyMeshletDrawList()
                   }
             );
           });
@@ -1492,13 +1552,22 @@ export class Renderer {
           )
         });
       }
+      const frameGeometry: MainFrameGeometrySource = packedVisibilityJob === null
+        ? Object.freeze({
+            kind: "legacy",
+            context: requireLegacyGeometryOwner(geometryOwner)
+          })
+        : Object.freeze({
+            kind: "packed",
+            runtime: gpuPacked!,
+            visibilityJob: packedVisibilityJob
+          });
       const mainBindings: MainFrameGraphBindings = {
         camera,
         scene,
         view,
-        gpuScene,
-        gpuPacked,
-        packedVisibilityJob,
+        environment,
+        geometry: frameGeometry,
         viewHzb,
         colorView,
         renderTargets: this._renderTargets.asImportBundle(),
@@ -1527,7 +1596,7 @@ export class Renderer {
       const graphTopology = this.resolveFeatureTopology(mainBindings);
       this.reconcilePackedTransparencyOwner(
         graphTopology.transparency,
-        mainBindings.gpuPacked,
+        gpuPacked,
         cmd
       );
       const graphKey = canonicalFrameGraphKey(this.createMainFrameGraphKey(
@@ -1554,14 +1623,14 @@ export class Renderer {
         bind("swapchain", (bindings) => bindings.colorView)
       );
 
-      const packedPath = mainBindings.gpuPacked !== null;
+      const packedPath = mainBindings.geometry.kind === "packed";
       const sceneDatabaseRes = packedPath
         ? null
         : graph.import_resource(
             "scene_database_buffer",
             { kind: "imported", label: "scene_database" },
             bind("scene-database", (bindings) =>
-              bindings.gpuScene.scene_database_buffer!)
+              requireLegacyGeometryOwner(bindings.geometry).scene_database_buffer!)
           );
 
       {
@@ -1627,26 +1696,27 @@ export class Renderer {
             "packed_visibility_counter_sink",
             { kind: "imported", label: "Packed Visibility disabled counter sink" },
             bind("packed-counter-sink", (bindings) =>
-              bindings.gpuPacked!.counterSink)
+              requirePackedGeometryOwner(bindings.geometry).runtime.counterSink)
           );
           const exactRasterRecords = graph.import_resource(
             "packed_exact_raster_records",
             { kind: "imported", label: "Exact OPAQUE/MASK RasterWork" },
             bind("packed-exact-raster-records", (bindings) =>
-              bindings.packedVisibilityJob!.prepared.workSet.exactRasterRecords)
+              requirePackedGeometryOwner(bindings.geometry).visibilityJob.prepared.workSet.exactRasterRecords)
           );
           const exactDrawIndirect = graph.import_resource(
             "packed_exact_draw_indirect",
             { kind: "imported", label: "Exact OPAQUE/MASK drawIndirect" },
             bind("packed-exact-draw-indirect", (bindings) =>
-              bindings.packedVisibilityJob!.prepared.workSet.exactDrawIndirect)
+              requirePackedGeometryOwner(bindings.geometry).visibilityJob.prepared.workSet.exactDrawIndirect)
           );
           const triangleSetupRecords = this.packed_triangle_setup_enabled
             ? graph.import_resource(
                 "packed_triangle_setup_records",
                 { kind: "imported", label: "TriangleSetup candidate cache" },
                 bind("packed-triangle-setup-records", (bindings) => {
-                  const buffer = bindings.packedVisibilityJob!.prepared.workSet.setupRecords;
+                  const buffer = requirePackedGeometryOwner(bindings.geometry)
+                    .visibilityJob.prepared.workSet.setupRecords;
                   if (buffer === null) {
                     throw new Error("TriangleSetup graph requires an allocated setup cache");
                   }
@@ -1657,7 +1727,7 @@ export class Renderer {
           const packedOutput = this._visibilityFeature.addToGraph(
             graph,
             bind("packed-visibility-main-job", (bindings) =>
-              bindings.packedVisibilityJob!),
+              requirePackedGeometryOwner(bindings.geometry).visibilityJob),
             {
               camera: currentCameraRes,
               counters: packedCounterRes,
@@ -1685,13 +1755,13 @@ export class Renderer {
               gpuViewBuffer: bindings.view.uniform_buffer,
               scene: bindings.scene,
               targets: this._renderTargets,
-              meshCount: bindings.gpuScene.mesh_count,
-              meshlets: bindings.gpuScene.meshlets,
-              drawList: this._meshletDrawList,
-              meshTable: bindings.gpuScene.meshSlice,
-              transformTable: bindings.gpuScene.transformSlice,
-              sceneDatabase: bindings.gpuScene.scene_database,
-              materialMetadata: bindings.gpuScene.material_metadata,
+              meshCount: requireLegacyGeometryOwner(bindings.geometry).mesh_count,
+              meshlets: requireLegacyGeometryOwner(bindings.geometry).meshlets,
+              drawList: this.obtainLegacyMeshletDrawList(),
+              meshTable: requireLegacyGeometryOwner(bindings.geometry).meshSlice,
+              transformTable: requireLegacyGeometryOwner(bindings.geometry).transformSlice,
+              sceneDatabase: requireLegacyGeometryOwner(bindings.geometry).scene_database,
+              materialMetadata: requireLegacyGeometryOwner(bindings.geometry).material_metadata,
               enableFrustumCull: true,
               hzbView: bindings.viewHzb.obtainPreviousView(),
               viewportWidth: bindings.internalWidth,
@@ -1744,13 +1814,13 @@ export class Renderer {
                 gpuViewBuffer: bindings.view.uniform_buffer,
                 scene: bindings.scene,
                 targets: this._renderTargets,
-                meshCount: bindings.gpuScene.mesh_count,
-                meshlets: bindings.gpuScene.meshlets,
-                drawList: this._meshletDrawList,
-                meshTable: bindings.gpuScene.meshSlice,
-                transformTable: bindings.gpuScene.transformSlice,
-                sceneDatabase: bindings.gpuScene.scene_database,
-                materialMetadata: bindings.gpuScene.material_metadata,
+                meshCount: requireLegacyGeometryOwner(bindings.geometry).mesh_count,
+                meshlets: requireLegacyGeometryOwner(bindings.geometry).meshlets,
+                drawList: this.obtainLegacyMeshletDrawList(),
+                meshTable: requireLegacyGeometryOwner(bindings.geometry).meshSlice,
+                transformTable: requireLegacyGeometryOwner(bindings.geometry).transformSlice,
+                sceneDatabase: requireLegacyGeometryOwner(bindings.geometry).scene_database,
+                materialMetadata: requireLegacyGeometryOwner(bindings.geometry).material_metadata,
                 enableFrustumCull: false,
                 hzbView: bindings.viewHzb.obtainCurrentView(),
                 viewportWidth: bindings.internalWidth,
@@ -1800,14 +1870,14 @@ export class Renderer {
               gpuViewBuffer: bindings.view.uniform_buffer,
               scene: bindings.scene,
               targets: this._renderTargets,
-              meshCount: bindings.gpuScene.mesh_count,
-              meshlets: bindings.gpuScene.meshlets,
-              drawList: this._meshletDrawList,
-              meshTable: bindings.gpuScene.meshSlice,
-              transformTable: bindings.gpuScene.transformSlice,
-              sceneDatabase: bindings.gpuScene.scene_database,
-              materialMetadata: bindings.gpuScene.material_metadata,
-              materialRegistry: bindings.gpuScene.materials ?? this._graphics.materials,
+              meshCount: requireLegacyGeometryOwner(bindings.geometry).mesh_count,
+              meshlets: requireLegacyGeometryOwner(bindings.geometry).meshlets,
+              drawList: this.obtainLegacyMeshletDrawList(),
+              meshTable: requireLegacyGeometryOwner(bindings.geometry).meshSlice,
+              transformTable: requireLegacyGeometryOwner(bindings.geometry).transformSlice,
+              sceneDatabase: requireLegacyGeometryOwner(bindings.geometry).scene_database,
+              materialMetadata: requireLegacyGeometryOwner(bindings.geometry).material_metadata,
+              materialRegistry: requireLegacyGeometryOwner(bindings.geometry).materials,
               enableFrustumCull: true,
               hzbView: bindings.viewHzb.obtainCurrentView(),
               viewportWidth: bindings.internalWidth,
@@ -1885,7 +1955,7 @@ export class Renderer {
               "geometries/Jg",
               { kind: "imported", label: "geometry metadata Jg" },
               bind("geometry-metadata", (bindings) =>
-                bindings.gpuScene.meshlets.meshMetaBuffer!)
+                requireLegacyGeometryOwner(bindings.geometry).meshlets.meshMetaBuffer!)
             );
         const meshletHeadersRes = packedPath
           ? null
@@ -1893,7 +1963,7 @@ export class Renderer {
               "meshlets/ki",
               { kind: "imported", label: "meshlet headers ki" },
               bind("meshlet-headers", (bindings) =>
-                bindings.gpuScene.meshlets.headerBuffer)
+                requireLegacyGeometryOwner(bindings.geometry).meshlets.headerBuffer)
             );
         const meshletDataRes = packedPath
           ? null
@@ -1901,7 +1971,7 @@ export class Renderer {
               "meshlets/data",
               { kind: "imported", label: "meshlet data" },
               bind("meshlet-data", (bindings) =>
-                bindings.gpuScene.meshlets.dataBuffer)
+                requireLegacyGeometryOwner(bindings.geometry).meshlets.dataBuffer)
             );
 
         const needsOcclusionConfidence =
@@ -1912,10 +1982,11 @@ export class Renderer {
           ? this._surfaceFeature.addToGraph(
               graph,
               bind("packed-material-resolve-job", (bindings) => {
+                const packed = requirePackedGeometryOwner(bindings.geometry);
                 return {
-                  runtime: bindings.packedVisibilityJob!.runtime,
-                  assets: bindings.packedVisibilityJob!.assets,
-                  scene: bindings.packedVisibilityJob!.scene,
+                  runtime: packed.visibilityJob.runtime,
+                  assets: packed.visibilityJob.assets,
+                  scene: packed.visibilityJob.scene,
                   width: bindings.internalWidth,
                   height: bindings.internalHeight,
                   currentCamera: bindings.view.gpu_camera_state.camera,
@@ -1934,7 +2005,7 @@ export class Renderer {
               graph,
               bind("material-expand-job", (bindings) => ({
                 scene: bindings.scene,
-                materials: bindings.gpuScene.materials,
+                materials: requireLegacyGeometryOwner(bindings.geometry).materials,
                 width: bindings.internalWidth,
                 height: bindings.internalHeight
               })),
@@ -1969,16 +2040,19 @@ export class Renderer {
         let occlusionConfidenceRes: ResourceId | null = null;
         let opaqueTemporalValidityRes: ResourceId | null = null;
         if (needsVelocity) {
+          const legacyGeometry = packedPath
+            ? null
+            : requireLegacyGeometryOwner(mainBindings.geometry);
           const previousOffsetsBuffer =
-            gpuScene.skinning.prev_position_offsets_buffer;
+            legacyGeometry?.skinning.prev_position_offsets_buffer ?? null;
           const previousPositionsBuffer =
-            gpuScene.skinning.prev_positions_buffer;
+            legacyGeometry?.skinning.prev_positions_buffer ?? null;
           const previousOffsetsRes = previousOffsetsBuffer
             ? graph.import_resource(
                 "velocity/previous-position offsets",
                 { kind: "imported", label: "previous-position offsets" },
                 bind("previous-position-offsets", (bindings) =>
-                  bindings.gpuScene.skinning.prev_position_offsets_buffer!)
+                  requireLegacyGeometryOwner(bindings.geometry).skinning.prev_position_offsets_buffer!)
               )
             : null;
           const previousPositionsRes = previousPositionsBuffer
@@ -1986,7 +2060,7 @@ export class Renderer {
                 "velocity/previous positions",
                 { kind: "imported", label: "previous positions" },
                 bind("previous-positions", (bindings) =>
-                  bindings.gpuScene.skinning.prev_positions_buffer!)
+                  requireLegacyGeometryOwner(bindings.geometry).skinning.prev_positions_buffer!)
               )
             : null;
           velocityRes = packedResolveOut !== null
@@ -2046,7 +2120,7 @@ export class Renderer {
               phase: "opaque" as const,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
-              metadataAvailable: bindings.gpuPacked !== null,
+              metadataAvailable: bindings.geometry.kind === "packed",
               transparencyAvailable: false,
               historyValid: true
             })),
@@ -2071,18 +2145,18 @@ export class Renderer {
           lightDatabaseRes = graph.import_resource(
             "Tl/light database",
             { kind: "imported", label: "Tl paged light database" },
-            bind("light-database", (bindings) => bindings.gpuScene.lights.buffer_data)
+            bind("light-database", (bindings) => bindings.environment.lights.buffer_data)
           );
           environmentRes = graph.import_resource(
             "Ch/sec_radix_passes",
             { kind: "imported", label: "rgba16float environment" },
-            bind("environment", (bindings) => bindings.gpuScene.lights.environment.gpu_texture)
+            bind("environment", (bindings) => bindings.environment.lights.environment.gpu_texture)
           );
           diffuseIrradianceRes = graph.import_resource(
             "FX-03/diffuse irradiance",
             { kind: "imported", label: "rgba16float diffuse irradiance" },
             bind("diffuse-irradiance", (bindings) =>
-              bindings.gpuScene.lights.diffuseIrradiance.gpu_texture)
+              bindings.environment.lights.diffuseIrradiance.gpu_texture)
           );
           if (packedResolveOut !== null && gpuCounterRes !== null) {
             gpuCounterRes = this._packedSurfaceCounters.addToGraph(
@@ -2102,7 +2176,7 @@ export class Renderer {
                 "Ch/pass_descriptor",
                 { kind: "imported", label: "depth32float shadow atlas" },
                 bind("shadow-atlas", (bindings) =>
-                  bindings.gpuScene.lights.shadow_service.texture.gpu_texture)
+                  bindings.environment.lights.shadow_service.texture.gpu_texture)
               )
             : depthRes;
           const shadowVisibility = shadowVisibilityFrame({
@@ -2114,17 +2188,17 @@ export class Renderer {
             depthBias: SHADOW_DEPTH_BIAS,
             slopeScale: SHADOW_DEPTH_SLOPE_SCALE,
             atlasWidth: graphTopology.shadows
-              ? gpuScene.lights.shadow_service.atlas_width
+              ? environment.lights.shadow_service.atlas_width
               : w,
             atlasHeight: graphTopology.shadows
-              ? gpuScene.lights.shadow_service.atlas_height
+              ? environment.lights.shadow_service.atlas_height
               : h
           });
           const lightingFeatureOutput = this._lightingFeature.addToGraph(
             graph,
             bind("lighting-feature-job", (bindings) => ({
               camera: bindings.camera,
-              lights: bindings.gpuScene.lights,
+              lights: bindings.environment.lights,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
             })),
@@ -2406,7 +2480,7 @@ export class Renderer {
             "Brick4/volumetric light map",
             { kind: "imported", label: "Brick4 Av storage" },
             bind("brick4-light-map", (bindings) =>
-              bindings.gpuScene.volumetric_light_map.buffer)
+              bindings.environment.volumetric_light_map.buffer)
           );
           const lightmap = this._giService.resolveOpaqueLighting(graph, {
             mode: "brick4",
@@ -2520,37 +2594,37 @@ export class Renderer {
             "LPV/radiance atlas",
             { kind: "imported", label: "r32uint LPV radiance atlas" },
             bind("lpv-radiance-atlas", (bindings) =>
-              bindings.gpuScene.light_probe_volume.atlas.texture_radiance.texture)
+              bindings.environment.light_probe_volume.atlas.texture_radiance.texture)
           );
           const atlasDepthRes = graph.import_resource(
             "LPV/depth atlas",
             { kind: "imported", label: "rg16float LPV depth atlas" },
             bind("lpv-depth-atlas", (bindings) =>
-              bindings.gpuScene.light_probe_volume.atlas.texture_depth.texture)
+              bindings.environment.light_probe_volume.atlas.texture_depth.texture)
           );
           const lpvMeshBvhRes = graph.import_resource(
             "LPV/tetra BVH",
             { kind: "imported", label: "LPV tetra BVH" },
             bind("lpv-mesh-bvh", (bindings) =>
-              bindings.gpuScene.light_probe_volume.buffer_mesh_bvh)
+              bindings.environment.light_probe_volume.buffer_mesh_bvh)
           );
           const lpvMetadataRes = graph.import_resource(
             "LPV/metadata",
             { kind: "imported", label: "LPV metadata" },
             bind("lpv-metadata", (bindings) =>
-              bindings.gpuScene.light_probe_volume.buffer_metadata)
+              bindings.environment.light_probe_volume.buffer_metadata)
           );
           const lpvTetraRes = graph.import_resource(
             "LPV/tetrahedra",
             { kind: "imported", label: "LPV tetrahedra" },
             bind("lpv-tetrahedra", (bindings) =>
-              bindings.gpuScene.light_probe_volume.buffer_mesh)
+              bindings.environment.light_probe_volume.buffer_mesh)
           );
           const lpvProbesRes = graph.import_resource(
             "LPV/probes",
             { kind: "imported", label: "LPV probes" },
             bind("lpv-probes", (bindings) =>
-              bindings.gpuScene.light_probe_volume.buffer_probes)
+              bindings.environment.light_probe_volume.buffer_probes)
           );
           const splitSum = this._graphics.textures.obtain(
             STATIC_GRAPHICS_ENGINE_ASSETS.split_sum
@@ -2703,7 +2777,7 @@ export class Renderer {
               bind("packed-transparent-oit-job", (bindings) => {
                 const registryBindings = this._graphics.packed_scenes.bindings();
                 return {
-                  runtime: bindings.gpuPacked!,
+                  runtime: requirePackedGeometryOwner(bindings.geometry).runtime,
                   assets: registryBindings.assets,
                   scene: registryBindings.scene,
                   width: bindings.internalWidth,
@@ -2745,7 +2819,7 @@ export class Renderer {
                     "OIT/Brick4 volumetric light map",
                     { kind: "imported", label: "OIT Brick4 Av storage" },
                     bind("oit-brick4-light-map", (bindings) =>
-                      bindings.gpuScene.volumetric_light_map.buffer)
+                      bindings.environment.volumetric_light_map.buffer)
                   )
                 : undefined;
             hdrRes = this._transparencyFeature!.addLegacyToGraph(
@@ -2754,8 +2828,8 @@ export class Renderer {
                 width: bindings.internalWidth,
                 height: bindings.internalHeight,
                 scene: bindings.scene,
-                materials: bindings.gpuScene.materials,
-                drawList: this._meshletDrawList,
+                materials: requireLegacyGeometryOwner(bindings.geometry).materials,
+                drawList: this.obtainLegacyMeshletDrawList(),
                 indirectLightingMode: this.indirect_lighting_mode
               })),
               {
@@ -2845,7 +2919,7 @@ export class Renderer {
               phase: "final" as const,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
-              metadataAvailable: bindings.gpuPacked !== null,
+              metadataAvailable: bindings.geometry.kind === "packed",
               transparencyAvailable: transparentReactiveRes !== null,
               historyValid: bindings.taaHistoryValidity >= 0.5
             })),
@@ -3248,9 +3322,9 @@ export class Renderer {
       view.finish_frame(cmd, this._frame_count);
       this.recordFrameCounters(
         viewHzb,
-        gpuScene.lights.shadow_service,
+        environment.lights.shadow_service,
         gpuPacked !== null,
-        gpuScene.lights.environmentEvidence
+        environment.lights.environmentEvidence
       );
       this._profiler.encodeGpuCounterReadback(cmd);
       if (frameLinearHdrCapture !== null) {
@@ -3311,7 +3385,7 @@ export class Renderer {
       viewCount: 1,
       sampleCount: 1,
       enabledFeatureBits: topology.enabledFeatureBits,
-      visibilityImplementation: bindings.gpuPacked === null
+      visibilityImplementation: bindings.geometry.kind === "legacy"
         ? `hardware-object-visibility-ssao-owner${this._ssaoOwnerGeneration}` +
           `-ssr-owner${this._ssrOwnerGeneration}`
         : `hardware-packed-exact-visibility-key-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
@@ -3321,7 +3395,9 @@ export class Renderer {
           `-ssao-owner${this._ssaoOwnerGeneration}` +
           `-ssr-owner${this._ssrOwnerGeneration}`,
       visibilityClassCapacity:
-        bindings.packedVisibilityJob?.prepared.workSet.classCapacity ?? 0,
+        bindings.geometry.kind === "packed"
+          ? bindings.geometry.visibilityJob.prepared.workSet.classCapacity
+          : 0,
       historyFormatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
       outputFormat: this._format,
       instrumentationMode,
@@ -3332,6 +3408,9 @@ export class Renderer {
   private resolveFeatureTopology(
     bindings?: MainFrameGraphBindings
   ): MainFrameFeatureTopology {
+    const legacyGeometry = bindings?.geometry.kind === "legacy"
+      ? bindings.geometry.context
+      : null;
     return resolveMainFrameFeatureTopology({
       shadows: this._renderSettings.values.features.shadows,
       ssr: this._renderSettings.values.features.screenSpaceReflections,
@@ -3349,18 +3428,17 @@ export class Renderer {
       upscaleType: this.upscale_type,
       debugView: this.render_debug_view,
       indirectLightingMode: this.indirect_lighting_mode,
-      alphaTested: bindings === undefined
-        ? false
-        : this._visibility.hasAlphaTestedMaterials(bindings.scene),
-      previousSkinOffsets: bindings !== undefined &&
-        bindings.gpuScene.skinning.prev_position_offsets_buffer !== null,
-      previousSkinPositions: bindings !== undefined &&
-        bindings.gpuScene.skinning.prev_positions_buffer !== null,
+      alphaTested: legacyGeometry !== null &&
+        this._visibility.hasAlphaTestedMaterials(bindings!.scene),
+      previousSkinOffsets: legacyGeometry !== null &&
+        legacyGeometry.skinning.prev_position_offsets_buffer !== null,
+      previousSkinPositions: legacyGeometry !== null &&
+        legacyGeometry.skinning.prev_positions_buffer !== null,
       transparency: bindings === undefined
         ? false
-        : bindings.gpuPacked === null
+        : bindings.geometry.kind === "legacy"
           ? hasLegacyTransparentMaterials(bindings.scene)
-          : bindings.gpuPacked.transparentInstanceCount > 0,
+          : bindings.geometry.runtime.transparentInstanceCount > 0,
       highDynamicRange: this._highDynamicRange
     });
   }
@@ -3524,6 +3602,11 @@ export class Renderer {
       this._materialExpand.init();
     }
     return this._materialExpand;
+  }
+
+  private obtainLegacyMeshletDrawList(): MeshletDrawList {
+    this._meshletDrawList ??= new MeshletDrawList(this._graphics);
+    return this._meshletDrawList;
   }
 
   private obtainLegacyVelocity(): VelocityPass {
@@ -3940,6 +4023,26 @@ function hasLegacyTransparentMaterials(scene: Scene): boolean {
   return scene.instances.materials.some(
     (material) => material.transparency_mode === ShadeTransparencyMode.Transparent
   );
+}
+
+function requireLegacyGeometryOwner(
+  source:
+    | Readonly<{ readonly kind: "legacy"; readonly context: GPUSceneContext }>
+    | Readonly<{ readonly kind: "packed" }>
+): GPUSceneContext {
+  if (source.kind !== "legacy") {
+    throw new Error("Legacy geometry consumer received a Packed geometry source");
+  }
+  return source.context;
+}
+
+function requirePackedGeometryOwner(
+  source: MainFrameGeometrySource
+): Extract<MainFrameGeometrySource, { readonly kind: "packed" }> {
+  if (source.kind !== "packed") {
+    throw new Error("Packed geometry consumer received a legacy geometry source");
+  }
+  return source;
 }
 
 function packedPreviousHzb(

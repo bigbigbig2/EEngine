@@ -3,7 +3,7 @@
  */
 
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
-import type { GPUSceneContext } from "../gpu/GPUSceneContext.js";
+import type { GPUSceneEnvironmentContext } from "../gpu/GPUSceneEnvironmentContext.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import {
   WGSL_mat4x4f,
@@ -42,7 +42,7 @@ export class GPUViewContext {
   frame_index = 0;
   private readonly resolutionValue = new Uint32Array([1, 1]);
 
-  readonly scene: GPUSceneContext;
+  readonly environment: GPUSceneEnvironmentContext;
   readonly camera: GPUCameraState;
   readonly gpu_previous_camera_state: GPUCameraState;
   readonly hierarchical_z_buffer: HierarchicalZBuffer;
@@ -59,7 +59,7 @@ export class GPUViewContext {
 
   constructor(
     graphics: GraphicsContext,
-    scene: GPUSceneContext,
+    environment: GPUSceneEnvironmentContext,
     camera: GPUCameraState,
     command: ShadeGPUCommandContext
   ) {
@@ -69,7 +69,7 @@ export class GPUViewContext {
     }
     this.graphics = graphics;
     this.device = device;
-    this.scene = scene;
+    this.environment = environment;
     this.camera = camera;
     this.hierarchical_z_buffer = new HierarchicalZBuffer(graphics);
     this.gpu_previous_camera_state = camera.clone(command);
@@ -80,8 +80,8 @@ export class GPUViewContext {
     });
   }
 
-  get gpu_scene(): GPUSceneContext {
-    return this.scene;
+  get gpu_scene_environment(): GPUSceneEnvironmentContext {
+    return this.environment;
   }
 
   get gpu_camera_state(): GPUCameraState {
@@ -118,7 +118,7 @@ export class GPUViewContext {
   equals(other: GPUViewContext): boolean {
     return this === other || (
       this.device === other.device &&
-      this.scene === other.scene &&
+      this.environment === other.environment &&
       this.camera === other.camera
     );
   }
