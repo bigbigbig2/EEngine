@@ -13,6 +13,20 @@
 - Fallback/lifecycle: invalid key/material rejects visibly；singular previous transform invalidates motion instead of emitting non-finite velocity。
 - Local validation: Surface ABI、packed material resolve、velocity、debug view and counter tests。
 
+## SHADE-TEXTURE-RESIDENCY · Bounded TextureRef size-class banks
+
+- Local owner/source: `GpuTextureRefAbi.ts`、`TextureResidency.ts`、Packed Surface/Transparency/Visibility/CSM consumers and validation oracle。
+- Upstream: W3C WebGPU/WGSL specifications；Google Filament texture/resource lifecycle as an ownership reference <https://github.com/google/filament>。
+- Revision: WebGPU/WGSL living standards checked 2026-09-09；Filament `bdd01e82539938db70c60259e4e6c17bc2bdaba4`。
+- Upstream source: WebGPU limits/bind-group/texture-array contracts；Filament `filament/src/details/Texture.cpp`、`filament/include/filament/Texture.h` and `libs/gltfio/src/ResourceLoader.cpp`。
+- License: W3C specification reference；Filament Apache-2.0。
+- Adoption: `OEngine-authored-policy`；没有复制外部表达性代码。局部策略 benchmark 比较了 five bounded size-class banks 与 stable-TextureRef migrating high bank，后者因相同排列下 704 MiB final allocation、725–1045 MiB growth peak 且超过 512 MiB 预算而拒绝。
+- Retained invariants: explicit device limits、source texture identity deduplication、full mip chains、transactional publish/abort and queue-completion retirement。
+- OEngine/WebGPU differences: ABI v1 使用 `version[31:28] / bank[27:24] / layer[23:0]`；五个显式 `texture_2d_array` binding，不使用 binding array、descriptor indexing、MDI、64-bit atomics 或非基线能力。逻辑 class 固定为 256/512/1024/2048/4096，质量/device resolution cap 只降低 physical resolution，不减少 logical texture count。
+- Capacity/lifecycle: 每个 bank 保留 layer 0 fallback，最大 layers 为 64/32/16/8/2；base bank 随 owner 创建，其他 bank lazy allocate/power-of-two grow；preflight overflow 不修改状态，abort 回滚 provisional refs/resources，commit 后等待 queue completion 再销毁旧 bank。
+- Cost: Packed sampling增加有界 five-way bank branch 与五个 sampled-texture bindings；未增加 Pass、production readback 或 submit。候选 benchmark artifact 为 `OEngine/benchmarks/texture-residency-policy.json`。
+- Local validation: 120 个同集合排列、512↔2048、多批小后大、各 bank exact fill/+1 overflow、release/reuse、duplicate refs、growth allocation fault/abort、quality/device cap；真实 Chrome `surface.texture-ref-oracle`、`surface.textured`、`surface.texture-fallback`、`surface.transparent` 和 alpha-tested `visibility.shadow`。
+
 ## SHADE-PBR · PBR, IBL and clustered direct lighting
 
 - Local owner/source: `LightingFeature`、`LightClusterPass`、direct/IBL shaders and environment owners。

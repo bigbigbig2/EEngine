@@ -7,6 +7,7 @@ import {
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_TEXTURE_BANK_SAMPLE_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_TRIANGLE_SETUP_RECORD_WGSL } from "../gpu/GpuExactRasterAbi.js";
@@ -57,7 +58,7 @@ struct R4ResolveRasterWorkQueue {
 @group(0) @binding(0) var visibility_keys: texture_2d<u32>;
 @group(0) @binding(1) var<uniform> view: PipelineCacheKey;
 @group(0) @binding(2) var<uniform> previous_view_projection: mat4x4f;
-@group(0) @binding(3) var material_textures: texture_2d_array<f32>;
+@group(0) @binding(3) var oengine_texture_bank_0: texture_2d_array<f32>;
 @group(0) @binding(4) var sampler_repeat_linear: sampler;
 @group(0) @binding(5) var sampler_clamp_linear: sampler;
 @group(0) @binding(6) var sampler_mirror_linear: sampler;
@@ -65,7 +66,10 @@ struct R4ResolveRasterWorkQueue {
 @group(0) @binding(8) var sampler_clamp_nearest: sampler;
 @group(0) @binding(9) var sampler_mirror_nearest: sampler;
 @group(0) @binding(10) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
-@group(0) @binding(11) var high_resolution_material_textures: texture_2d_array<f32>;
+@group(0) @binding(11) var oengine_texture_bank_1: texture_2d_array<f32>;
+@group(0) @binding(12) var oengine_texture_bank_2: texture_2d_array<f32>;
+@group(0) @binding(13) var oengine_texture_bank_3: texture_2d_array<f32>;
+@group(0) @binding(14) var oengine_texture_bank_4: texture_2d_array<f32>;
 
 @group(1) @binding(0) var<storage, read> instances: array<OEngineInstanceRecord>;
 @group(1) @binding(1) var<storage, read> geometries: array<GpuGeometryRecord>;
@@ -383,55 +387,13 @@ fn material_sampler_class(material: OEngineMaterialVisibilityRecord, slot: u32) 
   return (material.texture_sampler_classes >> ((slot - 1u) * 8u)) & 0xffu;
 }
 
+${GPU_TEXTURE_BANK_SAMPLE_WGSL}
+
 fn sample_material_texture(
-  texture_ref: u32,
-  sampler_class: u32,
-  uv: vec2f,
-  uv_dx: vec2f,
-  uv_dy: vec2f,
-  fallback: vec4f
+  texture_ref: u32, sampler_class: u32, uv: vec2f,
+  uv_dx: vec2f, uv_dy: vec2f, fallback: vec4f
 ) -> vec4f {
-  if texture_ref == OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE {
-    return fallback;
-  }
-  let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;
-  let layer = i32(texture_ref & OENGINE_MATERIAL_TEXTURE_LAYER_MASK);
-  let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
-  let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
-  if high_resolution {
-    if linear {
-      if address == 0u {
-        return textureSampleGrad(high_resolution_material_textures, sampler_clamp_linear, uv, layer, uv_dx, uv_dy);
-      }
-      if address == 2u {
-        return textureSampleGrad(high_resolution_material_textures, sampler_mirror_linear, uv, layer, uv_dx, uv_dy);
-      }
-      return textureSampleGrad(high_resolution_material_textures, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
-    }
-    if address == 0u {
-      return textureSampleGrad(high_resolution_material_textures, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy);
-    }
-    if address == 2u {
-      return textureSampleGrad(high_resolution_material_textures, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy);
-    }
-    return textureSampleGrad(high_resolution_material_textures, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
-  }
-  if linear {
-    if address == 0u {
-      return textureSampleGrad(material_textures, sampler_clamp_linear, uv, layer, uv_dx, uv_dy);
-    }
-    if address == 2u {
-      return textureSampleGrad(material_textures, sampler_mirror_linear, uv, layer, uv_dx, uv_dy);
-    }
-    return textureSampleGrad(material_textures, sampler_repeat_linear, uv, layer, uv_dx, uv_dy);
-  }
-  if address == 0u {
-    return textureSampleGrad(material_textures, sampler_clamp_nearest, uv, layer, uv_dx, uv_dy);
-  }
-  if address == 2u {
-    return textureSampleGrad(material_textures, sampler_mirror_nearest, uv, layer, uv_dx, uv_dy);
-  }
-  return textureSampleGrad(material_textures, sampler_repeat_nearest, uv, layer, uv_dx, uv_dy);
+  return oengine_sample_texture_bank(texture_ref, sampler_class, uv, uv_dx, uv_dy, fallback);
 }
 
 fn material_uv_set(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {

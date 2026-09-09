@@ -58,7 +58,6 @@ export interface GraphicsMemoryEvidence {
   readonly owners: Readonly<Record<string, Readonly<Record<string, number>>>>;
   readonly limitations: readonly string[];
 }
-
 export interface GraphicsOwnerCreationEvidence {
   readonly schemaVersion: 1;
   readonly legacy: Readonly<{
@@ -114,7 +113,7 @@ export class GraphicsContext {
   constructor(
     device: GPUDevice,
     profiler = new FrameProfiler(),
-    textureMaxResolution = TEXTURE_RESIDENCY_MAX_SIZE
+    textureMaxResolution: number = TEXTURE_RESIDENCY_MAX_SIZE
   ) {
     this.device = device;
     this.profiler = profiler;
@@ -369,27 +368,14 @@ export class GraphicsContext {
     const textureResidency = this.textureResidencyValue?.evidence();
     const buffers = this.buffer_allocator_main.evidence();
     const textures = this.allocator_textures.evidence();
-    const baseLayerBytes = textureResidency === undefined
-      ? 0
-      : textureArrayLayerBytes(textureResidency.textureSize, textureResidency.mipLevelCount);
-    const highLayerBytes = textureResidency === undefined
-      ? 0
-      : textureArrayLayerBytes(
-          textureResidency.highResolutionTextureSize,
-          textureResidency.highResolutionMipLevelCount
-        );
     const residentMaterialBytes = materials === undefined
       ? 0
       : materials.residentMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
-        ((textureResidency?.residentTextureCount ?? 0) -
-          (textureResidency?.residentHighResolutionTextureCount ?? 0)) * baseLayerBytes +
-        (textureResidency?.residentHighResolutionTextureCount ?? 0) * highLayerBytes;
+        (textureResidency?.residentTextureBytes ?? 0);
     const retiringMaterialBytes = materials === undefined
       ? 0
       : materials.retiringMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
-        ((textureResidency?.retiringTextureCount ?? 0) -
-          (textureResidency?.retiringHighResolutionTextureCount ?? 0)) * baseLayerBytes +
-        (textureResidency?.retiringHighResolutionTextureCount ?? 0) * highLayerBytes;
+        (textureResidency?.retiringTextureBytes ?? 0);
     const longLivedAllocatedBytes =
       (assets?.allocatedBytes ?? 0) +
       (scene?.allocatedBytes ?? 0) +
@@ -439,8 +425,8 @@ export class GraphicsContext {
           residentLogicalBytes: residentMaterialBytes,
           retiringBytes: retiringMaterialBytes,
           residentTextures: textureResidency?.residentTextureCount ?? 0,
-          residentHighResolutionTextures: textureResidency?.residentHighResolutionTextureCount ?? 0,
-          retiringHighResolutionTextures: textureResidency?.retiringHighResolutionTextureCount ?? 0
+          allocatedPeakBytes: textureResidency?.allocatedPeakBytes ?? 0,
+          allocatedBankCount: textureResidency?.banks.filter((bank) => bank.allocatedCapacity > 0).length ?? 0
         }),
         transientBuffers: Object.freeze({ ...buffers }),
         transientTextures: Object.freeze({ ...textures })
@@ -479,13 +465,4 @@ export class GraphicsContext {
     this.collectionLimitsValue.destroy();
     this.profiler.detachGpuDevice(this.device);
   }
-}
-
-function textureArrayLayerBytes(size: number, mipLevelCount: number): number {
-  let pixels = 0;
-  for (let level = 0; level < Math.max(1, mipLevelCount); level++) {
-    const extent = Math.max(1, size >> level);
-    pixels += extent * extent;
-  }
-  return pixels * 4;
 }

@@ -37,7 +37,12 @@ const PACKED_CSM_GROUP: GPUBindGroupLayoutDescriptor = {
     })),
     { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
     { binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } },
-    { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } }
+    { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } },
+    ...Array.from({ length: 3 }, (_, index) => ({
+      binding: index + 11,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "unfilterable-float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
+    }))
   ]
 };
 
@@ -180,8 +185,7 @@ export class PackedCsmShadowPass {
         { buffer: job.assets.geometryRecords },
         { buffer: generated.rasterWork },
         { buffer: job.materials.materialRecords },
-        job.materials.alphaAtlas,
-        job.materials.highResolutionAlphaAtlas
+        ...job.materials.textureBanks
       ]
     });
     this.clearViewport(command, job.depthView, job.viewport);

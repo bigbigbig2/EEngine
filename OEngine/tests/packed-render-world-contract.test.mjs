@@ -10,6 +10,12 @@ const [
   { GPUSceneContext },
   { GpuPackedSceneRegistry },
   { TextureResidency },
+  {
+    decodeGpuTextureRef,
+    encodeGpuTextureRef,
+    GPU_TEXTURE_REF_INVALID,
+    GPU_TEXTURE_BANK_MAX_CAPACITIES
+  },
   { StandardShadeMaterial },
   { ShadeTransparencyMode },
   { ShadeTexture, ShadeImage }
@@ -20,6 +26,7 @@ const [
   import("../.test-dist/gpu/GPUSceneContext.js"),
   import("../.test-dist/gpu/GpuPackedSceneRegistry.js"),
   import("../.test-dist/gpu/TextureResidency.js"),
+  import("../.test-dist/gpu/GpuTextureRefAbi.js"),
   import("../.test-dist/material/StandardShadeMaterial.js"),
   import("../.test-dist/material/enums.js"),
   import("../.test-dist/texture/ShadeTexture.js")
@@ -194,7 +201,7 @@ test("Texture residency rolls back failed commands and reuses a released base la
   aborted.abort(new Error("injected texture failure"));
 
   assert.equal(residency.evidence().residentTextureCount, 0);
-  assert.equal(residency.evidence().freeTextureLayerCount, 63);
+  assert.equal(residency.evidence().banks[0].freeLayerCount, 63);
 
   const committed = new FakeCommand("texture-stage-commit");
   const firstStage = residency.stage([firstMaterial], committed);
@@ -207,7 +214,7 @@ test("Texture residency rolls back failed commands and reuses a released base la
   release.finish();
   await settlePromises();
   assert.equal(residency.evidence().residentTextureCount, 0);
-  assert.equal(residency.evidence().freeTextureLayerCount, 63);
+  assert.equal(residency.evidence().banks[0].freeLayerCount, 63);
 
   const secondTexture = createTexture(128, "second");
   const secondMaterial = createTexturedMaterial(secondTexture, "second-material");
@@ -231,35 +238,184 @@ test("Texture residency enforces its declared base capacity without partial muta
 
   const before = residency.evidence();
   assert.equal(before.residentTextureCount, 63);
-  assert.equal(before.freeTextureLayerCount, 0);
+  assert.equal(before.banks[0].freeLayerCount, 0);
 
   const overflow = new FakeCommand("texture-capacity-overflow");
   assert.throws(
     () => residency.stage([
       createTexturedMaterial(createTexture(64, "overflow"), "overflow-material")
     ], overflow),
-    /only 0 of 63 are free/
+    /requires 128 layers but policy\/device permits 64/
   );
   assert.deepEqual(residency.evidence(), before);
   residency.destroy();
 });
 
-test("Texture permutation fixture captures the current high-bank load-order debt", async () => {
+test("Texture residency accepts 512 -> 2048 and the reverse independent of release order", async () => {
   const smallThenLarge = await runReleasedHighTextureSequence([512, 2048]);
   const largeThenSmall = await runReleasedHighTextureSequence([2048, 512]);
 
   assert.deepEqual(smallThenLarge, {
     firstSize: 512,
     secondSize: 2048,
-    secondAccepted: false,
-    highBankSize: 512
+    secondAccepted: true,
+    secondBankClass: 3
   });
   assert.deepEqual(largeThenSmall, {
     firstSize: 2048,
     secondSize: 512,
     secondAccepted: true,
-    highBankSize: 2048
+    secondBankClass: 1
   });
+});
+
+test("TextureRef CPU ABI explicitly rejects invalid version, bank, and layer values", () => {
+  assert.deepEqual(decodeGpuTextureRef(encodeGpuTextureRef(4, 1)), {
+    version: 1,
+    bankClass: 4,
+    layer: 1
+  });
+  assert.equal(decodeGpuTextureRef(GPU_TEXTURE_REF_INVALID), null);
+  assert.equal(decodeGpuTextureRef(0x00000001), null);
+  assert.equal(decodeGpuTextureRef(0x1f000001), null);
+  assert.equal(decodeGpuTextureRef(0x10000000), null);
+});
+
+test("Texture residency fills and rejects overflow in every bounded bank without mutation", () => {
+  for (const [bankClass, size] of [512, 1024, 2048, 4096].entries()) {
+    const actualBankClass = bankClass + 1;
+    const fixture = createTextureResidencyFixture();
+    const residency = new TextureResidency(fixture.graphics, 4096);
+    const usable = GPU_TEXTURE_BANK_MAX_CAPACITIES[actualBankClass] - 1;
+    const materials = Array.from({ length: usable }, (_, index) =>
+      createTexturedMaterial(createTexture(size, `bank-${size}-${index}`), `bank-material-${size}-${index}`)
+    );
+    const fill = new FakeCommand(`texture-${size}-fill`);
+    residency.stage(materials, fill);
+    fill.finish();
+    const before = residency.evidence();
+    assert.equal(before.banks[actualBankClass].residentTextureCount, usable);
+    assert.equal(before.banks[actualBankClass].freeLayerCount, 0);
+
+    assert.throws(
+      () => residency.stage([
+        createTexturedMaterial(createTexture(size, `bank-${size}-overflow`), `bank-material-${size}-overflow`)
+      ], new FakeCommand(`texture-${size}-overflow`)),
+      /requires .* layers but policy\/device permits/
+    );
+    assert.deepEqual(residency.evidence(), before);
+    residency.destroy();
+  }
+});
+
+test("Texture residency keeps bank choice legal for multiple small textures followed by a large texture", () => {
+  const fixture = createTextureResidencyFixture();
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const small = Array.from({ length: 5 }, (_, index) =>
+    createTexturedMaterial(createTexture(512, `small-${index}`), `small-material-${index}`)
+  );
+  const first = new FakeCommand("texture-multiple-small");
+  residency.stage(small, first);
+  first.finish();
+  const largeTexture = createTexture(4096, "large-after-small");
+  const large = new FakeCommand("texture-large-after-small");
+  const staged = residency.stage([createTexturedMaterial(largeTexture, "large-material")], large);
+  large.finish();
+  assert.equal(decodeGpuTextureRef(staged.textureRefs.get(largeTexture))?.bankClass, 4);
+  assert.equal(residency.evidence().banks[1].residentTextureCount, 5);
+  assert.equal(residency.evidence().banks[4].residentTextureCount, 1);
+  residency.destroy();
+});
+
+test("Texture residency accepts every permutation of the same legal texture set", () => {
+  const sizes = [256, 512, 1024, 2048, 4096];
+  for (const [permutationIndex, permutation] of permutations(sizes).entries()) {
+    const fixture = createTextureResidencyFixture();
+    const residency = new TextureResidency(fixture.graphics, 4096);
+    const textures = permutation.map((size, index) => createTexture(size, `permutation-${permutationIndex}-${index}`));
+    const command = new FakeCommand(`texture-permutation-${permutationIndex}`);
+    const staged = residency.stage(
+      textures.map((texture, index) => createTexturedMaterial(texture, `permutation-material-${index}`)),
+      command
+    );
+    command.finish();
+    assert.deepEqual(
+      textures.map((texture) => decodeGpuTextureRef(staged.textureRefs.get(texture))?.bankClass),
+      permutation.map((size) => sizes.indexOf(size))
+    );
+    assert.equal(residency.evidence().residentTextureCount, sizes.length);
+    residency.destroy();
+  }
+});
+
+test("Texture residency deduplicates shared textures and releases the final reference once", async () => {
+  const fixture = createTextureResidencyFixture();
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const shared = createTexture(1024, "shared");
+  const materials = [
+    createTexturedMaterial(shared, "shared-a"),
+    createTexturedMaterial(shared, "shared-b")
+  ];
+  const stage = new FakeCommand("texture-shared-stage");
+  const staged = residency.stage(materials, stage);
+  stage.finish();
+  assert.equal(staged.textureRefs.size, 1);
+  assert.equal(residency.evidence().residentTextureCount, 1);
+  const release = new FakeCommand("texture-shared-release");
+  residency.release(materials, release);
+  release.finish();
+  await settlePromises();
+  assert.equal(residency.evidence().residentTextureCount, 0);
+  assert.equal(residency.evidence().banks[2].freeLayerCount, 1);
+  residency.destroy();
+});
+
+test("Texture residency abort restores a grown bank and destroys its provisional allocation", () => {
+  const fixture = createTextureResidencyFixture();
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const command = new FakeCommand("texture-grow-abort");
+  residency.stage([createTexturedMaterial(createTexture(512, "abort-grow"), "abort-grow-material")], command);
+  const provisional = fixture.textures.at(-1);
+  command.abort(new Error("injected growth abort"));
+  const evidence = residency.evidence();
+  assert.equal(evidence.residentTextureCount, 0);
+  assert.equal(evidence.banks[1].allocatedCapacity, 0);
+  assert.equal(evidence.abortedBankGrowCount, 1);
+  assert.equal(provisional.destroyed, true);
+  residency.destroy();
+});
+
+test("Texture residency rolls back earlier bank growth when a later allocation fails", () => {
+  const fixture = createTextureResidencyFixture({
+    failTexture: (descriptor) => descriptor.label.includes("bank-2-")
+  });
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const before = residency.evidence();
+  assert.throws(() => residency.stage([
+    createTexturedMaterial(createTexture(512, "fault-512"), "fault-material-512"),
+    createTexturedMaterial(createTexture(1024, "fault-1024"), "fault-material-1024")
+  ], new FakeCommand("texture-growth-fault")), /injected texture allocation failure/);
+  const after = residency.evidence();
+  assert.equal(after.residentTextureCount, before.residentTextureCount);
+  assert.deepEqual(after.banks.map(({ allocatedCapacity }) => allocatedCapacity),
+    before.banks.map(({ allocatedCapacity }) => allocatedCapacity));
+  assert.equal(after.abortedBankGrowCount, 1);
+  residency.destroy();
+});
+
+test("Texture residency quality and device resolution caps preserve logical texture count", () => {
+  const fixture = createTextureResidencyFixture({ maxTextureDimension2D: 1024 });
+  const residency = new TextureResidency(fixture.graphics, 1024);
+  const before = residency.evidence();
+  assert.equal(before.textureCapacity, 117);
+  assert.deepEqual(before.banks.map(({ physicalSize }) => physicalSize), [256, 512, 1024, 1024, 1024]);
+  const texture = createTexture(4096, "quality-capped-large");
+  const command = new FakeCommand("texture-quality-cap");
+  const staged = residency.stage([createTexturedMaterial(texture, "quality-capped-material")], command);
+  command.finish();
+  assert.equal(decodeGpuTextureRef(staged.textureRefs.get(texture))?.bankClass, 4);
+  assert.equal(residency.evidence().banks[4].physicalSize, 1024);
+  residency.destroy();
 });
 
 test("Frame evidence detects extra submit, stable-graph rebuild, IO, and feature-off resources", () => {
@@ -353,10 +509,7 @@ function createPackedRegistryFixture() {
         return {
           bindings: {
             textureCapacity: 64,
-            textureArray: dummyView,
-            highResolutionTextureArray: dummyView,
-            alphaAtlas: dummyView,
-            highResolutionAlphaAtlas: dummyView
+            textureBanks: [dummyView, dummyView, dummyView, dummyView, dummyView]
           },
           textureRefs: new Map()
         };
@@ -416,16 +569,17 @@ function createPackedRegistryFixture() {
   };
 }
 
-function createTextureResidencyFixture() {
+function createTextureResidencyFixture(options = {}) {
   const accounting = new ResourceAccounting();
   const textures = [];
   const graphics = {
     device: {
       limits: {
         maxTextureArrayLayers: 2048,
-        maxTextureDimension2D: 8192
+        maxTextureDimension2D: options.maxTextureDimension2D ?? 8192
       },
       createTexture(descriptor) {
+        if (options.failTexture?.(descriptor)) throw new Error("injected texture allocation failure");
         const texture = {
           descriptor,
           destroyed: false,
@@ -477,16 +631,17 @@ async function runReleasedHighTextureSequence([firstSize, secondSize]) {
   const secondMaterial = createTexturedMaterial(secondTexture, `material-${secondSize}`);
   const second = new FakeCommand("high-second");
   let secondAccepted = true;
+  let secondRef;
   try {
-    residency.stage([secondMaterial], second);
+    secondRef = residency.stage([secondMaterial], second).textureRefs.get(secondTexture);
     second.finish();
   } catch (error) {
     secondAccepted = false;
     second.abort(error);
   }
-  const highBankSize = residency.evidence().highResolutionTextureSize;
+  const secondBankClass = secondAccepted ? decodeGpuTextureRef(secondRef)?.bankClass : undefined;
   residency.destroy();
-  return { firstSize, secondSize, secondAccepted, highBankSize };
+  return { firstSize, secondSize, secondAccepted, secondBankClass };
 }
 
 function createTexture(size, label) {
@@ -504,6 +659,17 @@ function createTexturedMaterial(texture, name) {
   material.name = name;
   material.texture_albedo = texture;
   return material;
+}
+
+function permutations(values) {
+  if (values.length <= 1) return [values];
+  const result = [];
+  for (let index = 0; index < values.length; index++) {
+    const head = values[index];
+    const rest = [...values.slice(0, index), ...values.slice(index + 1)];
+    for (const tail of permutations(rest)) result.push([head, ...tail]);
+  }
+  return result;
 }
 
 function identityMatrices(count) {
@@ -592,6 +758,8 @@ class FakeCommand {
       end() {}
     };
   }
+
+  copyTextureToTexture() {}
 }
 
 async function settlePromises() {

@@ -4,23 +4,26 @@ import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { TextureFilterType } from "../texture/TextureFilterType.js";
 import type { CachedRenderPipelineDescriptor } from "./GPUDescriptorCaches.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import { GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_BIT } from "./GpuMaterialVisibilityAbi.js";
+import {
+  GPU_TEXTURE_BANK_COUNT,
+  GPU_TEXTURE_BANK_MAX_CAPACITIES,
+  GPU_TEXTURE_BANK_SIZES,
+  encodeGpuTextureRef
+} from "./GpuTextureRefAbi.js";
 import {
   estimateTextureBytes,
   type ResourceHandle as AccountingResourceHandle
 } from "../debug/profiling/ResourceAccounting.js";
 
-export const TEXTURE_RESIDENCY_BASE_SIZE = 256;
-export const TEXTURE_RESIDENCY_BASE_CAPACITY = 64;
-export const TEXTURE_RESIDENCY_BASE_MIP_COUNT = 9;
-export const TEXTURE_RESIDENCY_MAX_SIZE = 4096;
+export const TEXTURE_RESIDENCY_BASE_SIZE = GPU_TEXTURE_BANK_SIZES[0];
+export const TEXTURE_RESIDENCY_BASE_CAPACITY = GPU_TEXTURE_BANK_MAX_CAPACITIES[0];
+export const TEXTURE_RESIDENCY_BASE_MIP_COUNT = mipCount(TEXTURE_RESIDENCY_BASE_SIZE);
+export const TEXTURE_RESIDENCY_MAX_SIZE = GPU_TEXTURE_BANK_SIZES[GPU_TEXTURE_BANK_COUNT - 1]!;
 
 export interface TextureResidencyBindings {
   readonly textureCapacity: number;
-  readonly textureArray: GPUTextureView;
-  readonly highResolutionTextureArray: GPUTextureView;
-  readonly alphaAtlas: GPUTextureView;
-  readonly highResolutionAlphaAtlas: GPUTextureView;
+  /** Five explicit WebGPU bindings, not a binding array. */
+  readonly textureBanks: readonly [GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView];
 }
 
 export interface TextureResidencyStage {
@@ -28,29 +31,55 @@ export interface TextureResidencyStage {
   readonly textureRefs: ReadonlyMap<ShadeTexture, number>;
 }
 
+export interface TextureBankEvidence {
+  readonly bankClass: number;
+  /** Logical size class encoded by TextureRef. */
+  readonly size: number;
+  /** Allocated resolution after the configured quality/device cap. */
+  readonly physicalSize: number;
+  readonly maxCapacity: number;
+  readonly allocatedCapacity: number;
+  readonly residentTextureCount: number;
+  readonly retiringTextureCount: number;
+  readonly freeLayerCount: number;
+  readonly allocatedBytes: number;
+}
+
 export interface TextureResidencyEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly textureCapacity: number;
   readonly residentTextureCount: number;
   readonly retiringTextureCount: number;
-  readonly freeTextureLayerCount: number;
   readonly allocatedBytes: number;
+  readonly allocatedPeakBytes: number;
   readonly residentTextureBytes: number;
-  readonly textureSize: number;
-  readonly mipLevelCount: number;
-  readonly highResolutionTextureSize: number;
-  readonly highResolutionTextureCapacity: number;
-  readonly highResolutionMipLevelCount: number;
+  readonly retiringTextureBytes: number;
+  readonly bankGrowCount: number;
+  readonly abortedBankGrowCount: number;
+  readonly resizeDispatchCount: number;
+  readonly bankCopyOperationCount: number;
   readonly highResolutionArrayAllocated: boolean;
-  readonly residentHighResolutionTextureCount: number;
-  readonly retiringHighResolutionTextureCount: number;
-  readonly freeHighResolutionTextureLayerCount: number;
+  readonly banks: readonly TextureBankEvidence[];
   readonly privateSubmitCount: 0;
+}
+
+interface TextureBank {
+  readonly bankClass: number;
+  readonly size: number;
+  readonly physicalSize: number;
+  readonly mipLevelCount: number;
+  readonly maxCapacity: number;
+  capacity: number;
+  descriptor: GPUTextureDescriptor;
+  texture: GPUTexture | null;
+  view: GPUTextureView | null;
+  accounting: AccountingResourceHandle | null;
+  freeLayers: number[];
 }
 
 interface ResidentTexture {
   readonly layer: number;
-  readonly highResolution: boolean;
+  readonly bankClass: number;
   readonly source: ShadeTexture;
   refCount: number;
   retireGeneration: number;
@@ -82,100 +111,92 @@ interface TextureTransition {
   readonly removed: readonly ResidentTexture[];
 }
 
-/**
- * Texture-only residency owner. It publishes stable TextureRef values but never
- * allocates material slots or writes MaterialRecord data.
- */
+interface BankGrowthPlan {
+  readonly bank: TextureBank;
+  readonly nextCapacity: number;
+}
+
+interface BankGrowth {
+  readonly bank: TextureBank;
+  readonly previousCapacity: number;
+  readonly previousDescriptor: GPUTextureDescriptor;
+  readonly previousTexture: GPUTexture | null;
+  readonly previousView: GPUTextureView | null;
+  readonly previousAccounting: AccountingResourceHandle | null;
+  readonly previousFreeLayers: readonly number[];
+  readonly nextTexture: GPUTexture;
+  readonly nextAccounting: AccountingResourceHandle | undefined;
+}
+
+/** Bounded size-class arrays with stable (version, bank class, layer) refs. */
 export class TextureResidency {
-  private readonly baseDescriptor: GPUTextureDescriptor;
-  private readonly baseTexture: GPUTexture;
-  private readonly baseAccountingHandle: AccountingResourceHandle | undefined;
-  private readonly baseView: GPUTextureView;
-  private highDescriptor: GPUTextureDescriptor;
-  private highTexture: GPUTexture | null = null;
-  private highAccountingHandle: AccountingResourceHandle | null = null;
-  private highView: GPUTextureView | null = null;
-  private highSize = TEXTURE_RESIDENCY_MAX_SIZE;
-  private highCapacity = 0;
-  private highMipCount = 13;
+  private readonly banks: readonly TextureBank[];
   private readonly textures = new Map<ShadeTexture, ResidentTexture>();
   private readonly materials = new Map<StandardShadeMaterial, ResidentMaterialTextures>();
-  private readonly freeBaseLayers: number[] = [];
-  private readonly freeHighLayers: number[] = [];
   private resizePipeline: GPURenderPipeline | null = null;
+  private allocatedPeakBytes = 0;
+  private bankGrowCount = 0;
+  private abortedBankGrowCount = 0;
+  private resizeDispatchCount = 0;
+  private bankCopyOperationCount = 0;
   private destroyed = false;
 
   constructor(
     private readonly graphics: GraphicsContext,
-    private readonly highResolutionMaxSize = TEXTURE_RESIDENCY_MAX_SIZE
+    private readonly highResolutionMaxSize: number = TEXTURE_RESIDENCY_MAX_SIZE
   ) {
-    if (![256, 512, 1024, 2048, 4096].includes(highResolutionMaxSize)) {
-      throw new RangeError("TextureResidency highResolutionMaxSize must be a supported power-of-two size");
+    if (!(GPU_TEXTURE_BANK_SIZES as readonly number[]).includes(highResolutionMaxSize)) {
+      throw new RangeError("TextureResidency highResolutionMaxSize must be a supported size class");
     }
-    this.baseDescriptor = {
-      label: "TextureResidency/base-bank",
-      size: [TEXTURE_RESIDENCY_BASE_SIZE, TEXTURE_RESIDENCY_BASE_SIZE, TEXTURE_RESIDENCY_BASE_CAPACITY],
-      format: "rgba8unorm",
-      mipLevelCount: TEXTURE_RESIDENCY_BASE_MIP_COUNT,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT |
-        GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
-    };
-    this.baseTexture = graphics.device.createTexture(this.baseDescriptor);
-    this.baseAccountingHandle = graphics.resource_accounting?.created({
-      kind: "texture",
-      category: "resident",
-      owner: "TextureResidency/base-bank",
-      bytes: estimateTextureBytes({
-        format: "rgba8unorm",
-        width: TEXTURE_RESIDENCY_BASE_SIZE,
-        height: TEXTURE_RESIDENCY_BASE_SIZE,
-        depthOrArrayLayers: TEXTURE_RESIDENCY_BASE_CAPACITY,
-        mipLevelCount: TEXTURE_RESIDENCY_BASE_MIP_COUNT
-      }),
-      label: this.baseDescriptor.label
+    const limits = graphics.device.limits;
+    const deviceMaxSize = Number(limits.maxTextureDimension2D);
+    this.banks = GPU_TEXTURE_BANK_SIZES.map((size, bankClass): TextureBank => {
+      const physicalSize = Math.min(size, highResolutionMaxSize, deviceMaxSize);
+      return {
+        bankClass,
+        size,
+        physicalSize,
+        mipLevelCount: mipCount(physicalSize),
+        maxCapacity: Math.min(GPU_TEXTURE_BANK_MAX_CAPACITIES[bankClass]!, Number(limits.maxTextureArrayLayers)),
+        capacity: 0,
+        descriptor: bankDescriptor(bankClass, size, physicalSize, 1),
+        texture: null,
+        view: null,
+        accounting: null,
+        freeLayers: []
+      };
     });
-    this.baseView = this.baseTexture.createView({ dimension: "2d-array" });
-    this.highDescriptor = {
-      label: "TextureResidency/high-resolution-bank",
-      size: [TEXTURE_RESIDENCY_MAX_SIZE, TEXTURE_RESIDENCY_MAX_SIZE, 1],
-      format: "rgba8unorm",
-      mipLevelCount: 13,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT |
-        GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
-    };
-    for (let layer = TEXTURE_RESIDENCY_BASE_CAPACITY - 1; layer >= 1; layer--) {
-      this.freeBaseLayers.push(layer);
+    const base = this.banks[0]!;
+    if (base.maxCapacity < TEXTURE_RESIDENCY_BASE_CAPACITY) {
+      throw new RangeError(`TextureResidency base bank requires ${TEXTURE_RESIDENCY_BASE_CAPACITY} layers but the device permits ${base.maxCapacity}`);
     }
+    this.allocateInitialBase(base);
+    this.allocatedPeakBytes = this.allocatedBytes();
   }
 
-  stage(
-    materials: readonly StandardShadeMaterial[],
-    command: ShadeGPUCommandContext
-  ): TextureResidencyStage {
-    this.preflight(materials);
+  stage(materials: readonly StandardShadeMaterial[], command: ShadeGPUCommandContext): TextureResidencyStage {
+    const growths = this.applyGrowthPlans(this.preflight(materials), command);
     const materialOperations = this.retainMaterials(materials);
     const transitions: TextureTransition[] = [];
     const newTextures: ResidentTexture[] = [];
-    let rolledBack = false;
+    let settled = false;
     const rollback = (): void => {
-      if (rolledBack) return;
-      rolledBack = true;
+      if (settled) return;
+      settled = true;
       for (let index = transitions.length - 1; index >= 0; index--) {
         const transition = transitions[index]!;
         transition.material.textures = [...transition.previous];
-        for (let add = transition.added.length - 1; add >= 0; add--) {
-          this.rollbackTextureRetain(transition.added[add]!);
-        }
+        for (let add = transition.added.length - 1; add >= 0; add--) this.rollbackTextureRetain(transition.added[add]!);
       }
       for (let index = materialOperations.length - 1; index >= 0; index--) {
         const operation = materialOperations[index]!;
         operation.entry.refCount--;
         operation.entry.retireGeneration = operation.previousRetireGeneration;
-        if (operation.created && operation.entry.refCount === 0 &&
-            this.materials.get(operation.material) === operation.entry) {
+        if (operation.created && operation.entry.refCount === 0 && this.materials.get(operation.material) === operation.entry) {
           this.materials.delete(operation.material);
         }
       }
+      this.rollbackGrowths(growths);
     };
     command.onAborted.addOne(rollback);
     try {
@@ -186,31 +207,21 @@ export class TextureResidency {
         transitioned.add(resident);
         const transition = this.transition(resident, materials[index]!);
         transitions.push(transition);
-        for (const operation of transition.added) {
-          if (operation.created) newTextures.push(operation.entry);
-        }
+        for (const operation of transition.added) if (operation.created) newTextures.push(operation.entry);
       }
       this.graphics.textures.mipmaps.flush(command);
       for (const texture of newTextures) this.encodeResizeCopy(command, texture);
-      if (newTextures.some(({ highResolution }) => !highResolution)) {
-        this.graphics.textures.mipmaps.generateMipmap(
-          this.baseTexture, this.baseDescriptor, TextureFilterType.Linear, command
-        );
-      }
-      if (newTextures.some(({ highResolution }) => highResolution)) {
-        this.graphics.textures.mipmaps.generateMipmap(
-          this.requireHighTexture(), this.highDescriptor, TextureFilterType.Linear, command
-        );
+      for (const bankClass of new Set(newTextures.map((entry) => entry.bankClass))) {
+        const bank = this.banks[bankClass]!;
+        this.graphics.textures.mipmaps.generateMipmap(requireBankTexture(bank), bank.descriptor, TextureFilterType.Linear, command);
       }
       command.onFinished.addOne(() => {
-        for (const transition of transitions) {
-          this.releaseTextureRefs(transition.removed, command.gpuDone);
-        }
+        if (settled) return;
+        settled = true;
+        for (const transition of transitions) this.releaseTextureRefs(transition.removed, command.gpuDone);
+        this.commitGrowths(growths, command.gpuDone);
       });
-      return Object.freeze({
-        bindings: this.bindings(),
-        textureRefs: this.textureRefs()
-      });
+      return Object.freeze({ bindings: this.bindings(), textureRefs: this.textureRefs() });
     } catch (error) {
       rollback();
       throw error;
@@ -245,64 +256,58 @@ export class TextureResidency {
   }
 
   bindings(): TextureResidencyBindings {
+    const fallback = this.banks[0]!.view!;
+    const views = this.banks.map((bank) => bank.view ?? fallback) as unknown as TextureResidencyBindings["textureBanks"];
     return Object.freeze({
-      textureCapacity: TEXTURE_RESIDENCY_BASE_CAPACITY,
-      textureArray: this.baseView,
-      highResolutionTextureArray: this.highView ?? this.baseView,
-      alphaAtlas: this.baseView,
-      highResolutionAlphaAtlas: this.highView ?? this.baseView
+      textureCapacity: this.logicalCapacity(),
+      textureBanks: Object.freeze(views)
     });
   }
 
   evidence(): TextureResidencyEvidence {
+    const counts = this.banks.map(() => ({ resident: 0, retiring: 0 }));
     let residentTextureCount = 0;
     let retiringTextureCount = 0;
-    let residentHighResolutionTextureCount = 0;
-    let retiringHighResolutionTextureCount = 0;
+    let residentTextureBytes = 0;
+    let retiringTextureBytes = 0;
     for (const entry of this.textures.values()) {
+      const bytes = arrayBytes(this.banks[entry.bankClass]!.size, 1);
       if (entry.refCount > 0) {
         residentTextureCount++;
-        if (entry.highResolution) residentHighResolutionTextureCount++;
+        residentTextureBytes += bytes;
+        counts[entry.bankClass]!.resident++;
       } else {
         retiringTextureCount++;
-        if (entry.highResolution) retiringHighResolutionTextureCount++;
+        retiringTextureBytes += bytes;
+        counts[entry.bankClass]!.retiring++;
       }
     }
-    const highBytes = this.highTexture === null
-      ? 0
-      : arrayBytes(this.highSize, this.highCapacity, this.highMipCount);
-    const baseLayerBytes = arrayBytes(
-      TEXTURE_RESIDENCY_BASE_SIZE,
-      1,
-      TEXTURE_RESIDENCY_BASE_MIP_COUNT
-    );
-    const highLayerBytes = arrayBytes(this.highSize, 1, this.highMipCount);
+    const banks = this.banks.map((bank): TextureBankEvidence => Object.freeze({
+      bankClass: bank.bankClass,
+      size: bank.size,
+      physicalSize: bank.physicalSize,
+      maxCapacity: bank.maxCapacity,
+      allocatedCapacity: bank.capacity,
+      residentTextureCount: counts[bank.bankClass]!.resident,
+      retiringTextureCount: counts[bank.bankClass]!.retiring,
+      freeLayerCount: bank.freeLayers.length,
+      allocatedBytes: arrayBytes(bank.physicalSize, bank.capacity)
+    }));
     return Object.freeze({
-      schemaVersion: 1,
-      textureCapacity: TEXTURE_RESIDENCY_BASE_CAPACITY,
+      schemaVersion: 2,
+      textureCapacity: this.logicalCapacity(),
       residentTextureCount,
       retiringTextureCount,
-      freeTextureLayerCount: this.freeBaseLayers.length,
-      allocatedBytes: arrayBytes(
-        TEXTURE_RESIDENCY_BASE_SIZE,
-        TEXTURE_RESIDENCY_BASE_CAPACITY,
-        TEXTURE_RESIDENCY_BASE_MIP_COUNT
-      ) + highBytes,
-      // This is the logical live footprint, not the physical bank capacity.
-      // Keep allocatedBytes as the capacity number so callers can distinguish
-      // committed storage from layers currently referenced by materials.
-      residentTextureBytes:
-        (residentTextureCount - residentHighResolutionTextureCount) * baseLayerBytes +
-        residentHighResolutionTextureCount * highLayerBytes,
-      textureSize: TEXTURE_RESIDENCY_BASE_SIZE,
-      mipLevelCount: TEXTURE_RESIDENCY_BASE_MIP_COUNT,
-      highResolutionTextureSize: this.highSize,
-      highResolutionTextureCapacity: this.highCapacity,
-      highResolutionMipLevelCount: this.highMipCount,
-      highResolutionArrayAllocated: this.highTexture !== null,
-      residentHighResolutionTextureCount,
-      retiringHighResolutionTextureCount,
-      freeHighResolutionTextureLayerCount: this.freeHighLayers.length,
+      allocatedBytes: this.allocatedBytes(),
+      allocatedPeakBytes: this.allocatedPeakBytes,
+      residentTextureBytes,
+      retiringTextureBytes,
+      bankGrowCount: this.bankGrowCount,
+      abortedBankGrowCount: this.abortedBankGrowCount,
+      resizeDispatchCount: this.resizeDispatchCount,
+      bankCopyOperationCount: this.bankCopyOperationCount,
+      highResolutionArrayAllocated: this.banks.slice(1).some((bank) => bank.texture !== null),
+      banks: Object.freeze(banks),
       privateSubmitCount: 0
     });
   }
@@ -310,44 +315,139 @@ export class TextureResidency {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.baseTexture.destroy();
-    if (this.baseAccountingHandle !== undefined) {
-      this.graphics.resource_accounting?.destroyed(this.baseAccountingHandle);
-    }
-    this.highTexture?.destroy();
-    if (this.highAccountingHandle !== null) {
-      this.graphics.resource_accounting?.destroyed(this.highAccountingHandle);
-      this.highAccountingHandle = null;
+    for (const bank of this.banks) {
+      bank.texture?.destroy();
+      if (bank.accounting !== null) this.graphics.resource_accounting?.destroyed(bank.accounting);
+      bank.texture = null;
+      bank.view = null;
+      bank.accounting = null;
+      bank.capacity = 0;
+      bank.freeLayers.length = 0;
     }
     this.textures.clear();
     this.materials.clear();
-    this.freeBaseLayers.length = 0;
-    this.freeHighLayers.length = 0;
     this.resizePipeline = null;
   }
 
-  private preflight(materials: readonly StandardShadeMaterial[]): void {
-    const base = new Set<ShadeTexture>();
-    const high = new Set<ShadeTexture>();
+  private preflight(materials: readonly StandardShadeMaterial[]): readonly BankGrowthPlan[] {
+    const freshByBank = this.banks.map(() => new Set<ShadeTexture>());
     for (const material of materials) {
       for (const texture of material.textures) {
         if (!canStageTexture(texture) || this.textures.has(texture)) continue;
-        (requiresHighBank(texture) ? high : base).add(texture);
+        freshByBank[textureBankClass(texture)]!.add(texture);
       }
     }
-    if (base.size > this.freeBaseLayers.length) {
-      throw new RangeError(
-        `TextureResidency requires ${base.size} new base layers but only ` +
-        `${this.freeBaseLayers.length} of ${TEXTURE_RESIDENCY_BASE_CAPACITY - 1} are free`
-      );
+    const plans: BankGrowthPlan[] = [];
+    for (const bank of this.banks) {
+      const freshCount = freshByBank[bank.bankClass]!.size;
+      if (freshCount === 0) continue;
+      const occupied = Math.max(0, bank.capacity - 1 - bank.freeLayers.length);
+      const requiredCapacity = nextPowerOfTwo(occupied + freshCount + 1);
+      if (bank.maxCapacity === 0 || requiredCapacity > bank.maxCapacity) {
+        throw new RangeError(`TextureResidency ${bank.size}px bank requires ${requiredCapacity} layers but policy/device permits ${bank.maxCapacity}`);
+      }
+      if (requiredCapacity > bank.capacity) plans.push({ bank, nextCapacity: requiredCapacity });
     }
-    if (high.size > 0) this.ensureHighBank(high);
-    if (high.size > this.freeHighLayers.length) {
-      throw new RangeError(
-        `TextureResidency requires ${high.size} new high-resolution layers but only ` +
-        `${this.freeHighLayers.length} of ${this.highCapacity - 1} are free`
-      );
+    return plans;
+  }
+
+  private applyGrowthPlans(plans: readonly BankGrowthPlan[], command: ShadeGPUCommandContext): BankGrowth[] {
+    const growths: BankGrowth[] = [];
+    try {
+      for (const plan of plans) growths.push(this.growBank(plan.bank, plan.nextCapacity, command));
+      return growths;
+    } catch (error) {
+      this.rollbackGrowths(growths);
+      throw error;
     }
+  }
+
+  private growBank(bank: TextureBank, nextCapacity: number, command: ShadeGPUCommandContext): BankGrowth {
+    const descriptor = bankDescriptor(bank.bankClass, bank.size, bank.physicalSize, nextCapacity);
+    const nextTexture = this.graphics.device.createTexture(descriptor);
+    const nextAccounting = this.graphics.resource_accounting?.created({
+      kind: "texture",
+      category: "resident",
+      owner: `TextureResidency/bank-${bank.size}`,
+      bytes: arrayBytes(bank.physicalSize, nextCapacity),
+      label: descriptor.label
+    });
+    const growth: BankGrowth = {
+      bank,
+      previousCapacity: bank.capacity,
+      previousDescriptor: bank.descriptor,
+      previousTexture: bank.texture,
+      previousView: bank.view,
+      previousAccounting: bank.accounting,
+      previousFreeLayers: [...bank.freeLayers],
+      nextTexture,
+      nextAccounting
+    };
+    if (bank.texture !== null && bank.capacity > 0) {
+      for (let mip = 0; mip < bank.mipLevelCount; mip++) {
+        const extent = Math.max(1, bank.physicalSize >> mip);
+        command.copyTextureToTexture(
+          { texture: bank.texture, mipLevel: mip },
+          { texture: nextTexture, mipLevel: mip },
+          [extent, extent, bank.capacity]
+        );
+        this.bankCopyOperationCount++;
+      }
+    }
+    for (let layer = nextCapacity - 1; layer >= Math.max(1, bank.capacity); layer--) bank.freeLayers.push(layer);
+    bank.capacity = nextCapacity;
+    bank.descriptor = descriptor;
+    bank.texture = nextTexture;
+    bank.view = nextTexture.createView({ dimension: "2d-array" });
+    bank.accounting = nextAccounting ?? null;
+    this.bankGrowCount++;
+    this.allocatedPeakBytes = Math.max(
+      this.allocatedPeakBytes,
+      this.allocatedBytes() + (growth.previousTexture === null ? 0 : arrayBytes(bank.physicalSize, growth.previousCapacity))
+    );
+    return growth;
+  }
+
+  private rollbackGrowths(growths: readonly BankGrowth[]): void {
+    for (let index = growths.length - 1; index >= 0; index--) {
+      const growth = growths[index]!;
+      const bank = growth.bank;
+      growth.nextTexture.destroy();
+      if (growth.nextAccounting !== undefined) this.graphics.resource_accounting?.destroyed(growth.nextAccounting);
+      bank.capacity = growth.previousCapacity;
+      bank.descriptor = growth.previousDescriptor;
+      bank.texture = growth.previousTexture;
+      bank.view = growth.previousView;
+      bank.accounting = growth.previousAccounting;
+      bank.freeLayers = [...growth.previousFreeLayers];
+      this.abortedBankGrowCount++;
+    }
+  }
+
+  private commitGrowths(growths: readonly BankGrowth[], gpuDone: Promise<void>): void {
+    for (const growth of growths) {
+      if (growth.previousTexture === null) continue;
+      const retire = (): void => {
+        growth.previousTexture!.destroy();
+        if (growth.previousAccounting !== null) this.graphics.resource_accounting?.destroyed(growth.previousAccounting);
+      };
+      void gpuDone.then(retire, retire);
+    }
+  }
+
+  private allocateInitialBase(bank: TextureBank): void {
+    bank.capacity = TEXTURE_RESIDENCY_BASE_CAPACITY;
+    bank.descriptor = bankDescriptor(bank.bankClass, bank.size, bank.physicalSize, bank.capacity);
+    bank.texture = this.graphics.device.createTexture(bank.descriptor);
+    bank.view = bank.texture.createView({ dimension: "2d-array" });
+    bank.accounting = this.graphics.resource_accounting?.created({
+      kind: "texture",
+      category: "resident",
+      owner: `TextureResidency/bank-${bank.size}`,
+      bytes: arrayBytes(bank.physicalSize, bank.capacity),
+      label: bank.descriptor.label
+    }) ?? null;
+    for (let layer = bank.capacity - 1; layer >= 1; layer--) bank.freeLayers.push(layer);
   }
 
   private retainMaterials(materials: readonly StandardShadeMaterial[]): MaterialRetainOperation[] {
@@ -368,10 +468,7 @@ export class TextureResidency {
     return result;
   }
 
-  private transition(
-    resident: ResidentMaterialTextures,
-    material: StandardShadeMaterial
-  ): TextureTransition {
+  private transition(resident: ResidentMaterialTextures, material: StandardShadeMaterial): TextureTransition {
     const desired = [...new Set(material.textures)];
     const previous = resident.textures;
     const previousSet = new Set(previous.map(({ source }) => source));
@@ -405,10 +502,11 @@ export class TextureResidency {
       } catch {
         return null;
       }
-      const highResolution = requiresHighBank(texture);
-      const layer = (highResolution ? this.freeHighLayers : this.freeBaseLayers).pop();
-      if (layer === undefined) throw new RangeError("TextureResidency layer overflow");
-      entry = { layer, highResolution, source: texture, refCount: 0, retireGeneration: 0 };
+      const bankClass = textureBankClass(texture);
+      const bank = this.banks[bankClass]!;
+      const layer = bank.freeLayers.pop();
+      if (layer === undefined) throw new RangeError(`TextureResidency ${bank.size}px bank layer overflow`);
+      entry = { layer, bankClass, source: texture, refCount: 0, retireGeneration: 0 };
       this.textures.set(texture, entry);
       created = true;
     }
@@ -424,7 +522,7 @@ export class TextureResidency {
     entry.retireGeneration = operation.previousRetireGeneration;
     if (!operation.created || entry.refCount !== 0) return;
     if (this.textures.get(entry.source) === entry) this.textures.delete(entry.source);
-    (entry.highResolution ? this.freeHighLayers : this.freeBaseLayers).push(entry.layer);
+    this.banks[entry.bankClass]!.freeLayers.push(entry.layer);
   }
 
   private releaseTextureRefs(textures: readonly ResidentTexture[], gpuDone: Promise<void>): void {
@@ -437,7 +535,7 @@ export class TextureResidency {
         if (this.destroyed || entry.refCount !== 0 || entry.retireGeneration !== generation) return;
         if (this.textures.get(entry.source) !== entry) return;
         this.textures.delete(entry.source);
-        (entry.highResolution ? this.freeHighLayers : this.freeBaseLayers).push(entry.layer);
+        this.banks[entry.bankClass]!.freeLayers.push(entry.layer);
       };
       void gpuDone.then(retire, retire);
     }
@@ -446,73 +544,17 @@ export class TextureResidency {
   private textureRefs(): ReadonlyMap<ShadeTexture, number> {
     const refs = new Map<ShadeTexture, number>();
     for (const entry of this.textures.values()) {
-      if (entry.refCount <= 0) continue;
-      refs.set(entry.source, entry.highResolution
-        ? (entry.layer | GPU_MATERIAL_VISIBILITY_HIGH_RESOLUTION_BIT) >>> 0
-        : entry.layer);
+      if (entry.refCount > 0) refs.set(entry.source, encodeGpuTextureRef(entry.bankClass, entry.layer));
     }
     return refs;
   }
 
-  private ensureHighBank(textures: ReadonlySet<ShadeTexture>): void {
-    const requiredSize = highBankSize(textures, this.highResolutionMaxSize);
-    if (this.highTexture !== null) {
-      if (requiredSize > this.highSize) {
-        throw new RangeError(
-          `TextureResidency bank is ${this.highSize}px but this transaction requires ${requiredSize}px`
-        );
-      }
-      return;
-    }
-    // Exact transaction sizing replaces the old unconditional 16 × 4096² owner.
-    const requiredCapacity = nextPowerOfTwo(textures.size + 1);
-    const limits = this.graphics.device.limits;
-    const budgetCapacity = Math.max(
-      1,
-      // Keep the physical texel budget tied to the engine-wide 4K reference;
-      // lowering the quality cap must not accidentally reduce array capacity
-      // and reject a valid transaction with many smaller layers.
-      Math.floor(16 * (TEXTURE_RESIDENCY_MAX_SIZE / requiredSize) ** 2)
-    );
-    const capacity = Math.min(budgetCapacity, Number(limits.maxTextureArrayLayers));
-    if (requiredSize > Number(limits.maxTextureDimension2D) || requiredCapacity > capacity) {
-      throw new RangeError(
-        `TextureResidency requires ${requiredSize}px × ${requiredCapacity} layers but ` +
-        `the device/budget permits ${capacity}`
-      );
-    }
-    this.highSize = requiredSize;
-    this.highCapacity = requiredCapacity;
-    this.highMipCount = Math.floor(Math.log2(requiredSize)) + 1;
-    this.highDescriptor = {
-      ...this.highDescriptor,
-      size: [requiredSize, requiredSize, requiredCapacity],
-      mipLevelCount: this.highMipCount
-    };
-    for (let layer = requiredCapacity - 1; layer >= 1; layer--) this.freeHighLayers.push(layer);
-    this.highTexture = this.graphics.device.createTexture(this.highDescriptor);
-    this.highAccountingHandle = this.graphics.resource_accounting?.created({
-      kind: "texture",
-      category: "resident",
-      owner: "TextureResidency/high-resolution-bank",
-      bytes: estimateTextureBytes({
-        format: "rgba8unorm",
-        width: requiredSize,
-        height: requiredSize,
-        depthOrArrayLayers: requiredCapacity,
-        mipLevelCount: this.highMipCount
-      }),
-      label: this.highDescriptor.label
-    });
-    this.highView = this.highTexture.createView({ dimension: "2d-array" });
-  }
-
   private encodeResizeCopy(command: ShadeGPUCommandContext, entry: ResidentTexture): void {
     const source = this.graphics.textures.obtain(entry.source);
-    const targetSize = entry.highResolution ? this.highSize : TEXTURE_RESIDENCY_BASE_SIZE;
-    const target = entry.highResolution ? this.requireHighTexture() : this.baseTexture;
+    const bank = this.banks[entry.bankClass]!;
+    const target = requireBankTexture(bank);
     const sourceMip = Math.max(0, Math.floor(Math.min(
-      Math.log2(source.width / targetSize), Math.log2(source.height / targetSize)
+      Math.log2(source.width / bank.physicalSize), Math.log2(source.height / bank.physicalSize)
     )));
     const sourceWidth = Math.max(1, source.width >> sourceMip);
     const sourceHeight = Math.max(1, source.height >> sourceMip);
@@ -523,7 +565,7 @@ export class TextureResidency {
       entries: [source.obtainView({ baseMipLevel: sourceMip, mipLevelCount: 1 }), { buffer: clipBuffer }]
     });
     const pass = command.beginRenderPass({
-      label: "TextureResidency/upload-layer",
+      label: `TextureResidency/upload-${bank.size}-layer`,
       colorAttachments: [{
         view: target.createView({
           dimension: "2d", baseMipLevel: 0, mipLevelCount: 1,
@@ -533,16 +575,20 @@ export class TextureResidency {
         storeOp: "store"
       }]
     });
-    pass.setViewport(0, 0, targetSize, targetSize, 0, 1);
+    pass.setViewport(0, 0, bank.physicalSize, bank.physicalSize, 0, 1);
     pass.setPipeline(this.resizePipeline ??= this.graphics.render_pipelines.obtain(RESIZE_COPY_PIPELINE));
     pass.setBindGroup(0, bindGroup);
     pass.draw(3);
     pass.end();
+    this.resizeDispatchCount++;
   }
 
-  private requireHighTexture(): GPUTexture {
-    if (this.highTexture === null) throw new Error("TextureResidency high bank was not preflighted");
-    return this.highTexture;
+  private allocatedBytes(): number {
+    return this.banks.reduce((sum, bank) => sum + arrayBytes(bank.physicalSize, bank.capacity), 0);
+  }
+
+  private logicalCapacity(): number {
+    return this.banks.reduce((sum, bank) => sum + Math.max(0, bank.maxCapacity - 1), 0);
   }
 }
 
@@ -584,36 +630,53 @@ const RESIZE_COPY_PIPELINE: CachedRenderPipelineDescriptor = {
   multisample: {}
 };
 
+function bankDescriptor(bankClass: number, logicalSize: number, physicalSize: number, capacity: number): GPUTextureDescriptor {
+  return {
+    label: `TextureResidency/bank-${bankClass}-${logicalSize}-physical-${physicalSize}`,
+    size: [physicalSize, physicalSize, capacity],
+    format: "rgba8unorm",
+    mipLevelCount: mipCount(physicalSize),
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT |
+      GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
+  };
+}
+
+function requireBankTexture(bank: TextureBank): GPUTexture {
+  if (bank.texture === null) throw new Error(`TextureResidency ${bank.size}px bank was not preflighted`);
+  return bank.texture;
+}
+
 function canStageTexture(texture: ShadeTexture): boolean {
   const image = texture.image;
   return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;
 }
 
-function requiresHighBank(texture: ShadeTexture): boolean {
+function textureBankClass(texture: ShadeTexture): number {
   const image = texture.image;
-  return image !== undefined && Math.max(image.width, image.height) > TEXTURE_RESIDENCY_BASE_SIZE;
-}
-
-function highBankSize(textures: ReadonlySet<ShadeTexture>, maxSize: number): number {
-  let required = TEXTURE_RESIDENCY_BASE_SIZE + 1;
-  for (const texture of textures) {
-    const image = texture.image;
-    if (image !== undefined) required = Math.max(required, image.width, image.height);
-  }
-    return Math.min(maxSize, nextPowerOfTwo(required));
+  if (image === undefined) return 0;
+  const required = Math.min(TEXTURE_RESIDENCY_MAX_SIZE, nextPowerOfTwo(Math.max(image.width, image.height)));
+  const bankClass = GPU_TEXTURE_BANK_SIZES.findIndex((size) => size >= required);
+  if (bankClass < 0) throw new RangeError(`Texture ${image.width}x${image.height} exceeds the texture residency policy`);
+  return bankClass;
 }
 
 function nextPowerOfTwo(value: number): number {
   return 2 ** Math.ceil(Math.log2(Math.max(1, value)));
 }
 
-function arrayBytes(size: number, capacity: number, mipCount: number): number {
-  let texels = 0;
-  for (let mip = 0; mip < mipCount; mip++) {
-    const extent = Math.max(1, size >> mip);
-    texels += extent * extent;
-  }
-  return texels * capacity * 4;
+function mipCount(size: number): number {
+  return Math.floor(Math.log2(size)) + 1;
+}
+
+function arrayBytes(size: number, capacity: number): number {
+  if (capacity === 0) return 0;
+  return estimateTextureBytes({
+    format: "rgba8unorm",
+    width: size,
+    height: size,
+    depthOrArrayLayers: capacity,
+    mipLevelCount: mipCount(size)
+  });
 }
 
 function countMaterials(materials: readonly StandardShadeMaterial[]): Map<StandardShadeMaterial, number> {

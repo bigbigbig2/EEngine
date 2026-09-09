@@ -1,4 +1,12 @@
-import type { FrameProfileSnapshot, PackedSceneSource } from "../../../OEngine/src/index.ts";
+import {
+  ShadeDataType,
+  ShadeImage,
+  ShadeTexture,
+  ShadeTransparencyMode,
+  INSTANCE_SOURCE_FLAGS,
+  type FrameProfileSnapshot,
+  type PackedSceneSource
+} from "../../../OEngine/src/index.ts";
 import {
   VALIDATION_FIXTURE_KEY,
   VALIDATION_PROTOCOL_SCHEMA_VERSION,
@@ -120,7 +128,10 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         }
       });
       completed = await runtime.waitForCounters(runtime.frame);
-      for (let attempt = 0; attempt < 5 && (completed.counters["shadow.packedCascadeDraws"] ?? 0) === 0; attempt++) {
+      for (let attempt = 0; attempt < 8 && (
+        (completed.counters["shadow.packedCascadeDraws"] ?? 0) === 0 ||
+        (completed.gpuCounters.values.shadowAlphaRasterWork ?? 0) === 0
+      ); attempt++) {
         completed = await runtime.waitForCounters(completed.frameIndex);
       }
     } else {
@@ -153,7 +164,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "shadow") {
       const packedCascadeDraws = completed.counters["shadow.packedCascadeDraws"] ?? 0;
       const atlasBytes = completed.counters["shadow.atlasBytes"] ?? 0;
+      const shadowAlphaRasterWork = counters.shadowAlphaRasterWork ?? 0;
       assertions.push(validationAssertion("packed-shadow-produced", packedCascadeDraws > 0 && atlasBytes > 0, "Packed CSM consumed the Packed material bindings and produced cascade work", { packedCascadeDraws, atlasBytes }, "> 0"));
+      assertions.push(validationAssertion("alpha-tested-shadow-produced", shadowAlphaRasterWork > 0, "Packed CSM sampled an alpha-tested material through the shared TextureRef ABI", shadowAlphaRasterWork, "> 0"));
       assertions.push(validationAssertion("shadow-queue-no-overflow", (counters.shadowQueueOverflowMask ?? 0) === 0, "Packed shadow work queues did not overflow", counters.shadowQueueOverflowMask, 0));
     }
     const ownerCreation = runtime.renderer?.gpuOwnerCreationEvidence();
@@ -207,7 +220,9 @@ async function createVisibilitySource(): Promise<PackedSceneSource> {
   const occluder = solidMaterial([0.14, 0.18, 0.24, 1], 0.85);
   const hidden = solidMaterial([0.95, 0.2, 0.18, 1], 0.5);
   const detail = solidMaterial([0.35, 0.9, 0.38, 1], 0.45);
-  return createPackedBoxScene([
+  detail.transparency_mode = ShadeTransparencyMode.AlphaTested;
+  detail.texture_albedo = createAlphaCheckerTexture();
+  const source = await createPackedBoxScene([
     { size: [2, 2, 2], position: [-4, 1, 0], materialIndex: 0, debugId: 1 },
     { size: [5, 5, 1], position: [0, 2.5, 0], materialIndex: 1, debugId: 2, segments: [4, 4, 2] },
     { size: [0.75, 0.75, 0.75], position: [0, 1, -20], materialIndex: 2, debugId: 3, segments: [8, 8, 8] },
@@ -215,6 +230,24 @@ async function createVisibilitySource(): Promise<PackedSceneSource> {
     { size: [3, 3, 3], position: [5, 1.5, -1], materialIndex: 3, debugId: 5, segments: [16, 16, 16] },
     { size: [1.5, 1.5, 1.5], position: [-7, 0.75, -3], materialIndex: 0, debugId: 6 }
   ], [visible, occluder, hidden, detail]);
+  source.flags?.fill(INSTANCE_SOURCE_FLAGS.CastsShadow | INSTANCE_SOURCE_FLAGS.ReceivesShadow);
+  return source;
+}
+
+function createAlphaCheckerTexture(): ShadeTexture {
+  const image = ShadeImage.fromArrayBuffer(
+    new Uint8Array([
+      255, 255, 255, 255, 255, 255, 255, 0,
+      255, 255, 255, 0, 255, 255, 255, 255
+    ]).buffer,
+    4,
+    ShadeDataType.Uint8,
+    2,
+    2
+  );
+  const texture = ShadeTexture.from(image);
+  texture.label = "validation-alpha-tested-shadow";
+  return texture;
 }
 
 function failedScenario(request: ValidationScenarioRequest, error: unknown, startedFrame = runtime.frame): ValidationScenarioResult {

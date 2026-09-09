@@ -5,6 +5,7 @@ import {
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_SECONDARY_RASTER_FLAGS } from "../gpu/GpuSecondaryRasterAbi.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 
@@ -49,8 +50,13 @@ struct ShadowVertexOutput {
 @group(0) @binding(6) var<storage, read> geometries: array<GpuGeometryRecord>;
 @group(0) @binding(7) var<storage, read> raster_work: SecondaryRasterQueue;
 @group(0) @binding(8) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
-@group(0) @binding(9) var alpha_atlas: texture_2d_array<f32>;
-@group(0) @binding(10) var high_resolution_alpha_atlas: texture_2d_array<f32>;
+@group(0) @binding(9) var oengine_texture_bank_0: texture_2d_array<f32>;
+@group(0) @binding(10) var oengine_texture_bank_1: texture_2d_array<f32>;
+@group(0) @binding(11) var oengine_texture_bank_2: texture_2d_array<f32>;
+@group(0) @binding(12) var oengine_texture_bank_3: texture_2d_array<f32>;
+@group(0) @binding(13) var oengine_texture_bank_4: texture_2d_array<f32>;
+
+${GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL}
 
 fn read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
   let word = (*words)[byte_offset >> 2u];
@@ -131,24 +137,18 @@ fn wrap_texel(value: i32, mode: u32, size: i32) -> i32 {
   return ((value % size) + size) % size;
 }
 fn alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
-  let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;
-  let layer = i32(texture_ref & OENGINE_MATERIAL_TEXTURE_LAYER_MASK);
-  let size = select(i32(textureDimensions(alpha_atlas).x),
-    i32(textureDimensions(high_resolution_alpha_atlas).x), high_resolution);
+  let bank = oengine_texture_ref_bank(texture_ref);
+  let layer = i32(oengine_texture_ref_layer(texture_ref));
+  let size = oengine_texture_bank_size(bank);
   let pixel = vec2i(
     wrap_texel(x, sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size),
     wrap_texel(y, (sampler_class >> OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS) &
       OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size)
   );
-  if high_resolution {
-    return textureLoad(high_resolution_alpha_atlas, pixel, layer, 0).a;
-  }
-  return textureLoad(alpha_atlas, pixel, layer, 0).a;
+  return oengine_texture_bank_alpha(bank, pixel, layer);
 }
 fn sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 {
-  let high_resolution = (texture_ref & OENGINE_MATERIAL_HIGH_RESOLUTION_BIT) != 0u;
-  let size = select(f32(textureDimensions(alpha_atlas).x),
-    f32(textureDimensions(high_resolution_alpha_atlas).x), high_resolution);
+  let size = f32(oengine_texture_bank_size(oengine_texture_ref_bank(texture_ref)));
   let position = uv * size - 0.5;
   let base = vec2i(floor(position));
   if (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) == 0u {
@@ -187,7 +187,7 @@ fn packed_csm_fragment(input: ShadowVertexOutput, @builtin(front_facing) front: 
     let uv_set = record.texture_uv_sets & 0xffu;
     let uv_bit = select(0u, 1u << uv_set, uv_set < 3u);
     if (record.flags & OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE) != 0u &&
-      record.texture_ref != OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE &&
+      oengine_texture_ref_valid(record.texture_ref) &&
       (input.uv_valid_mask & uv_bit) != 0u {
       alpha *= sample_alpha(record.texture_ref,
         transform_uv(record, select(select(input.uv0, input.uv1, uv_set == 1u), input.uv2, uv_set == 2u)),

@@ -49,7 +49,12 @@ const COMMON_GROUP: GPUBindGroupLayoutDescriptor = {
       sampler: { type: "filtering" as GPUSamplerBindingType }
     })),
     { binding: 16, visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "float", viewDimension: "2d-array" } }
+      texture: { sampleType: "float", viewDimension: "2d-array" } },
+    ...Array.from({ length: 3 }, (_, index) => ({
+      binding: index + 17,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
+    }))
   ]
 };
 
@@ -499,9 +504,9 @@ export class PackedTransparentOitPass {
         { buffer: job.assets.geometryRecords },
         { buffer: generated.rasterWork },
         { buffer: job.runtime.materialResources.materialRecords },
-        job.runtime.materialResources.textureArray,
+        job.runtime.materialResources.textureBanks[0],
         ...this.samplers,
-        job.runtime.materialResources.highResolutionTextureArray
+        ...job.runtime.materialResources.textureBanks.slice(1)
       ]
     });
   }

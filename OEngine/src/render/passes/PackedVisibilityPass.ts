@@ -108,7 +108,12 @@ const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
       binding: 10,
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
-    }
+    },
+    ...Array.from({ length: 3 }, (_, index) => ({
+      binding: index + 11,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "unfilterable-float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
+    }))
   ]
 };
 
@@ -560,8 +565,7 @@ export class PackedVisibilityPass {
         { buffer: job.assets.geometryRecords },
         { buffer: rasterWork },
         { buffer: job.runtime.materialResources.materialRecords },
-        job.runtime.materialResources.alphaAtlas,
-        job.runtime.materialResources.highResolutionAlphaAtlas
+        ...job.runtime.materialResources.textureBanks
       ]
     });
     const next = Object.freeze({ camera, opaqueGroup, maskGroup });

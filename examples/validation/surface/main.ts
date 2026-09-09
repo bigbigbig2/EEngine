@@ -7,6 +7,17 @@ import {
   type PackedSceneSource
 } from "../../../OEngine/src/index.ts";
 import {
+  GPU_TEXTURE_REF_ABI_VERSION,
+  GPU_TEXTURE_REF_BANK_MASK,
+  GPU_TEXTURE_REF_BANK_SHIFT,
+  GPU_TEXTURE_REF_LAYER_MASK,
+  GPU_TEXTURE_REF_VERSION_MASK,
+  GPU_TEXTURE_REF_VERSION_SHIFT,
+  GPU_TEXTURE_REF_WGSL,
+  decodeGpuTextureRef,
+  encodeGpuTextureRef
+} from "../../../OEngine/src/gpu/GpuTextureRefAbi.ts";
+import {
   VALIDATION_FIXTURE_KEY,
   VALIDATION_PROTOCOL_SCHEMA_VERSION,
   validationAssertion,
@@ -54,7 +65,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "transparent"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "transparent"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -66,7 +77,18 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "material-switch") {
+    if (request.scenarioId === "texture-ref-oracle") {
+      const oracle = await runTextureRefOracle();
+      Object.assign(evidence, oracle);
+      assertions.push(validationAssertion(
+        "texture-ref-cpu-wgsl-parity",
+        oracle.mismatchCount === 0,
+        "The real WebGPU decoder matches the CPU TextureRef ABI for valid and invalid values",
+        oracle,
+        "mismatchCount = 0"
+      ));
+      profile = await runtime.waitForCounters(startedFrame);
+    } else if (request.scenarioId === "material-switch") {
       const before = await runtime.waitForCounters(startedFrame);
       const renderer = runtime.renderer;
       const scene = runtime.scene;
@@ -145,6 +167,98 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     state.finish();
     showStatus();
     return failedScenario(request, error, startedFrame);
+  }
+}
+
+async function runTextureRefOracle(): Promise<Readonly<{ sampleCount: number; mismatchCount: number }>> {
+  const device = runtime.renderer?.device;
+  if (device === undefined) throw new Error("Surface runtime has no WebGPU device for the TextureRef oracle");
+  const refs = new Uint32Array([
+    ...Array.from({ length: 5 }, (_, bank) => encodeGpuTextureRef(bank, bank + 1)),
+    0xffffffff,
+    0x00000001,
+    0x1f000001,
+    0x10000000
+  ]);
+  const input = device.createBuffer({
+    label: "validation/TextureRef oracle input",
+    size: refs.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  });
+  const outputSize = refs.length * 16;
+  const output = device.createBuffer({
+    label: "validation/TextureRef oracle output",
+    size: outputSize,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+  });
+  const readback = device.createBuffer({
+    label: "validation/TextureRef oracle readback",
+    size: outputSize,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  try {
+    device.queue.writeBuffer(input, 0, refs);
+    const module = device.createShaderModule({
+      label: "validation/TextureRef CPU-WGSL oracle",
+      code: /* wgsl */ `
+${GPU_TEXTURE_REF_WGSL}
+@group(0) @binding(0) var<storage, read> refs: array<u32>;
+@group(0) @binding(1) var<storage, read_write> decoded: array<vec4u>;
+@compute @workgroup_size(32)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if id.x >= ${refs.length}u { return; }
+  let value = refs[id.x];
+  decoded[id.x] = vec4u(
+    oengine_texture_ref_version(value),
+    oengine_texture_ref_bank(value),
+    oengine_texture_ref_layer(value),
+    select(0u, 1u, oengine_texture_ref_valid(value))
+  );
+}`
+    });
+    const pipeline = await device.createComputePipelineAsync({
+      label: "validation/TextureRef oracle pipeline",
+      layout: "auto",
+      compute: { module, entryPoint: "main" }
+    });
+    const group = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: input } },
+        { binding: 1, resource: { buffer: output } }
+      ]
+    });
+    const encoder = device.createCommandEncoder({ label: "validation/TextureRef oracle" });
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, group);
+    pass.dispatchWorkgroups(1);
+    pass.end();
+    encoder.copyBufferToBuffer(output, 0, readback, 0, outputSize);
+    device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(GPUMapMode.READ);
+    const actual = new Uint32Array(readback.getMappedRange());
+    let mismatchCount = 0;
+    for (let index = 0; index < refs.length; index++) {
+      const value = refs[index]!;
+      const cpu = decodeGpuTextureRef(value);
+      const expected = [
+        (value & GPU_TEXTURE_REF_VERSION_MASK) >>> GPU_TEXTURE_REF_VERSION_SHIFT,
+        (value & GPU_TEXTURE_REF_BANK_MASK) >>> GPU_TEXTURE_REF_BANK_SHIFT,
+        value & GPU_TEXTURE_REF_LAYER_MASK,
+        cpu === null ? 0 : 1
+      ];
+      if (expected[0] !== actual[index * 4] || expected[1] !== actual[index * 4 + 1] ||
+        expected[2] !== actual[index * 4 + 2] || expected[3] !== actual[index * 4 + 3]) mismatchCount++;
+    }
+    if (GPU_TEXTURE_REF_ABI_VERSION !== 1) mismatchCount++;
+    readback.unmap();
+    return Object.freeze({ sampleCount: refs.length, mismatchCount });
+  } finally {
+    if (readback.mapState === "mapped") readback.unmap();
+    input.destroy();
+    output.destroy();
+    readback.destroy();
   }
 }
 

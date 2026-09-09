@@ -77,6 +77,11 @@ const INPUT_GROUP: GPUBindGroupLayoutDescriptor = {
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "float", viewDimension: "2d-array" }
     },
+    ...Array.from({ length: 3 }, (_, index) => ({
+      binding: index + 12,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
+    }))
   ]
 };
 
@@ -297,10 +302,10 @@ export class PackedMaterialResolvePass {
             resolveTextureView(resources.get(inputs.visibility.visibilityKey)),
             { buffer: requireBuffer(resources.get(inputs.view), "view") },
             { buffer: this.previousViewProjectionBuffer },
-            data.runtime.materialResources.textureArray,
+            data.runtime.materialResources.textureBanks[0],
             ...this.samplers,
             { buffer: data.runtime.materialResources.materialRecords },
-            data.runtime.materialResources.highResolutionTextureArray
+            ...data.runtime.materialResources.textureBanks.slice(1)
           ]
         });
         const lookupInputs: PackedMaterialLookupInputs = {

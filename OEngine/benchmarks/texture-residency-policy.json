@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "workload": {
+    "textureSizes": [
+      512,
+      512,
+      1024,
+      2048,
+      4096
+    ],
+    "permutationCount": 60,
+    "format": "rgba8unorm with full mip chain",
+    "reservedFallbackLayersPerBank": 1,
+    "residentBudgetBytes": 536870912
+  },
+  "candidates": [
+    {
+      "id": "bounded-size-class-banks",
+      "textureRefBits": "version[31:28], bankClass[27:24], layer[23:0]",
+      "bankCount": 5,
+      "sampledTextureBindings": 5,
+      "shaderBranch": "bounded bank-class switch",
+      "featureOff": "base bank only; high classes lazy",
+      "deviceLimits": "logical classes remain stable; physical resolution clamps to maxTextureDimension2D/quality cap and layer capacity clamps to maxTextureArrayLayers",
+      "finalAllocatedBytes": {
+        "min": 262842952,
+        "max": 262842952
+      },
+      "allocatedPeakBytes": {
+        "min": 262842952,
+        "max": 265639152
+      },
+      "residentLogicalBytes": {
+        "min": 120236708,
+        "max": 120236708
+      },
+      "fragmentationBytes": {
+        "min": 142606244,
+        "max": 142606244
+      },
+      "resizeDispatches": {
+        "min": 5,
+        "max": 5
+      },
+      "copyOperations": {
+        "min": 10,
+        "max": 10
+      },
+      "withinResidentBudgetForEveryPermutation": true
+    },
+    {
+      "id": "stable-ref-migrating-high-bank",
+      "textureRefBits": "version/high-bank flag plus stable layer",
+      "bankCount": 2,
+      "sampledTextureBindings": 2,
+      "shaderBranch": "base/high select",
+      "featureOff": "base bank only; high bank lazy",
+      "deviceLimits": "largest size and combined layer capacity must fit one array",
+      "finalAllocatedBytes": {
+        "min": 738197408,
+        "max": 738197408
+      },
+      "allocatedPeakBytes": {
+        "min": 760567024,
+        "max": 1096111344
+      },
+      "residentLogicalBytes": {
+        "min": 447392420,
+        "max": 447392420
+      },
+      "fragmentationBytes": {
+        "min": 290804988,
+        "max": 290804988
+      },
+      "resizeDispatches": {
+        "min": 5,
+        "max": 14
+      },
+      "copyOperations": {
+        "min": 0,
+        "max": 52
+      },
+      "withinResidentBudgetForEveryPermutation": false
+    }
+  ]
+}
