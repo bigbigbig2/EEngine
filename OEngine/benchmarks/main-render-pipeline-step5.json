@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted",
+  "decision": "extract-frame-context-and-main-render-pipeline",
+  "comparison": {
+    "baselineCommit": "1fedfdb0d6203c270a66f6df91d9a88b19a9a54b",
+    "baselineParent": "b1b1abcd193e95cb834443e54479aa19c162c93e",
+    "baselineNote": "Step 5 parent with the identical content-provenance harness fix applied",
+    "candidateCommit": "04b6cbd29f20b2104b98f66449e6db65b13b3431",
+    "implementationCommit": "ad852cbdbc572f268fe5051e1902a0a631831bbc",
+    "cleanCommits": true,
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "timestampQuery": true
+    },
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "workload": "comprehensive-full",
+    "camera": "overview",
+    "seed": 20260906,
+    "featureSet": [
+      "automatic-exposure", "bloom", "clustered-lighting", "cone-culling",
+      "gtao", "hardware-visibility", "hierarchy-sse-lod", "hzb-culling",
+      "ibl", "material-expand", "motion-blur", "packed-csm-shadow",
+      "packed-instances", "packed-mboit-transparency", "sharpening",
+      "single-material-resolve", "ssr", "temporal"
+    ],
+    "triangleSetupEnabled": false,
+    "inspectorVisible": false,
+    "independentRuns": 3,
+    "warmupFramesPerRun": 120,
+    "measuredFramesPerRun": 480,
+    "baselineRunGroupId": "22b95e78-5f0d-4115-abe4-bd0b00ac82ce",
+    "candidateRunGroupId": "9f3f836e-736d-4ef4-9ea1-5c767a297208"
+  },
+  "formalResults": {
+    "baseline": {
+      "cpuFrameMs": { "p50": 9.2, "p95": 11.768 },
+      "cpuGraphExecuteMs": { "p50": 7.633, "p95": 9.738 },
+      "cpuQueueSubmitMs": { "p50": 0, "p95": 0.1 },
+      "gpuFrameMs": { "p50": 1.491, "p95": 1.869 }
+    },
+    "candidate": {
+      "cpuFrameMs": { "p50": 9.167, "p95": 11.368 },
+      "cpuGraphExecuteMs": { "p50": 7.533, "p95": 9.302 },
+      "cpuQueueSubmitMs": { "p50": 0, "p95": 0.1 },
+      "gpuFrameMs": { "p50": 1.495, "p95": 1.803 }
+    },
+    "deltaPercent": {
+      "cpuFrameP50": -0.362,
+      "cpuFrameP95": -3.399,
+      "cpuGraphExecuteP50": -1.31,
+      "cpuGraphExecuteP95": -4.484,
+      "gpuFrameP50": 0.239,
+      "gpuFrameP95": -3.509
+    }
+  },
+  "gpuPhaseMs": {
+    "baseline": {
+      "hardwareRasterP50": 0.08,
+      "materialResolveP50": 0.656,
+      "lightingAndIblP50": 2.292,
+      "shadowP50": 0.276,
+      "temporalP50": 0.703,
+      "postP50": 0.613
+    },
+    "candidate": {
+      "hardwareRasterP50": 0.08,
+      "materialResolveP50": 0.657,
+      "lightingAndIblP50": 2.288,
+      "shadowP50": 0.277,
+      "temporalP50": 0.705,
+      "postP50": 0.615
+    }
+  },
+  "stableFrameTotals": {
+    "measuredFramesPerSide": 1440,
+    "baseline": {
+      "graphBuilds": 0,
+      "graphCompiles": 0,
+      "graphExecutes": 1440,
+      "graphCacheHits": 1440,
+      "mainSubmits": 1440,
+      "uploadBytes": 2672640,
+      "readbackBytes": 2954928,
+      "pipelineCreates": 0,
+      "bindGroupCreates": 0
+    },
+    "candidate": {
+      "graphBuilds": 0,
+      "graphCompiles": 0,
+      "graphExecutes": 1440,
+      "graphCacheHits": 1440,
+      "mainSubmits": 1440,
+      "uploadBytes": 2672640,
+      "readbackBytes": 2954928,
+      "pipelineCreates": 0,
+      "bindGroupCreates": 0
+    }
+  },
+  "graphParity": {
+    "equivalent": true,
+    "sha256": "92656958e5004dde166ee21a9c622140537ea0172702a93f3a501cddcb63c4ac",
+    "passCount": 43,
+    "executablePassCount": 43,
+    "culledPassCount": 0,
+    "resources": {
+      "imported": 26,
+      "transient": 45,
+      "transientTextures": 37,
+      "transientBuffers": 8,
+      "culledResources": 0,
+      "declaredDomains": { "internal-full": 1, "internal-half": 4, "unspecified": 66 }
+    }
+  },
+  "memory": {
+    "baseline": {
+      "allocatedBytes": 1457603839,
+      "residentLogicalBytes": 568698000,
+      "transientPoolBytes": 271748711,
+      "historyBytes": 45619208
+    },
+    "candidate": {
+      "allocatedBytes": 1457603839,
+      "residentLogicalBytes": 568698000,
+      "transientPoolBytes": 271748711,
+      "historyBytes": 45619208
+    }
+  },
+  "overflowMaximums": {
+    "clusterOverflowClusters": 0,
+    "queueOverflowMask": 0,
+    "shadowQueueOverflowMask": 0,
+    "transparentQueueOverflowMask": 0
+  },
+  "validationMatrix": {
+    "commit": "b42fcad927ce12cc711ac34931361b0010c306b3",
+    "status": "passed",
+    "smokeCadence": { "warmupFrames": 30, "measuredFrames": 60 },
+    "cases": [
+      "base", "full", "full-minus-shadow", "full-minus-gtao",
+      "full-minus-ssr", "full-minus-transparency", "full-minus-temporal",
+      "full-minus-bloom", "full-minus-exposure", "full-minus-motion-blur",
+      "full-minus-sharpen"
+    ],
+    "invalidStableFrames": 0,
+    "mainSubmitP50": 1,
+    "debugView": "visibility.debug passed with executable Render debug/material-id",
+    "capture": "smoke.basic passed with a non-empty linear HDR capture",
+    "resize": "lifecycle.resize passed",
+    "cameraCut": "visibility.camera-cut passed",
+    "abort": "FrameCoordinator abort contract passed in the unit suite"
+  },
+  "gates": {
+    "baseline": { "eligible": true, "provenanceErrors": [], "browserErrors": [], "evidenceErrors": [] },
+    "candidate": { "eligible": true, "provenanceErrors": [], "browserErrors": [], "evidenceErrors": [] }
+  },
+  "interpretation": {
+    "acceptedBecause": [
+      "the compiled graph recipe, executable order, resource counts and domains are byte-for-byte equivalent",
+      "all 2880 measured frames reused a compiled graph and performed exactly one graph execute and one main submit",
+      "stable frames created no pipeline or bind group and added no upload, readback or memory cost",
+      "CPU and GPU formal deltas show no significant regression for this ownership-only extraction",
+      "the full and every feature-off topology passed the persistent browser matrix with zero overflow"
+    ],
+    "limitations": [
+      "the comparison covers one NVIDIA Turing adapter; it is not a cross-vendor performance claim",
+      "Surface ABI and tile-backend gates remain insufficient-evidence and are not changed by Step 5"
+    ]
+  }
+}

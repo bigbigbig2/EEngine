@@ -12,6 +12,7 @@
 - `tools/benchmark-texture-residency-policies.mjs`：对相同 texture set 的所有唯一排列比较 Step 2 候选 bank policy。
 - `benchmarks/texture-residency-policy.json`：Step 2 方案选择的可复算内存、增长、copy/resize 与预算证据。
 - `benchmarks/texture-residency-step2.json`：Step1/Step2 clean commit 在同一 Rendering Lab 条件下的 CPU/GPU、submit、upload 与 memory A/B 摘要。
+- `benchmarks/main-render-pipeline-step5.json`：Step 5 前后 clean commit 的正式三次运行 A/B、graph parity、稳定帧与 feature topology 矩阵证据。
 - `examples/rendering-lab/`：唯一保留的真实浏览器 fixture。
 
 ## 采样合同
