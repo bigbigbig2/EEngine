@@ -7,17 +7,21 @@ const [
   { FrameProfiler },
   { FrameCoordinator },
   { ResourceAccounting },
+  { GPUSceneContext },
   { GpuPackedSceneRegistry },
   { TextureResidency },
   { StandardShadeMaterial },
+  { ShadeTransparencyMode },
   { ShadeTexture, ShadeImage }
 ] = await Promise.all([
   import("../.test-dist/debug/FrameProfiler.js"),
   import("../.test-dist/render/FrameCoordinator.js"),
   import("../.test-dist/debug/profiling/ResourceAccounting.js"),
+  import("../.test-dist/gpu/GPUSceneContext.js"),
   import("../.test-dist/gpu/GpuPackedSceneRegistry.js"),
   import("../.test-dist/gpu/TextureResidency.js"),
   import("../.test-dist/material/StandardShadeMaterial.js"),
+  import("../.test-dist/material/enums.js"),
   import("../.test-dist/texture/ShadeTexture.js")
 ]);
 
@@ -48,6 +52,24 @@ test("FrameCoordinator owns one close path for each render tick", () => {
   assert.equal(commands[1].closed, true);
 });
 
+test("GPU Scene defers its legacy material owner until a legacy consumer requests it", () => {
+  const legacyRegistry = { metadata_table: {} };
+  let requests = 0;
+  const sceneContext = Object.create(GPUSceneContext.prototype);
+  Object.defineProperty(sceneContext, "obtainSharedMaterials", {
+    value: () => {
+      requests++;
+      return legacyRegistry;
+    }
+  });
+
+  assert.equal(requests, 0);
+  assert.equal(sceneContext.materials, legacyRegistry);
+  assert.equal(requests, 1);
+  assert.equal(sceneContext.material_metadata, legacyRegistry.metadata_table);
+  assert.equal(requests, 2);
+});
+
 test("Packed registry publishes stage and release only when their command commits", async () => {
   const fixture = createPackedRegistryFixture();
   const command = new FakeCommand("packed-stage");
@@ -66,7 +88,7 @@ test("Packed registry publishes stage and release only when their command commit
   assert.equal(runtime?.handle, handle);
   assert.equal(fixture.registry.evidence().sceneCount, 1);
   assert.equal(fixture.registry.evidence().instanceCount, 1);
-  assert.equal(fixture.calls.legacyMaterialObtains, 1);
+  assert.equal(fixture.calls.legacyMaterialObtains, 0);
   assert.deepEqual(fixture.calls.stages, ["texture", "material", "instance"]);
 
   const stable = new FakeCommand("packed-stable-frame");
@@ -120,6 +142,46 @@ test("Packed registry abort leaves no published scene and release abort preserve
   fixture.registry.release(fixture.scene, retry);
   retry.finish();
   assert.equal(fixture.registry.runtime(fixture.scene), null);
+});
+
+test("Packed material patch commits classification and restores the queued patch on abort", () => {
+  const fixture = createPackedRegistryFixture();
+  const transparent = new StandardShadeMaterial();
+  transparent.name = "packed-transparent-material";
+  transparent.transparency_mode = ShadeTransparencyMode.Transparent;
+  fixture.manifest.source.materials.push(transparent);
+
+  const stage = new FakeCommand("packed-material-patch-stage");
+  fixture.registry.stage(
+    fixture.scene,
+    fixture.manifest,
+    fixture.assetHandles,
+    stage
+  );
+  stage.finish();
+  assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 0);
+
+  fixture.registry.queuePatch(fixture.scene, {
+    frameId: 11,
+    materials: {
+      indices: new Uint32Array([0]),
+      materialIndices: new Uint32Array([1])
+    }
+  });
+  const aborted = new FakeCommand("packed-material-patch-abort");
+  const abortedResult = fixture.registry.encodePendingPatch(fixture.scene, aborted);
+  assert.equal(abortedResult?.patchedMaterials, 1);
+  assert.deepEqual([...fixture.calls.patches[0].materials.materialHandles], [8]);
+  assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 1);
+  aborted.abort(new Error("injected material patch failure"));
+  assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 0);
+
+  const retry = new FakeCommand("packed-material-patch-retry");
+  const committedResult = fixture.registry.encodePendingPatch(fixture.scene, retry);
+  assert.equal(committedResult?.patchedMaterials, 1);
+  retry.finish();
+  assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 1);
+  assert.equal(fixture.calls.patches.length, 2);
 });
 
 test("Texture residency rolls back failed commands and reuses a released base layer", async () => {
@@ -241,7 +303,8 @@ function createPackedRegistryFixture() {
   const calls = {
     legacyMaterialObtains: 0,
     stages: [],
-    releases: []
+    releases: [],
+    patches: []
   };
   const dummyBuffer = {};
   const dummyView = {};
@@ -304,12 +367,12 @@ function createPackedRegistryFixture() {
       }
     },
     material_store: {
-      stage(_materials, _textureRefs, command) {
+      stage(materials, _textureRefs, command) {
         calls.stages.push("material");
         command.onAborted.addOne(() => calls.stages.push("material-abort"));
         return {
           bindings: { abiVersion: 1, materialCapacity: 4096, materialRecords: dummyBuffer },
-          materialSlots: [7]
+          materialSlots: materials.map((_material, index) => 7 + index)
         };
       },
       release(_materials, command) {
@@ -330,8 +393,12 @@ function createPackedRegistryFixture() {
         calls.releases.push("instance");
         command.onAborted.addOne(() => calls.releases.push("instance-release-abort"));
       },
-      patch() {
-        throw new Error("unexpected patch");
+      patch(_handle, batch) {
+        calls.patches.push(batch);
+        return {
+          patchedTransforms: batch.transforms?.indices.length ?? 0,
+          patchedMaterials: batch.materials?.indices.length ?? 0
+        };
       },
       bindings() {
         return {};

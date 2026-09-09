@@ -76,7 +76,7 @@ export class GPUSceneContext implements GPUSceneContextMembers {
 
   /** @evidence iL.#it: both owners are injected from GraphicsContext. */
   readonly geometries: MeshletGpuTable;
-  readonly materials: GPUMaterialRegistry;
+  private readonly obtainSharedMaterials: () => GPUMaterialRegistry;
   readonly volumetric_light_map: Brick4LightMap;
   readonly volumetrics: GPUVolumetrics;
   readonly lights: GPULightCollection;
@@ -110,7 +110,7 @@ export class GPUSceneContext implements GPUSceneContextMembers {
     graphics: GraphicsContext,
     scene: Scene,
     sharedGeometries: MeshletGpuTable,
-    sharedMaterials: GPUMaterialRegistry
+    obtainSharedMaterials: () => GPUMaterialRegistry
   ) {
     const device = graphics.device;
     if (device === null) {
@@ -122,7 +122,7 @@ export class GPUSceneContext implements GPUSceneContextMembers {
     this.scene = scene;
     this.meshlets = sharedGeometries;
     this.geometries = this.meshlets;
-    this.materials = sharedMaterials;
+    this.obtainSharedMaterials = obtainSharedMaterials;
     this.tlas = new TopLevelAccelerationStructure(device);
     this.scene_database = new SceneDatabase(graphics);
     this.lights = new GPULightCollection(graphics, scene.lights);
@@ -137,6 +137,11 @@ export class GPUSceneContext implements GPUSceneContextMembers {
       `GPUSceneContext[${this.id}]/Animation`,
       this,
     );
+  }
+
+  /** Keeps Packed-only scene setup from constructing the legacy material owner. */
+  get materials(): GPUMaterialRegistry {
+    return this.obtainSharedMaterials();
   }
 
   /**

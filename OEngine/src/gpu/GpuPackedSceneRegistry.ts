@@ -145,7 +145,6 @@ export class GpuPackedSceneRegistry {
       source.geometries,
       source.geometryIndices
     );
-    for (const material of source.materials) this.graphics.materials.obtain(material);
     const textureStage = this.graphics.texture_residency.stage(source.materials, command);
     const materialStage = this.graphics.material_store.stage(
       source.materials,

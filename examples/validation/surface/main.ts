@@ -2,6 +2,7 @@ import {
   ShadeImage,
   ShadeDataType,
   ShadeTexture,
+  ShadeTransparencyMode,
   type FrameProfileSnapshot,
   type PackedSceneSource
 } from "../../../OEngine/src/index.ts";
@@ -53,7 +54,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "transparent"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -97,6 +98,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const residentTextures = counted["packed.material.residentTextures"] ?? 0;
     const residentTextureBytes = counted["packed.material.residentTextureBytes"] ?? 0;
     const textureFallbacks = counted["packed.material.textureFallbacks"] ?? 0;
+    const ownerCreation = runtime.renderer?.gpuOwnerCreationEvidence();
     Object.assign(evidence, {
       activeMaterials,
       shadedPixels: gpu.shadedPixels ?? 0,
@@ -116,6 +118,11 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "texture-fallback") {
       assertions.push(validationAssertion("texture-fallback-recorded", textureFallbacks >= 1, "An unusable texture was recorded as an explicit material fallback", textureFallbacks, ">= 1"));
     }
+    if (request.scenarioId === "transparent") {
+      assertions.push(validationAssertion("transparent-work-produced", (gpu.transparentRasterWork ?? 0) > 0 && (gpu.transparentTriangles ?? 0) > 0, "Packed transparency produced bounded raster work and triangle work", { rasterWork: gpu.transparentRasterWork ?? 0, triangles: gpu.transparentTriangles ?? 0 }, "> 0"));
+      assertions.push(validationAssertion("transparent-queue-no-overflow", (gpu.transparentQueueOverflowMask ?? 0) === 0, "Packed transparency work did not overflow", gpu.transparentQueueOverflowMask, 0));
+    }
+    assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Surface and Transparency did not create the legacy material owner", ownerCreation?.legacy));
     const diagnostics = validationDiagnostics(runtime.renderer?.profiler.diagnostics);
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
 
@@ -157,12 +164,15 @@ async function createSurfaceSource(): Promise<PackedSceneSource> {
   textured.texture_albedo = createCheckerTexture();
   const fallback = solidMaterial([0.85, 0.2, 0.85, 1], 0.8, 0);
   fallback.texture_albedo = new ShadeTexture();
+  const transparent = solidMaterial([0.1, 0.7, 0.95, 0.5], 0.25, 0);
+  transparent.transparency_mode = ShadeTransparencyMode.Transparent;
   return createPackedBoxScene([
     { size: [2.4, 2.4, 2.4], position: [-4.5, 1.2, 0], materialIndex: 0, debugId: 1 },
     { size: [2.4, 2.4, 2.4], position: [-1.5, 1.2, 0], materialIndex: 1, debugId: 2 },
     { size: [2.4, 2.4, 2.4], position: [1.5, 1.2, 0], materialIndex: 2, debugId: 3 },
-    { size: [2.4, 2.4, 2.4], position: [4.5, 1.2, 0], materialIndex: 3, debugId: 4 }
-  ], [red, metal, textured, fallback]);
+    { size: [2.4, 2.4, 2.4], position: [4.5, 1.2, 0], materialIndex: 3, debugId: 4 },
+    { size: [1.8, 1.8, 1.8], position: [0, 1.2, 2.2], materialIndex: 4, debugId: 5 }
+  ], [red, metal, textured, fallback, transparent]);
 }
 
 function createCheckerTexture(): ShadeTexture {

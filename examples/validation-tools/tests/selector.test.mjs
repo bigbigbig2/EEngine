@@ -46,6 +46,8 @@ test("cross-cutting renderer changes stay within the lightweight registry set", 
   assert.deepEqual(selection.caseIds, [
     "smoke.basic",
     "lifecycle.init-destroy",
-    "visibility.basic"
+    "visibility.basic",
+    "visibility.shadow",
+    "surface.transparent"
   ]);
 });

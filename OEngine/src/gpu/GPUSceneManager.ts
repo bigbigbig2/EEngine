@@ -22,7 +22,7 @@ export class GPUSceneManager {
         graphics,
         scene,
         graphics.geometries,
-        graphics.materials,
+        () => graphics.materials,
       );
       this.scene_contexts.set(scene, ctx);
     }

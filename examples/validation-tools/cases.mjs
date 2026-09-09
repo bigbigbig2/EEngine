@@ -7,6 +7,7 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("lifecycle.recreate-renderer", "lifecycle", "recreate-renderer", ["lifecycle", "renderer", "graphics-context", "gpu-resource"]),
   defineCase("lifecycle.replace-scene", "lifecycle", "replace-scene", ["lifecycle", "renderer", "gpu-scene", "gpu-resource"], ["gpu-scene"]),
   defineCase("visibility.basic", "visibility", "basic", ["visibility", "gpu-driven", "hierarchy", "raster"], ["framegraph", "renderer", "graphics-context", "visibility"]),
+  defineCase("visibility.shadow", "visibility", "shadow", ["visibility", "gpu-driven", "shadow", "material"], ["renderer", "graphics-context", "visibility", "shadow", "material"]),
   defineCase("visibility.frustum", "visibility", "frustum", ["visibility", "gpu-driven", "frustum"]),
   defineCase("visibility.occlusion", "visibility", "occlusion", ["visibility", "gpu-driven", "hzb"], ["visibility", "hzb"]),
   defineCase("visibility.lod-near", "visibility", "lod-near", ["visibility", "gpu-driven", "hierarchy", "lod"]),
@@ -15,7 +16,8 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("surface.basic", "surface", "basic", ["surface", "material-resolve"], ["surface", "material"], "always"),
   defineCase("surface.textured", "surface", "textured", ["surface", "material", "texture-residency"], ["surface", "texture-residency"], "always"),
   defineCase("surface.material-switch", "surface", "material-switch", ["surface", "material", "gpu-scene"], ["material"]),
-  defineCase("surface.texture-fallback", "surface", "texture-fallback", ["surface", "material", "texture-residency"], ["texture-residency"])
+  defineCase("surface.texture-fallback", "surface", "texture-fallback", ["surface", "material", "texture-residency"], ["texture-residency"]),
+  defineCase("surface.transparent", "surface", "transparent", ["surface", "material", "transparency"], ["renderer", "graphics-context", "surface", "material", "transparency"])
 ]);
 
 const CASE_BY_ID = new Map(VALIDATION_CASES.map((entry) => [entry.id, entry]));

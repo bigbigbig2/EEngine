@@ -44,6 +44,7 @@ const runtime = new CanonicalPackedRuntime({
   canvas,
   camera: DEFAULT_POSE,
   source: createVisibilitySource,
+  shadows: true,
   onDeviceLost: (message) => {
     state.deviceLost({ name: "GPUDeviceLost", message });
     showStatus();
@@ -66,7 +67,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut"];
+  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "shadow"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -107,6 +108,21 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       evidence.historyInvalidationsAfter = invalidationsAfter;
       evidence.historyValid = completed.counters["hzb.historyValid"] ?? 0;
       assertions.push(validationAssertion("camera-cut-invalidates-hzb", invalidationsAfter > invalidationsBefore, "The explicit camera cut invalidated HZB history", { invalidationsBefore, invalidationsAfter }, "after > before"));
+    } else if (request.scenarioId === "shadow") {
+      const renderer = runtime.renderer;
+      const scene = runtime.scene;
+      if (renderer === null || scene === null) throw new Error("Visibility runtime is not initialized");
+      renderer.queuePackedScenePatch(scene, {
+        frameId: renderer.frame_count + 1,
+        materials: {
+          indices: new Uint32Array([0]),
+          materialIndices: new Uint32Array([3])
+        }
+      });
+      completed = await runtime.waitForCounters(runtime.frame);
+      for (let attempt = 0; attempt < 5 && (completed.counters["shadow.packedCascadeDraws"] ?? 0) === 0; attempt++) {
+        completed = await runtime.waitForCounters(completed.frameIndex);
+      }
     } else {
       runtime.setCamera(DEFAULT_POSE);
       if (request.scenarioId === "occlusion") await runtime.waitForFrames(8);
@@ -134,6 +150,15 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "occlusion") {
       assertions.push(validationAssertion("hzb-rejection-observed", (counters.rejectedHzb ?? 0) > 0, "The object behind the occluder was rejected by HZB", counters.rejectedHzb, "> 0"));
     }
+    if (request.scenarioId === "shadow") {
+      const packedCascadeDraws = completed.counters["shadow.packedCascadeDraws"] ?? 0;
+      const atlasBytes = completed.counters["shadow.atlasBytes"] ?? 0;
+      assertions.push(validationAssertion("packed-shadow-produced", packedCascadeDraws > 0 && atlasBytes > 0, "Packed CSM consumed the Packed material bindings and produced cascade work", { packedCascadeDraws, atlasBytes }, "> 0"));
+      assertions.push(validationAssertion("shadow-queue-no-overflow", (counters.shadowQueueOverflowMask ?? 0) === 0, "Packed shadow work queues did not overflow", counters.shadowQueueOverflowMask, 0));
+    }
+    const ownerCreation = runtime.renderer?.gpuOwnerCreationEvidence();
+    evidence.ownerCreation = ownerCreation;
+    assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Visibility and Shadow did not create the legacy material owner", ownerCreation?.legacy));
     const diagnostics = validationDiagnostics(runtime.renderer?.profiler.diagnostics);
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
 
