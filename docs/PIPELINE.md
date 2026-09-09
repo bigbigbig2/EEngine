@@ -18,6 +18,8 @@ scene-update
 
 `scene-update` 开始前先解析场景 owner：共享 `GPUSceneEnvironmentContext` 对两种输入都存在，geometry source 则是 `packed` 或 `legacy` 的判别联合，不能同时发布。Packed 分支由 `GpuPackedSceneRegistry.encodePendingPatch()` 消费显式 transform/material patch，并跳过 `GPUSceneManager.obtain()` 与 legacy `GPUSceneContext.encodeFrame()`；普通 Scene 分支以自己的 SceneChangeSet revision 更新 legacy geometry runtime。`GPUViewContext` 只绑定共享环境和 camera/view/HZB，因此 Packed 视图不会间接取得 legacy geometry、material 或 skinning owner。
 
+`shadow-update` 由 Scene-scoped `ShadowFeature` 单入口编码。该 Feature 同时拥有 atlas、directional cascade fit/texel snapping、camera/content revision cache、Packed hierarchy work generation、Packed/legacy raster adapter 和 GPU-completion retire；两种 adapter 发布同一 `ShadowVisibilityFrame`、atlas、counter 与设置合同。Renderer 只传入 frame/camera/settings 和互斥 geometry source。关闭阴影时 `ShadowFeatureManager` 不创建 owner；已有 owner 在当前提交完成后销毁，Lighting 收到 cascade count 为零的产品。
+
 ## GPU Work Contract
 
 `GpuWorkGenerationAbi.ts` 定义当前工作队列 ABI。每个新增 GPU 队列必须同时定义元素 schema/stride、header、capacity、overflow、producer、consumer、indirect 参数和统计 counter。`attempted` 反映真实申请，`written` 只能反映安全写入；overflow 不得通过截断伪装成功。
@@ -63,10 +65,10 @@ FrameGraph 声明读写依赖、资源域和 enabled 条件，编译后裁剪无
 
 ## Feature-off
 
-Feature 关闭时不得构造对应 GPU owner、Pass、attachment、history、readback、counter copy 或额外 submit。延迟创建 owner 必须有明确 destroy/retire 路径。
+Feature 关闭时不得构造对应 GPU owner、Pass、attachment、history、readback、counter copy 或额外 submit。延迟创建 owner 必须有明确 destroy/retire 路径。Shadow 关闭态的机器门禁额外检查 atlas/work owner、Shadow GPU/CPU phase、I/O label 和 counter 均缺席或为零，同时保持一个 main submit。
 
 ## 尚未统一的路径
 
 普通 Scene 的 legacy geometry runtime、Material Expand、独立 Velocity 和 legacy OIT 仍与 Packed 路径并存；它们是迁移债务。该 runtime 只能由互斥 frame geometry binding 的 legacy 分支取得，新功能只能接入统一产品合同，不得再扩张旧路径。
 
-Packed material、scene owner、shadow/light 边界、MainRenderPipeline 和普通 Scene 的迁移顺序由 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 固定。
+Packed material、scene owner、MainRenderPipeline 和普通 Scene 的迁移顺序由 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 固定；shadow/light 边界已完成其中 Step 4。

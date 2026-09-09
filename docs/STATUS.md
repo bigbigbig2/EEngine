@@ -21,7 +21,7 @@
 - GPU 资产/场景：`GpuAssetStore`、`GpuScene`、`GpuPackedSceneRegistry`。
 - 工作/可见性：`GpuWorkGenerationAbi`、`GpuVisibilityKeyAbi`、Packed visibility owners。
 - Surface：`GpuSurfaceAbi`、`SurfaceFeature`、MaterialClassDepth probe/pass 和 Material Resolve。
-- 效果：Lighting Feature，AO/Reflection/GI Service，Transparency/Temporal/Post Feature。
+- 效果：Lighting Feature，Render-owned Shadow Feature，AO/Reflection/GI Service，Transparency/Temporal/Post Feature。
 - 证据：`FrameProfiler`、GPU counters、resource accounting、shader source audit 和 Rendering Lab diagnostics。
 
 ## 开放 Gate 与风险
@@ -36,10 +36,9 @@
 ### Legacy 与生命周期
 
 - `Renderer.ts` 仍是大型 composition root。
-- Shadow orchestration 及其具体 Pass 依赖仍位于 `src/gpu`，尚未完成 ADR-0006 Step 4 的 Render 层归属迁移。
 - 普通 Scene 仍有 Material Expand、独立 Velocity 和 legacy OIT 最终 consumer。
 - Packed 与普通 Scene 的 Surface metadata、velocity、transparency 生命周期尚未完全统一。
-- device loss、resize、feature toggle、camera cut 和提交失败后的 history/resource invalidation 仍需浏览器证据。
+- Shadow 的 device loss、resize、scene replace、feature toggle 与 camera cut 已有浏览器证据；其他 Feature 和提交失败后的 history/resource invalidation 仍需继续补齐。
 
 ### 性能、内存与来源
 
@@ -58,6 +57,8 @@ Step 2 已完成。Texture Residency 采用五个有界 size-class bank（256/51
 
 Step 3 已完成。`GPUSceneEnvironmentContext` 独立拥有 light、environment、light-probe 与 volumetric 数据；`GPUSceneContext` 缩为普通 Scene 的 legacy geometry runtime。Renderer 在 legacy obtain 前查询 Packed registry，`GPUViewContext` 只依赖共享环境与 camera/view/HZB，frame binding 只发布 Packed 或 legacy 一种 geometry source。Packed stable frame、显式 transform/material patch、replace、release/re-register、Lifecycle、Visibility/HZB/LOD/camera-cut 与普通 Scene 回归均有真实浏览器证据；Packed owner evidence 中 legacy geometry table、SceneDatabase、skinning、MeshletDrawList 和 legacy scene upload 均为零，并保持一个 main submit。
 
-1. 执行 Step 4：将 Shadow atlas、work generation、raster 与 light orchestration 移回 Render Feature/Service，消除 `src/gpu` 对具体 Pass、ViewContext 和 CameraState 的反向依赖。
+Step 4 已完成。Scene-scoped `ShadowFeature` 是 atlas、cascade selection、camera/content cache、Packed hierarchy work、Packed/legacy raster adapter 和 GPU-completion retire 的唯一 owner；`GPULightCollection` 只发布稳定 light/environment 数据，`src/gpu` 对具体 render Pass、`GPUViewContext` 和 `GPUCameraState` 的生产依赖为零。Packed/legacy fixture 共用 `ShadowVisibilityFrame`，cascade split/layout 数值一致；alpha-tested caster、overflow counter、cache hit/miss、resize、camera cut、replace、toggle 和 device-loss recreate 均纳入真实 Chrome 门禁。Rendering Lab 的 `comprehensive-full` 动态 workload 对照记录一个 main submit、Shadow GPU/CPU phase 与 atlas memory，关闭态无 Shadow owner、atlas、work set、GPU/CPU phase、I/O label 或非零 Shadow counter。该结果是开发 smoke evidence，不是发布级性能基线。
+
+1. 执行 Step 5：提取 `FrameContext` 与唯一 `MainRenderPipeline` recipe owner，使 Renderer 缩为设备/画布与顶层组合 shell。
 2. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
 3. 保持 Tile backend 为 evidence-only，并为 shader audit 中的 unknown 项确认 authored owner 或可追溯生成源。

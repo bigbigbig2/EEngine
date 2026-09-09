@@ -26,7 +26,8 @@ import {
 import { FixtureState } from "../shared/fixture-state.ts";
 import {
   legacySceneUploadLabels,
-  packedFrameHasNoLegacyGeometryOwners
+  packedFrameHasNoLegacyGeometryOwners,
+  shadowFeatureIsCold
 } from "../shared/packed-owner-evidence.ts";
 import {
   hasGpuFailure,
@@ -210,6 +211,7 @@ async function runScenario(
         validationAssertion("linear-hdr-non-empty", luminanceMaximum > 0.001, "The rendered HDR sample contains visible output", luminanceMaximum, "> 0.001"),
         validationAssertion("legacy-material-owner-absent", !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed-only rendering did not create legacy material metadata, textures, pipelines, uniforms or bind groups", ownerCreation.legacy),
         validationAssertion("legacy-geometry-owner-absent", packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed-only rendering created only the shared scene environment and no legacy geometry, SceneDatabase, skinning, or MeshletDrawList owner", ownerCreation.scene),
+        validationAssertion("shadow-feature-cold", shadowFeatureIsCold(ownerCreation), "Shadows-off created no atlas, raster Pass, shadow view, or Packed shadow work owner", ownerCreation.shadow),
         validationAssertion("legacy-scene-upload-absent", forbiddenLegacyUploads.length === 0 && (stableProfile.counters["runtime.scenePrepareCount"] ?? 0) === 0, "A stable Packed frame encoded no legacy scene update or upload", { forbiddenLegacyUploads, scenePrepareCount: stableProfile.counters["runtime.scenePrepareCount"] ?? 0 }, { forbiddenLegacyUploads: [], scenePrepareCount: 0 })
       );
     }

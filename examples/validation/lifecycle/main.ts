@@ -1,4 +1,8 @@
-import type { FrameProfileSnapshot, PackedSceneSource } from "../../../OEngine/src/index.ts";
+import {
+  INSTANCE_SOURCE_FLAGS,
+  type FrameProfileSnapshot,
+  type PackedSceneSource
+} from "../../../OEngine/src/index.ts";
 import {
   VALIDATION_FIXTURE_KEY,
   VALIDATION_PROTOCOL_SCHEMA_VERSION,
@@ -45,6 +49,7 @@ function createRuntime(): CanonicalPackedRuntime {
     canvas,
     camera: { position: [7, 5.5, 8], target: [0, 0.5, 0] },
     source: createLifecycleSource,
+    shadows: true,
     onDeviceLost: (message) => {
       state.deviceLost({ name: "GPUDeviceLost", message });
       showStatus();
@@ -53,7 +58,7 @@ function createRuntime(): CanonicalPackedRuntime {
 }
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  if (!["init-destroy", "resize", "recreate-renderer", "replace-scene", "release-reregister"].includes(request.scenarioId)) {
+  if (!["init-destroy", "resize", "recreate-renderer", "device-loss-recreate", "replace-scene", "release-reregister"].includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown lifecycle scenario '${request.scenarioId}'`));
   }
   const startedFrame = runtime.frame;
@@ -68,13 +73,18 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const assertions: ValidationAssertion[] = [];
 
     if (request.scenarioId === "resize") {
+      const cascadeRevisionBefore = runtime.renderer?.gpuOwnerCreationEvidence().shadow.directionalCameraRevision ?? 0;
       runtime.resize(640, 360);
       profile = await runtime.waitForCounters(startedFrame);
+      const cascadeRevisionAfter = runtime.renderer?.gpuOwnerCreationEvidence().shadow.directionalCameraRevision ?? 0;
       evidence.width = canvas.width;
       evidence.height = canvas.height;
       evidence.aspect = runtime.renderer?.aspect_ratio ?? 0;
+      evidence.cascadeRevisionBefore = cascadeRevisionBefore;
+      evidence.cascadeRevisionAfter = cascadeRevisionAfter;
       assertions.push(validationAssertion("resize-dimensions", canvas.width === 640 && canvas.height === 360, "Renderer applied the requested canvas size", [canvas.width, canvas.height], [640, 360]));
       assertions.push(validationAssertion("resize-aspect", Math.abs((runtime.renderer?.aspect_ratio ?? 0) - 640 / 360) < 0.001, "Camera/render aspect follows the resized surface", runtime.renderer?.aspect_ratio, 640 / 360));
+      assertions.push(validationAssertion("same-aspect-resize-preserves-shadow-fit", cascadeRevisionAfter === cascadeRevisionBefore, "A same-aspect resize preserved the valid directional cascade fit while render targets resized", { cascadeRevisionBefore, cascadeRevisionAfter }, "after = before"));
     } else if (request.scenarioId === "replace-scene") {
       const oldScene = runtime.scene;
       await runtime.replaceScene(await createReplacementSource());
@@ -90,6 +100,16 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       evidence.sceneIdentityPreserved = runtime.scene === scene;
       assertions.push(validationAssertion("scene-reregistered", runtime.scene === scene, "The same Application Scene was released and registered again"));
       assertions.push(validationAssertion("reregistered-scene-visible", (profile.gpuCounters.values.shadedPixels ?? 0) > 0, "The re-registered Packed scene rendered visible pixels", profile.gpuCounters.values.shadedPixels, "> 0"));
+    } else if (request.scenarioId === "device-loss-recreate") {
+      const oldRenderer = runtime.renderer;
+      const lost = await runtime.recreateAfterDeviceLoss();
+      evidence.deviceLostReason = lost.reason;
+      evidence.rendererRecreated = runtime.renderer !== oldRenderer;
+      evidence.activeInstanceCount = runtime.renderer?.gpuSceneEvidence().activeInstanceCount ?? 0;
+      evidenceStartedFrame = 0;
+      profile = await runtime.waitForCounters(evidenceStartedFrame);
+      assertions.push(validationAssertion("device-loss-observed", lost.reason === "destroyed", "The old WebGPU device reported the intentional loss", lost.reason, "destroyed"));
+      assertions.push(validationAssertion("device-root-owners-recreated", runtime.renderer !== oldRenderer && evidence.activeInstanceCount === 2, "Renderer recreated Packed Scene, Shadow Feature and device-root resources after loss", { rendererRecreated: runtime.renderer !== oldRenderer, activeInstanceCount: evidence.activeInstanceCount }));
     } else if (request.scenarioId === "recreate-renderer") {
       const oldRenderer = runtime.renderer;
       await runtime.recreate();
@@ -114,6 +134,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     ownerCreation ??= runtime.renderer?.gpuOwnerCreationEvidence() ?? null;
     evidence.ownerCreation = ownerCreation;
     assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== null && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed lifecycle transitions retained only one shared environment and no legacy geometry runtime", ownerCreation?.scene));
+    assertions.push(validationAssertion("shadow-feature-owned-by-render", ownerCreation !== null && ownerCreation.shadow.featureCount === 1 && ownerCreation.shadow.atlasCount === 1 && ownerCreation.shadow.packedRasterPassCount === 1 && ownerCreation.shadow.legacyRasterPassCount === 0 && ownerCreation.shadow.packedWorkSetCount > 0 && ownerCreation.shadow.packedWorkBytes > 0, "Lifecycle transitions retained exactly one Render-owned Packed Shadow Feature", ownerCreation?.shadow));
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
     assertions.push(validationAssertion("frame-evidence-produced", profile !== null && profile.frameIndex > evidenceStartedFrame, "Scenario produced fresh frame evidence", profile?.frameIndex, `> ${evidenceStartedFrame}`));
     if (profile !== null) {
@@ -156,10 +177,12 @@ async function dispose(): Promise<void> {
 }
 
 async function createLifecycleSource(): Promise<PackedSceneSource> {
-  return createPackedBoxScene([
+  const source = await createPackedBoxScene([
     { size: [2, 2, 2], position: [0, 1, 0], materialIndex: 0, debugId: 1 },
     { size: [12, 0.1, 12], position: [0, -0.05, 0], materialIndex: 1, debugId: 2 }
   ], [solidMaterial([0.18, 0.55, 0.95, 1], 0.35), solidMaterial([0.2, 0.22, 0.26, 1], 0.9)]);
+  source.flags?.fill(INSTANCE_SOURCE_FLAGS.CastsShadow | INSTANCE_SOURCE_FLAGS.ReceivesShadow);
+  return source;
 }
 
 async function createReplacementSource(): Promise<PackedSceneSource> {

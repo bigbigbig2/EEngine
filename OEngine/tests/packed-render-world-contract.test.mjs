@@ -11,6 +11,11 @@ const [
   { GpuPackedSceneRegistry },
   { TextureResidency },
   {
+    createWorkQueueReservationState,
+    reserveWorkQueueGroupReference,
+    GPU_WORK_QUEUE_INVALID_OFFSET
+  },
+  {
     decodeGpuTextureRef,
     encodeGpuTextureRef,
     GPU_TEXTURE_REF_INVALID,
@@ -26,6 +31,7 @@ const [
   import("../.test-dist/gpu/GPUSceneContext.js"),
   import("../.test-dist/gpu/GpuPackedSceneRegistry.js"),
   import("../.test-dist/gpu/TextureResidency.js"),
+  import("../.test-dist/gpu/GpuWorkGenerationAbi.js"),
   import("../.test-dist/gpu/GpuTextureRefAbi.js"),
   import("../.test-dist/material/StandardShadeMaterial.js"),
   import("../.test-dist/material/enums.js"),
@@ -35,6 +41,10 @@ const [
 const { resolveFrameSceneOwners } = await import(
   "../.test-dist/render/pipeline/SceneFrameBindings.js"
 );
+const {
+  computePracticalCascadeSplits,
+  snapShadowBoundsToTexelGrid
+} = await import("../.test-dist/render/features/ShadowFeature.js");
 
 test("FrameCoordinator owns one close path for each render tick", () => {
   const commands = [];
@@ -132,6 +142,53 @@ test("Legacy frame publishes exactly one legacy geometry source", () => {
   assert.equal(owners.environment, environment);
   assert.deepEqual(owners.geometry, { kind: "legacy", context: legacy });
   assert.equal(legacyObtains, 1);
+});
+
+test("Directional shadow practical splits are monotonic and close the far cascade", () => {
+  const splits = computePracticalCascadeSplits(0.1, 250, 3, 0.55);
+  assert.equal(splits.length, 3);
+  assert.ok(splits[0] > 0 && splits[0] < splits[1]);
+  assert.ok(splits[1] < splits[2]);
+  assert.equal(splits[2], 1);
+  assert.throws(
+    () => computePracticalCascadeSplits(0, 250, 3, 0.5),
+    /0 < near < far/
+  );
+});
+
+test("Directional shadow bounds snap their center to the atlas texel grid", () => {
+  const bounds = {
+    x0: -5.37,
+    x1: 4.63,
+    y0: -3.21,
+    y1: 6.79,
+    get width() { return this.x1 - this.x0; },
+    get height() { return this.y1 - this.y0; }
+  };
+  snapShadowBoundsToTexelGrid(bounds, 100, 80);
+  const texelX = bounds.width / 100;
+  const texelY = bounds.height / 80;
+  const centerX = 0.5 * (bounds.x0 + bounds.x1);
+  const centerY = 0.5 * (bounds.y0 + bounds.y1);
+  assert.ok(Math.abs(centerX / texelX - Math.round(centerX / texelX)) < 1e-5);
+  assert.ok(Math.abs(centerY / texelY - Math.round(centerY / texelY)) < 1e-5);
+});
+
+test("Shadow work queue overflow is fail-visible and never partially publishes a group", () => {
+  const state = createWorkQueueReservationState(4);
+  assert.equal(reserveWorkQueueGroupReference(state, 3), 0);
+  assert.equal(reserveWorkQueueGroupReference(state, 2), GPU_WORK_QUEUE_INVALID_OFFSET);
+  assert.deepEqual(state, {
+    capacity: 4,
+    written: 3,
+    attempted: 5,
+    peak: 3,
+    overflow: 1,
+    fallback: 1
+  });
+  assert.equal(reserveWorkQueueGroupReference(state, 1), 3);
+  assert.equal(state.written, 4);
+  assert.equal(state.attempted, 6);
 });
 
 test("Packed registry publishes stage and release only when their command commits", async () => {

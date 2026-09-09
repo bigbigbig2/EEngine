@@ -1,47 +1,54 @@
-/**
- * ShadowContext：负责 GPU 资源、数据上传或 GPU 驱动渲染基础设施。
- */
-
-
-import { AABB2 } from "../core/math/AABB2.js";
-import { Vec3 } from "../core/math/Vec3.js";
-import { Quat } from "../core/math/Quat.js";
-import { mat4FromTRS, mat4Invert } from "../core/math/Mat4.js";
-import type { Camera } from "../camera/Camera.js";
-import { OrthographicCamera } from "../camera/OrthographicCamera.js";
-import { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
-import type { DirectionalLight } from "../light/DirectionalLight.js";
-import type { Light } from "../light/Light.js";
-import type { PointLight } from "../light/PointLight.js";
-import type { SpotLight } from "../light/SpotLight.js";
-import type { SceneLights } from "../scene/Scene.js";
+/** Render-owned shadow atlas, selection, cache, work generation and raster. */
+import { AABB2 } from "../../core/math/AABB2.js";
+import { Vec3 } from "../../core/math/Vec3.js";
+import { Quat } from "../../core/math/Quat.js";
+import { mat4FromTRS, mat4Invert } from "../../core/math/Mat4.js";
+import type { Camera } from "../../camera/Camera.js";
+import { OrthographicCamera } from "../../camera/OrthographicCamera.js";
+import { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
+import type { DirectionalLight } from "../../light/DirectionalLight.js";
+import type { Light } from "../../light/Light.js";
+import type { PointLight } from "../../light/PointLight.js";
+import type { SpotLight } from "../../light/SpotLight.js";
 import {
   SceneAABB,
   aabbSetFromTransformedPositions
-} from "../scene/Scene.js";
-import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
-import { ShadowRasterPass } from "../render/passes/ShadowRasterPass.js";
-import { PackedCsmShadowPass } from "../render/passes/PackedCsmShadowPass.js";
-import { GPUCameraState } from "../render/GPUCameraState.js";
-import { GPUViewContext } from "../render/ViewContext.js";
-import type { GraphicsContext } from "./GraphicsContext.js";
-import type { GPUSceneContext } from "./GPUSceneContext.js";
-import type { PackedSceneRuntime } from "./GpuPackedSceneRegistry.js";
-import type { GpuAssetBindings } from "./GpuAssetStore.js";
-import type { GpuSceneBindings } from "./GpuScene.js";
-import type { MeshletDrawList } from "./MeshletDrawList.js";
-import type { GPUDatabase, GPUTypedTable } from "./GPUDatabase.js";
-import { GPUTextureContext } from "./GPUTextureContext.js";
+} from "../../scene/Scene.js";
+import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import type { ResourceId } from "../../framegraph/ResourceHandle.js";
+import { ShadowRasterPass } from "../passes/ShadowRasterPass.js";
+import { PackedCsmShadowPass } from "../passes/PackedCsmShadowPass.js";
+import { GPUCameraState } from "../GPUCameraState.js";
+import { GPUViewContext } from "../ViewContext.js";
+import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import type { GPUSceneContext } from "../../gpu/GPUSceneContext.js";
+import type { PackedSceneRuntime } from "../../gpu/GpuPackedSceneRegistry.js";
+import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
+import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
+import type { MeshletDrawList } from "../../gpu/MeshletDrawList.js";
+import type { GPUDatabase, GPUTypedTable } from "../../gpu/GPUDatabase.js";
+import type { GPULightCollection } from "../../gpu/LightDatabase.js";
+import { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
 import {
   createNativeTexture,
   createNativeTextureView
-} from "./GPUTextureDescriptors.js";
+} from "../../gpu/GPUTextureDescriptors.js";
 import {
   ShadowAtlasAllocator,
   ShadowAtlasResolutionController,
   type AdaptiveShadowMap
-} from "./ShadowAtlas.js";
-import { SHADOW_CASCADE_COUNT } from "./ShadowContract.js";
+} from "../../gpu/ShadowAtlas.js";
+import {
+  SHADOW_CASCADE_COUNT,
+  SHADOW_DEPTH_BIAS,
+  SHADOW_NORMAL_OFFSET_SCALE,
+  SHADOW_PCF_TAP_COUNT,
+  SHADOW_DEPTH_SLOPE_SCALE
+} from "../../gpu/ShadowContract.js";
+import {
+  shadowVisibilityFrame,
+  type ShadowVisibilityFrame
+} from "../pipeline/FrameProducts.js";
 
 export const SHADOW_ATLAS_MAX_SIZE = 4096;
 export const DIRECTIONAL_SHADOW_INITIAL_SIZES = [1740, 1440] as const;
@@ -67,6 +74,34 @@ export type ShadowGeometrySource =
       readonly context: GPUSceneContext;
       readonly drawList: MeshletDrawList;
     }>;
+
+export interface ShadowFeatureSettings {
+  readonly cascadeLambda: number;
+  readonly maximumDistance: number;
+  readonly texelGuardBand: number;
+}
+
+export interface ShadowFeatureFrameInput {
+  readonly camera: Camera;
+  readonly frameIndex: number;
+  readonly resolution: ArrayLike<number>;
+  readonly contentRevision: number;
+  readonly settings: ShadowFeatureSettings;
+  readonly geometry: ShadowGeometrySource;
+}
+
+export interface ShadowFeatureEvidence {
+  readonly atlasAllocatedBytes: number;
+  readonly mapCount: number;
+  readonly packedRasterPassCreated: boolean;
+  readonly legacyRasterPassCreated: boolean;
+  readonly packedWorkSetCount: number;
+  readonly packedWorkBytes: number;
+  readonly shadowViewOwnerCount: number;
+  readonly directionalCameraRevision: number;
+  readonly directionalCascadeSplits: readonly number[];
+  readonly directionalCascadeLayouts: readonly (readonly [number, number, number, number])[];
+}
 
 export abstract class ShadowMapBase<TLight extends Light = Light> implements AdaptiveShadowMap {
   id = 0;
@@ -111,8 +146,8 @@ export class DirectionalShadowMap extends ShadowMapBase<DirectionalLight> {
 
   /**
    * Recompute the cascade cameras only when inputs affecting their projection
-   * changed. Shadow rasterization still runs every frame; this cache only
-   * removes the CPU-side frustum slicing/matrix work on stable camera frames.
+   * changed. Raster reuse is decided separately from the camera and scene
+   * content revisions, so a fully stable frame skips both setup and raster.
    */
   updateIfChanged(
     camera: Camera,
@@ -321,14 +356,13 @@ export class SpotShadowMap extends ShadowMapBase<SpotLight> {
   }
 }
 
-export class ShadowContext {
+export class ShadowFeature {
   directional_cascade_lambda = 0.5;
   directional_maximum_distance = Number.POSITIVE_INFINITY;
   directional_texel_guard_band = 2.5;
   readonly atlas: ShadowAtlasAllocator;
   readonly maps: ShadowMapBase[] = [];
   readonly resolution_controller: ShadowAtlasResolutionController;
-  enabled = false;
   lastHzbBuildCount = 0;
   lastHzbComputePassCount = 0;
   lastHzbDispatchCount = 0;
@@ -337,6 +371,7 @@ export class ShadowContext {
   lastDirectionalCameraCacheHits = 0;
   lastDirectionalRasterDraws = 0;
   lastDirectionalRasterSkips = 0;
+  private directionalCameraRevision = 0;
   private shadowContentRevision = 0;
 
   private debugRenderCount = 0;
@@ -350,11 +385,12 @@ export class ShadowContext {
   private packedRasterPass: PackedCsmShadowPass | null = null;
   private readonly graphics: GraphicsContext;
   private readonly device: GPUDevice;
+  private active = true;
 
-  constructor(graphics: GraphicsContext, private readonly source: SceneLights) {
+  constructor(graphics: GraphicsContext, private readonly lights: GPULightCollection) {
     const device = graphics.device;
     if (device === null) {
-      throw new Error("ShadowContext: GraphicsContext has no device");
+      throw new Error("ShadowFeature: GraphicsContext has no device");
     }
     this.graphics = graphics;
     this.device = device;
@@ -384,37 +420,6 @@ export class ShadowContext {
     return this.packedRasterPass?.lastAtlasPixelsUpdated ?? 0;
   }
 
-  setEnabled(enabled: boolean, command: ShadeGPUCommandContext): void {
-    if (this.enabled === enabled) return;
-    this.enabled = enabled;
-    if (enabled) return;
-    const texture = this._texture;
-    const raster = this.rasterPass;
-    const packed = this.packedRasterPass;
-    const viewOwners: Array<GPUViewContext | GPUCameraState> = [];
-    for (const map of this.maps) {
-      for (const view of map.views) {
-        if (view.gpu_context !== undefined) viewOwners.push(view.gpu_context);
-        if (view.packed_camera_state !== undefined) viewOwners.push(view.packed_camera_state);
-        view.gpu_context = undefined;
-        view.packed_camera_state = undefined;
-      }
-    }
-    this._texture = null;
-    this.rasterPass = null;
-    this.packedRasterPass = null;
-    if (texture !== null || raster !== null || packed !== null || viewOwners.length > 0) {
-      command.destroyAfterGpuDone({
-        destroy: () => {
-          packed?.destroy();
-          raster?.destroy();
-          texture?.destroy();
-          for (const owner of viewOwners) owner.destroy();
-        }
-      });
-    }
-  }
-
   get debug_render_count(): number {
     return this.debugRenderCount;
   }
@@ -427,19 +432,103 @@ export class ShadowContext {
     return this.resolution_controller.drop_size_scale;
   }
 
+  /** Single orchestration entry: light IDs, cascades, work generation and raster. */
+  encode(
+    command: ShadeGPUCommandContext,
+    input: ShadowFeatureFrameInput
+  ): number {
+    if (!this.active) throw new Error("ShadowFeature cannot encode after retirement");
+    this.directional_cascade_lambda = input.settings.cascadeLambda;
+    this.directional_maximum_distance = input.settings.maximumDistance;
+    this.directional_texel_guard_band = input.settings.texelGuardBand;
+    if (this.process_lights()) {
+      this.lights.source.needsUpdate = true;
+      this.lights.update(command, true);
+    }
+    this.select_for_draw(
+      input.camera,
+      input.frameIndex,
+      input.resolution,
+      input.contentRevision
+    );
+    return this.draw(command, this.lights.database, input.geometry);
+  }
+
+  frame(atlas: ResourceId): ShadowVisibilityFrame {
+    return shadowVisibilityFrame({
+      atlas,
+      contactVisibility: null,
+      cascadeCount: SHADOW_CASCADE_COUNT,
+      pcfTapCount: SHADOW_PCF_TAP_COUNT,
+      normalOffsetScale: SHADOW_NORMAL_OFFSET_SCALE,
+      depthBias: SHADOW_DEPTH_BIAS,
+      slopeScale: SHADOW_DEPTH_SLOPE_SCALE,
+      atlasWidth: this.atlas_width,
+      atlasHeight: this.atlas_height
+    });
+  }
+
+  evidence(): ShadowFeatureEvidence {
+    let shadowViewOwnerCount = 0;
+    for (const map of this.maps) {
+      for (const view of map.views) {
+        if (view.gpu_context !== undefined) shadowViewOwnerCount++;
+        if (view.packed_camera_state !== undefined) shadowViewOwnerCount++;
+      }
+    }
+    const directional = this.maps.find(
+      (map): map is DirectionalShadowMap =>
+        (map.light as DirectionalLight).isDirectionalLight === true
+    );
+    return Object.freeze({
+      atlasAllocatedBytes: this.atlas_allocated_bytes,
+      mapCount: this.maps.length,
+      packedRasterPassCreated: this.packedRasterPass !== null,
+      legacyRasterPassCreated: this.rasterPass !== null,
+      packedWorkSetCount: this.packedRasterPass?.preparedWorkSetCount ?? 0,
+      packedWorkBytes: this.packedRasterPass?.preparedWorkBytes ?? 0,
+      shadowViewOwnerCount,
+      directionalCameraRevision: this.directionalCameraRevision,
+      directionalCascadeSplits: Object.freeze(
+        directional === undefined ? [] : Array.from(directional.splits)
+      ),
+      directionalCascadeLayouts: Object.freeze(
+        directional === undefined
+          ? []
+          : directional.layout.map((layout) => Object.freeze([
+              layout.x0,
+              layout.y0,
+              layout.width,
+              layout.height
+            ] as const))
+      )
+    });
+  }
+
+  /** Makes light records non-shadowing before this owner retires. */
+  deactivate(): boolean {
+    if (!this.active) return false;
+    this.active = false;
+    let changed = false;
+    for (const map of this.maps) {
+      if (map.light._gpu_shadowmap_id === -1) continue;
+      map.light._gpu_shadowmap_id = -1;
+      changed = true;
+    }
+    if (changed) this.lights.source.needsUpdate = true;
+    return changed;
+  }
+
+  cancelDeactivate(): void {
+    this.active = true;
+  }
+
   get_map(light: Light): ShadowMapBase | undefined {
     return this.maps.find((map) => map.light === light);
   }
 
-  process_lights(): boolean {
-    if (!this.enabled) {
-      const changed = this.maps.length > 0;
-      for (let index = this.maps.length - 1; index >= 0; index--) this.removeMap(this.maps[index]!);
-      this.maps.length = 0;
-      return changed;
-    }
-
-    const lights = this.source.elements;
+  private process_lights(): boolean {
+    const lights = this.lights.source.elements;
     let changed = false;
     const active = new Set(lights);
     for (let index = this.maps.length - 1; index >= 0; index--) {
@@ -479,7 +568,7 @@ export class ShadowContext {
     return changed;
   }
 
-  select_for_draw(
+  private select_for_draw(
     camera: Camera,
     frameIndex: number,
     resolution: ArrayLike<number>,
@@ -510,7 +599,10 @@ export class ShadowContext {
           this.directional_maximum_distance,
           this.directional_texel_guard_band
         );
-        if (updated) this.lastDirectionalCameraUpdates++;
+        if (updated) {
+          this.lastDirectionalCameraUpdates++;
+          this.directionalCameraRevision++;
+        }
         else this.lastDirectionalCameraCacheHits++;
         map.should_draw = updated || map.is_invalid || map.last_raster_revision !== contentRevision;
         if (!map.should_draw) this.lastDirectionalRasterSkips++;
@@ -530,7 +622,7 @@ export class ShadowContext {
     this.deferredBudget = deferred ? Math.max(0, budget - selectedViews) : 0;
   }
 
-  draw(
+  private draw(
     command: ShadeGPUCommandContext,
     database: GPUDatabase,
     geometry: ShadowGeometrySource
@@ -689,7 +781,7 @@ export class ShadowContext {
     const layout = map.layout[0]!;
     const faceResolution = Math.ceil(layout.width);
     const cubeTexture = createNativeTexture(command.device, {
-      label: "ShadowContext/#zi/3x2-point-depth",
+      label: "ShadowFeature/#zi/3x2-point-depth",
       size: [3 * faceResolution, 2 * faceResolution, 1],
       dimension: "2d",
       format: "depth32float",
@@ -899,7 +991,6 @@ export class ShadowContext {
   }
 
   private ensureTexture(): GPUTextureContext {
-    if (!this.enabled) throw new Error("Shadow atlas requested while shadows are disabled");
     if (this._texture !== null) return this._texture;
     const size = Math.min(this.device.limits.maxTextureDimension2D, SHADOW_ATLAS_MAX_SIZE);
     this._texture = new GPUTextureContext(this.device, {
@@ -911,7 +1002,7 @@ export class ShadowContext {
     }, {
       accounting: this.graphics.resource_accounting,
       category: "atlas",
-      owner: "ShadowService"
+      owner: "ShadowFeature"
     });
     return this._texture;
   }
@@ -925,6 +1016,25 @@ export class ShadowContext {
     this.packedRasterPass ??= new PackedCsmShadowPass(this.graphics);
     return this.packedRasterPass;
   }
+}
+
+/** Feature-off product: no Shadow owner exists and consumers see zero cascades. */
+export function createDisabledShadowVisibilityFrame(
+  atlas: ResourceId,
+  width: number,
+  height: number
+): ShadowVisibilityFrame {
+  return shadowVisibilityFrame({
+    atlas,
+    contactVisibility: null,
+    cascadeCount: 0,
+    pcfTapCount: SHADOW_PCF_TAP_COUNT,
+    normalOffsetScale: SHADOW_NORMAL_OFFSET_SCALE,
+    depthBias: SHADOW_DEPTH_BIAS,
+    slopeScale: SHADOW_DEPTH_SLOPE_SCALE,
+    atlasWidth: width,
+    atlasHeight: height
+  });
 }
 
 /** Practical split (uniform/log blend) used by three.js CSM and PSSM references. */

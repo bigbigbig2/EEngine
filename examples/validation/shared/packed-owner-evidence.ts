@@ -19,3 +19,17 @@ export function legacySceneUploadLabels(
     /GPUSceneContext|SceneDatabase|MeshletDrawList|skinning/i.test(label)
   );
 }
+
+export function shadowFeatureIsCold(
+  evidence: RendererGpuOwnerCreationEvidence
+): boolean {
+  return evidence.shadow.featureCount === 0 &&
+    evidence.shadow.atlasCount === 0 &&
+    evidence.shadow.atlasAllocatedBytes === 0 &&
+    evidence.shadow.packedRasterPassCount === 0 &&
+    evidence.shadow.legacyRasterPassCount === 0 &&
+    evidence.shadow.packedWorkSetCount === 0 &&
+    evidence.shadow.packedWorkBytes === 0 &&
+    evidence.shadow.shadowViewOwnerCount === 0 &&
+    evidence.shadow.directionalCameraRevision === 0;
+}

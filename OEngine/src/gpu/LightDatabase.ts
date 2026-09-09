@@ -34,7 +34,6 @@ import {
 } from "./GPUTextureUpload.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
-import { ShadowService } from "./ShadowService.js";
 import {
   assertDirectionalLightCapacity,
   MAX_DIRECTIONAL_LIGHTS
@@ -657,8 +656,6 @@ export function packSpotLightRecord(light: SpotLight): SpotLightRecord {
 export class GPULightCollection {
   readonly source: SceneLights;
   readonly database: GPUDatabase;
-  /** P4 统一阴影服务；内部 ShadowContext 资源 owner 对外隐藏。 */
-  readonly shadow_service: ShadowService;
 
   private readonly device: GPUDevice;
   private readonly graphics: GraphicsContext;
@@ -683,7 +680,6 @@ export class GPULightCollection {
       device,
       definition: LIGHT_DATABASE_DEFINITION
     });
-    this.shadow_service = new ShadowService(graphics, source);
     this.environmentTexture = new GPUTextureContext(device, {
       label: "FX-03 specular environment",
       size: [1, 1, 1],
@@ -759,10 +755,8 @@ export class GPULightCollection {
     sceneChanged = false
   ): boolean {
     const environmentChanged = this.updateEnvironment(command);
-    const shadowsChanged = this.shadow_service.process_lights();
-    if (shadowsChanged) this.source.needsUpdate = true;
     if (!sceneChanged && this.lastSourceVersion === this.source.version) {
-      return environmentChanged || shadowsChanged;
+      return environmentChanged;
     }
     this.build(command);
     return true;
@@ -866,7 +860,6 @@ export class GPULightCollection {
   }
 
   destroy(): void {
-    this.shadow_service.destroy();
     this.database.destroy();
     this.environmentTexture.destroy();
     this.diffuseIrradianceTexture.destroy();

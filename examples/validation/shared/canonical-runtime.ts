@@ -143,6 +143,27 @@ export class CanonicalPackedRuntime {
     await this.initialize();
   }
 
+  /** Rebuilds every device-root owner after an intentional WebGPU device loss. */
+  async recreateAfterDeviceLoss(): Promise<GPUDeviceLostInfo> {
+    if (this.renderer === null) throw new Error("Canonical runtime is not initialized");
+    this.stop();
+    const previous = this.renderer;
+    // Let the validation profiler finish maps from the last submitted frame.
+    // The loss below is intentional; aborting those maps would turn the
+    // expected lifecycle transition into unrelated console/readback failures.
+    await settleRendererForValidationDestroy(previous);
+    const lost = previous.device.lost;
+    previous.device.destroy();
+    const info = await lost;
+    previous.destroy();
+    this.options.canvas.getContext("webgpu")?.unconfigure();
+    this.renderer = null;
+    this.scene = null;
+    this.camera = null;
+    await this.initialize();
+    return info;
+  }
+
   async destroy(): Promise<void> {
     this.stop();
     const renderer = this.renderer;

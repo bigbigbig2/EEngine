@@ -155,6 +155,22 @@ export class PackedCsmShadowPass {
     });
   }
 
+  get preparedWorkSetCount(): number {
+    let count = 0;
+    for (const entries of this.prepared.values()) count += entries.size;
+    return count;
+  }
+
+  get preparedWorkBytes(): number {
+    let bytes = 0;
+    for (const entries of this.prepared.values()) {
+      for (const entry of entries.values()) {
+        bytes += this.generator.evidence(entry.prepared).transientBytes;
+      }
+    }
+    return bytes;
+  }
+
   beginFrame(): void {
     this.lastCascadeDraws = 0;
     this.lastAtlasPixelsUpdated = 0;

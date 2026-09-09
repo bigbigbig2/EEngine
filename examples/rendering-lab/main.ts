@@ -624,6 +624,7 @@ async function runRenderingLabBenchmark(
         graph: activeRenderer.mainFrameGraphEvidence(),
         memory: activeRenderer.memoryEvidence(),
         resourceAccounting: activeRenderer.graphics.profilingResourceSnapshot(),
+        ownerCreation: activeRenderer.gpuOwnerCreationEvidence(),
         migration: activeRenderer.visibilitySurfaceMigrationEvidence(),
         ...(surfaceAbiRunsOverride === undefined ? {} : { surfaceAbiRuns: surfaceAbiRunsOverride }),
         ...(tileBackendRunsOverride === undefined ? {} : { tileBackendRuns: tileBackendRunsOverride }),

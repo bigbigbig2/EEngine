@@ -36,6 +36,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 帧资源 | `src/framegraph/FrameGraph.ts` | 资源、依赖、pruning 和执行 |
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/shadow/main-view 顺序 |
 | 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | Surface、lighting、AO、reflection、temporal 合同 |
+| 阴影功能 | `src/render/features/ShadowFeature.ts`、`ShadowFeatureManager.ts` | Scene-scoped atlas、cascade/cache、Packed/legacy caster adapter、work generation、raster 与 retire |
 | 功能组合 | `src/render/features/*.ts` | Feature/Service 生命周期与 feature-off |
 | 实时证据 UI | `src/addons/inspector` | 有界历史、view-model、实时面板 |
 | 总装 | `src/render/Renderer.ts` | 单帧 composition 和提交 |
@@ -54,7 +55,7 @@ Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证�
 
 Renderer 在取得场景环境后、创建 geometry owner 前先查询 Packed registry。帧绑定只发布一种互斥 geometry source：Packed runtime，或普通 Scene 的 legacy `GPUSceneContext`。Packed 帧只执行共享 light/environment 同步和 `GpuPackedSceneRegistry` 的显式 patch，不创建或更新 legacy SceneDatabase、geometry table、skinning 或 MeshletDrawList；`GPUViewContext` 只依赖 camera/view/HZB 与共享场景环境。
 
-Packed 路径已经输出 `VisibilityKey`、统一 Surface 和 velocity。普通 Scene 仍保留 legacy Material Expand、独立 Velocity 和旧 OIT consumer；Renderer 仍存在显式 Packed/legacy geometry 选路。AO、SSR 与 GI 已由 Service 组合，但 Shadow orchestration 仍位于 `src/gpu`，其归属迁移属于 ADR-0006 Step 4。
+Packed 路径已经输出 `VisibilityKey`、统一 Surface 和 velocity。普通 Scene 仍保留 legacy Material Expand、独立 Velocity 和旧 OIT consumer；Renderer 仍存在显式 Packed/legacy geometry 选路。AO、SSR 与 GI 已由 Service 组合；Shadow atlas、cascade/cache、work generation、raster 和 retire 已归 `src/render/features/ShadowFeature.ts` 单一所有。`GPULightCollection` 只拥有稳定 light database 与 environment 纹理，不再 import 或构造 Render Pass、`GPUViewContext` 或 `GPUCameraState`。
 
 ## 目标差距
 

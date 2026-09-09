@@ -52,6 +52,11 @@ import {
 } from "./MaterialClassDepthProbe.js";
 import { PackedSurfaceCounterPass } from "./passes/PackedSurfaceCounterPass.js";
 import { LightingFeature } from "./features/LightingFeature.js";
+import {
+  createDisabledShadowVisibilityFrame,
+  type ShadowFeature
+} from "./features/ShadowFeature.js";
+import { ShadowFeatureManager } from "./features/ShadowFeatureManager.js";
 import type { LightClusterOutputs } from "./passes/LightClusterPass.js";
 import { TransparencyFeature } from "./features/TransparencyFeature.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
@@ -70,13 +75,6 @@ import {
 } from "./passes/NeuralSuperSamplingPass.js";
 import { resolveFrameJitter } from "./TemporalJitterController.js";
 import { GPUTextureContext } from "../gpu/GPUTextureContext.js";
-import {
-  SHADOW_CASCADE_COUNT,
-  SHADOW_DEPTH_BIAS,
-  SHADOW_DEPTH_SLOPE_SCALE,
-  SHADOW_NORMAL_OFFSET_SCALE,
-  SHADOW_PCF_TAP_COUNT
-} from "../gpu/ShadowContract.js";
 import { createNativeTextureView } from "../gpu/GPUTextureDescriptors.js";
 import type { FrameGraphContext } from "../framegraph/FrameGraph.js";
 import { FrameProfiler } from "../debug/FrameProfiler.js";
@@ -144,7 +142,6 @@ import {
   type RenderSettingsValues
 } from "./pipeline/RenderSettings.js";
 import {
-  shadowVisibilityFrame,
   surfaceFrameWithVelocity,
   type VisibilityFrame
 } from "./pipeline/FrameProducts.js";
@@ -354,6 +351,19 @@ export interface RendererGpuOwnerCreationEvidence extends GraphicsOwnerCreationE
     readonly legacySkinningContextCount: number;
     readonly legacyMeshletDrawListCreated: boolean;
   }>;
+  readonly shadow: Readonly<{
+    readonly featureCount: number;
+    readonly atlasCount: number;
+    readonly atlasAllocatedBytes: number;
+    readonly packedRasterPassCount: number;
+    readonly legacyRasterPassCount: number;
+    readonly packedWorkSetCount: number;
+    readonly packedWorkBytes: number;
+    readonly shadowViewOwnerCount: number;
+    readonly directionalCameraRevision: number;
+    readonly directionalCascadeSplits: readonly number[];
+    readonly directionalCascadeLayouts: readonly (readonly [number, number, number, number])[];
+  }>;
 }
 
 type PendingLinearHdrCapture = LinearHdrCaptureRegion & {
@@ -380,6 +390,7 @@ type MainFrameGraphBindings = {
   readonly view: ReturnType<ViewManager["obtain"]>;
   readonly environment: GPUSceneEnvironmentContext;
   readonly geometry: MainFrameGeometrySource;
+  readonly shadow: ShadowFeature | null;
   readonly viewHzb: HierarchicalZBuffer;
   readonly colorView: GPUTextureView;
   readonly renderTargets: ReturnType<RenderTargets["asImportBundle"]>;
@@ -447,6 +458,7 @@ export class Renderer {
   private _lastMainGraphEvidence: MainFrameGraphRuntimeEvidence | null = null;
   private _scenes!: GPUSceneManager;
   private _environments!: GPUSceneEnvironmentManager;
+  private _shadowFeatures!: ShadowFeatureManager;
   private _cameraStates!: GPUCameraStateManager;
   private _meshletDrawList: MeshletDrawList | null = null;
   private _views!: ViewManager;
@@ -701,14 +713,12 @@ export class Renderer {
       if (runtime !== null && this._visibilityFeature) {
         this._visibilityFeature.release(runtime, command);
         this._transparencyFeature?.releasePacked(runtime, command);
-        this._environments.get(scene)?.lights.shadow_service.releasePackedScene(
-          runtime,
-          command
-        );
+        this._shadowFeatures.releasePackedScene(scene, runtime, command);
       }
       handles = this._graphics.packed_scenes.release(scene, command);
       this._graphics.assets.releaseMany(handles, command);
       this._views.releaseScene(scene, command);
+      this._shadowFeatures.release(scene, command);
       this._environments.release(scene, command);
       command.finish();
       await command.submitted;
@@ -929,6 +939,7 @@ export class Renderer {
     const graphics = this._graphics.ownerCreationEvidence();
     const environment = this._environments.evidence();
     const legacy = this._scenes.evidence();
+    const shadow = this._shadowFeatures.evidence();
     return Object.freeze({
       ...graphics,
       scene: Object.freeze({
@@ -938,7 +949,8 @@ export class Renderer {
         legacySceneDatabaseCount: legacy.sceneDatabaseCount,
         legacySkinningContextCount: legacy.skinningContextCount,
         legacyMeshletDrawListCreated: this._meshletDrawList !== null
-      })
+      }),
+      shadow
     });
   }
 
@@ -1149,6 +1161,7 @@ export class Renderer {
     this._frameCoordinator = new FrameCoordinator(this._graphics);
     await this._graphics.initialize();
     this._environments = new GPUSceneEnvironmentManager(this._graphics);
+    this._shadowFeatures = new ShadowFeatureManager(this._graphics);
     this._scenes = new GPUSceneManager(this._graphics, this._environments);
     this._cameraStates = new GPUCameraStateManager(device);
     this._views = new ViewManager(
@@ -1207,6 +1220,7 @@ export class Renderer {
     this._nss = null;
     this._views?.destroy();
     this._scenes?.destroy();
+    this._shadowFeatures?.destroy();
     this._environments?.destroy();
     this._probeRenderers.clear();
     this._mainGraphCache.destroy();
@@ -1370,12 +1384,17 @@ export class Renderer {
     const gpuPacked = geometryOwner.kind === "packed"
       ? geometryOwner.runtime
       : null;
+    const shadowFeature = this._shadowFeatures.reconcile(
+      scene,
+      environment,
+      featureTopology.shadows,
+      cmd
+    );
     const view = this.views.obtain(viewKey, environment, cmd);
     const framePlan = createRendererFramePlan(this._frame_count, {
       lpv: this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV,
       shadows: featureTopology.shadows
     });
-    environment.lights.shadow_service.setEnabled(featureTopology.shadows, cmd);
     view.setJitter(this._lastFrameContract.jitter[0], this._lastFrameContract.jitter[1]);
     view.setViewportSize(this._lastFrameContract.internalWidth, this._lastFrameContract.internalHeight);
     view.setUpscaleRatio(
@@ -1427,7 +1446,7 @@ export class Renderer {
       if (featureTopology.shadows) {
         framePlan.execute("shadow-update", () => {
           this._profiler.measure("shadow-update", () => {
-            const shadows = environment.lights.shadow_service;
+            const shadows = requireShadowFeature(shadowFeature);
             if (sampleGpuCounters && gpuPacked !== null) {
               this._profiler.registerGpuCounterFields([
                 "shadowCascade0RasterWork",
@@ -1438,22 +1457,25 @@ export class Renderer {
                 "shadowQueueOverflowMask"
               ]);
             }
-            shadows.directional_cascade_lambda = this._renderSettings.values.shadows.cascadeLambda;
-            shadows.directional_maximum_distance = metersToWorldUnits(
-              this._renderSettings.values.shadows.maximumDistanceMeters,
-              this._renderSettings.values.physicalScale
-            );
-            shadows.directional_texel_guard_band = this._renderSettings.values.shadows.texelGuardBand;
             const packedBindings = gpuPacked === null
               ? null
               : this._graphics.packed_scenes.bindings();
             const shadowContentRevision = scene.change_revision * 1_048_576 +
               (packedBindings?.scene.contentRevision ?? 0) + packedPatchRevision;
-            shadows.select_for_draw(camera, this._frame_count, [w, h], shadowContentRevision);
-            shadows.draw(
-              cmd,
-              environment.lights.database,
-              gpuPacked !== null && packedBindings !== null
+            shadows.encode(cmd, {
+              camera,
+              frameIndex: this._frame_count,
+              resolution: [w, h],
+              contentRevision: shadowContentRevision,
+              settings: {
+                cascadeLambda: this._renderSettings.values.shadows.cascadeLambda,
+                maximumDistance: metersToWorldUnits(
+                  this._renderSettings.values.shadows.maximumDistanceMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                texelGuardBand: this._renderSettings.values.shadows.texelGuardBand
+              },
+              geometry: gpuPacked !== null && packedBindings !== null
                 ? {
                     kind: "packed",
                     runtime: gpuPacked,
@@ -1469,7 +1491,7 @@ export class Renderer {
                     context: requireLegacyGeometryOwner(geometryOwner),
                     drawList: this.obtainLegacyMeshletDrawList()
                   }
-            );
+            });
           });
         });
       }
@@ -1568,6 +1590,7 @@ export class Renderer {
         view,
         environment,
         geometry: frameGeometry,
+        shadow: shadowFeature,
         viewHzb,
         colorView,
         renderTargets: this._renderTargets.asImportBundle(),
@@ -2176,24 +2199,12 @@ export class Renderer {
                 "Ch/pass_descriptor",
                 { kind: "imported", label: "depth32float shadow atlas" },
                 bind("shadow-atlas", (bindings) =>
-                  bindings.environment.lights.shadow_service.texture.gpu_texture)
+                  requireShadowFeature(bindings.shadow).texture.gpu_texture)
               )
             : depthRes;
-          const shadowVisibility = shadowVisibilityFrame({
-            atlas: shadowAtlasRes,
-            contactVisibility: null,
-            cascadeCount: graphTopology.shadows ? SHADOW_CASCADE_COUNT : 0,
-            pcfTapCount: SHADOW_PCF_TAP_COUNT,
-            normalOffsetScale: SHADOW_NORMAL_OFFSET_SCALE,
-            depthBias: SHADOW_DEPTH_BIAS,
-            slopeScale: SHADOW_DEPTH_SLOPE_SCALE,
-            atlasWidth: graphTopology.shadows
-              ? environment.lights.shadow_service.atlas_width
-              : w,
-            atlasHeight: graphTopology.shadows
-              ? environment.lights.shadow_service.atlas_height
-              : h
-          });
+          const shadowVisibility = graphTopology.shadows
+            ? requireShadowFeature(shadowFeature).frame(shadowAtlasRes)
+            : createDisabledShadowVisibilityFrame(shadowAtlasRes, w, h);
           const lightingFeatureOutput = this._lightingFeature.addToGraph(
             graph,
             bind("lighting-feature-job", (bindings) => ({
@@ -3322,7 +3333,7 @@ export class Renderer {
       view.finish_frame(cmd, this._frame_count);
       this.recordFrameCounters(
         viewHzb,
-        environment.lights.shadow_service,
+        shadowFeature,
         gpuPacked !== null,
         environment.lights.environmentEvidence
       );
@@ -3633,7 +3644,7 @@ export class Renderer {
       readonly lastDirectionalCameraCacheHits: number;
       readonly lastDirectionalRasterDraws: number;
       readonly lastDirectionalRasterSkips: number;
-    },
+    } | null,
     packedPath: boolean,
     environment: {
       specularAllocatedBytes: number;
@@ -3696,29 +3707,29 @@ export class Renderer {
     }
     profiler.recordCounter(
       "hzb.computeBuilds",
-      hzb.lastBuildCount + shadows.lastHzbBuildCount
+      hzb.lastBuildCount + (shadows?.lastHzbBuildCount ?? 0)
     );
     profiler.recordCounter(
       "hzb.computePasses",
-      hzb.lastComputePassCount + shadows.lastHzbComputePassCount
+      hzb.lastComputePassCount + (shadows?.lastHzbComputePassCount ?? 0)
     );
     profiler.recordCounter(
       "hzb.dispatches",
-      hzb.lastDispatchCount + shadows.lastHzbDispatchCount
+      hzb.lastDispatchCount + (shadows?.lastHzbDispatchCount ?? 0)
     );
     profiler.recordCounter(
       "hzb.outputPixels",
-      hzb.lastOutputPixels + shadows.lastHzbOutputPixels
+      hzb.lastOutputPixels + (shadows?.lastHzbOutputPixels ?? 0)
     );
     profiler.recordCounter("hzb.historyValid", hzb.historyValid ? 1 : 0);
     profiler.recordCounter("hzb.historyInvalidations", hzb.historyInvalidationCount);
-    profiler.recordCounter("shadow.atlasBytes", shadows.atlas_allocated_bytes);
-    profiler.recordCounter("shadow.packedCascadeDraws", shadows.packed_cascade_draw_count);
-    profiler.recordCounter("shadow.atlasPixelsUpdated", shadows.packed_atlas_pixels_updated);
-    profiler.recordCounter("shadow.directionalCameraUpdates", shadows.lastDirectionalCameraUpdates);
-    profiler.recordCounter("shadow.directionalCameraCacheHits", shadows.lastDirectionalCameraCacheHits);
-    profiler.recordCounter("shadow.directionalRasterDraws", shadows.lastDirectionalRasterDraws);
-    profiler.recordCounter("shadow.directionalRasterSkips", shadows.lastDirectionalRasterSkips);
+    profiler.recordCounter("shadow.atlasBytes", shadows?.atlas_allocated_bytes ?? 0);
+    profiler.recordCounter("shadow.packedCascadeDraws", shadows?.packed_cascade_draw_count ?? 0);
+    profiler.recordCounter("shadow.atlasPixelsUpdated", shadows?.packed_atlas_pixels_updated ?? 0);
+    profiler.recordCounter("shadow.directionalCameraUpdates", shadows?.lastDirectionalCameraUpdates ?? 0);
+    profiler.recordCounter("shadow.directionalCameraCacheHits", shadows?.lastDirectionalCameraCacheHits ?? 0);
+    profiler.recordCounter("shadow.directionalRasterDraws", shadows?.lastDirectionalRasterDraws ?? 0);
+    profiler.recordCounter("shadow.directionalRasterSkips", shadows?.lastDirectionalRasterSkips ?? 0);
     profiler.recordCounter(
       packedPath
         ? "packed.material.kernelDraws"
@@ -4043,6 +4054,13 @@ function requirePackedGeometryOwner(
     throw new Error("Packed geometry consumer received a legacy geometry source");
   }
   return source;
+}
+
+function requireShadowFeature(feature: ShadowFeature | null): ShadowFeature {
+  if (feature === null) {
+    throw new Error("Shadow graph consumer received a feature-off frame");
+  }
+  return feature;
 }
 
 function packedPreviousHzb(

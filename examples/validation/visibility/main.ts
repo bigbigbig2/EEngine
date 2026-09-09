@@ -1,4 +1,6 @@
 import {
+  BoxGeometry,
+  Mesh,
   ShadeDataType,
   ShadeImage,
   ShadeTexture,
@@ -22,7 +24,10 @@ import {
   type CanonicalRuntimeCameraPose
 } from "../shared/canonical-runtime.ts";
 import { FixtureState } from "../shared/fixture-state.ts";
-import { packedFrameHasNoLegacyGeometryOwners } from "../shared/packed-owner-evidence.ts";
+import {
+  packedFrameHasNoLegacyGeometryOwners,
+  shadowFeatureIsCold
+} from "../shared/packed-owner-evidence.ts";
 import { createPackedBoxScene, solidMaterial } from "../shared/packed-scene.ts";
 import {
   hasGpuFailure,
@@ -76,7 +81,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "shadow", "transform-patch"];
+  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "shadow", "shadow-toggle", "shadow-legacy-parity", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -87,6 +92,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const assertions: ValidationAssertion[] = [];
     const evidence: Record<string, unknown> = {};
     let completed: FrameProfileSnapshot;
+    let shadowRendered: FrameProfileSnapshot | null = null;
 
     if (request.scenarioId === "lod-near" || request.scenarioId === "lod-far") {
       const near = await samplePose(NEAR_POSE, 3);
@@ -109,14 +115,19 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     } else if (request.scenarioId === "camera-cut") {
       const before = await samplePose(DEFAULT_POSE, 2);
       const invalidationsBefore = before.counters["hzb.historyInvalidations"] ?? 0;
+      const cascadeRevisionBefore = runtime.renderer?.gpuOwnerCreationEvidence().shadow.directionalCameraRevision ?? 0;
       runtime.setCamera({ position: [12, 7, 10], target: [0, 1, -1], far: 250 });
       runtime.renderer?.indicate_view_change();
       completed = await runtime.waitForCounters(runtime.frame);
       const invalidationsAfter = completed.counters["hzb.historyInvalidations"] ?? 0;
+      const cascadeRevisionAfter = runtime.renderer?.gpuOwnerCreationEvidence().shadow.directionalCameraRevision ?? 0;
       evidence.historyInvalidationsBefore = invalidationsBefore;
       evidence.historyInvalidationsAfter = invalidationsAfter;
       evidence.historyValid = completed.counters["hzb.historyValid"] ?? 0;
+      evidence.cascadeRevisionBefore = cascadeRevisionBefore;
+      evidence.cascadeRevisionAfter = cascadeRevisionAfter;
       assertions.push(validationAssertion("camera-cut-invalidates-hzb", invalidationsAfter > invalidationsBefore, "The explicit camera cut invalidated HZB history", { invalidationsBefore, invalidationsAfter }, "after > before"));
+      assertions.push(validationAssertion("camera-cut-updates-cascades", cascadeRevisionAfter > cascadeRevisionBefore, "The Shadow Feature recomputed directional cascade cameras after a camera cut", { cascadeRevisionBefore, cascadeRevisionAfter }, "after > before"));
     } else if (request.scenarioId === "shadow") {
       const renderer = runtime.renderer;
       const scene = runtime.scene;
@@ -135,6 +146,81 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       ); attempt++) {
         completed = await runtime.waitForCounters(completed.frameIndex);
       }
+      shadowRendered = completed;
+      completed = await runtime.waitForCounters(completed.frameIndex);
+      for (let attempt = 0; attempt < 6 && (
+        (completed.counters["shadow.directionalCameraCacheHits"] ?? 0) === 0 ||
+        (completed.counters["shadow.directionalRasterSkips"] ?? 0) === 0
+      ); attempt++) {
+        completed = await runtime.waitForCounters(completed.frameIndex);
+      }
+    } else if (request.scenarioId === "shadow-toggle") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Visibility runtime is not initialized");
+      renderer.configure({ features: { shadows: false } });
+      const off = await runtime.waitForCounters(runtime.frame);
+      const offOwners = renderer.gpuOwnerCreationEvidence();
+      evidence.shadowOffOwners = offOwners.shadow;
+      evidence.shadowOffCounters = {
+        atlasBytes: off.counters["shadow.atlasBytes"] ?? 0,
+        cascadeDraws: off.counters["shadow.packedCascadeDraws"] ?? 0
+      };
+      assertions.push(validationAssertion("shadow-toggle-off-cold", shadowFeatureIsCold(offOwners) && (off.counters["shadow.atlasBytes"] ?? 0) === 0 && (off.counters["shadow.packedCascadeDraws"] ?? 0) === 0, "Toggling shadows off retired the atlas, Pass and work owners and produced zero shadow counters", { owners: offOwners.shadow, counters: evidence.shadowOffCounters }));
+      renderer.configure({ features: { shadows: true } });
+      completed = await runtime.waitForCounters(off.frameIndex);
+      for (let attempt = 0; attempt < 8 &&
+        (completed.counters["shadow.packedCascadeDraws"] ?? 0) === 0; attempt++) {
+        completed = await runtime.waitForCounters(completed.frameIndex);
+      }
+      const onOwners = renderer.gpuOwnerCreationEvidence();
+      assertions.push(validationAssertion("shadow-toggle-on-restored", onOwners.shadow.featureCount === 1 && onOwners.shadow.atlasCount === 1 && onOwners.shadow.packedRasterPassCount === 1 && (completed.counters["shadow.packedCascadeDraws"] ?? 0) > 0, "Toggling shadows on recreated exactly one Render-owned Shadow Feature and resumed cascade raster", { owners: onOwners.shadow, cascadeDraws: completed.counters["shadow.packedCascadeDraws"] ?? 0 }));
+    } else if (request.scenarioId === "shadow-legacy-parity") {
+      const renderer = runtime.renderer;
+      const scene = runtime.scene;
+      if (renderer === null || scene === null) throw new Error("Visibility runtime is not initialized");
+      renderer.queuePackedScenePatch(scene, {
+        frameId: renderer.frame_count + 1,
+        materials: {
+          indices: new Uint32Array([0]),
+          materialIndices: new Uint32Array([0])
+        }
+      });
+      let packedProfile = await runtime.waitForCounters(runtime.frame);
+      for (let attempt = 0; attempt < 8 &&
+        (packedProfile.counters["shadow.packedCascadeDraws"] ?? 0) === 0; attempt++) {
+        packedProfile = await runtime.waitForCounters(packedProfile.frameIndex);
+      }
+      const packedShadow = renderer.gpuOwnerCreationEvidence().shadow;
+      runtime.stop();
+      await renderer.releasePackedScene(scene);
+      const material = solidMaterial([0.2, 0.72, 0.92, 1], 0.4);
+      const caster = Mesh.from(new BoxGeometry(3, 3, 3), material);
+      caster.transform_local.position.set(0, 1.5, 0);
+      scene.addChild(caster);
+      const ground = Mesh.from(new BoxGeometry(14, 0.2, 14), solidMaterial([0.22, 0.24, 0.28, 1], 0.9));
+      ground.transform_local.position.set(0, -0.1, 0);
+      scene.addChild(ground);
+      runtime.start();
+      completed = await runtime.waitForCounters(packedProfile.frameIndex);
+      for (let attempt = 0; attempt < 8 &&
+        (completed.counters["shadow.directionalRasterDraws"] ?? 0) === 0; attempt++) {
+        completed = await runtime.waitForCounters(completed.frameIndex);
+      }
+      const legacyShadow = renderer.gpuOwnerCreationEvidence().shadow;
+      const splitDelta = maximumArrayDelta(
+        packedShadow.directionalCascadeSplits,
+        legacyShadow.directionalCascadeSplits
+      );
+      const layoutDelta = maximumArrayDelta(
+        packedShadow.directionalCascadeLayouts.flat(),
+        legacyShadow.directionalCascadeLayouts.flat()
+      );
+      evidence.packedShadow = packedShadow;
+      evidence.legacyShadow = legacyShadow;
+      evidence.cascadeSplitMaximumDelta = splitDelta;
+      evidence.cascadeLayoutMaximumDelta = layoutDelta;
+      assertions.push(validationAssertion("packed-legacy-cascade-parity", splitDelta <= 1e-6 && layoutDelta <= 1e-6, "Packed and ordinary Scene caster adapters produced the same cascade splits and atlas layout", { splitDelta, layoutDelta }, "<= 1e-6"));
+      assertions.push(validationAssertion("legacy-shadow-adapter-active", legacyShadow.featureCount === 1 && legacyShadow.atlasCount === 1 && legacyShadow.legacyRasterPassCount === 1 && legacyShadow.packedRasterPassCount === 0 && (completed.counters["shadow.directionalRasterDraws"] ?? 0) > 0, "The ordinary Scene adapter used the same Shadow Feature and legacy raster consumer", { owner: legacyShadow, rasterDraws: completed.counters["shadow.directionalRasterDraws"] ?? 0 }));
     } else if (request.scenarioId === "transform-patch") {
       const renderer = runtime.renderer;
       const scene = runtime.scene;
@@ -177,10 +263,12 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       queueOverflowMask: counters.queueOverflowMask ?? 0,
       gpuCounterSchemaVersion: completed.gpuCounters.schemaVersion
     });
-    assertions.push(validationAssertion("candidate-work-produced", (counters.candidateInstances ?? 0) >= 6, "All fixed visibility candidates reached GPU work generation", counters.candidateInstances, ">= 6"));
-    assertions.push(validationAssertion("visible-work-produced", (counters.visibleInstances ?? 0) > 0, "At least one instance remained visible", counters.visibleInstances, "> 0"));
-    assertions.push(validationAssertion("raster-work-produced", (counters.hwTriangles ?? 0) > 0, "Hardware Visibility consumed triangle work", counters.hwTriangles, "> 0"));
-    assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));
+    if (request.scenarioId !== "shadow-legacy-parity") {
+      assertions.push(validationAssertion("candidate-work-produced", (counters.candidateInstances ?? 0) >= 6, "All fixed visibility candidates reached GPU work generation", counters.candidateInstances, ">= 6"));
+      assertions.push(validationAssertion("visible-work-produced", (counters.visibleInstances ?? 0) > 0, "At least one instance remained visible", counters.visibleInstances, "> 0"));
+      assertions.push(validationAssertion("raster-work-produced", (counters.hwTriangles ?? 0) > 0, "Hardware Visibility consumed triangle work", counters.hwTriangles, "> 0"));
+      assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));
+    }
     if (request.scenarioId === "frustum") {
       assertions.push(validationAssertion("frustum-rejection-observed", (counters.rejectedFrustum ?? 0) > 0, "The off-axis object was rejected by the GPU frustum stage", counters.rejectedFrustum, "> 0"));
     }
@@ -188,17 +276,27 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       assertions.push(validationAssertion("hzb-rejection-observed", (counters.rejectedHzb ?? 0) > 0, "The object behind the occluder was rejected by HZB", counters.rejectedHzb, "> 0"));
     }
     if (request.scenarioId === "shadow") {
-      const packedCascadeDraws = completed.counters["shadow.packedCascadeDraws"] ?? 0;
-      const atlasBytes = completed.counters["shadow.atlasBytes"] ?? 0;
-      const shadowAlphaRasterWork = counters.shadowAlphaRasterWork ?? 0;
+      const rendered = shadowRendered ?? completed;
+      const packedCascadeDraws = rendered.counters["shadow.packedCascadeDraws"] ?? 0;
+      const atlasBytes = rendered.counters["shadow.atlasBytes"] ?? 0;
+      const shadowAlphaRasterWork = rendered.gpuCounters.values.shadowAlphaRasterWork ?? 0;
       assertions.push(validationAssertion("packed-shadow-produced", packedCascadeDraws > 0 && atlasBytes > 0, "Packed CSM consumed the Packed material bindings and produced cascade work", { packedCascadeDraws, atlasBytes }, "> 0"));
       assertions.push(validationAssertion("alpha-tested-shadow-produced", shadowAlphaRasterWork > 0, "Packed CSM sampled an alpha-tested material through the shared TextureRef ABI", shadowAlphaRasterWork, "> 0"));
-      assertions.push(validationAssertion("shadow-queue-no-overflow", (counters.shadowQueueOverflowMask ?? 0) === 0, "Packed shadow work queues did not overflow", counters.shadowQueueOverflowMask, 0));
+      assertions.push(validationAssertion("shadow-queue-no-overflow", (rendered.gpuCounters.values.shadowQueueOverflowMask ?? 0) === 0, "Packed shadow work queues reported their overflow contract and did not overflow the fixed fixture", rendered.gpuCounters.values.shadowQueueOverflowMask, 0));
+      assertions.push(validationAssertion("directional-cache-hit", (completed.counters["shadow.directionalCameraCacheHits"] ?? 0) > 0 && (completed.counters["shadow.directionalRasterSkips"] ?? 0) > 0, "Stable camera/content reused cascade fit and skipped redundant directional raster", { cacheHits: completed.counters["shadow.directionalCameraCacheHits"] ?? 0, rasterSkips: completed.counters["shadow.directionalRasterSkips"] ?? 0 }, "> 0"));
     }
     const ownerCreation = runtime.renderer?.gpuOwnerCreationEvidence();
     evidence.ownerCreation = ownerCreation;
-    assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Visibility and Shadow did not create the legacy material owner", ownerCreation?.legacy));
-    assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed Visibility, HZB and Shadow did not create legacy geometry, SceneDatabase, skinning, or MeshletDrawList owners", ownerCreation?.scene));
+    if (request.scenarioId !== "shadow-legacy-parity") {
+      assertions.push(validationAssertion("legacy-material-owner-absent", ownerCreation !== undefined && !ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount === 0 && !ownerCreation.legacy.materialMetadataTableCreated && !ownerCreation.legacy.materialDefaultTexturesCreated && !ownerCreation.legacy.materialDepthPipelineCreated && !ownerCreation.legacy.materialExpandPipelineCreated, "Packed Visibility and Shadow did not create the legacy material owner", ownerCreation?.legacy));
+      assertions.push(validationAssertion("legacy-geometry-owner-absent", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Packed Visibility, HZB and Shadow did not create legacy geometry, SceneDatabase, skinning, or MeshletDrawList owners", ownerCreation?.scene));
+      assertions.push(validationAssertion("render-shadow-owner", ownerCreation !== undefined && ownerCreation.shadow.featureCount === 1 && ownerCreation.shadow.atlasCount === 1 && ownerCreation.shadow.packedRasterPassCount === 1 && ownerCreation.shadow.legacyRasterPassCount === 0 && ownerCreation.shadow.packedWorkSetCount > 0 && ownerCreation.shadow.packedWorkBytes > 0, "Packed shadows are owned only by one Render-layer Shadow Feature", ownerCreation?.shadow));
+    }
+    if (request.scenarioId === "shadow") {
+      const splits = ownerCreation?.shadow.directionalCascadeSplits ?? [];
+      const layouts = ownerCreation?.shadow.directionalCascadeLayouts ?? [];
+      assertions.push(validationAssertion("cascade-fit-and-layout", splits.length === 3 && splits[0]! > 0 && splits[0]! < splits[1]! && splits[1]! < splits[2]! && splits[2] === 1 && layouts.length === 3 && layouts.every((layout) => layout[2] > 0 && layout[3] > 0), "Directional cascade fit produced three monotonic splits and valid atlas layouts", { splits, layouts }));
+    }
     const diagnostics = validationDiagnostics(runtime.renderer?.profiler.diagnostics);
     assertions.push(validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics));
 
@@ -275,6 +373,15 @@ function createAlphaCheckerTexture(): ShadeTexture {
   const texture = ShadeTexture.from(image);
   texture.label = "validation-alpha-tested-shadow";
   return texture;
+}
+
+function maximumArrayDelta(a: readonly number[], b: readonly number[]): number {
+  if (a.length !== b.length) return Number.POSITIVE_INFINITY;
+  let maximum = 0;
+  for (let index = 0; index < a.length; index++) {
+    maximum = Math.max(maximum, Math.abs(a[index]! - b[index]!));
+  }
+  return maximum;
 }
 
 function failedScenario(request: ValidationScenarioRequest, error: unknown, startedFrame = runtime.frame): ValidationScenarioResult {

@@ -26,9 +26,109 @@ export async function runRenderingLabPolicy({ mode, runner, baseUrl, repositoryR
   }
   if (mode === "profiles") return runProfiles({ runner, baseUrl, repositoryRoot, args });
   if (mode === "workload") return runWorkloadSmoke({ runner, baseUrl });
+  if (mode === "shadow-feature-off") return runShadowFeatureOff({ runner, baseUrl, repositoryRoot });
   if (mode === "oracle") return runVisibilityKeyOracle({ runner, baseUrl });
   if (mode === "formal") return runFormal({ runner, baseUrl, repositoryRoot, args });
   throw new Error(`Unknown Rendering Lab policy '${mode}'`);
+}
+
+async function runShadowFeatureOff({ runner, baseUrl, repositoryRoot }) {
+  const session = await runner.createPage({ viewport: { width: 1920, height: 1080 } });
+  try {
+    await openRenderingLab(session.page, baseUrl);
+    const reports = await session.page.evaluate(async () => {
+      const fixture = window.__OENGINE_RENDERING_LAB_FIXTURE__;
+      if (!fixture) throw new Error("Rendering Lab fixture bridge missing");
+      const common = {
+        smoke: true,
+        workloadId: "comprehensive-full",
+        inspectorVisible: false,
+        gpuCounterSampleInterval: 8,
+        readbackRingSlots: 64,
+        cpuPassTimings: true,
+        awaitGpuEachFrame: true,
+        animateScene: true
+      };
+      const full = await fixture.runBenchmark({ ...common, cases: ["full"] });
+      const off = await fixture.runBenchmark({ ...common, cases: ["full-minus-shadow"] });
+      await fixture.dispose?.();
+      return { full, off };
+    });
+    requireCleanBrowser(session.errors);
+
+    const evidence = {
+      workloadId: reports.full.workload.id,
+      full: summarizeShadowFeatureCase(reports.full, "full"),
+      off: summarizeShadowFeatureCase(reports.off, "full-minus-shadow")
+    };
+    assertJsonEqual(evidence.workloadId, "comprehensive-full", "shadow comparison workload id");
+    assertShadowFeatureComparison(evidence);
+
+    const outputPath = path.join(repositoryRoot, "temp", "validation", "rendering-lab-shadow-feature-off.json");
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify({ reports, evidence, errors: session.errors }, null, 2)}\n`);
+    return { status: "passed", mode: "shadow-feature-off", outputPath, evidence };
+  } finally {
+    await session.close();
+  }
+}
+
+function summarizeShadowFeatureCase(report, caseId) {
+  const result = report.cases.find((entry) => entry.case.id === caseId);
+  if (result === undefined) throw new Error(`Rendering Lab report omitted '${caseId}'`);
+  const graph = report.domainEvidence?.graph?.dump;
+  const executable = new Set(graph?.executablePassOrder ?? []);
+  const passNames = (graph?.passes ?? [])
+    .filter((entry) => executable.has(entry.id))
+    .map((entry) => entry.name);
+  const owners = report.domainEvidence?.resourceAccounting?.owners ?? {};
+  const shadowOwnerNames = Object.keys(owners).filter((name) => /shadow/i.test(name));
+  const frameLabels = result.frames.flatMap((frame) => [
+    ...Object.keys(frame.uploads.labels),
+    ...Object.keys(frame.readbacks.labels)
+  ]);
+  const shadowCounterMaximums = Object.fromEntries(Object.entries(result.summary.gpuCounters)
+    .filter(([name]) => /shadow|cascade/i.test(name))
+    .map(([name, summary]) => [name, summary.max]));
+  const shadowGpuPassLabels = Object.keys(result.summary.gpuMs)
+    .filter((name) => /shadow|cascade/i.test(name));
+  return {
+    caseId,
+    mainSubmitP50: result.summary.submits.p50,
+    gpuShadowPhaseP50: result.summary.gpuPhaseMs.shadow?.p50 ?? null,
+    cpuShadowSetupP50: result.summary.cpuMs["shadow-update"]?.p50 ?? null,
+    allocatedBytes: report.domainEvidence?.memory?.allocatedBytes ?? null,
+    residentBytes: report.domainEvidence?.memory?.residentLogicalBytes ?? null,
+    transientPoolBytes: report.domainEvidence?.memory?.transientPoolBytes ?? null,
+    historyBytes: report.domainEvidence?.memory?.historyBytes ?? null,
+    accountedBytes: report.domainEvidence?.resourceAccounting?.totalBytes ?? null,
+    atlasBytes: report.domainEvidence?.resourceAccounting?.categories?.atlas?.bytes ?? 0,
+    shadowOwner: report.domainEvidence?.ownerCreation?.shadow ?? null,
+    shadowGpuPassLabels,
+    shadowPassNames: passNames.filter((name) => /shadow/i.test(name)),
+    shadowIoLabels: [...new Set(frameLabels.filter((name) => /shadow/i.test(name)))],
+    shadowResourceOwners: shadowOwnerNames,
+    shadowCounterMaximums
+  };
+}
+
+function assertShadowFeatureComparison(evidence) {
+  if (evidence.full.mainSubmitP50 !== 1 || evidence.off.mainSubmitP50 !== 1) {
+    throw new Error(`Shadow comparison must retain one main submit: ${JSON.stringify(evidence)}`);
+  }
+  if (!(evidence.full.gpuShadowPhaseP50 > 0) || !(evidence.full.cpuShadowSetupP50 >= 0)) {
+    throw new Error(`Enabled shadow metrics are missing: ${JSON.stringify(evidence.full)}`);
+  }
+  const owner = evidence.off.shadowOwner;
+  if (evidence.off.gpuShadowPhaseP50 !== null || evidence.off.cpuShadowSetupP50 !== null ||
+      evidence.off.atlasBytes !== 0 || evidence.off.shadowPassNames.length !== 0 ||
+      evidence.off.shadowGpuPassLabels.length !== 0 ||
+      evidence.off.shadowIoLabels.length !== 0 || evidence.off.shadowResourceOwners.length !== 0 ||
+      owner === null || owner.featureCount !== 0 || owner.atlasCount !== 0 ||
+      owner.packedWorkSetCount !== 0 || owner.packedWorkBytes !== 0 ||
+      Object.values(evidence.off.shadowCounterMaximums).some((value) => value !== 0)) {
+    throw new Error(`Disabled shadow feature retained work or resources: ${JSON.stringify(evidence.off)}`);
+  }
 }
 
 async function runProfiles({ runner, baseUrl, repositoryRoot, args }) {
