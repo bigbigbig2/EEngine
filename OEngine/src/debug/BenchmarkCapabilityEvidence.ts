@@ -87,10 +87,6 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
     status: "supported",
     requiredGpuCounters: ["rejectedCone"]
   },
-  "material-expand": {
-    status: "supported",
-    requiredGpuCounters: ["activeMaterials"]
-  },
   "single-material-resolve": {
     status: "supported",
     requiredGpuCounters: [

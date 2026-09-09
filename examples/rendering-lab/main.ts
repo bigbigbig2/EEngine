@@ -709,7 +709,7 @@ function benchmarkEnvironment(activeRenderer: Renderer, caseId: RenderingLabCase
 function benchmarkFeatureSet(activeRenderer: Renderer, caseId: RenderingLabCaseId): readonly string[] {
   const features = activeRenderer.render_settings.features;
   return [
-    "hardware-visibility", "hzb-culling", "cone-culling", "material-expand",
+    "hardware-visibility", "hzb-culling", "cone-culling",
     "single-material-resolve", "clustered-lighting", "ibl", "packed-instances",
     "hierarchy-sse-lod",
     ...(activeRenderer.packed_triangle_setup_enabled ? ["triangle-setup-candidate-cache"] : []),

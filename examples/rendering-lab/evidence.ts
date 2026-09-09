@@ -90,7 +90,7 @@ type PassAccumulator = {
 export class ShowcaseEvidenceWindow {
   private readonly frames = new Map<number, FrameRecord>();
   private activeEpoch = 0;
-  private activeSampleKey = "legacy";
+  private activeSampleKey = "uninitialized";
   private warmupFramesRemaining = 0;
 
   constructor(private readonly capacity = 180) {}

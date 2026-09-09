@@ -336,7 +336,7 @@ function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
     if (node.mesh === undefined) continue;
     if (node.skin !== undefined) {
       throw new Error(
-        `Packed glTF import does not support skinned node ${nodeIndex}; use load_gltf() for the legacy animated path`
+        `GpuRenderWorld does not support skinned glTF node ${nodeIndex}; animated rendering is outside the current product scope`
       );
     }
     const normalized = normalizeMesh(node.mesh);
