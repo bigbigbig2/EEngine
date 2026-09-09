@@ -18,6 +18,7 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("visibility.lod-near", "visibility", "lod-near", ["visibility", "gpu-driven", "hierarchy", "lod"]),
   defineCase("visibility.lod-far", "visibility", "lod-far", ["visibility", "gpu-driven", "hierarchy", "lod"]),
   defineCase("visibility.camera-cut", "visibility", "camera-cut", ["visibility", "gpu-driven", "hzb", "temporal"], ["hzb"]),
+  defineCase("visibility.debug", "visibility", "debug", ["visibility", "renderer", "framegraph", "debug"], ["framegraph", "renderer"]),
   defineCase("visibility.transform-patch", "visibility", "transform-patch", ["visibility", "gpu-driven", "gpu-scene"], ["gpu-scene"]),
   defineCase("surface.basic", "surface", "basic", ["surface", "material-resolve"], ["surface", "material"], "always"),
   defineCase("surface.textured", "surface", "textured", ["surface", "material", "texture-residency"], ["surface", "texture-residency"], "always"),

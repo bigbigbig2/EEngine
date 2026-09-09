@@ -26,10 +26,78 @@ export async function runRenderingLabPolicy({ mode, runner, baseUrl, repositoryR
   }
   if (mode === "profiles") return runProfiles({ runner, baseUrl, repositoryRoot, args });
   if (mode === "workload") return runWorkloadSmoke({ runner, baseUrl });
+  if (mode === "pipeline-matrix") return runPipelineMatrix({ runner, baseUrl, repositoryRoot });
   if (mode === "shadow-feature-off") return runShadowFeatureOff({ runner, baseUrl, repositoryRoot });
   if (mode === "oracle") return runVisibilityKeyOracle({ runner, baseUrl });
   if (mode === "formal") return runFormal({ runner, baseUrl, repositoryRoot, args });
   throw new Error(`Unknown Rendering Lab policy '${mode}'`);
+}
+
+const PIPELINE_MATRIX_CASES = Object.freeze([
+  "base",
+  "full",
+  "full-minus-shadow",
+  "full-minus-gtao",
+  "full-minus-ssr",
+  "full-minus-transparency",
+  "full-minus-temporal",
+  "full-minus-bloom",
+  "full-minus-exposure",
+  "full-minus-motion-blur",
+  "full-minus-sharpen"
+]);
+
+async function runPipelineMatrix({ runner, baseUrl, repositoryRoot }) {
+  const session = await runner.createPage({ viewport: { width: 1920, height: 1080 } });
+  try {
+    await openRenderingLab(session.page, baseUrl);
+    const report = await session.page.evaluate(async ({ cases }) => {
+      const fixture = window.__OENGINE_RENDERING_LAB_FIXTURE__;
+      if (!fixture) throw new Error("Rendering Lab fixture bridge missing");
+      const result = await fixture.runBenchmark({
+        smoke: true,
+        workloadId: "comprehensive-full",
+        cases,
+        inspectorVisible: false,
+        gpuCounterSampleInterval: 8,
+        readbackRingSlots: 64,
+        cpuPassTimings: true,
+        awaitGpuEachFrame: true,
+        animateScene: true
+      });
+      await fixture.dispose?.();
+      return result;
+    }, { cases: PIPELINE_MATRIX_CASES });
+    requireCleanBrowser(session.errors);
+    assertJsonEqual(report.cases.map((entry) => entry.case.id), PIPELINE_MATRIX_CASES, "pipeline matrix cases");
+
+    const evidence = report.cases.map((entry) => {
+      const invalidFrames = entry.frames.filter((frame) =>
+        frame.submits.count !== 1 || frame.graph.executes !== 1 ||
+        frame.graph.builds !== 0 || frame.graph.compiles !== 0 ||
+        frame.graph.cacheHits !== 1 || frame.graph.cacheMisses !== 0
+      ).length;
+      const overflowMaximums = Object.fromEntries(Object.entries(entry.summary.gpuCounters)
+        .filter(([name]) => /overflow/i.test(name))
+        .map(([name, summary]) => [name, summary.max]));
+      if (invalidFrames !== 0 || Object.values(overflowMaximums).some((value) => value !== 0)) {
+        throw new Error(`Pipeline matrix case '${entry.case.id}' failed stable-frame invariants`);
+      }
+      return {
+        caseId: entry.case.id,
+        measuredFrames: entry.frames.length,
+        mainSubmitP50: entry.summary.submits.p50,
+        invalidStableFrames: invalidFrames,
+        overflowMaximums
+      };
+    });
+    const outputPath = path.join(repositoryRoot, "temp", "validation", "rendering-lab-pipeline-matrix.json");
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify({ report, evidence, errors: session.errors }, null, 2)}\n`);
+    return { status: "passed", mode: "pipeline-matrix", outputPath, evidence };
+  } finally {
+    await session.close();
+  }
 }
 
 async function runShadowFeatureOff({ runner, baseUrl, repositoryRoot }) {

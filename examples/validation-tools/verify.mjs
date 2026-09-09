@@ -95,6 +95,7 @@ function renderingLabPolicy(target) {
   if (target === "formal") return "formal";
   if (target === "rendering-lab.profiles") return "profiles";
   if (target === "rendering-lab.workload") return "workload";
+  if (target === "rendering-lab.pipeline-matrix") return "pipeline-matrix";
   if (target === "rendering-lab.shadow-feature-off") return "shadow-feature-off";
   if (target === "rendering-lab.oracle") return "oracle";
   return null;

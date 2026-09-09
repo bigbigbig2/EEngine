@@ -17,6 +17,7 @@ Performance telemetry 由共享 `OEngine/src/addons/inspector` 提供。Renderin
 ```powershell
 yarn storybook
 yarn test:rendering-lab:workload
+yarn test:rendering-lab:pipeline-matrix
 yarn test:rendering-lab:shadow-feature-off
 yarn test:rendering-lab:profiles
 yarn test:visibility-key-oracle
@@ -48,5 +49,7 @@ Formal 默认执行三个独立 browser context，每次 120 warm-up + 480 measu
 `full-minus-*` case 必须证明对应 Pass、资源、history、readback、counter copy 和额外 submit 缺席。相机拉近导致的成本变化应分别观察像素、LOD/几何、Visibility、阴影、SSR、Post 和 CPU/UI；证据不足时报告 `inconclusive`。
 
 `test:rendering-lab:shadow-feature-off` 在同一个 1920×1080 Chrome/adapter 会话、相同 `comprehensive-full` 动态 workload 和 30+60 smoke cadence 下依次运行 `full` 与 `full-minus-shadow`，记录 main submit、Shadow GPU phase、CPU `shadow-update`、resident/atlas memory，并把关闭态的 Pass、I/O label、GPU counter 和资源 owner 缺席设为机器门禁。它用于 Step 4 编排验收，不替代 clean commit 上的正式性能基线。
+
+`test:rendering-lab:pipeline-matrix` 在同一个 1920×1080 Chrome/adapter 会话中执行 `base`、`full` 和每个 `full-minus-*` 组合；所有 measured frame 必须保持一个 main submit、一次 cached graph execute、零 graph build/compile/miss，且所有 overflow counter 为零。它是 Step 5 的 feature topology 编排门禁，不替代 clean-commit formal run group。
 
 本机 smoke 与大型原始 capture 是可删除的临时产物。只有符合 [`docs/VALIDATION.md`](../../docs/VALIDATION.md) 的 clean、可复算结果才能成为接受基线。

@@ -6,6 +6,7 @@ import {
   ShadeTexture,
   ShadeTransparencyMode,
   INSTANCE_SOURCE_FLAGS,
+  RenderDebugView,
   type FrameProfileSnapshot,
   type PackedSceneSource
 } from "../../../OEngine/src/index.ts";
@@ -81,7 +82,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "shadow", "shadow-toggle", "shadow-legacy-parity", "transform-patch"];
+  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-legacy-parity", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -128,6 +129,27 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       evidence.cascadeRevisionAfter = cascadeRevisionAfter;
       assertions.push(validationAssertion("camera-cut-invalidates-hzb", invalidationsAfter > invalidationsBefore, "The explicit camera cut invalidated HZB history", { invalidationsBefore, invalidationsAfter }, "after > before"));
       assertions.push(validationAssertion("camera-cut-updates-cascades", cascadeRevisionAfter > cascadeRevisionBefore, "The Shadow Feature recomputed directional cascade cameras after a camera cut", { cascadeRevisionBefore, cascadeRevisionAfter }, "after > before"));
+    } else if (request.scenarioId === "debug") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Visibility runtime is not initialized");
+      renderer.render_debug_view = RenderDebugView.MaterialId;
+      completed = await runtime.waitForCounters(runtime.frame);
+      const graph = renderer.mainFrameGraphEvidence();
+      const executable = new Set(graph?.dump.executablePassOrder ?? []);
+      const passNames = (graph?.dump.passes ?? [])
+        .filter((pass) => executable.has(pass.id))
+        .map((pass) => pass.name);
+      const debugPassNames = passNames.filter((name) => /debug/i.test(name));
+      evidence.debugPassNames = debugPassNames;
+      evidence.graphCacheKey = graph?.cacheKey ?? null;
+      assertions.push(validationAssertion(
+        "debug-view-executable",
+        debugPassNames.length > 0,
+        "A supported debug view added one executable main-graph consumer",
+        debugPassNames,
+        "at least one debug pass"
+      ));
+      renderer.render_debug_view = RenderDebugView.None;
     } else if (request.scenarioId === "shadow") {
       const renderer = runtime.renderer;
       const scene = runtime.scene;

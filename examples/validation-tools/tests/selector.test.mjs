@@ -48,6 +48,7 @@ test("cross-cutting renderer changes stay within the lightweight registry set", 
     "lifecycle.init-destroy",
     "visibility.basic",
     "visibility.shadow",
+    "visibility.debug",
     "surface.transparent"
   ]);
 });

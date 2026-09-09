@@ -20,6 +20,7 @@
     "test:rendering-lab:profiles": "node ./validation-tools/verify.mjs rendering-lab.profiles",
     "test:visibility-key-oracle": "node ./validation-tools/verify.mjs rendering-lab.oracle",
     "test:rendering-lab:workload": "node ./validation-tools/verify.mjs rendering-lab.workload",
+    "test:rendering-lab:pipeline-matrix": "node ./validation-tools/verify.mjs rendering-lab.pipeline-matrix",
     "test:rendering-lab:shadow-feature-off": "node ./validation-tools/verify.mjs rendering-lab.shadow-feature-off",
     "profile:rendering-lab:formal": "node ./validation-tools/verify.mjs formal"
   },
