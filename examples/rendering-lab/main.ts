@@ -68,6 +68,7 @@ import {
   type RenderingLabWorkloadId,
   type RenderingLabWorkloadProfile
 } from "./benchmark-workloads.js";
+import { settleRendererForValidationDestroy } from "../validation/shared/runtime-evidence.js";
 
 declare const __BUILD_COMMIT__: string;
 declare const __BUILD_DIRTY__: boolean;
@@ -459,7 +460,8 @@ function installRenderingLabFixture(
     captureScreenshot: async () => {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       // Playwright captures the page; this method is intentionally side-effect free.
-    }
+    },
+    dispose
   };
   window.__OENGINE_RENDERING_LAB_FIXTURE__ = fixture;
 }
@@ -1794,7 +1796,7 @@ function showFatalError(error: unknown): void {
   console.error(error);
 }
 
-function dispose(): void {
+async function dispose(): Promise<void> {
   if (disposed) return;
   disposed = true;
   unsubscribeProfiler?.();
@@ -1809,12 +1811,17 @@ function dispose(): void {
   controller?.keyboard.stop();
   inspector?.dispose();
   inspector = null;
-  renderer?.destroy();
+  const activeRenderer = renderer;
+  renderer = null;
+  if (activeRenderer !== null) {
+    await settleRendererForValidationDestroy(activeRenderer);
+    activeRenderer.destroy();
+  }
   const context = canvas.getContext("webgpu");
   context?.unconfigure();
 }
 
-window.addEventListener("pagehide", dispose, { once: true });
+window.addEventListener("pagehide", () => { void dispose(); }, { once: true });
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));

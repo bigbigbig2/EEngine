@@ -26,6 +26,8 @@ export interface RenderingLabFixtureSnapshot {
 export interface RenderingLabFixture {
   getSnapshot(): RenderingLabFixtureSnapshot;
   getBenchmarkReport(): RenderingLabBenchmarkReport | null;
+  /** Stop RAF/evidence, await submitted work, then release the device-root owners. */
+  dispose?(): Promise<void>;
   runBenchmark(options?: {
     readonly cases?: readonly RenderingLabCaseId[];
     readonly smoke?: boolean;
