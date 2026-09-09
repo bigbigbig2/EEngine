@@ -132,16 +132,43 @@ async function runScenario(
       stage: "lighting"
     });
     const [profile, capture] = await Promise.all([counterPromise, capturePromise]);
+    const stableProfile = await waitForCompletedGpuCounters(
+      activeRenderer.profiler,
+      profile.frameIndex
+    );
     const diagnostics = validationDiagnostics(activeRenderer.profiler.diagnostics);
     const residency = activeRenderer.geometryAssetResidencyEvidence();
     const sceneEvidence = activeRenderer.gpuSceneEvidence();
+    const ownerCreation = activeRenderer.gpuOwnerCreationEvidence();
+    const temporal = activeRenderer.temporalEvidence();
+    const ambientOcclusion = activeRenderer.ambientOcclusionEvidence();
+    const reflections = activeRenderer.screenSpaceReflectionsEvidence();
+    const memory = activeRenderer.memoryEvidence();
     const luminanceMaximum = maximumFiniteRgb(capture.rgba);
-    const counters = profile.gpuCounters.values;
+    const counters = stableProfile.gpuCounters.values;
+    const disabledFeaturesCold =
+      !temporal.enabled && temporal.taaPasses === 0 &&
+      temporal.classificationPasses === 0 && temporal.historyTextureCount === 0 &&
+      temporal.historyBytes === 0 &&
+      !ambientOcclusion.enabled && ambientOcclusion.rawPasses === 0 &&
+      ambientOcclusion.spatialPasses === 0 && ambientOcclusion.temporalPasses === 0 &&
+      ambientOcclusion.compositePasses === 0 && ambientOcclusion.historyTextureCount === 0 &&
+      ambientOcclusion.historyBytes === 0 &&
+      !reflections.enabled && reflections.tracePasses === 0 &&
+      reflections.prefilterPasses === 0 && reflections.resolvePasses === 0 &&
+      reflections.spatialPasses === 0 && reflections.temporalPasses === 0 &&
+      reflections.compositePasses === 0 && reflections.historyTextureCount === 0 &&
+      reflections.historyBytes === 0 && memory.historyBytes === 0;
     const assertions: ValidationAssertion[] = [
-      validationAssertion("frame-advanced", profile.frameIndex > startedFrame, "A newer rendered frame supplied the evidence", profile.frameIndex, `> ${startedFrame}`),
+      validationAssertion("frame-advanced", stableProfile.frameIndex > startedFrame, "A newer rendered frame supplied the evidence", stableProfile.frameIndex, `> ${startedFrame}`),
       validationAssertion("adapter-created", activeRenderer.adapter_info !== null, "Renderer captured its originating GPU adapter"),
       validationAssertion("packed-assets-resident", residency.residentAssetCount >= 2, "Cube and ground assets are resident", residency.residentAssetCount, ">= 2"),
       validationAssertion("packed-instances-active", sceneEvidence.activeInstanceCount >= 2, "Cube and ground instances are active", sceneEvidence.activeInstanceCount, ">= 2"),
+      validationAssertion("packed-owner-evidence", ownerCreation.packed.assetStoreCreated && ownerCreation.packed.instanceTableCreated && ownerCreation.packed.sceneRegistryCreated && ownerCreation.packed.materialStoreCreated && ownerCreation.packed.textureResidencyCreated && ownerCreation.packed.baseTextureBankCreated, "Packed asset, instance, scene, material and texture owners were observed", ownerCreation.packed),
+      validationAssertion("legacy-owner-debt-observed", ownerCreation.legacy.materialRegistryCreated && ownerCreation.legacy.materialContextCount > 0 && ownerCreation.legacy.materialExpandPipelineCreated, "Step 0 records the current Packed-to-legacy material ownership debt", ownerCreation.legacy),
+      validationAssertion("single-main-submit", stableProfile.submits.count === 1 && stableProfile.submits.labels["Renderer/main-0"] === 1, "A stable frame used exactly one main submission", stableProfile.submits, { count: 1, label: "Renderer/main-0" }),
+      validationAssertion("stable-graph-cache-hit", stableProfile.graph.builds === 0 && stableProfile.graph.compiles === 0 && stableProfile.graph.cacheHits === 1 && stableProfile.graph.cacheMisses === 0, "A stable frame reused the compiled main graph", stableProfile.graph, { builds: 0, compiles: 0, cacheHits: 1, cacheMisses: 0 }),
+      validationAssertion("disabled-features-cold", disabledFeaturesCold, "Disabled temporal, AO and SSR features retained no Pass or history resources", { temporal, ambientOcclusion, reflections, historyOwners: memory.historyOwners }),
       validationAssertion("gpu-raster-work", (counters.hwTriangles ?? 0) > 0, "Hardware visibility consumed triangle work", counters.hwTriangles, "> 0"),
       validationAssertion("gpu-shaded-pixels", (counters.shadedPixels ?? 0) > 0, "Material resolve shaded visible pixels", counters.shadedPixels, "> 0"),
       validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0),
@@ -155,7 +182,7 @@ async function runScenario(
       scenarioId: request.scenarioId,
       status: assertions.every((assertion) => assertion.passed) ? "passed" : "failed",
       startedFrame,
-      completedFrame: profile.frameIndex,
+      completedFrame: stableProfile.frameIndex,
       evidence: {
         residentAssetCount: residency.residentAssetCount,
         activeInstanceCount: sceneEvidence.activeInstanceCount,
@@ -163,7 +190,20 @@ async function runScenario(
         shadedPixels: counters.shadedPixels ?? 0,
         queueOverflowMask: counters.queueOverflowMask ?? 0,
         luminanceMaximum,
-        gpuCounterSchemaVersion: profile.gpuCounters.schemaVersion
+        gpuCounterSchemaVersion: stableProfile.gpuCounters.schemaVersion,
+        ownerCreation,
+        stableFrame: {
+          submits: stableProfile.submits,
+          graph: stableProfile.graph,
+          uploads: stableProfile.uploads,
+          readbacks: stableProfile.readbacks
+        },
+        disabledFeatures: {
+          temporal,
+          ambientOcclusion,
+          reflections,
+          historyOwners: memory.historyOwners
+        }
       },
       assertions,
       diagnostics

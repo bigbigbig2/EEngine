@@ -54,6 +54,7 @@ Packed 路径已经输出 `VisibilityKey`、统一 Surface 和 velocity。普通
 
 ## 目标差距
 
+- Packed Render World 的固定收敛顺序、owner 删除条件和逐步验证见 [ADR-0006](./adr/0006-packed-render-world-convergence.md)。
 - 把 Renderer 缩成 composition shell，资源和路径选择下沉到稳定 Feature/Service。
 - 移除普通 Scene 的最终 legacy consumer，使统一 Surface/Velocity/Transparency 成为唯一生产合同。
 - 以真实多资产 Packed Instances、hierarchy/SSE 和固定目标设备证明 GPU 闭环。

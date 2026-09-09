@@ -110,6 +110,7 @@ export type {
   PackedScenePatchBatch,
   PackedSceneSource
 } from "./gpu/GpuPackedSceneRegistry.js";
+export type { GraphicsOwnerCreationEvidence } from "./gpu/GraphicsContext.js";
 export {
   projectedGeometryErrorPixels,
   selectGeometryHierarchy

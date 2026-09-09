@@ -48,9 +48,11 @@
 
 ## 下一步
 
-1. 在 clean commit、固定 adapter 和固定 workload 上补齐 class-depth/class-discard、TriangleSetup off/on 与 near-plane parity。
-2. 补齐统一 Surface ABI 的 consumer coverage、attachment/readback parity 和 transient memory peak。
-3. 保持 Tile backend 为 evidence-only，直到两个 GPU vendor 的门槛真实触发。
-4. 移除普通 Scene 的 Material Expand 与独立 Velocity 最终 consumer。
-5. 统一 Packed/legacy transparency 的产品和生命周期边界后删除旧 OIT。
-6. 为 shader audit 中的 unknown 项确认 authored owner 或可追溯生成源。
+架构优化按 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 的垂直顺序执行；本页只保留当前最近工作：
+
+Step 0 门禁已经建立：CPU contract 覆盖 Packed stage/commit/abort/release/stable frame、Texture Residency 容量/rollback/reuse/排列，以及单 main submit、graph cache、upload/readback 和 feature-off 违规检测；`smoke.basic` 同时输出真实 owner creation、稳定帧和关闭功能资源证据。当前证据确认 Packed 仍会创建 legacy material 与 geometry owner，作为后续删除门禁，不把它误报为已收敛。
+
+1. 执行 Step 1：消除 Packed material 对 `GPUMaterialRegistry` 的生产依赖，并把 `legacy-owner-debt-observed` 改为 legacy material owner 缺席断言。
+2. 为 Texture Residency 的有界 size-class 与稳定引用可迁移方案补齐来源、ABI、内存和同条件性能比较，再选择实现。
+3. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
+4. 保持 Tile backend 为 evidence-only，并为 shader audit 中的 unknown 项确认 authored owner 或可追溯生成源。

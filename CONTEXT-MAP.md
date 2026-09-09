@@ -6,8 +6,8 @@
 | --- | --- | --- |
 | 产品范围、平台、workload | `OEngine/src/index.ts`、Renderer capability | `docs/PRODUCT.md` |
 | 导入、Cook、meshoptimizer、Runtime Asset | `OEngine/src/loaders`、`OEngine/src/geometry`、`OEngine/src/assets` | `docs/ARCHITECTURE.md`、`docs/porting/geometry.md` |
-| Scene、实例、patch | `OEngine/src/scene`、`OEngine/src/gpu/GpuScene.ts` | `docs/ARCHITECTURE.md` |
-| GPU 资产、表、resident、Packed Scene | `OEngine/src/gpu` | `docs/ARCHITECTURE.md`、`docs/adr/0002-runtime-assets-and-gpu-driven.md` |
+| Scene、实例、patch | `OEngine/src/scene`、`OEngine/src/gpu/GpuScene.ts` | `docs/ARCHITECTURE.md`、`docs/adr/0006-packed-render-world-convergence.md` |
+| GPU 资产、表、resident、Packed Scene | `OEngine/src/gpu` | `docs/ARCHITECTURE.md`、`docs/adr/0002-runtime-assets-and-gpu-driven.md`、`docs/adr/0006-packed-render-world-convergence.md` |
 | Meshlet、Cluster、hierarchy、SSE | `OEngine/src/geometry`、`OEngine/src/gpu` | `docs/PIPELINE.md`、`docs/porting/geometry.md` |
 | Culling、HZB、Indirect、VisibilityKey | `OEngine/src/gpu`、`OEngine/src/render/passes`、`OEngine/src/shaders` | `docs/PIPELINE.md`、`docs/porting/visibility.md` |
 | Surface、材质、光照、阴影、GI/AO/SSR/OIT/TAA/Post | `OEngine/src/render`、`OEngine/src/material`、`OEngine/src/shaders` | `docs/PIPELINE.md`、`docs/porting/shading.md` |

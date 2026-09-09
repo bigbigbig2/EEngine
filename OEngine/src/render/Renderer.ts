@@ -129,7 +129,10 @@ import {
 import { halfToFloat } from "../loaders/float16.js";
 import { TemporalHistoryRegistry } from "./TemporalHistoryRegistry.js";
 import type { DynamicResolutionScaling } from "./DynamicResolutionScaling.js";
-import type { GraphicsMemoryEvidence } from "../gpu/GraphicsContext.js";
+import type {
+  GraphicsMemoryEvidence,
+  GraphicsOwnerCreationEvidence
+} from "../gpu/GraphicsContext.js";
 import {
   RenderSettings,
   metersToWorldUnits,
@@ -889,6 +892,11 @@ export class Renderer {
       0
     );
     return Object.freeze({ ...graphics, historyBytes, historyOwners });
+  }
+
+  /** Architecture gate evidence; reports owner creation without exposing GPU resources. */
+  gpuOwnerCreationEvidence(): GraphicsOwnerCreationEvidence {
+    return this._graphics.ownerCreationEvidence();
   }
 
   /** Machine-readable migration state; does not imply any performance Gate passed. */

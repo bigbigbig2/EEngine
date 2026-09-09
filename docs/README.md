@@ -13,6 +13,7 @@
 ## 专项入口
 
 - 长期架构决定：[adr/](./adr/README.md)。
+- Packed Render World 收敛实施入口：[ADR-0006](./adr/0006-packed-render-world-convergence.md)。
 - 外部算法、资产和许可证：[porting/](./porting/README.md)。
 - Performance Inspector：[`OEngine/src/addons/inspector/README.md`](../OEngine/src/addons/inspector/README.md)。
 - 浏览器示例与 Storybook：[`examples/README.md`](../examples/README.md)。

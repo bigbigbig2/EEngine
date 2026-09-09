@@ -23,6 +23,7 @@ const finalDocs = [
   "adr/0003-unified-render-pipeline.md",
   "adr/0004-visibility-to-surface.md",
   "adr/0005-unified-browser-validation.md",
+  "adr/0006-packed-render-world-convergence.md",
   "adr/README.md",
   "porting/geometry.md",
   "porting/platform.md",

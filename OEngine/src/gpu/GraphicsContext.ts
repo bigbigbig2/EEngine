@@ -59,6 +59,29 @@ export interface GraphicsMemoryEvidence {
   readonly limitations: readonly string[];
 }
 
+export interface GraphicsOwnerCreationEvidence {
+  readonly schemaVersion: 1;
+  readonly legacy: Readonly<{
+    readonly materialRegistryCreated: boolean;
+    readonly materialContextCount: number;
+    readonly materialMetadataTableCreated: boolean;
+    readonly materialDefaultTexturesCreated: boolean;
+    readonly materialDepthPipelineCreated: boolean;
+    readonly materialExpandPipelineCreated: boolean;
+    readonly geometryTableCreated: boolean;
+    readonly residentMaterialContextCreated: boolean;
+  }>;
+  readonly packed: Readonly<{
+    readonly assetStoreCreated: boolean;
+    readonly instanceTableCreated: boolean;
+    readonly sceneRegistryCreated: boolean;
+    readonly materialStoreCreated: boolean;
+    readonly textureResidencyCreated: boolean;
+    readonly baseTextureBankCreated: boolean;
+    readonly highResolutionTextureBankCreated: boolean;
+  }>;
+}
+
 export class GraphicsContext {
   readonly isGraphicsContext = true;
   readonly device: GPUDevice;
@@ -187,6 +210,35 @@ export class GraphicsContext {
 
   profilingResourceSnapshot(): ResourceAccountingSnapshot {
     return this.resource_accounting.snapshot();
+  }
+
+  /** Monotonic owner-creation evidence used by architecture and browser gates. */
+  ownerCreationEvidence(): GraphicsOwnerCreationEvidence {
+    const legacyMaterial = this.materials.evidence();
+    const textureResidency = this.textureResidencyValue?.evidence();
+    return Object.freeze({
+      schemaVersion: 1,
+      legacy: Object.freeze({
+        materialRegistryCreated: true,
+        materialContextCount: legacyMaterial.materialContextCount,
+        materialMetadataTableCreated: legacyMaterial.metadataTableCreated,
+        materialDefaultTexturesCreated: legacyMaterial.defaultTexturesCreated,
+        materialDepthPipelineCreated: legacyMaterial.materialDepthPipelineCreated,
+        materialExpandPipelineCreated: legacyMaterial.materialExpandPipelineCreated,
+        geometryTableCreated: this.geometryTableValue !== undefined,
+        residentMaterialContextCreated: this.residentMaterials !== undefined
+      }),
+      packed: Object.freeze({
+        assetStoreCreated: this.assetStoreValue !== undefined,
+        instanceTableCreated: this.gpuSceneValue !== undefined,
+        sceneRegistryCreated: this.packedScenesValue !== undefined,
+        materialStoreCreated: this.materialStoreValue !== undefined,
+        textureResidencyCreated: this.textureResidencyValue !== undefined,
+        baseTextureBankCreated: this.textureResidencyValue !== undefined,
+        highResolutionTextureBankCreated:
+          textureResidency?.highResolutionArrayAllocated ?? false
+      })
+    });
   }
 
   get materials_resident(): GPUResidentMaterialContext {

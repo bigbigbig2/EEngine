@@ -61,6 +61,15 @@ type DefaultMaterialResources = {
   sampler: GPUSampler;
 };
 
+export interface LegacyMaterialOwnerEvidence {
+  readonly schemaVersion: 1;
+  readonly materialContextCount: number;
+  readonly metadataTableCreated: boolean;
+  readonly defaultTexturesCreated: boolean;
+  readonly materialDepthPipelineCreated: boolean;
+  readonly materialExpandPipelineCreated: boolean;
+}
+
 export class GPUMaterialContext {
   readonly uniform_buffer: GPUBuffer;
   readonly textures = new Map<ShadeTexture, GPUTextureContext>();
@@ -345,6 +354,18 @@ export class GPUMaterialRegistry {
 
   get version(): number {
     return this.versionValue;
+  }
+
+  /** Bounded creation evidence; no GPU handle or mutable registry state escapes. */
+  evidence(): LegacyMaterialOwnerEvidence {
+    return Object.freeze({
+      schemaVersion: 1,
+      materialContextCount: this.contexts.size,
+      metadataTableCreated: true,
+      defaultTexturesCreated: true,
+      materialDepthPipelineCreated: true,
+      materialExpandPipelineCreated: this.materialExpandPipeline !== null
+    });
   }
 
   obtain(source: ShadeMaterial): GPUMaterialContext {

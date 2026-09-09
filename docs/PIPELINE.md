@@ -66,3 +66,5 @@ Feature 关闭时不得构造对应 GPU owner、Pass、attachment、history、re
 ## 尚未统一的路径
 
 普通 Scene 的 Material Expand、独立 Velocity 和 legacy OIT 仍与 Packed 路径并存；它们是迁移债务。新功能只能接入统一产品合同，不得再扩张旧路径。
+
+Packed material、scene owner、shadow/light 边界、MainRenderPipeline 和普通 Scene 的迁移顺序由 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 固定。
