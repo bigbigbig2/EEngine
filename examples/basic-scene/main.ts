@@ -30,16 +30,6 @@ type FixtureResult = {
   readonly error?: { readonly name: string; readonly message: string };
 };
 
-declare global {
-  interface Window {
-    __OENGINE_BASIC_SCENE_FIXTURE__?: {
-      getSnapshot: () => FixtureResult;
-      downloadJson: () => void;
-      captureScreenshot: () => Promise<void>;
-    };
-  }
-}
-
 const canvas = required<HTMLCanvasElement>("gpu-canvas");
 const status = required<HTMLElement>("scene-status");
 const downloadJsonButton = required<HTMLButtonElement>("download-json");
@@ -63,7 +53,6 @@ let initialized = false;
 downloadJsonButton.addEventListener("click", downloadJson);
 capturePngButton.addEventListener("click", () => void captureScreenshot());
 resetCameraButton.addEventListener("click", resetCamera);
-window.__OENGINE_BASIC_SCENE_FIXTURE__ = { getSnapshot, downloadJson, captureScreenshot };
 
 void initialize().catch((error: unknown) => {
   releaseRuntime();
@@ -256,7 +245,6 @@ function dispose(): void {
   if (disposed) return;
   disposed = true;
   releaseRuntime(false);
-  delete window.__OENGINE_BASIC_SCENE_FIXTURE__;
 }
 
 window.addEventListener("pagehide", dispose, { once: true });

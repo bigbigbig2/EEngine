@@ -12,11 +12,15 @@
     "prebuild:storybook": "npm run build",
     "build:storybook": "npm run typecheck:storybook && storybook build -o storybook-static",
     "build": "tsc --noEmit && vite build --config vite.config.ts",
-    "test:fixtures": "node ./fixture-smoke.mjs",
-    "test:rendering-lab:profiles": "node ./rendering-lab/profile-smoke.mjs",
-    "test:visibility-key-oracle": "node ./rendering-lab/visibility-key-oracle.mjs",
-    "test:rendering-lab:workload": "node ./rendering-lab/benchmark-workload-smoke.mjs",
-    "profile:rendering-lab:formal": "npm --prefix ../OEngine run build:test && node ./rendering-lab/profile-formal.mjs"
+    "test:validation-tools": "node --test ./build-provenance.test.mjs ./rendering-lab/benchmark-workloads.test.mjs ./validation-tools/tests/*.test.mjs",
+    "verify": "node ./validation-tools/verify.mjs",
+    "verify:changed": "node ./validation-tools/verify.mjs changed",
+    "verify:full": "node ./validation-tools/verify.mjs full",
+    "test:fixtures": "node ./validation-tools/verify.mjs smoke.basic",
+    "test:rendering-lab:profiles": "node ./validation-tools/verify.mjs rendering-lab.profiles",
+    "test:visibility-key-oracle": "node ./validation-tools/verify.mjs rendering-lab.oracle",
+    "test:rendering-lab:workload": "node ./validation-tools/verify.mjs rendering-lab.workload",
+    "profile:rendering-lab:formal": "node ./validation-tools/verify.mjs formal"
   },
   "devDependencies": {
     "@storybook/addon-docs": "^10.5.10",

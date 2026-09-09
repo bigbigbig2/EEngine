@@ -88,6 +88,22 @@ export default defineConfig({
           examplesRoot,
           "basic-scene/index.html"
         ),
+        validationSmoke: path.resolve(
+          examplesRoot,
+          "validation/smoke/index.html"
+        ),
+        validationLifecycle: path.resolve(
+          examplesRoot,
+          "validation/lifecycle/index.html"
+        ),
+        validationVisibility: path.resolve(
+          examplesRoot,
+          "validation/visibility/index.html"
+        ),
+        validationSurface: path.resolve(
+          examplesRoot,
+          "validation/surface/index.html"
+        ),
         renderingLab: path.resolve(
           examplesRoot,
           "rendering-lab/index.html"

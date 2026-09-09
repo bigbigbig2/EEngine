@@ -8,6 +8,8 @@
 - `runtime/01-geometry/`：Source Geometry、Meshlet、Cluster、Hierarchy、SSE/LOD、BVH8 和 Runtime Asset Package。
 - `storybook/`：案例目录与 Story 外壳。
 - `rendering-lab/`：综合质量、性能和迁移证据 fixture。
+- `validation/`：Smoke、Visibility、Surface、Lifecycle 四个日常真实 WebGPU Fixture。
+- `validation-tools/`：Case Registry、源码域 Selector、唯一 ChromeRunner 与结果合同。
 - `basic-scene/`、`model-loading/`、`geometry-preprocess/`：较小的独立功能 fixture。
 
 ## Runtime 边界
@@ -29,10 +31,11 @@ yarn storybook
 ```powershell
 yarn build
 yarn build:storybook
-yarn test:fixtures
+yarn verify:changed
+yarn verify:full
 ```
 
-浏览器 smoke 为每个案例创建新 context，并检查启动、console/page error、导出证据和截图。生成物是本机临时结果，不是发布基线。
+也可以运行 `yarn verify visibility`、`yarn verify surface`、`yarn verify lifecycle` 或 `yarn verify visibility.occlusion`。`verify changed --base <ref>` 比较 `<ref>...HEAD`，`verify paths <path...>` 验证显式路径。Runner 为每个 Case 创建独立 Context，并检查协议 schema、runId/frame 新鲜度、断言、GPU diagnostics、console/page/request error 和截图。退出码 0/1/2 分别表示 passed/failed/inconclusive；生成物位于 `temp/validation/`，不是发布基线。
 
 ## 新增案例
 

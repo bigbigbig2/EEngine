@@ -1,0 +1,53 @@
+const chromeWebGpu = Object.freeze({ localChrome: true, webgpu: true });
+
+export const VALIDATION_CASES = Object.freeze([
+  defineCase("smoke.basic", "smoke", "basic", ["smoke", "renderer", "graphics-context", "gpu-scene"], ["validation-system", "rendering-lab", "public-interface", "framegraph", "renderer", "graphics-context", "gpu-scene", "asset", "observability", "build"], "always"),
+  defineCase("lifecycle.init-destroy", "lifecycle", "init-destroy", ["lifecycle", "renderer", "graphics-context", "gpu-resource"], ["validation-system", "public-interface", "framegraph", "renderer", "graphics-context", "lifecycle", "build"]),
+  defineCase("lifecycle.resize", "lifecycle", "resize", ["lifecycle", "renderer", "graphics-context"], ["lifecycle"]),
+  defineCase("lifecycle.recreate-renderer", "lifecycle", "recreate-renderer", ["lifecycle", "renderer", "graphics-context", "gpu-resource"]),
+  defineCase("lifecycle.replace-scene", "lifecycle", "replace-scene", ["lifecycle", "renderer", "gpu-scene", "gpu-resource"], ["gpu-scene"]),
+  defineCase("visibility.basic", "visibility", "basic", ["visibility", "gpu-driven", "hierarchy", "raster"], ["framegraph", "renderer", "graphics-context", "visibility"]),
+  defineCase("visibility.frustum", "visibility", "frustum", ["visibility", "gpu-driven", "frustum"]),
+  defineCase("visibility.occlusion", "visibility", "occlusion", ["visibility", "gpu-driven", "hzb"], ["visibility", "hzb"]),
+  defineCase("visibility.lod-near", "visibility", "lod-near", ["visibility", "gpu-driven", "hierarchy", "lod"]),
+  defineCase("visibility.lod-far", "visibility", "lod-far", ["visibility", "gpu-driven", "hierarchy", "lod"]),
+  defineCase("visibility.camera-cut", "visibility", "camera-cut", ["visibility", "gpu-driven", "hzb", "temporal"], ["hzb"]),
+  defineCase("surface.basic", "surface", "basic", ["surface", "material-resolve"], ["surface", "material"], "always"),
+  defineCase("surface.textured", "surface", "textured", ["surface", "material", "texture-residency"], ["surface", "texture-residency"], "always"),
+  defineCase("surface.material-switch", "surface", "material-switch", ["surface", "material", "gpu-scene"], ["material"]),
+  defineCase("surface.texture-fallback", "surface", "texture-fallback", ["surface", "material", "texture-residency"], ["texture-residency"])
+]);
+
+const CASE_BY_ID = new Map(VALIDATION_CASES.map((entry) => [entry.id, entry]));
+
+export function validationCase(caseId) {
+  const entry = CASE_BY_ID.get(caseId);
+  if (entry === undefined) throw new Error(`Unknown validation case '${caseId}'`);
+  return entry;
+}
+
+export function casesForDomain(domain) {
+  return VALIDATION_CASES.filter((entry) => entry.domains.includes(domain));
+}
+
+export function casesForFixture(fixture) {
+  return VALIDATION_CASES.filter((entry) => entry.fixture === fixture);
+}
+
+export function isValidationCaseId(value) {
+  return CASE_BY_ID.has(value);
+}
+
+function defineCase(id, fixture, scenario, domains, changedDomains = [], screenshot = "on-failure") {
+  return Object.freeze({
+    id,
+    fixture,
+    route: `/validation/${fixture}/`,
+    scenario,
+    domains: Object.freeze([...domains]),
+    changedDomains: Object.freeze([...changedDomains]),
+    requirements: chromeWebGpu,
+    screenshot,
+    timeoutMs: 30_000
+  });
+}

@@ -12,7 +12,7 @@
 | Culling、HZB、Indirect、VisibilityKey | `OEngine/src/gpu`、`OEngine/src/render/passes`、`OEngine/src/shaders` | `docs/PIPELINE.md`、`docs/porting/visibility.md` |
 | Surface、材质、光照、阴影、GI/AO/SSR/OIT/TAA/Post | `OEngine/src/render`、`OEngine/src/material`、`OEngine/src/shaders` | `docs/PIPELINE.md`、`docs/porting/shading.md` |
 | Device、limits、FrameGraph、cache、readback | `OEngine/src/gpu/GraphicsContext.ts`、`OEngine/src/framegraph` | `docs/ARCHITECTURE.md`、`docs/porting/platform.md` |
-| 性能、内存、counter、Inspector、browser evidence | `OEngine/src/debug`、`OEngine/src/addons/inspector`、`OEngine/benchmarks`、`examples/rendering-lab` | `docs/VALIDATION.md` |
+| 正确性、性能、counter、Inspector、browser evidence | `examples/validation`、`examples/validation-tools`、`OEngine/src/debug`、`OEngine/src/addons/inspector`、`examples/rendering-lab` | `docs/VALIDATION.md`、`docs/adr/0005-unified-browser-validation.md` |
 | 当前风险、迁移顺序 | 命中的生产 owner | `docs/STATUS.md` |
 
 ## 共享入口
@@ -21,6 +21,7 @@
 - 长期架构决策：`docs/adr/`
 - 外部来源与许可证：`docs/porting/`
 - 公开 interface：`OEngine/src/index.ts`
-- 当前浏览器 fixture：`examples/rendering-lab/`
+- 日常浏览器验证：`examples/validation/`；统一 Runner：`examples/validation-tools/`
+- 综合与性能 fixture：`examples/rendering-lab/`
 
 外部项目不在本仓库保存镜像。需要采用算法时，从 porting ledger 的固定 URL/revision 路由到上游；无许可证或未登记来源的表达性代码不得复制。

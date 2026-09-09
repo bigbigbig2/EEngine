@@ -1,0 +1,305 @@
+import {
+  DirectionalLight,
+  PerspectiveCamera,
+  Renderer,
+  Scene,
+  StandardShadeMaterial,
+  buildBoxSourceGeometry,
+  cookGeometryAssetPackage,
+  createGeometryCookRecipe,
+  type FrameProfileSnapshot,
+  type GeometryAssetPackage,
+  type PackedSceneSource
+} from "../../../OEngine/src/index.ts";
+import {
+  VALIDATION_FIXTURE_KEY,
+  VALIDATION_PROTOCOL_SCHEMA_VERSION,
+  validationAssertion,
+  validationError,
+  type ValidationAssertion,
+  type ValidationFixture,
+  type ValidationScenarioRequest,
+  type ValidationScenarioResult
+} from "../fixture-protocol.ts";
+import { FixtureState } from "../shared/fixture-state.ts";
+import {
+  hasGpuFailure,
+  settleRendererForValidationDestroy,
+  validationAdapter,
+  validationDiagnostics,
+  waitForCompletedGpuCounters
+} from "../shared/runtime-evidence.ts";
+
+const canvas = required<HTMLCanvasElement>("gpu-canvas");
+const statusElement = required<HTMLElement>("status");
+let renderer: Renderer | null = null;
+let scene: Scene | null = null;
+let camera: PerspectiveCamera | null = null;
+let frameRequest = 0;
+let disposed = false;
+
+const state = new FixtureState({
+  fixtureId: "smoke",
+  canvas,
+  frame: () => renderer?.frame_count ?? 0,
+  adapter: () => validationAdapter(renderer?.adapter_info ?? null, renderer?.device ?? null),
+  diagnostics: () => validationDiagnostics(renderer?.profiler.diagnostics)
+});
+
+const fixture: ValidationFixture = {
+  getSnapshot: () => state.snapshot(),
+  runScenario,
+  dispose
+};
+window[VALIDATION_FIXTURE_KEY] = fixture;
+
+void initialize().catch((error: unknown) => {
+  state.fail(validationError(error));
+  showStatus();
+  console.error(error);
+});
+
+async function initialize(): Promise<void> {
+  if (navigator.gpu === undefined) throw new Error("WebGPU is unavailable in this browser");
+  const context = canvas.getContext("webgpu");
+  if (context === null) throw new Error("Unable to create a WebGPU canvas context");
+
+  const activeRenderer = new Renderer();
+  renderer = activeRenderer;
+  await activeRenderer.initialize({ context, pixelRatio: 1 });
+  activeRenderer.configure({
+    features: {
+      shadows: false,
+      ambientOcclusion: false,
+      screenSpaceReflections: false,
+      temporalAntiAliasing: false,
+      bloom: false,
+      automaticExposure: false,
+      motionBlur: false,
+      sharpening: false
+    }
+  });
+  activeRenderer.profiler.configure({
+    enabled: true,
+    gpuCounterSampleInterval: 1,
+    readbackRingSlots: 8
+  });
+  activeRenderer.profiler.setMode("deep-capture");
+
+  const activeScene = new Scene();
+  scene = activeScene;
+  const light = new DirectionalLight();
+  light.intensity = 2.8;
+  light.forward = [-0.45, -0.8, -0.35];
+  light.casts_shadow = false;
+  activeScene.addChild(light);
+  await activeRenderer.uploadPackedScene(activeScene, await createSmokeSceneSource());
+
+  const activeCamera = new PerspectiveCamera();
+  camera = activeCamera;
+  activeCamera.near = 0.01;
+  activeCamera.far = 100;
+  activeCamera.transform.position.set(7, 5.5, 8);
+  activeCamera.transform.lookAt({ x: 0, y: 0.5, z: 0 });
+  resize();
+
+  state.ready();
+  showStatus();
+  startFrameLoop();
+}
+
+async function runScenario(
+  request: ValidationScenarioRequest
+): Promise<ValidationScenarioResult> {
+  if (request.scenarioId !== "basic") {
+    return failedScenario(request, new Error(`Unknown smoke scenario '${request.scenarioId}'`));
+  }
+  if (renderer === null || scene === null || camera === null) {
+    return failedScenario(request, new Error("Smoke runtime is not initialized"));
+  }
+
+  const activeRenderer = renderer;
+  const startedFrame = activeRenderer.frame_count;
+  state.start(request.runId, request.scenarioId);
+  showStatus();
+  try {
+    const counterPromise = waitForCompletedGpuCounters(activeRenderer.profiler, startedFrame);
+    const capturePromise = activeRenderer.requestLinearHdrCapture({
+      x: Math.max(0, Math.floor(canvas.width / 2) - 2),
+      y: Math.max(0, Math.floor(canvas.height / 2) - 2),
+      width: Math.min(4, canvas.width),
+      height: Math.min(4, canvas.height),
+      stage: "lighting"
+    });
+    const [profile, capture] = await Promise.all([counterPromise, capturePromise]);
+    const diagnostics = validationDiagnostics(activeRenderer.profiler.diagnostics);
+    const residency = activeRenderer.geometryAssetResidencyEvidence();
+    const sceneEvidence = activeRenderer.gpuSceneEvidence();
+    const luminanceMaximum = maximumFiniteRgb(capture.rgba);
+    const counters = profile.gpuCounters.values;
+    const assertions: ValidationAssertion[] = [
+      validationAssertion("frame-advanced", profile.frameIndex > startedFrame, "A newer rendered frame supplied the evidence", profile.frameIndex, `> ${startedFrame}`),
+      validationAssertion("adapter-created", activeRenderer.adapter_info !== null, "Renderer captured its originating GPU adapter"),
+      validationAssertion("packed-assets-resident", residency.residentAssetCount >= 2, "Cube and ground assets are resident", residency.residentAssetCount, ">= 2"),
+      validationAssertion("packed-instances-active", sceneEvidence.activeInstanceCount >= 2, "Cube and ground instances are active", sceneEvidence.activeInstanceCount, ">= 2"),
+      validationAssertion("gpu-raster-work", (counters.hwTriangles ?? 0) > 0, "Hardware visibility consumed triangle work", counters.hwTriangles, "> 0"),
+      validationAssertion("gpu-shaded-pixels", (counters.shadedPixels ?? 0) > 0, "Material resolve shaded visible pixels", counters.shadedPixels, "> 0"),
+      validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0),
+      validationAssertion("linear-hdr-non-empty", luminanceMaximum > 0.001, "The rendered HDR sample contains visible output", luminanceMaximum, "> 0.001"),
+      validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics)
+    ];
+    const result: ValidationScenarioResult = {
+      schemaVersion: VALIDATION_PROTOCOL_SCHEMA_VERSION,
+      fixtureId: "smoke",
+      runId: request.runId,
+      scenarioId: request.scenarioId,
+      status: assertions.every((assertion) => assertion.passed) ? "passed" : "failed",
+      startedFrame,
+      completedFrame: profile.frameIndex,
+      evidence: {
+        residentAssetCount: residency.residentAssetCount,
+        activeInstanceCount: sceneEvidence.activeInstanceCount,
+        hwTriangles: counters.hwTriangles ?? 0,
+        shadedPixels: counters.shadedPixels ?? 0,
+        queueOverflowMask: counters.queueOverflowMask ?? 0,
+        luminanceMaximum,
+        gpuCounterSchemaVersion: profile.gpuCounters.schemaVersion
+      },
+      assertions,
+      diagnostics
+    };
+    state.finish();
+    showStatus();
+    return result;
+  } catch (error) {
+    state.finish();
+    showStatus();
+    return failedScenario(request, error, startedFrame);
+  }
+}
+
+function startFrameLoop(): void {
+  const frame = (): void => {
+    if (disposed || renderer === null || scene === null || camera === null) return;
+    camera.aspect = renderer.aspect_ratio;
+    camera.update();
+    if (!renderer.render(camera, scene, 1 / 60)) {
+      state.deviceLost({ name: "GPUDeviceLost", message: "Renderer stopped after GPU device loss" });
+      showStatus();
+      return;
+    }
+    frameRequest = requestAnimationFrame(frame);
+  };
+  frameRequest = requestAnimationFrame(frame);
+}
+
+async function dispose(): Promise<void> {
+  if (disposed) return;
+  disposed = true;
+  cancelAnimationFrame(frameRequest);
+  frameRequest = 0;
+  if (renderer !== null) {
+    await settleRendererForValidationDestroy(renderer);
+    renderer.destroy();
+  }
+  renderer = null;
+  scene = null;
+  camera = null;
+  canvas.getContext("webgpu")?.unconfigure();
+  state.dispose();
+  showStatus();
+  delete window[VALIDATION_FIXTURE_KEY];
+}
+
+async function createSmokeSceneSource(): Promise<PackedSceneSource> {
+  const recipe = createGeometryCookRecipe();
+  const geometries: GeometryAssetPackage[] = [];
+  for (const source of [buildBoxSourceGeometry(2, 2, 2), buildBoxSourceGeometry(12, 0.12, 12)]) {
+    geometries.push((await cookGeometryAssetPackage(source, recipe)).asset);
+  }
+  const cube = new StandardShadeMaterial();
+  cube.diffuse_color.set(0.1, 0.42, 0.95, 1);
+  cube.roughness_factor = 0.34;
+  const ground = new StandardShadeMaterial();
+  ground.diffuse_color.set(0.18, 0.2, 0.24, 1);
+  ground.roughness_factor = 0.9;
+  const currentTransforms = new Float32Array(32);
+  writeTranslation(currentTransforms, 0, 0, 1.06, 0);
+  writeTranslation(currentTransforms, 16, 0, -0.06, 0);
+  return {
+    geometries,
+    materials: [cube, ground],
+    count: 2,
+    geometryIndices: new Uint32Array([0, 1]),
+    materialIndices: new Uint32Array([0, 1]),
+    currentTransforms,
+    previousTransforms: currentTransforms.slice(),
+    boundsSpheres: new Float32Array([0, 1.06, 0, 1.7321, 0, -0.06, 0, 8.4853]),
+    boundsMin: new Float32Array([-1, 0.06, -1, -6, -0.12, -6]),
+    boundsMax: new Float32Array([1, 2.06, 1, 6, 0, 6]),
+    flags: new Uint32Array([0, 0]),
+    debugIds: new Uint32Array([1, 2])
+  };
+}
+
+function failedScenario(
+  request: ValidationScenarioRequest,
+  error: unknown,
+  startedFrame = renderer?.frame_count ?? 0
+): ValidationScenarioResult {
+  const normalized = validationError(error);
+  const completedFrame = Math.max(startedFrame + 1, renderer?.frame_count ?? 0);
+  return {
+    schemaVersion: VALIDATION_PROTOCOL_SCHEMA_VERSION,
+    fixtureId: "smoke",
+    runId: request.runId,
+    scenarioId: request.scenarioId,
+    status: "failed",
+    startedFrame,
+    completedFrame,
+    evidence: {},
+    assertions: [validationAssertion("scenario-execution", false, normalized.message)],
+    diagnostics: validationDiagnostics(renderer?.profiler.diagnostics),
+    error: normalized
+  };
+}
+
+function maximumFiniteRgb(rgba: Float32Array): number {
+  let maximum = 0;
+  for (let index = 0; index < rgba.length; index += 4) {
+    for (let channel = 0; channel < 3; channel++) {
+      const value = rgba[index + channel] ?? 0;
+      if (Number.isFinite(value)) maximum = Math.max(maximum, value);
+    }
+  }
+  return maximum;
+}
+
+function resize(): void {
+  if (renderer === null || camera === null) return;
+  renderer.resize(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight));
+  camera.aspect = renderer.aspect_ratio;
+  camera.update();
+}
+
+function writeTranslation(target: Float32Array, offset: number, x: number, y: number, z: number): void {
+  target.fill(0, offset, offset + 16);
+  target[offset] = 1;
+  target[offset + 5] = 1;
+  target[offset + 10] = 1;
+  target[offset + 12] = x;
+  target[offset + 13] = y;
+  target[offset + 14] = z;
+  target[offset + 15] = 1;
+}
+
+function showStatus(): void {
+  statusElement.dataset.fixtureStatus = state.status;
+  statusElement.textContent = state.status;
+}
+
+function required<T extends HTMLElement>(id: string): T {
+  const element = document.getElementById(id);
+  if (element === null) throw new Error(`Missing #${id}`);
+  return element as T;
+}

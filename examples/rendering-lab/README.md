@@ -36,7 +36,9 @@ yarn profile:rendering-lab:formal
 - `camera-path.ts`、`camera-experiments.ts` 定义固定 FOV、投影归一化、LOD 和 camera-cut 输入。
 - `benchmark-suite.ts` 串行执行 base/full/full-minus 与相机实验。
 - `benchmark-report.ts` 只消费 Renderer/FrameProfiler 证据并生成结构化报告。
-- `profile-smoke.mjs` 用于开发探查；`profile-formal.mjs` 用于发布级候选证据。
+- 开发 profiles、workload smoke、VisibilityKey oracle 和 formal policy 都由 `validation-tools/chrome-runner.mjs` 启动浏览器；Rendering Lab 只拥有 benchmark Fixture 与领域证据。
+
+Formal 默认执行三个独立 browser context，每次 120 warm-up + 480 measured frames，并要求 clean commit、固定 workload/camera、截图、provenance 和全部 BenchmarkEvidenceGate 通过。`OENGINE_BENCHMARK_SMOKE=true` 只用于检查 formal 编排，不构成正式性能证据。
 
 报告必须区分 CPU wall、GPU timestamp、counter coverage、memory、submit 和 diagnostics。缺失或 unsupported 的样本保持 unavailable；不能以 0 代替，也不能把 CPU/GPU 时钟相加。
 

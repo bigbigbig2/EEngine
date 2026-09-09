@@ -22,6 +22,7 @@ const finalDocs = [
   "adr/0002-runtime-assets-and-gpu-driven.md",
   "adr/0003-unified-render-pipeline.md",
   "adr/0004-visibility-to-surface.md",
+  "adr/0005-unified-browser-validation.md",
   "adr/README.md",
   "porting/geometry.md",
   "porting/platform.md",

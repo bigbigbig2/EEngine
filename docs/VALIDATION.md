@@ -10,6 +10,25 @@ npm ci
 npm test
 ```
 
+浏览器验证从 `examples/` 执行：
+
+```powershell
+npm run test:validation-tools
+npm run verify -- changed
+```
+
+可显式选择 `full`、`smoke`、`visibility`、`surface`、`lifecycle` 或单个 Case（例如 `visibility.occlusion`）。`changed --base <ref>` 使用 `<ref>...HEAD`，`paths <path...>` 使用显式路径；不带 `--base` 的 `changed` 必须覆盖 staged、unstaged、untracked、rename 和 delete。没有映射规则的 `OEngine/src/` 文件必须在结果中列入 `unmappedPaths`，并保守运行 `smoke.basic`、`lifecycle.init-destroy`、`visibility.basic`。
+
+## Browser Validation 合同
+
+- Case id、route、scenario、domain 与运行要求只在 `examples/validation-tools/cases.mjs` 登记。
+- Smoke、Visibility、Surface、Lifecycle 是 Canonical Fixture；各自拥有 canvas、Renderer、Scene、Camera、RAF 和 GPU 资源销毁。
+- Fixture 统一暴露 `window.__OENGINE_VALIDATION_FIXTURE__`。Runner 传入唯一 `runId`；返回结果必须匹配 runId、fixture、scenario，并且 `completedFrame > startedFrame`。
+- Runner 只负责 Vite、Chrome、Context、协议/schema、browser error、artifact 和清理，不实现领域断言。
+- 每个 Case 使用独立 browser context。浏览器 console error、page error、request failure、GPU validation/uncaptured error、device loss、失败断言、空/畸形断言、陈旧结果或 schema 错误均为失败。
+- 结果状态只有 `passed`、`failed`、`inconclusive`，退出码固定为 0、1、2。没有本机 Google Chrome 时真实 GPU Case 必须返回 `inconclusive`；只有 `OENGINE_ALLOW_CHROMIUM_FALLBACK=true` 才可尝试 Chromium，且报告必须保留其非 Chrome 身份。
+- JSON 与截图写入 `temp/validation/`。截图是观察 artifact，不默认作为 pixel-perfect gate。
+
 ## 文档门禁
 
 - `docs/` 只包含入口、五份核心事实页、ADR 和 porting ledger。
@@ -22,6 +41,8 @@ npm test
 ## Rendering Lab
 
 综合浏览器 fixture 位于 `examples/rendering-lab/`。它使用共享 Performance Inspector 作为唯一统计面板；场景控制和 debug view 仍由 Rendering Lab 提供。具体运行命令见 `examples/rendering-lab/README.md`。
+
+Rendering Lab 的 workload smoke、profiles、VisibilityKey oracle 和 formal policy 复用同一个 ChromeRunner，不得再直接导入 Playwright 或复制 Chrome resolution/error capture。Formal 非 smoke 策略固定为 clean commit、三个独立 browser context、每次 120 warm-up + 480 measured frames、固定 workload/camera、截图、provenance 与 BenchmarkEvidenceGate；任何 gate error 都必须让命令失败。`OENGINE_BENCHMARK_SMOKE=true` 的 30+60 cadence 只验证编排。
 
 运行证据必须记录 commit/dirty state、浏览器、adapter、分辨率、DPR、feature set、场景/相机输入、warm-up、采样窗口和 diagnostics。
 

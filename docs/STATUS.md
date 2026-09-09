@@ -10,6 +10,7 @@
 - 旧 Pixel Queue、ShadeWork 和可见像素 scan/scatter 生产链已退出生产路径。
 - direct lighting、CSM、GI、AO、SSR、MBOIT、Temporal 与 HDR post 接入同一 Renderer 主流程。
 - Performance Inspector 是共享的实时 Profiler/Timeline；Rendering Lab 是综合质量与性能 fixture。
+- Browser Validation 已统一为 Registry + Source Domain Selector + 单一 ChromeRunner；Smoke、Visibility、Surface、Lifecycle 承担日常真实 WebGPU 验证，Rendering Lab 保留综合与 formal benchmark。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 

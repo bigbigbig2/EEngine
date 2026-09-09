@@ -32,16 +32,6 @@ type Snapshot = {
   readonly error?: { readonly name: string; readonly message: string };
 };
 
-declare global {
-  interface Window {
-    __OENGINE_GEOMETRY_MESHLET_CONE_FIXTURE__?: {
-      getSnapshot: () => Snapshot;
-      downloadJson: () => void;
-      captureScreenshot: () => Promise<void>;
-    };
-  }
-}
-
 const canvas = required<HTMLCanvasElement>("gpu-canvas");
 const status = required<HTMLElement>("scene-status");
 const metrics = required<HTMLElement>("scene-metrics");
@@ -70,7 +60,6 @@ let currentConeCullCount = 0;
 required<HTMLButtonElement>("download-json").addEventListener("click", downloadJson);
 required<HTMLButtonElement>("capture-png").addEventListener("click", () => void captureScreenshot());
 required<HTMLButtonElement>("reset-camera").addEventListener("click", resetCamera);
-window.__OENGINE_GEOMETRY_MESHLET_CONE_FIXTURE__ = { getSnapshot, downloadJson, captureScreenshot };
 
 void initialize().catch((error: unknown) => {
   releaseRuntime();
@@ -257,6 +246,6 @@ function downloadJson(): void { downloadBlob(new Blob([JSON.stringify(getSnapsho
 async function captureScreenshot(): Promise<void> { const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png")); if (blob !== null) downloadBlob(blob, "meshlet-cone.png"); }
 function downloadBlob(blob: Blob, filename: string): void { const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url); }
 function releaseRuntime(destroyRenderer = true): void { cancelAnimationFrame(frameRequest); frameRequest = 0; resizeObserver?.disconnect(); resizeObserver = null; controls?.pointer.stop(); controls?.keyboard.stop(); controls = null; if (destroyRenderer && rendererInitialized) renderer?.destroy(); rendererInitialized = false; renderer = null; scene = null; camera = null; canvas.getContext("webgpu")?.unconfigure(); }
-function dispose(): void { if (disposed) return; disposed = true; releaseRuntime(false); delete window.__OENGINE_GEOMETRY_MESHLET_CONE_FIXTURE__; }
+function dispose(): void { if (disposed) return; disposed = true; releaseRuntime(false); }
 window.addEventListener("pagehide", dispose, { once: true });
 function required<T extends Element>(id: string): T { const element = document.getElementById(id); if (element === null) throw new Error(`Missing element #${id}`); return element as T; }

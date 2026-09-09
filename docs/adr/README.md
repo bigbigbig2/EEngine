@@ -6,5 +6,6 @@ ADR 只记录仍生效且跨多个模块的长期决定。实现事实放在 `AR
 - [0002 · Runtime Asset 与 GPU-driven](./0002-runtime-assets-and-gpu-driven.md)
 - [0003 · 统一渲染管线](./0003-unified-render-pipeline.md)
 - [0004 · Visibility-to-Surface](./0004-visibility-to-surface.md)
+- [0005 · 统一浏览器验证体系](./0005-unified-browser-validation.md)
 
 新 ADR 必须说明 Context、Decision、Consequences 和 Verification。被替代的演化过程只保留在 Git。

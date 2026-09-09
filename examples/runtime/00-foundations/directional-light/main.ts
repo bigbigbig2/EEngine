@@ -28,16 +28,6 @@ type Snapshot = {
   readonly error?: { readonly name: string; readonly message: string };
 };
 
-declare global {
-  interface Window {
-    __OENGINE_FOUNDATIONS_DIRECTIONAL_LIGHT_FIXTURE__?: {
-      getSnapshot: () => Snapshot;
-      downloadJson: () => void;
-      captureScreenshot: () => Promise<void>;
-    };
-  }
-}
-
 const canvas = required<HTMLCanvasElement>("gpu-canvas");
 const status = required<HTMLElement>("scene-status");
 const metrics = required<HTMLElement>("scene-metrics");
@@ -60,7 +50,6 @@ const resetCameraButton = required<HTMLButtonElement>("reset-camera");
 downloadJsonButton.addEventListener("click", downloadJson);
 capturePngButton.addEventListener("click", () => void captureScreenshot());
 resetCameraButton.addEventListener("click", resetCamera);
-window.__OENGINE_FOUNDATIONS_DIRECTIONAL_LIGHT_FIXTURE__ = { getSnapshot, downloadJson, captureScreenshot };
 
 void initialize().catch((error: unknown) => {
   releaseRuntime();
@@ -207,6 +196,6 @@ function releaseRuntime(destroyRenderer = true): void {
   rendererInitialized = false; renderer = null; scene = null; camera = null;
   canvas.getContext("webgpu")?.unconfigure();
 }
-function dispose(): void { releaseRuntime(false); delete window.__OENGINE_FOUNDATIONS_DIRECTIONAL_LIGHT_FIXTURE__; }
+function dispose(): void { releaseRuntime(false); }
 window.addEventListener("pagehide", dispose, { once: true });
 function required<T extends Element>(id: string): T { const element = document.getElementById(id); if (element === null) throw new Error(`Missing element #${id}`); return element as T; }

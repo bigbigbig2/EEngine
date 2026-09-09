@@ -32,16 +32,6 @@ type Snapshot = {
   readonly error?: { readonly name: string; readonly message: string };
 };
 
-declare global {
-  interface Window {
-    __OENGINE_GEOMETRY_MESHLET_PARTITION_FIXTURE__?: {
-      getSnapshot: () => Snapshot;
-      downloadJson: () => void;
-      captureScreenshot: () => Promise<void>;
-    };
-  }
-}
-
 const canvas = required<HTMLCanvasElement>("gpu-canvas");
 const status = required<HTMLElement>("scene-status");
 const metrics = required<HTMLElement>("scene-metrics");
@@ -67,7 +57,6 @@ let partitionAsset: GeometryAssetPackage | null = null;
 required<HTMLButtonElement>("download-json").addEventListener("click", downloadJson);
 required<HTMLButtonElement>("capture-png").addEventListener("click", () => void captureScreenshot());
 required<HTMLButtonElement>("reset-camera").addEventListener("click", resetCamera);
-window.__OENGINE_GEOMETRY_MESHLET_PARTITION_FIXTURE__ = { getSnapshot, downloadJson, captureScreenshot };
 
 void initialize().catch((error: unknown) => {
   releaseRuntime();
@@ -342,7 +331,6 @@ function dispose(): void {
   if (disposed) return;
   disposed = true;
   releaseRuntime(false);
-  delete window.__OENGINE_GEOMETRY_MESHLET_PARTITION_FIXTURE__;
 }
 
 window.addEventListener("pagehide", dispose, { once: true });

@@ -43,6 +43,7 @@ export function compareGitBuildProvenance(current, embedded) {
   const errors = [];
   if (current.commit !== embedded.commit) errors.push("build-commit-mismatch");
   if (current.dirty !== embedded.dirty) errors.push("build-dirty-state-mismatch");
+  if (current.contentHash !== embedded.contentHash) errors.push("build-content-hash-mismatch");
   const currentReasons = [...current.dirtyReasons].sort();
   const embeddedReasons = [...embedded.dirtyReasons].sort();
   if (JSON.stringify(currentReasons) !== JSON.stringify(embeddedReasons)) {
