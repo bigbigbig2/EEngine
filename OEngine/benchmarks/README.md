@@ -13,6 +13,7 @@
 - `benchmarks/texture-residency-policy.json`：Step 2 方案选择的可复算内存、增长、copy/resize 与预算证据。
 - `benchmarks/texture-residency-step2.json`：Step1/Step2 clean commit 在同一 Rendering Lab 条件下的 CPU/GPU、submit、upload 与 memory A/B 摘要。
 - `benchmarks/main-render-pipeline-step5.json`：Step 5 前后 clean commit 的正式三次运行 A/B、graph parity、稳定帧与 feature topology 矩阵证据。
+- `benchmarks/render-world-convergence-step7.json`：Step 7 legacy runtime 删除前后 clean commit 的正式三次运行 A/B、graph/memory/I/O parity、feature-off 矩阵与未关闭证据门禁。
 - `examples/rendering-lab/`：唯一保留的真实浏览器 fixture。
 
 ## 采样合同

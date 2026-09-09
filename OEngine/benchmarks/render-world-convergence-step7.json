@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted",
+  "decision": "remove-legacy-render-runtime-and-compatibility-branches",
+  "comparison": {
+    "baselineCommit": "679e209deb1a76fddf3594695fe59084b34e78a1",
+    "baselineContentHash": "62f35c94c21409410256cf6cdd89d5f59207b8c5c8eef29d62be8bef4a14505c",
+    "baselineNote": "Step 6 complete immediately before legacy runtime deletion",
+    "candidateCommit": "2392e4aed8fb27faf929b3f9f87e8cd5ae4fcf33",
+    "candidateContentHash": "2d8a2dc3708127b437e7b19d529f3da1db41faab3c602aaa3870a5ba09491ed0",
+    "diagnosticCleanupCommit": "520c2b040e34c1f7dd93700689aafca0e357e833",
+    "cleanCommits": true,
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "timestampQuery": true
+    },
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "workload": {
+      "id": "comprehensive-full",
+      "camera": "overview",
+      "cameraPath": "rendering-lab-overview-v2",
+      "seed": 20260906,
+      "animateScene": true,
+      "instances": 816,
+      "geometries": 806,
+      "materials": 34,
+      "transparentInstances": 2
+    },
+    "triangleSetupEnabled": false,
+    "inspectorVisible": false,
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480,
+    "baselineRunGroupId": "5161a05c-2a73-45a9-a82e-85f16c6dc949",
+    "candidateRunGroupId": "b36d2a33-ff25-4503-a83f-adfc729cb995"
+  },
+  "formalResults": {
+    "aggregation": "median of the three run-level percentiles",
+    "baseline": {
+      "cpuFrameMs": { "p50": 10.1, "p95": 11.9 },
+      "cpuGraphExecuteMs": { "p50": 8.1, "p95": 9.7 },
+      "cpuQueueSubmitMs": { "p50": 0, "p95": 0.1 },
+      "gpuFrameMs": { "p50": 1.515328, "p95": 1.816378 }
+    },
+    "candidate": {
+      "cpuFrameMs": { "p50": 10.2, "p95": 12.205 },
+      "cpuGraphExecuteMs": { "p50": 8.3, "p95": 10.0 },
+      "cpuQueueSubmitMs": { "p50": 0, "p95": 0.1 },
+      "gpuFrameMs": { "p50": 1.50736, "p95": 1.823968 }
+    },
+    "deltaPercent": {
+      "cpuFrameP50": 0.990,
+      "cpuFrameP95": 2.563,
+      "cpuGraphExecuteP50": 2.469,
+      "cpuGraphExecuteP95": 3.093,
+      "gpuFrameP50": -0.526,
+      "gpuFrameP95": 0.418
+    }
+  },
+  "gpuPhaseP50Ms": {
+    "baseline": {
+      "hardwareRaster": 0.081376,
+      "hierarchyAndClusterCull": 0.48736,
+      "materialResolve": 0.660768,
+      "lightingAndIbl": 2.298816,
+      "shadow": 0.277632,
+      "temporal": 0.706432,
+      "post": 0.619296
+    },
+    "candidate": {
+      "hardwareRaster": 0.080736,
+      "hierarchyAndClusterCull": 0.48288,
+      "materialResolve": 0.655104,
+      "lightingAndIbl": 2.281568,
+      "shadow": 0.275616,
+      "temporal": 0.704544,
+      "post": 0.615552
+    }
+  },
+  "stableFrameTotals": {
+    "measuredFramesPerSide": 1440,
+    "baseline": {
+      "graphBuilds": 0,
+      "graphCompiles": 0,
+      "graphExecutes": 1440,
+      "graphCacheHits": 1440,
+      "mainSubmits": 1440,
+      "uploadBytes": 2672640,
+      "readbackBytes": 2954928
+    },
+    "candidate": {
+      "graphBuilds": 0,
+      "graphCompiles": 0,
+      "graphExecutes": 1440,
+      "graphCacheHits": 1440,
+      "mainSubmits": 1440,
+      "uploadBytes": 2672640,
+      "readbackBytes": 2954928
+    }
+  },
+  "graphParity": {
+    "equivalent": true,
+    "sha256": "fe318153c99db4bc36198d89407abb47b68c92a0bc9873910a772c52dc0e2b41",
+    "passCount": 43,
+    "executablePassCount": 43,
+    "resourceCount": 71,
+    "resources": {
+      "imported": 26,
+      "transient": 45,
+      "transientTextures": 37,
+      "transientBuffers": 8,
+      "culledResources": 0
+    },
+    "cacheKeyChange": "the obsolete packed/legacy selector token was removed; executable graph and resources are identical"
+  },
+  "memory": {
+    "baseline": {
+      "allocatedBytes": 1457603839,
+      "residentLogicalBytes": 568698000,
+      "transientPoolBytes": 271748711,
+      "historyBytes": 45619208,
+      "shadowAtlasBytes": 67108864,
+      "retiringBytes": 0,
+      "reclaimableBytes": 271748711
+    },
+    "candidate": {
+      "allocatedBytes": 1457603839,
+      "residentLogicalBytes": 568698000,
+      "transientPoolBytes": 271748711,
+      "historyBytes": 45619208,
+      "shadowAtlasBytes": 67108864,
+      "retiringBytes": 0,
+      "reclaimableBytes": 271748711
+    }
+  },
+  "diagnostics": {
+    "baseline": {
+      "validationErrors": 0,
+      "uncapturedErrors": 0,
+      "deviceLost": 0,
+      "failedGpuTimestampBatches": 0
+    },
+    "candidate": {
+      "validationErrors": 0,
+      "uncapturedErrors": 0,
+      "deviceLost": 0,
+      "failedGpuTimestampBatches": 0
+    },
+    "overflowMaximums": {
+      "invalidVisibilityKeys": 0,
+      "queueOverflowMask": 0,
+      "shadowQueueOverflowMask": 0,
+      "transparentQueueOverflowMask": 0
+    }
+  },
+  "validationMatrix": {
+    "commit": "520c2b040e34c1f7dd93700689aafca0e357e833",
+    "status": "passed",
+    "browser": "Google Chrome channel",
+    "warmupFramesPerCase": 30,
+    "measuredFramesPerCase": 60,
+    "cases": [
+      "base",
+      "full",
+      "full-minus-shadow",
+      "full-minus-gtao",
+      "full-minus-ssr",
+      "full-minus-transparency",
+      "full-minus-temporal",
+      "full-minus-bloom",
+      "full-minus-exposure",
+      "full-minus-motion-blur",
+      "full-minus-sharpen"
+    ],
+    "invalidStableFrames": 0,
+    "mainSubmitP50": 1,
+    "allOverflowMaximums": 0,
+    "featureOffAssertion": "the disabled feature has no Pass, owned resource, history, readback/counter-copy label, or additional submit"
+  },
+  "gates": {
+    "baseline": {
+      "eligible": true,
+      "provenanceErrors": [],
+      "browserErrors": [],
+      "evidenceErrors": []
+    },
+    "candidate": {
+      "eligible": true,
+      "provenanceErrors": [],
+      "browserErrors": [],
+      "evidenceErrors": []
+    },
+    "triangleSetup": {
+      "status": "insufficient-evidence",
+      "reason": "the fixed Step 7 workload had triangle setup disabled"
+    },
+    "surfaceAbi": {
+      "status": "insufficient-evidence",
+      "reason": "the formal report gate did not accept the available run group as three independent Surface ABI comparisons"
+    },
+    "tileBackend": {
+      "status": "insufficient-evidence",
+      "reason": "requires two GPU vendors"
+    }
+  },
+  "interpretation": {
+    "acceptedBecause": [
+      "the production runtime has one GpuRenderWorld, one VisibilityKey-to-Surface contract, and one MainRenderPipeline graph recipe",
+      "the deleted compatibility runtime was absent from the measured graph, so graph, resource, memory, submit, upload, and readback evidence remains identical",
+      "all 2880 formal measured frames reused the compiled graph and performed exactly one graph execute and one main submit",
+      "CPU and GPU deltas do not establish a material regression on the measured NVIDIA Turing system",
+      "the clean Chrome feature matrix proves disabled features do not retain their Passes, owned resources, history, readbacks, counter copies, or extra submits"
+    ],
+    "limitations": [
+      "the formal comparison covers one NVIDIA Turing adapter and is not a cross-vendor performance claim",
+      "triangle setup, Surface ABI, and tile-backend gates remain insufficient-evidence",
+      "these measurements do not prove the product-level 1920x1080 at 60 FPS target"
+    ]
+  }
+}

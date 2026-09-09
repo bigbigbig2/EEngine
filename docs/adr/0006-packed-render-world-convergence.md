@@ -2,6 +2,8 @@
 
 Status: accepted
 
+Implementation: completed through Step 7 on 2026-09-09; Step 8 remains evidence-triggered follow-up work.
+
 ## Context
 
 OEngine 已有两组同时存在的场景 GPU owner：
@@ -286,6 +288,10 @@ npm run verify -- surface.textured
 - Packed 与普通 Scene 没有重复 GPU owner或最终 consumer；
 - 关闭功能时对应 Pass、资源、history、readback 和额外 submit 均缺席；
 - 文档、source audit、browser evidence 和 benchmark artifact 指向相同 owner。
+
+Step 7 已按上述退出条件实施。`2392e4a` 删除 legacy runtime、重复 owner、兼容 graph 分支及其实际消费者，`520c2b0` 清除剩余的旧能力标签、采样默认键与无效 loader fallback 提示。完整 CPU/build、27 个 Canonical Browser Validation Case、Rendering Lab workload/feature-off matrix、VisibilityKey oracle 与 shader source audit 均通过；正式 clean-commit A/B 每侧使用 3 个独立 browser context、120 帧 warm-up 和 480 帧采样。机器可读结果见 [`OEngine/benchmarks/render-world-convergence-step7.json`](../../OEngine/benchmarks/render-world-convergence-step7.json)。
+
+该证据只覆盖 NVIDIA Turing 上的固定 1920×1080 workload。Triangle Setup、Surface ABI 和双 vendor Tile backend 门禁仍为 `insufficient-evidence`，因此本 ADR 的架构实施完成不构成 1080p/60 FPS 产品目标声明。
 
 ### Step 8 · 证据触发的后续优化
 
