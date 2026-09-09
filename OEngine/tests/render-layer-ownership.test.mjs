@@ -41,3 +41,58 @@ test("Shadow implementation is owned by the Render feature layer", () => {
   assert.equal(existsSync(path.join(gpuRoot, "ShadowContext.ts")), false);
   assert.equal(existsSync(path.join(gpuRoot, "ShadowService.ts")), false);
 });
+
+test("MainRenderPipeline is the sole owner of the main graph recipe and algorithm features", () => {
+  const renderer = readFileSync(path.join(sourceRoot, "render", "Renderer.ts"), "utf8");
+  const pipeline = readFileSync(
+    path.join(sourceRoot, "render", "pipeline", "MainRenderPipeline.ts"),
+    "utf8"
+  );
+
+  assert.match(renderer, /MainRenderPipeline/);
+  assert.doesNotMatch(renderer, /new FrameGraph\b|CompiledFrameGraphCache/);
+  assert.doesNotMatch(renderer, /from "\.\/passes\//);
+  assert.doesNotMatch(
+    renderer,
+    /from "\.\/features\/(?:VisibilityFeature|SurfaceFeature|LightingFeature|ShadowFeature|TransparencyFeature|AOService|ReflectionService|GIService|TemporalFeature|PostFeature)/
+  );
+
+  assert.match(pipeline, /new FrameGraph\b/);
+  assert.match(pipeline, /CompiledFrameGraphCache/);
+  assert.match(pipeline, /getOrCreate/);
+  assert.match(pipeline, /MainFrameGraphEvidence/);
+});
+
+test("FrameContext is an immutable value contract without renderer service locators", () => {
+  const frameContext = readFileSync(
+    path.join(sourceRoot, "render", "pipeline", "FrameContext.ts"),
+    "utf8"
+  );
+
+  assert.match(frameContext, /Readonly<|readonly /);
+  assert.doesNotMatch(frameContext, /\bRenderer\b|\bGraphicsContext\b/);
+  assert.match(frameContext, /resolution/);
+  assert.match(frameContext, /featureTopology/);
+  assert.match(frameContext, /history/);
+  assert.match(frameContext, /scene/);
+  assert.match(frameContext, /instrumentation/);
+  assert.match(frameContext, /capture/);
+});
+
+test("main graph cache identity covers every Step 5 topology dimension", () => {
+  const graphKey = readFileSync(
+    path.join(sourceRoot, "render", "pipeline", "MainRenderPipelineGraphKey.ts"),
+    "utf8"
+  );
+
+  for (const dimension of [
+    "capability",
+    "resolution",
+    "featureTopology",
+    "visibilityBackend",
+    "instrumentation",
+    "historyFormat",
+  ]) {
+    assert.match(graphKey, new RegExp(dimension), dimension);
+  }
+});

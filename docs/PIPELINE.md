@@ -14,11 +14,13 @@ scene-update
   → HDR post + present
 ```
 
-`FramePlan` 只验证跨图依赖顺序；启用阶段仍记录到 Renderer 的主 command context。`main-view-graph` 必须等待本帧启用的 scene、LPV 和 shadow 更新。
+`FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。`main-view-graph` 必须等待本帧启用的 scene、LPV 和 shadow 更新。
+
+`FrameContext` 是每次 encode 的冻结值合同，只发布 camera/view、internal/output resolution、feature topology、history validity、互斥 scene bindings、instrumentation 和一次性 capture 请求。Pass 不接收公开 Renderer 或 GraphicsContext service locator。`MainRenderPipeline` 是 Feature 顺序、FrameProducts 连接、FrameGraph recipe、compiled graph cache 与 graph evidence 的唯一 owner；cache key 同时覆盖 capability、分辨率、feature topology、visibility backend、instrumentation 和 history format。
 
 `scene-update` 开始前先解析场景 owner：共享 `GPUSceneEnvironmentContext` 对两种输入都存在，geometry source 则是 `packed` 或 `legacy` 的判别联合，不能同时发布。Packed 分支由 `GpuPackedSceneRegistry.encodePendingPatch()` 消费显式 transform/material patch，并跳过 `GPUSceneManager.obtain()` 与 legacy `GPUSceneContext.encodeFrame()`；普通 Scene 分支以自己的 SceneChangeSet revision 更新 legacy geometry runtime。`GPUViewContext` 只绑定共享环境和 camera/view/HZB，因此 Packed 视图不会间接取得 legacy geometry、material 或 skinning owner。
 
-`shadow-update` 由 Scene-scoped `ShadowFeature` 单入口编码。该 Feature 同时拥有 atlas、directional cascade fit/texel snapping、camera/content revision cache、Packed hierarchy work generation、Packed/legacy raster adapter 和 GPU-completion retire；两种 adapter 发布同一 `ShadowVisibilityFrame`、atlas、counter 与设置合同。Renderer 只传入 frame/camera/settings 和互斥 geometry source。关闭阴影时 `ShadowFeatureManager` 不创建 owner；已有 owner 在当前提交完成后销毁，Lighting 收到 cascade count 为零的产品。
+`shadow-update` 由 Scene-scoped `ShadowFeature` 单入口编码。该 Feature 同时拥有 atlas、directional cascade fit/texel snapping、camera/content revision cache、Packed hierarchy work generation、Packed/legacy raster adapter 和 GPU-completion retire；两种 adapter 发布同一 `ShadowVisibilityFrame`、atlas、counter 与设置合同。主管线只传入 frame/camera/settings 和互斥 geometry source。关闭阴影时 `ShadowFeatureManager` 不创建 owner；已有 owner 在当前提交完成后销毁，Lighting 收到 cascade count 为零的产品。
 
 ## GPU Work Contract
 
@@ -71,4 +73,4 @@ Feature 关闭时不得构造对应 GPU owner、Pass、attachment、history、re
 
 普通 Scene 的 legacy geometry runtime、Material Expand、独立 Velocity 和 legacy OIT 仍与 Packed 路径并存；它们是迁移债务。该 runtime 只能由互斥 frame geometry binding 的 legacy 分支取得，新功能只能接入统一产品合同，不得再扩张旧路径。
 
-Packed material、scene owner、MainRenderPipeline 和普通 Scene 的迁移顺序由 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 固定；shadow/light 边界已完成其中 Step 4。
+Packed material、scene owner、MainRenderPipeline 和普通 Scene 的迁移顺序由 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 固定；主管线 owner 已完成其中 Step 5，普通 Scene legacy consumer 删除仍按后续步骤推进。

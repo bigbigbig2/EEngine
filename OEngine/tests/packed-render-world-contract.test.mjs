@@ -45,6 +45,77 @@ const {
   computePracticalCascadeSplits,
   snapShadowBoundsToTexelGrid
 } = await import("../.test-dist/render/features/ShadowFeature.js");
+const { createFrameContext } = await import(
+  "../.test-dist/render/pipeline/FrameContext.js"
+);
+const { createMainRenderPipelineGraphKey } = await import(
+  "../.test-dist/render/pipeline/MainRenderPipelineGraphKey.js"
+);
+
+test("FrameContext freezes topology-bearing frame values", () => {
+  const context = createFrameContext({
+    frameIndex: 7,
+    timeDeltaSeconds: 1 / 60,
+    camera: { id: 1 },
+    view: { id: 2 },
+    resolution: {
+      internalWidth: 960,
+      internalHeight: 540,
+      outputWidth: 1920,
+      outputHeight: 1080,
+    },
+    featureTopology: { enabledFeatureBits: 3 },
+    history: { formatRevision: 3, color: 1, ssao: 0, ssr: 0 },
+    scene: { id: 4 },
+    instrumentation: {
+      sampleGpuTimestamps: false,
+      sampleGpuCounters: false,
+      debugFrameIndex: null,
+    },
+    capture: null,
+  });
+
+  assert.equal(Object.isFrozen(context), true);
+  assert.equal(Object.isFrozen(context.resolution), true);
+  assert.equal(Object.isFrozen(context.history), true);
+  assert.equal(Object.isFrozen(context.instrumentation), true);
+  assert.throws(() => { context.resolution.internalWidth = 1; }, TypeError);
+});
+
+test("main graph key changes for every compiled topology dimension", () => {
+  const base = {
+    capability: "timestamp-query",
+    resolution: {
+      internalWidth: 960,
+      internalHeight: 540,
+      outputWidth: 1920,
+      outputHeight: 1080,
+    },
+    featureTopology: 3,
+    visibilityBackend: "packed",
+    visibilityClassCapacity: 64,
+    instrumentation: "none",
+    instrumentationRevision: 5,
+    historyFormat: 3,
+    outputFormat: "bgra8unorm",
+  };
+  const baseline = createMainRenderPipelineGraphKey(base);
+  const variants = [
+    { capability: "" },
+    { resolution: { ...base.resolution, internalWidth: 959 } },
+    { featureTopology: 4 },
+    { visibilityBackend: "legacy" },
+    { instrumentation: "counters" },
+    { historyFormat: 4 },
+  ];
+
+  for (const variant of variants) {
+    assert.notDeepEqual(
+      createMainRenderPipelineGraphKey({ ...base, ...variant }),
+      baseline
+    );
+  }
+});
 
 test("FrameCoordinator owns one close path for each render tick", () => {
   const commands = [];

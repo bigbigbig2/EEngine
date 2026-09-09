@@ -17,7 +17,7 @@
 
 ## 当前生产 Owner
 
-- 总装：`Renderer.ts` 与 `render/features/*`。
+- 总装：公开 `Renderer.ts` shell、唯一 `render/pipeline/MainRenderPipeline.ts` recipe owner 与 `render/features/*`。
 - GPU 资产/场景：`GpuAssetStore`、`GpuScene`、`GpuPackedSceneRegistry`。
 - 工作/可见性：`GpuWorkGenerationAbi`、`GpuVisibilityKeyAbi`、Packed visibility owners。
 - Surface：`GpuSurfaceAbi`、`SurfaceFeature`、MaterialClassDepth probe/pass 和 Material Resolve。
@@ -35,7 +35,6 @@
 
 ### Legacy 与生命周期
 
-- `Renderer.ts` 仍是大型 composition root。
 - 普通 Scene 仍有 Material Expand、独立 Velocity 和 legacy OIT 最终 consumer。
 - Packed 与普通 Scene 的 Surface metadata、velocity、transparency 生命周期尚未完全统一。
 - Shadow 的 device loss、resize、scene replace、feature toggle 与 camera cut 已有浏览器证据；其他 Feature 和提交失败后的 history/resource invalidation 仍需继续补齐。
@@ -59,6 +58,8 @@ Step 3 已完成。`GPUSceneEnvironmentContext` 独立拥有 light、environment
 
 Step 4 已完成。Scene-scoped `ShadowFeature` 是 atlas、cascade selection、camera/content cache、Packed hierarchy work、Packed/legacy raster adapter 和 GPU-completion retire 的唯一 owner；`GPULightCollection` 只发布稳定 light/environment 数据，`src/gpu` 对具体 render Pass、`GPUViewContext` 和 `GPUCameraState` 的生产依赖为零。Packed/legacy fixture 共用 `ShadowVisibilityFrame`，cascade split/layout 数值一致；alpha-tested caster、overflow counter、cache hit/miss、resize、camera cut、replace、toggle 和 device-loss recreate 均纳入真实 Chrome 门禁。Rendering Lab 的 `comprehensive-full` 动态 workload 对照记录一个 main submit、Shadow GPU/CPU phase 与 atlas memory，关闭态无 Shadow owner、atlas、work set、GPU/CPU phase、I/O label 或非零 Shadow counter。该结果是开发 smoke evidence，不是发布级性能基线。
 
-1. 执行 Step 5：提取 `FrameContext` 与唯一 `MainRenderPipeline` recipe owner，使 Renderer 缩为设备/画布与顶层组合 shell。
+Step 5 已完成。`Renderer.ts` 缩为公开生命周期与顶层组合 shell；`MainRenderPipeline` 是 Feature 顺序、FrameProducts、FrameGraph recipe、compiled graph cache 与 graph evidence 的唯一 owner，不再由公开入口直接 import 算法 Pass 或 Shadow/AO/SSR/Post owner。每帧实际创建冻结的 `FrameContext`，其合同限定为 camera/view、resolution domain、feature topology、history validity、scene bindings、instrumentation 与 capture 请求；主管线 cache key 显式覆盖 capability、size、feature topology、visibility backend、instrumentation 和 history format。工作树 Chrome 矩阵已验证 stable graph cache hit、一个 main submit、feature-off cold owner、Lifecycle、Visibility 与 Surface；clean-commit 同条件正式性能对照仍必须在提交后生成，未把 smoke 数字登记为发布基线。
+
+1. 执行 Step 6：统一 GPU Scene 与 Packed Scene 的生产语义，并在 owner/patch/replace/release 门禁通过后关闭默认 legacy scene adapter。
 2. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
 3. 保持 Tile backend 为 evidence-only，并为 shader audit 中的 unknown 项确认 authored owner 或可追溯生成源。
