@@ -9,7 +9,7 @@
 - License: KTX-Software Apache-2.0；Basis Universal Apache-2.0；W3C document license。当前没有复制其表达性源码或分发其 WASM/native binary。
 - Adoption: 当前为 specification/reference reimplementation。离线 cooker 直接生成有界 BC1/3/4/5 physical blocks 与 RGBA8 fallback；KTX/Basis 对象模型和 transcoder 尚未成为 runtime dependency。
 - Retained invariants: offline mip、sRGB linear-light filtering、normal renormalization、MASK coverage、block-aligned payload、capability-first variant selection、确定性 metadata/checksum。
-- OEngine/WebGPU differences: 第一版 desktop-bc profile 只接受尺寸不小于 4、4 对齐的 2D power-of-two source；在 `texture-compression-unaligned` 尚不可用时，BC mip tail 截止于 4×4，portable variant 保留完整 1×1 tail。Runtime 只暴露 OEngine package contract。
+- OEngine/WebGPU differences: 第一版 desktop-bc profile 在 `texture-compression-unaligned` 尚不可用时要求 base width/height 为 4 对齐，不要求 power-of-two；后续物理 mip subresource 按 block rounding 上传，因此 BC 与 portable variant 都保留完整 1×1 tail。Runtime 只暴露 OEngine package contract。
 - Fallback/lifecycle: `texture-compression-bc` 未启用时选择完整 `rgba8` variant；variant 缺失/损坏在 GPU resource 创建前失败；上传失败立即销毁 provisional texture，device loss 由 Renderer/asset owner 重新打开 package 并重建。
 - Local validation: `runtime-asset-v2.test.mjs` 覆盖确定性、损坏输入、variant、颜色/normal/MASK mip oracle；`surface.texture-package-bc` 在本地 Chrome/NVIDIA adapter 覆盖 cook → load → BC upload → sample 和 WebGPU validation。
 

@@ -309,7 +309,7 @@ export class GraphicsContext {
     const residentMaterialBytes = materials === undefined
       ? 0
       : materials.residentMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
-        (textureResidency?.residentTextureBytes ?? 0);
+        (textureResidency?.logicalResidentBytes ?? 0);
     const retiringMaterialBytes = materials === undefined
       ? 0
       : materials.retiringMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
@@ -359,7 +359,8 @@ export class GraphicsContext {
           reclaimableBytes: scene?.reclaimableBytes ?? 0
         }),
         materials: Object.freeze({
-          allocatedBytes: materials?.allocatedBytes ?? 0,
+          allocatedBytes: (materials?.allocatedBytes ?? 0) +
+            (textureResidency?.physicalAllocatedBytes ?? 0),
           residentLogicalBytes: residentMaterialBytes,
           retiringBytes: retiringMaterialBytes,
           residentTextures: textureResidency?.residentTextureCount ?? 0,

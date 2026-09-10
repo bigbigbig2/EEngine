@@ -130,10 +130,13 @@ export async function writeRuntimeAssetPackage(
   input: RuntimeAssetPackageWriteInput
 ): Promise<ArrayBuffer> {
   const formatVersion = input.formatVersion ?? RUNTIME_ASSET_FORMAT_VERSION;
+  if (formatVersion !== RUNTIME_ASSET_FORMAT_VERSION && formatVersion !== RUNTIME_ASSET_FORMAT_VERSION_V2) {
+    throw new RangeError(`Unsupported Runtime Asset Package format version ${String(formatVersion)}`);
+  }
   const flags = input.flags ?? 0;
   assertU32(flags, "Package flags");
   if (flags !== 0) {
-    throw new RangeError("Package flags must be zero for format v1");
+    throw new RangeError("Package flags must be zero for the current Runtime Asset envelope");
   }
   if (input.sections.length > MAX_SECTION_COUNT) {
     throw new RangeError(
@@ -163,7 +166,7 @@ export async function writeRuntimeAssetPackage(
     const compression = source.compression ?? RUNTIME_ASSET_COMPRESSION_NONE;
     if (compression !== RUNTIME_ASSET_COMPRESSION_NONE) {
       throw new RangeError(
-        `sections[${index}].compression is unsupported in format v1`
+        `sections[${index}].compression is unsupported in the current Runtime Asset envelope`
       );
     }
     assertPositiveU32(source.elementStride, `sections[${index}].elementStride`);
@@ -337,12 +340,12 @@ async function parseAndValidate(
     error("endianness-mismatch", "Package endianness marker is invalid");
   }
   if (flags !== 0 || headerReserved !== 0) {
-    error("unsupported-header-flags", "Package v1 header flags/reserved fields must be zero");
+    error("unsupported-header-flags", "Runtime Asset envelope header flags/reserved fields must be zero");
   }
   if (!paddingIsZero(bytes, HEADER_RESERVED_OFFSET, RUNTIME_ASSET_HEADER_SIZE)) {
     error(
       "nonzero-header-reserved",
-      "Package v1 trailing header reserved bytes must be zero"
+      "Runtime Asset envelope trailing header reserved bytes must be zero"
     );
   }
   if (sectionCount > MAX_SECTION_COUNT) {
@@ -409,7 +412,7 @@ async function parseAndValidate(
       error("unsupported-section-flags", "Section contains unsupported flags", descriptor.type);
     }
     if (descriptor.compression !== RUNTIME_ASSET_COMPRESSION_NONE) {
-      error("unsupported-compression", "Section compression is unsupported in v1", descriptor.type);
+      error("unsupported-compression", "Section compression is unsupported in the current Runtime Asset envelope", descriptor.type);
     }
     if (!isValidAlignment(descriptor.alignment)) {
       error("invalid-section-alignment", "Section alignment is invalid", descriptor.type);

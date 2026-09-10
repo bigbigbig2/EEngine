@@ -55,6 +55,7 @@ export type {
   RuntimeAssetChunkInputV2,
   RuntimeAssetChunkV2,
   RuntimeAssetDependencyV2,
+  RuntimeAssetLimitRequirementV2,
   RuntimeAssetManifestV2,
   RuntimeAssetPackageV2,
   RuntimeAssetPackageWriteInputV2,
@@ -161,6 +162,7 @@ export type {
   WebGpuCapabilityRecord,
   WebGpuSpecializationRecord
 } from "./gpu/WebGpuCapabilityRecord.js";
+export type { TextureBindingSetPolicyRecord } from "./gpu/TextureBindingSetPolicy.js";
 export {
   projectedGeometryErrorPixels,
   selectGeometryHierarchy

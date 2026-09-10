@@ -23,6 +23,7 @@ const [
     GPU_TEXTURE_BANK_MAX_CAPACITIES
   },
   { decodeTextureHandle },
+  { textureBindingSetPolicy },
   { StandardShadeMaterial },
   { ShadeDrawSide, ShadeTransparencyMode },
   { GPU_INSTANCE_FLAGS },
@@ -43,6 +44,7 @@ const [
   import("../.test-dist/gpu/GpuWorkGenerationAbi.js"),
   import("../.test-dist/gpu/GpuTextureRefAbi.js"),
   import("../.test-dist/gpu/TextureHandleAbi.js"),
+  import("../.test-dist/gpu/TextureBindingSetPolicy.js"),
   import("../.test-dist/material/StandardShadeMaterial.js"),
   import("../.test-dist/material/enums.js"),
   import("../.test-dist/gpu/GpuInstanceAbi.js"),
@@ -570,8 +572,10 @@ test("Texture residency rolls back failed commands and reuses a released base la
 
   const committed = new FakeCommand("texture-stage-commit");
   const firstStage = residency.stage([firstMaterial], committed);
-  committed.finish();
   const firstRef = firstStage.textureRefs.get(firstTexture);
+  assert.equal(residency.descriptor(firstRef), null);
+  committed.finish();
+  assert.notEqual(residency.descriptor(firstRef), null);
   assert.equal(residency.evidence().residentTextureCount, 1);
 
   const release = new FakeCommand("texture-release");
@@ -655,6 +659,28 @@ test("TextureRef CPU ABI explicitly rejects invalid version, bank, and layer val
   assert.equal(decodeGpuTextureRef(0x00000001), null);
   assert.equal(decodeGpuTextureRef(0x1f000001), null);
   assert.equal(decodeGpuTextureRef(0x10000000), null);
+});
+
+test("TextureBindingSet freezes the current slot, sampler, set, and dispatch limits", () => {
+  const policy = textureBindingSetPolicy({
+    maxSampledTexturesPerShaderStage: 16,
+    maxSamplersPerShaderStage: 16
+  });
+  assert.deepEqual(policy, {
+    textureSlotsPerBindingSet: 5,
+    samplerClassCount: 6,
+    maxResidentBindingSets: 1,
+    reservedSampledTextureBindings: 1,
+    maxShadingDispatchClasses: 7
+  });
+  assert.throws(
+    () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 5, maxSamplersPerShaderStage: 16 }),
+    /requires 6 sampled textures/i
+  );
+  assert.throws(
+    () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 5 }),
+    /requires 6 samplers/i
+  );
 });
 
 test("Texture residency fills and rejects overflow in every bounded bank without mutation", () => {

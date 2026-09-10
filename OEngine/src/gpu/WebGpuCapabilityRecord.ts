@@ -1,3 +1,8 @@
+import {
+  textureBindingSetPolicy,
+  type TextureBindingSetPolicyRecord
+} from "./TextureBindingSetPolicy.js";
+
 export interface WebGpuApiProbes {
   readonly immediateData: boolean;
   readonly transientAttachments: boolean;
@@ -13,13 +18,14 @@ export interface WebGpuSpecializationRecord {
 }
 
 export interface WebGpuCapabilityRecord {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly featureLevel: "core";
   readonly adapterFeatures: readonly string[];
   readonly deviceFeatures: readonly string[];
   readonly limits: Readonly<Record<string, number>>;
   readonly wgslLanguageFeatures: readonly string[];
   readonly apiProbes: WebGpuApiProbes;
+  readonly textureBindingPolicy: TextureBindingSetPolicyRecord;
   readonly specialization: WebGpuSpecializationRecord;
   readonly fingerprint: string;
 }
@@ -55,6 +61,7 @@ export function captureWebGpuCapabilityRecord(
       typeof GPUTextureUsage !== "undefined" &&
       "TRANSIENT_ATTACHMENT" in GPUTextureUsage
   });
+  const textureBindingPolicy = textureBindingSetPolicy(device.limits);
   const has = (feature: string): boolean => deviceFeatures.includes(feature);
   const textureCompression = has("texture-compression-bc") ? "bc"
     : has("texture-compression-astc") ? "astc"
@@ -74,16 +81,18 @@ export function captureWebGpuCapabilityRecord(
     limits,
     wgslLanguageFeatures,
     apiProbes,
+    textureBindingPolicy,
     specialization
   });
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     featureLevel: "core",
     adapterFeatures,
     deviceFeatures,
     limits,
     wgslLanguageFeatures,
     apiProbes,
+    textureBindingPolicy,
     specialization,
     fingerprint
   });

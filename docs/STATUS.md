@@ -13,8 +13,8 @@
 - Performance Inspector 是共享的实时 Profiler/Timeline；Rendering Lab 是综合质量与性能 fixture。
 - Browser Validation 已统一为 Registry + Source Domain Selector + 单一 ChromeRunner；Smoke、Visibility、Surface、Lifecycle 承担日常真实 WebGPU 验证，Rendering Lab 保留综合与 formal benchmark。公共证据强度统一为 DEV/MILESTONE/PERF，30+60 的 `profile:rendering-lab:dev` 只承担短 A/B 与编排检查。
 - WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码强制 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，机会性启用 `timestamp-query`、`subgroups` 和一族纹理压缩能力，并冻结 adapter/device feature、关键 limit、WGSL/API probe 与 texture specialization record。
-- Runtime Package V2 已有确定性 manifest/dependency/variant/chunk 语义层；Texture Package V2 已有 offline mip、BC1/3/4/5 physical variant、完整 RGBA8 fallback 和真实 Chrome `cook → load → upload → sample` consumer。
-- Texture Residency 已改为有界 immutable size-class segment；业务侧 texture handle 使用 slot+generation，GPU MaterialRecord 消费同事务派生的 physical routing，扩容不再复制已有 resident array。
+- Runtime Package V2 已冻结确定性 manifest/dependency/variant/chunk 语义、物理 byte range、feature/limit compatibility 与 checksum；Texture Package V2 已有完整 offline mip、BC1/3/4/5 physical variant、显式 RGBA8 fallback 和真实 Chrome `cook → load → upload → sample` consumer。
+- Texture Residency 已改为有界 immutable size-class segment；业务侧 texture handle 使用 version+slot+generation 且只在提交边界发布，GPU MaterialRecord 消费同事务派生的 physical routing，扩容不再复制已有 resident array；绑定 policy 和 logical/physical/retiring/transaction 计数进入 capability/evidence。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 
@@ -48,7 +48,7 @@
 - resident、transient、history、shadow、upload/readback 预算仍需目标 adapter 的同条件证据。
 - one-main-submit 和 feature-off 接近零成本需要逐帧证据，不能只凭静态结构判断。
 - Shader source audit 当前只有有生产 owner 的 authored shader；实际数量和名单以生成的 `OEngine/benchmarks/shader-source-audit.json` 为准。
-- `primitive-index`、`shader-f16`、Immediate Data 与 Transient Attachment 尚无生产 consumer；lockfile 中的 `@webgpu/types` 0.1.71 还没有 2026-09 规范中的 `texture-compression-unaligned` 名称，因此当前 BC physical variant 的 resident mip tail 截止于 4×4，完整 1×1 tail 由 RGBA8 fallback 保留。
+- `primitive-index`、`shader-f16`、Immediate Data 与 Transient Attachment 尚无生产 consumer；lockfile 中的 `@webgpu/types` 0.1.71 还没有 2026-09 规范中的 `texture-compression-unaligned` 名称，因此 BC base dimensions 仍要求 block alignment；已对齐 base 的物理 mip subresource 仍离线保留并上传到 1×1 tail。
 - Texture Residency 当前每个 size-class 只有一个有界 segment/binding slot；多 format-class 与多 binding-set coverage 留在 ADR-0007 后续迁移，超出当前 policy 明确 preflight failure。
 
 ## 下一步

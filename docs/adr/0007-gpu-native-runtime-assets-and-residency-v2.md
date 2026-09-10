@@ -762,7 +762,7 @@ bank grow/copy cost
 
 ### Step 1 · Package/variant contract
 
-**Implementation:** completed 2026-09-10；`RuntimeAssetManifestV2.ts` 在现有 binary envelope 上冻结 manifest/dependency/variant/chunk 语义，CPU oracle 覆盖确定性与损坏输入。
+**Implementation:** completed 2026-09-11；`RuntimeAssetManifestV2.ts` 在现有 little-endian binary envelope 上冻结 manifest/dependency/variant/chunk 语义；chunk 记录物理 byte range、compressed/decoded/resident bytes、variant membership 与 checksum，variant 记录 feature/limit compatibility，CPU oracle 覆盖确定性与损坏输入。
 
 **Scope**
 
@@ -776,7 +776,7 @@ bank grow/copy cost
 
 ### Step 2 · Texture Cooker V2
 
-**Implementation:** completed 2026-09-10；首个 desktop physical profile 使用 BC1/3/4/5，portable RGBA8 保留完整 mip tail；`surface.texture-package-bc` 是真实 Chrome/WebGPU consumer。
+**Implementation:** completed 2026-09-11；首个 desktop physical profile 使用 BC1/3/4/5 并离线保存到 1×1 的完整 mip chain，base block 未对齐时显式选择 portable RGBA8 variant；`surface.texture-package-bc` 是真实 Chrome/WebGPU consumer。
 
 **Scope**
 
@@ -796,7 +796,7 @@ cook → load → upload → sample
 
 ### Step 3 · Texture Residency V2
 
-**Implementation:** completed 2026-09-10；当前有界 binding set 为每个 size-class 一个 immutable segment，stable handle 使用 slot+generation，MaterialRecord 消费同事务派生 routing；多 format/multi-set 扩展仍受 4.4 的 preflight policy 约束。
+**Implementation:** completed 2026-09-11；当前有界 binding set 为每个 size-class 一个 immutable RGBA8 segment，stable handle 使用 version+slot+generation 且提交前不对全局 descriptor 查询发布，MaterialRecord 消费同事务派生 routing；slot/sampler/set/dispatch 上限进入 capability fingerprint，logical/physical/retiring/transaction 计数由 owner 产生。多 format/multi-set 扩展仍受 4.4 的 preflight policy 约束。
 
 **Scope**
 

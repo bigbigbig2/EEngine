@@ -3353,7 +3353,23 @@ export class MainRenderPipeline {
       );
       profiler.recordCounter(
         "packed.material.textureTransactionPeakBytes",
-        textureEvidence?.allocatedPeakBytes ?? 0
+        textureEvidence?.transactionPeakBytes ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureLogicalResidentBytes",
+        textureEvidence?.logicalResidentBytes ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureUploadBytes",
+        textureEvidence?.uploadBytes ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureCopyBytes",
+        textureEvidence?.copyBytes ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureTranscodeBytes",
+        textureEvidence?.transcodeBytes ?? 0
       );
       profiler.recordCounter(
         "packed.material.textureRuntimeMipGenerations",
@@ -3370,6 +3386,14 @@ export class MainRenderPipeline {
       profiler.recordCounter(
         "packed.material.textureBindingSetPreflightFailures",
         textureEvidence?.bindingSetPreflightFailures ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureBindingSetCount",
+        textureEvidence?.bindingSetCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureBindingSlotUtilization",
+        textureEvidence?.bindingSlotUtilization ?? 0
       );
     }
     profiler.recordCounter(

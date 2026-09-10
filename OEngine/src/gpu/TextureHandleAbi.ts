@@ -1,11 +1,11 @@
-export const TEXTURE_HANDLE_ABI_VERSION = 1;
+export const TEXTURE_HANDLE_ABI_VERSION = 2;
 export const TEXTURE_HANDLE_INVALID = 0xffffffff;
 export const TEXTURE_HANDLE_VERSION_SHIFT = 28;
-export const TEXTURE_HANDLE_GENERATION_SHIFT = 16;
-export const TEXTURE_HANDLE_SLOT_MASK = 0x0000ffff;
-export const TEXTURE_HANDLE_GENERATION_MASK = 0x0fff0000;
+export const TEXTURE_HANDLE_GENERATION_SHIFT = 12;
+export const TEXTURE_HANDLE_SLOT_MASK = 0x00000fff;
+export const TEXTURE_HANDLE_GENERATION_MASK = 0x0ffff000;
 export const TEXTURE_HANDLE_MAX_SLOT = TEXTURE_HANDLE_SLOT_MASK;
-export const TEXTURE_HANDLE_MAX_GENERATION = 0x0fff;
+export const TEXTURE_HANDLE_MAX_GENERATION = 0xffff;
 
 export interface TextureHandle {
   readonly version: number;

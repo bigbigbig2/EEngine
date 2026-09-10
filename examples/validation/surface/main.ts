@@ -126,10 +126,10 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       Object.assign(evidence, oracle);
       assertions.push(validationAssertion(
         "texture-package-bc-selected",
-        oracle.physicalFormat === "bc3-rgba-unorm-srgb" && oracle.runtimeMipPasses === 0,
+        oracle.physicalFormat === "bc3-rgba-unorm-srgb" && oracle.mipCount === 4 && oracle.runtimeMipPasses === 0,
         "Texture Package V2 selected and sampled the cooked desktop BC mip chain",
         oracle,
-        "physicalFormat = bc3-rgba-unorm-srgb and runtimeMipPasses = 0"
+        "physicalFormat = bc3-rgba-unorm-srgb, mipCount = 4 and runtimeMipPasses = 0"
       ));
       assertions.push(validationAssertion(
         "texture-package-bc-sample",

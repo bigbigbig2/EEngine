@@ -1,5 +1,7 @@
 import {
+  RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE,
   RUNTIME_ASSET_FORMAT_VERSION_V2,
+  RUNTIME_ASSET_HEADER_SIZE,
   openRuntimeAssetPackage,
   writeRuntimeAssetPackage,
   type RuntimeAssetPackage,
@@ -25,8 +27,13 @@ export interface RuntimeAssetChunkV2 {
   readonly semantic: string;
   readonly compression: string;
   readonly alignment: number;
+  /** Absolute byte range in the canonical Runtime Asset container. */
+  readonly byteOffset: number;
+  readonly compressedBytes: number;
   readonly decodedBytes: number;
   readonly expectedResidentBytes: number;
+  /** Variants which consume this chunk; shared metadata may name several. */
+  readonly variantIds: readonly string[];
   readonly checksum: string;
 }
 
@@ -34,7 +41,13 @@ export interface RuntimeAssetVariantV2 {
   readonly id: string;
   readonly profile: string;
   readonly requiredFeatures: readonly string[];
+  readonly requiredLimits: readonly RuntimeAssetLimitRequirementV2[];
   readonly chunkIds: readonly string[];
+}
+
+export interface RuntimeAssetLimitRequirementV2 {
+  readonly name: string;
+  readonly min: number;
 }
 
 export interface RuntimeAssetManifestV2 {
@@ -89,6 +102,7 @@ export async function writeRuntimeAssetPackageV2(
   const chunks = [...input.chunks].sort((a, b) => a.id.localeCompare(b.id));
   const seenIds = new Set<string>();
   const seenSections = new Set<number>([RUNTIME_ASSET_MANIFEST_V2_SECTION]);
+  const payloads = new Map<number, Uint8Array>();
   const manifestChunks: RuntimeAssetChunkV2[] = [];
   for (const chunk of chunks) {
     assertIdentifier(chunk.id, "chunk id");
@@ -100,6 +114,7 @@ export async function writeRuntimeAssetPackageV2(
     }
     seenSections.add(chunk.sectionType);
     const data = copyBytes(chunk.data);
+    payloads.set(chunk.sectionType, data);
     const alignment = chunk.alignment ?? 4;
     assertPowerOfTwo(alignment, `Chunk '${chunk.id}' alignment`);
     assertNonNegativeInteger(chunk.decodedBytes, `Chunk '${chunk.id}' decodedBytes`);
@@ -110,41 +125,82 @@ export async function writeRuntimeAssetPackageV2(
       semantic: requireText(chunk.semantic, `Chunk '${chunk.id}' semantic`),
       compression: requireText(chunk.compression, `Chunk '${chunk.id}' compression`),
       alignment,
+      byteOffset: 0,
+      compressedBytes: data.byteLength,
       decodedBytes: chunk.decodedBytes,
       expectedResidentBytes: chunk.expectedResidentBytes,
+      variantIds: Object.freeze([]),
       checksum: await sha256Hex(data)
     }));
   }
-  const manifest = normalizeManifest({
+  let manifest = normalizeManifest({
     ...input.manifest,
     schemaVersion: RUNTIME_ASSET_MANIFEST_V2_SCHEMA_VERSION,
     chunks: manifestChunks
   });
-  const metadataBytes = new TextEncoder().encode(canonicalJson(manifest));
-  return writeRuntimeAssetPackage({
-    formatVersion: RUNTIME_ASSET_FORMAT_VERSION_V2,
-    sections: [
-      {
-        type: RUNTIME_ASSET_MANIFEST_V2_SECTION,
-        required: true,
-        data: metadataBytes,
-        elementStride: 1,
-        elementCount: metadataBytes.byteLength,
-        alignment: 4
-      },
-      ...chunks.map((chunk) => {
-        const bytes = copyBytes(chunk.data);
-        return {
-          type: chunk.sectionType,
-          required: false,
-          data: bytes,
-          elementStride: 1,
-          elementCount: bytes.byteLength,
-          alignment: chunk.alignment ?? 4
-        };
-      })
-    ]
-  });
+  for (let iteration = 0; iteration < 8; iteration++) {
+    const metadataBytes = new TextEncoder().encode(canonicalJson(manifest));
+    const byteOffsets = packageSectionOffsets(metadataBytes.byteLength, chunks, payloads);
+    let changed = false;
+    const laidOutChunks = manifest.chunks.map((chunk) => {
+      const byteOffset = byteOffsets.get(chunk.sectionType);
+      if (byteOffset === undefined) throw new Error(`Runtime package writer lost chunk '${chunk.id}'`);
+      changed ||= chunk.byteOffset !== byteOffset;
+      return { ...chunk, byteOffset };
+    });
+    if (!changed) {
+      return writeRuntimeAssetPackage({
+        formatVersion: RUNTIME_ASSET_FORMAT_VERSION_V2,
+        sections: [
+          {
+            type: RUNTIME_ASSET_MANIFEST_V2_SECTION,
+            required: true,
+            data: metadataBytes,
+            elementStride: 1,
+            elementCount: metadataBytes.byteLength,
+            alignment: 4
+          },
+          ...chunks.map((chunk) => {
+            const bytes = payloads.get(chunk.sectionType)!;
+            return {
+              type: chunk.sectionType,
+              required: false,
+              data: bytes,
+              elementStride: 1,
+              elementCount: bytes.byteLength,
+              alignment: chunk.alignment ?? 4
+            };
+          })
+        ]
+      });
+    }
+    manifest = normalizeManifest({ ...manifest, chunks: laidOutChunks });
+  }
+  throw new Error("Runtime Asset Manifest V2 layout did not converge");
+}
+
+function packageSectionOffsets(
+  manifestBytes: number,
+  chunks: readonly RuntimeAssetChunkInputV2[],
+  payloads: ReadonlyMap<number, Uint8Array>
+): ReadonlyMap<number, number> {
+  const sections = [
+    { type: RUNTIME_ASSET_MANIFEST_V2_SECTION, alignment: 4, byteLength: manifestBytes },
+    ...chunks.map((chunk) => ({
+      type: chunk.sectionType,
+      alignment: chunk.alignment ?? 4,
+      byteLength: payloads.get(chunk.sectionType)!.byteLength
+    }))
+  ].sort((left, right) => left.type - right.type);
+  let cursor = RUNTIME_ASSET_HEADER_SIZE + sections.length * RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE;
+  const result = new Map<number, number>();
+  for (const section of sections) {
+    cursor = Math.ceil(cursor / section.alignment) * section.alignment;
+    if (!Number.isSafeInteger(cursor)) throw new RangeError("Runtime Asset Manifest V2 layout overflows JavaScript safe integers");
+    result.set(section.type, cursor);
+    cursor += section.byteLength;
+  }
+  return result;
 }
 
 export async function openRuntimeAssetPackageV2(
@@ -168,7 +224,9 @@ export async function openRuntimeAssetPackageV2(
   }
   const manifest = validateManifest(raw);
   const chunks = new Map<string, Uint8Array>();
+  const declaredSections = new Set<number>([RUNTIME_ASSET_MANIFEST_V2_SECTION]);
   for (const chunk of manifest.chunks) {
+    declaredSections.add(chunk.sectionType);
     const payload = pkg.section(chunk.sectionType);
     if (payload === undefined) {
       throw manifestError("chunk-missing", `Manifest chunk '${chunk.id}' section ${chunk.sectionType} is missing`, chunk.sectionType);
@@ -176,11 +234,23 @@ export async function openRuntimeAssetPackageV2(
     if (payload.byteOffset % chunk.alignment !== 0) {
       throw manifestError("chunk-alignment", `Manifest chunk '${chunk.id}' is not ${chunk.alignment}-byte aligned`, chunk.sectionType);
     }
+    if (payload.byteOffset !== chunk.byteOffset || payload.byteLength !== chunk.compressedBytes) {
+      throw manifestError(
+        "chunk-range",
+        `Manifest chunk '${chunk.id}' byte range does not match the container directory`,
+        chunk.sectionType
+      );
+    }
     const checksum = await sha256Hex(payload.bytes);
     if (checksum !== chunk.checksum) {
       throw manifestError("chunk-checksum", `Manifest chunk '${chunk.id}' checksum does not match`, chunk.sectionType);
     }
     chunks.set(chunk.id, payload.bytes);
+  }
+  for (const payload of pkg.sections) {
+    if (!declaredSections.has(payload.type)) {
+      throw manifestError("chunk-undeclared", `Container section ${payload.type} is not declared by the manifest`, payload.type);
+    }
   }
   return Object.freeze({
     package: pkg,
@@ -193,11 +263,16 @@ export async function openRuntimeAssetPackageV2(
 export function selectRuntimeAssetVariantV2(
   manifest: RuntimeAssetManifestV2,
   availableFeatures: ReadonlySet<string>,
-  preferredProfiles: readonly string[] = []
+  preferredProfiles: readonly string[] = [],
+  availableLimits?: Readonly<Record<string, number>>
 ): RuntimeAssetVariantV2 {
   const profileRank = new Map(preferredProfiles.map((profile, index) => [profile, index]));
   const candidates = manifest.variants
     .filter((variant) => variant.requiredFeatures.every((feature) => availableFeatures.has(feature)))
+    .filter((variant) => availableLimits === undefined || variant.requiredLimits.every(({ name, min }) => {
+      const actual = availableLimits[name];
+      return actual !== undefined && Number.isFinite(actual) && actual >= min;
+    }))
     .sort((left, right) => {
       const leftRank = profileRank.get(left.profile) ?? Number.MAX_SAFE_INTEGER;
       const rightRank = profileRank.get(right.profile) ?? Number.MAX_SAFE_INTEGER;
@@ -238,24 +313,56 @@ function normalizeManifest(input: RuntimeAssetManifestV2): RuntimeAssetManifestV
       throw manifestError("dependency-shape", `dependencies[${index}] is invalid`);
     }
     assertHash(dependency.assetId, `dependencies[${index}].assetId`);
-    return Object.freeze({ assetId: dependency.assetId, required: dependency.required });
+    return Object.freeze({ assetId: dependency.assetId.toLowerCase(), required: dependency.required });
   }).sort((a, b) => a.assetId.localeCompare(b.assetId));
-  const chunks = [...requireArray(input.chunks, "chunks")].map((chunk, index) => normalizeChunk(chunk, index))
+  if (new Set(dependencies.map(({ assetId }) => assetId)).size !== dependencies.length) {
+    throw manifestError("dependency-duplicate", "Manifest dependency asset ids must be unique");
+  }
+  if (dependencies.some(({ assetId }) => assetId === input.assetId.toLowerCase())) {
+    throw manifestError("dependency-self", "Manifest asset cannot depend on itself");
+  }
+  const rawChunks = [...requireArray(input.chunks, "chunks")].map((chunk, index) => normalizeChunk(chunk, index))
     .sort((a, b) => a.id.localeCompare(b.id));
-  const chunkIds = new Set(chunks.map((chunk) => chunk.id));
-  if (chunkIds.size !== chunks.length) throw manifestError("chunk-duplicate", "Manifest chunk ids must be unique");
-  const sectionTypes = new Set(chunks.map((chunk) => chunk.sectionType));
-  if (sectionTypes.size !== chunks.length) throw manifestError("chunk-section-duplicate", "Manifest chunk section types must be unique");
+  const chunkIds = new Set(rawChunks.map((chunk) => chunk.id));
+  if (chunkIds.size !== rawChunks.length) throw manifestError("chunk-duplicate", "Manifest chunk ids must be unique");
+  const sectionTypes = new Set(rawChunks.map((chunk) => chunk.sectionType));
+  if (sectionTypes.size !== rawChunks.length) throw manifestError("chunk-section-duplicate", "Manifest chunk section types must be unique");
+  if (sectionTypes.has(RUNTIME_ASSET_MANIFEST_V2_SECTION)) {
+    throw manifestError("chunk-section-reserved", "Manifest payload chunks cannot use the manifest section type");
+  }
   const variants = [...requireArray(input.variants, "variants")].map((variant, index) => {
     if (!isRecord(variant)) throw manifestError("variant-shape", `variants[${index}] is invalid`);
     const ids = [...requireArray(variant.chunkIds, `variants[${index}].chunkIds`)].map((id) => requireText(id, "variant chunk id")).sort();
+    if (new Set(ids).size !== ids.length) {
+      throw manifestError("variant-chunk-duplicate", `Variant '${String(variant.id)}' contains duplicate chunk ids`);
+    }
     for (const id of ids) {
       if (!chunkIds.has(id)) throw manifestError("variant-chunk-missing", `Variant '${String(variant.id)}' references unknown chunk '${id}'`);
     }
+    const id = requireText(variant.id, `variants[${index}].id`);
+    assertIdentifier(id, `variants[${index}].id`);
+    const requiredFeatures = [...requireArray(variant.requiredFeatures, `variants[${index}].requiredFeatures`)]
+      .map((feature) => requireText(feature, "required feature"))
+      .sort();
+    if (new Set(requiredFeatures).size !== requiredFeatures.length) {
+      throw manifestError("variant-feature-duplicate", `Variant '${id}' contains duplicate required features`);
+    }
+    const requiredLimits = [...requireArray(variant.requiredLimits, `variants[${index}].requiredLimits`)]
+      .map((limit, limitIndex): RuntimeAssetLimitRequirementV2 => {
+        if (!isRecord(limit)) throw manifestError("variant-limit-shape", `Variant '${id}' limit ${limitIndex} is invalid`);
+        const name = canonicalLimitName(limit.name, `variants[${index}].requiredLimits[${limitIndex}].name`);
+        assertPositiveInteger(limit.min, `variants[${index}].requiredLimits[${limitIndex}].min`);
+        return Object.freeze({ name, min: limit.min });
+      })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    if (new Set(requiredLimits.map(({ name }) => name)).size !== requiredLimits.length) {
+      throw manifestError("variant-limit-duplicate", `Variant '${id}' contains duplicate required limits`);
+    }
     return Object.freeze({
-      id: requireText(variant.id, `variants[${index}].id`),
+      id,
       profile: requireText(variant.profile, `variants[${index}].profile`),
-      requiredFeatures: Object.freeze([...requireArray(variant.requiredFeatures, `variants[${index}].requiredFeatures`)].map((feature) => requireText(feature, "required feature")).sort()),
+      requiredFeatures: Object.freeze(requiredFeatures),
+      requiredLimits: Object.freeze(requiredLimits),
       chunkIds: Object.freeze(ids)
     });
   }).sort((a, b) => a.id.localeCompare(b.id));
@@ -263,6 +370,17 @@ function normalizeManifest(input: RuntimeAssetManifestV2): RuntimeAssetManifestV
     throw manifestError("variant-duplicate", "Manifest variant ids must be unique");
   }
   if (variants.length === 0) throw manifestError("variant-empty", "Manifest must contain at least one variant");
+  const variantIdsByChunk = new Map(rawChunks.map((chunk) => [chunk.id, [] as string[]]));
+  for (const variant of variants) {
+    for (const chunkId of variant.chunkIds) variantIdsByChunk.get(chunkId)!.push(variant.id);
+  }
+  const chunks = rawChunks.map((chunk) => {
+    const variantIds = variantIdsByChunk.get(chunk.id)!;
+    if (variantIds.length === 0) {
+      throw manifestError("chunk-orphan", `Manifest chunk '${chunk.id}' is not consumed by any variant`, chunk.sectionType);
+    }
+    return Object.freeze({ ...chunk, variantIds: Object.freeze(variantIds.sort()) });
+  });
   return Object.freeze({
     schemaVersion: 2,
     assetSchemaVersion: input.assetSchemaVersion,
@@ -284,17 +402,22 @@ function normalizeChunk(raw: unknown, index: number): RuntimeAssetChunkV2 {
   if (!isRecord(raw)) throw manifestError("chunk-shape", `chunks[${index}] is invalid`);
   assertSectionType(raw.sectionType);
   assertPowerOfTwo(raw.alignment, `chunks[${index}].alignment`);
+  assertNonNegativeInteger(raw.byteOffset, `chunks[${index}].byteOffset`);
+  assertNonNegativeInteger(raw.compressedBytes, `chunks[${index}].compressedBytes`);
   assertNonNegativeInteger(raw.decodedBytes, `chunks[${index}].decodedBytes`);
   assertNonNegativeInteger(raw.expectedResidentBytes, `chunks[${index}].expectedResidentBytes`);
   assertHash(raw.checksum, `chunks[${index}].checksum`);
   return Object.freeze({
-    id: requireText(raw.id, `chunks[${index}].id`),
+    id: canonicalIdentifier(raw.id, `chunks[${index}].id`),
     sectionType: raw.sectionType,
     semantic: requireText(raw.semantic, `chunks[${index}].semantic`),
     compression: requireText(raw.compression, `chunks[${index}].compression`),
     alignment: raw.alignment,
+    byteOffset: raw.byteOffset,
+    compressedBytes: raw.compressedBytes,
     decodedBytes: raw.decodedBytes,
     expectedResidentBytes: raw.expectedResidentBytes,
+    variantIds: Object.freeze([]),
     checksum: raw.checksum.toLowerCase()
   });
 }
@@ -335,7 +458,9 @@ function assertSectionType(value: unknown): asserts value is number {
 
 function assertPowerOfTwo(value: unknown, name: string): asserts value is number {
   assertPositiveInteger(value, name);
-  if (value > (1 << 20) || (value & (value - 1)) !== 0) throw new RangeError(`${name} must be a power of two no larger than 1 MiB`);
+  if (value < 4 || value > (1 << 20) || (value & (value - 1)) !== 0) {
+    throw new RangeError(`${name} must be a power of two in [4, 1 MiB]`);
+  }
 }
 
 function assertPositiveInteger(value: unknown, name: string): asserts value is number {
@@ -348,6 +473,18 @@ function assertNonNegativeInteger(value: unknown, name: string): asserts value i
 
 function assertIdentifier(value: string, name: string): void {
   if (!/^[a-z0-9][a-z0-9._-]*$/.test(value)) throw new RangeError(`${name} '${value}' is not canonical`);
+}
+
+function canonicalIdentifier(value: unknown, name: string): string {
+  const text = requireText(value, name);
+  assertIdentifier(text, name);
+  return text;
+}
+
+function canonicalLimitName(value: unknown, name: string): string {
+  const text = requireText(value, name);
+  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(text)) throw new RangeError(`${name} '${text}' is not a canonical WebGPU limit name`);
+  return text;
 }
 
 function requireText(value: unknown, name: string): string {

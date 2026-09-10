@@ -21,6 +21,12 @@ test("Runtime Package V2 metadata is deterministic and rejects corruption", asyn
   assert.equal(opened.runtime.manifest.schemaVersion, 2);
   assert.equal(opened.runtime.manifest.assetType, "texture-2d");
   assert.deepEqual(opened.variants.map(({ profile }) => profile), ["desktop-bc", "portable-rgba8"]);
+  for (const chunk of opened.runtime.manifest.chunks) {
+    const section = opened.runtime.package.section(chunk.sectionType);
+    assert.equal(chunk.byteOffset, section.byteOffset);
+    assert.equal(chunk.compressedBytes, section.byteLength);
+    assert.ok(chunk.variantIds.length >= 1);
+  }
   assert.equal(opened.evidence.sourceBytes, 8 * 8 * 4);
   assert.ok(opened.evidence.packageBytes > opened.evidence.sourceBytes);
   assert.equal(opened.evidence.decodedPeakBytes, 8 * 8 * 4 + 4 * 4 * 4 + 2 * 2 * 4 + 4);
@@ -66,8 +72,8 @@ test("Texture Cooker V2 emits complete offline mip chains and capability-selecte
     const fallback = selectTextureAssetVariantV2(asset, new Set());
     assert.equal(compressed.format, format);
     assert.equal(fallback.format, semantic === "base-color-srgb" ? "rgba8unorm-srgb" : "rgba8unorm");
-    assert.deepEqual(compressed.mips.map(({ width, height }) => [width, height]), [[8, 8], [4, 4]]);
-    assert.equal(compressed.payloads.length, 2);
+    assert.deepEqual(compressed.mips.map(({ width, height }) => [width, height]), [[8, 8], [4, 4], [2, 2], [1, 1]]);
+    assert.equal(compressed.payloads.length, 4);
     assert.equal(fallback.payloads.length, 4);
   }
   const compressedOnly = await openTextureAssetPackageV2(await cookTextureAssetPackageV2(
@@ -110,6 +116,7 @@ test("Texture Package V2 uploads selected BC mips without runtime mip work", asy
   };
   const device = {
     features: new Set(["texture-compression-bc"]),
+    limits: { maxTextureArrayLayers: 2048, maxTextureDimension2D: 8192 },
     createTexture(descriptor) { texture.descriptor = descriptor; return texture; },
     queue: {
       writeTexture(destination, data, layout, size) {
@@ -121,9 +128,44 @@ test("Texture Package V2 uploads selected BC mips without runtime mip work", asy
   assert.equal(uploaded.variant.format, "bc3-rgba-unorm-srgb");
   assert.equal(uploaded.evidence.runtimeMipPasses, 0);
   assert.equal(uploaded.evidence.transcodeBytes, 0);
-  assert.equal(writes.length, 2);
-  assert.equal(texture.descriptor.mipLevelCount, 2);
+  assert.equal(writes.length, 4);
+  assert.equal(texture.descriptor.mipLevelCount, 4);
+  assert.deepEqual(writes.map(({ size }) => [size.width, size.height]), [[8, 8], [4, 4], [4, 4], [4, 4]]);
   assert.ok(uploaded.evidence.residentBytes < 8 * 8 * 4);
+});
+
+test("Texture Cooker V2 selects a declared portable fallback for unaligned bases and keeps identity dimensional", async () => {
+  const rgba8 = new Uint8Array(8 * 8 * 4).fill(127);
+  const first = await openTextureAssetPackageV2(await cookTextureAssetPackageV2({
+    width: 8, height: 8, rgba8, semantic: "base-color-srgb", sourceUri: "fixture://identity-a"
+  }));
+  const second = await openTextureAssetPackageV2(await cookTextureAssetPackageV2({
+    width: 4, height: 16, rgba8, semantic: "base-color-srgb", sourceUri: "fixture://identity-b"
+  }));
+  assert.notEqual(first.runtime.manifest.assetId, second.runtime.manifest.assetId);
+
+  const unaligned = await openTextureAssetPackageV2(await cookTextureAssetPackageV2({
+    width: 6,
+    height: 5,
+    rgba8: new Uint8Array(6 * 5 * 4).fill(255),
+    semantic: "base-color-srgb",
+    sourceUri: "fixture://unaligned"
+  }));
+  assert.deepEqual(unaligned.variants.map(({ profile }) => profile), ["portable-rgba8"]);
+  assert.throws(
+    () => selectTextureAssetVariantV2(first, new Set(), { maxTextureArrayLayers: 1, maxTextureDimension2D: 4 }),
+    /no variant compatible/i
+  );
+  await assert.rejects(
+    () => cookTextureAssetPackageV2({
+      width: 6,
+      height: 5,
+      rgba8: new Uint8Array(6 * 5 * 4),
+      semantic: "base-color-srgb",
+      sourceUri: "fixture://unaligned-compressed-only"
+    }, { includePortableFallback: false }),
+    /divisible by 4/i
+  );
 });
 
 function sourceTexture(semantic) {
