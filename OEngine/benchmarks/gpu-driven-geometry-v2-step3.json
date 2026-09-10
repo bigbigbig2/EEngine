@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-step-evidence",
+  "decision": "adr-0008-step3-meshlet-bucket-hardware-visibility",
+  "provenance": {
+    "commit": "7c28ab469061c2b9093d758bcf3ccc04b8d7fe7b",
+    "contentHash": "0723a8997fd3148fa74fea1a1a665a8567c6a2635e405259751567d7830fcde3",
+    "clean": true,
+    "runGroupId": "05b94c68-9c2f-47be-b56b-58a2b0dea778",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "timestampQuery": true
+    },
+    "capabilities": [
+      "core-features-and-limits",
+      "float32-blendable",
+      "indirect-first-instance",
+      "rg11b10ufloat-renderable",
+      "subgroups",
+      "texture-compression-bc",
+      "texture-formats-tier1",
+      "timestamp-query"
+    ],
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "sseThreshold": 4,
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806,
+    "materials": 34,
+    "transparentInstances": 2,
+    "geometryPackageBytes": 10460176,
+    "assetHashes": [
+      "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
+      "0e72ed46b5316cb5fb67fc81ff85b024a09146fd89ef3811a8d2299647ada118"
+    ]
+  },
+  "aggregation": "median of three run-level percentiles; queue, triangle, padding and coverage counters are stable P50 values except semantic identity mismatch, which is recorded per run",
+  "timingsMs": {
+    "cpuFrame": { "p50": 9.6, "p95": 11.3 },
+    "gpuFrame": { "p50": 2.132864, "p95": 2.405248 },
+    "meshletBucketHardwareVisibility": { "p50": 0.21344, "p95": 0.2191488 },
+    "meshletSemanticParity": { "p50": 0.068, "p95": 0.075104 }
+  },
+  "meshletRaster": {
+    "queueAttempted": 2321,
+    "queueWritten": 2321,
+    "queueConsumed": 2321,
+    "queueOverflow": 0,
+    "queueInvalid": 0,
+    "generatedIndirectRecords": 32,
+    "nonEmptyBuckets": 4,
+    "indirectInstances": 2321,
+    "rasterTriangles": 64983,
+    "triangleCapacityPaddingVertices": 50949,
+    "coveredPixels": 874227,
+    "matchedSemanticIdentityPixelsMedian": 874224,
+    "semanticIdentityMismatchPixelsPerRun": [1, 2, 1]
+  },
+  "correctnessEvidence": {
+    "targetedCases": [
+      "visibility.meshlet-work-basic",
+      "visibility.meshlet-work-portable"
+    ],
+    "targetedSemanticMismatchPixels": 0,
+    "comprehensiveRisk": "The animated comprehensive workload retains 1-2 primitive identity mismatches per sampled frame. The candidate and legacy paths agree on essentially all covered pixels, but this non-zero result remains a cutover blocker/risk for VisibilityKey V2; it is not normalized by pixel ratio or reported as zero-error parity.",
+    "interpretation": "The observed mismatch is consistent with equal-depth overlapping primitives winning in different queue orders. Step 4 must make logical identity/order semantics explicit and preserve the parity seam until the discrepancy is eliminated or proven semantically irrelevant by a stronger invariant."
+  },
+  "baselineComparison": {
+    "baseline": "gpu-driven-geometry-v2-baseline.json",
+    "step2": "gpu-driven-geometry-v2-step2.json",
+    "gpuFrameP50DeltaFromBaselineMs": 0.621216,
+    "cpuFrameP50DeltaFromBaselineMs": 1.1,
+    "interpretation": "Step 3 still executes candidate compaction, candidate raster, legacy exact raster and a parity reducer in one frame. These timings characterize the migration seam and its cost; they are not final cutover performance evidence or an improvement claim."
+  },
+  "runLevelTimingsMs": [
+    {
+      "runOrdinal": 0,
+      "cpuFrameP50": 9.69999999553,
+      "cpuFrameP95": 11.299999997392,
+      "gpuFrameP50": 2.131232,
+      "gpuFrameP95": 2.405248,
+      "meshletBucketRasterP50": 0.213024,
+      "meshletBucketRasterP95": 0.2191488,
+      "semanticParityP50": 0.068,
+      "semanticParityP95": 0.0727744,
+      "semanticIdentityMismatchPixels": 1,
+      "canvasSha256": "80ddb0e4ec9695c55db29cd4f6bca8a19b1591374c62a6e625654deb1ddb01bd"
+    },
+    {
+      "runOrdinal": 1,
+      "cpuFrameP50": 9.60000000149,
+      "cpuFrameP95": 11.60000000149,
+      "gpuFrameP50": 2.132864,
+      "gpuFrameP95": 2.4049792,
+      "meshletBucketRasterP50": 0.213696,
+      "meshletBucketRasterP95": 0.219136,
+      "semanticParityP50": 0.067904,
+      "semanticParityP95": 0.075104,
+      "semanticIdentityMismatchPixels": 2,
+      "canvasSha256": "a57c4e62216c9ee0fdc2f0d51ec84a3b2aa3ec25a2a64b2a45a2170ba06985e0"
+    },
+    {
+      "runOrdinal": 2,
+      "cpuFrameP50": 9.5,
+      "cpuFrameP95": 11.205000002682,
+      "gpuFrameP50": 2.138528,
+      "gpuFrameP95": 2.4379648,
+      "meshletBucketRasterP50": 0.21344,
+      "meshletBucketRasterP95": 0.2196672,
+      "semanticParityP50": 0.068096,
+      "semanticParityP95": 0.0763008,
+      "semanticIdentityMismatchPixels": 1,
+      "canvasSha256": "28a674d282b0d2c29b1c0343ed86a440a65715baed9bda85a7f7bc49913123bd"
+    }
+  ],
+  "diagnostics": {
+    "validationErrors": 0,
+    "uncapturedErrors": 0,
+    "deviceLost": 0,
+    "failedGpuTimestampBatches": 0,
+    "droppedGpuCounterSamples": 0,
+    "failedGpuCounterSamples": 0,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  },
+  "limitation": "single NVIDIA Turing adapter; candidate/legacy duplicated migration topology remains active and the non-zero comprehensive semantic identity mismatch is deliberately unresolved at this step"
+}
