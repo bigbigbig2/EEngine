@@ -18,6 +18,7 @@ export interface VisibilityWorkSetKey {
   readonly meshletWorkCompactionPath: "auto" | "portable" | "subgroup";
   readonly triangleSetupEnabled: boolean;
   readonly triangleSetupThresholdPixels: number;
+  readonly triangleSetupMaxBytes: number;
 }
 
 /** Persistent GPU work resources. Camera/counter state is deliberately absent. */
@@ -59,7 +60,8 @@ export function sameVisibilityWorkSetKey(
     left.meshletWorkCandidateCapacity === right.meshletWorkCandidateCapacity &&
     left.meshletWorkCompactionPath === right.meshletWorkCompactionPath &&
     left.triangleSetupEnabled === right.triangleSetupEnabled &&
-    left.triangleSetupThresholdPixels === right.triangleSetupThresholdPixels;
+    left.triangleSetupThresholdPixels === right.triangleSetupThresholdPixels &&
+    left.triangleSetupMaxBytes === right.triangleSetupMaxBytes;
 }
 
 export function visibilityWorkSet(input: VisibilityWorkSet): VisibilityWorkSet {

@@ -113,6 +113,7 @@ export {
   GEOMETRY_CLUSTER_FLAGS,
   GEOMETRY_CLUSTER_RECORD_STRIDE,
   GEOMETRY_DIRECTORY_FLAGS,
+  GEOMETRY_VISIBILITY_PATH_MASK,
   GEOMETRY_DIRECTORY_RECORD_STRIDE,
   GEOMETRY_INVALID_INDEX,
   GEOMETRY_MATERIAL_RANGE_STRIDE,
@@ -127,7 +128,10 @@ export {
   decodeGeometryPosition,
   decodeGeometryTangent,
   decodeGeometryUv,
-  openGeometryAssetPackage
+  geometryVisibilityPathFlag,
+  geometryVisibilityPathFromFlags,
+  openGeometryAssetPackage,
+  recommendGeometryVisibilityPath
 } from "./assets/GeometryAssetPackage.js";
 export type {
   GeometryAssetPackage,
@@ -138,6 +142,7 @@ export type {
   GeometryMaterialRangeRecord,
   GeometryMeshletAlphaMode,
   GeometryMeshletRecord,
+  GeometryVisibilityPath,
   GeometryVertexDataType,
   GeometryVertexStreamDescriptor
 } from "./assets/GeometryAssetPackage.js";
@@ -147,6 +152,17 @@ export type {
   GeometryCookResult,
   GeometryCookTiming
 } from "./geometry/GeometryCooker.js";
+export {
+  DEFAULT_GEOMETRY_WORK_BUDGET,
+  GeometryAdaptiveSseController,
+  normalizeGeometryWorkBudget
+} from "./render/GeometryWorkBudget.js";
+export type {
+  GeometryAdaptiveSseOptions,
+  GeometryBudgetMode,
+  GeometryWorkBudget,
+  GeometryWorkSample
+} from "./render/GeometryWorkBudget.js";
 export type {
   AssetHandle,
   AssetResidencyEvidence

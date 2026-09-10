@@ -710,6 +710,16 @@ coarse cost hint
 
 Runtime 可覆盖 hint，但不能依赖 CPU scene scan。
 
+GeometryDirectory V2 的 cooker hint 冻结为 `flags[7:5]` 的 one-hot 编码：
+
+```text
+bit 5 = Flat
+bit 6 = Shallow
+bit 7 = Full
+```
+
+`oengine-geometry-cooker-v2.1.0` 根据 `hierarchy present / meshlet_count / hierarchy_depth` 写入 hint，并在 cook evidence 中记录 `recommendedVisibilityPath` 与 `visibilityCoarseCostHint = meshlet_count + cluster_count`。无 hint 的旧 V2 包只在 residency 时推导一次，frame loop 不扫描 CPU scene。第一版阈值为：无 hierarchy 选 Flat；有 hierarchy 且 depth ≤ 2 或 meshlet_count ≤ 64 选 Shallow；其余选 Full。Shallow 最多 refine 到 depth 2，Full 使用完整深度；三者共享同一 GPU instance cull、VisibleCluster、MeshletWork 与 VisibilityKey V2 consumer。
+
 ---
 
 ## 10. Geometry budget and hysteresis
@@ -752,9 +762,15 @@ quality floor
 
 Benchmark 使用 fixed SSE/fixed budget，避免 adaptive quality 掩盖回归。
 
+`GeometryWorkBudget` 的冻结字段为 `maxTestedHierarchyNodes / targetMeshletWork / maxMeshletWork / targetRasterVertices / maxRasterVertices / maxRiskyTriangles / maxSetupBytes`。`maxTestedHierarchyNodes` 约束有界 traversal reservation，溢出时选择可呈现父 cluster；`maxMeshletWork` 约束 correctness-critical MeshletWork queue，不能容纳完整 reservation 时沿用全 queue draw args 清零的 fail-visible 合同；`maxSetupBytes` 直接限制 optional setup owner，cache 不足逐像素 fallback。meshlet、raster vertex 与 risk 的 delayed truth sample 只用于下一帧 refinement pressure，禁止在 queue 生成后静默裁掉 visible work。
+
+Adaptive SSE 冻结为 10% dead zone、过载快速上调、4% 慢恢复和显式 quality-floor SSE 上限。`indicate_view_change()` 将其重置到 authored base SSE；fixed 模式不订阅反馈、不改变 SSE，正式综合 benchmark 必须保持 fixed。
+
 ### 10.4 Representation changes
 
 LOD/page representation 变化应输出 temporal signal，使 ADR-0009 history 降低 confidence。
+
+当前 fully-resident LOD 的 representation signal 是 VisibilityKey V2 identity 自身：refinement cut 改变时 MeshletWork/local primitive identity 改变，ADR-0009 的 identity history comparison 必须降 confidence；同一 cut 的稳定生成顺序保持 identity 稳定。未来 page residency 不能复用这个隐式条件，必须按 ADR-0007 的 generation/partition 生命周期增加显式 page-generation signal。
 
 ---
 

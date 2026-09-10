@@ -82,12 +82,20 @@ export class LargeTriangleSetupCache {
     work: GPUBuffer;
     workCapacity: number;
     thresholdPixels: number;
+    maxBytes: number;
     assets: GpuAssetBindings;
     scene: GpuSceneBindings;
   }): PreparedLargeTriangleSetup {
     const requested = input.workCapacity * GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET;
-    const capacity = Math.min(requested,
-      Math.floor(GPU_TRIANGLE_SETUP_MAX_BYTES / GPU_TRIANGLE_SETUP_RECORD_STRIDE));
+    if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 0 ||
+      (input.maxBytes & 3) !== 0) {
+      throw new RangeError("LargeTriangleSetup maxBytes must be a non-negative aligned integer");
+    }
+    const capacity = Math.min(
+      requested,
+      Math.floor(Math.min(input.maxBytes, GPU_TRIANGLE_SETUP_MAX_BYTES) /
+        GPU_TRIANGLE_SETUP_RECORD_STRIDE)
+    );
     if (!Number.isSafeInteger(requested) || capacity <= 0) {
       throw new RangeError("LargeTriangleSetup capacity is invalid");
     }

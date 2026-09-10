@@ -1,6 +1,7 @@
-import type {
-  GeometryAssetPackage,
-  GeometryClusterRecord
+import {
+  geometryVisibilityPathFromFlags,
+  type GeometryAssetPackage,
+  type GeometryClusterRecord
 } from "../assets/GeometryAssetPackage.js";
 import { vec3 } from "gl-matrix";
 
@@ -738,11 +739,18 @@ function analyzeGeometryHierarchy(
   if (state.some((value) => value === 0)) {
     throw new Error("Geometry hierarchy contains an unreachable Cluster");
   }
+  const visibilityPath = geometryVisibilityPathFromFlags(asset.directory.flags) ??
+    (maxDepth <= 2 || asset.meshlets.length <= 64 ? "shallow" : "full");
+  const effectiveMaxDepth = visibilityPath === "flat"
+    ? 0
+    : visibilityPath === "shallow"
+      ? Math.min(maxDepth, 2)
+      : maxDepth;
   return Object.freeze({
     maxCutClusters: cut.clusters,
     maxCutTriangles: cut.triangles,
-    maxDepth,
-    depthWidths: Object.freeze(depthWidths)
+    maxDepth: effectiveMaxDepth,
+    depthWidths: Object.freeze(depthWidths.slice(0, effectiveMaxDepth + 1))
   });
 }
 

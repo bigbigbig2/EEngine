@@ -55,6 +55,16 @@ import {
   largeTriangleSetupIndex
 } from "../.test-dist/gpu/GpuExactRasterAbi.js";
 import { LARGE_TRIANGLE_SETUP_WGSL } from "../.test-dist/shaders/large_triangle_setup.js";
+import {
+  GEOMETRY_DIRECTORY_FLAGS,
+  geometryVisibilityPathFlag,
+  geometryVisibilityPathFromFlags,
+  recommendGeometryVisibilityPath
+} from "../.test-dist/assets/GeometryAssetPackage.js";
+import {
+  GeometryAdaptiveSseController,
+  normalizeGeometryWorkBudget
+} from "../.test-dist/render/GeometryWorkBudget.js";
 globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4 });
 const { VISIBILITY_COUNTER_WGSL } = await import(
   "../.test-dist/render/passes/VisibilityCounterPass.js"
@@ -223,6 +233,60 @@ test("Step-5 selective risk route is exclusive and LargeTriangleSetup uses V2 de
   assert.match(LARGE_TRIANGLE_SETUP_WGSL, /work_slot = linear \/ 128u/);
   assert.match(LARGE_TRIANGLE_SETUP_WGSL,
     new RegExp(`${counterByteOffset("setupOverflow") / 4}u`));
+});
+
+test("Step-6 cooker hint selects Flat/Shallow/Full and GPU traversal consumes it locally", () => {
+  assert.equal(recommendGeometryVisibilityPath(4, 0, false), "flat");
+  assert.equal(recommendGeometryVisibilityPath(48, 5, true), "shallow");
+  assert.equal(recommendGeometryVisibilityPath(256, 2, true), "shallow");
+  assert.equal(recommendGeometryVisibilityPath(256, 5, true), "full");
+  for (const path of ["flat", "shallow", "full"]) {
+    assert.equal(geometryVisibilityPathFromFlags(geometryVisibilityPathFlag(path)), path);
+  }
+  assert.throws(
+    () => geometryVisibilityPathFromFlags(
+      GEOMETRY_DIRECTORY_FLAGS.VisibilityFlat |
+      GEOMETRY_DIRECTORY_FLAGS.VisibilityFull
+    ),
+    /multiple visibility path hints/
+  );
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /hierarchy_refinement_allowed/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /R3_GEOMETRY_VISIBILITY_SHALLOW/);
+  assert.match(HIERARCHICAL_WORK_GENERATION_WGSL, /cluster\.depth < 2u/);
+});
+
+test("Step-6 GeometryWorkBudget adaptive SSE has a dead zone, slow recovery and camera-cut reset", () => {
+  const budget = normalizeGeometryWorkBudget({
+    maxTestedHierarchyNodes: 100,
+    targetMeshletWork: 100,
+    maxMeshletWork: 200,
+    targetRasterVertices: 300,
+    maxRasterVertices: 600,
+    maxRiskyTriangles: 10,
+    maxSetupBytes: 4096
+  });
+  const controller = new GeometryAdaptiveSseController(4, budget, {
+    deadZone: 0.1,
+    overloadGain: 0.5,
+    recoveryRate: 0.05,
+    qualityFloorSse: 8
+  });
+  const withinDeadZone = {
+    testedHierarchyNodes: 90,
+    meshletWork: 105,
+    rasterVertices: 300,
+    riskyTriangles: 0
+  };
+  assert.equal(controller.update(withinDeadZone), 4);
+  assert.equal(controller.update({ ...withinDeadZone, meshletWork: 150 }), 5);
+  const recovered = controller.update({
+    testedHierarchyNodes: 1,
+    meshletWork: 1,
+    rasterVertices: 3,
+    riskyTriangles: 0
+  });
+  assert.ok(recovered > 4 && recovered < 5, "recovery must be gradual");
+  assert.equal(controller.resetForCameraCut(), 4);
 });
 
 test("VisibilityKey V2 freezes logical identity and external lifetime context", () => {

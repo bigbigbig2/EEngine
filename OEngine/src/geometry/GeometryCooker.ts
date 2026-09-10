@@ -25,7 +25,9 @@ import {
   encodeGeometryMeshletRecords,
   encodeGeometryVertexStreamDescriptors,
   encodeMeshletFlags,
+  geometryVisibilityPathFlag,
   openGeometryAssetPackage,
+  recommendGeometryVisibilityPath,
   type GeometryAssetPackage,
   type GeometryClusterRecord,
   type GeometryDirectoryRecord,
@@ -61,6 +63,8 @@ export interface GeometryCookEvidence {
   readonly parentMeshletCount: number;
   readonly clusterCount: number;
   readonly hierarchyDepth: number;
+  readonly recommendedVisibilityPath: "flat" | "shallow" | "full";
+  readonly visibilityCoarseCostHint: number;
   readonly simplificationFallbackCount: number;
   readonly bvh8NodeCount: number;
   readonly vertexStreamCount: number;
@@ -174,14 +178,21 @@ export async function cookGeometryAssetPackage(
   const recipeHash = await sha256(
     new TextEncoder().encode(geometryCookRecipeKey(recipe))
   );
+  const recommendedVisibilityPath = recommendGeometryVisibilityPath(
+    built.records.length,
+    hierarchy?.depth ?? 0,
+    hierarchy !== null
+  );
   const directory: GeometryDirectoryRecord = {
     schemaVersion: GEOMETRY_ASSET_SCHEMA_VERSION,
     flags: hierarchy === null
       ? GEOMETRY_DIRECTORY_FLAGS.SingleLevel |
         GEOMETRY_DIRECTORY_FLAGS.NoHierarchy |
         GEOMETRY_DIRECTORY_FLAGS.NoBvh |
-        profileDirectoryFlag(recipe)
-      : profileDirectoryFlag(recipe),
+        profileDirectoryFlag(recipe) |
+        geometryVisibilityPathFlag(recommendedVisibilityPath)
+      : profileDirectoryFlag(recipe) |
+        geometryVisibilityPathFlag(recommendedVisibilityPath),
     vertexCount: source.vertexCount,
     sourceTriangleCount: source.triangleCount,
     vertexStreamDescriptorBegin: 0,
@@ -373,6 +384,8 @@ export async function cookGeometryAssetPackage(
     parentMeshletCount: built.records.length - leafMeshletCount,
     clusterCount: hierarchy?.clusters.length ?? 0,
     hierarchyDepth: hierarchy?.depth ?? 0,
+    recommendedVisibilityPath,
+    visibilityCoarseCostHint: built.records.length + (hierarchy?.clusters.length ?? 0),
     simplificationFallbackCount: hierarchy?.fallbackCount ?? 0,
     bvh8NodeCount: bvh8Nodes.length,
     vertexStreamCount: payload?.descriptors.length ?? 0,

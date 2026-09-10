@@ -9,7 +9,7 @@ import {
 } from "./RuntimeAssetPackage.js";
 
 export const GEOMETRY_ASSET_SCHEMA_VERSION = 2;
-export const GEOMETRY_COOKER_VERSION = "oengine-geometry-cooker-v2.0.0";
+export const GEOMETRY_COOKER_VERSION = "oengine-geometry-cooker-v2.1.0";
 export const GEOMETRY_DIRECTORY_RECORD_STRIDE = 192;
 export const GEOMETRY_MESHLET_RECORD_STRIDE = 112;
 export const GEOMETRY_CLUSTER_RECORD_STRIDE = 128;
@@ -38,8 +38,52 @@ export const GEOMETRY_DIRECTORY_FLAGS = Object.freeze({
   NoHierarchy: 1 << 1,
   NoBvh: 1 << 2,
   ExplicitFloat32Fallback: 1 << 3,
-  CompactStaticPbr: 1 << 4
+  CompactStaticPbr: 1 << 4,
+  VisibilityFlat: 1 << 5,
+  VisibilityShallow: 1 << 6,
+  VisibilityFull: 1 << 7
 });
+
+export type GeometryVisibilityPath = "flat" | "shallow" | "full";
+
+export const GEOMETRY_VISIBILITY_PATH_MASK =
+  GEOMETRY_DIRECTORY_FLAGS.VisibilityFlat |
+  GEOMETRY_DIRECTORY_FLAGS.VisibilityShallow |
+  GEOMETRY_DIRECTORY_FLAGS.VisibilityFull;
+
+/** Offline cooker heuristic; runtime consumes the encoded flag without a scene scan. */
+export function recommendGeometryVisibilityPath(
+  meshletCount: number,
+  hierarchyDepth: number,
+  hierarchyPresent: boolean
+): GeometryVisibilityPath {
+  if (!Number.isSafeInteger(meshletCount) || meshletCount <= 0) {
+    throw new RangeError("Geometry visibility hint requires a positive Meshlet count");
+  }
+  if (!Number.isSafeInteger(hierarchyDepth) || hierarchyDepth < 0) {
+    throw new RangeError("Geometry visibility hint requires a non-negative hierarchy depth");
+  }
+  if (!hierarchyPresent) return "flat";
+  return hierarchyDepth <= 2 || meshletCount <= 64 ? "shallow" : "full";
+}
+
+export function geometryVisibilityPathFlag(path: GeometryVisibilityPath): number {
+  switch (path) {
+    case "flat": return GEOMETRY_DIRECTORY_FLAGS.VisibilityFlat;
+    case "shallow": return GEOMETRY_DIRECTORY_FLAGS.VisibilityShallow;
+    case "full": return GEOMETRY_DIRECTORY_FLAGS.VisibilityFull;
+  }
+}
+
+/** Legacy V2 packages without a hint remain readable and are derived once at residency. */
+export function geometryVisibilityPathFromFlags(flags: number): GeometryVisibilityPath | null {
+  const encoded = flags & GEOMETRY_VISIBILITY_PATH_MASK;
+  if (encoded === 0) return null;
+  if (encoded === GEOMETRY_DIRECTORY_FLAGS.VisibilityFlat) return "flat";
+  if (encoded === GEOMETRY_DIRECTORY_FLAGS.VisibilityShallow) return "shallow";
+  if (encoded === GEOMETRY_DIRECTORY_FLAGS.VisibilityFull) return "full";
+  throw new RangeError("GeometryDirectory contains multiple visibility path hints");
+}
 
 export const GEOMETRY_VERTEX_PROFILE = Object.freeze({
   StaticPbrCompactV2: 1,
@@ -1162,10 +1206,14 @@ function validateDirectory(
   }
   const hierarchyFlags = (bvhPresent ? 0 : GEOMETRY_DIRECTORY_FLAGS.NoBvh) |
     profileFlag;
-  const expectedFlags = hierarchyPresent
+  const expectedBaseFlags = hierarchyPresent
     ? hierarchyFlags
     : GEOMETRY_REQUIRED_R2_B_01_FLAGS | profileFlag;
-  if (directory.flags !== expectedFlags) {
+  const pathFlags = directory.flags & GEOMETRY_VISIBILITY_PATH_MASK;
+  if (pathFlags !== 0 && (pathFlags & (pathFlags - 1)) !== 0) {
+    error("geometry-visibility-path", "GeometryDirectory must encode at most one visibility path hint");
+  }
+  if ((directory.flags & ~GEOMETRY_VISIBILITY_PATH_MASK) !== expectedBaseFlags) {
     error("geometry-directory-flags", "GeometryDirectory flags do not match serialized capabilities");
   }
   if (directory.vertexCount === 0 || directory.sourceTriangleCount === 0) {

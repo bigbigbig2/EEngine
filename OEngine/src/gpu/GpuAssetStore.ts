@@ -7,6 +7,9 @@ import {
   GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
   encodeGeometryBvh8Nodes,
   encodeGeometryVertexDataType,
+  geometryVisibilityPathFlag,
+  geometryVisibilityPathFromFlags,
+  recommendGeometryVisibilityPath,
   type GeometryAssetPackage,
   type GeometryBvh8Node
 } from "../assets/GeometryAssetPackage.js";
@@ -818,7 +821,7 @@ export class GpuAssetStore {
       ),
       positionStride: position.elementStride,
       positionFormat,
-      flags: asset.directory.flags,
+      flags: residentGeometryFlags(asset),
       uv0ByteOffset: uvByteOffset(uv0, vertexDataBegin),
       uv0Stride: uv0?.elementStride ?? 0,
       uv0Format: uvFormat(uv0),
@@ -1160,6 +1163,23 @@ export class GpuAssetStore {
       0
     );
   }
+}
+
+function residentGeometryFlags(asset: GeometryAssetPackage): number {
+  if (geometryVisibilityPathFromFlags(asset.directory.flags) !== null) {
+    return asset.directory.flags;
+  }
+  let hierarchyDepth = 0;
+  for (const cluster of asset.clusters) {
+    hierarchyDepth = Math.max(hierarchyDepth, cluster.depth);
+  }
+  return asset.directory.flags | geometryVisibilityPathFlag(
+    recommendGeometryVisibilityPath(
+      asset.meshlets.length,
+      hierarchyDepth,
+      asset.clusters.length > 0
+    )
+  );
 }
 
 function uvByteOffset(

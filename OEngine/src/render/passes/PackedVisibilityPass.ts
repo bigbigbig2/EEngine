@@ -9,6 +9,11 @@ import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import {
+  DEFAULT_GEOMETRY_WORK_BUDGET,
+  normalizeGeometryWorkBudget,
+  type GeometryWorkBudget
+} from "../GeometryWorkBudget.js";
+import {
   GPU_VISIBILITY_KEY_EMPTY,
   assertGpuVisibilityRasterWorkCapacity,
   visibilityRasterWorkBufferByteLength,
@@ -165,6 +170,7 @@ export interface PackedVisibilityPrepareJob {
   readonly height: number;
   readonly hierarchyView: GeometryHierarchyView;
   readonly sseThreshold: number;
+  readonly geometryWorkBudget?: GeometryWorkBudget;
   readonly coneEnabled: boolean;
   /** Positive test pressure override; omitted uses the proven triangle capacity upper bound. */
   readonly meshletWorkCandidateCapacity?: number;
@@ -552,10 +558,23 @@ export class PackedVisibilityPass {
       }
     );
     const triangleSetupEnabled = job.triangleSetupEnabled ?? false;
+    const geometryWorkBudget = normalizeGeometryWorkBudget(
+      job.geometryWorkBudget ?? DEFAULT_GEOMETRY_WORK_BUDGET
+    );
     // Step 4 promotes MeshletWork + bucket raster to the normal producer.
-    const meshletWorkCandidateCapacity = normalizeMeshletCandidateCapacity(
-      job.meshletWorkCandidateCapacity,
-      job.runtime.hierarchyRasterWorkCapacity
+    const meshletWorkCandidateCapacity = Math.min(
+      normalizeMeshletCandidateCapacity(
+        job.meshletWorkCandidateCapacity,
+        job.runtime.hierarchyRasterWorkCapacity
+      ),
+      geometryWorkBudget.maxMeshletWork
+    );
+    if (meshletWorkCandidateCapacity === 0) {
+      throw new RangeError("GeometryWorkBudget leaves no MeshletWork capacity");
+    }
+    const traversalCapacity = Math.min(
+      job.runtime.hierarchyTraversalCapacity,
+      geometryWorkBudget.maxTestedHierarchyNodes
     );
     const key = visibilityWorkSetKey({
       runtime: job.runtime,
@@ -564,7 +583,7 @@ export class PackedVisibilityPass {
       instanceBegin: job.runtime.instanceBegin,
       instanceCount: job.runtime.instanceCount,
       maxHierarchyDepth: job.runtime.hierarchyMaxDepth,
-      traversalCapacity: job.runtime.hierarchyTraversalCapacity,
+      traversalCapacity,
       visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
       rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
       meshletWorkCandidateCapacity,
@@ -572,6 +591,9 @@ export class PackedVisibilityPass {
       triangleSetupEnabled,
       triangleSetupThresholdPixels: triangleSetupEnabled
         ? normalizeTriangleSetupThreshold(job.triangleSetupThresholdPixels)
+        : 0,
+      triangleSetupMaxBytes: triangleSetupEnabled
+        ? geometryWorkBudget.maxSetupBytes
         : 0
     });
     const bindings = visibilityBindingSet({
@@ -620,7 +642,8 @@ export class PackedVisibilityPass {
       counterBuffer: counters
     }, {
       sseThreshold: job.sseThreshold,
-      countersEnabled: job.countersEnabled
+      countersEnabled: job.countersEnabled,
+      traversalWorkCapacity: key.traversalCapacity
     });
     let meshletWorkCandidate: PreparedMeshletWorkCandidate | null = null;
     let exact: PreparedExactTriangleFilter | null = null;
@@ -655,6 +678,7 @@ export class PackedVisibilityPass {
           work: meshletWorkCandidate.queue,
           workCapacity: meshletWorkCandidate.capacity,
           thresholdPixels: key.triangleSetupThresholdPixels,
+          maxBytes: key.triangleSetupMaxBytes,
           assets: job.assets,
           scene: job.scene
         });

@@ -251,6 +251,22 @@ const R3_FEATURE_HZB: u32 = 2u;
 const R3_FEATURE_COUNTERS: u32 = 4u;
 const R3_CLUSTER_CONE_VALID: u32 = 8u;
 const R3_CLUSTER_DOUBLE_SIDED: u32 = 16u;
+const R3_GEOMETRY_VISIBILITY_FLAT: u32 = 32u;
+const R3_GEOMETRY_VISIBILITY_SHALLOW: u32 = 64u;
+const R3_GEOMETRY_VISIBILITY_FULL: u32 = 128u;
+const R3_GEOMETRY_VISIBILITY_MASK: u32 = 224u;
+
+fn hierarchy_refinement_allowed(
+  geometry: GpuGeometryRecord,
+  cluster: GpuClusterRecord
+) -> bool {
+  let strategy = geometry.flags & R3_GEOMETRY_VISIBILITY_MASK;
+  if strategy == R3_GEOMETRY_VISIBILITY_FLAT { return false; }
+  if strategy == R3_GEOMETRY_VISIBILITY_SHALLOW { return cluster.depth < 2u; }
+  // Residency derives a hint for legacy V2 packages. Fail-open to full depth
+  // if a foreign producer reaches this shader without one.
+  return strategy == R3_GEOMETRY_VISIBILITY_FULL || strategy == 0u;
+}
 
 fn hierarchy_instance_enabled(
   instance: OEngineInstanceRecord,
@@ -529,7 +545,9 @@ fn r3_fused_root_cull(
           let projected_error = hierarchy_projected_error_pixels(
             cluster.geometric_error, sphere, scale, &hierarchy_view
           );
-          if cluster.child_count == 0u || projected_error <= hierarchy_view.sse.x {
+          if cluster.child_count == 0u ||
+            !hierarchy_refinement_allowed(geometry, cluster) ||
+            projected_error <= hierarchy_view.sse.x {
             selected = true;
           } else {
             expand = true;
@@ -687,6 +705,7 @@ fn r3_fused_root_cull(
 
 @group(1) @binding(0) var<uniform> traversal_view: OEngineHierarchyView;
 @group(1) @binding(1) var<storage, read> traversal_instances: array<OEngineInstanceRecord>;
+@group(1) @binding(2) var<storage, read> traversal_geometries: array<GpuGeometryRecord>;
 @group(1) @binding(3) var<storage, read> traversal_clusters: array<GpuClusterRecord>;
 @group(1) @binding(4) var<storage, read> traversal_children: array<u32>;
 @group(1) @binding(5) var<storage, read> traversal_input: OEngineTraversalQueueRead;
@@ -739,6 +758,7 @@ fn r3_traverse_clusters(
     atomicAdd(&hierarchy_wg_visited_clusters, 1u);
     let work = traversal_input.elements[invocation_index];
     let instance = traversal_instances[work.instance_record_index];
+    let geometry = traversal_geometries[instance.geometry_record_index];
     let cluster = traversal_clusters[work.cluster_record_index];
     let scale = hierarchy_conservative_scale(oengine_instance_current_object_to_world(instance));
     let sphere = hierarchy_transform_sphere(
@@ -763,7 +783,9 @@ fn r3_traverse_clusters(
         let projected_error = hierarchy_projected_error_pixels(
           cluster.geometric_error, sphere, scale, &traversal_view
         );
-        if cluster.child_count == 0u || projected_error <= traversal_view.sse.x {
+        if cluster.child_count == 0u ||
+          !hierarchy_refinement_allowed(geometry, cluster) ||
+          projected_error <= traversal_view.sse.x {
           selected = true;
         } else {
           expand = true;

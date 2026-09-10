@@ -123,6 +123,13 @@ import {
 import { halfToFloat } from "../../loaders/float16.js";
 import { TemporalHistoryRegistry } from "../TemporalHistoryRegistry.js";
 import type { DynamicResolutionScaling } from "../DynamicResolutionScaling.js";
+import {
+  DEFAULT_GEOMETRY_WORK_BUDGET,
+  GeometryAdaptiveSseController,
+  normalizeGeometryWorkBudget,
+  type GeometryBudgetMode,
+  type GeometryWorkBudget
+} from "../GeometryWorkBudget.js";
 import type {
   GraphicsMemoryEvidence,
   GraphicsOwnerCreationEvidence
@@ -472,6 +479,8 @@ export class MainRenderPipeline {
   private _lastFramePlan: FramePlanDump | null = null;
   private _unsubscribeDynamicResolution: (() => void) | null = null;
   private _dynamicResolutionOwnsProfiler = false;
+  private _geometrySseController: GeometryAdaptiveSseController | null = null;
+  private _geometrySseControllerKey = "";
   private _lastTemporalTaaPassCount = 0;
   private _lastTemporalClassificationPassCount = 0;
   private _renderTargets = new RenderTargets();
@@ -514,6 +523,10 @@ export class MainRenderPipeline {
   motion_blur_strength = 1;
   /** R3 production default, matching the minimum three.js quality baseline. */
   packed_visibility_sse_threshold = 4;
+  /** Formal benchmarks remain fixed; adaptive mode consumes delayed GPU truth counters. */
+  packed_geometry_budget_mode: GeometryBudgetMode = "fixed";
+  packed_geometry_work_budget: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET;
+  packed_geometry_quality_floor_sse = 16;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
   /** Validation pressure override; zero derives the correctness-safe capacity. */
@@ -543,6 +556,7 @@ export class MainRenderPipeline {
     };
     this._unsubscribeDynamicResolution = this._profiler.subscribe((snapshot) => {
       this.consumeDynamicResolutionSnapshot(snapshot);
+      this.consumeGeometryBudgetSnapshot(snapshot);
     });
   }
 
@@ -1450,7 +1464,7 @@ export class MainRenderPipeline {
                 counterBuffer: sampleGpuCounters
                   ? this._profiler.gpuCounterBuffer
                   : null,
-                sseThreshold: this.packed_visibility_sse_threshold
+                sseThreshold: this.effectivePackedVisibilitySseThreshold()
               }
             });
           });
@@ -1512,7 +1526,8 @@ export class MainRenderPipeline {
         width: w,
         height: h,
         hierarchyView: createPackedHierarchyView(camera, h),
-        sseThreshold: this.packed_visibility_sse_threshold,
+        sseThreshold: this.effectivePackedVisibilitySseThreshold(),
+        geometryWorkBudget: this.packed_geometry_work_budget,
         coneEnabled: this.packed_visibility_cone_enabled,
         meshletWorkCandidateCapacity: this.packed_meshlet_work_candidate_capacity,
         meshletWorkCompactionPath: this.packed_meshlet_work_compaction,
@@ -2547,7 +2562,7 @@ export class MainRenderPipeline {
                     bindings.camera,
                     bindings.internalHeight
                   ),
-                  sseThreshold: this.packed_visibility_sse_threshold
+                  sseThreshold: this.effectivePackedVisibilitySseThreshold()
                 };
               }),
               {
@@ -3557,10 +3572,17 @@ export class MainRenderPipeline {
 
   private reconcileDynamicResolutionProfiler(): void {
     this._temporalFeature.dynamicResolution.consume_delayed_gpu_timing(this._frame_count);
-    const supported = this.device.features.has("timestamp-query");
-    if (this._temporalFeature.dynamicResolution.enabled && supported) {
+    const dynamicResolutionNeedsProfiler =
+      this._temporalFeature.dynamicResolution.enabled &&
+      this.device.features.has("timestamp-query");
+    const geometryBudgetNeedsProfiler = this.packed_geometry_budget_mode === "adaptive";
+    if (dynamicResolutionNeedsProfiler || geometryBudgetNeedsProfiler) {
       if (!this._profiler.enabled) {
-        this._profiler.configure({ enabled: true, gpuSampleInterval: 4 });
+        this._profiler.configure({
+          enabled: true,
+          gpuSampleInterval: 4,
+          gpuCounterSampleInterval: 4
+        });
         this._dynamicResolutionOwnsProfiler = true;
       }
       return;
@@ -3589,12 +3611,54 @@ export class MainRenderPipeline {
     });
   }
 
+  private effectivePackedVisibilitySseThreshold(): number {
+    if (this.packed_geometry_budget_mode === "fixed") {
+      return this.packed_visibility_sse_threshold;
+    }
+    const budget = normalizeGeometryWorkBudget(this.packed_geometry_work_budget);
+    const key = JSON.stringify([
+      this.packed_visibility_sse_threshold,
+      this.packed_geometry_quality_floor_sse,
+      ...Object.values(budget)
+    ]);
+    if (this._geometrySseController === null || key !== this._geometrySseControllerKey) {
+      this._geometrySseController = new GeometryAdaptiveSseController(
+        this.packed_visibility_sse_threshold,
+        budget,
+        { qualityFloorSse: this.packed_geometry_quality_floor_sse }
+      );
+      this._geometrySseControllerKey = key;
+    }
+    return this._geometrySseController.value;
+  }
+
+  private consumeGeometryBudgetSnapshot(snapshot: FrameProfileSnapshot): void {
+    if (this.packed_geometry_budget_mode !== "adaptive" ||
+      !snapshot.gpuCounters.sampled || snapshot.gpuCounters.pending ||
+      snapshot.gpuCounters.dropped) return;
+    this.effectivePackedVisibilitySseThreshold();
+    const values = snapshot.gpuCounters.values;
+    const rasterTriangles = values.geometryRasterTriangles;
+    const paddedVertices = values.geometryPaddedVertices;
+    if (values.geometryNodesTested === undefined ||
+      values.geometryMeshletWorksProduced === undefined ||
+      rasterTriangles === undefined || paddedVertices === undefined ||
+      values.geometryRiskyTriangles === undefined) return;
+    this._geometrySseController!.update({
+      testedHierarchyNodes: values.geometryNodesTested,
+      meshletWork: values.geometryMeshletWorksProduced,
+      rasterVertices: rasterTriangles * 3 + paddedVertices,
+      riskyTriangles: values.geometryRiskyTriangles
+    });
+  }
+
   add_debug_frame(count = 1): void {
     this._debug_frame_budget += count;
   }
 
   indicate_view_change(): void {
     this._hzbCameraRevision++;
+    this._geometrySseController?.resetForCameraCut();
     this._temporalFeature.jitter.reset_history = true;
     if (this._nss) this._nss.reset_history = true;
   }

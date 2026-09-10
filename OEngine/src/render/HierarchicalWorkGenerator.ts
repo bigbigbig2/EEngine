@@ -196,6 +196,7 @@ const TRAVERSAL_GROUP: GPUBindGroupLayoutDescriptor = {
   entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: HIERARCHICAL_VIEW_UNIFORM_SIZE } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: TRAVERSAL_QUEUE_MIN_BINDING_SIZE } },
@@ -506,6 +507,7 @@ export class HierarchicalWorkGenerator {
         entries: [
           { binding: 0, resource: { buffer: viewUniform } },
           { binding: 1, resource: { buffer: scene.scene.instances } },
+          { binding: 2, resource: { buffer: scene.assets.geometryRecords } },
           { binding: 3, resource: { buffer: scene.assets.clusterRecords } },
           { binding: 4, resource: { buffer: scene.assets.clusterChildren } },
           { binding: 5, resource: { buffer: input } },
@@ -672,6 +674,7 @@ export class HierarchicalWorkGenerator {
         entries: [
           { binding: 0, resource: { buffer: state.viewUniform } },
           { binding: 1, resource: { buffer: state.scene.scene.instances } },
+          { binding: 2, resource: { buffer: state.scene.assets.geometryRecords } },
           { binding: 3, resource: { buffer: state.scene.assets.clusterRecords } },
           { binding: 4, resource: { buffer: state.scene.assets.clusterChildren } },
           { binding: 5, resource: { buffer: input } },
@@ -1248,6 +1251,7 @@ export class HierarchicalWorkGenerator {
       entries: [
         { binding: 0, resource: { buffer: state.viewUniform } },
         { binding: 1, resource: { buffer: state.scene.scene.instances } },
+        { binding: 2, resource: { buffer: state.scene.assets.geometryRecords } },
         { binding: 3, resource: { buffer: state.scene.assets.clusterRecords } },
         { binding: 4, resource: { buffer: state.scene.assets.clusterChildren } },
         { binding: 5, resource: { buffer: input } },
