@@ -114,26 +114,26 @@ export interface MeshletBucketRasterInputs {
 
 /** Step-3 standard indirect GPU consumer and semantic parity reducer. */
 export class MeshletBucketRaster {
+  private rasterPipelines: readonly GPURenderPipeline[] | null = null;
+  private parityPipeline: GPUComputePipeline | null = null;
+  private readonly rasterGroups = new WeakMap<
+    PreparedMeshletWorkCandidate,
+    Readonly<{ camera: GPUBuffer; group: GPUBindGroup }>
+  >();
+
   constructor(private readonly graphics: GraphicsContext) {}
 
   encodeRaster(encoder: GPUCommandEncoder, inputs: MeshletBucketRasterInputs): void {
-    const group = this.graphics.bind_groups.obtain({
-      layout: MESHLET_BUCKET_RASTER_GROUP,
-      entries: [
-        { buffer: inputs.camera },
-        { buffer: inputs.scene.instances },
-        { buffer: inputs.assets.meshletRecords },
-        { buffer: inputs.assets.meshletVertexIndices },
-        { buffer: inputs.assets.meshletTriangleIndices },
-        { buffer: inputs.assets.vertexStreamData },
-        { buffer: inputs.assets.geometryRecords },
-        { buffer: inputs.prepared.queue },
-        { buffer: inputs.prepared.bucketStates },
-        { buffer: inputs.prepared.bucketSettings, size: MESHLET_BUCKET_SETTINGS_SIZE },
-        { buffer: inputs.runtime.materialResources.materialRecords },
-        ...inputs.runtime.materialResources.textureBanks
-      ]
-    });
+    const pipelines = this.rasterPipelines ??= BUCKET_PIPELINES.map(
+      (descriptor) => this.graphics.render_pipelines.obtain(descriptor)
+    );
+    const cached = this.rasterGroups.get(inputs.prepared);
+    const group = cached !== undefined && cached.camera === inputs.camera
+      ? cached.group
+      : this.createRasterGroup(inputs);
+    if (cached === undefined || cached.camera !== inputs.camera) {
+      this.rasterGroups.set(inputs.prepared, Object.freeze({ camera: inputs.camera, group }));
+    }
     const pass = encoder.beginRenderPass({
       label: "ADR-0008 Meshlet bucket Hardware Visibility",
       colorAttachments: [{
@@ -152,13 +152,31 @@ export class MeshletBucketRaster {
     for (let bucket = 0; bucket < GPU_MESHLET_BUCKET_COUNT; bucket++) {
       const doubleSided = ((bucket >>> 3) & 1) !== 0;
       const mask = ((bucket >>> 4) & 1) !== 0;
-      pass.setPipeline(this.graphics.render_pipelines.obtain(
-        BUCKET_PIPELINES[(mask ? 2 : 0) + (doubleSided ? 1 : 0)]!
-      ));
+      pass.setPipeline(pipelines[(mask ? 2 : 0) + (doubleSided ? 1 : 0)]!);
       pass.setBindGroup(0, group, [bucket * MESHLET_BUCKET_SETTINGS_STRIDE]);
       pass.drawIndirect(inputs.prepared.drawIndirect, bucket * 16);
     }
     pass.end();
+  }
+
+  private createRasterGroup(inputs: MeshletBucketRasterInputs): GPUBindGroup {
+    return this.graphics.bind_groups.obtain({
+      layout: MESHLET_BUCKET_RASTER_GROUP,
+      entries: [
+        { buffer: inputs.camera },
+        { buffer: inputs.scene.instances },
+        { buffer: inputs.assets.meshletRecords },
+        { buffer: inputs.assets.meshletVertexIndices },
+        { buffer: inputs.assets.meshletTriangleIndices },
+        { buffer: inputs.assets.vertexStreamData },
+        { buffer: inputs.assets.geometryRecords },
+        { buffer: inputs.prepared.queue },
+        { buffer: inputs.prepared.bucketStates },
+        { buffer: inputs.prepared.bucketSettings, size: MESHLET_BUCKET_SETTINGS_SIZE },
+        { buffer: inputs.runtime.materialResources.materialRecords },
+        ...inputs.runtime.materialResources.textureBanks
+      ]
+    });
   }
 
   encodeParity(
@@ -174,7 +192,8 @@ export class MeshletBucketRaster {
     }
   ): void {
     const pass = encoder.beginComputePass({ label: "ADR-0008 Meshlet bucket semantic parity" });
-    pass.setPipeline(this.graphics.compute_pipelines.obtain(PARITY_PIPELINE));
+    this.parityPipeline ??= this.graphics.compute_pipelines.obtain(PARITY_PIPELINE);
+    pass.setPipeline(this.parityPipeline);
     pass.setBindGroup(0, this.graphics.bind_groups.obtain({
       layout: PARITY_GROUP,
       entries: [
