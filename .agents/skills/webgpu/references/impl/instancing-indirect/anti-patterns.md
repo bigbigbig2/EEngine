@@ -61,10 +61,8 @@ pass.drawIndexedIndirect(indirectBuffer, 0);
 ```
 
 WHY it fails: a non-zero `firstInstance` in an indirect record requires the
-`indirect-first-instance` feature. Without it, the value is silently forced to 0. The
-draw still runs, no error fires, and `@builtin(instance_index)` starts at 0 instead of
-64, so per-instance data is read from the wrong slice. This is a silent correctness bug
-with no diagnostic, and it is the hardest to notice because the scene still renders.
+`indirect-first-instance` feature. Without it, the draw is treated as a no-op.
+No validation error fires, so geometry silently disappears.
 
 CORRECT: feature-detect and request the feature conditionally:
 
@@ -107,23 +105,16 @@ WRONG:
 pass.multiDrawIndexedIndirect(indirectBuffer, 0, drawCount);
 ```
 
-WHY it fails: `multiDrawIndirect` and `multiDrawIndexedIndirect` are experimental,
-Chrome 131+ only, behind the `chromium-experimental-multi-draw-indirect` feature. They
-are NOT part of the WebGPU 1.0-stable baseline and do not exist in Safari or Firefox.
-Calling the method on a browser that lacks it throws a `TypeError` (the method is
-`undefined`), and creating the device without the feature makes the call fail
-validation. The code breaks for the majority of users.
+WHY it fails: `multiDrawIndirect` and `multiDrawIndexedIndirect` are absent from
+the 2026-09 normative WebGPU API and `GPUFeatureName` enum. Calling a method an
+implementation does not expose throws a `TypeError`, and inventing a feature
+name makes device negotiation reject.
 
-CORRECT: feature-detect and always provide the loop-of-`drawIndirect` path, which is
-correct on every WebGPU 1.0-stable browser:
+CORRECT: use the standard loop-of-`drawIndirect` path:
 
 ```js
-if (adapter.features.has("chromium-experimental-multi-draw-indirect")) {
-  pass.multiDrawIndexedIndirect(indirectBuffer, 0, drawCount);
-} else {
-  for (let i = 0; i < drawCount; i++) {
-    pass.drawIndexedIndirect(indirectBuffer, i * 20);
-  }
+for (let i = 0; i < drawCount; i++) {
+  pass.drawIndexedIndirect(indirectBuffer, i * 20);
 }
 ```
 

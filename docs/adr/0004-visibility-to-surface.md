@@ -1,10 +1,10 @@
 # ADR-0004 · Visibility-to-Surface
 
-Status: accepted
+Status: accepted；能力口径由 [ADR-0010](./0010-webgpu-2026-capability-contract.md) 修订
 
 ## Context
 
-Hardware Visibility 已能为可见像素输出 reverse-Z depth 和稳定 `VisibilityKey`。旧 Pixel Queue、ShadeWork 和按可见像素散射的材质路径增加了中间队列、扫描和生命周期成本，也让 Surface producer 与消费者共享了过多迁移状态。WebGPU 又不能假设 subgroup、64 位原子、multi-draw-indirect 或 mesh shader。
+Hardware Visibility 已能为可见像素输出 reverse-Z depth 和稳定 `VisibilityKey`。旧 Pixel Queue、ShadeWork 和按可见像素散射的材质路径增加了中间队列、扫描和生命周期成本，也让 Surface producer 与消费者共享了过多迁移状态。64 位原子、multi-draw-indirect 或 mesh shader 仍不是标准生产前提；subgroup 等 2026 规范能力按 ADR-0010 specialization 使用。
 
 ## Decision
 

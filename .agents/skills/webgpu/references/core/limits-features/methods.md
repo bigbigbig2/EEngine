@@ -1,172 +1,164 @@
-# WebGPU Limits and Features: Methods Reference
+# WebGPU Limits and Features: Current Methods Reference
 
-All values verified against the W3C WebGPU specification
-(https://www.w3.org/TR/webgpu/#limits) and the WebGPU 1.0-stable feature set.
-Baseline: Chrome 113+, Safari 26+, Firefox 141+.
+Snapshot: 2026-09-10. Normative authority is the current WebGPU Editor's Draft,
+not this copied list. Recheck the draft when a task depends on exact exposure.
 
-## GPUSupportedLimits: complete table
-
-`GPUAdapter.limits` and `GPUDevice.limits` are both `GPUSupportedLimits` objects.
-Every limit has a spec-mandated default. A real adapter reports a value at least
-as good as the default: for a `maximum`-class limit the adapter value is greater
-than or equal to the default; for an `alignment`-class limit the adapter value is
-less than or equal to the default. The default value is the WORST value any
-conformant adapter is allowed to report.
-
-| Limit | Default | Class |
-|-------|---------|-------|
-| maxTextureDimension1D | 8192 | maximum |
-| maxTextureDimension2D | 8192 | maximum |
-| maxTextureDimension3D | 2048 | maximum |
-| maxTextureArrayLayers | 256 | maximum |
-| maxBindGroups | 4 | maximum |
-| maxBindGroupsPlusVertexBuffers | 24 | maximum |
-| maxBindingsPerBindGroup | 1000 | maximum |
-| maxDynamicUniformBuffersPerPipelineLayout | 8 | maximum |
-| maxDynamicStorageBuffersPerPipelineLayout | 4 | maximum |
-| maxSampledTexturesPerShaderStage | 16 | maximum |
-| maxSamplersPerShaderStage | 16 | maximum |
-| maxStorageBuffersPerShaderStage | 8 | maximum |
-| maxStorageTexturesPerShaderStage | 4 | maximum |
-| maxUniformBuffersPerShaderStage | 12 | maximum |
-| maxUniformBufferBindingSize | 65536 | maximum |
-| maxStorageBufferBindingSize | 134217728 | maximum |
-| minUniformBufferOffsetAlignment | 256 | alignment |
-| minStorageBufferOffsetAlignment | 256 | alignment |
-| maxBufferSize | 268435456 | maximum |
-| maxVertexBuffers | 16 | maximum |
-| maxVertexAttributes | 32 | maximum |
-| maxVertexBufferArrayStride | 2048 | maximum |
-| maxInterStageShaderVariables | 16 | maximum |
-| maxColorAttachments | 8 | maximum |
-| maxColorAttachmentBytesPerSample | 32 | maximum |
-| maxComputeWorkgroupStorageSize | 49152 | maximum |
-| maxComputeInvocationsPerWorkgroup | 256 | maximum |
-| maxComputeWorkgroupSizeX | 256 | maximum |
-| maxComputeWorkgroupSizeY | 256 | maximum |
-| maxComputeWorkgroupSizeZ | 64 | maximum |
-| maxComputeWorkgroupsPerDimension | 65535 | maximum |
-
-### Notes on specific limits
-
-- `maxUniformBufferBindingSize` 65536 = 64 KiB. `maxStorageBufferBindingSize`
-  134217728 = 128 MiB. `maxBufferSize` 268435456 = 256 MiB.
-- `minUniformBufferOffsetAlignment` and `minStorageBufferOffsetAlignment` are
-  `alignment`-class: the default 256 is the LARGEST value a conformant adapter
-  reports. An adapter may report a smaller (better) alignment. Dynamic buffer
-  binding offsets MUST be a multiple of this limit.
-- `maxColorAttachmentBytesPerSample` default 32; many desktop adapters report 64.
-- Browser divergence: some Chrome builds raise reported maxima above the spec
-  default (a Chrome 120-era update reports `maxStorageBuffersPerShaderStage` 10
-  on capable hardware). ALWAYS read `adapter.limits` rather than assuming the
-  spec default; the spec default is the floor, not the actual value.
-
-## GPUSupportedLimits class semantics
-
-- `maximum` class: "better" means a larger number. To raise a `maximum` limit,
-  put a larger value in `requiredLimits`. `requestDevice` fails when the
-  requested value exceeds `adapter.limits.<name>`.
-- `alignment` class: "better" means a smaller number. To request a finer
-  alignment, put a smaller value in `requiredLimits`. `requestDevice` fails when
-  the requested value is below `adapter.limits.<name>`. Requesting a value worse
-  than the default is also invalid.
-
-## GPUFeatureName: complete enum
-
-`GPUAdapter.features` and `GPUDevice.features` are `GPUSupportedFeatures`
-set-like objects. The complete `GPUFeatureName` enum, verified against the W3C
-WebGPU specification:
-
-| GPUFeatureName | Capability unlocked | Version gate |
-|----------------|---------------------|--------------|
-| depth-clip-control | disable depth clipping (`unclippedDepth` in primitive state) | WebGPU 1.0 baseline |
-| depth32float-stencil8 | the `depth32float-stencil8` texture format | WebGPU 1.0 baseline |
-| texture-compression-bc | BC1 to BC7 compressed texture formats | WebGPU 1.0 baseline |
-| texture-compression-etc2 | ETC2 / EAC compressed texture formats | WebGPU 1.0 baseline |
-| texture-compression-astc | ASTC compressed texture formats | WebGPU 1.0 baseline |
-| timestamp-query | timestamp `GPUQuerySet` and `timestampWrites` on passes | WebGPU 1.0 baseline |
-| indirect-first-instance | non-zero `firstInstance` in indirect draws | WebGPU 1.0 baseline |
-| shader-f16 | WGSL `enable f16;` and the `f16` scalar type | Chrome 120+ |
-| rg11b10ufloat-renderable | use `rg11b10ufloat` as a render attachment with blending and multisampling | WebGPU 1.0 baseline |
-| bgra8unorm-storage | `bgra8unorm` as a storage-texture binding | WebGPU 1.0 baseline |
-| float32-filterable | filtering samplers on `r32float` / `rg32float` / `rgba32float` textures | WebGPU 1.0 baseline |
-| float32-blendable | blending on `float32` render targets | WebGPU 1.0 baseline |
-| clip-distances | WGSL `clip_distances` vertex builtin | WebGPU 1.0 baseline (Chrome 131+) |
-| dual-source-blending | dual-source blend factors (`src1`, `one-minus-src1`) | Chrome 130+ |
-| subgroups | WGSL subgroup builtins and operations | Chrome 134+ |
-
-### Feature gating rules
-
-- A feature name not in this enum is invalid. Passing an unrecognised string in
-  `requiredFeatures` makes `requestDevice` reject. NEVER invent feature names.
-- A feature absent from `adapter.features` cannot be requested. Adding it to
-  `requiredFeatures` makes `requestDevice` reject.
-- `shader-f16` has two requirements together: the device MUST be created with
-  `requiredFeatures: ["shader-f16"]` AND the WGSL source MUST begin with
-  `enable f16;`. One without the other fails.
-- `indirect-first-instance`: without this feature a non-zero `firstInstance` in
-  an indirect draw is forced to zero rather than throwing.
-- Optional-feature availability differs by browser and adapter. Chrome leads
-  rollout; Safari 26.0 to 26.5 and Firefox expose smaller sets. ALWAYS detect
-  per adapter via `adapter.features.has(name)`.
-
-## requestAdapter signature
+## Device Negotiation
 
 ```ts
 navigator.gpu.requestAdapter(
-  options?: GPURequestAdapterOptions
-): Promise<GPUAdapter | null>
+  options?: GPURequestAdapterOptions,
+): Promise<GPUAdapter | null>;
 
 interface GPURequestAdapterOptions {
-  featureLevel?: "core" | "compatibility"; // default "core"
+  featureLevel?: "core" | "compatibility";
   powerPreference?: "low-power" | "high-performance";
-  forceFallbackAdapter?: boolean;          // default false
-  xrCompatible?: boolean;                  // default false
+  forceFallbackAdapter?: boolean;
+  xrCompatible?: boolean;
 }
-```
 
-- `featureLevel: "core"` (default): the full WebGPU feature and limit tier.
-- `featureLevel: "compatibility"`: an adapter mapped to OpenGL ES 3.1 /
-  D3D11-class hardware. Reduced limits and a smaller feature set. `adapter.limits`
-  on a compatibility adapter reflect the lower tier.
-- The Promise resolves to `null` (NOT a rejection) when no compatible adapter
-  exists. ALWAYS null-check before reading `.features` or `.limits`.
-
-## requestDevice negotiation signature
-
-```ts
 adapter.requestDevice(
-  descriptor?: GPUDeviceDescriptor
-): Promise<GPUDevice>
+  descriptor?: GPUDeviceDescriptor,
+): Promise<GPUDevice>;
 
 interface GPUDeviceDescriptor {
   label?: string;
-  requiredFeatures?: GPUFeatureName[];        // default []
-  requiredLimits?: Record<string, number>;    // default {}
+  requiredFeatures?: Iterable<GPUFeatureName>;
+  requiredLimits?: Record<string, number>;
   defaultQueue?: GPUQueueDescriptor;
 }
 ```
 
-## The negotiation algorithm
+`requestAdapter()` may resolve to `null`. Descriptor validation failures reject
+`requestDevice()`; separately, runtime failure can produce or later cause a lost
+device. Always handle both negotiation errors and `device.lost`.
 
-1. The device's limits start from the spec-mandated DEFAULT values, not the
-   adapter's reported values.
-2. For each `(key, value)` entry in `requiredLimits`:
-   - If `key` is not a known limit name, `requestDevice` fails.
-   - The limit is set to `value`. For a `maximum`-class limit, `value` must be
-     no greater than `adapter.limits[key]`; for an `alignment`-class limit,
-     `value` must be no less than `adapter.limits[key]` and no greater than the
-     default. Out-of-range causes `requestDevice` to fail.
-3. For each name in `requiredFeatures`: if `adapter.features` does not contain
-   the name, or the name is not a valid `GPUFeatureName`, `requestDevice` fails.
-4. The created `GPUDevice` exposes the negotiated set as `device.limits` and
-   `device.features`. Every later API call is validated against these negotiated
-   values, NOT against the adapter's full limits.
+## Complete GPUFeatureName Set
 
-`requestDevice` "never throws for runtime failures": a failed negotiation makes
-the Promise reject, and an unrecoverable device returns a `GPUDevice` whose
-`lost` promise has already resolved. Code MUST handle both.
+The 2026-09 Editor's Draft defines:
 
-Requesting a lower (`maximum`-class) or higher (`alignment`-class) limit than the
-adapter offers is VALID and is the deliberate way to test that an app stays
-within a portable budget.
+```text
+core-features-and-limits
+depth-clip-control
+depth32float-stencil8
+texture-compression-bc
+texture-compression-bc-sliced-3d
+texture-compression-etc2
+texture-compression-astc
+texture-compression-astc-sliced-3d
+timestamp-query
+indirect-first-instance
+shader-f16
+rg11b10ufloat-renderable
+bgra8unorm-storage
+float32-filterable
+float32-blendable
+clip-distances
+dual-source-blending
+subgroups
+texture-formats-tier1
+texture-formats-tier2
+primitive-index
+texture-component-swizzle
+subgroup-size-control
+texture-compression-unaligned
+```
+
+Dependencies:
+
+```text
+texture-formats-tier2              -> texture-formats-tier1
+texture-formats-tier1              -> rg11b10ufloat-renderable
+texture-compression-bc-sliced-3d   -> texture-compression-bc
+texture-compression-astc-sliced-3d -> texture-compression-astc
+subgroup-size-control              -> subgroups
+```
+
+Do not attach browser version numbers to this enum. A name being in the spec
+does not mean a particular browser/OS/adapter exposes it.
+
+## GPUSupportedLimits Surface
+
+Current limit names are:
+
+```text
+maxTextureDimension1D
+maxTextureDimension2D
+maxTextureDimension3D
+maxTextureArrayLayers
+maxBindGroups
+maxBindGroupsPlusVertexBuffers
+maxBindingsPerBindGroup
+maxDynamicUniformBuffersPerPipelineLayout
+maxDynamicStorageBuffersPerPipelineLayout
+maxSampledTexturesPerShaderStage
+maxSamplersPerShaderStage
+maxStorageBuffersPerShaderStage
+maxStorageBuffersInVertexStage
+maxStorageBuffersInFragmentStage
+maxStorageTexturesPerShaderStage
+maxStorageTexturesInVertexStage
+maxStorageTexturesInFragmentStage
+maxUniformBuffersPerShaderStage
+maxUniformBufferBindingSize
+maxStorageBufferBindingSize
+minUniformBufferOffsetAlignment
+minStorageBufferOffsetAlignment
+maxVertexBuffers
+maxBufferSize
+maxVertexAttributes
+maxVertexBufferArrayStride
+maxInterStageShaderVariables
+maxColorAttachments
+maxColorAttachmentBytesPerSample
+maxComputeWorkgroupStorageSize
+maxComputeInvocationsPerWorkgroup
+maxComputeWorkgroupSizeX
+maxComputeWorkgroupSizeY
+maxComputeWorkgroupSizeZ
+maxComputeWorkgroupsPerDimension
+maxImmediateSize
+```
+
+The fixed numeric table was deliberately removed: current defaults depend on the
+adapter feature level and `core-features-and-limits`, and copied tables become
+stale. For exact validation use the current specification's Supported Limits
+table, then inspect `adapter.limits` and `device.limits` at runtime.
+
+The current default for `maxImmediateSize` is 64 bytes. Treat the four per-stage
+storage limit properties as rollout-sensitive in TypeScript because older
+`@webgpu/types` releases mark them optional or omit them.
+
+## Immediate Data Signatures
+
+```ts
+interface GPUPipelineLayoutDescriptor {
+  bindGroupLayouts: Iterable<GPUBindGroupLayout>;
+  immediateSize?: number;
+}
+
+interface GPURenderPassEncoder {
+  setImmediates(offset: number, data: GPUAllowSharedBufferSource,
+                dataOffset?: number, size?: number): undefined;
+}
+
+interface GPUComputePassEncoder {
+  setImmediates(offset: number, data: GPUAllowSharedBufferSource,
+                dataOffset?: number, size?: number): undefined;
+}
+
+interface GPURenderBundleEncoder {
+  setImmediates(offset: number, data: GPUAllowSharedBufferSource,
+                dataOffset?: number, size?: number): undefined;
+}
+```
+
+The WGSL side requires `requires immediate_address_space;` and declares
+`var<immediate>`. See `../webgpu-2026/methods.md` for a paired example.
+
+## Normative Sources
+
+- <https://gpuweb.github.io/gpuweb/#supported-limits>
+- <https://gpuweb.github.io/gpuweb/#feature-index>
+- <https://gpuweb.github.io/gpuweb/#dom-gpuadapter-requestdevice>
+- <https://gpuweb.github.io/gpuweb/wgsl/>

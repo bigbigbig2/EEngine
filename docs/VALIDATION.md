@@ -29,9 +29,17 @@ npm run verify -- changed
 - 结果状态只有 `passed`、`failed`、`inconclusive`，退出码固定为 0、1、2。没有本机 Google Chrome 时真实 GPU Case 必须返回 `inconclusive`；只有 `OENGINE_ALLOW_CHROMIUM_FALLBACK=true` 才可尝试 Chromium，且报告必须保留其非 Chrome 身份。
 - JSON 与截图写入 `temp/validation/`。截图是观察 artifact，不默认作为 pixel-perfect gate。
 
+## WebGPU 2026 capability 门禁
+
+- 每个真实浏览器 artifact 必须记录 `core-features-and-limits`、adapter/device feature 集、requested limits、实际 device limits、WGSL language features、Immediate Data/Transient Attachment API 探测和最终 specialization。
+- 使用 `subgroups`、`primitive-index`、`shader-f16` 或 format tier 的改动，必须覆盖对应 WGSL enable、缺失能力 specialization、边界输入和同一 CPU/oracle 语义；subgroup 测试覆盖 partial workgroup 和 adapter 报告的 size 范围。
+- Immediate Data 验证 `maxImmediateSize`、4-byte slot/range、pipeline layout 与未初始化 slot；Transient Attachment 验证 pass-local lifetime、usage、dimension/mip/layer、clear/discard、禁止 resolve/cross-pass consumer，并报告 transient bytes/traffic 变化。
+- 正式性能结论只运行目标 adapter 实际选择的一个综合 profile，不为 WebGPU 2026 Desktop 与 Portable 复制双基准。capability/fallback 变更运行命中的正确性与 parity case；综合 benchmark 把完整 capability fingerprint 固定为比较条件。
+- `texture-compression-unaligned` 等规范已出现但本地类型/浏览器尚未稳定暴露的能力，必须先升级工具链并通过 typecheck、CTS/validation 和目标浏览器 probe，不能靠字符串断言“已支持”。
+
 ## 文档门禁
 
-- `docs/` 只包含入口、五份核心事实页、ADR 和 porting ledger。
+- `docs/` 只包含入口、六份核心事实页、ADR、porting ledger 和非权威研究输入 `others/`。
 - Markdown 相对链接必须存在。
 - 权威文档不得引用 `temp/`、本机绝对路径或已删除的 owner。
 - `STATUS.md` 之外不保存阶段 checkpoint、逐提交日志或“当前测试总数”。

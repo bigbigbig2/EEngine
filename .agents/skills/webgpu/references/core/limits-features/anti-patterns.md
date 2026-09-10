@@ -1,7 +1,7 @@
 # WebGPU Limits and Features: Anti-Patterns
 
-Each anti-pattern lists the broken code, WHY it fails, and the fix. Verified
-against the WebGPU 1.0-stable specification and the vooronderzoek research base.
+Each anti-pattern lists the broken code, why it fails, and the fix. Snapshot:
+2026-09-10.
 
 ## Anti-Pattern 1: Optional feature in requiredFeatures without detection
 
@@ -16,7 +16,7 @@ WHY IT FAILS: `requestDevice` validates every name in `requiredFeatures` against
 `adapter.features`. When the adapter does not list `timestamp-query`, the Promise
 rejects. The app then has no device at all. This passes in Chrome on a desktop
 GPU and breaks in Safari, on Firefox, and on integrated GPUs that omit the
-feature, so the bug ships unnoticed.
+feature, so the bug can ship unnoticed when tested on only one adapter.
 
 FIX: Gate every optional feature on `adapter.features.has`.
 
@@ -33,17 +33,15 @@ const device = await adapter.requestDevice({
 ## Anti-Pattern 2: Assuming a feature exists because Chrome has it
 
 ```js
-// BROKEN: shader-f16 shipped in Chrome 120, so the developer hard-codes it.
+// BROKEN: one tested adapter exposes shader-f16, so it is hard-coded.
 const device = await adapter.requestDevice({
   requiredFeatures: ["shader-f16"],
 });
 ```
 
-WHY IT FAILS: Chrome leads WebGPU feature rollout. `shader-f16` arrived in
-Chrome 120, `dual-source-blending` in Chrome 130, `subgroups` in Chrome 134.
-Safari 26.0 to 26.5 and Firefox expose smaller, different optional-feature sets,
-and older or integrated adapters omit features even in Chrome. Hard-coding any
-feature ties the app to one browser-and-hardware combination.
+WHY IT FAILS: optional feature sets vary by browser, backend, driver, and
+adapter. Hard-coding a feature ties initialization to the one capability set
+used during development.
 
 FIX: Detect per adapter. Optional features are per-adapter, never per-browser.
 
@@ -65,7 +63,7 @@ const device = await adapter.requestDevice({
 
 WHY IT FAILS: `maxBufferSize` is a `maximum`-class limit. When the requested
 value exceeds `adapter.limits.maxBufferSize`, `requestDevice` rejects. There is
-NO silent clamp to the adapter maximum. A 4 GiB request rejects on most adapters,
+no clamp to the adapter maximum. A 4 GiB request rejects on most adapters,
 so the app fails to start even though the real workload may only need 200 MiB.
 Over-requesting also locks out adapters that could have run the actual workload.
 

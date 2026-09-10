@@ -9,13 +9,13 @@ OEngine 当前阶段是面向桌面 WebGPU、中大型高几何密度场景的 G
 ## 开始任务前
 
 1. 完整阅读 `CONTEXT-MAP.md`。
-2. 按路由阅读 `docs/PRODUCT.md`、`docs/ARCHITECTURE.md` 或 `docs/PIPELINE.md`。
+2. 按路由阅读 `docs/PRODUCT.md`、`docs/WEBGPU.md`、`docs/ARCHITECTURE.md` 或 `docs/PIPELINE.md`。
 3. 修改 `OEngine/` 时阅读 `OEngine/AGENTS.md`，并继续读取更近的 `AGENTS.md`。
 4. 架构变更先检查 `docs/adr/`；范围判断读取 `docs/PRODUCT.md`；验证或性能判断读取 `docs/VALIDATION.md`。
 
 ## 全局强制约束
 
-- WebGPU 是当前能力基线；不得把 64 位原子、multi-draw-indirect、mesh/task shader 或 buffer device address 当作默认能力。
+- WebGPU 2026 Desktop 是当前目标能力线，具体 feature/limit/API/WGSL 协商以 `docs/WEBGPU.md` 为准；已进入规范的现代能力应在实际支持且有生产 consumer 时优先使用。不得把 64 位原子、multi-draw-indirect、mesh/task shader、buffer device address 或仍处于 Draft 的能力当作默认能力。
 - GPU-driven 必须形成 GPU producer → GPU consumer 闭环。只生成 Buffer、但最终仍由 CPU 遍历原列表，不算完成。
 - 新增 GPU 队列必须定义元素 ABI、容量、溢出行为、生产者、消费者和统计计数。
 - Runtime Asset 与 GPU 资源表必须分离；Loader 临时对象不得成为长期 GPU 资源 owner。
@@ -53,7 +53,8 @@ OEngine 当前阶段是面向桌面 WebGPU、中大型高几何密度场景的 G
 1. `AGENTS.md` 与更近的局部 `AGENTS.md`：协作和所有权约束。
 2. `docs/adr/`：已接受的长期决策。
 3. `docs/PRODUCT.md`：产品方向、目标平台、workload 与非目标。
-4. `docs/ARCHITECTURE.md`、`docs/PIPELINE.md`：当前架构、owner 与帧合同。
-5. `docs/STATUS.md`：当前实现状态、风险与下一步。
-6. `docs/VALIDATION.md`：验证和性能证据合同。
-7. `docs/porting/`：外部来源与许可证，不自动决定项目设计。
+4. `docs/WEBGPU.md`：WebGPU/WGSL 能力线、协商与 specialization 合同。
+5. `docs/ARCHITECTURE.md`、`docs/PIPELINE.md`：当前架构、owner 与帧合同。
+6. `docs/STATUS.md`：当前实现状态、风险与下一步。
+7. `docs/VALIDATION.md`：验证和性能证据合同。
+8. `docs/porting/`：外部来源与许可证，不自动决定项目设计。

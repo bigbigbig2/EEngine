@@ -1,17 +1,17 @@
 # Platform
 
-## PLAT-WEBGPU · WebGPU/WGSL capability baseline
+## PLAT-WEBGPU · WebGPU 2026/WGSL capability contract
 
 - Local owner/source: `GraphicsContext`、Renderer device creation、pipeline/bind-group owners。
-- Upstream: <https://www.w3.org/TR/webgpu/> and <https://www.w3.org/TR/WGSL/>。
-- Revision: living specifications; behavior rechecked when browser/toolchain changes。
-- Upstream source: WebGPU API and WGSL specifications。
+- Upstream: <https://gpuweb.github.io/gpuweb/>、<https://gpuweb.github.io/gpuweb/wgsl/>、<https://developer.mozilla.org/en-US/docs/Web/API/GPUSupportedFeatures>、<https://developer.mozilla.org/en-US/docs/Web/API/GPUDevice/createTexture>、<https://developer.mozilla.org/en-US/docs/Web/API/GPUTexture/usage>。
+- Revision: GPUWeb Editor's Draft 2026-09-01（spec commit `e0aff163a37eb3633ffd612e2a943ceb6196d6af`）；WGSL/MDN 于 2026-09-10 复核。living specifications 在 browser/toolchain 更新时重查。
+- Upstream source: WebGPU/WGSL 规范正文是语义权威；MDN 用于 API exposure 与浏览器兼容性核对；merged proposal 只作历史 explainer。
 - License: W3C document license；规范是语义权威，不复制实现源码。
 - Adoption: implementation to specification。
-- Retained invariants: explicit feature/limit negotiation、usage validation、resource lifetime、error scopes、device loss and asynchronous mapping。
-- OEngine/WebGPU differences: desktop discrete GPU is performance profile, but correctness cannot assume 64-bit atomic、MDI、mesh shader、buffer address 或 subgroup。
-- Fallback/lifecycle: optional feature unavailable时共享 ABI 走正确 fallback 或明确拒绝；device loss/resize 销毁或失效相关资源/history。
-- Local validation: device initialization、WebGPU validation、uncaptured error、device-lost diagnostics 和 target-browser fixture。
+- Retained invariants: core feature-level verification、explicit feature/limit/WGSL/API negotiation、usage validation、resource lifetime、error scopes、device loss and asynchronous mapping。
+- OEngine/WebGPU differences: `docs/WEBGPU.md` 的 WebGPU 2026 Desktop 是目标 profile；subgroups、primitive-index、f16、format/compression 和 2026 core API 通过 specialization 使用。仍不依赖 64-bit atomic、MDI、mesh/task shader、buffer address、bindless 或 Draft extension。
+- Fallback/lifecycle: optional feature unavailable时共享 ABI 走正确 specialization 或在 owner 创建前明确拒绝；Immediate Data/Transient Attachment 缺失不改变资源和结果语义；device loss/resize 销毁或失效相关资源/history。
+- Local validation: frozen capability record、device initialization、WGSL enable/language feature、Immediate Data/Transient Attachment probe、WebGPU validation、uncaptured error、device-lost diagnostics 和 target-browser fixture。
 
 ## PLAT-FRAMEGRAPH · FrameGraph and resource ownership
 

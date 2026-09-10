@@ -1,6 +1,6 @@
 # OEngine 当前状态
 
-更新时间：2026-09-09。本文件只记录当前能力、开放风险和下一步；实施过程与旧结果从 Git 查询。
+更新时间：2026-09-10。本文件只记录当前能力、开放风险和下一步；实施过程与旧结果从 Git 查询。
 
 ## 当前基线
 
@@ -12,6 +12,7 @@
 - direct lighting、CSM、GI、AO、SSR、MBOIT、Temporal 与 HDR post 接入同一 Renderer 主流程。
 - Performance Inspector 是共享的实时 Profiler/Timeline；Rendering Lab 是综合质量与性能 fixture。
 - Browser Validation 已统一为 Registry + Source Domain Selector + 单一 ChromeRunner；Smoke、Visibility、Surface、Lifecycle 承担日常真实 WebGPU 验证，Rendering Lab 保留综合与 formal benchmark。
+- WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码只已强制 `indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，并机会性启用 `timestamp-query`、`subgroups`；其余 2026 specialization 尚未落地。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 
@@ -45,6 +46,7 @@
 - resident、transient、history、shadow、upload/readback 预算仍需目标 adapter 的同条件证据。
 - one-main-submit 和 feature-off 接近零成本需要逐帧证据，不能只凭静态结构判断。
 - Shader source audit 当前只有有生产 owner 的 authored shader；实际数量和名单以生成的 `OEngine/benchmarks/shader-source-audit.json` 为准。
+- capability record 尚未覆盖 `core-features-and-limits`、WGSL language features、Immediate Data/Transient Attachment API probe 和最终 specialization；lockfile 中的 `@webgpu/types` 0.1.71 还没有 2026-09 规范中的 `texture-compression-unaligned` 名称。
 
 ## 下一步
 
@@ -64,5 +66,6 @@ Step 6 已完成。`GpuRenderWorld` 同时接收 Packed source 与普通 Applica
 
 Step 7 已完成并关闭 ADR-0006 的架构迁移：生产代码只保留一个 Render World、VisibilityKey attachment、Surface/velocity producer、MBOIT、directional CSM consumer 和 graph recipe；旧 runtime、Pass、shader/layout/pipeline/counter、双 ID attachment、公开 owner evidence 字段与旧诊断标签均已删除。shader audit 只有 41 个有生产 owner 的 authored shader，无 dead/unknown/oracle source。相同 NVIDIA Turing、Chrome 152、1920×1080、`comprehensive-full` 的 clean-commit 正式 A/B 每侧执行 3×(120 warm-up + 480 measured)，graph dump、43 个可执行 Pass、71 个资源、memory、submit、upload/readback 完全相同；CPU frame P50/P95 为 +0.990%/+2.563%，GPU frame P50/P95 为 -0.526%/+0.418%，未显示本机显著回退。11-case feature topology 矩阵全部保持一次 main submit、零 invalid stable frame 和零 overflow；完整证据见 `OEngine/benchmarks/render-world-convergence-step7.json`。该结果只覆盖单一 adapter，不宣称 1080p/60 已达成；Triangle Setup、Surface ABI 和双 vendor Tile backend 仍为证据不足。
 
-1. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
-2. 保持 Tile backend 为 evidence-only；Instance ABI、public subpath 与 FrameGraph execution state 只由 ADR-0006 Step 8 的证据门槛触发。
+1. 先实现 `WEBGPU.md` 的冻结 capability record、core adapter 校验、WGSL/API probe 和 specialization cache key，再让 ADR-0007/0008/0009 的 2026 能力进入生产路径。
+2. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
+3. 保持 Tile backend 为 evidence-only；Instance ABI、public subpath 与 FrameGraph execution state 只由 ADR-0006 Step 8 的证据门槛触发。

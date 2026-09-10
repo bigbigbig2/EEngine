@@ -1,7 +1,7 @@
 # WebGPU Limits and Features: Examples
 
-All examples verified against the WebGPU 1.0-stable specification and the
-vooronderzoek research base. Baseline: Chrome 113+, Safari 26+, Firefox 141+.
+Snapshot: 2026-09-10. Recheck exact names and validation against the living
+WebGPU specification for later work.
 
 ## Example 1: Safe initialization with feature detection
 
@@ -181,8 +181,9 @@ function reportCapabilities(adapter, device) {
 
 ## Example 9: shader-f16 needs both the feature and the enable directive
 
-`shader-f16` requires the device feature AND the WGSL `enable f16;` directive
-together. Requesting one without the other fails.
+Using `f16` requires the negotiated device feature AND the WGSL `enable f16;`
+directive together. Merely requesting the feature does not require a shader to
+use it.
 
 ```js
 const hasF16 = adapter.features.has("shader-f16");

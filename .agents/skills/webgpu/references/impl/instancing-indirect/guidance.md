@@ -31,7 +31,7 @@ Rules that ALWAYS hold:
   is `COPY_DST | INDIRECT`. For a GPU-written buffer, add `STORAGE`.
 - `indirectOffset` MUST be a multiple of 4.
 - A non-zero `firstInstance` in an INDIRECT draw requires the `indirect-first-instance`
-  feature. Without it the value is forced to 0 (silent no-op, not an error).
+  feature. Without it the indirect draw is a no-op; the value is not forced to 0.
 - `firstInstance` in a DIRECT `draw` / `drawIndexed` call works without any feature.
 
 ## Decision Tree
@@ -53,9 +53,8 @@ Drawing many copies of one mesh?
 │
 └─ Hundreds of distinct meshes, each with its own indirect record
    └─ One indirect record per mesh in an array buffer; loop
-      drawIndexedIndirect with a stepping indirectOffset.
-      Chrome 131+ only: multiDrawIndexedIndirect collapses the loop
-      into one call. Feature-gate it, never assume availability.
+      drawIndexedIndirect with a stepping indirectOffset. Standard WebGPU does
+      not currently expose multi-draw-indirect.
 ```
 
 Instancing answers "how do I draw the same thing many times". Indirect answers "how do
@@ -182,9 +181,8 @@ device.queue.submit([encoder.finish()]); // encoder orders compute before render
    undefined memory; the GPU still reads them, causing out-of-range vertex fetches.
 
 3. **A non-zero `firstInstance` in an indirect draw without the
-   `indirect-first-instance` feature.** WHY it fails: the value is silently forced to
-   0. The draw renders, no error fires, and instances appear at the wrong base offset
-   with no diagnostic.
+   `indirect-first-instance` feature.** WHY it fails: the entire draw is a no-op,
+   so geometry disappears without a validation error.
 
 ## Critical Warnings
 
@@ -195,9 +193,10 @@ device.queue.submit([encoder.finish()]); // encoder orders compute before render
 - NEVER reuse a 16-byte stride for `drawIndexedIndirect` or a 20-byte stride for
   `drawIndirect`.
 - NEVER omit any `u32` field from an indirect record. Write zeros explicitly.
-- NEVER assume `multiDrawIndirect` / `multiDrawIndexedIndirect` exist. They are
-  experimental, Chrome 131+, behind the `chromium-experimental-multi-draw-indirect`
-  feature. Always feature-detect and provide the loop-of-drawIndirect path.
+- NEVER emit `multiDrawIndirect` / `multiDrawIndexedIndirect` as standard WebGPU.
+  They are absent from the 2026-09 normative API and `GPUFeatureName` enum. Use
+  the loop-of-`drawIndirect` path or isolate a non-standard experiment outside
+  the production capability contract.
 - NEVER read the GPU-written indirect count back to the CPU in the render frame. The
   command encoder already orders the compute pass before the render pass.
 - NEVER set `stepMode: "vertex"` on a vertex buffer that holds per-instance data. The
@@ -207,7 +206,7 @@ device.queue.submit([encoder.finish()]); // encoder orders compute before render
 
 - `methods.md` : full signatures for `draw`, `drawIndexed`, `drawIndirect`,
   `drawIndexedIndirect`, `dispatchWorkgroupsIndirect`, exact buffer layouts, the
-  `indirect-first-instance` feature, and experimental `multiDrawIndirect`.
+  `indirect-first-instance` feature, and the multi-draw non-standard boundary.
 - `examples.md` : verified working code for instanced draw, indirect draw
   with a populated buffer, and a GPU-driven cull plus indirect render.
 - `anti-patterns.md` : mistakes with WHY-it-fails analysis.

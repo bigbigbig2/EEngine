@@ -6,8 +6,9 @@ OEngine 是面向桌面浏览器 WebGPU 的 GPU-first 渲染引擎核心，服�
 
 ## 目标平台与工作负载
 
-- 主要 profile：支持 WebGPU 的桌面浏览器和独立 GPU。
-- 能力基线：WebGPU 标准能力；不默认依赖 64 位原子、multi-draw-indirect、mesh/task shader、buffer device address 或 subgroup。
+- 主要 profile：支持 core WebGPU 的桌面浏览器和独立 GPU；以 `core-features-and-limits` 明确验证，不把 compatibility mode 当作目标性能平台。
+- 能力线：采用 [WebGPU 2026 Desktop](./WEBGPU.md)。主路径优先使用已进入 2026 WebGPU/WGSL 规范且设备实际暴露的 subgroup、primitive identity、f16、texture format/compression、Immediate Data 与 Transient Attachment 能力；所有 specialization 共享一条 Renderer 和逻辑 ABI。
+- 非基线能力：不默认依赖 64 位原子、multi-draw-indirect、mesh/task shader、buffer device address、bindless/resource table 或仍处于 Draft 的扩展。
 - 场景：多个资产和材质、大量实例、高三角形密度、少量显式 transform/material patch。
 - 更新模型：bulk/mostly-static GPU Scene，不为当前阶段扩张完整 ECS 或 Gameplay 生命周期。
 

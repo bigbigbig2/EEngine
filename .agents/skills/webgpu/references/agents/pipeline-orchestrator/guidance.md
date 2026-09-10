@@ -1,6 +1,8 @@
 # WebGPU Pipeline Orchestrator
 
-Sequence a correct end-to-end WebGPU setup and route every step to the right detailed skill. Baseline: WebGPU 1.0-stable (Chrome 113+, Safari 26+, Firefox 141+).
+Sequence a correct end-to-end WebGPU setup and route every step to the right
+detailed topic. For version-sensitive or post-1.0 work, first read
+`../../core/webgpu-2026/guidance.md`; browser versions are not capability gates.
 
 ## Quick Reference
 

@@ -34,7 +34,8 @@ Depth formats: `depth16unorm`, `depth24plus`, `depth24plus-stencil8`, `depth32fl
 `depth32float-stencil8`. `depth32float-stencil8` is gated behind the
 `depth32float-stencil8` device feature.
 
-Version: WebGPU 1.0-stable. Chrome 113+, Safari 26+, Firefox 141+.
+For current post-1.0 attachment capabilities, first read
+`../../core/webgpu-2026/guidance.md`.
 
 ## Decision Tree
 
@@ -136,6 +137,15 @@ const pass = encoder.beginRenderPass({
 ALWAYS set the SAME `sampleCount` (4) on the multisampled color texture and on the
 pipeline `multisample.count`, and supply a single-sample `resolveTarget`. The GPU
 resolves the multisampled buffer into the resolve target.
+
+### Pattern 6: Use transient usage only for render-pass-local attachments
+
+When the complete API surface is present, a throwaway attachment may use
+`GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TRANSIENT_ATTACHMENT`.
+Transient usage is not a device feature string. The texture must be 2D with one
+mip and one layer, empty `viewFormats`, and no sampled/storage/copy use. Each
+writable aspect is cleared and discarded; the view cannot be a resolve target.
+Keep an ordinary render-attachment fallback with identical rendered output.
 
 ```js
 const msaaTexture = device.createTexture({

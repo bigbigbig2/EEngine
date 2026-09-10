@@ -1,6 +1,6 @@
 # ADR-0006 · Packed Render World 收敛与实施顺序
 
-Status: accepted
+Status: accepted；能力口径由 [ADR-0010](./0010-webgpu-2026-capability-contract.md) 修订
 
 Implementation: completed through Step 7 on 2026-09-09; Step 8 remains evidence-triggered follow-up work.
 
@@ -13,7 +13,7 @@ OEngine 已有两组同时存在的场景 GPU owner：
 
 Packed 主路径仍会先创建和更新 `GPUSceneContext`。Packed 注册还会向 `GPUMaterialRegistry` 注册相同材质，因此一个 Packed 材质同时触发 legacy material uniform、texture/bind-group、Material Expand pipeline，以及 Packed material/texture residency。Lighting、environment 和 shadow 又继续从 legacy scene context 取得资源。`Renderer.ts` 因而同时承担双路径选择、FrameGraph recipe、Feature/Service 组合、history、evidence 和生命周期收尾。
 
-这与 [ADR-0002](./0002-runtime-assets-and-gpu-driven.md) 的唯一 GPU owner、[ADR-0003](./0003-unified-render-pipeline.md) 的单一主管线，以及 [ADR-0004](./0004-visibility-to-surface.md) 的统一 Surface 合同之间存在迁移债务。迁移必须保留桌面 WebGPU baseline、GPU producer 到 GPU consumer 闭环、mostly-static 加显式 patch、feature-off 接近零成本和单 main submit，不扩张完整 ECS、Gameplay 生命周期或第二套质量管线。
+这与 [ADR-0002](./0002-runtime-assets-and-gpu-driven.md) 的唯一 GPU owner、[ADR-0003](./0003-unified-render-pipeline.md) 的单一主管线，以及 [ADR-0004](./0004-visibility-to-surface.md) 的统一 Surface 合同之间存在迁移债务。迁移必须保留 ADR-0010 的 WebGPU 2026 Desktop 能力合同、GPU producer 到 GPU consumer 闭环、mostly-static 加显式 patch、feature-off 接近零成本和单 main submit，不扩张完整 ECS、Gameplay 生命周期或第二套质量管线。
 
 当前单机历史性能数字不作为本决定的排序依据。每一步只根据当前源码 owner、正确性和按 [VALIDATION.md](../VALIDATION.md) 重新产生的同条件证据进入下一步。
 
@@ -60,7 +60,7 @@ Application Scene / Packed source
 - 普通 Scene 的迁移按 opaque、velocity、transparency、skinning 等垂直切片进行；一个切片的新路径通过验证后立即删除对应 legacy consumer，不增加永久兼容层；
 - Feature 关闭时不创建 owner、Pass、attachment、history、readback、counter copy 或独立 submit；
 - 任何新增队列或表必须同步定义 ABI、容量、overflow、producer、consumer、统计与销毁；
-- 不能把 subgroup、64 位原子、multi-draw-indirect、mesh/task shader 或 buffer device address 变成正确性前提；
+- WebGPU capability 遵循 ADR-0010：主路径优先使用已标准化且已协商的 subgroup 等 2026 能力；64 位原子、multi-draw-indirect、mesh/task shader、buffer device address 和 Draft 能力不能成为生产前提；
 - 每一步使用独立提交完成，使失败可以按提交回退；不得用长期双写或运行时开关代替迁移完成。
 
 ### Step 0 · 建立收敛门禁

@@ -26,7 +26,8 @@ copy commands, finish into a `GPUCommandBuffer`, and submit it to `device.queue`
 Runtime model order: create encoder per frame, encode passes and copies, call
 `finish()`, then `queue.submit()`. A `GPUCommandBuffer` is single-use.
 
-Version: WebGPU 1.0-stable. Chrome 113+, Safari 26+, Firefox 141+.
+For current post-1.0 encoder capabilities, first read
+`../../core/webgpu-2026/guidance.md`.
 
 ## Decision Tree
 
@@ -126,6 +127,15 @@ const device = await adapter.requestDevice({
     : [],
 });
 ```
+
+### Pattern 7: Set Immediate Data on a pass or bundle encoder
+
+Immediate Data is part of the binding-command mixin on render passes, compute
+passes, and render bundles; it is not a `GPUCommandEncoder` method and not a
+device feature string. Declare `immediateSize` on the pipeline layout, require
+WGSL `immediate_address_space`, verify `device.limits.maxImmediateSize`, and call
+`setImmediates()` before every draw/dispatch that statically accesses the range.
+Maintain a small uniform-buffer fallback for runtimes lacking the complete path.
 
 ## Common Anti-Patterns
 

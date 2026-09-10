@@ -5,10 +5,10 @@ the shader reads, pick the correct address space, and avoid the vec3 16-byte tra
 
 ## Quick Reference
 
-WGSL is the shading language of WebGPU 1.0-stable: Chrome 113+, Safari 26+,
-Firefox 141+.
+WGSL is a living specification. Read `../../core/webgpu-2026/guidance.md` before
+using newer address spaces or view types.
 
-The six WGSL address spaces:
+The current address spaces relevant to engine code include:
 
 | Address space | Access mode | Host-shareable | Use for |
 |---------------|-------------|----------------|---------|
@@ -18,6 +18,14 @@ The six WGSL address spaces:
 | `uniform` | `read` only | Yes | `var<uniform>` host buffer binding, read-only in the shader |
 | `storage` | `read` or `read_write` | Yes | `var<storage>` host buffer binding |
 | `handle` | `read` | No | Textures and samplers |
+| `immediate` | `read` | CPU-provided inline data | Tiny frequently changed values; requires the complete Immediate Data host/WGSL path |
+
+`var<immediate>` requires `requires immediate_address_space;`, one statically
+accessed immediate variable per entry point, a pipeline layout with
+`immediateSize`, and matching `setImmediates()` writes. It is not a replacement
+for general uniform/storage buffers. `buffer_view` is a separate WGSL language
+feature for typed views over buffer-backed memory; query
+`wgslLanguageFeatures` before emitting it.
 
 `AlignOf` and `SizeOf` per type (host buffers must honour both):
 

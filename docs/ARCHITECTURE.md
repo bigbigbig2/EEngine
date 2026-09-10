@@ -6,6 +6,8 @@
 
 `OEngine/src/render/Renderer.ts` 是公开生命周期与顶层组合 shell；唯一主管线 recipe 位于 `OEngine/src/render/pipeline/MainRenderPipeline.ts`。它拥有 FramePlan、主 FrameGraph、Feature/Service 装配、compiled graph cache 与 graph evidence。每次 encode 使用冻结的 `FrameContext`，不会把完整公开入口或 GraphicsContext 作为 Pass service locator。
 
+WebGPU/WGSL 的目标能力线、feature/limit/API 探测和 specialization 规则由 [WEBGPU.md](./WEBGPU.md) 单独定义。当前 device creation 已强制请求 `indirect-first-instance`、`float32-blendable` 与 `texture-formats-tier1`，并在 adapter 支持时启用 `timestamp-query`、`subgroups`；`primitive-index`、`shader-f16`、Immediate Data、Transient Attachments、压缩资产 variant 和完整 capability record 仍是待实施目标，不能写成当前事实。
+
 ## 依赖方向
 
 ```text
@@ -41,6 +43,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 实时证据 UI | `src/addons/inspector` | 有界历史、view-model、实时面板 |
 | 主管线 | `src/render/pipeline/MainRenderPipeline.ts` | 唯一 Feature 顺序、FrameGraph recipe/cache/evidence 和单帧 encode |
 | 公开总装 | `src/render/Renderer.ts` | 公开 API、设备/画布生命周期入口和顶层组合 |
+| WebGPU capability | `src/render/pipeline/MainRenderPipeline.ts`、`src/gpu/GraphicsContext.ts` | adapter/device feature、limit、WGSL/API 探测，冻结 capability record 与 specialization key |
 
 ## 生命周期与资源所有权
 

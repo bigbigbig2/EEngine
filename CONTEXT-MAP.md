@@ -4,14 +4,14 @@
 
 | 任务 | 首选源码根 | 权威文档 |
 | --- | --- | --- |
-| 产品范围、平台、workload | `OEngine/src/index.ts`、Renderer capability | `docs/PRODUCT.md` |
+| 产品范围、平台、workload | `OEngine/src/index.ts`、Renderer capability | `docs/PRODUCT.md`、`docs/WEBGPU.md` |
 | 导入、Cook、meshoptimizer、Runtime Asset | `OEngine/src/loaders`、`OEngine/src/geometry`、`OEngine/src/assets` | `docs/ARCHITECTURE.md`、`docs/porting/geometry.md` |
 | Scene、实例、patch | `OEngine/src/scene`、`OEngine/src/gpu/GpuScene.ts`、`OEngine/src/gpu/GpuRenderWorld.ts` | `docs/ARCHITECTURE.md`、`docs/adr/0006-packed-render-world-convergence.md` |
 | GPU 资产、表、resident、Packed Scene | `OEngine/src/gpu` | `docs/ARCHITECTURE.md`、`docs/adr/0002-runtime-assets-and-gpu-driven.md`、`docs/adr/0006-packed-render-world-convergence.md` |
 | Meshlet、Cluster、hierarchy、SSE | `OEngine/src/geometry`、`OEngine/src/gpu` | `docs/PIPELINE.md`、`docs/porting/geometry.md` |
 | Culling、HZB、Indirect、VisibilityKey | `OEngine/src/gpu`、`OEngine/src/render/passes`、`OEngine/src/shaders` | `docs/PIPELINE.md`、`docs/porting/visibility.md` |
 | Surface、材质、光照、阴影、GI/AO/SSR/OIT/TAA/Post | `OEngine/src/render`、`OEngine/src/material`、`OEngine/src/shaders` | `docs/PIPELINE.md`、`docs/porting/shading.md` |
-| Device、limits、FrameGraph、cache、readback | `OEngine/src/gpu/GraphicsContext.ts`、`OEngine/src/framegraph` | `docs/ARCHITECTURE.md`、`docs/porting/platform.md` |
+| Device、features/limits、WGSL、FrameGraph、cache、readback | `OEngine/src/gpu/GraphicsContext.ts`、`OEngine/src/render/pipeline/MainRenderPipeline.ts`、`OEngine/src/framegraph` | `docs/WEBGPU.md`、`docs/ARCHITECTURE.md`、`docs/porting/platform.md` |
 | 正确性、性能、counter、Inspector、browser evidence | `examples/validation`、`examples/validation-tools`、`OEngine/src/debug`、`OEngine/src/addons/inspector`、`examples/rendering-lab` | `docs/VALIDATION.md`、`docs/adr/0005-unified-browser-validation.md` |
 | 当前风险、迁移顺序 | 命中的生产 owner | `docs/STATUS.md` |
 

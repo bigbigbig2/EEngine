@@ -132,9 +132,8 @@ usage contains `INDIRECT`. Each count is clamped by
 | `drawIndirect` / `drawIndexedIndirect` | Requires the `indirect-first-instance` feature |
 
 When the `indirect-first-instance` feature is NOT enabled and the indirect record's
-`firstInstance` field is non-zero, the value is forced to 0. The draw still executes,
-no error is raised, and `@builtin(instance_index)` starts at 0 instead of the intended
-base. This is a silent correctness bug.
+`firstInstance` field is non-zero, the indirect draw is treated as a no-op. No
+validation error is raised, so this can look like missing geometry.
 
 Request the feature conditionally:
 
@@ -150,43 +149,26 @@ If `hasFirstInstance` is false, keep every indirect record's `firstInstance` at 
 offset per-instance data by other means (a uniform base index, or a different storage
 buffer slice).
 
-## Experimental: multiDrawIndirect and multiDrawIndexedIndirect
+## Multi-draw-indirect boundary
 
-These methods issue many indirect draws from one packed buffer in a single call,
-collapsing a JavaScript loop of `drawIndirect` calls.
-
-- Status: experimental, Chrome 131+. NOT in the WebGPU 1.0-stable baseline. Not
-  available in Safari or Firefox as of the 2026-05-20 baseline.
-- Gated behind the `chromium-experimental-multi-draw-indirect` feature. The device
-  must be created with this feature in `requiredFeatures`, and the adapter must list
-  it.
-- The buffer holds back-to-back records (16 bytes each for `multiDrawIndirect`,
-  20 bytes each for `multiDrawIndexedIndirect`). An optional separate count buffer can
-  hold the number of draws.
+`multiDrawIndirect` and `multiDrawIndexedIndirect` are not in the 2026-09 WebGPU
+normative API or `GPUFeatureName` enum. Do not generate these methods or a
+vendor-prefixed feature string in production WebGPU code.
 
 ```js
-const adapter = await navigator.gpu.requestAdapter();
-const hasMultiDraw = adapter.features.has("chromium-experimental-multi-draw-indirect");
-const device = await adapter.requestDevice({
-  requiredFeatures: hasMultiDraw ? ["chromium-experimental-multi-draw-indirect"] : [],
-});
-
-if (hasMultiDraw) {
-  pass.multiDrawIndexedIndirect(indirectBuffer, 0, drawCount);
-} else {
-  for (let i = 0; i < drawCount; i++) {
-    pass.drawIndexedIndirect(indirectBuffer, i * 20);
-  }
+for (let i = 0; i < drawCount; i++) {
+  pass.drawIndexedIndirect(indirectBuffer, i * 20);
 }
 ```
 
-ALWAYS provide the loop-of-`drawIndirect` fallback. The loop path is correct on every
-WebGPU 1.0-stable browser; only the single-call collapse is Chrome-specific.
+If a project deliberately experiments with a non-standard implementation,
+isolate it behind project-owned types, runtime probes, and a standard path. Do
+not describe it as WebGPU capability.
 
 ## Verified Sources
 
-- https://www.w3.org/TR/webgpu/ (W3C WebGPU specification)
+- https://gpuweb.github.io/gpuweb/ (current WebGPU Editor's Draft)
 - https://developer.mozilla.org/en-US/docs/Web/API/GPURenderPassEncoder/drawIndirect
 - https://developer.mozilla.org/en-US/docs/Web/API/GPURenderPassEncoder/drawIndexedIndirect
 - https://developer.mozilla.org/en-US/docs/Web/API/GPUComputePassEncoder/dispatchWorkgroupsIndirect
-- vooronderzoek-webgpu.md PART C section 3, section 6
+- ../../core/webgpu-2026/guidance.md

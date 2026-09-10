@@ -1,8 +1,7 @@
 # Cross-Browser WebGPU Examples
 
-WebGPU 1.0-stable. Chrome 113+, Safari 26+, Firefox 141+. Every example is
-verified against the W3C WebGPU specification, MDN, and the vooronderzoek
-research base.
+Snapshot: 2026-09-10. These examples use capability detection instead of a
+browser-version matrix.
 
 ## Example 1: Guard the entry point on every browser
 
@@ -12,10 +11,7 @@ WebGPU, `navigator.gpu` is `undefined`. ALWAYS guard before any WebGPU call.
 ```js
 async function getWebGPU() {
   if (!("gpu" in navigator)) {
-    throw new Error(
-      "WebGPU unavailable. Needs Chrome 113+, Safari 26+, or Firefox 141+, " +
-        "served over HTTPS or localhost."
-    );
+    throw new Error("WebGPU unavailable; use a supporting secure context.");
   }
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) {
@@ -28,9 +24,9 @@ async function getWebGPU() {
 
 ## Example 2: Negotiate features that degrade across browsers
 
-Chrome ships `shader-f16` (120) and `subgroups` (134) before Safari and Firefox.
-Filter the wanted feature list against `adapter.features` so `requestDevice`
-never rejects. After creation, read `device.features` for the real set.
+Feature rollout differs by browser, OS/backend, and adapter. Filter the wanted
+feature list against `adapter.features`; after creation, read `device.features`
+for the enabled set.
 
 ```js
 async function createDevice(adapter) {
@@ -84,8 +80,10 @@ function configureCanvas(canvas, device) {
 
 ## Example 4: Detect an optional WGSL language feature
 
-`navigator.gpu.wgslLanguageFeatures` is a set-like object. An `enable` or
-`requires` directive for a feature the browser lacks is a shader-creation error.
+`navigator.gpu.wgslLanguageFeatures` is a set-like object. A `requires`
+directive for a language feature the browser lacks is a shader-creation error.
+Device-backed `enable` extensions are gated through `device.features`, not this
+set.
 Pick the shader variant that matches what the browser supports.
 
 ```js
@@ -157,9 +155,9 @@ async function createDeviceForWorkload(adapter, neededStorageBytes) {
 
 ## Example 7: Explicit synchronization instead of timeline assumptions
 
-Chrome, Safari, and Firefox batch and flush GPU work at different points. Never
-assume work completed because a later call seemed to see its result. Synchronize
-with `onSubmittedWorkDone()`.
+Implementations may batch and flush GPU work at different points. Never assume
+work completed because a later call seemed to see its result. Synchronize with
+`onSubmittedWorkDone()` when a CPU readback actually needs completion.
 
 ```js
 async function readbackResult(device, sourceBuffer, byteSize) {
@@ -183,8 +181,8 @@ async function readbackResult(device, sourceBuffer, byteSize) {
 
 ## Example 8: Full cross-browser initialization with capability report
 
-A single initialization path that runs on Chrome, Safari, and Firefox and
-returns the capabilities the current browser actually granted.
+A single initialization path that returns the capabilities the selected adapter
+and device actually granted.
 
 ```js
 async function initWebGPU(canvas) {

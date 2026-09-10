@@ -5,8 +5,7 @@ the correct stage, direction, and type, without triggering shader-creation error
 
 ## Quick Reference
 
-WGSL is the shading language of WebGPU 1.0-stable (Chrome 113+, Safari 26+,
-Firefox 141+). Builtin functions need no import. Builtin values bind to system
+WGSL is a living specification. Builtin functions need no import. Builtin values bind to system
 inputs/outputs via the `@builtin(name)` attribute on entry-point parameters and
 return members.
 
@@ -41,20 +40,29 @@ synchronization builtins are documented in `webgpu-wgsl-compute-shaders` and
 | `position` | fragment | input | `vec4<f32>` |
 | `clip_distances` | vertex | output | `array<f32, N>` |
 | `front_facing` | fragment | input | `bool` |
+| `primitive_index` | fragment | input | `u32` |
 | `frag_depth` | fragment | output | `f32` |
 | `sample_index` | fragment | input | `u32` |
 | `sample_mask` | fragment | input/output | `u32` |
 | `local_invocation_id` | compute | input | `vec3<u32>` |
 | `local_invocation_index` | compute | input | `u32` |
 | `global_invocation_id` | compute | input | `vec3<u32>` |
+| `global_invocation_index` | compute | input | `u32` |
 | `workgroup_id` | compute | input | `vec3<u32>` |
+| `workgroup_index` | compute | input | `u32` |
 | `num_workgroups` | compute | input | `vec3<u32>` |
 | `subgroup_invocation_id` | compute/fragment | input | `u32` |
 | `subgroup_size` | compute/fragment | input | `u32` |
+| `subgroup_id` | compute | input | `u32` |
+| `num_subgroups` | compute | input | `u32` |
 
-`clip_distances` needs the `clip-distances` device feature. `subgroup_invocation_id`
-and `subgroup_size` need the `subgroups` device feature plus `enable subgroups;` in
-the shader. All other builtin values are core WGSL 1.0 with no feature gate.
+`clip_distances` needs the `clip-distances` device feature. `primitive_index`
+needs `primitive-index` plus `enable primitive_index;`. Subgroup values need the
+`subgroups` device feature plus `enable subgroups;`; `subgroup_id` and
+`num_subgroups` additionally depend on the matching WGSL language feature being
+reported. `global_invocation_index` and `workgroup_index` require the
+`linear_indexing` WGSL language feature. Read
+`../../core/webgpu-2026/guidance.md` before using newer builtins.
 
 ## Decision Tree
 
@@ -169,6 +177,8 @@ uniformity violation with undefined results. See `webgpu-wgsl-uniformity`.
 - NEVER use a `subgroup_*` builtin without the `subgroups` device feature and
   `enable subgroups;`; NEVER use `clip_distances` without the `clip-distances`
   feature.
+- NEVER use `primitive_index` without the `primitive-index` device feature and
+  `enable primitive_index;`; it is a fragment input, not a global draw ID.
 - NEVER assume a builtin value is writable: only `position` (vertex), `frag_depth`,
   `sample_mask`, and `clip_distances` are outputs. All others are inputs.
 

@@ -1,8 +1,9 @@
 # WebGPU Textures, Views and Samplers
 
 Create `GPUTexture`, `GPUTextureView`, and `GPUSampler` objects with correct
-formats, usage flags, and binding-type matching. Targets WebGPU 1.0-stable
-(Chrome 113+, Safari 26+, Firefox 141+).
+formats, usage flags, and binding-type matching. WebGPU is a living
+specification; read `../../core/webgpu-2026/guidance.md` for current capability
+classification.
 
 ## Quick Reference
 
@@ -43,6 +44,13 @@ See `webgpu-syntax-canvas-context`.
 | `TEXTURE_BINDING` | bound and sampled in a shader |
 | `STORAGE_BINDING` | bound as a storage texture (read/write in a shader) |
 | `RENDER_ATTACHMENT` | a color or depth-stencil attachment of a render pass |
+| `TRANSIENT_ATTACHMENT` | a strictly render-pass-local attachment, combined only with `RENDER_ATTACHMENT` |
+
+Current format/texture feature families include `texture-formats-tier1`,
+`texture-formats-tier2`, sliced-3D BC/ASTC compression,
+`texture-component-swizzle`, and `texture-compression-unaligned`. Each is a
+device feature and must be negotiated before use. Do not infer support from the
+format string or browser name.
 
 ### createSampler descriptor
 
@@ -75,6 +83,7 @@ const sampler = device.createSampler({
 Need a texture? -> what is it for?
   Sampled in a shader               -> usage |= TEXTURE_BINDING (+ COPY_DST to upload)
   Render pass output                -> usage |= RENDER_ATTACHMENT
+  Throwaway pass-local attachment   -> exact usage RENDER_ATTACHMENT | TRANSIENT_ATTACHMENT
   Sampled later AND a render output -> usage = RENDER_ATTACHMENT | TEXTURE_BINDING
   Compute storage texture           -> usage |= STORAGE_BINDING (sampleCount must be 1)
   Read back to CPU                  -> usage |= COPY_SRC
@@ -115,6 +124,11 @@ const offscreen = device.createTexture({
   usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
 });
 ```
+
+Exception: a transient attachment deliberately has the exact usage
+`RENDER_ATTACHMENT | TRANSIENT_ATTACHMENT`; it cannot also be sampled, copied,
+stored, presented, or consumed by a later pass. Use clear/discard attachment
+operations and keep an ordinary attachment fallback.
 
 ### ALWAYS create texture views fresh from the owning texture
 

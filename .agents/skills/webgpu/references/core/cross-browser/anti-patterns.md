@@ -1,7 +1,7 @@
 # Cross-Browser WebGPU Anti-Patterns
 
-WebGPU 1.0-stable. Chrome 113+, Safari 26+, Firefox 141+. Each entry states the
-mistake, WHY it fails across browsers, and the fix.
+Snapshot: 2026-09-10. Each entry states the mistake, why it fails across
+implementations, and the fix.
 
 ## 1. Optional feature in requiredFeatures without checking adapter.features
 
@@ -13,10 +13,8 @@ const device = await adapter.requestDevice({
 ```
 
 WHY it fails: `requestDevice` rejects when `requiredFeatures` names a feature the
-adapter does not list. Chrome may expose both features; Safari 26.0-26.5 is
-partial support and Firefox lags on optional features. The promise rejects on
-those browsers, so the app initializes in Chrome and throws on Safari and
-Firefox.
+adapter does not list. The set varies by browser, backend, driver, and adapter,
+so the same descriptor can succeed on one machine and reject on another.
 
 ```js
 // CORRECT
@@ -50,22 +48,18 @@ context.configure({ device, format });
 
 ```js
 // WRONG
-// Built and tested only in Chrome, which shipped subgroups at 134.
+// Built and tested on one implementation that exposes subgroups.
 const code = `enable subgroups; ...`;
 const module = device.createShaderModule({ code });
 ```
 
-WHY it fails: Dawn ships features first. `shader-f16` landed in Chrome 120,
-`subgroups` in Chrome 134, `subgroup_uniformity` in Chrome 145. Safari 26.0-26.5
-is partial and Firefox lags on compression sets, timestamp queries, and the
-newest WGSL extensions. Code built on a Chrome-only assumption emits an `enable`
-directive Safari or Firefox cannot compile, producing a shader-creation error.
+WHY it fails: optional features vary across implementations and adapters. Code
+built on one feature set can emit an `enable` directive that another device
+cannot compile, producing a shader-creation error.
 
 ```js
 // CORRECT
-const hasSubgroups =
-  device.features.has("subgroups") &&
-  navigator.gpu.wgslLanguageFeatures.has("subgroups");
+const hasSubgroups = device.features.has("subgroups");
 const code = hasSubgroups ? subgroupShader : fallbackShader;
 const module = device.createShaderModule({ code });
 ```
@@ -93,23 +87,20 @@ await staging.mapAsync(GPUMapMode.READ);
 const data = staging.getMappedRange();
 ```
 
-## 5. Emitting an enable directive without checking wgslLanguageFeatures
+## 5. Confusing enable extensions with WGSL language features
 
 ```js
 // WRONG
 const code = `enable f16; ...`;
 ```
 
-WHY it fails: an optional WGSL language feature must be supported by the
-browser's shader compiler. An `enable` or `requires` directive for a feature the
-browser lacks is a shader-creation error. `wgslLanguageFeatures` reflects the
-browser, and the set differs across Chrome, Safari, and Firefox.
+WHY it fails: `f16` is a device-feature-backed enable extension, not a member
+that must be queried through `wgslLanguageFeatures`. The two namespaces have
+different names and gating rules.
 
 ```js
 // CORRECT
-const useF16 =
-  device.features.has("shader-f16") &&
-  navigator.gpu.wgslLanguageFeatures.has("f16");
+const useF16 = device.features.has("shader-f16");
 const code = useF16 ? `enable f16; ...` : `/* f32 variant */`;
 ```
 
@@ -159,23 +150,12 @@ if (!adapter) {
 const device = await adapter.requestDevice();
 ```
 
-## 8. Citing "Safari 18" as the WebGPU baseline
+## 8. Treating a browser version as a capability test
 
-WHY it is wrong: WebGPU did not ship in the Safari 18 family. WebKit shipped
-WebGPU in the Safari 26 / iOS 26 family in mid-2025. Versions 26.0-26.5 are
-reported as partial support. Documentation, version gates, or capability checks
-written against "Safari 18" target a version that never had WebGPU, so the gate
-either rejects all real Safari users or admits a version with no WebGPU.
+WHY it fails: shipping status can differ by operating system, backend, driver,
+feature level, adapter, flag, and enterprise policy within the same browser
+version. A user-agent check cannot prove that a device feature, limit, WGSL
+language feature, or newly merged method is usable.
 
-Fix: the WebGPU baseline is Chrome 113+, Safari 26+, Firefox 141+.
-
-## 9. Treating Firefox WebGPU as universally enabled
-
-WHY it fails: Firefox shipped WebGPU enabled on Firefox 141 on Windows first.
-caniuse reports it still disabled by default through 153 on other desktop
-platforms and on Firefox for Android (150). Code that assumes any Firefox 141+
-has WebGPU breaks on macOS, Linux, and Android Firefox where `navigator.gpu`
-may be absent.
-
-Fix: guard with `"gpu" in navigator` and null-check the adapter on every
-browser. Never assume WebGPU presence from the Firefox version number alone.
+Fix: guard `navigator.gpu`, null-check the adapter, negotiate device features and
+limits, query WGSL language features, and validate newly merged core paths.

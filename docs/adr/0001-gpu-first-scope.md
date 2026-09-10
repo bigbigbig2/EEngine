@@ -1,10 +1,10 @@
 # ADR-0001 · GPU-first 范围
 
-Status: accepted
+Status: accepted；能力口径由 [ADR-0010](./0010-webgpu-2026-capability-contract.md) 修订
 
 ## Context
 
-OEngine 需要在桌面浏览器中处理高几何密度和大量 mostly-static 实例。WebGPU 没有跨设备保证 native 引擎常用的 MDI、mesh shader、64 位原子或 buffer address。
+OEngine 需要在桌面浏览器中处理高几何密度和大量 mostly-static 实例。WebGPU 没有跨设备保证 native 引擎常用的 MDI、mesh shader、64 位原子或 buffer address。WebGPU 2026 已标准化的现代能力按 ADR-0010 和 `WEBGPU.md` 协商使用。
 
 ## Decision
 
@@ -15,7 +15,7 @@ OEngine 需要在桌面浏览器中处理高几何密度和大量 mostly-static 
 
 ## Consequences
 
-所有核心方案必须在 WebGPU baseline 上工作；可选能力只能产生显式加速路径。CPU patch 可以存在，但 CPU 不负责构建最终可见列表。产品范围外能力进入 `PRODUCT.md` Deferred，而不是预埋第二套主管线。
+所有核心方案必须遵循 [WebGPU 2026 Desktop 能力合同](../WEBGPU.md)；主路径优先使用已标准化且目标设备暴露的现代能力，缺失时保持同一逻辑 ABI 的 specialization 或明确拒绝。CPU patch 可以存在，但 CPU 不负责构建最终可见列表。产品范围外能力进入 `PRODUCT.md` Deferred，而不是预埋第二套主管线。
 
 ## Verification
 

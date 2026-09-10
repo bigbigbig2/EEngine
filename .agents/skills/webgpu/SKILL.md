@@ -1,6 +1,6 @@
 ---
 name: webgpu
-description: Build, debug, and optimize native WebGPU and WGSL applications. Use for adapter and device setup, resources, pipelines, shaders, rendering, compute, compatibility, errors, or performance; use webgpu-review for explicit audits.
+description: Build, debug, and optimize native WebGPU and WGSL applications against current living specifications, including 2026 capabilities. Use for adapter/device setup, resources, pipelines, shaders, rendering, compute, compatibility, errors, or performance; use webgpu-review for explicit audits.
 ---
 
 # WebGPU
@@ -12,15 +12,24 @@ rules as authoritative over bundled general guidance.
 ## Workflow
 
 1. Identify the task category and select one primary topic below.
-2. Read that topic's `guidance.md` before implementing or diagnosing the task.
-3. Load `methods.md` only for exact API signatures, layouts, limits, or decision tables.
-4. Load `examples.md` only when a concrete implementation pattern is needed.
-5. Load `anti-patterns.md` only for debugging, review, or avoiding a known failure.
+2. For version-sensitive work or any post-1.0 capability, first read the
+   [WebGPU 2026 capability snapshot](references/core/webgpu-2026/guidance.md).
+3. Read that topic's `guidance.md` before implementing or diagnosing the task.
+4. Load `methods.md` only for exact API signatures, layouts, limits, or decision tables.
+5. Load `examples.md` only when a concrete implementation pattern is needed.
+6. Load `anti-patterns.md` only for debugging, review, or avoiding a known failure.
 
 Load additional topics only when the task crosses a real API or ownership boundary.
-Do not read every reference. For current browser support, proposal status, or spec
-details, verify an authoritative current source instead of relying only on bundled
-version claims.
+Do not read every reference. WebGPU and WGSL are living specifications. For current
+browser support, proposal status, exact enum membership, feature dependencies, or
+new API surface, verify sources in this order: GPUWeb/WGSL specification, WebGPU CTS,
+browser implementation documentation, then MDN compatibility data. Proposal
+explainers are non-normative even after they move to `Merged`.
+
+Dated `WebGPU 1.0-stable` and browser-version headers in legacy topic files mark
+their historical minimum scope only. They are not current support data. When
+they conflict with the 2026 snapshot or living specifications, the snapshot and
+specifications win.
 
 Legacy identifiers such as `webgpu-core-architecture` are topic identifiers retained
 from the upstream package. They are not separately installed skills.
@@ -29,6 +38,9 @@ from the upstream package. They are not separately installed skills.
 
 - End-to-end setup, workload selection, or topic routing:
   [pipeline orchestrator](references/agents/pipeline-orchestrator/guidance.md)
+- WebGPU/WGSL changes through the 2026-09-01 editor drafts, capability surface
+  classification, and stale-toolchain handling:
+  [WebGPU 2026 capability snapshot](references/core/webgpu-2026/guidance.md)
 
 ## Core runtime
 

@@ -5,8 +5,8 @@ in uniform control flow, and gate optional features with the correct directives.
 
 ## Quick Reference
 
-WGSL is the shading language of WebGPU 1.0-stable: Chrome 113+, Safari 26+,
-Firefox 141+.
+WGSL is a living specification. Read `../../core/webgpu-2026/guidance.md` before
+using newer directives or language features.
 
 Uniform control flow means code reached by all invocations in a group taking the
 same path. Non-uniform (divergent) control flow means the path depends on a
@@ -37,8 +37,8 @@ The two diagnostic triggering rules and the three directives:
 |------|------|---------|
 | `derivative_uniformity` | triggering rule | fires when a derivative or `textureSample` call is not provably uniform; default severity `error` |
 | `subgroup_uniformity` | triggering rule | fires when a subgroup or quad builtin is not provably uniform; default severity `error` |
-| `enable` | directive | turns on an enable-extension: `f16`, `subgroups`, `clip_distances`, `dual_source_blending` |
-| `requires` | directive | turns on a language extension (no host feature needed), for example `readonly_and_readwrite_storage_textures` |
+| `enable` | directive | turns on a device-feature-backed extension such as `f16`, `subgroups`, `clip_distances`, `dual_source_blending`, `primitive_index`, or `subgroup_size_control` |
+| `requires` | directive | declares a WGSL language feature such as `immediate_address_space`, `buffer_view`, or `linear_indexing`; some also require a matching host API path |
 | `diagnostic` | directive | sets the severity of a triggering rule at module scope |
 
 Directives ALWAYS appear at the top of the shader, before any declaration.
