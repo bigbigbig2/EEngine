@@ -15,6 +15,7 @@
 - `benchmarks/main-render-pipeline-step5.json`：Step 5 前后 clean commit 的正式三次运行 A/B、graph parity、稳定帧与 feature topology 矩阵证据。
 - `benchmarks/render-world-convergence-step7.json`：Step 7 legacy runtime 删除前后 clean commit 的正式三次运行 A/B、graph/memory/I/O parity、feature-off 矩阵与未关闭证据门禁。
 - `benchmarks/gpu-driven-geometry-v2-baseline.json`：ADR-0008 Step 0 在切换前生产链上的正式三次综合基线，包含 Geometry phase、work amplification counters、queue bytes 与完整 provenance。
+- `benchmarks/gpu-driven-geometry-v2-step2.json`：ADR-0008 Step 2 在 clean commit 上的唯一综合 PERF，包含 subgroup compact/bucket phase、queue/indirect 闭合、portable correctness 说明与切换前重复成本。
 - `examples/rendering-lab/`：唯一保留的真实浏览器 fixture。
 
 ## 采样合同

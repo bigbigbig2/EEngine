@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-step-evidence",
+  "decision": "adr-0008-step2-webgpu-2026-meshlet-work-generation",
+  "provenance": {
+    "commit": "55d2d6865ecd9e83c5edf2846e7c879d8bd6cc0a",
+    "contentHash": "385000a0d1b138f2c0d11c21a5a1fb9318cac06a3367b0cf35a712839e3b585f",
+    "clean": true,
+    "runGroupId": "a83b4e59-0d3b-441c-916c-2014e6551acc",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "timestampQuery": true
+    },
+    "capabilities": [
+      "core-features-and-limits",
+      "float32-blendable",
+      "indirect-first-instance",
+      "rg11b10ufloat-renderable",
+      "subgroups",
+      "texture-compression-bc",
+      "texture-formats-tier1",
+      "timestamp-query"
+    ],
+    "selectedSpecialization": "subgroup-ballot-prefix",
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "sseThreshold": 4,
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806,
+    "materials": 34,
+    "transparentInstances": 2,
+    "geometryPackageBytes": 10460176,
+    "assetHashes": [
+      "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
+      "0e72ed46b5316cb5fb67fc81ff85b024a09146fd89ef3811a8d2299647ada118"
+    ]
+  },
+  "aggregation": "median of three run-level percentiles; queue and bucket counters are stable P50 values in every run",
+  "timingsMs": {
+    "cpuFrame": { "p50": 9.6, "p95": 11.4 },
+    "gpuFrame": { "p50": 1.852032, "p95": 2.1370752 },
+    "hierarchyAndClusterCull": { "p50": 0.519488, "p95": 0.5704576 },
+    "hardwareRaster": { "p50": 0.080096, "p95": 0.0860992 },
+    "meshletCandidateAllPhasesSum": { "p50": 0.384032, "p95": 0.4412224 },
+    "subgroupCompact": { "p50": 0.294112, "p95": 0.3095808 },
+    "bucketScatter": { "p50": 0.031552, "p95": 0.0429568 }
+  },
+  "meshletWork": {
+    "attempted": 2321,
+    "written": 2321,
+    "consumed": 2321,
+    "indirectInstances": 2321,
+    "overflow": 0,
+    "invalid": 0,
+    "nonEmptyBuckets": 4,
+    "generatedIndirectRecords": 32,
+    "subgroupTileReservations": 710,
+    "portableTileReservations": 0
+  },
+  "complexityEvidence": {
+    "globalQueueReservations": "one all-or-nothing reservation per non-empty 64-lane workgroup tile in both specializations",
+    "subgroupPath": "dynamic-width subgroupBallot rank plus bounded subgroup-prefix; four workgroup barriers per tile",
+    "portablePath": "64-lane shared-memory Hillis-Steele prefix; fifteen workgroup barriers per tile",
+    "portableCorrectnessEvidence": "visibility.meshlet-work-portable passed on the same NVIDIA Turing adapter; no second formal profile was run"
+  },
+  "baselineComparison": {
+    "baseline": "gpu-driven-geometry-v2-baseline.json",
+    "gpuFrameP50DeltaMs": 0.340384,
+    "cpuFrameP50DeltaMs": 1.1,
+    "interpretation": "Step 2 intentionally runs the candidate beside the legacy triangle path. The measured cost is pre-cutover duplication, not an accepted final-path regression or an improvement claim; Step 3 must replace the old raster producer/consumer before final performance judgment."
+  },
+  "runLevelTimingsMs": [
+    {
+      "runOrdinal": 0,
+      "cpuFrameP50": 9.599999997765,
+      "cpuFrameP95": 11.39999999851,
+      "gpuFrameP50": 1.855744,
+      "gpuFrameP95": 2.162208,
+      "meshletCandidateP50": 0.385088,
+      "meshletCandidateP95": 0.4412224,
+      "subgroupCompactP50": 0.294752,
+      "bucketScatterP50": 0.031744,
+      "canvasSha256": "fddeda849b7cebac65b71374e906b8520ae996df9e6d47e9cdc3e63d95a97961"
+    },
+    {
+      "runOrdinal": 1,
+      "cpuFrameP50": 9.75,
+      "cpuFrameP95": 11.605000001192,
+      "gpuFrameP50": 1.846688,
+      "gpuFrameP95": 2.1155392,
+      "meshletCandidateP50": 0.383168,
+      "meshletCandidateP95": 0.44336,
+      "subgroupCompactP50": 0.292672,
+      "bucketScatterP50": 0.031552,
+      "canvasSha256": "55ca0bbfff54b1df2754da29a48c3d2ccb65a4630323266cd7a828ff0236e8f5"
+    },
+    {
+      "runOrdinal": 2,
+      "cpuFrameP50": 9.5,
+      "cpuFrameP95": 11.20000000298,
+      "gpuFrameP50": 1.852032,
+      "gpuFrameP95": 2.1370752,
+      "meshletCandidateP50": 0.384032,
+      "meshletCandidateP95": 0.4360512,
+      "subgroupCompactP50": 0.294112,
+      "bucketScatterP50": 0.031328,
+      "canvasSha256": "d581de8daa2da80cd8839c77b8e361791a78ee6efcbced519bf23f884a9b620d"
+    }
+  ],
+  "diagnostics": {
+    "validationErrors": 0,
+    "uncapturedErrors": 0,
+    "deviceLost": 0,
+    "failedGpuTimestampBatches": 0,
+    "droppedGpuCounterSamples": 0,
+    "failedGpuCounterSamples": 0,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  },
+  "limitation": "single NVIDIA Turing adapter; portable specialization is correctness/parity tested but is not duplicated as a formal benchmark under the WebGPU 2026 policy"
+}
