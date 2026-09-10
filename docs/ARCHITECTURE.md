@@ -6,7 +6,7 @@
 
 `OEngine/src/render/Renderer.ts` 是公开生命周期与顶层组合 shell；唯一主管线 recipe 位于 `OEngine/src/render/pipeline/MainRenderPipeline.ts`。它拥有 FramePlan、主 FrameGraph、Feature/Service 装配、compiled graph cache 与 graph evidence。每次 encode 使用冻结的 `FrameContext`，不会把完整公开入口或 GraphicsContext 作为 Pass service locator。
 
-WebGPU/WGSL 的目标能力线、feature/limit/API 探测和 specialization 规则由 [WEBGPU.md](./WEBGPU.md) 单独定义。当前 device creation 已强制请求 `indirect-first-instance`、`float32-blendable` 与 `texture-formats-tier1`，并在 adapter 支持时启用 `timestamp-query`、`subgroups`；`primitive-index`、`shader-f16`、Immediate Data、Transient Attachments、压缩资产 variant 和完整 capability record 仍是待实施目标，不能写成当前事实。
+WebGPU/WGSL 的目标能力线、feature/limit/API 探测和 specialization 规则由 [WEBGPU.md](./WEBGPU.md) 单独定义。当前 device creation 强制请求 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable` 与 `texture-formats-tier1`，在 adapter 支持时启用 `timestamp-query`、`subgroups` 和一族纹理压缩能力；初始化会冻结 adapter/device features、关键 limits、WGSL language features、Immediate Data/Transient Attachment API probe 与已选纹理 specialization。`primitive-index`、`shader-f16`、Immediate Data 和 Transient Attachments 仍没有生产 consumer，不能只因 record 已记录就写成已启用能力。
 
 ## 依赖方向
 
@@ -25,8 +25,8 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 
 | 边界 | 当前 owner | 责任 |
 | --- | --- | --- |
-| Runtime Asset | `src/assets/GeometryAssetPackage.ts`、loaders | 验证、recipe、稳定记录 |
-| GPU 资产 | `src/gpu/GpuAssetStore.ts` | geometry/material/texture residency |
+| Runtime Asset | `src/assets/RuntimeAssetManifestV2.ts`、`GeometryAssetPackage.ts`、`TextureAssetPackage.ts`、loaders | package/variant 验证、recipe、稳定记录与离线 mip/物理纹理变体 |
+| GPU 资产 | `src/gpu/GpuAssetStore.ts`、`TextureResidency.ts` | geometry residency；纹理 immutable size-class segment、stable logical descriptor 与原子派生 routing |
 | 场景实例 | `src/gpu/GpuScene.ts` | instance 数据和显式 patch |
 | GPU Render World | `src/gpu/GpuRenderWorld.ts` | Packed source 与普通 Scene adapter 的统一 runtime 生命周期 |
 | 场景环境 | `src/gpu/GPUSceneEnvironmentContext.ts` | Packed/普通 Scene 共享的 light、environment、light-probe 与 volumetric 数据 |

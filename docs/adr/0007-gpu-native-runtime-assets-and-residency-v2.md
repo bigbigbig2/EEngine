@@ -762,6 +762,8 @@ bank grow/copy cost
 
 ### Step 1 · Package/variant contract
 
+**Implementation:** completed 2026-09-10；`RuntimeAssetManifestV2.ts` 在现有 binary envelope 上冻结 manifest/dependency/variant/chunk 语义，CPU oracle 覆盖确定性与损坏输入。
+
 **Scope**
 
 定义 Runtime Package header/manifest/variant/chunk contract；暂不要求所有资产切换。
@@ -773,6 +775,8 @@ bank grow/copy cost
 同一输入+recipe 产生确定性 package metadata；invalid/corrupt variant 明确失败。
 
 ### Step 2 · Texture Cooker V2
+
+**Implementation:** completed 2026-09-10；首个 desktop physical profile 使用 BC1/3/4/5，portable RGBA8 保留完整 mip tail；`surface.texture-package-bc` 是真实 Chrome/WebGPU consumer。
 
 **Scope**
 
@@ -791,6 +795,8 @@ cook → load → upload → sample
 且 color/normal/MASK 无不可接受回归。
 
 ### Step 3 · Texture Residency V2
+
+**Implementation:** completed 2026-09-10；当前有界 binding set 为每个 size-class 一个 immutable segment，stable handle 使用 slot+generation，MaterialRecord 消费同事务派生 routing；多 format/multi-set 扩展仍受 4.4 的 preflight policy 约束。
 
 **Scope**
 

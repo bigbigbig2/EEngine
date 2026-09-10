@@ -11,6 +11,11 @@ import {
   encodeGpuTextureRef
 } from "./GpuTextureRefAbi.js";
 import {
+  decodeTextureHandle,
+  encodeTextureHandle,
+  nextTextureHandleGeneration
+} from "./TextureHandleAbi.js";
+import {
   estimateTextureBytes,
   type ResourceHandle as AccountingResourceHandle
 } from "../debug/profiling/ResourceAccounting.js";
@@ -29,10 +34,26 @@ export interface TextureResidencyBindings {
 
 export interface TextureResidencyStage {
   readonly bindings: TextureResidencyBindings;
+  /** Stable logical slot+generation identity. Never encodes a physical bank/layer. */
   readonly textureRefs: ReadonlyMap<ShadeTexture, number>;
+  /** Derived GPU routing published in the same stage transaction as textureRefs. */
+  readonly textureRoutingRefs: ReadonlyMap<ShadeTexture, number>;
+}
+
+export interface TextureResidencyDescriptor {
+  readonly slot: number;
+  readonly generation: number;
+  readonly formatClass: "rgba8";
+  readonly sizeClass: number;
+  readonly segment: number;
+  readonly layer: number;
+  readonly logicalSize: readonly [number, number];
+  readonly uvScaleBias: readonly [number, number, number, number];
+  readonly residentMipRange: readonly [number, number];
 }
 
 export interface TextureBankEvidence {
+  readonly segment: number;
   readonly bankClass: number;
   /** Logical size class encoded by TextureRef. */
   readonly size: number;
@@ -47,7 +68,7 @@ export interface TextureBankEvidence {
 }
 
 export interface TextureResidencyEvidence {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly textureCapacity: number;
   readonly residentTextureCount: number;
   readonly retiringTextureCount: number;
@@ -58,18 +79,25 @@ export interface TextureResidencyEvidence {
   readonly bankGrowCount: number;
   readonly abortedBankGrowCount: number;
   readonly resizeDispatchCount: number;
+  readonly runtimeMipGenerationCount: number;
   readonly bankCopyOperationCount: number;
+  readonly segmentCount: number;
+  readonly bindingSetCount: number;
+  readonly bindingSlotUtilization: number;
+  readonly bindingSetPreflightFailures: number;
   readonly highResolutionArrayAllocated: boolean;
   readonly banks: readonly TextureBankEvidence[];
   readonly privateSubmitCount: 0;
 }
 
 interface TextureBank {
-  readonly bankClass: number;
-  readonly size: number;
-  readonly physicalSize: number;
-  readonly mipLevelCount: number;
-  readonly maxCapacity: number;
+  /** Fixed shader binding slot; bankClass is the logical size class currently assigned. */
+  readonly bindingSlot: number;
+  bankClass: number;
+  size: number;
+  physicalSize: number;
+  mipLevelCount: number;
+  maxCapacity: number;
   capacity: number;
   descriptor: GPUTextureDescriptor;
   texture: GPUTexture | null;
@@ -79,7 +107,10 @@ interface TextureBank {
 }
 
 interface ResidentTexture {
+  readonly slot: number;
+  readonly generation: number;
   readonly layer: number;
+  readonly segment: number;
   readonly bankClass: number;
   readonly source: ShadeTexture;
   refCount: number;
@@ -114,11 +145,19 @@ interface TextureTransition {
 
 interface BankGrowthPlan {
   readonly bank: TextureBank;
+  readonly bankClass: number;
+  readonly logicalSize: number;
+  readonly physicalSize: number;
   readonly nextCapacity: number;
 }
 
 interface BankGrowth {
   readonly bank: TextureBank;
+  readonly previousBankClass: number;
+  readonly previousSize: number;
+  readonly previousPhysicalSize: number;
+  readonly previousMipLevelCount: number;
+  readonly previousMaxCapacity: number;
   readonly previousCapacity: number;
   readonly previousDescriptor: GPUTextureDescriptor;
   readonly previousTexture: GPUTexture | null;
@@ -129,17 +168,22 @@ interface BankGrowth {
   readonly nextAccounting: AccountingResourceHandle | undefined;
 }
 
-/** Bounded size-class arrays with stable (version, bank class, layer) refs. */
+/** Immutable bounded segments with stable logical handles and derived GPU routing. */
 export class TextureResidency {
   private readonly banks: readonly TextureBank[];
   private readonly textures = new Map<ShadeTexture, ResidentTexture>();
   private readonly materials = new Map<StandardShadeMaterial, ResidentMaterialTextures>();
+  private readonly descriptors = new Map<number, TextureResidencyDescriptor>();
+  private readonly freeDescriptorSlots: number[] = [];
+  private readonly descriptorGenerations: number[] = [0];
   private resizePipeline: GPURenderPipeline | null = null;
   private allocatedPeakBytes = 0;
   private bankGrowCount = 0;
   private abortedBankGrowCount = 0;
   private resizeDispatchCount = 0;
+  private runtimeMipGenerationCount = 0;
   private bankCopyOperationCount = 0;
+  private bindingSetPreflightFailures = 0;
   private destroyed = false;
 
   constructor(
@@ -151,14 +195,15 @@ export class TextureResidency {
     }
     const limits = graphics.device.limits;
     const deviceMaxSize = Number(limits.maxTextureDimension2D);
-    this.banks = GPU_TEXTURE_BANK_SIZES.map((size, bankClass): TextureBank => {
+    this.banks = GPU_TEXTURE_BANK_SIZES.map((size, bindingSlot): TextureBank => {
       const physicalSize = Math.min(size, highResolutionMaxSize, deviceMaxSize);
       return {
-        bankClass,
+        bindingSlot,
+        bankClass: bindingSlot,
         size,
         physicalSize,
         mipLevelCount: mipCount(physicalSize),
-        maxCapacity: Math.min(GPU_TEXTURE_BANK_MAX_CAPACITIES[bankClass]!, Number(limits.maxTextureArrayLayers)),
+        maxCapacity: Math.min(GPU_TEXTURE_BANK_MAX_CAPACITIES[bindingSlot]!, Number(limits.maxTextureArrayLayers)),
         capacity: 0,
         descriptor: bankDescriptor(bankClass, size, physicalSize, 1),
         texture: null,
@@ -172,6 +217,10 @@ export class TextureResidency {
       throw new RangeError(`TextureResidency base bank requires ${TEXTURE_RESIDENCY_BASE_CAPACITY} layers but the device permits ${base.maxCapacity}`);
     }
     this.allocateInitialBase(base);
+    for (let slot = this.logicalCapacity(); slot >= 1; slot--) {
+      this.freeDescriptorSlots.push(slot);
+      this.descriptorGenerations[slot] = 1;
+    }
     this.allocatedPeakBytes = this.allocatedBytes();
   }
 
@@ -215,6 +264,7 @@ export class TextureResidency {
       for (const bankClass of new Set(newTextures.map((entry) => entry.bankClass))) {
         const bank = this.banks[bankClass]!;
         this.graphics.textures.mipmaps.generateMipmap(requireBankTexture(bank), bank.descriptor, TextureFilterType.Linear, command);
+        this.runtimeMipGenerationCount++;
       }
       command.onFinished.addOne(() => {
         if (settled) return;
@@ -222,7 +272,11 @@ export class TextureResidency {
         for (const transition of transitions) this.releaseTextureRefs(transition.removed, command.gpuDone);
         this.commitGrowths(growths, command.gpuDone);
       });
-      return Object.freeze({ bindings: this.bindings(), textureRefs: this.textureRefs() });
+      return Object.freeze({
+        bindings: this.bindings(),
+        textureRefs: this.textureRefs(),
+        textureRoutingRefs: this.textureRoutingRefs()
+      });
     } catch (error) {
       rollback();
       throw error;
@@ -265,6 +319,14 @@ export class TextureResidency {
     });
   }
 
+  descriptor(handleValue: number): TextureResidencyDescriptor | null {
+    const handle = decodeTextureHandle(handleValue);
+    if (handle === null) return null;
+    const descriptor = this.descriptors.get(handle.slot);
+    if (descriptor === undefined || descriptor.generation !== handle.generation) return null;
+    return descriptor;
+  }
+
   evidence(): TextureResidencyEvidence {
     const counts = this.banks.map(() => ({ resident: 0, retiring: 0 }));
     let residentTextureCount = 0;
@@ -276,26 +338,27 @@ export class TextureResidency {
       if (entry.refCount > 0) {
         residentTextureCount++;
         residentTextureBytes += bytes;
-        counts[entry.bankClass]!.resident++;
+        counts[entry.segment]!.resident++;
       } else {
         retiringTextureCount++;
         retiringTextureBytes += bytes;
-        counts[entry.bankClass]!.retiring++;
+        counts[entry.segment]!.retiring++;
       }
     }
     const banks = this.banks.map((bank): TextureBankEvidence => Object.freeze({
+      segment: bank.bindingSlot,
       bankClass: bank.bankClass,
       size: bank.size,
       physicalSize: bank.physicalSize,
       maxCapacity: bank.maxCapacity,
       allocatedCapacity: bank.capacity,
-      residentTextureCount: counts[bank.bankClass]!.resident,
-      retiringTextureCount: counts[bank.bankClass]!.retiring,
+      residentTextureCount: counts[bank.bindingSlot]!.resident,
+      retiringTextureCount: counts[bank.bindingSlot]!.retiring,
       freeLayerCount: bank.freeLayers.length,
       allocatedBytes: arrayBytes(bank.physicalSize, bank.capacity)
     }));
     return Object.freeze({
-      schemaVersion: 2,
+      schemaVersion: 3,
       textureCapacity: this.logicalCapacity(),
       residentTextureCount,
       retiringTextureCount,
@@ -306,7 +369,12 @@ export class TextureResidency {
       bankGrowCount: this.bankGrowCount,
       abortedBankGrowCount: this.abortedBankGrowCount,
       resizeDispatchCount: this.resizeDispatchCount,
+      runtimeMipGenerationCount: this.runtimeMipGenerationCount,
       bankCopyOperationCount: this.bankCopyOperationCount,
+      segmentCount: this.banks.filter((bank) => bank.texture !== null).length,
+      bindingSetCount: 1,
+      bindingSlotUtilization: this.banks.filter((bank) => bank.texture !== null).length / GPU_TEXTURE_BANK_COUNT,
+      bindingSetPreflightFailures: this.bindingSetPreflightFailures,
       highResolutionArrayAllocated: this.banks.slice(1).some((bank) => bank.texture !== null),
       banks: Object.freeze(banks),
       privateSubmitCount: 0
@@ -327,6 +395,8 @@ export class TextureResidency {
     }
     this.textures.clear();
     this.materials.clear();
+    this.descriptors.clear();
+    this.freeDescriptorSlots.length = 0;
     this.resizePipeline = null;
   }
 
@@ -344,11 +414,13 @@ export class TextureResidency {
       if (freshCount === 0) continue;
       const occupied = Math.max(0, bank.capacity - 1 - bank.freeLayers.length);
       const exactCapacity = occupied + freshCount + 1;
-      const requiredCapacity = bank.size >= 2048 ? exactCapacity : nextPowerOfTwo(exactCapacity);
-      if (bank.maxCapacity === 0 || requiredCapacity > bank.maxCapacity) {
-        throw new RangeError(`TextureResidency ${bank.size}px bank requires ${requiredCapacity} layers but policy/device permits ${bank.maxCapacity}`);
+      if (bank.maxCapacity === 0 || exactCapacity > bank.maxCapacity) {
+        this.bindingSetPreflightFailures++;
+        throw new RangeError(`TextureResidency ${bank.size}px bank requires ${exactCapacity} layers but policy/device permits ${bank.maxCapacity}`);
       }
-      if (requiredCapacity > bank.capacity) plans.push({ bank, nextCapacity: requiredCapacity });
+      // Each size-class slot owns one immutable segment. Allocate its final bounded
+      // capacity once; future loads only consume layers and never relocate it.
+      if (bank.texture === null) plans.push({ bank, nextCapacity: bank.maxCapacity });
     }
     const transactionPeakBytes = this.allocatedBytes() + plans.reduce(
       (sum, plan) => sum + arrayBytes(plan.bank.physicalSize, plan.nextCapacity),
@@ -373,7 +445,7 @@ export class TextureResidency {
     }
   }
 
-  private growBank(bank: TextureBank, nextCapacity: number, command: ShadeGPUCommandContext): BankGrowth {
+  private growBank(bank: TextureBank, nextCapacity: number, _command: ShadeGPUCommandContext): BankGrowth {
     const descriptor = bankDescriptor(bank.bankClass, bank.size, bank.physicalSize, nextCapacity);
     const nextTexture = this.graphics.device.createTexture(descriptor);
     const nextAccounting = this.graphics.resource_accounting?.created({
@@ -394,17 +466,7 @@ export class TextureResidency {
       nextTexture,
       nextAccounting
     };
-    if (bank.texture !== null && bank.capacity > 0) {
-      for (let mip = 0; mip < bank.mipLevelCount; mip++) {
-        const extent = Math.max(1, bank.physicalSize >> mip);
-        command.copyTextureToTexture(
-          { texture: bank.texture, mipLevel: mip },
-          { texture: nextTexture, mipLevel: mip },
-          [extent, extent, bank.capacity]
-        );
-        this.bankCopyOperationCount++;
-      }
-    }
+    if (bank.texture !== null) throw new Error(`TextureResidency ${bank.size}px immutable segment cannot grow`);
     for (let layer = nextCapacity - 1; layer >= Math.max(1, bank.capacity); layer--) bank.freeLayers.push(layer);
     bank.capacity = nextCapacity;
     bank.descriptor = descriptor;
@@ -414,7 +476,7 @@ export class TextureResidency {
     this.bankGrowCount++;
     this.allocatedPeakBytes = Math.max(
       this.allocatedPeakBytes,
-      this.allocatedBytes() + (growth.previousTexture === null ? 0 : arrayBytes(bank.physicalSize, growth.previousCapacity))
+      this.allocatedBytes()
     );
     return growth;
   }
@@ -517,8 +579,12 @@ export class TextureResidency {
       const bank = this.banks[bankClass]!;
       const layer = bank.freeLayers.pop();
       if (layer === undefined) throw new RangeError(`TextureResidency ${bank.size}px bank layer overflow`);
-      entry = { layer, bankClass, source: texture, refCount: 0, retireGeneration: 0 };
+      const slot = this.freeDescriptorSlots.pop();
+      if (slot === undefined) throw new RangeError("TextureResidency logical descriptor slot overflow");
+      const generation = this.descriptorGenerations[slot] ?? 1;
+      entry = { slot, generation, layer, bankClass, source: texture, refCount: 0, retireGeneration: 0 };
       this.textures.set(texture, entry);
+      this.descriptors.set(slot, createDescriptor(entry, bank));
       created = true;
     }
     const previousRetireGeneration = entry.retireGeneration;
@@ -533,6 +599,8 @@ export class TextureResidency {
     entry.retireGeneration = operation.previousRetireGeneration;
     if (!operation.created || entry.refCount !== 0) return;
     if (this.textures.get(entry.source) === entry) this.textures.delete(entry.source);
+    this.descriptors.delete(entry.slot);
+    this.freeDescriptorSlots.push(entry.slot);
     this.banks[entry.bankClass]!.freeLayers.push(entry.layer);
   }
 
@@ -546,6 +614,9 @@ export class TextureResidency {
         if (this.destroyed || entry.refCount !== 0 || entry.retireGeneration !== generation) return;
         if (this.textures.get(entry.source) !== entry) return;
         this.textures.delete(entry.source);
+        this.descriptors.delete(entry.slot);
+        this.descriptorGenerations[entry.slot] = nextTextureHandleGeneration(entry.generation);
+        this.freeDescriptorSlots.push(entry.slot);
         this.banks[entry.bankClass]!.freeLayers.push(entry.layer);
       };
       void gpuDone.then(retire, retire);
@@ -553,6 +624,14 @@ export class TextureResidency {
   }
 
   private textureRefs(): ReadonlyMap<ShadeTexture, number> {
+    const refs = new Map<ShadeTexture, number>();
+    for (const entry of this.textures.values()) {
+      if (entry.refCount > 0) refs.set(entry.source, encodeTextureHandle(entry.slot, entry.generation));
+    }
+    return refs;
+  }
+
+  private textureRoutingRefs(): ReadonlyMap<ShadeTexture, number> {
     const refs = new Map<ShadeTexture, number>();
     for (const entry of this.textures.values()) {
       if (entry.refCount > 0) refs.set(entry.source, encodeGpuTextureRef(entry.bankClass, entry.layer));
@@ -655,6 +734,29 @@ function bankDescriptor(bankClass: number, logicalSize: number, physicalSize: nu
 function requireBankTexture(bank: TextureBank): GPUTexture {
   if (bank.texture === null) throw new Error(`TextureResidency ${bank.size}px bank was not preflighted`);
   return bank.texture;
+}
+
+function createDescriptor(
+  entry: ResidentTexture,
+  bank: TextureBank
+): TextureResidencyDescriptor {
+  const image = entry.source.image!;
+  return Object.freeze({
+    slot: entry.slot,
+    generation: entry.generation,
+    formatClass: "rgba8",
+    sizeClass: entry.bankClass,
+    segment: 0,
+    layer: entry.layer,
+    logicalSize: Object.freeze([image.width, image.height]) as readonly [number, number],
+    uvScaleBias: Object.freeze([
+      image.width / bank.physicalSize,
+      image.height / bank.physicalSize,
+      0,
+      0
+    ]) as readonly [number, number, number, number],
+    residentMipRange: Object.freeze([0, bank.mipLevelCount - 1]) as readonly [number, number]
+  });
 }
 
 function canStageTexture(texture: ShadeTexture): boolean {

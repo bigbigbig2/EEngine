@@ -37,12 +37,50 @@ export type {
 } from "./assets/GeometryCookRecipe.js";
 export {
   RUNTIME_ASSET_FORMAT_VERSION,
+  RUNTIME_ASSET_FORMAT_VERSION_V2,
   RUNTIME_ASSET_PACKAGE_SCHEMA_HASH,
   RuntimeAssetPackageError,
   openRuntimeAssetPackage,
   validateRuntimeAssetPackage,
   writeRuntimeAssetPackage
 } from "./assets/RuntimeAssetPackage.js";
+export {
+  RUNTIME_ASSET_MANIFEST_V2_SCHEMA_VERSION,
+  RuntimeAssetManifestV2Error,
+  openRuntimeAssetPackageV2,
+  selectRuntimeAssetVariantV2,
+  writeRuntimeAssetPackageV2
+} from "./assets/RuntimeAssetManifestV2.js";
+export type {
+  RuntimeAssetChunkInputV2,
+  RuntimeAssetChunkV2,
+  RuntimeAssetDependencyV2,
+  RuntimeAssetManifestV2,
+  RuntimeAssetPackageV2,
+  RuntimeAssetPackageWriteInputV2,
+  RuntimeAssetSourceProvenanceV2,
+  RuntimeAssetVariantV2
+} from "./assets/RuntimeAssetManifestV2.js";
+export {
+  TEXTURE_ASSET_SCHEMA_VERSION,
+  TEXTURE_COOKER_VERSION,
+  cookTextureAssetPackageV2,
+  openTextureAssetPackageV2,
+  selectTextureAssetVariantV2,
+  uploadTextureAssetPackageV2
+} from "./assets/TextureAssetPackage.js";
+export type {
+  SelectedTextureVariantV2,
+  TextureAssetPackageV2,
+  TextureAssetLoadEvidenceV2,
+  TextureCookRecipeV2,
+  TextureCookSourceV2,
+  TextureMipV2,
+  TextureSemanticV2,
+  TextureUploadEvidenceV2,
+  TextureVariantMetadataV2,
+  UploadedTextureAssetV2
+} from "./assets/TextureAssetPackage.js";
 export type {
   RuntimeAssetManifest,
   RuntimeAssetPackage,
@@ -118,6 +156,11 @@ export type {
   PackedSceneSource
 } from "./gpu/GpuRenderWorld.js";
 export type { GraphicsOwnerCreationEvidence } from "./gpu/GraphicsContext.js";
+export type {
+  WebGpuApiProbes,
+  WebGpuCapabilityRecord,
+  WebGpuSpecializationRecord
+} from "./gpu/WebGpuCapabilityRecord.js";
 export {
   projectedGeometryErrorPixels,
   selectGeometryHierarchy

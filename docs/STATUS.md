@@ -12,7 +12,9 @@
 - direct lighting、CSM、GI、AO、SSR、MBOIT、Temporal 与 HDR post 接入同一 Renderer 主流程。
 - Performance Inspector 是共享的实时 Profiler/Timeline；Rendering Lab 是综合质量与性能 fixture。
 - Browser Validation 已统一为 Registry + Source Domain Selector + 单一 ChromeRunner；Smoke、Visibility、Surface、Lifecycle 承担日常真实 WebGPU 验证，Rendering Lab 保留综合与 formal benchmark。公共证据强度统一为 DEV/MILESTONE/PERF，30+60 的 `profile:rendering-lab:dev` 只承担短 A/B 与编排检查。
-- WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码只已强制 `indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，并机会性启用 `timestamp-query`、`subgroups`；其余 2026 specialization 尚未落地。
+- WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码强制 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，机会性启用 `timestamp-query`、`subgroups` 和一族纹理压缩能力，并冻结 adapter/device feature、关键 limit、WGSL/API probe 与 texture specialization record。
+- Runtime Package V2 已有确定性 manifest/dependency/variant/chunk 语义层；Texture Package V2 已有 offline mip、BC1/3/4/5 physical variant、完整 RGBA8 fallback 和真实 Chrome `cook → load → upload → sample` consumer。
+- Texture Residency 已改为有界 immutable size-class segment；业务侧 texture handle 使用 slot+generation，GPU MaterialRecord 消费同事务派生的 physical routing，扩容不再复制已有 resident array。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 
@@ -46,11 +48,12 @@
 - resident、transient、history、shadow、upload/readback 预算仍需目标 adapter 的同条件证据。
 - one-main-submit 和 feature-off 接近零成本需要逐帧证据，不能只凭静态结构判断。
 - Shader source audit 当前只有有生产 owner 的 authored shader；实际数量和名单以生成的 `OEngine/benchmarks/shader-source-audit.json` 为准。
-- capability record 尚未覆盖 `core-features-and-limits`、WGSL language features、Immediate Data/Transient Attachment API probe 和最终 specialization；lockfile 中的 `@webgpu/types` 0.1.71 还没有 2026-09 规范中的 `texture-compression-unaligned` 名称。
+- `primitive-index`、`shader-f16`、Immediate Data 与 Transient Attachment 尚无生产 consumer；lockfile 中的 `@webgpu/types` 0.1.71 还没有 2026-09 规范中的 `texture-compression-unaligned` 名称，因此当前 BC physical variant 的 resident mip tail 截止于 4×4，完整 1×1 tail 由 RGBA8 fallback 保留。
+- Texture Residency 当前每个 size-class 只有一个有界 segment/binding slot；多 format-class 与多 binding-set coverage 留在 ADR-0007 后续迁移，超出当前 policy 明确 preflight failure。
 
 ## 下一步
 
-1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：实现 WebGPU 2026 capability record、probe 与 specialization foundation。
-2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：当前等待 ADR-0010 runtime capability foundation；Next 是 Step 0 Memory / Asset Truth。
+1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：为 `primitive-index`、`shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback；没有 consumer 前保持 record-only。
+2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–3 implementation 已落地；完成固定 texture-heavy PERF 证据后进入 Step 4 Canonical Geometry Profile V2。
 3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：等待 ADR-0007 compact geometry 与 instance contracts。
 4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：等待 ADR-0008 VisibilityKey V2；SSAO/SSR upstream porting 可以提前研究，但 production cutover 后置。

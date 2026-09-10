@@ -22,6 +22,7 @@ const [
     GPU_TEXTURE_REF_INVALID,
     GPU_TEXTURE_BANK_MAX_CAPACITIES
   },
+  { decodeTextureHandle },
   { StandardShadeMaterial },
   { ShadeDrawSide, ShadeTransparencyMode },
   { GPU_INSTANCE_FLAGS },
@@ -41,6 +42,7 @@ const [
   import("../.test-dist/debug/EnvironmentManifest.js"),
   import("../.test-dist/gpu/GpuWorkGenerationAbi.js"),
   import("../.test-dist/gpu/GpuTextureRefAbi.js"),
+  import("../.test-dist/gpu/TextureHandleAbi.js"),
   import("../.test-dist/material/StandardShadeMaterial.js"),
   import("../.test-dist/material/enums.js"),
   import("../.test-dist/gpu/GpuInstanceAbi.js"),
@@ -584,7 +586,15 @@ test("Texture residency rolls back failed commands and reuses a released base la
   const reused = new FakeCommand("texture-stage-reuse");
   const secondStage = residency.stage([secondMaterial], reused);
   reused.finish();
-  assert.equal(secondStage.textureRefs.get(secondTexture), firstRef);
+  const secondRef = secondStage.textureRefs.get(secondTexture);
+  assert.notEqual(secondRef, firstRef);
+  assert.equal(decodeTextureHandle(secondRef)?.slot, decodeTextureHandle(firstRef)?.slot);
+  assert.equal(
+    decodeTextureHandle(secondRef)?.generation,
+    decodeTextureHandle(firstRef).generation + 1
+  );
+  assert.equal(residency.descriptor(firstRef), null);
+  assert.notEqual(residency.descriptor(secondRef), null);
 
   residency.destroy();
 });
@@ -608,9 +618,12 @@ test("Texture residency enforces its declared base capacity without partial muta
     () => residency.stage([
       createTexturedMaterial(createTexture(64, "overflow"), "overflow-material")
     ], overflow),
-    /requires 128 layers but policy\/device permits 64/
+    /requires 65 layers but policy\/device permits 64/
   );
-  assert.deepEqual(residency.evidence(), before);
+  const after = residency.evidence();
+  assert.deepEqual(after.banks, before.banks);
+  assert.equal(after.residentTextureCount, before.residentTextureCount);
+  assert.equal(after.bindingSetPreflightFailures, before.bindingSetPreflightFailures + 1);
   residency.destroy();
 });
 
@@ -666,7 +679,10 @@ test("Texture residency fills and rejects overflow in every bounded bank without
       ], new FakeCommand(`texture-${size}-overflow`)),
       /requires .* layers but policy\/device permits/
     );
-    assert.deepEqual(residency.evidence(), before);
+    const after = residency.evidence();
+    assert.deepEqual(after.banks, before.banks);
+    assert.equal(after.residentTextureCount, before.residentTextureCount);
+    assert.equal(after.bindingSetPreflightFailures, before.bindingSetPreflightFailures + 1);
     residency.destroy();
   }
 });
@@ -684,7 +700,7 @@ test("Texture residency keeps bank choice legal for multiple small textures foll
   const large = new FakeCommand("texture-large-after-small");
   const staged = residency.stage([createTexturedMaterial(largeTexture, "large-material")], large);
   large.finish();
-  assert.equal(decodeGpuTextureRef(staged.textureRefs.get(largeTexture))?.bankClass, 4);
+  assert.equal(decodeGpuTextureRef(staged.textureRoutingRefs.get(largeTexture))?.bankClass, 4);
   assert.equal(residency.evidence().banks[1].residentTextureCount, 5);
   assert.equal(residency.evidence().banks[4].residentTextureCount, 1);
   residency.destroy();
@@ -726,7 +742,7 @@ test("Texture residency accepts every permutation of the same legal texture set"
     );
     command.finish();
     assert.deepEqual(
-      textures.map((texture) => decodeGpuTextureRef(staged.textureRefs.get(texture))?.bankClass),
+      textures.map((texture) => decodeGpuTextureRef(staged.textureRoutingRefs.get(texture))?.bankClass),
       permutation.map((size) => sizes.indexOf(size))
     );
     assert.equal(residency.evidence().residentTextureCount, sizes.length);
@@ -752,7 +768,7 @@ test("Texture residency deduplicates shared textures and releases the final refe
   release.finish();
   await settlePromises();
   assert.equal(residency.evidence().residentTextureCount, 0);
-  assert.equal(residency.evidence().banks[2].freeLayerCount, 1);
+  assert.equal(residency.evidence().banks[2].freeLayerCount, GPU_TEXTURE_BANK_MAX_CAPACITIES[2] - 1);
   residency.destroy();
 });
 
@@ -799,7 +815,7 @@ test("Texture residency quality and device resolution caps preserve logical text
   const command = new FakeCommand("texture-quality-cap");
   const staged = residency.stage([createTexturedMaterial(texture, "quality-capped-material")], command);
   command.finish();
-  assert.equal(decodeGpuTextureRef(staged.textureRefs.get(texture))?.bankClass, 4);
+  assert.equal(decodeGpuTextureRef(staged.textureRoutingRefs.get(texture))?.bankClass, 4);
   assert.equal(residency.evidence().banks[4].physicalSize, 1024);
   residency.destroy();
 });
@@ -1011,7 +1027,7 @@ async function runReleasedHighTextureSequence([firstSize, secondSize]) {
   let secondAccepted = true;
   let secondRef;
   try {
-    secondRef = residency.stage([secondMaterial], second).textureRefs.get(secondTexture);
+    secondRef = residency.stage([secondMaterial], second).textureRoutingRefs.get(secondTexture);
     second.finish();
   } catch (error) {
     secondAccepted = false;

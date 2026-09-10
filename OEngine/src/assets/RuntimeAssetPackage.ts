@@ -7,6 +7,7 @@
  */
 
 export const RUNTIME_ASSET_FORMAT_VERSION = 1;
+export const RUNTIME_ASSET_FORMAT_VERSION_V2 = 2;
 export const RUNTIME_ASSET_PACKAGE_SCHEMA_HASH = 0x76f894fa;
 export const RUNTIME_ASSET_HEADER_SIZE = 96;
 export const RUNTIME_ASSET_DIRECTORY_ENTRY_SIZE = 48;
@@ -84,6 +85,8 @@ export interface RuntimeAssetSectionInput {
 }
 
 export interface RuntimeAssetPackageWriteInput {
+  /** Defaults to the legacy v1 envelope; V2 semantic packages opt in explicitly. */
+  readonly formatVersion?: 1 | 2;
   readonly flags?: number;
   readonly sections: readonly RuntimeAssetSectionInput[];
 }
@@ -126,6 +129,7 @@ interface ParsedPackage {
 export async function writeRuntimeAssetPackage(
   input: RuntimeAssetPackageWriteInput
 ): Promise<ArrayBuffer> {
+  const formatVersion = input.formatVersion ?? RUNTIME_ASSET_FORMAT_VERSION;
   const flags = input.flags ?? 0;
   assertU32(flags, "Package flags");
   if (flags !== 0) {
@@ -196,7 +200,7 @@ export async function writeRuntimeAssetPackage(
   const view = new DataView(output);
   const outputBytes = new Uint8Array(output);
   outputBytes.set(PACKAGE_MAGIC, 0);
-  view.setUint32(8, RUNTIME_ASSET_FORMAT_VERSION, true);
+  view.setUint32(8, formatVersion, true);
   view.setUint32(12, RUNTIME_ASSET_PACKAGE_SCHEMA_HASH, true);
   view.setUint32(16, RUNTIME_ASSET_ENDIANNESS_MARKER, true);
   view.setUint32(20, flags, true);
@@ -220,7 +224,7 @@ export async function writeRuntimeAssetPackage(
     outputBytes.set(section.bytes, section.byteOffset);
   }
   const contentHash = await calculateContentHash(
-    RUNTIME_ASSET_FORMAT_VERSION,
+    formatVersion,
     RUNTIME_ASSET_PACKAGE_SCHEMA_HASH,
     flags,
     sections,
@@ -316,7 +320,8 @@ async function parseAndValidate(
     CONTENT_HASH_OFFSET,
     CONTENT_HASH_OFFSET + CONTENT_HASH_BYTES
   );
-  if (formatVersion !== RUNTIME_ASSET_FORMAT_VERSION) {
+  if (formatVersion !== RUNTIME_ASSET_FORMAT_VERSION &&
+      formatVersion !== RUNTIME_ASSET_FORMAT_VERSION_V2) {
     error(
       "unsupported-format-version",
       `Unsupported package format version ${formatVersion}`

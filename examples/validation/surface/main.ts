@@ -6,6 +6,9 @@ import {
   ShadeDataType,
   ShadeTexture,
   ShadeTransparencyMode,
+  cookTextureAssetPackageV2,
+  openTextureAssetPackageV2,
+  uploadTextureAssetPackageV2,
   type FrameProfileSnapshot,
   type PackedSceneSource
 } from "../../../OEngine/src/index.ts";
@@ -69,7 +72,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "transparent", "scene-adapter"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "transparent", "scene-adapter"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -116,6 +119,24 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "The real WebGPU decoder matches the CPU TextureRef ABI for valid and invalid values",
         oracle,
         "mismatchCount = 0"
+      ));
+      profile = await runtime.waitForCounters(startedFrame);
+    } else if (request.scenarioId === "texture-package-bc") {
+      const oracle = await runTexturePackageBcOracle();
+      Object.assign(evidence, oracle);
+      assertions.push(validationAssertion(
+        "texture-package-bc-selected",
+        oracle.physicalFormat === "bc3-rgba-unorm-srgb" && oracle.runtimeMipPasses === 0,
+        "Texture Package V2 selected and sampled the cooked desktop BC mip chain",
+        oracle,
+        "physicalFormat = bc3-rgba-unorm-srgb and runtimeMipPasses = 0"
+      ));
+      assertions.push(validationAssertion(
+        "texture-package-bc-sample",
+        oracle.pixel[0] >= 190 && oracle.pixel[1] <= 80 && oracle.pixel[2] <= 80 && oracle.pixel[3] >= 245,
+        "The real WebGPU BC texture sampled the expected opaque red color",
+        oracle.pixel,
+        "R >= 190, G/B <= 80, A >= 245"
       ));
       profile = await runtime.waitForCounters(startedFrame);
     } else if (request.scenarioId === "material-switch") {
@@ -201,6 +222,109 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     state.finish();
     showStatus();
     return failedScenario(request, error, startedFrame);
+  }
+}
+
+async function runTexturePackageBcOracle(): Promise<Readonly<{
+  physicalFormat: GPUTextureFormat;
+  mipCount: number;
+  residentBytes: number;
+  uploadBytes: number;
+  runtimeMipPasses: number;
+  pixel: readonly number[];
+}>> {
+  const device = runtime.renderer?.device;
+  if (device === undefined) throw new Error("Surface runtime has no WebGPU device for the Texture Package V2 oracle");
+  if (!device.features.has("texture-compression-bc")) {
+    throw new Error("Target desktop adapter did not enable texture-compression-bc");
+  }
+  const rgba8 = new Uint8Array(8 * 8 * 4);
+  for (let pixel = 0; pixel < 64; pixel++) rgba8.set([224, 32, 20, 255], pixel * 4);
+  const asset = await openTextureAssetPackageV2(await cookTextureAssetPackageV2({
+    width: 8,
+    height: 8,
+    rgba8,
+    semantic: "base-color-srgb",
+    sourceUri: "fixture://surface/texture-package-bc"
+  }));
+  const uploaded = uploadTextureAssetPackageV2(device, asset);
+  const target = device.createTexture({
+    label: "validation/Texture Package V2 sample target",
+    size: [1, 1],
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+  });
+  const readback = device.createBuffer({
+    label: "validation/Texture Package V2 sample readback",
+    size: 256,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  device.pushErrorScope("validation");
+  let errorScopeOpen = true;
+  try {
+    const module = device.createShaderModule({
+      label: "validation/Texture Package V2 sample shader",
+      code: `
+@group(0) @binding(0) var source_texture: texture_2d<f32>;
+@group(0) @binding(1) var source_sampler: sampler;
+@vertex fn vertex_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+  let positions = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  return vec4f(positions[index], 0.0, 1.0);
+}
+@fragment fn fragment_main() -> @location(0) vec4f {
+  return textureSampleLevel(source_texture, source_sampler, vec2f(0.5), 0.0);
+}`
+    });
+    const pipeline = await device.createRenderPipelineAsync({
+      label: "validation/Texture Package V2 sample pipeline",
+      layout: "auto",
+      vertex: { module, entryPoint: "vertex_main" },
+      fragment: { module, entryPoint: "fragment_main", targets: [{ format: "rgba8unorm" }] },
+      primitive: { topology: "triangle-list" }
+    });
+    const group = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: uploaded.view },
+        { binding: 1, resource: device.createSampler({ minFilter: "linear", magFilter: "linear", mipmapFilter: "linear" }) }
+      ]
+    });
+    const encoder = device.createCommandEncoder({ label: "validation/Texture Package V2 sample" });
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{ view: target.createView(), clearValue: [0, 0, 0, 0], loadOp: "clear", storeOp: "store" }]
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, group);
+    pass.draw(3);
+    pass.end();
+    encoder.copyTextureToBuffer(
+      { texture: target },
+      { buffer: readback, bytesPerRow: 256 },
+      [1, 1, 1]
+    );
+    device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(GPUMapMode.READ);
+    const pixel = Object.freeze([...new Uint8Array(readback.getMappedRange()).slice(0, 4)]);
+    readback.unmap();
+    const scopedError = await device.popErrorScope();
+    errorScopeOpen = false;
+    if (scopedError !== null) throw new Error(`Texture Package V2 WebGPU validation failed: ${scopedError.message}`);
+    return Object.freeze({
+      physicalFormat: uploaded.evidence.physicalFormat,
+      mipCount: uploaded.variant.mips.length,
+      residentBytes: uploaded.evidence.residentBytes,
+      uploadBytes: uploaded.evidence.uploadBytes,
+      runtimeMipPasses: uploaded.evidence.runtimeMipPasses,
+      pixel
+    });
+  } catch (error) {
+    if (readback.mapState === "mapped") readback.unmap();
+    if (errorScopeOpen) await device.popErrorScope().catch(() => null);
+    throw error;
+  } finally {
+    uploaded.texture.destroy();
+    target.destroy();
+    readback.destroy();
   }
 }
 

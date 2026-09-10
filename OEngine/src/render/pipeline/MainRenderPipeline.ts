@@ -11,6 +11,7 @@ import {
   type GpuSurfaceAbiProfile
 } from "../../gpu/GpuSurfaceAbi.js";
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
+import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
 import type { GPUSceneEnvironmentContext } from "../../gpu/GPUSceneEnvironmentContext.js";
 import { FrameGraph, FrameGraphBindingLayout } from "../../framegraph/FrameGraph.js";
@@ -203,6 +204,7 @@ export type RendererInitializeOptions = {
 export interface RendererCapabilities {
   readonly features: readonly string[];
   readonly limits: Readonly<Record<string, number>>;
+  readonly record: import("../../gpu/WebGpuCapabilityRecord.js").WebGpuCapabilityRecord;
 }
 
 export interface LinearHdrCaptureRegion {
@@ -1072,13 +1074,16 @@ export class MainRenderPipeline {
       if (context === undefined) throw new Error("Failed to bind GPUCanvasContext");
     }
 
+    let selectedAdapter: GPUAdapter | undefined;
     if (device === undefined) {
       const gpu = navigator.gpu;
       if (gpu === undefined) throw new Error("navigator.gpu is undefined");
       const adapter = await gpu.requestAdapter({
-        powerPreference: "high-performance"
+        powerPreference: "high-performance",
+        featureLevel: "core"
       });
       if (adapter === null) throw new Error("Failed to bind GPUAdapter");
+      selectedAdapter = adapter;
       this._adapterInfo = captureGpuAdapterIdentity(adapter.info);
       if ((adapter as GPUAdapter & { isFallbackAdapter?: boolean }).isFallbackAdapter) {
         console.warn(
@@ -1092,6 +1097,7 @@ export class MainRenderPipeline {
         );
       }
       const requiredFeatures = new Set<GPUFeatureName>([
+        "core-features-and-limits",
         "indirect-first-instance",
         "float32-blendable",
         // HZB is a core render path and unconditionally uses rg16float storage.
@@ -1112,6 +1118,14 @@ export class MainRenderPipeline {
       for (const feature of optionalFeatureNames) {
         if (adapter.features.has(feature)) requiredFeatures.add(feature);
       }
+      // Texture Package V2 consumes exactly one physical compression family.
+      const compressionFeatures: GPUFeatureName[] = [
+        "texture-compression-bc",
+        "texture-compression-astc",
+        "texture-compression-etc2"
+      ];
+      const compressionFeature = compressionFeatures.find((feature) => adapter.features.has(feature));
+      if (compressionFeature !== undefined) requiredFeatures.add(compressionFeature);
       device = await adapter.requestDevice({
         requiredLimits: {
           maxColorAttachmentBytesPerSample: Math.max(
@@ -1130,6 +1144,11 @@ export class MainRenderPipeline {
     }
 
     validateRendererDevice(device, effectiveConfig);
+    const capabilityRecord = captureWebGpuCapabilityRecord(
+      navigator.gpu,
+      device,
+      selectedAdapter
+    );
     this._capabilities = Object.freeze({
       features: Object.freeze([...device.features].sort()),
       limits: Object.freeze({
@@ -1137,7 +1156,8 @@ export class MainRenderPipeline {
         maxColorAttachmentBytesPerSample: Number(device.limits.maxColorAttachmentBytesPerSample),
         maxBufferSize: Number(device.limits.maxBufferSize),
         maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize)
-      })
+      }),
+      record: capabilityRecord
     });
 
     device.lost.then((info) => this.onDeviceLost(info));
@@ -3323,6 +3343,34 @@ export class MainRenderPipeline {
         "packed.material.residentTextureBytes",
         textureEvidence?.residentTextureBytes ?? 0
       );
+      profiler.recordCounter(
+        "packed.material.retiringTextureBytes",
+        textureEvidence?.retiringTextureBytes ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureAllocatedBytes",
+        textureEvidence?.allocatedBytes ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureTransactionPeakBytes",
+        textureEvidence?.allocatedPeakBytes ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureRuntimeMipGenerations",
+        textureEvidence?.runtimeMipGenerationCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureBankCopyOperations",
+        textureEvidence?.bankCopyOperationCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureSegmentCount",
+        textureEvidence?.segmentCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.textureBindingSetPreflightFailures",
+        textureEvidence?.bindingSetPreflightFailures ?? 0
+      );
     }
     profiler.recordCounter(
       "lighting.clusterCount",
@@ -3706,6 +3754,7 @@ function validateRendererDevice(
   config: RendererConfig
 ): void {
   const requiredFeatures = new Set<GPUFeatureName>([
+    "core-features-and-limits",
     "indirect-first-instance",
     "float32-blendable",
     HZB_STORAGE_FORMAT_FEATURE,

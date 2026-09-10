@@ -167,7 +167,7 @@ export class GpuRenderWorld {
     const textureStage = this.graphics.texture_residency.stage(source.materials, command);
     const materialStage = this.graphics.material_store.stage(
       source.materials,
-      textureStage.textureRefs,
+      textureStage.textureRoutingRefs,
       command
     );
     const geometryHandles = Object.freeze([...assetHandles]);
