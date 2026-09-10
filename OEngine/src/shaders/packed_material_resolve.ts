@@ -506,6 +506,11 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     projected1,
     projected2
   );
+  let setup_index = work_slot * 128u + triangle_index;
+  if setup_index < arrayLength(&triangle_setups) &&
+      triangle_setups[setup_index].flags != 0u {
+    bary = perspective_barycentric_from_setup(position.xy, triangle_setups[setup_index]);
+  }
   let face_local = safe_normalize(cross(local2 - local1, local0 - local1), vec3f(0.0, 0.0, 1.0));
   let normal0 = read_normal_direct(geometry, vertices.x, vec4f(face_local, 0.0));
   let normal1 = read_normal_direct(geometry, vertices.y, vec4f(face_local, 0.0));

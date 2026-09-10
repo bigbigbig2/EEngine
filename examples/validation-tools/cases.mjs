@@ -13,6 +13,8 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("visibility.basic", "visibility", "basic", ["visibility", "gpu-driven", "hierarchy", "raster"], ["framegraph", "renderer", "graphics-context", "visibility"]),
   defineCase("visibility.meshlet-work-overflow", "visibility", "meshlet-work-overflow", ["visibility", "gpu-driven", "hierarchy", "gpu-abi"], ["visibility"]),
   defineCase("visibility.meshlet-work-portable", "visibility", "meshlet-work-portable", ["visibility", "gpu-driven", "hierarchy", "gpu-abi"], ["visibility"]),
+  defineCase("visibility.selective-risk", "visibility", "selective-risk", ["visibility", "gpu-driven", "risk", "exact"], ["visibility"]),
+  defineCase("visibility.large-triangle-setup", "visibility", "large-triangle-setup", ["visibility", "surface", "work-cache"], ["visibility", "surface"]),
   defineCase("visibility.shadow", "visibility", "shadow", ["visibility", "gpu-driven", "shadow", "material"], ["renderer", "graphics-context", "visibility", "shadow", "material"]),
   defineCase("visibility.shadow-toggle", "visibility", "shadow-toggle", ["visibility", "gpu-driven", "shadow", "lifecycle"], ["shadow", "lifecycle"]),
   defineCase("visibility.shadow-scene-parity", "visibility", "shadow-scene-parity", ["visibility", "shadow", "scene-adapter"], ["shadow", "gpu-scene", "scene"]),

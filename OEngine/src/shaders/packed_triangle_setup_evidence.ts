@@ -60,8 +60,12 @@ fn packed_triangle_setup_evidence(@builtin(global_invocation_id) id: vec3u) {
       decoded.meshlet_work_slot >= min(meshlet_work.header.written_count,
         meshlet_work.header.capacity) ||
       decoded.meshlet_work_slot >= arrayLength(&meshlet_work.elements) { return; }
-  // Step 4 deliberately disconnects the old per-triangle cache identity.
-  // Step 5 introduces the independent LargeTriangle Setup mapping.
-  atomicAdd(&counters[COUNTER_SETUP_VISIBLE_FALLBACKS], 1u);
+  let setup_index = decoded.meshlet_work_slot * 128u + decoded.local_primitive;
+  if setup_index < arrayLength(&triangle_setups) &&
+      triangle_setups[setup_index].flags != 0u {
+    atomicAdd(&counters[COUNTER_SETUP_VISIBLE_HITS], 1u);
+  } else {
+    atomicAdd(&counters[COUNTER_SETUP_VISIBLE_FALLBACKS], 1u);
+  }
 }
 `;

@@ -150,9 +150,10 @@ export class MeshletBucketRaster {
         depthStoreOp: "store"
       }
     });
-    for (let bucket = 0; bucket < GPU_MESHLET_BUCKET_COUNT; bucket++) {
-      const doubleSided = ((bucket >>> 3) & 1) !== 0;
-      const mask = ((bucket >>> 4) & 1) !== 0;
+    for (let bucket = 0; bucket < inputs.prepared.bucketCount; bucket++) {
+      const pipelineBucket = bucket % GPU_MESHLET_BUCKET_COUNT;
+      const doubleSided = ((pipelineBucket >>> 3) & 1) !== 0;
+      const mask = ((pipelineBucket >>> 4) & 1) !== 0;
       pass.setPipeline(pipelines[(mask ? 2 : 0) + (doubleSided ? 1 : 0)]!);
       pass.setBindGroup(0, group, [bucket * MESHLET_BUCKET_SETTINGS_STRIDE]);
       pass.drawIndirect(inputs.prepared.drawIndirect, bucket * 16);

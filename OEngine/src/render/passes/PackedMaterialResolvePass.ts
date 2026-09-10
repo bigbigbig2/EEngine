@@ -293,7 +293,10 @@ export class PackedMaterialResolvePass {
           "MeshletWork"
         );
         const setupRecords = inputs.visibility.exactRaster.setupRecords === null
-          ? meshletWork
+          ? requireBuffer(
+            resources.get(inputs.visibility.exactRaster.drawIndirect),
+            "zeroed TriangleSetup fallback"
+          )
           : requireBuffer(
             resources.get(inputs.visibility.exactRaster.setupRecords),
             "TriangleSetup records"
@@ -436,6 +439,8 @@ export class PackedMaterialResolvePass {
     builder.read(inputs.visibility.meshletWork.records);
     if (inputs.visibility.exactRaster.setupRecords !== null) {
       builder.read(inputs.visibility.exactRaster.setupRecords);
+    } else {
+      builder.read(inputs.visibility.exactRaster.drawIndirect);
     }
     if (classDepth !== null) builder.read(classDepth);
     if (this.backend === "class-discard") builder.read(inputs.visibility.depth);

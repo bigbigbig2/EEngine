@@ -2,6 +2,7 @@ import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import type { PreparedExactTriangleFilter } from "./ExactTriangleFilter.js";
 import type { PreparedHierarchyWork } from "./HierarchicalWorkGenerator.js";
 import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
+import type { PreparedLargeTriangleSetup } from "./LargeTriangleSetupCache.js";
 
 export interface VisibilityWorkSetKey {
   readonly runtime: GpuRenderWorldRuntime;
@@ -26,6 +27,8 @@ export interface VisibilityWorkSet {
   /** Step-4 normal MeshletWork producer; nullable only during allocation rollback. */
   readonly meshletWorkCandidate: PreparedMeshletWorkCandidate | null;
   readonly exact: PreparedExactTriangleFilter;
+  /** OptionalOptimization owner, absent with exact zero feature-off cost. */
+  readonly largeTriangleSetup: PreparedLargeTriangleSetup | null;
   readonly exactRasterRecords: GPUBuffer;
   readonly exactDrawIndirect: GPUBuffer;
   /** Null when TriangleSetup is disabled; no dedicated cache resource exists. */

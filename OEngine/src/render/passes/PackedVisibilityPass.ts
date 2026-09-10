@@ -50,6 +50,10 @@ import {
 } from "../MeshletWorkCandidate.js";
 import { MeshletBucketRaster } from "../MeshletBucketRaster.js";
 import {
+  LargeTriangleSetupCache,
+  type PreparedLargeTriangleSetup
+} from "../LargeTriangleSetupCache.js";
+import {
   sameVisibilityWorkSetKey,
   visibilityWorkSet,
   visibilityWorkSetKey,
@@ -275,6 +279,7 @@ export class PackedVisibilityPass {
   private readonly exactFilter: PackedVisibilityExactFilter;
   private readonly meshletCandidate: PackedVisibilityMeshletCandidate;
   private readonly meshletBucketRaster: MeshletBucketRaster;
+  private readonly largeTriangleSetup: LargeTriangleSetupCache;
   private readonly hierarchyPrepared = new Map<GpuRenderWorldRuntime, VisibilityWorkSet>();
   private readonly rasterBindings = new WeakMap<
     VisibilityWorkSet,
@@ -307,6 +312,10 @@ export class PackedVisibilityPass {
       graphics.resource_accounting
     );
     this.meshletBucketRaster = new MeshletBucketRaster(graphics);
+    this.largeTriangleSetup = new LargeTriangleSetupCache(
+      graphics.device,
+      graphics.resource_accounting
+    );
   }
 
   addToGraph(
@@ -411,6 +420,7 @@ export class PackedVisibilityPass {
     this.hierarchyGenerator.destroy();
     this.exactFilter.destroy();
     this.meshletCandidate.destroy();
+    this.largeTriangleSetup.destroy();
   }
 
   private encodeHierarchy(
@@ -437,6 +447,14 @@ export class PackedVisibilityPass {
     );
     const meshletWork = requireMeshletWork(workSet);
     this.meshletCandidate.encode(command, meshletWork);
+    if (workSet.largeTriangleSetup !== null) {
+      this.largeTriangleSetup.encode(
+        command.gpu_encoder,
+        workSet.largeTriangleSetup,
+        job.width,
+        job.height
+      );
+    }
     this.meshletBucketRaster.encodeRaster(command.gpu_encoder, {
         prepared: meshletWork,
         camera,
@@ -576,7 +594,15 @@ export class PackedVisibilityPass {
       });
       if (existing.meshletWorkCandidate !== null) {
         this.meshletCandidate.rebind(existing.meshletWorkCandidate, {
+          camera: bindings.camera,
           counterBuffer: bindings.counters,
+          countersEnabled: bindings.countersEnabled
+        });
+      }
+      if (existing.largeTriangleSetup !== null) {
+        this.largeTriangleSetup.rebind(existing.largeTriangleSetup, {
+          camera: bindings.camera,
+          counters: bindings.counters,
           countersEnabled: bindings.countersEnabled
         });
       }
@@ -597,9 +623,11 @@ export class PackedVisibilityPass {
       countersEnabled: job.countersEnabled
     });
     let meshletWorkCandidate: PreparedMeshletWorkCandidate | null = null;
-    let exact: PreparedExactTriangleFilter;
+    let exact: PreparedExactTriangleFilter | null = null;
+    let largeTriangleSetup: PreparedLargeTriangleSetup | null = null;
     try {
       meshletWorkCandidate = this.meshletCandidate.prepare({
+          camera,
           visibleClusters: prepared.generated.visibleClusters,
           visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
           capacity: key.meshletWorkCandidateCapacity,
@@ -617,10 +645,23 @@ export class PackedVisibilityPass {
         scene: job.scene,
         counterBuffer: counters,
         countersEnabled: job.countersEnabled,
-        setupEnabled: key.triangleSetupEnabled,
-        setupThresholdPixels: key.triangleSetupThresholdPixels
+        setupEnabled: false
       });
+      if (key.triangleSetupEnabled) {
+        largeTriangleSetup = this.largeTriangleSetup.prepare({
+          camera,
+          counters,
+          countersEnabled: job.countersEnabled,
+          work: meshletWorkCandidate.queue,
+          workCapacity: meshletWorkCandidate.capacity,
+          thresholdPixels: key.triangleSetupThresholdPixels,
+          assets: job.assets,
+          scene: job.scene
+        });
+      }
     } catch (error) {
+      if (largeTriangleSetup !== null) this.largeTriangleSetup.release(largeTriangleSetup);
+      if (exact !== null) this.exactFilter.release(exact);
       if (meshletWorkCandidate !== null) {
         this.meshletCandidate.release(meshletWorkCandidate);
       }
@@ -632,10 +673,11 @@ export class PackedVisibilityPass {
       hierarchy: prepared,
       meshletWorkCandidate,
       exact,
+      largeTriangleSetup,
       exactRasterRecords: exact.output.rasterWork,
       exactDrawIndirect: exact.output.drawIndirect,
-      setupRecords: exact.output.setupRecords,
-      setupCapacity: exact.output.setupCapacity,
+      setupRecords: largeTriangleSetup?.records ?? null,
+      setupCapacity: largeTriangleSetup?.capacity ?? 0,
       classCapacity: exact.output.classCapacity
     });
     this.hierarchyPrepared.set(job.runtime, next);
@@ -693,6 +735,9 @@ export class PackedVisibilityPass {
     command.destroyAfterGpuDone({
       destroy: () => {
         this.exactFilter.release(workSet.exact);
+        if (workSet.largeTriangleSetup !== null) {
+          this.largeTriangleSetup.release(workSet.largeTriangleSetup);
+        }
         if (workSet.meshletWorkCandidate !== null) {
           this.meshletCandidate.release(workSet.meshletWorkCandidate);
         }

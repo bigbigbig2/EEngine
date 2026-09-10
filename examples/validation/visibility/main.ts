@@ -13,6 +13,7 @@ import {
   type FrameProfileSnapshot,
   type PackedSceneSource
 } from "../../../OEngine/src/index.ts";
+import { GPU_MESHLET_DRAW_COUNT } from "../../../OEngine/src/gpu/GpuMeshletRasterWorkAbi.ts";
 import {
   VALIDATION_FIXTURE_KEY,
   VALIDATION_PROTOCOL_SCHEMA_VERSION,
@@ -86,7 +87,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "meshlet-work-overflow", "meshlet-work-portable", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
+  const supported = ["basic", "meshlet-work-overflow", "meshlet-work-portable", "selective-risk", "large-triangle-setup", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -103,6 +104,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       request.scenarioId === "meshlet-work-overflow" ? 1 : 0;
     runtime.renderer.packed_meshlet_work_compaction =
       request.scenarioId === "meshlet-work-portable" ? "portable" : "auto";
+    runtime.renderer.packed_triangle_setup_enabled =
+      request.scenarioId === "large-triangle-setup";
+    runtime.renderer.packed_triangle_setup_threshold_pixels = 1;
 
     if (request.scenarioId === "lod-near" || request.scenarioId === "lod-far") {
       const renderer = runtime.renderer;
@@ -461,12 +465,12 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         assertions.push(validationAssertion(
           "meshlet-bucket-indirect-closed",
           meshletBuckets.nonEmpty > 0 &&
-            meshletBuckets.nonEmpty <= 32 &&
-            meshletBuckets.draws === 32 &&
+            meshletBuckets.nonEmpty <= GPU_MESHLET_DRAW_COUNT &&
+            meshletBuckets.draws === GPU_MESHLET_DRAW_COUNT &&
             meshletBuckets.indirectInstances === meshletQueue.written,
           "GPU histogram/prefix generated all bounded draw records and preserved every MeshletWork instance",
           meshletBuckets,
-          "0 < nonEmpty <= 32; draws = 32; indirectInstances = written"
+          `0 < nonEmpty <= ${GPU_MESHLET_DRAW_COUNT}; draws = ${GPU_MESHLET_DRAW_COUNT}; indirectInstances = written`
         ));
         const portable = request.scenarioId === "meshlet-work-portable" ||
           !runtime.renderer.device.features.has("subgroups");
@@ -494,6 +498,40 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         ));
       }
       assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));
+      if (request.scenarioId === "selective-risk") {
+        assertions.push(validationAssertion(
+          "selective-risk-exclusive",
+          (counters.geometryRiskyTriangles ?? 0) > 0 &&
+            (counters.geometryRiskyTriangles ?? 0) < (counters.geometryCandidateTriangles ?? 0) &&
+            (counters.geometryExactSurvivedTriangles ?? 0) ===
+              (counters.geometryRiskyTriangles ?? 0),
+          "The GPU classifier routed only the explicit risk subset through the exclusive exact bucket range",
+          {
+            candidates: counters.geometryCandidateTriangles ?? 0,
+            risky: counters.geometryRiskyTriangles ?? 0,
+            exact: counters.geometryExactSurvivedTriangles ?? 0
+          },
+          "0 < risky = exact < candidates"
+        ));
+      }
+      if (request.scenarioId === "large-triangle-setup") {
+        assertions.push(validationAssertion(
+          "large-triangle-setup-live",
+          (counters.setupAttempted ?? 0) > 0 &&
+            (counters.setupWritten ?? 0) > 0 &&
+            (counters.setupVisiblePixelHits ?? 0) > 0 &&
+            (counters.setupOverflow ?? 0) === 0,
+          "The independent optional setup owner built V2-addressable records consumed by visible pixels",
+          {
+            attempted: counters.setupAttempted ?? 0,
+            written: counters.setupWritten ?? 0,
+            hits: counters.setupVisiblePixelHits ?? 0,
+            fallbacks: counters.setupVisiblePixelFallbacks ?? 0,
+            overflow: counters.setupOverflow ?? 0
+          },
+          "attempted/written/hits > 0; overflow = 0"
+        ));
+      }
     }
     if (request.scenarioId === "frustum") {
       assertions.push(validationAssertion("frustum-rejection-observed", (counters.rejectedFrustum ?? 0) > 0, "The off-axis object was rejected by the GPU frustum stage", counters.rejectedFrustum, "> 0"));

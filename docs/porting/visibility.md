@@ -35,9 +35,20 @@
 - License: WebGPU/WGSL 规范作为语义依据；meshoptimizer MIT；Bevy MIT OR Apache-2.0（采用 MIT 路径）。
 - Adoption: 按规范独立实现；subgroup ballot/prefix 与 portable workgroup shared-memory prefix 均为本地规格实现，没有复制上游表达性 Shader。
 - Retained invariants: 24 B meshlet identity、32 B attempted/written/consumed/capacity/overflow/generation header、workgroup tile 粒度 all-or-nothing reservation、frame-local generation、GPU producer 到 GPU validation 与标准 indirect raster consumer 闭合、reverse-Z、mirrored winding、OPAQUE/MASK coverage identity。
-- OEngine/WebGPU differences: 从现有 VisibleCluster queue 紧凑生成，GPU histogram/prefix/scatter 为 32 个有界 raster bucket 生成完整标准 `drawIndirect` 记录；不使用 MDI，也不读取 queue 回控 CPU。`indirect-first-instance` specialization 写共享 queue base；fallback 以 bucket state base 加零起始 `instance_index`。Step 4 已让固定 32 次标准 indirect draw 写 production `r32uint` VisibilityKey V2；旧 exact raster 只写独立 parity target，GPU reducer 用两边 work table 恢复 instance/geometry/meshlet/local primitive/material 语义比较。
+- OEngine/WebGPU differences: 从现有 VisibleCluster queue 紧凑生成，GPU projection classifier 在 prefix/scatter 前扫描当前投影并将 normal/selective-exact 互斥分入 32+32 个有界 raster bucket；不使用 MDI，也不读取 queue 回控 CPU。`indirect-first-instance` specialization 写共享 queue base；fallback 以 bucket state base 加零起始 `instance_index`。64 次固定标准 indirect draw 展开各 meshlet 的全部 local primitive并写 production `r32uint` VisibilityKey V2；旧 exact raster 只写独立 parity target，GPU reducer 用两边 work table 恢复 instance/geometry/meshlet/local primitive/material 语义比较。
 - Fallback/lifecycle: queue 是 normal path 的 CorrectnessCritical owner；容量不足按 workgroup tile 拒绝整个 range、保持 `overflow = attempted - written`，并把全部 bucket indirect instance count 清零，禁止呈现部分几何；subgroups 未协商时自动选择 portable path；owner release/device destroy 销毁 staging/bucketed queue、bucket state、uniform 与 indirect buffer。
 - Local validation: CPU pack/unpack、stride/offset/profile/LOD/bucket/generation/boundary oracle，subgroup/portable Shader contract，真实 Chrome producer/consumer/indirect count closure、容量压力 overflow、两种 compact specialization 的 bucket Hardware Visibility semantic parity、padding/triangle/pixel counters，GPU validation/uncaptured/device-loss 必须为零。
+
+## VIS-LARGE-SETUP-V2 · Independent large-triangle shading setup
+
+- Local owner/source: `OEngine/src/render/LargeTriangleSetupCache.ts`、`OEngine/src/shaders/large_triangle_setup.ts`、`OEngine/src/gpu/GpuExactRasterAbi.ts`、`OEngine/src/shaders/packed_material_resolve.ts`。
+- Upstream: visibility-buffer barycentric reconstruction literature and the existing OEngine Surface oracle；未复制外部表达性代码。
+- License: local specification implementation。
+- Adoption: 按 ADR-0008 独立实现 optional optimization。
+- Retained invariants: projected coverage admission、perspective-correct q/dq setup、near/degenerate fail-open、bounded memory、per-pixel correctness fallback。
+- OEngine/WebGPU differences: 40 B record 以 VisibilityKey V2 的 `workSlot * 128 + localPrimitive` 稠密寻址，最多分配 8 MiB；cache 与 selective exact route 没有所有权或 admission 耦合。
+- Fallback/lifecycle: 默认关闭时零资源、零 pass、零 evidence dispatch；容量外或无效 setup 逐像素重建，`setupOverflow` 只记录 optimization miss，不触发 correctness failure；release/device destroy 销毁 settings 与 records。
+- Local validation: CPU dense-index boundary oracle、真实 Chrome setup build/write/hit/fallback/overflow counters、Material Resolve consumer 与 GPU diagnostics。
 
 ## VIS-MATERIAL-DEPTH · Bounded MaterialClassDepth and adaptive setup
 

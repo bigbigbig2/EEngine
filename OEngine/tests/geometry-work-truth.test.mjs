@@ -50,6 +50,11 @@ import {
   resolveVisibilityKeyReference,
   tryEncodeVisibilityKey
 } from "../.test-dist/gpu/GpuVisibilityKeyAbi.js";
+import {
+  GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET,
+  largeTriangleSetupIndex
+} from "../.test-dist/gpu/GpuExactRasterAbi.js";
+import { LARGE_TRIANGLE_SETUP_WGSL } from "../.test-dist/shaders/large_triangle_setup.js";
 globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4 });
 const { VISIBILITY_COUNTER_WGSL } = await import(
   "../.test-dist/render/passes/VisibilityCounterPass.js"
@@ -183,12 +188,11 @@ test("geometry truth fields are written by their production GPU stages", () => {
   }
   for (const name of [
     "geometryCandidateTriangles",
+    "geometryRiskyTriangles",
     "geometryExactSurvivedTriangles",
-    "geometryQueueBytes"
+    "geometryRasterTriangles",
+    "geometryPaddedVertices"
   ]) {
-    assert.match(EXACT_TRIANGLE_FILTER_WGSL, new RegExp(`${counterByteOffset(name) / 4}u`));
-  }
-  for (const name of ["geometryRasterTriangles", "geometryPaddedVertices"]) {
     assert.match(
       MESHLET_WORK_COMPACTION_SUBGROUP_WGSL,
       new RegExp(`${counterByteOffset(name) / 4}u`)
@@ -207,6 +211,18 @@ test("Step-4 production shaders reserve only the selective risk seam", () => {
     assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, new RegExp(`\\[${index}u\\]`));
     assert.doesNotMatch(EXACT_TRIANGLE_FILTER_WGSL, new RegExp(`\\[${index}u\\]`));
   }
+});
+
+test("Step-5 selective risk route is exclusive and LargeTriangleSetup uses V2 dense identity", () => {
+  assert.match(MESHLET_WORK_COMPACTION_SUBGROUP_WGSL, /classify_meshlet_projection_risk/);
+  assert.match(MESHLET_WORK_COMPACTION_SUBGROUP_WGSL, /SelectiveExact|1073741824u/);
+  assert.match(MESHLET_WORK_COMPACTION_SUBGROUP_WGSL, /route_bucket/);
+  assert.equal(GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET, 128);
+  assert.equal(largeTriangleSetupIndex(7, 31), 7 * 128 + 31);
+  assert.throws(() => largeTriangleSetupIndex(0, 128), /\[0, 127\]/);
+  assert.match(LARGE_TRIANGLE_SETUP_WGSL, /work_slot = linear \/ 128u/);
+  assert.match(LARGE_TRIANGLE_SETUP_WGSL,
+    new RegExp(`${counterByteOffset("setupOverflow") / 4}u`));
 });
 
 test("VisibilityKey V2 freezes logical identity and external lifetime context", () => {
@@ -309,7 +325,7 @@ test("Step-2 shaders contain distinct subgroup and portable compaction algorithm
 
 test("Step-3 bucket raster is a standard indirect GPU consumer with semantic parity evidence", () => {
   const source = readFileSync(new URL("../src/render/MeshletBucketRaster.ts", import.meta.url), "utf8");
-  assert.match(source, /for \(let bucket = 0; bucket < GPU_MESHLET_BUCKET_COUNT; bucket\+\+\)/);
+  assert.match(source, /for \(let bucket = 0; bucket < inputs\.prepared\.bucketCount; bucket\+\+\)/);
   assert.match(source, /drawIndirect\(inputs\.prepared\.drawIndirect, bucket \* 16\)/);
   assert.match(source, /depthCompare: "greater"/);
   assert.match(source, /cullMode: doubleSided \? "none" : "back"/);

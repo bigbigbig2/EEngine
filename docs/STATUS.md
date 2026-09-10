@@ -19,7 +19,7 @@
 - Instance ABI 已拆为 64 B static 与 112 B dynamic region，总 stride 为 176 B；static/transform/material/visibility/lifecycle 分流，transform、material 与 visibility 只上传命中 region/field，CPU shadow 与 patch bytes 由 owner/Profiler 计数。
 - Runtime Asset 已有无 scheduler 的 chunk/page seam：stable identity、logical/physical resident range、request state、budget hook、原子 commit/abort、retire 与 device-loss reset；Geometry/Texture upload 已接入且不改变 stable asset/material handle。
 - ADR-0008 Step 0 已冻结 Geometry truth counter ABI 并接入生产 GPU 阶段：hierarchy nodes、accepted clusters、selected meshlets、MeshletWork、candidate/risky/exact/raster triangles、padding、visible pixels 与 queue payload bytes 可分别观测；切换前正式综合基线保存在 `OEngine/benchmarks/gpu-driven-geometry-v2-baseline.json`。
-- ADR-0008 Step 1–4 已冻结 24 B `GpuMeshletRasterWork`、32 B correctness-critical queue header 与 VisibilityKey V2 的 `24-bit work slot + 8-bit local primitive`；normal producer 从 VisibleCluster 以 subgroup 或 portable prefix 紧凑生成 32 个有界 bucket，由固定 32 次 `drawIndirect` 写 production `r32uint` key/reverse-Z depth。Material Resolve、MaterialClassDepth 与 Visibility debug 只经 MeshletWork 恢复 material/geometry；旧 ExactRasterWork 只写 parity target。queue overflow/invalid 会清零全部 bucket indirect args，禁止呈现部分几何；Step 2/3 clean PERF 分别保存在 `OEngine/benchmarks/gpu-driven-geometry-v2-step2.json` 与 `OEngine/benchmarks/gpu-driven-geometry-v2-step3.json`。
+- ADR-0008 Step 1–5 已冻结 24 B `GpuMeshletRasterWork`、32 B correctness-critical queue header 与 VisibilityKey V2 的 `24-bit work slot + 8-bit local primitive`；GPU projection-risk classifier 将 normal 与 selective-exact meshlet 互斥排入 32+32 个有界 bucket，固定 64 次 `drawIndirect` 写同一 production `r32uint` key/reverse-Z depth。Material Resolve、MaterialClassDepth 与 Visibility debug 只经 MeshletWork 恢复 material/geometry；旧 ExactRasterWork 只写 parity target。queue overflow/invalid 会清零全部 bucket indirect args，禁止呈现部分几何。独立、默认关闭的 `LargeTriangleSetupCache` 以 `workSlot * 128 + localPrimitive` 建立有界可裁剪 cache，overflow 逐像素 fallback；Step 2/3 clean PERF 分别保存在 `OEngine/benchmarks/gpu-driven-geometry-v2-step2.json` 与 `OEngine/benchmarks/gpu-driven-geometry-v2-step3.json`。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 
@@ -61,5 +61,5 @@
 
 1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：为 `primitive-index`、`shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback；没有 consumer 前保持 record-only。
 2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–6 implementation 与 MILESTONE 综合 profile 已落地；在 clean commit 上运行唯一 comprehensive final PERF 后关闭 ADR。
-3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：Step 0–4 已完成；下一步实现 selective risk classifier/exact route 与独立 LargeTriangle Setup cache。
+3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：Step 0–5 已完成；下一步实现 Flat/Shallow/Full local strategy 与 fixed/adaptive GeometryWorkBudget。
 4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：等待 ADR-0008 VisibilityKey V2；SSAO/SSR upstream porting 可以提前研究，但 production cutover 后置。

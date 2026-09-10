@@ -15,6 +15,10 @@ export const GPU_MESHLET_BUCKET_COUNT =
   GPU_MESHLET_BUCKET_DECODE_PROFILE_COUNT *
   GPU_MESHLET_BUCKET_RASTER_PIPELINE_COUNT *
   GPU_MESHLET_BUCKET_COVERAGE_COUNT;
+export const GPU_MESHLET_RASTER_ROUTE_COUNT = 2;
+export const GPU_MESHLET_RISK_BUCKET_OFFSET = GPU_MESHLET_BUCKET_COUNT;
+export const GPU_MESHLET_DRAW_COUNT =
+  GPU_MESHLET_BUCKET_COUNT * GPU_MESHLET_RASTER_ROUTE_COUNT;
 export const GPU_MESHLET_BUCKET_STATE_STRIDE = 16;
 export const GPU_MESHLET_DRAW_INDIRECT_STRIDE = 16;
 
@@ -22,6 +26,9 @@ export const GPU_MESHLET_RASTER_FLAGS = Object.freeze({
   DoubleSided: GPU_INSTANCE_FLAGS.DoubleSided,
   AlphaTested: GPU_INSTANCE_FLAGS.AlphaTested,
   Transparent: GPU_INSTANCE_FLAGS.Transparent,
+  /** Set by the GPU projection-risk classifier; never authored by callers. */
+  SelectiveExact: 1 << 30,
+  /** Authored/debug request that forces the classifier onto the exact route. */
   ForceExact: 1 << 31
 } as const);
 

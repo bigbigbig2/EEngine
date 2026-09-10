@@ -2,13 +2,17 @@ import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import {
   GPU_CLUSTER_RECORD_WGSL,
   GPU_GEOMETRY_RECORD_WGSL,
+  GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
   GPU_POSITION_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
+import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
   GPU_MESHLET_BUCKET_COUNT,
+  GPU_MESHLET_DRAW_COUNT,
   GPU_MESHLET_DECODE_PROFILE,
   GPU_MESHLET_RASTER_FLAGS,
+  GPU_MESHLET_RISK_BUCKET_OFFSET,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_RASTER_WORK_WGSL
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
@@ -16,11 +20,12 @@ import {
   GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
   GPU_WORK_GENERATION_WGSL
 } from "../gpu/GpuWorkGenerationAbi.js";
+import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 
 export const MESHLET_WORK_COMPACTION_WORKGROUP_SIZE = 64;
 export const MESHLET_WORK_COMPACTION_SETTINGS_SIZE = 16;
-export const MESHLET_WORK_BUCKET_STATE_SIZE = GPU_MESHLET_BUCKET_COUNT * 16;
-export const MESHLET_WORK_BUCKET_INDIRECT_SIZE = GPU_MESHLET_BUCKET_COUNT * 16;
+export const MESHLET_WORK_BUCKET_STATE_SIZE = GPU_MESHLET_DRAW_COUNT * 16;
+export const MESHLET_WORK_BUCKET_INDIRECT_SIZE = GPU_MESHLET_DRAW_COUNT * 16;
 
 const COUNTER_MESHLET_WORKS = counterByteOffset("geometryMeshletWorksProduced") / 4;
 const COUNTER_QUEUE_BYTES = counterByteOffset("geometryQueueBytes") / 4;
@@ -37,13 +42,19 @@ const COUNTER_INDIRECT_INSTANCES = counterByteOffset("meshletIndirectInstances")
 const COUNTER_PADDED_VERTICES = counterByteOffset("geometryPaddedVertices") / 4;
 const COUNTER_RASTER_TRIANGLES = counterByteOffset("meshletRasterTriangles") / 4;
 const COUNTER_GEOMETRY_RASTER_TRIANGLES = counterByteOffset("geometryRasterTriangles") / 4;
+const COUNTER_GEOMETRY_CANDIDATE_TRIANGLES = counterByteOffset("geometryCandidateTriangles") / 4;
+const COUNTER_GEOMETRY_RISKY_TRIANGLES = counterByteOffset("geometryRiskyTriangles") / 4;
+const COUNTER_GEOMETRY_EXACT_SURVIVED = counterByteOffset("geometryExactSurvivedTriangles") / 4;
 
 export type MeshletWorkCompactionPath = "portable" | "subgroup";
 
 const COMMON = /* wgsl */ `
 ${GPU_CLUSTER_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
+${GPU_INSTANCE_RECORD_WGSL}
+${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_WORK_GENERATION_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 
@@ -159,7 +170,7 @@ fn prepare_meshlet_work_candidate() {
   candidate_dispatch.y = max((visible_count + candidate_settings.max_workgroups_per_dimension - 1u) /
     candidate_settings.max_workgroups_per_dimension, 1u);
   candidate_dispatch.z = 1u;
-  for (var bucket = 0u; bucket < ${GPU_MESHLET_BUCKET_COUNT}u; bucket++) {
+  for (var bucket = 0u; bucket < ${GPU_MESHLET_DRAW_COUNT}u; bucket++) {
     atomicStore(&candidate_buckets[bucket].count, 0u);
     candidate_buckets[bucket].base = 0u;
     atomicStore(&candidate_buckets[bucket].cursor, 0u);
@@ -214,12 +225,6 @@ const GENERATE_SUFFIX = /* wgsl */ `
         OEngineMeshletRasterWork(visible.instance_record_index,
           visible.geometry_record_index, meshlet_slot, visible.material_handle,
           visible.raster_flags, packed);
-      atomicAdd(&candidate_buckets[bucket].count, 1u);
-      if candidate_settings.counters_enabled != 0u {
-        atomicAdd(&candidate_counters[${COUNTER_RASTER_TRIANGLES}u], meshlet.triangle_count);
-        atomicAdd(&candidate_counters[${COUNTER_PADDED_VERTICES}u],
-          (candidate_triangle_capacity(bucket) - meshlet.triangle_count) * 3u);
-      }
     }
     workgroupBarrier();
   }
@@ -289,8 +294,132 @@ const SUBGROUP_COMPACT = /* wgsl */ `
     workgroupBarrier();
 `;
 
+const RISK_CLASSIFICATION = /* wgsl */ `
+@group(1) @binding(0) var<uniform> risk_camera: CommandEncoder;
+@group(1) @binding(1) var<uniform> risk_settings: OEngineMeshletCandidateSettings;
+@group(1) @binding(2) var<storage, read_write> risk_work: OEngineMeshletWorkQueue;
+@group(1) @binding(3) var<storage, read> risk_instances: array<OEngineInstanceRecord>;
+@group(1) @binding(4) var<storage, read> risk_geometries: array<GpuGeometryRecord>;
+@group(1) @binding(5) var<storage, read> risk_meshlets: array<GpuMeshletRecord>;
+@group(1) @binding(6) var<storage, read> risk_meshlet_vertices: array<u32>;
+@group(1) @binding(7) var<storage, read> risk_meshlet_triangles: array<u32>;
+@group(1) @binding(8) var<storage, read> risk_vertex_data: array<u32>;
+@group(1) @binding(9) var<storage, read_write> risk_buckets: array<OEngineMeshletBucketState>;
+@group(1) @binding(10) var<storage, read_write> risk_counters: array<atomic<u32>>;
+
+fn risk_read_u8(byte_offset: u32) -> u32 {
+  let word = risk_meshlet_triangles[byte_offset >> 2u];
+  return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;
+}
+
+fn risk_finite(value: vec4f) -> bool {
+  return all(value == value) && all(abs(value) <= vec4f(3.402823466e+38));
+}
+
+fn risk_orientation(a: vec4f, b: vec4f, c: vec4f) -> f32 {
+  return a.x * (b.y * c.w - b.w * c.y) -
+    a.y * (b.x * c.w - b.w * c.x) +
+    a.w * (b.x * c.y - b.y * c.x);
+}
+
+fn risk_near_clip_boundary(value: vec4f) -> bool {
+  let scale = max(abs(value.w), 1.0);
+  let epsilon = scale * 1e-5;
+  return value.w <= epsilon || value.z <= epsilon ||
+    abs(value.w - value.z) <= epsilon ||
+    abs(value.w - abs(value.x)) <= epsilon ||
+    abs(value.w - abs(value.y)) <= epsilon;
+}
+
+fn risk_triangle_requires_exact(
+  instance: OEngineInstanceRecord,
+  geometry: GpuGeometryRecord,
+  meshlet: GpuMeshletRecord,
+  triangle: u32
+) -> bool {
+  let triangle_byte = meshlet.triangle_byte_offset + triangle * 3u;
+  let local0 = risk_read_u8(triangle_byte);
+  let local1 = risk_read_u8(triangle_byte + 1u);
+  let local2 = risk_read_u8(triangle_byte + 2u);
+  if local0 >= meshlet.vertex_count || local1 >= meshlet.vertex_count ||
+      local2 >= meshlet.vertex_count {
+    return true;
+  }
+  let source0 = risk_meshlet_vertices[meshlet.vertex_offset + local0];
+  let source1 = risk_meshlet_vertices[meshlet.vertex_offset + local1];
+  let source2 = risk_meshlet_vertices[meshlet.vertex_offset + local2];
+  if source0 >= geometry.vertex_count || source1 >= geometry.vertex_count ||
+      source2 >= geometry.vertex_count {
+    return true;
+  }
+  let transform = risk_camera.view_projection_matrix *
+    oengine_instance_current_object_to_world(instance);
+  let a = transform * vec4f(oengine_geometry_position(&risk_vertex_data, geometry, source0), 1.0);
+  let b = transform * vec4f(oengine_geometry_position(&risk_vertex_data, geometry, source1), 1.0);
+  let c = transform * vec4f(oengine_geometry_position(&risk_vertex_data, geometry, source2), 1.0);
+  if !risk_finite(a) || !risk_finite(b) || !risk_finite(c) { return true; }
+  if risk_near_clip_boundary(a) || risk_near_clip_boundary(b) ||
+      risk_near_clip_boundary(c) { return true; }
+  return abs(risk_orientation(a, b, c)) <= 1e-20;
+}
+
+@compute @workgroup_size(1)
+fn prepare_meshlet_risk_dispatch() {
+  candidate_set_dispatch(min(atomicLoad(&candidate_staging.header.written_count),
+    candidate_staging.header.capacity));
+}
+
+@compute @workgroup_size(${MESHLET_WORK_COMPACTION_WORKGROUP_SIZE})
+fn classify_meshlet_projection_risk(
+  @builtin(global_invocation_id) id: vec3u,
+  @builtin(num_workgroups) grid: vec3u
+) {
+  let linear = id.x + id.y * grid.x * ${MESHLET_WORK_COMPACTION_WORKGROUP_SIZE}u;
+  let written = min(atomicLoad(&risk_work.header.written_count), risk_work.header.capacity);
+  if linear >= written { return; }
+  var work = risk_work.elements[linear];
+  var risky = (work.packed_raster_flags & (${GPU_MESHLET_RASTER_FLAGS.ForceExact >>> 0}u |
+    ${GPU_MESHLET_RASTER_FLAGS.AlphaTested}u)) != 0u;
+  if work.instance_slot >= arrayLength(&risk_instances) ||
+      work.geometry_slot >= arrayLength(&risk_geometries) ||
+      work.meshlet_slot >= arrayLength(&risk_meshlets) {
+    atomicAdd(&risk_work.header.invalid_count, 1u);
+    risky = true;
+  } else {
+    let instance = risk_instances[work.instance_slot];
+    let geometry = risk_geometries[work.geometry_slot];
+    let meshlet = risk_meshlets[work.meshlet_slot];
+    for (var triangle = 0u; triangle < meshlet.triangle_count && !risky; triangle++) {
+      risky = risk_triangle_requires_exact(instance, geometry, meshlet, triangle);
+    }
+    let bucket = (work.packed_profile_lod >> 16u) & 0xffu;
+    if bucket >= ${GPU_MESHLET_BUCKET_COUNT}u {
+      atomicAdd(&risk_work.header.invalid_count, 1u);
+      risky = true;
+    } else {
+      let route_bucket = bucket + select(0u, ${GPU_MESHLET_RISK_BUCKET_OFFSET}u, risky);
+      atomicAdd(&risk_buckets[route_bucket].count, 1u);
+      if risky {
+        work.packed_raster_flags |= ${GPU_MESHLET_RASTER_FLAGS.SelectiveExact}u;
+      }
+      risk_work.elements[linear] = work;
+      if risk_settings.counters_enabled != 0u {
+        atomicAdd(&risk_counters[${COUNTER_GEOMETRY_CANDIDATE_TRIANGLES}u], meshlet.triangle_count);
+        atomicAdd(&risk_counters[${COUNTER_RASTER_TRIANGLES}u], meshlet.triangle_count);
+        atomicAdd(&risk_counters[${COUNTER_PADDED_VERTICES}u],
+          (candidate_triangle_capacity(bucket) - meshlet.triangle_count) * 3u);
+        if risky {
+          atomicAdd(&risk_counters[${COUNTER_GEOMETRY_RISKY_TRIANGLES}u], meshlet.triangle_count);
+          atomicAdd(&risk_counters[${COUNTER_GEOMETRY_EXACT_SURVIVED}u], meshlet.triangle_count);
+        }
+      }
+    }
+  }
+}
+`;
+
 const FINAL_STAGES = /* wgsl */ `
-@compute @workgroup_size(${GPU_MESHLET_BUCKET_COUNT})
+@compute @workgroup_size(${GPU_MESHLET_DRAW_COUNT})
 fn finalize_meshlet_work_buckets(@builtin(local_invocation_index) bucket: u32) {
   let count = atomicLoad(&candidate_buckets[bucket].count);
   let correctness_failure = atomicLoad(&candidate_staging.header.overflow_count) != 0u ||
@@ -302,9 +431,10 @@ fn finalize_meshlet_work_buckets(@builtin(local_invocation_index) bucket: u32) {
   candidate_buckets[bucket].base = base;
   atomicStore(&candidate_buckets[bucket].cursor, 0u);
   candidate_indirect[bucket] = OEngineDrawIndirectArgs(
-    candidate_triangle_capacity(bucket) * 3u, select(count, 0u, correctness_failure), 0u,
+    candidate_triangle_capacity(bucket % ${GPU_MESHLET_BUCKET_COUNT}u) * 3u,
+    select(count, 0u, correctness_failure), 0u,
     select(0u, base, candidate_settings.indirect_first_instance != 0u));
-  if bucket == ${GPU_MESHLET_BUCKET_COUNT - 1}u {
+  if bucket == ${GPU_MESHLET_DRAW_COUNT - 1}u {
     let written = min(atomicLoad(&candidate_staging.header.written_count),
       candidate_staging.header.capacity);
     atomicStore(&candidate_bucketed.header.attempted_count,
@@ -328,10 +458,13 @@ fn scatter_meshlet_work_buckets(
     candidate_staging.header.capacity);
   if linear >= written { return; }
   let work = candidate_staging.elements[linear];
-  let bucket = (work.packed_profile_lod >> 16u) & 0xffu;
+  var bucket = (work.packed_profile_lod >> 16u) & 0xffu;
   if bucket >= ${GPU_MESHLET_BUCKET_COUNT}u {
     atomicAdd(&candidate_bucketed.header.invalid_count, 1u);
     return;
+  }
+  if (work.packed_raster_flags & ${GPU_MESHLET_RASTER_FLAGS.SelectiveExact}u) != 0u {
+    bucket += ${GPU_MESHLET_RISK_BUCKET_OFFSET}u;
   }
   let local = atomicAdd(&candidate_buckets[bucket].cursor, 1u);
   let count = atomicLoad(&candidate_buckets[bucket].count);
@@ -380,7 +513,6 @@ fn validate_meshlet_work_candidate(
 
 @compute @workgroup_size(1)
 fn publish_meshlet_work_candidate_counters() {
-  if candidate_settings.counters_enabled == 0u { return; }
   let attempted = atomicLoad(&candidate_bucketed.header.attempted_count);
   let written = atomicLoad(&candidate_bucketed.header.written_count);
   let consumed = atomicLoad(&candidate_bucketed.header.consumed_count);
@@ -388,11 +520,17 @@ fn publish_meshlet_work_candidate_counters() {
   var invalid = atomicLoad(&candidate_bucketed.header.invalid_count);
   var non_empty = 0u;
   var indirect_instances = 0u;
-  for (var bucket = 0u; bucket < ${GPU_MESHLET_BUCKET_COUNT}u; bucket++) {
+  for (var bucket = 0u; bucket < ${GPU_MESHLET_DRAW_COUNT}u; bucket++) {
     non_empty += select(0u, 1u, atomicLoad(&candidate_buckets[bucket].count) > 0u);
     indirect_instances += candidate_indirect[bucket].instance_count;
     invalid += atomicLoad(&candidate_buckets[bucket].overflow);
   }
+  if overflow != 0u || invalid != 0u {
+    for (var bucket = 0u; bucket < ${GPU_MESHLET_DRAW_COUNT}u; bucket++) {
+      candidate_indirect[bucket].instance_count = 0u;
+    }
+  }
+  if candidate_settings.counters_enabled == 0u { return; }
   atomicAdd(&candidate_counters[${COUNTER_MESHLET_WORKS}u], written);
   atomicAdd(&candidate_counters[${COUNTER_QUEUE_BYTES}u],
     written * ${GPU_MESHLET_RASTER_WORK_RECORD_STRIDE}u);
@@ -402,7 +540,7 @@ fn publish_meshlet_work_candidate_counters() {
   atomicAdd(&candidate_counters[${COUNTER_OVERFLOW}u], overflow);
   atomicAdd(&candidate_counters[${COUNTER_INVALID}u], invalid);
   atomicAdd(&candidate_counters[${COUNTER_NON_EMPTY_BUCKETS}u], non_empty);
-  atomicAdd(&candidate_counters[${COUNTER_BUCKET_DRAWS}u], ${GPU_MESHLET_BUCKET_COUNT}u);
+  atomicAdd(&candidate_counters[${COUNTER_BUCKET_DRAWS}u], ${GPU_MESHLET_DRAW_COUNT}u);
   atomicAdd(&candidate_counters[${COUNTER_INDIRECT_INSTANCES}u], indirect_instances);
   if overflow != 0u || invalid != 0u {
     atomicStore(&candidate_counters[${COUNTER_RASTER_TRIANGLES}u], 0u);
@@ -416,9 +554,9 @@ fn publish_meshlet_work_candidate_counters() {
 
 export function meshletWorkCompactionWgsl(path: MeshletWorkCompactionPath): string {
   if (path === "subgroup") {
-    return `enable subgroups;\n${COMMON}\n${SUBGROUP_DECLARATIONS}\n@compute @workgroup_size(${MESHLET_WORK_COMPACTION_WORKGROUP_SIZE})\n${GENERATE_HEAD},\n  @builtin(subgroup_invocation_id) subgroup_invocation_id: u32\n${GENERATE_PREFIX}${SUBGROUP_COMPACT}${GENERATE_SUFFIX}${FINAL_STAGES}`;
+    return `enable subgroups;\n${COMMON}\n${SUBGROUP_DECLARATIONS}\n@compute @workgroup_size(${MESHLET_WORK_COMPACTION_WORKGROUP_SIZE})\n${GENERATE_HEAD},\n  @builtin(subgroup_invocation_id) subgroup_invocation_id: u32\n${GENERATE_PREFIX}${SUBGROUP_COMPACT}${GENERATE_SUFFIX}${RISK_CLASSIFICATION}${FINAL_STAGES}`;
   }
-  return `${COMMON}\n@compute @workgroup_size(${MESHLET_WORK_COMPACTION_WORKGROUP_SIZE})\n${GENERATE_HEAD}\n${GENERATE_PREFIX}${PORTABLE_COMPACT}${GENERATE_SUFFIX}${FINAL_STAGES}`;
+  return `${COMMON}\n@compute @workgroup_size(${MESHLET_WORK_COMPACTION_WORKGROUP_SIZE})\n${GENERATE_HEAD}\n${GENERATE_PREFIX}${PORTABLE_COMPACT}${GENERATE_SUFFIX}${RISK_CLASSIFICATION}${FINAL_STAGES}`;
 }
 
 export const MESHLET_WORK_COMPACTION_PORTABLE_WGSL = meshletWorkCompactionWgsl("portable");

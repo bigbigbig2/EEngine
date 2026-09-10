@@ -582,6 +582,10 @@ expand and exact-raster all triangles in that meshlet
 
 普通 meshlet 不进入 per-triangle exact shader。
 
+Step 5 冻结第一版实现为单个 canonical MeshletWork queue 的双 route 分区：`0..31` 为 normal bucket，`32..63` 为 selective-exact bucket。GPU classifier 在 compact 后、prefix/scatter 前读取当前 camera、Instance/Geometry/Meshlet 与 vertex/index payload；`ForceExact`、MASK special coverage、near/clip boundary、非有限投影和 nearly-degenerate 投影进入 risk route。普通 two-sided 仍由 mirrored-winding-aware fixed-function pipeline 处理；只有 oracle/debug 显式 `ForceExact` 时才因 two-sided 身份进入 risk，避免把整个双面场景误判为 correctness risk。
+
+Risk meshlet 的全部 local primitive 由它所在的 exact bucket 间接绘制展开；normal 32 个 bucket 不包含该 work，exact 32 个 bucket 不包含 safe work。两条 route 共享 canonical work slot，因此均写第 6 节的同一 VisibilityKey V2，不存在跨表 identity 转换。
+
 ### 7.4 Overflow
 
 Risk queue overflow 是 correctness failure。
@@ -594,6 +598,8 @@ overflow
 ```
 
 Risk/Exact queue 按第 4 节属于 `CorrectnessCritical`。生产 capacity 必须由 `max risky triangles` 与 worst-case expansion 在 append 前受控；运行时 overflow 时清零受影响 indirect args、整帧失败并保留上一张可呈现结果或显示明确 diagnostic。不得让已经安全写入的前半条 queue 被当成完整结果继续呈现。
+
+第一版不做第二次 risk append：risk 是 canonical correctness-critical MeshletWork queue 内的互斥 partition，因而继承同一 attempted/written/overflow/generation header。任一 compact、scatter、validation 或 bucket overflow 都在 raster 前把 64 条 indirect record 的 `instance_count` 全部清零；不能只清 risk half 或只清发生 overflow 的 bucket。
 
 ### 7.5 Normal/Exact exclusivity
 
@@ -649,6 +655,8 @@ overflow
 ```
 
 只有 amortized saving 为正才启用。
+
+Step 5 冻结独立 owner `LargeTriangleSetupCache`。它不读取 ExactRasterWork，也不改变 risk 分类；仅在显式启用时分配最多 8 MiB 的 40 B setup records，并以 `meshlet_work_slot * 128 + local_primitive` 做 frame-local dense 映射。超过 cache bound、near crossing、degenerate、非有限或低于 projected coverage threshold 均保持逐像素 reconstruction fallback。Material Resolve 可以直接消费命中 record；关闭时没有 cache resource、build dispatch、evidence dispatch 或 readback。
 
 ---
 

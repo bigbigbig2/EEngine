@@ -8,6 +8,7 @@ export const GPU_TRIANGLE_SETUP_RECORD_STRIDE = 40;
 export const GPU_TRIANGLE_SETUP_FALLBACK = 0xffffffff;
 export const GPU_TRIANGLE_SETUP_DEFAULT_THRESHOLD_PIXELS = 32;
 export const GPU_TRIANGLE_SETUP_MAX_BYTES = 8 * 1024 * 1024;
+export const GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET = 128;
 
 export const GPU_EXACT_RASTER_SETUP_FLAGS = Object.freeze({
   valid: 1 << 0,
@@ -15,6 +16,23 @@ export const GPU_EXACT_RASTER_SETUP_FLAGS = Object.freeze({
   degenerate: 1 << 2,
   queueOverflow: 1 << 3
 } as const);
+
+/** Dense frame-local mapping used by VisibilityKey V2 consumers. */
+export function largeTriangleSetupIndex(meshletWorkSlot: number, localPrimitive: number): number {
+  if (!Number.isSafeInteger(meshletWorkSlot) || meshletWorkSlot < 0) {
+    throw new RangeError("LargeTriangleSetup meshletWorkSlot must be a non-negative integer");
+  }
+  if (!Number.isSafeInteger(localPrimitive) || localPrimitive < 0 ||
+      localPrimitive >= GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET) {
+    throw new RangeError("LargeTriangleSetup localPrimitive must be in [0, 127]");
+  }
+  const index = meshletWorkSlot * GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET +
+    localPrimitive;
+  if (!Number.isSafeInteger(index)) {
+    throw new RangeError("LargeTriangleSetup index is not a safe integer");
+  }
+  return index;
+}
 
 export function exactRasterWorkBufferByteLength(capacityPerClass: number): number {
   if (!Number.isSafeInteger(capacityPerClass) || capacityPerClass <= 0) {
