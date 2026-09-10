@@ -377,7 +377,12 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   geometryRasterTriangles: supported("hardware visibility submitted-triangle reducer"),
   geometryPaddedVertices: supported("ADR-0008 bucket raster padding reducer"),
   geometryVisiblePixels: supported("VisibilityCounterPass valid-key reducer"),
-  geometryQueueBytes: supported("geometry queue producer byte reducer")
+  geometryQueueBytes: supported("geometry queue producer byte reducer"),
+  meshletQueueAttempted: supported("MeshletWorkCandidate attempted-count publisher"),
+  meshletQueueWritten: supported("MeshletWorkCandidate written-count publisher"),
+  meshletQueueConsumed: supported("MeshletWorkCandidate GPU validator/raster consumer publisher"),
+  meshletQueueOverflow: supported("MeshletWorkCandidate correctness-critical overflow publisher"),
+  meshletQueueInvalid: supported("MeshletWorkCandidate GPU identity/generation validator")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

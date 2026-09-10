@@ -79,13 +79,15 @@ const fixture: ValidationFixture = { getSnapshot: () => state.snapshot(), runSce
 window[VALIDATION_FIXTURE_KEY] = fixture;
 
 void runtime.initialize().then(async () => {
+  if (runtime.renderer === null) throw new Error("Visibility runtime has no Renderer");
+  runtime.renderer.packed_meshlet_work_candidate_enabled = true;
   await runtime.waitForFrames(3);
   state.ready();
   showStatus();
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
+  const supported = ["basic", "meshlet-work-overflow", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -97,6 +99,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let completed: FrameProfileSnapshot;
     let shadowRendered: FrameProfileSnapshot | null = null;
+    if (runtime.renderer === null) throw new Error("Visibility runtime is not initialized");
+    runtime.renderer.packed_meshlet_work_candidate_capacity =
+      request.scenarioId === "meshlet-work-overflow" ? 1 : 0;
 
     if (request.scenarioId === "lod-near" || request.scenarioId === "lod-far") {
       const renderer = runtime.renderer;
@@ -340,6 +345,11 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       geometryPaddedVertices: counters.geometryPaddedVertices ?? 0,
       geometryVisiblePixels: counters.geometryVisiblePixels ?? 0,
       geometryQueueBytes: counters.geometryQueueBytes ?? 0,
+      meshletQueueAttempted: counters.meshletQueueAttempted ?? 0,
+      meshletQueueWritten: counters.meshletQueueWritten ?? 0,
+      meshletQueueConsumed: counters.meshletQueueConsumed ?? 0,
+      meshletQueueOverflow: counters.meshletQueueOverflow ?? 0,
+      meshletQueueInvalid: counters.meshletQueueInvalid ?? 0,
       queueOverflowMask: counters.queueOverflowMask ?? 0,
       gpuCounterSchemaVersion: completed.gpuCounters.schemaVersion
     });
@@ -369,6 +379,41 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         },
         "nodes/clusters/meshlets/pixels/bytes > 0 and candidate >= exact = raster"
       ));
+      const meshletQueue = {
+        attempted: counters.meshletQueueAttempted ?? 0,
+        written: counters.meshletQueueWritten ?? 0,
+        consumed: counters.meshletQueueConsumed ?? 0,
+        produced: counters.geometryMeshletWorksProduced ?? 0,
+        overflow: counters.meshletQueueOverflow ?? 0,
+        invalid: counters.meshletQueueInvalid ?? 0
+      };
+      if (request.scenarioId === "meshlet-work-overflow") {
+        assertions.push(validationAssertion(
+          "meshlet-work-candidate-overflow-all-or-nothing",
+          meshletQueue.attempted > 0 &&
+            meshletQueue.attempted - meshletQueue.written === meshletQueue.overflow &&
+            meshletQueue.written === meshletQueue.consumed &&
+            meshletQueue.produced === meshletQueue.written &&
+            meshletQueue.overflow > 0 &&
+            meshletQueue.invalid === 0,
+          "Correctness-critical MeshletWork reservations fail per cluster without publishing partial ranges",
+          meshletQueue,
+          "attempted - written = overflow > 0; written = consumed = produced; invalid = 0"
+        ));
+      } else {
+        assertions.push(validationAssertion(
+          "meshlet-work-candidate-closed",
+          meshletQueue.attempted > 0 &&
+            meshletQueue.attempted === meshletQueue.written &&
+            meshletQueue.written === meshletQueue.consumed &&
+            meshletQueue.produced === meshletQueue.written &&
+            meshletQueue.overflow === 0 &&
+            meshletQueue.invalid === 0,
+          "GPU MeshletWork candidate producer and GPU validation consumer close without CPU queue readback",
+          meshletQueue,
+          "attempted = written = consumed = produced > 0; overflow = invalid = 0"
+        ));
+      }
       assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));
     }
     if (request.scenarioId === "frustum") {

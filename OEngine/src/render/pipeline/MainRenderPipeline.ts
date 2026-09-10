@@ -516,6 +516,10 @@ export class MainRenderPipeline {
   packed_visibility_sse_threshold = 4;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
+  /** ADR-0008 Step-1 GPU producer/validator seam; never feeds production raster. */
+  packed_meshlet_work_candidate_enabled = false;
+  /** Validation pressure override; zero derives the correctness-safe capacity. */
+  packed_meshlet_work_candidate_capacity = 0;
   /** Candidate cache remains fallback-only until the M5 evidence gate passes. */
   packed_triangle_setup_enabled = false;
   packed_triangle_setup_threshold_pixels = 32;
@@ -1510,6 +1514,8 @@ export class MainRenderPipeline {
         hierarchyView: createPackedHierarchyView(camera, h),
         sseThreshold: this.packed_visibility_sse_threshold,
         coneEnabled: this.packed_visibility_cone_enabled,
+        meshletWorkCandidateEnabled: this.packed_meshlet_work_candidate_enabled,
+        meshletWorkCandidateCapacity: this.packed_meshlet_work_candidate_capacity,
         triangleSetupEnabled: this.packed_triangle_setup_enabled,
         triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
         previousHzb: this.packed_visibility_hzb_enabled
@@ -1788,6 +1794,11 @@ export class MainRenderPipeline {
             "geometryPaddedVertices",
             "geometryVisiblePixels",
             "geometryQueueBytes",
+            "meshletQueueAttempted",
+            "meshletQueueWritten",
+            "meshletQueueConsumed",
+            "meshletQueueOverflow",
+            "meshletQueueInvalid",
             "queueOverflowMask"
           ]);
         }
@@ -2924,6 +2935,11 @@ export class MainRenderPipeline {
           "geometryPaddedVertices",
           "geometryVisiblePixels",
           "geometryQueueBytes",
+          "meshletQueueAttempted",
+          "meshletQueueWritten",
+          "meshletQueueConsumed",
+          "meshletQueueOverflow",
+          "meshletQueueInvalid",
           "candidateLightsAttempted",
           "candidateLightsWritten",
           "activeLightsAttempted",
@@ -3072,6 +3088,8 @@ export class MainRenderPipeline {
       visibilityConfiguration:
         `hardware-exact-visibility-key-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
         `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
+        `-meshlet-candidate${this.packed_meshlet_work_candidate_enabled ? 1 : 0}` +
+        `-meshlet-capacity${this.packed_meshlet_work_candidate_capacity}` +
         `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +
         `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
         `-ssao-owner${this._ssaoOwnerGeneration}` +

@@ -8,7 +8,7 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 14;
+export const GPU_COUNTER_SCHEMA_VERSION = 15;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -133,7 +133,12 @@ export const GPU_COUNTER_FIELDS = [
   { name: "geometryRasterTriangles", index: 110, semantic: "ADR-0008 non-padding triangles submitted to fixed-function raster consumers" },
   { name: "geometryPaddedVertices", index: 111, semantic: "ADR-0008 bucket padding vertex invocations outside actual meshlet triangle ranges" },
   { name: "geometryVisiblePixels", index: 112, semantic: "ADR-0008 valid VisibilityKey pixels observed by the sampled visibility reducer" },
-  { name: "geometryQueueBytes", index: 113, semantic: "ADR-0008 payload bytes safely published to geometry traversal/selection/raster/exact queues; headers and indirect records excluded" }
+  { name: "geometryQueueBytes", index: 113, semantic: "ADR-0008 payload bytes safely published to geometry traversal/selection/raster/exact queues; headers and indirect records excluded" },
+  { name: "meshletQueueAttempted", index: 114, semantic: "GpuMeshletRasterWork records requested from the correctness-critical bounded queue" },
+  { name: "meshletQueueWritten", index: 115, semantic: "GpuMeshletRasterWork records safely published within capacity" },
+  { name: "meshletQueueConsumed", index: 116, semantic: "GpuMeshletRasterWork records read by the GPU validation or raster consumer" },
+  { name: "meshletQueueOverflow", index: 117, semantic: "GpuMeshletRasterWork records not published because an all-or-nothing reservation exceeded capacity" },
+  { name: "meshletQueueInvalid", index: 118, semantic: "GpuMeshletRasterWork records rejected by the GPU identity/generation oracle" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

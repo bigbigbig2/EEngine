@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 41,
+  "shaderCount": 42,
   "summary": {
-    "authored-live": 41
+    "authored-live": 42
   },
   "entries": [
     {
@@ -491,6 +491,32 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/meshlet_work_candidate.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/MeshletWorkCandidate.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/VisibilityFeature.ts",
+        "src/render/MeshletWorkCandidate.ts",
+        "src/render/passes/PackedVisibilityPass.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts",
+        "src/render/VisibilityWorkSet.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/MeshletWorkCandidate.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/mipmap_filters.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -564,6 +590,7 @@
         "src/render/GPUCameraState.ts",
         "src/render/HierarchicalWorkGenerator.ts",
         "src/render/HierarchicalZBuffer.ts",
+        "src/render/MeshletWorkCandidate.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",

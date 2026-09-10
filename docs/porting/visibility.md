@@ -26,6 +26,19 @@
 - Fallback/lifecycle: invalid/stale key rejects conservatively and increments diagnostics；resources exist only for enabled Packed visibility。
 - Local validation: visibility-key ABI tests、direct-key validation、debug views 和 invalid-key counter。
 
+## VIS-MESHLET-WORK-V2 · Meshlet work queue candidate
+
+- Local owner/source: `OEngine/src/gpu/GpuMeshletRasterWorkAbi.ts`、`OEngine/src/render/MeshletWorkCandidate.ts`、`OEngine/src/shaders/meshlet_work_candidate.ts`。
+- Upstream: WebGPU/WGSL living specifications；meshoptimizer <https://github.com/zeux/meshoptimizer>；Bevy <https://github.com/bevyengine/bevy>。
+- Revision: WebGPU/WGSL editor draft `e0aff163a37eb3633ffd612e2a943ceb6196d6af`（2026-09-01）；meshoptimizer `73583c335e541c139821d0de2bf5f12960a04941`；Bevy `5f8270f2e049f90139a503d1e930070d926f9427`。
+- Upstream source: WebGPU `dispatchWorkgroupsIndirect`/storage-buffer validation rules；meshoptimizer `meshopt_clusterizer.*` 的 bounded meshlet identity；Bevy `cull_clusters.wgsl` 的 GPU work scheduling 仅作语义参考。
+- License: WebGPU/WGSL 规范作为语义依据；meshoptimizer MIT；Bevy MIT OR Apache-2.0（采用 MIT 路径）。
+- Adoption: 按规范独立实现；Step 1 未复制上游表达性 Shader，Step 2 specialization 如采用上游 compact 代码必须另行记录精确路径。
+- Retained invariants: 24 B meshlet identity、32 B attempted/written/consumed/capacity/overflow/generation header、cluster 粒度 all-or-nothing reservation、frame-local generation、GPU producer 到 GPU validation consumer 闭合。
+- OEngine/WebGPU differences: Step 1 candidate 从现有 VisibleCluster queue 生成，使用标准 indirect dispatch，不读取 queue 回控 CPU；生产 Visibility 仍消费旧 exact triangle work，直至后续 cutover。
+- Fallback/lifecycle: candidate 默认关闭且不分配资源；启用时 queue 是 CorrectnessCritical，容量不足按 cluster 拒绝整个 range 并保持 `overflow = attempted - written`；owner release/device destroy 销毁全部 queue、uniform 与 indirect buffer。
+- Local validation: CPU pack/unpack、stride/offset/profile/LOD/generation/boundary oracle，真实 Chrome producer/consumer count closure 与容量压力 overflow Case，GPU validation/uncaptured/device-loss 必须为零。
+
 ## VIS-MATERIAL-DEPTH · Bounded MaterialClassDepth and adaptive setup
 
 - Local owner/source: `OEngine/src/gpu/GpuSurfaceAbi.ts`、`OEngine/src/render/features/SurfaceFeature.ts`、`OEngine/src/render/MaterialClassDepthProbe.ts`、`OEngine/src/render/passes/PackedMaterialClassDepthPass.ts`、`OEngine/src/render/passes/PackedMaterialResolvePass.ts`。

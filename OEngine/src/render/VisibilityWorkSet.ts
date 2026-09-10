@@ -1,6 +1,7 @@
 import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import type { PreparedExactTriangleFilter } from "./ExactTriangleFilter.js";
 import type { PreparedHierarchyWork } from "./HierarchicalWorkGenerator.js";
+import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
 
 export interface VisibilityWorkSetKey {
   readonly runtime: GpuRenderWorldRuntime;
@@ -12,6 +13,8 @@ export interface VisibilityWorkSetKey {
   readonly traversalCapacity: number;
   readonly visibleClusterCapacity: number;
   readonly rasterWorkCapacity: number;
+  readonly meshletWorkCandidateEnabled: boolean;
+  readonly meshletWorkCandidateCapacity: number;
   readonly triangleSetupEnabled: boolean;
   readonly triangleSetupThresholdPixels: number;
 }
@@ -20,6 +23,8 @@ export interface VisibilityWorkSetKey {
 export interface VisibilityWorkSet {
   readonly key: VisibilityWorkSetKey;
   readonly hierarchy: PreparedHierarchyWork;
+  /** Step-1 GPU-only candidate seam; null in the production default. */
+  readonly meshletWorkCandidate: PreparedMeshletWorkCandidate | null;
   readonly exact: PreparedExactTriangleFilter;
   readonly exactRasterRecords: GPUBuffer;
   readonly exactDrawIndirect: GPUBuffer;
@@ -48,6 +53,8 @@ export function sameVisibilityWorkSetKey(
     left.traversalCapacity === right.traversalCapacity &&
     left.visibleClusterCapacity === right.visibleClusterCapacity &&
     left.rasterWorkCapacity === right.rasterWorkCapacity &&
+    left.meshletWorkCandidateEnabled === right.meshletWorkCandidateEnabled &&
+    left.meshletWorkCandidateCapacity === right.meshletWorkCandidateCapacity &&
     left.triangleSetupEnabled === right.triangleSetupEnabled &&
     left.triangleSetupThresholdPixels === right.triangleSetupThresholdPixels;
 }
