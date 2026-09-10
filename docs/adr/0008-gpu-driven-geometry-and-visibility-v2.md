@@ -5,6 +5,7 @@
 > **Scope:** GPU Geometry Work Generation、LOD/Hierarchy、Raster Work、Exact 路径、VisibilityKey
 > **Depends on:** ADR-0007 的 compact geometry / instance contract
 > **Feeds:** ADR-0009 的 Compute Shading / FrameProducts
+> **Proposed supersession:** 接受并完成 cutover 后，替代 ADR-0004 的 per-triangle work identity 与 VisibilityKey material-class 决策；此前 ADR-0004 仍是当前权威
 > **Design source:** `OEngine Performance Architecture V2` Design Draft
 
 ## Context
@@ -92,7 +93,7 @@ primitive-index
 indirect-first-instance
 ```
 
-Portable fallback 保持同一逻辑 ABI 和 FrameProducts，不形成第二 Renderer。
+Capability fallback 保持同一逻辑 ABI 和 FrameProducts，不形成第二 Renderer。
 
 能力协商、WGSL enable、feature dependency 和证据格式统一遵循 [WEBGPU.md](../WEBGPU.md)。`subgroups` 不代表固定 lane width；只有显式启用 `subgroup-size-control` 并验证目标 size 时才允许固定宽度算法。
 
@@ -246,18 +247,33 @@ invalid generation
 
 Meshlet/Risky/Material 等 queue 共享设计原则，但不要求同一 element layout。
 
-推荐 header 语义：
+统一 header 语义：
 
 ```text
-produced_count
-accepted_count
+attempted_count
+written_count
+consumed_count
 capacity
 overflow_count
 generation
 reserved...
 ```
 
-`produced_count` 可以超过 capacity 用于观察真实需求；实际写只有 index `< capacity` 才有效。
+`attempted_count` 可以超过 capacity，用于观察真实申请；`written_count` 只能统计 index `< capacity` 的安全写入，`overflow_count = attempted_count - written_count`。`consumed_count` 由 GPU consumer/debug counter 解释实际消费，不能由 CPU 猜测。
+
+每个具体 queue ABI 还必须声明：
+
+```text
+element schema / stride / alignment
+capacity derivation
+producer
+GPU consumer
+indirect record offset and complete initialization
+CorrectnessCritical or OptionalOptimization
+overflow action
+```
+
+`MeshletRasterWork`、Risk/Exact 与任何影响可见结果的 queue 都是 `CorrectnessCritical`：Geometry budget/LOD 必须在 append 前把 worst-case 控制在已分配 capacity 内；若仍发生 overflow，受影响 indirect args 清零、该帧标记失败并保留上一张可呈现结果或明确 diagnostic，不允许呈现截断后的部分几何。`LargeTriangleShadingSetup` 是 `OptionalOptimization`：overflow 必须回退到逐像素 setup，并计数，不影响像素正确性。
 
 ### 4.2 WebGPU 2026 Desktop append
 
@@ -281,7 +297,7 @@ contiguous scatter
 - 让 queue output 更连续；
 - 减少 shared-memory/prefix plumbing。
 
-### 4.3 Portable append
+### 4.3 Capability fallback append
 
 Fallback：
 
@@ -331,7 +347,7 @@ CPU for-loop draw
 
 WebGPU 主路径不假设 mesh shader。
 
-为了用标准 indirect draw 处理不同 meshlet triangle count，可把 meshlet work 分到少量 bounded bucket。
+为了用标准 indirect draw 处理不同 meshlet triangle count，可把 meshlet work 分到少量 bounded bucket。Bucket 同时也是 pipeline-compatible work 的边界，不能只按 triangle count 分类。
 
 初始候选：
 
@@ -343,6 +359,20 @@ WebGPU 主路径不假设 mesh shader。
 ```
 
 这只是 benchmark starting point，不是永久 ABI。
+
+完整逻辑 key 冻结为：
+
+```text
+MeshletBucketKey
+= triangle_capacity_class
+× vertex_decode_profile
+× raster_pipeline_class
+× coverage_class
+```
+
+其中 `raster_pipeline_class` 至少覆盖会改变 WebGPU render pipeline 或 fixed-function state 的 topology、cull/front-face、depth/sample 约定；`coverage_class` 区分 opaque 与需要 `EvaluateCoverage()` 的 MASK 等合法 visibility variant。一个 bucket draw 内不得逐 instance 改变这些状态。
+
+初始化根据 cooked profiles、目标 feature set 与 pipeline limits 冻结 `max_bucket_keys`，为每个合法 key 建立一个完整 indirect record。超出组合上限的 Runtime Package 在发布前失败；不通过动态创建无界 pipeline/draw 数吸收内容。
 
 ### 5.2 Raster mapping
 
@@ -361,14 +391,14 @@ local_triangle = vertex_index / 3
 corner         = vertex_index % 3
 
 if local_triangle >= actual_triangle_count:
-    output invalid/clipped primitive
+    output all three vertices outside the clip volume
 else:
     local index
     → compact vertex
     → transform
 ```
 
-如果 `indirect-first-instance` / first-instance mapping 用于定位 work range，应保证跨目标 adapter 行为被验证。
+启用 `indirect-first-instance` 时，可以把多个 bucket region 放入共享 queue，并令 indirect `firstInstance` 指向 region base；vertex shader 使用包含该 base 的 `instance_index`。缺失该 feature 时，所有 indirect record 的 `firstInstance` 必须为 0，每个 bucket 绑定独立 queue view/固定 region base，`instance_index` 从 0 定位。两种 specialization 输出同一 `meshlet_work_identity`，并通过目标 adapter parity 验证；非零 `firstInstance` 不能出现在 fallback indirect record 中。
 
 ### 5.3 Primitive identity
 
@@ -388,6 +418,8 @@ meshlet_work_slot + local_primitive
 
 而不必把 local triangle identity 复制到 per-triangle work record。
 
+缺少 `primitive-index` 时，vertex shader 根据 `vertex_index / 3` 计算 `local_triangle: u32`，并以 `@interpolate(flat)` 的整数 user-defined output 将同一值传给三个 corner 的 fragment invocation。该 varying 与 `primitive_index` specialization 必须通过逐 primitive oracle；它只替代 local primitive input，不替代 meshlet work identity。
+
 ### 5.4 Padding evidence
 
 Bucket 会产生 padding invocation。
@@ -406,7 +438,7 @@ meshlets_per_bucket
 
 ### 5.5 Multi-draw
 
-若目标 Chrome/WebGPU 后续正式暴露高质量 multi-draw 能力，可以作为 encode optimization。
+若目标浏览器/WebGPU 后续正式暴露高质量 multi-draw 能力，可以作为 encode optimization。
 
 它不是本 ADR 的逻辑前提：
 
@@ -491,6 +523,12 @@ Normal、Selective Exact、LargeTriangle Setup 最终必须写完全相同逻辑
 
 ADR-0009 不应该知道 pixel 来自哪条 raster subpath。
 
+### 6.5 Frame-local lifetime
+
+物理 `meshlet_work_slot` 只在当前 frame/queue generation 内有效。VisibilityKey consumer 必须在对应 MeshletWork queue 被复用前完成；key 的 physical bits 不得作为跨帧 stable asset、material、temporal 或 history identity。
+
+Temporal/SSR 只能使用 Velocity、MotionValidity、RepresentationChange 与明确的 persistent generation 判断历史有效性。Debug capture 若跨帧保存 key，必须同时保存 queue generation 与可重放映射，generation 不匹配时视为 invalid。
+
 ---
 
 ## 7. Selective Exact correctness path
@@ -539,9 +577,9 @@ Cook-time static risk
    ↓
 Meshlet projection risk
    ↓
-only risky meshlets expand triangles
+route risky meshlet away from normal buckets
    ↓
-Triangle-level exact test
+expand and exact-raster all triangles in that meshlet
 ```
 
 普通 meshlet 不进入 per-triangle exact shader。
@@ -557,7 +595,13 @@ overflow
 → silently drop triangle
 ```
 
-开发期可以 fail validation / render diagnostic marker；生产 capacity 必须按 contract 受控。
+Risk/Exact queue 按第 4 节属于 `CorrectnessCritical`。生产 capacity 必须由 `max risky triangles` 与 worst-case expansion 在 append 前受控；运行时 overflow 时清零受影响 indirect args、整帧失败并保留上一张可呈现结果或显示明确 diagnostic。不得让已经安全写入的前半条 queue 被当成完整结果继续呈现。
+
+### 7.5 Normal/Exact exclusivity
+
+第一版以 meshlet 为互斥路由边界：被判定为 correctness-risk 的 meshlet 不再进入 normal bucket，而是展开其全部 triangle 进入 Exact 路径；Exact 路径负责写同一 reverse-Z Depth 与 VisibilityKey 语义。这样同一 primitive 不会被 Normal/Exact 重复 raster 后依赖 depth-equal 顺序仲裁。
+
+后续若要只抽取 meshlet 内的 risky subset，必须先定义 safe/risky primitive 的互斥 bitset/subrange 和 oracle；禁止同一 primitive 同时进入两条路径。
 
 ---
 
@@ -732,7 +776,8 @@ Fallback：
 
 ```text
 workgroup prefix/atomic
-equivalent primitive mapping
+flat local-triangle varying
+firstInstance = 0 + bucket-local queue base
 ```
 
 `shader-f16` 只用于非 identity/precision-critical intermediates。
@@ -977,14 +1022,16 @@ local benchmark
 
 ## 16. Completion criteria
 
-ADR-0008 Core 完成时：
+ADR-0008 当前范围完成时：
 
 - normal visibility work unit 是 meshlet，不是 per-triangle record；
 - GPU producer → indirect consumer 闭环成立；
 - VisibilityKey V2 与 old ExactRasterWork identity 解耦；
 - Selective Exact 只处理明确 correctness risk；
 - LargeTriangle Setup 是独立、可裁剪 cache candidate；
-- queue capacity/overflow/produced/consumed 可以解释；
+- queue capacity/overflow/attempted/written/consumed 可以解释，correctness-critical overflow 不会呈现部分结果；
+- bucket key 覆盖 triangle capacity、decode profile、pipeline/raster 与 coverage compatibility；
+- VisibilityKey 的 frame-local generation 与 temporal/history 边界明确；
 - Flat/Hierarchy 是同一 Work Generation Feature 内局部策略；
 - fixed geometry budget 可用于 deterministic benchmark；
 - production normal path 的旧 ABI/shader/counter 已删除；

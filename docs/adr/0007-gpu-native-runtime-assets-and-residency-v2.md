@@ -5,6 +5,7 @@
 > **Scope:** Runtime Asset、Geometry/Texture Cook、GPU Residency、Instance Runtime Data
 > **Depends on:** ADR-0002 Runtime Assets and GPU-driven；ADR-0006 Packed Render World Convergence
 > **Feeds:** ADR-0008 GPU-driven Geometry & Visibility V2；ADR-0009 Compute Shading & Advanced Frame Pipeline V2
+> **Evolution:** 扩展 ADR-0002 的数据与 residency 合同，不替代其 owner/GPU-driven 决策
 > **Design source:** `OEngine Performance Architecture V2` Design Draft
 
 ## Context
@@ -56,7 +57,7 @@ GpuRenderWorld
 2. **能在 Cook 阶段完成的工作，不留到每帧或每像素完成。**
 3. Geometry、Texture、Instance 同时按 resident bytes、upload bytes、CPU peak、GPU bandwidth 评价。
 4. **逻辑 stable handle 与物理 residency 分离。**
-5. **WebGPU 2026 Desktop 是设计中心。** 主路径优先使用 `WEBGPU.md` 登记并由设备实际启用的 texture compression、format/f16 等能力；Portable 是同一逻辑 ABI 的 fallback，不是另一套 Renderer。
+5. **WebGPU 2026 Desktop 是设计中心。** 主路径优先使用 `WEBGPU.md` 登记并由设备实际启用的 texture compression、format/f16 等能力；缺失能力时使用同一逻辑 ABI 的正确 specialization，不形成另一套 Renderer。
 6. 第一轮不实现完整 Virtual Texture / World Streaming，但 package/handle/mip-page metadata 不得堵死后续 partial residency。
 7. 不长期保留“新旧 Runtime Format 双轨”；production candidate 最终必须 replace 或 reject。
 
@@ -68,8 +69,8 @@ GpuRenderWorld
 Primary design target:
 OEngine WebGPU 2026 Desktop
 
-Compatibility:
-Portable WebGPU fallback
+Capability fallback:
+same logical ABI specialization
 ```
 
 资产侧 WebGPU 2026 Desktop 重点：
@@ -155,6 +156,20 @@ variant/profile
 checksum
 ```
 
+Manifest 的职责可以由独立 schema/生成代码承载，但进入生产前必须冻结完整 binary ABI：
+
+```text
+byte order and integer widths
+header/table entry byte size
+offset/size overflow and whole-file bounds
+alignment and overlap validation
+version compatibility and unknown-record policy
+checksum coverage
+duplicate asset/chunk identity policy
+```
+
+Parser 必须先验证全部范围和整数运算，再创建 TypedArray view、decode job 或 GPU transaction；不能把 JavaScript number、宿主字节序或当前 struct 偶然布局当成文件格式。
+
 ### 1.3 Stable identity
 
 必须区分：
@@ -219,9 +234,9 @@ Color     : rgba8unorm or absent
 Index     : meshlet-local compact index
 ```
 
-#### Skinned PBR
+#### Future Skinned PBR reservation
 
-在 Static PBR 基础上增加 bounded joint/weight representation。
+在 Static PBR 基础上可以预留 bounded joint/weight representation 的 profile namespace，但它属于未来 schema reservation。当前产品仍按 `PRODUCT.md` 将完整动画/蒙皮生态列为 Deferred；在新的范围决定和垂直验证完成前，不创建生产 Skinned PBR profile、GPU owner 或 shader variant。
 
 #### Explicit fallback profile
 
@@ -443,7 +458,74 @@ generation
 
 Material 只保存 stable handle。
 
-### 4.4 Residency accounting
+stable handle 至少由 `slot + generation` 验证。Descriptor slot 释放后只有在相关提交完成并递增 generation 后才能复用；generation 不匹配必须解析为 invalid/non-resident fallback，不能命中其他纹理。物理 relocation 通过提交边界原子发布新 descriptor，不改变业务侧 logical identity。
+
+`GpuMaterialRecord` 可以附带由 texture descriptors 派生的 GPU routing metadata，但它不是 Runtime Package 的业务 identity：
+
+```text
+GpuMaterialTextureRouting
+  binding_set
+  residency_generation
+  per texture semantic:
+    binding_slot
+    array_layer
+    sampler_class
+    descriptor_generation
+```
+
+物理 relocation 必须在同一 publication transaction 中更新 descriptor 和全部受影响 material routing generation；旧提交完成前保留旧 descriptor/set，不能产生一半新 generation、一半旧 generation 的可见材质。
+
+### 4.4 Bounded TextureBindingSet contract
+
+标准 WebGPU 生产路径不假设 bindless、descriptor indexing 或 sized binding arrays。一个 `GPUTextureView`/sampler 仍占用显式 bind-group binding，因此 segment 可以在 owner 内增长，但不能假设 `ShadeLighting` 能通过任意整数直接访问所有 segment。
+
+V2 冻结以下绑定模型：
+
+```text
+TextureBindingSet
+  fixed pipeline layout
+  bounded sampled texture-array slots
+  bounded sampler classes
+  per-set semantic fallback/default layers
+  reserved bindings for shadow/environment/frame products
+  binding_slot → physical segment GPUTextureView
+
+TextureDescriptor
+  physical segment
+  array_layer
+  resident_mip_range
+  generation
+
+GpuMaterialTextureRouting
+  binding_set
+  per-semantic binding_slot / array_layer / sampler_class
+  residency_generation
+```
+
+同一 material 一次 `EvaluateShading()` 需要的全部 physical segments 必须同时出现在一个 `TextureBindingSet`，其 derived routing 把每个 semantic 映射到该 set 的 local slot。相同 physical segment 可以出现在多个 bind group/set 中而不复制 GPU texture residency；descriptor 仍只有一个 physical `segment + layer` 事实。
+
+Residency transaction 在发布 material/texture handle 前完成 set coverage/preflight；无法满足时只能：
+
+1. 在预算内新建尚未超过 renderer policy 的 binding set；
+2. 在提交完成边界执行 eviction/repack 并原子更新 descriptor；
+3. 选择已声明的 fallback texture/variant；
+4. 在发布任何部分 residency 前明确失败。
+
+不得把跨 set 材质留给 shader 静默少采样，也不得运行时回读可见材质后由 CPU 重建 draw/dispatch list。ADR-0009 的 GPU Material Classification 按有界 `KernelClassId × TextureBindingSetId` 直接生成 GPU consumer 的 indirect args。
+
+初始化必须根据实际 `device.limits` 和启用的 shading resources 冻结：
+
+```text
+texture_slots_per_binding_set
+sampler_class_count
+max_resident_binding_sets
+reserved_sampled_texture_bindings
+max_shading_dispatch_classes
+```
+
+这些值进入 capability record、pipeline/layout cache key、Runtime Package compatibility 和综合 benchmark provenance。超出 policy/device limit 是 preflight failure，不通过无限新增 segment/bind group 隐式改变可执行管线数量。
+
+### 4.5 Residency accounting
 
 独立统计：
 
@@ -458,10 +540,13 @@ copy_bytes
 transcode_bytes
 
 segment_count
+binding_set_count
+binding_slot_utilization
+binding_set_preflight_failures
 grow/copy_operations
 ```
 
-### 4.5 First-round non-goal
+### 4.6 First-round non-goal
 
 不在第一轮实现完整 Virtual Texture，但 descriptor/package 必须保留：
 
@@ -556,7 +641,7 @@ chunk/page request preparation
 
 Worker 不拥有 GPUDevice、GPUTexture、GpuAssetStore。
 
-### Main-thread responsibilities
+### GPU owner thread responsibilities
 
 ```text
 capability/profile selection
@@ -565,6 +650,8 @@ GPU upload encode
 submission lifetime
 stable handle publication
 ```
+
+这里不把 owner 永久绑定到 Window main thread。GPU device、residency 与 submission lifetime 必须共置于 Renderer/GPU owner 所在线程；未来若 Renderer 使用 Dedicated Worker + OffscreenCanvas，同一职责整体迁移，decode worker 仍不成为 GPU resource owner。
 
 ### Transaction lifecycle
 
@@ -582,6 +669,25 @@ retiring bytes
 
 必须记录 cold-load peak，不能只看最终 VRAM。
 
+每个 transaction 明确执行：
+
+```text
+preflight
+→ reserve
+→ decode/transcode
+→ encode upload
+→ submit
+→ commit and publish
+
+or
+
+abort
+→ release reservation/scratch
+→ retire submitted-but-unpublished resources after GPU completion
+```
+
+OOM、取消、校验失败、submit failure 与 device loss 都必须进入同一 abort/retire 语义；不得留下已增加 refcount、但没有 published handle 的 binding slot、descriptor 或 material record。
+
 ### Publication boundary
 
 逻辑 handle 只有在 required chunks validated + descriptor/GPU residency 达到约定完成边界后才对 Render World 可见。失败/abort 不允许留下半可见 asset。
@@ -590,7 +696,7 @@ retiring bytes
 
 ## 7. Streaming seam
 
-### V2 Core
+### First-round scope
 
 第一轮必须支持：
 
@@ -877,7 +983,7 @@ local validation
 
 ## 13. Completion criteria
 
-ADR-0007 Core 完成要求：
+ADR-0007 当前范围完成要求：
 
 - Runtime Package/variant contract 成为生产事实；
 - 普通 texture runtime asset 不再依赖 runtime mip generation；
@@ -886,6 +992,7 @@ ADR-0007 Core 完成要求：
 - 至少一个 canonical compact geometry profile 成为生产路径；
 - Instance static/dynamic 生命周期完成目标拆分；
 - logical handle 与 physical residency 明确分离；
+- `TextureBindingSet` 的 slot/set 上限、材质 colocate、preflight failure 与 generation-safe relocation 已成为生产合同；
 - CPU/GPU memory transaction 可以被 profiler/benchmark 解释；
 - 被替换 production generic path 已删除或只剩明确 fallback profile；
 - `ARCHITECTURE.md`、`PIPELINE.md`、`STATUS.md` 只在相应代码真正落地后更新事实。

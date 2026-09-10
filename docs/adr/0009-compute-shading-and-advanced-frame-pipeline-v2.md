@@ -4,6 +4,7 @@
 > **Date:** 2026-09-10
 > **Scope:** Material Classification、ShadeLighting、Surface/HDR、AO/SSR、Reflection、Temporal、Post、Frame Products/Budget
 > **Depends on:** ADR-0008 VisibilityKey V2；ADR-0007 Texture/Geometry Runtime contracts
+> **Proposed supersession:** 接受并完成 cutover 后，替代 ADR-0004 的 VisibilityKey material-class、MaterialClassDepth/fullscreen Surface Resolve 与重型 Surface 决策；此前 ADR-0004 仍是当前权威
 > **Design source:** `OEngine Performance Architecture V2` Design Draft
 
 ## Context
@@ -90,7 +91,9 @@ Compute ShadeLighting
   ├─ emissive / unlit
   └─ pre-exposure
         ↓
-PreExposed OpaqueHDR
+PreExposedOpaqueHDRBaseline
++
+PreExposedBaselineSpecular（仅 SSR consumer 存在时）
 +
 ShadingSurfaceLite
         ↓
@@ -101,7 +104,7 @@ SSR Trace
 → Recurrent Denoise
 → Reflection Resolve
         ↓
-Opaque HDR Complete
+PreExposedOpaqueHDRComplete
         ↓
 Transparency + Reactive
         ↓
@@ -172,7 +175,10 @@ temporal stability
 完整 Material + Lighting 后产生：
 
 ```text
-PreExposedHDR
+PreExposedOpaqueHDRBaseline
+
+PreExposedBaselineSpecular
+  only when SSR/reflection correction consumes it
 
 ShadingSurfaceLite
   shading normal
@@ -182,6 +188,8 @@ ShadingSurfaceLite
 ```
 
 Velocity、Reactive、OcclusionConfidence 等继续作为独立 FrameProducts，不强塞进 SurfaceLite。
+
+`PreExposedOpaqueHDRBaseline` 包含 direct、indirect diffuse、emissive/unlit 与 IBL/probe baseline specular。SSR 启用时，`ShadeLighting` 额外输出相同 pre-exposure 约定的 `PreExposedBaselineSpecular`，使 Reflection Resolve 可以替换而不是叠加 baseline；SSR 关闭时不创建该额外产品，baseline HDR 直接成为 complete opaque HDR。
 
 ### 1.4 Why two surface layers
 
@@ -303,15 +311,14 @@ Visibility pixels
 
 ### 3.2 First production candidate
 
-优先：
+第一版使用有界 `MaterialTileWork` queues，不直接上 full pixel compaction / radix sort。
 
 ```text
-Tile mask
-or
-Tile-class records
+Visibility pixels
+→ one ShadingDispatchClassId per valid pixel
+→ one MaterialTileWork record per active tile/dispatch-class pair
+→ one dispatchWorkgroupsIndirect per bounded dispatch class
 ```
-
-不直接上 full pixel compaction / radix sort。
 
 候选 tile：
 
@@ -334,25 +341,67 @@ output coalescing
 
 选择。
 
-### 3.3 Material kernel classes
+`ShadingDispatchClassId` 冻结为：
+
+```text
+KernelClassId × TextureBindingSetId
+```
+
+CPU 只按初始化时冻结的有界 dispatch-class 表 encode `dispatchWorkgroupsIndirect`；GPU classifier 直接写每个 queue 和完整 indirect record，CPU 不回读 active class/count 后再重建 dispatch list。
+
+### 3.3 MaterialTileWork queue contract
+
+逻辑 element：
+
+```text
+tile_linear_id
+kernel_class_id
+texture_binding_set_id
+generation
+```
+
+具体 stride/alignment 由统一 CPU/WGSL ABI 冻结。每个 dispatch class 拥有一个 queue；同一 tile 在同一 dispatch class 中最多写一条 record，因此单 queue capacity 固定为当前 internal resolution 的 `tile_count`。合法 dispatch-class 数由 capability/binding policy 初始化时冻结，所有 queue 与 12-byte indirect dispatch record 完整初始化。
+
+Classifier finalize 在 GPU 上写完整 indirect record：
+
+```text
+workgroupCountX = written_count
+workgroupCountY = 1
+workgroupCountZ = 1
+```
+
+若任一 correctness counter/overflow 非零，finalize 将所有 ShadeLighting indirect counts 清零并写 GPU-visible frame-invalid signal；FinalOutput 消费该 signal 输出明确 diagnostic clear，而不是呈现部分 shading。异步 readback 只负责随后报告错误，CPU 不需要读取本帧结果即可阻止错误结果冒充成功。
+
+合同：
+
+| 项目 | 决定 |
+| --- | --- |
+| Producer | Material Classification compute |
+| Consumer | 对应 kernel/binding-set 的 `ShadeLightingCS` indirect dispatch |
+| Capacity | `tile_count` per dispatch class；class 数由 renderer policy 有界 |
+| Counters | `attempted/written/consumed/overflow`、valid/shaded/duplicate/unassigned pixels |
+| Overflow | correctness failure；清零相关 indirect args，整帧不呈现部分 shading |
+| Feature-off | 没有 opaque shading consumer 时不创建 classifier、queue、indirect args 或 counter copy |
+
+每个 valid opaque pixel 必须确定性映射到且仅映射到一个 `ShadingDispatchClassId`。Consumer 在 tile 内只处理 class id 相符的 lane；`unassigned_pixels` 或 `duplicate_shading_pixels` 非零即 correctness failure。Queue `attempted_count > tile_count` 表示 ABI/producer bug，不是可接受内容压力。
+
+### 3.4 Material kernel classes
 
 Class 必须有界，不是一材质一个 shader。
 
-例如：
+Material record 先保存正交 feature bits，例如：
 
 ```text
-standard opaque
-MASK
-normal-mapped
-textured ORM
-emissive
-unlit
-future special model
+coverage: opaque | MASK
+normal source: vertex | normal map
+ORM source: factors | texture
+emissive: absent | factor | texture
+lighting model: standard PBR | unlit | registered special model
 ```
 
-只有能显著移除昂贵 branch 时才增加 class。
+Cooker/runtime 使用版本化映射表把完整 feature-bit 组合确定性映射到唯一 `KernelClassId`。`normal-mapped`、`textured ORM`、`emissive` 不是互斥 class；只有证据表明 specialization 能显著移除昂贵 branch 时才增加独立 kernel。实现必须冻结 `max_kernel_classes` 和一个覆盖所有受支持 standard PBR 组合的 generic kernel；无法进入 generic/registered kernel 的材质在发布前失败，不能静默忽略 feature。
 
-### 3.4 WebGPU 2026 Desktop
+### 3.5 WebGPU 2026 Desktop
 
 优先：
 
@@ -362,7 +411,7 @@ subgroup compact
 shader-f16 for safe local intermediates
 ```
 
-Portable：
+Capability fallback：
 
 ```text
 workgroup shared-memory classification
@@ -372,7 +421,7 @@ workgroup shared-memory classification
 
 能力协商遵循 [WEBGPU.md](../WEBGPU.md)。Subgroup kernel 必须覆盖设备报告的 size 范围；只有 `subgroup-size-control` 已启用且固定宽度确有综合证据时才生成 `@subgroup_size` variant。`shader-f16` 不用于 depth、world-position accumulation、history identity、queue counter 或 stable handle。
 
-### 3.5 Shading utilization
+### 3.6 Shading utilization
 
 记录：
 
@@ -383,6 +432,8 @@ active lanes
 inactive lanes
 classes/tile
 shaded pixels
+unassigned pixels
+duplicate shading pixels
 ```
 
 得到：
@@ -408,7 +459,7 @@ Geometry metadata
 Vertex/index payload
 Instance data
 Material table
-Texture descriptor/banks/samplers
+Texture descriptors / one TextureBindingSet / sampler classes
 
 Lights / clusters
 Shadow resources
@@ -420,7 +471,7 @@ SurfaceLite output
 Counters
 ```
 
-必须按 `WEBGPU.md` 对目标 Chrome/device 的 features、limits、WGSL language features 和 API surface 做实际 probe。
+必须按 `WEBGPU.md` 对目标浏览器/adapter 的 features、limits、WGSL language features 和 API surface 做实际 probe，并为 shadow/environment/frame products 预留 binding，而不是把全部 `maxSampledTexturesPerShaderStage` 交给材质纹理。
 
 如果超限，优先：
 
@@ -432,6 +483,35 @@ Counters
 ```
 
 而不是机械拆出更多 fullscreen stages。
+
+### 4.1 TextureBindingSet execution contract
+
+ADR-0007 的 descriptor indirection 不等于 bindless。标准生产 layout 只声明有界数量的 `texture_2d_array`/sampler bindings；当前 dispatch 只能访问其 `TextureBindingSetId` 对应的 bind group：
+
+```text
+MaterialTileWork
+  KernelClassId
+  TextureBindingSetId
+        ↓
+set compute pipeline/kernel
+set fixed frame/scene bind groups
+set TextureBindingSet bind group
+dispatchWorkgroupsIndirect
+```
+
+同一 material 的全部 TextureHandle 先由 ADR-0007 descriptor 解析到唯一 physical `segment + array_layer`，再由 `GpuMaterialTextureRouting` 映射到当前 set 的 `binding_slot + array_layer + sampler_class`。同一 segment view 可以出现在多个 set 中而不复制 texture residency。WGSL 通过对有界 `binding_slot` 做 `switch` 选择静态声明的 texture binding；不生成运行时长度 resource array，也不假设 sized binding arrays、descriptor indexing 或通用 bindless。
+
+初始化冻结：
+
+```text
+texture bindings per set
+sampler classes
+max TextureBindingSetId
+max KernelClassId
+max ShadingDispatchClassId
+```
+
+并验证乘积对应的 pipeline/layout/bind-group/indirect-dispatch 数仍在 renderer policy 内。资产 colocate、set overflow、relocation 与 publication failure 遵循 ADR-0007；classifier 不允许把同一 material 拆成跨 set 的多次完整 shading。
 
 ---
 
@@ -452,9 +532,10 @@ Counters
 9. 消费 GI/IBL。
 10. 处理 emissive/unlit。
 11. 应用统一 pre-exposure。
-12. 写 `PreExposedHDR`。
-13. 写后续真正需要的 `ShadingSurfaceLite` 字段。
-14. 更新 shading/material counters。
+12. 写 `PreExposedOpaqueHDRBaseline`。
+13. SSR 启用时单独写 `PreExposedBaselineSpecular`。
+14. 写后续真正需要的 `ShadingSurfaceLite` 字段。
+15. 更新 shading/material counters。
 
 ### 5.2 Explicit derivatives
 
@@ -477,6 +558,8 @@ anisotropic/high-frequency stability
 
 这是 Compute Shading 的 correctness blocker，不允许用“看起来差不多”跳过。
 
+WebGPU 2026/WGSL 路径以计算得到的显式 `ddx/ddy` 调用 `textureSampleGrad`；无有效 gradient 时使用经过质量验证的 `textureSampleLevel` fallback 并增加 invalid/fallback counter。两种调用都必须在目标浏览器实际创建 shader/pipeline 并覆盖高频、斜视角和 anisotropy 场景，不能仅凭类型定义判断支持。
+
 ### 5.3 Texture sampling
 
 通过 ADR-0007 stable texture handle：
@@ -484,9 +567,11 @@ anisotropic/high-frequency stability
 ```text
 MaterialSlot
 → TextureHandle
-→ descriptor
-→ segment/layer/resident mip
+→ descriptor: physical segment/layer/resident mip/generation
+→ GpuMaterialTextureRouting: binding_set/binding_slot/sampler_class
 ```
+
+当前 `MaterialTileWork.TextureBindingSetId` 必须与 material routing 的 `binding_set` 一致，且 routing 中每个 slot 必须覆盖对应 descriptor 的 physical segment。descriptor/routing generation 或 set 不匹配时使用明确 non-resident fallback 并计数，不能采样同 slot 的新资源。
 
 记录：
 
@@ -594,7 +679,7 @@ debug capture
 优先比较：
 
 ```text
-r11g11b10ufloat
+rg11b10ufloat
 rgba16float
 ```
 
@@ -645,7 +730,7 @@ examples/webgpu_postprocessing_ao.html
 examples/jsm/tsl/display/SSAONode.js
 ```
 
-GTAO 可继续作为 High/quality candidate，但不阻塞 Core。
+GTAO 可继续作为需要独立证据的候选算法，但不形成另一条质量档位管线，也不阻塞第一轮 AO replacement。
 
 ### 8.2 Port algorithm, not framework
 
@@ -703,11 +788,11 @@ half AO
 → Lighting full-res read
 ```
 
-除非 A/B 证明 full-res resolved texture 总成本更低或质量明显更好。
+除非同一综合 benchmark/profile 内的受控对照证明 full-res resolved texture 总成本更低或质量明显更好。
 
 ### 8.4 Bent normal
 
-只有真实 IBL/GI consumer 需要时生成，不作为 SSAO Core 默认成本。
+只有真实 IBL/GI consumer 需要时生成，不作为第一轮 SSAO 默认成本。
 
 ---
 
@@ -797,14 +882,24 @@ flicker suppression
 OEngine 保持：
 
 ```text
-IBL / Probe Reflection Baseline
-        ↓
-SSR Result + Confidence
+PreExposedOpaqueHDRBaseline
++ PreExposedBaselineSpecular
++ SSR Result / Confidence
         ↓
 Reflection Resolve
         ↓
-Resolved Specular
+PreExposedOpaqueHDRComplete
 ```
+
+Resolve 语义冻结为等价形式：
+
+```text
+ResolvedSpecular = lerp(BaselineSpecular, SSRSpecular, SSRConfidence)
+OpaqueHDRComplete
+  = OpaqueHDRBaseline - BaselineSpecular + ResolvedSpecular
+```
+
+`BaselineSpecular`、`SSRSpecular` 与 HDR 必须使用同一 pre-exposure convention。Resolve 可在数值等价的 fused kernel 中实现，但不能依赖从已组合 HDR 反推出 baseline specular。
 
 禁止简单：
 
@@ -813,6 +908,8 @@ LitHDR + SSR
 ```
 
 造成 double energy。
+
+SSR 关闭时不创建 `PreExposedBaselineSpecular`、trace/denoise/resolve 产品，`PreExposedOpaqueHDRBaseline` 直接别名/发布为 complete opaque HDR，保持 feature-off 近零成本。
 
 ### 9.6 Early integration spike
 
@@ -854,6 +951,8 @@ Opaque ShadeLighting / reflection baseline
 ↓
 before SSR correction
 ```
+
+Mip 0 的语义是已经包含 IBL/probe baseline 的 `PreExposedOpaqueHDRBaseline`。它可以直接复用该 texture，或由明确 compose/downsample owner 从分量生成；不能把缺少 baseline specular 的颜色当作 SSR scene-color source。
 
 消费者：
 
@@ -941,6 +1040,8 @@ device loss
 exposure discontinuity
 ```
 
+ADR-0008 的物理 `VisibilityKeyV2.meshlet_work_slot` 仅在当前 frame/queue generation 内有效，任何 history 不得跨帧比较或保存它作为 stable identity。Temporal/SSR history 使用 Velocity、MotionValidity、RepresentationChange 和各自 persistent generation；debug capture 跨帧保存 key 时必须连同可重放 queue generation，否则按 invalid 处理。
+
 ---
 
 ## 12. Temporal Reconstruction and DRS
@@ -1003,7 +1104,7 @@ fixed quality/budget
 
 ## 13. Transparency integration
 
-ADR Core 不要求重写当前 Packed OIT。
+本 ADR 当前范围不要求重写现有 Packed OIT。
 
 透明继续共享：
 
@@ -1086,7 +1187,7 @@ descriptor-compatible reuse
 
 ### 15.2 `GPUTextureUsage.TRANSIENT_ATTACHMENT`
 
-若目标 Chrome/device 暴露 `GPUTextureUsage.TRANSIENT_ATTACHMENT` 且适用，FrameGraph 可为真正 pass-local 的 2D attachment 使用 `RENDER_ATTACHMENT | TRANSIENT_ATTACHMENT`。它不是 `GPUFeatureName`，不得加入 `requiredFeatures`。
+若目标浏览器/adapter 暴露 `GPUTextureUsage.TRANSIENT_ATTACHMENT` 且适用，FrameGraph 可为真正 pass-local 的 2D attachment 使用 `RENDER_ATTACHMENT | TRANSIENT_ATTACHMENT`。它不是 `GPUFeatureName`，不得加入 `requiredFeatures`。
 
 不允许附带 sampled/storage/copy usage，不允许用于 canvas、resolve target 或后续还会 sample/load 的 Depth、History、Surface products；texture 固定单 mip/单 layer，相关 aspect 使用 clear/discard。缺失时使用普通 `RENDER_ATTACHMENT`，不改变 FrameProduct 语义。
 
@@ -1121,6 +1222,8 @@ SSRRayBudget
 ResolutionBudget
 StreamingBudget
 ```
+
+Evidence 只能通过有界 cadence 的异步 timestamp/counter readback 到达 Controller。主帧不得等待 `mapAsync()`、`onSubmittedWorkDone()` 或同步 readback；evidence 缺失/延迟时保持上一份安全 budget，不能回读本帧 queue 后控制本帧可见工作。
 
 ### Fixed vs Adaptive
 
@@ -1164,7 +1267,7 @@ Visibility/Depth/core lighting correctness 不作为静默降级对象。
 
 ## 17. Advanced effect seams
 
-以下不阻塞 ADR-0009 Core，但新 FrameProducts 必须给它们留合法插入点：
+以下不阻塞 ADR-0009 当前范围，但新 FrameProducts 必须给它们留合法插入点：
 
 ```text
 Virtual Shadow Atlas / VSM
@@ -1214,13 +1317,14 @@ VisibilityProducts
 GeometryProducts
 ShadingSurfaceLite
 HDR/PreExposure
+PreExposedBaselineSpecular / Reflection Resolve
 Reflection
 Velocity/Reactive
 ResolutionDomain
 History reset
 ```
 
-并完成 binding budget。
+并完成 binding budget、`TextureBindingSet`/dispatch-class 上限和 `MaterialTileWork` ABI/overflow 合同。
 
 允许 Three.js SSAO/SSR algorithm spike，但不切 production owner。
 
@@ -1228,15 +1332,16 @@ History reset
 
 **Exit**
 
-AO/SSR/Temporal 可以只依赖稳定 product 语义，不直接依赖旧 `GpuSurfaceAbi` 全字段。
+AO/SSR/Temporal 可以只依赖稳定 product 语义，不直接依赖旧 `GpuSurfaceAbi` 全字段；SSR 能从明确的 baseline specular 生成能量正确的 complete HDR。
 
-### Step 1 · Material Classification A/B
+### Step 1 · Material Classification validation
 
 **Scope**
 
 ```text
 VisibilityKey V2
 → compute tile/class classification
+→ MaterialTileWork + indirect args
 → 暂时服务 current shading consumer
 ```
 
@@ -1246,7 +1351,7 @@ VisibilityKey V2
 
 **Exit**
 
-classifier correctness/occupancy/binding 成本明确；成功继续，失败删除 candidate，不永久双 backend。
+classifier assignment、queue/indirect ABI、occupancy 与 binding 成本明确；`unassigned/duplicate/overflow = 0`。性能只进入同一综合 benchmark/profile 的受控比较；成功继续，失败删除 candidate，不永久双 backend。
 
 ### Step 2 · Compute ShadeLighting
 
@@ -1258,19 +1363,19 @@ canonical vertex reconstruction、explicit gradients、`EvaluateShading()`、clu
 
 **Exit**
 
-材质/光照 parity 通过；full shading eval count 接近 valid shaded pixels；无隐性第二次完整 material resolve。
+材质/光照 parity 通过；除明确不着色像素外，`full_shading_evaluations == shaded_valid_pixels`；无 duplicate/unassigned pixel、无隐性第二次完整 material resolve。
 
 ### Step 3 · SurfaceLite/HDR cutover
 
 **Scope**
 
-删除 albedo/emissive/full ORM 等一次性持久 attachment；freeze chosen SurfaceLite physical profile；compact HDR/history candidate；consumer 迁移。
+删除 albedo/emissive/full ORM 等一次性持久 attachment；freeze chosen SurfaceLite physical profile；冻结 `PreExposedOpaqueHDRBaseline` 与 SSR-only `PreExposedBaselineSpecular`；compact HDR/history candidate；consumer 迁移。
 
 **Verification:** MILESTONE + PERF
 
 **Exit**
 
-生产 consumer 不再依赖 Surface V1；Surface bytes/pixel 与 GPU bandwidth evidence 达标；旧附件删除。
+生产 consumer 不再依赖 Surface V1；Surface/HDR/reflection-baseline bytes/pixel 与 GPU bandwidth evidence 达标；SSR off 时 baseline-specular 产品被裁剪；旧附件删除。
 
 ### Step 4 · Three.js SSAO replacement
 
@@ -1282,7 +1387,7 @@ port SSAO algorithm/math、half/internal resolution、geometric normal contract�
 
 **Exit**
 
-新 SSAO 在目标质量档适合作为 default；旧 default AO path 删除或仅作为明确 High-quality alternative，而不是 legacy duplicate。
+新 SSAO 通过目标质量与性能门禁后成为 default，旧 default AO path 删除。若该移植被证据拒绝，现有 production AO 保留到另一替代算法通过同一门禁；不得因 candidate 被拒绝就留下无 AO 的完成状态，也不得保留 `legacy/new` 双开关。
 
 ### Step 5 · Three.js SSR + Temporal + Denoise replacement
 
@@ -1301,7 +1406,7 @@ OEngine Reflection Resolve
 
 **Exit**
 
-reflection quality/temporal stability 通过；旧 SSR production path 删除；IBL fallback/correction 语义保持。
+reflection quality/temporal stability 通过；`OpaqueHDRBaseline - BaselineSpecular + ResolvedSpecular` 数值/能量语义和 SSR-off pruning 通过；旧 SSR production path 删除。若 Three.js-derived candidate 被拒绝，现有 production SSR 保留到另一 replacement 通过，IBL fallback/correction 语义始终保持。
 
 ### Step 6 · Shared Pyramids + History Contract
 
@@ -1341,7 +1446,7 @@ FinalColorPyramid、exposure reduction、bloom、final output fusion candidate�
 
 ### Step 9 · Cutover/deletion
 
-删除被替换的：
+只有对应 replacement 已通过门禁并完成 consumer cutover 后，才删除被替换的：
 
 ```text
 MaterialClassDepth
@@ -1353,7 +1458,7 @@ duplicate pyramids/reductions
 dead histories/counters
 ```
 
-只保留明确 quality alternative，不保留 `legacy/new` 开关。
+只保留确有独立产品需求和证据的算法选择，不复制主管线，不保留迁移用 `legacy/new` 开关。
 
 **Verification:** final MILESTONE + PERF
 
@@ -1498,7 +1603,7 @@ Filament PBR / pre-exposure / specular-AA references
 
 ## 22. Completion criteria
 
-ADR-0009 Core 完成时：
+ADR-0009 当前范围完成时：
 
 - Production opaque path 不再依赖 `MaterialClassDepth + active-class fullscreen material resolve`。
 - `EvaluateShading()` 没有被 `SurfacePrep` 偷偷执行两次。
@@ -1506,8 +1611,11 @@ ADR-0009 Core 完成时：
 - Surface V1 的一次性 albedo/emissive/full-ORM attachment 已退出 production。
 - `ShadingSurfaceLite` 只保留下游真实需要的字段。
 - HDR/PreExposure contract 在 opaque/transparency/SSR/temporal/post 中一致。
-- Three.js-derived SSAO 成为约定 default AO，或被证据明确拒绝。
-- Three.js-derived SSR+Temporal+Denoise 成为 production reflection correction，或被证据明确拒绝。
+- `MaterialTileWork` ABI、capacity、GPU producer/consumer、indirect args、counter 与 overflow 行为闭合，valid pixel 恰好 shading 一次。
+- `KernelClassId × TextureBindingSetId` 有界，所有 material texture 在一次 dispatch 中合法可绑定，不依赖 bindless/sized binding arrays。
+- SSR 使用显式 `PreExposedBaselineSpecular` 做 replacement resolve；SSR off 时其资源和 Pass 被裁剪。
+- Three.js-derived SSAO 成为约定 default AO；若被证据拒绝，必须先有另一 replacement 通过门禁，才能删除现有 production AO。
+- Three.js-derived SSR+Temporal+Denoise 成为 production reflection correction；若被证据拒绝，必须先有另一 replacement 通过门禁，才能删除现有 production SSR。
 - `OpaqueColorPyramid` 与 `FinalColorPyramid` 语义分开并按 consumer 创建。
 - 现有 `TemporalFeature` 演化为统一 history/resolution contract，而不是出现第二套 Temporal。
 - DRS benchmark 有 fixed 模式。
