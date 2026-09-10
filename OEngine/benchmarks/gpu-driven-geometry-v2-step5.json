@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-step-evidence",
+  "decision": "adr-0008-step5-selective-exact-and-large-triangle-setup",
+  "provenance": {
+    "commit": "970b86f9401b5d39c06eb484ba357a8260d57d2c",
+    "contentHash": "4654a92ab1bca9fbf7bc1a57940a152bc5276c775c6a39f4c697937ca465377d",
+    "clean": true,
+    "runGroupId": "9b5bf961-3374-425c-bfef-bbd349551719",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "timestampQuery": true
+    },
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "sseThreshold": 4,
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806,
+    "materials": 34,
+    "transparentInstances": 2,
+    "geometryPackageBytes": 10460176,
+    "assetHashes": [
+      "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
+      "0e72ed46b5316cb5fb67fc81ff85b024a09146fd89ef3811a8d2299647ada118"
+    ]
+  },
+  "configuration": {
+    "selectiveExact": true,
+    "largeTriangleSetup": false,
+    "reason": "The formal default-path gate measures selective routing without allocating the optional cache; the cache has separate targeted GPU evidence."
+  },
+  "aggregation": "median of three run-level percentiles; GPU truth counters were identical in all three independent contexts",
+  "timingsMs": {
+    "cpuFrame": { "p50": 9.7, "p95": 11.6 },
+    "gpuFrame": { "p50": 2.140224, "p95": 2.446048 },
+    "meshletBucketHardwareVisibility": { "p50": 0.08672, "p95": 0.0903744 },
+    "projectionRiskClassification": { "p50": 0.12288, "p95": 0.135168 },
+    "legacyParityRaster": { "p50": 0.073728, "p95": 0.0795904 },
+    "semanticParity": { "p50": 0.069824, "p95": 0.0757504 }
+  },
+  "geometryTruth": {
+    "nodesTestedP50": 814,
+    "clustersAcceptedP50": 708,
+    "meshletWorksProducedP50": 2321,
+    "candidateTrianglesP50": 64983,
+    "riskyTriangles": { "p50": 0, "p95": 51, "max": 62 },
+    "exactSurvivedTriangles": { "p50": 0, "p95": 51, "max": 62 },
+    "rasterTrianglesP50": 64983,
+    "paddedVerticesP50": 50949,
+    "queueBytesP50": 3399820,
+    "visiblePixelsP50": 874227,
+    "queueOverflow": 0,
+    "queueInvalid": 0,
+    "invalidVisibilityKeys": 0
+  },
+  "correctnessEvidence": {
+    "targetedCases": [
+      "visibility.meshlet-work-basic",
+      "visibility.selective-risk",
+      "visibility.large-triangle-setup"
+    ],
+    "targetedDiagnostics": 0,
+    "targetedSemanticMismatchPixels": 0,
+    "largeTriangleSetup": {
+      "attempted": 577,
+      "written": 577,
+      "visibleHits": 155184,
+      "fallbacks": 0,
+      "overflow": 0
+    },
+    "comprehensiveParityMismatchPixels": [
+      { "p50": 2, "p95": 12, "max": 24 },
+      { "p50": 1, "p95": 18.8, "max": 42 },
+      { "p50": 1, "p95": 21.8, "max": 33 }
+    ],
+    "interpretation": "Targeted oracle cases are exact. The animated comprehensive workload still observes a small equal-depth primitive-order identity difference against the temporary legacy parity target; Step 7 removes that migration-only target only after V2 is the sole production identity contract."
+  },
+  "runLevelTimingsMs": [
+    { "runOrdinal": 0, "cpuFrameP50": 9.60000000149, "cpuFrameP95": 12.10000000149, "gpuFrameP50": 2.140224, "gpuFrameP95": 2.4329984, "meshletBucketP50": 0.08672, "riskClassifierP50": 0.123328, "canvasSha256": "8379b4ceaa89e72bacd84f232ec035d6db255a38247a675fcdea3a2bbf3a063d" },
+    { "runOrdinal": 1, "cpuFrameP50": 9.70000000298, "cpuFrameP95": 11.29999999702, "gpuFrameP50": 2.139648, "gpuFrameP95": 2.446048, "meshletBucketP50": 0.087328, "riskClassifierP50": 0.12288, "canvasSha256": "f829360e0bbd3dfcb15b5f06553e69be7740aee5678fa8857cee9a7467bccdb7" },
+    { "runOrdinal": 2, "cpuFrameP50": 9.79999999702, "cpuFrameP95": 11.60000000149, "gpuFrameP50": 2.143488, "gpuFrameP95": 2.446304, "meshletBucketP50": 0.086144, "riskClassifierP50": 0.12288, "canvasSha256": "c9648d215f0fcb6605fd800afaa715bd0df1d5929e32a10702de357dff14a070" }
+  ],
+  "diagnostics": {
+    "validationErrors": 0,
+    "uncapturedErrors": 0,
+    "deviceLost": 0,
+    "failedGpuTimestampBatches": 0,
+    "droppedGpuCounterSamples": 0,
+    "failedGpuCounterSamples": 0,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  },
+  "limitation": "single NVIDIA Turing adapter; optional large-triangle setup is validated by the targeted browser oracle but is disabled in the default formal workload; migration-only legacy raster/parity cost remains until Step 7"
+}
