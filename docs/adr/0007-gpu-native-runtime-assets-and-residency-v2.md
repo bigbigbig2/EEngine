@@ -1,6 +1,6 @@
 # ADR-0007 · GPU-native Runtime Assets 与 Residency V2
 
-> **Status:** proposed
+> **Status:** accepted
 > **Date:** 2026-09-10
 > **Scope:** Runtime Asset、Geometry/Texture Cook、GPU Residency、Instance Runtime Data
 > **Depends on:** ADR-0002 Runtime Assets and GPU-driven；ADR-0006 Packed Render World Convergence

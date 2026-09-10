@@ -51,10 +51,10 @@ src/index.ts
 
 ## 验证
 
-```powershell
-npm ci
-npm run build
-```
+- 普通 DEV 在 dependency/lockfile 未变化时不运行 `npm ci`；TypeScript/WGSL 改动运行 `npm run typecheck`、命中的 targeted tests，并在涉及渲染路径时运行一个命中的真实浏览器 Case。
+- dependency/lockfile 变化、clean reproduction、CI 或正式 PERF 前运行 `npm ci`。
+- MILESTONE 运行 `npm test`、命中的 Browser Case，以及 `examples/` 的 `npm run profile:rendering-lab:dev`。
+- 正式 PERF 必须从 clean commit 和 clean install 开始，并遵循 `docs/VALIDATION.md` 的 fixed-condition formal policy。
 
 现有 `tests/` 已覆盖 R0/R1 的关键公共 seam；新增高风险 ABI、数学、资产解析和 GPU producer/consumer 路径时必须同步补验证入口。
 

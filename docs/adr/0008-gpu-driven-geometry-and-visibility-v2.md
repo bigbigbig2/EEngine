@@ -1,6 +1,6 @@
 # ADR-0008 · GPU-driven Geometry 与 Visibility V2
 
-> **Status:** proposed
+> **Status:** accepted
 > **Date:** 2026-09-10
 > **Scope:** GPU Geometry Work Generation、LOD/Hierarchy、Raster Work、Exact 路径、VisibilityKey
 > **Depends on:** ADR-0007 的 compact geometry / instance contract

@@ -41,7 +41,11 @@ OEngine 当前阶段是面向桌面 WebGPU、中大型高几何密度场景的 G
 
 ## 验证
 
-- 类型与构建：`cd OEngine; npm ci; npm run build`。
+- 验证强度遵循 `docs/VALIDATION.md` 的 DEV/MILESTONE/PERF 分级；纯文档改动只运行静态文档检查。
+- 普通 DEV 在 dependency/lockfile 未变化时不运行 `npm ci`。TypeScript/WGSL 改动先运行 `cd OEngine; npm run typecheck`、命中的 targeted tests；涉及渲染路径时再运行一个命中的真实浏览器 Case。
+- dependency/lockfile 变化、clean reproduction、CI 或正式 PERF 前运行 `cd OEngine; npm ci`。
+- MILESTONE 运行 `cd OEngine; npm test`、命中的 Browser Case，并从 `examples/` 运行 `npm run profile:rendering-lab:dev`。
+- 正式 PERF 从 clean commit 和 clean install 开始，使用 `examples/` 的 `npm run profile:rendering-lab:formal`。
 - 性能改动必须遵守 `docs/VALIDATION.md` 的相同 adapter、分辨率/DPR、画质、workload 和 warm-up 规则。
 - 渲染正确性不能只靠 typecheck；需要 GPU timestamp、计数器、debug view 或截图/数值回归。
 - 可运行的垂直验证逐步放在根目录 `examples/`，通过相对路径引用 `OEngine` 源码。渲染改动至少运行一个命中的浏览器示例；必要时保存结果并检查截图和控制台，不能只跑 TypeScript 单元测试。

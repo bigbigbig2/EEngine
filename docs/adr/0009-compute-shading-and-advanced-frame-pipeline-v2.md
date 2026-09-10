@@ -1,6 +1,6 @@
 # ADR-0009 · Compute Shading 与 Advanced Frame Pipeline V2
 
-> **Status:** proposed
+> **Status:** accepted
 > **Date:** 2026-09-10
 > **Scope:** Material Classification、ShadeLighting、Surface/HDR、AO/SSR、Reflection、Temporal、Post、Frame Products/Budget
 > **Depends on:** ADR-0008 VisibilityKey V2；ADR-0007 Texture/Geometry Runtime contracts

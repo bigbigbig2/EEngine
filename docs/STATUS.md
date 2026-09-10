@@ -50,22 +50,7 @@
 
 ## 下一步
 
-架构优化按 [ADR-0006](./adr/0006-packed-render-world-convergence.md) 的垂直顺序执行；本页只保留当前最近工作：
-
-Step 0 门禁已经建立。Step 1 已消除 Packed material 双 owner：当前 `GpuRenderWorld` 只按 Texture Residency → Material Store → Instance 顺序提交；Packed Visibility、Surface、CSM、Transparency、debug 和 material patch 使用统一 material bindings，浏览器 owner evidence 确认 legacy material metadata、默认纹理、depth/expand pipeline 与 per-material context 均未创建。
-
-Step 2 已完成。Texture Residency 采用五个有界 size-class bank（256/512/1024/2048/4096）和 version/bank/layer 稳定 TextureRef；高分辨率 bank 按需分配，transaction 在 2 GiB hard peak budget、bank capacity 与 device limits 下 preflight，abort 不发布 ref，旧 bank 等 GPU 完成后销毁。Surface、Transparency、MASK Visibility 与 CSM alpha 使用同一 CPU/WGSL decode；CPU/WGSL oracle、120 个全排列、逐层增长、容量/故障注入、真实 Chrome 场景均通过。方案与 clean-commit A/B 证据见 `OEngine/benchmarks/texture-residency-policy.json` 和 `OEngine/benchmarks/texture-residency-step2.json`；目标 workload 保持 25 个纹理与 559240500 resident logical bytes，实测 texture peak/allocation 从 738197376 降到 603979656 bytes，base GPU P50/P95 为 +0.641%/+1.424%。该结果是 smoke A/B，不替代发布级 formal run group。
-
-Step 3 已完成。`GPUSceneEnvironmentContext` 独立拥有 light、environment、light-probe 与 volumetric 数据，`GPUViewContext` 只依赖共享环境与 camera/view/HZB。Step 7 已删除旧 geometry/material/skinning runtime 与 draw-list 实现。
-
-Step 4 已完成。Scene-scoped `ShadowFeature` 是 atlas、cascade selection、camera/content cache、hierarchy work、raster 和 GPU-completion retire 的唯一 owner；`GPULightCollection` 只发布稳定 light/environment 数据，`src/gpu` 对具体 render Pass、`GPUViewContext` 和 `GPUCameraState` 的生产依赖为零。Packed/普通 Scene adapter 共用 `ShadowVisibilityFrame` 和 Render World raster consumer，cascade split/layout 数值一致；alpha-tested caster、overflow counter、cache hit/miss、resize、camera cut、replace、toggle 和 device-loss recreate 均纳入真实 Chrome 门禁。
-
-Step 5 已完成。`Renderer.ts` 缩为公开生命周期与顶层组合 shell；`MainRenderPipeline` 是 Feature 顺序、FrameProducts、FrameGraph recipe、compiled graph cache 与 graph evidence 的唯一 owner，不再由公开入口直接 import 算法 Pass 或 Shadow/AO/SSR/Post owner。每帧实际创建冻结的 `FrameContext`，其合同限定为 camera/view、resolution domain、feature topology、history validity、scene bindings、instrumentation 与 capture 请求；主管线 cache key 显式覆盖 capability、size、feature topology、visibility configuration、instrumentation 和 history format。固定矩阵覆盖 full、base、每个 feature-off、debug、capture、resize、camera cut 与 abort；stable frame 保持一个 main submit、一次 cache hit/execute、零 build/compile/pipeline/bind-group create。相同 NVIDIA Turing、Chrome 152、1920×1080、`comprehensive-full` 的 clean-commit 正式 A/B 每侧执行 3×(120 warm-up + 480 measured)，graph/resource/memory/I/O 完全相同，CPU frame P50/P95 为 -0.362%/-3.399%，GPU frame P50/P95 为 +0.239%/-3.509%；证据见 `OEngine/benchmarks/main-render-pipeline-step5.json`，不外推为跨 vendor 结论。
-
-Step 6 已完成。`GpuRenderWorld` 同时接收 Packed source 与普通 Application Scene adapter，二者共享 `GpuAssetStore`、`GpuScene`、`GpuMaterialStore`、Texture Residency、hierarchy/work generation、VisibilityKey、Surface/velocity、Shadow 和 MBOIT/Temporal consumer。普通 Scene 首次绑定只接受已 Cook package；transform/material assignment 由 `SceneChangeSet` 生成确定性 patch，abort 会重试，add/remove/geometry 通过显式 `resyncScene()` full-resync。未注册 Scene 直接失败，`SkinnedMesh` 显式 unsupported；真实 Chrome 覆盖稳定帧、patch、add/remove resync、shadow parity、alpha-tested、double-sided、transparent 和 reactive/Temporal，并确认一个 main submit、无 legacy owner/scene upload、无 overflow 或 GPU error。
-
-Step 7 已完成并关闭 ADR-0006 的架构迁移：生产代码只保留一个 Render World、VisibilityKey attachment、Surface/velocity producer、MBOIT、directional CSM consumer 和 graph recipe；旧 runtime、Pass、shader/layout/pipeline/counter、双 ID attachment、公开 owner evidence 字段与旧诊断标签均已删除。shader audit 只有 41 个有生产 owner 的 authored shader，无 dead/unknown/oracle source。相同 NVIDIA Turing、Chrome 152、1920×1080、`comprehensive-full` 的 clean-commit 正式 A/B 每侧执行 3×(120 warm-up + 480 measured)，graph dump、43 个可执行 Pass、71 个资源、memory、submit、upload/readback 完全相同；CPU frame P50/P95 为 +0.990%/+2.563%，GPU frame P50/P95 为 -0.526%/+0.418%，未显示本机显著回退。11-case feature topology 矩阵全部保持一次 main submit、零 invalid stable frame 和零 overflow；完整证据见 `OEngine/benchmarks/render-world-convergence-step7.json`。该结果只覆盖单一 adapter，不宣称 1080p/60 已达成；Triangle Setup、Surface ABI 和双 vendor Tile backend 仍为证据不足。
-
-1. 先实现 `WEBGPU.md` 的冻结 capability record、core adapter 校验、WGSL/API probe 和 specialization cache key，再让 ADR-0007/0008/0009 的 2026 能力进入生产路径。
-2. 在 clean commit、固定 adapter 和固定 workload 上继续补齐 class-depth/class-discard、TriangleSetup off/on、near-plane 和统一 Surface parity。
-3. 保持 Tile backend 为 evidence-only；Instance ABI、public subpath 与 FrameGraph execution state 只由 ADR-0006 Step 8 的证据门槛触发。
+1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：实现 WebGPU 2026 capability record、probe 与 specialization foundation。
+2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：当前等待 ADR-0010 runtime capability foundation；Next 是 Step 0 Memory / Asset Truth。
+3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：等待 ADR-0007 compact geometry 与 instance contracts。
+4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：等待 ADR-0008 VisibilityKey V2；SSAO/SSR upstream porting 可以提前研究，但 production cutover 后置。
