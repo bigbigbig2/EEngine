@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-step-evidence",
+  "decision": "adr-0008-step7-cutover-and-deletion",
+  "provenance": {
+    "commit": "84a0cc317e006282ad6de1615a57d7d346a3dda1",
+    "contentHash": "0f40c975fcd03eb2e1abded8a881ae46f01c526289ffa9fd87a14474a243b525",
+    "clean": true,
+    "runGroupId": "576d826a-cc8e-492f-8769-4b2a98174826",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": { "vendor": "nvidia", "architecture": "turing", "timestampQuery": true },
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "sseMode": "fixed",
+    "sseThreshold": 4,
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806
+  },
+  "aggregation": "median of three run-level percentiles",
+  "timingsMs": {
+    "cpuFrame": { "p50": 9.5, "p95": 11.5 },
+    "gpuFrame": { "p50": 1.517024, "p95": 1.7959424 },
+    "hierarchyAndClusterCull": { "p50": 0.527104 },
+    "meshletBucketVisibility": { "p50": 0.088064 }
+  },
+  "fixedBudgetDeterminism": {
+    "nodesTestedP50PerRun": [814, 814, 814],
+    "clustersAcceptedP50PerRun": [708, 708, 708],
+    "meshletsSelectedP50PerRun": [2321, 2321, 2321],
+    "meshletWorksP50PerRun": [2321, 2321, 2321],
+    "rasterTrianglesP50PerRun": [64983, 64983, 64983],
+    "riskyTrianglesP50PerRun": [0, 0, 0],
+    "riskyTrianglesP95PerRun": [51, 51, 51],
+    "queueBytesP50PerRun": [69896, 69896, 69896],
+    "queueOverflowMask": 0,
+    "meshletQueueOverflow": 0,
+    "meshletQueueInvalid": 0,
+    "invalidVisibilityKeys": 0
+  },
+  "cutoverProof": {
+    "productionVisibilityChain": "VisibleCluster -> GpuMeshletRasterWork -> 64 bounded drawIndirect buckets -> VisibilityKey V2",
+    "normalPerTriangleRasterWorkAllocated": false,
+    "mandatoryExactFilterPresent": false,
+    "legacyVisibilityParityTargets": 0,
+    "deletedSources": [
+      "src/render/visibility/ExactTriangleFilter.ts",
+      "src/render/visibility/GpuExactRasterAbi.ts",
+      "src/render/shaders/exact_triangle_filter.wgsl",
+      "src/render/shaders/packed_visibility.wgsl"
+    ],
+    "secondaryRasterWorkScope": ["PackedCsmShadowPass", "PackedTransparentOitPass"]
+  },
+  "targetedCorrectness": {
+    "cases": [
+      "visibility.basic",
+      "visibility.lod-near",
+      "visibility.lod-far",
+      "visibility.selective-risk",
+      "visibility.large-triangle-setup",
+      "visibility.meshlet-work-portable",
+      "visibility.meshlet-work-overflow",
+      "smoke.basic",
+      "surface.scene-adapter"
+    ],
+    "gpuDiagnostics": 0,
+    "overflowBehavior": "Queue overflow or invalid work clears every bucket indirect argument, so a partial geometry set cannot be presented."
+  },
+  "comparison": {
+    "step6": "gpu-driven-geometry-v2-step6.json",
+    "gpuFrameP50DeltaMs": -0.627904,
+    "gpuFrameP50DeltaPercent": -29.27,
+    "geometryQueueBytesP50Delta": -3329924,
+    "geometryQueueBytesP50DeltaPercent": -97.94,
+    "hierarchyP50DeltaMs": -0.000864,
+    "interpretation": "Removing mandatory per-triangle RasterWork from the main visibility path reduced the measured GPU frame phase and queue payload while hierarchy cost stayed effectively flat."
+  },
+  "runLevel": [
+    { "runOrdinal": 0, "cpuFrameP50": 9.29999999702, "cpuFrameP95": 11.20000000298, "gpuFrameP50": 1.523008, "gpuFrameP95": 1.77936, "hierarchyP50": 0.525984, "meshletBucketVisibilityP50": 0.087968 },
+    { "runOrdinal": 1, "cpuFrameP50": 9.79999999702, "cpuFrameP95": 11.60000000149, "gpuFrameP50": 1.514464, "gpuFrameP95": 1.7959424, "hierarchyP50": 0.530624, "meshletBucketVisibilityP50": 0.088128 },
+    { "runOrdinal": 2, "cpuFrameP50": 9.5, "cpuFrameP95": 11.5, "gpuFrameP50": 1.517024, "gpuFrameP95": 1.803136, "hierarchyP50": 0.527104, "meshletBucketVisibilityP50": 0.088064 }
+  ],
+  "diagnostics": {
+    "validationErrors": 0,
+    "uncapturedErrors": 0,
+    "deviceLost": 0,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  },
+  "limitation": "single NVIDIA Turing adapter; TriangleSetup remains explicitly disabled, and the independent Surface and Tile migration gates are not closed by this ADR-0008 Step 7 run"
+}
