@@ -1,9 +1,5 @@
-import { GPU_CLASSIFIED_RASTER_HEADER_BYTES } from "./GpuWorkGenerationAbi.js";
-import type { RasterWorkCpu } from "./GpuWorkGenerationAbi.js";
-
-/** Exact-raster and bounded TriangleSetup contracts for M5. */
-export const GPU_EXACT_RASTER_ABI_VERSION = 1;
-export const GPU_EXACT_RASTER_RECORD_STRIDE = 32;
+/** Optional bounded large-triangle setup-cache contract. */
+export const GPU_LARGE_TRIANGLE_SETUP_ABI_VERSION = 1;
 export const GPU_TRIANGLE_SETUP_RECORD_STRIDE = 40;
 export const GPU_TRIANGLE_SETUP_FALLBACK = 0xffffffff;
 export const GPU_TRIANGLE_SETUP_DEFAULT_THRESHOLD_PIXELS = 32;
@@ -34,40 +30,6 @@ export function largeTriangleSetupIndex(meshletWorkSlot: number, localPrimitive:
   return index;
 }
 
-export function exactRasterWorkBufferByteLength(capacityPerClass: number): number {
-  if (!Number.isSafeInteger(capacityPerClass) || capacityPerClass <= 0) {
-    throw new RangeError("Exact RasterWork capacity must be a positive integer");
-  }
-  const bytes = GPU_CLASSIFIED_RASTER_HEADER_BYTES + capacityPerClass * 2 * GPU_EXACT_RASTER_RECORD_STRIDE;
-  if (!Number.isSafeInteger(bytes)) throw new RangeError("Exact RasterWork byte length is invalid");
-  return bytes;
-}
-
-export const GPU_EXACT_RASTER_RECORD_WGSL = /* wgsl */ `
-struct OEngineExactRasterRecord {
-  instance_record_index: u32,
-  geometry_record_index: u32,
-  meshlet_record_index: u32,
-  local_triangle_index: u32,
-  material_handle: u32,
-  raster_flags: u32,
-  setup_index: u32,
-  exact_flags: u32,
-};
-
-struct OEngineClassifiedExactRasterWorkQueue {
-  opaque_header: OEngineWorkQueueHeader,
-  mask_header: OEngineWorkQueueHeader,
-  elements: array<OEngineExactRasterRecord>,
-};
-
-struct OEngineClassifiedExactRasterWorkQueueRead {
-  opaque_header: OEngineWorkQueueHeaderRead,
-  mask_header: OEngineWorkQueueHeaderRead,
-  elements: array<OEngineExactRasterRecord>,
-};
-`;
-
 /** RFC Appendix B record: q at viewport center plus constant q derivatives. */
 export const GPU_TRIANGLE_SETUP_RECORD_WGSL = /* wgsl */ `
 struct OEngineTriangleSetupRecord {
@@ -83,11 +45,6 @@ struct OEngineTriangleSetupRecord {
   flags: u32,
 };
 `;
-
-export interface ExactRasterRecordCpu extends RasterWorkCpu {
-  readonly setupIndex: number;
-  readonly exactFlags: number;
-}
 
 export interface TriangleSetupRecordCpu {
   readonly qCenter: readonly [number, number, number];
@@ -108,23 +65,6 @@ export interface TriangleSetupRequest {
 export type TriangleSetupResult =
   | Readonly<{ kind: "cached"; record: TriangleSetupRecordCpu; coveragePixels: number }>
   | Readonly<{ kind: "fallback"; reason: "invalid-viewport" | "non-finite" | "near-crossing" | "degenerate" | "below-threshold" }>;
-
-export function packExactRasterRecord(record: ExactRasterRecordCpu): Uint8Array<ArrayBuffer> {
-  return packU32([
-    record.instanceRecordIndex, record.geometryRecordIndex, record.meshletRecordIndex,
-    record.localTriangleIndex, record.materialHandle, record.rasterFlags,
-    record.setupIndex, record.exactFlags
-  ], GPU_EXACT_RASTER_RECORD_STRIDE, "ExactRasterRecord");
-}
-
-export function unpackExactRasterRecord(bytes: Uint8Array, byteOffset = 0): Readonly<ExactRasterRecordCpu> {
-  const values = readU32(bytes, byteOffset, GPU_EXACT_RASTER_RECORD_STRIDE, "ExactRasterRecord");
-  return Object.freeze({
-    instanceRecordIndex: values[0]!, geometryRecordIndex: values[1]!, meshletRecordIndex: values[2]!,
-    localTriangleIndex: values[3]!, materialHandle: values[4]!, rasterFlags: values[5]!,
-    setupIndex: values[6]!, exactFlags: values[7]!
-  });
-}
 
 export function packTriangleSetupRecord(record: TriangleSetupRecordCpu): Uint8Array<ArrayBuffer> {
   validateSetup(record);
@@ -210,20 +150,4 @@ function validateSetup(record: TriangleSetupRecordCpu): void {
   if (values.length !== 9 || values.some((value) => !Number.isFinite(value)) || !Number.isSafeInteger(record.flags) || record.flags < 0 || record.flags > 0xffffffff) {
     throw new RangeError("TriangleSetupRecord must contain finite q/dq values and u32 flags");
   }
-}
-
-function packU32(values: readonly number[], byteLength: number, label: string): Uint8Array<ArrayBuffer> {
-  if (values.length * 4 !== byteLength) throw new Error(`${label} value count does not match stride`);
-  const bytes = new Uint8Array(byteLength), view = new DataView(bytes.buffer);
-  values.forEach((value, index) => {
-    if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) throw new RangeError(`${label}[${index}] is outside u32`);
-    view.setUint32(index * 4, value, true);
-  });
-  return bytes;
-}
-
-function readU32(bytes: Uint8Array, byteOffset: number, byteLength: number, label: string): number[] {
-  if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 || byteOffset + byteLength > bytes.byteLength) throw new RangeError(`${label} byte range is invalid`);
-  const view = new DataView(bytes.buffer, bytes.byteOffset + byteOffset, byteLength);
-  return Array.from({ length: byteLength / 4 }, (_, index) => view.getUint32(index * 4, true));
 }

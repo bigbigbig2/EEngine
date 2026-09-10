@@ -7,24 +7,20 @@ import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
-import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import {
   DEFAULT_GEOMETRY_WORK_BUDGET,
   normalizeGeometryWorkBudget,
   type GeometryWorkBudget
 } from "../GeometryWorkBudget.js";
 import {
-  GPU_VISIBILITY_KEY_EMPTY,
-  assertGpuVisibilityRasterWorkCapacity,
-  visibilityRasterWorkBufferByteLength,
+  GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
   type GpuVisibilityBufferLimits
 } from "../../gpu/GpuVisibilityKeyAbi.js";
-import { LPV_CAMERA_TYPE } from "../../shaders/lpv_indirect_diffuse.js";
 import {
-  PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL,
-  PACKED_OPAQUE_VISIBILITY_RASTER_WGSL,
-  PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE
-} from "../../shaders/packed_visibility.js";
+  GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+  GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
+  gpuMeshletWorkQueueByteLength
+} from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import {
   HierarchicalWorkGenerator,
   type PreparedHierarchyWork
@@ -35,16 +31,12 @@ import {
   resolveTextureView
 } from "../RenderTargetViews.js";
 import {
-  exactRasterFrame,
+  triangleSetupFrame,
   meshletWorkFrame,
   textureDomain,
   visibilityFrame,
   type VisibilityFrame
 } from "../pipeline/FrameProducts.js";
-import {
-  ExactTriangleFilter,
-  type PreparedExactTriangleFilter
-} from "../ExactTriangleFilter.js";
 import {
   visibilityBindingSet,
   type VisibilityBindingSet
@@ -64,102 +56,6 @@ import {
   visibilityWorkSetKey,
   type VisibilityWorkSet
 } from "../VisibilityWorkSet.js";
-
-const OPAQUE_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "Packed Visibility position-only OPAQUE group0",
-  entries: [
-    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
-    ...Array.from({ length: 7 }, (_, index) => ({
-      binding: index + 1,
-      visibility: GPUShaderStage.VERTEX,
-      buffer: { type: "read-only-storage" as GPUBufferBindingType }
-    }))
-  ]
-};
-
-const OPAQUE_RASTER_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "Packed Visibility position-only OPAQUE consumer",
-  layout: {
-    label: "Packed Visibility position-only OPAQUE layout",
-    bindGroupLayouts: [OPAQUE_RASTER_GROUP]
-  },
-  vertex: {
-    module: { label: "Packed Visibility OPAQUE", code: PACKED_OPAQUE_VISIBILITY_RASTER_WGSL },
-    entryPoint: "raster_opaque_exact"
-  },
-  fragment: {
-    module: { label: "Packed Visibility OPAQUE", code: PACKED_OPAQUE_VISIBILITY_RASTER_WGSL },
-    entryPoint: "write_opaque_visibility",
-    targets: [{ format: "r32uint" }]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: {
-    format: "depth32float",
-    depthWriteEnabled: true,
-    depthCompare: "greater"
-  }
-};
-
-const HIERARCHY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "Packed Visibility MASK alpha group0",
-  entries: [
-    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
-    ...Array.from({ length: 7 }, (_, index) => ({
-      binding: index + 1,
-      visibility: GPUShaderStage.VERTEX,
-      buffer: { type: "read-only-storage" as GPUBufferBindingType }
-    })),
-    {
-      binding: 8,
-      visibility: GPUShaderStage.FRAGMENT,
-      buffer: { type: "read-only-storage" }
-    },
-    {
-      binding: 9,
-      visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
-    },
-    {
-      binding: 10,
-      visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" }
-    },
-    ...Array.from({ length: 3 }, (_, index) => ({
-      binding: index + 11,
-      visibility: GPUShaderStage.FRAGMENT,
-      texture: { sampleType: "unfilterable-float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
-    }))
-  ]
-};
-
-const HIERARCHY_RASTER_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "Packed Visibility MASK alpha consumer",
-  layout: {
-    label: "Packed Visibility MASK alpha layout",
-    bindGroupLayouts: [HIERARCHY_RASTER_GROUP]
-  },
-  vertex: {
-    module: {
-      label: "Packed Visibility MASK alpha consumer",
-      code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
-    },
-    entryPoint: "raster_hierarchy_meshlets"
-  },
-  fragment: {
-    module: {
-      label: "Packed Visibility MASK alpha consumer",
-      code: PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL
-    },
-    entryPoint: "write_hierarchy_visibility",
-    targets: [{ format: "r32uint" }]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: {
-    format: "depth32float",
-    depthWriteEnabled: true,
-    depthCompare: "greater"
-  }
-};
 
 export interface PackedVisibilityPrepareJob {
   readonly runtime: GpuRenderWorldRuntime;
@@ -196,8 +92,6 @@ export interface PackedVisibilityInputs {
   readonly camera: ResourceId;
   readonly counters: ResourceId;
   readonly previousHzb?: ResourceId;
-  readonly exactRasterRecords: ResourceId;
-  readonly exactDrawIndirect: ResourceId;
   readonly meshletWorkRecords: ResourceId;
   readonly setupRecords?: ResourceId;
   readonly depth: ResourceId;
@@ -218,7 +112,7 @@ export interface PackedVisibilityDebugBindings {
   readonly geometryRecordCount: number;
   readonly meshletRecordCount: number;
   readonly materialCapacity: number;
-  readonly classCapacity: number;
+  readonly meshletWorkCapacity: number;
 }
 
 export interface PackedVisibilityDebugSource {
@@ -237,11 +131,6 @@ export interface PackedVisibilityPreparationEvidence {
 
 type PackedVisibilityHierarchyGenerator = Pick<
   HierarchicalWorkGenerator,
-  "prepare" | "rebind" | "encode" | "release" | "destroy"
->;
-
-type PackedVisibilityExactFilter = Pick<
-  ExactTriangleFilter,
   "prepare" | "rebind" | "encode" | "release" | "destroy"
 >;
 
@@ -276,21 +165,16 @@ export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
 /** R3 hierarchy production path. The temporary R2 flat producer was deleted in R3-D. */
 export class PackedVisibilityPass {
   lastDrawIndirect = false;
-  lastCandidateCapacity = 0;
-  lastVerticesPerTriangle = PACKED_HIERARCHY_VISIBILITY_VERTICES_PER_TRIANGLE;
+  lastMeshletWorkCapacity = 0;
+  lastVerticesPerTriangle = 3;
   lastVisibilityKeyAttachmentBytes = 0;
   readonly lastImplementation = "hierarchy" as const;
   lastPreparation: Readonly<PackedVisibilityPreparationEvidence> | null = null;
   private readonly hierarchyGenerator: PackedVisibilityHierarchyGenerator;
-  private readonly exactFilter: PackedVisibilityExactFilter;
   private readonly meshletCandidate: PackedVisibilityMeshletCandidate;
   private readonly meshletBucketRaster: MeshletBucketRaster;
   private readonly largeTriangleSetup: LargeTriangleSetupCache;
   private readonly hierarchyPrepared = new Map<GpuRenderWorldRuntime, VisibilityWorkSet>();
-  private readonly rasterBindings = new WeakMap<
-    VisibilityWorkSet,
-    Readonly<{ camera: GPUBuffer; opaqueGroup: GPUBindGroup; maskGroup: GPUBindGroup }>
-  >();
   private readonly debugBindings = new Map<
     GpuRenderWorldRuntime,
     PackedVisibilityDebugBindings
@@ -299,7 +183,6 @@ export class PackedVisibilityPass {
   constructor(
     private readonly graphics: GraphicsContext,
     hierarchyGenerator?: PackedVisibilityHierarchyGenerator,
-    exactFilter?: PackedVisibilityExactFilter,
     meshletCandidate?: PackedVisibilityMeshletCandidate
   ) {
     this.hierarchyGenerator = hierarchyGenerator ??
@@ -308,11 +191,6 @@ export class PackedVisibilityPass {
         graphics.resource_accounting,
         "VisibilityWorkSet"
       );
-    this.exactFilter = exactFilter ?? new ExactTriangleFilter(
-      graphics.device,
-      graphics.resource_accounting,
-      "VisibilityWorkSet"
-    );
     this.meshletCandidate = meshletCandidate ?? new MeshletWorkCandidate(
       graphics.device,
       graphics.resource_accounting
@@ -330,10 +208,8 @@ export class PackedVisibilityPass {
     inputs: PackedVisibilityInputs
   ): PackedVisibilityOutputs {
     const output = { visibilityKey: -1 };
-    let legacyKey = -1;
-    let legacyDepth = -1;
     const builder = graph.add(
-      "Packed Visibility/exact OPAQUE+MASK producer",
+      "Packed Visibility/MeshletWork bucket producer",
       job,
       (data, resources, context) => {
         const command = requireCommand(context.encoder);
@@ -345,9 +221,7 @@ export class PackedVisibilityPass {
           camera,
           counters,
           resolveTextureView(resources.get(output.visibilityKey)),
-          resolveDepthAttachmentView(resources.get(inputs.depth)),
-          legacyKey < 0 ? null : resolveTextureView(resources.get(legacyKey)),
-          legacyDepth < 0 ? null : resolveDepthAttachmentView(resources.get(legacyDepth))
+          resolveDepthAttachmentView(resources.get(inputs.depth))
         );
       }
     );
@@ -355,8 +229,6 @@ export class PackedVisibilityPass {
     builder.read(inputs.counters);
     if (inputs.previousHzb !== undefined) builder.read(inputs.previousHzb);
     const depth = builder.write(inputs.depth);
-    const exactRasterRecords = builder.write(inputs.exactRasterRecords);
-    const exactDrawIndirect = builder.write(inputs.exactDrawIndirect);
     const meshletWorkRecords = builder.write(inputs.meshletWorkRecords);
     const setupRecords = inputs.setupRecords === undefined
       ? null
@@ -366,24 +238,6 @@ export class PackedVisibilityPass {
       "Packed VisibilityKey",
       packedVisibilityAttachmentDescriptor(job.width, job.height)
     );
-    if (job.prepared.workSet.meshletWorkCandidate !== null) {
-      legacyKey = builder.create("ADR-0008 legacy ExactRasterWork parity key", {
-        kind: "transient_texture",
-        label: "ADR-0008 legacy ExactRasterWork parity r32uint",
-        width: job.width,
-        height: job.height,
-        format: "r32uint",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-      });
-      legacyDepth = builder.create("ADR-0008 legacy ExactRasterWork parity depth", {
-        kind: "transient_texture",
-        label: "ADR-0008 legacy ExactRasterWork parity depth32float",
-        width: job.width,
-        height: job.height,
-        format: "depth32float",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT
-      });
-    }
     builder.make_side_effect();
     const debugResolve = Object.freeze({
       resolve: (): PackedVisibilityDebugBindings =>
@@ -398,13 +252,9 @@ export class PackedVisibilityPass {
         partition: 0,
         generation: "queue-header"
       }),
-      exactRaster: exactRasterFrame({
-        records: exactRasterRecords,
-        drawIndirect: exactDrawIndirect,
-        classCapacity: job.prepared.workSet.classCapacity,
-        setupRecords,
-        setupCapacity: job.prepared.workSet.setupCapacity,
-        setupCount: null
+      triangleSetup: triangleSetupFrame({
+        records: setupRecords,
+        capacity: job.prepared.workSet.setupCapacity
       }),
       domain: textureDomain("internal-full", job.width, job.height, 1)
     });
@@ -424,7 +274,6 @@ export class PackedVisibilityPass {
     this.debugBindings.clear();
     this.hierarchyPrepared.clear();
     this.hierarchyGenerator.destroy();
-    this.exactFilter.destroy();
     this.meshletCandidate.destroy();
     this.largeTriangleSetup.destroy();
   }
@@ -435,13 +284,11 @@ export class PackedVisibilityPass {
     camera: GPUBuffer,
     counters: GPUBuffer,
     visibilityKey: GPUTextureView,
-    depth: GPUTextureView,
-    legacyKey: GPUTextureView | null,
-    legacyDepth: GPUTextureView | null
+    depth: GPUTextureView
   ): void {
     const prepared = job.prepared;
     const workSet = prepared.workSet;
-    const generated = this.hierarchyGenerator.encode(
+    this.hierarchyGenerator.encode(
       command.gpu_encoder,
       workSet.hierarchy,
       job.hierarchyView,
@@ -470,13 +317,6 @@ export class PackedVisibilityPass {
         visibilityKey,
         depth
       });
-    const exact = this.exactFilter.encode(
-      command.gpu_encoder,
-      workSet.exact,
-      job.width,
-      job.height
-    );
-    const { opaqueGroup, maskGroup } = this.ensureBindGroups(workSet, job, camera);
     this.debugBindings.set(job.runtime, Object.freeze({
       instances: job.scene.instances,
       meshlets: job.assets.meshletRecords,
@@ -486,58 +326,10 @@ export class PackedVisibilityPass {
       geometryRecordCount: job.assets.highWaterCounts.geometryRecords,
       meshletRecordCount: job.assets.highWaterCounts.meshletRecords,
       materialCapacity: job.runtime.materialResources.materialCapacity,
-      classCapacity: exact.classCapacity
+      meshletWorkCapacity: meshletWork.capacity
     }));
-    const opaquePipeline = this.graphics.render_pipelines.obtain(
-      OPAQUE_RASTER_PIPELINE
-    );
-    const maskPipeline = this.graphics.render_pipelines.obtain(
-      HIERARCHY_RASTER_PIPELINE
-    );
-    if (legacyKey === null || legacyDepth === null) {
-      throw new Error("VisibilityKey V2 requires the legacy parity targets during Step 4");
-    }
-    const render = command.beginRenderPass({
-      label: "ADR-0008 legacy ExactRasterWork parity drawIndirect",
-      colorAttachments: [
-        {
-          view: legacyKey,
-          clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 },
-          loadOp: "clear",
-          storeOp: "store"
-        }
-      ],
-      depthStencilAttachment: {
-        view: legacyDepth,
-        depthClearValue: 0,
-        depthLoadOp: "clear",
-        depthStoreOp: "store"
-      }
-    });
-    render.setPipeline(opaquePipeline);
-    render.setBindGroup(0, opaqueGroup);
-    render.drawIndirect(exact.drawIndirect, exact.opaqueDrawOffset);
-    render.setPipeline(maskPipeline);
-    render.setBindGroup(0, maskGroup);
-    render.drawIndirect(exact.drawIndirect, exact.maskDrawOffset);
-    render.end();
-      this.graphics.device.queue.writeBuffer(
-        meshletWork.paritySettings,
-        0,
-        new Uint32Array([job.width, job.height, 0, 0])
-      );
-      this.meshletBucketRaster.encodeParity(command.gpu_encoder, {
-        candidateIdentity: visibilityKey,
-        productionKey: legacyKey,
-        exactWork: exact.rasterWork,
-        settings: meshletWork.paritySettings,
-        counters,
-        meshletWork: meshletWork.queue,
-        width: job.width,
-        height: job.height
-      });
     this.lastDrawIndirect = true;
-    this.lastCandidateCapacity = job.runtime.hierarchyRasterWorkCapacity;
+    this.lastMeshletWorkCapacity = meshletWork.capacity;
     this.lastVisibilityKeyAttachmentBytes = job.width * job.height * 4;
   }
 
@@ -585,7 +377,6 @@ export class PackedVisibilityPass {
       maxHierarchyDepth: job.runtime.hierarchyMaxDepth,
       traversalCapacity,
       visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
-      rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
       meshletWorkCandidateCapacity,
       meshletWorkCompactionPath: job.meshletWorkCompactionPath ?? "auto",
       triangleSetupEnabled,
@@ -608,11 +399,6 @@ export class PackedVisibilityPass {
         counterBuffer: bindings.counters,
         countersEnabled: bindings.countersEnabled,
         sseThreshold: bindings.sseThreshold
-      });
-      this.exactFilter.rebind(existing.exact, {
-        camera: bindings.camera,
-        counterBuffer: bindings.counters,
-        countersEnabled: bindings.countersEnabled
       });
       if (existing.meshletWorkCandidate !== null) {
         this.meshletCandidate.rebind(existing.meshletWorkCandidate, {
@@ -643,10 +429,10 @@ export class PackedVisibilityPass {
     }, {
       sseThreshold: job.sseThreshold,
       countersEnabled: job.countersEnabled,
+      rasterExpansionEnabled: false,
       traversalWorkCapacity: key.traversalCapacity
     });
     let meshletWorkCandidate: PreparedMeshletWorkCandidate | null = null;
-    let exact: PreparedExactTriangleFilter | null = null;
     let largeTriangleSetup: PreparedLargeTriangleSetup | null = null;
     try {
       meshletWorkCandidate = this.meshletCandidate.prepare({
@@ -660,16 +446,6 @@ export class PackedVisibilityPass {
           countersEnabled: job.countersEnabled,
           compactionPath: key.meshletWorkCompactionPath
         });
-      exact = this.exactFilter.prepare({
-        camera,
-        candidates: prepared.generated.rasterWork,
-        candidateCapacity: prepared.generated.rasterWorkCapacity,
-        assets: job.assets,
-        scene: job.scene,
-        counterBuffer: counters,
-        countersEnabled: job.countersEnabled,
-        setupEnabled: false
-      });
       if (key.triangleSetupEnabled) {
         largeTriangleSetup = this.largeTriangleSetup.prepare({
           camera,
@@ -685,7 +461,6 @@ export class PackedVisibilityPass {
       }
     } catch (error) {
       if (largeTriangleSetup !== null) this.largeTriangleSetup.release(largeTriangleSetup);
-      if (exact !== null) this.exactFilter.release(exact);
       if (meshletWorkCandidate !== null) {
         this.meshletCandidate.release(meshletWorkCandidate);
       }
@@ -696,60 +471,13 @@ export class PackedVisibilityPass {
       key,
       hierarchy: prepared,
       meshletWorkCandidate,
-      exact,
       largeTriangleSetup,
-      exactRasterRecords: exact.output.rasterWork,
-      exactDrawIndirect: exact.output.drawIndirect,
       setupRecords: largeTriangleSetup?.records ?? null,
-      setupCapacity: largeTriangleSetup?.capacity ?? 0,
-      classCapacity: exact.output.classCapacity
+      setupCapacity: largeTriangleSetup?.capacity ?? 0
     });
     this.hierarchyPrepared.set(job.runtime, next);
     if (existing !== undefined) this.retirePrepared(existing, command);
     return Object.freeze({ workSet: next, bindings });
-  }
-
-  private ensureBindGroups(
-    workSet: VisibilityWorkSet,
-    job: PackedVisibilityJob,
-    camera: GPUBuffer
-  ): { opaqueGroup: GPUBindGroup; maskGroup: GPUBindGroup } {
-    const cached = this.rasterBindings.get(workSet);
-    if (cached !== undefined && cached.camera === camera) {
-      return cached;
-    }
-    const rasterWork = workSet.exactRasterRecords;
-    const opaqueGroup = this.graphics.bind_groups.obtain({
-      layout: OPAQUE_RASTER_GROUP,
-      entries: [
-        { buffer: camera },
-        { buffer: job.scene.instances },
-        { buffer: job.assets.meshletRecords },
-        { buffer: job.assets.meshletVertexIndices },
-        { buffer: job.assets.meshletTriangleIndices },
-        { buffer: job.assets.vertexStreamData },
-        { buffer: job.assets.geometryRecords },
-        { buffer: rasterWork }
-      ]
-    });
-    const maskGroup = this.graphics.bind_groups.obtain({
-      layout: HIERARCHY_RASTER_GROUP,
-      entries: [
-        { buffer: camera },
-        { buffer: job.scene.instances },
-        { buffer: job.assets.meshletRecords },
-        { buffer: job.assets.meshletVertexIndices },
-        { buffer: job.assets.meshletTriangleIndices },
-        { buffer: job.assets.vertexStreamData },
-        { buffer: job.assets.geometryRecords },
-        { buffer: rasterWork },
-        { buffer: job.runtime.materialResources.materialRecords },
-        ...job.runtime.materialResources.textureBanks
-      ]
-    });
-    const next = Object.freeze({ camera, opaqueGroup, maskGroup });
-    this.rasterBindings.set(workSet, next);
-    return next;
   }
 
   private retirePrepared(
@@ -758,7 +486,6 @@ export class PackedVisibilityPass {
   ): void {
     command.destroyAfterGpuDone({
       destroy: () => {
-        this.exactFilter.release(workSet.exact);
         if (workSet.largeTriangleSetup !== null) {
           this.largeTriangleSetup.release(workSet.largeTriangleSetup);
         }
@@ -788,17 +515,26 @@ export function validatePackedVisibilityPreparation(
   requiredCapacity: number,
   limits: GpuVisibilityBufferLimits
 ): Readonly<PackedVisibilityPreparationEvidence> {
-  const capacity = assertGpuVisibilityRasterWorkCapacity(
-    requiredCapacity,
-    limits
-  );
+  if (!Number.isSafeInteger(requiredCapacity) || requiredCapacity <= 0 ||
+      requiredCapacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY) {
+    throw new RangeError("Required MeshletWork capacity exceeds VisibilityKey V2");
+  }
+  const effectiveByteLimit = Math.min(limits.maxBufferSize, limits.maxStorageBufferBindingSize);
+  const adapterCapacity = effectiveByteLimit < GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE
+    ? 0
+    : Math.floor((effectiveByteLimit - GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE) /
+      GPU_MESHLET_RASTER_WORK_RECORD_STRIDE);
+  const effectiveCapacity = Math.min(GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY, adapterCapacity);
+  if (requiredCapacity > effectiveCapacity) {
+    throw new RangeError(`Required MeshletWork capacity ${requiredCapacity} exceeds effective capacity ${effectiveCapacity}`);
+  }
   return Object.freeze({
     requiredCapacity,
-    requiredByteLength: visibilityRasterWorkBufferByteLength(requiredCapacity),
-    keyCapacity: capacity.keyCapacity,
-    adapterCapacity: capacity.adapterCapacity,
-    effectiveCapacity: capacity.effectiveCapacity,
-    effectiveByteLimit: capacity.effectiveByteLimit
+    requiredByteLength: gpuMeshletWorkQueueByteLength(requiredCapacity),
+    keyCapacity: GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
+    adapterCapacity,
+    effectiveCapacity,
+    effectiveByteLimit
   });
 }
 

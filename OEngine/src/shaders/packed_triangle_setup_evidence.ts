@@ -1,5 +1,5 @@
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
-import { GPU_TRIANGLE_SETUP_RECORD_WGSL } from "../gpu/GpuExactRasterAbi.js";
+import { GPU_TRIANGLE_SETUP_RECORD_WGSL } from "../gpu/GpuLargeTriangleSetupAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 

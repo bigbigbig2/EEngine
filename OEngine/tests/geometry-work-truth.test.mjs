@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import {
   GPU_COUNTER_BYTE_SIZE,
@@ -8,16 +8,12 @@ import {
   GPU_COUNTER_SCHEMA_VERSION,
   counterByteOffset
 } from "../.test-dist/debug/GpuFrameCounters.js";
-import { EXACT_TRIANGLE_FILTER_WGSL } from "../.test-dist/shaders/exact_triangle_filter.js";
 import { HIERARCHICAL_WORK_GENERATION_WGSL } from "../.test-dist/shaders/hierarchical_work_generation.js";
 import {
   MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
   MESHLET_WORK_COMPACTION_SUBGROUP_WGSL
 } from "../.test-dist/shaders/meshlet_work_compaction.js";
-import {
-  MESHLET_BUCKET_PARITY_WGSL,
-  MESHLET_BUCKET_VISIBILITY_WGSL
-} from "../.test-dist/shaders/meshlet_bucket_visibility.js";
+import { MESHLET_BUCKET_VISIBILITY_WGSL } from "../.test-dist/shaders/meshlet_bucket_visibility.js";
 import {
   GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_RASTER_WORK_ABI_VERSION,
@@ -53,7 +49,7 @@ import {
 import {
   GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET,
   largeTriangleSetupIndex
-} from "../.test-dist/gpu/GpuExactRasterAbi.js";
+} from "../.test-dist/gpu/GpuLargeTriangleSetupAbi.js";
 import { LARGE_TRIANGLE_SETUP_WGSL } from "../.test-dist/shaders/large_triangle_setup.js";
 import {
   GEOMETRY_DIRECTORY_FLAGS,
@@ -94,7 +90,7 @@ const GEOMETRY_TRUTH_FIELDS = [
 ];
 
 test("ADR-0008 Step 0 freezes a collision-free geometry truth counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 17);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 18);
   const indices = GPU_COUNTER_FIELDS.map((field) => field.index);
   assert.equal(new Set(indices).size, indices.length);
   for (const name of GEOMETRY_TRUTH_FIELDS) {
@@ -219,7 +215,6 @@ test("Step-4 production shaders reserve only the selective risk seam", () => {
     const index = counterByteOffset(name) / 4;
     assert.ok(Number.isInteger(index));
     assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, new RegExp(`\\[${index}u\\]`));
-    assert.doesNotMatch(EXACT_TRIANGLE_FILTER_WGSL, new RegExp(`\\[${index}u\\]`));
   }
 });
 
@@ -387,7 +382,7 @@ test("Step-2 shaders contain distinct subgroup and portable compaction algorithm
   }
 });
 
-test("Step-3 bucket raster is a standard indirect GPU consumer with semantic parity evidence", () => {
+test("Step-7 bucket raster is the sole standard indirect VisibilityKey V2 consumer", () => {
   const source = readFileSync(new URL("../src/render/MeshletBucketRaster.ts", import.meta.url), "utf8");
   assert.match(source, /for \(let bucket = 0; bucket < inputs\.prepared\.bucketCount; bucket\+\+\)/);
   assert.match(source, /drawIndirect\(inputs\.prepared\.drawIndirect, bucket \* 16\)/);
@@ -396,6 +391,16 @@ test("Step-3 bucket raster is a standard indirect GPU consumer with semantic par
   assert.doesNotMatch(source, /MAP_READ|mapAsync|getMappedRange/);
   assert.match(MESHLET_BUCKET_VISIBILITY_WGSL, /@builtin\(instance_index\)/);
   assert.match(MESHLET_BUCKET_VISIBILITY_WGSL, /triangle < meshlet\.triangle_count/);
-  assert.match(MESHLET_BUCKET_PARITY_WGSL,
-    new RegExp(`${counterByteOffset("meshletRasterMismatchPixels") / 4}u`));
+  assert.doesNotMatch(source, /ExactTriangleFilter|encodeParity|legacy/);
+  const visibility = readFileSync(new URL("../src/render/passes/PackedVisibilityPass.ts", import.meta.url), "utf8");
+  assert.match(visibility, /rasterExpansionEnabled: false/);
+  assert.doesNotMatch(visibility, /ExactRaster|exactRaster|RasterWorkQueue|packed_visibility/);
+  for (const path of [
+    "../src/render/ExactTriangleFilter.ts",
+    "../src/shaders/exact_triangle_filter.ts",
+    "../src/shaders/packed_visibility.ts",
+    "../src/gpu/GpuExactRasterAbi.ts"
+  ]) {
+    assert.equal(existsSync(new URL(path, import.meta.url)), false, `${path} must be deleted`);
+  }
 });

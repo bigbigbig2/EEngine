@@ -1,15 +1,10 @@
-import { GPU_COUNTER_BYTE_SIZE } from "../debug/GpuFrameCounters.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
-import type {
-  CachedComputePipelineDescriptor,
-  CachedRenderPipelineDescriptor
-} from "../gpu/GPUDescriptorCaches.js";
+import type { CachedRenderPipelineDescriptor } from "../gpu/GPUDescriptorCaches.js";
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";
 import type { GraphicsContext } from "../gpu/GraphicsContext.js";
 import { GPU_MESHLET_BUCKET_COUNT } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import {
-  MESHLET_BUCKET_PARITY_WGSL,
   MESHLET_BUCKET_SETTINGS_SIZE,
   MESHLET_BUCKET_SETTINGS_STRIDE,
   MESHLET_BUCKET_VISIBILITY_WGSL
@@ -79,30 +74,6 @@ const BUCKET_PIPELINES = Object.freeze([
   bucketPipeline(true, true)
 ]);
 
-const PARITY_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "ADR-0008 Meshlet bucket semantic parity group0",
-  entries: [
-    { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-    { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
-    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
-    { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
-  ]
-};
-
-const PARITY_PIPELINE: CachedComputePipelineDescriptor = {
-  label: "ADR-0008 Meshlet bucket semantic parity",
-  layout: {
-    label: "ADR-0008 Meshlet bucket semantic parity layout",
-    bindGroupLayouts: [PARITY_GROUP]
-  },
-  compute: {
-    module: { label: "ADR-0008 Meshlet bucket semantic parity", code: MESHLET_BUCKET_PARITY_WGSL },
-    entryPoint: "compare_meshlet_bucket_visibility"
-  }
-};
-
 export interface MeshletBucketRasterInputs {
   readonly prepared: PreparedMeshletWorkCandidate;
   readonly camera: GPUBuffer;
@@ -113,10 +84,9 @@ export interface MeshletBucketRasterInputs {
   readonly depth: GPUTextureView;
 }
 
-/** Step-3 standard indirect GPU consumer and semantic parity reducer. */
+/** Standard indirect GPU consumer for VisibilityKey V2. */
 export class MeshletBucketRaster {
   private rasterPipelines: readonly GPURenderPipeline[] | null = null;
-  private parityPipeline: GPUComputePipeline | null = null;
   private readonly rasterGroups = new WeakMap<
     PreparedMeshletWorkCandidate,
     Readonly<{ camera: GPUBuffer; group: GPUBindGroup }>
@@ -181,34 +151,4 @@ export class MeshletBucketRaster {
     });
   }
 
-  encodeParity(
-    encoder: GPUCommandEncoder,
-    input: {
-      candidateIdentity: GPUTextureView;
-      productionKey: GPUTextureView;
-      exactWork: GPUBuffer;
-      settings: GPUBuffer;
-      counters: GPUBuffer;
-      meshletWork: GPUBuffer;
-      width: number;
-      height: number;
-    }
-  ): void {
-    const pass = encoder.beginComputePass({ label: "ADR-0008 Meshlet bucket semantic parity" });
-    this.parityPipeline ??= this.graphics.compute_pipelines.obtain(PARITY_PIPELINE);
-    pass.setPipeline(this.parityPipeline);
-    pass.setBindGroup(0, this.graphics.bind_groups.obtain({
-      layout: PARITY_GROUP,
-      entries: [
-        input.candidateIdentity,
-        input.productionKey,
-        { buffer: input.exactWork },
-        { buffer: input.settings },
-        { buffer: input.counters },
-        { buffer: input.meshletWork }
-      ]
-    }));
-    pass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(input.height / 8));
-    pass.end();
-  }
 }

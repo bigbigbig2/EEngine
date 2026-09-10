@@ -283,7 +283,7 @@ export class PackedTransparentOitPass {
         pass.setPipeline(this.graphics.render_pipelines.obtain(MOMENT_PIPELINE));
         pass.setBindGroup(0, this.commonGroup(data, generated,
           requireBuffer(resources.get(inputs.camera), "camera")));
-        pass.drawIndirect(generated.drawIndirect, 0);
+        pass.drawIndirect(generated.drawIndirect!, 0);
         pass.end();
       });
     momentData.optical = moment.create("FX-05 optical depth",
@@ -343,7 +343,7 @@ export class PackedTransparentOitPass {
             { buffer: requireBuffer(resources.get(inputs.view), "view") }
           ]
         }));
-        pass.drawIndirect(generated.drawIndirect, 0);
+        pass.drawIndirect(generated.drawIndirect!, 0);
         pass.end();
       });
     forwardData.resolved = forward.create("FX-05 transparent resolved",
@@ -367,7 +367,7 @@ export class PackedTransparentOitPass {
             label: "FX-05 sampled transparent evidence",
             layout: this.evidenceLayout,
             entries: [
-              { binding: 0, resource: { buffer: generated.rasterWork } },
+              { binding: 0, resource: { buffer: generated.rasterWork! } },
               { binding: 1, resource: { buffer: data.assets.meshletRecords } },
               { binding: 2, resource: resolveTextureView(resources.get(momentData.optical)) },
               { binding: 3, resource: resolveTextureView(resources.get(momentData.moments)) },
@@ -502,7 +502,7 @@ export class PackedTransparentOitPass {
         { buffer: job.assets.meshletTriangleIndices },
         { buffer: job.assets.vertexStreamData },
         { buffer: job.assets.geometryRecords },
-        { buffer: generated.rasterWork },
+        { buffer: generated.rasterWork! },
         { buffer: job.runtime.materialResources.materialRecords },
         job.runtime.materialResources.textureBanks[0],
         ...this.samplers,

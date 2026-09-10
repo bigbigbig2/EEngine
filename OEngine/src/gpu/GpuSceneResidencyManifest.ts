@@ -2,7 +2,7 @@ import type { GeometryAssetPackage } from "../assets/GeometryAssetPackage.js";
 import { computeIndexedPackedHierarchyWorkCapacity } from "../geometry/GeometryHierarchy.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { PackedSceneSource } from "./GpuRenderWorld.js";
-import { visibilityRasterWorkBufferByteLength } from "./GpuVisibilityKeyAbi.js";
+import { gpuMeshletWorkQueueByteLength } from "./GpuMeshletRasterWorkAbi.js";
 
 export const SCENE_RESIDENCY_MANIFEST_SCHEMA_VERSION = 1;
 
@@ -75,7 +75,7 @@ export function createSceneResidencyManifest(
     source.geometries,
     source.geometryIndices
   );
-  const rasterBytes = visibilityRasterWorkBufferByteLength(
+  const rasterBytes = gpuMeshletWorkQueueByteLength(
     hierarchy.rasterWorkCapacity
   );
   const bindingLimit = Math.min(
@@ -84,7 +84,7 @@ export function createSceneResidencyManifest(
   );
   if (rasterBytes > bindingLimit) {
     throw new RangeError(
-      `SceneResidencyManifest exact RasterWork requires ${rasterBytes} bytes but the adapter limit is ${bindingLimit}`
+      `SceneResidencyManifest MeshletWork requires ${rasterBytes} bytes but the adapter limit is ${bindingLimit}`
     );
   }
   return Object.freeze({

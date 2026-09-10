@@ -13,15 +13,11 @@ export interface TextureDomain<D extends ResolutionDomain = ResolutionDomain> {
   readonly scale: number;
 }
 
-/** GPU exact-raster work consumed directly by visibility and Surface passes. */
-export interface ExactRasterFrame {
-  readonly records: ResourceId;
-  readonly drawIndirect: ResourceId;
-  readonly classCapacity: number;
-  readonly setupRecords: ResourceId | null;
+/** Optional bounded large-triangle setup cache consumed by Surface resolve. */
+export interface TriangleSetupFrame {
+  readonly records: ResourceId | null;
   /** Zero when the evidence-gated TriangleSetup cache is disabled. */
-  readonly setupCapacity?: number;
-  readonly setupCount: ResourceId | null;
+  readonly capacity: number;
 }
 
 /** Frame-local logical identity table consumed by VisibilityKey V2 users. */
@@ -37,7 +33,7 @@ export interface VisibilityFrame {
   readonly visibilityKey: ResourceId;
   readonly depth: ResourceId;
   readonly meshletWork: MeshletWorkFrame;
-  readonly exactRaster: ExactRasterFrame;
+  readonly triangleSetup: TriangleSetupFrame;
   readonly domain: TextureDomain<"internal-full">;
 }
 
@@ -176,17 +172,10 @@ function requireResourceId(value: ResourceId | null, name: string): void {
   }
 }
 
-export function exactRasterFrame(input: ExactRasterFrame): ExactRasterFrame {
-  requireResourceId(input.records, "ExactRasterFrame.records");
-  requireResourceId(input.drawIndirect, "ExactRasterFrame.drawIndirect");
-  requireResourceId(input.setupRecords, "ExactRasterFrame.setupRecords");
-  requireResourceId(input.setupCount, "ExactRasterFrame.setupCount");
-  if (!Number.isSafeInteger(input.classCapacity) || input.classCapacity <= 0) {
-    throw new RangeError("ExactRasterFrame.classCapacity must be a positive integer");
-  }
-  if (input.setupCapacity !== undefined &&
-      (!Number.isSafeInteger(input.setupCapacity) || input.setupCapacity < 0)) {
-    throw new RangeError("ExactRasterFrame.setupCapacity must be a non-negative integer");
+export function triangleSetupFrame(input: TriangleSetupFrame): TriangleSetupFrame {
+  requireResourceId(input.records, "TriangleSetupFrame.records");
+  if (!Number.isSafeInteger(input.capacity) || input.capacity < 0) {
+    throw new RangeError("TriangleSetupFrame.capacity must be a non-negative integer");
   }
   return Object.freeze({ ...input });
 }
@@ -200,7 +189,7 @@ export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   return Object.freeze({
     ...input,
     meshletWork: meshletWorkFrame(input.meshletWork),
-    exactRaster: exactRasterFrame(input.exactRaster),
+    triangleSetup: triangleSetupFrame(input.triangleSetup),
     domain: textureDomain(
       "internal-full",
       input.domain.width,

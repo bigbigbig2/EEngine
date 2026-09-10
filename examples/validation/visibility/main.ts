@@ -140,13 +140,13 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const farClusters = far.gpuCounters.values.selectedClusters ?? 0;
       evidence.nearSelectedClusters = nearClusters;
       evidence.farSelectedClusters = farClusters;
-      evidence.nearRasterTriangles = near.gpuCounters.values.hwTriangles ?? 0;
-      evidence.farRasterTriangles = far.gpuCounters.values.hwTriangles ?? 0;
+      evidence.nearRasterTriangles = near.gpuCounters.values.geometryRasterTriangles ?? 0;
+      evidence.farRasterTriangles = far.gpuCounters.values.geometryRasterTriangles ?? 0;
       assertions.push(validationAssertion("lod-work-produced", nearClusters > 0 && farClusters > 0, "Both near and far views produced hierarchy work", { nearClusters, farClusters }, "> 0"));
       assertions.push(validationAssertion("lod-distance-reduces-work", nearClusters >= farClusters, "Far view does not select more cluster work than near view", { nearClusters, farClusters }, "near >= far"));
-      assertions.push(validationAssertion("lod-raster-consumer", (near.gpuCounters.values.hwTriangles ?? 0) > 0 && (far.gpuCounters.values.hwTriangles ?? 0) > 0, "Near and far LOD selections both reached the exact-raster consumer", {
-        near: near.gpuCounters.values.hwTriangles ?? 0,
-        far: far.gpuCounters.values.hwTriangles ?? 0
+      assertions.push(validationAssertion("lod-raster-consumer", (near.gpuCounters.values.geometryRasterTriangles ?? 0) > 0 && (far.gpuCounters.values.geometryRasterTriangles ?? 0) > 0, "Near and far LOD selections both reached the meshlet bucket consumer", {
+        near: near.gpuCounters.values.geometryRasterTriangles ?? 0,
+        far: far.gpuCounters.values.geometryRasterTriangles ?? 0
       }, "> 0"));
       completed = request.scenarioId === "lod-near"
         ? await samplePose(NEAR_POSE, 2)
@@ -338,7 +338,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       rejectedFrustum: counters.rejectedFrustum ?? 0,
       rejectedHzb: counters.rejectedHzb ?? 0,
       selectedClusters: counters.selectedClusters ?? 0,
-      rasterTriangles: counters.hwTriangles ?? 0,
+      rasterTriangles: counters.geometryRasterTriangles ?? 0,
       geometryNodesTested: counters.geometryNodesTested ?? 0,
       geometryClustersAccepted: counters.geometryClustersAccepted ?? 0,
       geometryMeshletsSelected: counters.geometryMeshletsSelected ?? 0,
@@ -361,9 +361,6 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       meshletPortableReservations: counters.meshletPortableReservations ?? 0,
       meshletIndirectInstances: counters.meshletIndirectInstances ?? 0,
       meshletRasterTriangles: counters.meshletRasterTriangles ?? 0,
-      meshletRasterPixels: counters.meshletRasterPixels ?? 0,
-      meshletRasterMatchedPixels: counters.meshletRasterMatchedPixels ?? 0,
-      meshletRasterMismatchPixels: counters.meshletRasterMismatchPixels ?? 0,
       queueOverflowMask: counters.queueOverflowMask ?? 0,
       gpuCounterSchemaVersion: completed.gpuCounters.schemaVersion
     });
@@ -386,7 +383,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "geometry-truth-closed",
         (counters.geometryNodesTested ?? 0) > 0 &&
           (counters.geometryClustersAccepted ?? 0) > 0 &&
-          (counters.geometryMeshletsSelected ?? 0) >= (counters.geometryClustersAccepted ?? 0) &&
+          (overflowScenario ||
+            (counters.geometryMeshletsSelected ?? 0) >= (counters.geometryClustersAccepted ?? 0)) &&
           (counters.geometryCandidateTriangles ?? 0) >= (counters.geometryExactSurvivedTriangles ?? 0) &&
           (counters.geometryCandidateTriangles ?? 0) >= (counters.geometryRasterTriangles ?? 0) &&
           (overflowScenario
@@ -428,9 +426,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const meshletRaster = {
         triangles: counters.meshletRasterTriangles ?? 0,
         paddedVertices: counters.geometryPaddedVertices ?? 0,
-        pixels: counters.meshletRasterPixels ?? 0,
-        matchedPixels: counters.meshletRasterMatchedPixels ?? 0,
-        mismatchPixels: counters.meshletRasterMismatchPixels ?? 0
+        visiblePixels: counters.geometryVisiblePixels ?? 0
       };
       if (request.scenarioId === "meshlet-work-overflow") {
         assertions.push(validationAssertion(
@@ -443,8 +439,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
             meshletQueue.invalid === 0 &&
             meshletBuckets.indirectInstances === 0 &&
             meshletRaster.triangles === 0 &&
-            meshletRaster.pixels === 0 &&
-            meshletRaster.mismatchPixels === 0,
+            meshletRaster.visiblePixels === 0,
           "Correctness-critical MeshletWork reservations fail per cluster without publishing partial ranges",
           { meshletQueue, meshletBuckets, meshletRaster },
           "attempted - written = overflow > 0; written = consumed = produced; all indirect/raster work = 0"
@@ -486,15 +481,13 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           portable ? "portable > 0; subgroup = 0" : "subgroup > 0; portable = 0"
         ));
         assertions.push(validationAssertion(
-          "meshlet-bucket-hardware-raster-parity",
+          "meshlet-bucket-hardware-raster-closed",
           meshletRaster.triangles > 0 &&
             meshletRaster.paddedVertices >= 0 &&
-            meshletRaster.pixels > 0 &&
-            meshletRaster.matchedPixels === meshletRaster.pixels &&
-            meshletRaster.mismatchPixels === 0,
-          "Standard bucket drawIndirect preserves reverse-Z/culling/coverage semantic identity against the production exact path",
+            meshletRaster.visiblePixels > 0,
+          "Production bucket drawIndirect emits non-padding triangles and final VisibilityKey pixels",
           meshletRaster,
-          "triangles/pixels > 0; matched = pixels; mismatch = 0"
+          "triangles/visiblePixels > 0"
         ));
       }
       assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));

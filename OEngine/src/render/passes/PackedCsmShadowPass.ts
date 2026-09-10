@@ -199,7 +199,7 @@ export class PackedCsmShadowPass {
         { buffer: job.assets.meshletTriangleIndices },
         { buffer: job.assets.vertexStreamData },
         { buffer: job.assets.geometryRecords },
-        { buffer: generated.rasterWork },
+        { buffer: generated.rasterWork! },
         { buffer: job.materials.materialRecords },
         ...job.materials.textureBanks
       ]
@@ -217,10 +217,10 @@ export class PackedCsmShadowPass {
     pass.setViewport(...job.viewport, 0, 1);
     pass.setPipeline(this.graphics.render_pipelines.obtain(PACKED_CSM_PIPELINE));
     pass.setBindGroup(0, group);
-    pass.drawIndirect(generated.drawIndirect, 0);
+    pass.drawIndirect(generated.drawIndirect!, 0);
     pass.end();
     if (job.counterBuffer !== null) {
-      this.encodeEvidence(command, generated.rasterWork, job);
+      this.encodeEvidence(command, generated.rasterWork!, job);
     }
     this.lastCascadeDraws++;
     this.lastAtlasPixelsUpdated += job.viewport[2] * job.viewport[3];

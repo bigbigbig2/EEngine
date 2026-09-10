@@ -5,7 +5,7 @@ import {
   GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET,
   GPU_TRIANGLE_SETUP_MAX_BYTES,
   GPU_TRIANGLE_SETUP_RECORD_STRIDE
-} from "../gpu/GpuExactRasterAbi.js";
+} from "../gpu/GpuLargeTriangleSetupAbi.js";
 import { GPU_MESHLET_RASTER_WORK_RECORD_STRIDE, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";

@@ -19,7 +19,7 @@
 - Instance ABI 已拆为 64 B static 与 112 B dynamic region，总 stride 为 176 B；static/transform/material/visibility/lifecycle 分流，transform、material 与 visibility 只上传命中 region/field，CPU shadow 与 patch bytes 由 owner/Profiler 计数。
 - Runtime Asset 已有无 scheduler 的 chunk/page seam：stable identity、logical/physical resident range、request state、budget hook、原子 commit/abort、retire 与 device-loss reset；Geometry/Texture upload 已接入且不改变 stable asset/material handle。
 - ADR-0008 Step 0 已冻结 Geometry truth counter ABI 并接入生产 GPU 阶段：hierarchy nodes、accepted clusters、selected meshlets、MeshletWork、candidate/risky/exact/raster triangles、padding、visible pixels 与 queue payload bytes 可分别观测；切换前正式综合基线保存在 `OEngine/benchmarks/gpu-driven-geometry-v2-baseline.json`。
-- ADR-0008 Step 1–6 已冻结 24 B `GpuMeshletRasterWork`、32 B correctness-critical queue header 与 VisibilityKey V2 的 `24-bit work slot + 8-bit local primitive`；GPU projection-risk classifier 将 normal 与 selective-exact meshlet 互斥排入 32+32 个有界 bucket，固定 64 次 `drawIndirect` 写同一 production `r32uint` key/reverse-Z depth。Material Resolve、MaterialClassDepth 与 Visibility debug 只经 MeshletWork 恢复 material/geometry；旧 ExactRasterWork 只写 parity target。queue overflow/invalid 会清零全部 bucket indirect args，禁止呈现部分几何。独立、默认关闭的 `LargeTriangleSetupCache` 以 `workSlot * 128 + localPrimitive` 建立有界可裁剪 cache，overflow 逐像素 fallback。Geometry cooker 以 one-hot directory flags 写入 Flat/Shallow/Full hint，GPU traversal 逐 geometry 消费；`GeometryWorkBudget` 统一约束 nodes/MeshletWork/raster vertices/risk/setup，fixed 模式确定性运行，adaptive SSE 带 dead zone、慢恢复、quality floor 与 camera-cut reset。Step 2/3/5/6 clean PERF 分别保存在 `OEngine/benchmarks/gpu-driven-geometry-v2-step2.json`、`OEngine/benchmarks/gpu-driven-geometry-v2-step3.json`、`OEngine/benchmarks/gpu-driven-geometry-v2-step5.json` 与 `OEngine/benchmarks/gpu-driven-geometry-v2-step6.json`。
+- ADR-0008 Step 1–7 已冻结 24 B `GpuMeshletRasterWork`、32 B correctness-critical queue header 与 VisibilityKey V2 的 `24-bit work slot + 8-bit local primitive`；GPU projection-risk classifier 将 normal 与 selective-exact meshlet 互斥排入 32+32 个有界 bucket，固定 64 次 `drawIndirect` 写同一 production `r32uint` key/reverse-Z depth。Material Resolve、MaterialClassDepth 与 Visibility debug 只经 MeshletWork 恢复 material/geometry；主视图不再分配或消费 per-triangle RasterWork/ExactRasterWork，旧 filter、ABI、shader、parity target 和死 counter 已删除，阴影/透明仅保留各自独立的 SecondaryRasterWork。queue overflow/invalid 会清零全部 bucket indirect args，禁止呈现部分几何。独立、默认关闭的 `LargeTriangleSetupCache` 以 `workSlot * 128 + localPrimitive` 建立有界可裁剪 cache，overflow 逐像素 fallback。Geometry cooker 以 one-hot directory flags 写入 Flat/Shallow/Full hint，GPU traversal 逐 geometry 消费；`GeometryWorkBudget` 统一约束 nodes/MeshletWork/raster vertices/risk/setup，fixed 模式确定性运行，adaptive SSE 带 dead zone、慢恢复、quality floor 与 camera-cut reset。Step 2/3/5/6 clean PERF 分别保存在 `OEngine/benchmarks/gpu-driven-geometry-v2-step2.json`、`OEngine/benchmarks/gpu-driven-geometry-v2-step3.json`、`OEngine/benchmarks/gpu-driven-geometry-v2-step5.json` 与 `OEngine/benchmarks/gpu-driven-geometry-v2-step6.json`；Step 7 final PERF 待当前 clean implementation commit 执行。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 
@@ -36,7 +36,7 @@
 
 ### Visibility 与 Surface
 
-- Meshlet bucket Hardware Visibility 在 targeted OPAQUE/double-sided/MASK Case 上为零 semantic mismatch；动态 comprehensive DEV 观测到每帧 0–6 个约 87.4 万覆盖像素的 primitive identity 分歧，当前判断为不同 queue 顺序下的等深覆盖争用。VisibilityKey V2 已切为 normal output，但旧 exact parity seam 仍保留到 selective-risk 路由完成；该非零风险不能用像素比例掩盖。
+- Meshlet bucket Hardware Visibility 是主视图唯一 VisibilityKey V2 raster consumer；targeted basic、near/far、selective-risk 和 optional setup Case 已通过，queue closure、最终 visible pixel 与 WebGPU diagnostics 为零错误。旧 exact parity seam 已删除；若后续修改 raster ordering，必须用截图/数值回归重新建立正确性证据。
 - MaterialClassDepth 已能在真实 WebGPU adapter 上运行；完整的 attachment parity、历史 legacy 对照和发布级性能 Gate 尚未关闭。
 - TriangleSetup candidate cache 保持显式 opt-in；正确性、near-plane、off/on GPU 时间和内存组合证据不足以改变默认值。
 - Surface ABI 只有一套生产合同；完整 consumer coverage、attachment/readback parity 和 transient peak 证据仍需补齐。
@@ -61,5 +61,5 @@
 
 1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：为 `primitive-index`、`shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback；没有 consumer 前保持 record-only。
 2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–6 implementation 与 MILESTONE 综合 profile 已落地；在 clean commit 上运行唯一 comprehensive final PERF 后关闭 ADR。
-3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：Step 0–5 已完成；下一步实现 Flat/Shallow/Full local strategy 与 fixed/adaptive GeometryWorkBudget。
-4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：等待 ADR-0008 VisibilityKey V2；SSAO/SSR upstream porting 可以提前研究，但 production cutover 后置。
+3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：Step 0–7 implementation 与 MILESTONE 已完成；在 clean commit 上执行唯一 comprehensive final PERF 并保存证据。
+4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：VisibilityKey V2 production cutover 已完成，可以进入 Step 0；SSAO/SSR upstream porting 可并行研究。

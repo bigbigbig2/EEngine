@@ -42,6 +42,7 @@ const COUNTER_INDIRECT_INSTANCES = counterByteOffset("meshletIndirectInstances")
 const COUNTER_PADDED_VERTICES = counterByteOffset("geometryPaddedVertices") / 4;
 const COUNTER_RASTER_TRIANGLES = counterByteOffset("meshletRasterTriangles") / 4;
 const COUNTER_GEOMETRY_RASTER_TRIANGLES = counterByteOffset("geometryRasterTriangles") / 4;
+const COUNTER_GEOMETRY_MESHLETS_SELECTED = counterByteOffset("geometryMeshletsSelected") / 4;
 const COUNTER_GEOMETRY_CANDIDATE_TRIANGLES = counterByteOffset("geometryCandidateTriangles") / 4;
 const COUNTER_GEOMETRY_RISKY_TRIANGLES = counterByteOffset("geometryRiskyTriangles") / 4;
 const COUNTER_GEOMETRY_EXACT_SURVIVED = counterByteOffset("geometryExactSurvivedTriangles") / 4;
@@ -532,6 +533,7 @@ fn publish_meshlet_work_candidate_counters() {
   }
   if candidate_settings.counters_enabled == 0u { return; }
   atomicAdd(&candidate_counters[${COUNTER_MESHLET_WORKS}u], written);
+  atomicAdd(&candidate_counters[${COUNTER_GEOMETRY_MESHLETS_SELECTED}u], written);
   atomicAdd(&candidate_counters[${COUNTER_QUEUE_BYTES}u],
     written * ${GPU_MESHLET_RASTER_WORK_RECORD_STRIDE}u);
   atomicAdd(&candidate_counters[${COUNTER_ATTEMPTED}u], attempted);

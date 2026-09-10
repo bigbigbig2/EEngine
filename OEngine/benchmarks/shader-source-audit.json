@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 44,
+  "shaderCount": 42,
   "summary": {
-    "authored-live": 44
+    "authored-live": 42
   },
   "entries": [
     {
@@ -170,32 +170,6 @@
       ],
       "pipelineOwners": [
         "src/gpu/EnvironmentPrefilterPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/exact_triangle_filter.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/ExactTriangleFilter.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/ExactTriangleFilter.ts",
-        "src/render/features/VisibilityFeature.ts",
-        "src/render/passes/PackedVisibilityPass.ts",
-        "src/render/passes/RenderDebugViewPass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts",
-        "src/render/VisibilityWorkSet.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/ExactTriangleFilter.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -428,17 +402,14 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/render/ExactTriangleFilter.ts",
         "src/render/GPUCameraState.ts",
         "src/render/LargeTriangleSetupCache.ts",
         "src/render/MeshletBucketRaster.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
-        "src/render/passes/PackedVisibilityPass.ts",
         "src/shaders/brick4_indirect.ts",
         "src/shaders/environment_ibl.ts",
-        "src/shaders/exact_triangle_filter.ts",
         "src/shaders/ibl_specular.ts",
         "src/shaders/large_triangle_setup.ts",
         "src/shaders/light_cluster.ts",
@@ -449,7 +420,6 @@
         "src/shaders/opaque_lighting_resolve.ts",
         "src/shaders/packed_csm_shadow.ts",
         "src/shaders/packed_transparent_oit.ts",
-        "src/shaders/packed_visibility.ts",
         "src/shaders/specular_correction.ts",
         "src/shaders/ssao.ts",
         "src/shaders/ssr_common.ts"
@@ -458,7 +428,6 @@
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
-        "src/render/ExactTriangleFilter.ts",
         "src/render/features/AOService.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
@@ -500,7 +469,6 @@
         "src/render/VisibilityWorkSet.ts"
       ],
       "pipelineOwners": [
-        "src/render/ExactTriangleFilter.ts",
         "src/render/LargeTriangleSetupCache.ts",
         "src/render/MeshletBucketRaster.ts",
         "src/render/MeshletWorkCandidate.ts",
@@ -517,7 +485,6 @@
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
-        "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
@@ -641,7 +608,6 @@
         "src/gpu/TextureResidency.ts",
         "src/gpu/TopLevelAccelerationStructure.ts",
         "src/index.ts",
-        "src/render/ExactTriangleFilter.ts",
         "src/render/features/AOService.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
@@ -911,30 +877,6 @@
       ],
       "pipelineOwners": [
         "src/render/passes/PackedMaterialResolvePass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/packed_visibility.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/PackedVisibilityPass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/VisibilityFeature.ts",
-        "src/render/passes/PackedVisibilityPass.ts",
-        "src/render/passes/RenderDebugViewPass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/PackedVisibilityPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

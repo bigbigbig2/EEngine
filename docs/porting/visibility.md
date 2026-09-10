@@ -41,7 +41,7 @@
 
 ## VIS-LARGE-SETUP-V2 · Independent large-triangle shading setup
 
-- Local owner/source: `OEngine/src/render/LargeTriangleSetupCache.ts`、`OEngine/src/shaders/large_triangle_setup.ts`、`OEngine/src/gpu/GpuExactRasterAbi.ts`、`OEngine/src/shaders/packed_material_resolve.ts`。
+- Local owner/source: `OEngine/src/render/LargeTriangleSetupCache.ts`、`OEngine/src/shaders/large_triangle_setup.ts`、`OEngine/src/gpu/GpuLargeTriangleSetupAbi.ts`、`OEngine/src/shaders/packed_material_resolve.ts`。
 - Upstream: visibility-buffer barycentric reconstruction literature and the existing OEngine Surface oracle；未复制外部表达性代码。
 - License: local specification implementation。
 - Adoption: 按 ADR-0008 独立实现 optional optimization。

@@ -12,7 +12,7 @@ import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilit
 import { GPU_TEXTURE_BANK_SAMPLE_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import { GPU_TRIANGLE_SETUP_RECORD_WGSL } from "../gpu/GpuExactRasterAbi.js";
+import { GPU_TRIANGLE_SETUP_RECORD_WGSL } from "../gpu/GpuLargeTriangleSetupAbi.js";
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 

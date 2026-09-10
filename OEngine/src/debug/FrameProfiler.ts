@@ -190,7 +190,7 @@ const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
   "packed.visibility.drawIndirect",
   "packed.visibility.hierarchy",
   "packed.visibility.keyAttachmentBytes",
-  "packed.visibility.rasterWorkCapacity",
+  "packed.visibility.meshletWorkCapacity",
   "packed.visibility.verticesPerTriangle",
   "pipeline.compute.cacheHits",
   "pipeline.compute.cacheMisses",

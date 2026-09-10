@@ -1,5 +1,3 @@
-import { GPU_CLASSIFIED_RASTER_HEADER_BYTES } from "./GpuWorkGenerationAbi.js";
-import { GPU_EXACT_RASTER_RECORD_STRIDE } from "./GpuExactRasterAbi.js";
 import type { GpuMeshletRasterWorkCpu } from "./GpuMeshletRasterWorkAbi.js";
 
 /**
@@ -174,15 +172,6 @@ export interface GpuVisibilityBufferLimits {
   readonly maxStorageBufferBindingSize: number;
 }
 
-/** Legacy exact-table capacity evidence retained until ADR-0008 Step 7 deletes it. */
-export interface GpuVisibilityRasterWorkCapacity {
-  readonly keyCapacity: number;
-  readonly adapterCapacity: number;
-  readonly effectiveCapacity: number;
-  readonly effectiveByteLimit: number;
-  readonly queueHeaderFits: boolean;
-}
-
 export function tryEncodeVisibilityKey(
   meshletWorkSlot: number,
   localPrimitive: number
@@ -254,77 +243,6 @@ export function isVisibilityKeyContextValid(
   return visibilityGeneration !== 0 &&
     visibilityGeneration === queueGeneration &&
     partition === GPU_VISIBILITY_KEY_PARTITION;
-}
-
-/** Legacy exact RasterWork byte sizing; removed with the old table in Step 7. */
-export function visibilityRasterWorkBufferByteLength(capacity: number): number {
-  assertIntegerInRange(
-    capacity,
-    0,
-    GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
-    "Visibility RasterWork class capacity"
-  );
-  const bytes = GPU_CLASSIFIED_RASTER_HEADER_BYTES +
-    capacity * 2 * GPU_EXACT_RASTER_RECORD_STRIDE;
-  if (!Number.isSafeInteger(bytes)) {
-    throw new RangeError("Visibility RasterWork byte length is not a safe integer");
-  }
-  return bytes;
-}
-
-/** Legacy exact-table adapter gate retained until Step 7. */
-export function getGpuVisibilityRasterWorkCapacity(
-  limits: GpuVisibilityBufferLimits
-): Readonly<GpuVisibilityRasterWorkCapacity> {
-  const maxBufferSize = finiteNonNegativeInteger(limits.maxBufferSize, "maxBufferSize");
-  const maxStorageBufferBindingSize = finiteNonNegativeInteger(
-    limits.maxStorageBufferBindingSize,
-    "maxStorageBufferBindingSize"
-  );
-  const effectiveByteLimit = Math.min(maxBufferSize, maxStorageBufferBindingSize);
-  const queueHeaderFits = effectiveByteLimit >= GPU_CLASSIFIED_RASTER_HEADER_BYTES;
-  const adapterCapacity = queueHeaderFits
-    ? Math.floor(
-        (effectiveByteLimit - GPU_CLASSIFIED_RASTER_HEADER_BYTES) /
-        (GPU_EXACT_RASTER_RECORD_STRIDE * 2)
-      )
-    : 0;
-  return Object.freeze({
-    keyCapacity: GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
-    adapterCapacity,
-    effectiveCapacity: Math.min(
-      GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
-      adapterCapacity
-    ),
-    effectiveByteLimit,
-    queueHeaderFits
-  });
-}
-
-export function assertGpuVisibilityRasterWorkCapacity(
-  requiredCapacity: number,
-  limits: GpuVisibilityBufferLimits
-): Readonly<GpuVisibilityRasterWorkCapacity> {
-  assertIntegerInRange(
-    requiredCapacity,
-    0,
-    GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY,
-    "Required Visibility RasterWork capacity"
-  );
-  const capacity = getGpuVisibilityRasterWorkCapacity(limits);
-  if (!capacity.queueHeaderFits) {
-    throw new RangeError(
-      `Visibility classified RasterWork headers require ${GPU_CLASSIFIED_RASTER_HEADER_BYTES} bytes, ` +
-      `but the adapter limit is ${capacity.effectiveByteLimit} bytes`
-    );
-  }
-  if (requiredCapacity > capacity.effectiveCapacity) {
-    throw new RangeError(
-      `Required Visibility RasterWork capacity ${requiredCapacity} exceeds ` +
-      `effective capacity ${capacity.effectiveCapacity}`
-    );
-  }
-  return capacity;
 }
 
 /** CPU oracle for VisibilityKey V2 plus its external queue lifetime context. */
@@ -401,11 +319,4 @@ function assertIntegerInRange(
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
     throw new RangeError(`${label} must be an integer in [${minimum}, ${maximum}]`);
   }
-}
-
-function finiteNonNegativeInteger(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new RangeError(`${label} must be a non-negative safe integer`);
-  }
-  return value;
 }

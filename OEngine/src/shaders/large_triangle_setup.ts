@@ -8,7 +8,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
   GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET,
   GPU_TRIANGLE_SETUP_RECORD_WGSL
-} from "../gpu/GpuExactRasterAbi.js";
+} from "../gpu/GpuLargeTriangleSetupAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 

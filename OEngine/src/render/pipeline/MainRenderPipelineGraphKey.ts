@@ -11,7 +11,7 @@ export interface MainRenderPipelineGraphKeyInput {
   }>;
   readonly featureTopology: number;
   readonly visibilityConfiguration: string;
-  readonly visibilityClassCapacity: number;
+  readonly visibilityWorkCapacity: number;
   readonly instrumentation: string;
   readonly instrumentationRevision: number;
   readonly historyFormat: number;
@@ -31,7 +31,7 @@ export function createMainRenderPipelineGraphKey(
     sampleCount: 1,
     enabledFeatureBits: input.featureTopology,
     visibilityImplementation: input.visibilityConfiguration,
-    visibilityClassCapacity: input.visibilityClassCapacity,
+    visibilityWorkCapacity: input.visibilityWorkCapacity,
     historyFormatRevision: input.historyFormat,
     outputFormat: input.outputFormat,
     instrumentationMode: input.instrumentation,

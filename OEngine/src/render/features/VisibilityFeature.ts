@@ -28,7 +28,7 @@ export class VisibilityFeature {
   }
 
   get lastDrawIndirect(): boolean { return this.implementation.lastDrawIndirect; }
-  get lastCandidateCapacity(): number { return this.implementation.lastCandidateCapacity; }
+  get lastMeshletWorkCapacity(): number { return this.implementation.lastMeshletWorkCapacity; }
   get lastVerticesPerTriangle(): number { return this.implementation.lastVerticesPerTriangle; }
   get lastVisibilityKeyAttachmentBytes(): number {
     return this.implementation.lastVisibilityKeyAttachmentBytes;

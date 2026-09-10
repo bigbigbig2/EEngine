@@ -48,7 +48,6 @@ export interface PreparedMeshletWorkCandidate {
   readonly bucketStates: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
   readonly bucketSettings: GPUBuffer;
-  readonly paritySettings: GPUBuffer;
   readonly bucketCount: number;
   readonly compactionPath: MeshletWorkCompactionPath;
   readonly capacity: number;
@@ -76,7 +75,6 @@ interface CandidateState {
   readonly bucketStates: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
   readonly bucketSettings: GPUBuffer;
-  readonly paritySettings: GPUBuffer;
   readonly dispatch: GPUBuffer;
   readonly compactionPath: MeshletWorkCompactionPath;
   writeBindGroup: GPUBindGroup;
@@ -222,11 +220,6 @@ export class MeshletWorkCandidate {
         size: GPU_MESHLET_DRAW_COUNT * MESHLET_BUCKET_SETTINGS_STRIDE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       }, buffers, accounting, "uniform");
-      const paritySettings = this.createBuffer({
-        label: "ADR-0008 MeshletWork raster parity settings",
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      }, buffers, accounting, "uniform");
       const dispatch = this.createBuffer({
         label: "ADR-0008 MeshletWork candidate dispatchIndirect",
         size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
@@ -274,7 +267,6 @@ export class MeshletWorkCandidate {
         bucketStates,
         drawIndirect,
         bucketSettings,
-        paritySettings,
         bucketCount: GPU_MESHLET_DRAW_COUNT,
         compactionPath,
         capacity: inputs.capacity
@@ -289,7 +281,6 @@ export class MeshletWorkCandidate {
         bucketStates,
         drawIndirect,
         bucketSettings,
-        paritySettings,
         dispatch,
         compactionPath,
         writeBindGroup: bindGroups.write,

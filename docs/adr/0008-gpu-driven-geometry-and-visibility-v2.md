@@ -5,7 +5,7 @@
 > **Scope:** GPU Geometry Work Generation、LOD/Hierarchy、Raster Work、Exact 路径、VisibilityKey
 > **Depends on:** ADR-0007 的 compact geometry / instance contract
 > **Feeds:** ADR-0009 的 Compute Shading / FrameProducts
-> **Proposed supersession:** 接受并完成 cutover 后，替代 ADR-0004 的 per-triangle work identity 与 VisibilityKey material-class 决策；此前 ADR-0004 仍是当前权威
+> **Supersedes:** ADR-0004 的 per-triangle work identity 与 VisibilityKey material-class 决策；SecondaryRasterWork 仍由各功能独立拥有
 > **Design source:** `OEngine Performance Architecture V2` Design Draft
 
 ## Context
@@ -952,7 +952,7 @@ PERF 重点比较 Geometry GPU phase、GPU frame envelope、queue bytes、candid
 - normal path 从 O(triangles) 中间 work records 收敛到 O(meshlets)。
 - Visibility identity 与 temporary exact table 解耦。
 - Subgroups/primitive-index 真正服务 WebGPU 2026 Desktop 主路径。
-- ExactTriangleFilter 回到 correctness guard 的定位。
+- selective-risk route 保留独立 correctness ABI，不再要求 mandatory per-triangle filter/table。
 - 为 ADR-0009 compute shading 提供稳定 primitive identity。
 - Geometry budget 可以解决 camera-near 等 worst-case work spike，而不靠 silent drop。
 

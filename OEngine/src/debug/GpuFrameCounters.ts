@@ -8,7 +8,7 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 17;
+export const GPU_COUNTER_SCHEMA_VERSION = 18;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -29,10 +29,7 @@ export const GPU_COUNTER_FIELDS = [
   { name: "rejectedCone", index: 6, semantic: "cone rejects" },
   { name: "rejectedHzb", index: 7, semantic: "HZB rejects" },
   { name: "swClusters", index: 8, semantic: "software raster clusters" },
-  { name: "hwClusters", index: 9, semantic: "exact-triangle RasterWork records consumed by drawIndirect; historical field name retained by result schema" },
-  { name: "alphaClusters", index: 10, semantic: "alpha-tested exact-triangle RasterWork records" },
   { name: "swTriangles", index: 11, semantic: "software raster triangles" },
-  { name: "hwTriangles", index: 12, semantic: "exact fixed-function raster triangles submitted" },
   { name: "shadedPixels", index: 13, semantic: "resolved visible pixels" },
   { name: "emptyVisibilityPixels", index: 14, semantic: "empty resolve pixels" },
   { name: "activeMaterials", index: 15, semantic: "active non-transparent MaterialRecords addressable by the bounded Material Resolve kernel set" },
@@ -104,10 +101,6 @@ export const GPU_COUNTER_FIELDS = [
   { name: "ssrHighRoughnessTracePixels", index: 81, semantic: "sampled pixels rejected before SSR trace by the active roughness cutoff" },
   { name: "ssrDistanceLimitExceededPixels", index: 82, semantic: "sampled rays rejected by max-distance termination" },
   { name: "ssrValidationRejectedPixels", index: 83, semantic: "sampled hierarchical hits rejected by current depth, facing, edge or confidence validation" },
-  { name: "rasterCandidateTriangles", index: 84, semantic: "sampled exact triangle candidates entering classification/filter" },
-  { name: "rasterRejectedTriangles", index: 85, semantic: "sampled exact triangle candidates rejected before Hardware Visibility" },
-  { name: "opaqueRasterWork", index: 86, semantic: "sampled compact OPAQUE exact RasterWork records" },
-  { name: "maskRasterWork", index: 87, semantic: "sampled compact MASK exact RasterWork records" },
   { name: "kernelBaseFactorPixels", index: 88, semantic: "sampled visible pixels classified as BaseFactor" },
   { name: "kernelBaseTexturePixels", index: 89, semantic: "sampled visible pixels classified as BaseTexture" },
   { name: "kernelBaseOrmPixels", index: 90, semantic: "sampled visible pixels classified as BaseOrm" },
@@ -144,10 +137,7 @@ export const GPU_COUNTER_FIELDS = [
   { name: "meshletSubgroupReservations", index: 121, semantic: "workgroup tile reservations issued by the subgroup ballot/prefix compaction specialization" },
   { name: "meshletPortableReservations", index: 122, semantic: "workgroup tile reservations issued by the portable shared-memory prefix compaction fallback" },
   { name: "meshletIndirectInstances", index: 123, semantic: "sum of GPU-generated bucket drawIndirect instanceCount fields" },
-  { name: "meshletRasterTriangles", index: 124, semantic: "non-padding triangles submitted through ADR-0008 meshlet bucket drawIndirect" },
-  { name: "meshletRasterPixels", index: 125, semantic: "pixels covered by the ADR-0008 meshlet bucket Hardware Visibility candidate" },
-  { name: "meshletRasterMatchedPixels", index: 126, semantic: "covered pixels whose meshlet candidate identity matches the production exact path" },
-  { name: "meshletRasterMismatchPixels", index: 127, semantic: "pixels with empty/covered or semantic identity disagreement between meshlet candidate and production exact path" }
+  { name: "meshletRasterTriangles", index: 124, semantic: "non-padding triangles submitted through ADR-0008 meshlet bucket drawIndirect" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

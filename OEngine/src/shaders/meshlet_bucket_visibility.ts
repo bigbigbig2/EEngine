@@ -8,22 +8,11 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL } from "../gpu/GpuTextureRefAbi.js";
-import {
-  GPU_VISIBILITY_KEY_EMPTY,
-  GPU_VISIBILITY_KEY_INVALID,
-  GPU_VISIBILITY_KEY_WGSL
-} from "../gpu/GpuVisibilityKeyAbi.js";
-import { counterByteOffset } from "../debug/GpuFrameCounters.js";
+import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 
 export const MESHLET_BUCKET_SETTINGS_STRIDE = 256;
 export const MESHLET_BUCKET_SETTINGS_SIZE = 16;
-export const MESHLET_BUCKET_PARITY_WORKGROUP_SIZE = 8;
-
-const COUNTER_RASTER_PIXELS = counterByteOffset("meshletRasterPixels") / 4;
-const COUNTER_MATCHED_PIXELS = counterByteOffset("meshletRasterMatchedPixels") / 4;
-const COUNTER_MISMATCH_PIXELS = counterByteOffset("meshletRasterMismatchPixels") / 4;
-
 export const MESHLET_BUCKET_VISIBILITY_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
@@ -236,70 +225,5 @@ fn write_meshlet_mask(
   }
   if alpha < record.alpha_cutoff { discard; }
   return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
-}
-`;
-
-export const MESHLET_BUCKET_PARITY_WGSL = /* wgsl */ `
-${GPU_MESHLET_RASTER_WORK_WGSL}
-${GPU_VISIBILITY_KEY_WGSL}
-struct ExactQueueHeaderRead {
-  written: u32, attempted: u32, peak: u32, overflow: u32,
-  fallback: u32, capacity: u32, rejected0: u32, rejected1: u32,
-};
-struct ExactRasterWork {
-  instance_record_index: u32, geometry_record_index: u32,
-  meshlet_record_index: u32, local_triangle_index: u32,
-  material_handle: u32, raster_flags: u32, setup_index: u32, exact_flags: u32,
-};
-struct ExactRasterWorkQueueRead {
-  opaque_header: ExactQueueHeaderRead,
-  mask_header: ExactQueueHeaderRead,
-  elements: array<ExactRasterWork>,
-};
-struct ParitySettings { width: u32, height: u32, reserved0: u32, reserved1: u32 };
-@group(0) @binding(0) var candidate_identity: texture_2d<u32>;
-@group(0) @binding(1) var production_key: texture_2d<u32>;
-@group(0) @binding(2) var<storage, read> exact_work: ExactRasterWorkQueueRead;
-@group(0) @binding(3) var<uniform> parity_settings: ParitySettings;
-@group(0) @binding(4) var<storage, read_write> parity_counters: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read> parity_meshlet_work: OEngineMeshletWorkQueueRead;
-
-@compute @workgroup_size(${MESHLET_BUCKET_PARITY_WORKGROUP_SIZE}, ${MESHLET_BUCKET_PARITY_WORKGROUP_SIZE})
-fn compare_meshlet_bucket_visibility(@builtin(global_invocation_id) id: vec3u) {
-  if id.x >= parity_settings.width || id.y >= parity_settings.height { return; }
-  if parity_meshlet_work.header.overflow_count != 0u ||
-      parity_meshlet_work.header.invalid_count != 0u { return; }
-  let key = textureLoad(candidate_identity, vec2u(id.xy), 0).r;
-  let legacy_key = textureLoad(production_key, vec2u(id.xy), 0).r;
-  let decoded = oengine_visibility_key_decode(key);
-  let candidate_valid = decoded.valid != 0u &&
-    parity_meshlet_work.header.generation != 0u &&
-    decoded.meshlet_work_slot < min(parity_meshlet_work.header.written_count,
-      parity_meshlet_work.header.capacity) &&
-    decoded.meshlet_work_slot < arrayLength(&parity_meshlet_work.elements);
-  let production_valid = legacy_key != ${GPU_VISIBILITY_KEY_EMPTY}u &&
-    legacy_key != ${GPU_VISIBILITY_KEY_INVALID}u && (legacy_key >> 29u) < 7u;
-  if candidate_valid { atomicAdd(&parity_counters[${COUNTER_RASTER_PIXELS}u], 1u); }
-  var matched = candidate_valid == production_valid;
-  if matched && candidate_valid {
-    let slot = legacy_key & 0x1fffffffu;
-    let meshlet_work = parity_meshlet_work.elements[decoded.meshlet_work_slot];
-    if slot >= arrayLength(&exact_work.elements) ||
-        (meshlet_work.packed_profile_lod >> 24u) != OENGINE_VISIBILITY_KEY_PARTITION {
-      matched = false;
-    } else {
-      let work = exact_work.elements[slot];
-      matched = meshlet_work.instance_slot == work.instance_record_index &&
-        meshlet_work.geometry_slot == work.geometry_record_index &&
-        meshlet_work.meshlet_slot == work.meshlet_record_index &&
-        meshlet_work.material_slot_or_range == work.material_handle &&
-        decoded.local_primitive == work.local_triangle_index;
-    }
-  }
-  if matched {
-    if candidate_valid { atomicAdd(&parity_counters[${COUNTER_MATCHED_PIXELS}u], 1u); }
-  } else {
-    atomicAdd(&parity_counters[${COUNTER_MISMATCH_PIXELS}u], 1u);
-  }
 }
 `;

@@ -183,6 +183,7 @@ export class PackedMaterialResolvePass {
   private readonly inverseCurrent = new Float32Array(16);
   private readonly unusedRotation = new Float32Array(16);
   private readonly previousViewProjectionBuffer: GPUBuffer;
+  private readonly zeroTriangleSetupBuffer: GPUBuffer;
   private readonly samplers: readonly GPUSampler[];
   private cachedLookupGroup: GPUBindGroup | null = null;
   private cachedLookupInputs: PackedMaterialLookupInputs | null = null;
@@ -223,6 +224,12 @@ export class PackedMaterialResolvePass {
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
+    this.zeroTriangleSetupBuffer = graphics.device.createBuffer({
+      label: "R4-B Material Resolve/disabled TriangleSetup record",
+      size: 40,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    graphics.device.queue.writeBuffer(this.zeroTriangleSetupBuffer, 0, new Uint8Array(40));
     this.samplers = Object.freeze([
       createSampler(graphics.device, "repeat", "linear"),
       createSampler(graphics.device, "clamp-to-edge", "linear"),
@@ -292,13 +299,10 @@ export class PackedMaterialResolvePass {
           resources.get(inputs.visibility.meshletWork.records),
           "MeshletWork"
         );
-        const setupRecords = inputs.visibility.exactRaster.setupRecords === null
-          ? requireBuffer(
-            resources.get(inputs.visibility.exactRaster.drawIndirect),
-            "zeroed TriangleSetup fallback"
-          )
+        const setupRecords = inputs.visibility.triangleSetup.records === null
+          ? this.zeroTriangleSetupBuffer
           : requireBuffer(
-            resources.get(inputs.visibility.exactRaster.setupRecords),
+            resources.get(inputs.visibility.triangleSetup.records),
             "TriangleSetup records"
           );
         const group0 = this.graphics.bind_groups.obtain({
@@ -367,7 +371,7 @@ export class PackedMaterialResolvePass {
           pass.draw(3, 1, 0, 0);
         }
         pass.end();
-        if (inputs.counters !== undefined && (inputs.visibility.exactRaster.setupCapacity ?? 0) > 0) {
+        if (inputs.counters !== undefined && inputs.visibility.triangleSetup.capacity > 0) {
           const setupEvidence = this.ensureSetupEvidencePipeline();
           const evidenceGroup = this.graphics.bind_groups.obtain({
             layout: SETUP_EVIDENCE_GROUP,
@@ -437,10 +441,8 @@ export class PackedMaterialResolvePass {
     );
     builder.read(inputs.visibility.visibilityKey);
     builder.read(inputs.visibility.meshletWork.records);
-    if (inputs.visibility.exactRaster.setupRecords !== null) {
-      builder.read(inputs.visibility.exactRaster.setupRecords);
-    } else {
-      builder.read(inputs.visibility.exactRaster.drawIndirect);
+    if (inputs.visibility.triangleSetup.records !== null) {
+      builder.read(inputs.visibility.triangleSetup.records);
     }
     if (classDepth !== null) builder.read(classDepth);
     if (this.backend === "class-discard") builder.read(inputs.visibility.depth);
@@ -469,6 +471,7 @@ export class PackedMaterialResolvePass {
   destroy(): void {
     this.classDepthPass.destroy();
     this.previousViewProjectionBuffer.destroy();
+    this.zeroTriangleSetupBuffer.destroy();
     this.cachedLookupGroup = null;
     this.cachedLookupInputs = null;
   }

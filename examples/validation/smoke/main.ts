@@ -197,7 +197,7 @@ async function runScenario(
       validationAssertion("single-main-submit", stableProfile.submits.count === 1 && stableProfile.submits.labels["Renderer/main-0"] === 1, "A stable frame used exactly one main submission", stableProfile.submits, { count: 1, label: "Renderer/main-0" }),
       validationAssertion("stable-graph-cache-hit", stableProfile.graph.builds === 0 && stableProfile.graph.compiles === 0 && stableProfile.graph.cacheHits === 1 && stableProfile.graph.cacheMisses === 0, "A stable frame reused the compiled main graph", stableProfile.graph, { builds: 0, compiles: 0, cacheHits: 1, cacheMisses: 0 }),
       validationAssertion("disabled-features-cold", disabledFeaturesCold, "Disabled temporal, AO and SSR features retained no Pass or history resources", { temporal, ambientOcclusion, reflections, historyOwners: memory.historyOwners }),
-      validationAssertion("gpu-raster-work", (counters.hwTriangles ?? 0) > 0, "Hardware visibility consumed triangle work", counters.hwTriangles, "> 0"),
+      validationAssertion("gpu-raster-work", (counters.geometryRasterTriangles ?? 0) > 0, "Meshlet Hardware Visibility consumed triangle work", counters.geometryRasterTriangles, "> 0"),
       validationAssertion("gpu-shaded-pixels", (counters.shadedPixels ?? 0) > 0, "Material resolve shaded visible pixels", counters.shadedPixels, "> 0"),
       validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0),
       validationAssertion("gpu-diagnostics-clean", !hasGpuFailure(diagnostics), "WebGPU diagnostics are clean", diagnostics)
@@ -206,7 +206,7 @@ async function runScenario(
       assertions.push(
         validationAssertion("ordinary-scene-adapter-active", renderWorldEvidence.ordinarySceneAdapterCount === 1 && renderWorldEvidence.packedSourceCount === 0, "The ordinary Scene is registered through the authoritative GPU Render World", renderWorldEvidence),
         validationAssertion("ordinary-scene-update-consumed", ordinarySceneMode ? renderWorldEvidence.ordinaryScenePatchCount >= 1 && sceneEvidence.patchedTransformCount >= 1 && sceneEvidence.patchedMaterialCount >= 1 : sceneEvidence.bulkInstantiateCount >= 4 && sceneEvidence.releaseCount >= 3 && sceneEvidence.activeInstanceCount === 2, ordinarySceneMode ? "SceneChangeSet transform/material deltas reached the compact GPU Instance table" : "Explicit full resync committed add/remove replacements and retained the final active set", { renderWorldEvidence, sceneEvidence }),
-        validationAssertion("ordinary-scene-unified-consumers", (counters.hwTriangles ?? 0) > 0 && (counters.shadedPixels ?? 0) > 0, "The ordinary Scene reached the shared VisibilityKey and Surface consumers", { hwTriangles: counters.hwTriangles ?? 0, shadedPixels: counters.shadedPixels ?? 0 }),
+        validationAssertion("ordinary-scene-unified-consumers", (counters.geometryRasterTriangles ?? 0) > 0 && (counters.shadedPixels ?? 0) > 0, "The ordinary Scene reached the shared VisibilityKey V2 and Surface consumers", { geometryRasterTriangles: counters.geometryRasterTriangles ?? 0, shadedPixels: counters.shadedPixels ?? 0 }),
         validationAssertion("ordinary-scene-single-material-owner", ownerCreation.renderWorld.materialStoreCreated, "The ordinary Scene created the authoritative Render World material store", ownerCreation.renderWorld),
         validationAssertion("ordinary-scene-single-geometry-owner", packedFrameHasNoLegacyGeometryOwners(ownerCreation), "The ordinary Scene retained one shared environment and one Render World", ownerCreation.scene),
         validationAssertion("ordinary-scene-stable-upload-absent", forbiddenLegacyUploads.length === 0 && (stableProfile.counters["runtime.scenePrepareCount"] ?? 0) === 0, "A stable ordinary Scene frame scanned or uploaded no scene data", { forbiddenLegacyUploads, scenePrepareCount: stableProfile.counters["runtime.scenePrepareCount"] ?? 0, uploads: stableProfile.uploads }, { forbiddenLegacyUploads: [], scenePrepareCount: 0 })
@@ -235,7 +235,7 @@ async function runScenario(
         residentAssetCount: residency.residentAssetCount,
         activeInstanceCount: sceneEvidence.activeInstanceCount,
         renderWorldEvidence,
-        hwTriangles: counters.hwTriangles ?? 0,
+        geometryRasterTriangles: counters.geometryRasterTriangles ?? 0,
         shadedPixels: counters.shadedPixels ?? 0,
         queueOverflowMask: counters.queueOverflowMask ?? 0,
         luminanceMaximum,

@@ -70,9 +70,8 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "candidateClusters",
       "selectedClusters",
       "rejectedFrustum",
-      "hwClusters",
-      "alphaClusters",
-      "hwTriangles",
+      "geometryMeshletWorksProduced",
+      "geometryRasterTriangles",
       "shadedPixels",
       "emptyVisibilityPixels",
       "invalidVisibilityKeys",
@@ -192,8 +191,8 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "candidateClusters",
       "selectedClusters",
       "rejectedFrustum",
-      "hwClusters",
-      "hwTriangles",
+      "geometryMeshletWorksProduced",
+      "geometryRasterTriangles",
       "rootStageQueueReservations",
       "traversalQueueReservations",
       "workGenerationDispatchUpdates",
@@ -244,17 +243,10 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
     "VIS-05",
     "主链没有 Compute software raster cluster queue producer"
   ),
-  hwClusters: supported(
-    "Packed Hardware Visibility RasterWork reducer"
-  ),
-  alphaClusters: supported(
-    "RasterWork material reducer"
-  ),
   swTriangles: unsupported(
     "VIS-05",
     "主链没有 Compute software raster triangle producer"
   ),
-  hwTriangles: supported("ExactTriangleFilter compact OPAQUE/MASK reducer"),
   shadedPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   emptyVisibilityPixels: supported("VisibilityCounterPass/final-visibility reducer"),
   invalidVisibilityKeys: supported(
@@ -348,10 +340,6 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   ssrHighRoughnessTracePixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
   ssrDistanceLimitExceededPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
   ssrValidationRejectedPixels: supported("ScreenSpaceReflectionsPass/Q00 sampled trace evidence reducer"),
-  rasterCandidateTriangles: supported("ExactTriangleFilter candidate queue reducer"),
-  rasterRejectedTriangles: supported("ExactTriangleFilter compact difference reducer"),
-  opaqueRasterWork: supported("ExactTriangleFilter OPAQUE queue reducer"),
-  maskRasterWork: supported("ExactTriangleFilter MASK queue reducer"),
   kernelBaseFactorPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
   kernelBaseTexturePixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
   kernelBaseOrmPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
@@ -362,18 +350,18 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   shadeWorkOverflow: unsupported("VIS-06", "ShadeWork queue no longer exists"),
   classDepthPixels: supported("VisibilityCounterPass/valid VisibilityKey reducer"),
   classDraws: supported("PackedMaterialResolvePass/bounded fullscreen kernel draws"),
-  setupAttempted: supported("ExactTriangleFilter/TriangleSetup candidate reducer"),
-  setupWritten: supported("ExactTriangleFilter/TriangleSetup candidate reducer"),
+  setupAttempted: supported("LargeTriangleSetupCache candidate reducer"),
+  setupWritten: supported("LargeTriangleSetupCache candidate reducer"),
   setupVisiblePixelHits: supported("PackedMaterialResolvePass/TriangleSetup evidence compute"),
   setupVisiblePixelFallbacks: supported("PackedMaterialResolvePass/per-pixel fallback evidence compute"),
-  setupOverflow: supported("ExactTriangleFilter/TriangleSetup bounded capacity reducer"),
+  setupOverflow: supported("LargeTriangleSetupCache bounded capacity reducer"),
   geometryNodesTested: supported("HierarchicalWorkGenerator hierarchy test reducer"),
   geometryClustersAccepted: supported("HierarchicalWorkGenerator accepted-cluster reducer"),
   geometryMeshletsSelected: supported("HierarchicalWorkGenerator selected-meshlet reducer"),
   geometryMeshletWorksProduced: supported("ADR-0008 MeshletRasterWork producer reducer"),
-  geometryCandidateTriangles: supported("ExactTriangleFilter candidate reducer"),
+  geometryCandidateTriangles: supported("MeshletWorkCandidate triangle-count reducer"),
   geometryRiskyTriangles: supported("ADR-0008 selective-risk classifier reducer"),
-  geometryExactSurvivedTriangles: supported("ExactTriangleFilter survivor reducer"),
+  geometryExactSurvivedTriangles: supported("selective-risk route conservative survivor reducer"),
   geometryRasterTriangles: supported("hardware visibility submitted-triangle reducer"),
   geometryPaddedVertices: supported("ADR-0008 bucket raster padding reducer"),
   geometryVisiblePixels: supported("VisibilityCounterPass valid-key reducer"),
@@ -388,10 +376,7 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   meshletSubgroupReservations: supported("MeshletWork subgroup ballot/prefix compaction specialization"),
   meshletPortableReservations: supported("MeshletWork portable workgroup shared-memory prefix fallback"),
   meshletIndirectInstances: supported("MeshletWork GPU-generated bucket drawIndirect records"),
-  meshletRasterTriangles: supported("Meshlet bucket drawIndirect triangle submission publisher"),
-  meshletRasterPixels: supported("Meshlet bucket semantic parity reducer candidate coverage"),
-  meshletRasterMatchedPixels: supported("Meshlet bucket semantic parity reducer matches"),
-  meshletRasterMismatchPixels: supported("Meshlet bucket semantic parity reducer mismatches")
+  meshletRasterTriangles: supported("MeshletWork bucket drawIndirect triangle reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

@@ -30,12 +30,12 @@ const DEFAULT_QUEUE_SPECS: readonly QueueMetricSpec[] = Object.freeze([
   {
     label: "Selected meshlets",
     current: "gpu.counter.geometryMeshletsSelected",
-    capacity: "packed.visibility.rasterWorkCapacity"
+    capacity: "packed.visibility.meshletWorkCapacity"
   },
   {
     label: "Meshlet work",
     current: "gpu.counter.geometryMeshletWorksProduced",
-    capacity: "packed.visibility.rasterWorkCapacity"
+    capacity: "packed.visibility.meshletWorkCapacity"
   },
   {
     label: "TriangleSetup candidates",

@@ -3,7 +3,7 @@
 import { ChangeSignal } from "../../core/Signal.js";
 import { Vec2 } from "../../core/math/Vec2.js";
 import { GraphicsContext } from "../../gpu/GraphicsContext.js";
-import { GPU_EXACT_RASTER_ABI_VERSION } from "../../gpu/GpuExactRasterAbi.js";
+import { GPU_MESHLET_RASTER_WORK_ABI_VERSION } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBILITY_KEY_ABI_VERSION } from "../../gpu/GpuVisibilityKeyAbi.js";
 import {
   GPU_SURFACE_ABI_VERSION,
@@ -304,9 +304,9 @@ export interface RendererMemoryEvidence extends GraphicsMemoryEvidence {
 }
 
 export interface VisibilitySurfaceMigrationEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly visibilityKeyAbiVersion: number;
-  readonly exactRasterAbiVersion: number;
+  readonly meshletRasterWorkAbiVersion: number;
   readonly surfaceAbiVersion: number;
   readonly materialResolveBackend: string;
   readonly materialResolveBackendSelection: Readonly<{
@@ -991,9 +991,9 @@ export class MainRenderPipeline {
   /** Machine-readable migration state; does not imply any performance Gate passed. */
   visibilitySurfaceMigrationEvidence(): VisibilitySurfaceMigrationEvidence {
     return Object.freeze({
-      schemaVersion: 1,
+      schemaVersion: 2,
       visibilityKeyAbiVersion: GPU_VISIBILITY_KEY_ABI_VERSION,
-      exactRasterAbiVersion: GPU_EXACT_RASTER_ABI_VERSION,
+      meshletRasterWorkAbiVersion: GPU_MESHLET_RASTER_WORK_ABI_VERSION,
       surfaceAbiVersion: this._surfaceAbiProfile.version,
       materialResolveBackend: this._surfaceFeature?.materialResolveBackend ?? "uninitialized",
       materialResolveBackendSelection: Object.freeze({
@@ -1706,18 +1706,6 @@ export class MainRenderPipeline {
             bind("packed-counter-sink", (bindings) =>
               requirePackedGeometryOwner(bindings.geometry).runtime.counterSink)
           );
-          const exactRasterRecords = graph.import_resource(
-            "packed_exact_raster_records",
-            { kind: "imported", label: "Exact OPAQUE/MASK RasterWork" },
-            bind("packed-exact-raster-records", (bindings) =>
-              requirePackedGeometryOwner(bindings.geometry).visibilityJob.prepared.workSet.exactRasterRecords)
-          );
-          const exactDrawIndirect = graph.import_resource(
-            "packed_exact_draw_indirect",
-            { kind: "imported", label: "Exact OPAQUE/MASK drawIndirect" },
-            bind("packed-exact-draw-indirect", (bindings) =>
-              requirePackedGeometryOwner(bindings.geometry).visibilityJob.prepared.workSet.exactDrawIndirect)
-          );
           const meshletWorkRecords = graph.import_resource(
             "packed_meshlet_work_records",
             { kind: "imported", label: "VisibilityKey V2 MeshletWork queue" },
@@ -1751,8 +1739,6 @@ export class MainRenderPipeline {
             {
               camera: currentCameraRes,
               counters: packedCounterRes,
-              exactRasterRecords,
-              exactDrawIndirect,
               meshletWorkRecords,
               setupRecords: triangleSetupRecords,
               previousHzb: this.packed_visibility_hzb_enabled
@@ -1803,9 +1789,6 @@ export class MainRenderPipeline {
             "visitedBvhNodes",
             "candidateClusters",
             "selectedClusters",
-            "hwClusters",
-            "alphaClusters",
-            "hwTriangles",
             "rejectedFrustum",
             "rejectedCone",
             "rejectedHzb",
@@ -1833,9 +1816,6 @@ export class MainRenderPipeline {
             "meshletPortableReservations",
             "meshletIndirectInstances",
             "meshletRasterTriangles",
-            "meshletRasterPixels",
-            "meshletRasterMatchedPixels",
-            "meshletRasterMismatchPixels",
             "queueOverflowMask"
           ]);
         }
@@ -2941,9 +2921,6 @@ export class MainRenderPipeline {
           "visitedBvhNodes",
           "candidateClusters",
           "selectedClusters",
-          "hwClusters",
-          "alphaClusters",
-          "hwTriangles",
           "rejectedFrustum",
           "rejectedCone",
           "rejectedHzb",
@@ -2983,9 +2960,6 @@ export class MainRenderPipeline {
           "meshletPortableReservations",
           "meshletIndirectInstances",
           "meshletRasterTriangles",
-          "meshletRasterPixels",
-          "meshletRasterMatchedPixels",
-          "meshletRasterMismatchPixels",
           "candidateLightsAttempted",
           "candidateLightsWritten",
           "activeLightsAttempted",
@@ -3132,7 +3106,7 @@ export class MainRenderPipeline {
       resolution: bindings.context.resolution,
       featureTopology: topology.enabledFeatureBits,
       visibilityConfiguration:
-        `hardware-exact-visibility-key-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
+        `hardware-meshlet-visibility-key-v2-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
         `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
         `-meshlet-visibility-v2` +
         `-meshlet-capacity${this.packed_meshlet_work_candidate_capacity}` +
@@ -3141,7 +3115,7 @@ export class MainRenderPipeline {
         `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
         `-ssao-owner${this._ssaoOwnerGeneration}` +
         `-ssr-owner${this._ssrOwnerGeneration}`,
-      visibilityClassCapacity: bindings.geometry.visibilityJob.prepared.workSet.classCapacity,
+      visibilityWorkCapacity: bindings.geometry.visibilityJob.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
       historyFormat: bindings.context.history.formatRevision,
       outputFormat: this._format,
       instrumentation: instrumentationMode,
@@ -3350,8 +3324,8 @@ export class MainRenderPipeline {
   ): void {
     const profiler = this._profiler;
     profiler.recordCounter(
-        "packed.visibility.rasterWorkCapacity",
-        this._visibilityFeature.lastCandidateCapacity
+        "packed.visibility.meshletWorkCapacity",
+        this._visibilityFeature.lastMeshletWorkCapacity
       );
       profiler.recordCounter(
         "packed.visibility.drawIndirect",

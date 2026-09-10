@@ -71,6 +71,8 @@ export interface HierarchicalWorkConfig {
   readonly fusedLeafEnabled?: boolean;
   /** Test/pressure override. Production defaults to the proven scene capacity. */
   readonly traversalWorkCapacity?: number;
+  /** False for the main VisibilityKey V2 path; leaves VisibleCluster as the terminal queue. */
+  readonly rasterExpansionEnabled?: boolean;
 }
 
 export interface HierarchicalWorkBindingInputs {
@@ -102,7 +104,7 @@ export interface HierarchicalWorkEvidenceLayout {
   readonly traversalHeaderBegin: 1;
   readonly traversalHeaderCount: number;
   readonly selectedHeaderIndex: number;
-  readonly rasterHeaderIndex: number;
+  readonly rasterHeaderIndex: number | null;
   readonly totalHeaderCount: number;
 }
 
@@ -111,15 +113,16 @@ export interface GeneratedHierarchyWork {
   readonly visibleClusters: GPUBuffer;
   readonly visibleClusterCapacity: number;
   /** Header begins at byte 0; RasterWork records begin at byte 32. */
-  readonly rasterWork: GPUBuffer;
+  readonly rasterWork: GPUBuffer | null;
   readonly rasterWorkCapacity: number;
   /** Complete 16 B drawIndirect record written by the GPU every frame. */
-  readonly drawIndirect: GPUBuffer;
+  readonly drawIndirect: GPUBuffer | null;
   /** Sampling-only root, round output, selected and RasterWork headers. */
   readonly evidence: GPUBuffer | null;
   readonly evidenceLayout: HierarchicalWorkEvidenceLayout;
   readonly encodedRoundCount: number;
   readonly implementation: HierarchicalWorkImplementation;
+  readonly rasterExpansionEnabled: boolean;
 }
 
 export interface PreparedHierarchyWork {
@@ -142,9 +145,10 @@ interface PreparedState {
   readonly implementation: HierarchicalWorkImplementation;
   readonly traversalQueues: readonly [GPUBuffer, GPUBuffer] | null;
   readonly selectedQueue: GPUBuffer;
-  readonly rasterQueue: GPUBuffer;
-  readonly drawIndirect: GPUBuffer;
-  readonly dispatchArgs: readonly [GPUBuffer, GPUBuffer, GPUBuffer] | null;
+  readonly rasterQueue: GPUBuffer | null;
+  readonly drawIndirect: GPUBuffer | null;
+  readonly rasterExpansionEnabled: boolean;
+  readonly dispatchArgs: readonly [GPUBuffer, GPUBuffer, GPUBuffer | null] | null;
   readonly evidence: GPUBuffer | null;
   readonly evidenceLayout: HierarchicalWorkEvidenceLayout;
   readonly viewUniform: GPUBuffer;
@@ -398,7 +402,10 @@ export class HierarchicalWorkGenerator {
       1,
       "R3-B hierarchy round count"
     );
-    const implementation = selectHierarchicalWorkImplementation(scene, config);
+    const rasterExpansionEnabled = config.rasterExpansionEnabled ?? true;
+    const implementation = rasterExpansionEnabled
+      ? selectHierarchicalWorkImplementation(scene, config)
+      : "wavefront";
     const diagnosticsEnabled = config.diagnosticsEnabled ?? config.countersEnabled;
     validateDispatchCapacity(
       this.device,
@@ -413,11 +420,13 @@ export class HierarchicalWorkGenerator {
         traversalCapacity,
         "R3-B Cluster traversal"
       );
-      validateWorkgroupCapacity(
-        this.device,
-        scene.visibleClusterCapacity,
-        "R3-C RasterWork expansion"
-      );
+      if (rasterExpansionEnabled) {
+        validateWorkgroupCapacity(
+          this.device,
+          scene.visibleClusterCapacity,
+          "R3-C RasterWork expansion"
+        );
+      }
     }
 
     const buffers: GPUBuffer[] = [];
@@ -444,30 +453,32 @@ export class HierarchicalWorkGenerator {
         GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride,
         buffers
       );
-      const rasterQueue = this.createQueue(
-        "R3-D/RasterWorkQueue",
-        scene.rasterWorkCapacity,
-        GPU_RASTER_WORK_SCHEMA.stride,
-        buffers
-      );
+      const rasterQueue = rasterExpansionEnabled
+        ? this.createQueue(
+          "R3-D/RasterWorkQueue",
+          scene.rasterWorkCapacity,
+          GPU_RASTER_WORK_SCHEMA.stride,
+          buffers
+        )
+        : null;
       const pingArgs = implementation === "wavefront"
         ? this.createDispatchArgs("R3-D/dispatch/ping", buffers)
         : null;
       const pongArgs = implementation === "wavefront"
         ? this.createDispatchArgs("R3-D/dispatch/pong", buffers)
         : null;
-      const selectedArgs = implementation === "wavefront"
+      const selectedArgs = implementation === "wavefront" && rasterExpansionEnabled
         ? this.createDispatchArgs("R3-D/dispatch/VisibleCluster", buffers)
         : null;
-      const drawIndirect = this.createInitializedBuffer({
+      const drawIndirect = rasterExpansionEnabled ? this.createInitializedBuffer({
         label: "R3-C/Hardware Visibility drawIndirect",
         size: GPU_DRAW_INDIRECT_ARGS_SIZE,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT |
           GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
-      }, new Uint8Array(new Uint32Array([0, 1, 0, 0]).buffer), buffers);
+      }, new Uint8Array(new Uint32Array([0, 1, 0, 0]).buffer), buffers) : null;
       const evidenceHeaderCount = checkedAddU32(
         roundCount,
-        3,
+        rasterExpansionEnabled ? 3 : 2,
         "R3-B evidence header count"
       );
       const evidence = diagnosticsEnabled
@@ -476,6 +487,7 @@ export class HierarchicalWorkGenerator {
           roundCount,
           scene,
           traversalCapacity,
+          rasterExpansionEnabled,
           buffers
         )
         : null;
@@ -523,7 +535,7 @@ export class HierarchicalWorkGenerator {
           createTraversalGroup("R3-D/pong → ping", pong!, ping!, pingArgs!)
         ] as const)
         : null;
-      const expansionBindGroup = implementation === "wavefront"
+      const expansionBindGroup = implementation === "wavefront" && rasterExpansionEnabled
         ? this.device.createBindGroup({
         label: "R3-C/VisibleCluster → RasterWork bindings",
         layout: this.expansionLayout,
@@ -531,14 +543,14 @@ export class HierarchicalWorkGenerator {
           { binding: 0, resource: { buffer: viewUniform } },
           { binding: 1, resource: { buffer: scene.assets.clusterRecords } },
           { binding: 2, resource: { buffer: selectedQueue } },
-          { binding: 3, resource: { buffer: rasterQueue } },
-          { binding: 4, resource: { buffer: drawIndirect } },
+          { binding: 3, resource: { buffer: rasterQueue! } },
+          { binding: 4, resource: { buffer: drawIndirect! } },
           { binding: 6, resource: { buffer: scene.counterBuffer } },
           { binding: 7, resource: { buffer: scene.assets.meshletRecords } }
         ]
       })
         : null;
-      const dispatchPreparationBindGroup = implementation === "wavefront"
+      const dispatchPreparationBindGroup = implementation === "wavefront" && rasterExpansionEnabled
         ? this.device.createBindGroup({
         label: "R3-C/prepare RasterWork dispatch bindings",
         layout: this.dispatchPreparationLayout,
@@ -556,8 +568,8 @@ export class HierarchicalWorkGenerator {
           scene,
           viewUniform,
           selectedQueue,
-          rasterQueue,
-          drawIndirect
+          rasterQueue!,
+          drawIndirect!
         )
         : null;
       const evidenceLayout = Object.freeze({
@@ -566,19 +578,20 @@ export class HierarchicalWorkGenerator {
         traversalHeaderBegin: 1 as const,
         traversalHeaderCount: roundCount,
         selectedHeaderIndex: roundCount + 1,
-        rasterHeaderIndex: roundCount + 2,
+        rasterHeaderIndex: rasterExpansionEnabled ? roundCount + 2 : null,
         totalHeaderCount: evidenceHeaderCount
       });
       const generated = Object.freeze({
         visibleClusters: selectedQueue,
         visibleClusterCapacity: scene.visibleClusterCapacity,
         rasterWork: rasterQueue,
-        rasterWorkCapacity: scene.rasterWorkCapacity,
+        rasterWorkCapacity: rasterExpansionEnabled ? scene.rasterWorkCapacity : 0,
         drawIndirect,
         evidence,
         evidenceLayout,
         encodedRoundCount: roundCount,
-        implementation
+        implementation,
+        rasterExpansionEnabled
       });
       const prepared = Object.freeze({
         [PREPARED_HIERARCHY_WORK_BRAND]: true as const,
@@ -595,7 +608,8 @@ export class HierarchicalWorkGenerator {
         selectedQueue,
         rasterQueue,
         drawIndirect,
-        dispatchArgs: pingArgs !== null && pongArgs !== null && selectedArgs !== null
+        rasterExpansionEnabled,
+        dispatchArgs: pingArgs !== null && pongArgs !== null
           ? [pingArgs, pongArgs, selectedArgs]
           : null,
         evidence,
@@ -688,19 +702,19 @@ export class HierarchicalWorkGenerator {
         createTraversalGroup("R3-D/ping → pong", queues[0], queues[1], args[1]),
         createTraversalGroup("R3-D/pong → ping", queues[1], queues[0], args[0])
       ] as const);
-      state.expansionBindGroup = this.device.createBindGroup({
+      state.expansionBindGroup = state.rasterExpansionEnabled ? this.device.createBindGroup({
         label: "R3-C/VisibleCluster → RasterWork bindings",
         layout: this.expansionLayout,
         entries: [
           { binding: 0, resource: { buffer: state.viewUniform } },
           { binding: 1, resource: { buffer: state.scene.assets.clusterRecords } },
           { binding: 2, resource: { buffer: state.selectedQueue } },
-          { binding: 3, resource: { buffer: state.rasterQueue } },
-          { binding: 4, resource: { buffer: state.drawIndirect } },
+          { binding: 3, resource: { buffer: state.rasterQueue! } },
+          { binding: 4, resource: { buffer: state.drawIndirect! } },
           { binding: 6, resource: { buffer: state.scene.counterBuffer } },
           { binding: 7, resource: { buffer: state.scene.assets.meshletRecords } }
         ]
-      });
+      }) : null;
     } else {
       state.leafBindGroup = this.createLeafBindGroup(
         this.leafLayout,
@@ -708,8 +722,8 @@ export class HierarchicalWorkGenerator {
         state.scene,
         state.viewUniform,
         state.selectedQueue,
-        state.rasterQueue,
-        state.drawIndirect
+        state.rasterQueue!,
+        state.drawIndirect!
       );
     }
   }
@@ -743,17 +757,17 @@ export class HierarchicalWorkGenerator {
     );
 
     clearQueueCounters(encoder, state.selectedQueue);
-    clearQueueCounters(encoder, state.rasterQueue);
+    if (state.rasterQueue !== null) clearQueueCounters(encoder, state.rasterQueue);
     if (state.evidence !== null) {
       clearEvidenceCounters(
         encoder,
         state.evidence,
-        state.roundCount + 3
+        state.evidenceLayout.totalHeaderCount
       );
     }
     // instanceCount/firstVertex/firstInstance are immutable initialized lanes;
     // the GPU resets and publishes only exact vertexCount = triangles * 3.
-    encoder.clearBuffer(state.drawIndirect, 0, 4);
+    if (state.drawIndirect !== null) encoder.clearBuffer(state.drawIndirect, 0, 4);
     const rootGrid = computeHierarchicalDispatchGrid(
       state.scene.instanceCount,
       Number(this.device.limits.maxComputeWorkgroupsPerDimension)
@@ -781,7 +795,9 @@ export class HierarchicalWorkGenerator {
       const args = state.dispatchArgs!;
       clearQueueCounters(encoder, queues[0]);
       clearQueueCounters(encoder, queues[1]);
-      for (const dispatch of args) encoder.clearBuffer(dispatch, 0, 12);
+      for (const dispatch of args) {
+        if (dispatch !== null) encoder.clearBuffer(dispatch, 0, 12);
+      }
 
       const rootPass = encoder.beginComputePass({
         label: "R3-D/Fused root hierarchy work generation"
@@ -823,20 +839,22 @@ export class HierarchicalWorkGenerator {
         this.copyQueueEvidence(state, encoder, outputQueue, round + 1);
       }
 
-      const dispatchPreparationPass = encoder.beginComputePass({
-        label: "R3-C/prepare RasterWork dispatch"
-      });
-      dispatchPreparationPass.setPipeline(this.dispatchPreparationPipeline);
-      dispatchPreparationPass.setBindGroup(2, state.dispatchPreparationBindGroup!);
-      dispatchPreparationPass.dispatchWorkgroups(1, 1, 1);
-      dispatchPreparationPass.end();
-      const expansionPass = encoder.beginComputePass({
-        label: "R3-C/VisibleCluster → RasterWork"
-      });
-      expansionPass.setPipeline(this.expansionPipeline);
-      expansionPass.setBindGroup(2, state.expansionBindGroup!);
-      expansionPass.dispatchWorkgroupsIndirect(args[2], 0);
-      expansionPass.end();
+      if (state.rasterExpansionEnabled) {
+        const dispatchPreparationPass = encoder.beginComputePass({
+          label: "R3-C/prepare RasterWork dispatch"
+        });
+        dispatchPreparationPass.setPipeline(this.dispatchPreparationPipeline);
+        dispatchPreparationPass.setBindGroup(2, state.dispatchPreparationBindGroup!);
+        dispatchPreparationPass.dispatchWorkgroups(1, 1, 1);
+        dispatchPreparationPass.end();
+        const expansionPass = encoder.beginComputePass({
+          label: "R3-C/VisibleCluster → RasterWork"
+        });
+        expansionPass.setPipeline(this.expansionPipeline);
+        expansionPass.setBindGroup(2, state.expansionBindGroup!);
+        expansionPass.dispatchWorkgroupsIndirect(args[2]!, 0);
+        expansionPass.end();
+      }
     }
 
     this.writeSampledEvidence(state, encoder);
@@ -879,7 +897,7 @@ export class HierarchicalWorkGenerator {
     traversalCapacity: number;
     visibleClusterCapacity: number;
     rasterWorkCapacity: number;
-    drawIndirectBytes: 16;
+    drawIndirectBytes: 0 | 16;
     encodedRoundCount: number;
     encodedTraversalPassCount: number;
     sampledEvidenceBytes: number;
@@ -897,8 +915,8 @@ export class HierarchicalWorkGenerator {
       rootWorkBytes: 0,
       traversalCapacity: state.traversalCapacity,
       visibleClusterCapacity: state.scene.visibleClusterCapacity,
-      rasterWorkCapacity: state.scene.rasterWorkCapacity,
-      drawIndirectBytes: GPU_DRAW_INDIRECT_ARGS_SIZE as 16,
+      rasterWorkCapacity: state.rasterExpansionEnabled ? state.scene.rasterWorkCapacity : 0,
+      drawIndirectBytes: state.rasterExpansionEnabled ? GPU_DRAW_INDIRECT_ARGS_SIZE as 16 : 0,
       encodedRoundCount: state.roundCount,
       encodedTraversalPassCount: state.implementation === "wavefront"
         ? state.roundCount - 1
@@ -923,6 +941,7 @@ export class HierarchicalWorkGenerator {
     roundCount: number,
     scene: HierarchicalWorkSceneDescriptor,
     traversalCapacity: number,
+    rasterExpansionEnabled: boolean,
     buffers: GPUBuffer[]
   ): GPUBuffer {
     const size = checkedByteLength(
@@ -947,11 +966,13 @@ export class HierarchicalWorkGenerator {
       scene.visibleClusterCapacity,
       true
     );
-    view.setUint32(
-      (roundCount + 2) * GPU_WORK_QUEUE_HEADER_SCHEMA.stride + capacityOffset,
-      scene.rasterWorkCapacity,
-      true
-    );
+    if (rasterExpansionEnabled) {
+      view.setUint32(
+        (roundCount + 2) * GPU_WORK_QUEUE_HEADER_SCHEMA.stride + capacityOffset,
+        scene.rasterWorkCapacity,
+        true
+      );
+    }
     return this.createInitializedBuffer({
       label: "R3-D/sampled queue evidence",
       size,
@@ -1065,12 +1086,14 @@ export class HierarchicalWorkGenerator {
       state.selectedQueue,
       state.evidenceLayout.selectedHeaderIndex
     );
-    this.copyQueueEvidence(
-      state,
-      encoder,
-      state.rasterQueue,
-      state.evidenceLayout.rasterHeaderIndex
-    );
+    if (state.rasterQueue !== null && state.evidenceLayout.rasterHeaderIndex !== null) {
+      this.copyQueueEvidence(
+        state,
+        encoder,
+        state.rasterQueue,
+        state.evidenceLayout.rasterHeaderIndex
+      );
+    }
   }
 
   private createQueue(
@@ -1313,8 +1336,8 @@ export class HierarchicalWorkGenerator {
       state.scene,
       state.viewUniform,
       state.selectedQueue,
-      state.rasterQueue,
-      state.drawIndirect,
+      state.rasterQueue!,
+      state.drawIndirect!,
       hzbView
     );
     state.hzbLeafBindGroups.set(hzbView, group);

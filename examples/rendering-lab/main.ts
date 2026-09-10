@@ -1726,7 +1726,7 @@ function updatePipelineEvidence(
   const visible = counters.visibleInstances ?? 0;
   const candidate = counters.candidateInstances ?? 0;
   const selected = counters.selectedClusters ?? 0;
-  const hw = counters.hwClusters ?? 0;
+  const hw = counters.geometryMeshletWorksProduced ?? 0;
   const shaded = counters.shadedPixels ?? 0;
   const empty = counters.emptyVisibilityPixels ?? 0;
   pipelineAsset.textContent = `v${pipelineStats.packageVersion} · ${pipelineStats.instances.toLocaleString()} instances · ${pipelineStats.geometries} packages · ${pipelineStats.materials} materials · ${pipelineStats.vertices.toLocaleString()} vertices · ${pipelineStats.triangles.toLocaleString()} triangles · ${pipelineStats.meshlets.toLocaleString()} meshlets · ${pipelineStats.clusters.toLocaleString()} clusters · ${pipelineStats.bvhNodes.toLocaleString()} BVH · ${formatBytes(pipelineStats.packageBytes)}`;
@@ -1734,7 +1734,7 @@ function updatePipelineEvidence(
   pipelineScene.textContent = `${gpuScene.activeInstanceCount}/${gpuScene.highWaterInstanceCount} active · stride ${gpuScene.recordStride} B · ${formatBytes(gpuScene.residentBytes)} table · ${packed.sceneCount} packed scene`;
   pipelineVisibility.textContent = sampled ? `${candidate.toLocaleString()} candidates → ${visible.toLocaleString()} visible · frustum ${counters.rejectedFrustum ?? 0} · cone ${counters.rejectedCone ?? 0} · HZB ${counters.rejectedHzb ?? 0}` : "尚未完成采样";
   pipelineWork.textContent = sampled ? `${counters.visitedBvhNodes ?? 0} visited → ${selected} selected · root reserve ${counters.rootStageQueueReservations ?? 0} · traversal reserve ${counters.traversalQueueReservations ?? 0} · CAS retry ${counters.workGenerationCasRetries ?? 0}` : "尚未完成采样";
-  pipelineRaster.textContent = sampled ? `${hw} HW RasterWork · ${counters.hwTriangles ?? 0} triangles · SW ${counters.swClusters ?? 0} · overflow ${counters.queueOverflowMask ?? 0}` : "尚未完成采样";
+  pipelineRaster.textContent = sampled ? `${hw} MeshletWork · ${counters.geometryRasterTriangles ?? 0} triangles · SW ${counters.swClusters ?? 0} · overflow ${counters.queueOverflowMask ?? 0}` : "尚未完成采样";
   pipelineKey.textContent = sampled ? `VisibilityKey ${shaded.toLocaleString()} shaded / ${empty.toLocaleString()} empty · invalid ${counters.invalidVisibilityKeys ?? 0} · reverse-Z depth` : "尚未完成采样";
   pipelineSurface.textContent = sampled ? `${counters.activeMaterials ?? 0} materials · normal ${counters.normalTexturePixels ?? 0} · ORM ${counters.ormTexturePixels ?? 0} · emissive ${counters.emissiveTexturePixels ?? 0} · gradient fallback ${counters.gradientFallbackPixels ?? 0}` : "尚未完成采样";
   pipelineFrame.textContent = `timestamp frame ${summary.latestTimestampFrame ?? "—"} · ${summary.latestSubmitCount ?? "—"} submit · ${commandValue(summary.latestCommands, "renderPass")} render / ${commandValue(summary.latestCommands, "computePass")} compute · ${commandValue(summary.latestCommands, "draw")} draw / ${commandValue(summary.latestCommands, "dispatch")} dispatch · current graph ${activeRenderer.mainFrameGraphEvidence()?.cacheKey ?? "—"}`;
