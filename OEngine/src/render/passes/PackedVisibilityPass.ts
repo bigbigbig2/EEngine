@@ -160,10 +160,12 @@ export interface PackedVisibilityPrepareJob {
   readonly hierarchyView: GeometryHierarchyView;
   readonly sseThreshold: number;
   readonly coneEnabled: boolean;
-  /** Step-1 GPU-only MeshletWork producer/validator seam; never a raster consumer. */
+  /** Step-2 GPU-only compact/bucket/indirect producer seam; never a raster consumer. */
   readonly meshletWorkCandidateEnabled?: boolean;
   /** Positive test pressure override; omitted uses the proven triangle capacity upper bound. */
   readonly meshletWorkCandidateCapacity?: number;
+  /** Step-2 specialization policy; auto selects subgroup only when negotiated. */
+  readonly meshletWorkCompactionPath?: "auto" | "portable" | "subgroup";
   /** Evidence-gated TriangleSetup candidate cache; false keeps fallback-only Surface reconstruction. */
   readonly triangleSetupEnabled?: boolean;
   readonly triangleSetupThresholdPixels?: number;
@@ -491,6 +493,7 @@ export class PackedVisibilityPass {
       rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
       meshletWorkCandidateEnabled,
       meshletWorkCandidateCapacity,
+      meshletWorkCompactionPath: job.meshletWorkCompactionPath ?? "auto",
       triangleSetupEnabled,
       triangleSetupThresholdPixels: triangleSetupEnabled
         ? normalizeTriangleSetupThreshold(job.triangleSetupThresholdPixels)
@@ -547,7 +550,8 @@ export class PackedVisibilityPass {
           assets: job.assets,
           scene: job.scene,
           counterBuffer: counters,
-          countersEnabled: job.countersEnabled
+          countersEnabled: job.countersEnabled,
+          compactionPath: key.meshletWorkCompactionPath
         });
       }
       exact = this.exactFilter.prepare({

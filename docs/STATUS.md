@@ -19,7 +19,7 @@
 - Instance ABI 已拆为 64 B static 与 112 B dynamic region，总 stride 为 176 B；static/transform/material/visibility/lifecycle 分流，transform、material 与 visibility 只上传命中 region/field，CPU shadow 与 patch bytes 由 owner/Profiler 计数。
 - Runtime Asset 已有无 scheduler 的 chunk/page seam：stable identity、logical/physical resident range、request state、budget hook、原子 commit/abort、retire 与 device-loss reset；Geometry/Texture upload 已接入且不改变 stable asset/material handle。
 - ADR-0008 Step 0 已冻结 Geometry truth counter ABI 并接入生产 GPU 阶段：hierarchy nodes、accepted clusters、selected meshlets、MeshletWork、candidate/risky/exact/raster triangles、padding、visible pixels 与 queue payload bytes 可分别观测；切换前正式综合基线保存在 `OEngine/benchmarks/gpu-driven-geometry-v2-baseline.json`。
-- ADR-0008 Step 1 已冻结 24 B `GpuMeshletRasterWork` 与 32 B correctness-critical queue header；可选 candidate seam 从生产 hierarchy 的 VisibleCluster 在 GPU 生成 MeshletWork，再由 GPU identity/generation consumer 验证 `attempted = written = consumed`。默认关闭时不分配 queue 或编码 pass，且没有 CPU queue readback。
+- ADR-0008 Step 1–2 已冻结 24 B `GpuMeshletRasterWork` 与 32 B correctness-critical queue header；可选 candidate seam 从生产 hierarchy 的 VisibleCluster 以 subgroup ballot/prefix specialization 或 portable shared-memory prefix 在 GPU 紧凑生成，再经 32 个有界 raster bucket 的 histogram/prefix/scatter 生成完整标准 indirect args，最后由 GPU identity/generation consumer 验证 `attempted = written = consumed = indirect instances`。默认关闭时不分配 queue 或编码 pass，且没有 CPU queue readback。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 
@@ -60,5 +60,5 @@
 
 1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：为 `primitive-index`、`shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback；没有 consumer 前保持 record-only。
 2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–6 implementation 与 MILESTONE 综合 profile 已落地；在 clean commit 上运行唯一 comprehensive final PERF 后关闭 ADR。
-3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：Step 0–1 已完成；下一步在同一 MeshletWork ABI 上增加 WebGPU 2026 Desktop subgroup compact、portable workgroup fallback、bounded bucket classification 与完整 GPU indirect args。
+3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：Step 0–2 已完成；下一步让固定数量的标准 indirect bucket draw 直接消费 bucketed MeshletWork，并完成 reverse-Z、culling、OPAQUE/MASK 与 primitive identity parity。
 4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：等待 ADR-0008 VisibilityKey V2；SSAO/SSR upstream porting 可以提前研究，但 production cutover 后置。

@@ -1,21 +1,44 @@
+import { GPU_INSTANCE_FLAGS } from "./GpuInstanceAbi.js";
+
 /** ADR-0008 frame-local meshlet raster work and queue ABI. */
 export const GPU_MESHLET_RASTER_WORK_ABI_VERSION = 1;
 export const GPU_MESHLET_RASTER_WORK_RECORD_STRIDE = 24;
 export const GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE = 32;
 export const GPU_MESHLET_WORK_INVALID_GENERATION = 0;
 export const GPU_MESHLET_WORK_QUEUE_CLASS = "CorrectnessCritical" as const;
+export const GPU_MESHLET_BUCKET_TRIANGLE_CAPACITIES = Object.freeze([32, 64, 96, 128] as const);
+export const GPU_MESHLET_BUCKET_DECODE_PROFILE_COUNT = 2;
+export const GPU_MESHLET_BUCKET_RASTER_PIPELINE_COUNT = 2;
+export const GPU_MESHLET_BUCKET_COVERAGE_COUNT = 2;
+export const GPU_MESHLET_BUCKET_COUNT =
+  GPU_MESHLET_BUCKET_TRIANGLE_CAPACITIES.length *
+  GPU_MESHLET_BUCKET_DECODE_PROFILE_COUNT *
+  GPU_MESHLET_BUCKET_RASTER_PIPELINE_COUNT *
+  GPU_MESHLET_BUCKET_COVERAGE_COUNT;
+export const GPU_MESHLET_BUCKET_STATE_STRIDE = 16;
+export const GPU_MESHLET_DRAW_INDIRECT_STRIDE = 16;
 
 export const GPU_MESHLET_RASTER_FLAGS = Object.freeze({
-  DoubleSided: 1 << 0,
-  AlphaTested: 1 << 1,
-  Transparent: 1 << 2,
-  ForceExact: 1 << 3
+  DoubleSided: GPU_INSTANCE_FLAGS.DoubleSided,
+  AlphaTested: GPU_INSTANCE_FLAGS.AlphaTested,
+  Transparent: GPU_INSTANCE_FLAGS.Transparent,
+  ForceExact: 1 << 31
 } as const);
 
 export const GPU_MESHLET_DECODE_PROFILE = Object.freeze({
   Invalid: 0,
   StaticPbrCompactV2: 1,
   ExplicitFloat32FallbackV2: 2
+} as const);
+
+export const GPU_MESHLET_RASTER_PIPELINE_CLASS = Object.freeze({
+  BackFaceCull: 0,
+  DoubleSided: 1
+} as const);
+
+export const GPU_MESHLET_COVERAGE_CLASS = Object.freeze({
+  Opaque: 0,
+  Mask: 1
 } as const);
 
 export const GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS = Object.freeze({
@@ -210,17 +233,79 @@ export function reserveGpuMeshletWork(
 }
 
 export function packGpuMeshletProfileLod(decodeProfile: number, lod: number): number {
+  return packGpuMeshletProfileLodBucket(decodeProfile, lod, 0, 0);
+}
+
+export function packGpuMeshletProfileLodBucket(
+  decodeProfile: number,
+  lod: number,
+  bucketKey: number,
+  partition: number
+): number {
   assertBits(decodeProfile, 8, "Meshlet decode profile");
   assertBits(lod, 8, "Meshlet LOD");
-  return (decodeProfile | (lod << 8)) >>> 0;
+  assertBits(bucketKey, 8, "Meshlet bucket key");
+  assertBits(partition, 8, "Meshlet partition");
+  return (decodeProfile | (lod << 8) | (bucketKey << 16) | (partition << 24)) >>> 0;
 }
 
 export function unpackGpuMeshletProfileLod(value: number): Readonly<{
   decodeProfile: number;
   lod: number;
+  bucketKey: number;
+  partition: number;
 }> {
   assertU32(value, "packed Meshlet profile/LOD");
-  return Object.freeze({ decodeProfile: value & 0xff, lod: (value >>> 8) & 0xff });
+  return Object.freeze({
+    decodeProfile: value & 0xff,
+    lod: (value >>> 8) & 0xff,
+    bucketKey: (value >>> 16) & 0xff,
+    partition: value >>> 24
+  });
+}
+
+export interface GpuMeshletBucketClassification {
+  readonly key: number;
+  readonly triangleCapacity: 32 | 64 | 96 | 128;
+  readonly decodeProfile: number;
+  readonly rasterPipelineClass: number;
+  readonly coverageClass: number;
+}
+
+/** CPU oracle for the bounded shader bucket classifier. */
+export function classifyGpuMeshletBucket(
+  triangleCount: number,
+  decodeProfile: number,
+  rasterFlags: number
+): Readonly<GpuMeshletBucketClassification> {
+  assertPositiveU32(triangleCount, "Meshlet triangle count");
+  if (triangleCount > 128) throw new RangeError("Meshlet triangle count exceeds the 128-triangle ABI ceiling");
+  const capacityIndex = GPU_MESHLET_BUCKET_TRIANGLE_CAPACITIES.findIndex(
+    (capacity) => triangleCount <= capacity
+  );
+  const profileIndex = decodeProfile === GPU_MESHLET_DECODE_PROFILE.StaticPbrCompactV2
+    ? 0
+    : decodeProfile === GPU_MESHLET_DECODE_PROFILE.ExplicitFloat32FallbackV2
+      ? 1
+      : -1;
+  if (profileIndex < 0) throw new RangeError("Meshlet decode profile has no raster bucket");
+  const rasterPipelineClass = (rasterFlags & GPU_MESHLET_RASTER_FLAGS.DoubleSided) !== 0
+    ? GPU_MESHLET_RASTER_PIPELINE_CLASS.DoubleSided
+    : GPU_MESHLET_RASTER_PIPELINE_CLASS.BackFaceCull;
+  const coverageClass = (rasterFlags & GPU_MESHLET_RASTER_FLAGS.AlphaTested) !== 0
+    ? GPU_MESHLET_COVERAGE_CLASS.Mask
+    : GPU_MESHLET_COVERAGE_CLASS.Opaque;
+  const key = capacityIndex |
+    (profileIndex << 2) |
+    (rasterPipelineClass << 3) |
+    (coverageClass << 4);
+  return Object.freeze({
+    key,
+    triangleCapacity: GPU_MESHLET_BUCKET_TRIANGLE_CAPACITIES[capacityIndex]!,
+    decodeProfile,
+    rasterPipelineClass,
+    coverageClass
+  });
 }
 
 export function nextGpuMeshletWorkGeneration(current: number): number {

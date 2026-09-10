@@ -907,6 +907,9 @@ function workloadEvidence(): Readonly<Record<string, unknown>> {
 
 function configurePipeline(activeRenderer: Renderer): void {
   applyCase(activeRenderer, PIPELINE_MODE ? "base" : "full");
+  // ADR-0008 Step 2: keep the GPU-only MeshletWork producer/consumer seam in
+  // the comprehensive workload so its phases and counters are performance-visible.
+  activeRenderer.packed_meshlet_work_candidate_enabled = true;
   activeRenderer.render_debug_view = RenderDebugView.None;
 }
 

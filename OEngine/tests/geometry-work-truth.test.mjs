@@ -10,17 +10,23 @@ import {
 } from "../.test-dist/debug/GpuFrameCounters.js";
 import { EXACT_TRIANGLE_FILTER_WGSL } from "../.test-dist/shaders/exact_triangle_filter.js";
 import { HIERARCHICAL_WORK_GENERATION_WGSL } from "../.test-dist/shaders/hierarchical_work_generation.js";
-import { MESHLET_WORK_CANDIDATE_WGSL } from "../.test-dist/shaders/meshlet_work_candidate.js";
 import {
+  MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
+  MESHLET_WORK_COMPACTION_SUBGROUP_WGSL
+} from "../.test-dist/shaders/meshlet_work_compaction.js";
+import {
+  GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_RASTER_WORK_ABI_VERSION,
   GPU_MESHLET_RASTER_WORK_OFFSETS,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_WORK_QUEUE_CLASS,
   GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS,
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
+  classifyGpuMeshletBucket,
   gpuMeshletWorkQueueByteLength,
   nextGpuMeshletWorkGeneration,
   packGpuMeshletProfileLod,
+  packGpuMeshletProfileLodBucket,
   packGpuMeshletRasterWork,
   packGpuMeshletWorkQueueHeader,
   reserveGpuMeshletWork,
@@ -48,7 +54,7 @@ const GEOMETRY_TRUTH_FIELDS = [
 ];
 
 test("ADR-0008 Step 0 freezes a collision-free geometry truth counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 15);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 16);
   const indices = GPU_COUNTER_FIELDS.map((field) => field.index);
   assert.equal(new Set(indices).size, indices.length);
   for (const name of GEOMETRY_TRUTH_FIELDS) {
@@ -75,12 +81,20 @@ test("MeshletRasterWork CPU/WGSL ABI freezes six aligned u32 identity fields", (
     meshletSlot: 17,
     materialSlotOrRange: 0xfffffffe,
     packedRasterFlags: 0x80000001,
-    packedProfileLod: packGpuMeshletProfileLod(0xff, 0xff)
+    packedProfileLod: packGpuMeshletProfileLodBucket(0xff, 0xff, 0xff, 0xff)
   };
   assert.deepEqual(unpackGpuMeshletRasterWork(packGpuMeshletRasterWork(boundary)), boundary);
   assert.deepEqual(unpackGpuMeshletProfileLod(boundary.packedProfileLod), {
     decodeProfile: 0xff,
-    lod: 0xff
+    lod: 0xff,
+    bucketKey: 0xff,
+    partition: 0xff
+  });
+  assert.deepEqual(unpackGpuMeshletProfileLod(packGpuMeshletProfileLod(1, 2)), {
+    decodeProfile: 1,
+    lod: 2,
+    bucketKey: 0,
+    partition: 0
   });
   assert.throws(() => packGpuMeshletProfileLod(0x100, 0), /8 bits/);
 });
@@ -177,9 +191,44 @@ test("MeshletWork candidate publishes attempted/written/consumed/overflow/invali
     "meshletQueueOverflow",
     "meshletQueueInvalid"
   ]) {
-    assert.match(
-      MESHLET_WORK_CANDIDATE_WGSL,
-      new RegExp(`${counterByteOffset(name) / 4}u`)
-    );
+    for (const source of [
+      MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
+      MESHLET_WORK_COMPACTION_SUBGROUP_WGSL
+    ]) assert.match(source, new RegExp(`${counterByteOffset(name) / 4}u`));
+  }
+});
+
+test("Step-2 bucket key is bounded and distinguishes all four raster dimensions", () => {
+  assert.equal(GPU_MESHLET_BUCKET_COUNT, 32);
+  const keys = new Set();
+  for (const triangles of [32, 64, 96, 128]) {
+    for (const profile of [1, 2]) {
+      for (const doubleSided of [false, true]) {
+        for (const mask of [false, true]) {
+          const flags = (doubleSided ? 16 : 0) | (mask ? 8 : 0);
+          const classification = classifyGpuMeshletBucket(triangles, profile, flags);
+          assert.equal(classification.triangleCapacity, triangles);
+          keys.add(classification.key);
+        }
+      }
+    }
+  }
+  assert.equal(keys.size, GPU_MESHLET_BUCKET_COUNT);
+  assert.throws(() => classifyGpuMeshletBucket(129, 1, 0), /128-triangle/);
+});
+
+test("Step-2 shaders contain distinct subgroup and portable compaction algorithms", () => {
+  assert.match(MESHLET_WORK_COMPACTION_SUBGROUP_WGSL, /enable subgroups/);
+  assert.match(MESHLET_WORK_COMPACTION_SUBGROUP_WGSL, /subgroupBallot/);
+  assert.match(MESHLET_WORK_COMPACTION_SUBGROUP_WGSL, /subgroupBroadcastFirst/);
+  assert.doesNotMatch(MESHLET_WORK_COMPACTION_PORTABLE_WGSL, /enable subgroups/);
+  assert.match(MESHLET_WORK_COMPACTION_PORTABLE_WGSL, /candidate_prefix\[lane\]/);
+  for (const source of [
+    MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
+    MESHLET_WORK_COMPACTION_SUBGROUP_WGSL
+  ]) {
+    assert.match(source, /finalize_meshlet_work_buckets/);
+    assert.match(source, /scatter_meshlet_work_buckets/);
+    assert.match(source, /OEngineDrawIndirectArgs/);
   }
 });

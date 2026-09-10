@@ -8,7 +8,7 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 15;
+export const GPU_COUNTER_SCHEMA_VERSION = 16;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -138,7 +138,12 @@ export const GPU_COUNTER_FIELDS = [
   { name: "meshletQueueWritten", index: 115, semantic: "GpuMeshletRasterWork records safely published within capacity" },
   { name: "meshletQueueConsumed", index: 116, semantic: "GpuMeshletRasterWork records read by the GPU validation or raster consumer" },
   { name: "meshletQueueOverflow", index: 117, semantic: "GpuMeshletRasterWork records not published because an all-or-nothing reservation exceeded capacity" },
-  { name: "meshletQueueInvalid", index: 118, semantic: "GpuMeshletRasterWork records rejected by the GPU identity/generation oracle" }
+  { name: "meshletQueueInvalid", index: 118, semantic: "GpuMeshletRasterWork records rejected by the GPU identity/generation oracle" },
+  { name: "meshletBucketNonEmpty", index: 119, semantic: "non-empty bounded meshlet raster buckets after GPU histogram/prefix" },
+  { name: "meshletBucketDraws", index: 120, semantic: "fixed bounded standard drawIndirect records generated entirely on GPU" },
+  { name: "meshletSubgroupReservations", index: 121, semantic: "workgroup tile reservations issued by the subgroup ballot/prefix compaction specialization" },
+  { name: "meshletPortableReservations", index: 122, semantic: "workgroup tile reservations issued by the portable shared-memory prefix compaction fallback" },
+  { name: "meshletIndirectInstances", index: 123, semantic: "sum of GPU-generated bucket drawIndirect instanceCount fields" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

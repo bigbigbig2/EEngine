@@ -382,7 +382,12 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   meshletQueueWritten: supported("MeshletWorkCandidate written-count publisher"),
   meshletQueueConsumed: supported("MeshletWorkCandidate GPU validator/raster consumer publisher"),
   meshletQueueOverflow: supported("MeshletWorkCandidate correctness-critical overflow publisher"),
-  meshletQueueInvalid: supported("MeshletWorkCandidate GPU identity/generation validator")
+  meshletQueueInvalid: supported("MeshletWorkCandidate GPU identity/generation validator"),
+  meshletBucketNonEmpty: supported("MeshletWork GPU bucket histogram/prefix publisher"),
+  meshletBucketDraws: supported("MeshletWork fixed bounded GPU drawIndirect publisher"),
+  meshletSubgroupReservations: supported("MeshletWork subgroup ballot/prefix compaction specialization"),
+  meshletPortableReservations: supported("MeshletWork portable workgroup shared-memory prefix fallback"),
+  meshletIndirectInstances: supported("MeshletWork GPU-generated bucket drawIndirect records")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

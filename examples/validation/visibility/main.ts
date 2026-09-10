@@ -87,7 +87,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "meshlet-work-overflow", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
+  const supported = ["basic", "meshlet-work-overflow", "meshlet-work-portable", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -102,6 +102,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (runtime.renderer === null) throw new Error("Visibility runtime is not initialized");
     runtime.renderer.packed_meshlet_work_candidate_capacity =
       request.scenarioId === "meshlet-work-overflow" ? 1 : 0;
+    runtime.renderer.packed_meshlet_work_compaction =
+      request.scenarioId === "meshlet-work-portable" ? "portable" : "auto";
 
     if (request.scenarioId === "lod-near" || request.scenarioId === "lod-far") {
       const renderer = runtime.renderer;
@@ -350,6 +352,11 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       meshletQueueConsumed: counters.meshletQueueConsumed ?? 0,
       meshletQueueOverflow: counters.meshletQueueOverflow ?? 0,
       meshletQueueInvalid: counters.meshletQueueInvalid ?? 0,
+      meshletBucketNonEmpty: counters.meshletBucketNonEmpty ?? 0,
+      meshletBucketDraws: counters.meshletBucketDraws ?? 0,
+      meshletSubgroupReservations: counters.meshletSubgroupReservations ?? 0,
+      meshletPortableReservations: counters.meshletPortableReservations ?? 0,
+      meshletIndirectInstances: counters.meshletIndirectInstances ?? 0,
       queueOverflowMask: counters.queueOverflowMask ?? 0,
       gpuCounterSchemaVersion: completed.gpuCounters.schemaVersion
     });
@@ -387,6 +394,13 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         overflow: counters.meshletQueueOverflow ?? 0,
         invalid: counters.meshletQueueInvalid ?? 0
       };
+      const meshletBuckets = {
+        nonEmpty: counters.meshletBucketNonEmpty ?? 0,
+        draws: counters.meshletBucketDraws ?? 0,
+        indirectInstances: counters.meshletIndirectInstances ?? 0,
+        subgroupReservations: counters.meshletSubgroupReservations ?? 0,
+        portableReservations: counters.meshletPortableReservations ?? 0
+      };
       if (request.scenarioId === "meshlet-work-overflow") {
         assertions.push(validationAssertion(
           "meshlet-work-candidate-overflow-all-or-nothing",
@@ -412,6 +426,29 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           "GPU MeshletWork candidate producer and GPU validation consumer close without CPU queue readback",
           meshletQueue,
           "attempted = written = consumed = produced > 0; overflow = invalid = 0"
+        ));
+        assertions.push(validationAssertion(
+          "meshlet-bucket-indirect-closed",
+          meshletBuckets.nonEmpty > 0 &&
+            meshletBuckets.nonEmpty <= 32 &&
+            meshletBuckets.draws === 32 &&
+            meshletBuckets.indirectInstances === meshletQueue.written,
+          "GPU histogram/prefix generated all bounded draw records and preserved every MeshletWork instance",
+          meshletBuckets,
+          "0 < nonEmpty <= 32; draws = 32; indirectInstances = written"
+        ));
+        const portable = request.scenarioId === "meshlet-work-portable" ||
+          !runtime.renderer.device.features.has("subgroups");
+        assertions.push(validationAssertion(
+          portable ? "portable-compaction-selected" : "subgroup-compaction-selected",
+          portable
+            ? meshletBuckets.portableReservations > 0 && meshletBuckets.subgroupReservations === 0
+            : meshletBuckets.subgroupReservations > 0 && meshletBuckets.portableReservations === 0,
+          portable
+            ? "Portable shared-memory prefix fallback produced the queue"
+            : "Negotiated subgroup ballot/prefix specialization produced the queue",
+          meshletBuckets,
+          portable ? "portable > 0; subgroup = 0" : "subgroup > 0; portable = 0"
         ));
       }
       assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));

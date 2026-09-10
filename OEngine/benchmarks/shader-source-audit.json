@@ -491,7 +491,7 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
-      "shader": "src/shaders/meshlet_work_candidate.ts",
+      "shader": "src/shaders/meshlet_work_compaction.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [

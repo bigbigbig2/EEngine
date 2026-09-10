@@ -15,6 +15,7 @@ export interface VisibilityWorkSetKey {
   readonly rasterWorkCapacity: number;
   readonly meshletWorkCandidateEnabled: boolean;
   readonly meshletWorkCandidateCapacity: number;
+  readonly meshletWorkCompactionPath: "auto" | "portable" | "subgroup";
   readonly triangleSetupEnabled: boolean;
   readonly triangleSetupThresholdPixels: number;
 }
@@ -23,7 +24,7 @@ export interface VisibilityWorkSetKey {
 export interface VisibilityWorkSet {
   readonly key: VisibilityWorkSetKey;
   readonly hierarchy: PreparedHierarchyWork;
-  /** Step-1 GPU-only candidate seam; null in the production default. */
+  /** Step-2 GPU-only compact/bucket candidate seam; null in the production default. */
   readonly meshletWorkCandidate: PreparedMeshletWorkCandidate | null;
   readonly exact: PreparedExactTriangleFilter;
   readonly exactRasterRecords: GPUBuffer;
@@ -55,6 +56,7 @@ export function sameVisibilityWorkSetKey(
     left.rasterWorkCapacity === right.rasterWorkCapacity &&
     left.meshletWorkCandidateEnabled === right.meshletWorkCandidateEnabled &&
     left.meshletWorkCandidateCapacity === right.meshletWorkCandidateCapacity &&
+    left.meshletWorkCompactionPath === right.meshletWorkCompactionPath &&
     left.triangleSetupEnabled === right.triangleSetupEnabled &&
     left.triangleSetupThresholdPixels === right.triangleSetupThresholdPixels;
 }

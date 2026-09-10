@@ -6,6 +6,7 @@ import type {
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
 import {
+  GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   gpuMeshletWorkQueueByteLength,
@@ -14,9 +15,13 @@ import {
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";
 import { GPU_DISPATCH_INDIRECT_ARGS_SIZE } from "../gpu/GpuWorkGenerationAbi.js";
 import {
-  MESHLET_WORK_CANDIDATE_SETTINGS_SIZE,
-  MESHLET_WORK_CANDIDATE_WGSL
-} from "../shaders/meshlet_work_candidate.js";
+  MESHLET_WORK_BUCKET_INDIRECT_SIZE,
+  MESHLET_WORK_BUCKET_STATE_SIZE,
+  MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
+  MESHLET_WORK_COMPACTION_SETTINGS_SIZE,
+  MESHLET_WORK_COMPACTION_SUBGROUP_WGSL,
+  type MeshletWorkCompactionPath
+} from "../shaders/meshlet_work_compaction.js";
 
 const PREPARED_MESHLET_WORK_CANDIDATE = Symbol("PreparedMeshletWorkCandidate");
 
@@ -28,23 +33,42 @@ export interface MeshletWorkCandidateInputs {
   readonly scene: GpuSceneBindings;
   readonly counterBuffer: GPUBuffer;
   readonly countersEnabled: boolean;
+  readonly compactionPath?: "auto" | MeshletWorkCompactionPath;
 }
 
 export interface PreparedMeshletWorkCandidate {
   readonly [PREPARED_MESHLET_WORK_CANDIDATE]: true;
   readonly queue: GPUBuffer;
+  readonly bucketStates: GPUBuffer;
+  readonly drawIndirect: GPUBuffer;
+  readonly bucketCount: number;
+  readonly compactionPath: MeshletWorkCompactionPath;
   readonly capacity: number;
+}
+
+interface CandidatePipelines {
+  readonly prepare: GPUComputePipeline;
+  readonly generate: GPUComputePipeline;
+  readonly finalize: GPUComputePipeline;
+  readonly scatter: GPUComputePipeline;
+  readonly prepareValidation: GPUComputePipeline;
+  readonly validate: GPUComputePipeline;
+  readonly publish: GPUComputePipeline;
 }
 
 interface CandidateState {
   counterBuffer: GPUBuffer;
   countersEnabled: boolean;
   readonly settings: GPUBuffer;
+  readonly staging: GPUBuffer;
   readonly queue: GPUBuffer;
+  readonly bucketStates: GPUBuffer;
+  readonly drawIndirect: GPUBuffer;
   readonly dispatch: GPUBuffer;
+  readonly compactionPath: MeshletWorkCompactionPath;
   writeBindGroup: GPUBindGroup;
   consumeBindGroup: GPUBindGroup;
-  readonly inputs: Omit<MeshletWorkCandidateInputs, "counterBuffer" | "countersEnabled">;
+  readonly inputs: Omit<MeshletWorkCandidateInputs, "counterBuffer" | "countersEnabled" | "compactionPath">;
   readonly buffers: readonly GPUBuffer[];
   readonly accounting: readonly AccountingResourceHandle[];
   destroyed: boolean;
@@ -53,17 +77,13 @@ interface CandidateState {
 const CANDIDATE_STATE = new WeakMap<object, CandidateState>();
 
 /**
- * Owns the Step-1 non-production GPU producer + validation consumer seam.
- * Queue records are never mapped or read back by the CPU.
+ * Owns the Step-2 non-production compact/bucket/indirect producer and GPU
+ * validation consumer. Queue records are never mapped or read back by the CPU.
  */
 export class MeshletWorkCandidate {
   private readonly writeLayout: GPUBindGroupLayout;
   private readonly consumeLayout: GPUBindGroupLayout;
-  private readonly preparePipeline: GPUComputePipeline;
-  private readonly generatePipeline: GPUComputePipeline;
-  private readonly prepareValidationPipeline: GPUComputePipeline;
-  private readonly validatePipeline: GPUComputePipeline;
-  private readonly publishPipeline: GPUComputePipeline;
+  private readonly pipelines = new Map<MeshletWorkCompactionPath, CandidatePipelines>();
   private readonly prepared = new Set<PreparedMeshletWorkCandidate>();
   private destroyed = false;
 
@@ -77,8 +97,11 @@ export class MeshletWorkCandidate {
       { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } },
-      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: MESHLET_WORK_CANDIDATE_SETTINGS_SIZE } },
-      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } }
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: MESHLET_WORK_COMPACTION_SETTINGS_SIZE } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
+      { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: MESHLET_WORK_BUCKET_STATE_SIZE } },
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } },
+      { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: MESHLET_WORK_BUCKET_INDIRECT_SIZE } }
     ];
     this.writeLayout = device.createBindGroupLayout({
       label: "ADR-0008 MeshletWork candidate write group0",
@@ -91,10 +114,6 @@ export class MeshletWorkCandidate {
       label: "ADR-0008 MeshletWork candidate consume group0",
       entries: commonEntries
     });
-    const module = device.createShaderModule({
-      label: "ADR-0008 MeshletWork candidate",
-      code: MESHLET_WORK_CANDIDATE_WGSL
-    });
     const writePipelineLayout = device.createPipelineLayout({
       label: "ADR-0008 MeshletWork candidate write layout",
       bindGroupLayouts: [this.writeLayout]
@@ -103,11 +122,16 @@ export class MeshletWorkCandidate {
       label: "ADR-0008 MeshletWork candidate consume layout",
       bindGroupLayouts: [this.consumeLayout]
     });
-    this.preparePipeline = this.createPipeline(module, writePipelineLayout, "prepare_meshlet_work_candidate");
-    this.generatePipeline = this.createPipeline(module, consumePipelineLayout, "generate_meshlet_work_candidate");
-    this.prepareValidationPipeline = this.createPipeline(module, writePipelineLayout, "prepare_meshlet_work_validation");
-    this.validatePipeline = this.createPipeline(module, consumePipelineLayout, "validate_meshlet_work_candidate");
-    this.publishPipeline = this.createPipeline(module, consumePipelineLayout, "publish_meshlet_work_candidate_counters");
+    this.pipelines.set("portable", this.createPipelines(
+      "portable", MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
+      writePipelineLayout, consumePipelineLayout
+    ));
+    if (device.features.has("subgroups")) {
+      this.pipelines.set("subgroup", this.createPipelines(
+        "subgroup", MESHLET_WORK_COMPACTION_SUBGROUP_WGSL,
+        writePipelineLayout, consumePipelineLayout
+      ));
+    }
   }
 
   prepare(inputs: MeshletWorkCandidateInputs): PreparedMeshletWorkCandidate {
@@ -123,22 +147,38 @@ export class MeshletWorkCandidate {
     const buffers: GPUBuffer[] = [];
     const accounting: AccountingResourceHandle[] = [];
     try {
+      const compactionPath = this.resolveCompactionPath(inputs.compactionPath ?? "auto");
       const settings = this.createBuffer({
         label: "ADR-0008 MeshletWork candidate settings",
-        size: MESHLET_WORK_CANDIDATE_SETTINGS_SIZE,
+        size: MESHLET_WORK_COMPACTION_SETTINGS_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       }, buffers, accounting, "uniform");
-      const queue = this.createBuffer({
-        label: "ADR-0008 correctness-critical MeshletWork candidate queue",
+      const staging = this.createBuffer({
+        label: "ADR-0008 correctness-critical MeshletWork compact staging queue",
         size: queueBytes,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       }, buffers, accounting, "work-queue");
+      const queue = this.createBuffer({
+        label: "ADR-0008 correctness-critical bucketed MeshletWork queue",
+        size: queueBytes,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      }, buffers, accounting, "work-queue");
+      const bucketStates = this.createBuffer({
+        label: "ADR-0008 MeshletWork bounded bucket states",
+        size: MESHLET_WORK_BUCKET_STATE_SIZE,
+        usage: GPUBufferUsage.STORAGE
+      }, buffers, accounting, "work-queue");
+      const drawIndirect = this.createBuffer({
+        label: "ADR-0008 MeshletWork complete bucket drawIndirect records",
+        size: MESHLET_WORK_BUCKET_INDIRECT_SIZE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT
+      }, buffers, accounting, "indirect");
       const dispatch = this.createBuffer({
         label: "ADR-0008 MeshletWork candidate dispatchIndirect",
         size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
       }, buffers, accounting, "indirect");
-      this.device.queue.writeBuffer(queue, 0, packGpuMeshletWorkQueueHeader({
+      const initialHeader = packGpuMeshletWorkQueueHeader({
         attemptedCount: 0,
         writtenCount: 0,
         consumedCount: 0,
@@ -146,7 +186,9 @@ export class MeshletWorkCandidate {
         overflowCount: 0,
         generation: 0,
         invalidCount: 0
-      }));
+      });
+      this.device.queue.writeBuffer(staging, 0, initialHeader);
+      this.device.queue.writeBuffer(queue, 0, initialHeader);
       this.device.queue.writeBuffer(dispatch, 0, new Uint32Array([0, 1, 1]));
       this.writeSettings(settings, inputs.countersEnabled);
       const fixedInputs = Object.freeze({
@@ -156,18 +198,29 @@ export class MeshletWorkCandidate {
         assets: inputs.assets,
         scene: inputs.scene
       });
-      const bindGroups = this.createBindGroups(fixedInputs, queue, dispatch, settings, inputs.counterBuffer);
+      const bindGroups = this.createBindGroups(
+        fixedInputs, staging, queue, bucketStates, drawIndirect,
+        dispatch, settings, inputs.counterBuffer
+      );
       const prepared = Object.freeze({
         [PREPARED_MESHLET_WORK_CANDIDATE]: true as const,
         queue,
+        bucketStates,
+        drawIndirect,
+        bucketCount: GPU_MESHLET_BUCKET_COUNT,
+        compactionPath,
         capacity: inputs.capacity
       });
       CANDIDATE_STATE.set(prepared, {
         counterBuffer: inputs.counterBuffer,
         countersEnabled: inputs.countersEnabled,
         settings,
+        staging,
         queue,
+        bucketStates,
+        drawIndirect,
         dispatch,
+        compactionPath,
         writeBindGroup: bindGroups.write,
         consumeBindGroup: bindGroups.consume,
         inputs: fixedInputs,
@@ -196,7 +249,10 @@ export class MeshletWorkCandidate {
     this.writeSettings(state.settings, binding.countersEnabled);
     const bindGroups = this.createBindGroups(
       state.inputs,
+      state.staging,
       state.queue,
+      state.bucketStates,
+      state.drawIndirect,
       state.dispatch,
       state.settings,
       state.counterBuffer
@@ -210,11 +266,14 @@ export class MeshletWorkCandidate {
     prepared: PreparedMeshletWorkCandidate
   ): void {
     const state = this.requireState(prepared);
-    this.encodeDirect(command.gpu_encoder, "prepare", this.preparePipeline, state.writeBindGroup, false);
-    this.encodeDirect(command.gpu_encoder, "generate", this.generatePipeline, state.consumeBindGroup, true, state.dispatch);
-    this.encodeDirect(command.gpu_encoder, "prepare validation", this.prepareValidationPipeline, state.writeBindGroup, false);
-    this.encodeDirect(command.gpu_encoder, "validate", this.validatePipeline, state.consumeBindGroup, true, state.dispatch);
-    this.encodeDirect(command.gpu_encoder, "publish counters", this.publishPipeline, state.consumeBindGroup, false);
+    const pipelines = this.pipelines.get(state.compactionPath)!;
+    this.encodeDirect(command.gpu_encoder, "prepare", pipelines.prepare, state.writeBindGroup, false);
+    this.encodeDirect(command.gpu_encoder, `${state.compactionPath} compact`, pipelines.generate, state.consumeBindGroup, true, state.dispatch);
+    this.encodeDirect(command.gpu_encoder, "bucket prefix + indirect args", pipelines.finalize, state.writeBindGroup, false);
+    this.encodeDirect(command.gpu_encoder, "bucket scatter", pipelines.scatter, state.consumeBindGroup, true, state.dispatch);
+    this.encodeDirect(command.gpu_encoder, "prepare validation", pipelines.prepareValidation, state.writeBindGroup, false);
+    this.encodeDirect(command.gpu_encoder, "validate", pipelines.validate, state.consumeBindGroup, true, state.dispatch);
+    this.encodeDirect(command.gpu_encoder, "publish counters", pipelines.publish, state.consumeBindGroup, false);
   }
 
   release(prepared: PreparedMeshletWorkCandidate): void {
@@ -244,9 +303,44 @@ export class MeshletWorkCandidate {
     });
   }
 
+  private createPipelines(
+    path: MeshletWorkCompactionPath,
+    code: string,
+    writeLayout: GPUPipelineLayout,
+    consumeLayout: GPUPipelineLayout
+  ): CandidatePipelines {
+    const module = this.device.createShaderModule({
+      label: `ADR-0008 MeshletWork ${path} compaction`,
+      code
+    });
+    return Object.freeze({
+      prepare: this.createPipeline(module, writeLayout, "prepare_meshlet_work_candidate"),
+      generate: this.createPipeline(module, consumeLayout, "generate_meshlet_work_candidate"),
+      finalize: this.createPipeline(module, writeLayout, "finalize_meshlet_work_buckets"),
+      scatter: this.createPipeline(module, consumeLayout, "scatter_meshlet_work_buckets"),
+      prepareValidation: this.createPipeline(module, writeLayout, "prepare_meshlet_work_validation"),
+      validate: this.createPipeline(module, consumeLayout, "validate_meshlet_work_candidate"),
+      publish: this.createPipeline(module, consumeLayout, "publish_meshlet_work_candidate_counters")
+    });
+  }
+
+  private resolveCompactionPath(
+    requested: "auto" | MeshletWorkCompactionPath
+  ): MeshletWorkCompactionPath {
+    if (requested === "subgroup" && !this.pipelines.has("subgroup")) {
+      throw new Error("MeshletWork subgroup compaction was forced but the device lacks 'subgroups'");
+    }
+    return requested === "auto"
+      ? (this.pipelines.has("subgroup") ? "subgroup" : "portable")
+      : requested;
+  }
+
   private createBindGroups(
     inputs: CandidateState["inputs"],
+    staging: GPUBuffer,
     queue: GPUBuffer,
+    bucketStates: GPUBuffer,
+    drawIndirect: GPUBuffer,
     dispatch: GPUBuffer,
     settings: GPUBuffer,
     counters: GPUBuffer
@@ -256,9 +350,12 @@ export class MeshletWorkCandidate {
         { binding: 1, resource: { buffer: inputs.assets.clusterRecords } },
         { binding: 2, resource: { buffer: inputs.assets.geometryRecords } },
         { binding: 3, resource: { buffer: inputs.assets.meshletRecords } },
-        { binding: 4, resource: { buffer: queue } },
+        { binding: 4, resource: { buffer: staging } },
         { binding: 6, resource: { buffer: settings } },
-        { binding: 7, resource: { buffer: counters } }
+        { binding: 7, resource: { buffer: counters } },
+        { binding: 8, resource: { buffer: bucketStates } },
+        { binding: 9, resource: { buffer: queue } },
+        { binding: 10, resource: { buffer: drawIndirect } }
     ];
     return Object.freeze({
       write: this.device.createBindGroup({
@@ -296,7 +393,7 @@ export class MeshletWorkCandidate {
     this.device.queue.writeBuffer(settings, 0, new Uint32Array([
       Number(this.device.limits.maxComputeWorkgroupsPerDimension),
       countersEnabled ? 1 : 0,
-      0,
+      this.device.features.has("indirect-first-instance") ? 1 : 0,
       0
     ]));
   }
