@@ -14,6 +14,7 @@
 - `benchmarks/texture-residency-step2.json`：Step1/Step2 clean commit 在同一 Rendering Lab 条件下的 CPU/GPU、submit、upload 与 memory A/B 摘要。
 - `benchmarks/main-render-pipeline-step5.json`：Step 5 前后 clean commit 的正式三次运行 A/B、graph parity、稳定帧与 feature topology 矩阵证据。
 - `benchmarks/render-world-convergence-step7.json`：Step 7 legacy runtime 删除前后 clean commit 的正式三次运行 A/B、graph/memory/I/O parity、feature-off 矩阵与未关闭证据门禁。
+- `benchmarks/gpu-driven-geometry-v2-baseline.json`：ADR-0008 Step 0 在切换前生产链上的正式三次综合基线，包含 Geometry phase、work amplification counters、queue bytes 与完整 provenance。
 - `examples/rendering-lab/`：唯一保留的真实浏览器 fixture。
 
 ## 采样合同

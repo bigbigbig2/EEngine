@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-baseline",
+  "decision": "adr-0008-pre-cutover-geometry-truth",
+  "provenance": {
+    "commit": "e8cbb2ace4b32b7b0e5dab41934433982323d24f",
+    "contentHash": "9e7e1ded7f2fc960e1fc1f857967490a59e189ff0570c0d44c0d745e232168c6",
+    "clean": true,
+    "runGroupId": "e1f4575f-0623-44ea-b773-d19ca09f28b8",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "timestampQuery": true
+    },
+    "capabilities": [
+      "core-features-and-limits",
+      "float32-blendable",
+      "indirect-first-instance",
+      "rg11b10ufloat-renderable",
+      "subgroups",
+      "texture-compression-bc",
+      "texture-formats-tier1",
+      "timestamp-query"
+    ],
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "sseThreshold": 4,
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806,
+    "materials": 34,
+    "transparentInstances": 2,
+    "geometryPackageBytes": 10460176,
+    "assetHashes": [
+      "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1",
+      "0e72ed46b5316cb5fb67fc81ff85b024a09146fd89ef3811a8d2299647ada118"
+    ]
+  },
+  "aggregation": "median of three run-level percentiles; geometry truth counters are stable P50 values in every run",
+  "timingsMs": {
+    "cpuFrame": { "p50": 8.5, "p95": 10.105000001192 },
+    "gpuFrame": { "p50": 1.511648, "p95": 1.7767872 },
+    "hierarchyAndClusterCull": { "p50": 0.48512, "p95": 0.5348352 },
+    "hardwareRaster": { "p50": 0.08112, "p95": 0.087584 }
+  },
+  "geometryTruth": {
+    "nodesTested": 814,
+    "clustersAccepted": 708,
+    "meshletsSelected": 2321,
+    "meshletWorksProduced": 0,
+    "candidateTriangles": 64983,
+    "riskyTriangles": 0,
+    "exactSurvivedTriangles": 55328,
+    "rasterTriangles": 55328,
+    "paddedVertices": 0,
+    "visiblePixels": 874227,
+    "queuePayloadBytes": 3344164,
+    "queueOverflowMask": 0,
+    "candidateTrianglesPerSelectedMeshlet": 27.997845756139593,
+    "exactSurvivalRatio": 0.8514226797777881,
+    "queueBytesPerSelectedMeshlet": 1440.8289530374839,
+    "visiblePixelsPerRasterTriangle": 15.800806101792944
+  },
+  "runLevelTimingsMs": [
+    {
+      "runOrdinal": 0,
+      "cpuFrameP50": 8.5,
+      "cpuFrameP95": 10.105000001192,
+      "gpuFrameP50": 1.511648,
+      "gpuFrameP95": 1.57376,
+      "geometryP50": 0.484928,
+      "geometryP95": 0.5314816,
+      "hardwareRasterP50": 0.080384,
+      "hardwareRasterP95": 0.087584,
+      "canvasSha256": "b12ef1726d527540ce8933dd12e7b1f1843f115a1c7ff75e02ead3bebc88a8d3"
+    },
+    {
+      "runOrdinal": 1,
+      "cpuFrameP50": 8.39999999851,
+      "cpuFrameP95": 9.905000005662,
+      "gpuFrameP50": 1.511968,
+      "gpuFrameP95": 1.7886848,
+      "geometryP50": 0.48512,
+      "geometryP95": 0.5391808,
+      "hardwareRasterP50": 0.081184,
+      "hardwareRasterP95": 0.0873728,
+      "canvasSha256": "e63510c6ca7c6f5847ded1b96f768a5f0d141005ed9aaac1ceb133a451fdb71e"
+    },
+    {
+      "runOrdinal": 2,
+      "cpuFrameP50": 8.79999999702,
+      "cpuFrameP95": 10.699999995902,
+      "gpuFrameP50": 1.507872,
+      "gpuFrameP95": 1.7767872,
+      "geometryP50": 0.486048,
+      "geometryP95": 0.5348352,
+      "hardwareRasterP50": 0.08112,
+      "hardwareRasterP95": 0.089472,
+      "canvasSha256": "b6510a426d8e7ffbd181388e06a15ed76f3c878f125b6427c53fcf2b7d45e0c4"
+    }
+  ],
+  "diagnostics": {
+    "validationErrors": 0,
+    "uncapturedErrors": 0,
+    "deviceLost": 0,
+    "failedGpuTimestampBatches": 0,
+    "droppedGpuCounterSamples": 0,
+    "failedGpuCounterSamples": 0,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  },
+  "interpretation": {
+    "normalPath": "legacy per-triangle RasterWork plus mandatory ExactRasterWork",
+    "queueByteDefinition": "safe payload bytes published to traversal, selected-cluster, triangle RasterWork and exact RasterWork queues; headers and indirect records excluded",
+    "zeroCounters": {
+      "meshletWorksProduced": "not implemented before ADR-0008 Step 1",
+      "riskyTriangles": "legacy exact stage has no selective risk classifier",
+      "paddedVertices": "legacy exact triangle draw has no meshlet bucket padding"
+    },
+    "limitation": "single NVIDIA Turing adapter; this is the accepted migration baseline, not a cross-vendor performance claim"
+  }
+}
