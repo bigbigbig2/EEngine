@@ -12,6 +12,7 @@ const SHADED_PIXEL_INDEX = counterByteOffset("shadedPixels") / 4;
 const EMPTY_PIXEL_INDEX = counterByteOffset("emptyVisibilityPixels") / 4;
 const INVALID_KEY_INDEX = counterByteOffset("invalidVisibilityKeys") / 4;
 const CLASS_DEPTH_PIXEL_INDEX = counterByteOffset("classDepthPixels") / 4;
+const GEOMETRY_VISIBLE_PIXEL_INDEX = counterByteOffset("geometryVisiblePixels") / 4;
 
 export type VisibilityCounterContract =
   | "visibility-key"
@@ -62,6 +63,7 @@ fn count_visibility(
 
   if (local_index == 0u) {
     atomicAdd(&frame_counters[${SHADED_PIXEL_INDEX}u], local_counts[0].x);
+    atomicAdd(&frame_counters[${GEOMETRY_VISIBLE_PIXEL_INDEX}u], local_counts[0].x);
     if (class_depth_contract) {
       // MaterialClassDepth consumes the same set of valid VisibilityKey pixels.
       // Reuse this sampled reducer instead of adding another fullscreen pass.

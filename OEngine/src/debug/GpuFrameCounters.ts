@@ -8,7 +8,7 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 13;
+export const GPU_COUNTER_SCHEMA_VERSION = 14;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -122,7 +122,18 @@ export const GPU_COUNTER_FIELDS = [
   { name: "setupWritten", index: 99, semantic: "sampled bounded TriangleSetup records written" },
   { name: "setupVisiblePixelHits", index: 100, semantic: "sampled visible pixels reconstructed from TriangleSetup" },
   { name: "setupVisiblePixelFallbacks", index: 101, semantic: "sampled visible pixels falling back to per-pixel setup" },
-  { name: "setupOverflow", index: 102, semantic: "sampled TriangleSetup queue reservation failures" }
+  { name: "setupOverflow", index: 102, semantic: "sampled TriangleSetup queue reservation failures" },
+  { name: "geometryNodesTested", index: 103, semantic: "ADR-0008 hierarchy nodes whose bounds/SSE were tested" },
+  { name: "geometryClustersAccepted", index: 104, semantic: "ADR-0008 clusters accepted as renderable leaves after hierarchy selection" },
+  { name: "geometryMeshletsSelected", index: 105, semantic: "ADR-0008 meshlets contained by accepted clusters and admitted to raster work generation" },
+  { name: "geometryMeshletWorksProduced", index: 106, semantic: "ADR-0008 bounded MeshletRasterWork records safely published; zero on the legacy triangle-work baseline" },
+  { name: "geometryCandidateTriangles", index: 107, semantic: "ADR-0008 triangle candidates presented to correctness classification" },
+  { name: "geometryRiskyTriangles", index: 108, semantic: "ADR-0008 triangles routed through the selective correctness-risk path; zero before the risk classifier cutover" },
+  { name: "geometryExactSurvivedTriangles", index: 109, semantic: "ADR-0008 exact-path triangles surviving clipping and degeneracy rejection" },
+  { name: "geometryRasterTriangles", index: 110, semantic: "ADR-0008 non-padding triangles submitted to fixed-function raster consumers" },
+  { name: "geometryPaddedVertices", index: 111, semantic: "ADR-0008 bucket padding vertex invocations outside actual meshlet triangle ranges" },
+  { name: "geometryVisiblePixels", index: 112, semantic: "ADR-0008 valid VisibilityKey pixels observed by the sampled visibility reducer" },
+  { name: "geometryQueueBytes", index: 113, semantic: "ADR-0008 payload bytes safely published to geometry traversal/selection/raster/exact queues; headers and indirect records excluded" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

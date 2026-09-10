@@ -28,13 +28,13 @@ export interface QueueSummary {
 
 const DEFAULT_QUEUE_SPECS: readonly QueueMetricSpec[] = Object.freeze([
   {
-    label: "Selected clusters",
-    current: "gpu.counter.selectedClusters",
+    label: "Selected meshlets",
+    current: "gpu.counter.geometryMeshletsSelected",
     capacity: "packed.visibility.rasterWorkCapacity"
   },
   {
-    label: "Hardware clusters",
-    current: "gpu.counter.hwClusters",
+    label: "Meshlet work",
+    current: "gpu.counter.geometryMeshletWorksProduced",
     capacity: "packed.visibility.rasterWorkCapacity"
   },
   {
@@ -47,10 +47,14 @@ const DEFAULT_QUEUE_SPECS: readonly QueueMetricSpec[] = Object.freeze([
 const FUNNEL_SPECS = Object.freeze([
   ["Candidate instances", "gpu.counter.candidateInstances", "instances"],
   ["Visible instances", "gpu.counter.visibleInstances", "instances"],
-  ["Candidate clusters", "gpu.counter.candidateClusters", "clusters"],
-  ["Selected clusters", "gpu.counter.selectedClusters", "clusters"],
-  ["Hardware clusters", "gpu.counter.hwClusters", "clusters"],
-  ["Shaded pixels", "gpu.counter.shadedPixels", "pixels"]
+  ["Hierarchy nodes tested", "gpu.counter.geometryNodesTested", "geometry"],
+  ["Clusters accepted", "gpu.counter.geometryClustersAccepted", "geometry"],
+  ["Meshlets selected", "gpu.counter.geometryMeshletsSelected", "geometry"],
+  ["Candidate triangles", "gpu.counter.geometryCandidateTriangles", "triangles"],
+  ["Risky triangles", "gpu.counter.geometryRiskyTriangles", "triangles"],
+  ["Exact survived", "gpu.counter.geometryExactSurvivedTriangles", "triangles"],
+  ["Raster triangles", "gpu.counter.geometryRasterTriangles", "triangles"],
+  ["Visible pixels", "gpu.counter.geometryVisiblePixels", "pixels"]
 ] as const);
 
 function latest(frames: readonly ProfileFrame[]): ProfileFrame | undefined {
@@ -126,8 +130,25 @@ export class GpuDrivenPanel {
       `${queue.label}: current ${queue.current ?? "unsupported"} / capacity ${queue.capacity ?? "unsupported"} / peak ${queue.peak ?? "unsupported"} / overflow ${queue.overflow ?? "unsupported"}`
     );
     queueLines.push(triangleSetupHitRatio(focused[0]));
+    queueLines.push(geometryAmplificationSummary(focused[0]));
     this.queues.textContent = queueLines.join("\n");
   }
+}
+
+function geometryAmplificationSummary(frame: ProfileFrame | undefined): string {
+  const queueBytes = read(frame, "gpu.counter.geometryQueueBytes").value;
+  const meshlets = read(frame, "gpu.counter.geometryMeshletsSelected").value;
+  const rasterTriangles = read(frame, "gpu.counter.geometryRasterTriangles").value;
+  const paddedVertices = read(frame, "gpu.counter.geometryPaddedVertices").value;
+  if (queueBytes === null || meshlets === null || rasterTriangles === null || paddedVertices === null) {
+    return "Geometry amplification: unsupported";
+  }
+  const bytesPerMeshlet = meshlets > 0 ? queueBytes / meshlets : 0;
+  const rasterVertices = rasterTriangles * 3;
+  const paddingRatio = rasterVertices + paddedVertices > 0
+    ? paddedVertices / (rasterVertices + paddedVertices)
+    : 0;
+  return `Geometry amplification: ${queueBytes} queue B · ${bytesPerMeshlet.toFixed(1)} B/meshlet · ${(paddingRatio * 100).toFixed(1)}% padding`;
 }
 
 function triangleSetupHitRatio(frame: ProfileFrame | undefined): string {

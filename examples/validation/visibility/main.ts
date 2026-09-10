@@ -329,6 +329,17 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       rejectedHzb: counters.rejectedHzb ?? 0,
       selectedClusters: counters.selectedClusters ?? 0,
       rasterTriangles: counters.hwTriangles ?? 0,
+      geometryNodesTested: counters.geometryNodesTested ?? 0,
+      geometryClustersAccepted: counters.geometryClustersAccepted ?? 0,
+      geometryMeshletsSelected: counters.geometryMeshletsSelected ?? 0,
+      geometryMeshletWorksProduced: counters.geometryMeshletWorksProduced ?? 0,
+      geometryCandidateTriangles: counters.geometryCandidateTriangles ?? 0,
+      geometryRiskyTriangles: counters.geometryRiskyTriangles ?? 0,
+      geometryExactSurvivedTriangles: counters.geometryExactSurvivedTriangles ?? 0,
+      geometryRasterTriangles: counters.geometryRasterTriangles ?? 0,
+      geometryPaddedVertices: counters.geometryPaddedVertices ?? 0,
+      geometryVisiblePixels: counters.geometryVisiblePixels ?? 0,
+      geometryQueueBytes: counters.geometryQueueBytes ?? 0,
       queueOverflowMask: counters.queueOverflowMask ?? 0,
       gpuCounterSchemaVersion: completed.gpuCounters.schemaVersion
     });
@@ -336,6 +347,28 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       assertions.push(validationAssertion("candidate-work-produced", (counters.candidateInstances ?? 0) >= 6, "All fixed visibility candidates reached GPU work generation", counters.candidateInstances, ">= 6"));
       assertions.push(validationAssertion("visible-work-produced", (counters.visibleInstances ?? 0) > 0, "At least one instance remained visible", counters.visibleInstances, "> 0"));
       assertions.push(validationAssertion("raster-work-produced", (counters.hwTriangles ?? 0) > 0, "Hardware Visibility consumed triangle work", counters.hwTriangles, "> 0"));
+      assertions.push(validationAssertion(
+        "geometry-truth-closed",
+        (counters.geometryNodesTested ?? 0) > 0 &&
+          (counters.geometryClustersAccepted ?? 0) > 0 &&
+          (counters.geometryMeshletsSelected ?? 0) >= (counters.geometryClustersAccepted ?? 0) &&
+          (counters.geometryCandidateTriangles ?? 0) >= (counters.geometryExactSurvivedTriangles ?? 0) &&
+          (counters.geometryExactSurvivedTriangles ?? 0) === (counters.geometryRasterTriangles ?? 0) &&
+          (counters.geometryVisiblePixels ?? 0) > 0 &&
+          (counters.geometryQueueBytes ?? 0) > 0,
+        "Geometry truth distinguishes hierarchy, selected meshlets, exact/raster triangles, visible pixels and queue bytes",
+        {
+          nodesTested: counters.geometryNodesTested ?? 0,
+          clustersAccepted: counters.geometryClustersAccepted ?? 0,
+          meshletsSelected: counters.geometryMeshletsSelected ?? 0,
+          candidateTriangles: counters.geometryCandidateTriangles ?? 0,
+          exactSurvivedTriangles: counters.geometryExactSurvivedTriangles ?? 0,
+          rasterTriangles: counters.geometryRasterTriangles ?? 0,
+          visiblePixels: counters.geometryVisiblePixels ?? 0,
+          queueBytes: counters.geometryQueueBytes ?? 0
+        },
+        "nodes/clusters/meshlets/pixels/bytes > 0 and candidate >= exact = raster"
+      ));
       assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));
     }
     if (request.scenarioId === "frustum") {

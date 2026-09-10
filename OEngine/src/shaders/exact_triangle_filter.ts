@@ -11,6 +11,7 @@ import {
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import {
+  GPU_EXACT_RASTER_RECORD_STRIDE,
   GPU_EXACT_RASTER_RECORD_WGSL,
   GPU_TRIANGLE_SETUP_RECORD_WGSL
 } from "../gpu/GpuExactRasterAbi.js";
@@ -28,6 +29,10 @@ const COUNTER_MASK = counterByteOffset("maskRasterWork") / 4;
 const COUNTER_SETUP_ATTEMPTED = counterByteOffset("setupAttempted") / 4;
 const COUNTER_SETUP_WRITTEN = counterByteOffset("setupWritten") / 4;
 const COUNTER_SETUP_OVERFLOW = counterByteOffset("setupOverflow") / 4;
+const COUNTER_GEOMETRY_CANDIDATE_TRIANGLES = counterByteOffset("geometryCandidateTriangles") / 4;
+const COUNTER_GEOMETRY_EXACT_SURVIVED = counterByteOffset("geometryExactSurvivedTriangles") / 4;
+const COUNTER_GEOMETRY_RASTER_TRIANGLES = counterByteOffset("geometryRasterTriangles") / 4;
+const COUNTER_GEOMETRY_QUEUE_BYTES = counterByteOffset("geometryQueueBytes") / 4;
 
 /**
  * WebGPU port of The Forge triangle-filtering invariants. The source/commit,
@@ -403,6 +408,13 @@ fn prepare_classified_draws() {
     atomicAdd(&classified_counters[${COUNTER_HW_CLUSTERS}u], written);
     atomicAdd(&classified_counters[${COUNTER_ALPHA_CLUSTERS}u], mask);
     atomicAdd(&classified_counters[${COUNTER_HW_TRIANGLES}u], written);
+    atomicAdd(&classified_counters[${COUNTER_GEOMETRY_CANDIDATE_TRIANGLES}u], candidates);
+    atomicAdd(&classified_counters[${COUNTER_GEOMETRY_EXACT_SURVIVED}u], written);
+    atomicAdd(&classified_counters[${COUNTER_GEOMETRY_RASTER_TRIANGLES}u], written);
+    atomicAdd(
+      &classified_counters[${COUNTER_GEOMETRY_QUEUE_BYTES}u],
+      written * ${GPU_EXACT_RASTER_RECORD_STRIDE}u
+    );
   }
 }
 

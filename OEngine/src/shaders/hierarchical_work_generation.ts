@@ -4,7 +4,13 @@ import {
   GPU_MESHLET_RECORD_WGSL
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_WORK_GENERATION_WGSL } from "../gpu/GpuWorkGenerationAbi.js";
+import {
+  GPU_RASTER_WORK_SCHEMA,
+  GPU_TRAVERSAL_WORK_SCHEMA,
+  GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
+  GPU_WORK_GENERATION_WGSL
+} from "../gpu/GpuWorkGenerationAbi.js";
+import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 
 export const HIERARCHICAL_WORKGROUP_SIZE = 64;
 export const HIERARCHICAL_VIEW_UNIFORM_SIZE = 256;
@@ -234,6 +240,10 @@ const R3_COUNTER_ROOT_STAGE_QUEUE_RESERVATIONS: u32 = 18u;
 const R3_COUNTER_TRAVERSAL_QUEUE_RESERVATIONS: u32 = 19u;
 const R3_COUNTER_WORK_GENERATION_DISPATCH_UPDATES: u32 = 20u;
 const R3_COUNTER_WORK_GENERATION_CAS_RETRIES: u32 = 21u;
+const R3_COUNTER_GEOMETRY_NODES_TESTED: u32 = ${counterByteOffset("geometryNodesTested") / 4}u;
+const R3_COUNTER_GEOMETRY_CLUSTERS_ACCEPTED: u32 = ${counterByteOffset("geometryClustersAccepted") / 4}u;
+const R3_COUNTER_GEOMETRY_MESHLETS_SELECTED: u32 = ${counterByteOffset("geometryMeshletsSelected") / 4}u;
+const R3_COUNTER_GEOMETRY_QUEUE_BYTES: u32 = ${counterByteOffset("geometryQueueBytes") / 4}u;
 const R3_SCENE_QUEUE_OVERFLOW_BIT: u32 = 1u;
 const R3_MESHLET_QUEUE_OVERFLOW_BIT: u32 = 2u;
 const R3_FEATURE_CONE: u32 = 1u;
@@ -625,6 +635,18 @@ fn r3_fused_root_cull(
       atomicAdd(&hierarchy_counters[R3_COUNTER_VISITED_HIERARCHY_NODES], visited);
       atomicAdd(&hierarchy_counters[R3_COUNTER_CANDIDATE_CLUSTERS], visited);
       atomicAdd(&hierarchy_counters[R3_COUNTER_SELECTED_CLUSTERS], selected_count);
+      atomicAdd(&hierarchy_counters[R3_COUNTER_GEOMETRY_NODES_TESTED], visited);
+      atomicAdd(&hierarchy_counters[R3_COUNTER_GEOMETRY_CLUSTERS_ACCEPTED], selected_count);
+      let child_records = select(
+        0u,
+        atomicLoad(&hierarchy_wg_child_count),
+        hierarchy_wg_child_base != OENGINE_WORK_QUEUE_INVALID_OFFSET
+      );
+      atomicAdd(
+        &hierarchy_counters[R3_COUNTER_GEOMETRY_QUEUE_BYTES],
+        child_records * ${GPU_TRAVERSAL_WORK_SCHEMA.stride}u +
+          selected_count * ${GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride}u
+      );
       atomicAdd(
         &hierarchy_counters[R3_COUNTER_REJECTED_CONE],
         atomicLoad(&hierarchy_wg_rejected_cone)
@@ -835,6 +857,18 @@ fn r3_traverse_clusters(
       atomicAdd(&traversal_counters[R3_COUNTER_VISITED_HIERARCHY_NODES], visited);
       atomicAdd(&traversal_counters[R3_COUNTER_CANDIDATE_CLUSTERS], visited);
       atomicAdd(&traversal_counters[R3_COUNTER_SELECTED_CLUSTERS], selected_count);
+      atomicAdd(&traversal_counters[R3_COUNTER_GEOMETRY_NODES_TESTED], visited);
+      atomicAdd(&traversal_counters[R3_COUNTER_GEOMETRY_CLUSTERS_ACCEPTED], selected_count);
+      let child_records = select(
+        0u,
+        atomicLoad(&hierarchy_wg_child_count),
+        hierarchy_wg_child_base != OENGINE_WORK_QUEUE_INVALID_OFFSET
+      );
+      atomicAdd(
+        &traversal_counters[R3_COUNTER_GEOMETRY_QUEUE_BYTES],
+        child_records * ${GPU_TRAVERSAL_WORK_SCHEMA.stride}u +
+          selected_count * ${GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride}u
+      );
       atomicAdd(
         &traversal_counters[R3_COUNTER_REJECTED_CONE],
         atomicLoad(&hierarchy_wg_rejected_cone)
@@ -885,6 +919,7 @@ fn r3_traverse_clusters(
 
 var<workgroup> leaf_wg_raster_count: atomic<u32>;
 var<workgroup> leaf_wg_raster_base: u32;
+var<workgroup> leaf_wg_meshlet_count: atomic<u32>;
 
 // R3-D-09 depth-zero implementation. It preserves the exact public
 // VisibleCluster/RasterWork/drawIndirect ABI while bypassing root queues,
@@ -900,6 +935,7 @@ fn r3_fused_leaf_work(
     hierarchy_wg_selected_base = OENGINE_WORK_QUEUE_INVALID_OFFSET;
     atomicStore(&leaf_wg_raster_count, 0u);
     leaf_wg_raster_base = OENGINE_WORK_QUEUE_INVALID_OFFSET;
+    atomicStore(&leaf_wg_meshlet_count, 0u);
     atomicStore(&hierarchy_wg_visible_instances, 0u);
     atomicStore(&hierarchy_wg_visited_clusters, 0u);
     atomicStore(&hierarchy_wg_rejected_cone, 0u);
@@ -971,6 +1007,7 @@ fn r3_fused_leaf_work(
   if selected {
     selected_local = atomicAdd(&hierarchy_wg_selected_count, 1u);
     raster_local = atomicAdd(&leaf_wg_raster_count, triangle_count);
+    atomicAdd(&leaf_wg_meshlet_count, meshlet_count);
   }
   workgroupBarrier();
   if lane == 0u {
@@ -1058,6 +1095,19 @@ fn r3_fused_leaf_work(
       atomicAdd(&leaf_counters[R3_COUNTER_VISITED_HIERARCHY_NODES], visible);
       atomicAdd(&leaf_counters[R3_COUNTER_CANDIDATE_CLUSTERS], visible);
       atomicAdd(&leaf_counters[R3_COUNTER_SELECTED_CLUSTERS], selected_count);
+      atomicAdd(&leaf_counters[R3_COUNTER_GEOMETRY_NODES_TESTED], visible);
+      atomicAdd(&leaf_counters[R3_COUNTER_GEOMETRY_CLUSTERS_ACCEPTED], selected_count);
+      let selected_meshlets = select(
+        0u,
+        atomicLoad(&leaf_wg_meshlet_count),
+        valid_group
+      );
+      atomicAdd(&leaf_counters[R3_COUNTER_GEOMETRY_MESHLETS_SELECTED], selected_meshlets);
+      atomicAdd(
+        &leaf_counters[R3_COUNTER_GEOMETRY_QUEUE_BYTES],
+        selected_count * ${GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride}u +
+          raster_count * ${GPU_RASTER_WORK_SCHEMA.stride}u
+      );
       atomicAdd(&leaf_counters[R3_COUNTER_REJECTED_CONE], rejected_cone);
       atomicAdd(&leaf_counters[R3_COUNTER_REJECTED_HZB], rejected_hzb);
       atomicAdd(
@@ -1178,6 +1228,14 @@ fn r3_expand_raster_work(
     let published_end = base + raster_work_group_count;
     atomicMax(&hierarchy_draw_indirect.vertex_count, published_end * 3u);
     if (raster_work_view.hzb.w & R3_FEATURE_COUNTERS) != 0u {
+      atomicAdd(
+        &raster_work_counters[R3_COUNTER_GEOMETRY_MESHLETS_SELECTED],
+        cluster.meshlet_count
+      );
+      atomicAdd(
+        &raster_work_counters[R3_COUNTER_GEOMETRY_QUEUE_BYTES],
+        raster_work_group_count * ${GPU_RASTER_WORK_SCHEMA.stride}u
+      );
     }
   }
 }

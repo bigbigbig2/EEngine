@@ -366,7 +366,18 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   setupWritten: supported("ExactTriangleFilter/TriangleSetup candidate reducer"),
   setupVisiblePixelHits: supported("PackedMaterialResolvePass/TriangleSetup evidence compute"),
   setupVisiblePixelFallbacks: supported("PackedMaterialResolvePass/per-pixel fallback evidence compute"),
-  setupOverflow: supported("ExactTriangleFilter/TriangleSetup bounded capacity reducer")
+  setupOverflow: supported("ExactTriangleFilter/TriangleSetup bounded capacity reducer"),
+  geometryNodesTested: supported("HierarchicalWorkGenerator hierarchy test reducer"),
+  geometryClustersAccepted: supported("HierarchicalWorkGenerator accepted-cluster reducer"),
+  geometryMeshletsSelected: supported("HierarchicalWorkGenerator selected-meshlet reducer"),
+  geometryMeshletWorksProduced: supported("ADR-0008 MeshletRasterWork producer reducer"),
+  geometryCandidateTriangles: supported("ExactTriangleFilter candidate reducer"),
+  geometryRiskyTriangles: supported("ADR-0008 selective-risk classifier reducer"),
+  geometryExactSurvivedTriangles: supported("ExactTriangleFilter survivor reducer"),
+  geometryRasterTriangles: supported("hardware visibility submitted-triangle reducer"),
+  geometryPaddedVertices: supported("ADR-0008 bucket raster padding reducer"),
+  geometryVisiblePixels: supported("VisibilityCounterPass valid-key reducer"),
+  geometryQueueBytes: supported("geometry queue producer byte reducer")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(
