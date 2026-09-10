@@ -64,8 +64,8 @@ fn hierarchy_hzb_occluded_from(
       select(cluster.bounds_min.y, cluster.bounds_max.y, (corner & 2u) != 0u),
       select(cluster.bounds_min.z, cluster.bounds_max.z, (corner & 4u) != 0u)
     );
-    let current_world = instance.current_object_to_world * vec4f(local, 1.0);
-    let previous_world = instance.previous_from_current * current_world;
+    let current_world = oengine_instance_current_object_to_world(instance) * vec4f(local, 1.0);
+    let previous_world = oengine_instance_previous_from_current(instance) * current_world;
     let clip = (*view).world_to_clip * previous_world;
     // Near-plane crossings and invalid projections are deliberately fail-open.
     if any(clip != clip) || any(abs(clip) > vec4f(3.4e38)) || clip.w <= 1e-6 {
@@ -350,7 +350,7 @@ fn hierarchy_cluster_cone_backfacing(
     (cluster.flags & R3_CLUSTER_DOUBLE_SIDED) != 0u {
     return false;
   }
-  let transform = instance.current_object_to_world;
+  let transform = oengine_instance_current_object_to_world(instance);
   let x = transform[0].xyz;
   let y = transform[1].xyz;
   let z = transform[2].xyz;
@@ -488,7 +488,7 @@ fn r3_fused_root_cull(
     let instance = hierarchy_instances[instance_record_index];
     let instance_sphere = hierarchy_transform_sphere(
       instance.bounds_sphere,
-      instance.current_object_to_world
+      oengine_instance_current_object_to_world(instance)
     );
     if hierarchy_instance_enabled(instance, hierarchy_view.scene.w, hierarchy_view.limits.y) &&
       hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
@@ -496,10 +496,10 @@ fn r3_fused_root_cull(
       atomicAdd(&hierarchy_wg_visited_clusters, 1u);
       let geometry = hierarchy_geometries[instance.geometry_record_index];
       let cluster = hierarchy_clusters[geometry.cluster_root];
-      let scale = hierarchy_conservative_scale(instance.current_object_to_world);
+      let scale = hierarchy_conservative_scale(oengine_instance_current_object_to_world(instance));
       let sphere = hierarchy_transform_sphere(
         cluster.bounds_sphere,
-        instance.current_object_to_world
+        oengine_instance_current_object_to_world(instance)
       );
       selected_instance = instance_record_index;
       selected_geometry = instance.geometry_record_index;
@@ -718,10 +718,10 @@ fn r3_traverse_clusters(
     let work = traversal_input.elements[invocation_index];
     let instance = traversal_instances[work.instance_record_index];
     let cluster = traversal_clusters[work.cluster_record_index];
-    let scale = hierarchy_conservative_scale(instance.current_object_to_world);
+    let scale = hierarchy_conservative_scale(oengine_instance_current_object_to_world(instance));
     let sphere = hierarchy_transform_sphere(
       cluster.bounds_sphere,
-      instance.current_object_to_world
+      oengine_instance_current_object_to_world(instance)
     );
     selected_instance = work.instance_record_index;
     selected_geometry = instance.geometry_record_index;
@@ -929,7 +929,7 @@ fn r3_fused_leaf_work(
     let instance = leaf_instances[instance_record_index];
     let instance_sphere = hierarchy_transform_sphere(
       instance.bounds_sphere,
-      instance.current_object_to_world
+      oengine_instance_current_object_to_world(instance)
     );
     if hierarchy_instance_enabled(instance, leaf_view.scene.w, leaf_view.limits.y) &&
       hierarchy_sphere_in_frustum(instance_sphere, &leaf_view) {
@@ -939,7 +939,7 @@ fn r3_fused_leaf_work(
       let cluster = leaf_clusters[geometry.cluster_root];
       let sphere = hierarchy_transform_sphere(
         cluster.bounds_sphere,
-        instance.current_object_to_world
+        oengine_instance_current_object_to_world(instance)
       );
       if hierarchy_sphere_in_frustum(sphere, &leaf_view) {
         if (leaf_view.hzb.w & R3_FEATURE_CONE) != 0u &&

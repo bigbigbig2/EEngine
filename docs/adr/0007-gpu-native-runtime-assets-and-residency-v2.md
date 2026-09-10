@@ -810,6 +810,8 @@ segmented immutable allocation、stable descriptor indirection、logical/physica
 
 ### Step 4 · Canonical Geometry Profile V2
 
+**Implementation:** completed 2026-09-11；`static-pbr-compact-v2` 已成为默认 production profile：position 使用 source-AABB UNORM16、normal 使用 oct SNORM16、tangent 使用 SNORM16、UV 使用 float16、color 使用 UNORM8，meshlet/cluster bounds 对 position quantization 做保守扩张；`explicit-float32-fallback-v2` 是唯一保留的显式 generic fallback。Runtime Package V2 manifest/profile/hash 与 GeometryDirectory 双向校验，当前 Visibility、Shadow、Material Resolve、Transparency 和 hierarchy consumer 直接解码该 ABI。
+
 **Scope**
 
 第一套 Static PBR compact profile、meshoptimizer/cook pipeline、current renderer 临时消费新 profile 建 baseline。
@@ -822,6 +824,8 @@ position/normal/UV/material parity 通过，并降低 package/resident/fetch 成
 
 ### Step 5 · Instance ABI V2
 
+**Implementation:** completed 2026-09-11；Instance ABI v4 将每条记录划为 64 B static region 与 112 B dynamic region，总 resident stride 从 192 B 降为 176 B；current 与 previous-from-current 使用 affine 3×4 表达。`static-instance`、transform、material、visibility 与 lifecycle 已有独立 mutation 合同，transform 不再重写整条 record，material/visibility 使用 4–8 B field write；CPU shadow、各类 patch bytes 与 stable no-op 由 `GpuScene`/FrameProfiler owner 计数。
+
 **Scope**
 
 static/dynamic split、patch narrowing、CPU shadow accounting。
@@ -833,6 +837,8 @@ static/dynamic split、patch narrowing、CPU shadow accounting。
 transform-heavy workload 的 patch bytes、resident bytes、CPU shadow 得到可信下降或结构性解耦，无生命周期回归。
 
 ### Step 6 · Optional page/mip seam
+
+**Implementation:** completed 2026-09-11；`RuntimeAssetResidencyState` 只冻结 asset/chunk identity、logical/physical resident range、`unrequested → requested → resident → retiring` 状态、原子 reserve/commit/abort、budget hook、retire 和 device-loss reset。Geometry/Texture production upload 已接入该 seam，physical resource identity 不进入或改变 stable asset/material handle；未加入 priority、feedback、IO 或 page scheduler。
 
 **Scope**
 

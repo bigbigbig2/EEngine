@@ -69,6 +69,10 @@ export interface RuntimeAssetChunkInputV2 {
   readonly semantic: string;
   readonly compression: string;
   readonly alignment?: number;
+  /** Container directory ABI. Defaults to a byte payload. */
+  readonly elementStride?: number;
+  /** Container directory ABI. Defaults to data.byteLength. */
+  readonly elementCount?: number;
   readonly decodedBytes: number;
   readonly expectedResidentBytes: number;
   readonly data: ArrayBuffer | ArrayBufferView;
@@ -162,12 +166,19 @@ export async function writeRuntimeAssetPackageV2(
           },
           ...chunks.map((chunk) => {
             const bytes = payloads.get(chunk.sectionType)!;
+            const elementStride = chunk.elementStride ?? 1;
+            const elementCount = chunk.elementCount ?? bytes.byteLength;
+            if (elementStride <= 0 || elementCount < 0 ||
+                !Number.isInteger(elementStride) || !Number.isInteger(elementCount) ||
+                elementStride * elementCount !== bytes.byteLength) {
+              throw new RangeError(`Chunk '${chunk.id}' element ABI does not match its byte length`);
+            }
             return {
               type: chunk.sectionType,
               required: false,
               data: bytes,
-              elementStride: 1,
-              elementCount: bytes.byteLength,
+              elementStride,
+              elementCount,
               alignment: chunk.alignment ?? 4
             };
           })

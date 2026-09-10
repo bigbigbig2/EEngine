@@ -213,9 +213,17 @@ export class GraphicsContext {
     return this.assetStoreValue;
   }
 
+  get assets_if_created(): GpuAssetStore | undefined {
+    return this.assetStoreValue;
+  }
+
   /** Lazily creates the compact Instance table. */
   get gpu_scene(): GpuScene {
     this.gpuSceneValue ??= new GpuScene(this.device, this.assets, this.resource_accounting);
+    return this.gpuSceneValue;
+  }
+
+  get gpu_scene_if_created(): GpuScene | undefined {
     return this.gpuSceneValue;
   }
 

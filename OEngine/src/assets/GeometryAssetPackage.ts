@@ -1,11 +1,15 @@
 import {
-  openRuntimeAssetPackage,
+  openRuntimeAssetPackageV2,
+  type RuntimeAssetPackageV2
+} from "./RuntimeAssetManifestV2.js";
+import {
   type RuntimeAssetPackage,
   type RuntimeAssetSectionView,
   type RuntimeAssetValidationIssue
 } from "./RuntimeAssetPackage.js";
 
-export const GEOMETRY_ASSET_SCHEMA_VERSION = 1;
+export const GEOMETRY_ASSET_SCHEMA_VERSION = 2;
+export const GEOMETRY_COOKER_VERSION = "oengine-geometry-cooker-v2.0.0";
 export const GEOMETRY_DIRECTORY_RECORD_STRIDE = 192;
 export const GEOMETRY_MESHLET_RECORD_STRIDE = 112;
 export const GEOMETRY_CLUSTER_RECORD_STRIDE = 128;
@@ -33,14 +37,27 @@ export const GEOMETRY_DIRECTORY_FLAGS = Object.freeze({
   SingleLevel: 1 << 0,
   NoHierarchy: 1 << 1,
   NoBvh: 1 << 2,
-  Uncompressed: 1 << 3
+  ExplicitFloat32Fallback: 1 << 3,
+  CompactStaticPbr: 1 << 4
 });
+
+export const GEOMETRY_VERTEX_PROFILE = Object.freeze({
+  StaticPbrCompactV2: 1,
+  ExplicitFloat32FallbackV2: 2
+} as const);
+
+export const GEOMETRY_VERTEX_STREAM_FLAGS = Object.freeze({
+  PositionAabbUnorm16: 1 << 0,
+  NormalOctSnorm16: 1 << 1,
+  TangentSnorm16: 1 << 2,
+  UvFloat16: 1 << 3,
+  ColorUnorm8: 1 << 4
+} as const);
 
 const GEOMETRY_REQUIRED_R2_B_01_FLAGS =
   GEOMETRY_DIRECTORY_FLAGS.SingleLevel |
   GEOMETRY_DIRECTORY_FLAGS.NoHierarchy |
-  GEOMETRY_DIRECTORY_FLAGS.NoBvh |
-  GEOMETRY_DIRECTORY_FLAGS.Uncompressed;
+  GEOMETRY_DIRECTORY_FLAGS.NoBvh;
 const MESHLET_ALPHA_MASK = 0x3;
 const MESHLET_DOUBLE_SIDED = 1 << 2;
 const MESHLET_CONE_VALID = 1 << 3;
@@ -104,6 +121,7 @@ export interface GeometryDirectoryRecord {
   readonly materialRangeCount: number;
   readonly maxMeshletVertices: number;
   readonly maxMeshletTriangles: number;
+  readonly vertexProfileId: number;
   readonly boundsBox: Float32Array;
   readonly boundsSphere: Float32Array;
   readonly sourceHash: Uint8Array;
@@ -214,6 +232,7 @@ export interface GeometryAssetValidationReport {
 }
 
 export interface GeometryAssetPackage {
+  readonly runtime: RuntimeAssetPackageV2;
   readonly package: RuntimeAssetPackage;
   readonly directory: GeometryDirectoryRecord;
   readonly meshlets: readonly GeometryMeshletRecord[];
@@ -243,13 +262,20 @@ export class GeometryAssetPackageError extends Error {
 export async function openGeometryAssetPackage(
   bytes: ArrayBuffer
 ): Promise<GeometryAssetPackage> {
-  const pkg = await openRuntimeAssetPackage(bytes, {
-    supportedSectionTypes: new Set(Object.values(GEOMETRY_SECTION_TYPES))
-  });
+  const runtime = await openRuntimeAssetPackageV2(bytes);
+  const pkg = runtime.package;
   const issues: RuntimeAssetValidationIssue[] = [];
   const error = (code: string, message: string, sectionType?: number): void => {
     issues.push({ severity: "error", code, message, sectionType });
   };
+  if (runtime.manifest.assetType !== "geometry-static-pbr" ||
+      runtime.manifest.assetSchemaVersion !== GEOMETRY_ASSET_SCHEMA_VERSION ||
+      runtime.manifest.cookerVersion !== GEOMETRY_COOKER_VERSION) {
+    error("geometry-manifest-contract", "Geometry manifest type, schema, or cooker version is unsupported");
+  }
+  if (runtime.manifest.variants.length !== 1) {
+    error("geometry-manifest-variant-count", "Geometry package must contain exactly one cooked vertex profile variant");
+  }
   const directorySection = requiredSection(
     pkg,
     GEOMETRY_SECTION_TYPES.GeometryDirectory,
@@ -366,6 +392,21 @@ export async function openGeometryAssetPackage(
   }
 
   const directory = readGeometryDirectoryRecord(directorySection.bytes, 0);
+  const manifestVariant = runtime.manifest.variants[0]!;
+  const expectedProfileId = manifestVariant.profile === "static-pbr-compact-v2"
+    ? GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
+    : manifestVariant.profile === "explicit-float32-fallback-v2"
+      ? GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2
+      : 0;
+  if (expectedProfileId === 0 || directory.vertexProfileId !== expectedProfileId) {
+    error("geometry-profile-identity", "Geometry directory profile does not match the manifest variant");
+  }
+  if (bytesToHex(directory.sourceHash) !== runtime.manifest.sourceProvenance.contentHash) {
+    error("geometry-source-identity", "Geometry directory source hash does not match manifest provenance");
+  }
+  if (bytesToHex(directory.recipeHash) !== runtime.manifest.recipeHash) {
+    error("geometry-recipe-identity", "Geometry directory recipe hash does not match the manifest");
+  }
   const meshlets = new Array<GeometryMeshletRecord>(meshletSection.elementCount);
   for (let index = 0; index < meshlets.length; index++) {
     meshlets[index] = readGeometryMeshletRecord(meshletSection.bytes, index);
@@ -472,6 +513,7 @@ export async function openGeometryAssetPackage(
 
   const frozenMeshlets = Object.freeze(meshlets);
   return {
+    runtime,
     package: pkg,
     directory: Object.freeze(directory),
     meshlets: frozenMeshlets,
@@ -528,6 +570,7 @@ export function encodeGeometryDirectoryRecord(
   writeFloatArray(view, 104, record.boundsSphere);
   bytes.set(record.sourceHash, 120);
   bytes.set(record.recipeHash, 152);
+  view.setUint32(184, record.vertexProfileId, true);
   return bytes;
 }
 
@@ -732,6 +775,7 @@ export function readGeometryDirectoryRecord(
     materialRangeCount: view.getUint32(offset + 68, true),
     maxMeshletVertices: view.getUint32(offset + 72, true),
     maxMeshletTriangles: view.getUint32(offset + 76, true),
+    vertexProfileId: view.getUint32(offset + 184, true),
     boundsBox: readFloatArray(view, offset + 80, 6),
     boundsSphere: readFloatArray(view, offset + 104, 4),
     sourceHash: bytes.slice(offset + 120, offset + 152),
@@ -935,14 +979,6 @@ function validateSectionContract(
   stride: number,
   error: (code: string, message: string, sectionType?: number) => void
 ): boolean {
-  if (!section.required) {
-    error(
-      "geometry-section-not-required",
-      `Geometry section ${section.type} must be required`,
-      section.type
-    );
-    return false;
-  }
   if (section.elementStride !== stride) {
     error(
       "geometry-section-stride",
@@ -959,7 +995,7 @@ function validateReservedBytes(
   meshletBytes: Uint8Array,
   issues: RuntimeAssetValidationIssue[]
 ): void {
-  if (!rangeIsZero(directoryBytes, 184, 192)) {
+  if (!rangeIsZero(directoryBytes, 188, 192)) {
     issues.push({
       severity: "error",
       code: "geometry-directory-reserved",
@@ -1116,11 +1152,19 @@ function validateDirectory(
   }
   const hierarchyPresent = clusterRecordCount > 0;
   const bvhPresent = bvhRecordCount > 0;
+  const profileFlag = directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
+    ? GEOMETRY_DIRECTORY_FLAGS.CompactStaticPbr
+    : directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2
+      ? GEOMETRY_DIRECTORY_FLAGS.ExplicitFloat32Fallback
+      : 0;
+  if (profileFlag === 0) {
+    error("geometry-vertex-profile", "GeometryDirectory vertex profile is unsupported");
+  }
   const hierarchyFlags = (bvhPresent ? 0 : GEOMETRY_DIRECTORY_FLAGS.NoBvh) |
-    GEOMETRY_DIRECTORY_FLAGS.Uncompressed;
+    profileFlag;
   const expectedFlags = hierarchyPresent
     ? hierarchyFlags
-    : GEOMETRY_REQUIRED_R2_B_01_FLAGS;
+    : GEOMETRY_REQUIRED_R2_B_01_FLAGS | profileFlag;
   if (directory.flags !== expectedFlags) {
     error("geometry-directory-flags", "GeometryDirectory flags do not match serialized capabilities");
   }
@@ -1713,16 +1757,13 @@ function validateVertexAndIndexPayload(
     if (
       descriptor.componentCount < 1 || descriptor.componentCount > 4 ||
       descriptor.vertexCount !== directory.vertexCount ||
-      descriptor.elementStride !==
-        descriptor.componentCount * geometryVertexDataTypeBytes(descriptor.dataType) ||
+      descriptor.elementStride !== expectedGeometryStreamStride(descriptor) ||
       descriptor.dataByteLength !== descriptor.elementStride * descriptor.vertexCount ||
       descriptor.dataByteLength > data.length - Math.min(data.length, descriptor.dataByteOffset)
     ) {
       error("vertex-stream-layout", "component, stride, count or byte range is invalid");
     }
-    if (descriptor.flags !== 0) {
-      error("vertex-stream-flags", "v1 uncompressed stream flags must be zero");
-    }
+    validateVertexProfileStream(directory.vertexProfileId, descriptor, error);
     if (
       descriptor.normalized &&
       (descriptor.dataType === "float32" || descriptor.dataType === "float64")
@@ -1755,21 +1796,24 @@ function validateVertexAndIndexPayload(
       ) {
         error("vertex-stream-component-bounds", "unused component bounds must be zero");
       }
-      if (
-        descriptor.decodeScale[component] !== 1 ||
-        descriptor.decodeBias[component] !== 0
-      ) {
-        error("vertex-stream-decode", "uncompressed v1 decode must be identity");
+      if (directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2 &&
+          (descriptor.decodeScale[component] !== 1 || descriptor.decodeBias[component] !== 0)) {
+        error("vertex-stream-decode", "explicit float32 fallback decode must be identity");
       }
     }
     if (descriptor.semantic === "position") {
       positionCount++;
       if (
-        descriptor.dataType !== "float32" ||
+        (directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
+          ? descriptor.flags !== GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16 ||
+            descriptor.dataType !== "uint16" || descriptor.elementStride !== 8
+          : descriptor.dataType !== "float32") ||
         descriptor.componentCount !== 3 ||
-        descriptor.normalized
+        (directory.vertexProfileId === GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
+          ? !descriptor.normalized
+          : descriptor.normalized)
       ) {
-        error("vertex-position-format", "position must be unnormalized float32x3 in v1");
+        error("vertex-position-format", "position does not match the selected bounded profile");
       }
       const expected = directory.boundsBox;
       const actual = descriptor.componentMinimum;
@@ -1846,32 +1890,23 @@ function validateStreamFiniteValues(
   const maximum = new Float32Array(4);
   minimum.fill(Infinity, 0, descriptor.componentCount);
   maximum.fill(-Infinity, 0, descriptor.componentCount);
-  const end = Math.min(
-    data.length,
-    descriptor.dataByteOffset + descriptor.dataByteLength
-  );
-  let component = 0;
-  for (let offset = descriptor.dataByteOffset;
-    offset + componentBytes <= end;
-    offset += componentBytes, component = (component + 1) % descriptor.componentCount
-  ) {
-    const raw = readVertexComponent(view, offset, descriptor.dataType);
-    if (!Number.isFinite(raw)) {
-      issues.push({
-        severity: "error",
-        code: "vertex-stream-nonfinite",
-        message: `Vertex stream descriptor ${descriptorIndex} contains a non-finite component`,
-        sectionType: GEOMETRY_SECTION_TYPES.VertexStreamData
-      });
-      return;
+  for (let vertex = 0; vertex < descriptor.vertexCount; vertex++) {
+    const elementOffset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
+    for (let component = 0; component < descriptor.componentCount; component++) {
+      const offset = elementOffset + component * componentBytes;
+      const value = decodeStoredVertexComponent(view, offset, descriptor, component);
+      if (!Number.isFinite(value)) {
+        issues.push({
+          severity: "error",
+          code: "vertex-stream-nonfinite",
+          message: `Vertex stream descriptor ${descriptorIndex} contains a non-finite component`,
+          sectionType: GEOMETRY_SECTION_TYPES.VertexStreamData
+        });
+        return;
+      }
+      minimum[component] = Math.min(minimum[component]!, value);
+      maximum[component] = Math.max(maximum[component]!, value);
     }
-    const value = decodeGeometryVertexComponent(
-      raw,
-      descriptor.dataType,
-      descriptor.normalized
-    );
-    minimum[component] = Math.min(minimum[component]!, value);
-    maximum[component] = Math.max(maximum[component]!, value);
   }
   for (let index = 0; index < descriptor.componentCount; index++) {
     if (
@@ -1887,6 +1922,52 @@ function validateStreamFiniteValues(
       return;
     }
   }
+}
+
+function expectedGeometryStreamStride(descriptor: GeometryVertexStreamDescriptor): number {
+  if (descriptor.flags === GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16) return 8;
+  return descriptor.componentCount * geometryVertexDataTypeBytes(descriptor.dataType);
+}
+
+function validateVertexProfileStream(
+  profileId: number,
+  descriptor: GeometryVertexStreamDescriptor,
+  error: (code: string, message: string) => void
+): void {
+  if (profileId === GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2) {
+    if (descriptor.flags !== 0) error("vertex-stream-flags", "fallback streams must use identity encoding");
+    return;
+  }
+  const expected = descriptor.semantic === "position"
+    ? GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16
+    : descriptor.semantic === "normal"
+      ? GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16
+      : descriptor.semantic === "tangent"
+        ? GEOMETRY_VERTEX_STREAM_FLAGS.TangentSnorm16
+        : descriptor.semantic === "uv0" || descriptor.semantic === "uv1" || descriptor.semantic === "uv2"
+          ? GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16
+          : descriptor.semantic === "color"
+            ? GEOMETRY_VERTEX_STREAM_FLAGS.ColorUnorm8
+            : 0;
+  if (expected === 0 || descriptor.flags !== expected) {
+    error("vertex-stream-profile", "stream semantic or encoding is outside Static PBR compact V2");
+  }
+}
+
+function decodeStoredVertexComponent(
+  view: DataView,
+  byteOffset: number,
+  descriptor: GeometryVertexStreamDescriptor,
+  component: number
+): number {
+  const raw = descriptor.flags === GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16
+    ? decodeFloat16(view.getUint16(byteOffset, true))
+    : decodeGeometryVertexComponent(
+      readVertexComponent(view, byteOffset, descriptor.dataType),
+      descriptor.dataType,
+      descriptor.normalized
+    );
+  return raw * descriptor.decodeScale[component]! + descriptor.decodeBias[component]!;
 }
 
 function validateMaterials(
@@ -1973,7 +2054,7 @@ function validateMeshletPositionBounds(
   issues: RuntimeAssetValidationIssue[]
 ): void {
   const position = descriptors.find((descriptor) => descriptor.semantic === "position");
-  if (position === undefined || position.dataType !== "float32" || position.componentCount !== 3) {
+  if (position === undefined || position.componentCount !== 3) {
     return;
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -1986,10 +2067,11 @@ function validateMeshletPositionBounds(
     for (let offset = meshlet.vertexOffset; offset < end; offset++) {
       const vertex = meshletVertices[offset]!;
       const byteOffset = position.dataByteOffset + vertex * position.elementStride;
-      if (byteOffset + 12 > data.length) break;
-      const x = view.getFloat32(byteOffset, true);
-      const y = view.getFloat32(byteOffset + 4, true);
-      const z = view.getFloat32(byteOffset + 8, true);
+      if (byteOffset + position.elementStride > data.length) break;
+      const componentBytes = geometryVertexDataTypeBytes(position.dataType);
+      const x = decodeStoredVertexComponent(view, byteOffset, position, 0);
+      const y = decodeStoredVertexComponent(view, byteOffset + componentBytes, position, 1);
+      const z = decodeStoredVertexComponent(view, byteOffset + componentBytes * 2, position, 2);
       const dx = x - meshlet.bounds.centerX;
       const dy = y - meshlet.bounds.centerY;
       const dz = z - meshlet.bounds.centerZ;
@@ -2158,6 +2240,134 @@ export function decodeGeometryVertexComponent(
     case "float32":
     case "float64": return value;
   }
+}
+
+/** CPU oracle for the Static PBR compact position consumer. */
+export function decodeGeometryPosition(
+  asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
+  vertex: number
+): Float32Array {
+  const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === "position");
+  if (descriptor === undefined || vertex < 0 || vertex >= descriptor.vertexCount) {
+    throw new RangeError("Geometry position vertex is outside the selected stream");
+  }
+  const view = new DataView(
+    asset.vertexStreamData.buffer,
+    asset.vertexStreamData.byteOffset,
+    asset.vertexStreamData.byteLength
+  );
+  const bytes = geometryVertexDataTypeBytes(descriptor.dataType);
+  const offset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
+  return new Float32Array([
+    decodeStoredVertexComponent(view, offset, descriptor, 0),
+    decodeStoredVertexComponent(view, offset + bytes, descriptor, 1),
+    decodeStoredVertexComponent(view, offset + bytes * 2, descriptor, 2)
+  ]);
+}
+
+/** CPU oracle for octahedral compact normals. */
+export function decodeGeometryNormal(
+  asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
+  vertex: number
+): Float32Array | null {
+  const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === "normal");
+  if (descriptor === undefined) return null;
+  if (vertex < 0 || vertex >= descriptor.vertexCount) throw new RangeError("Geometry normal vertex is outside the selected stream");
+  const view = new DataView(asset.vertexStreamData.buffer, asset.vertexStreamData.byteOffset, asset.vertexStreamData.byteLength);
+  const offset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
+  if (descriptor.flags !== GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16) {
+    return new Float32Array([
+      decodeStoredVertexComponent(view, offset, descriptor, 0),
+      decodeStoredVertexComponent(view, offset + geometryVertexDataTypeBytes(descriptor.dataType), descriptor, 1),
+      decodeStoredVertexComponent(view, offset + geometryVertexDataTypeBytes(descriptor.dataType) * 2, descriptor, 2)
+    ]);
+  }
+  const x = Math.max(view.getInt16(offset, true) / 32767, -1);
+  const y = Math.max(view.getInt16(offset + 2, true) / 32767, -1);
+  let nx = x;
+  let ny = y;
+  let nz = 1 - Math.abs(x) - Math.abs(y);
+  if (nz < 0) {
+    nx = (1 - Math.abs(y)) * Math.sign(x || 1);
+    ny = (1 - Math.abs(x)) * Math.sign(y || 1);
+  }
+  const inverseLength = 1 / Math.max(Math.hypot(nx, ny, nz), 1e-20);
+  return new Float32Array([nx * inverseLength, ny * inverseLength, nz * inverseLength]);
+}
+
+/** CPU oracle matching the compact float16 UV consumer. */
+export function decodeGeometryUv(
+  asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
+  semantic: "uv0" | "uv1" | "uv2",
+  vertex: number
+): Float32Array | null {
+  const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === semantic);
+  if (descriptor === undefined) return null;
+  if (descriptor.componentCount !== 2 || vertex < 0 || vertex >= descriptor.vertexCount) {
+    throw new RangeError("Geometry UV vertex is outside the selected stream");
+  }
+  const view = new DataView(
+    asset.vertexStreamData.buffer,
+    asset.vertexStreamData.byteOffset,
+    asset.vertexStreamData.byteLength
+  );
+  const bytes = geometryVertexDataTypeBytes(descriptor.dataType);
+  const offset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
+  return new Float32Array([
+    decodeStoredVertexComponent(view, offset, descriptor, 0),
+    decodeStoredVertexComponent(view, offset + bytes, descriptor, 1)
+  ]);
+}
+
+/** CPU oracle matching the compact signed-normalized tangent consumer. */
+export function decodeGeometryTangent(
+  asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
+  vertex: number
+): Float32Array | null {
+  return decodeDirectGeometryAttribute(asset, "tangent", vertex, 4);
+}
+
+/** CPU oracle matching the compact unsigned-normalized color consumer. */
+export function decodeGeometryColor(
+  asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
+  vertex: number
+): Float32Array | null {
+  return decodeDirectGeometryAttribute(asset, "color", vertex, 4);
+}
+
+function decodeDirectGeometryAttribute(
+  asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
+  semantic: string,
+  vertex: number,
+  componentCount: number
+): Float32Array | null {
+  const descriptor = asset.vertexStreamDescriptors.find((stream) => stream.semantic === semantic);
+  if (descriptor === undefined) return null;
+  if (descriptor.componentCount !== componentCount || vertex < 0 || vertex >= descriptor.vertexCount) {
+    throw new RangeError(`Geometry ${semantic} vertex is outside the selected stream`);
+  }
+  const view = new DataView(
+    asset.vertexStreamData.buffer,
+    asset.vertexStreamData.byteOffset,
+    asset.vertexStreamData.byteLength
+  );
+  const bytes = geometryVertexDataTypeBytes(descriptor.dataType);
+  const offset = descriptor.dataByteOffset + vertex * descriptor.elementStride;
+  return Float32Array.from({ length: componentCount }, (_, component) =>
+    decodeStoredVertexComponent(view, offset + bytes * component, descriptor, component));
+}
+
+function decodeFloat16(bits: number): number {
+  const sign = (bits & 0x8000) === 0 ? 1 : -1;
+  const exponent = (bits >>> 10) & 0x1f;
+  const fraction = bits & 0x03ff;
+  if (exponent === 0) return sign * 2 ** -14 * (fraction / 1024);
+  if (exponent === 0x1f) return fraction === 0 ? sign * Infinity : NaN;
+  return sign * 2 ** (exponent - 15) * (1 + fraction / 1024);
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
 function alignUp(value: number, alignment: number): number {

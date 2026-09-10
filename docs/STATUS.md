@@ -1,6 +1,6 @@
 # OEngine 当前状态
 
-更新时间：2026-09-10。本文件只记录当前能力、开放风险和下一步；实施过程与旧结果从 Git 查询。
+更新时间：2026-09-11。本文件只记录当前能力、开放风险和下一步；实施过程与旧结果从 Git 查询。
 
 ## 当前基线
 
@@ -15,6 +15,9 @@
 - WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码强制 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，机会性启用 `timestamp-query`、`subgroups` 和一族纹理压缩能力，并冻结 adapter/device feature、关键 limit、WGSL/API probe 与 texture specialization record。
 - Runtime Package V2 已冻结确定性 manifest/dependency/variant/chunk 语义、物理 byte range、feature/limit compatibility 与 checksum；Texture Package V2 已有完整 offline mip、BC1/3/4/5 physical variant、显式 RGBA8 fallback 和真实 Chrome `cook → load → upload → sample` consumer。
 - Texture Residency 已改为有界 immutable size-class segment；业务侧 texture handle 使用 version+slot+generation 且只在提交边界发布，GPU MaterialRecord 消费同事务派生的 physical routing，扩容不再复制已有 resident array；绑定 policy 和 logical/physical/retiring/transaction 计数进入 capability/evidence。
+- Geometry 默认生产路径已切到 `static-pbr-compact-v2`：position/normal/tangent/UV/color 使用有界紧凑编码，bounds 保守覆盖 quantization error，Runtime Package manifest/profile/hash 与目录互证；float32 generic 只保留显式 fallback。
+- Instance ABI 已拆为 64 B static 与 112 B dynamic region，总 stride 为 176 B；static/transform/material/visibility/lifecycle 分流，transform、material 与 visibility 只上传命中 region/field，CPU shadow 与 patch bytes 由 owner/Profiler 计数。
+- Runtime Asset 已有无 scheduler 的 chunk/page seam：stable identity、logical/physical resident range、request state、budget hook、原子 commit/abort、retire 与 device-loss reset；Geometry/Texture upload 已接入且不改变 stable asset/material handle。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 
@@ -54,6 +57,6 @@
 ## 下一步
 
 1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：为 `primitive-index`、`shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback；没有 consumer 前保持 record-only。
-2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–3 implementation 已落地；完成固定 texture-heavy PERF 证据后进入 Step 4 Canonical Geometry Profile V2。
-3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：等待 ADR-0007 compact geometry 与 instance contracts。
+2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–6 implementation 与 MILESTONE 综合 profile 已落地；在 clean commit 上运行唯一 comprehensive final PERF 后关闭 ADR。
+3. [ADR-0008](./adr/0008-gpu-driven-geometry-and-visibility-v2.md)：消费已稳定的 compact geometry、instance 与 residency contracts，后续 page/streaming 扩展不得改变 stable handles。
 4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：等待 ADR-0008 VisibilityKey V2；SSAO/SSR upstream porting 可以提前研究，但 production cutover 后置。

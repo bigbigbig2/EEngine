@@ -9,9 +9,9 @@
 - License: MIT；包内 `LICENSE.md` 和源码 notice 必须保留。
 - Adoption: direct dependency。
 - Retained invariants: triangle-list 输入、Meshlet vertex/triangle limits、local/global index、winding、sphere/cone bounds；material/alpha/double-sided 不跨 Meshlet。
-- OEngine/WebGPU differences: Cooker 只提取精确 range 并写 OEngine sections，不序列化 WASM heap/上游 struct；超过 512 triangles 的 hierarchy node 使用保守 sphere 并关闭 cone。
+- OEngine/WebGPU differences: Cooker 只提取精确 range 并写 Runtime Package V2，不序列化 WASM heap/上游 struct；默认 `static-pbr-compact-v2` 的 position/normal/tangent/UV/color pack 与共享 WGSL decode 是 OEngine 独立 ABI，meshoptimizer 仍只负责 meshlet/simplification；position quantization error 被扩入 meshlet/cluster bounds。超过 512 triangles 的 hierarchy node 使用保守 sphere 并关闭 cone。
 - Fallback/lifecycle: 非有限 bounds 回退到保守 AABB sphere；版本、integrity 或 license 改变必须更新 recipe identity。
-- Local validation: `geometry-hierarchy.test.mjs`、package reopen/determinism 和上游 clusterizer regression。
+- Local validation: package reopen/determinism、compact/fallback byte comparison、position/normal/UV 数值 oracle、conservative bounds、真实 Chrome Visibility/Shadow/Material consumer 和上游 clusterizer regression。
 
 ## GEO-HIERARCHY · Bevy Meshlet hierarchy/SSE
 

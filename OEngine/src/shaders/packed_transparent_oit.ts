@@ -1,5 +1,6 @@
 import {
   GPU_GEOMETRY_RECORD_WGSL,
+  GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
   GPU_UV_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
@@ -52,6 +53,7 @@ const PACKED_TRANSPARENT_COMMON = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
 
@@ -124,6 +126,9 @@ fn read_uv(
   if format == ${GPU_UV_FORMAT.Unorm16x2}u {
     return vec3f(f32(read_u16(words, offset)), f32(read_u16(words, offset + 2u)), 65535.0);
   }
+  if format == ${GPU_UV_FORMAT.Float16x2}u {
+    return vec3f(unpack2x16float((*words)[offset >> 2u]), 1.0);
+  }
   return vec3f(0.0);
 }
 
@@ -140,14 +145,8 @@ fn packed_transparent_vertex(
   let corner = work.local_triangle_index * 3u + triangle_corner;
   let local_vertex = read_u8(&meshlet_triangles, meshlet.triangle_byte_offset + corner);
   let source_vertex = meshlet_vertices[meshlet.vertex_offset + local_vertex];
-  let position_word = geometry.position_byte_offset / 4u +
-    source_vertex * (geometry.position_stride / 4u);
-  let local_position = vec3f(
-    bitcast<f32>(vertex_data[position_word]),
-    bitcast<f32>(vertex_data[position_word + 1u]),
-    bitcast<f32>(vertex_data[position_word + 2u])
-  );
-  let world = instance.current_object_to_world * vec4f(local_position, 1.0);
+  let local_position = oengine_geometry_position(&vertex_data, geometry, source_vertex);
+  let world = oengine_instance_current_object_to_world(instance) * vec4f(local_position, 1.0);
   let uv0 = read_uv(&vertex_data, geometry.uv0_byte_offset, geometry.uv0_stride,
     geometry.uv0_format, source_vertex);
   let uv1 = read_uv(&vertex_data, geometry.uv1_byte_offset, geometry.uv1_stride,
@@ -164,7 +163,7 @@ fn packed_transparent_vertex(
     select(0u, 2u, uv1.z > 0.0) |
     select(0u, 4u, uv2.z > 0.0);
   output.material_handle = work.material_handle;
-  let linear = instance.current_object_to_world;
+  let linear = oengine_instance_current_object_to_world(instance);
   output.mirrored = select(0u, 1u,
     dot(linear[0].xyz, cross(linear[1].xyz, linear[2].xyz)) < 0.0);
   output.raster_flags = work.raster_flags;

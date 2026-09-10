@@ -3,6 +3,7 @@ import { MeshoptSimplifier } from "meshoptimizer/simplifier";
 
 import {
   GEOMETRY_ASSET_SCHEMA_VERSION,
+  GEOMETRY_COOKER_VERSION,
   GEOMETRY_BVH8_NODE_STRIDE,
   GEOMETRY_CLUSTER_FLAGS,
   GEOMETRY_CLUSTER_RECORD_STRIDE,
@@ -12,6 +13,8 @@ import {
   GEOMETRY_MATERIAL_RANGE_STRIDE,
   GEOMETRY_MESHLET_RECORD_STRIDE,
   GEOMETRY_SECTION_TYPES,
+  GEOMETRY_VERTEX_PROFILE,
+  GEOMETRY_VERTEX_STREAM_FLAGS,
   decodeGeometryVertexComponent,
   geometryVertexDataTypeBytes,
   GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
@@ -36,13 +39,14 @@ import {
   type GeometryCookRecipe
 } from "../assets/GeometryCookRecipe.js";
 import {
-  writeRuntimeAssetPackage,
-  type RuntimeAssetSectionInput
-} from "../assets/RuntimeAssetPackage.js";
+  writeRuntimeAssetPackageV2
+} from "../assets/RuntimeAssetManifestV2.js";
+import type { RuntimeAssetSectionInput } from "../assets/RuntimeAssetPackage.js";
 import type {
   SourceGeometry,
   SourceMaterialRange,
-  SourceNumericArray
+  SourceNumericArray,
+  SourceVertexStream
 } from "../assets/SourceGeometry.js";
 import { buildGeometryBvh8 } from "./GeometryBvh8.js";
 
@@ -157,13 +161,14 @@ export async function cookGeometryAssetPackage(
   const hierarchy = recipe.hierarchyMode === "renderable"
     ? buildRenderableHierarchy(source, positions, recipe, state, warnings)
     : null;
+  if (recipe.vertexProfile === "static-pbr-compact-v2") {
+    expandBoundsForPositionQuantization(state.records, hierarchy?.clusters ?? [], source.bounds.box);
+  }
   const built = finalizeMeshlets(state);
-  const bvh8Nodes = hierarchy === null
-    ? Object.freeze([])
-    : buildGeometryBvh8(hierarchy.clusters);
+  const bvh8Nodes = hierarchy === null ? Object.freeze([]) : buildGeometryBvh8(hierarchy.clusters);
   const payload = recipe.hierarchyMode === "single-level"
     ? null
-    : buildGeometryPayload(source, positions);
+    : buildGeometryPayload(source, positions, recipe);
   const canonicalSourceBytes = canonicalSourceGeometryBytes(source);
   const sourceHash = await sha256(canonicalSourceBytes);
   const recipeHash = await sha256(
@@ -175,8 +180,8 @@ export async function cookGeometryAssetPackage(
       ? GEOMETRY_DIRECTORY_FLAGS.SingleLevel |
         GEOMETRY_DIRECTORY_FLAGS.NoHierarchy |
         GEOMETRY_DIRECTORY_FLAGS.NoBvh |
-        GEOMETRY_DIRECTORY_FLAGS.Uncompressed
-      : GEOMETRY_DIRECTORY_FLAGS.Uncompressed,
+        profileDirectoryFlag(recipe)
+      : profileDirectoryFlag(recipe),
     vertexCount: source.vertexCount,
     sourceTriangleCount: source.triangleCount,
     vertexStreamDescriptorBegin: 0,
@@ -195,6 +200,9 @@ export async function cookGeometryAssetPackage(
     materialRangeCount: payload?.materialRanges.length ?? 0,
     maxMeshletVertices: recipe.meshletMaxVertices,
     maxMeshletTriangles: recipe.meshletMaxTriangles,
+    vertexProfileId: recipe.vertexProfile === "static-pbr-compact-v2"
+      ? GEOMETRY_VERTEX_PROFILE.StaticPbrCompactV2
+      : GEOMETRY_VERTEX_PROFILE.ExplicitFloat32FallbackV2,
     boundsBox: source.bounds.box,
     boundsSphere: source.bounds.sphere,
     sourceHash,
@@ -308,8 +316,45 @@ export async function cookGeometryAssetPackage(
       }
     );
   }
-  const bytes = await writeRuntimeAssetPackage({
-    sections
+  const sourceHashHex = toHex(sourceHash);
+  const recipeHashHex = toHex(recipeHash);
+  const assetId = toHex(await sha256(new TextEncoder().encode(
+    `${sourceHashHex}:${recipeHashHex}:geometry-v2`
+  )));
+  const maxChunkBytes = Math.max(4, ...sections.map((section) => byteLengthOf(section.data)));
+  const chunks = sections.map((section) => ({
+    id: geometryChunkId(section.type),
+    sectionType: section.type,
+    semantic: geometryChunkId(section.type),
+    compression: "none",
+    alignment: section.alignment,
+    elementStride: section.elementStride,
+    elementCount: section.elementCount,
+    decodedBytes: byteLengthOf(section.data),
+    expectedResidentBytes: byteLengthOf(section.data),
+    data: section.data
+  }));
+  const bytes = await writeRuntimeAssetPackageV2({
+    manifest: {
+      assetSchemaVersion: GEOMETRY_ASSET_SCHEMA_VERSION,
+      assetId,
+      assetType: "geometry-static-pbr",
+      cookerVersion: GEOMETRY_COOKER_VERSION,
+      recipeHash: recipeHashHex,
+      sourceProvenance: { uri: source.sourceId, contentHash: sourceHashHex },
+      dependencies: [],
+      variants: [{
+        id: recipe.vertexProfile,
+        profile: recipe.vertexProfile,
+        requiredFeatures: [],
+        requiredLimits: [
+          { name: "maxBufferSize", min: maxChunkBytes },
+          { name: "maxStorageBufferBindingSize", min: maxChunkBytes }
+        ],
+        chunkIds: chunks.map((chunk) => chunk.id)
+      }]
+    },
+    chunks
   });
   const asset = await openGeometryAssetPackage(bytes);
   const packageHash = await sha256(new Uint8Array(bytes));
@@ -473,6 +518,241 @@ function finalizeMeshlets(state: MeshletBuildState): MeshletBuildResult {
 
 function buildGeometryPayload(
   source: SourceGeometry,
+  positions: Float32Array,
+  recipe: GeometryCookRecipe
+): GeometryPayloadBuildResult {
+  return recipe.vertexProfile === "static-pbr-compact-v2"
+    ? buildCompactGeometryPayload(source, positions)
+    : buildFallbackGeometryPayload(source, positions);
+}
+
+function buildCompactGeometryPayload(
+  source: SourceGeometry,
+  positions: Float32Array
+): GeometryPayloadBuildResult {
+  const descriptors: GeometryVertexStreamDescriptor[] = [];
+  const streams: Uint8Array[] = [];
+  let byteLength = 0;
+  const orderedStreams = [...source.attributes.values()].sort((left, right) =>
+    vertexSemanticOrder(left.semantic) - vertexSemanticOrder(right.semantic) ||
+    left.semantic.localeCompare(right.semantic)
+  );
+  for (const sourceStream of orderedStreams) {
+    const semantic = sourceStream.semantic;
+    const packed = semantic === "position"
+      ? packCompactPosition(positions, source.bounds.box)
+      : semantic === "normal"
+        ? packCompactNormal(sourceStream)
+        : semantic === "tangent"
+          ? packCompactTangent(sourceStream)
+          : semantic === "uv0" || semantic === "uv1" || semantic === "uv2"
+            ? packCompactUv(sourceStream)
+            : semantic === "color"
+              ? packCompactColor(sourceStream)
+              : null;
+    if (packed === null) {
+      throw new RangeError(
+        `Vertex stream '${semantic}' is outside Static PBR compact V2; select explicit-float32-fallback-v2 to retain it`
+      );
+    }
+    byteLength = alignUp(byteLength, 16);
+    const dataByteOffset = byteLength;
+    byteLength += packed.bytes.byteLength;
+    streams.push(packed.bytes);
+    descriptors.push(Object.freeze({
+      semantic,
+      dataByteOffset,
+      dataByteLength: packed.bytes.byteLength,
+      elementStride: packed.stride,
+      vertexCount: source.vertexCount,
+      componentCount: packed.componentCount,
+      dataType: packed.dataType,
+      normalized: packed.normalized,
+      flags: packed.flags,
+      decodeScale: packed.decodeScale,
+      decodeBias: packed.decodeBias,
+      componentMinimum: packed.minimum,
+      componentMaximum: packed.maximum
+    }));
+  }
+  const vertexDataBytes = new Uint8Array(alignUp(byteLength, 16));
+  for (let index = 0; index < descriptors.length; index++) {
+    vertexDataBytes.set(streams[index]!, descriptors[index]!.dataByteOffset);
+  }
+  return finishGeometryPayload(source, descriptors, vertexDataBytes);
+}
+
+interface PackedCompactStream {
+  readonly bytes: Uint8Array;
+  readonly stride: number;
+  readonly componentCount: number;
+  readonly dataType: GeometryVertexStreamDescriptor["dataType"];
+  readonly normalized: boolean;
+  readonly flags: number;
+  readonly decodeScale: Float32Array;
+  readonly decodeBias: Float32Array;
+  readonly minimum: Float32Array;
+  readonly maximum: Float32Array;
+}
+
+function packCompactPosition(positions: Float32Array, bounds: Float32Array): PackedCompactStream {
+  const bytes = new Uint8Array((positions.length / 3) * 8);
+  const view = new DataView(bytes.buffer);
+  const scale = new Float32Array(4);
+  const bias = new Float32Array([bounds[0]!, bounds[1]!, bounds[2]!, 0]);
+  const minimum = new Float32Array([Infinity, Infinity, Infinity, 0]);
+  const maximum = new Float32Array([-Infinity, -Infinity, -Infinity, 0]);
+  for (let axis = 0; axis < 3; axis++) scale[axis] = bounds[axis + 3]! - bounds[axis]!;
+  for (let vertex = 0; vertex < positions.length / 3; vertex++) {
+    for (let axis = 0; axis < 3; axis++) {
+      const extent = scale[axis]!;
+      const source = positions[vertex * 3 + axis]!;
+      const quantized = extent === 0 ? 0 : Math.round(clamp01((source - bias[axis]!) / extent) * 65535);
+      view.setUint16(vertex * 8 + axis * 2, quantized, true);
+      const decoded = bias[axis]! + extent * (quantized / 65535);
+      minimum[axis] = Math.min(minimum[axis]!, decoded);
+      maximum[axis] = Math.max(maximum[axis]!, decoded);
+    }
+  }
+  return compactStream(bytes, 8, 3, "uint16", true,
+    GEOMETRY_VERTEX_STREAM_FLAGS.PositionAabbUnorm16, scale, bias, minimum, maximum);
+}
+
+function packCompactNormal(stream: SourceVertexStream): PackedCompactStream {
+  if (stream.componentCount !== 3) throw new RangeError("Static PBR normal must contain three components");
+  const bytes = new Uint8Array(stream.vertexCount * 4);
+  const view = new DataView(bytes.buffer);
+  const minimum = new Float32Array([Infinity, Infinity, 0, 0]);
+  const maximum = new Float32Array([-Infinity, -Infinity, 0, 0]);
+  for (let vertex = 0; vertex < stream.vertexCount; vertex++) {
+    let x = sourceStreamValue(stream, vertex, 0);
+    let y = sourceStreamValue(stream, vertex, 1);
+    let z = sourceStreamValue(stream, vertex, 2);
+    const inverseLength = 1 / Math.max(Math.hypot(x, y, z), 1e-20);
+    x *= inverseLength; y *= inverseLength; z *= inverseLength;
+    const inverseL1 = 1 / Math.max(Math.abs(x) + Math.abs(y) + Math.abs(z), 1e-20);
+    x *= inverseL1; y *= inverseL1; z *= inverseL1;
+    if (z < 0) {
+      const oldX = x;
+      x = (1 - Math.abs(y)) * Math.sign(oldX || 1);
+      y = (1 - Math.abs(oldX)) * Math.sign(y || 1);
+    }
+    const qx = packSnorm16(x);
+    const qy = packSnorm16(y);
+    view.setInt16(vertex * 4, qx, true);
+    view.setInt16(vertex * 4 + 2, qy, true);
+    const dx = Math.max(qx / 32767, -1);
+    const dy = Math.max(qy / 32767, -1);
+    minimum[0] = Math.min(minimum[0]!, dx); minimum[1] = Math.min(minimum[1]!, dy);
+    maximum[0] = Math.max(maximum[0]!, dx); maximum[1] = Math.max(maximum[1]!, dy);
+  }
+  return compactStream(bytes, 4, 2, "int16", true,
+    GEOMETRY_VERTEX_STREAM_FLAGS.NormalOctSnorm16, identityScale(), new Float32Array(4), minimum, maximum);
+}
+
+function packCompactTangent(stream: SourceVertexStream): PackedCompactStream {
+  if (stream.componentCount !== 4) throw new RangeError("Static PBR tangent must contain four components");
+  const bytes = new Uint8Array(stream.vertexCount * 8);
+  const view = new DataView(bytes.buffer);
+  const minimum = new Float32Array([Infinity, Infinity, Infinity, Infinity]);
+  const maximum = new Float32Array([-Infinity, -Infinity, -Infinity, -Infinity]);
+  for (let vertex = 0; vertex < stream.vertexCount; vertex++) {
+    for (let component = 0; component < 4; component++) {
+      const value = component === 3
+        ? Math.sign(sourceStreamValue(stream, vertex, component) || 1)
+        : sourceStreamValue(stream, vertex, component);
+      const q = packSnorm16(value);
+      view.setInt16(vertex * 8 + component * 2, q, true);
+      const decoded = Math.max(q / 32767, -1);
+      minimum[component] = Math.min(minimum[component]!, decoded);
+      maximum[component] = Math.max(maximum[component]!, decoded);
+    }
+  }
+  return compactStream(bytes, 8, 4, "int16", true,
+    GEOMETRY_VERTEX_STREAM_FLAGS.TangentSnorm16, identityScale(), new Float32Array(4), minimum, maximum);
+}
+
+function packCompactUv(stream: SourceVertexStream): PackedCompactStream {
+  if (stream.componentCount !== 2) throw new RangeError(`Static PBR ${stream.semantic} must contain two components`);
+  const bytes = new Uint8Array(stream.vertexCount * 4);
+  const view = new DataView(bytes.buffer);
+  const minimum = new Float32Array([Infinity, Infinity, 0, 0]);
+  const maximum = new Float32Array([-Infinity, -Infinity, 0, 0]);
+  for (let vertex = 0; vertex < stream.vertexCount; vertex++) {
+    for (let component = 0; component < 2; component++) {
+      const source = sourceStreamValue(stream, vertex, component);
+      const bits = encodeFloat16(source);
+      const decoded = decodeFloat16(bits);
+      if (!Number.isFinite(decoded)) throw new RangeError(`${stream.semantic} cannot be represented as finite float16`);
+      view.setUint16(vertex * 4 + component * 2, bits, true);
+      minimum[component] = Math.min(minimum[component]!, decoded);
+      maximum[component] = Math.max(maximum[component]!, decoded);
+    }
+  }
+  return compactStream(bytes, 4, 2, "uint16", false,
+    GEOMETRY_VERTEX_STREAM_FLAGS.UvFloat16, identityScale(), new Float32Array(4), minimum, maximum);
+}
+
+function packCompactColor(stream: SourceVertexStream): PackedCompactStream {
+  if (stream.componentCount !== 3 && stream.componentCount !== 4) throw new RangeError("Static PBR color must contain three or four components");
+  const bytes = new Uint8Array(stream.vertexCount * 4);
+  const minimum = new Float32Array([Infinity, Infinity, Infinity, Infinity]);
+  const maximum = new Float32Array([-Infinity, -Infinity, -Infinity, -Infinity]);
+  for (let vertex = 0; vertex < stream.vertexCount; vertex++) {
+    for (let component = 0; component < 4; component++) {
+      const source = component < stream.componentCount ? sourceStreamValue(stream, vertex, component) : 1;
+      if (source < 0 || source > 1) throw new RangeError("Static PBR color must be representable as rgba8unorm");
+      const q = Math.round(source * 255);
+      bytes[vertex * 4 + component] = q;
+      const decoded = q / 255;
+      minimum[component] = Math.min(minimum[component]!, decoded);
+      maximum[component] = Math.max(maximum[component]!, decoded);
+    }
+  }
+  return compactStream(bytes, 4, 4, "uint8", true,
+    GEOMETRY_VERTEX_STREAM_FLAGS.ColorUnorm8, identityScale(), new Float32Array(4), minimum, maximum);
+}
+
+function compactStream(
+  bytes: Uint8Array,
+  stride: number,
+  componentCount: number,
+  dataType: GeometryVertexStreamDescriptor["dataType"],
+  normalized: boolean,
+  flags: number,
+  decodeScale: Float32Array,
+  decodeBias: Float32Array,
+  minimum: Float32Array,
+  maximum: Float32Array
+): PackedCompactStream {
+  return { bytes, stride, componentCount, dataType, normalized, flags, decodeScale, decodeBias, minimum, maximum };
+}
+
+function finishGeometryPayload(
+  source: SourceGeometry,
+  descriptors: readonly GeometryVertexStreamDescriptor[],
+  vertexDataBytes: Uint8Array
+): GeometryPayloadBuildResult {
+  const materialRanges = source.materialRanges.map((range) => Object.freeze({
+    firstTriangle: range.firstTriangle,
+    triangleCount: range.triangleCount,
+    materialId: range.materialId,
+    flags: encodeMeshletFlags(range.alphaMode, range.doubleSided, false),
+    alphaMode: range.alphaMode,
+    doubleSided: range.doubleSided
+  }));
+  return {
+    descriptors: Object.freeze([...descriptors]),
+    descriptorBytes: encodeGeometryVertexStreamDescriptors(descriptors),
+    vertexDataBytes,
+    indexBytes: encodeNumericArrayLittleEndian(source.indices, "uint32"),
+    materialRanges: Object.freeze(materialRanges),
+    materialRangeBytes: encodeGeometryMaterialRanges(materialRanges)
+  };
+}
+
+function buildFallbackGeometryPayload(
+  source: SourceGeometry,
   positions: Float32Array
 ): GeometryPayloadBuildResult {
   const descriptors: GeometryVertexStreamDescriptor[] = [];
@@ -485,7 +765,7 @@ function buildGeometryPayload(
   for (const sourceStream of orderedStreams) {
     if (sourceStream.componentCount > 4) {
       throw new RangeError(
-        `Vertex stream '${sourceStream.semantic}' has ${sourceStream.componentCount} components; Geometry v1 supports at most 4`
+        `Vertex stream '${sourceStream.semantic}' has ${sourceStream.componentCount} components; the explicit fallback supports at most 4`
       );
     }
     const convertToFloat32 = sourceStream.semantic === "position" ||
@@ -580,6 +860,54 @@ function encodeNumericArrayLittleEndian(
     }
   }
   return bytes;
+}
+
+function sourceStreamValue(stream: SourceVertexStream, vertex: number, component: number): number {
+  const raw = stream.data[vertex * stream.componentCount + component]!;
+  return decodeGeometryVertexComponent(raw, stream.dataType, stream.normalized);
+}
+
+function identityScale(): Float32Array {
+  return new Float32Array([1, 1, 1, 1]);
+}
+
+function packSnorm16(value: number): number {
+  return Math.round(Math.max(-1, Math.min(1, value)) * 32767);
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function encodeFloat16(value: number): number {
+  if (!Number.isFinite(value)) return value < 0 ? 0xfc00 : 0x7c00;
+  const float = new Float32Array([value]);
+  const bits = new Uint32Array(float.buffer)[0]!;
+  const sign = (bits >>> 16) & 0x8000;
+  let exponent = ((bits >>> 23) & 0xff) - 127 + 15;
+  let mantissa = bits & 0x7fffff;
+  if (exponent <= 0) {
+    if (exponent < -10) return sign;
+    mantissa = (mantissa | 0x800000) >>> (1 - exponent);
+    return sign | ((mantissa + 0x1000) >>> 13);
+  }
+  if (exponent >= 31) return sign | 0x7c00;
+  mantissa += 0x1000;
+  if ((mantissa & 0x800000) !== 0) {
+    mantissa = 0;
+    exponent++;
+    if (exponent >= 31) return sign | 0x7c00;
+  }
+  return sign | (exponent << 10) | (mantissa >>> 13);
+}
+
+function decodeFloat16(bits: number): number {
+  const sign = (bits & 0x8000) === 0 ? 1 : -1;
+  const exponent = (bits >>> 10) & 0x1f;
+  const fraction = bits & 0x03ff;
+  if (exponent === 0) return sign * 2 ** -14 * (fraction / 1024);
+  if (exponent === 0x1f) return fraction === 0 ? sign * Infinity : NaN;
+  return sign * 2 ** (exponent - 15) * (1 + fraction / 1024);
 }
 
 function alignUp(value: number, alignment: number): number {
@@ -1320,4 +1648,57 @@ function toHex(bytes: Uint8Array): string {
 
 function nowMilliseconds(): number {
   return globalThis.performance?.now() ?? Date.now();
+}
+
+function profileDirectoryFlag(recipe: GeometryCookRecipe): number {
+  return recipe.vertexProfile === "static-pbr-compact-v2"
+    ? GEOMETRY_DIRECTORY_FLAGS.CompactStaticPbr
+    : GEOMETRY_DIRECTORY_FLAGS.ExplicitFloat32Fallback;
+}
+
+function geometryChunkId(sectionType: number): string {
+  switch (sectionType) {
+    case GEOMETRY_SECTION_TYPES.GeometryDirectory: return "geometry-directory";
+    case GEOMETRY_SECTION_TYPES.VertexStreamDescriptors: return "vertex-stream-descriptors";
+    case GEOMETRY_SECTION_TYPES.VertexStreamData: return "vertex-stream-data";
+    case GEOMETRY_SECTION_TYPES.IndexData: return "source-index-data";
+    case GEOMETRY_SECTION_TYPES.MeshletRecords: return "meshlet-records";
+    case GEOMETRY_SECTION_TYPES.MeshletVertexIndices: return "meshlet-vertex-indices";
+    case GEOMETRY_SECTION_TYPES.MeshletTriangleIndices: return "meshlet-triangle-indices";
+    case GEOMETRY_SECTION_TYPES.ClusterRecords: return "cluster-records";
+    case GEOMETRY_SECTION_TYPES.ClusterChildren: return "cluster-children";
+    case GEOMETRY_SECTION_TYPES.Bvh8Nodes: return "bvh8-nodes";
+    case GEOMETRY_SECTION_TYPES.MaterialRanges: return "material-ranges";
+    default: throw new RangeError(`Geometry section ${sectionType} has no canonical chunk identity`);
+  }
+}
+
+function byteLengthOf(data: ArrayBuffer | ArrayBufferView): number {
+  return data instanceof ArrayBuffer ? data.byteLength : data.byteLength;
+}
+
+function expandBoundsForPositionQuantization(
+  meshlets: GeometryMeshletRecord[],
+  clusters: GeometryClusterRecord[],
+  sourceBounds: Float32Array
+): void {
+  const halfStep = new Float32Array(3);
+  for (let axis = 0; axis < 3; axis++) {
+    halfStep[axis] = (sourceBounds[axis + 3]! - sourceBounds[axis]!) / 65535 * 0.5;
+  }
+  const radiusExpansion = Math.hypot(halfStep[0]!, halfStep[1]!, halfStep[2]!);
+  const expand = <T extends GeometryMeshletRecord | GeometryClusterRecord>(record: T): T => ({
+    ...record,
+    boundsBox: new Float32Array([
+      record.boundsBox[0]! - halfStep[0]!,
+      record.boundsBox[1]! - halfStep[1]!,
+      record.boundsBox[2]! - halfStep[2]!,
+      record.boundsBox[3]! + halfStep[0]!,
+      record.boundsBox[4]! + halfStep[1]!,
+      record.boundsBox[5]! + halfStep[2]!
+    ]),
+    bounds: { ...record.bounds, radius: record.bounds.radius + radiusExpansion }
+  });
+  for (let index = 0; index < meshlets.length; index++) meshlets[index] = expand(meshlets[index]!);
+  for (let index = 0; index < clusters.length; index++) clusters[index] = expand(clusters[index]!);
 }

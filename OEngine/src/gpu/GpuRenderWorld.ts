@@ -28,6 +28,8 @@ import type {
   InstancePatchResult,
   InstanceSetHandle,
   InstanceSource,
+  InstanceStaticPatch,
+  InstanceVisibilityPatch,
   InstanceTransformPatch
 } from "./GpuScene.js";
 import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
@@ -62,8 +64,10 @@ export interface PackedSceneMaterialPatch {
 
 export interface PackedScenePatchBatch {
   readonly frameId: number;
+  readonly staticInstances?: InstanceStaticPatch;
   readonly transforms?: InstanceTransformPatch;
   readonly materials?: PackedSceneMaterialPatch;
+  readonly visibility?: InstanceVisibilityPatch;
 }
 
 export interface GpuRenderWorldEvidence {
@@ -643,7 +647,12 @@ function toInstancePatchBatch(
 ): InstancePatchBatch {
   const materials = batch.materials;
   if (materials === undefined) {
-    return { frameId: batch.frameId, transforms: batch.transforms };
+    return {
+      frameId: batch.frameId,
+      staticInstances: batch.staticInstances,
+      transforms: batch.transforms,
+      visibility: batch.visibility
+    };
   }
   if (materials.indices.length !== materials.materialIndices.length) {
     throw new RangeError("Packed Scene material patch indices and materialIndices must match");
@@ -662,8 +671,10 @@ function toInstancePatchBatch(
   }
   return {
     frameId: batch.frameId,
+    staticInstances: batch.staticInstances,
     transforms: batch.transforms,
-    materials: { indices: materials.indices, materialHandles, flags }
+    materials: { indices: materials.indices, materialHandles, flags },
+    visibility: batch.visibility
   };
 }
 

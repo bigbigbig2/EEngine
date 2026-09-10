@@ -143,15 +143,59 @@ export const GPU_MESHLET_RECORD_WGSL = GPU_MESHLET_RECORD_SCHEMA.wgsl;
 export const GPU_POSITION_FORMAT = Object.freeze({
   Unknown: 0,
   Float32x3: 1,
-  Float32x4: 2
+  Float32x4: 2,
+  AabbUnorm16x3: 3
 });
 
 export const GPU_UV_FORMAT = Object.freeze({
   Unknown: 0,
   Float32x2: 1,
   Unorm8x2: 2,
-  Unorm16x2: 3
+  Unorm16x2: 3,
+  Float16x2: 4
 });
+
+export const GPU_NORMAL_FORMAT = Object.freeze({
+  OctSnorm16x2: 0x100
+});
+
+/** Single source of truth for byte-addressed position decoding in production shaders. */
+export const GPU_GEOMETRY_VERTEX_DECODE_WGSL = /* wgsl */ `
+fn oengine_geometry_read_u16(
+  words: ptr<storage, array<u32>, read>,
+  byte_offset: u32
+) -> u32 {
+  let word = (*words)[byte_offset >> 2u];
+  return (word >> ((byte_offset & 2u) * 8u)) & 0xffffu;
+}
+
+fn oengine_geometry_position(
+  words: ptr<storage, array<u32>, read>,
+  geometry: GpuGeometryRecord,
+  vertex: u32
+) -> vec3f {
+  let offset = geometry.position_byte_offset + vertex * geometry.position_stride;
+  if geometry.position_format == ${GPU_POSITION_FORMAT.Float32x3}u ||
+      geometry.position_format == ${GPU_POSITION_FORMAT.Float32x4}u {
+    let word = offset >> 2u;
+    return vec3f(
+      bitcast<f32>((*words)[word]),
+      bitcast<f32>((*words)[word + 1u]),
+      bitcast<f32>((*words)[word + 2u])
+    );
+  }
+  if geometry.position_format == ${GPU_POSITION_FORMAT.AabbUnorm16x3}u {
+    let quantized = vec3f(
+      f32(oengine_geometry_read_u16(words, offset)),
+      f32(oengine_geometry_read_u16(words, offset + 2u)),
+      f32(oengine_geometry_read_u16(words, offset + 4u))
+    ) / 65535.0;
+    return geometry.bounds_min.xyz + quantized *
+      (geometry.bounds_max.xyz - geometry.bounds_min.xyz);
+  }
+  return vec3f(0.0);
+}
+`;
 
 export interface GpuGeometryRecordCpu {
   readonly boundsSphere: ArrayLike<number>;

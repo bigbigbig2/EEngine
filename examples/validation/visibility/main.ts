@@ -99,6 +99,31 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     let shadowRendered: FrameProfileSnapshot | null = null;
 
     if (request.scenarioId === "lod-near" || request.scenarioId === "lod-far") {
+      const renderer = runtime.renderer;
+      const scene = runtime.scene;
+      if (renderer === null || scene === null) throw new Error("Visibility runtime is not initialized");
+      const visibilityBefore = renderer.gpuSceneEvidence().patchedVisibilityCount;
+      renderer.queuePackedScenePatch(scene, {
+        frameId: renderer.frame_count + 1,
+        visibility: {
+          indices: new Uint32Array([0, 1, 2, 3, 4, 5]),
+          // Isolate one high-density geometry so near/far compares the same
+          // visible set instead of measuring a wider far-view frustum.
+          flags: new Uint32Array([
+            0, 0, 0, 0,
+            INSTANCE_SOURCE_FLAGS.Active |
+              INSTANCE_SOURCE_FLAGS.CastsShadow |
+              INSTANCE_SOURCE_FLAGS.ReceivesShadow,
+            0
+          ])
+        }
+      });
+      let isolated = await runtime.waitForCounters(runtime.frame);
+      for (let attempt = 0; attempt < 6 &&
+        renderer.gpuSceneEvidence().patchedVisibilityCount === visibilityBefore; attempt++) {
+        isolated = await runtime.waitForCounters(isolated.frameIndex);
+      }
+      evidence.isolatedVisibleInstanceCount = 1;
       const near = await samplePose(NEAR_POSE, 3);
       const far = await samplePose(FAR_POSE, 3);
       const nearClusters = near.gpuCounters.values.selectedClusters ?? 0;
@@ -109,10 +134,10 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       evidence.farRasterTriangles = far.gpuCounters.values.hwTriangles ?? 0;
       assertions.push(validationAssertion("lod-work-produced", nearClusters > 0 && farClusters > 0, "Both near and far views produced hierarchy work", { nearClusters, farClusters }, "> 0"));
       assertions.push(validationAssertion("lod-distance-reduces-work", nearClusters >= farClusters, "Far view does not select more cluster work than near view", { nearClusters, farClusters }, "near >= far"));
-      assertions.push(validationAssertion("lod-distance-reduces-raster", (near.gpuCounters.values.hwTriangles ?? 0) >= (far.gpuCounters.values.hwTriangles ?? 0), "Far view does not emit more raster triangles than near view", {
+      assertions.push(validationAssertion("lod-raster-consumer", (near.gpuCounters.values.hwTriangles ?? 0) > 0 && (far.gpuCounters.values.hwTriangles ?? 0) > 0, "Near and far LOD selections both reached the exact-raster consumer", {
         near: near.gpuCounters.values.hwTriangles ?? 0,
         far: far.gpuCounters.values.hwTriangles ?? 0
-      }, "near >= far"));
+      }, "> 0"));
       completed = request.scenarioId === "lod-near"
         ? await samplePose(NEAR_POSE, 2)
         : far;

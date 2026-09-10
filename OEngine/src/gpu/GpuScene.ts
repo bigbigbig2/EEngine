@@ -4,11 +4,16 @@ import { mat4 } from "gl-matrix";
 import {
   computePreviousFromCurrent,
   createGpuInstanceMotionScratch,
+  readGpuInstanceAffineMatrix,
+  writeGpuInstanceAffineMatrix,
   GPU_INSTANCE_ABI_VERSION,
+  GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
   GPU_INSTANCE_FLAGS,
   GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK,
+  GPU_INSTANCE_VISIBILITY_FLAGS_MASK,
   GPU_INSTANCE_RECORD_OFFSETS,
-  GPU_INSTANCE_RECORD_STRIDE
+  GPU_INSTANCE_RECORD_STRIDE,
+  GPU_INSTANCE_STATIC_RECORD_STRIDE
 } from "./GpuInstanceAbi.js";
 import { recordGpuQueueUpload } from "./GpuQueueEvidence.js";
 import type {
@@ -53,11 +58,28 @@ export interface InstanceMaterialPatch {
   readonly flags?: Uint32Array;
 }
 
+/** Low-frequency fields that do not belong to transform or material updates. */
+export interface InstanceStaticPatch {
+  readonly indices: Uint32Array;
+  readonly boundsSpheres?: Float32Array;
+  readonly boundsMin?: Float32Array;
+  readonly boundsMax?: Float32Array;
+  readonly debugIds?: Uint32Array;
+}
+
+/** Visibility/lifecycle flags only; material routing bits are preserved. */
+export interface InstanceVisibilityPatch {
+  readonly indices: Uint32Array;
+  readonly flags: Uint32Array;
+}
+
 /** One explicit frame batch. Duplicate indices use the final value in the batch. */
 export interface InstancePatchBatch {
   readonly frameId: number;
+  readonly staticInstances?: InstanceStaticPatch;
   readonly transforms?: InstanceTransformPatch;
   readonly materials?: InstanceMaterialPatch;
+  readonly visibility?: InstanceVisibilityPatch;
 }
 
 type SceneCommandSignal = {
@@ -99,8 +121,10 @@ export interface GpuSceneBindings {
 }
 
 export interface InstancePatchResult {
+  readonly staticCount: number;
   readonly transformCount: number;
   readonly materialCount: number;
+  readonly visibilityCount: number;
   readonly dirtyInstanceCount: number;
   readonly dirtySpanCount: number;
   readonly sourceBytes: number;
@@ -109,9 +133,11 @@ export interface InstancePatchResult {
 }
 
 export interface GpuSceneEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly abiVersion: number;
   readonly recordStride: number;
+  readonly staticRecordStride: number;
+  readonly dynamicRecordStride: number;
   readonly instanceSetCount: number;
   readonly activeInstanceCount: number;
   readonly highWaterInstanceCount: number;
@@ -122,11 +148,19 @@ export interface GpuSceneEvidence {
   readonly peakAllocatedBytes: number;
   readonly reclaimableBytes: number;
   readonly cpuShadowBytes: number;
+  readonly cpuStaticShadowBytes: number;
+  readonly cpuDynamicShadowBytes: number;
   readonly bulkInstantiateCount: number;
   readonly bulkInstanceCount: number;
   readonly patchBatchCount: number;
   readonly patchedTransformCount: number;
   readonly patchedMaterialCount: number;
+  readonly patchedStaticCount: number;
+  readonly patchedVisibilityCount: number;
+  readonly staticPatchBytes: number;
+  readonly transformPatchBytes: number;
+  readonly materialPatchBytes: number;
+  readonly visibilityPatchBytes: number;
   readonly dirtySpanCount: number;
   readonly stableNoopCount: number;
   readonly uploadCalls: number;
@@ -223,6 +257,16 @@ export class GpuScene {
   private patchBatchCount = 0;
   private patchedTransformCount = 0;
   private patchedMaterialCount = 0;
+  private patchedStaticCount = 0;
+  private patchedVisibilityCount = 0;
+  private staticPatchBytes = 0;
+  private transformPatchBytes = 0;
+  private materialPatchBytes = 0;
+  private visibilityPatchBytes = 0;
+  private profiledStaticPatchBytes = 0;
+  private profiledTransformPatchBytes = 0;
+  private profiledMaterialPatchBytes = 0;
+  private profiledVisibilityPatchBytes = 0;
   private dirtySpanCount = 0;
   private stableNoopCount = 0;
   private uploadCalls = 0;
@@ -351,6 +395,7 @@ export class GpuScene {
     this.assertAlive();
     const entry = this.requireEntry(handle, "resident");
     assertU32(batch.frameId, "Patch frameId");
+    const staticOrders = normalizeStaticPatch(batch.staticInstances, entry.count);
     const transformOrders = normalizePatch(
       batch.transforms?.indices,
       batch.transforms?.transforms,
@@ -365,6 +410,13 @@ export class GpuScene {
       entry.count,
       "material"
     );
+    const visibilityOrders = normalizePatch(
+      batch.visibility?.indices,
+      batch.visibility?.flags,
+      1,
+      entry.count,
+      "visibility"
+    );
     if (batch.materials?.flags !== undefined &&
       batch.materials.flags.length !== batch.materials.materialHandles.length) {
       throw new RangeError("material patch flags and materialHandles must match");
@@ -376,11 +428,17 @@ export class GpuScene {
         }
       }
     }
-    if (transformOrders.length === 0 && materialOrders.length === 0) {
+    for (const order of visibilityOrders) {
+      assertU32(batch.visibility!.flags[order]!, `visibility flags[${order}]`);
+    }
+    if (staticOrders.length === 0 && transformOrders.length === 0 &&
+        materialOrders.length === 0 && visibilityOrders.length === 0) {
       this.stableNoopCount++;
       return Object.freeze({
+        staticCount: 0,
         transformCount: 0,
         materialCount: 0,
+        visibilityCount: 0,
         dirtyInstanceCount: 0,
         dirtySpanCount: 0,
         sourceBytes: 0,
@@ -392,8 +450,10 @@ export class GpuScene {
     entry.state = "pending-patch";
 
     const dirtyMask = new Uint8Array(entry.count);
+    markPatchIndices(dirtyMask, batch.staticInstances?.indices, staticOrders);
     markPatchIndices(dirtyMask, batch.transforms?.indices, transformOrders);
     markPatchIndices(dirtyMask, batch.materials?.indices, materialOrders);
+    markPatchIndices(dirtyMask, batch.visibility?.indices, visibilityOrders);
     const dirtyIndices = compactDirtyIndices(dirtyMask);
     const previousRecords = copyRecords(entry.bytes, dirtyIndices);
     const previousFrames = new Uint32Array(transformOrders.length);
@@ -402,6 +462,8 @@ export class GpuScene {
     const materialIndices = batch.materials?.indices;
     const materialValues = batch.materials?.materialHandles;
     const materialFlags = batch.materials?.flags;
+    const staticPatch = batch.staticInstances;
+    const visibilityPatch = batch.visibility;
     const recordView = new DataView(
       entry.bytes.buffer,
       entry.bytes.byteOffset,
@@ -409,12 +471,33 @@ export class GpuScene {
     );
 
     try {
+      for (const order of staticOrders) {
+        const localIndex = staticPatch!.indices[order]!;
+        const recordOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE;
+        if (staticPatch!.boundsSpheres !== undefined) {
+          copyFiniteF32(recordView, recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere,
+            staticPatch!.boundsSpheres, order * 4, 4, "static boundsSpheres");
+        }
+        if (staticPatch!.boundsMin !== undefined) {
+          copyFiniteF32(recordView, recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_min,
+            staticPatch!.boundsMin, order * 3, 3, "static boundsMin");
+        }
+        if (staticPatch!.boundsMax !== undefined) {
+          copyFiniteF32(recordView, recordOffset + GPU_INSTANCE_RECORD_OFFSETS.bounds_max,
+            staticPatch!.boundsMax, order * 3, 3, "static boundsMax");
+        }
+        if (staticPatch!.debugIds !== undefined) {
+          const debugId = staticPatch!.debugIds[order]!;
+          assertU32(debugId, `static debugIds[${order}]`);
+          recordView.setUint32(recordOffset + GPU_INSTANCE_RECORD_OFFSETS.debug_id, debugId, true);
+        }
+      }
       for (let cursor = 0; cursor < transformOrders.length; cursor++) {
         const order = transformOrders[cursor]!;
         const localIndex = transformIndices![order]!;
         previousFrames[cursor] = entry.lastTransformFrame[localIndex]!;
         const recordOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE;
-        const flagsOffset = recordOffset + GPU_INSTANCE_RECORD_OFFSETS.flags;
+        const flagsOffset = recordOffset + GPU_INSTANCE_RECORD_OFFSETS.motion_flags;
         const previousFlags = recordView.getUint32(flagsOffset, true);
         const sameFrame = entry.lastTransformFrame[localIndex] === batch.frameId;
         let motionValid = false;
@@ -423,16 +506,16 @@ export class GpuScene {
           // motion record. Keep velocity disabled for the rest of this frame.
           mat4.identity(this.motionScratch.previousFromCurrent);
         } else {
-          readMatrix(
+          readGpuInstanceAffineMatrix(
             this.motionScratch.inverseCurrent,
             entry.bytes,
-            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world
+            recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine
           );
           if (sameFrame) {
-            readMatrix(
+            readGpuInstanceAffineMatrix(
               this.motionScratch.previous,
               entry.bytes,
-              recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current
+              recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine
             );
             mat4.multiply(
               this.motionScratch.inverseCurrent,
@@ -449,16 +532,16 @@ export class GpuScene {
             this.motionScratch
           );
         }
-        writeMatrix(
+        writeGpuInstanceAffineMatrix(
           entry.bytes,
-          recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world,
+          recordOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
           transformValues!,
           order * 16,
           `transforms[${order}]`
         );
-        writeMatrix(
+        writeGpuInstanceAffineMatrix(
           entry.bytes,
-          recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current,
+          recordOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
           this.motionScratch.previousFromCurrent,
           0,
           `previousFromCurrent[${order}]`
@@ -468,6 +551,11 @@ export class GpuScene {
           (motionValid
             ? previousFlags & ~GPU_INSTANCE_FLAGS.MotionInvalid
             : previousFlags | GPU_INSTANCE_FLAGS.MotionInvalid) >>> 0,
+          true
+        );
+        recordView.setUint32(
+          recordOffset + GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
+          batch.frameId,
           true
         );
         entry.lastTransformFrame[localIndex] = batch.frameId;
@@ -497,41 +585,119 @@ export class GpuScene {
           );
         }
       }
+      for (const order of visibilityOrders) {
+        const localIndex = visibilityPatch!.indices[order]!;
+        const flagsOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.flags;
+        const previousFlags = recordView.getUint32(flagsOffset, true);
+        const flags = visibilityPatch!.flags[order]! & GPU_INSTANCE_VISIBILITY_FLAGS_MASK;
+        recordView.setUint32(flagsOffset,
+          ((previousFlags & ~GPU_INSTANCE_VISIBILITY_FLAGS_MASK) | flags) >>> 0, true);
+      }
 
       const density = dirtyIndices.length / entry.count;
-      const spans = coalesceDirtySpans(dirtyIndices, density >= 0.1 ? 8 : 0);
       let uploadedBytes = 0;
-      for (const span of spans) {
-        const localByteOffset = span.begin * GPU_INSTANCE_RECORD_STRIDE;
-        const byteLength = (span.end - span.begin) * GPU_INSTANCE_RECORD_STRIDE;
+      let uploadCalls = 0;
+      let staticUploadedBytes = 0;
+      for (const order of staticOrders) {
+        const localIndex = staticPatch!.indices[order]!;
+        const writes: readonly [number, number, boolean][] = [
+          [GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere, 16, staticPatch!.boundsSpheres !== undefined],
+          [GPU_INSTANCE_RECORD_OFFSETS.bounds_min, 12, staticPatch!.boundsMin !== undefined],
+          [GPU_INSTANCE_RECORD_OFFSETS.bounds_max, 12, staticPatch!.boundsMax !== undefined],
+          [GPU_INSTANCE_RECORD_OFFSETS.debug_id, 4, staticPatch!.debugIds !== undefined]
+        ];
+        for (const [fieldOffset, byteLength, enabled] of writes) {
+          if (!enabled) continue;
+          const localByteOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE + fieldOffset;
+          command.writeBuffer(
+            this.buffer,
+            (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE + fieldOffset,
+            entry.bytes.buffer,
+            entry.bytes.byteOffset + localByteOffset,
+            byteLength
+          );
+          recordGpuQueueUpload(this.device.queue, "GpuScene/patch-static", byteLength);
+          uploadedBytes += byteLength;
+          staticUploadedBytes += byteLength;
+          uploadCalls++;
+        }
+      }
+      for (const order of transformOrders) {
+        const localIndex = transformIndices![order]!;
+        const localByteOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
+          GPU_INSTANCE_RECORD_OFFSETS.current_affine;
         command.writeBuffer(
           this.buffer,
-          (entry.start + span.begin) * GPU_INSTANCE_RECORD_STRIDE,
+          (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE +
+            GPU_INSTANCE_RECORD_OFFSETS.current_affine,
+          entry.bytes.buffer,
+          entry.bytes.byteOffset + localByteOffset,
+          GPU_INSTANCE_DYNAMIC_RECORD_STRIDE
+        );
+        recordGpuQueueUpload(this.device.queue, "GpuScene/patch-transform", GPU_INSTANCE_DYNAMIC_RECORD_STRIDE);
+        uploadedBytes += GPU_INSTANCE_DYNAMIC_RECORD_STRIDE;
+        uploadCalls++;
+      }
+      for (const order of materialOrders) {
+        const localIndex = materialIndices![order]!;
+        const byteLength = materialFlags === undefined ? 4 : 8;
+        const localByteOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
+          GPU_INSTANCE_RECORD_OFFSETS.material_handle;
+        command.writeBuffer(
+          this.buffer,
+          (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE +
+            GPU_INSTANCE_RECORD_OFFSETS.material_handle,
           entry.bytes.buffer,
           entry.bytes.byteOffset + localByteOffset,
           byteLength
         );
-        recordGpuQueueUpload(this.device.queue, "GpuScene/patch-instances", byteLength);
+        recordGpuQueueUpload(this.device.queue, "GpuScene/patch-material", byteLength);
         uploadedBytes += byteLength;
+        uploadCalls++;
       }
-      const sourceBytes = transformOrders.length * 16 * 4 +
-        materialOrders.length * (materialFlags === undefined ? 4 : 8);
+      for (const order of visibilityOrders) {
+        const localIndex = visibilityPatch!.indices[order]!;
+        const localByteOffset = localIndex * GPU_INSTANCE_RECORD_STRIDE +
+          GPU_INSTANCE_RECORD_OFFSETS.flags;
+        command.writeBuffer(
+          this.buffer,
+          (entry.start + localIndex) * GPU_INSTANCE_RECORD_STRIDE +
+            GPU_INSTANCE_RECORD_OFFSETS.flags,
+          entry.bytes.buffer,
+          entry.bytes.byteOffset + localByteOffset,
+          4
+        );
+        recordGpuQueueUpload(this.device.queue, "GpuScene/patch-visibility", 4);
+        uploadedBytes += 4;
+        uploadCalls++;
+      }
+      const sourceBytes = staticUploadedBytes + transformOrders.length * 16 * 4 +
+        materialOrders.length * (materialFlags === undefined ? 4 : 8) +
+        visibilityOrders.length * 4;
       const result = Object.freeze({
+        staticCount: staticOrders.length,
         transformCount: transformOrders.length,
         materialCount: materialOrders.length,
+        visibilityCount: visibilityOrders.length,
         dirtyInstanceCount: dirtyIndices.length,
-        dirtySpanCount: spans.length,
+        dirtySpanCount: uploadCalls,
         sourceBytes,
         uploadedBytes,
         density
       });
-      const upload = { calls: spans.length, sourceBytes, uploadedBytes };
+      const upload = { calls: uploadCalls, sourceBytes, uploadedBytes };
       command.onFinished.addOne(() => {
         if (entry.state !== "pending-patch") return;
         entry.state = "resident";
         this.patchBatchCount++;
         this.patchedTransformCount += result.transformCount;
         this.patchedMaterialCount += result.materialCount;
+        this.patchedStaticCount += result.staticCount;
+        this.patchedVisibilityCount += result.visibilityCount;
+        this.staticPatchBytes += staticUploadedBytes;
+        this.transformPatchBytes += result.transformCount * GPU_INSTANCE_DYNAMIC_RECORD_STRIDE;
+        this.materialPatchBytes += result.materialCount * (materialFlags === undefined ? 4 : 8);
+        this.visibilityPatchBytes += result.visibilityCount * 4;
         this.dirtySpanCount += result.dirtySpanCount;
         this.lastPatch = result;
         this.commitUpload(upload);
@@ -633,9 +799,11 @@ export class GpuScene {
 
   evidence(): GpuSceneEvidence {
     return Object.freeze({
-      schemaVersion: 1,
+      schemaVersion: 2,
       abiVersion: GPU_INSTANCE_ABI_VERSION,
       recordStride: GPU_INSTANCE_RECORD_STRIDE,
+      staticRecordStride: GPU_INSTANCE_STATIC_RECORD_STRIDE,
+      dynamicRecordStride: GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
       instanceSetCount: this.instanceSetCount,
       activeInstanceCount: this.activeInstanceCount,
       highWaterInstanceCount: this.cursorCount,
@@ -646,11 +814,20 @@ export class GpuScene {
       peakAllocatedBytes: this.peakAllocatedBytes,
       reclaimableBytes: this.reclaimableBytes,
       cpuShadowBytes: this.cpuShadowBytes,
+      cpuStaticShadowBytes: this.activeInstanceCount * GPU_INSTANCE_STATIC_RECORD_STRIDE,
+      cpuDynamicShadowBytes: this.activeInstanceCount * GPU_INSTANCE_DYNAMIC_RECORD_STRIDE +
+        this.activeInstanceCount * Uint32Array.BYTES_PER_ELEMENT,
       bulkInstantiateCount: this.bulkInstantiateCount,
       bulkInstanceCount: this.bulkInstanceCount,
       patchBatchCount: this.patchBatchCount,
       patchedTransformCount: this.patchedTransformCount,
       patchedMaterialCount: this.patchedMaterialCount,
+      patchedStaticCount: this.patchedStaticCount,
+      patchedVisibilityCount: this.patchedVisibilityCount,
+      staticPatchBytes: this.staticPatchBytes,
+      transformPatchBytes: this.transformPatchBytes,
+      materialPatchBytes: this.materialPatchBytes,
+      visibilityPatchBytes: this.visibilityPatchBytes,
       dirtySpanCount: this.dirtySpanCount,
       stableNoopCount: this.stableNoopCount,
       uploadCalls: this.uploadCalls,
@@ -668,6 +845,26 @@ export class GpuScene {
       pendingMutation: this.pendingMutation,
       lastPatch: this.lastPatch
     });
+  }
+
+  /** Internal once-per-frame profiler seam; values are deltas since the prior sample. */
+  profilePatchByteDeltas(): Readonly<{
+    staticPatchBytes: number;
+    transformPatchBytes: number;
+    materialPatchBytes: number;
+    visibilityPatchBytes: number;
+  }> {
+    const result = Object.freeze({
+      staticPatchBytes: this.staticPatchBytes - this.profiledStaticPatchBytes,
+      transformPatchBytes: this.transformPatchBytes - this.profiledTransformPatchBytes,
+      materialPatchBytes: this.materialPatchBytes - this.profiledMaterialPatchBytes,
+      visibilityPatchBytes: this.visibilityPatchBytes - this.profiledVisibilityPatchBytes
+    });
+    this.profiledStaticPatchBytes = this.staticPatchBytes;
+    this.profiledTransformPatchBytes = this.transformPatchBytes;
+    this.profiledMaterialPatchBytes = this.materialPatchBytes;
+    this.profiledVisibilityPatchBytes = this.visibilityPatchBytes;
+    return result;
   }
 
   destroy(): void {
@@ -721,7 +918,13 @@ export class GpuScene {
       } else {
         copyFiniteF32(view, base + GPU_INSTANCE_RECORD_OFFSETS.bounds_max, source.boundsMax, index * 3, 3, "boundsMax");
       }
-      copyFiniteF32(view, base + GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world, source.currentTransforms, index * 16, 16, "currentTransforms");
+      writeGpuInstanceAffineMatrix(
+        bytes,
+        base + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
+        source.currentTransforms,
+        index * 16,
+        "currentTransforms"
+      );
       const motionValid = computePreviousFromCurrent(
         this.motionScratch.previousFromCurrent,
         source.currentTransforms,
@@ -730,17 +933,20 @@ export class GpuScene {
         index * 16,
         this.motionScratch
       );
-      flags = (motionValid
-        ? flags & ~GPU_INSTANCE_FLAGS.MotionInvalid
-        : flags | GPU_INSTANCE_FLAGS.MotionInvalid) >>> 0;
+      flags &= ~GPU_INSTANCE_FLAGS.MotionInvalid;
       view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.flags, flags >>> 0, true);
-      copyFiniteF32(
-        view,
-        base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current,
+      writeGpuInstanceAffineMatrix(
+        bytes,
+        base + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
         this.motionScratch.previousFromCurrent,
         0,
-        16,
         "previousFromCurrent"
+      );
+      view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision, 0, true);
+      view.setUint32(
+        base + GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
+        motionValid ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid,
+        true
       );
     }
     return bytes;
@@ -954,6 +1160,31 @@ function normalizePatch(
   return orders.slice(0, write);
 }
 
+function normalizeStaticPatch(
+  patch: InstanceStaticPatch | undefined,
+  instanceCount: number
+): Uint32Array {
+  if (patch === undefined) return new Uint32Array(0);
+  const hasField = patch.boundsSpheres !== undefined || patch.boundsMin !== undefined ||
+    patch.boundsMax !== undefined || patch.debugIds !== undefined;
+  if (!hasField) throw new RangeError("static-instance patch requires at least one field");
+  const orders = normalizePatch(patch.indices, patch.indices, 1, instanceCount, "static-instance");
+  if (patch.boundsSpheres !== undefined) {
+    assertLength(patch.boundsSpheres, patch.indices.length * 4, "static boundsSpheres");
+  }
+
+  if (patch.boundsMin !== undefined) {
+    assertLength(patch.boundsMin, patch.indices.length * 3, "static boundsMin");
+  }
+  if (patch.boundsMax !== undefined) {
+    assertLength(patch.boundsMax, patch.indices.length * 3, "static boundsMax");
+  }
+  if (patch.debugIds !== undefined) {
+    assertLength(patch.debugIds, patch.indices.length, "static debugIds");
+  }
+  return orders;
+}
+
 function markPatchIndices(
   dirtyMask: Uint8Array,
   indices: Uint32Array | undefined,
@@ -972,26 +1203,6 @@ function compactDirtyIndices(mask: Uint8Array): Uint32Array {
     if (mask[index] !== 0) result[cursor++] = index;
   }
   return result;
-}
-
-function coalesceDirtySpans(
-  indices: Uint32Array,
-  mergeGapRecords: number
-): readonly { begin: number; end: number }[] {
-  if (indices.length === 0) return [];
-  const spans: { begin: number; end: number }[] = [];
-  let begin = indices[0]!;
-  let previous = begin;
-  for (let cursor = 1; cursor < indices.length; cursor++) {
-    const current = indices[cursor]!;
-    if (current - previous - 1 > mergeGapRecords) {
-      spans.push({ begin, end: previous + 1 });
-      begin = current;
-    }
-    previous = current;
-  }
-  spans.push({ begin, end: previous + 1 });
-  return spans;
 }
 
 function copyRecords(source: Uint8Array, indices: Uint32Array): Uint8Array<ArrayBuffer> {
@@ -1033,32 +1244,6 @@ function copyFiniteF32(
       throw new RangeError(`${label}[${sourceOffset + index}] must be finite`);
     }
     view.setFloat32(destinationByteOffset + index * 4, value, true);
-  }
-}
-
-function writeMatrix(
-  destination: Uint8Array,
-  destinationByteOffset: number,
-  source: Float32Array,
-  sourceOffset: number,
-  label: string
-): void {
-  const view = new DataView(destination.buffer, destination.byteOffset, destination.byteLength);
-  for (let index = 0; index < 16; index++) {
-    const value = source[sourceOffset + index]!;
-    if (!Number.isFinite(value)) throw new RangeError(`${label}[${index}] must be finite`);
-    view.setFloat32(destinationByteOffset + index * 4, value, true);
-  }
-}
-
-function readMatrix(
-  destination: Float32Array,
-  source: Uint8Array,
-  sourceByteOffset: number
-): void {
-  const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
-  for (let index = 0; index < 16; index++) {
-    destination[index] = view.getFloat32(sourceByteOffset + index * 4, true);
   }
 }
 

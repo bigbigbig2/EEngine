@@ -3312,6 +3312,31 @@ export class MainRenderPipeline {
       this._surfaceFeature.lastKernelDrawCount
     );
     {
+      const geometry = this._graphics.assets_if_created?.evidence();
+      profiler.recordCounter("packed.geometry.residentAssets", geometry?.residentAssetCount ?? 0);
+      profiler.recordCounter("packed.geometry.logicalBytes", geometry?.logicalBytes ?? 0);
+      profiler.recordCounter("packed.geometry.residentBytes", geometry?.residentBytes ?? 0);
+      profiler.recordCounter("packed.geometry.allocatedBytes", geometry?.allocatedBytes ?? 0);
+      profiler.recordCounter("packed.geometry.retiringBytes", geometry?.retiringBytes ?? 0);
+      profiler.recordCounter("packed.geometry.uploadSourceBytes", geometry?.uploadSourceBytes ?? 0);
+      profiler.recordCounter("packed.geometry.uploadedBytes", geometry?.uploadedBytes ?? 0);
+    }
+    {
+      const sceneOwner = this._graphics.gpu_scene_if_created;
+      const scene = sceneOwner?.evidence();
+      const patchBytes = sceneOwner?.profilePatchByteDeltas();
+      profiler.recordCounter("packed.instance.recordStride", scene?.recordStride ?? 0);
+      profiler.recordCounter("packed.instance.staticRecordStride", scene?.staticRecordStride ?? 0);
+      profiler.recordCounter("packed.instance.dynamicRecordStride", scene?.dynamicRecordStride ?? 0);
+      profiler.recordCounter("packed.instance.cpuShadowBytes", scene?.cpuShadowBytes ?? 0);
+      profiler.recordCounter("packed.instance.cpuStaticShadowBytes", scene?.cpuStaticShadowBytes ?? 0);
+      profiler.recordCounter("packed.instance.cpuDynamicShadowBytes", scene?.cpuDynamicShadowBytes ?? 0);
+      profiler.recordCounter("packed.instance.staticPatchBytes", patchBytes?.staticPatchBytes ?? 0);
+      profiler.recordCounter("packed.instance.transformPatchBytes", patchBytes?.transformPatchBytes ?? 0);
+      profiler.recordCounter("packed.instance.materialPatchBytes", patchBytes?.materialPatchBytes ?? 0);
+      profiler.recordCounter("packed.instance.visibilityPatchBytes", patchBytes?.visibilityPatchBytes ?? 0);
+    }
+    {
       const materialEvidence = this._graphics.material_store_if_created?.evidence();
       const textureEvidence = this._graphics.texture_residency_if_created?.evidence();
       profiler.recordCounter(

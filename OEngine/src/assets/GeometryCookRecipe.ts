@@ -1,6 +1,6 @@
 /** Deterministic, device-independent inputs that affect cooked geometry bytes. */
 
-export const GEOMETRY_COOK_RECIPE_VERSION = 1;
+export const GEOMETRY_COOK_RECIPE_VERSION = 2;
 export const MESHOPTIMIZER_COOKER_COMMIT =
   "73583c335e541c139821d0de2bf5f12960a04941";
 export const BEVY_MESHLET_REFERENCE_COMMIT =
@@ -11,9 +11,12 @@ export type NonManifoldPolicy = "warn" | "reject";
 export type MissingAttributePolicy = "preserve-optional";
 export type GeometryFloatMode = "ieee754-nearest-no-fast-math";
 export type GeometryHierarchyMode = "single-level" | "renderable";
+export type GeometryVertexProfile =
+  | "static-pbr-compact-v2"
+  | "explicit-float32-fallback-v2";
 
 export interface GeometryCookRecipe {
-  readonly recipeVersion: 1;
+  readonly recipeVersion: 2;
   readonly meshoptimizerCommit: string;
   readonly hierarchyReferenceCommit: string;
   readonly hierarchyMode: GeometryHierarchyMode;
@@ -29,8 +32,9 @@ export interface GeometryCookRecipe {
   readonly bvhBranchingFactor: 8;
   readonly quantizeBvhBounds: false;
   readonly bvhQuantizationBits: 0;
-  readonly positionFormat: "float32x3";
-  readonly vertexQuantizationBits: 0;
+  readonly vertexProfile: GeometryVertexProfile;
+  readonly positionFormat: "unorm16x3-aabb" | "float32x3";
+  readonly vertexQuantizationBits: 16 | 0;
   readonly vertexQuantizationRange: "source-bounds";
   readonly missingAttributePolicy: MissingAttributePolicy;
   readonly degenerateTrianglePolicy: DegenerateTrianglePolicy;
@@ -43,6 +47,7 @@ export interface GeometryCookRecipe {
 
 export interface GeometryCookRecipeInput {
   readonly hierarchyMode?: GeometryHierarchyMode | string;
+  readonly vertexProfile?: GeometryVertexProfile | string;
   readonly meshletMaxVertices?: number;
   readonly meshletMaxTriangles?: number;
   readonly coneWeight?: number;
@@ -83,8 +88,10 @@ export function createGeometryCookRecipe(
   const bvhBranchingFactor = input.bvhBranchingFactor ?? 8;
   const quantizeBvhBounds = input.quantizeBvhBounds ?? false;
   const bvhQuantizationBits = input.bvhQuantizationBits ?? 0;
-  const positionFormat = input.positionFormat ?? "float32x3";
-  const vertexQuantizationBits = input.vertexQuantizationBits ?? 0;
+  const vertexProfile = input.vertexProfile ?? "static-pbr-compact-v2";
+  const compact = vertexProfile === "static-pbr-compact-v2";
+  const positionFormat = input.positionFormat ?? (compact ? "unorm16x3-aabb" : "float32x3");
+  const vertexQuantizationBits = input.vertexQuantizationBits ?? (compact ? 16 : 0);
   const vertexQuantizationRange = input.vertexQuantizationRange ?? "source-bounds";
   const missingAttributePolicy = input.missingAttributePolicy ?? "preserve-optional";
   const degenerateTrianglePolicy = input.degenerateTrianglePolicy ?? "warn";
@@ -112,7 +119,7 @@ export function createGeometryCookRecipe(
     "simplificationTargetRatio"
   );
   if (simplificationErrorMode !== "absolute") {
-    throw new RangeError("simplificationErrorMode must be 'absolute' for recipe v1");
+    throw new RangeError("simplificationErrorMode must be 'absolute' for recipe v2");
   }
   if (!Number.isFinite(simplificationErrorLimit) || simplificationErrorLimit < 0) {
     throw new RangeError("simplificationErrorLimit must be a non-negative finite number");
@@ -127,22 +134,30 @@ export function createGeometryCookRecipe(
   assertIntegerInRange(hierarchyTargetFanout, 2, 32, "hierarchyTargetFanout");
   assertIntegerInRange(hierarchyMaxDepth, 1, 64, "hierarchyMaxDepth");
   if (bvhBranchingFactor !== 8) {
-    throw new RangeError("bvhBranchingFactor must be 8 for recipe v1");
+    throw new RangeError("bvhBranchingFactor must be 8 for recipe v2");
   }
   if (quantizeBvhBounds !== false) {
-    throw new RangeError("quantizeBvhBounds must be false for recipe v1");
+    throw new RangeError("quantizeBvhBounds must be false for recipe v2");
   }
   if (bvhQuantizationBits !== 0) {
-    throw new RangeError("bvhQuantizationBits must be 0 while BVH bounds are unquantized in recipe v1");
+    throw new RangeError("bvhQuantizationBits must be 0 while BVH bounds are unquantized in recipe v2");
   }
-  if (positionFormat !== "float32x3") {
-    throw new RangeError("positionFormat must be 'float32x3' for recipe v1");
+  if (
+    vertexProfile !== "static-pbr-compact-v2" &&
+    vertexProfile !== "explicit-float32-fallback-v2"
+  ) {
+    throw new RangeError("vertexProfile must be a bounded Geometry V2 profile");
   }
-  if (vertexQuantizationBits !== 0 || vertexQuantizationRange !== "source-bounds") {
-    throw new RangeError("recipe v1 keeps vertex positions unquantized in source bounds");
+  const expectedPositionFormat = compact ? "unorm16x3-aabb" : "float32x3";
+  const expectedQuantizationBits = compact ? 16 : 0;
+  if (positionFormat !== expectedPositionFormat) {
+    throw new RangeError(`positionFormat must be '${expectedPositionFormat}' for ${vertexProfile}`);
+  }
+  if (vertexQuantizationBits !== expectedQuantizationBits || vertexQuantizationRange !== "source-bounds") {
+    throw new RangeError(`${vertexProfile} requires ${expectedQuantizationBits}-bit source-bounds position quantization`);
   }
   if (missingAttributePolicy !== "preserve-optional") {
-    throw new RangeError("missingAttributePolicy must preserve missing optional attributes in recipe v1");
+    throw new RangeError("missingAttributePolicy must preserve missing optional attributes in recipe v2");
   }
   if (
     degenerateTrianglePolicy !== "warn" &&
@@ -167,7 +182,7 @@ export function createGeometryCookRecipe(
   );
   assertIntegerInRange(deterministicSeed, 0, 0xffffffff, "deterministicSeed");
   if (floatingPointMode !== "ieee754-nearest-no-fast-math") {
-    throw new RangeError("floatingPointMode must be 'ieee754-nearest-no-fast-math' for recipe v1");
+    throw new RangeError("floatingPointMode must be 'ieee754-nearest-no-fast-math' for recipe v2");
   }
 
   return Object.freeze({
@@ -187,8 +202,9 @@ export function createGeometryCookRecipe(
     bvhBranchingFactor: 8,
     quantizeBvhBounds: false,
     bvhQuantizationBits: 0,
-    positionFormat: "float32x3",
-    vertexQuantizationBits: 0,
+    vertexProfile,
+    positionFormat: expectedPositionFormat,
+    vertexQuantizationBits: expectedQuantizationBits,
     vertexQuantizationRange: "source-bounds",
     missingAttributePolicy: "preserve-optional",
     degenerateTrianglePolicy,
@@ -218,6 +234,7 @@ export function geometryCookRecipeKey(recipe: GeometryCookRecipe): string {
     bvhBranchingFactor: recipe.bvhBranchingFactor,
     quantizeBvhBounds: recipe.quantizeBvhBounds,
     bvhQuantizationBits: recipe.bvhQuantizationBits,
+    vertexProfile: recipe.vertexProfile,
     positionFormat: recipe.positionFormat,
     vertexQuantizationBits: recipe.vertexQuantizationBits,
     vertexQuantizationRange: recipe.vertexQuantizationRange,

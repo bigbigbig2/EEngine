@@ -5,6 +5,10 @@ import {
   type RuntimeAssetManifestV2,
   type RuntimeAssetPackageV2
 } from "./RuntimeAssetManifestV2.js";
+import {
+  RuntimeAssetResidencyState,
+  type RuntimeAssetResidencyBudget
+} from "./RuntimeAssetResidency.js";
 
 export const TEXTURE_ASSET_SCHEMA_VERSION = 2;
 export const TEXTURE_COOKER_VERSION = "oengine-texture-cooker-v2.0.0";
@@ -83,6 +87,11 @@ export interface UploadedTextureAssetV2 {
   readonly view: GPUTextureView;
   readonly variant: SelectedTextureVariantV2;
   readonly evidence: TextureUploadEvidenceV2;
+  readonly residency: RuntimeAssetResidencyState;
+}
+
+export interface TextureUploadOptionsV2 {
+  readonly budget?: RuntimeAssetResidencyBudget;
 }
 
 const TEXTURE_METADATA_CHUNK_ID = "texture-metadata";
@@ -254,18 +263,30 @@ export function selectTextureAssetVariantV2(
 
 export function uploadTextureAssetPackageV2(
   device: GPUDevice,
-  asset: TextureAssetPackageV2
+  asset: TextureAssetPackageV2,
+  options: TextureUploadOptionsV2 = {}
 ): UploadedTextureAssetV2 {
   const variant = selectTextureAssetVariantV2(asset, device.features, device.limits);
-  const texture = device.createTexture({
-    label: `TextureAssetV2/${asset.runtime.manifest.assetId.slice(0, 12)}/${variant.id}`,
-    size: [asset.width, asset.height, 1],
-    mipLevelCount: variant.mips.length,
-    format: variant.format,
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+  const manifestVariant = asset.runtime.manifest.variants.find((candidate) => candidate.id === variant.id)!;
+  const residency = new RuntimeAssetResidencyState(asset.runtime.manifest, manifestVariant);
+  const selectedChunks = manifestVariant.chunkIds.map((id) =>
+    asset.runtime.manifest.chunks.find((chunk) => chunk.id === id)!
+  );
+  const reservation = residency.request(manifestVariant.chunkIds, options.budget ?? {
+    maxUploadBytes: selectedChunks.reduce((sum, chunk) => sum + chunk.compressedBytes, 0),
+    maxResidentBytes: selectedChunks.reduce((sum, chunk) => sum + chunk.expectedResidentBytes, 0)
   });
+  let texture: GPUTexture | undefined;
   let uploadBytes = 0;
+  let committed = false;
   try {
+    texture = device.createTexture({
+      label: `TextureAssetV2/${asset.runtime.manifest.assetId.slice(0, 12)}/${variant.id}`,
+      size: [asset.width, asset.height, 1],
+      mipLevelCount: variant.mips.length,
+      format: variant.format,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    });
     for (let index = 0; index < variant.mips.length; index++) {
       const mip = variant.mips[index]!;
       const payload = variant.payloads[index]!;
@@ -288,16 +309,32 @@ export function uploadTextureAssetPackageV2(
       );
       uploadBytes += upload.byteLength;
     }
-  } catch (error) {
-    texture.destroy();
-    throw error;
-  }
-  try {
     const residentBytes = variant.payloads.reduce((sum, payload) => sum + payload.byteLength, 0);
+    const view = texture.createView();
+    const residentRanges = Object.fromEntries(manifestVariant.chunkIds.map((chunkId) => {
+      const mipIndex = variant.mips.findIndex((mip) => mip.chunkId === chunkId);
+      if (mipIndex < 0) {
+        const chunk = selectedChunks.find((candidate) => candidate.id === chunkId)!;
+        return [chunkId, {
+          resourceId: "cpu-metadata",
+          byteOffset: chunk.byteOffset,
+          byteLength: chunk.expectedResidentBytes
+        }];
+      }
+      return [chunkId, {
+        resourceId: `TextureAssetV2/${asset.runtime.manifest.assetId}`,
+        byteOffset: variant.payloads.slice(0, mipIndex)
+          .reduce((sum, payload) => sum + payload.byteLength, 0),
+        byteLength: variant.payloads[mipIndex]!.byteLength
+      }];
+    }));
+    residency.commit(reservation, residentRanges);
+    committed = true;
     return Object.freeze({
       texture,
-      view: texture.createView(),
+      view,
       variant,
+      residency,
       evidence: Object.freeze({
         selectedVariant: variant.id,
         physicalFormat: variant.format,
@@ -308,7 +345,8 @@ export function uploadTextureAssetPackageV2(
       })
     });
   } catch (error) {
-    texture.destroy();
+    if (!committed) residency.abort(reservation);
+    texture?.destroy();
     throw error;
   }
 }

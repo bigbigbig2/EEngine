@@ -1,5 +1,6 @@
 import {
   GPU_GEOMETRY_RECORD_WGSL,
+  GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
   GPU_UV_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
@@ -16,6 +17,7 @@ export const PACKED_OPAQUE_VISIBILITY_RASTER_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 
@@ -74,16 +76,12 @@ fn raster_opaque_exact(@builtin(vertex_index) vertex_index: u32) -> ExactOpaqueV
     meshlet.triangle_byte_offset + work.local_triangle_index * 3u + corner_index
   );
   let source_vertex = opaque_meshlet_vertices[meshlet.vertex_offset + local_vertex];
-  let word = geometry.position_byte_offset / 4u +
-    source_vertex * (geometry.position_stride / 4u);
-  let local_position = vec3f(
-    bitcast<f32>(opaque_vertex_data[word]),
-    bitcast<f32>(opaque_vertex_data[word + 1u]),
-    bitcast<f32>(opaque_vertex_data[word + 2u])
+  let local_position = oengine_geometry_position(
+    &opaque_vertex_data, geometry, source_vertex
   );
   var output: ExactOpaqueVertexOutput;
   output.position = opaque_camera.view_projection_matrix *
-    instance.current_object_to_world * vec4f(local_position, 1.0);
+    oengine_instance_current_object_to_world(instance) * vec4f(local_position, 1.0);
   output.visibility_key = oengine_visibility_key_try_encode(
     work_index,
     oengine_instance_material_kernel_class(instance.flags)
@@ -104,6 +102,7 @@ export const PACKED_HIERARCHY_VISIBILITY_RASTER_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
@@ -206,6 +205,9 @@ fn r4_read_uv(
       65535.0
     );
   }
+  if format == ${GPU_UV_FORMAT.Float16x2}u {
+    return vec3f(unpack2x16float((*words)[offset >> 2u]), 1.0);
+  }
   return vec3f(0.0);
 }
 
@@ -227,12 +229,8 @@ fn raster_hierarchy_meshlets(
   let source_vertex = r3_raster_meshlet_vertices[
     meshlet.vertex_offset + local_vertex
   ];
-  let position_word = geometry.position_byte_offset / 4u
-    + source_vertex * (geometry.position_stride / 4u);
-  let local_position = vec3f(
-    bitcast<f32>(r3_raster_vertex_data[position_word]),
-    bitcast<f32>(r3_raster_vertex_data[position_word + 1u]),
-    bitcast<f32>(r3_raster_vertex_data[position_word + 2u])
+  let local_position = oengine_geometry_position(
+    &r3_raster_vertex_data, geometry, source_vertex
   );
   let uv0 = r4_read_uv(
     &r3_raster_vertex_data,
@@ -257,7 +255,7 @@ fn raster_hierarchy_meshlets(
   );
   var output: R3VisibilityVertexOutput;
   output.position = r3_raster_camera.view_projection_matrix
-    * instance.current_object_to_world
+    * oengine_instance_current_object_to_world(instance)
     * vec4f(local_position, 1.0);
   output.instance_record_index = work.instance_record_index;
   output.encoded_triangle =
@@ -273,7 +271,7 @@ fn raster_hierarchy_meshlets(
     select(0u, 2u, uv1.z > 0.0) |
     select(0u, 4u, uv2.z > 0.0);
   output.material_handle = work.material_handle;
-  let linear = instance.current_object_to_world;
+  let linear = oengine_instance_current_object_to_world(instance);
   let determinant = dot(linear[0].xyz, cross(linear[1].xyz, linear[2].xyz));
   output.mirrored = select(0u, 1u, determinant < 0.0);
   return output;

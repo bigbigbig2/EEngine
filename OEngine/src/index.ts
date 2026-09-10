@@ -32,6 +32,7 @@ export type {
   GeometryFloatMode,
   GeometryCookRecipe,
   GeometryCookRecipeInput,
+  GeometryVertexProfile,
   MissingAttributePolicy,
   NonManifoldPolicy
 } from "./assets/GeometryCookRecipe.js";
@@ -79,9 +80,21 @@ export type {
   TextureMipV2,
   TextureSemanticV2,
   TextureUploadEvidenceV2,
+  TextureUploadOptionsV2,
   TextureVariantMetadataV2,
   UploadedTextureAssetV2
 } from "./assets/TextureAssetPackage.js";
+export { RuntimeAssetResidencyState } from "./assets/RuntimeAssetResidency.js";
+export type {
+  RuntimeAssetRequestState,
+  RuntimeAssetResidencyBudget,
+  RuntimeAssetResidencyBudgetHooks,
+  RuntimeAssetResidencyBudgetRequest,
+  RuntimeAssetResidencyEvidence,
+  RuntimeAssetResidencyReservation,
+  RuntimeAssetPhysicalRange,
+  RuntimeAssetResidentRange
+} from "./assets/RuntimeAssetResidency.js";
 export type {
   RuntimeAssetManifest,
   RuntimeAssetPackage,
@@ -95,6 +108,7 @@ export type {
 } from "./assets/RuntimeAssetPackage.js";
 export {
   GEOMETRY_ASSET_SCHEMA_VERSION,
+  GEOMETRY_COOKER_VERSION,
   GEOMETRY_BVH8_NODE_STRIDE,
   GEOMETRY_CLUSTER_FLAGS,
   GEOMETRY_CLUSTER_RECORD_STRIDE,
@@ -104,8 +118,15 @@ export {
   GEOMETRY_MATERIAL_RANGE_STRIDE,
   GEOMETRY_MESHLET_RECORD_STRIDE,
   GEOMETRY_SECTION_TYPES,
+  GEOMETRY_VERTEX_PROFILE,
+  GEOMETRY_VERTEX_STREAM_FLAGS,
   GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
   GeometryAssetPackageError,
+  decodeGeometryColor,
+  decodeGeometryNormal,
+  decodeGeometryPosition,
+  decodeGeometryTangent,
+  decodeGeometryUv,
   openGeometryAssetPackage
 } from "./assets/GeometryAssetPackage.js";
 export type {
@@ -135,6 +156,8 @@ export type {
   InstanceMaterialPatch,
   InstancePatchBatch,
   InstancePatchResult,
+  InstanceStaticPatch,
+  InstanceVisibilityPatch,
   InstanceSetHandle,
   InstanceSource,
   InstanceTransformPatch

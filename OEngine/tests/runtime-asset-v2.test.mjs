@@ -128,10 +128,26 @@ test("Texture Package V2 uploads selected BC mips without runtime mip work", asy
   assert.equal(uploaded.variant.format, "bc3-rgba-unorm-srgb");
   assert.equal(uploaded.evidence.runtimeMipPasses, 0);
   assert.equal(uploaded.evidence.transcodeBytes, 0);
+  assert.equal(
+    uploaded.residency.evidence().residentChunkCount,
+    asset.runtime.manifest.variants.find(({ id }) => id === uploaded.variant.id).chunkIds.length
+  );
+  assert.equal(uploaded.residency.evidence().requestedChunkCount, 0);
+  assert.ok(uploaded.residency.snapshot().every(({ residentResourceId }) =>
+    typeof residentResourceId === "string" && residentResourceId.length > 0));
   assert.equal(writes.length, 4);
   assert.equal(texture.descriptor.mipLevelCount, 4);
   assert.deepEqual(writes.map(({ size }) => [size.width, size.height]), [[8, 8], [4, 4], [4, 4], [4, 4]]);
   assert.ok(uploaded.evidence.residentBytes < 8 * 8 * 4);
+
+  const createCount = writes.length;
+  assert.throws(
+    () => uploadTextureAssetPackageV2(device, asset, {
+      budget: { maxUploadBytes: 0, maxResidentBytes: 0 }
+    }),
+    /budget/
+  );
+  assert.equal(writes.length, createCount);
 });
 
 test("Texture Cooker V2 selects a declared portable fallback for unaligned bases and keeps identity dimensional", async () => {

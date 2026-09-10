@@ -1,8 +1,9 @@
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.js";
 import {
   GPU_GEOMETRY_RECORD_WGSL,
+  GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
-  GPU_POSITION_FORMAT,
+  GPU_NORMAL_FORMAT,
   GPU_UV_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
@@ -18,6 +19,7 @@ export const PACKED_MATERIAL_RESOLVE_WGSL = /* wgsl */ `
 ${GPU_VIEW_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
 ${GPU_SURFACE_ABI_WGSL}
@@ -159,16 +161,7 @@ fn read_stream4_from_descriptor(
 }
 
 fn read_position_direct(geometry: GpuGeometryRecord, vertex: u32) -> vec3f {
-  let offset = geometry.position_byte_offset + vertex * geometry.position_stride;
-  if geometry.position_format == ${GPU_POSITION_FORMAT.Float32x3}u ||
-      geometry.position_format == ${GPU_POSITION_FORMAT.Float32x4}u {
-    return vec3f(
-      bitcast<f32>(vertex_data[offset >> 2u]),
-      bitcast<f32>(vertex_data[(offset >> 2u) + 1u]),
-      bitcast<f32>(vertex_data[(offset >> 2u) + 2u])
-    );
-  }
-  return vec3f(0.0);
+  return oengine_geometry_position(&vertex_data, geometry, vertex);
 }
 
 fn read_uv_direct(geometry: GpuGeometryRecord, uv_set: u32, vertex: u32) -> vec2f {
@@ -197,6 +190,9 @@ fn read_uv_direct(geometry: GpuGeometryRecord, uv_set: u32, vertex: u32) -> vec2
   }
   if format == ${GPU_UV_FORMAT.Unorm16x2}u {
     return vec2f(f32(read_u16(offset)), f32(read_u16(offset + 2u))) / 65535.0;
+  }
+  if format == ${GPU_UV_FORMAT.Float16x2}u {
+    return unpack2x16float(vertex_data[offset >> 2u]);
   }
   return vec2f(0.0);
 }
@@ -228,6 +224,19 @@ fn read_stream_direct(
 }
 
 fn read_normal_direct(geometry: GpuGeometryRecord, vertex: u32, fallback: vec4f) -> vec3f {
+  if geometry.normal_format == ${GPU_NORMAL_FORMAT.OctSnorm16x2}u {
+    let offset = geometry.normal_byte_offset + vertex * geometry.normal_stride;
+    let encoded = unpack2x16snorm(vertex_data[offset >> 2u]);
+    var result = vec3f(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
+    if result.z < 0.0 {
+      result = vec3f(
+        (1.0 - abs(result.y)) * select(-1.0, 1.0, result.x >= 0.0),
+        (1.0 - abs(result.x)) * select(-1.0, 1.0, result.y >= 0.0),
+        result.z
+      );
+    }
+    return normalize(result);
+  }
   return read_stream_direct(
     geometry.normal_byte_offset,
     geometry.normal_stride,
@@ -519,9 +528,9 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let local0 = read_position_direct(geometry, vertices.x);
   let local1 = read_position_direct(geometry, vertices.y);
   let local2 = read_position_direct(geometry, vertices.z);
-  let world0 = instance.current_object_to_world * vec4f(local0, 1.0);
-  let world1 = instance.current_object_to_world * vec4f(local1, 1.0);
-  let world2 = instance.current_object_to_world * vec4f(local2, 1.0);
+  let world0 = oengine_instance_current_object_to_world(instance) * vec4f(local0, 1.0);
+  let world1 = oengine_instance_current_object_to_world(instance) * vec4f(local1, 1.0);
+  let world2 = oengine_instance_current_object_to_world(instance) * vec4f(local2, 1.0);
   let projected0 = view.projection_matrix * world0;
   let projected1 = view.projection_matrix * world1;
   let projected2 = view.projection_matrix * world2;
@@ -576,7 +585,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     face_local
   );
   let local_tangent4 = tangent0 * bary.weights.x + tangent1 * bary.weights.y + tangent2 * bary.weights.z;
-  let frame = object_transform_frame(instance.current_object_to_world);
+  let frame = object_transform_frame(oengine_instance_current_object_to_world(instance));
   let shading_normal = safe_normalize(frame.normal_matrix * local_normal, face_local);
   let geometric_normal = safe_normalize(frame.normal_matrix * face_local, shading_normal);
   var tangent = frame.tangent_matrix * local_tangent4.xyz;
@@ -693,7 +702,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   }
   if OENGINE_VELOCITY_ENABLED && oengine_instance_motion_valid(instance) && bary.valid != 0u {
     let current_world = world0 * bary.weights.x + world1 * bary.weights.y + world2 * bary.weights.z;
-    let previous_world_h = instance.previous_from_current * current_world;
+    let previous_world_h = oengine_instance_previous_from_current(instance) * current_world;
     if previous_world_h.w > 1e-8 {
       let previous_clip = previous_view_projection * vec4f(previous_world_h.xyz / previous_world_h.w, 1.0);
       if previous_clip.w > 1e-8 {

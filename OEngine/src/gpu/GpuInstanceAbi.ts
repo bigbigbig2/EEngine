@@ -1,8 +1,11 @@
 import { mat4 } from "gl-matrix";
 import { GPU_MATERIAL_KERNEL_CLASS_COUNT } from "./GpuMaterialKernelAbi.js";
 
-export const GPU_INSTANCE_ABI_VERSION = 3;
-export const GPU_INSTANCE_RECORD_STRIDE = 192;
+export const GPU_INSTANCE_ABI_VERSION = 4;
+export const GPU_INSTANCE_STATIC_RECORD_STRIDE = 64;
+export const GPU_INSTANCE_DYNAMIC_RECORD_STRIDE = 112;
+export const GPU_INSTANCE_RECORD_STRIDE =
+  GPU_INSTANCE_STATIC_RECORD_STRIDE + GPU_INSTANCE_DYNAMIC_RECORD_STRIDE;
 export const GPU_INSTANCE_FALLBACK_RECORD_INDEX = 0;
 export const GPU_INSTANCE_MOTION_RELATIVE_DETERMINANT_EPSILON = 1e-8;
 export const GPU_INSTANCE_MATERIAL_KERNEL_SHIFT = 8;
@@ -28,6 +31,12 @@ export const GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK =
   GPU_INSTANCE_FLAGS.Transparent |
   GPU_INSTANCE_MATERIAL_KERNEL_MASK;
 
+/** Bits replaced by an InstanceVisibilityPatch; material routing remains intact. */
+export const GPU_INSTANCE_VISIBILITY_FLAGS_MASK =
+  GPU_INSTANCE_FLAGS.Active |
+  GPU_INSTANCE_FLAGS.CastsShadow |
+  GPU_INSTANCE_FLAGS.ReceivesShadow;
+
 export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   geometry_record_index: 0,
   material_handle: 4,
@@ -36,13 +45,17 @@ export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   bounds_sphere: 16,
   bounds_min: 32,
   bounds_max: 48,
-  current_object_to_world: 64,
-  previous_from_current: 128
+  current_affine: 64,
+  previous_from_current_affine: 112,
+  dynamic_revision: 160,
+  motion_flags: 164
 } as const);
 
 export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
   abiVersion: GPU_INSTANCE_ABI_VERSION,
   stride: GPU_INSTANCE_RECORD_STRIDE,
+  staticStride: GPU_INSTANCE_STATIC_RECORD_STRIDE,
+  dynamicStride: GPU_INSTANCE_DYNAMIC_RECORD_STRIDE,
   offsets: GPU_INSTANCE_RECORD_OFFSETS
 } as const);
 
@@ -75,8 +88,38 @@ struct OEngineInstanceRecord {
   bounds_sphere: vec4f,
   bounds_min: vec4f,
   bounds_max: vec4f,
-  current_object_to_world: mat4x4f,
-  previous_from_current: mat4x4f,
+  current_affine_0: vec4f,
+  current_affine_1: vec4f,
+  current_affine_2: vec4f,
+  previous_from_current_affine_0: vec4f,
+  previous_from_current_affine_1: vec4f,
+  previous_from_current_affine_2: vec4f,
+  dynamic_revision: u32,
+  motion_flags: u32,
+  _dynamic_pad: vec2u,
+}
+
+fn oengine_instance_current_object_to_world(instance: OEngineInstanceRecord) -> mat4x4f {
+  return mat4x4f(
+    vec4f(instance.current_affine_0.xyz, 0.0),
+    vec4f(instance.current_affine_1.xyz, 0.0),
+    vec4f(instance.current_affine_2.xyz, 0.0),
+    vec4f(instance.current_affine_0.w, instance.current_affine_1.w, instance.current_affine_2.w, 1.0)
+  );
+}
+
+fn oengine_instance_previous_from_current(instance: OEngineInstanceRecord) -> mat4x4f {
+  return mat4x4f(
+    vec4f(instance.previous_from_current_affine_0.xyz, 0.0),
+    vec4f(instance.previous_from_current_affine_1.xyz, 0.0),
+    vec4f(instance.previous_from_current_affine_2.xyz, 0.0),
+    vec4f(
+      instance.previous_from_current_affine_0.w,
+      instance.previous_from_current_affine_1.w,
+      instance.previous_from_current_affine_2.w,
+      1.0
+    )
+  );
 }
 
 fn oengine_instance_active(instance: OEngineInstanceRecord) -> bool {
@@ -84,7 +127,7 @@ fn oengine_instance_active(instance: OEngineInstanceRecord) -> bool {
 }
 
 fn oengine_instance_motion_valid(instance: OEngineInstanceRecord) -> bool {
-  return (instance.flags & ${GPU_INSTANCE_FLAGS.MotionInvalid}u) == 0u;
+  return (instance.motion_flags & ${GPU_INSTANCE_FLAGS.MotionInvalid}u) == 0u;
 }
 
 fn oengine_instance_material_kernel_class(flags: u32) -> u32 {
@@ -169,28 +212,19 @@ export function writeGpuInstanceRecord(
     0,
     scratch
   );
-  const flags = (motionValid
-    ? record.flags & ~GPU_INSTANCE_FLAGS.MotionInvalid
-    : record.flags | GPU_INSTANCE_FLAGS.MotionInvalid) >>> 0;
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.flags, flags, "flags");
+  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.flags,
+    record.flags & ~GPU_INSTANCE_FLAGS.MotionInvalid, "flags");
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.debug_id, record.debugId, "debugId");
   writeF32Array(view, GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere, record.boundsSphere, 4, "boundsSphere");
   writeF32Array(view, GPU_INSTANCE_RECORD_OFFSETS.bounds_min, record.boundsMin, 3, "boundsMin");
   writeF32Array(view, GPU_INSTANCE_RECORD_OFFSETS.bounds_max, record.boundsMax, 3, "boundsMax");
-  writeF32Array(
-    view,
-    GPU_INSTANCE_RECORD_OFFSETS.current_object_to_world,
-    record.currentObjectToWorld,
-    16,
-    "currentObjectToWorld"
-  );
-  writeF32Array(
-    view,
-    GPU_INSTANCE_RECORD_OFFSETS.previous_from_current,
-    previousFromCurrent,
-    16,
-    "previousFromCurrent"
-  );
+  writeGpuInstanceAffineMatrix(destination, byteOffset + GPU_INSTANCE_RECORD_OFFSETS.current_affine,
+    record.currentObjectToWorld, 0, "currentObjectToWorld");
+  writeGpuInstanceAffineMatrix(destination, byteOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
+    previousFromCurrent, 0, "previousFromCurrent");
+  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision, 0, "dynamicRevision");
+  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
+    motionValid ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid, "motionFlags");
 }
 
 export function createGpuInstanceMotionScratch(): GpuInstanceMotionScratch {
@@ -200,6 +234,56 @@ export function createGpuInstanceMotionScratch(): GpuInstanceMotionScratch {
     inverseCurrent: new Float32Array(16),
     previousFromCurrent: new Float32Array(16)
   };
+}
+
+/** Packs an affine mat4 into three vec4 columns with translation in each w lane. */
+export function writeGpuInstanceAffineMatrix(
+  destination: Uint8Array,
+  byteOffset: number,
+  source: ArrayLike<number>,
+  sourceOffset = 0,
+  label = "affineMatrix"
+): void {
+  if (byteOffset < 0 || byteOffset + 48 > destination.byteLength || source.length < sourceOffset + 16) {
+    throw new RangeError(`${label} compact affine range is invalid`);
+  }
+  const values = new Float32Array(16);
+  copyFiniteMatrix(values, source, sourceOffset, label);
+  if (
+    Math.abs(values[3]!) > 1e-6 || Math.abs(values[7]!) > 1e-6 ||
+    Math.abs(values[11]!) > 1e-6 || Math.abs(values[15]! - 1) > 1e-6
+  ) {
+    throw new RangeError(`${label} must be affine for Instance ABI V4`);
+  }
+  const view = new DataView(destination.buffer, destination.byteOffset, destination.byteLength);
+  const packed = [
+    values[0]!, values[1]!, values[2]!, values[12]!,
+    values[4]!, values[5]!, values[6]!, values[13]!,
+    values[8]!, values[9]!, values[10]!, values[14]!
+  ];
+  for (let index = 0; index < packed.length; index++) {
+    view.setFloat32(byteOffset + index * 4, packed[index]!, true);
+  }
+}
+
+/** CPU oracle/recovery path for the compact affine representation. */
+export function readGpuInstanceAffineMatrix(
+  destination: Float32Array,
+  source: Uint8Array,
+  byteOffset: number
+): void {
+  if (destination.length < 16 || byteOffset < 0 || byteOffset + 48 > source.byteLength) {
+    throw new RangeError("Compact instance affine range is invalid");
+  }
+  const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
+  mat4.identity(destination);
+  for (let column = 0; column < 3; column++) {
+    const packed = byteOffset + column * 16;
+    destination[column * 4] = view.getFloat32(packed, true);
+    destination[column * 4 + 1] = view.getFloat32(packed + 4, true);
+    destination[column * 4 + 2] = view.getFloat32(packed + 8, true);
+    destination[12 + column] = view.getFloat32(packed + 12, true);
+  }
 }
 
 /**

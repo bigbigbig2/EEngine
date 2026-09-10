@@ -1,5 +1,6 @@
 import {
   GPU_GEOMETRY_RECORD_WGSL,
+  GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
   GPU_POSITION_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
@@ -41,6 +42,7 @@ export const EXACT_TRIANGLE_FILTER_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_WORK_GENERATION_WGSL}
 
@@ -97,13 +99,7 @@ fn filter_read_u8(byte_offset: u32) -> u32 {
 }
 
 fn filter_position(geometry: GpuGeometryRecord, source_vertex: u32) -> vec3f {
-  let word = geometry.position_byte_offset / 4u +
-    source_vertex * (geometry.position_stride / 4u);
-  return vec3f(
-    bitcast<f32>(filter_vertex_data[word]),
-    bitcast<f32>(filter_vertex_data[word + 1u]),
-    bitcast<f32>(filter_vertex_data[word + 2u])
-  );
+  return oengine_geometry_position(&filter_vertex_data, geometry, source_vertex);
 }
 
 fn filter_finite(value: vec4f) -> bool {
@@ -154,7 +150,8 @@ fn filter_keep_triangle(work: OEngineRasterWork) -> bool {
   let geometry = filter_geometries[work.geometry_record_index];
   let meshlet = filter_meshlets[work.meshlet_record_index];
   if geometry.position_format != ${GPU_POSITION_FORMAT.Float32x3}u &&
-    geometry.position_format != ${GPU_POSITION_FORMAT.Float32x4}u {
+    geometry.position_format != ${GPU_POSITION_FORMAT.Float32x4}u &&
+    geometry.position_format != ${GPU_POSITION_FORMAT.AabbUnorm16x3}u {
     return false;
   }
   if work.local_triangle_index >= meshlet.triangle_count { return false; }
@@ -173,7 +170,7 @@ fn filter_keep_triangle(work: OEngineRasterWork) -> bool {
     source2 >= geometry.vertex_count {
     return false;
   }
-  let transform = filter_camera.view_projection_matrix * instance.current_object_to_world;
+  let transform = filter_camera.view_projection_matrix * oengine_instance_current_object_to_world(instance);
   let a = transform * vec4f(filter_position(geometry, source0), 1.0);
   let b = transform * vec4f(filter_position(geometry, source1), 1.0);
   let c = transform * vec4f(filter_position(geometry, source2), 1.0);
@@ -190,7 +187,7 @@ fn filter_keep_triangle(work: OEngineRasterWork) -> bool {
   let determinant = filter_orientation(a, b, c);
   if abs(determinant) <= 1e-12 { return false; }
   if (work.raster_flags & ${GPU_INSTANCE_FLAGS.DoubleSided}u) == 0u {
-    let linear = instance.current_object_to_world;
+    let linear = oengine_instance_current_object_to_world(instance);
     let mirrored = dot(linear[0].xyz, cross(linear[1].xyz, linear[2].xyz)) < 0.0;
     let front = determinant > 0.0;
     if front == mirrored { return false; }
@@ -230,7 +227,7 @@ fn filter_setup_for_work(work: OEngineRasterWork) -> OEngineTriangleSetupRecord 
   let source0 = filter_meshlet_vertices[meshlet.vertex_offset + local0];
   let source1 = filter_meshlet_vertices[meshlet.vertex_offset + local1];
   let source2 = filter_meshlet_vertices[meshlet.vertex_offset + local2];
-  let transform = filter_camera.view_projection_matrix * instance.current_object_to_world;
+  let transform = filter_camera.view_projection_matrix * oengine_instance_current_object_to_world(instance);
   let a = transform * vec4f(filter_position(geometry, source0), 1.0);
   let b = transform * vec4f(filter_position(geometry, source1), 1.0);
   let c = transform * vec4f(filter_position(geometry, source2), 1.0);
