@@ -21,12 +21,12 @@
 - Upstream source: WebGPU/WGSL specs；Timberdoodle `draw_visbuffer.hlsl`、`analyze_visbuffer.hlsl`、`visbuffer.hlsl`、`shade_opaque.hlsl`。
 - License: specifications/paper are semantic references；Timberdoodle Apache-2.0。
 - Adoption: specification/reference reimplementation plus selected lookup invariants。
-- Retained invariants: compact pixel identity、frame-local RasterWork lookup、reverse-Z depth、invalid sentinel、single visible-pixel shading。
-- OEngine/WebGPU differences: `r32uint` attachment and OEngine instance/geometry/material tables；不采用 native descriptors、DGC、bindless 或 native command model。
+- Retained invariants: compact pixel identity、frame-local MeshletWork lookup、reverse-Z depth、invalid sentinel、single visible-pixel shading。
+- OEngine/WebGPU differences: VisibilityKey V2 冻结 `24-bit meshlet_work_slot + 8-bit local_primitive`，有效 local primitive 为 0..127，`0xffffffff/0xfffffffe` 保留；partition 0 与 generation 作为 queue context 校验。Material Resolve、MaterialClassDepth 与 debug consumer 经 MeshletWork 恢复 material/geometry，不采用 native descriptors、DGC、bindless 或 native command model。
 - Fallback/lifecycle: invalid/stale key rejects conservatively and increments diagnostics；resources exist only for enabled Packed visibility。
 - Local validation: visibility-key ABI tests、direct-key validation、debug views 和 invalid-key counter。
 
-## VIS-MESHLET-WORK-V2 · Meshlet work queue candidate
+## VIS-MESHLET-WORK-V2 · Meshlet work queue normal path
 
 - Local owner/source: `OEngine/src/gpu/GpuMeshletRasterWorkAbi.ts`、`OEngine/src/render/MeshletWorkCandidate.ts`、`OEngine/src/render/MeshletBucketRaster.ts`、`OEngine/src/shaders/meshlet_work_compaction.ts`、`OEngine/src/shaders/meshlet_bucket_visibility.ts`。
 - Upstream: WebGPU/WGSL living specifications；meshoptimizer <https://github.com/zeux/meshoptimizer>；Bevy <https://github.com/bevyengine/bevy>。
@@ -35,8 +35,8 @@
 - License: WebGPU/WGSL 规范作为语义依据；meshoptimizer MIT；Bevy MIT OR Apache-2.0（采用 MIT 路径）。
 - Adoption: 按规范独立实现；subgroup ballot/prefix 与 portable workgroup shared-memory prefix 均为本地规格实现，没有复制上游表达性 Shader。
 - Retained invariants: 24 B meshlet identity、32 B attempted/written/consumed/capacity/overflow/generation header、workgroup tile 粒度 all-or-nothing reservation、frame-local generation、GPU producer 到 GPU validation 与标准 indirect raster consumer 闭合、reverse-Z、mirrored winding、OPAQUE/MASK coverage identity。
-- OEngine/WebGPU differences: 从现有 VisibleCluster queue 紧凑生成，GPU histogram/prefix/scatter 为 32 个有界 raster bucket 生成完整标准 `drawIndirect` 记录；不使用 MDI，也不读取 queue 回控 CPU。`indirect-first-instance` specialization 写共享 queue base；fallback 以 bucket state base 加零起始 `instance_index`。Step 3 用固定 32 次标准 indirect draw 消费 queue，并以独立 `rgba32uint` semantic identity + GPU reducer 对照当前 production exact path；生产 attachment 尚待 VisibilityKey V2 cutover。
-- Fallback/lifecycle: candidate 默认关闭且不分配资源；启用时 queue 是 CorrectnessCritical，容量不足按 workgroup tile 拒绝整个 range 并保持 `overflow = attempted - written`；subgroups 未协商时自动选择 portable path；owner release/device destroy 销毁 staging/bucketed queue、bucket state、uniform 与 indirect buffer。
+- OEngine/WebGPU differences: 从现有 VisibleCluster queue 紧凑生成，GPU histogram/prefix/scatter 为 32 个有界 raster bucket 生成完整标准 `drawIndirect` 记录；不使用 MDI，也不读取 queue 回控 CPU。`indirect-first-instance` specialization 写共享 queue base；fallback 以 bucket state base 加零起始 `instance_index`。Step 4 已让固定 32 次标准 indirect draw 写 production `r32uint` VisibilityKey V2；旧 exact raster 只写独立 parity target，GPU reducer 用两边 work table 恢复 instance/geometry/meshlet/local primitive/material 语义比较。
+- Fallback/lifecycle: queue 是 normal path 的 CorrectnessCritical owner；容量不足按 workgroup tile 拒绝整个 range、保持 `overflow = attempted - written`，并把全部 bucket indirect instance count 清零，禁止呈现部分几何；subgroups 未协商时自动选择 portable path；owner release/device destroy 销毁 staging/bucketed queue、bucket state、uniform 与 indirect buffer。
 - Local validation: CPU pack/unpack、stride/offset/profile/LOD/bucket/generation/boundary oracle，subgroup/portable Shader contract，真实 Chrome producer/consumer/indirect count closure、容量压力 overflow、两种 compact specialization 的 bucket Hardware Visibility semantic parity、padding/triangle/pixel counters，GPU validation/uncaptured/device-loss 必须为零。
 
 ## VIS-MATERIAL-DEPTH · Bounded MaterialClassDepth and adaptive setup

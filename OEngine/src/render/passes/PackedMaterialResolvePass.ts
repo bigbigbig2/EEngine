@@ -256,6 +256,8 @@ export class PackedMaterialResolvePass {
     if (this.backend === "class-depth") {
       classDepth = this.classDepthPass.addToGraph(graph, {
         visibilityKey: inputs.visibility.visibilityKey,
+        meshletWork: inputs.visibility.meshletWork.records,
+        materials: job.runtime.materialResources.materialRecords,
         width,
         height
       });
@@ -286,12 +288,12 @@ export class PackedMaterialResolvePass {
           0,
           this.previousViewProjection
         );
-        const rasterWork = requireBuffer(
-          resources.get(inputs.visibility.exactRaster.records),
-          "exact RasterWork"
+        const meshletWork = requireBuffer(
+          resources.get(inputs.visibility.meshletWork.records),
+          "MeshletWork"
         );
         const setupRecords = inputs.visibility.exactRaster.setupRecords === null
-          ? rasterWork
+          ? meshletWork
           : requireBuffer(
             resources.get(inputs.visibility.exactRaster.setupRecords),
             "TriangleSetup records"
@@ -316,7 +318,7 @@ export class PackedMaterialResolvePass {
           meshletTriangleIndices: data.assets.meshletTriangleIndices,
           vertexStreamDescriptors: data.assets.vertexStreamDescriptors,
           vertexStreamData: data.assets.vertexStreamData,
-          rasterWork,
+          meshletWork,
           setupRecords
         };
         if (!sameLookupInputs(this.cachedLookupInputs, lookupInputs)) {
@@ -331,7 +333,7 @@ export class PackedMaterialResolvePass {
               { buffer: lookupInputs.meshletTriangleIndices },
               { buffer: lookupInputs.vertexStreamDescriptors },
               { buffer: lookupInputs.vertexStreamData },
-              { buffer: lookupInputs.rasterWork },
+              { buffer: lookupInputs.meshletWork },
               { buffer: lookupInputs.setupRecords }
             ]
           });
@@ -368,7 +370,7 @@ export class PackedMaterialResolvePass {
             layout: SETUP_EVIDENCE_GROUP,
             entries: [
               resolveTextureView(resources.get(inputs.visibility.visibilityKey)),
-              { buffer: rasterWork },
+              { buffer: meshletWork },
               { buffer: setupRecords },
               { buffer: requireBuffer(resources.get(inputs.counters), "GPU counters") }
             ]
@@ -431,7 +433,7 @@ export class PackedMaterialResolvePass {
       texture(width, height, this.surfaceProfile.formats.metadata, usage)
     );
     builder.read(inputs.visibility.visibilityKey);
-    builder.read(inputs.visibility.exactRaster.records);
+    builder.read(inputs.visibility.meshletWork.records);
     if (inputs.visibility.exactRaster.setupRecords !== null) {
       builder.read(inputs.visibility.exactRaster.setupRecords);
     }
@@ -499,7 +501,7 @@ interface PackedMaterialLookupInputs {
   readonly meshletTriangleIndices: GPUBuffer;
   readonly vertexStreamDescriptors: GPUBuffer;
   readonly vertexStreamData: GPUBuffer;
-  readonly rasterWork: GPUBuffer;
+  readonly meshletWork: GPUBuffer;
   readonly setupRecords: GPUBuffer;
 }
 
@@ -515,7 +517,7 @@ function sameLookupInputs(
     previous.meshletTriangleIndices === next.meshletTriangleIndices &&
     previous.vertexStreamDescriptors === next.vertexStreamDescriptors &&
     previous.vertexStreamData === next.vertexStreamData &&
-    previous.rasterWork === next.rasterWork &&
+    previous.meshletWork === next.meshletWork &&
     previous.setupRecords === next.setupRecords;
 }
 

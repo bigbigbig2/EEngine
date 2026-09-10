@@ -13,7 +13,6 @@ export interface VisibilityWorkSetKey {
   readonly traversalCapacity: number;
   readonly visibleClusterCapacity: number;
   readonly rasterWorkCapacity: number;
-  readonly meshletWorkCandidateEnabled: boolean;
   readonly meshletWorkCandidateCapacity: number;
   readonly meshletWorkCompactionPath: "auto" | "portable" | "subgroup";
   readonly triangleSetupEnabled: boolean;
@@ -24,7 +23,7 @@ export interface VisibilityWorkSetKey {
 export interface VisibilityWorkSet {
   readonly key: VisibilityWorkSetKey;
   readonly hierarchy: PreparedHierarchyWork;
-  /** Step-2 GPU-only compact/bucket candidate seam; null in the production default. */
+  /** Step-4 normal MeshletWork producer; nullable only during allocation rollback. */
   readonly meshletWorkCandidate: PreparedMeshletWorkCandidate | null;
   readonly exact: PreparedExactTriangleFilter;
   readonly exactRasterRecords: GPUBuffer;
@@ -54,7 +53,6 @@ export function sameVisibilityWorkSetKey(
     left.traversalCapacity === right.traversalCapacity &&
     left.visibleClusterCapacity === right.visibleClusterCapacity &&
     left.rasterWorkCapacity === right.rasterWorkCapacity &&
-    left.meshletWorkCandidateEnabled === right.meshletWorkCandidateEnabled &&
     left.meshletWorkCandidateCapacity === right.meshletWorkCandidateCapacity &&
     left.meshletWorkCompactionPath === right.meshletWorkCompactionPath &&
     left.triangleSetupEnabled === right.triangleSetupEnabled &&

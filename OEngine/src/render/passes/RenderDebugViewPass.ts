@@ -237,7 +237,7 @@ export class RenderDebugViewPass {
           bindings.push(
             { buffer: lookup.instances },
             { buffer: lookup.meshlets },
-            { buffer: lookup.rasterWork },
+            { buffer: lookup.meshletWork },
             { buffer: lookup.materials }
           );
         }

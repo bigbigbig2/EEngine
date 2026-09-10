@@ -468,30 +468,28 @@ local_primitive_identity
 
 不再冻结当前 per-triangle exact work slot。
 
-### 6.2 Candidate physical layout
+### 6.2 Frozen physical layout
 
-可以研究：
+Step 4 冻结：
 
 ```text
-24 bits meshlet_work_slot
-8 bits  local_triangle
+bits  0..23  meshlet_work_slot
+bits 24..31  local_primitive
 ```
 
-但这只是初始候选。
+`local_primitive` 的有效范围固定为 `0..127`，与当前 meshlet triangle ceiling 一致；`128..255` 全部非法。这样 `0xffffffff`（empty）与 `0xfffffffe`（invalid）不会和任何有效 key 冲突。`meshlet_work_slot` 最大为 `0x00ffffff`，单帧最多寻址 `16,777,216` 条 work；超过该容量必须在资源准备阶段失败，不能截断。
 
-最终必须通过：
+当前只支持 partition 0。partition 不占用 key bit，而由 `MeshletWork.packed_profile_lod` 的高 8 bit 与绑定的 queue partition 共同验证。generation 也不占用 key bit，由同一 `VisibilityFrame` 携带的 queue header generation 约束；generation 为 0、queue generation 不匹配或 partition 非 0 时不得解引用。由此以下边界均已冻结：
 
 ```text
 max visible meshlet works/frame
 meshlet max triangle count
 empty/invalid representation
 risk-path identity
-future capacity
+future capacity（超过 24-bit slot 时必须升级 ABI/partition contract）
 ```
 
-冻结。
-
-如果 32-bit 不足，可研究：
+如果未来 32-bit 不足，只能通过新 ABI 研究：
 
 ```text
 partitioned tables

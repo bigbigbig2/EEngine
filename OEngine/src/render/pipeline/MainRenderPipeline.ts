@@ -516,8 +516,6 @@ export class MainRenderPipeline {
   packed_visibility_sse_threshold = 4;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
-  /** ADR-0008 Step-2 GPU compact/bucket/indirect seam; never feeds production raster. */
-  packed_meshlet_work_candidate_enabled = false;
   /** Validation pressure override; zero derives the correctness-safe capacity. */
   packed_meshlet_work_candidate_capacity = 0;
   /** ADR-0008 Step-2 compaction specialization policy. */
@@ -1516,7 +1514,6 @@ export class MainRenderPipeline {
         hierarchyView: createPackedHierarchyView(camera, h),
         sseThreshold: this.packed_visibility_sse_threshold,
         coneEnabled: this.packed_visibility_cone_enabled,
-        meshletWorkCandidateEnabled: this.packed_meshlet_work_candidate_enabled,
         meshletWorkCandidateCapacity: this.packed_meshlet_work_candidate_capacity,
         meshletWorkCompactionPath: this.packed_meshlet_work_compaction,
         triangleSetupEnabled: this.packed_triangle_setup_enabled,
@@ -1706,6 +1703,18 @@ export class MainRenderPipeline {
             bind("packed-exact-draw-indirect", (bindings) =>
               requirePackedGeometryOwner(bindings.geometry).visibilityJob.prepared.workSet.exactDrawIndirect)
           );
+          const meshletWorkRecords = graph.import_resource(
+            "packed_meshlet_work_records",
+            { kind: "imported", label: "VisibilityKey V2 MeshletWork queue" },
+            bind("packed-meshlet-work-records", (bindings) => {
+              const prepared = requirePackedGeometryOwner(bindings.geometry)
+                .visibilityJob.prepared.workSet.meshletWorkCandidate;
+              if (prepared === null) {
+                throw new Error("VisibilityKey V2 requires a prepared MeshletWork queue");
+              }
+              return prepared.queue;
+            })
+          );
           const triangleSetupRecords = this.packed_triangle_setup_enabled
             ? graph.import_resource(
                 "packed_triangle_setup_records",
@@ -1729,6 +1738,7 @@ export class MainRenderPipeline {
               counters: packedCounterRes,
               exactRasterRecords,
               exactDrawIndirect,
+              meshletWorkRecords,
               setupRecords: triangleSetupRecords,
               previousHzb: this.packed_visibility_hzb_enabled
                 ? previousHzbRes
@@ -3109,7 +3119,7 @@ export class MainRenderPipeline {
       visibilityConfiguration:
         `hardware-exact-visibility-key-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
         `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
-        `-meshlet-candidate${this.packed_meshlet_work_candidate_enabled ? 1 : 0}` +
+        `-meshlet-visibility-v2` +
         `-meshlet-capacity${this.packed_meshlet_work_candidate_capacity}` +
         `-meshlet-compact${this.packed_meshlet_work_compaction}` +
         `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +

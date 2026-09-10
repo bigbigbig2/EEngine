@@ -38,9 +38,30 @@ import {
   unpackGpuMeshletRasterWork,
   unpackGpuMeshletWorkQueueHeader
 } from "../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
+import {
+  GPU_VISIBILITY_KEY_ABI_VERSION,
+  GPU_VISIBILITY_KEY_EMPTY,
+  GPU_VISIBILITY_KEY_INVALID,
+  GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE,
+  GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK,
+  decodeVisibilityKey,
+  encodeVisibilityKey,
+  isVisibilityKeyContextValid,
+  resolveVisibilityKeyReference,
+  tryEncodeVisibilityKey
+} from "../.test-dist/gpu/GpuVisibilityKeyAbi.js";
 globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4 });
 const { VISIBILITY_COUNTER_WGSL } = await import(
   "../.test-dist/render/passes/VisibilityCounterPass.js"
+);
+const { PACKED_MATERIAL_RESOLVE_WGSL } = await import(
+  "../.test-dist/shaders/packed_material_resolve.js"
+);
+const { PACKED_MATERIAL_CLASS_DEPTH_WGSL } = await import(
+  "../.test-dist/shaders/packed_material_class_depth.js"
+);
+const { PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL } = await import(
+  "../.test-dist/shaders/render_debug_view.js"
 );
 
 const GEOMETRY_TRUTH_FIELDS = [
@@ -163,10 +184,15 @@ test("geometry truth fields are written by their production GPU stages", () => {
   for (const name of [
     "geometryCandidateTriangles",
     "geometryExactSurvivedTriangles",
-    "geometryRasterTriangles",
     "geometryQueueBytes"
   ]) {
     assert.match(EXACT_TRIANGLE_FILTER_WGSL, new RegExp(`${counterByteOffset(name) / 4}u`));
+  }
+  for (const name of ["geometryRasterTriangles", "geometryPaddedVertices"]) {
+    assert.match(
+      MESHLET_WORK_COMPACTION_SUBGROUP_WGSL,
+      new RegExp(`${counterByteOffset(name) / 4}u`)
+    );
   }
   assert.match(
     VISIBILITY_COUNTER_WGSL,
@@ -174,15 +200,59 @@ test("geometry truth fields are written by their production GPU stages", () => {
   );
 });
 
-test("pre-cutover production shaders explicitly reserve zero-valued risk and padding seams", () => {
-  for (const name of [
-    "geometryRiskyTriangles",
-    "geometryPaddedVertices"
-  ]) {
+test("Step-4 production shaders reserve only the selective risk seam", () => {
+  for (const name of ["geometryRiskyTriangles"]) {
     const index = counterByteOffset(name) / 4;
     assert.ok(Number.isInteger(index));
     assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, new RegExp(`\\[${index}u\\]`));
     assert.doesNotMatch(EXACT_TRIANGLE_FILTER_WGSL, new RegExp(`\\[${index}u\\]`));
+  }
+});
+
+test("VisibilityKey V2 freezes logical identity and external lifetime context", () => {
+  assert.equal(GPU_VISIBILITY_KEY_ABI_VERSION, 4);
+  const key = encodeVisibilityKey(GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK, 127);
+  assert.deepEqual(decodeVisibilityKey(key), {
+    kind: "valid",
+    meshletWorkSlot: GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK,
+    localPrimitive: 127
+  });
+  assert.equal(decodeVisibilityKey(GPU_VISIBILITY_KEY_EMPTY).kind, "empty");
+  assert.equal(decodeVisibilityKey(GPU_VISIBILITY_KEY_INVALID).kind, "invalid");
+  assert.equal(tryEncodeVisibilityKey(0, GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE + 1).valid, false);
+  assert.equal(isVisibilityKeyContextValid(7, 7, 0), true);
+  assert.equal(isVisibilityKeyContextValid(0, 0, 0), false);
+  assert.equal(isVisibilityKeyContextValid(7, 8, 0), false);
+  assert.equal(isVisibilityKeyContextValid(7, 7, 1), false);
+  const work = {
+    instanceSlot: 2,
+    geometrySlot: 3,
+    meshletSlot: 5,
+    materialSlotOrRange: 7,
+    packedRasterFlags: 0,
+    packedProfileLod: 0
+  };
+  assert.equal(
+    resolveVisibilityKeyReference(encodeVisibilityKey(0, 12), [work],
+      { partition: 0, generation: 9 }, { partition: 0, generation: 9 }).kind,
+    "valid"
+  );
+  assert.equal(
+    resolveVisibilityKeyReference(encodeVisibilityKey(0, 12), [work],
+      { partition: 0, generation: 9 }, { partition: 0, generation: 10 }).reason,
+    "generation-mismatch"
+  );
+});
+
+test("VisibilityKey V2 material and debug consumers dereference MeshletWork only", () => {
+  for (const source of [
+    PACKED_MATERIAL_RESOLVE_WGSL,
+    PACKED_MATERIAL_CLASS_DEPTH_WGSL,
+    PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL
+  ]) {
+    assert.match(source, /OEngineMeshletWorkQueueRead/);
+    assert.match(source, /meshlet_work_slot|meshletWorkSlot/);
+    assert.doesNotMatch(source, /ExactRasterWork|raster_work_slot/);
   }
 });
 

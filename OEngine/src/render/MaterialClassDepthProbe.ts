@@ -1,4 +1,14 @@
 import { encodeVisibilityKey } from "../gpu/GpuVisibilityKeyAbi.js";
+import {
+  GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+  GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS,
+  GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE
+} from "../gpu/GpuMeshletRasterWorkAbi.js";
+import {
+  GPU_MATERIAL_VISIBILITY_FLAGS,
+  GPU_MATERIAL_VISIBILITY_OFFSETS,
+  GPU_MATERIAL_VISIBILITY_RECORD_STRIDE
+} from "../gpu/GpuMaterialVisibilityAbi.js";
 import { PACKED_MATERIAL_CLASS_DEPTH_WGSL } from "../shaders/packed_material_class_depth.js";
 import type { MaterialResolveBackend } from "./MaterialResolveBackend.js";
 
@@ -42,6 +52,8 @@ export async function selectMaterialResolveBackend(
   let classDepth: GPUTexture | null = null;
   let result: GPUTexture | null = null;
   let readback: GPUBuffer | null = null;
+  let meshletWork: GPUBuffer | null = null;
+  let materials: GPUBuffer | null = null;
   let errorScopePopped = false;
   device.pushErrorScope("validation");
   try {
@@ -68,10 +80,42 @@ export async function selectMaterialResolveBackend(
       size: 256,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
+    const workBytes = new ArrayBuffer(
+      GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + 7 * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE
+    );
+    const workView = new DataView(workBytes);
+    workView.setUint32(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.writtenCount, 7, true);
+    workView.setUint32(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.capacity, 7, true);
+    workView.setUint32(GPU_MESHLET_WORK_QUEUE_HEADER_OFFSETS.generation, 1, true);
+    for (let index = 0; index < 7; index++) {
+      const base = GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE +
+        index * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE;
+      workView.setUint32(base + 12, index, true);
+    }
+    meshletWork = device.createBuffer({
+      label: "MaterialClassDepth probe/MeshletWork",
+      size: workBytes.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    device.queue.writeBuffer(meshletWork, 0, workBytes);
+    const materialBytes = new ArrayBuffer(7 * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
+    const materialView = new DataView(materialBytes);
+    for (let kernelClass = 0; kernelClass < 7; kernelClass++) {
+      const base = kernelClass * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE;
+      materialView.setUint32(base + GPU_MATERIAL_VISIBILITY_OFFSETS.kernel_class, kernelClass, true);
+      materialView.setUint32(base + GPU_MATERIAL_VISIBILITY_OFFSETS.flags,
+        GPU_MATERIAL_VISIBILITY_FLAGS.Valid, true);
+    }
+    materials = device.createBuffer({
+      label: "MaterialClassDepth probe/materials",
+      size: materialBytes.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    device.queue.writeBuffer(materials, 0, materialBytes);
     device.queue.writeTexture(
       { texture: visibility },
       new Uint32Array(Array.from({ length: 7 }, (_, kernelClass) =>
-        encodeVisibilityKey(kernelClass, kernelClass))),
+        encodeVisibilityKey(kernelClass, 0))),
       { bytesPerRow: 28, rowsPerImage: 1 },
       { width: 7, height: 1 }
     );
@@ -91,7 +135,11 @@ export async function selectMaterialResolveBackend(
     const classGroup = device.createBindGroup({
       label: "MaterialClassDepth probe/visibility",
       layout: classPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: visibility.createView() }]
+      entries: [
+        { binding: 0, resource: visibility.createView() },
+        { binding: 1, resource: { buffer: meshletWork } },
+        { binding: 2, resource: { buffer: materials } }
+      ]
     });
     const encoder = device.createCommandEncoder({ label: "MaterialClassDepth probe" });
     const classify = encoder.beginRenderPass({
@@ -157,6 +205,8 @@ export async function selectMaterialResolveBackend(
   } finally {
     if (!errorScopePopped) await device.popErrorScope().catch(() => null);
     readback?.destroy();
+    materials?.destroy();
+    meshletWork?.destroy();
     result?.destroy();
     classDepth?.destroy();
     visibility?.destroy();

@@ -57,7 +57,7 @@ function bucketPipeline(doubleSided: boolean, mask: boolean): CachedRenderPipeli
     fragment: {
       module: { label: "ADR-0008 Meshlet bucket visibility", code: MESHLET_BUCKET_VISIBILITY_WGSL },
       entryPoint: mask ? "write_meshlet_mask" : "write_meshlet_opaque",
-      targets: [{ format: "rgba32uint" }]
+      targets: [{ format: "r32uint" }]
     },
     primitive: {
       topology: "triangle-list",
@@ -86,7 +86,8 @@ const PARITY_GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
-    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } }
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
+    { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
   ]
 };
 
@@ -108,7 +109,7 @@ export interface MeshletBucketRasterInputs {
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
   readonly runtime: GpuRenderWorldRuntime;
-  readonly identity: GPUTextureView;
+  readonly visibilityKey: GPUTextureView;
   readonly depth: GPUTextureView;
 }
 
@@ -137,8 +138,8 @@ export class MeshletBucketRaster {
     const pass = encoder.beginRenderPass({
       label: "ADR-0008 Meshlet bucket Hardware Visibility",
       colorAttachments: [{
-        view: inputs.identity,
-        clearValue: { r: 0xffffffff, g: 0xffffffff, b: 0xffffffff, a: 0xffffffff },
+        view: inputs.visibilityKey,
+        clearValue: { r: 0xffffffff, g: 0, b: 0, a: 0 },
         loadOp: "clear",
         storeOp: "store"
       }],
@@ -187,6 +188,7 @@ export class MeshletBucketRaster {
       exactWork: GPUBuffer;
       settings: GPUBuffer;
       counters: GPUBuffer;
+      meshletWork: GPUBuffer;
       width: number;
       height: number;
     }
@@ -201,7 +203,8 @@ export class MeshletBucketRaster {
         input.productionKey,
         { buffer: input.exactWork },
         { buffer: input.settings },
-        { buffer: input.counters }
+        { buffer: input.counters },
+        { buffer: input.meshletWork }
       ]
     }));
     pass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(input.height / 8));

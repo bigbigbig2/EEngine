@@ -80,7 +80,6 @@ window[VALIDATION_FIXTURE_KEY] = fixture;
 
 void runtime.initialize().then(async () => {
   if (runtime.renderer === null) throw new Error("Visibility runtime has no Renderer");
-  runtime.renderer.packed_meshlet_work_candidate_enabled = true;
   await runtime.waitForFrames(3);
   state.ready();
   showStatus();
@@ -167,7 +166,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     } else if (request.scenarioId === "debug") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Visibility runtime is not initialized");
-      renderer.render_debug_view = RenderDebugView.MaterialId;
+      renderer.render_debug_view = RenderDebugView.VisibilityKey;
       completed = await runtime.waitForCounters(runtime.frame);
       const graph = renderer.mainFrameGraphEvidence();
       const executable = new Set(graph?.dump.executablePassOrder ?? []);
@@ -365,17 +364,32 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       gpuCounterSchemaVersion: completed.gpuCounters.schemaVersion
     });
     if (request.scenarioId !== "shadow-scene-parity") {
+      const overflowScenario = request.scenarioId === "meshlet-work-overflow";
       assertions.push(validationAssertion("candidate-work-produced", (counters.candidateInstances ?? 0) >= 6, "All fixed visibility candidates reached GPU work generation", counters.candidateInstances, ">= 6"));
       assertions.push(validationAssertion("visible-work-produced", (counters.visibleInstances ?? 0) > 0, "At least one instance remained visible", counters.visibleInstances, "> 0"));
-      assertions.push(validationAssertion("raster-work-produced", (counters.hwTriangles ?? 0) > 0, "Hardware Visibility consumed triangle work", counters.hwTriangles, "> 0"));
+      assertions.push(validationAssertion(
+        "raster-work-produced",
+        overflowScenario
+          ? (counters.geometryRasterTriangles ?? 0) === 0
+          : (counters.geometryRasterTriangles ?? 0) > 0,
+        overflowScenario
+          ? "Correctness-critical overflow suppressed every normal-path raster draw"
+          : "Meshlet Hardware Visibility consumed normal-path triangle work",
+        counters.geometryRasterTriangles,
+        overflowScenario ? 0 : "> 0"
+      ));
       assertions.push(validationAssertion(
         "geometry-truth-closed",
         (counters.geometryNodesTested ?? 0) > 0 &&
           (counters.geometryClustersAccepted ?? 0) > 0 &&
           (counters.geometryMeshletsSelected ?? 0) >= (counters.geometryClustersAccepted ?? 0) &&
           (counters.geometryCandidateTriangles ?? 0) >= (counters.geometryExactSurvivedTriangles ?? 0) &&
-          (counters.geometryExactSurvivedTriangles ?? 0) === (counters.geometryRasterTriangles ?? 0) &&
-          (counters.geometryVisiblePixels ?? 0) > 0 &&
+          (counters.geometryCandidateTriangles ?? 0) >= (counters.geometryRasterTriangles ?? 0) &&
+          (overflowScenario
+            ? (counters.geometryRasterTriangles ?? 0) === 0 &&
+              (counters.geometryVisiblePixels ?? 0) === 0
+            : (counters.geometryRasterTriangles ?? 0) > 0 &&
+              (counters.geometryVisiblePixels ?? 0) > 0) &&
           (counters.geometryQueueBytes ?? 0) > 0,
         "Geometry truth distinguishes hierarchy, selected meshlets, exact/raster triangles, visible pixels and queue bytes",
         {
@@ -388,7 +402,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           visiblePixels: counters.geometryVisiblePixels ?? 0,
           queueBytes: counters.geometryQueueBytes ?? 0
         },
-        "nodes/clusters/meshlets/pixels/bytes > 0 and candidate >= exact = raster"
+        overflowScenario
+          ? "nodes/clusters/bytes > 0; candidate >= exact; raster = visible = 0"
+          : "nodes/clusters/raster/pixels/bytes > 0; candidate >= exact and raster"
       ));
       const meshletQueue = {
         attempted: counters.meshletQueueAttempted ?? 0,
@@ -414,27 +430,31 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       };
       if (request.scenarioId === "meshlet-work-overflow") {
         assertions.push(validationAssertion(
-          "meshlet-work-candidate-overflow-all-or-nothing",
+          "meshlet-work-overflow-all-or-nothing",
           meshletQueue.attempted > 0 &&
             meshletQueue.attempted - meshletQueue.written === meshletQueue.overflow &&
             meshletQueue.written === meshletQueue.consumed &&
             meshletQueue.produced === meshletQueue.written &&
             meshletQueue.overflow > 0 &&
-            meshletQueue.invalid === 0,
+            meshletQueue.invalid === 0 &&
+            meshletBuckets.indirectInstances === 0 &&
+            meshletRaster.triangles === 0 &&
+            meshletRaster.pixels === 0 &&
+            meshletRaster.mismatchPixels === 0,
           "Correctness-critical MeshletWork reservations fail per cluster without publishing partial ranges",
-          meshletQueue,
-          "attempted - written = overflow > 0; written = consumed = produced; invalid = 0"
+          { meshletQueue, meshletBuckets, meshletRaster },
+          "attempted - written = overflow > 0; written = consumed = produced; all indirect/raster work = 0"
         ));
       } else {
         assertions.push(validationAssertion(
-          "meshlet-work-candidate-closed",
+          "meshlet-work-normal-path-closed",
           meshletQueue.attempted > 0 &&
             meshletQueue.attempted === meshletQueue.written &&
             meshletQueue.written === meshletQueue.consumed &&
             meshletQueue.produced === meshletQueue.written &&
             meshletQueue.overflow === 0 &&
             meshletQueue.invalid === 0,
-          "GPU MeshletWork candidate producer and GPU validation consumer close without CPU queue readback",
+          "GPU MeshletWork normal producer and GPU validation consumer close without CPU queue readback",
           meshletQueue,
           "attempted = written = consumed = produced > 0; overflow = invalid = 0"
         ));

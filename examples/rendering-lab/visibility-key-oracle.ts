@@ -1,9 +1,12 @@
 import {
   GPU_VISIBILITY_KEY_EMPTY,
   GPU_VISIBILITY_KEY_INVALID,
-  GPU_VISIBILITY_KEY_SLOT_MASK,
+  GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT,
+  GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE,
+  GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK,
   GPU_VISIBILITY_KEY_WGSL,
   decodeVisibilityKey,
+  isVisibilityKeyContextValid,
   isVisibilityKeyValid,
   tryEncodeVisibilityKey
 } from "../../OEngine/src/gpu/GpuVisibilityKeyAbi.ts";
@@ -13,6 +16,7 @@ interface VisibilityKeyOracleReport {
   readonly vectorCount: number;
   readonly encodeVectorCount: number;
   readonly decodeVectorCount: number;
+  readonly contextVectorCount: number;
   readonly mismatchCount: number;
   readonly mismatches: readonly string[];
 }
@@ -28,6 +32,7 @@ const INPUT_WORDS = 4;
 const OUTPUT_WORDS = 6;
 const OP_ENCODE = 0;
 const OP_DECODE = 1;
+const OP_CONTEXT = 2;
 
 const ORACLE_WGSL = /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -42,8 +47,8 @@ struct OracleInput {
 struct OracleOutput {
   key: u32,
   encode_valid: u32,
-  raster_work_slot: u32,
-  kernel_class: u32,
+  meshlet_work_slot: u32,
+  local_primitive: u32,
   decode_valid: u32,
   empty: u32,
 };
@@ -72,37 +77,51 @@ fn visibility_key_oracle(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let encoded = oengine_visibility_key_try_encode(input.value0, input.value1);
     key = encoded.key;
     encode_valid = encoded.valid;
+  } else if input.operation == ${OP_CONTEXT}u {
+    key = 0u;
+    encode_valid = select(0u, 1u, oengine_visibility_key_context_is_valid(
+      input.value0, input.value1, input.padding));
   }
   let decoded = oengine_visibility_key_decode(key);
   outputs.values[index] = OracleOutput(
     key,
     encode_valid,
-    decoded.raster_work_slot,
-    decoded.kernel_class,
+    decoded.meshlet_work_slot,
+    decoded.local_primitive,
     decoded.valid,
     decoded.empty
   );
 }
 `;
 
-function appendInput(target: number[], operation: number, value0: number, value1 = 0): void {
-  target.push(operation >>> 0, value0 >>> 0, value1 >>> 0, 0);
+function appendInput(
+  target: number[],
+  operation: number,
+  value0: number,
+  value1 = 0,
+  value2 = 0
+): void {
+  target.push(operation >>> 0, value0 >>> 0, value1 >>> 0, value2 >>> 0);
 }
 
-function seededVectors(): { inputs: Uint32Array<ArrayBuffer>; encodeVectorCount: number } {
+function seededVectors(): {
+  inputs: Uint32Array<ArrayBuffer>;
+  encodeVectorCount: number;
+  contextVectorCount: number;
+} {
   const words: number[] = [];
   const boundarySlots = [
     0,
     1,
-    GPU_VISIBILITY_KEY_SLOT_MASK - 1,
-    GPU_VISIBILITY_KEY_SLOT_MASK,
-    GPU_VISIBILITY_KEY_SLOT_MASK + 1,
+    GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK - 1,
+    GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK,
+    GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK + 1,
     GPU_VISIBILITY_KEY_INVALID,
     GPU_VISIBILITY_KEY_EMPTY
   ];
   for (const slot of boundarySlots) {
-    for (let kernelClass = 0; kernelClass <= 8; kernelClass++) {
-      appendInput(words, OP_ENCODE, slot, kernelClass);
+    for (const localPrimitive of [0, 1, 126, 127, 128, 254, 255]) {
+      appendInput(words, OP_ENCODE, slot, localPrimitive);
     }
   }
 
@@ -114,7 +133,7 @@ function seededVectors(): { inputs: Uint32Array<ArrayBuffer>; encodeVectorCount:
     return seed >>> 0;
   };
   for (let index = 0; index < 4096; index++) {
-    appendInput(words, OP_ENCODE, randomU32(), randomU32() & 15);
+    appendInput(words, OP_ENCODE, randomU32(), randomU32() & 255);
   }
   const encodeVectorCount = words.length / INPUT_WORDS;
 
@@ -122,15 +141,22 @@ function seededVectors(): { inputs: Uint32Array<ArrayBuffer>; encodeVectorCount:
     GPU_VISIBILITY_KEY_EMPTY,
     GPU_VISIBILITY_KEY_INVALID,
     0,
-    GPU_VISIBILITY_KEY_SLOT_MASK,
-    (6 << 29) >>> 0,
-    (((6 << 29) >>> 0) | GPU_VISIBILITY_KEY_SLOT_MASK) >>> 0
+    GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK,
+    (GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE << GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT) >>> 0,
+    (((GPU_VISIBILITY_KEY_MAX_LOCAL_PRIMITIVE << GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT) >>> 0) |
+      GPU_VISIBILITY_KEY_MESHLET_WORK_SLOT_MASK) >>> 0,
+    (128 << GPU_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT) >>> 0
   ];
   for (const key of decodeKeys) appendInput(words, OP_DECODE, key);
   for (let index = 0; index < 2048; index++) {
     appendInput(words, OP_DECODE, randomU32());
   }
-  return { inputs: new Uint32Array(words), encodeVectorCount };
+  for (const [visibilityGeneration, queueGeneration, partition] of [
+    [0, 0, 0], [1, 1, 0], [0xffffffff, 0xffffffff, 0], [1, 2, 0], [2, 1, 0], [1, 1, 1]
+  ] as const) {
+    appendInput(words, OP_CONTEXT, visibilityGeneration, queueGeneration, partition);
+  }
+  return { inputs: new Uint32Array(words), encodeVectorCount, contextVectorCount: 6 };
 }
 
 function expectedOutput(input: Uint32Array, index: number): readonly number[] {
@@ -142,10 +168,15 @@ function expectedOutput(input: Uint32Array, index: number): readonly number[] {
     const encoded = tryEncodeVisibilityKey(key, input[offset + 2]!);
     key = encoded.key;
     encodeValid = encoded.valid ? 1 : 0;
+  } else if (operation === OP_CONTEXT) {
+    key = 0;
+    encodeValid = isVisibilityKeyContextValid(
+      input[offset + 1]!, input[offset + 2]!, input[offset + 3]!
+    ) ? 1 : 0;
   }
   const decoded = decodeVisibilityKey(key);
   return decoded.kind === "valid"
-    ? [key, encodeValid, decoded.rasterWorkSlot, decoded.kernelClass, 1, 0]
+    ? [key, encodeValid, decoded.meshletWorkSlot, decoded.localPrimitive, 1, 0]
     : [key, encodeValid, 0, 0, 0, decoded.kind === "empty" ? 1 : 0];
 }
 
@@ -164,7 +195,7 @@ async function runOracle(): Promise<VisibilityKeyOracleReport> {
       }
     });
   });
-  const { inputs, encodeVectorCount } = seededVectors();
+  const { inputs, encodeVectorCount, contextVectorCount } = seededVectors();
   const vectorCount = inputs.length / INPUT_WORDS;
   const inputBuffer = device.createBuffer({
     label: "VisibilityKey oracle inputs",
@@ -186,7 +217,7 @@ async function runOracle(): Promise<VisibilityKeyOracleReport> {
     return await Promise.race([
       (async (): Promise<VisibilityKeyOracleReport> => {
         const module = device.createShaderModule({
-          label: "VisibilityKey v3 CPU/WGSL oracle",
+          label: "VisibilityKey V2 CPU/WGSL oracle",
           code: ORACLE_WGSL
         });
         const compilation = await module.getCompilationInfo();
@@ -195,7 +226,7 @@ async function runOracle(): Promise<VisibilityKeyOracleReport> {
           throw new Error(shaderErrors.map((message) => message.message).join("\n"));
         }
         const pipeline = await device.createComputePipelineAsync({
-          label: "VisibilityKey v3 CPU/WGSL oracle",
+          label: "VisibilityKey V2 CPU/WGSL oracle",
           layout: "auto",
           compute: { module, entryPoint: "visibility_key_oracle" }
         });
@@ -236,7 +267,8 @@ async function runOracle(): Promise<VisibilityKeyOracleReport> {
           adapter: [info.vendor, info.architecture, info.device].filter(Boolean).join(" / "),
           vectorCount,
           encodeVectorCount,
-          decodeVectorCount: vectorCount - encodeVectorCount,
+          decodeVectorCount: vectorCount - encodeVectorCount - contextVectorCount,
+          contextVectorCount,
           mismatchCount: mismatches.length,
           mismatches: Object.freeze(mismatches)
         });

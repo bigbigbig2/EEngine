@@ -8,7 +8,11 @@ import { resolveDepthAttachmentView, resolveTextureView } from "../RenderTargetV
 
 const GROUP: GPUBindGroupLayoutDescriptor = {
   label: "MaterialClassDepth/visibility",
-  entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } }]
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
+    { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+    { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
+  ]
 };
 
 const PIPELINE: CachedRenderPipelineDescriptor = {
@@ -33,6 +37,8 @@ const PIPELINE: CachedRenderPipelineDescriptor = {
 
 export interface PackedMaterialClassDepthJob {
   readonly visibilityKey: ResourceId;
+  readonly meshletWork: ResourceId;
+  readonly materials: GPUBuffer;
   readonly width: number;
   readonly height: number;
 }
@@ -48,7 +54,11 @@ export class PackedMaterialClassDepthPass {
       const command = requireCommand(context.encoder);
       const bindGroup = this.graphics.bind_groups.obtain({
         layout: GROUP,
-        entries: [resolveTextureView(resources.get(data.visibilityKey))]
+        entries: [
+          resolveTextureView(resources.get(data.visibilityKey)),
+          { buffer: requireBuffer(resources.get(data.meshletWork), "MeshletWork") },
+          { buffer: data.materials }
+        ]
       });
       const pass = command.beginRenderPass({
         label: "MaterialClassDepth/classify visibility",
@@ -66,6 +76,7 @@ export class PackedMaterialClassDepthPass {
       pass.end();
     });
     builder.read(job.visibilityKey);
+    builder.read(job.meshletWork);
     depth = builder.create("material-class-depth", {
       kind: "transient_texture",
       label: "MaterialClassDepth/depth32float",
@@ -86,4 +97,11 @@ function requireCommand(value: unknown): ShadeGPUCommandContext {
     return value as ShadeGPUCommandContext;
   }
   throw new Error("PackedMaterialClassDepthPass requires ShadeGPUCommandContext");
+}
+
+function requireBuffer(value: unknown, label: string): GPUBuffer {
+  if (value && typeof value === "object" && "size" in value && "usage" in value) {
+    return value as GPUBuffer;
+  }
+  throw new Error(`PackedMaterialClassDepthPass expected ${label} GPUBuffer`);
 }

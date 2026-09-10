@@ -5,15 +5,13 @@ import {
   type GpuMaterialVisibilityPackedSource
 } from "./GpuMaterialVisibilityAbi.js";
 import type { GpuMeshletRecordCpu } from "./GpuGeometryAbi.js";
+import type { GpuMeshletRasterWorkCpu } from "./GpuMeshletRasterWorkAbi.js";
 import {
   decodeVisibilityKey,
   type VisibilityKeyDecodeResult
 } from "./GpuVisibilityKeyAbi.js";
-import type {
-  RasterWorkCpu
-} from "./GpuWorkGenerationAbi.js";
 
-export const GPU_VISIBILITY_DEBUG_RESOLVE_ABI_VERSION = 2;
+export const GPU_VISIBILITY_DEBUG_RESOLVE_ABI_VERSION = 3;
 export const GPU_VISIBILITY_DEBUG_SETTINGS_U32_COUNT = 8;
 export const GPU_VISIBILITY_DEBUG_SETTINGS_SIZE =
   GPU_VISIBILITY_DEBUG_SETTINGS_U32_COUNT * 4;
@@ -22,7 +20,7 @@ export const GPU_VISIBILITY_DEBUG_STATUS = Object.freeze({
   Valid: 0,
   Empty: 1,
   InvalidKey: 2,
-  RasterWorkOutOfRange: 3,
+  MeshletWorkOutOfRange: 3,
   MeshletOutOfRange: 4,
   TriangleOutOfRange: 5,
   InstanceOutOfRange: 6,
@@ -40,7 +38,7 @@ export type GpuVisibilityDebugStatus =
 export const GPU_VISIBILITY_DEBUG_COLORS = Object.freeze({
   Empty: Object.freeze([0, 0, 0] as const),
   InvalidKey: Object.freeze([1, 0, 1] as const),
-  RasterWorkOutOfRange: Object.freeze([1, 0, 0] as const),
+  MeshletWorkOutOfRange: Object.freeze([1, 0, 0] as const),
   MeshletOutOfRange: Object.freeze([1, 1, 0] as const),
   TriangleOutOfRange: Object.freeze([0.5, 1, 0] as const),
   InstanceOutOfRange: Object.freeze([0, 1, 1] as const),
@@ -56,7 +54,7 @@ export const GPU_VISIBILITY_DEBUG_STATUS_WGSL = /* wgsl */ `
 const OENGINE_VIS_DEBUG_VALID: u32 = ${GPU_VISIBILITY_DEBUG_STATUS.Valid}u;
 const OENGINE_VIS_DEBUG_EMPTY: u32 = ${GPU_VISIBILITY_DEBUG_STATUS.Empty}u;
 const OENGINE_VIS_DEBUG_INVALID_KEY: u32 = ${GPU_VISIBILITY_DEBUG_STATUS.InvalidKey}u;
-const OENGINE_VIS_DEBUG_RASTER_WORK_OOB: u32 = ${GPU_VISIBILITY_DEBUG_STATUS.RasterWorkOutOfRange}u;
+const OENGINE_VIS_DEBUG_RASTER_WORK_OOB: u32 = ${GPU_VISIBILITY_DEBUG_STATUS.MeshletWorkOutOfRange}u;
 const OENGINE_VIS_DEBUG_MESHLET_OOB: u32 = ${GPU_VISIBILITY_DEBUG_STATUS.MeshletOutOfRange}u;
 const OENGINE_VIS_DEBUG_TRIANGLE_OOB: u32 = ${GPU_VISIBILITY_DEBUG_STATUS.TriangleOutOfRange}u;
 const OENGINE_VIS_DEBUG_INSTANCE_OOB: u32 = ${GPU_VISIBILITY_DEBUG_STATUS.InstanceOutOfRange}u;
@@ -76,7 +74,10 @@ export interface GpuVisibilityDebugInstanceRecord {
 }
 
 export interface GpuVisibilityDebugResolveTables {
-  readonly rasterWork: readonly RasterWorkCpu[];
+  readonly meshletWork: readonly GpuMeshletRasterWorkCpu[];
+  readonly visibilityGeneration: number;
+  readonly meshletWorkGeneration: number;
+  readonly partition: number;
   readonly meshlets: readonly Pick<GpuMeshletRecordCpu, "triangleCount">[];
   readonly instances: readonly GpuVisibilityDebugInstanceRecord[];
   readonly geometryRecordCount: number;
@@ -90,7 +91,7 @@ export type GpuVisibilityDebugResolveResult = Readonly<{
   kind: "empty" | "invalid" | "valid";
   status: GpuVisibilityDebugStatus;
   reason: string;
-  rasterWorkSlot?: number;
+  meshletWorkSlot?: number;
   meshletRecordIndex?: number;
   localTriangle?: number;
   instanceRecordIndex?: number;
@@ -112,106 +113,61 @@ export function resolveVisibilityDebugReference(
   if (decoded.kind === "invalid") {
     return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.InvalidKey, "reserved-key");
   }
-  const rasterWork = tables.rasterWork[decoded.rasterWorkSlot];
-  if (rasterWork === undefined) {
+  if (tables.visibilityGeneration === 0 ||
+      tables.visibilityGeneration !== tables.meshletWorkGeneration ||
+      tables.partition !== 0) {
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.InvalidKey, "queue-context-mismatch");
+  }
+  const work = tables.meshletWork[decoded.meshletWorkSlot];
+  if (work === undefined) {
     return invalid(
       decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.RasterWorkOutOfRange,
-      "raster-work-out-of-range"
+      GPU_VISIBILITY_DEBUG_STATUS.MeshletWorkOutOfRange,
+      "meshlet-work-out-of-range"
     );
   }
-  const meshlet = tables.meshlets[rasterWork.meshletRecordIndex];
+  if ((work.packedProfileLod >>> 24) !== tables.partition) {
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.InvalidKey, "partition-mismatch", work);
+  }
+  const meshlet = tables.meshlets[work.meshletSlot];
   if (meshlet === undefined) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.MeshletOutOfRange,
-      "meshlet-out-of-range",
-      rasterWork
-    );
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.MeshletOutOfRange, "meshlet-out-of-range", work);
   }
-  if (rasterWork.localTriangleIndex >= meshlet.triangleCount) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.TriangleOutOfRange,
-      "triangle-out-of-range",
-      rasterWork
-    );
+  if (decoded.localPrimitive >= meshlet.triangleCount) {
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.TriangleOutOfRange, "triangle-out-of-range", work);
   }
-  const instance = tables.instances[rasterWork.instanceRecordIndex];
+  const instance = tables.instances[work.instanceSlot];
   if (instance === undefined) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.InstanceOutOfRange,
-      "instance-out-of-range",
-      rasterWork
-    );
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.InstanceOutOfRange, "instance-out-of-range", work);
   }
   if ((instance.flags & GPU_INSTANCE_FLAGS.Active) === 0) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.InactiveInstance,
-      "inactive-instance",
-      rasterWork,
-      instance
-    );
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.InactiveInstance, "inactive-instance", work, instance);
   }
-  if (rasterWork.geometryRecordIndex >= tables.geometryRecordCount) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.GeometryOutOfRange,
-      "geometry-out-of-range",
-      rasterWork,
-      instance
-    );
+  if (work.geometrySlot >= tables.geometryRecordCount) {
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.GeometryOutOfRange, "geometry-out-of-range", work, instance);
   }
-  if (
-    instance.geometryRecordIndex !== rasterWork.geometryRecordIndex ||
-    instance.materialHandle !== rasterWork.materialHandle
-  ) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.IdentityMismatch,
-      "raster-work-instance-identity-mismatch",
-      rasterWork,
-      instance
-    );
+  if (instance.geometryRecordIndex !== work.geometrySlot ||
+      instance.materialHandle !== work.materialSlotOrRange) {
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.IdentityMismatch, "meshlet-work-instance-identity-mismatch", work, instance);
   }
-  const material = tables.materials[rasterWork.materialHandle];
+  const material = tables.materials[work.materialSlotOrRange];
   if (material === undefined) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.MaterialOutOfRange,
-      "material-out-of-range",
-      rasterWork,
-      instance
-    );
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.MaterialOutOfRange, "material-out-of-range", work, instance);
   }
   if ((material.flags & GPU_MATERIAL_VISIBILITY_FLAGS.Valid) === 0) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.MaterialRecordInvalid,
-      "material-record-invalid",
-      rasterWork,
-      instance
-    );
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.MaterialRecordInvalid, "material-record-invalid", work, instance);
   }
   if (material.alphaMode === GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Blend) {
-    return invalid(
-      decoded,
-      GPU_VISIBILITY_DEBUG_STATUS.BlendMaterial,
-      "blend-material-in-opaque-visibility",
-      rasterWork,
-      instance
-    );
+    return invalid(decoded, GPU_VISIBILITY_DEBUG_STATUS.BlendMaterial, "blend-material-in-opaque-visibility", work, instance);
   }
   return result("valid", GPU_VISIBILITY_DEBUG_STATUS.Valid, "valid", {
-    rasterWorkSlot: decoded.rasterWorkSlot,
-    meshletRecordIndex: rasterWork.meshletRecordIndex,
-    localTriangle: rasterWork.localTriangleIndex,
-    instanceRecordIndex: rasterWork.instanceRecordIndex,
+    meshletWorkSlot: decoded.meshletWorkSlot,
+    meshletRecordIndex: work.meshletSlot,
+    localTriangle: decoded.localPrimitive,
+    instanceRecordIndex: work.instanceSlot,
     instanceDebugId: instance.debugId,
-    geometryRecordIndex: rasterWork.geometryRecordIndex,
-    materialHandle: rasterWork.materialHandle,
+    geometryRecordIndex: work.geometrySlot,
+    materialHandle: work.materialSlotOrRange,
     alphaMode: material.alphaMode,
     materialFlags: material.flags
   });
@@ -221,17 +177,17 @@ function invalid(
   decoded: Exclude<VisibilityKeyDecodeResult, { kind: "empty" }>,
   status: GpuVisibilityDebugStatus,
   reason: string,
-  rasterWork?: RasterWorkCpu,
+  work?: GpuMeshletRasterWorkCpu,
   instance?: GpuVisibilityDebugInstanceRecord
 ): GpuVisibilityDebugResolveResult {
   return result("invalid", status, reason, {
-    rasterWorkSlot: decoded.kind === "valid" ? decoded.rasterWorkSlot : undefined,
-    localTriangle: rasterWork?.localTriangleIndex,
-    meshletRecordIndex: rasterWork?.meshletRecordIndex,
-    instanceRecordIndex: rasterWork?.instanceRecordIndex,
+    meshletWorkSlot: decoded.kind === "valid" ? decoded.meshletWorkSlot : undefined,
+    localTriangle: decoded.kind === "valid" ? decoded.localPrimitive : undefined,
+    meshletRecordIndex: work?.meshletSlot,
+    instanceRecordIndex: work?.instanceSlot,
     instanceDebugId: instance?.debugId,
-    geometryRecordIndex: rasterWork?.geometryRecordIndex,
-    materialHandle: rasterWork?.materialHandle
+    geometryRecordIndex: work?.geometrySlot,
+    materialHandle: work?.materialSlotOrRange
   });
 }
 

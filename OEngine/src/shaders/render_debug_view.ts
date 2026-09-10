@@ -8,6 +8,7 @@
 import { GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import {
   GPU_SURFACE_ABI_WGSL,
   GPU_SURFACE_FORMATS
@@ -282,36 +283,9 @@ ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
 ${GPU_VISIBILITY_DEBUG_STATUS_WGSL}
-
-struct R4DebugQueueHeaderRead {
-  written: u32,
-  attempted: u32,
-  peak: u32,
-  overflow: u32,
-  fallback: u32,
-  capacity: u32,
-  rejected_cone: u32,
-  rejected_hzb: u32,
-}
-
-struct R4DebugExactRasterWork {
-  instance_record_index: u32,
-  geometry_record_index: u32,
-  meshlet_record_index: u32,
-  local_triangle_index: u32,
-  material_handle: u32,
-  raster_flags: u32,
-  setup_index: u32,
-  exact_flags: u32,
-}
-
-struct R4DebugRasterWorkQueue {
-  opaque_header: R4DebugQueueHeaderRead,
-  mask_header: R4DebugQueueHeaderRead,
-  elements: array<R4DebugExactRasterWork>,
-}
 
 struct R4DebugResolveSettings {
   output_size: vec2u,
@@ -326,7 +300,7 @@ struct R4DebugResolveSettings {
 @group(0) @binding(0) var visibility_keys: texture_2d<u32>;
 @group(0) @binding(1) var<storage, read> debug_instances: array<OEngineInstanceRecord>;
 @group(0) @binding(2) var<storage, read> debug_meshlets: array<GpuMeshletRecord>;
-@group(0) @binding(3) var<storage, read> debug_raster_work: R4DebugRasterWorkQueue;
+@group(0) @binding(3) var<storage, read> debug_meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(4) var<storage, read> debug_materials: array<OEngineMaterialVisibilityRecord>;
 @group(0) @binding(5) var<uniform> settings: R4DebugResolveSettings;
 
@@ -341,7 +315,7 @@ fn debug_failure_color(status: u32) -> vec3f {
     return vec3f(${GPU_VISIBILITY_DEBUG_COLORS.InvalidKey.join(", ")});
   }
   if status == OENGINE_VIS_DEBUG_RASTER_WORK_OOB {
-    return vec3f(${GPU_VISIBILITY_DEBUG_COLORS.RasterWorkOutOfRange.join(", ")});
+    return vec3f(${GPU_VISIBILITY_DEBUG_COLORS.MeshletWorkOutOfRange.join(", ")});
   }
   if status == OENGINE_VIS_DEBUG_MESHLET_OOB {
     return vec3f(${GPU_VISIBILITY_DEBUG_COLORS.MeshletOutOfRange.join(", ")});
@@ -385,57 +359,52 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
     return fail(OENGINE_VIS_DEBUG_INVALID_KEY);
   }
 
-  let raster_work_slot = oengine_visibility_key_raster_work_slot(key);
-  let opaque_count = min(
-    debug_raster_work.opaque_header.written,
-    debug_raster_work.opaque_header.capacity
-  );
-  let mask_count = min(
-    debug_raster_work.mask_header.written,
-    debug_raster_work.mask_header.capacity
-  );
-  let valid_opaque = raster_work_slot < opaque_count;
-  let valid_mask = raster_work_slot >= debug_raster_work.opaque_header.capacity &&
-    raster_work_slot - debug_raster_work.opaque_header.capacity < mask_count;
-  if (!valid_opaque && !valid_mask) ||
-    raster_work_slot >= arrayLength(&debug_raster_work.elements) {
+  let decoded = oengine_visibility_key_decode(key);
+  let meshlet_work_slot = decoded.meshlet_work_slot;
+  if debug_meshlet_work.header.generation == 0u ||
+    meshlet_work_slot >= min(debug_meshlet_work.header.written_count,
+      debug_meshlet_work.header.capacity) ||
+    meshlet_work_slot >= arrayLength(&debug_meshlet_work.elements) {
     return fail(OENGINE_VIS_DEBUG_RASTER_WORK_OOB);
   }
-  let work = debug_raster_work.elements[raster_work_slot];
-  if work.meshlet_record_index >= min(
+  let work = debug_meshlet_work.elements[meshlet_work_slot];
+  if (work.packed_profile_lod >> 24u) != OENGINE_VISIBILITY_KEY_PARTITION {
+    return fail(OENGINE_VIS_DEBUG_INVALID_KEY);
+  }
+  if work.meshlet_slot >= min(
     settings.meshlet_record_count,
     arrayLength(&debug_meshlets)
   ) {
     return fail(OENGINE_VIS_DEBUG_MESHLET_OOB);
   }
-  let meshlet = debug_meshlets[work.meshlet_record_index];
-  if work.local_triangle_index >= meshlet.triangle_count {
+  let meshlet = debug_meshlets[work.meshlet_slot];
+  if decoded.local_primitive >= meshlet.triangle_count {
     return fail(OENGINE_VIS_DEBUG_TRIANGLE_OOB);
   }
-  if work.instance_record_index >= min(
+  if work.instance_slot >= min(
     settings.instance_record_count,
     arrayLength(&debug_instances)
   ) {
     return fail(OENGINE_VIS_DEBUG_INSTANCE_OOB);
   }
-  let instance = debug_instances[work.instance_record_index];
+  let instance = debug_instances[work.instance_slot];
   if !oengine_instance_active(instance) {
     return fail(OENGINE_VIS_DEBUG_INACTIVE_INSTANCE);
   }
-  if work.geometry_record_index >= settings.geometry_record_count {
+  if work.geometry_slot >= settings.geometry_record_count {
     return fail(OENGINE_VIS_DEBUG_GEOMETRY_OOB);
   }
-  if instance.geometry_record_index != work.geometry_record_index ||
-    instance.material_handle != work.material_handle {
+  if instance.geometry_record_index != work.geometry_slot ||
+    instance.material_handle != work.material_slot_or_range {
     return fail(OENGINE_VIS_DEBUG_IDENTITY_MISMATCH);
   }
-  if work.material_handle >= min(
+  if work.material_slot_or_range >= min(
     settings.material_capacity,
     arrayLength(&debug_materials)
   ) {
     return fail(OENGINE_VIS_DEBUG_MATERIAL_OOB);
   }
-  let material = debug_materials[work.material_handle];
+  let material = debug_materials[work.material_slot_or_range];
   if (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
     return fail(OENGINE_VIS_DEBUG_MATERIAL_INVALID);
   }
@@ -444,11 +413,11 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   }
 
   let identity_hash = avalanche_hash(
-    raster_work_slot ^
-    avalanche_hash(work.instance_record_index + 0x9e3779b9u) ^
-    avalanche_hash(work.meshlet_record_index + work.local_triangle_index * 0x85ebca6bu) ^
-    avalanche_hash(instance.debug_id + work.geometry_record_index * 0xc2b2ae35u) ^
-    avalanche_hash(work.material_handle)
+    meshlet_work_slot ^
+    avalanche_hash(work.instance_slot + 0x9e3779b9u) ^
+    avalanche_hash(work.meshlet_slot + decoded.local_primitive * 0x85ebca6bu) ^
+    avalanche_hash(instance.debug_id + work.geometry_slot * 0xc2b2ae35u) ^
+    avalanche_hash(work.material_slot_or_range)
   );
   var color = 0.15 + vec3f(
     f32(identity_hash & 255u),

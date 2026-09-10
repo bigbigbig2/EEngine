@@ -31,7 +31,6 @@ const COUNTER_SETUP_WRITTEN = counterByteOffset("setupWritten") / 4;
 const COUNTER_SETUP_OVERFLOW = counterByteOffset("setupOverflow") / 4;
 const COUNTER_GEOMETRY_CANDIDATE_TRIANGLES = counterByteOffset("geometryCandidateTriangles") / 4;
 const COUNTER_GEOMETRY_EXACT_SURVIVED = counterByteOffset("geometryExactSurvivedTriangles") / 4;
-const COUNTER_GEOMETRY_RASTER_TRIANGLES = counterByteOffset("geometryRasterTriangles") / 4;
 const COUNTER_GEOMETRY_QUEUE_BYTES = counterByteOffset("geometryQueueBytes") / 4;
 
 /**
@@ -410,7 +409,6 @@ fn prepare_classified_draws() {
     atomicAdd(&classified_counters[${COUNTER_HW_TRIANGLES}u], written);
     atomicAdd(&classified_counters[${COUNTER_GEOMETRY_CANDIDATE_TRIANGLES}u], candidates);
     atomicAdd(&classified_counters[${COUNTER_GEOMETRY_EXACT_SURVIVED}u], written);
-    atomicAdd(&classified_counters[${COUNTER_GEOMETRY_RASTER_TRIANGLES}u], written);
     atomicAdd(
       &classified_counters[${COUNTER_GEOMETRY_QUEUE_BYTES}u],
       written * ${GPU_EXACT_RASTER_RECORD_STRIDE}u

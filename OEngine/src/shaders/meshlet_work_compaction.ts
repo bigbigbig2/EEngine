@@ -36,6 +36,7 @@ const COUNTER_PORTABLE_RESERVATIONS = counterByteOffset("meshletPortableReservat
 const COUNTER_INDIRECT_INSTANCES = counterByteOffset("meshletIndirectInstances") / 4;
 const COUNTER_PADDED_VERTICES = counterByteOffset("geometryPaddedVertices") / 4;
 const COUNTER_RASTER_TRIANGLES = counterByteOffset("meshletRasterTriangles") / 4;
+const COUNTER_GEOMETRY_RASTER_TRIANGLES = counterByteOffset("geometryRasterTriangles") / 4;
 
 export type MeshletWorkCompactionPath = "portable" | "subgroup";
 
@@ -292,6 +293,8 @@ const FINAL_STAGES = /* wgsl */ `
 @compute @workgroup_size(${GPU_MESHLET_BUCKET_COUNT})
 fn finalize_meshlet_work_buckets(@builtin(local_invocation_index) bucket: u32) {
   let count = atomicLoad(&candidate_buckets[bucket].count);
+  let correctness_failure = atomicLoad(&candidate_staging.header.overflow_count) != 0u ||
+    atomicLoad(&candidate_staging.header.invalid_count) != 0u;
   var base = 0u;
   for (var prior = 0u; prior < bucket; prior++) {
     base += atomicLoad(&candidate_buckets[prior].count);
@@ -299,7 +302,7 @@ fn finalize_meshlet_work_buckets(@builtin(local_invocation_index) bucket: u32) {
   candidate_buckets[bucket].base = base;
   atomicStore(&candidate_buckets[bucket].cursor, 0u);
   candidate_indirect[bucket] = OEngineDrawIndirectArgs(
-    candidate_triangle_capacity(bucket) * 3u, count, 0u,
+    candidate_triangle_capacity(bucket) * 3u, select(count, 0u, correctness_failure), 0u,
     select(0u, base, candidate_settings.indirect_first_instance != 0u));
   if bucket == ${GPU_MESHLET_BUCKET_COUNT - 1}u {
     let written = min(atomicLoad(&candidate_staging.header.written_count),
@@ -401,6 +404,13 @@ fn publish_meshlet_work_candidate_counters() {
   atomicAdd(&candidate_counters[${COUNTER_NON_EMPTY_BUCKETS}u], non_empty);
   atomicAdd(&candidate_counters[${COUNTER_BUCKET_DRAWS}u], ${GPU_MESHLET_BUCKET_COUNT}u);
   atomicAdd(&candidate_counters[${COUNTER_INDIRECT_INSTANCES}u], indirect_instances);
+  if overflow != 0u || invalid != 0u {
+    atomicStore(&candidate_counters[${COUNTER_RASTER_TRIANGLES}u], 0u);
+    atomicStore(&candidate_counters[${COUNTER_PADDED_VERTICES}u], 0u);
+  } else {
+    atomicAdd(&candidate_counters[${COUNTER_GEOMETRY_RASTER_TRIANGLES}u],
+      atomicLoad(&candidate_counters[${COUNTER_RASTER_TRIANGLES}u]));
+  }
 }
 `;
 

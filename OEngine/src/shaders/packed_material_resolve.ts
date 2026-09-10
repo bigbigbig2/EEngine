@@ -7,6 +7,7 @@ import {
   GPU_UV_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_TEXTURE_BANK_SAMPLE_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
@@ -22,40 +23,13 @@ ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SURFACE_ABI_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_TRIANGLE_SETUP_RECORD_WGSL}
 ${GBUFFER_ENCODE_WGSL}
 
 const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
-
-struct R4ResolveQueueHeaderRead {
-  written: u32,
-  attempted: u32,
-  peak: u32,
-  overflow: u32,
-  fallback: u32,
-  capacity: u32,
-  rejected_cone: u32,
-  rejected_hzb: u32,
-}
-
-struct R4ResolveExactRasterWork {
-  instance_record_index: u32,
-  geometry_record_index: u32,
-  meshlet_record_index: u32,
-  local_triangle_index: u32,
-  material_handle: u32,
-  raster_flags: u32,
-  setup_index: u32,
-  exact_flags: u32,
-}
-
-struct R4ResolveRasterWorkQueue {
-  opaque_header: R4ResolveQueueHeaderRead,
-  mask_header: R4ResolveQueueHeaderRead,
-  elements: array<R4ResolveExactRasterWork>,
-}
 
 @group(0) @binding(0) var visibility_keys: texture_2d<u32>;
 @group(0) @binding(1) var<uniform> view: PipelineCacheKey;
@@ -80,7 +54,7 @@ struct R4ResolveRasterWorkQueue {
 @group(1) @binding(4) var<storage, read> meshlet_triangles: array<u32>;
 @group(1) @binding(5) var<storage, read> stream_descriptors: array<u32>;
 @group(1) @binding(6) var<storage, read> vertex_data: array<u32>;
-@group(1) @binding(7) var<storage, read> raster_work: R4ResolveRasterWorkQueue;
+@group(1) @binding(7) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(1) @binding(8) var<storage, read> triangle_setups: array<OEngineTriangleSetupRecord>;
 
 fn read_u8(byte_offset: u32) -> u32 {
@@ -485,44 +459,36 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   let pixel = vec2i(position.xy);
   let key = textureLoad(visibility_keys, pixel, 0).r;
   if !oengine_visibility_key_is_valid(key) { discard; }
-  let key_class = oengine_visibility_key_kernel_class(key);
-  if OENGINE_CLASS_DISCARD && key_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
-  let raster_slot = oengine_visibility_key_raster_work_slot(key);
-  let opaque_written = min(
-    raster_work.opaque_header.written,
-    raster_work.opaque_header.capacity
-  );
-  let mask_written = min(
-    raster_work.mask_header.written,
-    raster_work.mask_header.capacity
-  );
-  let valid_opaque = raster_slot < opaque_written;
-  let valid_mask = raster_slot >= raster_work.opaque_header.capacity &&
-    raster_slot - raster_work.opaque_header.capacity < mask_written;
-  if !valid_opaque && !valid_mask { discard; }
-  let work = raster_work.elements[raster_slot];
-  if work.instance_record_index >= arrayLength(&instances) ||
-    work.geometry_record_index >= arrayLength(&geometries) ||
-    work.meshlet_record_index >= arrayLength(&meshlets) ||
-    work.material_handle >= arrayLength(&materials) {
+  let decoded = oengine_visibility_key_decode(key);
+  let work_slot = decoded.meshlet_work_slot;
+  if meshlet_work.header.generation == 0u ||
+    work_slot >= min(meshlet_work.header.written_count, meshlet_work.header.capacity) ||
+    work_slot >= arrayLength(&meshlet_work.elements) { discard; }
+  let work = meshlet_work.elements[work_slot];
+  if (work.packed_profile_lod >> 24u) != OENGINE_VISIBILITY_KEY_PARTITION ||
+    work.instance_slot >= arrayLength(&instances) ||
+    work.geometry_slot >= arrayLength(&geometries) ||
+    work.meshlet_slot >= arrayLength(&meshlets) ||
+    work.material_slot_or_range >= arrayLength(&materials) {
     discard;
   }
-  let instance = instances[work.instance_record_index];
-  let geometry = geometries[work.geometry_record_index];
-  let meshlet = meshlets[work.meshlet_record_index];
+  let instance = instances[work.instance_slot];
+  let geometry = geometries[work.geometry_slot];
+  let meshlet = meshlets[work.meshlet_slot];
   if !oengine_instance_active(instance) ||
-    instance.geometry_record_index != work.geometry_record_index ||
-    instance.material_handle != work.material_handle ||
-    work.meshlet_record_index < geometry.meshlet_begin ||
-    work.meshlet_record_index - geometry.meshlet_begin >= geometry.meshlet_count {
+    instance.geometry_record_index != work.geometry_slot ||
+    instance.material_handle != work.material_slot_or_range ||
+    work.meshlet_slot < geometry.meshlet_begin ||
+    work.meshlet_slot - geometry.meshlet_begin >= geometry.meshlet_count {
     discard;
   }
-  let triangle_index = work.local_triangle_index;
+  let triangle_index = decoded.local_primitive;
   if triangle_index >= meshlet.triangle_count { discard; }
-  let material_info = materials[work.material_handle];
+  let material_info = materials[work.material_slot_or_range];
   if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
     discard;
   }
+  if OENGINE_CLASS_DISCARD && material_info.kernel_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
   if material_info.kernel_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
   let vertices = triangle_source_vertices(meshlet, triangle_index);
   let local0 = read_position_direct(geometry, vertices.x);
@@ -540,12 +506,6 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
     projected1,
     projected2
   );
-  if work.setup_index != 0xffffffffu && work.setup_index < arrayLength(&triangle_setups) {
-    let setup = triangle_setups[work.setup_index];
-    if setup.flags != 0u {
-      bary = perspective_barycentric_from_setup(position.xy, setup);
-    }
-  }
   let face_local = safe_normalize(cross(local2 - local1, local0 - local1), vec3f(0.0, 0.0, 1.0));
   let normal0 = read_normal_direct(geometry, vertices.x, vec4f(face_local, 0.0));
   let normal1 = read_normal_direct(geometry, vertices.y, vec4f(face_local, 0.0));
@@ -723,7 +683,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   } else {
     surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
   }
-  output.metadata = oengine_surface_pack(work.material_handle, surface_flags);
+  output.metadata = oengine_surface_pack(work.material_slot_or_range, surface_flags);
   return output;
 }
 

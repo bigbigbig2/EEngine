@@ -17,6 +17,7 @@ import {
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";
 import { GPU_DISPATCH_INDIRECT_ARGS_SIZE } from "../gpu/GpuWorkGenerationAbi.js";
+import { GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY } from "../gpu/GpuVisibilityKeyAbi.js";
 import {
   MESHLET_WORK_BUCKET_INDIRECT_SIZE,
   MESHLET_WORK_BUCKET_STATE_SIZE,
@@ -145,6 +146,12 @@ export class MeshletWorkCandidate {
     this.assertAlive();
     assertPositiveU32(inputs.visibleClusterCapacity, "visible Cluster capacity");
     assertPositiveU32(inputs.capacity, "MeshletWork capacity");
+    if (inputs.capacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY) {
+      throw new RangeError(
+        `MeshletWork capacity ${inputs.capacity} exceeds VisibilityKey V2 capacity ` +
+        `${GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY}`
+      );
+    }
     const queueBytes = gpuMeshletWorkQueueByteLength(inputs.capacity);
     if (queueBytes > Number(this.device.limits.maxStorageBufferBindingSize)) {
       throw new RangeError(

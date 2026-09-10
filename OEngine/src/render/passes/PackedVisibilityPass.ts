@@ -31,6 +31,7 @@ import {
 } from "../RenderTargetViews.js";
 import {
   exactRasterFrame,
+  meshletWorkFrame,
   textureDomain,
   visibilityFrame,
   type VisibilityFrame
@@ -161,8 +162,6 @@ export interface PackedVisibilityPrepareJob {
   readonly hierarchyView: GeometryHierarchyView;
   readonly sseThreshold: number;
   readonly coneEnabled: boolean;
-  /** Step-2 GPU-only compact/bucket/indirect producer seam; never a raster consumer. */
-  readonly meshletWorkCandidateEnabled?: boolean;
   /** Positive test pressure override; omitted uses the proven triangle capacity upper bound. */
   readonly meshletWorkCandidateCapacity?: number;
   /** Step-2 specialization policy; auto selects subgroup only when negotiated. */
@@ -189,6 +188,7 @@ export interface PackedVisibilityInputs {
   readonly previousHzb?: ResourceId;
   readonly exactRasterRecords: ResourceId;
   readonly exactDrawIndirect: ResourceId;
+  readonly meshletWorkRecords: ResourceId;
   readonly setupRecords?: ResourceId;
   readonly depth: ResourceId;
 }
@@ -202,7 +202,7 @@ export interface PackedVisibilityOutputs {
 export interface PackedVisibilityDebugBindings {
   readonly instances: GPUBuffer;
   readonly meshlets: GPUBuffer;
-  readonly rasterWork: GPUBuffer;
+  readonly meshletWork: GPUBuffer;
   readonly materials: GPUBuffer;
   readonly instanceCount: number;
   readonly geometryRecordCount: number;
@@ -315,8 +315,8 @@ export class PackedVisibilityPass {
     inputs: PackedVisibilityInputs
   ): PackedVisibilityOutputs {
     const output = { visibilityKey: -1 };
-    let meshletIdentity = -1;
-    let meshletDepth = -1;
+    let legacyKey = -1;
+    let legacyDepth = -1;
     const builder = graph.add(
       "Packed Visibility/exact OPAQUE+MASK producer",
       job,
@@ -331,8 +331,8 @@ export class PackedVisibilityPass {
           counters,
           resolveTextureView(resources.get(output.visibilityKey)),
           resolveDepthAttachmentView(resources.get(inputs.depth)),
-          meshletIdentity < 0 ? null : resolveTextureView(resources.get(meshletIdentity)),
-          meshletDepth < 0 ? null : resolveDepthAttachmentView(resources.get(meshletDepth))
+          legacyKey < 0 ? null : resolveTextureView(resources.get(legacyKey)),
+          legacyDepth < 0 ? null : resolveDepthAttachmentView(resources.get(legacyDepth))
         );
       }
     );
@@ -342,6 +342,7 @@ export class PackedVisibilityPass {
     const depth = builder.write(inputs.depth);
     const exactRasterRecords = builder.write(inputs.exactRasterRecords);
     const exactDrawIndirect = builder.write(inputs.exactDrawIndirect);
+    const meshletWorkRecords = builder.write(inputs.meshletWorkRecords);
     const setupRecords = inputs.setupRecords === undefined
       ? null
       : builder.write(inputs.setupRecords);
@@ -351,17 +352,17 @@ export class PackedVisibilityPass {
       packedVisibilityAttachmentDescriptor(job.width, job.height)
     );
     if (job.prepared.workSet.meshletWorkCandidate !== null) {
-      meshletIdentity = builder.create("ADR-0008 Meshlet bucket semantic identity", {
+      legacyKey = builder.create("ADR-0008 legacy ExactRasterWork parity key", {
         kind: "transient_texture",
-        label: "ADR-0008 Meshlet bucket semantic identity rgba32uint",
+        label: "ADR-0008 legacy ExactRasterWork parity r32uint",
         width: job.width,
         height: job.height,
-        format: "rgba32uint",
+        format: "r32uint",
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
       });
-      meshletDepth = builder.create("ADR-0008 Meshlet bucket reverse-Z depth", {
+      legacyDepth = builder.create("ADR-0008 legacy ExactRasterWork parity depth", {
         kind: "transient_texture",
-        label: "ADR-0008 Meshlet bucket reverse-Z depth32float",
+        label: "ADR-0008 legacy ExactRasterWork parity depth32float",
         width: job.width,
         height: job.height,
         format: "depth32float",
@@ -376,6 +377,12 @@ export class PackedVisibilityPass {
     const frame = visibilityFrame({
       visibilityKey: output.visibilityKey,
       depth,
+      meshletWork: meshletWorkFrame({
+        records: meshletWorkRecords,
+        capacity: requireMeshletWork(job.prepared.workSet).capacity,
+        partition: 0,
+        generation: "queue-header"
+      }),
       exactRaster: exactRasterFrame({
         records: exactRasterRecords,
         drawIndirect: exactDrawIndirect,
@@ -413,8 +420,8 @@ export class PackedVisibilityPass {
     counters: GPUBuffer,
     visibilityKey: GPUTextureView,
     depth: GPUTextureView,
-    meshletIdentity: GPUTextureView | null,
-    meshletDepth: GPUTextureView | null
+    legacyKey: GPUTextureView | null,
+    legacyDepth: GPUTextureView | null
   ): void {
     const prepared = job.prepared;
     const workSet = prepared.workSet;
@@ -428,21 +435,17 @@ export class PackedVisibilityPass {
         previousHzb: job.previousHzb
       }
     );
-    if (workSet.meshletWorkCandidate !== null) {
-      this.meshletCandidate.encode(command, workSet.meshletWorkCandidate);
-      if (meshletIdentity === null || meshletDepth === null) {
-        throw new Error("Meshlet bucket raster targets are missing for an enabled candidate");
-      }
-      this.meshletBucketRaster.encodeRaster(command.gpu_encoder, {
-        prepared: workSet.meshletWorkCandidate,
+    const meshletWork = requireMeshletWork(workSet);
+    this.meshletCandidate.encode(command, meshletWork);
+    this.meshletBucketRaster.encodeRaster(command.gpu_encoder, {
+        prepared: meshletWork,
         camera,
         assets: job.assets,
         scene: job.scene,
         runtime: job.runtime,
-        identity: meshletIdentity,
-        depth: meshletDepth
+        visibilityKey,
+        depth
       });
-    }
     const exact = this.exactFilter.encode(
       command.gpu_encoder,
       workSet.exact,
@@ -453,7 +456,7 @@ export class PackedVisibilityPass {
     this.debugBindings.set(job.runtime, Object.freeze({
       instances: job.scene.instances,
       meshlets: job.assets.meshletRecords,
-      rasterWork: exact.rasterWork,
+      meshletWork: meshletWork.queue,
       materials: job.runtime.materialResources.materialRecords,
       instanceCount: job.scene.highWaterCount,
       geometryRecordCount: job.assets.highWaterCounts.geometryRecords,
@@ -467,18 +470,21 @@ export class PackedVisibilityPass {
     const maskPipeline = this.graphics.render_pipelines.obtain(
       HIERARCHY_RASTER_PIPELINE
     );
+    if (legacyKey === null || legacyDepth === null) {
+      throw new Error("VisibilityKey V2 requires the legacy parity targets during Step 4");
+    }
     const render = command.beginRenderPass({
-      label: "Packed VisibilityKey/depth exact drawIndirect",
+      label: "ADR-0008 legacy ExactRasterWork parity drawIndirect",
       colorAttachments: [
         {
-          view: visibilityKey,
+          view: legacyKey,
           clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 },
           loadOp: "clear",
           storeOp: "store"
         }
       ],
       depthStencilAttachment: {
-        view: depth,
+        view: legacyDepth,
         depthClearValue: 0,
         depthLoadOp: "clear",
         depthStoreOp: "store"
@@ -491,22 +497,21 @@ export class PackedVisibilityPass {
     render.setBindGroup(0, maskGroup);
     render.drawIndirect(exact.drawIndirect, exact.maskDrawOffset);
     render.end();
-    if (workSet.meshletWorkCandidate !== null) {
       this.graphics.device.queue.writeBuffer(
-        workSet.meshletWorkCandidate.paritySettings,
+        meshletWork.paritySettings,
         0,
         new Uint32Array([job.width, job.height, 0, 0])
       );
       this.meshletBucketRaster.encodeParity(command.gpu_encoder, {
-        candidateIdentity: meshletIdentity!,
-        productionKey: visibilityKey,
+        candidateIdentity: visibilityKey,
+        productionKey: legacyKey,
         exactWork: exact.rasterWork,
-        settings: workSet.meshletWorkCandidate.paritySettings,
+        settings: meshletWork.paritySettings,
         counters,
+        meshletWork: meshletWork.queue,
         width: job.width,
         height: job.height
       });
-    }
     this.lastDrawIndirect = true;
     this.lastCandidateCapacity = job.runtime.hierarchyRasterWorkCapacity;
     this.lastVisibilityKeyAttachmentBytes = job.width * job.height * 4;
@@ -529,13 +534,11 @@ export class PackedVisibilityPass {
       }
     );
     const triangleSetupEnabled = job.triangleSetupEnabled ?? false;
-    const meshletWorkCandidateEnabled = job.meshletWorkCandidateEnabled ?? false;
-    const meshletWorkCandidateCapacity = meshletWorkCandidateEnabled
-      ? normalizeMeshletCandidateCapacity(
-          job.meshletWorkCandidateCapacity,
-          job.runtime.hierarchyRasterWorkCapacity
-        )
-      : 0;
+    // Step 4 promotes MeshletWork + bucket raster to the normal producer.
+    const meshletWorkCandidateCapacity = normalizeMeshletCandidateCapacity(
+      job.meshletWorkCandidateCapacity,
+      job.runtime.hierarchyRasterWorkCapacity
+    );
     const key = visibilityWorkSetKey({
       runtime: job.runtime,
       assetEpoch: job.assets.epoch,
@@ -546,7 +549,6 @@ export class PackedVisibilityPass {
       traversalCapacity: job.runtime.hierarchyTraversalCapacity,
       visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
       rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
-      meshletWorkCandidateEnabled,
       meshletWorkCandidateCapacity,
       meshletWorkCompactionPath: job.meshletWorkCompactionPath ?? "auto",
       triangleSetupEnabled,
@@ -597,8 +599,7 @@ export class PackedVisibilityPass {
     let meshletWorkCandidate: PreparedMeshletWorkCandidate | null = null;
     let exact: PreparedExactTriangleFilter;
     try {
-      if (key.meshletWorkCandidateEnabled) {
-        meshletWorkCandidate = this.meshletCandidate.prepare({
+      meshletWorkCandidate = this.meshletCandidate.prepare({
           visibleClusters: prepared.generated.visibleClusters,
           visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
           capacity: key.meshletWorkCandidateCapacity,
@@ -608,7 +609,6 @@ export class PackedVisibilityPass {
           countersEnabled: job.countersEnabled,
           compactionPath: key.meshletWorkCompactionPath
         });
-      }
       exact = this.exactFilter.prepare({
         camera,
         candidates: prepared.generated.rasterWork,
@@ -773,7 +773,7 @@ function normalizeMeshletCandidateCapacity(
 ): number {
   if (value === undefined || value === 0) return defaultCapacity;
   if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
-    throw new RangeError("MeshletWork candidate capacity must be a positive u32 or zero for default");
+    throw new RangeError("MeshletWork capacity must be a positive u32 or zero for default");
   }
   return value;
 }
@@ -783,6 +783,13 @@ function requireBuffer(value: unknown, label: string): GPUBuffer {
     return value as GPUBuffer;
   }
   throw new Error(`PackedVisibilityPass expected ${label} GPUBuffer`);
+}
+
+function requireMeshletWork(workSet: VisibilityWorkSet): PreparedMeshletWorkCandidate {
+  if (workSet.meshletWorkCandidate === null) {
+    throw new Error("VisibilityKey V2 normal producer requires MeshletWork");
+  }
+  return workSet.meshletWorkCandidate;
 }
 
 function assertPositiveDimension(value: number, label: string): void {

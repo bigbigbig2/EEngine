@@ -42,7 +42,7 @@ export const GPU_COUNTER_FIELDS = [
   { name: "traversalQueueReservations", index: 19, semantic: "sampled post-root hierarchy global bounded queue reservation attempts" },
   { name: "workGenerationDispatchUpdates", index: 20, semantic: "sampled workgroups that publish a next-round indirect dispatch extent" },
   { name: "workGenerationCasRetries", index: 21, semantic: "sampled failed bounded queue compare-exchange attempts" },
-  { name: "invalidVisibilityKeys", index: 22, semantic: "final VisibilityKey pixels using the reserved RasterWork slot" },
+  { name: "invalidVisibilityKeys", index: 22, semantic: "final VisibilityKey V2 pixels using reserved or invalid logical identity" },
   { name: "gradientFallbackPixels", index: 23, semantic: "Material Resolve pixels using the conservative analytic-gradient fallback" },
   { name: "reactiveSurfacePixels", index: 24, semantic: "Material Resolve pixels whose temporal history must be rejected" },
   { name: "normalTexturePixels", index: 25, semantic: "Material Resolve pixels using a normal texture feature bit" },

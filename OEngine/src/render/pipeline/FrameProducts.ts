@@ -24,12 +24,32 @@ export interface ExactRasterFrame {
   readonly setupCount: ResourceId | null;
 }
 
+/** Frame-local logical identity table consumed by VisibilityKey V2 users. */
+export interface MeshletWorkFrame {
+  readonly records: ResourceId;
+  readonly capacity: number;
+  readonly partition: 0;
+  readonly generation: "queue-header";
+}
+
 /** Final Packed visibility product. Runtime state stays in its owning feature. */
 export interface VisibilityFrame {
   readonly visibilityKey: ResourceId;
   readonly depth: ResourceId;
+  readonly meshletWork: MeshletWorkFrame;
   readonly exactRaster: ExactRasterFrame;
   readonly domain: TextureDomain<"internal-full">;
+}
+
+export function meshletWorkFrame(input: MeshletWorkFrame): MeshletWorkFrame {
+  requireResourceId(input.records, "MeshletWorkFrame.records");
+  if (!Number.isSafeInteger(input.capacity) || input.capacity <= 0) {
+    throw new RangeError("MeshletWorkFrame.capacity must be a positive integer");
+  }
+  if (input.partition !== 0 || input.generation !== "queue-header") {
+    throw new Error("MeshletWorkFrame requires partition 0 and queue-header generation");
+  }
+  return Object.freeze({ ...input });
 }
 
 /** Material-selection product produced by the bounded ClassDepth backend. */
@@ -179,6 +199,7 @@ export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   }
   return Object.freeze({
     ...input,
+    meshletWork: meshletWorkFrame(input.meshletWork),
     exactRaster: exactRasterFrame(input.exactRaster),
     domain: textureDomain(
       "internal-full",
