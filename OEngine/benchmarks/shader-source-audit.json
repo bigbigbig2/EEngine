@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 42,
+  "shaderCount": 43,
   "summary": {
-    "authored-live": 42
+    "authored-live": 43
   },
   "entries": [
     {
@@ -404,6 +404,7 @@
       "directConsumers": [
         "src/render/ExactTriangleFilter.ts",
         "src/render/GPUCameraState.ts",
+        "src/render/MeshletBucketRaster.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
@@ -414,6 +415,7 @@
         "src/shaders/ibl_specular.ts",
         "src/shaders/light_cluster.ts",
         "src/shaders/lighting_direct.ts",
+        "src/shaders/meshlet_bucket_visibility.ts",
         "src/shaders/occlusion_confidence.ts",
         "src/shaders/opaque_lighting_resolve.ts",
         "src/shaders/packed_csm_shadow.ts",
@@ -439,6 +441,8 @@
         "src/render/features/TransparencyFeature.ts",
         "src/render/features/VisibilityFeature.ts",
         "src/render/GPUCameraState.ts",
+        "src/render/MeshletBucketRaster.ts",
+        "src/render/MeshletWorkCandidate.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/Brick4IndirectPass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
@@ -467,6 +471,8 @@
       ],
       "pipelineOwners": [
         "src/render/ExactTriangleFilter.ts",
+        "src/render/MeshletBucketRaster.ts",
+        "src/render/MeshletWorkCandidate.ts",
         "src/render/passes/Brick4IndirectPass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblDiffusePass.ts",
@@ -491,6 +497,35 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/meshlet_bucket_visibility.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/MeshletBucketRaster.ts",
+        "src/render/MeshletWorkCandidate.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/VisibilityFeature.ts",
+        "src/render/MeshletBucketRaster.ts",
+        "src/render/MeshletWorkCandidate.ts",
+        "src/render/passes/PackedVisibilityPass.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts",
+        "src/render/VisibilityWorkSet.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/MeshletBucketRaster.ts",
+        "src/render/MeshletWorkCandidate.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/meshlet_work_compaction.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -502,6 +537,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/VisibilityFeature.ts",
+        "src/render/MeshletBucketRaster.ts",
         "src/render/MeshletWorkCandidate.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
@@ -590,6 +626,7 @@
         "src/render/GPUCameraState.ts",
         "src/render/HierarchicalWorkGenerator.ts",
         "src/render/HierarchicalZBuffer.ts",
+        "src/render/MeshletBucketRaster.ts",
         "src/render/MeshletWorkCandidate.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/AutomaticExposurePass.ts",

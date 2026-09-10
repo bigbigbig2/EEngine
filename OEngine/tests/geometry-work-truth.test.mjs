@@ -15,6 +15,10 @@ import {
   MESHLET_WORK_COMPACTION_SUBGROUP_WGSL
 } from "../.test-dist/shaders/meshlet_work_compaction.js";
 import {
+  MESHLET_BUCKET_PARITY_WGSL,
+  MESHLET_BUCKET_VISIBILITY_WGSL
+} from "../.test-dist/shaders/meshlet_bucket_visibility.js";
+import {
   GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_RASTER_WORK_ABI_VERSION,
   GPU_MESHLET_RASTER_WORK_OFFSETS,
@@ -54,7 +58,7 @@ const GEOMETRY_TRUTH_FIELDS = [
 ];
 
 test("ADR-0008 Step 0 freezes a collision-free geometry truth counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 16);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 17);
   const indices = GPU_COUNTER_FIELDS.map((field) => field.index);
   assert.equal(new Set(indices).size, indices.length);
   for (const name of GEOMETRY_TRUTH_FIELDS) {
@@ -231,4 +235,17 @@ test("Step-2 shaders contain distinct subgroup and portable compaction algorithm
     assert.match(source, /scatter_meshlet_work_buckets/);
     assert.match(source, /OEngineDrawIndirectArgs/);
   }
+});
+
+test("Step-3 bucket raster is a standard indirect GPU consumer with semantic parity evidence", () => {
+  const source = readFileSync(new URL("../src/render/MeshletBucketRaster.ts", import.meta.url), "utf8");
+  assert.match(source, /for \(let bucket = 0; bucket < GPU_MESHLET_BUCKET_COUNT; bucket\+\+\)/);
+  assert.match(source, /drawIndirect\(inputs\.prepared\.drawIndirect, bucket \* 16\)/);
+  assert.match(source, /depthCompare: "greater"/);
+  assert.match(source, /cullMode: doubleSided \? "none" : "back"/);
+  assert.doesNotMatch(source, /MAP_READ|mapAsync|getMappedRange/);
+  assert.match(MESHLET_BUCKET_VISIBILITY_WGSL, /@builtin\(instance_index\)/);
+  assert.match(MESHLET_BUCKET_VISIBILITY_WGSL, /triangle < meshlet\.triangle_count/);
+  assert.match(MESHLET_BUCKET_PARITY_WGSL,
+    new RegExp(`${counterByteOffset("meshletRasterMismatchPixels") / 4}u`));
 });

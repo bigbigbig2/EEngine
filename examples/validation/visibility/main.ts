@@ -357,6 +357,10 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       meshletSubgroupReservations: counters.meshletSubgroupReservations ?? 0,
       meshletPortableReservations: counters.meshletPortableReservations ?? 0,
       meshletIndirectInstances: counters.meshletIndirectInstances ?? 0,
+      meshletRasterTriangles: counters.meshletRasterTriangles ?? 0,
+      meshletRasterPixels: counters.meshletRasterPixels ?? 0,
+      meshletRasterMatchedPixels: counters.meshletRasterMatchedPixels ?? 0,
+      meshletRasterMismatchPixels: counters.meshletRasterMismatchPixels ?? 0,
       queueOverflowMask: counters.queueOverflowMask ?? 0,
       gpuCounterSchemaVersion: completed.gpuCounters.schemaVersion
     });
@@ -400,6 +404,13 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         indirectInstances: counters.meshletIndirectInstances ?? 0,
         subgroupReservations: counters.meshletSubgroupReservations ?? 0,
         portableReservations: counters.meshletPortableReservations ?? 0
+      };
+      const meshletRaster = {
+        triangles: counters.meshletRasterTriangles ?? 0,
+        paddedVertices: counters.geometryPaddedVertices ?? 0,
+        pixels: counters.meshletRasterPixels ?? 0,
+        matchedPixels: counters.meshletRasterMatchedPixels ?? 0,
+        mismatchPixels: counters.meshletRasterMismatchPixels ?? 0
       };
       if (request.scenarioId === "meshlet-work-overflow") {
         assertions.push(validationAssertion(
@@ -449,6 +460,17 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
             : "Negotiated subgroup ballot/prefix specialization produced the queue",
           meshletBuckets,
           portable ? "portable > 0; subgroup = 0" : "subgroup > 0; portable = 0"
+        ));
+        assertions.push(validationAssertion(
+          "meshlet-bucket-hardware-raster-parity",
+          meshletRaster.triangles > 0 &&
+            meshletRaster.paddedVertices >= 0 &&
+            meshletRaster.pixels > 0 &&
+            meshletRaster.matchedPixels === meshletRaster.pixels &&
+            meshletRaster.mismatchPixels === 0,
+          "Standard bucket drawIndirect preserves reverse-Z/culling/coverage semantic identity against the production exact path",
+          meshletRaster,
+          "triangles/pixels > 0; matched = pixels; mismatch = 0"
         ));
       }
       assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));

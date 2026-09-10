@@ -34,6 +34,8 @@ const COUNTER_BUCKET_DRAWS = counterByteOffset("meshletBucketDraws") / 4;
 const COUNTER_SUBGROUP_RESERVATIONS = counterByteOffset("meshletSubgroupReservations") / 4;
 const COUNTER_PORTABLE_RESERVATIONS = counterByteOffset("meshletPortableReservations") / 4;
 const COUNTER_INDIRECT_INSTANCES = counterByteOffset("meshletIndirectInstances") / 4;
+const COUNTER_PADDED_VERTICES = counterByteOffset("geometryPaddedVertices") / 4;
+const COUNTER_RASTER_TRIANGLES = counterByteOffset("meshletRasterTriangles") / 4;
 
 export type MeshletWorkCompactionPath = "portable" | "subgroup";
 
@@ -212,6 +214,11 @@ const GENERATE_SUFFIX = /* wgsl */ `
           visible.geometry_record_index, meshlet_slot, visible.material_handle,
           visible.raster_flags, packed);
       atomicAdd(&candidate_buckets[bucket].count, 1u);
+      if candidate_settings.counters_enabled != 0u {
+        atomicAdd(&candidate_counters[${COUNTER_RASTER_TRIANGLES}u], meshlet.triangle_count);
+        atomicAdd(&candidate_counters[${COUNTER_PADDED_VERTICES}u],
+          (candidate_triangle_capacity(bucket) - meshlet.triangle_count) * 3u);
+      }
     }
     workgroupBarrier();
   }

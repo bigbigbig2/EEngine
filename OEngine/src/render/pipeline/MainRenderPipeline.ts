@@ -1807,6 +1807,10 @@ export class MainRenderPipeline {
             "meshletSubgroupReservations",
             "meshletPortableReservations",
             "meshletIndirectInstances",
+            "meshletRasterTriangles",
+            "meshletRasterPixels",
+            "meshletRasterMatchedPixels",
+            "meshletRasterMismatchPixels",
             "queueOverflowMask"
           ]);
         }
@@ -2953,6 +2957,10 @@ export class MainRenderPipeline {
           "meshletSubgroupReservations",
           "meshletPortableReservations",
           "meshletIndirectInstances",
+          "meshletRasterTriangles",
+          "meshletRasterPixels",
+          "meshletRasterMatchedPixels",
+          "meshletRasterMismatchPixels",
           "candidateLightsAttempted",
           "candidateLightsWritten",
           "activeLightsAttempted",

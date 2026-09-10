@@ -387,7 +387,11 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   meshletBucketDraws: supported("MeshletWork fixed bounded GPU drawIndirect publisher"),
   meshletSubgroupReservations: supported("MeshletWork subgroup ballot/prefix compaction specialization"),
   meshletPortableReservations: supported("MeshletWork portable workgroup shared-memory prefix fallback"),
-  meshletIndirectInstances: supported("MeshletWork GPU-generated bucket drawIndirect records")
+  meshletIndirectInstances: supported("MeshletWork GPU-generated bucket drawIndirect records"),
+  meshletRasterTriangles: supported("Meshlet bucket drawIndirect triangle submission publisher"),
+  meshletRasterPixels: supported("Meshlet bucket semantic parity reducer candidate coverage"),
+  meshletRasterMatchedPixels: supported("Meshlet bucket semantic parity reducer matches"),
+  meshletRasterMismatchPixels: supported("Meshlet bucket semantic parity reducer mismatches")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

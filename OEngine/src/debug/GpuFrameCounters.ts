@@ -8,7 +8,7 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 16;
+export const GPU_COUNTER_SCHEMA_VERSION = 17;
 export const GPU_COUNTER_BYTE_SIZE = 512;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -143,7 +143,11 @@ export const GPU_COUNTER_FIELDS = [
   { name: "meshletBucketDraws", index: 120, semantic: "fixed bounded standard drawIndirect records generated entirely on GPU" },
   { name: "meshletSubgroupReservations", index: 121, semantic: "workgroup tile reservations issued by the subgroup ballot/prefix compaction specialization" },
   { name: "meshletPortableReservations", index: 122, semantic: "workgroup tile reservations issued by the portable shared-memory prefix compaction fallback" },
-  { name: "meshletIndirectInstances", index: 123, semantic: "sum of GPU-generated bucket drawIndirect instanceCount fields" }
+  { name: "meshletIndirectInstances", index: 123, semantic: "sum of GPU-generated bucket drawIndirect instanceCount fields" },
+  { name: "meshletRasterTriangles", index: 124, semantic: "non-padding triangles submitted through ADR-0008 meshlet bucket drawIndirect" },
+  { name: "meshletRasterPixels", index: 125, semantic: "pixels covered by the ADR-0008 meshlet bucket Hardware Visibility candidate" },
+  { name: "meshletRasterMatchedPixels", index: 126, semantic: "covered pixels whose meshlet candidate identity matches the production exact path" },
+  { name: "meshletRasterMismatchPixels", index: 127, semantic: "pixels with empty/covered or semantic identity disagreement between meshlet candidate and production exact path" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

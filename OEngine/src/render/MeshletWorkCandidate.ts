@@ -6,6 +6,9 @@ import type {
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
 import {
+  MESHLET_BUCKET_SETTINGS_STRIDE,
+} from "../shaders/meshlet_bucket_visibility.js";
+import {
   GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
@@ -41,6 +44,8 @@ export interface PreparedMeshletWorkCandidate {
   readonly queue: GPUBuffer;
   readonly bucketStates: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
+  readonly bucketSettings: GPUBuffer;
+  readonly paritySettings: GPUBuffer;
   readonly bucketCount: number;
   readonly compactionPath: MeshletWorkCompactionPath;
   readonly capacity: number;
@@ -64,6 +69,8 @@ interface CandidateState {
   readonly queue: GPUBuffer;
   readonly bucketStates: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
+  readonly bucketSettings: GPUBuffer;
+  readonly paritySettings: GPUBuffer;
   readonly dispatch: GPUBuffer;
   readonly compactionPath: MeshletWorkCompactionPath;
   writeBindGroup: GPUBindGroup;
@@ -173,6 +180,16 @@ export class MeshletWorkCandidate {
         size: MESHLET_WORK_BUCKET_INDIRECT_SIZE,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT
       }, buffers, accounting, "indirect");
+      const bucketSettings = this.createBuffer({
+        label: "ADR-0008 MeshletWork bucket dynamic settings",
+        size: GPU_MESHLET_BUCKET_COUNT * MESHLET_BUCKET_SETTINGS_STRIDE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      }, buffers, accounting, "uniform");
+      const paritySettings = this.createBuffer({
+        label: "ADR-0008 MeshletWork raster parity settings",
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      }, buffers, accounting, "uniform");
       const dispatch = this.createBuffer({
         label: "ADR-0008 MeshletWork candidate dispatchIndirect",
         size: GPU_DISPATCH_INDIRECT_ARGS_SIZE,
@@ -190,6 +207,15 @@ export class MeshletWorkCandidate {
       this.device.queue.writeBuffer(staging, 0, initialHeader);
       this.device.queue.writeBuffer(queue, 0, initialHeader);
       this.device.queue.writeBuffer(dispatch, 0, new Uint32Array([0, 1, 1]));
+      const bucketSettingsData = new Uint32Array(
+        GPU_MESHLET_BUCKET_COUNT * MESHLET_BUCKET_SETTINGS_STRIDE / 4
+      );
+      for (let bucket = 0; bucket < GPU_MESHLET_BUCKET_COUNT; bucket++) {
+        const word = bucket * MESHLET_BUCKET_SETTINGS_STRIDE / 4;
+        bucketSettingsData[word] = bucket;
+        bucketSettingsData[word + 1] = this.device.features.has("indirect-first-instance") ? 1 : 0;
+      }
+      this.device.queue.writeBuffer(bucketSettings, 0, bucketSettingsData);
       this.writeSettings(settings, inputs.countersEnabled);
       const fixedInputs = Object.freeze({
         visibleClusters: inputs.visibleClusters,
@@ -207,6 +233,8 @@ export class MeshletWorkCandidate {
         queue,
         bucketStates,
         drawIndirect,
+        bucketSettings,
+        paritySettings,
         bucketCount: GPU_MESHLET_BUCKET_COUNT,
         compactionPath,
         capacity: inputs.capacity
@@ -219,6 +247,8 @@ export class MeshletWorkCandidate {
         queue,
         bucketStates,
         drawIndirect,
+        bucketSettings,
+        paritySettings,
         dispatch,
         compactionPath,
         writeBindGroup: bindGroups.write,
