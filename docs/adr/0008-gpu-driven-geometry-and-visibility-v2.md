@@ -907,49 +907,19 @@ production normal visibility 不再依赖旧 per-triangle work table。
 
 ---
 
-## 13. Verification policy
+## 13. Verification
 
-本 ADR 使用公共三档验证，不复制巨大命令矩阵。
+公共 DEV/MILESTONE/PERF 强度、Browser Runner、证据持久化和性能比较遵循 [`VALIDATION.md`](../VALIDATION.md)。本 ADR 只增加以下领域 Gate：
 
-### DEV
+- Geometry truth：hierarchy test、selected meshlet、candidate/risky/exact/raster triangle、padding、visible pixel 与 queue bytes 必须能解释 work amplification；ADR 开始前保存正式 baseline。
+- MeshletWork ABI：stride/alignment、instance/geometry/meshlet identity、material/raster flags、LOD/profile、generation、capacity 和 overflow 必须有 CPU/WGSL oracle；candidate 路径不得通过 CPU readback 成为 consumer。
+- Queue generation：目标 adapter 的 subgroup specialization 与 portable fallback 使用同一 compact oracle，覆盖零/单元素、实际 subgroup 边界、partial workgroup 和 capacity 边界；`attempted/written/consumed` 在无 overflow 时闭合。
+- Bucket raster：CPU 计算的 bucket 与 padding 结果必须匹配 GPU counter；opaque、double-sided、MASK、reverse-Z、culling 与 primitive identity 通过真实浏览器 parity，padding primitive 不得产生有效 VisibilityKey。
+- VisibilityKey V2：sentinel、work slot、local primitive、generation/partition 和 normal/risk parity 必须有 CPU/GPU oracle；下游 consumer 只能依赖逻辑 identity，不能继续读取旧 ExactRasterWork slot。
+- Selective Exact：near-plane、degenerate、MASK/two-sided 等 risk 在集成 Scenario 中覆盖；correctness-critical overflow 必须失败，optional cache overflow 必须 fallback 并计数，normal 与 exact 路径不得重复或漏画。
+- Flat/Hierarchy 与 Geometry Budget：正确性和正式 A/B 使用 fixed budget；adaptive 仅验证边界、hysteresis 和无振荡，不能通过自动降质隐藏回归。
 
-```text
-typecheck
-+
-targeted local-Chrome visibility case
-+
-GPU/browser errors = 0
-```
-
-### MILESTONE
-
-只选本 Step 最相关的 2–4 个场景，例如：
-
-```text
-basic visibility
-frustum/occlusion
-near-plane
-microtriangle
-MASK/two-sided
-```
-
-### PERF
-
-仅阶段 baseline/final 或正式性能声明。
-
-重点比较：
-
-```text
-Geometry GPU phase
-queue bytes
-candidate/accepted work
-exact work
-padded invocations
-GPU frame envelope
-near/far/microtriangle workload
-```
-
-不要求每个小 commit 都跑 formal benchmark。
+PERF 重点比较 Geometry GPU phase、GPU frame envelope、queue bytes、candidate/accepted/exact work、PaddingRatio、ExactRatio、selected meshlets、raster triangles、visible pixels 和 overflow。最终 formal group 覆盖基础、near/far、occlusion-heavy 与 geometry-heavy workload，并证明 production normal path 不再依赖 mandatory per-triangle work。
 
 ---
 

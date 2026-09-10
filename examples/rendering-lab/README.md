@@ -19,9 +19,11 @@ yarn storybook
 yarn test:rendering-lab:workload
 yarn test:rendering-lab:pipeline-matrix
 yarn test:rendering-lab:shadow-feature-off
-yarn test:rendering-lab:profiles
+yarn profile:rendering-lab:dev
 yarn test:visibility-key-oracle
 ```
+
+`profile:rendering-lab:dev` 通过统一 ChromeRunner 使用 Playwright 启动本机 Google Chrome（默认 headless），在单个 BrowserContext 中按 30 warm-up + 60 measured cadence 运行。它允许 dirty worktree，只用于短 A/B 和编排检查，不构成正式性能证据。只有显式设置 `OENGINE_ALLOW_CHROMIUM_FALLBACK=true` 才允许退回 Playwright Chromium，且该结果不得标记为 Chrome 证据。
 
 正式 profile：
 

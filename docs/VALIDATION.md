@@ -19,6 +19,33 @@ npm run verify -- changed
 
 可显式选择 `full`、`smoke`、`visibility`、`surface`、`lifecycle` 或单个 Case（例如 `visibility.occlusion`）。`changed --base <ref>` 使用 `<ref>...HEAD`，`paths <path...>` 使用显式路径；不带 `--base` 的 `changed` 必须覆盖 staged、unstaged、untracked、rename 和 delete。没有映射规则的 `OEngine/src/` 文件必须在结果中列入 `unmappedPaths`，并保守运行 `smoke.basic`、`lifecycle.init-destroy`、`visibility.basic`。
 
+## 验证层级
+
+验证强度分为三档；它们描述证据要求，不覆盖仓库或更近 `AGENTS.md` 的安装、构建和交付约束。
+
+### DEV
+
+用于普通迭代，目标是快速发现 ABI、数学、资源生命周期和真实 WebGPU 集成错误。按改动选择 typecheck、targeted unit/oracle 和一个命中的 Browser Case；涉及浏览器路径时必须保持 browser、GPU validation、uncaptured error 和 device loss 为零。截图只在需要人工判断时保存。
+
+DEV 不运行全量 Browser matrix 或 formal benchmark，也不产生可接受的性能基线。
+
+### MILESTONE
+
+用于 ADR Step 完成、production candidate 判断、consumer cutover 和旧路径删除前。除完整构建/测试外，只选择能覆盖本 Step 独立 correctness seam 的少量 Browser Case，并运行：
+
+```powershell
+Set-Location examples
+npm run profile:rendering-lab:dev
+```
+
+该 profile 通过统一 ChromeRunner 使用 Playwright 启动本机 Google Chrome（默认 headless），在单个 BrowserContext 中按 30 warm-up + 60 measured cadence 运行。它允许 dirty worktree，结果只用于短 A/B、编排和风险发现，不作为正式性能声明或可接受基线。只有显式设置 `OENGINE_ALLOW_CHROMIUM_FALLBACK=true` 才允许退回 Playwright Chromium，且该结果不得标记为 Chrome 证据。
+
+### PERF
+
+用于阶段 baseline/final、重大 keep/revise/reject 决策、正式性能声明或重大回归调查。PERF 使用本页 Rendering Lab formal policy；必须 clean、固定比较条件、运行独立 run group 并持久化可复算证据。普通小提交不默认运行 PERF。
+
+正确性、画质和性能 Gate 分开判断：ABI、identity、overflow、lifecycle 与 producer/consumer 闭环不能由 FPS 改善替代；视觉算法使用数值 seam 加少量代表性视角，不默认要求与旧算法 pixel-identical；性能优化只有受控 A/B 才能声明改善。
+
 ## Browser Validation 合同
 
 - Case id、route、scenario、domain 与运行要求只在 `examples/validation-tools/cases.mjs` 登记。
@@ -40,6 +67,9 @@ npm run verify -- changed
 ## 文档门禁
 
 - `docs/` 只包含入口、六份核心事实页、ADR、porting ledger 和非权威研究输入 `others/`。
+- 公共验证政策只进入本文件；领域不变量和完成条件进入对应 ADR；当前 Gate 状态只进入 `STATUS.md`。
+- Case id、domain、changed-path 映射和 profile 名称以 `examples/validation-tools/` 与 `examples/package.json` 为唯一事实源，文档不复制完整清单。
+- 顶层 `docs/` 不保存独立验证计划、阶段总矩阵或逐 Step 执行手册；完成融合的设计输入由 Git 历史保留。
 - Markdown 相对链接必须存在。
 - 权威文档不得引用 `temp/`、本机绝对路径或已删除的 owner。
 - `STATUS.md` 之外不保存阶段 checkpoint、逐提交日志或“当前测试总数”。
@@ -50,7 +80,7 @@ npm run verify -- changed
 
 综合浏览器 fixture 位于 `examples/rendering-lab/`。它使用共享 Performance Inspector 作为唯一统计面板；场景控制和 debug view 仍由 Rendering Lab 提供。具体运行命令见 `examples/rendering-lab/README.md`。
 
-Rendering Lab 的 workload smoke、profiles、VisibilityKey oracle 和 formal policy 复用同一个 ChromeRunner，不得再直接导入 Playwright 或复制 Chrome resolution/error capture。Formal 非 smoke 策略固定为 clean commit、三个独立 browser context、每次 120 warm-up + 480 measured frames、固定 workload/camera、截图、provenance 与 BenchmarkEvidenceGate；任何 gate error 都必须让命令失败。`OENGINE_BENCHMARK_SMOKE=true` 的 30+60 cadence 只验证编排。
+Rendering Lab 的 workload smoke、DEV profile、VisibilityKey oracle 和 formal policy 复用同一个 ChromeRunner，不得再直接导入 Playwright 或复制 Chrome resolution/error capture。Formal 非 smoke 策略固定为 clean commit、三个独立 browser context、每次 120 warm-up + 480 measured frames、固定 workload/camera、截图、provenance 与 BenchmarkEvidenceGate；任何 gate error 都必须让命令失败。`profile:rendering-lab:dev` 和 `OENGINE_BENCHMARK_SMOKE=true` 的 30+60 cadence 只用于短 A/B 与编排，不构成正式证据。
 
 运行证据必须记录 commit/dirty state、浏览器、adapter、分辨率、DPR、feature set、场景/相机输入、warm-up、采样窗口和 diagnostics。
 
@@ -81,10 +111,22 @@ Rendering Lab 的 workload smoke、profiles、VisibilityKey oracle 和 formal po
 
 ## 完成语义
 
-- GPU-driven：GPU producer 的输出由 GPU consumer 直接消费。
-- 管线功能：正确性、fallback/lifecycle、feature-off 和性能证据齐全。
-- 外部算法：来源、revision、路径、license、差异和本地验证已登记。
-- 性能完成：固定条件下可复现达标，不以一次截图、单机临时报告或类名存在作为证明。
+- Implementation Complete：代码存在且类型/单元验证通过；不代表 production cutover。
+- Runtime Validated：命中的 MILESTONE 浏览器正确性、错误和生命周期 Gate 通过。
+- Performance Evaluated：至少有条件完整且可解释的短 profile；不等于性能改善。
+- Performance Improved：只有受控 A/B 或 formal evidence 支持具体声明时使用。
+- GPU-driven Complete：GPU producer 的输出由 GPU consumer 直接消费，容量、overflow 和计数闭合。
+- Pipeline Feature Complete：正确性、fallback/lifecycle、feature-off 和所需性能证据齐全。
+- External Algorithm Complete：来源、revision、路径、license、差异和本地验证已登记。
+- ADR Complete：production 已 cutover，要求的 MILESTONE 与最终 PERF 已通过，被替换旧路径已删除，当前事实文档和 porting provenance 已同步，且没有未解决的 correctness-critical overflow。
+
+## 测试治理
+
+- 新增测试前依次判断现有 unit/oracle、现有 Fixture Scenario、Rendering Lab profile 能否覆盖；都不能表达独立 correctness seam 时才新增 Browser Case。
+- 一个 ADR Step 默认新增 0–1 个 Browser Scenario；超过一个必须说明彼此独立的 seam。
+- 新 GPU Queue 通常由一个 CPU/GPU oracle 加一个集成 Browser Case 覆盖；不为每个 counter 单独建测试。
+- 视觉效果使用稳定数值 seam 加少量代表性 camera，不扩张大规模 snapshot matrix。
+- 性能阈值不进入普通 unit test，避免环境波动制造随机失败。
 
 ## 提交前清单
 

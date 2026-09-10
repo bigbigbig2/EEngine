@@ -24,7 +24,7 @@ export async function runRenderingLabPolicy({ mode, runner, baseUrl, repositoryR
   if (!runner.browserIdentity.realChrome) {
     return { status: "inconclusive", reason: "Rendering Lab policies require local Google Chrome" };
   }
-  if (mode === "profiles") return runProfiles({ runner, baseUrl, repositoryRoot, args });
+  if (mode === "dev") return runDevProfile({ runner, baseUrl, repositoryRoot, args });
   if (mode === "workload") return runWorkloadSmoke({ runner, baseUrl });
   if (mode === "pipeline-matrix") return runPipelineMatrix({ runner, baseUrl, repositoryRoot });
   if (mode === "shadow-feature-off") return runShadowFeatureOff({ runner, baseUrl, repositoryRoot });
@@ -199,7 +199,7 @@ function assertShadowFeatureComparison(evidence) {
   }
 }
 
-async function runProfiles({ runner, baseUrl, repositoryRoot, args }) {
+async function runDevProfile({ runner, baseUrl, repositoryRoot, args }) {
   const width = positiveNumber(args[0] ?? 1920, "width");
   const height = positiveNumber(args[1] ?? 1080, "height");
   const session = await runner.createPage({ viewport: { width, height } });
@@ -224,10 +224,10 @@ async function runProfiles({ runner, baseUrl, repositoryRoot, args }) {
       return { visible, hidden, counterCoverage };
     });
     requireCleanBrowser(session.errors);
-    const outputPath = path.join(repositoryRoot, "temp", "validation", `rendering-lab-profiles-${width}x${height}.json`);
+    const outputPath = path.join(repositoryRoot, "temp", "validation", `rendering-lab-dev-${width}x${height}.json`);
     await mkdir(path.dirname(outputPath), { recursive: true });
     await writeFile(outputPath, `${JSON.stringify({ reports, errors: session.errors }, null, 2)}\n`);
-    return { status: "passed", mode: "profiles", outputPath, reports: summarizeProfiles(reports) };
+    return { status: "passed", mode: "dev", outputPath, reports: summarizeProfiles(reports) };
   } finally {
     await session.close();
   }

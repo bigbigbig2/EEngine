@@ -1464,61 +1464,20 @@ dead histories/counters
 
 ---
 
-## 19. Verification policy
+## 19. Verification
 
-### DEV
+公共 DEV/MILESTONE/PERF 强度、Browser Runner、证据持久化和性能比较遵循 [`VALIDATION.md`](../VALIDATION.md)。本 ADR 只增加以下领域 Gate：
 
-普通改动：
+- Frame ABI 与 binding budget：Frame Product semantic、resolution domain、history generation、PreExposure、velocity/reactive、class/binding-set packing 和设备 limit 必须有 oracle；capability artifact 记录最终 specialization。
+- Material Classification：synthetic visibility/material map 覆盖 empty、single/multi-class、high-diversity、partial tile、invalid key 和 capacity boundary；GPU 输出必须满足 unassigned、duplicate、overflow 为零，并报告 occupancy 与 shading utilization。
+- Compute ShadeLighting：triangle reconstruction、barycentric/perspective correction、explicit gradient/LOD、normal/tangent frame、PBR 与 PreExposure 只为高风险数学 seam 建 oracle；集成 Gate 证明 MASK coverage 与 full shading 分离、每个有效像素恰好完整着色一次、无第二次 material resolve。
+- SurfaceLite/HDR：normal、roughness/flags、sentinel、HDR encode/decode 有 ABI oracle；候选格式只有在高光、负值语义、Bloom、SSR 和 temporal history 的质量与数值 Gate 通过后才能 cutover。
+- AO/SSR 移植：来源、revision、license、adoption 和 OEngine 差异先进入 porting ledger；AO 检查 depth reconstruction、range 和 edge stopping，SSR 检查 ray boundary、confidence、history、denoise 和 IBL baseline replacement，不复制上游框架测试。
+- Shared Products/History：graph oracle 必须证明 consumer-on 才生产、全部 consumer-off 时裁剪、多 consumer 共享唯一 producer、invalid history 不读取旧内容；resize、camera cut 和 recreate 覆盖 reset reason。
+- Temporal/DRS：代表性 camera sequence 覆盖 static、motion、disocclusion、transparency、SSR、camera cut 和 resize；正确性与正式 A/B 使用 fixed scale，adaptive 只做 bounded/hysteresis smoke。
+- Post fusion：代表性 feature 组合证明真实减少 fullscreen roundtrip 和 HDR intermediate，且 all-off、debug/capture 与 feature-off topology 不破坏；不跑完整 `2^N` 组合。
 
-```text
-typecheck
-+
-一个 targeted Playwright Local Chrome case
-+
-page/GPU/device errors = 0
-```
-
-必要时 canvas screenshot。
-
-### MILESTONE
-
-每个 Step 只跑最相关少量 cases，例如：
-
-```text
-surface/material
-AO
-SSR
-temporal
-transparency
-resize/camera-cut
-```
-
-不要求全部 Rendering Lab matrix。
-
-### PERF
-
-只在：
-
-```text
-Step baseline
-Step completion
-formal performance claim
-major regression
-```
-
-做 controlled comparison。
-
-重点：
-
-```text
-GPU frame envelope
-classification/shading/lighting/effect phases
-Surface/HDR/history bytes
-shading utilization
-material eval count
-AO/SSR work
-P95/P99
-```
+PERF 重点比较 GPU frame envelope、classification/shading/lighting/effect phase、Surface/HDR/history bytes、shading utilization、material evaluation、AO/SSR work 和 P50/P95。单个算法 candidate 先使用 MILESTONE short A/B，只有 production replacement、重大 keep/reject 或 ADR final 才进入 formal group。
 
 ---
 

@@ -14,28 +14,27 @@ const coreDocs = [
   "README.md",
   "STATUS.md",
   "VALIDATION.md",
+  "WEBGPU.md",
 ];
 
-const finalDocs = [
-  ...coreDocs,
-  "adr/0001-gpu-first-scope.md",
-  "adr/0002-runtime-assets-and-gpu-driven.md",
-  "adr/0003-unified-render-pipeline.md",
-  "adr/0004-visibility-to-surface.md",
-  "adr/0005-unified-browser-validation.md",
-  "adr/0006-packed-render-world-convergence.md",
-  "adr/README.md",
+const adrDocs = markdownFiles(path.join(docsRoot, "adr"), "adr")
+  .filter((relativePath) => relativePath === "adr/README.md" || /^adr\/\d{4}-.+\.md$/.test(relativePath))
+  .sort();
+const portingDocs = [
   "porting/geometry.md",
   "porting/platform.md",
   "porting/README.md",
   "porting/shading.md",
   "porting/visibility.md",
-].sort();
+];
+const researchDocs = markdownFiles(path.join(docsRoot, "others"), "others").sort();
+const authoritativeDocs = [...coreDocs, ...adrDocs, ...portingDocs].sort();
+const allowedDocs = [...authoritativeDocs, ...researchDocs].sort();
 
 const routedDocs = [
   "README.md",
   "CONTEXT-MAP.md",
-  ...finalDocs.map((relativePath) => path.posix.join("docs", relativePath)),
+  ...authoritativeDocs.map((relativePath) => path.posix.join("docs", relativePath)),
   "examples/README.md",
   "examples/rendering-lab/README.md",
   "OEngine/benchmarks/README.md",
@@ -63,7 +62,7 @@ function resolveMarkdownLinks(relativePath) {
 }
 
 test("docs tree matches the current-facts allowlist", () => {
-  assert.deepEqual(markdownFiles(docsRoot).sort(), finalDocs);
+  assert.deepEqual(markdownFiles(docsRoot).sort(), allowedDocs);
 });
 
 test("all routed Markdown links resolve", () => {
@@ -83,7 +82,7 @@ test("authoritative docs do not depend on ephemeral or machine-local paths", () 
     /[A-Z]:[\\/](?:Users|Documents|code|shu)[\\/]/i,
     /docs[\\/](?:contexts|implementation|references|wiki|superpowers)[\\/]/i,
   ];
-  for (const relativePath of finalDocs) {
+  for (const relativePath of authoritativeDocs) {
     const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
     for (const pattern of forbidden) assert.doesNotMatch(source, pattern, relativePath);
     if (relativePath !== "VALIDATION.md") {
@@ -92,19 +91,19 @@ test("authoritative docs do not depend on ephemeral or machine-local paths", () 
   }
 });
 
-test("non-status docs do not accumulate execution checkpoints or mutable totals", () => {
+test("non-status authoritative docs do not accumulate execution checkpoints or mutable totals", () => {
   const forbidden = [
     /^#{1,6}\s+.*(?:checkpoint|closure|收口记录|完成记录)/im,
     /(?:当前全量测试|current full test|npm test)[^\n]*\b\d+\s*\/\s*\d+\b/i,
   ];
-  for (const relativePath of finalDocs.filter((name) => name !== "STATUS.md")) {
+  for (const relativePath of authoritativeDocs.filter((name) => name !== "STATUS.md")) {
     const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
     for (const pattern of forbidden) assert.doesNotMatch(source, pattern, relativePath);
   }
 });
 
-test("root-anchored repository paths in docs exist", () => {
-  for (const relativePath of finalDocs) {
+test("root-anchored repository paths in authoritative docs exist", () => {
+  for (const relativePath of authoritativeDocs) {
     const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
     for (const line of source.split(/\r?\n/)) {
       if (/^- Upstream(?: source)?:/i.test(line)) continue;
@@ -120,13 +119,25 @@ test("root-anchored repository paths in docs exist", () => {
   }
 });
 
-test("ADRs keep the accepted decision shape", () => {
-  for (const relativePath of finalDocs.filter((name) => /^adr\/\d{4}-/.test(name))) {
+test("ADRs keep the decision shape and an explicit lifecycle status", () => {
+  for (const relativePath of adrDocs.filter((name) => /^adr\/\d{4}-/.test(name))) {
     const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
-    assert.match(source, /^Status: accepted$/m, relativePath);
+    assert.match(
+      source,
+      /^(?:Status: |> \*\*Status:\*\* )(?:proposed|accepted|superseded|rejected)\b/m,
+      relativePath
+    );
     for (const heading of ["Context", "Decision", "Consequences", "Verification"]) {
-      assert.match(source, new RegExp(`^## ${heading}$`, "m"), `${relativePath}: ${heading}`);
+      assert.match(source, new RegExp(`^## (?:\\d+\\. )?${heading}$`, "m"), `${relativePath}: ${heading}`);
     }
+  }
+});
+
+test("ADR index routes every numbered decision", () => {
+  const source = readFileSync(path.join(docsRoot, "adr", "README.md"), "utf8");
+  for (const relativePath of adrDocs.filter((name) => /^adr\/\d{4}-/.test(name))) {
+    const fileName = path.posix.basename(relativePath);
+    assert.match(source, new RegExp(`\\((?:\\./)?${fileName.replaceAll(".", "\\.")}\\)`), relativePath);
   }
 });
 

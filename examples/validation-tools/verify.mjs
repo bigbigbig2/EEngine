@@ -93,7 +93,7 @@ async function runPolicy(mode, args) {
 
 function renderingLabPolicy(target) {
   if (target === "formal") return "formal";
-  if (target === "rendering-lab.profiles") return "profiles";
+  if (target === "rendering-lab.dev") return "dev";
   if (target === "rendering-lab.workload") return "workload";
   if (target === "rendering-lab.pipeline-matrix") return "pipeline-matrix";
   if (target === "rendering-lab.shadow-feature-off") return "shadow-feature-off";

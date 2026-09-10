@@ -840,44 +840,18 @@ ADR-0008/0009 可以在不改变 stable asset/material handle 的前提下消费
 
 ---
 
-## 9. Verification policy
+## 9. Verification
 
-本 ADR 不复制 `VALIDATION.md` 的所有命令。实施前应先把公共验证简化为：
+公共 DEV/MILESTONE/PERF 强度、Browser Runner、证据持久化和性能比较遵循 [`VALIDATION.md`](../VALIDATION.md)。本 ADR 只增加以下领域 Gate：
 
-### DEV
+- Runtime Package：header/manifest/chunk 的版本、端序、对齐、范围、checksum、variant 选择、损坏输入和确定性序列化必须有 CPU oracle；production loader 的真实浏览器消费必须成功。
+- Texture Cooker：mip 尺寸、颜色空间、normal/ORM/MASK 过滤、压缩格式选择和 fallback metadata 必须有 oracle；只有现有 Scenario 无法证明实际物理压缩格式时才新增独立 Browser Case。
+- Texture Residency：stable handle、generation、reserve/commit/abort、release/reuse、增长失败和 device-loss 重建必须可验证；增长不得改变已发布 handle、全量搬迁既有 resident texture 或发布 provisional handle。
+- Compact Geometry：position、normal、tangent、UV、profile、meshlet local index 与 conservative bounds 使用明确数值容差做 CPU/WGSL parity；浏览器 Gate 覆盖 silhouette、材质采样和 LOD consumer。
+- Instance ABI：static/dynamic pack、revision/generation、previous transform、patch range 和 CPU shadow accounting 必须闭合；transform-heavy workload 分别覆盖 stable frame、小比例 patch 和大比例 patch。
+- Memory truth：source/container/decoded/transcode peak、upload/copy/retiring、logical/physical GPU resident、instance shadow、runtime mip 与 grow-copy 都必须由 owner 计数，不能从文件大小或 DOM 推断。
 
-```text
-typecheck
-+
-一个 targeted Playwright Local Chrome case
-+
-browser/GPU errors = 0
-```
-
-必要时保存 canvas screenshot。
-
-### MILESTONE
-
-```text
-build/test
-+
-2–4 个相关 browser scenarios
-+
-关键 artifact
-```
-
-### PERF
-
-只用于：
-
-```text
-阶段开始 baseline
-阶段完成 comparison
-正式性能声明
-重大性能回归
-```
-
-`npm ci` 仅用于 dependency/lockfile、clean/CI、正式可复现环境，不作为普通代码修改的固定成本。
+Architecture enabler 不要求独立 FPS 提升；residency 与 data-layout 优化分别以 memory transaction、upload/load hitch、bytes/fetch/patch 和下游 GPU phase 判断。ADR 开始保存一次正式 baseline，最终只运行一个涵盖 texture-heavy、geometry-heavy 与 instance-update 的 PERF group；中间 Step 仅在 keep/revise/reject 需要时升级到 PERF。
 
 ---
 

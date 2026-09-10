@@ -11,7 +11,7 @@
 - 旧 Pixel Queue、ShadeWork 和可见像素 scan/scatter 生产链已退出生产路径。
 - direct lighting、CSM、GI、AO、SSR、MBOIT、Temporal 与 HDR post 接入同一 Renderer 主流程。
 - Performance Inspector 是共享的实时 Profiler/Timeline；Rendering Lab 是综合质量与性能 fixture。
-- Browser Validation 已统一为 Registry + Source Domain Selector + 单一 ChromeRunner；Smoke、Visibility、Surface、Lifecycle 承担日常真实 WebGPU 验证，Rendering Lab 保留综合与 formal benchmark。
+- Browser Validation 已统一为 Registry + Source Domain Selector + 单一 ChromeRunner；Smoke、Visibility、Surface、Lifecycle 承担日常真实 WebGPU 验证，Rendering Lab 保留综合与 formal benchmark。公共证据强度统一为 DEV/MILESTONE/PERF，30+60 的 `profile:rendering-lab:dev` 只承担短 A/B 与编排检查。
 - WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码只已强制 `indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，并机会性启用 `timestamp-query`、`subgroups`；其余 2026 specialization 尚未落地。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
