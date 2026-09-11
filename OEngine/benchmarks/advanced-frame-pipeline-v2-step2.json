@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-step-evidence",
+  "decision": "adr-0009-step2-compute-shade-lighting",
+  "provenance": {
+    "commit": "960e16feb0ef005528734b3865d03a403371cc9d",
+    "contentHash": "57e2b316d934cdc537e0fb6fef9f5ba9b0100414b076e3961d385c56d514a927",
+    "clean": true,
+    "runGroupId": "b7c6bfee-3f53-46bf-aceb-610d43c76f52",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "features": [
+        "primitive-index",
+        "rg11b10ufloat-renderable",
+        "subgroups",
+        "texture-compression-bc",
+        "timestamp-query"
+      ]
+    },
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806
+  },
+  "aggregation": "median of three run-level percentiles",
+  "timingsMs": {
+    "cpuFrame": { "p50": 12.59999999404, "p95": 14.704999988526 },
+    "gpuFrame": { "p50": 1.83392, "p95": 2.18352 },
+    "materialClassifier": { "p50": 0.088544 },
+    "computeMaterialIndirect": { "p50": 1.736704 },
+    "computeMaterialClear": { "p50": 0.216 },
+    "surfaceV1TransitionBridge": { "p50": 0.13312 },
+    "computeDirectLightingIndirect": { "p50": 1.179648 },
+    "computeDirectLightingValidation": { "p50": 0.134944 }
+  },
+  "materialTileWorkClosure": {
+    "recordsP50": 14690,
+    "validPixelsP50": 874227,
+    "shadedPixelsP50": 874227,
+    "fullShadingEvaluationsEqualShadedValidPixels": true,
+    "unassignedPixelsMax": 0,
+    "duplicatePixelsMax": 0,
+    "overflowQueuesMax": 0,
+    "frameInvalidMax": 0,
+    "gradientFallbackPixelsMax": 0,
+    "productionBackend": "tile-compute",
+    "legacyClassDepthOrClassDiscardOwnerPresent": false
+  },
+  "transitionMemory": {
+    "computeMaterialBytesPerPixel": 32,
+    "surfaceV1BridgeBytesPerPixel": 26,
+    "totalBytesPerPixel": 58,
+    "surfaceAttachmentBytes": 120268800,
+    "residentBytesP50": 1662509285,
+    "interpretation": "This is an explicit Step 2 transition cost, not the Step 3 SurfaceLite target. The bridge performs format unpack only and has no material or texture-bank access."
+  },
+  "cutoverProof": {
+    "producerConsumerChain": "VisibilityKey V2 -> MaterialTileWork -> compute material evaluation -> compute direct lighting",
+    "indirectDispatchClasses": 28,
+    "materialEvaluationOwnerCount": 1,
+    "runtimeImplicitDerivatives": false,
+    "degenerateGradientFallback": "explicit textureSampleLevel LOD 0",
+    "deletedSources": [
+      "OEngine/src/render/MaterialClassDepthProbe.ts",
+      "OEngine/src/render/passes/PackedMaterialClassDepthPass.ts",
+      "OEngine/src/shaders/packed_material_class_depth.ts",
+      "OEngine/src/debug/TileBackendCostModel.ts"
+    ]
+  },
+  "targetedCorrectness": {
+    "unitTests": { "passed": 99, "failed": 0 },
+    "browserCases": [
+      "smoke.basic",
+      "surface.basic",
+      "surface.textured",
+      "surface.material-switch",
+      "surface.fallback",
+      "surface.texture-ref",
+      "surface.bc",
+      "surface.package",
+      "surface.codec",
+      "surface.device-loss",
+      "surface.transparent",
+      "surface.scene-adapter"
+    ],
+    "gpuDiagnostics": 0,
+    "formalRunGroupEligible": true
+  },
+  "runLevel": [
+    {
+      "runOrdinal": 0,
+      "cpuFrameP50": 12.59999999404,
+      "cpuFrameP95": 14.70000000298,
+      "gpuFrameP50": 1.837408,
+      "gpuFrameP95": 2.1844096,
+      "materialClassifierP50": 0.08928,
+      "computeMaterialIndirectP50": 1.75104,
+      "computeDirectLightingIndirectP50": 1.185568
+    },
+    {
+      "runOrdinal": 1,
+      "cpuFrameP50": 12.59999999404,
+      "cpuFrameP95": 14.704999988526,
+      "gpuFrameP50": 1.83392,
+      "gpuFrameP95": 2.1521856,
+      "materialClassifierP50": 0.088544,
+      "computeMaterialIndirectP50": 1.72848,
+      "computeDirectLightingIndirectP50": 1.165664
+    },
+    {
+      "runOrdinal": 2,
+      "cpuFrameP50": 12.899999991059,
+      "cpuFrameP95": 15.5,
+      "gpuFrameP50": 1.83328,
+      "gpuFrameP95": 2.18352,
+      "materialClassifierP50": 0.088416,
+      "computeMaterialIndirectP50": 1.736704,
+      "computeDirectLightingIndirectP50": 1.179648
+    }
+  ],
+  "diagnostics": {
+    "validationErrors": 0,
+    "uncapturedErrors": 0,
+    "deviceLost": 0,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  },
+  "limitation": "Single NVIDIA Turing adapter. Surface V1 transition storage remains intentionally visible and is the next Step 3 removal target; this artifact does not accept the final SurfaceLite physical profile."
+}
