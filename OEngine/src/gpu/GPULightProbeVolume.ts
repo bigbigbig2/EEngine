@@ -41,7 +41,9 @@ export class GPULightProbeVolume {
   private meshBuffer: GPUBuffer;
   private meshBvhBuffer: GPUBuffer;
   private readonly meshBvh = new DynamicBvh();
-  private uploadedVersion = 0;
+  // -1 forces the zero-version source to initialize metadata and empty-safe
+  // buffers on its first production frame.
+  private uploadedVersion = -1;
 
   constructor(
     graphics: GraphicsContext,
@@ -95,6 +97,20 @@ export class GPULightProbeVolume {
     return this.atlas.probe_resolution;
   }
 
+  /** GPU data generation; zero is reserved for an uncommitted owner. */
+  get generation(): number {
+    return this.uploadedVersion < 0 ? 0 : this.uploadedVersion + 1;
+  }
+
+  /**
+   * Receiver lookup is safe only when the CPU source and GPU owner agree and
+   * a tetrahedral coverage domain actually exists.
+   */
+  get available(): boolean {
+    return this.uploadedVersion === this.source.version &&
+      this.source.probe_count >= 4 && this.source.mesh.count > 0;
+  }
+
   update(): void {
     if (this.source.version !== this.uploadedVersion) {
       this.commit();
@@ -102,8 +118,10 @@ export class GPULightProbeVolume {
   }
 
   commit(): void {
-    this.uploadedVersion = this.source.version;
     this.push_to_gpu();
+    // Publish generation only after every dependent buffer/atlas update has
+    // completed; failed uploads must remain unavailable to receiver lookup.
+    this.uploadedVersion = this.source.version;
   }
 
   push_to_gpu(): void {

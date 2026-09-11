@@ -2293,13 +2293,7 @@ export class MainRenderPipeline {
               temporalBlend: settings.temporalBlend,
               backfaceLighting: settings.backfaceLighting,
               historyGeneration: bindings.ssgiHistoryRevision,
-              preExposure: bindings.context.preExposure,
-              longRangeProvider:
-                this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4
-                  ? 0
-                  : this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV
-                    ? 1
-                    : 2
+              preExposure: bindings.context.preExposure
             })),
             {
               depth: depthRes,
@@ -2313,8 +2307,7 @@ export class MainRenderPipeline {
               occlusionConfidence: occlusionConfidenceRes ?? gAlbedoRes,
               surfaceValidity: opaqueTemporalValidityRes ?? gAlbedoRes,
               camera: currentCameraRes,
-              counters: gpuCounterRes ?? undefined,
-              providerValidity: lighting.providerValidity ?? source.radiance
+              counters: gpuCounterRes ?? undefined
             },
             graphTopology.screenSpaceDiffuseTemporal
               ? {
@@ -2355,7 +2348,217 @@ export class MainRenderPipeline {
         };
 
         if (
-          this.indirect_lighting_mode === ShadeIndirectLightingMode.IBL &&
+          gtaoReady &&
+          hdrRes !== null &&
+          environmentRes !== null &&
+          diffuseIrradianceRes !== null &&
+          gPbrRes !== null &&
+          gNormalRes !== null &&
+          gAlbedoRes !== null &&
+          bentNormalRes !== null
+        ) {
+          const stbn = this._graphics.textures.obtain(
+            STATIC_GRAPHICS_ENGINE_ASSETS.stbn_vec2
+          );
+          const splitSum = this._graphics.textures.obtain(
+            STATIC_GRAPHICS_ENGINE_ASSETS.split_sum
+          );
+          const stbnRes = graph.import_resource(
+            "LongRangeGI/stbn_vec2",
+            { kind: "imported", label: "STBN vec2 3D" },
+            stbn.gpu_texture
+          );
+          const splitSumRes = graph.import_resource(
+            "LongRangeGI/split_sum",
+            { kind: "imported", label: "rg16float split_sum" },
+            splitSum.gpu_texture
+          );
+          const lightMapRes = graph.import_resource(
+            "LongRangeGI/Brick4 storage",
+            { kind: "imported", label: "Brick4 Av storage" },
+            bind("long-range-brick4", (bindings) =>
+              bindings.environment.volumetric_light_map.buffer)
+          );
+          const atlasDepthRes = graph.import_resource(
+            "LongRangeGI/LPV depth atlas",
+            { kind: "imported", label: "rg16float LPV depth atlas" },
+            bind("long-range-lpv-depth", (bindings) =>
+              bindings.environment.light_probe_volume.atlas.texture_depth.texture)
+          );
+          const lpvMeshBvhRes = graph.import_resource(
+            "LongRangeGI/LPV tetra BVH",
+            { kind: "imported", label: "LPV tetra BVH" },
+            bind("long-range-lpv-bvh", (bindings) =>
+              bindings.environment.light_probe_volume.buffer_mesh_bvh)
+          );
+          const lpvMetadataRes = graph.import_resource(
+            "LongRangeGI/LPV metadata",
+            { kind: "imported", label: "LPV metadata" },
+            bind("long-range-lpv-metadata", (bindings) =>
+              bindings.environment.light_probe_volume.buffer_metadata)
+          );
+          const lpvTetraRes = graph.import_resource(
+            "LongRangeGI/LPV tetrahedra",
+            { kind: "imported", label: "LPV tetrahedra" },
+            bind("long-range-lpv-tetrahedra", (bindings) =>
+              bindings.environment.light_probe_volume.buffer_mesh)
+          );
+          const lpvProbesRes = graph.import_resource(
+            "LongRangeGI/LPV probes",
+            { kind: "imported", label: "LPV probes" },
+            bind("long-range-lpv-probes", (bindings) =>
+              bindings.environment.light_probe_volume.buffer_probes)
+          );
+          const providerCounterRes = gpuCounterRes ?? graph.import_resource(
+            "long_range_provider_counter_sink",
+            { kind: "imported", label: "Long-range provider disabled counter sink" },
+            bind("long-range-counter-sink", (bindings) =>
+              requirePackedGeometryOwner(bindings.geometry).runtime.counterSink)
+          );
+          const selected = this._giService.resolveOpaqueLighting(graph, {
+            mode: "providers",
+            hdr: hdrRes,
+            depth: depthRes,
+            normal: gNormalRes,
+            bentNormal: bentNormalRes,
+            albedoAo: gAlbedoRes,
+            pbr: gPbrRes,
+            splitSum: splitSumRes,
+            camera: currentCameraRes,
+            metadata: packedResolveOut.shading.roughnessFlags,
+            fallbackDiffuseIrradiance: diffuseIrradianceRes,
+            ambientVisibility: ambientVisibilityRes ?? undefined,
+            extent: { width: w, height: h },
+            reflectionCorrectionExpected: graphTopology.ssr,
+            screenSpaceDiffuseCorrectionExpected: graphTopology.ssgi,
+            providerJob: bind("long-range-provider-job", (bindings) => {
+              const brick = bindings.environment.volumetric_light_map;
+              const probe = bindings.environment.light_probe_volume;
+              return {
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
+                countersEnabled: bindings.gpuCounterBuffer !== null,
+                brickRegistered: brick.generation > 0,
+                brickResident: brick.available,
+                brickGeneration: brick.generation,
+                brickExpectedGeneration: brick.generation,
+                probeRegistered: probe.source.probe_count > 0,
+                probeResident: probe.available,
+                probeGeneration: probe.generation,
+                probeExpectedGeneration: probe.source.version + 1,
+                iblResident: true
+              };
+            }),
+            providerInputs: {
+              view: viewUniformRes,
+              counters: providerCounterRes,
+              stbn: stbnRes,
+              environmentDiffuse: diffuseIrradianceRes,
+              environmentSpecular: environmentRes,
+              brick4: lightMapRes,
+              lpvMeshBvh: lpvMeshBvhRes,
+              lpvMetadata: lpvMetadataRes,
+              lpvTetrahedra: lpvTetraRes,
+              lpvProbes: lpvProbesRes,
+              lpvDepthAtlas: atlasDepthRes
+            }
+          });
+          if (gpuCounterRes !== null && selected.counters !== null) {
+            gpuCounterRes = selected.counters;
+          }
+          indirectDiffuseDebugRes = selected.indirectDiffuse;
+          indirectSpecularDebugRes = selected.indirectSpecular;
+          const resolvedLightingHdr = resolveSsgi(selected, splitSumRes);
+          const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
+            hdr: resolvedLightingHdr,
+            baselineSpecular: graphTopology.ssr ? selected.indirectSpecular : null,
+            stage: "post-screen-space-diffuse-pre-ssr",
+            reflectionCorrectionExpected: graphTopology.ssr,
+            preExposure: frameContext.preExposure,
+            domain: packedResolveOut.shading.domain
+          });
+          hdrRes = opaqueBaseline.hdr;
+
+          if (
+            graphTopology.ssr &&
+            hzbRes !== null &&
+            velocityRes !== null &&
+            occlusionConfidenceRes !== null &&
+            selected.indirectSpecular !== null
+          ) {
+            const completeOpaqueHdr = opaqueBaseline.hdr;
+            const ssr = this._reflectionService!.addToGraph(
+              graph,
+              bind("ssr-job", (bindings) => ({
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
+                frameIndex: bindings.frameIndex,
+                historyValid: bindings.ssrHistoryValidity >= 0.5,
+                historyInputIndex: bindings.ssrHistoryInputIndex,
+                historyOutputIndex: bindings.ssrHistoryOutputIndex,
+                samplers: this._graphics.samplers,
+                maxDistance: metersToWorldUnits(
+                  this._renderSettings.values.ssr.maxDistanceMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                edgeFade: this._renderSettings.values.ssr.edgeFade,
+                maxSteps: this._renderSettings.values.ssr.maxSteps,
+                baseThickness: metersToWorldUnits(
+                  this._renderSettings.values.ssr.baseThicknessMeters,
+                  this._renderSettings.values.physicalScale
+                ),
+                distanceThicknessScale: this._renderSettings.values.ssr.distanceThicknessScale,
+                maxRoughness: this._renderSettings.values.ssr.maxRoughness,
+                temporalStrength: this._renderSettings.values.ssr.temporalStrength
+              })),
+              {
+                depth: depthRes,
+                hzb: hzbRes,
+                sceneColor: completeOpaqueHdr,
+                pbr: gPbrRes,
+                normal: gNormalRes,
+                velocity: velocityRes,
+                occlusionConfidence: occlusionConfidenceRes,
+                surfaceValidity: opaqueTemporalValidityRes!,
+                albedoAo: gAlbedoRes,
+                environment: environmentRes,
+                blueNoise: stbnRes,
+                currentCamera: currentCameraRes,
+                previousCamera: previousCameraRes,
+                counters: gpuCounterRes ?? undefined
+              },
+              {
+                input: bind("ssr-history-input", (bindings) =>
+                  this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
+                output: bind("ssr-history-output", (bindings) =>
+                  this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
+              }
+            );
+            hdrRes = this._reflectionService!.addCorrection(graph, {
+              hdr: completeOpaqueHdr,
+              depth: depthRes,
+              normal: gNormalRes,
+              bentNormal: bentNormalRes,
+              albedoAo: gAlbedoRes,
+              pbr: gPbrRes,
+              splitSum: splitSumRes,
+              baselineSpecular: opaqueBaseline.baselineSpecular!,
+              resolvedSpecular: ssr.denoised,
+              ambientVisibility: ambientVisibilityRes ?? undefined,
+              camera: currentCameraRes,
+              metadata: packedResolveOut.shading.roughnessFlags
+            });
+            indirectSpecularDebugRes = ssr.denoised;
+            ssrHitMissDebugRes = ssr.trace;
+            ssrResolveDebugRes = ssr.denoised_1;
+            ssrTemporalDebugRes = ssr.temporal;
+            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
+            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
+          }
+        }
+
+        if (
+          false && this.indirect_lighting_mode === ShadeIndirectLightingMode.IBL &&
           gtaoReady &&
           hdrRes !== null &&
           environmentRes !== null &&
@@ -2493,7 +2696,7 @@ export class MainRenderPipeline {
         }
 
         if (
-          this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4 &&
+          false && this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4 &&
           gtaoReady &&
           hdrRes !== null &&
           diffuseIrradianceRes !== null &&
@@ -2637,7 +2840,7 @@ export class MainRenderPipeline {
         }
 
         if (
-          this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV &&
+          false && this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV &&
           gtaoReady &&
           hdrRes !== null &&
           environmentRes !== null &&
@@ -3514,6 +3717,16 @@ export class MainRenderPipeline {
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     this._lightingFeature ??= new LightingFeature(this._graphics, this._surfaceLiteProfile);
     this._giService ??= new GIService(this._graphics, this._surfaceLiteProfile);
+    this._profiler.registerGpuCounterFields([
+      "longRangeBrick4Receivers",
+      "longRangeProbeReceivers",
+      "longRangeIblReceivers",
+      "longRangeBlackReceivers",
+      "longRangeInvalidGeneration",
+      "longRangeNonresidentFallbacks",
+      "longRangeProviderUnassigned",
+      "longRangeProviderDuplicates"
+    ]);
     const needsOcclusionConfidence =
       topology.screenSpaceDiffuseTemporal || topology.ssr || topology.temporal;
     if (needsOcclusionConfidence) {
@@ -3550,11 +3763,7 @@ export class MainRenderPipeline {
           "ssgiEvaluatedPixels",
           "ssgiTraceSamples",
           "ssgiHistoryAcceptedPixels",
-          "ssgiHistoryRejectedPixels",
-          "longRangeBrick4Receivers",
-          "longRangeProbeReceivers",
-          "longRangeIblReceivers",
-          "longRangeBlackReceivers"
+          "ssgiHistoryRejectedPixels"
         ]);
         this._screenSpaceDiffuseService = new ScreenSpaceDiffuseService(
           this._graphics,

@@ -8,6 +8,8 @@ export const BRICK4_LIGHT_MAP_INITIAL_BYTES = 1 << 20;
 
 export class Brick4LightMap {
   private bufferValue: GPUBuffer;
+  private generationValue = 0;
+  private residentByteLengthValue = 0;
 
   constructor(private readonly device: GPUDevice) {
     this.bufferValue = this.createBuffer(BRICK4_LIGHT_MAP_INITIAL_BYTES, false);
@@ -17,12 +19,32 @@ export class Brick4LightMap {
     return this.bufferValue;
   }
 
+  /**
+   * Monotonic owner generation. Zero is reserved for the never-populated
+   * state so a stale receiver mapping cannot alias the initial allocation.
+   */
+  get generation(): number {
+    return this.generationValue;
+  }
+
+  /** True only after a non-empty Brick4 package has been uploaded. */
+  get available(): boolean {
+    return this.residentByteLengthValue > 0;
+  }
+
+  get resident_byte_length(): number {
+    return this.residentByteLengthValue;
+  }
+
   get gpu_memory_usage(): number {
     return this.bufferValue.size;
   }
 
   upload(source: ArrayBuffer | ArrayBufferView): void {
     const bytes = asBytes(source);
+    this.generationValue++;
+    this.residentByteLengthValue = bytes.byteLength;
+    if (bytes.byteLength === 0) return;
     const alignedSize = alignTo(bytes.byteLength, 4);
 
     if (this.bufferValue.size < alignedSize) {
@@ -51,6 +73,16 @@ export class Brick4LightMap {
       uploadBytes.byteOffset,
       alignedSize
     );
+  }
+
+  /**
+   * Invalidates logical residency without destroying the reusable GPU
+   * allocation. The generation change makes previously authored mappings
+   * observably stale.
+   */
+  invalidate(): void {
+    this.generationValue++;
+    this.residentByteLengthValue = 0;
   }
 
   destroy(): void {

@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 46,
+  "shaderCount": 47,
   "summary": {
-    "authored-live": 45,
+    "authored-live": 46,
     "dead": 1
   },
   "entries": [
@@ -69,7 +69,8 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/render/passes/Brick4IndirectPass.ts"
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/shaders/long_range_diffuse_provider.ts"
       ],
       "runtimeConsumers": [
         "src/addons/inspector/index.ts",
@@ -77,11 +78,13 @@
         "src/index.ts",
         "src/render/features/GIService.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LongRangeDiffuseProviderPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
-        "src/render/passes/Brick4IndirectPass.ts"
+        "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/LongRangeDiffuseProviderPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -166,6 +169,7 @@
         "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
+        "src/render/passes/LongRangeDiffuseProviderPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
@@ -313,6 +317,7 @@
         "src/render/passes/Brick4IndirectPass.ts",
         "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/LightingPass.ts",
+        "src/render/passes/LongRangeDiffuseProviderPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
@@ -451,6 +456,29 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/long_range_diffuse_provider.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/LongRangeDiffuseProviderPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/GIService.ts",
+        "src/render/passes/LongRangeDiffuseProviderPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/LongRangeDiffuseProviderPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/lpv_indirect_diffuse.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -506,6 +534,7 @@
         "src/render/passes/IblBaselinePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
+        "src/render/passes/LongRangeDiffuseProviderPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
@@ -537,6 +566,7 @@
         "src/render/passes/IblBaselinePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
+        "src/render/passes/LongRangeDiffuseProviderPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
@@ -721,6 +751,7 @@
         "src/render/passes/IblBaselinePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
+        "src/render/passes/LongRangeDiffuseProviderPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
         "src/render/passes/MaterialTileClassificationPass.ts",
         "src/render/passes/MotionBlurPass.ts",

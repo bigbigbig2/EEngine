@@ -128,6 +128,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         (counters.longRangeProbeReceivers ?? 0) +
         (counters.longRangeIblReceivers ?? 0) +
         (counters.longRangeBlackReceivers ?? 0);
+      const providerUnassigned = counters.longRangeProviderUnassigned ?? 0;
+      const providerDuplicates = counters.longRangeProviderDuplicates ?? 0;
       Object.assign(evidence, { ssgiProduction: { runtime: ssgi, passes, resources, counters } });
       assertions.push(validationAssertion(
         "three-ssgi-pinned-production-path",
@@ -161,10 +163,11 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       assertions.push(validationAssertion(
         "ssgi-temporal-provider-closure",
         evaluated > 0 && accepted + rejected === evaluated &&
-          providerReceivers === evaluated && profile.submits.count === 1,
-        "Every sampled SSGI receiver is temporally classified and selects exactly one long-range provider in the main submit",
-        { evaluated, accepted, rejected, providerReceivers, submits: profile.submits },
-        "accepted + rejected = provider receivers = evaluated; one submit"
+          providerReceivers > 0 && providerUnassigned === 0 &&
+          providerDuplicates === 0 && profile.submits.count === 1,
+        "SSGI samples close temporally while the full-resolution authoritative GI producer assigns exactly one provider in the main submit",
+        { evaluated, accepted, rejected, providerReceivers, providerUnassigned, providerDuplicates, submits: profile.submits },
+        "accepted + rejected = evaluated; provider receivers > 0; unassigned = duplicate = 0; one submit"
       ));
     } else if (request.scenarioId === "gtao-replacement") {
       const renderer = runtime.renderer;

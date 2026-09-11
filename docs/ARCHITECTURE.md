@@ -39,6 +39,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 帧输入 | `src/render/pipeline/FrameContext.ts` | camera/view、分辨率域、feature topology、history validity、scene bindings、instrumentation 与 capture 请求 |
 | 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | Surface、lighting、AO、reflection、temporal 合同 |
 | Screen-space diffuse | `src/render/features/AOService.ts`、`ScreenSpaceDiffuseService.ts`、`src/render/passes/GtaoPass.ts`、`SsgiPass.ts`、`ScreenSpaceDiffuseResolvePass.ts` | 单值 `off/gtao/ssgi` exclusive owner；Three.js r186-derived GTAO 或 SSGI、同 trace AO/bent、共享 history registry、pre-SSGI source 与能量边界 resolve |
+| Long-range GI | `src/render/features/GIService.ts`、`src/render/passes/LongRangeDiffuseProviderPass.ts` | 单个逐 receiver producer，以早返回执行 Brick4 → Probe Volume → IBL → black；输出唯一 provider identity、diffuse irradiance 与 baseline specular radiance，不预计算三套 fullscreen candidate |
 | 阴影功能 | `src/render/features/ShadowFeature.ts`、`ShadowFeatureManager.ts` | Scene-scoped atlas、cascade/cache、统一 Render World work generation/raster 与 retire |
 | 功能组合 | `src/render/features/*.ts` | Feature/Service 生命周期与 feature-off |
 | 实时证据 UI | `src/addons/inspector` | 有界历史、view-model、实时面板 |

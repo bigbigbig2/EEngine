@@ -38,6 +38,11 @@ import {
   LpvIndirectDiffusePass,
   type LpvIndirectDiffuseJob
 } from "../passes/LpvIndirectDiffusePass.js";
+import {
+  LongRangeDiffuseProviderPass,
+  type LongRangeProviderInputs,
+  type LongRangeProviderJob
+} from "../passes/LongRangeDiffuseProviderPass.js";
 
 /** 静态 GI Provider（Lightmap）的合成输入：Renderer 预导入后传入。 */
 export interface LightmapIndirectInputs {
@@ -115,6 +120,14 @@ export interface OpaqueLightingCommonInputs {
 
 export type OpaqueLightingRequest =
   | (OpaqueLightingCommonInputs & {
+      readonly mode: "providers";
+      readonly providerJob: LongRangeProviderJob;
+      readonly providerInputs: Omit<LongRangeProviderInputs,
+        "depth" | "normal" | "bentNormal" | "albedoAo" | "material" |
+        "metadata" | "camera">;
+      readonly fallbackDiffuseIrradiance: ResourceId;
+    })
+  | (OpaqueLightingCommonInputs & {
       readonly mode: "ibl";
       readonly environment: ResourceId;
       readonly diffuseIrradiance: ResourceId;
@@ -143,8 +156,9 @@ export interface OpaqueLightingResult {
   readonly hdr: ResourceId;
   readonly indirectDiffuse: ResourceId | null;
   readonly indirectSpecular: ResourceId | null;
-  /** Raw provider output whose alpha is receiver validity; null means IBL. */
+  /** Selected provider product; alpha is exact identity on the unified path. */
   readonly providerValidity: ResourceId | null;
+  readonly counters: ResourceId | null;
 }
 
 export interface LightmapIndirectOutput {
@@ -163,6 +177,7 @@ export class GIService {
   private brick4Specular: Brick4SpecularPass | null;
   private brick4Fused: Brick4FusedIndirectPass | null;
   private lpvDiffuse: LpvIndirectDiffusePass | null;
+  private readonly longRangeProvider: LongRangeDiffuseProviderPass;
   private readonly screenSpaceDiffuseResolve: ScreenSpaceDiffuseResolvePass;
 
   constructor(
@@ -176,6 +191,7 @@ export class GIService {
     this.brick4Specular = new Brick4SpecularPass(graphics, surfaceProfile);
     this.brick4Fused = new Brick4FusedIndirectPass(graphics, surfaceProfile);
     this.lpvDiffuse = null;
+    this.longRangeProvider = new LongRangeDiffuseProviderPass(graphics, surfaceProfile);
     this.screenSpaceDiffuseResolve = new ScreenSpaceDiffuseResolvePass(graphics, surfaceProfile);
   }
 
@@ -203,6 +219,35 @@ export class GIService {
       ambientVisibility: inputs.ambientVisibility,
       metadata: inputs.metadata
     };
+    if (inputs.mode === "providers") {
+      const selected = this.longRangeProvider.addToGraph(
+        graph,
+        inputs.providerJob,
+        {
+          ...inputs.providerInputs,
+          depth: inputs.depth,
+          normal: inputs.normal,
+          bentNormal: inputs.bentNormal,
+          albedoAo: inputs.albedoAo,
+          material: inputs.pbr,
+          metadata: inputs.metadata,
+          camera: inputs.camera
+        }
+      );
+      const resolved = this.resolveHdr(graph, {
+        ...common,
+        indirectDiffuse: selected.diffuseIrradiance,
+        indirectSpecular: selected.specularRadiance,
+        fallbackDiffuseIrradiance: inputs.fallbackDiffuseIrradiance
+      }, inputs.screenSpaceDiffuseCorrectionExpected, inputs.extent);
+      return {
+        hdr: resolved.hdr,
+        indirectDiffuse: resolved.resolvedDiffuse ?? selected.diffuseIrradiance,
+        indirectSpecular: resolved.baselineSpecular ?? selected.specularRadiance,
+        providerValidity: selected.providerSelection,
+        counters: selected.counters
+      };
+    }
     if (inputs.mode === "ibl") {
       const frame = this.implementation.resolveIblBaseline(graph, inputs.extent, {
         ...common,
@@ -217,7 +262,8 @@ export class GIService {
         hdr: frame.hdr,
         indirectDiffuse: frame.indirectDiffuse,
         indirectSpecular: frame.iblSpecular,
-        providerValidity: null
+        providerValidity: null,
+        counters: null
       };
     }
     if (inputs.mode === "brick4") {
@@ -225,14 +271,14 @@ export class GIService {
         ...common,
         ...inputs
       });
-      return result;
+      return { ...result, counters: null };
     }
     const result = this.addProbeVolumeIndirect(graph, {
       ...common,
       ...inputs,
       environment: inputs.environment
     });
-    return result;
+    return { ...result, counters: null };
   }
 
   private resolveHdr(
@@ -356,6 +402,7 @@ export class GIService {
     this.brick4Specular!.lastRan = false;
     this.brick4Fused!.lastRan = false;
     if (this.lpvDiffuse !== null) this.lpvDiffuse.lastRan = false;
+    this.longRangeProvider.resetFrameEvidence();
     this.screenSpaceDiffuseResolve.lastRan = false;
   }
 
@@ -367,6 +414,7 @@ export class GIService {
     this.brick4Fused = null;
     this.lpvDiffuse?.destroy();
     this.lpvDiffuse = null;
+    this.longRangeProvider.destroy();
     this.screenSpaceDiffuseResolve.destroy();
   }
 }

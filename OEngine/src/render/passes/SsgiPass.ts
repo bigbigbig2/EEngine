@@ -48,8 +48,6 @@ export interface SsgiInputs {
   readonly surfaceValidity: ResourceId;
   readonly camera: ResourceId;
   readonly counters?: ResourceId;
-  /** Raw long-range provider output; alpha is receiver validity. */
-  readonly providerValidity: ResourceId;
 }
 
 export interface SsgiJob {
@@ -69,7 +67,6 @@ export interface SsgiJob {
   readonly backfaceLighting: number;
   readonly historyGeneration: number;
   readonly preExposure: PreExposureContract;
-  readonly longRangeProvider: 0 | 1 | 2;
 }
 
 export interface SsgiHistoryBindings {
@@ -195,33 +192,29 @@ export class SsgiPass {
 
     let counters: ResourceId | null = null;
     if (inputs.counters !== undefined) {
-      const evidenceBuilder = graph.add("SSGI sampled trace/history/provider evidence", job, (data, resources, context) => {
+      const evidenceBuilder = graph.add("SSGI sampled trace/history evidence", job, (data, resources, context) => {
         const command = commandContext(context.encoder);
         const values = new Uint32Array([
           data.historyValid ? 1 : 0,
           width,
           height,
-          data.sliceCount * data.stepCount * 2,
-          data.longRangeProvider,
-          0, 0, 0
+          data.sliceCount * data.stepCount * 2
         ]);
         const settings = command.allocateTransientBufferAndLoad(values.buffer, GPUBufferUsage.UNIFORM);
         const pass = command.constructComputePass({
-          label: "SSGI sampled trace/history/provider evidence",
+          label: "SSGI sampled trace/history evidence",
           pipeline: SSGI_EVIDENCE_PIPELINE,
           bindings: [[
             view(resources.get(inputs.velocity)),
             view(resources.get(inputs.occlusionConfidence)),
             { buffer: gpuBuffer(resources.get(inputs.counters!), "SSGI counters") },
-            { buffer: settings },
-            view(resources.get(inputs.providerValidity))
+            { buffer: settings }
           ]]
         });
         pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8), 1);
         pass.end();
       });
       evidenceBuilder.read(inputs.velocity); evidenceBuilder.read(inputs.occlusionConfidence);
-      evidenceBuilder.read(inputs.providerValidity);
       evidenceBuilder.read(inputs.counters); counters = evidenceBuilder.write(inputs.counters);
       evidenceBuilder.make_side_effect();
     }
@@ -353,19 +346,14 @@ const SSGI_EVALUATED = counterByteOffset("ssgiEvaluatedPixels") / 4;
 const SSGI_SAMPLES = counterByteOffset("ssgiTraceSamples") / 4;
 const SSGI_ACCEPTED = counterByteOffset("ssgiHistoryAcceptedPixels") / 4;
 const SSGI_REJECTED = counterByteOffset("ssgiHistoryRejectedPixels") / 4;
-const PROVIDER_BRICK4 = counterByteOffset("longRangeBrick4Receivers") / 4;
-const PROVIDER_PROBE = counterByteOffset("longRangeProbeReceivers") / 4;
-const PROVIDER_IBL = counterByteOffset("longRangeIblReceivers") / 4;
 const SSGI_EVIDENCE_WGSL = /* wgsl */ `
 struct Settings {
   history_valid: u32, width: u32, height: u32, samples: u32,
-  provider: u32, _p0: u32, _p1: u32, _p2: u32,
 };
 @group(0) @binding(0) var velocity_source: texture_2d<f32>;
 @group(0) @binding(1) var confidence_source: texture_2d<f32>;
 @group(0) @binding(2) var<storage, read_write> counters: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> settings: Settings;
-@group(0) @binding(4) var provider_validity: texture_2d<f32>;
 @compute @workgroup_size(8, 8, 1) fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= settings.width || id.y >= settings.height) { return; }
   atomicAdd(&counters[${SSGI_EVALUATED}u], 1u);
@@ -378,20 +366,15 @@ struct Settings {
   if (settings.history_valid != 0u && confidence > 0.001 && length(velocity) < 128.0) {
     atomicAdd(&counters[${SSGI_ACCEPTED}u], 1u);
   } else { atomicAdd(&counters[${SSGI_REJECTED}u], 1u); }
-  let valid = textureLoad(provider_validity, vec2i(pixel), 0).a > 0.5;
-  if (settings.provider == 0u && valid) { atomicAdd(&counters[${PROVIDER_BRICK4}u], 1u); }
-  else if (settings.provider == 1u && valid) { atomicAdd(&counters[${PROVIDER_PROBE}u], 1u); }
-  else { atomicAdd(&counters[${PROVIDER_IBL}u], 1u); }
 }
 `;
 const SSGI_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
-  label: "SSGI sampled trace/history/provider evidence",
+  label: "SSGI sampled trace/history evidence",
   layout: { label: "SSGI evidence/layout", bindGroupLayouts: [{ label: "SSGI evidence/group0", entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-    { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } }
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
   ] }] },
   compute: { module: { label: "SSGI evidence", code: SSGI_EVIDENCE_WGSL }, entryPoint: "main" }
 };

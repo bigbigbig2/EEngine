@@ -8,8 +8,8 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 20;
-export const GPU_COUNTER_BYTE_SIZE = 544;
+export const GPU_COUNTER_SCHEMA_VERSION = 21;
+export const GPU_COUNTER_BYTE_SIZE = 560;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
 export const GPU_QUEUE_OVERFLOW_BITS = {
@@ -154,7 +154,11 @@ export const GPU_COUNTER_FIELDS = [
   { name: "longRangeBrick4Receivers", index: 132, semantic: "sampled receivers selecting valid Brick4 long-range diffuse" },
   { name: "longRangeProbeReceivers", index: 133, semantic: "sampled receivers selecting valid Probe Volume long-range diffuse" },
   { name: "longRangeIblReceivers", index: 134, semantic: "sampled receivers falling back to IBL long-range diffuse" },
-  { name: "longRangeBlackReceivers", index: 135, semantic: "sampled receivers falling back to black because no long-range provider is valid" }
+  { name: "longRangeBlackReceivers", index: 135, semantic: "sampled receivers falling back to black because no long-range provider is valid" },
+  { name: "longRangeInvalidGeneration", index: 136, semantic: "sampled receiver/provider candidates rejected because the authored and resident generations differ" },
+  { name: "longRangeNonresidentFallbacks", index: 137, semantic: "sampled receiver/provider candidates falling through because required long-range data is not resident" },
+  { name: "longRangeProviderUnassigned", index: 138, semantic: "sampled valid receivers for which the authoritative long-range producer emitted no provider identity" },
+  { name: "longRangeProviderDuplicates", index: 139, semantic: "sampled valid receivers for which more than one authoritative long-range provider was selected" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

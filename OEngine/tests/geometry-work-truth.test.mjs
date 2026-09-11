@@ -117,7 +117,7 @@ const GEOMETRY_TRUTH_FIELDS = [
 ];
 
 test("ADR-0008 Step 0 freezes a collision-free geometry truth counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 20);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 21);
   const indices = GPU_COUNTER_FIELDS.map((field) => field.index);
   assert.equal(new Set(indices).size, indices.length);
   for (const name of GEOMETRY_TRUTH_FIELDS) {

@@ -58,6 +58,10 @@ import {
   THREE_SSGI_REVISION,
   THREE_SSGI_TRACE_WGSL
 } from "../.test-dist/shaders/ssgi.js";
+import {
+  LONG_RANGE_DIFFUSE_PROVIDER_WGSL,
+  LONG_RANGE_PROVIDER_FORMAT
+} from "../.test-dist/shaders/long_range_diffuse_provider.js";
 globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4, FRAGMENT: 2, VERTEX: 1 });
 const {
   PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
@@ -344,6 +348,19 @@ test("ADR-0009 Step 5 pins the Three.js r186 SSGI sampling invariants", () => {
   assert.match(THREE_SSGI_TRACE_WGSL, /initial_ray_step/);
   assert.match(THREE_SSGI_TRACE_WGSL, /settings\.backface_lighting/);
   assert.match(THREE_SSGI_TRACE_WGSL, /luminance > 7\.0/);
+});
+
+test("ADR-0009 Step 5 freezes one receiver-local long-range provider producer", () => {
+  assert.equal(LONG_RANGE_PROVIDER_FORMAT, "rgba16float");
+  assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /brick_registered/);
+  assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /brick4_receiver_valid\(position\)/);
+  assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /lpv_lookup_cell\(position/);
+  assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /provider_settings\.ibl_resident/);
+  assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /PROVIDER_BLACK/);
+  const brick = LONG_RANGE_DIFFUSE_PROVIDER_WGSL.indexOf("brick4_receiver_valid(position)");
+  const probe = LONG_RANGE_DIFFUSE_PROVIDER_WGSL.indexOf("lpv_lookup_cell(position");
+  const ibl = LONG_RANGE_DIFFUSE_PROVIDER_WGSL.indexOf("provider_settings.ibl_resident");
+  assert.ok(brick >= 0 && probe > brick && ibl > probe);
 });
 
 test("ADR-0009 Step 5 keeps AO, GI, bent and confidence in one history owner", () => {
