@@ -1,11 +1,11 @@
 # OEngine Asset Codec & GPU-Native Texture Pipeline V3 — Design Specification
 
-> **Status:** proposed for integration into ADR-0007  
-> **Date:** 2026-09-11  
-> **Repository:** `bigbigbig2/EEngine`  
-> **Primary scope:** ADR-0007 Texture Cooker / Texture Residency production closure  
-> **Secondary scope:** reusable Worker/WASM asset-codec infrastructure for future Draco / Meshopt / ZSTD paths  
-> **Product target:** WebGPU 2026 Desktop, one Renderer architecture, GPU-native runtime assets, no algorithm-heavy codec reimplementation in OEngine  
+> **Status:** proposed for integration into ADR-0007
+> **Date:** 2026-09-11
+> **Repository:** `bigbigbig2/EEngine`
+> **Primary scope:** ADR-0007 Texture Cooker / Texture Residency production closure
+> **Secondary scope:** reusable Worker/WASM asset-codec infrastructure for future Draco / Meshopt / ZSTD paths
+> **Product target:** WebGPU 2026 Desktop, one Renderer architecture, GPU-native runtime assets, no algorithm-heavy codec reimplementation in OEngine
 > **Validation:** existing DEV / MILESTONE / PERF policy; no parallel test framework
 
 ---
