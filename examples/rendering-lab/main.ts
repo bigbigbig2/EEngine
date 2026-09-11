@@ -6,6 +6,7 @@ import {
   RenderDebugView,
   Renderer,
   Scene,
+  ShadeTexture,
   ShadeTransparencyMode,
   StandardShadeMaterial,
   buildBoxSourceGeometry,
@@ -13,11 +14,13 @@ import {
   createGeometryCookRecipe,
   load_environment_map,
   load_gltf_packed,
+  openTextureAssetPackageV2,
   type GeometryAssetPackage,
   type PackedSceneSource,
   type PackedGltfSource,
   type RenderDebugViewName
 } from "../../OEngine/src/index.ts";
+import { cookReferenceTextureAssetPackageV2 } from "../../OEngine/src/assets/codec/ReferenceTextureCodec.ts";
 import {
   captureWebGpuLimits,
   createEnvironmentManifest,
@@ -937,6 +940,12 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
     labMaterial([0.06, 0.08, 0.11], 0.3, 0, [3.5, 0.35, 0.08]),
     labMaterial([0.20, 0.55, 0.95], 0.08, 1, [0.1, 0.2, 0.5], ShadeTransparencyMode.Transparent)
   ];
+  const cookedTextures = await createBenchmarkCookedTextures();
+  customMaterials[0]!.texture_albedo = cookedTextures.baseColor;
+  customMaterials[0]!.texture_normal = cookedTextures.normal;
+  customMaterials[0]!.texture_orm = cookedTextures.orm;
+  customMaterials[0]!.texture_emissive = cookedTextures.emissive;
+  customMaterials[1]!.texture_albedo = cookedTextures.secondBaseColor;
   const materials = [...imported.materials, ...customMaterials];
   const importedGeometryCount = imported.geometries.length;
   const customMaterialBase = imported.materials.length;
@@ -1018,6 +1027,48 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
       radius: 18.1
     })
   });
+}
+
+async function createBenchmarkCookedTextures(): Promise<Readonly<{
+  baseColor: ShadeTexture;
+  normal: ShadeTexture;
+  orm: ShadeTexture;
+  emissive: ShadeTexture;
+  secondBaseColor: ShadeTexture;
+}>> {
+  const create = async (
+    semantic: "base-color-srgb" | "normal-linear" | "orm-linear" | "emissive-srgb",
+    size: number,
+    suffix: string
+  ): Promise<ShadeTexture> => {
+    const rgba8 = new Uint8Array(size * size * 4);
+    for (let index = 0; index < size * size; index++) {
+      rgba8.set(semantic === "normal-linear"
+        ? [128, 128, 255, 255]
+        : semantic === "orm-linear"
+          ? [255, 166, 28, 255]
+          : suffix === "second"
+            ? [150, 164, 184, 255]
+            : [82, 96, 112, 255], index * 4);
+    }
+    return ShadeTexture.fromAssetPackageV2(await openTextureAssetPackageV2(
+      await cookReferenceTextureAssetPackageV2({
+        width: size,
+        height: size,
+        rgba8,
+        semantic,
+        sourceUri: `fixture://rendering-lab/comprehensive-${semantic}-${suffix}`
+      })
+    ));
+  };
+  const [baseColor, normal, orm, emissive, secondBaseColor] = await Promise.all([
+    create("base-color-srgb", 8, "primary"),
+    create("normal-linear", 8, "primary"),
+    create("orm-linear", 8, "primary"),
+    create("emissive-srgb", 16, "primary"),
+    create("base-color-srgb", 32, "second")
+  ]);
+  return Object.freeze({ baseColor, normal, orm, emissive, secondBaseColor });
 }
 
 function labMaterial(
