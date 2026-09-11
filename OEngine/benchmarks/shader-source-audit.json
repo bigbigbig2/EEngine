@@ -690,7 +690,6 @@
         "src/framegraph/GPUPerformanceTimer.ts",
         "src/framegraph/index.ts",
         "src/framegraph/ShadeGPUCommandContext.ts",
-        "src/gpu/Brick4LightMap.ts",
         "src/gpu/EnvironmentPrefilterPass.ts",
         "src/gpu/GeometryBlasPool.ts",
         "src/gpu/GpuAssetStore.ts",

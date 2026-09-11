@@ -5,6 +5,7 @@ import {
   ShadeIndirectLightingMode,
   ShadeTexture,
   ShadeTransparencyMode,
+  createBrick4LightMapPackageV1,
   openTextureAssetPackageV2,
   prepareKtx2TextureAssetPackageV2,
   uploadTextureAssetPackageV2,
@@ -95,6 +96,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "ssgi-production") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
+      const scene = runtime.scene;
+      if (scene === null) throw new Error("Surface scene is not initialized");
+      renderer.uploadBrick4LightMap(scene, createBrick4Fixture(1));
       renderer.configure({
         features: { screenSpaceDiffuseMode: "ssgi", screenSpaceReflections: false },
         ssgi: {
@@ -112,6 +116,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         }
       });
       await runtime.waitForFrames(5);
+      const brickProfile = await runtime.waitForCounters(runtime.frame - 1);
+      renderer.invalidateBrick4LightMap(scene, 2);
+      await runtime.waitForFrames(2);
       profile = await runtime.waitForCounters(runtime.frame - 1);
       const ssgi = renderer.screenSpaceGiEvidence();
       const gtao = renderer.ambientOcclusionEvidence();
@@ -120,6 +127,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const passes = graph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
       const resources = graph.dump.resources.map((entry) => entry.name);
       const counters = profile.gpuCounters.values;
+      const brickCounters = brickProfile.gpuCounters.values;
       const evaluated = counters.ssgiEvaluatedPixels ?? 0;
       const accepted = counters.ssgiHistoryAcceptedPixels ?? 0;
       const rejected = counters.ssgiHistoryRejectedPixels ?? 0;
@@ -131,6 +139,18 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const providerUnassigned = counters.longRangeProviderUnassigned ?? 0;
       const providerDuplicates = counters.longRangeProviderDuplicates ?? 0;
       Object.assign(evidence, { ssgiProduction: { runtime: ssgi, passes, resources, counters } });
+      assertions.push(validationAssertion(
+        "receiver-local-provider-generation-fallback",
+        (brickCounters.longRangeBrick4Receivers ?? 0) > 0 &&
+          (brickCounters.longRangeProbeReceivers ?? 0) === 0 &&
+          (brickCounters.longRangeIblReceivers ?? 0) === 0 &&
+          (counters.longRangeBrick4Receivers ?? 0) === 0 &&
+          (counters.longRangeInvalidGeneration ?? 0) > 0 &&
+          (counters.longRangeIblReceivers ?? 0) > 0,
+        "A resident Brick4 generation owns covered receivers, then stale generation deterministically falls through to IBL",
+        { resident: brickCounters, invalidated: counters },
+        "resident: Brick4 only; invalidated: invalid-generation > 0 and IBL fallback > 0"
+      ));
       assertions.push(validationAssertion(
         "three-ssgi-pinned-production-path",
         ssgi.enabled && ssgi.algorithm === "three-ssgi-r186-oengine-wgsl" &&
@@ -920,6 +940,27 @@ async function createSurfaceSource(workerBaseColor?: ShadeTexture): Promise<Pack
     { size: [1.8, 1.8, 1.8], position: [0, 1.2, 2.2], materialIndex: 4, debugId: 5 },
     { size: [1.8, 1.8, 1.8], position: [0, 1.2, -2.2], materialIndex: 5, debugId: 6 }
   ], [red, metal, textured, fallback, transparent, alphaTested]);
+}
+
+function createBrick4Fixture(generation: number) {
+  const storage = new Uint8Array(32 + 100 * 4);
+  const view = new DataView(storage.buffer);
+  view.setFloat32(0, -1_000_000, true);
+  view.setFloat32(4, -1_000_000, true);
+  view.setFloat32(8, -1_000_000, true);
+  view.setFloat32(16, 1_000_000, true);
+  view.setFloat32(20, 1_000_000, true);
+  view.setFloat32(24, 1_000_000, true);
+  const words = new Uint32Array(storage.buffer, 32);
+  words.fill(93, 0, 64);
+  // RGB9E5-like DC near one, then zero-ish signed higher SH bands.
+  words[93] = (511 | (511 << 9) | (511 << 18) | (15 << 27)) >>> 0;
+  words.fill(0x7f7f7f7f, 94, 100);
+  return createBrick4LightMapPackageV1({
+    generation,
+    storage,
+    sourceUri: `validation://brick4/generation-${generation}`
+  });
 }
 
 async function createOrdinarySurfaceScene(scene: NonNullable<typeof runtime.scene>) {

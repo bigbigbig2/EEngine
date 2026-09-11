@@ -64,6 +64,20 @@ export type {
   RuntimeAssetVariantV2
 } from "./assets/RuntimeAssetManifestV2.js";
 export {
+  BRICK4_BRANCH_WORDS,
+  BRICK4_LIGHT_MAP_SCHEMA_VERSION,
+  BRICK4_NODE_PROBE_COUNT,
+  BRICK4_PROBE_WORDS,
+  BRICK4_STORAGE_HEADER_BYTES,
+  createBrick4LightMapPackageV1,
+  validateBrick4LightMapPackageV1
+} from "./assets/Brick4LightMapPackage.js";
+export type {
+  Brick4LightMapPackageV1,
+  Brick4LightMapPackageValidation
+} from "./assets/Brick4LightMapPackage.js";
+export type { Brick4LightMapEvidence } from "./gpu/Brick4LightMap.js";
+export {
   TEXTURE_ASSET_SCHEMA_VERSION,
   TEXTURE_COOKER_VERSION,
   openTextureAssetPackageV2,

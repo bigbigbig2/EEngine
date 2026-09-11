@@ -1,6 +1,10 @@
 /** Main render-pipeline owner: feature order, graph recipe, cache, and evidence. */
 
 import { ChangeSignal } from "../../core/Signal.js";
+import type {
+  Brick4LightMapPackageV1,
+  Brick4LightMapPackageValidation
+} from "../../assets/Brick4LightMapPackage.js";
 import { Vec2 } from "../../core/math/Vec2.js";
 import { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { GPU_MESHLET_RASTER_WORK_ABI_VERSION } from "../../gpu/GpuMeshletRasterWorkAbi.js";
@@ -15,6 +19,7 @@ import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
 import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
 import type { GPUSceneEnvironmentContext } from "../../gpu/GPUSceneEnvironmentContext.js";
+import type { Brick4LightMapEvidence } from "../../gpu/Brick4LightMap.js";
 import { FrameGraph, FrameGraphBindingLayout } from "../../framegraph/FrameGraph.js";
 import type { CompiledFrameGraphDump } from "../../framegraph/FrameGraph.js";
 import { CompiledFrameGraphCache } from "../../framegraph/CompiledFrameGraphCache.js";
@@ -728,6 +733,36 @@ export class MainRenderPipeline {
   ): Promise<GpuRenderWorldHandle> {
     const adapted = createPackedSceneSourceFromScene(scene, geometryAssets);
     return this.uploadRenderWorldSource(scene, adapted.source, adapted.meshes);
+  }
+
+  /**
+   * Publishes one validated, already-cooked Brick4 generation for a registered
+   * Scene. This explicit tool path is never called from the stable frame loop.
+   */
+  uploadBrick4LightMap(
+    scene: Scene,
+    source: Brick4LightMapPackageV1
+  ): Brick4LightMapPackageValidation {
+    if (this._graphics.render_world.runtime(scene) === null) {
+      throw new Error("uploadBrick4LightMap requires an uploaded Scene");
+    }
+    return this._environments.obtain(scene).volumetric_light_map.upload(source);
+  }
+
+  /**
+   * Declares a newer Brick4 generation unavailable until the matching package
+   * is uploaded; receiver selection falls through without sampling stale data.
+   */
+  invalidateBrick4LightMap(scene: Scene, nextGeneration?: number): void {
+    const environment = this._environments.get(scene);
+    if (environment === undefined) {
+      throw new Error("invalidateBrick4LightMap requires a registered Brick4 owner");
+    }
+    environment.volumetric_light_map.invalidate(nextGeneration);
+  }
+
+  brick4LightMapEvidence(scene: Scene): Brick4LightMapEvidence | null {
+    return this._environments.get(scene)?.volumetric_light_map.evidence() ?? null;
   }
 
   /** Explicit structural full-resync for add/remove or geometry changes. */
@@ -2438,10 +2473,10 @@ export class MainRenderPipeline {
                 width: bindings.internalWidth,
                 height: bindings.internalHeight,
                 countersEnabled: bindings.gpuCounterBuffer !== null,
-                brickRegistered: brick.generation > 0,
+                brickRegistered: brick.registered,
                 brickResident: brick.available,
                 brickGeneration: brick.generation,
-                brickExpectedGeneration: brick.generation,
+                brickExpectedGeneration: brick.expected_generation,
                 probeRegistered: probe.source.probe_count > 0,
                 probeResident: probe.available,
                 probeGeneration: probe.generation,

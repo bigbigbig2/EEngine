@@ -1,109 +1,158 @@
-/**
- * Brick4LightMap：负责 GPU 资源、数据上传或 GPU 驱动渲染基础设施。
- */
+/** GPU owner for an immutable, monolithically resident Brick4 generation. */
 
-import { writeGpuBuffer } from "./GpuQueueEvidence.js";
+import {
+  validateBrick4LightMapPackageV1,
+  type Brick4LightMapPackageV1,
+  type Brick4LightMapPackageValidation
+} from "../assets/Brick4LightMapPackage.js";
 
-export const BRICK4_LIGHT_MAP_INITIAL_BYTES = 1 << 20;
+export const BRICK4_LIGHT_MAP_DUMMY_BYTES = 4;
+
+export interface Brick4LightMapEvidence {
+  readonly registered: boolean;
+  readonly available: boolean;
+  readonly generation: number;
+  readonly expectedGeneration: number;
+  readonly residentByteLength: number;
+  readonly sourceUri: string | null;
+  readonly branchNodeCount: number;
+  readonly leafNodeCount: number;
+  readonly referencedProbeCount: number;
+}
 
 export class Brick4LightMap {
   private bufferValue: GPUBuffer;
+  private readonly retiredBuffers = new Set<GPUBuffer>();
   private generationValue = 0;
+  private expectedGenerationValue = 0;
   private residentByteLengthValue = 0;
+  private sourceUriValue: string | null = null;
+  private validationValue: Brick4LightMapPackageValidation | null = null;
+  private registeredValue = false;
+  private destroyed = false;
 
   constructor(private readonly device: GPUDevice) {
-    this.bufferValue = this.createBuffer(BRICK4_LIGHT_MAP_INITIAL_BYTES, false);
+    this.bufferValue = this.createBuffer(BRICK4_LIGHT_MAP_DUMMY_BYTES, false);
   }
 
-  get buffer(): GPUBuffer {
-    return this.bufferValue;
-  }
-
-  /**
-   * Monotonic owner generation. Zero is reserved for the never-populated
-   * state so a stale receiver mapping cannot alias the initial allocation.
-   */
-  get generation(): number {
-    return this.generationValue;
-  }
-
-  /** True only after a non-empty Brick4 package has been uploaded. */
+  get buffer(): GPUBuffer { return this.bufferValue; }
+  get generation(): number { return this.generationValue; }
+  get expected_generation(): number { return this.expectedGenerationValue; }
+  get registered(): boolean { return this.registeredValue; }
   get available(): boolean {
-    return this.residentByteLengthValue > 0;
+    return this.registeredValue && this.residentByteLengthValue > 0 &&
+      this.generationValue === this.expectedGenerationValue;
   }
-
-  get resident_byte_length(): number {
-    return this.residentByteLengthValue;
-  }
+  get resident_byte_length(): number { return this.residentByteLengthValue; }
 
   get gpu_memory_usage(): number {
-    return this.bufferValue.size;
-  }
-
-  upload(source: ArrayBuffer | ArrayBufferView): void {
-    const bytes = asBytes(source);
-    this.generationValue++;
-    this.residentByteLengthValue = bytes.byteLength;
-    if (bytes.byteLength === 0) return;
-    const alignedSize = alignTo(bytes.byteLength, 4);
-
-    if (this.bufferValue.size < alignedSize) {
-      this.bufferValue.destroy();
-      const next = this.createBuffer(alignedSize, true);
-      new Uint8Array(next.getMappedRange(), 0, bytes.byteLength).set(bytes);
-      next.unmap();
-      this.bufferValue = next;
-      return;
-    }
-
-    let uploadBytes = bytes;
-    if ((bytes.byteLength & 3) !== 0) {
-      console.warn(
-        "Brick4LightMap: upload buffer size is not multiple of 4 (perf)"
-      );
-      uploadBytes = new Uint8Array(alignedSize);
-      uploadBytes.set(bytes);
-    }
-    writeGpuBuffer(
-      this.device.queue,
-      "Brick4LightMap/upload",
-      this.bufferValue,
-      0,
-      uploadBytes.buffer,
-      uploadBytes.byteOffset,
-      alignedSize
-    );
+    let bytes = this.bufferValue.size;
+    for (const retired of this.retiredBuffers) bytes += retired.size;
+    return bytes;
   }
 
   /**
-   * Invalidates logical residency without destroying the reusable GPU
-   * allocation. The generation change makes previously authored mappings
-   * observably stale.
+   * Publishes a complete validated package atomically. The active buffer is
+   * immutable; replacement never overwrites bytes referenced by an in-flight
+   * frame, and the previous allocation retires only after submitted work.
    */
-  invalidate(): void {
-    this.generationValue++;
+  upload(source: Brick4LightMapPackageV1): Brick4LightMapPackageValidation {
+    this.assertAlive();
+    const validation = validateBrick4LightMapPackageV1(source);
+    if (this.registeredValue && source.generation < this.expectedGenerationValue) {
+      throw new RangeError(
+        `Brick4 generation ${source.generation} is older than expected ${this.expectedGenerationValue}`
+      );
+    }
+    if (this.available && source.generation === this.generationValue) {
+      throw new RangeError(`Brick4 generation ${source.generation} is already resident`);
+    }
+
+    const alignedSize = alignTo(source.storage.byteLength, 4);
+    const next = this.createBuffer(alignedSize, true);
+    new Uint8Array(next.getMappedRange(), 0, source.storage.byteLength)
+      .set(source.storage);
+    next.unmap();
+
+    const previous = this.bufferValue;
+    this.bufferValue = next;
+    this.generationValue = source.generation;
+    this.expectedGenerationValue = source.generation;
+    this.residentByteLengthValue = source.storage.byteLength;
+    this.sourceUriValue = source.sourceUri;
+    this.validationValue = validation;
+    this.registeredValue = true;
+    this.retire(previous);
+    return validation;
+  }
+
+  /**
+   * Declares a newer desired mapping generation before its bytes arrive.
+   * Frames deterministically fall through to Probe/IBL and increment the
+   * invalid-generation counter until upload() atomically publishes it.
+   */
+  invalidate(nextGeneration = this.generationValue + 1): void {
+    this.assertAlive();
+    if (!Number.isSafeInteger(nextGeneration) || nextGeneration <= this.generationValue ||
+        nextGeneration > 0xffffffff) {
+      throw new RangeError("Brick4 invalidation generation must advance as uint32");
+    }
+    this.registeredValue = true;
+    this.expectedGenerationValue = nextGeneration;
     this.residentByteLengthValue = 0;
+    this.sourceUriValue = null;
+    this.validationValue = null;
+  }
+
+  evidence(): Brick4LightMapEvidence {
+    return Object.freeze({
+      registered: this.registered,
+      available: this.available,
+      generation: this.generationValue,
+      expectedGeneration: this.expectedGenerationValue,
+      residentByteLength: this.residentByteLengthValue,
+      sourceUri: this.sourceUriValue,
+      branchNodeCount: this.validationValue?.branchNodeCount ?? 0,
+      leafNodeCount: this.validationValue?.leafNodeCount ?? 0,
+      referencedProbeCount: this.validationValue?.referencedProbeCount ?? 0
+    });
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.bufferValue.destroy();
+    for (const retired of this.retiredBuffers) retired.destroy();
+    this.retiredBuffers.clear();
+  }
+
+  private retire(buffer: GPUBuffer): void {
+    this.retiredBuffers.add(buffer);
+    void this.device.queue.onSubmittedWorkDone().then(
+      () => this.destroyRetired(buffer),
+      () => this.destroyRetired(buffer)
+    );
+  }
+
+  private destroyRetired(buffer: GPUBuffer): void {
+    if (!this.retiredBuffers.delete(buffer)) return;
+    buffer.destroy();
   }
 
   private createBuffer(size: number, mappedAtCreation: boolean): GPUBuffer {
     return this.device.createBuffer({
-      label: "",
+      label: "Brick4 immutable light-map generation",
       size,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE,
       mappedAtCreation
     });
+  }
+
+  private assertAlive(): void {
+    if (this.destroyed) throw new Error("Brick4LightMap is destroyed");
   }
 }
 
 function alignTo(value: number, alignment: number): number {
   return Math.ceil(value / alignment) * alignment;
-}
-
-function asBytes(source: ArrayBuffer | ArrayBufferView): Uint8Array {
-  if (source instanceof ArrayBuffer) return new Uint8Array(source);
-  return new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
 }

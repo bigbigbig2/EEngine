@@ -25,7 +25,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 
 | 边界 | 当前 owner | 责任 |
 | --- | --- | --- |
-| Runtime Asset | `src/assets/RuntimeAssetManifestV2.ts`、`RuntimeAssetResidency.ts`、`GeometryAssetPackage.ts`、`TextureAssetPackage.ts`、`src/assets/codec/*`、loaders | package/variant 验证、稳定 chunk identity、Encoded Texture Variant、惰性有界 Worker/WASM preparation、budget/request state 与 logical/physical resident range |
+| Runtime Asset | `src/assets/RuntimeAssetManifestV2.ts`、`RuntimeAssetResidency.ts`、`GeometryAssetPackage.ts`、`TextureAssetPackage.ts`、`Brick4LightMapPackage.ts`、`src/assets/codec/*`、loaders | package/variant 验证、稳定 chunk identity、Encoded Texture Variant、Brick4 monolithic tree/probe generation、惰性有界 Worker/WASM preparation、budget/request state 与 logical/physical resident range |
 | GPU 资产 | `src/gpu/GpuAssetStore.ts`、`TextureResidency.ts` | compact geometry residency；纹理 exact-format immutable segment、有界 multi `TextureBindingSet`、uncooked RGBA8 development segment、stable logical descriptor 与原子派生 routing |
 | 场景实例 | `src/gpu/GpuScene.ts` | 64 B static + 112 B dynamic instance ABI，static/transform/material/visibility/lifecycle 显式窄 patch 与 CPU shadow accounting |
 | GPU Render World | `src/gpu/GpuRenderWorld.ts` | Packed source 与普通 Scene adapter 的统一 runtime 生命周期 |

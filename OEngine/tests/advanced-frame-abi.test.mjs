@@ -62,6 +62,11 @@ import {
   LONG_RANGE_DIFFUSE_PROVIDER_WGSL,
   LONG_RANGE_PROVIDER_FORMAT
 } from "../.test-dist/shaders/long_range_diffuse_provider.js";
+import {
+  BRICK4_LIGHT_MAP_SCHEMA_VERSION,
+  createBrick4LightMapPackageV1,
+  validateBrick4LightMapPackageV1
+} from "../.test-dist/assets/Brick4LightMapPackage.js";
 globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4, FRAGMENT: 2, VERTEX: 1 });
 const {
   PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
@@ -361,6 +366,44 @@ test("ADR-0009 Step 5 freezes one receiver-local long-range provider producer", 
   const probe = LONG_RANGE_DIFFUSE_PROVIDER_WGSL.indexOf("lpv_lookup_cell(position");
   const ibl = LONG_RANGE_DIFFUSE_PROVIDER_WGSL.indexOf("provider_settings.ibl_resident");
   assert.ok(brick >= 0 && probe > brick && ibl > probe);
+});
+
+test("ADR-0009 Step 5 validates monolithic Brick4 tree/probe residency", () => {
+  const storage = new Uint8Array(32 + 100 * 4);
+  const view = new DataView(storage.buffer);
+  view.setFloat32(0, -1, true);
+  view.setFloat32(4, -2, true);
+  view.setFloat32(8, -3, true);
+  view.setFloat32(16, 1, true);
+  view.setFloat32(20, 2, true);
+  view.setFloat32(24, 3, true);
+  const words = new Uint32Array(storage.buffer, 32);
+  words.fill(93, 0, 64);
+  const brick = createBrick4LightMapPackageV1({
+    generation: 7,
+    storage,
+    sourceUri: "fixture://brick4/root"
+  });
+  assert.equal(brick.schemaVersion, BRICK4_LIGHT_MAP_SCHEMA_VERSION);
+  const evidence = validateBrick4LightMapPackageV1(brick);
+  assert.deepEqual(evidence, {
+    generation: 7,
+    byteLength: storage.byteLength,
+    branchNodeCount: 1,
+    leafNodeCount: 0,
+    referencedProbeCount: 1
+  });
+
+  const invalid = new Uint8Array(storage);
+  new Uint32Array(invalid.buffer, 32)[64] = 0x80000000;
+  assert.throws(
+    () => createBrick4LightMapPackageV1({
+      generation: 8,
+      storage: invalid,
+      sourceUri: "fixture://brick4/reserved-bit"
+    }),
+    /reserved occupancy/
+  );
 });
 
 test("ADR-0009 Step 5 keeps AO, GI, bent and confidence in one history owner", () => {
