@@ -1,17 +1,18 @@
 # Platform
 
-## PLAT-TEXTURE-V2 · KTX/Basis research and BC physical package profile
+## PLAT-TEXTURE-V3 · KTX/Basis production codec 与 Web integration reference
 
-- Local owner/source: `OEngine/src/assets/TextureAssetPackage.ts`、`RuntimeAssetManifestV2.ts` 与 `examples/validation/surface` 的真实 WebGPU oracle。
-- Upstream: <https://github.com/KhronosGroup/KTX-Software>、<https://github.com/BinomialLLC/basis_universal>、<https://gpuweb.github.io/gpuweb/#texture-formats>。
-- Revision: KTX-Software `90967979cbb7e9401ee2401ff997f30b4b7507d6`；Basis Universal `99f52d63aa6799cbdaecfe977111dc5ec3b31d47`；GPUWeb Editor's Draft 2026-09-01（`e0aff163a37eb3633ffd612e2a943ceb6196d6af`）。
-- Upstream source: KTX-Software `tools/toktx`/JS bindings、Basis Universal `webgl/encoder`/`transcoder` 作为 KTX2/UASTC/ETC1S 工具链候选；GPUWeb 的 BC1/BC3/BC4/BC5 block layout、feature negotiation 和 copy validation 是当前物理变体的语义来源。
-- License: KTX-Software Apache-2.0；Basis Universal Apache-2.0；W3C document license。当前没有复制其表达性源码或分发其 WASM/native binary。
-- Adoption: 当前为 specification/reference reimplementation。离线 cooker 直接生成有界 BC1/3/4/5 physical blocks 与 RGBA8 fallback；KTX/Basis 对象模型和 transcoder 尚未成为 runtime dependency。
-- Retained invariants: offline mip、sRGB linear-light filtering、normal renormalization、MASK coverage、block-aligned payload、capability-first variant selection、确定性 metadata/checksum。
-- OEngine/WebGPU differences: 第一版 desktop-bc profile 在 `texture-compression-unaligned` 尚不可用时要求 base width/height 为 4 对齐，不要求 power-of-two；后续物理 mip subresource 按 block rounding 上传，因此 BC 与 portable variant 都保留完整 1×1 tail。Runtime 只暴露 OEngine package contract。
-- Fallback/lifecycle: `texture-compression-bc` 未启用时选择完整 `rgba8` variant；variant 缺失/损坏在 GPU resource 创建前失败；上传失败立即销毁 provisional texture，device loss 由 Renderer/asset owner 重新打开 package 并重建。
-- Local validation: `runtime-asset-v2.test.mjs` 覆盖确定性、损坏输入、variant、颜色/normal/MASK mip oracle；`surface.texture-package-bc` 独立覆盖 cook → load → BC upload → sample，`surface.texture-package-production` 在本地 Chrome/NVIDIA adapter 覆盖普通 Render World/TextureResidency 的五类语义、BC resident、全 mip 直传、真实着色和零 Cooked runtime mip pass。
+- Local owner/source: `OEngine/src/assets/codec/`、`OEngine/src/assets/TextureAssetPackage.ts`、`RuntimeAssetManifestV2.ts` 与 `examples/validation/surface`。
+- Upstream: <https://github.com/KhronosGroup/KTX-Software>、<https://github.com/BinomialLLC/basis_universal>、<https://github.com/mrdoob/three.js>、<https://github.com/BabylonJS/Babylon.js>、<https://gpuweb.github.io/gpuweb/#texture-formats>。
+- Revision: runtime binary 是 KTX-Software `v4.4.2`、source commit `4d6fc70eaf62ad0558e63e8d97eb9766118327a6`；2026 source review 同时固定 KTX-Software `90967979cbb7e9401ee2401ff997f30b4b7507d6` 与 Basis Universal `v2_50`；Three.js `r186`（`819fadd6b663b74d828c6af72a543024f74d3877`）；Babylon.js `9.26.0`（`e40c30aa8d5280b3781b69ecea5f58c9610b05e8`）；GPUWeb Editor's Draft 2026-09-01（`e0aff163a37eb3633ffd612e2a943ceb6196d6af`）。
+- Upstream source: runtime 使用官方 release `KTX-Software-4.4.2-Web-libktx_read.zip` 中 `libktx_read.js`/`libktx_read.wasm`，对应 `interface/js_binding/ktx_wrapper.cpp` 和 libktx/Basis transcoder；Three.js `examples/jsm/loaders/KTX2Loader.js`、`examples/jsm/utils/WorkerPool.js` 与 Babylon.js `packages/dev/core/src/Misc/khronosTextureContainer2.ts`、`packages/tools/ktx2Decoder/` 只用于 Worker pool、Transferable、lifecycle 与 target decision 对照。
+- Build flags/artifact hashes: Khronos release 的 read-only Web build启用 libktx Basis transcoder，不包含 write/encoder API；release zip SHA-256 `dbade8edfbbae4a8aa432d98a61b374c906fe062545c43f95ccace78e9af0465`，原始 JS `235d8265b5c30908272ecd3a33502a6b9175f5518c671b753b0f0fcaaf48fca8`，未修改 WASM `8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e`。本地只给 generated JS 追加 ESM default export，修改声明保存在同目录 `LICENSE.md`。
+- License: KTX-Software 与 Basis Universal Apache-2.0；Three.js MIT；Babylon.js Apache-2.0；W3C document license。Vendored binary/source notice 位于 `OEngine/src/assets/codec/vendor/ktx-software-4.4.2/LICENSE.md`。
+- Adoption: KTX-Software 是 direct pinned codec binary；GPU texture format/copy rules 是按规格独立实现；Three.js/Babylon.js 是 specification/reference reimplementation。OEngine 自研 BC/mip helper 仅允许 test/reference，production texture compression/transcoding 不得依赖 OEngine-authored block codec。
+- Retained invariants: bounded lazy Workers、Transferable input/output、每 Worker 一次 WASM init、capability 与 exact transcoder target 双重选择、完整 mip、sRGB/normal/MASK semantic contract、block extent、atomic residency publication、确定性 metadata/checksum。
+- OEngine/WebGPU differences: Worker 不拥有 WebGPU/Renderer/Texture；KTX2 UASTC/ETC1S output 归一化为 OEngine encoded variant，并进入 ADR-0007 同一 residency transaction。Pinned v4.4.2 target matrix 是 BC1/3/4/5/7、ETC1/ETC2/EAC、ASTC 4×4 与 RGBA32；未宣称 BC6H 或可变 ASTC block target。`texture-compression-unaligned` 尚不作为 hard requirement。
+- Fallback/lifecycle: 已兼容的 GPU-native package 永远绕过 Worker/WASM；codec 不可用或无 exact target 时只选择 package 明示且 policy 允许的 uncompressed variant，否则在 GPU resource 创建前失败。取消/Worker crash 释放 CPU reservation，device loss 从 authoritative package/KTX2 input 重建。
+- Local validation: `asset-codec-service.test.mjs` 覆盖 protocol、priority/FIFO、Worker/memory bound、Transferable、cancel/failure/replacement、lazy lifecycle、policy，并以 SHA-256 `c59c2174a0db4e12d2bbbab8f830cd9f2f1716194bbda89fac5ccbd57aae5268` 的 upstream 32×32 UASTC fixture 真实调用 pinned WASM 转 BC7；原有 `runtime-asset-v2.test.mjs` 与 Surface browser cases 继续覆盖 package/residency/GPU consumer。
 
 ## PLAT-WEBGPU · WebGPU 2026/WGSL capability contract
 

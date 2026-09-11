@@ -66,13 +66,15 @@ export type {
 export {
   TEXTURE_ASSET_SCHEMA_VERSION,
   TEXTURE_COOKER_VERSION,
-  cookTextureAssetPackageV2,
   openTextureAssetPackageV2,
   selectTextureAssetVariantV2,
-  uploadTextureAssetPackageV2
+  uploadTextureAssetPackageV2,
+  writeEncodedTextureAssetPackageV2
 } from "./assets/TextureAssetPackage.js";
 export type {
   SelectedTextureVariantV2,
+  EncodedTextureMipV2,
+  EncodedTextureVariantV2,
   TextureAssetPackageV2,
   TextureAssetLoadEvidenceV2,
   TextureCookRecipeV2,
@@ -85,6 +87,49 @@ export type {
   UploadedTextureAssetV2
 } from "./assets/TextureAssetPackage.js";
 export { RuntimeAssetResidencyState } from "./assets/RuntimeAssetResidency.js";
+export {
+  AssetCodecService,
+  AssetCodecTaskError,
+  defaultAssetCodecWorkerCount
+} from "./assets/codec/AssetCodecService.js";
+export type {
+  AssetCodecServiceEvidence,
+  AssetCodecServiceOptions
+} from "./assets/codec/AssetCodecService.js";
+export {
+  KTX_SOFTWARE_CODEC_ID,
+  KTX_SOFTWARE_CODEC_REVISION,
+  KTX_SOFTWARE_TRANSCODE_TARGETS,
+  KTX_SOFTWARE_WASM_SHA256,
+  createKtx2AssetCodecService,
+  createKtx2TranscodeTask,
+  encodedTextureVariantFromKtx2Result,
+  estimateKtx2TranscodePeakBytes,
+  prepareKtx2TextureAssetPackageV2
+} from "./assets/codec/Ktx2BasisCodec.js";
+export type { PrepareKtx2TextureOptions } from "./assets/codec/Ktx2BasisCodec.js";
+export { planTextureDecode } from "./assets/codec/AssetCodecPlanner.js";
+export { selectTextureTranscodeTarget } from "./assets/codec/TextureCodecPolicy.js";
+export type {
+  AssetCodecEvidence,
+  AssetCodecMipResult,
+  AssetCodecPriority,
+  AssetCodecTask,
+  AssetCodecTaskKind,
+  AssetCodecTaskResult,
+  Ktx2SourceEncoding,
+  Ktx2TranscodeTargetFormat,
+  Ktx2TranscodeTask
+} from "./assets/codec/AssetCodecTypes.js";
+export type {
+  TextureDecodePlan,
+  TextureDecodePlanRequest,
+  TexturePlanVariant
+} from "./assets/codec/AssetCodecPlanner.js";
+export type {
+  TextureCodecCapabilities,
+  TextureCodecTargetRequest
+} from "./assets/codec/TextureCodecPolicy.js";
 export type {
   RuntimeAssetRequestState,
   RuntimeAssetResidencyBudget,

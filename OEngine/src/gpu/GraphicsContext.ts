@@ -43,6 +43,8 @@ import {
   ResourceAccounting,
   type ResourceAccountingSnapshot
 } from "../debug/profiling/ResourceAccounting.js";
+import { AssetCodecService } from "../assets/codec/AssetCodecService.js";
+import { createKtx2AssetCodecService } from "../assets/codec/Ktx2BasisCodec.js";
 
 export interface GraphicsMemoryEvidence {
   readonly schemaVersion: 1;
@@ -90,6 +92,7 @@ export class GraphicsContext {
   private renderWorldValue: GpuRenderWorld | undefined;
   private materialStoreValue: GpuMaterialStore | undefined;
   private textureResidencyValue: TextureResidency | undefined;
+  private assetCodecServiceValue: AssetCodecService | undefined;
   private readonly textureMaxResolution: number;
   private timerIncrementValue = 0;
   private destroyed = false;
@@ -257,6 +260,16 @@ export class GraphicsContext {
     return this.textureResidencyValue;
   }
 
+  /** Lazily creates the bounded CPU Worker/WASM codec owner. */
+  get asset_codecs(): AssetCodecService {
+    this.assetCodecServiceValue ??= createKtx2AssetCodecService();
+    return this.assetCodecServiceValue;
+  }
+
+  get asset_codecs_if_created(): AssetCodecService | undefined {
+    return this.assetCodecServiceValue;
+  }
+
   async initialize(): Promise<void> {
     await STATIC_GRAPHICS_ENGINE_ASSETS.init();
   }
@@ -396,6 +409,8 @@ export class GraphicsContext {
     this.materialStoreValue = undefined;
     this.textureResidencyValue?.destroy();
     this.textureResidencyValue = undefined;
+    this.assetCodecServiceValue?.destroy();
+    this.assetCodecServiceValue = undefined;
     this.gpuSceneValue?.destroy();
     this.gpuSceneValue = undefined;
     this.assetStoreValue?.destroy();

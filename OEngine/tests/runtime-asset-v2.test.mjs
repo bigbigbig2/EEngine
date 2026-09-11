@@ -4,11 +4,60 @@ import test from "node:test";
 globalThis.GPUTextureUsage ??= Object.freeze({ COPY_DST: 2, TEXTURE_BINDING: 4 });
 
 const {
-  cookTextureAssetPackageV2,
   openTextureAssetPackageV2,
   selectTextureAssetVariantV2,
-  uploadTextureAssetPackageV2
+  uploadTextureAssetPackageV2,
+  writeEncodedTextureAssetPackageV2
 } = await import("../.test-dist/assets/TextureAssetPackage.js");
+const {
+  cookReferenceTextureAssetPackageV2: cookTextureAssetPackageV2
+} = await import("../.test-dist/assets/codec/ReferenceTextureCodec.js");
+
+test("encoded-variant writer round-trips BC7 provenance and explicit physical extents", async () => {
+  const source = sourceTexture("base-color-srgb");
+  const mips = [8, 4, 2, 1].map((size, level) => ({
+    level,
+    logicalWidth: size,
+    logicalHeight: size,
+    physicalWidth: Math.max(4, size),
+    physicalHeight: Math.max(4, size),
+    payload: new Uint8Array(Math.ceil(size / 4) ** 2 * 16).fill(level + 1)
+  }));
+  const encoded = {
+    profile: "worker-transcoded",
+    semantic: source.semantic,
+    format: "bc7-rgba-unorm-srgb",
+    blockWidth: 4,
+    blockHeight: 4,
+    bytesPerBlock: 16,
+    codecId: "khronos-ktx-software-libktx-read",
+    codecRevision: "v4.4.2",
+    codecBinaryHash: "8".repeat(64),
+    mips
+  };
+  const asset = await openTextureAssetPackageV2(
+    await writeEncodedTextureAssetPackageV2(source, [encoded])
+  );
+  const selected = selectTextureAssetVariantV2(asset, new Set(["texture-compression-bc"]));
+  assert.equal(selected.format, "bc7-rgba-unorm-srgb");
+  assert.equal(selected.codecId, encoded.codecId);
+  assert.equal(selected.codecRevision, encoded.codecRevision);
+  assert.equal(selected.codecBinaryHash, encoded.codecBinaryHash);
+  assert.deepEqual(selected.mips.map(({ logicalWidth, physicalWidth }) => [logicalWidth, physicalWidth]), [
+    [8, 8], [4, 4], [2, 4], [1, 4]
+  ]);
+  await assert.rejects(
+    writeEncodedTextureAssetPackageV2(source, [{ ...encoded, mips: mips.slice(0, 3) }]),
+    /mip chain is incomplete/
+  );
+  await assert.rejects(
+    writeEncodedTextureAssetPackageV2(source, [{
+      ...encoded,
+      mips: [{ ...mips[0], payload: new Uint8Array(15) }, ...mips.slice(1)]
+    }]),
+    /payload byte length/
+  );
+});
 
 test("Runtime Package V2 metadata is deterministic and rejects corruption", async () => {
   const source = sourceTexture("base-color-srgb");
@@ -72,7 +121,8 @@ test("Texture Cooker V2 emits complete offline mip chains and capability-selecte
     const fallback = selectTextureAssetVariantV2(asset, new Set());
     assert.equal(compressed.format, format);
     assert.equal(fallback.format, semantic === "base-color-srgb" ? "rgba8unorm-srgb" : "rgba8unorm");
-    assert.deepEqual(compressed.mips.map(({ width, height }) => [width, height]), [[8, 8], [4, 4], [2, 2], [1, 1]]);
+    assert.deepEqual(compressed.mips.map(({ logicalWidth, logicalHeight }) => [logicalWidth, logicalHeight]), [[8, 8], [4, 4], [2, 2], [1, 1]]);
+    assert.deepEqual(compressed.mips.map(({ physicalWidth, physicalHeight }) => [physicalWidth, physicalHeight]), [[8, 8], [4, 4], [4, 4], [4, 4]]);
     assert.equal(compressed.payloads.length, 4);
     assert.equal(fallback.payloads.length, 4);
   }
@@ -137,7 +187,7 @@ test("Texture Package V2 uploads selected BC mips without runtime mip work", asy
     typeof residentResourceId === "string" && residentResourceId.length > 0));
   assert.equal(writes.length, 4);
   assert.equal(texture.descriptor.mipLevelCount, 4);
-  assert.deepEqual(writes.map(({ size }) => [size.width, size.height]), [[8, 8], [4, 4], [4, 4], [4, 4]]);
+  assert.deepEqual(writes.map(({ size }) => [size.width, size.height]), [[8, 8], [4, 4], [2, 2], [1, 1]]);
   assert.ok(uploaded.evidence.residentBytes < 8 * 8 * 4);
 
   const createCount = writes.length;

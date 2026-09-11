@@ -161,3 +161,41 @@ test("porting ledgers keep required provenance fields", () => {
     }
   }
 });
+
+test("ADR-0011 freezes production codec authority and exact integration provenance", () => {
+  const adr = readFileSync(path.join(docsRoot, "adr", "0011-asset-codec-and-gpu-native-texture-pipeline-v3.md"), "utf8");
+  const platform = readFileSync(path.join(docsRoot, "porting", "platform.md"), "utf8");
+  assert.match(adr, /Production source graph.*不得 import/s);
+  for (const marker of [
+    "KTX-Software-4.4.2-Web-libktx_read.zip",
+    "examples/jsm/loaders/KTX2Loader.js",
+    "examples/jsm/utils/WorkerPool.js",
+    "packages/dev/core/src/Misc/khronosTextureContainer2.ts",
+    "packages/tools/ktx2Decoder/",
+    "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e"
+  ]) assert.match(platform, new RegExp(marker.replaceAll(".", "\\.")), marker);
+});
+
+test("production asset and GPU source graph does not import the reference texture codec", () => {
+  const sourceRoots = [
+    path.join(repoRoot, "OEngine", "src", "assets"),
+    path.join(repoRoot, "OEngine", "src", "gpu")
+  ];
+  const files = sourceRoots.flatMap((root) => sourceFiles(root));
+  for (const file of files) {
+    if (file.endsWith("ReferenceTextureCodec.ts")) continue;
+    assert.doesNotMatch(
+      readFileSync(file, "utf8"),
+      /(?:import|export)[^;]*ReferenceTextureCodec/s,
+      path.relative(repoRoot, file)
+    );
+  }
+});
+
+function sourceFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(absolute);
+    return entry.isFile() && entry.name.endsWith(".ts") ? [absolute] : [];
+  });
+}

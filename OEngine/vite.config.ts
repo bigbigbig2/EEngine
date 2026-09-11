@@ -44,6 +44,7 @@ const distributablePackage = {
 
 const nativeAssets = [
   ["avif_dec.wasm", "src/loaders/avif_dec.wasm"],
+  ["asset-codec/libktx_read.wasm", "src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.wasm"],
   ["assets/textures/stbn_unitvec1.bin", "src/render/assets/textures/stbn_unitvec1.bin"],
   ["assets/textures/stbn_unitvec2.bin", "src/render/assets/textures/stbn_unitvec2.bin"],
   ["assets/textures/stbn_unitvec3.bin", "src/render/assets/textures/stbn_unitvec3.bin"],
@@ -60,6 +61,11 @@ const textureAssetUrlPlaceholder =
 const avifWasmUrlSource =
   'new URL("avif_dec.wasm", import.meta.url).href';
 const avifWasmUrlPlaceholder = "globalThis.__shade_re_avif_wasm_url__";
+const ktxWasmUrlSource = `new URL(
+    "./vendor/ktx-software-4.4.2/libktx_read.wasm",
+    import.meta.url
+  )`;
+const ktxWasmUrlPlaceholder = "globalThis.__shade_re_ktx_wasm_url__";
 
 /**
  * Native asset URLs must remain relative to the installed module so a
@@ -84,6 +90,13 @@ const preserveConsumerAssetUrls = {
       }
       return code.replace(avifWasmUrlSource, avifWasmUrlPlaceholder);
     }
+    if (id.endsWith("/assets/codec/Ktx2BasisCodec.ts")) {
+      const code = readFileSync(id, "utf8");
+      if (!code.includes(ktxWasmUrlSource)) {
+        throw new Error("libktx_read.wasm URL contract not found");
+      }
+      return code.replace(ktxWasmUrlSource, ktxWasmUrlPlaceholder);
+    }
     return null;
   },
   renderChunk(code: string) {
@@ -97,6 +110,10 @@ const preserveConsumerAssetUrls = {
     restored = restored.replaceAll(
       avifWasmUrlPlaceholder,
       avifWasmUrlSource
+    );
+    restored = restored.replaceAll(
+      ktxWasmUrlPlaceholder,
+      'new URL("asset-codec/libktx_read.wasm", import.meta.url)'
     );
     return restored === code ? null : { code: restored, map: null };
   }

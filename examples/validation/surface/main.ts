@@ -4,12 +4,14 @@ import {
   ShadeDrawSide,
   ShadeTexture,
   ShadeTransparencyMode,
-  cookTextureAssetPackageV2,
   openTextureAssetPackageV2,
   uploadTextureAssetPackageV2,
   type FrameProfileSnapshot,
   type PackedSceneSource
 } from "../../../OEngine/src/index.ts";
+import {
+  cookReferenceTextureAssetPackageV2 as cookTextureAssetPackageV2
+} from "../../../OEngine/src/assets/codec/ReferenceTextureCodec.ts";
 import {
   GPU_TEXTURE_REF_ABI_VERSION,
   GPU_TEXTURE_REF_BANK_MASK,

@@ -10,7 +10,8 @@ const [
   { GpuRenderWorld },
   { createPackedSceneSourceFromScene },
   { TextureResidency },
-  { cookTextureAssetPackageV2, openTextureAssetPackageV2 },
+  { cookReferenceTextureAssetPackageV2: cookTextureAssetPackageV2 },
+  { openTextureAssetPackageV2 },
   { createEnvironmentManifest },
   {
     createWorkQueueReservationState,
@@ -45,6 +46,7 @@ const [
   import("../.test-dist/gpu/GpuRenderWorld.js"),
   import("../.test-dist/gpu/GpuSceneAdapter.js"),
   import("../.test-dist/gpu/TextureResidency.js"),
+  import("../.test-dist/assets/codec/ReferenceTextureCodec.js"),
   import("../.test-dist/assets/TextureAssetPackage.js"),
   import("../.test-dist/debug/EnvironmentManifest.js"),
   import("../.test-dist/gpu/GpuWorkGenerationAbi.js"),

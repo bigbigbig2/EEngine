@@ -690,8 +690,8 @@ export class TextureResidency {
     ) + packagePlans.reduce(
       (sum, plan) => sum + texturePackageSegmentBytes(
         plan.variant.format,
-        plan.variant.mips[0]!.width,
-        plan.variant.mips[0]!.height,
+        plan.variant.mips[0]!.logicalWidth,
+        plan.variant.mips[0]!.logicalHeight,
         plan.variant.mips.length,
         plan.freshCount + 1
       ),
@@ -719,8 +719,8 @@ export class TextureResidency {
         if (segment.texture !== null || segment.key !== null) {
           throw new Error("TextureResidency attempted to replace an immutable cooked segment");
         }
-        const width = variant.mips[0]!.width;
-        const height = variant.mips[0]!.height;
+        const width = variant.mips[0]!.logicalWidth;
+        const height = variant.mips[0]!.logicalHeight;
         const capacity = plan.freshCount + 1;
         const descriptor: GPUTextureDescriptor = {
           label: `TextureResidency/package-${segment.bindingSlot}-${variant.format}-${width}x${height}`,
