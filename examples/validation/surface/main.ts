@@ -5,6 +5,7 @@ import {
   ShadeTexture,
   ShadeTransparencyMode,
   openTextureAssetPackageV2,
+  prepareKtx2TextureAssetPackageV2,
   uploadTextureAssetPackageV2,
   type FrameProfileSnapshot,
   type PackedSceneSource
@@ -47,6 +48,10 @@ import {
 
 const canvas = required<HTMLCanvasElement>("gpu-canvas");
 const statusElement = required<HTMLElement>("status");
+const ETC1S_MIP_FIXTURE_URL = new URL(
+  "../../../OEngine/tests/fixtures/texture-codec/rgba-64x64-mipmap-etc1s.ktx2",
+  import.meta.url
+);
 let disposed = false;
 const runtime = new CanonicalPackedRuntime({
   canvas,
@@ -74,7 +79,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "transparent", "scene-adapter"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "transparent", "scene-adapter"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -141,6 +146,59 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "R >= 190, G/B <= 80, A >= 245"
       ));
       profile = await runtime.waitForCounters(startedFrame);
+    } else if (request.scenarioId === "texture-codec-production") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Surface runtime is not initialized");
+      if (!renderer.device.features.has("texture-compression-bc")) {
+        throw new Error("Target desktop adapter did not enable texture-compression-bc");
+      }
+      const response = await fetch(ETC1S_MIP_FIXTURE_URL);
+      if (!response.ok) throw new Error(`KTX2 fixture fetch failed: ${response.status} ${response.statusText}`);
+      const asset = await prepareKtx2TextureAssetPackageV2(
+        renderer.graphics.asset_codecs,
+        await response.arrayBuffer(),
+        {
+          taskId: 1,
+          priority: 0,
+          sourceEncoding: "ktx2-etc1s",
+          semantic: "base-color-srgb",
+          targetFormat: "bc7-rgba-unorm-srgb",
+          sourceUri: "fixture://surface/texture-codec-production"
+        }
+      );
+      const workerTexture = ShadeTexture.fromAssetPackageV2(asset);
+      workerTexture.label = "validation-surface-worker-transcoded-base-color";
+      await runtime.replaceScene(await createSurfaceSource(workerTexture));
+      profile = await runtime.waitForCounters(startedFrame);
+      const codec = renderer.graphics.asset_codecs.evidence();
+      const variant = asset.variants[0];
+      const packageEvidence = Object.freeze({
+        sourceBytes: asset.evidence.sourceBytes,
+        packageBytes: asset.evidence.packageBytes,
+        mipCount: variant?.mips.length ?? 0,
+        physicalFormat: variant?.format ?? null,
+        codecId: variant?.codecId ?? null,
+        codecRevision: variant?.codecRevision ?? null,
+        codecBinaryHash: variant?.codecBinaryHash ?? null
+      });
+      evidence.codec = codec;
+      evidence.package = packageEvidence;
+      assertions.push(validationAssertion(
+        "texture-codec-worker-executed",
+        codec.tasksCompleted === 1 && codec.workerPathCount === 1 && codec.outputBytes > 0 && codec.peakActiveWorkers === 1,
+        "The bounded browser Worker executed the pinned KTX2/Basis codec exactly once",
+        codec,
+        "completed/workerPath/peakWorkers = 1 and outputBytes > 0"
+      ));
+      assertions.push(validationAssertion(
+        "texture-codec-package-provenance",
+        packageEvidence.physicalFormat === "bc7-rgba-unorm-srgb" && packageEvidence.mipCount === 7 &&
+          packageEvidence.codecId === "khronos-ktx-software-libktx-read" &&
+          packageEvidence.codecBinaryHash === "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e",
+        "Worker output retained its exact physical format, complete mip chain, and pinned codec provenance in TextureAssetPackage V2",
+        packageEvidence,
+        "BC7 sRGB, 7 mips, pinned libktx identity"
+      ));
     } else if (request.scenarioId === "material-switch") {
       const before = await runtime.waitForCounters(startedFrame);
       const renderer = runtime.renderer;
@@ -203,16 +261,18 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "texture-fallback") {
       assertions.push(validationAssertion("texture-fallback-recorded", textureFallbacks >= 1, "An unusable texture was recorded as an explicit material fallback", textureFallbacks, ">= 1"));
     }
-    if (request.scenarioId === "texture-package-production") {
+    if (request.scenarioId === "texture-package-production" || request.scenarioId === "texture-codec-production") {
+      const expectedCompressedTextures = request.scenarioId === "texture-codec-production" ? 1 : 5;
       assertions.push(validationAssertion(
-        "texture-package-production-resident",
-        cookedResidentTextures >= 5 && compressedResidentTextures >= 5 && cookedUploadBytes > 0,
-        "GpuRenderWorld staged all five texture semantics through TextureResidency into cooked BC package segments",
+        `${request.scenarioId}-resident`,
+        cookedResidentTextures >= expectedCompressedTextures &&
+          compressedResidentTextures >= expectedCompressedTextures && cookedUploadBytes > 0,
+        "GpuRenderWorld staged the scenario's material textures through TextureResidency into compressed package segments",
         { cookedResidentTextures, compressedResidentTextures, cookedUploadBytes },
-        "cooked/compressed >= 5 and uploadBytes > 0"
+        `cooked/compressed >= ${expectedCompressedTextures} and uploadBytes > 0`
       ));
       assertions.push(validationAssertion(
-        "texture-package-production-offline-mips",
+        `${request.scenarioId}-offline-mips`,
         runtimeMipGenerations === 0 && cookedRuntimeMipGenerations === 0,
         "The authoritative cooked material path consumed its complete offline mip chain without a runtime mip pass",
         { runtimeMipGenerations, cookedRuntimeMipGenerations },
@@ -459,23 +519,25 @@ async function dispose(): Promise<void> {
   delete window[VALIDATION_FIXTURE_KEY];
 }
 
-async function createSurfaceSource(): Promise<PackedSceneSource> {
+async function createSurfaceSource(workerBaseColor?: ShadeTexture): Promise<PackedSceneSource> {
   const red = solidMaterial([0.9, 0.08, 0.06, 1], 0.7, 0);
   const metal = solidMaterial([0.72, 0.76, 0.82, 1], 0.18, 1);
   metal.draw_side = ShadeDrawSide.Double;
   const textured = solidMaterial([1, 1, 1, 1], 0.5, 0);
-  const cooked = await createCookedMaterialTextures();
-  textured.texture_albedo = cooked.baseColor;
-  textured.texture_normal = cooked.normal;
-  textured.texture_orm = cooked.orm;
-  textured.texture_emissive = cooked.emissive;
+  const cooked = workerBaseColor === undefined ? await createCookedMaterialTextures() : null;
+  textured.texture_albedo = workerBaseColor ?? cooked!.baseColor;
+  if (cooked !== null) {
+    textured.texture_normal = cooked.normal;
+    textured.texture_orm = cooked.orm;
+    textured.texture_emissive = cooked.emissive;
+  }
   const fallback = solidMaterial([0.85, 0.2, 0.85, 1], 0.8, 0);
   fallback.texture_albedo = new ShadeTexture();
   const transparent = solidMaterial([0.1, 0.7, 0.95, 0.5], 0.25, 0);
   transparent.transparency_mode = ShadeTransparencyMode.Transparent;
   const alphaTested = solidMaterial([0.85, 0.8, 0.2, 1], 0.55, 0);
   alphaTested.transparency_mode = ShadeTransparencyMode.AlphaTested;
-  alphaTested.texture_albedo = cooked.alphaMask;
+  if (cooked !== null) alphaTested.texture_albedo = cooked.alphaMask;
   return createPackedBoxScene([
     { size: [2.4, 2.4, 2.4], position: [-4.5, 1.2, 0], materialIndex: 0, debugId: 1 },
     { size: [2.4, 2.4, 2.4], position: [-1.5, 1.2, 0], materialIndex: 1, debugId: 2 },

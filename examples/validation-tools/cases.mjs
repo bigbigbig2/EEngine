@@ -34,6 +34,7 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("surface.texture-ref-oracle", "surface", "texture-ref-oracle", ["surface", "material", "texture-residency", "gpu-abi"], ["texture-residency"]),
   defineCase("surface.texture-package-bc", "surface", "texture-package-bc", ["surface", "asset", "texture-package", "texture-residency"], ["texture-package"], "always"),
   defineCase("surface.texture-package-production", "surface", "texture-package-production", ["surface", "asset", "texture-package", "texture-residency", "render-world"], ["texture-package", "texture-residency"], "always"),
+  defineCase("surface.texture-codec-production", "surface", "texture-codec-production", ["surface", "asset", "asset-codec", "texture-package", "texture-residency", "render-world"], ["asset-codec", "texture-package", "texture-residency"], "always"),
   defineCase("surface.transparent", "surface", "transparent", ["surface", "material", "transparency"], ["renderer", "graphics-context", "surface", "material", "transparency"]),
   defineCase("surface.scene-adapter", "surface", "scene-adapter", ["surface", "material", "transparency", "temporal", "scene-adapter"], ["renderer", "gpu-scene", "scene", "surface", "material", "transparency", "temporal"])
 ]);

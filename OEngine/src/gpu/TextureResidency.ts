@@ -1013,6 +1013,7 @@ export class TextureResidency {
         this.descriptorGenerations[entry.slot] = nextTextureHandleGeneration(entry.generation);
         this.freeDescriptorSlots.push(entry.slot);
         this.freePhysicalLayer(entry);
+        if (entry.cooked) this.reclaimPackageSegmentIfUnused(entry.segment);
       };
       void gpuDone.then(retire, retire);
     }
@@ -1096,6 +1097,15 @@ export class TextureResidency {
     } else {
       this.banks[entry.bankClass]!.freeLayers.push(entry.layer);
     }
+  }
+
+  /** Reclaims immutable cooked storage only after every referencing GPU submission completed. */
+  private reclaimPackageSegmentIfUnused(segmentIndex: number): void {
+    if ([...this.textures.values()].some((entry) => entry.cooked && entry.segment === segmentIndex)) return;
+    const segment = this.packageSegments[segmentIndex]!;
+    segment.texture?.destroy();
+    if (segment.accounting !== null) this.graphics.resource_accounting?.destroyed(segment.accounting);
+    resetPackageSegment(segment);
   }
 
   private createDescriptor(entry: ResidentTexture): TextureResidencyDescriptor {

@@ -757,7 +757,11 @@ export class MainRenderPipeline {
       this._shadowFeatures.release(scene, command);
       this._environments.release(scene, command);
       command.finish();
-      await command.submitted;
+      // The release promise is the lifecycle boundary at which retired GPU
+      // residency may be reused by a replacement scene. Waiting for queue
+      // completion prevents immutable texture segments from becoming stranded
+      // or being reused while an earlier frame still references them.
+      await command.gpuDone;
     } catch (error) {
       command.abort(error);
       throw error;

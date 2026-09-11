@@ -775,6 +775,35 @@ test("Texture residency publishes cooked BC packages as authoritative material r
   residency.destroy();
 });
 
+test("Texture residency reclaims an unused cooked segment after GPU retirement", async () => {
+  const fixture = createTextureResidencyFixture({ features: ["texture-compression-bc"] });
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const asset = await openTextureAssetPackageV2(await cookTextureAssetPackageV2({
+    width: 8,
+    height: 8,
+    rgba8: new Uint8Array(8 * 8 * 4).fill(191),
+    semantic: "base-color-srgb",
+    sourceUri: "fixture://cooked-segment-retirement"
+  }));
+  const texture = ShadeTexture.fromAssetPackageV2(asset);
+  const material = createTexturedMaterial(texture, "cooked-segment-retirement");
+  const stage = new FakeCommand("cooked-segment-retirement-stage");
+  residency.stage([material], stage);
+  stage.finish();
+  const segmentTexture = fixture.textures.find(({ descriptor }) =>
+    String(descriptor.label).includes("TextureResidency/package-"));
+  assert.ok(segmentTexture);
+
+  const release = new FakeCommand("cooked-segment-retirement-release");
+  residency.release([material], release);
+  release.finish();
+  await settlePromises();
+
+  assert.equal(segmentTexture.destroyed, true);
+  assert.ok(residency.evidence().packageSegments.every(({ allocatedCapacity }) => allocatedCapacity === 0));
+  residency.destroy();
+});
+
 test("Texture residency fills and rejects overflow in every bounded bank without mutation", () => {
   for (const [bankClass, size] of [512, 1024, 2048, 4096].entries()) {
     const actualBankClass = bankClass + 1;

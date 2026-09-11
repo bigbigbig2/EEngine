@@ -399,8 +399,11 @@ export function stageTextureAssetPackageV2ToLayer(
         upload.slice().buffer,
         layout,
         {
-          width: mip.logicalWidth,
-          height: mip.logicalHeight,
+          // WebGPU copies compressed subresources in complete physical blocks.
+          // The texture/sample domain remains the logical mip extent recorded
+          // in metadata; only the upload footprint is block-rounded.
+          width: physicalWidth,
+          height: physicalHeight,
           depthOrArrayLayers: 1
         }
       );

@@ -187,7 +187,7 @@ test("Texture Package V2 uploads selected BC mips without runtime mip work", asy
     typeof residentResourceId === "string" && residentResourceId.length > 0));
   assert.equal(writes.length, 4);
   assert.equal(texture.descriptor.mipLevelCount, 4);
-  assert.deepEqual(writes.map(({ size }) => [size.width, size.height]), [[8, 8], [4, 4], [2, 2], [1, 1]]);
+  assert.deepEqual(writes.map(({ size }) => [size.width, size.height]), [[8, 8], [4, 4], [4, 4], [4, 4]]);
   assert.ok(uploaded.evidence.residentBytes < 8 * 8 * 4);
 
   const createCount = writes.length;
