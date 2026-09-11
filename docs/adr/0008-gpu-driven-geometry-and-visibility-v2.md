@@ -862,6 +862,8 @@ producer/consumer count 闭合；无 overflow；subgroup path 在目标 GPU 上�
 
 ### Step 3 · Bucket hardware raster
 
+**Implementation:** completed 2026-09-11；目标设备启用 `primitive-index` 时 Visibility fragment 直接用 `@builtin(primitive_index)` 形成 local triangle，缺失或显式 portable case 由 `vertex_index / 3` flat varying 保持相同 VisibilityKey V2 语义；两条真实 Chrome case 均通过且 WebGPU diagnostics 为零。
+
 **Scope**
 
 标准 indirect bucket draw、compact vertex profile、primitive identity、reverse-Z/depth/culling parity。

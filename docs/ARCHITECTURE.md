@@ -6,7 +6,7 @@
 
 `OEngine/src/render/Renderer.ts` 是公开生命周期与顶层组合 shell；唯一主管线 recipe 位于 `OEngine/src/render/pipeline/MainRenderPipeline.ts`。它拥有 FramePlan、主 FrameGraph、Feature/Service 装配、compiled graph cache 与 graph evidence。每次 encode 使用冻结的 `FrameContext`，不会把完整公开入口或 GraphicsContext 作为 Pass service locator。
 
-WebGPU/WGSL 的目标能力线、feature/limit/API 探测和 specialization 规则由 [WEBGPU.md](./WEBGPU.md) 单独定义。当前 device creation 强制请求 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable` 与 `texture-formats-tier1`，在 adapter 支持时启用 `timestamp-query`、`subgroups` 和一族纹理压缩能力；初始化会冻结 adapter/device features、关键 limits、WGSL language features、Immediate Data/Transient Attachment API probe、TextureBindingSet slot/sampler/set/dispatch policy 与已选纹理 specialization。`primitive-index`、`shader-f16`、Immediate Data 和 Transient Attachments 仍没有生产 consumer，不能只因 record 已记录就写成已启用能力。
+WebGPU/WGSL 的目标能力线、feature/limit/API 探测和 specialization 规则由 [WEBGPU.md](./WEBGPU.md) 单独定义。当前 device creation 强制请求 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable` 与 `texture-formats-tier1`，在 adapter 支持时启用 `timestamp-query`、`subgroups`、`primitive-index` 和一族纹理压缩能力；初始化会冻结 adapter/device features、关键 limits、WGSL language features、Immediate Data/Transient Attachment API probe、TextureBindingSet slot/sampler/set/dispatch policy 与已选纹理 specialization。Visibility fragment 在 feature 已启用时以 `@builtin(primitive_index)` 恢复 meshlet-local triangle，缺失时由 vertex `vertex_index / 3` 的 flat varying 保持同一 VisibilityKey 语义。`shader-f16`、Immediate Data 和 Transient Attachments 仍没有生产 consumer，不能只因 record 已记录就写成已启用能力。
 
 ## 依赖方向
 
@@ -26,7 +26,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 边界 | 当前 owner | 责任 |
 | --- | --- | --- |
 | Runtime Asset | `src/assets/RuntimeAssetManifestV2.ts`、`RuntimeAssetResidency.ts`、`GeometryAssetPackage.ts`、`TextureAssetPackage.ts`、loaders | package/variant 验证、recipe、稳定 chunk identity、budget/request state、logical/physical resident range 与离线 mip/物理变体 |
-| GPU 资产 | `src/gpu/GpuAssetStore.ts`、`TextureResidency.ts` | compact geometry residency；纹理 immutable size-class segment、stable logical descriptor 与原子派生 routing |
+| GPU 资产 | `src/gpu/GpuAssetStore.ts`、`TextureResidency.ts` | compact geometry residency；纹理 cooked physical-format package segment、uncooked RGBA8 development segment、stable logical descriptor 与原子派生 routing |
 | 场景实例 | `src/gpu/GpuScene.ts` | 64 B static + 112 B dynamic instance ABI，static/transform/material/visibility/lifecycle 显式窄 patch 与 CPU shadow accounting |
 | GPU Render World | `src/gpu/GpuRenderWorld.ts` | Packed source 与普通 Scene adapter 的统一 runtime 生命周期 |
 | 场景环境 | `src/gpu/GPUSceneEnvironmentContext.ts` | Packed/普通 Scene 共享的 light、environment、light-probe 与 volumetric 数据 |
@@ -49,7 +49,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 
 Runtime Asset 是设备无关事实；GPU owner 由设备和 Renderer 生命周期控制。资源释放必须经过提交边界，不能让 Loader、Scene 临时对象或 FrameGraph 外部引用隐式延长 GPU 对象寿命。持久 history、shadow atlas、LPV 和 asset residency 与 transient frame attachment 分开统计。
 
-Geometry 默认生产变体是 `static-pbr-compact-v2`；position/normal/tangent/UV/color 的物理编码由 package profile 冻结，Shader 只能经共享 decode ABI 读取。`explicit-float32-fallback-v2` 需要 Cooker 显式选择。Runtime residency seam 只表达 chunk/request/budget/range 和退役，不拥有 scheduler；逻辑 asset/material handle 不含 GPU buffer offset、texture layer 或 mip/page 地址。
+Geometry 默认生产变体是 `static-pbr-compact-v2`；position/normal/tangent/UV/color 的物理编码由 package profile 冻结，Shader 只能经共享 decode ABI 读取。`explicit-float32-fallback-v2` 需要 Cooker 显式选择。普通生产材质纹理由 `ShadeTexture.fromAssetPackageV2()` 携带设备无关 Texture Package，经 `GpuRenderWorld → TextureResidency` 选择 BC 或 portable RGBA8 physical variant，并把完整离线 mip chain 直接上传到有界 immutable package segment；运行时 mip generation 只保留给显式未 Cook 的 development 输入。Runtime residency seam 只表达 chunk/request/budget/range 和退役，不拥有 scheduler；逻辑 asset/material handle 不含 GPU buffer offset、texture layer 或 mip/page 地址。
 
 Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证据。它不成为渲染 owner，也不从 DOM 或推测值重建指标；详细合同位于 `OEngine/src/addons/inspector/README.md`。
 

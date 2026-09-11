@@ -7,6 +7,7 @@ import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import {
   MESHLET_BUCKET_SETTINGS_SIZE,
   MESHLET_BUCKET_SETTINGS_STRIDE,
+  MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
   MESHLET_BUCKET_VISIBILITY_WGSL
 } from "../shaders/meshlet_bucket_visibility.js";
 import { LPV_CAMERA_TYPE } from "../shaders/lpv_indirect_diffuse.js";
@@ -27,7 +28,7 @@ const MESHLET_BUCKET_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
       buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: MESHLET_BUCKET_SETTINGS_SIZE }
     },
     { binding: 10, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-    ...Array.from({ length: 5 }, (_, index) => ({
+    ...Array.from({ length: 9 }, (_, index) => ({
       binding: index + 11,
       visibility: GPUShaderStage.FRAGMENT,
       texture: {
@@ -38,19 +39,27 @@ const MESHLET_BUCKET_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
-function bucketPipeline(doubleSided: boolean, mask: boolean): CachedRenderPipelineDescriptor {
+function bucketPipeline(
+  doubleSided: boolean,
+  mask: boolean,
+  primitiveIndex: boolean
+): CachedRenderPipelineDescriptor {
+  const specialization = primitiveIndex ? "primitive-index" : "portable-varying";
+  const code = primitiveIndex
+    ? MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
+    : MESHLET_BUCKET_VISIBILITY_WGSL;
   return {
-    label: `ADR-0008 Meshlet bucket ${doubleSided ? "double-sided" : "back-face"} ${mask ? "MASK" : "OPAQUE"}`,
+    label: `ADR-0008 Meshlet bucket ${specialization} ${doubleSided ? "double-sided" : "back-face"} ${mask ? "MASK" : "OPAQUE"}`,
     layout: {
       label: "ADR-0008 Meshlet bucket Hardware Visibility layout",
       bindGroupLayouts: [MESHLET_BUCKET_RASTER_GROUP]
     },
     vertex: {
-      module: { label: "ADR-0008 Meshlet bucket visibility", code: MESHLET_BUCKET_VISIBILITY_WGSL },
+      module: { label: `ADR-0008 Meshlet bucket visibility/${specialization}`, code },
       entryPoint: "raster_meshlet_bucket"
     },
     fragment: {
-      module: { label: "ADR-0008 Meshlet bucket visibility", code: MESHLET_BUCKET_VISIBILITY_WGSL },
+      module: { label: `ADR-0008 Meshlet bucket visibility/${specialization}`, code },
       entryPoint: mask ? "write_meshlet_mask" : "write_meshlet_opaque",
       targets: [{ format: "r32uint" }]
     },
@@ -67,12 +76,14 @@ function bucketPipeline(doubleSided: boolean, mask: boolean): CachedRenderPipeli
   };
 }
 
-const BUCKET_PIPELINES = Object.freeze([
-  bucketPipeline(false, false),
-  bucketPipeline(true, false),
-  bucketPipeline(false, true),
-  bucketPipeline(true, true)
-]);
+function bucketPipelines(primitiveIndex: boolean): readonly CachedRenderPipelineDescriptor[] {
+  return Object.freeze([
+    bucketPipeline(false, false, primitiveIndex),
+    bucketPipeline(true, false, primitiveIndex),
+    bucketPipeline(false, true, primitiveIndex),
+    bucketPipeline(true, true, primitiveIndex)
+  ]);
+}
 
 export interface MeshletBucketRasterInputs {
   readonly prepared: PreparedMeshletWorkCandidate;
@@ -86,18 +97,30 @@ export interface MeshletBucketRasterInputs {
 
 /** Standard indirect GPU consumer for VisibilityKey V2. */
 export class MeshletBucketRaster {
-  private rasterPipelines: readonly GPURenderPipeline[] | null = null;
+  readonly primitiveIndexSupported: boolean;
+  private readonly rasterPipelines = new Map<boolean, readonly GPURenderPipeline[]>();
   private readonly rasterGroups = new WeakMap<
     PreparedMeshletWorkCandidate,
     Readonly<{ camera: GPUBuffer; group: GPUBindGroup }>
   >();
 
-  constructor(private readonly graphics: GraphicsContext) {}
+  constructor(private readonly graphics: GraphicsContext) {
+    this.primitiveIndexSupported = graphics.device.features.has("primitive-index");
+  }
 
-  encodeRaster(encoder: GPUCommandEncoder, inputs: MeshletBucketRasterInputs): void {
-    const pipelines = this.rasterPipelines ??= BUCKET_PIPELINES.map(
-      (descriptor) => this.graphics.render_pipelines.obtain(descriptor)
-    );
+  encodeRaster(
+    encoder: GPUCommandEncoder,
+    inputs: MeshletBucketRasterInputs,
+    primitiveIndexPath: "auto" | "portable" = "auto"
+  ): void {
+    const primitiveIndex = primitiveIndexPath === "auto" && this.primitiveIndexSupported;
+    let pipelines = this.rasterPipelines.get(primitiveIndex);
+    if (pipelines === undefined) {
+      pipelines = bucketPipelines(primitiveIndex).map(
+        (descriptor) => this.graphics.render_pipelines.obtain(descriptor)
+      );
+      this.rasterPipelines.set(primitiveIndex, pipelines);
+    }
     const cached = this.rasterGroups.get(inputs.prepared);
     const group = cached !== undefined && cached.camera === inputs.camera
       ? cached.group

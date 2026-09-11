@@ -72,6 +72,8 @@ export interface PackedVisibilityPrepareJob {
   readonly meshletWorkCandidateCapacity?: number;
   /** Step-2 specialization policy; auto selects subgroup only when negotiated. */
   readonly meshletWorkCompactionPath?: "auto" | "portable" | "subgroup";
+  /** auto consumes primitive-index when negotiated; portable forces the flat varying oracle. */
+  readonly primitiveIndexPath?: "auto" | "portable";
   /** Evidence-gated TriangleSetup candidate cache; false keeps fallback-only Surface reconstruction. */
   readonly triangleSetupEnabled?: boolean;
   readonly triangleSetupThresholdPixels?: number;
@@ -316,7 +318,7 @@ export class PackedVisibilityPass {
         runtime: job.runtime,
         visibilityKey,
         depth
-      });
+      }, job.primitiveIndexPath ?? "auto");
     this.debugBindings.set(job.runtime, Object.freeze({
       instances: job.scene.instances,
       meshlets: job.assets.meshletRecords,

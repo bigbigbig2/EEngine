@@ -13,6 +13,8 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("visibility.basic", "visibility", "basic", ["visibility", "gpu-driven", "hierarchy", "raster"], ["framegraph", "renderer", "graphics-context", "visibility"]),
   defineCase("visibility.meshlet-work-overflow", "visibility", "meshlet-work-overflow", ["visibility", "gpu-driven", "hierarchy", "gpu-abi"], ["visibility"]),
   defineCase("visibility.meshlet-work-portable", "visibility", "meshlet-work-portable", ["visibility", "gpu-driven", "hierarchy", "gpu-abi"], ["visibility"]),
+  defineCase("visibility.primitive-index", "visibility", "primitive-index", ["visibility", "gpu-driven", "webgpu-2026", "gpu-abi"], ["visibility"], "always"),
+  defineCase("visibility.primitive-index-fallback", "visibility", "primitive-index-fallback", ["visibility", "gpu-driven", "webgpu-fallback", "gpu-abi"], ["visibility"], "always"),
   defineCase("visibility.selective-risk", "visibility", "selective-risk", ["visibility", "gpu-driven", "risk", "exact"], ["visibility"]),
   defineCase("visibility.large-triangle-setup", "visibility", "large-triangle-setup", ["visibility", "surface", "work-cache"], ["visibility", "surface"]),
   defineCase("visibility.shadow", "visibility", "shadow", ["visibility", "gpu-driven", "shadow", "material"], ["renderer", "graphics-context", "visibility", "shadow", "material"]),
@@ -31,6 +33,7 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("surface.texture-fallback", "surface", "texture-fallback", ["surface", "material", "texture-residency"], ["texture-residency"]),
   defineCase("surface.texture-ref-oracle", "surface", "texture-ref-oracle", ["surface", "material", "texture-residency", "gpu-abi"], ["texture-residency"]),
   defineCase("surface.texture-package-bc", "surface", "texture-package-bc", ["surface", "asset", "texture-package", "texture-residency"], ["texture-package"], "always"),
+  defineCase("surface.texture-package-production", "surface", "texture-package-production", ["surface", "asset", "texture-package", "texture-residency", "render-world"], ["texture-package", "texture-residency"], "always"),
   defineCase("surface.transparent", "surface", "transparent", ["surface", "material", "transparency"], ["renderer", "graphics-context", "surface", "material", "transparency"]),
   defineCase("surface.scene-adapter", "surface", "scene-adapter", ["surface", "material", "transparency", "temporal", "scene-adapter"], ["renderer", "gpu-scene", "scene", "surface", "material", "transparency", "temporal"])
 ]);

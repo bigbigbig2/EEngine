@@ -1,4 +1,11 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import {
+  selectTextureAssetVariantV2,
+  stageTextureAssetPackageV2ToLayer,
+  type SelectedTextureVariantV2,
+  type TextureAssetLayerUploadV2,
+  type TextureAssetPackageV2
+} from "../assets/TextureAssetPackage.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { TextureFilterType } from "../texture/TextureFilterType.js";
@@ -8,6 +15,9 @@ import {
   GPU_TEXTURE_BANK_COUNT,
   GPU_TEXTURE_BANK_MAX_CAPACITIES,
   GPU_TEXTURE_BANK_SIZES,
+  GPU_TEXTURE_PACKAGE_BANK_BEGIN,
+  GPU_TEXTURE_PACKAGE_BANK_COUNT,
+  GPU_TEXTURE_REF_ROUTING,
   encodeGpuTextureRef
 } from "./GpuTextureRefAbi.js";
 import {
@@ -23,13 +33,16 @@ import {
 export const TEXTURE_RESIDENCY_BASE_SIZE = GPU_TEXTURE_BANK_SIZES[0];
 export const TEXTURE_RESIDENCY_BASE_CAPACITY = GPU_TEXTURE_BANK_MAX_CAPACITIES[0];
 export const TEXTURE_RESIDENCY_BASE_MIP_COUNT = mipCount(TEXTURE_RESIDENCY_BASE_SIZE);
-export const TEXTURE_RESIDENCY_MAX_SIZE = GPU_TEXTURE_BANK_SIZES[GPU_TEXTURE_BANK_COUNT - 1]!;
+export const TEXTURE_RESIDENCY_MAX_SIZE = GPU_TEXTURE_BANK_SIZES[GPU_TEXTURE_BANK_SIZES.length - 1]!;
 export const TEXTURE_RESIDENCY_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
 
 export interface TextureResidencyBindings {
   readonly textureCapacity: number;
-  /** Five explicit WebGPU bindings, not a binding array. */
-  readonly textureBanks: readonly [GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView];
+  /** Nine explicit WebGPU bindings, not an unsized binding array. */
+  readonly textureBanks: readonly [
+    GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView,
+    GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView
+  ];
 }
 
 export interface TextureResidencyStage {
@@ -43,7 +56,7 @@ export interface TextureResidencyStage {
 export interface TextureResidencyDescriptor {
   readonly slot: number;
   readonly generation: number;
-  readonly formatClass: "rgba8";
+  readonly formatClass: GPUTextureFormat;
   readonly sizeClass: number;
   readonly segment: number;
   readonly layer: number;
@@ -67,8 +80,21 @@ export interface TextureBankEvidence {
   readonly allocatedBytes: number;
 }
 
+export interface TexturePackageSegmentEvidence {
+  readonly bindingSlot: number;
+  readonly format: GPUTextureFormat;
+  readonly width: number;
+  readonly height: number;
+  readonly mipLevelCount: number;
+  readonly allocatedCapacity: number;
+  readonly residentTextureCount: number;
+  readonly retiringTextureCount: number;
+  readonly freeLayerCount: number;
+  readonly allocatedBytes: number;
+}
+
 export interface TextureResidencyEvidence {
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly textureCapacity: number;
   readonly residentTextureCount: number;
   readonly retiringTextureCount: number;
@@ -82,14 +108,17 @@ export interface TextureResidencyEvidence {
   readonly physicalAllocatedBytes: number;
   readonly retiringBytes: number;
   readonly transactionPeakBytes: number;
-  /** Upload is owned by GPUTextureManager for uncooked inputs; kept explicit here. */
-  readonly uploadBytes: 0;
+  /** Direct package bytes written by the production residency owner. */
+  readonly uploadBytes: number;
   readonly copyBytes: 0;
   readonly transcodeBytes: 0;
   readonly bankGrowCount: number;
   readonly abortedBankGrowCount: number;
   readonly resizeDispatchCount: number;
   readonly runtimeMipGenerationCount: number;
+  readonly cookedResidentTextureCount: number;
+  readonly compressedResidentTextureCount: number;
+  readonly cookedRuntimeMipGenerationCount: 0;
   readonly bankCopyOperationCount: number;
   readonly segmentCount: number;
   readonly bindingSetCount: number;
@@ -97,6 +126,7 @@ export interface TextureResidencyEvidence {
   readonly bindingSetPreflightFailures: number;
   readonly highResolutionArrayAllocated: boolean;
   readonly banks: readonly TextureBankEvidence[];
+  readonly packageSegments: readonly TexturePackageSegmentEvidence[];
   readonly privateSubmitCount: 0;
 }
 
@@ -116,6 +146,20 @@ interface TextureBank {
   freeLayers: number[];
 }
 
+interface TexturePackageSegment {
+  readonly bindingSlot: number;
+  key: string | null;
+  format: GPUTextureFormat;
+  width: number;
+  height: number;
+  mipLevelCount: number;
+  capacity: number;
+  texture: GPUTexture | null;
+  view: GPUTextureView | null;
+  accounting: AccountingResourceHandle | null;
+  freeLayers: number[];
+}
+
 interface ResidentTexture {
   readonly slot: number;
   readonly generation: number;
@@ -123,6 +167,11 @@ interface ResidentTexture {
   readonly segment: number;
   readonly bankClass: number;
   readonly source: ShadeTexture;
+  readonly cooked: boolean;
+  readonly physicalFormat: GPUTextureFormat;
+  readonly routing: number;
+  readonly residentBytes: number;
+  readonly uploadBytes: number;
   refCount: number;
   retireGeneration: number;
 }
@@ -158,6 +207,31 @@ interface BankGrowthPlan {
   readonly nextCapacity: number;
 }
 
+interface TexturePackageAssignment {
+  readonly segment: TexturePackageSegment;
+  readonly asset: TextureAssetPackageV2;
+  readonly variant: SelectedTextureVariantV2;
+}
+
+interface TexturePackageSegmentPlan {
+  readonly segment: TexturePackageSegment;
+  readonly key: string;
+  readonly variant: SelectedTextureVariantV2;
+  readonly freshCount: number;
+}
+
+interface TexturePreflight {
+  readonly bankPlans: readonly BankGrowthPlan[];
+  readonly packagePlans: readonly TexturePackageSegmentPlan[];
+  readonly packageAssignments: ReadonlyMap<ShadeTexture, TexturePackageAssignment>;
+}
+
+interface TexturePackageSegmentGrowth {
+  readonly segment: TexturePackageSegment;
+  readonly texture: GPUTexture;
+  readonly accounting: AccountingResourceHandle | undefined;
+}
+
 interface BankGrowth {
   readonly bank: TextureBank;
   readonly previousCapacity: number;
@@ -173,6 +247,7 @@ interface BankGrowth {
 /** Immutable bounded segments with stable logical handles and derived GPU routing. */
 export class TextureResidency {
   private readonly banks: readonly TextureBank[];
+  private readonly packageSegments: readonly TexturePackageSegment[];
   private readonly textures = new Map<ShadeTexture, ResidentTexture>();
   private readonly materials = new Map<StandardShadeMaterial, ResidentMaterialTextures>();
   private readonly descriptors = new Map<number, TextureResidencyDescriptor>();
@@ -184,6 +259,7 @@ export class TextureResidency {
   private abortedBankGrowCount = 0;
   private resizeDispatchCount = 0;
   private runtimeMipGenerationCount = 0;
+  private cookedUploadBytes = 0;
   private bankCopyOperationCount = 0;
   private bindingSetPreflightFailures = 0;
   private transactionPeakBytes = 0;
@@ -215,6 +291,22 @@ export class TextureResidency {
         freeLayers: []
       };
     });
+    this.packageSegments = Array.from(
+      { length: GPU_TEXTURE_PACKAGE_BANK_COUNT },
+      (_, index): TexturePackageSegment => ({
+        bindingSlot: GPU_TEXTURE_PACKAGE_BANK_BEGIN + index,
+        key: null,
+        format: "rgba8unorm",
+        width: 1,
+        height: 1,
+        mipLevelCount: 1,
+        capacity: 0,
+        texture: null,
+        view: null,
+        accounting: null,
+        freeLayers: []
+      })
+    );
     const base = this.banks[0]!;
     if (base.maxCapacity < TEXTURE_RESIDENCY_BASE_CAPACITY) {
       throw new RangeError(`TextureResidency base bank requires ${TEXTURE_RESIDENCY_BASE_CAPACITY} layers but the device permits ${base.maxCapacity}`);
@@ -230,10 +322,19 @@ export class TextureResidency {
 
   stage(materials: readonly StandardShadeMaterial[], command: ShadeGPUCommandContext): TextureResidencyStage {
     this.assertAlive();
-    const growths = this.applyGrowthPlans(this.preflight(materials), command);
+    const preflight = this.preflight(materials);
+    const growths = this.applyGrowthPlans(preflight.bankPlans, command);
+    let packageGrowths: TexturePackageSegmentGrowth[] = [];
+    try {
+      packageGrowths = this.applyPackageSegmentPlans(preflight.packagePlans);
+    } catch (error) {
+      this.rollbackGrowths(growths);
+      throw error;
+    }
     const materialOperations = this.retainMaterials(materials);
     const transitions: TextureTransition[] = [];
     const newTextures: ResidentTexture[] = [];
+    const packageUploads: TextureAssetLayerUploadV2[] = [];
     let settled = false;
     const rollback = (): void => {
       if (settled) return;
@@ -251,6 +352,8 @@ export class TextureResidency {
           this.materials.delete(operation.material);
         }
       }
+      for (const upload of packageUploads) upload.abort();
+      this.rollbackPackageSegmentGrowths(packageGrowths);
       this.rollbackGrowths(growths);
     };
     command.onAborted.addOne(rollback);
@@ -260,22 +363,47 @@ export class TextureResidency {
         const resident = materialOperations[index]!.entry;
         if (transitioned.has(resident)) continue;
         transitioned.add(resident);
-        const transition = this.transition(resident, materials[index]!);
+        const transition = this.transition(
+          resident,
+          materials[index]!,
+          preflight.packageAssignments
+        );
         transitions.push(transition);
         for (const operation of transition.added) if (operation.created) newTextures.push(operation.entry);
       }
       this.graphics.textures.mipmaps.flush(command);
-      for (const texture of newTextures) this.encodeResizeCopy(command, texture);
-      for (const bankClass of new Set(newTextures.map((entry) => entry.bankClass))) {
+      const uncookedTextures = newTextures.filter((entry) => !entry.cooked);
+      const cookedTextures = newTextures.filter((entry) => entry.cooked);
+      for (const texture of uncookedTextures) this.encodeResizeCopy(command, texture);
+      for (const bankClass of new Set(uncookedTextures.map((entry) => entry.bankClass))) {
         const bank = this.banks[bankClass]!;
         this.graphics.textures.mipmaps.generateMipmap(requireBankTexture(bank), bank.descriptor, TextureFilterType.Linear, command);
         this.runtimeMipGenerationCount++;
       }
+      for (const entry of cookedTextures) {
+        const assignment = preflight.packageAssignments.get(entry.source);
+        if (assignment === undefined) {
+          throw new Error("TextureResidency lost a cooked package preflight assignment");
+        }
+        packageUploads.push(stageTextureAssetPackageV2ToLayer(
+          this.graphics.device,
+          assignment.asset,
+          requirePackageSegmentTexture(assignment.segment),
+          entry.layer
+        ));
+      }
       command.onFinished.addOne(() => {
         if (settled) return;
         settled = true;
+        for (let index = 0; index < packageUploads.length; index++) {
+          const entry = cookedTextures[index]!;
+          packageUploads[index]!.commit(
+            `TextureResidency/package-segment-${entry.bankClass}-layer-${entry.layer}`
+          );
+          this.cookedUploadBytes += packageUploads[index]!.evidence.uploadBytes;
+        }
         for (const entry of newTextures) {
-          this.descriptors.set(entry.slot, createDescriptor(entry, this.banks[entry.bankClass]!));
+          this.descriptors.set(entry.slot, this.createDescriptor(entry));
         }
         for (const transition of transitions) this.releaseTextureRefs(transition.removed, command.gpuDone);
         this.commitGrowths(growths, command.gpuDone);
@@ -321,7 +449,10 @@ export class TextureResidency {
 
   bindings(): TextureResidencyBindings {
     const fallback = this.banks[0]!.view!;
-    const views = this.banks.map((bank) => bank.view ?? fallback) as unknown as TextureResidencyBindings["textureBanks"];
+    const views = [
+      ...this.banks.map((bank) => bank.view ?? fallback),
+      ...this.packageSegments.map((segment) => segment.view ?? fallback)
+    ] as unknown as TextureResidencyBindings["textureBanks"];
     return Object.freeze({
       textureCapacity: this.logicalCapacity(),
       textureBanks: Object.freeze(views)
@@ -338,19 +469,27 @@ export class TextureResidency {
   }
 
   evidence(): TextureResidencyEvidence {
-    const counts = this.banks.map(() => ({ resident: 0, retiring: 0 }));
+    const counts = Array.from(
+      { length: GPU_TEXTURE_BANK_COUNT },
+      () => ({ resident: 0, retiring: 0 })
+    );
     let residentTextureCount = 0;
     let retiringTextureCount = 0;
     let residentTextureBytes = 0;
     let retiringTextureBytes = 0;
     let logicalResidentBytes = 0;
+    let cookedResidentTextureCount = 0;
+    let compressedResidentTextureCount = 0;
     for (const entry of this.textures.values()) {
-      const bank = this.banks[entry.bankClass]!;
-      const bytes = arrayBytes(bank.physicalSize, 1);
+      const bytes = entry.residentBytes;
       if (entry.refCount > 0) {
         residentTextureCount++;
         residentTextureBytes += bytes;
         logicalResidentBytes += logicalTextureBytes(entry.source);
+        if (entry.cooked) cookedResidentTextureCount++;
+        if (entry.cooked && entry.physicalFormat.startsWith("bc")) {
+          compressedResidentTextureCount++;
+        }
         counts[entry.bankClass]!.resident++;
       } else {
         retiringTextureCount++;
@@ -370,8 +509,30 @@ export class TextureResidency {
       freeLayerCount: bank.freeLayers.length,
       allocatedBytes: arrayBytes(bank.physicalSize, bank.capacity)
     }));
+    const packageSegments = this.packageSegments.map(
+      (segment): TexturePackageSegmentEvidence => Object.freeze({
+        bindingSlot: segment.bindingSlot,
+        format: segment.format,
+        width: segment.width,
+        height: segment.height,
+        mipLevelCount: segment.mipLevelCount,
+        allocatedCapacity: segment.capacity,
+        residentTextureCount: counts[segment.bindingSlot]!.resident,
+        retiringTextureCount: counts[segment.bindingSlot]!.retiring,
+        freeLayerCount: segment.freeLayers.length,
+        allocatedBytes: segment.texture === null ? 0 : texturePackageSegmentBytes(
+          segment.format,
+          segment.width,
+          segment.height,
+          segment.mipLevelCount,
+          segment.capacity
+        )
+      })
+    );
+    const allocatedSegmentCount = this.banks.filter((bank) => bank.texture !== null).length +
+      this.packageSegments.filter((segment) => segment.texture !== null).length;
     return Object.freeze({
-      schemaVersion: 3,
+      schemaVersion: 4,
       textureCapacity: this.logicalCapacity(),
       residentTextureCount,
       retiringTextureCount,
@@ -383,20 +544,24 @@ export class TextureResidency {
       physicalAllocatedBytes: this.allocatedBytes(),
       retiringBytes: retiringTextureBytes,
       transactionPeakBytes: this.transactionPeakBytes,
-      uploadBytes: 0,
+      uploadBytes: this.cookedUploadBytes,
       copyBytes: 0,
       transcodeBytes: 0,
       bankGrowCount: this.bankGrowCount,
       abortedBankGrowCount: this.abortedBankGrowCount,
       resizeDispatchCount: this.resizeDispatchCount,
       runtimeMipGenerationCount: this.runtimeMipGenerationCount,
+      cookedResidentTextureCount,
+      compressedResidentTextureCount,
+      cookedRuntimeMipGenerationCount: 0,
       bankCopyOperationCount: this.bankCopyOperationCount,
-      segmentCount: this.banks.filter((bank) => bank.texture !== null).length,
+      segmentCount: allocatedSegmentCount,
       bindingSetCount: 1,
-      bindingSlotUtilization: this.banks.filter((bank) => bank.texture !== null).length / GPU_TEXTURE_BANK_COUNT,
+      bindingSlotUtilization: allocatedSegmentCount / GPU_TEXTURE_BANK_COUNT,
       bindingSetPreflightFailures: this.bindingSetPreflightFailures,
       highResolutionArrayAllocated: this.banks.slice(1).some((bank) => bank.texture !== null),
       banks: Object.freeze(banks),
+      packageSegments: Object.freeze(packageSegments),
       privateSubmitCount: 0
     });
   }
@@ -413,6 +578,13 @@ export class TextureResidency {
       bank.capacity = 0;
       bank.freeLayers.length = 0;
     }
+    for (const segment of this.packageSegments) {
+      segment.texture?.destroy();
+      if (segment.accounting !== null) {
+        this.graphics.resource_accounting?.destroyed(segment.accounting);
+      }
+      resetPackageSegment(segment);
+    }
     this.textures.clear();
     this.materials.clear();
     this.descriptors.clear();
@@ -420,15 +592,35 @@ export class TextureResidency {
     this.resizePipeline = null;
   }
 
-  private preflight(materials: readonly StandardShadeMaterial[]): readonly BankGrowthPlan[] {
+  private preflight(materials: readonly StandardShadeMaterial[]): TexturePreflight {
     const freshByBank = this.banks.map(() => new Set<ShadeTexture>());
+    const freshPackages = new Map<ShadeTexture, Readonly<{
+      asset: TextureAssetPackageV2;
+      variant: SelectedTextureVariantV2;
+      key: string;
+    }>>();
     for (const material of materials) {
-      for (const texture of material.textures) {
-        if (!canStageTexture(texture) || this.textures.has(texture)) continue;
-        freshByBank[textureBankClass(texture)]!.add(texture);
+      for (const { texture, role } of materialTextureEntries(material)) {
+        const asset = texture.runtime_asset_package_v2;
+        if (asset !== undefined) validatePackageSemantic(asset, role, material.name);
+        if (this.textures.has(texture)) continue;
+        if (asset !== undefined) {
+          const variant = selectTextureAssetVariantV2(
+            asset,
+            this.graphics.device.features,
+            this.graphics.device.limits
+          );
+          freshPackages.set(texture, {
+            asset,
+            variant,
+            key: texturePackageSegmentKey(asset, variant)
+          });
+        } else if (canStageTexture(texture)) {
+          freshByBank[textureBankClass(texture)]!.add(texture);
+        }
       }
     }
-    const plans: BankGrowthPlan[] = [];
+    const bankPlans: BankGrowthPlan[] = [];
     for (const bank of this.banks) {
       const freshCount = freshByBank[bank.bankClass]!.size;
       if (freshCount === 0) continue;
@@ -440,10 +632,69 @@ export class TextureResidency {
       }
       // Each size-class slot owns one immutable segment. Allocate its final bounded
       // capacity once; future loads only consume layers and never relocate it.
-      if (bank.texture === null) plans.push({ bank, nextCapacity: bank.maxCapacity });
+      if (bank.texture === null) bankPlans.push({ bank, nextCapacity: bank.maxCapacity });
     }
-    const transactionPeakBytes = this.allocatedBytes() + plans.reduce(
+
+    const packagePlans: TexturePackageSegmentPlan[] = [];
+    const packageAssignments = new Map<ShadeTexture, TexturePackageAssignment>();
+    const groups = new Map<string, Array<Readonly<{
+      texture: ShadeTexture;
+      asset: TextureAssetPackageV2;
+      variant: SelectedTextureVariantV2;
+    }>>>();
+    for (const [texture, entry] of freshPackages) {
+      const group = groups.get(entry.key) ?? [];
+      group.push({ texture, asset: entry.asset, variant: entry.variant });
+      groups.set(entry.key, group);
+    }
+    const claimedEmptySegments = new Set<TexturePackageSegment>();
+    for (const [key, group] of [...groups].sort(([left], [right]) => left.localeCompare(right))) {
+      const variant = group[0]!.variant;
+      let segment = this.packageSegments.find(
+        (candidate) => candidate.key === key && candidate.freeLayers.length >= group.length
+      );
+      if (segment === undefined) {
+        segment = this.packageSegments.find(
+          (candidate) => candidate.key === null && !claimedEmptySegments.has(candidate)
+        );
+        if (segment === undefined) {
+          this.bindingSetPreflightFailures++;
+          throw new RangeError(
+            `TextureResidency requires another cooked package segment for '${key}', ` +
+            `but the bounded set has ${GPU_TEXTURE_PACKAGE_BANK_COUNT}`
+          );
+        }
+        const capacity = group.length + 1;
+        if (capacity > Number(this.graphics.device.limits.maxTextureArrayLayers)) {
+          this.bindingSetPreflightFailures++;
+          throw new RangeError(
+            `TextureResidency cooked package segment requires ${capacity} layers but the device permits ` +
+            `${Number(this.graphics.device.limits.maxTextureArrayLayers)}`
+          );
+        }
+        claimedEmptySegments.add(segment);
+        packagePlans.push({ segment, key, variant, freshCount: group.length });
+      }
+      for (const entry of group) {
+        packageAssignments.set(entry.texture, {
+          segment,
+          asset: entry.asset,
+          variant: entry.variant
+        });
+      }
+    }
+
+    const transactionPeakBytes = this.allocatedBytes() + bankPlans.reduce(
       (sum, plan) => sum + arrayBytes(plan.bank.physicalSize, plan.nextCapacity),
+      0
+    ) + packagePlans.reduce(
+      (sum, plan) => sum + texturePackageSegmentBytes(
+        plan.variant.format,
+        plan.variant.mips[0]!.width,
+        plan.variant.mips[0]!.height,
+        plan.variant.mips.length,
+        plan.freshCount + 1
+      ),
       0
     );
     if (transactionPeakBytes > TEXTURE_RESIDENCY_BUDGET_BYTES) {
@@ -451,7 +702,82 @@ export class TextureResidency {
         `TextureResidency transaction peak ${transactionPeakBytes} bytes exceeds the ${TEXTURE_RESIDENCY_BUDGET_BYTES} byte budget`
       );
     }
-    return plans;
+    return Object.freeze({
+      bankPlans: Object.freeze(bankPlans),
+      packagePlans: Object.freeze(packagePlans),
+      packageAssignments
+    });
+  }
+
+  private applyPackageSegmentPlans(
+    plans: readonly TexturePackageSegmentPlan[]
+  ): TexturePackageSegmentGrowth[] {
+    const growths: TexturePackageSegmentGrowth[] = [];
+    try {
+      for (const plan of plans) {
+        const { segment, variant } = plan;
+        if (segment.texture !== null || segment.key !== null) {
+          throw new Error("TextureResidency attempted to replace an immutable cooked segment");
+        }
+        const width = variant.mips[0]!.width;
+        const height = variant.mips[0]!.height;
+        const capacity = plan.freshCount + 1;
+        const descriptor: GPUTextureDescriptor = {
+          label: `TextureResidency/package-${segment.bindingSlot}-${variant.format}-${width}x${height}`,
+          size: [width, height, capacity],
+          format: variant.format,
+          mipLevelCount: variant.mips.length,
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+        };
+        const texture = this.graphics.device.createTexture(descriptor);
+        const bytes = texturePackageSegmentBytes(
+          variant.format,
+          width,
+          height,
+          variant.mips.length,
+          capacity
+        );
+        const accounting = this.graphics.resource_accounting?.created({
+          kind: "texture",
+          category: "resident",
+          owner: `TextureResidency/package-segment-${segment.bindingSlot}`,
+          bytes,
+          label: descriptor.label
+        });
+        segment.key = plan.key;
+        segment.format = variant.format;
+        segment.width = width;
+        segment.height = height;
+        segment.mipLevelCount = variant.mips.length;
+        segment.capacity = capacity;
+        segment.texture = texture;
+        segment.view = texture.createView({ dimension: "2d-array" });
+        segment.accounting = accounting ?? null;
+        for (let layer = capacity - 1; layer >= 1; layer--) segment.freeLayers.push(layer);
+        growths.push({ segment, texture, accounting });
+        this.bankGrowCount++;
+      }
+      this.allocatedPeakBytes = Math.max(this.allocatedPeakBytes, this.allocatedBytes());
+      this.transactionPeakBytes = Math.max(this.transactionPeakBytes, this.allocatedBytes());
+      return growths;
+    } catch (error) {
+      this.rollbackPackageSegmentGrowths(growths);
+      throw error;
+    }
+  }
+
+  private rollbackPackageSegmentGrowths(
+    growths: readonly TexturePackageSegmentGrowth[]
+  ): void {
+    for (let index = growths.length - 1; index >= 0; index--) {
+      const growth = growths[index]!;
+      growth.texture.destroy();
+      if (growth.accounting !== undefined) {
+        this.graphics.resource_accounting?.destroyed(growth.accounting);
+      }
+      resetPackageSegment(growth.segment);
+      this.abortedBankGrowCount++;
+    }
   }
 
   private applyGrowthPlans(plans: readonly BankGrowthPlan[], command: ShadeGPUCommandContext): BankGrowth[] {
@@ -565,7 +891,11 @@ export class TextureResidency {
     return result;
   }
 
-  private transition(resident: ResidentMaterialTextures, material: StandardShadeMaterial): TextureTransition {
+  private transition(
+    resident: ResidentMaterialTextures,
+    material: StandardShadeMaterial,
+    packageAssignments: ReadonlyMap<ShadeTexture, TexturePackageAssignment>
+  ): TextureTransition {
     const desired = [...new Set(material.textures)];
     const previous = resident.textures;
     const previousSet = new Set(previous.map(({ source }) => source));
@@ -578,7 +908,7 @@ export class TextureResidency {
         next.push(current);
         continue;
       }
-      const operation = this.retainTexture(texture);
+      const operation = this.retainTexture(texture, packageAssignments.get(texture));
       if (operation !== null) {
         next.push(operation.entry);
         added.push(operation);
@@ -589,24 +919,66 @@ export class TextureResidency {
     return { material: resident, previous, added, removed };
   }
 
-  private retainTexture(texture: ShadeTexture): TextureRetainOperation | null {
+  private retainTexture(
+    texture: ShadeTexture,
+    packageAssignment?: TexturePackageAssignment
+  ): TextureRetainOperation | null {
     if (!canStageTexture(texture)) return null;
     let entry = this.textures.get(texture);
     let created = false;
     if (entry === undefined) {
-      try {
-        this.graphics.textures.obtain(texture);
-      } catch {
-        return null;
+      let bankClass: number;
+      let segmentIndex: number;
+      let layer: number | undefined;
+      let physicalFormat: GPUTextureFormat;
+      let routing: number;
+      let residentBytes: number;
+      if (packageAssignment !== undefined) {
+        const segment = packageAssignment.segment;
+        bankClass = segment.bindingSlot;
+        segmentIndex = bankClass - GPU_TEXTURE_PACKAGE_BANK_BEGIN;
+        layer = segment.freeLayers.pop();
+        physicalFormat = packageAssignment.variant.format;
+        routing = packageRouting(packageAssignment.asset, packageAssignment.variant);
+        residentBytes = packageAssignment.variant.payloads.reduce(
+          (sum, payload) => sum + payload.byteLength,
+          0
+        );
+      } else {
+        try {
+          this.graphics.textures.obtain(texture);
+        } catch {
+          return null;
+        }
+        bankClass = textureBankClass(texture);
+        segmentIndex = 0;
+        const bank = this.banks[bankClass]!;
+        layer = bank.freeLayers.pop();
+        physicalFormat = "rgba8unorm";
+        routing = GPU_TEXTURE_REF_ROUTING.Identity;
+        residentBytes = arrayBytes(bank.physicalSize, 1);
       }
-      const bankClass = textureBankClass(texture);
-      const bank = this.banks[bankClass]!;
-      const layer = bank.freeLayers.pop();
-      if (layer === undefined) throw new RangeError(`TextureResidency ${bank.size}px bank layer overflow`);
+      if (layer === undefined) {
+        throw new RangeError(`TextureResidency binding slot ${bankClass} layer overflow`);
+      }
       const slot = this.freeDescriptorSlots.pop();
       if (slot === undefined) throw new RangeError("TextureResidency logical descriptor slot overflow");
       const generation = this.descriptorGenerations[slot] ?? 1;
-      entry = { slot, generation, layer, segment: 0, bankClass, source: texture, refCount: 0, retireGeneration: 0 };
+      entry = {
+        slot,
+        generation,
+        layer,
+        segment: segmentIndex,
+        bankClass,
+        source: texture,
+        cooked: packageAssignment !== undefined,
+        physicalFormat,
+        routing,
+        residentBytes,
+        uploadBytes: packageAssignment === undefined ? 0 : residentBytes,
+        refCount: 0,
+        retireGeneration: 0
+      };
       this.textures.set(texture, entry);
       created = true;
     }
@@ -624,7 +996,7 @@ export class TextureResidency {
     if (this.textures.get(entry.source) === entry) this.textures.delete(entry.source);
     this.descriptors.delete(entry.slot);
     this.freeDescriptorSlots.push(entry.slot);
-    this.banks[entry.bankClass]!.freeLayers.push(entry.layer);
+    this.freePhysicalLayer(entry);
   }
 
   private releaseTextureRefs(textures: readonly ResidentTexture[], gpuDone: Promise<void>): void {
@@ -640,7 +1012,7 @@ export class TextureResidency {
         this.descriptors.delete(entry.slot);
         this.descriptorGenerations[entry.slot] = nextTextureHandleGeneration(entry.generation);
         this.freeDescriptorSlots.push(entry.slot);
-        this.banks[entry.bankClass]!.freeLayers.push(entry.layer);
+        this.freePhysicalLayer(entry);
       };
       void gpuDone.then(retire, retire);
     }
@@ -657,7 +1029,9 @@ export class TextureResidency {
   private textureRoutingRefs(): ReadonlyMap<ShadeTexture, number> {
     const refs = new Map<ShadeTexture, number>();
     for (const entry of this.textures.values()) {
-      if (entry.refCount > 0) refs.set(entry.source, encodeGpuTextureRef(entry.bankClass, entry.layer));
+      if (entry.refCount > 0) {
+        refs.set(entry.source, encodeGpuTextureRef(entry.bankClass, entry.layer, entry.routing));
+      }
     }
     return refs;
   }
@@ -697,11 +1071,67 @@ export class TextureResidency {
   }
 
   private allocatedBytes(): number {
-    return this.banks.reduce((sum, bank) => sum + arrayBytes(bank.physicalSize, bank.capacity), 0);
+    return this.banks.reduce(
+      (sum, bank) => sum + arrayBytes(bank.physicalSize, bank.capacity),
+      0
+    ) + this.packageSegments.reduce(
+      (sum, segment) => sum + (segment.texture === null ? 0 : texturePackageSegmentBytes(
+        segment.format,
+        segment.width,
+        segment.height,
+        segment.mipLevelCount,
+        segment.capacity
+      )),
+      0
+    );
   }
 
   private logicalCapacity(): number {
     return this.banks.reduce((sum, bank) => sum + Math.max(0, bank.maxCapacity - 1), 0);
+  }
+
+  private freePhysicalLayer(entry: ResidentTexture): void {
+    if (entry.cooked) {
+      this.packageSegments[entry.segment]!.freeLayers.push(entry.layer);
+    } else {
+      this.banks[entry.bankClass]!.freeLayers.push(entry.layer);
+    }
+  }
+
+  private createDescriptor(entry: ResidentTexture): TextureResidencyDescriptor {
+    if (entry.cooked) {
+      const asset = entry.source.runtime_asset_package_v2!;
+      const segment = this.packageSegments[entry.segment]!;
+      return Object.freeze({
+        slot: entry.slot,
+        generation: entry.generation,
+        formatClass: entry.physicalFormat,
+        sizeClass: textureSizeClass(asset.width, asset.height),
+        segment: entry.segment,
+        layer: entry.layer,
+        logicalSize: Object.freeze([asset.width, asset.height]) as readonly [number, number],
+        uvScaleBias: Object.freeze([1, 1, 0, 0]) as readonly [number, number, number, number],
+        residentMipRange: Object.freeze([0, segment.mipLevelCount - 1]) as readonly [number, number]
+      });
+    }
+    const image = entry.source.image!;
+    const bank = this.banks[entry.bankClass]!;
+    return Object.freeze({
+      slot: entry.slot,
+      generation: entry.generation,
+      formatClass: "rgba8unorm",
+      sizeClass: entry.bankClass,
+      segment: 0,
+      layer: entry.layer,
+      logicalSize: Object.freeze([image.width, image.height]) as readonly [number, number],
+      uvScaleBias: Object.freeze([
+        image.width / bank.physicalSize,
+        image.height / bank.physicalSize,
+        0,
+        0
+      ]) as readonly [number, number, number, number],
+      residentMipRange: Object.freeze([0, bank.mipLevelCount - 1]) as readonly [number, number]
+    });
   }
 
   private assertAlive(): void {
@@ -763,30 +1193,8 @@ function requireBankTexture(bank: TextureBank): GPUTexture {
   return bank.texture;
 }
 
-function createDescriptor(
-  entry: ResidentTexture,
-  bank: TextureBank
-): TextureResidencyDescriptor {
-  const image = entry.source.image!;
-  return Object.freeze({
-    slot: entry.slot,
-    generation: entry.generation,
-    formatClass: "rgba8",
-    sizeClass: entry.bankClass,
-    segment: 0,
-    layer: entry.layer,
-    logicalSize: Object.freeze([image.width, image.height]) as readonly [number, number],
-    uvScaleBias: Object.freeze([
-      image.width / bank.physicalSize,
-      image.height / bank.physicalSize,
-      0,
-      0
-    ]) as readonly [number, number, number, number],
-    residentMipRange: Object.freeze([0, bank.mipLevelCount - 1]) as readonly [number, number]
-  });
-}
-
 function canStageTexture(texture: ShadeTexture): boolean {
+  if (texture.runtime_asset_package_v2 !== undefined) return true;
   const image = texture.image;
   return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;
 }
@@ -820,6 +1228,8 @@ function arrayBytes(size: number, capacity: number): number {
 }
 
 function logicalTextureBytes(texture: ShadeTexture): number {
+  const asset = texture.runtime_asset_package_v2;
+  if (asset !== undefined) return asset.evidence.sourceBytes;
   const image = texture.image;
   if (image === undefined) return 0;
   return estimateTextureBytes({
@@ -829,6 +1239,105 @@ function logicalTextureBytes(texture: ShadeTexture): number {
     depthOrArrayLayers: 1,
     mipLevelCount: mipCount(Math.max(image.width, image.height))
   });
+}
+
+function requirePackageSegmentTexture(segment: TexturePackageSegment): GPUTexture {
+  if (segment.texture === null) {
+    throw new Error(`TextureResidency cooked segment ${segment.bindingSlot} was not preflighted`);
+  }
+  return segment.texture;
+}
+
+function resetPackageSegment(segment: TexturePackageSegment): void {
+  segment.key = null;
+  segment.format = "rgba8unorm";
+  segment.width = 1;
+  segment.height = 1;
+  segment.mipLevelCount = 1;
+  segment.capacity = 0;
+  segment.texture = null;
+  segment.view = null;
+  segment.accounting = null;
+  segment.freeLayers.length = 0;
+}
+
+function texturePackageSegmentKey(
+  asset: TextureAssetPackageV2,
+  variant: SelectedTextureVariantV2
+): string {
+  return `${variant.format}:${asset.width}x${asset.height}:mips-${variant.mips.length}`;
+}
+
+function texturePackageSegmentBytes(
+  format: GPUTextureFormat,
+  width: number,
+  height: number,
+  mipLevelCount: number,
+  capacity: number
+): number {
+  return estimateTextureBytes({
+    format,
+    width,
+    height,
+    depthOrArrayLayers: capacity,
+    mipLevelCount
+  });
+}
+
+function packageRouting(
+  asset: TextureAssetPackageV2,
+  variant: SelectedTextureVariantV2
+): number {
+  if (asset.semantic !== "alpha-mask") return GPU_TEXTURE_REF_ROUTING.Identity;
+  return variant.format === "bc4-r-unorm"
+    ? GPU_TEXTURE_REF_ROUTING.AlphaFromRed
+    : GPU_TEXTURE_REF_ROUTING.AlphaFromAlpha;
+}
+
+type MaterialTextureRole = "base-color" | "normal" | "orm" | "emissive";
+
+function materialTextureEntries(
+  material: StandardShadeMaterial
+): readonly Readonly<{ texture: ShadeTexture; role: MaterialTextureRole }>[] {
+  const entries: Array<Readonly<{ texture: ShadeTexture; role: MaterialTextureRole }>> = [];
+  if (material.texture_albedo !== undefined) {
+    entries.push({ texture: material.texture_albedo, role: "base-color" });
+  }
+  if (!material.is_unlit && material.texture_normal !== undefined) {
+    entries.push({ texture: material.texture_normal, role: "normal" });
+  }
+  if (!material.is_unlit && material.texture_orm !== undefined) {
+    entries.push({ texture: material.texture_orm, role: "orm" });
+  }
+  if (!material.is_unlit && material.texture_emissive !== undefined) {
+    entries.push({ texture: material.texture_emissive, role: "emissive" });
+  }
+  return entries;
+}
+
+function validatePackageSemantic(
+  asset: TextureAssetPackageV2,
+  role: MaterialTextureRole,
+  materialName: string
+): void {
+  const valid = role === "base-color"
+    ? asset.semantic === "base-color-srgb" || asset.semantic === "alpha-mask"
+    : role === "normal"
+      ? asset.semantic === "normal-linear"
+      : role === "orm"
+        ? asset.semantic === "orm-linear"
+        : asset.semantic === "emissive-srgb";
+  if (!valid) {
+    throw new Error(
+      `Material '${materialName}' binds Texture Package semantic '${asset.semantic}' as ${role}`
+    );
+  }
+}
+
+function textureSizeClass(width: number, height: number): number {
+  const required = Math.min(TEXTURE_RESIDENCY_MAX_SIZE, nextPowerOfTwo(Math.max(width, height)));
+  const result = GPU_TEXTURE_BANK_SIZES.findIndex((size) => size >= required);
+  return Math.max(0, result);
 }
 
 function countMaterials(materials: readonly StandardShadeMaterial[]): Map<StandardShadeMaterial, number> {

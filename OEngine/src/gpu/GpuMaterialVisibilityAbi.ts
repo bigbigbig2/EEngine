@@ -398,6 +398,7 @@ function addressMode(value: number): number | null {
 }
 
 function isUsableTexture(texture: ShadeTexture): boolean {
+  if (texture.runtime_asset_package_v2 !== undefined) return true;
   const image = texture.image;
   return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;
 }

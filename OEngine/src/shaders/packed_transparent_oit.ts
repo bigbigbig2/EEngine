@@ -103,6 +103,10 @@ struct TransparentVertexOutput {
 @group(0) @binding(17) var oengine_texture_bank_2: texture_2d_array<f32>;
 @group(0) @binding(18) var oengine_texture_bank_3: texture_2d_array<f32>;
 @group(0) @binding(19) var oengine_texture_bank_4: texture_2d_array<f32>;
+@group(0) @binding(20) var oengine_texture_bank_5: texture_2d_array<f32>;
+@group(0) @binding(21) var oengine_texture_bank_6: texture_2d_array<f32>;
+@group(0) @binding(22) var oengine_texture_bank_7: texture_2d_array<f32>;
+@group(0) @binding(23) var oengine_texture_bank_8: texture_2d_array<f32>;
 
 fn read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
   let word = (*words)[byte_offset >> 2u];

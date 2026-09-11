@@ -37,9 +37,8 @@ const PACKED_CSM_GROUP: GPUBindGroupLayoutDescriptor = {
     })),
     { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
     { binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } },
-    { binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float", viewDimension: "2d-array" } },
-    ...Array.from({ length: 3 }, (_, index) => ({
-      binding: index + 11,
+    ...Array.from({ length: 8 }, (_, index) => ({
+      binding: index + 10,
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "unfilterable-float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
     }))

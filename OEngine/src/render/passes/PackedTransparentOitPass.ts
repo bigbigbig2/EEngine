@@ -50,7 +50,7 @@ const COMMON_GROUP: GPUBindGroupLayoutDescriptor = {
     })),
     { binding: 16, visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "float", viewDimension: "2d-array" } },
-    ...Array.from({ length: 3 }, (_, index) => ({
+    ...Array.from({ length: 7 }, (_, index) => ({
       binding: index + 17,
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }

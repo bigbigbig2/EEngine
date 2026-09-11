@@ -776,7 +776,7 @@ bank grow/copy cost
 
 ### Step 2 · Texture Cooker V2
 
-**Implementation:** completed 2026-09-11；首个 desktop physical profile 使用 BC1/3/4/5 并离线保存到 1×1 的完整 mip chain，base block 未对齐时显式选择 portable RGBA8 variant；`surface.texture-package-bc` 是真实 Chrome/WebGPU consumer。
+**Implementation:** completed 2026-09-11；首个 desktop physical profile 使用 BC1/3/4/5 并离线保存到 1×1 的完整 mip chain，base block 未对齐时显式选择 portable RGBA8 variant。除独立 `surface.texture-package-bc` oracle 外，普通 `ShadeTexture → GpuRenderWorld → TextureResidency` 已选择 physical variant、直传全部 Cooked mip 并由 Material/Visibility/Transparency 消费；`surface.texture-package-production` 证明 BC production residency 且 Cooked runtime mip pass 为零。
 
 **Scope**
 
@@ -796,7 +796,7 @@ cook → load → upload → sample
 
 ### Step 3 · Texture Residency V2
 
-**Implementation:** completed 2026-09-11；当前有界 binding set 为每个 size-class 一个 immutable RGBA8 segment，stable handle 使用 version+slot+generation 且提交前不对全局 descriptor 查询发布，MaterialRecord 消费同事务派生 routing；slot/sampler/set/dispatch 上限进入 capability fingerprint，logical/physical/retiring/transaction 计数由 owner 产生。多 format/multi-set 扩展仍受 4.4 的 preflight policy 约束。
+**Implementation:** completed 2026-09-11；当前单一有界 binding set 包含 5 个 uncooked RGBA8 size-class segment slot 和 4 个 Cooked package segment slot，后者按 physical format、尺寸与 mip 数冻结并直接保存 BC/RGBA8 mip chain。TextureRef V2 编码 bank/layer/semantic routing，stable handle 使用 version+slot+generation 且提交前不对全局 descriptor 查询发布，MaterialRecord 消费同事务派生 routing；slot/sampler/set/dispatch 上限进入 capability fingerprint，logical/physical/retiring/upload/transaction 计数由 owner 产生。超出 4 个 package segment 或单 set limit 时在资源创建/发布前明确 preflight failure；多 binding-set 扩展仍受 4.4 的 policy 约束。
 
 **Scope**
 

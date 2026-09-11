@@ -29,6 +29,8 @@ ADR-0001、0004 和 0006 形成时，OEngine 用“WebGPU baseline”表达跨�
 
 ## Verification
 
+**Implementation checkpoint (2026-09-11):** `primitive-index` 已由 Meshlet Bucket Visibility 的 fragment production shader 消费，并保留 `vertex_index / 3` flat varying fallback；`visibility.primitive-index` 与 `visibility.primitive-index-fallback` 在同一 Chrome/NVIDIA adapter 上通过且 diagnostics 为零。其余能力仍按本节 Gate 独立推进。
+
 - 在目标 Chrome/device 上保存 adapter/device features、limits、WGSL language features、API probes 和 selected specialization。
 - 对 subgroups、primitive-index、f16、texture format/compression、Immediate Data 与 Transient Attachments 分别执行 capability-on 的真实 WebGPU case，以及命中 fallback 时的 parity case。
 - 综合 benchmark 固定 adapter、浏览器、capability fingerprint、workload、画质、分辨率、warm-up 和采样窗口，并遵循 [VALIDATION.md](../VALIDATION.md)。

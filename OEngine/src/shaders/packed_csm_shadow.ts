@@ -57,6 +57,10 @@ struct ShadowVertexOutput {
 @group(0) @binding(11) var oengine_texture_bank_2: texture_2d_array<f32>;
 @group(0) @binding(12) var oengine_texture_bank_3: texture_2d_array<f32>;
 @group(0) @binding(13) var oengine_texture_bank_4: texture_2d_array<f32>;
+@group(0) @binding(14) var oengine_texture_bank_5: texture_2d_array<f32>;
+@group(0) @binding(15) var oengine_texture_bank_6: texture_2d_array<f32>;
+@group(0) @binding(16) var oengine_texture_bank_7: texture_2d_array<f32>;
+@group(0) @binding(17) var oengine_texture_bank_8: texture_2d_array<f32>;
 
 ${GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL}
 
@@ -144,7 +148,7 @@ fn alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
     wrap_texel(y, (sampler_class >> OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS) &
       OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size)
   );
-  return oengine_texture_bank_alpha(bank, pixel, layer);
+  return oengine_texture_bank_alpha(texture_ref, pixel);
 }
 fn sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 {
   let size = f32(oengine_texture_bank_size(oengine_texture_ref_bank(texture_ref)));

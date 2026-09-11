@@ -5,7 +5,8 @@ import { GPU_TEXTURE_BANK_COUNT } from "./GpuTextureRefAbi.js";
 export const TEXTURE_BINDING_SET_SLOT_COUNT = GPU_TEXTURE_BANK_COUNT;
 export const TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT = 6;
 export const TEXTURE_BINDING_SET_MAX_RESIDENT_SETS = 1;
-export const TEXTURE_BINDING_SET_RESERVED_SAMPLED_TEXTURE_BINDINGS = 1;
+/** Visibility/Surface/forward-lighting products used beside material textures. */
+export const TEXTURE_BINDING_SET_RESERVED_SAMPLED_TEXTURE_BINDINGS = 7;
 
 export interface TextureBindingSetPolicyRecord {
   readonly textureSlotsPerBindingSet: number;

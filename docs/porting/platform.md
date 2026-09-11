@@ -11,7 +11,7 @@
 - Retained invariants: offline mip、sRGB linear-light filtering、normal renormalization、MASK coverage、block-aligned payload、capability-first variant selection、确定性 metadata/checksum。
 - OEngine/WebGPU differences: 第一版 desktop-bc profile 在 `texture-compression-unaligned` 尚不可用时要求 base width/height 为 4 对齐，不要求 power-of-two；后续物理 mip subresource 按 block rounding 上传，因此 BC 与 portable variant 都保留完整 1×1 tail。Runtime 只暴露 OEngine package contract。
 - Fallback/lifecycle: `texture-compression-bc` 未启用时选择完整 `rgba8` variant；variant 缺失/损坏在 GPU resource 创建前失败；上传失败立即销毁 provisional texture，device loss 由 Renderer/asset owner 重新打开 package 并重建。
-- Local validation: `runtime-asset-v2.test.mjs` 覆盖确定性、损坏输入、variant、颜色/normal/MASK mip oracle；`surface.texture-package-bc` 在本地 Chrome/NVIDIA adapter 覆盖 cook → load → BC upload → sample 和 WebGPU validation。
+- Local validation: `runtime-asset-v2.test.mjs` 覆盖确定性、损坏输入、variant、颜色/normal/MASK mip oracle；`surface.texture-package-bc` 独立覆盖 cook → load → BC upload → sample，`surface.texture-package-production` 在本地 Chrome/NVIDIA adapter 覆盖普通 Render World/TextureResidency 的五类语义、BC resident、全 mip 直传、真实着色和零 Cooked runtime mip pass。
 
 ## PLAT-WEBGPU · WebGPU 2026/WGSL capability contract
 

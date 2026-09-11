@@ -533,6 +533,8 @@ export class MainRenderPipeline {
   packed_meshlet_work_candidate_capacity = 0;
   /** ADR-0008 Step-2 compaction specialization policy. */
   packed_meshlet_work_compaction: "auto" | "portable" | "subgroup" = "auto";
+  /** WebGPU 2026 primitive identity specialization; portable is an explicit parity override. */
+  packed_primitive_index: "auto" | "portable" = "auto";
   /** Candidate cache remains fallback-only until the M5 evidence gate passes. */
   packed_triangle_setup_enabled = false;
   packed_triangle_setup_threshold_pixels = 32;
@@ -1126,7 +1128,8 @@ export class MainRenderPipeline {
       }
       const optionalFeatureNames: GPUFeatureName[] = [
         "timestamp-query",
-        "subgroups"
+        "subgroups",
+        "primitive-index"
       ];
       for (const feature of requiredFeatures) {
         if (!adapter.features.has(feature)) {
@@ -1531,6 +1534,7 @@ export class MainRenderPipeline {
         coneEnabled: this.packed_visibility_cone_enabled,
         meshletWorkCandidateCapacity: this.packed_meshlet_work_candidate_capacity,
         meshletWorkCompactionPath: this.packed_meshlet_work_compaction,
+        primitiveIndexPath: this.packed_primitive_index,
         triangleSetupEnabled: this.packed_triangle_setup_enabled,
         triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
         previousHzb: this.packed_visibility_hzb_enabled
@@ -3111,6 +3115,7 @@ export class MainRenderPipeline {
         `-meshlet-visibility-v2` +
         `-meshlet-capacity${this.packed_meshlet_work_candidate_capacity}` +
         `-meshlet-compact${this.packed_meshlet_work_compaction}` +
+        `-primitive-index${this.packed_primitive_index}` +
         `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +
         `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
         `-ssao-owner${this._ssaoOwnerGeneration}` +
@@ -3460,6 +3465,18 @@ export class MainRenderPipeline {
       profiler.recordCounter(
         "packed.material.textureRuntimeMipGenerations",
         textureEvidence?.runtimeMipGenerationCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.cookedResidentTextures",
+        textureEvidence?.cookedResidentTextureCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.compressedResidentTextures",
+        textureEvidence?.compressedResidentTextureCount ?? 0
+      );
+      profiler.recordCounter(
+        "packed.material.cookedRuntimeMipGenerations",
+        textureEvidence?.cookedRuntimeMipGenerationCount ?? 0
       );
       profiler.recordCounter(
         "packed.material.textureBankCopyOperations",

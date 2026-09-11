@@ -3,6 +3,8 @@
  */
 
 import { hashMix, hashOptional } from "../core/hashMix.js";
+import { hashString } from "../core/memoryUtils.js";
+import type { TextureAssetPackageV2 } from "../assets/TextureAssetPackage.js";
 import { ShadeTextureFlags } from "./ShadeTextureFlags.js";
 import { TextureFilterType } from "./TextureFilterType.js";
 import { ShadeImage } from "./ShadeImage.js";
@@ -18,6 +20,7 @@ export class ShadeTexture {
   label = "";
 
   #image: ShadeImage | undefined;
+  #runtimeAssetPackageV2: TextureAssetPackageV2 | undefined;
 
   get isShadeTexture(): boolean {
     return true;
@@ -25,6 +28,11 @@ export class ShadeTexture {
 
   get image(): ShadeImage | undefined {
     return this.#image;
+  }
+
+  /** Device-independent cooked source consumed by TextureResidency. */
+  get runtime_asset_package_v2(): TextureAssetPackageV2 | undefined {
+    return this.#runtimeAssetPackageV2;
   }
 
   setFlag(flag: number): void {
@@ -65,9 +73,19 @@ export class ShadeTexture {
     return t;
   }
 
+  static fromAssetPackageV2(source: TextureAssetPackageV2): ShadeTexture {
+    const texture = new ShadeTexture();
+    texture.#runtimeAssetPackageV2 = source;
+    texture.flags = 0;
+    return texture;
+  }
+
   hash(): number {
     return hashMix(
       hashOptional(this.#image),
+      this.#runtimeAssetPackageV2 === undefined
+        ? 0
+        : hashString(this.#runtimeAssetPackageV2.runtime.manifest.assetId),
       this.flags,
       this.minFilter,
       this.magFilter,
@@ -81,6 +99,7 @@ export class ShadeTexture {
   equals(other: ShadeTexture): boolean {
     return (
       this.#image === other.#image &&
+      this.#runtimeAssetPackageV2 === other.#runtimeAssetPackageV2 &&
       this.flags === other.flags &&
       this.minFilter === other.minFilter &&
       this.magFilter === other.magFilter &&

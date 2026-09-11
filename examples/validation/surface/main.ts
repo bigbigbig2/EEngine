@@ -2,8 +2,6 @@ import {
   BoxGeometry,
   Mesh,
   ShadeDrawSide,
-  ShadeImage,
-  ShadeDataType,
   ShadeTexture,
   ShadeTransparencyMode,
   cookTextureAssetPackageV2,
@@ -17,6 +15,8 @@ import {
   GPU_TEXTURE_REF_BANK_MASK,
   GPU_TEXTURE_REF_BANK_SHIFT,
   GPU_TEXTURE_REF_LAYER_MASK,
+  GPU_TEXTURE_REF_ROUTING_MASK,
+  GPU_TEXTURE_REF_ROUTING_SHIFT,
   GPU_TEXTURE_REF_VERSION_MASK,
   GPU_TEXTURE_REF_VERSION_SHIFT,
   GPU_TEXTURE_REF_WGSL,
@@ -72,7 +72,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "transparent", "scene-adapter"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "transparent", "scene-adapter"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -171,6 +171,11 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const residentTextures = counted["packed.material.residentTextures"] ?? 0;
     const residentTextureBytes = counted["packed.material.residentTextureBytes"] ?? 0;
     const textureFallbacks = counted["packed.material.textureFallbacks"] ?? 0;
+    const cookedResidentTextures = counted["packed.material.cookedResidentTextures"] ?? 0;
+    const compressedResidentTextures = counted["packed.material.compressedResidentTextures"] ?? 0;
+    const cookedUploadBytes = counted["packed.material.textureUploadBytes"] ?? 0;
+    const runtimeMipGenerations = counted["packed.material.textureRuntimeMipGenerations"] ?? 0;
+    const cookedRuntimeMipGenerations = counted["packed.material.cookedRuntimeMipGenerations"] ?? 0;
     const ownerCreation = runtime.renderer?.gpuOwnerCreationEvidence();
     Object.assign(evidence, {
       activeMaterials,
@@ -178,6 +183,11 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       residentTextures,
       residentTextureBytes,
       textureFallbacks,
+      cookedResidentTextures,
+      compressedResidentTextures,
+      cookedUploadBytes,
+      runtimeMipGenerations,
+      cookedRuntimeMipGenerations,
       queueOverflowMask: gpu.queueOverflowMask ?? 0,
       gpuCounterSchemaVersion: profile.gpuCounters.schemaVersion
     });
@@ -190,6 +200,22 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     }
     if (request.scenarioId === "texture-fallback") {
       assertions.push(validationAssertion("texture-fallback-recorded", textureFallbacks >= 1, "An unusable texture was recorded as an explicit material fallback", textureFallbacks, ">= 1"));
+    }
+    if (request.scenarioId === "texture-package-production") {
+      assertions.push(validationAssertion(
+        "texture-package-production-resident",
+        cookedResidentTextures >= 5 && compressedResidentTextures >= 5 && cookedUploadBytes > 0,
+        "GpuRenderWorld staged all five texture semantics through TextureResidency into cooked BC package segments",
+        { cookedResidentTextures, compressedResidentTextures, cookedUploadBytes },
+        "cooked/compressed >= 5 and uploadBytes > 0"
+      ));
+      assertions.push(validationAssertion(
+        "texture-package-production-offline-mips",
+        runtimeMipGenerations === 0 && cookedRuntimeMipGenerations === 0,
+        "The authoritative cooked material path consumed its complete offline mip chain without a runtime mip pass",
+        { runtimeMipGenerations, cookedRuntimeMipGenerations },
+        "both = 0"
+      ));
     }
     if (request.scenarioId === "transparent") {
       assertions.push(validationAssertion("transparent-work-produced", (gpu.transparentRasterWork ?? 0) > 0 && (gpu.transparentTriangles ?? 0) > 0, "Packed transparency produced bounded raster work and triangle work", { rasterWork: gpu.transparentRasterWork ?? 0, triangles: gpu.transparentTriangles ?? 0 }, "> 0"));
@@ -333,10 +359,12 @@ async function runTextureRefOracle(): Promise<Readonly<{ sampleCount: number; mi
   if (device === undefined) throw new Error("Surface runtime has no WebGPU device for the TextureRef oracle");
   const refs = new Uint32Array([
     ...Array.from({ length: 5 }, (_, bank) => encodeGpuTextureRef(bank, bank + 1)),
+    encodeGpuTextureRef(5, 7, 1),
+    encodeGpuTextureRef(6, 9, 2),
     0xffffffff,
     0x00000001,
-    0x1f000001,
-    0x10000000
+    0x2f000001,
+    0x20000000
   ]);
   const input = device.createBuffer({
     label: "validation/TextureRef oracle input",
@@ -369,8 +397,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   decoded[id.x] = vec4u(
     oengine_texture_ref_version(value),
     oengine_texture_ref_bank(value),
-    oengine_texture_ref_layer(value),
-    select(0u, 1u, oengine_texture_ref_valid(value))
+    oengine_texture_ref_routing(value),
+    oengine_texture_ref_layer(value) | (select(0u, 1u, oengine_texture_ref_valid(value)) << 31u)
   );
 }`
     });
@@ -403,13 +431,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       const expected = [
         (value & GPU_TEXTURE_REF_VERSION_MASK) >>> GPU_TEXTURE_REF_VERSION_SHIFT,
         (value & GPU_TEXTURE_REF_BANK_MASK) >>> GPU_TEXTURE_REF_BANK_SHIFT,
-        value & GPU_TEXTURE_REF_LAYER_MASK,
-        cpu === null ? 0 : 1
+        (value & GPU_TEXTURE_REF_ROUTING_MASK) >>> GPU_TEXTURE_REF_ROUTING_SHIFT,
+        ((value & GPU_TEXTURE_REF_LAYER_MASK) | (cpu === null ? 0 : 0x80000000)) >>> 0
       ];
       if (expected[0] !== actual[index * 4] || expected[1] !== actual[index * 4 + 1] ||
         expected[2] !== actual[index * 4 + 2] || expected[3] !== actual[index * 4 + 3]) mismatchCount++;
     }
-    if (GPU_TEXTURE_REF_ABI_VERSION !== 1) mismatchCount++;
+    if (GPU_TEXTURE_REF_ABI_VERSION !== 2) mismatchCount++;
     readback.unmap();
     return Object.freeze({ sampleCount: refs.length, mismatchCount });
   } finally {
@@ -434,14 +462,18 @@ async function createSurfaceSource(): Promise<PackedSceneSource> {
   const metal = solidMaterial([0.72, 0.76, 0.82, 1], 0.18, 1);
   metal.draw_side = ShadeDrawSide.Double;
   const textured = solidMaterial([1, 1, 1, 1], 0.5, 0);
-  textured.texture_albedo = createCheckerTexture();
+  const cooked = await createCookedMaterialTextures();
+  textured.texture_albedo = cooked.baseColor;
+  textured.texture_normal = cooked.normal;
+  textured.texture_orm = cooked.orm;
+  textured.texture_emissive = cooked.emissive;
   const fallback = solidMaterial([0.85, 0.2, 0.85, 1], 0.8, 0);
   fallback.texture_albedo = new ShadeTexture();
   const transparent = solidMaterial([0.1, 0.7, 0.95, 0.5], 0.25, 0);
   transparent.transparency_mode = ShadeTransparencyMode.Transparent;
   const alphaTested = solidMaterial([0.85, 0.8, 0.2, 1], 0.55, 0);
   alphaTested.transparency_mode = ShadeTransparencyMode.AlphaTested;
-  alphaTested.texture_albedo = createCheckerTexture();
+  alphaTested.texture_albedo = cooked.alphaMask;
   return createPackedBoxScene([
     { size: [2.4, 2.4, 2.4], position: [-4.5, 1.2, 0], materialIndex: 0, debugId: 1 },
     { size: [2.4, 2.4, 2.4], position: [-1.5, 1.2, 0], materialIndex: 1, debugId: 2 },
@@ -478,21 +510,54 @@ async function createOrdinarySurfaceScene(scene: NonNullable<typeof runtime.scen
   return { meshes, materials: source.materials, geometryAssets };
 }
 
-function createCheckerTexture(): ShadeTexture {
-  const pixels = new Uint8Array([
-    255, 255, 255, 255, 25, 80, 230, 255,
-    25, 80, 230, 255, 255, 255, 255, 255
-  ]);
-  const image = ShadeImage.fromArrayBuffer(
-    pixels.buffer,
-    4,
-    ShadeDataType.Uint8,
-    2,
-    2
-  );
-  const texture = ShadeTexture.from(image);
-  texture.label = "validation-surface-checker";
-  return texture;
+async function createCookedMaterialTextures(): Promise<Readonly<{
+  baseColor: ShadeTexture;
+  normal: ShadeTexture;
+  orm: ShadeTexture;
+  emissive: ShadeTexture;
+  alphaMask: ShadeTexture;
+}>> {
+  const semantics = [
+    "base-color-srgb",
+    "normal-linear",
+    "orm-linear",
+    "emissive-srgb",
+    "alpha-mask"
+  ] as const;
+  const textures = await Promise.all(semantics.map(async (semantic) => {
+    const pixels = new Uint8Array(8 * 8 * 4);
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+      const rgba = semantic === "normal-linear"
+        ? [128, 128, 255, 255]
+        : semantic === "orm-linear"
+          ? [255, 150, 24, 255]
+          : semantic === "emissive-srgb"
+            ? [12, 28, 72, 255]
+            : semantic === "alpha-mask"
+              ? [255, 255, 255, (x + y) % 2 === 0 ? 255 : 0]
+              : (x + y) % 2 === 0
+                ? [255, 255, 255, 255]
+                : [25, 80, 230, 255];
+      pixels.set(rgba, (y * 8 + x) * 4);
+    }
+    const asset = await openTextureAssetPackageV2(await cookTextureAssetPackageV2({
+      width: 8,
+      height: 8,
+      rgba8: pixels,
+      semantic,
+      sourceUri: `fixture://surface/production-${semantic}`
+    }));
+    const texture = ShadeTexture.fromAssetPackageV2(asset);
+    texture.label = `validation-surface-${semantic}`;
+    return texture;
+  }));
+  return Object.freeze({
+    baseColor: textures[0],
+    normal: textures[1],
+    orm: textures[2],
+    emissive: textures[3],
+    alphaMask: textures[4]
+  });
 }
 
 function failedScenario(request: ValidationScenarioRequest, error: unknown, startedFrame = runtime.frame): ValidationScenarioResult {

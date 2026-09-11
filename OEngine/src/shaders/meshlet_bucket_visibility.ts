@@ -13,7 +13,17 @@ import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 
 export const MESHLET_BUCKET_SETTINGS_STRIDE = 256;
 export const MESHLET_BUCKET_SETTINGS_SIZE = 16;
-export const MESHLET_BUCKET_VISIBILITY_WGSL = /* wgsl */ `
+export function meshletBucketVisibilityWgsl(primitiveIndex: boolean): string {
+  const primitiveIndexEnable = primitiveIndex ? "enable primitive_index;" : "";
+  const triangleVarying = primitiveIndex
+    ? ""
+    : "  @location(2) @interpolate(flat) triangle: u32,";
+  const triangleAssignment = primitiveIndex ? "" : "  output.triangle = triangle;";
+  const fragmentTriangleInput = primitiveIndex
+    ? "@builtin(primitive_index) triangle: u32"
+    : "@location(2) @interpolate(flat) triangle: u32";
+  return /* wgsl */ `
+${primitiveIndexEnable}
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
@@ -39,7 +49,7 @@ struct OEngineMeshletBucketVertexOutput {
   @builtin(position) position: vec4f,
   @location(0) @interpolate(flat) instance_slot: u32,
   @location(1) @interpolate(flat) meshlet_slot: u32,
-  @location(2) @interpolate(flat) triangle: u32,
+${triangleVarying}
   @location(3) uv0: vec2f,
   @location(4) uv1: vec2f,
   @location(5) uv2: vec2f,
@@ -64,6 +74,10 @@ struct OEngineMeshletBucketVertexOutput {
 @group(0) @binding(13) var oengine_texture_bank_2: texture_2d_array<f32>;
 @group(0) @binding(14) var oengine_texture_bank_3: texture_2d_array<f32>;
 @group(0) @binding(15) var oengine_texture_bank_4: texture_2d_array<f32>;
+@group(0) @binding(16) var oengine_texture_bank_5: texture_2d_array<f32>;
+@group(0) @binding(17) var oengine_texture_bank_6: texture_2d_array<f32>;
+@group(0) @binding(18) var oengine_texture_bank_7: texture_2d_array<f32>;
+@group(0) @binding(19) var oengine_texture_bank_8: texture_2d_array<f32>;
 
 ${GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL}
 
@@ -146,7 +160,7 @@ fn raster_meshlet_bucket(
     meshlet_camera.view_projection_matrix * matrix * vec4f(local_position, 1.0), valid);
   output.instance_slot = work.instance_slot;
   output.meshlet_slot = work.meshlet_slot;
-  output.triangle = triangle;
+${triangleAssignment}
   output.uv0 = select(vec2f(0.0), uv0.xy / uv0.z, uv0.z > 0.0);
   output.uv1 = select(vec2f(0.0), uv1.xy / uv1.z, uv1.z > 0.0);
   output.uv2 = select(vec2f(0.0), uv2.xy / uv2.z, uv2.z > 0.0);
@@ -159,7 +173,7 @@ fn raster_meshlet_bucket(
 
 @fragment
 fn write_meshlet_opaque(
-  @location(2) @interpolate(flat) triangle: u32,
+  ${fragmentTriangleInput},
   @location(8) @interpolate(flat) meshlet_work_slot: u32
 ) -> @location(0) u32 {
   return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
@@ -176,10 +190,10 @@ fn meshlet_wrap_texel(value: i32, mode: u32, size: i32) -> i32 {
 }
 fn meshlet_alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
   let size = oengine_texture_bank_size(oengine_texture_ref_bank(texture_ref));
-  return oengine_texture_bank_alpha(oengine_texture_ref_bank(texture_ref), vec2i(
+  return oengine_texture_bank_alpha(texture_ref, vec2i(
     meshlet_wrap_texel(x, sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size),
     meshlet_wrap_texel(y, (sampler_class >> OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS) &
-      OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size)), i32(oengine_texture_ref_layer(texture_ref)));
+      OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size)));
 }
 fn meshlet_sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 {
   let size = f32(oengine_texture_bank_size(oengine_texture_ref_bank(texture_ref)));
@@ -201,7 +215,7 @@ fn meshlet_sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 
 fn write_meshlet_mask(
   @location(0) @interpolate(flat) instance_slot: u32,
   @location(1) @interpolate(flat) meshlet_slot: u32,
-  @location(2) @interpolate(flat) triangle: u32,
+  ${fragmentTriangleInput},
   @location(3) uv0: vec2f,
   @location(4) uv1: vec2f,
   @location(5) uv2: vec2f,
@@ -227,3 +241,11 @@ fn write_meshlet_mask(
   return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
 }
 `;
+}
+
+/** Correct fallback for devices that do not negotiate primitive-index. */
+export const MESHLET_BUCKET_VISIBILITY_WGSL = meshletBucketVisibilityWgsl(false);
+
+/** WebGPU 2026 Desktop specialization; local primitive identity comes from rasterization. */
+export const MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL =
+  meshletBucketVisibilityWgsl(true);

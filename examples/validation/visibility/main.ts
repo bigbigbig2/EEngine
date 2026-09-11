@@ -87,7 +87,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "meshlet-work-overflow", "meshlet-work-portable", "selective-risk", "large-triangle-setup", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
+  const supported = ["basic", "meshlet-work-overflow", "meshlet-work-portable", "primitive-index", "primitive-index-fallback", "selective-risk", "large-triangle-setup", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -104,6 +104,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       request.scenarioId === "meshlet-work-overflow" ? 1 : 0;
     runtime.renderer.packed_meshlet_work_compaction =
       request.scenarioId === "meshlet-work-portable" ? "portable" : "auto";
+    runtime.renderer.packed_primitive_index =
+      request.scenarioId === "primitive-index-fallback" ? "portable" : "auto";
     runtime.renderer.packed_triangle_setup_enabled =
       request.scenarioId === "large-triangle-setup";
     runtime.renderer.packed_triangle_setup_threshold_pixels = 1;
@@ -489,6 +491,27 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           meshletRaster,
           "triangles/visiblePixels > 0"
         ));
+        if (request.scenarioId === "primitive-index") {
+          const primitiveIndexEnabled = runtime.renderer.device.features.has("primitive-index");
+          evidence.primitiveIndexEnabled = primitiveIndexEnabled;
+          assertions.push(validationAssertion(
+            "primitive-index-production-specialization",
+            primitiveIndexEnabled && meshletRaster.visiblePixels > 0,
+            "The negotiated primitive-index shader specialization supplied local triangle identity to the production VisibilityKey V2 raster consumer",
+            { primitiveIndexEnabled, visiblePixels: meshletRaster.visiblePixels },
+            "primitive-index enabled and visiblePixels > 0"
+          ));
+        }
+        if (request.scenarioId === "primitive-index-fallback") {
+          evidence.primitiveIndexPath = runtime.renderer.packed_primitive_index;
+          assertions.push(validationAssertion(
+            "primitive-index-portable-fallback",
+            runtime.renderer.packed_primitive_index === "portable" && meshletRaster.visiblePixels > 0,
+            "The explicit portable shader variant preserved VisibilityKey V2 local-triangle identity without the primitive-index builtin",
+            { path: runtime.renderer.packed_primitive_index, visiblePixels: meshletRaster.visiblePixels },
+            "path = portable and visiblePixels > 0"
+          ));
+        }
       }
       assertions.push(validationAssertion("gpu-queue-no-overflow", (counters.queueOverflowMask ?? 0) === 0, "GPU work queues did not overflow", counters.queueOverflowMask, 0));
       if (request.scenarioId === "selective-risk") {

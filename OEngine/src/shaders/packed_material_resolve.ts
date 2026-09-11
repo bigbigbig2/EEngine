@@ -46,6 +46,10 @@ const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
 @group(0) @binding(12) var oengine_texture_bank_2: texture_2d_array<f32>;
 @group(0) @binding(13) var oengine_texture_bank_3: texture_2d_array<f32>;
 @group(0) @binding(14) var oengine_texture_bank_4: texture_2d_array<f32>;
+@group(0) @binding(15) var oengine_texture_bank_5: texture_2d_array<f32>;
+@group(0) @binding(16) var oengine_texture_bank_6: texture_2d_array<f32>;
+@group(0) @binding(17) var oengine_texture_bank_7: texture_2d_array<f32>;
+@group(0) @binding(18) var oengine_texture_bank_8: texture_2d_array<f32>;
 
 @group(1) @binding(0) var<storage, read> instances: array<OEngineInstanceRecord>;
 @group(1) @binding(1) var<storage, read> geometries: array<GpuGeometryRecord>;

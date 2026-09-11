@@ -7,7 +7,8 @@ import {
 } from "./RuntimeAssetManifestV2.js";
 import {
   RuntimeAssetResidencyState,
-  type RuntimeAssetResidencyBudget
+  type RuntimeAssetResidencyBudget,
+  type RuntimeAssetResidencyReservation
 } from "./RuntimeAssetResidency.js";
 
 export const TEXTURE_ASSET_SCHEMA_VERSION = 2;
@@ -92,6 +93,14 @@ export interface UploadedTextureAssetV2 {
 
 export interface TextureUploadOptionsV2 {
   readonly budget?: RuntimeAssetResidencyBudget;
+}
+
+export interface TextureAssetLayerUploadV2 {
+  readonly variant: SelectedTextureVariantV2;
+  readonly evidence: TextureUploadEvidenceV2;
+  readonly residency: RuntimeAssetResidencyState;
+  commit(resourceId: string): void;
+  abort(): void;
 }
 
 const TEXTURE_METADATA_CHUNK_ID = "texture-metadata";
@@ -267,18 +276,8 @@ export function uploadTextureAssetPackageV2(
   options: TextureUploadOptionsV2 = {}
 ): UploadedTextureAssetV2 {
   const variant = selectTextureAssetVariantV2(asset, device.features, device.limits);
-  const manifestVariant = asset.runtime.manifest.variants.find((candidate) => candidate.id === variant.id)!;
-  const residency = new RuntimeAssetResidencyState(asset.runtime.manifest, manifestVariant);
-  const selectedChunks = manifestVariant.chunkIds.map((id) =>
-    asset.runtime.manifest.chunks.find((chunk) => chunk.id === id)!
-  );
-  const reservation = residency.request(manifestVariant.chunkIds, options.budget ?? {
-    maxUploadBytes: selectedChunks.reduce((sum, chunk) => sum + chunk.compressedBytes, 0),
-    maxResidentBytes: selectedChunks.reduce((sum, chunk) => sum + chunk.expectedResidentBytes, 0)
-  });
   let texture: GPUTexture | undefined;
-  let uploadBytes = 0;
-  let committed = false;
+  let staged: TextureAssetLayerUploadV2 | undefined;
   try {
     texture = device.createTexture({
       label: `TextureAssetV2/${asset.runtime.manifest.assetId.slice(0, 12)}/${variant.id}`,
@@ -287,6 +286,55 @@ export function uploadTextureAssetPackageV2(
       format: variant.format,
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
+    staged = stageTextureAssetPackageV2ToLayer(device, asset, texture, 0, options);
+    const view = texture.createView();
+    staged.commit(`TextureAssetV2/${asset.runtime.manifest.assetId}`);
+    return Object.freeze({
+      texture,
+      view,
+      variant: staged.variant,
+      residency: staged.residency,
+      evidence: staged.evidence
+    });
+  } catch (error) {
+    staged?.abort();
+    texture?.destroy();
+    throw error;
+  }
+}
+
+/**
+ * Production-owner seam: writes a cooked mip chain directly into one immutable
+ * TextureResidency array layer. Publication remains controlled by commit/abort.
+ */
+export function stageTextureAssetPackageV2ToLayer(
+  device: GPUDevice,
+  asset: TextureAssetPackageV2,
+  texture: GPUTexture,
+  arrayLayer: number,
+  options: TextureUploadOptionsV2 = {}
+): TextureAssetLayerUploadV2 {
+  if (!Number.isInteger(arrayLayer) || arrayLayer < 0) {
+    throw new RangeError("Texture Package V2 array layer must be a non-negative integer");
+  }
+  const variant = selectTextureAssetVariantV2(asset, device.features, device.limits);
+  const manifestVariant = asset.runtime.manifest.variants.find(
+    (candidate) => candidate.id === variant.id
+  )!;
+  const selectedChunks = manifestVariant.chunkIds.map((id) =>
+    asset.runtime.manifest.chunks.find((chunk) => chunk.id === id)!
+  );
+  const residency = new RuntimeAssetResidencyState(asset.runtime.manifest, manifestVariant);
+  const reservation: RuntimeAssetResidencyReservation = residency.request(
+    manifestVariant.chunkIds,
+    options.budget ?? {
+      maxUploadBytes: selectedChunks.reduce((sum, chunk) => sum + chunk.compressedBytes, 0),
+      maxResidentBytes: selectedChunks.reduce((sum, chunk) => sum + chunk.expectedResidentBytes, 0)
+    }
+  );
+  let uploadBytes = 0;
+  let settled = false;
+  try {
     for (let index = 0; index < variant.mips.length; index++) {
       const mip = variant.mips[index]!;
       const payload = variant.payloads[index]!;
@@ -302,53 +350,58 @@ export function uploadTextureAssetPackageV2(
         ? {}
         : { bytesPerRow: paddedBytesPerRow, rowsPerImage: blockRows };
       device.queue.writeTexture(
-        { texture, mipLevel: mip.level },
+        { texture, mipLevel: mip.level, origin: { x: 0, y: 0, z: arrayLayer } },
         upload.slice().buffer,
         layout,
         { width: physicalWidth, height: physicalHeight, depthOrArrayLayers: 1 }
       );
       uploadBytes += upload.byteLength;
     }
-    const residentBytes = variant.payloads.reduce((sum, payload) => sum + payload.byteLength, 0);
-    const view = texture.createView();
-    const residentRanges = Object.fromEntries(manifestVariant.chunkIds.map((chunkId) => {
-      const mipIndex = variant.mips.findIndex((mip) => mip.chunkId === chunkId);
-      if (mipIndex < 0) {
-        const chunk = selectedChunks.find((candidate) => candidate.id === chunkId)!;
-        return [chunkId, {
-          resourceId: "cpu-metadata",
-          byteOffset: chunk.byteOffset,
-          byteLength: chunk.expectedResidentBytes
-        }];
-      }
-      return [chunkId, {
-        resourceId: `TextureAssetV2/${asset.runtime.manifest.assetId}`,
-        byteOffset: variant.payloads.slice(0, mipIndex)
-          .reduce((sum, payload) => sum + payload.byteLength, 0),
-        byteLength: variant.payloads[mipIndex]!.byteLength
-      }];
-    }));
-    residency.commit(reservation, residentRanges);
-    committed = true;
-    return Object.freeze({
-      texture,
-      view,
-      variant,
-      residency,
-      evidence: Object.freeze({
-        selectedVariant: variant.id,
-        physicalFormat: variant.format,
-        uploadBytes,
-        residentBytes,
-        runtimeMipPasses: 0,
-        transcodeBytes: 0
-      })
-    });
   } catch (error) {
-    if (!committed) residency.abort(reservation);
-    texture?.destroy();
+    residency.abort(reservation);
     throw error;
   }
+  const residentBytes = variant.payloads.reduce((sum, payload) => sum + payload.byteLength, 0);
+  const evidence = Object.freeze({
+    selectedVariant: variant.id,
+    physicalFormat: variant.format,
+    uploadBytes,
+    residentBytes,
+    runtimeMipPasses: 0 as const,
+    transcodeBytes: 0 as const
+  });
+  return Object.freeze({
+    variant,
+    residency,
+    evidence,
+    commit(resourceId: string): void {
+      if (settled) throw new Error("Texture Package V2 layer upload is already settled");
+      if (resourceId.length === 0) throw new RangeError("Texture Package V2 resident resource id is empty");
+      let mipByteOffset = 0;
+      const ranges = Object.fromEntries(manifestVariant.chunkIds.map((chunkId) => {
+        const mipIndex = variant.mips.findIndex((mip) => mip.chunkId === chunkId);
+        if (mipIndex < 0) {
+          const chunk = selectedChunks.find((candidate) => candidate.id === chunkId)!;
+          return [chunkId, {
+            resourceId: "cpu-metadata",
+            byteOffset: chunk.byteOffset,
+            byteLength: chunk.expectedResidentBytes
+          }];
+        }
+        const byteLength = variant.payloads[mipIndex]!.byteLength;
+        const range = [chunkId, { resourceId, byteOffset: mipByteOffset, byteLength }] as const;
+        mipByteOffset += byteLength;
+        return range;
+      }));
+      residency.commit(reservation, ranges);
+      settled = true;
+    },
+    abort(): void {
+      if (settled) return;
+      settled = true;
+      residency.abort(reservation);
+    }
+  });
 }
 
 interface CpuMip { readonly width: number; readonly height: number; readonly rgba8: Uint8Array; }

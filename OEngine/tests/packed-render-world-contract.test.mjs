@@ -10,6 +10,7 @@ const [
   { GpuRenderWorld },
   { createPackedSceneSourceFromScene },
   { TextureResidency },
+  { cookTextureAssetPackageV2, openTextureAssetPackageV2 },
   { createEnvironmentManifest },
   {
     createWorkQueueReservationState,
@@ -24,6 +25,10 @@ const [
   },
   { decodeTextureHandle },
   { textureBindingSetPolicy },
+  {
+    MESHLET_BUCKET_VISIBILITY_WGSL,
+    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
+  },
   { StandardShadeMaterial },
   { ShadeDrawSide, ShadeTransparencyMode },
   { GPU_INSTANCE_FLAGS },
@@ -40,11 +45,13 @@ const [
   import("../.test-dist/gpu/GpuRenderWorld.js"),
   import("../.test-dist/gpu/GpuSceneAdapter.js"),
   import("../.test-dist/gpu/TextureResidency.js"),
+  import("../.test-dist/assets/TextureAssetPackage.js"),
   import("../.test-dist/debug/EnvironmentManifest.js"),
   import("../.test-dist/gpu/GpuWorkGenerationAbi.js"),
   import("../.test-dist/gpu/GpuTextureRefAbi.js"),
   import("../.test-dist/gpu/TextureHandleAbi.js"),
   import("../.test-dist/gpu/TextureBindingSetPolicy.js"),
+  import("../.test-dist/shaders/meshlet_bucket_visibility.js"),
   import("../.test-dist/material/StandardShadeMaterial.js"),
   import("../.test-dist/material/enums.js"),
   import("../.test-dist/gpu/GpuInstanceAbi.js"),
@@ -651,14 +658,15 @@ test("Texture residency accepts 512 -> 2048 and the reverse independent of relea
 
 test("TextureRef CPU ABI explicitly rejects invalid version, bank, and layer values", () => {
   assert.deepEqual(decodeGpuTextureRef(encodeGpuTextureRef(4, 1)), {
-    version: 1,
+    version: 2,
     bankClass: 4,
+    routing: 0,
     layer: 1
   });
   assert.equal(decodeGpuTextureRef(GPU_TEXTURE_REF_INVALID), null);
   assert.equal(decodeGpuTextureRef(0x00000001), null);
-  assert.equal(decodeGpuTextureRef(0x1f000001), null);
-  assert.equal(decodeGpuTextureRef(0x10000000), null);
+  assert.equal(decodeGpuTextureRef(0x2f000001), null);
+  assert.equal(decodeGpuTextureRef(0x20000000), null);
 });
 
 test("TextureBindingSet freezes the current slot, sampler, set, and dispatch limits", () => {
@@ -667,20 +675,102 @@ test("TextureBindingSet freezes the current slot, sampler, set, and dispatch lim
     maxSamplersPerShaderStage: 16
   });
   assert.deepEqual(policy, {
-    textureSlotsPerBindingSet: 5,
+    textureSlotsPerBindingSet: 9,
     samplerClassCount: 6,
     maxResidentBindingSets: 1,
-    reservedSampledTextureBindings: 1,
+    reservedSampledTextureBindings: 7,
     maxShadingDispatchClasses: 7
   });
   assert.throws(
-    () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 5, maxSamplersPerShaderStage: 16 }),
-    /requires 6 sampled textures/i
+    () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 15, maxSamplersPerShaderStage: 16 }),
+    /requires 16 sampled textures/i
   );
   assert.throws(
     () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 5 }),
     /requires 6 samplers/i
   );
+});
+
+test("Meshlet visibility primitive-index specialization removes the triangle varying", () => {
+  assert.match(MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL, /enable primitive_index;/);
+  assert.match(
+    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
+    /@builtin\(primitive_index\) triangle: u32/
+  );
+  assert.doesNotMatch(
+    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
+    /@location\(2\) @interpolate\(flat\) triangle/
+  );
+  assert.doesNotMatch(MESHLET_BUCKET_VISIBILITY_WGSL, /enable primitive_index;/);
+  assert.match(
+    MESHLET_BUCKET_VISIBILITY_WGSL,
+    /@location\(2\) @interpolate\(flat\) triangle: u32/
+  );
+});
+
+test("Texture residency publishes cooked BC packages as authoritative material resources", async () => {
+  const fixture = createTextureResidencyFixture({ features: ["texture-compression-bc"] });
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const semantics = [
+    "base-color-srgb",
+    "normal-linear",
+    "orm-linear",
+    "emissive-srgb",
+    "alpha-mask"
+  ];
+  const assets = await Promise.all(semantics.map(async (semantic) => {
+    const rgba8 = new Uint8Array(8 * 8 * 4);
+    for (let index = 0; index < 64; index++) {
+      rgba8.set(semantic === "normal-linear"
+        ? [128, 128, 255, 255]
+        : semantic === "alpha-mask"
+          ? [255, 255, 255, index % 2 === 0 ? 255 : 0]
+          : [180, 96, 48, 255], index * 4);
+    }
+    return openTextureAssetPackageV2(await cookTextureAssetPackageV2({
+      width: 8,
+      height: 8,
+      rgba8,
+      semantic,
+      sourceUri: `fixture://production-${semantic}`
+    }));
+  }));
+  const textures = assets.map((asset) => ShadeTexture.fromAssetPackageV2(asset));
+  const pbr = new StandardShadeMaterial();
+  pbr.name = "cooked-pbr";
+  pbr.texture_albedo = textures[0];
+  pbr.texture_normal = textures[1];
+  pbr.texture_orm = textures[2];
+  pbr.texture_emissive = textures[3];
+  const mask = new StandardShadeMaterial();
+  mask.name = "cooked-mask";
+  mask.texture_albedo = textures[4];
+
+  const command = new FakeCommand("cooked-texture-production-stage");
+  const staged = residency.stage([pbr, mask], command);
+  assert.equal(staged.bindings.textureBanks.length, 9);
+  assert.ok(textures.every((texture) =>
+    decodeGpuTextureRef(staged.textureRoutingRefs.get(texture)).bankClass >= 5));
+  assert.ok(textures.every((texture) =>
+    residency.descriptor(staged.textureRefs.get(texture)) === null));
+  command.finish();
+
+  const evidence = residency.evidence();
+  assert.equal(evidence.cookedResidentTextureCount, 5);
+  assert.equal(evidence.compressedResidentTextureCount, 5);
+  assert.equal(evidence.runtimeMipGenerationCount, 0);
+  assert.equal(evidence.cookedRuntimeMipGenerationCount, 0);
+  assert.equal(evidence.resizeDispatchCount, 0);
+  assert.ok(evidence.uploadBytes > 0);
+  assert.deepEqual(
+    evidence.packageSegments.filter(({ allocatedCapacity }) => allocatedCapacity > 0)
+      .map(({ format }) => format).sort(),
+    ["bc1-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc5-rg-unorm"]
+  );
+  assert.equal(fixture.writes.length, 20);
+  assert.ok(textures.every((texture) =>
+    residency.descriptor(staged.textureRefs.get(texture)) !== null));
+  residency.destroy();
 });
 
 test("Texture residency fills and rejects overflow in every bounded bank without mutation", () => {
@@ -992,8 +1082,10 @@ function createPackedRegistryFixture() {
 function createTextureResidencyFixture(options = {}) {
   const accounting = new ResourceAccounting();
   const textures = [];
+  const writes = [];
   const graphics = {
     device: {
+      features: new Set(options.features ?? []),
       limits: {
         maxTextureArrayLayers: 2048,
         maxTextureDimension2D: options.maxTextureDimension2D ?? 8192
@@ -1012,6 +1104,11 @@ function createTextureResidencyFixture(options = {}) {
         };
         textures.push(texture);
         return texture;
+      },
+      queue: {
+        writeTexture(destination, data, layout, size) {
+          writes.push({ destination, data, layout, size });
+        }
       }
     },
     resource_accounting: accounting,
@@ -1031,7 +1128,7 @@ function createTextureResidencyFixture(options = {}) {
     bind_groups: { obtain: () => ({}) },
     render_pipelines: { obtain: () => ({}) }
   };
-  return { graphics, accounting, textures };
+  return { graphics, accounting, textures, writes };
 }
 
 async function runReleasedHighTextureSequence([firstSize, secondSize]) {
