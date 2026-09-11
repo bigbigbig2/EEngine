@@ -17,6 +17,7 @@
 - `benchmarks/gpu-driven-geometry-v2-baseline.json`：ADR-0008 Step 0 在切换前生产链上的正式三次综合基线，包含 Geometry phase、work amplification counters、queue bytes 与完整 provenance。
 - `benchmarks/gpu-driven-geometry-v2-step2.json`：ADR-0008 Step 2 在 clean commit 上的唯一综合 PERF，包含 subgroup compact/bucket phase、queue/indirect 闭合、portable correctness 说明与切换前重复成本。
 - `benchmarks/gpu-driven-geometry-v2-step3.json`：ADR-0008 Step 3 在 clean commit 上的唯一综合 PERF，包含 bucket Hardware Visibility、triangle-capacity padding、像素级 semantic parity 与未掩盖的等深 identity 风险。
+- `benchmarks/asset-codec-texture-v3-final.json`：ADR-0011 在 clean implementation commit 上的唯一综合 PERF 与独立 Worker codec load evidence，包含双 `TextureBindingSet`、exact compressed format、运行时 mip/submit 闭合及未掩盖的 per-set 成本。
 - `examples/rendering-lab/`：唯一保留的真实浏览器 fixture。
 
 ## 采样合同

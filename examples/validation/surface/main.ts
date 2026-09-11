@@ -155,18 +155,21 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const response = await fetch(ETC1S_MIP_FIXTURE_URL);
       if (!response.ok) throw new Error(`KTX2 fixture fetch failed: ${response.status} ${response.statusText}`);
       const codecOwner = renderer.graphics.asset_codecs;
-      const asset = await prepareKtx2TextureAssetPackageV2(
-        codecOwner,
-        await response.arrayBuffer(),
-        {
-          taskId: 1,
-          priority: 0,
-          sourceEncoding: "ktx2-etc1s",
-          semantic: "base-color-srgb",
-          targetFormat: "bc7-rgba-unorm-srgb",
-          sourceUri: "fixture://surface/texture-codec-production"
-        }
+      const measuredPreparation = await measureMainThreadResponsiveness(async () =>
+        prepareKtx2TextureAssetPackageV2(
+          codecOwner,
+          await response.arrayBuffer(),
+          {
+            taskId: 1,
+            priority: 0,
+            sourceEncoding: "ktx2-etc1s",
+            semantic: "base-color-srgb",
+            targetFormat: "bc7-rgba-unorm-srgb",
+            sourceUri: "fixture://surface/texture-codec-production"
+          }
+        )
       );
+      const asset = measuredPreparation.value;
       const workerTexture = ShadeTexture.fromAssetPackageV2(asset);
       workerTexture.label = "validation-surface-worker-transcoded-base-color";
       let recreatedWithoutCodecOwner = false;
@@ -193,6 +196,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         codecBinaryHash: variant?.codecBinaryHash ?? null
       });
       evidence.codec = codec;
+      evidence.mainThreadResponsiveness = measuredPreparation.responsiveness;
       evidence.package = packageEvidence;
       evidence.textureResidency = residency;
       evidence.deviceRecreate = request.scenarioId === "texture-codec-device-loss-recreate"
@@ -206,6 +210,13 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "The bounded browser Worker executed the pinned KTX2/Basis codec exactly once",
         codec,
         "completed/workerPath/peakWorkers/codec identity = 1, outputBytes > 0, and transferBytes are closed"
+      ));
+      assertions.push(validationAssertion(
+        "texture-codec-main-thread-responsive",
+        measuredPreparation.responsiveness.animationFrameSamples >= 2,
+        "The main thread continued servicing animation frames while the Worker/WASM task was pending",
+        measuredPreparation.responsiveness,
+        "at least two animation-frame samples; max gap retained as load evidence"
       ));
       assertions.push(validationAssertion(
         "texture-codec-package-provenance",
@@ -573,6 +584,43 @@ async function dispose(): Promise<void> {
   state.dispose();
   showStatus();
   delete window[VALIDATION_FIXTURE_KEY];
+}
+
+async function measureMainThreadResponsiveness<T>(work: () => Promise<T>): Promise<Readonly<{
+  value: T;
+  responsiveness: Readonly<{
+    animationFrameSamples: number;
+    maximumAnimationFrameGapMs: number;
+  }>;
+}>> {
+  const frameTimes = [performance.now()];
+  let active = true;
+  let request = requestAnimationFrame(function sample(time): void {
+    if (!active) return;
+    frameTimes.push(time);
+    request = requestAnimationFrame(sample);
+  });
+  try {
+    const value = await work();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    let maximumAnimationFrameGapMs = 0;
+    for (let index = 1; index < frameTimes.length; index++) {
+      maximumAnimationFrameGapMs = Math.max(
+        maximumAnimationFrameGapMs,
+        frameTimes[index]! - frameTimes[index - 1]!
+      );
+    }
+    return Object.freeze({
+      value,
+      responsiveness: Object.freeze({
+        animationFrameSamples: Math.max(0, frameTimes.length - 1),
+        maximumAnimationFrameGapMs
+      })
+    });
+  } finally {
+    active = false;
+    cancelAnimationFrame(request);
+  }
 }
 
 async function createSurfaceSource(workerBaseColor?: ShadeTexture): Promise<PackedSceneSource> {

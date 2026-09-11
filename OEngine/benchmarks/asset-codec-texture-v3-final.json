@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-final-evidence",
+  "decision": "adr-0011-asset-codec-and-gpu-native-texture-pipeline-v3",
+  "provenance": {
+    "commit": "10eb2f6b2b824795894b93fa5cfb8cc2536472f9",
+    "contentHash": "ebce5f06639787607cc29d3dffdbfd30fec467caf7d1838d5c7ecde5ff2d743f",
+    "clean": true,
+    "runGroupId": "47c92172-9acf-4d76-9ef8-81818be291d1",
+    "rawReportSha256": "5d69b3c93bacb0b6aa448af2466910bf73a2dec7a6cc5286c443f13683a79b40",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": { "vendor": "nvidia", "architecture": "turing", "timestampQuery": true },
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480,
+    "canvasSha256": [
+      "bf2e9daf076c18c897b46853e4fa1f093bbe507e747fcaf02a565f820ea1fac9",
+      "f8038e639f75b0e712ad499106b770d6ada5298dcfc12bfadecf76a088849bec",
+      "18268ea69355c88ddd543a4610e353b3635c2159fbf94133fab16ebeb3de34dc"
+    ]
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806,
+    "materials": 34,
+    "textureProfile": "25 uncooked development textures plus 5 direct cooked BC textures across 2 TextureBindingSets"
+  },
+  "aggregation": "median of three run-level percentiles",
+  "timingsMs": {
+    "cpuFrame": { "p50": 13.600000008941, "p95": 15.399999991059, "p99": 16.5 },
+    "gpuFrame": { "p50": 1.504768, "p95": 1.5813184, "p99": 1.833344 },
+    "hierarchyAndClusterCull": { "p50": 0.525984, "p95": 0.5766912, "p99": 0.81429376 },
+    "materialResolve": { "p50": 1.668, "p95": 1.977056, "p99": 2.0228928 },
+    "shadow": { "p50": 0.367072, "p95": 0.3869312, "p99": 0.67424896 },
+    "lightingAndIbl": { "p50": 2.255904, "p95": 2.3095168, "p99": 2.61094272 },
+    "temporal": { "p50": 0.703744, "p95": 0.7179136, "p99": 1.03252224 },
+    "post": { "p50": 0.611808, "p95": 0.924352, "p99": 0.95640576 }
+  },
+  "textureSteadyState": {
+    "residentTextures": 30,
+    "cookedCompressedTextures": 5,
+    "residentTextureBytes": 559242540,
+    "logicalResidentTextureBytes": 559246388,
+    "physicalAllocatedTextureBytes": 738201456,
+    "cookedUploadBytes": 6872,
+    "bindingSetCount": 2,
+    "bindingSlotUtilization": 0.833333333333,
+    "bindingSetPreflightFailures": 0,
+    "cookedRuntimeMipGenerationCount": 0,
+    "legacyDevelopmentRuntimeMipGenerationCount": 1,
+    "mainSubmitCount": 1,
+    "steadyFrameUploadBytes": 1680
+  },
+  "controlledMultiSetComparison": {
+    "baselineCommit": "e719581745b8b02177038b4e5b4fc00f0b547d38",
+    "baselineTextureProfile": "25 uncooked development textures in 1 TextureBindingSet",
+    "cpuFrameP50DeltaMs": 3.400000020862,
+    "cpuFrameP50DeltaPercent": 33.33,
+    "gpuFrameP50DeltaMs": -0.003456,
+    "gpuFrameP50DeltaPercent": -0.23,
+    "materialResolveP50DeltaMs": 0.827264,
+    "materialResolveP50DeltaPercent": 98.4,
+    "shadowP50DeltaMs": 0.077632,
+    "shadowP50DeltaPercent": 26.82,
+    "interpretation": "The second set keeps total GPU frame P50 within run noise, but fixed per-set consumers approximately double Material Resolve and add measurable CPU/shadow cost. This is accepted as the bounded V3 baseline, not claimed as a performance improvement."
+  },
+  "workerCodecLoadEvidence": {
+    "caseId": "surface.texture-codec-production",
+    "resultSha256": "5f14d710bf105429f5a0ddedb20096fc9707ebfe6815690452784d0e4bf04d81",
+    "sourceEncoding": "ktx2-etc1s",
+    "targetFormat": "bc7-rgba-unorm-srgb",
+    "mipCount": 7,
+    "codecId": "khronos-ktx-software-libktx-read",
+    "codecRevision": "v4.4.2+4d6fc70eaf62ad0558e63e8d97eb9766118327a6",
+    "codecBinaryHash": "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e",
+    "queueWaitMs": 79.3999999910593,
+    "workerMs": 53.70000000298023,
+    "wallMs": 133.09999999403954,
+    "inputBytes": 719,
+    "outputBytes": 5488,
+    "transferBytes": 6207,
+    "peakInFlightEstimatedBytes": 8388608,
+    "workerFailures": 0,
+    "runtimeMipGenerationCount": 0,
+    "privateSubmitCount": 0,
+    "residentTextureBytes": 5824,
+    "formatDistribution": {
+      "bc1-rgba-unorm": { "count": 1, "bytes": 56 },
+      "bc3-rgba-unorm-srgb": { "count": 1, "bytes": 112 },
+      "bc4-r-unorm": { "count": 1, "bytes": 56 },
+      "bc5-rg-unorm": { "count": 1, "bytes": 112 },
+      "bc7-rgba-unorm-srgb": { "count": 1, "bytes": 5488 }
+    },
+    "mainThreadBlockedTime": {
+      "status": "not-directly-instrumented",
+      "reason": "The task is asynchronous and Worker-owned; this run records end-to-end wall time but does not substitute it for event-loop blocking time."
+    }
+  },
+  "correctness": {
+    "queueOverflowMask": 0,
+    "meshletQueueOverflow": 0,
+    "shadowQueueOverflowMask": 0,
+    "transparentQueueOverflowMask": 0,
+    "validationErrorCount": 0,
+    "uncapturedErrorCount": 0,
+    "failedGpuTimestampBatches": 0,
+    "failedGpuCounterSamples": 0,
+    "droppedGpuCounterSamples": 0,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  }
+}
