@@ -1,5 +1,6 @@
 /**
- * ssr_trace：定义对应渲染阶段使用的 WGSL 着色器代码。
+ * Three.js r186 SpecularHelpers-derived bounded GGX VNDF sampling adapted to
+ * OEngine's reverse-Z hierarchical HZB trace and packed evidence ABI.
  */
 
 import {
@@ -23,7 +24,7 @@ struct SsrTraceSettings {
   base_thickness: f32,
   distance_thickness_scale: f32,
   max_roughness: f32,
-  _padding: f32,
+  mirror_bias: f32,
 };
 
 struct SsrHit {
@@ -43,33 +44,58 @@ struct SsrHit {
 @group(0) @binding(5) var edge: texture_2d<u32>;
 @group(0) @binding(6) var ray_ws: texture_2d<u32>;
 
-fn stbn_sample_vec2(value: vec3u) -> vec2f {
-  return textureLoad(replacement, value % vec3u(128u, 128u, 64u), 0).rg;
+fn stbn_sample_vec4(value: vec3u) -> vec4f {
+  let rg = textureLoad(replacement, value % vec3u(128u, 128u, 64u), 0).rg;
+  // The shared production asset is STBN vec2. Derive the independent channels
+  // required by Three's mirror-bias contract instead of reading implicit 0/1
+  // components from the two-channel texture format.
+  let hash = resolve_trigonometric_moments(value ^ vec3u(0x68bc21ebu, 0x02e5be93u, 0x967a889bu));
+  return vec4f(
+    rg,
+    f32(hash & 0xffffu) * (1.0 / 65536.0),
+    f32(hash >> 16u) * (1.0 / 65536.0)
+  );
 }
 
-fn emit_write_code_array(sample_value: vec2f, direction: vec3f) -> vec3f {
-  let phi = 2.0 * PI * sample_value.x;
-  let z = fma(1.0 - sample_value.y, 1.0 + direction.z, -direction.z);
-  let radius = sqrt(saturate(1.0 - z * z));
-  return vec3f(radius * cos(phi), radius * sin(phi), z) + direction;
+// three.js r186 SpecularHelpers.js bounded GGX VNDF invariant. The upstream
+// spherical-cap sampler is translated to WGSL; OEngine keeps its HZB traversal
+// rather than importing Three's linear screen-space DDA.
+fn sample_ggx_vndf(view_local: vec3f, alpha: f32, xi: vec2f) -> vec3f {
+  let wi_std = normalize(vec3f(alpha * view_local.x, alpha * view_local.y, view_local.z));
+  let s = 1.0 + length(view_local.xy);
+  let alpha2 = alpha * alpha;
+  let s2 = s * s;
+  let k = (1.0 - alpha2) * s2 /
+    max(s2 + alpha2 * view_local.z * view_local.z, 1e-6);
+  let cap = wi_std.z * k;
+  let phi = 2.0 * PI * xi.x;
+  let z = (1.0 - xi.y) * (1.0 + cap) - cap;
+  let sin_theta = sqrt(max(0.0, 1.0 - z * z));
+  let sampled_cap = vec3f(sin_theta * cos(phi), sin_theta * sin(phi), z);
+  let micro_std = sampled_cap + wi_std;
+  return normalize(vec3f(
+    alpha * micro_std.x,
+    alpha * micro_std.y,
+    max(0.0, micro_std.z)
+  ));
 }
 
-fn create_export_wrapper(direction: vec3f, scale_x: f32, scale_y: f32, y: f32, x: f32) -> vec3f {
-  let stretched = normalize(vec3f(scale_x * direction.x, scale_y * direction.y, direction.z));
-  let sampled = emit_write_code_array(vec2f(x, y), stretched);
-  return normalize(vec3f(scale_x * sampled.x, scale_y * sampled.y, max(0.0, sampled.z)));
-}
-
-fn scatter_keys_wlt16(direction: vec3f, roughness: f32, x: f32, y: f32) -> vec3f {
-  return create_export_wrapper(direction, roughness, roughness, x, y);
-}
-
-fn sample_reflection_vector(view_direction: vec3f, normal: vec3f, roughness: f32, sample_value: vec2f) -> vec3f {
+fn sample_reflection_vector(view_direction: vec3f, normal: vec3f, roughness: f32, sample_value: vec4f) -> vec3f {
   let basis = build_orthonormal_matrix_n(normal);
   let local_view = vec3f(dot(basis[0], view_direction), dot(basis[1], view_direction), dot(basis[2], view_direction));
-  let micro_normal = scatter_keys_wlt16(local_view, roughness, sample_value.x, sample_value.y);
-  let local_reflection = reflect(-local_view, micro_normal);
-  return local_reflection * transpose(basis);
+  let alpha = max(roughness * roughness, 0.001);
+  let biased_sample = vec2f(
+    sample_value.x,
+    mix(sample_value.y, 0.0, settings.mirror_bias * sqrt(sample_value.w))
+  );
+  var micro_normal = sample_ggx_vndf(local_view, alpha, biased_sample);
+  var local_reflection = reflect(-local_view, micro_normal);
+  if (local_reflection.z < 0.0) {
+    let retry = fract(biased_sample + biased_sample * 7.0);
+    micro_normal = sample_ggx_vndf(local_view, alpha, retry);
+    local_reflection = reflect(-local_view, micro_normal);
+  }
+  return normalize(basis * local_reflection);
 }
 
 fn ffx_sssr_get_mip_resolution(resolution: vec2f, mip: i32) -> vec2f {
@@ -258,8 +284,7 @@ fn fs_main(
   let screen_size = textureDimensions(gr_bucket, 0);
   let full_pixel = min(vec2u(uv * vec2f(screen_size)), screen_size - vec2u(1u));
   let roughness = decode_g_buffer_roughness(textureLoad(edge, full_pixel, 0));
-  var sample_uv = stbn_sample_vec2(vec3u(pixel, settings.frame_index));
-  sample_uv.x *= 0.8;
+  let sample_uv = stbn_sample_vec4(vec3u(pixel, settings.frame_index));
   let is_mirror = roughness < 0.0001;
   let most_detailed_mip = select(g_most_detailed_mip, 0, is_mirror);
   let mip_resolution = ffx_sssr_get_mip_resolution(vec2f(screen_size), most_detailed_mip);
@@ -271,7 +296,7 @@ fn fs_main(
   let view_origin = ffx_sssr_screen_space_to_view_space(screen_origin);
   let view_direction = normalize(view_origin);
   let world_normal = ffx_sssr_load_world_space_normal(vec2i(full_pixel));
-  let view_normal = (camera.view_matrix * vec4f(world_normal, 0.0)).xyz;
+  let view_normal = normalize((camera.view_matrix * vec4f(world_normal, 0.0)).xyz);
   let reflected = sample_reflection_vector(-view_direction, view_normal, roughness, sample_uv);
   let screen_direction = project_direction(view_origin, reflected, screen_origin, camera.projection_matrix);
   var valid_hit: bool;
@@ -301,7 +326,13 @@ fn fs_main(
     settings.max_roughness,
     roughness
   );
-  let confidence = edge_confidence * distance_confidence * roughness_confidence;
+  let orientation_confidence = smoothstep(
+    0.001,
+    0.05,
+    min(dot(view_normal, -view_direction), dot(view_normal, reflected))
+  );
+  let confidence = edge_confidence * distance_confidence * roughness_confidence *
+    orientation_confidence;
   let distance_exceeded = ray_length > settings.max_distance;
   var encoded: SsrHit;
   encoded.confidence = select(confidence, 0.0, distance_exceeded);

@@ -54,6 +54,8 @@ export interface SsrSettings {
   readonly baseThicknessMeters: number;
   readonly distanceThicknessScale: number;
   readonly maxRoughness: number;
+  /** Three.js-derived VNDF lobe tightening; 0 is unbiased, 1 approaches mirror. */
+  readonly mirrorBias: number;
   readonly temporalStrength: number;
 }
 
@@ -225,6 +227,7 @@ const DEFAULTS: RenderSettingsValues = {
     baseThicknessMeters: 0.08,
     distanceThicknessScale: 0.01,
     maxRoughness: 0.65,
+    mirrorBias: 0.5,
     temporalStrength: 0.9
   },
   temporal: {
@@ -413,6 +416,7 @@ function validate(value: RenderSettingsValues): void {
   assertFinitePositive(value.ssr.baseThicknessMeters, "ssr.baseThicknessMeters");
   assertRange(value.ssr.distanceThicknessScale, 0, 0.2, "ssr.distanceThicknessScale");
   assertRange(value.ssr.maxRoughness, 0, 1, "ssr.maxRoughness");
+  assertRange(value.ssr.mirrorBias, 0, 1, "ssr.mirrorBias");
   assertRange(value.ssr.temporalStrength, 0, 1, "ssr.temporalStrength");
   assertIntegerRange(value.ssr.maxSteps, 1, 256, "ssr.maxSteps");
   assertRange(value.resolution.internalScale, 0.25, 1, "resolution.internalScale");

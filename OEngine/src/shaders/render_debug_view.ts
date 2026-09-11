@@ -70,7 +70,7 @@ ${SSR_FULLSCREEN_VERTEX_WGSL}
   let output_size = max(settings.xy, vec2u(1u));
   let uv = position.xy / vec2f(output_size);
   let coordinate = min(vec2i(uv * vec2f(dimensions)), vec2i(dimensions) - vec2i(1));
-  let confidence = clamp(textureLoad(source, coordinate, 0).r, 0.0, 1.0);
+  let confidence = clamp(textureLoad(source, coordinate, 0).a, 0.0, 1.0);
   return vec4f(confidence, confidence, confidence, 1.0);
 }
 `;

@@ -11,6 +11,7 @@ import { GPU_MESHLET_RASTER_WORK_ABI_VERSION } from "../../gpu/GpuMeshletRasterW
 import { GPU_VISIBILITY_KEY_ABI_VERSION } from "../../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_VERSION } from "../../gpu/GpuComputeMaterialAbi.js";
 import { GPU_HDR_BYTES_PER_PIXEL } from "../../gpu/GpuHdrAbi.js";
+import { THREE_SSR_REVISION } from "../../shaders/ssr_common.js";
 import {
   GPU_SHADING_SURFACE_LITE_PROFILE,
   type GpuShadingSurfaceLiteProfile
@@ -312,7 +313,17 @@ export interface ScreenSpaceGiRuntimeEvidence {
 
 export interface ScreenSpaceReflectionsRuntimeEvidence {
   readonly enabled: boolean;
+  readonly algorithm: "three-ssr-r186-oengine-hzb-wgsl" | "disabled";
+  readonly upstreamRevision: string | null;
+  readonly temporalEnabled: boolean;
   readonly resolutionScale: 0.5 | 1;
+  readonly mirrorBias: number;
+  readonly traceFormat: GPUTextureFormat | null;
+  readonly rawSpecularFormat: GPUTextureFormat | null;
+  readonly historyFormat: GPUTextureFormat | null;
+  readonly rawAlphaSemantic: "specular-dominant-ray-length" | "disabled";
+  readonly resolvedAlphaSemantic: "replacement-confidence" | "disabled";
+  readonly correctionMode: "confidence-baseline-replacement" | "disabled";
   readonly internalPixels: number;
   readonly internalWidth: number;
   readonly internalHeight: number;
@@ -323,6 +334,7 @@ export interface ScreenSpaceReflectionsRuntimeEvidence {
   readonly prefilterPasses: number;
   readonly resolvePasses: number;
   readonly spatialPasses: number;
+  readonly recurrentDenoisePasses: number;
   readonly temporalPasses: number;
   readonly compositePasses: number;
   readonly historyTextureCount: number;
@@ -1045,7 +1057,19 @@ export class MainRenderPipeline {
     const traceHeight = enabled ? Math.max(1, Math.ceil(this._render_resolution.y * resolutionScale)) : 0;
     return Object.freeze({
       enabled,
+      algorithm: enabled ? "three-ssr-r186-oengine-hzb-wgsl" : "disabled",
+      upstreamRevision: enabled ? THREE_SSR_REVISION : null,
+      temporalEnabled: enabled && this._renderSettings.values.ssr.temporalEnabled,
       resolutionScale,
+      mirrorBias: this._renderSettings.values.ssr.mirrorBias,
+      traceFormat: enabled ? "rg32uint" : null,
+      rawSpecularFormat: enabled ? "rgba16float" : null,
+      historyFormat: enabled && this._renderSettings.values.ssr.temporalEnabled
+        ? "rgba16float"
+        : null,
+      rawAlphaSemantic: enabled ? "specular-dominant-ray-length" : "disabled",
+      resolvedAlphaSemantic: enabled ? "replacement-confidence" : "disabled",
+      correctionMode: enabled ? "confidence-baseline-replacement" : "disabled",
       internalPixels: enabled
         ? this._render_resolution.x * this._render_resolution.y
         : 0,
@@ -1058,6 +1082,7 @@ export class MainRenderPipeline {
       prefilterPasses: pass?.lastPrefilterPasses ?? 0,
       resolvePasses: pass?.lastResolvePasses ?? 0,
       spatialPasses: pass?.lastSpatialPasses ?? 0,
+      recurrentDenoisePasses: pass?.lastSpatialPasses ?? 0,
       temporalPasses: pass?.lastTemporalPasses ?? 0,
       compositePasses:
         this._renderSettings.values.features.screenSpaceReflections && this._reflectionService?.lastCorrectionRan === true ? 1 : 0,
@@ -2531,7 +2556,9 @@ export class MainRenderPipeline {
                 ),
                 distanceThicknessScale: this._renderSettings.values.ssr.distanceThicknessScale,
                 maxRoughness: this._renderSettings.values.ssr.maxRoughness,
-                temporalStrength: this._renderSettings.values.ssr.temporalStrength
+                mirrorBias: this._renderSettings.values.ssr.mirrorBias,
+                temporalStrength: this._renderSettings.values.ssr.temporalStrength,
+                preExposure: bindings.context.preExposure
               })),
               {
                 depth: depthRes,
@@ -2543,10 +2570,8 @@ export class MainRenderPipeline {
                 occlusionConfidence: occlusionConfidenceRes,
                 surfaceValidity: opaqueTemporalValidityRes!,
                 albedoAo: gAlbedoRes,
-                environment: environmentRes,
                 blueNoise: stbnRes,
                 currentCamera: currentCameraRes,
-                previousCamera: previousCameraRes,
                 counters: gpuCounterRes ?? undefined
               },
               {
@@ -2559,15 +2584,8 @@ export class MainRenderPipeline {
             hdrRes = this._reflectionService!.addCorrection(graph, {
               hdr: completeOpaqueHdr,
               depth: depthRes,
-              normal: gNormalRes,
-              bentNormal: bentNormalRes,
-              albedoAo: gAlbedoRes,
-              pbr: gPbrRes,
-              splitSum: splitSumRes,
               baselineSpecular: opaqueBaseline.baselineSpecular!,
               resolvedSpecular: ssr.denoised,
-              ambientVisibility: ambientVisibilityRes ?? undefined,
-              camera: currentCameraRes,
               metadata: packedResolveOut.shading.roughnessFlags
             });
             indirectSpecularDebugRes = ssr.denoised;

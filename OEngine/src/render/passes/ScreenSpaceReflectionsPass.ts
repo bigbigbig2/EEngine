@@ -1,5 +1,6 @@
 /**
- * 屏幕空间反射阶段：沿深度层级追踪反射，并完成预过滤、去噪与合成。
+ * Three.js r186-derived stochastic SSR chain adapted to OEngine HZB,
+ * FrameGraph, pre-exposure, submission-aware history and baseline replacement.
  */
 
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
@@ -28,10 +29,11 @@ import {
 } from "../../gpu/GPUSamplerCache.js";
 import {
   SSR_DENOISE_FORMAT,
-  SSR_SPATIAL_WGSL,
+  SSR_RECURRENT_DENOISE_WGSL,
   SSR_TEMPORAL_WGSL,
   SSR_UPSAMPLE_WGSL
 } from "../../shaders/ssr_denoise.js";
+import type { PreExposureContract } from "../pipeline/FrameProducts.js";
 import {
   SSR_PREFILTER_COPY_WGSL,
   SSR_PREFILTER_DEPTH_AWARE_WGSL,
@@ -42,7 +44,6 @@ import {
   SSR_RESOLVE_FORMAT,
   SSR_RESOLVE_WGSL
 } from "../../shaders/ssr_resolve.js";
-import { SSR_LPV_RESOLVE_WGSL } from "../../shaders/ssr_resolve_lpv.js";
 import { SSR_TRACE_FORMAT, SSR_TRACE_WGSL } from "../../shaders/ssr_trace.js";
 import {
   resolveDepthAttachmentView,
@@ -59,19 +60,9 @@ export type ScreenSpaceReflectionsInputs = {
   occlusionConfidence: ResourceId;
   surfaceValidity: ResourceId;
   albedoAo: ResourceId;
-  environment: ResourceId;
   blueNoise: ResourceId;
   currentCamera: ResourceId;
-  previousCamera: ResourceId;
   counters?: ResourceId;
-  lpv?: {
-    atlasRadiance: ResourceId;
-    atlasDepth: ResourceId;
-    meshBvh: ResourceId;
-    metadata: ResourceId;
-    tetrahedra: ResourceId;
-    probes: ResourceId;
-  };
 };
 
 export type ScreenSpaceReflectionsOutput = {
@@ -98,7 +89,9 @@ export type ScreenSpaceReflectionsJob = {
   baseThickness: number;
   distanceThicknessScale: number;
   maxRoughness: number;
+  mirrorBias: number;
   temporalStrength: number;
+  preExposure: PreExposureContract;
 };
 
 export class ScreenSpaceReflectionsPass {
@@ -107,16 +100,16 @@ export class ScreenSpaceReflectionsPass {
   private readonly depthAwarePipeline: CachedRenderPipelineDescriptor;
   private readonly downsamplePipeline: CachedRenderPipelineDescriptor;
   private readonly resolvePipeline: CachedRenderPipelineDescriptor;
-  private readonly lpvResolvePipeline: CachedRenderPipelineDescriptor;
-  private readonly spatialPipeline: CachedRenderPipelineDescriptor;
+  private readonly recurrentDenoisePipeline: CachedRenderPipelineDescriptor;
   private readonly temporalPipeline: CachedRenderPipelineDescriptor;
   private readonly upsamplePipeline: CachedRenderPipelineDescriptor;
   private traceSettings: GPUBuffer | null = null;
-  private resolveSettings: GPUBuffer | null = null;
   private temporalSettings: GPUBuffer | null = null;
-  private readonly spatialSettings: GPUBuffer[] = [];
-  private readonly histories: [GPUTextureContext, GPUTextureContext];
+  private denoiseSettings: GPUBuffer | null = null;
+  private readonly histories: GPUTextureContext[];
   private readonly device: GPUDevice;
+  private historyPreExposureMultiplier = 1;
+  private historyPreExposureGeneration = 0;
 
   lastRan = false;
   lastTracePasses = 0;
@@ -140,9 +133,8 @@ export class ScreenSpaceReflectionsPass {
     this.copyPipeline = createSsrCopyPipelineDescriptor(surfaceProfile);
     this.depthAwarePipeline = createSsrDepthAwarePipelineDescriptor(surfaceProfile);
     this.downsamplePipeline = createSsrDownsamplePipelineDescriptor(surfaceProfile);
-    this.resolvePipeline = createSsrResolvePipelineDescriptor(false, surfaceProfile);
-    this.lpvResolvePipeline = createSsrResolvePipelineDescriptor(true, surfaceProfile);
-    this.spatialPipeline = createSsrSpatialPipelineDescriptor(surfaceProfile);
+    this.resolvePipeline = createSsrResolvePipelineDescriptor(surfaceProfile);
+    this.recurrentDenoisePipeline = createSsrRecurrentDenoisePipelineDescriptor(surfaceProfile);
     this.temporalPipeline = createSsrTemporalPipelineDescriptor(surfaceProfile);
     this.upsamplePipeline = createSsrUpsamplePipelineDescriptor(surfaceProfile);
     const descriptor: GPUTextureDescriptor = {
@@ -151,18 +143,17 @@ export class ScreenSpaceReflectionsPass {
       format: SSR_DENOISE_FORMAT,
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
     };
-    this.histories = [
-      new GPUTextureContext(device, { ...descriptor, label: "SSR history 0" }, {
-        accounting: graphics.resource_accounting,
-        category: "history",
-        owner: "ScreenSpaceReflectionsPass"
-      }),
-      new GPUTextureContext(device, { ...descriptor, label: "SSR history 1" }, {
-        accounting: graphics.resource_accounting,
-        category: "history",
-        owner: "ScreenSpaceReflectionsPass"
-      })
-    ];
+    this.histories = temporalEnabled
+      ? [0, 1].map((index) => new GPUTextureContext(
+          device,
+          { ...descriptor, label: `SSR history ${index}` },
+          {
+            accounting: graphics.resource_accounting,
+            category: "history",
+            owner: "ScreenSpaceReflectionsPass"
+          }
+        ))
+      : [];
   }
 
   init(): void {
@@ -172,31 +163,16 @@ export class ScreenSpaceReflectionsPass {
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    this.resolveSettings = this.device.createBuffer({
-      label: "Renderer/SSR resolve settings",
-      size: 16,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
     this.temporalSettings = this.device.createBuffer({
       label: "Renderer/SSR temporal settings",
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    for (const step of [1]) {
-      const buffer = this.device.createBuffer({
-        label: `Renderer/SSR spatial step ${step}`,
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-      });
-      writeGpuBuffer(
-        this.device.queue,
-        "SSR/spatial-settings",
-        buffer,
-        0,
-        new Int32Array([step, 0, 0, 0])
-      );
-      this.spatialSettings.push(buffer);
-    }
+    this.denoiseSettings = this.device.createBuffer({
+      label: "Renderer/SSR recurrent denoise settings",
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
   }
 
   addToGraph(
@@ -217,12 +193,20 @@ export class ScreenSpaceReflectionsPass {
     }
     const historyInputResource = this.temporalEnabled ? graph.import_resource(
       "ssr_history",
-      { kind: "imported", label: "ssr_history", domain: "internal-half" },
+      {
+        kind: "imported",
+        label: "ssr_history",
+        domain: this.resolutionScale === 0.5 ? "internal-half" : "internal-full"
+      },
       historyBindings!.input
     ) : null;
     const historyOutputResource = this.temporalEnabled ? graph.import_resource(
       "ssr_output",
-      { kind: "imported", label: "ssr_output", domain: "internal-half" },
+      {
+        kind: "imported",
+        label: "ssr_output",
+        domain: this.resolutionScale === 0.5 ? "internal-half" : "internal-full"
+      },
       historyBindings!.output
     ) : null;
 
@@ -241,6 +225,7 @@ export class ScreenSpaceReflectionsPass {
           data.baseThickness,
           data.distanceThicknessScale,
           data.maxRoughness,
+          data.mirrorBias,
           {
           output: resolveTextureView(resources.get(trace)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
@@ -327,13 +312,12 @@ export class ScreenSpaceReflectionsPass {
 
     let reflections = -1;
     const resolveBuilder = graph.add(
-      "SSR reflection resolve QD",
+      "SSR stochastic hit shading",
       job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         this.executeResolve(
           command,
-          data.frameIndex,
           data.samplers.obtain({
             magFilter: "linear",
             mipmapFilter: "linear",
@@ -348,18 +332,7 @@ export class ScreenSpaceReflectionsPass {
             normal: resolveTextureView(resources.get(inputs.normal)),
             prefiltered: resolveTextureView(resources.get(prefiltered)),
             albedoAo: resolveTextureView(resources.get(inputs.albedoAo)),
-            environment: resolveTextureView(resources.get(inputs.environment)),
-            currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera"),
-            lpv: inputs.lpv
-              ? {
-                  atlasRadiance: resolveTextureView(resources.get(inputs.lpv.atlasRadiance)),
-                  atlasDepth: resolveTextureView(resources.get(inputs.lpv.atlasDepth)),
-                  meshBvh: resolveBuffer(resources.get(inputs.lpv.meshBvh), "LPV mesh BVH"),
-                  metadata: resolveBuffer(resources.get(inputs.lpv.metadata), "LPV metadata"),
-                  tetrahedra: resolveBuffer(resources.get(inputs.lpv.tetrahedra), "LPV tetrahedra"),
-                  probes: resolveBuffer(resources.get(inputs.lpv.probes), "LPV probes")
-                }
-              : undefined
+            currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera")
           }
         );
         this.lastResolvePasses = 1;
@@ -370,66 +343,71 @@ export class ScreenSpaceReflectionsPass {
       textureDescriptor(traceWidth, traceHeight, SSR_RESOLVE_FORMAT,
         this.resolutionScale === 0.5 ? "internal-half" : "internal-full")
     );
-    for (const input of [trace, inputs.depth, inputs.pbr, inputs.normal, prefiltered, inputs.albedoAo, inputs.environment, inputs.currentCamera]) {
+    for (const input of [trace, inputs.depth, inputs.pbr, inputs.normal, prefiltered, inputs.albedoAo, inputs.currentCamera]) {
       resolveBuilder.read(input);
     }
-    if (inputs.lpv) {
-      for (const input of [
-        inputs.lpv.atlasRadiance,
-        inputs.lpv.atlasDepth,
-        inputs.lpv.meshBvh,
-        inputs.lpv.metadata,
-        inputs.lpv.tetrahedra,
-        inputs.lpv.probes
-      ]) {
-        resolveBuilder.read(input);
-      }
-    }
 
-    const denoised1 = this.addSpatial(
-      graph, reflections, inputs.depth, inputs.normal, traceWidth, traceHeight, 0,
-      "SSR spatial edge-aware step 1"
-    );
-
-    let temporal = denoised1;
+    let temporal = reflections;
     if (this.temporalEnabled) {
       const temporalBuilder = graph.add(
-      "SSR temporal jQ",
-      {
-        samplers: job.samplers,
-        historyValid: job.historyValid,
-        temporalStrength: job.temporalStrength
-      },
-      (data, resources, context) => {
-        const command = requireShadeCommandContext(context.encoder);
-        this.executeTemporal(
-          command,
-          data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
-          data.historyValid,
-          data.temporalStrength,
-          {
-            output: resolveTextureView(resources.get(temporal)),
-            current: resolveTextureView(resources.get(denoised1)),
-            history: resolveTextureView(resources.get(historyInputResource!)),
-            velocity: resolveTextureView(resources.get(inputs.velocity)),
-            occlusionConfidence: resolveTextureView(resources.get(inputs.occlusionConfidence)),
-            surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity)),
-            currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera"),
-            previousCamera: resolveBuffer(resources.get(inputs.previousCamera), "previous camera")
-          }
-        );
-        this.lastTemporalPasses = 1;
-      }
+        "SSR temporal reproject",
+        job,
+        (data, resources, context) => {
+          const command = requireShadeCommandContext(context.encoder);
+          const historyExposureCompatible = data.historyValid &&
+            data.preExposure.generation === this.historyPreExposureGeneration;
+          const historyPreExposureScale = historyExposureCompatible
+            ? data.preExposure.multiplier / this.historyPreExposureMultiplier
+            : 0;
+          this.executeTemporal(
+            command,
+            data.historyValid,
+            data.temporalStrength,
+            {
+              output: resolveTextureView(resources.get(temporal)),
+              current: resolveTextureView(resources.get(reflections)),
+              history: resolveTextureView(resources.get(historyInputResource!)),
+              velocity: resolveTextureView(resources.get(inputs.velocity)),
+              occlusionConfidence: resolveTextureView(resources.get(inputs.occlusionConfidence)),
+              surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity)),
+              trace: resolveTextureView(resources.get(trace)),
+              depth: resolveTextureView(resources.get(inputs.depth)),
+              normal: resolveTextureView(resources.get(inputs.normal)),
+              currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera"),
+              historyPreExposureScale
+            }
+          );
+          this.lastTemporalPasses = 1;
+        }
       );
-      for (const input of [denoised1, historyInputResource!, inputs.velocity, inputs.occlusionConfidence, inputs.surfaceValidity, inputs.currentCamera, inputs.previousCamera]) {
+      for (const input of [reflections, historyInputResource!, inputs.velocity, inputs.occlusionConfidence, inputs.surfaceValidity, trace, inputs.depth, inputs.normal, inputs.currentCamera]) {
         temporalBuilder.read(input);
       }
-      temporal = temporalBuilder.write(historyOutputResource!);
+      temporal = temporalBuilder.create(
+        "SSR temporally reprojected specular",
+        textureDescriptor(traceWidth, traceHeight, SSR_DENOISE_FORMAT,
+          this.resolutionScale === 0.5 ? "internal-half" : "internal-full")
+      );
     }
 
+    const denoised1 = this.addRecurrentDenoise(
+      graph,
+      temporal,
+      reflections,
+      trace,
+      inputs.depth,
+      inputs.normal,
+      inputs.pbr,
+      inputs.currentCamera,
+      traceWidth,
+      traceHeight,
+      job,
+      historyOutputResource
+    );
+
     const denoised = this.resolutionScale === 0.5
-      ? this.addUpsample(graph, temporal, inputs.depth, inputs.normal, width, height)
-      : temporal;
+      ? this.addUpsample(graph, denoised1, inputs.depth, inputs.normal, width, height)
+      : denoised1;
 
     return {
       trace,
@@ -437,18 +415,21 @@ export class ScreenSpaceReflectionsPass {
       denoised_1: denoised1,
       temporal,
       reflections,
-      historyConfidence: inputs.occlusionConfidence,
+      historyConfidence: denoised,
       counters
     };
   }
 
   historyTexture(index: 0 | 1): GPUTexture {
-    return this.histories[index]!.gpu_texture;
+    const history = this.histories[index];
+    if (history === undefined) {
+      throw new Error("SSR history requested while temporal reprojection is disabled");
+    }
+    return history.gpu_texture;
   }
 
   resize(width: number, height: number): void {
-    this.histories[0].resize(width, height);
-    this.histories[1].resize(width, height);
+    for (const history of this.histories) history.resize(width, height);
   }
 
   get historyTextureCount(): number {
@@ -468,31 +449,60 @@ export class ScreenSpaceReflectionsPass {
     this.lastTemporalPasses = 0;
   }
 
-  private addSpatial(
+  private addRecurrentDenoise(
     graph: FrameGraph,
-    input: ResourceId,
+    temporal: ResourceId,
+    raw: ResourceId,
+    trace: ResourceId,
     depth: ResourceId,
     normal: ResourceId,
+    pbr: ResourceId,
+    camera: ResourceId,
     width: number,
     height: number,
-    settingsIndex: number,
-    label: string
+    job: ScreenSpaceReflectionsJob,
+    historyOutput: ResourceId | null
   ): ResourceId {
+    const label = "SSR recurrent specular denoise";
     let output = -1;
-    const builder = graph.add(label, {}, (_data, resources, context) => {
+    const builder = graph.add(label, job, (data, resources, context) => {
       const command = requireShadeCommandContext(context.encoder);
-      this.executeSpatial(command, settingsIndex, {
-        output: resolveTextureView(resources.get(output)),
-        input: resolveTextureView(resources.get(input)),
-        depth: resolveTextureView(resources.get(depth)),
-        normal: resolveTextureView(resources.get(normal))
+      this.executeRecurrentDenoise(
+        command,
+        data.frameIndex,
+        data.temporalStrength,
+        this.temporalEnabled,
+        data.historyValid,
+        {
+          output: resolveTextureView(resources.get(output)),
+          temporal: resolveTextureView(resources.get(temporal)),
+          raw: resolveTextureView(resources.get(raw)),
+          trace: resolveTextureView(resources.get(trace)),
+          depth: resolveTextureView(resources.get(depth)),
+          normal: resolveTextureView(resources.get(normal)),
+          pbr: resolveTextureView(resources.get(pbr)),
+          camera: resolveBuffer(resources.get(camera), "current camera")
+        }
+      );
+      const submittedMultiplier = data.preExposure.multiplier;
+      const submittedGeneration = data.preExposure.generation;
+      command.onFinished.addOne(() => {
+        this.historyPreExposureMultiplier = submittedMultiplier;
+        this.historyPreExposureGeneration = submittedGeneration;
       });
       this.lastSpatialPasses++;
     });
-    output = builder.create(label, textureDescriptor(width, height, SSR_DENOISE_FORMAT));
-    builder.read(input);
+    output = historyOutput === null
+      ? builder.create(label, textureDescriptor(width, height, SSR_DENOISE_FORMAT,
+          this.resolutionScale === 0.5 ? "internal-half" : "internal-full"))
+      : builder.write(historyOutput);
+    builder.read(temporal);
+    builder.read(raw);
+    builder.read(trace);
     builder.read(depth);
     builder.read(normal);
+    builder.read(pbr);
+    builder.read(camera);
     return output;
   }
 
@@ -542,6 +552,7 @@ export class ScreenSpaceReflectionsPass {
     baseThickness: number,
     distanceThicknessScale: number,
     maxRoughness: number,
+    mirrorBias: number,
     resources: {
       output: GPUTextureView;
       depth: GPUTextureView;
@@ -562,7 +573,7 @@ export class ScreenSpaceReflectionsPass {
     view.setFloat32(16, Math.max(0.001, Math.min(2, baseThickness)), true);
     view.setFloat32(20, Math.max(0, Math.min(0.2, distanceThicknessScale)), true);
     view.setFloat32(24, Math.max(0, Math.min(1, maxRoughness)), true);
-    view.setFloat32(28, 0, true);
+    view.setFloat32(28, Math.max(0, Math.min(1, mirrorBias)), true);
     writeGpuBuffer(
       this.device.queue,
       "SSR/trace-settings",
@@ -641,7 +652,6 @@ export class ScreenSpaceReflectionsPass {
 
   private executeResolve(
     command: ShadeGPUCommandContext,
-    frameIndex: number,
     sampler: GPUSampler,
     resources: {
       output: GPUTextureView;
@@ -651,27 +661,9 @@ export class ScreenSpaceReflectionsPass {
       normal: GPUTextureView;
       prefiltered: GPUTextureView;
       albedoAo: GPUTextureView;
-      environment: GPUTextureView;
       currentCamera: GPUBuffer;
-      lpv?: {
-        atlasRadiance: GPUTextureView;
-        atlasDepth: GPUTextureView;
-        meshBvh: GPUBuffer;
-        metadata: GPUBuffer;
-        tetrahedra: GPUBuffer;
-        probes: GPUBuffer;
-      };
     }
   ): void {
-    const pipeline = resources.lpv ? this.lpvResolvePipeline : this.resolvePipeline;
-    if (!this.resolveSettings) throw new Error("SSR resolve is not initialized");
-    writeGpuBuffer(
-      this.device.queue,
-      "SSR/resolve-settings",
-      this.resolveSettings,
-      0,
-      new Uint32Array([frameIndex >>> 0, 0, 0, 0])
-    );
     const bindings: GPUBindingResource[][] = [[
       resources.trace,
       resources.depth,
@@ -679,50 +671,65 @@ export class ScreenSpaceReflectionsPass {
       resources.normal,
       resources.prefiltered,
       resources.albedoAo,
-      resources.environment,
       sampler,
-      { buffer: this.resolveSettings },
       { buffer: resources.currentCamera }
     ]];
-    if (resources.lpv) {
-      bindings.push(
-        [
-          { buffer: resources.lpv.meshBvh },
-          { buffer: resources.lpv.metadata },
-          { buffer: resources.lpv.tetrahedra },
-          { buffer: resources.lpv.probes }
-        ],
-        [resources.lpv.atlasRadiance, resources.lpv.atlasDepth]
-      );
-    }
     drawFullscreen(
       command,
-      resources.lpv ? "SSR reflection resolve VD" : "SSR reflection resolve QD",
-      pipeline,
+      "SSR stochastic hit shading",
+      this.resolvePipeline,
       bindings,
       resources.output
     );
   }
 
-  private executeSpatial(
+  private executeRecurrentDenoise(
     command: ShadeGPUCommandContext,
-    settingsIndex: number,
-    resources: { output: GPUTextureView; input: GPUTextureView; depth: GPUTextureView; normal: GPUTextureView }
+    frameIndex: number,
+    strength: number,
+    temporalEnabled: boolean,
+    historyValid: boolean,
+    resources: {
+      output: GPUTextureView;
+      temporal: GPUTextureView;
+      raw: GPUTextureView;
+      trace: GPUTextureView;
+      depth: GPUTextureView;
+      normal: GPUTextureView;
+      pbr: GPUTextureView;
+      camera: GPUBuffer;
+    }
   ): void {
-    const settings = this.spatialSettings[settingsIndex];
-    if (!settings) throw new Error("SSR spatial settings are unavailable");
+    if (!this.denoiseSettings) throw new Error("SSR recurrent denoise settings are unavailable");
+    const data = new ArrayBuffer(16);
+    const view = new DataView(data);
+    view.setUint32(0, frameIndex >>> 0, true);
+    // Three r186 uses radius=5 with WORLD_RADIUS_SCALE=0.1. Fold that
+    // compile-time scale into this OEngine uniform.
+    view.setFloat32(4, 0.5, true);
+    view.setFloat32(8, Math.max(0, Math.min(1, strength)), true);
+    view.setUint32(12, (temporalEnabled ? 1 : 0) | (historyValid ? 2 : 0), true);
+    writeGpuBuffer(this.device.queue, "SSR/recurrent-denoise-settings", this.denoiseSettings, 0, data);
     drawFullscreen(
       command,
-      "SSR spatial OQ",
-      this.spatialPipeline,
-      [[resources.input, resources.depth, resources.normal, { buffer: settings }]],
+      "SSR recurrent specular denoise",
+      this.recurrentDenoisePipeline,
+      [[
+        resources.temporal,
+        resources.raw,
+        resources.depth,
+        resources.normal,
+        resources.pbr,
+        { buffer: resources.camera },
+        { buffer: this.denoiseSettings },
+        resources.trace
+      ]],
       resources.output
     );
   }
 
   private executeTemporal(
     command: ShadeGPUCommandContext,
-    sampler: GPUSampler,
     historyValid: boolean,
     temporalStrength: number,
     resources: {
@@ -733,7 +740,10 @@ export class ScreenSpaceReflectionsPass {
       occlusionConfidence: GPUTextureView;
       surfaceValidity: GPUTextureView;
       currentCamera: GPUBuffer;
-      previousCamera: GPUBuffer;
+      trace: GPUTextureView;
+      depth: GPUTextureView;
+      normal: GPUTextureView;
+      historyPreExposureScale: number;
     }
   ): void {
     if (!this.temporalSettings) throw new Error("SSR temporal settings are unavailable");
@@ -745,25 +755,28 @@ export class ScreenSpaceReflectionsPass {
       (() => {
         const data = new ArrayBuffer(16);
         const view = new DataView(data);
-        view.setUint32(0, historyValid ? 1 : 0, true);
+        view.setUint32(0, historyValid && resources.historyPreExposureScale > 0 ? 1 : 0, true);
         view.setFloat32(4, Math.max(0, Math.min(1, temporalStrength)), true);
+        view.setFloat32(8, 128, true);
+        view.setFloat32(12, resources.historyPreExposureScale, true);
         return data;
       })()
     );
     drawFullscreen(
       command,
-      "SSR temporal jQ",
+      "SSR temporal reproject",
       this.temporalPipeline,
       [[
         resources.current,
         resources.velocity,
         resources.occlusionConfidence,
         resources.history,
-        sampler,
         { buffer: resources.currentCamera },
-        { buffer: resources.previousCamera },
-        { buffer: this.temporalSettings }
-        ,resources.surfaceValidity
+        { buffer: this.temporalSettings },
+        resources.surfaceValidity,
+        resources.trace,
+        resources.depth,
+        resources.normal
       ]],
       resources.output
     );
@@ -771,15 +784,12 @@ export class ScreenSpaceReflectionsPass {
 
   destroy(): void {
     this.traceSettings?.destroy();
-    this.resolveSettings?.destroy();
     this.temporalSettings?.destroy();
-    for (const buffer of this.spatialSettings) buffer.destroy();
-    this.spatialSettings.length = 0;
-    this.histories[0].destroy();
-    this.histories[1].destroy();
+    this.denoiseSettings?.destroy();
+    for (const history of this.histories) history.destroy();
     this.traceSettings = null;
-    this.resolveSettings = null;
     this.temporalSettings = null;
+    this.denoiseSettings = null;
   }
 }
 
@@ -964,35 +974,26 @@ function createSsrDownsamplePipelineDescriptor(
 }
 
 function createSsrResolvePipelineDescriptor(
-  lpv: boolean,
   surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
-  const label = lpv
-    ? "Renderer/SSR reflection resolve VD"
-    : "Renderer/SSR reflection resolve QD";
+  const label = "Renderer/SSR stochastic hit shading";
   return createSsrPipelineDescriptor(
     label,
-    lpv ? SSR_LPV_RESOLVE_WGSL : SSR_RESOLVE_WGSL,
+    SSR_RESOLVE_WGSL,
     SSR_RESOLVE_FORMAT,
-    lpv
-      ? [
-          createSsrResolveGroupLayout(),
-          createSsrLpvBufferGroupLayout(),
-          createSsrLpvAtlasGroupLayout()
-        ]
-      : [createSsrResolveGroupLayout()],
+    [createSsrResolveGroupLayout()],
     surfaceProfile
   );
 }
 
-function createSsrSpatialPipelineDescriptor(
+function createSsrRecurrentDenoisePipelineDescriptor(
   surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
-    "Renderer/SSR spatial OQ",
-    SSR_SPATIAL_WGSL,
+    "Renderer/SSR recurrent specular denoise",
+    SSR_RECURRENT_DENOISE_WGSL,
     SSR_DENOISE_FORMAT,
-    [createSsrSpatialGroupLayout()],
+    [createSsrRecurrentDenoiseGroupLayout()],
     surfaceProfile
   );
 }
@@ -1001,7 +1002,7 @@ function createSsrTemporalPipelineDescriptor(
   surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
-    "Renderer/SSR temporal jQ",
+    "Renderer/SSR temporal reproject",
     SSR_TEMPORAL_WGSL,
     SSR_DENOISE_FORMAT,
     [createSsrTemporalGroupLayout()],
@@ -1113,46 +1114,25 @@ function createSsrResolveGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 3, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
       { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 6, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 7, visibility: fragment, sampler: { type: "filtering" } },
-      { binding: 8, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 9, visibility: fragment, buffer: { type: "uniform" } }
+      { binding: 6, visibility: fragment, sampler: { type: "filtering" } },
+      { binding: 7, visibility: fragment, buffer: { type: "uniform" } },
     ]
   };
 }
 
-function createSsrLpvBufferGroupLayout(): GPUBindGroupLayoutDescriptor {
+function createSsrRecurrentDenoiseGroupLayout(): GPUBindGroupLayoutDescriptor {
   const fragment = GPUShaderStage.FRAGMENT;
   return {
-    label: "Renderer/SSR reflection resolve VD group1",
-    entries: [
-      { binding: 0, visibility: fragment, buffer: { type: "read-only-storage" } },
-      { binding: 1, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 2, visibility: fragment, buffer: { type: "read-only-storage" } },
-      { binding: 3, visibility: fragment, buffer: { type: "read-only-storage" } }
-    ]
-  };
-}
-
-function createSsrLpvAtlasGroupLayout(): GPUBindGroupLayoutDescriptor {
-  return textureGroupLayout(
-    "Renderer/SSR reflection resolve VD group2",
-    [
-      { sampleType: "uint", viewDimension: "2d" },
-      { sampleType: "float", viewDimension: "2d" }
-    ]
-  );
-}
-
-function createSsrSpatialGroupLayout(): GPUBindGroupLayoutDescriptor {
-  const fragment = GPUShaderStage.FRAGMENT;
-  return {
-    label: "Renderer/SSR spatial OQ group0",
+    label: "Renderer/SSR recurrent specular denoise/group0",
     entries: [
       { binding: 0, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 2, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 3, visibility: fragment, buffer: { type: "uniform" } }
+      { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 3, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
+      { binding: 4, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
+      { binding: 5, visibility: fragment, buffer: { type: "uniform" } },
+      { binding: 6, visibility: fragment, buffer: { type: "uniform" } },
+      { binding: 7, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } }
     ]
   };
 }
@@ -1160,17 +1140,18 @@ function createSsrSpatialGroupLayout(): GPUBindGroupLayoutDescriptor {
 function createSsrTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
   const fragment = GPUShaderStage.FRAGMENT;
   return {
-    label: "Renderer/SSR temporal jQ group0",
+    label: "Renderer/SSR temporal reproject/group0",
     entries: [
       { binding: 0, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 3, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 4, visibility: fragment, sampler: { type: "filtering" } },
+      { binding: 4, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 5, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 6, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 7, visibility: fragment, buffer: { type: "uniform" } }
-      ,{ binding: 8, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } }
+      { binding: 6, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
+      { binding: 7, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
+      { binding: 8, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 9, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } }
     ]
   };
 }

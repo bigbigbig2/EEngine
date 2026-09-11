@@ -14,6 +14,7 @@ const DOMAIN_RULES = Object.freeze([
   rule("graphics-context", /^OEngine\/src\/gpu\/(?:GraphicsContext|WebGpuCapabilityRecord)\.ts$/),
   rule("visibility", /^OEngine\/src\/(?:render\/(?:Hierarchical|Visibility|Triangle|passes\/.*(?:Visibility|HZB|Raster))|gpu\/GpuVisibility|shaders\/.*(?:visibility|hzb|raster))/i),
   rule("hzb", /^OEngine\/src\/(?:render\/HierarchicalZBuffer|render\/passes\/.*HZB|shaders\/.*hzb)/i),
+  rule("ssr", /^OEngine\/src\/(?:render\/(?:features\/ReflectionService|passes\/(?:ScreenSpaceReflections|SpecularCorrection)Pass)|shaders\/(?:ssr_|specular_correction))/i),
   rule("gpu-scene", /^OEngine\/src\/gpu\/(?:GpuScene|GpuRenderWorld|GpuAssetStore|GpuSceneResidencyManifest)/),
   rule("texture-package", /^OEngine\/src\/assets\/(?:RuntimeAssetManifestV2|TextureAssetPackage)\.ts$/),
   rule("asset", /^OEngine\/src\/(?:assets|geometry|loaders)\//),

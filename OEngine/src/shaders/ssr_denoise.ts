@@ -1,7 +1,4 @@
-/**
- * ssr_denoise：定义对应渲染阶段使用的 WGSL 着色器代码。
- */
-
+/** Three.js r186-derived SSR temporal reprojection and recurrent denoise. */
 
 import {
   SSR_CAMERA_WGSL,
@@ -66,198 +63,337 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 }
 `;
 
-export const SSR_SPATIAL_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
-${SSR_MATH_WGSL}
-struct SpatialSettings { step_size: i32 };
-@group(0) @binding(0) var this_hit: texture_2d<f32>;
-@group(0) @binding(1) var gr_bucket: texture_2d<f32>;
-@group(0) @binding(2) var ray_ws: texture_2d<u32>;
-@group(0) @binding(3) var<uniform> settings: SpatialSettings;
-
-fn convert_specular(position: vec2i, source: texture_2d<f32>, channel: i32) -> f32 {
-  const weights = array<f32, 3>(0.25, 0.125, 0.0625);
-  let maximum = vec2i(textureDimensions(source)) - vec2i(1);
-  var result = 0.0;
-  for (var y = -1; y <= 1; y++) {
-    for (var x = -1; x <= 1; x++) {
-      let sample_position = clamp(position + vec2i(x, y), vec2i(0), maximum);
-      result += textureLoad(source, sample_position, 0)[channel] * weights[abs(x) + abs(y)];
-    }
-  }
-  return result;
-}
-
-fn depth_weight(center: f32, neighbor: f32) -> f32 {
-  return exp(-abs(center - neighbor) * center * 4.0);
-}
-
-fn normal_weight(center: vec3f, neighbor: vec3f) -> f32 {
-  return pow(max(dot(center, neighbor), 0.0), 512.0);
-}
-
-fn relative_difference(center: f32, neighbor: f32, scale: f32) -> f32 {
-  return abs(center - neighbor) / scale;
-}
-
-@fragment
-fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
-  let position = vec2i(coord.xy);
-  let dimensions = vec2i(textureDimensions(this_hit));
-  let surface_dimensions = vec2i(textureDimensions(gr_bucket));
-  let surface_position = clamp(
-    vec2i((coord.xy + vec2f(0.5)) * vec2f(surface_dimensions) / vec2f(dimensions)),
-    vec2i(0), surface_dimensions - vec2i(1)
-  );
-  const kernel = array<f32, 3>(1.0, 2.0 / 3.0, 1.0 / 6.0);
-  let center = textureLoad(this_hit, position, 0);
-  let center_luminance = rgb_to_luminance(center.rgb);
-  let variance = max(0.0, convert_specular(position, this_hit, 3));
-  let center_normal = decode_g_buffer_normal(textureLoad(ray_ws, surface_position, 0).xy);
-  let center_depth = textureLoad(gr_bucket, surface_position, 0).r;
-  const offsets = array<vec2i, 8>(
-    vec2i(-1, -1), vec2i(0, -1), vec2i(1, -1), vec2i(-1, 0),
-    vec2i(1, 0), vec2i(-1, 1), vec2i(0, 1), vec2i(1, 1)
-  );
-  var weight_sum = 1.0;
-  var accumulated = center;
-  let phi_visibility = max(0.001, sqrt(variance) * 10.0);
-  for (var index = 0; index < 8; index++) {
-    let offset = offsets[index];
-    let sample_position = position + offset * settings.step_size;
-    if (any(sample_position < vec2i(0)) || any(sample_position >= dimensions)) { continue; }
-    let sample_value = textureLoad(this_hit, sample_position, 0);
-    let sample_surface_position = clamp(
-      vec2i((vec2f(sample_position) + 0.5) * vec2f(surface_dimensions) / vec2f(dimensions)),
-      vec2i(0), surface_dimensions - vec2i(1)
-    );
-    let sample_normal = decode_g_buffer_normal(textureLoad(ray_ws, sample_surface_position, 0).xy);
-    let sample_depth = textureLoad(gr_bucket, sample_surface_position, 0).r;
-    var weight = normal_weight(center_normal, sample_normal);
-    weight *= depth_weight(center_depth, sample_depth);
-    weight *= exp(-relative_difference(center_luminance, rgb_to_luminance(sample_value.rgb), phi_visibility));
-    weight *= kernel[abs(offset.x)] * kernel[abs(offset.y)];
-    weight_sum += weight;
-    accumulated += vec4f(vec3f(weight), weight * weight) * sample_value;
-  }
-  let resolved = accumulated / vec4f(vec3f(weight_sum), weight_sum * weight_sum);
-  return select(
-    center, resolved,
-    all(resolved == resolved) && all(abs(resolved) < vec4f(65504.0))
-  );
-}
-`;
-
 export const SSR_TEMPORAL_WGSL = /* wgsl */ `
 ${SSR_CAMERA_WGSL}
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${SSR_MATH_WGSL}
 ${SSR_COLOR_HISTORY_WGSL}
+
 struct SsrTemporalSettings {
   history_valid: u32,
   history_strength: f32,
+  max_motion_pixels: f32,
+  pre_exposure_scale: f32,
 };
-@group(0) @binding(0) var this_hit: texture_2d<f32>;
-@group(0) @binding(1) var header: texture_2d<f32>;
-@group(0) @binding(2) var top: texture_2d<f32>;
-@group(0) @binding(3) var mean: texture_2d<f32>;
-@group(0) @binding(4) var segment_height: sampler;
-@group(0) @binding(5) var<uniform> camera_current: CommandEncoder;
-@group(0) @binding(6) var<uniform> camera_previous: CommandEncoder;
-@group(0) @binding(7) var<uniform> settings: SsrTemporalSettings;
-@group(0) @binding(8) var surface_validity: texture_2d<f32>;
 
-fn velocity_confidence(velocity: vec2f) -> f32 {
-  return saturate(1.0 - length(velocity) / 128.0);
+@group(0) @binding(0) var raw_specular: texture_2d<f32>;
+@group(0) @binding(1) var velocity_source: texture_2d<f32>;
+@group(0) @binding(2) var occlusion_confidence_source: texture_2d<f32>;
+@group(0) @binding(3) var history_source: texture_2d<f32>;
+@group(0) @binding(4) var<uniform> camera_current: CommandEncoder;
+@group(0) @binding(5) var<uniform> settings: SsrTemporalSettings;
+@group(0) @binding(6) var surface_validity_source: texture_2d<f32>;
+@group(0) @binding(7) var trace_source: texture_2d<u32>;
+@group(0) @binding(8) var depth_source: texture_2d<f32>;
+@group(0) @binding(9) var normal_source: texture_2d<u32>;
+
+fn trace_confidence(position: vec2i) -> f32 {
+  return f32(textureLoad(trace_source, position, 0).y & 0xffu) / 255.0;
 }
 
-fn history_response(confidence: f32) -> f32 {
-  return mix(0.75, 2.0, confidence * confidence);
+fn trace_hit_position(position: vec2i) -> vec2u {
+  let packed = textureLoad(trace_source, position, 0).x;
+  return vec2u(packed & 0xffffu, packed >> 16u);
 }
 
-fn reciprocal_one_plus(value: f32) -> f32 {
-  return 1.0 / (1.0 + value);
+fn surface_position(effect_position: vec2i, effect_size: vec2i, surface_size: vec2i) -> vec2i {
+  return clamp(
+    vec2i((vec2f(effect_position) + 0.5) * vec2f(surface_size) / vec2f(effect_size)),
+    vec2i(0), surface_size - vec2i(1)
+  );
 }
 
-fn sphere_sample_direction(
-  source: texture_2d<f32>,
-  center: vec4f,
+fn history_sample_4tap(
+  history_pixel: vec2f,
+  center_depth: f32,
+  center_normal: vec3f,
+  effect_size: vec2i,
+  surface_size: vec2i
+) -> vec4f {
+  let base = vec2i(floor(history_pixel - 0.5));
+  let fraction = fract(history_pixel - 0.5);
+  let bilinear = vec4f(
+    (1.0 - fraction.x) * (1.0 - fraction.y),
+    fraction.x * (1.0 - fraction.y),
+    (1.0 - fraction.x) * fraction.y,
+    fraction.x * fraction.y
+  );
+  const offsets = array<vec2i, 4>(vec2i(0, 0), vec2i(1, 0), vec2i(0, 1), vec2i(1, 1));
+  var result = vec4f(0.0);
+  var weight_sum = 0.0;
+  for (var i = 0; i < 4; i++) {
+    let tap = base + offsets[i];
+    if (any(tap < vec2i(0)) || any(tap >= effect_size)) { continue; }
+    let tap_surface = surface_position(tap, effect_size, surface_size);
+    let tap_depth = textureLoad(depth_source, tap_surface, 0).r;
+    let tap_normal = decode_g_buffer_normal(textureLoad(normal_source, tap_surface, 0).xy);
+    let geometry = exp(-abs(center_depth - tap_depth) * max(abs(center_depth), 1.0) * 8.0) *
+      pow(max(dot(center_normal, tap_normal), 0.0), 64.0);
+    let history = max(textureLoad(history_source, tap, 0), vec4f(0.0));
+    let weight = bilinear[i] * geometry * saturate(history.a);
+    result += history * weight;
+    weight_sum += weight;
+  }
+  return select(
+    vec4f(0.0),
+    result / max(weight_sum, 1e-5),
+    weight_sum > 1e-5
+  );
+}
+
+fn neighborhood_bounds(
   position: vec2i,
-  scale: f32,
   minimum: ptr<function, vec3f>,
   maximum: ptr<function, vec3f>
 ) {
-  const offsets = array<vec2i, 8>(
-    vec2i(-1, -1), vec2i(0, -1), vec2i(1, -1), vec2i(-1, 0),
-    vec2i(1, 0), vec2i(-1, 1), vec2i(0, 1), vec2i(1, 1)
-  );
-  var sum = center.rgb;
-  var sum_squared = sum * sum;
-  var alpha_sum = center.a;
-  let maximum_position = vec2i(textureDimensions(source)) - vec2i(1);
-  for (var index = 0; index < 8; index++) {
-    let sample_position = clamp(position + offsets[index], vec2i(0), maximum_position);
-    let sample_value = textureLoad(source, sample_position, 0);
-    let encoded = taa_encode_color(sample_value.rgb);
-    sum += encoded;
-    sum_squared += encoded * encoded;
-    alpha_sum += sample_value.a;
+  let limit = vec2i(textureDimensions(raw_specular)) - vec2i(1);
+  var sum = vec3f(0.0);
+  var sum_squared = vec3f(0.0);
+  var count = 0.0;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let color = max(textureLoad(raw_specular, clamp(position + vec2i(x, y), vec2i(0), limit), 0).rgb, vec3f(0.0));
+      let encoded = taa_encode_color(color);
+      sum += encoded;
+      sum_squared += encoded * encoded;
+      count += 1.0;
+    }
   }
-  let mean = sum / 9.0;
-  let deviation = sqrt(abs(sum_squared / 9.0 - mean * mean));
-  let extent = vec3f(1.0, 1.4, 1.2) * scale * (1.0 + sqrt(alpha_sum / 9.0));
-  *minimum = mean - deviation * extent;
-  *maximum = mean + deviation * extent;
+  let mean = sum / count;
+  let deviation = sqrt(max(sum_squared / count - mean * mean, vec3f(0.0)));
+  *minimum = mean - deviation * vec3f(1.0, 1.4, 1.2);
+  *maximum = mean + deviation * vec3f(1.0, 1.4, 1.2);
 }
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let position = vec2i(coord.xy);
-  let temporal_size = vec2i(textureDimensions(this_hit));
-  let velocity_size = vec2i(textureDimensions(header));
-  let velocity_position = clamp(
-    vec2i((coord.xy + vec2f(0.5)) * vec2f(velocity_size) / vec2f(temporal_size)),
-    vec2i(0), velocity_size - vec2i(1)
-  );
-  // 绑定布局保留两份相机数据；当前路径使用运动矢量重投影，不直接读取它们。
-  if (coord.x < 0.0) {
-    _ = camera_current.device_depth_to_view_space.x;
-    _ = camera_previous.device_depth_to_view_space.x;
+  let effect_size = vec2i(textureDimensions(raw_specular));
+  let surface_size = vec2i(textureDimensions(velocity_source));
+  let receiver = surface_position(position, effect_size, surface_size);
+  let validity = textureLoad(surface_validity_source, receiver, 0).rg;
+  let trace_validity = trace_confidence(position);
+  let disocclusion = textureLoad(occlusion_confidence_source, receiver, 0).r;
+  let current = max(textureLoad(raw_specular, position, 0), vec4f(0.0));
+  let current_confidence = trace_validity * disocclusion *
+    select(1.0, 0.0, validity.g < 0.5 || validity.r >= 0.5) *
+    select(0.0, 1.0, current.a > 1e-5);
+  if (current_confidence <= 0.001) { return vec4f(0.0); }
+  if (settings.history_valid == 0u || settings.pre_exposure_scale <= 0.0) {
+    return vec4f(current.rgb, current_confidence);
   }
-  let confidence = textureLoad(top, velocity_position, 0).r;
-  let validity = textureLoad(surface_validity, velocity_position, 0).rg;
-  let current = textureLoad(this_hit, position, 0);
-  if (settings.history_valid == 0u) { return current; }
-  if (confidence <= 0.001 || validity.g < 0.5 || validity.r >= 0.5) { return current; }
-  let velocity = taa_get_velocity(header, velocity_position) *
-    vec2f(temporal_size) / vec2f(velocity_size);
-  let history_position = coord.xy - velocity;
-  let history_uv = history_position / vec2f(textureDimensions(mean));
-  let history = max(vec4f(0.0), add_per_probe_roughness(mean, segment_height, history_uv));
+
+  let receiver_velocity = taa_get_velocity(velocity_source, receiver) *
+    vec2f(effect_size) / vec2f(surface_size);
+  let hit_pixel = min(trace_hit_position(position), vec2u(surface_size) - vec2u(1u));
+  let hit_velocity = textureLoad(velocity_source, vec2i(hit_pixel), 0).rg *
+    vec2f(effect_size) / vec2f(surface_size);
+  let center_depth = textureLoad(depth_source, receiver, 0).r;
+  let center_uv = texel_coordinate_to_uv(vec2f(receiver), vec2u(surface_size));
+  let view_position = project_position_from_depth(
+    center_uv, center_depth, camera_current.projection_matrix_inverse
+  );
+  let parallax_weight = saturate(current.a / max(current.a + abs(view_position.z), 1e-5));
+  let velocity = mix(receiver_velocity, hit_velocity, parallax_weight);
+  let motion_confidence = saturate(1.0 - length(velocity) / max(settings.max_motion_pixels, 1.0));
+  let history_pixel = coord.xy - velocity;
+  let center_normal = decode_g_buffer_normal(textureLoad(normal_source, receiver, 0).xy);
+  var history = history_sample_4tap(
+    history_pixel, center_depth, center_normal, effect_size, surface_size
+  );
+  if (history.a <= 0.001) { return vec4f(current.rgb, current_confidence); }
+  history.rgb *= settings.pre_exposure_scale;
+
   let encoded_current = taa_encode_color(current.rgb);
   let encoded_history = taa_encode_color(history.rgb);
-  let velocity_weight = velocity_confidence(velocity);
-  let clip_scale = history_response(velocity_weight) * 2.0;
   var minimum: vec3f;
   var maximum: vec3f;
-  sphere_sample_direction(this_hit, vec4f(encoded_current, current.a), position, clip_scale, &minimum, &maximum);
-  let clipped_history = pack_field(encoded_history, encoded_current, minimum, maximum);
-  var current_weight = mix(1.0, 0.05, confidence * velocity_weight);
-  current_weight *= mix(0.2, 1.0, pow2(saturate(features(encoded_current, clipped_history, minimum, maximum))));
-  var history_weight = 1.0 - current_weight;
-  history_weight *= clamp(settings.history_strength, 0.0, 1.0);
-  current_weight *= reciprocal_one_plus(current.a);
-  history_weight *= reciprocal_one_plus(history.a);
-  let normalization = 1.0 / (current_weight + history_weight);
-  current_weight *= normalization;
-  history_weight *= normalization;
-  let resolved = vec4f(
-    taa_decode_color(mix(encoded_current, clipped_history, history_weight)),
-    mix(current.a, history.a, history_weight)
+  neighborhood_bounds(position, &minimum, &maximum);
+  let clipped_history = pack_field(encoded_current, encoded_history, minimum, maximum);
+  let current_luma_weight = 1.0 / (1.0 + rgb_to_luminance(current.rgb));
+  let history_linear = max(taa_decode_color(clipped_history), vec3f(0.0));
+  let history_luma_weight = 1.0 / (1.0 + rgb_to_luminance(history_linear));
+  let history_weight = clamp(
+    settings.history_strength * current_confidence * history.a * motion_confidence,
+    0.0,
+    0.97
   );
-  return select(
-    current, resolved,
-    all(resolved == resolved) && all(abs(resolved) < vec4f(65504.0))
+  let weighted_history = history_weight * history_luma_weight;
+  let weighted_current = (1.0 - history_weight) * current_luma_weight;
+  let resolved = (history_linear * weighted_history + current.rgb * weighted_current) /
+    max(weighted_history + weighted_current, 1e-5);
+  let resolved_confidence = mix(current_confidence, min(current_confidence, history.a), history_weight);
+  let finite = all(resolved == resolved) && all(abs(resolved) < vec3f(65504.0));
+  return vec4f(select(current.rgb, resolved, finite), resolved_confidence);
+}
+`;
+
+export const SSR_RECURRENT_DENOISE_WGSL = /* wgsl */ `
+${SSR_CAMERA_WGSL}
+${SSR_FULLSCREEN_VERTEX_WGSL}
+${SSR_MATH_WGSL}
+
+struct SsrDenoiseSettings {
+  frame_index: u32,
+  radius: f32,
+  strength: f32,
+  mode_flags: u32,
+};
+
+@group(0) @binding(0) var temporal_source: texture_2d<f32>;
+@group(0) @binding(1) var raw_source: texture_2d<f32>;
+@group(0) @binding(2) var depth_source: texture_2d<f32>;
+@group(0) @binding(3) var normal_source: texture_2d<u32>;
+@group(0) @binding(4) var pbr_source: texture_2d<u32>;
+@group(0) @binding(5) var<uniform> camera: CommandEncoder;
+@group(0) @binding(6) var<uniform> settings: SsrDenoiseSettings;
+@group(0) @binding(7) var trace_source: texture_2d<u32>;
+
+fn effect_to_surface(position: vec2i, effect_size: vec2i, surface_size: vec2i) -> vec2i {
+  return clamp(
+    vec2i((vec2f(position) + 0.5) * vec2f(surface_size) / vec2f(effect_size)),
+    vec2i(0), surface_size - vec2i(1)
   );
+}
+
+fn view_position_at(position: vec2i, surface_size: vec2i) -> vec3f {
+  let uv = texel_coordinate_to_uv(vec2f(position), vec2u(surface_size));
+  return project_position_from_depth(
+    uv, textureLoad(depth_source, position, 0).r, camera.projection_matrix_inverse
+  );
+}
+
+fn view_normal_at(position: vec2i) -> vec3f {
+  let world = decode_g_buffer_normal(textureLoad(normal_source, position, 0).xy);
+  let view = camera.view_matrix;
+  return normalize(mat3x3f(view[0].xyz, view[1].xyz, view[2].xyz) * world);
+}
+
+fn vogel_disk(index: f32) -> vec2f {
+  let theta = (index + 0.5) * 2.399827721492203;
+  let radius = sqrt((index + 0.5) / 8.0);
+  return vec2f(cos(theta), sin(theta)) * radius;
+}
+
+fn noise_angle(pixel: vec2u, frame_index: u32) -> f32 {
+  let hash = resolve_trigonometric_moments(vec3u(pixel, frame_index));
+  return 2.0 * PI * f32(hash & 0xffffu) / 65535.0;
+}
+
+fn trace_confidence(position: vec2i) -> f32 {
+  return f32(textureLoad(trace_source, position, 0).y & 0xffu) / 255.0;
+}
+
+@fragment
+fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
+  let position = vec2i(coord.xy);
+  let effect_size = vec2i(textureDimensions(temporal_source));
+  let surface_size = vec2i(textureDimensions(depth_source));
+  let surface = effect_to_surface(position, effect_size, surface_size);
+  let raw = max(textureLoad(raw_source, position, 0), vec4f(0.0));
+  var center = max(textureLoad(temporal_source, position, 0), vec4f(0.0));
+  center.a = select(
+    trace_confidence(position) * select(0.0, 1.0, raw.a > 1e-5),
+    center.a,
+    (settings.mode_flags & 1u) != 0u
+  );
+  if (center.a <= 0.001) { return vec4f(0.0); }
+  let center_view = view_position_at(surface, surface_size);
+  let center_normal = view_normal_at(surface);
+  let center_pbr = textureLoad(pbr_source, surface, 0);
+  let center_roughness = decode_g_buffer_roughness(center_pbr);
+  let view_direction = normalize(-center_view);
+  let dominant_direction = normalize(mix(
+    center_normal,
+    reflect(-view_direction, center_normal),
+    1.0 - center_roughness
+  ));
+  let reflection_axis = normalize(reflect(-dominant_direction, center_normal));
+  var tangent = cross(center_normal, reflection_axis);
+  if (dot(tangent, tangent) < 1e-6) {
+    tangent = build_orthonormal_matrix_n(reflection_axis)[0];
+  } else {
+    tangent = normalize(tangent);
+  }
+  let bitangent = normalize(cross(reflection_axis, tangent));
+  let view_angle = saturate(acos(clamp(abs(center_normal.z), 0.0, 1.0)) / (0.5 * PI));
+  tangent *= mix(1.0, center_roughness, view_angle);
+
+  let history_aggressivity = select(
+    0.0,
+    saturate(center.a * settings.strength),
+    (settings.mode_flags & 2u) != 0u
+  );
+  let world_radius = settings.radius * max(raw.a, 1e-3) * abs(center_view.z) *
+    max(sqrt(center_roughness), 0.01) * mix(1.0, 0.001, history_aggressivity);
+  let angle = noise_angle(vec2u(position), settings.frame_index);
+  let rotation = mat2x2f(vec2f(cos(angle), sin(angle)), vec2f(-sin(angle), cos(angle)));
+  var accumulated = center.rgb;
+  var accumulated_raw = raw.rgb;
+  var confidence_sum = center.a;
+  var weight_sum = 1.0;
+  var raw_weight_sum = 1.0;
+  var radius_shrink = 1.0;
+  var polar_bias = vec2f(0.0);
+  let center_luma = rgb_to_luminance(center.rgb);
+
+  for (var i = 0; i < 8; i++) {
+    let base = vogel_disk(f32(i));
+    let base_direction = normalize(base);
+    let has_bias = dot(polar_bias, polar_bias) > 0.001;
+    let bias_direction = polar_bias / max(length(polar_bias), 1e-6);
+    let biased_direction = mix(base_direction, bias_direction,
+      select(0.0, history_aggressivity, has_bias));
+    let disk = rotation * (biased_direction * length(base) * radius_shrink);
+    let sample_view = center_view + (bitangent * disk.x + tangent * disk.y) * world_radius;
+    let sample_ndc = v3_matrix4_project(sample_view, camera.projection_matrix);
+    let sample_uv = ndc_to_uv(sample_ndc.xy);
+    if (any(sample_uv <= vec2f(0.0)) || any(sample_uv >= vec2f(1.0))) { continue; }
+    let sample_position = clamp(
+      vec2i(sample_uv * vec2f(effect_size)), vec2i(0), effect_size - vec2i(1)
+    );
+    let sample_surface = effect_to_surface(sample_position, effect_size, surface_size);
+    var sample_value = max(textureLoad(temporal_source, sample_position, 0), vec4f(0.0));
+    let sample_raw = max(textureLoad(raw_source, sample_position, 0), vec4f(0.0));
+    sample_value.a = select(
+      trace_confidence(sample_position) * select(0.0, 1.0, sample_raw.a > 1e-5),
+      sample_value.a,
+      (settings.mode_flags & 1u) != 0u
+    );
+    let sample_view_position = view_position_at(sample_surface, surface_size);
+    let sample_normal = view_normal_at(sample_surface);
+    let sample_roughness = decode_g_buffer_roughness(textureLoad(pbr_source, sample_surface, 0));
+    let plane_distance = abs(dot(center_view - sample_view_position, center_normal));
+    let depth_weight = exp(-plane_distance * 500.0 * abs(center_normal.z) /
+      max(abs(center_view.z), 1e-4));
+    let normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), mix(128.0, 16.0, center_roughness));
+    let roughness_weight = exp(-abs(center_roughness - sample_roughness) * 16.0);
+    let ray_weight = exp(-abs(raw.a - sample_raw.a) / max(raw.a * 0.2, 1e-3));
+    let luma_weight = exp(-abs(center_luma - rgb_to_luminance(sample_value.rgb)) /
+      max(center_luma * 0.25 + 0.01, 0.01));
+    let weight = sample_value.a * depth_weight * normal_weight * roughness_weight * ray_weight * luma_weight;
+    accumulated += sample_value.rgb * weight;
+    accumulated_raw += sample_raw.rgb * weight;
+    confidence_sum += sample_value.a * weight;
+    weight_sum += weight;
+    raw_weight_sum += weight;
+    let trusted = saturate(weight * 2.0);
+    polar_bias = mix(polar_bias, base_direction * (trusted - 0.5), 0.5);
+    radius_shrink = max(0.001, mix(radius_shrink, trusted, 0.5));
+  }
+  let denoised_temporal = accumulated / max(weight_sum, 1e-5);
+  let denoised_raw = accumulated_raw / max(raw_weight_sum, 1e-5);
+  // RecurrentDenoise accumulate=true: Karis-style inverse-luminance blend
+  // between spatially filtered temporal input and filtered current raw SSR.
+  let current_weight = clamp(1.0 - history_aggressivity, 0.05, 1.0);
+  let temporal_weight = (1.0 - current_weight) /
+    (1.0 + rgb_to_luminance(denoised_temporal) * 10.0);
+  let raw_weight = current_weight /
+    (1.0 + rgb_to_luminance(denoised_raw) * 10.0);
+  let resolved = (denoised_temporal * temporal_weight + denoised_raw * raw_weight) /
+    max(temporal_weight + raw_weight, 1e-5);
+  let confidence = min(center.a, confidence_sum / max(weight_sum, 1e-5));
+  let finite = all(resolved == resolved) && all(abs(resolved) < vec3f(65504.0));
+  return vec4f(select(center.rgb, resolved, finite), confidence);
 }
 `;

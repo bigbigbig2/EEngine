@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 46,
+  "shaderCount": 45,
   "summary": {
-    "authored-live": 45,
+    "authored-live": 44,
     "dead": 1
   },
   "entries": [
@@ -1080,6 +1080,7 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
+        "src/render/pipeline/MainRenderPipeline.ts",
         "src/shaders/motion_blur.ts",
         "src/shaders/render_debug_view.ts",
         "src/shaders/ssr_denoise.ts",
@@ -1155,35 +1156,11 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
-      "shader": "src/shaders/ssr_resolve_lpv.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/ScreenSpaceReflectionsPass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/ReflectionService.ts",
-        "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/ScreenSpaceReflectionsPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
       "shader": "src/shaders/ssr_resolve.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/shaders/ssr_resolve_lpv.ts"
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "runtimeConsumers": [
         "src/addons/inspector/index.ts",

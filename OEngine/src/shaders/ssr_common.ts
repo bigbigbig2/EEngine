@@ -9,6 +9,8 @@ import {
 } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
+export const THREE_SSR_REVISION = "148ef33ecb6d2502ff796d4554abd1549c95d519" as const;
+
 export const SSR_CAMERA_WGSL = PACKED_CAMERA_TYPE.wgsl_declaration;
 
 export const SSR_FULLSCREEN_VERTEX_WGSL = /* wgsl */ `

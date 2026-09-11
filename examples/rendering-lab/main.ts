@@ -132,9 +132,9 @@ const debugDescriptors: readonly DebugDescriptor[] = [
   { value: RenderDebugView.IndirectDiffuse, label: "漫反射 IBL", help: "余弦卷积后的环境漫反射照明。" },
   { value: RenderDebugView.IndirectSpecular, label: "镜面 IBL", help: "GGX 预过滤环境反射。" },
   { value: RenderDebugView.ScreenSpaceReflectionHitMiss, label: "SSR 命中 / 未命中", help: "屏幕空间反射命中置信度。", requires: "ssr" },
-  { value: RenderDebugView.ScreenSpaceReflectionResolve, label: "SSR Resolve", help: "空间 resolve、进入时域累计前的反射辐射。", requires: "ssr" },
-  { value: RenderDebugView.ScreenSpaceReflectionTemporal, label: "SSR Temporal", help: "时域累计后、最终空间滤波前的反射辐射。", requires: "ssr" },
-  { value: RenderDebugView.ScreenSpaceReflectionHistoryConfidence, label: "SSR 历史", help: "反射时域历史置信度。", requires: "ssr" },
+  { value: RenderDebugView.ScreenSpaceReflectionResolve, label: "SSR Hit Shading", help: "VNDF hit shading 后、进入时域重投影前的 receiver-resolved 反射。", requires: "ssr" },
+  { value: RenderDebugView.ScreenSpaceReflectionTemporal, label: "SSR Temporal", help: "时域重投影后、RecurrentDenoise 前的反射。", requires: "ssr" },
+  { value: RenderDebugView.ScreenSpaceReflectionHistoryConfidence, label: "SSR Confidence", help: "RecurrentDenoise 输出的最终 replacement confidence。", requires: "ssr" },
   { value: RenderDebugView.LinearHdr, label: "线性 HDR", help: "曝光和色调映射之前的场景线性颜色。" }
 ];
 
@@ -1449,6 +1449,8 @@ function bindRendererControls(activeRenderer: Renderer): void {
     (value) => value.toFixed(3));
   bindRange("ssr-roughness-cutoff", (value) => activeRenderer.configure({ ssr: { maxRoughness: value } }),
     (value) => value.toFixed(2));
+  bindRange("ssr-mirror-bias", (value) => activeRenderer.configure({ ssr: { mirrorBias: value } }),
+    (value) => value.toFixed(2));
   bindRange("ssr-temporal", (value) => activeRenderer.configure({ ssr: { temporalStrength: value } }),
     (value) => value.toFixed(2));
   bindRange("taa-history", (value) => activeRenderer.configure({ temporal: { historyStrength: value } }),
@@ -1722,7 +1724,7 @@ function updateProfilerEvidence(): void {
     `internal-full ${temporal.internalWidth}×${temporal.internalHeight}`,
     `output-full ${temporal.outputWidth}×${temporal.outputHeight}`,
     ao.enabled ? `AO ${ao.aoWidth}×${ao.aoHeight} (${ao.resolutionScale}×)` : "AO off",
-    ssr.enabled ? `SSR ${ssr.internalWidth}×${ssr.internalHeight} (1× current)` : "SSR off"
+    ssr.enabled ? `SSR ${ssr.traceWidth}×${ssr.traceHeight} (${ssr.resolutionScale}×)` : "SSR off"
   ].join(" · ");
 
   const gpu = summary.latestGpuCounters;

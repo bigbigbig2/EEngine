@@ -80,7 +80,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production", "ssr-replacement"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -92,7 +92,132 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "ssgi-production") {
+    if (request.scenarioId === "ssr-replacement") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Surface runtime is not initialized");
+      await runtime.replaceScene(await createSsrReplacementSource());
+      renderer.configure({
+        features: { screenSpaceDiffuseMode: "gtao", screenSpaceReflections: true },
+        ssr: {
+          resolutionScale: 0.5,
+          temporalEnabled: true,
+          maxDistanceMeters: 16,
+          edgeFade: 0.07,
+          maxSteps: 128,
+          baseThicknessMeters: 0.08,
+          distanceThicknessScale: 0.01,
+          maxRoughness: 0.65,
+          mirrorBias: 0.5,
+          temporalStrength: 0.9
+        }
+      });
+      await runtime.waitForFrames(5);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      const on = renderer.screenSpaceReflectionsEvidence();
+      const onGraph = renderer.mainFrameGraphEvidence();
+      if (onGraph === null) throw new Error("SSR-on frame did not publish FrameGraph evidence");
+      const onPasses = onGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
+      const onResources = onGraph.dump.resources.map((entry) => entry.name);
+      const ssrPasses = onPasses.filter((name) => /SSR|screen.?space reflection/i.test(name));
+      const counters = profile.gpuCounters.values;
+      const onSubmits = profile.submits;
+
+      renderer.configure({ features: { screenSpaceReflections: false } });
+      await runtime.waitForFrames(3);
+      const offProfile = await runtime.waitForCounters(profile.frameIndex);
+      const off = renderer.screenSpaceReflectionsEvidence();
+      const offGraph = renderer.mainFrameGraphEvidence();
+      if (offGraph === null) throw new Error("SSR-off frame did not publish FrameGraph evidence");
+      const offPasses = offGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
+      const offResources = offGraph.dump.resources.map((entry) => entry.name);
+      const offSsrPasses = offPasses.filter((name) => /SSR|screen.?space reflection/i.test(name));
+      const offSsrResources = offResources.filter((name) => /SSR|ssr_|baseline-specular/i.test(name));
+
+      renderer.configure({
+        features: { screenSpaceReflections: true },
+        ssr: { temporalEnabled: false }
+      });
+      await runtime.waitForFrames(3);
+      profile = await runtime.waitForCounters(offProfile.frameIndex);
+      const noTemporal = renderer.screenSpaceReflectionsEvidence();
+      const noTemporalGraph = renderer.mainFrameGraphEvidence();
+      if (noTemporalGraph === null) throw new Error("SSR temporal-off frame did not publish FrameGraph evidence");
+      const noTemporalPasses = noTemporalGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+
+      Object.assign(evidence, {
+        ssrReplacement: {
+          on: { runtime: on, passes: ssrPasses, resources: onResources, counters, submits: onSubmits },
+          off: { runtime: off, passes: offSsrPasses, resources: offSsrResources },
+          temporalOff: { runtime: noTemporal, passes: noTemporalPasses }
+        }
+      });
+      assertions.push(validationAssertion(
+        "three-ssr-pinned-production-path",
+        on.enabled && on.algorithm === "three-ssr-r186-oengine-hzb-wgsl" &&
+          on.upstreamRevision === "148ef33ecb6d2502ff796d4554abd1549c95d519" &&
+          on.traceFormat === "rg32uint" && on.rawSpecularFormat === "rgba16float" &&
+          on.rawAlphaSemantic === "specular-dominant-ray-length" &&
+          on.resolvedAlphaSemantic === "replacement-confidence" &&
+          on.correctionMode === "confidence-baseline-replacement",
+        "The ordinary opaque path exposes the pinned Three-derived HZB/VNDF SSR and OEngine baseline replacement ABI",
+        on,
+        "pinned revision, packed trace, ray-length raw alpha and confidence replacement"
+      ));
+      assertions.push(validationAssertion(
+        "ssr-temporal-recurrent-history-closure",
+        on.tracePasses === 1 && on.prefilterPasses === 1 && on.resolvePasses === 1 &&
+          on.temporalPasses === 1 && on.recurrentDenoisePasses === 1 &&
+          on.compositePasses === 1 && on.historyTextureCount === 2 && on.historyValid &&
+          on.historyBytes === on.tracePixels * 8 * 2 &&
+          ssrPasses.includes("SSR stochastic hit shading") &&
+          ssrPasses.includes("SSR temporal reproject") &&
+          ssrPasses.includes("SSR recurrent specular denoise") &&
+          ssrPasses.includes("SSR specular correction") &&
+          ssrPasses.indexOf("SSR stochastic hit shading") < ssrPasses.indexOf("SSR temporal reproject") &&
+          ssrPasses.indexOf("SSR temporal reproject") < ssrPasses.indexOf("SSR recurrent specular denoise") &&
+          ssrPasses.indexOf("SSR recurrent specular denoise") < ssrPasses.indexOf("SSR specular correction"),
+        "TemporalReproject reads external recurrent history and RecurrentDenoise owns the next history before one replacement composite",
+        { runtime: on, passes: ssrPasses },
+        "one trace/prefilter/hit/temporal/recurrent/correction chain and two rgba16float histories"
+      ));
+      assertions.push(validationAssertion(
+        "ssr-real-gpu-trace-evidence",
+        (counters.ssrTracePixels ?? 0) > 0 && (counters.ssrHitPixels ?? 0) > 0 &&
+          (counters.ssrTraceSteps ?? 0) > 0 && (counters.ssrMaxTraceSteps ?? 0) > 0 &&
+          onSubmits.count === 1 && onSubmits.labels["Renderer/main-0"] === 1,
+        "A real GPU trace produces validated screen-space hits and remains inside the single main submission",
+        { counters, submits: onSubmits },
+        "trace/hit/step counters > 0 and one main submit"
+      ));
+      assertions.push(validationAssertion(
+        "ssr-feature-off-zero-cost",
+        !off.enabled && off.algorithm === "disabled" && off.tracePasses === 0 &&
+          off.prefilterPasses === 0 && off.resolvePasses === 0 && off.temporalPasses === 0 &&
+          off.recurrentDenoisePasses === 0 && off.compositePasses === 0 &&
+          off.historyTextureCount === 0 && off.historyBytes === 0 &&
+          offSsrPasses.length === 0 && offSsrResources.length === 0 &&
+          (offProfile.gpuCounters.values.ssrTracePixels ?? 0) === 0,
+        "Disabling SSR removes baseline materialization, owner, graph passes, transient resources, histories and counter dispatch",
+        { runtime: off, passes: offSsrPasses, resources: offSsrResources },
+        "all SSR work/resources/history absent"
+      ));
+      assertions.push(validationAssertion(
+        "ssr-temporal-off-prunes-history",
+        noTemporal.enabled && !noTemporal.temporalEnabled && noTemporal.temporalPasses === 0 &&
+          noTemporal.recurrentDenoisePasses === 1 && noTemporal.historyTextureCount === 0 &&
+          noTemporal.historyBytes === 0 &&
+          !noTemporalPasses.includes("SSR temporal reproject") &&
+          noTemporalPasses.includes("SSR recurrent specular denoise"),
+        "Temporal-off SSR keeps current-frame recurrent filtering but allocates no history or temporal pass",
+        { runtime: noTemporal, passes: noTemporalPasses },
+        "recurrent = 1, temporal/history = 0"
+      ));
+      renderer.configure({ ssr: { temporalEnabled: true } });
+      await runtime.waitForFrames(3);
+      profile = await runtime.waitForCounters(profile.frameIndex);
+    } else if (request.scenarioId === "ssgi-production") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
       const scene = runtime.scene;
@@ -959,6 +1084,20 @@ function createBrick4Fixture(generation: number) {
     storage,
     sourceUri: `validation://brick4/generation-${generation}`
   });
+}
+
+/** Deterministic screen-space reflection receiver/occluder workload. */
+async function createSsrReplacementSource(): Promise<PackedSceneSource> {
+  const mirrorFloor = solidMaterial([0.72, 0.76, 0.82, 1], 0.08, 1);
+  const red = solidMaterial([0.95, 0.04, 0.025, 1], 0.22, 0.05);
+  const gold = solidMaterial([1.0, 0.55, 0.08, 1], 0.16, 0.82);
+  const blue = solidMaterial([0.03, 0.22, 0.95, 1], 0.28, 0.1);
+  return createPackedBoxScene([
+    { size: [18, 0.4, 18], position: [0, -0.2, 0], materialIndex: 0, debugId: 101 },
+    { size: [2.4, 3.4, 2.4], position: [-3.2, 1.7, 0.5], materialIndex: 1, debugId: 102 },
+    { size: [2.2, 4.6, 2.2], position: [0, 2.3, -1.4], materialIndex: 2, debugId: 103 },
+    { size: [2.8, 2.8, 2.8], position: [3.4, 1.4, 1.2], materialIndex: 3, debugId: 104 }
+  ], [mirrorFloor, red, gold, blue]);
 }
 
 async function createOrdinarySurfaceScene(scene: NonNullable<typeof runtime.scene>) {

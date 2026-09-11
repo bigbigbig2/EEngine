@@ -97,16 +97,20 @@
 
 ## SHADE-SSR · Screen-space reflections
 
-- Local owner/source: `ReflectionService`、SSR trace/prefilter/resolve/denoise and shared indirect composite。
-- Upstream: AMD FidelityFX SSSR candidate。
-- Revision: no upstream revision adopted; local authored implementation was revalidated before replacement consideration。
-- Upstream source: FidelityFX SSSR source was not imported。
-- License: MIT for the candidate。
-- Adoption: `retained-current-authored`; FidelityFX SSSR is `not adopted` unless correctness/quality/performance requires replacement and a pinned record is added。
-- Retained invariants: main HZB、Surface roughness/normal、velocity、submission-aware history、environment/IBL miss fallback and shared indirect composite。
-- OEngine/WebGPU differences: current shaders and resource ownership are OEngine-authored；no FidelityFX expression-level port or native backend。
-- Fallback/lifecycle: miss keeps declared environment baseline；off prunes SSR passes、histories and debug resources。
-- Local validation: `r5-fx08-screen-space-reflections.test.mjs`、hit/miss、roughness、offscreen、history and feature-off cases；replacement must first revalidate current path。
+- Local owner/source: `ReflectionService`、`ScreenSpaceReflectionsPass.ts`、`ssr_trace.ts`、`ssr_resolve.ts`、`ssr_denoise.ts` 与 `SpecularCorrectionPass.ts`。FrameGraph、resource/history ownership、one-submit 和最终 replacement composite 均归 OEngine；Three.js 不是运行时依赖。
+- Upstream: three.js <https://github.com/mrdoob/three.js>。
+- Revision: three.js `148ef33ecb6d2502ff796d4554abd1549c95d519`（r186）。
+- Upstream source 1 — trace/sample: `examples/jsm/tsl/display/SSRNode.js` 与 `examples/jsm/tsl/utils/SpecularHelpers.js`。采用 bounded GGX VNDF spherical-cap sampling、perceptual-roughness² alpha、mirror bias/retry、chromatic Fresnel、Smith geometry、BRDF·cos/pdf sample weight、specular-dominant ray length、roughness/max-distance/thickness/screen-edge confidence 行为。
+- Upstream source 2 — temporal: `examples/jsm/tsl/display/TemporalReprojectNode.js`。采用 specular receiver/hit-point motion mix、4-tap geometrically weighted history、YCoCg neighborhood variance clipping、HDR inverse-luminance damping、motion/geometry confidence 与 accumulate=false 语义。
+- Upstream source 3 — denoise: `examples/jsm/tsl/display/RecurrentDenoiseNode.js`。采用固定 8-tap golden-angle Vogel disk、view-space specular-lobe basis、ray-length-aware world radius、depth/normal/roughness/ray-length/luminance edge stopping、temporal aggressivity radius shrink 与 polar feedback；最终 denoised output 作为下一帧 external history，即 accumulate=true owner。
+- Upstream composition/source: `examples/webgpu_postprocessing_ssr_denoise.html` 只用于确认 `SSRNode(stochastic) → TemporalReproject(specular, accumulate=false) → RecurrentDenoise(specular, raylength, accumulate=true)` 的连接顺序。示例的 environment suppression、environment miss/MIS、multi-bounce feedback、scene-color additive composite 均不采用。
+- License: three.js MIT；本地 shader 文件保留来源/revision，本记录承担表达级移植追溯。
+- Adoption: `traceable-local-port`。Three 的 TSL 表达被翻译为 OEngine WGSL；没有引入 NodeMaterial、TSL、QuadMesh、RenderPipeline 或 Three RenderTarget lifecycle。旧实现仅受 FidelityFX SSSR 思路影响且未复制上游源码；该 candidate 记录被本次 adopted Three-derived path 取代。
+- Trace differences: OEngine 保留 reverse-Z shared HZB 的 hierarchical cell traversal。Three 的固定 64-step nonlinear DDA 与独立 8-iteration binary loop没有直接复制：HZB 以 coarse skip + mip descent 实现同一“远区稀疏、交点附近细化”的有界行为，避免同时执行 DDA 和 HZB。shared production noise owner 是 STBN vec2；VNDF 的 `.xy` 直接读取 STBN，mirror-bias 所需独立 `.w` 由 pixel/frame hash 确定性补齐，不读取双通道纹理的隐式 B/A。packed `rg32uint` 继续保留 full-resolution hit coordinate、8-bit confidence、iteration/outcome/roughness/distance flags，供真实 GPU counter/debug consumer 使用；raw `rgba16float.a` 单独保存 dominant ray length，避免牺牲诊断 ABI。
+- Shading/composition differences: `OpaqueColorPyramid` 是 post-screen-space-diffuse、pre-SSR、working-linear pre-exposed source。hit shading 直接输出 receiver-resolved specular，因此 `SpecularCorrectionPass` 只执行 `confidence * (SSRSpecular - BaselineSpecular)`；不会再做第二次 split-sum/Fresnel/AO/bent-normal weighting。SSR shader 不绑定 environment 或 LPV；miss/edge/roughness/distance/disocclusion invalid 以 confidence 0 保留已经解析的 Local Probe/IBL baseline。
+- Temporal/history differences: OEngine 用 shared `OcclusionConfidence`（已经读取 previous depth/current+previous camera）和 `SurfaceValidity` 代替额外 previous-depth owner，并用当前 motion-domain normal/depth 约束 4 taps。history valid、frame index、strength 和 pre-exposure 都保留为 FrameGraph execution-time binding，不能在 cached recipe build 时冻结。history pre-exposure 记录 multiplier/generation，兼容时按 current/previous ratio 重标定，不兼容时拒绝，且只有 main command 成功 submit 后才推进记录；camera cut、resize、scale、view、lighting、feature/format change 与 aborted submit 继续由 `TemporalHistoryRegistry` 失效。`temporalEnabled=false` 时两张 history texture 不分配。
+- Cost/quality policy: 删除旧 48-neighbor PDF resolve、LPV specialized resolve shader、environment fallback sampling和 temporal 前置 3×3 spatial pass。生产顺序固定为 HZB trace → color-pyramid hit shading → TemporalReproject → 8-tap RecurrentDenoise → conditional half-resolution bilateral upscale → confidence replacement。`mirrorBias`、max distance/steps、thickness、roughness cutoff、resolution scale 与 temporal strength 是同一 settings contract 下的有界 budget。
+- Local validation: canonical `surface.ssr-replacement` real-Chrome case 已登记，使用专用镜面地面与多个前景反射遮挡物，而不依赖普通悬浮盒场景的偶然命中；检查 pinned ABI、phase/order/history closure、真实 trace/hit/step GPU counters、one-submit、SSR-off完整裁剪与 temporal-off history裁剪，并固定 always screenshot。按本轮“不跑代码测试”约束，该 case、WGSL compile、hit/miss/roughness/offscreen/camera-motion/exposure视觉判定与 `comprehensive-full` PERF 均未执行；当前状态是 implementation-landed / verification-open，不能宣称 Step 6 Exit 通过。
 
 ## SHADE-SSGI · Screen-space diffuse GI and ambient visibility
 

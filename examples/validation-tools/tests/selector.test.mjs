@@ -41,6 +41,15 @@ test("visibility changes select visibility cases through the registry", () => {
   assert.ok(selection.caseIds.includes("visibility.occlusion"));
 });
 
+test("SSR implementation changes select the production replacement oracle", () => {
+  const selection = selectCasesForPaths([
+    "OEngine/src/shaders/ssr_denoise.ts",
+    "OEngine/src/render/passes/SpecularCorrectionPass.ts"
+  ]);
+  assert.ok(selection.domains.includes("ssr"));
+  assert.ok(selection.caseIds.includes("surface.ssr-replacement"));
+});
+
 test("cross-cutting renderer changes stay within the lightweight registry set", () => {
   const selection = selectCasesForPaths(["OEngine/src/render/Renderer.ts"]);
   assert.deepEqual(selection.caseIds, [

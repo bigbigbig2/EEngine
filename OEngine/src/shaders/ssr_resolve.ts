@@ -1,7 +1,10 @@
 /**
- * ssr_resolve：定义对应渲染阶段使用的 WGSL 着色器代码。
+ * Three.js r186-derived stochastic SSR hit shading.
+ *
+ * RGB stores receiver-resolved, pre-exposed specular; A stores dominant hit
+ * ray length. Misses remain black so OEngine's later confidence replacement
+ * keeps the Local Probe/IBL baseline authoritative.
  */
-
 
 import {
   SSR_CAMERA_WGSL,
@@ -16,216 +19,153 @@ ${SSR_CAMERA_WGSL}
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${SSR_MATH_WGSL}
 
-struct SsrResolveSettings { frame_index: u32 };
 struct SsrHit { position: vec2u, confidence: f32 };
 
-@group(0) @binding(0) var valid_history_confidence: texture_2d<u32>;
-@group(0) @binding(1) var gr_bucket: texture_2d<f32>;
-@group(0) @binding(2) var edge: texture_2d<u32>;
-@group(0) @binding(3) var ray_ws: texture_2d<u32>;
-@group(0) @binding(4) var tv_y: texture_2d<f32>;
-@group(0) @binding(5) var light_dir: texture_2d<f32>;
-@group(0) @binding(6) var sec_radix_passes: texture_2d<f32>;
-@group(0) @binding(7) var segment_height: sampler;
-@group(0) @binding(8) var<uniform> settings: SsrResolveSettings;
-@group(0) @binding(9) var<uniform> camera: CommandEncoder;
+@group(0) @binding(0) var trace_source: texture_2d<u32>;
+@group(0) @binding(1) var depth_source: texture_2d<f32>;
+@group(0) @binding(2) var pbr_source: texture_2d<u32>;
+@group(0) @binding(3) var normal_source: texture_2d<u32>;
+@group(0) @binding(4) var color_pyramid: texture_2d<f32>;
+@group(0) @binding(5) var albedo_ao_source: texture_2d<f32>;
+@group(0) @binding(6) var linear_clamp: sampler;
+@group(0) @binding(7) var<uniform> camera: CommandEncoder;
 
-const NEIGHBOR_OFFSETS = array<vec2i, 48>(
-  vec2i(2,-3),vec2i(3,-1),vec2i(0,-2),vec2i(1,-3),vec2i(3,0),vec2i(2,-1),
-  vec2i(3,-2),vec2i(2,2),vec2i(3,1),vec2i(1,3),vec2i(3,3),vec2i(0,2),
-  vec2i(2,1),vec2i(1,-1),vec2i(3,-3),vec2i(2,-2),vec2i(0,-3),vec2i(1,0),
-  vec2i(-2,-1),vec2i(-3,-2),vec2i(-1,-3),vec2i(-3,1),vec2i(-2,0),vec2i(-3,-1),
-  vec2i(-3,2),vec2i(-1,1),vec2i(-2,3),vec2i(0,3),vec2i(1,2),vec2i(-1,0),
-  vec2i(-3,3),vec2i(-2,2),vec2i(0,1),vec2i(-1,3),vec2i(2,3),vec2i(3,2),
-  vec2i(1,1),vec2i(2,0),vec2i(0,-1),vec2i(-1,2),vec2i(-2,1),vec2i(-3,0),
-  vec2i(-2,-2),vec2i(-1,-1),vec2i(-3,-3),vec2i(1,-2),vec2i(-2,-3),vec2i(-1,-2)
-);
-
-fn ssr_hit_unpack(packed: vec2u) -> SsrHit {
+fn unpack_hit(packed: vec2u) -> SsrHit {
   var hit: SsrHit;
   hit.position = vec2u(packed.x & 0xffffu, packed.x >> 16u);
   hit.confidence = f32(packed.y & 0xffu) / 255.0;
   return hit;
 }
 
-fn direction_world_to_view(direction: vec3f) -> vec3f {
+fn world_to_view_direction(direction: vec3f) -> vec3f {
   let matrix = camera.view_matrix;
-  return mat3x3f(matrix[0].xyz, matrix[1].xyz, matrix[2].xyz) * direction;
+  return normalize(mat3x3f(matrix[0].xyz, matrix[1].xyz, matrix[2].xyz) * direction);
 }
 
-fn screen_coordinate_to_view(position: vec2u) -> vec3f {
-  let depth = textureLoad(gr_bucket, position, 0).r;
-  let uv = texel_coordinate_to_uv(vec2f(position), textureDimensions(gr_bucket).xy);
-  return project_position_from_depth(uv, depth, camera.projection_matrix_inverse);
+fn view_position(position: vec2u) -> vec3f {
+  let dimensions = textureDimensions(depth_source);
+  let clamped = min(position, dimensions - vec2u(1u));
+  let uv = texel_coordinate_to_uv(vec2f(clamped), dimensions);
+  return project_position_from_depth(
+    uv,
+    textureLoad(depth_source, vec2i(clamped), 0).r,
+    camera.projection_matrix_inverse
+  );
 }
 
-fn get_ray_mip_level(start: vec3f, hit: vec3f, hit_normal: vec3f, roughness: f32, focal_length_px: f32) -> f32 {
-  const BRDF_BIAS = 0.7;
-  let ray = hit - start;
-  let ray_distance = length(ray);
-  let ray_direction = ray / ray_distance;
-  // 保持当前运算分组；改写为 (ray_distance * roughness) * BRDF_BIAS
-  // 会改变部分时域邻域模式选择的三线性 mip 权重。
-  let cone_tangent = roughness * BRDF_BIAS;
-  let cone_diameter = ray_distance * cone_tangent;
-  let incidence = saturate(dot(-ray_direction, hit_normal));
-  let hit_depth = abs(hit.z);
-  let footprint = (cone_diameter * focal_length_px * incidence) / hit_depth;
-  let base_mip_level = log2(max(1.0, footprint));
-  return clamp(base_mip_level, 0.0, 3.0);
+fn smith_g(ndotx: f32, alpha: f32) -> f32 {
+  let alpha2 = alpha * alpha;
+  let ndotx2 = ndotx * ndotx;
+  return 2.0 * ndotx /
+    max(ndotx + sqrt(alpha2 + (1.0 - alpha2) * ndotx2), 1e-6);
 }
 
-fn bake_ao(no_h: f32, no_v: f32, alpha_squared: f32) -> f32 {
-  return D_GGX(alpha_squared, no_h * no_h) * no_h / max(1e-7, 4.0 * no_v);
+fn fresnel_schlick(f0: vec3f, theta: f32) -> vec3f {
+  let one_minus = 1.0 - theta;
+  let one_minus2 = one_minus * one_minus;
+  let one_minus5 = one_minus2 * one_minus2 * one_minus;
+  return f0 + (vec3f(1.0) - f0) * one_minus5;
 }
 
-fn neighbour_pdf(normal: vec3f, view_direction: vec3f, ray_direction: vec3f, roughness: f32) -> f32 {
-  let half_vector = normalize(ray_direction + view_direction);
-  let no_h = max(0.0, dot(normal, half_vector));
-  let no_v = max(0.0, dot(view_direction, half_vector));
-  // 显式执行两次 f32 乘法；GPU 上 pow(roughness, 4.0) 并不保证位级等价。
-  let roughness_squared = roughness * roughness;
-  let roughness_fourth = roughness_squared * roughness_squared;
-  return bake_ao(no_h, no_v, roughness_fourth);
-}
-
-fn get_neighbour_weight(hit_pdf: f32, ray_direction: vec3f, view_direction: vec3f, normal: vec3f, roughness: f32) -> f32 {
-  let half_vector = normalize(ray_direction + view_direction);
-  let no_h = max(0.0, dot(normal, half_vector));
-  let no_l = max(0.0, dot(normal, ray_direction));
+// BRDF*cos/pdf invariant of Three.js r186 ggxReflectionSample. The trace
+// sampled the bounded VNDF; resolve reconstructs the same terms from the hit
+// direction so SSR and baseline are in the same receiver-resolved domain.
+fn stochastic_sample_weight(
+  normal: vec3f,
+  view_direction: vec3f,
+  ray_direction: vec3f,
+  roughness: f32,
+  metalness: f32,
+  albedo: vec3f
+) -> vec3f {
+  let half_vector = normalize(view_direction + ray_direction);
   let no_v = max(0.0, dot(normal, view_direction));
-  let alpha = pow2(clamp(roughness, 0.02, 1.0));
-  let local_brdf = V_GGX_SmithCorrelated(alpha, no_l, no_v) * D_GGX(alpha * alpha, no_h * no_h) * no_l;
-  return min(mix(2.0, 10.0, roughness), local_brdf / max(hit_pdf, 1e-5));
+  let no_l = max(0.0, dot(normal, ray_direction));
+  let vo_h = max(0.0, dot(view_direction, half_vector));
+  let alpha = max(roughness * roughness, 0.001);
+  let f0 = mix(vec3f(0.04), albedo, metalness);
+  let fresnel = fresnel_schlick(f0, vo_h);
+  let geometry = smith_g(no_v, alpha) * smith_g(no_l, alpha);
+  let sin_v2 = max(0.0, 1.0 - no_v * no_v);
+  let cap_s = 1.0 + sqrt(sin_v2);
+  let cap_s2 = cap_s * cap_s;
+  let alpha2 = alpha * alpha;
+  let cap_k = (1.0 - alpha2) * cap_s2 /
+    max(cap_s2 + alpha2 * no_v * no_v, 1e-6);
+  let stretched_length = sqrt(alpha2 * sin_v2 + no_v * no_v);
+  return fresnel * geometry * (cap_k * no_v + stretched_length) /
+    max(2.0 * no_v, 1e-4);
 }
 
-fn texture_octahedral_wrap_texel_coordinates(position: vec2i, resolution: i32) -> vec2u {
-  let wrapped = ((position % resolution) + resolution) % resolution;
-  let crossings_x = abs(position.x / resolution) + i32(position.x < 0);
-  let crossings_y = abs(position.y / resolution) + i32(position.y < 0);
-  let flip = ((crossings_x ^ crossings_y) & 1) != 0;
-  return select(vec2u(wrapped), vec2u(resolution - (wrapped + vec2i(1))), flip);
+fn specular_dominant_factor(no_v: f32, roughness: f32) -> f32 {
+  let a = 0.298475 * log(39.4115 - 39.0029 * roughness);
+  return saturate(pow(1.0 - no_v, 10.8649) * (1.0 - a) + a);
 }
 
-fn uv_octahedral_unit_encode(direction: vec3f) -> vec2f {
-  var projected = direction.xy / (abs(direction.x) + abs(direction.y) + abs(direction.z));
-  if (direction.z < 0.0) {
-    projected = (1.0 - abs(projected.yx)) * select(vec2f(1.0), vec2f(-1.0), projected < vec2f(0.0));
-  }
-  return 0.5 + 0.5 * projected;
-}
-
-fn get_bilinear_weights(fraction: vec2f) -> vec4f {
-  let inverse = 1.0 - fraction;
-  return vec4f(inverse.x * inverse.y, fraction.x * inverse.y, inverse.x * fraction.y, fraction.x * fraction.y);
-}
-
-fn texture_octahedral_sample_bilinear(source: texture_2d<f32>, resolution: u32, direction: vec3f, lod: u32) -> vec4f {
-  let texel = uv_to_texel_coordinate(uv_octahedral_unit_encode(direction), vec2u(resolution));
-  let fraction = fract(texel);
-  let base = vec2i(floor(texel));
-  let weights = get_bilinear_weights(fraction);
-  return
-    textureLoad(source, vec2i(texture_octahedral_wrap_texel_coordinates(base, i32(resolution))), i32(lod)) * weights.x +
-    textureLoad(source, vec2i(texture_octahedral_wrap_texel_coordinates(base + vec2i(1,0), i32(resolution))), i32(lod)) * weights.y +
-    textureLoad(source, vec2i(texture_octahedral_wrap_texel_coordinates(base + vec2i(0,1), i32(resolution))), i32(lod)) * weights.z +
-    textureLoad(source, vec2i(texture_octahedral_wrap_texel_coordinates(base + vec2i(1,1), i32(resolution))), i32(lod)) * weights.w;
-}
-
-fn get_ibl_radiance(view_direction: vec3f, normal: vec3f, roughness: f32) -> vec3f {
-  let reflected = reflect(-view_direction, normal);
-  let direction = normalize(mix(reflected, normal, roughness * roughness));
-  let level_count = textureNumLevels(sec_radix_passes);
-  let lod = clamp(roughness, 0.0, 1.0) * f32(level_count - 1u);
-  let lower = u32(floor(lod));
-  let upper = min(lower + 1u, level_count - 1u);
-  let lower_value = texture_octahedral_sample_bilinear(sec_radix_passes, textureDimensions(sec_radix_passes, i32(lower)).x, direction, lower).rgb;
-  let upper_value = texture_octahedral_sample_bilinear(sec_radix_passes, textureDimensions(sec_radix_passes, i32(upper)).x, direction, upper).rgb;
-  return mix(lower_value, upper_value, fract(lod));
+fn ray_mip_level(
+  start: vec3f,
+  hit: vec3f,
+  hit_normal: vec3f,
+  roughness: f32
+) -> f32 {
+  let ray = hit - start;
+  let ray_length = max(length(ray), 1e-5);
+  let ray_direction = ray / ray_length;
+  let focal_length_px = f32(textureDimensions(color_pyramid, 0).y) /
+    max(2.0 * camera.device_depth_to_view_space.w, 1e-5);
+  let cone_diameter = ray_length * roughness * 0.7;
+  let incidence = saturate(dot(-ray_direction, hit_normal));
+  let footprint = cone_diameter * focal_length_px * incidence / max(abs(hit.z), 1e-5);
+  let generated_last_mip = min(textureNumLevels(color_pyramid) - 1u, 4u);
+  return clamp(log2(max(1.0, footprint)), 0.0, f32(generated_last_mip));
 }
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
-  let trace_position = vec2i(coord.xy);
-  let trace_size = vec2i(textureDimensions(valid_history_confidence));
-  let surface_size = vec2i(textureDimensions(gr_bucket));
-  let position = clamp(
-    vec2i((coord.xy + vec2f(0.5)) * vec2f(surface_size) / vec2f(trace_size)),
-    vec2i(0), surface_size - vec2i(1)
+  let trace_pixel = vec2i(coord.xy);
+  let hit = unpack_hit(textureLoad(trace_source, trace_pixel, 0).xy);
+  if (hit.confidence <= 0.0) { return vec4f(0.0); }
+
+  let trace_size = vec2f(textureDimensions(trace_source));
+  let surface_size = textureDimensions(depth_source);
+  let surface_pixel = min(
+    vec2u((coord.xy + vec2f(0.5)) * vec2f(surface_size) / trace_size),
+    surface_size - vec2u(1u)
   );
-  // QD carries albedo/AO in its declared resource table although the base IBL
-  // body does not consume it; retain the exact binding surface.
-  if (coord.x < 0.0) {
-    _ = textureLoad(light_dir, position, 0);
-  }
-  let roughness = decode_g_buffer_roughness(textureLoad(edge, position, 0));
-  let normal_world = decode_g_buffer_normal(textureLoad(ray_ws, position, 0).xy);
-  let normal_view = direction_world_to_view(normal_world);
-  let start_view = screen_coordinate_to_view(vec2u(position));
-  let view_direction = normalize(-start_view);
-  let color_size = textureDimensions(tv_y, 0).xy;
-  let focal_length = f32(color_size.y) / (2.0 * camera.device_depth_to_view_space.w);
-  let hit = ssr_hit_unpack(textureLoad(valid_history_confidence, trace_position, 0).xy);
-  let hit_uv = texel_coordinate_to_uv(vec2f(hit.position), color_size);
-  let hit_view = screen_coordinate_to_view(hit.position);
-  let hit_normal_world = decode_g_buffer_normal(textureLoad(ray_ws, hit.position, 0).xy);
-  let hit_normal_view = direction_world_to_view(hit_normal_world);
-  let ray_direction = normalize(hit_view - start_view);
-  var weight_sum = hit.confidence;
-  var maximum_confidence = hit.confidence;
-  let mip = get_ray_mip_level(start_view, hit_view, hit_normal_view, roughness, focal_length);
-  let traced = textureSampleLevel(tv_y, segment_height, hit_uv, mip).rgb;
-  var radiance = traced * hit.confidence;
-  var second_moment = pow2(rgb_to_luminance(traced));
-  let hash = resolve_trigonometric_moments(vec3u(vec2u(trace_position), settings.frame_index));
-  let maximum_position = vec2i(textureDimensions(valid_history_confidence)) - vec2i(1);
-  for (var sample_index = 0u; sample_index < 4u; sample_index++) {
-    let offset_index = (hash + sample_index) % 48u;
-    let neighbor_position = clamp(
-      trace_position + NEIGHBOR_OFFSETS[offset_index],
-      vec2i(0),
-      maximum_position
-    );
-    let neighbor_surface_position = clamp(
-      vec2i((vec2f(neighbor_position) + 0.5) * vec2f(surface_size) / vec2f(trace_size)),
-      vec2i(0), surface_size - vec2i(1)
-    );
-    let neighbor_normal_view = direction_world_to_view(decode_g_buffer_normal(textureLoad(ray_ws, neighbor_surface_position, 0).xy));
-    let neighbor_roughness = decode_g_buffer_roughness(textureLoad(edge, neighbor_surface_position, 0));
-    let neighbor_hit = ssr_hit_unpack(textureLoad(valid_history_confidence, neighbor_position, 0).xy);
-    let neighbor_hit_depth = textureLoad(gr_bucket, neighbor_hit.position, 0).r;
-    let neighbor_hit_uv = texel_coordinate_to_uv(vec2f(neighbor_hit.position), color_size);
-    let neighbor_hit_view = project_position_from_depth(neighbor_hit_uv, neighbor_hit_depth, camera.projection_matrix_inverse);
-    let neighbor_ray = normalize(neighbor_hit_view - start_view);
-    let neighbor_hit_normal_view = direction_world_to_view(decode_g_buffer_normal(textureLoad(ray_ws, neighbor_hit.position, 0).xy));
-    let front_facing = step(0.0, dot(-neighbor_ray, neighbor_hit_normal_view));
-    let source_facing = step(0.0, dot(neighbor_ray, normal_view));
-    let neighbor_start_view = screen_coordinate_to_view(vec2u(neighbor_surface_position));
-    let neighbor_source_ray = normalize(neighbor_hit_view - neighbor_start_view);
-    let hit_pdf = neighbour_pdf(neighbor_normal_view, view_direction, neighbor_source_ray, neighbor_roughness);
-    let confidence = neighbor_hit.confidence * source_facing * front_facing;
-    maximum_confidence = max(maximum_confidence, confidence);
-    let weight = confidence * get_neighbour_weight(hit_pdf, neighbor_ray, view_direction, normal_view, roughness);
-    weight_sum += weight;
-    let neighbor_mip = get_ray_mip_level(neighbor_start_view, neighbor_hit_view, neighbor_hit_normal_view, neighbor_roughness, focal_length);
-    let neighbor_color = textureSampleLevel(tv_y, segment_height, neighbor_hit_uv, neighbor_mip).rgb;
-    radiance += neighbor_color * weight;
-    let luminance = rgb_to_luminance(neighbor_color);
-    second_moment += luminance * luminance * weight;
-  }
-  if (weight_sum > 1e-5) {
-    radiance /= weight_sum;
-    second_moment /= weight_sum;
-  }
-  let world_view = (camera.view_matrix_inverse * vec4f(view_direction, 0.0)).xyz;
-  let environment = get_ibl_radiance(world_view, normal_world, roughness);
-  let resolved = mix(environment, radiance, maximum_confidence);
-  let variance = max(second_moment - pow2(rgb_to_luminance(radiance)), 0.0);
-  let resolved_finite = all(resolved == resolved) && all(abs(resolved) < vec3f(65504.0));
-  let variance_finite = variance == variance && abs(variance) < 65504.0;
-  return vec4f(
-    select(max(environment, vec3f(0.0)), max(resolved, vec3f(0.0)), resolved_finite),
-    select(0.0, variance, variance_finite)
+  let hit_pixel = min(hit.position, surface_size - vec2u(1u));
+  let start = view_position(surface_pixel);
+  let hit_position = view_position(hit_pixel);
+  let ray = hit_position - start;
+  let ray_length = length(ray);
+  if (ray_length <= 1e-5) { return vec4f(0.0); }
+
+  let normal = world_to_view_direction(
+    decode_g_buffer_normal(textureLoad(normal_source, vec2i(surface_pixel), 0).xy)
+  );
+  let hit_normal = world_to_view_direction(
+    decode_g_buffer_normal(textureLoad(normal_source, vec2i(hit_pixel), 0).xy)
+  );
+  let view_direction = normalize(-start);
+  let ray_direction = ray / ray_length;
+  let pbr = textureLoad(pbr_source, vec2i(surface_pixel), 0);
+  let roughness = decode_g_buffer_roughness(pbr);
+  let metalness = decode_g_buffer_metalness(pbr);
+  let albedo = max(textureLoad(albedo_ao_source, vec2i(surface_pixel), 0).rgb, vec3f(0.0));
+  let hit_uv = texel_coordinate_to_uv(vec2f(hit_pixel), surface_size);
+  let mip = ray_mip_level(start, hit_position, hit_normal, roughness);
+  let incident = max(textureSampleLevel(color_pyramid, linear_clamp, hit_uv, mip).rgb, vec3f(0.0));
+  let weight = stochastic_sample_weight(
+    normal, view_direction, ray_direction, roughness, metalness, albedo
+  );
+  let resolved = incident * weight;
+  let dominant_length = ray_length * specular_dominant_factor(
+    max(0.0, dot(normal, view_direction)), roughness
+  );
+  let finite = all(resolved == resolved) && all(abs(resolved) < vec3f(65504.0));
+  return select(
+    vec4f(0.0),
+    vec4f(resolved, min(dominant_length, 65504.0)),
+    finite
   );
 }
 `;

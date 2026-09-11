@@ -62,6 +62,14 @@ import {
   LONG_RANGE_DIFFUSE_PROVIDER_WGSL,
   LONG_RANGE_PROVIDER_FORMAT
 } from "../.test-dist/shaders/long_range_diffuse_provider.js";
+import { THREE_SSR_REVISION } from "../.test-dist/shaders/ssr_common.js";
+import { SSR_TRACE_WGSL } from "../.test-dist/shaders/ssr_trace.js";
+import { SSR_RESOLVE_WGSL } from "../.test-dist/shaders/ssr_resolve.js";
+import {
+  SSR_RECURRENT_DENOISE_WGSL,
+  SSR_TEMPORAL_WGSL
+} from "../.test-dist/shaders/ssr_denoise.js";
+import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correction.js";
 import {
   BRICK4_LIGHT_MAP_SCHEMA_VERSION,
   createBrick4LightMapPackageV1,
@@ -669,6 +677,29 @@ test("ADR-0009 Step 0 keeps post-SSGI opaque color and SSR replacement explicit"
       composition: "additive"
     }),
     /replace baseline specular/
+  );
+});
+
+test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement", () => {
+  assert.equal(THREE_SSR_REVISION, "148ef33ecb6d2502ff796d4554abd1549c95d519");
+  assert.match(SSR_TRACE_WGSL, /sample_ggx_vndf/);
+  assert.match(SSR_TRACE_WGSL, /settings\.mirror_bias/);
+  assert.match(SSR_TRACE_WGSL, /resolve_trigonometric_moments/);
+  assert.match(SSR_TRACE_WGSL, /ffx_sssr_hierarchical_raymarch/);
+  assert.match(SSR_RESOLVE_WGSL, /stochastic_sample_weight/);
+  assert.match(SSR_RESOLVE_WGSL, /specular_dominant_factor/);
+  assert.doesNotMatch(SSR_RESOLVE_WGSL, /environment|lpv/i);
+  assert.match(SSR_TEMPORAL_WGSL, /history_sample_4tap/);
+  assert.match(SSR_TEMPORAL_WGSL, /neighborhood_bounds/);
+  assert.doesNotMatch(SSR_TEMPORAL_WGSL, /camera_previous|linear_clamp/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /vogel_disk/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /ray_weight/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /settings\.mode_flags & 2u/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /Karis-style inverse-luminance blend/);
+  assert.match(SPECULAR_CORRECTION_WGSL, /\(resolved\.rgb - baseline\) \* confidence/);
+  assert.equal(
+    existsSync(new URL("../src/shaders/ssr_resolve_lpv.ts", import.meta.url)),
+    false
   );
 });
 
