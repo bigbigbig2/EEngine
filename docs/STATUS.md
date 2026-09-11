@@ -59,6 +59,7 @@
 
 ## 下一步
 
-1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：`primitive-index` 的 production consumer 与 portable parity case 已落地；继续为 `shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback，没有 consumer 前保持 record-only。
-2. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–6 implementation 与 MILESTONE 综合 profile 已落地；在 clean commit 上运行唯一 comprehensive final PERF 后关闭 ADR。
-3. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：VisibilityKey V2 production cutover 与 ADR-0008 final PERF 已完成，可以进入 Step 0；SSAO/SSR upstream porting 可并行研究。
+1. [ADR-0011](./adr/0011-asset-codec-and-gpu-native-texture-pipeline-v3.md)：以当前 direct compressed production path 为起点，引入可追溯 upstream codec、EncodedTextureVariant、KTX2/Basis Worker/WASM 和有界 multi-set，删除 production self-codec authority。
+2. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：`primitive-index` 的 production consumer 与 portable parity case 已落地；继续为 `shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback，没有 consumer 前保持 record-only。
+3. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–6 implementation 与 MILESTONE 综合 profile 已落地；Codec V3 增量由 ADR-0011 承载，最终在 clean commit 上运行唯一 comprehensive final PERF 后关闭 ADR。
+4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：VisibilityKey V2 production cutover 与 ADR-0008 final PERF 已完成，可以进入 Step 0；TextureBindingSetId classification 与 ADR-0011 同步实现。

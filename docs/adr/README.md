@@ -12,5 +12,6 @@ ADR 只记录仍生效且跨多个模块的长期决定。`accepted` 表示迁�
 - [0008 · GPU-driven Geometry 与 Visibility V2](./0008-gpu-driven-geometry-and-visibility-v2.md)
 - [0009 · Compute Shading 与 Advanced Frame Pipeline V2](./0009-compute-shading-and-advanced-frame-pipeline-v2.md)
 - [0010 · WebGPU 2026 Desktop 能力合同](./0010-webgpu-2026-capability-contract.md)
+- [0011 · Asset Codec 与 GPU-Native Texture Pipeline V3](./0011-asset-codec-and-gpu-native-texture-pipeline-v3.md)
 
 新 ADR 必须说明 Context、Decision、Consequences 和 Verification。被替代的演化过程只保留在 Git。

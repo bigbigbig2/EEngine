@@ -8,6 +8,8 @@
 > **Evolution:** 扩展 ADR-0002 的数据与 residency 合同，不替代其 owner/GPU-driven 决策
 > **Design source:** `OEngine Performance Architecture V2` Design Draft
 
+Texture codec authority、KTX2/Basis Worker/WASM ingest 与多 TextureBindingSet 的后续演进由 [ADR-0011](./0011-asset-codec-and-gpu-native-texture-pipeline-v3.md) 承载；本 ADR 已冻结的 Runtime Package、stable handle、residency transaction 和 direct compressed production path 继续有效。
+
 ## Context
 
 ADR-0002 与 ADR-0006 已经把 OEngine 的资源与 Render World 所有权收敛到正确方向：Importer/Loader 不拥有长期 GPU 资源，设备无关 Runtime Asset 与 `GpuAssetStore`、`GpuScene`、`GpuMaterialStore`、Texture Residency、`GpuRenderWorld` 分离，普通 Scene 与 Packed source 最终进入同一个 Render World。

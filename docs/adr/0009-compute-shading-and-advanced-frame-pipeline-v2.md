@@ -7,6 +7,8 @@
 > **Proposed supersession:** 接受并完成 cutover 后，替代 ADR-0004 的 VisibilityKey material-class、MaterialClassDepth/fullscreen Surface Resolve 与重型 Surface 决策；此前 ADR-0004 仍是当前权威
 > **Design source:** `OEngine Performance Architecture V2` Design Draft
 
+[ADR-0011](./0011-asset-codec-and-gpu-native-texture-pipeline-v3.md) 负责产生有界 `TextureBindingSetId` 与 generation-safe material routing；本 ADR 继续负责 `KernelClassId × TextureBindingSetId` 的 GPU classification 和 consumer closure，不允许恢复 CPU visible-material list。
+
 ## Context
 
 当前 OEngine 已经具备 Visibility Buffer、Surface、clustered lighting、AO、SSR、Transparency、Temporal/Post 等高级渲染能力。问题不是“效果太少”，而是从 Visibility 到 Present 的数据流仍存在明显的 bandwidth/work amplification：
