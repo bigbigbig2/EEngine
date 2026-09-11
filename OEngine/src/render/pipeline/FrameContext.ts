@@ -22,6 +22,8 @@ export interface FrameHistoryValidity {
   readonly gtao: number;
   readonly ssgi: number;
   readonly ssr: number;
+  readonly nssFeedback: number;
+  readonly exposure: number;
 }
 
 export interface FrameInstrumentation {

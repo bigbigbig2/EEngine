@@ -16,7 +16,7 @@ struct TemporalSettings {
   reactive_threshold: f32,
   disocclusion_threshold: f32,
   motion_fade_pixels: f32,
-  _padding0: f32,
+  history_pre_exposure_scale: f32,
   _padding1: f32,
   _padding2: f32,
 }
@@ -187,7 +187,8 @@ fn main(
   // Final-layer reactive coverage may not own a dedicated transparent velocity.
   // It is allowed to rebuild a heavily clamped zero-motion history; opaque
   // motion-invalid pixels still reject immediately.
-  if !globally_valid || (!motion_valid && reactive < settings.reactive_threshold) {
+  if !globally_valid || settings.history_pre_exposure_scale <= 0.0 ||
+      (!motion_valid && reactive < settings.reactive_threshold) {
     return vec4f(current, 0.0);
   }
 
@@ -209,9 +210,13 @@ fn main(
     return vec4f(current, 0.0);
   }
 
-  let history_sample = max(
+  var history_sample = max(
     textureSampleLevel(history_color, linear_clamp, history_uv, 0.0),
     vec4f(0.0)
+  );
+  history_sample = vec4f(
+    history_sample.rgb * settings.history_pre_exposure_scale,
+    history_sample.a
   );
   let stats = current_neighborhood_stats(current_pixel, current);
   let history = clip_history(history_sample.rgb, stats);

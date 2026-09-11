@@ -18,6 +18,7 @@ import { SharpenPass } from "../passes/SharpenPass.js";
 import { TonemapPass } from "../passes/TonemapPass.js";
 import { MotionBlurPass } from "../passes/MotionBlurPass.js";
 import { ColorGradingPass, type ColorGradingJob } from "../passes/ColorGradingPass.js";
+import type { FinalColorPyramidFrame } from "../pipeline/FrameProducts.js";
 
 /** AutomaticExposure 的可调参数快照，用于 owner 创建/配置时同步。 */
 export type PostExposureSettings = {
@@ -159,9 +160,9 @@ export class PostFeature {
   /** 统一 FrameGraph 接入：Exposure → Bloom → Color Grading → Tone Mapping。 */
   addBloomToGraph(
     graph: FrameGraph,
-    input: ResourceId,
+    input: FinalColorPyramidFrame,
     job: BloomJob
-  ): { composited: ResourceId; downsampled: ResourceId } {
+  ): { composited: ResourceId; reconstructed: ResourceId } {
     return this.obtainBloom().addToGraph(graph, input, job);
   }
 

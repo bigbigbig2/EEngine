@@ -42,7 +42,8 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("surface.lpv-baseline-pruning", "surface", "lpv-baseline-pruning", ["surface", "lighting", "gi", "lpv", "ssr", "framegraph"], ["surface", "lighting", "gi", "lpv", "ssr", "framegraph"], "always"),
   defineCase("surface.gtao-replacement", "surface", "gtao-replacement", ["surface", "lighting", "gtao", "temporal", "framegraph", "porting"], ["surface", "gtao", "temporal", "framegraph", "porting"], "always"),
   defineCase("surface.ssgi-production", "surface", "ssgi-production", ["surface", "lighting", "ssgi", "gi", "temporal", "framegraph", "porting"], ["surface", "lighting", "gi", "temporal", "framegraph", "porting"], "always"),
-  defineCase("surface.ssr-replacement", "surface", "ssr-replacement", ["surface", "lighting", "ssr", "temporal", "framegraph", "porting"], ["surface", "lighting", "ssr", "temporal", "framegraph", "porting"], "always")
+  defineCase("surface.ssr-replacement", "surface", "ssr-replacement", ["surface", "lighting", "ssr", "temporal", "framegraph", "porting"], ["surface", "lighting", "ssr", "temporal", "framegraph", "porting"], "always"),
+  defineCase("surface.shared-derived-products", "surface", "shared-derived-products", ["surface", "shared-products", "post", "temporal", "ssr", "ssgi", "framegraph"], ["shared-products", "post", "temporal", "ssr", "ssgi", "framegraph"], "always")
 ]);
 
 const CASE_BY_ID = new Map(VALIDATION_CASES.map((entry) => [entry.id, entry]));

@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
   diffuseSurfaceLiteFrame,
+  finalColorPyramidFrame,
   longRangeDiffuseFrame,
   materialTileClassificationFrame,
   opaqueColorPyramidFrame,
@@ -16,6 +17,7 @@ import {
   shadingSurfaceLiteFrame,
   textureDomain
 } from "../.test-dist/render/pipeline/FrameProducts.js";
+import { TemporalHistoryRegistry } from "../.test-dist/render/TemporalHistoryRegistry.js";
 import { resolveMainFrameFeatureTopology } from "../.test-dist/render/MainFrameFeatureTopology.js";
 import { MATERIAL_TILE_CLASSIFICATION_WGSL } from "../.test-dist/shaders/material_tile_classification.js";
 import { gpuShadingBindingBudget } from "../.test-dist/gpu/GpuShadingBindingBudget.js";
@@ -701,6 +703,159 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
     existsSync(new URL("../src/shaders/ssr_resolve_lpv.ts", import.meta.url)),
     false
   );
+});
+
+test("ADR-0009 Step 7 keeps opaque and final color pyramid semantics distinct", () => {
+  const final = finalColorPyramidFrame({
+    source: 30,
+    texture: 31,
+    mipLevelCount: 6,
+    stage: "post-transparency-temporal",
+    sourceGeneration: 1,
+    preExposure: preExposure(),
+    domain: textureDomain("output-full", 1920, 1080, 1)
+  });
+  assert.equal(final.domain.domain, "output-full");
+  assert.equal(final.source, 30);
+  assert.throws(
+    () => finalColorPyramidFrame({
+      ...final,
+      stage: "post-screen-space-diffuse-pre-ssr"
+    }),
+    /invalid source stage/
+  );
+  assert.throws(
+    () => finalColorPyramidFrame({
+      ...final,
+      domain: full()
+    }),
+    /output-full/
+  );
+});
+
+test("ADR-0009 Step 7 advances and invalidates histories at submission boundaries", () => {
+  const registry = new TemporalHistoryRegistry([
+    {
+      name: "color",
+      semantic: "final-temporal-color",
+      resolutionDomain: "output-full",
+      format: "rgba16float",
+      bufferCount: 2,
+      preExposure: "working-linear-rescale"
+    },
+    {
+      name: "gtao",
+      semantic: "gtao-visibility-bent-moments",
+      resolutionDomain: "effect-resolution",
+      format: "rgba16float",
+      bufferCount: 2,
+      preExposure: "none"
+    }
+  ]);
+  const revision = {
+    outputWidth: 1920,
+    outputHeight: 1080,
+    internalWidth: 1440,
+    internalHeight: 810,
+    camera: 0,
+    renderScale: 0.75,
+    feature: 1,
+    format: 5,
+    light: 2,
+    scene: 3,
+    representation: 1,
+    device: 0,
+    preExposureGeneration: 7,
+    view: "camera-4"
+  };
+  const exposureA = preExposure();
+  registry.beginFrame(0, revision, ["color", "gtao"], exposureA);
+  assert.equal(registry.state("color").readValid, false);
+  assert.equal(registry.state("color").writeIndex, 1);
+  registry.markProduced("color");
+  registry.markProduced("gtao");
+  assert.equal(registry.commitFrame(0), true);
+  assert.equal(registry.state("color").readIndex, 1);
+
+  const exposureB = preExposureContract({
+    multiplier: exposureA.multiplier * 2,
+    generation: exposureA.generation,
+    colorSpace: "working-linear"
+  });
+  registry.beginFrame(1, revision, ["color", "gtao"], exposureB);
+  assert.equal(registry.state("color").readValid, true);
+  assert.equal(registry.state("color").preExposureScale, 2);
+  assert.equal(registry.state("gtao").preExposureScale, 1);
+  registry.markProduced("color");
+  registry.markProduced("gtao");
+  registry.commitFrame(1);
+
+  registry.beginFrame(
+    2,
+    { ...revision, feature: 2 },
+    ["color", "gtao"],
+    exposureB
+  );
+  assert.equal(registry.state("color").readValid, false);
+  assert.equal(registry.state("color").lastInvalidationReason, "feature-toggle");
+  registry.abortFrame(2);
+  assert.equal(registry.state("color").valid, false);
+  assert.equal(registry.state("color").lastInvalidationReason, "abort");
+});
+
+test("ADR-0009 Step 7 scopes pre-exposure discontinuity to dependent histories", () => {
+  const registry = new TemporalHistoryRegistry([
+    {
+      name: "color",
+      semantic: "final-temporal-color",
+      resolutionDomain: "output-full",
+      format: "rgba16float",
+      bufferCount: 2,
+      preExposure: "working-linear-rescale"
+    },
+    {
+      name: "gtao",
+      semantic: "gtao-visibility-bent-moments",
+      resolutionDomain: "effect-resolution",
+      format: "rgba16float",
+      bufferCount: 2,
+      preExposure: "none"
+    }
+  ]);
+  const revision = {
+    outputWidth: 1280,
+    outputHeight: 720,
+    internalWidth: 1280,
+    internalHeight: 720,
+    camera: 0,
+    renderScale: 1,
+    feature: 1,
+    format: 5,
+    light: 0,
+    scene: 1,
+    representation: 1,
+    device: 0,
+    preExposureGeneration: 0,
+    view: "camera"
+  };
+  const exposure0 = preExposureContract({ multiplier: 1, generation: 0, colorSpace: "working-linear" });
+  registry.beginFrame(0, revision, ["color", "gtao"], exposure0);
+  registry.markProduced("color");
+  registry.markProduced("gtao");
+  registry.commitFrame(0);
+
+  const exposure1 = preExposureContract({ multiplier: 0.5, generation: 1, colorSpace: "working-linear" });
+  registry.beginFrame(
+    1,
+    { ...revision, preExposureGeneration: 1 },
+    ["color", "gtao"],
+    exposure1
+  );
+  assert.equal(registry.state("color").readValid, false);
+  assert.equal(registry.state("color").lastInvalidationReason, "exposure-discontinuity");
+  assert.equal(registry.state("gtao").readValid, true);
+  assert.equal(registry.state("gtao").preExposureScale, 1);
+  registry.abortFrame(1);
 });
 
 test("ADR-0009 Step 0 rejects invalid exposure and cross-resolution products", () => {

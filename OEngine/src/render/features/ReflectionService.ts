@@ -48,7 +48,6 @@ export class ReflectionService {
 
   get lastRan(): boolean { return this.implementation.lastRan; }
   get lastTracePasses(): number { return this.implementation.lastTracePasses; }
-  get lastPrefilterPasses(): number { return this.implementation.lastPrefilterPasses; }
   get lastResolvePasses(): number { return this.implementation.lastResolvePasses; }
   get lastSpatialPasses(): number { return this.implementation.lastSpatialPasses; }
   get lastTemporalPasses(): number { return this.implementation.lastTemporalPasses; }

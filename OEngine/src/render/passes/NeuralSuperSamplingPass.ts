@@ -62,6 +62,7 @@ export type NssSettings = {
   outputResolution: readonly [number, number];
   jitterTileOffset: readonly [number, number];
   historyValidity: number;
+  historyPreExposureScale: number;
   upscaleRatio: number;
   frameIndex: number;
   alphaBlendScale: number;
@@ -92,6 +93,7 @@ export class NeuralSuperSamplingPass {
   private renderWidth = 0;
   private renderHeight = 0;
   private model: NssModel;
+  private modelRevision = 0;
   private weightsBuffer: GPUBuffer;
   private biasesBuffer: GPUBuffer;
   private rescalesBuffer: GPUBuffer;
@@ -257,6 +259,7 @@ export class NeuralSuperSamplingPass {
     this.lutsBuffer = lutsBuffer;
     this.layerConfigBuffers = layerConfigBuffers;
     this.model = value;
+    this.modelRevision++;
     this.reset_history = true;
   }
 
@@ -264,11 +267,15 @@ export class NeuralSuperSamplingPass {
     return this.model;
   }
 
+  get historyRepresentationRevision(): number {
+    return this.modelRevision;
+  }
+
   addToGraph(
     graph: FrameGraph,
     job: NeuralSuperSamplingJob,
     inputs: NeuralSuperSamplingInputs,
-    frameBindings?: {
+    frameBindings: {
       readonly settings: NssSettings;
       readonly feedbackCurrent: unknown;
       readonly feedbackNext: unknown;
@@ -280,27 +287,22 @@ export class NeuralSuperSamplingPass {
   ): ResourceId {
     const [renderWidth, renderHeight] = job.renderResolution;
     const [outputWidth, outputHeight] = job.outputResolution;
-    if (frameBindings === undefined) this.resize(renderWidth, renderHeight);
-    const currentFeedbackIndex = this.frameCountValue % 2;
-    const nextFeedbackIndex = (this.frameCountValue + 1) % 2;
-    const feedbackCurrent = importTexture(
-      graph,
+    const feedbackCurrent = graph.import_resource(
       "NSS feedback current",
-      this.feedbackHistory[currentFeedbackIndex]!,
-      frameBindings?.feedbackCurrent
+      { kind: "imported", label: "NSS feedback current" },
+      frameBindings.feedbackCurrent
     );
-    let feedbackNext = importTexture(
-      graph,
+    let feedbackNext = graph.import_resource(
       "NSS feedback next",
-      this.feedbackHistory[nextFeedbackIndex]!,
-      frameBindings?.feedbackNext
+      { kind: "imported", label: "NSS feedback next" },
+      frameBindings.feedbackNext
     );
     const importInternal = (name: string, context: GPUTextureContext): ResourceId =>
       importTexture(
         graph,
         name,
         context,
-        frameBindings?.bindResource(name, () => context.gpu_texture)
+        frameBindings.bindResource(name, () => context.gpu_texture)
       );
     const ping: [ResourceId, ResourceId] = [
       importInternal("NSS ping 0", this.ping[0]),
@@ -313,7 +315,7 @@ export class NeuralSuperSamplingPass {
     let concat = importInternal("NSS concat", this.concat);
     let preOutput = importInternal("NSS pre-output", this.preOutput);
     let networkOutput = importInternal("NSS network output", this.networkOutput);
-    const settings = frameBindings?.settings ?? this.createSettings(job);
+    const settings = frameBindings.settings;
     const preprocess = this.addPreprocess(
       graph,
       settings,
@@ -357,7 +359,6 @@ export class NeuralSuperSamplingPass {
       outputWidth,
       outputHeight
     );
-    if (frameBindings === undefined) this.reset_history = false;
     return result;
   }
 
@@ -368,8 +369,8 @@ export class NeuralSuperSamplingPass {
     return settings;
   }
 
-  feedbackTexture(frameIndex: number, output: boolean): GPUTexture {
-    return this.feedbackHistory[(frameIndex + (output ? 1 : 0)) % 2]!.gpu_texture;
+  feedbackTexture(index: 0 | 1): GPUTexture {
+    return this.feedbackHistory[index].gpu_texture;
   }
 
   destroy(): void {
@@ -421,6 +422,7 @@ export class NeuralSuperSamplingPass {
         Math.floor(this.Jitter[1] + 0.5) & 1
       ],
       historyValidity,
+      historyPreExposureScale: historyValidity,
       upscaleRatio: outputWidth / renderWidth,
       frameIndex: this.frameCountValue,
       alphaBlendScale: this.alpha_blend_scale,
@@ -729,6 +731,7 @@ function createSettingsBuffer(command: ShadeGPUCommandContext, settings: NssSett
   view.setFloat32(56, settings.networkAccScale, true);
   view.setFloat32(60, settings.feedbackScale, true);
   view.setFloat32(64, settings.quantizeInputs, true);
+  view.setFloat32(68, settings.historyPreExposureScale, true);
   view.setFloat32(72, settings.jitterSign[0], true);
   view.setFloat32(76, settings.jitterSign[1], true);
   return command.allocateTransientBufferAndLoad(buffer, GPUBufferUsage.UNIFORM);

@@ -80,7 +80,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production", "ssr-replacement"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production", "ssr-replacement", "shared-derived-products"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -92,7 +92,226 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "ssr-replacement") {
+    if (request.scenarioId === "shared-derived-products") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Surface runtime is not initialized");
+      const originalWidth = renderer.output_resolution.x;
+      const originalHeight = renderer.output_resolution.y;
+      renderer.configure({
+        features: {
+          screenSpaceDiffuseMode: "ssgi",
+          screenSpaceReflections: true,
+          temporalAntiAliasing: true,
+          bloom: true,
+          automaticExposure: true,
+          motionBlur: false,
+          sharpening: false
+        },
+        ssgi: { temporalEnabled: true, resolutionScale: 0.5 },
+        ssr: { temporalEnabled: true, resolutionScale: 0.5 }
+      });
+      await runtime.waitForFrames(5);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      const allOn = renderer.sharedDerivedProductsEvidence();
+      const allOnGraph = renderer.mainFrameGraphEvidence();
+      if (allOnGraph === null) throw new Error("Shared-products frame did not publish FrameGraph evidence");
+      const allOnPasses = allOnGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+      const allOnResources = allOnGraph.dump.resources.map((entry) => entry.name);
+      const historyNames = allOn.histories.map((history) => history.name);
+      const historyByName = new Map(allOn.histories.map((history) => [history.name, history]));
+
+      const invalidationsBeforeCameraCut = new Map(
+        allOn.histories.map((history) => [history.name, history.invalidationCount])
+      );
+      renderer.indicate_view_change();
+      await runtime.waitForFrames(1);
+      const afterCameraCut = renderer.sharedDerivedProductsEvidence();
+
+      const resizedWidth = originalWidth === 640 ? 704 : 640;
+      const resizedHeight = originalHeight === 360 ? 396 : 360;
+      runtime.resize(resizedWidth, resizedHeight);
+      await runtime.waitForFrames(1);
+      const afterResize = renderer.sharedDerivedProductsEvidence();
+      runtime.resize(originalWidth, originalHeight);
+      await runtime.waitForFrames(1);
+
+      renderer.configure({ features: { screenSpaceDiffuseMode: "gtao" } });
+      await runtime.waitForFrames(1);
+      const afterDiffuseModeSwitch = renderer.sharedDerivedProductsEvidence();
+
+      renderer.configure({ features: { screenSpaceReflections: false } });
+      await runtime.waitForFrames(2);
+      const noOpaqueConsumer = renderer.sharedDerivedProductsEvidence();
+      const noOpaqueGraph = renderer.mainFrameGraphEvidence();
+      if (noOpaqueGraph === null) throw new Error("SSR-off shared-products frame did not publish FrameGraph evidence");
+      const noOpaquePasses = noOpaqueGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+      const noOpaqueResources = noOpaqueGraph.dump.resources.map((entry) => entry.name);
+
+      renderer.configure({ features: { bloom: false, automaticExposure: false } });
+      await runtime.waitForFrames(2);
+      const allConsumersOff = renderer.sharedDerivedProductsEvidence();
+      const allConsumersOffGraph = renderer.mainFrameGraphEvidence();
+      if (allConsumersOffGraph === null) throw new Error("Shared-products-off frame did not publish FrameGraph evidence");
+      const allConsumersOffPasses = allConsumersOffGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+      const allConsumersOffResources = allConsumersOffGraph.dump.resources.map((entry) => entry.name);
+
+      // Leave the always-screenshot artifact on the representative all-on
+      // topology after the off-pruning evidence has been captured.
+      renderer.configure({
+        features: {
+          screenSpaceDiffuseMode: "ssgi",
+          screenSpaceReflections: true,
+          bloom: true,
+          automaticExposure: true
+        }
+      });
+      await runtime.waitForFrames(3);
+
+      Object.assign(evidence, {
+        sharedDerivedProducts: {
+          allOn: { runtime: allOn, passes: allOnPasses, resources: allOnResources },
+          afterCameraCut,
+          afterResize,
+          afterDiffuseModeSwitch,
+          noOpaqueConsumer: {
+            runtime: noOpaqueConsumer,
+            passes: noOpaquePasses,
+            resources: noOpaqueResources
+          },
+          allConsumersOff: {
+            runtime: allConsumersOff,
+            passes: allConsumersOffPasses,
+            resources: allConsumersOffResources
+          },
+          profilerCounters: profile.counters,
+          submits: profile.submits
+        }
+      });
+      assertions.push(validationAssertion(
+        "shared-color-products-have-distinct-stages",
+        allOn.abiVersion === 1 &&
+          allOn.opaqueStage === "post-screen-space-diffuse-pre-ssr" &&
+          allOn.finalStage === "post-transparency-temporal" &&
+          allOn.pyramids.opaqueBuilds === 1 && allOn.pyramids.finalBuilds === 1 &&
+          allOnPasses.filter((name) => name === "OpaqueColorPyramid shared producer").length === 1 &&
+          allOnPasses.filter((name) => name === "FinalColorPyramid shared producer").length === 1 &&
+          allOnResources.filter((name) => name === "OpaqueColorPyramid").length === 1 &&
+          allOnResources.filter((name) => name === "FinalColorPyramid").length === 1 &&
+          allOnPasses.indexOf("ScreenSpaceDiffuseResolve") <
+            allOnPasses.indexOf("OpaqueColorPyramid shared producer") &&
+          allOnPasses.indexOf("OpaqueColorPyramid shared producer") <
+            allOnPasses.indexOf("SSR stochastic hit shading") &&
+          allOnPasses.indexOf("FX-06B Final TAA/TAAU resolve") <
+            allOnPasses.indexOf("FinalColorPyramid shared producer"),
+        "Opaque and final HDR pyramids remain separate typed products at their frozen source stages",
+        { runtime: allOn, passes: allOnPasses, resources: allOnResources },
+        "one distinct producer/resource per semantic and ordered SSGI -> opaque pyramid -> SSR; TAA -> final pyramid"
+      ));
+      assertions.push(validationAssertion(
+        "shared-depth-hzb-remains-single-producer",
+        allOnPasses.filter((name) => name === "graph_rasterize_triangle_closest").length === 1 &&
+          allOnResources.filter((name) => name === "hzb_current").length === 1 &&
+          profile.counters["hzb.computeBuilds"] === 1 &&
+          (profile.counters["hzb.dispatches"] ?? 0) > 0,
+        "GTAO/SSGI/SSR continue to consume the per-view shared depth hierarchy instead of constructing effect-local HZBs",
+        { passes: allOnPasses, resources: allOnResources, counters: profile.counters },
+        "one current HZB resource/build, positive mip dispatches"
+      ));
+      assertions.push(validationAssertion(
+        "final-pyramid-is-shared-by-bloom-and-exposure",
+        allOn.opaqueConsumerCount === 1 && allOn.finalConsumerCount === 2 &&
+          allOn.bloomConsumedFinalMips === 5 && allOn.bloomReconstructPasses === 5 &&
+          allOn.exposureHistogramPasses === 1 && allOn.exposureMeteringMipLevel > 0 &&
+          allOn.exposureMeteringPixels > 0 &&
+          allOn.exposureMeteringPixels < originalWidth * originalHeight &&
+          !allOnPasses.some((name) => /Bloom downsample|Bloom prefilter/i.test(name)) &&
+          !allOnResources.some((name) => /Bloom downscale map/i.test(name)),
+        "Bloom reconstruction and low-mip exposure metering consume one FinalColorPyramid without rebuilding equivalent downsample chains",
+        allOn,
+        "two consumers, one final producer, low-mip histogram and no legacy Bloom downsample pyramid"
+      ));
+      assertions.push(validationAssertion(
+        "ssgi-source-does-not-alias-post-ssgi-pyramid",
+        allOn.screenSpaceDiffuseSourcePyramidBuilds === 0 &&
+          !allOnResources.some((name) => name === "ScreenSpaceDiffuseSourcePyramid") &&
+          allOn.pyramids.allocatedBytes > 0,
+        "SSGI keeps its full-resolution pre-SSGI radiance source; the shared opaque pyramid is only the post-diffuse SSR product",
+        { runtime: allOn, resources: allOnResources },
+        "no unproven SSGI source pyramid and no source-stage alias"
+      ));
+      assertions.push(validationAssertion(
+        "history-contract-declarations-are-complete-and-unique",
+        historyNames.length === 6 && new Set(historyNames).size === historyNames.length &&
+          historyByName.get("color")?.semantic === "final-temporal-color" &&
+          historyByName.get("color")?.resolutionDomain === "output-full" &&
+          historyByName.get("color")?.bufferCount === 2 &&
+          historyByName.get("ssgi")?.bufferCount === 4 &&
+          historyByName.get("ssr")?.preExposure === "working-linear-rescale" &&
+          historyByName.get("nss-feedback")?.preExposure === "invalidate-on-change" &&
+          historyByName.get("exposure")?.resolutionDomain === "scalar" &&
+          historyByName.get("exposure")?.format === "f32-buffer" &&
+          ["color", "ssgi", "ssr", "exposure"].every((name) => {
+            const history = historyByName.get(name);
+            return history?.active === true && history.valid && history.readValid &&
+              history.generation > 0 && history.preExposureScale > 0;
+          }) &&
+          historyByName.get("gtao")?.active === false &&
+          historyByName.get("nss-feedback")?.active === false,
+        "Every persistent consumer publishes semantic, domain, format, count, generation, validity and pre-exposure policy through one registry",
+        allOn.histories,
+        "six unique declarations; active histories valid and submission-advanced"
+      ));
+      assertions.push(validationAssertion(
+        "history-reset-reasons-reject-stale-input",
+        afterCameraCut.histories.filter((history) => history.active).every((history) =>
+          history.lastInvalidationReason === "camera-cut" && !history.readValid &&
+          history.invalidationCount > (invalidationsBeforeCameraCut.get(history.name) ?? -1)) &&
+          afterResize.histories.filter((history) => history.active).every((history) =>
+            history.lastInvalidationReason === "output-resize" && !history.readValid) &&
+          afterDiffuseModeSwitch.histories.find((history) => history.name === "gtao")?.active === true &&
+          afterDiffuseModeSwitch.histories.find((history) => history.name === "gtao")?.readValid === false &&
+          afterDiffuseModeSwitch.histories.find((history) => history.name === "ssgi")?.active === false &&
+          afterDiffuseModeSwitch.histories.every((history) =>
+            history.lastInvalidationReason === "feature-toggle"),
+        "Camera cut, output resize and GTAO/SSGI topology changes invalidate the old logical generation before the new frame reads history",
+        { afterCameraCut, afterResize, afterDiffuseModeSwitch },
+        "explicit reset reason, readValid=false on the reset frame and mutually exclusive diffuse histories"
+      ));
+      assertions.push(validationAssertion(
+        "shared-products-prune-by-consumer",
+        noOpaqueConsumer.pyramids.opaqueBuilds === 0 &&
+          noOpaqueConsumer.pyramids.finalBuilds === 1 &&
+          noOpaqueConsumer.opaqueConsumerCount === 0 && noOpaqueConsumer.finalConsumerCount === 2 &&
+          !noOpaquePasses.includes("OpaqueColorPyramid shared producer") &&
+          !noOpaqueResources.includes("OpaqueColorPyramid") &&
+          allConsumersOff.pyramids.opaqueBuilds === 0 &&
+          allConsumersOff.pyramids.finalBuilds === 0 &&
+          allConsumersOff.pyramids.allocatedBytes === 0 &&
+          allConsumersOff.opaqueConsumerCount === 0 && allConsumersOff.finalConsumerCount === 0 &&
+          !allConsumersOffPasses.some((name) => /ColorPyramid shared producer/.test(name)) &&
+          !allConsumersOffResources.some((name) => /ColorPyramid/.test(name)) &&
+          allConsumersOff.histories.find((history) => history.name === "exposure")?.active === false,
+        "Each shared product is created only for a live consumer and both owners disappear when all consumers are disabled",
+        { noOpaqueConsumer, noOpaquePasses, allConsumersOff, allConsumersOffPasses },
+        "SSR off prunes opaque only; SSR/Bloom/Exposure off prunes both and exposure history"
+      ));
+      assertions.push(validationAssertion(
+        "shared-products-stay-in-main-submit",
+        profile.submits.count === 1 && profile.submits.labels["Renderer/main-0"] === 1 &&
+          profile.counters["sharedPyramid.opaqueBuilds"] === 1 &&
+          profile.counters["sharedPyramid.finalBuilds"] === 1 &&
+          (profile.counters["sharedPyramid.exposureMeteringPixels"] ?? 0) > 0,
+        "Shared reductions, Bloom and exposure remain observable inside the single main command submission",
+        { submits: profile.submits, counters: profile.counters },
+        "one main submit and matching shared-product profiler counters"
+      ));
+    } else if (request.scenarioId === "ssr-replacement") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
       await runtime.replaceScene(await createSsrReplacementSource());

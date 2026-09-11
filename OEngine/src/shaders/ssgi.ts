@@ -350,7 +350,12 @@ ${FULLSCREEN}
 @group(0) @binding(5) var occlusion_confidence: texture_2d<f32>;
 @group(0) @binding(6) var surface_validity: texture_2d<f32>;
 @group(0) @binding(7) var linear_sampler: sampler;
-struct TemporalSettings { history_valid: u32, blend: f32, _padding: vec2u };
+struct TemporalSettings {
+  history_valid: u32,
+  blend: f32,
+  pre_exposure_scale: f32,
+  _padding: f32,
+};
 @group(0) @binding(8) var<uniform> settings: TemporalSettings;
 struct TemporalOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
 @fragment fn fs_main(@builtin(position) coord: vec4f) -> TemporalOutput {
@@ -364,12 +369,18 @@ struct TemporalOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
   let validity = textureLoad(surface_validity, full_pixel, 0).r;
   let confidence = textureLoad(occlusion_confidence, full_pixel, 0).r;
   let history_weight = select(0.0, settings.blend * validity * confidence,
-    settings.history_valid != 0u && in_bounds);
+    settings.history_valid != 0u && settings.pre_exposure_scale > 0.0 && in_bounds);
   let pixel = vec2i(coord.xy);
   let currentAo = textureLoad(current_ao, pixel, 0);
   let currentGi = textureLoad(current_gi, pixel, 0);
-  let historyAo = textureSampleLevel(history_ao, linear_sampler, clamp(history_uv, vec2f(0.0), vec2f(1.0)), 0.0);
-  let historyGi = textureSampleLevel(history_gi, linear_sampler, clamp(history_uv, vec2f(0.0), vec2f(1.0)), 0.0);
+  var historyAo = currentAo;
+  var historyGi = currentGi;
+  if (history_weight > 0.0) {
+    let clamped_history_uv = clamp(history_uv, vec2f(0.0), vec2f(1.0));
+    historyAo = textureSampleLevel(history_ao, linear_sampler, clamped_history_uv, 0.0);
+    historyGi = textureSampleLevel(history_gi, linear_sampler, clamped_history_uv, 0.0);
+    historyGi = vec4f(historyGi.rgb * settings.pre_exposure_scale, historyGi.a);
+  }
   // Clamp radiance history around current luminance to reject disocclusion fireflies.
   let extent = max(currentGi.rgb * 0.5 + vec3f(0.05), vec3f(0.05));
   let clippedGi = clamp(historyGi.rgb, currentGi.rgb - extent, currentGi.rgb + extent);

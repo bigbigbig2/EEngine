@@ -21,10 +21,8 @@ import type {
   CachedComputePipelineDescriptor,
   CachedRenderPipelineDescriptor
 } from "../../gpu/GPUDescriptorCaches.js";
-import { GPUTextureContext, textureMipLevelCount } from "../../gpu/GPUTextureContext.js";
-import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
+import { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
 import {
-  LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
   type GPUSamplerCache
 } from "../../gpu/GPUSamplerCache.js";
 import {
@@ -33,13 +31,7 @@ import {
   SSR_TEMPORAL_WGSL,
   SSR_UPSAMPLE_WGSL
 } from "../../shaders/ssr_denoise.js";
-import type { PreExposureContract } from "../pipeline/FrameProducts.js";
-import {
-  SSR_PREFILTER_COPY_WGSL,
-  SSR_PREFILTER_DEPTH_AWARE_WGSL,
-  SSR_PREFILTER_DOWNSAMPLE_WGSL,
-  SSR_PREFILTER_FORMAT
-} from "../../shaders/ssr_prefilter.js";
+import type { OpaqueColorPyramidFrame } from "../pipeline/FrameProducts.js";
 import {
   SSR_RESOLVE_FORMAT,
   SSR_RESOLVE_WGSL
@@ -53,7 +45,7 @@ import {
 export type ScreenSpaceReflectionsInputs = {
   depth: ResourceId;
   hzb: ResourceId;
-  sceneColor: ResourceId;
+  opaqueColorPyramid: OpaqueColorPyramidFrame;
   pbr: ResourceId;
   normal: ResourceId;
   velocity: ResourceId;
@@ -91,14 +83,11 @@ export type ScreenSpaceReflectionsJob = {
   maxRoughness: number;
   mirrorBias: number;
   temporalStrength: number;
-  preExposure: PreExposureContract;
+  historyPreExposureScale: number;
 };
 
 export class ScreenSpaceReflectionsPass {
   private readonly tracePipeline: CachedRenderPipelineDescriptor;
-  private readonly copyPipeline: CachedRenderPipelineDescriptor;
-  private readonly depthAwarePipeline: CachedRenderPipelineDescriptor;
-  private readonly downsamplePipeline: CachedRenderPipelineDescriptor;
   private readonly resolvePipeline: CachedRenderPipelineDescriptor;
   private readonly recurrentDenoisePipeline: CachedRenderPipelineDescriptor;
   private readonly temporalPipeline: CachedRenderPipelineDescriptor;
@@ -108,12 +97,9 @@ export class ScreenSpaceReflectionsPass {
   private denoiseSettings: GPUBuffer | null = null;
   private readonly histories: GPUTextureContext[];
   private readonly device: GPUDevice;
-  private historyPreExposureMultiplier = 1;
-  private historyPreExposureGeneration = 0;
 
   lastRan = false;
   lastTracePasses = 0;
-  lastPrefilterPasses = 0;
   lastResolvePasses = 0;
   lastSpatialPasses = 0;
   lastTemporalPasses = 0;
@@ -130,9 +116,6 @@ export class ScreenSpaceReflectionsPass {
     const device = graphics.device;
     this.device = device;
     this.tracePipeline = createSsrTracePipelineDescriptor(surfaceProfile);
-    this.copyPipeline = createSsrCopyPipelineDescriptor(surfaceProfile);
-    this.depthAwarePipeline = createSsrDepthAwarePipelineDescriptor(surfaceProfile);
-    this.downsamplePipeline = createSsrDownsamplePipelineDescriptor(surfaceProfile);
     this.resolvePipeline = createSsrResolvePipelineDescriptor(surfaceProfile);
     this.recurrentDenoisePipeline = createSsrRecurrentDenoisePipelineDescriptor(surfaceProfile);
     this.temporalPipeline = createSsrTemporalPipelineDescriptor(surfaceProfile);
@@ -278,38 +261,6 @@ export class ScreenSpaceReflectionsPass {
       evidenceBuilder.make_side_effect();
     }
 
-    let prefiltered = -1;
-    const mipLevelCount = textureMipLevelCount(width, height);
-    const prefilterBuilder = graph.add(
-      "SSR scene-color prefilter sQ/dQ/oQ",
-      { samplers: job.samplers, mipLevelCount },
-      (data, resources, context) => {
-        const command = requireShadeCommandContext(context.encoder);
-        this.executePrefilter(
-          command,
-          resolveTexture(resources.get(prefiltered), "prefiltered scene color"),
-          data.mipLevelCount,
-          data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
-          {
-            sceneColor: resolveTextureView(resources.get(inputs.sceneColor)),
-            depth: resolveDepthAttachmentView(resources.get(inputs.depth))
-          }
-        );
-        this.lastPrefilterPasses = 1;
-      }
-    );
-    prefiltered = prefilterBuilder.create("prefiltered color", {
-      kind: "transient_texture",
-      label: "SSR prefiltered color",
-      width,
-      height,
-      format: SSR_PREFILTER_FORMAT,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
-      mipLevelCount
-    });
-    prefilterBuilder.read(inputs.sceneColor);
-    prefilterBuilder.read(inputs.depth);
-
     let reflections = -1;
     const resolveBuilder = graph.add(
       "SSR stochastic hit shading",
@@ -330,7 +281,7 @@ export class ScreenSpaceReflectionsPass {
             depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
             pbr: resolveTextureView(resources.get(inputs.pbr)),
             normal: resolveTextureView(resources.get(inputs.normal)),
-            prefiltered: resolveTextureView(resources.get(prefiltered)),
+            prefiltered: resolveTextureView(resources.get(inputs.opaqueColorPyramid.texture)),
             albedoAo: resolveTextureView(resources.get(inputs.albedoAo)),
             currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera")
           }
@@ -343,7 +294,7 @@ export class ScreenSpaceReflectionsPass {
       textureDescriptor(traceWidth, traceHeight, SSR_RESOLVE_FORMAT,
         this.resolutionScale === 0.5 ? "internal-half" : "internal-full")
     );
-    for (const input of [trace, inputs.depth, inputs.pbr, inputs.normal, prefiltered, inputs.albedoAo, inputs.currentCamera]) {
+    for (const input of [trace, inputs.depth, inputs.pbr, inputs.normal, inputs.opaqueColorPyramid.texture, inputs.albedoAo, inputs.currentCamera]) {
       resolveBuilder.read(input);
     }
 
@@ -354,11 +305,6 @@ export class ScreenSpaceReflectionsPass {
         job,
         (data, resources, context) => {
           const command = requireShadeCommandContext(context.encoder);
-          const historyExposureCompatible = data.historyValid &&
-            data.preExposure.generation === this.historyPreExposureGeneration;
-          const historyPreExposureScale = historyExposureCompatible
-            ? data.preExposure.multiplier / this.historyPreExposureMultiplier
-            : 0;
           this.executeTemporal(
             command,
             data.historyValid,
@@ -374,7 +320,7 @@ export class ScreenSpaceReflectionsPass {
               depth: resolveTextureView(resources.get(inputs.depth)),
               normal: resolveTextureView(resources.get(inputs.normal)),
               currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera"),
-              historyPreExposureScale
+              historyPreExposureScale: data.historyPreExposureScale
             }
           );
           this.lastTemporalPasses = 1;
@@ -443,7 +389,6 @@ export class ScreenSpaceReflectionsPass {
   resetFrameEvidence(): void {
     this.lastRan = false;
     this.lastTracePasses = 0;
-    this.lastPrefilterPasses = 0;
     this.lastResolvePasses = 0;
     this.lastSpatialPasses = 0;
     this.lastTemporalPasses = 0;
@@ -484,12 +429,6 @@ export class ScreenSpaceReflectionsPass {
           camera: resolveBuffer(resources.get(camera), "current camera")
         }
       );
-      const submittedMultiplier = data.preExposure.multiplier;
-      const submittedGeneration = data.preExposure.generation;
-      command.onFinished.addOne(() => {
-        this.historyPreExposureMultiplier = submittedMultiplier;
-        this.historyPreExposureGeneration = submittedGeneration;
-      });
       this.lastSpatialPasses++;
     });
     output = historyOutput === null
@@ -596,58 +535,6 @@ export class ScreenSpaceReflectionsPass {
       ]],
       resources.output
     );
-  }
-
-  private executePrefilter(
-    command: ShadeGPUCommandContext,
-    output: GPUTexture,
-    mipLevelCount: number,
-    sampler: GPUSampler,
-    resources: { sceneColor: GPUTextureView; depth: GPUTextureView }
-  ): void {
-    const mip0 = createNativeTextureView(output, {
-      baseMipLevel: 0,
-      mipLevelCount: 1
-    });
-    drawFullscreen(
-      command,
-      "SSR prefilter copy sQ",
-      this.copyPipeline,
-      [[resources.sceneColor]],
-      mip0
-    );
-    if (mipLevelCount <= 1) return;
-    let source = mip0;
-    let destination = createNativeTextureView(output, {
-      baseMipLevel: 1,
-      mipLevelCount: 1
-    });
-    drawFullscreen(
-      command,
-      "SSR prefilter depth-aware dQ",
-      this.depthAwarePipeline,
-      [[source, resources.depth, sampler]],
-      destination,
-      undefined,
-      "load"
-    );
-    const lastMip = Math.min(4, mipLevelCount - 1);
-    for (let mip = 2; mip <= lastMip; mip++) {
-      source = destination;
-      destination = createNativeTextureView(output, {
-        baseMipLevel: mip,
-        mipLevelCount: 1
-      });
-      drawFullscreen(
-        command,
-        `SSR prefilter mip oQ ${mip}`,
-        this.downsamplePipeline,
-        [[source, sampler]],
-        destination,
-        undefined,
-        "load"
-      );
-    }
   }
 
   private executeResolve(
@@ -871,13 +758,6 @@ function textureDescriptor(
   };
 }
 
-function resolveTexture(resource: unknown, label: string): GPUTexture {
-  if (resource && typeof resource === "object" && "createView" in resource) {
-    return resource as GPUTexture;
-  }
-  throw new Error(`ScreenSpaceReflectionsPass: missing ${label} texture`);
-}
-
 function resolveBuffer(resource: unknown, label: string): GPUBuffer {
   if (resource && typeof resource === "object") {
     if ("size" in resource && "usage" in resource) return resource as GPUBuffer;
@@ -933,42 +813,6 @@ function createSsrTracePipelineDescriptor(
     SSR_TRACE_WGSL,
     SSR_TRACE_FORMAT,
     [createSsrTraceGroupLayout()],
-    surfaceProfile
-  );
-}
-
-function createSsrCopyPipelineDescriptor(
-  surfaceProfile: GpuShadingSurfaceLiteProfile
-): CachedRenderPipelineDescriptor {
-  return createSsrPipelineDescriptor(
-    "Renderer/SSR prefilter copy sQ",
-    SSR_PREFILTER_COPY_WGSL,
-    SSR_PREFILTER_FORMAT,
-    [createSsrCopyGroupLayout()],
-    surfaceProfile
-  );
-}
-
-function createSsrDepthAwarePipelineDescriptor(
-  surfaceProfile: GpuShadingSurfaceLiteProfile
-): CachedRenderPipelineDescriptor {
-  return createSsrPipelineDescriptor(
-    "Renderer/SSR prefilter depth-aware dQ",
-    SSR_PREFILTER_DEPTH_AWARE_WGSL,
-    SSR_PREFILTER_FORMAT,
-    [createSsrDepthAwareGroupLayout()],
-    surfaceProfile
-  );
-}
-
-function createSsrDownsamplePipelineDescriptor(
-  surfaceProfile: GpuShadingSurfaceLiteProfile
-): CachedRenderPipelineDescriptor {
-  return createSsrPipelineDescriptor(
-    "Renderer/SSR prefilter mip oQ",
-    SSR_PREFILTER_DOWNSAMPLE_WGSL,
-    SSR_PREFILTER_FORMAT,
-    [createSsrDownsampleGroupLayout()],
     surfaceProfile
   );
 }
@@ -1069,36 +913,6 @@ function createSsrTraceGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 4, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 5, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 6, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } }
-    ]
-  };
-}
-
-function createSsrCopyGroupLayout(): GPUBindGroupLayoutDescriptor {
-  return textureGroupLayout(
-    "Renderer/SSR prefilter copy sQ group0",
-    [{ sampleType: "unfilterable-float", viewDimension: "2d" }]
-  );
-}
-
-function createSsrDepthAwareGroupLayout(): GPUBindGroupLayoutDescriptor {
-  const fragment = GPUShaderStage.FRAGMENT;
-  return {
-    label: "Renderer/SSR prefilter depth-aware dQ group0",
-    entries: [
-      { binding: 0, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 2, visibility: fragment, sampler: { type: "filtering" } }
-    ]
-  };
-}
-
-function createSsrDownsampleGroupLayout(): GPUBindGroupLayoutDescriptor {
-  const fragment = GPUShaderStage.FRAGMENT;
-  return {
-    label: "Renderer/SSR prefilter mip oQ group0",
-    entries: [
-      { binding: 0, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 1, visibility: fragment, sampler: { type: "filtering" } }
     ]
   };
 }

@@ -296,6 +296,8 @@ export {
   type RendererCapabilities,
   type ScreenSpaceGiRuntimeEvidence,
   type ScreenSpaceReflectionsRuntimeEvidence,
+  type SharedColorPyramidRuntimeEvidence,
+  type SharedDerivedProductsRuntimeEvidence,
   type TemporalRuntimeEvidence
 } from "./render/Renderer.js";
 export {

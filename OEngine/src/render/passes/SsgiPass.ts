@@ -67,6 +67,7 @@ export interface SsgiJob {
   readonly backfaceLighting: number;
   readonly historyGeneration: number;
   readonly preExposure: PreExposureContract;
+  readonly historyPreExposureScale: number;
 }
 
 export interface SsgiHistoryBindings {
@@ -243,7 +244,9 @@ export class SsgiPass {
       const temporalBuilder = graph.add("SSGI unified temporal AO+GI resolve", job, (data, resources, context) => {
         const command = commandContext(context.encoder);
         const values = new ArrayBuffer(16); const dv = new DataView(values);
-        dv.setUint32(0, data.historyValid ? 1 : 0, true); dv.setFloat32(4, data.temporalBlend, true);
+        dv.setUint32(0, data.historyValid ? 1 : 0, true);
+        dv.setFloat32(4, data.temporalBlend, true);
+        dv.setFloat32(8, data.historyPreExposureScale, true);
         const settings = command.allocateTransientBufferAndLoad(values, GPUBufferUsage.UNIFORM);
         const pass = command.constructRenderPass({
           label: "SSGI unified temporal AO+GI resolve", pipeline: this.temporalPipeline,

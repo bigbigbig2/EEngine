@@ -242,6 +242,18 @@ export interface OpaqueColorPyramidFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
+/** Output-domain HDR after transparency/temporal and before exposure/bloom. */
+export interface FinalColorPyramidFrame {
+  /** Exact full-resolution source retained for consumers that need mip 0 unfiltered. */
+  readonly source: ResourceId;
+  readonly texture: ResourceId;
+  readonly mipLevelCount: number;
+  readonly stage: "post-transparency-temporal";
+  readonly sourceGeneration: number;
+  readonly preExposure: PreExposureContract;
+  readonly domain: TextureDomain<"output-full">;
+}
+
 /** SSR correction product; composition replaces the declared baseline specular. */
 export interface ReflectionCorrectionFrame {
   readonly baselineSpecular: ResourceId;
@@ -764,6 +776,31 @@ export function opaqueColorPyramidFrame(
   });
 }
 
+export function finalColorPyramidFrame(
+  input: FinalColorPyramidFrame
+): FinalColorPyramidFrame {
+  requireRequiredResourceId(input.source, "FinalColorPyramidFrame.source");
+  requireRequiredResourceId(input.texture, "FinalColorPyramidFrame.texture");
+  requirePositiveInteger(input.mipLevelCount, "FinalColorPyramidFrame.mipLevelCount");
+  requireNonNegativeInteger(
+    input.sourceGeneration,
+    "FinalColorPyramidFrame.sourceGeneration"
+  );
+  if (input.stage !== "post-transparency-temporal") {
+    throw new Error("FinalColorPyramidFrame has an invalid source stage");
+  }
+  const domain = requireOutputFullDomain(input.domain, "FinalColorPyramidFrame");
+  const maxMipLevelCount = Math.floor(Math.log2(Math.max(domain.width, domain.height))) + 1;
+  if (input.mipLevelCount > maxMipLevelCount) {
+    throw new RangeError("FinalColorPyramidFrame mipLevelCount exceeds the declared extent");
+  }
+  return Object.freeze({
+    ...input,
+    preExposure: preExposureContract(input.preExposure),
+    domain
+  });
+}
+
 export function reflectionCorrectionFrame(
   input: ReflectionCorrectionFrame
 ): ReflectionCorrectionFrame {
@@ -801,6 +838,16 @@ function requireInternalFullDomain(
     throw new Error(`${name} must be produced at internal-full resolution`);
   }
   return textureDomain("internal-full", domain.width, domain.height, domain.scale);
+}
+
+function requireOutputFullDomain(
+  domain: TextureDomain,
+  name: string
+): TextureDomain<"output-full"> {
+  if (domain.domain !== "output-full") {
+    throw new Error(`${name} must be produced at output-full resolution`);
+  }
+  return textureDomain("output-full", domain.width, domain.height, domain.scale);
 }
 
 function requirePositiveInteger(value: number, name: string): void {

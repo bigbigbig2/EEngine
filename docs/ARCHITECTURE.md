@@ -37,7 +37,9 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 帧资源 | `src/framegraph/FrameGraph.ts` | 资源、依赖、pruning 和执行 |
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/shadow/main-view 顺序 |
 | 帧输入 | `src/render/pipeline/FrameContext.ts` | camera/view、分辨率域、feature topology、history validity、scene bindings、instrumentation 与 capture 请求 |
-| 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | Surface、lighting、AO、reflection、temporal 合同 |
+| 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | Surface、lighting、AO、reflection、temporal、`OpaqueColorPyramid` 与 `FinalColorPyramid` 的 typed contract |
+| 共享帧派生 | `src/render/passes/SharedColorPyramidPass.ts` | 按 consumer 生成语义隔离的 opaque/final HDR pyramid；SSR、Bloom、Exposure 不再各建等价 reduction |
+| Persistent history | `src/render/TemporalHistoryRegistry.ts` | 六种 history 的 semantic/domain/format/count/generation、提交感知 ping-pong、pre-exposure 与统一失效原因；物理资源仍归 effect owner |
 | Screen-space diffuse | `src/render/features/AOService.ts`、`ScreenSpaceDiffuseService.ts`、`src/render/passes/GtaoPass.ts`、`SsgiPass.ts`、`ScreenSpaceDiffuseResolvePass.ts` | 单值 `off/gtao/ssgi` exclusive owner；Three.js r186-derived GTAO 或 SSGI、同 trace AO/bent、共享 history registry、pre-SSGI source 与能量边界 resolve |
 | Long-range GI | `src/render/features/GIService.ts`、`src/render/passes/LongRangeDiffuseProviderPass.ts` | 单个逐 receiver producer，以早返回执行 Brick4 → Probe Volume → IBL → black；输出唯一 provider identity、diffuse irradiance 与 baseline specular radiance，不预计算三套 fullscreen candidate |
 | 阴影功能 | `src/render/features/ShadowFeature.ts`、`ShadowFeatureManager.ts` | Scene-scoped atlas、cascade/cache、统一 Render World work generation/raster 与 retire |
@@ -49,7 +51,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 
 ## 生命周期与资源所有权
 
-Runtime Asset 是设备无关事实；GPU owner 由设备和 Renderer 生命周期控制。资源释放必须经过提交边界，不能让 Loader、Scene 临时对象或 FrameGraph 外部引用隐式延长 GPU 对象寿命。持久 history、shadow atlas、LPV 和 asset residency 与 transient frame attachment 分开统计。
+Runtime Asset 是设备无关事实；GPU owner 由设备和 Renderer 生命周期控制。资源释放必须经过提交边界，不能让 Loader、Scene 临时对象或 FrameGraph 外部引用隐式延长 GPU 对象寿命。持久 history、shadow atlas、LPV 和 asset residency 与 transient frame attachment 分开统计。颜色 pyramid 是当帧 transient 产品：`OpaqueColorPyramid` 与 `FinalColorPyramid` source stage 不同，禁止为了复用内存改写成同一 logical product；只有 descriptor/lifetime 兼容且不破坏语义时，FrameGraph 才可在底层复用 allocation。
 
 Geometry 默认生产变体是 `static-pbr-compact-v2`；position/normal/tangent/UV/color 的物理编码由 package profile 冻结，Shader 只能经共享 decode ABI 读取。`explicit-float32-fallback-v2` 需要 Cooker 显式选择。普通生产材质纹理由 `ShadeTexture.fromAssetPackageV2()` 携带设备无关 Texture Package：已有 GPU-native variant 直接进入 residency；KTX2 UASTC/ETC1S 先经 `GraphicsContext` 惰性持有的有界 `AssetCodecService` 和固定 Khronos libktx Worker/WASM 转为同一 Encoded Variant/package。两者随后统一经过 `GpuRenderWorld → TextureResidency`，按 exact format、extent 与完整离线 mip 分配 immutable segment，并由最多 4 个 `TextureBindingSet` 为同一 material colocate 全部语义。`KernelClassId × TextureBindingSetId` 的固定有界 consumer 覆盖 Material Resolve、Visibility MASK、Shadow MASK 与 Transparency；运行时 mip generation 只保留给显式未 Cook 的 development 输入。Runtime residency seam 只表达 chunk/request/budget/range 和退役，不拥有 scheduler；逻辑 asset/material handle 不含 GPU buffer offset、texture layer 或 mip/page 地址。
 

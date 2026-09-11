@@ -34,6 +34,7 @@ export interface TemporalAntiAliasingJob {
   readonly reactiveThreshold: number;
   readonly disocclusionThreshold: number;
   readonly motionFadePixels: number;
+  readonly historyPreExposureScale: number;
 }
 
 export class TemporalAntiAliasingPass {
@@ -137,7 +138,7 @@ export class TemporalAntiAliasingPass {
         Math.max(0, Math.min(1, job.reactiveThreshold)),
         Math.max(0, Math.min(1, job.disocclusionThreshold)),
         Math.max(1, Math.min(1024, job.motionFadePixels)),
-        0,
+        Math.max(0, job.historyPreExposureScale),
         0,
         0
       ]).buffer,

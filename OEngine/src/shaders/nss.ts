@@ -17,7 +17,7 @@ struct NssSettings {
   network_acc_scale: f32,
   feedback_scale: f32,
   quantize_inputs: f32,
-  _padding: f32,
+  history_pre_exposure_scale: f32,
   jitter_sign: vec2<f32>,
 };
 `;
@@ -272,15 +272,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let velocity = textureLoad(header, position + nearest_offset, 0).rg;
   let source_position = vec2<f32>(position) + 0.5 - velocity;
   let history_uv = source_position / vec2<f32>(dimensions);
-  let history = nss_warp_history_sample(history_uv);
   let disocclusion = textureLoad(loading_overlay_mode, position, 0).r;
   let history_validity = (1.0 - saturate(disocclusion)) * saturate(settings.history_validity);
-  let feedback = nss_warp_feedback_sample(history_uv);
-  let feedback_input = mix(
-    vec4<f32>(0.5),
-    feedback,
-    saturate(settings.history_validity) * saturate(settings.feedback_scale)
-  );
+  var history = vec3f(0.0);
+  var feedback_input = vec4f(0.5);
+  if (history_validity > 0.0 && settings.history_pre_exposure_scale > 0.0) {
+    history = nss_warp_history_sample(history_uv) * settings.history_pre_exposure_scale;
+    feedback_input = mix(
+      vec4f(0.5),
+      nss_warp_feedback_sample(history_uv),
+      saturate(settings.feedback_scale)
+    );
+  }
   let current = max(vec3<f32>(0.0), textureLoad(scale, position, 0).rgb);
   let derivative = nss_luma_derivative(current, history);
   let mapped_history = nss_tonemap_exposure(history);
@@ -388,7 +391,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let scaled_velocity = velocity / (vec2<f32>(render_resolution) / vec2<f32>(output_resolution));
   let history_position = vec2<f32>(output_pixel) + 0.5 - scaled_velocity;
   let history_uv = history_position / vec2<f32>(output_resolution);
-  let history = nss_warped_history(history_uv) * NSS_EXPOSURE;
+  var history = vec3f(0.0);
+  if (settings.history_validity > 0.0 && settings.history_pre_exposure_scale > 0.0) {
+    history = nss_warped_history(history_uv) *
+      settings.history_pre_exposure_scale * NSS_EXPOSURE;
+  }
   let history_in_bounds = select(0.0, 1.0, all(history_uv >= vec2<f32>(0.0)) && all(history_uv <= vec2<f32>(1.0)));
   let theta_alpha = nss_sample_layer_bilinear(input_position, render_maximum, 1);
   let learned_theta = saturate(theta_alpha.x);

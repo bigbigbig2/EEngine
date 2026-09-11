@@ -62,7 +62,15 @@ fn main() {
 
 export const EXPOSURE_ADAPT_WGSL = /* wgsl */ `
 struct ExposureValue { value: f32, };
-struct AdaptSettings { speed_up: f32, speed_down: f32, time_delta: f32, transition_distance: f32, compensation: f32, };
+struct AdaptSettings {
+  speed_up: f32,
+  speed_down: f32,
+  time_delta: f32,
+  transition_distance: f32,
+  compensation: f32,
+  history_valid: f32,
+  _padding: vec2f,
+};
 @group(0) @binding(0) var<uniform> goal: ExposureValue;
 @group(0) @binding(1) var<uniform> previous: ExposureValue;
 @group(0) @binding(2) var<uniform> settings: AdaptSettings;
@@ -70,7 +78,11 @@ struct AdaptSettings { speed_up: f32, speed_down: f32, time_delta: f32, transiti
 @group(0) @binding(4) var<storage, read_write> multiplier: ExposureValue;
 @compute @workgroup_size(1)
 fn main() {
-  let previous_log = log2(max(previous.value, 1e-7)); let goal_log = log2(max(goal.value, 1e-7));
+  // Invalid history may stay physically bound for a stable layout, but its
+  // stale value is never loaded into the adaptation path.
+  var previous_value = goal.value;
+  if (settings.history_valid >= 0.5) { previous_value = previous.value; }
+  let previous_log = log2(max(previous_value, 1e-7)); let goal_log = log2(max(goal.value, 1e-7));
   let delta = goal_log - previous_log; let speed = select(settings.speed_down, settings.speed_up, delta > 0.0);
   let distance = max(settings.transition_distance, 0.001);
   let step = min(abs(delta), speed * settings.time_delta * max(abs(delta) / distance, 1.0));
@@ -82,4 +94,4 @@ fn main() {
 export const EXPOSURE_HISTOGRAM_BIN_COUNT = 128;
 export const EXPOSURE_HISTOGRAM_BUFFER_SIZE = EXPOSURE_HISTOGRAM_BIN_COUNT * 4;
 export const EXPOSURE_VALUE_BUFFER_SIZE = 4;
-export const EXPOSURE_SETTINGS_BUFFER_SIZE = 20;
+export const EXPOSURE_SETTINGS_BUFFER_SIZE = 32;

@@ -50,6 +50,18 @@ test("SSR implementation changes select the production replacement oracle", () =
   assert.ok(selection.caseIds.includes("surface.ssr-replacement"));
 });
 
+test("shared product and post consumers select the Step 7 oracle", () => {
+  const selection = selectCasesForPaths([
+    "OEngine/src/render/passes/SharedColorPyramidPass.ts",
+    "OEngine/src/render/passes/BloomPass.ts",
+    "OEngine/src/render/TemporalHistoryRegistry.ts"
+  ]);
+  assert.ok(selection.domains.includes("shared-products"));
+  assert.ok(selection.domains.includes("post"));
+  assert.ok(selection.domains.includes("temporal"));
+  assert.ok(selection.caseIds.includes("surface.shared-derived-products"));
+});
+
 test("cross-cutting renderer changes stay within the lightweight registry set", () => {
   const selection = selectCasesForPaths(["OEngine/src/render/Renderer.ts"]);
   assert.deepEqual(selection.caseIds, [

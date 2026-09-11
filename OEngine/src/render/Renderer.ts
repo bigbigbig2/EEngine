@@ -28,6 +28,8 @@ export type {
   RenderFramePhase,
   ScreenSpaceGiRuntimeEvidence,
   ScreenSpaceReflectionsRuntimeEvidence,
+  SharedColorPyramidRuntimeEvidence,
+  SharedDerivedProductsRuntimeEvidence,
   TemporalRuntimeEvidence,
   VisibilitySurfaceMigrationEvidence
 } from "./pipeline/MainRenderPipeline.js";

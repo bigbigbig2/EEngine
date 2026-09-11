@@ -14,6 +14,7 @@ import {
   EXPOSURE_VALUE_BUFFER_SIZE
 } from "../../shaders/automatic_exposure.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
+import type { FinalColorPyramidFrame } from "../pipeline/FrameProducts.js";
 
 export class AutomaticExposurePass {
   adaptation_speed_up = 3;
@@ -25,9 +26,11 @@ export class AutomaticExposurePass {
   private readonly reducePipeline: CachedComputePipelineDescriptor;
   private readonly adaptPipeline: CachedComputePipelineDescriptor;
   private readonly adaptedBuffers: [GPUBuffer, GPUBuffer];
-  private frameIndex = 0;
+  lastHistogramPasses = 0;
+  lastMeteringMipLevel = 0;
+  lastMeteringPixels = 0;
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(device: GPUDevice) {
     this.histogramPipeline = createComputePipelineDescriptor(
       "Renderer/Automatic exposure histogram eC",
       EXPOSURE_HISTOGRAM_WGSL,
@@ -51,25 +54,40 @@ export class AutomaticExposurePass {
 
   update(
     graph: FrameGraph,
-    inputColor: ResourceId,
-    timeDeltaSeconds = 0.01666,
-    frameBindings?: {
+    input: FinalColorPyramidFrame,
+    frameBindings: {
       readonly previous: ResourceId;
       readonly adapted: ResourceId;
-      readonly job: { readonly timeDeltaSeconds: number };
+      readonly job: {
+        readonly timeDeltaSeconds: number;
+        readonly historyValid: boolean;
+      };
     }
   ): ResourceId {
-    if (frameBindings === undefined) this.frameIndex++;
+    const meteringMipLevel = Math.max(0, input.mipLevelCount - 1);
+    const meteringWidth = Math.max(1, input.domain.width >> meteringMipLevel);
+    const meteringHeight = Math.max(1, input.domain.height >> meteringMipLevel);
 
     let histogram = -1;
-    const histogramBuilder = graph.add("Automatic exposure histogram eC", {}, (_data, resources, context) => {
+    const histogramBuilder = graph.add("Automatic exposure histogram eC", {
+      meteringMipLevel,
+      meteringWidth,
+      meteringHeight
+    }, (data, resources, context) => {
       const command = requireShadeCommandContext(context.encoder);
       this.dispatchHistogram(
         command,
-        resolveTextureView(resources.get(inputColor)),
+        resolveTextureView(resources.get(input.texture), {
+          baseMipLevel: data.meteringMipLevel,
+          mipLevelCount: 1
+        }),
         resolveBuffer(resources.get(histogram), "histogram"),
-        graph.getDescriptor(inputColor)
+        data.meteringWidth,
+        data.meteringHeight
       );
+      this.lastHistogramPasses = 1;
+      this.lastMeteringMipLevel = data.meteringMipLevel;
+      this.lastMeteringPixels = data.meteringWidth * data.meteringHeight;
     });
     histogram = histogramBuilder.create("Automatic exposure histogram", {
       kind: "transient_buffer",
@@ -77,7 +95,7 @@ export class AutomaticExposurePass {
       usage: GPUBufferUsage.STORAGE,
       ensure_cleared: [0, EXPOSURE_HISTOGRAM_BUFFER_SIZE]
     });
-    histogramBuilder.read(inputColor);
+    histogramBuilder.read(input.texture);
 
     let goal = -1;
     const reduceBuilder = graph.add("Automatic exposure percentile _C", {}, (_data, resources, context) => {
@@ -95,27 +113,20 @@ export class AutomaticExposurePass {
     });
     reduceBuilder.read(histogram);
 
-    const previous = frameBindings?.previous ?? graph.import_resource(
-        "Automatic exposure previous",
-        { kind: "imported", label: "automatic exposure previous" },
-        this.historyBuffer(this.frameIndex, false)
-      );
-    const adaptedImported = frameBindings?.adapted ?? graph.import_resource(
-        "Automatic exposure adapted",
-        { kind: "imported", label: "automatic exposure adapted" },
-        this.historyBuffer(this.frameIndex, true)
-      );
+    const previous = frameBindings.previous;
+    const adaptedImported = frameBindings.adapted;
 
     let multiplier = -1;
     let adapted = adaptedImported;
     const adaptBuilder = graph.add(
       "Automatic exposure adaptation ZE",
-      frameBindings?.job ?? { timeDeltaSeconds },
+      frameBindings.job,
       (data, resources, context) => {
         const command = requireShadeCommandContext(context.encoder);
         this.dispatchAdapt(
           command,
           data.timeDeltaSeconds,
+          data.historyValid,
           resolveBuffer(resources.get(goal), "goal"),
           resolveBuffer(resources.get(previous), "previous"),
           resolveBuffer(resources.get(adapted), "adapted"),
@@ -134,12 +145,18 @@ export class AutomaticExposurePass {
     return multiplier;
   }
 
-  historyBuffer(frameIndex: number, output: boolean): GPUBuffer {
-    return this.adaptedBuffers[(frameIndex + (output ? 1 : 0)) % 2]!;
+  historyBuffer(index: 0 | 1): GPUBuffer {
+    return this.adaptedBuffers[index];
   }
 
   get historyBytes(): number {
     return this.adaptedBuffers.reduce((sum, buffer) => sum + buffer.size, 0);
+  }
+
+  resetFrameEvidence(): void {
+    this.lastHistogramPasses = 0;
+    this.lastMeteringMipLevel = 0;
+    this.lastMeteringPixels = 0;
   }
 
   unadapted(graph: FrameGraph): ResourceId {
@@ -171,14 +188,9 @@ export class AutomaticExposurePass {
     command: ShadeGPUCommandContext,
     input: GPUTextureView,
     histogram: GPUBuffer,
-    descriptor: ReturnType<FrameGraph["getDescriptor"]>
+    width: number,
+    height: number
   ): void {
-    let width = 1;
-    let height = 1;
-    if (descriptor?.kind === "transient_texture") {
-      width = descriptor.width;
-      height = descriptor.height;
-    }
     const pass = command.constructComputePass({
       label: "Automatic exposure histogram eC",
       pipeline: this.histogramPipeline,
@@ -201,6 +213,7 @@ export class AutomaticExposurePass {
   private dispatchAdapt(
     command: ShadeGPUCommandContext,
     timeDeltaSeconds: number,
+    historyValid: boolean,
     goal: GPUBuffer,
     previous: GPUBuffer,
     adapted: GPUBuffer,
@@ -212,7 +225,10 @@ export class AutomaticExposurePass {
         this.adaptation_speed_down,
         timeDeltaSeconds,
         this.exp_transition_distance,
-        this.exposure_compensation
+        this.exposure_compensation,
+        historyValid ? 1 : 0,
+        0,
+        0
       ]).buffer,
       GPUBufferUsage.UNIFORM
     );

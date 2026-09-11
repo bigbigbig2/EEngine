@@ -13,43 +13,36 @@ fn main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 }
 `;
 
-export const BLOOM_PREFILTER_WGSL = /* wgsl */ `
+const BLOOM_THRESHOLD_WGSL = /* wgsl */ `
+fn bloom_extract(color: vec3f) -> vec3f {
+  let luma = dot(color, vec3f(0.212639, 0.715169, 0.072192));
+  return max(color - vec3f(max(0.25, luma * 0.25)), vec3f(0.0));
+}
+`;
+
+export const BLOOM_EXTRACT_WGSL = /* wgsl */ `
+${BLOOM_THRESHOLD_WGSL}
 @group(0) @binding(0) var source_hdr: texture_2d<f32>;
-@group(0) @binding(1) var linear_clamp: sampler;
 @fragment
-fn main(@builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-  let color = textureSampleLevel(source_hdr, linear_clamp, uv, 0.0).rgb;
-  let luma = dot(color, vec3<f32>(0.212639, 0.715169, 0.072192));
-  return vec4<f32>(max(color - vec3<f32>(max(0.25, luma * 0.25)), vec3<f32>(0.0)), 1.0);
+fn main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+  let color = textureLoad(source_hdr, vec2i(position.xy), 0).rgb;
+  return vec4f(bloom_extract(color), 1.0);
 }
 `;
 
-export const BLOOM_DOWNSAMPLE_WGSL = /* wgsl */ `
-@group(0) @binding(0) var source_mip: texture_2d<f32>;
-@group(0) @binding(1) var linear_clamp: sampler;
-@fragment
-fn main(@builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-  let texel = 1.0 / vec2<f32>(textureDimensions(source_mip)); var sum = vec3<f32>(0.0);
-  sum += textureSampleLevel(source_mip, linear_clamp, uv + texel * vec2<f32>(-1.0, -1.0), 0.0).rgb;
-  sum += textureSampleLevel(source_mip, linear_clamp, uv + texel * vec2<f32>( 1.0, -1.0), 0.0).rgb;
-  sum += textureSampleLevel(source_mip, linear_clamp, uv + texel * vec2<f32>(-1.0,  1.0), 0.0).rgb;
-  sum += textureSampleLevel(source_mip, linear_clamp, uv + texel * vec2<f32>( 1.0,  1.0), 0.0).rgb;
-  return vec4<f32>(sum * 0.25, 1.0);
-}
-`;
-
-export const BLOOM_UPSAMPLE_WGSL = /* wgsl */ `
-@group(0) @binding(0) var current_mip: texture_2d<f32>;
-@group(0) @binding(1) var lower_mip: texture_2d<f32>;
+export const BLOOM_RECONSTRUCT_WGSL = /* wgsl */ `
+${BLOOM_THRESHOLD_WGSL}
+@group(0) @binding(0) var current_scene_mip: texture_2d<f32>;
+@group(0) @binding(1) var lower_bloom_mip: texture_2d<f32>;
 @group(0) @binding(2) var linear_clamp: sampler;
 @fragment
 fn main(@builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-  let texel = 1.0 / vec2<f32>(textureDimensions(lower_mip)); var blur = vec3<f32>(0.0);
+  let texel = 1.0 / vec2f(textureDimensions(lower_bloom_mip)); var blur = vec3f(0.0);
   for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
-    blur += textureSampleLevel(lower_mip, linear_clamp, uv + vec2<f32>(f32(x), f32(y)) * texel, 0.0).rgb;
+    blur += textureSampleLevel(lower_bloom_mip, linear_clamp, uv + vec2f(f32(x), f32(y)) * texel, 0.0).rgb;
   }}
-  let base = textureSampleLevel(current_mip, linear_clamp, uv, 0.0).rgb;
-  return vec4<f32>(base + blur / 9.0 * 0.85, 1.0);
+  let scene = textureLoad(current_scene_mip, vec2i(position.xy), 0).rgb;
+  return vec4f(bloom_extract(scene) + blur / 9.0 * 0.85, 1.0);
 }
 `;
 

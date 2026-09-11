@@ -63,6 +63,12 @@ import { GIService, type OpaqueLightingResult } from "../features/GIService.js";
 import { TemporalFeature } from "../features/TemporalFeature.js";
 import { PostFeature } from "../features/PostFeature.js";
 import {
+  FINAL_COLOR_PYRAMID_MAX_MIPS,
+  OPAQUE_COLOR_PYRAMID_MAX_MIPS,
+  SHARED_COLOR_PYRAMID_ABI_VERSION,
+  SharedColorPyramidPass
+} from "../passes/SharedColorPyramidPass.js";
+import {
   NeuralSuperSamplingPass,
   type NssSettings
 } from "../passes/NeuralSuperSamplingPass.js";
@@ -147,6 +153,7 @@ import {
   longRangeDiffuseFrame,
   preExposedOpaqueRadianceSourceFrame,
   preExposedOpaqueHdrBaselineFrame,
+  type PreExposureContract,
   type VisibilityFrame
 } from "./FrameProducts.js";
 import {
@@ -332,6 +339,7 @@ export interface ScreenSpaceReflectionsRuntimeEvidence {
   readonly traceHeight: number;
   readonly tracePasses: number;
   readonly prefilterPasses: number;
+  readonly prefilterOwner: "shared-opaque-color-pyramid" | "disabled";
   readonly resolvePasses: number;
   readonly spatialPasses: number;
   readonly recurrentDenoisePasses: number;
@@ -343,6 +351,46 @@ export interface ScreenSpaceReflectionsRuntimeEvidence {
   readonly historyRevision: number;
   readonly historyInvalidations: number;
   readonly historyInvalidationReason: string;
+}
+
+export interface SharedColorPyramidRuntimeEvidence {
+  readonly opaqueBuilds: number;
+  readonly opaqueRenderPasses: number;
+  readonly opaqueMipLevelCount: number;
+  readonly finalBuilds: number;
+  readonly finalRenderPasses: number;
+  readonly finalMipLevelCount: number;
+  readonly allocatedBytes: number;
+}
+
+export interface SharedDerivedProductsRuntimeEvidence {
+  readonly abiVersion: number;
+  readonly pyramids: SharedColorPyramidRuntimeEvidence;
+  readonly opaqueStage: "post-screen-space-diffuse-pre-ssr";
+  readonly finalStage: "post-transparency-temporal";
+  readonly opaqueConsumerCount: number;
+  readonly finalConsumerCount: number;
+  readonly screenSpaceDiffuseSourcePyramidBuilds: 0;
+  readonly bloomReconstructPasses: number;
+  readonly bloomConsumedFinalMips: number;
+  readonly exposureHistogramPasses: number;
+  readonly exposureMeteringMipLevel: number;
+  readonly exposureMeteringPixels: number;
+  readonly histories: readonly Readonly<{
+    name: string;
+    semantic: string;
+    resolutionDomain: string;
+    format: string;
+    bufferCount: number;
+    preExposure: string;
+    active: boolean;
+    valid: boolean;
+    readValid: boolean;
+    generation: number;
+    invalidationCount: number;
+    lastInvalidationReason: string;
+    preExposureScale: number;
+  }>[];
 }
 
 export interface RendererMemoryEvidence extends GraphicsMemoryEvidence {
@@ -443,6 +491,7 @@ type MainFrameGraphBindings = {
   readonly taaHistoryValidity: number;
   readonly taaHistoryInputIndex: 0 | 1;
   readonly taaHistoryOutputIndex: 0 | 1;
+  readonly taaHistoryPreExposureScale: number;
   readonly gtaoHistoryValidity: number;
   readonly gtaoHistoryInputIndex: 0 | 1;
   readonly gtaoHistoryOutputIndex: 0 | 1;
@@ -450,17 +499,25 @@ type MainFrameGraphBindings = {
   readonly ssgiHistoryInputIndex: 0 | 1;
   readonly ssgiHistoryOutputIndex: 0 | 1;
   readonly ssgiHistoryRevision: number;
+  readonly ssgiHistoryPreExposureScale: number;
   readonly ssrHistoryValidity: number;
   readonly ssrHistoryInputIndex: 0 | 1;
   readonly ssrHistoryOutputIndex: 0 | 1;
+  readonly ssrHistoryPreExposureScale: number;
+  readonly nssFeedbackInputIndex: 0 | 1;
+  readonly nssFeedbackOutputIndex: 0 | 1;
+  readonly exposureHistoryValidity: boolean;
+  readonly exposureHistoryInputIndex: 0 | 1;
+  readonly exposureHistoryOutputIndex: 0 | 1;
   readonly motionBlurStrength: number;
   readonly nssSettings: NssSettings | null;
   readonly linearHdrCapture: PendingLinearHdrCapture | null;
 };
 
 const MAIN_GRAPH_CACHE_LIMIT = 16;
-const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 4;
-const MAIN_GRAPH_INSTRUMENTATION_REVISION = 6;
+const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 5;
+const MAIN_GRAPH_INSTRUMENTATION_REVISION = 7;
+const MAIN_HISTORY_REPRESENTATION_REVISION = 1;
 
 /**
  * 渲染器运行时总控。
@@ -524,11 +581,56 @@ export class MainRenderPipeline {
   private readonly _temporalFeature = new TemporalFeature();
   private _nss: NeuralSuperSamplingPass | null = null;
   private _postFeature: PostFeature | null = null;
+  private _sharedColorPyramids: SharedColorPyramidPass | null = null;
   private readonly _temporalHistories = new TemporalHistoryRegistry([
-    "color",
-    "gtao",
-    "ssgi",
-    "ssr"
+    {
+      name: "color",
+      semantic: "final-temporal-color",
+      resolutionDomain: "output-full",
+      format: "rgba16float",
+      bufferCount: 2,
+      preExposure: "working-linear-rescale"
+    },
+    {
+      name: "gtao",
+      semantic: "gtao-visibility-bent-moments",
+      resolutionDomain: "effect-resolution",
+      format: "rgba16float",
+      bufferCount: 2,
+      preExposure: "none"
+    },
+    {
+      name: "ssgi",
+      semantic: "ssgi-ao-bent-and-incident-diffuse",
+      resolutionDomain: "effect-resolution",
+      format: "rgba16float+rgba16float",
+      bufferCount: 4,
+      preExposure: "working-linear-rescale"
+    },
+    {
+      name: "ssr",
+      semantic: "ssr-recurrent-specular",
+      resolutionDomain: "effect-resolution",
+      format: "rgba16float",
+      bufferCount: 2,
+      preExposure: "working-linear-rescale"
+    },
+    {
+      name: "nss-feedback",
+      semantic: "nss-network-feedback",
+      resolutionDomain: "internal-full",
+      format: "rgba16float",
+      bufferCount: 2,
+      preExposure: "invalidate-on-change"
+    },
+    {
+      name: "exposure",
+      semantic: "automatic-exposure-adapted-luminance",
+      resolutionDomain: "scalar",
+      format: "f32-buffer",
+      bufferCount: 2,
+      preExposure: "invalidate-on-change"
+    }
   ]);
   private _lastFramePlan: FramePlanDump | null = null;
   private _unsubscribeDynamicResolution: (() => void) | null = null;
@@ -552,8 +654,15 @@ export class MainRenderPipeline {
     const change = this._renderSettings.update(patch);
     if (!change.changed) return change;
     if (change.resolutionChanged) this._renderResolutionDirty = true;
-    if (change.historiesInvalidated.length > 0) {
-      this._temporalHistories.invalidate("explicit");
+    if (
+      change.historiesInvalidated.length > 0 &&
+      !change.topologyChanged &&
+      !change.resolutionChanged
+    ) {
+      this._temporalHistories.invalidateNames(
+        change.historiesInvalidated,
+        "explicit"
+      );
     }
     const post = this._renderSettings.values.post;
     this._postFeature?.syncExposure({
@@ -1079,7 +1188,10 @@ export class MainRenderPipeline {
       traceWidth,
       traceHeight,
       tracePasses: pass?.lastTracePasses ?? 0,
-      prefilterPasses: pass?.lastPrefilterPasses ?? 0,
+      prefilterPasses: enabled
+        ? this._sharedColorPyramids?.evidence().opaqueBuilds ?? 0
+        : 0,
+      prefilterOwner: enabled ? "shared-opaque-color-pyramid" : "disabled",
       resolvePasses: pass?.lastResolvePasses ?? 0,
       spatialPasses: pass?.lastSpatialPasses ?? 0,
       recurrentDenoisePasses: pass?.lastSpatialPasses ?? 0,
@@ -1388,6 +1500,8 @@ export class MainRenderPipeline {
     this._lightingFeature?.destroy();
     this._postFeature?.destroy();
     this._postFeature = null;
+    this._sharedColorPyramids?.destroy();
+    this._sharedColorPyramids = null;
     this._temporalFeature.destroy();
     this._renderDebug?.destroy();
     this._renderDebug = null;
@@ -1445,6 +1559,11 @@ export class MainRenderPipeline {
     });
     const featureTopology = this.resolveFeatureTopology();
     this.initializeRenderPasses(featureTopology);
+    const framePreExposure: PreExposureContract = Object.freeze({
+      multiplier: 1,
+      generation: 0,
+      colorSpace: "working-linear"
+    });
     this._temporalHistories.beginFrame(
       this._frame_count,
       {
@@ -1457,7 +1576,12 @@ export class MainRenderPipeline {
         feature: featureTopology.enabledFeatureBits,
         format: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
         light: scene.lights.version + scene.light_probe_volume.version,
-        view: `${camera.id}/${scene.id}`
+        scene: scene.id,
+        representation: MAIN_HISTORY_REPRESENTATION_REVISION +
+          (featureTopology.nss ? this._nss!.historyRepresentationRevision : 0),
+        device: 0,
+        preExposureGeneration: framePreExposure.generation,
+        view: `${camera.id}`
       },
       [
         ...(featureTopology.temporal ? ["color"] : []),
@@ -1467,8 +1591,11 @@ export class MainRenderPipeline {
         ...(featureTopology.ssgi && featureTopology.screenSpaceDiffuseTemporal
           ? ["ssgi"]
           : []),
-        ...(featureTopology.ssrTemporal ? ["ssr"] : [])
-      ]
+        ...(featureTopology.ssrTemporal ? ["ssr"] : []),
+        ...(featureTopology.nss ? ["nss-feedback"] : []),
+        ...(featureTopology.automaticExposure ? ["exposure"] : [])
+      ],
+      framePreExposure
     );
     const temporalFrameIndex = this._frame_count;
     cmd.onFinished.addOne(() => {
@@ -1646,6 +1773,8 @@ export class MainRenderPipeline {
       const gtaoHistory = this._temporalHistories.state("gtao");
       const ssgiHistory = this._temporalHistories.state("ssgi");
       const ssrHistory = this._temporalHistories.state("ssr");
+      const nssFeedbackHistory = this._temporalHistories.state("nss-feedback");
+      const exposureHistory = this._temporalHistories.state("exposure");
       const taaHistoryValidity = temporalHistory.valid ? 1 : 0;
       if (featureTopology.taa) {
         this._temporalFeature.jitter.reset_history = false;
@@ -1661,16 +1790,30 @@ export class MainRenderPipeline {
       this._reflectionService?.resetFrameEvidence();
       this._screenSpaceDiffuseService?.resetFrameEvidence();
       this._giService.resetFrameEvidence();
+      this._sharedColorPyramids?.resetFrameEvidence();
+      this._postFeature?.bloom()?.resetFrameEvidence();
+      this._postFeature?.automaticExposure()?.resetFrameEvidence();
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
       this._lastTemporalClassificationPassCount =
         (featureTopology.screenSpaceDiffuseTemporal || featureTopology.ssrTemporal ? 1 : 0) +
         (featureTopology.temporal ? 1 : 0);
-      const nssSettings = featureTopology.nss
+      const preparedNssSettings = featureTopology.nss
         ? this._nss!.prepareFrame({
             renderResolution: [w, h],
             outputResolution: [outputWidth, outputHeight]
           })
         : null;
+      const nssSettings = preparedNssSettings === null ? null : Object.freeze({
+        ...preparedNssSettings,
+        historyValidity:
+          preparedNssSettings.historyValidity > 0 &&
+          temporalHistory.valid &&
+          nssFeedbackHistory.valid ? 1 : 0,
+        historyPreExposureScale:
+          preparedNssSettings.historyValidity > 0
+            ? temporalHistory.preExposureScale
+            : 0
+      });
       const registryBindings = this._graphics.render_world.bindings();
       const counters = gpuCounterBuffer ?? gpuPacked.counterSink;
       const prepareJob = {
@@ -1730,13 +1873,11 @@ export class MainRenderPipeline {
           color: taaHistoryValidity,
           gtao: gtaoHistory.valid ? 1 : 0,
           ssgi: ssgiHistory.valid ? 1 : 0,
-          ssr: ssrHistory.valid ? 1 : 0
+          ssr: ssrHistory.valid ? 1 : 0,
+          nssFeedback: nssFeedbackHistory.valid ? 1 : 0,
+          exposure: exposureHistory.valid ? 1 : 0
         },
-        preExposure: {
-          multiplier: 1,
-          generation: 0,
-          colorSpace: "working-linear"
-        },
+        preExposure: framePreExposure,
         scene: Object.freeze({
           scene,
           environment,
@@ -1774,6 +1915,7 @@ export class MainRenderPipeline {
         taaHistoryValidity,
         taaHistoryInputIndex: temporalHistory.readIndex,
         taaHistoryOutputIndex: temporalHistory.writeIndex,
+        taaHistoryPreExposureScale: temporalHistory.preExposureScale,
         gtaoHistoryValidity: gtaoHistory.valid ? 1 : 0,
         gtaoHistoryInputIndex: gtaoHistory.readIndex,
         gtaoHistoryOutputIndex: gtaoHistory.writeIndex,
@@ -1781,9 +1923,16 @@ export class MainRenderPipeline {
         ssgiHistoryInputIndex: ssgiHistory.readIndex,
         ssgiHistoryOutputIndex: ssgiHistory.writeIndex,
         ssgiHistoryRevision: ssgiHistory.revision,
+        ssgiHistoryPreExposureScale: ssgiHistory.preExposureScale,
         ssrHistoryValidity: ssrHistory.valid ? 1 : 0,
         ssrHistoryInputIndex: ssrHistory.readIndex,
         ssrHistoryOutputIndex: ssrHistory.writeIndex,
+        ssrHistoryPreExposureScale: ssrHistory.preExposureScale,
+        nssFeedbackInputIndex: nssFeedbackHistory.readIndex,
+        nssFeedbackOutputIndex: nssFeedbackHistory.writeIndex,
+        exposureHistoryValidity: exposureHistory.valid,
+        exposureHistoryInputIndex: exposureHistory.readIndex,
+        exposureHistoryOutputIndex: exposureHistory.writeIndex,
         motionBlurStrength: this.motion_blur_strength,
         nssSettings,
         linearHdrCapture: frameLinearHdrCapture
@@ -2339,7 +2488,8 @@ export class MainRenderPipeline {
               temporalBlend: settings.temporalBlend,
               backfaceLighting: settings.backfaceLighting,
               historyGeneration: bindings.ssgiHistoryRevision,
-              preExposure: bindings.context.preExposure
+              preExposure: bindings.context.preExposure,
+              historyPreExposureScale: bindings.ssgiHistoryPreExposureScale
             })),
             {
               depth: depthRes,
@@ -2534,6 +2684,19 @@ export class MainRenderPipeline {
             selected.baselineSpecular !== null
           ) {
             const completeOpaqueHdr = opaqueBaseline.hdr;
+            const opaqueColorPyramid = this._sharedColorPyramids!.addOpaqueToGraph(
+              graph,
+              opaqueBaseline,
+              depthRes,
+              {
+                width: w,
+                height: h,
+                mipLevelCount: OPAQUE_COLOR_PYRAMID_MAX_MIPS,
+                sourceGeneration: SHARED_COLOR_PYRAMID_ABI_VERSION,
+                preExposure: frameContext.preExposure,
+                samplers: this._graphics.samplers
+              }
+            );
             const ssr = this._reflectionService!.addToGraph(
               graph,
               bind("ssr-job", (bindings) => ({
@@ -2558,12 +2721,12 @@ export class MainRenderPipeline {
                 maxRoughness: this._renderSettings.values.ssr.maxRoughness,
                 mirrorBias: this._renderSettings.values.ssr.mirrorBias,
                 temporalStrength: this._renderSettings.values.ssr.temporalStrength,
-                preExposure: bindings.context.preExposure
+                historyPreExposureScale: bindings.ssrHistoryPreExposureScale
               })),
               {
                 depth: depthRes,
                 hzb: hzbRes,
-                sceneColor: completeOpaqueHdr,
+                opaqueColorPyramid,
                 pbr: gPbrRes,
                 normal: gNormalRes,
                 velocity: velocityRes,
@@ -2757,9 +2920,9 @@ export class MainRenderPipeline {
               {
                 settings: bind("nss-settings", (bindings) => bindings.nssSettings!),
                 feedbackCurrent: bind("nss-feedback-current", (bindings) =>
-                  this._nss!.feedbackTexture(bindings.frameIndex, false)),
+                  this._nss!.feedbackTexture(bindings.nssFeedbackInputIndex)),
                 feedbackNext: bind("nss-feedback-next", (bindings) =>
-                  this._nss!.feedbackTexture(bindings.frameIndex, true)),
+                  this._nss!.feedbackTexture(bindings.nssFeedbackOutputIndex)),
                 bindResource: (name, resolve) => bind(
                   `nss-internal/${name}`,
                   () => resolve()
@@ -2788,7 +2951,8 @@ export class MainRenderPipeline {
                 historyLockStep: this._renderSettings.values.temporal.historyLockStep,
                 reactiveThreshold: this._renderSettings.values.temporal.reactiveThreshold,
                 disocclusionThreshold: this._renderSettings.values.temporal.disocclusionThreshold,
-                motionFadePixels: this._renderSettings.values.temporal.motionFadePixels
+                motionFadePixels: this._renderSettings.values.temporal.motionFadePixels,
+                historyPreExposureScale: bindings.taaHistoryPreExposureScale
               })),
               {
                 output: historyOutputRes,
@@ -2823,42 +2987,51 @@ export class MainRenderPipeline {
           );
         }
 
+        const finalColorPyramid =
+          hdrRes !== null && (graphTopology.automaticExposure || graphTopology.bloom)
+            ? this._sharedColorPyramids!.addFinalToGraph(graph, hdrRes, {
+                width: outputWidth,
+                height: outputHeight,
+                mipLevelCount: FINAL_COLOR_PYRAMID_MAX_MIPS,
+                sourceGeneration: SHARED_COLOR_PYRAMID_ABI_VERSION,
+                preExposure: frameContext.preExposure,
+                samplers: this._graphics.samplers
+              })
+            : null;
+
         let exposureRes: ResourceId | null = null;
-        const exposureSourceHdr = hdrRes;
-        if (graphTopology.automaticExposure && exposureSourceHdr !== null) {
+        if (graphTopology.automaticExposure && finalColorPyramid !== null) {
           const exposurePrevious = graph.import_resource(
             "Automatic exposure previous",
             { kind: "imported", label: "automatic exposure previous" },
             bind("automatic-exposure-previous", (bindings) =>
-              this._postFeature!.obtainAutomaticExposure().historyBuffer(bindings.frameIndex, false))
+              this._postFeature!.obtainAutomaticExposure().historyBuffer(bindings.exposureHistoryInputIndex))
           );
           const exposureAdapted = graph.import_resource(
             "Automatic exposure adapted",
             { kind: "imported", label: "automatic exposure adapted" },
             bind("automatic-exposure-adapted", (bindings) =>
-              this._postFeature!.obtainAutomaticExposure().historyBuffer(bindings.frameIndex, true))
+              this._postFeature!.obtainAutomaticExposure().historyBuffer(bindings.exposureHistoryOutputIndex))
           );
           exposureRes = this._postFeature!.obtainAutomaticExposure().update(
             graph,
-            exposureSourceHdr,
-            time_delta_seconds,
+            finalColorPyramid,
             {
               previous: exposurePrevious,
               adapted: exposureAdapted,
               job: bind("automatic-exposure-job", (bindings) => ({
-                timeDeltaSeconds: bindings.timeDeltaSeconds
+                timeDeltaSeconds: bindings.timeDeltaSeconds,
+                historyValid: bindings.exposureHistoryValidity
               }))
             }
           );
         }
 
-        if (hdrRes !== null && graphTopology.bloom) {
+        if (hdrRes !== null && graphTopology.bloom && finalColorPyramid !== null) {
           const bloom = this._postFeature!.addBloomToGraph(
             graph,
-            hdrRes,
+            finalColorPyramid,
             bind("bloom-job", () => ({
-              width: this._output_resolution.x,
-              height: this._output_resolution.y,
               intensity: this._renderSettings.values.post.bloomIntensity,
               mipCount: 5,
               samplers: this._graphics.samplers
@@ -3140,6 +3313,12 @@ export class MainRenderPipeline {
       if (graphTopology.ssr && this._reflectionService?.lastTemporalPasses === 1) {
         this._temporalHistories.markProduced("ssr");
       }
+      if (graphTopology.nss) {
+        this._temporalHistories.markProduced("nss-feedback");
+      }
+      if (graphTopology.automaticExposure) {
+        this._temporalHistories.markProduced("exposure");
+      }
       view.finish_frame(cmd, this._frame_count);
       this.recordFrameCounters(
         viewHzb,
@@ -3396,6 +3575,12 @@ export class MainRenderPipeline {
       this._temporalFeature.retireColorHistory();
     }
     this._postFeature ??= new PostFeature(this._graphics);
+    if (topology.ssr || topology.bloom || topology.automaticExposure) {
+      this._sharedColorPyramids ??= new SharedColorPyramidPass(this._graphics);
+    } else if (this._sharedColorPyramids !== null) {
+      this.retireAfterSubmittedWork(this._sharedColorPyramids);
+      this._sharedColorPyramids = null;
+    }
     // ColorGrading 常开，不属于 feature flag；懒创建，参数在 graph 构建时绑定。
     this._postFeature.obtainColorGrading();
     if (topology.motionBlur) {
@@ -3712,6 +3897,23 @@ export class MainRenderPipeline {
     profiler.recordCounter("ssr.historyBytes", ssr.historyBytes);
     profiler.recordCounter("ssr.historyValid", ssr.historyValid ? 1 : 0);
     profiler.recordCounter("ssr.historyRevision", ssr.historyRevision);
+    const shared = this.sharedDerivedProductsEvidence();
+    profiler.recordCounter("sharedPyramid.opaqueBuilds", shared.pyramids.opaqueBuilds);
+    profiler.recordCounter("sharedPyramid.opaqueRenderPasses", shared.pyramids.opaqueRenderPasses);
+    profiler.recordCounter("sharedPyramid.opaqueMips", shared.pyramids.opaqueMipLevelCount);
+    profiler.recordCounter("sharedPyramid.finalBuilds", shared.pyramids.finalBuilds);
+    profiler.recordCounter("sharedPyramid.finalRenderPasses", shared.pyramids.finalRenderPasses);
+    profiler.recordCounter("sharedPyramid.finalMips", shared.pyramids.finalMipLevelCount);
+    profiler.recordCounter("sharedPyramid.allocatedBytes", shared.pyramids.allocatedBytes);
+    profiler.recordCounter(
+      "sharedPyramid.screenSpaceDiffuseSourceBuilds",
+      shared.screenSpaceDiffuseSourcePyramidBuilds
+    );
+    profiler.recordCounter("sharedPyramid.bloomReconstructPasses", shared.bloomReconstructPasses);
+    profiler.recordCounter("sharedPyramid.bloomConsumedMips", shared.bloomConsumedFinalMips);
+    profiler.recordCounter("sharedPyramid.exposureHistogramPasses", shared.exposureHistogramPasses);
+    profiler.recordCounter("sharedPyramid.exposureMeteringMip", shared.exposureMeteringMipLevel);
+    profiler.recordCounter("sharedPyramid.exposureMeteringPixels", shared.exposureMeteringPixels);
     profiler.recordCounter("gpu.residentBytes", this._graphics.gpu_memory_usage);
   }
 
@@ -3753,6 +3955,54 @@ export class MainRenderPipeline {
       sampleFrameIndex: snapshot.frameIndex,
       currentFrameIndex: this._frame_count,
       gpuFrameTimeMs
+    });
+  }
+
+  /** ADR-0009 Step 7 logical-product, consumer and history-lifecycle evidence. */
+  sharedDerivedProductsEvidence(): SharedDerivedProductsRuntimeEvidence {
+    const topology = this.resolveFeatureTopology();
+    const pyramids = this._sharedColorPyramids?.evidence() ?? Object.freeze({
+      opaqueBuilds: 0,
+      opaqueRenderPasses: 0,
+      opaqueMipLevelCount: 0,
+      finalBuilds: 0,
+      finalRenderPasses: 0,
+      finalMipLevelCount: 0,
+      allocatedBytes: 0
+    });
+    const bloom = this._postFeature?.bloom();
+    const exposure = this._postFeature?.automaticExposure();
+    return Object.freeze({
+      abiVersion: SHARED_COLOR_PYRAMID_ABI_VERSION,
+      pyramids,
+      opaqueStage: "post-screen-space-diffuse-pre-ssr",
+      finalStage: "post-transparency-temporal",
+      opaqueConsumerCount: topology.ssr ? 1 : 0,
+      finalConsumerCount: Number(topology.bloom) + Number(topology.automaticExposure),
+      screenSpaceDiffuseSourcePyramidBuilds: 0,
+      bloomReconstructPasses: bloom?.lastReconstructPasses ?? 0,
+      bloomConsumedFinalMips: bloom?.lastConsumedPyramidMips ?? 0,
+      exposureHistogramPasses: exposure?.lastHistogramPasses ?? 0,
+      exposureMeteringMipLevel: exposure?.lastMeteringMipLevel ?? 0,
+      exposureMeteringPixels: exposure?.lastMeteringPixels ?? 0,
+      histories: Object.freeze(this._temporalHistories.descriptors().map((descriptor) => {
+        const state = this._temporalHistories.state(descriptor.name);
+        return Object.freeze({
+          name: descriptor.name,
+          semantic: descriptor.semantic,
+          resolutionDomain: descriptor.resolutionDomain,
+          format: descriptor.format,
+          bufferCount: descriptor.bufferCount,
+          preExposure: descriptor.preExposure,
+          active: state.active,
+          valid: state.valid,
+          readValid: state.readValid,
+          generation: state.revision,
+          invalidationCount: state.invalidationCount,
+          lastInvalidationReason: state.lastInvalidationReason,
+          preExposureScale: state.preExposureScale
+        });
+      }))
     });
   }
 
