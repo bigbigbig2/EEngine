@@ -27,6 +27,7 @@ export type {
   RendererInitializeOptions,
   RendererMemoryEvidence,
   RenderFramePhase,
+  ScreenSpaceGiRuntimeEvidence,
   ScreenSpaceReflectionsRuntimeEvidence,
   TemporalRuntimeEvidence,
   VisibilitySurfaceMigrationEvidence

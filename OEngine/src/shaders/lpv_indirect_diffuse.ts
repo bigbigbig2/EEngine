@@ -289,11 +289,11 @@ fn build_skeleton_visualization(
   point: vec3f,
   shading_normal: vec3f,
   view_direction: vec3f
-) -> vec3f {
+) -> vec4f {
   var barycentric: vec4f;
   let cell = lpv_mesh_lookup_nearest_cell(point, &barycentric);
   if (cell == INVALID_TET) {
-    return vec3f(0.0);
+    return vec4f(0.0);
   }
   let weights = lpv_mask_weights_by_visibility(
     point,
@@ -302,7 +302,10 @@ fn build_skeleton_visualization(
     cell,
     barycentric
   );
-  return sh2_irradiance(shading_normal, interpolate_probe_sh(weights, cell));
+  return vec4f(
+    sh2_irradiance(shading_normal, interpolate_probe_sh(weights, cell)),
+    1.0
+  );
 }
 
 const FULLSCREEN_POSITIONS = array<vec2f, 3>(
@@ -342,6 +345,6 @@ fn fs_main(
   let view_direction = normalize(camera_position - position);
   let irradiance = build_skeleton_visualization(position, normal, view_direction);
   let occlusion = textureLoad(radix, vec2i(pixel), 0).a;
-  return vec4f(max(vec3f(0.0), irradiance) * occlusion, 0.0);
+  return vec4f(max(vec3f(0.0), irradiance.rgb) * occlusion, irradiance.a);
 }
 `;

@@ -8,7 +8,7 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 19;
+export const GPU_COUNTER_SCHEMA_VERSION = 20;
 export const GPU_COUNTER_BYTE_SIZE = 544;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -103,6 +103,10 @@ export const GPU_COUNTER_FIELDS = [
   { name: "ssrHighRoughnessTracePixels", index: 81, semantic: "sampled pixels rejected before SSR trace by the active roughness cutoff" },
   { name: "ssrDistanceLimitExceededPixels", index: 82, semantic: "sampled rays rejected by max-distance termination" },
   { name: "ssrValidationRejectedPixels", index: 83, semantic: "sampled hierarchical hits rejected by current depth, facing, edge or confidence validation" },
+  { name: "ssgiEvaluatedPixels", index: 84, semantic: "sampled SSGI-resolution pixels entering the Three-derived horizon-bitfield trace" },
+  { name: "ssgiTraceSamples", index: 85, semantic: "sampled SSGI slice-side-step candidates requested by the configured trace budget" },
+  { name: "ssgiHistoryAcceptedPixels", index: 86, semantic: "sampled SSGI pixels whose unified temporal policy assigns non-zero history weight" },
+  { name: "ssgiHistoryRejectedPixels", index: 87, semantic: "sampled SSGI pixels rejecting history for global validity, motion or disocclusion" },
   { name: "kernelBaseFactorPixels", index: 88, semantic: "sampled visible pixels classified as BaseFactor" },
   { name: "kernelBaseTexturePixels", index: 89, semantic: "sampled visible pixels classified as BaseTexture" },
   { name: "kernelBaseOrmPixels", index: 90, semantic: "sampled visible pixels classified as BaseOrm" },
@@ -146,7 +150,11 @@ export const GPU_COUNTER_FIELDS = [
   { name: "materialTileUnassignedPixels", index: 128, semantic: "ADR-0009 valid pixels without exactly one dispatch-class consumer" },
   { name: "materialTileDuplicatePixels", index: 129, semantic: "ADR-0009 extra shading claims beyond one per valid pixel" },
   { name: "materialTileOverflowQueues", index: 130, semantic: "ADR-0009 dispatch-class queues with attempted/written mismatch or invalid records" },
-  { name: "materialTileFrameInvalid", index: 131, semantic: "ADR-0009 GPU-authored all-frame correctness failure signal" }
+  { name: "materialTileFrameInvalid", index: 131, semantic: "ADR-0009 GPU-authored all-frame correctness failure signal" },
+  { name: "longRangeBrick4Receivers", index: 132, semantic: "sampled receivers selecting valid Brick4 long-range diffuse" },
+  { name: "longRangeProbeReceivers", index: 133, semantic: "sampled receivers selecting valid Probe Volume long-range diffuse" },
+  { name: "longRangeIblReceivers", index: 134, semantic: "sampled receivers falling back to IBL long-range diffuse" },
+  { name: "longRangeBlackReceivers", index: 135, semantic: "sampled receivers falling back to black because no long-range provider is valid" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

@@ -83,7 +83,7 @@ declare global {
 
 type Q00CaptureState = {
   readonly features?: Partial<Record<
-    "shadows" | "gtao" | "ssr" | "taa" | "bloom" | "exposure" | "motionBlur" | "sharpen",
+    "shadows" | "gtao" | "ssgi" | "ssr" | "taa" | "bloom" | "exposure" | "motionBlur" | "sharpen",
     boolean
   >>;
   readonly debugView?: RenderDebugViewName;
@@ -107,7 +107,7 @@ type DebugDescriptor = {
   readonly value: RenderDebugViewName;
   readonly label: string;
   readonly help: string;
-  readonly requires?: "gtao" | "ssr";
+  readonly requires?: "screen-space-diffuse" | "ssr";
 };
 
 const MODEL_URL = new URL("./assets/dungeon_warkarma.glb", import.meta.url).href;
@@ -122,9 +122,9 @@ const debugDescriptors: readonly DebugDescriptor[] = [
   { value: RenderDebugView.Roughness, label: "粗糙度", help: "材质感知粗糙度。" },
   { value: RenderDebugView.Metallic, label: "金属度", help: "材质金属响应。" },
   { value: RenderDebugView.Occlusion, label: "材质遮蔽", help: "材质纹理提供的环境遮蔽。" },
-  { value: RenderDebugView.AmbientOcclusionRaw, label: "GTAO 原始", help: "未进行空间与时域滤波的 GTAO visibility。", requires: "gtao" },
-  { value: RenderDebugView.AmbientOcclusionDenoised, label: "GTAO 空间滤波", help: "空间滤波后的 GTAO visibility。", requires: "gtao" },
-  { value: RenderDebugView.AmbientOcclusionTemporal, label: "环境光遮蔽", help: "时域 GTAO 最终可见度。", requires: "gtao" },
+  { value: RenderDebugView.AmbientOcclusionRaw, label: "屏幕 AO 原始", help: "当前 GTAO/SSGI 模式进入空间滤波前的 visibility。", requires: "screen-space-diffuse" },
+  { value: RenderDebugView.AmbientOcclusionDenoised, label: "屏幕 AO 空间滤波", help: "当前 GTAO/SSGI 模式的空间滤波 visibility。", requires: "screen-space-diffuse" },
+  { value: RenderDebugView.AmbientOcclusionTemporal, label: "环境光遮蔽", help: "当前 GTAO/SSGI 模式的最终时域 visibility。", requires: "screen-space-diffuse" },
   { value: RenderDebugView.Emissive, label: "自发光", help: "从 GLB 材质解码的自发光贡献。" },
   { value: RenderDebugView.Velocity, label: "运动矢量", help: "屏幕空间运动方向和幅度。" },
   { value: RenderDebugView.HistoryValidity, label: "历史有效性", help: "时域运动有效与反应状态。" },
@@ -302,7 +302,15 @@ async function initialize(): Promise<void> {
 function installQ00Api(activeRenderer: Renderer): void {
   window.__OENGINE_Q00_SET_STATE__ = (state) => {
     for (const [feature, enabled] of Object.entries(state.features ?? {})) {
-      if (PIPELINE_MODE && ["shadows", "gtao", "ssr", "taa", "bloom", "exposure", "motionBlur", "sharpen"].includes(feature)) continue;
+      if (PIPELINE_MODE && ["shadows", "gtao", "ssgi", "ssr", "taa", "bloom", "exposure", "motionBlur", "sharpen"].includes(feature)) continue;
+      if ((feature === "gtao" || feature === "ssgi") && enabled !== undefined) {
+        const selector = document.querySelector<HTMLSelectElement>("select[data-screen-space-diffuse]");
+        const current = activeRenderer.render_settings.features.screenSpaceDiffuseMode;
+        const mode = enabled ? feature : current === feature ? "off" : current;
+        if (selector !== null) selector.value = mode;
+        activeRenderer.configure({ features: { screenSpaceDiffuseMode: mode } });
+        continue;
+      }
       const checkbox = document.querySelector<HTMLInputElement>(`input[data-feature="${feature}"]`);
       if (checkbox === null || enabled === undefined) continue;
       checkbox.checked = enabled;
@@ -354,7 +362,8 @@ function installQ00Api(activeRenderer: Renderer): void {
       sceneBounds,
       settings: {
         shadows: activeRenderer.render_settings.features.shadows,
-        gtao: activeRenderer.render_settings.features.ambientOcclusion,
+        gtao: activeRenderer.render_settings.features.screenSpaceDiffuseMode === "gtao",
+        screenSpaceDiffuseMode: activeRenderer.render_settings.features.screenSpaceDiffuseMode,
         gtaoResolutionScale: activeRenderer.render_settings.ao.resolutionScale,
         gtaoTemporal: activeRenderer.render_settings.ao.temporalEnabled,
         ssr: activeRenderer.render_settings.features.screenSpaceReflections,
@@ -698,7 +707,8 @@ function benchmarkFeatureSet(activeRenderer: Renderer, caseId: RenderingLabCaseI
     "hierarchy-sse-lod",
     ...(activeRenderer.packed_triangle_setup_enabled ? ["triangle-setup-candidate-cache"] : []),
     ...(features.shadows ? ["packed-csm-shadow"] : []),
-    ...(features.ambientOcclusion ? ["gtao"] : []),
+    ...(features.screenSpaceDiffuseMode === "gtao" ? ["gtao"] : []),
+    ...(features.screenSpaceDiffuseMode === "ssgi" ? ["ssgi"] : []),
     ...(features.screenSpaceReflections ? ["ssr"] : []),
     ...(features.temporalAntiAliasing ? ["temporal"] : []),
     ...(features.bloom ? ["bloom"] : []),
@@ -1321,7 +1331,7 @@ function createPerformanceSampleKey(activeRenderer: Renderer): string {
     temporal.outputHeight,
     activeRenderer.internal_resolution_scale,
     features.shadows,
-    features.ambientOcclusion,
+    features.screenSpaceDiffuseMode,
     features.screenSpaceReflections,
     features.temporalAntiAliasing,
     features.bloom,
@@ -1336,12 +1346,22 @@ function createPerformanceSampleKey(activeRenderer: Renderer): string {
 }
 
 function bindRendererControls(activeRenderer: Renderer): void {
+  const screenSpaceDiffuse = document.querySelector<HTMLSelectElement>(
+    "select[data-screen-space-diffuse]"
+  );
+  screenSpaceDiffuse?.addEventListener("change", () => {
+    const mode = screenSpaceDiffuse.value;
+    if (mode === "off" || mode === "gtao" || mode === "ssgi") {
+      activeRenderer.configure({ features: { screenSpaceDiffuseMode: mode } });
+      ensureDebugProducer(activeRenderer);
+      restartPerformanceEvidence("屏幕空间漫反射模式变化");
+    }
+  });
   const checkboxes = document.querySelectorAll<HTMLInputElement>("input[data-feature]");
   for (const checkbox of checkboxes) {
     checkbox.addEventListener("change", () => {
       switch (checkbox.dataset.feature) {
         case "shadows": activeRenderer.configure({ features: { shadows: checkbox.checked } }); break;
-        case "gtao": activeRenderer.configure({ features: { ambientOcclusion: checkbox.checked } }); break;
         case "ssr": activeRenderer.configure({ features: { screenSpaceReflections: checkbox.checked } }); break;
         case "taa": activeRenderer.configure({ features: { temporalAntiAliasing: checkbox.checked } }); break;
         case "bloom": activeRenderer.configure({ features: { bloom: checkbox.checked } }); break;
@@ -1371,11 +1391,13 @@ function bindRendererControls(activeRenderer: Renderer): void {
 
   const aoResolution = required<HTMLSelectElement>("ao-resolution");
   aoResolution.addEventListener("change", () => {
-    activeRenderer.configure({ ao: { resolutionScale: Number(aoResolution.value) as 0.5 | 1 } });
+    const resolutionScale = Number(aoResolution.value) as 0.5 | 1;
+    activeRenderer.configure({ ao: { resolutionScale }, ssgi: { resolutionScale } });
     activeRenderer.indicate_view_change();
   });
   required<HTMLInputElement>("ao-temporal").addEventListener("change", (event) => {
-    activeRenderer.configure({ ao: { temporalEnabled: (event.currentTarget as HTMLInputElement).checked } });
+    const temporalEnabled = (event.currentTarget as HTMLInputElement).checked;
+    activeRenderer.configure({ ao: { temporalEnabled }, ssgi: { temporalEnabled } });
     activeRenderer.indicate_view_change();
   });
 
@@ -1475,7 +1497,7 @@ function bindRendererControls(activeRenderer: Renderer): void {
 
 function ensureDebugProducer(activeRenderer: Renderer): void {
   const descriptor = debugDescriptors.find((entry) => entry.value === activeRenderer.render_debug_view);
-  if (descriptor?.requires === "gtao" && !activeRenderer.render_settings.features.ambientOcclusion) {
+  if (descriptor?.requires === "screen-space-diffuse" && activeRenderer.render_settings.features.screenSpaceDiffuseMode === "off") {
     selectFinalOutput(activeRenderer);
   }
   if (descriptor?.requires === "ssr" && !activeRenderer.render_settings.features.screenSpaceReflections) {
@@ -1483,10 +1505,17 @@ function ensureDebugProducer(activeRenderer: Renderer): void {
   }
 }
 
-function enableFeature(feature: "gtao" | "ssr", activeRenderer: Renderer): void {
+function enableFeature(feature: "screen-space-diffuse" | "ssr", activeRenderer: Renderer): void {
   const checkbox = document.querySelector<HTMLInputElement>(`input[data-feature="${feature}"]`);
   if (checkbox !== null) checkbox.checked = true;
-  if (feature === "gtao") activeRenderer.configure({ features: { ambientOcclusion: true } });
+  if (feature === "screen-space-diffuse") {
+    const selector = document.querySelector<HTMLSelectElement>("select[data-screen-space-diffuse]");
+    const mode = activeRenderer.render_settings.features.screenSpaceDiffuseMode === "off"
+      ? "gtao"
+      : activeRenderer.render_settings.features.screenSpaceDiffuseMode;
+    if (selector !== null) selector.value = mode;
+    activeRenderer.configure({ features: { screenSpaceDiffuseMode: mode } });
+  }
   if (feature === "ssr") activeRenderer.configure({ features: { screenSpaceReflections: true } });
 }
 

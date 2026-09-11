@@ -112,7 +112,9 @@ fn correction(pixel: vec2i, uv: vec2f, ambient_visibility: f32) -> vec4f {
   );
   let baseline = textureLoad(baseline_specular_source, pixel, 0).rgb;
   let resolved = textureLoad(resolved_specular_source, pixel, 0).rgb;
-  return vec4f((resolved - baseline) * weight * occlusion, 0.0);
+  // Baseline producer already publishes BRDF-weighted/occluded radiance;
+  // resolved SSR is incident radiance and receives receiver weighting here.
+  return vec4f(resolved * weight * occlusion - baseline, 0.0);
 }
 
 @fragment

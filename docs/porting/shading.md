@@ -108,6 +108,21 @@
 - Fallback/lifecycle: miss keeps declared environment baseline；off prunes SSR passes、histories and debug resources。
 - Local validation: `r5-fx08-screen-space-reflections.test.mjs`、hit/miss、roughness、offscreen、history and feature-off cases；replacement must first revalidate current path。
 
+## SHADE-SSGI · Screen-space diffuse GI and ambient visibility
+
+- Local owner/source: `ScreenSpaceDiffuseService`、`SsgiPass.ts`、`ssgi.ts`、`ScreenSpaceDiffuseResolvePass.ts` and the conditional `DiffuseSurfaceLite`/pre-SSGI radiance products。
+- Upstream: three.js <https://github.com/mrdoob/three.js>。
+- Revision: three.js `148ef33ecb6d2502ff796d4554abd1549c95d519`（r186）。
+- Upstream source: `examples/jsm/tsl/display/SSGINode.js` and `examples/webgpu_postprocessing_ssgi.html` at the pinned revision。
+- License: three.js MIT；本地 shader 文件保留 source/revision，本记录承担表达级移植追溯。
+- Adoption: `traceable-local-port`。保留 32-zone horizon bitfield、hemisphere slice/双向 step、quadratic near-field stepping、六帧 temporal rotation、四帧 spatial offset、radius/thickness、backface-lighting control、newly-occluded-zone radiance weighting、AO/GI dual output 与 luminance/firefly bound；不是 three.js runtime dependency。
+- OEngine/WebGPU differences: 不移植 TSL、NodeMaterial、QuadMesh、three.js RenderTarget 或独立 `TRAANode`。输入是 OEngine full-resolution、working-linear、pre-exposed `PreExposedOpaqueRadianceSource`，并读取 shared reverse-Z Depth/HZB、compact world normal、Velocity、surface validity 和 shared occlusion confidence。当前半分辨率 trace 写 `rgba16float AO/second-moment/oct-bent + rgba16float incident-GI/confidence`，joint spatial/temporal filter 后一次 full-resolution bilateral resolve 拆成 `r8unorm + rg16uint + rgba16float + r8unorm`。
+- Composition invariant: source 明确位于当前帧 SSGI 之前；`ScreenSpaceDiffuseResolve` 只替换 long-range diffuse 与 baseline specular 的 screen-visibility 部分，并对 incident diffuse GI 使用 receiver diffuse reflectance、metalness energy remainder 与 Material AO 恰好一次。Direct、emissive、unlit 不乘 screen AO；SSR 存在时 baseline specular 保持到 Reflection correction owner 再替换，避免双重 subtract。
+- Provider selection: producer texture alpha 已表达逐 receiver validity，但当前迁移态仍由 `indirect_lighting_mode` 在 scene/frame 级选择 Brick4 或 Probe Volume；有效 receiver 使用所选 producer，无效 receiver 在同一 lighting resolve 内回退 IBL。它不会把多个 full-screen provider 相加，但还没有实现同一 frame 的 `valid Brick4 > valid Probe Volume > IBL` 完整 receiver chain。现有 GPU counters 只证明所选 producer/IBL 的互斥归属，不能冒充完整 precedence 证据。
+- Cost/quality policy: medium `1×12` half-resolution、high `2×8` half-resolution、ultra `3×16` full-resolution；每档仍是同一 producer。四张 history texture 仅在 `mode=ssgi && temporalEnabled` 存在。`mode=gtao` 时 SSGI owner、radiance-source dependency、component MRT、resolve、history 和 counter dispatch 均不存在；`mode=ssgi` 时 GTAO owner/history 全部退役。
+- Fallback/lifecycle: background/invalid depth、退化 normal 或无有效 horizon 使用 input normal、visibility 1、GI/confidence 0；history 由 `TemporalHistoryRegistry` 在 camera cut、resize、render-scale、lighting、view、format、feature toggle 与 aborted submit 时失效。公开配置只有 `screenSpaceDiffuseMode: off | gtao | ssgi`，不保留互相矛盾的 GTAO/SSGI 双布尔。
+- Local validation: `surface.ssgi-production` 固定 production graph、pinned revision、exclusive owner、source-before-resolve、history/provider counter closure 和 one-submit；正式综合性能仍必须使用唯一 `comprehensive-full` workload 产生 Step 5 clean artifact 后才能宣称完成。
+
 ## SHADE-GRADING · HDR color grading
 
 - Local owner/source: `PostFeature`、`ColorGradingPass`、`OEngine/src/shaders/color_grading.ts`。
@@ -129,7 +144,7 @@
 - Upstream source: Filament `surface_light_indirect.fs` and `CubemapIBL.cpp` for baseline invariants。
 - License: Apache-2.0 for Filament reference；local composition authored by OEngine。
 - Adoption: compose existing providers; no external composition source copied。
-- Retained invariants: one `resolveOpaqueLighting` entry、Brick4/LPV/IBL explicit mode、diffuse/specular baseline and shared Surface interpretation。
-- OEngine/WebGPU differences: Renderer pre-imports ResourceId；GIService owns provider selection/fallback but not external resource creation。
-- Fallback/lifecycle: unavailable static/dynamic provider falls back to IBL baseline；owners are lazy and retire through Feature lifecycle。
+- Retained invariants: one `resolveOpaqueLighting` entry、receiver-validity provider selection、materialized pre-SSGI diffuse/specular components only when demanded、shared Surface interpretation and non-additive long-range authority。
+- OEngine/WebGPU differences: Renderer pre-imports ResourceId；GIService owns provider selection/fallback and screen-space diffuse energy resolve but not external resource creation。Brick4/Probe raw provider alpha carries per-receiver validity；SSGI topology forces the otherwise-fused baseline to expose temporary resolved components。
+- Fallback/lifecycle: 当前 scene/frame policy 选择一个 static/dynamic producer；invalid receiver falls through to IBL in the same resolve。Brick4 invalid 后继续尝试 Probe Volume、以及 IBL unavailable 后进入 black，仍是 Step 5 的开放实现项。Owners are lazy and retire through Feature lifecycle；`mode!=ssgi` 不创建 SSGI-only component MRT。
 - Local validation: GI provider composition、fallback、feature-off and indirect-lighting tests。

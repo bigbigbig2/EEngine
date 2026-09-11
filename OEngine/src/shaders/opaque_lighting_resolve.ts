@@ -8,6 +8,7 @@ import {
   GPU_SHADING_SURFACE_NORMAL_WGSL
 } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
+import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
 
 export const OPAQUE_LIGHTING_RESOLVE_FORMAT = "rgba16float" as const;
 
@@ -16,6 +17,7 @@ ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 ${GPU_COMPUTE_MATERIAL_ABI_WGSL}
+${OCTAHEDRAL_SAMPLE_WGSL}
 
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
@@ -34,6 +36,7 @@ const MIN_DIELECTRICS_F0: f32 = 0.04;
 @group(1) @binding(3) var num_ints: texture_2d<f32>;
 @group(1) @binding(4) var bindings: texture_2d<f32>;
 @group(1) @binding(5) var ambient_visibility: texture_2d<f32>;
+@group(1) @binding(6) var fallback_diffuse_irradiance: texture_2d<f32>;
 
 fn saturate_f32(value: f32) -> f32 {
   return clamp(value, 0.0, 1.0);
@@ -177,7 +180,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertexOutput {
   return output;
 }
 
-fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32) -> vec4f {
+fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32) -> mat2x3f {
   let depth = textureLoad(gr_bucket, vec2i(pixel), 0).r;
   let pbr = textureLoad(channel_count, vec2i(pixel), 0);
   let albedo_ao = textureLoad(radix, vec2i(pixel), 0);
@@ -196,7 +199,17 @@ fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32)
   let view_direction = normalize(camera.transform[3].xyz - position);
   let shading_normal = decode_surface_normal(textureLoad(n, vec2i(pixel), 0).xy);
   let bent_normal = decode_bent_normal(textureLoad(count, vec2i(pixel), 0).xy);
-  let irradiance = textureLoad(num_ints, vec2i(pixel), 0).rgb;
+  let provider_irradiance = textureLoad(num_ints, vec2i(pixel), 0);
+  let fallback_irradiance = sample_prefiltered_environment(
+    fallback_diffuse_irradiance,
+    bent_normal,
+    0.0
+  ) * material_ao;
+  let irradiance = select(
+    fallback_irradiance,
+    provider_irradiance.rgb,
+    provider_irradiance.a > 0.5
+  );
   let radiance = textureLoad(bindings, vec2i(pixel), 0).rgb;
   let indirect = compute_indirect_specular(
     radiance,
@@ -216,9 +229,9 @@ fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32)
     material_ao * ambient_visibility_value,
     roughness
   );
-  return vec4f(
-    indirect[0] * specular_occlusion + indirect[1] * ambient_visibility_value,
-    1.0
+  return mat2x3f(
+    indirect[0] * specular_occlusion,
+    indirect[1] * ambient_visibility_value
   );
 }
 
@@ -235,7 +248,8 @@ fn fs_main(
     return vec4f(0.0);
   }
   let ambient = textureLoad(ambient_visibility, vec2i(pixel), 0).r;
-  return indirect_contribution(pixel, uv, ambient);
+  let contribution = indirect_contribution(pixel, uv, ambient);
+  return vec4f(contribution[0] + contribution[1], 1.0);
 }
 
 @fragment
@@ -248,7 +262,32 @@ fn fs_main_no_ao(
   if oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT) {
     return vec4f(0.0);
   }
-  return indirect_contribution(pixel, uv, 1.0);
+  let contribution = indirect_contribution(pixel, uv, 1.0);
+  return vec4f(contribution[0] + contribution[1], 1.0);
+}
+
+struct OpaqueLightingComponentOutputs {
+  @location(0) total: vec4f,
+  @location(1) baseline_specular: vec4f,
+  @location(2) resolved_diffuse: vec4f,
+};
+
+@fragment
+fn fs_main_components(
+  @builtin(position) coord: vec4f,
+  @location(0) uv: vec2f
+) -> OpaqueLightingComponentOutputs {
+  let pixel = vec2u(coord.xy);
+  let metadata = textureLoad(surface_metadata, vec2i(pixel), 0).r;
+  if oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT) {
+    return OpaqueLightingComponentOutputs(vec4f(0.0), vec4f(0.0), vec4f(0.0));
+  }
+  let contribution = indirect_contribution(pixel, uv, 1.0);
+  return OpaqueLightingComponentOutputs(
+    vec4f(contribution[0] + contribution[1], 1.0),
+    vec4f(contribution[0], 0.0),
+    vec4f(contribution[1], 0.0)
+  );
 }
 
 `;

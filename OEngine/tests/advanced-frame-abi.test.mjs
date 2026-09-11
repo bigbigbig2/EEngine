@@ -48,6 +48,16 @@ import {
   THREE_GTAO_RAW_WGSL,
   THREE_GTAO_REVISION
 } from "../.test-dist/shaders/gtao.js";
+import {
+  SSGI_BENT_NORMAL_FORMAT,
+  SSGI_CONFIDENCE_FORMAT,
+  SSGI_INCIDENT_GI_FORMAT,
+  SSGI_TRACE_AO_FORMAT,
+  SSGI_TRACE_GI_FORMAT,
+  SSGI_VISIBILITY_FORMAT,
+  THREE_SSGI_REVISION,
+  THREE_SSGI_TRACE_WGSL
+} from "../.test-dist/shaders/ssgi.js";
 globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4, FRAGMENT: 2, VERTEX: 1 });
 const {
   PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
@@ -76,6 +86,14 @@ const IBL_BASELINE_PASS_SOURCE = readFileSync(
 );
 const OPAQUE_LIGHTING_PIPELINE_SOURCE = readFileSync(
   new URL("../src/render/pipeline/OpaqueLightingPipeline.ts", import.meta.url),
+  "utf8"
+);
+const SSGI_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/SsgiPass.ts", import.meta.url),
+  "utf8"
+);
+const SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE = readFileSync(
+  new URL("../src/shaders/screen_space_diffuse_resolve.ts", import.meta.url),
   "utf8"
 );
 
@@ -314,6 +332,37 @@ test("ADR-0009 Step 4 temporally filters packed AO moments and bent normals", ()
     existsSync(new URL("../src/render/passes/ScreenSpaceAmbientOcclusionPass.ts", import.meta.url)),
     false
   );
+});
+
+test("ADR-0009 Step 5 pins the Three.js r186 SSGI sampling invariants", () => {
+  assert.equal(THREE_SSGI_REVISION, "148ef33ecb6d2502ff796d4554abd1549c95d519");
+  assert.match(THREE_SSGI_TRACE_WGSL, /array<f32, 6>\(60\.0, 300\.0, 180\.0, 240\.0, 120\.0, 0\.0\)/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /array<f32, 4>\(0\.0, 0\.5, 0\.25, 0\.75\)/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /var occluded = 0u/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /let newly_occluded = mask & ~occluded/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /countOneBits\(occluded\)/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /initial_ray_step/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /settings\.backface_lighting/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /luminance > 7\.0/);
+});
+
+test("ADR-0009 Step 5 keeps AO, GI, bent and confidence in one history owner", () => {
+  assert.equal(SSGI_TRACE_AO_FORMAT, "rgba16float");
+  assert.equal(SSGI_TRACE_GI_FORMAT, "rgba16float");
+  assert.equal(SSGI_VISIBILITY_FORMAT, "r8unorm");
+  assert.equal(SSGI_BENT_NORMAL_FORMAT, "rg16uint");
+  assert.equal(SSGI_INCIDENT_GI_FORMAT, "rgba16float");
+  assert.equal(SSGI_CONFIDENCE_FORMAT, "r8unorm");
+  assert.match(SSGI_PASS_SOURCE, /historyTextureCount = this\.histories === null \? 0 : 4/);
+  assert.match(SSGI_PASS_SOURCE, /SSGI unified temporal AO\+GI resolve/);
+  assert.match(SSGI_PASS_SOURCE, /SSGI joint bilateral full-resolution resolve/);
+});
+
+test("ADR-0009 Step 5 composes an indirect-only energy delta", () => {
+  assert.match(SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE, /resolved_diffuse \+ near_diffuse - baseline_diffuse/);
+  assert.match(SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE, /albedo_ao\.rgb \* \(1\.0 - metallic\) \* remaining \* material_ao \* RECIPROCAL_PI/);
+  assert.match(SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE, /resolved_screen_occlusion \/ max\(baseline_material_occlusion/);
+  assert.doesNotMatch(SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE, /hdr\s*\*=|scene.*\*.*visibility/i);
 });
 
 test("ADR-0009 Step 0 freezes a legal four-group ShadeLighting binding envelope", () => {

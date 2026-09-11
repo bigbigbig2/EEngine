@@ -40,7 +40,8 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("surface.transparent", "surface", "transparent", ["surface", "material", "transparency"], ["renderer", "graphics-context", "surface", "material", "transparency"]),
   defineCase("surface.scene-adapter", "surface", "scene-adapter", ["surface", "material", "transparency", "temporal", "scene-adapter"], ["renderer", "gpu-scene", "scene", "surface", "material", "transparency", "temporal"]),
   defineCase("surface.lpv-baseline-pruning", "surface", "lpv-baseline-pruning", ["surface", "lighting", "gi", "lpv", "ssr", "framegraph"], ["surface", "lighting", "gi", "lpv", "ssr", "framegraph"], "always"),
-  defineCase("surface.gtao-replacement", "surface", "gtao-replacement", ["surface", "lighting", "gtao", "temporal", "framegraph", "porting"], ["surface", "gtao", "temporal", "framegraph", "porting"], "always")
+  defineCase("surface.gtao-replacement", "surface", "gtao-replacement", ["surface", "lighting", "gtao", "temporal", "framegraph", "porting"], ["surface", "gtao", "temporal", "framegraph", "porting"], "always"),
+  defineCase("surface.ssgi-production", "surface", "ssgi-production", ["surface", "lighting", "ssgi", "gi", "temporal", "framegraph", "porting"], ["surface", "lighting", "gi", "temporal", "framegraph", "porting"], "always")
 ]);
 
 const CASE_BY_ID = new Map(VALIDATION_CASES.map((entry) => [entry.id, entry]));

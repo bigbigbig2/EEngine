@@ -207,6 +207,10 @@ fn brick4_node_by_position(position_ws: vec3f) -> Brick4Node {
   return Brick4Node(bounds, node_pointer & 0x7fffffffu);
 }
 
+fn brick4_receiver_valid(position_ws: vec3f) -> bool {
+  return all(position_ws >= radiip.bounds.min) && all(position_ws <= radiip.bounds.max);
+}
+
 fn brick4_probe_compute_weight_by_normal(
   probe_position: vec3f,
   surface_position: vec3f,
@@ -414,6 +418,7 @@ fn fs_main(
     depth,
     camera.view_projection_matrix_inverse
   );
+  if (!brick4_receiver_valid(position)) { return vec4f(0.0); }
   let normal = decode_surface_normal(textureLoad(count, vec2i(pixel), 0).xy);
   let node = brick4_node_by_position(position);
   let meta = brick4_node_sample_probes_meta(node.bounds, position, normal);
@@ -457,6 +462,7 @@ fn fs_main(
     depth,
     camera.view_projection_matrix_inverse
   );
+  if (!brick4_receiver_valid(position)) { return vec4f(0.0); }
   let view_direction = normalize(camera.transform[3].xyz - position);
   let packed_normals = textureLoad(chunk_brick4, vec2i(pixel), 0);
   let normal = decode_surface_normal(packed_normals.xy);

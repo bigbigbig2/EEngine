@@ -66,7 +66,7 @@ async function initialize(): Promise<void> {
   renderer = activeRenderer;
   await activeRenderer.initialize({ context, pixelRatio: 1 });
   rendererInitialized = true;
-  activeRenderer.configure({ features: { shadows: false, ambientOcclusion: false, screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false }, post: { exposureCompensation: 0, colorGradingSaturation: 1, colorGradingGamma: 1, colorGradingGain: 1 } });
+  activeRenderer.configure({ features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false }, post: { exposureCompensation: 0, colorGradingSaturation: 1, colorGradingGamma: 1, colorGradingGain: 1 } });
   const activeScene = new Scene();
   scene = activeScene;
   const light = new DirectionalLight();

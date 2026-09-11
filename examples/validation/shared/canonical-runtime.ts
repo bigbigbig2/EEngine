@@ -48,7 +48,7 @@ export class CanonicalPackedRuntime {
     renderer.configure({
       features: {
         shadows: this.options.shadows ?? false,
-        ambientOcclusion: false,
+        screenSpaceDiffuseMode: "off",
         screenSpaceReflections: false,
         temporalAntiAliasing: false,
         bloom: false,

@@ -24,6 +24,10 @@ import {
 } from "../pipeline/OpaqueLightingPipeline.js";
 import type { OpaqueLightingResolveInputs } from "../passes/OpaqueLightingResolvePass.js";
 import {
+  ScreenSpaceDiffuseResolvePass,
+  type ScreenSpaceDiffuseResolveInputs
+} from "../passes/ScreenSpaceDiffuseResolvePass.js";
+import {
   Brick4DiffusePass,
   Brick4FusedIndirectPass,
   Brick4SpecularPass,
@@ -48,9 +52,12 @@ export interface LightmapIndirectInputs {
   readonly view: ResourceId;
   readonly camera: ResourceId;
   readonly lightMap: ResourceId;
+  readonly fallbackDiffuseIrradiance: ResourceId;
   readonly ambientVisibility?: ResourceId;
   readonly metadata: ResourceId;
   readonly extent: { readonly width: number; readonly height: number };
+  readonly reflectionCorrectionExpected: boolean;
+  readonly screenSpaceDiffuseCorrectionExpected: boolean;
   /** true 时走 Brick4 fused 路径（直接累加 hdr），否则 diffuse/specular 分离后合成。 */
   readonly fused: boolean;
 }
@@ -65,6 +72,7 @@ export interface ProbeVolumeIndirectInputs {
   readonly pbr: ResourceId;
   readonly splitSum: ResourceId;
   readonly environment: ResourceId;
+  readonly fallbackDiffuseIrradiance: ResourceId;
   readonly camera: ResourceId;
   readonly ambientVisibility?: ResourceId;
   readonly metadata: ResourceId;
@@ -76,6 +84,7 @@ export interface ProbeVolumeIndirectInputs {
   readonly probes: ResourceId;
   readonly extent: { readonly width: number; readonly height: number };
   readonly reflectionCorrectionExpected: boolean;
+  readonly screenSpaceDiffuseCorrectionExpected: boolean;
   /** 持有 late-bound camera/sampler/尺寸的 job（由 Renderer 通过 bind() 构造）。 */
   readonly job: LpvIndirectDiffuseJob;
 }
@@ -84,6 +93,7 @@ export interface ProbeVolumeIndirectOutput {
   readonly hdr: ResourceId;
   readonly indirectDiffuse: ResourceId;
   readonly indirectSpecular: ResourceId | null;
+  readonly providerValidity: ResourceId;
 }
 
 /** Shared inputs consumed by the single opaque-lighting owner. */
@@ -100,6 +110,7 @@ export interface OpaqueLightingCommonInputs {
   readonly metadata: ResourceId;
   readonly extent: { readonly width: number; readonly height: number };
   readonly reflectionCorrectionExpected: boolean;
+  readonly screenSpaceDiffuseCorrectionExpected: boolean;
 }
 
 export type OpaqueLightingRequest =
@@ -113,6 +124,7 @@ export type OpaqueLightingRequest =
       readonly stbn: ResourceId;
       readonly view: ResourceId;
       readonly lightMap: ResourceId;
+      readonly fallbackDiffuseIrradiance: ResourceId;
       readonly fused: boolean;
     })
   | (OpaqueLightingCommonInputs & {
@@ -131,6 +143,8 @@ export interface OpaqueLightingResult {
   readonly hdr: ResourceId;
   readonly indirectDiffuse: ResourceId | null;
   readonly indirectSpecular: ResourceId | null;
+  /** Raw provider output whose alpha is receiver validity; null means IBL. */
+  readonly providerValidity: ResourceId | null;
 }
 
 export interface LightmapIndirectOutput {
@@ -138,6 +152,7 @@ export interface LightmapIndirectOutput {
   readonly indirectDiffuse: ResourceId | null;
   /** Brick4 非 fused 路径的 specular 基线，供 SSSR delta correction 消费；fused 路径无独立基线，为 null。 */
   readonly indirectSpecular: ResourceId | null;
+  readonly providerValidity: ResourceId | null;
 }
 
 export class GIService {
@@ -148,6 +163,7 @@ export class GIService {
   private brick4Specular: Brick4SpecularPass | null;
   private brick4Fused: Brick4FusedIndirectPass | null;
   private lpvDiffuse: LpvIndirectDiffusePass | null;
+  private readonly screenSpaceDiffuseResolve: ScreenSpaceDiffuseResolvePass;
 
   constructor(
     graphics: GraphicsContext,
@@ -160,6 +176,14 @@ export class GIService {
     this.brick4Specular = new Brick4SpecularPass(graphics, surfaceProfile);
     this.brick4Fused = new Brick4FusedIndirectPass(graphics, surfaceProfile);
     this.lpvDiffuse = null;
+    this.screenSpaceDiffuseResolve = new ScreenSpaceDiffuseResolvePass(graphics, surfaceProfile);
+  }
+
+  resolveScreenSpaceDiffuse(
+    graph: FrameGraph,
+    inputs: ScreenSpaceDiffuseResolveInputs
+  ): ResourceId {
+    return this.screenSpaceDiffuseResolve.addToGraph(graph, inputs);
   }
 
   /** Single Renderer-facing opaque lighting interface. */
@@ -183,12 +207,17 @@ export class GIService {
       const frame = this.implementation.resolveIblBaseline(graph, inputs.extent, {
         ...common,
         environment: inputs.environment,
-        diffuseIrradiance: inputs.diffuseIrradiance
-      }, { baselineSpecular: inputs.reflectionCorrectionExpected });
+        diffuseIrradiance: inputs.diffuseIrradiance,
+        fallbackDiffuseIrradiance: inputs.diffuseIrradiance
+      }, {
+        baselineSpecular: inputs.reflectionCorrectionExpected || inputs.screenSpaceDiffuseCorrectionExpected,
+        componentOutputs: inputs.screenSpaceDiffuseCorrectionExpected
+      });
       return {
         hdr: frame.hdr,
         indirectDiffuse: frame.indirectDiffuse,
-        indirectSpecular: frame.iblSpecular
+        indirectSpecular: frame.iblSpecular,
+        providerValidity: null
       };
     }
     if (inputs.mode === "brick4") {
@@ -206,8 +235,13 @@ export class GIService {
     return result;
   }
 
-  private resolveHdr(graph: FrameGraph, inputs: OpaqueLightingResolveInputs): ResourceId {
-    return this.implementation.resolve(graph, inputs);
+  private resolveHdr(
+    graph: FrameGraph,
+    inputs: OpaqueLightingResolveInputs,
+    componentOutputs: boolean,
+    extent: Readonly<{ width: number; height: number }>
+  ) {
+    return this.implementation.resolveComponents(graph, inputs, componentOutputs, extent);
   }
 
   /** 静态 GI Provider（Lightmap）：Brick4 diffuse/specular（或 fused）→ OpaqueLighting resolve。 */
@@ -229,7 +263,7 @@ export class GIService {
         pbr: inputs.pbr,
         splitSum: inputs.splitSum
       });
-      return { hdr, indirectDiffuse: null, indirectSpecular: null };
+      return { hdr, indirectDiffuse: null, indirectSpecular: null, providerValidity: null };
     }
     const job: Brick4IndirectJob = {
       width: inputs.extent.width,
@@ -245,7 +279,7 @@ export class GIService {
       job,
       { ...base, normal: inputs.bentNormal, albedoAo: inputs.albedoAo }
     );
-    const hdr = this.resolveHdr(graph, {
+    const resolved = this.resolveHdr(graph, {
       hdr: inputs.hdr,
       depth: inputs.depth,
       normal: inputs.normal,
@@ -255,11 +289,17 @@ export class GIService {
       splitSum: inputs.splitSum,
       indirectDiffuse,
       indirectSpecular,
+      fallbackDiffuseIrradiance: inputs.fallbackDiffuseIrradiance,
       ambientVisibility: inputs.ambientVisibility,
       camera: inputs.camera,
       metadata: inputs.metadata
-    });
-    return { hdr, indirectDiffuse, indirectSpecular };
+    }, inputs.screenSpaceDiffuseCorrectionExpected, inputs.extent);
+    return {
+      hdr: resolved.hdr,
+      indirectDiffuse: resolved.resolvedDiffuse ?? indirectDiffuse,
+      indirectSpecular: resolved.baselineSpecular ?? indirectSpecular,
+      providerValidity: indirectDiffuse
+    };
   }
 
   /** 动态 GI Provider（Probe Volume）：LPV diffuse + IBL specular 基线 → OpaqueLighting resolve。 */
@@ -292,16 +332,21 @@ export class GIService {
       splitSum: inputs.splitSum,
       environment: inputs.environment,
       diffuseIrradiance: diffuse.indirectDiffuse,
+      fallbackDiffuseIrradiance: inputs.fallbackDiffuseIrradiance,
       ambientVisibility: inputs.ambientVisibility,
       camera: inputs.camera,
       metadata: inputs.metadata
       },
-      { baselineSpecular: inputs.reflectionCorrectionExpected }
+      {
+        baselineSpecular: inputs.reflectionCorrectionExpected || inputs.screenSpaceDiffuseCorrectionExpected,
+        componentOutputs: inputs.screenSpaceDiffuseCorrectionExpected
+      }
     );
     return {
       hdr: baseline.hdr,
-      indirectDiffuse: diffuse.indirectDiffuse,
-      indirectSpecular: baseline.iblSpecular
+      indirectDiffuse: baseline.indirectDiffuse ?? diffuse.indirectDiffuse,
+      indirectSpecular: baseline.iblSpecular,
+      providerValidity: diffuse.indirectDiffuse
     };
   }
 
@@ -311,6 +356,7 @@ export class GIService {
     this.brick4Specular!.lastRan = false;
     this.brick4Fused!.lastRan = false;
     if (this.lpvDiffuse !== null) this.lpvDiffuse.lastRan = false;
+    this.screenSpaceDiffuseResolve.lastRan = false;
   }
 
   destroy(): void {
@@ -321,5 +367,6 @@ export class GIService {
     this.brick4Fused = null;
     this.lpvDiffuse?.destroy();
     this.lpvDiffuse = null;
+    this.screenSpaceDiffuseResolve.destroy();
   }
 }

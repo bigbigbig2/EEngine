@@ -35,6 +35,7 @@ const MIN_DIELECTRICS_F0: f32 = 0.04;
 @group(1) @binding(3) var prefiltered_radiance: texture_2d<f32>;
 @group(1) @binding(4) var diffuse_irradiance: texture_2d<f32>;
 @group(1) @binding(5) var screen_ambient_visibility: texture_2d<f32>;
+@group(1) @binding(6) var fallback_diffuse_irradiance: texture_2d<f32>;
 
 fn saturate_f32(value: f32) -> f32 { return clamp(value, 0.0, 1.0); }
 fn saturate_vec3(value: vec3f) -> vec3f {
@@ -98,6 +99,7 @@ fn specular_occlusion_bent_normal(
 struct IblContribution {
   total: vec3f,
   baseline_specular: vec3f,
+  resolved_diffuse: vec3f,
 };
 
 fn evaluate_indirect_baseline(
@@ -111,7 +113,7 @@ fn evaluate_indirect_baseline(
     oengine_surface_lite_metadata(metadata),
     OENGINE_SURFACE_FLAG_UNLIT
   ) {
-    return IblContribution(vec3f(0.0), vec3f(0.0));
+    return IblContribution(vec3f(0.0), vec3f(0.0), vec3f(0.0));
   }
   let albedo_ao = textureLoad(surface_albedo_ao, pixel, 0);
   let albedo = albedo_ao.rgb;
@@ -144,7 +146,11 @@ fn evaluate_indirect_baseline(
   let diffuse = albedo * (1.0 - metalness);
   let indirect_diffuse = diffuse * energy[1] * receiver_irradiance *
     RECIPROCAL_PI * ambient;
-  return IblContribution(baseline_specular + indirect_diffuse, baseline_specular);
+  return IblContribution(
+    baseline_specular + indirect_diffuse,
+    baseline_specular,
+    indirect_diffuse
+  );
 }
 
 fn ibl_receiver_irradiance(pixel: vec2i) -> vec3f {
@@ -152,6 +158,16 @@ fn ibl_receiver_irradiance(pixel: vec2i) -> vec3f {
   let material_ao = textureLoad(surface_albedo_ao, pixel, 0).a;
   return sample_prefiltered_environment(diffuse_irradiance, bent_normal, 0.0) *
     material_ao;
+}
+
+fn selected_screen_receiver_irradiance(pixel: vec2i) -> vec3f {
+  let provider = textureLoad(diffuse_irradiance, pixel, 0);
+  if (provider.a > 0.5) { return provider.rgb; }
+  let bent_normal = decode_bent_normal(textureLoad(surface_bent_normal, pixel, 0).xy);
+  let material_ao = textureLoad(surface_albedo_ao, pixel, 0).a;
+  return sample_prefiltered_environment(
+    fallback_diffuse_irradiance, bent_normal, 0.0
+  ) * material_ao;
 }
 `;
 
@@ -183,6 +199,26 @@ fn fs_main_with_baseline(@builtin(position) coord: vec4f, @location(0) uv: vec2f
   return IblBaselineOutputs(
     vec4f(contribution.total, 0.0),
     vec4f(contribution.baseline_specular, 0.0)
+  );
+}
+
+struct IblComponentOutputs {
+  @location(0) total: vec4f,
+  @location(1) baseline_specular: vec4f,
+  @location(2) resolved_diffuse: vec4f,
+};
+
+@fragment
+fn fs_main_with_components(@builtin(position) coord: vec4f, @location(0) uv: vec2f)
+  -> IblComponentOutputs {
+  let pixel = vec2i(coord.xy);
+  let contribution = evaluate_indirect_baseline(
+    pixel, uv, 1.0, ibl_receiver_irradiance(pixel)
+  );
+  return IblComponentOutputs(
+    vec4f(contribution.total, 0.0),
+    vec4f(contribution.baseline_specular, 0.0),
+    vec4f(contribution.resolved_diffuse, 0.0)
   );
 }
 `;
@@ -219,6 +255,27 @@ fn fs_main_with_baseline(@builtin(position) coord: vec4f, @location(0) uv: vec2f
     vec4f(contribution.baseline_specular, 0.0)
   );
 }
+
+struct IblComponentOutputs {
+  @location(0) total: vec4f,
+  @location(1) baseline_specular: vec4f,
+  @location(2) resolved_diffuse: vec4f,
+};
+
+@fragment
+fn fs_main_with_components(@builtin(position) coord: vec4f, @location(0) uv: vec2f)
+  -> IblComponentOutputs {
+  let ambient = textureLoad(screen_ambient_visibility, vec2i(coord.xy), 0).r;
+  let pixel = vec2i(coord.xy);
+  let contribution = evaluate_indirect_baseline(
+    pixel, uv, ambient, ibl_receiver_irradiance(pixel)
+  );
+  return IblComponentOutputs(
+    vec4f(contribution.total, 0.0),
+    vec4f(contribution.baseline_specular, 0.0),
+    vec4f(contribution.resolved_diffuse, 0.0)
+  );
+}
 `;
 
 export const LPV_BASELINE_NO_AO_WGSL = /* wgsl */ `
@@ -229,7 +286,7 @@ fn fs_main(@builtin(position) coord: vec4f, @location(0) uv: vec2f)
   -> @location(0) vec4f {
   let pixel = vec2i(coord.xy);
   let contribution = evaluate_indirect_baseline(
-    pixel, uv, 1.0, textureLoad(diffuse_irradiance, pixel, 0).rgb
+    pixel, uv, 1.0, selected_screen_receiver_irradiance(pixel)
   );
   return vec4f(contribution.total, 0.0);
 }
@@ -244,11 +301,31 @@ fn fs_main_with_baseline(@builtin(position) coord: vec4f, @location(0) uv: vec2f
   -> IblBaselineOutputs {
   let pixel = vec2i(coord.xy);
   let contribution = evaluate_indirect_baseline(
-    pixel, uv, 1.0, textureLoad(diffuse_irradiance, pixel, 0).rgb
+    pixel, uv, 1.0, selected_screen_receiver_irradiance(pixel)
   );
   return IblBaselineOutputs(
     vec4f(contribution.total, 0.0),
     vec4f(contribution.baseline_specular, 0.0)
+  );
+}
+
+struct IblComponentOutputs {
+  @location(0) total: vec4f,
+  @location(1) baseline_specular: vec4f,
+  @location(2) resolved_diffuse: vec4f,
+};
+
+@fragment
+fn fs_main_with_components(@builtin(position) coord: vec4f, @location(0) uv: vec2f)
+  -> IblComponentOutputs {
+  let pixel = vec2i(coord.xy);
+  let contribution = evaluate_indirect_baseline(
+    pixel, uv, 1.0, selected_screen_receiver_irradiance(pixel)
+  );
+  return IblComponentOutputs(
+    vec4f(contribution.total, 0.0),
+    vec4f(contribution.baseline_specular, 0.0),
+    vec4f(contribution.resolved_diffuse, 0.0)
   );
 }
 `;
@@ -262,7 +339,7 @@ fn fs_main(@builtin(position) coord: vec4f, @location(0) uv: vec2f)
   let pixel = vec2i(coord.xy);
   let ambient = textureLoad(screen_ambient_visibility, pixel, 0).r;
   let contribution = evaluate_indirect_baseline(
-    pixel, uv, ambient, textureLoad(diffuse_irradiance, pixel, 0).rgb
+    pixel, uv, ambient, selected_screen_receiver_irradiance(pixel)
   );
   return vec4f(contribution.total, 0.0);
 }
@@ -278,11 +355,32 @@ fn fs_main_with_baseline(@builtin(position) coord: vec4f, @location(0) uv: vec2f
   let pixel = vec2i(coord.xy);
   let ambient = textureLoad(screen_ambient_visibility, pixel, 0).r;
   let contribution = evaluate_indirect_baseline(
-    pixel, uv, ambient, textureLoad(diffuse_irradiance, pixel, 0).rgb
+    pixel, uv, ambient, selected_screen_receiver_irradiance(pixel)
   );
   return IblBaselineOutputs(
     vec4f(contribution.total, 0.0),
     vec4f(contribution.baseline_specular, 0.0)
+  );
+}
+
+struct IblComponentOutputs {
+  @location(0) total: vec4f,
+  @location(1) baseline_specular: vec4f,
+  @location(2) resolved_diffuse: vec4f,
+};
+
+@fragment
+fn fs_main_with_components(@builtin(position) coord: vec4f, @location(0) uv: vec2f)
+  -> IblComponentOutputs {
+  let pixel = vec2i(coord.xy);
+  let ambient = textureLoad(screen_ambient_visibility, pixel, 0).r;
+  let contribution = evaluate_indirect_baseline(
+    pixel, uv, ambient, selected_screen_receiver_irradiance(pixel)
+  );
+  return IblComponentOutputs(
+    vec4f(contribution.total, 0.0),
+    vec4f(contribution.baseline_specular, 0.0),
+    vec4f(contribution.resolved_diffuse, 0.0)
   );
 }
 `;

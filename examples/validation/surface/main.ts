@@ -80,7 +80,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -92,11 +92,85 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "gtao-replacement") {
+    if (request.scenarioId === "ssgi-production") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
       renderer.configure({
-        features: { ambientOcclusion: true },
+        features: { screenSpaceDiffuseMode: "ssgi", screenSpaceReflections: false },
+        ssgi: {
+          radiusMeters: 2,
+          thicknessMeters: 1,
+          aoIntensity: 1,
+          giIntensity: 10,
+          resolutionScale: 0.5,
+          temporalEnabled: true,
+          sliceCount: 2,
+          stepCount: 8,
+          spatialStep: 1,
+          temporalBlend: 0.92,
+          backfaceLighting: 0
+        }
+      });
+      await runtime.waitForFrames(5);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      const ssgi = renderer.screenSpaceGiEvidence();
+      const gtao = renderer.ambientOcclusionEvidence();
+      const graph = renderer.mainFrameGraphEvidence();
+      if (graph === null) throw new Error("SSGI frame did not publish FrameGraph evidence");
+      const passes = graph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
+      const resources = graph.dump.resources.map((entry) => entry.name);
+      const counters = profile.gpuCounters.values;
+      const evaluated = counters.ssgiEvaluatedPixels ?? 0;
+      const accepted = counters.ssgiHistoryAcceptedPixels ?? 0;
+      const rejected = counters.ssgiHistoryRejectedPixels ?? 0;
+      const providerReceivers =
+        (counters.longRangeBrick4Receivers ?? 0) +
+        (counters.longRangeProbeReceivers ?? 0) +
+        (counters.longRangeIblReceivers ?? 0) +
+        (counters.longRangeBlackReceivers ?? 0);
+      Object.assign(evidence, { ssgiProduction: { runtime: ssgi, passes, resources, counters } });
+      assertions.push(validationAssertion(
+        "three-ssgi-pinned-production-path",
+        ssgi.enabled && ssgi.algorithm === "three-ssgi-r186-oengine-wgsl" &&
+          ssgi.upstreamRevision === "148ef33ecb6d2502ff796d4554abd1549c95d519" &&
+          ssgi.tracePasses === 1 && ssgi.spatialPasses === 1 &&
+          ssgi.temporalPasses === 1 && ssgi.resolvePasses === 1,
+        "The ordinary opaque-lighting path runs one pinned Three.js r186-derived SSGI trace/filter/history/resolve chain",
+        ssgi,
+        "one pass per SSGI phase"
+      ));
+      assertions.push(validationAssertion(
+        "ssgi-exclusive-screen-diffuse-owner",
+        !gtao.enabled && gtao.historyTextureCount === 0 &&
+          !passes.some((name) => /GTAO/i.test(name)) &&
+          passes.some((name) => name === "ScreenSpaceDiffuseResolve"),
+        "SSGI owns AO, bent normal and near-field diffuse GI without retaining an independent GTAO owner",
+        { gtao, passes },
+        "no GTAO pass/history and exactly one screen-space diffuse resolve"
+      ));
+      assertions.push(validationAssertion(
+        "ssgi-no-feedback-products",
+        resources.some((name) => name === "SSGI incident diffuse GI") &&
+          resources.some((name) => name === "pre-SSGI resolved long-range diffuse") &&
+          passes.indexOf("Three SSGI r186 horizon-bitfield trace") <
+            passes.indexOf("ScreenSpaceDiffuseResolve"),
+        "SSGI reads a pre-screen-space-diffuse source and composes only after trace/history resolve",
+        { passes, resources },
+        "pre-SSGI source ordering and explicit long-range component"
+      ));
+      assertions.push(validationAssertion(
+        "ssgi-temporal-provider-closure",
+        evaluated > 0 && accepted + rejected === evaluated &&
+          providerReceivers === evaluated && profile.submits.count === 1,
+        "Every sampled SSGI receiver is temporally classified and selects exactly one long-range provider in the main submit",
+        { evaluated, accepted, rejected, providerReceivers, submits: profile.submits },
+        "accepted + rejected = provider receivers = evaluated; one submit"
+      ));
+    } else if (request.scenarioId === "gtao-replacement") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Surface runtime is not initialized");
+      renderer.configure({
+        features: { screenSpaceDiffuseMode: "gtao" },
         ao: {
           radiusMeters: 1,
           thicknessMeters: 1,
@@ -127,7 +201,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         historyRejected: profile.gpuCounters.values.aoHistoryRejectedPixels ?? 0
       };
 
-      renderer.configure({ features: { ambientOcclusion: false } });
+      renderer.configure({ features: { screenSpaceDiffuseMode: "off" } });
       await runtime.waitForFrames(3);
       const offProfile = await runtime.waitForCounters(profile.frameIndex);
       const offAo = renderer.ambientOcclusionEvidence();
@@ -221,7 +295,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       ));
 
       await runtime.replaceScene(await createGtaoValidationSource());
-      renderer.configure({ features: { ambientOcclusion: true } });
+      renderer.configure({ features: { screenSpaceDiffuseMode: "gtao" } });
       await runtime.waitForFrames(4);
       profile = await runtime.waitForCounters(offProfile.frameIndex);
     } else if (request.scenarioId === "lpv-baseline-pruning") {

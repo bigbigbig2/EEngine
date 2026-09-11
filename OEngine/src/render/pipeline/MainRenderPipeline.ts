@@ -51,6 +51,7 @@ import { TransparencyFeature } from "../features/TransparencyFeature.js";
 import { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "../passes/OcclusionConfidencePass.js";
 import { AOService } from "../features/AOService.js";
+import { ScreenSpaceDiffuseService } from "../features/ScreenSpaceDiffuseService.js";
 import { ReflectionService } from "../features/ReflectionService.js";
 import { GIService } from "../features/GIService.js";
 import { TemporalFeature } from "../features/TemporalFeature.js";
@@ -139,6 +140,10 @@ import {
   type RenderSettingsValues
 } from "./RenderSettings.js";
 import {
+  diffuseSurfaceLiteFrame,
+  LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
+  longRangeDiffuseFrame,
+  preExposedOpaqueRadianceSourceFrame,
   preExposedOpaqueHdrBaselineFrame,
   type VisibilityFrame
 } from "./FrameProducts.js";
@@ -288,6 +293,26 @@ export interface AmbientOcclusionRuntimeEvidence {
   readonly historyInvalidationReason: string;
 }
 
+export interface ScreenSpaceGiRuntimeEvidence {
+  readonly enabled: boolean;
+  readonly algorithm: "three-ssgi-r186-oengine-wgsl" | "disabled";
+  readonly upstreamRevision: string | null;
+  readonly resolutionScale: 0.5 | 1;
+  readonly sliceCount: number;
+  readonly stepCount: number;
+  readonly traceSamplesPerPixel: number;
+  readonly tracePasses: number;
+  readonly spatialPasses: number;
+  readonly temporalPasses: number;
+  readonly resolvePasses: number;
+  readonly historyTextureCount: number;
+  readonly historyBytes: number;
+  readonly historyValid: boolean;
+  readonly historyRevision: number;
+  readonly historyInvalidations: number;
+  readonly historyInvalidationReason: string;
+}
+
 export interface ScreenSpaceReflectionsRuntimeEvidence {
   readonly enabled: boolean;
   readonly resolutionScale: 0.5 | 1;
@@ -412,6 +437,10 @@ type MainFrameGraphBindings = {
   readonly gtaoHistoryValidity: number;
   readonly gtaoHistoryInputIndex: 0 | 1;
   readonly gtaoHistoryOutputIndex: 0 | 1;
+  readonly ssgiHistoryValidity: number;
+  readonly ssgiHistoryInputIndex: 0 | 1;
+  readonly ssgiHistoryOutputIndex: 0 | 1;
+  readonly ssgiHistoryRevision: number;
   readonly ssrHistoryValidity: number;
   readonly ssrHistoryInputIndex: 0 | 1;
   readonly ssrHistoryOutputIndex: 0 | 1;
@@ -421,8 +450,8 @@ type MainFrameGraphBindings = {
 };
 
 const MAIN_GRAPH_CACHE_LIMIT = 16;
-const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 3;
-const MAIN_GRAPH_INSTRUMENTATION_REVISION = 5;
+const MAIN_GRAPH_HISTORY_FORMAT_REVISION = 4;
+const MAIN_GRAPH_INSTRUMENTATION_REVISION = 6;
 
 /**
  * 渲染器运行时总控。
@@ -477,6 +506,9 @@ export class MainRenderPipeline {
   private _aoService: AOService | null = null;
   private _gtaoConfigurationKey = "";
   private _gtaoOwnerGeneration = 0;
+  private _screenSpaceDiffuseService: ScreenSpaceDiffuseService | null = null;
+  private _ssgiConfigurationKey = "";
+  private _ssgiOwnerGeneration = 0;
   private _reflectionService: ReflectionService | null = null;
   private _ssrConfigurationKey = "";
   private _ssrOwnerGeneration = 0;
@@ -899,7 +931,8 @@ export class MainRenderPipeline {
     const pass = this._aoService;
     const internalPixels = this._render_resolution.x * this._render_resolution.y;
     const aoSettings = this._renderSettings.values.ao;
-    const aoEnabled = this._renderSettings.values.features.ambientOcclusion;
+    const aoEnabled =
+      this._renderSettings.values.features.screenSpaceDiffuseMode === "gtao";
     const aoWidth = Math.max(1, Math.ceil(this._render_resolution.x * aoSettings.resolutionScale));
     const aoHeight = Math.max(1, Math.ceil(this._render_resolution.y * aoSettings.resolutionScale));
     return Object.freeze({
@@ -939,6 +972,34 @@ export class MainRenderPipeline {
       temporalPasses: pass?.lastTemporalPasses ?? 0,
       compositePasses: pass?.lastCompositePasses ?? 0,
       bentNormalUpsamplePasses: pass?.lastBentNormalUpsamplePasses ?? 0,
+      historyTextureCount: pass?.historyTextureCount ?? 0,
+      historyBytes: pass?.historyBytes ?? 0,
+      historyValid: history.valid,
+      historyRevision: history.revision,
+      historyInvalidations: history.invalidationCount,
+      historyInvalidationReason: history.lastInvalidationReason
+    });
+  }
+
+  /** ADR-0009 Step 5 SSGI phase/history evidence. */
+  screenSpaceGiEvidence(): ScreenSpaceGiRuntimeEvidence {
+    const history = this._temporalHistories.state("ssgi");
+    const pass = this._screenSpaceDiffuseService;
+    const settings = this._renderSettings.values.ssgi;
+    const enabled =
+      this._renderSettings.values.features.screenSpaceDiffuseMode === "ssgi";
+    return Object.freeze({
+      enabled,
+      algorithm: enabled ? "three-ssgi-r186-oengine-wgsl" : "disabled",
+      upstreamRevision: enabled ? (pass?.implementation.upstreamRevision ?? null) : null,
+      resolutionScale: settings.resolutionScale,
+      sliceCount: settings.sliceCount,
+      stepCount: settings.stepCount,
+      traceSamplesPerPixel: enabled ? settings.sliceCount * settings.stepCount * 2 : 0,
+      tracePasses: pass?.lastTracePasses ?? 0,
+      spatialPasses: pass?.lastSpatialPasses ?? 0,
+      temporalPasses: pass?.lastTemporalPasses ?? 0,
+      resolvePasses: pass?.lastResolvePasses ?? 0,
       historyTextureCount: pass?.historyTextureCount ?? 0,
       historyBytes: pass?.historyBytes ?? 0,
       historyValid: history.valid,
@@ -993,6 +1054,7 @@ export class MainRenderPipeline {
     const historyOwners = Object.freeze({
       temporal: this.temporalEvidence().historyBytes,
       ambientOcclusion: this.ambientOcclusionEvidence().historyBytes,
+      screenSpaceGi: this.screenSpaceGiEvidence().historyBytes,
       screenSpaceReflections: this.screenSpaceReflectionsEvidence().historyBytes,
       automaticExposure: this._postFeature?.automaticExposureHistoryBytes ?? 0
     });
@@ -1264,6 +1326,9 @@ export class MainRenderPipeline {
     this._aoService?.destroy();
     this._aoService = null;
     this._gtaoConfigurationKey = "";
+    this._screenSpaceDiffuseService?.destroy();
+    this._screenSpaceDiffuseService = null;
+    this._ssgiConfigurationKey = "";
     this._occlusionConfidence?.destroy();
     this._occlusionConfidence = null;
     this._reflectionService?.destroy();
@@ -1514,6 +1579,12 @@ export class MainRenderPipeline {
           Math.max(1, Math.ceil(h * this._renderSettings.values.ao.resolutionScale))
         );
       }
+      if (featureTopology.ssgi) {
+        this._screenSpaceDiffuseService!.resize(
+          Math.max(1, Math.ceil(w * this._renderSettings.values.ssgi.resolutionScale)),
+          Math.max(1, Math.ceil(h * this._renderSettings.values.ssgi.resolutionScale))
+        );
+      }
       if (featureTopology.ssr) {
         this._reflectionService!.resize(
           Math.max(1, Math.ceil(w * this._renderSettings.values.ssr.resolutionScale)),
@@ -1537,6 +1608,7 @@ export class MainRenderPipeline {
       }
       this._temporalFeature.resetFrameEvidence();
       this._reflectionService?.resetFrameEvidence();
+      this._screenSpaceDiffuseService?.resetFrameEvidence();
       this._giService.resetFrameEvidence();
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
       this._lastTemporalClassificationPassCount =
@@ -1654,6 +1726,10 @@ export class MainRenderPipeline {
         gtaoHistoryValidity: gtaoHistory.valid ? 1 : 0,
         gtaoHistoryInputIndex: gtaoHistory.readIndex,
         gtaoHistoryOutputIndex: gtaoHistory.writeIndex,
+        ssgiHistoryValidity: ssgiHistory.valid ? 1 : 0,
+        ssgiHistoryInputIndex: ssgiHistory.readIndex,
+        ssgiHistoryOutputIndex: ssgiHistory.writeIndex,
+        ssgiHistoryRevision: ssgiHistory.revision,
         ssrHistoryValidity: ssrHistory.valid ? 1 : 0,
         ssrHistoryInputIndex: ssrHistory.readIndex,
         ssrHistoryOutputIndex: ssrHistory.writeIndex,
@@ -2136,6 +2212,148 @@ export class MainRenderPipeline {
           }).hdr;
         }
 
+        const resolveSsgi = (
+          lighting: Readonly<{
+            hdr: ResourceId;
+            indirectDiffuse: ResourceId | null;
+            indirectSpecular: ResourceId | null;
+            providerValidity: ResourceId | null;
+          }>,
+          splitSum: ResourceId
+        ): ResourceId => {
+          if (!graphTopology.ssgi) return lighting.hdr;
+          if (
+            lighting.indirectDiffuse === null ||
+            lighting.indirectSpecular === null ||
+            hzbRes === null ||
+            gNormalRes === null ||
+            gAlbedoRes === null ||
+            gPbrRes === null ||
+            (graphTopology.screenSpaceDiffuseTemporal &&
+              (velocityRes === null ||
+                occlusionConfidenceRes === null ||
+                opaqueTemporalValidityRes === null))
+          ) {
+            throw new Error(
+              "SSGI requires materialized long-range diffuse/specular, HZB, DiffuseSurfaceLite and temporal inputs when history is enabled"
+            );
+          }
+          // Logical consumer-driven product. The current packed Surface ABI can
+          // alias its channels without creating another physical attachment.
+          const receiver = diffuseSurfaceLiteFrame({
+            diffuseReflectance: gAlbedoRes,
+            materialAo: gAlbedoRes,
+            receiverFlags: gPbrRes,
+            colorSpace: "working-linear",
+            receiverModulation: "unapplied",
+            domain: packedResolveOut.shading.domain
+          });
+          const source = preExposedOpaqueRadianceSourceFrame({
+            radiance: lighting.hdr,
+            stage: "pre-screen-space-diffuse",
+            excludesCurrentFrameSsgi: true,
+            excludesScreenAmbientVisibility: true,
+            excludesSsrCorrection: true,
+            excludesTransparencyAndPost: true,
+            preExposure: frameContext.preExposure,
+            domain: packedResolveOut.shading.domain
+          });
+          const longRange = longRangeDiffuseFrame({
+            radiance: lighting.indirectDiffuse,
+            providerSelection: lighting.providerValidity,
+            counters: gpuCounterRes,
+            selection: "receiver-validity",
+            precedence: LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
+            generation: Math.max(1, this._ssgiOwnerGeneration),
+            preExposure: frameContext.preExposure,
+            domain: packedResolveOut.shading.domain
+          });
+          const settings = this._renderSettings.values.ssgi;
+          const ssgi = this._screenSpaceDiffuseService!.addToGraph(
+            graph,
+            bind("ssgi-job", (bindings) => ({
+              samplers: this._graphics.samplers,
+              frameIndex: bindings.frameIndex,
+              historyValid: bindings.ssgiHistoryValidity >= 0.5,
+              width: bindings.internalWidth,
+              height: bindings.internalHeight,
+              radiusWorldUnits: metersToWorldUnits(
+                settings.radiusMeters,
+                this._renderSettings.values.physicalScale
+              ),
+              thicknessWorldUnits: metersToWorldUnits(
+                settings.thicknessMeters,
+                this._renderSettings.values.physicalScale
+              ),
+              aoIntensity: settings.aoIntensity,
+              giIntensity: settings.giIntensity,
+              sliceCount: settings.sliceCount,
+              stepCount: settings.stepCount,
+              spatialStep: settings.spatialStep,
+              temporalBlend: settings.temporalBlend,
+              backfaceLighting: settings.backfaceLighting,
+              historyGeneration: bindings.ssgiHistoryRevision,
+              preExposure: bindings.context.preExposure,
+              longRangeProvider:
+                this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4
+                  ? 0
+                  : this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV
+                    ? 1
+                    : 2
+            })),
+            {
+              depth: depthRes,
+              hzb: hzbRes,
+              normal: gNormalRes,
+              radianceSource: source.radiance,
+              // Temporal-disabled SSGI does not allocate velocity/confidence.
+              // The evidence reducer still needs a filterable texture binding;
+              // historyValid=false makes these fallback samples non-authoritative.
+              velocity: velocityRes ?? gAlbedoRes,
+              occlusionConfidence: occlusionConfidenceRes ?? gAlbedoRes,
+              surfaceValidity: opaqueTemporalValidityRes ?? gAlbedoRes,
+              camera: currentCameraRes,
+              counters: gpuCounterRes ?? undefined,
+              providerValidity: lighting.providerValidity ?? source.radiance
+            },
+            graphTopology.screenSpaceDiffuseTemporal
+              ? {
+                  aoInput: bind("ssgi-ao-history-input", (bindings) =>
+                    this._screenSpaceDiffuseService!.historyTexture(bindings.ssgiHistoryInputIndex, "ao")),
+                  aoOutput: bind("ssgi-ao-history-output", (bindings) =>
+                    this._screenSpaceDiffuseService!.historyTexture(bindings.ssgiHistoryOutputIndex, "ao")),
+                  giInput: bind("ssgi-gi-history-input", (bindings) =>
+                    this._screenSpaceDiffuseService!.historyTexture(bindings.ssgiHistoryInputIndex, "gi")),
+                  giOutput: bind("ssgi-gi-history-output", (bindings) =>
+                    this._screenSpaceDiffuseService!.historyTexture(bindings.ssgiHistoryOutputIndex, "gi"))
+                }
+              : undefined
+          );
+          ambientVisibilityRes = ssgi.frame.screenAmbientVisibility;
+          bentNormalRes = ssgi.frame.bentNormal;
+          gtaoRawDebugRes = ssgi.rawAo;
+          gtaoDenoisedDebugRes = ssgi.spatialAo;
+          gtaoTemporalDebugRes = ssgi.temporalAo;
+          if (ssgi.counters !== null) gpuCounterRes = ssgi.counters;
+          indirectDiffuseDebugRes = ssgi.frame.incidentDiffuseGi;
+          return this._giService.resolveScreenSpaceDiffuse(graph, {
+            hdr: source.radiance,
+            depth: depthRes,
+            normal: gNormalRes,
+            bentNormal: ssgi.frame.bentNormal,
+            albedoAo: receiver.diffuseReflectance,
+            material: gPbrRes,
+            metadata: receiver.receiverFlags,
+            camera: currentCameraRes,
+            splitSum,
+            longRangeDiffuse: longRange.radiance,
+            baselineSpecular: lighting.indirectSpecular,
+            screenVisibility: ssgi.frame.screenAmbientVisibility,
+            incidentGi: ssgi.frame.incidentDiffuseGi,
+            reflectionCorrectionExpected: graphTopology.ssr
+          });
+        };
+
         if (
           this.indirect_lighting_mode === ShadeIndirectLightingMode.IBL &&
           gtaoReady &&
@@ -2169,6 +2387,7 @@ export class MainRenderPipeline {
             environment: environmentRes,
             diffuseIrradiance: diffuseIrradianceRes,
             reflectionCorrectionExpected: graphTopology.ssr,
+            screenSpaceDiffuseCorrectionExpected: graphTopology.ssgi,
             splitSum: splitSumRes,
             camera: currentCameraRes,
             metadata: packedResolveOut.shading.roughnessFlags,
@@ -2180,8 +2399,9 @@ export class MainRenderPipeline {
           const baselineSpecularRes = opaqueLighting.indirectSpecular!;
           indirectDiffuseDebugRes = opaqueLighting.indirectDiffuse;
           indirectSpecularDebugRes = baselineSpecularRes;
+          const resolvedLightingHdr = resolveSsgi(opaqueLighting, splitSumRes);
           const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
-            hdr: opaqueLighting.hdr,
+            hdr: resolvedLightingHdr,
             baselineSpecular: graphTopology.ssr ? baselineSpecularRes : null,
             stage: "post-screen-space-diffuse-pre-ssr",
             reflectionCorrectionExpected: graphTopology.ssr,
@@ -2276,6 +2496,7 @@ export class MainRenderPipeline {
           this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4 &&
           gtaoReady &&
           hdrRes !== null &&
+          diffuseIrradianceRes !== null &&
           gPbrRes !== null &&
           gNormalRes !== null &&
           gAlbedoRes !== null &&
@@ -2316,14 +2537,17 @@ export class MainRenderPipeline {
             view: viewUniformRes,
             camera: currentCameraRes,
             lightMap: lightMapRes,
+            fallbackDiffuseIrradiance: diffuseIrradianceRes,
             ambientVisibility: ambientVisibilityRes ?? undefined,
             metadata: packedResolveOut.shading.roughnessFlags,
             extent: { width: w, height: h },
             reflectionCorrectionExpected: graphTopology.ssr,
-            fused: !graphTopology.ssr
+            screenSpaceDiffuseCorrectionExpected: graphTopology.ssgi,
+            fused: !graphTopology.ssr && !graphTopology.ssgi
           });
+          const resolvedLightingHdr = resolveSsgi(lightmap, splitSumRes);
           const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
-            hdr: lightmap.hdr,
+            hdr: resolvedLightingHdr,
             baselineSpecular: graphTopology.ssr
               ? lightmap.indirectSpecular
               : null,
@@ -2417,6 +2641,7 @@ export class MainRenderPipeline {
           gtaoReady &&
           hdrRes !== null &&
           environmentRes !== null &&
+          diffuseIrradianceRes !== null &&
           gPbrRes !== null &&
           gNormalRes !== null &&
           gAlbedoRes !== null &&
@@ -2477,6 +2702,7 @@ export class MainRenderPipeline {
             pbr: gPbrRes,
             splitSum: splitSumRes,
             environment: environmentRes,
+            fallbackDiffuseIrradiance: diffuseIrradianceRes,
             camera: currentCameraRes,
             ambientVisibility: ambientVisibilityRes ?? undefined,
             metadata: packedResolveOut.shading.roughnessFlags,
@@ -2488,6 +2714,7 @@ export class MainRenderPipeline {
             probes: lpvProbesRes,
             extent: { width: w, height: h },
             reflectionCorrectionExpected: graphTopology.ssr,
+            screenSpaceDiffuseCorrectionExpected: graphTopology.ssgi,
             job: bind("lpv-indirect-diffuse-job", (bindings) => ({
               camera: bindings.camera,
               samplers: this._graphics.samplers,
@@ -2496,8 +2723,9 @@ export class MainRenderPipeline {
             }))
           });
           const baselineSpecularRes = probeVolume.indirectSpecular!;
+          const resolvedLightingHdr = resolveSsgi(probeVolume, splitSumRes);
           const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
-            hdr: probeVolume.hdr,
+            hdr: resolvedLightingHdr,
             baselineSpecular: graphTopology.ssr ? baselineSpecularRes : null,
             stage: "post-screen-space-diffuse-pre-ssr",
             reflectionCorrectionExpected: graphTopology.ssr,
@@ -3134,6 +3362,9 @@ export class MainRenderPipeline {
       if (graphTopology.gtao && graphTopology.screenSpaceDiffuseTemporal) {
         this._temporalHistories.markProduced("gtao");
       }
+      if (graphTopology.ssgi && this._screenSpaceDiffuseService?.lastTemporalPasses === 1) {
+        this._temporalHistories.markProduced("ssgi");
+      }
       if (graphTopology.ssr && this._reflectionService?.lastTemporalPasses === 1) {
         this._temporalHistories.markProduced("ssr");
       }
@@ -3207,6 +3438,7 @@ export class MainRenderPipeline {
         `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +
         `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
         `-gtao-owner${this._gtaoOwnerGeneration}` +
+        `-ssgi-owner${this._ssgiOwnerGeneration}` +
         `-ssr-owner${this._ssrOwnerGeneration}`,
       visibilityWorkCapacity: bindings.geometry.visibilityJob.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
       historyFormat: bindings.context.history.formatRevision,
@@ -3225,10 +3457,15 @@ export class MainRenderPipeline {
       ssrTemporal: this._renderSettings.values.ssr.temporalEnabled,
       ssrHalfResolution: this._renderSettings.values.ssr.resolutionScale === 0.5,
       screenSpaceDiffuseMode:
-        this._renderSettings.values.features.ambientOcclusion ? "gtao" : "off",
-      screenSpaceDiffuseTemporal: this._renderSettings.values.ao.temporalEnabled,
+        this._renderSettings.values.features.screenSpaceDiffuseMode,
+      screenSpaceDiffuseTemporal:
+        this._renderSettings.values.features.screenSpaceDiffuseMode === "ssgi"
+          ? this._renderSettings.values.ssgi.temporalEnabled
+          : this._renderSettings.values.ao.temporalEnabled,
       screenSpaceDiffuseHalfResolution:
-        this._renderSettings.values.ao.resolutionScale === 0.5,
+        this._renderSettings.values.features.screenSpaceDiffuseMode === "ssgi"
+          ? this._renderSettings.values.ssgi.resolutionScale === 0.5
+          : this._renderSettings.values.ao.resolutionScale === 0.5,
       temporal: this._renderSettings.values.features.temporalAntiAliasing,
       bloom: this._renderSettings.values.features.bloom,
       automaticExposure: this._renderSettings.values.features.automaticExposure,
@@ -3269,11 +3506,6 @@ export class MainRenderPipeline {
   private initializeRenderPasses(
     topology: MainFrameFeatureTopology
   ): void {
-    if (topology.ssgi) {
-      throw new Error(
-        "ScreenSpaceDiffuseMode 'ssgi' requires the ADR-0009 Step 5 production owner"
-      );
-    }
     this._temporalFeature.attachGraphics(this._graphics);
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
@@ -3307,6 +3539,36 @@ export class MainRenderPipeline {
       this.retireAfterSubmittedWork(this._aoService);
       this._aoService = null;
       this._gtaoConfigurationKey = "";
+    }
+    if (topology.ssgi) {
+      const configurationKey = `${topology.screenSpaceDiffuseTemporal ? 1 : 0}/${topology.screenSpaceDiffuseHalfResolution ? 1 : 0}`;
+      if (this._screenSpaceDiffuseService === null || this._ssgiConfigurationKey !== configurationKey) {
+        if (this._screenSpaceDiffuseService !== null) {
+          this.retireAfterSubmittedWork(this._screenSpaceDiffuseService);
+        }
+        this._profiler.registerGpuCounterFields([
+          "ssgiEvaluatedPixels",
+          "ssgiTraceSamples",
+          "ssgiHistoryAcceptedPixels",
+          "ssgiHistoryRejectedPixels",
+          "longRangeBrick4Receivers",
+          "longRangeProbeReceivers",
+          "longRangeIblReceivers",
+          "longRangeBlackReceivers"
+        ]);
+        this._screenSpaceDiffuseService = new ScreenSpaceDiffuseService(
+          this._graphics,
+          topology.screenSpaceDiffuseTemporal,
+          topology.screenSpaceDiffuseHalfResolution ? 0.5 : 1,
+          this._surfaceLiteProfile
+        );
+        this._ssgiOwnerGeneration++;
+        this._ssgiConfigurationKey = configurationKey;
+      }
+    } else if (this._screenSpaceDiffuseService !== null) {
+      this.retireAfterSubmittedWork(this._screenSpaceDiffuseService);
+      this._screenSpaceDiffuseService = null;
+      this._ssgiConfigurationKey = "";
     }
     if (topology.ssr) {
       const configurationKey = `${topology.ssrTemporal ? 1 : 0}/${topology.ssrHalfResolution ? 1 : 0}`;
@@ -3654,6 +3916,14 @@ export class MainRenderPipeline {
     profiler.recordCounter("ao.historyBytes", ao.historyBytes);
     profiler.recordCounter("ao.historyValid", ao.historyValid ? 1 : 0);
     profiler.recordCounter("ao.historyRevision", ao.historyRevision);
+    const ssgi = this.screenSpaceGiEvidence();
+    profiler.recordCounter("ssgi.tracePasses", ssgi.tracePasses);
+    profiler.recordCounter("ssgi.spatialPasses", ssgi.spatialPasses);
+    profiler.recordCounter("ssgi.temporalPasses", ssgi.temporalPasses);
+    profiler.recordCounter("ssgi.resolvePasses", ssgi.resolvePasses);
+    profiler.recordCounter("ssgi.traceSamplesPerPixel", ssgi.traceSamplesPerPixel);
+    profiler.recordCounter("ssgi.historyBytes", ssgi.historyBytes);
+    profiler.recordCounter("ssgi.historyValid", ssgi.historyValid ? 1 : 0);
     const ssr = this.screenSpaceReflectionsEvidence();
     profiler.recordCounter("ssr.tracePasses", ssr.tracePasses);
     profiler.recordCounter("ssr.prefilterPasses", ssr.prefilterPasses);

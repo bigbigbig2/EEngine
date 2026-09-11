@@ -280,6 +280,7 @@ export {
   Renderer,
   type AmbientOcclusionRuntimeEvidence,
   type RendererCapabilities,
+  type ScreenSpaceGiRuntimeEvidence,
   type ScreenSpaceReflectionsRuntimeEvidence,
   type TemporalRuntimeEvidence
 } from "./render/Renderer.js";
@@ -310,6 +311,7 @@ export type {
   RenderSettingsValues,
   ResolutionSettings,
   ShadowSettings,
+  SsgiSettings,
   SsrSettings,
   TemporalSettings
 } from "./render/pipeline/RenderSettings.js";
@@ -328,6 +330,7 @@ export type {
   OpaqueLightingFrame,
   OpaqueTemporalSurfaceFrame,
   ReflectionFrame,
+  ScreenSpaceDiffuseMode,
   TemporalSurfaceFrame,
   TextureDomain
 } from "./render/pipeline/FrameProducts.js";

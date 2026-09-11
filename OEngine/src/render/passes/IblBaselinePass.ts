@@ -40,19 +40,21 @@ const IBL_GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } }
+    { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+    { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
   ]
 };
 
 function descriptor(
   ao: boolean,
   baselineSpecular: boolean,
+  componentOutputs: boolean,
   diffuseSource: "octahedral" | "screen",
   surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   const label = `ADR-0009 ${diffuseSource} baseline${ao ? "/ao" : ""}${
     baselineSpecular ? "/ssr-output" : ""
-  }`;
+  }${componentOutputs ? "/ssgi-components" : ""}`;
   const code = diffuseSource === "screen"
     ? (ao ? LPV_BASELINE_WITH_AO_WGSL : LPV_BASELINE_NO_AO_WGSL)
     : (ao ? IBL_BASELINE_WITH_AO_WGSL : IBL_BASELINE_NO_AO_WGSL);
@@ -65,7 +67,9 @@ function descriptor(
     },
     fragment: {
       module: { label, code },
-      entryPoint: baselineSpecular ? "fs_main_with_baseline" : "fs_main",
+      entryPoint: componentOutputs
+        ? "fs_main_with_components"
+        : baselineSpecular ? "fs_main_with_baseline" : "fs_main",
       constants: gpuShadingSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding),
       targets: [
         {
@@ -75,7 +79,8 @@ function descriptor(
             alpha: { operation: "add", srcFactor: "zero", dstFactor: "one" }
           }
         },
-        ...(baselineSpecular ? [{ format: IBL_BASELINE_FORMAT }] : [])
+        ...(baselineSpecular || componentOutputs ? [{ format: IBL_BASELINE_FORMAT }] : []),
+        ...(componentOutputs ? [{ format: IBL_BASELINE_FORMAT }] : [])
       ]
     },
     primitive: { topology: "triangle-list", cullMode: "none" },
@@ -99,12 +104,14 @@ export interface IblBaselineInputs {
   readonly splitSum: ResourceId;
   readonly environment: ResourceId;
   readonly diffuseIrradiance: ResourceId;
+  readonly fallbackDiffuseIrradiance: ResourceId;
   readonly ambientVisibility?: ResourceId;
 }
 
 export interface IblBaselineOutputs {
   readonly hdr: ResourceId;
   readonly baselineSpecular: ResourceId | null;
+  readonly resolvedDiffuse: ResourceId | null;
 }
 
 /**
@@ -122,15 +129,16 @@ export class IblBaselinePass {
   ) {
     this.descriptors = Object.freeze(Object.fromEntries(
       ["octahedral", "screen"].flatMap((source) =>
-        [false, true].flatMap((ao) => [false, true].map((baseline) => [
-          `${source}/${Number(ao)}/${Number(baseline)}`,
+        [false, true].flatMap((ao) => [false, true].flatMap((baseline) => [false, true].map((components) => [
+          `${source}/${Number(ao)}/${Number(baseline)}/${Number(components)}`,
           descriptor(
             ao,
             baseline,
+            components,
             source as "octahedral" | "screen",
             surfaceProfile
           )
-        ]))
+        ])))
       )
     ));
   }
@@ -141,18 +149,22 @@ export class IblBaselinePass {
     inputs: IblBaselineInputs,
     options: Readonly<{
       baselineSpecular: boolean;
+      componentOutputs?: boolean;
       diffuseSource?: "octahedral" | "screen";
     }>
   ): IblBaselineOutputs {
     const ao = inputs.ambientVisibility !== undefined;
     const diffuseSource = options.diffuseSource ?? "octahedral";
     const pipeline = this.descriptors[
-      `${diffuseSource}/${Number(ao)}/${Number(options.baselineSpecular)}`
+      `${diffuseSource}/${Number(ao)}/${Number(options.baselineSpecular)}/${Number(options.componentOutputs === true)}`
     ]!;
     let hdr = -1;
     let baselineSpecular: ResourceId | null = null;
+    let resolvedDiffuse: ResourceId | null = null;
     const builder = graph.add(
-      options.baselineSpecular
+      options.componentOutputs === true
+        ? `${diffuseSource} baseline fused/SSGI component output`
+        : options.baselineSpecular
         ? `${diffuseSource} baseline fused/SSR replacement output`
         : `${diffuseSource} baseline fused/no SSR output`,
       inputs,
@@ -167,6 +179,14 @@ export class IblBaselinePass {
         if (baselineSpecular !== null) {
           colorAttachments.push({
             view: texture(resources.get(baselineSpecular)),
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: "clear",
+            storeOp: "store"
+          });
+        }
+        if (resolvedDiffuse !== null) {
+          colorAttachments.push({
+            view: texture(resources.get(resolvedDiffuse)),
             clearValue: { r: 0, g: 0, b: 0, a: 0 },
             loadOp: "clear",
             storeOp: "store"
@@ -196,7 +216,8 @@ export class IblBaselinePass {
             texture(resources.get(data.splitSum)),
             texture(resources.get(data.environment)),
             texture(resources.get(data.diffuseIrradiance)),
-            texture(resources.get(data.ambientVisibility ?? data.albedoAo))
+            texture(resources.get(data.ambientVisibility ?? data.albedoAo)),
+            texture(resources.get(data.fallbackDiffuseIrradiance))
           ]
         ]);
         pass.draw(3);
@@ -205,10 +226,22 @@ export class IblBaselinePass {
       }
     );
     hdr = builder.write(inputs.hdr);
-    if (options.baselineSpecular) {
+    if (options.baselineSpecular || options.componentOutputs === true) {
       baselineSpecular = builder.create("pre-exposed-baseline-specular", {
         kind: "transient_texture",
-        label: "ADR-0009 SSR-only baseline specular",
+        label: options.componentOutputs === true
+          ? "ADR-0009 SSGI component baseline specular"
+          : "ADR-0009 SSR-only baseline specular",
+        width: Math.max(1, extent.width | 0),
+        height: Math.max(1, extent.height | 0),
+        format: IBL_BASELINE_FORMAT,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      });
+    }
+    if (options.componentOutputs === true) {
+      resolvedDiffuse = builder.create("pre-SSGI resolved long-range diffuse", {
+        kind: "transient_texture",
+        label: "ADR-0009 SSGI-only resolved long-range diffuse",
         width: Math.max(1, extent.width | 0),
         height: Math.max(1, extent.height | 0),
         format: IBL_BASELINE_FORMAT,
@@ -218,7 +251,7 @@ export class IblBaselinePass {
     for (const [name, resource] of Object.entries(inputs)) {
       if (name !== "hdr" && resource !== undefined) builder.read(resource);
     }
-    return Object.freeze({ hdr, baselineSpecular });
+    return Object.freeze({ hdr, baselineSpecular, resolvedDiffuse });
   }
 
   destroy(): void {}

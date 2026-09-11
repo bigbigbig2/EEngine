@@ -1,3 +1,5 @@
+import type { ScreenSpaceDiffuseMode } from "./FrameProducts.js";
+
 export type QualityProfile = "medium" | "high" | "ultra";
 
 export interface PhysicalScaleContract {
@@ -7,7 +9,8 @@ export interface PhysicalScaleContract {
 
 export interface RenderFeatureSettings {
   readonly shadows: boolean;
-  readonly ambientOcclusion: boolean;
+  /** Exclusive screen-space diffuse owner; GTAO and SSGI never coexist. */
+  readonly screenSpaceDiffuseMode: ScreenSpaceDiffuseMode;
   readonly screenSpaceReflections: boolean;
   readonly temporalAntiAliasing: boolean;
   readonly bloom: boolean;
@@ -26,6 +29,20 @@ export interface GtaoSettings {
   readonly stepCount: number;
   readonly spatialStep: number;
   readonly temporalBlend: number;
+}
+
+export interface SsgiSettings {
+  readonly radiusMeters: number;
+  readonly thicknessMeters: number;
+  readonly aoIntensity: number;
+  readonly giIntensity: number;
+  readonly resolutionScale: 0.5 | 1;
+  readonly temporalEnabled: boolean;
+  readonly sliceCount: number;
+  readonly stepCount: number;
+  readonly spatialStep: number;
+  readonly temporalBlend: number;
+  readonly backfaceLighting: number;
 }
 
 export interface SsrSettings {
@@ -84,6 +101,7 @@ export interface RenderSettingsValues {
   readonly physicalScale: PhysicalScaleContract;
   readonly features: RenderFeatureSettings;
   readonly ao: GtaoSettings;
+  readonly ssgi: SsgiSettings;
   readonly ssr: SsrSettings;
   readonly temporal: TemporalSettings;
   readonly shadows: ShadowSettings;
@@ -98,6 +116,7 @@ export interface RenderSettingsPatch {
   readonly physicalScale?: Partial<PhysicalScaleContract>;
   readonly features?: Partial<RenderFeatureSettings>;
   readonly ao?: Partial<GtaoSettings>;
+  readonly ssgi?: Partial<SsgiSettings>;
   readonly ssr?: Partial<SsrSettings>;
   readonly temporal?: Partial<TemporalSettings>;
   readonly shadows?: Partial<ShadowSettings>;
@@ -110,7 +129,7 @@ export interface RenderSettingsChange {
   readonly topologyChanged: boolean;
   readonly resourcesChanged: boolean;
   readonly resolutionChanged: boolean;
-  readonly historiesInvalidated: readonly ("color" | "gtao" | "ssr")[];
+  readonly historiesInvalidated: readonly ("color" | "gtao" | "ssgi" | "ssr")[];
   readonly revision: number;
 }
 
@@ -118,25 +137,31 @@ export interface RenderFeatureContract {
   readonly owner: string;
   readonly inputDomain: "internal-full" | "output-full";
   readonly outputDomain: "internal-full" | "output-full";
-  readonly history: "none" | "color" | "gtao" | "ssr";
+  readonly histories: readonly ("color" | "gtao" | "ssgi" | "ssr")[];
   readonly topologyKeys: readonly string[];
   readonly prunedWhenDisabled: boolean;
 }
 
 export const RENDER_FEATURE_CONTRACTS = Object.freeze({
-  ambientOcclusion: Object.freeze({
-    owner: "AOService",
+  screenSpaceDiffuse: Object.freeze({
+    owner: "exclusive AOService | ScreenSpaceDiffuseService",
     inputDomain: "internal-full",
     outputDomain: "internal-full",
-    history: "gtao",
-    topologyKeys: Object.freeze(["features.ambientOcclusion", "ao.resolutionScale", "ao.temporalEnabled"]),
+    histories: Object.freeze(["gtao", "ssgi"]),
+    topologyKeys: Object.freeze([
+      "features.screenSpaceDiffuseMode",
+      "ao.resolutionScale",
+      "ao.temporalEnabled",
+      "ssgi.resolutionScale",
+      "ssgi.temporalEnabled"
+    ]),
     prunedWhenDisabled: true
   }),
   screenSpaceReflections: Object.freeze({
     owner: "ReflectionService",
     inputDomain: "internal-full",
     outputDomain: "internal-full",
-    history: "ssr",
+    histories: Object.freeze(["ssr"]),
     topologyKeys: Object.freeze([
       "features.screenSpaceReflections",
       "ssr.resolutionScale",
@@ -148,7 +173,7 @@ export const RENDER_FEATURE_CONTRACTS = Object.freeze({
     owner: "TemporalFeature",
     inputDomain: "internal-full",
     outputDomain: "output-full",
-    history: "color",
+    histories: Object.freeze(["color"]),
     topologyKeys: Object.freeze(["features.temporalAntiAliasing"]),
     prunedWhenDisabled: true
   })
@@ -159,7 +184,7 @@ const DEFAULTS: RenderSettingsValues = {
   physicalScale: { metersPerWorldUnit: 1 },
   features: {
     shadows: true,
-    ambientOcclusion: true,
+    screenSpaceDiffuseMode: "gtao",
     screenSpaceReflections: false,
     temporalAntiAliasing: false,
     bloom: true,
@@ -177,6 +202,19 @@ const DEFAULTS: RenderSettingsValues = {
     stepCount: 6,
     spatialStep: 1,
     temporalBlend: 0.95
+  },
+  ssgi: {
+    radiusMeters: 2,
+    thicknessMeters: 1,
+    aoIntensity: 1,
+    giIntensity: 10,
+    resolutionScale: 0.5,
+    temporalEnabled: true,
+    sliceCount: 2,
+    stepCount: 8,
+    spatialStep: 1,
+    temporalBlend: 0.92,
+    backfaceLighting: 0
   },
   ssr: {
     resolutionScale: 0.5,
@@ -222,14 +260,17 @@ const DEFAULTS: RenderSettingsValues = {
 const QUALITY_PATCHES: Readonly<Record<QualityProfile, RenderSettingsPatch>> = Object.freeze({
   medium: Object.freeze({
     ao: Object.freeze({ resolutionScale: 0.5, sliceCount: 3, stepCount: 4, spatialStep: 1 }),
+    ssgi: Object.freeze({ resolutionScale: 0.5, sliceCount: 1, stepCount: 12, spatialStep: 1 }),
     ssr: Object.freeze({ resolutionScale: 0.5, maxSteps: 64 })
   }),
   high: Object.freeze({
     ao: Object.freeze({ resolutionScale: 0.5, sliceCount: 3, stepCount: 6, spatialStep: 1 }),
+    ssgi: Object.freeze({ resolutionScale: 0.5, sliceCount: 2, stepCount: 8, spatialStep: 1 }),
     ssr: Object.freeze({ resolutionScale: 0.5, maxSteps: 96 })
   }),
   ultra: Object.freeze({
     ao: Object.freeze({ resolutionScale: 1, sliceCount: 5, stepCount: 6, spatialStep: 1 }),
+    ssgi: Object.freeze({ resolutionScale: 1, sliceCount: 3, stepCount: 16, spatialStep: 1 }),
     ssr: Object.freeze({ resolutionScale: 1, maxSteps: 128 })
   })
 });
@@ -266,18 +307,24 @@ export class RenderSettings {
       featuresChanged ||
       previous.ao.resolutionScale !== next.ao.resolutionScale ||
       previous.ao.temporalEnabled !== next.ao.temporalEnabled ||
+      previous.ssgi.resolutionScale !== next.ssgi.resolutionScale ||
+      previous.ssgi.temporalEnabled !== next.ssgi.temporalEnabled ||
       previous.ssr.resolutionScale !== next.ssr.resolutionScale ||
       previous.ssr.temporalEnabled !== next.ssr.temporalEnabled;
     const resolutionChanged = previous.resolution.internalScale !== next.resolution.internalScale;
     const resourcesChanged = topologyChanged || resolutionChanged;
-    const histories = new Set<"color" | "gtao" | "ssr">();
+    const histories = new Set<"color" | "gtao" | "ssgi" | "ssr">();
     if (resolutionChanged ||
         previous.features.temporalAntiAliasing !== next.features.temporalAntiAliasing ||
         !sameRecord(previous.temporal, next.temporal)) histories.add("color");
     if (resolutionChanged ||
-        previous.features.ambientOcclusion !== next.features.ambientOcclusion ||
+        previous.features.screenSpaceDiffuseMode !== next.features.screenSpaceDiffuseMode ||
         !sameRecord(previous.ao, next.ao) ||
         previous.physicalScale.metersPerWorldUnit !== next.physicalScale.metersPerWorldUnit) histories.add("gtao");
+    if (resolutionChanged ||
+        previous.features.screenSpaceDiffuseMode !== next.features.screenSpaceDiffuseMode ||
+        !sameRecord(previous.ssgi, next.ssgi) ||
+        previous.physicalScale.metersPerWorldUnit !== next.physicalScale.metersPerWorldUnit) histories.add("ssgi");
     if (resolutionChanged ||
         previous.features.screenSpaceReflections !== next.features.screenSpaceReflections ||
         !sameRecord(previous.ssr, next.ssr) ||
@@ -307,6 +354,7 @@ function mergeValues(
     physicalScale: { ...current.physicalScale, ...combined.physicalScale },
     features: { ...current.features, ...combined.features },
     ao: { ...current.ao, ...combined.ao },
+    ssgi: { ...current.ssgi, ...combined.ssgi },
     ssr: { ...current.ssr, ...combined.ssr },
     temporal: { ...current.temporal, ...combined.temporal },
     shadows: { ...current.shadows, ...combined.shadows },
@@ -320,6 +368,7 @@ function combinePatches(a: RenderSettingsPatch, b: RenderSettingsPatch): RenderS
     physicalScale: { ...a.physicalScale, ...b.physicalScale },
     features: { ...a.features, ...b.features },
     ao: { ...a.ao, ...b.ao },
+    ssgi: { ...a.ssgi, ...b.ssgi },
     ssr: { ...a.ssr, ...b.ssr },
     temporal: { ...a.temporal, ...b.temporal },
     shadows: { ...a.shadows, ...b.shadows },
@@ -342,6 +391,21 @@ function validate(value: RenderSettingsValues): void {
   assertIntegerRange(value.ao.stepCount, 1, 8, "ao.stepCount");
   assertIntegerRange(value.ao.spatialStep, 1, 4, "ao.spatialStep");
   assertRange(value.ao.temporalBlend, 0, 0.99, "ao.temporalBlend");
+  if (!["off", "gtao", "ssgi"].includes(value.features.screenSpaceDiffuseMode)) {
+    throw new RangeError("features.screenSpaceDiffuseMode must be off, gtao or ssgi");
+  }
+  assertFinitePositive(value.ssgi.radiusMeters, "ssgi.radiusMeters");
+  assertFinitePositive(value.ssgi.thicknessMeters, "ssgi.thicknessMeters");
+  assertRange(value.ssgi.aoIntensity, 0, 4, "ssgi.aoIntensity");
+  assertRange(value.ssgi.giIntensity, 0, 32, "ssgi.giIntensity");
+  if (value.ssgi.resolutionScale !== 0.5 && value.ssgi.resolutionScale !== 1) {
+    throw new RangeError("ssgi.resolutionScale must be 0.5 or 1");
+  }
+  assertIntegerRange(value.ssgi.sliceCount, 1, 4, "ssgi.sliceCount");
+  assertIntegerRange(value.ssgi.stepCount, 1, 32, "ssgi.stepCount");
+  assertIntegerRange(value.ssgi.spatialStep, 1, 4, "ssgi.spatialStep");
+  assertRange(value.ssgi.temporalBlend, 0, 0.99, "ssgi.temporalBlend");
+  assertRange(value.ssgi.backfaceLighting, 0, 1, "ssgi.backfaceLighting");
   if (value.ssr.resolutionScale !== 0.5 && value.ssr.resolutionScale !== 1) {
     throw new RangeError("ssr.resolutionScale must be 0.5 or 1");
   }
@@ -360,7 +424,7 @@ function cloneValues(value: RenderSettingsValues): RenderSettingsValues {
 
 function freezeValues(value: RenderSettingsValues): RenderSettingsValues {
   const mutable = value as Mutable<RenderSettingsValues>;
-  for (const key of ["physicalScale", "features", "ao", "ssr", "temporal", "shadows", "post", "resolution"] as const) {
+  for (const key of ["physicalScale", "features", "ao", "ssgi", "ssr", "temporal", "shadows", "post", "resolution"] as const) {
     Object.freeze(mutable[key]);
   }
   return Object.freeze(mutable);
@@ -369,7 +433,7 @@ function freezeValues(value: RenderSettingsValues): RenderSettingsValues {
 function sameValues(a: RenderSettingsValues, b: RenderSettingsValues): boolean {
   return a.qualityProfile === b.qualityProfile &&
     sameRecord(a.physicalScale, b.physicalScale) && sameRecord(a.features, b.features) &&
-    sameRecord(a.ao, b.ao) && sameRecord(a.ssr, b.ssr) && sameRecord(a.temporal, b.temporal) &&
+    sameRecord(a.ao, b.ao) && sameRecord(a.ssgi, b.ssgi) && sameRecord(a.ssr, b.ssr) && sameRecord(a.temporal, b.temporal) &&
     sameRecord(a.shadows, b.shadows) && sameRecord(a.post, b.post) && sameRecord(a.resolution, b.resolution);
 }
 

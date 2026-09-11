@@ -55,7 +55,7 @@ async function initialize(): Promise<void> {
   if (!("gpu" in navigator)) throw new Error("WebGPU 在当前浏览器不可用");
   const context = canvas.getContext("webgpu"); if (context === null) throw new Error("无法创建 WebGPU canvas context");
   const activeRenderer = new Renderer(); renderer = activeRenderer; await activeRenderer.initialize({ context, pixelRatio: 1 }); rendererInitialized = true;
-  activeRenderer.configure({ features: { shadows: false, ambientOcclusion: false, screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false }, post: { exposureCompensation: 0, colorGradingSaturation: 1, colorGradingGamma: 1, colorGradingGain: 1 } });
+  activeRenderer.configure({ features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false }, post: { exposureCompensation: 0, colorGradingSaturation: 1, colorGradingGamma: 1, colorGradingGain: 1 } });
   const activeScene = new Scene(); scene = activeScene;
   const light = new DirectionalLight(); light.intensity = 1; light.forward = [-0.45, -0.8, -0.35]; light.casts_shadow = false; activeScene.addChild(light);
   await activeRenderer.uploadPackedScene(activeScene, await createSource());

@@ -70,7 +70,7 @@ async function initialize(): Promise<void> {
   await activeRenderer.initialize({ context, pixelRatio: 1 });
   rendererInitialized = true;
   activeRenderer.configure({ features: {
-    shadows: false, ambientOcclusion: false, screenSpaceReflections: false,
+    shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false,
     temporalAntiAliasing: false, bloom: false, automaticExposure: false,
     motionBlur: false, sharpening: false
   } });

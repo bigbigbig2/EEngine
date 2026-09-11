@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 44,
+  "shaderCount": 46,
   "summary": {
-    "authored-live": 43,
+    "authored-live": 45,
     "dead": 1
   },
   "entries": [
@@ -116,7 +116,8 @@
       "classification": "authored-live",
       "directConsumers": [
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/shaders/ibl_baseline.ts"
+        "src/shaders/ibl_baseline.ts",
+        "src/shaders/opaque_lighting_resolve.ts"
       ],
       "runtimeConsumers": [
         "src/addons/inspector/index.ts",
@@ -126,13 +127,15 @@
         "src/render/features/LightingFeature.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/IblBaselinePass.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/render/passes/IblBaselinePass.ts"
+        "src/render/passes/IblBaselinePass.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -471,7 +474,9 @@
         "src/shaders/opaque_lighting_resolve.ts",
         "src/shaders/packed_csm_shadow.ts",
         "src/shaders/packed_transparent_oit.ts",
+        "src/shaders/screen_space_diffuse_resolve.ts",
         "src/shaders/specular_correction.ts",
+        "src/shaders/ssgi.ts",
         "src/shaders/ssr_common.ts"
       ],
       "runtimeConsumers": [
@@ -483,6 +488,7 @@
         "src/render/features/LightingFeature.ts",
         "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
+        "src/render/features/ScreenSpaceDiffuseService.ts",
         "src/render/features/ShadowFeature.ts",
         "src/render/features/ShadowFeatureManager.ts",
         "src/render/features/SurfaceFeature.ts",
@@ -509,8 +515,10 @@
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
+        "src/render/passes/SsgiPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts",
@@ -536,8 +544,10 @@
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/render/passes/SpecularCorrectionPass.ts"
+        "src/render/passes/SpecularCorrectionPass.ts",
+        "src/render/passes/SsgiPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -686,6 +696,7 @@
         "src/render/features/LightingFeature.ts",
         "src/render/features/PostFeature.ts",
         "src/render/features/ReflectionService.ts",
+        "src/render/features/ScreenSpaceDiffuseService.ts",
         "src/render/features/ShadowFeature.ts",
         "src/render/features/ShadowFeatureManager.ts",
         "src/render/features/SurfaceFeature.ts",
@@ -722,9 +733,11 @@
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
+        "src/render/passes/SsgiPass.ts",
         "src/render/passes/TemporalAntiAliasingPass.ts",
         "src/render/passes/TemporalClassificationPass.ts",
         "src/render/passes/TonemapPass.ts",
@@ -964,6 +977,29 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/screen_space_diffuse_resolve.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/GIService.ts",
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/shadow_depth_clear.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -1028,6 +1064,29 @@
       ],
       "pipelineOwners": [
         "src/render/passes/SpecularCorrectionPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssgi.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/SsgiPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/ScreenSpaceDiffuseService.ts",
+        "src/render/passes/SsgiPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/SsgiPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

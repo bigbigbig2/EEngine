@@ -22,6 +22,7 @@ export interface OpaqueIblInputs {
   readonly pbr: ResourceId;
   readonly environment: ResourceId;
   readonly diffuseIrradiance: ResourceId;
+  readonly fallbackDiffuseIrradiance: ResourceId;
   readonly splitSum: ResourceId;
   readonly camera: ResourceId;
   readonly metadata: ResourceId;
@@ -31,7 +32,7 @@ export interface OpaqueIblInputs {
 export interface FusedOpaqueIblFrame {
   readonly hdr: ResourceId;
   readonly iblSpecular: ResourceId | null;
-  readonly indirectDiffuse: null;
+  readonly indirectDiffuse: ResourceId | null;
   readonly domain: Readonly<{
     domain: "internal-full";
     width: number;
@@ -60,7 +61,7 @@ export class OpaqueLightingPipeline {
     graph: FrameGraph,
     extent: { readonly width: number; readonly height: number },
     inputs: OpaqueIblInputs,
-    options: Readonly<{ baselineSpecular: boolean }>
+    options: Readonly<{ baselineSpecular: boolean; componentOutputs?: boolean }>
   ): FusedOpaqueIblFrame {
     return this.resolveFusedBaseline(graph, extent, inputs, {
       ...options,
@@ -72,7 +73,7 @@ export class OpaqueLightingPipeline {
     graph: FrameGraph,
     extent: { readonly width: number; readonly height: number },
     inputs: OpaqueIblInputs,
-    options: Readonly<{ baselineSpecular: boolean }>
+    options: Readonly<{ baselineSpecular: boolean; componentOutputs?: boolean }>
   ): FusedOpaqueIblFrame {
     return this.resolveFusedBaseline(graph, extent, inputs, {
       ...options,
@@ -86,6 +87,7 @@ export class OpaqueLightingPipeline {
     inputs: OpaqueIblInputs,
     options: Readonly<{
       baselineSpecular: boolean;
+      componentOutputs?: boolean;
       diffuseSource: "octahedral" | "screen";
     }>
   ): FusedOpaqueIblFrame {
@@ -100,13 +102,14 @@ export class OpaqueLightingPipeline {
       metadata: inputs.metadata,
       environment: inputs.environment,
       diffuseIrradiance: inputs.diffuseIrradiance,
+      fallbackDiffuseIrradiance: inputs.fallbackDiffuseIrradiance,
       splitSum: inputs.splitSum,
       ambientVisibility: inputs.ambientVisibility
     }, options);
     return Object.freeze({
       hdr: fused.hdr,
       iblSpecular: fused.baselineSpecular,
-      indirectDiffuse: null,
+      indirectDiffuse: fused.resolvedDiffuse,
       domain: {
         domain: "internal-full" as const,
         width: extent.width,
@@ -118,6 +121,15 @@ export class OpaqueLightingPipeline {
 
   resolve(graph: FrameGraph, inputs: OpaqueLightingResolveInputs): ResourceId {
     return this.resolvePass.addToGraph(graph, inputs).hdr;
+  }
+
+  resolveComponents(
+    graph: FrameGraph,
+    inputs: OpaqueLightingResolveInputs,
+    componentOutputs: boolean,
+    extent: Readonly<{ width: number; height: number }>
+  ) {
+    return this.resolvePass.addToGraph(graph, inputs, { componentOutputs, extent });
   }
 
   resetFrameEvidence(): void {

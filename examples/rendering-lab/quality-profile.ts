@@ -19,7 +19,7 @@ export type RenderingLabCaseId =
 
 export type RenderingLabFeature =
   | "shadows"
-  | "ambientOcclusion"
+  | "screenSpaceDiffuseMode"
   | "screenSpaceReflections"
   | "temporalAntiAliasing"
   | "bloom"
@@ -35,7 +35,7 @@ export const RENDERING_LAB_CASES: readonly RenderingLabCaseId[] = Object.freeze(
 
 export const RENDERING_LAB_FULL_FEATURES: Readonly<RenderFeatureSettings> = Object.freeze({
   shadows: true,
-  ambientOcclusion: true,
+  screenSpaceDiffuseMode: "gtao",
   screenSpaceReflections: true,
   temporalAntiAliasing: true,
   bloom: true,
@@ -46,7 +46,7 @@ export const RENDERING_LAB_FULL_FEATURES: Readonly<RenderFeatureSettings> = Obje
 
 const MINIMUM_FEATURES: Readonly<RenderFeatureSettings> = Object.freeze({
   shadows: false,
-  ambientOcclusion: false,
+  screenSpaceDiffuseMode: "off",
   screenSpaceReflections: false,
   temporalAntiAliasing: false,
   bloom: false,
@@ -60,7 +60,7 @@ export function featuresForCase(caseId: RenderingLabCaseId): Readonly<RenderFeat
   const features = { ...RENDERING_LAB_FULL_FEATURES };
   const disabled = caseId.replace("full-minus-", "");
   if (disabled === "shadow") features.shadows = false;
-  if (disabled === "gtao") features.ambientOcclusion = false;
+  if (disabled === "gtao") features.screenSpaceDiffuseMode = "off";
   if (disabled === "ssr") features.screenSpaceReflections = false;
   if (disabled === "transparency") {
     // Transparency is workload-driven; this flag is consumed by the scenario
@@ -78,7 +78,10 @@ export function patchForCase(caseId: RenderingLabCaseId): RenderSettingsPatch {
   const features = featuresForCase(caseId);
   return Object.freeze({
     features,
-    ao: { resolutionScale: 0.5 as const, temporalEnabled: features.ambientOcclusion },
+    ao: {
+      resolutionScale: 0.5 as const,
+      temporalEnabled: features.screenSpaceDiffuseMode === "gtao"
+    },
     ssr: { resolutionScale: 0.5 as const, temporalEnabled: features.screenSpaceReflections },
     resolution: { internalScale: 1 as const }
   });
@@ -94,7 +97,7 @@ export function applyCase(renderer: Renderer, caseId: RenderingLabCaseId): void 
 
 export function featureLabels(features: Readonly<RenderFeatureSettings>): readonly string[] {
   return Object.entries(features)
-    .filter(([, enabled]) => enabled)
-    .map(([name]) => name)
+    .filter(([name, enabled]) => name === "screenSpaceDiffuseMode" ? enabled !== "off" : enabled)
+    .map(([name, enabled]) => name === "screenSpaceDiffuseMode" ? String(enabled) : name)
     .sort();
 }

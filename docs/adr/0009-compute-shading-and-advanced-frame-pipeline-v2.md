@@ -1865,6 +1865,16 @@ valid Brick4 > valid Probe Volume > IBL
 
 SSGI 同时成为 near-field diffuse GI 与 screen AO 的唯一 owner；bent-normal extension 不低于被替换 AO 合同；无同帧 self-feedback、无第二次完整 material evaluation、无 `CompleteHDR *= AO`、无 Brick4/Probe/IBL 全部叠加；SSGI/GTAO 两种 topology 的 graph pruning、history reset 和综合 benchmark 均通过。
 
+**Implementation record（2026-09-12，部分落地，证据未关闭）**
+
+- 公开 `RenderFeatureSettings` 已从 `ambientOcclusion: boolean` 直接迁移为 `screenSpaceDiffuseMode: "off" | "gtao" | "ssgi"`；初始化便利配置同样只接受单值 mode，不保留 GTAO/SSGI 双布尔兼容层。
+- production owner 为 `ScreenSpaceDiffuseService → SsgiPass`，固定上游 three.js r186 commit `148ef33ecb6d2502ff796d4554abd1549c95d519`。本地 WGSL 保留 32-zone occlusion bitfield、slice/双向 step、quadratic stepping、六帧 rotation、四帧 offset、radius/thickness/backface control、newly-occluded radiance accumulation、AO/GI dual output 与 luminance 7 firefly bound。
+- high topology 为半分辨率 `2 slices × 8 steps × 2 sides`；raw 输出 `rgba16float AO/second moment/oct bent` 与 `rgba16float incident GI/confidence`，joint spatial 和统一 temporal 后，一次 full-resolution depth bilateral resolve 输出 `r8unorm visibility`、`rg16uint bent`、`rgba16float incident GI`、`r8unorm confidence`。TemporalHistoryRegistry 只管理 generation/commit/invalidation；SSGI owner 持有两组 AO+GI ping-pong，共四张 history，不引入 Three.js `TRAANode`。
+- `PreExposedOpaqueRadianceSource` 直接冻结 GI baseline 写入后的 HDR resource version，trace 对它只读；当帧 `ScreenSpaceDiffuseResolve` 是后继 writer，因此 FrameGraph 依赖阻止 self-feedback。`DiffuseSurfaceLite` 逻辑产品复用 compact `albedoAo + roughnessFlags`，没有第二次 VisibilityKey/material texture evaluation，也没有额外 full Surface attachment。
+- SSGI topology 强制 IBL/Brick4/Probe baseline 临时物化 `resolved long-range diffuse + baseline specular`。最终 resolve 以 additive delta 只替换这些间接分量：long-range diffuse 乘 screen visibility，incident GI 乘 receiver diffuse/energy remainder/Material AO 一次；direct、emissive、unlit 保持原 HDR。SSR off 时在这里应用 bent-normal specular occlusion；SSR on 时 baseline specular 暂不改变，交给 Reflection correction replacement，避免双重 subtract。
+- Brick4 与 Probe raw provider 的 alpha 现为 receiver validity；当前迁移态仍由 `indirect_lighting_mode` 在 scene/frame 级选择 Brick4 或 Probe producer，并仅对所选 producer 的 invalid receiver 在同一 lighting resolve 内回退 IBL。它没有把多个 provider 的 fullscreen result 相加，但也尚未实现同一 frame 内 `valid Brick4 > valid Probe Volume > IBL` 的完整 receiver-level chain；现有 provider counter 只能证明“所选 producer 或 IBL”二选一，不能作为完整 precedence 已完成的证据。
+- 已增加 `surface.ssgi-production` Browser case，检查 pinned path、GTAO owner/history 缺席、source-before-resolve、component product、temporal/provider counter closure 与 one-main-submit；同时新增 SSGI sampling/format/energy static assertions。按本轮明确“不跑代码测试”的约束，这些测试尚未执行，也没有 build、真实 Chrome、visual review 或 `comprehensive-full` 结果。加上 receiver-level Brick4→Probe→IBL chain 仍未落地，Step 5 当前只能记为 partial implementation / verification open，不能判定 implementation 或 Exit 已满足。
+
 ### Step 6 · Three.js SSR + Temporal + Denoise replacement
 
 **Scope**
@@ -1953,7 +1963,7 @@ dead histories/counters
 - GTAO 移植：来源、revision、license、adoption 和 OEngine 差异先进入 porting ledger；数值 oracle 覆盖 depth reconstruction、horizon/range/falloff、edge stopping、AO 与 bent-normal normalization/validity；浏览器示例覆盖 thin geometry、近远景交界、移动物体、camera cut 和 half/internal resolve。必须证明旧 AO producer 已退出 production，不能只验证一个孤立 candidate pass。
 - SSGI 移植与 GI 组合：固定场景分别覆盖无 probe、IBL-only、Probe Volume valid/invalid、Brick4 valid/invalid、动态遮挡物、屏幕边界、disocclusion、高反照率与 emissive source。oracle/计数器必须证明每个 receiver 只选择一个 long-range provider，SSGI source 不含当帧 SSGI，独立 GTAO 在 `mode=ssgi` 时 work count 为零，`DiffuseSurfaceLite` 在 `mode!=ssgi` 时无独立写入；画面对比必须检查 AO 不压暗 direct/emissive/unlit，near-field GI 不被重复 receiver modulation。
 - SSR 移植：检查 ray boundary、roughness cutoff、hit distance、trace/temporal confidence、history rejection、denoise、pre-exposure 和 baseline replacement。内容 Gate 覆盖屏外/miss、粗糙表面、Local Probe/IBL fallback、快速相机和动态物体；不得以 Three example 的 environment suppression 作为正确性 oracle。
-- Feature topology matrix：至少验证 `mode=gtao + SSR off/on`、`mode=ssgi + SSR off/on`、`mode=off + SSR off/on`，并额外验证迁移期矛盾输入 `enableGTAO=true + enableSSGI=true` 被规范化为 `mode=ssgi`。每种组合记录实际 pass、texture、history、dispatch、bytes 与 counter，证明关闭功能接近零成本，而不是只看最终截图。
+- Feature topology matrix：至少验证 `mode=gtao + SSR off/on`、`mode=ssgi + SSR off/on`、`mode=off + SSR off/on`。最终公开配置已经直接使用单值 mode，旧 `enableGTAO/enableSSGI` 双布尔不再属于可表达输入；类型/API contract 必须证明矛盾组合已被删除，而不是在运行时静默选一个。每种组合记录实际 pass、texture、history、dispatch、bytes 与 counter，证明关闭功能接近零成本，而不是只看最终截图。
 - Shared Products/History：graph oracle 必须证明 consumer-on 才生产、全部 consumer-off 时裁剪、同语义多 consumer 共享唯一 producer、不同 source stage 不错误别名、invalid history 不读取旧内容；GTAO↔SSGI 切换、resize、camera cut、recreate 与 pre-exposure discontinuity 覆盖 reset reason。
 - Temporal/DRS：代表性 camera sequence 覆盖 static、motion、disocclusion、transparency、SSGI、SSR、camera cut 和 resize；正确性与正式 A/B 使用 fixed scale，adaptive 只做 bounded/hysteresis smoke。
 - Post fusion：代表性 feature 组合证明真实减少 fullscreen roundtrip 和 HDR intermediate，且 all-off、debug/capture 与 feature-off topology 不破坏；不跑完整 `2^N` 组合。

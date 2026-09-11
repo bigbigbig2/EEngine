@@ -1,4 +1,5 @@
 import type { RenderSettingsPatch } from "./pipeline/RenderSettings.js";
+import type { ScreenSpaceDiffuseMode } from "./pipeline/FrameProducts.js";
 
 /**
  * Renderer 初始化配置。配置只在创建/初始化时作为默认值应用，运行时数值调整
@@ -11,7 +12,7 @@ export interface RendererConfig {
   readonly renderScale?: number;
   readonly aoScale?: 0.5 | 1;
   readonly ssrScale?: 0.5 | 1;
-  readonly enableGTAO?: boolean;
+  readonly screenSpaceDiffuseMode?: ScreenSpaceDiffuseMode;
   readonly enableSSSR?: boolean;
   readonly enableTAAU?: boolean;
   /** Maximum per-layer resolution used by the packed texture residency bank. */
@@ -32,7 +33,7 @@ export const DEFAULT_RENDERER_CONFIG: RendererConfig = Object.freeze({
   renderScale: 1,
   aoScale: 0.5,
   ssrScale: 0.5,
-  enableGTAO: true,
+  screenSpaceDiffuseMode: "gtao",
   enableSSSR: true,
   enableTAAU: true
 });
@@ -50,6 +51,7 @@ export function mergeRendererConfig(
       ...override.renderSettings?.features
     },
     ao: { ...base.renderSettings?.ao, ...override.renderSettings?.ao },
+    ssgi: { ...base.renderSettings?.ssgi, ...override.renderSettings?.ssgi },
     ssr: { ...base.renderSettings?.ssr, ...override.renderSettings?.ssr },
     resolution: {
       ...base.renderSettings?.resolution,
@@ -78,9 +80,9 @@ export function rendererConfigSettingsPatch(
   return {
     ...config.renderSettings,
     features: {
-      ...(config.enableGTAO === undefined
+      ...(config.screenSpaceDiffuseMode === undefined
         ? {}
-        : { ambientOcclusion: config.enableGTAO }),
+        : { screenSpaceDiffuseMode: config.screenSpaceDiffuseMode }),
       ...(config.enableSSSR === undefined
         ? {}
         : { screenSpaceReflections: config.enableSSSR }),
@@ -93,6 +95,7 @@ export function rendererConfigSettingsPatch(
       ...(config.aoScale === undefined ? {} : { resolutionScale: config.aoScale }),
       ...config.renderSettings?.ao
     },
+    ssgi: { ...config.renderSettings?.ssgi },
     ssr: {
       ...(config.ssrScale === undefined ? {} : { resolutionScale: config.ssrScale }),
       ...config.renderSettings?.ssr

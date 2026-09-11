@@ -41,7 +41,8 @@ const OPAQUE_LIGHTING_RESOLVE_GROUP1: GPUBindGroupLayoutDescriptor = {
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } }
+    { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+    { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
   ]
 };
 
@@ -64,7 +65,8 @@ function createOpaqueLightingPipeline(
   label: string,
   entryPoint: string,
   bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[],
-  surfaceProfile: GpuShadingSurfaceLiteProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile,
+  componentOutputs = false
 ): CachedRenderPipelineDescriptor {
   return {
     label,
@@ -79,7 +81,13 @@ function createOpaqueLightingPipeline(
       constants: {
         ...gpuShadingSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
       },
-      targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
+      targets: componentOutputs
+        ? [
+            ...OPAQUE_LIGHTING_RESOLVE_TARGETS,
+            { format: OPAQUE_LIGHTING_RESOLVE_FORMAT },
+            { format: OPAQUE_LIGHTING_RESOLVE_FORMAT }
+          ]
+        : OPAQUE_LIGHTING_RESOLVE_TARGETS
     },
     primitive: { topology: "triangle-list", cullMode: "none" },
     depthStencil: {
@@ -100,6 +108,7 @@ export type OpaqueLightingResolveInputs = {
   splitSum: ResourceId;
   indirectDiffuse: ResourceId;
   indirectSpecular: ResourceId;
+  fallbackDiffuseIrradiance: ResourceId;
   /** GTAO ambient visibility; material AO remains in albedoAo.a. */
   ambientVisibility?: ResourceId;
   camera: ResourceId;
@@ -109,11 +118,14 @@ export type OpaqueLightingResolveInputs = {
 
 export type OpaqueLightingResolveOutput = {
   hdr: ResourceId;
+  baselineSpecular: ResourceId | null;
+  resolvedDiffuse: ResourceId | null;
 };
 
 export class OpaqueLightingResolvePass {
   private readonly surfaceDescriptor: CachedRenderPipelineDescriptor;
   private readonly surfaceNoAoDescriptor: CachedRenderPipelineDescriptor;
+  private readonly componentDescriptor: CachedRenderPipelineDescriptor;
   private surfacePipeline: GPURenderPipeline | null = null;
   private surfaceNoAoPipeline: GPURenderPipeline | null = null;
   lastRan = false;
@@ -134,6 +146,13 @@ export class OpaqueLightingResolvePass {
       [OPAQUE_LIGHTING_RESOLVE_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
       surfaceProfile
     );
+    this.componentDescriptor = createOpaqueLightingPipeline(
+      "Renderer/Opaque lighting pre-SSGI component resolve",
+      "fs_main_components",
+      [OPAQUE_LIGHTING_RESOLVE_GROUP0, OPAQUE_LIGHTING_RESOLVE_GROUP1],
+      surfaceProfile,
+      true
+    );
   }
 
   init(): void {
@@ -147,18 +166,31 @@ export class OpaqueLightingResolvePass {
 
   addToGraph(
     graph: FrameGraph,
-    inputs: OpaqueLightingResolveInputs
+    inputs: OpaqueLightingResolveInputs,
+    options: Readonly<{
+      componentOutputs?: boolean;
+      extent?: Readonly<{ width: number; height: number }>;
+    }> = {}
   ): OpaqueLightingResolveOutput {
     this.init();
-    const output: OpaqueLightingResolveOutput = { hdr: -1 };
+    const output: OpaqueLightingResolveOutput = {
+      hdr: -1,
+      baselineSpecular: null,
+      resolvedDiffuse: null
+    };
     const builder = graph.add(
       "Opaque lighting resolve",
       inputs,
       (data, resources, context) => {
         const encoder = context.gpu_encoder;
         const aoAware = data.ambientVisibility !== undefined;
-        const pipeline = aoAware ? this.surfacePipeline : this.surfaceNoAoPipeline;
-        const descriptor = aoAware ? this.surfaceDescriptor : this.surfaceNoAoDescriptor;
+        const componentOutputs = options.componentOutputs === true;
+        const pipeline = componentOutputs
+          ? this.graphics.render_pipelines.obtain(this.componentDescriptor)
+          : aoAware ? this.surfacePipeline : this.surfaceNoAoPipeline;
+        const descriptor = componentOutputs
+          ? this.componentDescriptor
+          : aoAware ? this.surfaceDescriptor : this.surfaceNoAoDescriptor;
         if (!encoder) throw new Error("OpaqueLightingResolvePass: no encoder");
         if (!pipeline) throw new Error("OpaqueLightingResolvePass not initialized");
 
@@ -169,7 +201,19 @@ export class OpaqueLightingResolvePass {
               view: texture(resources.get(output.hdr)),
               loadOp: "load",
               storeOp: "store"
-            }
+            },
+            ...(output.baselineSpecular === null ? [] : [{
+              view: texture(resources.get(output.baselineSpecular)),
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              loadOp: "clear" as const,
+              storeOp: "store" as const
+            }]),
+            ...(output.resolvedDiffuse === null ? [] : [{
+              view: texture(resources.get(output.resolvedDiffuse)),
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              loadOp: "clear" as const,
+              storeOp: "store" as const
+            }])
           ],
           depthStencilAttachment: {
             view: resolveDepthAttachmentView(resources.get(data.depth)),
@@ -195,7 +239,8 @@ export class OpaqueLightingResolvePass {
               texture(resources.get(data.splitSum)),
               texture(resources.get(data.indirectDiffuse)),
               texture(resources.get(data.indirectSpecular)),
-              texture(resources.get(data.ambientVisibility ?? data.albedoAo))
+              texture(resources.get(data.ambientVisibility ?? data.albedoAo)),
+              texture(resources.get(data.fallbackDiffuseIrradiance))
             ]
           ]
         );
@@ -206,6 +251,21 @@ export class OpaqueLightingResolvePass {
     );
 
     output.hdr = builder.write(inputs.hdr);
+    if (options.componentOutputs === true) {
+      if (options.extent === undefined) {
+        throw new Error("OpaqueLightingResolve component outputs require an extent");
+      }
+      const descriptor = {
+        kind: "transient_texture" as const,
+        label: "ADR-0009 pre-SSGI lighting component",
+        width: Math.max(1, options.extent.width | 0),
+        height: Math.max(1, options.extent.height | 0),
+        format: OPAQUE_LIGHTING_RESOLVE_FORMAT,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      };
+      output.baselineSpecular = builder.create("pre-SSGI baseline specular", descriptor);
+      output.resolvedDiffuse = builder.create("pre-SSGI resolved long-range diffuse", descriptor);
+    }
     for (const [name, resource] of Object.entries(inputs)) {
       if (name !== "hdr" && resource !== undefined) builder.read(resource);
     }
