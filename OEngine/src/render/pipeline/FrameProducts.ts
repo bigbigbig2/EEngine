@@ -254,6 +254,21 @@ export interface FinalColorPyramidFrame {
   readonly domain: TextureDomain<"output-full">;
 }
 
+/** Authoritative output-resolution HDR produced by the temporal owner. */
+export interface TemporalReconstructionFrame {
+  readonly hdr: ResourceId;
+  /** TAA packs lock confidence in HDR alpha; NSS keeps confidence in feedback history. */
+  readonly confidence: ResourceId | null;
+  readonly confidenceEncoding: "alpha-history-lock" | "nss-feedback-history";
+  readonly owner: "taa" | "nss";
+  readonly stage: "post-transparency-temporal";
+  readonly historyGenerationSource: "TemporalHistoryRegistry.color";
+  readonly representationRevisionSource: "MainHistoryRevision.representation";
+  readonly preExposure: PreExposureContract;
+  readonly inputDomain: TextureDomain<"internal-full">;
+  readonly domain: TextureDomain<"output-full">;
+}
+
 /** SSR correction product; composition replaces the declared baseline specular. */
 export interface ReflectionCorrectionFrame {
   readonly baselineSpecular: ResourceId;
@@ -798,6 +813,40 @@ export function finalColorPyramidFrame(
     ...input,
     preExposure: preExposureContract(input.preExposure),
     domain
+  });
+}
+
+export function temporalReconstructionFrame(
+  input: TemporalReconstructionFrame
+): TemporalReconstructionFrame {
+  requireRequiredResourceId(input.hdr, "TemporalReconstructionFrame.hdr");
+  requireResourceId(input.confidence, "TemporalReconstructionFrame.confidence");
+  if (input.historyGenerationSource !== "TemporalHistoryRegistry.color" ||
+      input.representationRevisionSource !== "MainHistoryRevision.representation") {
+    throw new Error("TemporalReconstructionFrame must use authoritative history revision sources");
+  }
+  if (input.stage !== "post-transparency-temporal") {
+    throw new Error("TemporalReconstructionFrame has an invalid source stage");
+  }
+  if (input.owner === "taa") {
+    if (input.confidence !== input.hdr || input.confidenceEncoding !== "alpha-history-lock") {
+      throw new Error("TAA reconstruction confidence must be the HDR alpha history lock");
+    }
+  } else if (input.owner === "nss") {
+    if (input.confidence !== null || input.confidenceEncoding !== "nss-feedback-history") {
+      throw new Error("NSS reconstruction confidence must remain in its feedback history");
+    }
+  } else {
+    throw new Error(`Unknown TemporalReconstructionFrame owner '${String(input.owner)}'`);
+  }
+  return Object.freeze({
+    ...input,
+    preExposure: preExposureContract(input.preExposure),
+    inputDomain: requireInternalFullDomain(
+      input.inputDomain,
+      "TemporalReconstructionFrame input"
+    ),
+    domain: requireOutputFullDomain(input.domain, "TemporalReconstructionFrame")
   });
 }
 

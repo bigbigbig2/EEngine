@@ -13,7 +13,7 @@ const DOMAIN_RULES = Object.freeze([
   rule("renderer", /^OEngine\/src\/render\/Renderer(?:Config)?\.ts$/),
   rule("shared-products", /^OEngine\/src\/(?:render\/(?:TemporalHistoryRegistry|pipeline\/(?:FrameContext|FrameProducts|MainRenderPipeline)|passes\/SharedColorPyramidPass)|shaders\/shared_color_pyramid)\.ts$/),
   rule("post", /^OEngine\/src\/(?:render\/(?:features\/PostFeature|passes\/(?:AutomaticExposure|Bloom)Pass)|shaders\/(?:automatic_exposure|bloom))\.ts$/),
-  rule("temporal", /^OEngine\/src\/(?:render\/(?:TemporalHistoryRegistry|pipeline\/FrameContext|passes\/(?:NeuralSuperSampling|TemporalAntiAliasing)Pass)|shaders\/(?:nss|taa))\.ts$/),
+  rule("temporal", /^OEngine\/src\/(?:render\/(?:DynamicResolutionScaling|TemporalHistoryRegistry|TemporalResolveContract|features\/TemporalFeature|pipeline\/(?:FrameContext|FrameProducts|MainRenderPipeline|RenderSettings)|passes\/(?:NeuralSuperSampling|TemporalAntiAliasing|TemporalClassification)Pass)|shaders\/(?:nss|taa|temporal_classification))\.ts$/),
   rule("ssgi", /^OEngine\/src\/(?:render\/passes\/SsgiPass|shaders\/ssgi)\.ts$/),
   rule("graphics-context", /^OEngine\/src\/gpu\/(?:GraphicsContext|WebGpuCapabilityRecord)\.ts$/),
   rule("visibility", /^OEngine\/src\/(?:render\/(?:Hierarchical|Visibility|Triangle|passes\/.*(?:Visibility|HZB|Raster))|gpu\/GpuVisibility|shaders\/.*(?:visibility|hzb|raster))/i),

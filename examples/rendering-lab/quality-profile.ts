@@ -83,7 +83,7 @@ export function patchForCase(caseId: RenderingLabCaseId): RenderSettingsPatch {
       temporalEnabled: features.screenSpaceDiffuseMode === "gtao"
     },
     ssr: { resolutionScale: 0.5 as const, temporalEnabled: features.screenSpaceReflections },
-    resolution: { internalScale: 1 as const }
+    resolution: { mode: "fixed" as const, internalScale: 1 as const }
   });
 }
 

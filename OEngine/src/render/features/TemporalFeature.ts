@@ -2,8 +2,9 @@
  * 统一时域 Feature owner。
  *
  * 该 owner 收拢 TAA/TAAU、Temporal Classification、颜色 history、jitter
- * 和 DRS 的生命周期；AO/SSR history 仍由各自 Service 维护，避免跨产品
- * 复用错误的历史纹理。所有实际 GPU 工作继续由现有 pass 写入 FrameGraph。
+ * 和 DRS controller 的生命周期；统一 registry 管理逻辑代际，各 effect
+ * Service 仍持有自己的物理 history，避免跨产品复用错误的纹理。所有实际
+ * GPU 工作继续由现有 pass 写入同一个 FrameGraph。
  */
 
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";

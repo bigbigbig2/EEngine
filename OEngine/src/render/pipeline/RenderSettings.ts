@@ -1,4 +1,5 @@
 import type { ScreenSpaceDiffuseMode } from "./FrameProducts.js";
+import { DYNAMIC_RESOLUTION_SCALE_BUCKETS } from "../DynamicResolutionScaling.js";
 
 export type QualityProfile = "medium" | "high" | "ultra";
 
@@ -95,7 +96,15 @@ export interface PostSettings {
 }
 
 export interface ResolutionSettings {
+  /** Fixed is mandatory for formal benchmark artifacts; adaptive is game mode. */
+  readonly mode: "fixed" | "adaptive";
+  /** Fixed scale or the current adaptive bucket. */
   readonly internalScale: number;
+  readonly adaptiveMinimumScale: number;
+  readonly adaptiveMaximumScale: number;
+  readonly adaptiveTargetFrameRate: number;
+  readonly adaptiveTolerance: number;
+  readonly adaptiveSettleFrames: number;
 }
 
 export interface RenderSettingsValues {
@@ -257,7 +266,15 @@ const DEFAULTS: RenderSettingsValues = {
     colorGradingSaturation: 1,
     colorGradingContrast: 1
   },
-  resolution: { internalScale: 1 }
+  resolution: {
+    mode: "fixed",
+    internalScale: 1,
+    adaptiveMinimumScale: 0.67,
+    adaptiveMaximumScale: 1,
+    adaptiveTargetFrameRate: 60,
+    adaptiveTolerance: 0.1,
+    adaptiveSettleFrames: 30
+  }
 };
 
 const QUALITY_PATCHES: Readonly<Record<QualityProfile, RenderSettingsPatch>> = Object.freeze({
@@ -419,7 +436,63 @@ function validate(value: RenderSettingsValues): void {
   assertRange(value.ssr.mirrorBias, 0, 1, "ssr.mirrorBias");
   assertRange(value.ssr.temporalStrength, 0, 1, "ssr.temporalStrength");
   assertIntegerRange(value.ssr.maxSteps, 1, 256, "ssr.maxSteps");
+  assertRange(value.temporal.historyStrength, 0, 1, "temporal.historyStrength");
+  assertRange(value.temporal.varianceGamma, 0, 4, "temporal.varianceGamma");
+  assertRange(
+    value.temporal.minimumHistoryWeight,
+    0,
+    1,
+    "temporal.minimumHistoryWeight"
+  );
+  assertRange(
+    value.temporal.maximumHistoryWeight,
+    0,
+    1,
+    "temporal.maximumHistoryWeight"
+  );
+  if (value.temporal.minimumHistoryWeight > value.temporal.maximumHistoryWeight) {
+    throw new RangeError("temporal minimum history weight must not exceed maximum history weight");
+  }
+  assertRange(value.temporal.historyLockStep, 0, 1, "temporal.historyLockStep");
+  assertRange(value.temporal.reactiveThreshold, 0.01, 1, "temporal.reactiveThreshold");
+  assertRange(
+    value.temporal.disocclusionThreshold,
+    0,
+    1,
+    "temporal.disocclusionThreshold"
+  );
+  assertFinitePositive(value.temporal.motionFadePixels, "temporal.motionFadePixels");
+  if (value.resolution.mode !== "fixed" && value.resolution.mode !== "adaptive") {
+    throw new RangeError("resolution.mode must be fixed or adaptive");
+  }
   assertRange(value.resolution.internalScale, 0.25, 1, "resolution.internalScale");
+  assertRange(value.resolution.adaptiveMinimumScale, 0.5, 1, "resolution.adaptiveMinimumScale");
+  assertRange(value.resolution.adaptiveMaximumScale, 0.5, 1, "resolution.adaptiveMaximumScale");
+  if (value.resolution.adaptiveMinimumScale > value.resolution.adaptiveMaximumScale) {
+    throw new RangeError("resolution adaptive minimum scale must not exceed maximum scale");
+  }
+  assertFinitePositive(
+    value.resolution.adaptiveTargetFrameRate,
+    "resolution.adaptiveTargetFrameRate"
+  );
+  assertRange(value.resolution.adaptiveTolerance, 0, 0.5, "resolution.adaptiveTolerance");
+  assertIntegerRange(value.resolution.adaptiveSettleFrames, 1, 600, "resolution.adaptiveSettleFrames");
+  if (value.resolution.mode === "adaptive") {
+    if (!value.features.temporalAntiAliasing) {
+      throw new RangeError("adaptive resolution requires temporal reconstruction");
+    }
+    if (value.resolution.internalScale < value.resolution.adaptiveMinimumScale ||
+        value.resolution.internalScale > value.resolution.adaptiveMaximumScale) {
+      throw new RangeError("adaptive resolution internalScale must be inside its configured range");
+    }
+    const availableBuckets = DYNAMIC_RESOLUTION_SCALE_BUCKETS.filter((scale) =>
+      scale >= value.resolution.adaptiveMinimumScale &&
+      scale <= value.resolution.adaptiveMaximumScale
+    );
+    if (availableBuckets.length === 0) {
+      throw new RangeError("adaptive resolution range must contain a supported scale bucket");
+    }
+  }
 }
 
 function cloneValues(value: RenderSettingsValues): RenderSettingsValues {

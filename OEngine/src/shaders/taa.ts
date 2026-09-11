@@ -61,30 +61,36 @@ fn sample_current(uv: vec2f) -> vec3f {
   );
 }
 
-fn catmull_rom_weights(value: f32) -> vec4f {
-  let x2 = value * value;
-  let x3 = x2 * value;
-  return vec4f(
-    -0.5 * value + x2 - 0.5 * x3,
-    1.0 - 2.5 * x2 + 1.5 * x3,
-    0.5 * value + 2.0 * x2 - 1.5 * x3,
-    -0.5 * x2 + 0.5 * x3
-  );
-}
-
+// Collapses the separable 4x4 Catmull-Rom footprint into nine bilinear taps.
+// The current frame is the high-frequency source, so this preserves subpixel
+// detail without paying sixteen texture samples per output pixel.
 fn sample_current_catmull_rom(uv: vec2f, internal_size: vec2f) -> vec3f {
-  let texel_position = uv * internal_size - 0.5;
-  let base = floor(texel_position);
-  let fraction = fract(texel_position);
-  let wx = catmull_rom_weights(fraction.x);
-  let wy = catmull_rom_weights(fraction.y);
-  var result = vec3f(0.0);
-  for (var y = 0; y < 4; y++) {
-    for (var x = 0; x < 4; x++) {
-      let sample_uv = (base + vec2f(f32(x - 1), f32(y - 1)) + 0.5) / internal_size;
-      result += sample_current(sample_uv) * wx[x] * wy[y];
-    }
-  }
+  let sample_position = uv * internal_size;
+  let texel_position_1 = floor(sample_position - 0.5) + 0.5;
+  let fraction = sample_position - texel_position_1;
+  let fraction2 = fraction * fraction;
+  let fraction3 = fraction2 * fraction;
+  let weight0 = -0.5 * fraction + fraction2 - 0.5 * fraction3;
+  let weight1 = vec2f(1.0) - 2.5 * fraction2 + 1.5 * fraction3;
+  let weight2 = 0.5 * fraction + 2.0 * fraction2 - 1.5 * fraction3;
+  let weight3 = -0.5 * fraction2 + 0.5 * fraction3;
+  let weight12 = max(weight1 + weight2, vec2f(1e-5));
+  let texel_position_0 = texel_position_1 - 1.0;
+  let texel_position_12 = texel_position_1 + weight2 / weight12;
+  let texel_position_3 = texel_position_1 + 2.0;
+  let uv0 = texel_position_0 / internal_size;
+  let uv12 = texel_position_12 / internal_size;
+  let uv3 = texel_position_3 / internal_size;
+  var result =
+    sample_current(vec2f(uv0.x, uv0.y)) * weight0.x * weight0.y +
+    sample_current(vec2f(uv12.x, uv0.y)) * weight12.x * weight0.y +
+    sample_current(vec2f(uv3.x, uv0.y)) * weight3.x * weight0.y +
+    sample_current(vec2f(uv0.x, uv12.y)) * weight0.x * weight12.y +
+    sample_current(vec2f(uv12.x, uv12.y)) * weight12.x * weight12.y +
+    sample_current(vec2f(uv3.x, uv12.y)) * weight3.x * weight12.y +
+    sample_current(vec2f(uv0.x, uv3.y)) * weight0.x * weight3.y +
+    sample_current(vec2f(uv12.x, uv3.y)) * weight12.x * weight3.y +
+    sample_current(vec2f(uv3.x, uv3.y)) * weight3.x * weight3.y;
   return max(result, vec3f(0.0));
 }
 
@@ -184,11 +190,8 @@ fn main(
   let reactive = clamp(max(surface_classification.r, output_reactive), 0.0, 1.0);
   let motion_valid = surface_classification.g >= 0.5;
   let globally_valid = settings.history_validity >= 0.5;
-  // Final-layer reactive coverage may not own a dedicated transparent velocity.
-  // It is allowed to rebuild a heavily clamped zero-motion history; opaque
-  // motion-invalid pixels still reject immediately.
   if !globally_valid || settings.history_pre_exposure_scale <= 0.0 ||
-      (!motion_valid && reactive < settings.reactive_threshold) {
+      !motion_valid || reactive >= settings.reactive_threshold {
     return vec4f(current, 0.0);
   }
 
@@ -226,10 +229,19 @@ fn main(
     0.0,
     1.0
   );
-  let luminance_confidence = 1.0 /
-    (1.0 + abs(luminance(current) - luminance(history)));
+  let current_luminance = luminance(current);
+  let history_luminance = luminance(history);
+  let relative_luminance_delta = abs(current_luminance - history_luminance) /
+    max(max(current_luminance, history_luminance), 0.1);
+  let luminance_confidence = 1.0 / (1.0 + 4.0 * relative_luminance_delta);
+  let reactive_rejection = smoothstep(
+    0.0,
+    max(settings.reactive_threshold, 1e-5),
+    reactive
+  );
   let history_lock = clamp(
-    history_sample.a + settings.history_lock_step,
+    history_sample.a + settings.history_lock_step * confidence *
+      (1.0 - reactive_rejection),
     0.0,
     1.0
   );
@@ -237,11 +249,6 @@ fn main(
     min(settings.minimum_history_weight, settings.maximum_history_weight),
     max(settings.minimum_history_weight, settings.maximum_history_weight),
     history_lock
-  );
-  let reactive_rejection = smoothstep(
-    settings.reactive_threshold,
-    1.0,
-    reactive
   );
   let history_weight = clamp(
     locked_weight_limit * settings.history_strength * motion_confidence *

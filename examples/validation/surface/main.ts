@@ -80,7 +80,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production", "ssr-replacement", "shared-derived-products"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production", "ssr-replacement", "shared-derived-products", "temporal-reconstruction"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -92,7 +92,146 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "shared-derived-products") {
+    if (request.scenarioId === "temporal-reconstruction") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Surface runtime is not initialized");
+      const originalWidth = renderer.output_resolution.x;
+      const originalHeight = renderer.output_resolution.y;
+      renderer.configure({
+        features: {
+          temporalAntiAliasing: true,
+          motionBlur: false,
+          sharpening: false
+        },
+        resolution: {
+          mode: "fixed",
+          internalScale: 0.75,
+          adaptiveMinimumScale: 0.67,
+          adaptiveMaximumScale: 1,
+          adaptiveTargetFrameRate: 60
+        }
+      });
+      const fixedSamplesBefore = renderer.temporalEvidence().drsAcceptedGpuSamples;
+      await runtime.waitForFrames(5);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      const fixed = renderer.temporalEvidence();
+      const fixedGraph = renderer.mainFrameGraphEvidence();
+      if (fixedGraph === null) throw new Error("Temporal fixed-mode frame did not publish FrameGraph evidence");
+      const fixedPasses = fixedGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+      const fixedResources = fixedGraph.dump.resources.map((entry) => entry.name);
+
+      renderer.indicate_view_change();
+      await runtime.waitForFrames(1);
+      const afterCameraCut = renderer.temporalEvidence();
+      await runtime.waitForFrames(2);
+      const afterCameraRecovery = renderer.temporalEvidence();
+
+      const resizedWidth = originalWidth === 640 ? 704 : 640;
+      const resizedHeight = originalHeight === 360 ? 396 : 360;
+      runtime.resize(resizedWidth, resizedHeight);
+      await runtime.waitForFrames(1);
+      const afterResize = renderer.temporalEvidence();
+      runtime.resize(originalWidth, originalHeight);
+      await runtime.waitForFrames(2);
+
+      renderer.configure({
+        resolution: {
+          mode: "adaptive",
+          internalScale: 0.75,
+          adaptiveMinimumScale: 0.67,
+          adaptiveMaximumScale: 1,
+          adaptiveTargetFrameRate: 60,
+          adaptiveTolerance: 0.1,
+          adaptiveSettleFrames: 30
+        }
+      });
+      await runtime.waitForFrames(2);
+      const adaptive = renderer.temporalEvidence();
+
+      // The screenshot and final sampled counters use the deterministic fixed
+      // topology required by formal benchmark/visual comparison.
+      renderer.configure({ resolution: { mode: "fixed", internalScale: 0.75 } });
+      await runtime.waitForFrames(4);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      const restoredFixed = renderer.temporalEvidence();
+
+      Object.assign(evidence, {
+        temporalReconstruction: {
+          fixed,
+          fixedPasses,
+          fixedResources,
+          fixedSamplesBefore,
+          afterCameraCut,
+          afterCameraRecovery,
+          afterResize,
+          adaptive,
+          restoredFixed,
+          profilerCounters: profile.counters,
+          gpuCounters: profile.gpuCounters.values,
+          submits: profile.submits
+        }
+      });
+      assertions.push(validationAssertion(
+        "temporal-reconstruction-has-explicit-resolution-domains",
+        fixed.enabled && fixed.reconstructionOwner === "taa" &&
+          fixed.reconstructionInputDomain === "internal-full" &&
+          fixed.reconstructionOutputDomain === "output-full" &&
+          fixed.confidenceChannel === "alpha-history-lock" &&
+          fixed.preExposureAware && fixed.reactiveMaskConsumed &&
+          fixed.disocclusionConsumed && fixed.taaPasses === 1 &&
+          fixed.internalWidth === Math.floor(fixed.outputWidth * 0.75) &&
+          fixed.internalHeight === Math.floor(fixed.outputHeight * 0.75) &&
+          fixed.outputPixels > fixed.internalPixels,
+        "TemporalFeature reconstructs internal HDR into one typed output-resolution history product",
+        fixed,
+        "TAA owner, internal-full input, output-full result, confidence/reactive/disocclusion/pre-exposure contract"
+      ));
+      assertions.push(validationAssertion(
+        "temporal-reconstruction-production-graph-is-closed",
+        fixedPasses.filter((name) => name === "FX-06 final temporal validity classification").length === 1 &&
+          fixedPasses.filter((name) => name === "FX-06B Final TAA/TAAU resolve").length === 1 &&
+          fixedPasses.indexOf("FX-06 final temporal validity classification") <
+            fixedPasses.indexOf("FX-06B Final TAA/TAAU resolve") &&
+          fixedResources.filter((name) => name === "taa_history").length === 1 &&
+          fixedResources.filter((name) => name === "taa_output").length === 1 &&
+          profile.submits.count === 1,
+        "Reactive classification and output-domain reconstruction are GPU producer-to-consumer closed in the main submit",
+        { passes: fixedPasses, resources: fixedResources, submits: profile.submits },
+        "one classifier, one reconstruction, one history read/write pair, one main submit"
+      ));
+      assertions.push(validationAssertion(
+        "fixed-drs-is-deterministic-and-adaptive-is-explicit",
+        fixed.drsMode === "fixed" &&
+          fixed.drsAcceptedGpuSamples === fixedSamplesBefore &&
+          adaptive.drsMode === "adaptive" &&
+          adaptive.drsMinimumScale === 0.67 && adaptive.drsMaximumScale === 1 &&
+          adaptive.drsTargetFrameRate === 60 &&
+          JSON.stringify(adaptive.drsScaleBuckets) === JSON.stringify([0.67, 0.75, 0.8, 0.9, 1]) &&
+          restoredFixed.drsMode === "fixed" && restoredFixed.internalScale === 0.75 &&
+          profile.counters["temporal.drsAdaptive"] === 0,
+        "Formal fixed mode consumes no timing feedback while adaptive game mode declares bounded buckets and target",
+        { fixed, adaptive, restoredFixed, profilerCounters: profile.counters },
+        "fixed sample count unchanged; adaptive range 0.67..1; final benchmark state fixed"
+      ));
+      assertions.push(validationAssertion(
+        "temporal-history-rejects-cut-and-resize-then-recovers",
+        !afterCameraCut.historyReadValid &&
+          afterCameraCut.historyInvalidationReason === "camera-cut" &&
+          afterCameraRecovery.historyReadValid &&
+          !afterResize.historyReadValid &&
+          afterResize.historyInvalidationReason === "output-resize" &&
+          restoredFixed.historyReadValid &&
+          profile.gpuCounters.sampled &&
+          (profile.gpuCounters.values.temporalReactivePixels ?? 0) > 0 &&
+          (profile.gpuCounters.values.temporalHistoryRejectedPixels ?? 0) >=
+            (profile.gpuCounters.values.temporalReactivePixels ?? 0),
+        "Camera cut and resize reject stale output history before sampling and subsequent submitted frames recover",
+        { afterCameraCut, afterCameraRecovery, afterResize, restoredFixed, gpuCounters: profile.gpuCounters.values },
+        "invalid immediately after cut/resize; valid after committed recovery frames"
+      ));
+    } else if (request.scenarioId === "shared-derived-products") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
       const originalWidth = renderer.output_resolution.x;

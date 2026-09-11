@@ -15,9 +15,17 @@ import {
   reflectionCorrectionFrame,
   screenSpaceDiffuseFrame,
   shadingSurfaceLiteFrame,
+  temporalReconstructionFrame,
   textureDomain
 } from "../.test-dist/render/pipeline/FrameProducts.js";
 import { TemporalHistoryRegistry } from "../.test-dist/render/TemporalHistoryRegistry.js";
+import {
+  DynamicResolutionScaling
+} from "../.test-dist/render/DynamicResolutionScaling.js";
+import { RenderSettings } from "../.test-dist/render/pipeline/RenderSettings.js";
+import {
+  classifyTemporalHistory
+} from "../.test-dist/render/TemporalResolveContract.js";
 import { resolveMainFrameFeatureTopology } from "../.test-dist/render/MainFrameFeatureTopology.js";
 import { MATERIAL_TILE_CLASSIFICATION_WGSL } from "../.test-dist/shaders/material_tile_classification.js";
 import { gpuShadingBindingBudget } from "../.test-dist/gpu/GpuShadingBindingBudget.js";
@@ -72,6 +80,7 @@ import {
   SSR_TEMPORAL_WGSL
 } from "../.test-dist/shaders/ssr_denoise.js";
 import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correction.js";
+import { TAA_WGSL } from "../.test-dist/shaders/taa.js";
 import {
   BRICK4_LIGHT_MAP_SCHEMA_VERSION,
   createBrick4LightMapPackageV1,
@@ -856,6 +865,132 @@ test("ADR-0009 Step 7 scopes pre-exposure discontinuity to dependent histories",
   assert.equal(registry.state("gtao").readValid, true);
   assert.equal(registry.state("gtao").preExposureScale, 1);
   registry.abortFrame(1);
+});
+
+test("ADR-0009 Step 8 freezes the temporal reconstruction product domains", () => {
+  const reconstructed = temporalReconstructionFrame({
+    hdr: 40,
+    confidence: 40,
+    confidenceEncoding: "alpha-history-lock",
+    owner: "taa",
+    stage: "post-transparency-temporal",
+    historyGenerationSource: "TemporalHistoryRegistry.color",
+    representationRevisionSource: "MainHistoryRevision.representation",
+    preExposure: preExposure(),
+    inputDomain: textureDomain("internal-full", 1280, 720, 1),
+    domain: textureDomain("output-full", 1920, 1080, 1)
+  });
+  assert.equal(reconstructed.owner, "taa");
+  assert.equal(reconstructed.domain.domain, "output-full");
+  assert.throws(
+    () => temporalReconstructionFrame({
+      ...reconstructed,
+      confidence: null
+    }),
+    /HDR alpha history lock/
+  );
+  assert.throws(
+    () => temporalReconstructionFrame({
+      ...reconstructed,
+      inputDomain: textureDomain("output-full", 1920, 1080, 1)
+    }),
+    /internal-full/
+  );
+});
+
+test("ADR-0009 Step 8 makes fixed DRS inert and adaptive DRS bucketed", () => {
+  let scale = 1;
+  const drs = new DynamicResolutionScaling();
+  drs.get_scale = () => scale;
+  drs.set_scale = (next) => { scale = next; };
+  drs.configure({
+    mode: "fixed",
+    targetFrameRate: 60,
+    minimumScale: 0.67,
+    maximumScale: 1,
+    tolerance: 0.1,
+    settleFrames: 1
+  });
+  assert.equal(drs.notify_gpu_timing({
+    sampleFrameIndex: 0,
+    currentFrameIndex: 1,
+    gpuFrameTimeMs: 30
+  }), false);
+  assert.equal(drs.evidence().acceptedGpuSamples, 0);
+  assert.equal(scale, 1);
+
+  drs.configure({
+    mode: "adaptive",
+    targetFrameRate: 60,
+    minimumScale: 0.67,
+    maximumScale: 1,
+    tolerance: 0.1,
+    settleFrames: 1
+  });
+  for (let frame = 0; frame < 32; frame++) {
+    assert.equal(drs.notify_gpu_timing({
+      sampleFrameIndex: frame,
+      currentFrameIndex: frame + 1,
+      gpuFrameTimeMs: 30
+    }), true);
+  }
+  const adaptive = drs.evidence();
+  assert.equal(adaptive.mode, "adaptive");
+  assert.deepEqual(adaptive.scaleBuckets, [0.67, 0.75, 0.8, 0.9, 1]);
+  assert.ok(adaptive.scaleChanges > 0);
+  assert.ok(adaptive.scaleBuckets.includes(scale));
+});
+
+test("ADR-0009 Step 8 makes fixed benchmark mode the settings default", () => {
+  const settings = new RenderSettings();
+  assert.equal(settings.values.resolution.mode, "fixed");
+  assert.equal(settings.values.resolution.internalScale, 1);
+  const change = settings.update({
+    features: { temporalAntiAliasing: true },
+    resolution: {
+      mode: "adaptive",
+      internalScale: 0.8,
+      adaptiveMinimumScale: 0.67,
+      adaptiveMaximumScale: 1,
+      adaptiveTargetFrameRate: 60
+    }
+  });
+  assert.equal(change.resolutionChanged, true);
+  assert.equal(settings.values.resolution.mode, "adaptive");
+  assert.throws(
+    () => settings.update({
+      resolution: { adaptiveMinimumScale: 0.9, internalScale: 0.8 }
+    }),
+    /inside its configured range/
+  );
+});
+
+test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction", () => {
+  assert.match(TAA_WGSL, /nine bilinear taps/);
+  assert.match(TAA_WGSL, /reactive >= settings\.reactive_threshold/);
+  assert.match(TAA_WGSL, /history_pre_exposure_scale/);
+  assert.match(TAA_WGSL, /relative_luminance_delta/);
+  assert.doesNotMatch(TAA_WGSL, /for \(var y = 0; y < 4/);
+  assert.equal(classifyTemporalHistory({
+    historyValid: true,
+    motionValid: true,
+    reactive: 0.5,
+    disocclusionConfidence: 1,
+    velocityMagnitudePixels: 0,
+    currentLuminance: 1,
+    historyLuminance: 1,
+    reprojectedInside: true
+  }).rejectionReason, "reactive");
+  assert.equal(classifyTemporalHistory({
+    historyValid: true,
+    motionValid: false,
+    reactive: 0,
+    disocclusionConfidence: 1,
+    velocityMagnitudePixels: 0,
+    currentLuminance: 1,
+    historyLuminance: 1,
+    reprojectedInside: true
+  }).rejectionReason, "motion-invalid");
 });
 
 test("ADR-0009 Step 0 rejects invalid exposure and cross-resolution products", () => {

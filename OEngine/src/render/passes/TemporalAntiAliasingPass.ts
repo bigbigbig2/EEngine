@@ -21,7 +21,6 @@ export interface TemporalAntiAliasingInputs {
 }
 
 export interface TemporalAntiAliasingJob {
-  readonly jitter: readonly [number, number];
   readonly historyValidity: number;
   readonly internalResolution: readonly [number, number];
   readonly outputResolution: readonly [number, number];

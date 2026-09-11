@@ -1,5 +1,4 @@
 import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
-import { TEMPORAL_DISOCCLUSION_REJECT_THRESHOLD } from "../render/TemporalResolveContract.js";
 
 export const TEMPORAL_CLASSIFICATION_FORMAT = "rg8unorm" as const;
 
@@ -44,9 +43,9 @@ export function temporalEvidenceWgsl(
   return /* wgsl */ `
 struct EvidenceSettings {
   history_valid: u32,
+  reactive_threshold: f32,
+  disocclusion_threshold: f32,
   _padding0: u32,
-  _padding1: u32,
-  _padding2: u32,
 }
 @group(0) @binding(0) var classification: texture_2d<f32>;
 @group(0) @binding(1) var disocclusion_confidence: texture_2d<f32>;
@@ -60,8 +59,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let pixel = vec2i(id.xy);
   let value = textureLoad(classification, pixel, 0).rg;
   let confidence = textureLoad(disocclusion_confidence, pixel, 0).r;
-  let reactive = value.r >= 0.5;
-  let disoccluded = confidence < ${TEMPORAL_DISOCCLUSION_REJECT_THRESHOLD};
+  let reactive = value.r >= settings.reactive_threshold;
+  let disoccluded = confidence < settings.disocclusion_threshold;
   let rejected = settings.history_valid == 0u || value.g < 0.5 || reactive || disoccluded;
   if reactive { atomicAdd(&counters[${reactiveIndex}u], 1u); }
   if disoccluded { atomicAdd(&counters[${disoccludedIndex}u], 1u); }

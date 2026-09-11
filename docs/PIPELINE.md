@@ -64,6 +64,7 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 - `AmbientOcclusionFrame`：visibility 与 bent normal。
 - `ReflectionFrame`：resolved specular、confidence、variance。
 - `TemporalSurfaceFrame`：velocity、history confidence、reactive、classification。
+- `TemporalReconstructionFrame`：`internal-full` HDR 到 `output-full` HDR 的权威时域重建产品；TAA 的 confidence 为同一 `rgba16float` 输出 alpha 中的 history lock，NSS 的 confidence 留在独立 feedback history，二者都从统一 history/representation revision source 取代际。
 
 跨 resolution domain 必须声明转换 owner；消费者不能靠尺寸相同猜测兼容。
 
@@ -92,6 +93,10 @@ Shared Depth/HZB 继续由 per-view `HierarchicalZBuffer` 以一个 current reso
 Bloom 不再生成自己的 downsample texture。它从 `FinalColorPyramid` mip1 起逐层做高光提取，以最小 mip 为重建起点，再按 mip 由低到高做 3×3 filtered reconstruction，最后只与 `FinalColorPyramid.source` 合成；因此保留 Bloom 专用重建值，但删除同语义 downsample/prefilter 重复读写。Automatic Exposure histogram 固定读取 `FinalColorPyramid` 最低可用 mip，而不是再次扫描 full-resolution HDR；128-bin log-luminance percentile reduction 与 adapted scalar history 保持独立语义。
 
 所有 persistent effect history 的逻辑生命周期归 `TemporalHistoryRegistry`，GPU texture/buffer 仍归具体 Feature。当前显式声明 `color`、`gtao`、`ssgi`、`ssr`、`nss-feedback`、`exposure` 六种 semantic，各自冻结 resolution domain、format、physical buffer count、pre-exposure policy、generation、validity、read/write index 与 reset reason。camera cut、output/internal resize、render scale、feature topology、format、lighting、scene/view、representation、device/pre-exposure generation、explicit change 和 aborted encode 都通过统一 invalidation path；只有 main command 成功完成才切换 ping-pong index并发布 valid。GTAO 的非 HDR history 不做 exposure 变换；TAA、SSGI、SSR 的 working-linear history在同 generation 内按 `current multiplier / committed multiplier` 重标定，不兼容时 shader 在采样旧内容前拒绝；NSS feedback 与 Exposure scalar 使用 generation-discontinuity invalidation。NSS feedback 与 Exposure 不再用 frame parity自行推进，均消费 registry 的 submission-aware read/write slot。
+
+Temporal production resolve 显式区分 internal 与 output domain。当前 TAA owner 在 output resolution 执行：从 reverse-Z 最接近表面选择 internal-pixel velocity，消费 compact surface validity、MBOIT reactive mask 与 shared disocclusion confidence，先拒绝 invalid motion、阈值以上 reactive、disocclusion、越界或不兼容 pre-exposure history，再对剩余 history 做 YCoCg neighborhood variance clip、相对亮度抑制、motion fade 与渐进 history lock。internal color 的放大重建使用九次 bilinear gather 的 Catmull-Rom footprint，而不是 16 次逐 tap gather；native-resolution 路径保持直接 `textureLoad`。输出是唯一 `rgba16float` output-domain color history，RGB 为 pre-exposed working-linear HDR，alpha 为可观察 history-lock confidence；FinalColorPyramid、Exposure、Bloom 与 Tonemap 只消费该时域结果之后的 source。
+
+分辨率策略同样只有一套 `RenderSettings.resolution` 权威。`mode=fixed` 是默认和所有 formal benchmark 的强制模式，`internalScale` 在整个采样窗口固定且不消费 GPU timing；手工设置 `internal_resolution_scale` 也会明确切回 fixed。`mode=adaptive` 只在 Temporal Reconstruction 开启时合法，默认范围为 `0.67..1.0`，只在 `[0.67, 0.75, 0.8, 0.9, 1]` 稳定 bucket 间变化，并声明 target frame rate、tolerance 与 settle frames。控制器只接受产生帧之后完成的 GPU timestamp，忽略 current-frame/duplicate/invalid sample，使用 fast/slow mean、warm-up、dead band、异常值 clamp、probe slope、boundary lockout 与 delayed feedback；每次 bucket 变化走同一 `RenderSettings` mutation seam，触发 internal resize、jitter sequence重算和统一 history invalidation。缺少 `timestamp-query` 时 adaptive 保持当前 bucket而不是用 CPU 时间伪装 GPU 反馈。公开 evidence/counters 区分 mode、bucket/range/target、accepted sample、scale change、last decision 与 feedback latency。
 
 ## FrameGraph 与提交
 

@@ -107,12 +107,17 @@ export function classifyTemporalHistory(
     "history luminance"
   ));
   const motionConfidence = clamp01(1 - motion / TEMPORAL_MOTION_FADE_PIXELS);
-  const luminanceConfidence = 1 / (
-    1 + Math.abs(currentLuminance - historyLuminance)
+  const relativeLuminanceDelta = Math.abs(currentLuminance - historyLuminance) /
+    Math.max(currentLuminance, historyLuminance, 0.1);
+  const luminanceConfidence = 1 / (1 + 4 * relativeLuminanceDelta);
+  const reactiveConfidence = 1 - smoothstep(
+    0,
+    TEMPORAL_REACTIVE_REJECT_THRESHOLD,
+    clamp01(input.reactive)
   );
-  const reactiveConfidence = 1 - clamp01(input.reactive);
   const nextHistoryLock = clamp01(
-    clamp01(input.historyLock ?? 0) + TEMPORAL_HISTORY_LOCK_STEP
+    clamp01(input.historyLock ?? 0) + TEMPORAL_HISTORY_LOCK_STEP *
+      clamp01(input.disocclusionConfidence) * reactiveConfidence
   );
   const lockedWeightLimit =
     TEMPORAL_MIN_LOCKED_HISTORY_WEIGHT +
@@ -238,6 +243,11 @@ function yCoCgToRgb(
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, finite(value, "temporal confidence")));
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = clamp01((value - edge0) / Math.max(edge1 - edge0, Number.EPSILON));
+  return t * t * (3 - 2 * t);
 }
 
 function positiveFinite(value: number, label: string): number {

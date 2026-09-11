@@ -9,6 +9,7 @@ export interface RendererConfig {
   /** RenderSettings 的完整增量；优先级高于下方便捷开关。 */
   readonly renderSettings?: RenderSettingsPatch;
   /** 便捷配置会被转换为统一 RenderSettings patch。 */
+  /** Initial fixed internal scale; adaptive policy belongs to renderSettings.resolution. */
   readonly renderScale?: number;
   readonly aoScale?: 0.5 | 1;
   readonly ssrScale?: 0.5 | 1;

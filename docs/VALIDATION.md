@@ -92,6 +92,8 @@ Rendering Lab 的 workload smoke、DEV profile、VisibilityKey oracle 和 formal
 
 比较必须保持相同 adapter、浏览器版本、canvas/internal resolution、DPR、画质、feature set、workload、seed、camera path、warm-up、采样帧数与 cadence。报告 P50/P95、GPU phase、CPU frame/build/submit、submit 数、counter 和内存；不可用的 GPU timestamp 明确标为 unavailable，不能用 CPU 时间代替。
 
+Temporal/DRS 的正式 A/B 必须使用 `resolution.mode=fixed` 并记录固定 `internalScale`；adaptive 只做有界 bucket、迟到 timestamp、hysteresis/lockout、scale-change history reset 与无 timestamp 保持当前 scale 的 smoke，不得把 adaptive 降分辨率后的帧时间当成算法回归已消失。Temporal visual review 至少覆盖 static subpixel detail、运动边缘、MASK/foliage、MBOIT transparency、SSR correction、camera cut、output resize 与 internal bucket change；证据同时报告 history read-valid、generation、reactive/disoccluded/rejected pixel counter 和 output/internal extent。
+
 产品目标是 1920×1080、DPR 1、60 FPS（16.667 ms GPU），在固定证据完整前一律标记未证明。
 
 ## 证据持久化

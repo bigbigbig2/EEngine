@@ -128,7 +128,6 @@ import {
 } from "../MainFrameFeatureTopology.js";
 import { halfToFloat } from "../../loaders/float16.js";
 import { TemporalHistoryRegistry } from "../TemporalHistoryRegistry.js";
-import type { DynamicResolutionScaling } from "../DynamicResolutionScaling.js";
 import {
   DEFAULT_GEOMETRY_WORK_BUDGET,
   GeometryAdaptiveSseController,
@@ -153,6 +152,8 @@ import {
   longRangeDiffuseFrame,
   preExposedOpaqueRadianceSourceFrame,
   preExposedOpaqueHdrBaselineFrame,
+  temporalReconstructionFrame,
+  textureDomain,
   type PreExposureContract,
   type VisibilityFrame
 } from "./FrameProducts.js";
@@ -244,6 +245,8 @@ export interface TemporalRuntimeEvidence {
   readonly historyTextureCount: number;
   readonly historyBytes: number;
   readonly historyValid: boolean;
+  readonly historyReadValid: boolean;
+  readonly historyGeneration: number;
   readonly historyRevision: number;
   readonly historyInvalidations: number;
   readonly historyInvalidationReason: string;
@@ -254,7 +257,22 @@ export interface TemporalRuntimeEvidence {
   readonly outputWidth: number;
   readonly outputHeight: number;
   readonly internalScale: number;
-  readonly drsEnabled: boolean;
+  readonly reconstructionOwner: "taa" | "nss" | "disabled";
+  readonly reconstructionInputDomain: "internal-full" | "disabled";
+  readonly reconstructionOutputDomain: "output-full" | "disabled";
+  readonly confidenceChannel: "alpha-history-lock" | "nss-feedback" | "disabled";
+  readonly preExposureAware: boolean;
+  readonly reactiveMaskConsumed: boolean;
+  readonly disocclusionConsumed: boolean;
+  readonly representationRevision: number;
+  readonly drsMode: "fixed" | "adaptive";
+  readonly drsScaleBuckets: readonly number[];
+  readonly drsMinimumScale: number;
+  readonly drsMaximumScale: number;
+  readonly drsTargetFrameRate: number;
+  readonly drsAcceptedGpuSamples: number;
+  readonly drsScaleChanges: number;
+  readonly drsLastDecision: string;
   readonly drsLastGpuMs: number;
   readonly drsFeedbackLatencyFrames: number;
 }
@@ -487,7 +505,6 @@ type MainFrameGraphBindings = {
   readonly outputWidth: number;
   readonly outputHeight: number;
   readonly gpuCounterBuffer: GPUBuffer | null;
-  readonly taaJitter: readonly [number, number];
   readonly taaHistoryValidity: number;
   readonly taaHistoryInputIndex: 0 | 1;
   readonly taaHistoryOutputIndex: 0 | 1;
@@ -654,6 +671,7 @@ export class MainRenderPipeline {
     const change = this._renderSettings.update(patch);
     if (!change.changed) return change;
     if (change.resolutionChanged) this._renderResolutionDirty = true;
+    this.synchronizeDynamicResolutionPolicy();
     if (
       change.historiesInvalidated.length > 0 &&
       !change.topologyChanged &&
@@ -716,8 +734,9 @@ export class MainRenderPipeline {
     this._renderSettings.update(rendererConfigSettingsPatch(this._rendererConfig));
     this._temporalFeature.dynamicResolution.get_scale = () => this.internal_resolution_scale;
     this._temporalFeature.dynamicResolution.set_scale = (scale) => {
-      this.internal_resolution_scale = scale;
+      this.configure({ resolution: { internalScale: scale } });
     };
+    this.synchronizeDynamicResolutionPolicy();
     this._unsubscribeDynamicResolution = this._profiler.subscribe((snapshot) => {
       this.consumeDynamicResolutionSnapshot(snapshot);
       this.consumeGeometryBudgetSnapshot(snapshot);
@@ -745,7 +764,7 @@ export class MainRenderPipeline {
     return this._renderSettings.values.resolution.internalScale;
   }
   set internal_resolution_scale(v: number) {
-    this.configure({ resolution: { internalScale: v } });
+    this.configure({ resolution: { mode: "fixed", internalScale: v } });
   }
 
   get aspect_ratio(): number {
@@ -1040,14 +1059,14 @@ export class MainRenderPipeline {
     return this._profiler;
   }
 
-  /** FX-06 delayed GPU timing controller; disabled until explicitly enabled. */
-  get dynamic_resolution_scaling(): DynamicResolutionScaling {
-    return this._temporalFeature.dynamicResolution;
-  }
-
   /** Bounded production evidence; no GPU handle or mutable owner escapes. */
   temporalEvidence(): TemporalRuntimeEvidence {
     const history = this._temporalHistories.state("color");
+    const drs = this._temporalFeature.dynamicResolution.evidence();
+    const topology = this.resolveFeatureTopology();
+    const reconstructionOwner = !topology.temporal
+      ? "disabled" as const
+      : topology.nss ? "nss" as const : "taa" as const;
     return Object.freeze({
       enabled: this._renderSettings.values.features.temporalAntiAliasing,
       taaPasses: this._lastTemporalTaaPassCount,
@@ -1055,6 +1074,8 @@ export class MainRenderPipeline {
       historyTextureCount: this._temporalFeature.colorHistoryCount(),
       historyBytes: this._temporalFeature.colorHistoryBytes(),
       historyValid: history.valid,
+      historyReadValid: history.readValid,
+      historyGeneration: history.generation,
       historyRevision: history.revision,
       historyInvalidations: history.invalidationCount,
       historyInvalidationReason: history.lastInvalidationReason,
@@ -1065,10 +1086,27 @@ export class MainRenderPipeline {
       outputWidth: this._output_resolution.x,
       outputHeight: this._output_resolution.y,
       internalScale: this._renderSettings.values.resolution.internalScale,
-      drsEnabled: this._temporalFeature.dynamicResolution.enabled,
-      drsLastGpuMs: this._temporalFeature.dynamicResolution.last_gpu_frame_time_ms,
-      drsFeedbackLatencyFrames:
-        this._temporalFeature.dynamicResolution.last_feedback_latency_frames
+      reconstructionOwner,
+      reconstructionInputDomain: topology.temporal ? "internal-full" : "disabled",
+      reconstructionOutputDomain: topology.temporal ? "output-full" : "disabled",
+      confidenceChannel: !topology.temporal
+        ? "disabled"
+        : topology.nss ? "nss-feedback" : "alpha-history-lock",
+      preExposureAware: topology.temporal,
+      reactiveMaskConsumed: topology.temporal,
+      disocclusionConsumed: topology.temporal,
+      representationRevision: MAIN_HISTORY_REPRESENTATION_REVISION +
+        (topology.nss ? this._nss?.historyRepresentationRevision ?? 0 : 0),
+      drsMode: drs.mode,
+      drsScaleBuckets: drs.scaleBuckets,
+      drsMinimumScale: drs.minimumScale,
+      drsMaximumScale: drs.maximumScale,
+      drsTargetFrameRate: drs.targetFrameRate,
+      drsAcceptedGpuSamples: drs.acceptedGpuSamples,
+      drsScaleChanges: drs.scaleChanges,
+      drsLastDecision: drs.lastDecision,
+      drsLastGpuMs: drs.lastGpuFrameTimeMs,
+      drsFeedbackLatencyFrames: drs.lastFeedbackLatencyFrames
     });
   }
 
@@ -1911,7 +1949,6 @@ export class MainRenderPipeline {
         outputWidth,
         outputHeight,
         gpuCounterBuffer,
-        taaJitter: [frameJitter[0], frameJitter[1]] as const,
         taaHistoryValidity,
         taaHistoryInputIndex: temporalHistory.readIndex,
         taaHistoryOutputIndex: temporalHistory.writeIndex,
@@ -2214,7 +2251,9 @@ export class MainRenderPipeline {
               height: bindings.internalHeight,
               metadataAvailable: true,
               transparencyAvailable: false,
-              historyValid: true
+              historyValid: true,
+              reactiveThreshold: this._renderSettings.values.temporal.reactiveThreshold,
+              disocclusionThreshold: this._renderSettings.values.temporal.disocclusionThreshold
             })),
             {
               surfaceMetadata: opaqueMetadataRes,
@@ -2868,6 +2907,7 @@ export class MainRenderPipeline {
           velocityRes !== null &&
           occlusionConfidenceRes !== null
         ) {
+          const temporalInputRes = hdrRes;
           const metadataRes = packedResolveOut.shading.roughnessFlags;
           const classification = this._temporalFeature.addClassificationToGraph(
             graph,
@@ -2877,7 +2917,9 @@ export class MainRenderPipeline {
               height: bindings.internalHeight,
               metadataAvailable: true,
               transparencyAvailable: transparentReactiveRes !== null,
-              historyValid: bindings.taaHistoryValidity >= 0.5
+              historyValid: bindings.taaHistoryValidity >= 0.5,
+              reactiveThreshold: this._renderSettings.values.temporal.reactiveThreshold,
+              disocclusionThreshold: this._renderSettings.values.temporal.disocclusionThreshold
             })),
             {
               surfaceMetadata: metadataRes,
@@ -2933,7 +2975,6 @@ export class MainRenderPipeline {
             hdrRes = this._temporalFeature.addTaaToGraph(
               graph,
               bind("taa-job", (bindings) => ({
-                jitter: bindings.taaJitter,
                 historyValidity: bindings.taaHistoryValidity,
                 internalResolution: [
                   bindings.internalWidth,
@@ -2960,11 +3001,29 @@ export class MainRenderPipeline {
                 historyColor: historyInputRes,
                 velocity: velocityRes,
                 disocclusionConfidence: occlusionConfidenceRes,
-                classification: classification.classification
-                ,depth: depthRes
+                classification: classification.classification,
+                depth: depthRes
               }
             );
           }
+          const temporalProduct = temporalReconstructionFrame({
+            hdr: hdrRes,
+            confidence: graphTopology.nss ? null : hdrRes,
+            confidenceEncoding: graphTopology.nss
+              ? "nss-feedback-history"
+              : "alpha-history-lock",
+            owner: graphTopology.nss ? "nss" : "taa",
+            stage: "post-transparency-temporal",
+            historyGenerationSource: "TemporalHistoryRegistry.color",
+            representationRevisionSource: "MainHistoryRevision.representation",
+            preExposure: mainBindings.context.preExposure,
+            inputDomain: textureDomain("internal-full", w, h, 1),
+            domain: textureDomain("output-full", outputWidth, outputHeight, 1)
+          });
+          if (temporalInputRes === temporalProduct.hdr) {
+            throw new Error("Temporal reconstruction must publish a distinct output resource");
+          }
+          hdrRes = temporalProduct.hdr;
         }
 
         if (
@@ -3848,6 +3907,10 @@ export class MainRenderPipeline {
       temporal.historyValid ? 1 : 0
     );
     profiler.recordCounter(
+      "temporal.historyReadValid",
+      temporal.historyReadValid ? 1 : 0
+    );
+    profiler.recordCounter(
       "temporal.historyRevision",
       temporal.historyRevision
     );
@@ -3859,6 +3922,15 @@ export class MainRenderPipeline {
     profiler.recordCounter("temporal.internalPixels", temporal.internalPixels);
     profiler.recordCounter("temporal.outputPixels", temporal.outputPixels);
     profiler.recordCounter("temporal.drsGpuMs", temporal.drsLastGpuMs);
+    profiler.recordCounter(
+      "temporal.drsAdaptive",
+      temporal.drsMode === "adaptive" ? 1 : 0
+    );
+    profiler.recordCounter(
+      "temporal.drsAcceptedGpuSamples",
+      temporal.drsAcceptedGpuSamples
+    );
+    profiler.recordCounter("temporal.drsScaleChanges", temporal.drsScaleChanges);
     profiler.recordCounter(
       "temporal.drsFeedbackLatencyFrames",
       temporal.drsFeedbackLatencyFrames
@@ -3920,7 +3992,7 @@ export class MainRenderPipeline {
   private reconcileDynamicResolutionProfiler(): void {
     this._temporalFeature.dynamicResolution.consume_delayed_gpu_timing(this._frame_count);
     const dynamicResolutionNeedsProfiler =
-      this._temporalFeature.dynamicResolution.enabled &&
+      this._temporalFeature.dynamicResolution.adaptive &&
       this.device.features.has("timestamp-query");
     const geometryBudgetNeedsProfiler = this.packed_geometry_budget_mode === "adaptive";
     if (dynamicResolutionNeedsProfiler || geometryBudgetNeedsProfiler) {
@@ -3942,7 +4014,7 @@ export class MainRenderPipeline {
 
   private consumeDynamicResolutionSnapshot(snapshot: FrameProfileSnapshot): void {
     if (
-      !this._temporalFeature.dynamicResolution.enabled ||
+      !this._temporalFeature.dynamicResolution.adaptive ||
       !snapshot.gpu.sampled ||
       snapshot.gpu.pending ||
       snapshot.gpu.segments.length === 0
@@ -4072,6 +4144,18 @@ export class MainRenderPipeline {
     );
     this._output_resolution.set(width, height);
     this._renderResolutionDirty = true;
+  }
+
+  private synchronizeDynamicResolutionPolicy(): void {
+    const resolution = this._renderSettings.values.resolution;
+    this._temporalFeature.dynamicResolution.configure({
+      mode: resolution.mode,
+      targetFrameRate: resolution.adaptiveTargetFrameRate,
+      minimumScale: resolution.adaptiveMinimumScale,
+      maximumScale: resolution.adaptiveMaximumScale,
+      tolerance: resolution.adaptiveTolerance,
+      settleFrames: resolution.adaptiveSettleFrames
+    });
   }
 
   private recalculateRenderResolution(): void {

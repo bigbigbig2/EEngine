@@ -273,7 +273,6 @@ export type {
 } from "./geometry/GeometryHierarchy.js";
 export { Camera } from "./camera/Camera.js";
 export { DirectionalLight } from "./light/DirectionalLight.js";
-export { DynamicResolutionScaling } from "./render/DynamicResolutionScaling.js";
 export {
   FramePlan,
   createRendererFramePlan,

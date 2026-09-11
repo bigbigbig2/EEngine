@@ -26,6 +26,8 @@ export interface TemporalClassificationJob {
   readonly metadataAvailable: boolean;
   readonly transparencyAvailable: boolean;
   readonly historyValid: boolean;
+  readonly reactiveThreshold: number;
+  readonly disocclusionThreshold: number;
 }
 
 export interface TemporalClassificationInputs {
@@ -156,14 +158,13 @@ export class TemporalClassificationPass {
         { job, width, height },
         (data, resources, context) => {
           const command = requireCommand(context.encoder);
-          const settings = new Uint32Array([
-            data.job.historyValid ? 1 : 0,
-            0,
-            0,
-            0
-          ]);
+          const bytes = new ArrayBuffer(16);
+          const view = new DataView(bytes);
+          view.setUint32(0, data.job.historyValid ? 1 : 0, true);
+          view.setFloat32(4, Math.max(0, Math.min(1, data.job.reactiveThreshold)), true);
+          view.setFloat32(8, Math.max(0, Math.min(1, data.job.disocclusionThreshold)), true);
           const settingsBuffer = command.allocateTransientBufferAndLoad(
-            settings.buffer,
+            bytes,
             GPUBufferUsage.UNIFORM
           );
           const pass = command.constructComputePass({
