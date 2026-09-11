@@ -8,14 +8,16 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 18;
-export const GPU_COUNTER_BYTE_SIZE = 512;
+export const GPU_COUNTER_SCHEMA_VERSION = 19;
+export const GPU_COUNTER_BYTE_SIZE = 544;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
 export const GPU_QUEUE_OVERFLOW_BITS = {
   sceneMeshList: 1 << 0,
   meshletList: 1 << 1,
   materialMeshletList: 1 << 2,
+  /** ADR-0009 correctness-critical MaterialTileWork queues. */
+  materialTileWork: 1 << 2,
   lightList: 1 << 3
 } as const;
 
@@ -109,8 +111,8 @@ export const GPU_COUNTER_FIELDS = [
   { name: "kernelUnlitPixels", index: 93, semantic: "sampled visible pixels classified as Unlit" },
   { name: "kernelGenericFallbackPixels", index: 94, semantic: "sampled visible pixels classified as GenericStandardPbrFallback" },
   { name: "shadeWorkOverflow", index: 95, semantic: "sampled ShadeWork records rejected by bounded class ranges" },
-  { name: "classDepthPixels", index: 96, semantic: "sampled valid VisibilityKey pixels entering MaterialClassDepth" },
-  { name: "classDraws", index: 97, semantic: "number of bounded fullscreen material kernel draws encoded for the frame" },
+  { name: "classDepthPixels", index: 96, semantic: "retired MaterialClassDepth pixels; production owner publishes zero" },
+  { name: "classDraws", index: 97, semantic: "retired fullscreen material kernel draws; production owner publishes zero" },
   { name: "setupAttempted", index: 98, semantic: "sampled projected-large triangles admitted by independent LargeTriangleSetupCache" },
   { name: "setupWritten", index: 99, semantic: "sampled bounded LargeTriangleSetup records written" },
   { name: "setupVisiblePixelHits", index: 100, semantic: "sampled visible pixels mapped to a valid LargeTriangleSetup record" },
@@ -137,7 +139,14 @@ export const GPU_COUNTER_FIELDS = [
   { name: "meshletSubgroupReservations", index: 121, semantic: "workgroup tile reservations issued by the subgroup ballot/prefix compaction specialization" },
   { name: "meshletPortableReservations", index: 122, semantic: "workgroup tile reservations issued by the portable shared-memory prefix compaction fallback" },
   { name: "meshletIndirectInstances", index: 123, semantic: "sum of GPU-generated bucket drawIndirect instanceCount fields" },
-  { name: "meshletRasterTriangles", index: 124, semantic: "non-padding triangles submitted through ADR-0008 meshlet bucket drawIndirect" }
+  { name: "meshletRasterTriangles", index: 124, semantic: "non-padding triangles submitted through ADR-0008 meshlet bucket drawIndirect" },
+  { name: "materialTileRecords", index: 125, semantic: "ADR-0009 active tile/dispatch-class records safely published" },
+  { name: "materialTileValidPixels", index: 126, semantic: "ADR-0009 valid opaque VisibilityKey pixels presented to classification" },
+  { name: "materialTileShadedPixels", index: 127, semantic: "ADR-0009 pixel lanes consumed through GPU-authored indirect MaterialTileWork" },
+  { name: "materialTileUnassignedPixels", index: 128, semantic: "ADR-0009 valid pixels without exactly one dispatch-class consumer" },
+  { name: "materialTileDuplicatePixels", index: 129, semantic: "ADR-0009 extra shading claims beyond one per valid pixel" },
+  { name: "materialTileOverflowQueues", index: 130, semantic: "ADR-0009 dispatch-class queues with attempted/written mismatch or invalid records" },
+  { name: "materialTileFrameInvalid", index: 131, semantic: "ADR-0009 GPU-authored all-frame correctness failure signal" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

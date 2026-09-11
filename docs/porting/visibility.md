@@ -50,15 +50,15 @@
 - Fallback/lifecycle: 默认关闭时零资源、零 pass、零 evidence dispatch；容量外或无效 setup 逐像素重建，`setupOverflow` 只记录 optimization miss，不触发 correctness failure；release/device destroy 销毁 settings 与 records。
 - Local validation: CPU dense-index boundary oracle、真实 Chrome setup build/write/hit/fallback/overflow counters、Material Resolve consumer 与 GPU diagnostics。
 
-## VIS-MATERIAL-DEPTH · Bounded MaterialClassDepth and adaptive setup
+## VIS-MATERIAL-COMPUTE · Bounded MaterialTileWork and adaptive setup
 
-- Local owner/source: `OEngine/src/gpu/GpuSurfaceAbi.ts`、`OEngine/src/render/features/SurfaceFeature.ts`、`OEngine/src/render/MaterialClassDepthProbe.ts`、`OEngine/src/render/passes/PackedMaterialClassDepthPass.ts`、`OEngine/src/render/passes/PackedMaterialResolvePass.ts`。
+- Local owner/source: `OEngine/src/gpu/GpuMaterialTileWorkAbi.ts`、`OEngine/src/gpu/GpuComputeMaterialAbi.ts`、`OEngine/src/render/features/SurfaceFeature.ts`、`OEngine/src/render/passes/MaterialTileClassificationPass.ts`、`OEngine/src/render/passes/ComputeMaterialResolvePass.ts`、`OEngine/src/render/passes/PackedMaterialResolvePass.ts`。
 - Upstream: Bevy <https://github.com/bevyengine/bevy>；Burns & Hunt, *The Visibility Buffer*；DAIS, *Deferred Attribute Interpolation Shading*；*NanoMesh: GPU-Driven Rendering for Particle-Based Discrete LOD Meshes*。
 - Revision: Bevy `b70463f072a3380ebb37c8803f1c4941357e64fa`；论文分别采用 JCGT 2013、HPG 2015 与 SIGGRAPH 2024 公开版本。
 - Upstream source: Bevy `crates/bevy_pbr/src/render/meshlet/resolve_render_targets.wesl`、`crates/bevy_pbr/src/render/meshlet/material_shade_nodes.rs`、`crates/bevy_pbr/src/render/meshlet/visibility_buffer_resolve.wesl`；论文仅作为算法与语义参考。
 - License: Bevy MIT OR Apache-2.0（本迁移按 MIT 条款追踪）；论文仅作为非代码语义参考，未复制表达性源码。
-- Adoption: traceable local reimplementation；MaterialClassDepth/class-discard 选择与统一 Surface ABI 已进入生产路径，可选 TriangleSetup 与 Tile backend 仍由证据门禁控制。
-- Retained invariants: material-depth 选择、固定且有界的 kernel class、解析式 barycentric derivative、候选 setup cache 的确定性容量与 fail-visible fallback。
-- OEngine/WebGPU differences: 采用 3-bit kernel class 与 `r32uint` VisibilityKey、固定 7 个 class、`class-discard` 正确性 fallback；不依赖 bindless、subgroup、64-bit atomic、multi-draw-indirect 或 mesh shader。
-- Fallback/lifecycle: 非法 key 与容量 overflow 必须计数并 fail-visible；depth parity 不成立时切到 `class-discard`；资源按需创建并按提交完成点退役；feature-off 不保留 profiler pass、copy 或 readback。
-- Local validation: `GpuVisibilityKeyAbi`/`GpuSurfaceAbi` CPU-WGSL oracle、MaterialClassDepth probe、class-discard fallback、invalid/overflow counter、截图/数值 parity、P50/P95、生命周期与预算门禁；当前开放项见 `docs/STATUS.md`，长期决定见 `docs/adr/0004-visibility-to-surface.md`。
+- Adoption: traceable local reimplementation；ADR-0009 Step 2 已将 historical MaterialClassDepth/class-discard 双 backend 替换为单一 GPU-authored `MaterialTileWork` compute production path；Step 3 前仅保留不访问材质表与纹理 bank 的 Surface V1 格式 bridge。
+- Retained invariants: 固定且有界的 material kernel class、canonical vertex reconstruction、perspective-correct barycentric 与显式 gradient、候选 setup cache 的确定性容量与 fail-visible fallback。
+- OEngine/WebGPU differences: 采用 3-bit kernel class 与 `r32uint` VisibilityKey、7 个 material kernel class × 4 个 `TextureBindingSet`、固定 28 次 indirect compute dispatch；不依赖 bindless、subgroup、64-bit atomic、multi-draw-indirect 或 mesh shader。
+- Fallback/lifecycle: 非法 key、queue capacity overflow、duplicate/unassigned shading claim 必须计数并 fail-visible；退化 gradient 明确使用 LOD 0，禁止隐式 derivative；资源由 FrameGraph 按 consumer topology 创建和退役。
+- Local validation: `GpuVisibilityKeyAbi`、`GpuMaterialTileWorkAbi`、`GpuComputeMaterialAbi` CPU-WGSL oracle，真实 Chrome material cook/upload/sample/lighting consumer，invalid/overflow/duplicate/unassigned/gradient-fallback counter、截图/数值 parity、P50/P95、生命周期与 binding budget 门禁；当前开放项见 `docs/STATUS.md`，长期决定见 `docs/adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md`。

@@ -6,7 +6,6 @@ import {
 } from "../../OEngine/.test-dist/debug/BenchmarkEvidenceGate.js";
 import {
   evaluateSurfaceAbiV2RunGroupNeed,
-  evaluateTileBackendRunGroupNeed,
   evaluateTriangleSetupDefaultNeed
 } from "../../OEngine/.test-dist/debug/VisibilitySurfaceMigrationGates.js";
 import {
@@ -18,7 +17,6 @@ import { hasBrowserErrors } from "./browser-errors.mjs";
 import { formalFailureReasons } from "./formal-result.mjs";
 
 const READY_TIMEOUT_MS = 120_000;
-const VALID_BACKENDS = new Set(["auto", "class-depth", "class-discard"]);
 
 export async function runRenderingLabPolicy({ mode, runner, baseUrl, repositoryRoot, args = [] }) {
   if (!runner.browserIdentity.realChrome) {
@@ -234,11 +232,10 @@ async function runDevProfile({ runner, baseUrl, repositoryRoot, args }) {
 }
 
 async function runWorkloadSmoke({ runner, baseUrl }) {
-  const materialResolveBackend = benchmarkBackend();
   const session = await runner.createPage({ viewport: { width: 1920, height: 1080 } });
   try {
-    await openRenderingLab(session.page, baseUrl, materialResolveBackend);
-    const evidence = await session.page.evaluate(async ({ materialResolveBackend }) => {
+    await openRenderingLab(session.page, baseUrl);
+    const evidence = await session.page.evaluate(async () => {
       const fixture = window.__OENGINE_RENDERING_LAB_FIXTURE__;
       if (!fixture) throw new Error("Rendering Lab fixture bridge missing");
       const report = await fixture.runBenchmark({
@@ -254,17 +251,14 @@ async function runWorkloadSmoke({ runner, baseUrl }) {
           entry.frames.map((frame) => frame.metadata?.workload?.id)
         ))],
         materialResolveBackend: report.domainEvidence?.migration?.materialResolveBackend,
-        materialResolveBackendSource: report.domainEvidence?.migration?.materialResolveBackendSelection?.source,
-        requestedBackend: materialResolveBackend
+        materialResolveBackendSource: report.domainEvidence?.migration?.materialResolveBackendSelection?.source
       };
-    }, { materialResolveBackend });
+    });
     assertJsonEqual(evidence.workloadId, "cube-near-effects-off", "workload id");
     assertJsonEqual(evidence.caseIds, ["base"], "case ids");
     assertJsonEqual(evidence.frameWorkloadIds, ["cube-near-effects-off"], "frame workload metadata");
-    if (materialResolveBackend !== "auto") {
-      assertJsonEqual(evidence.materialResolveBackend, materialResolveBackend, "material backend");
-      assertJsonEqual(evidence.materialResolveBackendSource, "benchmark-override", "material backend source");
-    }
+    assertJsonEqual(evidence.materialResolveBackend, "tile-compute", "production material backend");
+    assertJsonEqual(evidence.materialResolveBackendSource, "adr-0009-step2-cutover", "material backend source");
     requireCleanBrowser(session.errors);
     return { status: "passed", mode: "workload", evidence };
   } finally {
@@ -306,7 +300,7 @@ async function runFormal({ runner, baseUrl, repositoryRoot, args }) {
   const smoke = process.env.OENGINE_BENCHMARK_SMOKE === "true";
   const width = positiveNumber(process.env.OENGINE_BENCHMARK_WIDTH ?? 1920, "OENGINE_BENCHMARK_WIDTH");
   const height = positiveNumber(process.env.OENGINE_BENCHMARK_HEIGHT ?? 1080, "OENGINE_BENCHMARK_HEIGHT");
-  const materialResolveBackend = benchmarkBackend();
+  const materialResolveBackend = "tile-compute";
   const triangleSetupEnabled = booleanEnvironment("OENGINE_TRIANGLE_SETUP_ENABLED", false);
   const triangleSetupThresholdPixels = nonNegativeNumber(
     process.env.OENGINE_TRIANGLE_SETUP_THRESHOLD_PIXELS ?? 32,
@@ -336,7 +330,6 @@ async function runFormal({ runner, baseUrl, repositoryRoot, args }) {
     runner,
     baseUrl,
     viewport: { width, height },
-    materialResolveBackend,
     options: { ...common, smoke: true, runGroupId: `preflight-${randomUUID()}`, runOrdinal: 0 }
   });
   requireCleanBrowser(preflight.errors);
@@ -348,7 +341,6 @@ async function runFormal({ runner, baseUrl, repositoryRoot, args }) {
       runner,
       baseUrl,
       viewport: { width, height },
-      materialResolveBackend,
       options: { ...common, runOrdinal },
       screenshot: {
         page: path.join(outputDir, `run-${runOrdinal}.png`),
@@ -368,8 +360,7 @@ async function runFormal({ runner, baseUrl, repositoryRoot, args }) {
     runs.map((report) => triangleSetupRunEvidence(report, triangleSetupCaseId))
   );
   const migrationGates = {
-    surfaceAbi: evaluateSurfaceAbiV2RunGroupNeed(runs.flatMap(surfaceAbiRunEvidence)),
-    tileBackend: evaluateTileBackendRunGroupNeed(runs.flatMap(tileBackendRunEvidence))
+    surfaceAbi: evaluateSurfaceAbiV2RunGroupNeed(runs.flatMap(surfaceAbiRunEvidence))
   };
   const provenanceErrors = runs.flatMap((report, runOrdinal) =>
     compareGitBuildProvenance(runnerProvenance, report.environment.engine)
@@ -411,10 +402,10 @@ async function runFormal({ runner, baseUrl, repositoryRoot, args }) {
   return { status: "passed", mode: "formal", outputDir, ...artifact, runs: undefined };
 }
 
-async function runBenchmarkSession({ runner, baseUrl, viewport, materialResolveBackend, options, screenshot }) {
+async function runBenchmarkSession({ runner, baseUrl, viewport, options, screenshot }) {
   const session = await runner.createPage({ viewport });
   try {
-    await openRenderingLab(session.page, baseUrl, materialResolveBackend);
+    await openRenderingLab(session.page, baseUrl);
     await session.page.waitForTimeout(1500);
     const report = await session.page.evaluate(async (benchmarkOptions) => {
       const fixture = window.__OENGINE_RENDERING_LAB_FIXTURE__;
@@ -434,9 +425,8 @@ async function runBenchmarkSession({ runner, baseUrl, viewport, materialResolveB
   }
 }
 
-async function openRenderingLab(page, baseUrl, materialResolveBackend = "auto") {
+async function openRenderingLab(page, baseUrl) {
   const url = new URL("/rendering-lab/", `${baseUrl}/`);
-  if (materialResolveBackend !== "auto") url.searchParams.set("materialResolveBackend", materialResolveBackend);
   await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.waitForFunction(
     () => document.querySelector("#showcase")?.dataset.state === "ready",
@@ -488,16 +478,6 @@ function triangleSetupRunEvidence(report, caseId) {
 
 function surfaceAbiRunEvidence(report) {
   return Array.isArray(report?.domainEvidence?.surfaceAbiRuns) ? report.domainEvidence.surfaceAbiRuns : [];
-}
-
-function tileBackendRunEvidence(report) {
-  return Array.isArray(report?.domainEvidence?.tileBackendRuns) ? report.domainEvidence.tileBackendRuns : [];
-}
-
-function benchmarkBackend() {
-  const value = process.env.OENGINE_MATERIAL_RESOLVE_BACKEND ?? "auto";
-  if (!VALID_BACKENDS.has(value)) throw new Error(`Unsupported OENGINE_MATERIAL_RESOLVE_BACKEND: ${value}`);
-  return value;
 }
 
 function booleanEnvironment(name, fallback) {

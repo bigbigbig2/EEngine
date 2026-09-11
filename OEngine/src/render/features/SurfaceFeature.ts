@@ -28,10 +28,9 @@ export class SurfaceFeature {
 
   constructor(
     graphics: GraphicsContext,
-    backend: MaterialResolveBackend = "class-depth",
     surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
   ) {
-    this.implementation = new PackedMaterialResolvePass(graphics, backend, surfaceProfile);
+    this.implementation = new PackedMaterialResolvePass(graphics, surfaceProfile);
   }
 
   get lastKernelDrawCount(): number { return this.implementation.lastKernelDrawCount; }

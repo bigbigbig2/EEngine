@@ -12,11 +12,10 @@ import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilit
 import { GPU_TEXTURE_BANK_SAMPLE_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import { GPU_TRIANGLE_SETUP_RECORD_WGSL } from "../gpu/GpuLargeTriangleSetupAbi.js";
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
-export const PACKED_MATERIAL_RESOLVE_WGSL = /* wgsl */ `
+export const PACKED_MATERIAL_SHARED_WGSL = /* wgsl */ `
 ${GPU_VIEW_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
@@ -26,10 +25,7 @@ ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SURFACE_ABI_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
-${GPU_TRIANGLE_SETUP_RECORD_WGSL}
 ${GBUFFER_ENCODE_WGSL}
-
-const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
 
 @group(0) @binding(0) var visibility_keys: texture_2d<u32>;
 @group(0) @binding(1) var<uniform> view: PipelineCacheKey;
@@ -56,10 +52,8 @@ const STREAM_DESCRIPTOR_WORDS: u32 = 32u;
 @group(1) @binding(2) var<storage, read> meshlets: array<GpuMeshletRecord>;
 @group(1) @binding(3) var<storage, read> meshlet_vertices: array<u32>;
 @group(1) @binding(4) var<storage, read> meshlet_triangles: array<u32>;
-@group(1) @binding(5) var<storage, read> stream_descriptors: array<u32>;
 @group(1) @binding(6) var<storage, read> vertex_data: array<u32>;
 @group(1) @binding(7) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
-@group(1) @binding(8) var<storage, read> triangle_setups: array<OEngineTriangleSetupRecord>;
 
 fn read_u8(byte_offset: u32) -> u32 {
   let word = vertex_data[byte_offset >> 2u];
@@ -112,30 +106,6 @@ fn component_bytes(data_type: u32) -> u32 {
   if data_type <= 2u { return 1u; }
   if data_type <= 4u { return 2u; }
   return 4u;
-}
-
-fn read_stream4_from_descriptor(
-  descriptor: u32,
-  vertex: u32,
-  fallback: vec4f
-) -> vec4f {
-  if descriptor == 0xffffffffu { return fallback; }
-  let base = descriptor * STREAM_DESCRIPTOR_WORDS;
-  let data_offset = stream_descriptors[base + 8u];
-  let stride = stream_descriptors[base + 10u];
-  let component_count = stream_descriptors[base + 12u];
-  let data_type = stream_descriptors[base + 13u];
-  let normalized = stream_descriptors[base + 14u] != 0u;
-  let bytes = component_bytes(data_type);
-  var result = fallback;
-  for (var component = 0u; component < min(component_count, 4u); component++) {
-    result[component] = stream_component(
-      data_offset + vertex * stride + component * bytes,
-      data_type,
-      normalized
-    );
-  }
-  return result;
 }
 
 fn read_position_direct(geometry: GpuGeometryRecord, vertex: u32) -> vec3f {
@@ -355,21 +325,15 @@ fn object_transform_frame(matrix: mat4x4f) -> ObjectTransformFrame {
   output.normal_matrix = cofactor * output.orientation;
   return output;
 }
+`;
 
-override OENGINE_ACTIVE_KERNEL_CLASS: u32 = OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR;
-override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
-override OENGINE_VELOCITY_ENABLED: bool = true;
-override OENGINE_CLASS_DISCARD: bool = false;
-
-@vertex
-fn packed_material_vs(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4f {
-  var positions = array<vec2f, 3>(
-    vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0)
-  );
-  let class_depth = (f32(OENGINE_ACTIVE_KERNEL_CLASS) + 1.0) / 8.0;
-  return vec4f(positions[vertex_index], class_depth, 1.0);
-}
-
+/**
+ * Canonical material texture/UV reconstruction shared by the retired raster
+ * oracle and the production compute evaluator. Keeping one WGSL body prevents
+ * the Step 2 cutover from silently drifting in sampler, transform or gradient
+ * semantics while the raster oracle still exists for parity validation.
+ */
+export const PACKED_MATERIAL_TEXTURE_SAMPLING_WGSL = /* wgsl */ `
 fn material_sampler_class(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
   if slot == 0u { return material.sampler_class; }
   return (material.texture_sampler_classes >> ((slot - 1u) * 8u)) & 0xffu;
@@ -379,8 +343,13 @@ ${GPU_TEXTURE_BANK_SAMPLE_WGSL}
 
 fn sample_material_texture(
   texture_ref: u32, sampler_class: u32, uv: vec2f,
-  uv_dx: vec2f, uv_dy: vec2f, fallback: vec4f
+  uv_dx: vec2f, uv_dy: vec2f, gradient_valid: bool, fallback: vec4f
 ) -> vec4f {
+  if !gradient_valid {
+    return oengine_sample_texture_bank_level_zero(
+      texture_ref, sampler_class, uv, fallback
+    );
+  }
   return oengine_sample_texture_bank(texture_ref, sampler_class, uv, uv_dx, uv_dy, fallback);
 }
 
@@ -447,284 +416,5 @@ fn reconstruct_material_uv(
     transform_material_gradient(material, slot, reconstructed_dx),
     transform_material_gradient(material, slot, reconstructed_dy)
   );
-}
-
-struct PackedMaterialOutput {
-  @location(0) pbr: vec2f,
-  @location(1) normal: vec4u,
-  @location(2) albedo: vec4f,
-  @location(3) emissive: u32,
-  @location(4) velocity: vec2f,
-  @location(5) metadata: u32,
-  @builtin(frag_depth) depth: f32,
-}
-
-@fragment
-fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutput {
-  let pixel = vec2i(position.xy);
-  let key = textureLoad(visibility_keys, pixel, 0).r;
-  if !oengine_visibility_key_is_valid(key) { discard; }
-  let decoded = oengine_visibility_key_decode(key);
-  let work_slot = decoded.meshlet_work_slot;
-  if meshlet_work.header.generation == 0u ||
-    work_slot >= min(meshlet_work.header.written_count, meshlet_work.header.capacity) ||
-    work_slot >= arrayLength(&meshlet_work.elements) { discard; }
-  let work = meshlet_work.elements[work_slot];
-  if (work.packed_profile_lod >> 24u) != OENGINE_VISIBILITY_KEY_PARTITION ||
-    work.instance_slot >= arrayLength(&instances) ||
-    work.geometry_slot >= arrayLength(&geometries) ||
-    work.meshlet_slot >= arrayLength(&meshlets) ||
-    work.material_slot_or_range >= arrayLength(&materials) {
-    discard;
-  }
-  let instance = instances[work.instance_slot];
-  let geometry = geometries[work.geometry_slot];
-  let meshlet = meshlets[work.meshlet_slot];
-  if !oengine_instance_active(instance) ||
-    instance.geometry_record_index != work.geometry_slot ||
-    instance.material_handle != work.material_slot_or_range ||
-    work.meshlet_slot < geometry.meshlet_begin ||
-    work.meshlet_slot - geometry.meshlet_begin >= geometry.meshlet_count {
-    discard;
-  }
-  let triangle_index = decoded.local_primitive;
-  if triangle_index >= meshlet.triangle_count { discard; }
-  let material_info = materials[work.material_slot_or_range];
-  if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
-    discard;
-  }
-  if material_info.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET { discard; }
-  if OENGINE_CLASS_DISCARD && material_info.kernel_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
-  if material_info.kernel_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
-  let vertices = triangle_source_vertices(meshlet, triangle_index);
-  let local0 = read_position_direct(geometry, vertices.x);
-  let local1 = read_position_direct(geometry, vertices.y);
-  let local2 = read_position_direct(geometry, vertices.z);
-  let world0 = oengine_instance_current_object_to_world(instance) * vec4f(local0, 1.0);
-  let world1 = oengine_instance_current_object_to_world(instance) * vec4f(local1, 1.0);
-  let world2 = oengine_instance_current_object_to_world(instance) * vec4f(local2, 1.0);
-  let projected0 = view.projection_matrix * world0;
-  let projected1 = view.projection_matrix * world1;
-  let projected2 = view.projection_matrix * world2;
-  var bary = perspective_barycentric_with_derivatives(
-    position.xy,
-    projected0,
-    projected1,
-    projected2
-  );
-  let setup_index = work_slot * 128u + triangle_index;
-  if setup_index < arrayLength(&triangle_setups) &&
-      triangle_setups[setup_index].flags != 0u {
-    bary = perspective_barycentric_from_setup(position.xy, triangle_setups[setup_index]);
-  }
-  let face_local = safe_normalize(cross(local2 - local1, local0 - local1), vec3f(0.0, 0.0, 1.0));
-  let normal0 = read_normal_direct(geometry, vertices.x, vec4f(face_local, 0.0));
-  let normal1 = read_normal_direct(geometry, vertices.y, vec4f(face_local, 0.0));
-  let normal2 = read_normal_direct(geometry, vertices.z, vec4f(face_local, 0.0));
-  let tangent0 = read_tangent_direct(geometry, vertices.x, vec4f(1.0, 0.0, 0.0, 1.0));
-  let tangent1 = read_tangent_direct(geometry, vertices.y, vec4f(1.0, 0.0, 0.0, 1.0));
-  let tangent2 = read_tangent_direct(geometry, vertices.z, vec4f(1.0, 0.0, 0.0, 1.0));
-  let color0 = read_color_direct(geometry, vertices.x, vec4f(1.0));
-  let color1 = read_color_direct(geometry, vertices.y, vec4f(1.0));
-  let color2 = read_color_direct(geometry, vertices.z, vec4f(1.0));
-  let empty_uv = ReconstructedMaterialUv(vec2f(0.0), vec2f(0.0), vec2f(0.0));
-  var albedo_uv = empty_uv;
-  var normal_uv = empty_uv;
-  var orm_uv = empty_uv;
-  var emissive_uv = empty_uv;
-  if OENGINE_ACTIVE_KERNEL_CLASS != OENGINE_MATERIAL_KERNEL_BASE_FACTOR {
-    albedo_uv = reconstruct_material_uv(material_info, 0u, geometry, vertices, bary);
-  }
-  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
-    normal_uv = reconstruct_material_uv(material_info, 1u, geometry, vertices, bary);
-  }
-  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
-    orm_uv = reconstruct_material_uv(material_info, 2u, geometry, vertices, bary);
-  }
-  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
-    emissive_uv = reconstruct_material_uv(material_info, 3u, geometry, vertices, bary);
-  }
-  let vertex_color = color0 * bary.weights.x + color1 * bary.weights.y + color2 * bary.weights.z;
-  let local_normal = safe_normalize(
-    normal0 * bary.weights.x + normal1 * bary.weights.y + normal2 * bary.weights.z,
-    face_local
-  );
-  let local_tangent4 = tangent0 * bary.weights.x + tangent1 * bary.weights.y + tangent2 * bary.weights.z;
-  let frame = object_transform_frame(oengine_instance_current_object_to_world(instance));
-  let shading_normal = safe_normalize(frame.normal_matrix * local_normal, face_local);
-  let geometric_normal = safe_normalize(frame.normal_matrix * face_local, shading_normal);
-  var tangent = frame.tangent_matrix * local_tangent4.xyz;
-  tangent = safe_normalize(
-    tangent - shading_normal * dot(shading_normal, tangent),
-    safe_normalize(cross(vec3f(0.0, 1.0, 0.0), shading_normal), vec3f(1.0, 0.0, 0.0))
-  );
-  let tangent_handedness = select(-1.0, 1.0, local_tangent4.w >= 0.0);
-  let bitangent = safe_normalize(
-    cross(shading_normal, tangent) * tangent_handedness * frame.orientation,
-    safe_normalize(cross(shading_normal, tangent), vec3f(0.0, 1.0, 0.0))
-  );
-  var mapped_normal = shading_normal;
-  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
-    var sampled_normal = sample_material_texture(
-      material_info.normal_texture_ref,
-      material_sampler_class(material_info, 1u),
-      normal_uv.uv,
-      normal_uv.ddx,
-      normal_uv.ddy,
-      vec4f(0.5, 0.5, 1.0, 1.0)
-    ).xyz * 2.0 - 1.0;
-    sampled_normal = vec3f(sampled_normal.xy * material_info.pbr_factors.z, sampled_normal.z);
-    mapped_normal = safe_normalize(
-      mat3x3f(tangent, bitangent, shading_normal) * sampled_normal,
-      shading_normal
-    );
-  }
-  var orm = vec4f(1.0);
-  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
-    orm = sample_material_texture(
-      material_info.orm_texture_ref,
-      material_sampler_class(material_info, 2u),
-      orm_uv.uv,
-      orm_uv.ddx,
-      orm_uv.ddy,
-      vec4f(1.0)
-    );
-  }
-  var albedo_sample = vec4f(1.0);
-  if OENGINE_ACTIVE_KERNEL_CLASS != OENGINE_MATERIAL_KERNEL_BASE_FACTOR {
-    albedo_sample = sample_material_texture(
-      material_info.texture_ref,
-      material_sampler_class(material_info, 0u),
-      albedo_uv.uv,
-      albedo_uv.ddx,
-      albedo_uv.ddy,
-      vec4f(1.0)
-    );
-  }
-  var emissive_sample = vec4f(1.0);
-  if OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_BASE_ORM_NORMAL_EMISSIVE ||
-      OENGINE_ACTIVE_KERNEL_CLASS == OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR {
-    emissive_sample = sample_material_texture(
-      material_info.emissive_texture_ref,
-      material_sampler_class(material_info, 3u),
-      emissive_uv.uv,
-      emissive_uv.ddx,
-      emissive_uv.ddy,
-      vec4f(1.0)
-    );
-  }
-  let albedo = albedo_sample.rgb * vertex_color * material_info.base_color_factor.rgb;
-  let is_unlit = (material_info.flags & OENGINE_MATERIAL_UNLIT) != 0u;
-  let ambient = select(
-    1.0,
-    mix(1.0, orm.r, material_info.pbr_factors.w),
-    (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u
-  );
-  let metallic_sample = select(1.0, orm.b, (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u);
-  let roughness_sample = select(1.0, orm.g, (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u);
-  var output: PackedMaterialOutput;
-  output.depth = (f32(OENGINE_ACTIVE_KERNEL_CLASS) + 1.0) / 8.0;
-  output.pbr = vec2f(
-    metallic_sample * material_info.pbr_factors.x,
-    clamp(roughness_sample * material_info.pbr_factors.y, 0.0, 1.0)
-  );
-  output.normal = vec4u(
-    encode_g_buffer_normal(mapped_normal),
-    encode_g_buffer_normal(geometric_normal)
-  );
-  output.albedo = vec4f(albedo, ambient);
-  output.emissive = rgbe9995_encode(emissive_sample.rgb * material_info.emissive_factor.rgb);
-  if is_unlit {
-    output.pbr = vec2f(0.0, 1.0);
-    output.normal = vec4u(
-      encode_g_buffer_normal(shading_normal),
-      encode_g_buffer_normal(geometric_normal)
-    );
-    output.albedo = vec4f(vec3f(0.0), 1.0);
-    output.emissive = rgbe9995_encode(albedo);
-  }
-  output.velocity = vec2f(0.0);
-  var surface_flags = OENGINE_SURFACE_FLAG_VALID;
-  if (material_info.flags & OENGINE_MATERIAL_HAS_NORMAL_TEXTURE) != 0u {
-    surface_flags |= OENGINE_SURFACE_FLAG_NORMAL_TEXTURE;
-  }
-  if (material_info.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u {
-    surface_flags |= OENGINE_SURFACE_FLAG_ORM_TEXTURE;
-  }
-  if (material_info.flags & OENGINE_MATERIAL_HAS_EMISSIVE_TEXTURE) != 0u {
-    surface_flags |= OENGINE_SURFACE_FLAG_EMISSIVE_TEXTURE;
-  }
-  if (material_info.flags & OENGINE_MATERIAL_UNLIT) != 0u {
-    surface_flags |= OENGINE_SURFACE_FLAG_UNLIT;
-  }
-  if bary.valid == 0u {
-    surface_flags |= OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK | OENGINE_SURFACE_FLAG_REACTIVE;
-  }
-  if OENGINE_VELOCITY_ENABLED && oengine_instance_motion_valid(instance) && bary.valid != 0u {
-    let current_world = world0 * bary.weights.x + world1 * bary.weights.y + world2 * bary.weights.z;
-    let previous_world_h = oengine_instance_previous_from_current(instance) * current_world;
-    if previous_world_h.w > 1e-8 {
-      let previous_clip = previous_view_projection * vec4f(previous_world_h.xyz / previous_world_h.w, 1.0);
-      if previous_clip.w > 1e-8 {
-        let previous_ndc = previous_clip.xy / previous_clip.w;
-        let resolution = vec2f(textureDimensions(visibility_keys));
-        let previous_pixel = vec2f(
-          (previous_ndc.x + 1.0) * 0.5 * resolution.x,
-          (1.0 - previous_ndc.y) * 0.5 * resolution.y
-        );
-        output.velocity = position.xy - previous_pixel;
-        surface_flags |= OENGINE_SURFACE_FLAG_MOTION_VALID;
-      } else {
-        surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
-      }
-    } else {
-      surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
-    }
-  } else {
-    surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
-  }
-  output.metadata = oengine_surface_pack(work.material_slot_or_range, surface_flags);
-  return output;
-}
-
-fn perspective_barycentric_from_setup(
-  pixel: vec2f,
-  setup: OEngineTriangleSetupRecord
-) -> PerspectiveBarycentric {
-  let delta = pixel - vec2f(f32(view.width) * 0.5, f32(view.height) * 0.5);
-  let weighted = vec3f(
-    setup.q_center0 + delta.x * setup.dqdx0 + delta.y * setup.dqdy0,
-    setup.q_center1 + delta.x * setup.dqdx1 + delta.y * setup.dqdy1,
-    setup.q_center2 + delta.x * setup.dqdx2 + delta.y * setup.dqdy2
-  );
-  let weighted_sum = dot(weighted, vec3f(1.0));
-  var output: PerspectiveBarycentric;
-  output.weights = vec3f(1.0, 0.0, 0.0);
-  output.ddx = vec3f(0.0);
-  output.ddy = vec3f(0.0);
-  output.valid = 0u;
-  if abs(weighted_sum) < 1e-8 { return output; }
-  let weighted_ddx = vec3f(setup.dqdx0, setup.dqdx1, setup.dqdx2);
-  let weighted_ddy = vec3f(setup.dqdy0, setup.dqdy1, setup.dqdy2);
-  let sum_ddx = dot(weighted_ddx, vec3f(1.0));
-  let sum_ddy = dot(weighted_ddy, vec3f(1.0));
-  let inverse_sum = 1.0 / weighted_sum;
-  let inverse_sum_squared = inverse_sum * inverse_sum;
-  output.weights = weighted * inverse_sum;
-  output.ddx = (weighted_ddx * weighted_sum - weighted * sum_ddx) * inverse_sum_squared;
-  output.ddy = (weighted_ddy * weighted_sum - weighted * sum_ddy) * inverse_sum_squared;
-  output.valid = 1u;
-  return output;
 }
 `;

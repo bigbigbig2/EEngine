@@ -97,6 +97,13 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
       "ormTexturePixels",
       "emissiveTexturePixels",
       "unlitSurfacePixels",
+      "materialTileRecords",
+      "materialTileValidPixels",
+      "materialTileShadedPixels",
+      "materialTileUnassignedPixels",
+      "materialTileDuplicatePixels",
+      "materialTileOverflowQueues",
+      "materialTileFrameInvalid",
       "queueOverflowMask"
     ]
   },
@@ -348,8 +355,8 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   kernelUnlitPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
   kernelGenericFallbackPixels: unsupported("VIS-06", "classifier counter retired with Pixel Queue"),
   shadeWorkOverflow: unsupported("VIS-06", "ShadeWork queue no longer exists"),
-  classDepthPixels: supported("VisibilityCounterPass/valid VisibilityKey reducer"),
-  classDraws: supported("PackedMaterialResolvePass/bounded fullscreen kernel draws"),
+  classDepthPixels: supported("PackedMaterialResolvePass/retired-owner zero publisher"),
+  classDraws: supported("PackedMaterialResolvePass/retired-owner zero publisher"),
   setupAttempted: supported("LargeTriangleSetupCache candidate reducer"),
   setupWritten: supported("LargeTriangleSetupCache candidate reducer"),
   setupVisiblePixelHits: supported("PackedMaterialResolvePass/TriangleSetup evidence compute"),
@@ -376,7 +383,14 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   meshletSubgroupReservations: supported("MeshletWork subgroup ballot/prefix compaction specialization"),
   meshletPortableReservations: supported("MeshletWork portable workgroup shared-memory prefix fallback"),
   meshletIndirectInstances: supported("MeshletWork GPU-generated bucket drawIndirect records"),
-  meshletRasterTriangles: supported("MeshletWork bucket drawIndirect triangle reducer")
+  meshletRasterTriangles: supported("MeshletWork bucket drawIndirect triangle reducer"),
+  materialTileRecords: supported("MaterialTileClassificationPass/queue publisher"),
+  materialTileValidPixels: supported("MaterialTileClassificationPass/visibility classifier"),
+  materialTileShadedPixels: supported("MaterialTileClassificationPass/indirect consumer"),
+  materialTileUnassignedPixels: supported("MaterialTileClassificationPass/pixel-claim validator"),
+  materialTileDuplicatePixels: supported("MaterialTileClassificationPass/pixel-claim validator"),
+  materialTileOverflowQueues: supported("MaterialTileClassificationPass/queue finalizer"),
+  materialTileFrameInvalid: supported("MaterialTileClassificationPass/final correctness gate")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

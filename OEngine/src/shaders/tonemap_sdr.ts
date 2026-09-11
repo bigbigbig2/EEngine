@@ -2,11 +2,15 @@
  * tonemap_sdr：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
+import { GPU_MATERIAL_TILE_WORK_WGSL } from "../gpu/GpuMaterialTileWorkAbi.js";
+
 export const TONEMAP_EXPOSURE_SIZE = 4;
 
 export const TONEMAP_UNADAPTED_DEFAULT_COMPENSATION = 1;
 
 export const TONEMAP_SDR_WGSL = /* wgsl */ `
+${GPU_MATERIAL_TILE_WORK_WGSL}
+
 const POS = array<vec2f, 3>(
   vec2f(-1.0, -1.0),
   vec2f( 3.0, -1.0),
@@ -19,6 +23,7 @@ struct Exposure {
 
 @group(0) @binding(0) var input_color: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> exposure: Exposure;
+@group(0) @binding(2) var<storage, read_write> frame_control: OEngineMaterialClassificationControl;
 
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -78,6 +83,9 @@ fn dither_color_8bit_triangle_noise(p: vec2f) -> f32 {
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
+  if atomicLoad(&frame_control.frame_invalid) != 0u {
+    return vec4f(1.0, 0.0, 1.0, 1.0);
+  }
   let ic = vec2i(coord.xy);
   var rgb = textureLoad(input_color, ic, 0).rgb;
   rgb *= exposure.value;

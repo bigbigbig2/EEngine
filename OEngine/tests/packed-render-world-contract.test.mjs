@@ -128,7 +128,8 @@ test("FrameContext freezes topology-bearing frame values", () => {
       outputHeight: 1080,
     },
     featureTopology: { enabledFeatureBits: 3 },
-    history: { formatRevision: 3, color: 1, ssao: 0, ssr: 0 },
+    history: { formatRevision: 3, color: 1, gtao: 0, ssgi: 0, ssr: 0 },
+    preExposure: { multiplier: 1, generation: 0, colorSpace: "working-linear" },
     scene: { id: 4 },
     instrumentation: {
       sampleGpuTimestamps: false,
@@ -141,6 +142,7 @@ test("FrameContext freezes topology-bearing frame values", () => {
   assert.equal(Object.isFrozen(context), true);
   assert.equal(Object.isFrozen(context.resolution), true);
   assert.equal(Object.isFrozen(context.history), true);
+  assert.equal(Object.isFrozen(context.preExposure), true);
   assert.equal(Object.isFrozen(context.instrumentation), true);
   assert.throws(() => { context.resolution.internalWidth = 1; }, TypeError);
 });

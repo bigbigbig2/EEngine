@@ -989,6 +989,44 @@ function validateFrames(
             );
           }
         }
+        if ("materialTileValidPixels" in counterValues) {
+          const valid = counterValues.materialTileValidPixels;
+          const shaded = counterValues.materialTileShadedPixels;
+          if (valid !== shaded) {
+            add(
+              issues,
+              "material-tile-shading-coverage",
+              "error",
+              `$.frames[${index}].gpuCounters.values`,
+              `MaterialTileWork valid/shaded mismatch: ${String(valid)} != ${String(shaded)}`
+            );
+          }
+          for (const field of [
+            "materialTileUnassignedPixels",
+            "materialTileDuplicatePixels",
+            "materialTileOverflowQueues",
+            "materialTileFrameInvalid"
+          ] as const) {
+            if (counterValues[field] !== 0) {
+              add(
+                issues,
+                "material-tile-correctness-failure",
+                "error",
+                `$.frames[${index}].gpuCounters.values.${field}`,
+                `${field} 必须为 0，实际为 ${String(counterValues[field])}`
+              );
+            }
+          }
+          if ((valid as number) > 0 && counterValues.materialTileRecords === 0) {
+            add(
+              issues,
+              "material-tile-records-missing",
+              "error",
+              `$.frames[${index}].gpuCounters.values.materialTileRecords`,
+              "存在 valid opaque pixels 时必须有 GPU-published MaterialTileWork records"
+            );
+          }
+        }
         for (const [field, rawCounter] of Object.entries(counterValues)) {
           if (
             GPU_COUNTER_FIELD_SET.has(field) &&

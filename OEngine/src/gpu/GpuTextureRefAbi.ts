@@ -117,9 +117,15 @@ const GPU_TEXTURE_BANK_BINDING_NAMES = Object.freeze([
   "oengine_texture_bank_8"
 ]);
 
-function sampleBranches(sampler: string): string {
+function sampleGradientBranches(sampler: string): string {
   return GPU_TEXTURE_BANK_BINDING_NAMES.map((texture, bank) =>
     `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleGrad(${texture}, ${sampler}, uv, layer, uv_dx, uv_dy)); }`
+  ).join("\n");
+}
+
+function sampleLevelBranches(sampler: string): string {
+  return GPU_TEXTURE_BANK_BINDING_NAMES.map((texture, bank) =>
+    `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleLevel(${texture}, ${sampler}, uv, layer, 0.0)); }`
   ).join("\n");
 }
 
@@ -140,18 +146,47 @@ fn oengine_sample_texture_bank(
   let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
   if linear {
     if address == 0u {
-${sampleBranches("sampler_clamp_linear")}
+${sampleGradientBranches("sampler_clamp_linear")}
     } else if address == 2u {
-${sampleBranches("sampler_mirror_linear")}
+${sampleGradientBranches("sampler_mirror_linear")}
     } else {
-${sampleBranches("sampler_repeat_linear")}
+${sampleGradientBranches("sampler_repeat_linear")}
     }
   } else if address == 0u {
-${sampleBranches("sampler_clamp_nearest")}
+${sampleGradientBranches("sampler_clamp_nearest")}
   } else if address == 2u {
-${sampleBranches("sampler_mirror_nearest")}
+${sampleGradientBranches("sampler_mirror_nearest")}
   } else {
-${sampleBranches("sampler_repeat_nearest")}
+${sampleGradientBranches("sampler_repeat_nearest")}
+  }
+  return fallback;
+}
+
+fn oengine_sample_texture_bank_level_zero(
+  texture_ref: u32,
+  sampler_class: u32,
+  uv: vec2f,
+  fallback: vec4f
+) -> vec4f {
+  if !oengine_texture_ref_valid(texture_ref) { return fallback; }
+  let bank = oengine_texture_ref_bank(texture_ref);
+  let layer = i32(oengine_texture_ref_layer(texture_ref));
+  let address = sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK;
+  let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
+  if linear {
+    if address == 0u {
+${sampleLevelBranches("sampler_clamp_linear")}
+    } else if address == 2u {
+${sampleLevelBranches("sampler_mirror_linear")}
+    } else {
+${sampleLevelBranches("sampler_repeat_linear")}
+    }
+  } else if address == 0u {
+${sampleLevelBranches("sampler_clamp_nearest")}
+  } else if address == 2u {
+${sampleLevelBranches("sampler_mirror_nearest")}
+  } else {
+${sampleLevelBranches("sampler_repeat_nearest")}
   }
   return fallback;
 }

@@ -60,12 +60,7 @@ import {
 } from "./benchmark-suite.js";
 import type { RenderingLabCaseId } from "./quality-profile.js";
 import type { RenderingLabFixture } from "./fixture.js";
-import type {
-  SurfaceAbiRunEvidence,
-  TileBackendVendorRunEvidence
-} from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
-import type { TileBackendCostModelInput } from "../../OEngine/src/debug/TileBackendCostModel.js";
-import { setMaterialResolveBackendBenchmarkOverride } from "../../OEngine/src/render/MaterialClassDepthProbe.js";
+import type { SurfaceAbiRunEvidence } from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
 import {
   resolveRenderingLabWorkload,
   type RenderingLabWorkloadId,
@@ -216,10 +211,6 @@ async function initialize(): Promise<void> {
   const textureMaxResolution = parseTextureMaxResolution(
     new URLSearchParams(window.location.search).get("textureMaxResolution")
   );
-  const materialResolveBackend = parseMaterialResolveBackend(
-    new URLSearchParams(window.location.search).get("materialResolveBackend")
-  );
-  setMaterialResolveBackendBenchmarkOverride(materialResolveBackend);
   const activeRenderer = new Renderer(
     textureMaxResolution === undefined
       ? undefined
@@ -453,9 +444,7 @@ function installRenderingLabFixture(
       options?.workloadId,
       options?.triangleSetupEnabled,
       options?.triangleSetupThresholdPixels,
-      options?.surfaceAbiRuns,
-      options?.tileBackendRuns,
-      options?.tileBackendModelInput
+      options?.surfaceAbiRuns
     ),
     downloadBenchmarkReport: () => {
       if (benchmarkReport !== null) downloadRenderingLabBenchmarkReport(benchmarkReport);
@@ -520,9 +509,7 @@ async function runRenderingLabBenchmark(
   workloadIdOverride?: RenderingLabWorkloadId,
   triangleSetupEnabledOverride?: boolean,
   triangleSetupThresholdPixelsOverride?: number,
-  surfaceAbiRunsOverride?: readonly SurfaceAbiRunEvidence[],
-  tileBackendRunsOverride?: readonly TileBackendVendorRunEvidence[],
-  tileBackendModelInputOverride?: TileBackendCostModelInput
+  surfaceAbiRunsOverride?: readonly SurfaceAbiRunEvidence[]
 ): Promise<RenderingLabBenchmarkReport> {
   if (triangleSetupThresholdPixelsOverride !== undefined &&
       (!Number.isFinite(triangleSetupThresholdPixelsOverride) || triangleSetupThresholdPixelsOverride < 0)) {
@@ -632,8 +619,6 @@ async function runRenderingLabBenchmark(
         ownerCreation: activeRenderer.gpuOwnerCreationEvidence(),
         migration: activeRenderer.visibilitySurfaceMigrationEvidence(),
         ...(surfaceAbiRunsOverride === undefined ? {} : { surfaceAbiRuns: surfaceAbiRunsOverride }),
-        ...(tileBackendRunsOverride === undefined ? {} : { tileBackendRuns: tileBackendRunsOverride }),
-        ...(tileBackendModelInputOverride === undefined ? {} : { tileBackendModelInput: tileBackendModelInputOverride }),
         temporal: activeRenderer.temporalEvidence(),
         ao: activeRenderer.ambientOcclusionEvidence(),
         ssr: activeRenderer.screenSpaceReflectionsEvidence()
@@ -1294,11 +1279,6 @@ function parseTextureMaxResolution(value: string | null): 256 | 512 | 1024 | 204
   return parsed === 256 || parsed === 512 || parsed === 1024 || parsed === 2048 || parsed === 4096
     ? parsed
     : undefined;
-}
-
-function parseMaterialResolveBackend(value: string | null): "class-depth" | "class-discard" | null {
-  if (value === "class-depth" || value === "class-discard") return value;
-  return null;
 }
 
 function queueAnimatedScenePatch(

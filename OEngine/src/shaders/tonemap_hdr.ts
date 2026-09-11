@@ -2,12 +2,16 @@
  * tonemap_hdr：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
+import { GPU_MATERIAL_TILE_WORK_WGSL } from "../gpu/GpuMaterialTileWorkAbi.js";
+
 export const TONEMAP_SETTINGS_SIZE = 16;
 
 export const TONEMAP_HDR_PEAK_NITS_DEFAULT = 1000;
 export const TONEMAP_HDR_PAPER_WHITE_NITS_DEFAULT = 100;
 
 export const TONEMAP_HDR_WGSL = /* wgsl */ `
+${GPU_MATERIAL_TILE_WORK_WGSL}
+
 const POS = array<vec2f, 3>(
   vec2f(-1.0, -1.0),
   vec2f( 3.0, -1.0),
@@ -29,6 +33,7 @@ struct Settings {
 @group(0) @binding(0) var input_color: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> settings: Settings;
 @group(0) @binding(2) var<uniform> exposure: Exposure;
+@group(0) @binding(3) var<storage, read_write> frame_control: OEngineMaterialClassificationControl;
 
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -204,6 +209,9 @@ fn tonemap_gt7(rgb: vec3f, peak_nits: f32, paper_white_nits: f32) -> vec3f {
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
+  if atomicLoad(&frame_control.frame_invalid) != 0u {
+    return vec4f(1.0, 0.0, 1.0, 1.0);
+  }
   var rgb = textureLoad(input_color, vec2i(coord.xy), 0).rgb;
   rgb *= exposure.value;
   rgb = tonemap_gt7(rgb, settings.peak_nits, settings.paper_white_nits);

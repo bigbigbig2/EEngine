@@ -28,7 +28,7 @@ const DIRECT_LIGHT_DATABASE_WGSL = CodeChunk.from("", [
   SHADOW_DIRECTIONAL_DESCRIPTOR.chunk_read
 ]).compile().text;
 
-export const LIGHTING_DIRECT_WGSL = /* wgsl */ `
+export const LIGHTING_DIRECT_CORE_WGSL = /* wgsl */ `
 ${GPU_VIEW_TYPE.wgsl_declaration}
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GBUFFER_ENCODE_WGSL}
@@ -648,6 +648,42 @@ fn shade_standard_material_direct(
   return reflected.diffuse + reflected.specular + material.emissive;
 }
 
+fn shade_direct_pixel(i_coord: vec2u) -> vec4f {
+  random_initialize(vec3u(i_coord, view.frame_index), vec3u(0xEE6B2807u, 7u, 0xD0974829u));
+  let metadata = textureLoad(surface_metadata, vec2i(i_coord), 0).r;
+  if (!oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
+    return vec4f(0.0);
+  }
+  let material = read_gBuffer_material(i_coord);
+  if (oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT)) {
+    return vec4f(material.emissive, 1.0);
+  }
+  let dimensions = vec2f(textureDimensions(yz));
+  let pixel_position = vec2f(i_coord) + vec2f(0.5);
+  let uv = pixel_position / dimensions;
+  let depth = textureLoad(yz, vec2i(i_coord), 0);
+  let view_depth = get_view_space_depth(depth, camera);
+  let position_ws = project_position_from_depth(
+    uv, depth, camera.view_projection_matrix_inverse
+  );
+  let camera_position = mat4_extract_position(camera.transform);
+  let view_direction = normalize(camera_position - position_ws);
+  let normal_sample = textureLoad(ag_x, vec2i(i_coord), 0);
+  let geometry = SurfaceGeometry(
+    decode_g_buffer_normal(normal_sample.xy),
+    decode_g_buffer_normal(normal_sample.zw),
+    position_ws,
+    view_direction
+  );
+  return vec4f(shade_standard_material_direct(
+    material, geometry, pixel_position, view_depth
+  ), 1.0);
+}
+`;
+
+export const LIGHTING_DIRECT_WGSL = /* wgsl */ `
+${LIGHTING_DIRECT_CORE_WGSL}
+
 const FULLSCREEN_POSITIONS = array<vec2f, 3>(
   vec2f(-1.0, -1.0),
   vec2f(3.0, -1.0),
@@ -671,31 +707,6 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertex {
 @fragment
 fn fs_main(input: FullscreenVertex) -> @location(0) vec4f {
   let i_coord = vec2u(input.position.xy);
-  random_initialize(vec3u(i_coord, view.frame_index), vec3u(0xEE6B2807u, 7u, 0xD0974829u));
-  let metadata = textureLoad(surface_metadata, i_coord, 0).r;
-  if (!oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
-    return vec4f(0.0);
-  }
-  let material = read_gBuffer_material(i_coord);
-  if (oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT)) {
-    return vec4f(material.emissive, 1.0);
-  }
-  let depth = textureLoad(yz, i_coord, 0);
-  let view_depth = get_view_space_depth(depth, camera);
-  let position_ws = project_position_from_depth(
-    input.uv, depth, camera.view_projection_matrix_inverse
-  );
-  let camera_position = mat4_extract_position(camera.transform);
-  let view_direction = normalize(camera_position - position_ws);
-  let normal_sample = textureLoad(ag_x, i_coord, 0);
-  let geometry = SurfaceGeometry(
-    decode_g_buffer_normal(normal_sample.xy),
-    decode_g_buffer_normal(normal_sample.zw),
-    position_ws,
-    view_direction
-  );
-  return vec4f(shade_standard_material_direct(
-    material, geometry, input.position.xy, view_depth
-  ), 1.0);
+  return shade_direct_pixel(i_coord);
 }
 `;

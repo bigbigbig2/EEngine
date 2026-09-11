@@ -17,7 +17,9 @@ import {
 import {
   directLightingFrame,
   requireSurfaceAbiVersion,
-  type DirectLightingFrame
+  type DirectLightingFrame,
+  type MaterialTileClassificationFrame,
+  type VisibilityFrame
 } from "../pipeline/FrameProducts.js";
 import type { ShadowVisibilityFrame, SurfaceFrame } from "../pipeline/FrameProducts.js";
 import {
@@ -38,11 +40,14 @@ export interface LightingFeatureJob {
   readonly lights: GPULightCollection;
   readonly width: number;
   readonly height: number;
+  readonly materials: GPUBuffer;
 }
 
 export interface LightingFeatureInputs {
   /** Stage 1 product seam; LightingFeature owns attachment interpretation. */
   readonly surface: SurfaceFrame;
+  readonly visibility: VisibilityFrame;
+  readonly classification: MaterialTileClassificationFrame;
   /** Depth remains Visibility-owned because Surface Resolve does not produce it. */
   readonly depth: ResourceId;
   readonly lightDatabase: ResourceId;
@@ -58,6 +63,8 @@ export interface LightingFeatureOutputs {
   /** Stage 2A direct-only linear HDR product; GI/AO/SSR are later consumers. */
   readonly direct: DirectLightingFrame;
   readonly clusters: LightClusterOutputs;
+  readonly counters: ResourceId | null;
+  readonly classification: MaterialTileClassificationFrame;
 }
 
 /**
@@ -121,12 +128,9 @@ export class LightingFeature {
       }
     );
     const lightingInputs: LightingInputs = {
-      gPbr: inputs.surface.pbr,
-      gNormal: inputs.surface.normal,
-      gAlbedo: inputs.surface.albedoAo,
-      gEmissive: inputs.surface.emissive,
-      gMetadata: inputs.surface.metadata,
-      depth: inputs.depth,
+      surface: inputs.surface,
+      visibility: inputs.visibility,
+      classification: inputs.classification,
       lightDatabase: inputs.lightDatabase,
       environment: inputs.environment,
       clusterParameters: clusters.parameters,
@@ -135,11 +139,12 @@ export class LightingFeature {
       activeLightList: clusters.activeLightList,
       shadowAtlas: inputs.shadow.atlas,
       camera: inputs.camera,
-      view: inputs.view
+      view: inputs.view,
+      counters: clusters.counters ?? inputs.counters
     };
     const direct = this.direct.addToGraph(
       graph,
-      { width: job.width, height: job.height },
+      { width: job.width, height: job.height, materials: job.materials },
       lightingInputs
     );
     return Object.freeze({
@@ -152,7 +157,9 @@ export class LightingFeature {
           scale: 1
         }
       }),
-      clusters
+      clusters,
+      counters: direct.counters,
+      classification: direct.classification
     });
   }
 

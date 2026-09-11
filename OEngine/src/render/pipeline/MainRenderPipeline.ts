@@ -38,10 +38,6 @@ import {
   type PackedVisibilityJob
 } from "../features/VisibilityFeature.js";
 import { SurfaceFeature } from "../features/SurfaceFeature.js";
-import {
-  selectMaterialResolveBackend,
-  type MaterialResolveBackendSelection
-} from "../MaterialClassDepthProbe.js";
 import { PackedSurfaceCounterPass } from "../passes/PackedSurfaceCounterPass.js";
 import { LightingFeature } from "../features/LightingFeature.js";
 import {
@@ -188,7 +184,7 @@ export const RENDER_FRAME_PHASES = [
   "occlusion_confidence",
   "light_clustering",
   "direct_lighting",
-  "ssao_optional",
+  "screen_space_diffuse_optional",
   "environment_ibl_extra",
   "indirect_lighting_#To_or_fused",
   "transparent_oit",
@@ -319,10 +315,6 @@ export interface VisibilitySurfaceMigrationEvidence {
     readonly status: "insufficient-evidence";
     readonly reason: string;
   }>;
-  readonly tileBackend: Readonly<{
-    readonly status: "insufficient-evidence";
-    readonly reason: string;
-  }>;
 }
 
 export interface MainFrameGraphRuntimeEvidence {
@@ -400,9 +392,9 @@ type MainFrameGraphBindings = {
   readonly taaHistoryValidity: number;
   readonly taaHistoryInputIndex: 0 | 1;
   readonly taaHistoryOutputIndex: 0 | 1;
-  readonly ssaoHistoryValidity: number;
-  readonly ssaoHistoryInputIndex: 0 | 1;
-  readonly ssaoHistoryOutputIndex: 0 | 1;
+  readonly gtaoHistoryValidity: number;
+  readonly gtaoHistoryInputIndex: 0 | 1;
+  readonly gtaoHistoryOutputIndex: 0 | 1;
   readonly ssrHistoryValidity: number;
   readonly ssrHistoryInputIndex: 0 | 1;
   readonly ssrHistoryOutputIndex: 0 | 1;
@@ -441,7 +433,6 @@ export class MainRenderPipeline {
   private _capabilities: RendererCapabilities | null = null;
   private readonly _rendererConfig: RendererConfig;
   private readonly _surfaceAbiProfile: GpuSurfaceAbiProfile;
-  private _materialResolveSelection: MaterialResolveBackendSelection | null = null;
   private _lastFrameContract: RenderFrameContract | null = null;
   private readonly _profiler = new FrameProfiler();
   private _graphics!: GraphicsContext;
@@ -467,15 +458,20 @@ export class MainRenderPipeline {
   private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence: OcclusionConfidencePass | null = null;
   private _aoService: AOService | null = null;
-  private _ssaoConfigurationKey = "";
-  private _ssaoOwnerGeneration = 0;
+  private _gtaoConfigurationKey = "";
+  private _gtaoOwnerGeneration = 0;
   private _reflectionService: ReflectionService | null = null;
   private _ssrConfigurationKey = "";
   private _ssrOwnerGeneration = 0;
   private readonly _temporalFeature = new TemporalFeature();
   private _nss: NeuralSuperSamplingPass | null = null;
   private _postFeature: PostFeature | null = null;
-  private readonly _temporalHistories = new TemporalHistoryRegistry(["color", "ssao", "ssr"]);
+  private readonly _temporalHistories = new TemporalHistoryRegistry([
+    "color",
+    "gtao",
+    "ssgi",
+    "ssr"
+  ]);
   private _lastFramePlan: FramePlanDump | null = null;
   private _unsubscribeDynamicResolution: (() => void) | null = null;
   private _dynamicResolutionOwnsProfiler = false;
@@ -882,7 +878,7 @@ export class MainRenderPipeline {
 
   /** FX-07 bounded AO phase/history evidence; GPU handles remain private. */
   ambientOcclusionEvidence(): AmbientOcclusionRuntimeEvidence {
-    const history = this._temporalHistories.state("ssao");
+    const history = this._temporalHistories.state("gtao");
     const pass = this._aoService;
     const internalPixels = this._render_resolution.x * this._render_resolution.y;
     const aoSettings = this._renderSettings.values.ao;
@@ -1003,18 +999,14 @@ export class MainRenderPipeline {
       surfaceAbiVersion: this._surfaceAbiProfile.version,
       materialResolveBackend: this._surfaceFeature?.materialResolveBackend ?? "uninitialized",
       materialResolveBackendSelection: Object.freeze({
-        source: this._materialResolveSelection?.source ?? "uninitialized",
-        reason: this._materialResolveSelection?.reason ?? "Renderer has not initialized a GPU device"
+        source: "adr-0009-step2-cutover",
+        reason: "MaterialTileWork compute evaluation is the sole production opaque material backend"
       }),
       triangleSetupEnabled: this.packed_triangle_setup_enabled,
       triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
       surfaceAbiEvidence: Object.freeze({
         status: "insufficient-evidence",
         reason: "M6 requires complete unified Surface ABI correctness, attachment, and memory evidence before any future ABI change"
-      }),
-      tileBackend: Object.freeze({
-        status: "insufficient-evidence",
-        reason: "M7 requires two-vendor ClassDepth versus tile evidence before creating a runtime backend"
       })
     });
   }
@@ -1186,12 +1178,6 @@ export class MainRenderPipeline {
     });
 
     device.lost.then((info) => this.onDeviceLost(info));
-    this._materialResolveSelection = await selectMaterialResolveBackend(device);
-    if (this._materialResolveSelection.backend === "class-discard") {
-      console.warn(
-        `MaterialClassDepth validation failed; using class-discard correctness fallback: ${this._materialResolveSelection.reason}`
-      );
-    }
     this.context = context;
     this.device = device;
     this._pixel_ratio = pixelRatio;
@@ -1244,7 +1230,7 @@ export class MainRenderPipeline {
     this._transparencyFeature = null;
     this._aoService?.destroy();
     this._aoService = null;
-    this._ssaoConfigurationKey = "";
+    this._gtaoConfigurationKey = "";
     this._occlusionConfidence?.destroy();
     this._occlusionConfidence = null;
     this._reflectionService?.destroy();
@@ -1326,7 +1312,12 @@ export class MainRenderPipeline {
       },
       [
         ...(featureTopology.temporal ? ["color"] : []),
-        ...(featureTopology.ssaoTemporal ? ["ssao"] : []),
+        ...(featureTopology.gtao && featureTopology.screenSpaceDiffuseTemporal
+          ? ["gtao"]
+          : []),
+        ...(featureTopology.ssgi && featureTopology.screenSpaceDiffuseTemporal
+          ? ["ssgi"]
+          : []),
         ...(featureTopology.ssrTemporal ? ["ssr"] : [])
       ]
     );
@@ -1484,7 +1475,7 @@ export class MainRenderPipeline {
       if (sampleGpuCounters && gpuCounterBuffer === null) {
         throw new Error("GPU counter sampling has no counter buffer");
       }
-      if (featureTopology.ssao) {
+      if (featureTopology.gtao) {
         this._aoService!.resize(
           Math.max(1, Math.ceil(w * this._renderSettings.values.ao.resolutionScale)),
           Math.max(1, Math.ceil(h * this._renderSettings.values.ao.resolutionScale))
@@ -1497,7 +1488,8 @@ export class MainRenderPipeline {
         );
       }
       const temporalHistory = this._temporalHistories.state("color");
-      const ssaoHistory = this._temporalHistories.state("ssao");
+      const gtaoHistory = this._temporalHistories.state("gtao");
+      const ssgiHistory = this._temporalHistories.state("ssgi");
       const ssrHistory = this._temporalHistories.state("ssr");
       const taaHistoryValidity = temporalHistory.valid ? 1 : 0;
       if (featureTopology.taa) {
@@ -1515,7 +1507,7 @@ export class MainRenderPipeline {
       this._giService.resetFrameEvidence();
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
       this._lastTemporalClassificationPassCount =
-        (featureTopology.ssaoTemporal || featureTopology.ssrTemporal ? 1 : 0) +
+        (featureTopology.screenSpaceDiffuseTemporal || featureTopology.ssrTemporal ? 1 : 0) +
         (featureTopology.temporal ? 1 : 0);
       const nssSettings = featureTopology.nss
         ? this._nss!.prepareFrame({
@@ -1580,8 +1572,14 @@ export class MainRenderPipeline {
         history: {
           formatRevision: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
           color: taaHistoryValidity,
-          ssao: ssaoHistory.valid ? 1 : 0,
+          gtao: gtaoHistory.valid ? 1 : 0,
+          ssgi: ssgiHistory.valid ? 1 : 0,
           ssr: ssrHistory.valid ? 1 : 0
+        },
+        preExposure: {
+          multiplier: 1,
+          generation: 0,
+          colorSpace: "working-linear"
         },
         scene: Object.freeze({
           scene,
@@ -1620,9 +1618,9 @@ export class MainRenderPipeline {
         taaHistoryValidity,
         taaHistoryInputIndex: temporalHistory.readIndex,
         taaHistoryOutputIndex: temporalHistory.writeIndex,
-        ssaoHistoryValidity: ssaoHistory.valid ? 1 : 0,
-        ssaoHistoryInputIndex: ssaoHistory.readIndex,
-        ssaoHistoryOutputIndex: ssaoHistory.writeIndex,
+        gtaoHistoryValidity: gtaoHistory.valid ? 1 : 0,
+        gtaoHistoryInputIndex: gtaoHistory.readIndex,
+        gtaoHistoryOutputIndex: gtaoHistory.writeIndex,
         ssrHistoryValidity: ssrHistory.valid ? 1 : 0,
         ssrHistoryInputIndex: ssrHistory.readIndex,
         ssrHistoryOutputIndex: ssrHistory.writeIndex,
@@ -1787,9 +1785,7 @@ export class MainRenderPipeline {
               visibility: packedVisibilityFrame!.visibilityKey,
               counters: gpuCounterRes
             },
-            this._materialResolveSelection?.backend === "class-depth"
-              ? "visibility-key-class-depth"
-              : "visibility-key"
+            "visibility-key"
           );
           this._profiler.registerGpuCounterFields([
             "candidateInstances",
@@ -1829,7 +1825,9 @@ export class MainRenderPipeline {
         }
 
         const needsOcclusionConfidence =
-          graphTopology.ssaoTemporal || graphTopology.ssr || graphTopology.temporal;
+          graphTopology.screenSpaceDiffuseTemporal ||
+          graphTopology.ssr ||
+          graphTopology.temporal;
         const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
           this.render_debug_view === RenderDebugView.Velocity;
         const packedResolveOut = this._surfaceFeature.addToGraph(
@@ -1857,7 +1855,14 @@ export class MainRenderPipeline {
           gpuCounterRes = packedResolveOut.counters;
           this._profiler.registerGpuCounterFields(["activeMaterials"]);
           this._profiler.registerGpuCounterFields([
-            "classDraws"
+            "classDraws",
+            "materialTileRecords",
+            "materialTileValidPixels",
+            "materialTileShadedPixels",
+            "materialTileUnassignedPixels",
+            "materialTileDuplicatePixels",
+            "materialTileOverflowQueues",
+            "materialTileFrameInvalid"
           ]);
         }
         const surface = packedResolveOut.surface;
@@ -1865,6 +1870,8 @@ export class MainRenderPipeline {
         const gNormalRes = surface.normal;
         const gAlbedoRes = surface.albedoAo;
         const gEmissiveRes = surface.emissive;
+        let materialTileDiagnosticControlRes =
+          packedResolveOut.tileClassification.control;
 
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
@@ -1961,14 +1968,20 @@ export class MainRenderPipeline {
             : createDisabledShadowVisibilityFrame(shadowAtlasRes, w, h);
           const lightingFeatureOutput = this._lightingFeature.addToGraph(
             graph,
-            bind("lighting-feature-job", (bindings) => ({
-              camera: bindings.camera,
-              lights: bindings.environment.lights,
-              width: bindings.internalWidth,
-              height: bindings.internalHeight,
-            })),
+            bind("lighting-feature-job", (bindings) => {
+              const packed = requirePackedGeometryOwner(bindings.geometry);
+              return {
+                camera: bindings.camera,
+                lights: bindings.environment.lights,
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
+                materials: packed.visibilityJob.runtime.materialResources.materialRecords
+              };
+            }),
             {
               surface,
+              visibility: packedVisibilityFrame,
+              classification: packedResolveOut.tileClassification,
               depth: depthRes,
               lightDatabase: lightDatabaseRes,
               environment: environmentRes,
@@ -1980,8 +1993,10 @@ export class MainRenderPipeline {
             }
           );
           clusters = lightingFeatureOutput.clusters;
-          if (clusters.counters !== null) {
-            gpuCounterRes = clusters.counters;
+          materialTileDiagnosticControlRes =
+            lightingFeatureOutput.classification.control;
+          if (lightingFeatureOutput.counters !== null) {
+            gpuCounterRes = lightingFeatureOutput.counters;
             this._profiler.registerGpuCounterFields([
               "activeLights",
               "candidateLightsAttempted",
@@ -2019,12 +2034,12 @@ export class MainRenderPipeline {
         let ssrHistoryConfidenceDebugRes: ResourceId | null = null;
         let indirectDiffuseDebugRes: ResourceId | null = null;
         let indirectSpecularDebugRes: ResourceId | null = null;
-        let ssaoReady = !graphTopology.ssao;
+        let ssaoReady = !graphTopology.gtao;
         if (
-          graphTopology.ssao &&
+          graphTopology.gtao &&
           gNormalRes !== null &&
           gAlbedoRes !== null &&
-          (!graphTopology.ssaoTemporal ||
+          (!graphTopology.screenSpaceDiffuseTemporal ||
             (velocityRes !== null && occlusionConfidenceRes !== null))
         ) {
           const ssao = this._aoService!.addToGraph(
@@ -2032,9 +2047,9 @@ export class MainRenderPipeline {
             bind("ssao-job", (bindings) => ({
               samplers: this._graphics.samplers,
               frameIndex: bindings.frameIndex,
-              historyValid: bindings.ssaoHistoryValidity >= 0.5,
-              historyInputIndex: bindings.ssaoHistoryInputIndex,
-              historyOutputIndex: bindings.ssaoHistoryOutputIndex,
+              historyValid: bindings.gtaoHistoryValidity >= 0.5,
+              historyInputIndex: bindings.gtaoHistoryInputIndex,
+              historyOutputIndex: bindings.gtaoHistoryOutputIndex,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
               intensity: this._renderSettings.values.ao.intensity,
@@ -2061,12 +2076,12 @@ export class MainRenderPipeline {
               camera: currentCameraRes,
               counters: gpuCounterRes ?? undefined
             },
-            graphTopology.ssaoTemporal
+            graphTopology.screenSpaceDiffuseTemporal
               ? {
                   input: bind("ssao-history-input", (bindings) =>
-                    this._aoService!.historyTexture(bindings.ssaoHistoryInputIndex)),
+                    this._aoService!.historyTexture(bindings.gtaoHistoryInputIndex)),
                   output: bind("ssao-history-output", (bindings) =>
-                    this._aoService!.historyTexture(bindings.ssaoHistoryOutputIndex))
+                    this._aoService!.historyTexture(bindings.gtaoHistoryOutputIndex))
                 }
               : undefined
           );
@@ -2904,7 +2919,8 @@ export class MainRenderPipeline {
           this._postFeature!.obtainTonemap(this._format).addToGraph(graph, {
             swapchain: swapId,
             hdr: hdrRes,
-            exposure: exposureRes ?? undefined
+            exposure: exposureRes ?? undefined,
+            diagnosticControl: materialTileDiagnosticControlRes
           });
         }
       }
@@ -2968,6 +2984,13 @@ export class MainRenderPipeline {
           "meshletPortableReservations",
           "meshletIndirectInstances",
           "meshletRasterTriangles",
+          "materialTileRecords",
+          "materialTileValidPixels",
+          "materialTileShadedPixels",
+          "materialTileUnassignedPixels",
+          "materialTileDuplicatePixels",
+          "materialTileOverflowQueues",
+          "materialTileFrameInvalid",
           "candidateLightsAttempted",
           "candidateLightsWritten",
           "activeLightsAttempted",
@@ -3018,7 +3041,7 @@ export class MainRenderPipeline {
             "transparentQueueOverflowMask"
           ]);
         }
-        if (graphTopology.ssao) {
+        if (graphTopology.gtao) {
           this._profiler.registerGpuCounterFields([
             "aoEvaluatedPixels",
             "aoHistoryAcceptedPixels",
@@ -3047,8 +3070,8 @@ export class MainRenderPipeline {
       if (graphTopology.temporal) {
         this._temporalHistories.markProduced("color");
       }
-      if (graphTopology.ssaoTemporal) {
-        this._temporalHistories.markProduced("ssao");
+      if (graphTopology.gtao && graphTopology.screenSpaceDiffuseTemporal) {
+        this._temporalHistories.markProduced("gtao");
       }
       if (graphTopology.ssr && this._reflectionService?.lastTemporalPasses === 1) {
         this._temporalHistories.markProduced("ssr");
@@ -3122,7 +3145,7 @@ export class MainRenderPipeline {
         `-primitive-index${this.packed_primitive_index}` +
         `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +
         `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
-        `-ssao-owner${this._ssaoOwnerGeneration}` +
+        `-gtao-owner${this._gtaoOwnerGeneration}` +
         `-ssr-owner${this._ssrOwnerGeneration}`,
       visibilityWorkCapacity: bindings.geometry.visibilityJob.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
       historyFormat: bindings.context.history.formatRevision,
@@ -3140,9 +3163,11 @@ export class MainRenderPipeline {
       ssr: this._renderSettings.values.features.screenSpaceReflections,
       ssrTemporal: this._renderSettings.values.ssr.temporalEnabled,
       ssrHalfResolution: this._renderSettings.values.ssr.resolutionScale === 0.5,
-      ssao: this._renderSettings.values.features.ambientOcclusion,
-      ssaoTemporal: this._renderSettings.values.ao.temporalEnabled,
-      ssaoHalfResolution: this._renderSettings.values.ao.resolutionScale === 0.5,
+      screenSpaceDiffuseMode:
+        this._renderSettings.values.features.ambientOcclusion ? "gtao" : "off",
+      screenSpaceDiffuseTemporal: this._renderSettings.values.ao.temporalEnabled,
+      screenSpaceDiffuseHalfResolution:
+        this._renderSettings.values.ao.resolutionScale === 0.5,
       temporal: this._renderSettings.values.features.temporalAntiAliasing,
       bloom: this._renderSettings.values.features.bloom,
       automaticExposure: this._renderSettings.values.features.automaticExposure,
@@ -3183,42 +3208,47 @@ export class MainRenderPipeline {
   private initializeRenderPasses(
     topology: MainFrameFeatureTopology
   ): void {
+    if (topology.ssgi) {
+      throw new Error(
+        "ScreenSpaceDiffuseMode 'ssgi' requires the ADR-0009 Step 5 production owner"
+      );
+    }
     this._temporalFeature.attachGraphics(this._graphics);
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
     this._transparencyFeature ??= new TransparencyFeature(this._graphics);
     this._surfaceFeature ??= new SurfaceFeature(
       this._graphics,
-      this._materialResolveSelection?.backend ?? "class-discard",
       this._surfaceAbiProfile
     );
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     this._lightingFeature ??= new LightingFeature(this._graphics, this._surfaceAbiProfile);
     this._giService ??= new GIService(this._graphics, this._surfaceAbiProfile);
-    const needsOcclusionConfidence = topology.ssaoTemporal || topology.ssr || topology.temporal;
+    const needsOcclusionConfidence =
+      topology.screenSpaceDiffuseTemporal || topology.ssr || topology.temporal;
     if (needsOcclusionConfidence) {
       this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
     } else if (this._occlusionConfidence !== null) {
       this.retireAfterSubmittedWork(this._occlusionConfidence);
       this._occlusionConfidence = null;
     }
-    if (topology.ssao) {
-      const configurationKey = `${topology.ssaoTemporal ? 1 : 0}/${topology.ssaoHalfResolution ? 1 : 0}`;
-      if (this._aoService === null || this._ssaoConfigurationKey !== configurationKey) {
+    if (topology.gtao) {
+      const configurationKey = `${topology.screenSpaceDiffuseTemporal ? 1 : 0}/${topology.screenSpaceDiffuseHalfResolution ? 1 : 0}`;
+      if (this._aoService === null || this._gtaoConfigurationKey !== configurationKey) {
         if (this._aoService !== null) this.retireAfterSubmittedWork(this._aoService);
         this._aoService = new AOService(
           this._graphics,
-          topology.ssaoTemporal,
-          topology.ssaoHalfResolution ? 0.5 : 1,
+          topology.screenSpaceDiffuseTemporal,
+          topology.screenSpaceDiffuseHalfResolution ? 0.5 : 1,
           this._surfaceAbiProfile
         );
-        this._ssaoOwnerGeneration++;
-        this._ssaoConfigurationKey = configurationKey;
+        this._gtaoOwnerGeneration++;
+        this._gtaoConfigurationKey = configurationKey;
       }
     } else if (this._aoService !== null) {
       this.retireAfterSubmittedWork(this._aoService);
       this._aoService = null;
-      this._ssaoConfigurationKey = "";
+      this._gtaoConfigurationKey = "";
     }
     if (topology.ssr) {
       const configurationKey = `${topology.ssrTemporal ? 1 : 0}/${topology.ssrHalfResolution ? 1 : 0}`;
@@ -3244,7 +3274,11 @@ export class MainRenderPipeline {
       this._temporalFeature.retireTaa();
       this._lastTemporalTaaPassCount = 0;
     }
-    if (topology.temporal || topology.ssaoTemporal || topology.ssrTemporal) {
+    if (
+      topology.temporal ||
+      topology.screenSpaceDiffuseTemporal ||
+      topology.ssrTemporal
+    ) {
       this._temporalFeature.obtainClassification();
     } else if (this._temporalFeature.classification() !== null) {
       this._temporalFeature.retireClassification();

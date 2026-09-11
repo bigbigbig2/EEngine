@@ -1,3 +1,8 @@
+import {
+  preExposureContract,
+  type PreExposureContract
+} from "./FrameProducts.js";
+
 /**
  * Immutable, per-frame inputs consumed by the main render recipe.
  *
@@ -14,7 +19,8 @@ export interface FrameResolutionDomains {
 export interface FrameHistoryValidity {
   readonly formatRevision: number;
   readonly color: number;
-  readonly ssao: number;
+  readonly gtao: number;
+  readonly ssgi: number;
   readonly ssr: number;
 }
 
@@ -38,6 +44,7 @@ export interface FrameContextInit<
   readonly resolution: FrameResolutionDomains;
   readonly featureTopology: TFeatureTopology;
   readonly history: FrameHistoryValidity;
+  readonly preExposure: PreExposureContract;
   readonly scene: TSceneBindings;
   readonly instrumentation: FrameInstrumentation;
   readonly capture: TCapture;
@@ -64,6 +71,7 @@ export function createFrameContext<
     ...init,
     resolution: Object.freeze({ ...init.resolution }),
     history: Object.freeze({ ...init.history }),
+    preExposure: preExposureContract(init.preExposure),
     instrumentation: Object.freeze({ ...init.instrumentation })
   });
 }

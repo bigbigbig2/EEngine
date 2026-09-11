@@ -50,6 +50,36 @@ import {
   GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET,
   largeTriangleSetupIndex
 } from "../.test-dist/gpu/GpuLargeTriangleSetupAbi.js";
+import {
+  GPU_MATERIAL_CLASSIFICATION_CONTROL_OFFSETS,
+  GPU_MATERIAL_CLASSIFICATION_CONTROL_STRIDE,
+  GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT,
+  GPU_MATERIAL_TILE_DISPATCH_INDIRECT_STRIDE,
+  GPU_MATERIAL_TILE_QUEUE_HEADER_OFFSETS,
+  GPU_MATERIAL_TILE_QUEUE_HEADER_STRIDE,
+  GPU_MATERIAL_TILE_WORK_ABI_VERSION,
+  GPU_MATERIAL_TILE_WORK_OFFSETS,
+  GPU_MATERIAL_TILE_WORK_QUEUE_CLASS,
+  GPU_MATERIAL_TILE_WORK_RECORD_STRIDE,
+  GPU_MATERIAL_TILE_WORK_WGSL,
+  decodeMaterialShadingDispatchClassId,
+  materialShadingDispatchClassId,
+  materialTileDispatchIndirectByteLength,
+  materialTileDispatchIndirectByteOffset,
+  materialTileQueueHeaderByteOffset,
+  materialTileWorkElementByteOffset,
+  materialTileWorkQueueBufferByteLength,
+  nextGpuMaterialTileWorkGeneration,
+  packGpuMaterialClassificationControl,
+  packGpuMaterialTileQueueHeader,
+  packGpuMaterialTileQueueHeaders,
+  packGpuMaterialTileWork,
+  reserveGpuMaterialTileWork,
+  unpackGpuMaterialClassificationControl,
+  unpackGpuMaterialTileQueueHeader,
+  unpackGpuMaterialTileWork,
+  validateFinalGpuMaterialClassificationControl
+} from "../.test-dist/gpu/GpuMaterialTileWorkAbi.js";
 import { LARGE_TRIANGLE_SETUP_WGSL } from "../.test-dist/shaders/large_triangle_setup.js";
 import {
   GEOMETRY_DIRECTORY_FLAGS,
@@ -65,11 +95,8 @@ globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4 });
 const { VISIBILITY_COUNTER_WGSL } = await import(
   "../.test-dist/render/passes/VisibilityCounterPass.js"
 );
-const { PACKED_MATERIAL_RESOLVE_WGSL } = await import(
-  "../.test-dist/shaders/packed_material_resolve.js"
-);
-const { PACKED_MATERIAL_CLASS_DEPTH_WGSL } = await import(
-  "../.test-dist/shaders/packed_material_class_depth.js"
+const { PACKED_MATERIAL_COMPUTE_WGSL } = await import(
+  "../.test-dist/shaders/packed_material_compute.js"
 );
 const { PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL } = await import(
   "../.test-dist/shaders/render_debug_view.js"
@@ -90,7 +117,7 @@ const GEOMETRY_TRUTH_FIELDS = [
 ];
 
 test("ADR-0008 Step 0 freezes a collision-free geometry truth counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 18);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 19);
   const indices = GPU_COUNTER_FIELDS.map((field) => field.index);
   assert.equal(new Set(indices).size, indices.length);
   for (const name of GEOMETRY_TRUTH_FIELDS) {
@@ -175,6 +202,132 @@ test("MeshletWork correctness-critical queue header and reservation oracle are a
     () => packGpuMeshletWorkQueueHeader({ ...initial, overflowCount: 1 }),
     /attempted minus written/
   );
+});
+
+test("ADR-0009 Step 0 freezes MaterialTileWork identity and bounded dispatch classes", () => {
+  assert.equal(GPU_MATERIAL_TILE_WORK_ABI_VERSION, 1);
+  assert.equal(GPU_MATERIAL_TILE_WORK_QUEUE_CLASS, "CorrectnessCritical");
+  assert.equal(GPU_MATERIAL_TILE_WORK_RECORD_STRIDE, 16);
+  assert.equal(GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT, 28);
+  assert.deepEqual(GPU_MATERIAL_TILE_WORK_OFFSETS, {
+    tileLinearId: 0,
+    kernelClassId: 4,
+    textureBindingSetId: 8,
+    generation: 12
+  });
+  const work = {
+    tileLinearId: 0xffffffff,
+    kernelClassId: 6,
+    textureBindingSetId: 3,
+    generation: 0xffffffff
+  };
+  assert.deepEqual(unpackGpuMaterialTileWork(packGpuMaterialTileWork(work)), work);
+  assert.equal(materialShadingDispatchClassId(0, 0), 0);
+  assert.equal(materialShadingDispatchClassId(6, 3), 27);
+  assert.deepEqual(decodeMaterialShadingDispatchClassId(27), {
+    kernelClassId: 6,
+    textureBindingSetId: 3
+  });
+  assert.throws(
+    () => packGpuMaterialTileWork({ ...work, generation: 0 }),
+    /invalid generation/
+  );
+  assert.throws(() => materialShadingDispatchClassId(7, 0), /outside/);
+  assert.throws(() => materialShadingDispatchClassId(0, 4), /outside/);
+  assert.match(GPU_MATERIAL_TILE_WORK_WGSL, /OEngineMaterialTileWork/);
+  assert.match(GPU_MATERIAL_TILE_WORK_WGSL, /OEngineMaterialClassificationControl/);
+  assert.match(GPU_MATERIAL_TILE_WORK_WGSL, /texture_binding_set_id \* 7u/);
+});
+
+test("ADR-0009 Step 0 freezes per-class queue, indirect and final-invalid contracts", () => {
+  assert.equal(GPU_MATERIAL_TILE_QUEUE_HEADER_STRIDE, 32);
+  assert.equal(GPU_MATERIAL_CLASSIFICATION_CONTROL_STRIDE, 32);
+  assert.equal(GPU_MATERIAL_TILE_DISPATCH_INDIRECT_STRIDE, 12);
+  assert.deepEqual(GPU_MATERIAL_TILE_QUEUE_HEADER_OFFSETS, {
+    attemptedCount: 0,
+    writtenCount: 4,
+    consumedCount: 8,
+    capacity: 12,
+    overflowCount: 16,
+    generation: 20,
+    invalidCount: 24,
+    reserved: 28
+  });
+  assert.deepEqual(GPU_MATERIAL_CLASSIFICATION_CONTROL_OFFSETS, {
+    validPixelCount: 0,
+    shadedPixelCount: 4,
+    unassignedPixelCount: 8,
+    duplicateShadingPixelCount: 12,
+    overflowQueueCount: 16,
+    frameInvalid: 20,
+    generation: 24,
+    dispatchClassCount: 28
+  });
+  const initial = {
+    attemptedCount: 0,
+    writtenCount: 0,
+    consumedCount: 0,
+    capacity: 2,
+    overflowCount: 0,
+    generation: 9,
+    invalidCount: 0
+  };
+  assert.deepEqual(
+    unpackGpuMaterialTileQueueHeader(packGpuMaterialTileQueueHeader(initial)),
+    initial
+  );
+  const headers = packGpuMaterialTileQueueHeaders(2, 9);
+  assert.equal(headers.byteLength, 28 * 32);
+  assert.deepEqual(
+    unpackGpuMaterialTileQueueHeader(
+      headers,
+      materialTileQueueHeaderByteOffset(27)
+    ),
+    initial
+  );
+  const first = reserveGpuMaterialTileWork(initial, 2);
+  assert.equal(first.offset, 0);
+  const overflow = reserveGpuMaterialTileWork(first.header, 1);
+  assert.equal(overflow.offset, null);
+  assert.equal(overflow.header.attemptedCount, 3);
+  assert.equal(overflow.header.writtenCount, 2);
+  assert.equal(overflow.header.overflowCount, 1);
+  assert.equal(materialTileWorkQueueBufferByteLength(2), 28 * 32 + 28 * 2 * 16);
+  assert.equal(materialTileWorkElementByteOffset(27, 1, 2), 28 * 32 + 55 * 16);
+  assert.equal(materialTileDispatchIndirectByteLength(), 28 * 12);
+  assert.equal(materialTileDispatchIndirectByteOffset(27), 27 * 12);
+  assert.equal(nextGpuMaterialTileWorkGeneration(0xffffffff), 1);
+
+  const valid = {
+    validPixelCount: 64,
+    shadedPixelCount: 64,
+    unassignedPixelCount: 0,
+    duplicateShadingPixelCount: 0,
+    overflowQueueCount: 0,
+    frameInvalid: 0,
+    generation: 9,
+    dispatchClassCount: 28
+  };
+  assert.deepEqual(
+    unpackGpuMaterialClassificationControl(
+      packGpuMaterialClassificationControl(valid)
+    ),
+    valid
+  );
+  assert.doesNotThrow(() => validateFinalGpuMaterialClassificationControl(valid));
+  assert.throws(
+    () => validateFinalGpuMaterialClassificationControl({
+      ...valid,
+      shadedPixelCount: 63
+    }),
+    /frame-invalid flag/
+  );
+  assert.doesNotThrow(() => validateFinalGpuMaterialClassificationControl({
+    ...valid,
+    shadedPixelCount: 63,
+    unassignedPixelCount: 1,
+    frameInvalid: 1
+  }));
 });
 
 test("Step-1 MeshletWork seam has no CPU queue readback consumer", () => {
@@ -321,8 +474,7 @@ test("VisibilityKey V2 freezes logical identity and external lifetime context", 
 
 test("VisibilityKey V2 material and debug consumers dereference MeshletWork only", () => {
   for (const source of [
-    PACKED_MATERIAL_RESOLVE_WGSL,
-    PACKED_MATERIAL_CLASS_DEPTH_WGSL,
+    PACKED_MATERIAL_COMPUTE_WGSL,
     PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL
   ]) {
     assert.match(source, /OEngineMeshletWorkQueueRead/);

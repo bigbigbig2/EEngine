@@ -11,12 +11,9 @@ const WORKGROUP_ELEMENT_COUNT =
 const SHADED_PIXEL_INDEX = counterByteOffset("shadedPixels") / 4;
 const EMPTY_PIXEL_INDEX = counterByteOffset("emptyVisibilityPixels") / 4;
 const INVALID_KEY_INDEX = counterByteOffset("invalidVisibilityKeys") / 4;
-const CLASS_DEPTH_PIXEL_INDEX = counterByteOffset("classDepthPixels") / 4;
 const GEOMETRY_VISIBLE_PIXEL_INDEX = counterByteOffset("geometryVisiblePixels") / 4;
 
-export type VisibilityCounterContract =
-  | "visibility-key"
-  | "visibility-key-class-depth";
+export type VisibilityCounterContract = "visibility-key";
 
 export const VISIBILITY_COUNTER_WGSL = /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -39,8 +36,7 @@ fn classify_visibility(value: u32) -> vec3u {
 
 fn count_visibility(
   global_id: vec3u,
-  local_index: u32,
-  class_depth_contract: bool
+  local_index: u32
 ) {
   let dimensions = textureDimensions(visibility_values);
   var pixel_counts = vec3u(0u);
@@ -64,11 +60,6 @@ fn count_visibility(
   if (local_index == 0u) {
     atomicAdd(&frame_counters[${SHADED_PIXEL_INDEX}u], local_counts[0].x);
     atomicAdd(&frame_counters[${GEOMETRY_VISIBLE_PIXEL_INDEX}u], local_counts[0].x);
-    if (class_depth_contract) {
-      // MaterialClassDepth consumes the same set of valid VisibilityKey pixels.
-      // Reuse this sampled reducer instead of adding another fullscreen pass.
-      atomicAdd(&frame_counters[${CLASS_DEPTH_PIXEL_INDEX}u], local_counts[0].x);
-    }
     atomicAdd(&frame_counters[${EMPTY_PIXEL_INDEX}u], local_counts[0].y);
     atomicAdd(&frame_counters[${INVALID_KEY_INDEX}u], local_counts[0].z);
   }
@@ -79,15 +70,7 @@ fn count_visibility_keys(
   @builtin(global_invocation_id) global_id: vec3u,
   @builtin(local_invocation_index) local_index: u32
 ) {
-  count_visibility(global_id, local_index, false);
-}
-
-@compute @workgroup_size(${VISIBILITY_COUNTER_WORKGROUP_SIZE}, ${VISIBILITY_COUNTER_WORKGROUP_SIZE})
-fn count_visibility_keys_class_depth(
-  @builtin(global_invocation_id) global_id: vec3u,
-  @builtin(local_invocation_index) local_index: u32
-) {
-  count_visibility(global_id, local_index, true);
+  count_visibility(global_id, local_index);
 }
 `;
 
@@ -110,15 +93,11 @@ const VISIBILITY_COUNTER_LAYOUT: GPUBindGroupLayoutDescriptor = {
 const VISIBILITY_COUNTER_PIPELINES: Readonly<
   Record<VisibilityCounterContract, CachedComputePipelineDescriptor>
 > = Object.freeze({
-  "visibility-key": createPipeline("count_visibility_keys", "VisibilityKey"),
-  "visibility-key-class-depth": createPipeline(
-    "count_visibility_keys_class_depth",
-    "VisibilityKey + MaterialClassDepth"
-  )
+  "visibility-key": createPipeline("count_visibility_keys", "VisibilityKey")
 });
 
 function createPipeline(
-  entryPoint: "count_visibility_keys" | "count_visibility_keys_class_depth",
+  entryPoint: "count_visibility_keys",
   contractLabel: string
 ): CachedComputePipelineDescriptor {
   return {

@@ -4,15 +4,16 @@ import {
   type RenderDebugView as RenderDebugViewT
 } from "../debug/RenderDebugView.js";
 import { RenderFeatureRegistry } from "./RenderFeatureRegistry.js";
+import type { ScreenSpaceDiffuseMode } from "./pipeline/FrameProducts.js";
 
 export type MainFrameFeatureInputs = {
   shadows: boolean;
   ssr: boolean;
   ssrTemporal?: boolean;
   ssrHalfResolution?: boolean;
-  ssao: boolean;
-  ssaoTemporal?: boolean;
-  ssaoHalfResolution?: boolean;
+  screenSpaceDiffuseMode: ScreenSpaceDiffuseMode;
+  screenSpaceDiffuseTemporal?: boolean;
+  screenSpaceDiffuseHalfResolution?: boolean;
   temporal: boolean;
   bloom: boolean;
   automaticExposure: boolean;
@@ -31,9 +32,11 @@ export type MainFrameFeatureTopology = Readonly<{
   ssr: boolean;
   ssrTemporal: boolean;
   ssrHalfResolution: boolean;
-  ssao: boolean;
-  ssaoTemporal: boolean;
-  ssaoHalfResolution: boolean;
+  screenSpaceDiffuseMode: ScreenSpaceDiffuseMode;
+  gtao: boolean;
+  ssgi: boolean;
+  screenSpaceDiffuseTemporal: boolean;
+  screenSpaceDiffuseHalfResolution: boolean;
   temporal: boolean;
   taa: boolean;
   nss: boolean;
@@ -64,12 +67,14 @@ const MAIN_FRAME_FEATURES = new RenderFeatureRegistry<MainFrameFeatureInputs>([
     history: (input) => input.ssrTemporal === false ? undefined : "ssr-history"
   },
   {
-    id: "ssao",
-    enabled: (input) => input.ssao,
+    id: "screen-space-diffuse",
+    enabled: (input) => input.screenSpaceDiffuseMode !== "off",
     inputs: ["scene-depth", "scene-normal"],
-    outputs: ["ambient-visibility"],
-    persistentOwner: "ssao",
-    history: (input) => input.ssaoTemporal === false ? undefined : "ssao-history"
+    outputs: ["screen-ambient-visibility", "bent-normal", "near-field-diffuse-gi"],
+    persistentOwner: (input) => input.screenSpaceDiffuseMode,
+    history: (input) => input.screenSpaceDiffuseTemporal === false
+      ? undefined
+      : `${input.screenSpaceDiffuseMode}-history`
   },
   {
     id: "temporal",
@@ -105,12 +110,23 @@ const MAIN_FRAME_FEATURES = new RenderFeatureRegistry<MainFrameFeatureInputs>([
 export function resolveMainFrameFeatureTopology(
   input: MainFrameFeatureInputs
 ): MainFrameFeatureTopology {
+  if (!["off", "gtao", "ssgi"].includes(input.screenSpaceDiffuseMode)) {
+    throw new Error(
+      `Unknown screen-space diffuse mode '${String(input.screenSpaceDiffuseMode)}'`
+    );
+  }
   const taa = input.temporal && input.upscaleType !== 1;
   const nss = input.temporal && input.upscaleType === 1;
   const debug = isRenderableRenderDebugView(input.debugView);
   const debugTopology = debug ? debugTopologyCode(input.debugView) : 0;
-  const ssaoTemporal = input.ssao && input.ssaoTemporal !== false;
-  const ssaoHalfResolution = input.ssao && input.ssaoHalfResolution === true;
+  const gtao = input.screenSpaceDiffuseMode === "gtao";
+  const ssgi = input.screenSpaceDiffuseMode === "ssgi";
+  const screenSpaceDiffuseTemporal =
+    input.screenSpaceDiffuseMode !== "off" &&
+    input.screenSpaceDiffuseTemporal !== false;
+  const screenSpaceDiffuseHalfResolution =
+    input.screenSpaceDiffuseMode !== "off" &&
+    input.screenSpaceDiffuseHalfResolution === true;
   const ssrTemporal = input.ssr && input.ssrTemporal !== false;
   const ssrHalfResolution = input.ssr && input.ssrHalfResolution === true;
   const featureSelection = MAIN_FRAME_FEATURES.resolve(input);
@@ -118,7 +134,7 @@ export function resolveMainFrameFeatureTopology(
   let bits = 0;
   if (input.shadows) bits += 2 ** 0;
   if (input.ssr) bits += 2 ** 1;
-  if (input.ssao) bits += 2 ** 2;
+  if (gtao) bits += 2 ** 2;
   if (input.temporal) bits += 2 ** 3;
   if (input.bloom) bits += 2 ** 4;
   if (input.automaticExposure) bits += 2 ** 5;
@@ -130,19 +146,22 @@ export function resolveMainFrameFeatureTopology(
   bits += (input.temporal ? input.upscaleType : 0) * 2 ** 20;
   if (input.transparency) bits += 2 ** 24;
   if (input.highDynamicRange) bits += 2 ** 25;
-  if (ssaoTemporal) bits += 2 ** 26;
-  if (ssaoHalfResolution) bits += 2 ** 27;
+  if (screenSpaceDiffuseTemporal) bits += 2 ** 26;
+  if (screenSpaceDiffuseHalfResolution) bits += 2 ** 27;
   if (ssrTemporal) bits += 2 ** 28;
   if (ssrHalfResolution) bits += 2 ** 29;
+  if (ssgi) bits += 2 ** 30;
 
   return Object.freeze({
     shadows: input.shadows,
     ssr: input.ssr,
     ssrTemporal,
     ssrHalfResolution,
-    ssao: input.ssao,
-    ssaoTemporal,
-    ssaoHalfResolution,
+    screenSpaceDiffuseMode: input.screenSpaceDiffuseMode,
+    gtao,
+    ssgi,
+    screenSpaceDiffuseTemporal,
+    screenSpaceDiffuseHalfResolution,
     temporal: input.temporal,
     taa,
     nss,

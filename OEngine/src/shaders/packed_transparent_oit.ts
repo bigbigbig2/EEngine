@@ -39,6 +39,7 @@ function packedDirectLightingCore(): string {
     .replace(/@group\(1\)/g, "@group(2)")
     .replace(/^@group\(3\) @binding\(1\) var<uniform> camera.*$/gm, "");
   source = removeWgslFunction(source, "read_gBuffer_material");
+  source = removeWgslFunction(source, "shade_direct_pixel");
   // The packed forward shader also provides the finite-value helper for the
   // MBOIT resolve path.  Remove the copy pulled in from the shared lighting
   // module so the composed WGSL module has a single declaration.

@@ -1,11 +1,18 @@
 /**
- * 光照阶段：读取 G-Buffer、灯光簇、阴影和间接光数据，合成场景光照结果。
+ * ADR-0009 compute direct lighting. MaterialTileWork is the authoritative GPU
+ * producer/consumer path; no CPU material-class traversal participates.
  */
 
+import { GPU_COUNTER_BYTE_SIZE } from "../../debug/GpuFrameCounters.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
-import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
+import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import {
+  GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT,
+  materialTileDispatchIndirectByteOffset
+} from "../../gpu/GpuMaterialTileWorkAbi.js";
 import {
   GPU_SURFACE_ABI_V1_PROFILE,
   type GpuSurfaceAbiProfile,
@@ -15,41 +22,38 @@ import {
   LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
   SHADOW_COMPARISON_SAMPLER_DESCRIPTOR
 } from "../../gpu/GPUSamplerCache.js";
-import {
-  LIGHTING_DIRECT_WGSL
-} from "../../shaders/lighting_direct.js";
+import { LIGHTING_DIRECT_COMPUTE_WGSL } from "../../shaders/lighting_direct_compute.js";
 import { HDR_COLOR_FORMAT } from "../RenderTargets.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 import {
-  resolveDepthAttachmentView,
-  resolveTextureView
-} from "../RenderTargetViews.js";
+  materialTileClassificationFrame,
+  type MaterialTileClassificationFrame,
+  type SurfaceFrame,
+  type VisibilityFrame
+} from "../pipeline/FrameProducts.js";
 
 export const LIGHTING_MIGRATION_GAP = [
-  "authored lighting_direct.ts owns the runtime pipeline"
+  "compute MaterialTileWork owns production direct lighting",
+  "Surface V1 remains a temporary input until visibility-driven material evaluation cutover"
 ] as const;
 
 export const LIGHTING_STEPS = [
-  "obtain Ch filtering/comparison samplers through kP",
-  "create hdr_color / lighting X",
-  "obtain Ch iu layouts and GB render pipeline",
-  "bind Ch group0 GBuffer",
-  "bind Ch group1 Tl/environment/cluster/shadow atlas",
-  "bind Ch group2 Yu view + Td camera",
-  "fullscreen draw(3) with Vu depth not-equal/read-only"
+  "clear HDR storage output",
+  "dispatch one bounded indirect ShadeLighting consumer per material class/set",
+  "validate exactly-once pixel claims on GPU",
+  "finalize queue/counter/frame-invalid evidence on GPU"
 ] as const;
 
 export type LightingJob = {
   width: number;
   height: number;
+  materials: GPUBuffer;
 };
 
 export type LightingInputs = {
-  gPbr: ResourceId;
-  gNormal: ResourceId;
-  gAlbedo: ResourceId;
-  gEmissive: ResourceId;
-  gMetadata: ResourceId;
-  depth: ResourceId;
+  surface: SurfaceFrame;
+  visibility: VisibilityFrame;
+  classification: MaterialTileClassificationFrame;
   lightDatabase: ResourceId;
   environment: ResourceId;
   clusterParameters: ResourceId;
@@ -59,102 +63,149 @@ export type LightingInputs = {
   shadowAtlas: ResourceId;
   camera: ResourceId;
   view: ResourceId;
+  counters?: ResourceId;
 };
 
-export type LightingGraphOutputs = { hdr: ResourceId };
+export type LightingGraphOutputs = {
+  hdr: ResourceId;
+  counters: ResourceId | null;
+  classification: MaterialTileClassificationFrame;
+};
 
-const CH_GROUP_0_LAYOUT: GPUBindGroupLayoutDescriptor = {
-  label: "",
+const SURFACE_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "ADR-0009 ShadeLighting/surface",
   entries: [
-    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
-    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
-    { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
-    { binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-    { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } }
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+    { binding: 5, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+    { binding: 6, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } }
   ]
 };
 
-const CH_GROUP_1_LAYOUT: GPUBindGroupLayoutDescriptor = {
-  label: "",
+const LIGHTING_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "ADR-0009 ShadeLighting/clustered lights",
   entries: [
-    { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-    { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-    { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
-    { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
-    { binding: 6, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "comparison" } },
-    { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
+    { binding: 6, visibility: GPUShaderStage.COMPUTE, sampler: { type: "comparison" } },
+    { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
   ]
 };
 
-const CH_GROUP_2_LAYOUT: GPUBindGroupLayoutDescriptor = {
-  label: "",
+const VIEW_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "ADR-0009 ShadeLighting/view",
   entries: [
-    { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-    { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
   ]
 };
 
-const CH_COLOR_TARGET = {
-  label: "",
-  format: HDR_COLOR_FORMAT
-} as GPUColorTargetState & { label: string };
+const MATERIAL_TILE_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "ADR-0009 ShadeLighting/MaterialTileWork",
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    {
+      binding: 5,
+      visibility: GPUShaderStage.COMPUTE,
+      buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 16 }
+    },
+    { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    {
+      binding: 8,
+      visibility: GPUShaderStage.COMPUTE,
+      storageTexture: { access: "write-only", format: HDR_COLOR_FORMAT }
+    }
+  ]
+};
 
-function createLightingPipeline(
-  code: string,
+const MODULE = {
+  label: "ADR-0009 compute direct lighting",
+  code: LIGHTING_DIRECT_COMPUTE_WGSL
+} as const;
+
+function computePipeline(
+  entryPoint: string,
   surfaceProfile: GpuSurfaceAbiProfile
-): CachedRenderPipelineDescriptor {
+): CachedComputePipelineDescriptor {
   return {
-  label: "",
-  layout: {
-    label: "",
-    bindGroupLayouts: [
-      CH_GROUP_0_LAYOUT,
-      CH_GROUP_1_LAYOUT,
-      CH_GROUP_2_LAYOUT
-    ]
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: {
-    format: "depth32float",
-    depthWriteEnabled: false,
-    depthCompare: "not-equal"
-  },
-  vertex: {
-    module: { label: "", code },
-    entryPoint: "vs_main",
-    buffers: []
-  },
-  multisample: {},
-  fragment: {
-    module: { label: "", code },
-    entryPoint: "fs_main",
+    label: `ADR-0009 ShadeLighting/${entryPoint}`,
+    layout: {
+      label: "ADR-0009 ShadeLighting/layout",
+      bindGroupLayouts: [
+        SURFACE_GROUP,
+        LIGHTING_GROUP,
+        VIEW_GROUP,
+        MATERIAL_TILE_GROUP
+      ]
+    },
+    compute: {
+      module: MODULE,
+      entryPoint,
       constants: {
         ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
-      },
-    targets: [CH_COLOR_TARGET]
-  }
+      }
+    }
   };
 }
 
-/** 汇总材质表面、灯光簇、阴影和环境光数据，输出 HDR 光照结果。 */
+/** MaterialTileWork-driven production direct-lighting owner. */
 export class LightingPass {
   lastRan = false;
-  private readonly surfacePipeline: CachedRenderPipelineDescriptor;
+  lastIndirectDispatchCount = 0;
+  private readonly clearPipeline: CachedComputePipelineDescriptor;
+  private readonly validatePipeline: CachedComputePipelineDescriptor;
+  private readonly finalizePipeline: CachedComputePipelineDescriptor;
+  private readonly shadingPipeline: CachedComputePipelineDescriptor;
+  private readonly dispatchClassBuffer: GPUBuffer;
 
   constructor(
     private readonly graphics: GraphicsContext,
     surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
   ) {
-    this.surfacePipeline = createLightingPipeline(LIGHTING_DIRECT_WGSL, surfaceProfile);
+    this.clearPipeline = computePipeline("clear_direct_lighting", surfaceProfile);
+    this.validatePipeline = computePipeline(
+      "validate_direct_lighting_pixels",
+      surfaceProfile
+    );
+    this.finalizePipeline = computePipeline("finalize_direct_lighting", surfaceProfile);
+    this.shadingPipeline = computePipeline(
+      "shade_direct_material_tiles",
+      surfaceProfile
+    );
+    this.dispatchClassBuffer = graphics.device.createBuffer({
+      label: "ADR-0009 ShadeLighting/static dispatch classes",
+      size: GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT * 256,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    const dispatchClasses = new Uint32Array(
+      GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT * 64
+    );
+    for (let dispatchClass = 0;
+      dispatchClass < GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT;
+      dispatchClass++) {
+      dispatchClasses[dispatchClass * 64] = dispatchClass;
+    }
+    graphics.device.queue.writeBuffer(
+      this.dispatchClassBuffer,
+      0,
+      dispatchClasses
+    );
   }
 
   init(): void {}
 
-  /** 把光照计算加入帧图，并声明所有 G-Buffer 与光照资源依赖。 */
   addToGraph(
     graph: FrameGraph,
     job: LightingJob,
@@ -163,81 +214,191 @@ export class LightingPass {
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
     let hdr = -1;
+    let queues = -1;
+    let control = -1;
+    let pixelClaims = -1;
+    let frameCounters = -1;
+    let publishedCounters: ResourceId | null = null;
     const builder = graph.add(
-      "Direct lighting Ch",
+      "Compute direct lighting/MaterialTileWork",
       job,
-      (passJob, resources, context) => {
-        const encoder = context.gpu_encoder;
-        if (!encoder) throw new Error("LightingPass: no GPU command encoder");
+      (data, resources, context) => {
+        const command = requireCommand(context.encoder);
+        const groups = [
+          this.graphics.bind_groups.obtain({
+            layout: SURFACE_GROUP,
+            entries: [
+              texture(resources.get(inputs.surface.depth!)),
+              texture(resources.get(inputs.surface.pbr)),
+              texture(resources.get(inputs.surface.normal)),
+              texture(resources.get(inputs.surface.albedoAo)),
+              texture(resources.get(inputs.surface.emissive)),
+              this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+              texture(resources.get(inputs.surface.metadata))
+            ]
+          }),
+          this.graphics.bind_groups.obtain({
+            layout: LIGHTING_GROUP,
+            entries: [
+              { buffer: buffer(resources.get(inputs.lightDatabase)) },
+              texture(resources.get(inputs.environment)),
+              { buffer: buffer(resources.get(inputs.clusterParameters)) },
+              { buffer: buffer(resources.get(inputs.clusterLookup)) },
+              { buffer: buffer(resources.get(inputs.clusterData)) },
+              texture(resources.get(inputs.shadowAtlas)),
+              this.graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR),
+              { buffer: buffer(resources.get(inputs.activeLightList)) }
+            ]
+          }),
+          this.graphics.bind_groups.obtain({
+            layout: VIEW_GROUP,
+            entries: [
+              { buffer: buffer(resources.get(inputs.view)) },
+              { buffer: buffer(resources.get(inputs.camera)) }
+            ]
+          }),
+          this.graphics.bind_groups.obtain({
+            layout: MATERIAL_TILE_GROUP,
+            entries: [
+              texture(resources.get(inputs.visibility.visibilityKey)),
+              { buffer: buffer(resources.get(inputs.visibility.meshletWork.records)) },
+              { buffer: data.materials },
+              { buffer: buffer(resources.get(queues)) },
+              { buffer: buffer(resources.get(control)) },
+              { buffer: this.dispatchClassBuffer, size: 16 },
+              { buffer: buffer(resources.get(pixelClaims)) },
+              { buffer: buffer(resources.get(frameCounters)) },
+              texture(resources.get(hdr))
+            ]
+          })
+        ] as const;
 
-        const bindings: readonly (readonly GPUBindingResource[])[] = [
-          [
-            texture(resources.get(inputs.depth)),
-            texture(resources.get(inputs.gPbr)),
-            texture(resources.get(inputs.gNormal)),
-            texture(resources.get(inputs.gAlbedo)),
-            texture(resources.get(inputs.gEmissive)),
-            this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
-            texture(resources.get(inputs.gMetadata))
-          ],
-          [
-            { buffer: buffer(resources.get(inputs.lightDatabase)) },
-            texture(resources.get(inputs.environment)),
-            { buffer: buffer(resources.get(inputs.clusterParameters)) },
-            { buffer: buffer(resources.get(inputs.clusterLookup)) },
-            { buffer: buffer(resources.get(inputs.clusterData)) },
-            texture(resources.get(inputs.shadowAtlas)),
-            this.graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR),
-            { buffer: buffer(resources.get(inputs.activeLightList)) }
-          ],
-          [
-            { buffer: buffer(resources.get(inputs.view)) },
-            { buffer: buffer(resources.get(inputs.camera)) }
-          ]
-        ];
-        const hdrView = texture(resources.get(hdr));
-        const depthView = resolveDepthAttachmentView(
-          resources.get(inputs.depth)
-        );
-        const descriptor = this.surfacePipeline;
-        const pipeline = this.graphics.render_pipelines.obtain(descriptor);
-        const pass = encoder.beginRenderPass({
-          label: "Direct lighting Ch",
-          colorAttachments: [{
-            view: hdrView,
-            clearValue: [0, 0, 0, 0],
-            loadOp: "clear",
-            storeOp: "store"
-          }],
-          depthStencilAttachment: {
-            view: depthView,
-            depthReadOnly: true
-          }
+        encodeDirect(command, this.graphics, this.clearPipeline, groups,
+          Math.ceil(width / 8), Math.ceil(height / 8));
+        const indirectBuffer = buffer(resources.get(inputs.classification.indirectArgs));
+        const shading = command.beginComputePass({
+          label: "ADR-0009 ShadeLighting/bounded indirect classes"
         });
-        pass.setPipeline(pipeline);
-        this.graphics.setPipelineBindings(pass, descriptor, bindings);
-        pass.draw(3);
-        pass.end();
+        for (let group = 0; group < 3; group++) {
+          shading.setBindGroup(group, groups[group]!);
+        }
+        shading.setPipeline(this.graphics.compute_pipelines.obtain(
+          this.shadingPipeline
+        ));
+        for (let dispatchClass = 0;
+          dispatchClass < GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT;
+          dispatchClass++) {
+          shading.setBindGroup(3, groups[3]!, [dispatchClass * 256]);
+          shading.dispatchWorkgroupsIndirect(
+            indirectBuffer,
+            materialTileDispatchIndirectByteOffset(dispatchClass)
+          );
+        }
+        shading.end();
+        encodeDirect(command, this.graphics, this.validatePipeline, groups,
+          Math.ceil(width / 8), Math.ceil(height / 8));
+        encodeDirect(command, this.graphics, this.finalizePipeline, groups, 1, 1);
         this.lastRan = true;
+        this.lastIndirectDispatchCount = GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT;
       }
     );
-    hdr = builder.create("hdr_color / lighting X", {
+
+    hdr = builder.create("hdr_color / compute lighting", {
       kind: "transient_texture",
-      label: "hdr_color / lighting X",
+      label: "ADR-0009 HDR/compute direct lighting",
       width,
       height,
       format: HDR_COLOR_FORMAT,
       usage:
+        GPUTextureUsage.STORAGE_BINDING |
         GPUTextureUsage.RENDER_ATTACHMENT |
         GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.COPY_SRC |
         GPUTextureUsage.COPY_DST
     });
-    for (const resource of Object.values(inputs)) builder.read(resource);
-    return { hdr };
+    queues = builder.write(inputs.classification.queues);
+    control = builder.write(inputs.classification.control);
+    pixelClaims = builder.write(inputs.classification.pixelClaims);
+    if (inputs.counters === undefined) {
+      frameCounters = builder.create("compute-lighting/counter-scratch", {
+        kind: "transient_buffer",
+        label: "ADR-0009 compute lighting/counter scratch",
+        size: GPU_COUNTER_BYTE_SIZE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+    } else {
+      builder.read(inputs.counters);
+      publishedCounters = builder.write(inputs.counters);
+      frameCounters = publishedCounters;
+    }
+
+    for (const resource of [
+      inputs.surface.depth,
+      inputs.surface.pbr,
+      inputs.surface.normal,
+      inputs.surface.albedoAo,
+      inputs.surface.emissive,
+      inputs.surface.metadata,
+      inputs.visibility.visibilityKey,
+      inputs.visibility.meshletWork.records,
+      inputs.classification.indirectArgs,
+      inputs.lightDatabase,
+      inputs.environment,
+      inputs.clusterParameters,
+      inputs.clusterLookup,
+      inputs.clusterData,
+      inputs.activeLightList,
+      inputs.shadowAtlas,
+      inputs.camera,
+      inputs.view
+    ]) {
+      if (resource !== null) builder.read(resource);
+    }
+
+    return Object.freeze({
+      hdr,
+      counters: publishedCounters,
+      classification: materialTileClassificationFrame({
+        ...inputs.classification,
+        queues,
+        control,
+        pixelClaims,
+        counters: publishedCounters
+      })
+    });
   }
 
-  destroy(): void {}
+  destroy(): void {
+    this.dispatchClassBuffer.destroy();
+  }
+}
+
+function encodeDirect(
+  command: ShadeGPUCommandContext,
+  graphics: GraphicsContext,
+  descriptor: CachedComputePipelineDescriptor,
+  groups: readonly GPUBindGroup[],
+  workgroupsX: number,
+  workgroupsY: number
+): void {
+  const pass = command.beginComputePass({ label: descriptor.label });
+  pass.setPipeline(graphics.compute_pipelines.obtain(descriptor));
+  for (let group = 0; group < groups.length; group++) {
+    if (group === 3) {
+      pass.setBindGroup(group, groups[group]!, [0]);
+    } else {
+      pass.setBindGroup(group, groups[group]!);
+    }
+  }
+  pass.dispatchWorkgroups(workgroupsX, workgroupsY, 1);
+  pass.end();
+}
+
+function requireCommand(value: unknown): ShadeGPUCommandContext {
+  if (value && typeof value === "object" && "isGPUCommandContext" in value) {
+    return value as ShadeGPUCommandContext;
+  }
+  throw new Error("LightingPass requires ShadeGPUCommandContext");
 }
 
 function texture(value: unknown): GPUTextureView {
@@ -248,5 +409,5 @@ function buffer(value: unknown): GPUBuffer {
   if (value && typeof value === "object" && "size" in value && "usage" in value) {
     return value as GPUBuffer;
   }
-  throw new Error("LightingPass: expected GPUBuffer");
+  throw new Error("LightingPass expected GPUBuffer");
 }

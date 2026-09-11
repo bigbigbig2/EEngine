@@ -429,8 +429,15 @@ export class BindGroupCache {
   }
 
   create(descriptor: CachedBindGroupDescriptor): GPUBindGroup {
-    const entries = descriptor.entries.map((resource, binding) => ({
-      binding,
+    const layoutEntries = Array.from(descriptor.layout.entries);
+    if (layoutEntries.length !== descriptor.entries.length) {
+      throw new Error(
+        `BindGroupCache resource count ${descriptor.entries.length} does not match ` +
+        `layout entry count ${layoutEntries.length}`
+      );
+    }
+    const entries = descriptor.entries.map((resource, index) => ({
+      binding: layoutEntries[index]!.binding,
       resource
     }));
     this.creationCount++;

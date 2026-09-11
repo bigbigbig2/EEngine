@@ -10,21 +10,13 @@ import type { CameraSweepCase } from "./camera-experiments.js";
 import type { RenderingLabCaseId } from "./quality-profile.js";
 import {
   evaluateSurfaceAbiV2RunGroupNeed,
-  evaluateTileBackendRunGroupNeed,
   type SurfaceAbiDecision,
-  type SurfaceAbiRunEvidence,
-  type TileBackendDecision,
-  type TileBackendVendorRunEvidence
+  type SurfaceAbiRunEvidence
 } from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
 import {
   GPU_SURFACE_ABI_VERSION,
   gpuSurfaceBytesPerPixel
 } from "../../OEngine/src/gpu/GpuSurfaceAbi.js";
-import {
-  modelTileBackendCost,
-  type TileBackendCostModelInput,
-  type TileBackendCostModelResult
-} from "../../OEngine/src/debug/TileBackendCostModel.js";
 
 export interface RenderingLabBenchmarkReport {
   readonly schemaVersion: 1;
@@ -176,8 +168,7 @@ export function buildRenderingLabBenchmarkReport(input: {
       ...(input.domainEvidence ?? {}),
       triangleSetup: buildTriangleSetupEvidence(input.cases, input.domainEvidence),
       surfaceAbi: buildSurfaceAbiEvidence(input.cases, input.domainEvidence),
-      migrationGates: buildMigrationGates(input.domainEvidence),
-      tileBackendModel: buildTileBackendModelEvidence(input.domainEvidence)
+      migrationGates: buildMigrationGates(input.domainEvidence)
     }),
     errors,
     ...(input.measurement === undefined ? {} : { measurement: Object.freeze({ ...input.measurement }) })
@@ -290,14 +281,12 @@ function migrationEvidence(
 interface RenderingLabMigrationGates {
   readonly schemaVersion: 1;
   readonly surfaceAbi: SurfaceAbiDecision;
-  readonly tileBackend: TileBackendDecision;
 }
 
 function buildMigrationGates(
   domainEvidence?: Readonly<Record<string, unknown>>
 ): RenderingLabMigrationGates {
   const surfaceRuns = readSurfaceAbiRuns(domainEvidence);
-  const tileRuns = readTileBackendRuns(domainEvidence);
   return Object.freeze({
     schemaVersion: 1,
     surfaceAbi: surfaceRuns === null
@@ -305,37 +294,8 @@ function buildMigrationGates(
         status: "insufficient-evidence",
         reason: "M6 unified Surface ABI evidence is not present"
       })
-      : evaluateSurfaceAbiV2RunGroupNeed(surfaceRuns),
-    tileBackend: tileRuns === null
-      ? Object.freeze({
-        status: "insufficient-evidence",
-        reason: "M7 requires identity-bearing runs from at least two GPU vendors"
-      })
-      : evaluateTileBackendRunGroupNeed(tileRuns)
+      : evaluateSurfaceAbiV2RunGroupNeed(surfaceRuns)
   });
-}
-
-function buildTileBackendModelEvidence(
-  domainEvidence?: Readonly<Record<string, unknown>>
-): TileBackendCostModelResult | Readonly<{ status: "not-sampled"; reason: string }> {
-  const raw = domainEvidence?.tileBackendModelInput;
-  if (!isTileBackendModelInput(raw)) {
-    return Object.freeze({
-      status: "not-sampled",
-      reason: "tile backend model input was not supplied"
-    });
-  }
-  return modelTileBackendCost(raw);
-}
-
-function isTileBackendModelInput(value: unknown): value is TileBackendCostModelInput {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const input = value as Partial<TileBackendCostModelInput>;
-  return Number.isInteger(input.width) && input.width! > 0 &&
-    Number.isInteger(input.height) && input.height! > 0 &&
-    (input.tileSize === 16 || input.tileSize === 32 || input.tileSize === 64) &&
-    Array.isArray(input.classIds) &&
-    Number.isInteger(input.tileCapacity) && input.tileCapacity! >= 0;
 }
 
 function readSurfaceAbiRuns(
@@ -343,13 +303,6 @@ function readSurfaceAbiRuns(
 ): readonly SurfaceAbiRunEvidence[] | null {
   const value = domainEvidence?.surfaceAbiRuns;
   return Array.isArray(value) ? value as readonly SurfaceAbiRunEvidence[] : null;
-}
-
-function readTileBackendRuns(
-  domainEvidence?: Readonly<Record<string, unknown>>
-): readonly TileBackendVendorRunEvidence[] | null {
-  const value = domainEvidence?.tileBackendRuns;
-  return Array.isArray(value) ? value as readonly TileBackendVendorRunEvidence[] : null;
 }
 
 function summaryTiming(

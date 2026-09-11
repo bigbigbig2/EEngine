@@ -2,6 +2,10 @@ import {
   textureBindingSetPolicy,
   type TextureBindingSetPolicyRecord
 } from "./TextureBindingSetPolicy.js";
+import {
+  gpuShadingBindingBudget,
+  type GpuShadingBindingBudgetRecord
+} from "./GpuShadingBindingBudget.js";
 
 export interface WebGpuApiProbes {
   readonly immediateData: boolean;
@@ -26,6 +30,7 @@ export interface WebGpuCapabilityRecord {
   readonly wgslLanguageFeatures: readonly string[];
   readonly apiProbes: WebGpuApiProbes;
   readonly textureBindingPolicy: TextureBindingSetPolicyRecord;
+  readonly shadingBindingBudget: GpuShadingBindingBudgetRecord;
   readonly specialization: WebGpuSpecializationRecord;
   readonly fingerprint: string;
 }
@@ -44,6 +49,8 @@ export function captureWebGpuCapabilityRecord(
     maxSampledTexturesPerShaderStage: Number(device.limits.maxSampledTexturesPerShaderStage),
     maxSamplersPerShaderStage: Number(device.limits.maxSamplersPerShaderStage),
     maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage),
+    maxStorageTexturesPerShaderStage: Number(device.limits.maxStorageTexturesPerShaderStage),
+    maxUniformBuffersPerShaderStage: Number(device.limits.maxUniformBuffersPerShaderStage),
     maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize),
     maxBufferSize: Number(device.limits.maxBufferSize),
     maxTextureArrayLayers: Number(device.limits.maxTextureArrayLayers),
@@ -62,6 +69,7 @@ export function captureWebGpuCapabilityRecord(
       "TRANSIENT_ATTACHMENT" in GPUTextureUsage
   });
   const textureBindingPolicy = textureBindingSetPolicy(device.limits);
+  const shadingBindingBudget = gpuShadingBindingBudget(device.limits);
   const has = (feature: string): boolean => deviceFeatures.includes(feature);
   const textureCompression = has("texture-compression-bc") ? "bc"
     : has("texture-compression-astc") ? "astc"
@@ -82,6 +90,7 @@ export function captureWebGpuCapabilityRecord(
     wgslLanguageFeatures,
     apiProbes,
     textureBindingPolicy,
+    shadingBindingBudget,
     specialization
   });
   return Object.freeze({
@@ -93,6 +102,7 @@ export function captureWebGpuCapabilityRecord(
     wgslLanguageFeatures,
     apiProbes,
     textureBindingPolicy,
+    shadingBindingBudget,
     specialization,
     fingerprint
   });

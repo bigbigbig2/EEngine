@@ -29,6 +29,7 @@ export class TonemapPass {
   private canvasFormat: GPUTextureFormat;
   private sdrPipeline: CachedRenderPipelineDescriptor | null = null;
   private hdrPipeline: CachedRenderPipelineDescriptor | null = null;
+  private readonly validFrameControl: GPUBuffer;
 
   exposureCompensation = TONEMAP_UNADAPTED_DEFAULT_COMPENSATION;
 
@@ -44,8 +45,14 @@ export class TonemapPass {
   lastUsedHdr = false;
   lastPeakNits = 0;
 
-  constructor(_device: GPUDevice, canvasFormat: GPUTextureFormat) {
+  constructor(private readonly device: GPUDevice, canvasFormat: GPUTextureFormat) {
     this.canvasFormat = canvasFormat;
+    this.validFrameControl = device.createBuffer({
+      label: "Tonemap/valid frame-control fallback",
+      size: 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    device.queue.writeBuffer(this.validFrameControl, 0, new Uint32Array(8));
   }
 
   get exposureValue(): number {
@@ -88,6 +95,8 @@ export class TonemapPass {
       swapchain: ResourceId;
       hdr: ResourceId;
       exposure?: ResourceId;
+      /** GPU-authored correctness signal; invalid frames present diagnostic magenta. */
+      diagnosticControl?: ResourceId;
     }
   ): void {
     const self = this;
@@ -102,26 +111,34 @@ export class TonemapPass {
         },
         resourceIds.exposure === undefined
           ? undefined
-          : resolveBuffer(res.get(resourceIds.exposure), "exposure")
+          : resolveBuffer(res.get(resourceIds.exposure), "exposure"),
+        resourceIds.diagnosticControl === undefined
+          ? undefined
+          : resolveBuffer(res.get(resourceIds.diagnosticControl), "diagnostic control")
       );
     });
     builder.read(resourceIds.hdr);
     if (resourceIds.exposure !== undefined) builder.read(resourceIds.exposure);
+    if (resourceIds.diagnosticControl !== undefined) {
+      builder.read(resourceIds.diagnosticControl);
+    }
     builder.write(resourceIds.swapchain);
   }
 
   execute(
     command: ShadeGPUCommandContext,
     views: { swapchain: GPUTextureView; hdr: GPUTextureView },
-    externalExposure?: GPUBuffer
+    externalExposure?: GPUBuffer,
+    diagnosticControl?: GPUBuffer
   ): void {
-    this.executeCommand(command, views, externalExposure);
+    this.executeCommand(command, views, externalExposure, diagnosticControl);
   }
 
   private executeCommand(
     command: ShadeGPUCommandContext,
     views: { swapchain: GPUTextureView; hdr: GPUTextureView },
-    externalExposure?: GPUBuffer
+    externalExposure?: GPUBuffer,
+    diagnosticControl?: GPUBuffer
   ): void {
     if (!this.sdrPipeline || !this.hdrPipeline) {
       throw new Error("TonemapPass not init");
@@ -152,6 +169,7 @@ export class TonemapPass {
       bindings.push({ buffer: settingsBuffer });
     }
     bindings.push({ buffer: exposureBuffer });
+    bindings.push({ buffer: diagnosticControl ?? this.validFrameControl });
 
     const pass = command.constructRenderPass({
       label,
@@ -174,6 +192,7 @@ export class TonemapPass {
   destroy(): void {
     this.sdrPipeline = null;
     this.hdrPipeline = null;
+    this.validFrameControl.destroy();
   }
 }
 
@@ -213,6 +232,11 @@ function createSdrGroupLayout(): GPUBindGroupLayoutDescriptor {
         binding: 1,
         visibility: GPUShaderStage.FRAGMENT,
         buffer: { type: "uniform" }
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "storage" }
       }
     ]
   };
@@ -236,6 +260,11 @@ function createHdrGroupLayout(): GPUBindGroupLayoutDescriptor {
         binding: 2,
         visibility: GPUShaderStage.FRAGMENT,
         buffer: { type: "uniform" }
+      },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.FRAGMENT,
+        buffer: { type: "storage" }
       }
     ]
   };

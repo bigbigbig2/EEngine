@@ -85,6 +85,7 @@ WGSL language features
 immediate-data API + maxImmediateSize
 transient-attachment API
 selected shader/format/compression specializations
+TextureBindingSet policy 与 ADR-0009 四组 ShadeLighting binding budget/consolidation contract
 ```
 
 FrameGraph/pipeline cache key记录影响布局、Shader 或资源格式的 specialization。综合 benchmark 保存完整 capability fingerprint；不为 Portable 与 WebGPU 2026 Desktop 各复制一套正式基准。fallback 改动只补命中的正确性/parity 验证。
