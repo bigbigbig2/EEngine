@@ -18,7 +18,7 @@ export interface RenderFeatureSettings {
 
 export interface GtaoSettings {
   readonly radiusMeters: number;
-  readonly falloffMeters: number;
+  readonly thicknessMeters: number;
   readonly intensity: number;
   readonly resolutionScale: 0.5 | 1;
   readonly temporalEnabled: boolean;
@@ -110,7 +110,7 @@ export interface RenderSettingsChange {
   readonly topologyChanged: boolean;
   readonly resourcesChanged: boolean;
   readonly resolutionChanged: boolean;
-  readonly historiesInvalidated: readonly ("color" | "ssao" | "ssr")[];
+  readonly historiesInvalidated: readonly ("color" | "gtao" | "ssr")[];
   readonly revision: number;
 }
 
@@ -118,7 +118,7 @@ export interface RenderFeatureContract {
   readonly owner: string;
   readonly inputDomain: "internal-full" | "output-full";
   readonly outputDomain: "internal-full" | "output-full";
-  readonly history: "none" | "color" | "ssao" | "ssr";
+  readonly history: "none" | "color" | "gtao" | "ssr";
   readonly topologyKeys: readonly string[];
   readonly prunedWhenDisabled: boolean;
 }
@@ -128,7 +128,7 @@ export const RENDER_FEATURE_CONTRACTS = Object.freeze({
     owner: "AOService",
     inputDomain: "internal-full",
     outputDomain: "internal-full",
-    history: "ssao",
+    history: "gtao",
     topologyKeys: Object.freeze(["features.ambientOcclusion", "ao.resolutionScale", "ao.temporalEnabled"]),
     prunedWhenDisabled: true
   }),
@@ -169,12 +169,12 @@ const DEFAULTS: RenderSettingsValues = {
   },
   ao: {
     radiusMeters: 1,
-    falloffMeters: 0.615,
+    thicknessMeters: 1,
     intensity: 1,
     resolutionScale: 0.5,
     temporalEnabled: true,
-    sliceCount: 2,
-    stepCount: 4,
+    sliceCount: 3,
+    stepCount: 6,
     spatialStep: 1,
     temporalBlend: 0.95
   },
@@ -221,15 +221,15 @@ const DEFAULTS: RenderSettingsValues = {
 
 const QUALITY_PATCHES: Readonly<Record<QualityProfile, RenderSettingsPatch>> = Object.freeze({
   medium: Object.freeze({
-    ao: Object.freeze({ resolutionScale: 0.5, sliceCount: 1, stepCount: 3, spatialStep: 1 }),
+    ao: Object.freeze({ resolutionScale: 0.5, sliceCount: 3, stepCount: 4, spatialStep: 1 }),
     ssr: Object.freeze({ resolutionScale: 0.5, maxSteps: 64 })
   }),
   high: Object.freeze({
-    ao: Object.freeze({ resolutionScale: 0.5, sliceCount: 2, stepCount: 4, spatialStep: 1 }),
+    ao: Object.freeze({ resolutionScale: 0.5, sliceCount: 3, stepCount: 6, spatialStep: 1 }),
     ssr: Object.freeze({ resolutionScale: 0.5, maxSteps: 96 })
   }),
   ultra: Object.freeze({
-    ao: Object.freeze({ resolutionScale: 1, sliceCount: 3, stepCount: 6, spatialStep: 1 }),
+    ao: Object.freeze({ resolutionScale: 1, sliceCount: 5, stepCount: 6, spatialStep: 1 }),
     ssr: Object.freeze({ resolutionScale: 1, maxSteps: 128 })
   })
 });
@@ -270,14 +270,14 @@ export class RenderSettings {
       previous.ssr.temporalEnabled !== next.ssr.temporalEnabled;
     const resolutionChanged = previous.resolution.internalScale !== next.resolution.internalScale;
     const resourcesChanged = topologyChanged || resolutionChanged;
-    const histories = new Set<"color" | "ssao" | "ssr">();
+    const histories = new Set<"color" | "gtao" | "ssr">();
     if (resolutionChanged ||
         previous.features.temporalAntiAliasing !== next.features.temporalAntiAliasing ||
         !sameRecord(previous.temporal, next.temporal)) histories.add("color");
     if (resolutionChanged ||
         previous.features.ambientOcclusion !== next.features.ambientOcclusion ||
         !sameRecord(previous.ao, next.ao) ||
-        previous.physicalScale.metersPerWorldUnit !== next.physicalScale.metersPerWorldUnit) histories.add("ssao");
+        previous.physicalScale.metersPerWorldUnit !== next.physicalScale.metersPerWorldUnit) histories.add("gtao");
     if (resolutionChanged ||
         previous.features.screenSpaceReflections !== next.features.screenSpaceReflections ||
         !sameRecord(previous.ssr, next.ssr) ||
@@ -331,12 +331,14 @@ function combinePatches(a: RenderSettingsPatch, b: RenderSettingsPatch): RenderS
 function validate(value: RenderSettingsValues): void {
   assertFinitePositive(value.physicalScale.metersPerWorldUnit, "metersPerWorldUnit");
   assertFinitePositive(value.ao.radiusMeters, "ao.radiusMeters");
-  assertFinitePositive(value.ao.falloffMeters, "ao.falloffMeters");
+  assertFinitePositive(value.ao.thicknessMeters, "ao.thicknessMeters");
   if (value.ao.resolutionScale !== 0.5 && value.ao.resolutionScale !== 1) {
     throw new RangeError("ao.resolutionScale must be 0.5 or 1");
   }
   assertRange(value.ao.intensity, 0, 4, "ao.intensity");
-  assertIntegerRange(value.ao.sliceCount, 1, 4, "ao.sliceCount");
+  if (value.ao.sliceCount !== 3 && value.ao.sliceCount !== 5) {
+    throw new RangeError("ao.sliceCount must be 3 or 5 to preserve the Three.js GTAO direction distribution");
+  }
   assertIntegerRange(value.ao.stepCount, 1, 8, "ao.stepCount");
   assertIntegerRange(value.ao.spatialStep, 1, 4, "ao.spatialStep");
   assertRange(value.ao.temporalBlend, 0, 0.99, "ao.temporalBlend");

@@ -251,10 +251,23 @@ export interface TemporalRuntimeEvidence {
 
 export interface AmbientOcclusionRuntimeEvidence {
   readonly enabled: boolean;
+  readonly algorithm: "three-gtao-r186-oengine-wgsl" | "disabled";
+  readonly upstreamRevision: string | null;
   readonly temporalEnabled: boolean;
   readonly resolutionScale: 0.5 | 1;
   readonly radiusMeters: number;
   readonly radiusWorldUnits: number;
+  readonly thicknessMeters: number;
+  readonly thicknessWorldUnits: number;
+  readonly sliceCount: number;
+  readonly stepCount: number;
+  readonly traceDepthSamplesPerPixel: number;
+  readonly momentsFormat: GPUTextureFormat | null;
+  readonly finalVisibilityFormat: GPUTextureFormat | null;
+  readonly bentNormalFormat: GPUTextureFormat | null;
+  readonly momentsBytesPerPixel: number;
+  readonly finalVisibilityBytesPerPixel: number;
+  readonly bentNormalBytesPerPixel: number;
   readonly metersPerWorldUnit: number;
   readonly internalPixels: number;
   readonly aoPixels: number;
@@ -891,6 +904,8 @@ export class MainRenderPipeline {
     const aoHeight = Math.max(1, Math.ceil(this._render_resolution.y * aoSettings.resolutionScale));
     return Object.freeze({
       enabled: aoEnabled,
+      algorithm: aoEnabled ? (pass?.algorithm ?? "three-gtao-r186-oengine-wgsl") : "disabled",
+      upstreamRevision: aoEnabled ? (pass?.upstreamRevision ?? null) : null,
       temporalEnabled: aoEnabled && aoSettings.temporalEnabled,
       resolutionScale: aoSettings.resolutionScale,
       radiusMeters: aoSettings.radiusMeters,
@@ -898,6 +913,20 @@ export class MainRenderPipeline {
         aoSettings.radiusMeters,
         this._renderSettings.values.physicalScale
       ),
+      thicknessMeters: aoSettings.thicknessMeters,
+      thicknessWorldUnits: metersToWorldUnits(
+        aoSettings.thicknessMeters,
+        this._renderSettings.values.physicalScale
+      ),
+      sliceCount: aoSettings.sliceCount,
+      stepCount: aoSettings.stepCount,
+      traceDepthSamplesPerPixel: aoEnabled ? aoSettings.sliceCount * aoSettings.stepCount * 2 : 0,
+      momentsFormat: aoEnabled ? (pass?.momentsFormat ?? null) : null,
+      finalVisibilityFormat: aoEnabled ? (pass?.finalVisibilityFormat ?? null) : null,
+      bentNormalFormat: aoEnabled ? (pass?.bentNormalFormat ?? null) : null,
+      momentsBytesPerPixel: aoEnabled ? (pass?.momentsBytesPerPixel ?? 0) : 0,
+      finalVisibilityBytesPerPixel: aoEnabled ? (pass?.finalVisibilityBytesPerPixel ?? 0) : 0,
+      bentNormalBytesPerPixel: aoEnabled ? (pass?.bentNormalBytesPerPixel ?? 0) : 0,
       metersPerWorldUnit: this._renderSettings.values.physicalScale.metersPerWorldUnit,
       internalPixels,
       aoPixels: aoEnabled ? aoWidth * aoHeight : 0,
@@ -2028,16 +2057,16 @@ export class MainRenderPipeline {
 
         let bentNormalRes = gNormalRes;
         let ambientVisibilityRes: ResourceId | null = null;
-        let ssaoRawDebugRes: ResourceId | null = null;
-        let ssaoDenoisedDebugRes: ResourceId | null = null;
-        let ssaoTemporalDebugRes: ResourceId | null = null;
+        let gtaoRawDebugRes: ResourceId | null = null;
+        let gtaoDenoisedDebugRes: ResourceId | null = null;
+        let gtaoTemporalDebugRes: ResourceId | null = null;
         let ssrHitMissDebugRes: ResourceId | null = null;
         let ssrResolveDebugRes: ResourceId | null = null;
         let ssrTemporalDebugRes: ResourceId | null = null;
         let ssrHistoryConfidenceDebugRes: ResourceId | null = null;
         let indirectDiffuseDebugRes: ResourceId | null = null;
         let indirectSpecularDebugRes: ResourceId | null = null;
-        let ssaoReady = !graphTopology.gtao;
+        let gtaoReady = !graphTopology.gtao;
         if (
           graphTopology.gtao &&
           gNormalRes !== null &&
@@ -2045,9 +2074,9 @@ export class MainRenderPipeline {
           (!graphTopology.screenSpaceDiffuseTemporal ||
             (velocityRes !== null && occlusionConfidenceRes !== null))
         ) {
-          const ssao = this._aoService!.addToGraph(
+          const gtao = this._aoService!.addToGraph(
             graph,
-            bind("ssao-job", (bindings) => ({
+            bind("gtao-job", (bindings) => ({
               samplers: this._graphics.samplers,
               frameIndex: bindings.frameIndex,
               historyValid: bindings.gtaoHistoryValidity >= 0.5,
@@ -2060,8 +2089,8 @@ export class MainRenderPipeline {
                 this._renderSettings.values.ao.radiusMeters,
                 this._renderSettings.values.physicalScale
               ),
-              falloffWorldUnits: metersToWorldUnits(
-                this._renderSettings.values.ao.falloffMeters,
+              thicknessWorldUnits: metersToWorldUnits(
+                this._renderSettings.values.ao.thicknessMeters,
                 this._renderSettings.values.physicalScale
               ),
               sliceCount: this._renderSettings.values.ao.sliceCount,
@@ -2081,20 +2110,20 @@ export class MainRenderPipeline {
             },
             graphTopology.screenSpaceDiffuseTemporal
               ? {
-                  input: bind("ssao-history-input", (bindings) =>
+                  input: bind("gtao-history-input", (bindings) =>
                     this._aoService!.historyTexture(bindings.gtaoHistoryInputIndex)),
-                  output: bind("ssao-history-output", (bindings) =>
+                  output: bind("gtao-history-output", (bindings) =>
                     this._aoService!.historyTexture(bindings.gtaoHistoryOutputIndex))
                 }
               : undefined
           );
-          ambientVisibilityRes = ssao.frame.visibility;
-          bentNormalRes = ssao.frame.bentNormal;
-          ssaoRawDebugRes = ssao.rawVisibility;
-          ssaoDenoisedDebugRes = ssao.denoisedVisibility;
-          ssaoTemporalDebugRes = ssao.temporalVisibility;
-          if (ssao.counters !== null) gpuCounterRes = ssao.counters;
-          ssaoReady = true;
+          ambientVisibilityRes = gtao.frame.visibility;
+          bentNormalRes = gtao.frame.bentNormal;
+          gtaoRawDebugRes = gtao.rawVisibility;
+          gtaoDenoisedDebugRes = gtao.denoisedVisibility;
+          gtaoTemporalDebugRes = gtao.temporalVisibility;
+          if (gtao.counters !== null) gpuCounterRes = gtao.counters;
+          gtaoReady = true;
         }
 
         if (hdrRes !== null && environmentRes !== null) {
@@ -2109,7 +2138,7 @@ export class MainRenderPipeline {
 
         if (
           this.indirect_lighting_mode === ShadeIndirectLightingMode.IBL &&
-          ssaoReady &&
+          gtaoReady &&
           hdrRes !== null &&
           environmentRes !== null &&
           diffuseIrradianceRes !== null &&
@@ -2245,7 +2274,7 @@ export class MainRenderPipeline {
 
         if (
           this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4 &&
-          ssaoReady &&
+          gtaoReady &&
           hdrRes !== null &&
           gPbrRes !== null &&
           gNormalRes !== null &&
@@ -2385,7 +2414,7 @@ export class MainRenderPipeline {
 
         if (
           this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV &&
-          ssaoReady &&
+          gtaoReady &&
           hdrRes !== null &&
           environmentRes !== null &&
           gPbrRes !== null &&
@@ -2934,9 +2963,9 @@ export class MainRenderPipeline {
               indirectDiffuse: indirectDiffuseDebugRes,
               indirectSpecular: indirectSpecularDebugRes,
               linearHdr: linearHdrDebugRes,
-              ambientOcclusionRaw: ssaoRawDebugRes,
-              ambientOcclusionDenoised: ssaoDenoisedDebugRes,
-              ambientOcclusionTemporal: ssaoTemporalDebugRes,
+              ambientOcclusionRaw: gtaoRawDebugRes,
+              ambientOcclusionDenoised: gtaoDenoisedDebugRes,
+              ambientOcclusionTemporal: gtaoTemporalDebugRes,
               screenSpaceReflectionHitMiss: ssrHitMissDebugRes,
               screenSpaceReflectionResolve: ssrResolveDebugRes,
               screenSpaceReflectionTemporal: ssrTemporalDebugRes,
@@ -3618,6 +3647,10 @@ export class MainRenderPipeline {
     profiler.recordCounter("ao.bentNormalUpsamplePasses", ao.bentNormalUpsamplePasses);
     profiler.recordCounter("ao.internalPixels", ao.internalPixels);
     profiler.recordCounter("ao.pixels", ao.aoPixels);
+    profiler.recordCounter("ao.traceDepthSamplesPerPixel", ao.traceDepthSamplesPerPixel);
+    profiler.recordCounter("ao.momentsBytesPerPixel", ao.momentsBytesPerPixel);
+    profiler.recordCounter("ao.finalVisibilityBytesPerPixel", ao.finalVisibilityBytesPerPixel);
+    profiler.recordCounter("ao.bentNormalBytesPerPixel", ao.bentNormalBytesPerPixel);
     profiler.recordCounter("ao.historyBytes", ao.historyBytes);
     profiler.recordCounter("ao.historyValid", ao.historyValid ? 1 : 0);
     profiler.recordCounter("ao.historyRevision", ao.historyRevision);

@@ -83,16 +83,17 @@
 
 ## SHADE-AO · GTAO ambient occlusion
 
-- Local owner/source: `AOService`、AO passes and OEngine-authored `ssao.ts` WGSL。
-- Upstream: Intel GameTechDev XeGTAO <https://github.com/GameTechDev/XeGTAO>；Jimenez et al. GTAO paper。
-- Revision: XeGTAO `0d177ce06bfa642f64d8af4de1197ad1bcb862d4`。
-- Upstream source: `Source/Rendering/Shaders/XeGTAO.hlsli`、`Source/Rendering/Shaders/XeGTAO.h`。
-- License: SPDX-License-Identifier: MIT；paper is mathematical reference only。
-- Adoption: 保留并修复当前实现；algorithm-invariant reference，未直接复制外部 HLSL/WGSL。
-- Retained invariants: depth position reconstruction、horizon slices/steps、view-depth screen radius、low-discrepancy sampling、bent normal and edge-aware filter。
-- OEngine/WebGPU differences: full/half raw path resolves to full `AmbientOcclusionFrame` and shares temporal invalidation；不采用 D3D owner、UAV layout、FP16 macros or autotune chain。
-- Fallback/lifecycle: invalid history weight is zero；feature-off prunes raw/spatial/temporal resources and histories。
-- Local validation: `r5-fx07-ambient-occlusion.test.mjs`、half/full、temporal off/on and debug views。
+- Local owner/source: `AOService`、`GtaoPass.ts`、`gtao.ts` and `AmbientOcclusionFrame`；旧 `ScreenSpaceAmbientOcclusionPass.ts`/`ssao.ts` owner 已删除。
+- Upstream: three.js <https://github.com/mrdoob/three.js>；Activision/Jimenez et al. GTAO equation is reached through the pinned implementation's own reference trail。
+- Revision: three.js `148ef33ecb6d2502ff796d4554abd1549c95d519`（r186）。此前 XeGTAO `0d177ce06bfa642f64d8af4de1197ad1bcb862d4` reference 状态已由本 production replacement 取代，不再拥有 runtime path。
+- Upstream source: `examples/jsm/tsl/display/GTAONode.js` and `examples/webgpu_postprocessing_ao.html` at the pinned revision。
+- License: three.js MIT；本地文件保留来源/revision，本记录承担移植追溯。
+- Adoption: `traceable-local-port`。horizon/slice integration、3/5 direction selection、quadratic ray stepping、5×5 magic-square spatial rotation、六帧 temporal rotation、四帧 spatial offset、view-space thickness、squared distance falloff 与 Activision Eq. 7 由上游表达翻译为 OEngine WGSL；不是 three.js runtime dependency。
+- Retained invariants: reverse-projected position、双向 horizon search、projected-normal weighting、world-space radius、view-space thickness gate、stochastic direction/step distribution and scalar ambient visibility。
+- OEngine/WebGPU differences: 不移植 TSL、NodeMaterial、QuadMesh、three.js `RenderTarget`、`builtinAOContext` 或额外 `TRAANode` owner。Raw trace 读取 OEngine reverse-Z Depth、shared HZB 与 compact world normal；同一 horizon producer 扩展 world-space bent normal。AO/second moment/oct bent-normal 打包进 half-resolution `rgba16float`，空间与时域阶段共同滤波三者，最终唯一 joint depth/normal resolve 拆成 full-resolution `r8unorm` visibility + `rg16uint` bent normal，供 OEngine indirect diffuse/specular-occlusion consumer 使用。
+- Cost/quality policy: high 默认 3 directions × 6 bidirectional steps（36 depth samples/GTAO pixel）at half resolution；medium 为 3×4，ultra 为 full-resolution 5×6。此档位只改变同一 producer 的预算，不形成第二条 AO 管线。无独立 noise texture、旧 bent-normal pass、额外 full-frame TRAA 或额外 submit。
+- Fallback/lifecycle: velocity、motion/reactive/disocclusion 与 history generation 控制 temporal weight；invalid/reprojected-outside history 回退当前帧。`mode=off`/feature-off 退役 `GtaoPass` 两张 history，裁剪 linear-depth/raw/spatial/temporal/evidence/joint-resolve pass、全部 GTAO transient 和 counter dispatch。
+- Local validation: `advanced-frame-abi.test.mjs` 固定上游分布/厚度/衰减/Eq.7 和 packed temporal ABI；真实 Chrome `surface.gtao-replacement` 检查 production graph、单 trace、history footprint、one-submit、feature-off、薄几何/边缘观察 artifact 与 GPU diagnostics；Rendering Lab 综合 profile 检查稳定帧 history accepted/rejected counter 和 GPU phase。
 
 ## SHADE-SSR · Screen-space reflections
 

@@ -80,7 +80,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -92,7 +92,139 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "lpv-baseline-pruning") {
+    if (request.scenarioId === "gtao-replacement") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Surface runtime is not initialized");
+      renderer.configure({
+        features: { ambientOcclusion: true },
+        ao: {
+          radiusMeters: 1,
+          thicknessMeters: 1,
+          resolutionScale: 0.5,
+          temporalEnabled: true,
+          sliceCount: 3,
+          stepCount: 6,
+          spatialStep: 1,
+          temporalBlend: 0.95
+        }
+      });
+      await runtime.waitForFrames(4);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      for (let attempt = 0; attempt < 8 &&
+        (profile.gpuCounters.values.aoHistoryAcceptedPixels ?? 0) === 0; attempt++) {
+        profile = await runtime.waitForCounters(profile.frameIndex);
+      }
+      const onAo = renderer.ambientOcclusionEvidence();
+      const onGraph = renderer.mainFrameGraphEvidence();
+      if (onGraph === null) throw new Error("GTAO-on frame did not publish FrameGraph evidence");
+      const onPasses = onGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
+      const onResources = onGraph.dump.resources.map((entry) => entry.name);
+      const gtaoPasses = onPasses.filter((name) => /GTAO/i.test(name));
+      const gtaoResources = onResources.filter((name) => /GTAO|ao_history|ao_output/i.test(name));
+      const onCounters = {
+        evaluated: profile.gpuCounters.values.aoEvaluatedPixels ?? 0,
+        historyAccepted: profile.gpuCounters.values.aoHistoryAcceptedPixels ?? 0,
+        historyRejected: profile.gpuCounters.values.aoHistoryRejectedPixels ?? 0
+      };
+
+      renderer.configure({ features: { ambientOcclusion: false } });
+      await runtime.waitForFrames(3);
+      const offProfile = await runtime.waitForCounters(profile.frameIndex);
+      const offAo = renderer.ambientOcclusionEvidence();
+      const offGraph = renderer.mainFrameGraphEvidence();
+      if (offGraph === null) throw new Error("GTAO-off frame did not publish FrameGraph evidence");
+      const offPasses = offGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
+      const offResources = offGraph.dump.resources.map((entry) => entry.name);
+      const offGtaoPasses = offPasses.filter((name) => /GTAO/i.test(name));
+      const offGtaoResources = offResources.filter((name) => /GTAO|ao_history|ao_output/i.test(name));
+
+      Object.assign(evidence, {
+        gtaoReplacement: {
+          on: {
+            runtime: onAo,
+            passes: gtaoPasses,
+            resources: gtaoResources,
+            counters: onCounters,
+            submits: profile.submits
+          },
+          off: {
+            runtime: offAo,
+            passes: offGtaoPasses,
+            resources: offGtaoResources,
+            counters: {
+              evaluated: offProfile.gpuCounters.values.aoEvaluatedPixels ?? 0,
+              historyAccepted: offProfile.gpuCounters.values.aoHistoryAcceptedPixels ?? 0,
+              historyRejected: offProfile.gpuCounters.values.aoHistoryRejectedPixels ?? 0
+            }
+          }
+        }
+      });
+      assertions.push(validationAssertion(
+        "three-gtao-pinned-production-path",
+        onAo.algorithm === "three-gtao-r186-oengine-wgsl" &&
+          onAo.upstreamRevision === "148ef33ecb6d2502ff796d4554abd1549c95d519" &&
+          onAo.sliceCount === 3 && onAo.stepCount === 6 &&
+          onAo.traceDepthSamplesPerPixel === 36,
+        "The ordinary opaque-lighting path runs the pinned Three.js r186-derived GTAO trace contract",
+        onAo,
+        "pinned revision, 3 directions, 6 steps and 36 bidirectional depth samples/pixel"
+      ));
+      assertions.push(validationAssertion(
+        "gtao-packed-temporal-abi",
+        onAo.momentsFormat === "rgba16float" &&
+          onAo.finalVisibilityFormat === "r8unorm" &&
+          onAo.bentNormalFormat === "rg16uint" &&
+          onAo.momentsBytesPerPixel === 8 &&
+          onAo.finalVisibilityBytesPerPixel === 1 &&
+          onAo.bentNormalBytesPerPixel === 4 &&
+          onAo.historyTextureCount === 2 &&
+          onAo.historyBytes === onAo.aoPixels * 8 * 2,
+        "AO moments and bent normal share one temporally filtered half-resolution history before the final compact split",
+        onAo,
+        "rgba16float history x2, r8unorm visibility and rg16uint bent normal"
+      ));
+      assertions.push(validationAssertion(
+        "gtao-single-trace-temporal-consumer",
+        gtaoPasses.filter((name) => name === "Three GTAO r186 horizon trace").length === 1 &&
+          gtaoPasses.filter((name) => name === "GTAO spatial moments filter").length === 1 &&
+          gtaoPasses.filter((name) => name === "GTAO temporal moments resolve").length === 1 &&
+          gtaoPasses.filter((name) => name === "GTAO joint bilateral AO+bent-normal resolve").length === 1 &&
+          !onPasses.some((name) => /SSAO/i.test(name)) &&
+          onAo.rawPasses === 1 && onAo.spatialPasses === 1 &&
+          onAo.temporalPasses === 1 && onAo.compositePasses === 1,
+        "One GTAO trace feeds the shared AO+bent spatial/temporal chain and the opaque-lighting consumer",
+        { gtaoPasses, runtime: onAo },
+        "one pass per phase and no legacy SSAO pass"
+      ));
+      assertions.push(validationAssertion(
+        "gtao-temporal-policy-executed",
+        onAo.historyValid && onCounters.evaluated > 0 &&
+          onCounters.historyAccepted + onCounters.historyRejected === onCounters.evaluated &&
+          profile.submits.count === 1 && profile.submits.labels["Renderer/main-0"] === 1,
+        "The GTAO temporal policy classifies every sampled pixel without adding a second submission",
+        { historyValid: onAo.historyValid, counters: onCounters, submits: profile.submits },
+        "history valid, accepted + rejected = evaluated > 0, one main submit"
+      ));
+      assertions.push(validationAssertion(
+        "gtao-feature-off-zero-cost",
+        !offAo.enabled && offAo.algorithm === "disabled" &&
+          offAo.rawPasses === 0 && offAo.spatialPasses === 0 &&
+          offAo.temporalPasses === 0 && offAo.compositePasses === 0 &&
+          offAo.historyTextureCount === 0 && offAo.historyBytes === 0 &&
+          offGtaoPasses.length === 0 && offGtaoResources.length === 0 &&
+          (offProfile.gpuCounters.values.aoEvaluatedPixels ?? 0) === 0 &&
+          (offProfile.gpuCounters.values.aoHistoryAcceptedPixels ?? 0) === 0 &&
+          (offProfile.gpuCounters.values.aoHistoryRejectedPixels ?? 0) === 0,
+        "Disabling GTAO removes its owner, history, graph passes, transient resources and sampled evidence dispatch",
+        { runtime: offAo, passes: offGtaoPasses, resources: offGtaoResources },
+        "all GTAO work and persistent history absent"
+      ));
+
+      await runtime.replaceScene(await createGtaoValidationSource());
+      renderer.configure({ features: { ambientOcclusion: true } });
+      await runtime.waitForFrames(4);
+      profile = await runtime.waitForCounters(offProfile.frameIndex);
+    } else if (request.scenarioId === "lpv-baseline-pruning") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
       renderer.indirect_lighting_mode = ShadeIndirectLightingMode.LPV;
@@ -787,6 +919,19 @@ async function createCookedMaterialTextures(): Promise<Readonly<{
     emissive: textures[3],
     alphaMask: textures[4]
   });
+}
+
+async function createGtaoValidationSource(): Promise<PackedSceneSource> {
+  const floor = solidMaterial([0.58, 0.6, 0.63, 1], 0.82, 0);
+  const wall = solidMaterial([0.68, 0.28, 0.18, 1], 0.72, 0);
+  const thinOccluder = solidMaterial([0.15, 0.46, 0.72, 1], 0.34, 0.1);
+  const contact = solidMaterial([0.74, 0.7, 0.18, 1], 0.62, 0);
+  return createPackedBoxScene([
+    { size: [13, 0.2, 8], position: [0, -0.1, 0], materialIndex: 0, debugId: 101 },
+    { size: [0.2, 6, 8], position: [-6, 3, 0], materialIndex: 1, debugId: 102 },
+    { size: [0.08, 3.8, 4.4], position: [-0.7, 1.9, 0], materialIndex: 2, debugId: 103 },
+    { size: [2.2, 2.2, 2.2], position: [2.1, 1.1, 0], materialIndex: 3, debugId: 104 }
+  ], [floor, wall, thinOccluder, contact]);
 }
 
 function failedScenario(request: ValidationScenarioRequest, error: unknown, startedFrame = runtime.frame): ValidationScenarioResult {

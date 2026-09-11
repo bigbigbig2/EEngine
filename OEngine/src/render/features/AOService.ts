@@ -13,14 +13,14 @@ import {
   type GpuShadingSurfaceLiteProfile
 } from "../../gpu/GpuComputeMaterialAbi.js";
 import {
-  ScreenSpaceAmbientOcclusionPass,
-  type ScreenSpaceAmbientOcclusionInputs,
-  type ScreenSpaceAmbientOcclusionJob,
-  type ScreenSpaceAmbientOcclusionOutput
-} from "../passes/ScreenSpaceAmbientOcclusionPass.js";
+  GtaoPass,
+  type GtaoInputs,
+  type GtaoJob,
+  type GtaoOutput
+} from "../passes/GtaoPass.js";
 
 export class AOService {
-  readonly implementation: ScreenSpaceAmbientOcclusionPass;
+  readonly implementation: GtaoPass;
 
   constructor(
     graphics: GraphicsContext,
@@ -28,7 +28,7 @@ export class AOService {
     resolutionScale: 0.5 | 1,
     surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
-    this.implementation = new ScreenSpaceAmbientOcclusionPass(
+    this.implementation = new GtaoPass(
       graphics,
       temporalEnabled,
       resolutionScale,
@@ -37,6 +37,14 @@ export class AOService {
   }
 
   get temporalEnabled(): boolean { return this.implementation.temporalEnabled; }
+  get algorithm(): "three-gtao-r186-oengine-wgsl" { return this.implementation.algorithm; }
+  get upstreamRevision(): string { return this.implementation.upstreamRevision; }
+  get momentsFormat(): GPUTextureFormat { return this.implementation.momentsFormat; }
+  get finalVisibilityFormat(): GPUTextureFormat { return this.implementation.finalVisibilityFormat; }
+  get bentNormalFormat(): GPUTextureFormat { return this.implementation.bentNormalFormat; }
+  get momentsBytesPerPixel(): number { return this.implementation.momentsBytesPerPixel; }
+  get finalVisibilityBytesPerPixel(): number { return this.implementation.finalVisibilityBytesPerPixel; }
+  get bentNormalBytesPerPixel(): number { return this.implementation.bentNormalBytesPerPixel; }
   get resolutionScale(): 0.5 | 1 { return this.implementation.resolutionScale; }
   get lastRan(): boolean { return this.implementation.lastRan; }
   get lastRawPasses(): number { return this.implementation.lastRawPasses; }
@@ -53,10 +61,10 @@ export class AOService {
 
   addToGraph(
     graph: FrameGraph,
-    job: ScreenSpaceAmbientOcclusionJob,
-    inputs: ScreenSpaceAmbientOcclusionInputs,
+    job: GtaoJob,
+    inputs: GtaoInputs,
     historyBindings?: { readonly input: unknown; readonly output: unknown }
-  ): ScreenSpaceAmbientOcclusionOutput {
+  ): GtaoOutput {
     return this.implementation.addToGraph(graph, job, inputs, historyBindings);
   }
 

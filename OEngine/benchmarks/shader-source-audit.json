@@ -12,9 +12,10 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 42,
+  "shaderCount": 44,
   "summary": {
-    "authored-live": 42
+    "authored-live": 43,
+    "dead": 1
   },
   "entries": [
     {
@@ -115,7 +116,7 @@
       "classification": "authored-live",
       "directConsumers": [
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/render/passes/IblDiffusePass.ts"
+        "src/shaders/ibl_baseline.ts"
       ],
       "runtimeConsumers": [
         "src/addons/inspector/index.ts",
@@ -124,14 +125,14 @@
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/render/passes/IblDiffusePass.ts",
+        "src/render/passes/IblBaselinePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/render/passes/IblDiffusePass.ts"
+        "src/render/passes/IblBaselinePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -159,6 +160,7 @@
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
@@ -217,6 +219,7 @@
         "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -225,10 +228,33 @@
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/LightingPass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/RenderDebugViewPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/gtao.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/GtaoPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/AOService.ts",
+        "src/render/passes/GtaoPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/GtaoPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -282,6 +308,7 @@
         "src/render/features/TransparencyFeature.ts",
         "src/render/HierarchicalZBuffer.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
@@ -298,24 +325,24 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
-      "shader": "src/shaders/ibl_specular.ts",
+      "shader": "src/shaders/ibl_baseline.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/render/passes/IblSpecularPass.ts"
+        "src/render/passes/IblBaselinePass.ts"
       ],
       "runtimeConsumers": [
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/GIService.ts",
-        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/IblBaselinePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/pipeline/OpaqueLightingPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
-        "src/render/passes/IblSpecularPass.ts"
+        "src/render/passes/IblBaselinePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -371,11 +398,34 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/lighting_direct_compute.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/LightingPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/LightingFeature.ts",
+        "src/render/passes/LightingPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/LightingPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/lighting_direct.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/render/passes/LightingPass.ts",
+        "src/shaders/lighting_direct_compute.ts",
         "src/shaders/packed_transparent_oit.ts"
       ],
       "runtimeConsumers": [
@@ -410,7 +460,8 @@
         "src/render/passes/PackedCsmShadowPass.ts",
         "src/shaders/brick4_indirect.ts",
         "src/shaders/environment_ibl.ts",
-        "src/shaders/ibl_specular.ts",
+        "src/shaders/gtao.ts",
+        "src/shaders/ibl_baseline.ts",
         "src/shaders/large_triangle_setup.ts",
         "src/shaders/light_cluster.ts",
         "src/shaders/lighting_direct.ts",
@@ -421,7 +472,6 @@
         "src/shaders/packed_csm_shadow.ts",
         "src/shaders/packed_transparent_oit.ts",
         "src/shaders/specular_correction.ts",
-        "src/shaders/ssao.ts",
         "src/shaders/ssr_common.ts"
       ],
       "runtimeConsumers": [
@@ -444,9 +494,10 @@
         "src/render/MeshletWorkCandidate.ts",
         "src/render/PackedCameraUniform.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/render/passes/IblDiffusePass.ts",
-        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/GtaoPass.ts",
+        "src/render/passes/IblBaselinePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
@@ -458,7 +509,6 @@
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
-        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
@@ -473,9 +523,10 @@
         "src/render/MeshletBucketRaster.ts",
         "src/render/MeshletWorkCandidate.ts",
         "src/render/passes/Brick4IndirectPass.ts",
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/render/passes/IblDiffusePass.ts",
-        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/GtaoPass.ts",
+        "src/render/passes/IblBaselinePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
@@ -483,12 +534,34 @@
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
-        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/SpecularCorrectionPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/material_tile_classification.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/MaterialTileClassificationPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/SurfaceFeature.ts",
+        "src/render/passes/MaterialTileClassificationPass.ts",
+        "src/render/passes/PackedMaterialResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/MaterialTileClassificationPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -631,24 +704,24 @@
         "src/render/passes/BloomPass.ts",
         "src/render/passes/Brick4IndirectPass.ts",
         "src/render/passes/ColorGradingPass.ts",
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/render/passes/IblDiffusePass.ts",
-        "src/render/passes/IblSpecularPass.ts",
+        "src/render/passes/GtaoPass.ts",
+        "src/render/passes/IblBaselinePass.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/passes/LightingPass.ts",
         "src/render/passes/LpvIndirectDiffusePass.ts",
+        "src/render/passes/MaterialTileClassificationPass.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
-        "src/render/passes/PackedMaterialClassDepthPass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
-        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
@@ -787,27 +860,24 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
-      "shader": "src/shaders/packed_material_class_depth.ts",
+      "shader": "src/shaders/packed_material_compute.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/render/MaterialClassDepthProbe.ts",
-        "src/render/passes/PackedMaterialClassDepthPass.ts"
+        "src/render/passes/ComputeMaterialResolvePass.ts"
       ],
       "runtimeConsumers": [
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/SurfaceFeature.ts",
-        "src/render/MaterialClassDepthProbe.ts",
-        "src/render/passes/PackedMaterialClassDepthPass.ts",
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
-        "src/render/MaterialClassDepthProbe.ts",
-        "src/render/passes/PackedMaterialClassDepthPass.ts"
+        "src/render/passes/ComputeMaterialResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -818,19 +888,20 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/render/passes/PackedMaterialResolvePass.ts"
+        "src/shaders/packed_material_compute.ts"
       ],
       "runtimeConsumers": [
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/SurfaceFeature.ts",
+        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
-        "src/render/passes/PackedMaterialResolvePass.ts"
+        "src/render/passes/ComputeMaterialResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -862,25 +933,13 @@
     {
       "shader": "src/shaders/packed_triangle_setup_evidence.ts",
       "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/PackedMaterialResolvePass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/SurfaceFeature.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/PackedMaterialResolvePass.ts"
-      ],
+      "classification": "dead",
+      "directConsumers": [],
+      "runtimeConsumers": [],
+      "pipelineOwners": [],
       "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+      "deletionCandidate": true,
+      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
     },
     {
       "shader": "src/shaders/render_debug_view.ts",
@@ -969,29 +1028,6 @@
       ],
       "pipelineOwners": [
         "src/render/passes/SpecularCorrectionPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/ssao.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/AOService.ts",
-        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/ScreenSpaceAmbientOcclusionPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

@@ -38,6 +38,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/shadow/main-view 顺序 |
 | 帧输入 | `src/render/pipeline/FrameContext.ts` | camera/view、分辨率域、feature topology、history validity、scene bindings、instrumentation 与 capture 请求 |
 | 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | Surface、lighting、AO、reflection、temporal 合同 |
+| Screen-space AO | `src/render/features/AOService.ts`、`src/render/passes/GtaoPass.ts` | Three.js r186-derived GTAO、同 trace bent normal、packed moments history、joint resolve 与 feature-off retire |
 | 阴影功能 | `src/render/features/ShadowFeature.ts`、`ShadowFeatureManager.ts` | Scene-scoped atlas、cascade/cache、统一 Render World work generation/raster 与 retire |
 | 功能组合 | `src/render/features/*.ts` | Feature/Service 生命周期与 feature-off |
 | 实时证据 UI | `src/addons/inspector` | 有界历史、view-model、实时面板 |
@@ -63,7 +64,7 @@ Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证�
 
 Packed source 通过 `uploadPackedScene()`、普通 Application Scene 通过 `uploadScene()` 汇入同一个 `GpuRenderWorld`。普通 Scene adapter 只接受调用方显式提供的已 Cook `GeometryAssetPackage`，首次同步生成 bulk structure-of-arrays source；后续 transform/material assignment 从 `SceneChangeSet` 生成确定性 `GpuScene.patch()`。add/remove/geometry 结构变化必须由 `resyncScene()` 明确 full-resync；未注册 Scene 在 `render()` 前失败。
 
-两种输入都由 GPU hierarchy/work generation 直接供 indirect Visibility consumer，输出统一 `VisibilityKey`、必有 metadata 的 Surface、可选 velocity、shadow work 与透明 reactive 数据。旧对象场景 GPU runtime、双 ID visibility attachment、fullscreen material expand、独立 velocity 和旧 OIT/Shadow raster 实现已经删除；不存在隐藏 fallback。完整动画/蒙皮仍属产品 Deferred；`SkinnedMesh` 会显式报 unsupported。AO、SSR 与 GI 由 Service 组合；Shadow atlas、cascade/cache、work generation、raster 和 retire 归 `src/render/features/ShadowFeature.ts` 单一所有。
+两种输入都由 GPU hierarchy/work generation 直接供 indirect Visibility consumer，输出统一 `VisibilityKey`、必有 metadata 的 Surface、可选 velocity、shadow work 与透明 reactive 数据。旧对象场景 GPU runtime、双 ID visibility attachment、fullscreen material expand、独立 velocity 和旧 OIT/Shadow raster 实现已经删除；不存在隐藏 fallback。完整动画/蒙皮仍属产品 Deferred；`SkinnedMesh` 会显式报 unsupported。AO、SSR 与 GI 由 Service 组合；`AOService → GtaoPass` 是 `mode=gtao` 的唯一 production screen-space AO owner，以同一 Three.js r186-derived horizon trace 产生 visibility+bent normal，并由 OEngine history/joint resolve 消费，不依赖 three.js runtime 或额外 TRAA owner。Shadow atlas、cascade/cache、work generation、raster 和 retire 归 `src/render/features/ShadowFeature.ts` 单一所有。
 
 ## 目标差距
 

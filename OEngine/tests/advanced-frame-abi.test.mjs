@@ -36,6 +36,18 @@ import {
 import {
   evaluateSurfaceAbiV2RunGroupNeed
 } from "../.test-dist/debug/VisibilitySurfaceMigrationGates.js";
+import {
+  GTAO_BENT_NORMAL_BYTES_PER_PIXEL,
+  GTAO_BENT_NORMAL_FORMAT,
+  GTAO_FINAL_VISIBILITY_BYTES_PER_PIXEL,
+  GTAO_FINAL_VISIBILITY_FORMAT,
+  GTAO_MOMENTS_BYTES_PER_PIXEL,
+  GTAO_MOMENTS_FORMAT,
+  GTAO_SPATIAL_WGSL,
+  GTAO_TEMPORAL_WGSL,
+  THREE_GTAO_RAW_WGSL,
+  THREE_GTAO_REVISION
+} from "../.test-dist/shaders/gtao.js";
 globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4, FRAGMENT: 2, VERTEX: 1 });
 const {
   PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
@@ -269,6 +281,38 @@ test("ADR-0009 Step 3 accepts one three-context comprehensive SurfaceLite run gr
       ordinal === 2 ? { ...run, candidateAttachmentBytes: run.candidateAttachmentBytes + 4 } : run
     )).status,
     "insufficient-evidence"
+  );
+});
+
+test("ADR-0009 Step 4 pins the Three.js r186 GTAO invariants", () => {
+  assert.equal(THREE_GTAO_REVISION, "148ef33ecb6d2502ff796d4554abd1549c95d519");
+  assert.match(THREE_GTAO_RAW_WGSL, /array<f32, 6>\(60\.0, 300\.0, 180\.0, 240\.0, 120\.0, 0\.0\)/);
+  assert.match(THREE_GTAO_RAW_WGSL, /9u, 3u, 22u, 16u, 15u/);
+  assert.match(THREE_GTAO_RAW_WGSL, /let sample_distance_fraction = step_t \* step_t/);
+  assert.match(THREE_GTAO_RAW_WGSL, /abs\(positive_view_delta\.z\) < thickness_world/);
+  assert.match(THREE_GTAO_RAW_WGSL, /positive_falloff \* positive_falloff/);
+  assert.match(THREE_GTAO_RAW_WGSL, /term_positive \+ term_negative/);
+  assert.match(THREE_GTAO_RAW_WGSL, /visibility \* visibility/);
+  assert.match(THREE_GTAO_RAW_WGSL, /uv_octahedral_unit_encode\(bent_normal\)/);
+  assert.doesNotMatch(THREE_GTAO_RAW_WGSL, /hilbert|runtime mip|SSAO/i);
+});
+
+test("ADR-0009 Step 4 temporally filters packed AO moments and bent normals", () => {
+  assert.equal(GTAO_MOMENTS_FORMAT, "rgba16float");
+  assert.equal(GTAO_MOMENTS_BYTES_PER_PIXEL, 8);
+  assert.equal(GTAO_FINAL_VISIBILITY_FORMAT, "r8unorm");
+  assert.equal(GTAO_FINAL_VISIBILITY_BYTES_PER_PIXEL, 1);
+  assert.equal(GTAO_BENT_NORMAL_FORMAT, "rg16uint");
+  assert.equal(GTAO_BENT_NORMAL_BYTES_PER_PIXEL, 4);
+  assert.match(GTAO_SPATIAL_WGSL, /filtered_bent \+= weight \* uv_octahedral_unit_decode\(sample_value\.ba\)/);
+  assert.match(GTAO_SPATIAL_WGSL, /vec4f\(moments, encode_filtered_bent_normal\(bent\)\)/);
+  assert.match(GTAO_TEMPORAL_WGSL, /let current_bent = oct_decode\(current\.ba\)/);
+  assert.match(GTAO_TEMPORAL_WGSL, /let filtered_bent_sum = mix\(current_bent, history_bent, blend\)/);
+  assert.match(GTAO_TEMPORAL_WGSL, /vec4f\(filtered_moments, oct_encode\(filtered_bent\)\)/);
+  assert.equal(existsSync(new URL("../src/shaders/ssao.ts", import.meta.url)), false);
+  assert.equal(
+    existsSync(new URL("../src/render/passes/ScreenSpaceAmbientOcclusionPass.ts", import.meta.url)),
+    false
   );
 });
 

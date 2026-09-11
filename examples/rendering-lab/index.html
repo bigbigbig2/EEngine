@@ -71,12 +71,12 @@
               <p class="field-help">3 级 CSM · 4096 px atlas；分割权衡 0 为均匀、1 为对数。</p>
             </div>
             <div class="effect-block">
-              <label class="switch-row"><span><strong>环境光遮蔽</strong><small>GTAO + 时域滤波</small></span><input type="checkbox" data-feature="ssao" checked /></label>
+              <label class="switch-row"><span><strong>环境光遮蔽</strong><small>Three.js-derived GTAO + OEngine 时域滤波</small></span><input type="checkbox" data-feature="gtao" checked /></label>
               <label class="range-row" for="ao-intensity"><span><strong>遮蔽强度</strong><output id="ao-intensity-value">1.00</output></span><input id="ao-intensity" type="range" min="0" max="2" step="0.05" value="1" /></label>
               <label class="range-row" for="ao-radius"><span><strong>物理半径</strong><output id="ao-radius-value">1.00 m</output></span><input id="ao-radius" type="range" min="0.05" max="5" step="0.05" value="1" /></label>
-              <label class="range-row" for="ao-falloff"><span><strong>衰减距离</strong><output id="ao-falloff-value">0.62 m</output></span><input id="ao-falloff" type="range" min="0.05" max="5" step="0.05" value="0.615" /></label>
-              <label class="range-row" for="ao-slices"><span><strong>方向切片数</strong><output id="ao-slices-value">2</output></span><input id="ao-slices" type="range" min="1" max="4" step="1" value="2" /></label>
-              <label class="range-row" for="ao-steps"><span><strong>每切片步数</strong><output id="ao-steps-value">4</output></span><input id="ao-steps" type="range" min="1" max="8" step="1" value="4" /></label>
+              <label class="range-row" for="ao-thickness"><span><strong>厚度阈值</strong><output id="ao-thickness-value">1.00 m</output></span><input id="ao-thickness" type="range" min="0.05" max="5" step="0.05" value="1" /></label>
+              <label class="range-row" for="ao-slices"><span><strong>方向切片数</strong><output id="ao-slices-value">3</output></span><input id="ao-slices" type="range" min="3" max="5" step="2" value="3" /></label>
+              <label class="range-row" for="ao-steps"><span><strong>每切片步数</strong><output id="ao-steps-value">6</output></span><input id="ao-steps" type="range" min="1" max="8" step="1" value="6" /></label>
               <label class="range-row" for="ao-spatial"><span><strong>空间滤波半径</strong><output id="ao-spatial-value">1 px</output></span><input id="ao-spatial" type="range" min="1" max="4" step="1" value="1" /></label>
               <label class="inline-field"><span>计算分辨率</span><select id="ao-resolution"><option value="0.5">半分辨率</option><option value="1">全分辨率</option></select></label>
               <label class="switch-row compact"><span><strong>时域累积</strong><small>降低噪声与闪烁</small></span><input id="ao-temporal" type="checkbox" checked /></label>

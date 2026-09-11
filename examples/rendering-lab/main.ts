@@ -83,7 +83,7 @@ declare global {
 
 type Q00CaptureState = {
   readonly features?: Partial<Record<
-    "shadows" | "ssao" | "ssr" | "taa" | "bloom" | "exposure" | "motionBlur" | "sharpen",
+    "shadows" | "gtao" | "ssr" | "taa" | "bloom" | "exposure" | "motionBlur" | "sharpen",
     boolean
   >>;
   readonly debugView?: RenderDebugViewName;
@@ -107,7 +107,7 @@ type DebugDescriptor = {
   readonly value: RenderDebugViewName;
   readonly label: string;
   readonly help: string;
-  readonly requires?: "ssao" | "ssr";
+  readonly requires?: "gtao" | "ssr";
 };
 
 const MODEL_URL = new URL("./assets/dungeon_warkarma.glb", import.meta.url).href;
@@ -122,9 +122,9 @@ const debugDescriptors: readonly DebugDescriptor[] = [
   { value: RenderDebugView.Roughness, label: "粗糙度", help: "材质感知粗糙度。" },
   { value: RenderDebugView.Metallic, label: "金属度", help: "材质金属响应。" },
   { value: RenderDebugView.Occlusion, label: "材质遮蔽", help: "材质纹理提供的环境遮蔽。" },
-  { value: RenderDebugView.AmbientOcclusionRaw, label: "GTAO 原始", help: "未进行空间与时域滤波的 GTAO visibility。", requires: "ssao" },
-  { value: RenderDebugView.AmbientOcclusionDenoised, label: "GTAO 空间滤波", help: "空间滤波后的 GTAO visibility。", requires: "ssao" },
-  { value: RenderDebugView.AmbientOcclusionTemporal, label: "环境光遮蔽", help: "时域 GTAO 最终可见度。", requires: "ssao" },
+  { value: RenderDebugView.AmbientOcclusionRaw, label: "GTAO 原始", help: "未进行空间与时域滤波的 GTAO visibility。", requires: "gtao" },
+  { value: RenderDebugView.AmbientOcclusionDenoised, label: "GTAO 空间滤波", help: "空间滤波后的 GTAO visibility。", requires: "gtao" },
+  { value: RenderDebugView.AmbientOcclusionTemporal, label: "环境光遮蔽", help: "时域 GTAO 最终可见度。", requires: "gtao" },
   { value: RenderDebugView.Emissive, label: "自发光", help: "从 GLB 材质解码的自发光贡献。" },
   { value: RenderDebugView.Velocity, label: "运动矢量", help: "屏幕空间运动方向和幅度。" },
   { value: RenderDebugView.HistoryValidity, label: "历史有效性", help: "时域运动有效与反应状态。" },
@@ -302,7 +302,7 @@ async function initialize(): Promise<void> {
 function installQ00Api(activeRenderer: Renderer): void {
   window.__OENGINE_Q00_SET_STATE__ = (state) => {
     for (const [feature, enabled] of Object.entries(state.features ?? {})) {
-      if (PIPELINE_MODE && ["shadows", "ssao", "ssr", "taa", "bloom", "exposure", "motionBlur", "sharpen"].includes(feature)) continue;
+      if (PIPELINE_MODE && ["shadows", "gtao", "ssr", "taa", "bloom", "exposure", "motionBlur", "sharpen"].includes(feature)) continue;
       const checkbox = document.querySelector<HTMLInputElement>(`input[data-feature="${feature}"]`);
       if (checkbox === null || enabled === undefined) continue;
       checkbox.checked = enabled;
@@ -354,9 +354,9 @@ function installQ00Api(activeRenderer: Renderer): void {
       sceneBounds,
       settings: {
         shadows: activeRenderer.render_settings.features.shadows,
-        ssao: activeRenderer.render_settings.features.ambientOcclusion,
-        ssaoResolutionScale: activeRenderer.render_settings.ao.resolutionScale,
-        ssaoTemporal: activeRenderer.render_settings.ao.temporalEnabled,
+        gtao: activeRenderer.render_settings.features.ambientOcclusion,
+        gtaoResolutionScale: activeRenderer.render_settings.ao.resolutionScale,
+        gtaoTemporal: activeRenderer.render_settings.ao.temporalEnabled,
         ssr: activeRenderer.render_settings.features.screenSpaceReflections,
         taa: activeRenderer.render_settings.features.temporalAntiAliasing,
         bloom: activeRenderer.render_settings.features.bloom,
@@ -1341,7 +1341,7 @@ function bindRendererControls(activeRenderer: Renderer): void {
     checkbox.addEventListener("change", () => {
       switch (checkbox.dataset.feature) {
         case "shadows": activeRenderer.configure({ features: { shadows: checkbox.checked } }); break;
-        case "ssao": activeRenderer.configure({ features: { ambientOcclusion: checkbox.checked } }); break;
+        case "gtao": activeRenderer.configure({ features: { ambientOcclusion: checkbox.checked } }); break;
         case "ssr": activeRenderer.configure({ features: { screenSpaceReflections: checkbox.checked } }); break;
         case "taa": activeRenderer.configure({ features: { temporalAntiAliasing: checkbox.checked } }); break;
         case "bloom": activeRenderer.configure({ features: { bloom: checkbox.checked } }); break;
@@ -1403,8 +1403,8 @@ function bindRendererControls(activeRenderer: Renderer): void {
     (value) => value.toFixed(2));
   bindRange("ao-radius", (value) => activeRenderer.configure({ ao: { radiusMeters: value } }),
     (value) => `${value.toFixed(2)} m`);
-  bindRange("ao-falloff", (value) => activeRenderer.configure({ ao: { falloffMeters: value } }),
-    (value) => value.toFixed(2));
+  bindRange("ao-thickness", (value) => activeRenderer.configure({ ao: { thicknessMeters: value } }),
+    (value) => `${value.toFixed(2)} m`);
   bindRange("ao-slices", (value) => activeRenderer.configure({ ao: { sliceCount: value } }),
     (value) => value.toFixed(0));
   bindRange("ao-steps", (value) => activeRenderer.configure({ ao: { stepCount: value } }),
@@ -1475,7 +1475,7 @@ function bindRendererControls(activeRenderer: Renderer): void {
 
 function ensureDebugProducer(activeRenderer: Renderer): void {
   const descriptor = debugDescriptors.find((entry) => entry.value === activeRenderer.render_debug_view);
-  if (descriptor?.requires === "ssao" && !activeRenderer.render_settings.features.ambientOcclusion) {
+  if (descriptor?.requires === "gtao" && !activeRenderer.render_settings.features.ambientOcclusion) {
     selectFinalOutput(activeRenderer);
   }
   if (descriptor?.requires === "ssr" && !activeRenderer.render_settings.features.screenSpaceReflections) {
@@ -1483,10 +1483,10 @@ function ensureDebugProducer(activeRenderer: Renderer): void {
   }
 }
 
-function enableFeature(feature: "ssao" | "ssr", activeRenderer: Renderer): void {
+function enableFeature(feature: "gtao" | "ssr", activeRenderer: Renderer): void {
   const checkbox = document.querySelector<HTMLInputElement>(`input[data-feature="${feature}"]`);
   if (checkbox !== null) checkbox.checked = true;
-  if (feature === "ssao") activeRenderer.configure({ features: { ambientOcclusion: true } });
+  if (feature === "gtao") activeRenderer.configure({ features: { ambientOcclusion: true } });
   if (feature === "ssr") activeRenderer.configure({ features: { screenSpaceReflections: true } });
 }
 

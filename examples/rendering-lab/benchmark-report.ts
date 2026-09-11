@@ -515,7 +515,7 @@ function passLabels(result: BenchmarkResult): readonly string[] {
 function featurePassNeedles(feature: string): readonly string[] {
   switch (feature) {
     case "shadow": return ["FX-04", "Shadow"];
-    case "gtao": return ["GTAO", "SSAO"];
+    case "gtao": return ["GTAO"];
     case "ssr": return ["SSR"];
     case "transparency": return ["FX-05", "MBOIT", "Transparent"];
     case "temporal": return ["FX-06B", "TAA", "Temporal sampled"];
