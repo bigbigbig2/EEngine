@@ -3,7 +3,8 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
-import { GPU_SURFACE_ABI_WGSL } from "../../gpu/GpuSurfaceAbi.js";
+import { GPU_SHADING_SURFACE_LITE_WGSL } from "../../gpu/GpuComputeMaterialAbi.js";
+import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../../gpu/GpuComputeMaterialAbi.js";
 import type { CachedComputePipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 
@@ -18,9 +19,10 @@ const IBL_SAMPLED_INDEX = counterByteOffset("iblSampledPixels") / 4;
 const IBL_MIP_BASE_INDEX = counterByteOffset("iblMip0") / 4;
 
 export const PACKED_SURFACE_COUNTER_WGSL = /* wgsl */ `
-${GPU_SURFACE_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
+${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 @group(0) @binding(0) var surface_metadata: texture_2d<u32>;
-@group(0) @binding(1) var surface_pbr: texture_2d<f32>;
+@group(0) @binding(1) var surface_pbr: texture_2d<u32>;
 @group(0) @binding(2) var specular_environment: texture_2d<f32>;
 @group(0) @binding(3) var<storage, read_write> counters: array<atomic<u32>>;
 
@@ -49,7 +51,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     atomicAdd(&counters[${UNLIT_INDEX}u], 1u);
   }
   if (flags & OENGINE_SURFACE_FLAG_VALID) != 0u && (flags & OENGINE_SURFACE_FLAG_UNLIT) == 0u {
-    let roughness = textureLoad(surface_pbr, vec2i(id.xy), 0).g;
+    let roughness = oengine_surface_lite_roughness(
+      textureLoad(surface_pbr, vec2i(id.xy), 0)
+    );
     let max_mip = textureNumLevels(specular_environment) - 1u;
     let dominant_mip = min(u32(round(clamp(roughness, 0.0, 1.0) * f32(max_mip))), 8u);
     atomicAdd(&counters[${IBL_SAMPLED_INDEX}u], 1u);
@@ -62,7 +66,7 @@ const GROUP: GPUBindGroupLayoutDescriptor = {
   label: "R4-B GPU Surface counters/group0",
   entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-    { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
   ]

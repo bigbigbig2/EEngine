@@ -95,7 +95,7 @@ globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4 });
 const { VISIBILITY_COUNTER_WGSL } = await import(
   "../.test-dist/render/passes/VisibilityCounterPass.js"
 );
-const { PACKED_MATERIAL_COMPUTE_WGSL } = await import(
+const { PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL } = await import(
   "../.test-dist/shaders/packed_material_compute.js"
 );
 const { PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL } = await import(
@@ -474,7 +474,7 @@ test("VisibilityKey V2 freezes logical identity and external lifetime context", 
 
 test("VisibilityKey V2 material and debug consumers dereference MeshletWork only", () => {
   for (const source of [
-    PACKED_MATERIAL_COMPUTE_WGSL,
+    PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
     PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL
   ]) {
     assert.match(source, /OEngineMeshletWorkQueueRead/);

@@ -32,7 +32,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 场景环境 | `src/gpu/GPUSceneEnvironmentContext.ts` | Packed/普通 Scene 共享的 light、environment、light-probe 与 volumetric 数据 |
 | GPU 工作 | `src/gpu/GpuWorkGenerationAbi.ts` 及 work-generation owners | 队列 ABI、容量、overflow、indirect args |
 | 可见像素身份 | `src/gpu/GpuVisibilityKeyAbi.ts`、Visibility owners | key ABI、sentinel、reverse-Z、diagnostics |
-| Surface ABI | `src/gpu/GpuSurfaceAbi.ts` | attachment 格式、编码和版本 |
+| SurfaceLite/HDR ABI | `src/gpu/GpuComputeMaterialAbi.ts`、`GpuHdrAbi.ts` | compact working-set、conditional velocity、normal/flags 编码、HDR/history 格式与 bytes/pixel |
 | Surface 组合 | `src/render/features/SurfaceFeature.ts` | backend 选择、Surface/velocity 产品生命周期 |
 | 帧资源 | `src/framegraph/FrameGraph.ts` | 资源、依赖、pruning 和执行 |
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/shadow/main-view 顺序 |

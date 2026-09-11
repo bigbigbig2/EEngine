@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -21,10 +21,23 @@ import { MATERIAL_TILE_CLASSIFICATION_WGSL } from "../.test-dist/shaders/materia
 import { gpuShadingBindingBudget } from "../.test-dist/gpu/GpuShadingBindingBudget.js";
 import {
   GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL,
+  GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY,
   GPU_COMPUTE_MATERIAL_FORMATS,
+  GPU_COMPUTE_MATERIAL_ABI_VERSION,
   packComputeMaterialPbr,
   unpackComputeMaterialPbr
 } from "../.test-dist/gpu/GpuComputeMaterialAbi.js";
+import {
+  GPU_HDR_BYTES_PER_PIXEL,
+  GPU_HDR_FORMAT,
+  GPU_HDR_PROFILE,
+  GPU_HDR_REJECTED_MAIN_CANDIDATES
+} from "../.test-dist/gpu/GpuHdrAbi.js";
+globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4, FRAGMENT: 2, VERTEX: 1 });
+const {
+  PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
+  PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL
+} = await import("../.test-dist/shaders/packed_material_compute.js");
 
 const LIGHTING_DIRECT_COMPUTE_SOURCE = readFileSync(
   new URL("../src/shaders/lighting_direct_compute.ts", import.meta.url),
@@ -38,12 +51,16 @@ const COMPUTE_MATERIAL_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/ComputeMaterialResolvePass.ts", import.meta.url),
   "utf8"
 );
-const COMPUTE_MATERIAL_BRIDGE_SOURCE = readFileSync(
-  new URL("../src/shaders/compute_material_surface_bridge.ts", import.meta.url),
-  "utf8"
-);
 const MATERIAL_OWNER_SOURCE = readFileSync(
   new URL("../src/render/passes/PackedMaterialResolvePass.ts", import.meta.url),
+  "utf8"
+);
+const IBL_BASELINE_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/IblBaselinePass.ts", import.meta.url),
+  "utf8"
+);
+const OPAQUE_LIGHTING_PIPELINE_SOURCE = readFileSync(
+  new URL("../src/render/pipeline/OpaqueLightingPipeline.ts", import.meta.url),
   "utf8"
 );
 
@@ -148,30 +165,80 @@ test("ADR-0009 Step 2 closes MaterialTileWork through one compute material evalu
   assert.doesNotMatch(LIGHTING_DIRECT_COMPUTE_SOURCE, /atomicAdd\(&tile_pixel_claims/);
   assert.doesNotMatch(LIGHTING_DIRECT_COMPUTE_SOURCE, /HEADER_CONSUMED\)\],\s*1u/);
 
-  assert.doesNotMatch(COMPUTE_MATERIAL_BRIDGE_SOURCE, /materials/);
-  assert.doesNotMatch(COMPUTE_MATERIAL_BRIDGE_SOURCE, /texture_bank/);
-  assert.doesNotMatch(COMPUTE_MATERIAL_BRIDGE_SOURCE, /sample_material_texture/);
-  assert.match(COMPUTE_MATERIAL_BRIDGE_SOURCE, /unpack2x16unorm/);
-  assert.match(COMPUTE_MATERIAL_BRIDGE_SOURCE, /unpack2x16float/);
+  assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /ComputeMaterialSurfaceBridgePass/);
   assert.doesNotMatch(MATERIAL_TILE_CLASSIFICATION_WGSL, /consume_material_tiles/);
   assert.doesNotMatch(MATERIAL_TILE_CLASSIFICATION_WGSL, /textureSample\s*\(/);
 });
 
-test("ADR-0009 Step 2 compute material ABI stays within four storage textures", () => {
+test("ADR-0009 Step 3 freezes the 24-byte SurfaceLite working ABI", () => {
+  assert.equal(GPU_COMPUTE_MATERIAL_ABI_VERSION, 2);
   assert.deepEqual(GPU_COMPUTE_MATERIAL_FORMATS, {
     normal: "rgba16uint",
     albedoAo: "rgba8unorm",
-    emissive: "r32uint",
-    pbrMetadataVelocity: "rgba32uint"
+    material: "rg32uint",
+    velocity: "rg16float"
   });
-  assert.equal(GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL, 32);
+  assert.equal(GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL, 24);
+  assert.equal(GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY, 20);
   for (const [metallic, roughness] of [[0, 0], [1, 1], [0.125, 0.875]]) {
     const unpacked = unpackComputeMaterialPbr(
       packComputeMaterialPbr(metallic, roughness)
     );
-    assert.ok(Math.abs(unpacked[0] - metallic) <= 1 / 0xffff);
-    assert.ok(Math.abs(unpacked[1] - roughness) <= 1 / 0xffff);
+    assert.ok(Math.abs(unpacked[0] - metallic) <= 1 / 0xff);
+    assert.ok(Math.abs(unpacked[1] - roughness) <= 1 / 0xff);
   }
+});
+
+test("ADR-0009 Step 3 physically prunes Velocity when it has no consumer", () => {
+  assert.doesNotMatch(
+    PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
+    /compute_velocity_output/
+  );
+  assert.match(
+    PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL,
+    /@group\(2\) @binding\(5\) var compute_velocity_output/
+  );
+  assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /if \(options\.velocity\)/);
+  assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /OUTPUT_GROUP_NO_VELOCITY/);
+  assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /OUTPUT_GROUP_WITH_VELOCITY/);
+});
+
+test("ADR-0009 Step 3 freezes one pre-exposed HDR/history physical contract", () => {
+  assert.equal(GPU_HDR_FORMAT, "rgba16float");
+  assert.equal(GPU_HDR_BYTES_PER_PIXEL, 8);
+  assert.equal(GPU_HDR_PROFILE.alpha, "preserved");
+  assert.equal(GPU_HDR_PROFILE.signedValues, true);
+  assert.equal(GPU_HDR_PROFILE.storageWrite, true);
+  assert.equal(GPU_HDR_PROFILE.historyCompatible, true);
+  assert.deepEqual(GPU_HDR_REJECTED_MAIN_CANDIDATES.rg11b10ufloat, [
+    "no alpha channel",
+    "unsigned-only representation",
+    "not one uniform render/storage/history contract"
+  ]);
+});
+
+test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only for SSR", () => {
+  assert.equal(
+    existsSync(new URL("../src/gpu/GpuSurfaceAbi.ts", import.meta.url)),
+    false
+  );
+  assert.equal(
+    existsSync(new URL("../src/render/passes/ComputeMaterialSurfaceBridgePass.ts", import.meta.url)),
+    false
+  );
+  assert.equal(
+    existsSync(new URL("../src/render/passes/IblDiffusePass.ts", import.meta.url)),
+    false
+  );
+  assert.equal(
+    existsSync(new URL("../src/render/passes/IblSpecularPass.ts", import.meta.url)),
+    false
+  );
+  assert.match(IBL_BASELINE_PASS_SOURCE, /if \(options\.baselineSpecular\)/);
+  assert.match(IBL_BASELINE_PASS_SOURCE, /builder\.create\("pre-exposed-baseline-specular"/);
+  assert.match(OPAQUE_LIGHTING_PIPELINE_SOURCE, /resolveIblBaseline/);
+  assert.match(OPAQUE_LIGHTING_PIPELINE_SOURCE, /resolveScreenDiffuseBaseline/);
+  assert.doesNotMatch(OPAQUE_LIGHTING_PIPELINE_SOURCE, /IblDiffusePass|IblSpecularPass/);
 });
 
 test("ADR-0009 Step 0 freezes a legal four-group ShadeLighting binding envelope", () => {

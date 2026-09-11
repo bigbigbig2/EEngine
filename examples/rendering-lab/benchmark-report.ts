@@ -14,9 +14,9 @@ import {
   type SurfaceAbiRunEvidence
 } from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
 import {
-  GPU_SURFACE_ABI_VERSION,
-  gpuSurfaceBytesPerPixel
-} from "../../OEngine/src/gpu/GpuSurfaceAbi.js";
+  GPU_COMPUTE_MATERIAL_ABI_VERSION,
+  gpuComputeMaterialBytesPerPixel
+} from "../../OEngine/src/gpu/GpuComputeMaterialAbi.js";
 
 export interface RenderingLabBenchmarkReport {
   readonly schemaVersion: 1;
@@ -247,10 +247,10 @@ function buildSurfaceAbiEvidence(
   const migration = migrationEvidence(domainEvidence);
   return Object.freeze({
     schemaVersion: 1,
-    activeAbiVersion: migration?.surfaceAbiVersion ?? GPU_SURFACE_ABI_VERSION,
+    activeAbiVersion: migration?.surfaceAbiVersion ?? GPU_COMPUTE_MATERIAL_ABI_VERSION,
     cases: Object.freeze(byCase),
-    bytesPerPixelWithVelocity: gpuSurfaceBytesPerPixel({ velocity: true }),
-    bytesPerPixelWithoutVelocity: gpuSurfaceBytesPerPixel({ velocity: false }),
+    bytesPerPixelWithVelocity: gpuComputeMaterialBytesPerPixel({ velocity: true }),
+    bytesPerPixelWithoutVelocity: gpuComputeMaterialBytesPerPixel({ velocity: false }),
     evidenceGate: runs === null
       ? Object.freeze({
         status: "insufficient-evidence",

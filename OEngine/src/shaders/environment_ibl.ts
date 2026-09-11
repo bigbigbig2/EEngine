@@ -3,13 +3,13 @@
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
-import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import { GPU_SHADING_SURFACE_NORMAL_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const ENVIRONMENT_BACKGROUND_FORMAT = "rgba16float" as const;
 export const IBL_DIFFUSE_FORMAT = "rgba16float" as const;
 
-const OCTAHEDRAL_SAMPLE_WGSL = /* wgsl */ `
-${GPU_SURFACE_NORMAL_ABI_WGSL}
+export const OCTAHEDRAL_SAMPLE_WGSL = /* wgsl */ `
+${GPU_SHADING_SURFACE_NORMAL_WGSL}
 fn oct_sign(value: vec2f) -> vec2f {
   return select(vec2f(1.0), vec2f(-1.0), value < vec2f(0.0));
 }
@@ -116,7 +116,7 @@ fn sample_prefiltered_environment(
 }
 `;
 
-const FULLSCREEN_TRIANGLE_WGSL = /* wgsl */ `
+export const FULLSCREEN_TRIANGLE_WGSL = /* wgsl */ `
 const FULLSCREEN_POSITIONS = array<vec2f, 3>(
   vec2f(-1.0, -1.0),
   vec2f( 3.0, -1.0),

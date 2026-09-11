@@ -4,16 +4,18 @@
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
 import {
-  GPU_SURFACE_ABI_WGSL,
-  GPU_SURFACE_NORMAL_ABI_WGSL
-} from "../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_WGSL,
+  GPU_SHADING_SURFACE_NORMAL_WGSL
+} from "../gpu/GpuComputeMaterialAbi.js";
+import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const OPAQUE_LIGHTING_RESOLVE_FORMAT = "rgba16float" as const;
 
 export const OPAQUE_LIGHTING_RESOLVE_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
-${GPU_SURFACE_ABI_WGSL}
-${GPU_SURFACE_NORMAL_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
+${GPU_SHADING_SURFACE_NORMAL_WGSL}
+${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
@@ -22,7 +24,7 @@ const MIN_DIELECTRICS_F0: f32 = 0.04;
 @group(0) @binding(0) var n: texture_2d<u32>;
 @group(0) @binding(1) var count: texture_2d<u32>;
 @group(0) @binding(2) var radix: texture_2d<f32>;
-@group(0) @binding(3) var channel_count: texture_2d<f32>;
+@group(0) @binding(3) var channel_count: texture_2d<u32>;
 @group(0) @binding(4) var gr_bucket: texture_2d<f32>;
 @group(0) @binding(5) var surface_metadata: texture_2d<u32>;
 
@@ -68,14 +70,6 @@ fn decode_surface_normal(encoded: vec2u) -> vec3f {
 
 fn decode_bent_normal(encoded: vec2u) -> vec3f {
   return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
-}
-
-fn decode_g_buffer_metalness(pbr: vec4f) -> f32 {
-  return pbr.x;
-}
-
-fn decode_g_buffer_roughness(pbr: vec4f) -> f32 {
-  return pbr.y;
 }
 
 fn metalness_to_specular_color(metalness: f32, albedo: vec3f) -> vec3f {
@@ -189,8 +183,8 @@ fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32)
   let albedo_ao = textureLoad(radix, vec2i(pixel), 0);
   let albedo = albedo_ao.rgb;
   let material_ao = albedo_ao.a;
-  let metalness = decode_g_buffer_metalness(pbr);
-  let roughness = max(decode_g_buffer_roughness(pbr), 0.02);
+  let metalness = oengine_surface_lite_metallic(pbr);
+  let roughness = max(oengine_surface_lite_roughness(pbr), 0.02);
   let alpha = roughness * roughness;
   let diffuse = albedo * (1.0 - metalness);
   let specular_f0 = metalness_to_specular_color(metalness, albedo);

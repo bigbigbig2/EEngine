@@ -8,10 +8,10 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile,
-  gpuSurfaceNormalPipelineConstants
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile,
+  gpuShadingSurfaceNormalPipelineConstants
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import { GPU_VISIBILITY_DEBUG_SETTINGS_SIZE } from "../../gpu/GpuVisibilityDebugResolve.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import {
@@ -64,7 +64,7 @@ export class RenderDebugViewPass {
 
   constructor(
     graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     if (graphics.device === null) {
       throw new Error("RenderDebugViewPass: GraphicsContext has no device");
@@ -107,11 +107,11 @@ export class RenderDebugViewPass {
       ],
       [
         RenderDebugViewValue.Metallic,
-        createPipeline("Render debug/Metallic", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
+        createPipeline("Render debug/Metallic", SURFACE_PBR_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.Roughness,
-        createPipeline("Render debug/Roughness", SURFACE_PBR_DEBUG_WGSL, [floatTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
+        createPipeline("Render debug/Roughness", SURFACE_PBR_DEBUG_WGSL, [uintTextureEntry(0), uintTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.Occlusion,
@@ -197,7 +197,8 @@ export class RenderDebugViewPass {
     outputHeight: number
   ): ResourceId {
     const packedVisibility =
-      view === RenderDebugViewValue.VisibilityKey &&
+      (view === RenderDebugViewValue.VisibilityKey ||
+        view === RenderDebugViewValue.MaterialId) &&
       resources.packedVisibility !== null
         ? resources.packedVisibility
         : null;
@@ -211,7 +212,12 @@ export class RenderDebugViewPass {
     let output = -1;
     const builder = graph.add(
       `Render debug/${view}`,
-      { outputWidth, outputHeight, packedVisibility },
+      {
+        outputWidth,
+        outputHeight,
+        packedVisibility,
+        packedMaterialOnly: view === RenderDebugViewValue.MaterialId
+      },
       (data, resolved, context) => {
         const command = requireShadeCommandContext(context.encoder);
         const lookup = data.packedVisibility?.resolve() ?? null;
@@ -225,7 +231,7 @@ export class RenderDebugViewPass {
               lookup.instanceCount,
               lookup.geometryRecordCount,
               lookup.materialCapacity,
-              0,
+              data.packedMaterialOnly ? 1 : 0,
               0
             ]).buffer,
           GPUBufferUsage.UNIFORM
@@ -295,6 +301,7 @@ function inputResourceIds(
 ): ResourceId[] {
   switch (view) {
     case RenderDebugViewValue.VisibilityKey:
+    case RenderDebugViewValue.MaterialId:
       return [resources.visibilityKey];
     case RenderDebugViewValue.Depth:
       return [resources.depth];
@@ -313,7 +320,6 @@ function inputResourceIds(
       return [resources.gPbr, resources.surfaceFlags];
     case RenderDebugViewValue.Emissive:
       return [resources.gEmissive, resources.surfaceFlags];
-    case RenderDebugViewValue.MaterialId:
     case RenderDebugViewValue.HistoryValidity:
     case RenderDebugViewValue.Reactive:
       return [requireSurfaceMetadata(view, resources)];
@@ -351,12 +357,12 @@ function createPipeline(
   label: string,
   code: string,
   entries: GPUBindGroupLayoutEntry[],
-  surfaceProfile?: GpuSurfaceAbiProfile
+  surfaceProfile?: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   const module = { label, code };
   const constants = code.includes("OENGINE_SURFACE_NORMAL_MAX_VALUE")
-    ? gpuSurfaceNormalPipelineConstants(
-      surfaceProfile?.normalEncoding ?? GPU_SURFACE_ABI_V1_PROFILE.normalEncoding
+    ? gpuShadingSurfaceNormalPipelineConstants(
+      surfaceProfile?.normalEncoding ?? GPU_SHADING_SURFACE_LITE_PROFILE.normalEncoding
     )
     : undefined;
   return {
@@ -414,7 +420,6 @@ function uniformEntry(
 function debugMode(view: RenderDebugView): number | null {
   switch (view) {
     case RenderDebugViewValue.Metallic:
-    case RenderDebugViewValue.MaterialId:
       return 0;
     case RenderDebugViewValue.Roughness:
     case RenderDebugViewValue.HistoryValidity:

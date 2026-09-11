@@ -4,14 +4,20 @@
 
 import { GPU_VIEW_TYPE } from "../render/ViewContext.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
-import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import {
+  GPU_SHADING_SURFACE_LITE_WGSL,
+  GPU_SHADING_SURFACE_NORMAL_WGSL
+} from "../gpu/GpuComputeMaterialAbi.js";
+import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const BRICK4_INDIRECT_FORMAT = "rgba16float" as const;
 
 export const BRICK4_COMMON_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GPU_VIEW_TYPE.wgsl_declaration}
-${GPU_SURFACE_NORMAL_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
+${GPU_SHADING_SURFACE_NORMAL_WGSL}
+${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 
 struct Brick4Bounds {
   min: vec3f,
@@ -65,14 +71,6 @@ fn decode_surface_normal(encoded: vec2u) -> vec3f {
 
 fn decode_bent_normal(encoded: vec2u) -> vec3f {
   return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
-}
-
-fn decode_g_buffer_roughness(pbr: vec4f) -> f32 {
-  return pbr.y;
-}
-
-fn decode_g_buffer_metalness(pbr: vec4f) -> f32 {
-  return pbr.x;
 }
 
 fn uv_to_ndc(uv: vec2f) -> vec2f {
@@ -441,7 +439,7 @@ ${BRICK4_COMMON_WGSL}
 
 @group(0) @binding(0) var gr_bucket: texture_2d<f32>;
 @group(0) @binding(1) var chunk_brick4: texture_2d<u32>;
-@group(0) @binding(2) var edge: texture_2d<f32>;
+@group(0) @binding(2) var edge: texture_2d<u32>;
 @group(0) @binding(3) var replacement: texture_3d<f32>;
 @group(0) @binding(4) var<uniform> view: PipelineCacheKey;
 @group(0) @binding(5) var<uniform> camera: CommandEncoder;
@@ -462,7 +460,7 @@ fn fs_main(
   let view_direction = normalize(camera.transform[3].xyz - position);
   let packed_normals = textureLoad(chunk_brick4, vec2i(pixel), 0);
   let normal = decode_surface_normal(packed_normals.xy);
-  let roughness = decode_g_buffer_roughness(textureLoad(edge, vec2i(pixel), 0));
+  let roughness = oengine_surface_lite_roughness(textureLoad(edge, vec2i(pixel), 0));
   let alpha = roughness * roughness;
   let reflection = reflect(-view_direction, normal);
   let spec_direction = normalize(mix(reflection, normal, alpha));
@@ -492,7 +490,7 @@ const MIN_DIELECTRICS_F0: f32 = 0.04;
 @group(0) @binding(1) var n: texture_2d<u32>;
 @group(0) @binding(2) var count: texture_2d<u32>;
 @group(0) @binding(3) var radix: texture_2d<f32>;
-@group(0) @binding(4) var channel_count: texture_2d<f32>;
+@group(0) @binding(4) var channel_count: texture_2d<u32>;
 @group(0) @binding(5) var replacement: texture_3d<f32>;
 @group(0) @binding(6) var<uniform> view: PipelineCacheKey;
 @group(0) @binding(7) var<uniform> camera: CommandEncoder;
@@ -576,8 +574,8 @@ fn fs_main(
   let bent_normal = decode_bent_normal(textureLoad(count, vec2i(pixel), 0).xy);
   let albedo = albedo_ao.rgb;
   let occlusion = albedo_ao.a;
-  let metalness = decode_g_buffer_metalness(pbr);
-  let roughness = max(decode_g_buffer_roughness(pbr), 0.02);
+  let metalness = oengine_surface_lite_metallic(pbr);
+  let roughness = max(oengine_surface_lite_roughness(pbr), 0.02);
   let alpha = roughness * roughness;
   let diffuse = albedo * (1.0 - metalness);
   let specular_f0 = metalness_to_specular_color(metalness, albedo);

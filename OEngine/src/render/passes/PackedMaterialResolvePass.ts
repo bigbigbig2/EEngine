@@ -7,26 +7,20 @@ import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
-  GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL
+  GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL,
+  GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY
 } from "../../gpu/GpuComputeMaterialAbi.js";
-import {
-  GPU_SURFACE_FORMATS,
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile
-} from "../../gpu/GpuSurfaceAbi.js";
 import type { MaterialResolveBackend } from "../MaterialResolveBackend.js";
 import {
+  type ComputeMaterialEvaluationFrame,
   type MaterialTileClassificationFrame,
-  type SurfaceFrame,
+  shadingSurfaceLiteFrame,
+  type ShadingSurfaceLiteFrame,
   type VisibilityFrame
 } from "../pipeline/FrameProducts.js";
 import type { VelocityCameraMatrices } from "../VelocityMatrices.js";
 import { ComputeMaterialResolvePass } from "./ComputeMaterialResolvePass.js";
-import { ComputeMaterialSurfaceBridgePass } from "./ComputeMaterialSurfaceBridgePass.js";
 import { MaterialTileClassificationPass } from "./MaterialTileClassificationPass.js";
-
-/** R4-B compatibility name; the bridge attachment stores Surface metadata. */
-export const PACKED_SURFACE_FLAGS_FORMAT = GPU_SURFACE_FORMATS.metadata;
 
 export interface PackedMaterialResolveJob {
   readonly runtime: GpuRenderWorldRuntime;
@@ -39,13 +33,9 @@ export interface PackedMaterialResolveJob {
 }
 
 export interface PackedMaterialResolveOutputs {
-  readonly gPbr: ResourceId;
-  readonly gNormal: ResourceId;
-  readonly gAlbedo: ResourceId;
-  readonly gEmissive: ResourceId;
   readonly velocity: ResourceId | null;
-  readonly surfaceFlags: ResourceId;
-  readonly surface: SurfaceFrame;
+  readonly evaluation: ComputeMaterialEvaluationFrame;
+  readonly shading: ShadingSurfaceLiteFrame;
   readonly tileClassification: MaterialTileClassificationFrame;
   readonly counters: ResourceId | null;
 }
@@ -54,28 +44,21 @@ export interface PackedMaterialResolveOutputs {
  * Visibility-driven material owner.
  *
  * The historical class-depth/fullscreen material shaders are no longer
- * executed. ComputeMaterialResolvePass evaluates the material exactly once;
- * ComputeMaterialSurfaceBridgePass only unpacks the transition product for
- * consumers that have not yet completed the Step 3 SurfaceLite cutover.
+ * executed. ComputeMaterialResolvePass evaluates the material exactly once
+ * and publishes the compact SurfaceLite working set directly; no conversion
+ * pass or duplicate legacy attachment set exists.
  */
 export class PackedMaterialResolvePass {
   private readonly counterAdder = new GpuCounterAtomicAdder();
   private readonly classifier: MaterialTileClassificationPass;
   private readonly compute: ComputeMaterialResolvePass;
-  private readonly bridge: ComputeMaterialSurfaceBridgePass;
-  private readonly profile: GpuSurfaceAbiProfile;
   lastKernelDrawCount = 0;
   lastActiveMaterialCount = 0;
   private currentSurfaceBytesPerPixel = 0;
 
-  constructor(
-    private readonly graphics: GraphicsContext,
-    profile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
-  ) {
-    this.profile = profile;
+  constructor(private readonly graphics: GraphicsContext) {
     this.classifier = new MaterialTileClassificationPass(graphics);
     this.compute = new ComputeMaterialResolvePass(graphics);
-    this.bridge = new ComputeMaterialSurfaceBridgePass(graphics, profile);
   }
 
   get surfaceBytesPerPixel(): number {
@@ -117,13 +100,6 @@ export class PackedMaterialResolvePass {
       },
       options
     );
-    const surface = this.bridge.addToGraph(
-      graph,
-      compute.evaluation,
-      inputs.visibility.depth,
-      options
-    );
-
     let counters: ResourceId | null = inputs.counters ?? null;
     if (inputs.counters !== undefined) {
       const inputCounters = inputs.counters;
@@ -149,20 +125,20 @@ export class PackedMaterialResolvePass {
       this.lastKernelDrawCount = 0;
     }
 
-    this.currentSurfaceBytesPerPixel =
-      GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL +
-      (options.velocity
-        ? this.profile.bytesPerPixelWithVelocity
-        : this.profile.bytesPerPixelWithoutVelocity);
+    this.currentSurfaceBytesPerPixel = options.velocity
+      ? GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL
+      : GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY;
 
     return Object.freeze({
-      gPbr: surface.pbr,
-      gNormal: surface.normal,
-      gAlbedo: surface.albedoAo,
-      gEmissive: surface.emissive,
-      velocity: surface.velocity,
-      surfaceFlags: surface.metadata,
-      surface,
+      velocity: compute.evaluation.velocity,
+      evaluation: compute.evaluation,
+      shading: shadingSurfaceLiteFrame({
+        normal: compute.evaluation.normal,
+        roughnessFlags: compute.evaluation.material,
+        metallicSpecular: compute.evaluation.material,
+        normalSpace: "world",
+        domain: compute.evaluation.domain
+      }),
       tileClassification: materialTileWithCounters(
         compute.classification,
         counters
@@ -172,7 +148,6 @@ export class PackedMaterialResolvePass {
   }
 
   destroy(): void {
-    this.bridge.destroy();
     this.compute.destroy();
     this.classifier.destroy();
   }

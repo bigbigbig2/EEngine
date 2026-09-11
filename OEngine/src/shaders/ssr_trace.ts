@@ -40,7 +40,7 @@ struct SsrHit {
 @group(0) @binding(2) var replacement: texture_3d<f32>;
 @group(0) @binding(3) var gr_bucket: texture_2d<f32>;
 @group(0) @binding(4) var encoder: texture_2d<f32>;
-@group(0) @binding(5) var edge: texture_2d<f32>;
+@group(0) @binding(5) var edge: texture_2d<u32>;
 @group(0) @binding(6) var ray_ws: texture_2d<u32>;
 
 fn stbn_sample_vec2(value: vec3u) -> vec2f {

@@ -2,20 +2,14 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile
-} from "../../gpu/GpuSurfaceAbi.js";
-import { IblDiffusePass } from "../passes/IblDiffusePass.js";
-import { IblSpecularPass } from "../passes/IblSpecularPass.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile
+} from "../../gpu/GpuComputeMaterialAbi.js";
+import { IblBaselinePass } from "../passes/IblBaselinePass.js";
 import {
   OpaqueLightingResolvePass,
   type OpaqueLightingResolveInputs
 } from "../passes/OpaqueLightingResolvePass.js";
-import {
-  opaqueLightingFrame,
-  type AmbientOcclusionFrame,
-  type OpaqueLightingFrame
-} from "./FrameProducts.js";
 
 export type { OpaqueLightingFrame } from "./FrameProducts.js";
 
@@ -31,7 +25,19 @@ export interface OpaqueIblInputs {
   readonly splitSum: ResourceId;
   readonly camera: ResourceId;
   readonly metadata: ResourceId;
-  readonly ambientOcclusion?: Pick<AmbientOcclusionFrame, "visibility">;
+  readonly ambientVisibility?: ResourceId;
+}
+
+export interface FusedOpaqueIblFrame {
+  readonly hdr: ResourceId;
+  readonly iblSpecular: ResourceId | null;
+  readonly indirectDiffuse: null;
+  readonly domain: Readonly<{
+    domain: "internal-full";
+    width: number;
+    height: number;
+    scale: 1;
+  }>;
 }
 
 /**
@@ -39,71 +45,75 @@ export interface OpaqueIblInputs {
  * separate implementation details; Renderer consumes one immutable product.
  */
 export class OpaqueLightingPipeline {
-  private readonly specular: IblSpecularPass;
-  private readonly diffuse: IblDiffusePass;
+  private readonly fusedIbl: IblBaselinePass;
   private readonly resolvePass: OpaqueLightingResolvePass;
 
   constructor(
     graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
-    this.specular = new IblSpecularPass(graphics, surfaceProfile);
-    this.diffuse = new IblDiffusePass(graphics);
+    this.fusedIbl = new IblBaselinePass(graphics, surfaceProfile);
     this.resolvePass = new OpaqueLightingResolvePass(graphics, surfaceProfile);
   }
 
   resolveIblBaseline(
     graph: FrameGraph,
     extent: { readonly width: number; readonly height: number },
-    inputs: OpaqueIblInputs
-  ): OpaqueLightingFrame {
-    const iblSpecular = this.resolveBaselineSpecular(graph, extent, {
-      bentNormal: inputs.bentNormal,
-      normal: inputs.normal,
-      environment: inputs.environment,
-      pbr: inputs.pbr,
-      depth: inputs.depth,
-      camera: inputs.camera
+    inputs: OpaqueIblInputs,
+    options: Readonly<{ baselineSpecular: boolean }>
+  ): FusedOpaqueIblFrame {
+    return this.resolveFusedBaseline(graph, extent, inputs, {
+      ...options,
+      diffuseSource: "octahedral"
     });
-    const indirectDiffuse = this.diffuse.addToGraph(graph, extent, {
-      bentNormal: inputs.bentNormal,
-      albedoAo: inputs.albedoAo,
-      environment: inputs.diffuseIrradiance,
-      depth: inputs.depth
-    }).indirectDiffuse;
-    const hdr = this.resolve(graph, {
+  }
+
+  resolveScreenDiffuseBaseline(
+    graph: FrameGraph,
+    extent: { readonly width: number; readonly height: number },
+    inputs: OpaqueIblInputs,
+    options: Readonly<{ baselineSpecular: boolean }>
+  ): FusedOpaqueIblFrame {
+    return this.resolveFusedBaseline(graph, extent, inputs, {
+      ...options,
+      diffuseSource: "screen"
+    });
+  }
+
+  private resolveFusedBaseline(
+    graph: FrameGraph,
+    extent: { readonly width: number; readonly height: number },
+    inputs: OpaqueIblInputs,
+    options: Readonly<{
+      baselineSpecular: boolean;
+      diffuseSource: "octahedral" | "screen";
+    }>
+  ): FusedOpaqueIblFrame {
+    const fused = this.fusedIbl.addToGraph(graph, extent, {
       hdr: inputs.hdr,
       depth: inputs.depth,
       normal: inputs.normal,
       bentNormal: inputs.bentNormal,
       albedoAo: inputs.albedoAo,
-      pbr: inputs.pbr,
-      splitSum: inputs.splitSum,
-      indirectDiffuse,
-      indirectSpecular: iblSpecular,
-      ambientVisibility: inputs.ambientOcclusion?.visibility,
+      material: inputs.pbr,
       camera: inputs.camera,
-      metadata: inputs.metadata
-    });
-    return opaqueLightingFrame({
-      hdr,
-      iblSpecular,
-      indirectDiffuse,
+      metadata: inputs.metadata,
+      environment: inputs.environment,
+      diffuseIrradiance: inputs.diffuseIrradiance,
+      splitSum: inputs.splitSum,
+      ambientVisibility: inputs.ambientVisibility
+    }, options);
+    return Object.freeze({
+      hdr: fused.hdr,
+      iblSpecular: fused.baselineSpecular,
+      indirectDiffuse: null,
       domain: {
         domain: "internal-full" as const,
         width: extent.width,
         height: extent.height,
-        scale: 1
+        scale: 1 as const
       }
     });
-  }
-
-  resolveBaselineSpecular(
-    graph: FrameGraph,
-    extent: { readonly width: number; readonly height: number },
-    inputs: Pick<OpaqueIblInputs, "bentNormal" | "normal" | "environment" | "pbr" | "depth" | "camera">
-  ): ResourceId {
-    return this.specular.addToGraph(graph, extent, inputs).indirectSpecular;
   }
 
   resolve(graph: FrameGraph, inputs: OpaqueLightingResolveInputs): ResourceId {
@@ -115,8 +125,7 @@ export class OpaqueLightingPipeline {
   }
 
   destroy(): void {
-    this.specular.destroy();
-    this.diffuse.destroy();
+    this.fusedIbl.destroy();
     this.resolvePass.destroy();
   }
 }

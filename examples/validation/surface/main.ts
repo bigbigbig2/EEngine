@@ -2,6 +2,7 @@ import {
   BoxGeometry,
   Mesh,
   ShadeDrawSide,
+  ShadeIndirectLightingMode,
   ShadeTexture,
   ShadeTransparencyMode,
   openTextureAssetPackageV2,
@@ -79,7 +80,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -91,7 +92,69 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "scene-adapter") {
+    if (request.scenarioId === "lpv-baseline-pruning") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Surface runtime is not initialized");
+      renderer.indirect_lighting_mode = ShadeIndirectLightingMode.LPV;
+      renderer.configure({ features: { screenSpaceReflections: false } });
+      await runtime.waitForFrames(2);
+      const offProfile = await runtime.waitForCounters(runtime.frame - 1);
+      const offGraph = renderer.mainFrameGraphEvidence();
+      if (offGraph === null) throw new Error("LPV SSR-off frame did not publish FrameGraph evidence");
+      const offPasses = offGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
+      const offResources = offGraph.dump.resources.map((entry) => entry.name);
+
+      renderer.configure({ features: { screenSpaceReflections: true } });
+      await runtime.waitForFrames(2);
+      profile = await runtime.waitForCounters(Math.max(offProfile.frameIndex, runtime.frame - 1));
+      const onGraph = renderer.mainFrameGraphEvidence();
+      if (onGraph === null) throw new Error("LPV SSR-on frame did not publish FrameGraph evidence");
+      const onPasses = onGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
+      const onResources = onGraph.dump.resources.map((entry) => entry.name);
+      const offBaselineResources = offResources.filter((name) => name.includes("pre-exposed-baseline-specular"));
+      const onBaselineResources = onResources.filter((name) => name.includes("pre-exposed-baseline-specular"));
+      const isSsrConsumerPass = (name: string): boolean =>
+        !/no SSR output/i.test(name) && /SSR|screen.?space reflection/i.test(name);
+      const offSsrPasses = offPasses.filter(isSsrConsumerPass);
+      const onSsrPasses = onPasses.filter(isSsrConsumerPass);
+      Object.assign(evidence, {
+        lpvBaselinePruning: {
+          off: {
+            cacheKey: offGraph.cacheKey,
+            baselineResources: offBaselineResources,
+            ssrPasses: offSsrPasses,
+            transientResources: offGraph.resources.transient
+          },
+          on: {
+            cacheKey: onGraph.cacheKey,
+            baselineResources: onBaselineResources,
+            ssrPasses: onSsrPasses,
+            transientResources: onGraph.resources.transient
+          }
+        }
+      });
+      assertions.push(validationAssertion(
+        "lpv-ssr-off-prunes-baseline-specular",
+        offBaselineResources.length === 0 && offSsrPasses.length === 0,
+        "LPV without SSR has no baseline-specular resource and no SSR pass in the executable FrameGraph",
+        { offBaselineResources, offSsrPasses },
+        "both arrays empty"
+      ));
+      assertions.push(validationAssertion(
+        "lpv-ssr-on-materializes-baseline-specular",
+        onBaselineResources.length === 1 && onSsrPasses.length > 0,
+        "LPV with SSR materializes exactly one replaceable baseline-specular product consumed by the SSR topology",
+        { onBaselineResources, onSsrPasses },
+        "one baseline resource and at least one SSR pass"
+      ));
+      assertions.push(validationAssertion(
+        "lpv-ssr-topology-changes-physical-memory",
+        onGraph.resources.transient > offGraph.resources.transient,
+        "The SSR-on graph owns more transient resources than the pruned SSR-off graph",
+        { off: offGraph.resources.transient, on: onGraph.resources.transient },
+        "on > off"
+      ));
+    } else if (request.scenarioId === "scene-adapter") {
       const renderer = runtime.renderer;
       const scene = runtime.scene;
       if (renderer === null || scene === null) throw new Error("Surface runtime is not initialized");

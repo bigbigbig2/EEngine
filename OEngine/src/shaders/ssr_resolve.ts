@@ -21,7 +21,7 @@ struct SsrHit { position: vec2u, confidence: f32 };
 
 @group(0) @binding(0) var valid_history_confidence: texture_2d<u32>;
 @group(0) @binding(1) var gr_bucket: texture_2d<f32>;
-@group(0) @binding(2) var edge: texture_2d<f32>;
+@group(0) @binding(2) var edge: texture_2d<u32>;
 @group(0) @binding(3) var ray_ws: texture_2d<u32>;
 @group(0) @binding(4) var tv_y: texture_2d<f32>;
 @group(0) @binding(5) var light_dir: texture_2d<f32>;

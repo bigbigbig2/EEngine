@@ -11,17 +11,17 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GPULightCollection } from "../../gpu/LightDatabase.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import {
   directLightingFrame,
-  requireSurfaceAbiVersion,
+  type ComputeMaterialEvaluationFrame,
   type DirectLightingFrame,
   type MaterialTileClassificationFrame,
   type VisibilityFrame
 } from "../pipeline/FrameProducts.js";
-import type { ShadowVisibilityFrame, SurfaceFrame } from "../pipeline/FrameProducts.js";
+import type { ShadowVisibilityFrame } from "../pipeline/FrameProducts.js";
 import {
   EnvironmentBackgroundPass,
   type EnvironmentBackgroundInputs
@@ -45,7 +45,7 @@ export interface LightingFeatureJob {
 
 export interface LightingFeatureInputs {
   /** Stage 1 product seam; LightingFeature owns attachment interpretation. */
-  readonly surface: SurfaceFrame;
+  readonly material: ComputeMaterialEvaluationFrame;
   readonly visibility: VisibilityFrame;
   readonly classification: MaterialTileClassificationFrame;
   /** Depth remains Visibility-owned because Surface Resolve does not produce it. */
@@ -77,11 +77,11 @@ export class LightingFeature {
   private readonly clusters: LightClusterPass;
   private readonly direct: LightingPass;
   private readonly background: EnvironmentBackgroundPass;
-  private readonly surfaceProfile: GpuSurfaceAbiProfile;
+  private readonly surfaceProfile: GpuShadingSurfaceLiteProfile;
 
   constructor(
     graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     this.surfaceProfile = surfaceProfile;
     this.clusters = new LightClusterPass(graphics);
@@ -111,7 +111,6 @@ export class LightingFeature {
     job: LightingFeatureJob,
     inputs: LightingFeatureInputs
   ): LightingFeatureOutputs {
-    requireSurfaceAbiVersion(inputs.surface, this.surfaceProfile.version);
     const clusters = this.clusters.addToGraph(
       graph,
       {
@@ -128,7 +127,7 @@ export class LightingFeature {
       }
     );
     const lightingInputs: LightingInputs = {
-      surface: inputs.surface,
+      material: inputs.material,
       visibility: inputs.visibility,
       classification: inputs.classification,
       lightDatabase: inputs.lightDatabase,

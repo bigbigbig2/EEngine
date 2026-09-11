@@ -7,10 +7,10 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile,
-  gpuSurfaceNormalPipelineConstants
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile,
+  gpuShadingSurfaceNormalPipelineConstants
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import { LINEAR_CLAMP_SAMPLER_DESCRIPTOR } from "../../gpu/GPUSamplerCache.js";
 import {
   OPAQUE_LIGHTING_RESOLVE_FORMAT,
@@ -27,7 +27,7 @@ const OPAQUE_LIGHTING_RESOLVE_GROUP0: GPUBindGroupLayoutDescriptor = {
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+    { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
     { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } }
   ]
@@ -64,7 +64,7 @@ function createOpaqueLightingPipeline(
   label: string,
   entryPoint: string,
   bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[],
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return {
     label,
@@ -77,7 +77,7 @@ function createOpaqueLightingPipeline(
       module: OPAQUE_LIGHTING_RESOLVE_MODULE,
       entryPoint,
       constants: {
-        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+        ...gpuShadingSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
       },
       targets: OPAQUE_LIGHTING_RESOLVE_TARGETS
     },
@@ -120,7 +120,7 @@ export class OpaqueLightingResolvePass {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     this.surfaceDescriptor = createOpaqueLightingPipeline(
       "Renderer/Opaque lighting resolve",

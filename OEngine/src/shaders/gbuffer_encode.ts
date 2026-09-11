@@ -3,15 +3,15 @@
  */
 
 import {
-  GPU_SURFACE_NORMAL_ENCODING_V1,
-  GPU_SURFACE_NORMAL_OVERRIDE_NAME
-} from "../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_NORMAL_ENCODING,
+  GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME
+} from "../gpu/GpuComputeMaterialAbi.js";
 
 /** Pipeline-overridable constant used by the M6 candidate normal layout. */
-export const GBUFFER_NORMAL_MAX_VALUE_OVERRIDE = GPU_SURFACE_NORMAL_OVERRIDE_NAME;
+export const GBUFFER_NORMAL_MAX_VALUE_OVERRIDE = GPU_SHADING_SURFACE_NORMAL_OVERRIDE_NAME;
 
 export const GBUFFER_ENCODE_WGSL = /* wgsl */ `
-override ${GBUFFER_NORMAL_MAX_VALUE_OVERRIDE}: f32 = ${GPU_SURFACE_NORMAL_ENCODING_V1.maxValue}.0;
+override ${GBUFFER_NORMAL_MAX_VALUE_OVERRIDE}: f32 = ${GPU_SHADING_SURFACE_NORMAL_ENCODING.maxValue}.0;
 
 fn store_uint4(value: vec2f) -> vec2f {
   return select(vec2f(1.0), vec2f(-1.0), value < vec2f(0.0));

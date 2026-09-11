@@ -318,7 +318,6 @@ export {
   lightClusterFrame,
   opaqueLightingFrame,
   requireDomain,
-  surfaceFrame,
   textureDomain
 } from "./render/pipeline/FrameProducts.js";
 export type {
@@ -329,7 +328,6 @@ export type {
   OpaqueLightingFrame,
   OpaqueTemporalSurfaceFrame,
   ReflectionFrame,
-  SurfaceFrame,
   TemporalSurfaceFrame,
   TextureDomain
 } from "./render/pipeline/FrameProducts.js";

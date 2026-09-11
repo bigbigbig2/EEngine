@@ -7,10 +7,10 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile,
-  gpuSurfaceNormalPipelineConstants
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile,
+  gpuShadingSurfaceNormalPipelineConstants
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import { LINEAR_CLAMP_SAMPLER_DESCRIPTOR } from "../../gpu/GPUSamplerCache.js";
 import {
   BRICK4_DIFFUSE_WGSL,
@@ -68,7 +68,7 @@ const BRICK4_SPECULAR_GROUP0: GPUBindGroupLayoutDescriptor = {
   entries: [
     { binding: 0, ...UNFILTERABLE_TEXTURE },
     { binding: 1, ...UINT_TEXTURE },
-    { binding: 2, ...FLOAT_TEXTURE },
+    { binding: 2, ...UINT_TEXTURE },
     { binding: 3, ...STBN_TEXTURE },
     { binding: 4, ...UNIFORM_BUFFER },
     { binding: 5, ...UNIFORM_BUFFER }
@@ -82,7 +82,7 @@ const BRICK4_FUSED_GROUP0: GPUBindGroupLayoutDescriptor = {
     { binding: 1, ...UINT_TEXTURE },
     { binding: 2, ...UINT_TEXTURE },
     { binding: 3, ...FLOAT_TEXTURE },
-    { binding: 4, ...FLOAT_TEXTURE },
+    { binding: 4, ...UINT_TEXTURE },
     { binding: 5, ...STBN_TEXTURE },
     { binding: 6, ...UNIFORM_BUFFER },
     { binding: 7, ...UNIFORM_BUFFER }
@@ -118,7 +118,7 @@ function createBrick4Pipeline(
   code: string,
   bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[],
   targets: readonly GPUColorTargetState[],
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return {
     label,
@@ -128,7 +128,7 @@ function createBrick4Pipeline(
       module: { label, code },
       entryPoint: "fs_main",
       constants: {
-        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+        ...gpuShadingSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
       },
       targets
     },
@@ -176,7 +176,7 @@ export class Brick4DiffusePass {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     this.descriptor = createBrick4Pipeline(
       "Renderer/Brick4 diffuse Vb",
@@ -235,7 +235,7 @@ export class Brick4SpecularPass {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     this.descriptor = createBrick4Pipeline(
       "Renderer/Brick4 specular _w",
@@ -294,7 +294,7 @@ export class Brick4FusedIndirectPass {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     this.descriptor = createBrick4Pipeline(
       "Renderer/Brick4 fused indirect sw",

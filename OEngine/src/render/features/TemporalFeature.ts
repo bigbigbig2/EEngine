@@ -9,6 +9,7 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { GPU_HDR_FORMAT } from "../../gpu/GpuHdrAbi.js";
 import { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
 import { id } from "../../gpu/GPUTextureDescriptors.js";
 import { DynamicResolutionScaling } from "../DynamicResolutionScaling.js";
@@ -88,7 +89,7 @@ export class TemporalFeature {
     const historyDescriptor = id.from({
       label: "Renderer/temporal-color-history",
       size: [Math.max(1, width), Math.max(1, height)],
-      format: "rgba16float",
+      format: GPU_HDR_FORMAT,
       mipLevelCount: 1,
       usage:
         GPUTextureUsage.RENDER_ATTACHMENT |

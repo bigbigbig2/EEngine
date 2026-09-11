@@ -42,7 +42,7 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
 1. MaterialTileWork classifier 直接读取 VisibilityKey/material records，在 GPU 上发布固定 28 类 queue 与 indirect args。
 2. Compute material evaluator 是唯一 opaque full-material owner；ClassDepth probe/pass 和 class-discard backend 不再初始化、编译或提交。
-3. evaluator 写 versioned compute material transition product；Step 3 完成前由纯格式 bridge 暂时发布统一 `GpuSurfaceAbi`，consumer 不根据附件顺序猜测语义。
+3. evaluator 直接发布 versioned compact working set 与 `ShadingSurfaceLiteFrame`；consumer 按命名产品绑定，不再经过 Surface V1 格式 bridge，也不根据附件顺序猜测语义。
 4. TriangleSetup candidate cache 默认是显式 opt-in；关闭时没有 setup allocation、FrameGraph resource 或 clear。Compute evaluator 的默认 projected-triangle gradient 不依赖该 cache。
 
 旧 Visibility-to-Surface 选择背景见 [ADR-0004](./adr/0004-visibility-to-surface.md)；当前替代决定以 [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md) 为准。
@@ -51,7 +51,10 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
 `FrameProducts.ts` 是跨 Pass 资源字段的事实源：
 
-- `SurfaceFrame`：depth、PBR、normal、albedo/AO、emissive、必有 metadata 与可选 velocity，域为 `internal-full`。
+- `ComputeMaterialEvaluationFrame`：唯一 full-material evaluator 的紧凑工作集，域为 `internal-full`，Velocity 按 consumer topology 可空。
+- `ShadingSurfaceLiteFrame`：world-space normal、roughness/flags 与可选 metallic/specular classification；不携带 depth 或 velocity。
+- `DiffuseSurfaceLiteFrame`：仅由 SSGI/refraction-like consumer 请求的 receiver diffuse/material-AO/validity 逻辑产品。
+- `PreExposedOpaqueHdrBaselineFrame`：screen-space diffuse 之后、SSR correction 之前的 opaque HDR；baseline specular 与 SSR consumer 同生同灭。
 - `DirectLightingFrame`：direct-only linear HDR。
 - `OpaqueLightingFrame`：完整不透明 HDR、IBL specular、indirect diffuse。
 - `LightClusterFrame`：parameters/lookup/data、candidate/active light list 与可选 counters。
@@ -66,9 +69,11 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
 MaterialTileWork 的 8×8 GPU classifier 先按 `KernelClassId × TextureBindingSetId` 生成 28 个有界 queue 和 indirect args。Production material evaluation 从 VisibilityKey V2 恢复 MeshletWork/local primitive，读取 canonical compact vertex，计算 perspective-correct barycentric 与显式 UV `ddx/ddy`，按 7 个 KernelClass × 最多 4 个 TextureBindingSet 执行固定 28 次 `dispatchWorkgroupsIndirect`。有效梯度使用 `textureSampleGrad`，退化梯度明确使用 `textureSampleLevel(..., 0)` 并通过 Surface flag/counter 暴露；active class 和可见材质均不回读 CPU。该 compute evaluator 是 opaque 完整材质求值的唯一 production owner，并写 queue consumed 与 exactly-once pixel claim。
 
-Clustered direct lighting 复用同一 MaterialTileWork，再以一个共享 compute pipeline 固定执行 28 次 indirect dispatch，消费过渡期 material products、cluster 和 shadow 并写 HDR；它不再增加 material claim，只验证 evaluator 的 valid/shaded、unassigned、duplicate、overflow 和 generation closure，GPU finalizer 写 `frameInvalid`，Tonemap 将失败帧显示为 diagnostic magenta。旧 MaterialClassDepth probe/pass、class-discard owner 和 fullscreen raster material/direct-lighting production 路径已删除。Step 2 的 compute material + compute direct-lighting 闭环已完成；Step 3 前仍保留一个只做格式 unpack、不访问材质表或纹理 bank 的 Surface V1 bridge，故当前 32 B/pixel compute transition product 与 26 B/pixel Surface V1 会短暂并存，不能把 58 B/pixel 当成最终 SurfaceLite budget。
+Clustered direct lighting 复用同一 MaterialTileWork，再以一个共享 compute pipeline 固定执行 28 次 indirect dispatch，消费 compact material working set、cluster 和 shadow 并写 HDR；它不再增加 material claim，只验证 evaluator 的 valid/shaded、unassigned、duplicate、overflow 和 generation closure，GPU finalizer 写 `frameInvalid`，Tonemap 将失败帧显示为 diagnostic magenta。旧 MaterialClassDepth probe/pass、class-discard owner、fullscreen raster material/direct-lighting 路径、Surface V1 bridge 及其 26 B/pixel attachments 已删除。
 
-GI/AO/reflection 通过各自 Service 组合到统一 opaque HDR。生产 Scene runtime 统一使用有界 TransparentRasterWork 与 MBOIT，并输出 reactive/counters。Temporal 对两种输入消费相同 velocity、reactive、classification 和 history confidence；camera cut、尺寸、配置或提交失败必须使相应 history 失效。迁移期 GI、SSR correction 和 debug view 只接受带 metadata 的统一 Surface，不再编译无 metadata shader 变体。
+当前 SurfaceLite physical profile 为 `rgba16uint normal + rgba8unorm albedo/AO + rg32uint material/emissive`，无 motion consumer 时 20 B/pixel；Velocity consumer 存在时增加 `rg16float`，为 24 B/pixel。Velocity-off 使用独立静态 shader interface，bind layout、资源创建、clear/store 都不含 velocity，不使用 dummy texture。MaterialId debug 从 `VisibilityKey → MeshletWork` 恢复，不再复制 per-pixel material slot。主 HDR/颜色 history 的独立 ABI 为 `pre-exposed-rgba16float-v1`（8 B/pixel）；`rg11b10ufloat` 因无 alpha、无有符号表示且不能作为统一 render/storage/history 合同而没有成为主管线格式，仍可由 RGB-only companion product 单独门禁采用。
+
+GI/AO/reflection 通过各自 Service 组合到统一 opaque HDR。IBL 与 Probe Volume diffuse、BRDF energy compensation、environment specular、bent-normal specular occlusion 和 additive HDR composition 由一个 fused baseline pass 完成；第二个 `PreExposedBaselineSpecular` MRT 仅在 SSR correction consumer 存在时创建。Brick4 在 SSR off 时同样走 fused HDR path。生产 Scene runtime 统一使用有界 TransparentRasterWork 与 MBOIT，并输出 reactive/counters。Temporal 对两种输入消费相同 velocity、reactive、classification 和 history confidence；camera cut、尺寸、配置或提交失败必须使相应 history 失效。GI、SSR correction 和 debug view 只接受命名 compact products，不再编译 Surface V1 变体。
 
 ## FrameGraph 与提交
 

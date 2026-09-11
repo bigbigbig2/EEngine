@@ -11,10 +11,10 @@ import {
 } from "../../debug/GpuFrameCounters.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile,
-  gpuSurfaceNormalPipelineConstants
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile,
+  gpuShadingSurfaceNormalPipelineConstants
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import { writeGpuBuffer } from "../../gpu/GpuQueueEvidence.js";
 import type {
   CachedComputePipelineDescriptor,
@@ -129,7 +129,7 @@ export class ScreenSpaceReflectionsPass {
     graphics: GraphicsContext,
     private readonly temporalEnabled = true,
     private readonly resolutionScale: 0.5 | 1 = 0.5,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     if (graphics.device === null) {
       throw new Error("ScreenSpaceReflectionsPass: GraphicsContext has no device");
@@ -916,7 +916,7 @@ function drawFullscreen(
 }
 
 function createSsrTracePipelineDescriptor(
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
     "Renderer/SSR trace uk",
@@ -928,7 +928,7 @@ function createSsrTracePipelineDescriptor(
 }
 
 function createSsrCopyPipelineDescriptor(
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
     "Renderer/SSR prefilter copy sQ",
@@ -940,7 +940,7 @@ function createSsrCopyPipelineDescriptor(
 }
 
 function createSsrDepthAwarePipelineDescriptor(
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
     "Renderer/SSR prefilter depth-aware dQ",
@@ -952,7 +952,7 @@ function createSsrDepthAwarePipelineDescriptor(
 }
 
 function createSsrDownsamplePipelineDescriptor(
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
     "Renderer/SSR prefilter mip oQ",
@@ -965,7 +965,7 @@ function createSsrDownsamplePipelineDescriptor(
 
 function createSsrResolvePipelineDescriptor(
   lpv: boolean,
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   const label = lpv
     ? "Renderer/SSR reflection resolve VD"
@@ -986,7 +986,7 @@ function createSsrResolvePipelineDescriptor(
 }
 
 function createSsrSpatialPipelineDescriptor(
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
     "Renderer/SSR spatial OQ",
@@ -998,7 +998,7 @@ function createSsrSpatialPipelineDescriptor(
 }
 
 function createSsrTemporalPipelineDescriptor(
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
     "Renderer/SSR temporal jQ",
@@ -1010,7 +1010,7 @@ function createSsrTemporalPipelineDescriptor(
 }
 
 function createSsrUpsamplePipelineDescriptor(
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   return createSsrPipelineDescriptor(
     "Renderer/SSR full-resolution joint bilateral upscale",
@@ -1026,12 +1026,12 @@ function createSsrPipelineDescriptor(
   code: string,
   format: GPUTextureFormat,
   bindGroupLayouts: readonly GPUBindGroupLayoutDescriptor[],
-  surfaceProfile: GpuSurfaceAbiProfile,
+  surfaceProfile: GpuShadingSurfaceLiteProfile,
   depth = false
 ): CachedRenderPipelineDescriptor {
   const module = { label, code };
   const constants = code.includes("OENGINE_SURFACE_NORMAL_MAX_VALUE")
-    ? gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+    ? gpuShadingSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
     : undefined;
   return {
     label,
@@ -1066,7 +1066,7 @@ function createSsrTraceGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "3d" } },
       { binding: 3, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 5, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 6, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } }
     ]
   };
@@ -1109,7 +1109,7 @@ function createSsrResolveGroupLayout(): GPUBindGroupLayoutDescriptor {
     entries: [
       { binding: 0, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 2, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 3, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
       { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },

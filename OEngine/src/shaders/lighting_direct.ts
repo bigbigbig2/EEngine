@@ -12,7 +12,8 @@ import {
   SHADOW_SPOT_DESCRIPTOR,
   SPOT_LIGHT_DESCRIPTOR
 } from "../gpu/LightDatabase.js";
-import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
+import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { CLUSTER_METADATA_FLAG_FALLBACK } from "../render/ClusteredLightingReference.js";
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
@@ -32,7 +33,8 @@ export const LIGHTING_DIRECT_CORE_WGSL = /* wgsl */ `
 ${GPU_VIEW_TYPE.wgsl_declaration}
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${GBUFFER_ENCODE_WGSL}
-${GPU_SURFACE_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
+${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 ${DIRECT_LIGHT_DATABASE_WGSL}
 
 const PI: f32 = 3.1415926535897932384626433832795;
@@ -88,7 +90,7 @@ struct ClusterData {
 }
 
 @group(0) @binding(0) var yz: texture_depth_2d;
-@group(0) @binding(1) var light: texture_2d<f32>;
+@group(0) @binding(1) var light: texture_2d<u32>;
 @group(0) @binding(2) var ag_x: texture_2d<u32>;
 @group(0) @binding(3) var nzb: texture_2d<f32>;
 @group(0) @binding(4) var input_texture: texture_2d<u32>;
@@ -166,9 +168,9 @@ fn read_gBuffer_material(i_coord: vec2u) -> StandardMaterial {
   let texel_pbr = textureLoad(light, i_coord, 0);
   let albedo_ao = textureLoad(nzb, i_coord, 0);
   let albedo = albedo_ao.rgb;
-  let emissive = rgbe9995_decode(textureLoad(input_texture, i_coord, 0).r);
-  let metalness = decode_g_buffer_metalness(texel_pbr);
-  let roughness = decode_g_buffer_roughness(texel_pbr);
+  let emissive = rgbe9995_decode(textureLoad(input_texture, i_coord, 0).g);
+  let metalness = oengine_surface_lite_metallic(texel_pbr);
+  let roughness = oengine_surface_lite_roughness(texel_pbr);
   var material: StandardMaterial;
   material.diffuse = albedo * (1.0 - metalness);
   material.occlusion = albedo_ao.a;
@@ -650,7 +652,9 @@ fn shade_standard_material_direct(
 
 fn shade_direct_pixel(i_coord: vec2u) -> vec4f {
   random_initialize(vec3u(i_coord, view.frame_index), vec3u(0xEE6B2807u, 7u, 0xD0974829u));
-  let metadata = textureLoad(surface_metadata, vec2i(i_coord), 0).r;
+  let metadata = oengine_surface_lite_metadata(
+    textureLoad(surface_metadata, vec2i(i_coord), 0)
+  );
   if (!oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0);
   }

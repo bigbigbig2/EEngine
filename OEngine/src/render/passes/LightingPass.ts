@@ -14,10 +14,10 @@ import {
   materialTileDispatchIndirectByteOffset
 } from "../../gpu/GpuMaterialTileWorkAbi.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile,
-  gpuSurfaceNormalPipelineConstants
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile,
+  gpuShadingSurfaceNormalPipelineConstants
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import {
   LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
   SHADOW_COMPARISON_SAMPLER_DESCRIPTOR
@@ -27,14 +27,14 @@ import { HDR_COLOR_FORMAT } from "../RenderTargets.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import {
   materialTileClassificationFrame,
+  type ComputeMaterialEvaluationFrame,
   type MaterialTileClassificationFrame,
-  type SurfaceFrame,
   type VisibilityFrame
 } from "../pipeline/FrameProducts.js";
 
 export const LIGHTING_MIGRATION_GAP = [
   "compute MaterialTileWork owns production direct lighting",
-  "Surface V1 remains a temporary input until visibility-driven material evaluation cutover"
+  "compact SurfaceLite working set is consumed without a conversion pass"
 ] as const;
 
 export const LIGHTING_STEPS = [
@@ -51,7 +51,7 @@ export type LightingJob = {
 };
 
 export type LightingInputs = {
-  surface: SurfaceFrame;
+  material: ComputeMaterialEvaluationFrame;
   visibility: VisibilityFrame;
   classification: MaterialTileClassificationFrame;
   lightDatabase: ResourceId;
@@ -76,7 +76,7 @@ const SURFACE_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "ADR-0009 ShadeLighting/surface",
   entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
-    { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
@@ -137,7 +137,7 @@ const MODULE = {
 
 function computePipeline(
   entryPoint: string,
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedComputePipelineDescriptor {
   return {
     label: `ADR-0009 ShadeLighting/${entryPoint}`,
@@ -154,7 +154,7 @@ function computePipeline(
       module: MODULE,
       entryPoint,
       constants: {
-        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+        ...gpuShadingSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
       }
     }
   };
@@ -172,7 +172,7 @@ export class LightingPass {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     this.clearPipeline = computePipeline("clear_direct_lighting", surfaceProfile);
     this.validatePipeline = computePipeline(
@@ -228,13 +228,13 @@ export class LightingPass {
           this.graphics.bind_groups.obtain({
             layout: SURFACE_GROUP,
             entries: [
-              texture(resources.get(inputs.surface.depth!)),
-              texture(resources.get(inputs.surface.pbr)),
-              texture(resources.get(inputs.surface.normal)),
-              texture(resources.get(inputs.surface.albedoAo)),
-              texture(resources.get(inputs.surface.emissive)),
+              texture(resources.get(inputs.visibility.depth)),
+              texture(resources.get(inputs.material.material)),
+              texture(resources.get(inputs.material.normal)),
+              texture(resources.get(inputs.material.albedoAo)),
+              texture(resources.get(inputs.material.material)),
               this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
-              texture(resources.get(inputs.surface.metadata))
+              texture(resources.get(inputs.material.material))
             ]
           }),
           this.graphics.bind_groups.obtain({
@@ -333,12 +333,11 @@ export class LightingPass {
     }
 
     for (const resource of [
-      inputs.surface.depth,
-      inputs.surface.pbr,
-      inputs.surface.normal,
-      inputs.surface.albedoAo,
-      inputs.surface.emissive,
-      inputs.surface.metadata,
+      inputs.visibility.depth,
+      inputs.material.material,
+      inputs.material.normal,
+      inputs.material.albedoAo,
+      inputs.material.material,
       inputs.visibility.visibilityKey,
       inputs.visibility.meshletWork.records,
       inputs.classification.indirectArgs,

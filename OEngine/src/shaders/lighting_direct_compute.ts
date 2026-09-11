@@ -15,11 +15,10 @@ import { LIGHTING_DIRECT_CORE_WGSL } from "./lighting_direct.js";
  * ADR-0009 Step 2 migration consumer.
  *
  * This is the production direct-lighting consumer of MaterialTileWork. It
- * deliberately still reads Surface V1 while the visibility-driven material
- * evaluation half of ShadeLighting is being cut over. The queue, indirect
- * dispatch, exactly-once claims, overflow policy and final-output invalidation
- * are already the final GPU-only contract; Surface V1 is the remaining Step 3
- * dependency, not a second authoritative lighting path.
+ * reads the compact ShadingSurfaceLite working set produced by the
+ * visibility-driven material evaluation half of ShadeLighting. The queue,
+ * indirect dispatch, exactly-once claims, overflow policy and final-output
+ * invalidation are the GPU-only producer/consumer contract.
  */
 export const LIGHTING_DIRECT_COMPUTE_WGSL = /* wgsl */ `
 ${LIGHTING_DIRECT_CORE_WGSL}
@@ -151,7 +150,9 @@ fn shade_direct_material_tiles(
     ) != dispatch_class {
     return;
   }
-  let surface_word = textureLoad(surface_metadata, vec2i(pixel), 0).r;
+  let surface_word = oengine_surface_lite_metadata(
+    textureLoad(surface_metadata, vec2i(pixel), 0)
+  );
   if !oengine_surface_has_flag(surface_word, OENGINE_SURFACE_FLAG_VALID) {
     atomicStore(&tile_control.frame_invalid, 1u);
     return;

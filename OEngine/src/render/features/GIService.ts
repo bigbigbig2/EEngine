@@ -15,9 +15,9 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import {
   OpaqueLightingPipeline,
   type OpaqueIblInputs
@@ -75,6 +75,7 @@ export interface ProbeVolumeIndirectInputs {
   readonly tetrahedra: ResourceId;
   readonly probes: ResourceId;
   readonly extent: { readonly width: number; readonly height: number };
+  readonly reflectionCorrectionExpected: boolean;
   /** 持有 late-bound camera/sampler/尺寸的 job（由 Renderer 通过 bind() 构造）。 */
   readonly job: LpvIndirectDiffuseJob;
 }
@@ -82,7 +83,7 @@ export interface ProbeVolumeIndirectInputs {
 export interface ProbeVolumeIndirectOutput {
   readonly hdr: ResourceId;
   readonly indirectDiffuse: ResourceId;
-  readonly indirectSpecular: ResourceId;
+  readonly indirectSpecular: ResourceId | null;
 }
 
 /** Shared inputs consumed by the single opaque-lighting owner. */
@@ -98,6 +99,7 @@ export interface OpaqueLightingCommonInputs {
   readonly ambientVisibility?: ResourceId;
   readonly metadata: ResourceId;
   readonly extent: { readonly width: number; readonly height: number };
+  readonly reflectionCorrectionExpected: boolean;
 }
 
 export type OpaqueLightingRequest =
@@ -141,7 +143,7 @@ export interface LightmapIndirectOutput {
 export class GIService {
   readonly implementation: OpaqueLightingPipeline;
   private readonly graphics: GraphicsContext;
-  private readonly surfaceProfile: GpuSurfaceAbiProfile;
+  private readonly surfaceProfile: GpuShadingSurfaceLiteProfile;
   private brick4Diffuse: Brick4DiffusePass | null;
   private brick4Specular: Brick4SpecularPass | null;
   private brick4Fused: Brick4FusedIndirectPass | null;
@@ -149,7 +151,7 @@ export class GIService {
 
   constructor(
     graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     this.graphics = graphics;
     this.surfaceProfile = surfaceProfile;
@@ -182,7 +184,7 @@ export class GIService {
         ...common,
         environment: inputs.environment,
         diffuseIrradiance: inputs.diffuseIrradiance
-      });
+      }, { baselineSpecular: inputs.reflectionCorrectionExpected });
       return {
         hdr: frame.hdr,
         indirectDiffuse: frame.indirectDiffuse,
@@ -202,14 +204,6 @@ export class GIService {
       environment: inputs.environment
     });
     return result;
-  }
-
-  private resolveBaselineSpecular(
-    graph: FrameGraph,
-    extent: { readonly width: number; readonly height: number },
-    inputs: Pick<OpaqueIblInputs, "bentNormal" | "normal" | "environment" | "pbr" | "depth" | "camera">
-  ): ResourceId {
-    return this.implementation.resolveBaselineSpecular(graph, extent, inputs);
   }
 
   private resolveHdr(graph: FrameGraph, inputs: OpaqueLightingResolveInputs): ResourceId {
@@ -273,14 +267,6 @@ export class GIService {
     graph: FrameGraph,
     inputs: ProbeVolumeIndirectInputs
   ): ProbeVolumeIndirectOutput {
-    const baselineSpecularRes = this.resolveBaselineSpecular(graph, inputs.extent, {
-      bentNormal: inputs.bentNormal,
-      normal: inputs.normal,
-      environment: inputs.environment,
-      pbr: inputs.pbr,
-      depth: inputs.depth,
-      camera: inputs.camera
-    });
     this.lpvDiffuse ??= new LpvIndirectDiffusePass(this.graphics, this.surfaceProfile);
     const diffuse = this.lpvDiffuse.addToGraph(graph, inputs.job, {
       depth: inputs.depth,
@@ -293,7 +279,10 @@ export class GIService {
       tetrahedra: inputs.tetrahedra,
       probes: inputs.probes
     });
-    const hdr = this.resolveHdr(graph, {
+    const baseline = this.implementation.resolveScreenDiffuseBaseline(
+      graph,
+      inputs.extent,
+      {
       hdr: inputs.hdr,
       depth: inputs.depth,
       normal: inputs.normal,
@@ -301,13 +290,19 @@ export class GIService {
       albedoAo: inputs.albedoAo,
       pbr: inputs.pbr,
       splitSum: inputs.splitSum,
-      indirectDiffuse: diffuse.indirectDiffuse,
-      indirectSpecular: baselineSpecularRes,
+      environment: inputs.environment,
+      diffuseIrradiance: diffuse.indirectDiffuse,
       ambientVisibility: inputs.ambientVisibility,
       camera: inputs.camera,
       metadata: inputs.metadata
-    });
-    return { hdr, indirectDiffuse: diffuse.indirectDiffuse, indirectSpecular: baselineSpecularRes };
+      },
+      { baselineSpecular: inputs.reflectionCorrectionExpected }
+    );
+    return {
+      hdr: baseline.hdr,
+      indirectDiffuse: diffuse.indirectDiffuse,
+      indirectSpecular: baseline.iblSpecular
+    };
   }
 
   resetFrameEvidence(): void {

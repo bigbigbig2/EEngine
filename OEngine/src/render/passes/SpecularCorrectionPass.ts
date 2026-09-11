@@ -1,6 +1,7 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { GPU_HDR_FORMAT } from "../../gpu/GpuHdrAbi.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { LINEAR_CLAMP_SAMPLER_DESCRIPTOR } from "../../gpu/GPUSamplerCache.js";
 import { SPECULAR_CORRECTION_WGSL } from "../../shaders/specular_correction.js";
@@ -12,7 +13,7 @@ const GROUP0: GPUBindGroupLayoutDescriptor = {
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+    { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
     { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } }
   ]
@@ -44,7 +45,7 @@ function descriptor(entryPoint: string): CachedRenderPipelineDescriptor {
       module: MODULE,
       entryPoint,
       targets: [{
-        format: "rgba16float",
+        format: GPU_HDR_FORMAT,
         blend: {
           color: { operation: "add", srcFactor: "one", dstFactor: "one" },
           alpha: { operation: "add", srcFactor: "zero", dstFactor: "one" }

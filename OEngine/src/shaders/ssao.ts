@@ -3,7 +3,7 @@
  */
 
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
-import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import { GPU_SHADING_SURFACE_NORMAL_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const SSAO_VISIBILITY_FORMAT = "rg16float" as const;
 export const SSAO_BENT_NORMAL_FORMAT = "rg16uint" as const;
@@ -33,7 +33,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertexOutput {
 
 export const SSAO_RAW_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
-${GPU_SURFACE_NORMAL_ABI_WGSL}
+${GPU_SHADING_SURFACE_NORMAL_WGSL}
 
 struct SsaoRawSettings {
   frame_index: u32,
@@ -385,7 +385,7 @@ fn fs_main(
 `;
 
 export const SSAO_SPATIAL_WGSL = /* wgsl */ `
-${GPU_SURFACE_NORMAL_ABI_WGSL}
+${GPU_SHADING_SURFACE_NORMAL_WGSL}
 struct SsaoSpatialSettings {
   step_size: i32,
 };
@@ -514,7 +514,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec2f {
 `;
 
 export const SSAO_TEMPORAL_WGSL = /* wgsl */ `
-${GPU_SURFACE_NORMAL_ABI_WGSL}
+${GPU_SHADING_SURFACE_NORMAL_WGSL}
 struct SsaoTemporalSettings {
   history_valid: u32,
   history_blend: f32,
@@ -674,7 +674,7 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) f32 {
 
 export const SSAO_JOINT_BILATERAL_RESOLVE_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
-${GPU_SURFACE_NORMAL_ABI_WGSL}
+${GPU_SHADING_SURFACE_NORMAL_WGSL}
 
 struct ResolveSettings {
   intensity: f32,

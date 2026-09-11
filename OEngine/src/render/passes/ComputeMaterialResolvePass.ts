@@ -14,8 +14,11 @@ import {
   GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT,
   materialTileDispatchIndirectByteOffset
 } from "../../gpu/GpuMaterialTileWorkAbi.js";
-import { gpuSurfaceNormalPipelineConstants } from "../../gpu/GpuSurfaceAbi.js";
-import { PACKED_MATERIAL_COMPUTE_WGSL } from "../../shaders/packed_material_compute.js";
+import { gpuShadingSurfaceNormalPipelineConstants } from "../../gpu/GpuComputeMaterialAbi.js";
+import {
+  PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
+  PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL
+} from "../../shaders/packed_material_compute.js";
 import {
   computeMaterialEvaluationFrame,
   materialTileClassificationFrame,
@@ -81,9 +84,12 @@ const LOOKUP_GROUP: GPUBindGroupLayoutDescriptor = {
   }))
 };
 
-const OUTPUT_GROUP: GPUBindGroupLayoutDescriptor = {
-  label: "ADR-0009 ComputeMaterial/output",
-  entries: [
+function outputGroup(velocity: boolean): GPUBindGroupLayoutDescriptor {
+  return {
+    label: velocity
+      ? "ADR-0009 ComputeMaterial/output+velocity"
+      : "ADR-0009 ComputeMaterial/output",
+    entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
     {
@@ -99,46 +105,58 @@ const OUTPUT_GROUP: GPUBindGroupLayoutDescriptor = {
     {
       binding: 4,
       visibility: GPUShaderStage.COMPUTE,
-      storageTexture: { access: "write-only", format: GPU_COMPUTE_MATERIAL_FORMATS.emissive }
+      storageTexture: { access: "write-only", format: GPU_COMPUTE_MATERIAL_FORMATS.material }
     },
-    {
+    ...(velocity ? [{
       binding: 5,
       visibility: GPUShaderStage.COMPUTE,
       storageTexture: {
-        access: "write-only",
-        format: GPU_COMPUTE_MATERIAL_FORMATS.pbrMetadataVelocity
+        access: "write-only" as GPUStorageTextureAccess,
+        format: GPU_COMPUTE_MATERIAL_FORMATS.velocity
       }
-    },
+    }] : []),
     {
       binding: 6,
       visibility: GPUShaderStage.COMPUTE,
       buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 16 }
     }
-  ]
-};
+    ]
+  };
+}
 
-const MODULE = {
-  label: "ADR-0009 visibility-driven material evaluation",
-  code: PACKED_MATERIAL_COMPUTE_WGSL
-} as const;
+const OUTPUT_GROUP_NO_VELOCITY = outputGroup(false);
+const OUTPUT_GROUP_WITH_VELOCITY = outputGroup(true);
 
-function pipeline(entryPoint: string): CachedComputePipelineDescriptor {
+function pipeline(
+  entryPoint: string,
+  velocity: boolean
+): CachedComputePipelineDescriptor {
+  const output = velocity ? OUTPUT_GROUP_WITH_VELOCITY : OUTPUT_GROUP_NO_VELOCITY;
   return {
-    label: `ADR-0009 ComputeMaterial/${entryPoint}`,
+    label: `ADR-0009 ComputeMaterial/${entryPoint}${velocity ? "/velocity" : ""}`,
     layout: {
-      label: "ADR-0009 ComputeMaterial/layout",
-      bindGroupLayouts: [INPUT_GROUP, LOOKUP_GROUP, OUTPUT_GROUP]
+      label: `ADR-0009 ComputeMaterial/layout${velocity ? "/velocity" : ""}`,
+      bindGroupLayouts: [INPUT_GROUP, LOOKUP_GROUP, output]
     },
     compute: {
-      module: MODULE,
+      module: {
+        label: `ADR-0009 visibility-driven material evaluation${
+          velocity ? "/velocity" : ""
+        }`,
+        code: velocity
+          ? PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL
+          : PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL
+      },
       entryPoint,
-      constants: gpuSurfaceNormalPipelineConstants()
+      constants: gpuShadingSurfaceNormalPipelineConstants()
     }
   };
 }
 
-const CLEAR = pipeline("clear_compute_material_outputs");
-const EVALUATE = pipeline("evaluate_compute_material_tiles");
+const CLEAR_NO_VELOCITY = pipeline("clear_compute_material_outputs", false);
+const EVALUATE_NO_VELOCITY = pipeline("evaluate_compute_material_tiles", false);
+const CLEAR_WITH_VELOCITY = pipeline("clear_compute_material_outputs", true);
+const EVALUATE_WITH_VELOCITY = pipeline("evaluate_compute_material_tiles", true);
 
 export interface ComputeMaterialResolveJob {
   readonly runtime: GpuRenderWorldRuntime;
@@ -211,8 +229,8 @@ export class ComputeMaterialResolvePass {
     const height = Math.max(1, job.height | 0);
     let normal = -1;
     let albedoAo = -1;
-    let emissive = -1;
-    let pbrMetadataVelocity = -1;
+    let material = -1;
+    let velocity = -1;
     let queues = -1;
     let pixelClaims = -1;
     const builder = graph.add(
@@ -264,21 +282,28 @@ export class ComputeMaterialResolvePass {
             { buffer: buffer(resources.get(inputs.visibility.meshletWork.records)) }
           ]
         });
+        const outputLayout = options.velocity
+          ? OUTPUT_GROUP_WITH_VELOCITY
+          : OUTPUT_GROUP_NO_VELOCITY;
         const group2 = this.graphics.bind_groups.obtain({
-          layout: OUTPUT_GROUP,
+          layout: outputLayout,
           entries: [
             { buffer: buffer(resources.get(queues)) },
             { buffer: buffer(resources.get(pixelClaims)) },
             texture(resources.get(normal)),
             texture(resources.get(albedoAo)),
-            texture(resources.get(emissive)),
-            texture(resources.get(pbrMetadataVelocity)),
+            texture(resources.get(material)),
+            ...(options.velocity ? [texture(resources.get(velocity))] : []),
             { buffer: this.dispatchClassBuffer, size: 16 }
           ]
         });
 
-        const clear = command.beginComputePass({ label: CLEAR.label });
-        clear.setPipeline(this.graphics.compute_pipelines.obtain(CLEAR));
+        const clearPipeline = options.velocity ? CLEAR_WITH_VELOCITY : CLEAR_NO_VELOCITY;
+        const evaluatePipeline = options.velocity
+          ? EVALUATE_WITH_VELOCITY
+          : EVALUATE_NO_VELOCITY;
+        const clear = command.beginComputePass({ label: clearPipeline.label });
+        clear.setPipeline(this.graphics.compute_pipelines.obtain(clearPipeline));
         clear.setBindGroup(0, fallbackGroup0);
         clear.setBindGroup(1, group1);
         clear.setBindGroup(2, group2, [0]);
@@ -289,7 +314,7 @@ export class ComputeMaterialResolvePass {
         const evaluate = command.beginComputePass({
           label: "ADR-0009 ComputeMaterial/bounded indirect classes"
         });
-        evaluate.setPipeline(this.graphics.compute_pipelines.obtain(EVALUATE));
+        evaluate.setPipeline(this.graphics.compute_pipelines.obtain(evaluatePipeline));
         evaluate.setBindGroup(1, group1);
         for (let dispatchClass = 0;
           dispatchClass < GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT;
@@ -317,18 +342,20 @@ export class ComputeMaterialResolvePass {
     albedoAo = builder.create("compute-material/albedo-ao", textureDescriptor(
       width, height, GPU_COMPUTE_MATERIAL_FORMATS.albedoAo, usage
     ));
-    emissive = builder.create("compute-material/emissive", textureDescriptor(
-      width, height, GPU_COMPUTE_MATERIAL_FORMATS.emissive, usage
+    material = builder.create("surface-lite/material", textureDescriptor(
+      width, height, GPU_COMPUTE_MATERIAL_FORMATS.material, usage
     ));
-    pbrMetadataVelocity = builder.create(
-      "compute-material/pbr-metadata-velocity",
-      textureDescriptor(
-        width,
-        height,
-        GPU_COMPUTE_MATERIAL_FORMATS.pbrMetadataVelocity,
-        usage
-      )
-    );
+    if (options.velocity) {
+      velocity = builder.create(
+        "surface-lite/velocity",
+        textureDescriptor(
+          width,
+          height,
+          GPU_COMPUTE_MATERIAL_FORMATS.velocity,
+          usage
+        )
+      );
+    }
     queues = builder.write(inputs.classification.queues);
     pixelClaims = builder.write(inputs.classification.pixelClaims);
     builder.read(inputs.classification.indirectArgs);
@@ -341,8 +368,8 @@ export class ComputeMaterialResolvePass {
         abiVersion: GPU_COMPUTE_MATERIAL_ABI_VERSION,
         normal,
         albedoAo,
-        emissive,
-        pbrMetadataVelocity,
+        material,
+        velocity: options.velocity ? velocity : null,
         fullMaterialEvaluationCountSource: "pixel-claims",
         domain: textureDomain("internal-full", width, height, 1)
       }),

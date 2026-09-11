@@ -9,10 +9,9 @@ import { GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
-import {
-  GPU_SURFACE_ABI_WGSL,
-  GPU_SURFACE_FORMATS
-} from "../gpu/GpuSurfaceAbi.js";
+import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
+import { GPU_HDR_FORMAT } from "../gpu/GpuHdrAbi.js";
+import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import {
   GPU_VISIBILITY_DEBUG_COLORS,
   GPU_VISIBILITY_DEBUG_STATUS_WGSL
@@ -77,7 +76,7 @@ ${SSR_FULLSCREEN_VERTEX_WGSL}
 `;
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 
-export const RENDER_DEBUG_VIEW_FORMAT = GPU_SURFACE_FORMATS.hdrColor;
+export const RENDER_DEBUG_VIEW_FORMAT = GPU_HDR_FORMAT;
 
 const DEBUG_VIEW_SETTINGS_WGSL = /* wgsl */ `
 struct DebugViewSettings {
@@ -145,12 +144,13 @@ const SURFACE_DEBUG_COMMON_WGSL = /* wgsl */ `
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${DEBUG_VIEW_SETTINGS_WGSL}
 ${DEBUG_VIEW_COORDINATE_WGSL}
-${GPU_SURFACE_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
+${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 `;
 
 export const SURFACE_COLOR_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
-@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(0) var source: texture_2d<u32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;
 @group(0) @binding(2) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
@@ -204,7 +204,11 @@ struct SurfaceDebugMode { value: vec4u, }
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
   let pbr = textureLoad(source, coordinate, 0);
-  let value = select(pbr.x, pbr.y, mode.value.x == 1u);
+  let value = select(
+    oengine_surface_lite_metallic(pbr),
+    oengine_surface_lite_roughness(pbr),
+    mode.value.x == 1u
+  );
   return vec4f(vec3f(value), 1.0);
 }
 `;
@@ -242,7 +246,7 @@ ${GBUFFER_ENCODE_WGSL}
   if (settings.contract.x == 0u && !oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID)) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
-  return vec4f(rgbe9995_decode(textureLoad(source, coordinate, 0).r), 1.0);
+  return vec4f(rgbe9995_decode(textureLoad(source, coordinate, 0).g), 1.0);
 }
 `;
 
@@ -293,7 +297,7 @@ struct R4DebugResolveSettings {
   instance_record_count: u32,
   geometry_record_count: u32,
   material_capacity: u32,
-  _pad0: u32,
+  debug_mode: u32,
   _pad1: u32,
 }
 
@@ -412,12 +416,17 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
     return fail(OENGINE_VIS_DEBUG_BLEND_MATERIAL);
   }
 
-  let identity_hash = avalanche_hash(
+  let full_identity_hash = avalanche_hash(
     meshlet_work_slot ^
     avalanche_hash(work.instance_slot + 0x9e3779b9u) ^
     avalanche_hash(work.meshlet_slot + decoded.local_primitive * 0x85ebca6bu) ^
     avalanche_hash(instance.debug_id + work.geometry_slot * 0xc2b2ae35u) ^
     avalanche_hash(work.material_slot_or_range)
+  );
+  let identity_hash = select(
+    full_identity_hash,
+    avalanche_hash(work.material_slot_or_range),
+    settings.debug_mode == 1u
   );
   var color = 0.15 + vec3f(
     f32(identity_hash & 255u),
@@ -459,7 +468,7 @@ ${SSR_FULLSCREEN_VERTEX_WGSL}
 const PI: f32 = 3.141592653589793;
 
 ${DEBUG_VIEW_SETTINGS_WGSL}
-${GPU_SURFACE_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
 
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;

@@ -1,10 +1,10 @@
-import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { TEMPORAL_DISOCCLUSION_REJECT_THRESHOLD } from "../render/TemporalResolveContract.js";
 
 export const TEMPORAL_CLASSIFICATION_FORMAT = "rg8unorm" as const;
 
 export const TEMPORAL_CLASSIFICATION_WGSL = /* wgsl */ `
-${GPU_SURFACE_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
 struct ClassificationSettings {
   metadata_available: u32,
   transparency_available: u32,

@@ -5,7 +5,7 @@
 import { ArrayType, WGSL_mat4x4f, WGSL_vec4f } from "../core/WebGPUTypes.js";
 import { StructType } from "../core/WgslStruct.js";
 import { LIGHT_PROBE_RECORD_WGSL } from "../gpu/LightProbeRecord.js";
-import { GPU_SURFACE_NORMAL_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import { GPU_SHADING_SURFACE_NORMAL_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const LPV_CAMERA_TYPE = StructType.from(
   {
@@ -28,7 +28,7 @@ export const LPV_INDIRECT_DIFFUSE_FORMAT = "rgba16float" as const;
 export const LPV_INDIRECT_DIFFUSE_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
 ${LIGHT_PROBE_RECORD_WGSL}
-${GPU_SURFACE_NORMAL_ABI_WGSL}
+${GPU_SHADING_SURFACE_NORMAL_WGSL}
 
 const BVH_NULL_NODE: u32 = 0xffffffffu;
 const INVALID_TET: u32 = 1073741823u;

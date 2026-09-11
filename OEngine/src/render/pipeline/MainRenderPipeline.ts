@@ -5,11 +5,12 @@ import { Vec2 } from "../../core/math/Vec2.js";
 import { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { GPU_MESHLET_RASTER_WORK_ABI_VERSION } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBILITY_KEY_ABI_VERSION } from "../../gpu/GpuVisibilityKeyAbi.js";
+import { GPU_COMPUTE_MATERIAL_ABI_VERSION } from "../../gpu/GpuComputeMaterialAbi.js";
+import { GPU_HDR_BYTES_PER_PIXEL } from "../../gpu/GpuHdrAbi.js";
 import {
-  GPU_SURFACE_ABI_VERSION,
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
 import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
@@ -137,7 +138,10 @@ import {
   type RenderSettingsPatch,
   type RenderSettingsValues
 } from "./RenderSettings.js";
-import type { VisibilityFrame } from "./FrameProducts.js";
+import {
+  preExposedOpaqueHdrBaselineFrame,
+  type VisibilityFrame
+} from "./FrameProducts.js";
 import {
   createRendererFramePlan,
   type FramePlanDump
@@ -432,7 +436,7 @@ export class MainRenderPipeline {
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _capabilities: RendererCapabilities | null = null;
   private readonly _rendererConfig: RendererConfig;
-  private readonly _surfaceAbiProfile: GpuSurfaceAbiProfile;
+  private readonly _surfaceLiteProfile: GpuShadingSurfaceLiteProfile;
   private _lastFrameContract: RenderFrameContract | null = null;
   private readonly _profiler = new FrameProfiler();
   private _graphics!: GraphicsContext;
@@ -546,7 +550,7 @@ export class MainRenderPipeline {
   constructor(config: RendererConfig = {}) {
     this._rendererConfig = mergeRendererConfig(DEFAULT_RENDERER_CONFIG, config);
     validateRendererConfig(this._rendererConfig);
-    this._surfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE;
+    this._surfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE;
     this._renderSettings.update(rendererConfigSettingsPatch(this._rendererConfig));
     this._temporalFeature.dynamicResolution.get_scale = () => this.internal_resolution_scale;
     this._temporalFeature.dynamicResolution.set_scale = (scale) => {
@@ -996,7 +1000,7 @@ export class MainRenderPipeline {
       schemaVersion: 2,
       visibilityKeyAbiVersion: GPU_VISIBILITY_KEY_ABI_VERSION,
       meshletRasterWorkAbiVersion: GPU_MESHLET_RASTER_WORK_ABI_VERSION,
-      surfaceAbiVersion: this._surfaceAbiProfile.version,
+      surfaceAbiVersion: GPU_COMPUTE_MATERIAL_ABI_VERSION,
       materialResolveBackend: this._surfaceFeature?.materialResolveBackend ?? "uninitialized",
       materialResolveBackendSelection: Object.freeze({
         source: "adr-0009-step2-cutover",
@@ -1865,11 +1869,10 @@ export class MainRenderPipeline {
             "materialTileFrameInvalid"
           ]);
         }
-        const surface = packedResolveOut.surface;
-        const gPbrRes = surface.pbr;
-        const gNormalRes = surface.normal;
-        const gAlbedoRes = surface.albedoAo;
-        const gEmissiveRes = surface.emissive;
+        const gPbrRes = packedResolveOut.shading.roughnessFlags;
+        const gNormalRes = packedResolveOut.shading.normal;
+        const gAlbedoRes = packedResolveOut.evaluation.albedoAo;
+        const gEmissiveRes = packedResolveOut.evaluation.material;
         let materialTileDiagnosticControlRes =
           packedResolveOut.tileClassification.control;
 
@@ -1897,7 +1900,7 @@ export class MainRenderPipeline {
         }
 
         if (needsOcclusionConfidence && occlusionConfidenceRes !== null) {
-          const opaqueMetadataRes = packedResolveOut.surfaceFlags;
+          const opaqueMetadataRes = packedResolveOut.shading.roughnessFlags;
           const opaqueValidity = this._temporalFeature.addClassificationToGraph(
             graph,
             bind("opaque-temporal-classification-job", (bindings) => ({
@@ -1945,7 +1948,7 @@ export class MainRenderPipeline {
           if (packedResolveOut !== null && gpuCounterRes !== null) {
             gpuCounterRes = this._packedSurfaceCounters.addToGraph(
               graph, w, h,
-              { surfaceFlags: packedResolveOut.surfaceFlags, pbr: gPbrRes,
+              { surfaceFlags: packedResolveOut.shading.roughnessFlags, pbr: gPbrRes,
                 environment: environmentRes, counters: gpuCounterRes }
             );
             this._profiler.registerGpuCounterFields([
@@ -1979,7 +1982,7 @@ export class MainRenderPipeline {
               };
             }),
             {
-              surface,
+              material: packedResolveOut.evaluation,
               visibility: packedVisibilityFrame,
               classification: packedResolveOut.tileClassification,
               depth: depthRes,
@@ -2136,9 +2139,10 @@ export class MainRenderPipeline {
             pbr: gPbrRes,
             environment: environmentRes,
             diffuseIrradiance: diffuseIrradianceRes,
+            reflectionCorrectionExpected: graphTopology.ssr,
             splitSum: splitSumRes,
             camera: currentCameraRes,
-            metadata: packedResolveOut.surfaceFlags,
+            metadata: packedResolveOut.shading.roughnessFlags,
             ambientVisibility: ambientVisibilityRes === null
               ? undefined
               : ambientVisibilityRes
@@ -2147,12 +2151,20 @@ export class MainRenderPipeline {
           const baselineSpecularRes = opaqueLighting.indirectSpecular!;
           indirectDiffuseDebugRes = opaqueLighting.indirectDiffuse;
           indirectSpecularDebugRes = baselineSpecularRes;
-          hdrRes = opaqueLighting.hdr;
+          const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
+            hdr: opaqueLighting.hdr,
+            baselineSpecular: graphTopology.ssr ? baselineSpecularRes : null,
+            stage: "post-screen-space-diffuse-pre-ssr",
+            reflectionCorrectionExpected: graphTopology.ssr,
+            preExposure: frameContext.preExposure,
+            domain: packedResolveOut.shading.domain
+          });
+          hdrRes = opaqueBaseline.hdr;
 
           if (graphTopology.ssr) {
             // 固定本次 SSR 的 opaque HDR 输入，避免后续 correction 写回 hdrRes
             // 后 TypeScript 无法证明 trace/resolve 读取的是同一版本。
-            const completeOpaqueHdr = hdrRes;
+            const completeOpaqueHdr = opaqueBaseline.hdr;
             const blueNoise = this._graphics.textures.obtain(
               STATIC_GRAPHICS_ENGINE_ASSETS.stbn_vec2
             );
@@ -2216,11 +2228,11 @@ export class MainRenderPipeline {
               albedoAo: gAlbedoRes,
               pbr: gPbrRes,
               splitSum: splitSumRes,
-              baselineSpecular: baselineSpecularRes,
+              baselineSpecular: opaqueBaseline.baselineSpecular!,
               resolvedSpecular: ssr.denoised,
               ambientVisibility: ambientVisibilityRes ?? undefined,
               camera: currentCameraRes,
-              metadata: packedResolveOut.surfaceFlags
+              metadata: packedResolveOut.shading.roughnessFlags
             });
             indirectSpecularDebugRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
@@ -2276,11 +2288,22 @@ export class MainRenderPipeline {
             camera: currentCameraRes,
             lightMap: lightMapRes,
             ambientVisibility: ambientVisibilityRes ?? undefined,
-            metadata: packedResolveOut.surfaceFlags,
+            metadata: packedResolveOut.shading.roughnessFlags,
             extent: { width: w, height: h },
-            fused: this.fused_indirect && !graphTopology.ssr
+            reflectionCorrectionExpected: graphTopology.ssr,
+            fused: !graphTopology.ssr
           });
-          hdrRes = lightmap.hdr;
+          const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
+            hdr: lightmap.hdr,
+            baselineSpecular: graphTopology.ssr
+              ? lightmap.indirectSpecular
+              : null,
+            stage: "post-screen-space-diffuse-pre-ssr",
+            reflectionCorrectionExpected: graphTopology.ssr,
+            preExposure: frameContext.preExposure,
+            domain: packedResolveOut.shading.domain
+          });
+          hdrRes = opaqueBaseline.hdr;
 
           if (
             graphTopology.ssr &&
@@ -2345,11 +2368,11 @@ export class MainRenderPipeline {
               albedoAo: gAlbedoRes,
               pbr: gPbrRes,
               splitSum: splitSumRes,
-              baselineSpecular: lightmap.indirectSpecular,
+              baselineSpecular: opaqueBaseline.baselineSpecular!,
               resolvedSpecular: ssr.denoised,
               ambientVisibility: ambientVisibilityRes ?? undefined,
               camera: currentCameraRes,
-              metadata: packedResolveOut.surfaceFlags
+              metadata: packedResolveOut.shading.roughnessFlags
             });
             indirectSpecularDebugRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
@@ -2427,7 +2450,7 @@ export class MainRenderPipeline {
             environment: environmentRes,
             camera: currentCameraRes,
             ambientVisibility: ambientVisibilityRes ?? undefined,
-            metadata: packedResolveOut.surfaceFlags,
+            metadata: packedResolveOut.shading.roughnessFlags,
             atlasRadiance: atlasRadianceRes,
             atlasDepth: atlasDepthRes,
             meshBvh: lpvMeshBvhRes,
@@ -2435,6 +2458,7 @@ export class MainRenderPipeline {
             tetrahedra: lpvTetraRes,
             probes: lpvProbesRes,
             extent: { width: w, height: h },
+            reflectionCorrectionExpected: graphTopology.ssr,
             job: bind("lpv-indirect-diffuse-job", (bindings) => ({
               camera: bindings.camera,
               samplers: this._graphics.samplers,
@@ -2442,8 +2466,16 @@ export class MainRenderPipeline {
               height: bindings.internalHeight
             }))
           });
-          hdrRes = probeVolume.hdr;
           const baselineSpecularRes = probeVolume.indirectSpecular!;
+          const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
+            hdr: probeVolume.hdr,
+            baselineSpecular: graphTopology.ssr ? baselineSpecularRes : null,
+            stage: "post-screen-space-diffuse-pre-ssr",
+            reflectionCorrectionExpected: graphTopology.ssr,
+            preExposure: frameContext.preExposure,
+            domain: packedResolveOut.shading.domain
+          });
+          hdrRes = opaqueBaseline.hdr;
 
           if (
             graphTopology.ssr &&
@@ -2522,11 +2554,11 @@ export class MainRenderPipeline {
               albedoAo: gAlbedoRes,
               pbr: gPbrRes,
               splitSum: splitSumRes,
-              baselineSpecular: baselineSpecularRes,
+              baselineSpecular: opaqueBaseline.baselineSpecular!,
               resolvedSpecular: ssr.denoised,
               ambientVisibility: ambientVisibilityRes ?? undefined,
               camera: currentCameraRes,
-              metadata: packedResolveOut.surfaceFlags
+              metadata: packedResolveOut.shading.roughnessFlags
             });
             indirectSpecularDebugRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
@@ -2644,7 +2676,7 @@ export class MainRenderPipeline {
           velocityRes !== null &&
           occlusionConfidenceRes !== null
         ) {
-          const metadataRes = packedResolveOut.surfaceFlags;
+          const metadataRes = packedResolveOut.shading.roughnessFlags;
           const classification = this._temporalFeature.addClassificationToGraph(
             graph,
             bind("temporal-classification-job", (bindings) => ({
@@ -2883,7 +2915,7 @@ export class MainRenderPipeline {
         if (graphTopology.debug) {
           this._renderDebug ??= new RenderDebugViewPass(
             this._graphics,
-            this._surfaceAbiProfile
+            this._surfaceLiteProfile
           );
           const linearHdrDebugRes = hdrRes;
           hdrRes = this._renderDebug.addToGraph(
@@ -2898,7 +2930,7 @@ export class MainRenderPipeline {
               gNormal: gNormalRes,
               gAlbedo: gAlbedoRes,
               gEmissive: gEmissiveRes,
-              surfaceFlags: packedResolveOut.surfaceFlags,
+              surfaceFlags: packedResolveOut.shading.roughnessFlags,
               indirectDiffuse: indirectDiffuseDebugRes,
               indirectSpecular: indirectSpecularDebugRes,
               linearHdr: linearHdrDebugRes,
@@ -3217,13 +3249,10 @@ export class MainRenderPipeline {
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
     this._transparencyFeature ??= new TransparencyFeature(this._graphics);
-    this._surfaceFeature ??= new SurfaceFeature(
-      this._graphics,
-      this._surfaceAbiProfile
-    );
+    this._surfaceFeature ??= new SurfaceFeature(this._graphics);
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
-    this._lightingFeature ??= new LightingFeature(this._graphics, this._surfaceAbiProfile);
-    this._giService ??= new GIService(this._graphics, this._surfaceAbiProfile);
+    this._lightingFeature ??= new LightingFeature(this._graphics, this._surfaceLiteProfile);
+    this._giService ??= new GIService(this._graphics, this._surfaceLiteProfile);
     const needsOcclusionConfidence =
       topology.screenSpaceDiffuseTemporal || topology.ssr || topology.temporal;
     if (needsOcclusionConfidence) {
@@ -3240,7 +3269,7 @@ export class MainRenderPipeline {
           this._graphics,
           topology.screenSpaceDiffuseTemporal,
           topology.screenSpaceDiffuseHalfResolution ? 0.5 : 1,
-          this._surfaceAbiProfile
+          this._surfaceLiteProfile
         );
         this._gtaoOwnerGeneration++;
         this._gtaoConfigurationKey = configurationKey;
@@ -3258,7 +3287,7 @@ export class MainRenderPipeline {
           this._graphics,
           topology.ssrTemporal,
           topology.ssrHalfResolution ? 0.5 : 1,
-          this._surfaceAbiProfile
+          this._surfaceLiteProfile
         );
         this._ssrOwnerGeneration++;
         this._ssrConfigurationKey = configurationKey;
@@ -3544,6 +3573,13 @@ export class MainRenderPipeline {
     profiler.recordCounter(
       "lighting.localLightCount",
       this._lightingFeature.lastLocalLightCount
+    );
+    profiler.recordCounter("lighting.hdrBytesPerPixel", GPU_HDR_BYTES_PER_PIXEL);
+    profiler.recordCounter(
+      "lighting.baselineSpecularResources",
+      this._lastMainGraphEvidence?.dump.resources.filter(
+        (resource) => resource.name === "pre-exposed-baseline-specular"
+      ).length ?? 0
     );
     profiler.recordCounter("lighting.environment.specularAllocatedBytes", environment.specularAllocatedBytes);
     profiler.recordCounter("lighting.environment.diffuseAllocatedBytes", environment.diffuseAllocatedBytes);

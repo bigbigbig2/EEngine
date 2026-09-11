@@ -5,17 +5,10 @@
 import { GPUTextureContext } from "../gpu/GPUTextureContext.js";
 import { gd, id } from "../gpu/GPUTextureDescriptors.js";
 import type { GPUTextureManager } from "../gpu/GPUTextureManager.js";
-import { GPU_SURFACE_FORMATS } from "../gpu/GpuSurfaceAbi.js";
+import { GPU_HDR_FORMAT } from "../gpu/GpuHdrAbi.js";
+export const VIS_DEPTH_FORMAT: GPUTextureFormat = "depth32float";
 
-export const VIS_DEPTH_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.depth;
-
-export const GBUF_PBR_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.pbr;
-export const GBUF_NORMAL_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.normal;
-export const GBUF_ALBEDO_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.albedoAo;
-export const GBUF_EMISSIVE_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.emissive;
-export const MATERIAL_DEPTH_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.depth;
-
-export const HDR_COLOR_FORMAT: GPUTextureFormat = GPU_SURFACE_FORMATS.hdrColor;
+export const HDR_COLOR_FORMAT: GPUTextureFormat = GPU_HDR_FORMAT;
 
 export type RenderTargetImportBundle = {
   depth: GPUTextureContext;

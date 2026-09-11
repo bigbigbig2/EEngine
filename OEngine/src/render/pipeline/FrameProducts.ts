@@ -7,7 +7,6 @@ import {
   GPU_MATERIAL_TILE_WORK_ABI_VERSION
 } from "../../gpu/GpuMaterialTileWorkAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_VERSION } from "../../gpu/GpuComputeMaterialAbi.js";
-import { GPU_SURFACE_ABI_VERSION } from "../../gpu/GpuSurfaceAbi.js";
 
 export type ResolutionDomain = FrameGraphResourceDomain;
 
@@ -74,16 +73,16 @@ export interface MaterialTileClassificationFrame {
 }
 
 /**
- * Transitional physical product of the visibility-driven material evaluator.
- * It is authoritative for material evaluation during Step 2; the Surface V1
- * bridge may only unpack these values and must not sample material textures.
+ * ADR-0009 compact physical working set produced by the only full-material
+ * evaluator. Consumers bind these named products directly; attachment order
+ * and the deleted Surface V1 ABI are not part of the contract.
  */
 export interface ComputeMaterialEvaluationFrame {
   readonly abiVersion: number;
   readonly normal: ResourceId;
   readonly albedoAo: ResourceId;
-  readonly emissive: ResourceId;
-  readonly pbrMetadataVelocity: ResourceId;
+  readonly material: ResourceId;
+  readonly velocity: ResourceId | null;
   readonly fullMaterialEvaluationCountSource: "pixel-claims";
   readonly domain: TextureDomain<"internal-full">;
 }
@@ -109,22 +108,6 @@ export function requireDomain(
   if (producer.domain === expected) return;
   if (conversionOwner !== undefined && conversionOwner.length > 0) return;
   throw new Error(`Resolution domain mismatch: received ${producer.domain}, expected ${expected}; declare a conversion owner`);
-}
-
-export interface SurfaceFrame {
-  /** Explicit Surface ABI version; consumers must not infer semantics from attachment order. */
-  readonly abiVersion: number;
-  /** 深度由 Visibility producer 提供；Material Resolve 单独不能拥有它。 */
-  readonly depth: ResourceId | null;
-  readonly pbr: ResourceId;
-  readonly normal: ResourceId;
-  readonly albedoAo: ResourceId;
-  readonly emissive: ResourceId;
-  /** 未启用时域功能时可以没有 velocity；消费者必须显式声明需要它。 */
-  readonly velocity: ResourceId | null;
-  /** Unified Surface metadata is mandatory for every production consumer. */
-  readonly metadata: ResourceId;
-  readonly domain: TextureDomain<"internal-full">;
 }
 
 /** 完整不透明 HDR 的统一产品；具体 GI/反射算法不得泄漏到消费者。 */
@@ -428,11 +411,11 @@ export function computeMaterialEvaluationFrame(
   for (const name of [
     "normal",
     "albedoAo",
-    "emissive",
-    "pbrMetadataVelocity"
+    "material"
   ] as const) {
     requireRequiredResourceId(input[name], `ComputeMaterialEvaluationFrame.${name}`);
   }
+  requireResourceId(input.velocity, "ComputeMaterialEvaluationFrame.velocity");
   if (input.fullMaterialEvaluationCountSource !== "pixel-claims") {
     throw new Error(
       "ComputeMaterialEvaluationFrame count source must be pixel-claims"
@@ -442,39 +425,6 @@ export function computeMaterialEvaluationFrame(
     ...input,
     domain: requireInternalFullDomain(input.domain, "ComputeMaterialEvaluationFrame")
   });
-}
-
-/** 从 producer 输出创建不可变 Surface 产品，禁止 Renderer 重新解释 attachment 顺序。 */
-export function surfaceFrame(
-  input: SurfaceFrame,
-  expectedAbiVersion = GPU_SURFACE_ABI_VERSION
-): SurfaceFrame {
-  requireSurfaceAbiVersion(input, expectedAbiVersion);
-  for (const [name, value] of Object.entries(input)) {
-    if (name === "domain" || name === "abiVersion") continue;
-    requireResourceId(value as ResourceId | null, `SurfaceFrame.${name}`);
-  }
-  return Object.freeze({
-    ...input,
-    domain: textureDomain(
-      input.domain.domain,
-      input.domain.width,
-      input.domain.height,
-      input.domain.scale
-    )
-  });
-}
-
-/** Consumer-side ABI seam; v2 consumers must opt in explicitly in one commit. */
-export function requireSurfaceAbiVersion(
-  input: Pick<SurfaceFrame, "abiVersion">,
-  expected = GPU_SURFACE_ABI_VERSION
-): void {
-  if (input.abiVersion !== expected) {
-    throw new Error(
-      `SurfaceFrame ABI version ${input.abiVersion} is incompatible with expected ${expected}`
-    );
-  }
 }
 
 /** 创建统一的 Opaque HDR 产品，并在 composition seam 处验证 internal-full 域。 */

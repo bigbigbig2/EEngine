@@ -2,6 +2,7 @@ import {
   GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT,
   GPU_MATERIAL_TILE_WORK_WGSL
 } from "../gpu/GpuMaterialTileWorkAbi.js";
+import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import {
   PACKED_MATERIAL_SHARED_WGSL,
   PACKED_MATERIAL_TEXTURE_SAMPLING_WGSL
@@ -13,13 +14,25 @@ import {
  * The material expressions intentionally mirror the legacy fragment producer,
  * but reconstruction, perspective-correct gradients, textureGrad sampling and
  * output ownership are compute-native. Lighting composition remains a later
- * stage of the same ShadeLighting semantic while consumers migrate from
- * Surface V1.
+ * stage of the same ShadeLighting semantic and consumes the same compact
+ * working-set contract.
  */
-export const PACKED_MATERIAL_COMPUTE_WGSL = /* wgsl */ `
+function packedMaterialComputeWgsl(velocityOutput: boolean): string {
+  const velocityDeclaration = velocityOutput
+    ? `@group(2) @binding(5) var compute_velocity_output:
+  texture_storage_2d<rg16float, write>;`
+    : "";
+  const clearVelocity = velocityOutput
+    ? "textureStore(compute_velocity_output, vec2i(pixel), vec4f(0.0));"
+    : "";
+  const storeVelocity = velocityOutput
+    ? "textureStore(compute_velocity_output, vec2i(pixel), vec4f(velocity, 0.0, 0.0));"
+    : "";
+  return /* wgsl */ `
 ${PACKED_MATERIAL_SHARED_WGSL}
 ${PACKED_MATERIAL_TEXTURE_SAMPLING_WGSL}
 ${GPU_MATERIAL_TILE_WORK_WGSL}
+${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 
 const COMPUTE_TILE_WIDTH: u32 = 8u;
 const COMPUTE_TILE_HEIGHT: u32 = 8u;
@@ -42,9 +55,8 @@ struct ComputeMaterialSettings {
 @group(2) @binding(1) var<storage, read_write> compute_pixel_claims: array<atomic<u32>>;
 @group(2) @binding(2) var compute_normal_output: texture_storage_2d<rgba16uint, write>;
 @group(2) @binding(3) var compute_albedo_ao_output: texture_storage_2d<rgba8unorm, write>;
-@group(2) @binding(4) var compute_emissive_output: texture_storage_2d<r32uint, write>;
-@group(2) @binding(5) var compute_pbr_metadata_velocity_output:
-  texture_storage_2d<rgba32uint, write>;
+@group(2) @binding(4) var compute_material_output: texture_storage_2d<rg32uint, write>;
+${velocityDeclaration}
 @group(2) @binding(6) var<uniform> compute_settings: ComputeMaterialSettings;
 
 fn compute_tile_count() -> u32 {
@@ -75,8 +87,8 @@ fn clear_compute_material_outputs(@builtin(global_invocation_id) global_id: vec3
   if any(pixel >= vec2u(view.width, view.height)) { return; }
   textureStore(compute_normal_output, vec2i(pixel), vec4u(0u));
   textureStore(compute_albedo_ao_output, vec2i(pixel), vec4f(0.0));
-  textureStore(compute_emissive_output, vec2i(pixel), vec4u(0u));
-  textureStore(compute_pbr_metadata_velocity_output, vec2i(pixel), vec4u(0u));
+  textureStore(compute_material_output, vec2i(pixel), vec4u(0u));
+  ${clearVelocity}
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -394,15 +406,28 @@ fn evaluate_compute_material_tiles(
     surface_flags |= OENGINE_SURFACE_FLAG_REACTIVE;
   }
 
-  let metadata = oengine_surface_pack(work.material_slot_or_range, surface_flags);
   textureStore(compute_normal_output, vec2i(pixel), output_normal);
   textureStore(compute_albedo_ao_output, vec2i(pixel), output_albedo);
-  textureStore(compute_emissive_output, vec2i(pixel), vec4u(output_emissive, 0u, 0u, 0u));
   textureStore(
-    compute_pbr_metadata_velocity_output,
+    compute_material_output,
     vec2i(pixel),
-    vec4u(pack2x16unorm(pbr), metadata, pack2x16float(velocity), 0u)
+    vec4u(
+      oengine_surface_lite_pack_material(pbr.x, pbr.y, surface_flags),
+      output_emissive,
+      0u,
+      0u
+    )
   );
+  ${storeVelocity}
   atomicAdd(&compute_pixel_claims[pixel.y * view.width + pixel.x], 1u);
 }
 `;
+}
+
+/** Material evaluation module whose static interface omits velocity entirely. */
+export const PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL =
+  packedMaterialComputeWgsl(false);
+
+/** Material evaluation module that publishes the conditional Velocity product. */
+export const PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL =
+  packedMaterialComputeWgsl(true);

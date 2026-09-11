@@ -2,16 +2,16 @@
 
 ## SHADE-SURFACE · Surface and material reconstruction
 
-- Local owner/source: `GpuSurfaceAbi.ts`、`PackedMaterialResolvePass.ts`、`packed_material_resolve.ts`、velocity/debug owners。
+- Local owner/source: `GpuComputeMaterialAbi.ts`、`GpuHdrAbi.ts`、`PackedMaterialResolvePass.ts`、`packed_material_compute.ts`、velocity/debug owners。
 - Upstream: OEngine VisibilityKey/Material records；Filmic Worlds deferred attribute interpolation reference。
 - Revision: local ABI follows source version；external paper/reference has no copied source revision。
 - Upstream source: <https://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/>。
 - License: mathematical/reference use only；no expressive external source copied。
 - Adoption: independent implementation of reconstruction invariants。
 - Retained invariants: one visible-pixel resolve、barycentric interpolation、analytic gradients、material decode、normal/tangent frame、current-minus-previous internal-pixel velocity。
-- OEngine/WebGPU differences: OEngine attachment formats、metadata bits and resource domains；legacy Scene can still produce Surface without metadata。
+- OEngine/WebGPU differences: production ABI is the named compact 20 B/pixel working set plus consumer-driven 4 B velocity；metadata/PBR/emissive share `rg32uint`，MaterialId debug dereferences VisibilityKey/MeshletWork instead of storing a per-pixel slot；there is no Surface V1 conversion attachment or legacy Scene Surface producer。
 - Fallback/lifecycle: invalid key/material rejects visibly；singular previous transform invalidates motion instead of emitting non-finite velocity。
-- Local validation: Surface ABI、packed material resolve、velocity、debug view and counter tests。
+- Local validation: compact ABI pack/unpack、static velocity-off/on shader interfaces、packed material resolve、debug view/counters、full Surface Chrome fixture and Rendering Lab base/full profiles。
 
 ## SHADE-TEXTURE-RESIDENCY · Bounded TextureRef size-class banks
 
@@ -36,7 +36,7 @@
 - License: Filament/Khronos Apache-2.0；clustered-lighting paper is reference only。
 - Adoption: mathematical/numeric authority; OEngine-authored WGSL and resource ownership。
 - Retained invariants: metallic/roughness PBR、working-linear HDR、GGX、split-sum LUT、separate specular radiance/diffuse irradiance、bounded screen/depth light clusters。
-- OEngine/WebGPU differences: octahedral environment resources and paged LightDatabase；不采用 native descriptors、renderer/thread/allocator ownership。
+- OEngine/WebGPU differences: octahedral environment resources and paged LightDatabase；IBL/Probe Volume 以 OEngine-authored fused baseline pass 合成 diffuse、energy compensation、environment specular 与 bent-normal occlusion，SSR consumer 存在时才启用第二个 baseline-specular MRT；不采用 native descriptors、renderer/thread/allocator ownership。
 - Fallback/lifecycle: unavailable environment uses declared baseline；cluster overflow is counted；disabled lighting resources are pruned where allowed。
 - Local validation: BRDF/IBL numerical tests、cluster list/counter tests、Rendering Lab lighting/debug views。
 

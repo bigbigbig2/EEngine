@@ -1,16 +1,18 @@
 import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
-import { GPU_SURFACE_ABI_WGSL } from "../gpu/GpuSurfaceAbi.js";
+import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
+import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const SPECULAR_CORRECTION_WGSL = /* wgsl */ `
 ${LPV_CAMERA_TYPE.wgsl_declaration}
-${GPU_SURFACE_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
+${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 
 const MIN_DIELECTRICS_F0: f32 = 0.04;
 
 @group(0) @binding(0) var normal_source: texture_2d<u32>;
 @group(0) @binding(1) var bent_normal_source: texture_2d<u32>;
 @group(0) @binding(2) var albedo_ao_source: texture_2d<f32>;
-@group(0) @binding(3) var pbr_source: texture_2d<f32>;
+@group(0) @binding(3) var pbr_source: texture_2d<u32>;
 @group(0) @binding(4) var depth_source: texture_2d<f32>;
 @group(0) @binding(5) var surface_metadata: texture_2d<u32>;
 
@@ -90,8 +92,8 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
 fn correction(pixel: vec2i, uv: vec2f, ambient_visibility: f32) -> vec4f {
   let pbr = textureLoad(pbr_source, pixel, 0);
   let albedo_ao = textureLoad(albedo_ao_source, pixel, 0);
-  let metalness = pbr.x;
-  let roughness = max(pbr.y, 0.02);
+  let metalness = oengine_surface_lite_metallic(pbr);
+  let roughness = max(oengine_surface_lite_roughness(pbr), 0.02);
   let normal = oct_decode(textureLoad(normal_source, pixel, 0).xy);
   let bent_normal = oct_decode(textureLoad(bent_normal_source, pixel, 0).xy);
   let position = world_position(uv, textureLoad(depth_source, pixel, 0).r);

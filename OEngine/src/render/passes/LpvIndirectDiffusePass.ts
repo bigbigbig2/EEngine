@@ -8,10 +8,10 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
-  GPU_SURFACE_ABI_V1_PROFILE,
-  type GpuSurfaceAbiProfile,
-  gpuSurfaceNormalPipelineConstants
-} from "../../gpu/GpuSurfaceAbi.js";
+  GPU_SHADING_SURFACE_LITE_PROFILE,
+  type GpuShadingSurfaceLiteProfile,
+  gpuShadingSurfaceNormalPipelineConstants
+} from "../../gpu/GpuComputeMaterialAbi.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import {
   LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
@@ -58,7 +58,7 @@ export class LpvIndirectDiffusePass {
 
   constructor(
     graphics: GraphicsContext,
-    surfaceProfile: GpuSurfaceAbiProfile = GPU_SURFACE_ABI_V1_PROFILE
+    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
   ) {
     if (graphics.device === null) {
       throw new Error("LpvIndirectDiffusePass: GraphicsContext has no device");
@@ -195,7 +195,7 @@ export class LpvIndirectDiffusePass {
 }
 
 function createLpvPipelineDescriptor(
-  surfaceProfile: GpuSurfaceAbiProfile
+  surfaceProfile: GpuShadingSurfaceLiteProfile
 ): CachedRenderPipelineDescriptor {
   const label = "Renderer/LPV indirect diffuse FB";
   const module = { label, code: LPV_INDIRECT_DIFFUSE_WGSL };
@@ -214,7 +214,7 @@ function createLpvPipelineDescriptor(
       module,
       entryPoint: "fs_main",
       constants: {
-        ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
+        ...gpuShadingSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
       },
       targets: [{ format: LPV_INDIRECT_DIFFUSE_FORMAT }]
     },

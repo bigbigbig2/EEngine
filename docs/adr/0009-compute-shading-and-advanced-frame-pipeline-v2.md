@@ -27,7 +27,7 @@ Lighting 再读取 Surface
 AO / SSR / Temporal / Post 各自维护部分派生资源
 ```
 
-当前 `OEngine/src/gpu/GpuSurfaceAbi.ts` 的主要持久 Surface 约为：
+本 ADR 决策时的旧 Surface V1 主要持久附件约为如下规模；该权威已经在 Step 3 cutover 后由 `OEngine/src/gpu/GpuComputeMaterialAbi.ts` 取代并删除：
 
 ```text
 PBR        2 B/pixel

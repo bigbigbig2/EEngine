@@ -38,7 +38,8 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("surface.texture-codec-production", "surface", "texture-codec-production", ["surface", "asset", "asset-codec", "texture-package", "texture-residency", "render-world"], ["asset-codec", "texture-package", "texture-residency"], "always"),
   defineCase("surface.texture-codec-device-loss-recreate", "surface", "texture-codec-device-loss-recreate", ["surface", "asset", "asset-codec", "texture-package", "texture-residency", "render-world", "lifecycle"], ["asset-codec", "texture-package", "texture-residency", "lifecycle"], "always"),
   defineCase("surface.transparent", "surface", "transparent", ["surface", "material", "transparency"], ["renderer", "graphics-context", "surface", "material", "transparency"]),
-  defineCase("surface.scene-adapter", "surface", "scene-adapter", ["surface", "material", "transparency", "temporal", "scene-adapter"], ["renderer", "gpu-scene", "scene", "surface", "material", "transparency", "temporal"])
+  defineCase("surface.scene-adapter", "surface", "scene-adapter", ["surface", "material", "transparency", "temporal", "scene-adapter"], ["renderer", "gpu-scene", "scene", "surface", "material", "transparency", "temporal"]),
+  defineCase("surface.lpv-baseline-pruning", "surface", "lpv-baseline-pruning", ["surface", "lighting", "gi", "lpv", "ssr", "framegraph"], ["surface", "lighting", "gi", "lpv", "ssr", "framegraph"], "always")
 ]);
 
 const CASE_BY_ID = new Map(VALIDATION_CASES.map((entry) => [entry.id, entry]));
