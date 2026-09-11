@@ -1,4 +1,4 @@
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import {
   GPU_COMPUTE_MATERIAL_ABI_WGSL,
   GPU_SHADING_SURFACE_LITE_WGSL,
@@ -15,7 +15,7 @@ export const SCREEN_SPACE_DIFFUSE_RESOLVE_FORMAT = GPU_HDR_FORMAT;
  * - incident SSGI is receiver-modulated exactly once.
  */
 export const SCREEN_SPACE_DIFFUSE_RESOLVE_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 ${GPU_COMPUTE_MATERIAL_ABI_WGSL}

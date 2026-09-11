@@ -58,7 +58,7 @@ import { OcclusionConfidencePass } from "../passes/OcclusionConfidencePass.js";
 import { AOService } from "../features/AOService.js";
 import { ScreenSpaceDiffuseService } from "../features/ScreenSpaceDiffuseService.js";
 import { ReflectionService } from "../features/ReflectionService.js";
-import { GIService } from "../features/GIService.js";
+import { GIService, type OpaqueLightingResult } from "../features/GIService.js";
 import { TemporalFeature } from "../features/TemporalFeature.js";
 import { PostFeature } from "../features/PostFeature.js";
 import {
@@ -84,10 +84,6 @@ import {
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
 import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js";
 import type { Scene } from "../../scene/Scene.js";
-import {
-  ShadeIndirectLightingMode,
-  type ShadeIndirectLightingMode as ShadeIndirectLightingModeT
-} from "../ShadeIndirectLightingMode.js";
 import { STATIC_GRAPHICS_ENGINE_ASSETS } from "../STATIC_GRAPHICS_ENGINE_ASSETS.js";
 import type { GeometryAssetPackage } from "../../assets/GeometryAssetPackage.js";
 import type {
@@ -177,10 +173,6 @@ import {
 import { createMainRenderPipelineGraphKey } from "./MainRenderPipelineGraphKey.js";
 
 const HZB_STORAGE_FORMAT_FEATURE: GPUFeatureName = "texture-formats-tier1";
-
-export {
-  ShadeIndirectLightingMode
-} from "../ShadeIndirectLightingMode.js";
 
 export const RENDER_FRAME_PHASES = [
   "prepare_#Ko",
@@ -568,7 +560,6 @@ export class MainRenderPipeline {
   /** 单一调试视图选择；unsupported 条目不会向 FrameGraph 添加工作。 */
   render_debug_view: RenderDebugViewT = RenderDebugView.None;
   fused_indirect = true;
-  indirect_lighting_mode: ShadeIndirectLightingModeT = ShadeIndirectLightingMode.IBL;
   upscale_type = 0;
   motion_blur_strength = 1;
   /** R3 production default, matching the minimum three.js quality baseline. */
@@ -2248,18 +2239,13 @@ export class MainRenderPipeline {
         }
 
         const resolveSsgi = (
-          lighting: Readonly<{
-            hdr: ResourceId;
-            indirectDiffuse: ResourceId | null;
-            indirectSpecular: ResourceId | null;
-            providerValidity: ResourceId | null;
-          }>,
+          lighting: OpaqueLightingResult,
           splitSum: ResourceId
         ): ResourceId => {
           if (!graphTopology.ssgi) return lighting.hdr;
           if (
-            lighting.indirectDiffuse === null ||
-            lighting.indirectSpecular === null ||
+            lighting.resolvedDiffuse === null ||
+            lighting.baselineSpecular === null ||
             hzbRes === null ||
             gNormalRes === null ||
             gAlbedoRes === null ||
@@ -2294,8 +2280,8 @@ export class MainRenderPipeline {
             domain: packedResolveOut.shading.domain
           });
           const longRange = longRangeDiffuseFrame({
-            radiance: lighting.indirectDiffuse,
-            providerSelection: lighting.providerValidity,
+            radiance: lighting.resolvedDiffuse,
+            providerSelection: lighting.providerSelection,
             counters: gpuCounterRes,
             selection: "receiver-validity",
             precedence: LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
@@ -2375,7 +2361,7 @@ export class MainRenderPipeline {
             camera: currentCameraRes,
             splitSum,
             longRangeDiffuse: longRange.radiance,
-            baselineSpecular: lighting.indirectSpecular,
+            baselineSpecular: lighting.baselineSpecular,
             screenVisibility: ssgi.frame.screenAmbientVisibility,
             incidentGi: ssgi.frame.incidentDiffuseGi,
             reflectionCorrectionExpected: graphTopology.ssr
@@ -2451,7 +2437,6 @@ export class MainRenderPipeline {
               requirePackedGeometryOwner(bindings.geometry).runtime.counterSink)
           );
           const selected = this._giService.resolveOpaqueLighting(graph, {
-            mode: "providers",
             hdr: hdrRes,
             depth: depthRes,
             normal: gNormalRes,
@@ -2501,12 +2486,14 @@ export class MainRenderPipeline {
           if (gpuCounterRes !== null && selected.counters !== null) {
             gpuCounterRes = selected.counters;
           }
-          indirectDiffuseDebugRes = selected.indirectDiffuse;
-          indirectSpecularDebugRes = selected.indirectSpecular;
+          indirectDiffuseDebugRes =
+            selected.resolvedDiffuse ?? selected.selectedDiffuseIrradiance;
+          indirectSpecularDebugRes =
+            selected.baselineSpecular ?? selected.selectedSpecularRadiance;
           const resolvedLightingHdr = resolveSsgi(selected, splitSumRes);
           const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
             hdr: resolvedLightingHdr,
-            baselineSpecular: graphTopology.ssr ? selected.indirectSpecular : null,
+            baselineSpecular: graphTopology.ssr ? selected.baselineSpecular : null,
             stage: "post-screen-space-diffuse-pre-ssr",
             reflectionCorrectionExpected: graphTopology.ssr,
             preExposure: frameContext.preExposure,
@@ -2519,7 +2506,7 @@ export class MainRenderPipeline {
             hzbRes !== null &&
             velocityRes !== null &&
             occlusionConfidenceRes !== null &&
-            selected.indirectSpecular !== null
+            selected.baselineSpecular !== null
           ) {
             const completeOpaqueHdr = opaqueBaseline.hdr;
             const ssr = this._reflectionService!.addToGraph(
@@ -2592,477 +2579,6 @@ export class MainRenderPipeline {
           }
         }
 
-        if (
-          false && this.indirect_lighting_mode === ShadeIndirectLightingMode.IBL &&
-          gtaoReady &&
-          hdrRes !== null &&
-          environmentRes !== null &&
-          diffuseIrradianceRes !== null &&
-          gPbrRes !== null &&
-          gNormalRes !== null &&
-          gAlbedoRes !== null &&
-          bentNormalRes !== null
-        ) {
-          const splitSum = this._graphics.textures.obtain(
-            STATIC_GRAPHICS_ENGINE_ASSETS.split_sum
-          );
-          const splitSumRes = graph.import_resource(
-            "split_sum",
-            { kind: "imported", label: "rg16float split_sum" },
-            splitSum.gpu_texture
-          );
-          const opaqueLighting = this._giService.resolveOpaqueLighting(
-            graph,
-            {
-            mode: "ibl",
-            extent: { width: w, height: h },
-            hdr: hdrRes,
-            depth: depthRes,
-            normal: gNormalRes,
-            bentNormal: bentNormalRes,
-            albedoAo: gAlbedoRes,
-            pbr: gPbrRes,
-            environment: environmentRes,
-            diffuseIrradiance: diffuseIrradianceRes,
-            reflectionCorrectionExpected: graphTopology.ssr,
-            screenSpaceDiffuseCorrectionExpected: graphTopology.ssgi,
-            splitSum: splitSumRes,
-            camera: currentCameraRes,
-            metadata: packedResolveOut.shading.roughnessFlags,
-            ambientVisibility: ambientVisibilityRes === null
-              ? undefined
-              : ambientVisibilityRes
-            }
-          );
-          const baselineSpecularRes = opaqueLighting.indirectSpecular!;
-          indirectDiffuseDebugRes = opaqueLighting.indirectDiffuse;
-          indirectSpecularDebugRes = baselineSpecularRes;
-          const resolvedLightingHdr = resolveSsgi(opaqueLighting, splitSumRes);
-          const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
-            hdr: resolvedLightingHdr,
-            baselineSpecular: graphTopology.ssr ? baselineSpecularRes : null,
-            stage: "post-screen-space-diffuse-pre-ssr",
-            reflectionCorrectionExpected: graphTopology.ssr,
-            preExposure: frameContext.preExposure,
-            domain: packedResolveOut.shading.domain
-          });
-          hdrRes = opaqueBaseline.hdr;
-
-          if (graphTopology.ssr) {
-            // 固定本次 SSR 的 opaque HDR 输入，避免后续 correction 写回 hdrRes
-            // 后 TypeScript 无法证明 trace/resolve 读取的是同一版本。
-            const completeOpaqueHdr = opaqueBaseline.hdr;
-            const blueNoise = this._graphics.textures.obtain(
-              STATIC_GRAPHICS_ENGINE_ASSETS.stbn_vec2
-            );
-            const blueNoiseRes = graph.import_resource(
-              "SSR/stbn_vec2",
-              { kind: "imported", label: "STBN vec2 3D" },
-              blueNoise.gpu_texture
-            );
-            const ssr = this._reflectionService!.addToGraph(
-              graph,
-              bind("ssr-job", (bindings) => ({
-                width: bindings.internalWidth,
-                height: bindings.internalHeight,
-                frameIndex: bindings.frameIndex,
-                historyValid: bindings.ssrHistoryValidity >= 0.5,
-                historyInputIndex: bindings.ssrHistoryInputIndex,
-                historyOutputIndex: bindings.ssrHistoryOutputIndex,
-                samplers: this._graphics.samplers,
-                maxDistance: metersToWorldUnits(
-                  this._renderSettings.values.ssr.maxDistanceMeters,
-                  this._renderSettings.values.physicalScale
-                ),
-                edgeFade: this._renderSettings.values.ssr.edgeFade,
-                maxSteps: this._renderSettings.values.ssr.maxSteps,
-                baseThickness: metersToWorldUnits(
-                  this._renderSettings.values.ssr.baseThicknessMeters,
-                  this._renderSettings.values.physicalScale
-                ),
-                distanceThicknessScale: this._renderSettings.values.ssr.distanceThicknessScale,
-                maxRoughness: this._renderSettings.values.ssr.maxRoughness,
-                temporalStrength: this._renderSettings.values.ssr.temporalStrength
-              })),
-              {
-                depth: depthRes,
-                hzb: hzbRes!,
-                sceneColor: completeOpaqueHdr,
-                pbr: gPbrRes,
-                normal: gNormalRes,
-                velocity: velocityRes!,
-                occlusionConfidence: occlusionConfidenceRes!,
-                surfaceValidity: opaqueTemporalValidityRes!,
-                albedoAo: gAlbedoRes,
-                environment: environmentRes,
-                blueNoise: blueNoiseRes,
-                currentCamera: currentCameraRes,
-                previousCamera: previousCameraRes,
-                counters: gpuCounterRes ?? undefined
-              },
-              {
-                input: bind("ssr-history-input", (bindings) =>
-                  this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
-                output: bind("ssr-history-output", (bindings) =>
-                  this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
-              }
-            );
-            hdrRes = this._reflectionService!.addCorrection(graph, {
-              hdr: completeOpaqueHdr,
-              depth: depthRes,
-              normal: gNormalRes,
-              bentNormal: bentNormalRes,
-              albedoAo: gAlbedoRes,
-              pbr: gPbrRes,
-              splitSum: splitSumRes,
-              baselineSpecular: opaqueBaseline.baselineSpecular!,
-              resolvedSpecular: ssr.denoised,
-              ambientVisibility: ambientVisibilityRes ?? undefined,
-              camera: currentCameraRes,
-              metadata: packedResolveOut.shading.roughnessFlags
-            });
-            indirectSpecularDebugRes = ssr.denoised;
-            ssrHitMissDebugRes = ssr.trace;
-            ssrResolveDebugRes = ssr.denoised_1;
-            ssrTemporalDebugRes = ssr.temporal;
-            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
-            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
-          }
-        }
-
-        if (
-          false && this.indirect_lighting_mode === ShadeIndirectLightingMode.Brick4 &&
-          gtaoReady &&
-          hdrRes !== null &&
-          diffuseIrradianceRes !== null &&
-          gPbrRes !== null &&
-          gNormalRes !== null &&
-          gAlbedoRes !== null &&
-          bentNormalRes !== null
-        ) {
-          const stbn = this._graphics.textures.obtain(
-            STATIC_GRAPHICS_ENGINE_ASSETS.stbn_vec2
-          );
-          const splitSum = this._graphics.textures.obtain(
-            STATIC_GRAPHICS_ENGINE_ASSETS.split_sum
-          );
-          const stbnRes = graph.import_resource(
-            "Brick4/stbn_vec2",
-            { kind: "imported", label: "STBN vec2 3D" },
-            stbn.gpu_texture
-          );
-          const splitSumRes = graph.import_resource(
-            "Brick4/split_sum",
-            { kind: "imported", label: "rg16float split_sum" },
-            splitSum.gpu_texture
-          );
-          const lightMapRes = graph.import_resource(
-            "Brick4/volumetric light map",
-            { kind: "imported", label: "Brick4 Av storage" },
-            bind("brick4-light-map", (bindings) =>
-              bindings.environment.volumetric_light_map.buffer)
-          );
-          const lightmap = this._giService.resolveOpaqueLighting(graph, {
-            mode: "brick4",
-            hdr: hdrRes,
-            depth: depthRes,
-            normal: gNormalRes,
-            bentNormal: bentNormalRes,
-            albedoAo: gAlbedoRes,
-            pbr: gPbrRes,
-            splitSum: splitSumRes,
-            stbn: stbnRes,
-            view: viewUniformRes,
-            camera: currentCameraRes,
-            lightMap: lightMapRes,
-            fallbackDiffuseIrradiance: diffuseIrradianceRes,
-            ambientVisibility: ambientVisibilityRes ?? undefined,
-            metadata: packedResolveOut.shading.roughnessFlags,
-            extent: { width: w, height: h },
-            reflectionCorrectionExpected: graphTopology.ssr,
-            screenSpaceDiffuseCorrectionExpected: graphTopology.ssgi,
-            fused: !graphTopology.ssr && !graphTopology.ssgi
-          });
-          const resolvedLightingHdr = resolveSsgi(lightmap, splitSumRes);
-          const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
-            hdr: resolvedLightingHdr,
-            baselineSpecular: graphTopology.ssr
-              ? lightmap.indirectSpecular
-              : null,
-            stage: "post-screen-space-diffuse-pre-ssr",
-            reflectionCorrectionExpected: graphTopology.ssr,
-            preExposure: frameContext.preExposure,
-            domain: packedResolveOut.shading.domain
-          });
-          hdrRes = opaqueBaseline.hdr;
-
-          if (
-            graphTopology.ssr &&
-            environmentRes !== null &&
-            hzbRes !== null &&
-            velocityRes !== null &&
-            occlusionConfidenceRes !== null &&
-            lightmap.indirectSpecular !== null
-          ) {
-            const ssr = this._reflectionService!.addToGraph(
-              graph,
-              bind("ssr-job", (bindings) => ({
-                width: bindings.internalWidth,
-                height: bindings.internalHeight,
-                frameIndex: bindings.frameIndex,
-                historyValid: bindings.ssrHistoryValidity >= 0.5,
-                historyInputIndex: bindings.ssrHistoryInputIndex,
-                historyOutputIndex: bindings.ssrHistoryOutputIndex,
-                samplers: this._graphics.samplers,
-                maxDistance: metersToWorldUnits(
-                  this._renderSettings.values.ssr.maxDistanceMeters,
-                  this._renderSettings.values.physicalScale
-                ),
-                edgeFade: this._renderSettings.values.ssr.edgeFade,
-                maxSteps: this._renderSettings.values.ssr.maxSteps,
-                baseThickness: metersToWorldUnits(
-                  this._renderSettings.values.ssr.baseThicknessMeters,
-                  this._renderSettings.values.physicalScale
-                ),
-                distanceThicknessScale: this._renderSettings.values.ssr.distanceThicknessScale,
-                maxRoughness: this._renderSettings.values.ssr.maxRoughness,
-                temporalStrength: this._renderSettings.values.ssr.temporalStrength
-              })),
-              {
-                depth: depthRes,
-                hzb: hzbRes,
-                sceneColor: hdrRes,
-                pbr: gPbrRes,
-                normal: gNormalRes,
-                velocity: velocityRes,
-                occlusionConfidence: occlusionConfidenceRes,
-                surfaceValidity: opaqueTemporalValidityRes!,
-                albedoAo: gAlbedoRes,
-                environment: environmentRes,
-                blueNoise: stbnRes,
-                currentCamera: currentCameraRes,
-                previousCamera: previousCameraRes,
-                counters: gpuCounterRes ?? undefined
-              },
-              {
-                input: bind("ssr-history-input", (bindings) =>
-                  this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
-                output: bind("ssr-history-output", (bindings) =>
-                  this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
-              }
-            );
-            hdrRes = this._reflectionService!.addCorrection(graph, {
-              hdr: hdrRes,
-              depth: depthRes,
-              normal: gNormalRes,
-              bentNormal: bentNormalRes,
-              albedoAo: gAlbedoRes,
-              pbr: gPbrRes,
-              splitSum: splitSumRes,
-              baselineSpecular: opaqueBaseline.baselineSpecular!,
-              resolvedSpecular: ssr.denoised,
-              ambientVisibility: ambientVisibilityRes ?? undefined,
-              camera: currentCameraRes,
-              metadata: packedResolveOut.shading.roughnessFlags
-            });
-            indirectSpecularDebugRes = ssr.denoised;
-            ssrHitMissDebugRes = ssr.trace;
-            ssrResolveDebugRes = ssr.denoised_1;
-            ssrTemporalDebugRes = ssr.temporal;
-            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
-            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
-          }
-        }
-
-        if (
-          false && this.indirect_lighting_mode === ShadeIndirectLightingMode.LPV &&
-          gtaoReady &&
-          hdrRes !== null &&
-          environmentRes !== null &&
-          diffuseIrradianceRes !== null &&
-          gPbrRes !== null &&
-          gNormalRes !== null &&
-          gAlbedoRes !== null &&
-          bentNormalRes !== null
-        ) {
-          const atlasRadianceRes = graph.import_resource(
-            "LPV/radiance atlas",
-            { kind: "imported", label: "r32uint LPV radiance atlas" },
-            bind("lpv-radiance-atlas", (bindings) =>
-              bindings.environment.light_probe_volume.atlas.texture_radiance.texture)
-          );
-          const atlasDepthRes = graph.import_resource(
-            "LPV/depth atlas",
-            { kind: "imported", label: "rg16float LPV depth atlas" },
-            bind("lpv-depth-atlas", (bindings) =>
-              bindings.environment.light_probe_volume.atlas.texture_depth.texture)
-          );
-          const lpvMeshBvhRes = graph.import_resource(
-            "LPV/tetra BVH",
-            { kind: "imported", label: "LPV tetra BVH" },
-            bind("lpv-mesh-bvh", (bindings) =>
-              bindings.environment.light_probe_volume.buffer_mesh_bvh)
-          );
-          const lpvMetadataRes = graph.import_resource(
-            "LPV/metadata",
-            { kind: "imported", label: "LPV metadata" },
-            bind("lpv-metadata", (bindings) =>
-              bindings.environment.light_probe_volume.buffer_metadata)
-          );
-          const lpvTetraRes = graph.import_resource(
-            "LPV/tetrahedra",
-            { kind: "imported", label: "LPV tetrahedra" },
-            bind("lpv-tetrahedra", (bindings) =>
-              bindings.environment.light_probe_volume.buffer_mesh)
-          );
-          const lpvProbesRes = graph.import_resource(
-            "LPV/probes",
-            { kind: "imported", label: "LPV probes" },
-            bind("lpv-probes", (bindings) =>
-              bindings.environment.light_probe_volume.buffer_probes)
-          );
-          const splitSum = this._graphics.textures.obtain(
-            STATIC_GRAPHICS_ENGINE_ASSETS.split_sum
-          );
-          const splitSumRes = graph.import_resource(
-            "split_sum",
-            { kind: "imported", label: "rg16float split_sum" },
-            splitSum.gpu_texture
-          );
-
-          const probeVolume = this._giService.resolveOpaqueLighting(graph, {
-            mode: "lpv",
-            hdr: hdrRes,
-            depth: depthRes,
-            normal: gNormalRes,
-            bentNormal: bentNormalRes,
-            albedoAo: gAlbedoRes,
-            pbr: gPbrRes,
-            splitSum: splitSumRes,
-            environment: environmentRes,
-            fallbackDiffuseIrradiance: diffuseIrradianceRes,
-            camera: currentCameraRes,
-            ambientVisibility: ambientVisibilityRes ?? undefined,
-            metadata: packedResolveOut.shading.roughnessFlags,
-            atlasRadiance: atlasRadianceRes,
-            atlasDepth: atlasDepthRes,
-            meshBvh: lpvMeshBvhRes,
-            metadataBuffer: lpvMetadataRes,
-            tetrahedra: lpvTetraRes,
-            probes: lpvProbesRes,
-            extent: { width: w, height: h },
-            reflectionCorrectionExpected: graphTopology.ssr,
-            screenSpaceDiffuseCorrectionExpected: graphTopology.ssgi,
-            job: bind("lpv-indirect-diffuse-job", (bindings) => ({
-              camera: bindings.camera,
-              samplers: this._graphics.samplers,
-              width: bindings.internalWidth,
-              height: bindings.internalHeight
-            }))
-          });
-          const baselineSpecularRes = probeVolume.indirectSpecular!;
-          const resolvedLightingHdr = resolveSsgi(probeVolume, splitSumRes);
-          const opaqueBaseline = preExposedOpaqueHdrBaselineFrame({
-            hdr: resolvedLightingHdr,
-            baselineSpecular: graphTopology.ssr ? baselineSpecularRes : null,
-            stage: "post-screen-space-diffuse-pre-ssr",
-            reflectionCorrectionExpected: graphTopology.ssr,
-            preExposure: frameContext.preExposure,
-            domain: packedResolveOut.shading.domain
-          });
-          hdrRes = opaqueBaseline.hdr;
-
-          if (
-            graphTopology.ssr &&
-            hzbRes !== null &&
-            velocityRes !== null &&
-            occlusionConfidenceRes !== null
-          ) {
-            const blueNoise = this._graphics.textures.obtain(
-              STATIC_GRAPHICS_ENGINE_ASSETS.stbn_vec2
-            );
-            const blueNoiseRes = graph.import_resource(
-              "SSR/stbn_vec2",
-              { kind: "imported", label: "STBN vec2 3D" },
-              blueNoise.gpu_texture
-            );
-            const ssr = this._reflectionService!.addToGraph(
-              graph,
-              bind("ssr-job", (bindings) => ({
-                width: bindings.internalWidth,
-                height: bindings.internalHeight,
-                frameIndex: bindings.frameIndex,
-                historyValid: bindings.ssrHistoryValidity >= 0.5,
-                historyInputIndex: bindings.ssrHistoryInputIndex,
-                historyOutputIndex: bindings.ssrHistoryOutputIndex,
-                samplers: this._graphics.samplers,
-                maxDistance: metersToWorldUnits(
-                  this._renderSettings.values.ssr.maxDistanceMeters,
-                  this._renderSettings.values.physicalScale
-                ),
-                edgeFade: this._renderSettings.values.ssr.edgeFade,
-                maxSteps: this._renderSettings.values.ssr.maxSteps,
-                baseThickness: metersToWorldUnits(
-                  this._renderSettings.values.ssr.baseThicknessMeters,
-                  this._renderSettings.values.physicalScale
-                ),
-                distanceThicknessScale: this._renderSettings.values.ssr.distanceThicknessScale,
-                maxRoughness: this._renderSettings.values.ssr.maxRoughness,
-                temporalStrength: this._renderSettings.values.ssr.temporalStrength
-              })),
-              {
-                depth: depthRes,
-                hzb: hzbRes,
-                sceneColor: hdrRes,
-                pbr: gPbrRes,
-                normal: gNormalRes,
-                velocity: velocityRes,
-                occlusionConfidence: occlusionConfidenceRes,
-                surfaceValidity: opaqueTemporalValidityRes!,
-                albedoAo: gAlbedoRes,
-                environment: environmentRes,
-                blueNoise: blueNoiseRes,
-                currentCamera: currentCameraRes,
-                previousCamera: previousCameraRes,
-                counters: gpuCounterRes ?? undefined,
-                lpv: {
-                  atlasRadiance: atlasRadianceRes,
-                  atlasDepth: atlasDepthRes,
-                  meshBvh: lpvMeshBvhRes,
-                  metadata: lpvMetadataRes,
-                  tetrahedra: lpvTetraRes,
-                  probes: lpvProbesRes
-                }
-              },
-              {
-                input: bind("ssr-history-input", (bindings) =>
-                  this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
-                output: bind("ssr-history-output", (bindings) =>
-                  this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
-              }
-            );
-            hdrRes = this._reflectionService!.addCorrection(graph, {
-              hdr: hdrRes,
-              depth: depthRes,
-              normal: gNormalRes,
-              bentNormal: bentNormalRes,
-              albedoAo: gAlbedoRes,
-              pbr: gPbrRes,
-              splitSum: splitSumRes,
-              baselineSpecular: opaqueBaseline.baselineSpecular!,
-              resolvedSpecular: ssr.denoised,
-              ambientVisibility: ambientVisibilityRes ?? undefined,
-              camera: currentCameraRes,
-              metadata: packedResolveOut.shading.roughnessFlags
-            });
-            indirectSpecularDebugRes = ssr.denoised;
-            ssrHitMissDebugRes = ssr.trace;
-            ssrResolveDebugRes = ssr.denoised_1;
-            ssrTemporalDebugRes = ssr.temporal;
-            ssrHistoryConfidenceDebugRes = ssr.historyConfidence;
-            if (ssr.counters !== null) gpuCounterRes = ssr.counters;
-          }
-        }
 
         if (graphTopology.transparency && hdrRes !== null &&
           environmentRes !== null && diffuseIrradianceRes !== null) {
@@ -3712,7 +3228,6 @@ export class MainRenderPipeline {
       fusedIndirect: this.fused_indirect,
       upscaleType: this.upscale_type,
       debugView: this.render_debug_view,
-      indirectLightingMode: this.indirect_lighting_mode,
       transparency: bindings === undefined
         ? false
         : bindings.geometry.runtime.transparentInstanceCount > 0,

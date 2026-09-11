@@ -10,13 +10,13 @@ import {
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
   MESHLET_BUCKET_VISIBILITY_WGSL
 } from "../shaders/meshlet_bucket_visibility.js";
-import { LPV_CAMERA_TYPE } from "../shaders/lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
 
 const MESHLET_BUCKET_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "ADR-0008 Meshlet bucket Hardware Visibility group0",
   entries: [
-    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
+    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: PACKED_CAMERA_TYPE.size } },
     ...Array.from({ length: 8 }, (_, index) => ({
       binding: index + 1,
       visibility: GPUShaderStage.VERTEX,

@@ -16,7 +16,7 @@ import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { CLUSTER_METADATA_FLAG_FALLBACK } from "../render/ClusteredLightingReference.js";
 import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 import { SHADOW_NORMAL_OFFSET_SCALE } from "../gpu/ShadowContract.js";
 
@@ -31,7 +31,7 @@ const DIRECT_LIGHT_DATABASE_WGSL = CodeChunk.from("", [
 
 export const LIGHTING_DIRECT_CORE_WGSL = /* wgsl */ `
 ${GPU_VIEW_TYPE.wgsl_declaration}
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GBUFFER_ENCODE_WGSL}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
 ${GPU_COMPUTE_MATERIAL_ABI_WGSL}

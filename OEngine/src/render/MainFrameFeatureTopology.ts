@@ -22,7 +22,6 @@ export type MainFrameFeatureInputs = {
   fusedIndirect: boolean;
   upscaleType: number;
   debugView: RenderDebugViewT;
-  indirectLightingMode: number;
   transparency?: boolean;
   highDynamicRange?: boolean;
 };
@@ -142,7 +141,6 @@ export function resolveMainFrameFeatureTopology(
   if (input.sharpening) bits += 2 ** 7;
   if (input.fusedIndirect) bits += 2 ** 8;
   bits += debugTopology * 2 ** 12;
-  bits += input.indirectLightingMode * 2 ** 17;
   bits += (input.temporal ? input.upscaleType : 0) * 2 ** 20;
   if (input.transparency) bits += 2 ** 24;
   if (input.highDynamicRange) bits += 2 ** 25;

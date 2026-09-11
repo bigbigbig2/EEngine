@@ -36,7 +36,7 @@
 - License: Filament/Khronos Apache-2.0；clustered-lighting paper is reference only。
 - Adoption: mathematical/numeric authority; OEngine-authored WGSL and resource ownership。
 - Retained invariants: metallic/roughness PBR、working-linear HDR、GGX、split-sum LUT、separate specular radiance/diffuse irradiance、bounded screen/depth light clusters。
-- OEngine/WebGPU differences: octahedral environment resources and paged LightDatabase；IBL/Probe Volume 以 OEngine-authored fused baseline pass 合成 diffuse、energy compensation、environment specular 与 bent-normal occlusion，SSR consumer 存在时才启用第二个 baseline-specular MRT；不采用 native descriptors、renderer/thread/allocator ownership。
+- OEngine/WebGPU differences: octahedral environment resources and paged LightDatabase；receiver-local producer 选择 Brick4/Probe/IBL 后由 OEngine-authored `OpaqueLightingResolvePass` 合成 diffuse、energy compensation、environment specular 与 bent-normal occlusion。SSR consumer 存在时才启用第二个 baseline-specular MRT，SSGI consumer 存在时才启用第三个 resolved-diffuse MRT；不采用 native descriptors、renderer/thread/allocator ownership。
 - Fallback/lifecycle: unavailable environment uses declared baseline；cluster overflow is counted；disabled lighting resources are pruned where allowed。
 - Local validation: BRDF/IBL numerical tests、cluster list/counter tests、Rendering Lab lighting/debug views。
 
@@ -138,7 +138,7 @@
 
 ## SHADE-GI · GI provider composition
 
-- Local owner/source: `GIService`、Brick4、LPV、IBL baseline and `OpaqueLightingResolvePass`。
+- Local owner/source: `GIService`、`LongRangeDiffuseProviderPass` and `OpaqueLightingResolvePass`；scene-wide Brick4/LPV/IBL pass selection 已删除。
 - Upstream: Filament IBL math from SHADE-PBR；Brick4/LPV composition is OEngine-authored。
 - Revision: Filament `bdd01e82539938db70c60259e4e6c17bc2bdaba4`；no additional external source copied。
 - Upstream source: Filament `surface_light_indirect.fs` and `CubemapIBL.cpp` for baseline invariants。

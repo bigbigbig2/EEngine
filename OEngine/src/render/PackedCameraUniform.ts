@@ -5,12 +5,12 @@
 import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
 import { mat4Invert } from "../core/math/Mat4.js";
-import { LPV_CAMERA_TYPE } from "../shaders/lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 
 export class PackedCameraUniform {
   readonly buffer: GPUBuffer;
-  private readonly data = new ArrayBuffer(LPV_CAMERA_TYPE.size);
+  private readonly data = new ArrayBuffer(PACKED_CAMERA_TYPE.size);
   private readonly transformInverse = new Float32Array(16);
   private readonly viewInverse = new Float32Array(16);
   private readonly projectionInverse = new Float32Array(16);
@@ -22,7 +22,7 @@ export class PackedCameraUniform {
   ) {
     this.buffer = device.createBuffer({
       label,
-      size: LPV_CAMERA_TYPE.size,
+      size: PACKED_CAMERA_TYPE.size,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
   }
@@ -61,7 +61,7 @@ export class PackedCameraUniform {
         frustum,
         device_depth_to_view_space: depthToView
       },
-      LPV_CAMERA_TYPE,
+      PACKED_CAMERA_TYPE,
       this.data
     );
     writeGpuBuffer(

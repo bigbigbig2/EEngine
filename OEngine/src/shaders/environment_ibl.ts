@@ -2,7 +2,7 @@
  * environment_ibl：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { GPU_SHADING_SURFACE_NORMAL_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const ENVIRONMENT_BACKGROUND_FORMAT = "rgba16float" as const;
@@ -139,7 +139,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertexOutput {
 `;
 
 export const ENVIRONMENT_BACKGROUND_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 
 struct PipelineCacheKey {
   projection_matrix: mat4x4f,

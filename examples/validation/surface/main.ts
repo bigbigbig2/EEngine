@@ -2,7 +2,6 @@ import {
   BoxGeometry,
   Mesh,
   ShadeDrawSide,
-  ShadeIndirectLightingMode,
   ShadeTexture,
   ShadeTransparencyMode,
   createBrick4LightMapPackageV1,
@@ -324,7 +323,6 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     } else if (request.scenarioId === "lpv-baseline-pruning") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
-      renderer.indirect_lighting_mode = ShadeIndirectLightingMode.LPV;
       renderer.configure({ features: { screenSpaceReflections: false } });
       await runtime.waitForFrames(2);
       const offProfile = await runtime.waitForCounters(runtime.frame - 1);

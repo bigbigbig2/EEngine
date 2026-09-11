@@ -8,7 +8,7 @@
  * contract. See docs/porting/shading.md (SHADE-AO) for the complete ledger.
  */
 
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { GPU_SHADING_SURFACE_NORMAL_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const GTAO_MOMENTS_FORMAT = "rgba16float" as const;
@@ -43,7 +43,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> FullscreenVertexOutput {
 `;
 
 export const THREE_GTAO_RAW_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 
 struct GtaoRawSettings {
@@ -726,7 +726,7 @@ fn fs_main(
 `;
 
 export const GTAO_LINEAR_DEPTH_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 
 @group(0) @binding(0) var device_depth_source: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> camera: CommandEncoder;
@@ -747,7 +747,7 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) f32 {
 `;
 
 export const GTAO_JOINT_BILATERAL_RESOLVE_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 
 struct ResolveSettings {

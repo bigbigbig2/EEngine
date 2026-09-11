@@ -357,7 +357,6 @@ export type {
 export { ShadeAnimationChannel } from "./animation/ShadeAnimationChannel.js";
 export { ShadeAnimationClip } from "./animation/ShadeAnimationClip.js";
 export { ShadeGPUCommandContext } from "./framegraph/ShadeGPUCommandContext.js";
-export { ShadeIndirectLightingMode } from "./render/ShadeIndirectLightingMode.js";
 export { ShadeMaterial } from "./material/ShadeMaterial.js";
 export {
   ShadeDrawMode,

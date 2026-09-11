@@ -10,7 +10,7 @@ import {
   GPU_TRIANGLE_SETUP_RECORD_WGSL
 } from "../gpu/GpuLargeTriangleSetupAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 export const LARGE_TRIANGLE_SETUP_WORKGROUP_SIZE = 64;
 export const LARGE_TRIANGLE_SETUP_SETTINGS_SIZE = 32;
@@ -21,7 +21,7 @@ const SETUP_OVERFLOW = counterByteOffset("setupOverflow") / 4;
 
 /** Optional, dense VisibilityKey V2 -> large-triangle shading setup builder. */
 export const LARGE_TRIANGLE_SETUP_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}

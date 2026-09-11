@@ -2,7 +2,7 @@
  * opaque_lighting_resolve：定义统一 Opaque Lighting resolve 阶段使用的 WGSL 着色器代码。
  */
 
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import {
   GPU_SHADING_SURFACE_LITE_WGSL,
   GPU_SHADING_SURFACE_NORMAL_WGSL
@@ -13,7 +13,7 @@ import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
 export const OPAQUE_LIGHTING_RESOLVE_FORMAT = "rgba16float" as const;
 
 export const OPAQUE_LIGHTING_RESOLVE_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 ${GPU_COMPUTE_MATERIAL_ABI_WGSL}
@@ -264,6 +264,46 @@ fn fs_main_no_ao(
   }
   let contribution = indirect_contribution(pixel, uv, 1.0);
   return vec4f(contribution[0] + contribution[1], 1.0);
+}
+
+struct OpaqueLightingBaselineOutputs {
+  @location(0) total: vec4f,
+  @location(1) baseline_specular: vec4f,
+};
+
+@fragment
+fn fs_main_with_baseline(
+  @builtin(position) coord: vec4f,
+  @location(0) uv: vec2f
+) -> OpaqueLightingBaselineOutputs {
+  let pixel = vec2u(coord.xy);
+  let metadata = textureLoad(surface_metadata, vec2i(pixel), 0).r;
+  if oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT) {
+    return OpaqueLightingBaselineOutputs(vec4f(0.0), vec4f(0.0));
+  }
+  let ambient = textureLoad(ambient_visibility, vec2i(pixel), 0).r;
+  let contribution = indirect_contribution(pixel, uv, ambient);
+  return OpaqueLightingBaselineOutputs(
+    vec4f(contribution[0] + contribution[1], 1.0),
+    vec4f(contribution[0], 0.0)
+  );
+}
+
+@fragment
+fn fs_main_no_ao_with_baseline(
+  @builtin(position) coord: vec4f,
+  @location(0) uv: vec2f
+) -> OpaqueLightingBaselineOutputs {
+  let pixel = vec2u(coord.xy);
+  let metadata = textureLoad(surface_metadata, vec2i(pixel), 0).r;
+  if oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT) {
+    return OpaqueLightingBaselineOutputs(vec4f(0.0), vec4f(0.0));
+  }
+  let contribution = indirect_contribution(pixel, uv, 1.0);
+  return OpaqueLightingBaselineOutputs(
+    vec4f(contribution[0] + contribution[1], 1.0),
+    vec4f(contribution[0], 0.0)
+  );
 }
 
 struct OpaqueLightingComponentOutputs {

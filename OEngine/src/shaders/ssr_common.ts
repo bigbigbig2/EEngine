@@ -2,14 +2,14 @@
  * ssr_common：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import {
   GPU_SHADING_SURFACE_LITE_WGSL,
   GPU_SHADING_SURFACE_NORMAL_WGSL
 } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
-export const SSR_CAMERA_WGSL = LPV_CAMERA_TYPE.wgsl_declaration;
+export const SSR_CAMERA_WGSL = PACKED_CAMERA_TYPE.wgsl_declaration;
 
 export const SSR_FULLSCREEN_VERTEX_WGSL = /* wgsl */ `
 const FULLSCREEN_POSITIONS = array<vec2f, 3>(

@@ -1876,7 +1876,8 @@ SSGI 同时成为 near-field diffuse GI 与 screen AO 的唯一 owner；bent-nor
 - `Brick4LightMap` 现在公开单调 generation、non-empty residency 与显式 invalidate；`GPULightProbeVolume` 强制 zero-version source 首帧初始化，并只在 source/GPU generation 一致、probe 数量足够且 tetra mesh 非空时声明 available。GPU counter schema v21 增加 `invalid_generation/nonresident/unassigned/duplicate`，provider producer 在所有 screen-space diffuse mode 下成为唯一统计 owner；unassigned/duplicate 由单一早返回控制流结构性保持为零。
 - Brick4 V1 明确采用 monolithic residency，而不是伪装成尚不存在的 sparse paging：`Brick4LightMapPackageV1` 保留既有 shader payload 偏移，以 32 B bounds + tree/probe storage 作为设备无关包；validator 遍历 64-probe node、3×3×3 occupancy/child pointer，拒绝越界 probe、越界 branch、reserved bit、cycle/alias 和非有限/退化 bounds。完整树与所有被引用的 7-word SH probe 必须在一次 publication 中存在，因此 V1 的 `required bricks resident` 等价于“该 generation 的已验证 monolithic package 已原子发布”。
 - `Renderer.uploadBrick4LightMap(scene, package)` 是 frame loop 外的显式 production 入口。GPU owner 为每个 generation 创建 immutable storage，先完成 mapped upload 再原子替换 active binding，旧 buffer 等待已提交工作完成后退役；不会在 in-flight frame 仍读取时原地覆盖/销毁。`invalidateBrick4LightMap(scene, nextGeneration)` 先推进 expected generation 并令 resident=false，期间 shader 以 `actual != expected` 拒绝旧 mapping、计数并回退 Probe/IBL；matching package 发布后 actual/expected 再一致。这里的 receiver mapping 是 world-space bounds/tree 的隐式映射，不另造 per-instance mapping record。
-- 旧 `indirect_lighting_mode` 分支已退出可执行 production 条件，但其公开 plumbing/旧 pass 实现按 Step 10 cleanup 尚未删除。实现侧 receiver precedence、generation-safe publication 与 V1 residency 合同已经落地；迁移死代码删除和运行证据仍是开放项。
+- scene-wide `indirect_lighting_mode`、公开 `ShadeIndirectLightingMode`、topology key bit 与三段不可达主管线分支已经删除；GIService 不再构造 `Brick4IndirectPass`、`LpvIndirectDiffusePass`、`IblBaselinePass` 或 `OpaqueLightingPipeline`。这些旧 pass/shader 文件也已删除，shared camera ABI 从 LPV shader 拆为中性的 `packed_camera.ts`。现在只有 receiver-local provider producer → `OpaqueLightingResolvePass` 一条 production path，不保留兼容层。
+- 同时修正 unified provider cutover 暴露的 SSR seam：provider 的 specular 输出是未乘 receiver BRDF 的 radiance，不能直接作为可 subtract baseline。`OpaqueLightingResolvePass` 新增 SSR-only 两 MRT 变体，在 `SSR on + SSGI off` 时只额外物化 BRDF-weighted、bent/AO-occluded `PreExposedBaselineSpecular`；只有 SSGI consumer 才写第三个 resolved-diffuse MRT。GIService 的返回 ABI 进一步把 `selectedDiffuseIrradiance`/`selectedSpecularRadiance` 与 `resolvedDiffuse`/`baselineSpecular` 分成不同字段，不允许 fallback 表达式把 raw radiance 冒充 baseline。由此避免错误 subtract，也避免 SSR-only 为 diffuse component 支付无消费者写带宽。
 - `surface.ssgi-production` 现在还定义了两阶段 Brick4 oracle：resident generation 的覆盖 receiver 必须只计 Brick4；推进 expected generation 后 Brick4 必须为零、`invalid_generation > 0` 且 receiver 回退 IBL。同时保留 pinned path、GTAO owner/history 缺席、source-before-resolve、component product、temporal closure 与 one-main-submit 检查。按本轮明确“不跑代码测试”的约束，这些测试尚未执行，也没有 build、真实 Chrome、visual review 或 `comprehensive-full` 结果，因此 Step 5 当前仍只能记为 implementation-landed / verification-open，不能判定 Exit 已满足。
 
 ### Step 6 · Three.js SSR + Temporal + Denoise replacement
@@ -1948,7 +1949,7 @@ duplicate pyramids/reductions
 dead histories/counters
 ```
 
-同时删除仅为迁移存在的 scene-wide GI exclusive plumbing；若仍需保留 coarse scene default，它只能作为 provider availability/default policy，不能绕过 receiver-level selection ABI。
+scene-wide GI exclusive plumbing 已在 Step 5 cutover 时提前删除；Step 10 只需验证公开符号、topology key、FrameGraph owner 与 shader audit 中均无回流。若未来引入 coarse scene default，它只能作为 provider availability/default policy，不能绕过 receiver-level selection ABI。
 
 只保留确有独立产品需求和证据的算法选择，不复制主管线，不保留迁移用 `legacy/new` 开关。
 

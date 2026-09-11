@@ -8,7 +8,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_TEXTURE_BANK_SAMPLE_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_SECONDARY_RASTER_FLAGS } from "../gpu/GpuSecondaryRasterAbi.js";
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { LIGHTING_DIRECT_WGSL } from "./lighting_direct.js";
 
 export const PACKED_TRANSPARENT_OPTICAL_FORMAT = "r32float" as const;
@@ -33,7 +33,7 @@ function removeWgslFunction(source: string, name: string): string {
 
 function packedDirectLightingCore(): string {
   let source = LIGHTING_DIRECT_WGSL
-    .replace(LPV_CAMERA_TYPE.wgsl_declaration, "")
+    .replace(PACKED_CAMERA_TYPE.wgsl_declaration, "")
     .replace(/^@group\(0\).*$/gm, "")
     .replace(/@group\(2\)/g, "@group(3)")
     .replace(/@group\(1\)/g, "@group(2)")
@@ -51,7 +51,7 @@ function packedDirectLightingCore(): string {
 const PACKED_DIRECT_LIGHTING_CORE = packedDirectLightingCore();
 
 const PACKED_TRANSPARENT_COMMON = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}

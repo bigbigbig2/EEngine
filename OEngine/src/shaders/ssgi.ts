@@ -8,7 +8,7 @@
  * carried into OEngine; FrameGraph and TemporalHistoryRegistry own lifecycle.
  */
 
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { GPU_SHADING_SURFACE_NORMAL_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 export const THREE_SSGI_REVISION = "148ef33ecb6d2502ff796d4554abd1549c95d519" as const;
@@ -68,7 +68,7 @@ fn in_view(uv: vec2f) -> bool { return all(uv >= vec2f(0.0)) && all(uv <= vec2f(
 `;
 
 export const THREE_SSGI_TRACE_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 ${FULLSCREEN}
 ${OCTAHEDRAL}
@@ -381,7 +381,7 @@ struct TemporalOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
 `;
 
 export const SSGI_RESOLVE_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 ${FULLSCREEN}
 ${OCTAHEDRAL}
@@ -429,7 +429,7 @@ struct ResolveOutput {
 `;
 
 export const SSGI_LINEAR_DEPTH_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${FULLSCREEN}
 @group(0) @binding(0) var depth_source: texture_depth_2d;
 @group(0) @binding(1) var<uniform> camera: CommandEncoder;

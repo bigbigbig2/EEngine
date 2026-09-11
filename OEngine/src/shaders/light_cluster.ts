@@ -14,7 +14,7 @@ import {
   CLUSTER_METADATA_FLAG_SPOT_OVERFLOW,
   LIGHT_LIST_HEADER_BYTES
 } from "../render/ClusteredLightingReference.js";
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 export const LIGHT_CLUSTER_TILE_SIZE = 32;
 export const LIGHT_CLUSTER_DEPTH_SLICES = 24;
@@ -27,7 +27,7 @@ export const LIGHT_CLUSTER_METADATA_BYTES = 16;
 export const LIGHT_CLUSTER_DATA_HEADER_BYTES = 16;
 
 const CLUSTER_COMMON_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${LIGHT_DATABASE_READ_WGSL}
 
 const CLUSTER_LIGHT_TYPE_POINT: u32 = 0u;

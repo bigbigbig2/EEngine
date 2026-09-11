@@ -9,7 +9,7 @@ import {
 import { GPU_MESHLET_RASTER_WORK_RECORD_STRIDE, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";
-import { LPV_CAMERA_TYPE } from "../shaders/lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 import {
   LARGE_TRIANGLE_SETUP_SETTINGS_SIZE,
   LARGE_TRIANGLE_SETUP_WGSL,
@@ -52,7 +52,7 @@ export class LargeTriangleSetupCache {
     this.layout = device.createBindGroupLayout({
       label: "ADR-0008 LargeTriangleSetup group0",
       entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: PACKED_CAMERA_TYPE.size } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: LARGE_TRIANGLE_SETUP_SETTINGS_SIZE } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } },
         ...Array.from({ length: 6 }, (_, index) => ({

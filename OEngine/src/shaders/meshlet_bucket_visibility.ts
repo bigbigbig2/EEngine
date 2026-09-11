@@ -9,7 +9,7 @@ import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilit
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 export const MESHLET_BUCKET_SETTINGS_STRIDE = 256;
 export const MESHLET_BUCKET_SETTINGS_SIZE = 16;
@@ -24,7 +24,7 @@ export function meshletBucketVisibilityWgsl(primitiveIndex: boolean): string {
     : "@location(2) @interpolate(flat) triangle: u32";
   return /* wgsl */ `
 ${primitiveIndexEnable}
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}

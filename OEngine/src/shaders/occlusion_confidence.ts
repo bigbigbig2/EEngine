@@ -2,12 +2,12 @@
  * occlusion_confidence：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
-import { LPV_CAMERA_TYPE } from "./lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 export const OCCLUSION_CONFIDENCE_FORMAT = "r8unorm" as const;
 
 export const OCCLUSION_CONFIDENCE_WGSL = /* wgsl */ `
-${LPV_CAMERA_TYPE.wgsl_declaration}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 
 @group(0) @binding(0) var collection: texture_2d<f32>;
 @group(0) @binding(1) var group_id: texture_2d<f32>;

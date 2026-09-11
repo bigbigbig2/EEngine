@@ -89,12 +89,12 @@ const MATERIAL_OWNER_SOURCE = readFileSync(
   new URL("../src/render/passes/PackedMaterialResolvePass.ts", import.meta.url),
   "utf8"
 );
-const IBL_BASELINE_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/IblBaselinePass.ts", import.meta.url),
+const OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/OpaqueLightingResolvePass.ts", import.meta.url),
   "utf8"
 );
-const OPAQUE_LIGHTING_PIPELINE_SOURCE = readFileSync(
-  new URL("../src/render/pipeline/OpaqueLightingPipeline.ts", import.meta.url),
+const GI_SERVICE_SOURCE = readFileSync(
+  new URL("../src/render/features/GIService.ts", import.meta.url),
   "utf8"
 );
 const SSGI_PASS_SOURCE = readFileSync(
@@ -276,11 +276,25 @@ test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only
     existsSync(new URL("../src/render/passes/IblSpecularPass.ts", import.meta.url)),
     false
   );
-  assert.match(IBL_BASELINE_PASS_SOURCE, /if \(options\.baselineSpecular\)/);
-  assert.match(IBL_BASELINE_PASS_SOURCE, /builder\.create\("pre-exposed-baseline-specular"/);
-  assert.match(OPAQUE_LIGHTING_PIPELINE_SOURCE, /resolveIblBaseline/);
-  assert.match(OPAQUE_LIGHTING_PIPELINE_SOURCE, /resolveScreenDiffuseBaseline/);
-  assert.doesNotMatch(OPAQUE_LIGHTING_PIPELINE_SOURCE, /IblDiffusePass|IblSpecularPass/);
+  assert.equal(
+    existsSync(new URL("../src/render/passes/IblBaselinePass.ts", import.meta.url)),
+    false
+  );
+  assert.equal(
+    existsSync(new URL("../src/render/pipeline/OpaqueLightingPipeline.ts", import.meta.url)),
+    false
+  );
+  assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /options\.baselineSpecular/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /builder\.create\("pre-exposed-baseline-specular"/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /fs_main_with_baseline/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /fs_main_no_ao_with_baseline/);
+  assert.doesNotMatch(GI_SERVICE_SOURCE, /mode: "ibl"|mode: "brick4"|mode: "lpv"/);
+  assert.match(GI_SERVICE_SOURCE, /selectedSpecularRadiance: selected\.specularRadiance/);
+  assert.match(GI_SERVICE_SOURCE, /baselineSpecular: resolved\.baselineSpecular/);
+  assert.doesNotMatch(
+    GI_SERVICE_SOURCE,
+    /baselineSpecular:\s*resolved\.baselineSpecular\s*\?\?\s*selected\.specularRadiance/
+  );
 });
 
 test("ADR-0009 Step 3 accepts one three-context comprehensive SurfaceLite run group", () => {
@@ -537,8 +551,7 @@ test("ADR-0009 Step 0 normalizes one screen-space diffuse owner and history", ()
     sharpening: false,
     fusedIndirect: false,
     upscaleType: 0,
-    debugView: "none",
-    indirectLightingMode: 0
+    debugView: "none"
   });
   const off = topology("off");
   assert.equal(off.gtao, false);

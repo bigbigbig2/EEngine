@@ -14,8 +14,7 @@ import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
 import type { Scene } from "../scene/Scene.js";
 
 export {
-  RENDER_FRAME_PHASES,
-  ShadeIndirectLightingMode
+  RENDER_FRAME_PHASES
 } from "./pipeline/MainRenderPipeline.js";
 export type {
   AmbientOcclusionRuntimeEvidence,

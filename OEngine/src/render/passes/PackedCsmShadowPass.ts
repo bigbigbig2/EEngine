@@ -10,7 +10,7 @@ import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { GPU_RASTER_WORK_SCHEMA, GPU_WORK_QUEUE_HEADER_SCHEMA } from "../../gpu/GpuWorkGenerationAbi.js";
-import { LPV_CAMERA_TYPE } from "../../shaders/lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import {
   PACKED_CSM_COUNTER_WGSL,
   PACKED_CSM_SHADOW_WGSL
@@ -29,7 +29,7 @@ import {
 const PACKED_CSM_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "FX-04 Packed CSM SecondaryRasterWork group0",
   entries: [
-    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: LPV_CAMERA_TYPE.size } },
+    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: PACKED_CAMERA_TYPE.size } },
     ...Array.from({ length: 7 }, (_, index) => ({
       binding: index + 1,
       visibility: GPUShaderStage.VERTEX,

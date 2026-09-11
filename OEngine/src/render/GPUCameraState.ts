@@ -7,14 +7,14 @@ import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
 import { submitGpuCommands } from "../gpu/GpuQueueEvidence.js";
-import { LPV_CAMERA_TYPE } from "../shaders/lpv_indirect_diffuse.js";
+import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 
 let nextGpuCameraStateId = 0;
 
 export class GPUCameraState {
   readonly id = nextGpuCameraStateId++;
   readonly buffer: GPUBuffer;
-  private readonly packed = new ArrayBuffer(LPV_CAMERA_TYPE.size);
+  private readonly packed = new ArrayBuffer(PACKED_CAMERA_TYPE.size);
   private readonly viewportOffset = new Float32Array(2);
   private readonly viewProjection = new Float32Array(16);
 
@@ -24,7 +24,7 @@ export class GPUCameraState {
   ) {
     this.buffer = device.createBuffer({
       label: "GPUCameraState/Ud",
-      size: LPV_CAMERA_TYPE.size,
+      size: PACKED_CAMERA_TYPE.size,
       usage:
         GPUBufferUsage.STORAGE |
         GPUBufferUsage.UNIFORM |
@@ -97,7 +97,7 @@ export class GPUCameraState {
         frustum,
         device_depth_to_view_space: depthToView,
       },
-      LPV_CAMERA_TYPE,
+      PACKED_CAMERA_TYPE,
       this.packed,
     );
     command.writeBuffer(
