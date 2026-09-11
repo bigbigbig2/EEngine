@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-step-evidence",
+  "decision": "adr-0009-step3-surfacelite-hdr-cutover",
+  "provenance": {
+    "commit": "a687292e5581f5037799edc2fd867c9fade05260",
+    "contentHash": "fceeacb8f96c8532a0bcb4109a3542f197e98e370ae7e5d0fa53c2fd63f1f256",
+    "clean": true,
+    "runGroupId": "ca0ef8e7-4937-4364-8e0c-6d4bb284089d",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "features": [
+        "primitive-index",
+        "rg11b10ufloat-renderable",
+        "subgroups",
+        "texture-compression-bc",
+        "timestamp-query"
+      ]
+    },
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806,
+    "materials": 34
+  },
+  "aggregation": "median of three run-level percentiles",
+  "timingsMs": {
+    "cpuFrame": { "p50": 12.70000000298, "p95": 14.504999999702 },
+    "gpuFrame": { "p50": 1.623264, "p95": 1.9588672 },
+    "computeMaterialIndirect": { "p50": 1.7204 },
+    "computeDirectLightingIndirect": { "p50": 1.165312 },
+    "fusedOctahedralBaseline": { "p50": 0.277776 }
+  },
+  "surfaceAbiGate": {
+    "status": "required",
+    "reason": "all independent runs preserve parity, match the physical footprint, save bytes, and add no conversion",
+    "baselineBytesPerPixel": 58,
+    "candidateBytesPerPixel": 24,
+    "velocityOffBytesPerPixel": 20,
+    "bytesSavedPerPixel": 34,
+    "baselineAttachmentBytes": 120268800,
+    "candidateAttachmentBytes": 49766400,
+    "attachmentReductionBytes": 70502400,
+    "attachmentReductionPercent": 58.620689655172406,
+    "samplesPerRun": 480,
+    "conversionPassesAdded": 0,
+    "correctnessParityEveryRun": true
+  },
+  "hdrAndTopology": {
+    "hdrFormat": "rgba16float",
+    "hdrBytesPerPixel": 8,
+    "baselineSpecularResourcesInSsrOnFullTopology": 1,
+    "frameGraphTransientResources": 47,
+    "frameGraphTransientTextures": 33,
+    "frameGraphTransientBuffers": 14,
+    "resourceAccountingTransientPeakBytesMedian": 285609587,
+    "historyBytes": 45619208,
+    "targetedLpvSsrOffTransientResources": 21,
+    "targetedLpvSsrOnTransientResources": 30,
+    "targetedLpvSsrOffBaselineSpecularResources": 0,
+    "targetedLpvSsrOnBaselineSpecularResources": 1
+  },
+  "step2Comparison": {
+    "source": "advanced-frame-pipeline-v2-step2.json",
+    "gpuFrameP50DeltaMs": -0.210656,
+    "gpuFrameP50DeltaPercent": -11.486651544233116,
+    "gpuFrameP95DeltaMs": -0.2246528,
+    "gpuFrameP95DeltaPercent": -10.288561588627541,
+    "computeMaterialP50DeltaMs": -0.016304,
+    "computeDirectLightingP50DeltaMs": -0.014336,
+    "interpretation": "The comparison uses the same comprehensive workload and fixed 1920x1080 profile. It is the accepted Step 2 to Step 3 migration comparison, not a second runtime benchmark backend."
+  },
+  "closure": {
+    "materialTileRecordsP50": 14690,
+    "validPixelsEqualShadedPixels": true,
+    "unassignedPixelsMax": 0,
+    "duplicatePixelsMax": 0,
+    "overflowQueuesMax": 0,
+    "frameInvalidMax": 0,
+    "invalidVisibilityKeysMax": 0,
+    "productionSurfaceAbiVersion": 2,
+    "legacySurfaceOwnerPresent": false,
+    "legacyBridgePresent": false
+  },
+  "targetedCorrectness": {
+    "unitTests": { "passed": 103, "failed": 0 },
+    "browserCases": [
+      "smoke.basic",
+      "surface.basic",
+      "surface.textured",
+      "surface.material-switch",
+      "surface.fallback",
+      "surface.texture-ref",
+      "surface.bc",
+      "surface.package",
+      "surface.codec",
+      "surface.device-loss",
+      "surface.transparent",
+      "surface.scene-adapter",
+      "surface.lpv-baseline-pruning"
+    ],
+    "gpuDiagnostics": 0,
+    "formalRunGroupEligible": true,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  },
+  "runLevel": [
+    {
+      "runOrdinal": 0,
+      "runId": "76a8cc67-01d5-43b7-9919-6768ebef21ce",
+      "sessionId": "42f37ddb-1fc6-45ed-a210-578dd917ccb7",
+      "cpuFrameP50": 12.70000000298,
+      "cpuFrameP95": 14.599999994785,
+      "gpuFrameP50": 1.635584,
+      "gpuFrameP95": 1.9588672,
+      "computeMaterialP50": 1.7344,
+      "computeDirectLightingP50": 1.171376,
+      "fusedOctahedralBaselineP50": 0.280576
+    },
+    {
+      "runOrdinal": 1,
+      "runId": "594445f1-d54e-4b39-9240-ebf73c8a5a25",
+      "sessionId": "04a83331-60fd-4312-b182-980116f905c3",
+      "cpuFrameP50": 12.79999999702,
+      "cpuFrameP95": 14.504999999702,
+      "gpuFrameP50": 1.623264,
+      "gpuFrameP95": 2.5740672,
+      "computeMaterialP50": 1.7204,
+      "computeDirectLightingP50": 1.165184,
+      "fusedOctahedralBaselineP50": 0.27752
+    },
+    {
+      "runOrdinal": 2,
+      "runId": "d33223b3-5d37-4299-ab5a-dd9200400e25",
+      "sessionId": "05661d46-c83a-4c21-9881-db1af9f80897",
+      "cpuFrameP50": 12.64999999851,
+      "cpuFrameP95": 14.305000011623,
+      "gpuFrameP50": 1.620832,
+      "gpuFrameP95": 1.9466816,
+      "computeMaterialP50": 1.72008,
+      "computeDirectLightingP50": 1.165312,
+      "fusedOctahedralBaselineP50": 0.277776
+    }
+  ],
+  "limitation": "Single NVIDIA Turing adapter. The accepted gate covers the production comprehensive topology and targeted velocity-off/LPV pruning cases; a second GPU vendor remains future coverage, not a requirement for this Step 3 cutover."
+}
