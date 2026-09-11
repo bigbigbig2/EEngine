@@ -15,6 +15,7 @@ import {
 } from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
 import {
   GPU_COMPUTE_MATERIAL_ABI_VERSION,
+  GPU_COMPUTE_MATERIAL_STEP2_TRANSITION_BYTES_PER_PIXEL,
   gpuComputeMaterialBytesPerPixel
 } from "../../OEngine/src/gpu/GpuComputeMaterialAbi.js";
 
@@ -106,7 +107,7 @@ export interface RenderingLabSurfaceAbiEvidence {
   readonly bytesPerPixelWithVelocity: number;
   readonly bytesPerPixelWithoutVelocity: number;
   readonly cases: Readonly<Record<string, RenderingLabSurfaceAbiCaseEvidence>>;
-  /** M6 evidence remains optional; missing fields stay explicit. */
+  readonly runEvidence: SurfaceAbiRunEvidence | null;
   readonly evidenceGate: SurfaceAbiDecision;
 }
 
@@ -148,6 +149,12 @@ export function buildRenderingLabBenchmarkReport(input: {
   for (const result of input.cases) evidence[result.case.id] = validateBenchmarkEvidence(result);
   const featureOffGates = buildFeatureOffGates(input.cases);
   const cameraSegments = input.cases.flatMap((result) => buildCameraSegmentStats(result));
+  const surfaceAbi = buildSurfaceAbiEvidence(
+    input.cases,
+    input.domainEvidence,
+    input.measurement,
+    evidence
+  );
   return Object.freeze({
     schemaVersion: 1,
     status: errors.length === 0 && input.cases.length > 0 ? "complete" : "incomplete",
@@ -167,8 +174,8 @@ export function buildRenderingLabBenchmarkReport(input: {
     domainEvidence: Object.freeze({
       ...(input.domainEvidence ?? {}),
       triangleSetup: buildTriangleSetupEvidence(input.cases, input.domainEvidence),
-      surfaceAbi: buildSurfaceAbiEvidence(input.cases, input.domainEvidence),
-      migrationGates: buildMigrationGates(input.domainEvidence)
+      surfaceAbi,
+      migrationGates: buildMigrationGates(surfaceAbi.runEvidence)
     }),
     errors,
     ...(input.measurement === undefined ? {} : { measurement: Object.freeze({ ...input.measurement }) })
@@ -230,7 +237,9 @@ function summarizeTriangleSetupCase(result: BenchmarkResult): RenderingLabTriang
 
 function buildSurfaceAbiEvidence(
   cases: readonly BenchmarkResult[],
-  domainEvidence?: Readonly<Record<string, unknown>>
+  domainEvidence: Readonly<Record<string, unknown>> | undefined,
+  measurement: RenderingLabMeasurementProfile | undefined,
+  evidence: Readonly<Record<string, BenchmarkEvidenceReport>>
 ): RenderingLabSurfaceAbiEvidence {
   const byCase: Record<string, RenderingLabSurfaceAbiCaseEvidence> = {};
   for (const result of cases) {
@@ -243,21 +252,97 @@ function buildSurfaceAbiEvidence(
       resolveMs: summaryTiming(result.summary.surfacePhaseMs.resolve)
     };
   }
-  const runs = readSurfaceAbiRuns(domainEvidence);
   const migration = migrationEvidence(domainEvidence);
+  const runEvidence = buildSurfaceAbiRunEvidence(cases, domainEvidence, measurement, evidence);
   return Object.freeze({
     schemaVersion: 1,
     activeAbiVersion: migration?.surfaceAbiVersion ?? GPU_COMPUTE_MATERIAL_ABI_VERSION,
     cases: Object.freeze(byCase),
     bytesPerPixelWithVelocity: gpuComputeMaterialBytesPerPixel({ velocity: true }),
     bytesPerPixelWithoutVelocity: gpuComputeMaterialBytesPerPixel({ velocity: false }),
-    evidenceGate: runs === null
+    runEvidence,
+    evidenceGate: runEvidence === null
       ? Object.freeze({
         status: "insufficient-evidence",
-        reason: "no identity-bearing unified Surface ABI run group was supplied"
+        reason: "the report does not contain a complete measured Surface ABI run"
       })
-      : evaluateSurfaceAbiV2RunGroupNeed(runs)
+      : evaluateSurfaceAbiV2RunGroupNeed([runEvidence])
   });
+}
+
+function buildSurfaceAbiRunEvidence(
+  cases: readonly BenchmarkResult[],
+  domainEvidence: Readonly<Record<string, unknown>> | undefined,
+  measurement: RenderingLabMeasurementProfile | undefined,
+  evidence: Readonly<Record<string, BenchmarkEvidenceReport>>
+): SurfaceAbiRunEvidence | null {
+  if (measurement === undefined) return null;
+  const full = cases.find((result) => result.case.id === "full");
+  const frame = asInternalFrame(domainEvidence);
+  if (full === undefined || frame === null) return null;
+  const bytesPerPixel = full.summary.counters["packed.material.surfaceBytesPerPixel"];
+  const attachmentBytes = full.summary.counters["packed.material.surfaceAttachmentBytes"];
+  if (bytesPerPixel === undefined || attachmentBytes === undefined ||
+      bytesPerPixel.count <= 0 || attachmentBytes.count <= 0 ||
+      bytesPerPixel.min !== bytesPerPixel.max || attachmentBytes.min !== attachmentBytes.max) return null;
+  const candidateBytesPerPixel = bytesPerPixel.p50;
+  const candidateAttachmentBytes = attachmentBytes.p50;
+  const pixelCount = frame.width * frame.height;
+  return Object.freeze({
+    baselineBytesPerPixel: GPU_COMPUTE_MATERIAL_STEP2_TRANSITION_BYTES_PER_PIXEL,
+    candidateBytesPerPixel,
+    expectedCandidateBytesPerPixel: gpuComputeMaterialBytesPerPixel({ velocity: true }),
+    baselineAttachmentBytes: pixelCount * GPU_COMPUTE_MATERIAL_STEP2_TRANSITION_BYTES_PER_PIXEL,
+    candidateAttachmentBytes,
+    expectedCandidateAttachmentBytes: pixelCount * gpuComputeMaterialBytesPerPixel({ velocity: true }),
+    surfaceSampleCount: Math.min(bytesPerPixel.count, attachmentBytes.count),
+    conversionPassesAdded: countSurfaceConversionPasses(domainEvidence),
+    correctnessParity: evidence.full?.gateEligible === true,
+    runId: measurement.runId,
+    runGroupId: measurement.runGroupId,
+    sessionId: measurement.sessionId
+  });
+}
+
+function asInternalFrame(
+  domainEvidence?: Readonly<Record<string, unknown>>
+): { readonly width: number; readonly height: number } | null {
+  const graph = domainEvidence?.graph;
+  if (typeof graph !== "object" || graph === null || Array.isArray(graph)) return null;
+  const dump = (graph as { readonly dump?: unknown }).dump;
+  if (typeof dump !== "object" || dump === null || Array.isArray(dump)) return null;
+  const resources = (dump as { readonly resources?: unknown }).resources;
+  if (!Array.isArray(resources)) return null;
+  for (const resource of resources) {
+    if (typeof resource !== "object" || resource === null || Array.isArray(resource)) continue;
+    const description = (resource as { readonly description?: unknown }).description;
+    if (typeof description !== "string") continue;
+    try {
+      const value = JSON.parse(description) as { readonly width?: unknown; readonly height?: unknown };
+      if (typeof value.width === "number" && Number.isSafeInteger(value.width) && value.width > 0 &&
+          typeof value.height === "number" && Number.isSafeInteger(value.height) && value.height > 0 &&
+          (resource as { readonly name?: unknown }).name === "compute-material/normal") {
+        return { width: value.width, height: value.height };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function countSurfaceConversionPasses(domainEvidence?: Readonly<Record<string, unknown>>): number {
+  const graph = domainEvidence?.graph;
+  if (typeof graph !== "object" || graph === null || Array.isArray(graph)) return 1;
+  const dump = (graph as { readonly dump?: unknown }).dump;
+  if (typeof dump !== "object" || dump === null || Array.isArray(dump)) return 1;
+  const passes = (dump as { readonly passes?: unknown }).passes;
+  if (!Array.isArray(passes)) return 1;
+  return passes.filter((pass) => {
+    if (typeof pass !== "object" || pass === null || Array.isArray(pass)) return false;
+    const name = (pass as { readonly name?: unknown }).name;
+    return typeof name === "string" && /(?:surface|material).*bridge|bridge.*(?:surface|material)/i.test(name);
+  }).length;
 }
 
 function migrationEvidence(
@@ -284,25 +369,17 @@ interface RenderingLabMigrationGates {
 }
 
 function buildMigrationGates(
-  domainEvidence?: Readonly<Record<string, unknown>>
+  runEvidence: SurfaceAbiRunEvidence | null
 ): RenderingLabMigrationGates {
-  const surfaceRuns = readSurfaceAbiRuns(domainEvidence);
   return Object.freeze({
     schemaVersion: 1,
-    surfaceAbi: surfaceRuns === null
+    surfaceAbi: runEvidence === null
       ? Object.freeze({
         status: "insufficient-evidence",
-        reason: "M6 unified Surface ABI evidence is not present"
+        reason: "measured Surface ABI evidence is not present"
       })
-      : evaluateSurfaceAbiV2RunGroupNeed(surfaceRuns)
+      : evaluateSurfaceAbiV2RunGroupNeed([runEvidence])
   });
-}
-
-function readSurfaceAbiRuns(
-  domainEvidence?: Readonly<Record<string, unknown>>
-): readonly SurfaceAbiRunEvidence[] | null {
-  const value = domainEvidence?.surfaceAbiRuns;
-  return Array.isArray(value) ? value as readonly SurfaceAbiRunEvidence[] : null;
 }
 
 function summaryTiming(

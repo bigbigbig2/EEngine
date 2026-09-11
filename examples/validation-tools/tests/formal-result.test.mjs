@@ -7,7 +7,9 @@ test("formal policy cannot pass with an evidence gate error", () => {
     runGroupEvidence: { gateEligible: true, errors: [] },
     browserErrors: [],
     provenanceErrors: [],
-    gateErrors: ["run 0/base: gpu-counter-missing"]
+    gateErrors: ["run 0/base: gpu-counter-missing"],
+    migrationGates: { surfaceAbi: { status: "required" } },
+    requireSurfaceAbiGate: true
   });
   assert.match(reasons.join("\n"), /BenchmarkEvidenceGate/);
 });
@@ -17,6 +19,22 @@ test("formal policy accepts only a clean independent run group", () => {
     runGroupEvidence: { gateEligible: true, errors: [] },
     browserErrors: [],
     provenanceErrors: [],
-    gateErrors: []
+    gateErrors: [],
+    migrationGates: { surfaceAbi: { status: "required" } },
+    requireSurfaceAbiGate: true
   }), []);
+});
+
+test("formal policy rejects an unclosed SurfaceLite migration gate", () => {
+  const reasons = formalFailureReasons({
+    runGroupEvidence: { gateEligible: true, errors: [] },
+    browserErrors: [],
+    provenanceErrors: [],
+    gateErrors: [],
+    migrationGates: {
+      surfaceAbi: { status: "insufficient-evidence", reason: "requires 3 independent runs" }
+    },
+    requireSurfaceAbiGate: true
+  });
+  assert.match(reasons.join("\n"), /SurfaceAbiGate/);
 });

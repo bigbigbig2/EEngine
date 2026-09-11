@@ -60,7 +60,6 @@ import {
 } from "./benchmark-suite.js";
 import type { RenderingLabCaseId } from "./quality-profile.js";
 import type { RenderingLabFixture } from "./fixture.js";
-import type { SurfaceAbiRunEvidence } from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
 import {
   resolveRenderingLabWorkload,
   type RenderingLabWorkloadId,
@@ -443,8 +442,7 @@ function installRenderingLabFixture(
       options?.runOrdinal,
       options?.workloadId,
       options?.triangleSetupEnabled,
-      options?.triangleSetupThresholdPixels,
-      options?.surfaceAbiRuns
+      options?.triangleSetupThresholdPixels
     ),
     downloadBenchmarkReport: () => {
       if (benchmarkReport !== null) downloadRenderingLabBenchmarkReport(benchmarkReport);
@@ -508,8 +506,7 @@ async function runRenderingLabBenchmark(
   runOrdinalOverride?: number,
   workloadIdOverride?: RenderingLabWorkloadId,
   triangleSetupEnabledOverride?: boolean,
-  triangleSetupThresholdPixelsOverride?: number,
-  surfaceAbiRunsOverride?: readonly SurfaceAbiRunEvidence[]
+  triangleSetupThresholdPixelsOverride?: number
 ): Promise<RenderingLabBenchmarkReport> {
   if (triangleSetupThresholdPixelsOverride !== undefined &&
       (!Number.isFinite(triangleSetupThresholdPixelsOverride) || triangleSetupThresholdPixelsOverride < 0)) {
@@ -618,7 +615,6 @@ async function runRenderingLabBenchmark(
         resourceAccounting: activeRenderer.graphics.profilingResourceSnapshot(),
         ownerCreation: activeRenderer.gpuOwnerCreationEvidence(),
         migration: activeRenderer.visibilitySurfaceMigrationEvidence(),
-        ...(surfaceAbiRunsOverride === undefined ? {} : { surfaceAbiRuns: surfaceAbiRunsOverride }),
         temporal: activeRenderer.temporalEvidence(),
         ao: activeRenderer.ambientOcclusionEvidence(),
         ssr: activeRenderer.screenSpaceReflectionsEvidence()

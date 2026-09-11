@@ -88,22 +88,24 @@ export interface SurfaceAbiEvidence {
 export interface SurfaceAbiRunEvidence {
   readonly baselineBytesPerPixel: number;
   readonly candidateBytesPerPixel: number;
+  readonly expectedCandidateBytesPerPixel: number;
+  readonly baselineAttachmentBytes: number;
+  readonly candidateAttachmentBytes: number;
+  readonly expectedCandidateAttachmentBytes: number;
+  readonly surfaceSampleCount: number;
   readonly conversionPassesAdded: number;
   readonly correctnessParity: boolean;
   readonly runId?: string;
   readonly runGroupId?: string;
   readonly sessionId?: string;
-  readonly baselineResidentBytes?: number;
-  readonly candidateResidentBytes?: number;
-  readonly baselineTransientPeakBytes?: number;
-  readonly candidateTransientPeakBytes?: number;
 }
 
 /**
- * Formal M6 gate over independent run artifacts.  A candidate is accepted
- * only when every run preserves parity, saves attachment bytes, adds no
- * conversion pass, and does not increase resident/transient peaks.  Missing
- * optional memory fields are treated as missing evidence rather than as zero.
+ * Formal Surface ABI cutover gate over one comprehensive run group. A
+ * candidate is accepted only when every independent browser run preserves
+ * correctness, reports the exact physical attachment footprint, saves bytes,
+ * and contains no conversion pass. This deliberately evaluates the selected
+ * production topology instead of requiring a second benchmark profile.
  */
 export function evaluateSurfaceAbiV2RunGroupNeed(
   runs: readonly SurfaceAbiRunEvidence[],
@@ -152,19 +154,35 @@ export function evaluateSurfaceAbiV2RunGroupNeed(
     if (!validSurfaceAbiNumbers(run)) {
       return Object.freeze({ status: "insufficient-evidence", reason: "invalid Surface ABI run evidence" });
     }
-    if (
-      !Number.isFinite(run.baselineResidentBytes) ||
-      !Number.isFinite(run.candidateResidentBytes) ||
-      !Number.isFinite(run.baselineTransientPeakBytes) ||
-      !Number.isFinite(run.candidateTransientPeakBytes) ||
-      run.baselineResidentBytes! < 0 ||
-      run.candidateResidentBytes! < 0 ||
-      run.baselineTransientPeakBytes! < 0 ||
-      run.candidateTransientPeakBytes! < 0
-    ) {
+    if (run.surfaceSampleCount <= 0) {
       return Object.freeze({
         status: "insufficient-evidence",
-        reason: "each M6 run must report finite resident/transient peaks"
+        reason: "each Surface ABI run must contain measured attachment samples"
+      });
+    }
+    if (run.surfaceSampleCount < 480) {
+      return Object.freeze({
+        status: "insufficient-evidence",
+        reason: "each formal Surface ABI run requires 480 measured attachment samples"
+      });
+    }
+    if (run.candidateBytesPerPixel !== run.expectedCandidateBytesPerPixel) {
+      return Object.freeze({
+        status: "insufficient-evidence",
+        reason: "measured candidate bytes-per-pixel do not match the frozen ABI profile"
+      });
+    }
+    if (run.candidateAttachmentBytes !== run.expectedCandidateAttachmentBytes) {
+      return Object.freeze({
+        status: "insufficient-evidence",
+        reason: "candidate attachment bytes do not match resolution times bytes-per-pixel"
+      });
+    }
+    if (run.baselineAttachmentBytes * run.candidateBytesPerPixel !==
+        run.candidateAttachmentBytes * run.baselineBytesPerPixel) {
+      return Object.freeze({
+        status: "insufficient-evidence",
+        reason: "baseline and candidate attachment footprints do not describe the same pixel domain"
       });
     }
     savedPerRun.push(run.baselineBytesPerPixel - run.candidateBytesPerPixel);
@@ -191,19 +209,16 @@ export function evaluateSurfaceAbiV2RunGroupNeed(
       bytesSavedPerPixel: averageSaved
     });
   }
-  if (runs.some((run) =>
-    run.candidateResidentBytes! > run.baselineResidentBytes! ||
-    run.candidateTransientPeakBytes! > run.baselineTransientPeakBytes!
-  )) {
+  if (runs.some((run) => run.baselineAttachmentBytes <= run.candidateAttachmentBytes)) {
     return Object.freeze({
       status: "rejected-by-evidence",
-      reason: "candidate increases resident or transient peak memory",
+      reason: "candidate does not reduce physical attachment bytes in every run",
       bytesSavedPerPixel: averageSaved
     });
   }
   return Object.freeze({
     status: "required",
-    reason: "all independent runs preserve parity, save bytes, add no conversion, and stay within memory peaks",
+    reason: "all independent runs preserve parity, match the physical footprint, save bytes, and add no conversion",
     bytesSavedPerPixel: averageSaved
   });
 }
@@ -256,14 +271,15 @@ function isSurfaceAbiRunShape(value: unknown): value is SurfaceAbiRunEvidence {
     conversionPassesAdded: run.conversionPassesAdded as number,
     correctnessParity: run.correctnessParity as boolean
   }) &&
-    finiteNonNegative(run.baselineResidentBytes) &&
-    finiteNonNegative(run.candidateResidentBytes) &&
-    finiteNonNegative(run.baselineTransientPeakBytes) &&
-    finiteNonNegative(run.candidateTransientPeakBytes);
+    finitePositiveInteger(run.expectedCandidateBytesPerPixel) &&
+    finitePositiveInteger(run.baselineAttachmentBytes) &&
+    finitePositiveInteger(run.candidateAttachmentBytes) &&
+    finitePositiveInteger(run.expectedCandidateAttachmentBytes) &&
+    finitePositiveInteger(run.surfaceSampleCount);
 }
 
-function finiteNonNegative(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+function finitePositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function nonEmptyIdentity(value: unknown): value is string {

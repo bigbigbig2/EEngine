@@ -33,6 +33,9 @@ import {
   GPU_HDR_PROFILE,
   GPU_HDR_REJECTED_MAIN_CANDIDATES
 } from "../.test-dist/gpu/GpuHdrAbi.js";
+import {
+  evaluateSurfaceAbiV2RunGroupNeed
+} from "../.test-dist/debug/VisibilitySurfaceMigrationGates.js";
 globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4, FRAGMENT: 2, VERTEX: 1 });
 const {
   PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
@@ -239,6 +242,34 @@ test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only
   assert.match(OPAQUE_LIGHTING_PIPELINE_SOURCE, /resolveIblBaseline/);
   assert.match(OPAQUE_LIGHTING_PIPELINE_SOURCE, /resolveScreenDiffuseBaseline/);
   assert.doesNotMatch(OPAQUE_LIGHTING_PIPELINE_SOURCE, /IblDiffusePass|IblSpecularPass/);
+});
+
+test("ADR-0009 Step 3 accepts one three-context comprehensive SurfaceLite run group", () => {
+  const runs = [0, 1, 2].map((ordinal) => ({
+    baselineBytesPerPixel: 58,
+    candidateBytesPerPixel: 24,
+    expectedCandidateBytesPerPixel: 24,
+    baselineAttachmentBytes: 1920 * 1080 * 58,
+    candidateAttachmentBytes: 1920 * 1080 * 24,
+    expectedCandidateAttachmentBytes: 1920 * 1080 * 24,
+    surfaceSampleCount: 480,
+    conversionPassesAdded: 0,
+    correctnessParity: true,
+    runId: `run-${ordinal}`,
+    runGroupId: "comprehensive-full-group",
+    sessionId: `session-${ordinal}`
+  }));
+  assert.deepEqual(evaluateSurfaceAbiV2RunGroupNeed(runs), {
+    status: "required",
+    reason: "all independent runs preserve parity, match the physical footprint, save bytes, and add no conversion",
+    bytesSavedPerPixel: 34
+  });
+  assert.equal(
+    evaluateSurfaceAbiV2RunGroupNeed(runs.map((run, ordinal) =>
+      ordinal === 2 ? { ...run, candidateAttachmentBytes: run.candidateAttachmentBytes + 4 } : run
+    )).status,
+    "insufficient-evidence"
+  );
 });
 
 test("ADR-0009 Step 0 freezes a legal four-group ShadeLighting binding envelope", () => {

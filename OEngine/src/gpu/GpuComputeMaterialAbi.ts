@@ -93,6 +93,8 @@ fn oengine_surface_has_flag(packed: u32, flag: u32) -> bool {
 
 export const GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY = 20;
 export const GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL = 24;
+/** Frozen Step 2 transition footprint: 32 B compute outputs + 26 B Surface V1 bridge. */
+export const GPU_COMPUTE_MATERIAL_STEP2_TRANSITION_BYTES_PER_PIXEL = 58;
 
 export function gpuComputeMaterialBytesPerPixel(
   options: Readonly<{ velocity: boolean }>

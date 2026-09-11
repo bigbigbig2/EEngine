@@ -360,7 +360,7 @@ async function runFormal({ runner, baseUrl, repositoryRoot, args }) {
     runs.map((report) => triangleSetupRunEvidence(report, triangleSetupCaseId))
   );
   const migrationGates = {
-    surfaceAbi: evaluateSurfaceAbiV2RunGroupNeed(runs.flatMap(surfaceAbiRunEvidence))
+    surfaceAbi: evaluateSurfaceAbiV2RunGroupNeed(runs.map(surfaceAbiRunEvidence))
   };
   const provenanceErrors = runs.flatMap((report, runOrdinal) =>
     compareGitBuildProvenance(runnerProvenance, report.environment.engine)
@@ -396,7 +396,9 @@ async function runFormal({ runner, baseUrl, repositoryRoot, args }) {
     runGroupEvidence,
     browserErrors,
     provenanceErrors,
-    gateErrors
+    gateErrors,
+    migrationGates,
+    requireSurfaceAbiGate: workloadId === "comprehensive-full"
   });
   if (failures.length > 0) throw new Error(`Formal benchmark failed — ${failures.join("; ")}`);
   return { status: "passed", mode: "formal", outputDir, ...artifact, runs: undefined };
@@ -477,7 +479,7 @@ function triangleSetupRunEvidence(report, caseId) {
 }
 
 function surfaceAbiRunEvidence(report) {
-  return Array.isArray(report?.domainEvidence?.surfaceAbiRuns) ? report.domainEvidence.surfaceAbiRuns : [];
+  return report?.domainEvidence?.surfaceAbi?.runEvidence;
 }
 
 function booleanEnvironment(name, fallback) {

@@ -2,7 +2,6 @@ import type { RenderingLabBenchmarkReport } from "./benchmark-report.js";
 import type { CameraExperimentKind, CameraLodMode } from "./camera-experiments.js";
 import type { RenderingLabCaseId } from "./quality-profile.js";
 import type { RenderingLabWorkloadId } from "./benchmark-workloads.js";
-import type { SurfaceAbiRunEvidence } from "../../OEngine/src/debug/VisibilitySurfaceMigrationGates.js";
 
 export interface RenderingLabFixtureSnapshot {
   readonly schemaVersion: 2;
@@ -52,7 +51,6 @@ export interface RenderingLabFixture {
     /** Screen-space coverage threshold for TriangleSetup candidate admission. */
     readonly triangleSetupThresholdPixels?: number;
     /** Optional identity-bearing M6 candidate artifact to persist with this run. */
-    readonly surfaceAbiRuns?: readonly SurfaceAbiRunEvidence[];
   }): Promise<RenderingLabBenchmarkReport>;
   downloadBenchmarkReport(): void;
   captureScreenshot(): Promise<void>;
