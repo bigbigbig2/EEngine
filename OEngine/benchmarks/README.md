@@ -19,6 +19,7 @@
 - `benchmarks/gpu-driven-geometry-v2-step3.json`：ADR-0008 Step 3 在 clean commit 上的唯一综合 PERF，包含 bucket Hardware Visibility、triangle-capacity padding、像素级 semantic parity 与未掩盖的等深 identity 风险。
 - `benchmarks/advanced-frame-pipeline-v2-step2.json`：ADR-0009 Step 2 在 clean commit 上的综合 PERF，记录 MaterialTileWork compute material/direct-lighting 闭环以及待 Step 3 删除的 58 B/pixel 迁移态。
 - `benchmarks/advanced-frame-pipeline-v2-step3.json`：ADR-0009 Step 3 在 clean commit 上的综合 PERF，记录 20/24 B SurfaceLite、8 B HDR、SSR-only baseline、实际 attachment footprint、三次独立运行 gate 与 Step 2 对比。
+- `benchmarks/advanced-frame-pipeline-v2-step4.json`：ADR-0009 Step 4 在 clean commit 上的综合 PERF，记录 pinned Three.js r186 GTAO、3×6 horizon budget、packed AO/bent history、时域闭合、feature-off Browser gate 与未粉饰的 Step 3 成本变化。
 - `benchmarks/asset-codec-texture-v3-final.json`：ADR-0011 在 clean implementation commit 上的唯一综合 PERF 与独立 Worker codec load evidence，包含双 `TextureBindingSet`、exact compressed format、运行时 mip/submit 闭合及未掩盖的 per-set 成本。
 - `examples/rendering-lab/`：唯一保留的真实浏览器 fixture。
 

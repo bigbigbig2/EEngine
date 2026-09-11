@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "status": "accepted-step-evidence",
+  "decision": "adr-0009-step4-threejs-derived-gtao-replacement",
+  "provenance": {
+    "commit": "731e585a86f6323805597b30276eecd2ec27e028",
+    "contentHash": "a90d8dfcc617258024bd08f8bcc85b4908a3c0138e0bea2d16fce9f8779f0cc8",
+    "clean": true,
+    "runGroupId": "7fbd6954-80dc-41b8-bcc9-99fd6c55fa86",
+    "rawReportSha256": "0ac3c6b2ef16bf07a5019022bc9936156c25e1a310c0782e275c8a3649f753aa",
+    "browser": "Google Chrome channel; HeadlessChrome/152.0.0.0",
+    "adapter": {
+      "vendor": "nvidia",
+      "architecture": "turing",
+      "features": [
+        "primitive-index",
+        "rg11b10ufloat-renderable",
+        "subgroups",
+        "texture-compression-bc",
+        "timestamp-query"
+      ]
+    },
+    "frame": { "width": 1920, "height": 1080, "dpr": 1 },
+    "independentBrowserContexts": 3,
+    "warmupFramesPerContext": 120,
+    "measuredFramesPerContext": 480
+  },
+  "workload": {
+    "id": "comprehensive-full",
+    "cameraPath": "rendering-lab-overview-v2",
+    "animateScene": true,
+    "seed": 20260906,
+    "instances": 816,
+    "geometries": 806,
+    "materials": 34,
+    "transparentInstances": 2
+  },
+  "algorithm": {
+    "id": "three-gtao-r186-oengine-wgsl",
+    "upstreamRevision": "148ef33ecb6d2502ff796d4554abd1549c95d519",
+    "upstreamSource": "examples/jsm/tsl/display/GTAONode.js",
+    "license": "MIT",
+    "directions": 3,
+    "stepsPerDirection": 6,
+    "bidirectionalDepthSamplesPerGtaoPixel": 36,
+    "resolutionScale": 0.5,
+    "retainedInvariants": [
+      "horizon-slice-integration",
+      "quadratic-ray-stepping",
+      "five-by-five-magic-square-spatial-rotation",
+      "six-frame-temporal-rotation",
+      "four-frame-spatial-offset",
+      "view-space-thickness",
+      "squared-distance-falloff",
+      "activision-equation-7"
+    ],
+    "oengineExtensions": [
+      "shared-reverse-z-depth-and-hzb",
+      "same-trace-world-space-bent-normal",
+      "packed-ao-moments-and-oct-bent-history",
+      "joint-full-resolution-depth-normal-resolve"
+    ]
+  },
+  "aggregation": "median of three run-level percentiles",
+  "timingsMs": {
+    "cpuFrame": { "p50": 12.70000000298, "p95": 14.699999988824 },
+    "gpuFrame": { "p50": 1.962432, "p95": 2.2840896 },
+    "gtao": {
+      "linearDepthP50": 0.020288,
+      "horizonTraceP50": 0.258656,
+      "spatialMomentsP50": 0.106112,
+      "temporalMomentsP50": 0.069024,
+      "jointResolveP50": 0.1968,
+      "phaseTotalP50": 0.650912
+    }
+  },
+  "step3Comparison": {
+    "source": "advanced-frame-pipeline-v2-step3.json",
+    "gpuFrameP50DeltaMs": 0.339168,
+    "gpuFrameP50DeltaPercent": 20.894198355905132,
+    "gpuFrameP95DeltaMs": 0.3252224,
+    "gpuFrameP95DeltaPercent": 16.602575202647742,
+    "cpuFrameP50DeltaMs": 0,
+    "cpuFrameP95DeltaMs": 0.19499998912200134,
+    "cpuFrameP95DeltaPercent": 1.3443639374423133,
+    "gtaoPhaseP50BeforeMs": 0.5616,
+    "gtaoPhaseP50AfterMs": 0.650912,
+    "gtaoPhaseP50DeltaMs": 0.089312,
+    "gtaoPhaseP50DeltaPercent": 15.903133903133915,
+    "horizonTraceP50DeltaMs": 0.109152,
+    "horizonTraceP50DeltaPercent": 73.00941780821918,
+    "jointResolveP50DeltaMs": -0.035168,
+    "jointResolveP50DeltaPercent": -15.160711822320321,
+    "interpretation": "The pinned Three.js-quality 3x6 bidirectional trace replaces the prior 2x4 authored trace and costs 0.089312 ms at the complete AO phase P50. Packed bent-normal history removes one transient texture and makes the joint resolve faster, but doubles AO history bytes. The replacement is accepted for its algorithm, thin-geometry thickness and temporal bent-normal quality contract while the 1.962432/2.2840896 ms measured GPU frame remains below 16.667 ms; this is explicitly not a performance-improvement claim."
+  },
+  "resourceContract": {
+    "rawSpatialTemporalFormat": "rgba16float",
+    "rawSpatialTemporalBytesPerPixel": 8,
+    "packedChannels": "R=visibility,G=second-moment,BA=oct-bent-normal",
+    "finalVisibilityFormat": "r8unorm",
+    "finalVisibilityBytesPerPixel": 1,
+    "finalBentNormalFormat": "rg16uint",
+    "finalBentNormalBytesPerPixel": 4,
+    "historyTextureCount": 2,
+    "historyBytes": 8294400,
+    "step3HistoryBytes": 4147200,
+    "historyByteDelta": 4147200,
+    "frameGraphTransientResources": 46,
+    "step3FrameGraphTransientResources": 47,
+    "separateRawBentNormalTexturePresent": false,
+    "legacyAoOwnerPresent": false,
+    "extraTraaOwnerPresent": false
+  },
+  "temporalAndClosure": {
+    "aoPixels": 518400,
+    "sampledCounterFramesPerRun": 43,
+    "evaluatedPixelsP50EveryRun": 518400,
+    "historyAcceptedPixelsP50EveryRun": 518400,
+    "historyRejectedPixelsMax": 0,
+    "mainSubmitsP50EveryRun": 1,
+    "unassignedPixelsMax": 0,
+    "duplicatePixelsMax": 0,
+    "overflowQueuesMax": 0,
+    "frameInvalidMax": 0,
+    "invalidVisibilityKeysMax": 0,
+    "queueOverflowMaskMax": 0
+  },
+  "targetedCorrectness": {
+    "unitTests": { "passed": 105, "failed": 0 },
+    "browserCase": "surface.gtao-replacement",
+    "browserCaseStatus": "passed",
+    "browserCanvasSha256": "7b0719c7cbcbd68dd449fed7789dbae994cf967729ebc9e2e87ee2eb8c98a13d",
+    "browserAssertions": [
+      "pinned-production-algorithm-and-sample-budget",
+      "packed-temporal-abi-and-history-footprint",
+      "one-trace-shared-ao-bent-consumer",
+      "temporal-policy-pixel-conservation-and-one-submit",
+      "feature-off-zero-pass-resource-history-counter-cost",
+      "thin-geometry-and-contact-edge-visual-review"
+    ],
+    "gpuDiagnostics": {
+      "validationErrors": 0,
+      "uncapturedErrors": 0,
+      "deviceLosses": 0,
+      "failedGpuTimestampBatches": 0,
+      "droppedGpuCounterSamples": 0,
+      "failedGpuCounterSamples": 0
+    },
+    "formalRunGroupEligible": true,
+    "provenanceErrors": [],
+    "browserErrors": [],
+    "gateErrors": []
+  },
+  "runLevel": [
+    {
+      "runOrdinal": 0,
+      "runId": "de5bf524-fa1a-4da2-a3dc-5910fde48789",
+      "sessionId": "c71afb00-a56d-4e8a-9bed-383390eb8a83",
+      "cpuFrameP50": 12.899999991059,
+      "cpuFrameP95": 15.199999988824,
+      "gpuFrameP50": 1.969632,
+      "gpuFrameP95": 2.3055488,
+      "gtaoPhaseP50": 0.652416
+    },
+    {
+      "runOrdinal": 1,
+      "runId": "0fcd9f06-83ff-4405-b419-c69ce5bf2d89",
+      "sessionId": "6015f3de-17c7-485f-83a6-5f7d2724051e",
+      "cpuFrameP50": 12.64999999851,
+      "cpuFrameP95": 14.304999997467,
+      "gpuFrameP50": 1.962432,
+      "gpuFrameP95": 2.2812992,
+      "gtaoPhaseP50": 0.650912
+    },
+    {
+      "runOrdinal": 2,
+      "runId": "3a7d585e-f78a-450c-a2b9-98f0b1bd8e16",
+      "sessionId": "41e79f2a-a96c-4881-8939-67121e768b1f",
+      "cpuFrameP50": 12.70000000298,
+      "cpuFrameP95": 14.699999988824,
+      "gpuFrameP50": 1.954304,
+      "gpuFrameP95": 2.2840896,
+      "gtaoPhaseP50": 0.645536
+    }
+  ],
+  "limitations": [
+    "The accepted run group covers one NVIDIA Turing adapter; a second GPU vendor remains future coverage.",
+    "The formal comprehensive run contains the full topology only; GTAO feature-off physical pruning is established by the dedicated real-Chrome surface.gtao-replacement case.",
+    "The Step 3 comparison is a sequential accepted-step comparison under the same workload, not a second runtime backend or a dual benchmark."
+  ]
+}
