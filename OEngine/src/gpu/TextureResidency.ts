@@ -29,6 +29,10 @@ import {
   estimateTextureBytes,
   type ResourceHandle as AccountingResourceHandle
 } from "../debug/profiling/ResourceAccounting.js";
+import {
+  TEXTURE_BINDING_SET_MAX_RESIDENT_SETS,
+  textureBindingSetPolicy
+} from "./TextureBindingSetPolicy.js";
 
 export const TEXTURE_RESIDENCY_BASE_SIZE = GPU_TEXTURE_BANK_SIZES[0];
 export const TEXTURE_RESIDENCY_BASE_CAPACITY = GPU_TEXTURE_BANK_MAX_CAPACITIES[0];
@@ -38,19 +42,35 @@ export const TEXTURE_RESIDENCY_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
 
 export interface TextureResidencyBindings {
   readonly textureCapacity: number;
+  readonly bindingSets: readonly TextureBindingSet[];
+}
+
+export interface TextureBindingSet {
+  readonly id: number;
+  readonly generation: number;
   /** Nine explicit WebGPU bindings, not an unsized binding array. */
   readonly textureBanks: readonly [
     GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView,
     GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView
   ];
+  readonly bankDescriptors: readonly TextureBindingSetBankDescriptor[];
+}
+
+export interface TextureBindingSetBankDescriptor {
+  readonly bindingSlot: number;
+  readonly formatClass: GPUTextureFormat;
+  readonly sizeClass: number;
+  /** Physical package segment id, or -1 for shared uncooked banks/fallback. */
+  readonly segment: number;
 }
 
 export interface TextureResidencyStage {
   readonly bindings: TextureResidencyBindings;
+  readonly materialBindingSetIds: ReadonlyMap<StandardShadeMaterial, number>;
   /** Stable logical slot+generation identity. Never encodes a physical bank/layer. */
   readonly textureRefs: ReadonlyMap<ShadeTexture, number>;
-  /** Derived GPU routing published in the same stage transaction as textureRefs. */
-  readonly textureRoutingRefs: ReadonlyMap<ShadeTexture, number>;
+  /** Material-local routing because one physical segment may occupy different set slots. */
+  readonly materialTextureRoutingRefs: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>;
 }
 
 export interface TextureResidencyDescriptor {
@@ -81,7 +101,7 @@ export interface TextureBankEvidence {
 }
 
 export interface TexturePackageSegmentEvidence {
-  readonly bindingSlot: number;
+  readonly segment: number;
   readonly format: GPUTextureFormat;
   readonly width: number;
   readonly height: number;
@@ -93,8 +113,14 @@ export interface TexturePackageSegmentEvidence {
   readonly allocatedBytes: number;
 }
 
+export interface TextureFormatDistributionEvidence {
+  readonly format: GPUTextureFormat;
+  readonly residentTextureCount: number;
+  readonly residentBytes: number;
+}
+
 export interface TextureResidencyEvidence {
-  readonly schemaVersion: 4;
+  readonly schemaVersion: 5;
   readonly textureCapacity: number;
   readonly residentTextureCount: number;
   readonly retiringTextureCount: number;
@@ -111,7 +137,12 @@ export interface TextureResidencyEvidence {
   /** Direct package bytes written by the production residency owner. */
   readonly uploadBytes: number;
   readonly copyBytes: 0;
-  readonly transcodeBytes: 0;
+  /** Resident payload bytes produced by the Worker transcode path. */
+  readonly transcodeBytes: number;
+  readonly directPackageCount: number;
+  readonly workerTranscodeCount: number;
+  readonly uncompressedFallbackCount: number;
+  readonly formatDistribution: readonly TextureFormatDistributionEvidence[];
   readonly bankGrowCount: number;
   readonly abortedBankGrowCount: number;
   readonly resizeDispatchCount: number;
@@ -147,7 +178,7 @@ interface TextureBank {
 }
 
 interface TexturePackageSegment {
-  readonly bindingSlot: number;
+  readonly id: number;
   key: string | null;
   format: GPUTextureFormat;
   width: number;
@@ -160,6 +191,13 @@ interface TexturePackageSegment {
   freeLayers: number[];
 }
 
+interface ResidentTextureBindingSet {
+  readonly id: number;
+  generation: number;
+  materialCount: number;
+  packageSlots: Array<TexturePackageSegment | null>;
+}
+
 interface ResidentTexture {
   readonly slot: number;
   readonly generation: number;
@@ -169,6 +207,7 @@ interface ResidentTexture {
   readonly source: ShadeTexture;
   readonly cooked: boolean;
   readonly physicalFormat: GPUTextureFormat;
+  readonly preparationPath: "direct-package" | "worker-transcode" | "uncompressed-fallback";
   readonly routing: number;
   readonly residentBytes: number;
   readonly uploadBytes: number;
@@ -180,6 +219,7 @@ interface ResidentMaterialTextures {
   refCount: number;
   retireGeneration: number;
   textures: ResidentTexture[];
+  bindingSetId: number;
 }
 
 interface TextureRetainOperation {
@@ -193,6 +233,8 @@ interface MaterialRetainOperation {
   readonly entry: ResidentMaterialTextures;
   readonly created: boolean;
   readonly previousRetireGeneration: number;
+  readonly previousBindingSetId: number;
+  readonly activated: boolean;
 }
 
 interface TextureTransition {
@@ -220,10 +262,19 @@ interface TexturePackageSegmentPlan {
   readonly freshCount: number;
 }
 
+interface TextureBindingSetPlan {
+  readonly set: ResidentTextureBindingSet;
+  readonly previousGeneration: number;
+  readonly previousSlots: readonly (TexturePackageSegment | null)[];
+  readonly nextSlots: readonly (TexturePackageSegment | null)[];
+}
+
 interface TexturePreflight {
   readonly bankPlans: readonly BankGrowthPlan[];
   readonly packagePlans: readonly TexturePackageSegmentPlan[];
   readonly packageAssignments: ReadonlyMap<ShadeTexture, TexturePackageAssignment>;
+  readonly bindingSetPlans: readonly TextureBindingSetPlan[];
+  readonly materialBindingSetIds: ReadonlyMap<StandardShadeMaterial, number>;
 }
 
 interface TexturePackageSegmentGrowth {
@@ -248,6 +299,7 @@ interface BankGrowth {
 export class TextureResidency {
   private readonly banks: readonly TextureBank[];
   private readonly packageSegments: readonly TexturePackageSegment[];
+  private readonly bindingSets: readonly ResidentTextureBindingSet[];
   private readonly textures = new Map<ShadeTexture, ResidentTexture>();
   private readonly materials = new Map<StandardShadeMaterial, ResidentMaterialTextures>();
   private readonly descriptors = new Map<number, TextureResidencyDescriptor>();
@@ -273,6 +325,7 @@ export class TextureResidency {
       throw new RangeError("TextureResidency highResolutionMaxSize must be a supported size class");
     }
     const limits = graphics.device.limits;
+    textureBindingSetPolicy(limits);
     const deviceMaxSize = Number(limits.maxTextureDimension2D);
     this.banks = GPU_TEXTURE_BANK_SIZES.map((size, bindingSlot): TextureBank => {
       const physicalSize = Math.min(size, highResolutionMaxSize, deviceMaxSize);
@@ -292,9 +345,9 @@ export class TextureResidency {
       };
     });
     this.packageSegments = Array.from(
-      { length: GPU_TEXTURE_PACKAGE_BANK_COUNT },
+      { length: GPU_TEXTURE_PACKAGE_BANK_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS },
       (_, index): TexturePackageSegment => ({
-        bindingSlot: GPU_TEXTURE_PACKAGE_BANK_BEGIN + index,
+        id: index,
         key: null,
         format: "rgba8unorm",
         width: 1,
@@ -305,6 +358,15 @@ export class TextureResidency {
         view: null,
         accounting: null,
         freeLayers: []
+      })
+    );
+    this.bindingSets = Array.from(
+      { length: TEXTURE_BINDING_SET_MAX_RESIDENT_SETS },
+      (_, id): ResidentTextureBindingSet => ({
+        id,
+        generation: 1,
+        materialCount: 0,
+        packageSlots: Array.from({ length: GPU_TEXTURE_PACKAGE_BANK_COUNT }, () => null)
       })
     );
     const base = this.banks[0]!;
@@ -331,7 +393,8 @@ export class TextureResidency {
       this.rollbackGrowths(growths);
       throw error;
     }
-    const materialOperations = this.retainMaterials(materials);
+    this.applyBindingSetPlans(preflight.bindingSetPlans);
+    const materialOperations = this.retainMaterials(materials, preflight.materialBindingSetIds);
     const transitions: TextureTransition[] = [];
     const newTextures: ResidentTexture[] = [];
     const packageUploads: TextureAssetLayerUploadV2[] = [];
@@ -348,11 +411,14 @@ export class TextureResidency {
         const operation = materialOperations[index]!;
         operation.entry.refCount--;
         operation.entry.retireGeneration = operation.previousRetireGeneration;
+        operation.entry.bindingSetId = operation.previousBindingSetId;
+        if (operation.activated) this.bindingSets[preflight.materialBindingSetIds.get(operation.material)!]!.materialCount--;
         if (operation.created && operation.entry.refCount === 0 && this.materials.get(operation.material) === operation.entry) {
           this.materials.delete(operation.material);
         }
       }
       for (const upload of packageUploads) upload.abort();
+      this.rollbackBindingSetPlans(preflight.bindingSetPlans);
       this.rollbackPackageSegmentGrowths(packageGrowths);
       this.rollbackGrowths(growths);
     };
@@ -410,8 +476,9 @@ export class TextureResidency {
       });
       return Object.freeze({
         bindings: this.bindings(),
+        materialBindingSetIds: preflight.materialBindingSetIds,
         textureRefs: this.textureRefs(),
-        textureRoutingRefs: this.textureRoutingRefs()
+        materialTextureRoutingRefs: this.materialTextureRoutingRefs(materials)
       });
     } catch (error) {
       rollback();
@@ -440,7 +507,12 @@ export class TextureResidency {
         this.releaseTextureRefs(textures, command.gpuDone);
         const retire = (): void => {
           if (this.destroyed || entry.refCount !== 0 || entry.retireGeneration !== generation) return;
-          if (this.materials.get(material) === entry) this.materials.delete(material);
+          if (this.materials.get(material) !== entry) return;
+          this.materials.delete(material);
+          const set = this.bindingSets[entry.bindingSetId]!;
+          set.materialCount--;
+          if (set.materialCount < 0) throw new Error("TextureBindingSet material count underflow");
+          if (set.materialCount === 0) this.retireBindingSet(set);
         };
         void command.gpuDone.then(retire, retire);
       }
@@ -449,13 +521,35 @@ export class TextureResidency {
 
   bindings(): TextureResidencyBindings {
     const fallback = this.banks[0]!.view!;
-    const views = [
-      ...this.banks.map((bank) => bank.view ?? fallback),
-      ...this.packageSegments.map((segment) => segment.view ?? fallback)
-    ] as unknown as TextureResidencyBindings["textureBanks"];
+    const active = this.bindingSets.filter((set) => set.materialCount > 0);
     return Object.freeze({
       textureCapacity: this.logicalCapacity(),
-      textureBanks: Object.freeze(views)
+      bindingSets: Object.freeze(active.map((set): TextureBindingSet => {
+        const views = [
+          ...this.banks.map((bank) => bank.view ?? fallback),
+          ...set.packageSlots.map((segment) => segment?.view ?? fallback)
+        ] as unknown as TextureBindingSet["textureBanks"];
+        const bankDescriptors: TextureBindingSetBankDescriptor[] = [
+          ...this.banks.map((bank) => Object.freeze({
+            bindingSlot: bank.bindingSlot,
+            formatClass: "rgba8unorm" as GPUTextureFormat,
+            sizeClass: bank.bankClass,
+            segment: -1
+          })),
+          ...set.packageSlots.map((segment, index) => Object.freeze({
+            bindingSlot: GPU_TEXTURE_PACKAGE_BANK_BEGIN + index,
+            formatClass: segment?.format ?? "rgba8unorm",
+            sizeClass: segment === null ? 0 : textureSizeClass(segment.width, segment.height),
+            segment: segment?.id ?? -1
+          }))
+        ];
+        return Object.freeze({
+          id: set.id,
+          generation: set.generation,
+          textureBanks: Object.freeze(views),
+          bankDescriptors: Object.freeze(bankDescriptors)
+        });
+      }))
     });
   }
 
@@ -473,6 +567,7 @@ export class TextureResidency {
       { length: GPU_TEXTURE_BANK_COUNT },
       () => ({ resident: 0, retiring: 0 })
     );
+    const packageCounts = this.packageSegments.map(() => ({ resident: 0, retiring: 0 }));
     let residentTextureCount = 0;
     let retiringTextureCount = 0;
     let residentTextureBytes = 0;
@@ -480,6 +575,11 @@ export class TextureResidency {
     let logicalResidentBytes = 0;
     let cookedResidentTextureCount = 0;
     let compressedResidentTextureCount = 0;
+    let transcodeBytes = 0;
+    let directPackageCount = 0;
+    let workerTranscodeCount = 0;
+    let uncompressedFallbackCount = 0;
+    const formatDistribution = new Map<GPUTextureFormat, { count: number; bytes: number }>();
     for (const entry of this.textures.values()) {
       const bytes = entry.residentBytes;
       if (entry.refCount > 0) {
@@ -490,11 +590,25 @@ export class TextureResidency {
         if (entry.cooked && entry.physicalFormat.startsWith("bc")) {
           compressedResidentTextureCount++;
         }
-        counts[entry.bankClass]!.resident++;
+        const distribution = formatDistribution.get(entry.physicalFormat) ?? { count: 0, bytes: 0 };
+        distribution.count++;
+        distribution.bytes += bytes;
+        formatDistribution.set(entry.physicalFormat, distribution);
+        if (entry.preparationPath === "worker-transcode") {
+          workerTranscodeCount++;
+          transcodeBytes += bytes;
+        } else if (entry.preparationPath === "direct-package") {
+          directPackageCount++;
+        } else {
+          uncompressedFallbackCount++;
+        }
+        if (entry.cooked) packageCounts[entry.segment]!.resident++;
+        else counts[entry.bankClass]!.resident++;
       } else {
         retiringTextureCount++;
         retiringTextureBytes += bytes;
-        counts[entry.bankClass]!.retiring++;
+        if (entry.cooked) packageCounts[entry.segment]!.retiring++;
+        else counts[entry.bankClass]!.retiring++;
       }
     }
     const banks = this.banks.map((bank): TextureBankEvidence => Object.freeze({
@@ -511,14 +625,14 @@ export class TextureResidency {
     }));
     const packageSegments = this.packageSegments.map(
       (segment): TexturePackageSegmentEvidence => Object.freeze({
-        bindingSlot: segment.bindingSlot,
+        segment: segment.id,
         format: segment.format,
         width: segment.width,
         height: segment.height,
         mipLevelCount: segment.mipLevelCount,
         allocatedCapacity: segment.capacity,
-        residentTextureCount: counts[segment.bindingSlot]!.resident,
-        retiringTextureCount: counts[segment.bindingSlot]!.retiring,
+        residentTextureCount: packageCounts[segment.id]!.resident,
+        retiringTextureCount: packageCounts[segment.id]!.retiring,
         freeLayerCount: segment.freeLayers.length,
         allocatedBytes: segment.texture === null ? 0 : texturePackageSegmentBytes(
           segment.format,
@@ -531,8 +645,13 @@ export class TextureResidency {
     );
     const allocatedSegmentCount = this.banks.filter((bank) => bank.texture !== null).length +
       this.packageSegments.filter((segment) => segment.texture !== null).length;
+    const activeBindingSets = this.bindingSets.filter((set) => set.materialCount > 0);
+    const usedBindingSlots = activeBindingSets.reduce(
+      (sum, set) => sum + this.banks.length + set.packageSlots.filter((segment) => segment !== null).length,
+      0
+    );
     return Object.freeze({
-      schemaVersion: 4,
+      schemaVersion: 5,
       textureCapacity: this.logicalCapacity(),
       residentTextureCount,
       retiringTextureCount,
@@ -546,7 +665,19 @@ export class TextureResidency {
       transactionPeakBytes: this.transactionPeakBytes,
       uploadBytes: this.cookedUploadBytes,
       copyBytes: 0,
-      transcodeBytes: 0,
+      transcodeBytes,
+      directPackageCount,
+      workerTranscodeCount,
+      uncompressedFallbackCount,
+      formatDistribution: Object.freeze(
+        [...formatDistribution]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([format, value]): TextureFormatDistributionEvidence => Object.freeze({
+            format,
+            residentTextureCount: value.count,
+            residentBytes: value.bytes
+          }))
+      ),
       bankGrowCount: this.bankGrowCount,
       abortedBankGrowCount: this.abortedBankGrowCount,
       resizeDispatchCount: this.resizeDispatchCount,
@@ -556,8 +687,10 @@ export class TextureResidency {
       cookedRuntimeMipGenerationCount: 0,
       bankCopyOperationCount: this.bankCopyOperationCount,
       segmentCount: allocatedSegmentCount,
-      bindingSetCount: 1,
-      bindingSlotUtilization: allocatedSegmentCount / GPU_TEXTURE_BANK_COUNT,
+      bindingSetCount: activeBindingSets.length,
+      bindingSlotUtilization: activeBindingSets.length === 0
+        ? 0
+        : usedBindingSlots / (activeBindingSets.length * GPU_TEXTURE_BANK_COUNT),
       bindingSetPreflightFailures: this.bindingSetPreflightFailures,
       highResolutionArrayAllocated: this.banks.slice(1).some((bank) => bank.texture !== null),
       banks: Object.freeze(banks),
@@ -585,6 +718,7 @@ export class TextureResidency {
       }
       resetPackageSegment(segment);
     }
+    for (const set of this.bindingSets) resetBindingSet(set);
     this.textures.clear();
     this.materials.clear();
     this.descriptors.clear();
@@ -619,6 +753,17 @@ export class TextureResidency {
           freshByBank[textureBankClass(texture)]!.add(texture);
         }
       }
+    }
+    const freshDescriptorCount = freshPackages.size + freshByBank.reduce(
+      (sum, textures) => sum + textures.size,
+      0
+    );
+    if (freshDescriptorCount > this.freeDescriptorSlots.length) {
+      this.bindingSetPreflightFailures++;
+      throw new RangeError(
+        `TextureResidency requires ${freshDescriptorCount} logical descriptor slots but only ` +
+        `${this.freeDescriptorSlots.length} remain`
+      );
     }
     const bankPlans: BankGrowthPlan[] = [];
     for (const bank of this.banks) {
@@ -661,7 +806,8 @@ export class TextureResidency {
           this.bindingSetPreflightFailures++;
           throw new RangeError(
             `TextureResidency requires another cooked package segment for '${key}', ` +
-            `but the bounded set has ${GPU_TEXTURE_PACKAGE_BANK_COUNT}`
+            `but ${TEXTURE_BINDING_SET_MAX_RESIDENT_SETS} binding sets permit only ` +
+            `${this.packageSegments.length} resident physical segments`
           );
         }
         const capacity = group.length + 1;
@@ -684,6 +830,65 @@ export class TextureResidency {
       }
     }
 
+    const simulatedSlots = this.bindingSets.map((set) => [...set.packageSlots]);
+    const materialBindingSetIds = new Map<StandardShadeMaterial, number>();
+    for (const material of [...new Set(materials)]) {
+      const requiredSegments = [...new Set(materialTextureEntries(material).flatMap(({ texture }) => {
+        const assignment = packageAssignments.get(texture);
+        if (assignment !== undefined) return [assignment.segment];
+        const resident = this.textures.get(texture);
+        return resident?.cooked === true ? [this.packageSegments[resident.segment]!] : [];
+      }))];
+      if (requiredSegments.length > GPU_TEXTURE_PACKAGE_BANK_COUNT) {
+        this.bindingSetPreflightFailures++;
+        throw new RangeError(
+          `Material '${material.name}' requires ${requiredSegments.length} cooked segments, ` +
+          `one TextureBindingSet permits ${GPU_TEXTURE_PACKAGE_BANK_COUNT}`
+        );
+      }
+      const current = this.materials.get(material);
+      let set: ResidentTextureBindingSet | undefined;
+      if (current !== undefined && current.refCount > 0) {
+        const candidate = this.bindingSets[current.bindingSetId];
+        if (candidate !== undefined && canCoverSegments(simulatedSlots[candidate.id]!, requiredSegments)) {
+          set = candidate;
+        }
+      } else if (requiredSegments.length === 0) {
+        set = this.bindingSets[0];
+      } else {
+        set = [...this.bindingSets]
+          .filter((candidate) => canCoverSegments(simulatedSlots[candidate.id]!, requiredSegments))
+          .sort((left, right) => {
+            const leftMissing = missingSegmentCount(simulatedSlots[left.id]!, requiredSegments);
+            const rightMissing = missingSegmentCount(simulatedSlots[right.id]!, requiredSegments);
+            return leftMissing - rightMissing || right.materialCount - left.materialCount || left.id - right.id;
+          })[0];
+      }
+      if (set === undefined) {
+        this.bindingSetPreflightFailures++;
+        throw new RangeError(
+          `Material '${material.name}' cannot be colocated in ${TEXTURE_BINDING_SET_MAX_RESIDENT_SETS} bounded TextureBindingSets`
+        );
+      }
+      const slots = simulatedSlots[set.id]!;
+      for (const segment of requiredSegments) {
+        if (slots.includes(segment)) continue;
+        const slot = slots.indexOf(null);
+        if (slot < 0) throw new Error("TextureBindingSet preflight admitted an over-capacity material");
+        slots[slot] = segment;
+      }
+      materialBindingSetIds.set(material, set.id);
+    }
+    const bindingSetPlans = this.bindingSets.flatMap((set): TextureBindingSetPlan[] => {
+      const nextSlots = simulatedSlots[set.id]!;
+      return sameSegmentSlots(set.packageSlots, nextSlots) ? [] : [{
+        set,
+        previousGeneration: set.generation,
+        previousSlots: Object.freeze([...set.packageSlots]),
+        nextSlots: Object.freeze([...nextSlots])
+      }];
+    });
+
     const transactionPeakBytes = this.allocatedBytes() + bankPlans.reduce(
       (sum, plan) => sum + arrayBytes(plan.bank.physicalSize, plan.nextCapacity),
       0
@@ -705,8 +910,25 @@ export class TextureResidency {
     return Object.freeze({
       bankPlans: Object.freeze(bankPlans),
       packagePlans: Object.freeze(packagePlans),
-      packageAssignments
+      packageAssignments,
+      bindingSetPlans: Object.freeze(bindingSetPlans),
+      materialBindingSetIds
     });
+  }
+
+  private applyBindingSetPlans(plans: readonly TextureBindingSetPlan[]): void {
+    for (const plan of plans) {
+      plan.set.packageSlots = [...plan.nextSlots];
+      plan.set.generation = nextBindingSetGeneration(plan.set.generation);
+    }
+  }
+
+  private rollbackBindingSetPlans(plans: readonly TextureBindingSetPlan[]): void {
+    for (let index = plans.length - 1; index >= 0; index--) {
+      const plan = plans[index]!;
+      plan.set.packageSlots = [...plan.previousSlots];
+      plan.set.generation = plan.previousGeneration;
+    }
   }
 
   private applyPackageSegmentPlans(
@@ -723,7 +945,7 @@ export class TextureResidency {
         const height = variant.mips[0]!.logicalHeight;
         const capacity = plan.freshCount + 1;
         const descriptor: GPUTextureDescriptor = {
-          label: `TextureResidency/package-${segment.bindingSlot}-${variant.format}-${width}x${height}`,
+          label: `TextureResidency/package-segment-${segment.id}-${variant.format}-${width}x${height}`,
           size: [width, height, capacity],
           format: variant.format,
           mipLevelCount: variant.mips.length,
@@ -740,7 +962,7 @@ export class TextureResidency {
         const accounting = this.graphics.resource_accounting?.created({
           kind: "texture",
           category: "resident",
-          owner: `TextureResidency/package-segment-${segment.bindingSlot}`,
+          owner: `TextureResidency/package-segment-${segment.id}`,
           bytes,
           label: descriptor.label
         });
@@ -873,20 +1095,50 @@ export class TextureResidency {
     for (let layer = bank.capacity - 1; layer >= 1; layer--) bank.freeLayers.push(layer);
   }
 
-  private retainMaterials(materials: readonly StandardShadeMaterial[]): MaterialRetainOperation[] {
+  private retainMaterials(
+    materials: readonly StandardShadeMaterial[],
+    bindingSetIds: ReadonlyMap<StandardShadeMaterial, number>
+  ): MaterialRetainOperation[] {
+    for (const material of materials) {
+      const bindingSetId = bindingSetIds.get(material);
+      if (bindingSetId === undefined || this.bindingSets[bindingSetId] === undefined) {
+        throw new Error(`Missing valid TextureBindingSet for '${material.name}'`);
+      }
+      const entry = this.materials.get(material);
+      if (entry !== undefined && entry.refCount > 0 && entry.bindingSetId !== bindingSetId) {
+        throw new Error(`Resident material '${material.name}' cannot change TextureBindingSet while referenced`);
+      }
+    }
     const result: MaterialRetainOperation[] = [];
     for (const material of materials) {
+      const bindingSetId = bindingSetIds.get(material);
+      if (bindingSetId === undefined) throw new Error(`Missing TextureBindingSet for '${material.name}'`);
       let entry = this.materials.get(material);
       let created = false;
       if (entry === undefined) {
-        entry = { refCount: 0, retireGeneration: 0, textures: [] };
+        entry = { refCount: 0, retireGeneration: 0, textures: [], bindingSetId };
         this.materials.set(material, entry);
         created = true;
       }
       const previousRetireGeneration = entry.retireGeneration;
-      if (!created && entry.refCount === 0) entry.retireGeneration++;
+      const previousBindingSetId = entry.bindingSetId;
+      const activated = entry.refCount === 0;
+      if (!created && activated) {
+        entry.retireGeneration++;
+        entry.bindingSetId = bindingSetId;
+      } else if (entry.bindingSetId !== bindingSetId) {
+        throw new Error(`Resident material '${material.name}' cannot change TextureBindingSet while referenced`);
+      }
+      if (activated) this.bindingSets[bindingSetId]!.materialCount++;
       entry.refCount++;
-      result.push({ material, entry, created, previousRetireGeneration });
+      result.push({
+        material,
+        entry,
+        created,
+        previousRetireGeneration,
+        previousBindingSetId,
+        activated
+      });
     }
     return result;
   }
@@ -935,8 +1187,8 @@ export class TextureResidency {
       let residentBytes: number;
       if (packageAssignment !== undefined) {
         const segment = packageAssignment.segment;
-        bankClass = segment.bindingSlot;
-        segmentIndex = bankClass - GPU_TEXTURE_PACKAGE_BANK_BEGIN;
+        bankClass = GPU_TEXTURE_PACKAGE_BANK_BEGIN;
+        segmentIndex = segment.id;
         layer = segment.freeLayers.pop();
         physicalFormat = packageAssignment.variant.format;
         routing = packageRouting(packageAssignment.asset, packageAssignment.variant);
@@ -973,6 +1225,11 @@ export class TextureResidency {
         source: texture,
         cooked: packageAssignment !== undefined,
         physicalFormat,
+        preparationPath: packageAssignment === undefined
+          ? "uncompressed-fallback"
+          : packageAssignment.variant.profile === "worker-transcoded"
+            ? "worker-transcode"
+            : "direct-package",
         routing,
         residentBytes,
         uploadBytes: packageAssignment === undefined ? 0 : residentBytes,
@@ -1027,14 +1284,34 @@ export class TextureResidency {
     return refs;
   }
 
-  private textureRoutingRefs(): ReadonlyMap<ShadeTexture, number> {
-    const refs = new Map<ShadeTexture, number>();
-    for (const entry of this.textures.values()) {
-      if (entry.refCount > 0) {
-        refs.set(entry.source, encodeGpuTextureRef(entry.bankClass, entry.layer, entry.routing));
+  private materialTextureRoutingRefs(
+    materials: readonly StandardShadeMaterial[]
+  ): ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>> {
+    const result = new Map<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>();
+    for (const material of new Set(materials)) {
+      const resident = this.materials.get(material);
+      if (resident === undefined || resident.refCount <= 0) continue;
+      const set = this.bindingSets[resident.bindingSetId]!;
+      const refs = new Map<ShadeTexture, number>();
+      for (const entry of resident.textures) {
+        if (entry.cooked) {
+          const segment = this.packageSegments[entry.segment]!;
+          const localSlot = set.packageSlots.indexOf(segment);
+          if (localSlot < 0) {
+            throw new Error(`TextureBindingSet ${set.id} lost package segment ${segment.id}`);
+          }
+          refs.set(entry.source, encodeGpuTextureRef(
+            GPU_TEXTURE_PACKAGE_BANK_BEGIN + localSlot,
+            entry.layer,
+            entry.routing
+          ));
+        } else {
+          refs.set(entry.source, encodeGpuTextureRef(entry.bankClass, entry.layer, entry.routing));
+        }
       }
+      result.set(material, refs);
     }
-    return refs;
+    return result;
   }
 
   private encodeResizeCopy(command: ShadeGPUCommandContext, entry: ResidentTexture): void {
@@ -1103,9 +1380,18 @@ export class TextureResidency {
   private reclaimPackageSegmentIfUnused(segmentIndex: number): void {
     if ([...this.textures.values()].some((entry) => entry.cooked && entry.segment === segmentIndex)) return;
     const segment = this.packageSegments[segmentIndex]!;
+    if (this.bindingSets.some((set) => set.materialCount > 0 && set.packageSlots.includes(segment))) return;
     segment.texture?.destroy();
     if (segment.accounting !== null) this.graphics.resource_accounting?.destroyed(segment.accounting);
     resetPackageSegment(segment);
+  }
+
+  private retireBindingSet(set: ResidentTextureBindingSet): void {
+    const segments = [...new Set(set.packageSlots.filter(
+      (segment): segment is TexturePackageSegment => segment !== null
+    ))];
+    resetBindingSet(set);
+    for (const segment of segments) this.reclaimPackageSegmentIfUnused(segment.id);
   }
 
   private createDescriptor(entry: ResidentTexture): TextureResidencyDescriptor {
@@ -1253,7 +1539,7 @@ function logicalTextureBytes(texture: ShadeTexture): number {
 
 function requirePackageSegmentTexture(segment: TexturePackageSegment): GPUTexture {
   if (segment.texture === null) {
-    throw new Error(`TextureResidency cooked segment ${segment.bindingSlot} was not preflighted`);
+    throw new Error(`TextureResidency cooked segment ${segment.id} was not preflighted`);
   }
   return segment.texture;
 }
@@ -1269,6 +1555,38 @@ function resetPackageSegment(segment: TexturePackageSegment): void {
   segment.view = null;
   segment.accounting = null;
   segment.freeLayers.length = 0;
+}
+
+function resetBindingSet(set: ResidentTextureBindingSet): void {
+  set.generation = nextBindingSetGeneration(set.generation);
+  set.materialCount = 0;
+  set.packageSlots = Array.from({ length: GPU_TEXTURE_PACKAGE_BANK_COUNT }, () => null);
+}
+
+function nextBindingSetGeneration(value: number): number {
+  const next = (value + 1) >>> 0;
+  return next === 0 ? 1 : next;
+}
+
+function canCoverSegments(
+  slots: readonly (TexturePackageSegment | null)[],
+  required: readonly TexturePackageSegment[]
+): boolean {
+  return missingSegmentCount(slots, required) <= slots.filter((segment) => segment === null).length;
+}
+
+function missingSegmentCount(
+  slots: readonly (TexturePackageSegment | null)[],
+  required: readonly TexturePackageSegment[]
+): number {
+  return required.reduce((count, segment) => count + (slots.includes(segment) ? 0 : 1), 0);
+}
+
+function sameSegmentSlots(
+  left: readonly (TexturePackageSegment | null)[],
+  right: readonly (TexturePackageSegment | null)[]
+): boolean {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
 }
 
 function texturePackageSegmentKey(

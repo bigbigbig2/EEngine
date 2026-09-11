@@ -33,6 +33,7 @@ import type {
   InstanceTransformPatch
 } from "./GpuScene.js";
 import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
+import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "./TextureBindingSetPolicy.js";
 
 declare const GPU_RENDER_WORLD_HANDLE_BRAND: unique symbol;
 
@@ -103,6 +104,8 @@ export interface GpuRenderWorldRuntime {
   readonly transparentInstanceCount: number;
   /** Bit N is set when at least one resident OPAQUE/MASK instance uses kernel class N. */
   readonly activeKernelMask: number;
+  /** One bounded kernel mask per TextureBindingSet id. */
+  readonly activeKernelMasksByBindingSet: readonly number[];
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
   readonly hierarchyRasterWorkCapacity: number;
@@ -118,6 +121,7 @@ interface PendingPatch {
 interface PackedSceneClassificationState {
   readonly materialIndices: Uint32Array;
   readonly opaqueKernelClassCounts: Uint32Array;
+  readonly materialBindingSetIds: readonly number[];
   transparentInstanceCount: number;
 }
 
@@ -171,7 +175,8 @@ export class GpuRenderWorld {
     const textureStage = this.graphics.texture_residency.stage(source.materials, command);
     const materialStage = this.graphics.material_store.stage(
       source.materials,
-      textureStage.textureRoutingRefs,
+      textureStage.materialTextureRoutingRefs,
+      textureStage.materialBindingSetIds,
       command
     );
     const geometryHandles = Object.freeze([...assetHandles]);
@@ -191,8 +196,11 @@ export class GpuRenderWorld {
       materialIndices: source.materialIndices.slice(),
       opaqueKernelClassCounts: countOpaqueKernelClasses(
         source.materialIndices,
-        source.materials
+        source.materials,
+        source.materials.map((material) => textureStage.materialBindingSetIds.get(material)!)
       ),
+      materialBindingSetIds: Object.freeze(source.materials.map((material) =>
+        textureStage.materialBindingSetIds.get(material)!)),
       transparentInstanceCount: countTransparentInstances(
         source.materialIndices,
         source.materials
@@ -241,6 +249,9 @@ export class GpuRenderWorld {
       },
       get activeKernelMask() {
         return activeKernelMask(classification.opaqueKernelClassCounts);
+      },
+      get activeKernelMasksByBindingSet() {
+        return activeKernelMasksByBindingSet(classification.opaqueKernelClassCounts);
       },
       hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,
       hierarchyVisibleClusterCapacity: hierarchyCapacity.visibleClusterCapacity,
@@ -561,22 +572,39 @@ function createOrdinarySceneAdapterState(
 
 function countOpaqueKernelClasses(
   materialIndices: ArrayLike<number>,
-  materials: readonly StandardShadeMaterial[]
+  materials: readonly StandardShadeMaterial[],
+  materialBindingSetIds: readonly number[]
 ): Uint32Array {
-  const counts = new Uint32Array(GPU_MATERIAL_KERNEL_CLASS_COUNT);
+  const counts = new Uint32Array(
+    GPU_MATERIAL_KERNEL_CLASS_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
+  );
   for (let index = 0; index < materialIndices.length; index++) {
-    const material = materials[materialIndices[index]!]!;
-    if (!isTransparentMaterial(material)) counts[materialKernelClass(material)]!++;
+    const materialIndex = materialIndices[index]!;
+    const material = materials[materialIndex]!;
+    if (!isTransparentMaterial(material)) {
+      const setId = materialBindingSetIds[materialIndex]!;
+      counts[setId * GPU_MATERIAL_KERNEL_CLASS_COUNT + materialKernelClass(material)]!++;
+    }
   }
   return counts;
 }
 
 function activeKernelMask(counts: Uint32Array): number {
   let mask = 0;
-  for (let kernelClass = 0; kernelClass < counts.length; kernelClass++) {
-    if (counts[kernelClass]! > 0) mask |= 1 << kernelClass;
+  for (let index = 0; index < counts.length; index++) {
+    if (counts[index]! > 0) mask |= 1 << (index % GPU_MATERIAL_KERNEL_CLASS_COUNT);
   }
   return mask >>> 0;
+}
+
+function activeKernelMasksByBindingSet(counts: Uint32Array): readonly number[] {
+  return Object.freeze(Array.from(
+    { length: TEXTURE_BINDING_SET_MAX_RESIDENT_SETS },
+    (_, setId) => activeKernelMask(counts.subarray(
+      setId * GPU_MATERIAL_KERNEL_CLASS_COUNT,
+      (setId + 1) * GPU_MATERIAL_KERNEL_CLASS_COUNT
+    ))
+  ));
 }
 
 function restoreOpaqueKernelClassCounts(
@@ -584,7 +612,7 @@ function restoreOpaqueKernelClassCounts(
   materials: readonly StandardShadeMaterial[]
 ): void {
   state.opaqueKernelClassCounts.set(
-    countOpaqueKernelClasses(state.materialIndices, materials)
+    countOpaqueKernelClasses(state.materialIndices, materials, state.materialBindingSetIds)
   );
 }
 
@@ -609,15 +637,18 @@ function applyMaterialClassificationPatch(
     const isTransparent = isTransparentMaterial(materials[nextMaterialIndex]!);
     if (!wasTransparent) {
       const previousKernelClass = materialKernelClass(materials[previousMaterialIndex]!);
-      const previousCount = state.opaqueKernelClassCounts[previousKernelClass]!;
+      const previousSetId = state.materialBindingSetIds[previousMaterialIndex]!;
+      const previousClass = previousSetId * GPU_MATERIAL_KERNEL_CLASS_COUNT + previousKernelClass;
+      const previousCount = state.opaqueKernelClassCounts[previousClass]!;
       if (previousCount === 0) {
         throw new Error("Packed Scene opaque kernel class count underflow");
       }
-      state.opaqueKernelClassCounts[previousKernelClass] = previousCount - 1;
+      state.opaqueKernelClassCounts[previousClass] = previousCount - 1;
     }
     if (!isTransparent) {
       const nextKernelClass = materialKernelClass(materials[nextMaterialIndex]!);
-      state.opaqueKernelClassCounts[nextKernelClass]!++;
+      const nextSetId = state.materialBindingSetIds[nextMaterialIndex]!;
+      state.opaqueKernelClassCounts[nextSetId * GPU_MATERIAL_KERNEL_CLASS_COUNT + nextKernelClass]!++;
     }
     if (wasTransparent !== isTransparent) {
       state.transparentInstanceCount += isTransparent ? 1 : -1;

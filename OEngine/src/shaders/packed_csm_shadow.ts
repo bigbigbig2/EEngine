@@ -64,6 +64,8 @@ struct ShadowVertexOutput {
 
 ${GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL}
 
+override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
+
 fn read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
   let word = (*words)[byte_offset >> 2u];
   return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;
@@ -179,6 +181,7 @@ fn packed_csm_fragment(input: ShadowVertexOutput, @builtin(front_facing) front: 
   if (input.raster_flags & ${GPU_SECONDARY_RASTER_FLAGS.CastsShadow}u) == 0u { discard; }
   if input.material_handle >= arrayLength(&materials) { return; }
   let record = materials[input.material_handle];
+  if record.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET { discard; }
   if (record.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u { return; }
   let corrected_front = front != (input.mirrored != 0u);
   if (record.flags & OENGINE_MATERIAL_VISIBILITY_DOUBLE_SIDED) == 0u && !corrected_front {

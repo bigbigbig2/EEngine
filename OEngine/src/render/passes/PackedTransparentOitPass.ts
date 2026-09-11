@@ -153,6 +153,24 @@ const FORWARD_PIPELINE: CachedRenderPipelineDescriptor = {
   depthStencil: DEPTH_STATE
 };
 
+function transparentSetPipeline(
+  base: CachedRenderPipelineDescriptor,
+  textureBindingSetId: number
+): CachedRenderPipelineDescriptor {
+  if (base.fragment === undefined) throw new Error("Transparent set pipeline requires a fragment stage");
+  return {
+    ...base,
+    label: `${base.label}/set-${textureBindingSetId}`,
+    fragment: {
+      ...base.fragment,
+      constants: {
+        ...base.fragment.constants,
+        OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId
+      }
+    }
+  };
+}
+
 const COMPOSITE_PIPELINE: CachedRenderPipelineDescriptor = {
   label: "FX-05 Packed MBOIT composite",
   layout: { label: "FX-05 Packed MBOIT composite layout", bindGroupLayouts: [COMPOSITE_GROUP] },
@@ -257,10 +275,12 @@ export class PackedTransparentOitPass {
     inputs: PackedTransparentOitInputs
   ): PackedTransparentOitOutputs {
     if (this.retired) throw new Error("FX-05 transparent owner is retired");
-    this.lastMomentPasses = 1;
-    this.lastForwardPasses = 1;
+    const bindingSetCount = job.runtime.materialResources.bindingSets.length;
+    if (bindingSetCount === 0) throw new Error("Packed transparency requires one active TextureBindingSet");
+    this.lastMomentPasses = bindingSetCount;
+    this.lastForwardPasses = bindingSetCount;
     this.lastCompositePasses = 1;
-    this.lastDrawCount = 3;
+    this.lastDrawCount = bindingSetCount * 2 + 1;
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
     const momentData = { optical: -1, moments: -1 };
@@ -280,10 +300,14 @@ export class PackedTransparentOitPass {
             depthReadOnly: true
           }
         });
-        pass.setPipeline(this.graphics.render_pipelines.obtain(MOMENT_PIPELINE));
-        pass.setBindGroup(0, this.commonGroup(data, generated,
-          requireBuffer(resources.get(inputs.camera), "camera")));
-        pass.drawIndirect(generated.drawIndirect!, 0);
+        for (const bindingSet of data.runtime.materialResources.bindingSets) {
+          pass.setPipeline(this.graphics.render_pipelines.obtain(
+            transparentSetPipeline(MOMENT_PIPELINE, bindingSet.id)
+          ));
+          pass.setBindGroup(0, this.commonGroup(data, generated,
+            requireBuffer(resources.get(inputs.camera), "camera"), bindingSet.textureBanks));
+          pass.drawIndirect(generated.drawIndirect!, 0);
+        }
         pass.end();
       });
     momentData.optical = moment.create("FX-05 optical depth",
@@ -310,9 +334,12 @@ export class PackedTransparentOitPass {
             depthReadOnly: true
           }
         });
-        pass.setPipeline(this.graphics.render_pipelines.obtain(FORWARD_PIPELINE));
-        pass.setBindGroup(0, this.commonGroup(data, generated,
-          requireBuffer(resources.get(inputs.camera), "camera")));
+        for (const bindingSet of data.runtime.materialResources.bindingSets) {
+          pass.setPipeline(this.graphics.render_pipelines.obtain(
+            transparentSetPipeline(FORWARD_PIPELINE, bindingSet.id)
+          ));
+          pass.setBindGroup(0, this.commonGroup(data, generated,
+            requireBuffer(resources.get(inputs.camera), "camera"), bindingSet.textureBanks));
         pass.setBindGroup(1, this.graphics.bind_groups.obtain({
           layout: FORWARD_GROUP,
           entries: [
@@ -343,7 +370,8 @@ export class PackedTransparentOitPass {
             { buffer: requireBuffer(resources.get(inputs.view), "view") }
           ]
         }));
-        pass.drawIndirect(generated.drawIndirect!, 0);
+          pass.drawIndirect(generated.drawIndirect!, 0);
+        }
         pass.end();
       });
     forwardData.resolved = forward.create("FX-05 transparent resolved",
@@ -490,7 +518,8 @@ export class PackedTransparentOitPass {
   private commonGroup(
     job: PackedTransparentOitJob,
     generated: GeneratedHierarchyWork,
-    camera: GPUBuffer
+    camera: GPUBuffer,
+    textureBanks: GpuRenderWorldRuntime["materialResources"]["bindingSets"][number]["textureBanks"]
   ): GPUBindGroup {
     return this.graphics.bind_groups.obtain({
       layout: COMMON_GROUP,
@@ -504,9 +533,9 @@ export class PackedTransparentOitPass {
         { buffer: job.assets.geometryRecords },
         { buffer: generated.rasterWork! },
         { buffer: job.runtime.materialResources.materialRecords },
-        job.runtime.materialResources.textureBanks[0],
+        textureBanks[0],
         ...this.samplers,
-        ...job.runtime.materialResources.textureBanks.slice(1)
+        ...textureBanks.slice(1)
       ]
     });
   }

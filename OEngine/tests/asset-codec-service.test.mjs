@@ -7,7 +7,8 @@ import test from "node:test";
 
 import {
   KTX2_TRANSCODE_TARGET_FORMATS,
-  validateAssetCodecTask
+  validateAssetCodecTask,
+  validateAssetCodecWorkerResult
 } from "../.test-dist/assets/codec/AssetCodecTypes.js";
 import { AssetWorkerPool } from "../.test-dist/assets/codec/AssetWorkerPool.js";
 import {
@@ -77,6 +78,31 @@ test("asset codec task contract rejects invalid or unavailable protocol values",
   assert.throws(() => validateAssetCodecTask(task({ estimatedPeakBytes: 0 })), /estimatedPeakBytes/);
   assert.throws(() => validateAssetCodecTask(task({ kind: "draco-decode" })), /not enabled/);
   assert.throws(() => validateAssetCodecTask(task({ targetFormat: "r32float" })), /target/);
+  assert.throws(() => validateAssetCodecWorkerResult({
+    taskId: 1,
+    ok: true,
+    sourceEncoding: "ktx2-uastc",
+    targetFormat: "bc7-rgba-unorm-srgb",
+    mips: [{
+      level: 0,
+      logicalWidth: 4,
+      logicalHeight: 4,
+      physicalWidth: 4,
+      physicalHeight: 4,
+      payload: new ArrayBuffer(8)
+    }],
+    evidence: {
+      queueWaitMs: 0,
+      workerMs: 1,
+      wallMs: 1,
+      inputBytes: 1024,
+      outputBytes: 8,
+      estimatedPeakBytes: 2048,
+      codecId: "fixture",
+      codecRevision: "1",
+      codecBinaryHash: "a".repeat(64)
+    }
+  }), /payload length/);
 });
 
 test("bounded pool preserves priority, FIFO, concurrency, memory, and transfer lists", async () => {
@@ -215,7 +241,7 @@ test("codec service is lazy, bounded by hardware concurrency, and publishes stab
   const result = await promise;
   assert.equal(result.evidence.codecId, "fixture");
   assert.deepEqual(service.evidence(), {
-    schemaVersion: 1,
+    schemaVersion: 2,
     tasksQueued: 1,
     tasksCompleted: 1,
     tasksFailed: 0,
@@ -230,10 +256,17 @@ test("codec service is lazy, bounded by hardware concurrency, and publishes stab
     wallMs: 5,
     inputBytes: 1024,
     outputBytes: 16,
+    transferBytes: 1040,
     workerFailures: 0,
     directPathCount: 0,
     workerPathCount: 1,
-    uncompressedPathCount: 0
+    uncompressedPathCount: 0,
+    codecIdentities: [{
+      codecId: "fixture",
+      codecRevision: "1",
+      codecBinaryHash: "a".repeat(64),
+      completedTaskCount: 1
+    }]
   });
   service.destroy();
   service.destroy();

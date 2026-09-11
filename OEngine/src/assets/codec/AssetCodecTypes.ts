@@ -1,4 +1,8 @@
 import type { TextureSemanticV2 } from "../TextureAssetPackage.js";
+import {
+  encodedTextureMipByteLength,
+  physicalTextureExtent
+} from "./TextureFormatLayout.js";
 
 export type AssetCodecTaskKind =
   | "ktx2-transcode"
@@ -171,6 +175,67 @@ export function validateAssetCodecTask(value: unknown): asserts value is AssetCo
   }
 }
 
+export function validateAssetCodecWorkerResult(value: unknown): asserts value is AssetCodecWorkerResult {
+  if (!isRecord(value)) throw new TypeError("Asset codec result must be an object");
+  if (!Number.isSafeInteger(value.taskId) || Number(value.taskId) < 0) {
+    throw new RangeError("Asset codec result taskId must be a non-negative safe integer");
+  }
+  if (value.ok === false) {
+    if (typeof value.code !== "string" || value.code.length === 0 ||
+        typeof value.message !== "string" || value.message.length === 0) {
+      throw new TypeError("Asset codec error result must include code and message");
+    }
+    return;
+  }
+  if (value.ok !== true) throw new TypeError("Asset codec result ok flag is invalid");
+  if (value.sourceEncoding !== "ktx2-uastc" && value.sourceEncoding !== "ktx2-etc1s") {
+    throw new RangeError(`Asset codec result source encoding '${String(value.sourceEncoding)}' is invalid`);
+  }
+  if (typeof value.targetFormat !== "string" || !TARGET_FORMATS.has(value.targetFormat)) {
+    throw new RangeError(`Asset codec result target '${String(value.targetFormat)}' is invalid`);
+  }
+  if (!Array.isArray(value.mips) || value.mips.length === 0) {
+    throw new RangeError("Asset codec result must include a non-empty mip chain");
+  }
+  let outputBytes = 0;
+  for (let index = 0; index < value.mips.length; index++) {
+    const mip = value.mips[index];
+    if (!isRecord(mip) || mip.level !== index ||
+        !isPositiveInteger(mip.logicalWidth) || !isPositiveInteger(mip.logicalHeight) ||
+        !isPositiveInteger(mip.physicalWidth) || !isPositiveInteger(mip.physicalHeight) ||
+        !(mip.payload instanceof ArrayBuffer)) {
+      throw new TypeError(`Asset codec result mip ${index} is malformed`);
+    }
+    const physical = physicalTextureExtent(value.targetFormat as Ktx2TranscodeTargetFormat, mip.logicalWidth, mip.logicalHeight);
+    if (mip.physicalWidth !== physical[0] || mip.physicalHeight !== physical[1]) {
+      throw new RangeError(`Asset codec result mip ${index} physical extent is invalid`);
+    }
+    const expectedBytes = encodedTextureMipByteLength(
+      value.targetFormat as Ktx2TranscodeTargetFormat,
+      mip.logicalWidth,
+      mip.logicalHeight
+    );
+    if (mip.payload.byteLength !== expectedBytes) {
+      throw new RangeError(`Asset codec result mip ${index} payload length is ${mip.payload.byteLength}, expected ${expectedBytes}`);
+    }
+    outputBytes += mip.payload.byteLength;
+  }
+  if (!isRecord(value.evidence)) throw new TypeError("Asset codec result evidence is malformed");
+  for (const key of ["queueWaitMs", "workerMs", "wallMs", "inputBytes", "outputBytes", "estimatedPeakBytes"] as const) {
+    if (!Number.isFinite(value.evidence[key]) || Number(value.evidence[key]) < 0) {
+      throw new RangeError(`Asset codec result evidence ${key} is invalid`);
+    }
+  }
+  if (value.evidence.outputBytes !== outputBytes) {
+    throw new RangeError(`Asset codec result evidence outputBytes is ${String(value.evidence.outputBytes)}, expected ${outputBytes}`);
+  }
+  if (typeof value.evidence.codecId !== "string" || value.evidence.codecId.length === 0 ||
+      typeof value.evidence.codecRevision !== "string" || value.evidence.codecRevision.length === 0 ||
+      typeof value.evidence.codecBinaryHash !== "string" || !/^[0-9a-f]{64}$/i.test(value.evidence.codecBinaryHash)) {
+    throw new TypeError("Asset codec result codec identity is invalid");
+  }
+}
+
 export function assetCodecResultTransferList(result: AssetCodecTaskResult): Transferable[] {
   return result.mips.map((mip) => mip.payload);
 }
@@ -182,4 +247,8 @@ function isTextureSemantic(value: unknown): value is TextureSemanticV2 {
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
 }

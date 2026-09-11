@@ -76,7 +76,8 @@ export class GpuMaterialStore {
 
   stage(
     materials: readonly StandardShadeMaterial[],
-    textureRefs: ReadonlyMap<ShadeTexture, number>,
+    textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>,
+    textureBindingSetIds: ReadonlyMap<StandardShadeMaterial, number>,
     command: ShadeGPUCommandContext
   ): GpuMaterialStage {
     this.preflight(materials);
@@ -108,6 +109,11 @@ export class GpuMaterialStore {
       for (let index = 0; index < materials.length; index++) {
         const material = materials[index]!;
         const slot = materialSlots[index]!;
+        const textureRefs = textureRefsByMaterial.get(material);
+        const textureBindingSetId = textureBindingSetIds.get(material);
+        if (textureRefs === undefined || textureBindingSetId === undefined) {
+          throw new Error(`GpuMaterialStore is missing TextureBindingSet routing for '${material.name}'`);
+        }
         const textureRef = (texture: ShadeTexture | undefined): number =>
           texture === undefined
             ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
@@ -117,7 +123,7 @@ export class GpuMaterialStore {
           normal: textureRef(material.texture_normal),
           orm: textureRef(material.texture_orm),
           emissive: textureRef(material.texture_emissive)
-        }, slot);
+        }, slot, textureBindingSetId);
         previousFallbacks.push([
           slot,
           this.textureFallbackSlots.has(slot),

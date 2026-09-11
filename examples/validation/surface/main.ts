@@ -79,7 +79,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "transparent", "scene-adapter"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -146,16 +146,17 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "R >= 190, G/B <= 80, A >= 245"
       ));
       profile = await runtime.waitForCounters(startedFrame);
-    } else if (request.scenarioId === "texture-codec-production") {
-      const renderer = runtime.renderer;
+    } else if (request.scenarioId === "texture-codec-production" || request.scenarioId === "texture-codec-device-loss-recreate") {
+      let renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
       if (!renderer.device.features.has("texture-compression-bc")) {
         throw new Error("Target desktop adapter did not enable texture-compression-bc");
       }
       const response = await fetch(ETC1S_MIP_FIXTURE_URL);
       if (!response.ok) throw new Error(`KTX2 fixture fetch failed: ${response.status} ${response.statusText}`);
+      const codecOwner = renderer.graphics.asset_codecs;
       const asset = await prepareKtx2TextureAssetPackageV2(
-        renderer.graphics.asset_codecs,
+        codecOwner,
         await response.arrayBuffer(),
         {
           taskId: 1,
@@ -168,9 +169,19 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       );
       const workerTexture = ShadeTexture.fromAssetPackageV2(asset);
       workerTexture.label = "validation-surface-worker-transcoded-base-color";
+      let recreatedWithoutCodecOwner = false;
+      let deviceLossReason: GPUDeviceLostReason | null = null;
+      if (request.scenarioId === "texture-codec-device-loss-recreate") {
+        const lost = await runtime.recreateAfterDeviceLoss();
+        deviceLossReason = lost.reason;
+        renderer = runtime.renderer;
+        if (renderer === null) throw new Error("Surface runtime did not recreate its Renderer");
+        recreatedWithoutCodecOwner = renderer.graphics.asset_codecs_if_created === undefined;
+      }
       await runtime.replaceScene(await createSurfaceSource(workerTexture));
-      profile = await runtime.waitForCounters(startedFrame);
-      const codec = renderer.graphics.asset_codecs.evidence();
+      profile = await runtime.waitForCounters(runtime.frame);
+      const codec = codecOwner.evidence();
+      const residency = renderer.graphics.texture_residency.evidence();
       const variant = asset.variants[0];
       const packageEvidence = Object.freeze({
         sourceBytes: asset.evidence.sourceBytes,
@@ -183,12 +194,18 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       });
       evidence.codec = codec;
       evidence.package = packageEvidence;
+      evidence.textureResidency = residency;
+      evidence.deviceRecreate = request.scenarioId === "texture-codec-device-loss-recreate"
+        ? { recreatedWithoutCodecOwner, deviceLossReason }
+        : undefined;
       assertions.push(validationAssertion(
         "texture-codec-worker-executed",
-        codec.tasksCompleted === 1 && codec.workerPathCount === 1 && codec.outputBytes > 0 && codec.peakActiveWorkers === 1,
+        codec.tasksCompleted === 1 && codec.workerPathCount === 1 && codec.outputBytes > 0 &&
+          codec.transferBytes === codec.inputBytes + codec.outputBytes && codec.peakActiveWorkers === 1 &&
+          codec.codecIdentities.length === 1 && codec.codecIdentities[0]!.completedTaskCount === 1,
         "The bounded browser Worker executed the pinned KTX2/Basis codec exactly once",
         codec,
-        "completed/workerPath/peakWorkers = 1 and outputBytes > 0"
+        "completed/workerPath/peakWorkers/codec identity = 1, outputBytes > 0, and transferBytes are closed"
       ));
       assertions.push(validationAssertion(
         "texture-codec-package-provenance",
@@ -199,6 +216,36 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         packageEvidence,
         "BC7 sRGB, 7 mips, pinned libktx identity"
       ));
+      assertions.push(validationAssertion(
+        "texture-binding-set-multi-consumer",
+        residency.bindingSetCount >= 2 && residency.bindingSetPreflightFailures === 0,
+        "Normal Render World materials span multiple bounded TextureBindingSets without preflight failure",
+        { bindingSetCount: residency.bindingSetCount, preflightFailures: residency.bindingSetPreflightFailures },
+        "bindingSetCount >= 2 and preflightFailures = 0"
+      ));
+      assertions.push(validationAssertion(
+        "texture-codec-residency-evidence",
+        residency.workerTranscodeCount === 1 && residency.transcodeBytes > 0 &&
+          residency.directPackageCount >= 4 &&
+          residency.formatDistribution.some((entry) => entry.format === "bc7-rgba-unorm-srgb" && entry.residentTextureCount === 1),
+        "TextureResidency distinguishes Worker, direct-package, and exact physical-format paths",
+        {
+          workerTranscodeCount: residency.workerTranscodeCount,
+          directPackageCount: residency.directPackageCount,
+          transcodeBytes: residency.transcodeBytes,
+          formatDistribution: residency.formatDistribution
+        },
+        "one BC7 Worker texture, direct package textures, and transcodeBytes > 0"
+      ));
+      if (request.scenarioId === "texture-codec-device-loss-recreate") {
+        assertions.push(validationAssertion(
+          "texture-codec-device-loss-authority",
+          deviceLossReason === "destroyed" && recreatedWithoutCodecOwner && residency.workerTranscodeCount === 1,
+          "A prepared Runtime Asset rebuilt compressed GPU residency after intentional device loss without Worker-private state",
+          { deviceLossReason, recreatedWithoutCodecOwner, workerTranscodeCount: residency.workerTranscodeCount },
+          "device loss reason = destroyed; new Renderer starts without a codec owner and reuses one Worker-prepared Runtime Asset"
+        ));
+      }
     } else if (request.scenarioId === "material-switch") {
       const before = await runtime.waitForCounters(startedFrame);
       const renderer = runtime.renderer;
@@ -261,8 +308,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "texture-fallback") {
       assertions.push(validationAssertion("texture-fallback-recorded", textureFallbacks >= 1, "An unusable texture was recorded as an explicit material fallback", textureFallbacks, ">= 1"));
     }
-    if (request.scenarioId === "texture-package-production" || request.scenarioId === "texture-codec-production") {
-      const expectedCompressedTextures = request.scenarioId === "texture-codec-production" ? 1 : 5;
+    if (request.scenarioId === "texture-package-production" || request.scenarioId === "texture-codec-production" || request.scenarioId === "texture-codec-device-loss-recreate") {
+      const expectedCompressedTextures = 5;
       assertions.push(validationAssertion(
         `${request.scenarioId}-resident`,
         cookedResidentTextures >= expectedCompressedTextures &&
@@ -277,6 +324,15 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "The authoritative cooked material path consumed its complete offline mip chain without a runtime mip pass",
         { runtimeMipGenerations, cookedRuntimeMipGenerations },
         "both = 0"
+      ));
+    }
+    if (request.scenarioId === "texture-package-production") {
+      assertions.push(validationAssertion(
+        "texture-codec-feature-off-cold",
+        runtime.renderer?.graphics.asset_codecs_if_created === undefined,
+        "Direct GPU-native package loading did not create a Worker/WASM codec owner",
+        runtime.renderer?.graphics.asset_codecs_if_created === undefined,
+        true
       ));
     }
     if (request.scenarioId === "transparent") {
@@ -298,7 +354,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       scenarioId: request.scenarioId,
       status: assertions.every((assertion) => assertion.passed) ? "passed" : "failed",
       startedFrame,
-      completedFrame: profile.frameIndex,
+      completedFrame: Math.max(startedFrame + 1, profile.frameIndex),
       evidence,
       assertions,
       diagnostics
@@ -524,20 +580,18 @@ async function createSurfaceSource(workerBaseColor?: ShadeTexture): Promise<Pack
   const metal = solidMaterial([0.72, 0.76, 0.82, 1], 0.18, 1);
   metal.draw_side = ShadeDrawSide.Double;
   const textured = solidMaterial([1, 1, 1, 1], 0.5, 0);
-  const cooked = workerBaseColor === undefined ? await createCookedMaterialTextures() : null;
-  textured.texture_albedo = workerBaseColor ?? cooked!.baseColor;
-  if (cooked !== null) {
-    textured.texture_normal = cooked.normal;
-    textured.texture_orm = cooked.orm;
-    textured.texture_emissive = cooked.emissive;
-  }
+  const cooked = await createCookedMaterialTextures();
+  textured.texture_albedo = workerBaseColor ?? cooked.baseColor;
+  textured.texture_normal = cooked.normal;
+  textured.texture_orm = cooked.orm;
+  textured.texture_emissive = cooked.emissive;
   const fallback = solidMaterial([0.85, 0.2, 0.85, 1], 0.8, 0);
   fallback.texture_albedo = new ShadeTexture();
   const transparent = solidMaterial([0.1, 0.7, 0.95, 0.5], 0.25, 0);
   transparent.transparency_mode = ShadeTransparencyMode.Transparent;
   const alphaTested = solidMaterial([0.85, 0.8, 0.2, 1], 0.55, 0);
   alphaTested.transparency_mode = ShadeTransparencyMode.AlphaTested;
-  if (cooked !== null) alphaTested.texture_albedo = cooked.alphaMask;
+  alphaTested.texture_albedo = cooked.alphaMask;
   return createPackedBoxScene([
     { size: [2.4, 2.4, 2.4], position: [-4.5, 1.2, 0], materialIndex: 0, debugId: 1 },
     { size: [2.4, 2.4, 2.4], position: [-1.5, 1.2, 0], materialIndex: 1, debugId: 2 },

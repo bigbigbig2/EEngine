@@ -45,8 +45,9 @@ const PACKED_CSM_GROUP: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
-const PACKED_CSM_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "FX-04 Packed CSM depth/alpha indirect consumer",
+function packedCsmPipeline(textureBindingSetId: number): CachedRenderPipelineDescriptor {
+return {
+  label: `FX-04 Packed CSM set ${textureBindingSetId} depth/alpha indirect consumer`,
   layout: { label: "FX-04 Packed CSM layout", bindGroupLayouts: [PACKED_CSM_GROUP] },
   vertex: {
     module: { label: "FX-04 Packed CSM", code: PACKED_CSM_SHADOW_WGSL },
@@ -55,6 +56,7 @@ const PACKED_CSM_PIPELINE: CachedRenderPipelineDescriptor = {
   fragment: {
     module: { label: "FX-04 Packed CSM", code: PACKED_CSM_SHADOW_WGSL },
     entryPoint: "packed_csm_fragment",
+    constants: { OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId },
     targets: []
   },
   primitive: { topology: "triangle-list", cullMode: "none" },
@@ -67,6 +69,7 @@ const PACKED_CSM_PIPELINE: CachedRenderPipelineDescriptor = {
     depthBiasClamp: 0
   }
 };
+}
 
 const CLEAR_PIPELINE: CachedRenderPipelineDescriptor = {
   label: "FX-04 Packed CSM viewport clear",
@@ -188,21 +191,8 @@ export class PackedCsmShadowPass {
         excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent
       }
     );
-    const group = this.graphics.bind_groups.obtain({
-      layout: PACKED_CSM_GROUP,
-      entries: [
-        { buffer: job.cameraBuffer },
-        { buffer: job.scene.instances },
-        { buffer: job.assets.meshletRecords },
-        { buffer: job.assets.meshletVertexIndices },
-        { buffer: job.assets.meshletTriangleIndices },
-        { buffer: job.assets.vertexStreamData },
-        { buffer: job.assets.geometryRecords },
-        { buffer: generated.rasterWork! },
-        { buffer: job.materials.materialRecords },
-        ...job.materials.textureBanks
-      ]
-    });
+    const bindingSets = job.materials.bindingSets;
+    if (bindingSets.length === 0) throw new Error("Packed CSM requires one active TextureBindingSet");
     this.clearViewport(command, job.depthView, job.viewport);
     const pass = command.beginRenderPass({
       label: `FX-04 Packed CSM Shadow cascade ${job.cascadeIndex} drawIndirect`,
@@ -214,14 +204,31 @@ export class PackedCsmShadowPass {
       }
     });
     pass.setViewport(...job.viewport, 0, 1);
-    pass.setPipeline(this.graphics.render_pipelines.obtain(PACKED_CSM_PIPELINE));
-    pass.setBindGroup(0, group);
-    pass.drawIndirect(generated.drawIndirect!, 0);
+    for (const bindingSet of bindingSets) {
+      const group = this.graphics.bind_groups.obtain({
+        layout: PACKED_CSM_GROUP,
+        entries: [
+          { buffer: job.cameraBuffer },
+          { buffer: job.scene.instances },
+          { buffer: job.assets.meshletRecords },
+          { buffer: job.assets.meshletVertexIndices },
+          { buffer: job.assets.meshletTriangleIndices },
+          { buffer: job.assets.vertexStreamData },
+          { buffer: job.assets.geometryRecords },
+          { buffer: generated.rasterWork! },
+          { buffer: job.materials.materialRecords },
+          ...bindingSet.textureBanks
+        ]
+      });
+      pass.setPipeline(this.graphics.render_pipelines.obtain(packedCsmPipeline(bindingSet.id)));
+      pass.setBindGroup(0, group);
+      pass.drawIndirect(generated.drawIndirect!, 0);
+    }
     pass.end();
     if (job.counterBuffer !== null) {
       this.encodeEvidence(command, generated.rasterWork!, job);
     }
-    this.lastCascadeDraws++;
+    this.lastCascadeDraws += bindingSets.length;
     this.lastAtlasPixelsUpdated += job.viewport[2] * job.viewport[3];
     this.lastIndirectBytes += 16;
   }

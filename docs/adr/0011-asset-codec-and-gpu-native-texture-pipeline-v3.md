@@ -256,7 +256,7 @@ Completion requires all of:
 | 15 Texture Residency V3 | Decision 10 | 当前部分已实现，保留增量 |
 | 16 TextureBindingSet | Decision 10–11 | 纳入 |
 | 17 GPU Ownership | Decision 3、12 | 纳入 |
-| 18 GpuRenderWorld Integration | Decision 2、11–12 | direct 已实现，Worker 待接入 |
+| 18 GpuRenderWorld Integration | Decision 2、11–12 | direct 与 Worker 共用同一 production contract |
 | 19 Evidence | Decision 13 | 纳入 |
 | 20 Validation | Verification | 纳入并对齐统一政策 |
 | 21 Reference/Test Encoder | Decision 1、7–8 | 纳入 |
@@ -267,4 +267,4 @@ Completion requires all of:
 | 26 Phased Migration | Migration | 按当前实现重排 |
 | 27 Final Architecture | Decision 全体 | 纳入 |
 
-原实施计划 Task 1–18 的重定位：Task 1–7 保留为 Migration 1–4；Task 8、10、12、13 direct 部分、14 和 15 residency 部分已由当前实现覆盖，只做增量验证；Task 9、11、13 Worker 部分、15 codec 部分、16–18 仍待实施。原逐提交命令不成为 ADR 权威，执行时以当前工作树和 `VALIDATION.md` 为准。
+原实施计划 Task 1–18 均由 Migration 1–8、Decision 1–15、Verification 与 Completion criteria 保留；实施状态只在 `docs/STATUS.md` 维护。原逐提交命令不成为 ADR 权威，执行时以当前工作树和 `VALIDATION.md` 为准。

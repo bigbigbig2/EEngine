@@ -11,7 +11,7 @@ const [
   { createPackedSceneSourceFromScene },
   { TextureResidency },
   { cookReferenceTextureAssetPackageV2: cookTextureAssetPackageV2 },
-  { openTextureAssetPackageV2 },
+  { openTextureAssetPackageV2, writeEncodedTextureAssetPackageV2 },
   { createEnvironmentManifest },
   {
     createWorkQueueReservationState,
@@ -679,9 +679,9 @@ test("TextureBindingSet freezes the current slot, sampler, set, and dispatch lim
   assert.deepEqual(policy, {
     textureSlotsPerBindingSet: 9,
     samplerClassCount: 6,
-    maxResidentBindingSets: 1,
+    maxResidentBindingSets: 4,
     reservedSampledTextureBindings: 7,
-    maxShadingDispatchClasses: 7
+    maxShadingDispatchClasses: 28
   });
   assert.throws(
     () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 15, maxSamplersPerShaderStage: 16 }),
@@ -750,9 +750,14 @@ test("Texture residency publishes cooked BC packages as authoritative material r
 
   const command = new FakeCommand("cooked-texture-production-stage");
   const staged = residency.stage([pbr, mask], command);
-  assert.equal(staged.bindings.textureBanks.length, 9);
+  assert.equal(staged.bindings.bindingSets.length, 1);
+  assert.equal(staged.bindings.bindingSets[0].textureBanks.length, 9);
+  const cookedRouting = new Map([
+    ...staged.materialTextureRoutingRefs.get(pbr),
+    ...staged.materialTextureRoutingRefs.get(mask)
+  ]);
   assert.ok(textures.every((texture) =>
-    decodeGpuTextureRef(staged.textureRoutingRefs.get(texture)).bankClass >= 5));
+    decodeGpuTextureRef(cookedRouting.get(texture)).bankClass >= 5));
   assert.ok(textures.every((texture) =>
     residency.descriptor(staged.textureRefs.get(texture)) === null));
   command.finish();
@@ -804,6 +809,69 @@ test("Texture residency reclaims an unused cooked segment after GPU retirement",
   residency.destroy();
 });
 
+test("TextureBindingSet colocates materials across four bounded sets and rejects cross-full-set sampling", async () => {
+  const fixture = createTextureResidencyFixture({ features: ["texture-compression-bc"] });
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const formats = [
+    "bc1-rgba-unorm-srgb",
+    "bc3-rgba-unorm-srgb",
+    "bc7-rgba-unorm-srgb",
+    "bc1-rgba-unorm"
+  ];
+  const textures = [];
+  const materials = [];
+  for (let index = 0; index < 16; index++) {
+    const semantic = index === 4 ? "normal-linear" : "base-color-srgb";
+    const asset = await encodedBcAsset(
+      8 * 2 ** Math.floor(index / 4),
+      formats[index % formats.length],
+      semantic,
+      `fixture://binding-set-${index}`
+    );
+    const texture = ShadeTexture.fromAssetPackageV2(asset);
+    textures.push(texture);
+    const material = new StandardShadeMaterial();
+    material.name = `binding-set-material-${index}`;
+    if (semantic === "normal-linear") material.texture_normal = texture;
+    else material.texture_albedo = texture;
+    materials.push(material);
+  }
+  const stage = new FakeCommand("texture-binding-set-fill");
+  const staged = residency.stage(materials, stage);
+  assert.equal(staged.bindings.bindingSets.length, 4);
+  assert.deepEqual(
+    staged.bindings.bindingSets.map(({ bankDescriptors }) =>
+      bankDescriptors.filter(({ segment }) => segment >= 0).length),
+    [4, 4, 4, 4]
+  );
+  assert.deepEqual(
+    materials.map((material) => staged.materialBindingSetIds.get(material)),
+    [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
+  );
+  stage.finish();
+
+  const conflict = new StandardShadeMaterial();
+  conflict.name = "cross-full-binding-set";
+  conflict.texture_albedo = textures[0];
+  conflict.texture_normal = textures[4];
+  const before = residency.evidence();
+  assert.throws(
+    () => residency.stage([conflict], new FakeCommand("cross-full-binding-set")),
+    /cannot be colocated/
+  );
+  const after = residency.evidence();
+  assert.equal(after.residentTextureCount, before.residentTextureCount);
+  assert.equal(after.bindingSetPreflightFailures, before.bindingSetPreflightFailures + 1);
+
+  const release = new FakeCommand("texture-binding-set-release");
+  residency.release(materials, release);
+  release.finish();
+  await settlePromises();
+  assert.equal(residency.evidence().bindingSetCount, 0);
+  assert.ok(residency.evidence().packageSegments.every(({ allocatedCapacity }) => allocatedCapacity === 0));
+  residency.destroy();
+});
+
 test("Texture residency fills and rejects overflow in every bounded bank without mutation", () => {
   for (const [bankClass, size] of [512, 1024, 2048, 4096].entries()) {
     const actualBankClass = bankClass + 1;
@@ -844,10 +912,11 @@ test("Texture residency keeps bank choice legal for multiple small textures foll
   residency.stage(small, first);
   first.finish();
   const largeTexture = createTexture(4096, "large-after-small");
+  const largeMaterial = createTexturedMaterial(largeTexture, "large-material");
   const large = new FakeCommand("texture-large-after-small");
-  const staged = residency.stage([createTexturedMaterial(largeTexture, "large-material")], large);
+  const staged = residency.stage([largeMaterial], large);
   large.finish();
-  assert.equal(decodeGpuTextureRef(staged.textureRoutingRefs.get(largeTexture))?.bankClass, 4);
+  assert.equal(decodeGpuTextureRef(staged.materialTextureRoutingRefs.get(largeMaterial).get(largeTexture))?.bankClass, 4);
   assert.equal(residency.evidence().banks[1].residentTextureCount, 5);
   assert.equal(residency.evidence().banks[4].residentTextureCount, 1);
   residency.destroy();
@@ -882,14 +951,14 @@ test("Texture residency accepts every permutation of the same legal texture set"
     const fixture = createTextureResidencyFixture();
     const residency = new TextureResidency(fixture.graphics, 4096);
     const textures = permutation.map((size, index) => createTexture(size, `permutation-${permutationIndex}-${index}`));
+    const materials = textures.map((texture, index) => createTexturedMaterial(texture, `permutation-material-${index}`));
     const command = new FakeCommand(`texture-permutation-${permutationIndex}`);
-    const staged = residency.stage(
-      textures.map((texture, index) => createTexturedMaterial(texture, `permutation-material-${index}`)),
-      command
-    );
+    const staged = residency.stage(materials, command);
     command.finish();
     assert.deepEqual(
-      textures.map((texture) => decodeGpuTextureRef(staged.textureRoutingRefs.get(texture))?.bankClass),
+      textures.map((texture, index) => decodeGpuTextureRef(
+        staged.materialTextureRoutingRefs.get(materials[index]).get(texture)
+      )?.bankClass),
       permutation.map((size) => sizes.indexOf(size))
     );
     assert.equal(residency.evidence().residentTextureCount, sizes.length);
@@ -959,10 +1028,11 @@ test("Texture residency quality and device resolution caps preserve logical text
   assert.equal(before.textureCapacity, 141);
   assert.deepEqual(before.banks.map(({ physicalSize }) => physicalSize), [256, 512, 1024, 1024, 1024]);
   const texture = createTexture(4096, "quality-capped-large");
+  const material = createTexturedMaterial(texture, "quality-capped-material");
   const command = new FakeCommand("texture-quality-cap");
-  const staged = residency.stage([createTexturedMaterial(texture, "quality-capped-material")], command);
+  const staged = residency.stage([material], command);
   command.finish();
-  assert.equal(decodeGpuTextureRef(staged.textureRoutingRefs.get(texture))?.bankClass, 4);
+  assert.equal(decodeGpuTextureRef(staged.materialTextureRoutingRefs.get(material).get(texture))?.bankClass, 4);
   assert.equal(residency.evidence().banks[4].physicalSize, 1024);
   residency.destroy();
 });
@@ -1043,15 +1113,22 @@ function createPackedRegistryFixture() {
     },
     resource_accounting: accounting,
     texture_residency: {
-      stage(_materials, command) {
+      stage(materials, command) {
         calls.stages.push("texture");
         command.onAborted.addOne(() => calls.stages.push("texture-abort"));
         return {
           bindings: {
             textureCapacity: 64,
-            textureBanks: [dummyView, dummyView, dummyView, dummyView, dummyView]
+            bindingSets: [{
+              id: 0,
+              generation: 1,
+              textureBanks: Array.from({ length: 9 }, () => dummyView),
+              bankDescriptors: []
+            }]
           },
-          textureRefs: new Map()
+          materialBindingSetIds: new Map(materials.map((material) => [material, 0])),
+          textureRefs: new Map(),
+          materialTextureRoutingRefs: new Map(materials.map((material) => [material, new Map()]))
         };
       },
       release(_materials, command) {
@@ -1060,7 +1137,7 @@ function createPackedRegistryFixture() {
       }
     },
     material_store: {
-      stage(materials, _textureRefs, command) {
+      stage(materials, _textureRefs, _bindingSetIds, command) {
         calls.stages.push("material");
         command.onAborted.addOne(() => calls.stages.push("material-abort"));
         return {
@@ -1119,7 +1196,9 @@ function createTextureResidencyFixture(options = {}) {
       features: new Set(options.features ?? []),
       limits: {
         maxTextureArrayLayers: 2048,
-        maxTextureDimension2D: options.maxTextureDimension2D ?? 8192
+        maxTextureDimension2D: options.maxTextureDimension2D ?? 8192,
+        maxSampledTexturesPerShaderStage: 16,
+        maxSamplersPerShaderStage: 16
       },
       createTexture(descriptor) {
         if (options.failTexture?.(descriptor)) throw new Error("injected texture allocation failure");
@@ -1181,7 +1260,8 @@ async function runReleasedHighTextureSequence([firstSize, secondSize]) {
   let secondAccepted = true;
   let secondRef;
   try {
-    secondRef = residency.stage([secondMaterial], second).textureRoutingRefs.get(secondTexture);
+    secondRef = residency.stage([secondMaterial], second)
+      .materialTextureRoutingRefs.get(secondMaterial).get(secondTexture);
     second.finish();
   } catch (error) {
     secondAccepted = false;
@@ -1318,6 +1398,44 @@ class FakeCommand {
 async function settlePromises() {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function encodedBcAsset(size, format, semantic, sourceUri) {
+  const bytesPerBlock = format.startsWith("bc1") || format.startsWith("bc4") ? 8 : 16;
+  const mips = Array.from({ length: Math.floor(Math.log2(size)) + 1 }, (_, level) => {
+    const logicalWidth = Math.max(1, size >> level);
+    const logicalHeight = logicalWidth;
+    const physicalWidth = Math.max(4, Math.ceil(logicalWidth / 4) * 4);
+    const physicalHeight = Math.max(4, Math.ceil(logicalHeight / 4) * 4);
+    return {
+      level,
+      logicalWidth,
+      logicalHeight,
+      physicalWidth,
+      physicalHeight,
+      payload: new Uint8Array(physicalWidth / 4 * physicalHeight / 4 * bytesPerBlock)
+    };
+  });
+  const encoded = await writeEncodedTextureAssetPackageV2({
+    width: size,
+    height: size,
+    semantic,
+    sourceUri,
+    sourceByteLength: size * size * 4,
+    sourceContentHash: "1".repeat(64)
+  }, [{
+    profile: "desktop-bc",
+    semantic,
+    format,
+    blockWidth: 4,
+    blockHeight: 4,
+    bytesPerBlock,
+    codecId: "fixture-codec",
+    codecRevision: "fixture-v1",
+    codecBinaryHash: "2".repeat(64),
+    mips
+  }]);
+  return openTextureAssetPackageV2(encoded);
 }
 
 function installWebGpuConstants() {

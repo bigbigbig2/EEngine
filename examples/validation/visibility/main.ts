@@ -8,11 +8,15 @@ import {
   ShadeImage,
   ShadeTexture,
   ShadeTransparencyMode,
+  openTextureAssetPackageV2,
   INSTANCE_SOURCE_FLAGS,
   RenderDebugView,
   type FrameProfileSnapshot,
   type PackedSceneSource
 } from "../../../OEngine/src/index.ts";
+import {
+  cookReferenceTextureAssetPackageV2
+} from "../../../OEngine/src/assets/codec/ReferenceTextureCodec.ts";
 import { GPU_MESHLET_DRAW_COUNT } from "../../../OEngine/src/gpu/GpuMeshletRasterWorkAbi.ts";
 import {
   VALIDATION_FIXTURE_KEY,
@@ -87,7 +91,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "meshlet-work-overflow", "meshlet-work-portable", "primitive-index", "primitive-index-fallback", "selective-risk", "large-triangle-setup", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
+  const supported = ["basic", "meshlet-work-overflow", "meshlet-work-portable", "primitive-index", "primitive-index-fallback", "selective-risk", "large-triangle-setup", "frustum", "occlusion", "lod-near", "lod-far", "camera-cut", "debug", "shadow", "shadow-texture-binding-sets", "shadow-toggle", "shadow-scene-parity", "transform-patch"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown visibility scenario '${request.scenarioId}'`));
   }
@@ -190,6 +194,46 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "at least one debug pass"
       ));
       renderer.render_debug_view = RenderDebugView.None;
+    } else if (request.scenarioId === "shadow-texture-binding-sets") {
+      const renderer = runtime.renderer;
+      if (!renderer.device.features.has("texture-compression-bc")) {
+        throw new Error("Target desktop adapter did not enable texture-compression-bc");
+      }
+      await runtime.replaceScene(await createMultiSetShadowSource());
+      renderer.indicate_view_change();
+      const scene = runtime.scene;
+      if (scene === null) throw new Error("Multi-set shadow scene was not installed");
+      renderer.queuePackedScenePatch(scene, {
+        frameId: renderer.frame_count + 1,
+        materials: {
+          indices: new Uint32Array([0]),
+          materialIndices: new Uint32Array([0])
+        }
+      });
+      completed = await runtime.waitForCounters(runtime.frame);
+      for (let attempt = 0; attempt < 8 && (
+        (completed.counters["shadow.packedCascadeDraws"] ?? 0) === 0 ||
+        (completed.gpuCounters.values.shadowAlphaRasterWork ?? 0) === 0
+      ); attempt++) {
+        completed = await runtime.waitForCounters(completed.frameIndex);
+      }
+      shadowRendered = completed;
+      completed = await runtime.waitForCounters(completed.frameIndex);
+      for (let attempt = 0; attempt < 6 && (
+        (completed.counters["shadow.directionalCameraCacheHits"] ?? 0) === 0 ||
+        (completed.counters["shadow.directionalRasterSkips"] ?? 0) === 0
+      ); attempt++) {
+        completed = await runtime.waitForCounters(completed.frameIndex);
+      }
+      const textureResidency = renderer.graphics.texture_residency.evidence();
+      evidence.textureResidency = textureResidency;
+      assertions.push(validationAssertion(
+        "shadow-texture-binding-sets-active",
+        textureResidency.bindingSetCount === 2 && textureResidency.bindingSetPreflightFailures === 0,
+        "Packed shadow materials span two bounded TextureBindingSets",
+        { bindingSetCount: textureResidency.bindingSetCount, preflightFailures: textureResidency.bindingSetPreflightFailures },
+        "bindingSetCount = 2 and preflightFailures = 0"
+      ));
     } else if (request.scenarioId === "shadow") {
       const renderer = runtime.renderer;
       const scene = runtime.scene;
@@ -368,7 +412,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     });
     if (request.scenarioId !== "shadow-scene-parity") {
       const overflowScenario = request.scenarioId === "meshlet-work-overflow";
-      assertions.push(validationAssertion("candidate-work-produced", (counters.candidateInstances ?? 0) >= 6, "All fixed visibility candidates reached GPU work generation", counters.candidateInstances, ">= 6"));
+      const expectedCandidateCount = request.scenarioId === "shadow-texture-binding-sets" ? 2 : 6;
+      assertions.push(validationAssertion("candidate-work-produced", (counters.candidateInstances ?? 0) >= expectedCandidateCount, "All fixed visibility candidates reached GPU work generation", counters.candidateInstances, `>= ${expectedCandidateCount}`));
       assertions.push(validationAssertion("visible-work-produced", (counters.visibleInstances ?? 0) > 0, "At least one instance remained visible", counters.visibleInstances, "> 0"));
       assertions.push(validationAssertion(
         "raster-work-produced",
@@ -555,7 +600,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     if (request.scenarioId === "occlusion") {
       assertions.push(validationAssertion("hzb-rejection-observed", (counters.rejectedHzb ?? 0) > 0, "The object behind the occluder was rejected by HZB", counters.rejectedHzb, "> 0"));
     }
-    if (request.scenarioId === "shadow") {
+    if (request.scenarioId === "shadow" || request.scenarioId === "shadow-texture-binding-sets") {
       const rendered = shadowRendered ?? completed;
       const packedCascadeDraws = rendered.counters["shadow.packedCascadeDraws"] ?? 0;
       const atlasBytes = rendered.counters["shadow.atlasBytes"] ?? 0;
@@ -570,7 +615,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     assertions.push(validationAssertion("single-material-owner", ownerCreation !== undefined && ownerCreation.renderWorld.materialStoreCreated, "Visibility and Shadow used the authoritative material owner", ownerCreation?.renderWorld));
     assertions.push(validationAssertion("single-geometry-owner", ownerCreation !== undefined && packedFrameHasNoLegacyGeometryOwners(ownerCreation), "Visibility, HZB and Shadow used one Render World", ownerCreation?.scene));
     assertions.push(validationAssertion("render-shadow-owner", ownerCreation !== undefined && ownerCreation.shadow.featureCount === 1 && ownerCreation.shadow.atlasCount === 1 && ownerCreation.shadow.rasterPassCount === 1 && ownerCreation.shadow.workSetCount > 0 && ownerCreation.shadow.workBytes > 0, "Shadows are owned only by one Render-layer Shadow Feature with the unified raster consumer", ownerCreation?.shadow));
-    if (request.scenarioId === "shadow") {
+    if (request.scenarioId === "shadow" || request.scenarioId === "shadow-texture-binding-sets") {
       const splits = ownerCreation?.shadow.directionalCascadeSplits ?? [];
       const layouts = ownerCreation?.shadow.directionalCascadeLayouts ?? [];
       assertions.push(validationAssertion("cascade-fit-and-layout", splits.length === 3 && splits[0]! > 0 && splits[0]! < splits[1]! && splits[1]! < splits[2]! && splits[2] === 1 && layouts.length === 3 && layouts.every((layout) => layout[2] > 0 && layout[3] > 0), "Directional cascade fit produced three monotonic splits and valid atlas layouts", { splits, layouts }));
@@ -633,6 +678,55 @@ async function createVisibilitySource(): Promise<PackedSceneSource> {
     { size: [3, 3, 3], position: [5, 1.5, -1], materialIndex: 3, debugId: 5, segments: [16, 16, 16] },
     { size: [1.5, 1.5, 1.5], position: [-7, 0.75, -3], materialIndex: 0, debugId: 6 }
   ], [visible, occluder, hidden, detail]);
+  source.flags?.fill(INSTANCE_SOURCE_FLAGS.CastsShadow | INSTANCE_SOURCE_FLAGS.ReceivesShadow);
+  return source;
+}
+
+async function createMultiSetShadowSource(): Promise<PackedSceneSource> {
+  const create = async (
+    semantic: "base-color-srgb" | "normal-linear" | "orm-linear" | "emissive-srgb" | "alpha-mask",
+    size: number
+  ): Promise<ShadeTexture> => {
+    const rgba8 = new Uint8Array(size * size * 4);
+    for (let index = 0; index < size * size; index++) {
+      const x = index % size;
+      rgba8.set(semantic === "normal-linear"
+        ? [128, 128, 255, 255]
+        : semantic === "alpha-mask"
+          ? [255, 255, 255, x % 2 === 0 ? 255 : 0]
+          : semantic === "orm-linear"
+            ? [255, 150, 24, 255]
+            : [48, 180, 220, 255], index * 4);
+    }
+    return ShadeTexture.fromAssetPackageV2(await openTextureAssetPackageV2(
+      await cookReferenceTextureAssetPackageV2({
+        width: size,
+        height: size,
+        rgba8,
+        semantic,
+        sourceUri: `fixture://visibility/multi-set-${semantic}-${size}`
+      })
+    ));
+  };
+  const [baseColor, normal, orm, emissive, alphaMask] = await Promise.all([
+    create("base-color-srgb", 8),
+    create("normal-linear", 8),
+    create("orm-linear", 8),
+    create("emissive-srgb", 16),
+    create("alpha-mask", 8)
+  ]);
+  const pbr = solidMaterial([1, 1, 1, 1], 0.35);
+  pbr.texture_albedo = baseColor;
+  pbr.texture_normal = normal;
+  pbr.texture_orm = orm;
+  pbr.texture_emissive = emissive;
+  const mask = solidMaterial([1, 1, 1, 1], 0.55);
+  mask.transparency_mode = ShadeTransparencyMode.AlphaTested;
+  mask.texture_albedo = alphaMask;
+  const source = await createPackedBoxScene([
+    { size: [3, 3, 3], position: [-2, 1.5, 0], materialIndex: 0, debugId: 101 },
+    { size: [3, 3, 3], position: [2, 1.5, 0], materialIndex: 1, debugId: 102 }
+  ], [pbr, mask]);
   source.flags?.fill(INSTANCE_SOURCE_FLAGS.CastsShadow | INSTANCE_SOURCE_FLAGS.ReceivesShadow);
   return source;
 }

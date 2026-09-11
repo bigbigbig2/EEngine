@@ -13,8 +13,8 @@
 - Performance Inspector 是共享的实时 Profiler/Timeline；Rendering Lab 是综合质量与性能 fixture。
 - Browser Validation 已统一为 Registry + Source Domain Selector + 单一 ChromeRunner；Smoke、Visibility、Surface、Lifecycle 承担日常真实 WebGPU 验证，Rendering Lab 保留综合与 formal benchmark。公共证据强度统一为 DEV/MILESTONE/PERF，30+60 的 `profile:rendering-lab:dev` 只承担短 A/B 与编排检查。
 - WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码强制 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，机会性启用 `timestamp-query`、`subgroups`、`primitive-index` 和一族纹理压缩能力，并冻结 adapter/device feature、关键 limit、WGSL/API probe 与 texture specialization record。
-- Runtime Package V2 已冻结确定性 manifest/dependency/variant/chunk 语义、物理 byte range、feature/limit compatibility 与 checksum；Texture Package V2 的完整 offline mip、BC1/3/4/5 physical variant 与显式 RGBA8 fallback 已进入普通 `GpuRenderWorld → TextureResidency → Material/Visibility/Transparency` 生产路径，真实 Chrome `surface.texture-package-production` 覆盖 cook、打开、BC 选择、全 mip 直传和着色消费，Cooked runtime mip pass 为零。
-- Texture Residency 使用有界 immutable segment：5 个 RGBA8 size-class slot 服务显式未 Cook development 输入，4 个 package slot 按 physical format、尺寸和 mip 数冻结 Cooked segment；TextureRef V2 编码 bank/layer/alpha routing，业务 handle 使用 version+slot+generation 且只在提交边界发布。绑定 policy 和 logical/physical/retiring/upload/transaction 计数进入 capability/evidence。
+- Runtime Package V2 与 Encoded Texture Variant 已冻结确定性 manifest/chunk、exact format/block extent、完整 mip、codec provenance 与 capability selection。GPU-native package 直接进入生产 residency；KTX2 UASTC/ETC1S 由惰性有界 Worker pool 和固定 Khronos KTX-Software v4.4.2 libktx WASM 转为同一 package，再经普通 `GpuRenderWorld → TextureResidency` 进入 Material Resolve、Visibility MASK、Shadow MASK 与 Transparency。Production source graph 不 import reference/self block codec；Cooked runtime mip、runtime recompression、RGBA expansion 和 private submit 为零。
+- Texture Residency 使用 exact-format immutable segment 与最多 4 个有界 `TextureBindingSet`，每 set 保留 5 个共享 RGBA8 development size class 和 4 个 Cooked package slot；同一 material 的全部语义必须在发布前 colocate，无法表达时原子失败。Material ABI 携带 `TextureBindingSetId`，GPU consumer 按 `KernelClassId × TextureBindingSetId` 固定编排，不回读可见材质。TextureRef V2 与业务 handle 保持 stable slot/generation；证据已区分 exact format、direct/Worker/uncompressed、transfer/upload/transcode/resident/retiring/transaction bytes、set utilization 与 preflight failure。
 - Geometry 默认生产路径已切到 `static-pbr-compact-v2`：position/normal/tangent/UV/color 使用有界紧凑编码，bounds 保守覆盖 quantization error，Runtime Package manifest/profile/hash 与目录互证；float32 generic 只保留显式 fallback。
 - Instance ABI 已拆为 64 B static 与 112 B dynamic region，总 stride 为 176 B；static/transform/material/visibility/lifecycle 分流，transform、material 与 visibility 只上传命中 region/field，CPU shadow 与 patch bytes 由 owner/Profiler 计数。
 - Runtime Asset 已有无 scheduler 的 chunk/page seam：stable identity、logical/physical resident range、request state、budget hook、原子 commit/abort、retire 与 device-loss reset；Geometry/Texture upload 已接入且不改变 stable asset/material handle。
@@ -55,11 +55,11 @@
 - one-main-submit 和 feature-off 接近零成本需要逐帧证据，不能只凭静态结构判断。
 - Shader source audit 当前只有有生产 owner 的 authored shader；实际数量和名单以生成的 `OEngine/benchmarks/shader-source-audit.json` 为准。
 - `shader-f16`、Immediate Data 与 Transient Attachment 尚无生产 consumer；lockfile 中的 `@webgpu/types` 0.1.71 还没有 2026-09 规范中的 `texture-compression-unaligned` 名称，因此 BC base dimensions 仍要求 block alignment；已对齐 base 的物理 mip subresource 仍离线保留并上传到 1×1 tail。
-- Texture Residency 当前只有一个有界 binding set、4 个 Cooked physical segment slot；超出 segment coverage 会在资源创建/发布前明确 preflight failure。更一般的多 binding-set 与 streaming/partial residency 留在 ADR-0007 后续迁移。
+- TextureBindingSet 已完成最多 4 set 的生产接入与跨 consumer 浏览器验证；当前固定上限不是 streaming/eviction policy。通用 streaming、partial residency、Virtual Texturing 和内容数据库仍是明确非目标/后续架构，不得借 V3 名义隐式加入。
 
 ## 下一步
 
-1. [ADR-0011](./adr/0011-asset-codec-and-gpu-native-texture-pipeline-v3.md)：以当前 direct compressed production path 为起点，引入可追溯 upstream codec、EncodedTextureVariant、KTX2/Basis Worker/WASM 和有界 multi-set，删除 production self-codec authority。
+1. [ADR-0011](./adr/0011-asset-codec-and-gpu-native-texture-pipeline-v3.md)：实现与 targeted MILESTONE 已落地；在 clean implementation commit 上运行唯一 comprehensive final PERF，并记录独立 Worker loading/transcode evidence 后关闭剩余性能 Gate。
 2. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：`primitive-index` 的 production consumer 与 portable parity case 已落地；继续为 `shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback，没有 consumer 前保持 record-only。
-3. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–6 implementation 与 MILESTONE 综合 profile 已落地；Codec V3 增量由 ADR-0011 承载，最终在 clean commit 上运行唯一 comprehensive final PERF 后关闭 ADR。
-4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：VisibilityKey V2 production cutover 与 ADR-0008 final PERF 已完成，可以进入 Step 0；TextureBindingSetId classification 与 ADR-0011 同步实现。
+3. [ADR-0007](./adr/0007-gpu-native-runtime-assets-and-residency-v2.md)：Step 1–6 implementation 与 MILESTONE 综合 profile 已落地；Codec V3 增量由 ADR-0011 承载，复用同一次 clean comprehensive final PERF 关闭剩余 Gate。
+4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：VisibilityKey V2 production cutover、ADR-0008 final PERF 与 `TextureBindingSetId` classification 已完成，可以进入 Step 0 的下一项。

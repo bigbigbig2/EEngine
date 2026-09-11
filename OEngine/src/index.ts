@@ -93,6 +93,7 @@ export {
   defaultAssetCodecWorkerCount
 } from "./assets/codec/AssetCodecService.js";
 export type {
+  AssetCodecIdentityEvidence,
   AssetCodecServiceEvidence,
   AssetCodecServiceOptions
 } from "./assets/codec/AssetCodecService.js";

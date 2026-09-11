@@ -25,8 +25,8 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 
 | 边界 | 当前 owner | 责任 |
 | --- | --- | --- |
-| Runtime Asset | `src/assets/RuntimeAssetManifestV2.ts`、`RuntimeAssetResidency.ts`、`GeometryAssetPackage.ts`、`TextureAssetPackage.ts`、loaders | package/variant 验证、recipe、稳定 chunk identity、budget/request state、logical/physical resident range 与离线 mip/物理变体 |
-| GPU 资产 | `src/gpu/GpuAssetStore.ts`、`TextureResidency.ts` | compact geometry residency；纹理 cooked physical-format package segment、uncooked RGBA8 development segment、stable logical descriptor 与原子派生 routing |
+| Runtime Asset | `src/assets/RuntimeAssetManifestV2.ts`、`RuntimeAssetResidency.ts`、`GeometryAssetPackage.ts`、`TextureAssetPackage.ts`、`src/assets/codec/*`、loaders | package/variant 验证、稳定 chunk identity、Encoded Texture Variant、惰性有界 Worker/WASM preparation、budget/request state 与 logical/physical resident range |
+| GPU 资产 | `src/gpu/GpuAssetStore.ts`、`TextureResidency.ts` | compact geometry residency；纹理 exact-format immutable segment、有界 multi `TextureBindingSet`、uncooked RGBA8 development segment、stable logical descriptor 与原子派生 routing |
 | 场景实例 | `src/gpu/GpuScene.ts` | 64 B static + 112 B dynamic instance ABI，static/transform/material/visibility/lifecycle 显式窄 patch 与 CPU shadow accounting |
 | GPU Render World | `src/gpu/GpuRenderWorld.ts` | Packed source 与普通 Scene adapter 的统一 runtime 生命周期 |
 | 场景环境 | `src/gpu/GPUSceneEnvironmentContext.ts` | Packed/普通 Scene 共享的 light、environment、light-probe 与 volumetric 数据 |
@@ -49,7 +49,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 
 Runtime Asset 是设备无关事实；GPU owner 由设备和 Renderer 生命周期控制。资源释放必须经过提交边界，不能让 Loader、Scene 临时对象或 FrameGraph 外部引用隐式延长 GPU 对象寿命。持久 history、shadow atlas、LPV 和 asset residency 与 transient frame attachment 分开统计。
 
-Geometry 默认生产变体是 `static-pbr-compact-v2`；position/normal/tangent/UV/color 的物理编码由 package profile 冻结，Shader 只能经共享 decode ABI 读取。`explicit-float32-fallback-v2` 需要 Cooker 显式选择。普通生产材质纹理由 `ShadeTexture.fromAssetPackageV2()` 携带设备无关 Texture Package，经 `GpuRenderWorld → TextureResidency` 选择 BC 或 portable RGBA8 physical variant，并把完整离线 mip chain 直接上传到有界 immutable package segment；运行时 mip generation 只保留给显式未 Cook 的 development 输入。Runtime residency seam 只表达 chunk/request/budget/range 和退役，不拥有 scheduler；逻辑 asset/material handle 不含 GPU buffer offset、texture layer 或 mip/page 地址。
+Geometry 默认生产变体是 `static-pbr-compact-v2`；position/normal/tangent/UV/color 的物理编码由 package profile 冻结，Shader 只能经共享 decode ABI 读取。`explicit-float32-fallback-v2` 需要 Cooker 显式选择。普通生产材质纹理由 `ShadeTexture.fromAssetPackageV2()` 携带设备无关 Texture Package：已有 GPU-native variant 直接进入 residency；KTX2 UASTC/ETC1S 先经 `GraphicsContext` 惰性持有的有界 `AssetCodecService` 和固定 Khronos libktx Worker/WASM 转为同一 Encoded Variant/package。两者随后统一经过 `GpuRenderWorld → TextureResidency`，按 exact format、extent 与完整离线 mip 分配 immutable segment，并由最多 4 个 `TextureBindingSet` 为同一 material colocate 全部语义。`KernelClassId × TextureBindingSetId` 的固定有界 consumer 覆盖 Material Resolve、Visibility MASK、Shadow MASK 与 Transparency；运行时 mip generation 只保留给显式未 Cook 的 development 输入。Runtime residency seam 只表达 chunk/request/budget/range 和退役，不拥有 scheduler；逻辑 asset/material handle 不含 GPU buffer offset、texture layer 或 mip/page 地址。
 
 Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证据。它不成为渲染 owner，也不从 DOM 或推测值重建指标；详细合同位于 `OEngine/src/addons/inspector/README.md`。
 

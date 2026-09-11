@@ -42,14 +42,15 @@ const MESHLET_BUCKET_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
 function bucketPipeline(
   doubleSided: boolean,
   mask: boolean,
-  primitiveIndex: boolean
+  primitiveIndex: boolean,
+  textureBindingSetId: number
 ): CachedRenderPipelineDescriptor {
   const specialization = primitiveIndex ? "primitive-index" : "portable-varying";
   const code = primitiveIndex
     ? MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
     : MESHLET_BUCKET_VISIBILITY_WGSL;
   return {
-    label: `ADR-0008 Meshlet bucket ${specialization} ${doubleSided ? "double-sided" : "back-face"} ${mask ? "MASK" : "OPAQUE"}`,
+    label: `ADR-0008 Meshlet bucket ${specialization} set ${textureBindingSetId} ${doubleSided ? "double-sided" : "back-face"} ${mask ? "MASK" : "OPAQUE"}`,
     layout: {
       label: "ADR-0008 Meshlet bucket Hardware Visibility layout",
       bindGroupLayouts: [MESHLET_BUCKET_RASTER_GROUP]
@@ -61,6 +62,7 @@ function bucketPipeline(
     fragment: {
       module: { label: `ADR-0008 Meshlet bucket visibility/${specialization}`, code },
       entryPoint: mask ? "write_meshlet_mask" : "write_meshlet_opaque",
+      constants: { OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId },
       targets: [{ format: "r32uint" }]
     },
     primitive: {
@@ -76,12 +78,12 @@ function bucketPipeline(
   };
 }
 
-function bucketPipelines(primitiveIndex: boolean): readonly CachedRenderPipelineDescriptor[] {
+function bucketPipelines(primitiveIndex: boolean, textureBindingSetId: number): readonly CachedRenderPipelineDescriptor[] {
   return Object.freeze([
-    bucketPipeline(false, false, primitiveIndex),
-    bucketPipeline(true, false, primitiveIndex),
-    bucketPipeline(false, true, primitiveIndex),
-    bucketPipeline(true, true, primitiveIndex)
+    bucketPipeline(false, false, primitiveIndex, textureBindingSetId),
+    bucketPipeline(true, false, primitiveIndex, textureBindingSetId),
+    bucketPipeline(false, true, primitiveIndex, textureBindingSetId),
+    bucketPipeline(true, true, primitiveIndex, textureBindingSetId)
   ]);
 }
 
@@ -98,11 +100,7 @@ export interface MeshletBucketRasterInputs {
 /** Standard indirect GPU consumer for VisibilityKey V2. */
 export class MeshletBucketRaster {
   readonly primitiveIndexSupported: boolean;
-  private readonly rasterPipelines = new Map<boolean, readonly GPURenderPipeline[]>();
-  private readonly rasterGroups = new WeakMap<
-    PreparedMeshletWorkCandidate,
-    Readonly<{ camera: GPUBuffer; group: GPUBindGroup }>
-  >();
+  private readonly rasterPipelines = new Map<string, readonly GPURenderPipeline[]>();
 
   constructor(private readonly graphics: GraphicsContext) {
     this.primitiveIndexSupported = graphics.device.features.has("primitive-index");
@@ -114,20 +112,9 @@ export class MeshletBucketRaster {
     primitiveIndexPath: "auto" | "portable" = "auto"
   ): void {
     const primitiveIndex = primitiveIndexPath === "auto" && this.primitiveIndexSupported;
-    let pipelines = this.rasterPipelines.get(primitiveIndex);
-    if (pipelines === undefined) {
-      pipelines = bucketPipelines(primitiveIndex).map(
-        (descriptor) => this.graphics.render_pipelines.obtain(descriptor)
-      );
-      this.rasterPipelines.set(primitiveIndex, pipelines);
-    }
-    const cached = this.rasterGroups.get(inputs.prepared);
-    const group = cached !== undefined && cached.camera === inputs.camera
-      ? cached.group
-      : this.createRasterGroup(inputs);
-    if (cached === undefined || cached.camera !== inputs.camera) {
-      this.rasterGroups.set(inputs.prepared, Object.freeze({ camera: inputs.camera, group }));
-    }
+    const bindingSets = inputs.runtime.materialResources.bindingSets;
+    if (bindingSets.length === 0) throw new Error("Meshlet visibility requires one active TextureBindingSet");
+    const groups = new Map(bindingSets.map((set) => [set.id, this.createRasterGroup(inputs, set.textureBanks)]));
     const pass = encoder.beginRenderPass({
       label: "ADR-0008 Meshlet bucket Hardware Visibility",
       colorAttachments: [{
@@ -147,14 +134,28 @@ export class MeshletBucketRaster {
       const pipelineBucket = bucket % GPU_MESHLET_BUCKET_COUNT;
       const doubleSided = ((pipelineBucket >>> 3) & 1) !== 0;
       const mask = ((pipelineBucket >>> 4) & 1) !== 0;
-      pass.setPipeline(pipelines[(mask ? 2 : 0) + (doubleSided ? 1 : 0)]!);
-      pass.setBindGroup(0, group, [bucket * MESHLET_BUCKET_SETTINGS_STRIDE]);
-      pass.drawIndirect(inputs.prepared.drawIndirect, bucket * 16);
+      const sets = mask ? bindingSets : bindingSets.slice(0, 1);
+      for (const bindingSet of sets) {
+        const key = `${primitiveIndex ? 1 : 0}:${bindingSet.id}`;
+        let pipelines = this.rasterPipelines.get(key);
+        if (pipelines === undefined) {
+          pipelines = bucketPipelines(primitiveIndex, bindingSet.id).map(
+            (descriptor) => this.graphics.render_pipelines.obtain(descriptor)
+          );
+          this.rasterPipelines.set(key, pipelines);
+        }
+        pass.setPipeline(pipelines[(mask ? 2 : 0) + (doubleSided ? 1 : 0)]!);
+        pass.setBindGroup(0, groups.get(bindingSet.id)!, [bucket * MESHLET_BUCKET_SETTINGS_STRIDE]);
+        pass.drawIndirect(inputs.prepared.drawIndirect, bucket * 16);
+      }
     }
     pass.end();
   }
 
-  private createRasterGroup(inputs: MeshletBucketRasterInputs): GPUBindGroup {
+  private createRasterGroup(
+    inputs: MeshletBucketRasterInputs,
+    textureBanks: GpuRenderWorldRuntime["materialResources"]["bindingSets"][number]["textureBanks"]
+  ): GPUBindGroup {
     return this.graphics.bind_groups.obtain({
       layout: MESHLET_BUCKET_RASTER_GROUP,
       entries: [
@@ -169,7 +170,7 @@ export class MeshletBucketRaster {
         { buffer: inputs.prepared.bucketStates },
         { buffer: inputs.prepared.bucketSettings, size: MESHLET_BUCKET_SETTINGS_SIZE },
         { buffer: inputs.runtime.materialResources.materialRecords },
-        ...inputs.runtime.materialResources.textureBanks
+        ...textureBanks
       ]
     });
   }

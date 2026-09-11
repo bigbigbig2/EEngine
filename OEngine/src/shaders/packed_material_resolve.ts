@@ -357,6 +357,7 @@ fn object_transform_frame(matrix: mat4x4f) -> ObjectTransformFrame {
 }
 
 override OENGINE_ACTIVE_KERNEL_CLASS: u32 = OENGINE_MATERIAL_KERNEL_GENERIC_STANDARD_PBR;
+override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
 override OENGINE_VELOCITY_ENABLED: bool = true;
 override OENGINE_CLASS_DISCARD: bool = false;
 
@@ -492,6 +493,7 @@ fn packed_material_fs(@builtin(position) position: vec4f) -> PackedMaterialOutpu
   if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
     discard;
   }
+  if material_info.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET { discard; }
   if OENGINE_CLASS_DISCARD && material_info.kernel_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
   if material_info.kernel_class != OENGINE_ACTIVE_KERNEL_CLASS { discard; }
   let vertices = triangle_source_vertices(meshlet, triangle_index);

@@ -20,6 +20,7 @@ import { PACKED_TRIANGLE_SETUP_EVIDENCE_WGSL } from "../../shaders/packed_triang
 import {
   GPU_MATERIAL_KERNEL_CLASS_COUNT
 } from "../../gpu/GpuMaterialKernelAbi.js";
+import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "../../gpu/TextureBindingSetPolicy.js";
 import {
   isMaterialResolveBackend,
   type MaterialResolveBackend as MaterialResolveBackendType
@@ -106,12 +107,13 @@ const SETUP_EVIDENCE_GROUP: GPUBindGroupLayoutDescriptor = {
 
 function materialKernelPipeline(
   kernelClass: number,
+  textureBindingSetId: number,
   velocityEnabled: boolean,
   backend: MaterialResolveBackendType,
   surfaceProfile: GpuSurfaceAbiProfile
 ): CachedRenderPipelineDescriptor {
   return {
-    label: `Material Resolve/kernel ${kernelClass}`,
+    label: `Material Resolve/set ${textureBindingSetId} kernel ${kernelClass}`,
     layout: {
       label: "Material Resolve/specialized kernel layout",
       bindGroupLayouts: [INPUT_GROUP, LOOKUP_GROUP]
@@ -125,6 +127,7 @@ function materialKernelPipeline(
       entryPoint: "packed_material_fs",
       constants: {
         OENGINE_ACTIVE_KERNEL_CLASS: kernelClass,
+        OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId,
         OENGINE_VELOCITY_ENABLED: velocityEnabled ? 1 : 0,
         OENGINE_CLASS_DISCARD: backend === "class-discard" ? 1 : 0,
         ...gpuSurfaceNormalPipelineConstants(surfaceProfile.normalEncoding)
@@ -178,7 +181,7 @@ export class PackedMaterialResolvePass {
   private setupEvidencePipeline: GPUComputePipeline | null = null;
   private readonly backend: MaterialResolveBackendType;
   private readonly surfaceProfile: GpuSurfaceAbiProfile;
-  private readonly pipelines: readonly (readonly CachedRenderPipelineDescriptor[])[];
+  private readonly pipelines: readonly (readonly (readonly CachedRenderPipelineDescriptor[])[])[];
   private readonly previousViewProjection = new Float32Array(16);
   private readonly inverseCurrent = new Float32Array(16);
   private readonly unusedRotation = new Float32Array(16);
@@ -210,13 +213,17 @@ export class PackedMaterialResolvePass {
     this.classDepthPass = new PackedMaterialClassDepthPass(graphics);
     this.pipelines = Object.freeze([false, true].map((velocityEnabled) =>
       Object.freeze(Array.from(
-        { length: GPU_MATERIAL_KERNEL_CLASS_COUNT },
-        (_, kernelClass) => materialKernelPipeline(
-          kernelClass,
-          velocityEnabled,
-          this.backend,
-          this.surfaceProfile
-        )
+        { length: TEXTURE_BINDING_SET_MAX_RESIDENT_SETS },
+        (_, textureBindingSetId) => Object.freeze(Array.from(
+          { length: GPU_MATERIAL_KERNEL_CLASS_COUNT },
+          (_, kernelClass) => materialKernelPipeline(
+            kernelClass,
+            textureBindingSetId,
+            velocityEnabled,
+            this.backend,
+            this.surfaceProfile
+          )
+        ))
       ))
     ));
     this.previousViewProjectionBuffer = graphics.device.createBuffer({
@@ -305,18 +312,21 @@ export class PackedMaterialResolvePass {
             resources.get(inputs.visibility.triangleSetup.records),
             "TriangleSetup records"
           );
-        const group0 = this.graphics.bind_groups.obtain({
-          layout: INPUT_GROUP,
-          entries: [
-            resolveTextureView(resources.get(inputs.visibility.visibilityKey)),
-            { buffer: requireBuffer(resources.get(inputs.view), "view") },
-            { buffer: this.previousViewProjectionBuffer },
-            data.runtime.materialResources.textureBanks[0],
-            ...this.samplers,
-            { buffer: data.runtime.materialResources.materialRecords },
-            ...data.runtime.materialResources.textureBanks.slice(1)
-          ]
-        });
+        const group0BySet = new Map(data.runtime.materialResources.bindingSets.map((bindingSet) => [
+          bindingSet.id,
+          this.graphics.bind_groups.obtain({
+            layout: INPUT_GROUP,
+            entries: [
+              resolveTextureView(resources.get(inputs.visibility.visibilityKey)),
+              { buffer: requireBuffer(resources.get(inputs.view), "view") },
+              { buffer: this.previousViewProjectionBuffer },
+              bindingSet.textureBanks[0],
+              ...this.samplers,
+              { buffer: data.runtime.materialResources.materialRecords },
+              ...bindingSet.textureBanks.slice(1)
+            ]
+          })
+        ]));
         const lookupInputs: PackedMaterialLookupInputs = {
           instances: data.scene.instances,
           geometryRecords: data.assets.geometryRecords,
@@ -361,14 +371,18 @@ export class PackedMaterialResolvePass {
             depthReadOnly: true
           }
         });
-        for (let kernelClass = 0; kernelClass < GPU_MATERIAL_KERNEL_CLASS_COUNT; kernelClass++) {
-          if ((data.runtime.activeKernelMask & (1 << kernelClass)) === 0) continue;
-          pass.setPipeline(this.graphics.render_pipelines.obtain(
-            this.pipelines[options.velocity ? 1 : 0]![kernelClass]!
-          ));
-          pass.setBindGroup(0, group0);
+        for (const bindingSet of data.runtime.materialResources.bindingSets) {
+          const activeMask = data.runtime.activeKernelMasksByBindingSet[bindingSet.id] ?? 0;
+          if (activeMask === 0) continue;
+          pass.setBindGroup(0, group0BySet.get(bindingSet.id)!);
           pass.setBindGroup(1, group1);
-          pass.draw(3, 1, 0, 0);
+          for (let kernelClass = 0; kernelClass < GPU_MATERIAL_KERNEL_CLASS_COUNT; kernelClass++) {
+            if ((activeMask & (1 << kernelClass)) === 0) continue;
+            pass.setPipeline(this.graphics.render_pipelines.obtain(
+              this.pipelines[options.velocity ? 1 : 0]![bindingSet.id]![kernelClass]!
+            ));
+            pass.draw(3, 1, 0, 0);
+          }
         }
         pass.end();
         if (inputs.counters !== undefined && inputs.visibility.triangleSetup.capacity > 0) {
@@ -394,7 +408,10 @@ export class PackedMaterialResolvePass {
           );
           evidence.end();
         }
-        this.lastKernelDrawCount = countActiveKernelClasses(data.runtime.activeKernelMask);
+        this.lastKernelDrawCount = data.runtime.activeKernelMasksByBindingSet.reduce(
+          (sum, mask) => sum + countActiveKernelClasses(mask),
+          0
+        );
         this.lastActiveMaterialCount = data.runtime.opaqueMaterialCount;
         if (inputs.counters !== undefined) {
           this.counterAdder.encode(

@@ -180,6 +180,8 @@ fn material_sampler_class(material: OEngineMaterialVisibilityRecord, slot: u32) 
 }
 ${GPU_TEXTURE_BANK_SAMPLE_WGSL}
 
+override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
+
 fn sample_material_texture(
   texture_ref: u32, sampler_class: u32, uv: vec2f,
   uv_dx: vec2f, uv_dy: vec2f, fallback: vec4f
@@ -226,6 +228,7 @@ fn validate_transparent_fragment(
   if (input.raster_flags & ${GPU_SECONDARY_RASTER_FLAGS.Transparent}u) == 0u { return false; }
   if input.material_handle >= arrayLength(&materials) ||
     (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u ||
+    material.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET ||
     material.alpha_mode != OENGINE_MATERIAL_ALPHA_BLEND { return false; }
   let corrected_front = front != (input.mirrored != 0u);
   if (material.flags & OENGINE_MATERIAL_VISIBILITY_DOUBLE_SIDED) == 0u && !corrected_front {

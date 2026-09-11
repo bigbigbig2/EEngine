@@ -7,8 +7,8 @@ import {
 } from "./GpuMaterialKernelAbi.js";
 import { GPU_TEXTURE_REF_INVALID, GPU_TEXTURE_REF_WGSL } from "./GpuTextureRefAbi.js";
 
-export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 5;
-export const GPU_MATERIAL_VISIBILITY_RECORD_STRIDE = 224;
+export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 6;
+export const GPU_MATERIAL_VISIBILITY_RECORD_STRIDE = 240;
 export const GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE = GPU_TEXTURE_REF_INVALID;
 
 export const GPU_MATERIAL_VISIBILITY_ALPHA_MODE = Object.freeze({
@@ -63,7 +63,8 @@ export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
   orm_uv_offset_scale: 160,
   orm_uv_rotation: 176,
   emissive_uv_offset_scale: 192,
-  emissive_uv_rotation: 208
+  emissive_uv_rotation: 208,
+  texture_binding_set_id: 224
 });
 
 export interface GpuMaterialVisibilityPackedSource {
@@ -101,6 +102,7 @@ export interface GpuMaterialVisibilityPackedSource {
   readonly emissiveUvScale: ArrayLike<number>;
   readonly emissiveRotationCos: number;
   readonly emissiveRotationSin: number;
+  readonly textureBindingSetId: number;
 }
 
 export interface GpuMaterialVisibilitySource {
@@ -136,6 +138,10 @@ struct OEngineMaterialVisibilityRecord {
   orm_uv_rotation: vec4f,
   emissive_uv_offset_scale: vec4f,
   emissive_uv_rotation: vec4f,
+  texture_binding_set_id: u32,
+  _binding_set_pad0: u32,
+  _binding_set_pad1: u32,
+  _binding_set_pad2: u32,
 };
 
 const OENGINE_MATERIAL_ALPHA_OPAQUE: u32 = ${GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Opaque}u;
@@ -164,9 +170,11 @@ export function materialVisibilitySource(
     orm?: number;
     emissive?: number;
   }> | number,
-  materialSlot: number
+  materialSlot: number,
+  textureBindingSetId = 0
 ): GpuMaterialVisibilitySource {
   checkedU32(materialSlot, "resident material slot");
+  checkedU32(textureBindingSetId, "texture binding set id");
   const refs = typeof textureRefs === "number"
     ? { baseColor: textureRefs }
     : textureRefs;
@@ -268,7 +276,8 @@ export function materialVisibilitySource(
       emissiveUvOffset: material.emissive_uv_offset,
       emissiveUvScale: material.emissive_uv_scale,
       emissiveRotationCos: Math.cos(emissiveRotation),
-      emissiveRotationSin: Math.sin(emissiveRotation)
+      emissiveRotationSin: Math.sin(emissiveRotation),
+      textureBindingSetId
     }),
     texture: textureFallback ? null : texture,
     textures: Object.freeze(requestedTextures
@@ -320,6 +329,7 @@ export function packGpuMaterialVisibilityRecord(
     source.ormRotationCos, source.ormRotationSin);
   writeUvTransform(view, 192, source.emissiveUvOffset, source.emissiveUvScale,
     source.emissiveRotationCos, source.emissiveRotationSin);
+  view.setUint32(224, checkedU32(source.textureBindingSetId, "texture binding set id"), true);
   return target;
 }
 

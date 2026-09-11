@@ -1,5 +1,6 @@
 import {
   validateAssetCodecTask,
+  validateAssetCodecWorkerResult,
   type AssetCodecTaskResult,
   type AssetCodecWorkerMessage,
   type Ktx2TranscodeTask
@@ -17,7 +18,7 @@ export interface AssetCodecServiceOptions {
 }
 
 export interface AssetCodecServiceEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly tasksQueued: number;
   readonly tasksCompleted: number;
   readonly tasksFailed: number;
@@ -32,10 +33,20 @@ export interface AssetCodecServiceEvidence {
   readonly wallMs: number;
   readonly inputBytes: number;
   readonly outputBytes: number;
+  /** Total ownership transferred across the Worker boundary in both directions. */
+  readonly transferBytes: number;
   readonly workerFailures: number;
   readonly directPathCount: number;
   readonly workerPathCount: number;
   readonly uncompressedPathCount: number;
+  readonly codecIdentities: readonly AssetCodecIdentityEvidence[];
+}
+
+export interface AssetCodecIdentityEvidence {
+  readonly codecId: string;
+  readonly codecRevision: string;
+  readonly codecBinaryHash: string;
+  readonly completedTaskCount: number;
 }
 
 export class AssetCodecService {
@@ -52,6 +63,7 @@ export class AssetCodecService {
   private inputBytes = 0;
   private outputBytes = 0;
   private workerPathCount = 0;
+  private readonly codecIdentities = new Map<string, AssetCodecIdentityEvidence>();
   private destroyed = false;
 
   constructor(options: AssetCodecServiceOptions) {
@@ -72,7 +84,8 @@ export class AssetCodecService {
     if (this.destroyed) throw new Error("AssetCodecService is destroyed");
     validateAssetCodecTask(task);
     this.tasksQueued++;
-    this.inputBytes += task.input.byteLength;
+    const inputByteLength = task.input.byteLength;
+    this.inputBytes += inputByteLength;
     const submittedAt = this.now();
     try {
       const message = await this.pool.submit<
@@ -88,11 +101,19 @@ export class AssetCodecService {
       if (message.type !== "result") {
         throw new Error(`Asset codec Worker returned unexpected '${message.type}' message`);
       }
+      validateAssetCodecWorkerResult(message.result);
+      if (message.result.taskId !== task.taskId) throw new Error("Asset codec Worker returned the wrong task id");
       if (!message.result.ok) {
         throw new AssetCodecTaskError(message.result.code, message.result.message);
       }
       const result = message.result;
-      if (result.taskId !== task.taskId) throw new Error("Asset codec Worker returned the wrong task id");
+      if (result.sourceEncoding !== task.sourceEncoding || result.targetFormat !== task.targetFormat) {
+        throw new Error("Asset codec Worker returned result metadata for a different task");
+      }
+      if (result.evidence.inputBytes !== inputByteLength ||
+          result.evidence.estimatedPeakBytes !== task.estimatedPeakBytes) {
+        throw new Error("Asset codec Worker returned inconsistent input or memory evidence");
+      }
       const elapsedMs = Math.max(result.evidence.wallMs, this.now() - submittedAt, 0);
       const queueWaitMs = Math.max(result.evidence.queueWaitMs, elapsedMs - result.evidence.workerMs, 0);
       const measuredResult: AssetCodecTaskResult = Object.freeze({
@@ -109,6 +130,18 @@ export class AssetCodecService {
       this.workerMs += measuredResult.evidence.workerMs;
       this.wallMs += measuredResult.evidence.wallMs;
       this.outputBytes += measuredResult.evidence.outputBytes;
+      const identityKey = [
+        measuredResult.evidence.codecId,
+        measuredResult.evidence.codecRevision,
+        measuredResult.evidence.codecBinaryHash.toLowerCase()
+      ].join(":");
+      const identity = this.codecIdentities.get(identityKey);
+      this.codecIdentities.set(identityKey, Object.freeze({
+        codecId: measuredResult.evidence.codecId,
+        codecRevision: measuredResult.evidence.codecRevision,
+        codecBinaryHash: measuredResult.evidence.codecBinaryHash.toLowerCase(),
+        completedTaskCount: (identity?.completedTaskCount ?? 0) + 1
+      }));
       return measuredResult;
     } catch (error) {
       if (isAbortError(error)) this.tasksCancelled++;
@@ -121,7 +154,7 @@ export class AssetCodecService {
   evidence(): AssetCodecServiceEvidence {
     const pool = this.pool.evidence();
     return Object.freeze({
-      schemaVersion: 1,
+      schemaVersion: 2,
       tasksQueued: this.tasksQueued,
       tasksCompleted: this.tasksCompleted,
       tasksFailed: this.tasksFailed,
@@ -136,10 +169,18 @@ export class AssetCodecService {
       wallMs: this.wallMs,
       inputBytes: this.inputBytes,
       outputBytes: this.outputBytes,
+      transferBytes: this.inputBytes + this.outputBytes,
       workerFailures: pool.workerFailures,
       directPathCount: 0,
       workerPathCount: this.workerPathCount,
-      uncompressedPathCount: 0
+      uncompressedPathCount: 0,
+      codecIdentities: Object.freeze(
+        [...this.codecIdentities.values()].sort((left, right) =>
+          left.codecId.localeCompare(right.codecId) ||
+          left.codecRevision.localeCompare(right.codecRevision) ||
+          left.codecBinaryHash.localeCompare(right.codecBinaryHash)
+        )
+      )
     });
   }
 

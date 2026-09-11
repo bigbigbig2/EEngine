@@ -33,6 +33,8 @@ ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 
+override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
+
 struct OEngineMeshletBucketStateRead {
   count: u32,
   base: u32,
@@ -225,6 +227,7 @@ fn write_meshlet_mask(
 ) -> @location(0) u32 {
   if material_handle >= arrayLength(&meshlet_materials) { discard; }
   let record = meshlet_materials[material_handle];
+  if record.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET { discard; }
   var alpha = record.base_color_factor_alpha;
   let uv_set = record.texture_uv_sets & 0xffu;
   let uv_bit = select(0u, 1u << uv_set, uv_set < 3u);
