@@ -71,16 +71,19 @@
   },
   "workerCodecLoadEvidence": {
     "caseId": "surface.texture-codec-production",
-    "resultSha256": "5f14d710bf105429f5a0ddedb20096fc9707ebfe6815690452784d0e4bf04d81",
+    "evidenceCommit": "0d38b1a2621e56f174733682777f93246b135ab6",
+    "contentHash": "50483b06be6c80426a05e12f090bc6b29c40b2a9d344efefb67a72d7912a375d",
+    "clean": true,
+    "resultSha256": "3de43625988e865653dc5cb775c91061b592ce1a4dfc589effe1d4fe9d5fb046",
     "sourceEncoding": "ktx2-etc1s",
     "targetFormat": "bc7-rgba-unorm-srgb",
     "mipCount": 7,
     "codecId": "khronos-ktx-software-libktx-read",
     "codecRevision": "v4.4.2+4d6fc70eaf62ad0558e63e8d97eb9766118327a6",
     "codecBinaryHash": "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e",
-    "queueWaitMs": 79.3999999910593,
-    "workerMs": 53.70000000298023,
-    "wallMs": 133.09999999403954,
+    "queueWaitMs": 77.09999999403954,
+    "workerMs": 53,
+    "wallMs": 130.09999999403954,
     "inputBytes": 719,
     "outputBytes": 5488,
     "transferBytes": 6207,
@@ -96,9 +99,10 @@
       "bc5-rg-unorm": { "count": 1, "bytes": 112 },
       "bc7-rgba-unorm-srgb": { "count": 1, "bytes": 5488 }
     },
-    "mainThreadBlockedTime": {
-      "status": "not-directly-instrumented",
-      "reason": "The task is asynchronous and Worker-owned; this run records end-to-end wall time but does not substitute it for event-loop blocking time."
+    "mainThreadResponsiveness": {
+      "animationFrameSamples": 2,
+      "maximumAnimationFrameGapMs": 107.89999999702013,
+      "interpretation": "Animation frames continued while the Worker task was pending, so wall time is not substituted for synchronous main-thread blocking. The 107.9 ms maximum gap remains an explicit load-time long-frame risk; this evidence does not claim zero main-thread cost."
     }
   },
   "correctness": {
