@@ -183,6 +183,10 @@ const OCCLUSION_CONFIDENCE_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/OcclusionConfidencePass.ts", import.meta.url),
   "utf8"
 );
+const RENDER_TARGETS_SOURCE = readFileSync(
+  new URL("../src/render/RenderTargets.ts", import.meta.url),
+  "utf8"
+);
 
 const full = () => textureDomain("internal-full", 1920, 1080, 1);
 const preExposure = () => preExposureContract({
@@ -1248,6 +1252,11 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   );
   assert.match(OCCLUSION_CONFIDENCE_PASS_SOURCE, /mipLevelCount: 1/);
   assert.doesNotMatch(OCCLUSION_CONFIDENCE_PASS_SOURCE, /textureMipLevelCount/);
+  assert.match(
+    RENDER_TARGETS_SOURCE,
+    /Hierarchical depth lives in the dedicated rg16float HZB owner[\s\S]*?mipLevelCount: 1/
+  );
+  assert.doesNotMatch(RENDER_TARGETS_SOURCE, /mipLevelCount: 5/);
   assert.equal(classifyTemporalHistory({
     historyValid: true,
     motionValid: true,

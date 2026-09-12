@@ -60,7 +60,9 @@ export class RenderTargets {
         label: "",
         size: [width, height, 1],
         format: VIS_DEPTH_FORMAT,
-        mipLevelCount: 5,
+        // Hierarchical depth lives in the dedicated rg16float HZB owner. The
+        // double-buffered depth32float targets expose and preserve mip 0 only.
+        mipLevelCount: 1,
         usage:
           GPUTextureUsage.RENDER_ATTACHMENT |
           GPUTextureUsage.TEXTURE_BINDING |
