@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 48,
+  "shaderCount": 49,
   "summary": {
-    "authored-live": 47,
+    "authored-live": 48,
     "dead": 1
   },
   "entries": [
@@ -712,6 +712,7 @@
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/ShadingBinPass.ts",
         "src/render/passes/SharedColorPyramidPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
@@ -1098,6 +1099,23 @@
       ],
       "pipelineOwners": [
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/shading_bin_classify.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/ShadingBinPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/render/passes/ShadingBinPass.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ShadingBinPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

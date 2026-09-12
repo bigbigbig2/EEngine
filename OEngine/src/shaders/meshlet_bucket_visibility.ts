@@ -13,7 +13,10 @@ import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 export const MESHLET_BUCKET_SETTINGS_STRIDE = 256;
 export const MESHLET_BUCKET_SETTINGS_SIZE = 16;
-export function meshletBucketVisibilityWgsl(primitiveIndex: boolean): string {
+export function meshletBucketVisibilityWgsl(
+  primitiveIndex: boolean,
+  shadingBinOutput = false
+): string {
   const primitiveIndexEnable = primitiveIndex ? "enable primitive_index;" : "";
   const triangleVarying = primitiveIndex
     ? ""
@@ -22,6 +25,27 @@ export function meshletBucketVisibilityWgsl(primitiveIndex: boolean): string {
   const fragmentTriangleInput = primitiveIndex
     ? "@builtin(primitive_index) triangle: u32"
     : "@location(2) @interpolate(flat) triangle: u32";
+  const shadingBinVarying = shadingBinOutput
+    ? "  @location(9) @interpolate(flat) shading_bin_id: u32,"
+    : "";
+  const shadingBinAssignment = shadingBinOutput
+    ? "  output.shading_bin_id = (work.packed_raster_flags >> 8u) & 0x3fu;"
+    : "";
+  const fragmentShadingBinInput = shadingBinOutput
+    ? ",\n  @location(9) @interpolate(flat) shading_bin_id: u32"
+    : "";
+  const fragmentOutputDeclaration = shadingBinOutput
+    ? `struct OEngineMeshletVisibilityOutput {
+  @location(0) visibility_key: u32,
+  @location(1) shading_bin_id: u32,
+};`
+    : "";
+  const fragmentReturnType = shadingBinOutput
+    ? "OEngineMeshletVisibilityOutput"
+    : "@location(0) u32";
+  const fragmentReturn = shadingBinOutput
+    ? "return OEngineMeshletVisibilityOutput(key, shading_bin_id);"
+    : "return key;";
   return /* wgsl */ `
 ${primitiveIndexEnable}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
@@ -58,7 +82,9 @@ ${triangleVarying}
   @location(6) @interpolate(flat) uv_valid_mask: u32,
   @location(7) @interpolate(flat) material_handle: u32,
   @location(8) @interpolate(flat) meshlet_work_slot: u32,
+${shadingBinVarying}
 };
+${fragmentOutputDeclaration}
 
 @group(0) @binding(0) var<uniform> meshlet_camera: CommandEncoder;
 @group(0) @binding(1) var<storage, read> meshlet_instances: array<OEngineInstanceRecord>;
@@ -170,15 +196,17 @@ ${triangleAssignment}
     select(0u, 2u, uv1.z > 0.0) | select(0u, 4u, uv2.z > 0.0);
   output.material_handle = work.material_slot_or_range;
   output.meshlet_work_slot = work_index;
+${shadingBinAssignment}
   return output;
 }
 
 @fragment
 fn write_meshlet_opaque(
   ${fragmentTriangleInput},
-  @location(8) @interpolate(flat) meshlet_work_slot: u32
-) -> @location(0) u32 {
-  return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
+  @location(8) @interpolate(flat) meshlet_work_slot: u32${fragmentShadingBinInput}
+) -> ${fragmentReturnType} {
+  let key = oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
+  ${fragmentReturn}
 }
 
 fn meshlet_wrap_texel(value: i32, mode: u32, size: i32) -> i32 {
@@ -223,8 +251,8 @@ fn write_meshlet_mask(
   @location(5) uv2: vec2f,
   @location(6) @interpolate(flat) uv_valid_mask: u32,
   @location(7) @interpolate(flat) material_handle: u32,
-  @location(8) @interpolate(flat) meshlet_work_slot: u32
-) -> @location(0) u32 {
+  @location(8) @interpolate(flat) meshlet_work_slot: u32${fragmentShadingBinInput}
+) -> ${fragmentReturnType} {
   if material_handle >= arrayLength(&meshlet_materials) { discard; }
   let record = meshlet_materials[material_handle];
   if record.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET { discard; }
@@ -241,7 +269,8 @@ fn write_meshlet_mask(
     alpha *= meshlet_sample_alpha(record.texture_ref, uv, record.sampler_class);
   }
   if alpha < record.alpha_cutoff { discard; }
-  return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
+  let key = oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
+  ${fragmentReturn}
 }
 `;
 }
@@ -252,3 +281,11 @@ export const MESHLET_BUCKET_VISIBILITY_WGSL = meshletBucketVisibilityWgsl(false)
 /** WebGPU 2026 Desktop specialization; local primitive identity comes from rasterization. */
 export const MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL =
   meshletBucketVisibilityWgsl(true);
+
+/** ADR-0013 Step-4 candidate only; production cutover is owned by Step 7. */
+export const MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL =
+  meshletBucketVisibilityWgsl(false, true);
+
+/** ADR-0013 Step-4 candidate using the negotiated primitive-index builtin. */
+export const MESHLET_BUCKET_VISIBILITY_SHADING_BIN_PRIMITIVE_INDEX_WGSL =
+  meshletBucketVisibilityWgsl(true, true);
