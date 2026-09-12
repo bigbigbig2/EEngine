@@ -85,6 +85,7 @@ import {
 } from "../.test-dist/shaders/ssr_denoise.js";
 import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correction.js";
 import { TAA_WGSL } from "../.test-dist/shaders/taa.js";
+import { NSS_PREPROCESS_WGSL } from "../.test-dist/shaders/nss.js";
 import {
   finalOutputBindingPlan
 } from "../.test-dist/shaders/final_output_input.js";
@@ -151,6 +152,10 @@ const FRAMEGRAPH_RESOURCE_HANDLE_SOURCE = readFileSync(
 );
 const TEMPORAL_ANTI_ALIASING_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/TemporalAntiAliasingPass.ts", import.meta.url),
+  "utf8"
+);
+const NEURAL_SUPER_SAMPLING_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/NeuralSuperSamplingPass.ts", import.meta.url),
   "utf8"
 );
 
@@ -1122,6 +1127,19 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   );
   assert.match(TAA_WGSL, /relative_luminance_delta/);
   assert.doesNotMatch(TAA_WGSL, /for \(var y = 0; y < 4/);
+  assert.match(NSS_PREPROCESS_WGSL, /@binding\(2\) var l2: texture_depth_2d/);
+  assert.match(
+    NSS_PREPROCESS_WGSL,
+    /depth_texture: texture_depth_2d,[\s\S]*?let depth = textureLoad\(depth_texture, sample_position, 0\);/
+  );
+  assert.doesNotMatch(
+    NSS_PREPROCESS_WGSL,
+    /textureLoad\(depth_texture,[^\n]+\)\.r/
+  );
+  assert.match(
+    NEURAL_SUPER_SAMPLING_PASS_SOURCE,
+    /textureEntry\(2, "2d", "depth"\)/
+  );
   assert.equal(classifyTemporalHistory({
     historyValid: true,
     motionValid: true,

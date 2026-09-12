@@ -804,7 +804,7 @@ function samplerEntry(binding: number): GPUBindGroupLayoutEntry {
 
 function preprocessLayout(): GPUBindGroupLayoutDescriptor {
   return { label: "Renderer/NSS preprocess group0", entries: [
-    samplerEntry(0), textureEntry(1), textureEntry(2, "2d", "unfilterable-float"),
+    samplerEntry(0), textureEntry(1), textureEntry(2, "2d", "depth"),
     textureEntry(3), textureEntry(4), textureEntry(5), textureEntry(6),
     bufferEntry(7, "uniform"), storageTextureEntry(8, "rgba16float", "3d"),
     storageTextureEntry(9, "rg8unorm", "2d")

@@ -190,7 +190,7 @@ export const NSS_PREPROCESS_WGSL = /* wgsl */ `
 ${NSS_COMMON_WGSL}
 @group(0) @binding(0) var segment_height: sampler;
 @group(0) @binding(1) var scale: texture_2d<f32>;
-@group(0) @binding(2) var l2: texture_2d<f32>;
+@group(0) @binding(2) var l2: texture_depth_2d;
 @group(0) @binding(3) var header: texture_2d<f32>;
 @group(0) @binding(4) var loading_overlay_mode: texture_2d<f32>;
 @group(0) @binding(5) var mean: texture_2d<f32>;
@@ -204,7 +204,7 @@ fn in_bounds(position: vec2<i32>, dimensions: vec2<i32>) -> bool {
 }
 
 fn nss_find_nearest_depth(
-  depth_texture: texture_2d<f32>,
+  depth_texture: texture_depth_2d,
   position: vec2<i32>,
   dimensions: vec2<i32>,
   nearest_offset: ptr<function, vec2<i32>>
@@ -215,11 +215,11 @@ fn nss_find_nearest_depth(
     vec2<i32>(1, 1), vec2<i32>(-1, -1), vec2<i32>(1, -1)
   );
   var best_offset = vec2<i32>(0);
-  var best_depth = textureLoad(depth_texture, position, 0).r;
+  var best_depth = textureLoad(depth_texture, position, 0);
   for (var index = 1; index < 9; index++) {
     let sample_position = position + offsets[index];
     if (in_bounds(sample_position, dimensions)) {
-      let depth = textureLoad(depth_texture, sample_position, 0).r;
+      let depth = textureLoad(depth_texture, sample_position, 0);
       if (depth > best_depth) {
         best_offset = offsets[index];
         best_depth = depth;

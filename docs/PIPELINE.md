@@ -66,7 +66,7 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 - `ReflectionFrame`：resolved specular、confidence、variance。
 - `TemporalSurfaceFrame`：velocity、history confidence、reactive、classification。
 - `TemporalReconstructionFrame`：`internal-full` HDR 到 `output-full` HDR 的权威时域重建产品；TAA 的 confidence 为同一 `rgba16float` 输出 alpha 中的 history lock，NSS 的 confidence 留在独立 feedback history，二者都从统一 history/representation revision source 取代际。
-- TAA closest-depth输入是主管线`depth32float` attachment，shader/layout必须使用`texture_depth_2d + sampleType: depth`；不得把 depth view伪装为普通`texture_2d<f32>`。其reverse-Z值通过`textureLoad`读取，3×3选择最大值作为最近前景。
+- TAA与NSS preprocess的closest-depth输入都是主管线`depth32float` attachment，shader/layout必须使用`texture_depth_2d + sampleType: depth`；不得把 depth view伪装为普通`texture_2d<f32>`。其reverse-Z标量通过`textureLoad`直接读取，3×3选择最大值作为最近前景。
 
 跨 resolution domain 必须声明转换 owner；消费者不能靠尺寸相同猜测兼容。
 
