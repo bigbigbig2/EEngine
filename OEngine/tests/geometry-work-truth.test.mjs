@@ -16,7 +16,10 @@ import {
   MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
   MESHLET_WORK_COMPACTION_SUBGROUP_WGSL
 } from "../.test-dist/shaders/meshlet_work_compaction.js";
-import { MESHLET_BUCKET_VISIBILITY_WGSL } from "../.test-dist/shaders/meshlet_bucket_visibility.js";
+import {
+  MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL,
+  MESHLET_BUCKET_VISIBILITY_WGSL
+} from "../.test-dist/shaders/meshlet_bucket_visibility.js";
 import {
   GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_RASTER_WORK_ABI_VERSION,
@@ -102,6 +105,9 @@ const { PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL } = await import(
 );
 const { PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL } = await import(
   "../.test-dist/shaders/render_debug_view.js"
+);
+const { MeshletBucketRaster } = await import(
+  "../.test-dist/render/MeshletBucketRaster.js"
 );
 
 const GEOMETRY_TRUTH_FIELDS = [
@@ -594,4 +600,63 @@ test("Step-7 bucket raster is the sole standard indirect VisibilityKey V2 consum
   ]) {
     assert.equal(existsSync(new URL(path, import.meta.url)), false, `${path} must be deleted`);
   }
+});
+
+test("ADR-0013 candidate raster binds the dual MRT shader without changing production selection", () => {
+  const pipelineDescriptors = [];
+  const renderPasses = [];
+  const graphics = {
+    device: { features: new Set() },
+    bind_groups: { obtain: () => ({}) },
+    render_pipelines: {
+      obtain(descriptor) {
+        pipelineDescriptors.push(descriptor);
+        return { descriptor };
+      }
+    }
+  };
+  const encoder = {
+    beginRenderPass(descriptor) {
+      renderPasses.push(descriptor);
+      return {
+        setPipeline() {},
+        setBindGroup() {},
+        drawIndirect() {},
+        end() {}
+      };
+    }
+  };
+  const textureBanks = Array.from({ length: 9 }, () => ({}));
+  const inputs = {
+    prepared: { bucketCount: 1, drawIndirect: {}, queue: {}, bucketStates: {}, bucketSettings: {} },
+    camera: {},
+    assets: {
+      meshletRecords: {},
+      meshletVertexIndices: {},
+      meshletTriangleIndices: {},
+      vertexStreamData: {},
+      geometryRecords: {}
+    },
+    scene: { instances: {} },
+    runtime: { materialResources: { materialRecords: {}, bindingSets: [{ id: 0, textureBanks }] } },
+    visibilityKey: {},
+    depth: {}
+  };
+  const raster = new MeshletBucketRaster(graphics);
+  raster.encodeRaster(encoder, inputs, "portable");
+  raster.encodeSparseShadingRaster(encoder, { ...inputs, shadingBinId: {} }, "portable");
+
+  assert.equal(renderPasses[0].colorAttachments.length, 1);
+  assert.equal(renderPasses[1].colorAttachments.length, 2);
+  assert.equal(renderPasses[1].colorAttachments[1].clearValue.r, 0xff);
+  assert.deepEqual(pipelineDescriptors[0].fragment.targets, [{ format: "r32uint" }]);
+  assert.deepEqual(pipelineDescriptors[4].fragment.targets, [
+    { format: "r32uint" },
+    { format: "r8uint" }
+  ]);
+  assert.equal(pipelineDescriptors[0].fragment.module.code, MESHLET_BUCKET_VISIBILITY_WGSL);
+  assert.equal(
+    pipelineDescriptors[4].fragment.module.code,
+    MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL
+  );
 });
