@@ -17,8 +17,7 @@
 - Packed Render World 收敛实施入口：[ADR-0006](./adr/0006-packed-render-world-convergence.md)。
 - 外部算法、资产和许可证：[porting/](./porting/README.md)。
 - Performance Inspector：[`OEngine/src/addons/inspector/README.md`](../OEngine/src/addons/inspector/README.md)。
-- 浏览器示例与 Storybook：[`examples/README.md`](../examples/README.md)。
-- Rendering Lab：[`examples/rendering-lab/README.md`](../examples/rendering-lab/README.md)。
+- Storybook 空壳与示例库重建入口：[`examples/README.md`](../examples/README.md)、[ADR-0012](./adr/0012-example-library-reset.md)。
 - 机器可读 benchmark 与审计结果：[`OEngine/benchmarks/README.md`](../OEngine/benchmarks/README.md)。
 - 非权威设计研究：`others/`；其中的日期性判断和候选方案必须回写到 PRODUCT、WEBGPU、ADR 或核心事实页后才生效。
 

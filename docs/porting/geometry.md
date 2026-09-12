@@ -28,7 +28,7 @@
 
 ## GEO-CONTROLS · Orbit camera controls
 
-- Local owner/source: `OEngine/src/camera/OrbitControls.ts` 及 Rendering Lab。
+- Local owner/source: `OEngine/src/camera/OrbitControls.ts`。
 - Upstream: <https://github.com/mrdoob/three.js>
 - Revision: `7cda7e710d884827fc73ff1a3aa63270846513d7`。
 - Upstream source: `examples/jsm/controls/OrbitControls.js`。
@@ -37,17 +37,4 @@
 - Retained invariants: target orbit、polar/azimuth/distance limits、rotate/dolly/pan、damping、events 和 explicit dispose。
 - OEngine/WebGPU differences: 使用 OEngine Vec3/Transform3D 和 +Z camera convention；不会把 three.js 对象带入渲染热路径。
 - Fallback/lifecycle: input 只累计 delta；`dispose()` 移除事件；无 GPU allocation。
-- Local validation: controls unit tests 与 Rendering Lab interaction。
-
-## GEO-LAB-ASSET · Dungeon validation asset
-
-- Local owner/source: `examples/rendering-lab/assets/dungeon_warkarma.glb` 与 `THREE-LICENSE.txt`。
-- Upstream: <https://github.com/mrdoob/three.js>；作品 “Dungeon - Low Poly Game Level Challenge” by Warkarma。
-- Revision: repository `7cda7e710d884827fc73ff1a3aa63270846513d7`；SHA-256 `cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1`。
-- Upstream source: `examples/models/gltf/dungeon_warkarma.glb`。
-- License: upstream repository MIT evidence and retained attribution/license file。
-- Adoption: copied validation asset only。
-- Retained invariants: unchanged GLB, static nodes, embedded WebP materials and stable hash。
-- OEngine/WebGPU differences: OEngine packed glTF loader/Cooker/residency owns import; no upstream renderer、SSR 或 loader code is used。
-- Fallback/lifecycle: import/cook failure is visible and blocks fixture readiness；asset GPU resources belong to Packed residency owner。
-- Local validation: Rendering Lab import、Packed residency、first-frame diagnostics。
+- Local validation: controls unit tests；浏览器交互 Gate 等待 ADR-0012 的后续宿主。

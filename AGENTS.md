@@ -42,13 +42,13 @@ OEngine 当前阶段是面向桌面 WebGPU、中大型高几何密度场景的 G
 ## 验证
 
 - 验证强度遵循 `docs/VALIDATION.md` 的 DEV/MILESTONE/PERF 分级；纯文档改动只运行静态文档检查。
-- 普通 DEV 在 dependency/lockfile 未变化时不运行 `npm ci`。TypeScript/WGSL 改动先运行 `cd OEngine; npm run typecheck`、命中的 targeted tests；涉及渲染路径时再运行一个命中的真实浏览器 Case。
+- 普通 DEV 在 dependency/lockfile 未变化时不运行 `npm ci`。TypeScript/WGSL 改动先运行 `cd OEngine; npm run typecheck` 和命中的 targeted tests。
 - dependency/lockfile 变化、clean reproduction、CI 或正式 PERF 前运行 `cd OEngine; npm ci`。
-- MILESTONE 运行 `cd OEngine; npm test`、命中的 Browser Case，并从 `examples/` 运行 `npm run profile:rendering-lab:dev`。
-- 正式 PERF 从 clean commit 和 clean install 开始，使用 `examples/` 的 `npm run profile:rendering-lab:formal`。
+- [ADR-0012](docs/adr/0012-example-library-reset.md) 生效期间，`examples/` 只是 Storybook 空壳，不提供 Browser Case 或 PERF Runner；渲染改动在替代宿主落地前不得声明 Runtime Validated、Performance Evaluated/Improved、Pipeline Feature Complete 或 ADR Complete。
+- MILESTONE 与正式 PERF 必须等待后续 ADR 定义并实现新的真实浏览器宿主；既有 benchmark 只证明其冻结 commit，不替代当前 revision 验证。
 - 性能改动必须遵守 `docs/VALIDATION.md` 的相同 adapter、分辨率/DPR、画质、workload 和 warm-up 规则。
 - 渲染正确性不能只靠 typecheck；需要 GPU timestamp、计数器、debug view 或截图/数值回归。
-- 可运行的垂直验证逐步放在根目录 `examples/`，通过相对路径引用 `OEngine` 源码。渲染改动至少运行一个命中的浏览器示例；必要时保存结果并检查截图和控制台，不能只跑 TypeScript 单元测试。
+- 新的可运行垂直验证不得直接塞回 Storybook 空壳；先按 ADR-0012 定义示例、验证与性能宿主边界，再恢复真实浏览器、截图、console 和 GPU diagnostics 门禁。
 - 默认采用与风险匹配的中等验证：本地检查、构建/测试和命中示例。除非用户明确要求或变更风险确实需要，不为普通验证扩散多个 review 子任务。
 - 最终说明必须列出已运行验证、未运行验证和原因。
 

@@ -194,9 +194,9 @@ CPU codec counter 不得为取证增加 GPU readback。Performance 结论分开�
 ## Verification
 
 - Contract/oracle：task validation、priority/FIFO、worker/memory bound、transfer、cancel/failure/respawn、provenance、encoded mip layout、semantic mip/alpha、variant selection、handle/generation、abort/release/reuse、set preflight。
-- Browser：优先扩展现有 Surface texture scenario，覆盖 direct 与 Worker 两种 mode；只在现有 scenario 无法表达独立 seam 时新增一个 Case。
+- Browser：后续宿主必须覆盖 direct 与 Worker 两种 mode，并保持领域断言与 Runner 分离；旧 Surface scenario 已由 ADR-0012 删除，不作为兼容目标。
 - Lifecycle：Worker crash/WASM init failure、GPU stage abort、Renderer destroy、device-loss recreate、no-codec feature-off。
-- MILESTONE：`npm test`、命中的少量 Browser Case、`profile:rendering-lab:dev`。
+- MILESTONE：`npm test` 加命中的少量真实 Browser Case；当前 Browser/PERF 宿主缺失，因此新 revision 的该 Gate 保持 open。
 - PERF：clean provenance、固定环境；正式 GPU 结论只使用一个综合 profile。Worker codec 另做 loading/transcode evidence，不复制 Desktop/Portable 或 Renderer 基准。
 
 Completion requires all of:

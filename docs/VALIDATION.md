@@ -10,14 +10,14 @@ npm ci
 npm test
 ```
 
-浏览器验证从 `examples/` 执行：
+ADR-0012 生效期间，`examples/` 只提供 Storybook 空壳，不提供 WebGPU runtime、Browser Case、Validation Runner 或 formal benchmark。空壳验证从 `examples/` 执行：
 
 ```powershell
-npm run test:validation-tools
-npm run verify -- changed
+yarn typecheck
+yarn build
 ```
 
-可显式选择 `full`、`smoke`、`visibility`、`surface`、`lifecycle` 或单个 Case（例如 `visibility.occlusion`）。`changed --base <ref>` 使用 `<ref>...HEAD`，`paths <path...>` 使用显式路径；不带 `--base` 的 `changed` 必须覆盖 staged、unstaged、untracked、rename 和 delete。没有映射规则的 `OEngine/src/` 文件必须在结果中列入 `unmappedPaths`，并保守运行 `smoke.basic`、`lifecycle.init-destroy`、`visibility.basic`。
+这两个命令只验证 Storybook 工具链，不能作为 Renderer 或 GPU 证据。
 
 ## 验证层级
 
@@ -25,40 +25,34 @@ npm run verify -- changed
 
 ### DEV
 
-用于普通迭代，目标是快速发现 ABI、数学、资源生命周期和真实 WebGPU 集成错误。按改动选择 typecheck、targeted unit/oracle 和一个命中的 Browser Case；涉及浏览器路径时必须保持 browser、GPU validation、uncaptured error 和 device loss 为零。截图只在需要人工判断时保存。
+用于普通迭代，目标是快速发现 ABI、数学和静态资源合同错误。按改动选择 typecheck、targeted unit/oracle 与 WGSL 组合检查。替代浏览器宿主落地前，DEV 无法关闭真实 WebGPU 集成、GPU validation、uncaptured error、device loss 或视觉 Gate。
 
 DEV 不运行全量 Browser matrix 或 formal benchmark，也不产生可接受的性能基线。
 
 ### MILESTONE
 
-用于 ADR Step 完成、production candidate 判断、consumer cutover 和旧路径删除前。除完整构建/测试外，只选择能覆盖本 Step 独立 correctness seam 的少量 Browser Case，并运行：
-
-```powershell
-Set-Location examples
-npm run profile:rendering-lab:dev
-```
-
-该 profile 通过统一 ChromeRunner 使用 Playwright 启动本机 Google Chrome（默认 headless），在单个 BrowserContext 中按 30 warm-up + 60 measured cadence 运行。它允许 dirty worktree，结果只用于短 A/B、编排和风险发现，不作为正式性能声明或可接受基线。只有显式设置 `OENGINE_ALLOW_CHROMIUM_FALLBACK=true` 才允许退回 Playwright Chromium，且该结果不得标记为 Chrome 证据。
+用于 ADR Step 完成、production candidate 判断、consumer cutover 和旧路径删除前。MILESTONE 必须包含真实目标浏览器中的 correctness seam、GPU diagnostics、生命周期和必要视觉/数值证据。当前仓库没有能够产生这些证据的宿主，因此新渲染工作最多记录为 Implementation Complete；不得用 `npm test` 或 Storybook build 代替 MILESTONE。
 
 ### PERF
 
-用于阶段 baseline/final、重大 keep/revise/reject 决策、正式性能声明或重大回归调查。PERF 使用本页 Rendering Lab formal policy；必须 clean、固定比较条件、运行独立 run group 并持久化可复算证据。普通小提交不默认运行 PERF。
+用于阶段 baseline/final、重大 keep/revise/reject 决策、正式性能声明或重大回归调查。PERF 必须 clean、固定比较条件、运行独立 run group 并持久化可复算证据。当前 formal runner 已随旧示例体系移除，在后续 ADR 恢复固定综合 workload 和浏览器宿主前，不得产生新的 PERF 结论。
 
 正确性、画质和性能 Gate 分开判断：ABI、identity、overflow、lifecycle 与 producer/consumer 闭环不能由 FPS 改善替代；视觉算法使用数值 seam 加少量代表性视角，不默认要求与旧算法 pixel-identical；性能优化只有受控 A/B 才能声明改善。
 
-## Browser Validation 合同
+## Browser Validation 重建边界
 
-- Case id、route、scenario、domain 与运行要求只在 `examples/validation-tools/cases.mjs` 登记。
-- Smoke、Visibility、Surface、Lifecycle 是 Canonical Fixture；各自拥有 canvas、Renderer、Scene、Camera、RAF 和 GPU 资源销毁。
-- Fixture 统一暴露 `window.__OENGINE_VALIDATION_FIXTURE__`。Runner 传入唯一 `runId`；返回结果必须匹配 runId、fixture、scenario，并且 `completedFrame > startedFrame`。
-- Runner 只负责 Vite、Chrome、Context、协议/schema、browser error、artifact 和清理，不实现领域断言。
-- 每个 Case 使用独立 browser context。浏览器 console error、page error、request failure、GPU validation/uncaptured error、device loss、失败断言、空/畸形断言、陈旧结果或 schema 错误均为失败。
-- 结果状态只有 `passed`、`failed`、`inconclusive`，退出码固定为 0、1、2。没有本机 Google Chrome 时真实 GPU Case 必须返回 `inconclusive`；只有 `OENGINE_ALLOW_CHROMIUM_FALLBACK=true` 才可尝试 Chromium，且报告必须保留其非 Chrome 身份。
-- JSON 与截图写入 `temp/validation/`。截图是观察 artifact，不默认作为 pixel-perfect gate。
+旧 Fixture、Case Registry、ChromeRunner、Rendering Lab 和 artifact schema 已按 ADR-0012 删除，不是新体系的兼容目标。新宿主落地时至少重新定义：独立 runtime 和 GPU owner、唯一 Case identity、结果新鲜度、Chrome/adapter provenance、console/page/request error、GPU validation/uncaptured error、device loss、截图/readback/counter、资源销毁、三态或替代失败语义，以及本机 artifact 清理策略。
+
+在此之前：
+
+- 不创建返回固定成功的占位 Fixture 或空 Runner。
+- 不把 Storybook iframe、静态页面或 CPU-only test 标成 Browser Validation。
+- 不更新冻结 benchmark 来暗示当前 revision 已运行。
+- 需要真实 GPU 证据的 Gate 保持 open，并在交付说明中列为未运行。
 
 ## WebGPU 2026 capability 门禁
 
-- 每个真实浏览器 artifact 必须记录 `core-features-and-limits`、adapter/device feature 集、requested limits、实际 device limits、WGSL language features、Immediate Data/Transient Attachment API 探测和最终 specialization。
+- 未来每个真实浏览器 artifact 必须记录 `core-features-and-limits`、adapter/device feature 集、requested limits、实际 device limits、WGSL language features、Immediate Data/Transient Attachment API 探测和最终 specialization。
 - 使用 `subgroups`、`primitive-index`、`shader-f16` 或 format tier 的改动，必须覆盖对应 WGSL enable、缺失能力 specialization、边界输入和同一 CPU/oracle 语义；subgroup 测试覆盖 partial workgroup 和 adapter 报告的 size 范围。
 - Immediate Data 验证 `maxImmediateSize`、4-byte slot/range、pipeline layout 与未初始化 slot；Transient Attachment 验证 pass-local lifetime、usage、dimension/mip/layer、clear/discard、禁止 resolve/cross-pass consumer，并报告 transient bytes/traffic 变化。
 - 正式性能结论只运行目标 adapter 实际选择的一个综合 profile，不为 WebGPU 2026 Desktop 与 Portable 复制双基准。capability/fallback 变更运行命中的正确性与 parity case；综合 benchmark 把完整 capability fingerprint 固定为比较条件。
@@ -68,7 +62,7 @@ npm run profile:rendering-lab:dev
 
 - `docs/` 只包含入口、六份核心事实页、ADR、porting ledger 和非权威研究输入 `others/`。
 - 公共验证政策只进入本文件；领域不变量和完成条件进入对应 ADR；当前 Gate 状态只进入 `STATUS.md`。
-- Case id、domain、changed-path 映射和 profile 名称以 `examples/validation-tools/` 与 `examples/package.json` 为唯一事实源，文档不复制完整清单。
+- 新示例库落地后，Case id、domain、changed-path 映射和 profile 名称必须由单一机器可读 owner 管理；当前不存在该 owner。
 - 顶层 `docs/` 不保存独立验证计划、阶段总矩阵或逐 Step 执行手册；完成融合的设计输入由 Git 历史保留。
 - Markdown 相对链接必须存在。
 - 权威文档不得引用 `temp/`、本机绝对路径或已删除的 owner。
@@ -76,13 +70,9 @@ npm run profile:rendering-lab:dev
 - ADR 保持 Context、Decision、Consequences 和 Verification。
 - porting ledger 保持来源、revision、license、adoption、差异、fallback 和本地验证字段。
 
-## Rendering Lab
+## 综合性能宿主
 
-综合浏览器 fixture 位于 `examples/rendering-lab/`。它使用共享 Performance Inspector 作为唯一统计面板；场景控制和 debug view 仍由 Rendering Lab 提供。具体运行命令见 `examples/rendering-lab/README.md`。
-
-Rendering Lab 的 workload smoke、DEV profile、VisibilityKey oracle 和 formal policy 复用同一个 ChromeRunner，不得再直接导入 Playwright 或复制 Chrome resolution/error capture。Formal 非 smoke 策略固定为 clean commit、三个独立 browser context、每次 120 warm-up + 480 measured frames、固定 workload/camera、截图、provenance 与 BenchmarkEvidenceGate；任何 gate error 都必须让命令失败。`profile:rendering-lab:dev` 和 `OENGINE_BENCHMARK_SMOKE=true` 的 30+60 cadence 只用于短 A/B 与编排，不构成正式证据。
-
-运行证据必须记录 commit/dirty state、浏览器、adapter、分辨率、DPR、feature set、场景/相机输入、warm-up、采样窗口和 diagnostics。
+当前没有综合浏览器 fixture 或 formal runner。下一代宿主必须使用唯一综合 workload，并把场景、相机、分辨率、DPR、画质、feature set、warm-up、采样窗口和 cadence 冻结为机器可读输入；正式结果仍要求 clean commit、多个独立 run、截图/provenance、GPU diagnostics 和 BenchmarkEvidenceGate。短 smoke 只能用于编排，不构成正式证据。
 
 ## WebGPU 正确性
 
@@ -128,7 +118,7 @@ Final cutover/deletion 验证必须同时包含三类证据：源树/公开符�
 
 ## 测试治理
 
-- 新增测试前依次判断现有 unit/oracle、现有 Fixture Scenario、Rendering Lab profile 能否覆盖；都不能表达独立 correctness seam 时才新增 Browser Case。
+- 新增测试前先判断现有 unit/oracle 能否覆盖；需要 GPU runtime、浏览器生命周期或视觉证据时，将缺口登记到后续示例库/验证宿主设计，不得用假的 Browser Case 填补。
 - 一个 ADR Step 默认新增 0–1 个 Browser Scenario；超过一个必须说明彼此独立的 seam。
 - 新 GPU Queue 通常由一个 CPU/GPU oracle 加一个集成 Browser Case 覆盖；不为每个 counter 单独建测试。
 - 视觉效果使用稳定数值 seam 加少量代表性 camera，不扩张大规模 snapshot matrix。

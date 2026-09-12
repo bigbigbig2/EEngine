@@ -73,27 +73,19 @@ Application Scene / Packed source
 2. 增加 owner 创建证据，至少能够区分 legacy material、legacy geometry、Packed asset、Packed instance、Packed material 和 texture bank 是否创建。
 3. 增加 submit、graph build/cache、upload/readback 和 feature-owned resource 断言。
 4. 为 Texture Residency 增加加载排列、容量边界、rollback 和 release/reuse 测试夹具。
-5. 保留现有 Browser Validation Registry；领域断言留在 fixture，Runner 不理解渲染实现。
+5. 浏览器领域断言必须由独立 fixture 拥有，Runner 不理解渲染实现；旧 Registry 已由 ADR-0012 删除，后续宿主仍必须保留该职责分离。
 
 必须验证：
 
 ```powershell
 Set-Location OEngine
 npm test
-
-Set-Location ../examples
-npm run test:validation-tools
-npm run verify -- smoke.basic
-npm run verify -- lifecycle.init-destroy
-npm run verify -- visibility.basic
-npm run verify -- surface.basic
-npm run verify -- surface.textured
 ```
 
 退出条件：
 
 - 测试能够在故意创建 legacy owner、增加额外 submit、保留 feature-off 资源或破坏事务 rollback 时失败；
-- 浏览器结果没有 validation error、uncaptured error 或 device loss；
+- 新浏览器宿主落地后，结果没有 validation error、uncaptured error 或 device loss；当前新 revision 的运行 Gate 保持 open；
 - 测试不依赖类名存在或 DOM 文本来推断 GPU producer/consumer。
 
 ### Step 1 · 消除 Packed material 双 owner
@@ -347,10 +339,6 @@ Set-Location OEngine
 npm ci
 npm test
 npm run audit:shaders
-
-Set-Location ../examples
-npm run test:validation-tools
-npm run build
 ```
 
 检查项：
@@ -362,14 +350,7 @@ npm run build
 
 ### 浏览器验证
 
-开发迭代使用：
-
-```powershell
-Set-Location examples
-npm run verify -- changed
-```
-
-合并前至少覆盖命中的 Smoke、Lifecycle、Visibility 和 Surface Case。涉及完整 lighting、shadow、transparency、temporal 或 post composition 时运行 Rendering Lab workload；涉及 VisibilityKey/Surface ABI 时同时运行 oracle。浏览器 console error、page error、request failure、GPU validation/uncaptured error、device loss、陈旧 run/frame 或失败 assertion 均为失败。
+旧 Browser Validation 和 Rendering Lab 已由 ADR-0012 删除。后续宿主必须覆盖命中的 Smoke、Lifecycle、Visibility 和 Surface seam；完整 lighting、shadow、transparency、temporal、post composition、VisibilityKey/Surface ABI 仍需要综合 workload 或 oracle。浏览器 console error、page error、request failure、GPU validation/uncaptured error、device loss、陈旧 run/frame 或失败 assertion 均为失败。在宿主恢复前，这些运行 Gate 不得由静态测试代替。
 
 ### 性能与内存验证
 

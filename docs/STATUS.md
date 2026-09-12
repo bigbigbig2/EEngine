@@ -10,8 +10,8 @@
 - Packed hierarchy/work generation、Hardware Visibility、直接 `VisibilityKey`、MaterialTileWork compute evaluation 和 compact SurfaceLite 已有生产 owner。
 - 旧 Pixel Queue、ShadeWork 和可见像素 scan/scatter 生产链已退出生产路径。
 - direct lighting、CSM、GI、AO、SSR、MBOIT、Temporal 与 HDR post 接入同一 Renderer 主流程。
-- Performance Inspector 是共享的实时 Profiler/Timeline；Rendering Lab 是综合质量与性能 fixture。
-- Browser Validation 已统一为 Registry + Source Domain Selector + 单一 ChromeRunner；Smoke、Visibility、Surface、Lifecycle 承担日常真实 WebGPU 验证，Rendering Lab 保留综合与 formal benchmark。公共证据强度统一为 DEV/MILESTONE/PERF，30+60 的 `profile:rendering-lab:dev` 只承担短 A/B 与编排检查。
+- Performance Inspector 仍是生产侧共享实时 Profiler/Timeline；旧综合质量与性能 fixture 已删除。
+- [ADR-0012](./adr/0012-example-library-reset.md) 已重置示例体系：`examples/` 当前只保留不导入 OEngine、不创建 WebGPU 资源的 Storybook 空壳；Browser Validation、Validation Runner 与 formal benchmark 暂不可用。旧浏览器结果和已提交 benchmark 只证明其冻结 commit，当前 revision 的真实 GPU Gate 必须等待新宿主。
 - WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码强制 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，并分别验证 WGSL `texture_formats_tier1`、在 HZB/NSS/Velocity storage Shader 中显式声明 `requires`；机会性启用 `timestamp-query`、`subgroups`、`primitive-index` 和一族纹理压缩能力，并冻结 adapter/device feature、关键 limit、WGSL/API probe 与 texture specialization record。
 - Runtime Package V2 与 Encoded Texture Variant 已冻结确定性 manifest/chunk、exact format/block extent、完整 mip、codec provenance 与 capability selection。GPU-native package 直接进入生产 residency；KTX2 UASTC/ETC1S 由惰性有界 Worker pool 和固定 Khronos KTX-Software v4.4.2 libktx WASM 转为同一 package，再经普通 `GpuRenderWorld → TextureResidency` 进入 Material Resolve、Visibility MASK、Shadow MASK 与 Transparency。Production source graph 不 import reference/self block codec；Cooked runtime mip、runtime recompression、RGBA expansion 和 private submit 为零。
 - Texture Residency 使用 exact-format immutable segment 与最多 4 个有界 `TextureBindingSet`，每 set 保留 5 个共享 RGBA8 development size class 和 4 个 Cooked package slot；同一 material 的全部语义必须在发布前 colocate，无法表达时原子失败。Material ABI 携带 `TextureBindingSetId`，GPU consumer 按 `KernelClassId × TextureBindingSetId` 固定编排，不回读可见材质。TextureRef V2 与业务 handle 保持 stable slot/generation；证据已区分 exact format、direct/Worker/uncompressed、transfer/upload/transcode/resident/retiring/transaction bytes、set utilization 与 preflight failure。
@@ -28,8 +28,8 @@
 - ADR-0009 Step 6 的Three.js r186-derived SSR production replacement已落地并重新通过corrected MILESTONE，PERF/运动视觉仍open：production链仍为bounded GGX VNDF/HZB trace→receiver-resolved hit shading→双候选TemporalReproject→8-tap Vogel RecurrentDenoise→conditional upscale→baseline correction；near-delta roughness `<=0.04`使用同shader内的deterministic mirror specialization。视觉复核暴露Three inverse-age alpha被OEngine replacement-confidence错误替代，当前已分离temporal history rate/recurrent history aggressivity/output confidence，并加入3×3 hit-evidence miss-history gate、`1..8` half-res quadratic Vogel footprint、invalid-center零权重、miss不反馈与confidence-aware upscale；默认recurrent history aggressivity修正为0.81，PBR debug uint binding和共享Filament specular AO也已修正。1600×900 road fixture的50-frame矩阵确认near-mirror连续、roughness 0.38反射只保留低幅细颗粒；当前revision Chrome `surface.ssr-replacement` 11/11通过，127,029 trace pixels、26,252 hits、2,401,880 steps、max 128，feature-off/temporal-off/one-submit均闭合且WebGPU diagnostics为0。camera-motion/exposure矩阵和统一clean final PERF仍open。
 - ADR-0009 Step 7–8 已完成shared products/history与Temporal Reconstruction/DRS production重构并通过MILESTONE：一个`SharedColorPyramidPass`分别拥有不alias的Opaque/Final语义产品，统一history registry只在成功submit推进；TAAU使用9-bilinear-tap bounded reconstruction，fixed/adaptive DRS和internal→output合同集中在`RenderSettings`。Chrome `surface.shared-derived-products` 14/14与`surface.temporal-reconstruction` 11/11通过，含consumer pruning、camera/resize/mode invalidation、fixed 0.75、透明reactive双classifier、无透明单classifier复用与adaptive policy。真实浏览器发现并修复classification evidence必须读取最终`graphTopology`；扩展temporal visual与final PERF仍开放。
 - ADR-0009 Step 9 已完成Final Output post fusion并通过当前SDR宿主MILESTONE：normal frame在唯一swapchain pass融合Bloom composite、Color Grading、Sharpen与display mapping，feature specialization物理裁剪bindings/loads；one-shot capture是有意的materialization例外。Chrome `surface.post-fusion` 12/12通过，normal frame零live full-resolution HDR intermediates，Exposure/debug/last-consumer裁剪、capture后恢复fusion、one-submit与diagnostics零错误成立。异步capture oracle现冻结准确capture帧证据；HDR显示宿主与final PERF仍开放。
-- ADR-0009 Step 4–10当前MILESTONE汇总：`OEngine npm test` 127/127，examples验证工具16/16与production build通过；working-tree source routing选择的11个独立真实Chrome cases（含GTAO、SSGI、SSR、shared products、Temporal和Post）全部通过，浏览器console/page/request错误和WebGPU validation/uncaptured/device-lost均为0。1920×1080/DPR1 `comprehensive-full` pipeline matrix的上一revision曾执行base/full及九个`full-minus-*`，每路60 measured frames均为main-submit P50=1、stable invalid frames=0、overflow maximum=0；该历史结果不能替代当前visual-corrected revision的clean formal PERF。
-- ADR-0009整体仍等待clean commit上的唯一`comprehensive-full` formal run、扩展temporal/SSGI/SSR视觉矩阵及HDR宿主检查；在final PERF通过前，normal graph已无consumer的`SharpenPass.ts`/`sharpen.ts`仍保留为明确deletion target，不能提前把ADR标成complete。
+- ADR-0009 Step 4–10 的旧 MILESTONE 汇总保留在对应提交和 ADR 中；它发生在示例库重置前，只证明当时 revision。上一 revision 的 `comprehensive-full` pipeline matrix 同样不能替代当前或后续 revision 的 clean formal PERF。
+- ADR-0009 整体仍等待新浏览器宿主恢复后完成唯一综合 formal run、扩展 temporal/SSGI/SSR 视觉矩阵及 HDR 宿主检查；在 final PERF 通过前，normal graph 已无 consumer 的 `SharpenPass.ts`/`sharpen.ts`仍保留为明确 deletion target，不能提前把 ADR 标成 complete。
 
 这些结构事实不等于 1080p/60 FPS、完整画质、内存上限或 feature-off Gate 已通过。
 
@@ -40,7 +40,7 @@
 - 工作/可见性：`GpuWorkGenerationAbi`、`GpuVisibilityKeyAbi`、统一 visibility owners。
 - Surface/HDR：`MaterialTileWork`、compute material evaluator、`GpuComputeMaterialAbi`、`GpuHdrAbi` 与 `SurfaceFeature`。
 - 效果：Lighting Feature，Render-owned Shadow Feature，AO/Reflection/GI Service，Transparency/Temporal/Post Feature。
-- 证据：`FrameProfiler`、GPU counters、resource accounting、shader source audit 和 Rendering Lab diagnostics。
+- 证据 owner：`FrameProfiler`、GPU counters、resource accounting、shader source audit 与已提交的冻结 benchmark；当前没有实时浏览器证据宿主。
 
 ## 开放 Gate 与风险
 
@@ -70,6 +70,7 @@
 
 ## 下一步
 
-1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：`primitive-index` 的 production consumer 与 portable parity case 已落地；继续为 `shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback，没有 consumer 前保持 record-only。
-2. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：Step 0–3 已完成；Step 4/6 的production replacement、corrected原分辨率静态视觉与命中canonical MILESTONE已闭合，PERF/运动视觉仍open；Step 5、7–9 同为 implementation-landed/verification-open。Step 10已完成属于此前已过门禁范围的静态cutover cleanup（counter schema v22删除旧Pixel Queue/ShadeWork/MaterialClassDepth字段与zero publisher，删除单值`MaterialResolveBackend`类型壳），最终deletion Gate仍verification-open。仍需统一完成SSGI/Brick4、shared-derived-products、temporal-reconstruction与post-fusion命中oracles、`off/gtao/ssgi × SSR off/on` topology matrix、history reset、camera-motion/exposure视觉检查和唯一 `comprehensive-full` clean PERF；所有 open Exit关闭前不得关闭Step 10或把ADR整体记为完成。
-3. Texture V3 follow-up：针对 active-set 固定编排的 CPU、Material Resolve 与 Shadow 成本做不改变 ABI/正确性合同的优化；只能用同一 `comprehensive-full` workload 和 clean commit A/B 改写当前基线。
+1. [ADR-0012](./adr/0012-example-library-reset.md)：先单独设计下一代示例分类、runtime 生命周期、Browser Validation 和唯一综合性能宿主；实现前保持 Storybook 空壳。
+2. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：`primitive-index` 的 production consumer 与 portable parity case 已落地；继续为 `shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback，没有 consumer 前保持 record-only，运行 Gate 等新宿主恢复。
+3. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：实现已落地的 Step 保持 verification-open；新宿主恢复后统一完成 topology/history、camera-motion/exposure/HDR 视觉检查和唯一综合 clean PERF，所有 open Exit 关闭前不得把 ADR 整体记为完成。
+4. Texture V3 follow-up：针对 active-set 固定编排的 CPU、Material Resolve 与 Shadow 成本做不改变 ABI/正确性合同的优化；新综合 workload 落地后才能用 clean commit A/B 改写当前冻结基线。

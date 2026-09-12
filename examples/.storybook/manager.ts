@@ -5,7 +5,7 @@ addons.setConfig({
   showPanel: false,
   theme: create({
     base: "light",
-    brandTitle: "OEngine Examples",
+    brandTitle: "OEngine Example Library",
     brandTarget: "_self",
     colorPrimary: "#2563eb",
     colorSecondary: "#2563eb",

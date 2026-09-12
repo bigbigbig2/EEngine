@@ -36,7 +36,6 @@ const routedDocs = [
   "CONTEXT-MAP.md",
   ...authoritativeDocs.map((relativePath) => path.posix.join("docs", relativePath)),
   "examples/README.md",
-  "examples/rendering-lab/README.md",
   "OEngine/benchmarks/README.md",
   "OEngine/src/addons/inspector/README.md",
 ];

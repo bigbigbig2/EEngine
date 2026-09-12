@@ -23,4 +23,4 @@ Renderer / GPU owners
 - GPU 结果异步回填来源帧，不阻塞主提交等待队列完成。
 - unsupported、pending、dropped 和 failed 必须保持不同状态；缺失样本不能显示为 0。
 
-UI shell 的 three.js 参考来源、revision、许可证和 OEngine 差异登记在 [`docs/porting/platform.md`](../../../../docs/porting/platform.md)。Rendering Lab 的使用入口见 [`examples/rendering-lab/README.md`](../../../../examples/rendering-lab/README.md)。
+UI shell 的 three.js 参考来源、revision、许可证和 OEngine 差异登记在 [`docs/porting/platform.md`](../../../../docs/porting/platform.md)。旧 Rendering Lab 已按 [ADR-0012](../../../../docs/adr/0012-example-library-reset.md) 删除；Inspector 仍是生产侧 owner，不依赖 Storybook 空壳。
