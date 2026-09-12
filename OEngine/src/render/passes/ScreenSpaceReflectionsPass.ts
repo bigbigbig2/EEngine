@@ -318,7 +318,7 @@ export class ScreenSpaceReflectionsPass {
               occlusionConfidence: resolveTextureView(resources.get(inputs.occlusionConfidence)),
               surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity)),
               trace: resolveTextureView(resources.get(trace)),
-              depth: resolveTextureView(resources.get(inputs.depth)),
+              depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
               normal: resolveTextureView(resources.get(inputs.normal)),
               historyPreExposureScale: data.historyPreExposureScale
             }
@@ -423,7 +423,7 @@ export class ScreenSpaceReflectionsPass {
           temporal: resolveTextureView(resources.get(temporal)),
           raw: resolveTextureView(resources.get(raw)),
           trace: resolveTextureView(resources.get(trace)),
-          depth: resolveTextureView(resources.get(depth)),
+          depth: resolveDepthAttachmentView(resources.get(depth)),
           normal: resolveTextureView(resources.get(normal)),
           pbr: resolveTextureView(resources.get(pbr)),
           camera: resolveBuffer(resources.get(camera), "current camera")
@@ -464,7 +464,7 @@ export class ScreenSpaceReflectionsPass {
           this.upsamplePipeline,
           [[
             resolveTextureView(resources.get(input)),
-            resolveTextureView(resources.get(depth)),
+            resolveDepthAttachmentView(resources.get(depth)),
             resolveTextureView(resources.get(normal))
           ]],
           resolveTextureView(resources.get(output))
@@ -911,7 +911,7 @@ function createSsrTraceGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 0, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 1, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "3d" } },
-      { binding: 3, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 3, visibility: fragment, texture: { sampleType: "depth", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 5, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 6, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } }
@@ -925,7 +925,7 @@ function createSsrResolveGroupLayout(): GPUBindGroupLayoutDescriptor {
     label: "Renderer/SSR reflection resolve group0",
     entries: [
       { binding: 0, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 1, visibility: fragment, texture: { sampleType: "depth", viewDimension: "2d" } },
       { binding: 2, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 3, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
@@ -945,7 +945,7 @@ function createSsrRecurrentDenoiseGroupLayout(): GPUBindGroupLayoutDescriptor {
     entries: [
       { binding: 0, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 2, visibility: fragment, texture: { sampleType: "depth", viewDimension: "2d" } },
       { binding: 3, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 5, visibility: fragment, buffer: { type: "uniform" } },
@@ -967,7 +967,7 @@ function createSsrTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 4, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 5, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
       { binding: 6, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 7, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 7, visibility: fragment, texture: { sampleType: "depth", viewDimension: "2d" } },
       { binding: 8, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } }
     ]
   };
@@ -979,7 +979,7 @@ function createSsrUpsampleGroupLayout(): GPUBindGroupLayoutDescriptor {
     label: "Renderer/SSR full-resolution joint bilateral upscale/group0",
     entries: [
       { binding: 0, visibility: fragment, texture: { sampleType: "unfilterable-float" } },
-      { binding: 1, visibility: fragment, texture: { sampleType: "unfilterable-float" } },
+      { binding: 1, visibility: fragment, texture: { sampleType: "depth" } },
       { binding: 2, visibility: fragment, texture: { sampleType: "uint" } }
     ]
   };

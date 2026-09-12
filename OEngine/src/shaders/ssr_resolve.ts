@@ -28,7 +28,7 @@ ${SSR_STOCHASTIC_SAMPLE_WGSL}
 struct SsrHit { position: vec2u, confidence: f32 };
 
 @group(0) @binding(0) var trace_source: texture_2d<u32>;
-@group(0) @binding(1) var depth_source: texture_2d<f32>;
+@group(0) @binding(1) var depth_source: texture_depth_2d;
 @group(0) @binding(2) var pbr_source: texture_2d<u32>;
 @group(0) @binding(3) var normal_source: texture_2d<u32>;
 @group(0) @binding(4) var color_pyramid: texture_2d<f32>;
@@ -56,7 +56,7 @@ fn view_position(position: vec2u) -> vec3f {
   let uv = texel_coordinate_to_uv(vec2f(clamped), dimensions);
   return project_position_from_depth(
     uv,
-    textureLoad(depth_source, vec2i(clamped), 0).r,
+    textureLoad(depth_source, vec2i(clamped), 0),
     camera.projection_matrix_inverse
   );
 }

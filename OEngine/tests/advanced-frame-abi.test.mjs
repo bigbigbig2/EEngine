@@ -83,7 +83,8 @@ import { SSR_TRACE_WGSL } from "../.test-dist/shaders/ssr_trace.js";
 import { SSR_RESOLVE_WGSL } from "../.test-dist/shaders/ssr_resolve.js";
 import {
   SSR_RECURRENT_DENOISE_WGSL,
-  SSR_TEMPORAL_WGSL
+  SSR_TEMPORAL_WGSL,
+  SSR_UPSAMPLE_WGSL
 } from "../.test-dist/shaders/ssr_denoise.js";
 import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correction.js";
 import { TAA_WGSL } from "../.test-dist/shaders/taa.js";
@@ -171,6 +172,10 @@ const NEURAL_SUPER_SAMPLING_PASS_SOURCE = readFileSync(
 );
 const MOTION_BLUR_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/MotionBlurPass.ts", import.meta.url),
+  "utf8"
+);
+const SSR_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/ScreenSpaceReflectionsPass.ts", import.meta.url),
   "utf8"
 );
 
@@ -799,6 +804,8 @@ test("ADR-0009 Step 0 keeps post-SSGI opaque color and SSR replacement explicit"
 
 test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement", () => {
   assert.equal(THREE_SSR_REVISION, "148ef33ecb6d2502ff796d4554abd1549c95d519");
+  assert.match(SSR_TRACE_WGSL, /@binding\(3\) var gr_bucket: texture_depth_2d/);
+  assert.doesNotMatch(SSR_TRACE_WGSL, /textureLoad\(gr_bucket,[^\n]+\)\.x/);
   assert.match(SSR_TRACE_WGSL, /sample_ggx_vndf/);
   assert.match(SSR_TRACE_WGSL, /settings\.mirror_bias/);
   assert.match(SSR_TRACE_WGSL, /resolve_trigonometric_moments/);
@@ -809,6 +816,8 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_RESOLVE_WGSL, /stochastic_noise/);
   assert.match(SSR_RESOLVE_WGSL, /trace_settings/);
   assert.match(SSR_RESOLVE_WGSL, /sampled_direction/);
+  assert.match(SSR_RESOLVE_WGSL, /@binding\(1\) var depth_source: texture_depth_2d/);
+  assert.doesNotMatch(SSR_RESOLVE_WGSL, /textureLoad\(depth_source,[^\n]+\)\.r/);
   assert.doesNotMatch(SSR_RESOLVE_WGSL, /coord\.xy \+ vec2f\(0\.5\)/);
   assert.match(SSR_RESOLVE_WGSL, /specular_dominant_factor/);
   assert.doesNotMatch(SSR_RESOLVE_WGSL, /environment|lpv/i);
@@ -837,6 +846,8 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TEMPORAL_WGSL, /hit_history_validity/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_disocclusion/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_raw_trust/);
+  assert.match(SSR_TEMPORAL_WGSL, /@binding\(7\) var depth_source: texture_depth_2d/);
+  assert.doesNotMatch(SSR_TEMPORAL_WGSL, /textureLoad\(depth_source,[^\n]+\)\.r/);
   assert.match(
     SSR_TEMPORAL_WGSL,
     /let current_confidence = trace_validity \* select\(0\.0, 1\.0, current\.a > 1e-5\)/
@@ -873,6 +884,15 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.doesNotMatch(SSR_RECURRENT_DENOISE_WGSL, /trusted = saturate\(weight \* 2\.0\)/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /settings\.mode_flags & 2u/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /Karis-style inverse-luminance blend/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /@binding\(2\) var depth_source: texture_depth_2d/);
+  assert.doesNotMatch(SSR_RECURRENT_DENOISE_WGSL, /textureLoad\(depth_source,[^\n]+\)\.r/);
+  assert.match(SSR_UPSAMPLE_WGSL, /@binding\(1\) var depth_full: texture_depth_2d/);
+  assert.doesNotMatch(SSR_UPSAMPLE_WGSL, /textureLoad\(depth_full,[^\n]+\)\.r/);
+  assert.equal(
+    (SSR_PASS_SOURCE.match(/resolveDepthAttachmentView\(resources\.get\((?:inputs\.)?depth\)\)/g) ?? []).length,
+    5
+  );
+  assert.equal((SSR_PASS_SOURCE.match(/sampleType: "depth"/g) ?? []).length, 5);
   assert.match(SPECULAR_CORRECTION_WGSL, /\(resolved\.rgb - baseline\) \* confidence/);
   assert.equal(
     existsSync(new URL("../src/shaders/ssr_resolve_lpv.ts", import.meta.url)),

@@ -34,7 +34,7 @@ struct SsrHit {
 @group(0) @binding(0) var<uniform> settings: SsrTraceSettings;
 @group(0) @binding(1) var<uniform> camera: CommandEncoder;
 @group(0) @binding(2) var replacement: texture_3d<f32>;
-@group(0) @binding(3) var gr_bucket: texture_2d<f32>;
+@group(0) @binding(3) var gr_bucket: texture_depth_2d;
 @group(0) @binding(4) var encoder: texture_2d<f32>;
 @group(0) @binding(5) var edge: texture_2d<u32>;
 @group(0) @binding(6) var ray_ws: texture_2d<u32>;
@@ -46,7 +46,7 @@ fn ffx_sssr_get_mip_resolution(resolution: vec2f, mip: i32) -> vec2f {
 }
 
 fn ffx_sssr_load_depth(position: vec2i, mip: i32) -> f32 {
-  if (mip <= 0) { return textureLoad(gr_bucket, position, 0).x; }
+  if (mip <= 0) { return textureLoad(gr_bucket, position, 0); }
   return textureLoad(encoder, position, mip - 1).y;
 }
 

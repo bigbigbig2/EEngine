@@ -14,7 +14,7 @@ export const SSR_UPSAMPLE_WGSL = /* wgsl */ `
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${SSR_MATH_WGSL}
 @group(0) @binding(0) var reflection_half: texture_2d<f32>;
-@group(0) @binding(1) var depth_full: texture_2d<f32>;
+@group(0) @binding(1) var depth_full: texture_depth_2d;
 @group(0) @binding(2) var normal_full: texture_2d<u32>;
 
 fn bilateral_weight(center_depth: f32, sample_depth: f32, center_normal: vec3f, sample_normal: vec3f) -> f32 {
@@ -30,7 +30,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let full_pixel = clamp(vec2i(coord.xy), vec2i(0), full_size - vec2i(1));
   let source = (vec2f(full_pixel) + 0.5) * vec2f(half_size) / vec2f(full_size) - 0.5;
   let base = vec2i(floor(source));
-  let center_depth = textureLoad(depth_full, full_pixel, 0).r;
+  let center_depth = textureLoad(depth_full, full_pixel, 0);
   let center_normal = decode_g_buffer_normal(textureLoad(normal_full, full_pixel, 0).xy);
   var sum = vec4f(0.0);
   var weight_sum = 0.0;
@@ -41,7 +41,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
         vec2i((vec2f(half_pixel) + 0.5) * vec2f(full_size) / vec2f(half_size)),
         vec2i(0), full_size - vec2i(1)
       );
-      let sample_depth = textureLoad(depth_full, mapped_full, 0).r;
+      let sample_depth = textureLoad(depth_full, mapped_full, 0);
       let sample_normal = decode_g_buffer_normal(textureLoad(normal_full, mapped_full, 0).xy);
       let bilinear = vec2f(1.0) - abs(source - vec2f(half_pixel));
       let weight = max(0.001, bilinear.x * bilinear.y) *
@@ -83,7 +83,7 @@ struct SsrTemporalSettings {
 @group(0) @binding(4) var<uniform> settings: SsrTemporalSettings;
 @group(0) @binding(5) var surface_validity_source: texture_2d<f32>;
 @group(0) @binding(6) var trace_source: texture_2d<u32>;
-@group(0) @binding(7) var depth_source: texture_2d<f32>;
+@group(0) @binding(7) var depth_source: texture_depth_2d;
 @group(0) @binding(8) var normal_source: texture_2d<u32>;
 
 fn trace_confidence(position: vec2i) -> f32 {
@@ -135,7 +135,7 @@ fn history_sample_4tap(
       continue;
     }
     let tap_surface = surface_position(tap, effect_size, surface_size);
-    let tap_depth = textureLoad(depth_source, tap_surface, 0).r;
+    let tap_depth = textureLoad(depth_source, tap_surface, 0);
     let tap_normal = decode_g_buffer_normal(textureLoad(normal_source, tap_surface, 0).xy);
     let geometry = exp(-abs(center_depth - tap_depth) * max(abs(center_depth), 1.0) * 8.0) *
       pow(max(dot(center_normal, tap_normal), 0.0), 64.0);
@@ -261,8 +261,8 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     select(0.0, 1.0, hit_validity.g >= 0.5 && hit_validity.r < 0.5);
   let hit_velocity = textureLoad(velocity_source, vec2i(hit_pixel), 0).rg *
     vec2f(effect_size) / vec2f(surface_size);
-  let center_depth = textureLoad(depth_source, receiver, 0).r;
-  let hit_depth = textureLoad(depth_source, vec2i(hit_pixel), 0).r;
+  let center_depth = textureLoad(depth_source, receiver, 0);
+  let hit_depth = textureLoad(depth_source, vec2i(hit_pixel), 0);
   let hit_normal = decode_g_buffer_normal(
     textureLoad(normal_source, vec2i(hit_pixel), 0).xy
   );
@@ -376,7 +376,7 @@ struct SsrDenoiseSettings {
 
 @group(0) @binding(0) var temporal_source: texture_2d<f32>;
 @group(0) @binding(1) var raw_source: texture_2d<f32>;
-@group(0) @binding(2) var depth_source: texture_2d<f32>;
+@group(0) @binding(2) var depth_source: texture_depth_2d;
 @group(0) @binding(3) var normal_source: texture_2d<u32>;
 @group(0) @binding(4) var pbr_source: texture_2d<u32>;
 @group(0) @binding(5) var<uniform> camera: CommandEncoder;
@@ -393,7 +393,7 @@ fn effect_to_surface(position: vec2i, effect_size: vec2i, surface_size: vec2i) -
 fn view_position_at(position: vec2i, surface_size: vec2i) -> vec3f {
   let uv = texel_coordinate_to_uv(vec2f(position), vec2u(surface_size));
   return project_position_from_depth(
-    uv, textureLoad(depth_source, position, 0).r, camera.projection_matrix_inverse
+    uv, textureLoad(depth_source, position, 0), camera.projection_matrix_inverse
   );
 }
 
