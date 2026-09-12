@@ -2,7 +2,12 @@
 
 这里是面向 Renderer 开发的独立示例库。每个 `demos/**/example.json` 对应一个独立 HTML 页面；Storybook 只从 metadata 生成目录，并用 iframe 打开同一份 Vite runtime。
 
-当前只实现 `00-foundations/basic-scene` 这一条垂直切片，其余分类仅保留空目录。
+当前包含两条独立运行的示例：
+
+- `00-foundations/basic-scene`：最小生产 Renderer 场景。
+- `14-integrated/rendering-lab`：从历史 Rendering Lab 迁移的综合 Packed Scene，使用当前 Renderer Debug UI。
+
+其余分类仍只保留空目录。
 
 ## 直接运行示例
 
@@ -13,6 +18,8 @@ yarn dev
 ```
 
 打开 <http://localhost:5173/demos/00-foundations/basic-scene/>。
+
+综合场景位于 <http://localhost:5173/demos/14-integrated/rendering-lab/>。
 
 ## 运行 Storybook Catalog
 

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OEngine · Rendering Lab</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <canvas id="viewport" aria-label="OEngine Rendering Lab viewport"></canvas>
+    <div class="identity">
+      <strong>Rendering Lab</strong>
+      <span>Historical integrated workload · Drag to orbit · Wheel to zoom</span>
+    </div>
+    <div id="status" role="status" data-state="loading">
+      <strong id="status-stage">Initializing OEngine</strong>
+      <span id="status-detail">Preparing the WebGPU renderer…</span>
+      <div class="progress"><i id="status-progress"></i></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

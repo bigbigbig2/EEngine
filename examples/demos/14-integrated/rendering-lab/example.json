@@ -1,0 +1,8 @@
+{
+  "id": "rendering-lab",
+  "title": "Rendering Lab",
+  "category": "14-integrated",
+  "order": 10,
+  "description": "The historical Rendering Lab workload migrated to Example Library V2 with the current Renderer Debug UI and without the retired Inspector or benchmark harness.",
+  "tags": ["integrated", "packed-scene", "gltf", "pbr", "internal"]
+}
