@@ -192,6 +192,10 @@ const RENDER_TARGETS_SOURCE = readFileSync(
   new URL("../src/render/RenderTargets.ts", import.meta.url),
   "utf8"
 );
+const SURFACE_VALIDATION_SOURCE = readFileSync(
+  new URL("../../examples/validation/surface/main.ts", import.meta.url),
+  "utf8"
+);
 const TEMPORAL_EVIDENCE_WGSL = temporalEvidenceWgsl(69, 70, 71);
 
 const full = () => textureDomain("internal-full", 1920, 1080, 1);
@@ -1494,6 +1498,16 @@ test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", 
   assert.match(
     BLOOM_PASS_SOURCE,
     /create\("Bloom composited",[\s\S]*?domain: "output-full"/
+  );
+  assert.match(
+    SURFACE_VALIDATION_SOURCE,
+    /function liveFrameGraphResourceNames[\s\S]*?entry\.firstUsePass !== undefined/
+  );
+  assert.match(SURFACE_VALIDATION_SOURCE, /renderer\.render_debug_view = RenderDebugView\.LinearHdr/);
+  assert.match(SURFACE_VALIDATION_SOURCE, /debugShared\.finalConsumerCount === 1/);
+  assert.match(
+    SURFACE_VALIDATION_SOURCE,
+    /!debugPasses\.includes\("Bloom reconstruct from FinalColorPyramid"\)/
   );
 });
 

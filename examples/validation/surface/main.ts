@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   Mesh,
+  RenderDebugView,
   ShadeDrawSide,
   ShadeTexture,
   ShadeTransparencyMode,
@@ -122,7 +123,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const fusedPasses = fusedGraph.dump.passes
         .filter((entry) => !entry.culled)
         .map((entry) => entry.name);
-      const fusedResources = fusedGraph.dump.resources.map((entry) => entry.name);
+      const fusedResources = liveFrameGraphResourceNames(fusedGraph);
 
       renderer.configure({ features: { bloom: false, sharpening: false } });
       await runtime.waitForFrames(2);
@@ -132,6 +133,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const optionalOffPasses = optionalOffGraph.dump.passes
         .filter((entry) => !entry.culled)
         .map((entry) => entry.name);
+      const optionalOffResources = liveFrameGraphResourceNames(optionalOffGraph);
 
       renderer.configure({ features: { bloom: true, sharpening: true } });
       const capturePromise = renderer.requestLinearHdrCapture({
@@ -150,7 +152,19 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         .filter((entry) => !entry.culled)
         .map((entry) => entry.name);
 
+      renderer.render_debug_view = RenderDebugView.LinearHdr;
+      await runtime.waitForFrames(2);
+      const debugPath = renderer.finalOutputEvidence();
+      const debugShared = renderer.sharedDerivedProductsEvidence();
+      const debugGraph = renderer.mainFrameGraphEvidence();
+      if (debugGraph === null) throw new Error("Post debug frame did not publish FrameGraph evidence");
+      const debugPasses = debugGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+      const debugResources = liveFrameGraphResourceNames(debugGraph);
+
       // Restore the representative fused topology for the always screenshot.
+      renderer.render_debug_view = RenderDebugView.None;
       await runtime.waitForFrames(3);
       profile = await runtime.waitForCounters(runtime.frame - 1);
       const restored = renderer.finalOutputEvidence();
@@ -162,9 +176,14 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           fusedResources,
           optionalOff,
           optionalOffPasses,
+          optionalOffResources,
           capturePath,
           capturePasses,
           capturePixel: Array.from(capture.rgba),
+          debugPath,
+          debugShared,
+          debugPasses,
+          debugResources,
           restored,
           profilerCounters: profile.counters,
           submits: profile.submits
@@ -195,9 +214,10 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           optionalOff.colorGradingFused && !optionalOff.sharpeningFused &&
           optionalOff.bloomCompositeMaterializationPasses === 0 &&
           optionalOff.fullResolutionHdrIntermediateCount === 0 &&
-          !optionalOffPasses.some((name) => name.startsWith("Bloom ")),
+          !optionalOffPasses.some((name) => name.startsWith("Bloom ")) &&
+          !optionalOffResources.some((name) => name === "Bloom reconstructed pyramid"),
         "Bloom-off and Sharpen-off select a smaller Final Output binding/shader variant without dummy resources",
-        { runtime: optionalOff, passes: optionalOffPasses },
+        { runtime: optionalOff, passes: optionalOffPasses, resources: optionalOffResources },
         "no Bloom pass/binding and no sharpen neighborhood specialization"
       ));
       assertions.push(validationAssertion(
@@ -213,6 +233,21 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "One-shot post-grading capture materializes the exact HDR boundary and the following frame returns to fusion",
         { runtime: capturePath, passes: capturePasses, capture: Array.from(capture.rgba) },
         "Bloom composite + Color Grading only in capture topology; finite rgba16float readback"
+      ));
+      assertions.push(validationAssertion(
+        "post-debug-bypasses-scene-post-and-prunes-unused-bloom",
+        debugPath.finalOutputPasses === 1 && debugPath.debugBypass &&
+          !debugPath.bloomFused && !debugPath.colorGradingFused && !debugPath.sharpeningFused &&
+          debugPath.bloomCompositeMaterializationPasses === 0 &&
+          debugPath.colorGradingMaterializationPasses === 0 &&
+          debugPath.fullResolutionHdrIntermediateCount === 0 &&
+          debugShared.finalConsumerCount === 1 &&
+          debugPasses.some((name) => name === "Render debug/linear-hdr") &&
+          !debugPasses.includes("Bloom reconstruct from FinalColorPyramid") &&
+          !debugResources.includes("Bloom reconstructed pyramid"),
+        "Linear-HDR debug observes the pre-post source, keeps exposure as the sole final-pyramid consumer and culls configured Bloom work",
+        { runtime: debugPath, shared: debugShared, passes: debugPasses, resources: debugResources },
+        "debug bypass true; no Bloom/grading/sharpen work; one live exposure consumer"
       ));
       assertions.push(validationAssertion(
         "post-fusion-remains-one-main-submit-and-observable",
@@ -261,7 +296,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const fixedPasses = fixedGraph.dump.passes
         .filter((entry) => !entry.culled)
         .map((entry) => entry.name);
-      const fixedResources = fixedGraph.dump.resources.map((entry) => entry.name);
+      const fixedResources = liveFrameGraphResourceNames(fixedGraph);
 
       renderer.indicate_view_change();
       await runtime.waitForFrames(1);
@@ -439,7 +474,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const allOnPasses = allOnGraph.dump.passes
         .filter((entry) => !entry.culled)
         .map((entry) => entry.name);
-      const allOnResources = allOnGraph.dump.resources.map((entry) => entry.name);
+      const allOnResources = liveFrameGraphResourceNames(allOnGraph);
       const historyNames = allOn.histories.map((history) => history.name);
       const historyByName = new Map(allOn.histories.map((history) => [history.name, history]));
 
@@ -470,7 +505,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const noOpaquePasses = noOpaqueGraph.dump.passes
         .filter((entry) => !entry.culled)
         .map((entry) => entry.name);
-      const noOpaqueResources = noOpaqueGraph.dump.resources.map((entry) => entry.name);
+      const noOpaqueResources = liveFrameGraphResourceNames(noOpaqueGraph);
 
       renderer.configure({ features: { bloom: false, automaticExposure: false } });
       await runtime.waitForFrames(2);
@@ -480,7 +515,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const allConsumersOffPasses = allConsumersOffGraph.dump.passes
         .filter((entry) => !entry.culled)
         .map((entry) => entry.name);
-      const allConsumersOffResources = allConsumersOffGraph.dump.resources.map((entry) => entry.name);
+      const allConsumersOffResources = liveFrameGraphResourceNames(allConsumersOffGraph);
 
       // Leave the always-screenshot artifact on the representative all-on
       // topology after the off-pruning evidence has been captured.
@@ -657,7 +692,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const onGraph = renderer.mainFrameGraphEvidence();
       if (onGraph === null) throw new Error("SSR-on frame did not publish FrameGraph evidence");
       const onPasses = onGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
-      const onResources = onGraph.dump.resources.map((entry) => entry.name);
+      const onResources = liveFrameGraphResourceNames(onGraph);
       const ssrPasses = onPasses.filter((name) => /SSR|screen.?space reflection/i.test(name));
       const counters = profile.gpuCounters.values;
       const onSubmits = profile.submits;
@@ -669,7 +704,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const offGraph = renderer.mainFrameGraphEvidence();
       if (offGraph === null) throw new Error("SSR-off frame did not publish FrameGraph evidence");
       const offPasses = offGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
-      const offResources = offGraph.dump.resources.map((entry) => entry.name);
+      const offResources = liveFrameGraphResourceNames(offGraph);
       const offSsrPasses = offPasses.filter((name) => /SSR|screen.?space reflection/i.test(name));
       const offSsrResources = offResources.filter((name) => /SSR|ssr_|baseline-specular/i.test(name));
 
@@ -791,7 +826,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const graph = renderer.mainFrameGraphEvidence();
       if (graph === null) throw new Error("SSGI frame did not publish FrameGraph evidence");
       const passes = graph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
-      const resources = graph.dump.resources.map((entry) => entry.name);
+      const resources = liveFrameGraphResourceNames(graph);
       const counters = profile.gpuCounters.values;
       const brickCounters = brickProfile.gpuCounters.values;
       const evaluated = counters.ssgiEvaluatedPixels ?? 0;
@@ -884,7 +919,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const onGraph = renderer.mainFrameGraphEvidence();
       if (onGraph === null) throw new Error("GTAO-on frame did not publish FrameGraph evidence");
       const onPasses = onGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
-      const onResources = onGraph.dump.resources.map((entry) => entry.name);
+      const onResources = liveFrameGraphResourceNames(onGraph);
       const gtaoPasses = onPasses.filter((name) => /GTAO/i.test(name));
       const gtaoResources = onResources.filter((name) => /GTAO|ao_history|ao_output/i.test(name));
       const onCounters = {
@@ -900,7 +935,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const offGraph = renderer.mainFrameGraphEvidence();
       if (offGraph === null) throw new Error("GTAO-off frame did not publish FrameGraph evidence");
       const offPasses = offGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
-      const offResources = offGraph.dump.resources.map((entry) => entry.name);
+      const offResources = liveFrameGraphResourceNames(offGraph);
       const offGtaoPasses = offPasses.filter((name) => /GTAO/i.test(name));
       const offGtaoResources = offResources.filter((name) => /GTAO|ao_history|ao_output/i.test(name));
 
@@ -999,7 +1034,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const offGraph = renderer.mainFrameGraphEvidence();
       if (offGraph === null) throw new Error("LPV SSR-off frame did not publish FrameGraph evidence");
       const offPasses = offGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
-      const offResources = offGraph.dump.resources.map((entry) => entry.name);
+      const offResources = liveFrameGraphResourceNames(offGraph);
 
       renderer.configure({ features: { screenSpaceReflections: true } });
       await runtime.waitForFrames(2);
@@ -1007,7 +1042,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const onGraph = renderer.mainFrameGraphEvidence();
       if (onGraph === null) throw new Error("LPV SSR-on frame did not publish FrameGraph evidence");
       const onPasses = onGraph.dump.passes.filter((entry) => !entry.culled).map((entry) => entry.name);
-      const onResources = onGraph.dump.resources.map((entry) => entry.name);
+      const onResources = liveFrameGraphResourceNames(onGraph);
       const offBaselineResources = offResources.filter((name) => name.includes("pre-exposed-baseline-specular"));
       const onBaselineResources = onResources.filter((name) => name.includes("pre-exposed-baseline-specular"));
       const isSsrConsumerPass = (name: string): boolean =>
@@ -1732,6 +1767,19 @@ async function createGtaoValidationSource(): Promise<PackedSceneSource> {
     { size: [0.08, 3.8, 4.4], position: [-0.7, 1.9, 0], materialIndex: 2, debugId: 103 },
     { size: [2.2, 2.2, 2.2], position: [2.1, 1.1, 0], materialIndex: 3, debugId: 104 }
   ], [floor, wall, thinOccluder, contact]);
+}
+
+function liveFrameGraphResourceNames(graph: Readonly<{
+  dump: Readonly<{
+    resources: readonly Readonly<{
+      name: string;
+      firstUsePass?: number;
+    }>[];
+  }>;
+}>): string[] {
+  return graph.dump.resources
+    .filter((entry) => entry.firstUsePass !== undefined)
+    .map((entry) => entry.name);
 }
 
 function failedScenario(request: ValidationScenarioRequest, error: unknown, startedFrame = runtime.frame): ValidationScenarioResult {
