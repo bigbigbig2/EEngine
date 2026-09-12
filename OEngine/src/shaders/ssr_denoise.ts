@@ -91,12 +91,6 @@ fn trace_confidence(position: vec2i) -> f32 {
   return f32(textureLoad(trace_source, position, 0).y & 0xffu) / 255.0;
 }
 
-fn mirror_screen_uv(value: vec2f) -> vec2f {
-  // Three r186 mirrors projected Vogel taps at the viewport boundary instead
-  // of dropping them, preserving the fixed eight-sample kernel near edges.
-  return clamp(vec2f(1.0) - abs(vec2f(1.0) - abs(value)), vec2f(0.0), vec2f(1.0));
-}
-
 fn trace_hit_position(position: vec2i) -> vec2u {
   let packed = textureLoad(trace_source, position, 0).x;
   return vec2u(packed & 0xffffu, packed >> 16u);
@@ -324,6 +318,49 @@ fn trace_confidence(position: vec2i) -> f32 {
   return f32(textureLoad(trace_source, position, 0).y & 0xffu) / 255.0;
 }
 
+fn neighborhood_ray_length(position: vec2i, effect_size: vec2i) -> f32 {
+  const offsets = array<vec2i, 5>(
+    vec2i(0, 0), vec2i(-1, 0), vec2i(1, 0), vec2i(0, -1), vec2i(0, 1)
+  );
+  var weighted_sum = 0.0;
+  var weight_sum = 0.0;
+  for (var i = 0; i < 5; i++) {
+    let tap = clamp(position + offsets[i], vec2i(0), effect_size - vec2i(1));
+    let sample = max(textureLoad(raw_source, tap, 0), vec4f(0.0));
+    let valid = trace_confidence(tap) > 0.0 && sample.a > 1e-5;
+    let weight = select(0.0, 1.0 / (sample.a + 0.001), valid);
+    weighted_sum += sample.a * weight;
+    weight_sum += weight;
+  }
+  return select(0.001, weighted_sum / max(weight_sum, 1e-5), weight_sum > 1e-5);
+}
+
+fn hit_distance_factor(ray_length: f32, view_z: f32, tan_half_fov_y: f32) -> f32 {
+  let frustum_height = 2.0 * abs(view_z) * tan_half_fov_y;
+  return saturate(ray_length / max(frustum_height, 1e-6));
+}
+
+fn specular_lobe_tan_half_angle(roughness: f32, percent: f32) -> f32 {
+  let alpha = roughness * roughness;
+  return alpha * sqrt(percent / max(1.0 - percent, 1e-6));
+}
+
+fn lobe_normal_falloff(roughness: f32, aggressivity: f32) -> f32 {
+  // RecurrentDenoiseNode r186 defaults normalPhi=5; oneMinus().pow2() is 16.
+  let percent = clamp(mix(16.0, 0.0, sqrt(aggressivity)), 0.1, 0.99);
+  let half_angle = max(
+    atan(specular_lobe_tan_half_angle(roughness, percent)),
+    1.5 / 65535.0
+  );
+  return 8.0 / (half_angle * half_angle);
+}
+
+fn mirror_screen_uv(value: vec2f) -> vec2f {
+  // Three r186 mirrors projected Vogel taps at the viewport boundary instead
+  // of dropping them, preserving the fixed eight-sample kernel near edges.
+  return clamp(vec2f(1.0) - abs(vec2f(1.0) - abs(value)), vec2f(0.0), vec2f(1.0));
+}
+
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let position = vec2i(coord.xy);
@@ -364,8 +401,14 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     saturate(center.a * settings.strength),
     (settings.mode_flags & 2u) != 0u
   );
-  let world_radius = settings.radius * max(raw.a, 1e-3) * abs(center_view.z) *
+  let ray_length = neighborhood_ray_length(position, effect_size);
+  let world_radius = settings.radius * ray_length * abs(center_view.z) *
     max(sqrt(center_roughness), 0.01) * mix(1.0, 0.001, history_aggressivity);
+  let tan_half_fov_y = max(abs(camera.device_depth_to_view_space.w), 1e-6);
+  let center_hit_distance = hit_distance_factor(
+    ray_length, center_view.z, tan_half_fov_y
+  );
+  let normal_falloff = lobe_normal_falloff(center_roughness, history_aggressivity);
   let angle = noise_angle(vec2u(position), settings.frame_index);
   let rotation = mat2x2f(vec2f(cos(angle), sin(angle)), vec2f(-sin(angle), cos(angle)));
   var accumulated = center.rgb;
@@ -406,14 +449,24 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     let sample_normal = view_normal_at(sample_surface);
     let sample_roughness = decode_g_buffer_roughness(textureLoad(pbr_source, sample_surface, 0));
     let plane_distance = abs(dot(center_view - sample_view_position, center_normal));
-    let depth_weight = exp(-plane_distance * 500.0 * abs(center_normal.z) /
-      max(abs(center_view.z), 1e-4));
-    let normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), mix(128.0, 16.0, center_roughness));
-    let roughness_weight = exp(-abs(center_roughness - sample_roughness) * 16.0);
-    let ray_weight = exp(-abs(raw.a - sample_raw.a) / max(raw.a * 0.2, 1e-3));
-    let luma_weight = exp(-abs(center_raw_luma - rgb_to_luminance(sample_raw.rgb)) /
-      max(center_raw_luma * 0.25 + 0.01, 0.01));
-    let spatial_weight = depth_weight * normal_weight * roughness_weight * ray_weight * luma_weight;
+    let depth_difference = plane_distance * 2500.0 * abs(center_normal.z) /
+      max(abs(center_view.z), 1e-4);
+    let normal_weight = exp(
+      (clamp(dot(center_normal, sample_normal), -1.0, 1.0) - 1.0) * normal_falloff
+    );
+    let sample_hit_distance = hit_distance_factor(
+      sample_raw.a, sample_view_position.z, tan_half_fov_y
+    );
+    let ray_difference = abs(center_hit_distance - sample_hit_distance) /
+      max(abs(center_view.z), 1e-4);
+    let luma_difference = abs(
+      center_raw_luma - rgb_to_luminance(sample_raw.rgb)
+    ) * 50.0;
+    let roughness_difference = abs(center_roughness - sample_roughness) * 100.0;
+    let kernel_difference = luma_difference + roughness_difference + ray_difference;
+    let spatial_weight = exp(
+      -(kernel_difference * history_aggressivity + depth_difference)
+    ) * normal_weight;
     let temporal_weight = sample_value.a * spatial_weight;
     let raw_confidence = trace_confidence(sample_position) *
       select(0.0, 1.0, sample_raw.a > 1e-5);
@@ -424,10 +477,12 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     weight_sum += temporal_weight;
     raw_weight_sum += raw_spatial_weight;
     // Three feeds the unmodified spatial edge weight back into the adaptive
-    // radius and polar direction with adapt=0.5. History confidence belongs to
-    // accumulation, not kernel-shape feedback or the independent raw branch.
-    radius_shrink = max(0.001, mix(radius_shrink, spatial_weight, 0.5));
-    polar_bias = mix(polar_bias, base_direction * (spatial_weight - 0.5), 0.5);
+    // radius and polar direction with adapt=0.5. OEngine has no environment
+    // sample in the SSR buffer, so a miss is absent rather than a valid env ray
+    // and must not reshape subsequent taps.
+    let feedback_weight = spatial_weight * select(0.0, 1.0, raw_confidence > 0.0);
+    radius_shrink = max(0.001, mix(radius_shrink, feedback_weight, 0.5));
+    polar_bias = mix(polar_bias, base_direction * (feedback_weight - 0.5), 0.5);
   }
   let denoised_temporal = accumulated / max(weight_sum, 1e-5);
   let denoised_raw = accumulated_raw / max(raw_weight_sum, 1e-5);
