@@ -164,7 +164,7 @@ export const RENDER_FEATURE_CONTRACTS = Object.freeze({
     owner: "exclusive AOService | ScreenSpaceDiffuseService",
     inputDomain: "internal-full",
     outputDomain: "internal-full",
-    histories: Object.freeze(["gtao", "ssgi"]),
+    histories: Object.freeze(["gtao", "ssgi"] as const),
     topologyKeys: Object.freeze([
       "features.screenSpaceDiffuseMode",
       "ao.resolutionScale",
@@ -178,7 +178,7 @@ export const RENDER_FEATURE_CONTRACTS = Object.freeze({
     owner: "ReflectionService",
     inputDomain: "internal-full",
     outputDomain: "internal-full",
-    histories: Object.freeze(["ssr"]),
+    histories: Object.freeze(["ssr"] as const),
     topologyKeys: Object.freeze([
       "features.screenSpaceReflections",
       "ssr.resolutionScale",
@@ -190,7 +190,7 @@ export const RENDER_FEATURE_CONTRACTS = Object.freeze({
     owner: "TemporalFeature",
     inputDomain: "internal-full",
     outputDomain: "output-full",
-    histories: Object.freeze(["color"]),
+    histories: Object.freeze(["color"] as const),
     topologyKeys: Object.freeze(["features.temporalAntiAliasing"]),
     prunedWhenDisabled: true
   })

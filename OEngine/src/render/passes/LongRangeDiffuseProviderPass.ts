@@ -5,6 +5,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { BRICK4_LIGHT_MAP_MIN_BINDING_BYTES } from "../../gpu/Brick4LightMap.js";
 import {
   GPU_SHADING_SURFACE_LITE_PROFILE,
   type GpuShadingSurfaceLiteProfile,
@@ -95,7 +96,14 @@ const GROUP1: GPUBindGroupLayoutDescriptor = {
 const GROUP2: GPUBindGroupLayoutDescriptor = {
   label: "Renderer/LongRangeProvider/provider-layout",
   entries: [
-    { binding: 0, visibility: FRAGMENT, buffer: { type: "read-only-storage" } },
+    {
+      binding: 0,
+      visibility: FRAGMENT,
+      buffer: {
+        type: "read-only-storage",
+        minBindingSize: BRICK4_LIGHT_MAP_MIN_BINDING_BYTES
+      }
+    },
     { binding: 1, visibility: FRAGMENT, buffer: { type: "read-only-storage" } },
     { binding: 2, visibility: FRAGMENT, buffer: { type: "uniform" } },
     { binding: 3, visibility: FRAGMENT, buffer: { type: "read-only-storage" } },

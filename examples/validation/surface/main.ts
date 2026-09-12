@@ -157,13 +157,16 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         stage: "post-color-grading"
       });
       await runtime.waitForFrames(1);
-      const capture = await capturePromise;
       const capturePath = renderer.finalOutputEvidence();
       const captureGraph = renderer.mainFrameGraphEvidence();
       if (captureGraph === null) throw new Error("Post capture frame did not publish FrameGraph evidence");
       const capturePasses = captureGraph.dump.passes
         .filter((entry) => !entry.culled)
         .map((entry) => entry.name);
+      // The readback promise resolves after queue completion, while the fixture's
+      // continuous render loop may already have restored the fused topology.
+      // Snapshot graph/runtime evidence at the exact capture frame first.
+      const capture = await capturePromise;
 
       renderer.render_debug_view = RenderDebugView.LinearHdr;
       await runtime.waitForFrames(2);

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 
+import "./webgpu-test-globals.mjs";
+
 import {
   GPU_COUNTER_BYTE_SIZE,
   GPU_COUNTER_FIELDS,
@@ -92,7 +94,6 @@ import {
   GeometryAdaptiveSseController,
   normalizeGeometryWorkBudget
 } from "../.test-dist/render/GeometryWorkBudget.js";
-globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4 });
 const { VISIBILITY_COUNTER_WGSL } = await import(
   "../.test-dist/render/passes/VisibilityCounterPass.js"
 );

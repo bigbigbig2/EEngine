@@ -247,6 +247,15 @@ const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
   "ssr.spatialPasses",
   "ssr.temporalPasses",
   "ssr.tracePasses",
+  "ssgi.activeRadius",
+  "ssgi.historyBytes",
+  "ssgi.historyValid",
+  "ssgi.resolvePasses",
+  "ssgi.samplingDomain",
+  "ssgi.spatialPasses",
+  "ssgi.temporalPasses",
+  "ssgi.tracePasses",
+  "ssgi.traceSamplesPerPixel",
   "temporal.classificationPasses",
   "temporal.drsAcceptedGpuSamples",
   "temporal.drsAdaptive",
@@ -259,7 +268,9 @@ const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
   "temporal.historyReadValid",
   "temporal.historyValid",
   "temporal.internalPixels",
+  "temporal.mainDepthTextureCount",
   "temporal.outputPixels",
+  "temporal.previousDepthBytes",
   "temporal.taaPasses"
 ]);
 

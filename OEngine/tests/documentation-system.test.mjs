@@ -106,7 +106,7 @@ test("root-anchored repository paths in authoritative docs exist", () => {
   for (const relativePath of authoritativeDocs) {
     const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
     for (const line of source.split(/\r?\n/)) {
-      if (/^- Upstream(?: source)?:/i.test(line)) continue;
+      if (/^- Upstream[^:]*:/i.test(line)) continue;
       for (const match of line.matchAll(/`((?:OEngine|docs|examples|src)[\\/][^`\n]+)`/g)) {
         const target = match[1];
         if (/[*?<>]/.test(target)) continue;

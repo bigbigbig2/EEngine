@@ -1,4 +1,4 @@
-import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
+import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 
 /**
  * OEngine reflection replacement resolve.
@@ -8,7 +8,7 @@ import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
  * repeats split-sum, Fresnel, AO, or bent-normal occlusion.
  */
 export const SPECULAR_CORRECTION_WGSL = /* wgsl */ `
-${GPU_COMPUTE_MATERIAL_ABI_WGSL}
+${GPU_SHADING_SURFACE_LITE_WGSL}
 
 @group(0) @binding(0) var surface_metadata: texture_2d<u32>;
 @group(0) @binding(1) var baseline_specular_source: texture_2d<f32>;

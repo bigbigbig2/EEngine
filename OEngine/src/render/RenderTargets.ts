@@ -149,7 +149,7 @@ export class RenderTargets {
 
   private requireDepthBuffer(index: number, role: string): GPUTextureContext {
     const depth = this.depthBuffers[index];
-    if (depth === null) {
+    if (depth === null || depth === undefined) {
       throw new Error(`RenderTargets: missing ${role} depth buffer`);
     }
     return depth;

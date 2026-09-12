@@ -6,7 +6,12 @@ import {
   type Brick4LightMapPackageValidation
 } from "../assets/Brick4LightMapPackage.js";
 
-export const BRICK4_LIGHT_MAP_DUMMY_BYTES = 4;
+/**
+ * Minimum legal binding size for Brick4LightMapStorage in the production WGSL.
+ * The unavailable-provider buffer is never sampled, but WebGPU validates the
+ * statically reachable storage layout before uniform control flow can reject it.
+ */
+export const BRICK4_LIGHT_MAP_MIN_BINDING_BYTES = 48;
 
 export interface Brick4LightMapEvidence {
   readonly registered: boolean;
@@ -32,7 +37,7 @@ export class Brick4LightMap {
   private destroyed = false;
 
   constructor(private readonly device: GPUDevice) {
-    this.bufferValue = this.createBuffer(BRICK4_LIGHT_MAP_DUMMY_BYTES, false);
+    this.bufferValue = this.createBuffer(BRICK4_LIGHT_MAP_MIN_BINDING_BYTES, false);
   }
 
   get buffer(): GPUBuffer { return this.bufferValue; }

@@ -1110,7 +1110,7 @@ export class MainRenderPipeline {
       historyBytes: this._temporalFeature.colorHistoryBytes(),
       historyValid: history.valid,
       historyReadValid: history.readValid,
-      historyGeneration: history.generation,
+      historyGeneration: history.revision,
       historyRevision: history.revision,
       historyInvalidations: history.invalidationCount,
       historyInvalidationReason: history.lastInvalidationReason,
@@ -1372,6 +1372,8 @@ export class MainRenderPipeline {
       ? null
       : Object.freeze({
         cacheKey: evidence.cacheKey,
+        outputMode: evidence.outputMode,
+        outputFormat: evidence.outputFormat,
         dump: evidence.dump,
         resources: evidence.resources
       });
@@ -1890,12 +1892,7 @@ export class MainRenderPipeline {
       this._postFeature?.bloom()?.resetFrameEvidence();
       this._postFeature?.automaticExposure()?.resetFrameEvidence();
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
-      this._lastTemporalClassificationPassCount =
-        Number(
-          featureTopology.screenSpaceDiffuseTemporal ||
-          featureTopology.ssrTemporal ||
-          featureTopology.temporal
-        ) + Number(featureTopology.temporal && featureTopology.transparency);
+      this._lastTemporalClassificationPassCount = 0;
       const preparedNssSettings = featureTopology.nss
         ? this._nss!.prepareFrame({
             renderResolution: [w, h],
@@ -1955,6 +1952,15 @@ export class MainRenderPipeline {
         geometry: frameGeometry,
         scene
       });
+      // The pre-scene topology cannot know whether the current packed runtime
+      // has transparent receivers. Evidence must follow the same fully-resolved
+      // topology that owns the compiled graph, including its final classifier.
+      this._lastTemporalClassificationPassCount =
+        Number(
+          graphTopology.screenSpaceDiffuseTemporal ||
+          graphTopology.ssrTemporal ||
+          graphTopology.temporal
+        ) + Number(graphTopology.temporal && graphTopology.transparency);
       const frameContext = createFrameContext({
         frameIndex: this._frame_count,
         timeDeltaSeconds: time_delta_seconds,
@@ -3472,6 +3478,14 @@ export class MainRenderPipeline {
             "aoEvaluatedPixels",
             "aoHistoryAcceptedPixels",
             "aoHistoryRejectedPixels"
+          ]);
+        }
+        if (graphTopology.ssgi) {
+          this._profiler.registerGpuCounterFields([
+            "ssgiEvaluatedPixels",
+            "ssgiTraceSamples",
+            "ssgiHistoryAcceptedPixels",
+            "ssgiHistoryRejectedPixels"
           ]);
         }
         if (graphTopology.ssr) {

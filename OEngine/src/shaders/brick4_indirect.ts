@@ -288,20 +288,20 @@ fn sample_discrete_wrs_mat2x4(
 }
 
 fn brick4_probe_meta_pick2(
-  meta: Brick4ProbeMeta,
+  probe_meta: Brick4ProbeMeta,
   node_address: u32,
   noise: vec2f
 ) -> Brick4ProbePair {
   var random_value = noise.x;
-  var weights = meta.weights;
+  var weights = probe_meta.weights;
   let sample0 = sample_discrete_wrs_mat2x4(weights, &random_value);
-  let weight0 = meta.weights[sample0 >> 2][sample0 & 3];
+  let weight0 = probe_meta.weights[sample0 >> 2][sample0 & 3];
   weights[sample0 >> 2][sample0 & 3] = 0.0;
   random_value = noise.y;
   let sample1 = sample_discrete_wrs_mat2x4(weights, &random_value);
   var weight1 = weights[sample1 >> 2][sample1 & 3];
-  let local0 = meta.indices[sample0 >> 2][sample0 & 3];
-  let local1 = meta.indices[sample1 >> 2][sample1 & 3];
+  let local0 = probe_meta.indices[sample0 >> 2][sample0 & 3];
+  let local1 = probe_meta.indices[sample1 >> 2][sample1 & 3];
   let global0 = radiip.data[node_address + local0];
   let global1 = radiip.data[node_address + local1];
   weight1 /= max(1e-6, weight0 + weight1);

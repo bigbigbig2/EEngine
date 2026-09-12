@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
+import "./webgpu-test-globals.mjs";
+
 import {
   LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
   diffuseSurfaceLiteFrame,
@@ -107,7 +109,9 @@ import {
   createBrick4LightMapPackageV1,
   validateBrick4LightMapPackageV1
 } from "../.test-dist/assets/Brick4LightMapPackage.js";
-globalThis.GPUShaderStage = Object.freeze({ COMPUTE: 4, FRAGMENT: 2, VERTEX: 1 });
+import {
+  BRICK4_LIGHT_MAP_MIN_BINDING_BYTES
+} from "../.test-dist/gpu/Brick4LightMap.js";
 const {
   PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
   PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL
@@ -129,8 +133,16 @@ const MATERIAL_OWNER_SOURCE = readFileSync(
   new URL("../src/render/passes/PackedMaterialResolvePass.ts", import.meta.url),
   "utf8"
 );
+const SURFACE_FEATURE_SOURCE = readFileSync(
+  new URL("../src/render/features/SurfaceFeature.ts", import.meta.url),
+  "utf8"
+);
 const OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/OpaqueLightingResolvePass.ts", import.meta.url),
+  "utf8"
+);
+const LONG_RANGE_PROVIDER_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/LongRangeDiffuseProviderPass.ts", import.meta.url),
   "utf8"
 );
 const GI_SERVICE_SOURCE = readFileSync(
@@ -151,6 +163,10 @@ const SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE = readFileSync(
 );
 const MAIN_PIPELINE_SOURCE = readFileSync(
   new URL("../src/render/pipeline/MainRenderPipeline.ts", import.meta.url),
+  "utf8"
+);
+const FRAME_PROFILER_SOURCE = readFileSync(
+  new URL("../src/debug/FrameProfiler.ts", import.meta.url),
   "utf8"
 );
 const TONEMAP_PASS_SOURCE = readFileSync(
@@ -286,7 +302,7 @@ test("ADR-0009 Step 2 closes MaterialTileWork through one compute material evalu
   assert.match(COMPUTE_MATERIAL_SOURCE, /COMPUTE_HEADER_CONSUMED/);
   assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /dispatchWorkgroupsIndirect/);
   assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT/);
-  assert.match(MATERIAL_OWNER_SOURCE, /return "tile-compute"/);
+  assert.match(SURFACE_FEATURE_SOURCE, /return "tile-compute"/);
   assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /PackedMaterialClassDepthPass/);
 
   assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /shade_direct_material_tiles/);
@@ -528,6 +544,10 @@ test("ADR-0009 Step 5 freezes one receiver-local long-range provider producer", 
   assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /lpv_lookup_cell\(position/);
   assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /provider_settings\.ibl_resident/);
   assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /PROVIDER_BLACK/);
+  assert.match(
+    LONG_RANGE_DIFFUSE_PROVIDER_WGSL,
+    /let depth = textureLoad\(surface_depth[\s\S]*?if \(depth <= 0\.0\) \{[\s\S]*?return ProviderOutputs/
+  );
   const brick = LONG_RANGE_DIFFUSE_PROVIDER_WGSL.indexOf("brick4_receiver_valid(position)");
   const probe = LONG_RANGE_DIFFUSE_PROVIDER_WGSL.indexOf("lpv_lookup_cell(position");
   const ibl = LONG_RANGE_DIFFUSE_PROVIDER_WGSL.indexOf("provider_settings.ibl_resident");
@@ -535,6 +555,11 @@ test("ADR-0009 Step 5 freezes one receiver-local long-range provider producer", 
 });
 
 test("ADR-0009 Step 5 validates monolithic Brick4 tree/probe residency", () => {
+  assert.equal(BRICK4_LIGHT_MAP_MIN_BINDING_BYTES, 48);
+  assert.match(
+    LONG_RANGE_PROVIDER_PASS_SOURCE,
+    /minBindingSize: BRICK4_LIGHT_MAP_MIN_BINDING_BYTES/
+  );
   const storage = new Uint8Array(32 + 100 * 4);
   const view = new DataView(storage.buffer);
   view.setFloat32(0, -1, true);
@@ -585,6 +610,10 @@ test("ADR-0009 Step 5 keeps AO, GI, bent and confidence in one history owner", (
   assert.match(SSGI_PASS_SOURCE, /velocity\?: ResourceId;/);
   assert.match(SSGI_PASS_SOURCE, /occlusionConfidence\?: ResourceId;/);
   assert.match(SSGI_PASS_SOURCE, /surfaceValidity\?: ResourceId;/);
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /if \(graphTopology\.ssgi\) \{[\s\S]*?"ssgiEvaluatedPixels"[\s\S]*?"ssgiTraceSamples"[\s\S]*?"ssgiHistoryAcceptedPixels"[\s\S]*?"ssgiHistoryRejectedPixels"[\s\S]*?\}/
+  );
   assert.match(
     SSGI_PASS_SOURCE,
     /SsgiPass temporal history and motion\/disocclusion inputs are required/
@@ -969,6 +998,7 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
     /graphTopology\.ssrTemporal \? \{[\s\S]*?ssr-history-input[\s\S]*?ssr-history-output[\s\S]*?\} : undefined/
   );
   assert.match(SPECULAR_CORRECTION_WGSL, /\(resolved\.rgb - baseline\) \* confidence/);
+  assert.match(SPECULAR_CORRECTION_WGSL, /const OENGINE_SURFACE_DEFINED_FLAGS_MASK/);
   assert.equal(
     existsSync(new URL("../src/shaders/ssr_resolve_lpv.ts", import.meta.url)),
     false
@@ -1208,6 +1238,10 @@ test("ADR-0009 Step 8 makes fixed DRS inert and adaptive DRS bucketed", () => {
 });
 
 test("ADR-0009 Step 8 requires temporal reconstruction for every sub-native scale", () => {
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /_lastTemporalClassificationPassCount =[\s\S]*?graphTopology\.screenSpaceDiffuseTemporal[\s\S]*?graphTopology\.temporal && graphTopology\.transparency/
+  );
   const settings = new RenderSettings();
   assert.equal(settings.values.resolution.mode, "fixed");
   assert.equal(settings.values.resolution.internalScale, 1);
@@ -1295,7 +1329,11 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   assert.match(MAIN_PIPELINE_SOURCE, /reuseOpaqueTemporalValidityForFinal/);
   assert.match(
     MAIN_PIPELINE_SOURCE,
-    /Number\(featureTopology\.temporal && featureTopology\.transparency\)/
+    /Number\(graphTopology\.temporal && graphTopology\.transparency\)/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /fully-resolved[\s\S]*?_lastTemporalClassificationPassCount[\s\S]*?graphTopology\.screenSpaceDiffuseTemporal[\s\S]*?graphTopology\.ssrTemporal[\s\S]*?graphTopology\.temporal/
   );
   assert.match(
     MAIN_PIPELINE_SOURCE,
@@ -1347,7 +1385,7 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   assert.match(NSS_PREPROCESS_WGSL, /packed_offset, history_validity/);
   assert.doesNotMatch(NSS_PREPROCESS_WGSL, /1\.0 - saturate\(disocclusion\)/);
   assert.match(NEURAL_SUPER_SAMPLING_PASS_SOURCE, /surfaceValidity: ResourceId/);
-  assert.match(MAIN_PIPELINE_SOURCE, /surfaceValidity: classification\.classification/);
+  assert.match(MAIN_PIPELINE_SOURCE, /surfaceValidity: finalTemporalValidityRes/);
   assert.match(MAIN_PIPELINE_SOURCE, /inputWidth: bindings\.internalWidth/);
   assert.match(MAIN_PIPELINE_SOURCE, /outputWidth: bindings\.outputWidth/);
   assert.match(MOTION_BLUR_PASS_SOURCE, /Math\.ceil\(job\.inputWidth \/ 16\)/);
@@ -1552,6 +1590,39 @@ test("ADR-0009 evidence distinguishes declared and live FrameGraph resources", (
   assert.match(
     MAIN_PIPELINE_SOURCE,
     /resource\.firstUsePass !== undefined &&[\s\S]*?pre-exposed-baseline-specular/
+  );
+});
+
+test("ADR-0009 runtime profiler registers every literal main-pipeline counter", () => {
+  const knownStart = FRAME_PROFILER_SOURCE.indexOf("const KNOWN_RUNTIME_METRIC_IDS");
+  const knownEnd = FRAME_PROFILER_SOURCE.indexOf("]);", knownStart);
+  assert.ok(knownStart >= 0 && knownEnd > knownStart);
+  const known = new Set(
+    [...FRAME_PROFILER_SOURCE.slice(knownStart, knownEnd).matchAll(/"([^"]+)"/g)]
+      .map((match) => match[1])
+  );
+  const recorded = new Set(
+    [...MAIN_PIPELINE_SOURCE.matchAll(/recordCounter\(\s*"([^"]+)"/g)]
+      .map((match) => match[1])
+  );
+  for (const id of recorded) {
+    assert.ok(known.has(id), `MainRenderPipeline records unregistered metric '${id}'`);
+  }
+});
+
+test("ADR-0009 composed WGSL has no reserved meta identifier or duplicate normal helpers", () => {
+  assert.doesNotMatch(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /\bmeta\b/);
+  assert.equal(
+    [...OPAQUE_LIGHTING_RESOLVE_WGSL.matchAll(/override OENGINE_SURFACE_NORMAL_MAX_VALUE\s*:/g)].length,
+    1
+  );
+  assert.equal(
+    [...OPAQUE_LIGHTING_RESOLVE_WGSL.matchAll(/fn decode_surface_normal\s*\(/g)].length,
+    1
+  );
+  assert.equal(
+    [...OPAQUE_LIGHTING_RESOLVE_WGSL.matchAll(/fn decode_bent_normal\s*\(/g)].length,
+    1
   );
 });
 

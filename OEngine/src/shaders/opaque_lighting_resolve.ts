@@ -4,8 +4,7 @@
 
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import {
-  GPU_SHADING_SURFACE_LITE_WGSL,
-  GPU_SHADING_SURFACE_NORMAL_WGSL
+  GPU_SHADING_SURFACE_LITE_WGSL
 } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
@@ -15,7 +14,6 @@ export const OPAQUE_LIGHTING_RESOLVE_FORMAT = "rgba16float" as const;
 export const OPAQUE_LIGHTING_RESOLVE_WGSL = /* wgsl */ `
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
-${GPU_SHADING_SURFACE_NORMAL_WGSL}
 ${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 ${OCTAHEDRAL_SAMPLE_WGSL}
 
@@ -53,26 +51,6 @@ fn uv_to_ndc(uv: vec2f) -> vec2f {
 fn project_position_from_depth(uv: vec2f, depth: f32, inverse: mat4x4f) -> vec3f {
   let projected = inverse * vec4f(uv_to_ndc(uv), depth, 1.0);
   return projected.xyz / projected.w;
-}
-
-fn uv_octahedral_unit_decode(encoded: vec2f) -> vec3f {
-  let projected = fma(encoded, vec2f(2.0), vec2f(-1.0));
-  var direction = vec3f(
-    projected,
-    1.0 - abs(projected.x) - abs(projected.y)
-  );
-  let correction = max(-direction.z, 0.0);
-  direction.x += select(correction, -correction, direction.x >= 0.0);
-  direction.y += select(correction, -correction, direction.y >= 0.0);
-  return normalize(direction);
-}
-
-fn decode_surface_normal(encoded: vec2u) -> vec3f {
-  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / OENGINE_SURFACE_NORMAL_MAX_VALUE));
-}
-
-fn decode_bent_normal(encoded: vec2u) -> vec3f {
-  return uv_octahedral_unit_decode(vec2f(encoded) * (1.0 / 65535.0));
 }
 
 fn metalness_to_specular_color(metalness: f32, albedo: vec3f) -> vec3f {

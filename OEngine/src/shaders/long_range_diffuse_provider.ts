@@ -314,9 +314,9 @@ fn sample_brick4(
   material_ao: f32
 ) -> ProviderSample {
   let node = brick4_node_by_position(position);
-  let meta = brick4_node_sample_probes_meta(node.bounds, position, normal);
+  let probe_meta = brick4_node_sample_probes_meta(node.bounds, position, normal);
   let pair = brick4_probe_meta_pick2(
-    meta,
+    probe_meta,
     node.address,
     stbn_sample_vec2(vec3u(pixel, view.frame_index))
   );
@@ -417,11 +417,17 @@ fn fs_main(
   @location(0) uv: vec2f
 ) -> ProviderOutputs {
   let pixel = vec2u(coord.xy);
+  let depth = textureLoad(surface_depth, vec2i(pixel), 0);
+  // Provider ownership is defined only for opaque Surface receivers. Keep the
+  // reverse-Z clear plane out of both lighting and receiver counters even if a
+  // backend does not reject the fullscreen triangle through depthCompare.
+  if (depth <= 0.0) {
+    return ProviderOutputs(vec4f(0.0), vec4f(0.0));
+  }
   let metadata = textureLoad(surface_metadata, vec2i(pixel), 0).r;
   if (oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_UNLIT)) {
     return ProviderOutputs(vec4f(0.0), vec4f(0.0));
   }
-  let depth = textureLoad(surface_depth, vec2i(pixel), 0);
   let position = project_position_from_depth(
     uv, depth, camera.view_projection_matrix_inverse
   );
