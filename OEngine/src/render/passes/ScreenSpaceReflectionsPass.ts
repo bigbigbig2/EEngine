@@ -283,7 +283,8 @@ export class ScreenSpaceReflectionsPass {
             normal: resolveTextureView(resources.get(inputs.normal)),
             prefiltered: resolveTextureView(resources.get(inputs.opaqueColorPyramid.texture)),
             albedoAo: resolveTextureView(resources.get(inputs.albedoAo)),
-            currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera")
+            currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera"),
+            blueNoise: resolveTextureView(resources.get(inputs.blueNoise))
           }
         );
         this.lastResolvePasses = 1;
@@ -294,7 +295,7 @@ export class ScreenSpaceReflectionsPass {
       textureDescriptor(traceWidth, traceHeight, SSR_RESOLVE_FORMAT,
         this.resolutionScale === 0.5 ? "internal-half" : "internal-full")
     );
-    for (const input of [trace, inputs.depth, inputs.pbr, inputs.normal, inputs.opaqueColorPyramid.texture, inputs.albedoAo, inputs.currentCamera]) {
+    for (const input of [trace, inputs.depth, inputs.pbr, inputs.normal, inputs.opaqueColorPyramid.texture, inputs.albedoAo, inputs.currentCamera, inputs.blueNoise]) {
       resolveBuilder.read(input);
     }
 
@@ -549,8 +550,10 @@ export class ScreenSpaceReflectionsPass {
       prefiltered: GPUTextureView;
       albedoAo: GPUTextureView;
       currentCamera: GPUBuffer;
+      blueNoise: GPUTextureView;
     }
   ): void {
+    if (!this.traceSettings) throw new Error("SSR trace settings unavailable during hit shading");
     const bindings: GPUBindingResource[][] = [[
       resources.trace,
       resources.depth,
@@ -559,7 +562,9 @@ export class ScreenSpaceReflectionsPass {
       resources.prefiltered,
       resources.albedoAo,
       sampler,
-      { buffer: resources.currentCamera }
+      { buffer: resources.currentCamera },
+      resources.blueNoise,
+      { buffer: this.traceSettings }
     ]];
     drawFullscreen(
       command,
@@ -930,6 +935,8 @@ function createSsrResolveGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 6, visibility: fragment, sampler: { type: "filtering" } },
       { binding: 7, visibility: fragment, buffer: { type: "uniform" } },
+      { binding: 8, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "3d" } },
+      { binding: 9, visibility: fragment, buffer: { type: "uniform" } },
     ]
   };
 }

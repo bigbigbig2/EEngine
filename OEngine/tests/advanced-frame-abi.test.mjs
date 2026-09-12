@@ -734,7 +734,13 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TRACE_WGSL, /settings\.mirror_bias/);
   assert.match(SSR_TRACE_WGSL, /resolve_trigonometric_moments/);
   assert.match(SSR_TRACE_WGSL, /ffx_sssr_hierarchical_raymarch/);
+  assert.match(SSR_TRACE_WGSL, /ssr_sample_reflection_vector/);
   assert.match(SSR_RESOLVE_WGSL, /stochastic_sample_weight/);
+  assert.match(SSR_RESOLVE_WGSL, /ssr_sample_reflection_vector/);
+  assert.match(SSR_RESOLVE_WGSL, /stochastic_noise/);
+  assert.match(SSR_RESOLVE_WGSL, /trace_settings/);
+  assert.match(SSR_RESOLVE_WGSL, /sampled_direction/);
+  assert.doesNotMatch(SSR_RESOLVE_WGSL, /coord\.xy \+ vec2f\(0\.5\)/);
   assert.match(SSR_RESOLVE_WGSL, /specular_dominant_factor/);
   assert.doesNotMatch(SSR_RESOLVE_WGSL, /environment|lpv/i);
   assert.match(SSR_TEMPORAL_WGSL, /history_sample_4tap/);

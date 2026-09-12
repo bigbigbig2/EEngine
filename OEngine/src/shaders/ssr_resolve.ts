@@ -11,6 +11,10 @@ import {
   SSR_FULLSCREEN_VERTEX_WGSL,
   SSR_MATH_WGSL
 } from "./ssr_common.js";
+import {
+  SSR_STOCHASTIC_SAMPLE_WGSL,
+  SSR_TRACE_SETTINGS_WGSL
+} from "./ssr_stochastic_sample.js";
 
 export const SSR_RESOLVE_FORMAT = "rgba16float" as const;
 
@@ -18,6 +22,8 @@ export const SSR_RESOLVE_WGSL = /* wgsl */ `
 ${SSR_CAMERA_WGSL}
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${SSR_MATH_WGSL}
+${SSR_TRACE_SETTINGS_WGSL}
+${SSR_STOCHASTIC_SAMPLE_WGSL}
 
 struct SsrHit { position: vec2u, confidence: f32 };
 
@@ -29,6 +35,8 @@ struct SsrHit { position: vec2u, confidence: f32 };
 @group(0) @binding(5) var albedo_ao_source: texture_2d<f32>;
 @group(0) @binding(6) var linear_clamp: sampler;
 @group(0) @binding(7) var<uniform> camera: CommandEncoder;
+@group(0) @binding(8) var stochastic_noise: texture_3d<f32>;
+@group(0) @binding(9) var<uniform> trace_settings: SsrTraceSettings;
 
 fn unpack_hit(packed: vec2u) -> SsrHit {
   var hit: SsrHit;
@@ -51,50 +59,6 @@ fn view_position(position: vec2u) -> vec3f {
     textureLoad(depth_source, vec2i(clamped), 0).r,
     camera.projection_matrix_inverse
   );
-}
-
-fn smith_g(ndotx: f32, alpha: f32) -> f32 {
-  let alpha2 = alpha * alpha;
-  let ndotx2 = ndotx * ndotx;
-  return 2.0 * ndotx /
-    max(ndotx + sqrt(alpha2 + (1.0 - alpha2) * ndotx2), 1e-6);
-}
-
-fn fresnel_schlick(f0: vec3f, theta: f32) -> vec3f {
-  let one_minus = 1.0 - theta;
-  let one_minus2 = one_minus * one_minus;
-  let one_minus5 = one_minus2 * one_minus2 * one_minus;
-  return f0 + (vec3f(1.0) - f0) * one_minus5;
-}
-
-// BRDF*cos/pdf invariant of Three.js r186 ggxReflectionSample. The trace
-// sampled the bounded VNDF; resolve reconstructs the same terms from the hit
-// direction so SSR and baseline are in the same receiver-resolved domain.
-fn stochastic_sample_weight(
-  normal: vec3f,
-  view_direction: vec3f,
-  ray_direction: vec3f,
-  roughness: f32,
-  metalness: f32,
-  albedo: vec3f
-) -> vec3f {
-  let half_vector = normalize(view_direction + ray_direction);
-  let no_v = max(0.0, dot(normal, view_direction));
-  let no_l = max(0.0, dot(normal, ray_direction));
-  let vo_h = max(0.0, dot(view_direction, half_vector));
-  let alpha = max(roughness * roughness, 0.001);
-  let f0 = mix(vec3f(0.04), albedo, metalness);
-  let fresnel = fresnel_schlick(f0, vo_h);
-  let geometry = smith_g(no_v, alpha) * smith_g(no_l, alpha);
-  let sin_v2 = max(0.0, 1.0 - no_v * no_v);
-  let cap_s = 1.0 + sqrt(sin_v2);
-  let cap_s2 = cap_s * cap_s;
-  let alpha2 = alpha * alpha;
-  let cap_k = (1.0 - alpha2) * cap_s2 /
-    max(cap_s2 + alpha2 * no_v * no_v, 1e-6);
-  let stretched_length = sqrt(alpha2 * sin_v2 + no_v * no_v);
-  return fresnel * geometry * (cap_k * no_v + stretched_length) /
-    max(2.0 * no_v, 1e-4);
 }
 
 fn specular_dominant_factor(no_v: f32, roughness: f32) -> f32 {
@@ -128,8 +92,9 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 
   let trace_size = vec2f(textureDimensions(trace_source));
   let surface_size = textureDimensions(depth_source);
+  let trace_uv = coord.xy / trace_size;
   let surface_pixel = min(
-    vec2u((coord.xy + vec2f(0.5)) * vec2f(surface_size) / trace_size),
+    vec2u(trace_uv * vec2f(surface_size)),
     surface_size - vec2u(1u)
   );
   let hit_pixel = min(hit.position, surface_size - vec2u(1u));
@@ -146,7 +111,6 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     decode_g_buffer_normal(textureLoad(normal_source, vec2i(hit_pixel), 0).xy)
   );
   let view_direction = normalize(-start);
-  let ray_direction = ray / ray_length;
   let pbr = textureLoad(pbr_source, vec2i(surface_pixel), 0);
   let roughness = decode_g_buffer_roughness(pbr);
   let metalness = decode_g_buffer_metalness(pbr);
@@ -154,8 +118,24 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let hit_uv = texel_coordinate_to_uv(vec2f(hit_pixel), surface_size);
   let mip = ray_mip_level(start, hit_position, hit_normal, roughness);
   let incident = max(textureSampleLevel(color_pyramid, linear_clamp, hit_uv, mip).rgb, vec3f(0.0));
+  let noise_coordinate = vec3u(vec2u(trace_pixel), trace_settings.frame_index);
+  let sample_value = ssr_stbn_sample_vec4(
+    textureLoad(
+      stochastic_noise,
+      noise_coordinate % vec3u(128u, 128u, 64u),
+      0
+    ).rg,
+    noise_coordinate
+  );
+  let sampled_direction = ssr_sample_reflection_vector(
+    view_direction,
+    normal,
+    roughness,
+    sample_value,
+    trace_settings.mirror_bias
+  );
   let weight = stochastic_sample_weight(
-    normal, view_direction, ray_direction, roughness, metalness, albedo
+    normal, view_direction, sampled_direction, roughness, metalness, albedo
   );
   let resolved = incident * weight;
   let dominant_length = ray_length * specular_dominant_factor(
