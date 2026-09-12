@@ -1490,6 +1490,7 @@ test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", 
   assert.match(TONEMAP_PASS_SOURCE, /lastBloomFused/);
   assert.match(TONEMAP_PASS_SOURCE, /createFinalOutputGroupLayout/);
   assert.match(TONEMAP_PASS_SOURCE, /Final Output SDR/);
+  assert.match(TONEMAP_PASS_SOURCE, /Final Output HDR/);
   assert.match(FRAMEGRAPH_RESOURCE_HANDLE_SOURCE, /\| "output-half"/);
   assert.match(
     BLOOM_PASS_SOURCE,
@@ -1502,6 +1503,14 @@ test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", 
   assert.match(
     SURFACE_VALIDATION_SOURCE,
     /function liveFrameGraphResourceNames[\s\S]*?entry\.firstUsePass !== undefined/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /outputMode: this\._highDynamicRange \? "hdr" : "sdr"[\s\S]*?outputFormat: this\._format/
+  );
+  assert.match(
+    SURFACE_VALIDATION_SOURCE,
+    /fused\.outputMode === "hdr" && fused\.outputFormat === "rgba16float"[\s\S]*?fused\.outputMode === "sdr"/
   );
   assert.match(SURFACE_VALIDATION_SOURCE, /renderer\.render_debug_view = RenderDebugView\.LinearHdr/);
   assert.match(SURFACE_VALIDATION_SOURCE, /debugShared\.finalConsumerCount === 1/);

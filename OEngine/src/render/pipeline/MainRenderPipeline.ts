@@ -426,6 +426,8 @@ export interface SharedDerivedProductsRuntimeEvidence {
 }
 
 export interface FinalOutputRuntimeEvidence {
+  readonly outputMode: "sdr" | "hdr" | "none";
+  readonly outputFormat: GPUTextureFormat | null;
   readonly finalOutputPasses: number;
   readonly bloomFused: boolean;
   readonly colorGradingFused: boolean;
@@ -463,6 +465,8 @@ export interface VisibilitySurfaceMigrationEvidence {
 
 export interface MainFrameGraphRuntimeEvidence {
   readonly cacheKey: string;
+  readonly outputMode: "sdr" | "hdr";
+  readonly outputFormat: GPUTextureFormat;
   readonly dump: CompiledFrameGraphDump;
   /** 编译后资源生命周期摘要；不触发 GPU readback。 */
   readonly resources: FrameResourceSummary;
@@ -3355,6 +3359,8 @@ export class MainRenderPipeline {
       });
       this._lastMainGraphEvidence = Object.freeze({
         cacheKey: graphKey,
+        outputMode: this._highDynamicRange ? "hdr" : "sdr",
+        outputFormat: this._format,
         dump: compiledGraph.dump(),
         resources: summarizeFrameGraphResources(compiledGraph)
       });
@@ -4238,6 +4244,8 @@ export class MainRenderPipeline {
       .map((entry) => entry.name) ?? [];
     const countPass = (name: string): number =>
       passes.filter((candidate) => candidate === name).length;
+    const sdrOutputPasses = countPass("Final Output SDR");
+    const hdrOutputPasses = countPass("Final Output HDR");
     const tonemap = this._postFeature?.tonemap();
     const fullResolutionIntermediates = new Set([
       "Bloom composited",
@@ -4246,8 +4254,9 @@ export class MainRenderPipeline {
     ]);
     const colorGradingMaterializationPasses = countPass("Color Grading");
     return Object.freeze({
-      finalOutputPasses:
-        countPass("Final Output SDR") + countPass("Final Output HDR"),
+      outputMode: hdrOutputPasses > 0 ? "hdr" : sdrOutputPasses > 0 ? "sdr" : "none",
+      outputFormat: this._lastMainGraphEvidence?.outputFormat ?? null,
+      finalOutputPasses: sdrOutputPasses + hdrOutputPasses,
       bloomFused: tonemap?.lastBloomFused ?? false,
       colorGradingFused: tonemap?.lastColorGradingFused ?? false,
       sharpeningFused: tonemap?.lastSharpeningFused ?? false,

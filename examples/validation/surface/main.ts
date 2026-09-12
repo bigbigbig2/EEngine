@@ -208,7 +208,13 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       });
       assertions.push(validationAssertion(
         "post-normal-path-fuses-full-resolution-stages",
-        fused.finalOutputPasses === 1 && fused.bloomFused &&
+        fused.finalOutputPasses === 1 &&
+          ((fused.outputMode === "hdr" && fused.outputFormat === "rgba16float" &&
+            fusedPasses.includes("Final Output HDR")) ||
+            (fused.outputMode === "sdr" &&
+              fused.outputFormat === navigator.gpu.getPreferredCanvasFormat() &&
+              fusedPasses.includes("Final Output SDR"))) &&
+          fused.bloomFused &&
           fused.colorGradingFused && fused.sharpeningFused &&
           fused.bloomCompositeMaterializationPasses === 0 &&
           fused.colorGradingMaterializationPasses === 0 &&
