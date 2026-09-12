@@ -462,6 +462,21 @@ function validate(value: RenderSettingsValues): void {
     "temporal.disocclusionThreshold"
   );
   assertFinitePositive(value.temporal.motionFadePixels, "temporal.motionFadePixels");
+  assertRange(value.post.bloomIntensity, 0, 16, "post.bloomIntensity");
+  assertRange(value.post.sharpeningStrength, 0, 1, "post.sharpeningStrength");
+  assertRange(value.post.exposureCompensation, 0, 16, "post.exposureCompensation");
+  assertRange(value.post.exposureSpeedUp, 0, 64, "post.exposureSpeedUp");
+  assertRange(value.post.exposureSpeedDown, 0, 64, "post.exposureSpeedDown");
+  assertRange(value.post.colorGradingLift, -1, 1, "post.colorGradingLift");
+  assertRange(value.post.colorGradingGamma, 0.01, 4, "post.colorGradingGamma");
+  assertRange(value.post.colorGradingGain, 0, 8, "post.colorGradingGain");
+  assertRange(
+    value.post.colorGradingSaturation,
+    0,
+    4,
+    "post.colorGradingSaturation"
+  );
+  assertRange(value.post.colorGradingContrast, 0, 4, "post.colorGradingContrast");
   if (value.resolution.mode !== "fixed" && value.resolution.mode !== "adaptive") {
     throw new RangeError("resolution.mode must be fixed or adaptive");
   }

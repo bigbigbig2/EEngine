@@ -3,14 +3,26 @@
  */
 
 import { GPU_MATERIAL_TILE_WORK_WGSL } from "../gpu/GpuMaterialTileWorkAbi.js";
+import {
+  finalOutputBindingPlan,
+  finalOutputInputWgsl,
+  type FinalOutputShaderOptions
+} from "./final_output_input.js";
 
 export const TONEMAP_SETTINGS_SIZE = 16;
 
 export const TONEMAP_HDR_PEAK_NITS_DEFAULT = 1000;
 export const TONEMAP_HDR_PAPER_WHITE_NITS_DEFAULT = 100;
 
-export const TONEMAP_HDR_WGSL = /* wgsl */ `
+export function tonemapHdrWgsl(options: FinalOutputShaderOptions): string {
+  const plan = finalOutputBindingPlan(options);
+  const inputWgsl = finalOutputInputWgsl(options);
+  const displayBinding = plan.next;
+  const exposureBinding = plan.next + 1;
+  const controlBinding = plan.next + 2;
+  return /* wgsl */ `
 ${GPU_MATERIAL_TILE_WORK_WGSL}
+${inputWgsl}
 
 const POS = array<vec2f, 3>(
   vec2f(-1.0, -1.0),
@@ -30,10 +42,9 @@ struct Settings {
   _p1: f32,
 };
 
-@group(0) @binding(0) var input_color: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> settings: Settings;
-@group(0) @binding(2) var<uniform> exposure: Exposure;
-@group(0) @binding(3) var<storage, read_write> frame_control: OEngineMaterialClassificationControl;
+@group(0) @binding(${displayBinding}) var<uniform> settings: Settings;
+@group(0) @binding(${exposureBinding}) var<uniform> exposure: Exposure;
+@group(0) @binding(${controlBinding}) var<storage, read_write> frame_control: OEngineMaterialClassificationControl;
 
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -212,7 +223,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   if atomicLoad(&frame_control.frame_invalid) != 0u {
     return vec4f(1.0, 0.0, 1.0, 1.0);
   }
-  var rgb = textureLoad(input_color, vec2i(coord.xy), 0).rgb;
+  var rgb = load_final_hdr(vec2i(coord.xy)).rgb;
   rgb *= exposure.value;
   rgb = tonemap_gt7(rgb, settings.peak_nits, settings.paper_white_nits);
   let r2020 = CRM_FROM_REC709_TO_REC2020 * rgb;
@@ -221,3 +232,10 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   return vec4f(encoded, 1.0);
 }
 `;
+}
+
+export const TONEMAP_HDR_WGSL = tonemapHdrWgsl({
+  bloom: false,
+  sharpening: false,
+  colorGrading: false
+});

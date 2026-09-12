@@ -292,6 +292,7 @@ export { ProjectionMappingType } from "./loaders/ProjectionMappingType.js";
 export {
   Renderer,
   type AmbientOcclusionRuntimeEvidence,
+  type FinalOutputRuntimeEvidence,
   type RendererCapabilities,
   type ScreenSpaceGiRuntimeEvidence,
   type ScreenSpaceReflectionsRuntimeEvidence,

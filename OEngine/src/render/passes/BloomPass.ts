@@ -30,6 +30,8 @@ export type BloomJob = {
 export type BloomOutputs = {
   composited: ResourceId;
   reconstructed: ResourceId;
+  /** Normalization derived from the actual, resolution-clamped mip count. */
+  normalization: number;
 };
 
 export class BloomPass {
@@ -65,7 +67,8 @@ export class BloomPass {
   addToGraph(
     graph: FrameGraph,
     input: FinalColorPyramidFrame,
-    job: BloomJob
+    job: BloomJob,
+    options: { readonly composite: boolean } = { composite: true }
   ): BloomOutputs {
     const availableLowMips = Math.max(1, input.mipLevelCount - 1);
     const mipCount = Math.max(
@@ -73,6 +76,7 @@ export class BloomPass {
       Math.min(job.mipCount ?? BLOOM_MIP_COUNT, BLOOM_MIP_COUNT, availableLowMips)
     );
     const sourceBaseMip = input.mipLevelCount > 1 ? 1 : 0;
+    const normalization = bloomWeightNormalization(mipCount);
     const width = Math.max(1, input.domain.width >> sourceBaseMip);
     const height = Math.max(1, input.domain.height >> sourceBaseMip);
 
@@ -127,12 +131,17 @@ export class BloomPass {
     });
     reconstructBuilder.read(input.texture);
 
+    if (!options.composite) {
+      this.lastCompositePasses = 0;
+      return { composited: input.source, reconstructed, normalization };
+    }
+
     let composited = -1;
     const compositeBuilder = graph.add(
       "Bloom composite shared pyramid",
       {
         intensity: job.intensity ?? 1,
-        normalization: bloomWeightNormalization(mipCount),
+        normalization,
         samplers: job.samplers
       },
       (data, resources, context) => {
@@ -158,7 +167,7 @@ export class BloomPass {
     });
     compositeBuilder.read(reconstructed);
     compositeBuilder.read(input.source);
-    return { composited, reconstructed };
+    return { composited, reconstructed, normalization };
   }
 
   resetFrameEvidence(): void {

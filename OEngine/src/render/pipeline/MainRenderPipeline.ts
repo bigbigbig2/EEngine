@@ -411,6 +411,19 @@ export interface SharedDerivedProductsRuntimeEvidence {
   }>[];
 }
 
+export interface FinalOutputRuntimeEvidence {
+  readonly finalOutputPasses: number;
+  readonly bloomFused: boolean;
+  readonly colorGradingFused: boolean;
+  readonly sharpeningFused: boolean;
+  readonly bloomCompositeMaterializationPasses: number;
+  readonly colorGradingMaterializationPasses: number;
+  readonly standaloneSharpenPasses: number;
+  readonly fullResolutionHdrIntermediateCount: number;
+  readonly debugBypass: boolean;
+  readonly oneShotCaptureMaterialized: boolean;
+}
+
 export interface RendererMemoryEvidence extends GraphicsMemoryEvidence {
   readonly historyBytes: number;
   readonly historyOwners: Readonly<Record<string, number>>;
@@ -3046,6 +3059,9 @@ export class MainRenderPipeline {
           );
         }
 
+        // Instrumentation must not change the source observed by debug output.
+        // This snapshot is the post-temporal/motion-blur, pre-post-effects HDR.
+        const debugLinearHdrRes = hdrRes;
         const finalColorPyramid =
           hdrRes !== null && (graphTopology.automaticExposure || graphTopology.bloom)
             ? this._sharedColorPyramids!.addFinalToGraph(graph, hdrRes, {
@@ -3086,6 +3102,10 @@ export class MainRenderPipeline {
           );
         }
 
+        const materializePostColor =
+          mainBindings.linearHdrCapture?.stage === "post-color-grading";
+        let bloomReconstructedRes: ResourceId | null = null;
+        let bloomNormalization = 1;
         if (hdrRes !== null && graphTopology.bloom && finalColorPyramid !== null) {
           const bloom = this._postFeature!.addBloomToGraph(
             graph,
@@ -3094,13 +3114,17 @@ export class MainRenderPipeline {
               intensity: this._renderSettings.values.post.bloomIntensity,
               mipCount: 5,
               samplers: this._graphics.samplers
-            }))
+            })),
+            { composite: materializePostColor }
           );
-          hdrRes = bloom.composited;
+          bloomReconstructedRes = bloom.reconstructed;
+          bloomNormalization = bloom.normalization;
+          if (materializePostColor) hdrRes = bloom.composited;
         }
-        // ColorGrading 是常开的线性 HDR 色阶阶段，固定插在 Bloom 之后、
-        // Sharpen 之前；不参与 feature flag，恒等参数不改变像素值。
-        if (hdrRes !== null) {
+        // Normal frames fuse Bloom composite + grading + optional sharpen into
+        // Final Output. A one-shot post-grading capture is the only topology
+        // that materializes this HDR boundary before the swapchain pass.
+        if (hdrRes !== null && materializePostColor) {
           hdrRes = this._postFeature!.addColorGradingToGraph(
             graph,
             hdrRes,
@@ -3115,10 +3139,7 @@ export class MainRenderPipeline {
             }))
           );
         }
-        if (
-          mainBindings.linearHdrCapture?.stage === "post-color-grading" &&
-          hdrRes !== null
-        ) {
+        if (materializePostColor && hdrRes !== null) {
           const captureSource = hdrRes;
           let captureBuffer = graph.import_resource(
             "R5 one-shot post-color-grading capture buffer",
@@ -3159,18 +3180,6 @@ export class MainRenderPipeline {
           captureBuffer = captureBuilder.write(captureBuffer);
           captureBuilder.make_side_effect();
         }
-        if (graphTopology.sharpening && hdrRes !== null) {
-          hdrRes = this._postFeature!.addSharpenToGraph(
-            graph,
-            hdrRes,
-            this._output_resolution.x,
-            this._output_resolution.y,
-            bind("sharpen-job", () => ({
-              sharpness: this._renderSettings.values.post.sharpeningStrength
-            }))
-          );
-        }
-
         // Debug 是主管线最终 HDR 的观察覆盖：不经过 TAA/Bloom 等处理，也不
         // 改写它们的历史；关闭或 unsupported 时不创建 Pass、纹理或 readback。
         if (graphTopology.debug) {
@@ -3178,7 +3187,7 @@ export class MainRenderPipeline {
             this._graphics,
             this._surfaceLiteProfile
           );
-          const linearHdrDebugRes = hdrRes;
+          const linearHdrDebugRes = debugLinearHdrRes;
           hdrRes = this._renderDebug.addToGraph(
             graph,
             this.render_debug_view,
@@ -3209,12 +3218,36 @@ export class MainRenderPipeline {
         }
 
         if (hdrRes !== null) {
-          this._postFeature!.obtainTonemap(this._format).addToGraph(graph, {
-            swapchain: swapId,
-            hdr: hdrRes,
-            exposure: exposureRes ?? undefined,
-            diagnosticControl: materialTileDiagnosticControlRes
-          });
+          const fuseScenePost = !graphTopology.debug && !materializePostColor;
+          const fuseBloom = fuseScenePost && bloomReconstructedRes !== null;
+          this._postFeature!.obtainTonemap(this._format).addToGraph(
+            graph,
+            {
+              swapchain: swapId,
+              hdr: hdrRes,
+              bloom: fuseBloom ? bloomReconstructedRes! : undefined,
+              exposure: exposureRes ?? undefined,
+              diagnosticControl: materialTileDiagnosticControlRes
+            },
+            {
+              bloom: fuseBloom,
+              sharpening: !graphTopology.debug && graphTopology.sharpening,
+              colorGrading: fuseScenePost
+            },
+            bind("final-output-job", () => ({
+              lift: this._renderSettings.values.post.colorGradingLift,
+              gamma: this._renderSettings.values.post.colorGradingGamma,
+              gain: this._renderSettings.values.post.colorGradingGain,
+              saturation: this._renderSettings.values.post.colorGradingSaturation,
+              contrast: this._renderSettings.values.post.colorGradingContrast,
+              sharpeningStrength: this._renderSettings.values.post.sharpeningStrength,
+              bloomIntensity: fuseBloom
+                ? this._renderSettings.values.post.bloomIntensity /
+                  bloomNormalization
+                : 0,
+              samplers: this._graphics.samplers
+            }))
+          );
         }
       }
 
@@ -3640,16 +3673,16 @@ export class MainRenderPipeline {
       this.retireAfterSubmittedWork(this._sharedColorPyramids);
       this._sharedColorPyramids = null;
     }
-    // ColorGrading 常开，不属于 feature flag；懒创建，参数在 graph 构建时绑定。
-    this._postFeature.obtainColorGrading();
+    // Final Output owns normal-frame grading/sharpen. A ColorGradingPass owner,
+    // once lazily created by capture instrumentation, is retained because a
+    // cached capture graph closes over it. It owns no persistent GPU resource
+    // and contributes no normal-frame pass, allocation, readback or submit.
     if (topology.motionBlur) {
       this._postFeature.obtainMotionBlur();
     } else if (this._postFeature.motionBlur() !== null) {
       this._postFeature.retireMotionBlur();
     }
-    if (topology.sharpening) {
-      this._postFeature.obtainSharpen();
-    } else if (this._postFeature.sharpen() !== null) {
+    if (this._postFeature.sharpen() !== null) {
       this._postFeature.retireSharpen();
     }
     if (topology.bloom) {
@@ -3986,6 +4019,15 @@ export class MainRenderPipeline {
     profiler.recordCounter("sharedPyramid.exposureHistogramPasses", shared.exposureHistogramPasses);
     profiler.recordCounter("sharedPyramid.exposureMeteringMip", shared.exposureMeteringMipLevel);
     profiler.recordCounter("sharedPyramid.exposureMeteringPixels", shared.exposureMeteringPixels);
+    const finalOutput = this.finalOutputEvidence();
+    profiler.recordCounter("post.finalOutputPasses", finalOutput.finalOutputPasses);
+    profiler.recordCounter("post.bloomFused", finalOutput.bloomFused ? 1 : 0);
+    profiler.recordCounter("post.colorGradingFused", finalOutput.colorGradingFused ? 1 : 0);
+    profiler.recordCounter("post.sharpeningFused", finalOutput.sharpeningFused ? 1 : 0);
+    profiler.recordCounter(
+      "post.fullResolutionHdrIntermediates",
+      finalOutput.fullResolutionHdrIntermediateCount
+    );
     profiler.recordCounter("gpu.residentBytes", this._graphics.gpu_memory_usage);
   }
 
@@ -4075,6 +4117,39 @@ export class MainRenderPipeline {
           preExposureScale: state.preExposureScale
         });
       }))
+    });
+  }
+
+  /** ADR-0009 Step 9 full-resolution HDR roundtrip and fusion evidence. */
+  finalOutputEvidence(): FinalOutputRuntimeEvidence {
+    const passes = this._lastMainGraphEvidence?.dump.passes
+      .filter((entry) => !entry.culled)
+      .map((entry) => entry.name) ?? [];
+    const resources = this._lastMainGraphEvidence?.dump.resources
+      .map((entry) => entry.name) ?? [];
+    const countPass = (name: string): number =>
+      passes.filter((candidate) => candidate === name).length;
+    const tonemap = this._postFeature?.tonemap();
+    const fullResolutionIntermediates = new Set([
+      "Bloom composited",
+      "Color graded color",
+      "Sharpened color"
+    ]);
+    const colorGradingMaterializationPasses = countPass("Color Grading");
+    return Object.freeze({
+      finalOutputPasses:
+        countPass("Final Output SDR") + countPass("Final Output HDR"),
+      bloomFused: tonemap?.lastBloomFused ?? false,
+      colorGradingFused: tonemap?.lastColorGradingFused ?? false,
+      sharpeningFused: tonemap?.lastSharpeningFused ?? false,
+      bloomCompositeMaterializationPasses: countPass("Bloom composite shared pyramid"),
+      colorGradingMaterializationPasses,
+      standaloneSharpenPasses: countPass("Sharpen XE"),
+      fullResolutionHdrIntermediateCount: resources.filter((name) =>
+        fullResolutionIntermediates.has(name)
+      ).length,
+      debugBypass: this.resolveFeatureTopology().debug,
+      oneShotCaptureMaterialized: colorGradingMaterializationPasses > 0
     });
   }
 

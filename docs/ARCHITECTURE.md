@@ -39,6 +39,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 帧输入 | `src/render/pipeline/FrameContext.ts` | camera/view、分辨率域、feature topology、history validity、scene bindings、instrumentation 与 capture 请求 |
 | 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | Surface、lighting、AO、reflection、temporal、`OpaqueColorPyramid` 与 `FinalColorPyramid` 的 typed contract |
 | 共享帧派生 | `src/render/passes/SharedColorPyramidPass.ts` | 按 consumer 生成语义隔离的 opaque/final HDR pyramid；SSR、Bloom、Exposure 不再各建等价 reduction |
+| Final Output | `src/render/passes/TonemapPass.ts`、`src/shaders/final_output_input.ts` | 静态变体融合 Bloom composite、Color Grading、optional Sharpen、Exposure与SDR/HDR display mapping；normal frame不物化full-resolution post HDR intermediate |
 | Persistent history | `src/render/TemporalHistoryRegistry.ts` | 六种 history 的 semantic/domain/format/count/generation、提交感知 ping-pong、pre-exposure 与统一失效原因；物理资源仍归 effect owner |
 | Temporal/DRS | `src/render/features/TemporalFeature.ts`、`DynamicResolutionScaling.ts`、`passes/TemporalAntiAliasingPass.ts` | internal→output reconstruction、reactive/disocclusion、output history confidence 与 fixed/adaptive delayed-GPU-timing policy；配置只来自 RenderSettings |
 | Screen-space diffuse | `src/render/features/AOService.ts`、`ScreenSpaceDiffuseService.ts`、`src/render/passes/GtaoPass.ts`、`SsgiPass.ts`、`ScreenSpaceDiffuseResolvePass.ts` | 单值 `off/gtao/ssgi` exclusive owner；Three.js r186-derived GTAO 或 SSGI、同 trace AO/bent、共享 history registry、pre-SSGI source 与能量边界 resolve |

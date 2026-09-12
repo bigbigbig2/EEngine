@@ -82,6 +82,11 @@ import {
 import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correction.js";
 import { TAA_WGSL } from "../.test-dist/shaders/taa.js";
 import {
+  finalOutputBindingPlan
+} from "../.test-dist/shaders/final_output_input.js";
+import { tonemapSdrWgsl } from "../.test-dist/shaders/tonemap_sdr.js";
+import { tonemapHdrWgsl } from "../.test-dist/shaders/tonemap_hdr.js";
+import {
   BRICK4_LIGHT_MAP_SCHEMA_VERSION,
   createBrick4LightMapPackageV1,
   validateBrick4LightMapPackageV1
@@ -122,6 +127,14 @@ const SSGI_PASS_SOURCE = readFileSync(
 );
 const SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE = readFileSync(
   new URL("../src/shaders/screen_space_diffuse_resolve.ts", import.meta.url),
+  "utf8"
+);
+const MAIN_PIPELINE_SOURCE = readFileSync(
+  new URL("../src/render/pipeline/MainRenderPipeline.ts", import.meta.url),
+  "utf8"
+);
+const TONEMAP_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/TonemapPass.ts", import.meta.url),
   "utf8"
 );
 
@@ -991,6 +1004,57 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
     historyLuminance: 1,
     reprojectedInside: true
   }).rejectionReason, "motion-invalid");
+});
+
+test("ADR-0009 Step 9 statically specializes final-output bindings", () => {
+  assert.deepEqual(finalOutputBindingPlan({
+    bloom: false,
+    sharpening: false,
+    colorGrading: false
+  }), {
+    source: 0,
+    bloom: null,
+    sampler: null,
+    effects: null,
+    next: 1
+  });
+  assert.deepEqual(finalOutputBindingPlan({
+    bloom: true,
+    sharpening: true,
+    colorGrading: true
+  }), {
+    source: 0,
+    bloom: 1,
+    sampler: 2,
+    effects: 3,
+    next: 4
+  });
+
+  const plain = tonemapSdrWgsl({
+    bloom: false,
+    sharpening: false,
+    colorGrading: false
+  });
+  const fused = tonemapHdrWgsl({
+    bloom: true,
+    sharpening: true,
+    colorGrading: true
+  });
+  assert.doesNotMatch(plain, /final_bloom|final_grade|let north/);
+  assert.match(fused, /var final_bloom/);
+  assert.match(fused, /fn final_grade/);
+  assert.match(fused, /let north = load_post_color/);
+  assert.match(fused, /rgb = load_final_hdr/);
+});
+
+test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", () => {
+  assert.match(MAIN_PIPELINE_SOURCE, /composite: materializePostColor/);
+  assert.match(MAIN_PIPELINE_SOURCE, /const fuseScenePost = !graphTopology\.debug && !materializePostColor/);
+  assert.match(MAIN_PIPELINE_SOURCE, /colorGrading: fuseScenePost/);
+  assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /addSharpenToGraph\(/);
+  assert.match(TONEMAP_PASS_SOURCE, /lastBloomFused/);
+  assert.match(TONEMAP_PASS_SOURCE, /createFinalOutputGroupLayout/);
+  assert.match(TONEMAP_PASS_SOURCE, /Final Output SDR/);
 });
 
 test("ADR-0009 Step 0 rejects invalid exposure and cross-resolution products", () => {

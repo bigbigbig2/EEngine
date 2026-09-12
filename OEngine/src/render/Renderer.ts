@@ -18,6 +18,7 @@ export {
 } from "./pipeline/MainRenderPipeline.js";
 export type {
   AmbientOcclusionRuntimeEvidence,
+  FinalOutputRuntimeEvidence,
   LinearHdrCaptureRegion,
   LinearHdrCaptureResult,
   MainFrameGraphRuntimeEvidence,

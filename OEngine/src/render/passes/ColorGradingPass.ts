@@ -1,8 +1,9 @@
 /**
- * ColorGradingPass：线性 HDR 色彩分级阶段。
+ * ColorGradingPass：one-shot capture 的线性 HDR 色彩分级物化阶段。
  *
  * 单 pass 全屏三角：读取 Bloom 合成后的线性 HDR 颜色，应用 lift/gamma/gain、
- * contrast 与 saturation，输出仍为 rgba16float 线性 HDR，供后续 Sharpen/Tonemap 消费。
+ * contrast 与 saturation，输出仍为 rgba16float 线性 HDR。普通帧由 Final
+ * Output 融合相同公式；只有 post-color-grading capture 需要此纹理边界。
  */
 
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";

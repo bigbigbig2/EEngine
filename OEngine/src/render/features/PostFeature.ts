@@ -1,11 +1,11 @@
 /**
  * 统一 HDR Post Feature owner。
  *
- * 该 owner 收拢 AutomaticExposure / Bloom / Sharpen / Tonemap / MotionBlur
- * 五个后处理 pass 的构造、销毁与 FrameGraph 接入，使 Renderer 只依赖一个
- * Post 边界。Feature-off 时不创建对应 pass，不保留无消费者的 Post 资源。
+ * 该 owner 收拢 AutomaticExposure、Bloom reconstruction、Final Output 与
+ * MotionBlur。Normal frame 的 Bloom composite / Color Grading / Sharpen 已融合
+ * 到 Final Output；独立 ColorGrading 只服务 one-shot HDR capture materialization。
  *
- * 颜色域顺序固定为 Exposure → Bloom → Color Grading → Tone Mapping，
+ * 颜色域顺序固定为 Bloom → Color Grading → Sharpen → Exposure → Tone Mapping，
  * 全程线性 HDR；Motion Blur 保持可选扩展、默认关闭，不承担 TAA 修复职责。
  */
 
@@ -64,7 +64,7 @@ export class PostFeature {
     return this._sharpen;
   }
 
-  /** ColorGrading 为常开阶段，不属于 feature flag；owner 懒创建。 */
+  /** 仅为 one-shot capture物化独立owner；保留以供compiled-graph缓存复用。 */
   obtainColorGrading(): ColorGradingPass {
     return this._colorGrading ??= new ColorGradingPass(this._graphics);
   }
@@ -161,9 +161,10 @@ export class PostFeature {
   addBloomToGraph(
     graph: FrameGraph,
     input: FinalColorPyramidFrame,
-    job: BloomJob
-  ): { composited: ResourceId; reconstructed: ResourceId } {
-    return this.obtainBloom().addToGraph(graph, input, job);
+    job: BloomJob,
+    options: { readonly composite: boolean } = { composite: true }
+  ): { composited: ResourceId; reconstructed: ResourceId; normalization: number } {
+    return this.obtainBloom().addToGraph(graph, input, job, options);
   }
 
   addColorGradingToGraph(

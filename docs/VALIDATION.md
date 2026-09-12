@@ -94,6 +94,8 @@ Rendering Lab 的 workload smoke、DEV profile、VisibilityKey oracle 和 formal
 
 Temporal/DRS 的正式 A/B 必须使用 `resolution.mode=fixed` 并记录固定 `internalScale`；adaptive 只做有界 bucket、迟到 timestamp、hysteresis/lockout、scale-change history reset 与无 timestamp 保持当前 scale 的 smoke，不得把 adaptive 降分辨率后的帧时间当成算法回归已消失。Temporal visual review 至少覆盖 static subpixel detail、运动边缘、MASK/foliage、MBOIT transparency、SSR correction、camera cut、output resize 与 internal bucket change；证据同时报告 history read-valid、generation、reactive/disoccluded/rejected pixel counter 和 output/internal extent。
 
+Post fusion必须用FrameGraph资源/Pass evidence证明normal topology恰有一个Final Output、没有`Bloom composited`/`Color graded color`/`Sharpened color` full-resolution intermediate，并分别检查Bloom-off binding裁剪、Sharpen-off邻域读取裁剪、Automatic Exposure on/off、SDR/HDR output format与one-main-submit。`post-color-grading` capture允许仅在请求帧materialize精确HDR boundary并产生既有有界readback；下一帧必须恢复fusion。Debug view必须选择不重复Bloom/grading/sharpen的Final Output variant。性能结论比较相同画质下实际HDR traffic与post GPU phase，不能只用Pass数量推断收益。
+
 产品目标是 1920×1080、DPR 1、60 FPS（16.667 ms GPU），在固定证据完整前一律标记未证明。
 
 ## 证据持久化

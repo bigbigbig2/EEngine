@@ -3,13 +3,24 @@
  */
 
 import { GPU_MATERIAL_TILE_WORK_WGSL } from "../gpu/GpuMaterialTileWorkAbi.js";
+import {
+  finalOutputBindingPlan,
+  finalOutputInputWgsl,
+  type FinalOutputShaderOptions
+} from "./final_output_input.js";
 
 export const TONEMAP_EXPOSURE_SIZE = 4;
 
 export const TONEMAP_UNADAPTED_DEFAULT_COMPENSATION = 1;
 
-export const TONEMAP_SDR_WGSL = /* wgsl */ `
+export function tonemapSdrWgsl(options: FinalOutputShaderOptions): string {
+  const plan = finalOutputBindingPlan(options);
+  const inputWgsl = finalOutputInputWgsl(options);
+  const exposureBinding = plan.next;
+  const controlBinding = plan.next + 1;
+  return /* wgsl */ `
 ${GPU_MATERIAL_TILE_WORK_WGSL}
+${inputWgsl}
 
 const POS = array<vec2f, 3>(
   vec2f(-1.0, -1.0),
@@ -21,9 +32,8 @@ struct Exposure {
   value: f32,
 };
 
-@group(0) @binding(0) var input_color: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> exposure: Exposure;
-@group(0) @binding(2) var<storage, read_write> frame_control: OEngineMaterialClassificationControl;
+@group(0) @binding(${exposureBinding}) var<uniform> exposure: Exposure;
+@group(0) @binding(${controlBinding}) var<storage, read_write> frame_control: OEngineMaterialClassificationControl;
 
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -87,7 +97,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     return vec4f(1.0, 0.0, 1.0, 1.0);
   }
   let ic = vec2i(coord.xy);
-  var rgb = textureLoad(input_color, ic, 0).rgb;
+  var rgb = load_final_hdr(ic).rgb;
   rgb *= exposure.value;
   rgb = scene_write_payload(rgb);
   rgb = update_memory_address_mode(rgb);
@@ -95,3 +105,10 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   return vec4f(rgb, 1.0);
 }
 `;
+}
+
+export const TONEMAP_SDR_WGSL = tonemapSdrWgsl({
+  bloom: false,
+  sharpening: false,
+  colorGrading: false
+});

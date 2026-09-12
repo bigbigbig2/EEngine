@@ -80,7 +80,7 @@ void runtime.initialize().then(async () => {
 }).catch(failFixture);
 
 async function runScenario(request: ValidationScenarioRequest): Promise<ValidationScenarioResult> {
-  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production", "ssr-replacement", "shared-derived-products", "temporal-reconstruction"];
+  const supported = ["basic", "textured", "material-switch", "texture-fallback", "texture-ref-oracle", "texture-package-bc", "texture-package-production", "texture-codec-production", "texture-codec-device-loss-recreate", "transparent", "scene-adapter", "lpv-baseline-pruning", "gtao-replacement", "ssgi-production", "ssr-replacement", "shared-derived-products", "temporal-reconstruction", "post-fusion"];
   if (!supported.includes(request.scenarioId)) {
     return failedScenario(request, new Error(`Unknown surface scenario '${request.scenarioId}'`));
   }
@@ -92,7 +92,140 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
     const evidence: Record<string, unknown> = {};
     let profile: FrameProfileSnapshot;
 
-    if (request.scenarioId === "temporal-reconstruction") {
+    if (request.scenarioId === "post-fusion") {
+      const renderer = runtime.renderer;
+      if (renderer === null) throw new Error("Surface runtime is not initialized");
+      renderer.configure({
+        features: {
+          temporalAntiAliasing: true,
+          bloom: true,
+          automaticExposure: true,
+          sharpening: true,
+          motionBlur: false
+        },
+        resolution: { mode: "fixed", internalScale: 1 },
+        post: {
+          bloomIntensity: 1,
+          sharpeningStrength: 0.8,
+          colorGradingLift: 0.01,
+          colorGradingGamma: 1.02,
+          colorGradingGain: 1.03,
+          colorGradingSaturation: 1.05,
+          colorGradingContrast: 1.02
+        }
+      });
+      await runtime.waitForFrames(4);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      const fused = renderer.finalOutputEvidence();
+      const fusedGraph = renderer.mainFrameGraphEvidence();
+      if (fusedGraph === null) throw new Error("Post-fusion frame did not publish FrameGraph evidence");
+      const fusedPasses = fusedGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+      const fusedResources = fusedGraph.dump.resources.map((entry) => entry.name);
+
+      renderer.configure({ features: { bloom: false, sharpening: false } });
+      await runtime.waitForFrames(2);
+      const optionalOff = renderer.finalOutputEvidence();
+      const optionalOffGraph = renderer.mainFrameGraphEvidence();
+      if (optionalOffGraph === null) throw new Error("Post optional-off frame did not publish FrameGraph evidence");
+      const optionalOffPasses = optionalOffGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+
+      renderer.configure({ features: { bloom: true, sharpening: true } });
+      const capturePromise = renderer.requestLinearHdrCapture({
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        stage: "post-color-grading"
+      });
+      await runtime.waitForFrames(1);
+      const capture = await capturePromise;
+      const capturePath = renderer.finalOutputEvidence();
+      const captureGraph = renderer.mainFrameGraphEvidence();
+      if (captureGraph === null) throw new Error("Post capture frame did not publish FrameGraph evidence");
+      const capturePasses = captureGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+
+      // Restore the representative fused topology for the always screenshot.
+      await runtime.waitForFrames(3);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      const restored = renderer.finalOutputEvidence();
+
+      Object.assign(evidence, {
+        postFusion: {
+          fused,
+          fusedPasses,
+          fusedResources,
+          optionalOff,
+          optionalOffPasses,
+          capturePath,
+          capturePasses,
+          capturePixel: Array.from(capture.rgba),
+          restored,
+          profilerCounters: profile.counters,
+          submits: profile.submits
+        }
+      });
+      assertions.push(validationAssertion(
+        "post-normal-path-fuses-full-resolution-stages",
+        fused.finalOutputPasses === 1 && fused.bloomFused &&
+          fused.colorGradingFused && fused.sharpeningFused &&
+          fused.bloomCompositeMaterializationPasses === 0 &&
+          fused.colorGradingMaterializationPasses === 0 &&
+          fused.standaloneSharpenPasses === 0 &&
+          fused.fullResolutionHdrIntermediateCount === 0 &&
+          fusedPasses.filter((name) => name === "Final Output SDR" || name === "Final Output HDR").length === 1 &&
+          !fusedPasses.includes("Bloom composite shared pyramid") &&
+          !fusedPasses.includes("Color Grading") &&
+          !fusedPasses.includes("Sharpen XE") &&
+          !fusedResources.some((name) =>
+            ["Bloom composited", "Color graded color", "Sharpened color"].includes(name)
+          ),
+        "Normal post topology folds Bloom composite, grading, optional sharpen and display mapping into one swapchain pass",
+        { runtime: fused, passes: fusedPasses, resources: fusedResources },
+        "one Final Output pass and zero full-resolution HDR post intermediates"
+      ));
+      assertions.push(validationAssertion(
+        "post-optional-features-are-statically-pruned",
+        optionalOff.finalOutputPasses === 1 && !optionalOff.bloomFused &&
+          optionalOff.colorGradingFused && !optionalOff.sharpeningFused &&
+          optionalOff.bloomCompositeMaterializationPasses === 0 &&
+          optionalOff.fullResolutionHdrIntermediateCount === 0 &&
+          !optionalOffPasses.some((name) => name.startsWith("Bloom ")),
+        "Bloom-off and Sharpen-off select a smaller Final Output binding/shader variant without dummy resources",
+        { runtime: optionalOff, passes: optionalOffPasses },
+        "no Bloom pass/binding and no sharpen neighborhood specialization"
+      ));
+      assertions.push(validationAssertion(
+        "post-capture-materializes-only-required-hdr-boundary",
+        capturePath.finalOutputPasses === 1 && !capturePath.bloomFused &&
+          !capturePath.colorGradingFused && capturePath.sharpeningFused &&
+          capturePath.bloomCompositeMaterializationPasses === 1 &&
+          capturePath.colorGradingMaterializationPasses === 1 &&
+          capturePath.fullResolutionHdrIntermediateCount === 2 &&
+          capturePath.oneShotCaptureMaterialized &&
+          capturePasses.includes("R5 one-shot post-color-grading capture") &&
+          capture.rgba.length === 4 && capture.rgba.every(Number.isFinite),
+        "One-shot post-grading capture materializes the exact HDR boundary and the following frame returns to fusion",
+        { runtime: capturePath, passes: capturePasses, capture: Array.from(capture.rgba) },
+        "Bloom composite + Color Grading only in capture topology; finite rgba16float readback"
+      ));
+      assertions.push(validationAssertion(
+        "post-fusion-remains-one-main-submit-and-observable",
+        restored.finalOutputPasses === 1 && restored.bloomFused &&
+          restored.colorGradingFused && restored.sharpeningFused &&
+          profile.submits.count === 1 &&
+          profile.counters["post.finalOutputPasses"] === 1 &&
+          profile.counters["post.fullResolutionHdrIntermediates"] === 0,
+        "Fused Final Output and shared Bloom/Exposure work stay inside the one main command submission",
+        { runtime: restored, counters: profile.counters, submits: profile.submits },
+        "one submit, one final output, zero full-resolution HDR intermediates"
+      ));
+    } else if (request.scenarioId === "temporal-reconstruction") {
       const renderer = runtime.renderer;
       if (renderer === null) throw new Error("Surface runtime is not initialized");
       const originalWidth = renderer.output_resolution.x;

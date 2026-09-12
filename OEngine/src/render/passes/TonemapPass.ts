@@ -3,32 +3,51 @@
  */
 
 import {
-  TONEMAP_SDR_WGSL,
+  tonemapSdrWgsl,
   TONEMAP_UNADAPTED_DEFAULT_COMPENSATION
 } from "../../shaders/tonemap_sdr.js";
 import {
-  TONEMAP_HDR_WGSL,
+  tonemapHdrWgsl,
   TONEMAP_HDR_PEAK_NITS_DEFAULT,
   TONEMAP_HDR_PAPER_WHITE_NITS_DEFAULT
 } from "../../shaders/tonemap_hdr.js";
+import {
+  finalOutputBindingPlan,
+  type FinalOutputShaderOptions
+} from "../../shaders/final_output_input.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
+import {
+  LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
+  type GPUSamplerCache
+} from "../../gpu/GPUSamplerCache.js";
+
+export interface FinalOutputJob {
+  readonly lift: number;
+  readonly gamma: number;
+  readonly gain: number;
+  readonly saturation: number;
+  readonly contrast: number;
+  readonly sharpeningStrength: number;
+  readonly bloomIntensity: number;
+  readonly samplers: GPUSamplerCache;
+}
 
 export const TONEMAP_STEPS = [
   "detect #Go matchMedia (dynamic-range: high)",
-  "SDR $h: exposure * ACES * sRGB + triangle dither",
-  "HDR qh: exposure * tonemap_gt7 * Rec709→2020→P3 * sRGB encode",
+  "fuse optional Bloom composite + Color Grading + Sharpen into Final Output",
+  "SDR: exposure * ACES * sRGB + triangle dither",
+  "HDR: exposure * tonemap_gt7 * Rec709→2020→P3 * sRGB encode",
   "write display-p3 canvas / swapchain",
   "rebuild cached target descriptors when rgba16float/preferred format changes"
 ] as const;
 
 export class TonemapPass {
   private canvasFormat: GPUTextureFormat;
-  private sdrPipeline: CachedRenderPipelineDescriptor | null = null;
-  private hdrPipeline: CachedRenderPipelineDescriptor | null = null;
+  private readonly pipelines = new Map<string, CachedRenderPipelineDescriptor>();
   private readonly validFrameControl: GPUBuffer;
 
   exposureCompensation = TONEMAP_UNADAPTED_DEFAULT_COMPENSATION;
@@ -44,6 +63,9 @@ export class TonemapPass {
   lastExposureValue = 0;
   lastUsedHdr = false;
   lastPeakNits = 0;
+  lastBloomFused = false;
+  lastColorGradingFused = false;
+  lastSharpeningFused = false;
 
   constructor(private readonly device: GPUDevice, canvasFormat: GPUTextureFormat) {
     this.canvasFormat = canvasFormat;
@@ -67,48 +89,39 @@ export class TonemapPass {
   setCanvasFormat(format: GPUTextureFormat): void {
     if (this.canvasFormat === format) return;
     this.canvasFormat = format;
-    this.rebuildPipelines();
+    this.pipelines.clear();
   }
 
-  init(): void {
-    this.rebuildPipelines();
-  }
-
-  private rebuildPipelines(): void {
-    this.sdrPipeline = createTonemapPipelineDescriptor(
-      "TonemapPass/$h",
-      TONEMAP_SDR_WGSL,
-      this.canvasFormat,
-      createSdrGroupLayout()
-    );
-    this.hdrPipeline = createTonemapPipelineDescriptor(
-      "TonemapPass/qh",
-      TONEMAP_HDR_WGSL,
-      this.canvasFormat,
-      createHdrGroupLayout()
-    );
-  }
+  init(): void {}
 
   addToGraph(
     graph: FrameGraph,
     resourceIds: {
       swapchain: ResourceId;
       hdr: ResourceId;
+      bloom?: ResourceId;
       exposure?: ResourceId;
       /** GPU-authored correctness signal; invalid frames present diagnostic magenta. */
       diagnosticControl?: ResourceId;
-    }
+    },
+    options: FinalOutputShaderOptions,
+    job: FinalOutputJob
   ): void {
     const self = this;
-    const label = this.hdrEnabled ? "Tonemap qh" : "Tonemap $h";
-    const builder = graph.add(label, {}, (_data, res, ctx) => {
+    const label = this.hdrEnabled ? "Final Output HDR" : "Final Output SDR";
+    const builder = graph.add(label, job, (data, res, ctx) => {
       const command = requireShadeCommandContext(ctx.encoder);
       self.executeCommand(
         command,
         {
           swapchain: resolveTextureView(res.get(resourceIds.swapchain)),
-          hdr: resolveTextureView(res.get(resourceIds.hdr))
+          hdr: resolveTextureView(res.get(resourceIds.hdr)),
+          bloom: resourceIds.bloom === undefined
+            ? undefined
+            : resolveTextureView(res.get(resourceIds.bloom))
         },
+        options,
+        data,
         resourceIds.exposure === undefined
           ? undefined
           : resolveBuffer(res.get(resourceIds.exposure), "exposure"),
@@ -118,6 +131,7 @@ export class TonemapPass {
       );
     });
     builder.read(resourceIds.hdr);
+    if (resourceIds.bloom !== undefined) builder.read(resourceIds.bloom);
     if (resourceIds.exposure !== undefined) builder.read(resourceIds.exposure);
     if (resourceIds.diagnosticControl !== undefined) {
       builder.read(resourceIds.diagnosticControl);
@@ -127,21 +141,32 @@ export class TonemapPass {
 
   execute(
     command: ShadeGPUCommandContext,
-    views: { swapchain: GPUTextureView; hdr: GPUTextureView },
+    views: { swapchain: GPUTextureView; hdr: GPUTextureView; bloom?: GPUTextureView },
+    options: FinalOutputShaderOptions,
+    job: FinalOutputJob,
     externalExposure?: GPUBuffer,
     diagnosticControl?: GPUBuffer
   ): void {
-    this.executeCommand(command, views, externalExposure, diagnosticControl);
+    this.executeCommand(
+      command,
+      views,
+      options,
+      job,
+      externalExposure,
+      diagnosticControl
+    );
   }
 
   private executeCommand(
     command: ShadeGPUCommandContext,
-    views: { swapchain: GPUTextureView; hdr: GPUTextureView },
+    views: { swapchain: GPUTextureView; hdr: GPUTextureView; bloom?: GPUTextureView },
+    options: FinalOutputShaderOptions,
+    job: FinalOutputJob,
     externalExposure?: GPUBuffer,
     diagnosticControl?: GPUBuffer
   ): void {
-    if (!this.sdrPipeline || !this.hdrPipeline) {
-      throw new Error("TonemapPass not init");
+    if (options.bloom !== (views.bloom !== undefined)) {
+      throw new Error("TonemapPass Bloom specialization does not match its bindings");
     }
 
     this.lastRan = false;
@@ -157,9 +182,31 @@ export class TonemapPass {
     }
 
     const useHdr = this.hdrEnabled;
-    const pipeline = useHdr ? this.hdrPipeline : this.sdrPipeline;
-    const label = useHdr ? "Tonemap qh" : "Tonemap $h";
+    const pipeline = this.obtainPipeline(useHdr, options);
+    const label = useHdr ? "Final Output HDR" : "Final Output SDR";
     const bindings: GPUBindingResource[] = [views.hdr];
+    if (options.bloom) {
+      bindings.push(
+        views.bloom!,
+        job.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR)
+      );
+    }
+    if (options.bloom || options.sharpening || options.colorGrading) {
+      const uniform = new Float32Array(16);
+      uniform[0] = uniform[1] = uniform[2] = job.lift;
+      uniform[4] = uniform[5] = uniform[6] = job.gamma;
+      uniform[8] = uniform[9] = uniform[10] = job.gain;
+      uniform[11] = job.saturation;
+      uniform[12] = job.contrast;
+      uniform[13] = job.sharpeningStrength;
+      uniform[14] = job.bloomIntensity;
+      bindings.push({
+        buffer: command.allocateTransientBufferAndLoad(
+          uniform.buffer,
+          GPUBufferUsage.UNIFORM
+        )
+      });
+    }
     if (useHdr) {
       this.lastPeakNits = this.peakNits;
       const settingsBuffer = command.allocateTransientBufferAndLoad(
@@ -187,11 +234,30 @@ export class TonemapPass {
     pass.draw(3);
     pass.end();
     this.lastRan = true;
+    this.lastBloomFused = options.bloom;
+    this.lastColorGradingFused = options.colorGrading;
+    this.lastSharpeningFused = options.sharpening;
+  }
+
+  private obtainPipeline(
+    hdr: boolean,
+    options: FinalOutputShaderOptions
+  ): CachedRenderPipelineDescriptor {
+    const key = `${hdr ? "hdr" : "sdr"}:${options.bloom ? 1 : 0}:${options.sharpening ? 1 : 0}:${options.colorGrading ? 1 : 0}`;
+    let pipeline = this.pipelines.get(key);
+    if (pipeline !== undefined) return pipeline;
+    pipeline = createTonemapPipelineDescriptor(
+      hdr ? "FinalOutput/HDR" : "FinalOutput/SDR",
+      hdr ? tonemapHdrWgsl(options) : tonemapSdrWgsl(options),
+      this.canvasFormat,
+      createFinalOutputGroupLayout(options, hdr)
+    );
+    this.pipelines.set(key, pipeline);
+    return pipeline;
   }
 
   destroy(): void {
-    this.sdrPipeline = null;
-    this.hdrPipeline = null;
+    this.pipelines.clear();
     this.validFrameControl.destroy();
   }
 }
@@ -219,54 +285,60 @@ function createTonemapPipelineDescriptor(
   };
 }
 
-function createSdrGroupLayout(): GPUBindGroupLayoutDescriptor {
-  return {
-    label: "TonemapPass/$h group0",
-    entries: [
+function createFinalOutputGroupLayout(
+  options: FinalOutputShaderOptions,
+  hdr: boolean
+): GPUBindGroupLayoutDescriptor {
+  const plan = finalOutputBindingPlan(options);
+  const entries: GPUBindGroupLayoutEntry[] = [{
+    binding: plan.source,
+    visibility: GPUShaderStage.FRAGMENT,
+    texture: { sampleType: "float", viewDimension: "2d" }
+  }];
+  if (plan.bloom !== null && plan.sampler !== null) {
+    entries.push(
       {
-        binding: 0,
+        binding: plan.bloom,
         visibility: GPUShaderStage.FRAGMENT,
         texture: { sampleType: "float", viewDimension: "2d" }
       },
       {
-        binding: 1,
+        binding: plan.sampler,
         visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" }
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "storage" }
+        sampler: { type: "filtering" }
       }
-    ]
-  };
-}
-
-function createHdrGroupLayout(): GPUBindGroupLayoutDescriptor {
+    );
+  }
+  if (plan.effects !== null) {
+    entries.push({
+      binding: plan.effects,
+      visibility: GPUShaderStage.FRAGMENT,
+      buffer: { type: "uniform" }
+    });
+  }
+  let next = plan.next;
+  if (hdr) {
+    entries.push({
+      binding: next++,
+      visibility: GPUShaderStage.FRAGMENT,
+      buffer: { type: "uniform" }
+    });
+  }
+  entries.push(
+    {
+      binding: next++,
+      visibility: GPUShaderStage.FRAGMENT,
+      buffer: { type: "uniform" }
+    },
+    {
+      binding: next,
+      visibility: GPUShaderStage.FRAGMENT,
+      buffer: { type: "storage" }
+    }
+  );
   return {
-    label: "TonemapPass/qh group0",
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" }
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" }
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" }
-      },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "storage" }
-      }
-    ]
+    label: `FinalOutput/${hdr ? "HDR" : "SDR"} group0`,
+    entries
   };
 }
 

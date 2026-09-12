@@ -3,10 +3,9 @@
  *
  * 参考 Filament ColorGrading（Apache-2.0，见 docs/porting/shading.md）
  * 的 lift/gamma/gain、saturation、contrast 不变量，全程保持在线性 HDR 域；
- * tone mapping 与 sRGB 编码由后续 TonemapPass 完成，本阶段不做任何非线性输出变换。
+ * tone mapping 与 sRGB 编码由后续 Final Output 完成，本阶段不做非线性输出变换。
  *
- * 默认参数（lift=gamma=gain=1、saturation=1、contrast=1）为恒等变换，保证
- * ColorGrading 作为固定顺序中的常开阶段不改变像素值。
+ * 默认参数（lift=0、gamma=gain=saturation=contrast=1）为恒等变换。
  */
 
 export const COLOR_GRADING_FORMAT = "rgba16float" as const;

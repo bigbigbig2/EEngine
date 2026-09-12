@@ -44,7 +44,8 @@ export const VALIDATION_CASES = Object.freeze([
   defineCase("surface.ssgi-production", "surface", "ssgi-production", ["surface", "lighting", "ssgi", "gi", "temporal", "framegraph", "porting"], ["surface", "lighting", "gi", "temporal", "framegraph", "porting"], "always"),
   defineCase("surface.ssr-replacement", "surface", "ssr-replacement", ["surface", "lighting", "ssr", "temporal", "framegraph", "porting"], ["surface", "lighting", "ssr", "temporal", "framegraph", "porting"], "always"),
   defineCase("surface.shared-derived-products", "surface", "shared-derived-products", ["surface", "shared-products", "post", "temporal", "ssr", "ssgi", "framegraph"], ["shared-products", "post", "temporal", "ssr", "ssgi", "framegraph"], "always"),
-  defineCase("surface.temporal-reconstruction", "surface", "temporal-reconstruction", ["surface", "temporal", "drs", "framegraph"], ["temporal", "drs", "framegraph"], "always")
+  defineCase("surface.temporal-reconstruction", "surface", "temporal-reconstruction", ["surface", "temporal", "drs", "framegraph"], ["temporal", "drs", "framegraph"], "always"),
+  defineCase("surface.post-fusion", "surface", "post-fusion", ["surface", "post", "shared-products", "framegraph"], ["post", "shared-products", "framegraph"], "always")
 ]);
 
 const CASE_BY_ID = new Map(VALIDATION_CASES.map((entry) => [entry.id, entry]));

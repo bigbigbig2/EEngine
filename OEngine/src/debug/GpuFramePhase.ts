@@ -121,6 +121,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /exposure/,
     /tonemap/,
     /tone map/,
+    /final output/,
     /postprocess/,
     /post process/
   ),

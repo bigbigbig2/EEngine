@@ -69,5 +69,5 @@
 ## 下一步
 
 1. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：`primitive-index` 的 production consumer 与 portable parity case 已落地；继续为 `shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback，没有 consumer 前保持 record-only。
-2. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：Step 0–4 已完成，Step 5–8 implementation-landed/verification-open；下一实现项是 Step 9 Post fusion。允许执行验证后仍需统一完成类型/构建、SSGI/Brick4、SSR replacement、shared-derived-products与temporal-reconstruction oracles、`off/gtao/ssgi × SSR off/on` topology matrix、history reset、SSR/Temporal视觉检查和唯一 `comprehensive-full` clean PERF；所有 open Exit关闭前不得把 Step 5–8 或 ADR整体记为完成。
+2. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：Step 0–4 已完成，Step 5–9 implementation-landed/verification-open；下一项是 Step 10 Cutover/deletion，但只能在对应 replacement Exit通过后删除旧producer。允许执行验证后仍需统一完成类型/构建、SSGI/Brick4、SSR replacement、shared-derived-products、temporal-reconstruction与post-fusion oracles、`off/gtao/ssgi × SSR off/on` topology matrix、history reset、SSR/Temporal/Post视觉检查和唯一 `comprehensive-full` clean PERF；所有 open Exit关闭前不得把 Step 5–9、Step 10删除门禁或 ADR整体记为完成。
 3. Texture V3 follow-up：针对 active-set 固定编排的 CPU、Material Resolve 与 Shadow 成本做不改变 ABI/正确性合同的优化；只能用同一 `comprehensive-full` workload 和 clean commit A/B 改写当前基线。

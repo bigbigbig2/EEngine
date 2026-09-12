@@ -129,16 +129,16 @@
 
 ## SHADE-GRADING · HDR color grading
 
-- Local owner/source: `PostFeature`、`ColorGradingPass`、`OEngine/src/shaders/color_grading.ts`。
+- Local owner/source: normal frame由`PostFeature`/`TonemapPass`与`final_output_input.ts`的Final Output specialization持有；`ColorGradingPass`/`color_grading.ts`只物化one-shot `post-color-grading` capture boundary。
 - Upstream: Google Filament <https://github.com/google/filament>。
 - Revision: use the Filament revision pinned by SHADE-PBR when revalidating shared math。
 - Upstream source: `filament/src/filament/ColorGrading.cpp`、`filament/src/shaders/color_grading.fs`。
 - License: Apache-2.0; source header SPDX-License-Identifier: Apache-2.0。
 - Adoption: algorithm-invariant reference; authored WGSL, no direct shader port。
 - Retained invariants: linear HDR before tone mapping、ASC-CDL-like lift/gamma/gain、Rec.709 saturation and log2 contrast。
-- OEngine/WebGPU differences: single fullscreen pass without 3D LUT bake；identity defaults preserve pixels。
-- Fallback/lifecycle: PostFeature owns lazy creation/destruction；non-finite parameters are rejected/normalized by local settings contract。
-- Local validation: color-grading numerical/order/lifecycle tests。
+- OEngine/WebGPU differences: 无3D LUT bake。normal frame将Bloom composite、同一grading公式、optional sharpen与SDR/HDR tone/output encoding融合进唯一swapchain pass；Bloom/Sharpen以静态WGSL/bind-layout variant裁剪，不用dummy texture或运行时feature branch。identity defaults保持既有公式。
+- Fallback/lifecycle: PostFeature仅为one-shot capture惰性创建独立ColorGrading owner；该owner不持有GPU资源，保留以供compiled capture graph安全复用，normal path仍无grading pass/texture/readback/submit。RenderSettings对Bloom/sharpen/exposure/lift/gamma/gain/saturation/contrast执行finite/range validation。debug output与already-graded capture input选择不重复grading的Final Output specialization。
+- Local validation: color-grading numerical/order/lifecycle tests；canonical `surface.post-fusion`检查normal zero-intermediate、optional-off静态裁剪、capture-only materialization、one-submit与profiler evidence。
 
 ## SHADE-GI · GI provider composition
 
