@@ -442,6 +442,12 @@ test("ADR-0009 Step 4 pins the Three.js r186 GTAO invariants", () => {
     GTAO_PASS_SOURCE,
     /GTAO temporal history and motion\/disocclusion inputs are required/
   );
+  assert.match(GTAO_PASS_SOURCE, /var surface_validity_source: texture_2d<f32>/);
+  assert.match(GTAO_PASS_SOURCE, /validity\.g >= 0\.5 && validity\.r < 0\.5/);
+  assert.match(
+    GTAO_PASS_SOURCE,
+    /\(vec2f\(id\.xy\) \+ 0\.5\) \/ vec2f\(ao_dimensions\)/
+  );
   assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /velocity: velocityRes \?\? depthRes/);
   assert.doesNotMatch(
     MAIN_PIPELINE_SOURCE,

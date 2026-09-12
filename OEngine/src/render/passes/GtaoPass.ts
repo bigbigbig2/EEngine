@@ -349,6 +349,7 @@ export class GtaoPass {
             bindings: [[
               resolveTextureView(resources.get(inputs.velocity!)),
               resolveTextureView(resources.get(inputs.occlusionConfidence!)),
+              resolveTextureView(resources.get(inputs.surfaceValidity!)),
               { buffer: requireBuffer(resources.get(inputs.counters!), "GTAO counters") },
               { buffer: settings }
             ]]
@@ -359,6 +360,7 @@ export class GtaoPass {
       );
       evidenceBuilder.read(inputs.velocity!);
       evidenceBuilder.read(inputs.occlusionConfidence!);
+      evidenceBuilder.read(inputs.surfaceValidity!);
       evidenceBuilder.read(inputs.counters);
       counters = evidenceBuilder.write(inputs.counters);
       evidenceBuilder.make_side_effect();
@@ -703,8 +705,9 @@ struct EvidenceSettings {
 
 @group(0) @binding(0) var velocity_source: texture_2d<f32>;
 @group(0) @binding(1) var confidence_source: texture_2d<f32>;
-@group(0) @binding(2) var<storage, read_write> counters: array<atomic<u32>>;
-@group(0) @binding(3) var<uniform> settings: EvidenceSettings;
+@group(0) @binding(2) var surface_validity_source: texture_2d<f32>;
+@group(0) @binding(3) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(4) var<uniform> settings: EvidenceSettings;
 
 fn largest_velocity(pixel: vec2i, dimensions: vec2i) -> vec2f {
   var result = textureLoad(velocity_source, clamp(pixel, vec2i(0), dimensions - vec2i(1)), 0).rg;
@@ -733,17 +736,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   atomicAdd(&counters[${AO_EVALUATED_INDEX}u], 1u);
   let full_dimensions = textureDimensions(velocity_source);
   let full_pixel = min(
-    vec2i((vec2f(id.xy) / vec2f(ao_dimensions)) * vec2f(full_dimensions)),
+    vec2i(((vec2f(id.xy) + 0.5) / vec2f(ao_dimensions)) * vec2f(full_dimensions)),
     vec2i(full_dimensions) - vec2i(1)
   );
   let confidence = textureLoad(confidence_source, full_pixel, 0).r;
+  let validity = textureLoad(surface_validity_source, full_pixel, 0).rg;
   let velocity_full = largest_velocity(full_pixel, vec2i(full_dimensions));
   let velocity = velocity_full * vec2f(ao_dimensions) / vec2f(full_dimensions);
   let velocity_confidence = clamp(1.0 - length(velocity) / 128.0, 0.0, 1.0);
   let history_pixel = vec2f(id.xy) + vec2f(0.5) - velocity;
   let in_bounds = all(history_pixel >= vec2f(0.0)) &&
     all(history_pixel < vec2f(ao_dimensions));
-  let history_weight = velocity_confidence * confidence *
+  let validity_weight = select(0.0, 1.0, validity.g >= 0.5 && validity.r < 0.5);
+  let history_weight = velocity_confidence * confidence * validity_weight *
     select(0.0, 1.0, in_bounds && settings.history_valid != 0u);
   if (history_weight > 0.001) {
     atomicAdd(&counters[${AO_HISTORY_ACCEPTED_INDEX}u], 1u);
@@ -762,12 +767,13 @@ const GTAO_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
         {
-          binding: 2,
+          binding: 3,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE }
         },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
       ]
     }]
   },
