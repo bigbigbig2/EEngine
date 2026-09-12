@@ -13,7 +13,10 @@ import {
   OCCLUSION_CONFIDENCE_FORMAT,
   OCCLUSION_CONFIDENCE_WGSL
 } from "../../shaders/occlusion_confidence.js";
-import { resolveTextureView } from "../RenderTargetViews.js";
+import {
+  resolveDepthAttachmentView,
+  resolveTextureView
+} from "../RenderTargetViews.js";
 
 export type OcclusionConfidenceInputs = {
   currentDepth: ResourceId;
@@ -83,8 +86,8 @@ export class OcclusionConfidencePass {
           "occlusion confidence"
         );
         self.execute(command, texture, {
-          currentDepth: resolveTextureView(resources.get(inputs.currentDepth)),
-          previousDepth: resolveTextureView(resources.get(inputs.previousDepth)),
+          currentDepth: resolveDepthAttachmentView(resources.get(inputs.currentDepth)),
+          previousDepth: resolveDepthAttachmentView(resources.get(inputs.previousDepth)),
           velocity: resolveTextureView(resources.get(inputs.velocity)),
           currentCamera: resolveBuffer(
             resources.get(inputs.currentCamera),
@@ -163,12 +166,12 @@ function createOcclusionConfidenceGroupLayout(): GPUBindGroupLayoutDescriptor {
       {
         binding: 0,
         visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+        texture: { sampleType: "depth", viewDimension: "2d" }
       },
       {
         binding: 1,
         visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "unfilterable-float", viewDimension: "2d" }
+        texture: { sampleType: "depth", viewDimension: "2d" }
       },
       {
         binding: 2,

@@ -90,6 +90,7 @@ import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correct
 import { TAA_WGSL } from "../.test-dist/shaders/taa.js";
 import { NSS_PREPROCESS_WGSL } from "../.test-dist/shaders/nss.js";
 import { MOTION_BLUR_RESOLVE_WGSL } from "../.test-dist/shaders/motion_blur.js";
+import { OCCLUSION_CONFIDENCE_WGSL } from "../.test-dist/shaders/occlusion_confidence.js";
 import {
   HZB_FROM_DEPTH_COMPUTE_WGSL,
   HZB_REDUCE_COMPUTE_WGSL
@@ -176,6 +177,10 @@ const MOTION_BLUR_PASS_SOURCE = readFileSync(
 );
 const SSR_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/ScreenSpaceReflectionsPass.ts", import.meta.url),
+  "utf8"
+);
+const OCCLUSION_CONFIDENCE_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/OcclusionConfidencePass.ts", import.meta.url),
   "utf8"
 );
 
@@ -1214,6 +1219,33 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   assert.match(MOTION_BLUR_RESOLVE_WGSL, /fn mb_soft_reverse_z_compare/);
   assert.doesNotMatch(MOTION_BLUR_RESOLVE_WGSL, /textureLoad\(header, pixel_i/);
   assert.doesNotMatch(MOTION_BLUR_RESOLVE_WGSL, /textureLoad\(gr_bucket, sample_position/);
+  assert.match(
+    OCCLUSION_CONFIDENCE_WGSL,
+    /@binding\(0\) var current_depth_source: texture_depth_2d;/
+  );
+  assert.match(
+    OCCLUSION_CONFIDENCE_WGSL,
+    /@binding\(1\) var previous_depth_source: texture_depth_2d;/
+  );
+  assert.match(
+    OCCLUSION_CONFIDENCE_WGSL,
+    /@binding\(2\) var velocity_source: texture_2d<f32>;/
+  );
+  assert.match(OCCLUSION_CONFIDENCE_WGSL, /source: texture_depth_2d/);
+  assert.doesNotMatch(
+    OCCLUSION_CONFIDENCE_WGSL,
+    /textureLoad\((?:source|current_depth_source|previous_depth_source),[^\n]+\)\.r/
+  );
+  assert.equal(
+    (OCCLUSION_CONFIDENCE_PASS_SOURCE.match(
+      /resolveDepthAttachmentView\(resources\.get\(inputs\.(?:currentDepth|previousDepth)\)\)/g
+    ) ?? []).length,
+    2
+  );
+  assert.equal(
+    (OCCLUSION_CONFIDENCE_PASS_SOURCE.match(/sampleType: "depth"/g) ?? []).length,
+    2
+  );
   assert.equal(classifyTemporalHistory({
     historyValid: true,
     motionValid: true,

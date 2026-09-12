@@ -9,9 +9,9 @@ export const OCCLUSION_CONFIDENCE_FORMAT = "r8unorm" as const;
 export const OCCLUSION_CONFIDENCE_WGSL = /* wgsl */ `
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 
-@group(0) @binding(0) var collection: texture_2d<f32>;
-@group(0) @binding(1) var group_id: texture_2d<f32>;
-@group(0) @binding(2) var r_max_texel_depth: texture_2d<f32>;
+@group(0) @binding(0) var current_depth_source: texture_depth_2d;
+@group(0) @binding(1) var previous_depth_source: texture_depth_2d;
+@group(0) @binding(2) var velocity_source: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> camera_current: CommandEncoder;
 @group(0) @binding(4) var<uniform> camera_previous: CommandEncoder;
 
@@ -84,9 +84,8 @@ fn get_view_space_position(
 }
 
 fn four_depth_samples(
-  source: texture_2d<f32>,
+  source: texture_depth_2d,
   position: vec2f,
-  component: u32,
   mip_level: u32
 ) -> vec4f {
   let maximum = textureDimensions(source, mip_level) - 1u;
@@ -96,15 +95,15 @@ fn four_depth_samples(
   let p10 = vec2u(min(maximum.x, p00.x + 1u), p00.y);
   let p11 = vec2u(p10.x, p01.y);
   return vec4f(
-    textureLoad(source, p01, mip_level)[component],
-    textureLoad(source, p11, mip_level)[component],
-    textureLoad(source, p10, mip_level)[component],
-    textureLoad(source, p00, mip_level)[component]
+    textureLoad(source, p01, mip_level),
+    textureLoad(source, p11, mip_level),
+    textureLoad(source, p10, mip_level),
+    textureLoad(source, p00, mip_level)
   );
 }
 
-fn minimum_previous_depth(source: texture_2d<f32>, position: vec2f) -> f32 {
-  let samples = four_depth_samples(source, position, 0u, 0u);
+fn minimum_previous_depth(source: texture_depth_2d, position: vec2f) -> f32 {
+  let samples = four_depth_samples(source, position, 0u);
   return min(min(samples.x, samples.y), min(samples.z, samples.w));
 }
 
@@ -134,7 +133,7 @@ fn reprojected_depth_confidence(
       continue;
     }
     let previous_device_depth = minimum_previous_depth(
-      group_id,
+      previous_depth_source,
       reprojected_pixel + vec2f(offsets[index]) - 0.5
     );
     let previous_view_depth = get_view_space_depth(
@@ -184,7 +183,7 @@ fn reprojected_depth_confidence(
 }
 
 fn closest_depth_3x3(
-  source: texture_2d<f32>,
+  source: texture_depth_2d,
   pixel: vec2i,
   resolution: vec2i,
   selected_pixel: ptr<function, vec2i>
@@ -196,7 +195,7 @@ fn closest_depth_3x3(
   );
   var depths: array<f32, 9>;
   for (var index = 0; index < 9; index++) {
-    depths[index] = textureLoad(source, pixel + offsets[index], 0).r;
+    depths[index] = textureLoad(source, pixel + offsets[index], 0);
   }
   *selected_pixel = pixel;
   var selected_depth = depths[0];
@@ -223,16 +222,16 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4f
 
 @fragment
 fn fs_main(@builtin(position) position: vec4f) -> @location(0) f32 {
-  let resolution = vec2i(textureDimensions(collection));
+  let resolution = vec2i(textureDimensions(current_depth_source));
   let pixel = vec2i(position.xy);
   var closest_pixel: vec2i;
   let closest_depth = closest_depth_3x3(
-    collection,
+    current_depth_source,
     pixel,
     resolution,
     &closest_pixel
   );
-  let velocity = textureLoad(r_max_texel_depth, closest_pixel, 0).rg;
+  let velocity = textureLoad(velocity_source, closest_pixel, 0).rg;
   let reprojected_pixel = position.xy - velocity;
   return saturate(reprojected_depth_confidence(
     reprojected_pixel,
