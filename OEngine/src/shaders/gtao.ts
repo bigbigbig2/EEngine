@@ -55,7 +55,7 @@ struct GtaoRawSettings {
   temporal_filtering: u32,
 };
 
-@group(0) @binding(0) var gr_bucket: texture_2d<f32>;
+@group(0) @binding(0) var gr_bucket: texture_depth_2d;
 @group(0) @binding(1) var ray_ws: texture_2d<u32>;
 @group(0) @binding(2) var<uniform> camera: CommandEncoder;
 @group(0) @binding(3) var<uniform> settings: GtaoRawSettings;
@@ -165,7 +165,7 @@ fn center_reverse_z_depth(raw_pixel: vec2u, raw_size: vec2u, full_size: vec2u) -
     full_size - vec2u(1u)
   );
   if (all(raw_size == full_size)) {
-    return textureLoad(gr_bucket, base, 0).r;
+    return textureLoad(gr_bucket, base, 0);
   }
   // Equivalent intent to the upstream center-depth gather: select the
   // foreground sample for a downscaled pixel and avoid silhouette banding.
@@ -173,8 +173,8 @@ fn center_reverse_z_depth(raw_pixel: vec2u, raw_size: vec2u, full_size: vec2u) -
   let p01 = min(base + vec2u(0u, 1u), full_size - vec2u(1u));
   let p11 = min(base + vec2u(1u, 1u), full_size - vec2u(1u));
   return max(
-    max(textureLoad(gr_bucket, base, 0).r, textureLoad(gr_bucket, p10, 0).r),
-    max(textureLoad(gr_bucket, p01, 0).r, textureLoad(gr_bucket, p11, 0).r)
+    max(textureLoad(gr_bucket, base, 0), textureLoad(gr_bucket, p10, 0)),
+    max(textureLoad(gr_bucket, p01, 0), textureLoad(gr_bucket, p11, 0))
   );
 }
 
@@ -727,7 +727,7 @@ fn fs_main(
 export const GTAO_LINEAR_DEPTH_WGSL = /* wgsl */ `
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 
-@group(0) @binding(0) var device_depth_source: texture_2d<f32>;
+@group(0) @binding(0) var device_depth_source: texture_depth_2d;
 @group(0) @binding(1) var<uniform> camera: CommandEncoder;
 
 fn view_space_depth(depth: f32) -> f32 {
@@ -741,7 +741,7 @@ ${FULLSCREEN_VERTEX_WGSL}
 fn fs_main(@location(0) uv: vec2f) -> @location(0) f32 {
   let dimensions = textureDimensions(device_depth_source);
   let pixel = min(vec2u(uv * vec2f(dimensions)), dimensions - vec2u(1u));
-  return view_space_depth(textureLoad(device_depth_source, pixel, 0).r);
+  return view_space_depth(textureLoad(device_depth_source, pixel, 0));
 }
 `;
 
@@ -756,7 +756,7 @@ struct ResolveSettings {
 
 @group(0) @binding(0) var visibility_source: texture_2d<f32>;
 @group(0) @binding(1) var linear_depth_source: texture_2d<f32>;
-@group(0) @binding(2) var device_depth_source: texture_2d<f32>;
+@group(0) @binding(2) var device_depth_source: texture_depth_2d;
 @group(0) @binding(3) var normal_source: texture_2d<u32>;
 @group(0) @binding(4) var<uniform> camera: CommandEncoder;
 @group(0) @binding(5) var<uniform> settings: ResolveSettings;
@@ -813,7 +813,7 @@ fn fs_main(
   let full_dimensions = vec2i(textureDimensions(device_depth_source));
   let low_dimensions = vec2i(textureDimensions(visibility_source));
   let full_pixel = clamp(vec2i(position.xy), vec2i(0), full_dimensions - vec2i(1));
-  let device_depth = textureLoad(device_depth_source, full_pixel, 0).r;
+  let device_depth = textureLoad(device_depth_source, full_pixel, 0);
   let center_depth = view_space_depth(device_depth);
   let center_normal = surface_oct_decode(textureLoad(normal_source, full_pixel, 0).xy);
   let low_position = uv * vec2f(low_dimensions) - 0.5;

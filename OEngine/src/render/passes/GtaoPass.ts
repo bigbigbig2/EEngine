@@ -806,7 +806,7 @@ function createGtaoLinearDepthPipelineDescriptor(
     [{
       label: "Renderer/GTAO linear/view-depth mip group0",
       entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
       ]
     }],
@@ -826,7 +826,7 @@ function createGtaoJointBilateralResolvePipelineDescriptor(
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
         { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
@@ -877,7 +877,7 @@ function createGtaoRawGroupLayout(): GPUBindGroupLayoutDescriptor {
   return {
     label: "Renderer/Three GTAO r186 horizon trace group0",
     entries: [
-      { binding: 0, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 0, visibility: fragment, texture: { sampleType: "depth", viewDimension: "2d" } },
       { binding: 1, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 2, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 3, visibility: fragment, buffer: { type: "uniform" } },

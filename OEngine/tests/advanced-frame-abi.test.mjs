@@ -51,6 +51,8 @@ import {
   GTAO_BENT_NORMAL_FORMAT,
   GTAO_FINAL_VISIBILITY_BYTES_PER_PIXEL,
   GTAO_FINAL_VISIBILITY_FORMAT,
+  GTAO_JOINT_BILATERAL_RESOLVE_WGSL,
+  GTAO_LINEAR_DEPTH_WGSL,
   GTAO_MOMENTS_BYTES_PER_PIXEL,
   GTAO_MOMENTS_FORMAT,
   GTAO_SPATIAL_WGSL,
@@ -133,6 +135,10 @@ const GI_SERVICE_SOURCE = readFileSync(
 );
 const SSGI_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/SsgiPass.ts", import.meta.url),
+  "utf8"
+);
+const GTAO_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/GtaoPass.ts", import.meta.url),
   "utf8"
 );
 const SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE = readFileSync(
@@ -397,6 +403,24 @@ test("ADR-0009 Step 3 accepts one three-context comprehensive SurfaceLite run gr
 
 test("ADR-0009 Step 4 pins the Three.js r186 GTAO invariants", () => {
   assert.equal(THREE_GTAO_REVISION, "148ef33ecb6d2502ff796d4554abd1549c95d519");
+  assert.match(THREE_GTAO_RAW_WGSL, /@binding\(0\) var gr_bucket: texture_depth_2d/);
+  assert.doesNotMatch(THREE_GTAO_RAW_WGSL, /textureLoad\(gr_bucket,[^\n]+\)\.r/);
+  assert.match(GTAO_LINEAR_DEPTH_WGSL, /var device_depth_source: texture_depth_2d/);
+  assert.match(GTAO_JOINT_BILATERAL_RESOLVE_WGSL, /var device_depth_source: texture_depth_2d/);
+  assert.doesNotMatch(GTAO_LINEAR_DEPTH_WGSL, /textureLoad\(device_depth_source,[^\n]+\)\.r/);
+  assert.doesNotMatch(GTAO_JOINT_BILATERAL_RESOLVE_WGSL, /textureLoad\(device_depth_source,[^\n]+\)\.r/);
+  assert.match(
+    GTAO_PASS_SOURCE,
+    /linear\/view-depth mip group0[\s\S]*?binding: 0,[^\n]*sampleType: "depth"/
+  );
+  assert.match(
+    GTAO_PASS_SOURCE,
+    /joint bilateral resolve group0[\s\S]*?binding: 2,[^\n]*sampleType: "depth"/
+  );
+  assert.match(
+    GTAO_PASS_SOURCE,
+    /horizon trace group0[\s\S]*?binding: 0,[^\n]*sampleType: "depth"/
+  );
   assert.match(THREE_GTAO_RAW_WGSL, /array<f32, 6>\(60\.0, 300\.0, 180\.0, 240\.0, 120\.0, 0\.0\)/);
   assert.match(THREE_GTAO_RAW_WGSL, /9u, 3u, 22u, 16u, 15u/);
   assert.match(THREE_GTAO_RAW_WGSL, /dot\(uv, vec2f\(12\.9898, 78\.233\)\)/);
