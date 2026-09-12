@@ -66,7 +66,7 @@ export class ReflectionService {
     graph: FrameGraph,
     job: ScreenSpaceReflectionsJob,
     inputs: ScreenSpaceReflectionsInputs,
-    historyBindings: { readonly input: unknown; readonly output: unknown }
+    historyBindings?: { readonly input: unknown; readonly output: unknown }
   ): ScreenSpaceReflectionsOutput {
     return this.implementation.addToGraph(graph, job, inputs, historyBindings);
   }
