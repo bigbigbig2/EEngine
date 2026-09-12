@@ -723,6 +723,9 @@
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingCandidatePipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateRuntime.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
@@ -1113,7 +1116,8 @@
         "src/render/passes/ShadingBinPass.ts"
       ],
       "runtimeConsumers": [
-        "src/render/passes/ShadingBinPass.ts"
+        "src/render/passes/ShadingBinPass.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/ShadingBinPass.ts"
@@ -1208,7 +1212,8 @@
         "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "runtimeConsumers": [
-        "src/render/passes/SparseShadingResolvePass.ts"
+        "src/render/passes/SparseShadingResolvePass.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/SparseShadingResolvePass.ts"

@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 installWebGpuConstants();
+
+test("sparse shading candidate consumes GPU publication resources without scanning scene objects", () => {
+  const source = readFileSync(new URL(
+    "../src/render/pipeline/SparseShadingCandidatePipeline.ts",
+    import.meta.url
+  ), "utf8");
+  assert.match(source, /meshletWork: ResourceId/);
+  assert.match(source, /sceneGeometry: readonly ResourceId\[\]/);
+  assert.match(source, /materials: readonly ResourceId\[\]/);
+  assert.doesNotMatch(source, /from "\.\.\/\.\.\/(?:scene|material|geometry)\//u);
+  assert.doesNotMatch(source, /\.traverse\(|\.children\b|\.objects\b/u);
+});
 
 const [
   { FrameProfiler },

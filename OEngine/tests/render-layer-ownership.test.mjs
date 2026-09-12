@@ -42,7 +42,7 @@ test("Shadow implementation is owned by the Render feature layer", () => {
   assert.equal(existsSync(path.join(gpuRoot, "ShadowService.ts")), false);
 });
 
-test("MainRenderPipeline is the sole owner of the main graph recipe and algorithm features", () => {
+test("MainRenderPipeline is the sole production owner of the main graph recipe and algorithm features", () => {
   const renderer = readFileSync(path.join(sourceRoot, "render", "Renderer.ts"), "utf8");
   const pipeline = readFileSync(
     path.join(sourceRoot, "render", "pipeline", "MainRenderPipeline.ts"),
@@ -61,6 +61,47 @@ test("MainRenderPipeline is the sole owner of the main graph recipe and algorith
   assert.match(pipeline, /CompiledFrameGraphCache/);
   assert.match(pipeline, /getOrCreate/);
   assert.match(pipeline, /MainFrameGraphEvidence/);
+});
+
+test("ADR-0013 Step 6 composition remains an internal candidate with no product entrypoint", () => {
+  const candidatePath = path.join(
+    sourceRoot,
+    "render",
+    "pipeline",
+    "SparseShadingCandidatePipeline.ts"
+  );
+  const runtimePath = path.join(
+    sourceRoot,
+    "render",
+    "pipeline",
+    "SparseShadingCandidateRuntime.ts"
+  );
+  const executorPath = path.join(
+    sourceRoot,
+    "render",
+    "pipeline",
+    "SparseShadingCandidateExecutor.ts"
+  );
+  assert.equal(existsSync(candidatePath), true);
+  assert.equal(existsSync(runtimePath), true);
+  assert.equal(existsSync(executorPath), true);
+
+  const candidate = readFileSync(candidatePath, "utf8");
+  assert.match(candidate, /graph: FrameGraph/);
+  assert.doesNotMatch(candidate, /new FrameGraph\b|queue\.submit|mapAsync/u);
+
+  for (const relative of [
+    ["index.ts"],
+    ["render", "Renderer.ts"],
+    ["render", "pipeline", "MainRenderPipeline.ts"]
+  ]) {
+    const source = readFileSync(path.join(sourceRoot, ...relative), "utf8");
+    assert.doesNotMatch(
+      source,
+      /SparseShadingCandidate(?:Pipeline|Runtime)|addSparseShadingCandidateToGraph/u,
+      relative.join("/")
+    );
+  }
 });
 
 test("FrameContext is an immutable value contract without renderer service locators", () => {

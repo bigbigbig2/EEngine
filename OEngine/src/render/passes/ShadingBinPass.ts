@@ -243,10 +243,17 @@ export class ShadingBinPass {
     command: ShadeGPUCommandContext,
     bindings: Readonly<ShadingBinFrameBindings>
   ): void {
+    this.encodeClassify(command, bindings);
+    this.encodeFinalize(command, bindings);
+  }
+
+  /** Records clear + classifier only so FrameGraph can expose the finalizer edge. */
+  encodeClassify(
+    command: ShadeGPUCommandContext,
+    bindings: Readonly<ShadingBinFrameBindings>
+  ): void {
     this.requireAlive();
-    if (bindings.layoutRevision !== this.sizing.layouts[0]!.revision || bindings.generation === 0) {
-      throw new Error("ShadingBin encode bindings do not match the immutable layout snapshot");
-    }
+    this.validateBindings(bindings);
     command.clearBuffer(this.heap, 0, GPU_SHADING_BIN_MUTABLE_BYTES);
     command.clearBuffer(this.indirectArgs, 0, GPU_SHADING_BIN_INDIRECT_BYTES);
 
@@ -259,7 +266,15 @@ export class ShadingBinPass {
       1
     );
     classifier.end();
+  }
 
+  /** Records finalization separately; consumers must depend on this graph node. */
+  encodeFinalize(
+    command: ShadeGPUCommandContext,
+    bindings: Readonly<ShadingBinFrameBindings>
+  ): void {
+    this.requireAlive();
+    this.validateBindings(bindings);
     const finalizer = command.beginComputePass({ label: SHADING_BIN_FINALIZER_LABEL });
     finalizer.setPipeline(this.finalizerPipeline);
     finalizer.setBindGroup(0, bindings.finalizer, [bindings.settingsDynamicOffset]);
@@ -276,6 +291,12 @@ export class ShadingBinPass {
 
   private requireAlive(): void {
     if (this.destroyed) throw new Error("ShadingBin pass resources are destroyed");
+  }
+
+  private validateBindings(bindings: Readonly<ShadingBinFrameBindings>): void {
+    if (bindings.layoutRevision !== this.sizing.layouts[0]!.revision || bindings.generation === 0) {
+      throw new Error("ShadingBin encode bindings do not match the immutable layout snapshot");
+    }
   }
 }
 
