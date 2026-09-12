@@ -1859,6 +1859,13 @@ canonical vertex reconstruction、explicit gradients、`EvaluateShading()`、clu
 
 Three.js-derived GTAO 的 AO、bent normal、temporal stability、thin geometry/edge correctness 与综合性能通过门禁后成为 `mode=gtao` topology 的唯一 production screen-space AO，旧 AO algorithm path 删除。若 candidate 被证据拒绝，现有 production GTAO 保留到另一 replacement 通过同一门禁；不得留下无 AO 的完成状态，也不得长期保留 `legacy/new` 双开关。
 
+**Implementation record（2026-09-12，上游一致性修正已落地，verification reopened）**
+
+- `mode=gtao` 的唯一 production owner 是 `AOService → GtaoPass`，固定 three.js r186 commit `148ef33ecb6d2502ff796d4554abd1549c95d519`。旧 SSAO/GTAO shader、独立 bent-normal pass、旧 history owner、Three.js `TRAANode`/RenderTarget 均不在 production topology。
+- raw trace 保留 5×5 magic-square slice rotation、六帧 temporal rotation、四帧 offset、Three.js 精确 `interleavedGradientNoise + rand` step phase、3/5 directions、quadratic bidirectional stepping、physical world radius、view-space thickness、squared falloff 与 Activision Eq. 7。`rand` 使用 pinned `MathNode.js` 的 `dot → % PI → sin → fract`，不以统计性质相似的本地 hash 代替表达级移植。
+- bent normal 复用同一 horizon integration；raw `rgba16float` 同时携带 visibility/second moment/oct bent，spatial/temporal 一起过滤，唯一 full-resolution bilateral resolve 拆为 `r8unorm visibility + rg16uint bent`。high profile 是 half-resolution `3 × 6 × 2` depth samples；feature-off 不保留 pass、transient、两张 history、counter dispatch 或 submit。
+- 历史 `advanced-frame-pipeline-v2-step4.json` 记录修正前 candidate 的三个独立 Chrome context：518,400 GTAO pixels、GPU P50/P95 1.962/2.284 ms、相对 Step 3 phase P50 +0.089 ms。由于本次把 step rand 从本地 hash 收敛为 pinned Three.js 公式，旧 artifact 只能作为历史对照，不能证明当前 commit。按“不跑代码测试”约束，类型/WGSL compile、`surface.gtao-replacement`、薄几何/边界视觉与唯一 `comprehensive-full` PERF 均未重跑，因此 Step 4 Exit 暂时重开。
+
 ### Step 5 · Three.js-derived SSGI integration
 
 **Scope**

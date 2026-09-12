@@ -361,6 +361,8 @@ test("ADR-0009 Step 4 pins the Three.js r186 GTAO invariants", () => {
   assert.equal(THREE_GTAO_REVISION, "148ef33ecb6d2502ff796d4554abd1549c95d519");
   assert.match(THREE_GTAO_RAW_WGSL, /array<f32, 6>\(60\.0, 300\.0, 180\.0, 240\.0, 120\.0, 0\.0\)/);
   assert.match(THREE_GTAO_RAW_WGSL, /9u, 3u, 22u, 16u, 15u/);
+  assert.match(THREE_GTAO_RAW_WGSL, /dot\(uv, vec2f\(12\.9898, 78\.233\)\)/);
+  assert.match(THREE_GTAO_RAW_WGSL, /three_rand\(\(sample_uv \+ noise_jitter_index\) \* 2\.0 - 1\.0\)/);
   assert.match(THREE_GTAO_RAW_WGSL, /let sample_distance_fraction = step_t \* step_t/);
   assert.match(THREE_GTAO_RAW_WGSL, /abs\(positive_view_delta\.z\) < thickness_world/);
   assert.match(THREE_GTAO_RAW_WGSL, /positive_falloff \* positive_falloff/);

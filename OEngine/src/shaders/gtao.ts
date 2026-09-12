@@ -178,10 +178,9 @@ fn center_reverse_z_depth(raw_pixel: vec2u, raw_size: vec2u, full_size: vec2u) -
   );
 }
 
-fn hash12(value: vec2f) -> f32 {
-  let p3 = fract(vec3f(value.xyx) * 0.1031);
-  let mixed = p3 + dot(p3, p3.yzx + 33.33);
-  return fract((mixed.x + mixed.y) * mixed.z);
+fn three_rand(uv: vec2f) -> f32 {
+  let sn = (dot(uv, vec2f(12.9898, 78.233)) % 3.141592653589793);
+  return fract(sin(sn) * 43758.5453);
 }
 
 fn interleaved_gradient_noise(pixel: vec2f) -> f32 {
@@ -284,7 +283,7 @@ fn fs_main(
   let noise_angle = atan2(noise_direction.y, noise_direction.x);
   let noise_jitter_index = temporal_direction * 0.02;
   let step_jitter = interleaved_gradient_noise(coord.xy + temporal_sample_offset) +
-    hash12((sample_uv + noise_jitter_index) * 2.0 - 1.0);
+    three_rand((sample_uv + noise_jitter_index) * 2.0 - 1.0);
   let clip_position = camera.view_projection_matrix * vec4f(position_ws, 1.0);
   let slice_count = clamp(i32(settings.slice_count), 1, 5);
   let step_count = clamp(i32(settings.step_count), 1, 8);
