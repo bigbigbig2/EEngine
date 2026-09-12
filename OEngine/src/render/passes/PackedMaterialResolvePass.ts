@@ -10,7 +10,6 @@ import {
   GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL,
   GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY
 } from "../../gpu/GpuComputeMaterialAbi.js";
-import type { MaterialResolveBackend } from "../MaterialResolveBackend.js";
 import {
   type ComputeMaterialEvaluationFrame,
   type MaterialTileClassificationFrame,
@@ -52,7 +51,6 @@ export class PackedMaterialResolvePass {
   private readonly counterAdder = new GpuCounterAtomicAdder();
   private readonly classifier: MaterialTileClassificationPass;
   private readonly compute: ComputeMaterialResolvePass;
-  lastKernelDrawCount = 0;
   lastActiveMaterialCount = 0;
   private currentSurfaceBytesPerPixel = 0;
 
@@ -63,10 +61,6 @@ export class PackedMaterialResolvePass {
 
   get surfaceBytesPerPixel(): number {
     return this.currentSurfaceBytesPerPixel;
-  }
-
-  get materialResolveBackend(): MaterialResolveBackend {
-    return "tile-compute";
   }
 
   addToGraph(
@@ -111,10 +105,7 @@ export class PackedMaterialResolvePass {
           const command = requireCommand(context.encoder);
           const target = requireBuffer(resources.get(outputCounters), "GPU counters");
           this.counterAdder.encode(command, target, "activeMaterials", data.activeMaterials);
-          this.counterAdder.encode(command, target, "classDepthPixels", 0);
-          this.counterAdder.encode(command, target, "classDraws", 0);
           this.lastActiveMaterialCount = data.activeMaterials;
-          this.lastKernelDrawCount = 0;
         }
       );
       builder.read(inputCounters);
@@ -122,7 +113,6 @@ export class PackedMaterialResolvePass {
       counters = outputCounters;
     } else {
       this.lastActiveMaterialCount = job.runtime.opaqueMaterialCount;
-      this.lastKernelDrawCount = 0;
     }
 
     this.currentSurfaceBytesPerPixel = options.velocity

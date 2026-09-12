@@ -2214,7 +2214,6 @@ export class MainRenderPipeline {
           gpuCounterRes = packedResolveOut.counters;
           this._profiler.registerGpuCounterFields(["activeMaterials"]);
           this._profiler.registerGpuCounterFields([
-            "classDraws",
             "materialTileRecords",
             "materialTileValidPixels",
             "materialTileShadedPixels",
@@ -3785,10 +3784,6 @@ export class MainRenderPipeline {
     profiler.recordCounter("shadow.directionalCameraCacheHits", shadows?.lastDirectionalCameraCacheHits ?? 0);
     profiler.recordCounter("shadow.directionalRasterDraws", shadows?.lastDirectionalRasterDraws ?? 0);
     profiler.recordCounter("shadow.directionalRasterSkips", shadows?.lastDirectionalRasterSkips ?? 0);
-    profiler.recordCounter(
-      "packed.material.kernelDraws",
-      this._surfaceFeature.lastKernelDrawCount
-    );
     {
       const geometry = this._graphics.assets_if_created?.evidence();
       profiler.recordCounter("packed.geometry.residentAssets", geometry?.residentAssetCount ?? 0);

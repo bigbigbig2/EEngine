@@ -1057,6 +1057,16 @@ test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", 
   assert.match(TONEMAP_PASS_SOURCE, /Final Output SDR/);
 });
 
+test("ADR-0009 Step 10 removes single-value backend and retired zero publishers", () => {
+  assert.equal(
+    existsSync(new URL("../src/render/MaterialResolveBackend.ts", import.meta.url)),
+    false
+  );
+  assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /classDepthPixels|classDraws/);
+  assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /classDepthPixels|classDraws/);
+  assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /MaterialResolveBackend/);
+});
+
 test("ADR-0009 Step 0 rejects invalid exposure and cross-resolution products", () => {
   assert.throws(
     () => preExposureContract({

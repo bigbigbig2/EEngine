@@ -117,7 +117,7 @@ const GEOMETRY_TRUTH_FIELDS = [
 ];
 
 test("ADR-0008 Step 0 freezes a collision-free geometry truth counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 21);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 22);
   const indices = GPU_COUNTER_FIELDS.map((field) => field.index);
   assert.equal(new Set(indices).size, indices.length);
   for (const name of GEOMETRY_TRUTH_FIELDS) {
@@ -125,6 +125,36 @@ test("ADR-0008 Step 0 freezes a collision-free geometry truth counter ABI", () =
     assert.ok(field, `missing ${name}`);
     assert.ok(counterByteOffset(name) + 4 <= GPU_COUNTER_BYTE_SIZE);
   }
+});
+
+test("ADR-0009 Step 10 removes retired material counters without renumbering live fields", () => {
+  const retiredMaterialFields = new Set([
+    "kernelBaseFactorPixels",
+    "kernelBaseTexturePixels",
+    "kernelBaseOrmPixels",
+    "kernelBaseOrmNormalPixels",
+    "kernelBaseOrmNormalEmissivePixels",
+    "kernelUnlitPixels",
+    "kernelGenericFallbackPixels",
+    "shadeWorkOverflow",
+    "classDepthPixels",
+    "classDraws"
+  ]);
+  assert.equal(
+    GPU_COUNTER_FIELDS.some((field) => retiredMaterialFields.has(field.name)),
+    false,
+    "retired Pixel Queue, ShadeWork and fullscreen MaterialClassDepth counters must not re-enter schema v22"
+  );
+  assert.equal(
+    GPU_COUNTER_FIELDS.some((field) => field.index >= 88 && field.index <= 97),
+    false,
+    "schema v22 keeps retired indices reserved instead of renumbering live counters"
+  );
+  assert.equal(
+    GPU_COUNTER_FIELDS.find((field) => field.name === "materialTileRecords")?.index,
+    125
+  );
+  assert.equal(GPU_COUNTER_BYTE_SIZE, 560);
 });
 
 test("MeshletRasterWork CPU/WGSL ABI freezes six aligned u32 identity fields", () => {

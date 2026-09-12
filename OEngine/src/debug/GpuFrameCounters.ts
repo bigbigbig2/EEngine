@@ -8,7 +8,7 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 21;
+export const GPU_COUNTER_SCHEMA_VERSION = 22;
 export const GPU_COUNTER_BYTE_SIZE = 560;
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
@@ -107,16 +107,6 @@ export const GPU_COUNTER_FIELDS = [
   { name: "ssgiTraceSamples", index: 85, semantic: "sampled SSGI slice-side-step candidates requested by the configured trace budget" },
   { name: "ssgiHistoryAcceptedPixels", index: 86, semantic: "sampled SSGI pixels whose unified temporal policy assigns non-zero history weight" },
   { name: "ssgiHistoryRejectedPixels", index: 87, semantic: "sampled SSGI pixels rejecting history for global validity, motion or disocclusion" },
-  { name: "kernelBaseFactorPixels", index: 88, semantic: "sampled visible pixels classified as BaseFactor" },
-  { name: "kernelBaseTexturePixels", index: 89, semantic: "sampled visible pixels classified as BaseTexture" },
-  { name: "kernelBaseOrmPixels", index: 90, semantic: "sampled visible pixels classified as BaseOrm" },
-  { name: "kernelBaseOrmNormalPixels", index: 91, semantic: "sampled visible pixels classified as BaseOrmNormal" },
-  { name: "kernelBaseOrmNormalEmissivePixels", index: 92, semantic: "sampled visible pixels classified as BaseOrmNormalEmissive" },
-  { name: "kernelUnlitPixels", index: 93, semantic: "sampled visible pixels classified as Unlit" },
-  { name: "kernelGenericFallbackPixels", index: 94, semantic: "sampled visible pixels classified as GenericStandardPbrFallback" },
-  { name: "shadeWorkOverflow", index: 95, semantic: "sampled ShadeWork records rejected by bounded class ranges" },
-  { name: "classDepthPixels", index: 96, semantic: "retired MaterialClassDepth pixels; production owner publishes zero" },
-  { name: "classDraws", index: 97, semantic: "retired fullscreen material kernel draws; production owner publishes zero" },
   { name: "setupAttempted", index: 98, semantic: "sampled projected-large triangles admitted by independent LargeTriangleSetupCache" },
   { name: "setupWritten", index: 99, semantic: "sampled bounded LargeTriangleSetup records written" },
   { name: "setupVisiblePixelHits", index: 100, semantic: "sampled visible pixels mapped to a valid LargeTriangleSetup record" },

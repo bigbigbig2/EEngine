@@ -143,13 +143,6 @@ export class PostFeature {
     this.retireAfterSubmittedWork(previous);
   }
 
-  retireColorGrading(): void {
-    const previous = this._colorGrading;
-    if (previous === null) return;
-    this._colorGrading = null;
-    this.retireAfterSubmittedWork(previous);
-  }
-
   retireMotionBlur(): void {
     const previous = this._motionBlur;
     if (previous === null) return;

@@ -2017,6 +2017,18 @@ scene-wide GI exclusive plumbing 已在 Step 5 cutover 时提前删除；Step 10
 
 **Verification:** final MILESTONE + PERF
 
+**Implementation record（当前为 cutover-cleanup-landed / final-verification-open）**
+
+- Step 10 不再设置第二套backend或`legacy/new`切换。静态consumer audit显示主管线只从`SurfaceFeature → PackedMaterialResolvePass → MaterialTileClassificationPass + ComputeMaterialResolvePass`进入material evaluation；`MaterialClassDepth`、active-class fullscreen resolve、`GpuSurfaceAbi`、`ComputeMaterialSurfaceBridgePass`、三个旧IBL fullscreen pass与`OpaqueLightingPipeline`均已在Step 2–3的consumer cutover中物理删除。本Step进一步删除仅有单一`"tile-compute"`值、不具备选择语义的`MaterialResolveBackend.ts`类型壳；对外bounded migration evidence仍只报告当前production identity，不提供可变backend入口。
+- GPU counter ABI从v21提升为v22，删除没有producer的旧Pixel Queue kernel-class字段`kernelBaseFactorPixels..kernelGenericFallbackPixels`、已消失`ShadeWork` queue的`shadeWorkOverflow`，以及为被删除MaterialClassDepth/fullscreen kernel每帧人工写0的`classDepthPixels/classDraws`。`PackedMaterialResolvePass`不再编码这些zero publisher，capability evidence不再宣称它们是supported runtime truth，Main pipeline也不再注册`classDraws`。indices 88–97保留为空洞，后续live counter仍保持原index 98–139，buffer仍由最高live index决定为560 B；这避免为“删逻辑字段”付出全部WGSL offset重排和证据漂移。
+- 同时删除始终为0的CPU profiler metric `packed.material.kernelDraws`、`PackedMaterialResolvePass.lastKernelDrawCount`与Surface转发getter。这些值只能证明一个已不存在的fullscreen draw没有运行，不是MaterialTileWork正确性证据；保留的是`materialTileRecords/ValidPixels/ShadedPixels/Unassigned/Duplicate/OverflowQueues/FrameInvalid`这组GPU producer→consumer闭环计数。
+- old default AO在当前源树中没有并行SSAO/legacy owner；唯一`mode=gtao` owner是Three-derived `GtaoPass`。old SSR也没有并行reflection pipeline；唯一SSR service指向Three-derived trace/resolve/recurrent-denoise/temporal chain和baseline replacement correction。但Step 5–6的真实Chrome、视觉、topology matrix与PERF Gate仍未执行，因此本Step不删除任何仍可用于回退/对照的AO/SSR数学或history，也不宣称replacement Exit已关闭。
+- duplicate pyramid audit只找到一个`SharedColorPyramidPass`：SSR消费`OpaqueColorPyramid`，Bloom/Exposure消费`FinalColorPyramid`；SSGI继续直接读取语义不同的full-resolution pre-SSGI source。effect-local SSR scene-color pyramid、Bloom downsample pyramid或Exposure full-resolution reduction没有生产owner。由于Step 7 Gate仍open，不进一步合并语义不同的opaque/final source，也不删除它们各自的typed contract。
+- history audit保留`color/gtao/ssgi/ssr/nss-feedback/exposure`六个已登记semantic；每一个都有可配置consumer、独立resolution/format/pre-exposure policy与submission-aware lifecycle，没有可靠静态判定的dead history。scene-wide exclusive GI mode、`enableGTAO/enableSSGI`双布尔和矛盾组合均不在public config/topology key中；唯一入口是receiver-level long-range provider selection加单值`ScreenSpaceDiffuseMode=off|gtao|ssgi`。
+- Step 9已使normal production graph不再调用`SharpenPass`，但其Final Output画面、WGSL variant和PERF Gate未执行。严格按“replacement通过后才删除”，`SharpenPass.ts`/`sharpen.ts`暂保留为待Gate关闭后的明确deletion target，但它没有公开switch、normal FrameGraph consumer、GPU allocation或submit。capture-only `ColorGradingPass` 不是dead code；它是`post-color-grading` instrumentation boundary的唯一物化owner，不得与Sharpen一起删除。
+- source oracle增加counter schema v22的退役字段禁止回流与reserved-hole断言；既有Step 2–7 ABI/source oracle继续检查被删文件不存在、不含`PackedMaterialClassDepthPass`、Surface V1不回流、GI无scene-wide mode、single-valued screen-space diffuse topology以及共享pyramid唯一producer。这些oracle已更新但本轮未执行。
+- 按本轮持续有效的“不跑代码测试”约束，没有执行type/build、pure/source oracle、shader audit、Browser MILESTONE、视觉检查或唯一`comprehensive-full` PERF。因此Step 10只能记为“已完成可证明属于Step 0–4的静态cutover cleanup”；GTAO/SSGI/SSR/shared products/temporal/post的最终deletion Gate与ADR-0009整体completion仍保持open。
+
 ---
 
 ## 19. Verification

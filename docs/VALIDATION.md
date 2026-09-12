@@ -96,6 +96,8 @@ Temporal/DRS 的正式 A/B 必须使用 `resolution.mode=fixed` 并记录固定 
 
 Post fusion必须用FrameGraph资源/Pass evidence证明normal topology恰有一个Final Output、没有`Bloom composited`/`Color graded color`/`Sharpened color` full-resolution intermediate，并分别检查Bloom-off binding裁剪、Sharpen-off邻域读取裁剪、Automatic Exposure on/off、SDR/HDR output format与one-main-submit。`post-color-grading` capture允许仅在请求帧materialize精确HDR boundary并产生既有有界readback；下一帧必须恢复fusion。Debug view必须选择不重复Bloom/grading/sharpen的Final Output variant。性能结论比较相同画质下实际HDR traffic与post GPU phase，不能只用Pass数量推断收益。
 
+Final cutover/deletion 验证必须同时包含三类证据：源树/公开符号不存在退役backend、已编译FrameGraph/shader audit没有旧producer、真实Chrome topology/counter证明replacement consumer闭环与feature-off。GPU counter schema删除字段时必须升版；若保留空洞避免重排live WGSL offset，必须oracle明确冻结reserved index。任何尚未通过对应MILESTONE/PERF/visual Gate的旧数学或对照source必须保留并列为deletion target，不得为了“代码干净”提前删除。
+
 产品目标是 1920×1080、DPR 1、60 FPS（16.667 ms GPU），在固定证据完整前一律标记未证明。
 
 ## 证据持久化

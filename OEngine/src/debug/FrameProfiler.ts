@@ -163,7 +163,6 @@ const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
   "packed.geometry.uploadSourceBytes",
   "packed.geometry.uploadedBytes",
   "packed.material.activeMaterials",
-  "packed.material.kernelDraws",
   "packed.material.residentTextureBytes",
   "packed.material.residentTextures",
   "packed.material.retiringTextureBytes",
