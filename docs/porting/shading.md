@@ -17,7 +17,7 @@
 
 ## SHADE-SPECIALIZED-BIN-V1 · Specialized compute material and fused direct lighting
 
-- Planned local owner/source: `planned:OEngine/src/shaders/shading_programs/*`、`planned:OEngine/src/render/passes/ShadingResolvePass.ts`、`SurfaceFeature`/`MainRenderPipeline` composition。当前 production 仍是 `MaterialTileWork`；本记录不提前声明 cutover。
+- Internal identity owner/source: `OEngine/src/gpu/GpuShadingProgramAbi.ts` 已实现 versioned dependency LUT、16 个 program id、64-bin encode/decode、textureless canonicalization 和 publication error；它尚未接入 production。Runtime owner 仍规划为 `planned:OEngine/src/shaders/shading_programs/*`、`planned:OEngine/src/render/passes/ShadingResolvePass.ts` 与 `SurfaceFeature`/`MainRenderPipeline` composition。当前 production 仍是 `MaterialTileWork`；本记录不提前声明 cutover。
 - Upstream reconstruction references: The Forge `cd5046893faba2dc7869243873bf01f02a6f0df9` 的 `Examples_3/Visibility_Buffer/src/Visibility_Buffer.cpp` 与 `9d43e69141a9cd0ce2ce2d2db5122234d3a2d5b5` 的 `Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/vb_shading_utilities.h.fsl#L90-L150`；Bevy `96e3bcfd87f4cb6372dd9da8b5318f3e64899a01` 的 `crates/bevy_pbr/src/meshlet/visibility_buffer_resolve.wesl`。
 - License/adoption: The Forge Apache-2.0、Bevy MIT OR Apache-2.0；状态为 `algorithm-invariant-reference`。沿用并重新验证 canonical visibility reconstruction、perspective-correct interpolation 与 explicit gradient 不变量；V1 specialized program/control flow 由 OEngine 独立实现，若后续复制表达性片段必须先把精确 upstream path/revision 和本地差异补到本记录。
 - Upstream specialization reference: Google Filament `d45158c6f175726a33b1236858fa3948c5d8dbb5`，`libs/gltfio/materials/base.mat.in`；Apache-2.0，状态为 `algorithm-invariant-reference`，只用于证明 compile-time unlit/lit dependency pruning，不复制 Filament renderer/material generator ownership。
