@@ -18,8 +18,8 @@ const meta = {
   title: "Examples/00 Foundations",
   component: ExampleFrame,
   parameters: {
-    docs: { description: { story: "A self-contained OEngine scene with cooked geometry, PBR materials, a directional light, orbit controls, and renderer lifecycle handling." } },
-    tags: ["foundations","renderer","scene","pbr"]
+    docs: { description: { story: "A minimal OEngine baseline with one static unlit cube, orbit camera controls, and all optional rendering effects disabled." } },
+    tags: ["foundations","renderer","scene","baseline"]
   }
 } satisfies Meta<typeof ExampleFrame>;
 

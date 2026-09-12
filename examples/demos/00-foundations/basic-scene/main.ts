@@ -1,6 +1,5 @@
 import {
   BoxGeometry,
-  DirectionalLight,
   Mesh,
   OrbitControls,
   PerspectiveCamera,
@@ -28,12 +27,6 @@ let resizeObserver: ResizeObserver | undefined;
 let animationFrame = 0;
 let disposed = false;
 
-const settings = {
-  rotate: true,
-  rotationSpeed: 0.35,
-  fov: 45
-};
-
 async function start(): Promise<void> {
   if (navigator.gpu === undefined) {
     throw new Error("WebGPU is unavailable. Open this page on localhost in a WebGPU-capable browser.");
@@ -43,17 +36,17 @@ async function start(): Promise<void> {
   if (context === null) throw new Error("Failed to create a WebGPU canvas context");
 
   renderer = new Renderer({
-    debug: true,
+    debug: false,
     renderSettings: {
       features: {
-        shadows: true,
-        screenSpaceDiffuseMode: "gtao",
+        shadows: false,
+        screenSpaceDiffuseMode: "off",
         screenSpaceReflections: false,
-        temporalAntiAliasing: true,
-        bloom: true,
-        automaticExposure: true,
+        temporalAntiAliasing: false,
+        bloom: false,
+        automaticExposure: false,
         motionBlur: false,
-        sharpening: true
+        sharpening: false
       }
     }
   });
@@ -65,72 +58,33 @@ async function start(): Promise<void> {
 
   const scene = new Scene();
   const cubeGeometry = new BoxGeometry(1.5, 1.5, 1.5);
-  const groundGeometry = new BoxGeometry(8, 0.2, 8);
   const recipe = createGeometryCookRecipe();
-  const [cubeAsset, groundAsset] = await Promise.all([
-    cookGeometryAssetPackage(buildBoxSourceGeometry(1.5, 1.5, 1.5), recipe),
-    cookGeometryAssetPackage(buildBoxSourceGeometry(8, 0.2, 8), recipe)
-  ]);
+  const cubeAsset = await cookGeometryAssetPackage(
+    buildBoxSourceGeometry(1.5, 1.5, 1.5),
+    recipe
+  );
 
   const cubeMaterial = new StandardShadeMaterial();
-  cubeMaterial.diffuse_color.set(0.12, 0.42, 0.92, 1);
-  cubeMaterial.metallic_factor = 0.25;
-  cubeMaterial.roughness_factor = 0.28;
-
-  const groundMaterial = new StandardShadeMaterial();
-  groundMaterial.diffuse_color.set(0.32, 0.36, 0.42, 1);
-  groundMaterial.metallic_factor = 0;
-  groundMaterial.roughness_factor = 0.8;
+  cubeMaterial.is_unlit = true;
+  cubeMaterial.diffuse_color.set(0.12, 0.52, 0.92, 1);
 
   const cube = Mesh.from(cubeGeometry, cubeMaterial);
-  cube.name = "Blue PBR Cube";
-  cube.position = [0, 0.8, 0];
-
-  const ground = Mesh.from(groundGeometry, groundMaterial);
-  ground.name = "Ground";
-  ground.position = [0, -0.1, 0];
-
-  const sun = new DirectionalLight();
-  sun.name = "Key Light";
-  sun.intensity = 5;
-  sun.color.set(1, 0.92, 0.8);
-  sun.forward = [-0.55, -1, -0.35];
-  scene.add([cube, ground, sun]);
+  cube.name = "Unlit Cube";
+  scene.add(cube);
 
   await renderer.uploadScene(scene, [
-    { geometry: cubeGeometry, asset: cubeAsset.asset },
-    { geometry: groundGeometry, asset: groundAsset.asset }
+    { geometry: cubeGeometry, asset: cubeAsset.asset }
   ]);
 
   const camera = new PerspectiveCamera();
   camera.near = 0.05;
-  camera.transform.position.set(4.5, 3.2, 6.2);
+  camera.transform.position.set(0, 0, 4);
   controls = new OrbitControls(camera, canvas);
-  controls.target.set(0, 0.65, 0);
-  controls.minDistance = 2.5;
-  controls.maxDistance = 18;
+  controls.target.set(0, 0, 0);
+  controls.minDistance = 2;
+  controls.maxDistance = 12;
   controls.enableDamping = true;
   controls.update(0);
-
-  const sceneFolder = renderer.debug?.addExampleFolder("Scene");
-  sceneFolder?.addBinding(settings, "rotate", { label: "Rotate cube" });
-  sceneFolder?.addBinding(settings, "rotationSpeed", {
-    label: "Speed",
-    min: 0,
-    max: 1.5,
-    step: 0.05
-  });
-
-  const cameraFolder = renderer.debug?.addExampleFolder("Camera");
-  cameraFolder?.addBinding(settings, "fov", {
-    label: "FOV",
-    min: 25,
-    max: 80,
-    step: 1
-  }).on("change", ({ value }) => {
-    camera.fov_degrees = value;
-  });
-  renderer.debug?.focus("renderer");
 
   const resize = (): void => {
     if (renderer === undefined) return;
@@ -146,20 +100,12 @@ async function start(): Promise<void> {
 
   status.dataset.state = "ready";
   let previousTime = performance.now();
-  let rotation = 0;
   const frame = (time: number): void => {
     if (disposed || renderer === undefined || controls === undefined) return;
-    const deltaMilliseconds = Math.min(100, Math.max(0, time - previousTime));
-    const deltaSeconds = deltaMilliseconds / 1000;
+    const deltaSeconds = Math.min(0.1, Math.max(0, time - previousTime) / 1000);
     previousTime = time;
 
-    if (settings.rotate) {
-      rotation += deltaSeconds * settings.rotationSpeed;
-      cube.transform_local.rotation.set(0, Math.sin(rotation * 0.5), 0, Math.cos(rotation * 0.5));
-      cube.updateMatrices();
-    }
     controls.update(deltaSeconds);
-    renderer.profiler.recordExternalMetric("frame.rafIntervalMs", deltaMilliseconds);
     renderer.render(camera, scene, deltaSeconds);
     animationFrame = requestAnimationFrame(frame);
   };

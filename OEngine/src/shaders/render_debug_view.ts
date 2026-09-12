@@ -252,7 +252,6 @@ ${GBUFFER_ENCODE_WGSL}
 
 export const SURFACE_FLAGS_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
-${DEBUG_HASH_WGSL}
 struct SurfaceDebugMode { value: vec4u, }
 @group(0) @binding(0) var source: texture_2d<u32>;
 @group(0) @binding(1) var<uniform> settings: DebugViewSettings;
@@ -263,16 +262,9 @@ struct SurfaceDebugMode { value: vec4u, }
   if (settings.contract.x == 1u && packed == ${VIS_MESH_CLEAR_SENTINEL}u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
   }
-  let material_slot = select(oengine_surface_material_slot(packed), packed, settings.contract.x == 1u);
   let flags = select(oengine_surface_flags(packed), 0u, settings.contract.x == 1u);
   if (settings.contract.x == 0u && (flags & OENGINE_SURFACE_FLAG_VALID) == 0u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
-  }
-  if mode.value.x == 0u {
-    let hash = avalanche_hash(material_slot);
-    return vec4f(0.15 + vec3f(
-      f32(hash & 255u), f32((hash >> 8u) & 255u), f32((hash >> 16u) & 255u)
-    ) / 255.0 * 0.65, 1.0);
   }
   if mode.value.x == 1u {
     return select(vec4f(1.0, 0.1, 0.05, 1.0), vec4f(0.1, 1.0, 0.2, 1.0), settings.contract.x == 0u && (flags & OENGINE_SURFACE_FLAG_MOTION_VALID) != 0u);

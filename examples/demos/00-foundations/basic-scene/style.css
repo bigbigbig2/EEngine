@@ -16,10 +16,9 @@ body,
 #viewport {
   display: block;
   touch-action: none;
-  background: radial-gradient(circle at 50% 30%, #263247 0, #101722 45%, #090d13 100%);
+  background: #000;
 }
 
-.identity,
 #status {
   position: fixed;
   z-index: 2;
@@ -28,24 +27,6 @@ body,
   border-radius: 10px;
   background: rgba(9, 13, 19, 0.74);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(12px);
-}
-
-.identity {
-  top: 18px;
-  display: grid;
-  gap: 3px;
-  padding: 10px 13px;
-  pointer-events: none;
-}
-
-.identity strong {
-  font-size: 13px;
-  letter-spacing: 0.02em;
-}
-
-.identity span,
-#status {
   color: #aab6c8;
   font-size: 11px;
 }

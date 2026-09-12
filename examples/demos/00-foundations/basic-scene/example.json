@@ -3,6 +3,6 @@
   "title": "Basic Scene",
   "category": "00-foundations",
   "order": 10,
-  "description": "A self-contained OEngine scene with cooked geometry, PBR materials, a directional light, orbit controls, and renderer lifecycle handling.",
-  "tags": ["foundations", "renderer", "scene", "pbr"]
+  "description": "A minimal OEngine baseline with one static unlit cube, orbit camera controls, and all optional rendering effects disabled.",
+  "tags": ["foundations", "renderer", "scene", "baseline"]
 }

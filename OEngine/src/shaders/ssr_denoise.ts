@@ -332,7 +332,10 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   );
   history.a *= stretch_confidence * stretch_confidence;
   if (history.a <= 0.001) { return vec4f(current.rgb, current_confidence); }
-  history.rgb *= settings.pre_exposure_scale;
+  history = vec4f(
+    history.rgb * settings.pre_exposure_scale,
+    history.a
+  );
 
   let history_scale = 1.0 + rgb_to_luminance(history.rgb) * 10.0;
   let encoded_history = rgb_to_YCoCg(history.rgb / history_scale);

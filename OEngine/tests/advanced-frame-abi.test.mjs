@@ -84,7 +84,10 @@ import {
   FILAMENT_SPECULAR_AO_REVISION,
   SPECULAR_AMBIENT_OCCLUSION_WGSL
 } from "../.test-dist/shaders/specular_ambient_occlusion.js";
-import { SURFACE_PBR_DEBUG_WGSL } from "../.test-dist/shaders/render_debug_view.js";
+import {
+  SURFACE_FLAGS_DEBUG_WGSL,
+  SURFACE_PBR_DEBUG_WGSL
+} from "../.test-dist/shaders/render_debug_view.js";
 import { THREE_SSR_REVISION } from "../.test-dist/shaders/ssr_common.js";
 import { SSR_TRACE_WGSL } from "../.test-dist/shaders/ssr_trace.js";
 import { SSR_RESOLVE_WGSL } from "../.test-dist/shaders/ssr_resolve.js";
@@ -394,6 +397,7 @@ test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only
     existsSync(new URL("../src/render/pipeline/OpaqueLightingPipeline.ts", import.meta.url)),
     false
   );
+  assert.doesNotMatch(SURFACE_FLAGS_DEBUG_WGSL, /oengine_surface_material_slot/);
   assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /options\.baselineSpecular/);
   assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /builder\.create\("pre-exposed-baseline-specular"/);
   assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /fs_main_with_baseline/);
@@ -937,6 +941,11 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TEMPORAL_WGSL, /hit_history_pixel, hit_depth, hit_normal/);
   assert.match(SSR_TEMPORAL_WGSL, /surface_history\.rgb \* surface_weight/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_history\.rgb \* hit_weight/);
+  assert.doesNotMatch(SSR_TEMPORAL_WGSL, /history\.rgb\s*\*=/);
+  assert.match(
+    SSR_TEMPORAL_WGSL,
+    /history = vec4f\(\s*history\.rgb \* settings\.pre_exposure_scale,\s*history\.a\s*\)/
+  );
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /velocity = mix\(receiver_velocity, hit_velocity/);
   assert.match(SSR_TEMPORAL_WGSL, /neighborhood_bounds/);
   assert.match(SSR_TEMPORAL_WGSL, /rgb_to_luminance\(color\) \* 10\.0/);
