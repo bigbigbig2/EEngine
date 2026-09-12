@@ -275,6 +275,11 @@ struct TraceOutput {
         let new_zones = countOneBits(newly_occluded);
         if (new_zones == 0u) { continue; }
         occluded |= newly_occluded;
+        let horizon_zone_weight = f32(new_zones) * (1.0 / 32.0);
+        // Bent normal is a geometric visibility product. Accumulate as soon
+        // as a horizon zone becomes newly occluded; do not make it depend on
+        // whether the sample also contributes incident radiance.
+        bent -= normalize(candidate_world - center_world) * horizon_zone_weight;
 
         let center_facing = max(dot(view_normal, pixel_to_sample), 0.0);
         if (center_facing <= 0.0) { continue; }
@@ -294,11 +299,9 @@ struct TraceOutput {
             raw_emitter_facing < 0.0
           );
         }
-        let zone_weight = f32(new_zones) * (1.0 / 32.0);
         incident += textureLoad(radiance_source, candidate_pixel, 0).rgb *
-          center_facing * emitter_facing * zone_weight;
-        evidence += zone_weight;
-        bent -= normalize(candidate_world - center_world) * zone_weight;
+          center_facing * emitter_facing * horizon_zone_weight;
+        evidence += horizon_zone_weight;
       }
     }
     accumulated_occlusion += f32(countOneBits(occluded)) * (1.0 / 32.0);

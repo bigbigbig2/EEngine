@@ -404,6 +404,12 @@ test("ADR-0009 Step 5 pins the Three.js r186 SSGI sampling invariants", () => {
   assert.match(THREE_SSGI_TRACE_WGSL, /if \(!in_view\(candidate_uv\)\) \{ break; \}/);
   assert.match(THREE_SSGI_TRACE_WGSL, /var occluded = 0u/);
   assert.match(THREE_SSGI_TRACE_WGSL, /let newly_occluded = mask & ~occluded/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /Bent normal is a geometric visibility product/);
+  assert.ok(
+    THREE_SSGI_TRACE_WGSL.indexOf("bent -=") <
+      THREE_SSGI_TRACE_WGSL.indexOf("let center_facing"),
+    "bent-normal accumulation must not depend on GI emitter/receiver facing"
+  );
   assert.match(THREE_SSGI_TRACE_WGSL, /countOneBits\(occluded\)/);
   assert.match(THREE_SSGI_TRACE_WGSL, /initial_ray_step/);
   assert.match(THREE_SSGI_TRACE_WGSL, /settings\.backface_lighting/);
