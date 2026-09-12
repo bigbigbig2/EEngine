@@ -26,7 +26,7 @@ export const GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK = (1 << 3) - 1;
 type BindingResource =
   | Readonly<{ category: "buffer"; type: "uniform" | "read-only-storage" | "storage" }>
   | Readonly<{ category: "texture"; sampleType: "uint" | "depth" | "float" }>
-  | Readonly<{ category: "sampler"; type: "filtering" }>
+  | Readonly<{ category: "sampler"; type: "filtering" | "comparison" }>
   | Readonly<{
       category: "storage-texture";
       access: "write-only";
@@ -101,7 +101,9 @@ export function createGpuSparseShadingPipelineDescriptor(
     textureBinding(0, 2, "shading_bin_id", "uint"),
     textureBinding(0, 3, "visibility_key", "uint"),
     ...(needsGeometry ? [textureBinding(0, 4, "visibility_depth", "depth")] : []),
-    ...(needsGeometry ? [uniformBinding(0, 5, "shading_view")] : []),
+    // PreExposure/frame revision are required even by UnlitFactor; geometry
+    // specialization only controls depth/scene reconstruction dependencies.
+    uniformBinding(0, 5, "shading_view"),
     storageTextureBinding(0, 6, "output_hdr", "rgba16float"),
     ...(publishesShading ? [storageTextureBinding(0, 7, "output_normal", "rgba16uint")] : []),
     ...(publishesShading || publishesDiffuse
@@ -143,10 +145,11 @@ export function createGpuSparseShadingPipelineDescriptor(
     storageBufferBinding(3, 2, "light_cluster_indices", "read-only-storage"),
     uniformBinding(3, 3, "light_settings"),
     uniformBinding(3, 4, "environment_settings"),
-    ...Array.from({ length: 4 }, (_, index) =>
-      textureBinding(3, 5 + index, `lighting_texture_${index}`, "float")),
-    ...Array.from({ length: 2 }, (_, index) =>
-      samplerBinding(3, 9 + index, `lighting_sampler_${index}`))
+    textureBinding(3, 5, "shadow_atlas", "depth"),
+    ...Array.from({ length: 3 }, (_, index) =>
+      textureBinding(3, 6 + index, `environment_texture_${index}`, "float")),
+    samplerBinding(3, 9, "shadow_sampler", "comparison"),
+    samplerBinding(3, 10, "environment_sampler", "filtering")
   ] : [];
 
   const groups: GpuSparseShadingBindGroupDescriptor[] = [
@@ -274,11 +277,12 @@ function textureBinding(
 function samplerBinding(
   group: 0 | 1 | 2 | 3,
   binding: number,
-  name: string
+  name: string,
+  type: "filtering" | "comparison" = "filtering"
 ): GpuSparseShadingBindingDescriptor {
   return bindingDescriptor(group, binding, name, "sampler", {
     category: "sampler",
-    type: "filtering"
+    type
   });
 }
 
@@ -311,7 +315,15 @@ function toGpuLayoutEntry(
 ): GPUBindGroupLayoutEntry {
   const common = { binding: binding.binding, visibility };
   switch (binding.resource.category) {
-    case "buffer": return { ...common, buffer: { type: binding.resource.type } };
+    case "buffer": return {
+      ...common,
+      buffer: {
+        type: binding.resource.type,
+        ...(binding.name === "shading_bin_settings"
+          ? { hasDynamicOffset: true, minBindingSize: 32 }
+          : {})
+      }
+    };
     case "texture": return { ...common, texture: { sampleType: binding.resource.sampleType } };
     case "sampler": return { ...common, sampler: { type: binding.resource.type } };
     case "storage-texture": return {
@@ -346,7 +358,8 @@ function bindingDeclarationWgsl(binding: GpuSparseShadingBindingDescriptor): str
         : "texture_2d<f32>";
       return `${prefix} var ${binding.name}: ${textureType};`;
     }
-    case "sampler": return `${prefix} var ${binding.name}: sampler;`;
+    case "sampler": return `${prefix} var ${binding.name}: ` +
+      `${binding.resource.type === "comparison" ? "sampler_comparison" : "sampler"};`;
     case "storage-texture": return `${prefix} var ${binding.name}: ` +
       `texture_storage_2d<${binding.resource.format}, write>;`;
   }

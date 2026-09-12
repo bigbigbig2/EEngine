@@ -160,9 +160,9 @@ test("textureless, unlit and ColorOnly variants physically omit unused declarati
   assert.ok(unlitNames.includes("visibility_key"));
   assert.ok(unlitNames.includes("meshlet_work"));
   assert.ok(unlitNames.includes("material_records"));
+  assert.ok(unlitNames.includes("shading_view"));
   for (const forbidden of [
     "visibility_depth",
-    "shading_view",
     "instance_records",
     "asset_metadata_heap",
     "vertex_payload_heap",
