@@ -192,6 +192,8 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let receiver_velocity = taa_get_velocity(velocity_source, receiver) *
     vec2f(effect_size) / vec2f(surface_size);
   let hit_pixel = min(trace_hit_position(position), vec2u(surface_size) - vec2u(1u));
+  let hit_validity = textureLoad(surface_validity_source, vec2i(hit_pixel), 0).rg;
+  let hit_candidate_valid = hit_validity.g >= 0.5 && hit_validity.r < 0.5;
   let hit_velocity = textureLoad(velocity_source, vec2i(hit_pixel), 0).rg *
     vec2f(effect_size) / vec2f(surface_size);
   let center_depth = textureLoad(depth_source, receiver, 0).r;
@@ -199,16 +201,44 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let view_position = project_position_from_depth(
     center_uv, center_depth, camera_current.projection_matrix_inverse
   );
-  let parallax_weight = saturate(current.a / max(current.a + abs(view_position.z), 1e-5));
-  let velocity = mix(receiver_velocity, hit_velocity, parallax_weight);
-  let motion_confidence = saturate(1.0 - length(velocity) / max(settings.max_motion_pixels, 1.0));
-  let history_pixel = coord.xy - velocity;
   let center_normal = decode_g_buffer_normal(textureLoad(normal_source, receiver, 0).xy);
-  var history = history_sample_4tap(
-    history_pixel, center_depth, center_normal, effect_size, surface_size
+  let surface_history_pixel = coord.xy - receiver_velocity;
+  let hit_effect_pixel = (vec2f(hit_pixel) + 0.5) *
+    vec2f(effect_size) / vec2f(surface_size);
+  let hit_history_pixel = hit_effect_pixel - hit_velocity;
+  let surface_history = history_sample_4tap(
+    surface_history_pixel, center_depth, center_normal, effect_size, surface_size
+  );
+  let hit_history = history_sample_4tap(
+    hit_history_pixel, center_depth, center_normal, effect_size, surface_size
+  );
+  // Preserve the two physical reprojection candidates. Blending their
+  // velocities first would sample a third point that represents neither the
+  // receiver nor the reflected hit and causes motion-dependent ghosting. The
+  // hit candidate starts at the current hit texel, not the receiver texel.
+  let hit_trust = saturate(current.a / max(current.a + abs(view_position.z), 1e-5));
+  let surface_weight = (1.0 - hit_trust) * surface_history.a;
+  let hit_weight = hit_trust * hit_history.a *
+    select(0.0, 1.0, hit_candidate_valid);
+  let history_weight_sum = surface_weight + hit_weight;
+  var history = select(
+    vec4f(0.0),
+    vec4f(
+      (surface_history.rgb * surface_weight + hit_history.rgb * hit_weight) /
+        max(history_weight_sum, 1e-5),
+      (surface_history.a * surface_weight + hit_history.a * hit_weight) /
+        max(history_weight_sum, 1e-5)
+    ),
+    history_weight_sum > 1e-5
   );
   if (history.a <= 0.001) { return vec4f(current.rgb, current_confidence); }
   history.rgb *= settings.pre_exposure_scale;
+
+  // Three's motion factor is based on the receiver reprojection even when the
+  // specular hit candidate is also sampled.
+  let motion_confidence = saturate(
+    1.0 - length(receiver_velocity) / max(settings.max_motion_pixels, 1.0)
+  );
 
   let encoded_current = taa_encode_color(current.rgb);
   let encoded_history = taa_encode_color(history.rgb);
