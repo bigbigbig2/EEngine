@@ -1196,9 +1196,14 @@ test("ADR-0009 Step 8 makes fixed DRS inert and adaptive DRS bucketed", () => {
   assert.ok(adaptive.scaleBuckets.includes(scale));
 });
 
-test("ADR-0009 Step 8 makes fixed benchmark mode the settings default", () => {
+test("ADR-0009 Step 8 requires temporal reconstruction for every sub-native scale", () => {
   const settings = new RenderSettings();
   assert.equal(settings.values.resolution.mode, "fixed");
+  assert.equal(settings.values.resolution.internalScale, 1);
+  assert.throws(
+    () => settings.update({ resolution: { internalScale: 0.75 } }),
+    /sub-native internal resolution requires temporal reconstruction/
+  );
   assert.equal(settings.values.resolution.internalScale, 1);
   const change = settings.update({
     features: { temporalAntiAliasing: true },

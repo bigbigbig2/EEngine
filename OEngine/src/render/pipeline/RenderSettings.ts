@@ -493,6 +493,11 @@ function validate(value: RenderSettingsValues): void {
     throw new RangeError("resolution.mode must be fixed or adaptive");
   }
   assertRange(value.resolution.internalScale, 0.25, 1, "resolution.internalScale");
+  if (value.resolution.internalScale !== 1 && !value.features.temporalAntiAliasing) {
+    throw new RangeError(
+      "sub-native internal resolution requires temporal reconstruction"
+    );
+  }
   assertRange(value.resolution.adaptiveMinimumScale, 0.5, 1, "resolution.adaptiveMinimumScale");
   assertRange(value.resolution.adaptiveMaximumScale, 0.5, 1, "resolution.adaptiveMaximumScale");
   if (value.resolution.adaptiveMinimumScale > value.resolution.adaptiveMaximumScale) {
