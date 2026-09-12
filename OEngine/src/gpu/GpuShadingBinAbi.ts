@@ -344,7 +344,8 @@ export function shadingBinDispatchDimensions(
   const workgroupCountY = ceilDivide(writtenCount, workgroupCountX);
   if (workgroupCountY > maxDispatchDimension) {
     throw new RangeError(
-      `Shading bin dispatch ${writtenCount} exceeds ${maxDispatchDimension} squared workgroups`
+      `Shading bin dispatch ${writtenCount} exceeds maxComputeWorkgroupsPerDimension ` +
+      `${maxDispatchDimension} squared workgroups`
     );
   }
   return Object.freeze({ workgroupCountX, workgroupCountY, workgroupCountZ: 1 });
