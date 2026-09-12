@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   resolveRendererDebugConfig
 } from "../.test-dist/addons/debug/RendererDebugConfig.js";
+import { summarizeRafFps } from "../.test-dist/addons/debug/RendererInfoModel.js";
 import { mergeRendererConfig } from "../.test-dist/render/RendererConfig.js";
 
 test("debug config is opt-in and normalizes the development defaults", () => {
@@ -56,3 +57,14 @@ test("Renderer keeps the Tweakpane runtime behind an async addon boundary", asyn
   assert.doesNotMatch(source, /from ["']tweakpane["']/);
 });
 
+test("Renderer info reports a rolling RAF rate instead of one noisy interval", () => {
+  const steadySixtyFps = Array.from({ length: 60 }, () => 1000 / 60);
+  assert.ok(Math.abs(summarizeRafFps(steadySixtyFps) - 60) < 0.001);
+
+  const oneSlowFrame = [...steadySixtyFps.slice(1), 100];
+  const rollingFps = summarizeRafFps(oneSlowFrame);
+  assert.ok(rollingFps > 50 && rollingFps < 60);
+  assert.notEqual(rollingFps, 10);
+
+  assert.equal(summarizeRafFps([Number.NaN, -1, 2000]), undefined);
+});

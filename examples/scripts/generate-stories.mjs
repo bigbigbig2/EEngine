@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverExamples } from "./discover-examples.mjs";
@@ -8,8 +8,8 @@ const examplesRoot = resolve(scriptsDirectory, "..");
 const outputDirectory = resolve(examplesRoot, "stories", "generated");
 const examples = await discoverExamples(examplesRoot);
 
-await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true });
+const expectedStoryFiles = new Set();
 
 for (const example of examples) {
   const categoryTitle = titleCase(example.category.replace(/^\d{2}-/, ""));
@@ -39,7 +39,15 @@ for (const example of examples) {
 `type Story = StoryObj<typeof meta>;\n\n` +
 `export const ${exportName}: Story = { name: ${JSON.stringify(example.title)} };\n`;
 
-  await writeFile(resolve(outputDirectory, `${example.id}.stories.tsx`), source, "utf8");
+  const storyFile = `${example.id}.stories.tsx`;
+  expectedStoryFiles.add(storyFile);
+  await writeFile(resolve(outputDirectory, storyFile), source, "utf8");
+}
+
+for (const entry of await readdir(outputDirectory, { withFileTypes: true })) {
+  if (entry.isFile() && entry.name.endsWith(".stories.tsx") && !expectedStoryFiles.has(entry.name)) {
+    await rm(resolve(outputDirectory, entry.name), { force: true });
+  }
 }
 
 console.log(`Generated ${examples.length} Storybook stor${examples.length === 1 ? "y" : "ies"}.`);

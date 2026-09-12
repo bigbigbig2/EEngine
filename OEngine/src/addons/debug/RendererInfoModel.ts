@@ -56,10 +56,20 @@ const SECTION_TITLES: Readonly<Record<RendererInfoSectionId, string>> = Object.f
 export class RendererInfoModel {
   private latestCpu: FrameProfileSnapshot | undefined;
   private latestGpu: FrameProfileSnapshot | undefined;
+  private readonly rafIntervalsMs: number[] = [];
+  private latestRafFrame = -1;
 
   constructor(private readonly renderer: Renderer) {}
 
   consume(snapshot: FrameProfileSnapshot): void {
+    if (snapshot.frameIndex > this.latestRafFrame) {
+      this.latestRafFrame = snapshot.frameIndex;
+      const rafIntervalMs = metric(snapshot, "frame.rafIntervalMs");
+      if (isValidRafInterval(rafIntervalMs)) {
+        this.rafIntervalsMs.push(rafIntervalMs);
+        if (this.rafIntervalsMs.length > 512) this.rafIntervalsMs.shift();
+      }
+    }
     if (this.latestCpu === undefined || snapshot.frameIndex >= this.latestCpu.frameIndex) {
       this.latestCpu = snapshot;
     }
@@ -82,7 +92,7 @@ export class RendererInfoModel {
     const diagnostics = renderer.profiler.diagnostics;
     const gpuFrame = this.latestGpu;
 
-    const rafMs = metric(frame, "frame.rafIntervalMs");
+    const rafFps = summarizeRafFps(this.rafIntervalsMs);
     const cpuMs = frame?.cpuMs.frame;
     const gpuMs = gpuFrame?.gpu.available
       ? gpuFrame.gpu.segments.reduce((sum, segment) => sum + segment.durationMs, 0)
@@ -108,7 +118,7 @@ export class RendererInfoModel {
       sampledFrame: frame?.frameIndex ?? renderer.frame_count,
       sections: Object.freeze([
         section("overview", [
-          row("fps", "FPS", rafMs === undefined ? pending() : available(rafMs > 0 ? (1000 / rafMs).toFixed(1) : "—")),
+          row("fps", "RAF FPS", rafFps === undefined ? pending() : available(rafFps.toFixed(1))),
           row("cpu", "CPU frame", measured(cpuMs, formatMs)),
           row("gpu", "GPU pass sum", gpuMs === undefined ? state(gpuAvailability) : value(gpuMs, gpuAvailability, formatMs)),
           row("resolution", "Output", available(`${temporal.outputWidth} × ${temporal.outputHeight}`)),
@@ -176,6 +186,32 @@ export class RendererInfoModel {
       ])
     });
   }
+}
+
+/**
+ * Summarizes the most recent approximately one second of valid RAF intervals.
+ * Long background-tab pauses are excluded; real stalls inside the active
+ * window remain part of the result instead of being hidden.
+ */
+export function summarizeRafFps(
+  intervalsMs: readonly number[],
+  windowMs = 1000
+): number | undefined {
+  let elapsedMs = 0;
+  let intervalCount = 0;
+  for (let index = intervalsMs.length - 1; index >= 0 && elapsedMs < windowMs; index--) {
+    const intervalMs = intervalsMs[index];
+    if (!isValidRafInterval(intervalMs)) continue;
+    elapsedMs += intervalMs;
+    intervalCount++;
+  }
+  return intervalCount >= 2 && elapsedMs > 0
+    ? intervalCount * 1000 / elapsedMs
+    : undefined;
+}
+
+function isValidRafInterval(intervalMs: number | undefined): intervalMs is number {
+  return intervalMs !== undefined && Number.isFinite(intervalMs) && intervalMs > 0 && intervalMs <= 1000;
 }
 
 function section(id: RendererInfoSectionId, rows: RendererInfoRow[]): RendererInfoSection {
