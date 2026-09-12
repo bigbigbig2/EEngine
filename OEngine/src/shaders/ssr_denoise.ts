@@ -80,12 +80,11 @@ struct SsrTemporalSettings {
 @group(0) @binding(1) var velocity_source: texture_2d<f32>;
 @group(0) @binding(2) var occlusion_confidence_source: texture_2d<f32>;
 @group(0) @binding(3) var history_source: texture_2d<f32>;
-@group(0) @binding(4) var<uniform> camera_current: CommandEncoder;
-@group(0) @binding(5) var<uniform> settings: SsrTemporalSettings;
-@group(0) @binding(6) var surface_validity_source: texture_2d<f32>;
-@group(0) @binding(7) var trace_source: texture_2d<u32>;
-@group(0) @binding(8) var depth_source: texture_2d<f32>;
-@group(0) @binding(9) var normal_source: texture_2d<u32>;
+@group(0) @binding(4) var<uniform> settings: SsrTemporalSettings;
+@group(0) @binding(5) var surface_validity_source: texture_2d<f32>;
+@group(0) @binding(6) var trace_source: texture_2d<u32>;
+@group(0) @binding(7) var depth_source: texture_2d<f32>;
+@group(0) @binding(8) var normal_source: texture_2d<u32>;
 
 fn trace_confidence(position: vec2i) -> f32 {
   return f32(textureLoad(trace_source, position, 0).y & 0xffu) / 255.0;
@@ -103,13 +102,19 @@ fn surface_position(effect_position: vec2i, effect_size: vec2i, surface_size: ve
   );
 }
 
+struct HistorySample4Tap {
+  color: vec4f,
+  max_confidence: f32,
+  min_confidence: f32,
+};
+
 fn history_sample_4tap(
   history_pixel: vec2f,
   center_depth: f32,
   center_normal: vec3f,
   effect_size: vec2i,
   surface_size: vec2i
-) -> vec4f {
+) -> HistorySample4Tap {
   let base = vec2i(floor(history_pixel - 0.5));
   let fraction = fract(history_pixel - 0.5);
   let bilinear = vec4f(
@@ -121,49 +126,74 @@ fn history_sample_4tap(
   const offsets = array<vec2i, 4>(vec2i(0, 0), vec2i(1, 0), vec2i(0, 1), vec2i(1, 1));
   var result = vec4f(0.0);
   var weight_sum = 0.0;
+  var max_confidence = 0.0;
+  var min_confidence = 1.0;
   for (var i = 0; i < 4; i++) {
     let tap = base + offsets[i];
-    if (any(tap < vec2i(0)) || any(tap >= effect_size)) { continue; }
+    if (any(tap < vec2i(0)) || any(tap >= effect_size)) {
+      min_confidence = 0.0;
+      continue;
+    }
     let tap_surface = surface_position(tap, effect_size, surface_size);
     let tap_depth = textureLoad(depth_source, tap_surface, 0).r;
     let tap_normal = decode_g_buffer_normal(textureLoad(normal_source, tap_surface, 0).xy);
     let geometry = exp(-abs(center_depth - tap_depth) * max(abs(center_depth), 1.0) * 8.0) *
       pow(max(dot(center_normal, tap_normal), 0.0), 64.0);
+    max_confidence = max(max_confidence, geometry);
+    min_confidence = min(min_confidence, geometry);
     let history = max(textureLoad(history_source, tap, 0), vec4f(0.0));
     let weight = bilinear[i] * geometry * saturate(history.a);
     result += history * weight;
     weight_sum += weight;
   }
-  return select(
+  let color = select(
     vec4f(0.0),
     result / max(weight_sum, 1e-5),
     weight_sum > 1e-5
   );
+  return HistorySample4Tap(color, max_confidence, min_confidence);
 }
 
 fn neighborhood_bounds(
   position: vec2i,
   gamma: f32,
   minimum: ptr<function, vec3f>,
-  maximum: ptr<function, vec3f>
+  maximum: ptr<function, vec3f>,
+  ray_length_stddev: ptr<function, f32>,
+  screen_hit_probability: ptr<function, f32>
 ) {
   let limit = vec2i(textureDimensions(raw_specular)) - vec2i(1);
   var sum = vec3f(0.0);
   var sum_squared = vec3f(0.0);
   var count = 0.0;
+  var ray_count = 0.0;
+  var ray_mean = 0.0;
+  var ray_m2 = 0.0;
   for (var y = -1; y <= 1; y++) {
     for (var x = -1; x <= 1; x++) {
-      let color = max(textureLoad(raw_specular, clamp(position + vec2i(x, y), vec2i(0), limit), 0).rgb, vec3f(0.0));
+      let sample = max(
+        textureLoad(raw_specular, clamp(position + vec2i(x, y), vec2i(0), limit), 0),
+        vec4f(0.0)
+      );
+      let color = sample.rgb;
       let encoded = rgb_to_YCoCg(color / (1.0 + rgb_to_luminance(color) * 10.0));
       sum += encoded;
       sum_squared += encoded * encoded;
       count += 1.0;
+      if (sample.a > 1e-5) {
+        ray_count += 1.0;
+        let delta = sample.a - ray_mean;
+        ray_mean += delta / ray_count;
+        ray_m2 += delta * (sample.a - ray_mean);
+      }
     }
   }
   let mean = sum / count;
   let deviation = sqrt(max(sum_squared / count - mean * mean, vec3f(0.0)));
   *minimum = mean - deviation * gamma;
   *maximum = mean + deviation * gamma;
+  *ray_length_stddev = max(sqrt(ray_m2 / max(ray_count, 1.0)), 1e-3);
+  *screen_hit_probability = ray_count / 9.0;
 }
 
 fn clip_history_to_aabb(history: vec3f, minimum: vec3f, maximum: vec3f) -> vec3f {
@@ -208,6 +238,8 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     surface_history_pixel / vec2f(effect_size),
     vec2f(effect_size)
   );
+  let center_normal = decode_g_buffer_normal(textureLoad(normal_source, receiver, 0).xy);
+  let curvature_factor = saturate(length(fwidth(center_normal)) * 50.0);
   let validity = textureLoad(surface_validity_source, receiver, 0).rg;
   let trace_validity = trace_confidence(position);
   let disocclusion = textureLoad(occlusion_confidence_source, receiver, 0).r;
@@ -226,11 +258,6 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let hit_velocity = textureLoad(velocity_source, vec2i(hit_pixel), 0).rg *
     vec2f(effect_size) / vec2f(surface_size);
   let center_depth = textureLoad(depth_source, receiver, 0).r;
-  let center_uv = texel_coordinate_to_uv(vec2f(receiver), vec2u(surface_size));
-  let view_position = project_position_from_depth(
-    center_uv, center_depth, camera_current.projection_matrix_inverse
-  );
-  let center_normal = decode_g_buffer_normal(textureLoad(normal_source, receiver, 0).xy);
   let hit_depth = textureLoad(depth_source, vec2i(hit_pixel), 0).r;
   let hit_normal = decode_g_buffer_normal(
     textureLoad(normal_source, vec2i(hit_pixel), 0).xy
@@ -238,22 +265,49 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let hit_effect_pixel = (vec2f(hit_pixel) + 0.5) *
     vec2f(effect_size) / vec2f(surface_size);
   let hit_history_pixel = hit_effect_pixel - hit_velocity;
-  let surface_history = history_sample_4tap(
+  let surface_sample = history_sample_4tap(
     surface_history_pixel, center_depth, center_normal, effect_size, surface_size
   );
-  let hit_history = history_sample_4tap(
+  let hit_sample = history_sample_4tap(
     hit_history_pixel, hit_depth, hit_normal, effect_size, surface_size
   );
+  let surface_history = surface_sample.color;
+  let hit_history = hit_sample.color;
   // Preserve the two physical reprojection candidates. Blending their
   // velocities first would sample a third point that represents neither the
   // receiver nor the reflected hit and causes motion-dependent ghosting. The
   // hit candidate starts at the current hit texel, not the receiver texel.
-  let hit_trust = saturate(current.a / max(current.a + abs(view_position.z), 1e-5));
-  let surface_weight = (1.0 - hit_trust) * surface_history.a;
-  let hit_weight = hit_trust * hit_history.a *
-    select(0.0, 1.0, hit_candidate_valid);
+  let motion_confidence = saturate(
+    1.0 - length(receiver_velocity) / max(settings.max_motion_pixels, 1.0)
+  );
+  let motion_factor = 1.0 - motion_confidence;
+  let variance_gamma = mix(0.5, 1.0, motion_confidence * motion_confidence);
+  var minimum: vec3f;
+  var maximum: vec3f;
+  var ray_length_stddev: f32;
+  var screen_hit_probability: f32;
+  neighborhood_bounds(
+    position,
+    variance_gamma,
+    &minimum,
+    &maximum,
+    &ray_length_stddev,
+    &screen_hit_probability
+  );
+  let reflection_edge_factor = 1.0 - min(
+    ray_length_stddev * min(motion_factor * 100.0, 1.0) * 3.5,
+    1.0
+  );
+  let hit_candidate_weight = select(0.0, 1.0, hit_candidate_valid);
+  let hit_raw_trust = hit_sample.min_confidence * reflection_edge_factor *
+    (1.0 - curvature_factor) * hit_sample.max_confidence * hit_candidate_weight;
+  let hit_trust = hit_raw_trust *
+    (1.0 - (1.0 - screen_hit_probability) * (1.0 - screen_hit_probability));
+  let surface_weight = (1.0 - hit_trust) * surface_sample.max_confidence *
+    surface_history.a;
+  let hit_weight = hit_trust * hit_history.a;
   let history_weight_sum = surface_weight + hit_weight;
-  let hit_path_trust = hit_weight / max(history_weight_sum, 1e-5);
+  let hit_path_trust = hit_raw_trust;
   var history = select(
     vec4f(0.0),
     vec4f(
@@ -268,16 +322,6 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   if (history.a <= 0.001) { return vec4f(current.rgb, current_confidence); }
   history.rgb *= settings.pre_exposure_scale;
 
-  // Three's motion factor is based on the receiver reprojection even when the
-  // specular hit candidate is also sampled.
-  let motion_confidence = saturate(
-    1.0 - length(receiver_velocity) / max(settings.max_motion_pixels, 1.0)
-  );
-  let motion_factor = 1.0 - motion_confidence;
-  let variance_gamma = mix(0.5, 1.0, motion_confidence * motion_confidence);
-  var minimum: vec3f;
-  var maximum: vec3f;
-  neighborhood_bounds(position, variance_gamma, &minimum, &maximum);
   let history_scale = 1.0 + rgb_to_luminance(history.rgb) * 10.0;
   let encoded_history = rgb_to_YCoCg(history.rgb / history_scale);
   let clipped_encoded = clip_history_to_aabb(encoded_history, minimum, maximum);

@@ -744,6 +744,9 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_RESOLVE_WGSL, /specular_dominant_factor/);
   assert.doesNotMatch(SSR_RESOLVE_WGSL, /environment|lpv/i);
   assert.match(SSR_TEMPORAL_WGSL, /history_sample_4tap/);
+  assert.match(SSR_TEMPORAL_WGSL, /struct HistorySample4Tap/);
+  assert.match(SSR_TEMPORAL_WGSL, /max_confidence/);
+  assert.match(SSR_TEMPORAL_WGSL, /min_confidence/);
   assert.match(SSR_TEMPORAL_WGSL, /surface_history_pixel/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_effect_pixel/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_history_pixel/);
@@ -758,10 +761,17 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TEMPORAL_WGSL, /variance_gamma/);
   assert.match(SSR_TEMPORAL_WGSL, /history_scale/);
   assert.match(SSR_TEMPORAL_WGSL, /clip_confidence/);
+  assert.match(SSR_TEMPORAL_WGSL, /ray_length_stddev/);
+  assert.match(SSR_TEMPORAL_WGSL, /screen_hit_probability/);
+  assert.match(SSR_TEMPORAL_WGSL, /curvature_factor/);
+  assert.match(SSR_TEMPORAL_WGSL, /reflection_edge_factor/);
+  assert.match(SSR_TEMPORAL_WGSL, /hit_candidate_weight/);
+  assert.match(SSR_TEMPORAL_WGSL, /hit_raw_trust/);
   assert.match(SSR_TEMPORAL_WGSL, /reprojection_stretch_confidence/);
   assert.match(SSR_TEMPORAL_WGSL, /dpdx\(history_uv\)/);
   assert.match(SSR_TEMPORAL_WGSL, /minimum_singular_value/);
   assert.match(SSR_TEMPORAL_WGSL, /stretch_confidence \* stretch_confidence/);
+  assert.doesNotMatch(SSR_TEMPORAL_WGSL, /camera_current/);
   assert.ok(
     SSR_TEMPORAL_WGSL.indexOf("let stretch_confidence = reprojection_stretch_confidence(") <
       SSR_TEMPORAL_WGSL.indexOf("if (current_confidence <= 0.001)")
@@ -770,7 +780,7 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /neighborhood_ray_length|mirror_screen_uv/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /camera_previous|linear_clamp/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /vogel_disk/);
-  assert.match(SSR_RECURRENT_DENOISE_WGSL, /ray_weight/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /ray_difference/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /mirror_screen_uv/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /raw_spatial_weight/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /center_raw_luma/);

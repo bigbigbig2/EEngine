@@ -320,14 +320,13 @@ export class ScreenSpaceReflectionsPass {
               trace: resolveTextureView(resources.get(trace)),
               depth: resolveTextureView(resources.get(inputs.depth)),
               normal: resolveTextureView(resources.get(inputs.normal)),
-              currentCamera: resolveBuffer(resources.get(inputs.currentCamera), "current camera"),
               historyPreExposureScale: data.historyPreExposureScale
             }
           );
           this.lastTemporalPasses = 1;
         }
       );
-      for (const input of [reflections, historyInputResource!, inputs.velocity, inputs.occlusionConfidence, inputs.surfaceValidity, trace, inputs.depth, inputs.normal, inputs.currentCamera]) {
+      for (const input of [reflections, historyInputResource!, inputs.velocity, inputs.occlusionConfidence, inputs.surfaceValidity, trace, inputs.depth, inputs.normal]) {
         temporalBuilder.read(input);
       }
       temporal = temporalBuilder.create(
@@ -631,7 +630,6 @@ export class ScreenSpaceReflectionsPass {
       velocity: GPUTextureView;
       occlusionConfidence: GPUTextureView;
       surfaceValidity: GPUTextureView;
-      currentCamera: GPUBuffer;
       trace: GPUTextureView;
       depth: GPUTextureView;
       normal: GPUTextureView;
@@ -663,7 +661,6 @@ export class ScreenSpaceReflectionsPass {
         resources.velocity,
         resources.occlusionConfidence,
         resources.history,
-        { buffer: resources.currentCamera },
         { buffer: this.temporalSettings },
         resources.surfaceValidity,
         resources.trace,
@@ -968,11 +965,10 @@ function createSsrTemporalGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 2, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
       { binding: 3, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
       { binding: 4, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 5, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 6, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 7, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 8, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 9, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } }
+      { binding: 5, visibility: fragment, texture: { sampleType: "float", viewDimension: "2d" } },
+      { binding: 6, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
+      { binding: 7, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
+      { binding: 8, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } }
     ]
   };
 }
