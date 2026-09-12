@@ -33,7 +33,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | GPU 工作 | `src/gpu/GpuWorkGenerationAbi.ts` 及 work-generation owners | 队列 ABI、容量、overflow、indirect args |
 | 可见像素身份 | `src/gpu/GpuVisibilityKeyAbi.ts`、Visibility owners | key ABI、sentinel、reverse-Z、diagnostics |
 | SurfaceLite/HDR ABI | `src/gpu/GpuComputeMaterialAbi.ts`、`GpuHdrAbi.ts` | compact working-set、conditional velocity、normal/flags 编码、HDR/history 格式与 bytes/pixel |
-| Surface 组合 | `src/render/features/SurfaceFeature.ts` | backend 选择、Surface/velocity 产品生命周期 |
+| Surface 组合 | `src/render/features/SurfaceFeature.ts` | 唯一 MaterialTile compute evaluator 的装配、compact Surface/conditional velocity 产品生命周期；不存在可选 material-resolve backend |
 | 主深度目标 | `src/render/RenderTargets.ts` | mip0-only current depth；仅在screen-space diffuse temporal、SSR temporal或主Temporal需要previous depth时启用提交感知双缓冲 |
 | 帧资源 | `src/framegraph/FrameGraph.ts` | 资源、依赖、pruning 和执行 |
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/shadow/main-view 顺序 |
@@ -42,7 +42,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 共享帧派生 | `src/render/passes/SharedColorPyramidPass.ts` | 按 consumer 生成语义隔离的 opaque/final HDR pyramid；SSR、Bloom、Exposure 不再各建等价 reduction |
 | Final Output | `src/render/passes/TonemapPass.ts`、`src/shaders/final_output_input.ts` | 静态变体融合 Bloom composite、Color Grading、optional Sharpen、Exposure与SDR/HDR display mapping；normal frame不物化full-resolution post HDR intermediate |
 | Persistent history | `src/render/TemporalHistoryRegistry.ts` | 六种 history 的 semantic/domain/format/count/generation、提交感知 ping-pong、pre-exposure 与统一失效原因；物理资源仍归 effect owner |
-| Temporal/DRS | `src/render/features/TemporalFeature.ts`、`DynamicResolutionScaling.ts`、`passes/TemporalAntiAliasingPass.ts` | internal→output reconstruction、reactive/disocclusion、output history confidence 与 fixed/adaptive delayed-GPU-timing policy；配置只来自 RenderSettings |
+| Temporal/DRS | `src/render/features/TemporalFeature.ts`、`DynamicResolutionScaling.ts`、`passes/TemporalAntiAliasingPass.ts`、`passes/NeuralSuperSamplingPass.ts` | 单一 owner 下互斥 TAA/NSS internal→output reconstruction、closest-surface reactive/disocclusion、output history confidence 与 fixed/adaptive delayed-GPU-timing policy；任何 sub-native scale 必须经过 reconstruction，配置只来自 RenderSettings |
 | Screen-space diffuse | `src/render/features/AOService.ts`、`ScreenSpaceDiffuseService.ts`、`src/render/passes/GtaoPass.ts`、`SsgiPass.ts`、`ScreenSpaceDiffuseResolvePass.ts` | 单值 `off/gtao/ssgi` exclusive owner；Three.js r186-derived GTAO 或 SSGI、同 trace AO/bent、共享 history registry、pre-SSGI source 与能量边界 resolve |
 | Long-range GI | `src/render/features/GIService.ts`、`src/render/passes/LongRangeDiffuseProviderPass.ts` | 单个逐 receiver producer，以早返回执行 Brick4 → Probe Volume → IBL → black；输出唯一 provider identity、diffuse irradiance 与 baseline specular radiance，不预计算三套 fullscreen candidate |
 | 阴影功能 | `src/render/features/ShadowFeature.ts`、`ShadowFeatureManager.ts` | Scene-scoped atlas、cascade/cache、统一 Render World work generation/raster 与 retire |
