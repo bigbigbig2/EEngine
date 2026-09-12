@@ -1246,6 +1246,8 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
     (OCCLUSION_CONFIDENCE_PASS_SOURCE.match(/sampleType: "depth"/g) ?? []).length,
     2
   );
+  assert.match(OCCLUSION_CONFIDENCE_PASS_SOURCE, /mipLevelCount: 1/);
+  assert.doesNotMatch(OCCLUSION_CONFIDENCE_PASS_SOURCE, /textureMipLevelCount/);
   assert.equal(classifyTemporalHistory({
     historyValid: true,
     motionValid: true,

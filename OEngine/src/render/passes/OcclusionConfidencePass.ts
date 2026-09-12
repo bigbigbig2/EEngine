@@ -7,7 +7,6 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
-import { textureMipLevelCount } from "../../gpu/GPUTextureContext.js";
 import { createNativeTextureView } from "../../gpu/GPUTextureDescriptors.js";
 import {
   OCCLUSION_CONFIDENCE_FORMAT,
@@ -73,7 +72,6 @@ export class OcclusionConfidencePass {
     this.init();
     const width = Math.max(1, job.width | 0);
     const height = Math.max(1, job.height | 0);
-    const mipLevelCount = textureMipLevelCount(width, height);
     const output: OcclusionConfidenceOutput = { occlusionConfidence: -1 };
     const self = this;
     const builder = graph.add(
@@ -108,7 +106,7 @@ export class OcclusionConfidencePass {
       height,
       format: OCCLUSION_CONFIDENCE_FORMAT,
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
-      mipLevelCount
+      mipLevelCount: 1
     });
     builder.read(inputs.currentDepth);
     builder.read(inputs.previousDepth);
