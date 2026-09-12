@@ -2300,6 +2300,9 @@ export class MainRenderPipeline {
               phase: "opaque" as const,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
+              outputWidth: bindings.internalWidth,
+              outputHeight: bindings.internalHeight,
+              reconstructionOwner: "taa" as const,
               metadataAvailable: true,
               transparencyAvailable: false,
               historyValid: true,
@@ -2309,7 +2312,9 @@ export class MainRenderPipeline {
             {
               surfaceMetadata: opaqueMetadataRes,
               transparentReactive: occlusionConfidenceRes,
-              disocclusionConfidence: occlusionConfidenceRes
+              disocclusionConfidence: occlusionConfidenceRes,
+              depth: depthRes,
+              velocity: velocityRes!
             }
           );
           opaqueTemporalValidityRes = opaqueValidity.classification;
@@ -2967,9 +2972,18 @@ export class MainRenderPipeline {
               phase: "final" as const,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
+              outputWidth: bindings.outputWidth,
+              outputHeight: bindings.outputHeight,
+              reconstructionOwner: graphTopology.nss
+                ? "nss" as const
+                : "taa" as const,
               metadataAvailable: true,
               transparencyAvailable: transparentReactiveRes !== null,
-              historyValid: bindings.taaHistoryValidity >= 0.5,
+              historyValid: graphTopology.nss
+                ? bindings.nssSettings!.historyValidity > 0 &&
+                  bindings.nssSettings!.historyPreExposureScale > 0
+                : bindings.taaHistoryValidity >= 0.5 &&
+                  bindings.taaHistoryPreExposureScale > 0,
               reactiveThreshold: this._renderSettings.values.temporal.reactiveThreshold,
               disocclusionThreshold: this._renderSettings.values.temporal.disocclusionThreshold
             })),
@@ -2978,6 +2992,8 @@ export class MainRenderPipeline {
               transparentReactive:
                 transparentReactiveRes ?? occlusionConfidenceRes,
               disocclusionConfidence: occlusionConfidenceRes,
+              depth: depthRes,
+              velocity: velocityRes,
               counters: gpuCounterRes ?? undefined
             }
           );

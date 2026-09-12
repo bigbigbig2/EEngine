@@ -88,6 +88,7 @@ import {
 } from "../.test-dist/shaders/ssr_denoise.js";
 import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correction.js";
 import { TAA_WGSL } from "../.test-dist/shaders/taa.js";
+import { temporalEvidenceWgsl } from "../.test-dist/shaders/temporal_classification.js";
 import { NSS_PREPROCESS_WGSL } from "../.test-dist/shaders/nss.js";
 import { MOTION_BLUR_RESOLVE_WGSL } from "../.test-dist/shaders/motion_blur.js";
 import { OCCLUSION_CONFIDENCE_WGSL } from "../.test-dist/shaders/occlusion_confidence.js";
@@ -167,6 +168,10 @@ const TEMPORAL_ANTI_ALIASING_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/TemporalAntiAliasingPass.ts", import.meta.url),
   "utf8"
 );
+const TEMPORAL_CLASSIFICATION_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/TemporalClassificationPass.ts", import.meta.url),
+  "utf8"
+);
 const NEURAL_SUPER_SAMPLING_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/NeuralSuperSamplingPass.ts", import.meta.url),
   "utf8"
@@ -187,6 +192,7 @@ const RENDER_TARGETS_SOURCE = readFileSync(
   new URL("../src/render/RenderTargets.ts", import.meta.url),
   "utf8"
 );
+const TEMPORAL_EVIDENCE_WGSL = temporalEvidenceWgsl(69, 70, 71);
 
 const full = () => textureDomain("internal-full", 1920, 1080, 1);
 const preExposure = () => preExposureContract({
@@ -1266,6 +1272,21 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   );
   assert.match(TAA_WGSL, /relative_luminance_delta/);
   assert.doesNotMatch(TAA_WGSL, /for \(var y = 0; y < 4/);
+  assert.match(TEMPORAL_EVIDENCE_WGSL, /closest_taa_depth_pixel/);
+  assert.match(TEMPORAL_EVIDENCE_WGSL, /closest_nss_depth_pixel/);
+  assert.match(TEMPORAL_EVIDENCE_WGSL, /current_pixel_f - velocity/);
+  assert.match(TEMPORAL_EVIDENCE_WGSL, /nss_validity <= \(0\.5 \/ 255\.0\)/);
+  assert.match(TEMPORAL_EVIDENCE_WGSL, /var current_depth: texture_depth_2d/);
+  assert.match(
+    TEMPORAL_CLASSIFICATION_PASS_SOURCE,
+    /binding: 4,[^\n]*texture: \{ sampleType: "depth" \}/
+  );
+  assert.match(
+    TEMPORAL_CLASSIFICATION_PASS_SOURCE,
+    /reconstructionOwner === "taa"[\s\S]*?outputWidth/
+  );
+  assert.match(MAIN_PIPELINE_SOURCE, /reconstructionOwner: graphTopology\.nss/);
+  assert.match(MAIN_PIPELINE_SOURCE, /bindings\.nssSettings!\.historyPreExposureScale > 0/);
   assert.match(NSS_PREPROCESS_WGSL, /@binding\(2\) var l2: texture_depth_2d/);
   assert.match(
     NSS_PREPROCESS_WGSL,

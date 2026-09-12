@@ -23,6 +23,9 @@ export interface TemporalClassificationJob {
   readonly phase: "opaque" | "final";
   readonly width: number;
   readonly height: number;
+  readonly outputWidth: number;
+  readonly outputHeight: number;
+  readonly reconstructionOwner: "taa" | "nss";
   readonly metadataAvailable: boolean;
   readonly transparencyAvailable: boolean;
   readonly historyValid: boolean;
@@ -34,6 +37,8 @@ export interface TemporalClassificationInputs {
   readonly surfaceMetadata: ResourceId;
   readonly transparentReactive: ResourceId;
   readonly disocclusionConfidence: ResourceId;
+  readonly depth: ResourceId;
+  readonly velocity: ResourceId;
   readonly counters?: ResourceId;
 }
 
@@ -75,7 +80,9 @@ const EVIDENCE_GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
+    { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } }
   ]
 };
 
@@ -158,11 +165,16 @@ export class TemporalClassificationPass {
         { job, width, height },
         (data, resources, context) => {
           const command = requireCommand(context.encoder);
-          const bytes = new ArrayBuffer(16);
+          const bytes = new ArrayBuffer(32);
           const view = new DataView(bytes);
           view.setUint32(0, data.job.historyValid ? 1 : 0, true);
-          view.setFloat32(4, Math.max(0, Math.min(1, data.job.reactiveThreshold)), true);
-          view.setFloat32(8, Math.max(0, Math.min(1, data.job.disocclusionThreshold)), true);
+          view.setUint32(4, data.job.reconstructionOwner === "nss" ? 1 : 0, true);
+          view.setUint32(8, data.width, true);
+          view.setUint32(12, data.height, true);
+          view.setUint32(16, Math.max(1, data.job.outputWidth | 0), true);
+          view.setUint32(20, Math.max(1, data.job.outputHeight | 0), true);
+          view.setFloat32(24, Math.max(0, Math.min(1, data.job.reactiveThreshold)), true);
+          view.setFloat32(28, Math.max(0, Math.min(1, data.job.disocclusionThreshold)), true);
           const settingsBuffer = command.allocateTransientBufferAndLoad(
             bytes,
             GPUBufferUsage.UNIFORM
@@ -174,15 +186,29 @@ export class TemporalClassificationPass {
               resolveTextureView(resources.get(classification)),
               resolveTextureView(resources.get(inputs.disocclusionConfidence)),
               { buffer: requireBuffer(resources.get(inputs.counters!), "GPU counters") },
-              { buffer: settingsBuffer }
+              { buffer: settingsBuffer },
+              resolveTextureView(resources.get(inputs.depth)),
+              resolveTextureView(resources.get(inputs.velocity))
             ]]
           });
-          pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8), 1);
+          const evidenceWidth = data.job.reconstructionOwner === "taa"
+            ? Math.max(1, data.job.outputWidth | 0)
+            : data.width;
+          const evidenceHeight = data.job.reconstructionOwner === "taa"
+            ? Math.max(1, data.job.outputHeight | 0)
+            : data.height;
+          pass.dispatchWorkgroups(
+            Math.ceil(evidenceWidth / 8),
+            Math.ceil(evidenceHeight / 8),
+            1
+          );
           pass.end();
         }
       );
       evidence.read(classification);
       evidence.read(inputs.disocclusionConfidence);
+      evidence.read(inputs.depth);
+      evidence.read(inputs.velocity);
       evidence.read(inputs.counters);
       counters = evidence.write(inputs.counters);
       evidence.make_side_effect();
