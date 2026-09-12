@@ -240,21 +240,25 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   );
   let center_normal = decode_g_buffer_normal(textureLoad(normal_source, receiver, 0).xy);
   let curvature_factor = saturate(length(fwidth(center_normal)) * 50.0);
-  let validity = textureLoad(surface_validity_source, receiver, 0).rg;
   let trace_validity = trace_confidence(position);
-  let disocclusion = textureLoad(occlusion_confidence_source, receiver, 0).r;
   let current = max(textureLoad(raw_specular, position, 0), vec4f(0.0));
-  let current_confidence = trace_validity * disocclusion *
-    select(1.0, 0.0, validity.g < 0.5 || validity.r >= 0.5) *
-    select(0.0, 1.0, current.a > 1e-5);
+  let current_confidence = trace_validity * select(0.0, 1.0, current.a > 1e-5);
   if (current_confidence <= 0.001) { return vec4f(0.0); }
   if (settings.history_valid == 0u || settings.pre_exposure_scale <= 0.0) {
     return vec4f(current.rgb, current_confidence);
   }
 
+  let validity = textureLoad(surface_validity_source, receiver, 0).rg;
+  let disocclusion = textureLoad(occlusion_confidence_source, receiver, 0).r;
   let hit_pixel = min(trace_hit_position(position), vec2u(surface_size) - vec2u(1u));
   let hit_validity = textureLoad(surface_validity_source, vec2i(hit_pixel), 0).rg;
-  let hit_candidate_valid = hit_validity.g >= 0.5 && hit_validity.r < 0.5;
+  let hit_disocclusion = textureLoad(
+    occlusion_confidence_source, vec2i(hit_pixel), 0
+  ).r;
+  let surface_history_validity = disocclusion *
+    select(0.0, 1.0, validity.g >= 0.5 && validity.r < 0.5);
+  let hit_history_validity = hit_disocclusion *
+    select(0.0, 1.0, hit_validity.g >= 0.5 && hit_validity.r < 0.5);
   let hit_velocity = textureLoad(velocity_source, vec2i(hit_pixel), 0).rg *
     vec2f(effect_size) / vec2f(surface_size);
   let center_depth = textureLoad(depth_source, receiver, 0).r;
@@ -298,13 +302,12 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     ray_length_stddev * min(motion_factor * 100.0, 1.0) * 3.5,
     1.0
   );
-  let hit_candidate_weight = select(0.0, 1.0, hit_candidate_valid);
   let hit_raw_trust = hit_sample.min_confidence * reflection_edge_factor *
-    (1.0 - curvature_factor) * hit_sample.max_confidence * hit_candidate_weight;
+    (1.0 - curvature_factor) * hit_sample.max_confidence * hit_history_validity;
   let hit_trust = hit_raw_trust *
     (1.0 - (1.0 - screen_hit_probability) * (1.0 - screen_hit_probability));
   let surface_weight = (1.0 - hit_trust) * surface_sample.max_confidence *
-    surface_history.a;
+    surface_history.a * surface_history_validity;
   let hit_weight = hit_trust * hit_history.a;
   let history_weight_sum = surface_weight + hit_weight;
   let hit_path_trust = hit_raw_trust;

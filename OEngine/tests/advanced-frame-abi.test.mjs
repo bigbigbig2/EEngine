@@ -750,7 +750,6 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TEMPORAL_WGSL, /surface_history_pixel/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_effect_pixel/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_history_pixel/);
-  assert.match(SSR_TEMPORAL_WGSL, /hit_candidate_valid/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_history_pixel, hit_depth, hit_normal/);
   assert.match(SSR_TEMPORAL_WGSL, /surface_history\.rgb \* surface_weight/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_history\.rgb \* hit_weight/);
@@ -765,8 +764,18 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TEMPORAL_WGSL, /screen_hit_probability/);
   assert.match(SSR_TEMPORAL_WGSL, /curvature_factor/);
   assert.match(SSR_TEMPORAL_WGSL, /reflection_edge_factor/);
-  assert.match(SSR_TEMPORAL_WGSL, /hit_candidate_weight/);
+  assert.match(SSR_TEMPORAL_WGSL, /surface_history_validity/);
+  assert.match(SSR_TEMPORAL_WGSL, /hit_history_validity/);
+  assert.match(SSR_TEMPORAL_WGSL, /hit_disocclusion/);
   assert.match(SSR_TEMPORAL_WGSL, /hit_raw_trust/);
+  assert.match(
+    SSR_TEMPORAL_WGSL,
+    /let current_confidence = trace_validity \* select\(0\.0, 1\.0, current\.a > 1e-5\)/
+  );
+  assert.doesNotMatch(
+    SSR_TEMPORAL_WGSL,
+    /let current_confidence = trace_validity \* disocclusion/
+  );
   assert.match(SSR_TEMPORAL_WGSL, /reprojection_stretch_confidence/);
   assert.match(SSR_TEMPORAL_WGSL, /dpdx\(history_uv\)/);
   assert.match(SSR_TEMPORAL_WGSL, /minimum_singular_value/);
