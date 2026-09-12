@@ -1,10 +1,12 @@
 import type { PassResources, FrameGraphContext } from "../../framegraph/FrameGraph.js";
+import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { ShadingBinFrameBindings, ShadingBinPass } from "../passes/ShadingBinPass.js";
 import type {
   SparseShadingResolveFrameBinding,
   SparseShadingResolvePass
 } from "../passes/SparseShadingResolvePass.js";
+import type { SparseShadingDiagnosticsPass } from "../passes/SparseShadingDiagnosticsPass.js";
 import type {
   SparseShadingCandidateFrame,
   SparseShadingCandidateStage,
@@ -23,6 +25,7 @@ export interface SparseShadingCandidateExecutorInput {
   >;
   readonly resolveBindings: readonly SparseShadingResolveFrameBinding[];
   readonly settingsDynamicOffset: number;
+  readonly diagnostics?: Pick<SparseShadingDiagnosticsPass, "encodeFinalize" | "encodeCopy">;
   readonly executeExternalStage: SparseShadingCandidateStageExecutor;
 }
 
@@ -46,6 +49,7 @@ export function createSparseShadingCandidateExecutor(
     const command = requireCommand(context);
     if (stage === "bin-clear-classify") {
       assertBinResources(frame, resources, input);
+      clearDiagnostics(command, frame, resources);
       input.bins.encodeClassify(command, input.binBindings);
       return;
     }
@@ -71,8 +75,78 @@ export function createSparseShadingCandidateExecutor(
       );
       return;
     }
+    if (stage === "diagnostics-finalize") {
+      const diagnostics = requireDiagnosticsOwner(input);
+      diagnostics.encodeFinalize(command, {
+        shadingBinId: requireTextureView(frame.shadingBinId, resources, "ShadingBinId"),
+        settings: requireBuffer(frame.settings, resources, "settings"),
+        settingsDynamicOffset: input.settingsDynamicOffset,
+        claims: requireBuffer(frame.claims, resources, "claims"),
+        diagnostics: requireBuffer(frame.diagnostics, resources, "diagnostics"),
+        width: frame.plan.width,
+        height: frame.plan.height
+      });
+      return;
+    }
+    if (stage === "diagnostics-copy") {
+      const diagnostics = requireDiagnosticsOwner(input);
+      diagnostics.encodeCopy(
+        command,
+        requireBuffer(frame.diagnostics, resources, "diagnostics"),
+        requireBuffer(frame.diagnosticsReadback, resources, "diagnostics readback")
+      );
+      return;
+    }
     input.executeExternalStage(stage, frame, resources, context);
   };
+}
+
+function clearDiagnostics(
+  command: ShadeGPUCommandContext,
+  frame: Readonly<SparseShadingCandidateFrame>,
+  resources: PassResources
+): void {
+  if (frame.claims === null && frame.diagnostics === null) return;
+  command.clearBuffer(requireBuffer(frame.claims, resources, "claims"));
+  command.clearBuffer(requireBuffer(frame.diagnostics, resources, "diagnostics"));
+}
+
+function requireDiagnosticsOwner(
+  input: Readonly<SparseShadingCandidateExecutorInput>
+): Pick<SparseShadingDiagnosticsPass, "encodeFinalize" | "encodeCopy"> {
+  if (input.diagnostics === undefined) {
+    throw new Error("Sparse shading diagnostics topology requires its isolated pipeline owner");
+  }
+  return input.diagnostics;
+}
+
+function requireBuffer(
+  id: ResourceId | null,
+  resources: PassResources,
+  label: string
+): GPUBuffer {
+  if (id === null) throw new Error(`Sparse shading candidate omitted ${label}`);
+  const value = resources.get(id);
+  if (value === null || value === undefined || typeof value !== "object") {
+    throw new Error(`Sparse shading candidate ${label} is unavailable`);
+  }
+  return value as GPUBuffer;
+}
+
+function requireTextureView(
+  id: ResourceId | null,
+  resources: PassResources,
+  label: string
+): GPUTextureView {
+  if (id === null) throw new Error(`Sparse shading candidate omitted ${label}`);
+  const value = resources.get(id);
+  if (value === null || value === undefined || typeof value !== "object") {
+    throw new Error(`Sparse shading candidate ${label} is unavailable`);
+  }
+  if ("createView" in value && typeof value.createView === "function") {
+    return value.createView();
+  }
+  return value as GPUTextureView;
 }
 
 function assertBinResources(

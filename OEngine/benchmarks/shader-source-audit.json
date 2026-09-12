@@ -715,6 +715,7 @@
         "src/render/passes/ShadingBinPass.ts",
         "src/render/passes/SharedColorPyramidPass.ts",
         "src/render/passes/SharpenPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
         "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/passes/SsgiPass.ts",
@@ -1209,13 +1210,16 @@
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
         "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "runtimeConsumers": [
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
         "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/pipeline/SparseShadingCandidateExecutor.ts"
       ],
       "pipelineOwners": [
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
         "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "generatorCandidates": [],

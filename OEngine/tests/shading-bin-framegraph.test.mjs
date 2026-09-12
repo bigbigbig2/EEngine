@@ -18,6 +18,9 @@ import {
   createSparseShadingCandidateExecutor
 } from "../.test-dist/render/pipeline/SparseShadingCandidateExecutor.js";
 import { SparseShadingCandidateRuntime } from "../.test-dist/render/pipeline/SparseShadingCandidateRuntime.js";
+import {
+  SparseShadingDiagnosticsPass
+} from "../.test-dist/render/passes/SparseShadingDiagnosticsPass.js";
 
 const limits = Object.freeze({
   maxTextureDimension2D: 32768,
@@ -287,6 +290,16 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
       },
       resolveBindings: value.pipelines.map((pipeline) => ({ binId: pipeline.binId, groups: [] })),
       settingsDynamicOffset: 0,
+      diagnostics: {
+        encodeFinalize(command) {
+          stages.push("diagnostics-finalize");
+          commands.add(command);
+        },
+        encodeCopy(command) {
+          stages.push("diagnostics-copy");
+          commands.add(command);
+        }
+      },
       executeExternalStage(stage, stageFrame, _resources, ctx) {
         stages.push(stage);
         stageFrames.set(stage, stageFrame);
@@ -332,7 +345,13 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.ok(resolve.dependencies.includes(lighting.id));
     assert.ok(resolve.dependencies.includes(shadow.id));
     assert.equal(resolve.encoderWork.dispatches, value.pipelines.length);
-    const contextValue = new FrameGraphContext({ encoder: { gpu_encoder: {}, isGPUCommandContext: true } });
+    const contextValue = new FrameGraphContext({
+      encoder: {
+        gpu_encoder: {},
+        isGPUCommandContext: true,
+        clearBuffer() {}
+      }
+    });
     compiled.execute(contextValue, undefined);
     assert.equal(contexts.size, 1);
     assert.equal([...contexts][0], contextValue);
@@ -397,12 +416,83 @@ test("candidate lifecycle caches immutable plans and advances history only after
   assert.throws(() => runtime.beginFrame(features), /destroyed/u);
 });
 
+test("diagnostics owner compiles separately and records finalize plus copy without submit", async () => {
+  const previousShaderStage = globalThis.GPUShaderStage;
+  globalThis.GPUShaderStage = { COMPUTE: 4 };
+  try {
+    const calls = [];
+    const device = {
+      limits: { minUniformBufferOffsetAlignment: 256 },
+      pushErrorScope(kind) { calls.push(["push", kind]); },
+      async popErrorScope() { return null; },
+      createShaderModule(descriptor) {
+        calls.push(["module", descriptor]);
+        return { async getCompilationInfo() { return { messages: [] }; } };
+      },
+      createBindGroupLayout(descriptor) { return { descriptor }; },
+      createPipelineLayout(descriptor) { return { descriptor }; },
+      createComputePipeline(descriptor) { return { descriptor }; },
+      createBindGroup(descriptor) {
+        calls.push(["group", descriptor]);
+        return { descriptor };
+      }
+    };
+    const owner = await SparseShadingDiagnosticsPass.create(device);
+    const encoded = [];
+    const command = {
+      beginComputePass(descriptor) {
+        const pass = [];
+        encoded.push(["pass", descriptor.label, pass]);
+        return {
+          setPipeline(value) { pass.push(["pipeline", value.descriptor.label]); },
+          setBindGroup(index, _value, offsets) { pass.push(["group", index, offsets]); },
+          dispatchWorkgroups(x, y, z) { pass.push(["dispatch", x, y, z]); },
+          end() { pass.push(["end"]); }
+        };
+      },
+      copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size) {
+        encoded.push(["copy", source, sourceOffset, destination, destinationOffset, size]);
+      }
+    };
+    const buffers = { settings: {}, claims: {}, diagnostics: {}, readback: {} };
+    owner.encodeFinalize(command, {
+      shadingBinId: {},
+      settings: buffers.settings,
+      settingsDynamicOffset: 256,
+      claims: buffers.claims,
+      diagnostics: buffers.diagnostics,
+      width: 65,
+      height: 17
+    });
+    owner.encodeCopy(command, buffers.diagnostics, buffers.readback);
+    assert.deepEqual(encoded[0][2].find(([name]) => name === "dispatch"), [
+      "dispatch", 9, 3, 1
+    ]);
+    assert.deepEqual(encoded[1], [
+      "copy", buffers.diagnostics, 0, buffers.readback, 0, 16
+    ]);
+    assert.equal(calls.some(([name]) => name === "submit"), false);
+    assert.throws(() => owner.encodeFinalize(command, {
+      shadingBinId: {},
+      settings: buffers.settings,
+      settingsDynamicOffset: 4,
+      claims: buffers.claims,
+      diagnostics: buffers.diagnostics,
+      width: 65,
+      height: 17
+    }), /misaligned/u);
+  } finally {
+    globalThis.GPUShaderStage = previousShaderStage;
+  }
+});
+
 test("candidate source owns neither submit nor synchronous readback nor a product switch", async () => {
   const { readFile } = await import("node:fs/promises");
   for (const relative of [
     "../src/render/pipeline/SparseShadingCandidatePipeline.ts",
     "../src/render/pipeline/SparseShadingCandidateExecutor.ts",
-    "../src/render/pipeline/SparseShadingCandidateRuntime.ts"
+    "../src/render/pipeline/SparseShadingCandidateRuntime.ts",
+    "../src/render/passes/SparseShadingDiagnosticsPass.ts"
   ]) {
     const source = await readFile(new URL(relative, import.meta.url), "utf8");
     assert.doesNotMatch(source, /queue\.submit|device\.queue\.submit|mapAsync|readBuffer/u);
