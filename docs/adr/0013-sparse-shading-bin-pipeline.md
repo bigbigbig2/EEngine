@@ -741,15 +741,15 @@ Diagnostics off 时 shader layout 中不存在这些 bindings，不是 `counters
 
 ### 15. Source adoption boundary
 
-实际写代码前在 `docs/porting/visibility.md` 或 `docs/porting/shading.md` 登记最终采用范围。候选状态：
+实际写代码前在 `docs/porting/visibility.md` 或 `docs/porting/shading.md` 登记最终采用范围。Step 0 冻结后的采用状态如下：
 
 | Source | Revision/path | License | Decision |
 | --- | --- | --- | --- |
-| Wicked Engine | `70ec32cc62f3dadbf796fd5574ff3e34c3c47301`, `visibility_resolveCS.hlsl` / `visibility_analyzeCS.hlsl` | MIT | `traceable-local-port` candidate；仅移植 wave→groupshared→tile append 不变量并改写为 WGSL/64-bin ABI |
-| PlayCanvas | `7b00ca4db4bda4c903f4cc727f39b38b43b76aa3`, OneSweep host/WGSL | MIT | `traceable-local-port` candidate；只采用 width-agnostic local reduction/rank/scatter 表达，拒绝完整 lookback 与 ballot.x 假设 |
-| The Forge | current research `cd504689...`; existing ledger shading utilities `9d43e691...` | Apache-2.0 | 延续 reconstruction/gradient reference；新增复制范围必须另记 revision |
-| Bevy | `96e3bcfd87f4cb6372dd9da8b5318f3e64899a01`, `visibility_buffer_resolve.wesl` | MIT OR Apache-2.0 | reconstruction cross-check；拒绝 CPU per-material fullscreen scheduler |
-| Filament | `d45158c6f175726a33b1236858fa3948c5d8dbb5`, `base.mat.in` | Apache-2.0 | compile-time unlit behavior reference |
+| Wicked Engine | `70ec32cc62f3dadbf796fd5574ff3e34c3c47301`, `WickedEngine/shaders/visibility_resolveCS.hlsl` / `visibility_analyzeCS.hlsl` | MIT | `traceable-local-port`；仅移植 wave→groupshared→tile append 不变量并改写为 WGSL/64-bin ABI |
+| PlayCanvas | `7b00ca4db4bda4c903f4cc727f39b38b43b76aa3`, `upstream:src/scene/graphics/radix-sort/compute-radix-sort-onesweep.js` / `upstream:src/scene/shader-lib/wgsl/chunks/radix-sort/onesweep-binning.js` | MIT | `traceable-local-port`；只采用 width-agnostic local reduction/rank/scatter 表达，拒绝完整 lookback 与 ballot.x 假设 |
+| The Forge | `cd5046893faba2dc7869243873bf01f02a6f0df9`, `Examples_3/Visibility_Buffer/src/Visibility_Buffer.cpp`; `9d43e69141a9cd0ce2ce2d2db5122234d3a2d5b5`, `Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/vb_shading_utilities.h.fsl#L90-L150` | Apache-2.0 | `algorithm-invariant-reference`；延续 reconstruction/gradient 参考，新增复制范围必须另记 revision |
+| Bevy | `96e3bcfd87f4cb6372dd9da8b5318f3e64899a01`, `crates/bevy_pbr/src/meshlet/visibility_buffer_resolve.wesl` | MIT OR Apache-2.0 | `algorithm-invariant-reference`；reconstruction cross-check，拒绝 CPU per-material fullscreen scheduler |
+| Filament | `d45158c6f175726a33b1236858fa3948c5d8dbb5`, `libs/gltfio/materials/base.mat.in` | Apache-2.0 | `algorithm-invariant-reference`；compile-time unlit behavior reference |
 | MaterialShaderExample | `ce67da0ea0c22b760fe44fcb9d1ff068407ccbda` | MIT | host material→bin mapping reference；不采用 Unreal private API/fullscreen scheduling |
 | Nanite public material | Epic public 2024 presentation/blog | reference only | 架构/算法参考；不复制 Unreal shader expression |
 | Kooch | `976eab6038f55edc477c42c57e49ed8918190bfe` | All Rights Reserved | `reject-adoption`；禁止复制、翻译、派生其 WGSL |
@@ -790,6 +790,19 @@ only-old-path counters, tests and documentation
 ```
 
 删除要求是最终 cutover 的组成部分，不是可选 cleanup。内部 Shading Bin 类型默认不从 `OEngine/src/index.ts` 导出。
+
+Step 0 的机器可读 requirement、来源和迁移 owner 由 [`adr-0013-migration-manifest.json`](../../OEngine/tests/fixtures/adr-0013-migration-manifest.json) 唯一维护，并由 targeted test 检查当前 owner 存在、replacement/verification owner 完整、来源状态无 candidate、需求 id 稳定以及公开入口不泄漏内部 ABI。其迁移边界汇总如下：
+
+| 迁移域 | 当前 production owner | replacement owner | 实现 Step | 旧 owner 删除 Step |
+| --- | --- | --- | --- | --- |
+| Identity/ABI | `GpuMaterialKernelAbi`、`GpuInstanceAbi`、`GpuMaterialVisibilityAbi` | `GpuShadingProgramAbi`、`GpuShadingBinAbi` 与更新后的 instance/material ABI | 1 | 7 |
+| Scene publication | `GpuRenderWorld` kernel counts/masks | `GpuRenderWorld.ActiveShadingSummary` 与原子 material/geometry publication | 3 | 7 |
+| Visibility output | `PackedVisibilityPass`、`meshlet_bucket_visibility` | 同一 depth winner 写入的 `r8uint ShadingBinId` MRT | 4 | 7 |
+| Classifier/queue | `GpuMaterialTileWorkAbi`、`MaterialTileClassificationPass` | `GpuShadingBinAbi`、`ShadingBinPass`、`shading_bin_classify` | 4 | 7 |
+| Material/direct lighting | `ComputeMaterialResolvePass`、`PackedMaterialResolvePass`、`LightingPass` 与动态 class shaders | `shading_programs/*`、`ShadingResolvePass` 与 fused lit programs | 5 | 7 |
+| FrameProducts/composition | `MaterialTileClassificationFrame`、`ComputeMaterialEvaluationFrame`、Surface/Lighting Feature | `ShadingBinFrame`、`SpecializedShadingFrame` 与唯一主管线 composition | 4–5 | 7 |
+| Diagnostics/profiler | production `pixelClaims`、旧 counters/evidence schema | error-only production counters、独立 diagnostics variant、ADR-0013 evidence schema | 5 | 7 |
+| Tests/docs | 只验证旧 MaterialTile owner 的 ABI/ownership/docs | 新 ABI/reference/shader/GPU/lifecycle/perf/deletion tests 与权威文档 | 1–8 | 7–8 |
 
 ### 17. 分阶段重构、分层测试与验收闭环
 

@@ -62,3 +62,21 @@
 - OEngine/WebGPU differences: 采用 3-bit kernel class 与 `r32uint` VisibilityKey、7 个 material kernel class × 4 个 `TextureBindingSet`、固定 28 次 indirect compute dispatch；不依赖 bindless、subgroup、64-bit atomic、multi-draw-indirect 或 mesh shader。
 - Fallback/lifecycle: 非法 key、queue capacity overflow、duplicate/unassigned shading claim 必须计数并 fail-visible；退化 gradient 明确使用 LOD 0，禁止隐式 derivative；资源由 FrameGraph 按 consumer topology 创建和退役。
 - Local validation: `GpuVisibilityKeyAbi`、`GpuMaterialTileWorkAbi`、`GpuComputeMaterialAbi` CPU-WGSL oracle，真实 Chrome material cook/upload/sample/lighting consumer，invalid/overflow/duplicate/unassigned/gradient-fallback counter、截图/数值 parity、P50/P95、生命周期与 binding budget 门禁；当前开放项见 `docs/STATUS.md`，长期决定见 `docs/adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md`。
+
+- Supersession: 该实现仍是当前 production owner，但已成为 [ADR-0013](../adr/0013-sparse-shading-bin-pipeline.md) Step 7 的删除目标；新 Shading Bin 的 MILESTONE/PERF 未通过前不得提前删除，也不得把它保留为 cutover 后的 fallback。
+
+## VIS-SHADING-BIN-V1 · Sparse Shading Bin work generation
+
+- Planned local owner/source: `planned:OEngine/src/gpu/GpuShadingProgramAbi.ts`、`planned:OEngine/src/gpu/GpuShadingBinAbi.ts`、`GpuRenderWorld.ActiveShadingSummary`、Visibility `r8uint ShadingBinId` producer、`planned:OEngine/src/shaders/shading_bin_classify.ts`、`planned:OEngine/src/render/passes/ShadingBinPass.ts`。本记录只冻结来源边界，不声明这些 owner 已实现。
+- Upstream A: Wicked Engine <https://github.com/turanszkij/WickedEngine>。
+- Revision/source A: `70ec32cc62f3dadbf796fd5574ff3e34c3c47301`，`WickedEngine/shaders/visibility_resolveCS.hlsl`、`WickedEngine/shaders/visibility_analyzeCS.hlsl`。
+- License/adoption A: MIT；`traceable-local-port`。只采用 wave/subgroup 去重 → groupshared 聚合 → 每 tile/bin 有界全局 append 的控制流不变量；不复制其 descriptor、HLSL resource model、native wave-width 假设或完整 renderer ownership。
+- Upstream B: PlayCanvas Engine <https://github.com/playcanvas/engine>。
+- Revision/source B: `7b00ca4db4bda4c903f4cc727f39b38b43b76aa3`，`upstream:src/scene/graphics/radix-sort/compute-radix-sort-onesweep.js`、`upstream:src/scene/shader-lib/wgsl/chunks/radix-sort/onesweep-binning.js`。
+- License/adoption B: MIT；`traceable-local-port`。只采用 subgroup-uniform reduction/rank/scatter 的 WGSL 表达与 host/shader ABI 互证方式；拒绝完整 OneSweep/decoupled-lookback、`subgroupBallot(...).x`、`1u << subgroup_invocation_id`、≤32 lane 假设及其 portable fallback。
+- Reference-only sources: Epic Nanite GPU-Driven Materials 公开演讲/博客只用于 `initialize → classify → finalize → indirect shade`、Shading Bin registry 与 empty-bin 调度的架构交叉检查，不是宽松许可证代码来源；MaterialShaderExample `ce67da0ea0c22b760fe44fcb9d1ff068407ccbda`（MIT）只用于 host material→bin 接线参考，不采用 Unreal 私有 API 或 fullscreen scheduler。
+- Rejected source: Kooch `976eab6038f55edc477c42c57e49ed8918190bfe` 为 All Rights Reserved，状态固定为 `reject-adoption`；禁止复制、翻译或派生其 WGSL。其每材质扫描完整 target 的 scheduler 也不满足 OEngine 稀疏工作合同。
+- Retained invariants: 64 个 `ShadingProgramId × TextureBindingSetId` bins、64×64 macro、8×8 microtile、16×16 classifier、subgroup→workgroup→global 聚合、每 macro/bin 至多一次 bounded reservation、4 B microtile record、GPU-authored 12 B indirect args、GPU producer→GPU consumer 闭环。
+- OEngine/WebGPU differences: `subgroups` 是 opaque pipeline 的 required feature，但算法覆盖实际 `subgroupMinSize..subgroupMaxSize`，不请求 `subgroup-size-control`；coverage 由两个 `u32` 表示，不使用 64-bit atomic、MDI、mesh/task shader、buffer device address、bindless 或 sized binding arrays。Heap storage 与 indirect args 物理分离，避免同一 pass 的 storage-write/indirect usage 冲突。
+- Fallback/lifecycle: 缺 feature/limit 在 Renderer-owned resource 创建前失败，不存在 no-subgroup/旧 MaterialTile fallback。Queue 是 `CorrectnessCritical`；reservation all-or-nothing，overflow/invalid/revision mismatch 在 resolve 前将全部 args 归零。Resize、summary revision、aborted submit 和 device loss 遵循 immutable snapshot 与 submitted-work retirement。
+- Local validation: ADR-0013 Step 0 仅完成来源、许可证和迁移范围冻结；CPU oracle、WGSL source audit、真实 GPU component、browser MILESTONE 与 1650 Ti/2060 PERF 按 Step 1–8 逐层关闭，当前不得声明 External Algorithm Complete。

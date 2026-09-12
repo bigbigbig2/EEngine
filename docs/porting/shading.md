@@ -13,6 +13,21 @@
 - Fallback/lifecycle: invalid key/material rejects visibly；singular previous transform invalidates motion instead of emitting non-finite velocity。
 - Local validation: compact ABI pack/unpack、static velocity-off/on shader interfaces、packed material resolve、debug view/counters、full Surface Chrome fixture and Rendering Lab base/full profiles。
 
+- Supersession: 当前 reconstruction/Surface 语义继续有效；`PackedMaterialResolvePass`、动态 KernelClass material kernel 和独立 direct-lighting consumer 的物理 owner 已进入 [ADR-0013](../adr/0013-sparse-shading-bin-pipeline.md) Step 7 删除范围，最终由 specialized shading programs 接管。
+
+## SHADE-SPECIALIZED-BIN-V1 · Specialized compute material and fused direct lighting
+
+- Planned local owner/source: `planned:OEngine/src/shaders/shading_programs/*`、`planned:OEngine/src/render/passes/ShadingResolvePass.ts`、`SurfaceFeature`/`MainRenderPipeline` composition。当前 production 仍是 `MaterialTileWork`；本记录不提前声明 cutover。
+- Upstream reconstruction references: The Forge `cd5046893faba2dc7869243873bf01f02a6f0df9` 的 `Examples_3/Visibility_Buffer/src/Visibility_Buffer.cpp` 与 `9d43e69141a9cd0ce2ce2d2db5122234d3a2d5b5` 的 `Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/vb_shading_utilities.h.fsl#L90-L150`；Bevy `96e3bcfd87f4cb6372dd9da8b5318f3e64899a01` 的 `crates/bevy_pbr/src/meshlet/visibility_buffer_resolve.wesl`。
+- License/adoption: The Forge Apache-2.0、Bevy MIT OR Apache-2.0；状态为 `algorithm-invariant-reference`。沿用并重新验证 canonical visibility reconstruction、perspective-correct interpolation 与 explicit gradient 不变量；V1 specialized program/control flow 由 OEngine 独立实现，若后续复制表达性片段必须先把精确 upstream path/revision 和本地差异补到本记录。
+- Upstream specialization reference: Google Filament `d45158c6f175726a33b1236858fa3948c5d8dbb5`，`libs/gltfio/materials/base.mat.in`；Apache-2.0，状态为 `algorithm-invariant-reference`，只用于证明 compile-time unlit/lit dependency pruning，不复制 Filament renderer/material generator ownership。
+- Host wiring reference: MaterialShaderExample `ce67da0ea0c22b760fe44fcb9d1ff068407ccbda`，MIT，状态为 `reference-only`；不采用 Unreal 私有 Nanite API、每材质 fullscreen dispatch 或第二 shading backend。
+- Rejected source: Kooch `976eab6038f55edc477c42c57e49ed8918190bfe`，All Rights Reserved，`reject-adoption`；即使其 WGSL 与目标语言接近，也不得复制、翻译或派生。
+- Retained invariants: 每个命中 opaque pixel 完整 material evaluation 一次；texture variant 使用 perspective-correct UV、显式 gradients 与 `textureSampleGrad`；lit program 同 kernel 完成 clustered direct lighting/shadow；unlit program静态删除 geometry/texture/light 依赖；GI/AO/SSR/PreExposure/Temporal/Post 的 FrameProduct 语义保持 ADR-0009 合同。
+- OEngine/WebGPU differences: 16 个 compile-time `ShadingProgramId` 与 4 个 `TextureBindingSetId` 形成 64 bins；pipeline key 还包含 output dependency 与 capability/format profile。最宽 variant 不超过 4 bind groups、16 sampled textures、8 samplers、10 storage buffers、5 storage textures和4 uniforms；textureless/unlit/output-off variant 不用 dummy bindings。
+- Fallback/lifecycle: 不支持的 shading model 在 publication 前失败；generation/identity mismatch 设置 frame invalid并禁止部分结果呈现。Pipeline/bind group 按 immutable summary revision 惰性创建并跨 frame 复用；diagnostics variant 与 production layout 物理隔离。
+- Local validation: Step 0 只完成来源状态冻结；后续必须通过 material×geometry LUT、数值重建/PBR oracle、variant source/binding audit、GPU component、FrameGraph、feature-off、browser lifecycle与正式 PERF，才能标记 External Algorithm/Pipeline Feature Complete。
+
 ## SHADE-TEXTURE-RESIDENCY · Bounded TextureRef size-class banks
 
 - Local owner/source: `GpuTextureRefAbi.ts`、`TextureResidency.ts`、Packed Surface/Transparency/Visibility/CSM consumers and validation oracle。

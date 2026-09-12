@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "adr": "ADR-0013",
+  "phase": "step-0",
+  "inventoryCommit": "0102a61",
+  "formalBaseline": {
+    "status": "open",
+    "blocker": "ADR-0012 has removed the real browser validation and performance host.",
+    "workloadId": "adr-0013-sparse-shading-bin-comprehensive-v1",
+    "evidenceSchemaId": "adr-0013-perf-evidence-v1",
+    "fixedConditions": {
+      "outputExtent": [1920, 1080],
+      "devicePixelRatio": 1,
+      "renderScale": 1,
+      "adapters": ["NVIDIA GeForce GTX 1650 Ti", "NVIDIA GeForce RTX 2060"],
+      "requiredFingerprint": [
+        "browserBuild",
+        "adapterInfo",
+        "adapterFeatures",
+        "adapterLimits",
+        "deviceRequiredFeatures",
+        "deviceRequiredLimits",
+        "qualityProfile",
+        "featureProfile",
+        "sceneSeed",
+        "cameraPath",
+        "warmupPolicy",
+        "sampleCadence"
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "wicked-visibility-analysis",
+      "revision": "70ec32cc62f3dadbf796fd5574ff3e34c3c47301",
+      "paths": ["WickedEngine/shaders/visibility_resolveCS.hlsl", "WickedEngine/shaders/visibility_analyzeCS.hlsl"],
+      "license": "MIT",
+      "adoption": "traceable-local-port"
+    },
+    {
+      "id": "playcanvas-onesweep-expressions",
+      "revision": "7b00ca4db4bda4c903f4cc727f39b38b43b76aa3",
+      "paths": ["src/scene/graphics/radix-sort/compute-radix-sort-onesweep.js", "src/scene/shader-lib/wgsl/chunks/radix-sort/onesweep-binning.js"],
+      "license": "MIT",
+      "adoption": "traceable-local-port"
+    },
+    {
+      "id": "the-forge-visibility-buffer",
+      "revision": "cd5046893faba2dc7869243873bf01f02a6f0df9",
+      "paths": ["Examples_3/Visibility_Buffer/src/Visibility_Buffer.cpp"],
+      "license": "Apache-2.0",
+      "adoption": "algorithm-invariant-reference"
+    },
+    {
+      "id": "the-forge-shading-utilities",
+      "revision": "9d43e69141a9cd0ce2ce2d2db5122234d3a2d5b5",
+      "paths": ["Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/vb_shading_utilities.h.fsl#L90-L150"],
+      "license": "Apache-2.0",
+      "adoption": "algorithm-invariant-reference"
+    },
+    {
+      "id": "bevy-visibility-resolve",
+      "revision": "96e3bcfd87f4cb6372dd9da8b5318f3e64899a01",
+      "paths": ["crates/bevy_pbr/src/meshlet/visibility_buffer_resolve.wesl"],
+      "license": "MIT OR Apache-2.0",
+      "adoption": "algorithm-invariant-reference"
+    },
+    {
+      "id": "filament-compile-time-unlit",
+      "revision": "d45158c6f175726a33b1236858fa3948c5d8dbb5",
+      "paths": ["libs/gltfio/materials/base.mat.in"],
+      "license": "Apache-2.0",
+      "adoption": "algorithm-invariant-reference"
+    },
+    {
+      "id": "material-shader-example-host-wiring",
+      "revision": "ce67da0ea0c22b760fe44fcb9d1ff068407ccbda",
+      "paths": ["repository-level host material-to-bin wiring"],
+      "license": "MIT",
+      "adoption": "reference-only"
+    },
+    {
+      "id": "epic-nanite-public-material",
+      "revision": "public-2024-presentation-and-blog",
+      "paths": ["public presentation and blog only"],
+      "license": "reference-only",
+      "adoption": "reference-only"
+    },
+    {
+      "id": "kooch-wgsl",
+      "revision": "976eab6038f55edc477c42c57e49ed8918190bfe",
+      "paths": ["repository source tree"],
+      "license": "All Rights Reserved",
+      "adoption": "reject-adoption"
+    }
+  ],
+  "migrations": [
+    {
+      "id": "identity-abi",
+      "currentPaths": ["src/gpu/GpuMaterialKernelAbi.ts", "src/gpu/GpuInstanceAbi.ts", "src/gpu/GpuMaterialVisibilityAbi.ts"],
+      "replacementOwners": ["src/gpu/GpuShadingProgramAbi.ts", "src/gpu/GpuShadingBinAbi.ts", "updated instance/material ABI owners"],
+      "verificationOwners": ["tests/shading-bin-abi.test.mjs", "tests/advanced-frame-abi.test.mjs"],
+      "implementedAtStep": 1,
+      "retireAtStep": 7
+    },
+    {
+      "id": "scene-publication-summary",
+      "currentPaths": ["src/gpu/GpuRenderWorld.ts"],
+      "replacementOwners": ["GpuRenderWorld.ActiveShadingSummary", "immutable material and geometry publication transaction"],
+      "verificationOwners": ["tests/shading-summary-publication.test.mjs", "tests/packed-render-world-contract.test.mjs"],
+      "implementedAtStep": 3,
+      "retireAtStep": 7
+    },
+    {
+      "id": "visibility-output",
+      "currentPaths": ["src/render/passes/PackedVisibilityPass.ts", "src/shaders/meshlet_bucket_visibility.ts"],
+      "replacementOwners": ["VisibilityFrame.shadingBinId r8uint MRT", "updated PackedVisibilityPass and meshlet visibility shader"],
+      "verificationOwners": ["tests/shading-bin-visibility-contract.test.mjs", "new browser GPU component suite"],
+      "implementedAtStep": 4,
+      "retireAtStep": 7
+    },
+    {
+      "id": "classifier-and-queue",
+      "currentPaths": ["src/gpu/GpuMaterialTileWorkAbi.ts", "src/render/passes/MaterialTileClassificationPass.ts", "src/shaders/material_tile_classification.ts"],
+      "replacementOwners": ["src/gpu/GpuShadingBinAbi.ts", "src/render/passes/ShadingBinPass.ts", "src/shaders/shading_bin_classify.ts"],
+      "verificationOwners": ["tests/shading-bin-reference.test.mjs", "tests/shading-bin-shader-contract.test.mjs", "new browser GPU component suite"],
+      "implementedAtStep": 4,
+      "retireAtStep": 7
+    },
+    {
+      "id": "material-resolve",
+      "currentPaths": ["src/gpu/GpuComputeMaterialAbi.ts", "src/render/passes/ComputeMaterialResolvePass.ts", "src/render/passes/PackedMaterialResolvePass.ts", "src/shaders/packed_material_compute.ts"],
+      "replacementOwners": ["src/shaders/shading_programs/*", "src/render/passes/ShadingResolvePass.ts"],
+      "verificationOwners": ["tests/shading-program-specialization.test.mjs", "new browser material and numeric suites"],
+      "implementedAtStep": 5,
+      "retireAtStep": 7
+    },
+    {
+      "id": "direct-lighting",
+      "currentPaths": ["src/render/passes/LightingPass.ts", "src/shaders/lighting_direct_compute.ts", "src/render/features/LightingFeature.ts"],
+      "replacementOwners": ["lit shading programs with fused clustered direct lighting", "updated LightingFeature composition"],
+      "verificationOwners": ["tests/shading-program-specialization.test.mjs", "new browser lighting and feature-off suites"],
+      "implementedAtStep": 5,
+      "retireAtStep": 7
+    },
+    {
+      "id": "frame-products",
+      "currentPaths": ["src/render/pipeline/FrameProducts.ts"],
+      "replacementOwners": ["VisibilityFrame shadingBinId", "ShadingBinFrame", "SpecializedShadingFrame"],
+      "verificationOwners": ["tests/shading-bin-frame-products.test.mjs", "tests/render-layer-ownership.test.mjs"],
+      "implementedAtStep": 4,
+      "retireAtStep": 7
+    },
+    {
+      "id": "diagnostics-and-profiler",
+      "currentPaths": ["src/debug/GpuFrameCounters.ts", "src/debug/BenchmarkCapabilityEvidence.ts", "src/debug/BenchmarkEvidenceGate.ts"],
+      "replacementOwners": ["production error-only shading-bin counters", "physically separate ownership diagnostics variant", "ADR-0013 evidence schema"],
+      "verificationOwners": ["tests/shading-bin-diagnostics.test.mjs", "new browser diagnostics and benchmark suites"],
+      "implementedAtStep": 5,
+      "retireAtStep": 7
+    },
+    {
+      "id": "pipeline-composition",
+      "currentPaths": ["src/render/features/SurfaceFeature.ts", "src/render/features/LightingFeature.ts", "src/render/pipeline/MainRenderPipeline.ts"],
+      "replacementOwners": ["single MainRenderPipeline sparse shading composition", "SurfaceFeature and LightingFeature with old queue consumers removed"],
+      "verificationOwners": ["tests/render-layer-ownership.test.mjs", "new browser topology and lifecycle suites"],
+      "implementedAtStep": 5,
+      "retireAtStep": 7
+    },
+    {
+      "id": "legacy-tests-and-docs",
+      "currentPaths": ["tests/advanced-frame-abi.test.mjs", "tests/render-layer-ownership.test.mjs", "tests/documentation-system.test.mjs"],
+      "replacementOwners": ["ADR-0013 ABI, reference, shader, runtime and deletion tests", "updated architecture, pipeline, status and porting documents"],
+      "verificationOwners": ["tests/adr-0013-migration-manifest.test.mjs", "tests/documentation-system.test.mjs", "final source deletion audit"],
+      "implementedAtStep": 1,
+      "retireAtStep": 7
+    }
+  ],
+  "requirements": [
+    {"id": "CAP-001", "clause": "subgroups is required before opaque resource creation", "layers": ["L1", "L2", "L3"]},
+    {"id": "CAP-002", "clause": "required limits are preflighted without silent lowering", "layers": ["L1", "L3"]},
+    {"id": "CAP-003", "clause": "classifier is valid for every reported subgroup width", "layers": ["L1", "L2", "L3"]},
+    {"id": "CAP-004", "clause": "subgroup-size-control is not requested", "layers": ["L0", "L2"]},
+    {"id": "CAP-005", "clause": "actual capability and format specialization are recorded", "layers": ["L1", "L4"]},
+    {"id": "ID-001", "clause": "sixteen compile-time shading programs have stable ids", "layers": ["L1"]},
+    {"id": "ID-002", "clause": "four texture binding sets form exactly sixty-four bins", "layers": ["L1"]},
+    {"id": "ID-003", "clause": "material and geometry dependencies map through one versioned LUT", "layers": ["L1"]},
+    {"id": "ID-004", "clause": "invalid shading models fail before publication", "layers": ["L1", "L4"]},
+    {"id": "ID-005", "clause": "material instance and meshlet bin bits migrate atomically", "layers": ["L1", "L3", "L4"]},
+    {"id": "ID-006", "clause": "textureless program identity always uses binding set zero", "layers": ["L1", "L4"]},
+    {"id": "VIS-001", "clause": "visibility writes an r8uint shading-bin MRT", "layers": ["L2", "L3", "L4"]},
+    {"id": "VIS-002", "clause": "background clear uses the invalid-bin sentinel", "layers": ["L1", "L3"]},
+    {"id": "VIS-003", "clause": "depth winner and shading bin belong to the same raster sample", "layers": ["L3", "L4"]},
+    {"id": "VIS-004", "clause": "classifier reads bin id without visibility-key pointer chasing", "layers": ["L0", "L2", "L3"]},
+    {"id": "QUE-001", "clause": "macro tile is 64 by 64 and microtile is 8 by 8", "layers": ["L1", "L3"]},
+    {"id": "QUE-002", "clause": "microtile record stride is four bytes", "layers": ["L1", "L2"]},
+    {"id": "QUE-003", "clause": "counter and layout records are sixteen bytes and aligned", "layers": ["L1", "L2"]},
+    {"id": "QUE-004", "clause": "indirect args are separate twelve-byte records", "layers": ["L1", "L2", "L3"]},
+    {"id": "QUE-005", "clause": "heap reservation is all-or-nothing and bounded", "layers": ["L1", "L3"]},
+    {"id": "QUE-006", "clause": "overflow zeros every resolve indirect arg before consumption", "layers": ["L1", "L3", "L4"]},
+    {"id": "QUE-007", "clause": "GPU-produced queues are consumed without CPU count readback", "layers": ["L0", "L3", "L4"]},
+    {"id": "QUE-008", "clause": "zero, one, 65535, 65536 and two-dimensional tails are exact", "layers": ["L1", "L3"]},
+    {"id": "CLS-001", "clause": "classifier workgroup is 16 by 16", "layers": ["L1", "L2", "L3"]},
+    {"id": "CLS-002", "clause": "subgroup operations execute in uniform control flow", "layers": ["L2", "L3"]},
+    {"id": "CLS-003", "clause": "coverage uses two u32 words without fixed-width ballot assumptions", "layers": ["L1", "L2", "L3"]},
+    {"id": "CLS-004", "clause": "subgroup results aggregate through workgroup memory before global reservation", "layers": ["L1", "L2", "L3"]},
+    {"id": "CLS-005", "clause": "each macro and bin performs at most one global reservation", "layers": ["L1", "L3"]},
+    {"id": "CLS-006", "clause": "initialize classify finalize and resolve pass boundaries are explicit", "layers": ["L0", "L2", "L4"]},
+    {"id": "SHADE-001", "clause": "each opaque hit receives one complete material evaluation", "layers": ["L1", "L3", "L4"]},
+    {"id": "SHADE-002", "clause": "programs are compile-time specialized instead of dynamic class branches", "layers": ["L0", "L2"]},
+    {"id": "SHADE-003", "clause": "textured programs use perspective-correct UV and textureSampleGrad", "layers": ["L1", "L2", "L4"]},
+    {"id": "SHADE-004", "clause": "lit programs fuse clustered direct lighting and shadows", "layers": ["L2", "L3", "L4"]},
+    {"id": "SHADE-005", "clause": "unlit programs statically omit geometry texture and lighting dependencies as applicable", "layers": ["L0", "L2", "L4"]},
+    {"id": "SHADE-006", "clause": "output dependencies participate in pipeline identity and resource pruning", "layers": ["L1", "L2", "L4"]},
+    {"id": "SHADE-007", "clause": "widest variant remains inside the frozen binding budget", "layers": ["L1", "L2", "L3"]},
+    {"id": "OFF-001", "clause": "inactive bins allocate no queue slice and dispatch no work", "layers": ["L1", "L3", "L4"]},
+    {"id": "OFF-002", "clause": "lighting-off and unlit variants have no lighting bindings or reads", "layers": ["L0", "L2", "L4"]},
+    {"id": "OFF-003", "clause": "disabled outputs have no bindings stores or resources", "layers": ["L0", "L2", "L4"]},
+    {"id": "OFF-004", "clause": "diagnostics-off physically removes claim resources and shader code", "layers": ["L0", "L2", "L4"]},
+    {"id": "LIFE-001", "clause": "active summary is patched incrementally without stable-frame scene scans", "layers": ["L1", "L4"]},
+    {"id": "LIFE-002", "clause": "summary layout pipeline and bind groups publish under one revision", "layers": ["L1", "L4"]},
+    {"id": "LIFE-003", "clause": "in-flight frames retain immutable snapshots", "layers": ["L1", "L4"]},
+    {"id": "LIFE-004", "clause": "resize retires old resources only after submitted work completes", "layers": ["L1", "L4"]},
+    {"id": "LIFE-005", "clause": "aborted submission advances no reusable generation or history", "layers": ["L1", "L4"]},
+    {"id": "LIFE-006", "clause": "device loss rebuilds from CPU truth and reuses no old revision", "layers": ["L1", "L4"]},
+    {"id": "DIAG-001", "clause": "production uses only low-frequency error and safety counters", "layers": ["L0", "L2", "L4"]},
+    {"id": "DIAG-002", "clause": "successful pixels perform no global ownership atomic", "layers": ["L0", "L2", "L3"]},
+    {"id": "DIAG-003", "clause": "pre-consumer correctness failures zero all indirect args", "layers": ["L1", "L3"]},
+    {"id": "DIAG-004", "clause": "consumer identity mismatch sets frame invalid and writes no lane result", "layers": ["L2", "L3", "L4"]},
+    {"id": "DIAG-005", "clause": "frame invalid never presents partial output", "layers": ["L3", "L4"]},
+    {"id": "DIAG-006", "clause": "ownership validation exists only in a separate diagnostics variant", "layers": ["L0", "L2", "L3"]},
+    {"id": "DIAG-007", "clause": "readback is asynchronous and never controls current-frame construction", "layers": ["L0", "L4"]},
+    {"id": "PERF-001", "clause": "baseline and candidate use identical frozen conditions", "layers": ["L5"]},
+    {"id": "PERF-002", "clause": "formal evidence covers GTX 1650 Ti and RTX 2060", "layers": ["L5"]},
+    {"id": "PERF-003", "clause": "GPU timestamps report MRT classifier finalizer shading and removed lighting deltas", "layers": ["L5"]},
+    {"id": "PERF-004", "clause": "near far mixed and feature-off workloads pass without trading one regression for another", "layers": ["L5"]},
+    {"id": "PERF-005", "clause": "FPS or CPU frame cadence is not accepted as GPU performance proof", "layers": ["L5"]},
+    {"id": "DEL-001", "clause": "old MaterialTile ABI passes shaders and static class table are deleted at cutover", "layers": ["L0", "L6"]},
+    {"id": "DEL-002", "clause": "old kernel-class bits counts masks and helpers are deleted at cutover", "layers": ["L0", "L6"]},
+    {"id": "DEL-003", "clause": "old frame products production claims and only-old tests or docs are deleted", "layers": ["L0", "L6"]},
+    {"id": "DEL-004", "clause": "one production pipeline remains with no legacy switch fallback alias or dual write", "layers": ["L0", "L4", "L6"]},
+    {"id": "DEL-005", "clause": "internal shading-bin ABI is not exported from src/index.ts", "layers": ["L0", "L6"]},
+    {"id": "DEL-006", "clause": "porting architecture pipeline status and validation documents describe the final owner truth", "layers": ["L0", "L6"]}
+  ]
+}

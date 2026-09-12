@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 45,
+  "shaderCount": 48,
   "summary": {
-    "authored-live": 44,
+    "authored-live": 47,
     "dead": 1
   },
   "entries": [
@@ -26,6 +26,9 @@
         "src/render/passes/AutomaticExposurePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -49,6 +52,9 @@
         "src/render/passes/BloomPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -72,6 +78,9 @@
         "src/shaders/long_range_diffuse_provider.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -95,6 +104,9 @@
         "src/render/passes/ColorGradingPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -119,6 +131,9 @@
         "src/shaders/opaque_lighting_resolve.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -145,6 +160,9 @@
         "src/gpu/EnvironmentPrefilterPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/gpu/EnvironmentPrefilterPass.ts",
@@ -177,6 +195,34 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/final_output_input.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/TonemapPass.ts",
+        "src/shaders/tonemap_hdr.ts",
+        "src/shaders/tonemap_sdr.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/PostFeature.ts",
+        "src/render/passes/TonemapPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/TonemapPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/fullscreen_triangle.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -185,6 +231,9 @@
         "src/shaders/taa.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -212,6 +261,9 @@
         "src/shaders/render_debug_view.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -244,6 +296,9 @@
         "src/render/passes/GtaoPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -267,6 +322,9 @@
         "src/render/HierarchicalWorkGenerator.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -298,6 +356,9 @@
         "src/render/HierarchicalZBuffer.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -331,6 +392,9 @@
         "src/render/LargeTriangleSetupCache.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -357,6 +421,9 @@
         "src/render/passes/LightClusterPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -380,6 +447,9 @@
         "src/render/passes/LightingPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -404,6 +474,9 @@
         "src/shaders/packed_transparent_oit.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -430,6 +503,9 @@
         "src/render/passes/LongRangeDiffuseProviderPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -453,6 +529,9 @@
         "src/render/passes/MaterialTileClassificationPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -478,6 +557,9 @@
         "src/render/MeshletWorkCandidate.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -506,6 +588,9 @@
         "src/render/MeshletWorkCandidate.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -533,6 +618,9 @@
         "src/gpu/MipmapGenerator.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/addons/inspector/InspectorShell.ts",
@@ -624,6 +712,7 @@
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/SharedColorPyramidPass.ts",
         "src/render/passes/SharpenPass.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
         "src/render/passes/SsgiPass.ts",
@@ -653,6 +742,9 @@
         "src/render/passes/MotionBlurPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -676,6 +768,9 @@
         "src/render/passes/NeuralSuperSamplingPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -698,6 +793,9 @@
         "src/render/passes/OcclusionConfidencePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -720,6 +818,9 @@
         "src/render/passes/OpaqueLightingResolvePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -758,11 +859,13 @@
         "src/shaders/packed_csm_shadow.ts",
         "src/shaders/packed_transparent_oit.ts",
         "src/shaders/screen_space_diffuse_resolve.ts",
-        "src/shaders/specular_correction.ts",
         "src/shaders/ssgi.ts",
         "src/shaders/ssr_common.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -798,7 +901,7 @@
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/render/passes/SpecularCorrectionPass.ts",
+        "src/render/passes/SharedColorPyramidPass.ts",
         "src/render/passes/SsgiPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts",
@@ -824,7 +927,7 @@
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/render/passes/SpecularCorrectionPass.ts",
+        "src/render/passes/SharedColorPyramidPass.ts",
         "src/render/passes/SsgiPass.ts"
       ],
       "generatorCandidates": [],
@@ -839,6 +942,9 @@
         "src/render/passes/PackedCsmShadowPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -863,6 +969,9 @@
         "src/render/passes/ComputeMaterialResolvePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -887,6 +996,9 @@
         "src/shaders/packed_material_compute.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -911,6 +1023,9 @@
         "src/render/passes/PackedTransparentOitPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -945,6 +1060,9 @@
         "src/render/passes/RenderDebugViewPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -967,6 +1085,9 @@
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -990,6 +1111,9 @@
         "src/render/passes/PackedCsmShadowPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1007,6 +1131,31 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/shared_color_pyramid.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/passes/SharedColorPyramidPass.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/passes/SharedColorPyramidPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/SharedColorPyramidPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/sharpen.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -1014,6 +1163,9 @@
         "src/render/passes/SharpenPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1030,6 +1182,35 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
+      "shader": "src/shaders/specular_ambient_occlusion.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/opaque_lighting_resolve.ts",
+        "src/shaders/screen_space_diffuse_resolve.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/GIService.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/OpaqueLightingResolvePass.ts",
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
       "shader": "src/shaders/specular_correction.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
@@ -1037,6 +1218,9 @@
         "src/render/passes/SpecularCorrectionPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1060,6 +1244,9 @@
         "src/render/passes/SsgiPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1083,12 +1270,15 @@
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/shaders/motion_blur.ts",
         "src/shaders/render_debug_view.ts",
+        "src/shaders/shared_color_pyramid.ts",
         "src/shaders/ssr_denoise.ts",
-        "src/shaders/ssr_prefilter.ts",
         "src/shaders/ssr_resolve.ts",
         "src/shaders/ssr_trace.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1097,13 +1287,15 @@
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/SharedColorPyramidPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
-        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/passes/SharedColorPyramidPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -1117,29 +1309,9 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "runtimeConsumers": [
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/ReflectionService.ts",
-        "src/render/passes/ScreenSpaceReflectionsPass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/ScreenSpaceReflectionsPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/ssr_prefilter.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/ScreenSpaceReflectionsPass.ts"
-      ],
-      "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1163,6 +1335,36 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/ReflectionService.ts",
+        "src/render/passes/ScreenSpaceReflectionsPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/ScreenSpaceReflectionsPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/ssr_stochastic_sample.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/ssr_resolve.ts",
+        "src/shaders/ssr_trace.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1186,6 +1388,9 @@
         "src/render/passes/ScreenSpaceReflectionsPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1209,6 +1414,9 @@
         "src/render/passes/TemporalAntiAliasingPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1232,6 +1440,9 @@
         "src/render/passes/TemporalClassificationPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1255,6 +1466,9 @@
         "src/render/passes/TonemapPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
@@ -1278,6 +1492,9 @@
         "src/render/passes/TonemapPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
