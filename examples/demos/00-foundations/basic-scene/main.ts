@@ -1,4 +1,3 @@
-import { Pane } from "tweakpane";
 import {
   BoxGeometry,
   DirectionalLight,
@@ -25,7 +24,6 @@ const status = requireElement<HTMLDivElement>("#status");
 let renderer: Renderer | undefined;
 let rendererReady = false;
 let controls: OrbitControls | undefined;
-let pane: Pane | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let animationFrame = 0;
 let disposed = false;
@@ -33,9 +31,6 @@ let disposed = false;
 const settings = {
   rotate: true,
   rotationSpeed: 0.35,
-  renderScale: 1,
-  bloom: true,
-  exposure: 1,
   fov: 45
 };
 
@@ -48,6 +43,7 @@ async function start(): Promise<void> {
   if (context === null) throw new Error("Failed to create a WebGPU canvas context");
 
   renderer = new Renderer({
+    debug: true,
     renderSettings: {
       features: {
         shadows: true,
@@ -116,34 +112,17 @@ async function start(): Promise<void> {
   controls.enableDamping = true;
   controls.update(0);
 
-  pane = new Pane({ title: "Basic Scene" });
-  const rendererFolder = pane.addFolder({ title: "Renderer" });
-  rendererFolder.addBinding(settings, "renderScale", {
-    label: "Resolution",
-    options: { "67%": 0.67, "75%": 0.75, "100%": 1 }
-  }).on("change", ({ value }) => {
-    renderer?.configure({ resolution: { mode: "fixed", internalScale: value } });
-  });
-  rendererFolder.addBinding(settings, "bloom", { label: "Bloom" })
-    .on("change", ({ value }) => renderer?.configure({ features: { bloom: value } }));
-  rendererFolder.addBinding(settings, "exposure", {
-    label: "Exposure",
-    min: 0.25,
-    max: 2.5,
-    step: 0.05
-  }).on("change", ({ value }) => renderer?.configure({ post: { exposureCompensation: value } }));
-
-  const sceneFolder = pane.addFolder({ title: "Scene" });
-  sceneFolder.addBinding(settings, "rotate", { label: "Rotate cube" });
-  sceneFolder.addBinding(settings, "rotationSpeed", {
+  const sceneFolder = renderer.debug?.addExampleFolder("Scene");
+  sceneFolder?.addBinding(settings, "rotate", { label: "Rotate cube" });
+  sceneFolder?.addBinding(settings, "rotationSpeed", {
     label: "Speed",
     min: 0,
     max: 1.5,
     step: 0.05
   });
 
-  const cameraFolder = pane.addFolder({ title: "Camera" });
-  cameraFolder.addBinding(settings, "fov", {
+  const cameraFolder = renderer.debug?.addExampleFolder("Camera");
+  cameraFolder?.addBinding(settings, "fov", {
     label: "FOV",
     min: 25,
     max: 80,
@@ -151,6 +130,7 @@ async function start(): Promise<void> {
   }).on("change", ({ value }) => {
     camera.fov_degrees = value;
   });
+  renderer.debug?.focus("renderer");
 
   const resize = (): void => {
     if (renderer === undefined) return;
@@ -169,7 +149,8 @@ async function start(): Promise<void> {
   let rotation = 0;
   const frame = (time: number): void => {
     if (disposed || renderer === undefined || controls === undefined) return;
-    const deltaSeconds = Math.min(0.1, Math.max(0, (time - previousTime) / 1000));
+    const deltaMilliseconds = Math.min(100, Math.max(0, time - previousTime));
+    const deltaSeconds = deltaMilliseconds / 1000;
     previousTime = time;
 
     if (settings.rotate) {
@@ -178,6 +159,7 @@ async function start(): Promise<void> {
       cube.updateMatrices();
     }
     controls.update(deltaSeconds);
+    renderer.profiler.recordExternalMetric("frame.rafIntervalMs", deltaMilliseconds);
     renderer.render(camera, scene, deltaSeconds);
     animationFrame = requestAnimationFrame(frame);
   };
@@ -190,7 +172,6 @@ function dispose(): void {
   cancelAnimationFrame(animationFrame);
   resizeObserver?.disconnect();
   controls?.dispose();
-  pane?.dispose();
   if (rendererReady) renderer?.destroy();
 }
 

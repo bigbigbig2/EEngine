@@ -1,11 +1,14 @@
 import type { RenderSettingsPatch } from "./pipeline/RenderSettings.js";
 import type { ScreenSpaceDiffuseMode } from "./pipeline/FrameProducts.js";
+import type { RendererDebugConfig } from "../addons/debug/RendererDebugConfig.js";
 
 /**
  * Renderer 初始化配置。配置只在创建/初始化时作为默认值应用，运行时数值调整
  * 仍通过 Renderer.configure()，避免各 Pass 自己持有一份默认参数。
  */
 export interface RendererConfig {
+  /** Development-only renderer controls and read-only runtime information. */
+  readonly debug?: boolean | RendererDebugConfig;
   /** RenderSettings 的完整增量；优先级高于下方便捷开关。 */
   readonly renderSettings?: RenderSettingsPatch;
   /** 便捷配置会被转换为统一 RenderSettings patch。 */
@@ -54,6 +57,19 @@ export function mergeRendererConfig(
     ao: { ...base.renderSettings?.ao, ...override.renderSettings?.ao },
     ssgi: { ...base.renderSettings?.ssgi, ...override.renderSettings?.ssgi },
     ssr: { ...base.renderSettings?.ssr, ...override.renderSettings?.ssr },
+    temporal: {
+      ...base.renderSettings?.temporal,
+      ...override.renderSettings?.temporal
+    },
+    shadows: {
+      ...base.renderSettings?.shadows,
+      ...override.renderSettings?.shadows
+    },
+    post: { ...base.renderSettings?.post, ...override.renderSettings?.post },
+    physicalScale: {
+      ...base.renderSettings?.physicalScale,
+      ...override.renderSettings?.physicalScale
+    },
     resolution: {
       ...base.renderSettings?.resolution,
       ...override.renderSettings?.resolution
@@ -109,6 +125,12 @@ export function rendererConfigSettingsPatch(
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  if (typeof config.debug === "object") {
+    const rate = config.debug.infoRefreshRate;
+    if (rate !== undefined && (!Number.isFinite(rate) || rate < 1 || rate > 10)) {
+      throw new RangeError("Renderer debug infoRefreshRate must be between 1 and 10 Hz");
+    }
+  }
   if (config.textureMaxResolution !== undefined &&
       ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)) {
     throw new RangeError("textureMaxResolution must be one of 256, 512, 1024, 2048 or 4096");

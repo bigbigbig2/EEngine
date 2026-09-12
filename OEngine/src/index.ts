@@ -307,6 +307,19 @@ export {
   validateRendererConfig
 } from "./render/RendererConfig.js";
 export type { RendererConfig } from "./render/RendererConfig.js";
+export type {
+  RendererDebugConfig,
+  ResolvedRendererDebugConfig
+} from "./addons/debug/RendererDebugConfig.js";
+export type { RendererDebugController } from "./addons/debug/RendererDebugController.js";
+export type {
+  RendererInfoAvailability,
+  RendererInfoRow,
+  RendererInfoSection,
+  RendererInfoSectionId,
+  RendererInfoSnapshot,
+  RendererInfoValue
+} from "./addons/debug/RendererInfoModel.js";
 export { createRenderFrameContract } from "./render/RenderFrameContract.js";
 export type { RenderFrameContract } from "./render/RenderFrameContract.js";
 export {
