@@ -327,6 +327,7 @@ export type {
   RenderSettingsValues,
   ResolutionSettings,
   ShadowSettings,
+  SsgiSamplingDomain,
   SsgiSettings,
   SsrSettings,
   TemporalSettings

@@ -64,7 +64,7 @@ fn project_uv(position: vec3f) -> vec2f {
   let clip = camera.view_projection_matrix * vec4f(position, 1.0);
   return fma(clip.xy / max(abs(clip.w), 1e-6), vec2f(0.5, -0.5), vec2f(0.5));
 }
-fn in_view(uv: vec2f) -> bool { return all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0)); }
+fn in_view(uv: vec2f) -> bool { return all(uv > vec2f(0.0)) && all(uv < vec2f(1.0)); }
 `;
 
 export const THREE_SSGI_TRACE_WGSL = /* wgsl */ `
@@ -85,7 +85,12 @@ struct SsgiSettings {
   backface_lighting: f32,
   trace_width: u32,
   trace_height: u32,
+  screen_space_radius: f32,
+  // 0 = OEngine physical world-space radius, 1 = pinned Three.js screen-space radius.
+  sampling_domain: u32,
   _padding0: u32,
+  _padding1: u32,
+  _padding2: u32,
 };
 @group(0) @binding(0) var depth_source: texture_depth_2d;
 @group(0) @binding(1) var hzb_source: texture_2d<f32>;
@@ -99,10 +104,12 @@ ${RECONSTRUCTION}
 fn normal_at(pixel: vec2u) -> vec3f {
   return oct_decode(vec2f(textureLoad(normal_source, pixel, 0).xy) / OENGINE_SURFACE_NORMAL_MAX_VALUE);
 }
-fn hash12(p: vec2f) -> f32 {
-  let p3 = fract(vec3f(p.xyx) * 0.1031);
-  let q = p3 + dot(p3, p3.yzx + 33.33);
-  return fract((q.x + q.y) * q.z);
+fn three_rand(uv: vec2f) -> f32 {
+  let sn = (dot(uv, vec2f(12.9898, 78.233)) % 3.14159265359);
+  return fract(sin(sn) * 43758.5453);
+}
+fn interleaved_gradient_noise(pixel: vec2f) -> f32 {
+  return fract(52.9829189 * fract(dot(pixel, vec2f(0.06711056, 0.00583715))));
 }
 fn temporal_direction(frame: u32) -> f32 {
   const rotations = array<f32, 6>(60.0, 300.0, 180.0, 240.0, 120.0, 0.0);
@@ -167,12 +174,23 @@ struct TraceOutput {
   );
   let initial_ray_step = fract(
     spatial_offset + temporal_offset(settings.frame_index)
-  ) + hash12(uv * 2.0 - 1.0 + temporal_direction_value * 0.02);
+  ) + three_rand(
+    (uv + vec2f(temporal_direction_value * 0.02)) * 2.0 - vec2f(1.0)
+  );
   let half_projection_scale =
     f32(trace_size.y) * abs(camera.projection_matrix[1][1]) * 0.25;
-  let step_radius = max(
+  let world_step_radius = max(
     radius * half_projection_scale / max(-center_view.z, 1e-4),
     f32(steps)
+  );
+  // Preserve both upstream branches explicitly. Screen mode is the native
+  // SSGINode contract; world mode is OEngine's physically-scaled extension.
+  let screen_step_radius = max(settings.screen_space_radius, 1.0) *
+    (f32(trace_size.x) * 0.5) / 16.0;
+  let step_radius = select(
+    world_step_radius,
+    screen_step_radius,
+    settings.sampling_domain == 1u
   ) / f32(steps + 1u);
   let radius_view = max(1.0, f32(steps - 1u)) * step_radius;
   var accumulated_occlusion = 0.0;
@@ -181,7 +199,7 @@ struct TraceOutput {
   var bent = center_normal;
 
   for (var slice = 0u; slice < slices; slice++) {
-    let noise_direction = hash12(vec2f(trace_pixel));
+    let noise_direction = interleaved_gradient_noise(vec2f(trace_pixel));
     let angle = (f32(slice) + noise_direction + temporal_direction_value) *
       (3.14159265359 / f32(slices));
     let slice_direction = vec3f(cos(angle), sin(angle), 0.0);
@@ -212,7 +230,9 @@ struct TraceOutput {
         let uv_offset = slide_direction_texel *
           max(offset, f32(step) + 1.0) * uv_direction;
         let candidate_uv = uv + uv_offset;
-        if (!in_view(candidate_uv)) { continue; }
+        // Ray offsets grow monotonically. Once a side leaves the viewport no
+        // later sample can re-enter, matching SSGINode's Break contract.
+        if (!in_view(candidate_uv)) { break; }
         let candidate_pixel = min(
           vec2u(candidate_uv * vec2f(full_size)), full_size - vec2u(1u)
         );

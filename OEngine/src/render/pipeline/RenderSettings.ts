@@ -32,8 +32,14 @@ export interface GtaoSettings {
   readonly temporalBlend: number;
 }
 
+export type SsgiSamplingDomain = "world" | "screen";
+
 export interface SsgiSettings {
+  /** Radius interpretation. World mode follows OEngine physical scale; screen mode preserves Three.js SSGI's native radius contract. */
+  readonly samplingDomain: SsgiSamplingDomain;
   readonly radiusMeters: number;
+  /** Three.js-style screen-space radius, used only when samplingDomain is "screen". */
+  readonly screenSpaceRadius: number;
   readonly thicknessMeters: number;
   readonly aoIntensity: number;
   readonly giIntensity: number;
@@ -215,7 +221,9 @@ const DEFAULTS: RenderSettingsValues = {
     temporalBlend: 0.95
   },
   ssgi: {
+    samplingDomain: "world",
     radiusMeters: 2,
+    screenSpaceRadius: 12,
     thicknessMeters: 1,
     aoIntensity: 1,
     giIntensity: 10,
@@ -415,6 +423,10 @@ function validate(value: RenderSettingsValues): void {
     throw new RangeError("features.screenSpaceDiffuseMode must be off, gtao or ssgi");
   }
   assertFinitePositive(value.ssgi.radiusMeters, "ssgi.radiusMeters");
+  if (value.ssgi.samplingDomain !== "world" && value.ssgi.samplingDomain !== "screen") {
+    throw new RangeError("ssgi.samplingDomain must be world or screen");
+  }
+  assertRange(value.ssgi.screenSpaceRadius, 1, 25, "ssgi.screenSpaceRadius");
   assertFinitePositive(value.ssgi.thicknessMeters, "ssgi.thicknessMeters");
   assertRange(value.ssgi.aoIntensity, 0, 4, "ssgi.aoIntensity");
   assertRange(value.ssgi.giIntensity, 0, 32, "ssgi.giIntensity");

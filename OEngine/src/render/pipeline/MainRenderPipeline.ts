@@ -321,6 +321,14 @@ export interface ScreenSpaceGiRuntimeEvidence {
   readonly algorithm: "three-ssgi-r186-oengine-wgsl" | "disabled";
   readonly upstreamRevision: string | null;
   readonly resolutionScale: 0.5 | 1;
+  readonly temporalEnabled: boolean;
+  readonly samplingDomain: "world" | "screen";
+  readonly radiusMeters: number;
+  readonly radiusWorldUnits: number;
+  readonly screenSpaceRadius: number;
+  readonly thicknessMeters: number;
+  readonly thicknessWorldUnits: number;
+  readonly metersPerWorldUnit: number;
   readonly sliceCount: number;
   readonly stepCount: number;
   readonly traceSamplesPerPixel: number;
@@ -1191,6 +1199,20 @@ export class MainRenderPipeline {
       algorithm: enabled ? "three-ssgi-r186-oengine-wgsl" : "disabled",
       upstreamRevision: enabled ? (pass?.implementation.upstreamRevision ?? null) : null,
       resolutionScale: settings.resolutionScale,
+      temporalEnabled: enabled && settings.temporalEnabled,
+      samplingDomain: settings.samplingDomain,
+      radiusMeters: settings.radiusMeters,
+      radiusWorldUnits: metersToWorldUnits(
+        settings.radiusMeters,
+        this._renderSettings.values.physicalScale
+      ),
+      screenSpaceRadius: settings.screenSpaceRadius,
+      thicknessMeters: settings.thicknessMeters,
+      thicknessWorldUnits: metersToWorldUnits(
+        settings.thicknessMeters,
+        this._renderSettings.values.physicalScale
+      ),
+      metersPerWorldUnit: this._renderSettings.values.physicalScale.metersPerWorldUnit,
       sliceCount: settings.sliceCount,
       stepCount: settings.stepCount,
       traceSamplesPerPixel: enabled ? settings.sliceCount * settings.stepCount * 2 : 0,
@@ -2527,6 +2549,8 @@ export class MainRenderPipeline {
                 settings.radiusMeters,
                 this._renderSettings.values.physicalScale
               ),
+              screenSpaceRadius: settings.screenSpaceRadius,
+              samplingDomain: settings.samplingDomain,
               thicknessWorldUnits: metersToWorldUnits(
                 settings.thicknessMeters,
                 this._renderSettings.values.physicalScale
@@ -3984,6 +4008,11 @@ export class MainRenderPipeline {
     profiler.recordCounter("ssgi.temporalPasses", ssgi.temporalPasses);
     profiler.recordCounter("ssgi.resolvePasses", ssgi.resolvePasses);
     profiler.recordCounter("ssgi.traceSamplesPerPixel", ssgi.traceSamplesPerPixel);
+    profiler.recordCounter("ssgi.samplingDomain", ssgi.samplingDomain === "screen" ? 1 : 0);
+    profiler.recordCounter(
+      "ssgi.activeRadius",
+      ssgi.samplingDomain === "screen" ? ssgi.screenSpaceRadius : ssgi.radiusWorldUnits
+    );
     profiler.recordCounter("ssgi.historyBytes", ssgi.historyBytes);
     profiler.recordCounter("ssgi.historyValid", ssgi.historyValid ? 1 : 0);
     const ssr = this.screenSpaceReflectionsEvidence();

@@ -1099,6 +1099,20 @@ complete final HDR → implicit uncontrolled multi-bounce feedback
 
 第一轮移植保留 Three.js 的 hemisphere slice/step sampling、screen/world-space radius、thickness、backface-lighting control、AO/GI 双输出和 temporal sampling invariants。质量/性能默认候选从 upstream example 的低 slice、有限 step、internal-half/internal-resolution 开始，但具体数字必须由综合 benchmark 冻结，不能把 example GUI 默认值当产品合同。
 
+radius domain 是显式配置而不是隐含单位切换：
+
+```text
+samplingDomain = world:
+  activeRadius = radiusMeters / metersPerWorldUnit
+  projectedStep = max(activeRadius * halfProjectionScale / -viewZ, stepCount)
+
+samplingDomain = screen:
+  activeRadius = screenSpaceRadius
+  projectedStep = activeRadius * (traceWidth / 2) / 16
+```
+
+两者必须进入同一个 SSGI producer；不得据此复制 pass、history 或 FrameProduct。OEngine production 默认使用 `world` 以保持场景物理尺度，`screen` 保留 pinned Three.js 原生画面半径行为。`screenSpaceRadius` 与 `radiusMeters` 是不同单位的两个有界字段，非 active 字段不得被重新解释；domain/radius 改变必须失效 SSGI history，并在 runtime evidence/profiler 中暴露 active domain/radius。temporal 关闭时 direction rotation 与 offset 的上游基值都是 1；initial step 必须保留 Three.js `rand((uv + direction × 0.02) × 2 - 1)`，slice direction 使用 `interleavedGradientNoise(screenCoordinate)`。单侧 ray 的 quadratic offset 单调增大，所以越过 `(0,1)` viewport 后必须 `break`，不得继续产生无效 depth/HZB sample。
+
 输出合同：
 
 ```text
@@ -1868,7 +1882,8 @@ SSGI 同时成为 near-field diffuse GI 与 screen AO 的唯一 owner；bent-nor
 **Implementation record（2026-09-12，implementation landed，verification open）**
 
 - 公开 `RenderFeatureSettings` 已从 `ambientOcclusion: boolean` 直接迁移为 `screenSpaceDiffuseMode: "off" | "gtao" | "ssgi"`；初始化便利配置同样只接受单值 mode，不保留 GTAO/SSGI 双布尔兼容层。
-- production owner 为 `ScreenSpaceDiffuseService → SsgiPass`，固定上游 three.js r186 commit `148ef33ecb6d2502ff796d4554abd1549c95d519`。本地 WGSL 保留 32-zone occlusion bitfield、slice/双向 step、quadratic stepping、六帧 rotation、四帧 offset、radius/thickness/backface control、newly-occluded radiance accumulation、AO/GI dual output 与 luminance 7 firefly bound。
+- production owner 为 `ScreenSpaceDiffuseService → SsgiPass`，固定上游 three.js r186 commit `148ef33ecb6d2502ff796d4554abd1549c95d519`。本地 WGSL 保留 32-zone occlusion bitfield、slice/双向 step、quadratic stepping、Three.js `rand`/`interleavedGradientNoise`、六帧 rotation、四帧 offset、screen/world radius、thickness/backface control、newly-occluded radiance accumulation、AO/GI dual output 与 luminance 7 firefly bound。复核上游后冻结 temporal-off direction/offset 为 1，并把出屏处理从继续空跑改为单侧 ray 提前终止。
+- `SsgiSettings` 现在显式分离 `samplingDomain`、物理 `radiusMeters` 与上游单位 `screenSpaceRadius`。默认 `world + 2m` 保持 OEngine 物理尺度；`screen + 12` 保留 Three.js 原生公式，范围冻结为 `[1,25]`。两种模式共享相同 64 B uniform、trace/filter/resolve owner 和资源拓扑；切换 domain/radius 只触发 SSGI history invalidation。runtime evidence/profiler 暴露 domain、两种 radius、换算后的 world radius、physical scale 与 active radius，不允许用 pass 名证明分支已生效。
 - high topology 为半分辨率 `2 slices × 8 steps × 2 sides`；raw 输出 `rgba16float AO/second moment/oct bent` 与 `rgba16float incident GI/confidence`，joint spatial 和统一 temporal 后，一次 full-resolution depth bilateral resolve 输出 `r8unorm visibility`、`rg16uint bent`、`rgba16float incident GI`、`r8unorm confidence`。TemporalHistoryRegistry 只管理 generation/commit/invalidation；SSGI owner 持有两组 AO+GI ping-pong，共四张 history，不引入 Three.js `TRAANode`。
 - `PreExposedOpaqueRadianceSource` 直接冻结 GI baseline 写入后的 HDR resource version，trace 对它只读；当帧 `ScreenSpaceDiffuseResolve` 是后继 writer，因此 FrameGraph 依赖阻止 self-feedback。`DiffuseSurfaceLite` 逻辑产品复用 compact `albedoAo + roughnessFlags`，没有第二次 VisibilityKey/material texture evaluation，也没有额外 full Surface attachment。
 - SSGI topology 强制 IBL/Brick4/Probe baseline 临时物化 `resolved long-range diffuse + baseline specular`。最终 resolve 以 additive delta 只替换这些间接分量：long-range diffuse 乘 screen visibility，incident GI 乘 receiver diffuse/energy remainder/Material AO 一次；direct、emissive、unlit 保持原 HDR。SSR off 时在这里应用 bent-normal specular occlusion；SSR on 时 baseline specular 暂不改变，交给 Reflection correction replacement，避免双重 subtract。
@@ -1878,7 +1893,7 @@ SSGI 同时成为 near-field diffuse GI 与 screen AO 的唯一 owner；bent-nor
 - `Renderer.uploadBrick4LightMap(scene, package)` 是 frame loop 外的显式 production 入口。GPU owner 为每个 generation 创建 immutable storage，先完成 mapped upload 再原子替换 active binding，旧 buffer 等待已提交工作完成后退役；不会在 in-flight frame 仍读取时原地覆盖/销毁。`invalidateBrick4LightMap(scene, nextGeneration)` 先推进 expected generation 并令 resident=false，期间 shader 以 `actual != expected` 拒绝旧 mapping、计数并回退 Probe/IBL；matching package 发布后 actual/expected 再一致。这里的 receiver mapping 是 world-space bounds/tree 的隐式映射，不另造 per-instance mapping record。
 - scene-wide `indirect_lighting_mode`、公开 `ShadeIndirectLightingMode`、topology key bit 与三段不可达主管线分支已经删除；GIService 不再构造 `Brick4IndirectPass`、`LpvIndirectDiffusePass`、`IblBaselinePass` 或 `OpaqueLightingPipeline`。这些旧 pass/shader 文件也已删除，shared camera ABI 从 LPV shader 拆为中性的 `packed_camera.ts`。现在只有 receiver-local provider producer → `OpaqueLightingResolvePass` 一条 production path，不保留兼容层。
 - 同时修正 unified provider cutover 暴露的 SSR seam：provider 的 specular 输出是未乘 receiver BRDF 的 radiance，不能直接作为可 subtract baseline。`OpaqueLightingResolvePass` 新增 SSR-only 两 MRT 变体，在 `SSR on + SSGI off` 时只额外物化 BRDF-weighted、bent/AO-occluded `PreExposedBaselineSpecular`；只有 SSGI consumer 才写第三个 resolved-diffuse MRT。GIService 的返回 ABI 进一步把 `selectedDiffuseIrradiance`/`selectedSpecularRadiance` 与 `resolvedDiffuse`/`baselineSpecular` 分成不同字段，不允许 fallback 表达式把 raw radiance 冒充 baseline。由此避免错误 subtract，也避免 SSR-only 为 diffuse component 支付无消费者写带宽。
-- `surface.ssgi-production` 现在还定义了两阶段 Brick4 oracle：resident generation 的覆盖 receiver 必须只计 Brick4；推进 expected generation 后 Brick4 必须为零、`invalid_generation > 0` 且 receiver 回退 IBL。同时保留 pinned path、GTAO owner/history 缺席、source-before-resolve、component product、temporal closure 与 one-main-submit 检查。按本轮明确“不跑代码测试”的约束，这些测试尚未执行，也没有 build、真实 Chrome、visual review 或 `comprehensive-full` 结果，因此 Step 5 当前仍只能记为 implementation-landed / verification-open，不能判定 Exit 已满足。
+- `surface.ssgi-production` 现在还定义了两阶段 Brick4 oracle：resident generation 的覆盖 receiver 必须只计 Brick4；推进 expected generation 后 Brick4 必须为零、`invalid_generation > 0` 且 receiver 回退 IBL。同时以 `samplingDomain=screen, screenSpaceRadius=12` 覆盖 pinned native-radius GPU branch，并保留 pinned path、GTAO owner/history 缺席、source-before-resolve、component product、temporal closure 与 one-main-submit 检查；静态 oracle 冻结 temporal-off direction/offset=1、Three.js rand/IGN、双 radius branch、viewport break 与 history invalidation。按本轮明确“不跑代码测试”的约束，这些测试尚未执行，也没有 build、真实 Chrome、world-domain visual review 或 `comprehensive-full` 结果，因此 Step 5 当前仍只能记为 implementation-landed / verification-open，不能判定 Exit 已满足。
 
 ### Step 6 · Three.js SSR + Temporal + Denoise replacement
 

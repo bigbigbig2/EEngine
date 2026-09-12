@@ -717,7 +717,9 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       renderer.configure({
         features: { screenSpaceDiffuseMode: "ssgi", screenSpaceReflections: false },
         ssgi: {
+          samplingDomain: "screen",
           radiusMeters: 2,
+          screenSpaceRadius: 12,
           thicknessMeters: 1,
           aoIntensity: 1,
           giIntensity: 10,
@@ -770,6 +772,8 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "three-ssgi-pinned-production-path",
         ssgi.enabled && ssgi.algorithm === "three-ssgi-r186-oengine-wgsl" &&
           ssgi.upstreamRevision === "148ef33ecb6d2502ff796d4554abd1549c95d519" &&
+          ssgi.samplingDomain === "screen" && ssgi.radiusMeters === 2 &&
+          ssgi.radiusWorldUnits === 2 && ssgi.screenSpaceRadius === 12 &&
           ssgi.tracePasses === 1 && ssgi.spatialPasses === 1 &&
           ssgi.temporalPasses === 1 && ssgi.resolvePasses === 1,
         "The ordinary opaque-lighting path runs one pinned Three.js r186-derived SSGI trace/filter/history/resolve chain",

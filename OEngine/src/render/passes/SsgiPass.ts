@@ -57,6 +57,8 @@ export interface SsgiJob {
   readonly width: number;
   readonly height: number;
   readonly radiusWorldUnits: number;
+  readonly screenSpaceRadius: number;
+  readonly samplingDomain: "world" | "screen";
   readonly thicknessWorldUnits: number;
   readonly aoIntensity: number;
   readonly giIntensity: number;
@@ -322,17 +324,19 @@ export class SsgiPass {
   }
 
   private init(): void {
-    this.settingsBuffer ??= this.device.createBuffer({ label: "SSGI trace settings", size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.settingsBuffer ??= this.device.createBuffer({ label: "SSGI trace settings", size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   }
 
   private writeSettings(job: SsgiJob, width: number, height: number): void {
-    const data = new ArrayBuffer(48); const view = new DataView(data);
+    const data = new ArrayBuffer(64); const view = new DataView(data);
     view.setUint32(0, job.frameIndex >>> 0, true); view.setUint32(4, job.sliceCount >>> 0, true);
     view.setUint32(8, job.stepCount >>> 0, true); view.setUint32(12, this.temporalEnabled ? 1 : 0, true);
     view.setFloat32(16, job.radiusWorldUnits, true); view.setFloat32(20, job.thicknessWorldUnits, true);
     view.setFloat32(24, job.aoIntensity, true); view.setFloat32(28, job.giIntensity, true);
     view.setFloat32(32, job.backfaceLighting, true);
     view.setUint32(36, width >>> 0, true); view.setUint32(40, height >>> 0, true);
+    view.setFloat32(44, job.screenSpaceRadius, true);
+    view.setUint32(48, job.samplingDomain === "screen" ? 1 : 0, true);
     writeGpuBuffer(this.device.queue, "SSGI/trace-settings", this.settingsBuffer!, 0, data);
   }
 

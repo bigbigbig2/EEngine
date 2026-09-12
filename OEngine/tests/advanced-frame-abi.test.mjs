@@ -393,6 +393,13 @@ test("ADR-0009 Step 5 pins the Three.js r186 SSGI sampling invariants", () => {
   assert.equal(THREE_SSGI_REVISION, "148ef33ecb6d2502ff796d4554abd1549c95d519");
   assert.match(THREE_SSGI_TRACE_WGSL, /array<f32, 6>\(60\.0, 300\.0, 180\.0, 240\.0, 120\.0, 0\.0\)/);
   assert.match(THREE_SSGI_TRACE_WGSL, /array<f32, 4>\(0\.0, 0\.5, 0\.25, 0\.75\)/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /return select\(1\.0, rotations\[frame % 6u\]/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /dot\(uv, vec2f\(12\.9898, 78\.233\)\)/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /temporal_direction_value \* 0\.02/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /screen_step_radius/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /settings\.sampling_domain == 1u/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /interleaved_gradient_noise/);
+  assert.match(THREE_SSGI_TRACE_WGSL, /if \(!in_view\(candidate_uv\)\) \{ break; \}/);
   assert.match(THREE_SSGI_TRACE_WGSL, /var occluded = 0u/);
   assert.match(THREE_SSGI_TRACE_WGSL, /let newly_occluded = mask & ~occluded/);
   assert.match(THREE_SSGI_TRACE_WGSL, /countOneBits\(occluded\)/);
@@ -975,6 +982,22 @@ test("ADR-0009 Step 8 makes fixed benchmark mode the settings default", () => {
       resolution: { adaptiveMinimumScale: 0.9, internalScale: 0.8 }
     }),
     /inside its configured range/
+  );
+});
+
+test("ADR-0009 Step 5 exposes both pinned SSGI radius domains without changing the physical default", () => {
+  const settings = new RenderSettings();
+  assert.equal(settings.values.ssgi.samplingDomain, "world");
+  assert.equal(settings.values.ssgi.radiusMeters, 2);
+  assert.equal(settings.values.ssgi.screenSpaceRadius, 12);
+  const change = settings.update({
+    ssgi: { samplingDomain: "screen", screenSpaceRadius: 16 }
+  });
+  assert.deepEqual(change.historiesInvalidated, ["ssgi"]);
+  assert.equal(change.topologyChanged, false);
+  assert.throws(
+    () => settings.update({ ssgi: { screenSpaceRadius: 26 } }),
+    /ssgi\.screenSpaceRadius/
   );
 });
 
