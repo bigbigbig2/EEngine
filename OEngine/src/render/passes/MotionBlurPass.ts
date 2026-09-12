@@ -23,8 +23,12 @@ export type MotionBlurInputs = {
 };
 
 export type MotionBlurJob = {
-  width: number;
-  height: number;
+  /** Velocity/depth resolution before temporal reconstruction. */
+  inputWidth: number;
+  inputHeight: number;
+  /** Color/output resolution after temporal reconstruction. */
+  outputWidth: number;
+  outputHeight: number;
   strength: number;
 };
 
@@ -62,14 +66,17 @@ export class MotionBlurPass {
 
   addToGraph(graph: FrameGraph, job: MotionBlurJob, inputs: MotionBlurInputs): ResourceId {
     this.init();
-    const tileWidth = Math.ceil(job.width / 16);
-    const tileHeight = Math.ceil(job.height / 16);
+    const tileWidth = Math.ceil(job.inputWidth / 16);
+    const tileHeight = Math.ceil(job.inputHeight / 16);
     let tileMax = -1;
     const tileBuilder = graph.add("Motion blur tile max Mk", {}, (_data, resources, context) => {
       const command = requireShadeCommandContext(context.encoder);
       this.drawSingle(command, this.tilePipeline, "Motion blur tile max Mk", resolveTextureView(resources.get(tileMax)), resolveTextureView(resources.get(inputs.velocity)));
     });
-    tileMax = tileBuilder.create("Motion blur tile max", descriptor(tileWidth, tileHeight, MOTION_BLUR_TILE_FORMAT));
+    tileMax = tileBuilder.create(
+      "Motion blur tile max",
+      descriptor(tileWidth, tileHeight, MOTION_BLUR_TILE_FORMAT, "tile")
+    );
     tileBuilder.read(inputs.velocity);
 
     let neighborMax = -1;
@@ -77,7 +84,10 @@ export class MotionBlurPass {
       const command = requireShadeCommandContext(context.encoder);
       this.drawSingle(command, this.neighborPipeline, "Motion blur neighbor max Ek", resolveTextureView(resources.get(neighborMax)), resolveTextureView(resources.get(tileMax)));
     });
-    neighborMax = neighborBuilder.create("Motion blur neighbor max", descriptor(tileWidth, tileHeight, MOTION_BLUR_TILE_FORMAT));
+    neighborMax = neighborBuilder.create(
+      "Motion blur neighbor max",
+      descriptor(tileWidth, tileHeight, MOTION_BLUR_TILE_FORMAT, "tile")
+    );
     neighborBuilder.read(tileMax);
 
     let output = -1;
@@ -91,7 +101,10 @@ export class MotionBlurPass {
         depth: resolveTextureView(resources.get(inputs.depth))
       });
     });
-    output = resolveBuilder.create("Motion blur color", descriptor(job.width, job.height, MOTION_BLUR_FORMAT));
+    output = resolveBuilder.create(
+      "Motion blur color",
+      descriptor(job.outputWidth, job.outputHeight, MOTION_BLUR_FORMAT, "output-full")
+    );
     resolveBuilder.read(inputs.color);
     resolveBuilder.read(inputs.velocity);
     resolveBuilder.read(neighborMax);
@@ -126,8 +139,20 @@ export class MotionBlurPass {
   destroy(): void {}
 }
 
-function descriptor(width: number, height: number, format: GPUTextureFormat) {
-  return { kind: "transient_texture" as const, width, height, format, usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT };
+function descriptor(
+  width: number,
+  height: number,
+  format: GPUTextureFormat,
+  domain: "tile" | "output-full"
+) {
+  return {
+    kind: "transient_texture" as const,
+    width,
+    height,
+    format,
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+    domain
+  };
 }
 
 function createSingleTextureGroupLayout(): GPUBindGroupLayoutDescriptor {

@@ -84,12 +84,26 @@ fn mb_cylinder(distance: f32, velocity_length: f32) -> f32 {
   return 1.0 - smoothstep(0.95 * velocity_length, 1.05 * velocity_length, distance);
 }
 
-fn mb_soft_depth_compare(a: f32, b: f32) -> f32 {
-  return saturate(1.0 - (a - b) / MB_SOFT_Z_EXTENT);
+fn mb_soft_reverse_z_compare(candidate: f32, reference: f32) -> f32 {
+  // Reverse-Z: a larger value is closer. Return one when candidate is in
+  // front of reference, and fade to zero when it is sufficiently behind.
+  return saturate(1.0 - (reference - candidate) / MB_SOFT_Z_EXTENT);
 }
 
 fn mb_igr_noise(pixel: vec2f) -> f32 {
   return fract(52.9829189 * fract(dot(pixel, vec2f(0.06711056, 0.00583715))));
+}
+
+fn mb_output_to_input(output_pixel: vec2i) -> vec2i {
+  let output_dimensions = vec2f(textureDimensions(tv_y));
+  let input_dimensions = vec2i(textureDimensions(header));
+  let input_position =
+    (vec2f(output_pixel) + 0.5) * vec2f(input_dimensions) / output_dimensions;
+  return clamp(
+    vec2i(floor(input_position)),
+    vec2i(0),
+    input_dimensions - vec2i(1)
+  );
 }
 
 @fragment
@@ -97,13 +111,18 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let pixel_i = vec2i(coord.xy);
   let pixel_f = coord.xy;
   let center_color = textureLoad(tv_y, pixel_i, 0);
-  let tile = vec2i(pixel_f / TILE_SIZE);
-  let neighbor_velocity = textureLoad(current_projection_matrix, tile, 0).rg * uStrength.value;
+  let input_pixel = mb_output_to_input(pixel_i);
+  let velocity_scale =
+    vec2f(textureDimensions(tv_y)) / vec2f(textureDimensions(header));
+  let tile = input_pixel / i32(TILE_SIZE);
+  let neighbor_velocity = textureLoad(current_projection_matrix, tile, 0).rg *
+    velocity_scale * uStrength.value;
   let neighbor_length = length(neighbor_velocity);
   if (neighbor_length < HALF_VELOCITY_CUTOFF) { return center_color; }
-  let self_velocity = textureLoad(header, pixel_i, 0).rg * uStrength.value;
+  let self_velocity = textureLoad(header, input_pixel, 0).rg *
+    velocity_scale * uStrength.value;
   let self_length = length(self_velocity);
-  let self_depth = textureLoad(gr_bucket, pixel_i, 0);
+  let self_depth = textureLoad(gr_bucket, input_pixel, 0);
   let jitter = mb_igr_noise(pixel_f) - 0.5;
   var accumulated = center_color;
   var total_weight = 1.0;
@@ -114,13 +133,15 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     let sample_position = vec2i(pixel_f + offset);
     let dimensions = vec2i(textureDimensions(tv_y));
     if (any(sample_position < vec2i(0)) || any(sample_position >= dimensions)) { continue; }
-    let tap_velocity = textureLoad(header, sample_position, 0).rg * uStrength.value;
+    let tap_input = mb_output_to_input(sample_position);
+    let tap_velocity = textureLoad(header, tap_input, 0).rg *
+      velocity_scale * uStrength.value;
     let tap_length = length(tap_velocity);
-    let tap_depth = textureLoad(gr_bucket, sample_position, 0);
+    let tap_depth = textureLoad(gr_bucket, tap_input, 0);
     let tap_color = textureLoad(tv_y, sample_position, 0);
     let distance = length(offset);
-    let foreground = mb_soft_depth_compare(tap_depth, self_depth);
-    let background = mb_soft_depth_compare(self_depth, tap_depth);
+    let foreground = mb_soft_reverse_z_compare(tap_depth, self_depth);
+    let background = mb_soft_reverse_z_compare(self_depth, tap_depth);
     let tap_covers_center = foreground * mb_cone(distance, tap_length);
     let center_covers_tap = background * mb_cone(distance, self_length);
     let both_on_trail = 2.0 * mb_cylinder(distance, tap_length) * mb_cylinder(distance, self_length);

@@ -3081,8 +3081,10 @@ export class MainRenderPipeline {
           hdrRes = this._postFeature!.obtainMotionBlur().addToGraph(
             graph,
             bind("motion-blur-job", (bindings) => ({
-              width: bindings.outputWidth,
-              height: bindings.outputHeight,
+              inputWidth: bindings.internalWidth,
+              inputHeight: bindings.internalHeight,
+              outputWidth: bindings.outputWidth,
+              outputHeight: bindings.outputHeight,
               strength: bindings.motionBlurStrength
             })),
             {
