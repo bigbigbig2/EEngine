@@ -435,6 +435,18 @@ test("ADR-0009 Step 4 pins the Three.js r186 GTAO invariants", () => {
     GTAO_PASS_SOURCE,
     /horizon trace group0[\s\S]*?binding: 0,[^\n]*sampleType: "depth"/
   );
+  assert.match(GTAO_PASS_SOURCE, /velocity\?: ResourceId;/);
+  assert.match(GTAO_PASS_SOURCE, /occlusionConfidence\?: ResourceId;/);
+  assert.match(GTAO_PASS_SOURCE, /surfaceValidity\?: ResourceId;/);
+  assert.match(
+    GTAO_PASS_SOURCE,
+    /GTAO temporal history and motion\/disocclusion inputs are required/
+  );
+  assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /velocity: velocityRes \?\? depthRes/);
+  assert.doesNotMatch(
+    MAIN_PIPELINE_SOURCE,
+    /occlusionConfidence: occlusionConfidenceRes \?\? depthRes/
+  );
   assert.match(THREE_GTAO_RAW_WGSL, /array<f32, 6>\(60\.0, 300\.0, 180\.0, 240\.0, 120\.0, 0\.0\)/);
   assert.match(THREE_GTAO_RAW_WGSL, /9u, 3u, 22u, 16u, 15u/);
   assert.match(THREE_GTAO_RAW_WGSL, /dot\(uv, vec2f\(12\.9898, 78\.233\)\)/);
@@ -553,6 +565,24 @@ test("ADR-0009 Step 5 keeps AO, GI, bent and confidence in one history owner", (
   assert.match(SSGI_PASS_SOURCE, /historyTextureCount = this\.histories === null \? 0 : 4/);
   assert.match(SSGI_PASS_SOURCE, /SSGI unified temporal AO\+GI resolve/);
   assert.match(SSGI_PASS_SOURCE, /SSGI joint bilateral full-resolution resolve/);
+  assert.match(SSGI_PASS_SOURCE, /velocity\?: ResourceId;/);
+  assert.match(SSGI_PASS_SOURCE, /occlusionConfidence\?: ResourceId;/);
+  assert.match(SSGI_PASS_SOURCE, /surfaceValidity\?: ResourceId;/);
+  assert.match(
+    SSGI_PASS_SOURCE,
+    /SsgiPass temporal history and motion\/disocclusion inputs are required/
+  );
+  const traceEvidenceSource = SSGI_PASS_SOURCE.slice(
+    SSGI_PASS_SOURCE.indexOf("const SSGI_TRACE_EVIDENCE_WGSL"),
+    SSGI_PASS_SOURCE.indexOf("const SSGI_TRACE_EVIDENCE_PIPELINE")
+  );
+  assert.doesNotMatch(traceEvidenceSource, /velocity_source|confidence_source/);
+  assert.doesNotMatch(traceEvidenceSource, /SSGI_ACCEPTED|SSGI_REJECTED/);
+  assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /velocity: velocityRes \?\? gAlbedoRes/);
+  assert.doesNotMatch(
+    MAIN_PIPELINE_SOURCE,
+    /occlusionConfidence: occlusionConfidenceRes \?\? gAlbedoRes/
+  );
   assert.match(SSGI_TEMPORAL_WGSL, /classification\.g >= 0\.5 && classification\.r < 0\.5/);
   assert.match(SSGI_TEMPORAL_WGSL, /settings\.blend \* history_validity \* confidence/);
   assert.match(SSGI_SPATIAL_WGSL, /bent_sum \+= oct_decode/);

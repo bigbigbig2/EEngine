@@ -2438,7 +2438,8 @@ export class MainRenderPipeline {
           gNormalRes !== null &&
           gAlbedoRes !== null &&
           (!graphTopology.screenSpaceDiffuseTemporal ||
-            (velocityRes !== null && occlusionConfidenceRes !== null))
+            (velocityRes !== null && occlusionConfidenceRes !== null &&
+              opaqueTemporalValidityRes !== null))
         ) {
           const gtao = this._aoService!.addToGraph(
             graph,
@@ -2468,9 +2469,9 @@ export class MainRenderPipeline {
               depth: depthRes,
               hzb: hzbRes,
               normal: gNormalRes,
-              velocity: velocityRes ?? depthRes,
-              occlusionConfidence: occlusionConfidenceRes ?? depthRes,
-              surfaceValidity: opaqueTemporalValidityRes!,
+              velocity: velocityRes ?? undefined,
+              occlusionConfidence: occlusionConfidenceRes ?? undefined,
+              surfaceValidity: opaqueTemporalValidityRes ?? undefined,
               camera: currentCameraRes,
               counters: gpuCounterRes ?? undefined
             },
@@ -2588,12 +2589,9 @@ export class MainRenderPipeline {
               hzb: hzbRes,
               normal: gNormalRes,
               radianceSource: source.radiance,
-              // Temporal-disabled SSGI does not allocate velocity/confidence.
-              // The evidence reducer still needs a filterable texture binding;
-              // historyValid=false makes these fallback samples non-authoritative.
-              velocity: velocityRes ?? gAlbedoRes,
-              occlusionConfidence: occlusionConfidenceRes ?? gAlbedoRes,
-              surfaceValidity: opaqueTemporalValidityRes ?? gAlbedoRes,
+              velocity: velocityRes ?? undefined,
+              occlusionConfidence: occlusionConfidenceRes ?? undefined,
+              surfaceValidity: opaqueTemporalValidityRes ?? undefined,
               camera: currentCameraRes,
               counters: gpuCounterRes ?? undefined
             },

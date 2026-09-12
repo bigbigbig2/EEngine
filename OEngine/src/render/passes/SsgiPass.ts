@@ -43,9 +43,9 @@ export interface SsgiInputs {
   readonly normal: ResourceId;
   /** Frozen full-resolution pre-screen-space-diffuse radiance. */
   readonly radianceSource: ResourceId;
-  readonly velocity: ResourceId;
-  readonly occlusionConfidence: ResourceId;
-  readonly surfaceValidity: ResourceId;
+  readonly velocity?: ResourceId;
+  readonly occlusionConfidence?: ResourceId;
+  readonly surfaceValidity?: ResourceId;
   readonly camera: ResourceId;
   readonly counters?: ResourceId;
 }
@@ -149,8 +149,12 @@ export class SsgiPass {
     const width = Math.max(1, Math.ceil(fullWidth * this.resolutionScale));
     const height = Math.max(1, Math.ceil(fullHeight * this.resolutionScale));
     this.resize(width, height);
-    if (this.temporalEnabled && history === undefined) {
-      throw new Error("SsgiPass temporal history bindings are required");
+    if (
+      this.temporalEnabled &&
+      (history === undefined || inputs.velocity === undefined ||
+        inputs.occlusionConfidence === undefined || inputs.surfaceValidity === undefined)
+    ) {
+      throw new Error("SsgiPass temporal history and motion/disocclusion inputs are required");
     }
 
     let linearDepth = -1;
@@ -195,29 +199,51 @@ export class SsgiPass {
 
     let counters: ResourceId | null = null;
     if (inputs.counters !== undefined) {
-      const evidenceBuilder = graph.add("SSGI sampled trace/history evidence", job, (data, resources, context) => {
-        const command = commandContext(context.encoder);
-        const values = new Uint32Array([
-          data.historyValid ? 1 : 0,
-          width,
-          height,
-          data.sliceCount * data.stepCount * 2
-        ]);
-        const settings = command.allocateTransientBufferAndLoad(values.buffer, GPUBufferUsage.UNIFORM);
-        const pass = command.constructComputePass({
-          label: "SSGI sampled trace/history evidence",
-          pipeline: SSGI_EVIDENCE_PIPELINE,
-          bindings: [[
-            view(resources.get(inputs.velocity)),
-            view(resources.get(inputs.occlusionConfidence)),
-            { buffer: gpuBuffer(resources.get(inputs.counters!), "SSGI counters") },
-            { buffer: settings }
-          ]]
-        });
-        pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8), 1);
-        pass.end();
-      });
-      evidenceBuilder.read(inputs.velocity); evidenceBuilder.read(inputs.occlusionConfidence);
+      const evidenceBuilder = graph.add(
+        this.temporalEnabled
+          ? "SSGI sampled trace/temporal evidence"
+          : "SSGI sampled trace evidence",
+        job,
+        (data, resources, context) => {
+          const command = commandContext(context.encoder);
+          const values = new Uint32Array([
+            data.historyValid ? 1 : 0,
+            width,
+            height,
+            data.sliceCount * data.stepCount * 2
+          ]);
+          const settings = command.allocateTransientBufferAndLoad(
+            values.buffer,
+            GPUBufferUsage.UNIFORM
+          );
+          const bindings: GPUBindingResource[] = this.temporalEnabled
+            ? [
+                view(resources.get(inputs.velocity!)),
+                view(resources.get(inputs.occlusionConfidence!)),
+                { buffer: gpuBuffer(resources.get(inputs.counters!), "SSGI counters") },
+                { buffer: settings }
+              ]
+            : [
+                { buffer: gpuBuffer(resources.get(inputs.counters!), "SSGI counters") },
+                { buffer: settings }
+              ];
+          const pass = command.constructComputePass({
+            label: this.temporalEnabled
+              ? "SSGI sampled trace/temporal evidence"
+              : "SSGI sampled trace evidence",
+            pipeline: this.temporalEnabled
+              ? SSGI_TEMPORAL_EVIDENCE_PIPELINE
+              : SSGI_TRACE_EVIDENCE_PIPELINE,
+            bindings: [bindings]
+          });
+          pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8), 1);
+          pass.end();
+        }
+      );
+      if (this.temporalEnabled) {
+        evidenceBuilder.read(inputs.velocity!);
+        evidenceBuilder.read(inputs.occlusionConfidence!);
+      }
       evidenceBuilder.read(inputs.counters); counters = evidenceBuilder.write(inputs.counters);
       evidenceBuilder.make_side_effect();
     }
@@ -255,15 +281,15 @@ export class SsgiPass {
           bindings: [[
             view(resources.get(spatialAo)), view(resources.get(spatialGi)),
             view(resources.get(aoInput)), view(resources.get(giInput)),
-            view(resources.get(inputs.velocity)), view(resources.get(inputs.occlusionConfidence)),
-            view(resources.get(inputs.surfaceValidity)), data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+            view(resources.get(inputs.velocity!)), view(resources.get(inputs.occlusionConfidence!)),
+            view(resources.get(inputs.surfaceValidity!)), data.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
             { buffer: settings }
           ]],
           colorAttachments: [attachment(resources.get(temporalAo)), attachment(resources.get(temporalGi))]
         });
         pass.draw(3); pass.end(); this.lastTemporalPasses = 1;
       });
-      for (const resource of [spatialAo, spatialGi, aoInput, giInput, inputs.velocity, inputs.occlusionConfidence, inputs.surfaceValidity]) temporalBuilder.read(resource);
+      for (const resource of [spatialAo, spatialGi, aoInput, giInput, inputs.velocity!, inputs.occlusionConfidence!, inputs.surfaceValidity!]) temporalBuilder.read(resource);
       temporalAo = temporalBuilder.write(aoOutput);
       temporalGi = temporalBuilder.write(giOutput);
     }
@@ -353,7 +379,7 @@ const SSGI_EVALUATED = counterByteOffset("ssgiEvaluatedPixels") / 4;
 const SSGI_SAMPLES = counterByteOffset("ssgiTraceSamples") / 4;
 const SSGI_ACCEPTED = counterByteOffset("ssgiHistoryAcceptedPixels") / 4;
 const SSGI_REJECTED = counterByteOffset("ssgiHistoryRejectedPixels") / 4;
-const SSGI_EVIDENCE_WGSL = /* wgsl */ `
+const SSGI_TEMPORAL_EVIDENCE_WGSL = /* wgsl */ `
 struct Settings {
   history_valid: u32, width: u32, height: u32, samples: u32,
 };
@@ -375,15 +401,36 @@ struct Settings {
   } else { atomicAdd(&counters[${SSGI_REJECTED}u], 1u); }
 }
 `;
-const SSGI_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
-  label: "SSGI sampled trace/history evidence",
-  layout: { label: "SSGI evidence/layout", bindGroupLayouts: [{ label: "SSGI evidence/group0", entries: [
+const SSGI_TEMPORAL_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
+  label: "SSGI sampled trace/temporal evidence",
+  layout: { label: "SSGI temporal evidence/layout", bindGroupLayouts: [{ label: "SSGI temporal evidence/group0", entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
     { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
   ] }] },
-  compute: { module: { label: "SSGI evidence", code: SSGI_EVIDENCE_WGSL }, entryPoint: "main" }
+  compute: { module: { label: "SSGI temporal evidence", code: SSGI_TEMPORAL_EVIDENCE_WGSL }, entryPoint: "main" }
+};
+
+const SSGI_TRACE_EVIDENCE_WGSL = /* wgsl */ `
+struct Settings {
+  history_valid: u32, width: u32, height: u32, samples: u32,
+};
+@group(0) @binding(0) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(1) var<uniform> settings: Settings;
+@compute @workgroup_size(8, 8, 1) fn main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= settings.width || id.y >= settings.height) { return; }
+  atomicAdd(&counters[${SSGI_EVALUATED}u], 1u);
+  atomicAdd(&counters[${SSGI_SAMPLES}u], settings.samples);
+}
+`;
+const SSGI_TRACE_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
+  label: "SSGI sampled trace evidence",
+  layout: { label: "SSGI trace evidence/layout", bindGroupLayouts: [{ label: "SSGI trace evidence/group0", entries: [
+    { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
+    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+  ] }] },
+  compute: { module: { label: "SSGI trace evidence", code: SSGI_TRACE_EVIDENCE_WGSL }, entryPoint: "main" }
 };
 
 function transientTexture(width: number, height: number, format: GPUTextureFormat) {

@@ -56,9 +56,9 @@ export type GtaoInputs = {
   /** Current reverse-Z HZB pyramid used for footprint-sized raw samples. */
   hzb: ResourceId;
   normal: ResourceId;
-  velocity: ResourceId;
-  occlusionConfidence: ResourceId;
-  surfaceValidity: ResourceId;
+  velocity?: ResourceId;
+  occlusionConfidence?: ResourceId;
+  surfaceValidity?: ResourceId;
   camera: ResourceId;
   counters?: ResourceId;
 };
@@ -178,8 +178,12 @@ export class GtaoPass {
     const height = Math.max(1, Math.ceil(fullHeight * this.resolutionScale));
     this.resize(width, height);
 
-    if (this.temporalEnabled && historyBindings === undefined) {
-      throw new Error("GTAO temporal history bindings are required");
+    if (
+      this.temporalEnabled &&
+      (historyBindings === undefined || inputs.velocity === undefined ||
+        inputs.occlusionConfidence === undefined || inputs.surfaceValidity === undefined)
+    ) {
+      throw new Error("GTAO temporal history and motion/disocclusion inputs are required");
     }
 
     let linearDepth = -1;
@@ -299,11 +303,11 @@ export class GtaoPass {
               output: resolveTextureView(resources.get(resolvedVisibility)),
               current: resolveTextureView(resources.get(spatialVisibility)),
               history: resolveTextureView(resources.get(historyInputResource)),
-              velocity: resolveTextureView(resources.get(inputs.velocity)),
+              velocity: resolveTextureView(resources.get(inputs.velocity!)),
               occlusionConfidence: resolveTextureView(
-                resources.get(inputs.occlusionConfidence)
+                resources.get(inputs.occlusionConfidence!)
               ),
-              surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity))
+              surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity!))
             }
           );
           self.lastTemporalPasses = 1;
@@ -311,9 +315,9 @@ export class GtaoPass {
       );
       temporalBuilder.read(spatialVisibility);
       temporalBuilder.read(historyInputResource);
-      temporalBuilder.read(inputs.velocity);
-      temporalBuilder.read(inputs.occlusionConfidence);
-      temporalBuilder.read(inputs.surfaceValidity);
+      temporalBuilder.read(inputs.velocity!);
+      temporalBuilder.read(inputs.occlusionConfidence!);
+      temporalBuilder.read(inputs.surfaceValidity!);
       resolvedVisibility = temporalBuilder.write(historyOutputResource);
     }
 
@@ -343,8 +347,8 @@ export class GtaoPass {
             label: "R5-Q00 GTAO sampled temporal evidence",
             pipeline: GTAO_EVIDENCE_PIPELINE,
             bindings: [[
-              resolveTextureView(resources.get(inputs.velocity)),
-              resolveTextureView(resources.get(inputs.occlusionConfidence)),
+              resolveTextureView(resources.get(inputs.velocity!)),
+              resolveTextureView(resources.get(inputs.occlusionConfidence!)),
               { buffer: requireBuffer(resources.get(inputs.counters!), "GTAO counters") },
               { buffer: settings }
             ]]
@@ -353,8 +357,8 @@ export class GtaoPass {
           pass.end();
         }
       );
-      evidenceBuilder.read(inputs.velocity);
-      evidenceBuilder.read(inputs.occlusionConfidence);
+      evidenceBuilder.read(inputs.velocity!);
+      evidenceBuilder.read(inputs.occlusionConfidence!);
       evidenceBuilder.read(inputs.counters);
       counters = evidenceBuilder.write(inputs.counters);
       evidenceBuilder.make_side_effect();
