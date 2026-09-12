@@ -796,6 +796,11 @@ export function finalColorPyramidFrame(
 ): FinalColorPyramidFrame {
   requireRequiredResourceId(input.source, "FinalColorPyramidFrame.source");
   requireRequiredResourceId(input.texture, "FinalColorPyramidFrame.texture");
+  if (input.source === input.texture) {
+    throw new Error(
+      "FinalColorPyramidFrame must preserve a source resource distinct from its mipmapped texture"
+    );
+  }
   requirePositiveInteger(input.mipLevelCount, "FinalColorPyramidFrame.mipLevelCount");
   requireNonNegativeInteger(
     input.sourceGeneration,

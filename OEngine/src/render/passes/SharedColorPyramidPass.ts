@@ -132,7 +132,10 @@ export class SharedColorPyramidPass {
       false
     );
     return finalColorPyramidFrame({
-      source: texture,
+      // Preserve the exact pre-pyramid HDR resource. Bloom's optional
+      // materialized composite and the no-composite identity path must not
+      // silently substitute the copied pyramid mip 0 for their source.
+      source,
       texture,
       mipLevelCount,
       stage: "post-transparency-temporal",

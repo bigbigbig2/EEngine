@@ -962,6 +962,11 @@ test("ADR-0009 Step 7 keeps opaque and final color pyramid semantics distinct", 
   });
   assert.equal(final.domain.domain, "output-full");
   assert.equal(final.source, 30);
+  assert.equal(final.texture, 31);
+  assert.throws(
+    () => finalColorPyramidFrame({ ...final, source: final.texture }),
+    /source resource distinct from its mipmapped texture/
+  );
   assert.throws(
     () => finalColorPyramidFrame({
       ...final,
