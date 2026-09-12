@@ -72,6 +72,7 @@ import {
   LONG_RANGE_DIFFUSE_PROVIDER_WGSL,
   LONG_RANGE_PROVIDER_FORMAT
 } from "../.test-dist/shaders/long_range_diffuse_provider.js";
+import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../.test-dist/shaders/opaque_lighting_resolve.js";
 import { THREE_SSR_REVISION } from "../.test-dist/shaders/ssr_common.js";
 import { SSR_TRACE_WGSL } from "../.test-dist/shaders/ssr_trace.js";
 import { SSR_RESOLVE_WGSL } from "../.test-dist/shaders/ssr_resolve.js";
@@ -320,6 +321,14 @@ test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only
   assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /builder\.create\("pre-exposed-baseline-specular"/);
   assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /fs_main_with_baseline/);
   assert.match(OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE, /fs_main_no_ao_with_baseline/);
+  assert.match(
+    OPAQUE_LIGHTING_RESOLVE_WGSL,
+    /indirect\[1\] \* material_ao \* ambient_visibility_value/
+  );
+  assert.doesNotMatch(
+    OPAQUE_LIGHTING_RESOLVE_WGSL,
+    /fallback_diffuse_irradiance,[\s\S]{0,120}\) \* material_ao/
+  );
   assert.doesNotMatch(GI_SERVICE_SOURCE, /mode: "ibl"|mode: "brick4"|mode: "lpv"/);
   assert.match(GI_SERVICE_SOURCE, /selectedSpecularRadiance: selected\.specularRadiance/);
   assert.match(GI_SERVICE_SOURCE, /baselineSpecular: resolved\.baselineSpecular/);

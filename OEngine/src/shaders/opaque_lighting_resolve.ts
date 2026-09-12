@@ -204,7 +204,7 @@ fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32)
     fallback_diffuse_irradiance,
     bent_normal,
     0.0
-  ) * material_ao;
+  );
   let irradiance = select(
     fallback_irradiance,
     provider_irradiance.rgb,
@@ -231,7 +231,9 @@ fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32)
   );
   return mat2x3f(
     indirect[0] * specular_occlusion,
-    indirect[1] * ambient_visibility_value
+    // Provider textures carry raw irradiance. Receiver-local Material AO is
+    // applied here for every Brick4/Probe/IBL/fallback provider exactly once.
+    indirect[1] * material_ao * ambient_visibility_value
   );
 }
 
