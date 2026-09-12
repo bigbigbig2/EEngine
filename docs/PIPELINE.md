@@ -57,6 +57,7 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 - `PreExposedOpaqueHdrBaselineFrame`：screen-space diffuse 之后、SSR correction 之前的 opaque HDR；baseline specular 与 SSR consumer 同生同灭。
 - `OpaqueColorPyramidFrame`：`rgba16float`、`internal-full` 的 post-screen-space-diffuse/pre-SSR mip 产品；只允许 SSR/未来折射类 consumer 使用，不能冒充 pre-SSGI radiance source。
 - `FinalColorPyramidFrame`：`rgba16float`、`output-full` 的 post-transparency/temporal final HDR mip 产品；`source` 明确指向其 output-full mip0，并由 Bloom 与 Exposure 共享。
+- `Bloom reconstructed pyramid`：从 `FinalColorPyramid` mip1 开始构建的 Bloom 专用阈值/重建结果，mip0 是 `output-half`；它不是另一个 scene-color pyramid，也不得标成 `output-full`。只有 one-shot post-color-grading capture 所需的 Bloom composite materialization 才回到 `output-full`。
 - `DirectLightingFrame`：direct-only linear HDR。
 - `OpaqueLightingFrame`：完整不透明 HDR、IBL specular、indirect diffuse。
 - `LightClusterFrame`：parameters/lookup/data、candidate/active light list 与可选 counters。

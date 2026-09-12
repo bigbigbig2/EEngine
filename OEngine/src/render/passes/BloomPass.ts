@@ -127,7 +127,7 @@ export class BloomPass {
       format: BLOOM_FORMAT,
       mipLevelCount: mipCount,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      domain: "output-full"
+      domain: "output-half"
     });
     reconstructBuilder.read(input.texture);
 

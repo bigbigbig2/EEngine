@@ -8,6 +8,7 @@ export type FrameGraphResourceDomain =
   | "internal-full"
   | "internal-half"
   | "output-full"
+  | "output-half"
   | "tile"
   | "fixed"
   | "swapchain";

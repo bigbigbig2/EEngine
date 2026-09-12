@@ -141,6 +141,14 @@ const TONEMAP_PASS_SOURCE = readFileSync(
   new URL("../src/render/passes/TonemapPass.ts", import.meta.url),
   "utf8"
 );
+const BLOOM_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/BloomPass.ts", import.meta.url),
+  "utf8"
+);
+const FRAMEGRAPH_RESOURCE_HANDLE_SOURCE = readFileSync(
+  new URL("../src/framegraph/ResourceHandle.ts", import.meta.url),
+  "utf8"
+);
 
 const full = () => textureDomain("internal-full", 1920, 1080, 1);
 const preExposure = () => preExposureContract({
@@ -1174,6 +1182,15 @@ test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", 
   assert.match(TONEMAP_PASS_SOURCE, /lastBloomFused/);
   assert.match(TONEMAP_PASS_SOURCE, /createFinalOutputGroupLayout/);
   assert.match(TONEMAP_PASS_SOURCE, /Final Output SDR/);
+  assert.match(FRAMEGRAPH_RESOURCE_HANDLE_SOURCE, /\| "output-half"/);
+  assert.match(
+    BLOOM_PASS_SOURCE,
+    /create\("Bloom reconstructed pyramid",[\s\S]*?domain: "output-half"/
+  );
+  assert.match(
+    BLOOM_PASS_SOURCE,
+    /create\("Bloom composited",[\s\S]*?domain: "output-full"/
+  );
 });
 
 test("ADR-0009 Step 10 removes single-value backend and retired zero publishers", () => {
