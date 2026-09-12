@@ -347,6 +347,10 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   ssrHighRoughnessTracePixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
   ssrDistanceLimitExceededPixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
   ssrValidationRejectedPixels: supported("Three-derived ScreenSpaceReflectionsPass/HZB trace evidence reducer"),
+  ssgiEvaluatedPixels: supported("Three-derived SsgiPass/trace evidence reducer"),
+  ssgiTraceSamples: supported("Three-derived SsgiPass/trace evidence reducer"),
+  ssgiHistoryAcceptedPixels: supported("Three-derived SsgiPass/temporal evidence reducer"),
+  ssgiHistoryRejectedPixels: supported("Three-derived SsgiPass/temporal evidence reducer"),
   setupAttempted: supported("LargeTriangleSetupCache candidate reducer"),
   setupWritten: supported("LargeTriangleSetupCache candidate reducer"),
   setupVisiblePixelHits: supported("PackedMaterialResolvePass/TriangleSetup evidence compute"),
@@ -380,7 +384,15 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   materialTileUnassignedPixels: supported("MaterialTileClassificationPass/pixel-claim validator"),
   materialTileDuplicatePixels: supported("MaterialTileClassificationPass/pixel-claim validator"),
   materialTileOverflowQueues: supported("MaterialTileClassificationPass/queue finalizer"),
-  materialTileFrameInvalid: supported("MaterialTileClassificationPass/final correctness gate")
+  materialTileFrameInvalid: supported("MaterialTileClassificationPass/final correctness gate"),
+  longRangeBrick4Receivers: supported("LongRangeDiffuseProviderPass/receiver provider-selection reducer"),
+  longRangeProbeReceivers: supported("LongRangeDiffuseProviderPass/receiver provider-selection reducer"),
+  longRangeIblReceivers: supported("LongRangeDiffuseProviderPass/receiver provider-selection reducer"),
+  longRangeBlackReceivers: supported("LongRangeDiffuseProviderPass/receiver provider-selection reducer"),
+  longRangeInvalidGeneration: supported("LongRangeDiffuseProviderPass/generation-validity reducer"),
+  longRangeNonresidentFallbacks: supported("LongRangeDiffuseProviderPass/residency-fallback reducer"),
+  longRangeProviderUnassigned: supported("LongRangeDiffuseProviderPass/provider-identity validator"),
+  longRangeProviderDuplicates: supported("LongRangeDiffuseProviderPass/provider-identity validator")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

@@ -8,6 +8,7 @@ import {
   GPU_COUNTER_SCHEMA_VERSION,
   counterByteOffset
 } from "../.test-dist/debug/GpuFrameCounters.js";
+import { BENCHMARK_GPU_COUNTER_EVIDENCE } from "../.test-dist/debug/BenchmarkCapabilityEvidence.js";
 import { HIERARCHICAL_WORK_GENERATION_WGSL } from "../.test-dist/shaders/hierarchical_work_generation.js";
 import {
   MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
@@ -155,6 +156,13 @@ test("ADR-0009 Step 10 removes retired material counters without renumbering liv
     125
   );
   assert.equal(GPU_COUNTER_BYTE_SIZE, 560);
+});
+
+test("every live GPU counter has an explicit benchmark capability declaration", () => {
+  assert.deepEqual(
+    Object.keys(BENCHMARK_GPU_COUNTER_EVIDENCE).sort(),
+    GPU_COUNTER_FIELDS.map((field) => field.name).sort()
+  );
 });
 
 test("MeshletRasterWork CPU/WGSL ABI freezes six aligned u32 identity fields", () => {

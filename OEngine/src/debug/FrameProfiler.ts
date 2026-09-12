@@ -1202,6 +1202,11 @@ export class FrameProfiler {
 
 function assertSupportedGpuCounter(field: GpuCounterFieldName): void {
   const declaration = BENCHMARK_GPU_COUNTER_EVIDENCE[field];
+  if (declaration === undefined) {
+    throw new RangeError(
+      `GPU counter '${field}' has no BenchmarkCapabilityEvidence declaration`
+    );
+  }
   if (declaration.status === "unsupported") {
     throw new Error(
       `GPU counter '${field}' is unsupported; implement its real producer under ${declaration.blockerTaskId} before registration`
