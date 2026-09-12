@@ -149,6 +149,10 @@ const FRAMEGRAPH_RESOURCE_HANDLE_SOURCE = readFileSync(
   new URL("../src/framegraph/ResourceHandle.ts", import.meta.url),
   "utf8"
 );
+const TEMPORAL_ANTI_ALIASING_PASS_SOURCE = readFileSync(
+  new URL("../src/render/passes/TemporalAntiAliasingPass.ts", import.meta.url),
+  "utf8"
+);
 
 const full = () => textureDomain("internal-full", 1920, 1080, 1);
 const preExposure = () => preExposureContract({
@@ -1109,6 +1113,13 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   assert.match(TAA_WGSL, /nine bilinear taps/);
   assert.match(TAA_WGSL, /reactive >= settings\.reactive_threshold/);
   assert.match(TAA_WGSL, /history_pre_exposure_scale/);
+  assert.match(TAA_WGSL, /@binding\(6\) var current_depth: texture_depth_2d/);
+  assert.match(TAA_WGSL, /let depth = textureLoad\(current_depth, candidate, 0\);/);
+  assert.doesNotMatch(TAA_WGSL, /textureLoad\(current_depth,[^\n]+\)\.r/);
+  assert.match(
+    TEMPORAL_ANTI_ALIASING_PASS_SOURCE,
+    /binding: 6,[^\n]*texture: \{ sampleType: "depth" \}/
+  );
   assert.match(TAA_WGSL, /relative_luminance_delta/);
   assert.doesNotMatch(TAA_WGSL, /for \(var y = 0; y < 4/);
   assert.equal(classifyTemporalHistory({

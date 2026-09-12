@@ -182,7 +182,7 @@ function createTaaGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
       { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-      { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },
+      { binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
       { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
     ]
   };

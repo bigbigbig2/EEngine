@@ -27,7 +27,7 @@ struct TemporalSettings {
 @group(0) @binding(3) var current_color: texture_2d<f32>;
 @group(0) @binding(4) var disocclusion_confidence: texture_2d<f32>;
 @group(0) @binding(5) var temporal_classification: texture_2d<f32>;
-@group(0) @binding(6) var current_depth: texture_2d<f32>;
+@group(0) @binding(6) var current_depth: texture_depth_2d;
 @group(0) @binding(7) var<uniform> settings: TemporalSettings;
 
 fn luminance(color: vec3f) -> f32 {
@@ -104,11 +104,11 @@ fn reconstruct_current(uv: vec2f, pixel: vec2i, internal_size: vec2f) -> vec3f {
 fn closest_depth_pixel(center: vec2i) -> vec2i {
   let size = vec2i(textureDimensions(current_depth));
   var closest = clamp(center, vec2i(0), size - vec2i(1));
-  var closest_depth = textureLoad(current_depth, closest, 0).r;
+  var closest_depth = textureLoad(current_depth, closest, 0);
   for (var y = -1; y <= 1; y++) {
     for (var x = -1; x <= 1; x++) {
       let candidate = clamp(center + vec2i(x, y), vec2i(0), size - vec2i(1));
-      let depth = textureLoad(current_depth, candidate, 0).r;
+      let depth = textureLoad(current_depth, candidate, 0);
       if (depth > closest_depth) {
         closest = candidate;
         closest_depth = depth;
