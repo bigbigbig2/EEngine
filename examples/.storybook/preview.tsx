@@ -2,10 +2,15 @@ import type { Preview } from "@storybook/react-vite";
 
 const preview: Preview = {
   parameters: {
-    layout: "centered",
+    layout: "fullscreen",
     controls: {
-      expanded: true,
-      sort: "requiredFirst"
+      disable: true
+    },
+    actions: {
+      disable: true
+    },
+    options: {
+      showPanel: false
     }
   }
 };

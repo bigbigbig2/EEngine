@@ -3,6 +3,7 @@ import { create } from "storybook/theming";
 
 addons.setConfig({
   showPanel: false,
+  showToolbar: false,
   theme: create({
     base: "light",
     brandTitle: "OEngine Example Library",

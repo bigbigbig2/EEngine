@@ -4,15 +4,26 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "storybook": "storybook dev -p 6006 --no-open",
-    "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && storybook build -o storybook-static"
+    "dev": "vite --host 0.0.0.0 --strictPort",
+    "storybook": "concurrently --kill-others --success first \"yarn dev\" \"yarn storybook:catalog\"",
+    "storybook:catalog": "yarn generate:stories && storybook dev -p 6006 --no-open",
+    "generate:stories": "node scripts/generate-stories.mjs",
+    "typecheck": "yarn generate:stories && tsc --noEmit",
+    "build": "yarn typecheck && yarn build:examples && yarn build:storybook",
+    "build:examples": "vite build",
+    "build:storybook": "yarn generate:stories && storybook build -o storybook-static"
+  },
+  "dependencies": {
+    "@tweakpane/core": "^2.0.5",
+    "tweakpane": "^4.0.5"
   },
   "devDependencies": {
     "@storybook/addon-docs": "^10.5.10",
     "@storybook/react-vite": "^10.5.10",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "@webgpu/types": "^0.1.64",
+    "concurrently": "^9.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "storybook": "^10.5.10",
