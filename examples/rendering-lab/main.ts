@@ -1443,8 +1443,6 @@ function bindRendererControls(activeRenderer: Renderer): void {
     (value) => value.toFixed(0));
   bindRange("ssr-thickness", (value) => activeRenderer.configure({ ssr: { baseThicknessMeters: value } }),
     (value) => value.toFixed(2));
-  bindRange("ssr-roughness-thickness", (value) => activeRenderer.configure({ ssr: { maxRoughness: value / 20 } }),
-    (value) => value.toFixed(1));
   bindRange("ssr-distance-thickness", (value) => activeRenderer.configure({ ssr: { distanceThicknessScale: value } }),
     (value) => value.toFixed(3));
   bindRange("ssr-roughness-cutoff", (value) => activeRenderer.configure({ ssr: { maxRoughness: value } }),

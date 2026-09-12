@@ -190,7 +190,7 @@ ${GBUFFER_ENCODE_WGSL}
 export const SURFACE_PBR_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 struct SurfaceDebugMode { value: vec4u, }
-@group(0) @binding(0) var source: texture_2d<f32>;
+@group(0) @binding(0) var source: texture_2d<u32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;
 @group(0) @binding(2) var<uniform> settings: DebugViewSettings;
 @group(0) @binding(3) var<uniform> mode: SurfaceDebugMode;

@@ -5,6 +5,7 @@ import {
   GPU_SHADING_SURFACE_NORMAL_WGSL
 } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_HDR_FORMAT } from "../gpu/GpuHdrAbi.js";
+import { SPECULAR_AMBIENT_OCCLUSION_WGSL } from "./specular_ambient_occlusion.js";
 
 export const SCREEN_SPACE_DIFFUSE_RESOLVE_FORMAT = GPU_HDR_FORMAT;
 
@@ -19,6 +20,7 @@ ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 ${GPU_COMPUTE_MATERIAL_ABI_WGSL}
+${SPECULAR_AMBIENT_OCCLUSION_WGSL}
 
 const RECIPROCAL_PI: f32 = 0.3183098861837907;
 const MIN_DIELECTRICS_F0: f32 = 0.04;
@@ -46,17 +48,6 @@ fn uv_to_ndc(uv: vec2f) -> vec2f { return fma(uv, vec2f(2.0, -2.0), vec2f(-1.0, 
 fn position_from_depth(uv: vec2f, depth: f32) -> vec3f {
   let p = camera.view_projection_matrix_inverse * vec4f(uv_to_ndc(uv), depth, 1.0);
   return p.xyz / max(abs(p.w), 1e-6);
-}
-fn roughness_aperture(roughness: f32) -> vec2f {
-  let r2 = roughness * roughness; let aperture = mix(0.01, 0.14, r2);
-  let cone = fma(log(aperture) * r2 * r2, 0.5, 1.0);
-  return vec2f(cone, sqrt(max(0.0, 1.0 - cone * cone)));
-}
-fn specular_occlusion(direction: vec3f, bent: vec3f, visibility: f32, roughness: f32) -> f32 {
-  let cone_sin = sqrt(max(0.0, 1.0 - visibility));
-  let cone_cos = sqrt(max(0.0, visibility)); let aperture = roughness_aperture(roughness);
-  return smoothstep(cone_sin * aperture.x - cone_cos * aperture.y,
-    cone_sin * aperture.x + cone_cos * aperture.y, dot(bent, direction));
 }
 fn energy_remaining(no_v: f32, roughness: f32, f0: vec3f) -> vec3f {
   let lut = textureSampleLevel(split_sum_lut, linear_sampler, vec2f(no_v, roughness), 0.0).rg;
@@ -94,10 +85,10 @@ fn resolve_delta(coord: vec4f, uv: vec2f, resolve_specular: bool) -> vec4f {
   let receiver = albedo_ao.rgb * (1.0 - metallic) * remaining * material_ao * RECIPROCAL_PI;
   let near_diffuse = textureLoad(incident_gi, pixel, 0).rgb * receiver;
   let resolved_diffuse = baseline_diffuse * visibility;
-  let baseline_material_occlusion = specular_occlusion(
+  let baseline_material_occlusion = oengine_specular_ao_cones(
     spec_direction, normal, material_ao, roughness
   );
-  let resolved_screen_occlusion = specular_occlusion(
+  let resolved_screen_occlusion = oengine_specular_ao_cones(
     spec_direction, bent, material_ao * visibility, roughness
   );
   let resolved_spec = baseline_spec *

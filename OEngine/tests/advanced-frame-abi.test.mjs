@@ -80,6 +80,11 @@ import {
   LONG_RANGE_PROVIDER_FORMAT
 } from "../.test-dist/shaders/long_range_diffuse_provider.js";
 import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../.test-dist/shaders/opaque_lighting_resolve.js";
+import {
+  FILAMENT_SPECULAR_AO_REVISION,
+  SPECULAR_AMBIENT_OCCLUSION_WGSL
+} from "../.test-dist/shaders/specular_ambient_occlusion.js";
+import { SURFACE_PBR_DEBUG_WGSL } from "../.test-dist/shaders/render_debug_view.js";
 import { THREE_SSR_REVISION } from "../.test-dist/shaders/ssr_common.js";
 import { SSR_TRACE_WGSL } from "../.test-dist/shaders/ssr_trace.js";
 import { SSR_RESOLVE_WGSL } from "../.test-dist/shaders/ssr_resolve.js";
@@ -485,12 +490,23 @@ test("ADR-0009 Step 4 pins the Three.js r186 GTAO invariants", () => {
   assert.match(THREE_GTAO_RAW_WGSL, /dot\(uv, vec2f\(12\.9898, 78\.233\)\)/);
   assert.match(THREE_GTAO_RAW_WGSL, /three_rand\(\(sample_uv \+ noise_jitter_index\) \* 2\.0 - 1\.0\)/);
   assert.match(THREE_GTAO_RAW_WGSL, /let sample_distance_fraction = step_t \* step_t/);
+  assert.match(THREE_GTAO_RAW_WGSL, /fn sample_device_depth\(uv: vec2f\)/);
+  assert.match(THREE_GTAO_RAW_WGSL, /textureLoad\(gr_bucket, vec2i\(coordinate\), 0\)/);
+  assert.doesNotMatch(THREE_GTAO_RAW_WGSL, /hzb_sample_depth|textureNumLevels\(hzb\)/);
   assert.match(THREE_GTAO_RAW_WGSL, /abs\(positive_view_delta\.z\) < thickness_world/);
   assert.match(THREE_GTAO_RAW_WGSL, /positive_falloff \* positive_falloff/);
   assert.match(THREE_GTAO_RAW_WGSL, /term_positive \+ term_negative/);
   assert.match(THREE_GTAO_RAW_WGSL, /visibility \* visibility/);
   assert.match(THREE_GTAO_RAW_WGSL, /uv_octahedral_unit_encode\(bent_normal\)/);
   assert.doesNotMatch(THREE_GTAO_RAW_WGSL, /hilbert|runtime mip|SSAO/i);
+
+  assert.equal(FILAMENT_SPECULAR_AO_REVISION, "d45158c6f175726a33b1236858fa3948c5d8dbb5");
+  assert.match(SPECULAR_AMBIENT_OCCLUSION_WGSL, /oengine_spherical_caps_intersection/);
+  assert.match(SPECULAR_AMBIENT_OCCLUSION_WGSL, /exp2\(-3\.321928 \* roughness \* roughness\)/);
+  assert.match(SPECULAR_AMBIENT_OCCLUSION_WGSL, /smoothstep\(0\.01, 0\.09, roughness\)/);
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /oengine_specular_ao_cones\(/);
+  assert.match(SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE, /SPECULAR_AMBIENT_OCCLUSION_WGSL/);
+  assert.match(SURFACE_PBR_DEBUG_WGSL, /var source: texture_2d<u32>/);
 });
 
 test("ADR-0009 Step 4 temporally filters packed AO moments and bent normals", () => {
@@ -904,6 +920,7 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TRACE_WGSL, /resolve_trigonometric_moments/);
   assert.match(SSR_TRACE_WGSL, /ffx_sssr_hierarchical_raymarch/);
   assert.match(SSR_TRACE_WGSL, /ssr_sample_reflection_vector/);
+  assert.match(SSR_TRACE_WGSL, /if \(roughness <= 0\.04\)/);
   assert.match(SSR_RESOLVE_WGSL, /stochastic_sample_weight/);
   assert.match(SSR_RESOLVE_WGSL, /ssr_sample_reflection_vector/);
   assert.match(SSR_RESOLVE_WGSL, /stochastic_noise/);
@@ -954,33 +971,48 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TEMPORAL_WGSL, /minimum_singular_value/);
   assert.match(SSR_TEMPORAL_WGSL, /stretch_confidence \* stretch_confidence/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /camera_current/);
-  assert.ok(
-    SSR_TEMPORAL_WGSL.indexOf("let stretch_confidence = reprojection_stretch_confidence(") <
-      SSR_TEMPORAL_WGSL.indexOf("if (current_confidence <= 0.001)")
-  );
+  assert.doesNotMatch(SSR_TEMPORAL_WGSL, /if \(current_confidence <= 0\.001\)/);
+  assert.match(SSR_TEMPORAL_WGSL, /miss_history_evidence/);
+  assert.match(SSR_TEMPORAL_WGSL, /history_gate/);
+  assert.match(SSR_TEMPORAL_WGSL, /mix\(0\.85, 0\.97, current_confidence\)/);
+  assert.doesNotMatch(SSR_TEMPORAL_WGSL, /history_gate \* history\.a/);
+  assert.match(SSR_TEMPORAL_WGSL, /select\(0\.0, 1\.0, current_valid\)/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /pack_field\(encoded_current/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /neighborhood_ray_length|mirror_screen_uv/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /camera_previous|linear_clamp/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /vogel_disk/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /ray_difference/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /mirror_screen_uv/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /bounded_effect_position/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /maximum_radius \/ max\(length\(delta\), 1e-5\)/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /1\.0 \+ 7\.0 \* radius_fraction \* radius_fraction/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /raw_spatial_weight/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /center_raw_luma/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /neighborhood_ray_length/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /hit_distance_factor/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /specular_lobe_tan_half_angle/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /lobe_normal_falloff/);
-  assert.match(SSR_RECURRENT_DENOISE_WGSL, /kernel_difference \* history_aggressivity/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /kernel_difference \* 0\.02/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /material_difference = roughness_difference \* 0\.15/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /feedback_weight/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /if \(raw_confidence > 0\.0\)/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /trace_high_roughness/);
+  assert.doesNotMatch(SSR_RECURRENT_DENOISE_WGSL, /if \(center\.a <= 0\.001\)/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /center_weight = select\(0\.0, 1\.0/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /raw_confidence_sum/);
   assert.doesNotMatch(SSR_RECURRENT_DENOISE_WGSL, /roughness_weight|ray_weight|luma_weight/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /0\.5 \* history_aggressivity/);
   assert.doesNotMatch(SSR_RECURRENT_DENOISE_WGSL, /trusted = saturate\(weight \* 2\.0\)/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /settings\.mode_flags & 2u/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /0\.9 \* saturate\(settings\.strength\)/);
+  assert.doesNotMatch(SSR_RECURRENT_DENOISE_WGSL, /center\.a \* settings\.strength/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /Karis-style inverse-luminance blend/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /@binding\(2\) var depth_source: texture_depth_2d/);
   assert.doesNotMatch(SSR_RECURRENT_DENOISE_WGSL, /textureLoad\(depth_source,[^\n]+\)\.r/);
   assert.match(SSR_UPSAMPLE_WGSL, /@binding\(1\) var depth_full: texture_depth_2d/);
   assert.doesNotMatch(SSR_UPSAMPLE_WGSL, /textureLoad\(depth_full,[^\n]+\)\.r/);
+  assert.match(SSR_UPSAMPLE_WGSL, /color_weight = weight \* sample_confidence/);
+  assert.match(SSR_UPSAMPLE_WGSL, /maximum_confidence = max/);
   assert.equal(
     (SSR_PASS_SOURCE.match(/resolveDepthAttachmentView\(resources\.get\((?:inputs\.)?depth\)\)/g) ?? []).length,
     5

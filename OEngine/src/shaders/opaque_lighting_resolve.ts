@@ -8,6 +8,7 @@ import {
 } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
+import { SPECULAR_AMBIENT_OCCLUSION_WGSL } from "./specular_ambient_occlusion.js";
 
 export const OPAQUE_LIGHTING_RESOLVE_FORMAT = "rgba16float" as const;
 
@@ -16,6 +17,7 @@ ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
 ${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 ${OCTAHEDRAL_SAMPLE_WGSL}
+${SPECULAR_AMBIENT_OCCLUSION_WGSL}
 
 const PI: f32 = 3.1415926535897932384626433832795;
 const RECIPROCAL_PI: f32 = 0.318309886183790671537767526745028724;
@@ -99,45 +101,6 @@ fn compute_indirect_specular(
   return mat2x3f(indirect_specular, indirect_diffuse);
 }
 
-fn pow2(value: f32) -> f32 {
-  return value * value;
-}
-
-fn cancel_thread_js(a: f32, b: f32, x: f32, y: f32, value: f32) -> f32 {
-  let high = a * x + b * y;
-  let low = a * x - b * y;
-  return smoothstep(low, high, value);
-}
-
-fn get_heap(value: f32) -> f32 {
-  return sqrt(max(0.0, value));
-}
-
-fn integer(roughness: f32) -> vec2f {
-  let roughness_squared = pow2(roughness);
-  let aperture = mix(0.01, 0.14, roughness_squared);
-  let cone = fma(log(aperture) * pow2(roughness_squared), 0.5, 1.0);
-  return vec2f(cone, get_heap(1.0 - pow2(cone)));
-}
-
-fn compute_specular_occlusion_bn(
-  spec_direction: vec3f,
-  bent_normal: vec3f,
-  occlusion: f32,
-  roughness: f32
-) -> f32 {
-  let cone_sin = get_heap(1.0 - occlusion);
-  let cone_cos = get_heap(occlusion);
-  let aperture = integer(roughness);
-  return cancel_thread_js(
-    cone_sin,
-    cone_cos,
-    aperture.x,
-    aperture.y,
-    dot(bent_normal, spec_direction)
-  );
-}
-
 const FULLSCREEN_POSITIONS = array<vec2f, 3>(
   vec2f(-1.0, -1.0),
   vec2f( 3.0, -1.0),
@@ -201,7 +164,7 @@ fn indirect_contribution(pixel: vec2u, uv: vec2f, ambient_visibility_value: f32)
   );
   let reflection_direction = reflect(-view_direction, shading_normal);
   let spec_direction = normalize(mix(reflection_direction, shading_normal, alpha));
-  let specular_occlusion = compute_specular_occlusion_bn(
+  let specular_occlusion = oengine_specular_ao_cones(
     spec_direction,
     bent_normal,
     material_ao * ambient_visibility_value,

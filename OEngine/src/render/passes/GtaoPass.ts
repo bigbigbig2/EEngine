@@ -53,8 +53,6 @@ import {
 
 export type GtaoInputs = {
   depth: ResourceId;
-  /** Current reverse-Z HZB pyramid used for footprint-sized raw samples. */
-  hzb: ResourceId;
   normal: ResourceId;
   velocity?: ResourceId;
   occlusionConfidence?: ResourceId;
@@ -227,7 +225,6 @@ export class GtaoPass {
           {
           visibility: resolveTextureView(resources.get(rawVisibility)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
-          hzb: resolveTextureView(resources.get(inputs.hzb)),
           normal: resolveTextureView(resources.get(inputs.normal)),
           camera: resolveBuffer(resources.get(inputs.camera), "GTAO camera"),
           linearDepth: resolveTextureView(resources.get(linearDepth))
@@ -245,7 +242,6 @@ export class GtaoPass {
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
     });
     rawBuilder.read(inputs.depth);
-    rawBuilder.read(inputs.hzb);
     rawBuilder.read(inputs.normal);
     rawBuilder.read(inputs.camera);
     rawBuilder.read(linearDepth);
@@ -483,7 +479,6 @@ export class GtaoPass {
     resources: {
       visibility: GPUTextureView;
       depth: GPUTextureView;
-      hzb: GPUTextureView;
       normal: GPUTextureView;
       camera: GPUBuffer;
       linearDepth: GPUTextureView;
@@ -517,8 +512,7 @@ export class GtaoPass {
         resources.normal,
         { buffer: resources.camera },
         { buffer: this.rawSettingsBuffer },
-        resources.linearDepth,
-        resources.hzb
+        resources.linearDepth
       ]],
       colorAttachments: [
         {
@@ -891,8 +885,7 @@ function createGtaoRawGroupLayout(): GPUBindGroupLayoutDescriptor {
       { binding: 1, visibility: fragment, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 2, visibility: fragment, buffer: { type: "uniform" } },
       { binding: 3, visibility: fragment, buffer: { type: "uniform" } },
-      { binding: 4, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
-      { binding: 5, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } }
+      { binding: 4, visibility: fragment, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } }
     ]
   };
 }

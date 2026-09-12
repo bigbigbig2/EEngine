@@ -2507,7 +2507,6 @@ export class MainRenderPipeline {
             })),
             {
               depth: depthRes,
-              hzb: hzbRes,
               normal: gNormalRes,
               velocity: velocityRes ?? undefined,
               occlusionConfidence: occlusionConfidenceRes ?? undefined,

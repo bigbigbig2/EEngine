@@ -71,6 +71,13 @@ fn ssr_sample_reflection_vector(
   sample_value: vec4f,
   mirror_bias: f32
 ) -> vec3f {
+  // A delta-like lobe gains no useful information from stochastic GGX
+  // sampling. Keeping it deterministic avoids turning sub-pixel HZB crossing
+  // sensitivity into visible salt-and-pepper holes on polished mirrors; the
+  // stochastic Three r186 path remains authoritative above this threshold.
+  if (roughness <= 0.04) {
+    return normalize(reflect(-view_direction, normal));
+  }
   let basis = ssr_ggx_basis(normal);
   let local_view = vec3f(
     dot(basis[0], view_direction),

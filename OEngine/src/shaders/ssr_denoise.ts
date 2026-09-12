@@ -32,8 +32,9 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let base = vec2i(floor(source));
   let center_depth = textureLoad(depth_full, full_pixel, 0);
   let center_normal = decode_g_buffer_normal(textureLoad(normal_full, full_pixel, 0).xy);
-  var sum = vec4f(0.0);
-  var weight_sum = 0.0;
+  var color_sum = vec3f(0.0);
+  var color_weight_sum = 0.0;
+  var maximum_confidence = 0.0;
   for (var y = 0; y <= 1; y++) {
     for (var x = 0; x <= 1; x++) {
       let half_pixel = clamp(base + vec2i(x, y), vec2i(0), half_size - vec2i(1));
@@ -51,14 +52,21 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
         vec4f(0.0), raw_sample,
         all(raw_sample == raw_sample) && all(abs(raw_sample) < vec4f(65504.0))
       );
-      sum += sample_value * weight;
-      weight_sum += weight;
+      let sample_confidence = saturate(sample_value.a);
+      let color_weight = weight * sample_confidence;
+      color_sum += sample_value.rgb * color_weight;
+      color_weight_sum += color_weight;
+      maximum_confidence = max(maximum_confidence, sample_confidence * weight);
     }
   }
-  let resolved = sum / max(weight_sum, 1e-5);
+  let resolved = vec4f(
+    color_sum / max(color_weight_sum, 1e-5),
+    maximum_confidence
+  );
   return select(
     vec4f(0.0), resolved,
-    all(resolved == resolved) && all(abs(resolved) < vec4f(65504.0))
+    color_weight_sum > 1e-5 &&
+      all(resolved == resolved) && all(abs(resolved) < vec4f(65504.0))
   );
 }
 `;
@@ -243,7 +251,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let trace_validity = trace_confidence(position);
   let current = max(textureLoad(raw_specular, position, 0), vec4f(0.0));
   let current_confidence = trace_validity * select(0.0, 1.0, current.a > 1e-5);
-  if (current_confidence <= 0.001) { return vec4f(0.0); }
+  let current_valid = current_confidence > 0.001;
   if (settings.history_valid == 0u || settings.pre_exposure_scale <= 0.0) {
     return vec4f(current.rgb, current_confidence);
   }
@@ -303,7 +311,8 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     1.0
   );
   let hit_raw_trust = hit_sample.min_confidence * reflection_edge_factor *
-    (1.0 - curvature_factor) * hit_sample.max_confidence * hit_history_validity;
+    (1.0 - curvature_factor) * hit_sample.max_confidence * hit_history_validity *
+    select(0.0, 1.0, current_valid);
   let hit_trust = hit_raw_trust *
     (1.0 - (1.0 - screen_hit_probability) * (1.0 - screen_hit_probability));
   let surface_weight = (1.0 - hit_trust) * surface_sample.max_confidence *
@@ -347,16 +356,33 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   );
   let current_luma_weight = 1.0 / (1.0 + rgb_to_luminance(current.rgb));
   let history_luma_weight = 1.0 / (1.0 + rgb_to_luminance(history_linear));
+  // Three can fall back to an environment sample on a ray miss. OEngine keeps
+  // that environment contribution in baseline IBL, so a miss has no current
+  // SSR sample. Reuse receiver-reprojected history only when the current 3x3
+  // neighborhood contains screen hits, and decay its replacement confidence;
+  // multiplying history by current_confidence would otherwise punch permanent
+  // stochastic holes through mirror-like receivers.
+  let miss_history_evidence = saturate(screen_hit_probability * 3.0);
+  let history_gate = select(
+    miss_history_evidence * 0.92,
+    mix(0.85, 0.97, current_confidence),
+    current_valid
+  );
   let history_weight = clamp(
-    settings.history_strength * current_confidence * history.a * motion_confidence,
+    settings.history_strength * history_gate * motion_confidence,
     0.0,
     0.97
   );
   let weighted_history = history_weight * history_luma_weight;
-  let weighted_current = (1.0 - history_weight) * current_luma_weight;
+  let weighted_current = (1.0 - history_weight) * current_luma_weight *
+    select(0.0, 1.0, current_valid);
   let resolved = (history_linear * weighted_history + current.rgb * weighted_current) /
     max(weighted_history + weighted_current, 1e-5);
-  let resolved_confidence = mix(current_confidence, min(current_confidence, history.a), history_weight);
+  let resolved_confidence = select(
+    history.a * miss_history_evidence * 0.92,
+    mix(current_confidence, min(current_confidence, history.a), history_weight),
+    current_valid
+  );
   let finite = all(resolved == resolved) && all(abs(resolved) < vec3f(65504.0));
   return vec4f(select(current.rgb, resolved, finite), resolved_confidence);
 }
@@ -418,6 +444,10 @@ fn trace_confidence(position: vec2i) -> f32 {
   return f32(textureLoad(trace_source, position, 0).y & 0xffu) / 255.0;
 }
 
+fn trace_high_roughness(position: vec2i) -> bool {
+  return (textureLoad(trace_source, position, 0).y & (1u << 25u)) != 0u;
+}
+
 fn neighborhood_ray_length(position: vec2i, effect_size: vec2i) -> f32 {
   const offsets = array<vec2i, 5>(
     vec2i(0, 0), vec2i(-1, 0), vec2i(1, 0), vec2i(0, -1), vec2i(0, 1)
@@ -461,12 +491,41 @@ fn mirror_screen_uv(value: vec2f) -> vec2f {
   return clamp(vec2f(1.0) - abs(vec2f(1.0) - abs(value)), vec2f(0.0), vec2f(1.0));
 }
 
+fn bounded_effect_position(
+  sample_uv: vec2f,
+  center: vec2i,
+  effect_size: vec2i,
+  maximum_radius: f32
+) -> vec2i {
+  // The upstream world-space footprint assumes scene units close to metres.
+  // OEngine assets are scale-agnostic; bound the projected kernel in effect
+  // pixels so an otherwise valid large-world ray cannot turn all eight taps
+  // into distant, unrelated samples. Eight half-resolution pixels retain a
+  // wide 16-pixel full-resolution footprint without adding texture fetches.
+  let projected = sample_uv * vec2f(effect_size);
+  let delta = projected - (vec2f(center) + 0.5);
+  let limited = delta * min(1.0, maximum_radius / max(length(delta), 1e-5));
+  return clamp(
+    center + vec2i(round(limited)),
+    vec2i(0),
+    effect_size - vec2i(1)
+  );
+}
+
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let position = vec2i(coord.xy);
   let effect_size = vec2i(textureDimensions(temporal_source));
   let surface_size = vec2i(textureDimensions(depth_source));
   let surface = effect_to_surface(position, effect_size, surface_size);
+  let center_depth = textureLoad(depth_source, surface, 0);
+  // A stochastic miss is still a valid reflection receiver and must be filled
+  // from compatible neighbours. Background and the explicit roughness cutoff
+  // are not receivers, so keeping them empty prevents cross-edge reflection
+  // leakage while preserving OEngine's IBL fallback contract.
+  if (is_background(center_depth) || trace_high_roughness(position)) {
+    return vec4f(0.0);
+  }
   let raw = max(textureLoad(raw_source, position, 0), vec4f(0.0));
   var center = max(textureLoad(temporal_source, position, 0), vec4f(0.0));
   center.a = select(
@@ -474,7 +533,6 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     center.a,
     (settings.mode_flags & 1u) != 0u
   );
-  if (center.a <= 0.001) { return vec4f(0.0); }
   let center_view = view_position_at(surface, surface_size);
   let center_normal = view_normal_at(surface);
   let center_pbr = textureLoad(pbr_source, surface, 0);
@@ -496,9 +554,16 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let view_angle = saturate(acos(clamp(abs(center_normal.z), 0.0, 1.0)) / (0.5 * PI));
   tangent *= mix(1.0, center_roughness, view_angle);
 
+  // Three stores inverse accumulation age in alpha and derives aggressivity
+  // from it. OEngine's alpha is replacement confidence, which must not be
+  // substituted for age: doing so collapses the kernel on the most trusted
+  // hits and preserves stochastic speckles. Until age has a dedicated ABI,
+  // use a conservative stable-history specialization while temporal validity
+  // and geometry edge stops remain authoritative. This value is history
+  // aggressivity (1 = history-dominant), not the current-frame weight.
   let history_aggressivity = select(
     0.0,
-    saturate(center.a * settings.strength),
+    0.9 * saturate(settings.strength),
     (settings.mode_flags & 2u) != 0u
   );
   let ray_length = neighborhood_ray_length(position, effect_size);
@@ -511,11 +576,16 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let normal_falloff = lobe_normal_falloff(center_roughness, history_aggressivity);
   let angle = noise_angle(vec2u(position), settings.frame_index);
   let rotation = mat2x2f(vec2f(cos(angle), sin(angle)), vec2f(-sin(angle), cos(angle)));
-  var accumulated = center.rgb;
-  var accumulated_raw = raw.rgb;
-  var confidence_sum = center.a;
-  var weight_sum = 1.0;
-  var raw_weight_sum = 1.0;
+  let center_weight = select(0.0, 1.0, center.a > 0.001);
+  let center_raw_confidence = trace_confidence(position) *
+    select(0.0, 1.0, raw.a > 1e-5);
+  let center_raw_weight = select(0.0, 1.0, center_raw_confidence > 0.001);
+  var accumulated = center.rgb * center_weight;
+  var accumulated_raw = raw.rgb * center_raw_weight;
+  var confidence_sum = center.a * center_weight;
+  var raw_confidence_sum = center_raw_confidence * center_raw_weight;
+  var weight_sum = center_weight;
+  var raw_weight_sum = center_raw_weight;
   var radius_shrink = 1.0;
   var polar_bias = vec2f(0.0);
   // Three defines the kernel's luma edge stop from the unfiltered input. The
@@ -534,8 +604,13 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     let sample_view = center_view + (bitangent * disk.x + tangent * disk.y) * world_radius;
     let sample_ndc = v3_matrix4_project(sample_view, camera.projection_matrix);
     let sample_uv = mirror_screen_uv(ndc_to_uv(sample_ndc.xy));
-    let sample_position = clamp(
-      vec2i(sample_uv * vec2f(effect_size)), vec2i(0), effect_size - vec2i(1)
+    // Preserve a multi-scale kernel when a projected footprint is clamped:
+    // the first taps repair local stochastic holes and the later taps retain
+    // the broad rough-reflection reconstruction footprint.
+    let radius_fraction = f32(i) / 7.0;
+    let maximum_radius = 1.0 + 7.0 * radius_fraction * radius_fraction;
+    let sample_position = bounded_effect_position(
+      sample_uv, position, effect_size, maximum_radius
     );
     let sample_surface = effect_to_surface(sample_position, effect_size, surface_size);
     var sample_value = max(textureLoad(temporal_source, sample_position, 0), vec4f(0.0));
@@ -563,9 +638,14 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
       center_raw_luma - rgb_to_luminance(sample_raw.rgb)
     ) * 50.0;
     let roughness_difference = abs(center_roughness - sample_roughness) * 100.0;
-    let kernel_difference = luma_difference + roughness_difference + ray_difference;
+    let kernel_difference = luma_difference + ray_difference;
+    // Replacement confidence is not accumulation age, so it cannot safely
+    // tighten radiometric edge stopping. Keep color/ray filtering permissive
+    // enough to converge one-spp stochastic reflections while retaining a
+    // stronger material boundary and the authoritative geometry edge stops.
+    let material_difference = roughness_difference * 0.15;
     let spatial_weight = exp(
-      -(kernel_difference * history_aggressivity + depth_difference)
+      -(kernel_difference * 0.02 + material_difference + depth_difference)
     ) * normal_weight;
     let temporal_weight = sample_value.a * spatial_weight;
     let raw_confidence = trace_confidence(sample_position) *
@@ -574,18 +654,28 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     accumulated += sample_value.rgb * temporal_weight;
     accumulated_raw += sample_raw.rgb * raw_spatial_weight;
     confidence_sum += sample_value.a * temporal_weight;
+    raw_confidence_sum += raw_confidence * raw_spatial_weight;
     weight_sum += temporal_weight;
     raw_weight_sum += raw_spatial_weight;
     // Three feeds the unmodified spatial edge weight back into the adaptive
     // radius and polar direction with adapt=0.5. OEngine has no environment
     // sample in the SSR buffer, so a miss is absent rather than a valid env ray
     // and must not reshape subsequent taps.
-    let feedback_weight = spatial_weight * select(0.0, 1.0, raw_confidence > 0.0);
-    radius_shrink = max(0.001, mix(radius_shrink, feedback_weight, 0.5));
-    polar_bias = mix(polar_bias, base_direction * (feedback_weight - 0.5), 0.5);
+    if (raw_confidence > 0.0) {
+      let feedback_weight = spatial_weight;
+      radius_shrink = max(0.001, mix(radius_shrink, feedback_weight, 0.5));
+      polar_bias = mix(polar_bias, base_direction * (feedback_weight - 0.5), 0.5);
+    }
   }
-  let denoised_temporal = accumulated / max(weight_sum, 1e-5);
-  let denoised_raw = accumulated_raw / max(raw_weight_sum, 1e-5);
+  if (weight_sum <= 1e-5 && raw_weight_sum <= 1e-5) {
+    return vec4f(0.0);
+  }
+  let denoised_temporal = select(
+    vec3f(0.0), accumulated / max(weight_sum, 1e-5), weight_sum > 1e-5
+  );
+  let denoised_raw = select(
+    vec3f(0.0), accumulated_raw / max(raw_weight_sum, 1e-5), raw_weight_sum > 1e-5
+  );
   // RecurrentDenoise accumulate=true: Karis-style inverse-luminance blend
   // between spatially filtered temporal input and filtered current raw SSR.
   let current_weight = clamp(1.0 - history_aggressivity, 0.05, 1.0);
@@ -595,7 +685,13 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     (1.0 + rgb_to_luminance(denoised_raw) * 10.0);
   let resolved = (denoised_temporal * temporal_weight + denoised_raw * raw_weight) /
     max(temporal_weight + raw_weight, 1e-5);
-  let confidence = min(center.a, confidence_sum / max(weight_sum, 1e-5));
+  let temporal_confidence = select(
+    0.0, confidence_sum / max(weight_sum, 1e-5), weight_sum > 1e-5
+  );
+  let raw_filtered_confidence = select(
+    0.0, raw_confidence_sum / max(raw_weight_sum, 1e-5), raw_weight_sum > 1e-5
+  );
+  let confidence = mix(temporal_confidence, raw_filtered_confidence, current_weight);
   let finite = all(resolved == resolved) && all(abs(resolved) < vec3f(65504.0));
   return vec4f(select(center.rgb, resolved, finite), confidence);
 }

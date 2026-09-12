@@ -60,7 +60,6 @@ struct GtaoRawSettings {
 @group(0) @binding(2) var<uniform> camera: CommandEncoder;
 @group(0) @binding(3) var<uniform> settings: GtaoRawSettings;
 @group(0) @binding(4) var linear_depth_mip: texture_2d<f32>;
-@group(0) @binding(5) var hzb: texture_2d<f32>;
 
 fn saturate(value: f32) -> f32 {
   return clamp(value, 0.0, 1.0);
@@ -125,33 +124,13 @@ fn v3_matrix4_rotate(direction: vec3f, matrix: mat4x4f) -> vec3f {
   );
 }
 
-fn uv_to_texel_coordinate(uv: vec2f, resolution: vec2u) -> vec2f {
-  return fma(uv, vec2f(resolution), vec2f(-0.5));
-}
-
-fn texture_sample_nearest_uv(
-  source: texture_2d<f32>,
-  uv: vec2f,
-  mip_level: u32
-) -> vec4f {
-  let resolution = textureDimensions(source, mip_level);
+fn sample_device_depth(uv: vec2f) -> f32 {
+  let dimensions = textureDimensions(gr_bucket);
   let coordinate = min(
-    vec2u(round(uv_to_texel_coordinate(saturate2(uv), resolution))),
-    resolution - vec2u(1u)
+    vec2u(saturate2(uv) * vec2f(dimensions)),
+    dimensions - vec2u(1u)
   );
-  return textureLoad(source, coordinate, mip_level);
-}
-
-fn hzb_sample_depth(uv: vec2f, footprint: f32) -> f32 {
-  let levels = textureNumLevels(hzb);
-  let max_mip = levels - 1u;
-  let mip = min(
-    u32(max(0.0, floor(log2(max(footprint, 1.0))))),
-    max_mip
-  );
-  // HZB stores reverse-Z farthest in .x and nearest in .y. Nearest is the
-  // conservative occluder for horizon sampling; mip 0 is exact depth.
-  return texture_sample_nearest_uv(hzb, uv, mip).y;
+  return textureLoad(gr_bucket, vec2i(coordinate), 0);
 }
 
 fn screen_position_from_clip(clip: vec4f) -> vec2f {
@@ -326,10 +305,11 @@ fn fs_main(
       let negative_uv = screen_position_from_clip(clip_position - clip_offset);
       let positive_valid_uv = all(positive_uv >= vec2f(0.0)) && all(positive_uv <= vec2f(1.0));
       let negative_valid_uv = all(negative_uv >= vec2f(0.0)) && all(negative_uv <= vec2f(1.0));
-      let positive_footprint = length((positive_uv - sample_uv) * vec2f(viewport_size));
-      let negative_footprint = length((negative_uv - sample_uv) * vec2f(viewport_size));
-      let positive_depth = select(0.0, hzb_sample_depth(positive_uv, positive_footprint), positive_valid_uv);
-      let negative_depth = select(0.0, hzb_sample_depth(negative_uv, negative_footprint), negative_valid_uv);
+      // The pinned GTAONode samples the exact depth texel at every horizon
+      // location. A conservative HZB-nearest sample expands foreground
+      // occluders over the entire footprint and creates broad dark bands.
+      let positive_depth = select(0.0, sample_device_depth(positive_uv), positive_valid_uv);
+      let negative_depth = select(0.0, sample_device_depth(negative_uv), negative_valid_uv);
       let positive_position = project_position_from_depth(
         positive_uv,
         select(device_depth, positive_depth, positive_depth > 0.0),
