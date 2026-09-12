@@ -202,6 +202,10 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     center_uv, center_depth, camera_current.projection_matrix_inverse
   );
   let center_normal = decode_g_buffer_normal(textureLoad(normal_source, receiver, 0).xy);
+  let hit_depth = textureLoad(depth_source, vec2i(hit_pixel), 0).r;
+  let hit_normal = decode_g_buffer_normal(
+    textureLoad(normal_source, vec2i(hit_pixel), 0).xy
+  );
   let surface_history_pixel = coord.xy - receiver_velocity;
   let hit_effect_pixel = (vec2f(hit_pixel) + 0.5) *
     vec2f(effect_size) / vec2f(surface_size);
@@ -210,7 +214,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     surface_history_pixel, center_depth, center_normal, effect_size, surface_size
   );
   let hit_history = history_sample_4tap(
-    hit_history_pixel, center_depth, center_normal, effect_size, surface_size
+    hit_history_pixel, hit_depth, hit_normal, effect_size, surface_size
   );
   // Preserve the two physical reprojection candidates. Blending their
   // velocities first would sample a third point that represents neither the
