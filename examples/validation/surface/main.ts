@@ -230,12 +230,19 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       if (renderer === null) throw new Error("Surface runtime is not initialized");
       const originalWidth = renderer.output_resolution.x;
       const originalHeight = renderer.output_resolution.y;
+      // First exercise the opaque-only topology so the shared SurfaceValidity
+      // producer cannot be hidden by the fixture's default transparent mesh.
+      await runtime.replaceScene(await createSsrReplacementSource());
+      renderer.upscale_type = 0;
       renderer.configure({
         features: {
+          screenSpaceDiffuseMode: "gtao",
+          screenSpaceReflections: false,
           temporalAntiAliasing: true,
           motionBlur: false,
           sharpening: false
         },
+        ao: { temporalEnabled: true },
         resolution: {
           mode: "fixed",
           internalScale: 0.75,
@@ -247,6 +254,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       const fixedSamplesBefore = renderer.temporalEvidence().drsAcceptedGpuSamples;
       await runtime.waitForFrames(5);
       profile = await runtime.waitForCounters(runtime.frame - 1);
+      const fixedProfile = profile;
       const fixed = renderer.temporalEvidence();
       const fixedGraph = renderer.mainFrameGraphEvidence();
       if (fixedGraph === null) throw new Error("Temporal fixed-mode frame did not publish FrameGraph evidence");
@@ -290,17 +298,36 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       profile = await runtime.waitForCounters(runtime.frame - 1);
       const restoredFixed = renderer.temporalEvidence();
 
+      // Restore the canonical surface workload, which contains real MBOIT
+      // geometry, and prove that only this topology adds the final-layer
+      // reactive classification.
+      await runtime.replaceScene(await createSurfaceSource());
+      await runtime.waitForFrames(4);
+      profile = await runtime.waitForCounters(runtime.frame - 1);
+      const transparent = renderer.temporalEvidence();
+      const transparentGraph = renderer.mainFrameGraphEvidence();
+      if (transparentGraph === null) {
+        throw new Error("Temporal transparent frame did not publish FrameGraph evidence");
+      }
+      const transparentPasses = transparentGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+
       Object.assign(evidence, {
         temporalReconstruction: {
           fixed,
           fixedPasses,
           fixedResources,
+          fixedProfilerCounters: fixedProfile.counters,
+          fixedSubmits: fixedProfile.submits,
           fixedSamplesBefore,
           afterCameraCut,
           afterCameraRecovery,
           afterResize,
           adaptive,
           restoredFixed,
+          transparent,
+          transparentPasses,
           profilerCounters: profile.counters,
           gpuCounters: profile.gpuCounters.values,
           submits: profile.submits
@@ -314,6 +341,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           fixed.confidenceChannel === "alpha-history-lock" &&
           fixed.preExposureAware && fixed.reactiveMaskConsumed &&
           fixed.disocclusionConsumed && fixed.taaPasses === 1 &&
+          fixed.classificationPasses === 1 &&
           fixed.internalWidth === Math.floor(fixed.outputWidth * 0.75) &&
           fixed.internalHeight === Math.floor(fixed.outputHeight * 0.75) &&
           fixed.outputPixels > fixed.internalPixels,
@@ -323,16 +351,37 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
       ));
       assertions.push(validationAssertion(
         "temporal-reconstruction-production-graph-is-closed",
-        fixedPasses.filter((name) => name === "FX-06 final temporal validity classification").length === 1 &&
+        fixedPasses.filter((name) =>
+          name.endsWith("temporal validity classification")
+        ).length === 1 &&
+          fixedPasses.filter((name) => name === "FX-06 final temporal validity classification").length === 1 &&
           fixedPasses.filter((name) => name === "FX-06B Final TAA/TAAU resolve").length === 1 &&
           fixedPasses.indexOf("FX-06 final temporal validity classification") <
             fixedPasses.indexOf("FX-06B Final TAA/TAAU resolve") &&
           fixedResources.filter((name) => name === "taa_history").length === 1 &&
           fixedResources.filter((name) => name === "taa_output").length === 1 &&
-          profile.submits.count === 1,
+          fixedProfile.submits.count === 1,
         "Reactive classification and output-domain reconstruction are GPU producer-to-consumer closed in the main submit",
-        { passes: fixedPasses, resources: fixedResources, submits: profile.submits },
+        { passes: fixedPasses, resources: fixedResources, submits: fixedProfile.submits },
         "one classifier, one reconstruction, one history read/write pair, one main submit"
+      ));
+      assertions.push(validationAssertion(
+        "temporal-transparent-topology-adds-only-final-layer-classifier",
+        transparent.classificationPasses === 2 &&
+          transparentPasses.filter((name) =>
+            name.endsWith("temporal validity classification")
+          ).length === 2 &&
+          transparentPasses.filter((name) =>
+            name === "FX-06 opaque temporal validity classification"
+          ).length === 1 &&
+          transparentPasses.filter((name) =>
+            name === "FX-06 final temporal validity classification"
+          ).length === 1 &&
+          transparentPasses.indexOf("FX-05 Packed transparent forward") <
+            transparentPasses.indexOf("FX-06 final temporal validity classification"),
+        "Only real transparent reactive coverage adds a second final-layer SurfaceValidity classification",
+        { runtime: transparent, passes: transparentPasses },
+        "opaque-only: one shared classifier; MBOIT: opaque plus final classifier ordered after reactive output"
       ));
       assertions.push(validationAssertion(
         "fixed-drs-is-deterministic-and-adaptive-is-explicit",

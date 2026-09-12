@@ -1287,6 +1287,19 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   );
   assert.match(MAIN_PIPELINE_SOURCE, /reconstructionOwner: graphTopology\.nss/);
   assert.match(MAIN_PIPELINE_SOURCE, /bindings\.nssSettings!\.historyPreExposureScale > 0/);
+  assert.match(MAIN_PIPELINE_SOURCE, /reuseOpaqueTemporalValidityForFinal/);
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /Number\(featureTopology\.temporal && featureTopology\.transparency\)/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /finalTemporalValidityRes = opaqueTemporalValidityRes/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /Transparent Temporal classification requires its reactive texture/
+  );
   assert.match(
     MAIN_PIPELINE_SOURCE,
     /finalConsumerCount:[\s\S]*?Bloom reconstruct from FinalColorPyramid[\s\S]*?Automatic exposure histogram eC/

@@ -1887,8 +1887,11 @@ export class MainRenderPipeline {
       this._postFeature?.automaticExposure()?.resetFrameEvidence();
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
       this._lastTemporalClassificationPassCount =
-        (featureTopology.screenSpaceDiffuseTemporal || featureTopology.ssrTemporal ? 1 : 0) +
-        (featureTopology.temporal ? 1 : 0);
+        Number(
+          featureTopology.screenSpaceDiffuseTemporal ||
+          featureTopology.ssrTemporal ||
+          featureTopology.temporal
+        ) + Number(featureTopology.temporal && featureTopology.transparency);
       const preparedNssSettings = featureTopology.nss
         ? this._nss!.prepareFrame({
             renderResolution: [w, h],
@@ -2272,6 +2275,8 @@ export class MainRenderPipeline {
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
         let opaqueTemporalValidityRes: ResourceId | null = null;
+        const reuseOpaqueTemporalValidityForFinal =
+          graphTopology.temporal && !graphTopology.transparency;
         if (needsVelocity) {
           velocityRes = packedResolveOut.velocity!;
           if (needsOcclusionConfidence) {
@@ -2297,15 +2302,29 @@ export class MainRenderPipeline {
           const opaqueValidity = this._temporalFeature.addClassificationToGraph(
             graph,
             bind("opaque-temporal-classification-job", (bindings) => ({
-              phase: "opaque" as const,
+              phase: reuseOpaqueTemporalValidityForFinal
+                ? "final" as const
+                : "opaque" as const,
               width: bindings.internalWidth,
               height: bindings.internalHeight,
-              outputWidth: bindings.internalWidth,
-              outputHeight: bindings.internalHeight,
-              reconstructionOwner: "taa" as const,
+              outputWidth: reuseOpaqueTemporalValidityForFinal
+                ? bindings.outputWidth
+                : bindings.internalWidth,
+              outputHeight: reuseOpaqueTemporalValidityForFinal
+                ? bindings.outputHeight
+                : bindings.internalHeight,
+              reconstructionOwner: reuseOpaqueTemporalValidityForFinal && graphTopology.nss
+                ? "nss" as const
+                : "taa" as const,
               metadataAvailable: true,
               transparencyAvailable: false,
-              historyValid: true,
+              historyValid: !reuseOpaqueTemporalValidityForFinal
+                ? true
+                : graphTopology.nss
+                  ? bindings.nssSettings!.historyValidity > 0 &&
+                    bindings.nssSettings!.historyPreExposureScale > 0
+                  : bindings.taaHistoryValidity >= 0.5 &&
+                    bindings.taaHistoryPreExposureScale > 0,
               reactiveThreshold: this._renderSettings.values.temporal.reactiveThreshold,
               disocclusionThreshold: this._renderSettings.values.temporal.disocclusionThreshold
             })),
@@ -2314,10 +2333,16 @@ export class MainRenderPipeline {
               transparentReactive: occlusionConfidenceRes,
               disocclusionConfidence: occlusionConfidenceRes,
               depth: depthRes,
-              velocity: velocityRes!
+              velocity: velocityRes!,
+              counters: reuseOpaqueTemporalValidityForFinal
+                ? gpuCounterRes ?? undefined
+                : undefined
             }
           );
           opaqueTemporalValidityRes = opaqueValidity.classification;
+          if (opaqueValidity.counters !== null) {
+            gpuCounterRes = opaqueValidity.counters;
+          }
         }
 
         let hdrRes: ResourceId | null = null;
@@ -2966,39 +2991,50 @@ export class MainRenderPipeline {
         ) {
           const temporalInputRes = hdrRes;
           const metadataRes = packedResolveOut.shading.roughnessFlags;
-          const classification = this._temporalFeature.addClassificationToGraph(
-            graph,
-            bind("temporal-classification-job", (bindings) => ({
-              phase: "final" as const,
-              width: bindings.internalWidth,
-              height: bindings.internalHeight,
-              outputWidth: bindings.outputWidth,
-              outputHeight: bindings.outputHeight,
-              reconstructionOwner: graphTopology.nss
-                ? "nss" as const
-                : "taa" as const,
-              metadataAvailable: true,
-              transparencyAvailable: transparentReactiveRes !== null,
-              historyValid: graphTopology.nss
-                ? bindings.nssSettings!.historyValidity > 0 &&
-                  bindings.nssSettings!.historyPreExposureScale > 0
-                : bindings.taaHistoryValidity >= 0.5 &&
-                  bindings.taaHistoryPreExposureScale > 0,
-              reactiveThreshold: this._renderSettings.values.temporal.reactiveThreshold,
-              disocclusionThreshold: this._renderSettings.values.temporal.disocclusionThreshold
-            })),
-            {
-              surfaceMetadata: metadataRes,
-              transparentReactive:
-                transparentReactiveRes ?? occlusionConfidenceRes,
-              disocclusionConfidence: occlusionConfidenceRes,
-              depth: depthRes,
-              velocity: velocityRes,
-              counters: gpuCounterRes ?? undefined
+          let finalTemporalValidityRes: ResourceId;
+          if (reuseOpaqueTemporalValidityForFinal) {
+            if (opaqueTemporalValidityRes === null) {
+              throw new Error("Shared opaque/final Temporal classification is unavailable");
             }
-          );
-          if (classification.counters !== null) {
-            gpuCounterRes = classification.counters;
+            finalTemporalValidityRes = opaqueTemporalValidityRes;
+          } else {
+            if (transparentReactiveRes === null) {
+              throw new Error("Transparent Temporal classification requires its reactive texture");
+            }
+            const classification = this._temporalFeature.addClassificationToGraph(
+              graph,
+              bind("temporal-classification-job", (bindings) => ({
+                phase: "final" as const,
+                width: bindings.internalWidth,
+                height: bindings.internalHeight,
+                outputWidth: bindings.outputWidth,
+                outputHeight: bindings.outputHeight,
+                reconstructionOwner: graphTopology.nss
+                  ? "nss" as const
+                  : "taa" as const,
+                metadataAvailable: true,
+                transparencyAvailable: true,
+                historyValid: graphTopology.nss
+                  ? bindings.nssSettings!.historyValidity > 0 &&
+                    bindings.nssSettings!.historyPreExposureScale > 0
+                  : bindings.taaHistoryValidity >= 0.5 &&
+                    bindings.taaHistoryPreExposureScale > 0,
+                reactiveThreshold: this._renderSettings.values.temporal.reactiveThreshold,
+                disocclusionThreshold: this._renderSettings.values.temporal.disocclusionThreshold
+              })),
+              {
+                surfaceMetadata: metadataRes,
+                transparentReactive: transparentReactiveRes,
+                disocclusionConfidence: occlusionConfidenceRes,
+                depth: depthRes,
+                velocity: velocityRes,
+                counters: gpuCounterRes ?? undefined
+              }
+            );
+            finalTemporalValidityRes = classification.classification;
+            if (classification.counters !== null) {
+              gpuCounterRes = classification.counters;
+            }
           }
           const historyInputRes = graph.import_resource(
             "taa_history",
@@ -3024,7 +3060,7 @@ export class MainRenderPipeline {
                 depthCurrent: depthRes,
                 velocity: velocityRes,
                 disocclusionConfidence: occlusionConfidenceRes,
-                surfaceValidity: classification.classification,
+                surfaceValidity: finalTemporalValidityRes,
                 colorHistory: historyInputRes,
                 output: historyOutputRes
               },
@@ -3070,7 +3106,7 @@ export class MainRenderPipeline {
                 historyColor: historyInputRes,
                 velocity: velocityRes,
                 disocclusionConfidence: occlusionConfidenceRes,
-                classification: classification.classification,
+                classification: finalTemporalValidityRes,
                 depth: depthRes
               }
             );
