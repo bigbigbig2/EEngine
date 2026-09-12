@@ -774,6 +774,7 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           ssgi.upstreamRevision === "148ef33ecb6d2502ff796d4554abd1549c95d519" &&
           ssgi.samplingDomain === "screen" && ssgi.radiusMeters === 2 &&
           ssgi.radiusWorldUnits === 2 && ssgi.screenSpaceRadius === 12 &&
+          ssgi.activeRadius === 12 && ssgi.activeRadiusUnit === "screen-radius" &&
           ssgi.tracePasses === 1 && ssgi.spatialPasses === 1 &&
           ssgi.temporalPasses === 1 && ssgi.resolvePasses === 1,
         "The ordinary opaque-lighting path runs one pinned Three.js r186-derived SSGI trace/filter/history/resolve chain",

@@ -326,6 +326,8 @@ export interface ScreenSpaceGiRuntimeEvidence {
   readonly radiusMeters: number;
   readonly radiusWorldUnits: number;
   readonly screenSpaceRadius: number;
+  readonly activeRadius: number;
+  readonly activeRadiusUnit: "world-units" | "screen-radius" | "disabled";
   readonly thicknessMeters: number;
   readonly thicknessWorldUnits: number;
   readonly metersPerWorldUnit: number;
@@ -1207,6 +1209,14 @@ export class MainRenderPipeline {
         this._renderSettings.values.physicalScale
       ),
       screenSpaceRadius: settings.screenSpaceRadius,
+      activeRadius: enabled
+        ? (settings.samplingDomain === "screen"
+          ? settings.screenSpaceRadius
+          : metersToWorldUnits(settings.radiusMeters, this._renderSettings.values.physicalScale))
+        : 0,
+      activeRadiusUnit: enabled
+        ? (settings.samplingDomain === "screen" ? "screen-radius" : "world-units")
+        : "disabled",
       thicknessMeters: settings.thicknessMeters,
       thicknessWorldUnits: metersToWorldUnits(
         settings.thicknessMeters,
@@ -4009,10 +4019,7 @@ export class MainRenderPipeline {
     profiler.recordCounter("ssgi.resolvePasses", ssgi.resolvePasses);
     profiler.recordCounter("ssgi.traceSamplesPerPixel", ssgi.traceSamplesPerPixel);
     profiler.recordCounter("ssgi.samplingDomain", ssgi.samplingDomain === "screen" ? 1 : 0);
-    profiler.recordCounter(
-      "ssgi.activeRadius",
-      ssgi.samplingDomain === "screen" ? ssgi.screenSpaceRadius : ssgi.radiusWorldUnits
-    );
+    profiler.recordCounter("ssgi.activeRadius", ssgi.activeRadius);
     profiler.recordCounter("ssgi.historyBytes", ssgi.historyBytes);
     profiler.recordCounter("ssgi.historyValid", ssgi.historyValid ? 1 : 0);
     const ssr = this.screenSpaceReflectionsEvidence();
