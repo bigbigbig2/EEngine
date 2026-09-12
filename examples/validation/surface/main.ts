@@ -1097,13 +1097,13 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
             cacheKey: offGraph.cacheKey,
             baselineResources: offBaselineResources,
             ssrPasses: offSsrPasses,
-            transientResources: offGraph.resources.transient
+            liveTransientResources: offGraph.resources.liveTransient
           },
           on: {
             cacheKey: onGraph.cacheKey,
             baselineResources: onBaselineResources,
             ssrPasses: onSsrPasses,
-            transientResources: onGraph.resources.transient
+            liveTransientResources: onGraph.resources.liveTransient
           }
         }
       });
@@ -1122,10 +1122,10 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "one baseline resource and at least one SSR pass"
       ));
       assertions.push(validationAssertion(
-        "lpv-ssr-topology-changes-physical-memory",
-        onGraph.resources.transient > offGraph.resources.transient,
-        "The SSR-on graph owns more transient resources than the pruned SSR-off graph",
-        { off: offGraph.resources.transient, on: onGraph.resources.transient },
+        "lpv-ssr-topology-changes-live-transients",
+        onGraph.resources.liveTransient > offGraph.resources.liveTransient,
+        "The SSR-on graph owns more live transient logical resources than the pruned SSR-off graph",
+        { off: offGraph.resources.liveTransient, on: onGraph.resources.liveTransient },
         "on > off"
       ));
     } else if (request.scenarioId === "scene-adapter") {

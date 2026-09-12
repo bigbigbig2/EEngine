@@ -37,6 +37,10 @@ export interface FrameGraphEvidenceLike {
     readonly transient: number;
     readonly transientTextures: number;
     readonly transientBuffers: number;
+    readonly liveImported?: number;
+    readonly liveTransient?: number;
+    readonly liveTransientTextures?: number;
+    readonly liveTransientBuffers?: number;
     readonly culledResources: number;
   };
 }
@@ -106,7 +110,7 @@ export class FrameGraphPanel {
       ? "FrameGraph unavailable"
       : resources === undefined
         ? `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · resources ${dump.resources.length}`
-        : `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · imported ${resources.imported} · transient ${resources.transient}`;
+        : `active ${rows.filter((row) => row.state === "active").length} · pruned ${rows.filter((row) => row.state === "pruned").length} · imported ${resources.liveImported ?? resources.imported} · transient ${resources.liveTransient ?? resources.transient}`;
     this.table.textContent = rows.length === 0
       ? "No pass evidence"
       : rows.map((row) => `${row.scheduleIndex ?? "—"} ${row.state} ${row.phase} ${row.name} · R${row.reads}/W${row.writes} · GPU ${row.gpuDurationMs === null ? "unsupported" : `${row.gpuDurationMs.toFixed(2)} ms`}`).join("\n");

@@ -4025,7 +4025,8 @@ export class MainRenderPipeline {
     profiler.recordCounter(
       "lighting.baselineSpecularResources",
       this._lastMainGraphEvidence?.dump.resources.filter(
-        (resource) => resource.name === "pre-exposed-baseline-specular"
+        (resource) => resource.firstUsePass !== undefined &&
+          resource.name === "pre-exposed-baseline-specular"
       ).length ?? 0
     );
     profiler.recordCounter("lighting.environment.specularAllocatedBytes", environment.specularAllocatedBytes);

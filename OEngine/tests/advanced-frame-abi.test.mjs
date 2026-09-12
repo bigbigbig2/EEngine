@@ -99,6 +99,7 @@ import {
 import {
   finalOutputBindingPlan
 } from "../.test-dist/shaders/final_output_input.js";
+import { summarizeFrameGraphResources } from "../.test-dist/framegraph/FrameResourceSummary.js";
 import { tonemapSdrWgsl } from "../.test-dist/shaders/tonemap_sdr.js";
 import { tonemapHdrWgsl } from "../.test-dist/shaders/tonemap_hdr.js";
 import {
@@ -1522,6 +1523,35 @@ test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", 
   assert.match(
     SURFACE_VALIDATION_SOURCE,
     /!debugPasses\.includes\("Bloom reconstruct from FinalColorPyramid"\)/
+  );
+});
+
+test("ADR-0009 evidence distinguishes declared and live FrameGraph resources", () => {
+  const summary = summarizeFrameGraphResources({
+    dump: () => ({
+      resources: [
+        { imported: true, transient: false, firstUsePass: 1 },
+        { imported: true, transient: false },
+        { imported: false, transient: true, firstUsePass: 2, description: "transient_texture" },
+        { imported: false, transient: true, firstUsePass: 3, description: "transient_buffer" },
+        { imported: false, transient: true, description: "transient_texture" }
+      ]
+    })
+  });
+  assert.deepEqual(summary, {
+    imported: 2,
+    transient: 3,
+    transientTextures: 2,
+    transientBuffers: 1,
+    liveImported: 1,
+    liveTransient: 2,
+    liveTransientTextures: 1,
+    liveTransientBuffers: 1,
+    culledResources: 2
+  });
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /resource\.firstUsePass !== undefined &&[\s\S]*?pre-exposed-baseline-specular/
   );
 });
 
