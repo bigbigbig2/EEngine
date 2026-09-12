@@ -4198,6 +4198,7 @@ export class MainRenderPipeline {
       .filter((entry) => !entry.culled)
       .map((entry) => entry.name) ?? [];
     const resources = this._lastMainGraphEvidence?.dump.resources
+      .filter((entry) => entry.firstUsePass !== undefined)
       .map((entry) => entry.name) ?? [];
     const countPass = (name: string): number =>
       passes.filter((candidate) => candidate === name).length;
@@ -4220,7 +4221,7 @@ export class MainRenderPipeline {
       fullResolutionHdrIntermediateCount: resources.filter((name) =>
         fullResolutionIntermediates.has(name)
       ).length,
-      debugBypass: this.resolveFeatureTopology().debug,
+      debugBypass: passes.some((name) => name.startsWith("Render debug/")),
       oneShotCaptureMaterialized: colorGradingMaterializationPasses > 0
     });
   }

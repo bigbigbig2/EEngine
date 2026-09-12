@@ -1299,6 +1299,14 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
     MAIN_PIPELINE_SOURCE,
     /opaqueConsumerCount: Number\(hasLivePass\("SSR stochastic hit shading"\)\)/
   );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /resources[\s\S]*?entry\.firstUsePass !== undefined/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /debugBypass: passes\.some\(\(name\) => name\.startsWith\("Render debug\/"\)\)/
+  );
   assert.match(NSS_PREPROCESS_WGSL, /@binding\(2\) var l2: texture_depth_2d/);
   assert.match(
     NSS_PREPROCESS_WGSL,
