@@ -2,7 +2,7 @@
 
 > **Status:** accepted；implementation open
 > **Date:** 2026-09-13
-> **Scope:** Opaque Visibility shading identity、GPU Shading Bin classifier、queue ABI、specialized compute material/direct lighting、active summary、diagnostics 与 feature-off
+> **Scope:** Opaque Visibility shading identity、GPU Shading Bin classifier、queue ABI、specialized compute material/direct lighting、active summary、diagnostics、feature-off、分阶段 cutover 与分层验收
 > **Depends on:** [ADR-0007](./0007-gpu-native-runtime-assets-and-residency-v2.md) 的 `TextureBindingSet`；[ADR-0008](./0008-gpu-driven-geometry-and-visibility-v2.md) 的 `MeshletWork`/VisibilityKey V2；[ADR-0010](./0010-webgpu-2026-capability-contract.md) 的 WebGPU 2026 Desktop 能力模型
 > **Supersedes:** ADR-0009 §3 Material Classification V2、§4 中旧 28-class binding/dispatch 合同、§5 中独立 Material Resolve 后再固定 28 次 direct-lighting dispatch 的物理实现，以及相关 completion criteria；ADR-0008 §6.3 的“classifier 优先逐像素由 MeshletWork→material 恢复 class”实现选择；ADR-0010 对 opaque shading 节点将 `subgroups` 视为可选 accelerator 的口径
 > **Preserves:** ADR-0008 的 32-bit VisibilityKey V2、Hardware Visibility 与 MeshletWork identity；ADR-0009 的单次完整材质求值、Surface/HDR/PreExposure、GI/AO/SSR/Temporal/Post 语义；ADR-0004 禁止恢复全屏 Pixel Queue/ShadeWork 的决定
@@ -791,6 +791,347 @@ only-old-path counters, tests and documentation
 
 删除要求是最终 cutover 的组成部分，不是可选 cleanup。内部 Shading Bin 类型默认不从 `OEngine/src/index.ts` 导出。
 
+### 17. 分阶段重构、分层测试与验收闭环
+
+#### 17.1 执行原则
+
+本重构按下述 Step 顺序执行。Step 是实施和验证边界，不是可长期选择的运行模式：
+
+- 当前 `MaterialTileWork` 在最终 production cutover 前仍是唯一生产 owner；新链路在内部模块、CPU oracle、shader audit 和新验证宿主的 candidate composition 中逐层闭合。
+- 不增加公开 `legacy/new` 开关、Renderer 兼容选项、旧 ABI alias、长期双写或同一发布版本中的双 backend。
+- 测试宿主可以显式构建 candidate composition，但该入口只属于验证系统，不从 `OEngine/src/index.ts` 导出，也不能进入产品配置。
+- 新模块在接入主管线前必须有 targeted test consumer；不得以“以后会接线”为由合入无验证的死代码。
+- 每个 Step 先通过自己的 DEV Exit Gate 才能进入下一 Step。需要真实 GPU 的 Runtime Exit Gate 在新浏览器宿主可用前保持 open；open 不等于通过。
+- Step 6 的真实 MILESTONE/PERF 未通过前，不允许执行 Step 7 的 production cutover 和旧路径删除。
+- 每个 Step 只修改其声明的 owner。若发现必须改变本 ADR 已冻结的 bin 数、tile 大小、队列模型、required capability、FrameProduct 语义或 fallback 选择，先修改/新增 ADR，不把架构变化伪装成局部修复。
+
+实施 checkpoint 不写回本 ADR。每个 Step 的实际状态只在 `STATUS.md` 记录为 `not-started | implementation-open | implementation-complete | runtime-validated | accepted`；逐次命令输出进入 CI/验证 artifact，不在权威文档积累日志。
+
+#### 17.2 测试层级
+
+| Layer | 目的 | 典型证据 | 对应验证等级 |
+| --- | --- | --- | --- |
+| L0 · Static/ownership | 保证依赖方向、源码 owner、文档和删除边界正确 | typecheck、build:test、source audit、`rg` ownership/deletion scan、Markdown/provenance check | DEV |
+| L1 · CPU oracle | 在不依赖 GPU 的情况下证明 ABI、编码、容量、数学和事务不变量 | table-driven/property tests、CPU reference classifier、layout/offset oracle、rollback tests | DEV |
+| L2 · Shader contract | 证明 WGSL、BGL、pipeline layout、format 和 specialization 结构一致 | generated-source audit、binding reflection/oracle、`getCompilationInfo()`、pipeline creation error scopes | DEV；真实编译部分属于 MILESTONE |
+| L3 · GPU component | 隔离证明 producer、counter、queue、indirect args 和 consumer 闭环 | deterministic texture/buffer input、GPU dispatch、readback、counter closure、fault injection | MILESTONE |
+| L4 · Pipeline/lifecycle | 证明真实 FrameGraph、视觉语义、feature-off 和生命周期 | browser scenario、topology/resource evidence、screenshot/numeric seam、resize/patch/device loss | MILESTONE |
+| L5 · Performance | 在固定条件下判断 keep/revise/reject | timestamp phases、P50/P95、CPU build/submit、memory、coverage slope、independent runs | PERF |
+| L6 · Final audit | 逐条对照 ADR，证明没有遗漏、隐藏 fallback 或失效证据 | requirement traceability matrix、full clean run、deletion/provenance/API review | ADR acceptance |
+
+L0–L2 不能替代真实 GPU 证据，L3–L4 不能替代正式 PERF，FPS 不能替代 correctness。测试层只表示证据类型，不授权跳过 `VALIDATION.md` 的宿主、clean commit、adapter 或固定 workload 要求。
+
+每个 Step 的交付记录至少包含：Step id、implementation commit、changed paths、命中的 ADR 条款、已运行 Layer、命令/runner identity、通过/失败、deferred Gate 及原因、artifact id/content hash。记录不得只有“测试通过”的自然语言结论。
+
+#### Step 0 · 迁移清单、来源边界与可比较基线
+
+**实现范围**
+
+1. 建立旧 owner → 新 owner 的一对一迁移矩阵，覆盖 ABI、Scene publication、Visibility MRT、classifier、material resolve、direct lighting、FrameProducts、diagnostics、Profiler 和 tests。
+2. 用源码引用图确认第 16 节 deletion list 完整；发现新的旧路径 owner 时先补入 ADR/矩阵。
+3. 在 `docs/porting/visibility.md`、`docs/porting/shading.md` 登记最终采用或拒绝的上游 revision、路径、许可证、保留不变量和 WGSL/OEngine 差异；candidate 不能继续写成来源结论。
+4. 冻结新验证宿主落地后的旧生产路径 baseline commit、workload identity 与 capability fingerprint。旧 benchmark 只作历史参考，不冒充该 baseline。
+5. 冻结 requirement id：至少为 Capability、Identity、Visibility、Queue、Classifier、Shading、Feature-off、Lifecycle、Diagnostics、Performance、Deletion 各条规范要求分配稳定 id，供最终 traceability matrix 使用。
+
+**分层检查**
+
+- L0：`rg` 确认旧 owner、公开导出、FrameProduct、shader generator、counter schema 和文档引用全部进入迁移矩阵。
+- L0：文档链接、porting license/revision、ADR supersession 和 `STATUS.md` 当前事实检查通过。
+- L0：在未修改生产代码的 clean baseline 上运行 `npm run typecheck`、`npm run build:test` 和当前命中的 ownership/ABI tests，证明起点可复现。
+- L5：只有新浏览器宿主存在后才捕获旧路径 formal baseline；没有宿主时该项保持 open，不阻塞 Step 1–5 的 DEV 工作，但阻塞 Step 6 PERF 和 Step 7。
+
+**Exit Gate**
+
+- 每个待删除符号有 replacement owner 和验证 owner；没有“顺手清理”的未追踪范围。
+- 每个外部实现有 adoption 状态；许可证不明或 `All Rights Reserved` 来源没有可迁移代码。
+- baseline commit 与 candidate 采用同一新宿主、场景和证据 schema；无法同条件复现时不得作性能比较。
+
+#### Step 1 · Shading identity、ABI 与 CPU reference model
+
+**实现范围**
+
+1. 新建内部 `GpuShadingProgramAbi.ts` 与 `GpuShadingBinAbi.ts`，冻结第 3、6 节全部常量、bit range、sentinel、offset、stride、alignment 和 usage。
+2. 实现 material × geometry `ShadingDependencyMask → ShadingProgramId` 的唯一 versioned LUT；非法模型在 publication 前返回结构化错误。
+3. 实现 bin encode/decode、dense active layout、heap byte sizing、2D indirect args sizing、maximum extent/limit preflight。
+4. 实现纯 CPU reference classifier/finalizer：输入 `ShadingBinId` image、allowed mask/layout/capacity，输出 per-bin microtile set、counter、record 和 indirect args。
+5. 本 Step 不接线 Renderer、不创建 GPU resource、不修改 `src/index.ts`。
+
+**新增/命中测试**
+
+```text
+tests/shading-bin-abi.test.mjs
+tests/shading-bin-reference.test.mjs
+tests/advanced-frame-abi.test.mjs
+```
+
+- L1：0、63、0xff、reserved bit、全部 16 program × 4 set round-trip。
+- L1：全部合法 Standard PBR dependency combination 唯一命中 fixed program 或 `PbrGeneric`；invalid shading model 原子失败。
+- L1：struct byte offsets/strides 与 WGSL declaration 同源或逐字段互证；覆盖 32 B settings/control、16 B counter/layout、4 B record、12 B indirect record。
+- L1：0×0、1×1、非 8/64 对齐、1080p、4K、最大 extent、0/1/64 active bins 的容量和 heap bytes。
+- L1：indirect count 0、1、65,535、65,536、2D tail、Y overflow，三字段每帧完整覆写。
+- L1：CPU classifier 覆盖 empty、single-bin、all-bin、partial macro、mixed microtile、invalid/inactive bin、exact-capacity 和 overflow。
+- L0：`npm run typecheck`、`npm run build:test` 与上述 targeted tests 通过；公开导出没有新增内部 ABI。
+
+**Exit Gate**
+
+- CPU/WGSL ABI 无手写漂移点，所有容量运算使用 checked integer arithmetic。
+- Reference model 成为后续 GPU tests 的唯一 oracle，不复制第二套期望算法。
+- 任何 boundary failure 都在资源创建前可解释失败，不截断、不降低容量。
+
+#### Step 2 · Capability negotiation、pipeline identity 与 binding budget
+
+**实现范围**
+
+1. 将第 2 节 required features/limits 表达为纯 capability-plan function：先读 adapter，再生成精确 `requiredFeatures`/`requiredLimits`，device 创建后冻结 actual record。
+2. 加入 `ShadingProgramId × TextureBindingSetId × ShadingOutputDependencyMask × capability/format profile` cache key 和 descriptor schema。
+3. 定义 4 个显式 bind group layout 及最宽 variant budget oracle；每个 specialized variant 从真实声明推导使用量。
+4. 生成 classifier WGSL 时仅在已请求/启用 `subgroups` 的 module 写 `enable subgroups;`；不请求 `subgroup-size-control`。
+5. Capability 硬失败在 Step 7 cutover 时才成为 production 初始化行为；本 Step 不允许提前改变旧 Renderer 的可运行设备集合。
+
+**新增/命中测试**
+
+```text
+tests/webgpu-2026-capability.test.mjs
+tests/shading-bin-pipeline-contract.test.mjs
+tests/advanced-frame-abi.test.mjs
+```
+
+- L1：缺 `subgroups`、每个 limit 恰低 1、恰等阈值和高于阈值的 table-driven negotiation。
+- L1：只请求 consumer 实际需要且 adapter 支持的 limit，不请求 adapter maximum，不遗漏 feature dependency closure。
+- L1：cache key 对 program/set/output/capability 任一变化都改变，对无关 runtime value 保持稳定。
+- L2：WGSL `enable/requires`、BGL binding number/type/visibility、storage texture format 和 pipeline layout 三方一致。
+- L2：所有 concrete specialization 均不超过 4/16/8/10/5/4 budget；textureless/unlit/color-only variants 的无用 group/binding 物理不存在。
+- L2：source audit 禁止 `@subgroup_size`、`subgroupBallot(...).x`、固定 lane-width shift 和 `diagnostic(off, subgroup_uniformity)`。
+
+**Exit Gate**
+
+- Unsupported error 在任何 Renderer-owned resource 创建前确定，错误文本携带 missing feature/limit、required/actual value。
+- Pipeline/BGL 可以跨 frame 复用，创建点不在 frame loop。
+- 没有 no-subgroup shader、旧 28-class pipeline 或 CPU visible-bin fallback 被注册到 cache。
+
+#### Step 3 · Publication truth 与 ActiveShadingSummary
+
+**实现范围**
+
+1. 实现 material × geometry association 的 bin derivation 和 `ActiveShadingSummary` 纯事务计划。
+2. 覆盖 bulk upload、instance add/remove、Active/Transparency patch、material patch、geometry/material association 和 TextureBindingSet relocation。
+3. Summary、instance/MeshletWork bin、material/texture generation 与 pipeline/layout revision 作为同一 publish/rollback unit。
+4. 建立 submitted-work retirement 和 device-loss rebuild 所需的 immutable revision snapshot。
+5. Step 7 前只在测试和 candidate composition 中消费新 publication plan；禁止 live GPU 同时双写旧 KernelClass 与新 bin 作为两个生产 truth。
+
+**新增/命中测试**
+
+```text
+tests/shading-bin-publication.test.mjs
+tests/packed-render-world-contract.test.mjs
+tests/runtime-geometry-instance-residency-v2.test.mjs
+```
+
+- L1：bin refcount/mask 的 add/remove、0↔1 边界、64 bins、textureless canonical set 0。
+- L1：material/geometry/texture relocation 使 bin 改变时，旧 refcount 减一、新 refcount 加一且 revision 只推进一次。
+- L1：OOM、unsupported material、invalid generation、capacity/limit preflight 任一点失败均完整 rollback。
+- L1：透明实例不错误计入 opaque queue；透明 lit receiver 仍能维持自身 lighting/shadow consumer truth。
+- L1：aborted submit 不推进 reusable generation/history/retirement；device loss 从 CPU truth 重建且不复用旧 revision。
+- L0：稳定 frame 不扫描 Scene/material registry，不创建新 summary/pipeline/bind group，不产生 per-frame JS allocation owner。
+
+**Exit Gate**
+
+- 一个 revision 内 bin mask、layouts、pipelines 和 bind groups 可形成不可分割 snapshot。
+- 所有更新路径共享一个事务实现，没有漏掉的旁路 patch。
+- CPU summary 只表达 possible active bins，不读取本帧 GPU visible count。
+
+#### Step 4 · Visibility MRT、classifier、heap 与 indirect args producer
+
+**实现范围**
+
+1. 实现 `r8uint ShadingBinId` attachment descriptor、0xff clear、flat integer varying 和 Visibility fragment 双 MRT 输出。
+2. 实现 heap allocator/clear、64×64 classifier、width-agnostic subgroup 聚合、bounded CAS reservation、scatter 和独立 finalizer。
+3. 实现独立 768 B `STORAGE | INDIRECT | COPY_DST` args buffer；heap 不带 `INDIRECT` usage。
+4. 实现错误注入入口，仅供 diagnostics/test：invalid/inactive bin、revision mismatch、counter invariant、overflow、2D dispatch overflow。
+5. 所有对象带稳定 label，shader module 检查 compilation info，resource/pipeline creation 使用 validation error scope。
+
+**新增/命中测试**
+
+```text
+tests/shading-bin-visibility-contract.test.mjs
+tests/shading-bin-classifier.test.mjs
+tests/shading-bin-gpu-component.test.mjs   # 新宿主落地后启用
+```
+
+- L1：CPU raster ownership model 验证 background、depth loser、discarded MASK 保持 0xff，winner 的 key/bin 同域。
+- L1：随机小尺寸 image 将 CPU reference 与预期 masks/records/counters/args 比较，覆盖 partial macro/microtile。
+- L2：256 lanes 全部经过 subgroup operation/barrier；禁止边缘 early return、divergent subgroup call 和 barrier 后缺失 memory visibility。
+- L2：workgroup memory、workgroup size、buffer binding size、texture format/usage 和 indirect offset/stride 全部经过 descriptor oracle。
+- L3：上传 deterministic bin image，GPU classifier/finalizer readback 与 CPU oracle 逐 bin 集合相等；record 顺序按 set 比较，不要求 append 顺序。
+- L3：验证 `attempted == written + overflow`、generated mask ⊆ allowed mask、零 work 写 `(0,1,1)`、2D tail 不消费额外 record。
+- L3：故障注入不产生 OOB/partial reservation，classifier/finalizer 错误在 resolve 前把全部 args 归零，GPU validation/uncaptured error 为零。
+
+**Exit Gate**
+
+- L0–L2 通过后可记录本 Step `implementation-complete`。
+- L3 只有真实 WebGPU 宿主运行后才能关闭；未关闭时不得进入 production cutover。
+- Classifier 不读取 VisibilityKey、MeshletWork 或 material table，production shader 不含 per-success-pixel global atomic。
+
+#### Step 5 · Specialized shading、direct lighting fusion 与输出裁剪
+
+**实现范围**
+
+1. 建立共享但按 compile-time dependency 裁剪的 reconstruction/PBR/lighting WGSL library，以及 16 个 `ShadingProgramId` entry variants。
+2. 先完成 dependency 最窄的 `UnlitFactor`，再补齐 vertex-color/texture unlit、fixed PBR family 和 `PbrGeneric`；这是同一 B 管线内部实现顺序，不形成可发布的 A/B backend。
+3. Texture variants 使用 perspective-correct UV/explicit gradients/`textureSampleGrad`；compute shader 不使用 implicit-derivative sampling。
+4. Lit variants 在同一 kernel 完成 direct lighting/shadow；保持 ADR-0009 的 GI/AO/SSR/PreExposure source-stage 语义。
+5. 按 output dependency 生成 ColorOnly、ShadingSurfaceLite、DiffuseSurfaceLite、Velocity variants；不用 dummy binding 维持共享 layout。
+6. Production variant 不声明 claims buffer、valid/shaded/duplicate/unassigned success counters；diagnostics variant 物理隔离。
+
+**新增/命中测试**
+
+```text
+tests/shading-program-specialization.test.mjs
+tests/shading-bin-consumer-oracle.test.mjs
+tests/shading-bin-gpu-component.test.mjs   # 新宿主落地后启用
+tests/advanced-frame-abi.test.mjs
+```
+
+- L1：每个 supported Standard material/geometry combination 与 program LUT、texture set、output mask 一致。
+- L1：canonical vertex reconstruction、barycentric、gradient、normal/tangent、vertex color、PBR/BRDF、PreExposure 与旧语义的数值 oracle；容差和颜色空间显式冻结。
+- L2：`UnlitFactor/ColorOnly` source 不含 triangle/vertex/UV/texture/light/shadow/Surface/Velocity bindings 或函数调用。
+- L2：unlit texture/PBR texture variants 只使用 explicit gradient/LOD 合法 builtin；subgroup、barrier、texture sample uniformity diagnostics 不被关闭。
+- L2：每个 shader variant 的实际 bindings、storage formats、entry point、pipeline key 和 output stores 与 descriptor 相符。
+- L3：每种 program 至少一个 deterministic GPU case；mixed material、mixed binding set、边缘 microtile 与矩形 dispatch tail 均与 CPU/numeric oracle 相符。
+- L3：故意注入 meshlet/material/texture generation mismatch 时对应 lane 不写结果、frame invalid，Final Output 不展示部分帧。
+- L3：diagnostics variant 捕获 duplicate/unassigned；同场景 production variant 的 claims resource/pass/readback 物理不存在。
+
+**Exit Gate**
+
+- 所有 16 program slots 有明确实现或合法地路由到 `PbrGeneric`，不存在 silent feature drop。
+- 完整 material evaluation 每个命中 opaque pixel 只发生一次，direct lighting 不再需要第二轮 shading consumer。
+- L3 未通过时不得进入 Step 6 candidate pipeline MILESTONE。
+
+#### Step 6 · Candidate FrameGraph、生命周期与预切换性能门禁
+
+**实现范围**
+
+1. 在内部 candidate composition 中连接 Visibility MRT → clear → classify → finalize → active-bin indirect resolve → downstream GI/AO/SSR/Temporal/Post。
+2. 全部命令由主 `ShadeGPUCommandContext` 编码并一次 submit；readback 只走异步 diagnostics/capture 边界。
+3. 接入 `ActiveShadingSummary` snapshot、pipeline/bind-group cache、resize、scene replace、material patch、feature toggle、camera cut、aborted submit 和 device-loss recovery。
+4. 接入 FrameGraph live resource/pass evidence、phase timestamp、queue/error counter 和 memory accounting。
+5. Candidate 入口只存在于新验证宿主，不导出产品 runtime switch。旧 baseline 与 candidate 使用两个 clean commit/run group 比较，不在同一 binary 保留双 backend。
+
+**新增/命中测试**
+
+```text
+tests/shading-bin-framegraph.test.mjs
+tests/render-layer-ownership.test.mjs
+tests/packed-render-world-contract.test.mjs
+```
+
+- L0/L1：FrameGraph static matrix 覆盖 no-opaque、unlit-only、textureless、velocity-off、SSGI off/on、diagnostics off/on。
+- L2：pass edge 明确保证 Visibility→classifier→finalizer→indirect consumer 与 light/shadow producer→lit consumer；不依赖偶然记录顺序。
+- L4：运行 BasicCubeNear/Far、UnlitVertexColor、UnlitTexture、MixedBins、RenderingLabFixed；检查截图/数值、queue closure、GPU diagnostics、one-main-submit。
+- L4：逐项运行 resize、material/association patch、TextureBindingSet relocation、feature toggle、scene replace、camera cut、aborted submit 和 device loss；旧 snapshot 只在 submitted-work boundary 后退役。
+- L4：feature-off 以 live topology 证明无 owner/resource/pass/history/readback/counter copy/独立 submit，不接受仅 uniform 分支。
+- L5：在 1650 Ti 捕获旧 clean baseline 与 candidate 的相同条件数据，2060 作第二 adapter；先分离 Visibility r8 MRT、classifier、finalizer、major programs 与 downstream phase，再看总 frame。
+- L5：若 cube 改善但 `MixedBins`/`RenderingLabFixed` P50/P95、内存或画质不合格，Step 6 不通过；不能只凭平均 FPS 进入 cutover。
+
+**Exit Gate**
+
+- L0–L4 全绿，所有 correctness-critical counter/diagnostic 为零，生命周期无 stale generation/resource leak。
+- L5 能解释 coverage slope、MRT 成本、classifier contention、mixed-tile rejected lanes 和 fused-lighting 收益；达到本 ADR `PERF gates` 的接受条件。
+- 新宿主或目标 1650 Ti 不可用时 Step 6 保持 open，并明确阻塞 Step 7；不得以 2060、任务管理器利用率或 CPU FPS 代替。
+
+#### Step 7 · 一次性 production cutover 与旧路径删除
+
+**前置条件**
+
+- Step 0–5 的 DEV Gate 和其中适用的 Runtime Gate 全部关闭。
+- Step 6 的 MILESTONE/PERF 已在同条件 clean commits 通过。
+- Requirement traceability matrix 没有未分配 owner，porting ledger 没有 candidate/unknown license 状态。
+
+**实现范围**
+
+1. 激活 required `subgroups`/limits 的 Renderer 初始化合同；在任何 Renderer-owned resource 前 fail fast。
+2. 将 instance/MeshletWork publication 原子切换到 `ShadingBinId`，将 `MainRenderPipeline` 原子切换到 candidate composition。
+3. 将下游 FrameProducts、Profiler/debug UI、counter schema 和 device-loss rebuild 指向新 owner；必要时升 counter ABI version，保留空洞必须标为 reserved 并有 oracle。
+4. 在同一 cutover 中删除第 16 节所有旧 ABI、Pass、Shader、static class uniform、production claims 和只服务旧路径的 tests/docs。
+5. 更新 `ARCHITECTURE.md`、`PIPELINE.md`、`STATUS.md` 和 porting ledger 为真实 owner；不是在 cutover 前预写未来事实。
+
+**分层检查**
+
+- L0：`rg` 对 deletion manifest 的每个符号、文件、public export、FrameProduct、shader string、pipeline label 和 counter name 执行零命中检查；允许的历史命中只限 ADR/冻结 benchmark narrative。
+- L0：`npm run typecheck`、`npm run build:test`、全部命中 targeted tests、`npm run audit:shaders` 通过。
+- L1/L2：全部 ABI/cache/binding/source audit 在删除旧 tests 后仍由新 tests 独立覆盖，不能靠旧 helper 间接通过。
+- L4：production 入口重复 Step 6 全部 browser correctness/lifecycle matrix，证明测试 candidate 与真正主管线一致。
+- L5：post-deletion clean candidate 至少做短 profile，确认删除/接线没有使 Step 6 evidence 失效；正式最终 PERF 仍由 Step 8 完成。
+
+**Exit Gate**
+
+- 源树、公开接口、已编译 shader audit 和真实 FrameGraph topology 四处均不存在旧 backend。
+- 只有一个 opaque production pipeline；没有隐藏 env flag、URL 参数、quality switch 或 adapter-specific legacy path。
+- Cutover 后任何失败都在新管线内修复；不通过恢复旧 backend 关闭问题。
+
+#### Step 8 · 全量测试、独立审查与最终验收
+
+Step 8 是唯一最终验收阶段，不再新增功能。它从 clean cutover commit 开始，先生成 requirement traceability matrix，再执行以下完整顺序。
+
+**A. Clean reproduction 与全量静态/单元层**
+
+```powershell
+Set-Location OEngine
+npm ci
+npm run typecheck
+npm run build:test
+npm test
+npm run audit:shaders
+```
+
+- L0：dependency/lockfile、generated source、shader allowlist、public exports、文档 links/provenance、deletion scan 全部干净。
+- L1：运行 Step 1–7 全部 oracle/property/boundary/transaction/fault tests，固定随机测试必须保存 seed。
+- L2：对所有实际创建的 program/set/output/capability variants 做 WGSL compilation info、BGL/pipeline creation、binding budget 和 uniformity review；warning 必须分类，不能批量忽略。
+
+**B. 全量真实浏览器 MILESTONE**
+
+- L3：classifier/finalizer/consumer component oracle、queue closure、indirect 2D tail、fault injection 和 diagnostics/production variant separation。
+- L4：`MILESTONE gates` 定义的全部 deterministic states 加综合 workload；覆盖 cold start、warm cache、resize、scene replace、material/geometry/texture patch、feature toggle、camera cut、aborted submit、device loss/recovery。
+- 每个 scenario 同时记录 console/page/request error、validation error scopes、uncaptured error、device loss、live graph、resource bytes、counter、screenshot/readback 和 submit count。
+- 对 Feature-off 组合进行结构检查；不得用画面“看起来没变化”代替 owner/resource/pass 缺席证据。
+- 1650 Ti 是必需主 adapter，2060 是必需第二 adapter；任一 adapter correctness 失败都阻止验收。
+
+**C. 全量 formal PERF**
+
+- 使用 Step 0 冻结的旧 baseline commit 与 clean cutover commit；两边必须使用同一新宿主、浏览器 build、adapter、1920×1080、DPR 1、fixed render scale、quality/features、scene/seed/camera、warm-up/sample cadence。
+- 每个 adapter 使用多个独立 run group，保存逐 phase GPU P50/P95、CPU frame/build/submit、Present cadence、submit 数、memory 与所有 queue/error counters。
+- BasicCubeNear/Far 用于 coverage slope，不单独代表综合成功；MixedBins 和 RenderingLabFixed 共同防止只优化单材质大三角形。
+- GPU timestamp 不可用的 run 只能作为 correctness evidence，不能进入 formal PERF；CPU FPS、浏览器 overlay 和任务管理器 GPU utilization 不能代替 timestamp。
+- 结果必须分别给出新增 r8 MRT、classifier/finalizer、各 shading family、删除第二轮 lighting 和删除 diagnostics 的成本/收益；无法解释的回归视为失败。
+
+**D. 四类独立审查**
+
+1. **Architecture/ownership review**：GPU producer→GPU consumer、单主管线、FrameProduct owner、feature-off、无 CPU visible list、无 public GPU internals。
+2. **WebGPU/WGSL review**：feature/limit negotiation、resource usage、alignment、BGL/layout、MRT format、indirect buffer、pass ordering、subgroup/barrier uniformity、explicit gradients、device loss/error scopes。
+3. **Performance/resource review**：pipeline/bind-group cache、stable-frame allocation/readback/submit、timestamp 完整性、resident/transient/history/shadow/upload/readback budget、1650/2060 可解释结果。
+4. **Source/deletion/documentation review**：upstream revision/license/adoption、无不可用源码派生、旧 owner 零残留、当前事实文档与实现一致、benchmark artifact 可复算。
+
+审查结论只能是 `pass` 或带 requirement id 的 `fail`；“建议以后处理”不能关闭本 ADR 的 MUST/不得条款。
+
+**E. 不合格修复循环**
+
+任何测试、性能 Gate 或审查失败时执行同一闭环：
+
+1. 将失败绑定到最早拥有该不变量的 Step 和 requirement id，保存复现输入、adapter/capability、seed、artifact hash 与 observed/expected。
+2. 在该 Step 的 owner 内修复；若修复改变冻结架构，先修订 ADR 并使旧证据失效。
+3. 先重跑失败 Step 的全部 Layer，不只重跑单个失败 case。
+4. 再重跑所有依赖该 ABI、Shader、FrameProduct、capability 或 lifecycle 的后续 Step Gate。
+5. 最后从 Step 8A 开始重新执行全量验收；旧 candidate 的成功结果不能拼接成新 revision 的全绿结论。
+6. 循环直到两个 adapter 的适用 Gate、四类 review、deletion scan 和 requirement matrix 全部通过。
+
+禁止通过提高容差、删除 workload、降低内部分辨率/画质、关闭 feature、缩短采样窗口、只换更快 adapter、隐藏 validation error 或恢复旧 backend 让失败“变绿”。确需改变验收条件时必须在 ADR 中说明新依据、代价和被作废证据。
+
+**最终 Exit Gate**
+
+- Requirement traceability matrix 每条 MUST/不得要求均指向 production owner、test owner 和当前 revision evidence；无 `N/A` 或无理由 deferred。
+- Step 8A–D 全绿，Step 8E 没有未关闭 failure，正式 artifact 来自 clean commit 且可复算。
+- 满足本 ADR `Completion criteria` 后，才可将状态改为 `complete`；否则保持 `accepted; implementation open` 或 `Implementation Complete`，不得使用更高完成语义。
+
 ## Consequences
 
 ### Positive
@@ -844,6 +1185,8 @@ PlayCanvas 的 32-lane 实现不是普适证明。固定宽度会无必要地排
 ## Verification
 
 公共完成语义、证据强度和相同条件比较遵循 [VALIDATION.md](../VALIDATION.md)。ADR-0012 的 browser-host 限制继续生效。
+
+第 17 节是实施顺序和逐 Step Exit Gate；本节以下 DEV/MILESTONE/PERF 条目是跨 Step 的汇总验收集合。两者必须同时满足，不能以某个 Step 的 targeted test 通过替代最终汇总 Gate。
 
 ### DEV gates
 
