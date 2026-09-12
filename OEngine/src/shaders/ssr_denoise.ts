@@ -179,12 +179,35 @@ fn clip_history_to_aabb(history: vec3f, minimum: vec3f, maximum: vec3f) -> vec3f
   );
 }
 
+fn reprojection_stretch_confidence(history_uv: vec2f, resolution: vec2f) -> f32 {
+  let jacobian_x = dpdx(history_uv) * resolution;
+  let jacobian_y = dpdy(history_uv) * resolution;
+  let determinant = jacobian_x.x * jacobian_y.y - jacobian_x.y * jacobian_y.x;
+  let frobenius_squared = dot(jacobian_x, jacobian_x) + dot(jacobian_y, jacobian_y);
+  let discriminant = sqrt(max(
+    frobenius_squared * frobenius_squared * 0.25 - determinant * determinant,
+    0.0
+  ));
+  let minimum_singular_value = sqrt(max(
+    frobenius_squared * 0.5 - discriminant,
+    0.0
+  ));
+  return saturate(minimum_singular_value);
+}
+
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let position = vec2i(coord.xy);
   let effect_size = vec2i(textureDimensions(raw_specular));
   let surface_size = vec2i(textureDimensions(velocity_source));
   let receiver = surface_position(position, effect_size, surface_size);
+  let receiver_velocity = taa_get_velocity(velocity_source, receiver) *
+    vec2f(effect_size) / vec2f(surface_size);
+  let surface_history_pixel = coord.xy - receiver_velocity;
+  let stretch_confidence = reprojection_stretch_confidence(
+    surface_history_pixel / vec2f(effect_size),
+    vec2f(effect_size)
+  );
   let validity = textureLoad(surface_validity_source, receiver, 0).rg;
   let trace_validity = trace_confidence(position);
   let disocclusion = textureLoad(occlusion_confidence_source, receiver, 0).r;
@@ -197,8 +220,6 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     return vec4f(current.rgb, current_confidence);
   }
 
-  let receiver_velocity = taa_get_velocity(velocity_source, receiver) *
-    vec2f(effect_size) / vec2f(surface_size);
   let hit_pixel = min(trace_hit_position(position), vec2u(surface_size) - vec2u(1u));
   let hit_validity = textureLoad(surface_validity_source, vec2i(hit_pixel), 0).rg;
   let hit_candidate_valid = hit_validity.g >= 0.5 && hit_validity.r < 0.5;
@@ -214,7 +235,6 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let hit_normal = decode_g_buffer_normal(
     textureLoad(normal_source, vec2i(hit_pixel), 0).xy
   );
-  let surface_history_pixel = coord.xy - receiver_velocity;
   let hit_effect_pixel = (vec2f(hit_pixel) + 0.5) *
     vec2f(effect_size) / vec2f(surface_size);
   let hit_history_pixel = hit_effect_pixel - hit_velocity;
@@ -233,6 +253,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let hit_weight = hit_trust * hit_history.a *
     select(0.0, 1.0, hit_candidate_valid);
   let history_weight_sum = surface_weight + hit_weight;
+  let hit_path_trust = hit_weight / max(history_weight_sum, 1e-5);
   var history = select(
     vec4f(0.0),
     vec4f(
@@ -243,6 +264,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     ),
     history_weight_sum > 1e-5
   );
+  history.a *= stretch_confidence * stretch_confidence;
   if (history.a <= 0.001) { return vec4f(current.rgb, current_confidence); }
   history.rgb *= settings.pre_exposure_scale;
 
@@ -260,13 +282,22 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let encoded_history = rgb_to_YCoCg(history.rgb / history_scale);
   let clipped_encoded = clip_history_to_aabb(encoded_history, minimum, maximum);
   let clipped_linear = max(construct_pass(clipped_encoded) * history_scale, vec3f(0.0));
-  let clamp_intensity = max(min(motion_factor * 10.0, 1.0), 0.25);
+  let clamp_intensity = max(min(motion_factor * 10.0, 1.0), 0.25) *
+    (1.0 + saturate((1.0 - stretch_confidence) + (1.0 - hit_path_trust)));
   let original_history = history.rgb;
-  let history_linear = mix(original_history, clipped_linear, clamp_intensity);
+  let history_linear = max(
+    mix(original_history, clipped_linear, clamp_intensity),
+    vec3f(0.0)
+  );
   let clip_confidence = exp(
     -length(original_history - clipped_linear) * clamp_intensity * 30.0
   );
   history.a *= clip_confidence;
+  history.a *= mix(
+    1.0,
+    hit_path_trust * 0.05 + 0.95,
+    saturate(motion_factor * 100.0)
+  );
   let current_luma_weight = 1.0 / (1.0 + rgb_to_luminance(current.rgb));
   let history_luma_weight = 1.0 / (1.0 + rgb_to_luminance(history_linear));
   let history_weight = clamp(

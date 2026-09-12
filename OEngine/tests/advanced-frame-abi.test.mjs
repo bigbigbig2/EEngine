@@ -758,6 +758,14 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TEMPORAL_WGSL, /variance_gamma/);
   assert.match(SSR_TEMPORAL_WGSL, /history_scale/);
   assert.match(SSR_TEMPORAL_WGSL, /clip_confidence/);
+  assert.match(SSR_TEMPORAL_WGSL, /reprojection_stretch_confidence/);
+  assert.match(SSR_TEMPORAL_WGSL, /dpdx\(history_uv\)/);
+  assert.match(SSR_TEMPORAL_WGSL, /minimum_singular_value/);
+  assert.match(SSR_TEMPORAL_WGSL, /stretch_confidence \* stretch_confidence/);
+  assert.ok(
+    SSR_TEMPORAL_WGSL.indexOf("let stretch_confidence = reprojection_stretch_confidence(") <
+      SSR_TEMPORAL_WGSL.indexOf("if (current_confidence <= 0.001)")
+  );
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /pack_field\(encoded_current/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /neighborhood_ray_length|mirror_screen_uv/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /camera_previous|linear_clamp/);
