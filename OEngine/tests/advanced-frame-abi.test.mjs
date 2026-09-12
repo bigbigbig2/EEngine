@@ -576,8 +576,16 @@ test("ADR-0009 Step 5 keeps AO, GI, bent and confidence in one history owner", (
     SSGI_PASS_SOURCE.indexOf("const SSGI_TRACE_EVIDENCE_WGSL"),
     SSGI_PASS_SOURCE.indexOf("const SSGI_TRACE_EVIDENCE_PIPELINE")
   );
+  const temporalEvidenceSource = SSGI_PASS_SOURCE.slice(
+    SSGI_PASS_SOURCE.indexOf("const SSGI_TEMPORAL_EVIDENCE_WGSL"),
+    SSGI_PASS_SOURCE.indexOf("const SSGI_TEMPORAL_EVIDENCE_PIPELINE")
+  );
   assert.doesNotMatch(traceEvidenceSource, /velocity_source|confidence_source/);
   assert.doesNotMatch(traceEvidenceSource, /SSGI_ACCEPTED|SSGI_REJECTED/);
+  assert.match(temporalEvidenceSource, /surface_validity_source/);
+  assert.match(temporalEvidenceSource, /classification\.g >= 0\.5 && classification\.r < 0\.5/);
+  assert.match(temporalEvidenceSource, /settings\.pre_exposure_scale > 0\.0 && in_bounds/);
+  assert.doesNotMatch(temporalEvidenceSource, /length\(velocity\) < 128\.0/);
   assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /velocity: velocityRes \?\? gAlbedoRes/);
   assert.doesNotMatch(
     MAIN_PIPELINE_SOURCE,

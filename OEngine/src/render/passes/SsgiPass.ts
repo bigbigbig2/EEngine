@@ -206,20 +206,25 @@ export class SsgiPass {
         job,
         (data, resources, context) => {
           const command = commandContext(context.encoder);
-          const values = new Uint32Array([
-            data.historyValid ? 1 : 0,
-            width,
-            height,
-            data.sliceCount * data.stepCount * 2
-          ]);
+          const values = new ArrayBuffer(this.temporalEnabled ? 32 : 16);
+          const valueView = new DataView(values);
+          valueView.setUint32(0, data.historyValid ? 1 : 0, true);
+          valueView.setUint32(4, width, true);
+          valueView.setUint32(8, height, true);
+          valueView.setUint32(12, data.sliceCount * data.stepCount * 2, true);
+          if (this.temporalEnabled) {
+            valueView.setFloat32(16, data.temporalBlend, true);
+            valueView.setFloat32(20, data.historyPreExposureScale, true);
+          }
           const settings = command.allocateTransientBufferAndLoad(
-            values.buffer,
+            values,
             GPUBufferUsage.UNIFORM
           );
           const bindings: GPUBindingResource[] = this.temporalEnabled
             ? [
                 view(resources.get(inputs.velocity!)),
                 view(resources.get(inputs.occlusionConfidence!)),
+                view(resources.get(inputs.surfaceValidity!)),
                 { buffer: gpuBuffer(resources.get(inputs.counters!), "SSGI counters") },
                 { buffer: settings }
               ]
@@ -243,6 +248,7 @@ export class SsgiPass {
       if (this.temporalEnabled) {
         evidenceBuilder.read(inputs.velocity!);
         evidenceBuilder.read(inputs.occlusionConfidence!);
+        evidenceBuilder.read(inputs.surfaceValidity!);
       }
       evidenceBuilder.read(inputs.counters); counters = evidenceBuilder.write(inputs.counters);
       evidenceBuilder.make_side_effect();
@@ -382,21 +388,37 @@ const SSGI_REJECTED = counterByteOffset("ssgiHistoryRejectedPixels") / 4;
 const SSGI_TEMPORAL_EVIDENCE_WGSL = /* wgsl */ `
 struct Settings {
   history_valid: u32, width: u32, height: u32, samples: u32,
+  blend: f32, pre_exposure_scale: f32, _padding: vec2f,
 };
 @group(0) @binding(0) var velocity_source: texture_2d<f32>;
 @group(0) @binding(1) var confidence_source: texture_2d<f32>;
-@group(0) @binding(2) var<storage, read_write> counters: array<atomic<u32>>;
-@group(0) @binding(3) var<uniform> settings: Settings;
+@group(0) @binding(2) var surface_validity_source: texture_2d<f32>;
+@group(0) @binding(3) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(4) var<uniform> settings: Settings;
 @compute @workgroup_size(8, 8, 1) fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= settings.width || id.y >= settings.height) { return; }
   atomicAdd(&counters[${SSGI_EVALUATED}u], 1u);
   atomicAdd(&counters[${SSGI_SAMPLES}u], settings.samples);
   let full = textureDimensions(velocity_source);
   let trace_size = vec2f(f32(settings.width), f32(settings.height));
-  let pixel = min(vec2u(vec2f(id.xy) / trace_size * vec2f(full)), full - 1u);
+  let uv = (vec2f(id.xy) + 0.5) / trace_size;
+  let pixel = min(vec2u(uv * vec2f(full)), full - 1u);
   let confidence = textureLoad(confidence_source, vec2i(pixel), 0).r;
   let velocity = textureLoad(velocity_source, vec2i(pixel), 0).rg;
-  if (settings.history_valid != 0u && confidence > 0.001 && length(velocity) < 128.0) {
+  let classification = textureLoad(surface_validity_source, vec2i(pixel), 0).rg;
+  let history_uv = uv - velocity / vec2f(full);
+  let in_bounds = all(history_uv >= vec2f(0.0)) && all(history_uv <= vec2f(1.0));
+  let history_validity = select(
+    0.0,
+    1.0,
+    classification.g >= 0.5 && classification.r < 0.5
+  );
+  let history_weight = select(
+    0.0,
+    settings.blend * history_validity * confidence,
+    settings.history_valid != 0u && settings.pre_exposure_scale > 0.0 && in_bounds
+  );
+  if (history_weight > 0.0) {
     atomicAdd(&counters[${SSGI_ACCEPTED}u], 1u);
   } else { atomicAdd(&counters[${SSGI_REJECTED}u], 1u); }
 }
@@ -406,8 +428,9 @@ const SSGI_TEMPORAL_EVIDENCE_PIPELINE: CachedComputePipelineDescriptor = {
   layout: { label: "SSGI temporal evidence/layout", bindGroupLayouts: [{ label: "SSGI temporal evidence/group0", entries: [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+    { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
   ] }] },
   compute: { module: { label: "SSGI temporal evidence", code: SSGI_TEMPORAL_EVIDENCE_WGSL }, entryPoint: "main" }
 };
