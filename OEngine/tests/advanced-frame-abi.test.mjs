@@ -1287,6 +1287,18 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   );
   assert.match(MAIN_PIPELINE_SOURCE, /reconstructionOwner: graphTopology\.nss/);
   assert.match(MAIN_PIPELINE_SOURCE, /bindings\.nssSettings!\.historyPreExposureScale > 0/);
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /finalConsumerCount:[\s\S]*?Bloom reconstruct from FinalColorPyramid[\s\S]*?Automatic exposure histogram eC/
+  );
+  assert.doesNotMatch(
+    MAIN_PIPELINE_SOURCE,
+    /finalConsumerCount: Number\(topology\.bloom\)/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /opaqueConsumerCount: Number\(hasLivePass\("SSR stochastic hit shading"\)\)/
+  );
   assert.match(NSS_PREPROCESS_WGSL, /@binding\(2\) var l2: texture_depth_2d/);
   assert.match(
     NSS_PREPROCESS_WGSL,

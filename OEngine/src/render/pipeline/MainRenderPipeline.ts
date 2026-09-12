@@ -4138,7 +4138,10 @@ export class MainRenderPipeline {
 
   /** ADR-0009 Step 7 logical-product, consumer and history-lifecycle evidence. */
   sharedDerivedProductsEvidence(): SharedDerivedProductsRuntimeEvidence {
-    const topology = this.resolveFeatureTopology();
+    const livePasses = this._lastMainGraphEvidence?.dump.passes
+      .filter((entry) => !entry.culled)
+      .map((entry) => entry.name) ?? [];
+    const hasLivePass = (name: string): boolean => livePasses.includes(name);
     const pyramids = this._sharedColorPyramids?.evidence() ?? Object.freeze({
       opaqueBuilds: 0,
       opaqueRenderPasses: 0,
@@ -4155,8 +4158,13 @@ export class MainRenderPipeline {
       pyramids,
       opaqueStage: "post-screen-space-diffuse-pre-ssr",
       finalStage: "post-transparency-temporal",
-      opaqueConsumerCount: topology.ssr ? 1 : 0,
-      finalConsumerCount: Number(topology.bloom) + Number(topology.automaticExposure),
+      opaqueConsumerCount: Number(hasLivePass("SSR stochastic hit shading")),
+      // Count actual non-culled consumers from the compiled graph. In a debug
+      // recipe Bloom can remain configured while its reconstruction and shared
+      // FinalColorPyramid dependency are correctly pruned.
+      finalConsumerCount:
+        Number(hasLivePass("Bloom reconstruct from FinalColorPyramid")) +
+        Number(hasLivePass("Automatic exposure histogram eC")),
       screenSpaceDiffuseSourcePyramidBuilds: 0,
       bloomReconstructPasses: bloom?.lastReconstructPasses ?? 0,
       bloomConsumedFinalMips: bloom?.lastConsumedPyramidMips ?? 0,
