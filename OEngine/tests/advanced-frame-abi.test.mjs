@@ -1274,6 +1274,16 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
     NEURAL_SUPER_SAMPLING_PASS_SOURCE,
     /textureEntry\(2, "2d", "depth"\)/
   );
+  assert.match(NSS_PREPROCESS_WGSL, /var occlusion_confidence: texture_2d<f32>/);
+  assert.match(NSS_PREPROCESS_WGSL, /var surface_validity: texture_2d<f32>/);
+  assert.match(NSS_PREPROCESS_WGSL, /let confidence = saturate\(textureLoad\(occlusion_confidence/);
+  assert.match(NSS_PREPROCESS_WGSL, /selected_validity\.g >= 0\.5/);
+  assert.match(NSS_PREPROCESS_WGSL, /1\.0 - saturate\(reactive\)/);
+  assert.match(NSS_PREPROCESS_WGSL, /history_in_bounds && settings\.history_pre_exposure_scale > 0\.0/);
+  assert.match(NSS_PREPROCESS_WGSL, /packed_offset, history_validity/);
+  assert.doesNotMatch(NSS_PREPROCESS_WGSL, /1\.0 - saturate\(disocclusion\)/);
+  assert.match(NEURAL_SUPER_SAMPLING_PASS_SOURCE, /surfaceValidity: ResourceId/);
+  assert.match(MAIN_PIPELINE_SOURCE, /surfaceValidity: classification\.classification/);
   assert.match(MAIN_PIPELINE_SOURCE, /inputWidth: bindings\.internalWidth/);
   assert.match(MAIN_PIPELINE_SOURCE, /outputWidth: bindings\.outputWidth/);
   assert.match(MOTION_BLUR_PASS_SOURCE, /Math\.ceil\(job\.inputWidth \/ 16\)/);

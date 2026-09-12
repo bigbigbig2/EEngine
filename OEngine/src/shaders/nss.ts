@@ -194,12 +194,13 @@ ${NSS_COMMON_WGSL}
 @group(0) @binding(1) var scale: texture_2d<f32>;
 @group(0) @binding(2) var l2: texture_depth_2d;
 @group(0) @binding(3) var header: texture_2d<f32>;
-@group(0) @binding(4) var loading_overlay_mode: texture_2d<f32>;
+@group(0) @binding(4) var occlusion_confidence: texture_2d<f32>;
 @group(0) @binding(5) var mean: texture_2d<f32>;
 @group(0) @binding(6) var view: texture_2d<f32>;
 @group(0) @binding(7) var<uniform> settings: NssSettings;
 @group(0) @binding(8) var results: texture_storage_3d<rgba16float, write>;
 @group(0) @binding(9) var b2: texture_storage_2d<rg8unorm, write>;
+@group(0) @binding(10) var surface_validity: texture_2d<f32>;
 
 fn in_bounds(position: vec2<i32>, dimensions: vec2<i32>) -> bool {
   return all(position >= vec2<i32>(0)) && all(position < dimensions);
@@ -271,11 +272,25 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let dimensions = vec2<i32>(render_resolution);
   var nearest_offset = vec2<i32>(0);
   _ = nss_find_nearest_depth(l2, position, dimensions, &nearest_offset);
-  let velocity = textureLoad(header, position + nearest_offset, 0).rg;
+  let selected_position = position + nearest_offset;
+  let velocity = textureLoad(header, selected_position, 0).rg;
   let source_position = vec2<f32>(position) + 0.5 - velocity;
   let history_uv = source_position / vec2<f32>(dimensions);
-  let disocclusion = textureLoad(loading_overlay_mode, position, 0).r;
-  let history_validity = (1.0 - saturate(disocclusion)) * saturate(settings.history_validity);
+  let history_in_bounds = all(history_uv >= vec2<f32>(0.0)) &&
+    all(history_uv <= vec2<f32>(1.0));
+  let confidence = saturate(textureLoad(occlusion_confidence, selected_position, 0).r);
+  let selected_validity = textureLoad(surface_validity, selected_position, 0).rg;
+  let reactive = max(
+    selected_validity.r,
+    textureLoad(surface_validity, position, 0).r
+  );
+  let motion_valid = select(0.0, 1.0, selected_validity.g >= 0.5);
+  let history_validity = confidence * motion_valid * (1.0 - saturate(reactive)) *
+    saturate(settings.history_validity) * select(
+      0.0,
+      1.0,
+      history_in_bounds && settings.history_pre_exposure_scale > 0.0
+    );
   var history = vec3f(0.0);
   var feedback_input = vec4f(0.5);
   if (history_validity > 0.0 && settings.history_pre_exposure_scale > 0.0) {
@@ -299,8 +314,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   textureStore(results, vec3<i32>(position, 0), vec4<f32>(q_history, q_current.r));
   textureStore(results, vec3<i32>(position, 1), vec4<f32>(q_current.g, q_current.b, q_validity, q_feedback.r));
   textureStore(results, vec3<i32>(position, 2), vec4<f32>(q_feedback.gba, q_derivative));
-  let encoded_offset = (vec2<f32>(nearest_offset) + 1.0) * 0.5;
-  textureStore(b2, position, vec4<f32>(encoded_offset, 0.0, 0.0));
+  // Keep the existing 2 B/px rg8unorm intermediate: R packs the 3x3 offset
+  // index, G carries the authoritative quantized history validity used by resolve.
+  let offset_index = (nearest_offset.y + 1) * 3 + (nearest_offset.x + 1);
+  let packed_offset = (f32(offset_index) + 0.5) / 9.0;
+  textureStore(b2, position, vec4<f32>(packed_offset, history_validity, 0.0, 0.0));
 }
 `;
 
@@ -386,8 +404,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
   let reconstructed = weighted_color / max(weight_sum, 1e-5);
-  let encoded_offset = textureLoad(b2, nearest_input, 0).rg;
-  let nearest_offset = vec2<i32>(round(encoded_offset * 2.0 - 1.0));
+  let reprojection_metadata = textureLoad(b2, nearest_input, 0).rg;
+  let offset_index = clamp(i32(floor(reprojection_metadata.r * 9.0)), 0, 8);
+  let nearest_offset = vec2<i32>(offset_index % 3 - 1, offset_index / 3 - 1);
+  let pixel_history_validity = reprojection_metadata.g;
   var velocity = textureLoad(header, nearest_input + nearest_offset, 0).rg;
   if (length(velocity) <= 0.1) { velocity = vec2<f32>(0.0); }
   let scaled_velocity = velocity / (vec2<f32>(render_resolution) / vec2<f32>(output_resolution));
@@ -402,7 +422,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let theta_alpha = nss_sample_layer_bilinear(input_position, render_maximum, 1);
   let learned_theta = saturate(theta_alpha.x);
   let theta = select(learned_theta, saturate(settings.theta_override), settings.theta_override >= 0.0);
-  let history_weight = theta * saturate(settings.history_validity) * history_in_bounds;
+  let history_weight = theta * saturate(settings.history_validity) *
+    history_in_bounds * pixel_history_validity;
   let alpha = (0.35 * saturate(theta_alpha.y) + 0.05) * settings.alpha_blend_scale;
   var result = mix(reconstructed, history, history_weight);
   result = mix(nss_tonemap(result), nss_tonemap(center_color), alpha * center_valid);

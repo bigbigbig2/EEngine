@@ -3008,6 +3008,7 @@ export class MainRenderPipeline {
                 depthCurrent: depthRes,
                 velocity: velocityRes,
                 disocclusionConfidence: occlusionConfidenceRes,
+                surfaceValidity: classification.classification,
                 colorHistory: historyInputRes,
                 output: historyOutputRes
               },

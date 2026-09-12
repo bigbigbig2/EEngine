@@ -47,6 +47,8 @@ export type NeuralSuperSamplingInputs = {
   depthCurrent: ResourceId;
   velocity: ResourceId;
   disocclusionConfidence: ResourceId;
+  /** rg8unorm SurfaceValidity: r=reactive, g=motion-valid. */
+  surfaceValidity: ResourceId;
   colorHistory: ResourceId;
   output: ResourceId;
 };
@@ -461,7 +463,8 @@ export class NeuralSuperSamplingPass {
           texture(resources, feedback),
           { buffer: settingsBuffer },
           texture(resources, tensor),
-          texture(resources, nearestOffset)
+          texture(resources, nearestOffset),
+          texture(resources, inputs.surfaceValidity)
         ]]
       });
       pass.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8), 1);
@@ -472,13 +475,14 @@ export class NeuralSuperSamplingPass {
       inputs.depthCurrent,
       inputs.velocity,
       inputs.disocclusionConfidence,
+      inputs.surfaceValidity,
       inputs.colorHistory,
       feedback
     ]) builder.read(input);
     tensor = builder.create("NSS input tensor", tensorDescriptor(width, height, 3));
-    nearestOffset = builder.create("NSS nearest offset", {
+    nearestOffset = builder.create("NSS reprojection metadata", {
       kind: "transient_texture",
-      label: "NSS nearest offset rg8unorm",
+      label: "NSS packed nearest-offset/history-validity rg8unorm",
       width,
       height,
       format: "rg8unorm",
@@ -807,7 +811,7 @@ function preprocessLayout(): GPUBindGroupLayoutDescriptor {
     samplerEntry(0), textureEntry(1), textureEntry(2, "2d", "depth"),
     textureEntry(3), textureEntry(4), textureEntry(5), textureEntry(6),
     bufferEntry(7, "uniform"), storageTextureEntry(8, "rgba16float", "3d"),
-    storageTextureEntry(9, "rg8unorm", "2d")
+    storageTextureEntry(9, "rg8unorm", "2d"), textureEntry(10)
   ] };
 }
 
