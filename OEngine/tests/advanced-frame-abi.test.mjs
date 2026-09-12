@@ -753,6 +753,12 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SSR_TEMPORAL_WGSL, /hit_history\.rgb \* hit_weight/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /velocity = mix\(receiver_velocity, hit_velocity/);
   assert.match(SSR_TEMPORAL_WGSL, /neighborhood_bounds/);
+  assert.match(SSR_TEMPORAL_WGSL, /rgb_to_luminance\(color\) \* 10\.0/);
+  assert.match(SSR_TEMPORAL_WGSL, /clip_history_to_aabb/);
+  assert.match(SSR_TEMPORAL_WGSL, /variance_gamma/);
+  assert.match(SSR_TEMPORAL_WGSL, /history_scale/);
+  assert.match(SSR_TEMPORAL_WGSL, /clip_confidence/);
+  assert.doesNotMatch(SSR_TEMPORAL_WGSL, /pack_field\(encoded_current/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /neighborhood_ray_length|mirror_screen_uv/);
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /camera_previous|linear_clamp/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /vogel_disk/);

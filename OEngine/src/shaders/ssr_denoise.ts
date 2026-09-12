@@ -143,6 +143,7 @@ fn history_sample_4tap(
 
 fn neighborhood_bounds(
   position: vec2i,
+  gamma: f32,
   minimum: ptr<function, vec3f>,
   maximum: ptr<function, vec3f>
 ) {
@@ -153,7 +154,7 @@ fn neighborhood_bounds(
   for (var y = -1; y <= 1; y++) {
     for (var x = -1; x <= 1; x++) {
       let color = max(textureLoad(raw_specular, clamp(position + vec2i(x, y), vec2i(0), limit), 0).rgb, vec3f(0.0));
-      let encoded = taa_encode_color(color);
+      let encoded = rgb_to_YCoCg(color / (1.0 + rgb_to_luminance(color) * 10.0));
       sum += encoded;
       sum_squared += encoded * encoded;
       count += 1.0;
@@ -161,8 +162,21 @@ fn neighborhood_bounds(
   }
   let mean = sum / count;
   let deviation = sqrt(max(sum_squared / count - mean * mean, vec3f(0.0)));
-  *minimum = mean - deviation * vec3f(1.0, 1.4, 1.2);
-  *maximum = mean + deviation * vec3f(1.0, 1.4, 1.2);
+  *minimum = mean - deviation * gamma;
+  *maximum = mean + deviation * gamma;
+}
+
+fn clip_history_to_aabb(history: vec3f, minimum: vec3f, maximum: vec3f) -> vec3f {
+  let center = (minimum + maximum) * 0.5;
+  let extent = (maximum - minimum) * 0.5 + vec3f(1e-7);
+  let direction = history - center;
+  let unit = abs(direction / extent);
+  let maximum_unit = max(unit.x, max(unit.y, unit.z));
+  return select(
+    history,
+    center + direction / max(maximum_unit, 1e-7),
+    maximum_unit > 1.0
+  );
 }
 
 @fragment
@@ -237,15 +251,23 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let motion_confidence = saturate(
     1.0 - length(receiver_velocity) / max(settings.max_motion_pixels, 1.0)
   );
-
-  let encoded_current = taa_encode_color(current.rgb);
-  let encoded_history = taa_encode_color(history.rgb);
+  let motion_factor = 1.0 - motion_confidence;
+  let variance_gamma = mix(0.5, 1.0, motion_confidence * motion_confidence);
   var minimum: vec3f;
   var maximum: vec3f;
-  neighborhood_bounds(position, &minimum, &maximum);
-  let clipped_history = pack_field(encoded_current, encoded_history, minimum, maximum);
+  neighborhood_bounds(position, variance_gamma, &minimum, &maximum);
+  let history_scale = 1.0 + rgb_to_luminance(history.rgb) * 10.0;
+  let encoded_history = rgb_to_YCoCg(history.rgb / history_scale);
+  let clipped_encoded = clip_history_to_aabb(encoded_history, minimum, maximum);
+  let clipped_linear = max(construct_pass(clipped_encoded) * history_scale, vec3f(0.0));
+  let clamp_intensity = max(min(motion_factor * 10.0, 1.0), 0.25);
+  let original_history = history.rgb;
+  let history_linear = mix(original_history, clipped_linear, clamp_intensity);
+  let clip_confidence = exp(
+    -length(original_history - clipped_linear) * clamp_intensity * 30.0
+  );
+  history.a *= clip_confidence;
   let current_luma_weight = 1.0 / (1.0 + rgb_to_luminance(current.rgb));
-  let history_linear = max(taa_decode_color(clipped_history), vec3f(0.0));
   let history_luma_weight = 1.0 / (1.0 + rgb_to_luminance(history_linear));
   let history_weight = clamp(
     settings.history_strength * current_confidence * history.a * motion_confidence,
