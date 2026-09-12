@@ -67,7 +67,7 @@
 
 ## VIS-SHADING-BIN-V1 · Sparse Shading Bin work generation
 
-- Internal ABI/reference owner/source: `OEngine/src/gpu/GpuShadingProgramAbi.ts`、`OEngine/src/gpu/GpuShadingBinAbi.ts` 已实现 CPU/WGSL layout truth、checked sizing/preflight、dense active layout、2D indirect args 与唯一 CPU classifier/finalizer oracle，但尚未创建 GPU resource 或接入 production。Runtime owner 仍规划为 `GpuRenderWorld.ActiveShadingSummary`、Visibility `r8uint ShadingBinId` producer、`planned:OEngine/src/shaders/shading_bin_classify.ts` 和 `planned:OEngine/src/render/passes/ShadingBinPass.ts`。
+- Internal ABI/reference owner/source: `OEngine/src/gpu/GpuShadingProgramAbi.ts`、`OEngine/src/gpu/GpuShadingBinAbi.ts` 已实现 CPU/WGSL layout truth、checked sizing/preflight、dense active layout、2D indirect args 与唯一 CPU classifier/finalizer oracle；`OEngine/src/gpu/GpuSparseShadingCapability.ts` 已实现 required feature/limit/subgroup-range 纯 preflight 和 immutable actual record。它们尚未创建 GPU resource 或接入 production。Runtime owner 仍规划为 `GpuRenderWorld.ActiveShadingSummary`、Visibility `r8uint ShadingBinId` producer、`planned:OEngine/src/shaders/shading_bin_classify.ts` 和 `planned:OEngine/src/render/passes/ShadingBinPass.ts`。
 - Upstream A: Wicked Engine <https://github.com/turanszkij/WickedEngine>。
 - Revision/source A: `70ec32cc62f3dadbf796fd5574ff3e34c3c47301`，`WickedEngine/shaders/visibility_resolveCS.hlsl`、`WickedEngine/shaders/visibility_analyzeCS.hlsl`。
 - License/adoption A: MIT；`traceable-local-port`。只采用 wave/subgroup 去重 → groupshared 聚合 → 每 tile/bin 有界全局 append 的控制流不变量；不复制其 descriptor、HLSL resource model、native wave-width 假设或完整 renderer ownership。
