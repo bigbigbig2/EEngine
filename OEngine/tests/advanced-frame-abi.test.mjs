@@ -62,6 +62,8 @@ import {
   SSGI_BENT_NORMAL_FORMAT,
   SSGI_CONFIDENCE_FORMAT,
   SSGI_INCIDENT_GI_FORMAT,
+  SSGI_RESOLVE_WGSL,
+  SSGI_SPATIAL_WGSL,
   SSGI_TRACE_AO_FORMAT,
   SSGI_TRACE_GI_FORMAT,
   SSGI_VISIBILITY_FORMAT,
@@ -489,6 +491,16 @@ test("ADR-0009 Step 5 keeps AO, GI, bent and confidence in one history owner", (
   assert.match(SSGI_PASS_SOURCE, /SSGI joint bilateral full-resolution resolve/);
   assert.match(SSGI_TEMPORAL_WGSL, /classification\.g >= 0\.5 && classification\.r < 0\.5/);
   assert.match(SSGI_TEMPORAL_WGSL, /settings\.blend \* history_validity \* confidence/);
+  assert.match(SSGI_SPATIAL_WGSL, /bent_sum \+= oct_decode/);
+  assert.match(SSGI_SPATIAL_WGSL, /oct_encode\(filtered_bent\)/);
+  assert.match(SSGI_TEMPORAL_WGSL, /history_bent = select/);
+  assert.match(SSGI_TEMPORAL_WGSL, /oct_encode\(filtered_bent\)/);
+  assert.match(SSGI_RESOLVE_WGSL, /bent_sum \+= oct_decode/);
+  assert.match(SSGI_RESOLVE_WGSL, /oct_encode\(bent_normal\)/);
+  assert.match(SSGI_RESOLVE_WGSL, /normal_weight/);
+  assert.match(SSGI_RESOLVE_WGSL, /dot\(center_normal, sample_normal\)/);
+  assert.doesNotMatch(SSGI_SPATIAL_WGSL, /ao_sum \+= textureLoad\(current_ao/);
+  assert.doesNotMatch(SSGI_TEMPORAL_WGSL, /mix\(currentAo, historyAo, history_weight\)/);
   assert.doesNotMatch(
     SSGI_TEMPORAL_WGSL,
     /let validity = textureLoad\(surface_validity, full_pixel, 0\)\.r/

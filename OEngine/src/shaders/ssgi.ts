@@ -327,17 +327,12 @@ struct TraceOutput {
 export const SSGI_SPATIAL_WGSL = /* wgsl */ `
 ${GPU_SHADING_SURFACE_NORMAL_WGSL}
 ${FULLSCREEN}
+${OCTAHEDRAL}
 @group(0) @binding(0) var current_ao: texture_2d<f32>;
 @group(0) @binding(1) var current_gi: texture_2d<f32>;
 @group(0) @binding(2) var linear_depth: texture_2d<f32>;
 @group(0) @binding(3) var normal_source: texture_2d<u32>;
 @group(0) @binding(4) var<uniform> step_size: vec4i;
-fn spatial_oct_decode(e: vec2f) -> vec3f {
-  let p = e * 2.0 - 1.0; var n = vec3f(p, 1.0 - abs(p.x) - abs(p.y));
-  let t = max(-n.z, 0.0);
-  n.x += select(t, -t, n.x >= 0.0); n.y += select(t, -t, n.y >= 0.0);
-  return normalize(n);
-}
 struct SpatialOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
 @fragment fn fs_main(@builtin(position) coord: vec4f) -> SpatialOutput {
   let p = vec2i(coord.xy);
@@ -345,26 +340,40 @@ struct SpatialOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
   let full_dimensions = vec2i(textureDimensions(normal_source));
   let center_full = min(vec2i((vec2f(p) + 0.5) / vec2f(dimensions) * vec2f(full_dimensions)), full_dimensions - 1);
   let center_depth = textureLoad(linear_depth, p, 0).r;
-  let center_normal = spatial_oct_decode(vec2f(textureLoad(normal_source, center_full, 0).xy) / OENGINE_SURFACE_NORMAL_MAX_VALUE);
-  var ao_sum = vec4f(0.0); var gi_sum = vec4f(0.0); var weight_sum = 0.0;
+  let center_normal = oct_decode(vec2f(textureLoad(normal_source, center_full, 0).xy) / OENGINE_SURFACE_NORMAL_MAX_VALUE);
+  var ao_moments_sum = vec2f(0.0);
+  var bent_sum = vec3f(0.0);
+  var gi_sum = vec4f(0.0);
+  var weight_sum = 0.0;
   for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
     let q = clamp(p + vec2i(x, y) * step_size.x, vec2i(0), dimensions - 1);
     let q_full = min(vec2i((vec2f(q) + 0.5) / vec2f(dimensions) * vec2f(full_dimensions)), full_dimensions - 1);
     let depth_weight = exp(-abs(textureLoad(linear_depth, q, 0).r - center_depth) / max(abs(center_depth) * 0.02, 1e-3));
-    let sample_normal = spatial_oct_decode(vec2f(textureLoad(normal_source, q_full, 0).xy) / OENGINE_SURFACE_NORMAL_MAX_VALUE);
+    let sample_normal = oct_decode(vec2f(textureLoad(normal_source, q_full, 0).xy) / OENGINE_SURFACE_NORMAL_MAX_VALUE);
     let normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), 8.0);
     let kernel = select(1.0, 2.0, x == 0) * select(1.0, 2.0, y == 0);
     let w = max(depth_weight * normal_weight * kernel, 1e-4);
-    ao_sum += textureLoad(current_ao, q, 0) * w;
+    let sample_ao = textureLoad(current_ao, q, 0);
+    ao_moments_sum += sample_ao.rg * w;
+    bent_sum += oct_decode(clamp(sample_ao.ba, vec2f(0.0), vec2f(1.0))) * w;
     gi_sum += textureLoad(current_gi, q, 0) * w;
     weight_sum += w;
   }}
-  return SpatialOutput(ao_sum / weight_sum, gi_sum / weight_sum);
+  let filtered_bent = normalize(select(
+    center_normal,
+    bent_sum,
+    length(bent_sum) > 1e-5
+  ));
+  return SpatialOutput(
+    vec4f(ao_moments_sum / weight_sum, oct_encode(filtered_bent)),
+    gi_sum / weight_sum
+  );
 }
 `;
 
 export const SSGI_TEMPORAL_WGSL = /* wgsl */ `
 ${FULLSCREEN}
+${OCTAHEDRAL}
 @group(0) @binding(0) var current_ao: texture_2d<f32>;
 @group(0) @binding(1) var current_gi: texture_2d<f32>;
 @group(0) @binding(2) var history_ao: texture_2d<f32>;
@@ -412,8 +421,22 @@ struct TemporalOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
   // Clamp radiance history around current luminance to reject disocclusion fireflies.
   let extent = max(currentGi.rgb * 0.5 + vec3f(0.05), vec3f(0.05));
   let clippedGi = clamp(historyGi.rgb, currentGi.rgb - extent, currentGi.rgb + extent);
+  let filtered_ao_moments = mix(currentAo.rg, historyAo.rg, history_weight);
+  let current_bent = oct_decode(clamp(currentAo.ba, vec2f(0.0), vec2f(1.0)));
+  var history_bent = oct_decode(clamp(historyAo.ba, vec2f(0.0), vec2f(1.0)));
+  history_bent = select(
+    -history_bent,
+    history_bent,
+    dot(current_bent, history_bent) >= 0.0
+  );
+  let filtered_bent_sum = mix(current_bent, history_bent, history_weight);
+  let filtered_bent = normalize(select(
+    current_bent,
+    filtered_bent_sum,
+    length(filtered_bent_sum) > 1e-5
+  ));
   return TemporalOutput(
-    mix(currentAo, historyAo, history_weight),
+    vec4f(filtered_ao_moments, oct_encode(filtered_bent)),
     vec4f(mix(currentGi.rgb, clippedGi, history_weight), mix(currentGi.a, historyGi.a, history_weight))
   );
 }
@@ -447,20 +470,44 @@ struct ResolveOutput {
   let center_depth = textureLoad(depth_source, pixel, 0);
   let center_position = position_from_depth(uv, center_depth);
   let center_view_depth = abs((camera.view_matrix * vec4f(center_position, 1.0)).z);
-  var ao = vec4f(0.0); var gi = vec4f(0.0); var weight_sum = 0.0;
+  let center_normal = oct_decode(
+    vec2f(textureLoad(normal_source, pixel, 0).xy) /
+      OENGINE_SURFACE_NORMAL_MAX_VALUE
+  );
+  var ao_moments = vec2f(0.0);
+  var bent_sum = vec3f(0.0);
+  var gi = vec4f(0.0);
+  var weight_sum = 0.0;
   for (var y = 0; y <= 1; y++) { for (var x = 0; x <= 1; x++) {
     let q = clamp(base + vec2i(x, y), vec2i(0), vec2i(low_size) - 1);
     let bilinear = vec2f(1.0) - abs((vec2f(q) + 0.5) - low_position);
     let depth_weight = exp(-abs(textureLoad(linear_depth, q, 0).r - center_view_depth) / max(center_view_depth * 0.02, 1e-3));
-    let w = max(bilinear.x * bilinear.y * depth_weight, 1e-4);
-    ao += textureLoad(filtered_ao, q, 0) * w;
+    let q_full = min(
+      vec2i((vec2f(q) + 0.5) / low_size * full_size),
+      vec2i(full_size) - 1
+    );
+    let sample_normal = oct_decode(
+      vec2f(textureLoad(normal_source, q_full, 0).xy) /
+        OENGINE_SURFACE_NORMAL_MAX_VALUE
+    );
+    let normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), 32.0);
+    let w = max(bilinear.x * bilinear.y * depth_weight * normal_weight, 1e-4);
+    let ao_sample = textureLoad(filtered_ao, q, 0);
+    ao_moments += ao_sample.rg * w;
+    bent_sum += oct_decode(clamp(ao_sample.ba, vec2f(0.0), vec2f(1.0))) * w;
     gi += textureLoad(filtered_gi, q, 0) * w;
     weight_sum += w;
   }}
-  ao /= weight_sum; gi /= weight_sum;
+  ao_moments /= weight_sum;
+  gi /= weight_sum;
+  let bent_normal = normalize(select(
+    center_normal,
+    bent_sum,
+    length(bent_sum) > 1e-5
+  ));
   return ResolveOutput(
-    clamp(ao.r, 0.0, 1.0),
-    vec2u(round(clamp(ao.ba, vec2f(0.0), vec2f(1.0)) * 65535.0)),
+    clamp(ao_moments.r, 0.0, 1.0),
+    vec2u(round(oct_encode(bent_normal) * 65535.0)),
     vec4f(max(gi.rgb, vec3f(0.0)), clamp(gi.a, 0.0, 1.0)),
     clamp(gi.a, 0.0, 1.0)
   );
