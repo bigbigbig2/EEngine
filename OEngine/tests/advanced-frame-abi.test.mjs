@@ -65,6 +65,7 @@ import {
   SSGI_TRACE_AO_FORMAT,
   SSGI_TRACE_GI_FORMAT,
   SSGI_VISIBILITY_FORMAT,
+  SSGI_TEMPORAL_WGSL,
   THREE_SSGI_REVISION,
   THREE_SSGI_TRACE_WGSL
 } from "../.test-dist/shaders/ssgi.js";
@@ -486,6 +487,12 @@ test("ADR-0009 Step 5 keeps AO, GI, bent and confidence in one history owner", (
   assert.match(SSGI_PASS_SOURCE, /historyTextureCount = this\.histories === null \? 0 : 4/);
   assert.match(SSGI_PASS_SOURCE, /SSGI unified temporal AO\+GI resolve/);
   assert.match(SSGI_PASS_SOURCE, /SSGI joint bilateral full-resolution resolve/);
+  assert.match(SSGI_TEMPORAL_WGSL, /classification\.g >= 0\.5 && classification\.r < 0\.5/);
+  assert.match(SSGI_TEMPORAL_WGSL, /settings\.blend \* history_validity \* confidence/);
+  assert.doesNotMatch(
+    SSGI_TEMPORAL_WGSL,
+    /let validity = textureLoad\(surface_validity, full_pixel, 0\)\.r/
+  );
 });
 
 test("ADR-0009 Step 5 composes an indirect-only energy delta", () => {

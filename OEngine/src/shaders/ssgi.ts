@@ -389,9 +389,14 @@ struct TemporalOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
   let velocity = textureLoad(velocity_source, full_pixel, 0).rg;
   let history_uv = uv - velocity / full_size;
   let in_bounds = all(history_uv >= vec2f(0.0)) && all(history_uv <= vec2f(1.0));
-  let validity = textureLoad(surface_validity, full_pixel, 0).r;
+  let classification = textureLoad(surface_validity, full_pixel, 0).rg;
+  let history_validity = select(
+    0.0,
+    1.0,
+    classification.g >= 0.5 && classification.r < 0.5
+  );
   let confidence = textureLoad(occlusion_confidence, full_pixel, 0).r;
-  let history_weight = select(0.0, settings.blend * validity * confidence,
+  let history_weight = select(0.0, settings.blend * history_validity * confidence,
     settings.history_valid != 0u && settings.pre_exposure_scale > 0.0 && in_bounds);
   let pixel = vec2i(coord.xy);
   let currentAo = textureLoad(current_ao, pixel, 0);
