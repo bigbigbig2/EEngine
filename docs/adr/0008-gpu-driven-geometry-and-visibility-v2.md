@@ -8,6 +8,8 @@
 > **Supersedes:** ADR-0004 的 per-triangle work identity 与 VisibilityKey material-class 决策；SecondaryRasterWork 仍由各功能独立拥有
 > **Design source:** `OEngine Performance Architecture V2` Design Draft
 
+> **Partially superseded:** [ADR-0013](./0013-sparse-shading-bin-pipeline.md) 替代 §6.3 中 opaque shading classifier 逐像素由 `MeshletWork → material` 恢复 class 的实现选择；VisibilityKey V2、Hardware Visibility 与 MeshletWork identity 继续生效。
+
 ## Context
 
 OEngine 当前已经是 Hardware-first、GPU-driven 的 Visibility 架构，这个方向不需要推翻。当前真正的问题是 GPU-driven 工作粒度过细。

@@ -2,6 +2,8 @@
 
 Status: accepted
 
+> **Partially superseded:** [ADR-0013](./0013-sparse-shading-bin-pipeline.md) 将 `subgroups` 和对应 compute/binding limits 提升为 opaque Shading Bin 生产管线的初始化硬要求，并明确不提供 no-subgroup fallback；其他 consumer 仍遵循本 ADR 的按需启用与等价 specialization 合同。
+
 ## Context
 
 ADR-0001、0004 和 0006 形成时，OEngine 用“WebGPU baseline”表达跨设备正确性，并把 subgroup 等能力统一视为 optional accelerator。2026 WebGPU/WGSL 已加入 core/compatibility feature level、subgroups、primitive index、texture format tiers、subgroup size control、Immediate Data 和 Transient Attachments。继续使用旧表述会让产品目标、Renderer device creation 和 ADR-0007/0008/0009 的设计中心互相冲突。

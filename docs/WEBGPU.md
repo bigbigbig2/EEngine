@@ -1,6 +1,6 @@
 # OEngine WebGPU 2026 能力合同
 
-状态：目标平台规范。审查快照：2026-09-10。
+状态：目标平台规范。审查快照：2026-09-13。
 
 本页定义 OEngine 对 WebGPU/WGSL 的唯一能力口径。API 与 Shader 语义以 [GPUWeb WebGPU Editor's Draft](https://gpuweb.github.io/gpuweb/) 和 [WGSL Editor's Draft](https://gpuweb.github.io/gpuweb/wgsl/) 为准；[MDN `GPUSupportedFeatures`](https://developer.mozilla.org/en-US/docs/Web/API/GPUSupportedFeatures)、[MDN texture format tiers](https://developer.mozilla.org/en-US/docs/Web/API/GPUDevice/createTexture) 与 [MDN transient attachment](https://developer.mozilla.org/en-US/docs/Web/API/GPUTexture/usage) 只用于浏览器暴露方式和兼容性核对。GPUWeb proposal 索引中的 merged 只表示已经合入规范，不能替代规范正文或目标浏览器实测。
 
@@ -24,7 +24,7 @@ OEngine 的主要产品能力线是 **WebGPU 2026 Desktop**，替代过去含义
 | --- | --- | --- | --- |
 | `core-features-and-limits` | 必需 | core WebGPU limits/validation 和现代图形 API 能力线 | 初始化失败；不降为 compatibility profile |
 | `indirect-first-instance` | 主路径需要时必需 | GPU work slot/range 到 indirect draw 的稳定映射 | 使用不依赖非零 `firstInstance` 的等价 mapping |
-| `subgroups` | 默认优先启用 | queue compact、classification、scan/reduction、histogram | workgroup shared memory/atomic specialization；不得假设固定 subgroup size |
+| `subgroups` | opaque Shading Bin 必需；其他 consumer 按需启用 | queue compact、classification、scan/reduction、histogram | opaque Renderer 初始化失败；不提供旧 `MaterialTileWork` 或 workgroup-only classifier fallback；不得假设固定 subgroup size |
 | `primitive-index` | Visibility V2 默认优先启用 | fragment 阶段恢复 rasterized local primitive identity | 保持 meshlet work + local triangle 的等价 identity mapping |
 | `shader-f16` | 精度审计通过后优先启用 | 非 identity、非 depth、非 history-critical 的局部算术和中间值 | f32 specialization |
 | `texture-formats-tier1` | 目标 Surface/HZB 格式需要时必需 | 扩展 render/storage format 集；隐式包含 `rg11b10ufloat-renderable` | 选择 core-compatible format，或在无等价格式时拒绝配置 |
@@ -37,6 +37,24 @@ OEngine 的主要产品能力线是 **WebGPU 2026 Desktop**，替代过去含义
 | `float32-filterable`、`float32-blendable`、`bgra8unorm-storage`、`clip-distances`、`dual-source-blending`、depth/3D compression features | 按 consumer 和格式逐项启用 | 特定 attachment、sampling、blend、clip 或 3D asset path | 等价格式/Shader specialization，或拒绝相关配置 |
 
 WebGPU 规范保证 core adapter 至少支持 BC，或同时支持 ETC2 与 ASTC；这不等于 Runtime 可以任意选择格式。Cooker 必须生成有声明的 variant，Asset Store 再按实际启用能力选择，不能把三族压缩格式全部列为设备硬要求。
+
+### Opaque Shading Bin required limits
+
+[ADR-0013](./adr/0013-sparse-shading-bin-pipeline.md) 将 opaque shading 冻结为单一 Sparse Shading Bin 管线。创建任何 Renderer-owned buffer、texture 或 pipeline 前，adapter/device 必须满足并记录以下下限：
+
+```text
+maxComputeInvocationsPerWorkgroup >= 256
+maxComputeWorkgroupSizeX >= 16
+maxComputeWorkgroupSizeY >= 16
+maxComputeWorkgroupStorageSize >= classifier declared bytes
+maxStorageBuffersPerShaderStage >= 10
+maxStorageTexturesPerShaderStage >= 5
+maxSampledTexturesPerShaderStage >= 16
+maxSamplersPerShaderStage >= 8
+maxBindGroups >= 4
+```
+
+Host 只请求实际管线所需且 adapter 已支持的 limit；不能无条件请求 adapter 最大值。缺少任一下限时返回 `Unsupported OEngine GPU Performance Baseline`，不得创建 portable/no-subgroup classifier、旧 28-class backend 或 CPU visible-material dispatch fallback。`subgroup-size-control` 仍不是该管线的要求；classifier 必须覆盖实际 `subgroupMinSize..subgroupMaxSize`。
 
 ## 2026 Core API 能力
 
@@ -86,7 +104,9 @@ WGSL language features
 immediate-data API + maxImmediateSize
 transient-attachment API
 selected shader/format/compression specializations
-TextureBindingSet policy 与 ADR-0009 四组 ShadeLighting binding budget/consolidation contract
+TextureBindingSet policy
+ADR-0013 ShadingProgram/Bin identity、subgroup size range、required/actual limits
+ADR-0013 最宽 shading specialization 的 4-group / 16 sampled texture / 8 sampler / 10 storage buffer / 5 storage texture / 4 uniform budget
 ```
 
 FrameGraph/pipeline cache key记录影响布局、Shader 或资源格式的 specialization。综合 benchmark 保存完整 capability fingerprint；不为 Portable 与 WebGPU 2026 Desktop 各复制一套正式基准。fallback 改动只补命中的正确性/parity 验证。

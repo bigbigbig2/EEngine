@@ -7,7 +7,9 @@
 > **Proposed supersession:** 接受并完成 cutover 后，替代 ADR-0004 的 VisibilityKey material-class、MaterialClassDepth/fullscreen Surface Resolve 与重型 Surface 决策；此前 ADR-0004 仍是当前权威
 > **Design source:** `OEngine Performance Architecture V2` Design Draft
 
-[ADR-0011](./0011-asset-codec-and-gpu-native-texture-pipeline-v3.md) 负责产生有界 `TextureBindingSetId` 与 generation-safe material routing；本 ADR 继续负责 `KernelClassId × TextureBindingSetId` 的 GPU classification 和 consumer closure，不允许恢复 CPU visible-material list。
+> **Partially superseded:** [ADR-0013](./0013-sparse-shading-bin-pipeline.md) 替代 §3 Material Classification V2、§4 的旧 28-class binding/dispatch 合同、§5 中独立 Material Resolve 后再固定 28 次 direct-lighting dispatch 的物理实现及相关 completion criteria；单次完整材质求值和 GI/AO/SSR/Temporal/Post 语义继续生效。
+
+[ADR-0011](./0011-asset-codec-and-gpu-native-texture-pipeline-v3.md) 继续负责产生有界 `TextureBindingSetId` 与 generation-safe material routing；classification/consumer closure 已由 ADR-0013 改写为 `ShadingProgramId × TextureBindingSetId`，仍不允许恢复 CPU visible-material list。
 
 ## Context
 

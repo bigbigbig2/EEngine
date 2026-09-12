@@ -1,6 +1,6 @@
 # OEngine 当前状态
 
-更新时间：2026-09-12。本文件只记录当前能力、开放风险和下一步；实施过程与旧结果从 Git 查询。
+更新时间：2026-09-13。本文件只记录当前能力、开放风险和下一步；实施过程与旧结果从 Git 查询。
 
 ## 当前基线
 
@@ -12,6 +12,7 @@
 - direct lighting、CSM、GI、AO、SSR、MBOIT、Temporal 与 HDR post 接入同一 Renderer 主流程。
 - Performance Inspector 仍是生产侧共享实时 Profiler/Timeline；旧综合质量与性能 fixture 已删除。
 - [ADR-0012](./adr/0012-example-library-reset.md) 已重置示例体系：`examples/` 当前只保留不导入 OEngine、不创建 WebGPU 资源的 Storybook 空壳；Browser Validation、Validation Runner 与 formal benchmark 暂不可用。旧浏览器结果和已提交 benchmark 只证明其冻结 commit，当前 revision 的真实 GPU Gate 必须等待新宿主。
+- [ADR-0013](./adr/0013-sparse-shading-bin-pipeline.md) 已接受、实现尚未开始：下一版 opaque shading 将直接切换为 Visibility `ShadingBinId` MRT → 64×64 sparse classifier → 8×8 microtile queue → specialized compute shading，并融合 lit program 的 direct lighting。该决定不改变本节以下“当前实现”事实；在 production cutover 前，`MaterialTileWork` 仍是当前 owner，不能把 ADR 文本当作运行能力或性能结论。
 - WebGPU 目标能力线已升级为 [WebGPU 2026 Desktop](./WEBGPU.md)。当前代码强制 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable`、`texture-formats-tier1`，并分别验证 WGSL `texture_formats_tier1`、在 HZB/NSS/Velocity storage Shader 中显式声明 `requires`；机会性启用 `timestamp-query`、`subgroups`、`primitive-index` 和一族纹理压缩能力，并冻结 adapter/device feature、关键 limit、WGSL/API probe 与 texture specialization record。
 - Runtime Package V2 与 Encoded Texture Variant 已冻结确定性 manifest/chunk、exact format/block extent、完整 mip、codec provenance 与 capability selection。GPU-native package 直接进入生产 residency；KTX2 UASTC/ETC1S 由惰性有界 Worker pool 和固定 Khronos KTX-Software v4.4.2 libktx WASM 转为同一 package，再经普通 `GpuRenderWorld → TextureResidency` 进入 Material Resolve、Visibility MASK、Shadow MASK 与 Transparency。Production source graph 不 import reference/self block codec；Cooked runtime mip、runtime recompression、RGBA expansion 和 private submit 为零。
 - Texture Residency 使用 exact-format immutable segment 与最多 4 个有界 `TextureBindingSet`，每 set 保留 5 个共享 RGBA8 development size class 和 4 个 Cooked package slot；同一 material 的全部语义必须在发布前 colocate，无法表达时原子失败。Material ABI 携带 `TextureBindingSetId`，GPU consumer 按 `KernelClassId × TextureBindingSetId` 固定编排，不回读可见材质。TextureRef V2 与业务 handle 保持 stable slot/generation；证据已区分 exact format、direct/Worker/uncompressed、transfer/upload/transcode/resident/retiring/transaction bytes、set utilization 与 preflight failure。
@@ -51,6 +52,7 @@
 - TriangleSetup candidate cache 保持显式 opt-in；正确性、near-plane、off/on GPU 时间和内存组合证据不足以改变默认值。
 - Surface ABI 只有一套生产合同；Step 3 的完整 consumer coverage、targeted readback、实际 attachment、综合 transient accounting 与三次独立运行 gate 已通过。当前证据只覆盖 NVIDIA Turing，第二 GPU vendor 仍缺失。
 - MaterialTileWork 已形成 GPU classifier → compute material evaluator → compute direct-lighting consumer 闭环，full material evaluation 只发生一次；生产 consumer、公开接口与 ABI 权威已没有 Surface V1 依赖。Step 5 让 `DiffuseSurfaceLite`、pre-SSGI source 与 component MRT 只在 `mode=ssgi` 被请求，把 receiver-level GI precedence 收敛到一个早返回 producer，并以 monolithic Brick4 V1 package/generation publication 关闭当前 residency 语义；legacy plumbing 删除和 Chrome topology/perf 证据仍缺。第二 GPU vendor 证据仍缺失。
+- ADR-0013 的 direct cutover 尚未实现。当前 `subgroups` 仍是机会性能力，Visibility 尚未写 `r8uint ShadingBinId`，旧 28-class queue、动态 class material kernel、第二轮 direct-lighting indirect dispatch 与 production per-pixel ownership diagnostics 仍在；这些都是迁移删除目标，不是新设计已经落地的能力。
 
 ### 生命周期
 
@@ -71,6 +73,7 @@
 ## 下一步
 
 1. [ADR-0012](./adr/0012-example-library-reset.md)：先单独设计下一代示例分类、runtime 生命周期、Browser Validation 和唯一综合性能宿主；实现前保持 Storybook 空壳。
-2. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：`primitive-index` 的 production consumer 与 portable parity case 已落地；继续为 `shader-f16`、Immediate Data 与 Transient Attachment 增加实际 consumer/fallback，没有 consumer 前保持 record-only，运行 Gate 等新宿主恢复。
-3. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：实现已落地的 Step 保持 verification-open；新宿主恢复后统一完成 topology/history、camera-motion/exposure/HDR 视觉检查和唯一综合 clean PERF，所有 open Exit 关闭前不得把 ADR 整体记为完成。
-4. Texture V3 follow-up：针对 active-set 固定编排的 CPU、Material Resolve 与 Shadow 成本做不改变 ABI/正确性合同的优化；新综合 workload 落地后才能用 clean commit A/B 改写当前冻结基线。
+2. [ADR-0013](./adr/0013-sparse-shading-bin-pipeline.md)：按一次性 breaking migration 实现 ShadingProgram/Bin ABI、Visibility MRT、sparse classifier、indirect args、specialized shading、active summary 与 diagnostics variant；最终 cutover 同时删除旧 MaterialTile/KernelClass/28-dispatch lighting owner，不保留兼容 backend。新宿主恢复前只允许声明 DEV/Implementation Complete。
+3. [ADR-0010](./adr/0010-webgpu-2026-capability-contract.md)：将 ADR-0013 的 required `subgroups`、limits 与 capability record 接入真实初始化；`primitive-index` 的 production consumer 与 portable parity case 已落地；其他能力没有 consumer 前保持 record-only，运行 Gate 等新宿主恢复。
+4. [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md)：未被 ADR-0013 替代的 GI/AO/SSR/Temporal/Post 实现保持 verification-open；新宿主恢复后统一完成 topology/history、camera-motion/exposure/HDR 视觉检查和唯一综合 clean PERF，所有 open Exit 关闭前不得把 ADR 整体记为完成。
+5. Texture V3 follow-up：针对 active-set 固定编排的 CPU、Material Resolve 与 Shadow 成本做不改变 ABI/正确性合同的优化；新综合 workload 落地后才能用 clean commit A/B 改写当前冻结基线。
