@@ -15,7 +15,8 @@ export function pushUnique<T>(e: T[], t: T): boolean {
 }
 
 export const WGSL_EXT_SUBGROUPS = "subgroups";
-export const WGSL_EXT_TEXTURE_FORMATS_TIER1 = "texture-formats-tier1";
+/** WGSL language-extension spelling; the GPUFeatureName uses hyphens instead. */
+export const WGSL_EXT_TEXTURE_FORMATS_TIER1 = "texture_formats_tier1";
 
 export class WebGPUType {
   get tag(): string {

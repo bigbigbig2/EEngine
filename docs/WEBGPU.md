@@ -62,6 +62,7 @@ Immediate Data 与 Transient Attachments 已进入 2026 WebGPU/WGSL 规范，但
 ## Shader 能力规则
 
 - `enable f16;`、`enable subgroups;`、`enable primitive_index;` 和 `enable subgroup_size_control;` 只能出现在对应 `device.features` 已启用的模块 variant 中。
+- Host 侧的 `GPUFeatureName` `texture-formats-tier1` 与 WGSL language feature `texture_formats_tier1` 是两个不同命名空间。Renderer 必须同时验证前者已进入 `device.features`、后者已进入 `navigator.gpu.wgslLanguageFeatures`；使用 `rg8unorm`、`rg16float` 等 Tier 1 storage texel format 的模块必须在任何声明前写 `requires texture_formats_tier1;`。缺失任一侧时在创建 Renderer 资源前拒绝初始化，不把 Shader 编译失败当作能力探测。
 - `subgroup-size-control` 隐式依赖 `subgroups`；`texture-formats-tier2` 隐式依赖 Tier 1，Tier 1 隐式依赖 `rg11b10ufloat-renderable`。设备请求、cache key 和 evidence 要保存最终闭包。
 - 未启用 `subgroup-size-control` 时，算法必须覆盖 `subgroupMinSize..subgroupMaxSize`，不得硬编码 32/64 lanes。
 - f16 不能承载 VisibilityKey、稳定 handle、队列计数、depth comparison、world position accumulation 或 history identity；每个 f16 specialization 都要有数值误差和性能证据。

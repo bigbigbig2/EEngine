@@ -21,6 +21,8 @@ fn coverage_end(coord: u32, source_size: u32, output_size: u32) -> u32 {
 `;
 
 export const HZB_FROM_DEPTH_COMPUTE_WGSL = /* wgsl */ `
+requires texture_formats_tier1;
+
 ${HZB_COMMON_WGSL}
 
 struct SourceRegion {
@@ -59,6 +61,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 `;
 
 export const HZB_REDUCE_COMPUTE_WGSL = /* wgsl */ `
+requires texture_formats_tier1;
+
 ${HZB_COMMON_WGSL}
 
 @group(0) @binding(0) var source_hzb: texture_2d<f32>;

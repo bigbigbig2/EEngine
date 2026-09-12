@@ -87,6 +87,10 @@ import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correct
 import { TAA_WGSL } from "../.test-dist/shaders/taa.js";
 import { NSS_PREPROCESS_WGSL } from "../.test-dist/shaders/nss.js";
 import {
+  HZB_FROM_DEPTH_COMPUTE_WGSL,
+  HZB_REDUCE_COMPUTE_WGSL
+} from "../.test-dist/shaders/hzb_reduce.js";
+import {
   finalOutputBindingPlan
 } from "../.test-dist/shaders/final_output_input.js";
 import { tonemapSdrWgsl } from "../.test-dist/shaders/tonemap_sdr.js";
@@ -1115,6 +1119,18 @@ test("ADR-0009 Step 5 exposes both pinned SSGI radius domains without changing t
 });
 
 test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction", () => {
+  assert.match(MAIN_PIPELINE_SOURCE, /wgslLanguageFeatures\.has\(WGSL_EXT_TEXTURE_FORMATS_TIER1\)/);
+  assert.match(HZB_FROM_DEPTH_COMPUTE_WGSL, /^\s*requires texture_formats_tier1;/);
+  assert.match(HZB_REDUCE_COMPUTE_WGSL, /^\s*requires texture_formats_tier1;/);
+  assert.match(NSS_PREPROCESS_WGSL, /^\s*requires texture_formats_tier1;/);
+  assert.match(
+    PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL,
+    /^\s*requires texture_formats_tier1;/
+  );
+  assert.doesNotMatch(
+    PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
+    /requires texture_formats_tier1;/
+  );
   assert.match(TAA_WGSL, /nine bilinear taps/);
   assert.match(TAA_WGSL, /reactive >= settings\.reactive_threshold/);
   assert.match(TAA_WGSL, /history_pre_exposure_scale/);

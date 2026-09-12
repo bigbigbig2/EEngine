@@ -1,6 +1,7 @@
 /** Main render-pipeline owner: feature order, graph recipe, cache, and evidence. */
 
 import { ChangeSignal } from "../../core/Signal.js";
+import { WGSL_EXT_TEXTURE_FORMATS_TIER1 } from "../../core/WebGPUTypes.js";
 import type {
   Brick4LightMapPackageV1,
   Brick4LightMapPackageValidation
@@ -1410,9 +1411,11 @@ export class MainRenderPipeline {
     pixelRatio = window.devicePixelRatio,
     config
   }: RendererInitializeOptions = {}): Promise<void> {
-    if (!("gpu" in navigator)) {
+    const gpu = navigator.gpu;
+    if (gpu === undefined) {
       throw new Error("navigator.gpu not available — WebGPU disabled or unsupported");
     }
+    validateRendererWgslLanguageFeatures(gpu);
     const effectiveConfig = mergeRendererConfig(this._rendererConfig, config);
     validateRendererConfig(effectiveConfig);
     if (config !== undefined) {
@@ -1433,8 +1436,6 @@ export class MainRenderPipeline {
 
     let selectedAdapter: GPUAdapter | undefined;
     if (device === undefined) {
-      const gpu = navigator.gpu;
-      if (gpu === undefined) throw new Error("navigator.gpu is undefined");
       const adapter = await gpu.requestAdapter({
         powerPreference: "high-performance",
         featureLevel: "core"
@@ -1503,7 +1504,7 @@ export class MainRenderPipeline {
 
     validateRendererDevice(device, effectiveConfig);
     const capabilityRecord = captureWebGpuCapabilityRecord(
-      navigator.gpu,
+      gpu,
       device,
       selectedAdapter
     );
@@ -4552,5 +4553,14 @@ function validateRendererDevice(
         `Device limit '${name}' is ${actual}, but renderer requires at least ${required}`
       );
     }
+  }
+}
+
+function validateRendererWgslLanguageFeatures(gpu: GPU): void {
+  if (!gpu.wgslLanguageFeatures.has(WGSL_EXT_TEXTURE_FORMATS_TIER1)) {
+    throw new Error(
+      `WebGPU 2026 Desktop requires WGSL language feature '${WGSL_EXT_TEXTURE_FORMATS_TIER1}' ` +
+      "for Tier 1 storage texture formats"
+    );
   }
 }

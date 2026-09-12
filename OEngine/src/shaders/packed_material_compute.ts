@@ -18,6 +18,9 @@ import {
  * working-set contract.
  */
 function packedMaterialComputeWgsl(velocityOutput: boolean): string {
+  const languageRequirements = velocityOutput
+    ? "requires texture_formats_tier1;"
+    : "";
   const velocityDeclaration = velocityOutput
     ? `@group(2) @binding(5) var compute_velocity_output:
   texture_storage_2d<rg16float, write>;`
@@ -29,6 +32,7 @@ function packedMaterialComputeWgsl(velocityOutput: boolean): string {
     ? "textureStore(compute_velocity_output, vec2i(pixel), vec4f(velocity, 0.0, 0.0));"
     : "";
   return /* wgsl */ `
+${languageRequirements}
 ${PACKED_MATERIAL_SHARED_WGSL}
 ${PACKED_MATERIAL_TEXTURE_SAMPLING_WGSL}
 ${GPU_MATERIAL_TILE_WORK_WGSL}

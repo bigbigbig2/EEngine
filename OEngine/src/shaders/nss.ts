@@ -187,6 +187,8 @@ fn rgb_to_luminance(value: vec3<f32>) -> f32 {
 `;
 
 export const NSS_PREPROCESS_WGSL = /* wgsl */ `
+requires texture_formats_tier1;
+
 ${NSS_COMMON_WGSL}
 @group(0) @binding(0) var segment_height: sampler;
 @group(0) @binding(1) var scale: texture_2d<f32>;
