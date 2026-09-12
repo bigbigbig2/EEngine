@@ -17,15 +17,16 @@ export type RenderTargetImportBundle = {
 };
 
 export class RenderTargets {
-  readonly depthBuffers = new Array(2) as [
-    GPUTextureContext,
-    GPUTextureContext
+  readonly depthBuffers: [GPUTextureContext | null, GPUTextureContext | null] = [
+    null,
+    null
   ];
 
   width = 0;
   height = 0;
 
   private frameIndex = 0;
+  private depthHistoryEnabled = false;
 
   setFrameIndex(frame: number): void {
     this.frameIndex = frame >>> 0;
@@ -36,11 +37,13 @@ export class RenderTargets {
   }
 
   get depthCurrent(): GPUTextureContext {
-    return this.depthBuffers[this.frameIndex % 2]!;
+    const index = this.depthHistoryEnabled ? this.frameIndex % 2 : 0;
+    return this.requireDepthBuffer(index, "current");
   }
 
   get depthPrevious(): GPUTextureContext {
-    return this.depthBuffers[(this.frameIndex - 1 + 2) % 2]!;
+    if (!this.depthHistoryEnabled) return this.depthCurrent;
+    return this.requireDepthBuffer((this.frameIndex - 1 + 2) % 2, "previous");
   }
 
   get depthCurrentView(): GPUTextureView {
@@ -56,27 +59,44 @@ export class RenderTargets {
     width: number,
     height: number
   ): void {
-    const depthDescriptor = (): id => id.from({
-        label: "",
-        size: [width, height, 1],
-        format: VIS_DEPTH_FORMAT,
-        // Hierarchical depth lives in the dedicated rg16float HZB owner. The
-        // double-buffered depth32float targets expose and preserve mip 0 only.
-        mipLevelCount: 1,
-        usage:
-          GPUTextureUsage.RENDER_ATTACHMENT |
-          GPUTextureUsage.TEXTURE_BINDING |
-          GPUTextureUsage.COPY_SRC
-      });
-    this.depthBuffers[0] = textures.contextFromDescriptor(depthDescriptor());
-    this.depthBuffers[1] = textures.contextFromDescriptor(depthDescriptor());
     this.width = width;
     this.height = height;
+    this.depthBuffers[0] = this.createDepthBuffer(textures);
+    this.depthBuffers[1] = null;
+    this.depthHistoryEnabled = false;
+  }
+
+  /**
+   * Reconciles the second depth32float target with the real previous-depth
+   * consumer set. Slot placement follows the submitted-frame index parity, so
+   * an aborted frame retries the same current/previous mapping.
+   */
+  setDepthHistoryEnabled(
+    textures: GPUTextureManager,
+    enabled: boolean
+  ): GPUTextureContext | null {
+    if (enabled === this.depthHistoryEnabled) return null;
+    const currentIndex = this.frameIndex % 2;
+    const previousIndex = (this.frameIndex - 1 + 2) % 2;
+    if (enabled) {
+      const lastSubmittedDepth = this.requireDepthBuffer(0, "single");
+      this.depthBuffers[previousIndex] = lastSubmittedDepth;
+      this.depthBuffers[currentIndex] = this.createDepthBuffer(textures);
+      this.depthHistoryEnabled = true;
+      return null;
+    }
+
+    const nextCurrent = this.requireDepthBuffer(currentIndex, "current");
+    const retiredPrevious = this.requireDepthBuffer(previousIndex, "previous");
+    this.depthBuffers[0] = nextCurrent;
+    this.depthBuffers[1] = null;
+    this.depthHistoryEnabled = false;
+    return retiredPrevious;
   }
 
   resize(width: number, height: number): void {
-    this.depthBuffers[0].resize(width, height);
-    this.depthBuffers[1].resize(width, height);
+    this.depthBuffers[0]?.resize(width, height);
+    this.depthBuffers[1]?.resize(width, height);
     this.width = width;
     this.height = height;
   }
@@ -93,11 +113,46 @@ export class RenderTargets {
     };
   }
 
+  get depthTextureCount(): 1 | 2 {
+    return this.depthHistoryEnabled ? 2 : 1;
+  }
+
+  get previousDepthBytes(): number {
+    if (!this.depthHistoryEnabled) return 0;
+    return this.depthPrevious.gpu_memory_usage;
+  }
+
   destroy(): void {
-    this.depthBuffers[0].destroy();
-    this.depthBuffers[1].destroy();
+    this.depthBuffers[0]?.destroy();
+    this.depthBuffers[1]?.destroy();
+    this.depthBuffers[0] = null;
+    this.depthBuffers[1] = null;
+    this.depthHistoryEnabled = false;
     this.width = 0;
     this.height = 0;
+  }
+
+  private createDepthBuffer(textures: GPUTextureManager): GPUTextureContext {
+    return textures.contextFromDescriptor(id.from({
+      label: "",
+      size: [this.width, this.height, 1],
+      format: VIS_DEPTH_FORMAT,
+      // Hierarchical depth lives in the dedicated rg16float HZB owner. The
+      // double-buffered depth32float targets expose and preserve mip 0 only.
+      mipLevelCount: 1,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_SRC
+    }));
+  }
+
+  private requireDepthBuffer(index: number, role: string): GPUTextureContext {
+    const depth = this.depthBuffers[index];
+    if (depth === null) {
+      throw new Error(`RenderTargets: missing ${role} depth buffer`);
+    }
+    return depth;
   }
 }
 

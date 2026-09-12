@@ -243,6 +243,9 @@ export interface TemporalRuntimeEvidence {
   readonly enabled: boolean;
   readonly taaPasses: number;
   readonly classificationPasses: number;
+  readonly previousDepthConsumed: boolean;
+  readonly mainDepthTextureCount: 1 | 2;
+  readonly previousDepthBytes: number;
   readonly historyTextureCount: number;
   readonly historyBytes: number;
   readonly historyValid: boolean;
@@ -521,7 +524,7 @@ type MainFrameGraphBindings = {
   readonly viewHzb: HierarchicalZBuffer;
   readonly colorView: GPUTextureView;
   readonly renderTargets: ReturnType<RenderTargets["asImportBundle"]>;
-  readonly previousDepth: GPUTextureContext;
+  readonly previousDepth: GPUTextureContext | null;
   readonly frameIndex: number;
   readonly timeDeltaSeconds: number;
   readonly internalWidth: number;
@@ -1091,10 +1094,14 @@ export class MainRenderPipeline {
     const reconstructionOwner = !topology.temporal
       ? "disabled" as const
       : topology.nss ? "nss" as const : "taa" as const;
+    const previousDepthConsumed = requiresPreviousDepth(topology);
     return Object.freeze({
       enabled: this._renderSettings.values.features.temporalAntiAliasing,
       taaPasses: this._lastTemporalTaaPassCount,
       classificationPasses: this._lastTemporalClassificationPassCount,
+      previousDepthConsumed,
+      mainDepthTextureCount: this._renderTargets.depthTextureCount,
+      previousDepthBytes: this._renderTargets.previousDepthBytes,
       historyTextureCount: this._temporalFeature.colorHistoryCount(),
       historyBytes: this._temporalFeature.colorHistoryBytes(),
       historyValid: history.valid,
@@ -1299,6 +1306,7 @@ export class MainRenderPipeline {
   memoryEvidence(): RendererMemoryEvidence {
     const graphics = this._graphics.memoryEvidence();
     const historyOwners = Object.freeze({
+      previousDepth: this._renderTargets.previousDepthBytes,
       temporal: this.temporalEvidence().historyBytes,
       ambientOcclusion: this.ambientOcclusionEvidence().historyBytes,
       screenSpaceGi: this.screenSpaceGiEvidence().historyBytes,
@@ -1987,7 +1995,9 @@ export class MainRenderPipeline {
         viewHzb,
         colorView,
         renderTargets: this._renderTargets.asImportBundle(),
-        previousDepth: this._renderTargets.depthPrevious,
+        previousDepth: requiresPreviousDepth(graphTopology)
+          ? this._renderTargets.depthPrevious
+          : null,
         frameIndex: this._frame_count,
         timeDeltaSeconds: time_delta_seconds,
         internalWidth: w,
@@ -2050,27 +2060,27 @@ export class MainRenderPipeline {
       );
 
       {
-        const rt = mainBindings.renderTargets;
+        const needsOcclusionConfidence = requiresPreviousDepth(graphTopology);
         let depthRes = graph.import_resource(
           "main_depth",
           { kind: "imported", label: "depth32float" },
           bind("target-depth", (bindings) => bindings.renderTargets.depth)
         );
-        const previousDepthRes = graph.import_resource(
+        const previousDepthRes = needsOcclusionConfidence ? graph.import_resource(
           "previous_depth",
           { kind: "imported", label: "previous depth32float" },
-          bind("target-previous-depth", (bindings) => bindings.previousDepth)
-        );
+          bind("target-previous-depth", (bindings) => bindings.previousDepth!)
+        ) : null;
         const currentCameraRes = graph.import_resource(
           "camera_current",
           { kind: "imported", label: "packed current camera Td" },
           bind("camera-current", (bindings) => bindings.view.gpu_camera_state.buffer)
         );
-        const previousCameraRes = graph.import_resource(
+        const previousCameraRes = needsOcclusionConfidence ? graph.import_resource(
           "camera_previous",
           { kind: "imported", label: "packed previous camera Td" },
           bind("camera-previous", (bindings) => bindings.view.gpu_previous_camera_state.buffer)
-        );
+        ) : null;
         const viewUniformRes = graph.import_resource(
           "view/Yu",
           { kind: "imported", label: "packed view Yu" },
@@ -2216,10 +2226,6 @@ export class MainRenderPipeline {
           ]);
         }
 
-        const needsOcclusionConfidence =
-          graphTopology.screenSpaceDiffuseTemporal ||
-          graphTopology.ssr ||
-          graphTopology.temporal;
         const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
           this.render_debug_view === RenderDebugView.Velocity;
         const packedResolveOut = this._surfaceFeature.addToGraph(
@@ -2277,10 +2283,10 @@ export class MainRenderPipeline {
               },
               {
                 currentDepth: depthRes,
-                previousDepth: previousDepthRes,
+                previousDepth: previousDepthRes!,
                 velocity: velocityRes,
                 currentCamera: currentCameraRes,
-                previousCamera: previousCameraRes
+                previousCamera: previousCameraRes!
               }
             ).occlusionConfidence;
           }
@@ -2765,8 +2771,9 @@ export class MainRenderPipeline {
           if (
             graphTopology.ssr &&
             hzbRes !== null &&
-            velocityRes !== null &&
-            occlusionConfidenceRes !== null &&
+            (!graphTopology.ssrTemporal ||
+              (velocityRes !== null && occlusionConfidenceRes !== null &&
+                opaqueTemporalValidityRes !== null)) &&
             selected.baselineSpecular !== null
           ) {
             const completeOpaqueHdr = opaqueBaseline.hdr;
@@ -2815,20 +2822,20 @@ export class MainRenderPipeline {
                 opaqueColorPyramid,
                 pbr: gPbrRes,
                 normal: gNormalRes,
-                velocity: velocityRes,
-                occlusionConfidence: occlusionConfidenceRes,
-                surfaceValidity: opaqueTemporalValidityRes!,
+                velocity: velocityRes ?? undefined,
+                occlusionConfidence: occlusionConfidenceRes ?? undefined,
+                surfaceValidity: opaqueTemporalValidityRes ?? undefined,
                 albedoAo: gAlbedoRes,
                 blueNoise: stbnRes,
                 currentCamera: currentCameraRes,
                 counters: gpuCounterRes ?? undefined
               },
-              {
+              graphTopology.ssrTemporal ? {
                 input: bind("ssr-history-input", (bindings) =>
                   this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
                 output: bind("ssr-history-output", (bindings) =>
                   this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
-              }
+              } : undefined
             );
             hdrRes = this._reflectionService!.addCorrection(graph, {
               hdr: completeOpaqueHdr,
@@ -3602,8 +3609,14 @@ export class MainRenderPipeline {
       "longRangeProviderUnassigned",
       "longRangeProviderDuplicates"
     ]);
-    const needsOcclusionConfidence =
-      topology.screenSpaceDiffuseTemporal || topology.ssr || topology.temporal;
+    const needsOcclusionConfidence = requiresPreviousDepth(topology);
+    const retiredPreviousDepth = this._renderTargets.setDepthHistoryEnabled(
+      this._graphics.textures,
+      needsOcclusionConfidence
+    );
+    if (retiredPreviousDepth !== null) {
+      this.retireAfterSubmittedWork(retiredPreviousDepth);
+    }
     if (needsOcclusionConfidence) {
       this._occlusionConfidence ??= new OcclusionConfidencePass(this._graphics);
     } else if (this._occlusionConfidence !== null) {
@@ -3984,6 +3997,8 @@ export class MainRenderPipeline {
       temporal.historyInvalidations
     );
     profiler.recordCounter("temporal.historyBytes", temporal.historyBytes);
+    profiler.recordCounter("temporal.previousDepthBytes", temporal.previousDepthBytes);
+    profiler.recordCounter("temporal.mainDepthTextureCount", temporal.mainDepthTextureCount);
     profiler.recordCounter("temporal.internalPixels", temporal.internalPixels);
     profiler.recordCounter("temporal.outputPixels", temporal.outputPixels);
     profiler.recordCounter("temporal.drsGpuMs", temporal.drsLastGpuMs);
@@ -4483,6 +4498,10 @@ function requireGpuBuffer(resource: unknown, label: string): GPUBuffer {
     return resource as GPUBuffer;
   }
   throw new Error(`${label} is not a GPUBuffer`);
+}
+
+function requiresPreviousDepth(topology: MainFrameFeatureTopology): boolean {
+  return topology.screenSpaceDiffuseTemporal || topology.ssrTemporal || topology.temporal;
 }
 
 async function settleLinearHdrCapture(

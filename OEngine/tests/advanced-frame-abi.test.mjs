@@ -902,6 +902,17 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
     5
   );
   assert.equal((SSR_PASS_SOURCE.match(/sampleType: "depth"/g) ?? []).length, 5);
+  assert.match(SSR_PASS_SOURCE, /velocity\?: ResourceId;/);
+  assert.match(SSR_PASS_SOURCE, /occlusionConfidence\?: ResourceId;/);
+  assert.match(SSR_PASS_SOURCE, /surfaceValidity\?: ResourceId;/);
+  assert.match(
+    SSR_PASS_SOURCE,
+    /SSR temporal history and motion\/disocclusion inputs are required/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /graphTopology\.ssrTemporal \? \{[\s\S]*?ssr-history-input[\s\S]*?ssr-history-output[\s\S]*?\} : undefined/
+  );
   assert.match(SPECULAR_CORRECTION_WGSL, /\(resolved\.rgb - baseline\) \* confidence/);
   assert.equal(
     existsSync(new URL("../src/shaders/ssr_resolve_lpv.ts", import.meta.url)),
@@ -1257,6 +1268,35 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
     /Hierarchical depth lives in the dedicated rg16float HZB owner[\s\S]*?mipLevelCount: 1/
   );
   assert.doesNotMatch(RENDER_TARGETS_SOURCE, /mipLevelCount: 5/);
+  assert.match(RENDER_TARGETS_SOURCE, /setDepthHistoryEnabled\(/);
+  assert.match(RENDER_TARGETS_SOURCE, /depthHistoryEnabled \? 2 : 1/);
+  assert.match(RENDER_TARGETS_SOURCE, /if \(!this\.depthHistoryEnabled\) return 0;/);
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /function requiresPreviousDepth\(topology: MainFrameFeatureTopology\): boolean \{\s*return topology\.screenSpaceDiffuseTemporal \|\| topology\.ssrTemporal \|\| topology\.temporal;\s*\}/
+  );
+  assert.doesNotMatch(
+    MAIN_PIPELINE_SOURCE,
+    /const needsOcclusionConfidence =\s*graphTopology\.screenSpaceDiffuseTemporal \|\|\s*graphTopology\.ssr \|\|/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /previousDepth: requiresPreviousDepth\(graphTopology\)[\s\S]*?\? this\._renderTargets\.depthPrevious[\s\S]*?: null/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /const previousCameraRes = needsOcclusionConfidence \? graph\.import_resource/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /setDepthHistoryEnabled\(\s*this\._graphics\.textures,\s*needsOcclusionConfidence\s*\)/
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /\? graph\.import_resource\(\s*"previous_depth"[\s\S]*?\) : null;/
+  );
+  assert.match(MAIN_PIPELINE_SOURCE, /temporal\.previousDepthBytes/);
+  assert.match(MAIN_PIPELINE_SOURCE, /temporal\.mainDepthTextureCount/);
   assert.equal(classifyTemporalHistory({
     historyValid: true,
     motionValid: true,

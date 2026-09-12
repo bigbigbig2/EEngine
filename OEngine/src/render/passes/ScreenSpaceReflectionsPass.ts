@@ -48,9 +48,9 @@ export type ScreenSpaceReflectionsInputs = {
   opaqueColorPyramid: OpaqueColorPyramidFrame;
   pbr: ResourceId;
   normal: ResourceId;
-  velocity: ResourceId;
-  occlusionConfidence: ResourceId;
-  surfaceValidity: ResourceId;
+  velocity?: ResourceId;
+  occlusionConfidence?: ResourceId;
+  surfaceValidity?: ResourceId;
   albedoAo: ResourceId;
   blueNoise: ResourceId;
   currentCamera: ResourceId;
@@ -171,8 +171,12 @@ export class ScreenSpaceReflectionsPass {
     const traceWidth = Math.max(1, Math.ceil(width * this.resolutionScale));
     const traceHeight = Math.max(1, Math.ceil(height * this.resolutionScale));
     this.resize(traceWidth, traceHeight);
-    if (this.temporalEnabled && !historyBindings) {
-      throw new Error("SSR temporal history bindings are required");
+    if (
+      this.temporalEnabled &&
+      (!historyBindings || inputs.velocity === undefined ||
+        inputs.occlusionConfidence === undefined || inputs.surfaceValidity === undefined)
+    ) {
+      throw new Error("SSR temporal history and motion/disocclusion inputs are required");
     }
     const historyInputResource = this.temporalEnabled ? graph.import_resource(
       "ssr_history",
@@ -314,9 +318,9 @@ export class ScreenSpaceReflectionsPass {
               output: resolveTextureView(resources.get(temporal)),
               current: resolveTextureView(resources.get(reflections)),
               history: resolveTextureView(resources.get(historyInputResource!)),
-              velocity: resolveTextureView(resources.get(inputs.velocity)),
-              occlusionConfidence: resolveTextureView(resources.get(inputs.occlusionConfidence)),
-              surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity)),
+              velocity: resolveTextureView(resources.get(inputs.velocity!)),
+              occlusionConfidence: resolveTextureView(resources.get(inputs.occlusionConfidence!)),
+              surfaceValidity: resolveTextureView(resources.get(inputs.surfaceValidity!)),
               trace: resolveTextureView(resources.get(trace)),
               depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
               normal: resolveTextureView(resources.get(inputs.normal)),
@@ -326,7 +330,7 @@ export class ScreenSpaceReflectionsPass {
           this.lastTemporalPasses = 1;
         }
       );
-      for (const input of [reflections, historyInputResource!, inputs.velocity, inputs.occlusionConfidence, inputs.surfaceValidity, trace, inputs.depth, inputs.normal]) {
+      for (const input of [reflections, historyInputResource!, inputs.velocity!, inputs.occlusionConfidence!, inputs.surfaceValidity!, trace, inputs.depth, inputs.normal]) {
         temporalBuilder.read(input);
       }
       temporal = temporalBuilder.create(
