@@ -1505,6 +1505,11 @@ test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", 
   );
   assert.match(SURFACE_VALIDATION_SOURCE, /renderer\.render_debug_view = RenderDebugView\.LinearHdr/);
   assert.match(SURFACE_VALIDATION_SOURCE, /debugShared\.finalConsumerCount === 1/);
+  assert.match(SURFACE_VALIDATION_SOURCE, /exposureOff\.finalConsumerCount === 0/);
+  assert.match(
+    SURFACE_VALIDATION_SOURCE,
+    /exposureOff\.histories\.find\(\(history\) => history\.name === "exposure"\)\?\.active === false/
+  );
   assert.match(
     SURFACE_VALIDATION_SOURCE,
     /!debugPasses\.includes\("Bloom reconstruct from FinalColorPyramid"\)/

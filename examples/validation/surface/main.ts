@@ -135,7 +135,20 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         .map((entry) => entry.name);
       const optionalOffResources = liveFrameGraphResourceNames(optionalOffGraph);
 
-      renderer.configure({ features: { bloom: true, sharpening: true } });
+      renderer.configure({ features: { automaticExposure: false } });
+      await runtime.waitForFrames(2);
+      const exposureOff = renderer.sharedDerivedProductsEvidence();
+      const exposureOffFinal = renderer.finalOutputEvidence();
+      const exposureOffGraph = renderer.mainFrameGraphEvidence();
+      if (exposureOffGraph === null) throw new Error("Post exposure-off frame did not publish FrameGraph evidence");
+      const exposureOffPasses = exposureOffGraph.dump.passes
+        .filter((entry) => !entry.culled)
+        .map((entry) => entry.name);
+      const exposureOffResources = liveFrameGraphResourceNames(exposureOffGraph);
+
+      renderer.configure({
+        features: { bloom: true, automaticExposure: true, sharpening: true }
+      });
       const capturePromise = renderer.requestLinearHdrCapture({
         x: 0,
         y: 0,
@@ -177,6 +190,10 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
           optionalOff,
           optionalOffPasses,
           optionalOffResources,
+          exposureOff,
+          exposureOffFinal,
+          exposureOffPasses,
+          exposureOffResources,
           capturePath,
           capturePasses,
           capturePixel: Array.from(capture.rgba),
@@ -219,6 +236,25 @@ async function runScenario(request: ValidationScenarioRequest): Promise<Validati
         "Bloom-off and Sharpen-off select a smaller Final Output binding/shader variant without dummy resources",
         { runtime: optionalOff, passes: optionalOffPasses, resources: optionalOffResources },
         "no Bloom pass/binding and no sharpen neighborhood specialization"
+      ));
+      assertions.push(validationAssertion(
+        "post-exposure-off-prunes-final-reduction-and-history",
+        exposureOffFinal.finalOutputPasses === 1 &&
+          exposureOff.pyramids.finalBuilds === 0 && exposureOff.finalConsumerCount === 0 &&
+          exposureOff.exposureHistogramPasses === 0 &&
+          exposureOff.histories.find((history) => history.name === "exposure")?.active === false &&
+          !exposureOffPasses.includes("FinalColorPyramid shared producer") &&
+          !exposureOffPasses.includes("Automatic exposure histogram eC") &&
+          !exposureOffResources.includes("FinalColorPyramid") &&
+          !exposureOffResources.includes("Automatic exposure adapted"),
+        "With Bloom and Automatic Exposure both disabled, the final pyramid, histogram and exposure history have no production consumer",
+        {
+          shared: exposureOff,
+          finalOutput: exposureOffFinal,
+          passes: exposureOffPasses,
+          resources: exposureOffResources
+        },
+        "zero final consumers/builds and inactive exposure history"
       ));
       assertions.push(validationAssertion(
         "post-capture-materializes-only-required-hdr-boundary",
