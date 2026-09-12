@@ -91,6 +91,12 @@ fn trace_confidence(position: vec2i) -> f32 {
   return f32(textureLoad(trace_source, position, 0).y & 0xffu) / 255.0;
 }
 
+fn mirror_screen_uv(value: vec2f) -> vec2f {
+  // Three r186 mirrors projected Vogel taps at the viewport boundary instead
+  // of dropping them, preserving the fixed eight-sample kernel near edges.
+  return clamp(vec2f(1.0) - abs(vec2f(1.0) - abs(value)), vec2f(0.0), vec2f(1.0));
+}
+
 fn trace_hit_position(position: vec2i) -> vec2u {
   let packed = textureLoad(trace_source, position, 0).x;
   return vec2u(packed & 0xffffu, packed >> 16u);
@@ -335,7 +341,10 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   var raw_weight_sum = 1.0;
   var radius_shrink = 1.0;
   var polar_bias = vec2f(0.0);
-  let center_luma = rgb_to_luminance(center.rgb);
+  // Three defines the kernel's luma edge stop from the unfiltered input. The
+  // temporal source may contain history and must not reshape the current-frame
+  // raw filter or its adaptive feedback.
+  let center_raw_luma = rgb_to_luminance(raw.rgb);
 
   for (var i = 0; i < 8; i++) {
     let base = vogel_disk(f32(i));
@@ -343,12 +352,11 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     let has_bias = dot(polar_bias, polar_bias) > 0.001;
     let bias_direction = polar_bias / max(length(polar_bias), 1e-6);
     let biased_direction = mix(base_direction, bias_direction,
-      select(0.0, history_aggressivity, has_bias));
+      select(0.0, 0.5 * history_aggressivity, has_bias));
     let disk = rotation * (biased_direction * length(base) * radius_shrink);
     let sample_view = center_view + (bitangent * disk.x + tangent * disk.y) * world_radius;
     let sample_ndc = v3_matrix4_project(sample_view, camera.projection_matrix);
-    let sample_uv = ndc_to_uv(sample_ndc.xy);
-    if (any(sample_uv <= vec2f(0.0)) || any(sample_uv >= vec2f(1.0))) { continue; }
+    let sample_uv = mirror_screen_uv(ndc_to_uv(sample_ndc.xy));
     let sample_position = clamp(
       vec2i(sample_uv * vec2f(effect_size)), vec2i(0), effect_size - vec2i(1)
     );
@@ -369,17 +377,23 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     let normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), mix(128.0, 16.0, center_roughness));
     let roughness_weight = exp(-abs(center_roughness - sample_roughness) * 16.0);
     let ray_weight = exp(-abs(raw.a - sample_raw.a) / max(raw.a * 0.2, 1e-3));
-    let luma_weight = exp(-abs(center_luma - rgb_to_luminance(sample_value.rgb)) /
-      max(center_luma * 0.25 + 0.01, 0.01));
-    let weight = sample_value.a * depth_weight * normal_weight * roughness_weight * ray_weight * luma_weight;
-    accumulated += sample_value.rgb * weight;
-    accumulated_raw += sample_raw.rgb * weight;
-    confidence_sum += sample_value.a * weight;
-    weight_sum += weight;
-    raw_weight_sum += weight;
-    let trusted = saturate(weight * 2.0);
-    polar_bias = mix(polar_bias, base_direction * (trusted - 0.5), 0.5);
-    radius_shrink = max(0.001, mix(radius_shrink, trusted, 0.5));
+    let luma_weight = exp(-abs(center_raw_luma - rgb_to_luminance(sample_raw.rgb)) /
+      max(center_raw_luma * 0.25 + 0.01, 0.01));
+    let spatial_weight = depth_weight * normal_weight * roughness_weight * ray_weight * luma_weight;
+    let temporal_weight = sample_value.a * spatial_weight;
+    let raw_confidence = trace_confidence(sample_position) *
+      select(0.0, 1.0, sample_raw.a > 1e-5);
+    let raw_spatial_weight = raw_confidence * spatial_weight;
+    accumulated += sample_value.rgb * temporal_weight;
+    accumulated_raw += sample_raw.rgb * raw_spatial_weight;
+    confidence_sum += sample_value.a * temporal_weight;
+    weight_sum += temporal_weight;
+    raw_weight_sum += raw_spatial_weight;
+    // Three feeds the unmodified spatial edge weight back into the adaptive
+    // radius and polar direction with adapt=0.5. History confidence belongs to
+    // accumulation, not kernel-shape feedback or the independent raw branch.
+    radius_shrink = max(0.001, mix(radius_shrink, spatial_weight, 0.5));
+    polar_bias = mix(polar_bias, base_direction * (spatial_weight - 0.5), 0.5);
   }
   let denoised_temporal = accumulated / max(weight_sum, 1e-5);
   let denoised_raw = accumulated_raw / max(raw_weight_sum, 1e-5);

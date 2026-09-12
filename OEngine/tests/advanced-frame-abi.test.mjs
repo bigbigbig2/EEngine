@@ -748,6 +748,11 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.doesNotMatch(SSR_TEMPORAL_WGSL, /camera_previous|linear_clamp/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /vogel_disk/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /ray_weight/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /mirror_screen_uv/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /raw_spatial_weight/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /center_raw_luma/);
+  assert.match(SSR_RECURRENT_DENOISE_WGSL, /0\.5 \* history_aggressivity/);
+  assert.doesNotMatch(SSR_RECURRENT_DENOISE_WGSL, /trusted = saturate\(weight \* 2\.0\)/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /settings\.mode_flags & 2u/);
   assert.match(SSR_RECURRENT_DENOISE_WGSL, /Karis-style inverse-luminance blend/);
   assert.match(SPECULAR_CORRECTION_WGSL, /\(resolved\.rgb - baseline\) \* confidence/);
