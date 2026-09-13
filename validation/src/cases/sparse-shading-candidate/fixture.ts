@@ -1148,7 +1148,7 @@ const BINS:array<u32,${RENDERING_LAB_PROGRAMS.length}>=array<u32,${RENDERING_LAB
     }else if(bin_id!=BINS[work]){atomicAdd(&output[2],1u);}
     if((key>>24u)>=${CUBE_TRIANGLE_COUNT}u){atomicAdd(&output[3],1u);}
     if(any(color!=color)||any(abs(color)>vec4f(65504.0))){atomicAdd(&output[4],1u);}
-    if(abs(color.a-1.0)>0.01){atomicAdd(&output[5],1u);}
+    if(color.a<0.0||color.a>1.001){atomicAdd(&output[5],1u);}
   }else{if(bin_id!=${GPU_SHADING_BIN_INVALID_ID}u){atomicAdd(&output[6],1u);}
     if(any(color!=color)||any(abs(color)>vec4f(65504.0))){atomicAdd(&output[8],1u);}}
 }`:`
@@ -1517,7 +1517,7 @@ function validateRenderingLab(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPub
   if(bytes.byteLength!==READBACK_BYTES)throw new Error(`RenderingLab readback length ${bytes.byteLength} != ${READBACK_BYTES}`);
   const oracle=new Uint32Array(bytes.buffer,bytes.byteOffset+ORACLE_OFFSET,ORACLE_WORDS);
   assertEqual(oracle[0],PIXELS,"RenderingLab oracle pixels");
-  ["work-slot range","bin routing","primitive range","visible HDR finite","visible HDR alpha","background bin sentinel"]
+  ["work-slot range","bin routing","primitive range","visible HDR finite","TAA history-lock alpha range","background bin sentinel"]
     .forEach((label,index)=>assertEqual(oracle[index+1],0,`RenderingLab ${label}`));
   assertEqual(oracle[8],0,"RenderingLab background HDR finite");
   const visiblePixels=oracle[7]!;if(visiblePixels<3000)throw new Error(`RenderingLab visible coverage too small: ${visiblePixels}`);
