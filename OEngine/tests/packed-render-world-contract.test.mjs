@@ -380,6 +380,31 @@ test("GPU Render World publishes stage and release only when their command commi
   assert.equal(runtime.activeShadingSummary.binRefCounts[4], 1);
   assert.equal(runtime.activeShadingSummary.activeBinMaskLo, 1 << 4);
   assert.equal(runtime.activeShadingSummary.opaqueLitReceiverCount, 1);
+  const shadingPublication = runtime.shadingPublication;
+  assert.equal(shadingPublication.schemaVersion, 1);
+  assert.equal(shadingPublication.revision, 1);
+  assert.strictEqual(shadingPublication.summary, runtime.activeShadingSummary);
+  assert.equal(shadingPublication.materialGeneration, runtime.materialGeneration);
+  assert.equal(shadingPublication.textureGeneration, runtime.textureGeneration);
+  assert.equal(
+    shadingPublication.materialPublicationRevision,
+    runtime.materialPublicationRevision
+  );
+  assert.equal(Object.isFrozen(shadingPublication), true);
+  assert.equal(Object.isFrozen(shadingPublication.source), true);
+  assert.equal(Object.isFrozen(shadingPublication.source.materials), true);
+  assert.equal(Object.isFrozen(shadingPublication.source.geometries), true);
+  assert.equal(Object.isFrozen(shadingPublication.source.instances), true);
+  assert.equal(shadingPublication.source.geometries[0].id, 5);
+  assert.equal(shadingPublication.source.geometries[0].generation, 1);
+  assert.deepEqual(shadingPublication.source.instances, [{
+    id: 0,
+    materialId: 0,
+    geometryId: 5,
+    active: true,
+    transparent: false,
+    generation: 1
+  }]);
   assert.equal(decodeInstanceShadingBinId(fixture.calls.instanceSources[0].flags[0]), 4);
   assert.equal(fixture.registry.evidence().sceneCount, 1);
   assert.equal(fixture.registry.evidence().instanceCount, 1);
@@ -388,6 +413,7 @@ test("GPU Render World publishes stage and release only when their command commi
   const stable = new FakeCommand("packed-stable-frame");
   assert.equal(fixture.registry.encodePendingPatch(fixture.scene, stable), null);
   stable.finish();
+  assert.strictEqual(runtime.shadingPublication, shadingPublication);
   assert.equal(fixture.registry.evidence().sceneCount, 1);
   assert.equal(fixture.registry.evidence().privateSubmitCount, 0);
 
@@ -501,6 +527,7 @@ test("Packed material patch commits classification and restores the queued patch
   stage.finish();
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 0);
   const initialSummary = fixture.registry.runtime(fixture.scene).activeShadingSummary;
+  const initialPublication = fixture.registry.runtime(fixture.scene).shadingPublication;
   assert.equal(initialSummary.binRefCounts[4], 1);
 
   fixture.registry.queuePatch(fixture.scene, {
@@ -517,9 +544,21 @@ test("Packed material patch commits classification and restores the queued patch
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 1);
   assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.activeBinMaskLo, 0);
   assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.transparentLitReceiverCount, 1);
+  const abortedPublication = fixture.registry.runtime(fixture.scene).shadingPublication;
+  assert.equal(abortedPublication.revision, 2);
+  assert.strictEqual(abortedPublication.summary, fixture.registry.runtime(fixture.scene).activeShadingSummary);
+  assert.deepEqual(abortedPublication.source.instances[0], {
+    id: 0,
+    materialId: 1,
+    geometryId: 5,
+    active: true,
+    transparent: true,
+    generation: 2
+  });
   aborted.abort(new Error("injected material patch failure"));
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 0);
   assert.strictEqual(fixture.registry.runtime(fixture.scene).activeShadingSummary, initialSummary);
+  assert.strictEqual(fixture.registry.runtime(fixture.scene).shadingPublication, initialPublication);
 
   const retry = new FakeCommand("packed-material-patch-retry");
   const committedResult = fixture.registry.encodePendingPatch(fixture.scene, retry);
@@ -527,6 +566,8 @@ test("Packed material patch commits classification and restores the queued patch
   retry.finish();
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 1);
   assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.revision, 2);
+  assert.equal(fixture.registry.runtime(fixture.scene).shadingPublication.revision, 2);
+  assert.notStrictEqual(fixture.registry.runtime(fixture.scene).shadingPublication, abortedPublication);
   assert.equal(fixture.calls.patches.length, 2);
 });
 
@@ -1295,7 +1336,10 @@ function createPackedRegistryFixture() {
         return {};
       }
     },
-    assets: { bindings: () => ({}) }
+    assets: {
+      bindings: () => ({}),
+      publicationIdentity: (_handle) => Object.freeze({ slot: 5, generation: 1 })
+    }
   };
   return {
     registry: new GpuRenderWorld(graphics),

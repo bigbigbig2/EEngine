@@ -214,11 +214,13 @@ test("GpuAssetStore publishes physical chunk ranges behind an unchanged opaque h
   assert.ok(ranges.every(({ residentResourceId }) =>
     typeof residentResourceId === "string" && residentResourceId.length > 0));
   assert.equal(store.recordIndex(handle), 1);
+  assert.deepEqual(store.publicationIdentity(handle), { slot: 1, generation: 1 });
 
   const release = new SceneCommand(device, []);
   store.release(handle, release);
   release.finish();
   assert.throws(() => store.residencyRanges(handle), /stale|resident/);
+  assert.throws(() => store.publicationIdentity(handle), /stale|resident/);
   store.destroy();
 });
 

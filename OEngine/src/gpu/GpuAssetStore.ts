@@ -50,6 +50,12 @@ export interface AssetHandle {
   readonly [ASSET_HANDLE_BRAND]: true;
 }
 
+/** Internal publication identity; callers never derive byte offsets from it. */
+export interface GpuAssetPublicationIdentity {
+  readonly slot: number;
+  readonly generation: number;
+}
+
 type AssetCommandSignal = {
   addOne(listener: (...args: any[]) => void): void;
 };
@@ -553,6 +559,16 @@ export class GpuAssetStore {
   /** Internal renderer/debug seam; not exported from OEngine/src/index.ts. */
   recordIndex(handle: AssetHandle): number {
     return this.requireEntry(handle, "pending", "resident").slot;
+  }
+
+  /**
+   * Resolves the stable record identity used by cross-table generation checks.
+   * Pending residency is valid because GpuRenderWorld stages in the same
+   * command transaction; aborted commands publish neither owner.
+   */
+  publicationIdentity(handle: AssetHandle): Readonly<GpuAssetPublicationIdentity> {
+    const entry = this.requireEntry(handle, "pending", "resident", "pending-release");
+    return Object.freeze({ slot: entry.slot, generation: entry.generation });
   }
 
   /** Stable-handle seam for future geometry-page consumers; no scheduler is implied. */

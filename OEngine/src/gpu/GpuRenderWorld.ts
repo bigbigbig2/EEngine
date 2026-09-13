@@ -9,7 +9,13 @@ import {
   GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK,
   encodeInstanceShadingBinId
 } from "./GpuInstanceAbi.js";
-import type { ActiveShadingSummary } from "./GpuShadingPublicationPlan.js";
+import type {
+  ActiveShadingSummary,
+  GpuShadingBulkPublication,
+  GpuShadingGeometryPublication,
+  GpuShadingInstancePublication,
+  GpuShadingMaterialPublication
+} from "./GpuShadingPublicationPlan.js";
 import {
   deriveGpuShadingIdentity,
   GPU_SHADING_DEPENDENCY,
@@ -94,6 +100,23 @@ export interface GpuRenderWorldEvidence {
   readonly privateSubmitCount: 0;
 }
 
+export const GPU_RENDER_WORLD_SHADING_PUBLICATION_SCHEMA_VERSION = 1;
+
+/**
+ * Device-independent scene truth consumed by the renderer-side sparse-shading
+ * revision owner. Extent, output dependencies and capability specialization
+ * are deliberately absent because they are render-context state.
+ */
+export interface GpuRenderWorldShadingPublication {
+  readonly schemaVersion: 1;
+  readonly revision: number;
+  readonly materialGeneration: number;
+  readonly textureGeneration: number;
+  readonly materialPublicationRevision: number;
+  readonly summary: Readonly<ActiveShadingSummary>;
+  readonly source: Readonly<GpuShadingBulkPublication>;
+}
+
 export interface GpuRenderWorldRuntime {
   readonly handle: GpuRenderWorldHandle;
   readonly scene: Scene;
@@ -117,6 +140,8 @@ export interface GpuRenderWorldRuntime {
   readonly transparentInstanceCount: number;
   /** Incremental possible-bin truth; it never contains per-view visible counts. */
   readonly activeShadingSummary: Readonly<ActiveShadingSummary>;
+  /** Atomic CPU scene publication used to derive one immutable GPU revision. */
+  readonly shadingPublication: Readonly<GpuRenderWorldShadingPublication>;
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
   readonly hierarchyRasterWorkCapacity: number;
@@ -139,12 +164,17 @@ interface PackedSceneClassificationState {
   readonly dependencyRefCounts: Uint32Array;
   readonly materialBindingSetIds: readonly number[];
   readonly geometryProfiles: readonly Readonly<GpuShadingGeometryProfile>[];
+  geometryPublicationIds: readonly number[];
   transparentInstanceCount: number;
   opaqueLitReceiverCount: number;
   opaqueUnlitReceiverCount: number;
   transparentLitReceiverCount: number;
   revision: number;
   summary: Readonly<ActiveShadingSummary>;
+  materialPublications: readonly Readonly<GpuShadingMaterialPublication>[];
+  geometryPublications: readonly Readonly<GpuShadingGeometryPublication>[];
+  instancePublications: readonly Readonly<GpuShadingInstancePublication>[];
+  publication: Readonly<GpuRenderWorldShadingPublication> | null;
 }
 
 interface PackedSceneMaterialAssociationPlan {
@@ -217,6 +247,14 @@ export class GpuRenderWorld {
       textureStage.materialTextureRoutingRefs,
       command
     );
+    initializeRenderWorldShadingPublication(
+      classification,
+      source,
+      assetHandles.map((handle) => this.graphics.assets.publicationIdentity(handle)),
+      materialStage.materialGeneration,
+      materialStage.textureGeneration,
+      materialStage.publicationRevision
+    );
     const materialBinSlots = mapMaterialAssociationSlots(
       associationPlan,
       materialStage.associationSlots
@@ -287,7 +325,10 @@ export class GpuRenderWorld {
         return classification.transparentInstanceCount;
       },
       get activeShadingSummary() {
-        return classification.summary;
+        return requireShadingPublication(classification).summary;
+      },
+      get shadingPublication() {
+        return requireShadingPublication(classification);
       },
       hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,
       hierarchyVisibleClusterCapacity: hierarchyCapacity.visibleClusterCapacity,
@@ -617,12 +658,17 @@ function createPackedSceneClassificationState(
     dependencyRefCounts: new Uint32Array(9),
     materialBindingSetIds: Object.freeze([...materialBindingSetIds]),
     geometryProfiles: Object.freeze(source.geometries.map(shadingGeometryProfile)),
+    geometryPublicationIds: Object.freeze([]),
     transparentInstanceCount: 0,
     opaqueLitReceiverCount: 0,
     opaqueUnlitReceiverCount: 0,
     transparentLitReceiverCount: 0,
     revision: 1,
-    summary: EMPTY_ACTIVE_SHADING_SUMMARY
+    summary: EMPTY_ACTIVE_SHADING_SUMMARY,
+    materialPublications: Object.freeze([]),
+    geometryPublications: Object.freeze([]),
+    instancePublications: Object.freeze([]),
+    publication: null
   };
   for (let instanceIndex = 0; instanceIndex < source.count; instanceIndex++) {
     resolveInstanceShadingIdentity(state, instanceIndex, source.materials);
@@ -630,6 +676,105 @@ function createPackedSceneClassificationState(
   }
   state.summary = freezeActiveShadingSummary(state);
   return state;
+}
+
+function initializeRenderWorldShadingPublication(
+  state: PackedSceneClassificationState,
+  source: PackedSceneSource,
+  geometryIdentities: readonly Readonly<{ readonly slot: number; readonly generation: number }>[],
+  materialGeneration: number,
+  textureGeneration: number,
+  materialPublicationRevision: number
+): void {
+  if (state.publication !== null) {
+    throw new Error("GPU Render World shading publication is already initialized");
+  }
+  if (geometryIdentities.length !== state.geometryProfiles.length) {
+    throw new Error("GPU Render World geometry publication identities do not match its dictionary");
+  }
+  state.geometryPublicationIds = Object.freeze(geometryIdentities.map(({ slot }) => slot));
+  state.materialPublications = Object.freeze(source.materials.map((material, id) =>
+    Object.freeze({
+      id,
+      profile: Object.freeze(shadingMaterialProfile(
+        material,
+        state.materialBindingSetIds[id]!
+      )),
+      generation: materialGeneration,
+      textureGeneration
+    })
+  ));
+  state.geometryPublications = Object.freeze(state.geometryProfiles.map((profile, index) =>
+    Object.freeze({
+      id: geometryIdentities[index]!.slot,
+      profile,
+      generation: geometryIdentities[index]!.generation
+    })
+  ));
+  state.instancePublications = Object.freeze(Array.from(
+    { length: state.materialIndices.length },
+    (_, instanceIndex) => freezeRenderWorldInstancePublication(
+      state,
+      source.materials,
+      instanceIndex,
+      state.revision
+    )
+  ));
+  state.publication = freezeRenderWorldShadingPublication(
+    state,
+    materialGeneration,
+    textureGeneration,
+    materialPublicationRevision
+  );
+}
+
+function freezeRenderWorldInstancePublication(
+  state: PackedSceneClassificationState,
+  materials: readonly StandardShadeMaterial[],
+  instanceIndex: number,
+  generation: number
+): Readonly<GpuShadingInstancePublication> {
+  return Object.freeze({
+    id: instanceIndex,
+    materialId: state.materialIndices[instanceIndex]!,
+    geometryId: state.geometryPublicationIds[state.geometryIndices[instanceIndex]!]!,
+    active: state.active[instanceIndex] !== 0,
+    transparent: isTransparentMaterial(materials[state.materialIndices[instanceIndex]!]!),
+    generation
+  });
+}
+
+function freezeRenderWorldShadingPublication(
+  state: PackedSceneClassificationState,
+  materialGeneration: number,
+  textureGeneration: number,
+  materialPublicationRevision: number
+): Readonly<GpuRenderWorldShadingPublication> {
+  if (state.summary.revision !== state.revision) {
+    throw new Error("GPU Render World shading summary revision is not atomic");
+  }
+  return Object.freeze({
+    schemaVersion: GPU_RENDER_WORLD_SHADING_PUBLICATION_SCHEMA_VERSION as 1,
+    revision: state.revision,
+    materialGeneration,
+    textureGeneration,
+    materialPublicationRevision,
+    summary: state.summary,
+    source: Object.freeze({
+      materials: state.materialPublications,
+      geometries: state.geometryPublications,
+      instances: state.instancePublications
+    })
+  });
+}
+
+function requireShadingPublication(
+  state: PackedSceneClassificationState
+): Readonly<GpuRenderWorldShadingPublication> {
+  if (state.publication === null) {
+    throw new Error("GPU Render World shading publication is not initialized");
+  }
+  return state.publication;
 }
 
 /**
@@ -790,7 +935,10 @@ function applyClassificationPatch(
   const previousOpaqueUnlitReceiverCount = state.opaqueUnlitReceiverCount;
   const previousTransparentLitReceiverCount = state.transparentLitReceiverCount;
   const previousRevision = state.revision;
+  const previousInstancePublications = state.instancePublications;
+  const previousPublication = state.publication;
   let changed = false;
+  const changedInstances: number[] = [];
   for (const instanceIndex of touched) {
     const materialIndex = nextMaterialIndices.get(instanceIndex) ?? state.materialIndices[instanceIndex]!;
     const active = nextActive.get(instanceIndex) ?? state.active[instanceIndex]!;
@@ -810,10 +958,28 @@ function applyClassificationPatch(
     state.dependencyMasks[instanceIndex] = identity.dependencyMask;
     addClassificationContribution(state, instanceIndex, materials);
     changed = true;
+    changedInstances.push(instanceIndex);
   }
   if (changed) {
     state.revision = nextRevision(state.revision);
     state.summary = freezeActiveShadingSummary(state);
+    const publications = [...state.instancePublications];
+    for (const instanceIndex of changedInstances) {
+      publications[instanceIndex] = freezeRenderWorldInstancePublication(
+        state,
+        materials,
+        instanceIndex,
+        state.revision
+      );
+    }
+    state.instancePublications = Object.freeze(publications);
+    const current = requireShadingPublication(state);
+    state.publication = freezeRenderWorldShadingPublication(
+      state,
+      current.materialGeneration,
+      current.textureGeneration,
+      current.materialPublicationRevision
+    );
   }
   return () => {
     for (const [instanceIndex, previous] of previousEntries) {
@@ -830,6 +996,8 @@ function applyClassificationPatch(
     state.transparentLitReceiverCount = previousTransparentLitReceiverCount;
     state.revision = previousRevision;
     state.summary = previousSummary;
+    state.instancePublications = previousInstancePublications;
+    state.publication = previousPublication;
   };
 }
 
