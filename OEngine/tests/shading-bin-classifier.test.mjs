@@ -283,6 +283,7 @@ test("classifier source is width-agnostic, barrier-uniform and bounded", () => {
   assert.match(source, /for \(var item = lane; item < 4096u; item \+= 256u\)/u);
   assert.match(source, /@workgroup_size\(64, 1, 1\)\s*\nfn finalize_shading_bins/u);
   assert.match(source, /OEngineShadingBinIndirectArgs\(0u, 1u, 1u\)/u);
+  assert.match(source, /if frame_flags != 0u \{\s+shading_bin_indirect\[bin_id\] = OEngineShadingBinIndirectArgs\(0u, 1u, 1u\)/u);
   assert.doesNotMatch(source, /subgroup_id|subgroup_invocation_id|subgroupBallot|@subgroup_size|diagnostic\(off/u);
   assert.doesNotMatch(
     source,

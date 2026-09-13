@@ -2,70 +2,268 @@
   "schemaVersion": 1,
   "hostProtocolVersion": 1,
   "requirements": {
-    "HOST-PROTOCOL": { "ownerAdr": "ADR-0014", "layer": "L0", "description": "Versioned page protocol and state machine" },
-    "HOST-FRESHNESS": { "ownerAdr": "ADR-0014", "layer": "L0", "description": "Per-navigation run identity, nonce, hashes and timestamps" },
-    "HOST-DISPOSE": { "ownerAdr": "ADR-0014", "layer": "L4", "description": "Document, GPU and listener teardown is observed" },
-    "HOST-CAPABILITY": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Adapter, device and WGSL capability fingerprint" },
-    "HOST-GPU-ERRORS": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Compilation, error-scope, uncaptured-error and device-loss collection" },
-    "HOST-READBACK": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Bounded GPU execution and numeric readback" },
-    "CAP-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Subgroups required before opaque resource creation" },
-    "CAP-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Required limits preflight without silent lowering" },
-    "CAP-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Classifier accepts the reported subgroup width range" },
-    "CAP-004": { "ownerAdr": "ADR-0013", "layer": "L2", "description": "Subgroup size control remains unrequested" },
-    "CAP-005": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Actual capability and format specialization recorded" },
-    "QUE-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Fixed macro and microtile dimensions" },
-    "QUE-002": { "ownerAdr": "ADR-0013", "layer": "L2", "description": "Four byte microtile record stride" },
-    "QUE-003": { "ownerAdr": "ADR-0013", "layer": "L2", "description": "Aligned sixteen byte counter and layout records" },
-    "QUE-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Separate twelve byte indirect records" },
-    "QUE-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "All or nothing bounded heap reservation" },
-    "QUE-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Overflow zeros every resolve indirect argument" },
-    "QUE-007": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Classifier records and indirect arguments close into GPU consumers without CPU visible-list traversal" },
-    "QUE-008": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Exact rectangular indirect dispatch tails" },
-    "CLS-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Classifier workgroup is sixteen by sixteen" },
-    "CLS-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Subgroup operations use uniform control flow" },
-    "CLS-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Coverage uses width independent two word masks" },
-    "CLS-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Subgroup results aggregate before global reservation" },
-    "CLS-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "At most one reservation per macro and bin" },
-    "DIAG-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Pre-consumer failures zero all indirect arguments" },
-    "ID-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Material, instance and MeshletWork bin identity agrees" },
-    "ID-006": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Textureless program identity always uses binding set zero" },
-    "VIS-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Visibility writes an r8uint shading-bin MRT" },
-    "VIS-003": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Depth winner and shading bin belong to the same raster sample" },
-    "CLS-006": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Initialize, classify, finalize and resolve pass boundaries are explicit" },
-    "SHADE-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Each opaque hit receives one complete material evaluation" },
-    "SHADE-003": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Textured programs use perspective-correct UV and textureSampleGrad" },
-    "SHADE-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Lit programs fuse direct lighting in the material consumer" },
-    "SHADE-006": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Output dependencies participate in pipeline identity and resource pruning" },
-    "SHADE-007": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "The widest executed variant fits the frozen binding budget" },
-    "OFF-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Inactive bins own no queue work or dispatch" },
-    "OFF-003": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Disabled outputs have no bindings, stores or resources" },
-    "OFF-004": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Diagnostics-off physically removes claim resources and shader code" },
-    "DIAG-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Production uses only low-frequency error and safety counters" },
-    "DIAG-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Production successful pixels perform no ownership atomics" },
-    "DIAG-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Consumer identity mismatch invalidates the frame and suppresses the lane" },
-    "DIAG-005": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Frame invalid never presents partial output" },
-    "DIAG-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Ownership validation exists only in a diagnostics variant" },
-    "DIAG-007": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Readback is asynchronous and never controls current-frame construction" },
-    "LIFE-003": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "In-flight frames retain immutable publication and GPU resource revisions" },
-    "LIFE-004": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Resize resources retire only after the referencing submission completes" }
+    "HOST-PROTOCOL": {
+      "ownerAdr": "ADR-0014",
+      "layer": "L0",
+      "description": "Versioned page protocol and state machine"
+    },
+    "HOST-FRESHNESS": {
+      "ownerAdr": "ADR-0014",
+      "layer": "L0",
+      "description": "Per-navigation run identity, nonce, hashes and timestamps"
+    },
+    "HOST-DISPOSE": {
+      "ownerAdr": "ADR-0014",
+      "layer": "L4",
+      "description": "Document, GPU and listener teardown is observed"
+    },
+    "HOST-CAPABILITY": {
+      "ownerAdr": "ADR-0014",
+      "layer": "L3",
+      "description": "Adapter, device and WGSL capability fingerprint"
+    },
+    "HOST-GPU-ERRORS": {
+      "ownerAdr": "ADR-0014",
+      "layer": "L3",
+      "description": "Compilation, error-scope, uncaptured-error and device-loss collection"
+    },
+    "HOST-READBACK": {
+      "ownerAdr": "ADR-0014",
+      "layer": "L3",
+      "description": "Bounded GPU execution and numeric readback"
+    },
+    "CAP-001": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Subgroups required before opaque resource creation"
+    },
+    "CAP-002": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Required limits preflight without silent lowering"
+    },
+    "CAP-003": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Classifier accepts the reported subgroup width range"
+    },
+    "CAP-004": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L2",
+      "description": "Subgroup size control remains unrequested"
+    },
+    "CAP-005": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Actual capability and format specialization recorded"
+    },
+    "QUE-001": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Fixed macro and microtile dimensions"
+    },
+    "QUE-002": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L2",
+      "description": "Four byte microtile record stride"
+    },
+    "QUE-003": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L2",
+      "description": "Aligned sixteen byte counter and layout records"
+    },
+    "QUE-004": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Separate twelve byte indirect records"
+    },
+    "QUE-005": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "All or nothing bounded heap reservation"
+    },
+    "QUE-006": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Overflow zeros every resolve indirect argument"
+    },
+    "QUE-007": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Classifier records and indirect arguments close into GPU consumers without CPU visible-list traversal"
+    },
+    "QUE-008": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Exact rectangular indirect dispatch tails"
+    },
+    "CLS-001": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Classifier workgroup is sixteen by sixteen"
+    },
+    "CLS-002": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Subgroup operations use uniform control flow"
+    },
+    "CLS-003": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Coverage uses width independent two word masks"
+    },
+    "CLS-004": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Subgroup results aggregate before global reservation"
+    },
+    "CLS-005": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "At most one reservation per macro and bin"
+    },
+    "DIAG-003": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Pre-consumer failures zero all indirect arguments"
+    },
+    "ID-005": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Material, instance and MeshletWork bin identity agrees"
+    },
+    "ID-006": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Textureless program identity always uses binding set zero"
+    },
+    "VIS-001": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Visibility writes an r8uint shading-bin MRT"
+    },
+    "VIS-003": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Depth winner and shading bin belong to the same raster sample"
+    },
+    "CLS-006": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Initialize, classify, finalize and resolve pass boundaries are explicit"
+    },
+    "SHADE-001": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Each opaque hit receives one complete material evaluation"
+    },
+    "SHADE-003": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Textured programs use perspective-correct UV and textureSampleGrad"
+    },
+    "SHADE-004": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Lit programs fuse direct lighting in the material consumer"
+    },
+    "SHADE-006": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Output dependencies participate in pipeline identity and resource pruning"
+    },
+    "SHADE-007": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "The widest executed variant fits the frozen binding budget"
+    },
+    "OFF-001": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Inactive bins own no queue work or dispatch"
+    },
+    "OFF-003": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Disabled outputs have no bindings, stores or resources"
+    },
+    "OFF-004": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Diagnostics-off physically removes claim resources and shader code"
+    },
+    "DIAG-001": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Production uses only low-frequency error and safety counters"
+    },
+    "DIAG-002": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Production successful pixels perform no ownership atomics"
+    },
+    "DIAG-004": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Consumer identity mismatch invalidates the frame and suppresses the lane"
+    },
+    "DIAG-005": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Frame invalid never presents partial output"
+    },
+    "DIAG-006": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L3",
+      "description": "Ownership validation exists only in a diagnostics variant"
+    },
+    "DIAG-007": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Readback is asynchronous and never controls current-frame construction"
+    },
+    "LIFE-003": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "In-flight frames retain immutable publication and GPU resource revisions"
+    },
+    "LIFE-004": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Resize resources retire only after the referencing submission completes"
+    },
+    "LIFE-RECOVERY": {
+      "ownerAdr": "ADR-0013",
+      "layer": "L4",
+      "description": "Public Renderer re-negotiates a new device and rebuilds the complete CPU scene without old GPU resources"
+    }
   },
   "profiles": {
     "smoke": {
       "headed": false,
-      "viewport": [1280, 720],
+      "viewport": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "browserChannel": "chrome-stable"
     },
     "formal-1080p": {
       "headed": true,
-      "viewport": [1920, 1080],
+      "viewport": [
+        1920,
+        1080
+      ],
       "deviceScaleFactor": 1,
       "browserChannel": "chrome-stable"
     }
   },
   "workloads": {
     "protocol-self-test-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "orchestration-smoke-v1",
@@ -79,11 +277,16 @@
       "independentRuns": 1
     },
     "webgpu-component-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "component-smoke-v1",
-      "features": ["core-features-and-limits"],
+      "features": [
+        "core-features-and-limits"
+      ],
       "seed": 0,
       "cameraPath": "none",
       "warmupFrames": 1,
@@ -93,12 +296,22 @@
       "independentRuns": 1
     },
     "shading-bin-component-v1": {
-      "resolution": [1280, 720],
-      "componentExtent": [65, 67],
+      "resolution": [
+        1280,
+        720
+      ],
+      "componentExtent": [
+        65,
+        67
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0013-step-4-l3-v1",
-      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1"],
+      "features": [
+        "core-features-and-limits",
+        "subgroups",
+        "texture-formats-tier1"
+      ],
       "seed": 13004,
       "cameraPath": "none",
       "warmupFrames": 1,
@@ -108,12 +321,22 @@
       "independentRuns": 1
     },
     "shading-resolve-component-v1": {
-      "resolution": [1280, 720],
-      "componentExtent": [33, 33],
+      "resolution": [
+        1280,
+        720
+      ],
+      "componentExtent": [
+        33,
+        33
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0013-step-5-l3-v1",
-      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1"],
+      "features": [
+        "core-features-and-limits",
+        "subgroups",
+        "texture-formats-tier1"
+      ],
       "seed": 13005,
       "cameraPath": "none",
       "warmupFrames": 1,
@@ -123,16 +346,56 @@
       "independentRuns": 1
     },
     "sparse-shading-candidate-correctness-v6": {
-      "resolution": [1280, 720],
-      "componentExtent": [256, 256],
+      "resolution": [
+        1280,
+        720
+      ],
+      "componentExtent": [
+        256,
+        256
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0013-step-6-correctness-l4-v6",
-      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1", "visibility-mrt", "sparse-indirect-resolve", "fixed-shadow-raster", "ibl", "ssgi", "ssr", "taa", "post", "lifecycle-resize"],
+      "features": [
+        "core-features-and-limits",
+        "subgroups",
+        "texture-formats-tier1",
+        "visibility-mrt",
+        "sparse-indirect-resolve",
+        "fixed-shadow-raster",
+        "ibl",
+        "ssgi",
+        "ssr",
+        "taa",
+        "post",
+        "lifecycle-resize"
+      ],
       "seed": 13006,
       "cameraPath": "basic-cube-near-far-plus-rendering-lab-fixed-plus-resize",
       "warmupFrames": 1,
       "sampleFrames": 11,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
+    "sparse-shading-production-correctness-v1": {
+      "resolution": [
+        1280,
+        720
+      ],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0013-production-correctness-v1",
+      "features": [
+        "unlit",
+        "material-patch",
+        "device-loss-recovery"
+      ],
+      "seed": 13,
+      "cameraPath": "deterministic-near-far",
+      "warmupFrames": 1,
+      "sampleFrames": 5,
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
@@ -145,12 +408,22 @@
       "kind": "orchestration",
       "buildTarget": "host",
       "ownerAdr": "ADR-0014",
-      "requirements": ["HOST-PROTOCOL", "HOST-FRESHNESS", "HOST-DISPOSE"],
+      "requirements": [
+        "HOST-PROTOCOL",
+        "HOST-FRESHNESS",
+        "HOST-DISPOSE"
+      ],
       "workloadId": "protocol-self-test-v1",
       "profile": "smoke",
       "timeoutMs": 15000,
-      "artifacts": ["result", "events"],
-      "changedPaths": ["validation/src/host", "validation/src/runner"]
+      "artifacts": [
+        "result",
+        "events"
+      ],
+      "changedPaths": [
+        "validation/src/host",
+        "validation/src/runner"
+      ]
     },
     {
       "id": "webgpu-component",
@@ -158,12 +431,23 @@
       "kind": "component",
       "buildTarget": "host",
       "ownerAdr": "ADR-0014",
-      "requirements": ["HOST-CAPABILITY", "HOST-GPU-ERRORS", "HOST-READBACK"],
+      "requirements": [
+        "HOST-CAPABILITY",
+        "HOST-GPU-ERRORS",
+        "HOST-READBACK"
+      ],
       "workloadId": "webgpu-component-v1",
       "profile": "smoke",
       "timeoutMs": 30000,
-      "artifacts": ["result", "events", "screenshot"],
-      "changedPaths": ["validation/src/cases/webgpu-component", "OEngine/src/gpu"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
+      "changedPaths": [
+        "validation/src/cases/webgpu-component",
+        "OEngine/src/gpu"
+      ],
       "errorAllowlist": [
         {
           "source": "console:warning",
@@ -180,14 +464,33 @@
       "buildTarget": "internal-candidate",
       "ownerAdr": "ADR-0013",
       "requirements": [
-        "CAP-001", "CAP-002", "CAP-003", "CAP-004", "CAP-005",
-        "QUE-001", "QUE-002", "QUE-003", "QUE-004", "QUE-005", "QUE-006", "QUE-008",
-        "CLS-001", "CLS-002", "CLS-003", "CLS-004", "CLS-005", "DIAG-003"
+        "CAP-001",
+        "CAP-002",
+        "CAP-003",
+        "CAP-004",
+        "CAP-005",
+        "QUE-001",
+        "QUE-002",
+        "QUE-003",
+        "QUE-004",
+        "QUE-005",
+        "QUE-006",
+        "QUE-008",
+        "CLS-001",
+        "CLS-002",
+        "CLS-003",
+        "CLS-004",
+        "CLS-005",
+        "DIAG-003"
       ],
       "workloadId": "shading-bin-component-v1",
       "profile": "smoke",
       "timeoutMs": 60000,
-      "artifacts": ["result", "events", "readback"],
+      "artifacts": [
+        "result",
+        "events",
+        "readback"
+      ],
       "changedPaths": [
         "validation/src/cases/shading-bin-component",
         "OEngine/src/gpu/GpuShadingBinAbi.ts",
@@ -211,13 +514,23 @@
       "buildTarget": "internal-candidate",
       "ownerAdr": "ADR-0013",
       "requirements": [
-        "ID-005", "SHADE-001", "SHADE-004", "SHADE-007", "OFF-001",
-        "DIAG-002", "DIAG-004", "DIAG-006"
+        "ID-005",
+        "SHADE-001",
+        "SHADE-004",
+        "SHADE-007",
+        "OFF-001",
+        "DIAG-002",
+        "DIAG-004",
+        "DIAG-006"
       ],
       "workloadId": "shading-resolve-component-v1",
       "profile": "smoke",
       "timeoutMs": 120000,
-      "artifacts": ["result", "events", "readback"],
+      "artifacts": [
+        "result",
+        "events",
+        "readback"
+      ],
       "changedPaths": [
         "validation/src/cases/shading-resolve-component",
         "OEngine/src/render/passes/SparseShadingResolvePass.ts",
@@ -244,14 +557,34 @@
       "buildTarget": "internal-candidate",
       "ownerAdr": "ADR-0013",
       "requirements": [
-        "CAP-005", "ID-005", "ID-006", "VIS-001", "VIS-003", "QUE-007", "CLS-006",
-        "SHADE-001", "SHADE-003", "SHADE-004", "SHADE-006", "OFF-001", "OFF-003", "OFF-004",
-        "DIAG-001", "DIAG-007", "LIFE-003", "LIFE-004"
+        "CAP-005",
+        "ID-005",
+        "ID-006",
+        "VIS-001",
+        "VIS-003",
+        "QUE-007",
+        "CLS-006",
+        "SHADE-001",
+        "SHADE-003",
+        "SHADE-004",
+        "SHADE-006",
+        "OFF-001",
+        "OFF-003",
+        "OFF-004",
+        "DIAG-001",
+        "DIAG-007",
+        "LIFE-003",
+        "LIFE-004"
       ],
       "workloadId": "sparse-shading-candidate-correctness-v6",
       "profile": "smoke",
       "timeoutMs": 180000,
-      "artifacts": ["result", "events", "screenshot", "readback"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot",
+        "readback"
+      ],
       "changedPaths": [
         "validation/src/cases/sparse-shading-candidate",
         "OEngine/src/render/pipeline/SparseShadingCandidatePipeline.ts",
@@ -262,6 +595,43 @@
         "OEngine/src/render/passes/ShadingBinPass.ts",
         "OEngine/src/render/passes/SparseShadingResolvePass.ts",
         "OEngine/src/render/passes/TonemapPass.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
+          "ownerRequirement": "CAP-005"
+        }
+      ]
+    },
+    {
+      "id": "sparse-shading-production",
+      "route": "/src/cases/sparse-shading-production/index.html",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0013",
+      "requirements": [
+        "CAP-005",
+        "SHADE-001",
+        "DIAG-007",
+        "LIFE-RECOVERY"
+      ],
+      "workloadId": "sparse-shading-production-correctness-v1",
+      "profile": "smoke",
+      "timeoutMs": 180000,
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot",
+        "readback"
+      ],
+      "changedPaths": [
+        "validation/src/cases/sparse-shading-production",
+        "OEngine/src/render/Renderer.ts",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
+        "OEngine/src/gpu/GpuScene.ts",
+        "OEngine/src/gpu/GpuRenderWorld.ts"
       ],
       "errorAllowlist": [
         {

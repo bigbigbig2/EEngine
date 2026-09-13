@@ -72,29 +72,12 @@ export interface SurfaceFeatureInputs {
  * that same kernel; no CPU-visible list participates in dispatch generation.
  */
 export class SurfaceFeature {
-  private readonly viewBuffer: GPUBuffer;
-  private readonly materialSamplers: readonly GPUSampler[];
-  private readonly shadowSampler: GPUSampler;
+  private viewBuffer: GPUBuffer | null = null;
   private activeBinCount = 0;
   private outputBytesPerPixel = 0;
   private resolveRan = false;
 
-  constructor(private readonly graphics: GraphicsContext) {
-    this.viewBuffer = graphics.device.createBuffer({
-      label: "ADR-0013 production sparse shading view",
-      size: 256,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
-    this.materialSamplers = Object.freeze([
-      materialSampler(graphics, "repeat", "linear"),
-      materialSampler(graphics, "clamp-to-edge", "linear"),
-      materialSampler(graphics, "mirror-repeat", "linear"),
-      materialSampler(graphics, "repeat", "nearest"),
-      materialSampler(graphics, "clamp-to-edge", "nearest"),
-      materialSampler(graphics, "mirror-repeat", "nearest")
-    ]);
-    this.shadowSampler = graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR);
-  }
+  constructor(private readonly graphics: GraphicsContext) {}
 
   get lastActiveBinCount(): number { return this.activeBinCount; }
   get surfaceBytesPerPixel(): number { return this.outputBytesPerPixel; }
@@ -141,6 +124,33 @@ export class SurfaceFeature {
       throw new Error("Sparse shading shadow specialization does not match its atlas input");
     }
 
+    this.viewBuffer ??= this.graphics.device.createBuffer({
+      label: "ADR-0013 production sparse shading view",
+      size: 256,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    // Capture the exact sampler closure in this graph recipe. Textureless and
+    // shadow-off publications must not even request their cached samplers.
+    const samplers = new Map<string, GPUSampler>();
+    for (const pipeline of snapshot.pipelines) {
+      for (const group of pipeline.groups) {
+        for (const binding of group.bindings) {
+          if (samplers.has(binding.name)) continue;
+          if (binding.name.startsWith("material_sampler_")) {
+            const index = Number(binding.name.slice("material_sampler_".length));
+            const address = ["repeat", "clamp-to-edge", "mirror-repeat"] as const;
+            if (!Number.isInteger(index) || index < 0 || index >= 6) {
+              throw new Error(`Invalid sparse shading sampler '${binding.name}'`);
+            }
+            samplers.set(binding.name, materialSampler(
+              this.graphics, address[index % 3]!, index < 3 ? "linear" : "nearest"
+            ));
+          } else if (binding.name === "shadow_sampler") {
+            samplers.set(binding.name, this.graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR));
+          }
+        }
+      }
+    }
     let view = graph.import_resource(
       "SparseShading/production-view",
       { kind: "imported", label: "ADR-0013 240-byte production shading view" },
@@ -226,6 +236,7 @@ export class SurfaceFeature {
     );
     finalizer.dependsOn(classifier);
     finalizer.read(heap);
+    heap = finalizer.write(heap);
     indirectArgs = finalizer.write(indirectArgs);
     finalizer.declareEncoderWork({ computePasses: 1, dispatches: 1 });
 
@@ -337,12 +348,15 @@ export class SurfaceFeature {
             return resolveTextureView(resources.get(id));
           }
           if (name.startsWith("material_sampler_")) {
-            const index = Number(name.slice("material_sampler_".length));
-            const sampler = this.materialSamplers[index];
+            const sampler = samplers.get(name);
             if (sampler === undefined) throw new Error(`Sparse shading binding '${name}' is out of range`);
             return sampler;
           }
-          if (name === "shadow_sampler") return this.shadowSampler;
+          if (name === "shadow_sampler") {
+            const sampler = samplers.get(name);
+            if (sampler === undefined) throw new Error("Sparse shading shadow sampler is absent");
+            return sampler;
+          }
           throw new Error(`Unknown sparse shading production binding '${name}'`);
         };
         const bindings = resolveOwner.createFrameBindingsForExecution(binding);
@@ -392,6 +406,7 @@ export class SurfaceFeature {
     resolve.read(inputs.visibility.depth);
     resolve.read(inputs.visibility.meshletWork.records);
     resolve.read(heap);
+    heap = resolve.write(heap);
     resolve.read(indirectArgs);
     resolve.read(settings);
     resolve.read(view);
@@ -418,7 +433,7 @@ export class SurfaceFeature {
     if (outputs.material !== null) outputs.material = resolve.write(outputs.material);
     if (outputs.velocity !== null) outputs.velocity = resolve.write(outputs.velocity);
     resolve.declareEncoderWork({
-      computePasses: snapshot.pipelines.length,
+      computePasses: 1,
       dispatches: snapshot.pipelines.length
     });
 
@@ -468,7 +483,8 @@ export class SurfaceFeature {
   }
 
   destroy(): void {
-    this.viewBuffer.destroy();
+    this.viewBuffer?.destroy();
+    this.viewBuffer = null;
   }
 }
 

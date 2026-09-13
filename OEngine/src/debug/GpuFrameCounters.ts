@@ -8,8 +8,8 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 23;
-export const GPU_COUNTER_BYTE_SIZE = 560;
+export const GPU_COUNTER_SCHEMA_VERSION = 24;
+export const GPU_COUNTER_BYTE_SIZE = 596;
 
 /** Stable schema holes; indices are never silently reused across ABI revisions. */
 export const GPU_COUNTER_RESERVED_INDICES = Object.freeze([
@@ -146,7 +146,16 @@ export const GPU_COUNTER_FIELDS = [
   { name: "longRangeInvalidGeneration", index: 136, semantic: "sampled receiver/provider candidates rejected because the authored and resident generations differ" },
   { name: "longRangeNonresidentFallbacks", index: 137, semantic: "sampled receiver/provider candidates falling through because required long-range data is not resident" },
   { name: "longRangeProviderUnassigned", index: 138, semantic: "sampled valid receivers for which the authoritative long-range producer emitted no provider identity" },
-  { name: "longRangeProviderDuplicates", index: 139, semantic: "sampled valid receivers for which more than one authoritative long-range provider was selected" }
+  { name: "longRangeProviderDuplicates", index: 139, semantic: "sampled valid receivers for which more than one authoritative long-range provider was selected" },
+  { name: "shadingBinFrameFlags", index: 140, semantic: "sampled production sparse queue frame-invalid flags" },
+  { name: "shadingBinErrors", index: 141, semantic: "sampled production sparse queue safety errors" },
+  { name: "shadingBinAttempted", index: 142, semantic: "sum of attempted sparse microtile reservations" },
+  { name: "shadingBinWritten", index: 143, semantic: "sum of safely written sparse microtile records" },
+  { name: "shadingBinOverflow", index: 144, semantic: "sum of rejected sparse microtile records" },
+  { name: "shadingBinIndirectWorkgroups", index: 145, semantic: "sum of generated sparse indirect X times Y times Z" },
+  { name: "shadingBinGeneratedMaskLo", index: 146, semantic: "GPU-authored generated bin mask low word" },
+  { name: "shadingBinGeneratedMaskHi", index: 147, semantic: "GPU-authored generated bin mask high word" },
+  { name: "shadingBinIndirectNonzeroWords", index: 148, semantic: "number of sparse indirect tuples with executable work (nonzero X; (0,1,1) is the zero-work sentinel)" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

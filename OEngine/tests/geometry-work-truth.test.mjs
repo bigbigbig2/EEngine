@@ -92,7 +92,7 @@ const GEOMETRY_TRUTH_FIELDS = [
 ];
 
 test("ADR-0008 Step 0 freezes a collision-free geometry truth counter ABI", () => {
-  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 23);
+  assert.equal(GPU_COUNTER_SCHEMA_VERSION, 24);
   const indices = GPU_COUNTER_FIELDS.map((field) => field.index);
   assert.equal(new Set(indices).size, indices.length);
   for (const name of GEOMETRY_TRUTH_FIELDS) {
@@ -136,7 +136,7 @@ test("ADR-0013 Step 7 reserves removed counter indices without renumbering live 
     GPU_COUNTER_FIELDS.some((field) => GPU_COUNTER_RESERVED_INDICES.includes(field.index)),
     false
   );
-  assert.equal(GPU_COUNTER_BYTE_SIZE, 560);
+  assert.equal(GPU_COUNTER_BYTE_SIZE, 596);
 });
 
 test("every live GPU counter has an explicit benchmark capability declaration", () => {

@@ -48,6 +48,7 @@ const GENERATION = 13;
 const LAYOUT_REVISION = 4;
 const RECTANGULAR_DISPATCH_LIMIT = 16;
 const ZERO_ARGS = Object.freeze({ workgroupCountX: 0, workgroupCountY: 1, workgroupCountZ: 1 });
+const FAILURE_ARGS = Object.freeze({ workgroupCountX: 0, workgroupCountY: 0, workgroupCountZ: 0 });
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output");
 const status = document.querySelector<HTMLElement>("#status");
@@ -502,7 +503,7 @@ function diagnosticExpectation(
     expected: Object.freeze({
       ...base,
       control: Object.freeze({ ...base.control, frameFlags: frameFlag, errorCount: 1 }),
-      indirectArgs: Object.freeze(Array.from({ length: GPU_SHADING_BIN_COUNT }, () => ZERO_ARGS))
+      indirectArgs: Object.freeze(Array.from({ length: GPU_SHADING_BIN_COUNT }, () => FAILURE_ARGS))
     })
   });
 }
@@ -540,7 +541,7 @@ function requireLimit(limits: Readonly<Record<string, number>>, name: string): n
 }
 
 function assertAllArgsZero(args: readonly Readonly<GpuShadingBinIndirectArgsCpu>[], label: string): void {
-  for (let binId = 0; binId < args.length; binId++) assertDeepEqual(args[binId], ZERO_ARGS, `${label} fail-closed bin ${binId}`);
+  for (let binId = 0; binId < args.length; binId++) assertDeepEqual(args[binId], FAILURE_ARGS, `${label} fail-closed bin ${binId}`);
 }
 
 function assertDeepEqual(actual: unknown, expected: unknown, label: string): void {

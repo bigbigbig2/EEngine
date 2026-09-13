@@ -797,6 +797,34 @@ export class GpuScene {
     return Object.freeze({ start: entry.start, count: entry.count });
   }
 
+  /** Cold device-recovery checkpoint from CPU truth, never GPU readback. */
+  recoveryInstances(handle: InstanceSetHandle): Pick<InstanceSource,
+    "currentTransforms" | "boundsSpheres" | "boundsMin" | "boundsMax" | "flags" | "debugIds"> {
+    const entry = this.requireEntry(handle, "resident");
+    const currentTransforms = new Float32Array(entry.count * 16);
+    const boundsSpheres = new Float32Array(entry.count * 4);
+    const boundsMin = new Float32Array(entry.count * 3);
+    const boundsMax = new Float32Array(entry.count * 3);
+    const flags = new Uint32Array(entry.count);
+    const debugIds = new Uint32Array(entry.count);
+    const bytes = new DataView(entry.bytes.buffer, entry.bytes.byteOffset, entry.bytes.byteLength);
+    for (let index = 0; index < entry.count; index++) {
+      const offset = index * GPU_INSTANCE_RECORD_STRIDE;
+      readGpuInstanceAffineMatrix(currentTransforms.subarray(index * 16, index * 16 + 16),
+        entry.bytes, offset + GPU_INSTANCE_RECORD_OFFSETS.current_affine);
+      for (let lane = 0; lane < 4; lane++) {
+        boundsSpheres[index * 4 + lane] = bytes.getFloat32(offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_sphere + lane * 4, true);
+      }
+      for (let lane = 0; lane < 3; lane++) {
+        boundsMin[index * 3 + lane] = bytes.getFloat32(offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_min + lane * 4, true);
+        boundsMax[index * 3 + lane] = bytes.getFloat32(offset + GPU_INSTANCE_RECORD_OFFSETS.bounds_max + lane * 4, true);
+      }
+      flags[index] = bytes.getUint32(offset + GPU_INSTANCE_RECORD_OFFSETS.flags, true) & GPU_INSTANCE_VISIBILITY_FLAGS_MASK;
+      debugIds[index] = bytes.getUint32(offset + GPU_INSTANCE_RECORD_OFFSETS.debug_id, true);
+    }
+    return { currentTransforms, boundsSpheres, boundsMin, boundsMax, flags, debugIds };
+  }
+
   evidence(): GpuSceneEvidence {
     return Object.freeze({
       schemaVersion: 2,

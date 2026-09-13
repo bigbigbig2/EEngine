@@ -313,7 +313,9 @@ ${forcedFinalizerErrors}
   workgroupBarrier();
 
   let frame_flags = atomicLoad(&finalizer_flags);
-  if frame_flags != 0u || written == 0u {
+  if frame_flags != 0u {
+    shading_bin_indirect[bin_id] = OEngineShadingBinIndirectArgs(0u, 1u, 1u);
+  } else if written == 0u {
     shading_bin_indirect[bin_id] = OEngineShadingBinIndirectArgs(0u, 1u, 1u);
   } else {
     let max_dispatch_dimension = ${finalizerMaxDispatch};

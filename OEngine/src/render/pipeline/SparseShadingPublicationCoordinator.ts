@@ -41,7 +41,7 @@ export type SparseShadingSubmissionBoundary = number | (() => number);
  * revision. No provisional CPU snapshot is visible through active().
  */
 export class SparseShadingPublicationCoordinator {
-  private readonly gpuOwner: SparseShadingGpuRevisionOwner;
+  private gpuOwner: SparseShadingGpuRevisionOwner;
   private store: GpuShadingPublicationStore | null = null;
   private activeScene: Readonly<GpuRenderWorldShadingPublication> | null = null;
   private activeContextKey: string | null = null;
@@ -55,8 +55,9 @@ export class SparseShadingPublicationCoordinator {
 
   constructor(
     device: GPUDevice,
-    diagnostics = false,
-    factory?: SparseShadingGpuRevisionFactory
+    private readonly diagnostics = false,
+    private readonly factory?: SparseShadingGpuRevisionFactory,
+    private readonly initialDeviceEpoch = 1
   ) {
     this.gpuOwner = new SparseShadingGpuRevisionOwner(device, diagnostics, factory);
   }
@@ -198,6 +199,7 @@ export class SparseShadingPublicationCoordinator {
   }
 
   async rebuildAfterDeviceLoss(
+    device: GPUDevice,
     scene: Readonly<GpuRenderWorldShadingPublication>,
     context: Readonly<GpuShadingPublicationContext>,
     retireAfterSubmission: SparseShadingSubmissionBoundary
@@ -207,6 +209,8 @@ export class SparseShadingPublicationCoordinator {
     if (!this.deviceLost || this.store === null || this.pending !== null) {
       throw new Error("Sparse shading device-loss rebuild is not available in the current state");
     }
+    this.gpuOwner.destroy();
+    this.gpuOwner = new SparseShadingGpuRevisionOwner(device, this.diagnostics, this.factory);
     let snapshot = this.store.rebuildAfterDeviceLoss(context);
     let transaction: ReturnType<GpuShadingPublicationStore["beginTransaction"]> | null = null;
     if (this.activeScene !== scene) {
@@ -266,7 +270,7 @@ export class SparseShadingPublicationCoordinator {
     retireAfterSubmission: SparseShadingSubmissionBoundary
   ): Promise<Readonly<SparseShadingGpuRevision>> {
     const bootstrap = this.store === null;
-    const store = this.store ?? new GpuShadingPublicationStore(context);
+    const store = this.store ?? new GpuShadingPublicationStore(context, this.initialDeviceEpoch);
     const transaction = store.beginTransaction();
     let prepared: Awaited<ReturnType<SparseShadingGpuRevisionOwner["prepare"]>> | null = null;
     let transactionClosed = false;

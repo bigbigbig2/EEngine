@@ -1073,7 +1073,9 @@ export class FrameProfiler {
           });
           this.notify(cloneSnapshot(frame));
         }
-        console.error("GPU counter readback failed", error);
+        if (!isExpectedCommandAbort(error)) {
+          console.error("GPU counter readback failed", error);
+        }
       }
     });
     return this.gpuFrameCounters;
@@ -1136,7 +1138,9 @@ export class FrameProfiler {
     this.failedGpuTimestampBatches++;
     batch.timings = [];
     this.finalizeGpuTimingBatches(frameIndex, state);
-    console.error("GPU timestamp readback failed", error);
+    if (!isExpectedCommandAbort(error)) {
+      console.error("GPU timestamp readback failed", error);
+    }
   }
 
   private finalizeGpuTimingBatches(
@@ -1241,6 +1245,10 @@ function nonNegativeFinite(value: number, name: string): number {
     throw new RangeError(`${name} must be a finite non-negative number`);
   }
   return value;
+}
+
+function isExpectedCommandAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function qualifyGpuTimingLabel(

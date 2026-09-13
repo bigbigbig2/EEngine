@@ -139,7 +139,11 @@ export class GpuShadingPublicationStore {
   private deviceEpoch = 1;
   private lost = false;
 
-  constructor(context: GpuShadingPublicationContext) {
+  constructor(context: GpuShadingPublicationContext, deviceEpoch = 1) {
+    if (!Number.isSafeInteger(deviceEpoch) || deviceEpoch < 1) {
+      throw new Error("Sparse shading device epoch must be a positive safe integer");
+    }
+    this.deviceEpoch = deviceEpoch;
     this.contextValue = freezeContext(context);
     this.state = emptyState();
     const prepared = this.buildPrepared(this.state, this.contextValue, this.revision);

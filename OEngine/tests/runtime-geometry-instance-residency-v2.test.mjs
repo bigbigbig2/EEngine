@@ -411,6 +411,15 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   }, abortedCommand);
   abortedCommand.abort();
   assert.equal(scene.evidence().abortedMutationCount, 1);
+  const recovery = scene.recoveryInstances(handle);
+  assert.deepEqual([...recovery.currentTransforms.subarray(12, 15)], [1, 0, 0],
+    "aborted transform must not enter device recovery CPU truth");
+  assert.deepEqual([...recovery.boundsSpheres.subarray(0, 4)], [1, 2, 3, 4]);
+  assert.equal(recovery.debugIds[0], 99);
+  assert.equal(recovery.flags[0], GPU_INSTANCE_FLAGS.Active | GPU_INSTANCE_FLAGS.CastsShadow);
+  recovery.currentTransforms[12] = 999;
+  assert.equal(scene.recoveryInstances(handle).currentTransforms[12], 1,
+    "checkpoint arrays must not alias authoritative Instance bytes");
 
   const release = new SceneCommand(device, writes);
   scene.release(handle, release);

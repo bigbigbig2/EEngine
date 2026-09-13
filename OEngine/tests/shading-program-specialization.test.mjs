@@ -350,6 +350,14 @@ test("resolve owner compiles once and encodes one indirect call per active bin",
       { binId: 37, groups: [{}, {}, {}, {}] }
     ], 17);
     assert.deepEqual(calls.filter(([name]) => name === "dispatchIndirect").map(([, offset]) => offset), [0, 444]);
+    assert.equal(calls.filter(([name]) => name === "begin").length, 1);
+    assert.equal(calls.filter(([name]) => name === "end").length, 1);
+    const beforeInvalid = calls.length;
+    assert.throws(() => owner.encode(command, {}, 256, [
+      { binId: 0, groups: [{}, {}, {}] },
+      { binId: 37, groups: [] }
+    ], 17), /closure is incomplete/u);
+    assert.equal(calls.length, beforeInvalid, "invalid late bin must not open a pass");
     assert.throws(() => owner.encode(command, {}, 256, [], 16), /publication revision/u);
     owner.destroy();
     assert.throws(() => owner.pipelineForBin(0), /destroyed/u);

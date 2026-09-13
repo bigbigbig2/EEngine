@@ -532,7 +532,7 @@ export function addSparseShadingCandidateToGraph(
   });
   Object.freeze(resolveFrame);
   resolve.declareEncoderWork({
-    computePasses: plan.activeBinIds.length,
+    computePasses: 1,
     dispatches: plan.activeBinIds.length
   });
   previousPass = resolve;

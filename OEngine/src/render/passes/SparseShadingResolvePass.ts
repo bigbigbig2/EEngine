@@ -179,14 +179,22 @@ export class SparseShadingResolvePass {
       if (frame === undefined || frame.groups.length !== record.bindGroupLayouts.length) {
         throw new Error(`Sparse shading bin ${binId} bind-group closure is incomplete`);
       }
-      const pass = command.beginComputePass({
-        label: `${SPARSE_SHADING_RESOLVE_LABEL} bin ${binId}`
-      });
-      pass.setPipeline(record.pipeline);
-      for (let group = 0; group < frame.groups.length; group++) {
-        pass.setBindGroup(group, frame.groups[group]!, group === 0 ? [settingsDynamicOffset] : []);
+    }
+    // Validate the entire immutable closure before opening a pass. All active
+    // bins share one usage scope; the indirect arguments are a separate buffer
+    // from the classifier/resolve heap (ADR-0013).
+    if (this.records.size === 0) return;
+    const pass = command.beginComputePass({ label: SPARSE_SHADING_RESOLVE_LABEL });
+    try {
+      for (const [binId, record] of this.records) {
+        const frame = byBin.get(binId)!;
+        pass.setPipeline(record.pipeline);
+        for (let group = 0; group < frame.groups.length; group++) {
+          pass.setBindGroup(group, frame.groups[group]!, group === 0 ? [settingsDynamicOffset] : []);
+        }
+        pass.dispatchWorkgroupsIndirect(indirectArgs, binId * GPU_SHADING_BIN_INDIRECT_STRIDE);
       }
-      pass.dispatchWorkgroupsIndirect(indirectArgs, binId * GPU_SHADING_BIN_INDIRECT_STRIDE);
+    } finally {
       pass.end();
     }
   }

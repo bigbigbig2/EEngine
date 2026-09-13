@@ -166,10 +166,14 @@ test("identical concurrent requests share preparation and destroy closes late fa
 
 test("device loss invalidates the old epoch and rebuilds from retained CPU scene truth", async () => {
   const destroyed = [];
+  const devices = [];
+  const factory = fakeGpuRevisionFactory(destroyed);
+  const oldDevice = { label: "old device" };
+  const newDevice = { label: "replacement device" };
   const coordinator = new SparseShadingPublicationCoordinator(
-    null,
+    oldDevice,
     false,
-    fakeGpuRevisionFactory(destroyed)
+    async (device, ...args) => { devices.push(device); return factory(device, ...args); }
   );
   const scene = scenePublication(1, source({ materialId: 0 }));
   const before = await coordinator.reconcile(scene, context(), 0);
@@ -177,7 +181,8 @@ test("device loss invalidates the old epoch and rebuilds from retained CPU scene
   assert.throws(() => coordinator.active(scene, context()), /not active/u);
   assert.equal(coordinator.evidence().deviceLost, true);
 
-  const rebuilt = await coordinator.rebuildAfterDeviceLoss(scene, context(), 0);
+  const rebuilt = await coordinator.rebuildAfterDeviceLoss(newDevice, scene, context(), 0);
+  assert.deepEqual(devices, [oldDevice, newDevice], "GPU factory must use the newly negotiated device");
   assert.ok(rebuilt.snapshot.revision > before.snapshot.revision);
   assert.ok(rebuilt.snapshot.deviceEpoch > before.snapshot.deviceEpoch);
   assert.strictEqual(coordinator.active(scene, context()), rebuilt);

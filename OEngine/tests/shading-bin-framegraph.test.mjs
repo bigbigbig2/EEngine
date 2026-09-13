@@ -241,14 +241,22 @@ test("production SurfaceFeature prunes no-opaque and exact compact output resour
     globalThis.GPUTextureUsage = previousTextureUsage;
   });
   let destroyed = 0;
+  let created = 0;
+  let samplerRequests = 0;
   const surface = new SurfaceFeature({
     device: {
       createBuffer(descriptor) {
+        created++;
         return { ...descriptor, destroy() { destroyed++; } };
       }
     },
-    samplers: { obtain(descriptor) { return { descriptor }; } }
+    samplers: { obtain(descriptor) { samplerRequests++; return { descriptor }; } }
   });
+  const coldEmpty = productionSurfaceFixture(snapshot("empty", 0).snapshot);
+  surface.beginFrame(coldEmpty.revision);
+  assert.equal(surface.addToGraph(coldEmpty.graph, coldEmpty.job, coldEmpty.inputs), null);
+  assert.equal(created, 0, "no opaque consumer must not allocate a view buffer");
+  assert.equal(samplerRequests, 0, "no opaque consumer must not request samplers");
 
   const cases = [
     {
@@ -327,6 +335,8 @@ test("production SurfaceFeature prunes no-opaque and exact compact output resour
   assert.equal(surface.surfaceBytesPerPixel, 0);
 
   surface.destroy();
+  assert.equal(created, 1, "active frames reuse the view allocation");
+  assert.equal(samplerRequests, 0, "textureless shadow-off frames must not request samplers");
   assert.equal(destroyed, 1);
 });
 

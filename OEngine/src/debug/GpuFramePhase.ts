@@ -42,6 +42,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /lightcluster\/fx-02 stats/,
     /sparseshading\/.*(?:counter|diagnostic|readback)/,
     /gpu.?counter/,
+    /sampled sparse safety counters/,
     /counter accumulator/,
     /render debug/
   ),
@@ -64,6 +65,9 @@ const PHASE_RULES: readonly PhaseRule[] = [
     "material-resolve",
     /material expand/,
     /material resolve/,
+    /sparse shading resolve/,
+    /shadingbin classifier/,
+    /shadingbin finalizer/,
     /sparseshading\/clear \+ classify/,
     /sparseshading\/finalize/,
     /sparseshading\/active-bin/,

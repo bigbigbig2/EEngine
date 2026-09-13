@@ -58,6 +58,7 @@ import {
 } from "../features/VisibilityFeature.js";
 import { SurfaceFeature } from "../features/SurfaceFeature.js";
 import { PackedSurfaceCounterPass } from "../passes/PackedSurfaceCounterPass.js";
+import { SparseShadingCounterPass } from "../passes/SparseShadingCounterPass.js";
 import { LightingFeature } from "../features/LightingFeature.js";
 import {
   type ShadowFeature
@@ -610,6 +611,15 @@ export class MainRenderPipeline {
   private _highDynamicRange = false;
   private _peakNits = 1000;
   private _deviceLost = false;
+  private _destroyed = false;
+  protected deviceEpoch = 1;
+  private _ownsDevice = false;
+  private _initializationConfig: RendererConfig | null = null;
+  private readonly _brickRecovery = new Map<Scene, {
+    source: Brick4LightMapPackageV1;
+    invalidGeneration?: number;
+    invalid: boolean;
+  }>();
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _capabilities: RendererCapabilities | null = null;
   private readonly _rendererConfig: RendererConfig;
@@ -629,7 +639,7 @@ export class MainRenderPipeline {
   private readonly _output_resolution = new Vec2(1, 1);
   private _visibilityFeature!: VisibilityFeature;
   private _visibilityCounters: VisibilityCounterPass | null = null;
-  private _surfaceFeature!: SurfaceFeature;
+  private _surfaceFeature: SurfaceFeature | null = null;
   private _packedSurfaceCounters!: PackedSurfaceCounterPass;
   private _lightingFeature!: LightingFeature;
   private _sparseShadingCapability!: Readonly<GpuSparseShadingCapabilityRecord>;
@@ -933,7 +943,9 @@ export class MainRenderPipeline {
     if (this._graphics.render_world.runtime(scene) === null) {
       throw new Error("uploadBrick4LightMap requires an uploaded Scene");
     }
-    return this._environments.obtain(scene).volumetric_light_map.upload(source);
+    const result = this._environments.obtain(scene).volumetric_light_map.upload(source);
+    this._brickRecovery.set(scene, { source, invalid: false });
+    return result;
   }
 
   /**
@@ -946,6 +958,11 @@ export class MainRenderPipeline {
       throw new Error("invalidateBrick4LightMap requires a registered Brick4 owner");
     }
     environment.volumetric_light_map.invalidate(nextGeneration);
+    const recovery = this._brickRecovery.get(scene);
+    if (recovery !== undefined) {
+      recovery.invalid = true;
+      recovery.invalidGeneration = nextGeneration;
+    }
   }
 
   brick4LightMapEvidence(scene: Scene): Brick4LightMapEvidence | null {
@@ -1052,6 +1069,7 @@ export class MainRenderPipeline {
       // completion prevents immutable texture segments from becoming stranded
       // or being reused while an earlier frame still references them.
       await command.gpuDone;
+      this._brickRecovery.delete(scene);
       if (shadingPublication !== null) {
         const released = await this._sparseShadingPublications.release(
           shadingPublication,
@@ -1495,6 +1513,8 @@ export class MainRenderPipeline {
     validateRendererWgslLanguageFeatures(gpu);
     const effectiveConfig = mergeRendererConfig(this._rendererConfig, config);
     validateRendererConfig(effectiveConfig);
+    this._initializationConfig = effectiveConfig;
+    this._ownsDevice = device === undefined;
     if (config !== undefined) {
       this.configure(rendererConfigSettingsPatch(effectiveConfig));
     }
@@ -1652,7 +1672,7 @@ export class MainRenderPipeline {
       effectiveConfig.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE
     );
     this._frameCoordinator = new FrameCoordinator(this._graphics);
-    this._sparseShadingPublications = new SparseShadingPublicationCoordinator(device);
+    this._sparseShadingPublications = new SparseShadingPublicationCoordinator(device, false, undefined, this.deviceEpoch);
     await this._graphics.initialize();
     this._environments = new GPUSceneEnvironmentManager(this._graphics);
     this._shadowFeatures = new ShadowFeatureManager(this._graphics);
@@ -1666,6 +1686,7 @@ export class MainRenderPipeline {
       this._render_resolution.x,
       this._render_resolution.y
     );
+    this.recalculateRenderResolution();
     this.configureCanvas();
     window
       .matchMedia("(dynamic-range: high)")
@@ -1673,6 +1694,9 @@ export class MainRenderPipeline {
   }
 
   destroy(): void {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    this._deviceLost = true;
     this._unsubscribeDynamicResolution?.();
     this._unsubscribeDynamicResolution = null;
     window
@@ -1715,7 +1739,49 @@ export class MainRenderPipeline {
     this._environments?.destroy();
     this._mainGraphCache.destroy();
     this._frameCoordinator?.destroy();
-    this._graphics.destroy();
+    this._graphics?.destroy();
+    this._brickRecovery.clear();
+    if (this._ownsDevice) this.device?.destroy();
+  }
+
+  /** Cold recovery boundary. Only CPU application/asset truth crosses devices. */
+  protected checkpointDeviceRecovery() {
+    if (this._destroyed || !this._deviceLost || this._initializationConfig === null) {
+      throw new Error("Renderer recovery requires a lost, initialized, non-destroyed Renderer");
+    }
+    return {
+      context: this.context,
+      pixelRatio: this._pixel_ratio,
+      width: this._width,
+      height: this._height,
+      config: { ...this._initializationConfig, renderSettings: this.render_settings },
+      scenes: this._graphics.render_world.recoveryScenes(),
+      bricks: [...this._brickRecovery.entries()],
+      deviceEpoch: this.deviceEpoch + 1
+    };
+  }
+
+  protected async restoreDeviceRecovery(checkpoint: ReturnType<MainRenderPipeline["checkpointDeviceRecovery"]>): Promise<void> {
+    this.deviceEpoch = checkpoint.deviceEpoch;
+    await this.initialize({ context: checkpoint.context, pixelRatio: checkpoint.pixelRatio, config: checkpoint.config });
+    this.resize(checkpoint.width, checkpoint.height);
+    for (const entry of checkpoint.scenes) {
+      if (entry.ordinaryMeshes !== undefined) {
+        const bindings = entry.ordinaryMeshes.map((mesh, index) => ({
+          geometry: mesh.geometry,
+          asset: entry.source.geometries[entry.source.geometryIndices[index]!]!
+        }));
+        const unique = [...new Map(bindings.map((binding) => [binding.geometry, binding])).values()];
+        await this.uploadScene(entry.scene, unique);
+      } else {
+        await this.uploadPackedScene(entry.scene, entry.source);
+        if (entry.queuedPatch !== undefined) this.queuePackedScenePatch(entry.scene, entry.queuedPatch);
+      }
+    }
+    for (const [scene, brick] of checkpoint.bricks) {
+      this.uploadBrick4LightMap(scene, brick.source);
+      if (brick.invalid) this.invalidateBrick4LightMap(scene, brick.invalidGeneration);
+    }
   }
 
   resize(x: number, y: number): void {
@@ -1774,7 +1840,13 @@ export class MainRenderPipeline {
     });
     const featureTopology = this.resolveFeatureTopology();
     this.initializeRenderPasses(featureTopology);
-    this._surfaceFeature.beginFrame(sparseRevision);
+    if (sparseRevision.snapshot.pipelines.length > 0) {
+      this._surfaceFeature ??= new SurfaceFeature(this._graphics);
+      this._surfaceFeature.beginFrame(sparseRevision);
+    } else if (this._surfaceFeature !== null) {
+      this.retireAfterSubmittedWork(this._surfaceFeature);
+      this._surfaceFeature = null;
+    }
     const framePreExposure: PreExposureContract = Object.freeze({
       multiplier: 1,
       generation: 0,
@@ -1795,7 +1867,7 @@ export class MainRenderPipeline {
         scene: scene.id,
         representation: MAIN_HISTORY_REPRESENTATION_REVISION +
           (featureTopology.nss ? this._nss!.historyRepresentationRevision : 0),
-        device: 0,
+        device: this.deviceEpoch,
         preExposureGeneration: framePreExposure.generation,
         view: `${camera.id}`
       },
@@ -2503,6 +2575,9 @@ export class MainRenderPipeline {
                 })
               )))
           }));
+          if (this._surfaceFeature === null) {
+            throw new Error("Opaque publication is missing its production surface owner");
+          }
           specializedShading = this._surfaceFeature.addToGraph(
             graph,
             bind("sparse-shading-view-job", (bindings) => {
@@ -2557,6 +2632,11 @@ export class MainRenderPipeline {
         const surfaceDomain = specializedShading?.domain ??
           textureDomain("internal-full", w, h, 1);
         const shadingBinDiagnosticControlRes = specializedShading?.bins.heap;
+        if (specializedShading !== null && gpuCounterRes !== null) {
+          gpuCounterRes = new SparseShadingCounterPass().addToGraph(
+            graph, specializedShading.bins.heap, specializedShading.bins.indirectArgs, gpuCounterRes
+          );
+        }
         hdrRes = specializedShading?.direct.hdr ??
           this._lightingFeature.addEmptyHdrToGraph(graph, w, h);
 
@@ -3640,6 +3720,13 @@ export class MainRenderPipeline {
           "queueOverflowMask",
         ]);
         if (gpuPacked !== null) {
+          if (sparseRevision.snapshot.pipelines.length > 0) {
+            this._profiler.registerGpuCounterFields([
+              "shadingBinFrameFlags", "shadingBinErrors", "shadingBinAttempted", "shadingBinWritten",
+              "shadingBinOverflow", "shadingBinIndirectWorkgroups", "shadingBinGeneratedMaskLo",
+              "shadingBinGeneratedMaskHi", "shadingBinIndirectNonzeroWords"
+            ]);
+          }
           this._profiler.registerGpuCounterFields(["invalidVisibilityKeys"]);
           if (this.packed_triangle_setup_enabled) {
             this._profiler.registerGpuCounterFields([
@@ -3749,6 +3836,11 @@ export class MainRenderPipeline {
         frameLinearHdrCapture.reject(error);
         frameLinearHdrCapture = null;
       }
+      // Aborted frames still consume a profiler identity. Reusing the same
+      // index lets late GPU readbacks from the failed submission patch the
+      // next frame's profile and violates pending -> available/invalid order.
+      this._frame_count++;
+      this.onFrameFinished.send1(this._frame_count);
       throw error;
     } finally {
       this._profiler.endFrame();
@@ -3933,7 +4025,6 @@ export class MainRenderPipeline {
     this._visibilityFeature ??= new VisibilityFeature(this._graphics);
     // 透明度统一 owner 延迟创建具体 OIT pass，feature-off 时不分配 GPU 资源。
     this._transparencyFeature ??= new TransparencyFeature(this._graphics);
-    this._surfaceFeature ??= new SurfaceFeature(this._graphics);
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
     this._lightingFeature ??= new LightingFeature(this._graphics);
     this._giService ??= new GIService(this._graphics, this._surfaceLiteProfile);
@@ -4202,16 +4293,16 @@ export class MainRenderPipeline {
       const textureEvidence = this._graphics.texture_residency_if_created?.evidence();
       profiler.recordCounter(
         "sparseShading.activeBins",
-        this._surfaceFeature.lastActiveBinCount
+        this._surfaceFeature?.lastActiveBinCount ?? 0
       );
       profiler.recordCounter(
         "sparseShading.surfaceBytesPerPixel",
-        this._surfaceFeature.surfaceBytesPerPixel
+        this._surfaceFeature?.surfaceBytesPerPixel ?? 0
       );
       profiler.recordCounter(
         "sparseShading.surfaceAttachmentBytes",
         this._render_resolution.x * this._render_resolution.y *
-          this._surfaceFeature.surfaceBytesPerPixel
+          (this._surfaceFeature?.surfaceBytesPerPixel ?? 0)
       );
       profiler.recordCounter(
         "packed.material.residentTextures",
@@ -4738,8 +4829,9 @@ export class MainRenderPipeline {
   }
 
   private onDeviceLost(info: GPUDeviceLostInfo): void {
+    if (this._destroyed) return;
     this._deviceLost = true;
-    if (info.reason !== "destroyed") this._sparseShadingPublications?.markDeviceLost();
+    this._sparseShadingPublications?.markDeviceLost();
     if (info.reason !== "destroyed") console.error("GPUDevice lost", info);
   }
 }

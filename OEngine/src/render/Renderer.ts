@@ -45,6 +45,10 @@ export class Renderer extends MainRenderPipeline {
   /** Present only when the development Debug UI was explicitly enabled. */
   debug: RendererDebugController | null = null;
   private readonly constructorDebugConfig: RendererConfig["debug"];
+  private recoveryCheckpoint: ReturnType<Renderer["checkpointDeviceRecovery"]> | null = null;
+  private recoveryPromise: Promise<Renderer> | null = null;
+  private recoveryAttempts = 0;
+  private explicitlyDestroyed = false;
 
   constructor(config: RendererConfig = {}) {
     super(config);
@@ -72,9 +76,47 @@ export class Renderer extends MainRenderPipeline {
   }
 
   override destroy(): void {
+    this.explicitlyDestroyed = true;
+    this.recoveryCheckpoint = null;
     this.debug?.destroy();
     this.debug = null;
     super.destroy();
+  }
+
+  /**
+   * Explicit, bounded production recovery. Replace the application's Renderer
+   * reference with the returned instance; old GPU handles are never resurrected.
+   * Concurrent calls share one attempt. At most two attempts are allowed. Normal
+   * Renderer.destroy() is terminal and cannot be recovered.
+   */
+  recoverAfterDeviceLoss(): Promise<Renderer> {
+    if (this.explicitlyDestroyed) return Promise.reject(new Error("Destroyed Renderer cannot recover"));
+    if (this.recoveryPromise !== null) return this.recoveryPromise;
+    if (this.recoveryAttempts >= 2) return Promise.reject(new Error("Renderer recovery attempt limit exceeded"));
+    try {
+      this.recoveryCheckpoint ??= this.checkpointDeviceRecovery();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const checkpoint = this.recoveryCheckpoint;
+    this.recoveryAttempts++;
+    this.debug?.destroy();
+    this.debug = null;
+    super.destroy();
+    const replacement = new Renderer(checkpoint.config);
+    this.recoveryPromise = replacement.restoreDeviceRecovery(checkpoint).then(() => {
+      if (this.explicitlyDestroyed) {
+        replacement.destroy();
+        throw new Error("Renderer destroyed during recovery");
+      }
+      this.recoveryCheckpoint = null;
+      return replacement;
+    }, (error: unknown) => {
+      replacement.destroy();
+      this.recoveryPromise = null;
+      throw error;
+    });
+    return this.recoveryPromise;
   }
 
   override render(

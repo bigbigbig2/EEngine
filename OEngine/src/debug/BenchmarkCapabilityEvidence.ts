@@ -378,7 +378,16 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   longRangeInvalidGeneration: supported("LongRangeDiffuseProviderPass/generation-validity reducer"),
   longRangeNonresidentFallbacks: supported("LongRangeDiffuseProviderPass/residency-fallback reducer"),
   longRangeProviderUnassigned: supported("LongRangeDiffuseProviderPass/provider-identity validator"),
-  longRangeProviderDuplicates: supported("LongRangeDiffuseProviderPass/provider-identity validator")
+  longRangeProviderDuplicates: supported("LongRangeDiffuseProviderPass/provider-identity validator"),
+  shadingBinFrameFlags: supported("SparseShadingCounterPass production safety sampler"),
+  shadingBinErrors: supported("SparseShadingCounterPass production safety sampler"),
+  shadingBinAttempted: supported("SparseShadingCounterPass production safety sampler"),
+  shadingBinWritten: supported("SparseShadingCounterPass production safety sampler"),
+  shadingBinOverflow: supported("SparseShadingCounterPass production safety sampler"),
+  shadingBinIndirectWorkgroups: supported("SparseShadingCounterPass production safety sampler"),
+  shadingBinGeneratedMaskLo: supported("SparseShadingCounterPass production safety sampler"),
+  shadingBinGeneratedMaskHi: supported("SparseShadingCounterPass production safety sampler"),
+  shadingBinIndirectNonzeroWords: supported("SparseShadingCounterPass production safety sampler")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

@@ -40,7 +40,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/main-view 顺序；Shadow 是 main FrameGraph 内的显式资源 producer，不再是空跨图 stage |
 | 帧输入 | `src/render/pipeline/FrameContext.ts` | camera/view、分辨率域、feature topology、history validity、scene bindings、instrumentation 与 capture 请求 |
 | 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | `ShadingBinFrame`、`SpecializedShadingFrame`、compact Surface、lighting、AO、reflection、temporal、`OpaqueColorPyramid` 与 `FinalColorPyramid` 的 typed contract |
-| GPU 计数与最终有效性 | `src/debug/GpuFrameCounters.ts`、`src/render/passes/TonemapPass.ts` | counter schema V23 只保留 sparse shading 生产计数，已删除的旧 material backend 槽位 125–131 显式保留；Final Output 只消费 `ShadingBinControl.frame_flags` |
+| GPU 计数与最终有效性 | `src/debug/GpuFrameCounters.ts`、`src/render/passes/TonemapPass.ts` | counter schema V24 只保留 sparse shading 生产计数，已删除的旧 material backend 槽位 125–131 显式保留；Final Output 只消费 `ShadingBinControl.frame_flags` |
 | 共享帧派生 | `src/render/passes/SharedColorPyramidPass.ts` | 按 consumer 生成语义隔离的 opaque/final HDR pyramid；SSR、Bloom、Exposure 不再各建等价 reduction |
 | Final Output | `src/render/passes/TonemapPass.ts`、`src/shaders/final_output_input.ts` | 静态变体融合 Bloom composite、Color Grading、optional Sharpen、Exposure与SDR/HDR display mapping；normal frame不物化full-resolution post HDR intermediate |
 | Persistent history | `src/render/TemporalHistoryRegistry.ts` | 六种 history 的 semantic/domain/format/count/generation、提交感知 ping-pong、pre-exposure 与统一失效原因；物理资源仍归 effect owner |
@@ -66,6 +66,10 @@ Geometry 默认生产变体是 `static-pbr-compact-v2`；position/normal/tangent
 Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证据。它不成为渲染 owner，也不从 DOM 或推测值重建指标；详细合同位于 `OEngine/src/addons/inspector/README.md`。
 
 ## 公开接口
+
+设备丢失后的 production recovery 由公开 `Renderer.recoverAfterDeviceLoss()` 显式触发，返回新的 Renderer；应用必须替换旧引用。它重新请求 adapter/device，不接受旧 device 注入，重新执行全部 capability preflight，再从 CPU Scene、已 Cook geometry/texture package、已提交 Packed Instance shadow、材质 association 与 Brick4 package 重建全部 GPU owner。GPU handle、FrameGraph recipe/cache、bind group、pipeline、readback ring 和 temporal history 不跨设备继承；history/device lineage 与 sparse publication 使用新的 device epoch。普通 Scene 从当前 Application truth 重建，Packed source 从 committed CPU shadow 重建，未提交 patch 保持 queued，aborted patch 不进入 committed checkpoint。checkpoint 是冷恢复工作，不增加稳定帧扫描或 GPU readback。
+
+并发恢复调用共用一个 promise；旧 Renderer 停止提交并关闭 GPU owner，最多允许两次显式尝试，失败的新实例销毁，不能继续呈现部分重建场景。正常 `Renderer.destroy()` 是终态，禁止恢复；验证宿主可在冻结的 fault stage 销毁原始 device，再显式调用恢复，不能把这种 fault 注入当作普通 destroy 的自动恢复。新实例的历史起始 invalid，旧实例的 late completion 不推进新实例 revision/retirement/history。生产 Browser case 必须验证完整 scene/resource closure，而非仅检查 `_deviceLost` 标志。
 
 `src/index.ts` 是唯一公开 interface。新增内部 Feature、Pass、Shader、Profiler codec 或 ABI 不应自动导出；只有稳定且被外部调用方需要的能力才进入入口。
 

@@ -206,6 +206,7 @@ export class GpuRenderWorld {
   private readonly releasingScenes = new Set<Scene>();
   private readonly classificationByScene = new Map<Scene, PackedSceneClassificationState>();
   private readonly ordinaryAdapters = new Map<Scene, OrdinarySceneAdapterState>();
+  private readonly recoveryGeometry = new Map<Scene, readonly GeometryAssetPackage[]>();
   private ordinaryScenePatchCount = 0;
   private ordinarySceneStableFrameCount = 0;
   private ordinarySceneFullResyncRequiredCount = 0;
@@ -339,6 +340,7 @@ export class GpuRenderWorld {
     command.onFinished.addOne(() => {
       this.byScene.set(scene, runtime);
       this.classificationByScene.set(scene, classification);
+      this.recoveryGeometry.set(scene, Object.freeze([...source.geometries]));
       HANDLE_RUNTIME.set(handle as object, runtime);
       if (ordinaryMeshes !== undefined) {
         this.ordinaryAdapters.set(
@@ -465,6 +467,7 @@ export class GpuRenderWorld {
       this.byScene.delete(scene);
       this.classificationByScene.delete(scene);
       this.ordinaryAdapters.delete(scene);
+      this.recoveryGeometry.delete(scene);
       HANDLE_RUNTIME.delete(runtime.handle as object);
       this.releasingScenes.delete(scene);
       const destroy = (): void => {
@@ -483,6 +486,28 @@ export class GpuRenderWorld {
       throw new Error("Ordinary Scene adapters are patched only through SceneChangeSet");
     }
     this.pendingPatches.set(scene, { batch });
+  }
+
+  /** Device-independent committed checkpoint; queued patches remain queued. */
+  recoveryScenes() {
+    return [...this.byScene.values()].map((runtime) => {
+      const classification = this.classificationByScene.get(runtime.scene)!;
+      const geometries = this.recoveryGeometry.get(runtime.scene)!;
+      const adapter = this.ordinaryAdapters.get(runtime.scene);
+      return {
+        scene: runtime.scene,
+        source: {
+          geometries,
+          materials: runtime.materials,
+          count: runtime.instanceCount,
+          geometryIndices: classification.geometryIndices.slice(),
+          materialIndices: classification.materialIndices.slice(),
+          ...this.graphics.gpu_scene.recoveryInstances(runtime.instanceHandle)
+        } satisfies PackedSceneSource,
+        ordinaryMeshes: adapter?.meshes,
+        queuedPatch: this.pendingPatches.get(runtime.scene)?.batch
+      };
+    });
   }
 
   encodePendingPatch(
@@ -646,6 +671,7 @@ export class GpuRenderWorld {
     this.releasingScenes.clear();
     this.classificationByScene.clear();
     this.ordinaryAdapters.clear();
+    this.recoveryGeometry.clear();
   }
 
   private createCounterSink(descriptor: GPUBufferDescriptor): GPUBuffer {

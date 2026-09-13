@@ -21,7 +21,8 @@ export default defineConfig({
         "webgpu-component": resolve(root, "src/cases/webgpu-component/index.html"),
         "shading-bin-component": resolve(root, "src/cases/shading-bin-component/index.html"),
         "shading-resolve-component": resolve(root, "src/cases/shading-resolve-component/index.html"),
-        "sparse-shading-candidate": resolve(root, "src/cases/sparse-shading-candidate/index.html")
+        "sparse-shading-candidate": resolve(root, "src/cases/sparse-shading-candidate/index.html"),
+        "sparse-shading-production": resolve(root, "src/cases/sparse-shading-production/index.html")
       }
     }
   }

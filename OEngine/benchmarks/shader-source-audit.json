@@ -671,6 +671,7 @@
         "src/render/passes/ShadingBinPass.ts",
         "src/render/passes/SharedColorPyramidPass.ts",
         "src/render/passes/SharpenPass.ts",
+        "src/render/passes/SparseShadingCounterPass.ts",
         "src/render/passes/SparseShadingDiagnosticsPass.ts",
         "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/passes/SpecularCorrectionPass.ts",
