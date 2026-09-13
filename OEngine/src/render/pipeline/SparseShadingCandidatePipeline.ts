@@ -90,6 +90,11 @@ export interface SparseShadingCandidateExternalResources {
   readonly captureScratch?: readonly ResourceId[];
   /** Exact validation capture command shape; omitted for a single-dispatch capture. */
   readonly captureEncoderWork?: Readonly<Partial<FrameGraphEncoderWork>>;
+  /**
+   * Expands real downstream feature owners into this graph. When omitted, the
+   * execution-time stage callback remains available for isolated fixtures.
+   */
+  readonly composeDownstream?: SparseShadingCandidateDownstreamComposer;
   /** Revision-owned resources from ShadingBinPass; imported only when opaque work exists. */
   readonly binResources?: Readonly<{
     readonly heap: unknown;
@@ -134,6 +139,29 @@ export type SparseShadingCandidateStageExecutor = (
   resources: PassResources,
   context: FrameGraphContext
 ) => void;
+
+export type SparseShadingCandidateDownstreamStage = Extract<
+  SparseShadingCandidateStage,
+  "gtao" | "ssgi" | "ssr" | "temporal" | "post"
+>;
+
+export interface SparseShadingCandidateDownstreamComposition {
+  /** Latest opaque HDR version after this stage. Post keeps its input HDR. */
+  readonly hdr: ResourceId;
+  /** Required only for post; it must be the presentation resource version. */
+  readonly finalOutput?: ResourceId;
+}
+
+/**
+ * Graph-build-time downstream seam. Production feature owners use it to add
+ * their complete multi-pass subgraphs to the candidate's one main FrameGraph;
+ * it is deliberately not an execution-time callback.
+ */
+export type SparseShadingCandidateDownstreamComposer = (
+  stage: SparseShadingCandidateDownstreamStage,
+  graph: FrameGraph,
+  frame: Readonly<SparseShadingCandidateFrame>
+) => Readonly<SparseShadingCandidateDownstreamComposition>;
 
 export function createSparseShadingCandidatePlan(
   snapshot: Readonly<GpuShadingPublicationSnapshot>,
@@ -484,9 +512,48 @@ export function addSparseShadingCandidateToGraph(
 
   for (const stage of plan.passes) {
     if (!["gtao", "ssgi", "ssr", "temporal", "post"].includes(stage)) continue;
+    const downstreamStage = stage as SparseShadingCandidateDownstreamStage;
+    if (external.composeDownstream !== undefined) {
+      const downstreamFrame = cloneMutableFrame(mutable);
+      downstreamFrame.stageInputHdr = mutable.hdr;
+      const composition = external.composeDownstream(
+        downstreamStage,
+        graph,
+        Object.freeze(downstreamFrame)
+      );
+      if (!graph.is_valid_resource(composition.hdr)) {
+        throw new Error(`Sparse shading downstream ${stage} returned an invalid HDR resource`);
+      }
+      if (stage === "post") {
+        if (external.presentation === undefined) {
+          throw new Error("Sparse shading post stage requires a presentation resource");
+        }
+        if (composition.hdr !== mutable.hdr) {
+          throw new Error("Sparse shading post stage must preserve its HDR input");
+        }
+        if (composition.finalOutput === undefined ||
+            !graph.is_valid_resource(composition.finalOutput)) {
+          throw new Error("Sparse shading post composition must return a valid final output");
+        }
+        mutable.finalOutput = composition.finalOutput;
+      } else {
+        if (composition.finalOutput !== undefined) {
+          throw new Error(`Sparse shading downstream ${stage} cannot publish final output`);
+        }
+        mutable.hdr = composition.hdr;
+        mutable.finalOutput = mutable.hdr;
+      }
+      // Resource versions returned by the expanded subgraph carry the actual
+      // dependency chain. There is no synthetic wrapper pass to depend on.
+      previousPass = null;
+      continue;
+    }
     const downstreamFrame = cloneMutableFrame(mutable);
     const downstream = graph.add(`SparseShading/downstream/${stage}`, downstreamFrame,
       (data, resources, context) => executeStage(stage, data, resources, context));
+    if (previousPass === null) {
+      throw new Error(`Sparse shading downstream ${stage} lost its producer dependency`);
+    }
     downstream.dependsOn(previousPass);
     const inputHdr = mutable.hdr;
     downstream.read(inputHdr);

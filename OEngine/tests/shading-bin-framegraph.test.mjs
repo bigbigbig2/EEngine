@@ -426,6 +426,76 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
   }
 });
 
+test("candidate expands production downstream owners as real multi-pass subgraphs", () => {
+  const previousTextureUsage = globalThis.GPUTextureUsage;
+  const previousBufferUsage = globalThis.GPUBufferUsage;
+  globalThis.GPUTextureUsage = {
+    RENDER_ATTACHMENT: 1,
+    TEXTURE_BINDING: 2,
+    STORAGE_BINDING: 4,
+    COPY_SRC: 8
+  };
+  globalThis.GPUBufferUsage = {
+    STORAGE: 1,
+    COPY_DST: 2,
+    COPY_SRC: 4,
+    INDIRECT: 8,
+    UNIFORM: 16,
+    MAP_READ: 32
+  };
+  try {
+    const mask = GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
+      GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
+    const { snapshot: value } = snapshot("textured", mask);
+    const graph = new FrameGraph("ADR-0013 expanded downstream");
+    const imported = (name) => graph.import_resource(name, { kind: "imported" }, { name });
+    const presentation = imported("presentation");
+    const expanded = [];
+    const frame = addSparseShadingCandidateToGraph(
+      graph,
+      value,
+      { ...OFF, screenSpaceDiffuseMode: "ssgi", post: true },
+      {
+        meshletWork: imported("meshlet-work"),
+        sceneGeometry: [],
+        materials: [],
+        lighting: [imported("lights")],
+        shadows: [],
+        presentation,
+        binResources: { heap: {}, indirectArgs: {}, settings: {} },
+        composeDownstream(stage, ownerGraph, stageFrame) {
+          expanded.push(stage);
+          if (stage === "ssgi") {
+            const trace = ownerGraph.add("Production SSGI trace", {}, () => {});
+            trace.read(stageFrame.hdr);
+            const traced = trace.write(stageFrame.hdr);
+            const resolve = ownerGraph.add("Production SSGI resolve", {}, () => {});
+            resolve.read(traced);
+            return { hdr: resolve.write(traced) };
+          }
+          const post = ownerGraph.add("Production post", {}, () => {});
+          post.read(stageFrame.hdr);
+          return { hdr: stageFrame.hdr, finalOutput: post.write(presentation) };
+        }
+      },
+      () => {}
+    );
+    const dump = graph.compile().dump();
+    const executable = dump.passes.filter((pass) => !pass.culled);
+    assert.deepEqual(expanded, ["ssgi", "post"]);
+    assert.equal(executable.some((pass) => pass.name === "SparseShading/downstream/ssgi"), false);
+    assert.ok(executable.some((pass) => pass.name === "Production SSGI trace"));
+    assert.ok(executable.some((pass) => pass.name === "Production SSGI resolve"));
+    assert.ok(executable.some((pass) => pass.name === "Production post"));
+    assert.ok(frame.hdr !== null);
+    assert.ok(frame.finalOutput !== null);
+    assert.notEqual(frame.finalOutput, frame.hdr);
+  } finally {
+    globalThis.GPUTextureUsage = previousTextureUsage;
+    globalThis.GPUBufferUsage = previousBufferUsage;
+  }
+});
+
 test("HDR capture usage is absent when the validation capture boundary is absent", () => {
   const previousTextureUsage = globalThis.GPUTextureUsage;
   const previousBufferUsage = globalThis.GPUBufferUsage;
