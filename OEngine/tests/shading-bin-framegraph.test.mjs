@@ -406,6 +406,10 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.equal(frame.captureScratch.length, 1);
     const hdr = dump.resources.find((resource) => resource.name === "sparse-shading/hdr");
     assert.equal(JSON.parse(hdr.description).usage & GPUTextureUsage.COPY_SRC, GPUTextureUsage.COPY_SRC);
+    const visibilityKey = dump.resources.find((resource) => resource.name === "sparse-shading/visibility-key");
+    const shadingBinId = dump.resources.find((resource) => resource.name === "sparse-shading/bin-id");
+    assert.equal(JSON.parse(visibilityKey.description).usage & GPUTextureUsage.COPY_SRC, GPUTextureUsage.COPY_SRC);
+    assert.equal(JSON.parse(shadingBinId.description).usage & GPUTextureUsage.COPY_SRC, GPUTextureUsage.COPY_SRC);
     const post = executable.find((pass) => pass.name.endsWith("/post"));
     assert.equal(post.encoderWork.renderPasses, 1);
     assert.equal(post.encoderWork.computePasses, 0);
@@ -455,6 +459,10 @@ test("HDR capture usage is absent when the validation capture boundary is absent
     const dump = graph.compile().dump();
     const hdr = dump.resources.find((resource) => resource.name === "sparse-shading/hdr");
     assert.equal(JSON.parse(hdr.description).usage & GPUTextureUsage.COPY_SRC, 0);
+    const visibilityKey = dump.resources.find((resource) => resource.name === "sparse-shading/visibility-key");
+    const shadingBinId = dump.resources.find((resource) => resource.name === "sparse-shading/bin-id");
+    assert.equal(JSON.parse(visibilityKey.description).usage & GPUTextureUsage.COPY_SRC, 0);
+    assert.equal(JSON.parse(shadingBinId.description).usage & GPUTextureUsage.COPY_SRC, 0);
     assert.equal(frame.captureReadback, null);
   } finally {
     globalThis.GPUTextureUsage = previousTextureUsage;

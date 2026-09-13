@@ -310,10 +310,12 @@ export function addSparseShadingCandidateToGraph(
   visibility.read(external.meshletWork);
   for (const resource of external.sceneGeometry) visibility.read(resource);
   mutable.visibilityKey = visibility.create("sparse-shading/visibility-key", texture(
-    plan, "r32uint", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    plan, "r32uint", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+      (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
   ));
   mutable.shadingBinId = visibility.create("sparse-shading/bin-id", texture(
-    plan, "r8uint", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    plan, "r8uint", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+      (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
   ));
   mutable.depth = visibility.create("sparse-shading/depth", texture(
     plan, "depth32float", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING

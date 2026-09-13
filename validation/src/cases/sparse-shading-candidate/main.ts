@@ -11,7 +11,7 @@ const canvas=document.querySelector<HTMLCanvasElement>("#output"),status=documen
 let device:GPUDevice|undefined,fixture:SparseShadingCandidateFixture|undefined;
 let errors:ReturnType<typeof attachGpuErrorCollection>|undefined,intentionalLoss=false;
 
-const controller=createValidationController({caseId:"sparse-shading-candidate",workloadId:"sparse-shading-candidate-mixed-bins-v1"},async()=>{
+const controller=createValidationController({caseId:"sparse-shading-candidate",workloadId:"sparse-shading-candidate-correctness-v2"},async()=>{
   fixture?.destroy();errors?.remove();intentionalLoss=true;device?.destroy();
   const lost=errors===undefined?null:await Promise.race([errors.lost,new Promise<null>((resolve)=>setTimeout(()=>resolve(null),3000))]);
   return {...fixture?.resourceCounts(),devices:0,listeners:0,intentionalDeviceDestroy:intentionalLoss,
@@ -37,15 +37,19 @@ try {
         errors=attachGpuErrorCollection(device,controller,()=>intentionalLoss);
         const capability=captureGpuSparseShadingCapabilityRecord(plan,{features:device.features,limits:snapshotGpuLimits(device.limits),
           textureFormatFeatures:["rgba16float-storage","rgba16uint-storage","rg32uint-storage","rg16float-storage"],
-          formatProfile:"adr-0013-step-6-mixed-bins-l4-v1"});
+          formatProfile:"adr-0013-step-6-correctness-l4-v2"});
         controller.addEvidence("capability",capability);const format=navigator.gpu.getPreferredCanvasFormat();
         const context=canvas.getContext("webgpu");if(context===null)throw new Error("Unable to create WebGPU canvas context");
         context.configure({device,format,alphaMode:"opaque",usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
-        controller.transition("ready");fixture=await SparseShadingCandidateFixture.create(device,context,format,capability);
+        controller.transition("ready");fixture=await SparseShadingCandidateFixture.create(device,context,format,capability,"mixed-bins");
         controller.transition("warming");await new Promise((resolve)=>requestAnimationFrame(()=>resolve(undefined)));
-        controller.transition("sampling");const evidence=await fixture.runMixedBins();controller.transition("draining");
-        controller.addEvidence("readback",{schemaVersion:1,phase:"candidate-pipeline-gpu-execution-oracle",...evidence});
-        controller.addEvidence("submit",{main:1,private:0});if(status)status.textContent="passed ADR-0013 Step 6 MixedBins candidate";
+        controller.transition("sampling");const mixedBins=await fixture.runMixedBins();fixture.destroy();
+        const intermediateDisposal=fixture.resourceCounts();
+        fixture=await SparseShadingCandidateFixture.create(device,context,format,capability,"basic-cube");
+        const basicCube=await fixture.runBasicCubeNearFar();controller.transition("draining");
+        controller.addEvidence("readback",{schemaVersion:2,phase:"candidate-pipeline-gpu-execution-oracle",
+          scenarios:{mixedBins,basicCube},intermediateDisposal});
+        controller.addEvidence("submit",{main:3,private:0});if(status)status.textContent="passed ADR-0013 Step 6 MixedBins + BasicCubeNear/Far candidate";
         controller.pass();
       }
     }
