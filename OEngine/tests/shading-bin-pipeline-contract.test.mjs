@@ -251,7 +251,7 @@ test("output dependency bits add only their exact storage outputs", () => {
   assert.ok(colorOnly.includes("output_hdr"));
   assert.ok(!colorOnly.includes("output_normal"));
   assert.ok(shading.includes("output_normal"));
-  assert.ok(shading.includes("output_albedo_ao"));
+  assert.ok(!shading.includes("output_albedo_ao"));
   assert.ok(shading.includes("output_material"));
   assert.ok(!shading.includes("output_velocity"));
   assert.ok(!diffuse.includes("output_normal"));

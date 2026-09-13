@@ -31,6 +31,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let source = (vec2f(full_pixel) + 0.5) * vec2f(half_size) / vec2f(full_size) - 0.5;
   let base = vec2i(floor(source));
   let center_depth = textureLoad(depth_full, full_pixel, 0);
+  if (is_background(center_depth)) { return vec4f(0.0); }
   let center_normal = decode_g_buffer_normal(textureLoad(normal_full, full_pixel, 0).xy);
   var color_sum = vec3f(0.0);
   var color_weight_sum = 0.0;
@@ -43,6 +44,7 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
         vec2i(0), full_size - vec2i(1)
       );
       let sample_depth = textureLoad(depth_full, mapped_full, 0);
+      if (is_background(sample_depth)) { continue; }
       let sample_normal = decode_g_buffer_normal(textureLoad(normal_full, mapped_full, 0).xy);
       let bilinear = vec2f(1.0) - abs(source - vec2f(half_pixel));
       let weight = max(0.001, bilinear.x * bilinear.y) *
@@ -144,6 +146,10 @@ fn history_sample_4tap(
     }
     let tap_surface = surface_position(tap, effect_size, surface_size);
     let tap_depth = textureLoad(depth_source, tap_surface, 0);
+    if (is_background(tap_depth)) {
+      min_confidence = 0.0;
+      continue;
+    }
     let tap_normal = decode_g_buffer_normal(textureLoad(normal_source, tap_surface, 0).xy);
     let geometry = exp(-abs(center_depth - tap_depth) * max(abs(center_depth), 1.0) * 8.0) *
       pow(max(dot(center_normal, tap_normal), 0.0), 64.0);
@@ -239,6 +245,8 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let effect_size = vec2i(textureDimensions(raw_specular));
   let surface_size = vec2i(textureDimensions(velocity_source));
   let receiver = surface_position(position, effect_size, surface_size);
+  let center_depth = textureLoad(depth_source, receiver, 0);
+  if (is_background(center_depth)) { return vec4f(0.0); }
   let receiver_velocity = taa_get_velocity(velocity_source, receiver) *
     vec2f(effect_size) / vec2f(surface_size);
   let surface_history_pixel = coord.xy - receiver_velocity;
@@ -259,30 +267,33 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let validity = textureLoad(surface_validity_source, receiver, 0).rg;
   let disocclusion = textureLoad(occlusion_confidence_source, receiver, 0).r;
   let hit_pixel = min(trace_hit_position(position), vec2u(surface_size) - vec2u(1u));
-  let hit_validity = textureLoad(surface_validity_source, vec2i(hit_pixel), 0).rg;
-  let hit_disocclusion = textureLoad(
-    occlusion_confidence_source, vec2i(hit_pixel), 0
-  ).r;
   let surface_history_validity = disocclusion *
     select(0.0, 1.0, validity.g >= 0.5 && validity.r < 0.5);
-  let hit_history_validity = hit_disocclusion *
-    select(0.0, 1.0, hit_validity.g >= 0.5 && hit_validity.r < 0.5);
-  let hit_velocity = textureLoad(velocity_source, vec2i(hit_pixel), 0).rg *
-    vec2f(effect_size) / vec2f(surface_size);
-  let center_depth = textureLoad(depth_source, receiver, 0);
   let hit_depth = textureLoad(depth_source, vec2i(hit_pixel), 0);
-  let hit_normal = decode_g_buffer_normal(
-    textureLoad(normal_source, vec2i(hit_pixel), 0).xy
-  );
-  let hit_effect_pixel = (vec2f(hit_pixel) + 0.5) *
-    vec2f(effect_size) / vec2f(surface_size);
-  let hit_history_pixel = hit_effect_pixel - hit_velocity;
   let surface_sample = history_sample_4tap(
     surface_history_pixel, center_depth, center_normal, effect_size, surface_size
   );
-  let hit_sample = history_sample_4tap(
-    hit_history_pixel, hit_depth, hit_normal, effect_size, surface_size
-  );
+  var hit_history_validity = 0.0;
+  var hit_sample = HistorySample4Tap(vec4f(0.0), 0.0, 0.0);
+  if (!is_background(hit_depth)) {
+    let hit_validity = textureLoad(surface_validity_source, vec2i(hit_pixel), 0).rg;
+    let hit_disocclusion = textureLoad(
+      occlusion_confidence_source, vec2i(hit_pixel), 0
+    ).r;
+    hit_history_validity = hit_disocclusion *
+      select(0.0, 1.0, hit_validity.g >= 0.5 && hit_validity.r < 0.5);
+    let hit_velocity = textureLoad(velocity_source, vec2i(hit_pixel), 0).rg *
+      vec2f(effect_size) / vec2f(surface_size);
+    let hit_normal = decode_g_buffer_normal(
+      textureLoad(normal_source, vec2i(hit_pixel), 0).xy
+    );
+    let hit_effect_pixel = (vec2f(hit_pixel) + 0.5) *
+      vec2f(effect_size) / vec2f(surface_size);
+    let hit_history_pixel = hit_effect_pixel - hit_velocity;
+    hit_sample = history_sample_4tap(
+      hit_history_pixel, hit_depth, hit_normal, effect_size, surface_size
+    );
+  }
   let surface_history = surface_sample.color;
   let hit_history = hit_sample.color;
   // Preserve the two physical reprojection candidates. Blending their
@@ -616,6 +627,8 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
       sample_uv, position, effect_size, maximum_radius
     );
     let sample_surface = effect_to_surface(sample_position, effect_size, surface_size);
+    let sample_depth = textureLoad(depth_source, sample_surface, 0);
+    if (is_background(sample_depth)) { continue; }
     var sample_value = max(textureLoad(temporal_source, sample_position, 0), vec4f(0.0));
     let sample_raw = max(textureLoad(raw_source, sample_position, 0), vec4f(0.0));
     sample_value.a = select(

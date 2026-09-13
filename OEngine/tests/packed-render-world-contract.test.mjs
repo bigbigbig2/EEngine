@@ -172,6 +172,7 @@ test("main graph key changes for every compiled topology dimension", () => {
     featureTopology: 3,
     visibilityConfiguration: "meshlet-visibility-key-v2",
     visibilityWorkCapacity: 64,
+    sparseShadingRevision: 7,
     instrumentation: "none",
     instrumentationRevision: 5,
     historyFormat: 3,
@@ -183,6 +184,7 @@ test("main graph key changes for every compiled topology dimension", () => {
     { resolution: { ...base.resolution, internalWidth: 959 } },
     { featureTopology: 4 },
     { visibilityConfiguration: "meshlet-visibility-key-v2-hzb" },
+    { sparseShadingRevision: 8 },
     { instrumentation: "counters" },
     { historyFormat: 4 },
   ];
@@ -537,6 +539,15 @@ test("Packed material patch commits classification and restores the queued patch
       materialIndices: new Uint32Array([1])
     }
   });
+  const preview = fixture.registry.previewNextShadingPublication(fixture.scene);
+  assert.equal(preview.revision, 2);
+  assert.equal(preview.summary.activeBinMaskLo, 0);
+  assert.equal(preview.summary.transparentLitReceiverCount, 1);
+  assert.strictEqual(
+    fixture.registry.runtime(fixture.scene).shadingPublication,
+    initialPublication,
+    "preview must not mutate or consume the live publication"
+  );
   const aborted = new FakeCommand("packed-material-patch-abort");
   const abortedResult = fixture.registry.encodePendingPatch(fixture.scene, aborted);
   assert.equal(abortedResult?.patchedMaterials, 1);
@@ -545,6 +556,8 @@ test("Packed material patch commits classification and restores the queued patch
   assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.activeBinMaskLo, 0);
   assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.transparentLitReceiverCount, 1);
   const abortedPublication = fixture.registry.runtime(fixture.scene).shadingPublication;
+  assert.notStrictEqual(abortedPublication, preview);
+  assert.deepEqual(abortedPublication, preview);
   assert.equal(abortedPublication.revision, 2);
   assert.strictEqual(abortedPublication.summary, fixture.registry.runtime(fixture.scene).activeShadingSummary);
   assert.deepEqual(abortedPublication.source.instances[0], {

@@ -11,6 +11,8 @@ export type FrameGraphKey = {
   readonly visibilityImplementation: string;
   /** Static exact-raster resource shape; zero when the Packed path is absent. */
   readonly visibilityWorkCapacity: number;
+  /** Immutable ADR-0013 pipeline/layout/resource closure. */
+  readonly sparseShadingRevision: number;
   readonly historyFormatRevision: number;
   readonly outputFormat: GPUTextureFormat;
   readonly instrumentationMode: string;
@@ -27,6 +29,7 @@ export function canonicalFrameGraphKey(key: FrameGraphKey): string {
     key.sampleCount,
     key.enabledFeatureBits,
     key.visibilityWorkCapacity,
+    key.sparseShadingRevision,
     key.historyFormatRevision,
     key.instrumentationRevision
   ];
@@ -46,6 +49,7 @@ export function canonicalFrameGraphKey(key: FrameGraphKey): string {
     key.enabledFeatureBits,
     key.visibilityImplementation,
     key.visibilityWorkCapacity,
+    key.sparseShadingRevision,
     key.historyFormatRevision,
     key.outputFormat,
     key.instrumentationMode,

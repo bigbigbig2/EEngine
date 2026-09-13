@@ -26,6 +26,7 @@ import {
 import {
   SparseShadingDiagnosticsPass
 } from "../.test-dist/render/passes/SparseShadingDiagnosticsPass.js";
+import { SurfaceFeature } from "../.test-dist/render/features/SurfaceFeature.js";
 
 const limits = Object.freeze({
   maxTextureDimension2D: 32768,
@@ -145,6 +146,189 @@ function snapshot(kind, outputDependencyMask, options = {}) {
   });
   return { store, snapshot: transaction.commit(1) };
 }
+
+function productionSurfaceFixture(publication) {
+  const graph = new FrameGraph("ADR-0013 production SurfaceFeature matrix");
+  const imported = (name) => graph.import_resource(
+    name,
+    { kind: "imported" },
+    { name }
+  );
+  const revision = publication.pipelines.length === 0
+    ? Object.freeze({
+        snapshot: publication,
+        bins: null,
+        resolve: null,
+        settings: null,
+        heapBytes: 0,
+        indirectBytes: 0,
+        settingsBytes: 0
+      })
+    : Object.freeze({
+        snapshot: publication,
+        bins: {
+          heap: { name: "bin-heap" },
+          indirectArgs: { name: "bin-indirect" },
+          createFrameBindingsForExecution() { throw new Error("compile-only fixture"); },
+          encodeClassify() { throw new Error("compile-only fixture"); },
+          encodeFinalize() { throw new Error("compile-only fixture"); }
+        },
+        resolve: {
+          createFrameBindingsForExecution() { throw new Error("compile-only fixture"); },
+          encode() { throw new Error("compile-only fixture"); }
+        },
+        settings: { name: "bin-settings" },
+        heapBytes: publication.sizing.heapBytes,
+        indirectBytes: publication.sizing.indirectBytes,
+        settingsBytes: 256
+      });
+  const visibility = {
+    visibilityKey: imported("production-visibility-key"),
+    shadingBinId: imported("production-shading-bin-id"),
+    depth: imported("production-depth"),
+    meshletWork: { records: imported("production-meshlet-work") },
+    domain: {
+      domain: "internal-full",
+      width: publication.context.width,
+      height: publication.context.height,
+      scale: 1
+    }
+  };
+  return {
+    graph,
+    revision,
+    job: {
+      frameIndex: 0,
+      materialCount: 1,
+      materialGeneration: 3,
+      textureGeneration: 4,
+      materialPublicationRevision: 1,
+      assetHeaps: {},
+      preExposure: 1,
+      upscaleRatio: [1, 1],
+      cameraPosition: [0, 0, 0],
+      currentViewProjection: new Float32Array(16),
+      previousViewProjection: new Float32Array(16)
+    },
+    inputs: {
+      revision,
+      visibility,
+      instanceRecords: imported("production-instances"),
+      assetMetadataHeap: imported("production-asset-metadata"),
+      vertexPayloadHeap: imported("production-vertex-payload"),
+      materialRecords: imported("production-materials"),
+      textureDescriptorRoutingHeap: imported("production-texture-routing"),
+      textureBindingSets: [],
+      lightDatabase: null,
+      clusters: null,
+      shadowAtlas: null
+    }
+  };
+}
+
+test("production SurfaceFeature prunes no-opaque and exact compact output resources", (t) => {
+  const previousBufferUsage = globalThis.GPUBufferUsage;
+  const previousTextureUsage = globalThis.GPUTextureUsage;
+  globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2 };
+  globalThis.GPUTextureUsage = {
+    RENDER_ATTACHMENT: 1,
+    STORAGE_BINDING: 2,
+    TEXTURE_BINDING: 4,
+    COPY_SRC: 8
+  };
+  t.after(() => {
+    globalThis.GPUBufferUsage = previousBufferUsage;
+    globalThis.GPUTextureUsage = previousTextureUsage;
+  });
+  let destroyed = 0;
+  const surface = new SurfaceFeature({
+    device: {
+      createBuffer(descriptor) {
+        return { ...descriptor, destroy() { destroyed++; } };
+      }
+    },
+    samplers: { obtain(descriptor) { return { descriptor }; } }
+  });
+
+  const cases = [
+    {
+      name: "color-only",
+      mask: 0,
+      resources: [],
+      absent: ["surface-normal", "surface-material", "surface-albedo-ao", "velocity"],
+      bytes: 8
+    },
+    {
+      name: "shading+velocity",
+      mask: GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
+        GPU_SHADING_OUTPUT_DEPENDENCY.Velocity,
+      resources: ["surface-normal", "surface-material", "velocity"],
+      absent: ["surface-albedo-ao"],
+      bytes: 28
+    },
+    {
+      name: "diffuse-only",
+      mask: GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite,
+      resources: ["surface-material", "surface-albedo-ao"],
+      absent: ["surface-normal", "velocity"],
+      bytes: 20
+    }
+  ];
+  for (const entry of cases) {
+    const publication = snapshot("unlit", entry.mask).snapshot;
+    const fixture = productionSurfaceFixture(publication);
+    surface.beginFrame(fixture.revision);
+    const frame = surface.addToGraph(fixture.graph, fixture.job, fixture.inputs);
+    assert.ok(frame, entry.name);
+    const sink = fixture.graph.add(`sink/${entry.name}`, {}, () => {});
+    sink.read(frame.direct.hdr);
+    sink.make_side_effect();
+    const dump = fixture.graph.compile().dump();
+    const resourceNames = dump.resources.map((resource) => resource.name);
+    const passNames = dump.passes.filter((pass) => !pass.culled).map((pass) => pass.name);
+    const resolvePass = dump.passes.find(
+      (pass) => pass.name === "SparseShading/active-bin production indirect resolve"
+    );
+    assert.ok(passNames.includes("SparseShading/clear + classify production Visibility MRT"));
+    assert.ok(passNames.includes("SparseShading/finalize production indirect arguments"));
+    assert.ok(passNames.includes("SparseShading/initialize production HDR"));
+    assert.ok(passNames.includes("SparseShading/active-bin production indirect resolve"));
+    assert.ok(resolvePass);
+    assert.equal(passNames.some((name) => /clear.*surface/iu.test(name)), false);
+    for (const suffix of entry.resources) {
+      const resource = dump.resources.find((candidate) => candidate.name.endsWith(suffix));
+      assert.ok(resource, `${entry.name}: ${suffix}`);
+      assert.equal(resource.firstUsePass, resolvePass.id, `${entry.name}: ${suffix} producer`);
+    }
+    for (const suffix of entry.absent) {
+      assert.equal(
+        resourceNames.some((name) => name.endsWith(suffix)),
+        false,
+        `${entry.name}: ${suffix}`
+      );
+    }
+    assert.equal(surface.surfaceBytesPerPixel, entry.bytes);
+    assert.equal(frame.shading !== null, (entry.mask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0);
+    assert.equal(frame.diffuse !== null, (entry.mask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0);
+    assert.equal(frame.velocity !== null, (entry.mask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0);
+  }
+
+  const emptyFixture = productionSurfaceFixture(snapshot("empty", 0).snapshot);
+  surface.beginFrame(emptyFixture.revision);
+  assert.equal(surface.addToGraph(
+    emptyFixture.graph,
+    emptyFixture.job,
+    emptyFixture.inputs
+  ), null);
+  const emptyDump = emptyFixture.graph.compile().dump();
+  assert.equal(emptyDump.passes.length, 0);
+  assert.equal(emptyDump.resources.some((resource) =>
+    resource.name.startsWith("SparseShading/")), false);
+  assert.equal(surface.surfaceBytesPerPixel, 0);
+
+  surface.destroy();
+  assert.equal(destroyed, 1);
+});
 
 test("static feature matrix prunes no-opaque, unlit, textureless and optional outputs", () => {
   const empty = snapshot("empty", 0).snapshot;

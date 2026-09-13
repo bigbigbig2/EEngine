@@ -131,11 +131,41 @@ test("main graph cache identity covers every current topology dimension", () => 
     "resolution",
     "featureTopology",
     "visibilityConfiguration",
+    "sparseShadingRevision",
     "instrumentation",
     "historyFormat",
   ]) {
     assert.match(graphKey, new RegExp(dimension), dimension);
   }
+});
+
+test("ADR-0013 production composition has one sparse opaque owner and fused direct lighting", () => {
+  const surface = readFileSync(
+    path.join(sourceRoot, "render", "features", "SurfaceFeature.ts"),
+    "utf8"
+  );
+  const lighting = readFileSync(
+    path.join(sourceRoot, "render", "features", "LightingFeature.ts"),
+    "utf8"
+  );
+  const pipeline = readFileSync(
+    path.join(sourceRoot, "render", "pipeline", "MainRenderPipeline.ts"),
+    "utf8"
+  );
+
+  assert.match(surface, /SparseShadingGpuRevision/u);
+  assert.match(surface, /createFrameBindingsForExecution/u);
+  assert.match(surface, /specializedShadingFrame/u);
+  assert.doesNotMatch(surface, /PackedMaterialResolvePass|ComputeMaterialResolvePass/u);
+  assert.match(lighting, /LightClusterPass/u);
+  assert.doesNotMatch(lighting, /LightingPass|lighting_direct_compute/u);
+  assert.match(pipeline, /SparseShadingPublicationCoordinator/u);
+  assert.match(pipeline, /previewNextShadingPublication/u);
+  assert.match(pipeline, /addClustersToGraph/u);
+  assert.match(pipeline, /shadowOutputs\.atlas/u);
+  assert.match(pipeline, /shadowOutputs\.lightDatabase/u);
+  assert.match(surface, /resolve\.read\(inputs\.shadowAtlas\)/u);
+  assert.doesNotMatch(pipeline, /new PackedMaterialResolvePass|new LightingPass/u);
 });
 
 test("Step 7 removes the legacy render-world runtime and graph consumers", () => {

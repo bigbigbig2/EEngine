@@ -152,9 +152,13 @@ export const SURFACE_COLOR_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 @group(0) @binding(0) var source: texture_2d<u32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;
-@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(2) var surface_depth: texture_depth_2d;
+@group(0) @binding(3) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  if textureLoad(surface_depth, coordinate, 0) <= 0.0 {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
   if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
@@ -171,9 +175,13 @@ ${SURFACE_DEBUG_COMMON_WGSL}
 ${GBUFFER_ENCODE_WGSL}
 @group(0) @binding(0) var source: texture_2d<u32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;
-@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(2) var surface_depth: texture_depth_2d;
+@group(0) @binding(3) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  if textureLoad(surface_depth, coordinate, 0) <= 0.0 {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
   if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
@@ -192,10 +200,14 @@ ${SURFACE_DEBUG_COMMON_WGSL}
 struct SurfaceDebugMode { value: vec4u, }
 @group(0) @binding(0) var source: texture_2d<u32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;
-@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
-@group(0) @binding(3) var<uniform> mode: SurfaceDebugMode;
+@group(0) @binding(2) var surface_depth: texture_depth_2d;
+@group(0) @binding(3) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(4) var<uniform> mode: SurfaceDebugMode;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  if textureLoad(surface_depth, coordinate, 0) <= 0.0 {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
   if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
@@ -217,9 +229,13 @@ export const SURFACE_AO_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;
-@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(2) var surface_depth: texture_depth_2d;
+@group(0) @binding(3) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  if textureLoad(surface_depth, coordinate, 0) <= 0.0 {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
   if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
@@ -236,9 +252,13 @@ ${SURFACE_DEBUG_COMMON_WGSL}
 ${GBUFFER_ENCODE_WGSL}
 @group(0) @binding(0) var source: texture_2d<u32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;
-@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(2) var surface_depth: texture_depth_2d;
+@group(0) @binding(3) var<uniform> settings: DebugViewSettings;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  if textureLoad(surface_depth, coordinate, 0) <= 0.0 {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
   if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
@@ -254,10 +274,14 @@ export const SURFACE_FLAGS_DEBUG_WGSL = /* wgsl */ `
 ${SURFACE_DEBUG_COMMON_WGSL}
 struct SurfaceDebugMode { value: vec4u, }
 @group(0) @binding(0) var source: texture_2d<u32>;
-@group(0) @binding(1) var<uniform> settings: DebugViewSettings;
-@group(0) @binding(2) var<uniform> mode: SurfaceDebugMode;
+@group(0) @binding(1) var surface_depth: texture_depth_2d;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(3) var<uniform> mode: SurfaceDebugMode;
 @fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let coordinate = source_coordinate(position.xy, textureDimensions(source));
+  if textureLoad(surface_depth, coordinate, 0) <= 0.0 {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let packed = textureLoad(source, coordinate, 0).r;
   if (settings.contract.x == 1u && packed == ${VIS_MESH_CLEAR_SENTINEL}u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);
@@ -464,7 +488,8 @@ ${GPU_SHADING_SURFACE_LITE_WGSL}
 
 @group(0) @binding(0) var source: texture_2d<f32>;
 @group(0) @binding(1) var surface_metadata: texture_2d<u32>;
-@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+@group(0) @binding(2) var surface_depth: texture_depth_2d;
+@group(0) @binding(3) var<uniform> settings: DebugViewSettings;
 
 ${DEBUG_VIEW_COORDINATE_WGSL}
 
@@ -477,6 +502,9 @@ fn hue_to_rgb(hue: f32) -> vec3f {
 fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let dimensions = textureDimensions(source);
   let coordinate = source_coordinate(position.xy, dimensions);
+  if textureLoad(surface_depth, coordinate, 0) <= 0.0 {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
   let metadata = textureLoad(surface_metadata, coordinate, 0).r;
   if (settings.contract.x == 1u && metadata == ${VIS_MESH_CLEAR_SENTINEL}u) {
     return vec4f(0.0, 0.0, 0.0, 1.0);

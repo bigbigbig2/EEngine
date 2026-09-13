@@ -15,6 +15,7 @@ import {
   aabbSetFromTransformedPositions
 } from "../../scene/Scene.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import type { FrameGraph, FrameGraphContext } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { PackedCsmShadowPass } from "../passes/PackedCsmShadowPass.js";
 import { GPUCameraState } from "../GPUCameraState.js";
@@ -72,6 +73,23 @@ export interface ShadowFeatureFrameInput {
   readonly contentRevision: number;
   readonly settings: ShadowFeatureSettings;
   readonly geometry: ShadowGeometrySource;
+}
+
+export interface ShadowFeatureGraphJob {
+  readonly feature: ShadowFeature;
+  readonly frame: ShadowFeatureFrameInput;
+}
+
+export interface ShadowFeatureGraphInputs {
+  readonly atlas: ResourceId;
+  readonly lightDatabase: ResourceId;
+  readonly counters: ResourceId | null;
+}
+
+export interface ShadowFeatureGraphOutputs {
+  readonly atlas: ResourceId;
+  readonly lightDatabase: ResourceId;
+  readonly counters: ResourceId | null;
 }
 
 export interface ShadowFeatureEvidence {
@@ -432,6 +450,39 @@ export class ShadowFeature {
       input.contentRevision
     );
     return this.draw(command, this.lights.database, input.geometry);
+  }
+
+  /**
+   * Publishes the shadow atlas and shadow-light records as explicit FrameGraph
+   * products. The dynamic job carries the current Scene-scoped feature so a
+   * cached graph never captures an earlier Scene owner.
+   */
+  addToGraph(
+    graph: FrameGraph,
+    job: ShadowFeatureGraphJob,
+    inputs: ShadowFeatureGraphInputs
+  ): ShadowFeatureGraphOutputs {
+    const outputs: {
+      atlas: ResourceId;
+      lightDatabase: ResourceId;
+      counters: ResourceId | null;
+    } = { ...inputs };
+    const builder = graph.add(
+      "Shadow/produce atlas + light records",
+      job,
+      (data, _resources, context) => {
+        data.feature.encode(requireShadeCommand(context), data.frame);
+      }
+    );
+    builder.read(inputs.atlas);
+    builder.read(inputs.lightDatabase);
+    outputs.atlas = builder.write(inputs.atlas);
+    outputs.lightDatabase = builder.write(inputs.lightDatabase);
+    if (inputs.counters !== null) {
+      builder.read(inputs.counters);
+      outputs.counters = builder.write(inputs.counters);
+    }
+    return Object.freeze(outputs);
   }
 
   frame(atlas: ResourceId): ShadowVisibilityFrame {
@@ -806,6 +857,15 @@ export class ShadowFeature {
     this.packedRasterPass ??= new PackedCsmShadowPass(this.graphics);
     return this.packedRasterPass;
   }
+}
+
+function requireShadeCommand(context: FrameGraphContext): ShadeGPUCommandContext {
+  const command = context.encoder;
+  if (command === null || typeof command !== "object" ||
+      !("isGPUCommandContext" in command) || command.isGPUCommandContext !== true) {
+    throw new Error("ShadowFeature FrameGraph producer requires ShadeGPUCommandContext");
+  }
+  return command as ShadeGPUCommandContext;
 }
 
 /** Feature-off product: no Shadow owner exists and consumers see zero cascades. */

@@ -105,7 +105,10 @@ export class SparseShadingResolvePass {
   }
 
   createFrameBindingsForExecution(
-    resource: (name: string) => GPUBindingResource,
+    resource: (
+      name: string,
+      descriptor: Readonly<GpuSparseShadingPipelineDescriptor>
+    ) => GPUBindingResource,
     diagnostics?: Readonly<SparseShadingResolveDiagnosticsBindings>
   ): readonly Readonly<SparseShadingResolveFrameBinding>[] {
     this.requireAlive();
@@ -116,7 +119,7 @@ export class SparseShadingResolvePass {
     for (const [binId, record] of this.records) {
       const groups = record.descriptor.groups.map((group, groupIndex) => {
         const resources: GPUBindingResource[] = group.bindings.map((binding) =>
-          resource(binding.name));
+          resource(binding.name, record.descriptor));
         const bindings = group.bindings.map((binding) => binding.binding);
         if (groupIndex === 0 && diagnostics !== undefined) {
           resources.push(

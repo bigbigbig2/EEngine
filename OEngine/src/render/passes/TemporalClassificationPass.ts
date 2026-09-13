@@ -52,7 +52,8 @@ const CLASSIFICATION_GROUP: GPUBindGroupLayoutDescriptor = {
   entries: [
     { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+    { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+    { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } }
   ]
 };
 
@@ -134,7 +135,8 @@ export class TemporalClassificationPass {
           bindings: [[
             resolveTextureView(resources.get(inputs.surfaceMetadata)),
             resolveTextureView(resources.get(inputs.transparentReactive)),
-            { buffer: settingsBuffer }
+            { buffer: settingsBuffer },
+            resolveTextureView(resources.get(inputs.depth), { aspect: "depth-only" })
           ]],
           colorAttachments: [{
             view: resolveTextureView(resources.get(classification)),
@@ -157,6 +159,7 @@ export class TemporalClassificationPass {
     });
     classify.read(inputs.surfaceMetadata);
     classify.read(inputs.transparentReactive);
+    classify.read(inputs.depth);
 
     let counters: ResourceId | null = null;
     if (inputs.counters !== undefined) {

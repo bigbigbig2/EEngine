@@ -160,8 +160,7 @@ test("actual WGSL binding pairs and output stores equal every concrete descripto
       assert.equal(/textureStore\(output_normal/u.test(source),
         (mask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0);
       assert.equal(/textureStore\(output_albedo_ao/u.test(source),
-        (mask & (GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
-          GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite)) !== 0);
+        (mask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0);
       assert.equal(/textureStore\(output_velocity/u.test(source),
         (mask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0);
     }

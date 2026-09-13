@@ -144,6 +144,21 @@ export interface DirectLightingFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
+/**
+ * Opaque result produced by the ADR-0013 specialized per-bin kernels.
+ * Optional products are physically absent when their creation-time output
+ * dependency is absent; consumers must never infer an attachment from a
+ * shader/program name.
+ */
+export interface SpecializedShadingFrame {
+  readonly bins: ShadingBinFrame;
+  readonly direct: DirectLightingFrame;
+  readonly shading: ShadingSurfaceLiteFrame | null;
+  readonly diffuse: DiffuseSurfaceLiteFrame | null;
+  readonly velocity: ResourceId | null;
+  readonly domain: TextureDomain<"internal-full">;
+}
+
 export type ScreenSpaceDiffuseMode = "off" | "gtao" | "ssgi";
 export type LongRangeDiffuseProvider = "brick4" | "probe-volume" | "ibl" | "black";
 
@@ -534,6 +549,31 @@ export function directLightingFrame(input: DirectLightingFrame): DirectLightingF
       input.domain.scale
     )
   });
+}
+
+/** Validate the sole production opaque-shading composition seam. */
+export function specializedShadingFrame(
+  input: SpecializedShadingFrame
+): SpecializedShadingFrame {
+  const domain = requireInternalFullDomain(input.domain, "SpecializedShadingFrame");
+  const bins = shadingBinFrame(input.bins);
+  const direct = directLightingFrame(input.direct);
+  const shading = input.shading === null
+    ? null
+    : shadingSurfaceLiteFrame(input.shading);
+  const diffuse = input.diffuse === null
+    ? null
+    : diffuseSurfaceLiteFrame(input.diffuse);
+  requireMatchingDomain(bins.domain, domain, "SpecializedShadingFrame.bins");
+  requireMatchingDomain(direct.domain, domain, "SpecializedShadingFrame.direct");
+  if (shading !== null) {
+    requireMatchingDomain(shading.domain, domain, "SpecializedShadingFrame.shading");
+  }
+  if (diffuse !== null) {
+    requireMatchingDomain(diffuse.domain, domain, "SpecializedShadingFrame.diffuse");
+  }
+  requireResourceId(input.velocity, "SpecializedShadingFrame.velocity");
+  return Object.freeze({ ...input, bins, direct, shading, diffuse, domain });
 }
 
 /** Freeze the producer/consumer ABI for one clustered-light frame. */
@@ -948,6 +988,17 @@ function requireOutputFullDomain(
     throw new Error(`${name} must be produced at output-full resolution`);
   }
   return textureDomain("output-full", domain.width, domain.height, domain.scale);
+}
+
+function requireMatchingDomain(
+  producer: TextureDomain,
+  expected: TextureDomain,
+  name: string
+): void {
+  if (producer.domain !== expected.domain || producer.width !== expected.width ||
+      producer.height !== expected.height || producer.scale !== expected.scale) {
+    throw new Error(`${name} does not match the SpecializedShadingFrame domain`);
+  }
 }
 
 function requirePositiveInteger(value: number, name: string): void {

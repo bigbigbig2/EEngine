@@ -375,6 +375,60 @@ export class GpuRenderWorld {
     return this.byScene.get(scene) ?? null;
   }
 
+  /**
+   * Returns the immutable shading publication that the next main command will
+   * commit. This read-only preview lets the async sparse-pipeline owner finish
+   * before GpuScene records the corresponding GPU patch; it neither consumes
+   * the queued patch nor changes the live classification truth.
+   */
+  previewNextShadingPublication(
+    scene: Scene
+  ): Readonly<GpuRenderWorldShadingPublication> {
+    const runtime = this.byScene.get(scene);
+    const current = this.classificationByScene.get(scene);
+    if (runtime === undefined || current === undefined) {
+      throw new Error("Scene has no GPU Render World registration");
+    }
+    let batch = this.pendingPatches.get(scene)?.batch;
+    const adapter = this.ordinaryAdapters.get(scene);
+    if (batch === undefined && adapter !== undefined) {
+      const snapshot = scene.changesSince(adapter.lastRevision);
+      if (snapshot.fullResyncRequired || snapshot.instanceStructureChanged) {
+        throw new Error(
+          `Ordinary Scene ${scene.id} requires explicit resyncScene() after a structural change`
+        );
+      }
+      const materialIndices: number[] = [];
+      const materialDictionaryIndices: number[] = [];
+      for (const mesh of snapshot.changedMeshMaterials) {
+        const index = adapter.instanceIndexByMesh.get(mesh);
+        if (index === undefined) continue;
+        const material = mesh.material as StandardShadeMaterial;
+        const dictionaryIndex = adapter.materialIndexByMaterial.get(material);
+        if (dictionaryIndex === undefined) {
+          throw new Error(
+            `Ordinary Scene ${scene.id} requires explicit resyncScene() for a new material`
+          );
+        }
+        materialIndices.push(index);
+        materialDictionaryIndices.push(dictionaryIndex);
+      }
+      if (materialIndices.length !== 0) {
+        batch = {
+          frameId: snapshot.revision,
+          materials: {
+            indices: Uint32Array.from(materialIndices),
+            materialIndices: Uint32Array.from(materialDictionaryIndices)
+          }
+        };
+      }
+    }
+    if (batch === undefined) return runtime.shadingPublication;
+    const preview = clonePackedSceneClassificationState(current);
+    applyClassificationPatch(batch, preview, runtime.materials);
+    return requireShadingPublication(preview);
+  }
+
   transparentInstanceCount(scene: Scene): number {
     return this.byScene.get(scene)?.transparentInstanceCount ?? 0;
   }
@@ -676,6 +730,33 @@ function createPackedSceneClassificationState(
   }
   state.summary = freezeActiveShadingSummary(state);
   return state;
+}
+
+function clonePackedSceneClassificationState(
+  source: PackedSceneClassificationState
+): PackedSceneClassificationState {
+  return {
+    materialIndices: source.materialIndices.slice(),
+    geometryIndices: source.geometryIndices.slice(),
+    active: source.active.slice(),
+    binIds: source.binIds.slice(),
+    dependencyMasks: source.dependencyMasks.slice(),
+    binRefCounts: source.binRefCounts.slice(),
+    dependencyRefCounts: source.dependencyRefCounts.slice(),
+    materialBindingSetIds: source.materialBindingSetIds,
+    geometryProfiles: source.geometryProfiles,
+    geometryPublicationIds: source.geometryPublicationIds,
+    transparentInstanceCount: source.transparentInstanceCount,
+    opaqueLitReceiverCount: source.opaqueLitReceiverCount,
+    opaqueUnlitReceiverCount: source.opaqueUnlitReceiverCount,
+    transparentLitReceiverCount: source.transparentLitReceiverCount,
+    revision: source.revision,
+    summary: source.summary,
+    materialPublications: source.materialPublications,
+    geometryPublications: source.geometryPublications,
+    instancePublications: source.instancePublications,
+    publication: source.publication
+  };
 }
 
 function initializeRenderWorldShadingPublication(

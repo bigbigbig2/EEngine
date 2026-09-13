@@ -25,11 +25,13 @@ ${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 @group(0) @binding(1) var surface_pbr: texture_2d<u32>;
 @group(0) @binding(2) var specular_environment: texture_2d<f32>;
 @group(0) @binding(3) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(4) var surface_depth: texture_depth_2d;
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP}, 1)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let size = textureDimensions(surface_metadata);
   if any(id.xy >= size) { return; }
+  if textureLoad(surface_depth, vec2i(id.xy), 0) <= 0.0 { return; }
   let metadata = textureLoad(surface_metadata, vec2i(id.xy), 0).r;
   let flags = oengine_surface_flags(metadata);
   if (flags & OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK) != 0u {
@@ -68,7 +70,8 @@ const GROUP: GPUBindGroupLayoutDescriptor = {
     { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
     { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+    { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } }
   ]
 };
 
@@ -89,7 +92,13 @@ export class PackedSurfaceCounterPass {
     graph: FrameGraph,
     width: number,
     height: number,
-    inputs: { surfaceFlags: ResourceId; pbr: ResourceId; environment: ResourceId; counters: ResourceId }
+    inputs: {
+      surfaceFlags: ResourceId;
+      pbr: ResourceId;
+      environment: ResourceId;
+      counters: ResourceId;
+      depth: ResourceId;
+    }
   ): ResourceId {
     const builder = graph.add(
       "R4-B GPU Surface counters",
@@ -103,7 +112,8 @@ export class PackedSurfaceCounterPass {
             resolveTextureView(resources.get(inputs.surfaceFlags)),
             resolveTextureView(resources.get(inputs.pbr)),
             resolveTextureView(resources.get(inputs.environment)),
-            { buffer: requireBuffer(resources.get(inputs.counters), "GPU counters") }
+            { buffer: requireBuffer(resources.get(inputs.counters), "GPU counters") },
+            resolveTextureView(resources.get(inputs.depth), { aspect: "depth-only" })
           ]]
         });
         pass.dispatchWorkgroups(
@@ -117,6 +127,7 @@ export class PackedSurfaceCounterPass {
     builder.read(inputs.surfaceFlags);
     builder.read(inputs.pbr);
     builder.read(inputs.environment);
+    builder.read(inputs.depth);
     builder.read(inputs.counters);
     return builder.write(inputs.counters);
   }

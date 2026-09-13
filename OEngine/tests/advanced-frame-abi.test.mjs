@@ -343,7 +343,7 @@ test("ADR-0009 Step 0 binds MaterialTileWork resources to internal-full tile cap
   );
 });
 
-test("ADR-0009 Step 2 closes MaterialTileWork through one compute material evaluation", () => {
+test("ADR-0013 cutover isolates the former MaterialTile oracle from production Surface", () => {
   assert.match(MATERIAL_TILE_CLASSIFICATION_WGSL, /classify_material_tiles/);
   assert.match(MATERIAL_TILE_CLASSIFICATION_WGSL, /build_material_tile_indirect/);
   assert.match(COMPUTE_MATERIAL_SOURCE, /evaluate_compute_material_tiles/);
@@ -355,7 +355,11 @@ test("ADR-0009 Step 2 closes MaterialTileWork through one compute material evalu
   assert.match(COMPUTE_MATERIAL_SOURCE, /COMPUTE_HEADER_CONSUMED/);
   assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /dispatchWorkgroupsIndirect/);
   assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT/);
-  assert.match(SURFACE_FEATURE_SOURCE, /return "tile-compute"/);
+  assert.match(SURFACE_FEATURE_SOURCE, /return "sparse-shading-bin"/);
+  assert.doesNotMatch(
+    SURFACE_FEATURE_SOURCE,
+    /PackedMaterialResolvePass|MaterialTileClassification|ComputeMaterialResolvePass/
+  );
   assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /PackedMaterialClassDepthPass/);
 
   assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /shade_direct_material_tiles/);

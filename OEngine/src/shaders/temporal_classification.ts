@@ -13,6 +13,7 @@ struct ClassificationSettings {
 @group(0) @binding(0) var surface_metadata: texture_2d<u32>;
 @group(0) @binding(1) var transparent_reactive: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> settings: ClassificationSettings;
+@group(0) @binding(3) var surface_depth: texture_depth_2d;
 
 @fragment
 fn main(@builtin(position) position: vec4f) -> @location(0) vec2f {
@@ -20,12 +21,20 @@ fn main(@builtin(position) position: vec4f) -> @location(0) vec2f {
   var reactive = 0.0;
   var motion_valid = 1.0;
   if settings.metadata_available != 0u {
-    let metadata = textureLoad(surface_metadata, pixel, 0).r;
-    let valid = oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID);
-    let valid_motion = oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_MOTION_VALID);
-    let surface_reactive = oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_REACTIVE);
-    motion_valid = select(0.0, 1.0, valid && valid_motion);
-    reactive = select(0.0, 1.0, !valid || surface_reactive);
+    // Sparse SurfaceLite background texels are deliberately undefined. The
+    // authoritative reverse-Z visibility domain must reject background before
+    // any metadata load.
+    if textureLoad(surface_depth, pixel, 0) <= 0.0 {
+      motion_valid = 0.0;
+      reactive = 1.0;
+    } else {
+      let metadata = textureLoad(surface_metadata, pixel, 0).r;
+      let valid = oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_VALID);
+      let valid_motion = oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_MOTION_VALID);
+      let surface_reactive = oengine_surface_has_flag(metadata, OENGINE_SURFACE_FLAG_REACTIVE);
+      motion_valid = select(0.0, 1.0, valid && valid_motion);
+      reactive = select(0.0, 1.0, !valid || surface_reactive);
+    }
   }
   if settings.transparency_available != 0u {
     let transparent = clamp(textureLoad(transparent_reactive, pixel, 0).r, 0.0, 1.0);

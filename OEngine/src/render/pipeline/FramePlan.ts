@@ -1,7 +1,7 @@
 export type FramePlanFrequency = "per-frame" | "when-dirty" | "on-demand";
 
 export interface FramePlanStageDefinition {
-  readonly id: "scene-update" | "lpv-update" | "shadow-update" | "main-view-graph";
+  readonly id: "scene-update" | "lpv-update" | "main-view-graph";
   readonly dependencies: readonly FramePlanStageDefinition["id"][];
   readonly enabled: boolean;
   readonly frequency: FramePlanFrequency;
@@ -130,15 +130,13 @@ export class FramePlan {
 
 export function createRendererFramePlan(
   frameIndex: number,
-  options: { readonly lpv: boolean; readonly shadows: boolean }
+  options: { readonly lpv: boolean }
 ): FramePlan {
   const mainDependencies: FramePlanStageDefinition["id"][] = ["scene-update"];
   if (options.lpv) mainDependencies.push("lpv-update");
-  if (options.shadows) mainDependencies.push("shadow-update");
   return new FramePlan(frameIndex, [
     stage("scene-update", [], true, "per-frame", "scene/patch/view changed", [], "scene-update"),
     stage("lpv-update", ["scene-update"], options.lpv, "when-dirty", "LPV mode and probe update", ["LPV atlases"], "lpv-update"),
-    stage("shadow-update", ["scene-update"], options.shadows, "per-frame", "shadow feature and directional light", ["shadow atlas"], "shadow-update"),
     stage("main-view-graph", mainDependencies, true, "per-frame", "visible main view", ["history", "present"], "main-view-graph")
   ]);
 }

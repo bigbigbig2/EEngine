@@ -117,7 +117,7 @@ export function createGpuSparseShadingPipelineDescriptor(
     uniformBinding(0, 5, "shading_view"),
     storageTextureBinding(0, 6, "output_hdr", "rgba16float"),
     ...(publishesShading ? [storageTextureBinding(0, 7, "output_normal", "rgba16uint")] : []),
-    ...(publishesShading || publishesDiffuse
+    ...(publishesDiffuse
       ? [storageTextureBinding(0, 8, "output_albedo_ao", "rgba8unorm")]
       : []),
     ...(publishesShading || publishesDiffuse

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import "./webgpu-test-globals.mjs";
+
 import { GpuShadingPublicationStore } from "../.test-dist/gpu/GpuShadingPublicationPlan.js";
 import {
   SparseShadingPublicationCoordinator
@@ -57,6 +59,58 @@ test("production publication derives one atomic GPU revision and stable frames r
     `bins:${initial.snapshot.revision}`,
     `settings:${initial.snapshot.revision}`
   ]);
+  coordinator.destroy();
+});
+
+test("preview and committed value-equivalent scene publications share one GPU revision", async () => {
+  const coordinator = new SparseShadingPublicationCoordinator(
+    null,
+    false,
+    fakeGpuRevisionFactory([])
+  );
+  const preview = scenePublication(1, source({ materialId: 0 }));
+  const active = await coordinator.reconcile(preview, context(), 0);
+  const committed = Object.freeze({
+    ...preview,
+    summary: Object.freeze({
+      ...preview.summary,
+      binRefCounts: preview.summary.binRefCounts.slice()
+    })
+  });
+  assert.notStrictEqual(committed, preview);
+  assert.strictEqual(coordinator.active(committed, context()), active);
+  assert.strictEqual(await coordinator.reconcile(committed, context(), 0), active);
+  assert.equal(coordinator.evidence().stableHits, 1);
+  coordinator.destroy();
+});
+
+test("scene release publishes an empty closure and retires GPU work only at the completed boundary", async () => {
+  const destroyed = [];
+  const coordinator = new SparseShadingPublicationCoordinator(
+    null,
+    false,
+    fakeGpuRevisionFactory(destroyed)
+  );
+  const scene = scenePublication(1, source({ materialId: 0 }));
+  const active = await coordinator.reconcile(scene, context(), 0);
+
+  assert.equal(await coordinator.release(scene, 9), true);
+  assert.throws(() => coordinator.active(scene, context()), /not active/u);
+  assert.equal(coordinator.evidence().activeSceneRevision, null);
+  assert.equal(coordinator.evidence().activePublicationRevision, null);
+  assert.deepEqual(coordinator.evidence().gpu.retiringRevisions, [active.snapshot.revision]);
+  assert.deepEqual(coordinator.completeSubmittedWork(8), { cpu: [], gpu: [] });
+  assert.deepEqual(destroyed, []);
+  assert.deepEqual(coordinator.completeSubmittedWork(9), {
+    cpu: [active.snapshot.revision],
+    gpu: [active.snapshot.revision]
+  });
+  assert.deepEqual(destroyed, [
+    `resolve:${active.snapshot.revision}`,
+    `bins:${active.snapshot.revision}`,
+    `settings:${active.snapshot.revision}`
+  ]);
+  assert.equal(await coordinator.release(scene, 10), false);
   coordinator.destroy();
 });
 

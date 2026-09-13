@@ -242,9 +242,7 @@ fn fs_main(
   let device_depth = center_reverse_z_depth(output_pixel, output_size, viewport_size);
   if (device_depth <= 0.0) {
     var background: GtaoRawOutput;
-    let encoded_normal = vec2f(textureLoad(ray_ws, pixel, 0).xy) /
-      OENGINE_SURFACE_NORMAL_MAX_VALUE;
-    background.moments_and_bent_normal = vec4f(1.0, 1.0, encoded_normal);
+    background.moments_and_bent_normal = vec4f(1.0, 1.0, 0.5, 0.5);
     return background;
   }
   let position_ws = project_position_from_depth(
@@ -491,11 +489,14 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let source_dimensions = vec2i(textureDimensions(gr_bucket));
   let center_source_pixel = source_pixel(pixel, dimensions, source_dimensions);
   let center = textureLoad(this_hit, pixel, 0);
+  let center_depth = textureLoad(gr_bucket, pixel, 0).r;
+  if (center_depth <= 0.0) {
+    return center;
+  }
   let variance = visibility_variance(pixel, dimensions);
   let standard_deviation = sqrt(max(0.0, epsilon + variance));
   let visibility_phi = phi_visibility_base * standard_deviation;
   let center_normal = decode_g_buffer_normal(textureLoad(ray_ws, center_source_pixel, 0).xy);
-  let center_depth = textureLoad(gr_bucket, pixel, 0).r;
 
   var total_weight = 1.0;
   var filtered_moments = center.rg;
@@ -508,9 +509,12 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
     }
     let kernel_weight = kernel[abs(offset.x)] * kernel[abs(offset.y)];
     let sample_value = textureLoad(this_hit, sample_pixel, 0);
+    let sample_depth = textureLoad(gr_bucket, sample_pixel, 0).r;
+    if (sample_depth <= 0.0) {
+      continue;
+    }
     let sample_source_pixel = source_pixel(sample_pixel, dimensions, source_dimensions);
     let sample_normal = decode_g_buffer_normal(textureLoad(ray_ws, sample_source_pixel, 0).xy);
-    let sample_depth = textureLoad(gr_bucket, sample_pixel, 0).r;
     let edge_weight = sample_weight(
       center.r,
       sample_value.r,
@@ -795,6 +799,12 @@ fn fs_main(
   let full_pixel = clamp(vec2i(position.xy), vec2i(0), full_dimensions - vec2i(1));
   let device_depth = textureLoad(device_depth_source, full_pixel, 0);
   let center_depth = view_space_depth(device_depth);
+  if (center_depth <= 0.0) {
+    var background: ResolveOutput;
+    background.visibility = 1.0;
+    background.bent_normal = oct_encode(vec3f(0.0, 0.0, 1.0));
+    return background;
+  }
   let center_normal = surface_oct_decode(textureLoad(normal_source, full_pixel, 0).xy);
   let low_position = uv * vec2f(low_dimensions) - 0.5;
   let low_base = vec2i(floor(low_position));
@@ -807,6 +817,9 @@ fn fs_main(
       let candidate = clamp(low_base + vec2i(x, y), vec2i(0), low_dimensions - vec2i(1));
       let source_pixel = full_source_pixel(candidate, low_dimensions, full_dimensions);
       let sample_depth = textureLoad(linear_depth_source, candidate, 0).r;
+      if (sample_depth <= 0.0) {
+        continue;
+      }
       let sample_normal = surface_oct_decode(textureLoad(normal_source, source_pixel, 0).xy);
       let depth_sigma = max(0.01, center_depth * 0.02);
       let depth_weight = exp(-abs(sample_depth - center_depth) / depth_sigma);

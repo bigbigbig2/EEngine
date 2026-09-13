@@ -98,6 +98,11 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
     surface_size - vec2u(1u)
   );
   let hit_pixel = min(hit.position, surface_size - vec2u(1u));
+  let surface_depth = textureLoad(depth_source, vec2i(surface_pixel), 0);
+  let hit_depth = textureLoad(depth_source, vec2i(hit_pixel), 0);
+  if (is_background(surface_depth) || is_background(hit_depth)) {
+    return vec4f(0.0);
+  }
   let start = view_position(surface_pixel);
   let hit_position = view_position(hit_pixel);
   let ray = hit_position - start;

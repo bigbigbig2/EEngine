@@ -152,13 +152,13 @@ struct TraceOutput {
   let uv = (vec2f(trace_pixel) + 0.5) / vec2f(trace_size);
   let pixel = min(vec2u(uv * vec2f(full_size)), full_size - vec2u(1u));
   let center_depth = textureLoad(depth_source, pixel, 0);
-  let center_normal = normal_at(pixel);
   var output: TraceOutput;
   if (center_depth <= 0.0) {
-    output.ao_bent = vec4f(1.0, 1.0, oct_encode(center_normal));
+    output.ao_bent = vec4f(1.0, 1.0, oct_encode(vec3f(0.0, 0.0, 1.0)));
     output.gi_confidence = vec4f(0.0);
     return output;
   }
+  let center_normal = normal_at(pixel);
 
   let center_world = position_from_depth(uv, center_depth);
   let center_view = (camera.view_matrix * vec4f(center_world, 1.0)).xyz;
@@ -340,6 +340,12 @@ struct SpatialOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
   let full_dimensions = vec2i(textureDimensions(normal_source));
   let center_full = min(vec2i((vec2f(p) + 0.5) / vec2f(dimensions) * vec2f(full_dimensions)), full_dimensions - 1);
   let center_depth = textureLoad(linear_depth, p, 0).r;
+  if (center_depth <= 0.0) {
+    return SpatialOutput(
+      textureLoad(current_ao, p, 0),
+      textureLoad(current_gi, p, 0)
+    );
+  }
   let center_normal = oct_decode(vec2f(textureLoad(normal_source, center_full, 0).xy) / OENGINE_SURFACE_NORMAL_MAX_VALUE);
   var ao_moments_sum = vec2f(0.0);
   var bent_sum = vec3f(0.0);
@@ -348,7 +354,9 @@ struct SpatialOutput { @location(0) ao: vec4f, @location(1) gi: vec4f };
   for (var y = -1; y <= 1; y++) { for (var x = -1; x <= 1; x++) {
     let q = clamp(p + vec2i(x, y) * step_size.x, vec2i(0), dimensions - 1);
     let q_full = min(vec2i((vec2f(q) + 0.5) / vec2f(dimensions) * vec2f(full_dimensions)), full_dimensions - 1);
-    let depth_weight = exp(-abs(textureLoad(linear_depth, q, 0).r - center_depth) / max(abs(center_depth) * 0.02, 1e-3));
+    let sample_depth = textureLoad(linear_depth, q, 0).r;
+    if (sample_depth <= 0.0) { continue; }
+    let depth_weight = exp(-abs(sample_depth - center_depth) / max(abs(center_depth) * 0.02, 1e-3));
     let sample_normal = oct_decode(vec2f(textureLoad(normal_source, q_full, 0).xy) / OENGINE_SURFACE_NORMAL_MAX_VALUE);
     let normal_weight = pow(max(dot(center_normal, sample_normal), 0.0), 8.0);
     let kernel = select(1.0, 2.0, x == 0) * select(1.0, 2.0, y == 0);
@@ -468,6 +476,14 @@ struct ResolveOutput {
   let low_position = uv * low_size - 0.5;
   let base = vec2i(floor(low_position));
   let center_depth = textureLoad(depth_source, pixel, 0);
+  if (center_depth <= 0.0) {
+    return ResolveOutput(
+      1.0,
+      vec2u(round(oct_encode(vec3f(0.0, 0.0, 1.0)) * 65535.0)),
+      vec4f(0.0),
+      0.0
+    );
+  }
   let center_position = position_from_depth(uv, center_depth);
   let center_view_depth = abs((camera.view_matrix * vec4f(center_position, 1.0)).z);
   let center_normal = oct_decode(
@@ -481,7 +497,9 @@ struct ResolveOutput {
   for (var y = 0; y <= 1; y++) { for (var x = 0; x <= 1; x++) {
     let q = clamp(base + vec2i(x, y), vec2i(0), vec2i(low_size) - 1);
     let bilinear = vec2f(1.0) - abs((vec2f(q) + 0.5) - low_position);
-    let depth_weight = exp(-abs(textureLoad(linear_depth, q, 0).r - center_view_depth) / max(center_view_depth * 0.02, 1e-3));
+    let sample_view_depth = textureLoad(linear_depth, q, 0).r;
+    if (sample_view_depth <= 0.0) { continue; }
+    let depth_weight = exp(-abs(sample_view_depth - center_view_depth) / max(center_view_depth * 0.02, 1e-3));
     let q_full = min(
       vec2i((vec2f(q) + 0.5) / low_size * full_size),
       vec2i(full_size) - 1

@@ -10,7 +10,7 @@ import { Vec2 } from "../../core/math/Vec2.js";
 import { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { GPU_MESHLET_RASTER_WORK_ABI_VERSION } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBILITY_KEY_ABI_VERSION } from "../../gpu/GpuVisibilityKeyAbi.js";
-import { GPU_COMPUTE_MATERIAL_ABI_VERSION } from "../../gpu/GpuComputeMaterialAbi.js";
+import { GPU_SHADING_BIN_ABI_VERSION } from "../../gpu/GpuShadingBinAbi.js";
 import { GPU_HDR_BYTES_PER_PIXEL } from "../../gpu/GpuHdrAbi.js";
 import { THREE_SSR_REVISION } from "../../shaders/ssr_common.js";
 import {
@@ -19,6 +19,17 @@ import {
 } from "../../gpu/GpuComputeMaterialAbi.js";
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
 import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
+import {
+  captureGpuSparseShadingCapabilityRecord,
+  createGpuSparseShadingCapabilityPlan,
+  GPU_SPARSE_SHADING_REQUIRED_LIMITS,
+  type GpuSparseShadingCapabilityPlan,
+  type GpuSparseShadingCapabilityRecord
+} from "../../gpu/GpuSparseShadingCapability.js";
+import {
+  GPU_SHADING_OUTPUT_DEPENDENCY
+} from "../../gpu/GpuSparseShadingPipelineContract.js";
+import type { GpuShadingPublicationContext } from "../../gpu/GpuShadingPublicationPlan.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
 import type { GPUSceneEnvironmentContext } from "../../gpu/GPUSceneEnvironmentContext.js";
 import type { Brick4LightMapEvidence } from "../../gpu/Brick4LightMap.js";
@@ -49,7 +60,6 @@ import { SurfaceFeature } from "../features/SurfaceFeature.js";
 import { PackedSurfaceCounterPass } from "../passes/PackedSurfaceCounterPass.js";
 import { LightingFeature } from "../features/LightingFeature.js";
 import {
-  createDisabledShadowVisibilityFrame,
   type ShadowFeature
 } from "../features/ShadowFeature.js";
 import { ShadowFeatureManager } from "../features/ShadowFeatureManager.js";
@@ -109,6 +119,7 @@ import { createSceneResidencyManifest } from "../../gpu/GpuSceneResidencyManifes
 import type {
   GpuRenderWorldEvidence,
   GpuRenderWorldHandle,
+  GpuRenderWorldShadingPublication,
   PackedScenePatchBatch,
   PackedSceneSource
 } from "../../gpu/GpuRenderWorld.js";
@@ -181,6 +192,11 @@ import {
   type FrameContext
 } from "./FrameContext.js";
 import { createMainRenderPipelineGraphKey } from "./MainRenderPipelineGraphKey.js";
+import {
+  SparseShadingPublicationCoordinator,
+  type SparseShadingPublicationCoordinatorEvidence
+} from "./SparseShadingPublicationCoordinator.js";
+import type { SparseShadingGpuRevision } from "./SparseShadingGpuRevision.js";
 
 const HZB_STORAGE_FORMAT_FEATURE: GPUFeatureName = "texture-formats-tier1";
 
@@ -214,6 +230,8 @@ export type RenderFramePhase = (typeof RENDER_FRAME_PHASES)[number];
 
 export type RendererInitializeOptions = {
   context?: GPUCanvasContext;
+  /** Required with a caller-owned device so subgroup range can be verified. */
+  adapter?: GPUAdapter;
   device?: GPUDevice;
   pixelRatio?: number;
   /** 初始化时覆盖构造器配置；只在初始化前应用一次。 */
@@ -224,6 +242,7 @@ export interface RendererCapabilities {
   readonly features: readonly string[];
   readonly limits: Readonly<Record<string, number>>;
   readonly record: import("../../gpu/WebGpuCapabilityRecord.js").WebGpuCapabilityRecord;
+  readonly sparseShading: Readonly<GpuSparseShadingCapabilityRecord>;
 }
 
 export interface LinearHdrCaptureRegion {
@@ -446,7 +465,7 @@ export interface RendererMemoryEvidence extends GraphicsMemoryEvidence {
 }
 
 export interface VisibilitySurfaceMigrationEvidence {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly visibilityKeyAbiVersion: number;
   readonly meshletRasterWorkAbiVersion: number;
   readonly surfaceAbiVersion: number;
@@ -524,12 +543,14 @@ type MainFrameGraphBindings = {
   readonly view: ReturnType<ViewManager["obtain"]>;
   readonly environment: GPUSceneEnvironmentContext;
   readonly geometry: MainFrameGeometrySource;
+  readonly sparseRevision: Readonly<SparseShadingGpuRevision>;
   readonly shadow: ShadowFeature | null;
   readonly viewHzb: HierarchicalZBuffer;
   readonly colorView: GPUTextureView;
   readonly renderTargets: ReturnType<RenderTargets["asImportBundle"]>;
   readonly previousDepth: GPUTextureContext | null;
   readonly frameIndex: number;
+  readonly packedPatchRevision: number;
   readonly timeDeltaSeconds: number;
   readonly internalWidth: number;
   readonly internalHeight: number;
@@ -611,6 +632,10 @@ export class MainRenderPipeline {
   private _surfaceFeature!: SurfaceFeature;
   private _packedSurfaceCounters!: PackedSurfaceCounterPass;
   private _lightingFeature!: LightingFeature;
+  private _sparseShadingCapability!: Readonly<GpuSparseShadingCapabilityRecord>;
+  private _sparseShadingPublications!: SparseShadingPublicationCoordinator;
+  private _pendingSparseShadingPreparation: Promise<void> | null = null;
+  private _sparseShadingPreparationError: unknown = null;
   private _giService!: GIService;
   private _transparencyFeature: TransparencyFeature | null = null;
   private _packedTransparencyOwnerGeneration = 0;
@@ -956,6 +981,7 @@ export class MainRenderPipeline {
       this._graphics,
       "Renderer/GpuRenderWorld/residency-transaction"
     );
+    let uploadCommitted = false;
     try {
       const handles = this._graphics.assets.residentMany(
         manifest.packages,
@@ -972,9 +998,29 @@ export class MainRenderPipeline {
           );
       command.finish();
       await command.submitted;
+      uploadCommitted = true;
+      const runtime = this._graphics.render_world.runtime(scene);
+      if (runtime === null) {
+        throw new Error("GpuRenderWorld upload committed without publishing its runtime");
+      }
+      await this._sparseShadingPublications.reconcile(
+        runtime.shadingPublication,
+        this.createSparseShadingPublicationContext(runtime),
+        this._frame_count
+      );
       return handle;
     } catch (error) {
-      command.abort(error);
+      if (!command.closed) command.abort(error);
+      if (uploadCommitted && this._graphics.render_world.runtime(scene) !== null) {
+        try {
+          await this.releasePackedScene(scene);
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            "GpuRenderWorld upload failed and its committed residency rollback also failed"
+          );
+        }
+      }
       throw error;
     }
   }
@@ -986,9 +1032,11 @@ export class MainRenderPipeline {
       "Renderer/GpuRenderWorld/release-transaction"
     );
     let handles: readonly AssetHandle[];
+    let shadingPublication: Readonly<GpuRenderWorldShadingPublication> | null = null;
     try {
       const runtime = this._graphics.render_world.runtime(scene);
       if (runtime !== null && this._visibilityFeature) {
+        shadingPublication = runtime.shadingPublication;
         this._visibilityFeature.release(runtime, command);
         this._transparencyFeature?.releasePacked(runtime, command);
         this._shadowFeatures.releaseRenderWorld(scene, runtime, command);
@@ -1004,6 +1052,15 @@ export class MainRenderPipeline {
       // completion prevents immutable texture segments from becoming stranded
       // or being reused while an earlier frame still references them.
       await command.gpuDone;
+      if (shadingPublication !== null) {
+        const released = await this._sparseShadingPublications.release(
+          shadingPublication,
+          this._frame_count
+        );
+        if (released) {
+          this._sparseShadingPublications.completeSubmittedWork(this._frame_count);
+        }
+      }
     } catch (error) {
       command.abort(error);
       throw error;
@@ -1347,22 +1404,27 @@ export class MainRenderPipeline {
   /** Machine-readable migration state; does not imply any performance Gate passed. */
   visibilitySurfaceMigrationEvidence(): VisibilitySurfaceMigrationEvidence {
     return Object.freeze({
-      schemaVersion: 2,
+      schemaVersion: 3,
       visibilityKeyAbiVersion: GPU_VISIBILITY_KEY_ABI_VERSION,
       meshletRasterWorkAbiVersion: GPU_MESHLET_RASTER_WORK_ABI_VERSION,
-      surfaceAbiVersion: GPU_COMPUTE_MATERIAL_ABI_VERSION,
+      surfaceAbiVersion: GPU_SHADING_BIN_ABI_VERSION,
       materialResolveBackend: this._surfaceFeature?.materialResolveBackend ?? "uninitialized",
       materialResolveBackendSelection: Object.freeze({
-        source: "adr-0009-step2-cutover",
-        reason: "MaterialTileWork compute evaluation is the sole production opaque material backend"
+        source: "adr-0013-step7-production-cutover",
+        reason: "active ShadingBin indirect kernels are the sole production opaque material/direct-lighting backend"
       }),
       triangleSetupEnabled: this.packed_triangle_setup_enabled,
       triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
       surfaceAbiEvidence: Object.freeze({
         status: "insufficient-evidence",
-        reason: "M6 requires complete unified Surface ABI correctness, attachment, and memory evidence before any future ABI change"
+        reason: "ADR-0013 Step 8 browser correctness and final performance evidence remain open"
       })
     });
+  }
+
+  /** Bounded lifecycle/cache evidence for the sole production shading publication. */
+  sparseShadingPublicationEvidence(): Readonly<SparseShadingPublicationCoordinatorEvidence> {
+    return this._sparseShadingPublications.evidence();
   }
 
   /** Immutable graph topology corresponding to the most recently encoded main view. */
@@ -1421,6 +1483,7 @@ export class MainRenderPipeline {
 
   async initialize({
     context,
+    adapter: suppliedAdapter,
     device,
     pixelRatio = window.devicePixelRatio,
     config
@@ -1448,9 +1511,10 @@ export class MainRenderPipeline {
       if (context === undefined) throw new Error("Failed to bind GPUCanvasContext");
     }
 
-    let selectedAdapter: GPUAdapter | undefined;
+    let selectedAdapter: GPUAdapter | undefined = suppliedAdapter;
+    let sparseCapabilityPlan: Readonly<GpuSparseShadingCapabilityPlan>;
     if (device === undefined) {
-      const adapter = await gpu.requestAdapter({
+      const adapter = selectedAdapter ?? await gpu.requestAdapter({
         powerPreference: "high-performance",
         featureLevel: "core"
       });
@@ -1462,31 +1526,35 @@ export class MainRenderPipeline {
           "GPU provided a fallback adapter (typically because no other appropriate adapter was available). Fallback adapter is typically a software implementation and will be slow."
         );
       }
-      const storageBufferLimit = adapter.limits.maxStorageBuffersPerShaderStage;
-      if (storageBufferLimit < 10) {
-        throw new Error(
-          `Engine requires at least 10 storage buffers per shader stage, actual is ${storageBufferLimit}`
-        );
-      }
+      const subgroupInfo = adapter.info as GPUAdapterInfo & {
+        readonly subgroupMinSize?: number;
+        readonly subgroupMaxSize?: number;
+      };
       const requiredFeatures = new Set<GPUFeatureName>([
         "core-features-and-limits",
         "indirect-first-instance",
         "float32-blendable",
         // HZB is a core render path and unconditionally uses rg16float storage.
-        HZB_STORAGE_FORMAT_FEATURE
+        HZB_STORAGE_FORMAT_FEATURE,
+        ...(effectiveConfig.requiredFeatures ?? [])
       ]);
-      for (const feature of effectiveConfig.requiredFeatures ?? []) {
-        requiredFeatures.add(feature);
-      }
+      sparseCapabilityPlan = createGpuSparseShadingCapabilityPlan({
+        features: adapter.features,
+        limits: snapshotSupportedLimits(adapter.limits),
+        info: {
+          subgroupMinSize: subgroupInfo.subgroupMinSize,
+          subgroupMaxSize: subgroupInfo.subgroupMaxSize
+        }
+      }, {
+        requiredFeatures: [...requiredFeatures],
+        requiredLimits: rendererRequiredLimits(adapter.limits, effectiveConfig)
+      });
       const optionalFeatureNames: GPUFeatureName[] = [
         "timestamp-query",
-        "subgroups",
         "primitive-index"
       ];
-      for (const feature of requiredFeatures) {
-        if (!adapter.features.has(feature)) {
-          throw new Error(`Adapter does not support required feature '${feature}'`);
-        }
+      for (const feature of sparseCapabilityPlan.requiredFeatures) {
+        requiredFeatures.add(feature);
       }
       for (const feature of optionalFeatureNames) {
         if (adapter.features.has(feature)) requiredFeatures.add(feature);
@@ -1500,23 +1568,55 @@ export class MainRenderPipeline {
       const compressionFeature = compressionFeatures.find((feature) => adapter.features.has(feature));
       if (compressionFeature !== undefined) requiredFeatures.add(compressionFeature);
       device = await adapter.requestDevice({
-        requiredLimits: {
-          maxColorAttachmentBytesPerSample: Math.max(
-            32,
-            effectiveConfig.requiredLimits?.maxColorAttachmentBytesPerSample ?? 0
-          ),
-          maxBufferSize: adapter.limits.maxBufferSize,
-          maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-          maxStorageBuffersPerShaderStage: Math.max(
-            10,
-            effectiveConfig.requiredLimits?.maxStorageBuffersPerShaderStage ?? 0
-          )
-        },
+        requiredLimits: sparseCapabilityPlan.requiredLimits,
         requiredFeatures: [...requiredFeatures] // texture-formats-tier1 必须随请求进入设备。
       });
+    } else {
+      if (selectedAdapter === undefined) {
+        throw new Error(
+          "Renderer.initialize with a caller-owned GPUDevice also requires its originating GPUAdapter for ADR-0013 subgroup-range validation"
+        );
+      }
+      const subgroupInfo = selectedAdapter.info as GPUAdapterInfo & {
+        readonly subgroupMinSize?: number;
+        readonly subgroupMaxSize?: number;
+      };
+      sparseCapabilityPlan = createGpuSparseShadingCapabilityPlan({
+        features: selectedAdapter.features,
+        limits: snapshotSupportedLimits(selectedAdapter.limits),
+        info: {
+          subgroupMinSize: subgroupInfo.subgroupMinSize,
+          subgroupMaxSize: subgroupInfo.subgroupMaxSize
+        }
+      }, {
+        requiredFeatures: [
+          "core-features-and-limits",
+          "indirect-first-instance",
+          "float32-blendable",
+          HZB_STORAGE_FORMAT_FEATURE,
+          ...(effectiveConfig.requiredFeatures ?? [])
+        ],
+        requiredLimits: rendererRequiredLimits(selectedAdapter.limits, effectiveConfig)
+      });
+      this._adapterInfo = captureGpuAdapterIdentity(selectedAdapter.info);
     }
 
     validateRendererDevice(device, effectiveConfig);
+    this._sparseShadingCapability = captureGpuSparseShadingCapabilityRecord(
+      sparseCapabilityPlan,
+      {
+        features: device.features,
+        limits: snapshotSupportedLimits(device.limits),
+        textureFormatFeatures: [
+          "rgba16float-storage",
+          "rgba16uint-storage",
+          "rgba8unorm-storage",
+          "rg32uint-storage",
+          "rg16float-storage"
+        ],
+        formatProfile: "webgpu-2026-desktop-sparse-shading-v1"
+      }
+    );
     const capabilityRecord = captureWebGpuCapabilityRecord(
       gpu,
       device,
@@ -1530,7 +1630,8 @@ export class MainRenderPipeline {
         maxBufferSize: Number(device.limits.maxBufferSize),
         maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize)
       }),
-      record: capabilityRecord
+      record: capabilityRecord,
+      sparseShading: this._sparseShadingCapability
     });
 
     device.lost.then((info) => this.onDeviceLost(info));
@@ -1551,6 +1652,7 @@ export class MainRenderPipeline {
       effectiveConfig.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE
     );
     this._frameCoordinator = new FrameCoordinator(this._graphics);
+    this._sparseShadingPublications = new SparseShadingPublicationCoordinator(device);
     await this._graphics.initialize();
     this._environments = new GPUSceneEnvironmentManager(this._graphics);
     this._shadowFeatures = new ShadowFeatureManager(this._graphics);
@@ -1604,6 +1706,7 @@ export class MainRenderPipeline {
     this._renderDebug?.destroy();
     this._renderDebug = null;
     this._surfaceFeature?.destroy();
+    this._sparseShadingPublications?.destroy();
     this._visibilityFeature?.destroy();
     this._nss?.destroy();
     this._nss = null;
@@ -1631,17 +1734,31 @@ export class MainRenderPipeline {
     time_delta_seconds = 0.01666
   ): boolean {
     if (this._deviceLost) return false;
+    this.applyPendingRenderResolutionChange();
+    if (this._canvasNeedsConfigure) {
+      this.configureCanvas();
+      this._canvasNeedsConfigure = false;
+    }
+    const registeredRuntime = this._graphics.render_world_if_created?.runtime(scene) ?? null;
+    if (registeredRuntime === null) {
+      throw new Error(
+        `Scene ${scene.id ?? "<unknown>"} has no GPU Render World registration; ` +
+        "call uploadScene() with cooked geometry packages before render()"
+      );
+    }
+    const nextShadingPublication =
+      this._graphics.render_world.previewNextShadingPublication(scene);
+    const sparseRevision = this.obtainPreparedSparseShadingRevision(
+      nextShadingPublication,
+      this.createSparseShadingPublicationContext(registeredRuntime, nextShadingPublication)
+    );
+    if (sparseRevision === null) return false;
     this.reconcileDynamicResolutionProfiler();
     this._profiler.beginFrame(this._frame_count);
     let activeFrame: FrameEncoding | null = null;
     let frameLinearHdrCapture: PendingLinearHdrCapture | null = null;
     try {
     this._renderTargets.setFrameIndex(this._frame_count);
-    this.applyPendingRenderResolutionChange();
-    if (this._canvasNeedsConfigure) {
-      this.configureCanvas();
-      this._canvasNeedsConfigure = false;
-    }
     frameLinearHdrCapture = this._pendingLinearHdrCapture;
     this._pendingLinearHdrCapture = null;
     activeFrame = this._frameCoordinator.beginFrame(
@@ -1657,6 +1774,7 @@ export class MainRenderPipeline {
     });
     const featureTopology = this.resolveFeatureTopology();
     this.initializeRenderPasses(featureTopology);
+    this._surfaceFeature.beginFrame(sparseRevision);
     const framePreExposure: PreExposureContract = Object.freeze({
       multiplier: 1,
       generation: 0,
@@ -1755,10 +1873,7 @@ export class MainRenderPipeline {
       cmd
     );
     const view = this.views.obtain(viewKey, environment, cmd);
-    const framePlan = createRendererFramePlan(this._frame_count, {
-      lpv: false,
-      shadows: featureTopology.shadows
-    });
+    const framePlan = createRendererFramePlan(this._frame_count, { lpv: false });
     view.setJitter(this._lastFrameContract.jitter[0], this._lastFrameContract.jitter[1]);
     view.setViewportSize(this._lastFrameContract.internalWidth, this._lastFrameContract.internalHeight);
     view.setUpscaleRatio(
@@ -1800,47 +1915,16 @@ export class MainRenderPipeline {
         });
       }
       if (featureTopology.shadows) {
-        framePlan.execute("shadow-update", () => {
-          this._profiler.measure("shadow-update", () => {
-            const shadows = requireShadowFeature(shadowFeature);
-            if (sampleGpuCounters) {
-              this._profiler.registerGpuCounterFields([
-                "shadowCascade0RasterWork",
-                "shadowCascade1RasterWork",
-                "shadowCascade2RasterWork",
-                "shadowAtlasPixelsUpdated",
-                "shadowAlphaRasterWork",
-                "shadowQueueOverflowMask"
-              ]);
-            }
-            const packedBindings = this._graphics.render_world.bindings();
-            const shadowContentRevision = scene.change_revision * 1_048_576 +
-              (packedBindings?.scene.contentRevision ?? 0) + packedPatchRevision;
-            shadows.encode(cmd, {
-              camera,
-              frameIndex: this._frame_count,
-              resolution: [w, h],
-              contentRevision: shadowContentRevision,
-              settings: {
-                cascadeLambda: this._renderSettings.values.shadows.cascadeLambda,
-                maximumDistance: metersToWorldUnits(
-                  this._renderSettings.values.shadows.maximumDistanceMeters,
-                  this._renderSettings.values.physicalScale
-                ),
-                texelGuardBand: this._renderSettings.values.shadows.texelGuardBand
-              },
-              geometry: {
-                runtime: gpuPacked,
-                assets: packedBindings.assets,
-                scene: packedBindings.scene,
-                counterBuffer: sampleGpuCounters
-                  ? this._profiler.gpuCounterBuffer
-                  : null,
-                sseThreshold: this.effectivePackedVisibilitySseThreshold()
-              }
-            });
-          });
-        });
+        if (sampleGpuCounters) {
+          this._profiler.registerGpuCounterFields([
+            "shadowCascade0RasterWork",
+            "shadowCascade1RasterWork",
+            "shadowCascade2RasterWork",
+            "shadowAtlasPixelsUpdated",
+            "shadowAlphaRasterWork",
+            "shadowQueueOverflowMask"
+          ]);
+        }
       }
 
       const gpuCounterBuffer = sampleGpuCounters
@@ -2004,6 +2088,7 @@ export class MainRenderPipeline {
         view,
         environment,
         geometry: frameGeometry,
+        sparseRevision,
         shadow: shadowFeature,
         viewHzb,
         colorView,
@@ -2012,6 +2097,7 @@ export class MainRenderPipeline {
           ? this._renderTargets.depthPrevious
           : null,
         frameIndex: this._frame_count,
+        packedPatchRevision,
         timeDeltaSeconds: time_delta_seconds,
         internalWidth: w,
         internalHeight: h,
@@ -2241,46 +2327,252 @@ export class MainRenderPipeline {
 
         const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
           this.render_debug_view === RenderDebugView.Velocity;
-        const packedResolveOut = this._surfaceFeature.addToGraph(
-          graph,
-          bind("packed-material-resolve-job", (bindings) => {
-            const packed = requirePackedGeometryOwner(bindings.geometry);
-            return {
-              runtime: packed.visibilityJob.runtime,
-              assets: packed.visibilityJob.assets,
-              scene: packed.visibilityJob.scene,
-              width: bindings.internalWidth,
-              height: bindings.internalHeight,
-              currentCamera: bindings.view.gpu_camera_state.camera,
-              previousCamera: bindings.view.gpu_previous_camera_state.camera
-            };
-          }),
-          {
-            visibility: packedVisibilityFrame!,
-            view: viewUniformRes,
-            counters: gpuCounterRes ?? undefined
-          },
-          { velocity: needsVelocity }
-        );
-        if (packedResolveOut.counters !== null) {
-          gpuCounterRes = packedResolveOut.counters;
-          this._profiler.registerGpuCounterFields(["activeMaterials"]);
+        let hdrRes: ResourceId | null = null;
+        let environmentRes: ResourceId | null = null;
+        let diffuseIrradianceRes: ResourceId | null = null;
+        let lightDatabaseRes: ResourceId | null = null;
+        let shadowAtlasRes: ResourceId | null = null;
+        let clusters: LightClusterOutputs | null = null;
+        let transparentReactiveRes: ResourceId | null = null;
+        const shadingSummary = mainBindings.sparseRevision.snapshot.summary;
+
+        if (hzbRes !== null) {
+          lightDatabaseRes = graph.import_resource(
+            "Tl/light database",
+            { kind: "imported", label: "Tl paged light database" },
+            bind("light-database", (bindings) => bindings.environment.lights.buffer_data)
+          );
+          environmentRes = graph.import_resource(
+            "Ch/sec_radix_passes",
+            { kind: "imported", label: "rgba16float environment" },
+            bind("environment", (bindings) => bindings.environment.lights.environment.gpu_texture)
+          );
+          diffuseIrradianceRes = graph.import_resource(
+            "FX-03/diffuse irradiance",
+            { kind: "imported", label: "rgba16float diffuse irradiance" },
+            bind("diffuse-irradiance", (bindings) =>
+              bindings.environment.lights.diffuseIrradiance.gpu_texture)
+          );
+          shadowAtlasRes = graphTopology.shadows
+            ? graph.import_resource(
+                "Ch/pass_descriptor",
+                { kind: "imported", label: "depth32float shadow atlas" },
+                bind("shadow-atlas", (bindings) =>
+                  requireShadowFeature(bindings.shadow).texture.gpu_texture)
+              )
+            : depthRes;
+
+          if (graphTopology.shadows) {
+            const shadowOutputs = requireShadowFeature(mainBindings.shadow).addToGraph(
+              graph,
+              bind("shadow-production-job", (bindings) => ({
+                feature: requireShadowFeature(bindings.shadow),
+                frame: {
+                  camera: bindings.camera,
+                  frameIndex: bindings.frameIndex,
+                  resolution: [bindings.internalWidth, bindings.internalHeight],
+                  contentRevision: bindings.scene.change_revision * 1_048_576 +
+                    bindings.geometry.visibilityJob.scene.contentRevision +
+                    bindings.packedPatchRevision,
+                  settings: {
+                    cascadeLambda: this._renderSettings.values.shadows.cascadeLambda,
+                    maximumDistance: metersToWorldUnits(
+                      this._renderSettings.values.shadows.maximumDistanceMeters,
+                      this._renderSettings.values.physicalScale
+                    ),
+                    texelGuardBand: this._renderSettings.values.shadows.texelGuardBand
+                  },
+                  geometry: {
+                    runtime: bindings.geometry.runtime,
+                    assets: bindings.geometry.visibilityJob.assets,
+                    scene: bindings.geometry.visibilityJob.scene,
+                    counterBuffer: bindings.gpuCounterBuffer,
+                    sseThreshold: this.effectivePackedVisibilitySseThreshold()
+                  }
+                }
+              })),
+              {
+                atlas: shadowAtlasRes,
+                lightDatabase: lightDatabaseRes,
+                counters: gpuCounterRes
+              }
+            );
+            shadowAtlasRes = shadowOutputs.atlas;
+            lightDatabaseRes = shadowOutputs.lightDatabase;
+            if (shadowOutputs.counters !== null) gpuCounterRes = shadowOutputs.counters;
+          }
+
+          const needsLightClusters = shadingSummary.opaqueLitReceiverCount > 0 ||
+            graphTopology.transparency;
+          if (needsLightClusters) {
+            clusters = this._lightingFeature.addClustersToGraph(
+              graph,
+              bind("lighting-cluster-job", (bindings) => ({
+                camera: bindings.camera,
+                lights: bindings.environment.lights,
+                width: bindings.internalWidth,
+                height: bindings.internalHeight
+              })),
+              {
+                lightDatabase: lightDatabaseRes,
+                hzb: hzbRes,
+                camera: currentCameraRes,
+                counters: gpuCounterRes ?? undefined
+              }
+            );
+            if (clusters.counters !== null) gpuCounterRes = clusters.counters;
+            this._profiler.registerGpuCounterFields([
+              "activeLights",
+              "candidateLightsAttempted",
+              "candidateLightsWritten",
+              "activeLightsAttempted",
+              "clusterTestedLights",
+              "clusterLightIndicesAttempted",
+              "clusterLightIndicesWritten",
+              "clusterOverflowClusters",
+              "clusterFallbackLights",
+              "clusterLightReferences",
+              "clusterMaxLights",
+              "clusterHistogram0",
+              "clusterHistogram1",
+              "clusterHistogram4",
+              "clusterHistogram8",
+              "clusterHistogram16",
+              "clusterHistogram32",
+              "clusterHistogram64",
+              "clusterHistogram128",
+              "clusterHistogram256"
+            ]);
+          }
+        }
+
+        const sparseRevision = mainBindings.sparseRevision;
+        const hasOpaque = sparseRevision.snapshot.pipelines.length > 0;
+        let specializedShading: ReturnType<SurfaceFeature["addToGraph"]> = null;
+        if (hasOpaque) {
+          const instanceRecordsRes = graph.import_resource(
+            "SparseShading/instance-records",
+            { kind: "imported", label: "GpuScene instance records" },
+            bind("sparse-instance-records", (bindings) =>
+              bindings.geometry.visibilityJob.scene.instances)
+          );
+          const assetMetadataHeapRes = graph.import_resource(
+            "SparseShading/asset-metadata-heap",
+            { kind: "imported", label: "ADR-0013 asset metadata heap" },
+            bind("sparse-asset-metadata", (bindings) =>
+              bindings.geometry.visibilityJob.assets.sparseShading.assetMetadataHeap)
+          );
+          const vertexPayloadHeapRes = graph.import_resource(
+            "SparseShading/vertex-payload-heap",
+            { kind: "imported", label: "ADR-0013 vertex payload heap" },
+            bind("sparse-vertex-payload", (bindings) =>
+              bindings.geometry.visibilityJob.assets.sparseShading.vertexPayloadHeap)
+          );
+          const materialRecordsRes = graph.import_resource(
+            "SparseShading/material-records",
+            { kind: "imported", label: "ADR-0013 association material records" },
+            bind("sparse-material-records", (bindings) =>
+              bindings.geometry.runtime.materialResources.materialRecords)
+          );
+          const textureRoutesRes = graph.import_resource(
+            "SparseShading/texture-routing-heap",
+            { kind: "imported", label: "ADR-0013 texture descriptor routing heap" },
+            bind("sparse-texture-routes", (bindings) =>
+              bindings.geometry.runtime.materialResources.textureRouteRecords)
+          );
+          const activeTextureSetIds = [...new Set(
+            sparseRevision.snapshot.pipelines
+              .filter((pipeline) => pipeline.groups.some((group) =>
+                group.bindings.some((binding) => binding.name === "material_texture_0")))
+              .map((pipeline) => pipeline.textureBindingSetId)
+          )].sort((left, right) => left - right);
+          const textureBindingSets = activeTextureSetIds.map((setId) => Object.freeze({
+            id: setId,
+            textureBanks: Object.freeze(Array.from({ length: 9 }, (_, bank) =>
+              graph.import_resource(
+                `SparseShading/texture-set-${setId}-bank-${bank}`,
+                { kind: "imported", label: `TextureBindingSet ${setId} bank ${bank}` },
+                bind(`sparse-texture-set-${setId}-bank-${bank}`, (bindings) => {
+                  const set = bindings.geometry.runtime.materialResources.bindingSets.find(
+                    (candidate) => candidate.id === setId
+                  );
+                  if (set === undefined) {
+                    throw new Error(`TextureBindingSet ${setId} is not resident`);
+                  }
+                  return set.textureBanks[bank]!;
+                })
+              )))
+          }));
+          specializedShading = this._surfaceFeature.addToGraph(
+            graph,
+            bind("sparse-shading-view-job", (bindings) => {
+              const matrix = bindings.camera.transform.matrix;
+              const packed = bindings.geometry;
+              return {
+                frameIndex: bindings.frameIndex,
+                materialCount: packed.runtime.materialResources.materialCapacity,
+                materialGeneration: packed.runtime.materialGeneration,
+                textureGeneration: packed.runtime.textureGeneration,
+                materialPublicationRevision: packed.runtime.materialPublicationRevision,
+                assetHeaps: packed.visibilityJob.assets.sparseShading,
+                preExposure: bindings.context.preExposure.multiplier,
+                upscaleRatio: [
+                  bindings.outputWidth / bindings.internalWidth,
+                  bindings.outputHeight / bindings.internalHeight
+                ] as const,
+                cameraPosition: [matrix[12]!, matrix[13]!, matrix[14]!] as const,
+                currentViewProjection: bindings.view.gpu_camera_state.view_projection_matrix,
+                previousViewProjection:
+                  bindings.view.gpu_previous_camera_state.view_projection_matrix
+              };
+            }),
+            {
+              revision: sparseRevision,
+              visibility: packedVisibilityFrame!,
+              instanceRecords: instanceRecordsRes,
+              assetMetadataHeap: assetMetadataHeapRes,
+              vertexPayloadHeap: vertexPayloadHeapRes,
+              materialRecords: materialRecordsRes,
+              textureDescriptorRoutingHeap: textureRoutesRes,
+              textureBindingSets,
+              lightDatabase: shadingSummary.opaqueLitReceiverCount > 0
+                ? lightDatabaseRes
+                : null,
+              clusters: shadingSummary.opaqueLitReceiverCount > 0 ? clusters : null,
+              shadowAtlas: sparseRevision.snapshot.context.shadowSamplingEnabled
+                ? shadowAtlasRes
+                : null
+            }
+          );
+        }
+        if (needsVelocity && hasOpaque && specializedShading?.velocity === null) {
+          throw new Error("Sparse shading publication omitted a required Velocity product");
+        }
+        const gPbrRes = specializedShading?.shading?.roughnessFlags ?? null;
+        const gNormalRes = specializedShading?.shading?.normal ?? null;
+        const gAlbedoRes = specializedShading?.diffuse?.diffuseReflectance ?? null;
+        const surfaceFlagsRes = specializedShading?.shading?.roughnessFlags ??
+          specializedShading?.diffuse?.receiverFlags ?? null;
+        const gEmissiveRes = surfaceFlagsRes;
+        const surfaceDomain = specializedShading?.domain ??
+          textureDomain("internal-full", w, h, 1);
+        const shadingBinDiagnosticControlRes = specializedShading?.bins.heap;
+        hdrRes = specializedShading?.direct.hdr ??
+          this._lightingFeature.addEmptyHdrToGraph(graph, w, h);
+
+        if (gPbrRes !== null && environmentRes !== null && gpuCounterRes !== null) {
+          gpuCounterRes = this._packedSurfaceCounters.addToGraph(
+            graph, w, h,
+            { surfaceFlags: gPbrRes, pbr: gPbrRes,
+              environment: environmentRes, counters: gpuCounterRes, depth: depthRes }
+          );
           this._profiler.registerGpuCounterFields([
-            "materialTileRecords",
-            "materialTileValidPixels",
-            "materialTileShadedPixels",
-            "materialTileUnassignedPixels",
-            "materialTileDuplicatePixels",
-            "materialTileOverflowQueues",
-            "materialTileFrameInvalid"
+            "gradientFallbackPixels", "reactiveSurfacePixels", "normalTexturePixels",
+            "ormTexturePixels", "emissiveTexturePixels", "unlitSurfacePixels",
+            "iblSampledPixels", "iblMip0", "iblMip1", "iblMip2", "iblMip3",
+            "iblMip4", "iblMip5", "iblMip6", "iblMip7", "iblMip8"
           ]);
         }
-        const gPbrRes = packedResolveOut.shading.roughnessFlags;
-        const gNormalRes = packedResolveOut.shading.normal;
-        const gAlbedoRes = packedResolveOut.evaluation.albedoAo;
-        const gEmissiveRes = packedResolveOut.evaluation.material;
-        let materialTileDiagnosticControlRes =
-          packedResolveOut.tileClassification.control;
 
         let velocityRes: ResourceId | null = null;
         let occlusionConfidenceRes: ResourceId | null = null;
@@ -2288,8 +2580,8 @@ export class MainRenderPipeline {
         const reuseOpaqueTemporalValidityForFinal =
           graphTopology.temporal && !graphTopology.transparency;
         if (needsVelocity) {
-          velocityRes = packedResolveOut.velocity!;
-          if (needsOcclusionConfidence) {
+          velocityRes = specializedShading?.velocity ?? null;
+          if (needsOcclusionConfidence && velocityRes !== null) {
             occlusionConfidenceRes = this._occlusionConfidence!.addToGraph(
               graph,
               {
@@ -2308,7 +2600,10 @@ export class MainRenderPipeline {
         }
 
         if (needsOcclusionConfidence && occlusionConfidenceRes !== null) {
-          const opaqueMetadataRes = packedResolveOut.shading.roughnessFlags;
+          const opaqueMetadataRes = surfaceFlagsRes;
+          if (opaqueMetadataRes === null) {
+            throw new Error("Opaque temporal classification requires ShadingSurfaceLite");
+          }
           const opaqueValidity = this._temporalFeature.addClassificationToGraph(
             graph,
             bind("opaque-temporal-classification-job", (bindings) => ({
@@ -2355,111 +2650,6 @@ export class MainRenderPipeline {
           }
         }
 
-        let hdrRes: ResourceId | null = null;
-        let environmentRes: ResourceId | null = null;
-        let diffuseIrradianceRes: ResourceId | null = null;
-        let lightDatabaseRes: ResourceId | null = null;
-        let shadowAtlasRes: ResourceId | null = null;
-        let clusters: LightClusterOutputs | null = null;
-        let transparentReactiveRes: ResourceId | null = null;
-
-        if (hzbRes !== null) {
-          lightDatabaseRes = graph.import_resource(
-            "Tl/light database",
-            { kind: "imported", label: "Tl paged light database" },
-            bind("light-database", (bindings) => bindings.environment.lights.buffer_data)
-          );
-          environmentRes = graph.import_resource(
-            "Ch/sec_radix_passes",
-            { kind: "imported", label: "rgba16float environment" },
-            bind("environment", (bindings) => bindings.environment.lights.environment.gpu_texture)
-          );
-          diffuseIrradianceRes = graph.import_resource(
-            "FX-03/diffuse irradiance",
-            { kind: "imported", label: "rgba16float diffuse irradiance" },
-            bind("diffuse-irradiance", (bindings) =>
-              bindings.environment.lights.diffuseIrradiance.gpu_texture)
-          );
-          if (packedResolveOut !== null && gpuCounterRes !== null) {
-            gpuCounterRes = this._packedSurfaceCounters.addToGraph(
-              graph, w, h,
-              { surfaceFlags: packedResolveOut.shading.roughnessFlags, pbr: gPbrRes,
-                environment: environmentRes, counters: gpuCounterRes }
-            );
-            this._profiler.registerGpuCounterFields([
-              "gradientFallbackPixels", "reactiveSurfacePixels", "normalTexturePixels",
-              "ormTexturePixels", "emissiveTexturePixels", "unlitSurfacePixels",
-              "iblSampledPixels", "iblMip0", "iblMip1", "iblMip2", "iblMip3",
-              "iblMip4", "iblMip5", "iblMip6", "iblMip7", "iblMip8"
-            ]);
-          }
-          shadowAtlasRes = graphTopology.shadows
-            ? graph.import_resource(
-                "Ch/pass_descriptor",
-                { kind: "imported", label: "depth32float shadow atlas" },
-                bind("shadow-atlas", (bindings) =>
-                  requireShadowFeature(bindings.shadow).texture.gpu_texture)
-              )
-            : depthRes;
-          const shadowVisibility = graphTopology.shadows
-            ? requireShadowFeature(shadowFeature).frame(shadowAtlasRes)
-            : createDisabledShadowVisibilityFrame(shadowAtlasRes, w, h);
-          const lightingFeatureOutput = this._lightingFeature.addToGraph(
-            graph,
-            bind("lighting-feature-job", (bindings) => {
-              const packed = requirePackedGeometryOwner(bindings.geometry);
-              return {
-                camera: bindings.camera,
-                lights: bindings.environment.lights,
-                width: bindings.internalWidth,
-                height: bindings.internalHeight,
-                materials: packed.visibilityJob.runtime.materialResources.materialRecords
-              };
-            }),
-            {
-              material: packedResolveOut.evaluation,
-              visibility: packedVisibilityFrame,
-              classification: packedResolveOut.tileClassification,
-              depth: depthRes,
-              lightDatabase: lightDatabaseRes,
-              environment: environmentRes,
-              hzb: hzbRes,
-              camera: currentCameraRes,
-              view: viewUniformRes,
-              shadow: shadowVisibility,
-              counters: gpuCounterRes ?? undefined
-            }
-          );
-          clusters = lightingFeatureOutput.clusters;
-          materialTileDiagnosticControlRes =
-            lightingFeatureOutput.classification.control;
-          if (lightingFeatureOutput.counters !== null) {
-            gpuCounterRes = lightingFeatureOutput.counters;
-            this._profiler.registerGpuCounterFields([
-              "activeLights",
-              "candidateLightsAttempted",
-              "candidateLightsWritten",
-              "activeLightsAttempted",
-              "clusterTestedLights",
-              "clusterLightIndicesAttempted",
-              "clusterLightIndicesWritten",
-              "clusterOverflowClusters",
-              "clusterFallbackLights",
-              "clusterLightReferences",
-              "clusterMaxLights",
-              "clusterHistogram0",
-              "clusterHistogram1",
-              "clusterHistogram4",
-              "clusterHistogram8",
-              "clusterHistogram16",
-              "clusterHistogram32",
-              "clusterHistogram64",
-              "clusterHistogram128",
-              "clusterHistogram256"
-            ]);
-          }
-          hdrRes = lightingFeatureOutput.direct.hdr;
-        }
 
         let bentNormalRes = gNormalRes;
         let ambientVisibilityRes: ResourceId | null = null;
@@ -2571,7 +2761,7 @@ export class MainRenderPipeline {
             receiverFlags: gPbrRes,
             colorSpace: "working-linear",
             receiverModulation: "unapplied",
-            domain: packedResolveOut.shading.domain
+            domain: surfaceDomain
           });
           const source = preExposedOpaqueRadianceSourceFrame({
             radiance: lighting.hdr,
@@ -2581,7 +2771,7 @@ export class MainRenderPipeline {
             excludesSsrCorrection: true,
             excludesTransparencyAndPost: true,
             preExposure: frameContext.preExposure,
-            domain: packedResolveOut.shading.domain
+            domain: surfaceDomain
           });
           const longRange = longRangeDiffuseFrame({
             radiance: lighting.resolvedDiffuse,
@@ -2591,7 +2781,7 @@ export class MainRenderPipeline {
             precedence: LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
             generation: Math.max(1, this._ssgiOwnerGeneration),
             preExposure: frameContext.preExposure,
-            domain: packedResolveOut.shading.domain
+            domain: surfaceDomain
           });
           const settings = this._renderSettings.values.ssgi;
           const ssgi = this._screenSpaceDiffuseService!.addToGraph(
@@ -2749,7 +2939,7 @@ export class MainRenderPipeline {
             pbr: gPbrRes,
             splitSum: splitSumRes,
             camera: currentCameraRes,
-            metadata: packedResolveOut.shading.roughnessFlags,
+            metadata: gPbrRes,
             fallbackDiffuseIrradiance: diffuseIrradianceRes,
             ambientVisibility: ambientVisibilityRes ?? undefined,
             extent: { width: w, height: h },
@@ -2801,7 +2991,7 @@ export class MainRenderPipeline {
             stage: "post-screen-space-diffuse-pre-ssr",
             reflectionCorrectionExpected: graphTopology.ssr,
             preExposure: frameContext.preExposure,
-            domain: packedResolveOut.shading.domain
+            domain: surfaceDomain
           });
           hdrRes = opaqueBaseline.hdr;
 
@@ -2879,7 +3069,7 @@ export class MainRenderPipeline {
               depth: depthRes,
               baselineSpecular: opaqueBaseline.baselineSpecular!,
               resolvedSpecular: ssr.denoised,
-              metadata: packedResolveOut.shading.roughnessFlags
+              metadata: gPbrRes
             });
             indirectSpecularDebugRes = ssr.denoised;
             ssrHitMissDebugRes = ssr.trace;
@@ -2999,7 +3189,10 @@ export class MainRenderPipeline {
           occlusionConfidenceRes !== null
         ) {
           const temporalInputRes = hdrRes;
-          const metadataRes = packedResolveOut.shading.roughnessFlags;
+          const metadataRes = surfaceFlagsRes;
+          if (metadataRes === null) {
+            throw new Error("Temporal reconstruction requires sparse SurfaceLite metadata");
+          }
           let finalTemporalValidityRes: ResourceId;
           if (reuseOpaqueTemporalValidityForFinal) {
             if (opaqueTemporalValidityRes === null) {
@@ -3303,7 +3496,7 @@ export class MainRenderPipeline {
               gNormal: gNormalRes,
               gAlbedo: gAlbedoRes,
               gEmissive: gEmissiveRes,
-              surfaceFlags: packedResolveOut.shading.roughnessFlags,
+              surfaceFlags: surfaceFlagsRes,
               indirectDiffuse: indirectDiffuseDebugRes,
               indirectSpecular: indirectSpecularDebugRes,
               linearHdr: linearHdrDebugRes,
@@ -3330,7 +3523,7 @@ export class MainRenderPipeline {
               hdr: hdrRes,
               bloom: fuseBloom ? bloomReconstructedRes! : undefined,
               exposure: exposureRes ?? undefined,
-              diagnosticControl: materialTileDiagnosticControlRes
+              diagnosticControl: shadingBinDiagnosticControlRes
             },
             {
               bloom: fuseBloom,
@@ -3538,6 +3731,12 @@ export class MainRenderPipeline {
         );
       }
       this._frameCoordinator.submitFrame(activeFrame);
+      const sparseSubmissionSerial = this._frame_count + 1;
+      void cmd.gpuDone.then(() => {
+        if (!this._deviceLost) {
+          this._sparseShadingPublications.completeSubmittedWork(sparseSubmissionSerial);
+        }
+      }, () => {});
       if (frameLinearHdrCapture !== null) {
         void settleLinearHdrCapture(frameLinearHdrCapture, cmd.gpuDone);
         frameLinearHdrCapture = null;
@@ -3597,6 +3796,7 @@ export class MainRenderPipeline {
         `-ssgi-owner${this._ssgiOwnerGeneration}` +
         `-ssr-owner${this._ssrOwnerGeneration}`,
       visibilityWorkCapacity: bindings.geometry.visibilityJob.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
+      sparseShadingRevision: bindings.sparseRevision.snapshot.revision,
       historyFormat: bindings.context.history.formatRevision,
       outputFormat: this._format,
       instrumentation: instrumentationMode,
@@ -3604,8 +3804,83 @@ export class MainRenderPipeline {
     });
   }
 
+  private createSparseShadingPublicationContext(
+    runtime: GpuRenderWorldRuntime,
+    publication: Readonly<GpuRenderWorldShadingPublication> = runtime.shadingPublication
+  ): Readonly<GpuShadingPublicationContext> {
+    const topology = this.resolveFeatureTopology({ geometry: { runtime }, scene: runtime.scene });
+    const hasOpaque = publication.summary.opaqueLitReceiverCount > 0 ||
+      publication.summary.opaqueUnlitReceiverCount > 0;
+    let outputDependencyMask = hasOpaque
+      ? sparseDebugOutputDependencies(this.render_debug_view)
+      : 0;
+    if (publication.summary.opaqueLitReceiverCount > 0) {
+      outputDependencyMask |= GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
+        GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
+    }
+    const needsTemporalSurface = hasOpaque && (
+      requiresPreviousDepth(topology) || topology.motionBlur ||
+      this.render_debug_view === RenderDebugView.Velocity
+    );
+    if (needsTemporalSurface) {
+      outputDependencyMask |= GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite;
+      outputDependencyMask |= GPU_SHADING_OUTPUT_DEPENDENCY.Velocity;
+    }
+    return Object.freeze({
+      width: this._render_resolution.x,
+      height: this._render_resolution.y,
+      outputDependencyMask,
+      shadowSamplingEnabled: topology.shadows &&
+        publication.summary.opaqueLitReceiverCount > 0,
+      capability: this._sparseShadingCapability,
+      sizingLimits: Object.freeze({
+        maxTextureDimension2D: Number(this.device.limits.maxTextureDimension2D),
+        maxBufferSize: Number(this.device.limits.maxBufferSize),
+        maxStorageBufferBindingSize: Number(this.device.limits.maxStorageBufferBindingSize),
+        maxComputeWorkgroupsPerDimension: Number(
+          this.device.limits.maxComputeWorkgroupsPerDimension
+        )
+      })
+    });
+  }
+
+  private obtainPreparedSparseShadingRevision(
+    publication: Readonly<GpuRenderWorldShadingPublication>,
+    context: Readonly<GpuShadingPublicationContext>
+  ): Readonly<SparseShadingGpuRevision> | null {
+    if (this._sparseShadingPreparationError !== null) {
+      const error = this._sparseShadingPreparationError;
+      this._sparseShadingPreparationError = null;
+      throw error;
+    }
+    try {
+      return this._sparseShadingPublications.active(publication, context);
+    } catch {
+      if (this._pendingSparseShadingPreparation === null) {
+        let pending: Promise<void>;
+        pending = this._sparseShadingPublications.reconcile(
+          publication,
+          context,
+          () => this._frame_count
+        ).then(
+          () => undefined,
+          (error) => { this._sparseShadingPreparationError = error; }
+        ).finally(() => {
+          if (this._pendingSparseShadingPreparation === pending) {
+            this._pendingSparseShadingPreparation = null;
+          }
+        });
+        this._pendingSparseShadingPreparation = pending;
+      }
+      return null;
+    }
+  }
+
   private resolveFeatureTopology(
-    bindings?: Pick<MainFrameGraphBindings, "geometry" | "scene">
+    bindings?: Readonly<{
+      geometry: Readonly<{ runtime: GpuRenderWorldRuntime }>;
+      scene: Scene;
+    }>
   ): MainFrameFeatureTopology {
     return resolveMainFrameFeatureTopology({
       shadows: this._renderSettings.values.features.shadows,
@@ -3667,7 +3942,7 @@ export class MainRenderPipeline {
     this._transparencyFeature ??= new TransparencyFeature(this._graphics);
     this._surfaceFeature ??= new SurfaceFeature(this._graphics);
     this._packedSurfaceCounters ??= new PackedSurfaceCounterPass(this._graphics);
-    this._lightingFeature ??= new LightingFeature(this._graphics, this._surfaceLiteProfile);
+    this._lightingFeature ??= new LightingFeature(this._graphics);
     this._giService ??= new GIService(this._graphics, this._surfaceLiteProfile);
     this._profiler.registerGpuCounterFields([
       "longRangeBrick4Receivers",
@@ -3933,15 +4208,15 @@ export class MainRenderPipeline {
       const materialEvidence = this._graphics.material_store_if_created?.evidence();
       const textureEvidence = this._graphics.texture_residency_if_created?.evidence();
       profiler.recordCounter(
-        "packed.material.activeMaterials",
-        this._surfaceFeature.lastActiveMaterialCount
+        "sparseShading.activeBins",
+        this._surfaceFeature.lastActiveBinCount
       );
       profiler.recordCounter(
-        "packed.material.surfaceBytesPerPixel",
+        "sparseShading.surfaceBytesPerPixel",
         this._surfaceFeature.surfaceBytesPerPixel
       );
       profiler.recordCounter(
-        "packed.material.surfaceAttachmentBytes",
+        "sparseShading.surfaceAttachmentBytes",
         this._render_resolution.x * this._render_resolution.y *
           this._surfaceFeature.surfaceBytesPerPixel
       );
@@ -4471,6 +4746,7 @@ export class MainRenderPipeline {
 
   private onDeviceLost(info: GPUDeviceLostInfo): void {
     this._deviceLost = true;
+    if (info.reason !== "destroyed") this._sparseShadingPublications?.markDeviceLost();
     if (info.reason !== "destroyed") console.error("GPUDevice lost", info);
   }
 }
@@ -4585,6 +4861,55 @@ function requireGpuBuffer(resource: unknown, label: string): GPUBuffer {
 
 function requiresPreviousDepth(topology: MainFrameFeatureTopology): boolean {
   return topology.screenSpaceDiffuseTemporal || topology.ssrTemporal || topology.temporal;
+}
+
+function sparseDebugOutputDependencies(view: RenderDebugViewT): number {
+  switch (view) {
+    case RenderDebugView.BaseColor:
+    case RenderDebugView.Occlusion:
+    case RenderDebugView.Emissive:
+      return GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
+    case RenderDebugView.ShadingNormal:
+    case RenderDebugView.Metallic:
+    case RenderDebugView.Roughness:
+    case RenderDebugView.HistoryValidity:
+    case RenderDebugView.Reactive:
+    case RenderDebugView.Velocity:
+      return GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite;
+    default:
+      return 0;
+  }
+}
+
+function snapshotSupportedLimits(limits: GPUSupportedLimits): Readonly<Record<string, number>> {
+  const names = new Set<string>([
+    ...Object.keys(GPU_SPARSE_SHADING_REQUIRED_LIMITS),
+    "maxBufferSize",
+    "maxStorageBufferBindingSize",
+    "maxColorAttachmentBytesPerSample"
+  ]);
+  const source = limits as unknown as Record<string, number | undefined>;
+  return Object.freeze(Object.fromEntries(
+    [...names].map((name) => [name, Number(source[name] ?? 0)])
+  ));
+}
+
+function rendererRequiredLimits(
+  limits: GPUSupportedLimits,
+  config: RendererConfig
+): Readonly<Record<string, number>> {
+  return Object.freeze({
+    maxColorAttachmentBytesPerSample: Math.max(
+      32,
+      config.requiredLimits?.maxColorAttachmentBytesPerSample ?? 0
+    ),
+    maxBufferSize: Number(limits.maxBufferSize),
+    maxStorageBufferBindingSize: Number(limits.maxStorageBufferBindingSize),
+    maxStorageBuffersPerShaderStage: Math.max(
+      GPU_SPARSE_SHADING_REQUIRED_LIMITS.maxStorageBuffersPerShaderStage,
+      config.requiredLimits?.maxStorageBuffersPerShaderStage ?? 0
+    )
+  });
 }
 
 async function settleLinearHdrCapture(

@@ -1,27 +1,18 @@
 /**
- * P4 Lighting Feature：统一编排 GPU 灯光分簇、直接光照和 HDR 背景。
+ * Production lighting orchestration after ADR-0013 cutover.
  *
- * 具体算法由已验证的 pass 实现持有；Feature 只负责输入合同、生产者/消费者
- * 顺序和输出产品，避免 Renderer 继续拥有光照算法细节。
+ * LightClusterPass remains the GPU producer for both fused opaque kernels and
+ * transparent forward shading. Direct opaque lighting is no longer a second
+ * pass: SurfaceFeature's specialized kernels consume these products directly.
  */
-
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
-import type { FrameGraph } from "../../framegraph/FrameGraph.js";
+import {
+  resolveGpuEncoder,
+  type FrameGraph
+} from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { GPULightCollection } from "../../gpu/LightDatabase.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
-import {
-  GPU_SHADING_SURFACE_LITE_PROFILE,
-  type GpuShadingSurfaceLiteProfile
-} from "../../gpu/GpuComputeMaterialAbi.js";
-import {
-  directLightingFrame,
-  type ComputeMaterialEvaluationFrame,
-  type DirectLightingFrame,
-  type MaterialTileClassificationFrame,
-  type VisibilityFrame
-} from "../pipeline/FrameProducts.js";
-import type { ShadowVisibilityFrame } from "../pipeline/FrameProducts.js";
 import {
   EnvironmentBackgroundPass,
   type EnvironmentBackgroundInputs
@@ -30,88 +21,41 @@ import {
   LightClusterPass,
   type LightClusterOutputs
 } from "../passes/LightClusterPass.js";
-import {
-  LightingPass,
-  type LightingInputs
-} from "../passes/LightingPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 
-export interface LightingFeatureJob {
+export interface LightingClusterJob {
   readonly camera: PerspectiveCamera;
   readonly lights: GPULightCollection;
   readonly width: number;
   readonly height: number;
-  readonly materials: GPUBuffer;
 }
 
-export interface LightingFeatureInputs {
-  /** Stage 1 product seam; LightingFeature owns attachment interpretation. */
-  readonly material: ComputeMaterialEvaluationFrame;
-  readonly visibility: VisibilityFrame;
-  readonly classification: MaterialTileClassificationFrame;
-  /** Depth remains Visibility-owned because Surface Resolve does not produce it. */
-  readonly depth: ResourceId;
+export interface LightingClusterInputs {
   readonly lightDatabase: ResourceId;
-  readonly environment: ResourceId;
   readonly hzb: ResourceId;
   readonly camera: ResourceId;
-  readonly view: ResourceId;
-  readonly shadow: ShadowVisibilityFrame;
   readonly counters?: ResourceId;
 }
 
-export interface LightingFeatureOutputs {
-  /** Stage 2A direct-only linear HDR product; GI/AO/SSR are later consumers. */
-  readonly direct: DirectLightingFrame;
-  readonly clusters: LightClusterOutputs;
-  readonly counters: ResourceId | null;
-  readonly classification: MaterialTileClassificationFrame;
-}
-
-/**
- * P4 直接光照的唯一 Feature owner。
- *
- * GPU producer 链为 Light Buffer → candidate/active light list → cluster data，
- * GPU consumer 为 LightingPass 的逐像素 cluster 遍历；CPU 不生成灯光列表。
- */
 export class LightingFeature {
   private readonly clusters: LightClusterPass;
-  private readonly direct: LightingPass;
   private readonly background: EnvironmentBackgroundPass;
-  private readonly surfaceProfile: GpuShadingSurfaceLiteProfile;
 
-  constructor(
-    graphics: GraphicsContext,
-    surfaceProfile: GpuShadingSurfaceLiteProfile = GPU_SHADING_SURFACE_LITE_PROFILE
-  ) {
-    this.surfaceProfile = surfaceProfile;
+  constructor(graphics: GraphicsContext) {
     this.clusters = new LightClusterPass(graphics);
-    this.direct = new LightingPass(graphics, surfaceProfile);
-    this.direct.init();
     this.background = new EnvironmentBackgroundPass(graphics);
   }
 
-  get lastClusterCount(): number {
-    return this.clusters.lastClusterCount;
-  }
+  get lastClusterCount(): number { return this.clusters.lastClusterCount; }
+  get lastLocalLightCount(): number { return this.clusters.lastLocalLightCount; }
+  get lastBackgroundRan(): boolean { return this.background.lastRan; }
 
-  get lastLocalLightCount(): number {
-    return this.clusters.lastLocalLightCount;
-  }
-
-  get lastDirectLightingRan(): boolean {
-    return this.direct.lastRan;
-  }
-
-  get lastBackgroundRan(): boolean {
-    return this.background.lastRan;
-  }
-
-  addToGraph(
+  addClustersToGraph(
     graph: FrameGraph,
-    job: LightingFeatureJob,
-    inputs: LightingFeatureInputs
-  ): LightingFeatureOutputs {
-    const clusters = this.clusters.addToGraph(
+    job: LightingClusterJob,
+    inputs: LightingClusterInputs
+  ): LightClusterOutputs {
+    return this.clusters.addToGraph(
       graph,
       {
         camera: job.camera,
@@ -119,47 +63,46 @@ export class LightingFeature {
         width: job.width,
         height: job.height
       },
-      {
-        camera: inputs.camera,
-        lightDatabase: inputs.lightDatabase,
-        hzb: inputs.hzb,
-        counters: inputs.counters
+      inputs
+    );
+  }
+
+  /**
+   * Transparent/background-only scenes still need one HDR composition target,
+   * but must not instantiate any ShadingBin heap, classifier, or resolve pass.
+   */
+  addEmptyHdrToGraph(graph: FrameGraph, width: number, height: number): ResourceId {
+    let hdr: ResourceId = -1;
+    const builder = graph.add(
+      "Lighting/initialize background-only HDR",
+      {},
+      (_data, resources, context) => {
+        const encoder = resolveGpuEncoder(context);
+        if (encoder === undefined) throw new Error("HDR initialization has no GPU encoder");
+        const pass = encoder.beginRenderPass({
+          label: "Lighting/initialize background-only HDR",
+          colorAttachments: [{
+            view: resolveTextureView(resources.get(hdr)),
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: "clear",
+            storeOp: "store"
+          }]
+        });
+        pass.end();
       }
     );
-    const lightingInputs: LightingInputs = {
-      material: inputs.material,
-      visibility: inputs.visibility,
-      classification: inputs.classification,
-      lightDatabase: inputs.lightDatabase,
-      environment: inputs.environment,
-      clusterParameters: clusters.parameters,
-      clusterLookup: clusters.lookup,
-      clusterData: clusters.data,
-      activeLightList: clusters.activeLightList,
-      shadowAtlas: inputs.shadow.atlas,
-      camera: inputs.camera,
-      view: inputs.view,
-      counters: clusters.counters ?? inputs.counters
-    };
-    const direct = this.direct.addToGraph(
-      graph,
-      { width: job.width, height: job.height, materials: job.materials },
-      lightingInputs
-    );
-    return Object.freeze({
-      direct: directLightingFrame({
-        hdr: direct.hdr,
-        domain: {
-          domain: "internal-full",
-          width: job.width,
-          height: job.height,
-          scale: 1
-        }
-      }),
-      clusters,
-      counters: direct.counters,
-      classification: direct.classification
+    hdr = builder.create("Lighting/background-only-hdr", {
+      kind: "transient_texture",
+      width,
+      height,
+      depthOrArrayLayers: 1,
+      format: "rgba16float",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.COPY_SRC,
+      domain: "internal-full"
     });
+    builder.declareEncoderWork({ renderPasses: 1 });
+    return hdr;
   }
 
   addEnvironmentBackground(
@@ -171,6 +114,7 @@ export class LightingFeature {
 
   destroy(): void {
     this.background.destroy();
-    this.direct.destroy();
   }
 }
+
+export type { LightClusterOutputs, ResourceId };

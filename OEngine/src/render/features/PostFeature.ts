@@ -84,7 +84,7 @@ export class PostFeature {
   /** 创建或更新 Tonemap owner；只在 canvas format 变更时重建 pipeline。 */
   obtainTonemap(format: GPUTextureFormat): TonemapPass {
     if (this._tonemap === null) {
-      this._tonemap = new TonemapPass(this._graphics.device, format);
+      this._tonemap = new TonemapPass(this._graphics.device, format, "shading-bin");
       this._tonemap.init();
     }
     this._tonemap.setCanvasFormat(format);

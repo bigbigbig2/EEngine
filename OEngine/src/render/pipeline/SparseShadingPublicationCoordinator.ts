@@ -75,7 +75,8 @@ export class SparseShadingPublicationCoordinator {
     }
     const contextKey = publicationContextKey(context);
     if (this.pending !== null) {
-      if (this.pending.scene === scene && this.pending.contextKey === contextKey) {
+      if (sameScenePublication(this.pending.scene, scene) &&
+          this.pending.contextKey === contextKey) {
         return this.pending.result;
       }
       return this.pending.result.then(
@@ -83,8 +84,10 @@ export class SparseShadingPublicationCoordinator {
         () => this.reconcile(scene, context, retireAfterSubmission)
       );
     }
-    if (this.activeScene === scene && this.activeContextKey === contextKey) {
+    if (this.activeScene !== null && sameScenePublication(this.activeScene, scene) &&
+        this.activeContextKey === contextKey) {
       this.stableHits++;
+      this.activeScene = scene;
       return Promise.resolve(this.gpuOwner.active(this.store!.currentSnapshot()));
     }
 
@@ -102,11 +105,73 @@ export class SparseShadingPublicationCoordinator {
     context: Readonly<GpuShadingPublicationContext>
   ): Readonly<SparseShadingGpuRevision> {
     this.requireAlive();
-    if (this.deviceLost || this.store === null || this.activeScene !== scene ||
+    if (this.deviceLost || this.store === null || this.activeScene === null ||
+        !sameScenePublication(this.activeScene, scene) ||
         this.activeContextKey !== publicationContextKey(context)) {
       throw new Error("Sparse shading production publication is not active for this scene/context");
     }
+    this.activeScene = scene;
     return this.gpuOwner.active(this.store.currentSnapshot());
+  }
+
+  /**
+   * Removes the active Scene from the publication domain by atomically
+   * publishing an empty GPU closure. The previous pipelines/bins remain in
+   * the normal retirement queue until the caller proves the submission
+   * boundary complete; release never destroys possibly in-flight resources.
+   */
+  async release(
+    scene: Readonly<GpuRenderWorldShadingPublication>,
+    retireAfterSubmission: SparseShadingSubmissionBoundary
+  ): Promise<boolean> {
+    this.requireAlive();
+    assertScenePublication(scene);
+    const pending = this.pending;
+    if (pending !== null) {
+      try { await pending.result; } catch { /* release still reconciles live state */ }
+      if (this.pending === pending) this.pending = null;
+      return this.release(scene, retireAfterSubmission);
+    }
+    if (this.activeScene === null || !sameScenePublication(this.activeScene, scene)) {
+      return false;
+    }
+    if (this.deviceLost) {
+      this.activeScene = null;
+      this.activeContextKey = null;
+      return true;
+    }
+    const store = this.store!;
+    const transaction = store.beginTransaction().replaceAll({
+      materials: [],
+      geometries: [],
+      instances: []
+    });
+    let prepared: Awaited<ReturnType<SparseShadingGpuRevisionOwner["prepare"]>> | null = null;
+    let transactionClosed = false;
+    try {
+      const snapshot = transaction.prepare();
+      this.prepareCount++;
+      prepared = await this.gpuOwner.prepare(snapshot);
+      this.requireAlive();
+      const retirementSerial = resolveSubmissionBoundary(retireAfterSubmission);
+      const committed = transaction.commit(retirementSerial);
+      transactionClosed = true;
+      this.gpuOwner.publish(prepared, committed, retirementSerial);
+      prepared = null;
+      this.activeScene = null;
+      this.activeContextKey = null;
+      this.publishCount++;
+      return true;
+    } catch (error) {
+      if (prepared !== null) {
+        try { this.gpuOwner.abort(prepared); } catch { /* owner already closed/destroyed */ }
+      }
+      if (!transactionClosed) {
+        try { transaction.abort(); } catch { /* transaction already closed */ }
+      }
+      this.failureCount++;
+      throw error;
+    }
   }
 
   completeSubmittedWork(completedSubmission: number): Readonly<{
@@ -173,7 +238,7 @@ export class SparseShadingPublicationCoordinator {
   evidence(): Readonly<SparseShadingPublicationCoordinatorEvidence> {
     return Object.freeze({
       activeSceneRevision: this.activeScene?.revision ?? null,
-      activePublicationRevision: this.store === null || this.deviceLost
+      activePublicationRevision: this.store === null || this.deviceLost || this.activeScene === null
         ? null
         : this.store.currentSnapshot().revision,
       stableHits: this.stableHits,
@@ -310,4 +375,36 @@ function assertScenePublication(scene: Readonly<GpuRenderWorldShadingPublication
       );
     }
   }
+}
+
+/**
+ * Previewed patches are immutable value publications. After the matching GPU
+ * patch commits, GpuRenderWorld publishes an equivalent object rather than the
+ * preview object's identity, so coordinator stability must use the atomic
+ * publication identity fields instead of JavaScript reference equality.
+ */
+function sameScenePublication(
+  left: Readonly<GpuRenderWorldShadingPublication>,
+  right: Readonly<GpuRenderWorldShadingPublication>
+): boolean {
+  if (left.revision !== right.revision ||
+      left.materialGeneration !== right.materialGeneration ||
+      left.textureGeneration !== right.textureGeneration ||
+      left.materialPublicationRevision !== right.materialPublicationRevision ||
+      left.summary.activeBinMaskLo !== right.summary.activeBinMaskLo ||
+      left.summary.activeBinMaskHi !== right.summary.activeBinMaskHi ||
+      left.summary.opaqueLitReceiverCount !== right.summary.opaqueLitReceiverCount ||
+      left.summary.opaqueUnlitReceiverCount !== right.summary.opaqueUnlitReceiverCount ||
+      left.summary.transparentLitReceiverCount !== right.summary.transparentLitReceiverCount ||
+      left.summary.dependencyMask !== right.summary.dependencyMask ||
+      left.summary.binRefCounts.length !== 64 ||
+      right.summary.binRefCounts.length !== 64) {
+    return false;
+  }
+  for (let binId = 0; binId < 64; binId++) {
+    if (left.summary.binRefCounts[binId] !== right.summary.binRefCounts[binId]) {
+      return false;
+    }
+  }
+  return true;
 }
