@@ -87,6 +87,7 @@ export class SparseShadingGpuRevisionOwner {
   private retireCount = 0;
   private deviceLossCount = 0;
   private lastCompletedSubmission = 0;
+  private lifecycleEpoch = 0;
   private destroyed = false;
 
   constructor(
@@ -102,7 +103,12 @@ export class SparseShadingGpuRevisionOwner {
     if (this.pending.size !== 0) {
       throw new Error("Sparse shading permits only one provisional GPU revision");
     }
+    const preparationEpoch = this.lifecycleEpoch;
     const resources = await this.factory(this.device, snapshot, this.diagnostics);
+    if (this.destroyed || preparationEpoch !== this.lifecycleEpoch) {
+      destroyRevision(resources);
+      throw new Error("Sparse shading GPU revision preparation was invalidated by lifecycle change");
+    }
     validateRevisionResources(resources, snapshot, this.diagnostics);
     const prepared = new SparseShadingPreparedGpuRevision(this, resources);
     this.pending.add(prepared);
@@ -175,6 +181,7 @@ export class SparseShadingGpuRevisionOwner {
 
   markDeviceLost(): void {
     this.requireAlive();
+    this.lifecycleEpoch++;
     for (const prepared of this.pending) {
       prepared._close();
       destroyRevision(prepared.resources);
@@ -219,6 +226,7 @@ export class SparseShadingGpuRevisionOwner {
 
   destroy(): void {
     if (this.destroyed) return;
+    this.lifecycleEpoch++;
     for (const prepared of this.pending) {
       prepared._close();
       destroyRevision(prepared.resources);
