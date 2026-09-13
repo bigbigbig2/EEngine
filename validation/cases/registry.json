@@ -25,7 +25,15 @@
     "CLS-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Coverage uses width independent two word masks" },
     "CLS-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Subgroup results aggregate before global reservation" },
     "CLS-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "At most one reservation per macro and bin" },
-    "DIAG-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Pre-consumer failures zero all indirect arguments" }
+    "DIAG-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Pre-consumer failures zero all indirect arguments" },
+    "ID-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Material, instance and MeshletWork bin identity agrees" },
+    "SHADE-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Each opaque hit receives one complete material evaluation" },
+    "SHADE-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Lit programs fuse direct lighting in the material consumer" },
+    "SHADE-007": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "The widest executed variant fits the frozen binding budget" },
+    "OFF-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Inactive bins own no queue work or dispatch" },
+    "DIAG-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Production successful pixels perform no ownership atomics" },
+    "DIAG-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Consumer identity mismatch invalidates the frame and suppresses the lane" },
+    "DIAG-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Ownership validation exists only in a diagnostics variant" }
   },
   "profiles": {
     "smoke": {
@@ -78,6 +86,21 @@
       "quality": "adr-0013-step-4-l3-v1",
       "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1"],
       "seed": 13004,
+      "cameraPath": "none",
+      "warmupFrames": 1,
+      "sampleFrames": 2,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
+    "shading-resolve-component-v1": {
+      "resolution": [1280, 720],
+      "componentExtent": [33, 33],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0013-step-5-l3-v1",
+      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1"],
+      "seed": 13005,
       "cameraPath": "none",
       "warmupFrames": 1,
       "sampleFrames": 2,
@@ -149,6 +172,37 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
           "ownerRequirement": "CAP-005"
+        }
+      ]
+    },
+    {
+      "id": "shading-resolve-component",
+      "route": "/src/cases/shading-resolve-component/index.html",
+      "kind": "internal-candidate",
+      "buildTarget": "internal-candidate",
+      "ownerAdr": "ADR-0013",
+      "requirements": [
+        "ID-005", "SHADE-001", "SHADE-004", "SHADE-007", "OFF-001",
+        "DIAG-002", "DIAG-004", "DIAG-006"
+      ],
+      "workloadId": "shading-resolve-component-v1",
+      "profile": "smoke",
+      "timeoutMs": 120000,
+      "artifacts": ["result", "events", "readback"],
+      "changedPaths": [
+        "validation/src/cases/shading-resolve-component",
+        "OEngine/src/render/passes/SparseShadingResolvePass.ts",
+        "OEngine/src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "OEngine/src/shaders/sparse_shading_resolve.ts",
+        "OEngine/src/gpu/GpuShadingMaterialAbi.ts",
+        "OEngine/src/gpu/GpuSparseShadingLightAbi.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
+          "ownerRequirement": "SHADE-007"
         }
       ]
     }

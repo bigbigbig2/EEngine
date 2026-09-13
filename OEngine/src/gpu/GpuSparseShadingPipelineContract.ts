@@ -25,7 +25,11 @@ export const GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK = (1 << 3) - 1;
 
 type BindingResource =
   | Readonly<{ category: "buffer"; type: "uniform" | "read-only-storage" | "storage" }>
-  | Readonly<{ category: "texture"; sampleType: "uint" | "depth" | "float" }>
+  | Readonly<{
+      category: "texture";
+      sampleType: "uint" | "depth" | "float";
+      viewDimension: "2d" | "2d-array";
+    }>
   | Readonly<{ category: "sampler"; type: "filtering" | "comparison" }>
   | Readonly<{
       category: "storage-texture";
@@ -131,7 +135,7 @@ export function createGpuSparseShadingPipelineDescriptor(
       : []),
     ...(usesTextures
       ? Array.from({ length: 9 }, (_, index) =>
-          textureBinding(2, 2 + index, `material_texture_${index}`, "float"))
+          textureBinding(2, 2 + index, `material_texture_${index}`, "float", "2d-array"))
       : []),
     ...(usesTextures
       ? Array.from({ length: 6 }, (_, index) =>
@@ -266,11 +270,13 @@ function textureBinding(
   group: 0 | 1 | 2 | 3,
   binding: number,
   name: string,
-  sampleType: "uint" | "depth" | "float"
+  sampleType: "uint" | "depth" | "float",
+  viewDimension: "2d" | "2d-array" = "2d"
 ): GpuSparseShadingBindingDescriptor {
   return bindingDescriptor(group, binding, name, "sampled-texture", {
     category: "texture",
-    sampleType
+    sampleType,
+    viewDimension
   });
 }
 
@@ -324,7 +330,13 @@ function toGpuLayoutEntry(
           : {})
       }
     };
-    case "texture": return { ...common, texture: { sampleType: binding.resource.sampleType } };
+    case "texture": return {
+      ...common,
+      texture: {
+        sampleType: binding.resource.sampleType,
+        viewDimension: binding.resource.viewDimension
+      }
+    };
     case "sampler": return { ...common, sampler: { type: binding.resource.type } };
     case "storage-texture": return {
       ...common,
@@ -353,9 +365,10 @@ function bindingDeclarationWgsl(binding: GpuSparseShadingBindingDescriptor): str
       return `${prefix} var<storage, ${access}> ${binding.name}: array<u32>;`;
     }
     case "texture": {
-      const textureType = binding.resource.sampleType === "uint" ? "texture_2d<u32>"
+      const dimension = binding.resource.viewDimension === "2d-array" ? "2d_array" : "2d";
+      const textureType = binding.resource.sampleType === "uint" ? `texture_${dimension}<u32>`
         : binding.resource.sampleType === "depth" ? "texture_depth_2d"
-        : "texture_2d<f32>";
+        : `texture_${dimension}<f32>`;
       return `${prefix} var ${binding.name}: ${textureType};`;
     }
     case "sampler": return `${prefix} var ${binding.name}: ` +

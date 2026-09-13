@@ -1,4 +1,9 @@
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.js";
+import {
+  GPU_COMPUTE_MATERIAL_ABI_WGSL,
+  GPU_SHADING_SURFACE_NORMAL_ENCODING,
+  GPU_SHADING_SURFACE_LITE_WGSL
+} from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_NORMAL_FORMAT, GPU_POSITION_FORMAT, GPU_UV_FORMAT } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
@@ -173,7 +178,8 @@ struct OEngineSparseEnvironmentSettings {
   exposure_scale: vec4f,
 }
 
-${fastUnlit ? "" : `struct OEngineSparseSurface {
+${fastUnlit ? "" : `${GPU_SHADING_SURFACE_LITE_WGSL}
+struct OEngineSparseSurface {
   base_color: vec3f,
   alpha: f32,
   shading_normal: vec3f,
@@ -185,6 +191,7 @@ ${fastUnlit ? "" : `struct OEngineSparseSurface {
   position_ws: vec3f,
   velocity: vec2f,
   view_depth: f32,
+  flags: u32,
 }`}
 `;
 }
@@ -458,7 +465,7 @@ function materialEvaluationWgsl(descriptor: Readonly<GpuSparseShadingPipelineDes
   const generic = descriptor.programId === GPU_SHADING_PROGRAM.PbrGeneric;
   const sample = (slot: number, ref: string, fallback: string, condition: string) => `
   if ${condition} {
-    if !sparse_texture_route_valid(material_slot, ${slot}u, ${ref}) { sparse_identity_error(); return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0); }
+    if !sparse_texture_route_valid(material_slot, ${slot}u, ${ref}) { sparse_identity_error(); return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u); }
     let sampled_${slot}=sparse_sample(${ref},sparse_sampler(material,${slot}u),sparse_transform_uv(material,${slot}u,uv,false),sparse_transform_uv(material,${slot}u,uv_dx,true),sparse_transform_uv(material,${slot}u,uv_dy,true),gradient_valid,${fallback});
     sample_${slot}=sampled_${slot};
   }`;
@@ -470,7 +477,7 @@ fn sparse_evaluate_unlit_factor(material:OEngineSparseUnlitFactorRecord)->vec4f{
     return /* wgsl */ `
 fn sparse_evaluate(material_slot:u32,material:OEngineShadingMaterialRecord)->OEngineSparseSurface{
   let factor=material.payload.base_color_factor;
-  return OEngineSparseSurface(factor.xyz,factor.w,vec3f(0.0,0.0,1.0),1.0,vec3f(0.0,0.0,1.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0);
+  return OEngineSparseSurface(factor.xyz,factor.w,vec3f(0.0,0.0,1.0),material.payload.pbr_factors.y,vec3f(0.0,0.0,1.0),material.payload.pbr_factors.x,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,OENGINE_SURFACE_FLAG_VALID|OENGINE_SURFACE_FLAG_UNLIT);
 }`;
   }
   if (!s.lit) {
@@ -483,9 +490,10 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
   let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices(meshlet_base,primitive);let model=sparse_affine(instance);
   let p0=model*vec4f(sparse_position(geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position(geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position(geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;
   var color=vec3f(1.0);${usesColor ? "color=sparse_color(geometry_base,vertices.x)*bary.weights.x+sparse_color(geometry_base,vertices.y)*bary.weights.y+sparse_color(geometry_base,vertices.z)*bary.weights.z;" : ""}
-  var base_sample=vec4f(1.0);${usesBase ? `let u0=sparse_uv0(geometry_base,vertices.x);let u1=sparse_uv0(geometry_base,vertices.y);let u2=sparse_uv0(geometry_base,vertices.z);let uv=u0*bary.weights.x+u1*bary.weights.y+u2*bary.weights.z;let uv_dx=(u0*bary.ddx.x+u1*bary.ddx.y+u2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_dy=(u0*bary.ddy.x+u1*bary.ddy.y+u2*bary.ddy.z)/shading_view.upscale_ratio.y;if !sparse_texture_route_valid(material_slot,0u,material.payload.texture_ref){sparse_identity_error();return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0);}base_sample=sparse_sample(material.payload.texture_ref,sparse_sampler(material,0u),sparse_transform_uv(material,0u,uv,false),sparse_transform_uv(material,0u,uv_dx,true),sparse_transform_uv(material,0u,uv_dy,true),bary.valid,vec4f(1.0));` : ""}
+  var base_sample=vec4f(1.0);${usesBase ? `let u0=sparse_uv0(geometry_base,vertices.x);let u1=sparse_uv0(geometry_base,vertices.y);let u2=sparse_uv0(geometry_base,vertices.z);let uv=u0*bary.weights.x+u1*bary.weights.y+u2*bary.weights.z;let uv_dx=(u0*bary.ddx.x+u1*bary.ddx.y+u2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_dy=(u0*bary.ddy.x+u1*bary.ddy.y+u2*bary.ddy.z)/shading_view.upscale_ratio.y;if !sparse_texture_route_valid(material_slot,0u,material.payload.texture_ref){sparse_identity_error();return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u);}base_sample=sparse_sample(material.payload.texture_ref,sparse_sampler(material,0u),sparse_transform_uv(material,0u,uv,false),sparse_transform_uv(material,0u,uv_dx,true),sparse_transform_uv(material,0u,uv_dy,true),bary.valid,vec4f(1.0));` : ""}
   let previous_position=oengine_instance_previous_from_current(instance)*vec4f(position,1.0);let previous_clip=shading_view.previous_view_projection*previous_position;let current_clip=shading_view.current_view_projection*vec4f(position,1.0);let velocity=(current_clip.xy/current_clip.w-previous_clip.xy/previous_clip.w)*vec2f(0.5,-0.5);let factor=material.payload.base_color_factor;
-  return OEngineSparseSurface(factor.xyz*color*base_sample.xyz,factor.w*base_sample.a,vec3f(0.0,0.0,1.0),1.0,vec3f(0.0,0.0,1.0),0.0,vec3f(0.0),1.0,position,velocity,textureLoad(visibility_depth,vec2i(pixel),0));
+  var surface_flags=OENGINE_SURFACE_FLAG_VALID|OENGINE_SURFACE_FLAG_UNLIT;if oengine_instance_motion_valid(instance){surface_flags|=OENGINE_SURFACE_FLAG_MOTION_VALID;}${usesBase ? "if !bary.valid{surface_flags|=OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK;}" : ""}
+  return OEngineSparseSurface(factor.xyz*color*base_sample.xyz,factor.w*base_sample.a,vec3f(0.0,0.0,1.0),material.payload.pbr_factors.y,vec3f(0.0,0.0,1.0),material.payload.pbr_factors.x,vec3f(0.0),1.0,position,velocity,textureLoad(visibility_depth,vec2i(pixel),0),surface_flags);
 }`;
   }
   return /* wgsl */ `
@@ -504,7 +512,8 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
   let base=material.payload.base_color_factor.xyz*color*sample_0.xyz;let metallic=clamp(material.payload.pbr_factors.x*sample_2.b,0.0,1.0);let roughness=clamp(material.payload.pbr_factors.y*sample_2.g,0.0,1.0);let ao=mix(1.0,sample_2.r,clamp(material.payload.pbr_factors.w,0.0,1.0));let emissive=material.payload.emissive_factor.xyz*sample_3.xyz;
   ${needsNormal ? "let tangent_value=sparse_tangent(geometry_base,vertices.x)*bary.weights.x+sparse_tangent(geometry_base,vertices.y)*bary.weights.y+sparse_tangent(geometry_base,vertices.z)*bary.weights.z;let tangent=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*tangent_value.xyz);let bitangent=normalize(cross(normal,tangent))*select(-1.0,1.0,tangent_value.w>=0.0);let mapped=vec3f((sample_1.xy*2.0-1.0)*material.payload.pbr_factors.z,sample_1.z*2.0-1.0);normal=normalize(tangent*mapped.x+bitangent*mapped.y+normal*mapped.z);" : ""}
   let previous_position=oengine_instance_previous_from_current(instance)*vec4f(position,1.0);let previous_clip=shading_view.previous_view_projection*previous_position;let current_clip=shading_view.current_view_projection*vec4f(position,1.0);let current_ndc=current_clip.xy/current_clip.w;let previous_ndc=previous_clip.xy/previous_clip.w;let velocity=(current_ndc-previous_ndc)*vec2f(0.5,-0.5);
-  return OEngineSparseSurface(base,material.payload.base_color_factor.w*sample_0.a,normal,roughness,geometric,metallic,emissive,ao,position,velocity,textureLoad(visibility_depth,vec2i(pixel),0));
+  var surface_flags=OENGINE_SURFACE_FLAG_VALID;if oengine_instance_motion_valid(instance){surface_flags|=OENGINE_SURFACE_FLAG_MOTION_VALID;}${shadingProgramUsesTextures(descriptor.programId) ? "if !gradient_valid{surface_flags|=OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK;}" : ""}if (material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasNormalTexture}u)!=0u{surface_flags|=OENGINE_SURFACE_FLAG_NORMAL_TEXTURE;}if (material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture}u)!=0u{surface_flags|=OENGINE_SURFACE_FLAG_ORM_TEXTURE;}if (material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture}u)!=0u{surface_flags|=OENGINE_SURFACE_FLAG_EMISSIVE_TEXTURE;}
+  return OEngineSparseSurface(base,material.payload.base_color_factor.w*sample_0.a,normal,roughness,geometric,metallic,emissive,ao,position,velocity,textureLoad(visibility_depth,vec2i(pixel),0),surface_flags);
 }`;
 }
 
@@ -520,11 +529,18 @@ fn sparse_store_unlit_factor(pixel:vec2u,factor:vec4f){
   const diffuse = (descriptor.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0;
   const velocity = (descriptor.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0;
   return /* wgsl */ `
+${shading || diffuse ? `${GPU_COMPUTE_MATERIAL_ABI_WGSL}
+fn sparse_rgbe9995_encode(rgb:vec3f)->u32{let clamped=clamp(rgb,vec3f(0.0),vec3f(bitcast<f32>(0x477f8000u)));let maximum=max(bitcast<f32>(0x37800000u),max(clamped.x,max(clamped.y,clamped.z)));let exponent=bitcast<f32>((bitcast<u32>(maximum)+0x07804000u)&0x7f800000u);let mantissas=bitcast<vec3u>(clamped+exponent);return ((bitcast<u32>(exponent)<<4u)+0x10000000u)|(mantissas.b<<18u)|(mantissas.g<<9u)|(mantissas.r&0x1ffu);}` : ""}
+${shading ? `fn sparse_encode_surface_normal(normal:vec3f)->vec2u{
+  let unit=normalize(normal);let denominator=abs(unit.x)+abs(unit.y)+abs(unit.z);var encoded=unit.xy/denominator;
+  if unit.z<0.0{let signs=select(vec2f(-1.0),vec2f(1.0),encoded>=vec2f(0.0));encoded=(vec2f(1.0)-abs(encoded.yx))*signs;}
+  return vec2u((vec2f(0.5)+encoded*0.5)*${GPU_SHADING_SURFACE_NORMAL_ENCODING.maxValue}.0);
+}` : ""}
 fn sparse_store(pixel:vec2u,surface:OEngineSparseSurface){
   let radiance=${lit ? "sparse_direct(surface,pixel)" : "surface.base_color"}*shading_view.pre_exposure;
   textureStore(output_hdr,vec2i(pixel),vec4f(radiance,surface.alpha));
-  ${shading ? "textureStore(output_normal,vec2i(pixel),vec4u(pack2x16snorm(surface.geometric_normal.xy),pack2x16snorm(surface.shading_normal.xy),0u,0u));" : ""}
-  ${shading || diffuse ? "textureStore(output_albedo_ao,vec2i(pixel),vec4f(surface.base_color,surface.material_ao));textureStore(output_material,vec2i(pixel),vec4u(bitcast<u32>(surface.roughness),bitcast<u32>(surface.metallic),0u,0u));" : ""}
+  ${shading ? "textureStore(output_normal,vec2i(pixel),vec4u(sparse_encode_surface_normal(surface.shading_normal),sparse_encode_surface_normal(surface.geometric_normal)));" : ""}
+  ${shading || diffuse ? "let unlit=(surface.flags&OENGINE_SURFACE_FLAG_UNLIT)!=0u;textureStore(output_albedo_ao,vec2i(pixel),select(vec4f(surface.base_color,surface.material_ao),vec4f(0.0,0.0,0.0,1.0),unlit));let encoded_emissive=select(surface.emissive,surface.base_color,unlit);textureStore(output_material,vec2i(pixel),vec4u(oengine_surface_lite_pack_material(surface.metallic,surface.roughness,surface.flags),sparse_rgbe9995_encode(encoded_emissive),0u,0u));" : ""}
   ${velocity ? "textureStore(output_velocity,vec2i(pixel),vec4f(surface.velocity,0.0,0.0));" : ""}
 }`;
 }

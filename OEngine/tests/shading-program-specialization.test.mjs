@@ -165,6 +165,12 @@ test("depth/comparison binding types and dynamic settings offset reach native la
     assert.equal(layouts[0].entries[0].buffer.minBindingSize, 32);
     assert.equal(layouts[3].entries.find(({ binding }) => binding === 5).texture.sampleType, "depth");
     assert.equal(layouts[3].entries.find(({ binding }) => binding === 9).sampler.type, "comparison");
+    const textured = gpuSparseShadingBindGroupLayoutDescriptors(
+      descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 7, 2),
+      GPUShaderStage.COMPUTE
+    );
+    assert.ok(textured[2].entries.slice(2, 11).every(({ texture }) =>
+      texture.sampleType === "float" && texture.viewDimension === "2d-array"));
   } finally {
     globalThis.GPUShaderStage = previous;
   }
@@ -185,6 +191,28 @@ test("production and diagnostics consumers are physically separate", () => {
     Unassigned: 2,
     IdentityMismatch: 4
   });
+});
+
+test("sparse normal output preserves the shared rgba16uint octahedral channel ABI", () => {
+  const source = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrFactor,
+    GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite
+  ), false).source;
+  assert.match(source, /fn sparse_encode_surface_normal\(normal:vec3f\)->vec2u/u);
+  assert.match(source, /vec4u\(sparse_encode_surface_normal\(surface\.shading_normal\),sparse_encode_surface_normal\(surface\.geometric_normal\)\)/u);
+  assert.doesNotMatch(source, /pack2x16snorm\(surface\./u);
+});
+
+test("sparse surface outputs preserve compact flags, RGB9E5 and unlit diffuse semantics", () => {
+  const source = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.UnlitTexture,
+    GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
+      GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite
+  ), false).source;
+  assert.match(source, /oengine_surface_lite_pack_material\(surface\.metallic,surface\.roughness,surface\.flags\)/u);
+  assert.match(source, /sparse_rgbe9995_encode\(encoded_emissive\)/u);
+  assert.match(source, /vec4f\(0\.0,0\.0,0\.0,1\.0\),unlit/u);
+  assert.doesNotMatch(source, /bitcast<u32>\(surface\.(?:roughness|metallic)\)/u);
 });
 
 test("material and texture-route publication ABI validates generations and exact strides", () => {
