@@ -14,7 +14,7 @@ Hardware Visibility 已能为可见像素输出 reverse-Z depth 和稳定 `Visib
 - `GpuSurfaceAbi.ts` 是唯一 Surface 格式和编码事实源。Producer 与 consumer 校验同一 ABI，不创建第二套压缩或质量管线。
 - TriangleSetup candidate cache 是显式 opt-in 加速器；关闭时不分配 setup 资源、不增加 FrameGraph 节点或 clear。只有正确性、near-plane、命中率、性能和内存门禁都满足后才能改变默认值。
 - Tile material backend 只在至少两个 GPU vendor 的独立同条件证据表明 ClassDepth 的 P50 或 P95 相对已验证 tile 对照慢至少 10% 时进入实现；证据不足时不创建 queue、pass、shader 或 submit。
-- 旧 Pixel Queue 与 ShadeWork 不再恢复为生产 fallback。历史比较从对应 Git commit 复跑。
+- 旧 Pixel Queue 与 ShadeWork 不再恢复为生产 fallback。历史结果从对应 Git commit 查询，不作为当前验收的比较要求。
 
 ## Consequences
 

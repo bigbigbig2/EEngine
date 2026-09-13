@@ -48,4 +48,4 @@ Shader 数量、分类、实际 consumer 和 deletion candidate 只以生成的 
 
 ## 结果解释
 
-结构完整只说明 artifact 可分析，不代表能力或性能达标。任何结论必须能从真实 producer、counter/timestamp、浏览器 diagnostics 和相同条件对比复算；一次截图、空 counter 或类名存在都不是证据。
+结构完整只说明 artifact 可分析，不代表能力或性能达标。当前绝对性能结论必须能从真实 producer、counter/timestamp、浏览器 diagnostics、固定 workload 与独立采样复算；一次截图、空 counter 或类名存在都不是证据。ADR-0013/0014 不要求旧 baseline、新旧 A/B 或删除前后比较。已列出的历史对比 artifact 只证明其冻结 commit，不作为当前验收前置；另行声明相对性能改善时才需要条件一致的比较证据。

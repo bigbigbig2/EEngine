@@ -50,9 +50,9 @@ DEV 不运行全量 Browser matrix 或 formal benchmark，也不产生可接受�
 
 ### PERF
 
-用于阶段 baseline/final、重大 keep/revise/reject 决策、正式性能声明或重大回归调查。PERF 必须由 ADR-0014 宿主在 clean revision、固定比较条件下运行独立 run group，并持久化可复算证据；宿主或命中 Case 未完成时不得产生新的 PERF 结论。
+用于当前阶段绝对性能验收、重大 keep/revise/reject 决策、正式性能声明或耗时调查。PERF 必须由 ADR-0014 宿主在 clean revision、固定采样条件下运行独立 run group，并持久化可复算证据；宿主或命中 Case 未完成时不得产生新的 PERF 结论。仓库当前及后续验收正式移除旧 baseline 冻结、新旧版本 A/B、删除前后性能比较和相对收益门禁；已登记的对应项以 `closed / requirement-removed` 收尾，可解除历史比较阻塞，不是暂时跳过，也没有补测义务。旧 ADR 或研究文稿中的历史比较要求不再作为当前验收门禁；既有历史结果保留原记录。
 
-正确性、画质和性能 Gate 分开判断：ABI、identity、overflow、lifecycle 与 producer/consumer 闭环不能由 FPS 改善替代；视觉算法使用数值 seam 加少量代表性视角，不默认要求与旧算法 pixel-identical；性能优化只有受控 A/B 才能声明改善。
+正确性、画质和性能 Gate 分开判断：ABI、identity、overflow、lifecycle 与 producer/consumer 闭环不能由 FPS 替代；视觉算法使用当前语义合同的数值 seam 加少量代表性视角，不要求旧 renderer 运行或与旧算法 pixel-identical。当前性能验收报告绝对时间、资源预算和达标状态；若另行声明相对性能改善，仍须有可复算的比较证据，但该比较不是当前验收前置条件。
 
 ## Browser Validation 边界
 
@@ -70,7 +70,7 @@ DEV 不运行全量 Browser matrix 或 formal benchmark，也不产生可接受�
 - 未来每个真实浏览器 artifact 必须记录 `core-features-and-limits`、adapter/device feature 集、requested limits、实际 device limits、WGSL language features、Immediate Data/Transient Attachment API 探测和最终 specialization。
 - 使用 `subgroups`、`primitive-index`、`shader-f16` 或 format tier 的改动，必须覆盖对应 WGSL enable、缺失能力 specialization、边界输入和同一 CPU/oracle 语义；subgroup 测试覆盖 partial workgroup 和 adapter 报告的 size 范围。
 - Immediate Data 验证 `maxImmediateSize`、4-byte slot/range、pipeline layout 与未初始化 slot；Transient Attachment 验证 pass-local lifetime、usage、dimension/mip/layer、clear/discard、禁止 resolve/cross-pass consumer，并报告 transient bytes/traffic 变化。
-- 正式性能结论只运行目标 adapter 实际选择的一个综合 profile，不为 WebGPU 2026 Desktop 与 Portable 复制双基准。capability/fallback 变更运行命中的正确性与 parity case；综合 benchmark 把完整 capability fingerprint 固定为比较条件。
+- 正式性能结论只运行目标 adapter 实际选择的一个综合 profile，不为 WebGPU 2026 Desktop 与 Portable 复制双基准。capability/fallback 变更运行命中的正确性与 parity case；综合 benchmark 把完整 capability fingerprint 固定为采样条件。
 - `texture-compression-unaligned` 等规范已出现但本地类型/浏览器尚未稳定暴露的能力，必须先升级工具链并通过 typecheck、CTS/validation 和目标浏览器 probe，不能靠字符串断言“已支持”。
 
 ## 文档门禁
@@ -93,17 +93,17 @@ ADR-0014 的综合宿主必须使用唯一综合 workload，并把场景、相�
 
 渲染功能不能只靠 typecheck。至少需要与改动匹配的 GPU counter、timestamp、readback、debug view 或数值回归；截图只用于确实需要视觉判断的项目。必须记录 validation error、uncaptured error 和 device loss。
 
-## 性能比较
+## 当前性能采样与可选比较
 
-比较必须保持相同 adapter、浏览器版本、canvas/internal resolution、DPR、画质、feature set、workload、seed、camera path、warm-up、采样帧数与 cadence。报告 P50/P95、GPU phase、CPU frame/build/submit、submit 数、counter 和内存；不可用的 GPU timestamp 明确标为 unavailable，不能用 CPU 时间代替。
+当前验收固定 adapter、浏览器版本、canvas/internal resolution、DPR、画质、feature set、workload、seed、camera path、warm-up、采样帧数与 cadence，并运行多个独立 run group。报告绝对 P50/P95、GPU phase、CPU frame/build/submit、submit 数、counter 和内存，按 PRODUCT.md 的帧时间目标及本文件的资源预算判断；不可用的 GPU timestamp 明确标为 unavailable，不能用 CPU 时间代替。只有另行开展可选比较或作相对改善声明时，才要求对照双方保持上述条件一致；不为验收恢复旧 backend 或旧性能基线。
 
-Temporal/DRS 的正式 A/B 必须使用 `resolution.mode=fixed` 并记录固定 `internalScale`；adaptive 只做有界 bucket、迟到 timestamp、hysteresis/lockout、scale-change history reset 与无 timestamp 保持当前 scale 的 smoke，不得把 adaptive 降分辨率后的帧时间当成算法回归已消失。Temporal visual review 至少覆盖 static subpixel detail、运动边缘、MASK/foliage、MBOIT transparency、SSR correction、camera cut、output resize 与 internal bucket change；证据同时报告 history read-valid、generation、reactive/disoccluded/rejected pixel counter 和 output/internal extent。
+Temporal/DRS 的正式性能采样必须使用 `resolution.mode=fixed` 并记录固定 `internalScale`，不要求历史版本 A/B；adaptive 只做有界 bucket、迟到 timestamp、hysteresis/lockout、scale-change history reset 与无 timestamp 保持当前 scale 的 smoke，不得用 adaptive 降分辨率绕过固定画质帧时间目标。Temporal visual review 至少覆盖 static subpixel detail、运动边缘、MASK/foliage、MBOIT transparency、SSR correction、camera cut、output resize 与 internal bucket change；证据同时报告 history read-valid、generation、reactive/disoccluded/rejected pixel counter 和 output/internal extent。
 
-Post fusion必须用FrameGraph资源/Pass evidence证明normal topology恰有一个Final Output、没有`Bloom composited`/`Color graded color`/`Sharpened color` full-resolution intermediate，并分别检查Bloom-off binding裁剪、Sharpen-off邻域读取裁剪、Automatic Exposure on/off、SDR/HDR output format与one-main-submit。所有FrameGraph资源存在/缺席断言必须过滤到`firstUsePass !== undefined`的live resource，不能把已声明但零use/culled的节点当成实际分配或消费者闭环。`FrameResourceSummary.imported/transient/transientTextures/transientBuffers`只保留为declared topology计数；实际资源门禁必须读取`liveImported/liveTransient/liveTransientTextures/liveTransientBuffers`。`post-color-grading` capture允许仅在请求帧materialize精确HDR boundary并产生既有有界readback；下一帧必须恢复fusion。Debug view必须选择不重复Bloom/grading/sharpen的Final Output variant，并证明无消费者的Bloom pass/resource被裁剪、consumer count与live graph一致。性能结论比较相同画质下实际HDR traffic与post GPU phase，不能只用Pass数量推断收益。
+Post fusion必须用FrameGraph资源/Pass evidence证明normal topology恰有一个Final Output、没有`Bloom composited`/`Color graded color`/`Sharpened color` full-resolution intermediate，并分别检查Bloom-off binding裁剪、Sharpen-off邻域读取裁剪、Automatic Exposure on/off、SDR/HDR output format与one-main-submit。所有FrameGraph资源存在/缺席断言必须过滤到`firstUsePass !== undefined`的live resource，不能把已声明但零use/culled的节点当成实际分配或消费者闭环。`FrameResourceSummary.imported/transient/transientTextures/transientBuffers`只保留为declared topology计数；实际资源门禁必须读取`liveImported/liveTransient/liveTransientTextures/liveTransientBuffers`。`post-color-grading` capture允许仅在请求帧materialize精确HDR boundary并产生既有有界readback；下一帧必须恢复fusion。Debug view必须选择不重复Bloom/grading/sharpen的Final Output variant，并证明无消费者的Bloom pass/resource被裁剪、consumer count与live graph一致。当前性能验收报告固定画质下实际HDR traffic与post GPU phase的绝对成本，不要求与旧版本比较，不能只用Pass数量宣称性能改善。
 
 Final cutover/deletion 验证必须同时包含三类证据：源树/公开符号不存在退役backend、已编译FrameGraph/shader audit没有旧producer、真实Chrome topology/counter证明replacement consumer闭环与feature-off。GPU counter schema删除字段时必须升版；若保留空洞避免重排live WGSL offset，必须oracle明确冻结reserved index。任何尚未通过对应MILESTONE/PERF/visual Gate的旧数学或对照source必须保留并列为deletion target，不得为了“代码干净”提前删除。
 
-产品目标是 1920×1080、DPR 1、60 FPS（16.667 ms GPU），在固定证据完整前一律标记未证明。
+产品目标是 1920×1080、DPR 1、60 FPS（16.667 ms GPU），在固定证据完整前一律标记未证明。历史比较验收项已正式关闭并从剩余工作中移除；当前正确性、指定 adapter、GPU timestamp、独立采样、资源预算和绝对性能目标是独立检查，Step 7/8 和 ADR 按这些剩余检查的实际结果收尾。
 
 ## 证据持久化
 

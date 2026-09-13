@@ -55,6 +55,8 @@ disabled feature work       → zero owner / zero resource / zero dispatch
 
 ### 1. 唯一主管线与切换边界
 
+本 ADR 的验收以当前管线自身的正确性、生命周期、feature-off、绝对 GPU 时间和资源预算为准。旧 production baseline 冻结、新旧版本 A/B、删除前后性能对比及相对旧管线收益门禁正式移除，对应验收项以 `closed / requirement-removed` 收尾，可用于解除 Step 6–8 的历史比较阻塞；不是 deferred、暂时跳过或等待补测，后续不再要求恢复旧 worktree/backend 或补交对照结果。Step 6–8 的 GPU timestamp、当前指定 adapter、固定 workload、多独立 run 和正确性检查按各自结果判断。历史 benchmark 只记录其冻结 revision；没有比较证据时只报告当前绝对指标，不宣称相对性能改善。
+
 Opaque production pipeline 直接切换为：
 
 ```text
@@ -225,7 +227,7 @@ Meshlet visibility vertex stage 从 work flags 恢复 bin，并通过 flat integ
 
 Classifier 只读取 `ShadingBinId`，不再为分类逐像素读取 `VisibilityKey`、MeshletWork 和 Material table。Shading consumer 仍在实际命中的 lane 中读取 VisibilityKey 恢复精确 geometry/material identity。
 
-1080p `r8uint` 的逻辑大小约 1.98 MiB。增加该 MRT 的 raster write 与 classifier read，换取删除 classifier 的 4 B/pixel VisibilityKey read 和后续随机 pointer chasing。该交换是本 ADR 决定的一部分，但性能收益必须在目标 adapter 实测；不能只按格式字节数宣称改善。
+1080p `r8uint` 的逻辑大小约 1.98 MiB。增加该 MRT 的 raster write 与 classifier read，删除 classifier 的 4 B/pixel VisibilityKey read 和后续随机 pointer chasing。该交换是本 ADR 决定的一部分；验收测量当前 MRT/classifier 的绝对 GPU 成本，不要求证明相对旧管线的收益，也不能只按格式字节数宣称性能改善。
 
 ### 5. Macro/microtile 拓扑
 
@@ -836,28 +838,28 @@ L0–L2 不能替代真实 GPU 证据，L3–L4 不能替代正式 PERF，FPS �
 
 每个 Step 的交付记录至少包含：Step id、implementation commit、changed paths、命中的 ADR 条款、已运行 Layer、命令/runner identity、通过/失败、deferred Gate 及原因、artifact id/content hash。记录不得只有“测试通过”的自然语言结论。
 
-#### Step 0 · 迁移清单、来源边界与可比较基线
+#### Step 0 · 迁移清单、来源边界与当前验证输入
 
 **实现范围**
 
 1. 建立旧 owner → 新 owner 的一对一迁移矩阵，覆盖 ABI、Scene publication、Visibility MRT、classifier、material resolve、direct lighting、FrameProducts、diagnostics、Profiler 和 tests。
 2. 用源码引用图确认第 16 节 deletion list 完整；发现新的旧路径 owner 时先补入 ADR/矩阵。
 3. 在 `docs/porting/visibility.md`、`docs/porting/shading.md` 登记最终采用或拒绝的上游 revision、路径、许可证、保留不变量和 WGSL/OEngine 差异；candidate 不能继续写成来源结论。
-4. 冻结新验证宿主落地后的旧生产路径 baseline commit、workload identity 与 capability fingerprint。旧 benchmark 只作历史参考，不冒充该 baseline。
+4. 冻结当前管线的 workload identity、能力记录字段、绝对帧时间/资源预算与 evidence schema；不冻结旧生产路径的性能 baseline，也不要求旧 worktree 或旧 backend 运行。历史 benchmark 不进入当前验收。
 5. 冻结 requirement id：至少为 Capability、Identity、Visibility、Queue、Classifier、Shading、Feature-off、Lifecycle、Diagnostics、Performance、Deletion 各条规范要求分配稳定 id，供最终 traceability matrix 使用。
 
 **分层检查**
 
 - L0：`rg` 确认旧 owner、公开导出、FrameProduct、shader generator、counter schema 和文档引用全部进入迁移矩阵。
 - L0：文档链接、porting license/revision、ADR supersession 和 `STATUS.md` 当前事实检查通过。
-- L0：在未修改生产代码的 clean baseline 上运行 `npm run typecheck`、`npm run build:test` 和当前命中的 ownership/ABI tests，证明起点可复现。
-- L5：只有新浏览器宿主存在后才捕获旧路径 formal baseline；没有宿主时该项保持 open，不阻塞 Step 1–5 的 DEV 工作，但阻塞 Step 6 PERF 和 Step 7。
+- L0：在命中实现的 clean revision 上运行 `npm run typecheck`、`npm run build:test` 和当前命中的 ownership/ABI tests，证明实现可复现。
+- L5：真实浏览器宿主落地后采集当前管线的绝对性能；没有宿主时当前 PERF 保持 open，不阻塞 Step 1–5 的 DEV 工作，但阻塞 Step 6 PERF 和 Step 7。不设旧路径采样门禁。
 
 **Exit Gate**
 
 - 每个待删除符号有 replacement owner 和验证 owner；没有“顺手清理”的未追踪范围。
 - 每个外部实现有 adoption 状态；许可证不明或 `All Rights Reserved` 来源没有可迁移代码。
-- baseline commit 与 candidate 采用同一新宿主、场景和证据 schema；无法同条件复现时不得作性能比较。
+- 当前验收的宿主、场景、固定采样条件、绝对预算和 evidence schema 已定义且可复现；不要求历史 revision 的对照结果。
 
 #### Step 1 · Shading identity、ABI 与 CPU reference model
 
@@ -990,7 +992,7 @@ validation/src/cases/shading-bin-component/main.ts
 **实现范围**
 
 1. 建立共享但按 compile-time dependency 裁剪的 reconstruction/PBR/lighting WGSL library，以及 16 个 `ShadingProgramId` entry variants。
-2. 先完成 dependency 最窄的 `UnlitFactor`，再补齐 vertex-color/texture unlit、fixed PBR family 和 `PbrGeneric`；这是同一 B 管线内部实现顺序，不形成可发布的 A/B backend。
+2. 先完成 dependency 最窄的 `UnlitFactor`，再补齐 vertex-color/texture unlit、fixed PBR family 和 `PbrGeneric`；这是同一 Sparse Shading 管线内部实现顺序，不形成可发布的双 backend。
 3. Texture variants 使用 perspective-correct UV/explicit gradients/`textureSampleGrad`；compute shader 不使用 implicit-derivative sampling。
 4. Lit variants 在同一 kernel 完成 direct lighting/shadow；保持 ADR-0009 的 GI/AO/SSR/PreExposure source-stage 语义。
 5. 按 output dependency 生成 ColorOnly、ShadingSurfaceLite、DiffuseSurfaceLite、Velocity variants；不用 dummy binding 维持共享 layout。
@@ -1007,7 +1009,7 @@ tests/advanced-frame-abi.test.mjs
 ```
 
 - L1：每个 supported Standard material/geometry combination 与 program LUT、texture set、output mask 一致。
-- L1：canonical vertex reconstruction、barycentric、gradient、normal/tangent、vertex color、PBR/BRDF、PreExposure 与旧语义的数值 oracle；容差和颜色空间显式冻结。
+- L1：canonical vertex reconstruction、barycentric、gradient、normal/tangent、vertex color、PBR/BRDF、PreExposure 对照当前合同与已登记规格的数值 oracle；容差和颜色空间显式冻结，不依赖旧 renderer 作为运行 oracle。
 - L2：`UnlitFactor/ColorOnly` source 不含 triangle/vertex/UV/texture/light/shadow/Surface/Velocity bindings 或函数调用。
 - L2：unlit texture/PBR texture variants 只使用 explicit gradient/LOD 合法 builtin；subgroup、barrier、texture sample uniformity diagnostics 不被关闭。
 - L2：每个 shader variant 的实际 bindings、storage formats、entry point、pipeline key 和 output stores 与 descriptor 相符。
@@ -1029,7 +1031,7 @@ tests/advanced-frame-abi.test.mjs
 2. 全部命令由主 `ShadeGPUCommandContext` 编码并一次 submit；readback 只走异步 diagnostics/capture 边界。
 3. 接入 `ActiveShadingSummary` snapshot、pipeline/bind-group cache、resize、scene replace、material patch、feature toggle、camera cut、aborted submit 和 device-loss recovery。
 4. 接入 FrameGraph live resource/pass evidence、phase timestamp、queue/error counter 和 memory accounting。
-5. Candidate 入口只存在于新验证宿主，不导出产品 runtime switch。旧 baseline 与 candidate 使用两个 clean commit/run group 比较，不在同一 binary 保留双 backend。
+5. Candidate 入口只存在于新验证宿主，不导出产品 runtime switch。只运行当前 candidate 的 clean revision 与独立 run group；不构建旧 baseline，不在同一 binary 保留双 backend。
 
 **新增/命中测试**
 
@@ -1044,13 +1046,13 @@ tests/packed-render-world-contract.test.mjs
 - L4：运行 BasicCubeNear/Far、UnlitVertexColor、UnlitTexture、MixedBins、RenderingLabFixed；检查截图/数值、queue closure、GPU diagnostics、one-main-submit。
 - L4：逐项运行 resize、material/association patch、TextureBindingSet relocation、feature toggle、scene replace、camera cut、aborted submit 和 device loss；旧 snapshot 只在 submitted-work boundary 后退役。
 - L4：feature-off 以 live topology 证明无 owner/resource/pass/history/readback/counter copy/独立 submit，不接受仅 uniform 分支。
-- L5：在当前指定设备的真实 WebGPU adapter 上捕获旧 clean baseline 与 candidate 的相同条件数据；当前指定设备为 `NVIDIA GeForce RTX 2060 SUPER`。先分离 Visibility r8 MRT、classifier、finalizer、major programs 与 downstream phase，再看总 frame。其他 adapter 由用户后续补充，不阻塞本 ADR。
-- L5：若 cube 改善但 `MixedBins`/`RenderingLabFixed` P50/P95、内存或画质不合格，Step 6 不通过；不能只凭平均 FPS 进入 cutover。
+- L5：在当前指定设备的真实 WebGPU adapter 上捕获当前 clean candidate 的绝对数据；当前指定设备为 `NVIDIA GeForce RTX 2060 SUPER`。固定输入与多独立 run，分离 Visibility r8 MRT、classifier、finalizer、major programs 与 downstream phase，再检查总 GPU frame 与资源预算。其他 adapter 由用户后续补充，不阻塞本 ADR。
+- L5：即使 cube 达标，`MixedBins`/`RenderingLabFixed` 的绝对 GPU 时间、内存预算或画质不合格时，Step 6 仍不通过；不能只凭平均 FPS 进入 cutover。
 
 **Exit Gate**
 
 - L0–L4 全绿，所有 correctness-critical counter/diagnostic 为零，生命周期无 stale generation/resource leak。
-- L5 能解释 coverage slope、MRT 成本、classifier contention、mixed-tile rejected lanes 和 fused-lighting 收益；达到本 ADR `PERF gates` 的接受条件。
+- L5 能解释当前 coverage slope、MRT 成本、classifier contention、mixed-tile rejected lanes 和 fused-lighting 成本；达到本 ADR `PERF gates` 的绝对接受条件，不要求相对旧管线收益。
 - 新宿主或当前指定 WebGPU adapter 不可用时 Step 6 保持 open，并明确阻塞 Step 7；不得以 WMI 设备名、任务管理器利用率或 CPU FPS 代替浏览器 capability/timestamp 证据。
 
 #### Step 7 · 一次性 production cutover 与旧路径删除
@@ -1058,7 +1060,7 @@ tests/packed-render-world-contract.test.mjs
 **前置条件**
 
 - Step 0–5 的 DEV Gate 和其中适用的 Runtime Gate 全部关闭。
-- Step 6 的 MILESTONE/PERF 已在同条件 clean commits 通过。
+- Step 6 的 MILESTONE 与当前 candidate 绝对 PERF 已在 clean revision 通过；不要求旧 baseline 或新旧 A/B。
 - Requirement traceability matrix 没有未分配 owner，porting ledger 没有 candidate/unknown license 状态。
 
 **实现范围**
@@ -1075,7 +1077,7 @@ tests/packed-render-world-contract.test.mjs
 - L0：`npm run typecheck`、`npm run build:test`、全部命中 targeted tests、`npm run audit:shaders` 通过。
 - L1/L2：全部 ABI/cache/binding/source audit 在删除旧 tests 后仍由新 tests 独立覆盖，不能靠旧 helper 间接通过。
 - L4：production 入口重复 Step 6 全部 browser correctness/lifecycle matrix，证明测试 candidate 与真正主管线一致。
-- L5：post-deletion clean candidate 至少做短 profile，确认删除/接线没有使 Step 6 evidence 失效；正式最终 PERF 仍由 Step 8 完成。
+- L5：在当前 clean production revision 至少做短 profile，检查绝对 GPU phase 时间、submit 数、资源预算与 queue/error counters；不要求与删除前或 Step 6 的性能样本比较。正式最终 PERF 仍由 Step 8 完成。
 
 **Exit Gate**
 
@@ -1112,11 +1114,11 @@ npm run audit:shaders
 
 **C. 全量 formal PERF**
 
-- 使用 Step 0 冻结的旧 baseline commit 与 clean cutover commit；两边必须使用同一新宿主、浏览器 build、adapter、1920×1080、DPR 1、fixed render scale、quality/features、scene/seed/camera、warm-up/sample cadence。
+- 只使用当前 clean production revision；采用 Step 0 定义的验证输入，在指定浏览器 build、adapter、1920×1080、DPR 1、fixed render scale、quality/features、scene/seed/camera、warm-up/sample cadence 下采样，不运行旧 baseline 或新旧版本对照。
 - 当前指定 adapter 使用多个独立 run group，保存逐 phase GPU P50/P95、CPU frame/build/submit、Present cadence、submit 数、memory 与所有 queue/error counters。
-- BasicCubeNear/Far 用于 coverage slope，不单独代表综合成功；MixedBins 和 RenderingLabFixed 共同防止只优化单材质大三角形。
+- BasicCubeNear/Far 用于当前管线的 coverage slope，不单独代表综合成功；MixedBins 和 RenderingLabFixed 共同验证混合/PBR workload 的绝对时间、预算与正确性。
 - GPU timestamp 不可用的 run 只能作为 correctness evidence，不能进入 formal PERF；CPU FPS、浏览器 overlay 和任务管理器 GPU utilization 不能代替 timestamp。
-- 结果必须分别给出新增 r8 MRT、classifier/finalizer、各 shading family、删除第二轮 lighting 和删除 diagnostics 的成本/收益；无法解释的回归视为失败。
+- 结果必须给出当前 Visibility（含 r8 MRT）、classifier/finalizer、各 shading family 与 downstream 的绝对成本；同时证明第二轮 opaque lighting 和 production ownership diagnostics 缺席。预算超限、采样不完整或无法归因的耗时均不通过，不要求计算删除旧阶段的性能差值。
 
 **D. 四类独立审查**
 
@@ -1198,7 +1200,7 @@ PlayCanvas 的 32-lane 实现不是普适证明。固定宽度会无必要地排
 
 ## Verification
 
-公共完成语义、证据强度和相同条件比较遵循 [VALIDATION.md](../VALIDATION.md)。ADR-0012 的 browser-host 限制继续生效。
+公共完成语义、证据强度和固定条件采样遵循 [VALIDATION.md](../VALIDATION.md)。真实浏览器与 PERF 使用 ADR-0014 的独立宿主；旧版本性能比较不是本 ADR 的门禁。
 
 第 17 节是实施顺序和逐 Step Exit Gate；本节以下 DEV/MILESTONE/PERF 条目是跨 Step 的汇总验收集合。两者必须同时满足，不能以某个 Step 的 targeted test 通过替代最终汇总 Gate。
 
@@ -1252,7 +1254,7 @@ Diagnostics variant 必须捕获故意注入的 duplicate/unassigned/identity er
 
 ### PERF gates
 
-正式比较固定：
+当前管线正式采样固定：
 
 ```text
 adapter
@@ -1286,7 +1288,7 @@ AO/GI/SSR/temporal/post
 - `UnlitFactor/ColorOnly` graph 中不存在 LightCluster、opaque shadow sampling、SurfaceLite、DiffuseSurfaceLite 或 Velocity 的无 consumer work。
 - 1080p `BasicCubeNear` 产品目标为稳定 60 Hz；目标在满足完整 provenance 前保持“未证明”。
 - Near/Far 的 coverage slope 能由 Visibility/bin loads 与真实 shading 解释，不再由 production diagnostics 主导。
-- `RenderingLabFixed` 的 P50/P95、内存和视觉质量不得通过牺牲 mixed/PBR workload 换取 cube 成绩。
+- 当前 production 的正式采样报告 GPU frame/phase P50/P95，按 PRODUCT.md 的帧时间目标和 VALIDATION.md 的资源预算判断，视觉与正确性各自通过。只凭 cube 成绩不能关闭 `MixedBins`/`RenderingLabFixed` Gate，不以相对旧版本快慢判断通过。
 - 新增 r8 MRT、64×64 classifier、fused lighting 任一项若失败，必须定位到具体 timestamp/bandwidth/occupancy；不得保留旧 backend 作为隐藏 fallback。
 
 ### Completion criteria

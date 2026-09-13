@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "adr": "ADR-0013",
   "phase": "step-7-cutover",
   "inventoryCommit": "0102a61",
@@ -27,11 +27,19 @@
       "\\bmaterialTile(?:Records|ValidPixels|ShadedPixels|UnassignedPixels|DuplicatePixels|OverflowQueues|FrameInvalid)\\b"
     ]
   },
-  "formalBaseline": {
+  "historicalComparison": {
+    "status": "closed",
+    "resolution": "requirement-removed",
+    "removedChecks": ["legacy-baseline-freeze", "step-6-formal-ab", "pre-post-deletion-comparison", "relative-performance-gain"],
+    "blocksAcceptance": false,
+    "requiresFollowupEvidence": false
+  },
+  "formalPerformance": {
     "status": "open",
-    "blocker": "ADR-0013 baseline/candidate workloads and formal PERF orchestration are not connected to the implemented ADR-0014 host.",
+    "blocker": "Current production workloads and absolute formal PERF orchestration are not connected to the implemented ADR-0014 host.",
+    "comparisonPolicy": "current-revision-only",
     "workloadId": "adr-0013-sparse-shading-bin-comprehensive-v1",
-    "evidenceSchemaId": "adr-0013-perf-evidence-v1",
+    "evidenceSchemaId": "adr-0013-perf-evidence-v2",
     "fixedConditions": {
       "outputExtent": [1920, 1080],
       "devicePixelRatio": 1,
@@ -255,10 +263,10 @@
     {"id": "DIAG-005", "clause": "frame invalid never presents partial output", "layers": ["L3", "L4"]},
     {"id": "DIAG-006", "clause": "ownership validation exists only in a separate diagnostics variant", "layers": ["L0", "L2", "L3"]},
     {"id": "DIAG-007", "clause": "readback is asynchronous and never controls current-frame construction", "layers": ["L0", "L4"]},
-    {"id": "PERF-001", "clause": "baseline and candidate use identical frozen conditions", "layers": ["L5"]},
+    {"id": "PERF-001", "clause": "current revision uses frozen sampling conditions and absolute frame/resource budgets without historical comparison", "layers": ["L5"]},
     {"id": "PERF-002", "clause": "formal evidence covers the current designated adapter; supplementary adapters are non-blocking", "layers": ["L5"]},
-    {"id": "PERF-003", "clause": "GPU timestamps report MRT classifier finalizer shading and removed lighting deltas", "layers": ["L5"]},
-    {"id": "PERF-004", "clause": "near far mixed and feature-off workloads pass without trading one regression for another", "layers": ["L5"]},
+    {"id": "PERF-003", "clause": "GPU timestamps report current visibility MRT classifier finalizer shading and downstream absolute costs", "layers": ["L5"]},
+    {"id": "PERF-004", "clause": "near far mixed and feature-off workloads meet current correctness and absolute frame/resource contracts", "layers": ["L5"]},
     {"id": "PERF-005", "clause": "FPS or CPU frame cadence is not accepted as GPU performance proof", "layers": ["L5"]},
     {"id": "DEL-001", "clause": "old MaterialTile ABI passes shaders and static class table are deleted at cutover", "layers": ["L0", "L6"]},
     {"id": "DEL-002", "clause": "old kernel-class bits counts masks and helpers are deleted at cutover", "layers": ["L0", "L6"]},

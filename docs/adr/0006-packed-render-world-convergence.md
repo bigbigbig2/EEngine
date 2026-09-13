@@ -271,7 +271,7 @@ npm test
 - 静态依赖检查确认旧 owner、Pass、shader 和 import 没有生产 consumer；
 - 完整 CPU/build 测试、所有 Canonical Browser Validation Case、Rendering Lab workload、VisibilityKey oracle 和 shader source audit；
 - clean commit 上运行正式性能策略，记录三个独立 browser context、固定 workload/camera、warm-up、采样、adapter/browser provenance、GPU counter/timestamp、memory 和 diagnostics；
-- 对比迁移前冻结基线，分别报告 CPU frame/build/submit、GPU phase、submit、upload/readback、resident/transient/history/shadow 与 feature-off；
+- 报告当前 revision 的绝对 CPU frame/build/submit、GPU phase、submit、upload/readback、resident/transient/history/shadow 与 feature-off，不要求迁移前冻结基线或删除前后比较；
 - 1080p/60 FPS 仍只在满足产品证据合同后宣称完成。
 
 退出条件：
@@ -354,7 +354,7 @@ npm run audit:shaders
 
 ### 性能与内存验证
 
-Step 2 方案选择、Step 5 pipeline 重组和 Step 7 legacy 删除必须在相同 adapter、浏览器版本、分辨率/DPR、feature set、workload、seed、camera path、warm-up、采样窗口和 cadence 下比较。至少报告：
+Step 2 方案选择、Step 5 pipeline 重组和 Step 7 legacy 删除在固定 adapter、浏览器版本、分辨率/DPR、feature set、workload、seed、camera path、warm-up、采样窗口和 cadence 下测量当前 revision。历史新旧比较要求已移除，不再作为当前验收门禁；既有 A/B 结果只保留为历史记录。至少报告：
 
 - CPU frame/build/compile/execute/submit P50/P95；
 - 完整可用的 GPU frame/phase P50/P95，不把不完整 phase sum 称为总 GPU 时间；

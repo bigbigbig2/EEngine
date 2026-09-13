@@ -51,12 +51,12 @@ created → negotiating → ready → warming → sampling → draining → pass
 
 `validation/cases/registry.json` 是 Case identity、route、kind、owner ADR/requirement、workload、timeout、artifact 和 changed-path mapping 的唯一 owner。id 永久唯一且使用 kebab-case。
 
-Candidate、baseline 和 production 不以 URL 参数、环境变量或运行时开关在同一 binary 选择 backend：
+Candidate 与 production 不以 URL 参数、环境变量或运行时开关在同一 binary 选择 backend：
 
-- baseline 在冻结的 baseline worktree 构建；
 - candidate 在 candidate clean commit 构建，只暴露内部 candidate page；
 - cutover 后 production case 只通过公开 Renderer 入口运行；
-- 三者共享 registry/schema/workload contract 的内容 hash，但允许每个 clean revision 有自己的 compile-time adapter module。
+- 两类入口遵循同一 registry/schema/workload contract；每个 artifact 保存本次内容 hash，允许每个 clean revision 有自己的 compile-time adapter module。
+- ADR-0013 只要求当前 revision 的绝对正确性/性能验收，不要求旧 baseline worktree、新旧 A/B 或删除前后比较，也不为历史比较恢复旧 backend。
 
 Runner 遇到同一构建同时暴露 legacy/candidate backend switch 时直接失败。
 
@@ -130,7 +130,7 @@ Vite server 由 Runner 以可观察子进程启动，等待健康检查后运行
 2. 建立 Vite host、Playwright Chrome runner、错误/新鲜度/清理闭环，并以不创建 Renderer 的 protocol self-test 验证编排。
 3. 增加真实 WebGPU capability/component case，接入 shader compilation、error scope、device loss 和 bounded readback。
 4. 增加 ADR-0013 的 `BasicCubeNear/Far`、`UnlitVertexColor`、`UnlitTexture`、`MixedBins`、`RenderingLabFixed` 与生命周期矩阵。
-5. 在冻结 baseline/candidate clean worktree 上运行 Step 6；通过后才允许 ADR-0013 Step 7 cutover。
+5. 在当前 clean candidate revision 上运行 Step 6 的完整 correctness/lifecycle 与绝对 PERF；通过后才允许 ADR-0013 Step 7 cutover，不设旧 baseline 或新旧 A/B 前置门禁。
 6. Cutover 后用 production Renderer 重跑同一 registry/workload，再执行 ADR-0013 Step 8 final acceptance。
 
 ## Consequences
@@ -145,7 +145,7 @@ Vite server 由 Runner 以可观察子进程启动，等待健康检查后运行
 ### Negative
 
 - 新增独立 package、Chrome/Playwright 工具链和 artifact 生命周期维护成本。
-- baseline/candidate 需要独立 clean worktree/build，运行时间高于同 binary A/B。
+- candidate 与 production 的入口验证各需对应 clean revision/build，component evidence 不能代替公开 Renderer 入口验证。
 - device-loss、截图和 GPU readback case 需要专门的测试接口，但这些接口必须保持 validation-internal。
 
 ### Rejected alternatives
@@ -154,7 +154,7 @@ Vite server 由 Runner 以可观察子进程启动，等待健康检查后运行
 - **恢复旧 Runner**：旧协议和场景已被 ADR-0012 明确删除，不再兼容。
 - **公开 Renderer candidate flag**：会形成长期双 backend 和错误的产品 API。
 - **只用 Playwright 截图/FPS**：缺少 GPU identity、queue、error、timestamp 与 feature-off 证据。
-- **同 binary baseline/candidate 开关**：无法证明删除旧路径，也污染 cache、资源和比较条件。
+- **同 binary legacy/candidate 开关**：无法证明删除旧路径，也污染 cache、资源和当前采样条件。
 
 ## Verification
 

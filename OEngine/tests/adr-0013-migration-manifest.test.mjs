@@ -15,7 +15,7 @@ function assertUnique(values, label) {
 }
 
 test("ADR-0013 Step 7 preserves the migration inventory and records physical deletion", () => {
-  assert.equal(manifest.schemaVersion, 2);
+  assert.equal(manifest.schemaVersion, 3);
   assert.equal(manifest.adr, "ADR-0013");
   assert.equal(manifest.phase, "step-7-cutover");
   assert.match(manifest.inventoryCommit, /^[0-9a-f]{7,40}$/u);
@@ -116,15 +116,49 @@ test("ADR-0013 requirements have stable category ids and verification layers", (
   }
 });
 
-test("ADR-0013 formal baseline names the current designated blocking device", () => {
-  assert.equal(manifest.formalBaseline.status, "open");
-  assert.match(manifest.formalBaseline.blocker, /ADR-0014/u);
-  assert.deepEqual(manifest.formalBaseline.fixedConditions.outputExtent, [1920, 1080]);
-  assert.equal(manifest.formalBaseline.fixedConditions.devicePixelRatio, 1);
-  assert.equal(manifest.formalBaseline.fixedConditions.requiredAdapterPolicy, "current-designated-device");
-  assert.equal(manifest.formalBaseline.fixedConditions.designatedAdapter, "NVIDIA GeForce RTX 2060 SUPER");
-  assert.equal("adapters" in manifest.formalBaseline.fixedConditions, false);
-  assert.ok(manifest.formalBaseline.fixedConditions.requiredFingerprint.length >= 10);
+test("ADR-0013 historical comparison gates are closed by removal, not deferred", () => {
+  assert.deepEqual(manifest.historicalComparison, {
+    status: "closed",
+    resolution: "requirement-removed",
+    removedChecks: ["legacy-baseline-freeze", "step-6-formal-ab", "pre-post-deletion-comparison", "relative-performance-gain"],
+    blocksAcceptance: false,
+    requiresFollowupEvidence: false
+  });
+  const repositoryRoot = resolve(packageRoot, "..");
+  for (const document of ["docs/adr/0013-sparse-shading-bin-pipeline.md", "docs/VALIDATION.md", "docs/STATUS.md"]) {
+    const source = readFileSync(resolve(repositoryRoot, document), "utf8");
+    assert.match(source, /closed \/ requirement-removed/u, document);
+  }
+  const status = readFileSync(resolve(repositoryRoot, "docs/STATUS.md"), "utf8");
+  assert.doesNotMatch(status, /formal L5 baseline|L5 formal baseline\/candidate|同条件 L5 baseline\/candidate|clean commit A\/B/u);
+  const relatedAdrs = [
+    "0006-packed-render-world-convergence.md",
+    "0007-gpu-native-runtime-assets-and-residency-v2.md",
+    "0008-gpu-driven-geometry-and-visibility-v2.md",
+    "0009-compute-shading-and-advanced-frame-pipeline-v2.md"
+  ].map((name) => readFileSync(resolve(repositoryRoot, "docs/adr", name), "utf8")).join("\n");
+  assert.doesNotMatch(relatedAdrs, /ADR 开始前保存正式 baseline|ADR 开始保存一次正式 baseline|正确性和正式 A\/B|正确性与正式 A\/B|MILESTONE short A\/B|对比迁移前冻结基线/u);
+});
+
+test("ADR-0013 current absolute PERF keeps designated-device gates without a historical baseline", () => {
+  assert.equal("formalBaseline" in manifest, false);
+  const performance = manifest.formalPerformance;
+  assert.equal(performance.status, "open");
+  assert.match(performance.blocker, /ADR-0014/u);
+  assert.equal(performance.comparisonPolicy, "current-revision-only");
+  assert.equal(performance.evidenceSchemaId, "adr-0013-perf-evidence-v2");
+  assert.deepEqual(performance.fixedConditions.outputExtent, [1920, 1080]);
+  assert.equal(performance.fixedConditions.devicePixelRatio, 1);
+  assert.equal(performance.fixedConditions.renderScale, 1);
+  assert.equal(performance.fixedConditions.requiredAdapterPolicy, "current-designated-device");
+  assert.equal(performance.fixedConditions.designatedAdapter, "NVIDIA GeForce RTX 2060 SUPER");
+  assert.equal("adapters" in performance.fixedConditions, false);
+  assert.ok(performance.fixedConditions.requiredFingerprint.length >= 10);
+  for (const id of ["PERF-001", "PERF-003", "PERF-004"]) {
+    const requirement = manifest.requirements.find((entry) => entry.id === id);
+    assert.match(requirement.clause, /current/u);
+    assert.doesNotMatch(requirement.clause, /baseline and candidate|removed lighting deltas|regression/u);
+  }
 });
 
 test("ADR-0013 internal ABI is not exposed through the public entry point", () => {

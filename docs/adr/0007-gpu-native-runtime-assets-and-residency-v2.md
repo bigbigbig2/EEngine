@@ -746,7 +746,7 @@ virtual texture descriptor
 
 增加 asset load、CPU peak、GPU resident、upload、bank-copy 的可信计数，固定 texture-heavy / geometry-heavy workload。
 
-**Verification:** DEV + PERF baseline
+**Verification:** DEV + 当前 revision 绝对 PERF
 
 **Exit**
 
@@ -816,7 +816,7 @@ segmented immutable allocation、stable descriptor indirection、logical/physica
 
 **Scope**
 
-第一套 Static PBR compact profile、meshoptimizer/cook pipeline、current renderer 临时消费新 profile 建 baseline。
+第一套 Static PBR compact profile、meshoptimizer/cook pipeline、current renderer 临时消费新 profile 做当前绝对性能采样，不冻结旧 renderer baseline。
 
 **Verification:** MILESTONE + PERF
 
@@ -865,7 +865,7 @@ ADR-0008/0009 可以在不改变 stable asset/material handle 的前提下消费
 - Instance ABI：static/dynamic pack、revision/generation、previous transform、patch range 和 CPU shadow accounting 必须闭合；transform-heavy workload 分别覆盖 stable frame、小比例 patch 和大比例 patch。
 - Memory truth：source/container/decoded/transcode peak、upload/copy/retiring、logical/physical GPU resident、instance shadow、runtime mip 与 grow-copy 都必须由 owner 计数，不能从文件大小或 DOM 推断。
 
-Architecture enabler 不要求独立 FPS 提升；residency 与 data-layout 优化分别以 memory transaction、upload/load hitch、bytes/fetch/patch 和下游 GPU phase 判断。ADR 开始保存一次正式 baseline，最终只运行一个涵盖 texture-heavy、geometry-heavy 与 instance-update 的 PERF group；中间 Step 仅在 keep/revise/reject 需要时升级到 PERF。
+Architecture enabler 不要求独立 FPS 提升；residency 与 data-layout 优化分别以 memory transaction、upload/load hitch、bytes/fetch/patch 和下游 GPU phase 判断。不要求冻结旧版本 baseline 或新旧比较，最终只运行当前 clean revision 上涵盖 texture-heavy、geometry-heavy 与 instance-update 的 PERF group；中间 Step 仅在 keep/revise/reject 需要时升级到 PERF。
 
 ---
 
