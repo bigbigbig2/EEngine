@@ -16,10 +16,9 @@ body,
 #viewport {
   display: block;
   touch-action: none;
-  background: radial-gradient(circle at 50% 30%, #253044 0, #111721 45%, #070a0f 100%);
+  background: #000;
 }
 
-.identity,
 #status {
   position: fixed;
   z-index: 2;
@@ -28,23 +27,8 @@ body,
   border-radius: 10px;
   background: rgba(7, 10, 15, 0.78);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(12px);
 }
 
-.identity {
-  top: 18px;
-  display: grid;
-  gap: 3px;
-  padding: 10px 13px;
-  pointer-events: none;
-}
-
-.identity strong {
-  font-size: 13px;
-  letter-spacing: 0.03em;
-}
-
-.identity span,
 #status span {
   color: rgba(235, 242, 255, 0.64);
   font-size: 11px;
@@ -57,13 +41,10 @@ body,
   box-sizing: border-box;
   gap: 6px;
   padding: 12px 14px;
-  transition: opacity 180ms ease, transform 180ms ease;
 }
 
 #status[data-state="ready"] {
-  opacity: 0;
-  transform: translateY(6px);
-  pointer-events: none;
+  display: none;
 }
 
 #status[data-state="error"] {

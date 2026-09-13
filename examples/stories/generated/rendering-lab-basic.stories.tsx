@@ -6,7 +6,7 @@ const exampleBaseUrl = (import.meta.env.VITE_EXAMPLE_BASE_URL ?? "http://localho
 function ExampleFrame() {
   return (
     <iframe
-      title="Rendering Lab - Basic Effects"
+      title="Rendering Lab - Basic Model"
       src={`${exampleBaseUrl}/demos/14-integrated/rendering-lab-basic/`}
       style={{ width: "100%", height: "100vh", border: 0, display: "block" }}
       allow="fullscreen"
@@ -18,12 +18,12 @@ const meta = {
   title: "Examples/14 Integrated",
   component: ExampleFrame,
   parameters: {
-    docs: { description: { story: "The Rendering Lab workload with the same effects-off configuration as Basic Scene and no HDR environment map." } },
-    tags: ["integrated","packed-scene","gltf","pbr","effects-off"]
+    docs: { description: { story: "Only the loaded Dungeon model, with original base colors/textures, unlit shading, OrbitControls, and the same effects-off configuration as Basic Scene." } },
+    tags: ["integrated","packed-scene","gltf","unlit","effects-off"]
   }
 } satisfies Meta<typeof ExampleFrame>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const RenderingLabBasic: Story = { name: "Rendering Lab - Basic Effects" };
+export const RenderingLabBasic: Story = { name: "Rendering Lab - Basic Model" };

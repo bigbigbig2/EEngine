@@ -1,5 +1,4 @@
 import {
-  DirectionalLight,
   OrbitControls,
   PerspectiveCamera,
   Renderer,
@@ -31,19 +30,10 @@ const statusProgress = requireElement<HTMLElement>("#status-progress");
 
 let renderer: Renderer | undefined;
 let rendererReady = false;
-let scene: Scene | undefined;
-let camera: PerspectiveCamera | undefined;
 let controls: OrbitControls | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let animationFrame = 0;
 let disposed = false;
-let sun: DirectionalLight | undefined;
-
-const exampleSettings = {
-  sunIntensity: 2.8,
-  sunAzimuth: -36,
-  sunElevation: 65
-};
 
 async function start(): Promise<void> {
   if (navigator.gpu === undefined) {
@@ -72,25 +62,23 @@ async function start(): Promise<void> {
   renderer = activeRenderer;
   await activeRenderer.initialize({
     context,
-    pixelRatio: Math.min(window.devicePixelRatio, 1.5)
+    pixelRatio: window.devicePixelRatio
   });
   rendererReady = true;
-  activeRenderer.internal_resolution_scale = 1;
-  activeRenderer.packed_visibility_cone_enabled = true;
-  activeRenderer.packed_visibility_hzb_enabled = true;
-  activeRenderer.packed_visibility_sse_threshold = 4;
   if (disposed) return;
 
-  setLoading("Assets", "Loading Dungeon by Warkarma without an environment map...", 0.1);
+  setLoading("Assets", "Loading Dungeon by Warkarma...", 0.1);
   const imported = await load_gltf_packed(MODEL_URL);
   if (disposed) return;
+
+  // Match Basic Scene: show base color/texture without PBR lighting.
+  // Keep the model's original UVs, vertex colors and alpha behavior.
+  for (const material of imported.materials) material.is_unlit = true;
 
   const lab = await createRenderingLab(imported);
   if (disposed) return;
 
   const activeScene = new Scene();
-  scene = activeScene;
-  sun = addDirectionalLight(activeScene);
 
   setLoading(
     "GPU residency",
@@ -101,61 +89,18 @@ async function start(): Promise<void> {
   if (disposed) return;
 
   const activeCamera = createCamera(activeRenderer, lab.bounds);
-  camera = activeCamera;
   controls = new OrbitControls(activeCamera, canvas);
-  controls.minDistance = 0.25;
-  controls.maxDistance = 80;
-  controls.keyPanSpeed = 12.6;
+  controls.target.set(...lab.bounds.center);
+  controls.minDistance = Math.max(0.25, lab.bounds.radius * 0.1);
+  controls.maxDistance = lab.bounds.radius * 12;
   controls.enableDamping = true;
-  setCameraPose([17.5, 9.6, 21], [0, -0.1, -0.8]);
+  controls.update(0);
 
-  addExampleControls(activeRenderer);
   startResizeObserver(activeRenderer, activeCamera);
 
   status.dataset.state = "ready";
-  setLoading("Ready", `${lab.source.count} instances - ${lab.source.geometries.length} geometries - advanced effects off`, 1);
+  setLoading("Ready", `${lab.source.count} model instances - unlit, effects off`, 1);
   startFrameLoop(activeRenderer, activeScene, activeCamera);
-}
-
-function addExampleControls(activeRenderer: Renderer): void {
-  const sceneFolder = activeRenderer.debug?.addExampleFolder("Scene");
-  sceneFolder?.addBinding(exampleSettings, "sunIntensity", {
-    label: "Sun intensity",
-    min: 0,
-    max: 10,
-    step: 0.1
-  }).on("change", ({ value }) => {
-    if (sun === undefined || scene === undefined) return;
-    sun.intensity = value;
-    scene.lights.markChanged(sun);
-  });
-  sceneFolder?.addBinding(exampleSettings, "sunAzimuth", {
-    label: "Sun azimuth",
-    min: -180,
-    max: 180,
-    step: 1
-  }).on("change", updateSunDirection);
-  sceneFolder?.addBinding(exampleSettings, "sunElevation", {
-    label: "Sun elevation",
-    min: 5,
-    max: 89,
-    step: 1
-  }).on("change", updateSunDirection);
-
-  const cameraFolder = activeRenderer.debug?.addExampleFolder("Camera presets");
-  cameraFolder?.addButton({ title: "Overview" }).on("click", () => {
-    setCameraPose([17.5, 9.6, 21], [0, -0.1, -0.8]);
-  });
-  cameraFolder?.addButton({ title: "Street" }).on("click", () => {
-    setCameraPose([3.1, 4.8, 10.8], [-5.8, -0.2, -0.5]);
-  });
-  cameraFolder?.addButton({ title: "Road" }).on("click", () => {
-    setCameraPose([14.2, 3.5, 9.4], [8, -0.45, -0.3]);
-  });
-  cameraFolder?.addButton({ title: "Contact" }).on("click", () => {
-    setCameraPose([3.2, 1.8, 5.6], [7.2, -0.8, 0.1]);
-  });
-  activeRenderer.debug?.focus("renderer");
 }
 
 async function createRenderingLab(imported: PackedGltfSource): Promise<{
@@ -163,7 +108,7 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
   readonly bounds: Bounds;
 }> {
   const geometries = await cookGeometries(imported.geometries);
-  const currentTransforms = fitPackedTransforms(imported, 5.4, [-5.8, -1, -0.4]);
+  const currentTransforms = fitPackedTransforms(imported, 5.4, [0, -1, 0]);
 
   return Object.freeze({
     source: Object.freeze({
@@ -281,52 +226,18 @@ async function cookGeometries(
   return Object.freeze(packages);
 }
 
-function addDirectionalLight(activeScene: Scene): DirectionalLight {
-  const light = new DirectionalLight();
-  light.name = "Rendering Lab Sun";
-  light.intensity = exampleSettings.sunIntensity;
-  light.casts_shadow = false;
-  activeScene.addChild(light);
-  sun = light;
-  updateSunDirection();
-  return light;
-}
-
-function updateSunDirection(): void {
-  if (sun === undefined) return;
-  const azimuth = exampleSettings.sunAzimuth * Math.PI / 180;
-  const elevation = exampleSettings.sunElevation * Math.PI / 180;
-  const horizontal = Math.cos(elevation);
-  sun.forward = [
-    horizontal * Math.cos(azimuth),
-    -Math.sin(elevation),
-    horizontal * Math.sin(azimuth)
-  ];
-  scene?.lights.markChanged(sun);
-}
-
 function createCamera(activeRenderer: Renderer, bounds: Bounds): PerspectiveCamera {
   const activeCamera = new PerspectiveCamera();
   activeCamera.aspect = activeRenderer.aspect_ratio;
   activeCamera.near = Math.max(0.01, bounds.radius / 5000);
   activeCamera.far = Math.max(100, bounds.radius * 24);
+  activeCamera.transform.position.set(
+    bounds.center[0] + bounds.radius * 1.5,
+    bounds.center[1] + bounds.radius * 0.8,
+    bounds.center[2] + bounds.radius * 1.8
+  );
   activeCamera.update();
   return activeCamera;
-}
-
-function setCameraPose(
-  position: readonly [number, number, number],
-  target: readonly [number, number, number]
-): void {
-  if (camera === undefined) return;
-  camera.transform.position.set(position[0], position[1], position[2]);
-  camera.transform.lookAt({ x: target[0], y: target[1], z: target[2] });
-  camera.update();
-  if (controls !== undefined) {
-    controls.target.set(target[0], target[1], target[2]);
-    controls.update(0);
-  }
-  renderer?.indicate_view_change();
 }
 
 function startResizeObserver(activeRenderer: Renderer, activeCamera: PerspectiveCamera): void {
@@ -350,18 +261,11 @@ function startFrameLoop(
   let previousTime = performance.now();
   const frame = (time: number): void => {
     if (disposed) return;
-    const rafIntervalMs = Math.max(0, time - previousTime);
-    const deltaSeconds = Math.min(0.1, rafIntervalMs / 1000);
+    const deltaSeconds = Math.min(0.1, Math.max(0, time - previousTime) / 1000);
     previousTime = time;
 
     controls?.update(deltaSeconds);
-    activeCamera.aspect = activeRenderer.aspect_ratio;
-    activeCamera.update();
-    activeRenderer.profiler.recordExternalMetric("frame.rafIntervalMs", rafIntervalMs);
-    if (!activeRenderer.render(activeCamera, activeScene, deltaSeconds)) {
-      showFatalError(new Error("The WebGPU device was lost and rendering stopped."));
-      return;
-    }
+    activeRenderer.render(activeCamera, activeScene, deltaSeconds);
     animationFrame = requestAnimationFrame(frame);
   };
   animationFrame = requestAnimationFrame(frame);
