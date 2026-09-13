@@ -1,0 +1,8 @@
+{
+  "id": "rendering-lab-basic",
+  "title": "Rendering Lab - Basic Effects",
+  "category": "14-integrated",
+  "order": 11,
+  "description": "The Rendering Lab workload with the same effects-off configuration as Basic Scene and no HDR environment map.",
+  "tags": ["integrated", "packed-scene", "gltf", "pbr", "effects-off"]
+}
