@@ -1078,7 +1078,16 @@ function createAssetBindings(r:CandidateResources):GpuAssetBindings {
     clusterRecords:r.geometryRecords,bvh8Nodes:r.geometryRecords,vertexStreamDescriptors:r.geometryRecords,
     materialRanges:r.geometryRecords,vertexStreamData:r.vertexStreamData,indices:r.meshletVertexIndices,
     meshletVertexIndices:r.meshletVertexIndices,meshletTriangleIndices:r.meshletTriangleIndices,
-    clusterChildren:r.meshletVertexIndices,highWaterCounts:Object.freeze(zero)});
+    clusterChildren:r.meshletVertexIndices,sparseShading:Object.freeze({schemaVersion:1,epoch:1,
+      assetMetadataHeap:r.assetMetadata,vertexPayloadHeap:r.vertexPayload,geometryWordBase:0,
+      meshletWordBase:r.layout.geometryCount*GPU_GEOMETRY_RECORD_STRIDE/4,
+      geometryGenerationWordBase:(r.layout.geometryCount*GPU_GEOMETRY_RECORD_STRIDE+
+        r.layout.meshletCount*GPU_MESHLET_RECORD_STRIDE)/4,
+      meshletVertexWordBase:0,meshletTriangleWordBase:r.layout.vertexCount,
+      vertexDataWordBase:r.layout.vertexCount+r.layout.triangleBytes/4,
+      geometryCount:r.layout.geometryCount,meshletCount:r.layout.meshletCount,
+      assetMetadataBytes:r.assetMetadata.size,vertexPayloadBytes:r.vertexPayload.size}),
+    highWaterCounts:Object.freeze(zero)});
 }
 
 function createSceneBindings(r:CandidateResources):GpuSceneBindings {

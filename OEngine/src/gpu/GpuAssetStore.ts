@@ -45,6 +45,8 @@ import type {
 
 declare const ASSET_HANDLE_BRAND: unique symbol;
 
+export const GPU_SPARSE_SHADING_ASSET_HEAP_SCHEMA_VERSION = 1;
+
 /** Opaque CPU handle. Buffer offsets and GPU record addresses are intentionally absent. */
 export interface AssetHandle {
   readonly [ASSET_HANDLE_BRAND]: true;
@@ -96,6 +98,8 @@ export interface GpuAssetBindings {
   readonly meshletVertexIndices: GPUBuffer;
   readonly meshletTriangleIndices: GPUBuffer;
   readonly clusterChildren: GPUBuffer;
+  /** ADR-0013 four-storage-buffer scene/geometry group payload. */
+  readonly sparseShading: Readonly<GpuSparseShadingAssetHeapBindings>;
   readonly highWaterCounts: Readonly<{
     geometryRecords: number;
     meshletRecords: number;
@@ -109,6 +113,23 @@ export interface GpuAssetBindings {
     meshletTriangleBytes: number;
     clusterChildren: number;
   }>;
+}
+
+export interface GpuSparseShadingAssetHeapBindings {
+  readonly schemaVersion: 1;
+  readonly epoch: number;
+  readonly assetMetadataHeap: GPUBuffer;
+  readonly vertexPayloadHeap: GPUBuffer;
+  readonly geometryWordBase: number;
+  readonly meshletWordBase: number;
+  readonly geometryGenerationWordBase: number;
+  readonly meshletVertexWordBase: number;
+  readonly meshletTriangleWordBase: number;
+  readonly vertexDataWordBase: number;
+  readonly geometryCount: number;
+  readonly meshletCount: number;
+  readonly assetMetadataBytes: number;
+  readonly vertexPayloadBytes: number;
 }
 
 export interface AssetResidencyEvidence {
@@ -142,6 +163,13 @@ export interface AssetResidencyEvidence {
   readonly privateSubmitCount: 0;
   readonly pendingMutation: "resident" | "release" | null;
   readonly tables: Readonly<Record<BufferName, AssetTableEvidence>>;
+  readonly sparseShadingHeaps: Readonly<{
+    readonly epoch: number;
+    readonly assetMetadataBytes: number;
+    readonly vertexPayloadBytes: number;
+    readonly geometryCount: number;
+    readonly meshletCount: number;
+  }>;
 }
 
 export interface AssetTableEvidence {
@@ -242,6 +270,7 @@ const ASSET_RESIDENT_BUDGET_BYTES = 512 * 1024 * 1024;
 export class GpuAssetStore {
   private readonly buffers: Record<BufferName, ResidentBuffer>;
   private readonly orderedBuffers: readonly ResidentBuffer[];
+  private sparseShadingHeaps: SparseShadingHeapState;
   private readonly slots: SlotState[] = [{ generation: 0 }];
   private readonly freeSlots: number[] = [];
   private pendingMutation: "resident" | "release" | null = null;
@@ -310,6 +339,12 @@ export class GpuAssetStore {
     }
     this.buffers = record;
     this.orderedBuffers = definitions.map(([name]) => record[name]);
+    try {
+      this.sparseShadingHeaps = this.createInitialSparseShadingHeaps();
+    } catch (error) {
+      for (const buffer of created) this.destroyBuffer(buffer);
+      throw error;
+    }
     this.peakAllocatedBytes = this.currentAllocatedBytes();
   }
 
@@ -340,6 +375,7 @@ export class GpuAssetStore {
     }));
     const freeSlotSnapshot = [...this.freeSlots];
     const replacements: BufferReplacement[] = [];
+    let sparseShadingReplacement: SparseShadingHeapReplacement | null = null;
     const entries: AssetEntry[] = [];
     const handles: AssetHandle[] = [];
     const plans: ResidencyPlan[] = [];
@@ -385,8 +421,12 @@ export class GpuAssetStore {
         (sum, plan) => sum + plan.residencyReservation.residentBytes,
         0
       );
+      const sparseShadingLayout = this.sparseShadingHeapLayout();
+      const projectedResidentBytes = this.fallbackBytes() + this.activeResidentBytes +
+        batchResidentBytes + sparseShadingLayout.assetMetadataBytes +
+        sparseShadingLayout.vertexPayloadBytes;
       if (batchUploadBytes > ASSET_UPLOAD_TRANSACTION_BUDGET_BYTES ||
-          this.activeResidentBytes + batchResidentBytes > ASSET_RESIDENT_BUDGET_BYTES) {
+          projectedResidentBytes > ASSET_RESIDENT_BUDGET_BYTES) {
         throw new RangeError("Geometry residency batch exceeds its upload/resident budget");
       }
       for (const buffer of this.orderedBuffers) {
@@ -398,6 +438,8 @@ export class GpuAssetStore {
       for (const plan of plans) {
         for (const segment of plan.segments) this.uploadSegment(segment, command, true);
       }
+      sparseShadingReplacement = this.replaceSparseShadingHeaps(command);
+      this.recordProvisionalPeak(replacements, sparseShadingReplacement);
       command.onFinished.addOne(() => {
         if (entries.some((entry) => entry.state !== "pending")) return;
         for (let index = 0; index < entries.length; index++) {
@@ -422,6 +464,7 @@ export class GpuAssetStore {
         );
         this.committedGrowCount += replacements.length;
         this.commitReplacements(replacements);
+        this.commitSparseShadingReplacement(sparseShadingReplacement!);
         this.pendingMutation = null;
       });
       command.onAborted.addOne(() => {
@@ -434,7 +477,8 @@ export class GpuAssetStore {
           cursorSnapshot,
           slotSnapshot,
           freeSlotSnapshot,
-          replacements
+          replacements,
+          sparseShadingReplacement
         );
         this.abortedResidencyCount += entries.length;
         this.abortedResidencyTransactions++;
@@ -449,7 +493,8 @@ export class GpuAssetStore {
         cursorSnapshot,
         slotSnapshot,
         freeSlotSnapshot,
-        replacements
+        replacements,
+        sparseShadingReplacement
       );
       this.pendingMutation = null;
       throw error;
@@ -470,6 +515,7 @@ export class GpuAssetStore {
   ): void {
     if (handles.length === 0) return;
     this.assertMutation(command, "release");
+    let sparseShadingReplacement: SparseShadingHeapReplacement | null = null;
     try {
       const entries = handles.map((handle) => this.requireEntry(handle, "resident"));
       if (new Set(entries).size !== entries.length) {
@@ -484,6 +530,11 @@ export class GpuAssetStore {
         this.recordUpload(zero.byteLength, zero.byteLength);
         recordGpuQueueUpload(this.device.queue, "GpuAssetStore/release-record", zero.byteLength);
       }
+      sparseShadingReplacement = this.replaceSparseShadingHeaps(
+        command,
+        new Set(entries.map((entry) => entry.slot))
+      );
+      this.recordProvisionalPeak([], sparseShadingReplacement);
 
       command.onFinished.addOne(() => {
         if (entries.some((entry) => entry.state !== "pending-release")) return;
@@ -501,7 +552,7 @@ export class GpuAssetStore {
           this.releaseCount++;
         }
         this.committedReleaseTransactions++;
-        this.epoch++;
+        this.commitSparseShadingReplacement(sparseShadingReplacement!);
         this.pendingMutation = null;
       });
       command.onAborted.addOne(() => {
@@ -509,6 +560,7 @@ export class GpuAssetStore {
         for (const entry of entries) {
           if (entry.state === "pending-release") entry.state = "resident";
         }
+        this.rollbackSparseShadingReplacement(sparseShadingReplacement!);
         this.abortedReleaseTransactions++;
         this.pendingMutation = null;
       });
@@ -517,6 +569,9 @@ export class GpuAssetStore {
         const state = HANDLE_STATE.get(handle as object);
         const entry = state?.store === this ? this.slots[state.slot]?.entry : undefined;
         if (entry?.state === "pending-release") entry.state = "resident";
+      }
+      if (sparseShadingReplacement !== null) {
+        this.rollbackSparseShadingReplacement(sparseShadingReplacement);
       }
       this.pendingMutation = null;
       throw error;
@@ -540,6 +595,7 @@ export class GpuAssetStore {
       meshletVertexIndices: b.meshletVertexIndices.buffer,
       meshletTriangleIndices: b.meshletTriangleIndices.buffer,
       clusterChildren: b.clusterChildren.buffer,
+      sparseShading: this.sparseShadingHeaps,
       highWaterCounts: Object.freeze({
         geometryRecords: countOf(b.geometryRecords),
         meshletRecords: countOf(b.meshletRecords),
@@ -593,7 +649,9 @@ export class GpuAssetStore {
       residentAssetCount: this.residentAssetCount,
       fallbackBytes: this.fallbackBytes(),
       logicalBytes: this.logicalBytes,
-      residentBytes: this.fallbackBytes() + this.activeResidentBytes,
+      residentBytes: this.fallbackBytes() + this.activeResidentBytes +
+        this.sparseShadingHeaps.assetMetadataBytes +
+        this.sparseShadingHeaps.vertexPayloadBytes,
       allocatedBytes: this.currentAllocatedBytes(),
       retiringBytes: this.retiringBytes,
       peakAllocatedBytes: this.peakAllocatedBytes,
@@ -617,7 +675,14 @@ export class GpuAssetStore {
       largestTransactionSourceBytes: this.largestTransactionSourceBytes,
       privateSubmitCount: 0,
       pendingMutation: this.pendingMutation,
-      tables: Object.freeze(tables)
+      tables: Object.freeze(tables),
+      sparseShadingHeaps: Object.freeze({
+        epoch: this.sparseShadingHeaps.epoch,
+        assetMetadataBytes: this.sparseShadingHeaps.assetMetadataBytes,
+        vertexPayloadBytes: this.sparseShadingHeaps.vertexPayloadBytes,
+        geometryCount: this.sparseShadingHeaps.geometryCount,
+        meshletCount: this.sparseShadingHeaps.meshletCount
+      })
     });
   }
 
@@ -628,6 +693,8 @@ export class GpuAssetStore {
     }
     this.destroyed = true;
     for (const buffer of this.orderedBuffers) this.destroyBuffer(buffer.buffer);
+    this.destroyBuffer(this.sparseShadingHeaps.assetMetadataHeap);
+    this.destroyBuffer(this.sparseShadingHeaps.vertexPayloadHeap);
     for (const slot of this.slots) {
       if (slot.entry !== undefined) slot.entry.state = "released";
       slot.entry = undefined;
@@ -983,6 +1050,181 @@ export class GpuAssetStore {
     }
   }
 
+  private createInitialSparseShadingHeaps(): SparseShadingHeapState {
+    const layout = this.sparseShadingHeapLayout();
+    const assetMetadataHeap = this.createZeroBuffer(
+      "GpuAssetStore/sparse-shading/asset-metadata/fallback",
+      layout.assetMetadataBytes
+    );
+    try {
+      const vertexPayloadHeap = this.createZeroBuffer(
+        "GpuAssetStore/sparse-shading/vertex-payload/fallback",
+        layout.vertexPayloadBytes
+      );
+      return Object.freeze({
+        schemaVersion: GPU_SPARSE_SHADING_ASSET_HEAP_SCHEMA_VERSION as 1,
+        epoch: 1,
+        assetMetadataHeap,
+        vertexPayloadHeap,
+        ...layout
+      });
+    } catch (error) {
+      this.destroyBuffer(assetMetadataHeap);
+      throw error;
+    }
+  }
+
+  private replaceSparseShadingHeaps(
+    command: ShadeGPUCommandContext | GpuAssetCommand,
+    releasingSlots: ReadonlySet<number> = new Set()
+  ): SparseShadingHeapReplacement {
+    const previous = this.sparseShadingHeaps;
+    const layout = this.sparseShadingHeapLayout();
+    this.validateSparseShadingHeapSize(layout.assetMetadataBytes, "asset metadata");
+    this.validateSparseShadingHeapSize(layout.vertexPayloadBytes, "vertex payload");
+    let assetMetadataHeap: GPUBuffer | null = null;
+    let vertexPayloadHeap: GPUBuffer | null = null;
+    try {
+      assetMetadataHeap = this.createBuffer({
+        label: `GpuAssetStore/sparse-shading/asset-metadata/epoch-${nextGeneration(previous.epoch)}`,
+        size: layout.assetMetadataBytes,
+        usage: STORAGE_USAGE
+      });
+      vertexPayloadHeap = this.createBuffer({
+        label: `GpuAssetStore/sparse-shading/vertex-payload/epoch-${nextGeneration(previous.epoch)}`,
+        size: layout.vertexPayloadBytes,
+        usage: STORAGE_USAGE
+      });
+      const b = this.buffers;
+      command.copyBufferToBuffer(
+        b.geometryRecords.buffer,
+        0,
+        assetMetadataHeap,
+        layout.geometryWordBase * 4,
+        b.geometryRecords.cursorBytes
+      );
+      command.copyBufferToBuffer(
+        b.meshletRecords.buffer,
+        0,
+        assetMetadataHeap,
+        layout.meshletWordBase * 4,
+        b.meshletRecords.cursorBytes
+      );
+      command.copyBufferToBuffer(
+        b.meshletVertexIndices.buffer,
+        0,
+        vertexPayloadHeap,
+        layout.meshletVertexWordBase * 4,
+        b.meshletVertexIndices.cursorBytes
+      );
+      command.copyBufferToBuffer(
+        b.meshletTriangleIndices.buffer,
+        0,
+        vertexPayloadHeap,
+        layout.meshletTriangleWordBase * 4,
+        b.meshletTriangleIndices.cursorBytes
+      );
+      command.copyBufferToBuffer(
+        b.vertexStreamData.buffer,
+        0,
+        vertexPayloadHeap,
+        layout.vertexDataWordBase * 4,
+        b.vertexStreamData.cursorBytes
+      );
+      const generations = new Uint32Array(layout.geometryCount);
+      for (let slot = 1; slot < this.slots.length; slot++) {
+        const state = this.slots[slot]!;
+        const entry = state.entry;
+        if (entry === undefined) continue;
+        generations[slot] = releasingSlots.has(slot)
+          ? nextGeneration(state.generation)
+          : entry.generation;
+      }
+      command.writeBuffer(
+        assetMetadataHeap,
+        layout.geometryGenerationWordBase * 4,
+        generations.buffer,
+        generations.byteOffset,
+        generations.byteLength
+      );
+      recordGpuQueueUpload(
+        this.device.queue,
+        "GpuAssetStore/sparse-shading/geometry-generations",
+        generations.byteLength
+      );
+      this.recordUpload(generations.byteLength, generations.byteLength);
+      const next = Object.freeze({
+        schemaVersion: GPU_SPARSE_SHADING_ASSET_HEAP_SCHEMA_VERSION as 1,
+        epoch: nextGeneration(previous.epoch),
+        assetMetadataHeap,
+        vertexPayloadHeap,
+        ...layout
+      });
+      this.sparseShadingHeaps = next;
+      this.epoch++;
+      return Object.freeze({ previous, next });
+    } catch (error) {
+      if (assetMetadataHeap !== null) this.destroyBuffer(assetMetadataHeap);
+      if (vertexPayloadHeap !== null) this.destroyBuffer(vertexPayloadHeap);
+      throw error;
+    }
+  }
+
+  private sparseShadingHeapLayout(): Omit<
+    GpuSparseShadingAssetHeapBindings,
+    "schemaVersion" | "epoch" | "assetMetadataHeap" | "vertexPayloadHeap"
+  > {
+    const b = this.buffers;
+    const geometryWordBase = 0;
+    const meshletWordBase = b.geometryRecords.cursorBytes / 4;
+    const geometryGenerationWordBase = checkedAdd(
+      meshletWordBase,
+      b.meshletRecords.cursorBytes / 4,
+      "Sparse shading metadata word count"
+    );
+    const geometryCount = countOf(b.geometryRecords);
+    const meshletCount = countOf(b.meshletRecords);
+    const assetMetadataBytes = checkedAdd(
+      geometryGenerationWordBase * 4,
+      geometryCount * 4,
+      "Sparse shading metadata bytes"
+    );
+    const meshletVertexWordBase = 0;
+    const meshletTriangleWordBase = b.meshletVertexIndices.cursorBytes / 4;
+    const vertexDataWordBase = checkedAdd(
+      meshletTriangleWordBase,
+      b.meshletTriangleIndices.cursorBytes / 4,
+      "Sparse shading payload word count"
+    );
+    const vertexPayloadBytes = checkedAdd(
+      vertexDataWordBase * 4,
+      b.vertexStreamData.cursorBytes,
+      "Sparse shading payload bytes"
+    );
+    return Object.freeze({
+      geometryWordBase,
+      meshletWordBase,
+      geometryGenerationWordBase,
+      meshletVertexWordBase,
+      meshletTriangleWordBase,
+      vertexDataWordBase,
+      geometryCount,
+      meshletCount,
+      assetMetadataBytes,
+      vertexPayloadBytes
+    });
+  }
+
+  private validateSparseShadingHeapSize(size: number, label: string): void {
+    const limit = Math.min(
+      Number(this.device.limits.maxBufferSize ?? Number.MAX_SAFE_INTEGER),
+      Number(this.device.limits.maxStorageBufferBindingSize ?? Number.MAX_SAFE_INTEGER)
+    );
+    if (size <= 0 || size > limit) {
+      throw new RangeError(`Sparse shading ${label} heap requires ${size} bytes, adapter limit is ${limit}`);
+    }
+  }
+
   private growBuffer(
     owner: ResidentBuffer,
     required: number,
@@ -1047,23 +1289,36 @@ export class GpuAssetStore {
 
   private commitReplacements(replacements: readonly BufferReplacement[]): void {
     for (const replacement of replacements) {
-      this.retiredBufferCount++;
-      this.retiringBytes += replacement.previous.size;
-      const destroy = (): void => {
-        this.destroyBuffer(replacement.previous);
-        this.retiringBytes -= replacement.previous.size;
-        this.destroyedRetiredBufferCount++;
-      };
-      void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
+      this.retireBuffer(replacement.previous);
     }
+  }
+
+  private commitSparseShadingReplacement(replacement: SparseShadingHeapReplacement): void {
+    this.retireBuffer(replacement.previous.assetMetadataHeap);
+    this.retireBuffer(replacement.previous.vertexPayloadHeap);
+  }
+
+  private retireBuffer(buffer: GPUBuffer): void {
+    this.retiredBufferCount++;
+    this.retiringBytes += buffer.size;
+    const destroy = (): void => {
+      this.destroyBuffer(buffer);
+      this.retiringBytes -= buffer.size;
+      this.destroyedRetiredBufferCount++;
+    };
+    void this.device.queue.onSubmittedWorkDone().then(destroy, destroy);
   }
 
   private rollbackResidencyBatch(
     cursors: ReadonlyMap<ResidentBuffer, number>,
     slots: readonly SlotState[],
     freeSlots: readonly number[],
-    replacements: readonly BufferReplacement[]
+    replacements: readonly BufferReplacement[],
+    sparseShadingReplacement: SparseShadingHeapReplacement | null
   ): void {
+    if (sparseShadingReplacement !== null) {
+      this.rollbackSparseShadingReplacement(sparseShadingReplacement);
+    }
     for (let index = replacements.length - 1; index >= 0; index--) {
       const replacement = replacements[index]!;
       replacement.owner.buffer = replacement.previous;
@@ -1080,8 +1335,25 @@ export class GpuAssetStore {
     this.epoch++;
   }
 
-  private recordProvisionalPeak(replacements: readonly BufferReplacement[]): void {
-    const overlap = replacements.reduce((sum, replacement) => sum + replacement.previous.size, 0);
+  private rollbackSparseShadingReplacement(replacement: SparseShadingHeapReplacement): void {
+    if (this.sparseShadingHeaps !== replacement.next) {
+      throw new Error("Sparse shading heap rollback does not own the active provisional revision");
+    }
+    this.sparseShadingHeaps = replacement.previous;
+    this.destroyBuffer(replacement.next.assetMetadataHeap);
+    this.destroyBuffer(replacement.next.vertexPayloadHeap);
+    this.epoch++;
+  }
+
+  private recordProvisionalPeak(
+    replacements: readonly BufferReplacement[],
+    sparseShadingReplacement: SparseShadingHeapReplacement | null = null
+  ): void {
+    const overlap = replacements.reduce((sum, replacement) => sum + replacement.previous.size, 0) +
+      (sparseShadingReplacement === null
+        ? 0
+        : sparseShadingReplacement.previous.assetMetadataHeap.size +
+          sparseShadingReplacement.previous.vertexPayloadHeap.size);
     this.peakAllocatedBytes = Math.max(
       this.peakAllocatedBytes,
       this.currentAllocatedBytes() + this.retiringBytes + overlap
@@ -1170,7 +1442,9 @@ export class GpuAssetStore {
   }
 
   private currentAllocatedBytes(): number {
-    return this.orderedBuffers.reduce((sum, buffer) => sum + buffer.buffer.size, 0);
+    return this.orderedBuffers.reduce((sum, buffer) => sum + buffer.buffer.size, 0) +
+      this.sparseShadingHeaps.assetMetadataHeap.size +
+      this.sparseShadingHeaps.vertexPayloadHeap.size;
   }
 
   private fallbackBytes(): number {
@@ -1179,6 +1453,13 @@ export class GpuAssetStore {
       0
     );
   }
+}
+
+interface SparseShadingHeapState extends GpuSparseShadingAssetHeapBindings {}
+
+interface SparseShadingHeapReplacement {
+  readonly previous: SparseShadingHeapState;
+  readonly next: SparseShadingHeapState;
 }
 
 function residentGeometryFlags(asset: GeometryAssetPackage): number {

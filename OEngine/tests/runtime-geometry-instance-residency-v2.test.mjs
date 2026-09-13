@@ -20,6 +20,7 @@ const [
   { RuntimeAssetResidencyState },
   { GpuAssetStore },
   { GpuScene },
+  { GPU_GEOMETRY_RECORD_STRIDE, GPU_MESHLET_RECORD_STRIDE },
   {
     packGpuInstanceRecord,
     readGpuInstanceAffineMatrix,
@@ -38,6 +39,7 @@ const [
   import("../.test-dist/assets/RuntimeAssetResidency.js"),
   import("../.test-dist/gpu/GpuAssetStore.js"),
   import("../.test-dist/gpu/GpuScene.js"),
+  import("../.test-dist/gpu/GpuGeometryAbi.js"),
   import("../.test-dist/gpu/GpuInstanceAbi.js")
 ]);
 
@@ -221,6 +223,36 @@ test("GpuAssetStore publishes physical chunk ranges behind an unchanged opaque h
   const store = new GpuAssetStore(device);
   const command = new SceneCommand(device, []);
   const handle = store.resident(cooked.asset, command);
+  const stagedHeaps = store.bindings().sparseShading;
+  assert.equal(stagedHeaps.schemaVersion, 1);
+  assert.equal(stagedHeaps.epoch, 2);
+  assert.equal(stagedHeaps.geometryWordBase, 0);
+  assert.equal(stagedHeaps.meshletWordBase,
+    store.bindings().highWaterCounts.geometryRecords * GPU_GEOMETRY_RECORD_STRIDE / 4);
+  assert.equal(stagedHeaps.geometryGenerationWordBase,
+    stagedHeaps.meshletWordBase +
+      store.bindings().highWaterCounts.meshletRecords * GPU_MESHLET_RECORD_STRIDE / 4);
+  assert.equal(stagedHeaps.meshletVertexWordBase, 0);
+  assert.equal(stagedHeaps.meshletTriangleWordBase,
+    store.bindings().highWaterCounts.meshletVertexIndices);
+  assert.equal(stagedHeaps.vertexDataWordBase,
+    stagedHeaps.meshletTriangleWordBase +
+      store.bindings().highWaterCounts.meshletTriangleBytes / 4);
+  assert.equal(stagedHeaps.geometryCount, store.bindings().highWaterCounts.geometryRecords);
+  assert.equal(stagedHeaps.meshletCount, store.bindings().highWaterCounts.meshletRecords);
+  assert.equal(command.copies.filter(({ destination }) =>
+    destination === stagedHeaps.assetMetadataHeap).length, 2);
+  assert.equal(command.copies.filter(({ destination }) =>
+    destination === stagedHeaps.vertexPayloadHeap).length, 3);
+  const generationWrite = command.writes.find(({ buffer, bufferOffset }) =>
+    buffer === stagedHeaps.assetMetadataHeap &&
+    bufferOffset === stagedHeaps.geometryGenerationWordBase * 4);
+  assert.ok(generationWrite);
+  assert.equal(new DataView(
+    generationWrite.data,
+    generationWrite.dataOffset,
+    generationWrite.size
+  ).getUint32(4, true), 1);
   assert.ok(store.residencyRanges(handle).every(({ state, residentResourceId }) =>
     state === "requested" && residentResourceId === null));
   command.finish();
@@ -230,12 +262,53 @@ test("GpuAssetStore publishes physical chunk ranges behind an unchanged opaque h
     typeof residentResourceId === "string" && residentResourceId.length > 0));
   assert.equal(store.recordIndex(handle), 1);
   assert.deepEqual(store.publicationIdentity(handle), { slot: 1, generation: 1 });
+  assert.strictEqual(store.bindings().sparseShading, stagedHeaps);
+  assert.deepEqual(store.evidence().sparseShadingHeaps, {
+    epoch: 2,
+    assetMetadataBytes: stagedHeaps.assetMetadataBytes,
+    vertexPayloadBytes: stagedHeaps.vertexPayloadBytes,
+    geometryCount: stagedHeaps.geometryCount,
+    meshletCount: stagedHeaps.meshletCount
+  });
+
+  const abortedRelease = new SceneCommand(device, []);
+  store.release(handle, abortedRelease);
+  const abortedHeaps = store.bindings().sparseShading;
+  assert.notStrictEqual(abortedHeaps.assetMetadataHeap, stagedHeaps.assetMetadataHeap);
+  const abortedGenerationWrite = abortedRelease.writes.find(({ buffer, bufferOffset }) =>
+    buffer === abortedHeaps.assetMetadataHeap &&
+    bufferOffset === abortedHeaps.geometryGenerationWordBase * 4);
+  assert.equal(new DataView(
+    abortedGenerationWrite.data,
+    abortedGenerationWrite.dataOffset,
+    abortedGenerationWrite.size
+  ).getUint32(4, true), 2);
+  abortedRelease.abort();
+  assert.strictEqual(store.bindings().sparseShading, stagedHeaps);
+  assert.equal(abortedHeaps.assetMetadataHeap.destroyed, true);
+  assert.deepEqual(store.publicationIdentity(handle), { slot: 1, generation: 1 });
 
   const release = new SceneCommand(device, []);
   store.release(handle, release);
+  const releasedHeaps = store.bindings().sparseShading;
+  assert.notStrictEqual(releasedHeaps.assetMetadataHeap, stagedHeaps.assetMetadataHeap);
   release.finish();
   assert.throws(() => store.residencyRanges(handle), /stale|resident/);
   assert.throws(() => store.publicationIdentity(handle), /stale|resident/);
+
+  const reuse = new SceneCommand(device, []);
+  const reusedHandle = store.resident(cooked.asset, reuse);
+  const reusedHeaps = store.bindings().sparseShading;
+  const reusedGenerationWrite = reuse.writes.find(({ buffer, bufferOffset }) =>
+    buffer === reusedHeaps.assetMetadataHeap &&
+    bufferOffset === reusedHeaps.geometryGenerationWordBase * 4);
+  assert.equal(new DataView(
+    reusedGenerationWrite.data,
+    reusedGenerationWrite.dataOffset,
+    reusedGenerationWrite.size
+  ).getUint32(4, true), 2);
+  reuse.finish();
+  assert.deepEqual(store.publicationIdentity(reusedHandle), { slot: 1, generation: 2 });
   store.destroy();
 });
 
@@ -402,11 +475,14 @@ class SceneCommand {
   onFinished = new Signal();
   onAborted = new Signal();
   closed = false;
+  copies = [];
   constructor(device, writes) { this.device = device; this.writes = writes; }
   writeBuffer(buffer, bufferOffset, data, dataOffset, size) {
     this.writes.push({ buffer, bufferOffset, data, dataOffset, size });
   }
-  copyBufferToBuffer() {}
+  copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size) {
+    this.copies.push({ source, sourceOffset, destination, destinationOffset, size });
+  }
   finish() { this.closed = true; this.onFinished.dispatch(); }
   abort() { this.closed = true; this.onAborted.dispatch(); }
 }
