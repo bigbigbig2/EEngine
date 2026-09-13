@@ -291,7 +291,7 @@ export class SparseShadingCandidateFixture {
           this.runtime.commitMutation(mutation,1,FEATURES);committed=true;
           const published=this.runtimeSnapshot();this.gpuRevisions.publish(preparedGpu,published,1);
           resizeBoundary.beforeCompletion=this.gpuRevisions.evidence();
-          uploadFrameConfiguration(this.device,this.resources,published,createCubeCamera(CUBE_NEAR_DISTANCE,2),1);
+          uploadSnapshotDependentInputs(this.device,this.resources,published,createCubeCamera(CUBE_NEAR_DISTANCE,2),1);
         } catch(error) {
           if(!committed){this.gpuRevisions.abort(preparedGpu);this.runtime.abortMutation(mutation);}
           throw error;
@@ -311,8 +311,7 @@ export class SparseShadingCandidateFixture {
     const resized=await this.runCandidateFrame("LifecycleResize/resized",1,2,
       (bytes,snapshot)=>validateBasicCube(bytes,snapshot,resizedCamera));
     const stableCreateCount=this.gpuRevisions.evidence().createCount;
-    uploadFrameConfiguration(this.device,this.resources,resizedSnapshot,resizedCamera,2);
-    const stable=await this.runCandidateFrame("LifecycleResize/stable",2,3,
+    const stable=await this.runCandidateFrame("LifecycleResize/reuse",2,3,
       (bytes,snapshot)=>validateBasicCube(bytes,snapshot,resizedCamera));
     assertEqual(this.gpuRevisions.evidence().createCount,stableCreateCount,
       "LifecycleResize stable-frame GPU revision creation");
@@ -796,6 +795,15 @@ function uploadFrameConfiguration(device:GPUDevice,r:CandidateResources,
     allowedMaskLo:snapshot.summary.activeBinMaskLo,allowedMaskHi:snapshot.summary.activeBinMaskHi,
     maxDispatchDimension:device.limits.maxComputeWorkgroupsPerDimension,layoutRevision:snapshot.layoutRevision}));
   uploadCameraFrame(device,r,snapshot,camera,frameIndex);
+}
+function uploadSnapshotDependentInputs(device:GPUDevice,r:CandidateResources,
+  snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,camera:CubeCameraFrame,frameIndex:number):void {
+  uploadFrameConfiguration(device,r,snapshot,camera,frameIndex);
+  device.queue.writeBuffer(r.queue,0,createMeshletQueue(snapshot,r.workload));
+  const materials=createMaterials(snapshot,r.workload);
+  device.queue.writeBuffer(r.visibilityMaterials,0,materials.visibility);
+  device.queue.writeBuffer(r.shadingMaterials,0,materials.shading);
+  device.queue.writeBuffer(r.routes,0,materials.routes);
 }
 function shadingView(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,layout:WorkloadLayout,
   currentViewProjection:ArrayLike<number>,cameraPosition:readonly number[],frameIndex:number):ArrayBuffer {
