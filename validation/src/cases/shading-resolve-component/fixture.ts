@@ -48,9 +48,8 @@ import {
   GPU_SHADING_OUTPUT_DEPENDENCY
 } from "../../../../OEngine/src/gpu/GpuSparseShadingPipelineContract.js";
 import {
-  GPU_SPARSE_SHADING_LIGHT_TYPE,
-  packGpuSparseShadingLightDatabase
-} from "../../../../OEngine/src/gpu/GpuSparseShadingLightAbi.js";
+  packGpuSparseShadingView
+} from "../../../../OEngine/src/gpu/GpuSparseShadingFrameAbi.js";
 import { encodeGpuTextureRef, GPU_TEXTURE_REF_INVALID } from "../../../../OEngine/src/gpu/GpuTextureRefAbi.js";
 import { encodeVisibilityKey } from "../../../../OEngine/src/gpu/GpuVisibilityKeyAbi.js";
 import { ShadingBinPass } from "../../../../OEngine/src/render/passes/ShadingBinPass.js";
@@ -60,6 +59,7 @@ import {
   type SparseShadingResolveFrameBinding
 } from "../../../../OEngine/src/render/passes/SparseShadingResolvePass.js";
 import { GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG } from "../../../../OEngine/src/shaders/sparse_shading_resolve.js";
+import { packNativeLightDatabaseFixture } from "../../fixtures/native-light-database.js";
 
 const WIDTH = 33;
 const HEIGHT = 33;
@@ -86,6 +86,12 @@ const PIXEL_VIEW_PROJECTION = new Float32Array([
   0, 0, 1, 0,
   -1, 1, 0, 1
 ]);
+const COMPONENT_LIGHT_DATABASE = packNativeLightDatabaseFixture({
+  directional: [{
+    direction: [0, 0, -1], color: [2, 1, 0.5], disk_radius: 0,
+    flags: 0, near_clip_distance: 0.1, shadow_id: 0
+  }]
+});
 
 export interface ResolveFixtureEvidence {
   readonly scenarios: readonly Readonly<Record<string, unknown>>[];
@@ -115,11 +121,8 @@ interface StaticResources {
   readonly clusterHeaders: GPUBuffer;
   readonly clusterIndices: GPUBuffer;
   readonly lightSettings: GPUBuffer;
-  readonly environmentSettings: GPUBuffer;
   readonly shadowAtlas: GPUTexture;
-  readonly environmentTextures: readonly GPUTexture[];
   readonly shadowSampler: GPUSampler;
-  readonly environmentSampler: GPUSampler;
 }
 
 export class SparseShadingResolveFixture {
@@ -374,10 +377,6 @@ function createStaticResources(
     label: `ADR-0013 texture bank ${index}`, size: [1, 1, 5], format: "rgba8unorm",
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
   }));
-  const environmentTextures = Array.from({ length: 3 }, (_, index) => texture({
-    label: `ADR-0013 environment ${index}`, size: [1, 1], format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-  }));
   const assetBytes = GPU_GEOMETRY_RECORD_STRIDE + GPU_MESHLET_RECORD_STRIDE + 4;
   return {
     settings: buffer("ADR-0013 resolve bin settings", GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,
@@ -406,16 +405,14 @@ function createStaticResources(
     textureBanks, samplers: Array.from({ length: 6 }, () => device.createSampler({
       addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", minFilter: "nearest", magFilter: "nearest"
     })),
-    lightDatabase: buffer("ADR-0013 resolve lights", 128, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
+    lightDatabase: buffer("ADR-0013 resolve lights", COMPONENT_LIGHT_DATABASE.byteLength,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
     clusterHeaders: buffer("ADR-0013 resolve cluster headers", 144, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
-    clusterIndices: buffer("ADR-0013 resolve cluster indices", 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
-    lightSettings: buffer("ADR-0013 resolve light settings", 64, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
-    environmentSettings: buffer("ADR-0013 resolve environment settings", 32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
+    clusterIndices: buffer("ADR-0013 resolve cluster data", 36, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
+    lightSettings: buffer("ADR-0013 resolve cluster parameters", 16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
     shadowAtlas: texture({ label: "ADR-0013 resolve shadow atlas", size: [1, 1], format: "depth32float",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT }),
-    environmentTextures,
-    shadowSampler: device.createSampler({ compare: "less-equal" }),
-    environmentSampler: device.createSampler({ minFilter: "nearest", magFilter: "nearest" })
+    shadowSampler: device.createSampler({ compare: "less-equal" })
   };
 }
 
@@ -426,14 +423,23 @@ function uploadInputs(device: GPUDevice, resources: StaticResources, binIds: Uin
     allowedMaskLo: activeMask(binIds, false), allowedMaskHi: activeMask(binIds, true),
     maxDispatchDimension: 5, layoutRevision: PUBLICATION_REVISION
   }));
-  const view = new ArrayBuffer(240); const v = new DataView(view);
-  [WIDTH, HEIGHT, GPU_SHADING_PROGRAM_COUNT, 1, MATERIAL_GENERATION, TEXTURE_GENERATION,
-    GEOMETRY_GENERATION, PUBLICATION_REVISION, 0, 60, 88, 0, 3, 4, 7, 0]
-    .forEach((value, index) => v.setUint32(index * 4, value, true));
-  v.setFloat32(64, 2, true); v.setFloat32(72, 1, true); v.setFloat32(76, 1, true);
-  [16.5, 16, 100, 1].forEach((value, index) => v.setFloat32(96 + index * 4, value, true));
-  new Float32Array(view, 112, 16).set(PIXEL_VIEW_PROJECTION);
-  new Float32Array(view, 176, 16).set(PIXEL_VIEW_PROJECTION);
+  const view = packGpuSparseShadingView({
+    width: WIDTH, height: HEIGHT, materialCount: GPU_SHADING_PROGRAM_COUNT,
+    materialGeneration: MATERIAL_GENERATION, textureGeneration: TEXTURE_GENERATION,
+    publicationRevision: PUBLICATION_REVISION, frameIndex: 7, preExposure: 2,
+    upscaleRatio: [1, 1], cameraPosition: [16.5, 16, 100],
+    currentViewProjection: PIXEL_VIEW_PROJECTION,
+    previousViewProjection: PIXEL_VIEW_PROJECTION,
+    assets: {
+      schemaVersion: 1, epoch: 1, assetMetadataHeap: resources.assetMetadata,
+      vertexPayloadHeap: resources.vertexPayload, geometryWordBase: 0,
+      meshletWordBase: 60, geometryGenerationWordBase: 88,
+      meshletVertexWordBase: 0, meshletTriangleWordBase: 3,
+      vertexDataWordBase: 4, geometryCount: 1, meshletCount: 1,
+      assetMetadataBytes: resources.assetMetadata.size,
+      vertexPayloadBytes: resources.vertexPayload.size
+    }
+  });
   device.queue.writeBuffer(resources.view, 0, view);
   uploadR8(device, resources.binTexture, binIds);
   const keys = new Uint32Array(PIXELS);
@@ -441,8 +447,6 @@ function uploadInputs(device: GPUDevice, resources: StaticResources, binIds: Uin
     keys[y * WIDTH + x] = encodeVisibilityKey(programAt(x, y), 0);
   }
   uploadR32(device, resources.visibilityTexture, keys);
-  const one = new Uint8Array([255, 255, 255, 255]);
-  for (const texture of resources.environmentTextures) device.queue.writeTexture({ texture }, one, {}, [1, 1, 1]);
   const bank = new Uint8Array(256 * 5);
   bank.set([255, 255, 255, 255], 0);
   bank.set([64, 128, 191, 255], 256);
@@ -471,21 +475,10 @@ function uploadInputs(device: GPUDevice, resources: StaticResources, binIds: Uin
     floats.set([0.5, 0.8, 1, 1], base + 13);
   }
   device.queue.writeBuffer(resources.vertexPayload, 0, vertex);
-  const light = packGpuSparseShadingLightDatabase({
-    directional: [{ type: GPU_SPARSE_SHADING_LIGHT_TYPE.Directional, flags: 0,
-      shadowRecord: 0, shadowRecordCount: 0, position: [0, 0, 0], range: 1,
-      direction: [0, 0, 1], outerConeCos: 0, color: [2, 1, 0.5], intensity: 1,
-      radius: 0, innerConeCos: 0 }], local: [], shadowRecords: []
-  });
-  device.queue.writeBuffer(resources.lightDatabase, 0, light);
+  device.queue.writeBuffer(resources.lightDatabase, 0, COMPONENT_LIGHT_DATABASE);
   device.queue.writeBuffer(resources.clusterHeaders, 0, new Uint32Array(36));
-  device.queue.writeBuffer(resources.clusterIndices, 0, new Uint32Array([0]));
-  const lightSettings = new ArrayBuffer(64); const ls = new DataView(lightSettings);
-  [3, 3, 1, 0].forEach((value, index) => ls.setUint32(index * 4, value, true));
-  ls.setFloat32(16, 1, true); ls.setFloat32(20, 0, true);
-  ls.setUint32(32, 0, true); ls.setUint32(36, 1, true); ls.setUint32(40, 0, true);
-  device.queue.writeBuffer(resources.lightSettings, 0, lightSettings);
-  device.queue.writeBuffer(resources.environmentSettings, 0, new Uint32Array(8));
+  device.queue.writeBuffer(resources.clusterIndices, 0, new Uint32Array(9));
+  device.queue.writeBuffer(resources.lightSettings, 0, new Float32Array([1, 0, 1, 0]));
 }
 
 function restoreMutableInputs(device: GPUDevice, resources: StaticResources): void {
@@ -580,8 +573,8 @@ function createResolveBindings(
       meshlet_work: r.meshletWork, instance_records: r.instances, asset_metadata_heap: r.assetMetadata,
       vertex_payload_heap: r.vertexPayload, material_records: r.materials,
       texture_descriptor_routing_heap: r.routes, light_database: r.lightDatabase,
-      light_cluster_headers: r.clusterHeaders, light_cluster_indices: r.clusterIndices,
-      light_settings: r.lightSettings, environment_settings: r.environmentSettings
+      light_cluster_lookup: r.clusterHeaders, light_cluster_data: r.clusterIndices,
+      light_cluster_parameters: r.lightSettings
     };
     if (buffers[name]) return { buffer: buffers[name]! };
     if (name === "shading_bin_id") return r.binTexture.createView();
@@ -595,9 +588,7 @@ function createResolveBindings(
     if (name.startsWith("material_texture_")) return r.textureBanks[Number(name.slice(-1))]!.createView({ dimension: "2d-array" });
     if (name.startsWith("material_sampler_")) return r.samplers[Number(name.slice(-1))]!;
     if (name === "shadow_atlas") return r.shadowAtlas.createView({ aspect: "depth-only" });
-    if (name.startsWith("environment_texture_")) return r.environmentTextures[Number(name.slice(-1))]!.createView();
     if (name === "shadow_sampler") return r.shadowSampler;
-    if (name === "environment_sampler") return r.environmentSampler;
     throw new Error(`Missing validation resource ${name}`);
   };
   return owner.createFrameBindingsForExecution(

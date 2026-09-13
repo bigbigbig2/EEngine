@@ -105,10 +105,10 @@ test("shadow-off lit specialization physically omits atlas and comparison sample
   assert.ok(!names(shadowOff).includes("shadow_atlas"));
   assert.ok(!names(shadowOff).includes("shadow_sampler"));
   assert.equal(shadowOff.shadowSamplingEnabled, false);
-  assert.equal(shadowOff.schemaVersion, 2);
+  assert.equal(shadowOff.schemaVersion, 3);
 });
 
-test("widest PbrGeneric specialization exactly reaches the frozen four-group budget", () => {
+test("widest PbrGeneric specialization stays within the frozen four-group ceiling", () => {
   const widest = descriptor(
     GPU_SHADING_PROGRAM.PbrGeneric,
     3,
@@ -118,13 +118,21 @@ test("widest PbrGeneric specialization exactly reaches the frozen four-group bud
   );
   const budget = gpuSparseShadingPipelineBindingBudget(widest, bindingLimits);
   assert.equal(budget.schemaVersion, 2);
-  assert.deepEqual(budget.groups, GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS);
+  assert.deepEqual(budget.groups, [
+    GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS[0],
+    GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS[1],
+    GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS[2],
+    {
+      group: 3, owner: "lighting", sampledTextures: 1, samplers: 1,
+      storageBuffers: 3, storageTextures: 0, uniformBuffers: 1
+    }
+  ]);
   assert.deepEqual(budget.totals, {
-    sampledTextures: 16,
-    samplers: 8,
+    sampledTextures: 13,
+    samplers: 7,
     storageBuffers: 10,
     storageTextures: 5,
-    uniformBuffers: 4
+    uniformBuffers: 3
   });
   assert.deepEqual(GPU_SPARSE_SHADING_STAGE_LIMITS, {
     bindGroups: 4,
@@ -148,6 +156,20 @@ test("widest PbrGeneric specialization exactly reaches the frozen four-group bud
     }),
     /maxBindingsPerBindGroup >= 17/u
   );
+});
+
+test("direct-only lighting group uses native production inputs and no dead environment bindings", () => {
+  const value = descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 3, 0);
+  const lighting = value.groups[3];
+  assert.deepEqual(lighting.bindings.map(({ binding, name }) => [binding, name]), [
+    [0, "light_database"],
+    [1, "light_cluster_lookup"],
+    [2, "light_cluster_data"],
+    [3, "light_cluster_parameters"],
+    [4, "shadow_atlas"],
+    [5, "shadow_sampler"]
+  ]);
+  assert.ok(!names(value).some((name) => name.startsWith("environment_")));
 });
 
 test("all concrete program, set and output specializations derive legal budgets", () => {

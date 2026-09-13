@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import "./webgpu-test-globals.mjs";
+
 import { FrameGraph, FrameGraphContext } from "../.test-dist/framegraph/FrameGraph.js";
 import {
   captureGpuSparseShadingCapabilityRecord,

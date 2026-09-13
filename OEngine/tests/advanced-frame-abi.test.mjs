@@ -47,6 +47,12 @@ import {
   GPU_HDR_REJECTED_MAIN_CANDIDATES
 } from "../.test-dist/gpu/GpuHdrAbi.js";
 import {
+  GPU_SPARSE_SHADING_VIEW_ABI_VERSION,
+  GPU_SPARSE_SHADING_VIEW_BYTES,
+  GPU_SPARSE_SHADING_VIEW_OFFSETS,
+  packGpuSparseShadingView
+} from "../.test-dist/gpu/GpuSparseShadingFrameAbi.js";
+import {
   evaluateSurfaceAbiV2RunGroupNeed
 } from "../.test-dist/debug/VisibilitySurfaceMigrationGates.js";
 import {
@@ -225,6 +231,48 @@ const preExposure = () => preExposureContract({
   multiplier: 0.25,
   generation: 7,
   colorSpace: "working-linear"
+});
+
+test("ADR-0013 Step 7 freezes the production sparse shading-view ABI", () => {
+  const current = Float32Array.from({ length: 16 }, (_, index) => index + 0.25);
+  const previous = Float32Array.from({ length: 16 }, (_, index) => 32 - index);
+  const bytes = packGpuSparseShadingView({
+    width: 1920, height: 1080, materialCount: 41,
+    materialGeneration: 5, textureGeneration: 7, publicationRevision: 11,
+    frameIndex: 13, preExposure: 2, upscaleRatio: [1.25, 1.5],
+    cameraPosition: [3, 4, 5], currentViewProjection: current,
+    previousViewProjection: previous,
+    assets: {
+      schemaVersion: 1, epoch: 17, assetMetadataHeap: {}, vertexPayloadHeap: {},
+      geometryWordBase: 19, meshletWordBase: 23, geometryGenerationWordBase: 29,
+      meshletVertexWordBase: 31, meshletTriangleWordBase: 37, vertexDataWordBase: 43,
+      geometryCount: 47, meshletCount: 53, assetMetadataBytes: 256,
+      vertexPayloadBytes: 512
+    }
+  });
+  assert.equal(GPU_SPARSE_SHADING_VIEW_ABI_VERSION, 1);
+  assert.equal(bytes.byteLength, GPU_SPARSE_SHADING_VIEW_BYTES);
+  assert.equal(GPU_SPARSE_SHADING_VIEW_BYTES, 240);
+  const view = new DataView(bytes);
+  assert.equal(view.getUint32(GPU_SPARSE_SHADING_VIEW_OFFSETS.width, true), 1920);
+  assert.equal(view.getUint32(GPU_SPARSE_SHADING_VIEW_OFFSETS.geometryCount, true), 47);
+  assert.equal(view.getUint32(GPU_SPARSE_SHADING_VIEW_OFFSETS.reservedGeometryGeneration, true), 0);
+  assert.equal(view.getUint32(GPU_SPARSE_SHADING_VIEW_OFFSETS.geometryGenerationWordBase, true), 29);
+  assert.equal(view.getFloat32(GPU_SPARSE_SHADING_VIEW_OFFSETS.upscaleRatio + 4, true), 1.5);
+  assert.deepEqual([...new Float32Array(bytes, GPU_SPARSE_SHADING_VIEW_OFFSETS.currentViewProjection, 16)], [...current]);
+  assert.deepEqual([...new Float32Array(bytes, GPU_SPARSE_SHADING_VIEW_OFFSETS.previousViewProjection, 16)], [...previous]);
+  assert.throws(() => packGpuSparseShadingView({
+    width: 0, height: 1, materialCount: 1, materialGeneration: 1,
+    textureGeneration: 1, publicationRevision: 1, frameIndex: 0,
+    preExposure: 1, upscaleRatio: [1, 1], cameraPosition: [0, 0, 0],
+    currentViewProjection: current, previousViewProjection: previous,
+    assets: {
+      schemaVersion: 1, epoch: 1, assetMetadataHeap: {}, vertexPayloadHeap: {},
+      geometryWordBase: 0, meshletWordBase: 0, geometryGenerationWordBase: 0,
+      meshletVertexWordBase: 0, meshletTriangleWordBase: 0, vertexDataWordBase: 0,
+      geometryCount: 1, meshletCount: 1, assetMetadataBytes: 4, vertexPayloadBytes: 4
+    }
+  }), /width must be non-zero/u);
 });
 
 test("ADR-0009 Step 0 freezes compact shading and conditional diffuse receiver semantics", () => {

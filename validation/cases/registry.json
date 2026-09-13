@@ -224,7 +224,9 @@
         "OEngine/src/render/passes/SparseShadingDiagnosticsPass.ts",
         "OEngine/src/shaders/sparse_shading_resolve.ts",
         "OEngine/src/gpu/GpuShadingMaterialAbi.ts",
-        "OEngine/src/gpu/GpuSparseShadingLightAbi.ts"
+        "OEngine/src/gpu/LightDatabase.ts",
+        "OEngine/src/gpu/GpuSparseShadingFrameAbi.ts",
+        "OEngine/src/shaders/lighting_direct.ts"
       ],
       "errorAllowlist": [
         {

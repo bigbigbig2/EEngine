@@ -23,12 +23,13 @@ import {
   GPU_SPARSE_SHADING_ENTRY_POINT,
   type GpuSparseShadingPipelineDescriptor
 } from "../gpu/GpuSparseShadingPipelineContract.js";
-import { GPU_SPARSE_SHADING_LIGHT_WGSL } from "../gpu/GpuSparseShadingLightAbi.js";
 import {
   GPU_TEXTURE_BANK_SAMPLE_WGSL,
   GPU_TEXTURE_REF_INVALID,
 } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
+import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js";
+import { createProductionSparseDirectLightingWgsl } from "./lighting_direct.js";
 
 export const GPU_SPARSE_SHADING_DIAGNOSTIC_WORDS = 4;
 export const GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG = Object.freeze({
@@ -138,47 +139,7 @@ const OENGINE_SHADING_PROGRAM_ID: u32 = ${descriptor.programId}u;
 const OENGINE_TEXTURE_BINDING_SET_ID: u32 = ${descriptor.textureBindingSetId}u;
 const OENGINE_IDENTITY_MISMATCH: u32 = ${GPU_SHADING_BIN_FRAME_FLAG.IdentityMismatch}u;
 
-struct OEngineSparseShadingView {
-  width: u32,
-  height: u32,
-  material_count: u32,
-  geometry_count: u32,
-  material_generation: u32,
-  texture_generation: u32,
-  _reserved_geometry_generation: u32,
-  publication_revision: u32,
-  geometry_word_base: u32,
-  meshlet_word_base: u32,
-  geometry_generation_word_base: u32,
-  meshlet_vertex_word_base: u32,
-  meshlet_triangle_word_base: u32,
-  vertex_data_word_base: u32,
-  frame_index: u32,
-  _pad0: u32,
-  pre_exposure: f32,
-  upscale_ratio: vec2f,
-  _pad1: f32,
-  camera_position: vec4f,
-  current_view_projection: mat4x4f,
-  previous_view_projection: mat4x4f,
-}
-
-struct OEngineSparseLightSettings {
-  cluster_dimensions: vec4u,
-  cluster_depth: vec4f,
-  local_light_limit: u32,
-  directional_light_limit: u32,
-  shadow_enabled: u32,
-  _pad0: u32,
-}
-
-struct OEngineSparseEnvironmentSettings {
-  mode: u32,
-  baseline_specular_enabled: u32,
-  long_range_diffuse_enabled: u32,
-  _pad0: u32,
-  exposure_scale: vec4f,
-}
+${GPU_SPARSE_SHADING_VIEW_WGSL}
 
 ${fastUnlit ? "" : `${GPU_SHADING_SURFACE_LITE_WGSL}
 struct OEngineSparseSurface {
@@ -246,19 +207,14 @@ function frameBindingsWgsl(
         ? `@group(2) @binding(${11 + index}) var sampler_${name}: sampler;`
         : "").filter(Boolean),
     ...(names.has("light_database") ? [
-      "@group(3) @binding(0) var<storage, read> light_database: array<u32>;",
-      "@group(3) @binding(1) var<storage, read> light_cluster_headers: array<OEngineSparseClusterHeader>;",
-      "@group(3) @binding(2) var<storage, read> light_cluster_indices: array<u32>;",
-      "@group(3) @binding(3) var<uniform> light_settings: OEngineSparseLightSettings;",
-      "@group(3) @binding(4) var<uniform> environment_settings: OEngineSparseEnvironmentSettings;",
+      "@group(3) @binding(0) var<storage, read> node: array<u32>;",
+      "@group(3) @binding(1) var<storage, read> cluster_lookup: array<ClusterMetadata>;",
+      "@group(3) @binding(2) var<storage, read> cluster_data: ClusterData;",
+      "@group(3) @binding(3) var<uniform> cluster_parameters: vec3f;",
       ...(names.has("shadow_atlas")
-        ? ["@group(3) @binding(5) var shadow_atlas: texture_depth_2d;"] : []),
-      "@group(3) @binding(6) var environment_texture_0: texture_2d<f32>;",
-      "@group(3) @binding(7) var environment_texture_1: texture_2d<f32>;",
-      "@group(3) @binding(8) var environment_texture_2: texture_2d<f32>;",
+        ? ["@group(3) @binding(4) var pass_descriptor: texture_depth_2d;"] : []),
       ...(names.has("shadow_sampler")
-        ? ["@group(3) @binding(9) var shadow_sampler: sampler_comparison;"] : []),
-      "@group(3) @binding(10) var environment_sampler: sampler;"
+        ? ["@group(3) @binding(5) var u_int: sampler_comparison;"] : [])
     ] : []),
     ...(diagnostics ? [
       "struct OEngineSparseShadingDiagnostics { flags: atomic<u32>, shaded: atomic<u32>, duplicate: atomic<u32>, unassigned: atomic<u32>, }",
@@ -431,40 +387,36 @@ fn sparse_sampler(material: OEngineShadingMaterialRecord, slot: u32) -> u32 { if
 }
 
 function lightingWgsl(shadowSamplingEnabled: boolean): string {
-  const shadowFunctions = shadowSamplingEnabled ? /* wgsl */ `
-fn sparse_shadow_projection(index: u32) -> mat4x4f { let b=light_database[4u]+index*OENGINE_SPARSE_SHADOW_RECORD_WORDS; return mat4x4f(vec4f(bitcast<f32>(light_database[b]),bitcast<f32>(light_database[b+1u]),bitcast<f32>(light_database[b+2u]),bitcast<f32>(light_database[b+3u])),vec4f(bitcast<f32>(light_database[b+4u]),bitcast<f32>(light_database[b+5u]),bitcast<f32>(light_database[b+6u]),bitcast<f32>(light_database[b+7u])),vec4f(bitcast<f32>(light_database[b+8u]),bitcast<f32>(light_database[b+9u]),bitcast<f32>(light_database[b+10u]),bitcast<f32>(light_database[b+11u])),vec4f(bitcast<f32>(light_database[b+12u]),bitcast<f32>(light_database[b+13u]),bitcast<f32>(light_database[b+14u]),bitcast<f32>(light_database[b+15u]))); }
-fn sparse_shadow_atlas(index:u32)->vec4f{let b=light_database[4u]+index*OENGINE_SPARSE_SHADOW_RECORD_WORDS+16u;return vec4f(bitcast<f32>(light_database[b]),bitcast<f32>(light_database[b+1u]),bitcast<f32>(light_database[b+2u]),bitcast<f32>(light_database[b+3u]));}
-fn sparse_projected_shadow(record:u32,position:vec3f,normal:vec3f)->f32{
-  let clip=sparse_shadow_projection(record)*vec4f(position+normal*0.002,1.0);if clip.w==0.0{return 1.0;}let ndc=clip.xyz/clip.w;let atlas=sparse_shadow_atlas(record);let uv=(ndc.xy*vec2f(0.5,-0.5)+vec2f(0.5))*atlas.zw+atlas.xy;let dimensions=vec2f(textureDimensions(shadow_atlas));var visibility=0.0;for(var y=-1;y<=1;y++){for(var x=-1;x<=1;x++){visibility+=textureSampleCompareLevel(shadow_atlas,shadow_sampler,(uv+vec2f(f32(x),f32(y)))/dimensions,ndc.z-0.0001);}}return visibility/9.0;
-}
-fn sparse_octahedral(direction:vec3f)->vec2f{let n=direction/(abs(direction.x)+abs(direction.y)+abs(direction.z));let folded=(vec2f(1.0)-abs(n.yx))*select(vec2f(-1.0),vec2f(1.0),n.xy>=vec2f(0.0));return select(n.xy,folded,n.z<0.0)*0.5+0.5;}
-fn sparse_hash(value:u32)->f32{var x=value;x^=x>>16u;x*=0x7feb352du;x^=x>>15u;x*=0x846ca68bu;x^=x>>16u;return f32(x&0x00ffffffu)/16777216.0;}
-fn sparse_point_shadow(light:OEngineSparseLight,position:vec3f,normal:vec3f)->f32{
-  let delta=position-light.position_range.xyz;let distance=length(delta);let direction=delta/max(distance,1e-6);let atlas=sparse_shadow_atlas(light.shadow_record);let face=vec2u(atlas.zw);let radial=distance/max(light.position_range.w,1e-6);let reference=1.0-clamp(radial,0.0,1.0)+0.0001;var occluders=0.0;var distance_sum=0.0;for(var tap=0u;tap<8u;tap++){let angle=(f32(tap)+sparse_hash(tap+shading_view.frame_index))*0.78539816339;let perturbed=normalize(direction+(cos(angle)*normalize(cross(normal,direction))+sin(angle)*normal)*max(light.radius_inner.x,0.001));let local=vec2u(clamp(sparse_octahedral(perturbed)*vec2f(face),vec2f(0.0),vec2f(face)-vec2f(1.0)));let stored=textureLoad(shadow_atlas,vec2i(local+vec2u(atlas.xy)),0);let delta_depth=stored-reference;let blocked=step(0.0,delta_depth);occluders+=blocked;distance_sum+=delta_depth*blocked;}if occluders==0.0{return 1.0;}let blocker=distance_sum/occluders;let softness=clamp(blocker/max(reference,1e-6),0.0,1.0);return 1.0-clamp(mix(occluders/8.0,(occluders/8.0)*(occluders/8.0),softness),0.0,1.0);
-}
-fn sparse_shadow(light:OEngineSparseLight,position:vec3f,normal:vec3f)->f32{
-  if (light.flags&OENGINE_SPARSE_LIGHT_CASTS_SHADOW)==0u{return 1.0;}
-  if light.kind==OENGINE_SPARSE_LIGHT_POINT{return sparse_point_shadow(light,position,normal);}
-  let count=min(max(u32(light.radius_inner.z),1u),3u);for(var cascade=0u;cascade<count;cascade++){let record=light.shadow_record+cascade;let clip=sparse_shadow_projection(record)*vec4f(position,1.0);if clip.w!=0.0&&all(abs(clip.xyz/clip.w)<vec3f(1.0)){return sparse_projected_shadow(record,position,normal);}}return 1.0;
-}` : /* wgsl */ `
-fn sparse_shadow(_light:OEngineSparseLight,_position:vec3f,_normal:vec3f)->f32{return 1.0;}`;
   return /* wgsl */ `
-${GPU_SPARSE_SHADING_LIGHT_WGSL}
-const SPARSE_PI: f32 = 3.141592653589793;
-fn sparse_light(index: u32) -> OEngineSparseLight {
-  let base=light_database[3u]+index*OENGINE_SPARSE_LIGHT_RECORD_WORDS;
-  return OEngineSparseLight(light_database[base],light_database[base+1u],light_database[base+2u],vec4f(bitcast<f32>(light_database[base+4u]),bitcast<f32>(light_database[base+5u]),bitcast<f32>(light_database[base+6u]),bitcast<f32>(light_database[base+7u])),vec4f(bitcast<f32>(light_database[base+8u]),bitcast<f32>(light_database[base+9u]),bitcast<f32>(light_database[base+10u]),bitcast<f32>(light_database[base+11u])),vec4f(bitcast<f32>(light_database[base+12u]),bitcast<f32>(light_database[base+13u]),bitcast<f32>(light_database[base+14u]),bitcast<f32>(light_database[base+15u])),vec4f(bitcast<f32>(light_database[base+16u]),bitcast<f32>(light_database[base+17u]),0.0,0.0));
-}
-${shadowFunctions}
-fn sparse_fresnel(f0:vec3f,cosine:f32)->vec3f{let x=1.0-clamp(cosine,0.0,1.0);let fifth=x*x*x*x*x;return f0+(vec3f(1.0)-f0)*fifth;}
-fn sparse_brdf(surface:OEngineSparseSurface,light:OEngineSparseLight)->vec3f{
-  var direction=normalize(light.direction_outer.xyz); var attenuation=1.0;
-  if light.kind!=OENGINE_SPARSE_LIGHT_DIRECTIONAL{let delta=light.position_range.xyz-surface.position_ws;let distance=length(delta);direction=delta/max(distance,1e-6);let range=max(light.position_range.w,1e-6);attenuation=pow(clamp(1.0-pow(distance/range,4.0),0.0,1.0),2.0)/max(distance*distance,1e-4);if light.kind==OENGINE_SPARSE_LIGHT_SPOT{let cone=dot(direction,normalize(light.direction_outer.xyz));attenuation*=smoothstep(light.direction_outer.w,light.radius_inner.y,cone);}}
-  let n=surface.shading_normal;let v=normalize(shading_view.camera_position.xyz-surface.position_ws);let h=normalize(direction+v);let nl=clamp(dot(n,direction),0.0,1.0);let nv=clamp(dot(n,v),0.0,1.0);let nh=clamp(dot(n,h),0.0,1.0);let vh=clamp(dot(v,h),0.0,1.0);let alpha=max(surface.roughness*surface.roughness,0.02);let a2=alpha*alpha;let d=a2/(SPARSE_PI*pow(nh*nh*(a2-1.0)+1.0,2.0));let vis=0.5/max(nl*sqrt(nv*nv*(1.0-a2)+a2)+nv*sqrt(nl*nl*(1.0-a2)+a2),1e-6);let f0=mix(vec3f(0.04),surface.base_color,surface.metallic);let f=sparse_fresnel(f0,vh);let diffuse=surface.base_color*(1.0-surface.metallic)*max(vec3f(0.0),vec3f(1.0)-f)/SPARSE_PI;let radiance=light.color_intensity.xyz*light.color_intensity.w*attenuation*nl*sparse_shadow(light,surface.position_ws,n);return radiance*(diffuse+f*vis*d);
-}
+${createProductionSparseDirectLightingWgsl(shadowSamplingEnabled)}
 fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
-  var result=surface.emissive;let directional=min(light_database[1u],light_settings.directional_light_limit);for(var i=0u;i<directional;i++){result+=sparse_brdf(surface,sparse_light(i));}
-  let dimensions=max(light_settings.cluster_dimensions.xyz,vec3u(1u));let tile=min(pixel/vec2u(16u),dimensions.xy-vec2u(1u));let z=min(u32(clamp(log2(max(surface.view_depth,1e-6))*light_settings.cluster_depth.x+light_settings.cluster_depth.y,0.0,f32(dimensions.z-1u))),dimensions.z-1u);let header=light_cluster_headers[(z*dimensions.y+tile.y)*dimensions.x+tile.x];let count=min(header.point_count+header.spot_count,light_settings.local_light_limit);for(var i=0u;i<count;i++){let local=light_cluster_indices[header.offset+i];result+=sparse_brdf(surface,sparse_light(directional+local));}return result;
+  if (oengine_surface_has_flag(surface.flags, OENGINE_SURFACE_FLAG_UNLIT)) {
+    return surface.emissive;
+  }
+  var material: StandardMaterial;
+  material.diffuse = surface.base_color * (1.0 - surface.metallic);
+  material.occlusion = surface.material_ao;
+  material.roughness = max(surface.roughness, 0.02);
+  material.specularF0 = metalness_to_specular_color(surface.metallic, surface.base_color);
+  material.specularF90 = 1.0;
+  material.emissive = surface.emissive;
+  material.opacity = surface.alpha;
+  let geometry = SurfaceGeometry(
+    surface.shading_normal,
+    surface.geometric_normal,
+    surface.position_ws,
+    normalize(shading_view.camera_position.xyz - surface.position_ws)
+  );
+  random_initialize(
+    vec3u(pixel, shading_view.frame_index),
+    vec3u(0xEE6B2807u, 7u, 0xD0974829u)
+  );
+  return shade_standard_material_direct(
+    material,
+    geometry,
+    vec2f(pixel) + vec2f(0.5),
+    surface.view_depth
+  );
 }
 `;
 }

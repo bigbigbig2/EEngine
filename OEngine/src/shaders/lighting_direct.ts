@@ -22,7 +22,7 @@ import { SHADOW_NORMAL_OFFSET_SCALE } from "../gpu/ShadowContract.js";
 
 export const LIGHTING_DIRECT_FORMAT = "rgba16float" as const;
 
-const DIRECT_LIGHT_DATABASE_WGSL = CodeChunk.from("", [
+export const DIRECT_LIGHT_DATABASE_WGSL = CodeChunk.from("", [
   LIGHT_DATABASE_READ_CHUNK,
   SHADOW_POINT_DESCRIPTOR.chunk_read,
   SHADOW_SPOT_DESCRIPTOR.chunk_read,
@@ -86,6 +86,10 @@ struct ClusterData {
   written: u32,
   capacity: u32,
   overflow: u32,
+  active_written: u32,
+  _reserved0: u32,
+  _reserved1: u32,
+  _reserved2: u32,
   data: array<u32>,
 }
 
@@ -684,6 +688,119 @@ fn shade_direct_pixel(i_coord: vec2u) -> vec4f {
   ), 1.0);
 }
 `;
+
+const SPARSE_DIRECT_OMITTED_FUNCTIONS = Object.freeze([
+  "uv_to_ndc",
+  "project_position_from_depth",
+  "get_view_space_depth",
+  "mat4_extract_position",
+  "read_gBuffer_material"
+] as const);
+
+const SPARSE_DIRECT_SHADOW_FUNCTIONS = Object.freeze([
+  "correct_u_vs",
+  "rgb_to_corners",
+  "shadowmap_sample_5",
+  "sample_shadowmap_atlas_for_light",
+  "shadowmap_csm_compute_cascade_blended",
+  "shadowmap_sample_directional",
+  "build_orthonormal_matrix_n",
+  "cone_sample_direction",
+  "contact_harden_pcf_kernel",
+  "max_penumbra_percentage",
+  "shadowmap_sample_point",
+  "shadowmap_sample_spot",
+  "shadowmap_get_point_light_visibility",
+  "shadowmap_get_spot_light_visibility",
+  "shadowmap_get_directional_light_visibility"
+] as const);
+
+/**
+ * Publishes the exact production direct-lighting implementation for the
+ * ADR-0013 sparse consumer. This is deliberately derived from the same WGSL
+ * source as LightingPass while Step 7 is cutting that pass over: the bridge
+ * cannot silently fork BRDF, cluster or shadow behavior. Step 7.3 can delete
+ * the old pass without changing this single shader authority.
+ */
+export function createProductionSparseDirectLightingWgsl(
+  shadowSamplingEnabled: boolean
+): string {
+  const typeStart = requireWgslMarker(LIGHTING_DIRECT_CORE_WGSL, "const PI: f32");
+  const typeEnd = requireWgslMarker(LIGHTING_DIRECT_CORE_WGSL, "@group(0) @binding(0)");
+  const bodyStart = requireWgslMarker(LIGHTING_DIRECT_CORE_WGSL, "var<private> rnd_state");
+  const bodyEnd = requireWgslMarker(LIGHTING_DIRECT_CORE_WGSL, "fn shade_direct_pixel");
+  let body = LIGHTING_DIRECT_CORE_WGSL.slice(bodyStart, bodyEnd);
+  for (const name of SPARSE_DIRECT_OMITTED_FUNCTIONS) {
+    body = omitWgslFunction(body, name);
+  }
+  body = body
+    .replaceAll("f32(view.height)", "f32(shading_view.height)")
+    .replaceAll("vec2u(view.width, view.height)", "vec2u(shading_view.width, shading_view.height)")
+    .replaceAll("active_light_list.written", "cluster_data.active_written")
+    .replaceAll("active_light_list.data", "cluster_data.data");
+  if (!shadowSamplingEnabled) {
+    for (const name of SPARSE_DIRECT_SHADOW_FUNCTIONS) {
+      body = omitWgslFunction(body, name);
+    }
+    body += /* wgsl */ `
+fn shadowmap_get_point_light_visibility(
+  _database: ptr<storage, array<u32>>,
+  _index: u32,
+  _position_ws: vec3f,
+  _normal_ws: vec3f
+) -> f32 { return 1.0; }
+
+fn shadowmap_get_spot_light_visibility(
+  _database: ptr<storage, array<u32>>,
+  _index: u32,
+  _position_ws: vec3f,
+  _normal_ws: vec3f
+) -> f32 { return 1.0; }
+
+fn shadowmap_get_directional_light_visibility(
+  _database: ptr<storage, array<u32>>,
+  _index: u32,
+  _position_ws: vec3f,
+  _view_direction_ws: vec3f,
+  _normal_ws: vec3f
+) -> f32 { return 1.0; }
+`;
+  }
+  return `${DIRECT_LIGHT_DATABASE_WGSL}\n${LIGHTING_DIRECT_CORE_WGSL.slice(typeStart, typeEnd)}\n${body}`;
+}
+
+function requireWgslMarker(source: string, marker: string): number {
+  const index = source.indexOf(marker);
+  if (index < 0) {
+    throw new Error(`Production direct-lighting WGSL marker '${marker}' is missing`);
+  }
+  return index;
+}
+
+function omitWgslFunction(source: string, name: string): string {
+  const start = source.indexOf(`fn ${name}(`);
+  if (start < 0) {
+    throw new Error(`Production direct-lighting WGSL function '${name}' is missing`);
+  }
+  const blockStart = source.indexOf("{", start);
+  if (blockStart < 0) {
+    throw new Error(`Production direct-lighting WGSL function '${name}' has no body`);
+  }
+  let depth = 0;
+  for (let index = blockStart; index < source.length; index++) {
+    const character = source[index];
+    if (character === "{") depth++;
+    else if (character === "}") {
+      depth--;
+      if (depth === 0) {
+        let end = index + 1;
+        while (end < source.length && /\s/u.test(source[end]!)) end++;
+        return `${source.slice(0, start)}${source.slice(end)}`;
+      }
+    }
+  }
+  throw new Error(`Production direct-lighting WGSL function '${name}' is unterminated`);
+}
 
 export const LIGHTING_DIRECT_WGSL = /* wgsl */ `
 ${LIGHTING_DIRECT_CORE_WGSL}

@@ -24,7 +24,9 @@ export const LIGHT_CLUSTER_LIST_CAPACITY =
   (LIGHT_CLUSTER_LIST_BYTES - LIGHT_LIST_HEADER_BYTES) / 4;
 export const LIGHT_CLUSTER_SETTINGS_BYTES = 128;
 export const LIGHT_CLUSTER_METADATA_BYTES = 16;
-export const LIGHT_CLUSTER_DATA_HEADER_BYTES = 16;
+export const LIGHT_CLUSTER_DATA_ABI_VERSION = 2;
+export const LIGHT_CLUSTER_DATA_ACTIVE_WRITTEN_OFFSET = 16;
+export const LIGHT_CLUSTER_DATA_HEADER_BYTES = 32;
 
 const CLUSTER_COMMON_WGSL = /* wgsl */ `
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
@@ -396,6 +398,10 @@ struct ClusterData {
   written: atomic<u32>,
   capacity: atomic<u32>,
   overflow: atomic<u32>,
+  active_written: u32,
+  _reserved0: u32,
+  _reserved1: u32,
+  _reserved2: u32,
   data: array<u32>,
 }
 struct ClusterSettings {
@@ -457,7 +463,8 @@ fn grid3d_to_index(position: vec3u, dimensions: vec2u) -> u32 {
 }
 
 fn reserve_cluster_data(count: u32) -> u32 {
-  let capacity = arrayLength(&cluster_data.data);
+  const ACTIVE_LIST_CAPACITY = ${LIGHT_CLUSTER_LIST_CAPACITY}u;
+  let capacity = arrayLength(&cluster_data.data) - ACTIVE_LIST_CAPACITY;
   atomicStore(&cluster_data.capacity, capacity);
   atomicAdd(&cluster_data.attempted, count);
   loop {
@@ -471,7 +478,7 @@ fn reserve_cluster_data(count: u32) -> u32 {
       current,
       current + count,
     );
-    if (reservation.exchanged) { return current; }
+    if (reservation.exchanged) { return ACTIVE_LIST_CAPACITY + current; }
   }
 }
 
@@ -528,7 +535,7 @@ fn main(@builtin(global_invocation_id) voxel_position: vec3u) {
   if (flags != 0u) {
     cluster_lookup[cluster_index] = ClusterMetadata(
       0u,
-      0u,
+      input.written,
       0u,
       flags | CLUSTER_METADATA_FLAG_FALLBACK,
     );
@@ -539,7 +546,7 @@ fn main(@builtin(global_invocation_id) voxel_position: vec3u) {
   if (write_offset == 0xffffffffu) {
     cluster_lookup[cluster_index] = ClusterMetadata(
       0u,
-      0u,
+      input.written,
       0u,
       CLUSTER_METADATA_FLAG_DATA_OVERFLOW | CLUSTER_METADATA_FLAG_FALLBACK,
     );

@@ -30,6 +30,7 @@ import {
 import {
   LIGHT_CLUSTER_ASSIGN_WGSL,
   LIGHT_CLUSTER_ASSIGN_WORKGROUP,
+  LIGHT_CLUSTER_DATA_ACTIVE_WRITTEN_OFFSET,
   LIGHT_CLUSTER_DATA_HEADER_BYTES,
   LIGHT_CLUSTER_DEPTH_SLICES,
   LIGHT_CLUSTER_HZB_FILTER_WGSL,
@@ -159,7 +160,11 @@ const LIGHT_CLUSTER_STATS_GROUPS: readonly GPUBindGroupLayoutDescriptor[] = [{
 const LIGHT_CLUSTER_STATS_WGSL = /* wgsl */ `
 struct LightList { attempted: u32, written: u32, capacity: u32, overflow: u32, data: array<u32>, }
 struct ClusterMetadata { offset: u32, point_count: u32, spot_count: u32, flags: u32, }
-struct ClusterData { attempted: u32, written: u32, capacity: u32, overflow: u32, data: array<u32>, }
+struct ClusterData {
+  attempted: u32, written: u32, capacity: u32, overflow: u32,
+  active_written: u32, _reserved0: u32, _reserved1: u32, _reserved2: u32,
+  data: array<u32>,
+}
 
 @group(0) @binding(0) var<storage, read> candidate: LightList;
 @group(0) @binding(1) var<storage, read> active_list: LightList;
@@ -280,7 +285,7 @@ export class LightClusterPass {
     const lookupBytes = LIGHT_CLUSTER_METADATA_BYTES * clusterCount;
     const dataBytes =
       LIGHT_CLUSTER_DATA_HEADER_BYTES +
-      4 * lightClusterDataCapacity(clusterCount);
+      4 * (LIGHT_CLUSTER_LIST_CAPACITY + lightClusterDataCapacity(clusterCount));
     this.lastClusterCount = clusterCount;
 
     let visibleList = -1;
@@ -417,10 +422,27 @@ export class LightClusterPass {
         const settings = requireGpuBuffer(resources.get(parameters));
         const lookupBuffer = requireGpuBuffer(resources.get(lookup));
         const dataBuffer = requireGpuBuffer(resources.get(data));
-        encoder.clearBuffer(dataBuffer, 0, 16);
+        encoder.clearBuffer(dataBuffer, 0, LIGHT_CLUSTER_DATA_HEADER_BYTES);
         const activeLocalLightCount =
           passJob.lights.pointLights.count + passJob.lights.spotLights.count;
         if (activeLocalLightCount === 0) return;
+        // ClusterData owns the active-list snapshot used by overflow fallback.
+        // Preserve the filtered list's GPU-written count and tuple payload in
+        // the fixed prefix; normal cluster reservations begin after it.
+        encoder.copyBufferToBuffer(
+          input,
+          4,
+          dataBuffer,
+          LIGHT_CLUSTER_DATA_ACTIVE_WRITTEN_OFFSET,
+          4
+        );
+        encoder.copyBufferToBuffer(
+          input,
+          LIGHT_LIST_HEADER_BYTES,
+          dataBuffer,
+          LIGHT_CLUSTER_DATA_HEADER_BYTES,
+          LIGHT_CLUSTER_LIST_CAPACITY * 4
+        );
         const group0 = this.graphics.bind_groups.obtain({
           layout: LIGHT_CLUSTER_ASSIGN_GROUPS[0]!,
           entries: [

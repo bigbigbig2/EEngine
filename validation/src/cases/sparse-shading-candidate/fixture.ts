@@ -29,8 +29,7 @@ import { evaluateGpuShadingProgramReference, gpuShadingProgramSpecialization,
   type Vec3 } from "../../../../OEngine/src/gpu/GpuShadingProgramOracle.js";
 import type { GpuSparseShadingCapabilityRecord } from "../../../../OEngine/src/gpu/GpuSparseShadingCapability.js";
 import { GPU_SHADING_OUTPUT_DEPENDENCY } from "../../../../OEngine/src/gpu/GpuSparseShadingPipelineContract.js";
-import { GPU_SPARSE_SHADING_LIGHT_FLAGS, GPU_SPARSE_SHADING_LIGHT_TYPE,
-  packGpuSparseShadingLightDatabase } from "../../../../OEngine/src/gpu/GpuSparseShadingLightAbi.js";
+import { packGpuSparseShadingView } from "../../../../OEngine/src/gpu/GpuSparseShadingFrameAbi.js";
 import { GPU_TEXTURE_REF_INVALID, encodeGpuTextureRef } from "../../../../OEngine/src/gpu/GpuTextureRefAbi.js";
 import type { GpuAssetBindings } from "../../../../OEngine/src/gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../../../OEngine/src/gpu/GpuScene.js";
@@ -52,6 +51,7 @@ import { GPU_COUNTER_BYTE_SIZE } from "../../../../OEngine/src/debug/GpuFrameCou
 import { PACKED_CAMERA_TYPE } from "../../../../OEngine/src/shaders/packed_camera.js";
 import { MESHLET_BUCKET_SETTINGS_STRIDE } from "../../../../OEngine/src/shaders/meshlet_bucket_visibility.js";
 import { RenderingLabDownstream, type RenderingLabDownstreamResources } from "./renderingLabDownstream.ts";
+import { packNativeLightDatabaseFixture } from "../../fixtures/native-light-database.js";
 
 const WIDTH = 256, HEIGHT = 256, PIXELS = WIDTH * HEIGHT;
 const STRIP_WIDTH = 2, STRIPS_PER_PROGRAM = WIDTH / (GPU_SHADING_PROGRAM_COUNT * STRIP_WIDTH);
@@ -82,6 +82,9 @@ const FEATURES = Object.freeze({ screenSpaceDiffuseMode:"off" as const, ssr:fals
   shadows:false, post:true, diagnostics:false });
 const RENDERING_LAB_FEATURES=Object.freeze({screenSpaceDiffuseMode:"ssgi" as const,ssr:true,temporal:true,
   shadows:true,post:true,diagnostics:false});
+const NATIVE_LIGHT_DATABASE_MAX_BYTES=packNativeLightDatabaseFixture({directional:[{
+  direction:[0,0,-1],color:[1,1,1],disk_radius:0,flags:1,near_clip_distance:0.1,shadow_id:0
+}],shadowDirectional:[Array.from({length:3},()=>({atlas:[0,0,SHADOW_SIZE,SHADOW_SIZE],projection:IDENTITY}))]}).byteLength;
 
 export type SparseCandidateWorkload = "mixed-bins"|"basic-cube"|"unlit-vertex-color"|"unlit-texture"|
   "rendering-lab-fixed"|"lifecycle-resize";
@@ -138,8 +141,6 @@ interface CandidateResources {
   readonly textureBanks:readonly GPUTexture[]; readonly textureBankViews:readonly GPUTextureView[];
   readonly materialSamplers:readonly GPUSampler[]; readonly lightDatabase:GPUBuffer|null;
   readonly clusterHeaders:GPUBuffer|null; readonly clusterIndices:GPUBuffer|null; readonly lightSettings:GPUBuffer|null;
-  readonly environmentSettings:GPUBuffer|null; readonly environmentTextures:readonly GPUTexture[];
-  readonly environmentSampler:GPUSampler|null;
   readonly renderingLab:RenderingLabPersistentResources|null;
 }
 
@@ -378,8 +379,7 @@ export class SparseShadingCandidateFixture {
       imported("candidate/light-database",requireResource(this.resources.lightDatabase,"light database")),
       imported("candidate/cluster-headers",requireResource(this.resources.clusterHeaders,"cluster headers")),
       imported("candidate/cluster-indices",requireResource(this.resources.clusterIndices,"cluster indices")),
-      imported("candidate/light-settings",requireResource(this.resources.lightSettings,"light settings")),
-      imported("candidate/environment-settings",requireResource(this.resources.environmentSettings,"environment settings"))]:[];
+      imported("candidate/light-settings",requireResource(this.resources.lightSettings,"light settings"))]:[];
     const externalStage=(stage:SparseShadingCandidateStage,frame:Readonly<SparseShadingCandidateFrame>,
       resources:PassResources,context:{readonly encoder:unknown}):void=>{
       const command=requireCommand(context.encoder);
@@ -546,8 +546,6 @@ function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GP
   const vertexBytes=layout.vertexCount*VERTEX_STRIDE,textureExtent=workload==="unlit-texture"||workload==="rendering-lab-fixed"?4:1;
   const textureBanks=Array.from({length:9},(_,index)=>makeTexture({label:`ADR-0013 ${label} texture bank ${index}`,
     size:[textureExtent,textureExtent,5],format:"rgba8unorm",usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST}));
-  const environmentTextures=lit?Array.from({length:3},(_,index)=>makeTexture({label:`ADR-0013 ${label} environment ${index}`,
-    size:[1,1],format:"rgba8unorm",usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST})):[];
   const renderingLab=workload==="rendering-lab-fixed"?createRenderingLabPersistentResources(device,makeBuffer,makeTexture):null;
   return {
     workload,layout,
@@ -580,12 +578,11 @@ function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GP
     textureBanks,textureBankViews:textureBanks.map((value)=>value.createView({dimension:"2d-array"})),
     materialSamplers:textured?Array.from({length:6},()=>device.createSampler({addressModeU:"clamp-to-edge",addressModeV:"clamp-to-edge",
       minFilter:"nearest",magFilter:"nearest"})):[],
-    lightDatabase:lit?makeBuffer(`ADR-0013 ${label} light database`,256,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST):null,
+    lightDatabase:lit?makeBuffer(`ADR-0013 ${label} light database`,NATIVE_LIGHT_DATABASE_MAX_BYTES,
+      GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST):null,
     clusterHeaders:lit?makeBuffer(`ADR-0013 ${label} cluster headers`,16*16*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST):null,
-    clusterIndices:lit?makeBuffer(`ADR-0013 ${label} cluster indices`,4,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST):null,
-    lightSettings:lit?makeBuffer(`ADR-0013 ${label} light settings`,64,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST):null,
-    environmentSettings:lit?makeBuffer(`ADR-0013 ${label} environment settings`,32,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST):null,
-    environmentTextures,environmentSampler:lit?device.createSampler({minFilter:"nearest",magFilter:"nearest"}):null,
+    clusterIndices:lit?makeBuffer(`ADR-0013 ${label} cluster data`,36,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST):null,
+    lightSettings:lit?makeBuffer(`ADR-0013 ${label} cluster parameters`,16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST):null,
     renderingLab
   };
 }
@@ -642,7 +639,7 @@ function uploadStaticInputs(device:GPUDevice,r:CandidateResources,snapshot:Retur
   workload:SparseCandidateWorkload):void {
   if(workload==="mixed-bins"){
     device.queue.writeBuffer(r.camera,0,packedPixelCamera());
-    device.queue.writeBuffer(r.shadingView,0,shadingView(snapshot,r.layout,PIXEL_VIEW_PROJECTION,[WIDTH/2,HEIGHT/2,100],0));
+    device.queue.writeBuffer(r.shadingView,0,shadingView(snapshot,r,PIXEL_VIEW_PROJECTION,[WIDTH/2,HEIGHT/2,100],0));
   } else uploadCameraFrame(device,r,snapshot,workload==="rendering-lab-fixed"?createRenderingLabCamera():createCubeCamera(CUBE_NEAR_DISTANCE),0);
   const geometry=createGeometryData(workload,r.layout); device.queue.writeBuffer(r.geometryRecords,0,geometry.geometryRecords);
   device.queue.writeBuffer(r.meshletRecords,0,geometry.meshletRecords);device.queue.writeBuffer(r.meshletVertexIndices,0,geometry.meshletVertices);
@@ -656,22 +653,28 @@ function uploadStaticInputs(device:GPUDevice,r:CandidateResources,snapshot:Retur
   const bank=createTextureBankUpload(workload);
   for(const value of r.textureBanks)device.queue.writeTexture({texture:value},bank.bytes,
     {bytesPerRow:bank.bytesPerRow,rowsPerImage:bank.extent},[bank.extent,bank.extent,5]);
-  for(const value of r.environmentTextures)device.queue.writeTexture({texture:value},new Uint8Array([255,255,255,255]),{},[1,1,1]);
   if(workload==="mixed-bins"||workload==="rendering-lab-fixed"){
     const shadowProjection=workload==="rendering-lab-fixed"?createRenderingLabShadowProjection():null;
     device.queue.writeBuffer(requireResource(r.lightDatabase,"light database"),0,
-      packGpuSparseShadingLightDatabase({directional:[{type:GPU_SPARSE_SHADING_LIGHT_TYPE.Directional,
-        flags:shadowProjection===null?0:GPU_SPARSE_SHADING_LIGHT_FLAGS.CastsShadow,shadowRecord:0,
-        shadowRecordCount:shadowProjection===null?0:1,position:[0,0,0],range:1,
-        direction:shadowProjection===null?[0,0,1]:[0.557086,0.742781,0.371391],outerConeCos:0,
-        color:workload==="mixed-bins"?[2,1,0.5]:[3.2,2.9,2.5],intensity:1,radius:0,innerConeCos:0}],local:[],
-        shadowRecords:shadowProjection===null?[]:[{projection:shadowProjection,atlas:[0,0,SHADOW_SIZE,SHADOW_SIZE]}]}));
-    const lightSettings=new ArrayBuffer(64),ls=new DataView(lightSettings);[16,16,1,0].forEach((value,index)=>ls.setUint32(index*4,value,true));
-    ls.setFloat32(16,1,true);ls.setFloat32(20,0,true);ls.setUint32(32,0,true);ls.setUint32(36,1,true);ls.setUint32(40,0,true);
-    device.queue.writeBuffer(requireResource(r.lightSettings,"light settings"),0,lightSettings);
-    device.queue.writeBuffer(requireResource(r.environmentSettings,"environment settings"),0,new Uint32Array(8));
+      candidateLightDatabase(workload,shadowProjection));
+    device.queue.writeBuffer(requireResource(r.lightSettings,"light settings"),0,new Float32Array([1,0,4.06,0]));
   }
   if(r.renderingLab!==null)uploadRenderingLabPersistentResources(device,r.renderingLab);
+}
+
+function candidateLightDatabase(
+  workload:SparseCandidateWorkload,
+  shadowProjection:Float32Array|null
+):ArrayBuffer {
+  const incident=shadowProjection===null?[0,0,1] as const:[0.557086,0.742781,0.371391] as const;
+  const shadow=shadowProjection===null?[]:[Array.from({length:3},()=>({
+    projection:shadowProjection,atlas:[0,0,SHADOW_SIZE,SHADOW_SIZE]
+  }))];
+  return packNativeLightDatabaseFixture({directional:[{
+    direction:[-incident[0],-incident[1],-incident[2]],
+    color:workload==="mixed-bins"?[2,1,0.5]:[3.2,2.9,2.5],disk_radius:0,
+    flags:shadowProjection===null?0:1,near_clip_distance:0.1,shadow_id:0
+  }],shadowDirectional:shadow});
 }
 
 function unlitTextureTexel(x:number,y:number):readonly [number,number,number,number] {
@@ -776,7 +779,7 @@ function uploadRgba8(device:GPUDevice,texture:GPUTexture,width:number,height:num
 function uploadCameraFrame(device:GPUDevice,r:CandidateResources,
   snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,camera:CubeCameraFrame,frameIndex:number):void {
   device.queue.writeBuffer(r.camera,0,camera.packed);device.queue.writeBuffer(r.shadingView,0,
-    shadingView(snapshot,r.layout,camera.viewProjection,camera.position,frameIndex));
+    shadingView(snapshot,r,camera.viewProjection,camera.position,frameIndex));
 }
 function uploadFrameConfiguration(device:GPUDevice,r:CandidateResources,
   snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,camera:CubeCameraFrame,frameIndex:number):void {
@@ -790,19 +793,22 @@ function uploadSnapshotDependentInputs(device:GPUDevice,r:CandidateResources,
   device.queue.writeBuffer(r.shadingMaterials,0,materials.shading);
   device.queue.writeBuffer(r.routes,0,materials.routes);
 }
-function shadingView(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,layout:WorkloadLayout,
+function shadingView(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,r:CandidateResources,
   currentViewProjection:ArrayLike<number>,cameraPosition:readonly number[],frameIndex:number):ArrayBuffer {
+  const layout=r.layout;
   const geometryWords=GPU_GEOMETRY_RECORD_STRIDE/4,meshletWords=GPU_MESHLET_RECORD_STRIDE/4;
   const vertexWords=layout.vertexCount;
   const triangleWords=layout.triangleBytes/4;
-  const output=new ArrayBuffer(240),view=new DataView(output);
-  [snapshot.context.width,snapshot.context.height,layout.materialCount,layout.geometryCount,MATERIAL_GENERATION,TEXTURE_GENERATION,
-    GEOMETRY_GENERATION,snapshot.revision,0,layout.geometryCount*geometryWords,
-    layout.geometryCount*geometryWords+layout.meshletCount*meshletWords,0,vertexWords,vertexWords+triangleWords,frameIndex,0]
-    .forEach((value,index)=>view.setUint32(index*4,value,true));
-  view.setFloat32(64,PRE_EXPOSURE,true);view.setFloat32(72,1,true);view.setFloat32(76,1,true);
-  [cameraPosition[0]!,cameraPosition[1]!,cameraPosition[2]!,1].forEach((value,index)=>view.setFloat32(96+index*4,value,true));
-  new Float32Array(output,112,16).set(currentViewProjection);new Float32Array(output,176,16).set(currentViewProjection);return output;
+  return packGpuSparseShadingView({width:snapshot.context.width,height:snapshot.context.height,
+    materialCount:layout.materialCount,materialGeneration:MATERIAL_GENERATION,textureGeneration:TEXTURE_GENERATION,
+    publicationRevision:snapshot.revision,frameIndex,preExposure:PRE_EXPOSURE,upscaleRatio:[1,1],
+    cameraPosition:[cameraPosition[0]!,cameraPosition[1]!,cameraPosition[2]!],currentViewProjection,
+    previousViewProjection:currentViewProjection,assets:{schemaVersion:1,epoch:1,assetMetadataHeap:r.assetMetadata,
+      vertexPayloadHeap:r.vertexPayload,geometryWordBase:0,meshletWordBase:layout.geometryCount*geometryWords,
+      geometryGenerationWordBase:layout.geometryCount*geometryWords+layout.meshletCount*meshletWords,
+      meshletVertexWordBase:0,meshletTriangleWordBase:vertexWords,vertexDataWordBase:vertexWords+triangleWords,
+      geometryCount:layout.geometryCount,meshletCount:layout.meshletCount,assetMetadataBytes:r.assetMetadata.size,
+      vertexPayloadBytes:r.vertexPayload.size}});
 }
 
 function createGeometryData(workload:SparseCandidateWorkload,layout:WorkloadLayout){
@@ -1124,8 +1130,8 @@ function resolveBinding(name:string,frame:Readonly<SparseShadingCandidateFrame>,
     vertex_payload_heap:r.vertexPayload,material_records:r.shadingMaterials,texture_descriptor_routing_heap:r.routes};
   const direct=buffers[name];if(direct!==undefined)return {buffer:direct};
   const optionalBuffers:Readonly<Record<string,GPUBuffer|null>>={light_database:r.lightDatabase,
-    light_cluster_headers:r.clusterHeaders,light_cluster_indices:r.clusterIndices,light_settings:r.lightSettings,
-    environment_settings:r.environmentSettings};
+    light_cluster_lookup:r.clusterHeaders,light_cluster_data:r.clusterIndices,
+    light_cluster_parameters:r.lightSettings};
   if(name in optionalBuffers)return {buffer:requireResource(optionalBuffers[name]??null,name)};
   if(name==="shading_bin_id")return textureView(frame.shadingBinId,resources);
   if(name==="visibility_key")return textureView(frame.visibilityKey,resources);
@@ -1137,8 +1143,6 @@ function resolveBinding(name:string,frame:Readonly<SparseShadingCandidateFrame>,
   if(name==="output_velocity")return textureView(frame.velocity,resources);
   if(name.startsWith("material_texture_"))return r.textureBankViews[Number(name.slice(-1))]!;
   if(name.startsWith("material_sampler_"))return r.materialSamplers[Number(name.slice(-1))]!;
-  if(name.startsWith("environment_texture_"))return r.environmentTextures[Number(name.slice(-1))]!.createView();
-  if(name==="environment_sampler")return requireResource(r.environmentSampler,"environment sampler");
   if(name==="shadow_atlas")return requireResource(r.renderingLab,"RenderingLab resources").shadowAtlas.createView({aspect:"depth-only"});
   if(name==="shadow_sampler")return requireResource(r.renderingLab,"RenderingLab resources").shadowSampler;
   throw new Error(`Missing ADR-0013 MixedBins binding '${name}'`);
@@ -1153,7 +1157,7 @@ struct ClusterHeader { offset:u32, count:u32, overflow_count:u32, reserved:u32 }
 @group(0) @binding(0) var<storage,read_write> headers:array<ClusterHeader>;
 @group(0) @binding(1) var<storage,read_write> indices:array<u32>;
 @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id:vec3u){
-  if(id.x<256u){headers[id.x]=ClusterHeader(0u,0u,0u,0u);}if(id.x==0u){indices[0]=0xffffffffu;}
+  if(id.x<256u){headers[id.x]=ClusterHeader(0u,0u,0u,0u);}if(id.x<9u){indices[id.x]=0u;}
 }`}}} as const;
 function clusterPipelineDescriptor(){return CLUSTER_PIPELINE_DESCRIPTOR;}
 

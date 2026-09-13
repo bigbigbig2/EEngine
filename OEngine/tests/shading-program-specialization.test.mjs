@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import "./webgpu-test-globals.mjs";
+
 import {
   captureGpuSparseShadingCapabilityRecord,
   createGpuSparseShadingCapabilityPlan,
@@ -15,10 +17,6 @@ import {
   unpackGpuShadingMaterialHeader,
   unpackGpuShadingTextureRoute
 } from "../.test-dist/gpu/GpuShadingMaterialAbi.js";
-import {
-  GPU_SPARSE_SHADING_LIGHT_TYPE,
-  packGpuSparseShadingLightDatabase
-} from "../.test-dist/gpu/GpuSparseShadingLightAbi.js";
 import {
   createGpuSparseShadingPipelineDescriptor,
   GPU_SHADING_OUTPUT_DEPENDENCY,
@@ -36,6 +34,11 @@ import {
   createSparseShadingProgramFamily,
   createSparseShadingShaderVariant
 } from "../.test-dist/shaders/sparse_shading_resolve.js";
+import {
+  LIGHT_CLUSTER_ASSIGN_WGSL,
+  LIGHT_CLUSTER_DATA_HEADER_BYTES,
+  LIGHT_CLUSTER_LIST_CAPACITY
+} from "../.test-dist/shaders/light_cluster.js";
 
 const adapterLimits = {
   ...GPU_SPARSE_SHADING_REQUIRED_LIMITS
@@ -167,14 +170,33 @@ test("actual WGSL binding pairs and output stores equal every concrete descripto
 
 test("lit programs fuse BRDF, cluster traversal and shadow comparison in their sole consumer", () => {
   const source = createSparseShadingShaderVariant(descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 7, 3)).source;
-  assert.match(source, /fn sparse_brdf/u);
-  assert.match(source, /light_cluster_headers/u);
-  assert.match(source, /textureSampleCompareLevel\(/u);
+  assert.match(source, /fn re_direct_physical/u);
+  assert.match(source, /fn directional_lights_iteration_mask/u);
+  assert.match(source, /cluster_resolution_xy[\s\S]*vec2u\(31u\)[\s\S]*vec2u\(32u\)/u);
+  assert.match(source, /cluster_data\.active_written/u);
+  assert.match(source, /textureGatherCompare\(/u);
+  assert.match(source, /fn shadowmap_csm_compute_cascade_blended/u);
+  assert.match(source, /fn contact_harden_pcf_kernel/u);
   assert.match(source, /sparse_direct\(surface,pixel\)/u);
   assert.equal((source.match(/@compute/gu) ?? []).length, 1);
   assert.doesNotMatch(source, /LightingPass|shade_direct_pixel|SurfaceLite immediately/u);
+  assert.doesNotMatch(source, /environment_settings|environment_texture_|environment_sampler/u);
   const unlit = createSparseShadingShaderVariant(descriptor(GPU_SHADING_PROGRAM.UnlitTexture, 0, 1)).source;
-  assert.doesNotMatch(unlit, /light_cluster_headers|textureSampleCompareLevel|fn sparse_brdf/u);
+  assert.doesNotMatch(unlit, /cluster_lookup|textureGatherCompare|fn re_direct_physical/u);
+});
+
+test("cluster data embeds the active-list fallback without an eleventh storage binding", () => {
+  assert.equal(LIGHT_CLUSTER_DATA_HEADER_BYTES, 32);
+  assert.ok(LIGHT_CLUSTER_LIST_CAPACITY > 0);
+  assert.match(LIGHT_CLUSTER_ASSIGN_WGSL, /active_written: u32/u);
+  assert.match(LIGHT_CLUSTER_ASSIGN_WGSL,
+    new RegExp(`const ACTIVE_LIST_CAPACITY = ${LIGHT_CLUSTER_LIST_CAPACITY}u`, "u"));
+  assert.match(LIGHT_CLUSTER_ASSIGN_WGSL, /return ACTIVE_LIST_CAPACITY \+ current/u);
+  assert.match(LIGHT_CLUSTER_ASSIGN_WGSL,
+    /ClusterMetadata\(\s*0u,\s*input\.written,\s*0u,[\s\S]*CLUSTER_METADATA_FLAG_FALLBACK/u);
+  const source = createSparseShadingShaderVariant(descriptor(GPU_SHADING_PROGRAM.PbrGeneric)).source;
+  assert.match(source, /cluster_data\.active_written/u);
+  assert.doesNotMatch(source, /@group\(3\)[^\n]*active_light_list/u);
 });
 
 test("shadow-off lit WGSL keeps direct lighting but contains no shadow resource or sample", () => {
@@ -187,7 +209,7 @@ test("shadow-off lit WGSL keeps direct lighting but contains no shadow resource 
   });
   const source = createSparseShadingShaderVariant(value).source;
   assert.match(source, /fn sparse_direct/u);
-  assert.match(source, /fn sparse_shadow\([^)]*\)[^{]*\{return 1\.0;\}/u);
+  assert.match(source, /fn shadowmap_get_point_light_visibility\([\s\S]*?\) -> f32 \{ return 1\.0; \}/u);
   assert.doesNotMatch(source, /shadow_atlas|shadow_sampler|textureSampleCompare/u);
   const actual = new Set(bindingPairs(source));
   const expected = new Set(value.groups.flatMap((group) =>
@@ -205,8 +227,8 @@ test("depth/comparison binding types and dynamic settings offset reach native la
     );
     assert.equal(layouts[0].entries[0].buffer.hasDynamicOffset, true);
     assert.equal(layouts[0].entries[0].buffer.minBindingSize, 32);
-    assert.equal(layouts[3].entries.find(({ binding }) => binding === 5).texture.sampleType, "depth");
-    assert.equal(layouts[3].entries.find(({ binding }) => binding === 9).sampler.type, "comparison");
+    assert.equal(layouts[3].entries.find(({ binding }) => binding === 4).texture.sampleType, "depth");
+    assert.equal(layouts[3].entries.find(({ binding }) => binding === 5).sampler.type, "comparison");
     const textured = gpuSparseShadingBindGroupLayoutDescriptors(
       descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 7, 2),
       GPUShaderStage.COMPUTE
@@ -275,32 +297,6 @@ test("material and texture-route publication ABI validates generations and exact
   assert.equal(routeBytes.byteLength, GPU_SHADING_TEXTURE_ROUTE_STRIDE);
   assert.deepEqual(unpackGpuShadingTextureRoute(routeBytes), route);
   assert.throws(() => packGpuShadingTextureRoute({ ...route, textureGeneration: 0 }), /non-zero/u);
-});
-
-test("packed light database folds directional/local/shadow inputs into one buffer", () => {
-  const common = {
-    flags: 1,
-    shadowRecord: 0,
-    shadowRecordCount: 1,
-    position: [0, 1, 2],
-    range: 9,
-    direction: [0, 0, 1],
-    outerConeCos: 0.5,
-    color: [1, 0.5, 0.25],
-    intensity: 3,
-    radius: 0.1,
-    innerConeCos: 0.8
-  };
-  const words = packGpuSparseShadingLightDatabase({
-    directional: [{ ...common, type: GPU_SPARSE_SHADING_LIGHT_TYPE.Directional }],
-    local: [
-      { ...common, type: GPU_SPARSE_SHADING_LIGHT_TYPE.Point },
-      { ...common, type: GPU_SPARSE_SHADING_LIGHT_TYPE.Spot }
-    ],
-    shadowRecords: [{ projection: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], atlas: [0, 0, 512, 512] }]
-  });
-  assert.deepEqual([...words.slice(0, 6)], [1, 1, 2, 8, 80, 1]);
-  assert.equal(words.length, 100);
 });
 
 test("resolve owner compiles once and encodes one indirect call per active bin", async () => {

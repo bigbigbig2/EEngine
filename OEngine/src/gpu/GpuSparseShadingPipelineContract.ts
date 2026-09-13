@@ -12,8 +12,9 @@ import {
   shadingProgramUsesTextures
 } from "./GpuShadingProgramAbi.js";
 import type { GpuSparseShadingCapabilityRecord } from "./GpuSparseShadingCapability.js";
+import { GPU_SPARSE_SHADING_VIEW_BYTES } from "./GpuSparseShadingFrameAbi.js";
 
-export const GPU_SPARSE_SHADING_PIPELINE_SCHEMA_VERSION = 2;
+export const GPU_SPARSE_SHADING_PIPELINE_SCHEMA_VERSION = 3;
 export const GPU_SPARSE_SHADING_ENTRY_POINT = "shading_resolve";
 
 export const GPU_SHADING_OUTPUT_DEPENDENCY = Object.freeze({
@@ -60,7 +61,7 @@ export interface GpuSparseShadingPipelineIdentityInput {
 }
 
 export interface GpuSparseShadingPipelineDescriptor {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly cacheKey: string;
   readonly label: string;
   readonly entryPoint: typeof GPU_SPARSE_SHADING_ENTRY_POINT;
@@ -151,17 +152,13 @@ export function createGpuSparseShadingPipelineDescriptor(
 
   const lightingBindings: GpuSparseShadingBindingDescriptor[] = lit ? [
     storageBufferBinding(3, 0, "light_database", "read-only-storage"),
-    storageBufferBinding(3, 1, "light_cluster_headers", "read-only-storage"),
-    storageBufferBinding(3, 2, "light_cluster_indices", "read-only-storage"),
-    uniformBinding(3, 3, "light_settings"),
-    uniformBinding(3, 4, "environment_settings"),
+    storageBufferBinding(3, 1, "light_cluster_lookup", "read-only-storage"),
+    storageBufferBinding(3, 2, "light_cluster_data", "read-only-storage"),
+    uniformBinding(3, 3, "light_cluster_parameters"),
     ...(input.shadowSamplingEnabled
-      ? [textureBinding(3, 5, "shadow_atlas", "depth")] : []),
-    ...Array.from({ length: 3 }, (_, index) =>
-      textureBinding(3, 6 + index, `environment_texture_${index}`, "float")),
+      ? [textureBinding(3, 4, "shadow_atlas", "depth")] : []),
     ...(input.shadowSamplingEnabled
-      ? [samplerBinding(3, 9, "shadow_sampler", "comparison")] : []),
-    samplerBinding(3, 10, "environment_sampler", "filtering")
+      ? [samplerBinding(3, 5, "shadow_sampler", "comparison")] : [])
   ] : [];
 
   const groups: GpuSparseShadingBindGroupDescriptor[] = [
@@ -337,7 +334,9 @@ function toGpuLayoutEntry(
         type: binding.resource.type,
         ...(binding.name === "shading_bin_settings"
           ? { hasDynamicOffset: true, minBindingSize: 32 }
-          : {})
+          : binding.name === "shading_view"
+            ? { minBindingSize: GPU_SPARSE_SHADING_VIEW_BYTES }
+            : {})
       }
     };
     case "texture": return {
