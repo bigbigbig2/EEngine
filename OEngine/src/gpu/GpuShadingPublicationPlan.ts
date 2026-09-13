@@ -68,6 +68,8 @@ export interface GpuShadingPublicationContext {
   readonly width: number;
   readonly height: number;
   readonly outputDependencyMask: number;
+  /** Opaque-lit shader specialization; false physically omits shadow bindings/sampling. */
+  readonly shadowSamplingEnabled: boolean;
   readonly capability: Readonly<GpuSparseShadingCapabilityRecord>;
   readonly sizingLimits: Readonly<GpuShadingBinSizingLimits>;
 }
@@ -265,6 +267,7 @@ export class GpuShadingPublicationStore {
         programId,
         textureBindingSetId,
         outputDependencyMask: context.outputDependencyMask,
+        shadowSamplingEnabled: context.shadowSamplingEnabled,
         capability: context.capability
       });
       const cached = this.pipelineCache.get(candidate.cacheKey);
@@ -829,6 +832,7 @@ function freezeContext(input: GpuShadingPublicationContext): Readonly<GpuShading
     width: input.width,
     height: input.height,
     outputDependencyMask: input.outputDependencyMask,
+    shadowSamplingEnabled: input.shadowSamplingEnabled,
     capability: input.capability,
     sizingLimits: Object.freeze({ ...input.sizingLimits })
   });
@@ -840,6 +844,9 @@ function validateContext(input: GpuShadingPublicationContext): void {
   if (!Number.isInteger(input.outputDependencyMask) || input.outputDependencyMask < 0 ||
       (input.outputDependencyMask & ~GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK) !== 0) {
     throw new RangeError("Sparse shading publication output dependency mask has reserved bits");
+  }
+  if (typeof input.shadowSamplingEnabled !== "boolean") {
+    throw new TypeError("Sparse shading publication shadow specialization must be boolean");
   }
   if (input.capability.fingerprint.length === 0 || input.capability.formatProfile.length === 0) {
     throw new RangeError("Sparse shading publication requires a capability/format fingerprint");
@@ -887,6 +894,7 @@ function sameContext(
   return left.width === right.width && left.height === right.height &&
     left.outputDependencyMask === right.outputDependencyMask &&
     left.capability.fingerprint === right.capability.fingerprint &&
+    left.shadowSamplingEnabled === right.shadowSamplingEnabled &&
     left.sizingLimits.maxTextureDimension2D === right.sizingLimits.maxTextureDimension2D &&
     left.sizingLimits.maxBufferSize === right.sizingLimits.maxBufferSize &&
     left.sizingLimits.maxStorageBufferBindingSize ===

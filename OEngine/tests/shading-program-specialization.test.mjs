@@ -57,6 +57,7 @@ function descriptor(programId, outputDependencyMask = 0, set = 0) {
     programId,
     textureBindingSetId: shadingProgramUsesTextures(programId) ? set : 0,
     outputDependencyMask,
+    shadowSamplingEnabled: true,
     capability
   });
 }
@@ -70,6 +71,7 @@ test("all 16 program families are literal creation-time variants without a class
   const variants = createSparseShadingProgramFamily({
     textureBindingSetId: 3,
     outputDependencyMask: 0,
+    shadowSamplingEnabled: true,
     capability
   });
   assert.equal(variants.length, GPU_SHADING_PROGRAM_COUNT);
@@ -161,6 +163,24 @@ test("lit programs fuse BRDF, cluster traversal and shadow comparison in their s
   assert.doesNotMatch(source, /LightingPass|shade_direct_pixel|SurfaceLite immediately/u);
   const unlit = createSparseShadingShaderVariant(descriptor(GPU_SHADING_PROGRAM.UnlitTexture, 0, 1)).source;
   assert.doesNotMatch(unlit, /light_cluster_headers|textureSampleCompareLevel|fn sparse_brdf/u);
+});
+
+test("shadow-off lit WGSL keeps direct lighting but contains no shadow resource or sample", () => {
+  const value = createGpuSparseShadingPipelineDescriptor({
+    programId: GPU_SHADING_PROGRAM.PbrGeneric,
+    textureBindingSetId: 3,
+    outputDependencyMask: 0,
+    shadowSamplingEnabled: false,
+    capability
+  });
+  const source = createSparseShadingShaderVariant(value).source;
+  assert.match(source, /fn sparse_direct/u);
+  assert.match(source, /fn sparse_shadow\([^)]*\)[^{]*\{return 1\.0;\}/u);
+  assert.doesNotMatch(source, /shadow_atlas|shadow_sampler|textureSampleCompare/u);
+  const actual = new Set(bindingPairs(source));
+  const expected = new Set(value.groups.flatMap((group) =>
+    group.bindings.map((binding) => `${binding.group}:${binding.binding}`)));
+  assert.deepEqual(actual, expected);
 });
 
 test("depth/comparison binding types and dynamic settings offset reach native layouts", () => {

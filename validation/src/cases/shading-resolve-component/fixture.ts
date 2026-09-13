@@ -151,6 +151,7 @@ export class SparseShadingResolveFixture {
         programId,
         textureBindingSetId: shadingProgramUsesTextures(programId) ? (programId % 3) + 1 : 0,
         outputDependencyMask: OUTPUT_MASK,
+        shadowSamplingEnabled: true,
         capability
       })));
     const activeBins = descriptors.map((descriptor) => descriptor.binId);

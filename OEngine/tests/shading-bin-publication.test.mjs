@@ -43,6 +43,7 @@ function context(overrides = {}) {
     width: 1920,
     height: 1080,
     outputDependencyMask: 0,
+    shadowSamplingEnabled: false,
     capability,
     sizingLimits,
     ...overrides

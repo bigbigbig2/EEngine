@@ -52,6 +52,7 @@ function descriptor(programId, textureBindingSetId, outputDependencyMask, extra 
     programId,
     textureBindingSetId,
     outputDependencyMask,
+    shadowSamplingEnabled: true,
     capability,
     ...extra
   });
@@ -71,6 +72,9 @@ test("pipeline cache identity changes for every compiled dimension and ignores r
     GPU_SHADING_OUTPUT_DEPENDENCY.Velocity
   ).cacheKey);
   assert.notEqual(base.cacheKey, descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 0, {
+    shadowSamplingEnabled: false
+  }).cacheKey);
+  assert.notEqual(base.cacheKey, descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 0, {
     capability: { ...capability, fingerprint: `${capability.fingerprint}:changed` }
   }).cacheKey);
   assert.notEqual(base.cacheKey, descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 0, {
@@ -80,6 +84,7 @@ test("pipeline cache identity changes for every compiled dimension and ignores r
     programId: GPU_SHADING_PROGRAM.PbrGeneric,
     textureBindingSetId: 0,
     outputDependencyMask: 0,
+    shadowSamplingEnabled: true,
     capability,
     frameIndex: 999,
     visibleBinCount: 7
@@ -88,6 +93,19 @@ test("pipeline cache identity changes for every compiled dimension and ignores r
   assert.equal(base.binId, GPU_SHADING_PROGRAM.PbrGeneric);
   assert.throws(() => descriptor(GPU_SHADING_PROGRAM.UnlitFactor, 1, 0), /Textureless/u);
   assert.throws(() => descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 8), /reserved bits/u);
+});
+
+test("shadow-off lit specialization physically omits atlas and comparison sampler", () => {
+  const shadowOn = descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 3, 0);
+  const shadowOff = descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 3, 0, {
+    shadowSamplingEnabled: false
+  });
+  assert.ok(names(shadowOn).includes("shadow_atlas"));
+  assert.ok(names(shadowOn).includes("shadow_sampler"));
+  assert.ok(!names(shadowOff).includes("shadow_atlas"));
+  assert.ok(!names(shadowOff).includes("shadow_sampler"));
+  assert.equal(shadowOff.shadowSamplingEnabled, false);
+  assert.equal(shadowOff.schemaVersion, 2);
 });
 
 test("widest PbrGeneric specialization exactly reaches the frozen four-group budget", () => {

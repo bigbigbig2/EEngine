@@ -51,15 +51,16 @@ const OFF = Object.freeze({
   diagnostics: false
 });
 
-function context(outputDependencyMask, width = 320, height = 180) {
-  return { width, height, outputDependencyMask, capability, sizingLimits: limits };
+function context(outputDependencyMask, width = 320, height = 180, shadowSamplingEnabled = false) {
+  return { width, height, outputDependencyMask, shadowSamplingEnabled, capability, sizingLimits: limits };
 }
 
 function snapshot(kind, outputDependencyMask, options = {}) {
   const store = new GpuShadingPublicationStore(context(
     outputDependencyMask,
     options.width ?? 320,
-    options.height ?? 180
+    options.height ?? 180,
+    options.shadowSamplingEnabled ?? false
   ));
   if (kind === "empty") return { store, snapshot: store.currentSnapshot() };
   const textured = kind === "textured";
@@ -124,8 +125,11 @@ test("static feature matrix prunes no-opaque, unlit, textureless and optional ou
   assert.ok(!unlitPlan.resources.includes("shading-normal"));
   assert.deepEqual(unlitPlan.histories, []);
 
-  const lit = snapshot("pbr", 0).snapshot;
-  const litPlan = createSparseShadingCandidatePlan(lit, { ...OFF, shadows: true });
+  const { store: litStore, snapshot: lit } = snapshot("pbr", 0);
+  const shadowMutation = litStore.beginTransaction();
+  shadowMutation.updateContext(context(0, 320, 180, true));
+  const litWithShadows = shadowMutation.commit(2);
+  const litPlan = createSparseShadingCandidatePlan(litWithShadows, { ...OFF, shadows: true });
   assert.ok(litPlan.passes.includes("light-cluster"));
   assert.ok(litPlan.passes.includes("shadow"));
   assert.ok(!litPlan.resources.includes("velocity"));
@@ -187,6 +191,10 @@ test("snapshot refuses feature toggles that did not atomically republish the out
     ...OFF,
     temporal: true
   }), /output mask/u);
+  assert.throws(() => createSparseShadingCandidatePlan(value, {
+    ...OFF,
+    shadows: true
+  }), /shadow specialization/u);
 });
 
 test("no-opaque topology creates no opaque resources while transparent lighting stays live", () => {
@@ -240,7 +248,9 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
   try {
     const mask = GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
       GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
-    const { snapshot: value } = snapshot("textured", mask);
+    const { snapshot: value } = snapshot("textured", mask, {
+      shadowSamplingEnabled: true
+    });
     const features = {
       ...OFF,
       screenSpaceDiffuseMode: "ssgi",

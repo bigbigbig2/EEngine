@@ -139,6 +139,9 @@ export function createSparseShadingCandidatePlan(
   const hasAnyLitConsumer = hasOpaqueLit || snapshot.summary.transparentLitReceiverCount > 0;
   const hasAnyShadowConsumer = features.shadows &&
     hasAnyLitConsumer;
+  if (snapshot.context.shadowSamplingEnabled !== (features.shadows && hasOpaqueLit)) {
+    throw new Error("Sparse shading snapshot shadow specialization does not match candidate consumers");
+  }
   const activeBinIds = snapshot.pipelines.map((pipeline) => pipeline.binId);
   if (hasOpaque !== (activeBinIds.length > 0)) {
     throw new Error("Active shading summary and pipeline closure disagree about opaque work");

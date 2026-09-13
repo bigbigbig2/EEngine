@@ -98,7 +98,7 @@ export function createSparseShadingShaderVariant(
     identityWgsl(descriptor, diagnostics),
     specialization.reconstructTriangle ? geometryWgsl() : "",
     usesTextures ? textureWgsl() : "",
-    specialization.lit ? lightingWgsl() : "",
+    specialization.lit ? lightingWgsl(descriptor.shadowSamplingEnabled) : "",
     materialEvaluationWgsl(descriptor),
     outputWgsl(descriptor),
     consumerWgsl(descriptor, diagnostics)
@@ -110,6 +110,7 @@ export function createSparseShadingShaderVariant(
 export function createSparseShadingProgramFamily(input: {
   readonly textureBindingSetId: number;
   readonly outputDependencyMask: number;
+  readonly shadowSamplingEnabled: boolean;
   readonly capability: Parameters<typeof createGpuSparseShadingPipelineDescriptor>[0]["capability"];
   readonly diagnostics?: boolean;
 }): readonly Readonly<SparseShadingShaderVariant>[] {
@@ -121,6 +122,7 @@ export function createSparseShadingProgramFamily(input: {
       programId,
       textureBindingSetId,
       outputDependencyMask: input.outputDependencyMask,
+      shadowSamplingEnabled: input.shadowSamplingEnabled,
       capability: input.capability
     }), input.diagnostics ?? false);
   }));
@@ -249,11 +251,13 @@ function frameBindingsWgsl(
       "@group(3) @binding(2) var<storage, read> light_cluster_indices: array<u32>;",
       "@group(3) @binding(3) var<uniform> light_settings: OEngineSparseLightSettings;",
       "@group(3) @binding(4) var<uniform> environment_settings: OEngineSparseEnvironmentSettings;",
-      "@group(3) @binding(5) var shadow_atlas: texture_depth_2d;",
+      ...(names.has("shadow_atlas")
+        ? ["@group(3) @binding(5) var shadow_atlas: texture_depth_2d;"] : []),
       "@group(3) @binding(6) var environment_texture_0: texture_2d<f32>;",
       "@group(3) @binding(7) var environment_texture_1: texture_2d<f32>;",
       "@group(3) @binding(8) var environment_texture_2: texture_2d<f32>;",
-      "@group(3) @binding(9) var shadow_sampler: sampler_comparison;",
+      ...(names.has("shadow_sampler")
+        ? ["@group(3) @binding(9) var shadow_sampler: sampler_comparison;"] : []),
       "@group(3) @binding(10) var environment_sampler: sampler;"
     ] : []),
     ...(diagnostics ? [
@@ -426,14 +430,8 @@ fn sparse_sampler(material: OEngineShadingMaterialRecord, slot: u32) -> u32 { if
 `;
 }
 
-function lightingWgsl(): string {
-  return /* wgsl */ `
-${GPU_SPARSE_SHADING_LIGHT_WGSL}
-const SPARSE_PI: f32 = 3.141592653589793;
-fn sparse_light(index: u32) -> OEngineSparseLight {
-  let base=light_database[3u]+index*OENGINE_SPARSE_LIGHT_RECORD_WORDS;
-  return OEngineSparseLight(light_database[base],light_database[base+1u],light_database[base+2u],vec4f(bitcast<f32>(light_database[base+4u]),bitcast<f32>(light_database[base+5u]),bitcast<f32>(light_database[base+6u]),bitcast<f32>(light_database[base+7u])),vec4f(bitcast<f32>(light_database[base+8u]),bitcast<f32>(light_database[base+9u]),bitcast<f32>(light_database[base+10u]),bitcast<f32>(light_database[base+11u])),vec4f(bitcast<f32>(light_database[base+12u]),bitcast<f32>(light_database[base+13u]),bitcast<f32>(light_database[base+14u]),bitcast<f32>(light_database[base+15u])),vec4f(bitcast<f32>(light_database[base+16u]),bitcast<f32>(light_database[base+17u]),0.0,0.0));
-}
+function lightingWgsl(shadowSamplingEnabled: boolean): string {
+  const shadowFunctions = shadowSamplingEnabled ? /* wgsl */ `
 fn sparse_shadow_projection(index: u32) -> mat4x4f { let b=light_database[4u]+index*OENGINE_SPARSE_SHADOW_RECORD_WORDS; return mat4x4f(vec4f(bitcast<f32>(light_database[b]),bitcast<f32>(light_database[b+1u]),bitcast<f32>(light_database[b+2u]),bitcast<f32>(light_database[b+3u])),vec4f(bitcast<f32>(light_database[b+4u]),bitcast<f32>(light_database[b+5u]),bitcast<f32>(light_database[b+6u]),bitcast<f32>(light_database[b+7u])),vec4f(bitcast<f32>(light_database[b+8u]),bitcast<f32>(light_database[b+9u]),bitcast<f32>(light_database[b+10u]),bitcast<f32>(light_database[b+11u])),vec4f(bitcast<f32>(light_database[b+12u]),bitcast<f32>(light_database[b+13u]),bitcast<f32>(light_database[b+14u]),bitcast<f32>(light_database[b+15u]))); }
 fn sparse_shadow_atlas(index:u32)->vec4f{let b=light_database[4u]+index*OENGINE_SPARSE_SHADOW_RECORD_WORDS+16u;return vec4f(bitcast<f32>(light_database[b]),bitcast<f32>(light_database[b+1u]),bitcast<f32>(light_database[b+2u]),bitcast<f32>(light_database[b+3u]));}
 fn sparse_projected_shadow(record:u32,position:vec3f,normal:vec3f)->f32{
@@ -445,10 +443,19 @@ fn sparse_point_shadow(light:OEngineSparseLight,position:vec3f,normal:vec3f)->f3
   let delta=position-light.position_range.xyz;let distance=length(delta);let direction=delta/max(distance,1e-6);let atlas=sparse_shadow_atlas(light.shadow_record);let face=vec2u(atlas.zw);let radial=distance/max(light.position_range.w,1e-6);let reference=1.0-clamp(radial,0.0,1.0)+0.0001;var occluders=0.0;var distance_sum=0.0;for(var tap=0u;tap<8u;tap++){let angle=(f32(tap)+sparse_hash(tap+shading_view.frame_index))*0.78539816339;let perturbed=normalize(direction+(cos(angle)*normalize(cross(normal,direction))+sin(angle)*normal)*max(light.radius_inner.x,0.001));let local=vec2u(clamp(sparse_octahedral(perturbed)*vec2f(face),vec2f(0.0),vec2f(face)-vec2f(1.0)));let stored=textureLoad(shadow_atlas,vec2i(local+vec2u(atlas.xy)),0);let delta_depth=stored-reference;let blocked=step(0.0,delta_depth);occluders+=blocked;distance_sum+=delta_depth*blocked;}if occluders==0.0{return 1.0;}let blocker=distance_sum/occluders;let softness=clamp(blocker/max(reference,1e-6),0.0,1.0);return 1.0-clamp(mix(occluders/8.0,(occluders/8.0)*(occluders/8.0),softness),0.0,1.0);
 }
 fn sparse_shadow(light:OEngineSparseLight,position:vec3f,normal:vec3f)->f32{
-  if light_settings.shadow_enabled==0u || (light.flags&OENGINE_SPARSE_LIGHT_CASTS_SHADOW)==0u{return 1.0;}
+  if (light.flags&OENGINE_SPARSE_LIGHT_CASTS_SHADOW)==0u{return 1.0;}
   if light.kind==OENGINE_SPARSE_LIGHT_POINT{return sparse_point_shadow(light,position,normal);}
   let count=min(max(u32(light.radius_inner.z),1u),3u);for(var cascade=0u;cascade<count;cascade++){let record=light.shadow_record+cascade;let clip=sparse_shadow_projection(record)*vec4f(position,1.0);if clip.w!=0.0&&all(abs(clip.xyz/clip.w)<vec3f(1.0)){return sparse_projected_shadow(record,position,normal);}}return 1.0;
+}` : /* wgsl */ `
+fn sparse_shadow(_light:OEngineSparseLight,_position:vec3f,_normal:vec3f)->f32{return 1.0;}`;
+  return /* wgsl */ `
+${GPU_SPARSE_SHADING_LIGHT_WGSL}
+const SPARSE_PI: f32 = 3.141592653589793;
+fn sparse_light(index: u32) -> OEngineSparseLight {
+  let base=light_database[3u]+index*OENGINE_SPARSE_LIGHT_RECORD_WORDS;
+  return OEngineSparseLight(light_database[base],light_database[base+1u],light_database[base+2u],vec4f(bitcast<f32>(light_database[base+4u]),bitcast<f32>(light_database[base+5u]),bitcast<f32>(light_database[base+6u]),bitcast<f32>(light_database[base+7u])),vec4f(bitcast<f32>(light_database[base+8u]),bitcast<f32>(light_database[base+9u]),bitcast<f32>(light_database[base+10u]),bitcast<f32>(light_database[base+11u])),vec4f(bitcast<f32>(light_database[base+12u]),bitcast<f32>(light_database[base+13u]),bitcast<f32>(light_database[base+14u]),bitcast<f32>(light_database[base+15u])),vec4f(bitcast<f32>(light_database[base+16u]),bitcast<f32>(light_database[base+17u]),0.0,0.0));
 }
+${shadowFunctions}
 fn sparse_fresnel(f0:vec3f,cosine:f32)->vec3f{let x=1.0-clamp(cosine,0.0,1.0);let fifth=x*x*x*x*x;return f0+(vec3f(1.0)-f0)*fifth;}
 fn sparse_brdf(surface:OEngineSparseSurface,light:OEngineSparseLight)->vec3f{
   var direction=normalize(light.direction_outer.xyz); var attenuation=1.0;

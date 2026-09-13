@@ -13,7 +13,7 @@ import {
 } from "./GpuShadingProgramAbi.js";
 import type { GpuSparseShadingCapabilityRecord } from "./GpuSparseShadingCapability.js";
 
-export const GPU_SPARSE_SHADING_PIPELINE_SCHEMA_VERSION = 1;
+export const GPU_SPARSE_SHADING_PIPELINE_SCHEMA_VERSION = 2;
 export const GPU_SPARSE_SHADING_ENTRY_POINT = "shading_resolve";
 
 export const GPU_SHADING_OUTPUT_DEPENDENCY = Object.freeze({
@@ -54,11 +54,13 @@ export interface GpuSparseShadingPipelineIdentityInput {
   readonly programId: number;
   readonly textureBindingSetId: number;
   readonly outputDependencyMask: number;
+  /** Creation-time physical specialization; false omits every shadow binding and sample. */
+  readonly shadowSamplingEnabled: boolean;
   readonly capability: Pick<GpuSparseShadingCapabilityRecord, "fingerprint" | "formatProfile">;
 }
 
 export interface GpuSparseShadingPipelineDescriptor {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly cacheKey: string;
   readonly label: string;
   readonly entryPoint: typeof GPU_SPARSE_SHADING_ENTRY_POINT;
@@ -66,6 +68,7 @@ export interface GpuSparseShadingPipelineDescriptor {
   readonly textureBindingSetId: number;
   readonly binId: number;
   readonly outputDependencyMask: number;
+  readonly shadowSamplingEnabled: boolean;
   readonly capabilityFingerprint: string;
   readonly formatProfile: string;
   readonly groups: readonly Readonly<GpuSparseShadingBindGroupDescriptor>[];
@@ -81,6 +84,9 @@ export function createGpuSparseShadingPipelineDescriptor(
 ): Readonly<GpuSparseShadingPipelineDescriptor> {
   validateProgram(input.programId);
   validateOutputMask(input.outputDependencyMask);
+  if (typeof input.shadowSamplingEnabled !== "boolean") {
+    throw new TypeError("Sparse shading shadow specialization must be boolean");
+  }
   if (input.capability.fingerprint.length === 0 || input.capability.formatProfile.length === 0) {
     throw new RangeError("Sparse shading capability and format profile must not be empty");
   }
@@ -149,10 +155,12 @@ export function createGpuSparseShadingPipelineDescriptor(
     storageBufferBinding(3, 2, "light_cluster_indices", "read-only-storage"),
     uniformBinding(3, 3, "light_settings"),
     uniformBinding(3, 4, "environment_settings"),
-    textureBinding(3, 5, "shadow_atlas", "depth"),
+    ...(input.shadowSamplingEnabled
+      ? [textureBinding(3, 5, "shadow_atlas", "depth")] : []),
     ...Array.from({ length: 3 }, (_, index) =>
       textureBinding(3, 6 + index, `environment_texture_${index}`, "float")),
-    samplerBinding(3, 9, "shadow_sampler", "comparison"),
+    ...(input.shadowSamplingEnabled
+      ? [samplerBinding(3, 9, "shadow_sampler", "comparison")] : []),
     samplerBinding(3, 10, "environment_sampler", "filtering")
   ] : [];
 
@@ -167,6 +175,7 @@ export function createGpuSparseShadingPipelineDescriptor(
     `p${input.programId}`,
     `t${input.textureBindingSetId}`,
     `o${input.outputDependencyMask}`,
+    `h${Number(input.shadowSamplingEnabled)}`,
     lengthPrefixed("c", input.capability.fingerprint),
     lengthPrefixed("f", input.capability.formatProfile)
   ].join(":");
@@ -179,6 +188,7 @@ export function createGpuSparseShadingPipelineDescriptor(
     textureBindingSetId: input.textureBindingSetId,
     binId,
     outputDependencyMask: input.outputDependencyMask,
+    shadowSamplingEnabled: input.shadowSamplingEnabled,
     capabilityFingerprint: input.capability.fingerprint,
     formatProfile: input.capability.formatProfile,
     groups: Object.freeze(groups)
