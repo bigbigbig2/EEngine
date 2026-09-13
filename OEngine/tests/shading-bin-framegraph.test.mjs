@@ -19,6 +19,9 @@ import {
 } from "../.test-dist/render/pipeline/SparseShadingCandidateExecutor.js";
 import { SparseShadingCandidateRuntime } from "../.test-dist/render/pipeline/SparseShadingCandidateRuntime.js";
 import {
+  SparseShadingCandidateGpuRevisionOwner
+} from "../.test-dist/render/pipeline/SparseShadingCandidateGpuRevision.js";
+import {
   SparseShadingDiagnosticsPass
 } from "../.test-dist/render/passes/SparseShadingDiagnosticsPass.js";
 
@@ -50,6 +53,31 @@ const OFF = Object.freeze({
   post: true,
   diagnostics: false
 });
+
+function fakeGpuRevisionFactory(destroyed) {
+  return async (_device, publication, diagnostics) => {
+    if (publication.pipelines.length === 0) {
+      return Object.freeze({ snapshot: publication, bins: null, resolve: null, heapBytes: 0, indirectBytes: 0 });
+    }
+    const bins = {
+      diagnostics,
+      sizing: publication.sizing,
+      destroy() { destroyed.push(`bins:${publication.revision}`); }
+    };
+    const resolve = {
+      diagnostics,
+      publicationRevision: publication.revision,
+      destroy() { destroyed.push(`resolve:${publication.revision}`); }
+    };
+    return Object.freeze({
+      snapshot: publication,
+      bins,
+      resolve,
+      heapBytes: publication.sizing.heapBytes,
+      indirectBytes: publication.sizing.indirectBytes
+    });
+  };
+}
 
 function context(outputDependencyMask, width = 320, height = 180, shadowSamplingEnabled = false) {
   return { width, height, outputDependencyMask, shadowSamplingEnabled, capability, sizingLimits: limits };
@@ -659,12 +687,82 @@ test("diagnostics owner compiles separately and records finalize plus copy witho
   }
 });
 
+test("candidate GPU revisions publish atomically and retire only after submitted work", async () => {
+  const { store, snapshot: initialSnapshot } = snapshot("unlit", 0);
+  const destroyed = [];
+  const owner = new SparseShadingCandidateGpuRevisionOwner(
+    null,
+    false,
+    fakeGpuRevisionFactory(destroyed)
+  );
+
+  const initialPrepared = await owner.prepare(initialSnapshot);
+  owner.publish(initialPrepared, initialSnapshot, 0);
+  assert.deepEqual(owner.evidence(), {
+    activeRevision: initialSnapshot.revision,
+    activeDeviceEpoch: initialSnapshot.deviceEpoch,
+    activeHeapBytes: initialSnapshot.sizing.heapBytes,
+    activeIndirectBytes: initialSnapshot.sizing.indirectBytes,
+    retiringRevisions: [],
+    retiringBytes: 0,
+    pendingPreparations: 0,
+    createCount: 1,
+    publishCount: 1,
+    abortCount: 0,
+    retireCount: 0,
+    deviceLossCount: 0,
+    destroyed: false
+  });
+
+  const resize = store.beginTransaction();
+  resize.updateContext(context(0, 640, 360));
+  const resizedSnapshot = resize.prepare();
+  const resizedPrepared = await owner.prepare(resizedSnapshot);
+  assert.equal(owner.active(initialSnapshot).snapshot, initialSnapshot);
+  assert.deepEqual(destroyed, []);
+  const committedResize = resize.commit(7);
+  owner.publish(resizedPrepared, committedResize, 7);
+  assert.deepEqual(owner.evidence().retiringRevisions, [initialSnapshot.revision]);
+  assert.equal(owner.evidence().retiringBytes,
+    initialSnapshot.sizing.heapBytes + initialSnapshot.sizing.indirectBytes);
+  assert.deepEqual(owner.completeSubmittedWork(6), []);
+  assert.deepEqual(destroyed, []);
+  assert.deepEqual(owner.completeSubmittedWork(7), [initialSnapshot.revision]);
+  assert.deepEqual(destroyed, [
+    `resolve:${initialSnapshot.revision}`,
+    `bins:${initialSnapshot.revision}`
+  ]);
+
+  const rejected = store.beginTransaction();
+  rejected.updateContext(context(0, 800, 450));
+  const rejectedPrepared = await owner.prepare(rejected.prepare());
+  owner.abort(rejectedPrepared);
+  rejected.abort();
+  assert.equal(owner.evidence().abortCount, 1);
+  assert.equal(owner.evidence().activeRevision, resizedSnapshot.revision);
+  assert.deepEqual(destroyed.slice(-2), [
+    `resolve:${resizedSnapshot.revision + 1}`,
+    `bins:${resizedSnapshot.revision + 1}`
+  ]);
+
+  store.markDeviceLost();
+  owner.markDeviceLost();
+  assert.equal(owner.evidence().activeRevision, null);
+  assert.equal(owner.evidence().deviceLossCount, 1);
+  assert.deepEqual(destroyed.slice(-2), [
+    `resolve:${resizedSnapshot.revision}`,
+    `bins:${resizedSnapshot.revision}`
+  ]);
+  owner.destroy();
+});
+
 test("candidate source owns neither submit nor synchronous readback nor a product switch", async () => {
   const { readFile } = await import("node:fs/promises");
   for (const relative of [
     "../src/render/pipeline/SparseShadingCandidatePipeline.ts",
     "../src/render/pipeline/SparseShadingCandidateExecutor.ts",
     "../src/render/pipeline/SparseShadingCandidateRuntime.ts",
+    "../src/render/pipeline/SparseShadingCandidateGpuRevision.ts",
     "../src/render/passes/SparseShadingDiagnosticsPass.ts"
   ]) {
     const source = await readFile(new URL(relative, import.meta.url), "utf8");
