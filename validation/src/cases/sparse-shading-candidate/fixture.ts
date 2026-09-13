@@ -532,7 +532,9 @@ export class SparseShadingCandidateFixture {
   private trackBuffer(value:GPUBuffer):GPUBuffer {this.buffers.add(value);return value;}
   private destroyBuffer(value:GPUBuffer):void {value.destroy();this.buffers.delete(value);}
   private requireAlive():void {if(this.destroyed)throw new Error("Sparse shading candidate fixture is destroyed");}
-  private runtimeSnapshot():ReturnType<GpuShadingPublicationStore["currentSnapshot"]> {this.requireAlive();return this.publicationSnapshot;}
+  private runtimeSnapshot():ReturnType<GpuShadingPublicationStore["currentSnapshot"]> {
+    this.requireAlive();return this.runtime.publications.currentSnapshot();
+  }
 }
 
 function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GPUTexture>,
