@@ -36,7 +36,7 @@ scene-update
 
 Hardware Visibility 使用 reverse-Z depth 并直接输出 `VisibilityKey`。Key 必须稳定定位 exact-raster identity 和材质 kernel class；无效 key 使用明确 sentinel，并由 counter/debug view 暴露。
 
-Geometry consumer 通过共享 byte-addressed decode ABI 读取 `static-pbr-compact-v2`：AABB-relative UNORM16 position、oct SNORM16 normal、SNORM16 tangent、float16 UV 与 UNORM8 color。Meshlet/cluster bounds 必须包含 quantization 误差；Visibility、Shadow、Material Resolve 与 Transparency 不得各自复制或猜测 decode 规则。
+Geometry consumer 通过共享 byte-addressed decode ABI 读取 `static-pbr-compact-v2`：AABB-relative UNORM16 position、oct SNORM16 normal、SNORM16 tangent、float16 UV 与 UNORM8 color。`GpuAssetStore` 在同一 resident/release command transaction 内把 geometry/meshlet/generation 与 meshlet-vertex/triangle/vertex-data 分别发布为 versioned `asset-metadata-heap`、`vertex-payload-heap`；五段 GPU copy 后的 word base、count、byte size 与 heap epoch 是正式 binding 数据，release 先发布下一 generation，abort 恢复旧 heap identity，旧 heap 等 submitted work 完成后销毁。派生 heap 的 resident/allocated/retiring bytes 纳入资产证据，不能当作零成本 alias。Meshlet/cluster bounds 必须包含 quantization 误差；Visibility、Shadow、Shading Resolve 与 Transparency 不得各自复制或猜测 decode 规则。
 
 SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
