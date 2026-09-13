@@ -79,6 +79,10 @@ export interface SparseShadingCandidateExternalResources {
   readonly materials: readonly ResourceId[];
   readonly lighting: readonly ResourceId[];
   readonly shadows: readonly ResourceId[];
+  /** Required when the candidate post stage is enabled. */
+  readonly presentation?: ResourceId;
+  /** Validation-only asynchronous capture boundary; never a shading diagnostic. */
+  readonly captureReadback?: ResourceId;
   /** Revision-owned resources from ShadingBinPass; imported only when opaque work exists. */
   readonly binResources?: Readonly<{
     readonly heap: unknown;
@@ -110,6 +114,7 @@ export interface SparseShadingCandidateFrame {
   readonly claims: ResourceId | null;
   readonly diagnostics: ResourceId | null;
   readonly diagnosticsReadback: ResourceId | null;
+  readonly captureReadback: ResourceId | null;
   readonly historyInput: ResourceId | null;
   readonly historyOutput: ResourceId | null;
   readonly finalOutput: ResourceId | null;
@@ -170,7 +175,8 @@ export function createSparseShadingCandidatePlan(
       ? ["velocity"] : []),
     ...(features.diagnostics
       ? ["shading-claims", "shading-diagnostics", "shading-diagnostics-readback"]
-      : [])
+      : []),
+    ...(features.post ? ["presentation"] : [])
   ] : [];
   if (hasAnyLitConsumer) resources.push("light-clusters");
   if (hasAnyShadowConsumer) resources.push("shadow-atlas");
@@ -245,6 +251,7 @@ export function addSparseShadingCandidateToGraph(
     claims: null,
     diagnostics: null,
     diagnosticsReadback: null,
+    captureReadback: null,
     historyInput: null,
     historyOutput: null,
     finalOutput: null
@@ -446,12 +453,26 @@ export function addSparseShadingCandidateToGraph(
       downstreamFrame.historyInput = history.input;
       downstreamFrame.historyOutput = downstream.write(history.output);
     }
-    mutable.hdr = downstream.write(mutable.hdr);
     downstreamFrame.stageInputHdr = inputHdr;
-    downstreamFrame.hdr = mutable.hdr;
-    downstreamFrame.finalOutput = mutable.hdr;
+    if (stage === "post") {
+      if (external.presentation === undefined) {
+        throw new Error("Sparse shading post stage requires a presentation resource");
+      }
+      mutable.finalOutput = downstream.write(external.presentation);
+      if (external.captureReadback !== undefined) {
+        mutable.captureReadback = downstream.write(external.captureReadback);
+      }
+      downstreamFrame.finalOutput = mutable.finalOutput;
+      downstreamFrame.captureReadback = mutable.captureReadback;
+      downstream.declareEncoderWork({ renderPasses: 1, draws: 1 });
+    } else {
+      mutable.hdr = downstream.write(mutable.hdr);
+      mutable.finalOutput = mutable.hdr;
+      downstreamFrame.hdr = mutable.hdr;
+      downstreamFrame.finalOutput = mutable.hdr;
+      downstream.declareEncoderWork({ computePasses: 1, dispatches: 1 });
+    }
     Object.freeze(downstreamFrame);
-    downstream.declareEncoderWork({ computePasses: 1, dispatches: 1 });
     previousPass = downstream;
   }
 
@@ -479,7 +500,7 @@ export function addSparseShadingCandidateToGraph(
     Object.freeze(copyFrame);
     copy.make_side_effect();
   }
-  mutable.finalOutput = mutable.hdr;
+  mutable.finalOutput ??= mutable.hdr;
   if (previousPass !== null) previousPass.make_side_effect();
   return Object.freeze(mutable);
 }

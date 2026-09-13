@@ -253,6 +253,8 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
       materials: [imported("materials"), imported("texture-set")],
       lighting: [imported("light-database"), imported("cluster-input")],
       shadows: [imported("shadow-input")],
+      presentation: imported("presentation"),
+      captureReadback: imported("capture-readback"),
       binResources: { heap, indirectArgs, settings },
       histories: {
         ssgi: {
@@ -376,6 +378,10 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.ok(stageFrames.get("ssgi").historyInput !== null);
     assert.ok(stageFrames.get("ssgi").historyOutput !== null);
     assert.ok(frame.finalOutput !== null);
+    assert.ok(frame.captureReadback !== null);
+    const post = executable.find((pass) => pass.name.endsWith("/post"));
+    assert.equal(post.encoderWork.renderPasses, 1);
+    assert.equal(post.encoderWork.computePasses, 0);
     assert.ok(frame.diagnosticsReadback !== null);
   } finally {
     globalThis.GPUTextureUsage = previousTextureUsage;
