@@ -1,16 +1,17 @@
 import { mat4 } from "gl-matrix";
-import { GPU_MATERIAL_KERNEL_CLASS_COUNT } from "./GpuMaterialKernelAbi.js";
+import { GPU_SHADING_BIN_COUNT } from "./GpuShadingBinAbi.js";
 
-export const GPU_INSTANCE_ABI_VERSION = 4;
+export const GPU_INSTANCE_ABI_VERSION = 5;
 export const GPU_INSTANCE_STATIC_RECORD_STRIDE = 64;
 export const GPU_INSTANCE_DYNAMIC_RECORD_STRIDE = 112;
 export const GPU_INSTANCE_RECORD_STRIDE =
   GPU_INSTANCE_STATIC_RECORD_STRIDE + GPU_INSTANCE_DYNAMIC_RECORD_STRIDE;
 export const GPU_INSTANCE_FALLBACK_RECORD_INDEX = 0;
 export const GPU_INSTANCE_MOTION_RELATIVE_DETERMINANT_EPSILON = 1e-8;
-export const GPU_INSTANCE_MATERIAL_KERNEL_SHIFT = 8;
-export const GPU_INSTANCE_MATERIAL_KERNEL_MASK =
-  ((1 << 3) - 1) << GPU_INSTANCE_MATERIAL_KERNEL_SHIFT;
+/** ADR-0013 compile-time ShadingBinId copied unchanged into MeshletWork. */
+export const GPU_INSTANCE_SHADING_BIN_SHIFT = 8;
+export const GPU_INSTANCE_SHADING_BIN_MASK =
+  (GPU_SHADING_BIN_COUNT - 1) << GPU_INSTANCE_SHADING_BIN_SHIFT;
 
 export const GPU_INSTANCE_FLAGS = Object.freeze({
   Active: 1 << 0,
@@ -29,7 +30,7 @@ export const GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK =
   GPU_INSTANCE_FLAGS.AlphaTested |
   GPU_INSTANCE_FLAGS.DoubleSided |
   GPU_INSTANCE_FLAGS.Transparent |
-  GPU_INSTANCE_MATERIAL_KERNEL_MASK;
+  GPU_INSTANCE_SHADING_BIN_MASK;
 
 /** Bits replaced by an InstanceVisibilityPatch; material routing remains intact. */
 export const GPU_INSTANCE_VISIBILITY_FLAGS_MASK =
@@ -130,28 +131,28 @@ fn oengine_instance_motion_valid(instance: OEngineInstanceRecord) -> bool {
   return (instance.motion_flags & ${GPU_INSTANCE_FLAGS.MotionInvalid}u) == 0u;
 }
 
-fn oengine_instance_material_kernel_class(flags: u32) -> u32 {
-  return (flags >> ${GPU_INSTANCE_MATERIAL_KERNEL_SHIFT}u) &
-    ${(GPU_INSTANCE_MATERIAL_KERNEL_MASK >>> GPU_INSTANCE_MATERIAL_KERNEL_SHIFT)}u;
+fn oengine_instance_shading_bin_id(flags: u32) -> u32 {
+  return (flags >> ${GPU_INSTANCE_SHADING_BIN_SHIFT}u) &
+    ${(GPU_INSTANCE_SHADING_BIN_MASK >>> GPU_INSTANCE_SHADING_BIN_SHIFT)}u;
 }
 `;
 
-export function encodeInstanceMaterialKernelClass(flags: number, kernelClass: number): number {
+export function encodeInstanceShadingBinId(flags: number, binId: number): number {
   if (!Number.isInteger(flags) || flags < 0 || flags > 0xffffffff) {
     throw new RangeError("Instance flags must be a u32");
   }
-  if (!Number.isInteger(kernelClass) || kernelClass < 0 || kernelClass >= GPU_MATERIAL_KERNEL_CLASS_COUNT) {
-    throw new RangeError(`Instance material kernel class must be in [0, ${GPU_MATERIAL_KERNEL_CLASS_COUNT - 1}]`);
+  if (!Number.isInteger(binId) || binId < 0 || binId >= GPU_SHADING_BIN_COUNT) {
+    throw new RangeError(`Instance ShadingBinId must be in [0, ${GPU_SHADING_BIN_COUNT - 1}]`);
   }
-  return ((flags & ~GPU_INSTANCE_MATERIAL_KERNEL_MASK) |
-    (kernelClass << GPU_INSTANCE_MATERIAL_KERNEL_SHIFT)) >>> 0;
+  return ((flags & ~GPU_INSTANCE_SHADING_BIN_MASK) |
+    (binId << GPU_INSTANCE_SHADING_BIN_SHIFT)) >>> 0;
 }
 
-export function decodeInstanceMaterialKernelClass(flags: number): number {
+export function decodeInstanceShadingBinId(flags: number): number {
   if (!Number.isInteger(flags) || flags < 0 || flags > 0xffffffff) {
     throw new RangeError("Instance flags must be a u32");
   }
-  return (flags & GPU_INSTANCE_MATERIAL_KERNEL_MASK) >> GPU_INSTANCE_MATERIAL_KERNEL_SHIFT;
+  return (flags & GPU_INSTANCE_SHADING_BIN_MASK) >>> GPU_INSTANCE_SHADING_BIN_SHIFT;
 }
 
 export function packGpuInstanceRecord(

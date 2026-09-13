@@ -101,6 +101,9 @@ test("candidate Visibility shaders use one flat six-bit varying and one dual-out
     MESHLET_BUCKET_VISIBILITY_WGSL,
     MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
   ]) {
-    assert.doesNotMatch(production, /shading_bin_id|OEngineMeshletVisibilityOutput/u);
+    assert.doesNotMatch(
+      production,
+      /@location\(9\)\s+@interpolate\(flat\)\s+shading_bin_id|OEngineMeshletVisibilityOutput/u
+    );
   }
 });

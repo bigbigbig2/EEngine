@@ -7,12 +7,15 @@ import { ShadeDrawSide, ShadeTransparencyMode } from "../material/enums.js";
 import {
   GPU_INSTANCE_FLAGS,
   GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK,
-  encodeInstanceMaterialKernelClass
+  encodeInstanceShadingBinId
 } from "./GpuInstanceAbi.js";
+import type { ActiveShadingSummary } from "./GpuShadingPublicationPlan.js";
 import {
-  GPU_MATERIAL_KERNEL_CLASS_COUNT,
-  materialKernelClass
-} from "./GpuMaterialKernelAbi.js";
+  deriveGpuShadingIdentity,
+  GPU_SHADING_DEPENDENCY,
+  type GpuShadingGeometryProfile,
+  type GpuShadingMaterialProfile
+} from "./GpuShadingProgramAbi.js";
 import type { Scene } from "../scene/Scene.js";
 import type { Mesh } from "../scene/Mesh.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
@@ -33,7 +36,6 @@ import type {
   InstanceTransformPatch
 } from "./GpuScene.js";
 import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
-import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "./TextureBindingSetPolicy.js";
 
 declare const GPU_RENDER_WORLD_HANDLE_BRAND: unique symbol;
 
@@ -102,10 +104,8 @@ export interface GpuRenderWorldRuntime {
   readonly instanceCount: number;
   /** Number of resident instances whose current material class is BLEND. */
   readonly transparentInstanceCount: number;
-  /** Bit N is set when at least one resident OPAQUE/MASK instance uses kernel class N. */
-  readonly activeKernelMask: number;
-  /** One bounded kernel mask per TextureBindingSet id. */
-  readonly activeKernelMasksByBindingSet: readonly number[];
+  /** Incremental possible-bin truth; it never contains per-view visible counts. */
+  readonly activeShadingSummary: Readonly<ActiveShadingSummary>;
   readonly hierarchyTraversalCapacity: number;
   readonly hierarchyVisibleClusterCapacity: number;
   readonly hierarchyRasterWorkCapacity: number;
@@ -120,9 +120,20 @@ interface PendingPatch {
 
 interface PackedSceneClassificationState {
   readonly materialIndices: Uint32Array;
-  readonly opaqueKernelClassCounts: Uint32Array;
+  readonly geometryIndices: Uint32Array;
+  readonly active: Uint8Array;
+  readonly binIds: Uint8Array;
+  readonly dependencyMasks: Uint16Array;
+  readonly binRefCounts: Uint32Array;
+  readonly dependencyRefCounts: Uint32Array;
   readonly materialBindingSetIds: readonly number[];
+  readonly geometryProfiles: readonly Readonly<GpuShadingGeometryProfile>[];
   transparentInstanceCount: number;
+  opaqueLitReceiverCount: number;
+  opaqueUnlitReceiverCount: number;
+  transparentLitReceiverCount: number;
+  revision: number;
+  summary: Readonly<ActiveShadingSummary>;
 }
 
 interface OrdinarySceneAdapterState {
@@ -184,28 +195,19 @@ export class GpuRenderWorld {
     for (let index = 0; index < source.count; index++) {
       materialHandles[index] = materialStage.materialSlots[source.materialIndices[index]!]!;
     }
+    const classification = createPackedSceneClassificationState(
+      source,
+      source.materials.map((material) => textureStage.materialBindingSetIds.get(material)!)
+    );
     const normalizedFlags = new Uint32Array(source.count);
     for (let index = 0; index < source.count; index++) {
       const material = source.materials[source.materialIndices[index]!]!;
       normalizedFlags[index] = materialClassificationFlags(
         material,
+        classification.binIds[index]!,
         source.flags?.[index] ?? 0
       );
     }
-    const classification: PackedSceneClassificationState = {
-      materialIndices: source.materialIndices.slice(),
-      opaqueKernelClassCounts: countOpaqueKernelClasses(
-        source.materialIndices,
-        source.materials,
-        source.materials.map((material) => textureStage.materialBindingSetIds.get(material)!)
-      ),
-      materialBindingSetIds: Object.freeze(source.materials.map((material) =>
-        textureStage.materialBindingSetIds.get(material)!)),
-      transparentInstanceCount: countTransparentInstances(
-        source.materialIndices,
-        source.materials
-      )
-    };
     const instanceSource: InstanceSource = {
       count: source.count,
       geometryHandles,
@@ -247,11 +249,8 @@ export class GpuRenderWorld {
       get transparentInstanceCount() {
         return classification.transparentInstanceCount;
       },
-      get activeKernelMask() {
-        return activeKernelMask(classification.opaqueKernelClassCounts);
-      },
-      get activeKernelMasksByBindingSet() {
-        return activeKernelMasksByBindingSet(classification.opaqueKernelClassCounts);
+      get activeShadingSummary() {
+        return classification.summary;
       },
       hierarchyTraversalCapacity: hierarchyCapacity.traversalWorkCapacity,
       hierarchyVisibleClusterCapacity: hierarchyCapacity.visibleClusterCapacity,
@@ -366,15 +365,16 @@ export class GpuRenderWorld {
     const batch = toInstancePatchBatch(
       pending.batch,
       runtime.materialSlots,
-      runtime.materials
+      runtime.materials,
+      this.classificationByScene.get(scene)!
     );
     const result = this.graphics.gpu_scene.patch(
       runtime.instanceHandle,
       batch,
       command
     );
-    const rollbackClassification = applyMaterialClassificationPatch(
-      pending.batch.materials,
+    const rollbackClassification = applyClassificationPatch(
+      pending.batch,
       this.classificationByScene.get(scene)!,
       runtime.materials
     );
@@ -447,11 +447,16 @@ export class GpuRenderWorld {
     };
     const result = this.graphics.gpu_scene.patch(
       runtime.instanceHandle,
-      toInstancePatchBatch(batch, runtime.materialSlots, runtime.materials),
+      toInstancePatchBatch(
+        batch,
+        runtime.materialSlots,
+        runtime.materials,
+        this.classificationByScene.get(scene)!
+      ),
       command
     );
-    const rollbackClassification = applyMaterialClassificationPatch(
-      batch.materials,
+    const rollbackClassification = applyClassificationPatch(
+      batch,
       this.classificationByScene.get(scene)!,
       runtime.materials
     );
@@ -534,17 +539,6 @@ export class GpuRenderWorld {
   }
 }
 
-function countTransparentInstances(
-  materialIndices: ArrayLike<number>,
-  materials: readonly StandardShadeMaterial[]
-): number {
-  let count = 0;
-  for (let index = 0; index < materialIndices.length; index++) {
-    if (isTransparentMaterial(materials[materialIndices[index]!]!)) count++;
-  }
-  return count;
-}
-
 function createOrdinarySceneAdapterState(
   meshes: readonly Mesh[],
   materials: readonly StandardShadeMaterial[],
@@ -570,101 +564,326 @@ function createOrdinarySceneAdapterState(
   };
 }
 
-function countOpaqueKernelClasses(
-  materialIndices: ArrayLike<number>,
-  materials: readonly StandardShadeMaterial[],
+function createPackedSceneClassificationState(
+  source: PackedSceneSource,
   materialBindingSetIds: readonly number[]
-): Uint32Array {
-  const counts = new Uint32Array(
-    GPU_MATERIAL_KERNEL_CLASS_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
-  );
-  for (let index = 0; index < materialIndices.length; index++) {
-    const materialIndex = materialIndices[index]!;
-    const material = materials[materialIndex]!;
-    if (!isTransparentMaterial(material)) {
-      const setId = materialBindingSetIds[materialIndex]!;
-      counts[setId * GPU_MATERIAL_KERNEL_CLASS_COUNT + materialKernelClass(material)]!++;
-    }
+): PackedSceneClassificationState {
+  const state: PackedSceneClassificationState = {
+    materialIndices: source.materialIndices.slice(),
+    geometryIndices: source.geometryIndices.slice(),
+    active: new Uint8Array(source.count).fill(1),
+    binIds: new Uint8Array(source.count),
+    dependencyMasks: new Uint16Array(source.count),
+    binRefCounts: new Uint32Array(64),
+    dependencyRefCounts: new Uint32Array(9),
+    materialBindingSetIds: Object.freeze([...materialBindingSetIds]),
+    geometryProfiles: Object.freeze(source.geometries.map(shadingGeometryProfile)),
+    transparentInstanceCount: 0,
+    opaqueLitReceiverCount: 0,
+    opaqueUnlitReceiverCount: 0,
+    transparentLitReceiverCount: 0,
+    revision: 1,
+    summary: EMPTY_ACTIVE_SHADING_SUMMARY
+  };
+  for (let instanceIndex = 0; instanceIndex < source.count; instanceIndex++) {
+    resolveInstanceShadingIdentity(state, instanceIndex, source.materials);
+    addClassificationContribution(state, instanceIndex, source.materials);
   }
-  return counts;
+  state.summary = freezeActiveShadingSummary(state);
+  return state;
 }
 
-function activeKernelMask(counts: Uint32Array): number {
-  let mask = 0;
-  for (let index = 0; index < counts.length; index++) {
-    if (counts[index]! > 0) mask |= 1 << (index % GPU_MATERIAL_KERNEL_CLASS_COUNT);
-  }
-  return mask >>> 0;
+interface ClassificationPatchEntry {
+  readonly materialIndex: number;
+  readonly active: number;
+  readonly binId: number;
+  readonly dependencyMask: number;
 }
 
-function activeKernelMasksByBindingSet(counts: Uint32Array): readonly number[] {
-  return Object.freeze(Array.from(
-    { length: TEXTURE_BINDING_SET_MAX_RESIDENT_SETS },
-    (_, setId) => activeKernelMask(counts.subarray(
-      setId * GPU_MATERIAL_KERNEL_CLASS_COUNT,
-      (setId + 1) * GPU_MATERIAL_KERNEL_CLASS_COUNT
-    ))
-  ));
-}
-
-function restoreOpaqueKernelClassCounts(
-  state: PackedSceneClassificationState,
-  materials: readonly StandardShadeMaterial[]
-): void {
-  state.opaqueKernelClassCounts.set(
-    countOpaqueKernelClasses(state.materialIndices, materials, state.materialBindingSetIds)
-  );
-}
-
-function applyMaterialClassificationPatch(
-  patch: PackedSceneMaterialPatch | undefined,
+function applyClassificationPatch(
+  batch: PackedScenePatchBatch,
   state: PackedSceneClassificationState,
   materials: readonly StandardShadeMaterial[]
 ): () => void {
-  if (patch === undefined) return () => {};
-  const previous = new Map<number, number>();
-  for (let index = 0; index < patch.indices.length; index++) {
-    const instanceIndex = patch.indices[index]!;
-    if (instanceIndex >= state.materialIndices.length) {
-      throw new RangeError(
-        `Packed Scene material patch indices[${index}] is outside the instance set`
+  if (batch.materials === undefined && batch.visibility === undefined) return () => {};
+  const previousEntries = new Map<number, ClassificationPatchEntry>();
+  const nextMaterialIndices = new Map<number, number>();
+  const nextActive = new Map<number, number>();
+  if (batch.materials !== undefined) {
+    for (let patchIndex = 0; patchIndex < batch.materials.indices.length; patchIndex++) {
+      const instanceIndex = batch.materials.indices[patchIndex]!;
+      assertInstanceIndex(instanceIndex, state, `material patch indices[${patchIndex}]`);
+      nextMaterialIndices.set(instanceIndex, batch.materials.materialIndices[patchIndex]!);
+    }
+  }
+  if (batch.visibility !== undefined) {
+    if (batch.visibility.indices.length !== batch.visibility.flags.length) {
+      throw new RangeError("Packed Scene visibility patch indices and flags must match");
+    }
+    for (let patchIndex = 0; patchIndex < batch.visibility.indices.length; patchIndex++) {
+      const instanceIndex = batch.visibility.indices[patchIndex]!;
+      assertInstanceIndex(instanceIndex, state, `visibility patch indices[${patchIndex}]`);
+      nextActive.set(
+        instanceIndex,
+        (batch.visibility.flags[patchIndex]! & GPU_INSTANCE_FLAGS.Active) === 0 ? 0 : 1
       );
     }
-    const nextMaterialIndex = patch.materialIndices[index]!;
-    const previousMaterialIndex = state.materialIndices[instanceIndex]!;
-    if (!previous.has(instanceIndex)) previous.set(instanceIndex, previousMaterialIndex);
-    const wasTransparent = isTransparentMaterial(materials[previousMaterialIndex]!);
-    const isTransparent = isTransparentMaterial(materials[nextMaterialIndex]!);
-    if (!wasTransparent) {
-      const previousKernelClass = materialKernelClass(materials[previousMaterialIndex]!);
-      const previousSetId = state.materialBindingSetIds[previousMaterialIndex]!;
-      const previousClass = previousSetId * GPU_MATERIAL_KERNEL_CLASS_COUNT + previousKernelClass;
-      const previousCount = state.opaqueKernelClassCounts[previousClass]!;
-      if (previousCount === 0) {
-        throw new Error("Packed Scene opaque kernel class count underflow");
-      }
-      state.opaqueKernelClassCounts[previousClass] = previousCount - 1;
+  }
+  const touched = new Set([...nextMaterialIndices.keys(), ...nextActive.keys()]);
+  for (const instanceIndex of touched) {
+    previousEntries.set(instanceIndex, {
+      materialIndex: state.materialIndices[instanceIndex]!,
+      active: state.active[instanceIndex]!,
+      binId: state.binIds[instanceIndex]!,
+      dependencyMask: state.dependencyMasks[instanceIndex]!
+    });
+  }
+  const previousSummary = state.summary;
+  const previousBinRefCounts = state.binRefCounts.slice();
+  const previousDependencyRefCounts = state.dependencyRefCounts.slice();
+  const previousTransparentInstanceCount = state.transparentInstanceCount;
+  const previousOpaqueLitReceiverCount = state.opaqueLitReceiverCount;
+  const previousOpaqueUnlitReceiverCount = state.opaqueUnlitReceiverCount;
+  const previousTransparentLitReceiverCount = state.transparentLitReceiverCount;
+  const previousRevision = state.revision;
+  let changed = false;
+  for (const instanceIndex of touched) {
+    const materialIndex = nextMaterialIndices.get(instanceIndex) ?? state.materialIndices[instanceIndex]!;
+    const active = nextActive.get(instanceIndex) ?? state.active[instanceIndex]!;
+    const identity = deriveGpuShadingIdentity(
+      shadingMaterialProfile(materials[materialIndex]!, state.materialBindingSetIds[materialIndex]!),
+      shadingGeometryProfileFromState(state, instanceIndex)
+    );
+    if (materialIndex === state.materialIndices[instanceIndex] && active === state.active[instanceIndex] &&
+        identity.binId === state.binIds[instanceIndex] &&
+        identity.dependencyMask === state.dependencyMasks[instanceIndex]) {
+      continue;
     }
-    if (!isTransparent) {
-      const nextKernelClass = materialKernelClass(materials[nextMaterialIndex]!);
-      const nextSetId = state.materialBindingSetIds[nextMaterialIndex]!;
-      state.opaqueKernelClassCounts[nextSetId * GPU_MATERIAL_KERNEL_CLASS_COUNT + nextKernelClass]!++;
-    }
-    if (wasTransparent !== isTransparent) {
-      state.transparentInstanceCount += isTransparent ? 1 : -1;
-    }
-    state.materialIndices[instanceIndex] = nextMaterialIndex;
+    removeClassificationContribution(state, instanceIndex, materials);
+    state.materialIndices[instanceIndex] = materialIndex;
+    state.active[instanceIndex] = active;
+    state.binIds[instanceIndex] = identity.binId;
+    state.dependencyMasks[instanceIndex] = identity.dependencyMask;
+    addClassificationContribution(state, instanceIndex, materials);
+    changed = true;
+  }
+  if (changed) {
+    state.revision = nextRevision(state.revision);
+    state.summary = freezeActiveShadingSummary(state);
   }
   return () => {
-    for (const [instanceIndex, materialIndex] of previous) {
-      state.materialIndices[instanceIndex] = materialIndex;
+    for (const [instanceIndex, previous] of previousEntries) {
+      state.materialIndices[instanceIndex] = previous.materialIndex;
+      state.active[instanceIndex] = previous.active;
+      state.binIds[instanceIndex] = previous.binId;
+      state.dependencyMasks[instanceIndex] = previous.dependencyMask;
     }
-    state.transparentInstanceCount = countTransparentInstances(
-      state.materialIndices,
-      materials
-    );
-    restoreOpaqueKernelClassCounts(state, materials);
+    state.binRefCounts.set(previousBinRefCounts);
+    state.dependencyRefCounts.set(previousDependencyRefCounts);
+    state.transparentInstanceCount = previousTransparentInstanceCount;
+    state.opaqueLitReceiverCount = previousOpaqueLitReceiverCount;
+    state.opaqueUnlitReceiverCount = previousOpaqueUnlitReceiverCount;
+    state.transparentLitReceiverCount = previousTransparentLitReceiverCount;
+    state.revision = previousRevision;
+    state.summary = previousSummary;
   };
+}
+
+function resolveInstanceShadingIdentity(
+  state: PackedSceneClassificationState,
+  instanceIndex: number,
+  materials: readonly StandardShadeMaterial[]
+): void {
+  const materialIndex = state.materialIndices[instanceIndex]!;
+  const identity = deriveGpuShadingIdentity(
+    shadingMaterialProfile(materials[materialIndex]!, state.materialBindingSetIds[materialIndex]!),
+    shadingGeometryProfileFromState(state, instanceIndex)
+  );
+  state.binIds[instanceIndex] = identity.binId;
+  state.dependencyMasks[instanceIndex] = identity.dependencyMask;
+}
+
+function shadingMaterialProfile(
+  material: StandardShadeMaterial,
+  textureBindingSetId: number
+): GpuShadingMaterialProfile {
+  return {
+    shadingModel: material.is_unlit ? "unlit" : "standard-pbr",
+    hasBaseTexture: material.texture_albedo !== undefined,
+    hasOrmTexture: !material.is_unlit && material.texture_orm !== undefined,
+    hasNormalTexture: !material.is_unlit && material.texture_normal !== undefined,
+    hasEmissiveTexture: !material.is_unlit && material.texture_emissive !== undefined,
+    textureBindingSetId
+  };
+}
+
+function shadingGeometryProfile(
+  geometry: GeometryAssetPackage
+): Readonly<GpuShadingGeometryProfile> {
+  const semantics = new Set(
+    geometry.vertexStreamDescriptors.map((descriptor) => descriptor.semantic.toLowerCase())
+  );
+  return Object.freeze({
+    hasAuthoredVertexColor: semantics.has("color"),
+    hasUv0: semantics.has("uv0"),
+    hasNormal: semantics.has("normal"),
+    hasTangent: semantics.has("tangent")
+  });
+}
+
+function shadingGeometryProfileFromState(
+  state: PackedSceneClassificationState,
+  instanceIndex: number
+): Readonly<GpuShadingGeometryProfile> {
+  return state.geometryProfiles[state.geometryIndices[instanceIndex]!]!;
+}
+
+function addClassificationContribution(
+  state: PackedSceneClassificationState,
+  instanceIndex: number,
+  materials: readonly StandardShadeMaterial[]
+): void {
+  const material = materials[state.materialIndices[instanceIndex]!]!;
+  const transparent = isTransparentMaterial(material);
+  if (transparent) state.transparentInstanceCount = incrementU32(
+    state.transparentInstanceCount,
+    "Transparent instance count"
+  );
+  if (state.active[instanceIndex] === 0) return;
+  const dependencyMask = state.dependencyMasks[instanceIndex]!;
+  updateDependencyRefCounts(state.dependencyRefCounts, dependencyMask, 1);
+  const lit = (dependencyMask & GPU_SHADING_DEPENDENCY.Lit) !== 0;
+  if (transparent) {
+    if (lit) state.transparentLitReceiverCount = incrementU32(
+      state.transparentLitReceiverCount,
+      "Transparent lit receiver count"
+    );
+    return;
+  }
+  const binId = state.binIds[instanceIndex]!;
+  state.binRefCounts[binId] = incrementU32(state.binRefCounts[binId]!, `Bin ${binId} refcount`);
+  if (lit) {
+    state.opaqueLitReceiverCount = incrementU32(
+      state.opaqueLitReceiverCount,
+      "Opaque lit receiver count"
+    );
+  } else {
+    state.opaqueUnlitReceiverCount = incrementU32(
+      state.opaqueUnlitReceiverCount,
+      "Opaque unlit receiver count"
+    );
+  }
+}
+
+function removeClassificationContribution(
+  state: PackedSceneClassificationState,
+  instanceIndex: number,
+  materials: readonly StandardShadeMaterial[]
+): void {
+  const material = materials[state.materialIndices[instanceIndex]!]!;
+  const transparent = isTransparentMaterial(material);
+  if (transparent) state.transparentInstanceCount = decrementU32(
+    state.transparentInstanceCount,
+    "Transparent instance count"
+  );
+  if (state.active[instanceIndex] === 0) return;
+  const dependencyMask = state.dependencyMasks[instanceIndex]!;
+  updateDependencyRefCounts(state.dependencyRefCounts, dependencyMask, -1);
+  const lit = (dependencyMask & GPU_SHADING_DEPENDENCY.Lit) !== 0;
+  if (transparent) {
+    if (lit) state.transparentLitReceiverCount = decrementU32(
+      state.transparentLitReceiverCount,
+      "Transparent lit receiver count"
+    );
+    return;
+  }
+  const binId = state.binIds[instanceIndex]!;
+  state.binRefCounts[binId] = decrementU32(state.binRefCounts[binId]!, `Bin ${binId} refcount`);
+  if (lit) {
+    state.opaqueLitReceiverCount = decrementU32(
+      state.opaqueLitReceiverCount,
+      "Opaque lit receiver count"
+    );
+  } else {
+    state.opaqueUnlitReceiverCount = decrementU32(
+      state.opaqueUnlitReceiverCount,
+      "Opaque unlit receiver count"
+    );
+  }
+}
+
+function updateDependencyRefCounts(
+  counts: Uint32Array,
+  dependencyMask: number,
+  delta: 1 | -1
+): void {
+  for (let bit = 0; bit < counts.length; bit++) {
+    if ((dependencyMask & (1 << bit)) === 0) continue;
+    counts[bit] = delta === 1
+      ? incrementU32(counts[bit]!, `Dependency ${bit} refcount`)
+      : decrementU32(counts[bit]!, `Dependency ${bit} refcount`);
+  }
+}
+
+function freezeActiveShadingSummary(
+  state: PackedSceneClassificationState
+): Readonly<ActiveShadingSummary> {
+  let activeBinMaskLo = 0;
+  let activeBinMaskHi = 0;
+  for (let binId = 0; binId < state.binRefCounts.length; binId++) {
+    if (state.binRefCounts[binId] === 0) continue;
+    if (binId < 32) activeBinMaskLo = (activeBinMaskLo | (1 << binId)) >>> 0;
+    else activeBinMaskHi = (activeBinMaskHi | (1 << (binId - 32))) >>> 0;
+  }
+  let dependencyMask = 0;
+  for (let bit = 0; bit < state.dependencyRefCounts.length; bit++) {
+    if (state.dependencyRefCounts[bit] !== 0) dependencyMask |= 1 << bit;
+  }
+  return Object.freeze({
+    binRefCounts: state.binRefCounts.slice(),
+    activeBinMaskLo,
+    activeBinMaskHi,
+    opaqueLitReceiverCount: state.opaqueLitReceiverCount,
+    opaqueUnlitReceiverCount: state.opaqueUnlitReceiverCount,
+    transparentLitReceiverCount: state.transparentLitReceiverCount,
+    dependencyMask,
+    revision: state.revision
+  });
+}
+
+const EMPTY_ACTIVE_SHADING_SUMMARY: Readonly<ActiveShadingSummary> = Object.freeze({
+  binRefCounts: new Uint32Array(64),
+  activeBinMaskLo: 0,
+  activeBinMaskHi: 0,
+  opaqueLitReceiverCount: 0,
+  opaqueUnlitReceiverCount: 0,
+  transparentLitReceiverCount: 0,
+  dependencyMask: 0,
+  revision: 0
+});
+
+function incrementU32(value: number, label: string): number {
+  if (value >= 0xffffffff) throw new RangeError(`${label} overflow`);
+  return value + 1;
+}
+
+function decrementU32(value: number, label: string): number {
+  if (value === 0) throw new Error(`${label} underflow`);
+  return value - 1;
+}
+
+function nextRevision(value: number): number {
+  return value >= 0xffffffff ? 1 : value + 1;
+}
+
+function assertInstanceIndex(
+  instanceIndex: number,
+  state: PackedSceneClassificationState,
+  label: string
+): void {
+  if (instanceIndex >= state.materialIndices.length) {
+    throw new RangeError(`Packed Scene ${label} is outside the instance set`);
+  }
 }
 
 function isTransparentMaterial(material: StandardShadeMaterial): boolean {
@@ -674,7 +893,8 @@ function isTransparentMaterial(material: StandardShadeMaterial): boolean {
 function toInstancePatchBatch(
   batch: PackedScenePatchBatch,
   materialSlots: readonly number[],
-  materialsDictionary: readonly StandardShadeMaterial[]
+  materialsDictionary: readonly StandardShadeMaterial[],
+  state: PackedSceneClassificationState
 ): InstancePatchBatch {
   const materials = batch.materials;
   if (materials === undefined) {
@@ -691,6 +911,8 @@ function toInstancePatchBatch(
   const materialHandles = new Uint32Array(materials.materialIndices.length);
   const flags = new Uint32Array(materials.materialIndices.length);
   for (let index = 0; index < materials.materialIndices.length; index++) {
+    const instanceIndex = materials.indices[index]!;
+    assertInstanceIndex(instanceIndex, state, `material patch indices[${index}]`);
     const dictionaryIndex = materials.materialIndices[index]!;
     if (dictionaryIndex >= materialSlots.length) {
       throw new RangeError(
@@ -698,7 +920,18 @@ function toInstancePatchBatch(
       );
     }
     materialHandles[index] = materialSlots[dictionaryIndex]!;
-    flags[index] = materialClassificationFlags(materialsDictionary[dictionaryIndex]!, 0);
+    const identity = deriveGpuShadingIdentity(
+      shadingMaterialProfile(
+        materialsDictionary[dictionaryIndex]!,
+        state.materialBindingSetIds[dictionaryIndex]!
+      ),
+      shadingGeometryProfileFromState(state, instanceIndex)
+    );
+    flags[index] = materialClassificationFlags(
+      materialsDictionary[dictionaryIndex]!,
+      identity.binId,
+      0
+    );
   }
   return {
     frameId: batch.frameId,
@@ -711,6 +944,7 @@ function toInstancePatchBatch(
 
 function materialClassificationFlags(
   material: StandardShadeMaterial,
+  shadingBinId: number,
   sourceFlags: number
 ): number {
   let flags = (sourceFlags & ~GPU_INSTANCE_MATERIAL_CLASSIFICATION_MASK) >>> 0;
@@ -720,7 +954,7 @@ function materialClassificationFlags(
     flags |= GPU_INSTANCE_FLAGS.Transparent;
   }
   if (material.draw_side === ShadeDrawSide.Double) flags |= GPU_INSTANCE_FLAGS.DoubleSided;
-  return encodeInstanceMaterialKernelClass(flags, materialKernelClass(material));
+  return encodeInstanceShadingBinId(flags, shadingBinId);
 }
 
 function validateSource(

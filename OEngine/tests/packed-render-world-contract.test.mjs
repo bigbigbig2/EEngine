@@ -45,7 +45,7 @@ const [
   },
   { StandardShadeMaterial },
   { ShadeDrawSide, ShadeTransparencyMode },
-  { GPU_INSTANCE_FLAGS },
+  { GPU_INSTANCE_FLAGS, decodeInstanceShadingBinId },
   { ShadeTexture, ShadeImage },
   { BoxGeometry },
   { Mesh },
@@ -377,6 +377,10 @@ test("GPU Render World publishes stage and release only when their command commi
 
   const runtime = fixture.registry.runtime(fixture.scene);
   assert.equal(runtime?.handle, handle);
+  assert.equal(runtime.activeShadingSummary.binRefCounts[4], 1);
+  assert.equal(runtime.activeShadingSummary.activeBinMaskLo, 1 << 4);
+  assert.equal(runtime.activeShadingSummary.opaqueLitReceiverCount, 1);
+  assert.equal(decodeInstanceShadingBinId(fixture.calls.instanceSources[0].flags[0]), 4);
   assert.equal(fixture.registry.evidence().sceneCount, 1);
   assert.equal(fixture.registry.evidence().instanceCount, 1);
   assert.deepEqual(fixture.calls.stages, ["texture", "material", "instance"]);
@@ -450,6 +454,8 @@ test("Packed material patch commits classification and restores the queued patch
   );
   stage.finish();
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 0);
+  const initialSummary = fixture.registry.runtime(fixture.scene).activeShadingSummary;
+  assert.equal(initialSummary.binRefCounts[4], 1);
 
   fixture.registry.queuePatch(fixture.scene, {
     frameId: 11,
@@ -463,15 +469,50 @@ test("Packed material patch commits classification and restores the queued patch
   assert.equal(abortedResult?.patchedMaterials, 1);
   assert.deepEqual([...fixture.calls.patches[0].materials.materialHandles], [8]);
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 1);
+  assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.activeBinMaskLo, 0);
+  assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.transparentLitReceiverCount, 1);
   aborted.abort(new Error("injected material patch failure"));
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 0);
+  assert.strictEqual(fixture.registry.runtime(fixture.scene).activeShadingSummary, initialSummary);
 
   const retry = new FakeCommand("packed-material-patch-retry");
   const committedResult = fixture.registry.encodePendingPatch(fixture.scene, retry);
   assert.equal(committedResult?.patchedMaterials, 1);
   retry.finish();
   assert.equal(fixture.registry.transparentInstanceCount(fixture.scene), 1);
+  assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.revision, 2);
   assert.equal(fixture.calls.patches.length, 2);
+});
+
+test("Packed visibility patch updates ActiveShadingSummary once and abort restores its immutable revision", () => {
+  const fixture = createPackedRegistryFixture();
+  const stage = new FakeCommand("packed-visibility-patch-stage");
+  fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, stage);
+  stage.finish();
+  const initialSummary = fixture.registry.runtime(fixture.scene).activeShadingSummary;
+
+  fixture.registry.queuePatch(fixture.scene, {
+    frameId: 12,
+    visibility: {
+      indices: new Uint32Array([0]),
+      flags: new Uint32Array([0])
+    }
+  });
+  const aborted = new FakeCommand("packed-visibility-patch-abort");
+  fixture.registry.encodePendingPatch(fixture.scene, aborted);
+  const inactive = fixture.registry.runtime(fixture.scene).activeShadingSummary;
+  assert.equal(inactive.revision, 2);
+  assert.equal(inactive.activeBinMaskLo, 0);
+  assert.equal(inactive.opaqueLitReceiverCount, 0);
+  assert.equal(inactive.dependencyMask, 0);
+  aborted.abort(new Error("injected visibility patch failure"));
+  assert.strictEqual(fixture.registry.runtime(fixture.scene).activeShadingSummary, initialSummary);
+
+  const retry = new FakeCommand("packed-visibility-patch-retry");
+  fixture.registry.encodePendingPatch(fixture.scene, retry);
+  retry.finish();
+  assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.revision, 2);
+  assert.equal(fixture.registry.runtime(fixture.scene).activeShadingSummary.activeBinMaskLo, 0);
 });
 
 test("Ordinary Scene registration consumes transform and material SceneChangeSet patches", () => {
@@ -1099,7 +1140,14 @@ function createPackedRegistryFixture() {
   material.name = "packed-material";
   const geometry = {
     clusters: [],
-    meshlets: [{ triangleCount: 12 }]
+    meshlets: [{ triangleCount: 12 }],
+    vertexStreamDescriptors: [
+      { semantic: "position" },
+      { semantic: "normal" },
+      { semantic: "tangent" },
+      { semantic: "uv0" },
+      { semantic: "color" }
+    ]
   };
   const source = {
     geometries: [geometry],

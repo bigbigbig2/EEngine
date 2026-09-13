@@ -464,5 +464,10 @@ test("bulk validation is atomic and stable reads return the same snapshot withou
     source,
     /requestAnimationFrame|beginFrame|from\s+["'][^"']*Scene|for\s*\([^)]*(?:scene|materialRegistry)/iu
   );
-  assert.doesNotMatch(renderWorld, /GpuShadingPublicationPlan|ActiveShadingSummary/u);
+  assert.match(renderWorld, /activeShadingSummary:\s*Readonly<ActiveShadingSummary>/u);
+  assert.match(renderWorld, /deriveGpuShadingIdentity/u);
+  assert.doesNotMatch(
+    renderWorld,
+    /opaqueKernelClassCounts|activeKernelMask|activeKernelMasksByBindingSet/u
+  );
 });
