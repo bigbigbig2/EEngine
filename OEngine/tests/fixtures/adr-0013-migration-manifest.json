@@ -5,7 +5,7 @@
   "inventoryCommit": "0102a61",
   "formalBaseline": {
     "status": "open",
-    "blocker": "ADR-0014 browser validation and performance host is accepted but not implemented.",
+    "blocker": "ADR-0013 baseline/candidate workloads and formal PERF orchestration are not connected to the implemented ADR-0014 host.",
     "workloadId": "adr-0013-sparse-shading-bin-comprehensive-v1",
     "evidenceSchemaId": "adr-0013-perf-evidence-v1",
     "fixedConditions": {
@@ -124,7 +124,7 @@
       "id": "classifier-and-queue",
       "currentPaths": ["src/gpu/GpuMaterialTileWorkAbi.ts", "src/render/passes/MaterialTileClassificationPass.ts", "src/shaders/material_tile_classification.ts"],
       "replacementOwners": ["src/gpu/GpuShadingBinAbi.ts", "src/render/passes/ShadingBinPass.ts", "src/shaders/shading_bin_classify.ts"],
-      "verificationOwners": ["tests/shading-bin-reference.test.mjs", "tests/shading-bin-shader-contract.test.mjs", "new browser GPU component suite"],
+      "verificationOwners": ["tests/shading-bin-reference.test.mjs", "tests/shading-bin-shader-contract.test.mjs", "../validation/src/cases/shading-bin-component/main.ts"],
       "implementedAtStep": 4,
       "retireAtStep": 7
     },

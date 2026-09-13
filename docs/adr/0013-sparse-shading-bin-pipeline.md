@@ -968,7 +968,7 @@ tests/runtime-geometry-instance-residency-v2.test.mjs
 ```text
 tests/shading-bin-visibility-contract.test.mjs
 tests/shading-bin-classifier.test.mjs
-tests/shading-bin-gpu-component.test.mjs   # 新宿主落地后启用
+validation/src/cases/shading-bin-component/main.ts
 ```
 
 - L1：CPU raster ownership model 验证 background、depth loser、discarded MASK 保持 0xff，winner 的 key/bin 同域。
@@ -1305,4 +1305,4 @@ ADR-0013 只有同时满足以下条件才能标记 complete：
 - `docs/ARCHITECTURE.md`、`docs/PIPELINE.md`、`docs/STATUS.md`、`docs/WEBGPU.md` 和 porting ledger 与实际 cutover 同步。
 - 新 browser host 下当前指定 adapter 的 MILESTONE/PERF 完成，正式证据没有 correctness-critical overflow 或 GPU diagnostics；额外 adapter 对比不作为本 ADR 完成条件。
 
-在 ADR-0014 宿主实现且命中 Gate 关闭前，本 ADR 最高只能达到 `Implementation Complete`，不得宣称 Runtime Validated、Performance Improved、Pipeline Feature Complete 或 ADR Complete。
+在 ADR-0014 宿主中的全部命中 Gate 关闭前，本 ADR 最高只能达到 `Implementation Complete`，不得宣称 Performance Improved、Pipeline Feature Complete 或 ADR Complete；局部 L3/L4 证据只能关闭其明确覆盖的 Step/Gate，不能外推为整条管线 Runtime Validated。
