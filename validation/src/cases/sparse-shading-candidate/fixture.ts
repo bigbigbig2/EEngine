@@ -545,7 +545,7 @@ function createRenderingLabPersistentResources(
     counters:makeBuffer("ADR-0013 RenderingLab downstream counters",GPU_COUNTER_BYTE_SIZE,
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC),
     stbn:sampled("ADR-0013 RenderingLab STBN",[4,4,4],"3d"),
-    blueNoise:sampled("ADR-0013 RenderingLab blue noise",[4,4]),
+    blueNoise:sampled("ADR-0013 RenderingLab blue noise",[4,4,4],"3d"),
     environmentDiffuse:sampled("ADR-0013 RenderingLab diffuse environment",[8,8]),
     environmentSpecular:sampled("ADR-0013 RenderingLab specular environment",[8,8]),
     splitSum:sampled("ADR-0013 RenderingLab split sum",[4,4]),
@@ -698,7 +698,8 @@ function uploadRenderingLabPersistentResources(device:GPUDevice,lab:RenderingLab
   dv.setUint32(88,0,true);device.queue.writeBuffer(lab.view,0,view);
   device.queue.writeBuffer(lab.counters,0,new Uint8Array(GPU_COUNTER_BYTE_SIZE));
   uploadRgba8(device,lab.stbn,4,4,4,(x,y,z)=>[32+47*x,24+53*y,16+61*z,255]);
-  uploadRgba8(device,lab.blueNoise,4,4,1,(x,y)=>[(x*73+y*37)&255,(x*29+y*97)&255,(x*151+y*17)&255,255]);
+  uploadRgba8(device,lab.blueNoise,4,4,4,(x,y,z)=>[(x*73+y*37+z*19)&255,
+    (x*29+y*97+z*43)&255,(x*151+y*17+z*67)&255,255]);
   uploadRgba8(device,lab.environmentDiffuse,8,8,1,(x,y)=>[40+8*x,52+6*y,72+5*((x+y)%8),255]);
   uploadRgba8(device,lab.environmentSpecular,8,8,1,(x,y)=>[80+12*x,96+10*y,128+8*((x+y)%8),255]);
   uploadRgba8(device,lab.fallbackDiffuse,8,8,1,(x,y)=>[36+6*x,44+5*y,60+4*((x+y)%8),255]);
@@ -1614,7 +1615,7 @@ function validateCandidateTopology(value:unknown,scenario:string):void {
       "FX-06 final temporal validity classification","Three SSGI r186 horizon-bitfield trace",
       "SSGI joint spatial filter","SSGI unified temporal AO+GI resolve","SSGI joint bilateral full-resolution resolve",
       "receiver-local long-range GI provider","ScreenSpaceDiffuseResolve","OpaqueColorPyramid shared producer",
-      "SSR stochastic trace","SSR stochastic hit shading","SSR recurrent denoise","SSR temporal reproject",
+      "SSR trace uk","SSR stochastic hit shading","SSR recurrent specular denoise","SSR temporal reproject",
       "SSR specular correction","FX-06B Final TAA/TAAU resolve","RenderingLab submitted depth/camera history copy"])
       if(!liveNames.some((name)=>name.includes(requiredName)))throw new Error(`${scenario} missing production downstream pass '${requiredName}'`);
     if(liveNames.some((name)=>name.startsWith("SparseShading/downstream/")))throw new Error(
