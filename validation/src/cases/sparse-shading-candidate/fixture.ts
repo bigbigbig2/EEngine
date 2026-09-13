@@ -72,7 +72,7 @@ const EMISSIVE_SAMPLE = [128/255,64/255,1,1] as const;
 const FEATURES = Object.freeze({ screenSpaceDiffuseMode:"off" as const, ssr:false, temporal:false,
   shadows:false, post:true, diagnostics:false });
 
-export type SparseCandidateWorkload = "mixed-bins"|"basic-cube"|"unlit-vertex-color";
+export type SparseCandidateWorkload = "mixed-bins"|"basic-cube"|"unlit-vertex-color"|"unlit-texture";
 
 interface WorkloadLayout {
   readonly geometryCount:number; readonly meshletCount:number; readonly vertexCount:number;
@@ -98,7 +98,7 @@ function workloadLayout(workload:SparseCandidateWorkload):WorkloadLayout {
 }
 function workloadProgramIds(workload:SparseCandidateWorkload):readonly number[] {
   return workload==="mixed-bins"?Object.freeze(Array.from({length:GPU_SHADING_PROGRAM_COUNT},(_,program)=>program)):
-    Object.freeze([workload==="basic-cube"?0:1]);
+    Object.freeze([workload==="basic-cube"?0:workload==="unlit-vertex-color"?1:2]);
 }
 function workloadTriangleCount(workload:SparseCandidateWorkload):number {
   if(workload==="mixed-bins")return TRIANGLES_PER_PROGRAM;
@@ -106,7 +106,7 @@ function workloadTriangleCount(workload:SparseCandidateWorkload):number {
 }
 
 interface CandidateResources {
-  readonly layout:WorkloadLayout;
+  readonly workload:SparseCandidateWorkload;readonly layout:WorkloadLayout;
   readonly settings:GPUBuffer; readonly shadingView:GPUBuffer; readonly camera:GPUBuffer;
   readonly queue:GPUBuffer; readonly bucketStates:GPUBuffer; readonly drawIndirect:GPUBuffer;
   readonly bucketSettings:GPUBuffer; readonly instances:GPUBuffer; readonly geometryRecords:GPUBuffer;
@@ -209,6 +209,12 @@ export class SparseShadingCandidateFixture {
     if(this.workload!=="unlit-vertex-color")throw new Error("runUnlitVertexColor requires its dedicated fixture publication");
     const camera=createCubeCamera(CUBE_NEAR_DISTANCE);uploadCameraFrame(this.device,this.resources,this.runtimeSnapshot(),camera,0);
     return this.runCandidateFrame("UnlitVertexColor",0,1,(bytes,snapshot)=>validateUnlitVertexColor(bytes,snapshot,camera));
+  }
+
+  async runUnlitTexture():Promise<Readonly<SparseCandidateEvidence>> {
+    if(this.workload!=="unlit-texture")throw new Error("runUnlitTexture requires its dedicated fixture publication");
+    const camera=createCubeCamera(CUBE_NEAR_DISTANCE);uploadCameraFrame(this.device,this.resources,this.runtimeSnapshot(),camera,0);
+    return this.runCandidateFrame("UnlitTexture",0,1,(bytes,snapshot)=>validateUnlitTexture(bytes,snapshot,camera));
   }
 
   private async runCandidateFrame(scenario:string,frameIndex:number,serial:number,
@@ -349,21 +355,21 @@ export class SparseShadingCandidateFixture {
 function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GPUTexture>,
   workload:SparseCandidateWorkload):CandidateResources {
   const layout=workloadLayout(workload),label=workload==="mixed-bins"?"MixedBins":
-    workload==="basic-cube"?"BasicCube":"UnlitVertexColor";
-  const lit=workload==="mixed-bins";
+    workload==="basic-cube"?"BasicCube":workload==="unlit-vertex-color"?"UnlitVertexColor":"UnlitTexture";
+  const lit=workload==="mixed-bins",textured=lit||workload==="unlit-texture";
   const makeBuffer=(label:string,size:number,usage:GPUBufferUsageFlags)=>{const value=device.createBuffer({label,size:Math.max(size,4),usage});buffers.add(value);return value;};
   const makeTexture=(descriptor:GPUTextureDescriptor)=>{const value=device.createTexture(descriptor);textures.add(value);return value;};
   const geometryBytes=layout.geometryCount*GPU_GEOMETRY_RECORD_STRIDE;
   const meshletBytes=layout.meshletCount*GPU_MESHLET_RECORD_STRIDE;
   const vertexIndexBytes=layout.vertexCount*4;
   const triangleBytes=layout.triangleBytes;
-  const vertexBytes=layout.vertexCount*VERTEX_STRIDE;
+  const vertexBytes=layout.vertexCount*VERTEX_STRIDE,textureExtent=workload==="unlit-texture"?4:1;
   const textureBanks=Array.from({length:9},(_,index)=>makeTexture({label:`ADR-0013 ${label} texture bank ${index}`,
-    size:[1,1,5],format:"rgba8unorm",usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST}));
+    size:[textureExtent,textureExtent,5],format:"rgba8unorm",usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST}));
   const environmentTextures=lit?Array.from({length:3},(_,index)=>makeTexture({label:`ADR-0013 ${label} environment ${index}`,
     size:[1,1],format:"rgba8unorm",usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST})):[];
   return {
-    layout,settings:makeBuffer(`ADR-0013 ${label} bin settings`,GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST),
+    workload,layout,settings:makeBuffer(`ADR-0013 ${label} bin settings`,GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST),
     shadingView:makeBuffer(`ADR-0013 ${label} shading view`,256,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST),
     camera:makeBuffer(`ADR-0013 ${label} packed camera`,PACKED_CAMERA_TYPE.size,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST),
     queue:makeBuffer(`ADR-0013 ${label} MeshletWork queue`,GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE+
@@ -392,7 +398,7 @@ function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GP
     routes:makeBuffer(`ADR-0013 ${label} texture routes`,layout.materialCount*4*GPU_SHADING_TEXTURE_ROUTE_STRIDE,
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),
     textureBanks,textureBankViews:textureBanks.map((value)=>value.createView({dimension:"2d-array"})),
-    materialSamplers:lit?Array.from({length:6},()=>device.createSampler({addressModeU:"clamp-to-edge",addressModeV:"clamp-to-edge",
+    materialSamplers:textured?Array.from({length:6},()=>device.createSampler({addressModeU:"clamp-to-edge",addressModeV:"clamp-to-edge",
       minFilter:"nearest",magFilter:"nearest"})):[],
     lightDatabase:lit?makeBuffer(`ADR-0013 ${label} light database`,128,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST):null,
     clusterHeaders:lit?makeBuffer(`ADR-0013 ${label} cluster headers`,16*16*16,GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST):null,
@@ -434,9 +440,9 @@ function uploadStaticInputs(device:GPUDevice,r:CandidateResources,snapshot:Retur
   device.queue.writeBuffer(r.bucketSettings,0,createBucketSettings(device));const materials=createMaterials(snapshot,workload);
   device.queue.writeBuffer(r.visibilityMaterials,0,materials.visibility);device.queue.writeBuffer(r.shadingMaterials,0,materials.shading);
   device.queue.writeBuffer(r.routes,0,materials.routes);
-  const bank=new Uint8Array(256*5);bank.set([255,255,255,255],0);bank.set([64,128,191,255],256);
-  bank.set([128,128,255,255],512);bank.set([51,179,230,255],768);bank.set([128,64,255,255],1024);
-  for(const value of r.textureBanks)device.queue.writeTexture({texture:value},bank,{bytesPerRow:256,rowsPerImage:1},[1,1,5]);
+  const bank=createTextureBankUpload(workload);
+  for(const value of r.textureBanks)device.queue.writeTexture({texture:value},bank.bytes,
+    {bytesPerRow:bank.bytesPerRow,rowsPerImage:bank.extent},[bank.extent,bank.extent,5]);
   for(const value of r.environmentTextures)device.queue.writeTexture({texture:value},new Uint8Array([255,255,255,255]),{},[1,1,1]);
   if(workload==="mixed-bins"){
     device.queue.writeBuffer(requireResource(r.lightDatabase,"light database"),0,
@@ -448,6 +454,23 @@ function uploadStaticInputs(device:GPUDevice,r:CandidateResources,snapshot:Retur
     device.queue.writeBuffer(requireResource(r.lightSettings,"light settings"),0,lightSettings);
     device.queue.writeBuffer(requireResource(r.environmentSettings,"environment settings"),0,new Uint32Array(8));
   }
+}
+
+function unlitTextureTexel(x:number,y:number):readonly [number,number,number,number] {
+  return Object.freeze([32+56*x,24+64*y,16+24*(x+y),255] as const);
+}
+function createTextureBankUpload(workload:SparseCandidateWorkload):Readonly<{bytes:Uint8Array;bytesPerRow:number;extent:number}> {
+  if(workload!=="unlit-texture"){
+    const bytes=new Uint8Array(256*5);bytes.set([255,255,255,255],0);bytes.set([64,128,191,255],256);
+    bytes.set([128,128,255,255],512);bytes.set([51,179,230,255],768);bytes.set([128,64,255,255],1024);
+    return Object.freeze({bytes,bytesPerRow:256,extent:1});
+  }
+  const extent=4,bytesPerRow=256,bytes=new Uint8Array(bytesPerRow*extent*5);
+  for(let layer=0;layer<5;layer++)for(let y=0;y<extent;y++)for(let x=0;x<extent;x++){
+    const value=layer===1?unlitTextureTexel(x,y):[255,255,255,255] as const;
+    bytes.set(value,(layer*extent+y)*bytesPerRow+x*4);
+  }
+  return Object.freeze({bytes,bytesPerRow,extent});
 }
 
 function packedPixelCamera():ArrayBuffer {const output=new ArrayBuffer(PACKED_CAMERA_TYPE.size);writeWgslToBuffer({transform:IDENTITY,
@@ -501,7 +524,7 @@ function shadingView(snapshot:ReturnType<GpuShadingPublicationStore["currentSnap
 
 function createGeometryData(workload:SparseCandidateWorkload,layout:WorkloadLayout){
   if(workload==="basic-cube")return createCubeGeometryData(layout);
-  if(workload==="unlit-vertex-color")return createVertexColorGeometryData(layout);
+  if(workload==="unlit-vertex-color"||workload==="unlit-texture")return createPlanarUnlitGeometryData(layout,workload);
   const geometryRecords=new Uint8Array(GPU_SHADING_PROGRAM_COUNT*GPU_GEOMETRY_RECORD_STRIDE);
   const meshletRecords=new Uint8Array(GPU_SHADING_PROGRAM_COUNT*GPU_MESHLET_RECORD_STRIDE);
   const meshletVertices=new Uint32Array(GPU_SHADING_PROGRAM_COUNT*VERTICES_PER_PROGRAM);
@@ -586,15 +609,17 @@ function createCubeGeometryData(layout:WorkloadLayout){
 const VERTEX_COLOR_POSITIONS=Object.freeze([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]] as const);
 const VERTEX_COLOR_VALUES=Object.freeze([[1,0,0,1],[0,1,0,1],[0,0,1,1],[1,1,1,1]] as const);
 const VERTEX_COLOR_TRIANGLES=Object.freeze([[0,1,2],[0,2,3]] as const);
+const UNLIT_TEXTURE_UVS=Object.freeze([[0,1],[1,1],[1,0],[0,0]] as const);
 
-function createVertexColorGeometryData(layout:WorkloadLayout){
+function createPlanarUnlitGeometryData(layout:WorkloadLayout,workload:SparseCandidateWorkload){
   const geometryRecords=new Uint8Array(GPU_GEOMETRY_RECORD_STRIDE),meshletRecords=new Uint8Array(GPU_MESHLET_RECORD_STRIDE);
   const meshletVertices=new Uint32Array(layout.vertexCount),meshletTriangles=new Uint8Array(layout.triangleBytes);
   const vertexStream=new ArrayBuffer(layout.vertexCount*VERTEX_STRIDE),floats=new Float32Array(vertexStream);
   for(let vertex=0;vertex<VERTEX_COLOR_POSITIONS.length;vertex++){
     meshletVertices[vertex]=vertex;const base=vertex*VERTEX_STRIDE/4;floats.set(VERTEX_COLOR_POSITIONS[vertex]!,base);
-    floats.set([0,0],base+3);floats.set([0,0,1,0],base+5);floats.set([1,0,0,1],base+9);
-    floats.set(VERTEX_COLOR_VALUES[vertex]!,base+13);
+    floats.set(workload==="unlit-texture"?UNLIT_TEXTURE_UVS[vertex]!:[0,0],base+3);
+    floats.set([0,0,1,0],base+5);floats.set([1,0,0,1],base+9);
+    floats.set(workload==="unlit-vertex-color"?VERTEX_COLOR_VALUES[vertex]!:[1,1,1,1],base+13);
   }
   meshletTriangles.set(VERTEX_COLOR_TRIANGLES.flat());
   geometryRecords.set(packGpuGeometryRecord({boundsSphere:[0,0,0,Math.sqrt(2)],boundsMin:[-1,-1,0,0],boundsMax:[1,1,0,0],
@@ -724,12 +749,14 @@ function createSceneBindings(r:CandidateResources):GpuSceneBindings {
 function createRenderWorld(r:CandidateResources):GpuRenderWorldRuntime {
   const banks=r.textureBankViews as [GPUTextureView,GPUTextureView,GPUTextureView,GPUTextureView,GPUTextureView,
     GPUTextureView,GPUTextureView,GPUTextureView,GPUTextureView];
+  const program=workloadProgramIds(r.workload)[0]??0,bindingSetId=shadingProgramUsesTextures(program)?materialProfile(program).textureBindingSetId:0;
+  const activeKernelMasksByBindingSet=Array.from({length:bindingSetId+1},(_,id)=>id===bindingSetId?1:0);
   return Object.freeze({handle:{},scene:{},sourceKind:"packed",assetHandles:[],instanceHandle:{},materials:[],
     opaqueMaterialCount:r.layout.materialCount,materialSlots:Array.from({length:r.layout.materialCount},(_,index)=>index),
     materialResources:Object.freeze({abiVersion:1,materialCapacity:r.layout.materialCount,
-      materialRecords:r.visibilityMaterials,textureCapacity:5,bindingSets:Object.freeze([{id:0,generation:TEXTURE_GENERATION,
+      materialRecords:r.visibilityMaterials,textureCapacity:5,bindingSets:Object.freeze([{id:bindingSetId,generation:TEXTURE_GENERATION,
         textureBanks:banks,bankDescriptors:Object.freeze([])}])}),instanceBegin:0,instanceCount:r.layout.instanceCount,transparentInstanceCount:0,
-    activeKernelMask:1,activeKernelMasksByBindingSet:Object.freeze([1]),hierarchyTraversalCapacity:r.layout.workCount,
+    activeKernelMask:1,activeKernelMasksByBindingSet:Object.freeze(activeKernelMasksByBindingSet),hierarchyTraversalCapacity:r.layout.workCount,
     hierarchyVisibleClusterCapacity:r.layout.workCount,hierarchyRasterWorkCapacity:r.layout.workCount,counterSink:r.queue}) as unknown as GpuRenderWorldRuntime;
 }
 
@@ -804,7 +831,8 @@ const WIDTH:u32=${WIDTH}u; const HEIGHT:u32=${HEIGHT}u; const EXPECTED_BIN:u32=$
   }else{if(bin_id!=${GPU_SHADING_BIN_INVALID_ID}u){atomicAdd(&output[6],1u);}
     if(any(abs(color)>vec4f(0.00001))){atomicAdd(&output[8],1u);}}
 }`;
-  const label=workload==="mixed-bins"?"MixedBins":workload==="basic-cube"?"BasicCube":"UnlitVertexColor";
+  const label=workload==="mixed-bins"?"MixedBins":workload==="basic-cube"?"BasicCube":
+    workload==="unlit-vertex-color"?"UnlitVertexColor":"UnlitTexture";
   const validateModule=device.createShaderModule({label:`ADR-0013 ${label} visibility/HDR oracle`,code:validateSource});
   const extractModule=device.createShaderModule({label:`ADR-0013 ${label} bin heap/args oracle`,code:`
 @group(0) @binding(0) var<storage,read> heap:array<u32>;
@@ -1060,6 +1088,91 @@ function validateUnlitVertexColor(bytes:Uint8Array,snapshot:ReturnType<GpuShadin
       minComponent:minColor,maxComponent:maxColor,fnv1a32:fnv1a32(bytes.subarray(HDR_OFFSET,HDR_OFFSET+HDR_BYTES))}),
     presentation:Object.freeze({coloredPixels,distinctRgbValues:colors.size,opaquePixels,diagnosticMagentaPixels:diagnosticMagenta,
       fnv1a32:fnv1a32(presentation)})});
+}
+
+function validateUnlitTexture(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,
+  camera:CubeCameraFrame):Readonly<Record<string,unknown>> {
+  if(bytes.byteLength!==READBACK_BYTES)throw new Error(`UnlitTexture readback length ${bytes.byteLength} != ${READBACK_BYTES}`);
+  const association=snapshot.associations[0];if(association===undefined||snapshot.associations.length!==1)
+    throw new Error(`UnlitTexture expected one shading association, found ${snapshot.associations.length}`);
+  assertEqual(association.identity.programId,2,"UnlitTexture program identity");
+  assertEqual(association.identity.textureBindingSetId,3,"UnlitTexture TextureBindingSet identity");const binId=association.identity.binId;
+  const oracle=new Uint32Array(bytes.buffer,bytes.byteOffset+ORACLE_OFFSET,ORACLE_WORDS);assertEqual(oracle[0],PIXELS,"UnlitTexture oracle pixels");
+  ["work-slot routing","ShadingBinId routing","primitive range","finite HDR","HDR alpha","background bin clear"]
+    .forEach((label,index)=>assertEqual(oracle[index+1],0,`UnlitTexture ${label}`));assertEqual(oracle[8],0,"UnlitTexture background HDR clear");
+  const control=oracle.subarray(16,24),counters=oracle.subarray(24,280),args=oracle.subarray(280,472);
+  assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.frameFlags/4],0,"UnlitTexture bin frame flags");
+  assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.errorCount/4],0,"UnlitTexture bin errors");
+  assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.finalizedGeneration/4],snapshot.generation,"UnlitTexture generation");
+  assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.layoutRevision/4],snapshot.layoutRevision,"UnlitTexture layout revision");
+  const visibility=new DataView(bytes.buffer,bytes.byteOffset+VISIBILITY_OFFSET,VISIBILITY_BYTES);
+  const binImage=bytes.subarray(BIN_OFFSET,BIN_OFFSET+BIN_BYTES),hdr=decodeHalfTexture(bytes.subarray(HDR_OFFSET,HDR_OFFSET+HDR_BYTES));
+  const projected=VERTEX_COLOR_POSITIONS.map((position)=>projectScreen(camera.viewProjection,position[0],position[1],position[2]));
+  const bounds=screenBounds(projected),expectedMicrotiles=new Set<number>(),actualMicrotiles=new Set<number>(),sampledTexels=new Set<number>();
+  let expectedPixels=0,visiblePixels=0,coverageMismatches=0,workSlotMismatches=0,primitiveRangeErrors=0,binMismatches=0,
+    backgroundBinErrors=0,backgroundHdrErrors=0,maxHdrError=0;
+  for(let y=0;y<HEIGHT;y++)for(let x=0;x<WIDTH;x++){
+    const pixel=y*WIDTH+x,key=visibility.getUint32(pixel*4,true),valid=key!==0xffffffff;
+    const expected=(x+0.5)>bounds.minX&&(x+0.5)<bounds.maxX&&(y+0.5)>bounds.minY&&(y+0.5)<bounds.maxY;
+    if(expected){expectedPixels++;expectedMicrotiles.add(Math.floor(y/8)*(WIDTH/8)+Math.floor(x/8));}
+    if(valid){visiblePixels++;actualMicrotiles.add(Math.floor(y/8)*(WIDTH/8)+Math.floor(x/8));
+      if((key&0x00ffffff)!==0)workSlotMismatches++;const primitive=key>>>24;
+      if(primitive>=VERTEX_COLOR_TRIANGLE_COUNT)primitiveRangeErrors++;if(binImage[pixel]!==binId)binMismatches++;
+      if(primitive<VERTEX_COLOR_TRIANGLE_COUNT){const triangle=VERTEX_COLOR_TRIANGLES[primitive]!,weights=barycentric2d(
+        [x+0.5,y+0.5],projected[triangle[0]]!,projected[triangle[1]]!,projected[triangle[2]]!);
+        const uv=[weights[0]*UNLIT_TEXTURE_UVS[triangle[0]]![0]+weights[1]*UNLIT_TEXTURE_UVS[triangle[1]]![0]+
+          weights[2]*UNLIT_TEXTURE_UVS[triangle[2]]![0],weights[0]*UNLIT_TEXTURE_UVS[triangle[0]]![1]+
+          weights[1]*UNLIT_TEXTURE_UVS[triangle[1]]![1]+weights[2]*UNLIT_TEXTURE_UVS[triangle[2]]![1]];
+        const texelX=Math.max(0,Math.min(3,Math.floor(uv[0]!*4))),texelY=Math.max(0,Math.min(3,Math.floor(uv[1]!*4)));
+        sampledTexels.add(texelY*4+texelX);const sample=unlitTextureTexel(texelX,texelY);
+        const expectedHdr=[0.8*(sample[0]/255)*PRE_EXPOSURE,0.5*(sample[1]/255)*PRE_EXPOSURE,
+          0.25*(sample[2]/255)*PRE_EXPOSURE,1],component=pixel*4;
+        for(let c=0;c<4;c++)maxHdrError=Math.max(maxHdrError,Math.abs(hdr[component+c]!-expectedHdr[c]!));
+      }
+    } else {if(binImage[pixel]!==GPU_SHADING_BIN_INVALID_ID)backgroundBinErrors++;const component=pixel*4;
+      if(hdr[component]!==0||hdr[component+1]!==0||hdr[component+2]!==0||hdr[component+3]!==0)backgroundHdrErrors++;}
+    if(valid!==expected)coverageMismatches++;
+  }
+  assertEqual(coverageMismatches,0,"UnlitTexture analytic coverage");assertEqual(workSlotMismatches,0,"UnlitTexture work slot");
+  assertEqual(primitiveRangeErrors,0,"UnlitTexture primitive range");assertEqual(binMismatches,0,"UnlitTexture bin routing");
+  assertEqual(backgroundBinErrors,0,"UnlitTexture background bin sentinel");assertEqual(backgroundHdrErrors,0,"UnlitTexture background HDR");
+  assertAtMost(maxHdrError,0.004,"UnlitTexture nearest-sample HDR reference error");assertEqual(sampledTexels.size,16,"UnlitTexture sampled texel coverage");
+  assertEqual(actualMicrotiles.size,expectedMicrotiles.size,"UnlitTexture microtile count");
+  for(const tile of actualMicrotiles)if(!expectedMicrotiles.has(tile))throw new Error(`UnlitTexture unexpected microtile ${tile}`);
+  const counterBase=binId*GPU_SHADING_BIN_COUNTER_STRIDE/4,attempted=counters[counterBase+GPU_SHADING_BIN_COUNTER_OFFSETS.attemptedCount/4]!,
+    written=counters[counterBase+GPU_SHADING_BIN_COUNTER_OFFSETS.writtenCount/4]!,
+    overflow=counters[counterBase+GPU_SHADING_BIN_COUNTER_OFFSETS.overflowCount/4]!,flags=counters[counterBase+GPU_SHADING_BIN_COUNTER_OFFSETS.flags/4]!;
+  assertEqual(attempted,expectedMicrotiles.size,"UnlitTexture attempted");assertEqual(written,expectedMicrotiles.size,"UnlitTexture written");
+  assertEqual(overflow,0,"UnlitTexture overflow");assertEqual(flags,0,"UnlitTexture flags");
+  assertArray(Array.from(args.subarray(binId*3,binId*3+3)),[expectedMicrotiles.size,1,1],"UnlitTexture indirect args");
+  let inactiveDispatchXNonZero=0;for(let candidate=0;candidate<64;candidate++)if(candidate!==binId){
+    const dispatch=Array.from(args.subarray(candidate*3,candidate*3+3));if(dispatch[0]!==0)inactiveDispatchXNonZero++;
+    assertArray(dispatch,[0,1,1],`UnlitTexture inactive bin ${candidate}`);
+  }
+  const presentation=bytes.subarray(PRESENT_OFFSET,PRESENT_OFFSET+PRESENT_BYTES),colors=new Set<number>();
+  let coloredPixels=0,backgroundAboveDither=0,opaquePixels=0,diagnosticMagenta=0;
+  for(let pixel=0;pixel<PIXELS;pixel++){const offset=pixel*4,valid=visibility.getUint32(pixel*4,true)!==0xffffffff;
+    const nonBlack=presentation[offset]!+presentation[offset+1]!+presentation[offset+2]!>0;
+    if(valid&&nonBlack){coloredPixels++;colors.add(presentation[offset]!|(presentation[offset+1]!<<8)|(presentation[offset+2]!<<16));}
+    if(!valid&&(presentation[offset]!>1||presentation[offset+1]!>1||presentation[offset+2]!>1))backgroundAboveDither++;
+    if(presentation[offset+3]===255)opaquePixels++;
+    if(presentation[offset]!>=250&&presentation[offset+1]!<=5&&presentation[offset+2]!>=250)diagnosticMagenta++;
+  }
+  assertEqual(coloredPixels,visiblePixels,"UnlitTexture presentation coverage");
+  assertEqual(backgroundAboveDither,0,"UnlitTexture background exceeds one-LSB dither");
+  assertEqual(opaquePixels,PIXELS,"UnlitTexture opaque presentation");assertEqual(diagnosticMagenta,0,"UnlitTexture diagnostic magenta");
+  if(colors.size<16)throw new Error(`UnlitTexture produced only ${colors.size} presentation colors`);
+  assertEqual(oracle[7],visiblePixels,"UnlitTexture GPU/CPU visible pixels");
+  return Object.freeze({name:"UnlitTexture",passed:true,programId:association.identity.programId,binId,
+    texture:Object.freeze({bindingSetId:association.identity.textureBindingSetId,extent:[4,4],layer:1,sampler:"nearest-clamp",
+      sampledTexelCount:sampledTexels.size}),geometry:Object.freeze({vertices:VERTEX_COLOR_VERTEX_COUNT,triangles:VERTEX_COLOR_TRIANGLE_COUNT}),
+    camera:Object.freeze({distance:camera.distance,fovDegrees:camera.fovDegrees,screenBounds:bounds}),coverage:Object.freeze({expectedPixels,
+      visiblePixels,coverageMismatches,microtiles:expectedMicrotiles.size}),queue:Object.freeze({attempted,written,overflow,flags,
+      inactiveDispatchXNonZero}),visibility:Object.freeze({workSlotMismatches,primitiveRangeErrors,binMismatches}),
+    background:Object.freeze({binSentinelErrors:backgroundBinErrors,hdrNonZeroPixels:backgroundHdrErrors,
+      presentationAboveOneLsbPixels:backgroundAboveDither}),hdr:Object.freeze({maxReferenceError:maxHdrError,
+      fnv1a32:fnv1a32(bytes.subarray(HDR_OFFSET,HDR_OFFSET+HDR_BYTES))}),presentation:Object.freeze({coloredPixels,
+      distinctRgbValues:colors.size,opaquePixels,diagnosticMagentaPixels:diagnosticMagenta,fnv1a32:fnv1a32(presentation)})});
 }
 
 function cubeScreenBounds(camera:CubeCameraFrame):Readonly<{minX:number;maxX:number;minY:number;maxY:number}> {
