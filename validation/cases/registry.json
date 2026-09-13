@@ -19,6 +19,7 @@
     "QUE-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Separate twelve byte indirect records" },
     "QUE-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "All or nothing bounded heap reservation" },
     "QUE-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Overflow zeros every resolve indirect argument" },
+    "QUE-007": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Classifier records and indirect arguments close into GPU consumers without CPU visible-list traversal" },
     "QUE-008": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Exact rectangular indirect dispatch tails" },
     "CLS-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Classifier workgroup is sixteen by sixteen" },
     "CLS-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Subgroup operations use uniform control flow" },
@@ -33,7 +34,15 @@
     "OFF-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Inactive bins own no queue work or dispatch" },
     "DIAG-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Production successful pixels perform no ownership atomics" },
     "DIAG-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Consumer identity mismatch invalidates the frame and suppresses the lane" },
-    "DIAG-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Ownership validation exists only in a diagnostics variant" }
+    "DIAG-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Ownership validation exists only in a diagnostics variant" },
+    "VIS-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Real Hardware Visibility writes VisibilityKey and ShadingBinId in one ownership domain" },
+    "FRAME-001": { "ownerAdr": "ADR-0013", "layer": "L2", "description": "Candidate graph carries explicit producer-to-consumer dependencies" },
+    "FRAME-002": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Candidate commands are encoded by one main context and submitted once" },
+    "OFF-002": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Disabled candidate features have no live pass, resource, history, readback or private submit" },
+    "POST-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Sparse HDR reaches the unified downstream post and presentation boundary" },
+    "LIFE-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Publication revisions retire only after submitted-work completion and rebuild after loss" },
+    "PERF-001": { "ownerAdr": "ADR-0013", "layer": "L5", "description": "Clean baseline and candidate use the same frozen workload and capability fingerprint" },
+    "DEL-001": { "ownerAdr": "ADR-0013", "layer": "L0", "description": "Every legacy owner has a replacement and validation owner before deletion" }
   },
   "profiles": {
     "smoke": {
@@ -104,6 +113,21 @@
       "cameraPath": "none",
       "warmupFrames": 1,
       "sampleFrames": 2,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
+    "sparse-shading-candidate-mixed-bins-v1": {
+      "resolution": [1280, 720],
+      "componentExtent": [256, 256],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0013-step-6-mixed-bins-l4-v1",
+      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1", "visibility-mrt", "sparse-indirect-resolve", "post"],
+      "seed": 13006,
+      "cameraPath": "none",
+      "warmupFrames": 1,
+      "sampleFrames": 1,
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
@@ -203,6 +227,39 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
           "ownerRequirement": "SHADE-007"
+        }
+      ]
+    },
+    {
+      "id": "sparse-shading-candidate",
+      "route": "/src/cases/sparse-shading-candidate/index.html",
+      "kind": "internal-candidate",
+      "buildTarget": "internal-candidate",
+      "ownerAdr": "ADR-0013",
+      "requirements": [
+        "CAP-005", "VIS-001", "QUE-007", "ID-005", "SHADE-001", "SHADE-004",
+        "OFF-001", "OFF-002", "FRAME-001", "FRAME-002", "POST-001"
+      ],
+      "workloadId": "sparse-shading-candidate-mixed-bins-v1",
+      "profile": "smoke",
+      "timeoutMs": 120000,
+      "artifacts": ["result", "events", "screenshot", "readback"],
+      "changedPaths": [
+        "validation/src/cases/sparse-shading-candidate",
+        "OEngine/src/render/pipeline/SparseShadingCandidatePipeline.ts",
+        "OEngine/src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "OEngine/src/render/pipeline/SparseShadingCandidateRuntime.ts",
+        "OEngine/src/render/MeshletBucketRaster.ts",
+        "OEngine/src/render/passes/ShadingBinPass.ts",
+        "OEngine/src/render/passes/SparseShadingResolvePass.ts",
+        "OEngine/src/render/passes/TonemapPass.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
+          "ownerRequirement": "CAP-005"
         }
       ]
     }

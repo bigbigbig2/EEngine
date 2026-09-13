@@ -20,7 +20,8 @@ export default defineConfig({
         "protocol-self-test": resolve(root, "src/cases/protocol-self-test/index.html"),
         "webgpu-component": resolve(root, "src/cases/webgpu-component/index.html"),
         "shading-bin-component": resolve(root, "src/cases/shading-bin-component/index.html"),
-        "shading-resolve-component": resolve(root, "src/cases/shading-resolve-component/index.html")
+        "shading-resolve-component": resolve(root, "src/cases/shading-resolve-component/index.html"),
+        "sparse-shading-candidate": resolve(root, "src/cases/sparse-shading-candidate/index.html")
       }
     }
   }

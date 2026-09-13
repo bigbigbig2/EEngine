@@ -12,7 +12,8 @@
     "run:protocol": "node src/runner/run-case.mjs protocol-self-test",
     "run:webgpu": "node src/runner/run-case.mjs webgpu-component",
     "run:shading-bin": "node src/runner/run-case.mjs shading-bin-component",
-    "run:shading-resolve": "node src/runner/run-case.mjs shading-resolve-component"
+    "run:shading-resolve": "node src/runner/run-case.mjs shading-resolve-component",
+    "run:sparse-shading-candidate": "node src/runner/run-case.mjs sparse-shading-candidate"
   },
   "devDependencies": {
     "@types/node": "22.20.2",
