@@ -91,3 +91,14 @@ test("only failed runner artifacts may omit a page snapshot", () => {
   artifact.gate = { freshness: false, identity: false, browserErrors: false, pageOutcome: false, disposed: false, artifacts: true };
   assert.deepEqual(validateArtifact(artifact, selectedCase), []);
 });
+
+test("unsupported runs may omit case-specific artifacts without claiming accepted evidence", () => {
+  const artifact = validArtifact();
+  artifact.status = "unsupported";
+  artifact.evidenceStatus = "diagnostic-only";
+  artifact.page.outcome = "unsupported";
+  artifact.page.errors = [{ source: "case", message: "required capability unavailable" }];
+  artifact.artifactManifest = [];
+  artifact.gate.artifacts = true;
+  assert.deepEqual(validateArtifact(artifact, selectedCase), []);
+});

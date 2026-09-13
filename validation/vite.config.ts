@@ -18,7 +18,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         "protocol-self-test": resolve(root, "src/cases/protocol-self-test/index.html"),
-        "webgpu-component": resolve(root, "src/cases/webgpu-component/index.html")
+        "webgpu-component": resolve(root, "src/cases/webgpu-component/index.html"),
+        "shading-bin-component": resolve(root, "src/cases/shading-bin-component/index.html")
       }
     }
   }

@@ -33,9 +33,11 @@ export function validateArtifact(artifact, selectedCase) {
     for (const entry of artifact.artifactManifest ?? []) {
       if (!declared.has(entry.kind)) errors.push(`artifact kind ${entry.kind} is not owned by the case`);
     }
-    for (const required of [...declared].filter((kind) => kind !== "result")) {
-      if (!(artifact.artifactManifest ?? []).some((entry) => entry.kind === required)) {
-        errors.push(`declared artifact ${required} is missing from manifest`);
+    if (artifact.status === "passed") {
+      for (const required of [...declared].filter((kind) => kind !== "result")) {
+        if (!(artifact.artifactManifest ?? []).some((entry) => entry.kind === required)) {
+          errors.push(`declared artifact ${required} is missing from manifest`);
+        }
       }
     }
   }

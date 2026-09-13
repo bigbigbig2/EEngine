@@ -164,6 +164,12 @@ try {
   ]);
 }
 
+if (selectedCase.artifacts.includes("readback") && pageSnapshot?.evidence?.readback !== undefined) {
+  const readbackPath = resolve(runDirectory, "readback.json");
+  await writeFile(readbackPath, `${JSON.stringify(pageSnapshot.evidence.readback, null, 2)}\n`, "utf8");
+  producedArtifacts.push({ kind: "readback", path: "readback.json" });
+}
+
 const eventsPath = resolve(runDirectory, "events.json");
 await writeFile(eventsPath, `${JSON.stringify(events, null, 2)}\n`, "utf8");
 producedArtifacts.push({ kind: "events", path: "events.json" });
@@ -188,7 +194,8 @@ const disposedPassed = pageSnapshot?.state === "disposed" && pageSnapshot.dispos
 const pageOutcomePassed = pageSnapshot !== null && ["passed", "unsupported"].includes(pageSnapshot.outcome ?? "");
 const browserErrorsPassed = fatalBrowserEvents.length === 0;
 const artifactKinds = new Set(artifactManifest.map(({ kind }) => kind));
-const artifactsPassed = selectedCase.artifacts.filter((kind) => kind !== "result").every((kind) => artifactKinds.has(kind));
+const artifactsPassed = pageSnapshot?.outcome !== "passed" ||
+  selectedCase.artifacts.filter((kind) => kind !== "result").every((kind) => artifactKinds.has(kind));
 const allHostGatesPassed = freshnessPassed && identityPassed && browserErrorsPassed && pageOutcomePassed && disposedPassed && artifactsPassed;
 const status = runnerError || !allHostGatesPassed
   ? "failed"

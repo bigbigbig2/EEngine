@@ -10,7 +10,8 @@
     "test": "node --test tests/*.test.mjs",
     "validate:registry": "node src/runner/validate-registry.mjs",
     "run:protocol": "node src/runner/run-case.mjs protocol-self-test",
-    "run:webgpu": "node src/runner/run-case.mjs webgpu-component"
+    "run:webgpu": "node src/runner/run-case.mjs webgpu-component",
+    "run:shading-bin": "node src/runner/run-case.mjs shading-bin-component"
   },
   "devDependencies": {
     "@types/node": "22.20.2",

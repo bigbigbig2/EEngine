@@ -32,9 +32,7 @@ const GPU_LIMIT_NAMES = Object.freeze([
   "maxComputeWorkgroupSizeY",
   "maxComputeWorkgroupSizeZ",
   "maxComputeWorkgroupsPerDimension",
-  "maxImmediateSize",
-  "subgroupMinSize",
-  "subgroupMaxSize"
+  "maxImmediateSize"
 ] as const);
 
 export interface ScopedGpuResult<T> {
@@ -56,12 +54,22 @@ export function snapshotGpuFeatures(features: GPUSupportedFeatures): readonly st
   return Object.freeze([...features].map(String).sort());
 }
 
-export function snapshotAdapterInfo(info: GPUAdapterInfo): Readonly<Record<string, string>> {
+export function snapshotAdapterInfo(
+  info: GPUAdapterInfo
+): Readonly<Record<string, string | number | boolean>> {
+  const current = info as GPUAdapterInfo & {
+    readonly subgroupMinSize?: number;
+    readonly subgroupMaxSize?: number;
+    readonly isFallbackAdapter?: boolean;
+  };
   return Object.freeze({
     vendor: info.vendor,
     architecture: info.architecture,
     device: info.device,
-    description: info.description
+    description: info.description,
+    subgroupMinSize: current.subgroupMinSize ?? "unavailable",
+    subgroupMaxSize: current.subgroupMaxSize ?? "unavailable",
+    isFallbackAdapter: current.isFallbackAdapter ?? "unavailable"
   });
 }
 

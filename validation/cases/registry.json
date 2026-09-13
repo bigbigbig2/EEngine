@@ -7,7 +7,25 @@
     "HOST-DISPOSE": { "ownerAdr": "ADR-0014", "layer": "L4", "description": "Document, GPU and listener teardown is observed" },
     "HOST-CAPABILITY": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Adapter, device and WGSL capability fingerprint" },
     "HOST-GPU-ERRORS": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Compilation, error-scope, uncaptured-error and device-loss collection" },
-    "HOST-READBACK": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Bounded GPU execution and numeric readback" }
+    "HOST-READBACK": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Bounded GPU execution and numeric readback" },
+    "CAP-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Subgroups required before opaque resource creation" },
+    "CAP-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Required limits preflight without silent lowering" },
+    "CAP-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Classifier accepts the reported subgroup width range" },
+    "CAP-004": { "ownerAdr": "ADR-0013", "layer": "L2", "description": "Subgroup size control remains unrequested" },
+    "CAP-005": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Actual capability and format specialization recorded" },
+    "QUE-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Fixed macro and microtile dimensions" },
+    "QUE-002": { "ownerAdr": "ADR-0013", "layer": "L2", "description": "Four byte microtile record stride" },
+    "QUE-003": { "ownerAdr": "ADR-0013", "layer": "L2", "description": "Aligned sixteen byte counter and layout records" },
+    "QUE-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Separate twelve byte indirect records" },
+    "QUE-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "All or nothing bounded heap reservation" },
+    "QUE-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Overflow zeros every resolve indirect argument" },
+    "QUE-008": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Exact rectangular indirect dispatch tails" },
+    "CLS-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Classifier workgroup is sixteen by sixteen" },
+    "CLS-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Subgroup operations use uniform control flow" },
+    "CLS-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Coverage uses width independent two word masks" },
+    "CLS-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Subgroup results aggregate before global reservation" },
+    "CLS-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "At most one reservation per macro and bin" },
+    "DIAG-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Pre-consumer failures zero all indirect arguments" }
   },
   "profiles": {
     "smoke": {
@@ -51,6 +69,21 @@
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
+    },
+    "shading-bin-component-v1": {
+      "resolution": [1280, 720],
+      "componentExtent": [65, 67],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0013-step-4-l3-v1",
+      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1"],
+      "seed": 13004,
+      "cameraPath": "none",
+      "warmupFrames": 1,
+      "sampleFrames": 2,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
     }
   },
   "cases": [
@@ -85,6 +118,37 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
           "ownerRequirement": "HOST-CAPABILITY"
+        }
+      ]
+    },
+    {
+      "id": "shading-bin-component",
+      "route": "/src/cases/shading-bin-component/index.html",
+      "kind": "internal-candidate",
+      "buildTarget": "internal-candidate",
+      "ownerAdr": "ADR-0013",
+      "requirements": [
+        "CAP-001", "CAP-002", "CAP-003", "CAP-004", "CAP-005",
+        "QUE-001", "QUE-002", "QUE-003", "QUE-004", "QUE-005", "QUE-006", "QUE-008",
+        "CLS-001", "CLS-002", "CLS-003", "CLS-004", "CLS-005", "DIAG-003"
+      ],
+      "workloadId": "shading-bin-component-v1",
+      "profile": "smoke",
+      "timeoutMs": 60000,
+      "artifacts": ["result", "events", "readback"],
+      "changedPaths": [
+        "validation/src/cases/shading-bin-component",
+        "OEngine/src/gpu/GpuShadingBinAbi.ts",
+        "OEngine/src/gpu/GpuSparseShadingCapability.ts",
+        "OEngine/src/render/passes/ShadingBinPass.ts",
+        "OEngine/src/shaders/shading_bin_classify.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
+          "ownerRequirement": "CAP-005"
         }
       ]
     }
