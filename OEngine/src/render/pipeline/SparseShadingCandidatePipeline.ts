@@ -30,7 +30,8 @@ export type SparseShadingCandidateStage =
   | "temporal"
   | "post"
   | "diagnostics-finalize"
-  | "diagnostics-copy";
+  | "diagnostics-copy"
+  | "capture";
 
 export type SparseShadingCandidateHistoryStage = "gtao" | "ssgi" | "ssr" | "temporal";
 
@@ -466,11 +467,7 @@ export function addSparseShadingCandidateToGraph(
         throw new Error("Sparse shading post stage requires a presentation resource");
       }
       mutable.finalOutput = downstream.write(external.presentation);
-      if (external.captureReadback !== undefined) {
-        mutable.captureReadback = downstream.write(external.captureReadback);
-      }
       downstreamFrame.finalOutput = mutable.finalOutput;
-      downstreamFrame.captureReadback = mutable.captureReadback;
       downstream.declareEncoderWork({ renderPasses: 1, draws: 1 });
     } else {
       mutable.hdr = downstream.write(mutable.hdr);
@@ -506,6 +503,30 @@ export function addSparseShadingCandidateToGraph(
     copyFrame.diagnosticsReadback = mutable.diagnosticsReadback;
     Object.freeze(copyFrame);
     copy.make_side_effect();
+    previousPass = copy;
+  }
+  if (external.captureReadback !== undefined) {
+    const captureFrame = cloneMutableFrame(mutable);
+    const capture = graph.add("SparseShading/validation capture boundary", captureFrame,
+      (data, resources, context) => executeStage("capture", data, resources, context));
+    if (previousPass !== null) capture.dependsOn(previousPass);
+    for (const resource of [
+      mutable.visibilityKey,
+      mutable.shadingBinId,
+      mutable.heap,
+      mutable.indirectArgs,
+      mutable.settings,
+      mutable.hdr,
+      mutable.finalOutput
+    ]) {
+      if (resource !== null) capture.read(resource);
+    }
+    mutable.captureReadback = capture.write(external.captureReadback);
+    captureFrame.captureReadback = mutable.captureReadback;
+    Object.freeze(captureFrame);
+    capture.declareEncoderWork({ computePasses: 1, dispatches: 1 });
+    capture.make_side_effect();
+    previousPass = capture;
   }
   mutable.finalOutput ??= mutable.hdr;
   if (previousPass !== null) previousPass.make_side_effect();

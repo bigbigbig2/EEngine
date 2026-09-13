@@ -362,7 +362,8 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
       "SparseShading/downstream/ssgi",
       "SparseShading/downstream/post",
       "SparseShading/diagnostics finalize",
-      "SparseShading/diagnostics async copy boundary"
+      "SparseShading/diagnostics async copy boundary",
+      "SparseShading/validation capture boundary"
     ]);
     const resolve = executable.find((pass) => pass.name.endsWith("indirect resolve"));
     const classify = executable.find((pass) => pass.name.includes("classify"));
@@ -389,7 +390,10 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.deepEqual([...commands], [contextValue.encoder]);
     assert.equal(bindingFactoryResources.length, 2);
     assert.ok(bindingFactoryResources.every((resource) => resource !== null && resource !== undefined));
-    assert.deepEqual(stages, frame.plan.passes.filter((stage) => stage !== "temporal" && stage !== "gtao" && stage !== "ssr"));
+    assert.deepEqual(stages, [
+      ...frame.plan.passes.filter((stage) => stage !== "temporal" && stage !== "gtao" && stage !== "ssr"),
+      "capture"
+    ]);
     assert.ok(stageFrames.get("ssgi").historyInput !== null);
     assert.ok(stageFrames.get("ssgi").historyOutput !== null);
     assert.ok(frame.finalOutput !== null);
@@ -399,6 +403,12 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     const post = executable.find((pass) => pass.name.endsWith("/post"));
     assert.equal(post.encoderWork.renderPasses, 1);
     assert.equal(post.encoderWork.computePasses, 0);
+    const capture = executable.find((pass) => pass.name.endsWith("capture boundary"));
+    assert.equal(capture.encoderWork.computePasses, 1);
+    assert.equal(capture.encoderWork.dispatches, 1);
+    assert.ok(capture.reads.includes(frame.visibilityKey));
+    assert.ok(capture.reads.includes(frame.shadingBinId));
+    assert.ok(capture.reads.includes(frame.hdr));
     assert.ok(frame.diagnosticsReadback !== null);
   } finally {
     globalThis.GPUTextureUsage = previousTextureUsage;
