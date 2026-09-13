@@ -884,16 +884,24 @@ export class GpuScene {
   private packSource(source: InstanceSource): Uint8Array<ArrayBuffer> {
     const bytes = new Uint8Array(source.count * GPU_INSTANCE_RECORD_STRIDE);
     const view = new DataView(bytes.buffer);
+    const geometryIdentities = source.geometryHandles.map((handle) =>
+      this.assets.publicationIdentity(handle)
+    );
     for (let index = 0; index < source.count; index++) {
       const base = index * GPU_INSTANCE_RECORD_STRIDE;
       const geometryLocal = source.geometryIndices[index]!;
-      const geometry = source.geometryHandles[geometryLocal];
-      if (geometry === undefined) {
+      const geometryIdentity = geometryIdentities[geometryLocal];
+      if (geometryIdentity === undefined) {
         throw new RangeError(`geometryIndices[${index}] is outside geometryHandles`);
       }
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index,
-        this.assets.recordIndex(geometry),
+        geometryIdentity.slot,
+        true
+      );
+      view.setUint32(
+        base + GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
+        geometryIdentity.generation,
         true
       );
       view.setUint32(

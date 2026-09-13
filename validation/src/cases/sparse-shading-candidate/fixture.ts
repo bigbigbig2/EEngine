@@ -981,20 +981,20 @@ function createInstances(workload:SparseCandidateWorkload):Uint8Array {
     const transforms=[affineTransform(0.55,0.55,0.55,-2.1,-0.65,-0.3),affineTransform(0.65,0.9,0.2,2,-0.3,-0.5),
       affineTransform(3.8,0.18,3.8,0,-1.75,0),affineTransform(0.95,0.95,0.95,0,0,0.35)];
     const output=new Uint8Array(RENDERING_LAB_PROGRAMS.length*GPU_INSTANCE_RECORD_STRIDE);
-    for(let index=0;index<RENDERING_LAB_PROGRAMS.length;index++)output.set(packGpuInstanceRecord({geometryRecordIndex:index,
+    for(let index=0;index<RENDERING_LAB_PROGRAMS.length;index++)output.set(packGpuInstanceRecord({geometryRecordIndex:index,geometryGeneration:GEOMETRY_GENERATION,
       materialHandle:index,flags:GPU_MESHLET_RASTER_FLAGS.DoubleSided|GPU_INSTANCE_FLAGS.CastsShadow,debugId:index+1,
       boundsSphere:[0,0,0,Math.sqrt(3)],boundsMin:[-1,-1,-1],boundsMax:[1,1,1],
       currentObjectToWorld:transforms[index]!,previousObjectToWorld:transforms[index]!}),index*GPU_INSTANCE_RECORD_STRIDE);
     return output;
   }
-  if(workload!=="mixed-bins")return new Uint8Array(packGpuInstanceRecord({geometryRecordIndex:0,materialHandle:0,
+  if(workload!=="mixed-bins")return new Uint8Array(packGpuInstanceRecord({geometryRecordIndex:0,geometryGeneration:GEOMETRY_GENERATION,materialHandle:0,
     flags:GPU_MESHLET_RASTER_FLAGS.DoubleSided,debugId:1,
     boundsSphere:[0,0,0,workload==="basic-cube"||workload==="lifecycle-resize"?Math.sqrt(3):Math.sqrt(2)],
     boundsMin:[-1,-1,workload==="basic-cube"||workload==="lifecycle-resize"?-1:0],
     boundsMax:[1,1,workload==="basic-cube"||workload==="lifecycle-resize"?1:0],
     currentObjectToWorld:IDENTITY,previousObjectToWorld:IDENTITY}));
   const output=new Uint8Array(GPU_SHADING_PROGRAM_COUNT*GPU_INSTANCE_RECORD_STRIDE);
-  for(let program=0;program<GPU_SHADING_PROGRAM_COUNT;program++)output.set(packGpuInstanceRecord({geometryRecordIndex:program,
+  for(let program=0;program<GPU_SHADING_PROGRAM_COUNT;program++)output.set(packGpuInstanceRecord({geometryRecordIndex:program,geometryGeneration:GEOMETRY_GENERATION,
     materialHandle:program,flags:GPU_MESHLET_RASTER_FLAGS.DoubleSided,debugId:program+1,boundsSphere:[WIDTH/2,HEIGHT/2,1,181],
     boundsMin:[0,0,1],boundsMax:[WIDTH,HEIGHT,1],currentObjectToWorld:IDENTITY,previousObjectToWorld:IDENTITY}),
     program*GPU_INSTANCE_RECORD_STRIDE);return output;}

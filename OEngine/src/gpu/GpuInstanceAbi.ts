@@ -1,7 +1,7 @@
 import { mat4 } from "gl-matrix";
 import { GPU_SHADING_BIN_COUNT } from "./GpuShadingBinAbi.js";
 
-export const GPU_INSTANCE_ABI_VERSION = 5;
+export const GPU_INSTANCE_ABI_VERSION = 6;
 export const GPU_INSTANCE_STATIC_RECORD_STRIDE = 64;
 export const GPU_INSTANCE_DYNAMIC_RECORD_STRIDE = 112;
 export const GPU_INSTANCE_RECORD_STRIDE =
@@ -45,6 +45,8 @@ export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   debug_id: 12,
   bounds_sphere: 16,
   bounds_min: 32,
+  /** Reserved bounds_min.w lane, published as the expected AssetHandle generation. */
+  geometry_generation: 44,
   bounds_max: 48,
   current_affine: 64,
   previous_from_current_affine: 112,
@@ -62,6 +64,7 @@ export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
 
 export interface GpuInstanceRecordCpu {
   readonly geometryRecordIndex: number;
+  readonly geometryGeneration: number;
   readonly materialHandle: number;
   readonly flags: number;
   readonly debugId: number;
@@ -129,6 +132,10 @@ fn oengine_instance_active(instance: OEngineInstanceRecord) -> bool {
 
 fn oengine_instance_motion_valid(instance: OEngineInstanceRecord) -> bool {
   return (instance.motion_flags & ${GPU_INSTANCE_FLAGS.MotionInvalid}u) == 0u;
+}
+
+fn oengine_instance_geometry_generation(instance: OEngineInstanceRecord) -> u32 {
+  return bitcast<u32>(instance.bounds_min.w);
 }
 
 fn oengine_instance_shading_bin_id(flags: u32) -> u32 {
@@ -203,6 +210,8 @@ export function writeGpuInstanceRecord(
     GPU_INSTANCE_RECORD_STRIDE
   );
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index, record.geometryRecordIndex, "geometryRecordIndex");
+  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
+    requireNonZeroU32(record.geometryGeneration, "geometryGeneration"), "geometryGeneration");
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.material_handle, record.materialHandle, "materialHandle");
   const previousFromCurrent = scratch.previousFromCurrent;
   const motionValid = computePreviousFromCurrent(
@@ -405,4 +414,10 @@ function assertU32(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
     throw new RangeError(`${label} ${value} is outside the R2 u32 ABI`);
   }
+}
+
+function requireNonZeroU32(value: number, label: string): number {
+  assertU32(value, label);
+  if (value === 0) throw new RangeError(`${label} must be non-zero`);
+  return value;
 }

@@ -145,7 +145,7 @@ struct OEngineSparseShadingView {
   geometry_count: u32,
   material_generation: u32,
   texture_generation: u32,
-  geometry_generation: u32,
+  _reserved_geometry_generation: u32,
   publication_revision: u32,
   geometry_word_base: u32,
   meshlet_word_base: u32,
@@ -566,7 +566,7 @@ function consumerWgsl(descriptor: Readonly<GpuSparseShadingPipelineDescriptor>, 
   const evaluation = isFastUnlitFactor(descriptor)
     ? "let factor=sparse_evaluate_unlit_factor(material);"
     : reconstruct
-      ? "if work.geometry_slot>=shading_view.geometry_count||work.instance_slot>=arrayLength(&instance_records)||instance_records[work.instance_slot].geometry_record_index!=work.geometry_slot||asset_metadata_heap[shading_view.geometry_generation_word_base+work.geometry_slot]!=shading_view.geometry_generation{sparse_identity_error();return;}let surface=sparse_evaluate_geometry(pixel,work,oengine_visibility_key_local_primitive(key),material_slot,material);"
+      ? "if work.geometry_slot>=shading_view.geometry_count||work.instance_slot>=arrayLength(&instance_records)||instance_records[work.instance_slot].geometry_record_index!=work.geometry_slot||asset_metadata_heap[shading_view.geometry_generation_word_base+work.geometry_slot]!=oengine_instance_geometry_generation(instance_records[work.instance_slot]){sparse_identity_error();return;}let surface=sparse_evaluate_geometry(pixel,work,oengine_visibility_key_local_primitive(key),material_slot,material);"
       : "let surface=sparse_evaluate(material_slot,material);";
   const store = isFastUnlitFactor(descriptor)
     ? "sparse_store_unlit_factor(pixel,factor);"

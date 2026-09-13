@@ -46,6 +46,7 @@ test("Instance V2 CPU pack oracle preserves affine current/previous state and mo
   const previous = translatedMatrices([[1, 3, 4]]);
   const bytes = packGpuInstanceRecord({
     geometryRecordIndex: 7,
+    geometryGeneration: 3,
     materialHandle: 9,
     flags: GPU_INSTANCE_FLAGS.Active,
     debugId: 11,
@@ -66,11 +67,25 @@ test("Instance V2 CPU pack oracle preserves affine current/previous state and mo
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision, true), 0);
   assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.motion_flags, true), 0);
+  assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.geometry_generation, true), 3);
+  assert.throws(() => packGpuInstanceRecord({
+    geometryRecordIndex: 7,
+    geometryGeneration: 0,
+    materialHandle: 9,
+    flags: GPU_INSTANCE_FLAGS.Active,
+    debugId: 11,
+    boundsSphere: [0, 0, 0, 1],
+    boundsMin: [-1, -1, -1],
+    boundsMax: [1, 1, 1],
+    currentObjectToWorld: current,
+    previousObjectToWorld: previous
+  }), /geometryGeneration.*non-zero/);
 
   const singular = current.slice();
   singular[0] = 0;
   const invalid = packGpuInstanceRecord({
     geometryRecordIndex: 7,
+    geometryGeneration: 3,
     materialHandle: 9,
     flags: GPU_INSTANCE_FLAGS.Active,
     debugId: 11,
@@ -227,7 +242,9 @@ test("GpuAssetStore publishes physical chunk ranges behind an unchanged opaque h
 test("Instance V2 narrows stable, small, large, static, material, and visibility patches", () => {
   const writes = [];
   const device = fakeDevice();
-  const scene = new GpuScene(device, { recordIndex: () => 7 });
+  const scene = new GpuScene(device, {
+    publicationIdentity: () => Object.freeze({ slot: 7, generation: 41 })
+  });
   const source = {
     count: 4,
     geometryHandles: [{}],
@@ -238,6 +255,17 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   };
   const create = new SceneCommand(device, writes);
   const handle = scene.instantiate(source, create);
+  const initialUpload = writes.at(-1);
+  const initialView = new DataView(
+    initialUpload.data,
+    initialUpload.dataOffset,
+    initialUpload.size
+  );
+  for (let index = 0; index < source.count; index++) {
+    const base = index * GPU_INSTANCE_RECORD_STRIDE;
+    assert.equal(initialView.getUint32(base + GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index, true), 7);
+    assert.equal(initialView.getUint32(base + GPU_INSTANCE_RECORD_OFFSETS.geometry_generation, true), 41);
+  }
   create.finish();
   assert.equal(scene.evidence().recordStride, 176);
   assert.equal(scene.evidence().staticRecordStride, GPU_INSTANCE_STATIC_RECORD_STRIDE);

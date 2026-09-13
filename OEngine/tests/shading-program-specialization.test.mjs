@@ -133,6 +133,18 @@ test("triangle reconstruction converts clip-space NDC to top-left pixel coordina
   assert.doesNotMatch(source, /fn sparse_projected_pixel\([^)]*\)[^{]*\{ return value\.xy \/ value\.w; \}/u);
 });
 
+test("triangle reconstruction validates each instance geometry generation", () => {
+  const source = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrFactor,
+    GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite
+  )).source;
+  assert.match(source, /fn oengine_instance_geometry_generation/u);
+  assert.match(source,
+    /asset_metadata_heap\[shading_view\.geometry_generation_word_base\+work\.geometry_slot\]!=oengine_instance_geometry_generation\(instance_records\[work\.instance_slot\]\)/u);
+  assert.doesNotMatch(source,
+    /asset_metadata_heap\[shading_view\.geometry_generation_word_base\+work\.geometry_slot\]!=shading_view\.geometry_generation/u);
+});
+
 test("actual WGSL binding pairs and output stores equal every concrete descriptor", () => {
   for (let programId = 0; programId < GPU_SHADING_PROGRAM_COUNT; programId++) {
     for (let mask = 0; mask < 8; mask++) {

@@ -454,7 +454,8 @@ function uploadInputs(device: GPUDevice, resources: StaticResources, binIds: Uin
   }
   restoreMutableInputs(device, resources);
   device.queue.writeBuffer(resources.instances, 0, packGpuInstanceRecord({
-    geometryRecordIndex: 0, materialHandle: 0, flags: 0, debugId: 1,
+    geometryRecordIndex: 0, geometryGeneration: GEOMETRY_GENERATION,
+    materialHandle: 0, flags: 0, debugId: 1,
     boundsSphere: [40, 40, 0, 60], boundsMin: [0, 0, 0], boundsMax: [80, 80, 0],
     currentObjectToWorld: IDENTITY, previousObjectToWorld: IDENTITY
   }));
