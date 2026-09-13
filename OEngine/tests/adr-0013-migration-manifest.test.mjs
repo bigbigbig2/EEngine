@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,10 +14,10 @@ function assertUnique(values, label) {
   assert.equal(new Set(values).size, values.length, `${label} must be unique`);
 }
 
-test("ADR-0013 Step 0 freezes a complete migration inventory", () => {
-  assert.equal(manifest.schemaVersion, 1);
+test("ADR-0013 Step 7 preserves the migration inventory and records physical deletion", () => {
+  assert.equal(manifest.schemaVersion, 2);
   assert.equal(manifest.adr, "ADR-0013");
-  assert.equal(manifest.phase, "step-0");
+  assert.equal(manifest.phase, "step-7-cutover");
   assert.match(manifest.inventoryCommit, /^[0-9a-f]{7,40}$/u);
   assertUnique(manifest.migrations.map(({ id }) => id), "migration ids");
 
@@ -35,6 +35,12 @@ test("ADR-0013 Step 0 freezes a complete migration inventory", () => {
   ];
   assert.deepEqual(manifest.migrations.map(({ id }) => id), requiredMigrations);
 
+  const retiredPaths = new Set(manifest.cutoverDeletion.retiredPaths);
+  assertUnique([...retiredPaths], "retired paths");
+  for (const retiredPath of retiredPaths) {
+    assert.equal(existsSync(resolve(packageRoot, retiredPath)), false, `${retiredPath} must be deleted`);
+  }
+
   for (const migration of manifest.migrations) {
     assert.ok(migration.currentPaths.length > 0, `${migration.id} must name current paths`);
     assert.ok(migration.replacementOwners.length > 0, `${migration.id} must name replacement owners`);
@@ -42,8 +48,22 @@ test("ADR-0013 Step 0 freezes a complete migration inventory", () => {
     assert.ok(migration.implementedAtStep >= 1 && migration.implementedAtStep <= 5);
     assert.equal(migration.retireAtStep, 7);
     for (const currentPath of migration.currentPaths) {
-      assert.ok(existsSync(resolve(packageRoot, currentPath)), `${migration.id}: missing ${currentPath}`);
+      if (retiredPaths.has(currentPath)) {
+        assert.equal(existsSync(resolve(packageRoot, currentPath)), false);
+      } else {
+        assert.ok(existsSync(resolve(packageRoot, currentPath)), `${migration.id}: missing ${currentPath}`);
+      }
     }
+  }
+});
+
+test("ADR-0013 Step 7 retired symbols have zero source-tree matches", () => {
+  const sourceRoot = resolve(packageRoot, "src");
+  const source = sourceFiles(sourceRoot)
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+  for (const pattern of manifest.cutoverDeletion.retiredSourcePatterns) {
+    assert.doesNotMatch(source, new RegExp(pattern, "u"), `retired source pattern remains: ${pattern}`);
   }
 });
 
@@ -113,3 +133,13 @@ test("ADR-0013 internal ABI is not exposed through the public entry point", () =
     assert.doesNotMatch(publicEntry, new RegExp(`\\b${internalName}\\b`, "u"));
   }
 });
+
+function sourceFiles(directory) {
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) files.push(...sourceFiles(path));
+    else if (entry.isFile() && path.endsWith(".ts")) files.push(path);
+  }
+  return files;
+}

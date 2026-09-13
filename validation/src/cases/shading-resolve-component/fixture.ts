@@ -512,7 +512,7 @@ function restoreMutableInputs(device: GPUDevice, resources: StaticResources): vo
     materialBytes.set(packGpuShadingMaterialRecord({ programId, textureBindingSetId: set,
       materialGeneration: MATERIAL_GENERATION, textureGeneration: TEXTURE_GENERATION,
       publicationRevision: PUBLICATION_REVISION, flags: 0 }, {
-      kernelClass: 0, alphaMode: 0, flags, textureRef: base,
+      reserved0: 0, alphaMode: 0, flags, textureRef: base,
       baseColorFactorAlpha: 1, alphaCutoff: 0.5, textureUvSets: 0,
       samplerClass: 0,
       uvOffset: [0, 0], uvScale: [1, 1], rotationCos: 1, rotationSin: 0,

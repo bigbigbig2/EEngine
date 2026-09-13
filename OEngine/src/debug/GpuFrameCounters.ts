@@ -8,16 +8,21 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 22;
+export const GPU_COUNTER_SCHEMA_VERSION = 23;
 export const GPU_COUNTER_BYTE_SIZE = 560;
+
+/** Stable schema holes; indices are never silently reused across ABI revisions. */
+export const GPU_COUNTER_RESERVED_INDICES = Object.freeze([
+  9, 10, 12,
+  88, 89, 90, 91, 92, 93, 94, 95, 96, 97,
+  125, 126, 127, 128, 129, 130, 131
+] as const);
 
 /** Stable queueOverflowMask bits; material/light bits are reserved until wired. */
 export const GPU_QUEUE_OVERFLOW_BITS = {
   sceneMeshList: 1 << 0,
   meshletList: 1 << 1,
   materialMeshletList: 1 << 2,
-  /** ADR-0009 correctness-critical MaterialTileWork queues. */
-  materialTileWork: 1 << 2,
   lightList: 1 << 3
 } as const;
 
@@ -134,13 +139,6 @@ export const GPU_COUNTER_FIELDS = [
   { name: "meshletPortableReservations", index: 122, semantic: "workgroup tile reservations issued by the portable shared-memory prefix compaction fallback" },
   { name: "meshletIndirectInstances", index: 123, semantic: "sum of GPU-generated bucket drawIndirect instanceCount fields" },
   { name: "meshletRasterTriangles", index: 124, semantic: "non-padding triangles submitted through ADR-0008 meshlet bucket drawIndirect" },
-  { name: "materialTileRecords", index: 125, semantic: "ADR-0009 active tile/dispatch-class records safely published" },
-  { name: "materialTileValidPixels", index: 126, semantic: "ADR-0009 valid opaque VisibilityKey pixels presented to classification" },
-  { name: "materialTileShadedPixels", index: 127, semantic: "ADR-0009 pixel lanes consumed through GPU-authored indirect MaterialTileWork" },
-  { name: "materialTileUnassignedPixels", index: 128, semantic: "ADR-0009 valid pixels without exactly one dispatch-class consumer" },
-  { name: "materialTileDuplicatePixels", index: 129, semantic: "ADR-0009 extra shading claims beyond one per valid pixel" },
-  { name: "materialTileOverflowQueues", index: 130, semantic: "ADR-0009 dispatch-class queues with attempted/written mismatch or invalid records" },
-  { name: "materialTileFrameInvalid", index: 131, semantic: "ADR-0009 GPU-authored all-frame correctness failure signal" },
   { name: "longRangeBrick4Receivers", index: 132, semantic: "sampled receivers selecting valid Brick4 long-range diffuse" },
   { name: "longRangeProbeReceivers", index: 133, semantic: "sampled receivers selecting valid Probe Volume long-range diffuse" },
   { name: "longRangeIblReceivers", index: 134, semantic: "sampled receivers falling back to IBL long-range diffuse" },

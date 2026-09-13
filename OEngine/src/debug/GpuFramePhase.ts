@@ -40,7 +40,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
     /visibility pixel counters/,
     /r0 visibility counter/,
     /lightcluster\/fx-02 stats/,
-    /materialkernel\/publish sampled counters/,
+    /sparseshading\/.*(?:counter|diagnostic|readback)/,
     /gpu.?counter/,
     /counter accumulator/,
     /render debug/
@@ -64,8 +64,9 @@ const PHASE_RULES: readonly PhaseRule[] = [
     "material-resolve",
     /material expand/,
     /material resolve/,
-    /materialclassdepth/,
-    /materialkernel/,
+    /sparseshading\/clear \+ classify/,
+    /sparseshading\/finalize/,
+    /sparseshading\/active-bin/,
     /material depth/,
     /gbuffer/,
     /g-buffer/

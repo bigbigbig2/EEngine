@@ -2,36 +2,24 @@
  * tonemap_sdr：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
-import { GPU_MATERIAL_TILE_WORK_WGSL } from "../gpu/GpuMaterialTileWorkAbi.js";
 import { GPU_SHADING_BIN_WGSL } from "../gpu/GpuShadingBinAbi.js";
 import {
   finalOutputBindingPlan,
   finalOutputInputWgsl,
-  type FinalOutputShaderOptions,
-  type FinalOutputValidityAbi
+  type FinalOutputShaderOptions
 } from "./final_output_input.js";
 
 export const TONEMAP_EXPOSURE_SIZE = 4;
 
 export const TONEMAP_UNADAPTED_DEFAULT_COMPENSATION = 1;
 
-export function tonemapSdrWgsl(
-  options: FinalOutputShaderOptions,
-  validityAbi: FinalOutputValidityAbi = "material-tile"
-): string {
+export function tonemapSdrWgsl(options: FinalOutputShaderOptions): string {
   const plan = finalOutputBindingPlan(options);
   const inputWgsl = finalOutputInputWgsl(options);
   const exposureBinding = plan.next;
   const controlBinding = plan.next + 1;
-  const validityWgsl = validityAbi === "shading-bin"
-    ? GPU_SHADING_BIN_WGSL
-    : GPU_MATERIAL_TILE_WORK_WGSL;
-  const validityType = validityAbi === "shading-bin"
-    ? "OEngineShadingBinControl"
-    : "OEngineMaterialClassificationControl";
-  const invalidField = validityAbi === "shading-bin" ? "frame_flags" : "frame_invalid";
   return /* wgsl */ `
-${validityWgsl}
+${GPU_SHADING_BIN_WGSL}
 ${inputWgsl}
 
 const POS = array<vec2f, 3>(
@@ -45,7 +33,7 @@ struct Exposure {
 };
 
 @group(0) @binding(${exposureBinding}) var<uniform> exposure: Exposure;
-@group(0) @binding(${controlBinding}) var<storage, read_write> frame_control: ${validityType};
+@group(0) @binding(${controlBinding}) var<storage, read_write> frame_control: OEngineShadingBinControl;
 
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -105,7 +93,7 @@ fn dither_color_8bit_triangle_noise(p: vec2f) -> f32 {
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
-  if atomicLoad(&frame_control.${invalidField}) != 0u {
+  if atomicLoad(&frame_control.frame_flags) != 0u {
     return vec4f(1.0, 0.0, 1.0, 1.0);
   }
   let ic = vec2i(coord.xy);

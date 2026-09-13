@@ -3,11 +3,6 @@ import type {
   ResourceId
 } from "../../framegraph/ResourceHandle.js";
 import {
-  GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT,
-  GPU_MATERIAL_TILE_WORK_ABI_VERSION
-} from "../../gpu/GpuMaterialTileWorkAbi.js";
-import { GPU_COMPUTE_MATERIAL_ABI_VERSION } from "../../gpu/GpuComputeMaterialAbi.js";
-import {
   GPU_SHADING_BIN_ABI_VERSION,
   GPU_SHADING_BIN_MICROTILE_HEIGHT,
   GPU_SHADING_BIN_MICROTILE_WIDTH
@@ -70,41 +65,6 @@ export function meshletWorkFrame(input: MeshletWorkFrame): MeshletWorkFrame {
     throw new Error("MeshletWorkFrame requires partition 0 and queue-header generation");
   }
   return Object.freeze({ ...input });
-}
-
-/** GPU-produced ADR-0009 tile/class queues and indirect ShadeLighting work. */
-export interface MaterialTileClassificationFrame {
-  readonly abiVersion: number;
-  readonly queues: ResourceId;
-  readonly indirectArgs: ResourceId;
-  readonly control: ResourceId;
-  /** Uniform dimensions/generation shared by producer and indirect consumer. */
-  readonly settings: ResourceId;
-  /** Exactly-once claim buffer; only the authoritative shading consumer writes it. */
-  readonly pixelClaims: ResourceId;
-  readonly counters: ResourceId | null;
-  readonly tileWidth: 8 | 16;
-  readonly tileHeight: 8 | 16;
-  readonly tileCount: number;
-  readonly queueCapacityPerDispatchClass: number;
-  readonly dispatchClassCount: number;
-  readonly generation: number;
-  readonly domain: TextureDomain<"internal-full">;
-}
-
-/**
- * ADR-0009 compact physical working set produced by the only full-material
- * evaluator. Consumers bind these named products directly; attachment order
- * and the deleted Surface V1 ABI are not part of the contract.
- */
-export interface ComputeMaterialEvaluationFrame {
-  readonly abiVersion: number;
-  readonly normal: ResourceId;
-  readonly albedoAo: ResourceId;
-  readonly material: ResourceId;
-  readonly velocity: ResourceId | null;
-  readonly fullMaterialEvaluationCountSource: "pixel-claims";
-  readonly domain: TextureDomain<"internal-full">;
 }
 
 export function textureDomain<D extends ResolutionDomain>(
@@ -430,88 +390,6 @@ export function shadingBinFrame(input: ShadingBinFrame): ShadingBinFrame {
   return Object.freeze({
     ...input,
     domain: requireInternalFullDomain(input.domain, "ShadingBinFrame")
-  });
-}
-
-export function materialTileClassificationFrame(
-  input: MaterialTileClassificationFrame
-): MaterialTileClassificationFrame {
-  if (input.abiVersion !== GPU_MATERIAL_TILE_WORK_ABI_VERSION) {
-    throw new Error(
-      `MaterialTileClassificationFrame ABI ${input.abiVersion} does not match ${GPU_MATERIAL_TILE_WORK_ABI_VERSION}`
-    );
-  }
-  requireRequiredResourceId(input.queues, "MaterialTileClassificationFrame.queues");
-  requireRequiredResourceId(
-    input.indirectArgs,
-    "MaterialTileClassificationFrame.indirectArgs"
-  );
-  requireRequiredResourceId(input.control, "MaterialTileClassificationFrame.control");
-  requireRequiredResourceId(input.settings, "MaterialTileClassificationFrame.settings");
-  requireRequiredResourceId(
-    input.pixelClaims,
-    "MaterialTileClassificationFrame.pixelClaims"
-  );
-  requireResourceId(input.counters, "MaterialTileClassificationFrame.counters");
-  const validTileShape =
-    (input.tileWidth === 8 && input.tileHeight === 8) ||
-    (input.tileWidth === 16 && input.tileHeight === 8) ||
-    (input.tileWidth === 16 && input.tileHeight === 16);
-  if (!validTileShape) {
-    throw new RangeError(
-      "MaterialTileClassificationFrame tile shape must be 8x8, 16x8 or 16x16"
-    );
-  }
-  const domain = requireInternalFullDomain(
-    input.domain,
-    "MaterialTileClassificationFrame"
-  );
-  const expectedTileCount =
-    Math.ceil(domain.width / input.tileWidth) *
-    Math.ceil(domain.height / input.tileHeight);
-  if (input.tileCount !== expectedTileCount) {
-    throw new RangeError(
-      `MaterialTileClassificationFrame tileCount ${input.tileCount} does not match ${expectedTileCount}`
-    );
-  }
-  if (input.queueCapacityPerDispatchClass !== input.tileCount) {
-    throw new RangeError(
-      "MaterialTileClassificationFrame queue capacity must equal tileCount"
-    );
-  }
-  if (input.dispatchClassCount !== GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT) {
-    throw new RangeError(
-      `MaterialTileClassificationFrame dispatchClassCount must equal ${GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT}`
-    );
-  }
-  requirePositiveInteger(input.generation, "MaterialTileClassificationFrame generation");
-  return Object.freeze({ ...input, domain });
-}
-
-export function computeMaterialEvaluationFrame(
-  input: ComputeMaterialEvaluationFrame
-): ComputeMaterialEvaluationFrame {
-  if (input.abiVersion !== GPU_COMPUTE_MATERIAL_ABI_VERSION) {
-    throw new Error(
-      `ComputeMaterialEvaluationFrame ABI ${input.abiVersion} does not match ${GPU_COMPUTE_MATERIAL_ABI_VERSION}`
-    );
-  }
-  for (const name of [
-    "normal",
-    "albedoAo",
-    "material"
-  ] as const) {
-    requireRequiredResourceId(input[name], `ComputeMaterialEvaluationFrame.${name}`);
-  }
-  requireResourceId(input.velocity, "ComputeMaterialEvaluationFrame.velocity");
-  if (input.fullMaterialEvaluationCountSource !== "pixel-claims") {
-    throw new Error(
-      "ComputeMaterialEvaluationFrame count source must be pixel-claims"
-    );
-  }
-  return Object.freeze({
-    ...input,
-    domain: requireInternalFullDomain(input.domain, "ComputeMaterialEvaluationFrame")
   });
 }
 

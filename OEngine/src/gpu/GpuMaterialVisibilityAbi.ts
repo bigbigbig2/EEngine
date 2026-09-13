@@ -1,13 +1,9 @@
 import { ShadeDrawSide, ShadeTransparencyMode } from "../material/enums.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
-import {
-  GPU_MATERIAL_KERNEL_WGSL,
-  materialKernelClass
-} from "./GpuMaterialKernelAbi.js";
 import { GPU_TEXTURE_REF_INVALID, GPU_TEXTURE_REF_WGSL } from "./GpuTextureRefAbi.js";
 
-export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 6;
+export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 7;
 export const GPU_MATERIAL_VISIBILITY_RECORD_STRIDE = 240;
 export const GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE = GPU_TEXTURE_REF_INVALID;
 
@@ -44,7 +40,7 @@ export const GPU_MATERIAL_VISIBILITY_SAMPLER = Object.freeze({
 });
 
 export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
-  kernel_class: 0,
+  reserved0: 0,
   alpha_mode: 4,
   flags: 8,
   texture_ref: 12,
@@ -68,7 +64,7 @@ export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
 });
 
 export interface GpuMaterialVisibilityPackedSource {
-  readonly kernelClass: number;
+  readonly reserved0: number;
   readonly alphaMode: number;
   readonly flags: number;
   readonly textureRef: number;
@@ -115,7 +111,7 @@ export interface GpuMaterialVisibilitySource {
 
 export const GPU_MATERIAL_VISIBILITY_RECORD_WGSL = /* wgsl */ `
 struct OEngineMaterialVisibilityRecord {
-  kernel_class: u32,
+  _reserved0: u32,
   alpha_mode: u32,
   flags: u32,
   texture_ref: u32,
@@ -158,7 +154,6 @@ const OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE: u32 = OENGINE_TEXTURE_REF_INV
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask}u;
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits}u;
 const OENGINE_MATERIAL_SAMPLER_LINEAR: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit}u;
-${GPU_MATERIAL_KERNEL_WGSL}
 ${GPU_TEXTURE_REF_WGSL}
 `;
 
@@ -230,7 +225,7 @@ export function materialVisibilitySource(
   const textureUvSets = packTextureUvSets(material);
   return Object.freeze({
     packed: Object.freeze({
-      kernelClass: materialKernelClass(material),
+      reserved0: 0,
       alphaMode: alphaMode(material.transparency_mode),
       flags,
       textureRef: checkedU32(textureRef, "texture ref"),
@@ -301,7 +296,10 @@ export function packGpuMaterialVisibilityRecord(
     throw new RangeError("MaterialVisibilityRecord target is too small");
   }
   const view = new DataView(target, byteOffset, GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
-  view.setUint32(0, checkedU32(source.kernelClass, "material kernel class"), true);
+  if (source.reserved0 !== 0) {
+    throw new RangeError("MaterialVisibilityRecord reserved0 must be zero");
+  }
+  view.setUint32(0, 0, true);
   view.setUint32(4, checkedU32(source.alphaMode, "alpha mode"), true);
   view.setUint32(8, checkedU32(source.flags, "flags"), true);
   view.setUint32(12, checkedU32(source.textureRef, "texture ref"), true);

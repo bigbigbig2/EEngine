@@ -83,7 +83,7 @@ export interface GpuVisibilityDebugResolveTables {
   readonly geometryRecordCount: number;
   readonly materials: readonly Pick<
     GpuMaterialVisibilityPackedSource,
-    "kernelClass" | "alphaMode" | "flags"
+    "alphaMode" | "flags"
   >[];
 }
 

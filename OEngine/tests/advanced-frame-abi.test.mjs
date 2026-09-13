@@ -9,7 +9,6 @@ import {
   diffuseSurfaceLiteFrame,
   finalColorPyramidFrame,
   longRangeDiffuseFrame,
-  materialTileClassificationFrame,
   opaqueColorPyramidFrame,
   preExposedOpaqueHdrBaselineFrame,
   preExposedOpaqueRadianceSourceFrame,
@@ -30,7 +29,6 @@ import {
   classifyTemporalHistory
 } from "../.test-dist/render/TemporalResolveContract.js";
 import { resolveMainFrameFeatureTopology } from "../.test-dist/render/MainFrameFeatureTopology.js";
-import { MATERIAL_TILE_CLASSIFICATION_WGSL } from "../.test-dist/shaders/material_tile_classification.js";
 import { gpuShadingBindingBudget } from "../.test-dist/gpu/GpuShadingBindingBudget.js";
 import {
   GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL,
@@ -127,27 +125,6 @@ import {
 import {
   BRICK4_LIGHT_MAP_MIN_BINDING_BYTES
 } from "../.test-dist/gpu/Brick4LightMap.js";
-const {
-  PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
-  PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL
-} = await import("../.test-dist/shaders/packed_material_compute.js");
-
-const LIGHTING_DIRECT_COMPUTE_SOURCE = readFileSync(
-  new URL("../src/shaders/lighting_direct_compute.ts", import.meta.url),
-  "utf8"
-);
-const COMPUTE_MATERIAL_SOURCE = readFileSync(
-  new URL("../src/shaders/packed_material_compute.ts", import.meta.url),
-  "utf8"
-);
-const COMPUTE_MATERIAL_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/ComputeMaterialResolvePass.ts", import.meta.url),
-  "utf8"
-);
-const MATERIAL_OWNER_SOURCE = readFileSync(
-  new URL("../src/render/passes/PackedMaterialResolvePass.ts", import.meta.url),
-  "utf8"
-);
 const SURFACE_FEATURE_SOURCE = readFileSync(
   new URL("../src/render/features/SurfaceFeature.ts", import.meta.url),
   "utf8"
@@ -308,76 +285,6 @@ test("ADR-0009 Step 0 freezes compact shading and conditional diffuse receiver s
   );
 });
 
-test("ADR-0009 Step 0 binds MaterialTileWork resources to internal-full tile capacity", () => {
-  const frame = materialTileClassificationFrame({
-    abiVersion: 1,
-    queues: 24,
-    indirectArgs: 25,
-    control: 26,
-    settings: 27,
-    pixelClaims: 28,
-    counters: 29,
-    tileWidth: 16,
-    tileHeight: 8,
-    tileCount: 120 * 135,
-    queueCapacityPerDispatchClass: 120 * 135,
-    dispatchClassCount: 28,
-    generation: 1,
-    domain: full()
-  });
-  assert.equal(frame.queueCapacityPerDispatchClass, frame.tileCount);
-  assert.throws(
-    () => materialTileClassificationFrame({ ...frame, tileCount: frame.tileCount - 1 }),
-    /does not match/
-  );
-  assert.throws(
-    () => materialTileClassificationFrame({
-      ...frame,
-      queueCapacityPerDispatchClass: frame.tileCount - 1
-    }),
-    /capacity must equal tileCount/
-  );
-  assert.throws(
-    () => materialTileClassificationFrame({ ...frame, dispatchClassCount: 27 }),
-    /dispatchClassCount must equal 28/
-  );
-});
-
-test("ADR-0013 cutover isolates the former MaterialTile oracle from production Surface", () => {
-  assert.match(MATERIAL_TILE_CLASSIFICATION_WGSL, /classify_material_tiles/);
-  assert.match(MATERIAL_TILE_CLASSIFICATION_WGSL, /build_material_tile_indirect/);
-  assert.match(COMPUTE_MATERIAL_SOURCE, /evaluate_compute_material_tiles/);
-  assert.match(COMPUTE_MATERIAL_SOURCE, /perspective_barycentric_with_derivatives/);
-  assert.match(COMPUTE_MATERIAL_SOURCE, /reconstruct_material_uv/);
-  assert.match(COMPUTE_MATERIAL_SOURCE, /bary\.valid != 0u/);
-  assert.match(COMPUTE_MATERIAL_SOURCE, /textureStore\(compute_normal_output/);
-  assert.match(COMPUTE_MATERIAL_SOURCE, /atomicAdd\(&compute_pixel_claims/);
-  assert.match(COMPUTE_MATERIAL_SOURCE, /COMPUTE_HEADER_CONSUMED/);
-  assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /dispatchWorkgroupsIndirect/);
-  assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT/);
-  assert.match(SURFACE_FEATURE_SOURCE, /return "sparse-shading-bin"/);
-  assert.doesNotMatch(
-    SURFACE_FEATURE_SOURCE,
-    /PackedMaterialResolvePass|MaterialTileClassification|ComputeMaterialResolvePass/
-  );
-  assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /PackedMaterialClassDepthPass/);
-
-  assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /shade_direct_material_tiles/);
-  assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /dispatch_class \* tile_count/);
-  assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /tile_pixel_claims/);
-  assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /validate_direct_lighting_pixels/);
-  assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /finalize_direct_lighting/);
-  assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /textureStore\(tile_hdr_output/);
-  assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /duplicate_shading_pixel_count/);
-  assert.match(LIGHTING_DIRECT_COMPUTE_SOURCE, /overflow_queue_count/);
-  assert.doesNotMatch(LIGHTING_DIRECT_COMPUTE_SOURCE, /atomicAdd\(&tile_pixel_claims/);
-  assert.doesNotMatch(LIGHTING_DIRECT_COMPUTE_SOURCE, /HEADER_CONSUMED\)\],\s*1u/);
-
-  assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /ComputeMaterialSurfaceBridgePass/);
-  assert.doesNotMatch(MATERIAL_TILE_CLASSIFICATION_WGSL, /consume_material_tiles/);
-  assert.doesNotMatch(MATERIAL_TILE_CLASSIFICATION_WGSL, /textureSample\s*\(/);
-});
-
 test("ADR-0009 Step 3 freezes the 24-byte SurfaceLite working ABI", () => {
   assert.equal(GPU_COMPUTE_MATERIAL_ABI_VERSION, 2);
   assert.deepEqual(GPU_COMPUTE_MATERIAL_FORMATS, {
@@ -395,20 +302,6 @@ test("ADR-0009 Step 3 freezes the 24-byte SurfaceLite working ABI", () => {
     assert.ok(Math.abs(unpacked[0] - metallic) <= 1 / 0xff);
     assert.ok(Math.abs(unpacked[1] - roughness) <= 1 / 0xff);
   }
-});
-
-test("ADR-0009 Step 3 physically prunes Velocity when it has no consumer", () => {
-  assert.doesNotMatch(
-    PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
-    /compute_velocity_output/
-  );
-  assert.match(
-    PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL,
-    /@group\(2\) @binding\(5\) var compute_velocity_output/
-  );
-  assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /if \(options\.velocity\)/);
-  assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /OUTPUT_GROUP_NO_VELOCITY/);
-  assert.match(COMPUTE_MATERIAL_PASS_SOURCE, /OUTPUT_GROUP_WITH_VELOCITY/);
 });
 
 test("ADR-0009 Step 3 freezes one pre-exposed HDR/history physical contract", () => {
@@ -1381,14 +1274,6 @@ test("ADR-0009 Step 8 aligns TAAU reactive rejection and bounded reconstruction"
   assert.match(HZB_FROM_DEPTH_COMPUTE_WGSL, /^\s*requires texture_formats_tier1;/);
   assert.match(HZB_REDUCE_COMPUTE_WGSL, /^\s*requires texture_formats_tier1;/);
   assert.match(NSS_PREPROCESS_WGSL, /^\s*requires texture_formats_tier1;/);
-  assert.match(
-    PACKED_MATERIAL_COMPUTE_WITH_VELOCITY_WGSL,
-    /^\s*requires texture_formats_tier1;/
-  );
-  assert.doesNotMatch(
-    PACKED_MATERIAL_COMPUTE_NO_VELOCITY_WGSL,
-    /requires texture_formats_tier1;/
-  );
   assert.match(TAA_WGSL, /nine bilinear taps/);
   assert.match(TAA_WGSL, /reactive >= settings\.reactive_threshold/);
   assert.match(TAA_WGSL, /history_pre_exposure_scale/);
@@ -1604,19 +1489,13 @@ test("ADR-0009 Step 9 statically specializes final-output bindings", () => {
     sharpening: true,
     colorGrading: true
   });
-  const sparseValidity = tonemapSdrWgsl({
-    bloom: false,
-    sharpening: false,
-    colorGrading: false
-  }, "shading-bin");
   assert.doesNotMatch(plain, /final_bloom|final_grade|let north/);
   assert.match(fused, /var final_bloom/);
   assert.match(fused, /fn final_grade/);
   assert.match(fused, /let north = load_post_color/);
   assert.match(fused, /rgb = load_final_hdr/);
-  assert.match(sparseValidity, /frame_control: OEngineShadingBinControl/);
-  assert.match(sparseValidity, /frame_control\.frame_flags/);
-  assert.doesNotMatch(sparseValidity, /frame_control\.frame_invalid/);
+  assert.match(plain, /frame_control: OEngineShadingBinControl/);
+  assert.match(plain, /frame_control\.frame_flags/);
 });
 
 test("ADR-0013 ShadingBinFrame freezes the GPU producer-consumer identity", () => {
@@ -1743,9 +1622,7 @@ test("ADR-0009 Step 10 removes single-value backend and retired zero publishers"
     existsSync(new URL("../src/render/MaterialResolveBackend.ts", import.meta.url)),
     false
   );
-  assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /classDepthPixels|classDraws/);
   assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /classDepthPixels|classDraws/);
-  assert.doesNotMatch(MATERIAL_OWNER_SOURCE, /MaterialResolveBackend/);
 });
 
 test("ADR-0009 Step 0 rejects invalid exposure and cross-resolution products", () => {

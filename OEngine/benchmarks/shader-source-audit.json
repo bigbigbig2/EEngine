@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 50,
+  "shaderCount": 46,
   "summary": {
-    "authored-live": 49,
+    "authored-live": 45,
     "dead": 1
   },
   "entries": [
@@ -176,13 +176,15 @@
         "src/render/features/ShadowFeatureManager.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
-        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/LightClusterPass.ts",
-        "src/render/passes/LightingPass.ts",
         "src/render/passes/LongRangeDiffuseProviderPass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -257,7 +259,6 @@
       "classification": "authored-live",
       "directConsumers": [
         "src/shaders/lighting_direct.ts",
-        "src/shaders/packed_material_resolve.ts",
         "src/shaders/render_debug_view.ts"
       ],
       "runtimeConsumers": [
@@ -267,22 +268,23 @@
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
-        "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
-        "src/render/passes/ComputeMaterialResolvePass.ts",
-        "src/render/passes/LightingPass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
-        "src/render/passes/ComputeMaterialResolvePass.ts",
-        "src/render/passes/LightingPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
-        "src/render/passes/RenderDebugViewPass.ts"
+        "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -363,16 +365,17 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/GIService.ts",
-        "src/render/features/LightingFeature.ts",
         "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
         "src/render/HierarchicalZBuffer.ts",
-        "src/render/passes/ComputeMaterialResolvePass.ts",
-        "src/render/passes/LightingPass.ts",
         "src/render/passes/LongRangeDiffuseProviderPass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts"
@@ -428,6 +431,7 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/LightingFeature.ts",
+        "src/render/features/SurfaceFeature.ts",
         "src/render/passes/LightClusterPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
         "src/render/Renderer.ts"
@@ -440,38 +444,12 @@
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
     {
-      "shader": "src/shaders/lighting_direct_compute.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/LightingPass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/debug/RendererDebugController.ts",
-        "src/addons/debug/RendererDebugUI.ts",
-        "src/addons/debug/RendererInfoModel.ts",
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/LightingFeature.ts",
-        "src/render/passes/LightingPass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/LightingPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
       "shader": "src/shaders/lighting_direct.ts",
       "sourceKind": "authored",
       "classification": "authored-live",
       "directConsumers": [
-        "src/shaders/lighting_direct_compute.ts",
-        "src/shaders/packed_transparent_oit.ts"
+        "src/shaders/packed_transparent_oit.ts",
+        "src/shaders/sparse_shading_resolve.ts"
       ],
       "runtimeConsumers": [
         "src/addons/debug/RendererDebugController.ts",
@@ -480,16 +458,21 @@
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
-        "src/render/features/LightingFeature.ts",
+        "src/render/features/SurfaceFeature.ts",
         "src/render/features/TransparencyFeature.ts",
-        "src/render/passes/LightingPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
-        "src/render/passes/LightingPass.ts",
-        "src/render/passes/PackedTransparentOitPass.ts"
+        "src/render/passes/PackedTransparentOitPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -516,33 +499,6 @@
       ],
       "pipelineOwners": [
         "src/render/passes/LongRangeDiffuseProviderPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/material_tile_classification.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/MaterialTileClassificationPass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/debug/RendererDebugController.ts",
-        "src/addons/debug/RendererDebugUI.ts",
-        "src/addons/debug/RendererInfoModel.ts",
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/SurfaceFeature.ts",
-        "src/render/passes/MaterialTileClassificationPass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/MaterialTileClassificationPass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -656,6 +612,10 @@
         "src/gpu/GPUSceneEnvironmentContext.ts",
         "src/gpu/GPUSceneEnvironmentManager.ts",
         "src/gpu/GpuSceneResidencyManifest.ts",
+        "src/gpu/GpuShadingProgramOracle.ts",
+        "src/gpu/GpuShadingPublicationPlan.ts",
+        "src/gpu/GpuSparseShadingFrameAbi.ts",
+        "src/gpu/GpuSparseShadingPipelineContract.ts",
         "src/gpu/GPUTextureAllocator.ts",
         "src/gpu/GPUTextureContext.ts",
         "src/gpu/GPUTextureManager.ts",
@@ -693,19 +653,15 @@
         "src/render/passes/AutomaticExposurePass.ts",
         "src/render/passes/BloomPass.ts",
         "src/render/passes/ColorGradingPass.ts",
-        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/GtaoPass.ts",
         "src/render/passes/LightClusterPass.ts",
-        "src/render/passes/LightingPass.ts",
         "src/render/passes/LongRangeDiffuseProviderPass.ts",
-        "src/render/passes/MaterialTileClassificationPass.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/NeuralSuperSamplingPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedSurfaceCounterPass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
@@ -727,6 +683,8 @@
         "src/render/pipeline/SparseShadingCandidateExecutor.ts",
         "src/render/pipeline/SparseShadingCandidatePipeline.ts",
         "src/render/pipeline/SparseShadingCandidateRuntime.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
         "src/render/Renderer.ts",
         "src/render/RenderTargets.ts",
         "src/render/ViewContext.ts",
@@ -891,25 +849,27 @@
         "src/render/MeshletBucketRaster.ts",
         "src/render/MeshletWorkCandidate.ts",
         "src/render/PackedCameraUniform.ts",
-        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/GtaoPass.ts",
         "src/render/passes/LightClusterPass.ts",
-        "src/render/passes/LightingPass.ts",
         "src/render/passes/LongRangeDiffuseProviderPass.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/PackedCsmShadowPass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
         "src/render/passes/PackedTransparentOitPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/SharedColorPyramidPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/passes/SsgiPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
         "src/render/Renderer.ts",
         "src/render/ViewContext.ts",
         "src/render/ViewManager.ts",
@@ -919,11 +879,9 @@
         "src/render/LargeTriangleSetupCache.ts",
         "src/render/MeshletBucketRaster.ts",
         "src/render/MeshletWorkCandidate.ts",
-        "src/render/passes/ComputeMaterialResolvePass.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/GtaoPass.ts",
         "src/render/passes/LightClusterPass.ts",
-        "src/render/passes/LightingPass.ts",
         "src/render/passes/LongRangeDiffuseProviderPass.ts",
         "src/render/passes/MotionBlurPass.ts",
         "src/render/passes/OcclusionConfidencePass.ts",
@@ -934,6 +892,8 @@
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
         "src/render/passes/ScreenSpaceReflectionsPass.ts",
         "src/render/passes/SharedColorPyramidPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/passes/SsgiPass.ts"
       ],
       "generatorCandidates": [],
@@ -962,60 +922,6 @@
       ],
       "pipelineOwners": [
         "src/render/passes/PackedCsmShadowPass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/packed_material_compute.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/render/passes/ComputeMaterialResolvePass.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/debug/RendererDebugController.ts",
-        "src/addons/debug/RendererDebugUI.ts",
-        "src/addons/debug/RendererInfoModel.ts",
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/SurfaceFeature.ts",
-        "src/render/passes/ComputeMaterialResolvePass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/ComputeMaterialResolvePass.ts"
-      ],
-      "generatorCandidates": [],
-      "deletionCandidate": false,
-      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
-    },
-    {
-      "shader": "src/shaders/packed_material_resolve.ts",
-      "sourceKind": "authored",
-      "classification": "authored-live",
-      "directConsumers": [
-        "src/shaders/packed_material_compute.ts"
-      ],
-      "runtimeConsumers": [
-        "src/addons/debug/RendererDebugController.ts",
-        "src/addons/debug/RendererDebugUI.ts",
-        "src/addons/debug/RendererInfoModel.ts",
-        "src/addons/inspector/index.ts",
-        "src/addons/inspector/Inspector.ts",
-        "src/index.ts",
-        "src/render/features/SurfaceFeature.ts",
-        "src/render/passes/ComputeMaterialResolvePass.ts",
-        "src/render/passes/PackedMaterialResolvePass.ts",
-        "src/render/pipeline/MainRenderPipeline.ts",
-        "src/render/Renderer.ts"
-      ],
-      "pipelineOwners": [
-        "src/render/passes/ComputeMaterialResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -1117,8 +1023,19 @@
         "src/render/passes/ShadingBinPass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/SurfaceFeature.ts",
         "src/render/passes/ShadingBinPass.ts",
-        "src/render/pipeline/SparseShadingCandidateExecutor.ts"
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
+        "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/ShadingBinPass.ts"
@@ -1214,9 +1131,20 @@
         "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/SurfaceFeature.ts",
         "src/render/passes/SparseShadingDiagnosticsPass.ts",
         "src/render/passes/SparseShadingResolvePass.ts",
-        "src/render/pipeline/SparseShadingCandidateExecutor.ts"
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
+        "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/SparseShadingDiagnosticsPass.ts",

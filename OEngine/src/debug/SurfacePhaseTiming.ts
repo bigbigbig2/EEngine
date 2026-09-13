@@ -5,7 +5,7 @@ import {
 
 export const SURFACE_TIMING_PHASES = [
   "classify",
-  "classDepth",
+  "finalize",
   "resolve",
   "lighting"
 ] as const;
@@ -29,23 +29,14 @@ export function classifySurfaceTimingPhase(
   const label = segment.label.trim().toLocaleLowerCase("en-US");
   if (label.length === 0) return null;
 
-  if (/materialkernel\/publish sampled counters/.test(label)) return null;
-  if (
-    /materialclassdepth/.test(label) ||
-    /material class depth/.test(label) ||
-    /material-depth/.test(label)
-  ) {
-    return "classDepth";
-  }
-  if (
-    /materialkernel\/(?:count visible pixels|prefix scan|add block prefixes|prepare class ranges|scatter shadework)/.test(label)
-  ) {
+  if (/sparseshading\/.*(?:counter|diagnostic|readback)/.test(label)) return null;
+  if (/sparseshading\/clear \+ classify/.test(label)) {
     return "classify";
   }
-  if (
-    /material resolve\/(?:specialized surface|fullscreen kernels)/.test(label) ||
-    /material surface kernel/.test(label)
-  ) {
+  if (/sparseshading\/finalize/.test(label)) {
+    return "finalize";
+  }
+  if (/sparseshading\/active-bin/.test(label)) {
     return "resolve";
   }
 

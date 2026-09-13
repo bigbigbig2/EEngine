@@ -10,6 +10,7 @@ import {
   GPU_SPARSE_SHADING_REQUIRED_LIMITS
 } from "../.test-dist/gpu/GpuSparseShadingCapability.js";
 import {
+  GPU_SHADING_MATERIAL_ABI_VERSION,
   GPU_SHADING_MATERIAL_RECORD_STRIDE,
   GPU_SHADING_TEXTURE_ROUTE_STRIDE,
   packGpuShadingMaterialRecord,
@@ -17,6 +18,9 @@ import {
   unpackGpuShadingMaterialHeader,
   unpackGpuShadingTextureRoute
 } from "../.test-dist/gpu/GpuShadingMaterialAbi.js";
+import {
+  GPU_MATERIAL_VISIBILITY_ABI_VERSION
+} from "../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
 import {
   createGpuSparseShadingPipelineDescriptor,
   GPU_SHADING_OUTPUT_DEPENDENCY,
@@ -83,8 +87,7 @@ test("all 16 program families are literal creation-time variants without a class
     assert.equal(variant.descriptor.programId, programId);
     assert.match(variant.source, new RegExp(`OENGINE_SHADING_PROGRAM_ID: u32 = ${programId}u`, "u"));
     assert.match(variant.source, /fn shading_resolve\(/u);
-    assert.doesNotMatch(variant.source, /switch\s*\(\s*(?:kernel_class|program_id)/u);
-    assert.doesNotMatch(variant.source, /MaterialTileWork|28-class|evaluate_compute_material_tiles/u);
+    assert.doesNotMatch(variant.source, /switch\s*\(\s*program_id/u);
   }
 });
 
@@ -178,7 +181,7 @@ test("lit programs fuse BRDF, cluster traversal and shadow comparison in their s
   assert.match(source, /fn contact_harden_pcf_kernel/u);
   assert.match(source, /sparse_direct\(surface,pixel\)/u);
   assert.equal((source.match(/@compute/gu) ?? []).length, 1);
-  assert.doesNotMatch(source, /LightingPass|shade_direct_pixel|SurfaceLite immediately/u);
+  assert.doesNotMatch(source, /shade_direct_pixel|SurfaceLite immediately/u);
   assert.doesNotMatch(source, /environment_settings|environment_texture_|environment_sampler/u);
   const unlit = createSparseShadingShaderVariant(descriptor(GPU_SHADING_PROGRAM.UnlitTexture, 0, 1)).source;
   assert.doesNotMatch(unlit, /cluster_lookup|textureGatherCompare|fn re_direct_physical/u);
@@ -279,6 +282,8 @@ test("sparse surface outputs preserve compact flags, RGB9E5 and unlit diffuse se
 });
 
 test("material and texture-route publication ABI validates generations and exact strides", () => {
+  assert.equal(GPU_MATERIAL_VISIBILITY_ABI_VERSION, 7);
+  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 2);
   const header = {
     programId: GPU_SHADING_PROGRAM.PbrGeneric,
     textureBindingSetId: 2,
@@ -290,7 +295,12 @@ test("material and texture-route publication ABI validates generations and exact
   const bytes = packGpuShadingMaterialRecord(header, materialPayload());
   assert.equal(bytes.byteLength, GPU_SHADING_MATERIAL_RECORD_STRIDE);
   assert.equal(bytes.byteLength, 272);
+  assert.equal(new DataView(bytes.buffer).getUint32(32, true), 0);
   assert.deepEqual(unpackGpuShadingMaterialHeader(bytes), header);
+  assert.throws(
+    () => packGpuShadingMaterialRecord(header, { ...materialPayload(), reserved0: 1 }),
+    /reserved0 must be zero/u
+  );
   const route = { textureRef: 0x20000001, textureGeneration: 12, publicationRevision: 13, textureBindingSetId: 2 };
   const routeBytes = packGpuShadingTextureRoute(route);
   assert.equal(routeBytes.byteLength, GPU_SHADING_TEXTURE_ROUTE_STRIDE);
@@ -345,7 +355,7 @@ test("resolve owner compiles once and encodes one indirect call per active bin",
 
 function materialPayload() {
   return {
-    kernelClass: 0, alphaMode: 0, flags: 1, textureRef: 0xffffffff,
+    reserved0: 0, alphaMode: 0, flags: 1, textureRef: 0xffffffff,
     baseColorFactorAlpha: 1, alphaCutoff: 0.5, textureUvSets: 0, samplerClass: 0,
     uvOffset: [0, 0], uvScale: [1, 1], rotationCos: 1, rotationSin: 0,
     baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, perceptualRoughness: 1,

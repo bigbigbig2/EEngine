@@ -1,4 +1,4 @@
-import { GPU_MATERIAL_KERNEL_CLASS_COUNT } from "./GpuMaterialKernelAbi.js";
+import { GPU_SHADING_PROGRAM_COUNT } from "./GpuShadingProgramAbi.js";
 import { GPU_TEXTURE_BANK_COUNT } from "./GpuTextureRefAbi.js";
 
 /** Fixed per-set layout; changing it changes pipeline layouts. */
@@ -38,6 +38,6 @@ export function textureBindingSetPolicy(
     samplerClassCount: TEXTURE_BINDING_SET_SAMPLER_CLASS_COUNT,
     maxResidentBindingSets: TEXTURE_BINDING_SET_MAX_RESIDENT_SETS,
     reservedSampledTextureBindings: TEXTURE_BINDING_SET_RESERVED_SAMPLED_TEXTURE_BINDINGS,
-    maxShadingDispatchClasses: GPU_MATERIAL_KERNEL_CLASS_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
+    maxShadingDispatchClasses: GPU_SHADING_PROGRAM_COUNT * TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
   });
 }

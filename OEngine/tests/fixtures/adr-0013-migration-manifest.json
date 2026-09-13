@@ -1,8 +1,32 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "adr": "ADR-0013",
-  "phase": "step-0",
+  "phase": "step-7-cutover",
   "inventoryCommit": "0102a61",
+  "cutoverDeletion": {
+    "retiredPaths": [
+      "src/gpu/GpuMaterialKernelAbi.ts",
+      "src/gpu/GpuMaterialTileWorkAbi.ts",
+      "src/render/passes/MaterialTileClassificationPass.ts",
+      "src/render/passes/ComputeMaterialResolvePass.ts",
+      "src/render/passes/PackedMaterialResolvePass.ts",
+      "src/render/passes/LightingPass.ts",
+      "src/shaders/material_tile_classification.ts",
+      "src/shaders/packed_material_compute.ts",
+      "src/shaders/lighting_direct_compute.ts",
+      "src/shaders/packed_material_resolve.ts"
+    ],
+    "retiredSourcePatterns": [
+      "\\bGPU_MATERIAL_KERNEL_",
+      "\\bOEngineMaterialTileWork\\b",
+      "\\bMaterialTileClassificationFrame\\b",
+      "\\bComputeMaterialEvaluationFrame\\b",
+      "\\bFinalOutputValidityAbi\\b",
+      "\\bkernelClass\\b",
+      "\\bkernel_class\\b",
+      "\\bmaterialTile(?:Records|ValidPixels|ShadedPixels|UnassignedPixels|DuplicatePixels|OverflowQueues|FrameInvalid)\\b"
+    ]
+  },
   "formalBaseline": {
     "status": "open",
     "blocker": "ADR-0013 baseline/candidate workloads and formal PERF orchestration are not connected to the implemented ADR-0014 host.",

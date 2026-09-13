@@ -69,7 +69,7 @@ export interface SurfaceFeatureInputs {
  * ADR-0013 production opaque owner. Visibility's r8uint identity is classified
  * into revision-owned sparse queues, then consumed only by active-bin indirect
  * specialized kernels. Material evaluation and direct lighting happen once in
- * that same kernel; there is no MaterialTileWork backend or CPU visible list.
+ * that same kernel; no CPU-visible list participates in dispatch generation.
  */
 export class SurfaceFeature {
   private readonly viewBuffer: GPUBuffer;

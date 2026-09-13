@@ -2,13 +2,11 @@
  * tonemap_hdr：定义对应渲染阶段使用的 WGSL 着色器代码。
  */
 
-import { GPU_MATERIAL_TILE_WORK_WGSL } from "../gpu/GpuMaterialTileWorkAbi.js";
 import { GPU_SHADING_BIN_WGSL } from "../gpu/GpuShadingBinAbi.js";
 import {
   finalOutputBindingPlan,
   finalOutputInputWgsl,
-  type FinalOutputShaderOptions,
-  type FinalOutputValidityAbi
+  type FinalOutputShaderOptions
 } from "./final_output_input.js";
 
 export const TONEMAP_SETTINGS_SIZE = 16;
@@ -16,24 +14,14 @@ export const TONEMAP_SETTINGS_SIZE = 16;
 export const TONEMAP_HDR_PEAK_NITS_DEFAULT = 1000;
 export const TONEMAP_HDR_PAPER_WHITE_NITS_DEFAULT = 100;
 
-export function tonemapHdrWgsl(
-  options: FinalOutputShaderOptions,
-  validityAbi: FinalOutputValidityAbi = "material-tile"
-): string {
+export function tonemapHdrWgsl(options: FinalOutputShaderOptions): string {
   const plan = finalOutputBindingPlan(options);
   const inputWgsl = finalOutputInputWgsl(options);
   const displayBinding = plan.next;
   const exposureBinding = plan.next + 1;
   const controlBinding = plan.next + 2;
-  const validityWgsl = validityAbi === "shading-bin"
-    ? GPU_SHADING_BIN_WGSL
-    : GPU_MATERIAL_TILE_WORK_WGSL;
-  const validityType = validityAbi === "shading-bin"
-    ? "OEngineShadingBinControl"
-    : "OEngineMaterialClassificationControl";
-  const invalidField = validityAbi === "shading-bin" ? "frame_flags" : "frame_invalid";
   return /* wgsl */ `
-${validityWgsl}
+${GPU_SHADING_BIN_WGSL}
 ${inputWgsl}
 
 const POS = array<vec2f, 3>(
@@ -56,7 +44,7 @@ struct Settings {
 
 @group(0) @binding(${displayBinding}) var<uniform> settings: Settings;
 @group(0) @binding(${exposureBinding}) var<uniform> exposure: Exposure;
-@group(0) @binding(${controlBinding}) var<storage, read_write> frame_control: ${validityType};
+@group(0) @binding(${controlBinding}) var<storage, read_write> frame_control: OEngineShadingBinControl;
 
 struct VsOut {
   @builtin(position) pos: vec4f,
@@ -232,7 +220,7 @@ fn tonemap_gt7(rgb: vec3f, peak_nits: f32, paper_white_nits: f32) -> vec3f {
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
-  if atomicLoad(&frame_control.${invalidField}) != 0u {
+  if atomicLoad(&frame_control.frame_flags) != 0u {
     return vec4f(1.0, 0.0, 1.0, 1.0);
   }
   var rgb = load_final_hdr(vec2i(coord.xy)).rgb;

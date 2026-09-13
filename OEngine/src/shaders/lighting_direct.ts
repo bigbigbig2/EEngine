@@ -717,10 +717,8 @@ const SPARSE_DIRECT_SHADOW_FUNCTIONS = Object.freeze([
 
 /**
  * Publishes the exact production direct-lighting implementation for the
- * ADR-0013 sparse consumer. This is deliberately derived from the same WGSL
- * source as LightingPass while Step 7 is cutting that pass over: the bridge
- * cannot silently fork BRDF, cluster or shadow behavior. Step 7.3 can delete
- * the old pass without changing this single shader authority.
+ * ADR-0013 sparse consumer. This single source owns BRDF, cluster and shadow
+ * behavior for specialized opaque programs and transparent forward shading.
  */
 export function createProductionSparseDirectLightingWgsl(
   shadowSamplingEnabled: boolean

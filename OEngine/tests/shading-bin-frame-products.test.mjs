@@ -121,7 +121,7 @@ test("production SpecializedShadingFrame validates one exact internal-full compo
   );
 });
 
-test("production SurfaceFeature owns the ShadingBin composition and not MaterialTileWork", async () => {
+test("production SurfaceFeature owns the complete ShadingBin composition", async () => {
   const surface = await readFile(
     new URL("../src/render/features/SurfaceFeature.ts", import.meta.url),
     "utf8"
@@ -130,7 +130,6 @@ test("production SurfaceFeature owns the ShadingBin composition and not Material
   assert.match(surface, /SparseShading\/finalize production indirect arguments/u);
   assert.match(surface, /SparseShading\/active-bin production indirect resolve/u);
   assert.match(surface, /specializedShadingFrame\(/u);
-  assert.doesNotMatch(surface, /PackedMaterialResolvePass|MaterialTileClassification/u);
 });
 
 test("compact Surface consumers validate depth before every background-sensitive read", async () => {

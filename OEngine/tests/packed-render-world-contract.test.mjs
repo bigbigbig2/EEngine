@@ -837,7 +837,7 @@ test("TextureBindingSet freezes the current slot, sampler, set, and dispatch lim
     samplerClassCount: 6,
     maxResidentBindingSets: 4,
     reservedSampledTextureBindings: 7,
-    maxShadingDispatchClasses: 28
+    maxShadingDispatchClasses: 64
   });
   assert.throws(
     () => textureBindingSetPolicy({ maxSampledTexturesPerShaderStage: 15, maxSamplersPerShaderStage: 16 }),

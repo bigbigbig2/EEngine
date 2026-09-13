@@ -156,16 +156,13 @@ test("ADR-0013 production composition has one sparse opaque owner and fused dire
   assert.match(surface, /SparseShadingGpuRevision/u);
   assert.match(surface, /createFrameBindingsForExecution/u);
   assert.match(surface, /specializedShadingFrame/u);
-  assert.doesNotMatch(surface, /PackedMaterialResolvePass|ComputeMaterialResolvePass/u);
   assert.match(lighting, /LightClusterPass/u);
-  assert.doesNotMatch(lighting, /LightingPass|lighting_direct_compute/u);
   assert.match(pipeline, /SparseShadingPublicationCoordinator/u);
   assert.match(pipeline, /previewNextShadingPublication/u);
   assert.match(pipeline, /addClustersToGraph/u);
   assert.match(pipeline, /shadowOutputs\.atlas/u);
   assert.match(pipeline, /shadowOutputs\.lightDatabase/u);
   assert.match(surface, /resolve\.read\(inputs\.shadowAtlas\)/u);
-  assert.doesNotMatch(pipeline, /new PackedMaterialResolvePass|new LightingPass/u);
 });
 
 test("Step 7 removes the legacy render-world runtime and graph consumers", () => {

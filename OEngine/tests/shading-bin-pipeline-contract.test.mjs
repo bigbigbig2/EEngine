@@ -321,19 +321,18 @@ test("classifier contract WGSL enables only negotiated subgroups and passes sour
   assert.doesNotMatch(source, /subgroupBallot\s*\([^)]*\)\.x/u);
   assert.doesNotMatch(source, /1u\s*<<\s*subgroup_invocation_id/u);
   assert.doesNotMatch(source, /diagnostic\s*\(\s*off\s*,\s*subgroup_uniformity/u);
-  assert.doesNotMatch(source, /kernel_class|MaterialTile|28-class/u);
   assert.throws(
     () => gpuSparseShadingContractModuleWgsl(value, ["texture-formats-tier1"]),
     /requires enabled device feature 'subgroups'/u
   );
 });
 
-test("Step 2 cache and descriptor owners contain no frame-loop or legacy fallback registration", () => {
+test("Step 2 cache and descriptor owners contain no frame-loop or fallback registration", () => {
   const source = [
     readFileSync(new URL("../src/gpu/GpuSparseShadingPipelineContract.ts", import.meta.url), "utf8"),
     readFileSync(new URL("../src/gpu/GpuSparseShadingCapability.ts", import.meta.url), "utf8")
   ].join("\n");
   assert.doesNotMatch(source, /requestAnimationFrame|beginFrame|frameIndex\s*:/u);
-  assert.doesNotMatch(source, /MaterialTileWork|GpuMaterialKernelAbi|visibleBinCount\s*:/u);
+  assert.doesNotMatch(source, /visibleBinCount\s*:/u);
   assert.doesNotMatch(source, /portable classifier|no-subgroup|fallback pipeline/iu);
 });

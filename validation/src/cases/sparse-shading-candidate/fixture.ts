@@ -180,7 +180,7 @@ export class SparseShadingCandidateFixture {
     this.graphics=new GraphicsContext(device,this.profiler);
     this.profiler.configure({enabled:true,gpuTimestampAvailable:false,warmupFrames:0,gpuSampleInterval:1,
       gpuCounterSampleInterval:1,historyCapacity:16,readbackRingSlots:3,cpuPassTimings:true});
-    this.raster=new MeshletBucketRaster(this.graphics); this.tonemap=new TonemapPass(device,canvasFormat,"shading-bin");
+    this.raster=new MeshletBucketRaster(this.graphics); this.tonemap=new TonemapPass(device,canvasFormat);
     this.renderingLab=workload==="rendering-lab-fixed"?new RenderingLabDownstream(this.graphics,WIDTH,HEIGHT):null;
     this.prepared=createPrepared(resources); this.assets=createAssetBindings(resources);
     this.scene=createSceneBindings(resources); this.renderWorld=createRenderWorld(resources,publicationSnapshot);
@@ -1061,7 +1061,7 @@ function createMaterials(snapshot:ReturnType<GpuShadingPublicationStore["current
   }return {shading,routes};
 }
 function materialPayload(flags:number,set:number,base:number,normal:number,orm:number,emissive:number){return {
-  kernelClass:0,alphaMode:0,flags,textureRef:base,baseColorFactorAlpha:1,alphaCutoff:0.5,textureUvSets:0,samplerClass:0,
+  reserved0:0,alphaMode:0,flags,textureRef:base,baseColorFactorAlpha:1,alphaCutoff:0.5,textureUvSets:0,samplerClass:0,
   uvOffset:[0,0] as const,uvScale:[1,1] as const,rotationCos:1,rotationSin:0,baseColorFactor:[0.8,0.5,0.25,1] as const,
   metallicFactor:0.4,perceptualRoughness:0.6,normalScale:1,occlusionStrength:0.75,emissiveFactor:[0.1,0.2,0.3,1] as const,
   normalTextureRef:normal,ormTextureRef:orm,emissiveTextureRef:emissive,textureSamplerClasses:0,
