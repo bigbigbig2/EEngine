@@ -6,6 +6,7 @@ import type {
 } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import {
+  GPU_SHADING_BIN_ABI_VERSION,
   GPU_SHADING_BIN_INDIRECT_BYTES,
   type GpuShadingBinSizing
 } from "../../gpu/GpuShadingBinAbi.js";
@@ -15,6 +16,10 @@ import type {
 import {
   GPU_SHADING_OUTPUT_DEPENDENCY
 } from "../../gpu/GpuSparseShadingPipelineContract.js";
+import {
+  shadingBinFrame,
+  type ShadingBinFrame
+} from "./FrameProducts.js";
 
 export const SPARSE_SHADING_CANDIDATE_SCHEMA_VERSION = 1;
 
@@ -116,6 +121,7 @@ export interface SparseShadingCandidateFrame {
   readonly heap: ResourceId | null;
   readonly indirectArgs: ResourceId | null;
   readonly settings: ResourceId | null;
+  readonly shadingBins: ShadingBinFrame | null;
   readonly hdr: ResourceId | null;
   /** Input color for a downstream stage; null for producer stages. */
   readonly stageInputHdr: ResourceId | null;
@@ -281,6 +287,7 @@ export function addSparseShadingCandidateToGraph(
     heap: null,
     indirectArgs: null,
     settings: null,
+    shadingBins: null,
     hdr: null,
     stageInputHdr: null,
     normal: null,
@@ -379,7 +386,7 @@ export function addSparseShadingCandidateToGraph(
   );
   mutable.settings = graph.import_resource(
     "sparse-shading/settings",
-    { kind: "imported", label: "ADR-0013 frame settings allocation" },
+    { kind: "imported", label: "ADR-0013 revision-owned frame settings" },
     binResources.settings
   );
 
@@ -421,7 +428,24 @@ export function addSparseShadingCandidateToGraph(
   if (mutable.diagnostics !== null) {
     mutable.diagnostics = finalizer.write(mutable.diagnostics);
   }
+  mutable.shadingBins = shadingBinFrame({
+    abiVersion: GPU_SHADING_BIN_ABI_VERSION,
+    heap: mutable.heap,
+    indirectArgs: mutable.indirectArgs,
+    generation: snapshot.generation,
+    activeBinMaskLo: snapshot.summary.activeBinMaskLo,
+    activeBinMaskHi: snapshot.summary.activeBinMaskHi,
+    microtileWidth: 8,
+    microtileHeight: 8,
+    domain: {
+      domain: "internal-full",
+      width: plan.width,
+      height: plan.height,
+      scale: 1
+    }
+  });
   finalizerFrame.indirectArgs = mutable.indirectArgs;
+  finalizerFrame.shadingBins = mutable.shadingBins;
   finalizerFrame.diagnostics = mutable.diagnostics;
   Object.freeze(finalizerFrame);
   finalizer.declareEncoderWork({ computePasses: 1, dispatches: 1 });

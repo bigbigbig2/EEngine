@@ -1,20 +1,27 @@
 import type { GpuShadingPublicationSnapshot } from "../../gpu/GpuShadingPublicationPlan.js";
+import {
+  GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,
+  packGpuShadingBinSettings
+} from "../../gpu/GpuShadingBinAbi.js";
 import { ShadingBinPass } from "../passes/ShadingBinPass.js";
 import { SparseShadingResolvePass } from "../passes/SparseShadingResolvePass.js";
 
-export interface SparseShadingCandidateGpuRevision {
+export interface SparseShadingGpuRevision {
   readonly snapshot: Readonly<GpuShadingPublicationSnapshot>;
   readonly bins: ShadingBinPass | null;
   readonly resolve: SparseShadingResolvePass | null;
+  readonly settings: GPUBuffer | null;
   readonly heapBytes: number;
   readonly indirectBytes: number;
+  readonly settingsBytes: number;
 }
 
-export interface SparseShadingCandidateGpuRevisionEvidence {
+export interface SparseShadingGpuRevisionEvidence {
   readonly activeRevision: number | null;
   readonly activeDeviceEpoch: number | null;
   readonly activeHeapBytes: number;
   readonly activeIndirectBytes: number;
+  readonly activeSettingsBytes: number;
   readonly retiringRevisions: readonly number[];
   readonly retiringBytes: number;
   readonly pendingPreparations: number;
@@ -26,23 +33,23 @@ export interface SparseShadingCandidateGpuRevisionEvidence {
   readonly destroyed: boolean;
 }
 
-export type SparseShadingCandidateGpuRevisionFactory = (
+export type SparseShadingGpuRevisionFactory = (
   device: GPUDevice,
   snapshot: Readonly<GpuShadingPublicationSnapshot>,
   diagnostics: boolean
-) => Promise<Readonly<SparseShadingCandidateGpuRevision>>;
+) => Promise<Readonly<SparseShadingGpuRevision>>;
 
 /**
  * A fully-created but unpublished GPU revision. Publication and abort are
- * deliberately owned by SparseShadingCandidateGpuRevisionOwner so a failed or
+ * deliberately owned by SparseShadingGpuRevisionOwner so a failed or
  * stale CPU publication cannot leak a provisional heap/args/pipeline set.
  */
-export class SparseShadingCandidatePreparedGpuRevision {
+export class SparseShadingPreparedGpuRevision {
   private closed = false;
 
   constructor(
-    readonly ownerIdentity: SparseShadingCandidateGpuRevisionOwner,
-    readonly resources: Readonly<SparseShadingCandidateGpuRevision>
+    readonly ownerIdentity: SparseShadingGpuRevisionOwner,
+    readonly resources: Readonly<SparseShadingGpuRevision>
   ) {}
 
   _close(): void {
@@ -56,20 +63,20 @@ export class SparseShadingCandidatePreparedGpuRevision {
 }
 
 /**
- * Candidate-only owner for immutable, revision-scoped GPU resources.
+ * Production owner for immutable, revision-scoped sparse-shading GPU resources.
  *
  * Resize and summary mutations first create a complete replacement. The owner
  * publishes it only after the matching CPU transaction commits, then keeps the
  * previous resources alive until the last submission that can reference them
  * has completed. Stable frames only read active(); they allocate nothing.
  */
-export class SparseShadingCandidateGpuRevisionOwner {
-  private activeValue: Readonly<SparseShadingCandidateGpuRevision> | null = null;
+export class SparseShadingGpuRevisionOwner {
+  private activeValue: Readonly<SparseShadingGpuRevision> | null = null;
   private retiring: Array<Readonly<{
-    resources: Readonly<SparseShadingCandidateGpuRevision>;
+    resources: Readonly<SparseShadingGpuRevision>;
     retireAfterSubmission: number;
   }>> = [];
-  private readonly pending = new Set<SparseShadingCandidatePreparedGpuRevision>();
+  private readonly pending = new Set<SparseShadingPreparedGpuRevision>();
   private createCount = 0;
   private publishCount = 0;
   private abortCount = 0;
@@ -81,29 +88,29 @@ export class SparseShadingCandidateGpuRevisionOwner {
   constructor(
     private readonly device: GPUDevice,
     private readonly diagnostics = false,
-    private readonly factory: SparseShadingCandidateGpuRevisionFactory = createGpuRevision
+    private readonly factory: SparseShadingGpuRevisionFactory = createGpuRevision
   ) {}
 
   async prepare(
     snapshot: Readonly<GpuShadingPublicationSnapshot>
-  ): Promise<SparseShadingCandidatePreparedGpuRevision> {
+  ): Promise<SparseShadingPreparedGpuRevision> {
     this.requireAlive();
     if (this.pending.size !== 0) {
       throw new Error("Sparse shading permits only one provisional GPU revision");
     }
     const resources = await this.factory(this.device, snapshot, this.diagnostics);
     validateRevisionResources(resources, snapshot, this.diagnostics);
-    const prepared = new SparseShadingCandidatePreparedGpuRevision(this, resources);
+    const prepared = new SparseShadingPreparedGpuRevision(this, resources);
     this.pending.add(prepared);
     this.createCount++;
     return prepared;
   }
 
   publish(
-    prepared: SparseShadingCandidatePreparedGpuRevision,
+    prepared: SparseShadingPreparedGpuRevision,
     publishedSnapshot: Readonly<GpuShadingPublicationSnapshot>,
     retireAfterSubmission: number
-  ): Readonly<SparseShadingCandidateGpuRevision> {
+  ): Readonly<SparseShadingGpuRevision> {
     this.requireAlive();
     this.requirePrepared(prepared);
     assertSubmissionSerial(retireAfterSubmission, "Sparse shading GPU revision retirement serial");
@@ -124,7 +131,7 @@ export class SparseShadingCandidateGpuRevisionOwner {
     return prepared.resources;
   }
 
-  abort(prepared: SparseShadingCandidatePreparedGpuRevision): void {
+  abort(prepared: SparseShadingPreparedGpuRevision): void {
     this.requireAlive();
     this.requirePrepared(prepared);
     prepared._close();
@@ -135,7 +142,7 @@ export class SparseShadingCandidateGpuRevisionOwner {
 
   active(
     snapshot: Readonly<GpuShadingPublicationSnapshot>
-  ): Readonly<SparseShadingCandidateGpuRevision> {
+  ): Readonly<SparseShadingGpuRevision> {
     this.requireAlive();
     const active = this.activeValue;
     if (active === null || active.snapshot !== snapshot) {
@@ -176,16 +183,18 @@ export class SparseShadingCandidateGpuRevisionOwner {
     this.deviceLossCount++;
   }
 
-  evidence(): Readonly<SparseShadingCandidateGpuRevisionEvidence> {
+  evidence(): Readonly<SparseShadingGpuRevisionEvidence> {
     const active = this.activeValue;
     return Object.freeze({
       activeRevision: active?.snapshot.revision ?? null,
       activeDeviceEpoch: active?.snapshot.deviceEpoch ?? null,
       activeHeapBytes: active?.heapBytes ?? 0,
       activeIndirectBytes: active?.indirectBytes ?? 0,
+      activeSettingsBytes: active?.settingsBytes ?? 0,
       retiringRevisions: Object.freeze(this.retiring.map((entry) => entry.resources.snapshot.revision)),
       retiringBytes: this.retiring.reduce(
-        (sum, entry) => sum + entry.resources.heapBytes + entry.resources.indirectBytes,
+        (sum, entry) => sum + entry.resources.heapBytes + entry.resources.indirectBytes +
+          entry.resources.settingsBytes,
         0
       ),
       pendingPreparations: this.pending.size,
@@ -212,7 +221,7 @@ export class SparseShadingCandidateGpuRevisionOwner {
     this.destroyed = true;
   }
 
-  private requirePrepared(prepared: SparseShadingCandidatePreparedGpuRevision): void {
+  private requirePrepared(prepared: SparseShadingPreparedGpuRevision): void {
     if (prepared.ownerIdentity !== this || !this.pending.has(prepared)) {
       throw new Error("Sparse shading prepared GPU revision is foreign or no longer pending");
     }
@@ -228,20 +237,23 @@ async function createGpuRevision(
   device: GPUDevice,
   snapshot: Readonly<GpuShadingPublicationSnapshot>,
   diagnostics: boolean
-): Promise<Readonly<SparseShadingCandidateGpuRevision>> {
+): Promise<Readonly<SparseShadingGpuRevision>> {
   if (snapshot.pipelines.length === 0) {
     return freezeRevision(snapshot, null, null);
   }
   const bins = await ShadingBinPass.create(device, snapshot.sizing, diagnostics);
+  let settings: GPUBuffer | null = null;
   try {
+    settings = await createSettingsBuffer(device, snapshot);
     const resolve = await SparseShadingResolvePass.create(
       device,
       snapshot.pipelines,
       snapshot.revision,
       diagnostics
     );
-    return freezeRevision(snapshot, bins, resolve);
+    return freezeRevision(snapshot, bins, resolve, settings);
   } catch (error) {
+    settings?.destroy();
     bins.destroy();
     throw error;
   }
@@ -250,19 +262,22 @@ async function createGpuRevision(
 function freezeRevision(
   snapshot: Readonly<GpuShadingPublicationSnapshot>,
   bins: ShadingBinPass | null,
-  resolve: SparseShadingResolvePass | null
-): Readonly<SparseShadingCandidateGpuRevision> {
+  resolve: SparseShadingResolvePass | null,
+  settings: GPUBuffer | null = null
+): Readonly<SparseShadingGpuRevision> {
   return Object.freeze({
     snapshot,
     bins,
     resolve,
+    settings,
     heapBytes: bins?.sizing.heapBytes ?? 0,
-    indirectBytes: bins?.sizing.indirectBytes ?? 0
+    indirectBytes: bins?.sizing.indirectBytes ?? 0,
+    settingsBytes: settings?.size ?? 0
   });
 }
 
 function validateRevisionResources(
-  resources: Readonly<SparseShadingCandidateGpuRevision>,
+  resources: Readonly<SparseShadingGpuRevision>,
   snapshot: Readonly<GpuShadingPublicationSnapshot>,
   diagnostics: boolean
 ): void {
@@ -271,7 +286,8 @@ function validateRevisionResources(
     throw new Error("Sparse shading GPU revision factory changed the publication snapshot");
   }
   const hasOpaque = snapshot.pipelines.length > 0;
-  if (hasOpaque !== (resources.bins !== null) || hasOpaque !== (resources.resolve !== null)) {
+  if (hasOpaque !== (resources.bins !== null) || hasOpaque !== (resources.resolve !== null) ||
+      hasOpaque !== (resources.settings !== null)) {
     destroyRevision(resources);
     throw new Error("Sparse shading GPU revision resource closure does not match active bins");
   }
@@ -285,15 +301,57 @@ function validateRevisionResources(
     throw new Error("Sparse shading GPU revision ABI does not match its publication snapshot");
   }
   if (resources.heapBytes !== (resources.bins?.sizing.heapBytes ?? 0) ||
-      resources.indirectBytes !== (resources.bins?.sizing.indirectBytes ?? 0)) {
+      resources.indirectBytes !== (resources.bins?.sizing.indirectBytes ?? 0) ||
+      resources.settingsBytes !== (resources.settings?.size ?? 0)) {
     destroyRevision(resources);
     throw new Error("Sparse shading GPU revision memory evidence is inconsistent");
   }
 }
 
-function destroyRevision(resources: Readonly<SparseShadingCandidateGpuRevision>): void {
+async function createSettingsBuffer(
+  device: GPUDevice,
+  snapshot: Readonly<GpuShadingPublicationSnapshot>
+): Promise<GPUBuffer> {
+  const packed = packGpuShadingBinSettings({
+    width: snapshot.sizing.width,
+    height: snapshot.sizing.height,
+    microtilesX: snapshot.sizing.microtilesX,
+    generation: snapshot.generation,
+    allowedMaskLo: snapshot.sizing.allowedMaskLo,
+    allowedMaskHi: snapshot.sizing.allowedMaskHi,
+    maxDispatchDimension: snapshot.context.sizingLimits.maxComputeWorkgroupsPerDimension,
+    layoutRevision: snapshot.layoutRevision
+  });
+  device.pushErrorScope("validation");
+  let buffer: GPUBuffer | null = null;
+  try {
+    buffer = device.createBuffer({
+      label: `ADR-0013 ShadingBin settings revision ${snapshot.revision}`,
+      size: GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Uint8Array(buffer.getMappedRange()).set(packed);
+    buffer.unmap();
+  } catch (error) {
+    await device.popErrorScope();
+    buffer?.destroy();
+    throw error;
+  }
+  const validationError = await device.popErrorScope();
+  if (validationError !== null) {
+    buffer.destroy();
+    throw new Error(
+      `Sparse shading settings buffer failed validation: ${validationError.message}`
+    );
+  }
+  return buffer;
+}
+
+function destroyRevision(resources: Readonly<SparseShadingGpuRevision>): void {
   resources.resolve?.destroy();
   resources.bins?.destroy();
+  resources.settings?.destroy();
 }
 
 function assertSubmissionSerial(value: number, label: string): void {

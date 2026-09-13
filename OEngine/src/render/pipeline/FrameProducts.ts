@@ -7,6 +7,11 @@ import {
   GPU_MATERIAL_TILE_WORK_ABI_VERSION
 } from "../../gpu/GpuMaterialTileWorkAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_VERSION } from "../../gpu/GpuComputeMaterialAbi.js";
+import {
+  GPU_SHADING_BIN_ABI_VERSION,
+  GPU_SHADING_BIN_MICROTILE_HEIGHT,
+  GPU_SHADING_BIN_MICROTILE_WIDTH
+} from "../../gpu/GpuShadingBinAbi.js";
 
 export type ResolutionDomain = FrameGraphResourceDomain;
 
@@ -40,6 +45,19 @@ export interface VisibilityFrame {
   readonly depth: ResourceId;
   readonly meshletWork: MeshletWorkFrame;
   readonly triangleSetup: TriangleSetupFrame;
+  readonly domain: TextureDomain<"internal-full">;
+}
+
+/** GPU-produced sparse work consumed only through per-bin indirect dispatches. */
+export interface ShadingBinFrame {
+  readonly abiVersion: number;
+  readonly heap: ResourceId;
+  readonly indirectArgs: ResourceId;
+  readonly generation: number;
+  readonly activeBinMaskLo: number;
+  readonly activeBinMaskHi: number;
+  readonly microtileWidth: 8;
+  readonly microtileHeight: 8;
   readonly domain: TextureDomain<"internal-full">;
 }
 
@@ -372,6 +390,31 @@ export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
       input.domain.height,
       input.domain.scale
     )
+  });
+}
+
+export function shadingBinFrame(input: ShadingBinFrame): ShadingBinFrame {
+  if (input.abiVersion !== GPU_SHADING_BIN_ABI_VERSION) {
+    throw new Error(
+      `ShadingBinFrame ABI ${input.abiVersion} does not match ${GPU_SHADING_BIN_ABI_VERSION}`
+    );
+  }
+  requireRequiredResourceId(input.heap, "ShadingBinFrame.heap");
+  requireRequiredResourceId(input.indirectArgs, "ShadingBinFrame.indirectArgs");
+  requirePositiveInteger(input.generation, "ShadingBinFrame generation");
+  requireU32(input.activeBinMaskLo, "ShadingBinFrame activeBinMaskLo");
+  requireU32(input.activeBinMaskHi, "ShadingBinFrame activeBinMaskHi");
+  if (
+    input.microtileWidth !== GPU_SHADING_BIN_MICROTILE_WIDTH ||
+    input.microtileHeight !== GPU_SHADING_BIN_MICROTILE_HEIGHT
+  ) {
+    throw new RangeError(
+      `ShadingBinFrame microtile shape must be ${GPU_SHADING_BIN_MICROTILE_WIDTH}x${GPU_SHADING_BIN_MICROTILE_HEIGHT}`
+    );
+  }
+  return Object.freeze({
+    ...input,
+    domain: requireInternalFullDomain(input.domain, "ShadingBinFrame")
   });
 }
 
@@ -915,5 +958,11 @@ function requirePositiveInteger(value: number, name: string): void {
 function requireNonNegativeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new RangeError(`${name} must be a non-negative integer`);
+  }
+}
+
+function requireU32(value: number, name: string): void {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
+    throw new RangeError(`${name} must be a u32`);
   }
 }

@@ -255,7 +255,7 @@
         "OEngine/src/render/pipeline/SparseShadingCandidatePipeline.ts",
         "OEngine/src/render/pipeline/SparseShadingCandidateExecutor.ts",
         "OEngine/src/render/pipeline/SparseShadingCandidateRuntime.ts",
-        "OEngine/src/render/pipeline/SparseShadingCandidateGpuRevision.ts",
+        "OEngine/src/render/pipeline/SparseShadingGpuRevision.ts",
         "OEngine/src/render/MeshletBucketRaster.ts",
         "OEngine/src/render/passes/ShadingBinPass.ts",
         "OEngine/src/render/passes/SparseShadingResolvePass.ts",

@@ -16,6 +16,7 @@ import {
   preExposureContract,
   reflectionCorrectionFrame,
   screenSpaceDiffuseFrame,
+  shadingBinFrame,
   shadingSurfaceLiteFrame,
   temporalReconstructionFrame,
   textureDomain
@@ -1564,6 +1565,39 @@ test("ADR-0009 Step 9 statically specializes final-output bindings", () => {
   assert.match(sparseValidity, /frame_control: OEngineShadingBinControl/);
   assert.match(sparseValidity, /frame_control\.frame_flags/);
   assert.doesNotMatch(sparseValidity, /frame_control\.frame_invalid/);
+});
+
+test("ADR-0013 ShadingBinFrame freezes the GPU producer-consumer identity", () => {
+  const frame = shadingBinFrame({
+    abiVersion: 1,
+    heap: 30,
+    indirectArgs: 31,
+    generation: 9,
+    activeBinMaskLo: 0x8000_0001,
+    activeBinMaskHi: 0x4000_0002,
+    microtileWidth: 8,
+    microtileHeight: 8,
+    domain: full()
+  });
+  assert.equal(frame.domain.domain, "internal-full");
+  assert.equal(frame.microtileWidth, 8);
+  assert.throws(() => shadingBinFrame({ ...frame, abiVersion: 2 }), /ABI/);
+  assert.throws(() => shadingBinFrame({ ...frame, generation: 0 }), /positive/);
+  assert.throws(
+    () => shadingBinFrame({ ...frame, activeBinMaskHi: 0x1_0000_0000 }),
+    /u32/
+  );
+  assert.throws(
+    () => shadingBinFrame({ ...frame, microtileWidth: 16 }),
+    /microtile shape/
+  );
+  assert.throws(
+    () => shadingBinFrame({
+      ...frame,
+      domain: textureDomain("internal-half", 960, 540, 0.5)
+    }),
+    /internal-full/
+  );
 });
 
 test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", () => {

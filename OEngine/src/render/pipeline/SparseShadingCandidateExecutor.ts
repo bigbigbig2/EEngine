@@ -81,6 +81,7 @@ export function createSparseShadingCandidateExecutor(
     }
     if (stage === "bin-resolve") {
       assertBinResources(frame, resources, input);
+      assertShadingBinProduct(frame, activeBins);
       if (frame.plan.publicationRevision !== input.resolve.publicationRevision) {
         throw new Error("Sparse shading resolve owner does not match the graph publication");
       }
@@ -189,10 +190,34 @@ function assertBinResources(
       resources.get(frame.indirectArgs) !== input.bins.indirectArgs) {
     throw new Error("Sparse shading graph and revision-owned bin resources disagree");
   }
+  if (frame.shadingBins !== null &&
+      (frame.shadingBins.heap !== frame.heap ||
+        frame.shadingBins.indirectArgs !== frame.indirectArgs)) {
+    throw new Error("Sparse shading FrameProduct does not name the graph bin resources");
+  }
   // Resolve this handle as part of the closure check even though its bind group
   // was prepared transactionally before graph execution.
   if (resources.get(frame.settings) === undefined) {
     throw new Error("Sparse shading settings resource is unavailable");
+  }
+}
+
+function assertShadingBinProduct(
+  frame: Readonly<SparseShadingCandidateFrame>,
+  activeBins: readonly number[]
+): void {
+  const product = frame.shadingBins;
+  if (product === null) {
+    throw new Error("Sparse shading resolve requires ShadingBinFrame");
+  }
+  let expectedLo = 0;
+  let expectedHi = 0;
+  for (const binId of activeBins) {
+    if (binId < 32) expectedLo = (expectedLo | (1 << binId)) >>> 0;
+    else expectedHi = (expectedHi | (1 << (binId - 32))) >>> 0;
+  }
+  if (product.activeBinMaskLo !== expectedLo || product.activeBinMaskHi !== expectedHi) {
+    throw new Error("Sparse shading FrameProduct does not match the active-bin consumer set");
   }
 }
 

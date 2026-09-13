@@ -19,8 +19,7 @@ import { GPU_MESHLET_BUCKET_STATE_STRIDE, GPU_MESHLET_DRAW_COUNT, GPU_MESHLET_DR
   GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE, packGpuMeshletProfileLodBucket,
   packGpuMeshletRasterWork, packGpuMeshletWorkQueueHeader } from "../../../../OEngine/src/gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_SHADING_BIN_CONTROL_OFFSETS, GPU_SHADING_BIN_COUNTER_OFFSETS,
-  GPU_SHADING_BIN_COUNTER_STRIDE, GPU_SHADING_BIN_INVALID_ID, GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,
-  packGpuShadingBinSettings } from "../../../../OEngine/src/gpu/GpuShadingBinAbi.js";
+  GPU_SHADING_BIN_COUNTER_STRIDE, GPU_SHADING_BIN_INVALID_ID } from "../../../../OEngine/src/gpu/GpuShadingBinAbi.js";
 import { GPU_SHADING_MATERIAL_RECORD_STRIDE, GPU_SHADING_TEXTURE_ROUTE_STRIDE,
   packGpuShadingMaterialRecord, packGpuShadingTextureRoute } from "../../../../OEngine/src/gpu/GpuShadingMaterialAbi.js";
 import { GpuShadingPublicationStore } from "../../../../OEngine/src/gpu/GpuShadingPublicationPlan.js";
@@ -42,8 +41,8 @@ import { resolveTextureView } from "../../../../OEngine/src/render/RenderTargetV
 import { addSparseShadingCandidateToGraph, type SparseShadingCandidateFrame,
   type SparseShadingCandidateStage } from "../../../../OEngine/src/render/pipeline/SparseShadingCandidatePipeline.js";
 import { createSparseShadingCandidateExecutor } from "../../../../OEngine/src/render/pipeline/SparseShadingCandidateExecutor.js";
-import { SparseShadingCandidateGpuRevisionOwner,
-  type SparseShadingCandidateGpuRevision } from "../../../../OEngine/src/render/pipeline/SparseShadingCandidateGpuRevision.js";
+import { SparseShadingGpuRevisionOwner,
+  type SparseShadingGpuRevision } from "../../../../OEngine/src/render/pipeline/SparseShadingGpuRevision.js";
 import { SparseShadingCandidateRuntime } from "../../../../OEngine/src/render/pipeline/SparseShadingCandidateRuntime.js";
 import { ShadingBinPass } from "../../../../OEngine/src/render/passes/ShadingBinPass.js";
 import { SparseShadingResolvePass, type SparseShadingResolveFrameBinding } from "../../../../OEngine/src/render/passes/SparseShadingResolvePass.js";
@@ -129,7 +128,7 @@ function workloadFeatures(workload:SparseCandidateWorkload){return workload==="r
 
 interface CandidateResources {
   readonly workload:SparseCandidateWorkload;readonly layout:WorkloadLayout;
-  readonly settings:GPUBuffer; readonly shadingView:GPUBuffer; readonly camera:GPUBuffer;
+  readonly shadingView:GPUBuffer; readonly camera:GPUBuffer;
   readonly queue:GPUBuffer; readonly bucketStates:GPUBuffer; readonly drawIndirect:GPUBuffer;
   readonly bucketSettings:GPUBuffer; readonly instances:GPUBuffer; readonly geometryRecords:GPUBuffer;
   readonly meshletRecords:GPUBuffer; readonly meshletVertexIndices:GPUBuffer;
@@ -171,7 +170,7 @@ export class SparseShadingCandidateFixture {
   private constructor(private readonly device:GPUDevice, private readonly canvasContext:GPUCanvasContext,
     canvasFormat:GPUTextureFormat, private readonly workload:SparseCandidateWorkload,
     private readonly resources:CandidateResources,
-    private readonly runtime:SparseShadingCandidateRuntime, private readonly gpuRevisions:SparseShadingCandidateGpuRevisionOwner,
+    private readonly runtime:SparseShadingCandidateRuntime, private readonly gpuRevisions:SparseShadingGpuRevisionOwner,
     private readonly oracleValidate:GPUComputePipeline,
     private readonly oracleExtract:GPUComputePipeline,
     private readonly publicationSnapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,
@@ -199,7 +198,7 @@ export class SparseShadingCandidateFixture {
       shadowSamplingEnabled:features.shadows,capability,sizingLimits:{maxTextureDimension2D:device.limits.maxTextureDimension2D,
         maxBufferSize:device.limits.maxBufferSize,maxStorageBufferBindingSize:device.limits.maxStorageBufferBindingSize,
         maxComputeWorkgroupsPerDimension:device.limits.maxComputeWorkgroupsPerDimension}});
-    const runtime=new SparseShadingCandidateRuntime(publications),gpuRevisions=new SparseShadingCandidateGpuRevisionOwner(device);
+    const runtime=new SparseShadingCandidateRuntime(publications),gpuRevisions=new SparseShadingGpuRevisionOwner(device);
     const mutation=runtime.beginMutation();mutation.replaceAll(createPublication(workload));
     const preparedSnapshot=mutation.prepare();let preparedGpu;
     try {
@@ -278,7 +277,7 @@ export class SparseShadingCandidateFixture {
     if(this.workload!=="lifecycle-resize")throw new Error("runResizeLifecycle requires its dedicated fixture publication");
     this.requireAlive();const initialSnapshot=this.runtimeSnapshot(),initialCamera=createCubeCamera(CUBE_NEAR_DISTANCE,1);
     uploadFrameConfiguration(this.device,this.resources,initialSnapshot,initialCamera,0);
-    const resizeBoundary:{beforeCompletion?:ReturnType<SparseShadingCandidateGpuRevisionOwner["evidence"]>}={};
+    const resizeBoundary:{beforeCompletion?:ReturnType<SparseShadingGpuRevisionOwner["evidence"]>}={};
     const initial=await this.runCandidateFrame("LifecycleResize/initial",0,1,
       (bytes,snapshot)=>validateBasicCube(bytes,snapshot,initialCamera),{afterSubmitBeforeCompletion:async()=>{
         const mutation=this.runtime.beginMutation();mutation.updateContext({...initialSnapshot.context,height:128});
@@ -436,7 +435,8 @@ export class SparseShadingCandidateFixture {
       lighting,shadows:labIds===null?[]:[labIds.shadowAtlas],
       presentation:ids.presentation,captureReadback:ids.readback,captureScratch:[ids.oracle],
       captureEncoderWork:{computePasses:1,dispatches:2},
-      binResources:{heap:binPass.heap,indirectArgs:binPass.indirectArgs,settings:this.resources.settings},
+      binResources:{heap:binPass.heap,indirectArgs:binPass.indirectArgs,
+        settings:requireResource(gpuRevision.settings,"candidate settings")},
       ...(downstreamResources===null?{}:{composeDownstream:(stage,ownerGraph,stageFrame)=>
         this.renderingLab!.compose(stage,ownerGraph,stageFrame,downstreamResources)})},executor);
     this.profiler.beginFrame(frameIndex); const command=ShadeGPUCommandContext.create(this.graphics,"Renderer/main-0");
@@ -470,10 +470,11 @@ export class SparseShadingCandidateFixture {
     for(const value of this.buffers)value.destroy(); for(const value of this.textures)value.destroy();
     this.buffers.clear(); this.textures.clear(); }
 
-  private createResolveBindings(revision:Readonly<SparseShadingCandidateGpuRevision>,frame:Readonly<SparseShadingCandidateFrame>,
+  private createResolveBindings(revision:Readonly<SparseShadingGpuRevision>,frame:Readonly<SparseShadingCandidateFrame>,
     resources:PassResources):readonly SparseShadingResolveFrameBinding[] {
     const bins=requireResource(revision.bins,"candidate bins"),resolve=requireResource(revision.resolve,"candidate resolve");
-    const binding=(name:string):GPUBindingResource=>resolveBinding(name,frame,resources,this.resources,bins);
+    const settings=requireResource(revision.settings,"candidate settings");
+    const binding=(name:string):GPUBindingResource=>resolveBinding(name,frame,resources,this.resources,bins,settings);
     return resolve.activeBinIds.map((binId)=>{const pipeline=resolve.pipelineForBin(binId);
       const groups=pipeline.descriptor.groups.map((group,index)=>this.device.createBindGroup({
         label:`ADR-0013 MixedBins bin ${binId} group ${index}`,layout:pipeline.bindGroupLayouts[index]!,
@@ -553,7 +554,7 @@ function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GP
     size:[1,1],format:"rgba8unorm",usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST})):[];
   const renderingLab=workload==="rendering-lab-fixed"?createRenderingLabPersistentResources(device,makeBuffer,makeTexture):null;
   return {
-    workload,layout,settings:makeBuffer(`ADR-0013 ${label} bin settings`,GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST),
+    workload,layout,
     shadingView:makeBuffer(`ADR-0013 ${label} shading view`,256,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST),
     camera:makeBuffer(`ADR-0013 ${label} packed camera`,PACKED_CAMERA_TYPE.size,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST|
       (workload==="rendering-lab-fixed"?GPUBufferUsage.COPY_SRC:0)),
@@ -643,9 +644,6 @@ function textureBits(programId:number):number{return [0,0,1,1,0,1,2,3,4,5,6,7,15
 
 function uploadStaticInputs(device:GPUDevice,r:CandidateResources,snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,
   workload:SparseCandidateWorkload):void {
-  device.queue.writeBuffer(r.settings,0,packGpuShadingBinSettings({width:WIDTH,height:HEIGHT,microtilesX:WIDTH/8,
-    generation:snapshot.generation,allowedMaskLo:snapshot.summary.activeBinMaskLo,allowedMaskHi:snapshot.summary.activeBinMaskHi,
-    maxDispatchDimension:device.limits.maxComputeWorkgroupsPerDimension,layoutRevision:snapshot.layoutRevision}));
   if(workload==="mixed-bins"){
     device.queue.writeBuffer(r.camera,0,packedPixelCamera());
     device.queue.writeBuffer(r.shadingView,0,shadingView(snapshot,r.layout,PIXEL_VIEW_PROJECTION,[WIDTH/2,HEIGHT/2,100],0));
@@ -786,10 +784,6 @@ function uploadCameraFrame(device:GPUDevice,r:CandidateResources,
 }
 function uploadFrameConfiguration(device:GPUDevice,r:CandidateResources,
   snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,camera:CubeCameraFrame,frameIndex:number):void {
-  device.queue.writeBuffer(r.settings,0,packGpuShadingBinSettings({width:snapshot.context.width,height:snapshot.context.height,
-    microtilesX:Math.ceil(snapshot.context.width/8),generation:snapshot.generation,
-    allowedMaskLo:snapshot.summary.activeBinMaskLo,allowedMaskHi:snapshot.summary.activeBinMaskHi,
-    maxDispatchDimension:device.limits.maxComputeWorkgroupsPerDimension,layoutRevision:snapshot.layoutRevision}));
   uploadCameraFrame(device,r,snapshot,camera,frameIndex);
 }
 function uploadSnapshotDependentInputs(device:GPUDevice,r:CandidateResources,
@@ -1119,8 +1113,8 @@ function createRenderWorld(r:CandidateResources,
 }
 
 function resolveBinding(name:string,frame:Readonly<SparseShadingCandidateFrame>,resources:PassResources,r:CandidateResources,
-  bins:ShadingBinPass):GPUBindingResource {
-  const buffers:Readonly<Record<string,GPUBuffer>>={shading_bin_settings:r.settings,shading_bin_heap:bins.heap,
+  bins:ShadingBinPass,settings:GPUBuffer):GPUBindingResource {
+  const buffers:Readonly<Record<string,GPUBuffer>>={shading_bin_settings:settings,shading_bin_heap:bins.heap,
     shading_view:r.shadingView,meshlet_work:r.queue,instance_records:r.instances,asset_metadata_heap:r.assetMetadata,
     vertex_payload_heap:r.vertexPayload,material_records:r.shadingMaterials,texture_descriptor_routing_heap:r.routes};
   const direct=buffers[name];if(direct!==undefined)return {buffer:direct};

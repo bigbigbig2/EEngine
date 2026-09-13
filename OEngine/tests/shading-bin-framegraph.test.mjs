@@ -19,8 +19,8 @@ import {
 } from "../.test-dist/render/pipeline/SparseShadingCandidateExecutor.js";
 import { SparseShadingCandidateRuntime } from "../.test-dist/render/pipeline/SparseShadingCandidateRuntime.js";
 import {
-  SparseShadingCandidateGpuRevisionOwner
-} from "../.test-dist/render/pipeline/SparseShadingCandidateGpuRevision.js";
+  SparseShadingGpuRevisionOwner
+} from "../.test-dist/render/pipeline/SparseShadingGpuRevision.js";
 import {
   SparseShadingDiagnosticsPass
 } from "../.test-dist/render/passes/SparseShadingDiagnosticsPass.js";
@@ -57,7 +57,15 @@ const OFF = Object.freeze({
 function fakeGpuRevisionFactory(destroyed) {
   return async (_device, publication, diagnostics) => {
     if (publication.pipelines.length === 0) {
-      return Object.freeze({ snapshot: publication, bins: null, resolve: null, heapBytes: 0, indirectBytes: 0 });
+      return Object.freeze({
+        snapshot: publication,
+        bins: null,
+        resolve: null,
+        settings: null,
+        heapBytes: 0,
+        indirectBytes: 0,
+        settingsBytes: 0
+      });
     }
     const bins = {
       diagnostics,
@@ -69,12 +77,18 @@ function fakeGpuRevisionFactory(destroyed) {
       publicationRevision: publication.revision,
       destroy() { destroyed.push(`resolve:${publication.revision}`); }
     };
+    const settings = {
+      size: 256,
+      destroy() { destroyed.push(`settings:${publication.revision}`); }
+    };
     return Object.freeze({
       snapshot: publication,
       bins,
       resolve,
+      settings,
       heapBytes: publication.sizing.heapBytes,
-      indirectBytes: publication.sizing.indirectBytes
+      indirectBytes: publication.sizing.indirectBytes,
+      settingsBytes: settings.size
     });
   };
 }
@@ -255,6 +269,7 @@ test("no-opaque topology creates no opaque resources while transparent lighting 
   assert.deepEqual(stages, ["light-cluster", "shadow"]);
   assert.equal(frame.finalOutput, null);
   assert.equal(frame.shadingBinId, null);
+  assert.equal(frame.shadingBins, null);
 });
 
 test("FrameGraph recipe exposes explicit producer edges and executes on one shared context", () => {
@@ -430,6 +445,22 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.ok(stageFrames.get("ssgi").historyInput !== null);
     assert.ok(stageFrames.get("ssgi").historyOutput !== null);
     assert.ok(frame.finalOutput !== null);
+    assert.deepEqual(frame.shadingBins, {
+      abiVersion: 1,
+      heap: frame.heap,
+      indirectArgs: frame.indirectArgs,
+      generation: value.generation,
+      activeBinMaskLo: value.summary.activeBinMaskLo,
+      activeBinMaskHi: value.summary.activeBinMaskHi,
+      microtileWidth: 8,
+      microtileHeight: 8,
+      domain: {
+        domain: "internal-full",
+        width: value.context.width,
+        height: value.context.height,
+        scale: 1
+      }
+    });
     assert.ok(frame.captureReadback !== null);
     assert.equal(frame.captureScratch.length, 1);
     const hdr = dump.resources.find((resource) => resource.name === "sparse-shading/hdr");
@@ -687,10 +718,10 @@ test("diagnostics owner compiles separately and records finalize plus copy witho
   }
 });
 
-test("candidate GPU revisions publish atomically and retire only after submitted work", async () => {
+test("sparse-shading GPU revisions publish atomically and retire only after submitted work", async () => {
   const { store, snapshot: initialSnapshot } = snapshot("unlit", 0);
   const destroyed = [];
-  const owner = new SparseShadingCandidateGpuRevisionOwner(
+  const owner = new SparseShadingGpuRevisionOwner(
     null,
     false,
     fakeGpuRevisionFactory(destroyed)
@@ -703,6 +734,7 @@ test("candidate GPU revisions publish atomically and retire only after submitted
     activeDeviceEpoch: initialSnapshot.deviceEpoch,
     activeHeapBytes: initialSnapshot.sizing.heapBytes,
     activeIndirectBytes: initialSnapshot.sizing.indirectBytes,
+    activeSettingsBytes: 256,
     retiringRevisions: [],
     retiringBytes: 0,
     pendingPreparations: 0,
@@ -724,13 +756,14 @@ test("candidate GPU revisions publish atomically and retire only after submitted
   owner.publish(resizedPrepared, committedResize, 7);
   assert.deepEqual(owner.evidence().retiringRevisions, [initialSnapshot.revision]);
   assert.equal(owner.evidence().retiringBytes,
-    initialSnapshot.sizing.heapBytes + initialSnapshot.sizing.indirectBytes);
+    initialSnapshot.sizing.heapBytes + initialSnapshot.sizing.indirectBytes + 256);
   assert.deepEqual(owner.completeSubmittedWork(6), []);
   assert.deepEqual(destroyed, []);
   assert.deepEqual(owner.completeSubmittedWork(7), [initialSnapshot.revision]);
   assert.deepEqual(destroyed, [
     `resolve:${initialSnapshot.revision}`,
-    `bins:${initialSnapshot.revision}`
+    `bins:${initialSnapshot.revision}`,
+    `settings:${initialSnapshot.revision}`
   ]);
 
   const rejected = store.beginTransaction();
@@ -740,18 +773,20 @@ test("candidate GPU revisions publish atomically and retire only after submitted
   rejected.abort();
   assert.equal(owner.evidence().abortCount, 1);
   assert.equal(owner.evidence().activeRevision, resizedSnapshot.revision);
-  assert.deepEqual(destroyed.slice(-2), [
+  assert.deepEqual(destroyed.slice(-3), [
     `resolve:${resizedSnapshot.revision + 1}`,
-    `bins:${resizedSnapshot.revision + 1}`
+    `bins:${resizedSnapshot.revision + 1}`,
+    `settings:${resizedSnapshot.revision + 1}`
   ]);
 
   store.markDeviceLost();
   owner.markDeviceLost();
   assert.equal(owner.evidence().activeRevision, null);
   assert.equal(owner.evidence().deviceLossCount, 1);
-  assert.deepEqual(destroyed.slice(-2), [
+  assert.deepEqual(destroyed.slice(-3), [
     `resolve:${resizedSnapshot.revision}`,
-    `bins:${resizedSnapshot.revision}`
+    `bins:${resizedSnapshot.revision}`,
+    `settings:${resizedSnapshot.revision}`
   ]);
   owner.destroy();
 });
@@ -762,7 +797,7 @@ test("candidate source owns neither submit nor synchronous readback nor a produc
     "../src/render/pipeline/SparseShadingCandidatePipeline.ts",
     "../src/render/pipeline/SparseShadingCandidateExecutor.ts",
     "../src/render/pipeline/SparseShadingCandidateRuntime.ts",
-    "../src/render/pipeline/SparseShadingCandidateGpuRevision.ts",
+    "../src/render/pipeline/SparseShadingGpuRevision.ts",
     "../src/render/passes/SparseShadingDiagnosticsPass.ts"
   ]) {
     const source = await readFile(new URL(relative, import.meta.url), "utf8");
