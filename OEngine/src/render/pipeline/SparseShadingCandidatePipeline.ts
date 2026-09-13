@@ -396,7 +396,11 @@ export function addSparseShadingCandidateToGraph(
     ...(plan.hasAnyShadowConsumer ? shadowResources : [])
   ]) resolve.read(resource);
   mutable.hdr = resolve.create("sparse-shading/hdr", texture(
-    plan, "rgba16float", GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+    plan,
+    "rgba16float",
+    GPUTextureUsage.STORAGE_BINDING |
+      GPUTextureUsage.TEXTURE_BINDING |
+      (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
   ));
   if ((plan.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0) {
     mutable.normal = resolve.create("sparse-shading/normal", texture(

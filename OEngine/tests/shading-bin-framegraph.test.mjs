@@ -223,7 +223,12 @@ test("no-opaque topology creates no opaque resources while transparent lighting 
 test("FrameGraph recipe exposes explicit producer edges and executes on one shared context", () => {
   const previousTextureUsage = globalThis.GPUTextureUsage;
   const previousBufferUsage = globalThis.GPUBufferUsage;
-  globalThis.GPUTextureUsage = { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2, STORAGE_BINDING: 4 };
+  globalThis.GPUTextureUsage = {
+    RENDER_ATTACHMENT: 1,
+    TEXTURE_BINDING: 2,
+    STORAGE_BINDING: 4,
+    COPY_SRC: 8
+  };
   globalThis.GPUBufferUsage = {
     STORAGE: 1,
     COPY_DST: 2,
@@ -379,10 +384,52 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.ok(stageFrames.get("ssgi").historyOutput !== null);
     assert.ok(frame.finalOutput !== null);
     assert.ok(frame.captureReadback !== null);
+    const hdr = dump.resources.find((resource) => resource.name === "sparse-shading/hdr");
+    assert.equal(JSON.parse(hdr.description).usage & GPUTextureUsage.COPY_SRC, GPUTextureUsage.COPY_SRC);
     const post = executable.find((pass) => pass.name.endsWith("/post"));
     assert.equal(post.encoderWork.renderPasses, 1);
     assert.equal(post.encoderWork.computePasses, 0);
     assert.ok(frame.diagnosticsReadback !== null);
+  } finally {
+    globalThis.GPUTextureUsage = previousTextureUsage;
+    globalThis.GPUBufferUsage = previousBufferUsage;
+  }
+});
+
+test("HDR capture usage is absent when the validation capture boundary is absent", () => {
+  const previousTextureUsage = globalThis.GPUTextureUsage;
+  const previousBufferUsage = globalThis.GPUBufferUsage;
+  globalThis.GPUTextureUsage = {
+    RENDER_ATTACHMENT: 1,
+    TEXTURE_BINDING: 2,
+    STORAGE_BINDING: 4,
+    COPY_SRC: 8
+  };
+  globalThis.GPUBufferUsage = {
+    STORAGE: 1,
+    COPY_DST: 2,
+    COPY_SRC: 4,
+    INDIRECT: 8,
+    UNIFORM: 16,
+    MAP_READ: 32
+  };
+  try {
+    const { snapshot: value } = snapshot("unlit", 0);
+    const graph = new FrameGraph("ADR-0013 production usage closure");
+    const imported = (name) => graph.import_resource(name, { kind: "imported" }, { name });
+    const frame = addSparseShadingCandidateToGraph(graph, value, OFF, {
+      meshletWork: imported("meshlet-work"),
+      sceneGeometry: [],
+      materials: [],
+      lighting: [],
+      shadows: [],
+      presentation: imported("presentation"),
+      binResources: { heap: {}, indirectArgs: {}, settings: {} }
+    }, () => {});
+    const dump = graph.compile().dump();
+    const hdr = dump.resources.find((resource) => resource.name === "sparse-shading/hdr");
+    assert.equal(JSON.parse(hdr.description).usage & GPUTextureUsage.COPY_SRC, 0);
+    assert.equal(frame.captureReadback, null);
   } finally {
     globalThis.GPUTextureUsage = previousTextureUsage;
     globalThis.GPUBufferUsage = previousBufferUsage;
