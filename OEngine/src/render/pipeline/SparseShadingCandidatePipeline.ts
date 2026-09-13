@@ -84,6 +84,8 @@ export interface SparseShadingCandidateExternalResources {
   readonly presentation?: ResourceId;
   /** Validation-only asynchronous capture boundary; never a shading diagnostic. */
   readonly captureReadback?: ResourceId;
+  /** Validation-only GPU-written oracle/counter scratch copied into captureReadback. */
+  readonly captureScratch?: readonly ResourceId[];
   /** Revision-owned resources from ShadingBinPass; imported only when opaque work exists. */
   readonly binResources?: Readonly<{
     readonly heap: unknown;
@@ -116,6 +118,7 @@ export interface SparseShadingCandidateFrame {
   readonly diagnostics: ResourceId | null;
   readonly diagnosticsReadback: ResourceId | null;
   readonly captureReadback: ResourceId | null;
+  readonly captureScratch: readonly ResourceId[];
   readonly historyInput: ResourceId | null;
   readonly historyOutput: ResourceId | null;
   readonly finalOutput: ResourceId | null;
@@ -256,6 +259,7 @@ export function addSparseShadingCandidateToGraph(
     diagnostics: null,
     diagnosticsReadback: null,
     captureReadback: null,
+    captureScratch: Object.freeze([]),
     historyInput: null,
     historyOutput: null,
     finalOutput: null
@@ -522,7 +526,11 @@ export function addSparseShadingCandidateToGraph(
       if (resource !== null) capture.read(resource);
     }
     mutable.captureReadback = capture.write(external.captureReadback);
+    mutable.captureScratch = Object.freeze(
+      (external.captureScratch ?? []).map((resource) => capture.write(resource))
+    );
     captureFrame.captureReadback = mutable.captureReadback;
+    captureFrame.captureScratch = mutable.captureScratch;
     Object.freeze(captureFrame);
     capture.declareEncoderWork({ computePasses: 1, dispatches: 1 });
     capture.make_side_effect();

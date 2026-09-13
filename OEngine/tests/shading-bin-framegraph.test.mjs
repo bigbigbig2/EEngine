@@ -270,6 +270,7 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
       shadows: [imported("shadow-input")],
       presentation: imported("presentation"),
       captureReadback: imported("capture-readback"),
+      captureScratch: [imported("capture-control")],
       binResources: { heap, indirectArgs, settings },
       histories: {
         ssgi: {
@@ -398,6 +399,7 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.ok(stageFrames.get("ssgi").historyOutput !== null);
     assert.ok(frame.finalOutput !== null);
     assert.ok(frame.captureReadback !== null);
+    assert.equal(frame.captureScratch.length, 1);
     const hdr = dump.resources.find((resource) => resource.name === "sparse-shading/hdr");
     assert.equal(JSON.parse(hdr.description).usage & GPUTextureUsage.COPY_SRC, GPUTextureUsage.COPY_SRC);
     const post = executable.find((pass) => pass.name.endsWith("/post"));
