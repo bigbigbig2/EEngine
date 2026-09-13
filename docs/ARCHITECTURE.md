@@ -27,7 +27,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | --- | --- | --- |
 | Runtime Asset | `src/assets/RuntimeAssetManifestV2.ts`、`RuntimeAssetResidency.ts`、`GeometryAssetPackage.ts`、`TextureAssetPackage.ts`、`Brick4LightMapPackage.ts`、`src/assets/codec/*`、loaders | package/variant 验证、稳定 chunk identity、Encoded Texture Variant、Brick4 monolithic tree/probe generation、惰性有界 Worker/WASM preparation、budget/request state 与 logical/physical resident range |
 | GPU 资产 | `src/gpu/GpuAssetStore.ts`、`TextureResidency.ts` | compact geometry residency；纹理 exact-format immutable segment、有界 multi `TextureBindingSet`、uncooked RGBA8 development segment、stable logical descriptor 与原子派生 routing |
-| 场景实例 | `src/gpu/GpuScene.ts` | 64 B static + 112 B dynamic instance ABI，static/transform/material/visibility/lifecycle 显式窄 patch 与 CPU shadow accounting |
+| 场景实例 | `src/gpu/GpuScene.ts` | 64 B static + 112 B dynamic Instance ABI V6；static identity 同时保存 geometry slot 与 AssetHandle generation，static/transform/material/visibility/lifecycle 显式窄 patch 与 CPU shadow accounting |
 | GPU Render World | `src/gpu/GpuRenderWorld.ts` | Packed source 与普通 Scene adapter 的统一 runtime 生命周期 |
 | 场景环境 | `src/gpu/GPUSceneEnvironmentContext.ts` | Packed/普通 Scene 共享的 light、environment、light-probe 与 volumetric 数据 |
 | GPU 工作 | `src/gpu/GpuWorkGenerationAbi.ts` 及 work-generation owners | 队列 ABI、容量、overflow、indirect args |
