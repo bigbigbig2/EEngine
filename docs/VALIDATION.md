@@ -19,6 +19,18 @@ yarn build
 
 这两个命令只验证示例库与 Storybook 工具链，不能作为 Renderer 或 GPU 证据。真实浏览器验证与 formal PERF 由 [ADR-0014](./adr/0014-browser-validation-and-performance-host.md) 的独立 `validation/` 包负责。
 
+修改 `validation/` 的 protocol、registry、Runner 或 Case 时从该 package 执行：
+
+```powershell
+Set-Location validation
+npm run typecheck
+npm test
+npm run validate:registry
+npm run build
+```
+
+命中的真实浏览器 Case 继续以 registry id 运行；`protocol-self-test` 与 `webgpu-component` 只是宿主编排和通用 WebGPU smoke，不能替代具体 Renderer/算法的 MILESTONE 或 PERF。
+
 ## 验证层级
 
 验证强度分为三档；它们描述证据要求，不覆盖仓库或更近 `AGENTS.md` 的安装、构建和交付约束。

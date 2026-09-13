@@ -51,6 +51,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 主管线 | `src/render/pipeline/MainRenderPipeline.ts` | 唯一 Feature 顺序、FrameGraph recipe/cache/evidence 和单帧 encode |
 | 公开总装 | `src/render/Renderer.ts` | 公开 API、设备/画布生命周期入口和顶层组合 |
 | WebGPU capability | `src/render/pipeline/MainRenderPipeline.ts`、`src/gpu/GraphicsContext.ts` | adapter/device feature、limit、WGSL/API 探测，冻结 capability record 与 specialization key |
+| 浏览器验证宿主 | `validation/cases/registry.json`、`validation/src/host`、`validation/src/runner` | 独立 Document/Chrome 生命周期、versioned protocol、内容 identity、新鲜度、错误聚合、artifact/dispose Gate；不拥有 Renderer 算法 |
 
 ## 生命周期与资源所有权
 
