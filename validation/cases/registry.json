@@ -28,21 +28,24 @@
     "CLS-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "At most one reservation per macro and bin" },
     "DIAG-003": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Pre-consumer failures zero all indirect arguments" },
     "ID-005": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Material, instance and MeshletWork bin identity agrees" },
+    "ID-006": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Textureless program identity always uses binding set zero" },
+    "VIS-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Visibility writes an r8uint shading-bin MRT" },
+    "VIS-003": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Depth winner and shading bin belong to the same raster sample" },
+    "CLS-006": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Initialize, classify, finalize and resolve pass boundaries are explicit" },
     "SHADE-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Each opaque hit receives one complete material evaluation" },
+    "SHADE-003": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Textured programs use perspective-correct UV and textureSampleGrad" },
     "SHADE-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Lit programs fuse direct lighting in the material consumer" },
+    "SHADE-006": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Output dependencies participate in pipeline identity and resource pruning" },
     "SHADE-007": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "The widest executed variant fits the frozen binding budget" },
     "OFF-001": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Inactive bins own no queue work or dispatch" },
+    "OFF-003": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Disabled outputs have no bindings, stores or resources" },
+    "OFF-004": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Diagnostics-off physically removes claim resources and shader code" },
+    "DIAG-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Production uses only low-frequency error and safety counters" },
     "DIAG-002": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Production successful pixels perform no ownership atomics" },
     "DIAG-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Consumer identity mismatch invalidates the frame and suppresses the lane" },
+    "DIAG-005": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Frame invalid never presents partial output" },
     "DIAG-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Ownership validation exists only in a diagnostics variant" },
-    "VIS-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Real Hardware Visibility writes VisibilityKey and ShadingBinId in one ownership domain" },
-    "FRAME-001": { "ownerAdr": "ADR-0013", "layer": "L2", "description": "Candidate graph carries explicit producer-to-consumer dependencies" },
-    "FRAME-002": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Candidate commands are encoded by one main context and submitted once" },
-    "OFF-002": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Disabled candidate features have no live pass, resource, history, readback or private submit" },
-    "POST-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Sparse HDR reaches the unified downstream post and presentation boundary" },
-    "LIFE-001": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Publication revisions retire only after submitted-work completion and rebuild after loss" },
-    "PERF-001": { "ownerAdr": "ADR-0013", "layer": "L5", "description": "Clean baseline and candidate use the same frozen workload and capability fingerprint" },
-    "DEL-001": { "ownerAdr": "ADR-0013", "layer": "L0", "description": "Every legacy owner has a replacement and validation owner before deletion" }
+    "DIAG-007": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Readback is asynchronous and never controls current-frame construction" }
   },
   "profiles": {
     "smoke": {
@@ -237,8 +240,9 @@
       "buildTarget": "internal-candidate",
       "ownerAdr": "ADR-0013",
       "requirements": [
-        "CAP-005", "VIS-001", "QUE-007", "ID-005", "SHADE-001", "SHADE-004",
-        "OFF-001", "OFF-002", "FRAME-001", "FRAME-002", "POST-001"
+        "CAP-005", "ID-005", "ID-006", "VIS-001", "VIS-003", "QUE-007", "CLS-006",
+        "SHADE-001", "SHADE-003", "SHADE-004", "SHADE-006", "OFF-001", "OFF-003", "OFF-004",
+        "DIAG-001", "DIAG-007"
       ],
       "workloadId": "sparse-shading-candidate-mixed-bins-v1",
       "profile": "smoke",
