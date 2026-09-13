@@ -250,6 +250,8 @@ export function addSparseShadingCandidateToGraph(
     finalOutput: null
   };
   let previousPass: ReturnType<FrameGraph["add"]> | null = null;
+  const lightingResources = [...external.lighting];
+  const shadowResources = [...external.shadows];
 
   let lightingPass: ReturnType<FrameGraph["add"]> | null = null;
   const addLightingPass = (): void => {
@@ -257,7 +259,9 @@ export function addSparseShadingCandidateToGraph(
     const lightingFrame = Object.freeze(cloneMutableFrame(mutable));
     lightingPass = graph.add("SparseShading/light cluster producer", lightingFrame,
       (data, resources, context) => executeStage("light-cluster", data, resources, context));
-    for (const resource of external.lighting) lightingPass.read(resource);
+    for (let index = 0; index < lightingResources.length; index++) {
+      lightingResources[index] = lightingPass.write(lightingResources[index]!);
+    }
     lightingPass.make_side_effect();
     lightingPass.declareEncoderWork({ computePasses: 1, dispatches: 1 });
   };
@@ -268,7 +272,9 @@ export function addSparseShadingCandidateToGraph(
     const shadowFrame = Object.freeze(cloneMutableFrame(mutable));
     shadowPass = graph.add("SparseShading/shadow producer", shadowFrame,
       (data, resources, context) => executeStage("shadow", data, resources, context));
-    for (const resource of external.shadows) shadowPass.read(resource);
+    for (let index = 0; index < shadowResources.length; index++) {
+      shadowResources[index] = shadowPass.write(shadowResources[index]!);
+    }
     shadowPass.make_side_effect();
     shadowPass.declareEncoderWork({ renderPasses: 1, draws: 1 });
   };
@@ -379,8 +385,8 @@ export function addSparseShadingCandidateToGraph(
     mutable.visibilityKey, mutable.shadingBinId, mutable.depth,
     external.meshletWork, mutable.heap, mutable.indirectArgs, mutable.settings,
     ...external.sceneGeometry, ...external.materials,
-    ...(plan.hasOpaqueLit ? external.lighting : []),
-    ...(plan.hasAnyShadowConsumer ? external.shadows : [])
+    ...(plan.hasOpaqueLit ? lightingResources : []),
+    ...(plan.hasAnyShadowConsumer ? shadowResources : [])
   ]) resolve.read(resource);
   mutable.hdr = resolve.create("sparse-shading/hdr", texture(
     plan, "rgba16float", GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING

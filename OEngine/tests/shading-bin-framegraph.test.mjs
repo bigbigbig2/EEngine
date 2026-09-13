@@ -356,6 +356,8 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.ok(resolve.dependencies.includes(finalizer.id));
     assert.ok(resolve.dependencies.includes(lighting.id));
     assert.ok(resolve.dependencies.includes(shadow.id));
+    assert.ok(lighting.writes.some((resource) => resolve.reads.includes(resource)));
+    assert.ok(shadow.writes.some((resource) => resolve.reads.includes(resource)));
     assert.equal(resolve.encoderWork.dispatches, value.pipelines.length);
     const contextValue = new FrameGraphContext({
       encoder: {
