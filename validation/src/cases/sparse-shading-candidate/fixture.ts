@@ -261,9 +261,8 @@ export class SparseShadingCandidateFixture {
           {buffer:requireResource(this.resources.clusterIndices,"cluster indices")}]]});
         pass.dispatchWorkgroups(4); pass.end(); return; }
       if(stage==="output-clear") {
-        const targets=[frame.hdr,frame.normal,frame.albedoAo,frame.material,frame.velocity].filter((id):id is number=>id!==null);
-        const pass=command.beginRenderPass({label:"ADR-0013 clear sparse shading outputs",colorAttachments:targets.map((id)=>({
-          view:textureView(id,resources),clearValue:{r:0,g:0,b:0,a:0},loadOp:"clear" as const,storeOp:"store" as const}))});
+        const pass=command.beginRenderPass({label:"ADR-0013 clear sparse shading HDR",colorAttachments:[{
+          view:textureView(frame.hdr,resources),clearValue:{r:0,g:0,b:0,a:0},loadOp:"clear" as const,storeOp:"store" as const}]});
         pass.end();return;
       }
       if(stage==="post") { this.tonemap.execute(command,{swapchain:textureView(frame.finalOutput,resources),
