@@ -107,6 +107,10 @@ export class RenderingLabDownstream {
     if (this.states.has(graph)) throw new Error("RenderingLab downstream graph was begun twice");
     this.hzb.resetFrameStatistics();
     this.hzb.beginFrame(frameIndex, { camera: 1, renderScale: 1, feature: 1 });
+    // Resize the physical histories before capturing their native textures in
+    // graph imports; addToGraph must not invalidate an already imported view.
+    this.ssgi.resize(this.width, this.height);
+    this.reflection.resize(this.width, this.height);
     this.ssgi.resetFrameEvidence();
     this.reflection.resetFrameEvidence();
     this.temporal.resetFrameEvidence();
