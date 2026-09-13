@@ -178,7 +178,7 @@ test("compact Surface consumers validate depth before every background-sensitive
   before(ssrUpsample, "if (is_background(center_depth))", "let center_normal", "SSR upsample center");
   before(ssrUpsample, "if (is_background(sample_depth))", "let sample_normal", "SSR upsample tap");
   const ssrTemporal = section(ssrDenoise, "export const SSR_TEMPORAL_WGSL", "export const SSR_RECURRENT_DENOISE_WGSL");
-  before(ssrTemporal, "if (is_background(center_depth))", "taa_get_velocity", "SSR temporal receiver");
+  before(ssrTemporal, "let curvature_factor", "if (is_background(center_depth))", "SSR temporal derivatives");
   before(ssrTemporal, "if (is_background(tap_depth))", "let tap_normal", "SSR temporal history tap");
   before(ssrTemporal, "if (!is_background(hit_depth))", "let hit_normal", "SSR temporal hit");
   const ssrRecurrent = section(ssrDenoise, "export const SSR_RECURRENT_DENOISE_WGSL", null);

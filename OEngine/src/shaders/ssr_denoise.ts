@@ -246,7 +246,6 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   let surface_size = vec2i(textureDimensions(velocity_source));
   let receiver = surface_position(position, effect_size, surface_size);
   let center_depth = textureLoad(depth_source, receiver, 0);
-  if (is_background(center_depth)) { return vec4f(0.0); }
   let receiver_velocity = taa_get_velocity(velocity_source, receiver) *
     vec2f(effect_size) / vec2f(surface_size);
   let surface_history_pixel = coord.xy - receiver_velocity;
@@ -256,6 +255,9 @@ fn fs_main(@builtin(position) coord: vec4f) -> @location(0) vec4f {
   );
   let center_normal = decode_g_buffer_normal(textureLoad(normal_source, receiver, 0).xy);
   let curvature_factor = saturate(length(fwidth(center_normal)) * 50.0);
+  // Derivatives must be evaluated by every fragment before background lanes
+  // diverge; the early return remains after the complete differential input.
+  if (is_background(center_depth)) { return vec4f(0.0); }
   let trace_validity = trace_confidence(position);
   let current = max(textureLoad(raw_specular, position, 0), vec4f(0.0));
   let current_confidence = trace_validity * select(0.0, 1.0, current.a > 1e-5);
