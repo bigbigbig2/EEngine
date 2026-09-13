@@ -346,7 +346,10 @@ export function addSparseShadingCandidateToGraph(
       (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
   ));
   mutable.depth = visibility.create("sparse-shading/depth", texture(
-    plan, "depth32float", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    plan, "depth32float", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+      ((features.screenSpaceDiffuseMode !== "off" || features.ssr || features.temporal)
+        ? GPUTextureUsage.COPY_SRC
+        : 0)
   ));
   Object.assign(visibilityFrame, {
     visibilityKey: mutable.visibilityKey,

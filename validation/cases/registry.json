@@ -120,17 +120,17 @@
       "timestampRequired": false,
       "independentRuns": 1
     },
-    "sparse-shading-candidate-correctness-v4": {
+    "sparse-shading-candidate-correctness-v5": {
       "resolution": [1280, 720],
       "componentExtent": [256, 256],
       "deviceScaleFactor": 1,
       "renderScale": 1,
-      "quality": "adr-0013-step-6-correctness-l4-v4",
-      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1", "visibility-mrt", "sparse-indirect-resolve", "post"],
+      "quality": "adr-0013-step-6-correctness-l4-v5",
+      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1", "visibility-mrt", "sparse-indirect-resolve", "fixed-shadow-raster", "ibl", "ssgi", "ssr", "taa", "post"],
       "seed": 13006,
-      "cameraPath": "basic-cube-static-near-4-far-8",
+      "cameraPath": "basic-cube-near-far-plus-rendering-lab-fixed",
       "warmupFrames": 1,
-      "sampleFrames": 5,
+      "sampleFrames": 8,
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
@@ -244,9 +244,9 @@
         "SHADE-001", "SHADE-003", "SHADE-004", "SHADE-006", "OFF-001", "OFF-003", "OFF-004",
         "DIAG-001", "DIAG-007"
       ],
-      "workloadId": "sparse-shading-candidate-correctness-v4",
+      "workloadId": "sparse-shading-candidate-correctness-v5",
       "profile": "smoke",
-      "timeoutMs": 120000,
+      "timeoutMs": 180000,
       "artifacts": ["result", "events", "screenshot", "readback"],
       "changedPaths": [
         "validation/src/cases/sparse-shading-candidate",
