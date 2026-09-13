@@ -132,7 +132,7 @@
       "id": "material-resolve",
       "currentPaths": ["src/gpu/GpuComputeMaterialAbi.ts", "src/render/passes/ComputeMaterialResolvePass.ts", "src/render/passes/PackedMaterialResolvePass.ts", "src/shaders/packed_material_compute.ts"],
       "replacementOwners": ["src/shaders/shading_programs/*", "src/render/passes/ShadingResolvePass.ts"],
-      "verificationOwners": ["tests/shading-program-specialization.test.mjs", "new browser material and numeric suites"],
+      "verificationOwners": ["tests/shading-program-specialization.test.mjs", "../validation/src/cases/shading-resolve-component/fixture.ts"],
       "implementedAtStep": 5,
       "retireAtStep": 7
     },
@@ -140,7 +140,7 @@
       "id": "direct-lighting",
       "currentPaths": ["src/render/passes/LightingPass.ts", "src/shaders/lighting_direct_compute.ts", "src/render/features/LightingFeature.ts"],
       "replacementOwners": ["lit shading programs with fused clustered direct lighting", "updated LightingFeature composition"],
-      "verificationOwners": ["tests/shading-program-specialization.test.mjs", "new browser lighting and feature-off suites"],
+      "verificationOwners": ["tests/shading-program-specialization.test.mjs", "../validation/src/cases/shading-resolve-component/fixture.ts", "new browser feature-off suites"],
       "implementedAtStep": 5,
       "retireAtStep": 7
     },
@@ -156,7 +156,7 @@
       "id": "diagnostics-and-profiler",
       "currentPaths": ["src/debug/GpuFrameCounters.ts", "src/debug/BenchmarkCapabilityEvidence.ts", "src/debug/BenchmarkEvidenceGate.ts"],
       "replacementOwners": ["production error-only shading-bin counters", "physically separate ownership diagnostics variant", "ADR-0013 evidence schema"],
-      "verificationOwners": ["tests/shading-bin-diagnostics.test.mjs", "new browser diagnostics and benchmark suites"],
+      "verificationOwners": ["tests/shading-bin-diagnostics.test.mjs", "../validation/src/cases/shading-resolve-component/fixture.ts", "new browser benchmark suites"],
       "implementedAtStep": 5,
       "retireAtStep": 7
     },

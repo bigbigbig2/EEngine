@@ -1001,7 +1001,8 @@ validation/src/cases/shading-bin-component/main.ts
 ```text
 tests/shading-program-specialization.test.mjs
 tests/shading-bin-consumer-oracle.test.mjs
-tests/shading-bin-gpu-component.test.mjs   # 新宿主落地后启用
+validation/src/cases/shading-resolve-component/main.ts
+validation/src/cases/shading-resolve-component/fixture.ts
 tests/advanced-frame-abi.test.mjs
 ```
 

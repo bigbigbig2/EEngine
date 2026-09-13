@@ -28,9 +28,10 @@ npm test
 npm run validate:registry
 npm run build
 npm run run:shading-bin  # 仅在命中 ADR-0013 classifier/finalizer producer 时
+npm run run:shading-resolve  # 仅在命中 ADR-0013 specialized consumer 时
 ```
 
-命中的真实浏览器 Case 继续以 registry id 运行；`shading-bin-component` 是 ADR-0013 Step 4 的 deterministic producer/readback Case，不覆盖 Step 5 consumer、Step 6 candidate lifecycle 或 PERF。`protocol-self-test` 与 `webgpu-component` 只是宿主编排和通用 WebGPU smoke，不能替代具体 Renderer/算法的 MILESTONE 或 PERF。
+命中的真实浏览器 Case 继续以 registry id 运行；`shading-bin-component` 是 ADR-0013 Step 4 的 deterministic producer/readback Case，`shading-resolve-component` 是 Step 5 的 16-program/mixed-set/numeric/fault/diagnostics consumer Case；两者都是 component isolation，不覆盖 Step 6 candidate FrameGraph/lifecycle、production cutover 或 PERF。`protocol-self-test` 与 `webgpu-component` 只是宿主编排和通用 WebGPU smoke，不能替代具体 Renderer/算法的 MILESTONE 或 PERF。
 
 ## 验证层级
 
