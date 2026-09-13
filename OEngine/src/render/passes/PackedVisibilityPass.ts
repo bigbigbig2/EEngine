@@ -5,6 +5,8 @@ import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js"
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
+import { gpuShadingBinVisibilityAttachmentContract } from
+  "../../gpu/GpuShadingBinVisibilityContract.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import {
@@ -209,7 +211,7 @@ export class PackedVisibilityPass {
     job: PackedVisibilityJob,
     inputs: PackedVisibilityInputs
   ): PackedVisibilityOutputs {
-    const output = { visibilityKey: -1 };
+    const output = { visibilityKey: -1, shadingBinId: -1 };
     const builder = graph.add(
       "Packed Visibility/MeshletWork bucket producer",
       job,
@@ -223,6 +225,7 @@ export class PackedVisibilityPass {
           camera,
           counters,
           resolveTextureView(resources.get(output.visibilityKey)),
+          resolveTextureView(resources.get(output.shadingBinId)),
           resolveDepthAttachmentView(resources.get(inputs.depth))
         );
       }
@@ -240,6 +243,10 @@ export class PackedVisibilityPass {
       "Packed VisibilityKey",
       packedVisibilityAttachmentDescriptor(job.width, job.height)
     );
+    output.shadingBinId = builder.create(
+      "Packed ShadingBinId",
+      packedShadingBinAttachmentDescriptor(job.width, job.height)
+    );
     builder.make_side_effect();
     const debugResolve = Object.freeze({
       resolve: (): PackedVisibilityDebugBindings =>
@@ -247,6 +254,7 @@ export class PackedVisibilityPass {
     });
     const frame = visibilityFrame({
       visibilityKey: output.visibilityKey,
+      shadingBinId: output.shadingBinId,
       depth,
       meshletWork: meshletWorkFrame({
         records: meshletWorkRecords,
@@ -286,6 +294,7 @@ export class PackedVisibilityPass {
     camera: GPUBuffer,
     counters: GPUBuffer,
     visibilityKey: GPUTextureView,
+    shadingBinId: GPUTextureView,
     depth: GPUTextureView
   ): void {
     const prepared = job.prepared;
@@ -317,6 +326,7 @@ export class PackedVisibilityPass {
         scene: job.scene,
         runtime: job.runtime,
         visibilityKey,
+        shadingBinId,
         depth
       }, job.primitiveIndexPath ?? "auto");
     this.debugBindings.set(job.runtime, Object.freeze({
@@ -556,6 +566,21 @@ export function packedVisibilityAttachmentDescriptor(
       GPUTextureUsage.RENDER_ATTACHMENT |
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.COPY_SRC
+  });
+}
+
+export function packedShadingBinAttachmentDescriptor(
+  width: number,
+  height: number
+) {
+  const contract = gpuShadingBinVisibilityAttachmentContract(width, height);
+  return Object.freeze({
+    kind: "transient_texture" as const,
+    label: contract.label,
+    width: contract.width,
+    height: contract.height,
+    format: contract.format,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
   });
 }
 

@@ -15,8 +15,6 @@ import {
 import { GPU_VISIBILITY_KEY_EMPTY } from "../.test-dist/gpu/GpuVisibilityKeyAbi.js";
 import {
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
-  MESHLET_BUCKET_VISIBILITY_SHADING_BIN_PRIMITIVE_INDEX_WGSL,
-  MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL,
   MESHLET_BUCKET_VISIBILITY_WGSL
 } from "../.test-dist/shaders/meshlet_bucket_visibility.js";
 
@@ -85,25 +83,16 @@ test("raster ownership rejects invalid fragments before either target can change
   }
 });
 
-test("candidate Visibility shaders use one flat six-bit varying and one dual-output return", () => {
+test("production Visibility shaders use one flat six-bit varying and one dual-output return", () => {
   for (const source of [
-    MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL,
-    MESHLET_BUCKET_VISIBILITY_SHADING_BIN_PRIMITIVE_INDEX_WGSL
+    MESHLET_BUCKET_VISIBILITY_WGSL,
+    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
   ]) {
     assert.match(source, /@location\(9\)\s+@interpolate\(flat\)\s+shading_bin_id:\s*u32/u);
-    assert.match(source, /\(work\.packed_raster_flags\s*>>\s*8u\)\s*&\s*0x3fu/u);
+    assert.match(source, /oengine_instance_shading_bin_id\(work\.packed_raster_flags\)/u);
     assert.match(source, /@location\(0\)\s+visibility_key:\s*u32/u);
     assert.match(source, /@location\(1\)\s+shading_bin_id:\s*u32/u);
     assert.equal((source.match(/OEngineMeshletVisibilityOutput\(key, shading_bin_id\)/gu) ?? []).length, 2);
     assert.match(source, /if alpha < record\.alpha_cutoff \{ discard; \}\s+let key/su);
-  }
-  for (const production of [
-    MESHLET_BUCKET_VISIBILITY_WGSL,
-    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
-  ]) {
-    assert.doesNotMatch(
-      production,
-      /@location\(9\)\s+@interpolate\(flat\)\s+shading_bin_id|OEngineMeshletVisibilityOutput/u
-    );
   }
 });

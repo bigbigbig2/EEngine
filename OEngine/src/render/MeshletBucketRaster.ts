@@ -7,11 +7,11 @@ import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import {
   MESHLET_BUCKET_SETTINGS_SIZE,
   MESHLET_BUCKET_SETTINGS_STRIDE,
-  MESHLET_BUCKET_VISIBILITY_SHADING_BIN_PRIMITIVE_INDEX_WGSL,
-  MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL,
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
   MESHLET_BUCKET_VISIBILITY_WGSL
 } from "../shaders/meshlet_bucket_visibility.js";
+import { gpuShadingBinVisibilityRenderPassAttachments } from
+  "../gpu/GpuShadingBinVisibilityContract.js";
 import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
 
@@ -45,36 +45,27 @@ function bucketPipeline(
   doubleSided: boolean,
   mask: boolean,
   primitiveIndex: boolean,
-  textureBindingSetId: number,
-  shadingBinOutput: boolean
+  textureBindingSetId: number
 ): CachedRenderPipelineDescriptor {
   const specialization = primitiveIndex ? "primitive-index" : "portable-varying";
-  const owner = shadingBinOutput ? "ADR-0013" : "ADR-0008";
-  const code = shadingBinOutput
-    ? (primitiveIndex
-      ? MESHLET_BUCKET_VISIBILITY_SHADING_BIN_PRIMITIVE_INDEX_WGSL
-      : MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL)
-    : (primitiveIndex
-      ? MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
-      : MESHLET_BUCKET_VISIBILITY_WGSL);
+  const code = primitiveIndex
+    ? MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
+    : MESHLET_BUCKET_VISIBILITY_WGSL;
   return {
-    label: `${owner} Meshlet bucket ${specialization} set ${textureBindingSetId} ${doubleSided ? "double-sided" : "back-face"} ${mask ? "MASK" : "OPAQUE"}${shadingBinOutput ? " + ShadingBinId" : ""}`,
+    label: `ADR-0013 Meshlet bucket ${specialization} set ${textureBindingSetId} ${doubleSided ? "double-sided" : "back-face"} ${mask ? "MASK" : "OPAQUE"} + ShadingBinId`,
     layout: {
-      label: `${owner} Meshlet bucket Hardware Visibility layout`,
+      label: "ADR-0013 Meshlet bucket Hardware Visibility layout",
       bindGroupLayouts: [MESHLET_BUCKET_RASTER_GROUP]
     },
     vertex: {
-      module: { label: `${owner} Meshlet bucket visibility/${specialization}`, code },
+      module: { label: `ADR-0013 Meshlet bucket visibility/${specialization}`, code },
       entryPoint: "raster_meshlet_bucket"
     },
     fragment: {
-      module: { label: `${owner} Meshlet bucket visibility/${specialization}`, code },
+      module: { label: `ADR-0013 Meshlet bucket visibility/${specialization}`, code },
       entryPoint: mask ? "write_meshlet_mask" : "write_meshlet_opaque",
       constants: { OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId },
-      targets: [
-        { format: "r32uint" },
-        ...(shadingBinOutput ? [{ format: "r8uint" as const }] : [])
-      ]
+      targets: [{ format: "r32uint" }, { format: "r8uint" }]
     },
     primitive: {
       topology: "triangle-list",
@@ -91,14 +82,13 @@ function bucketPipeline(
 
 function bucketPipelines(
   primitiveIndex: boolean,
-  textureBindingSetId: number,
-  shadingBinOutput: boolean
+  textureBindingSetId: number
 ): readonly CachedRenderPipelineDescriptor[] {
   return Object.freeze([
-    bucketPipeline(false, false, primitiveIndex, textureBindingSetId, shadingBinOutput),
-    bucketPipeline(true, false, primitiveIndex, textureBindingSetId, shadingBinOutput),
-    bucketPipeline(false, true, primitiveIndex, textureBindingSetId, shadingBinOutput),
-    bucketPipeline(true, true, primitiveIndex, textureBindingSetId, shadingBinOutput)
+    bucketPipeline(false, false, primitiveIndex, textureBindingSetId),
+    bucketPipeline(true, false, primitiveIndex, textureBindingSetId),
+    bucketPipeline(false, true, primitiveIndex, textureBindingSetId),
+    bucketPipeline(true, true, primitiveIndex, textureBindingSetId)
   ]);
 }
 
@@ -109,11 +99,8 @@ export interface MeshletBucketRasterInputs {
   readonly scene: GpuSceneBindings;
   readonly runtime: GpuRenderWorldRuntime;
   readonly visibilityKey: GPUTextureView;
-  readonly depth: GPUTextureView;
-}
-
-export interface SparseShadingMeshletBucketRasterInputs extends MeshletBucketRasterInputs {
   readonly shadingBinId: GPUTextureView;
+  readonly depth: GPUTextureView;
 }
 
 /** Standard indirect GPU consumer for VisibilityKey V2. */
@@ -130,45 +117,16 @@ export class MeshletBucketRaster {
     inputs: MeshletBucketRasterInputs,
     primitiveIndexPath: "auto" | "portable" = "auto"
   ): void {
-    this.encodeRasterInternal(encoder, inputs, primitiveIndexPath, null);
-  }
-
-  /** ADR-0013 candidate-only dual-MRT path; Step 7 owns production selection. */
-  encodeSparseShadingRaster(
-    encoder: GPUCommandEncoder,
-    inputs: SparseShadingMeshletBucketRasterInputs,
-    primitiveIndexPath: "auto" | "portable" = "auto"
-  ): void {
-    this.encodeRasterInternal(encoder, inputs, primitiveIndexPath, inputs.shadingBinId);
-  }
-
-  private encodeRasterInternal(
-    encoder: GPUCommandEncoder,
-    inputs: MeshletBucketRasterInputs,
-    primitiveIndexPath: "auto" | "portable",
-    shadingBinId: GPUTextureView | null
-  ): void {
     const primitiveIndex = primitiveIndexPath === "auto" && this.primitiveIndexSupported;
-    const shadingBinOutput = shadingBinId !== null;
     const bindingSets = inputs.runtime.materialResources.bindingSets;
     if (bindingSets.length === 0) throw new Error("Meshlet visibility requires one active TextureBindingSet");
     const groups = new Map(bindingSets.map((set) => [set.id, this.createRasterGroup(inputs, set.textureBanks)]));
     const pass = encoder.beginRenderPass({
-      label: `${shadingBinOutput ? "ADR-0013" : "ADR-0008"} Meshlet bucket Hardware Visibility`,
-      colorAttachments: [
-        {
-          view: inputs.visibilityKey,
-          clearValue: { r: 0xffffffff, g: 0, b: 0, a: 0 },
-          loadOp: "clear",
-          storeOp: "store"
-        },
-        ...(shadingBinId === null ? [] : [{
-          view: shadingBinId,
-          clearValue: { r: 0xff, g: 0, b: 0, a: 0 },
-          loadOp: "clear" as const,
-          storeOp: "store" as const
-        }])
-      ],
+      label: "ADR-0013 Meshlet bucket Hardware Visibility",
+      colorAttachments: gpuShadingBinVisibilityRenderPassAttachments(
+        inputs.visibilityKey,
+        inputs.shadingBinId
+      ),
       depthStencilAttachment: {
         view: inputs.depth,
         depthClearValue: 0,
@@ -182,10 +140,10 @@ export class MeshletBucketRaster {
       const mask = ((pipelineBucket >>> 4) & 1) !== 0;
       const sets = mask ? bindingSets : bindingSets.slice(0, 1);
       for (const bindingSet of sets) {
-        const key = `${shadingBinOutput ? 1 : 0}:${primitiveIndex ? 1 : 0}:${bindingSet.id}`;
+        const key = `${primitiveIndex ? 1 : 0}:${bindingSet.id}`;
         let pipelines = this.rasterPipelines.get(key);
         if (pipelines === undefined) {
-          pipelines = bucketPipelines(primitiveIndex, bindingSet.id, shadingBinOutput).map(
+          pipelines = bucketPipelines(primitiveIndex, bindingSet.id).map(
             (descriptor) => this.graphics.render_pipelines.obtain(descriptor)
           );
           this.rasterPipelines.set(key, pipelines);

@@ -17,7 +17,6 @@ import {
   MESHLET_WORK_COMPACTION_SUBGROUP_WGSL
 } from "../.test-dist/shaders/meshlet_work_compaction.js";
 import {
-  MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL,
   MESHLET_BUCKET_VISIBILITY_WGSL
 } from "../.test-dist/shaders/meshlet_bucket_visibility.js";
 import {
@@ -602,7 +601,7 @@ test("Step-7 bucket raster is the sole standard indirect VisibilityKey V2 consum
   }
 });
 
-test("ADR-0013 candidate raster binds the dual MRT shader without changing production selection", () => {
+test("ADR-0013 production raster has one dual-MRT pipeline with no single-target branch", () => {
   const pipelineDescriptors = [];
   const renderPasses = [];
   const graphics = {
@@ -640,23 +639,18 @@ test("ADR-0013 candidate raster binds the dual MRT shader without changing produ
     scene: { instances: {} },
     runtime: { materialResources: { materialRecords: {}, bindingSets: [{ id: 0, textureBanks }] } },
     visibilityKey: {},
+    shadingBinId: {},
     depth: {}
   };
   const raster = new MeshletBucketRaster(graphics);
   raster.encodeRaster(encoder, inputs, "portable");
-  raster.encodeSparseShadingRaster(encoder, { ...inputs, shadingBinId: {} }, "portable");
 
-  assert.equal(renderPasses[0].colorAttachments.length, 1);
-  assert.equal(renderPasses[1].colorAttachments.length, 2);
-  assert.equal(renderPasses[1].colorAttachments[1].clearValue.r, 0xff);
-  assert.deepEqual(pipelineDescriptors[0].fragment.targets, [{ format: "r32uint" }]);
-  assert.deepEqual(pipelineDescriptors[4].fragment.targets, [
+  assert.equal(renderPasses.length, 1);
+  assert.equal(renderPasses[0].colorAttachments.length, 2);
+  assert.equal(renderPasses[0].colorAttachments[1].clearValue.r, 0xff);
+  assert.deepEqual(pipelineDescriptors[0].fragment.targets, [
     { format: "r32uint" },
     { format: "r8uint" }
   ]);
   assert.equal(pipelineDescriptors[0].fragment.module.code, MESHLET_BUCKET_VISIBILITY_WGSL);
-  assert.equal(
-    pipelineDescriptors[4].fragment.module.code,
-    MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL
-  );
 });

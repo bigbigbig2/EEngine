@@ -35,6 +35,8 @@ export interface MeshletWorkFrame {
 /** Final Packed visibility product. Runtime state stays in its owning feature. */
 export interface VisibilityFrame {
   readonly visibilityKey: ResourceId;
+  /** Same depth winner as VisibilityKey; background is the 0xff sentinel. */
+  readonly shadingBinId: ResourceId;
   readonly depth: ResourceId;
   readonly meshletWork: MeshletWorkFrame;
   readonly triangleSetup: TriangleSetupFrame;
@@ -355,6 +357,7 @@ export function triangleSetupFrame(input: TriangleSetupFrame): TriangleSetupFram
 
 export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   requireResourceId(input.visibilityKey, "VisibilityFrame.visibilityKey");
+  requireResourceId(input.shadingBinId, "VisibilityFrame.shadingBinId");
   requireResourceId(input.depth, "VisibilityFrame.depth");
   if (input.domain.domain !== "internal-full") {
     throw new Error("VisibilityFrame must be produced at internal-full resolution");

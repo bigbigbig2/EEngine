@@ -386,7 +386,7 @@ export class SparseShadingCandidateFixture {
     const externalStage=(stage:SparseShadingCandidateStage,frame:Readonly<SparseShadingCandidateFrame>,
       resources:PassResources,context:{readonly encoder:unknown}):void=>{
       const command=requireCommand(context.encoder);
-      if(stage==="visibility") { this.raster.encodeSparseShadingRaster(command.gpu_encoder,{prepared:this.prepared,
+      if(stage==="visibility") { this.raster.encodeRaster(command.gpu_encoder,{prepared:this.prepared,
         camera:this.resources.camera,assets:this.assets,scene:this.scene,runtime:this.renderWorld,
         visibilityKey:textureView(frame.visibilityKey,resources),shadingBinId:textureView(frame.shadingBinId,resources),
         depth:textureView(frame.depth,resources,{aspect:"depth-only"})},"portable"); return; }

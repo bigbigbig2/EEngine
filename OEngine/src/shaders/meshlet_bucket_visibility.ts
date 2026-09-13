@@ -13,10 +13,7 @@ import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 export const MESHLET_BUCKET_SETTINGS_STRIDE = 256;
 export const MESHLET_BUCKET_SETTINGS_SIZE = 16;
-export function meshletBucketVisibilityWgsl(
-  primitiveIndex: boolean,
-  shadingBinOutput = false
-): string {
+export function meshletBucketVisibilityWgsl(primitiveIndex: boolean): string {
   const primitiveIndexEnable = primitiveIndex ? "enable primitive_index;" : "";
   const triangleVarying = primitiveIndex
     ? ""
@@ -25,27 +22,17 @@ export function meshletBucketVisibilityWgsl(
   const fragmentTriangleInput = primitiveIndex
     ? "@builtin(primitive_index) triangle: u32"
     : "@location(2) @interpolate(flat) triangle: u32";
-  const shadingBinVarying = shadingBinOutput
-    ? "  @location(9) @interpolate(flat) shading_bin_id: u32,"
-    : "";
-  const shadingBinAssignment = shadingBinOutput
-    ? "  output.shading_bin_id = (work.packed_raster_flags >> 8u) & 0x3fu;"
-    : "";
-  const fragmentShadingBinInput = shadingBinOutput
-    ? ",\n  @location(9) @interpolate(flat) shading_bin_id: u32"
-    : "";
-  const fragmentOutputDeclaration = shadingBinOutput
-    ? `struct OEngineMeshletVisibilityOutput {
+  const shadingBinVarying = "  @location(9) @interpolate(flat) shading_bin_id: u32,";
+  const shadingBinAssignment =
+    "  output.shading_bin_id = oengine_instance_shading_bin_id(work.packed_raster_flags);";
+  const fragmentShadingBinInput =
+    ",\n  @location(9) @interpolate(flat) shading_bin_id: u32";
+  const fragmentOutputDeclaration = `struct OEngineMeshletVisibilityOutput {
   @location(0) visibility_key: u32,
   @location(1) shading_bin_id: u32,
-};`
-    : "";
-  const fragmentReturnType = shadingBinOutput
-    ? "OEngineMeshletVisibilityOutput"
-    : "@location(0) u32";
-  const fragmentReturn = shadingBinOutput
-    ? "return OEngineMeshletVisibilityOutput(key, shading_bin_id);"
-    : "return key;";
+};`;
+  const fragmentReturnType = "OEngineMeshletVisibilityOutput";
+  const fragmentReturn = "return OEngineMeshletVisibilityOutput(key, shading_bin_id);";
   return /* wgsl */ `
 ${primitiveIndexEnable}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
@@ -275,17 +262,9 @@ fn write_meshlet_mask(
 `;
 }
 
-/** Correct fallback for devices that do not negotiate primitive-index. */
+/** Production portable VisibilityKey + ShadingBinId dual-MRT shader. */
 export const MESHLET_BUCKET_VISIBILITY_WGSL = meshletBucketVisibilityWgsl(false);
 
-/** WebGPU 2026 Desktop specialization; local primitive identity comes from rasterization. */
+/** Production WebGPU 2026 specialization using the primitive-index builtin. */
 export const MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL =
   meshletBucketVisibilityWgsl(true);
-
-/** ADR-0013 Step-4 candidate only; production cutover is owned by Step 7. */
-export const MESHLET_BUCKET_VISIBILITY_SHADING_BIN_WGSL =
-  meshletBucketVisibilityWgsl(false, true);
-
-/** ADR-0013 Step-4 candidate using the negotiated primitive-index builtin. */
-export const MESHLET_BUCKET_VISIBILITY_SHADING_BIN_PRIMITIVE_INDEX_WGSL =
-  meshletBucketVisibilityWgsl(true, true);
