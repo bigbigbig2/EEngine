@@ -24,6 +24,7 @@ export type SparseShadingCandidateStage =
   | "shadow"
   | "bin-clear-classify"
   | "bin-finalize"
+  | "output-clear"
   | "bin-resolve"
   | "gtao"
   | "ssgi"
@@ -157,7 +158,7 @@ export function createSparseShadingCandidatePlan(
   if (hasOpaque) passes.push("visibility");
   if (hasAnyLitConsumer) passes.push("light-cluster");
   if (hasAnyShadowConsumer) passes.push("shadow");
-  if (hasOpaque) passes.push("bin-clear-classify", "bin-finalize", "bin-resolve");
+  if (hasOpaque) passes.push("bin-clear-classify", "bin-finalize", "output-clear", "bin-resolve");
   if (hasOpaqueLit && features.screenSpaceDiffuseMode === "gtao") passes.push("gtao");
   if (hasOpaqueLit && features.screenSpaceDiffuseMode === "ssgi") passes.push("ssgi");
   if (hasOpaqueLit && features.ssr) passes.push("ssr");
@@ -393,10 +394,60 @@ export function addSparseShadingCandidateToGraph(
   finalizer.declareEncoderWork({ computePasses: 1, dispatches: 1 });
   previousPass = finalizer;
 
+  const outputClearFrame = cloneMutableFrame(mutable);
+  const outputClear = graph.add("SparseShading/clear sparse outputs", outputClearFrame,
+    (data, resources, context) => executeStage("output-clear", data, resources, context));
+  outputClear.dependsOn(finalizer);
+  mutable.hdr = outputClear.create("sparse-shading/hdr", texture(
+    plan,
+    "rgba16float",
+    GPUTextureUsage.RENDER_ATTACHMENT |
+      GPUTextureUsage.STORAGE_BINDING |
+      GPUTextureUsage.TEXTURE_BINDING |
+      (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
+  ));
+  if ((plan.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0) {
+    mutable.normal = outputClear.create("sparse-shading/normal", texture(
+      plan,
+      "rgba16uint",
+      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+    ));
+  }
+  if ((plan.outputDependencyMask & (GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
+      GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite)) !== 0) {
+    mutable.albedoAo = outputClear.create("sparse-shading/albedo-ao", texture(
+      plan,
+      "rgba8unorm",
+      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+    ));
+    mutable.material = outputClear.create("sparse-shading/material", texture(
+      plan,
+      "rg32uint",
+      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+    ));
+  }
+  if ((plan.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0) {
+    mutable.velocity = outputClear.create("sparse-shading/velocity", texture(
+      plan,
+      "rg16float",
+      GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+    ));
+  }
+  Object.assign(outputClearFrame, {
+    hdr: mutable.hdr,
+    normal: mutable.normal,
+    albedoAo: mutable.albedoAo,
+    material: mutable.material,
+    velocity: mutable.velocity
+  });
+  Object.freeze(outputClearFrame);
+  outputClear.declareEncoderWork({ renderPasses: 1 });
+  previousPass = outputClear;
+
   const resolveFrame = cloneMutableFrame(mutable);
   const resolve = graph.add("SparseShading/active-bin indirect resolve", resolveFrame,
     (data, resources, context) => executeStage("bin-resolve", data, resources, context));
-  resolve.dependsOn(finalizer);
+  resolve.dependsOn(outputClear);
   if (lightingPass !== null) resolve.dependsOn(lightingPass);
   if (shadowPass !== null) resolve.dependsOn(shadowPass);
   for (const resource of [
@@ -406,32 +457,11 @@ export function addSparseShadingCandidateToGraph(
     ...(plan.hasOpaqueLit ? lightingResources : []),
     ...(plan.hasAnyShadowConsumer ? shadowResources : [])
   ]) resolve.read(resource);
-  mutable.hdr = resolve.create("sparse-shading/hdr", texture(
-    plan,
-    "rgba16float",
-    GPUTextureUsage.STORAGE_BINDING |
-      GPUTextureUsage.TEXTURE_BINDING |
-      (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
-  ));
-  if ((plan.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0) {
-    mutable.normal = resolve.create("sparse-shading/normal", texture(
-      plan, "rgba16uint", GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-    ));
-  }
-  if ((plan.outputDependencyMask & (GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
-      GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite)) !== 0) {
-    mutable.albedoAo = resolve.create("sparse-shading/albedo-ao", texture(
-      plan, "rgba8unorm", GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-    ));
-    mutable.material = resolve.create("sparse-shading/material", texture(
-      plan, "rg32uint", GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-    ));
-  }
-  if ((plan.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0) {
-    mutable.velocity = resolve.create("sparse-shading/velocity", texture(
-      plan, "rg16float", GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-    ));
-  }
+  mutable.hdr = resolve.write(mutable.hdr);
+  if (mutable.normal !== null) mutable.normal = resolve.write(mutable.normal);
+  if (mutable.albedoAo !== null) mutable.albedoAo = resolve.write(mutable.albedoAo);
+  if (mutable.material !== null) mutable.material = resolve.write(mutable.material);
+  if (mutable.velocity !== null) mutable.velocity = resolve.write(mutable.velocity);
   if (mutable.claims !== null) mutable.claims = resolve.write(mutable.claims);
   if (mutable.diagnostics !== null) mutable.diagnostics = resolve.write(mutable.diagnostics);
   Object.assign(resolveFrame, {

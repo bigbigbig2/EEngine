@@ -118,7 +118,7 @@ test("static feature matrix prunes no-opaque, unlit, textureless and optional ou
     shadows: true
   });
   assert.deepEqual(unlitPlan.passes, [
-    "visibility", "bin-clear-classify", "bin-finalize", "bin-resolve", "post"
+    "visibility", "bin-clear-classify", "bin-finalize", "output-clear", "bin-resolve", "post"
   ]);
   assert.ok(!unlitPlan.resources.includes("light-clusters"));
   assert.ok(!unlitPlan.resources.includes("shadow-atlas"));
@@ -163,6 +163,7 @@ test("SSGI, temporal and diagnostics add only demanded resources, histories and 
     "light-cluster",
     "bin-clear-classify",
     "bin-finalize",
+    "output-clear",
     "bin-resolve",
     "ssgi",
     "temporal",
@@ -359,6 +360,7 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
       "SparseShading/shadow producer",
       "SparseShading/clear + classify",
       "SparseShading/finalize indirect",
+      "SparseShading/clear sparse outputs",
       "SparseShading/active-bin indirect resolve",
       "SparseShading/downstream/ssgi",
       "SparseShading/downstream/post",
@@ -369,10 +371,12 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     const resolve = executable.find((pass) => pass.name.endsWith("indirect resolve"));
     const classify = executable.find((pass) => pass.name.includes("classify"));
     const finalizer = executable.find((pass) => pass.name.includes("finalize indirect"));
+    const outputClear = executable.find((pass) => pass.name.includes("clear sparse outputs"));
     const lighting = executable.find((pass) => pass.name.includes("light cluster"));
     const shadow = executable.find((pass) => pass.name.includes("shadow producer"));
     assert.ok(finalizer.dependencies.includes(classify.id));
-    assert.ok(resolve.dependencies.includes(finalizer.id));
+    assert.ok(outputClear.dependencies.includes(finalizer.id));
+    assert.ok(resolve.dependencies.includes(outputClear.id));
     assert.ok(resolve.dependencies.includes(lighting.id));
     assert.ok(resolve.dependencies.includes(shadow.id));
     assert.ok(lighting.writes.some((resource) => resolve.reads.includes(resource)));

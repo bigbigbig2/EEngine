@@ -175,6 +175,12 @@ export class SparseShadingCandidateFixture {
       if(stage==="light-cluster") { const pass=command.constructComputePass({pipeline:clusterPipelineDescriptor(),
         bindings:[[{buffer:this.resources.clusterHeaders},{buffer:this.resources.clusterIndices}]]});
         pass.dispatchWorkgroups(4); pass.end(); return; }
+      if(stage==="output-clear") {
+        const targets=[frame.hdr,frame.normal,frame.albedoAo,frame.material,frame.velocity].filter((id):id is number=>id!==null);
+        const pass=command.beginRenderPass({label:"ADR-0013 clear sparse shading outputs",colorAttachments:targets.map((id)=>({
+          view:textureView(id,resources),clearValue:{r:0,g:0,b:0,a:0},loadOp:"clear" as const,storeOp:"store" as const}))});
+        pass.end();return;
+      }
       if(stage==="post") { this.tonemap.execute(command,{swapchain:textureView(frame.finalOutput,resources),
         hdr:textureView(frame.stageInputHdr,resources)},{bloom:false,sharpening:false,colorGrading:false},
         {lift:0,gamma:1,gain:1,saturation:1,contrast:1,sharpeningStrength:0,bloomIntensity:0,
@@ -665,10 +671,12 @@ function validateCandidateTopology(value:unknown):void {
     if(pass===undefined||pass.culled)throw new Error(`MixedBins required live pass '${name}'`);return pass;};
   const visibility=requirePass("SparseShading/visibility MRT"),lighting=requirePass("SparseShading/light cluster producer");
   const classifier=requirePass("SparseShading/clear + classify"),finalizer=requirePass("SparseShading/finalize indirect");
+  const outputClear=requirePass("SparseShading/clear sparse outputs");
   const resolve=requirePass("SparseShading/active-bin indirect resolve"),post=requirePass("SparseShading/downstream/post");
   const capture=requirePass("SparseShading/validation capture boundary");
   requireDependency(classifier,visibility,"visibility -> classifier");requireDependency(finalizer,classifier,"classifier -> finalizer");
-  requireDependency(resolve,finalizer,"finalizer -> resolve");requireDependency(resolve,lighting,"lighting -> resolve");
+  requireDependency(outputClear,finalizer,"finalizer -> output clear");requireDependency(resolve,outputClear,"output clear -> resolve");
+  requireDependency(resolve,lighting,"lighting -> resolve");
   requireDependency(post,resolve,"resolve -> post");requireDependency(capture,post,"post -> capture");
   const passNames=dump.passes.filter((pass)=>!pass.culled).map((pass)=>pass.name).join("\n");
   for(const forbidden of ["shadow producer","diagnostics finalize","diagnostics async copy","downstream/gtao","downstream/ssgi",
