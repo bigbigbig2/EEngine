@@ -43,6 +43,8 @@ import { resolveTextureView } from "../../../../OEngine/src/render/RenderTargetV
 import { addSparseShadingCandidateToGraph, type SparseShadingCandidateFrame,
   type SparseShadingCandidateStage } from "../../../../OEngine/src/render/pipeline/SparseShadingCandidatePipeline.js";
 import { createSparseShadingCandidateExecutor } from "../../../../OEngine/src/render/pipeline/SparseShadingCandidateExecutor.js";
+import { SparseShadingCandidateGpuRevisionOwner,
+  type SparseShadingCandidateGpuRevision } from "../../../../OEngine/src/render/pipeline/SparseShadingCandidateGpuRevision.js";
 import { SparseShadingCandidateRuntime } from "../../../../OEngine/src/render/pipeline/SparseShadingCandidateRuntime.js";
 import { ShadingBinPass } from "../../../../OEngine/src/render/passes/ShadingBinPass.js";
 import { SparseShadingResolvePass, type SparseShadingResolveFrameBinding } from "../../../../OEngine/src/render/passes/SparseShadingResolvePass.js";
@@ -83,7 +85,8 @@ const FEATURES = Object.freeze({ screenSpaceDiffuseMode:"off" as const, ssr:fals
 const RENDERING_LAB_FEATURES=Object.freeze({screenSpaceDiffuseMode:"ssgi" as const,ssr:true,temporal:true,
   shadows:true,post:true,diagnostics:false});
 
-export type SparseCandidateWorkload = "mixed-bins"|"basic-cube"|"unlit-vertex-color"|"unlit-texture"|"rendering-lab-fixed";
+export type SparseCandidateWorkload = "mixed-bins"|"basic-cube"|"unlit-vertex-color"|"unlit-texture"|
+  "rendering-lab-fixed"|"lifecycle-resize";
 
 interface WorkloadLayout {
   readonly geometryCount:number; readonly meshletCount:number; readonly vertexCount:number;
@@ -111,16 +114,17 @@ const CUBE_NEAR_DISTANCE=4,CUBE_FAR_DISTANCE=8,CUBE_FOV_DEGREES=60;
 function workloadLayout(workload:SparseCandidateWorkload):WorkloadLayout {
   if(workload==="mixed-bins")return MIXED_LAYOUT;
   if(workload==="rendering-lab-fixed")return RENDERING_LAB_LAYOUT;
-  return workload==="basic-cube"?CUBE_LAYOUT:VERTEX_COLOR_LAYOUT;
+  return workload==="basic-cube"||workload==="lifecycle-resize"?CUBE_LAYOUT:VERTEX_COLOR_LAYOUT;
 }
 function workloadProgramIds(workload:SparseCandidateWorkload):readonly number[] {
   return workload==="mixed-bins"?Object.freeze(Array.from({length:GPU_SHADING_PROGRAM_COUNT},(_,program)=>program)):
     workload==="rendering-lab-fixed"?RENDERING_LAB_PROGRAMS:
-    Object.freeze([workload==="basic-cube"?0:workload==="unlit-vertex-color"?1:2]);
+    Object.freeze([workload==="basic-cube"||workload==="lifecycle-resize"?0:workload==="unlit-vertex-color"?1:2]);
 }
 function workloadTriangleCount(workload:SparseCandidateWorkload):number {
   if(workload==="mixed-bins")return TRIANGLES_PER_PROGRAM;
-  return workload==="basic-cube"||workload==="rendering-lab-fixed"?CUBE_TRIANGLE_COUNT:VERTEX_COLOR_TRIANGLE_COUNT;
+  return workload==="basic-cube"||workload==="lifecycle-resize"||workload==="rendering-lab-fixed"?
+    CUBE_TRIANGLE_COUNT:VERTEX_COLOR_TRIANGLE_COUNT;
 }
 function workloadFeatures(workload:SparseCandidateWorkload){return workload==="rendering-lab-fixed"?RENDERING_LAB_FEATURES:FEATURES;}
 
@@ -168,8 +172,8 @@ export class SparseShadingCandidateFixture {
   private constructor(private readonly device:GPUDevice, private readonly canvasContext:GPUCanvasContext,
     canvasFormat:GPUTextureFormat, private readonly workload:SparseCandidateWorkload,
     private readonly resources:CandidateResources,
-    private readonly runtime:SparseShadingCandidateRuntime, private readonly binPass:ShadingBinPass,
-    private readonly resolve:SparseShadingResolvePass, private readonly oracleValidate:GPUComputePipeline,
+    private readonly runtime:SparseShadingCandidateRuntime, private readonly gpuRevisions:SparseShadingCandidateGpuRevisionOwner,
+    private readonly oracleValidate:GPUComputePipeline,
     private readonly oracleExtract:GPUComputePipeline,
     private readonly publicationSnapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,
     private readonly compilation:Readonly<Record<string,unknown>>,
@@ -196,23 +200,23 @@ export class SparseShadingCandidateFixture {
       shadowSamplingEnabled:features.shadows,capability,sizingLimits:{maxTextureDimension2D:device.limits.maxTextureDimension2D,
         maxBufferSize:device.limits.maxBufferSize,maxStorageBufferBindingSize:device.limits.maxStorageBufferBindingSize,
         maxComputeWorkgroupsPerDimension:device.limits.maxComputeWorkgroupsPerDimension}});
-    const runtime=new SparseShadingCandidateRuntime(publications), mutation=runtime.beginMutation();
-    mutation.replaceAll(createPublication(workload)); runtime.commitMutation(mutation,0,features);
-    const snapshot=publications.currentSnapshot();
-    const binPass=await ShadingBinPass.create(device,snapshot.sizing,false);
-    let resolve:SparseShadingResolvePass|undefined;
+    const runtime=new SparseShadingCandidateRuntime(publications),gpuRevisions=new SparseShadingCandidateGpuRevisionOwner(device);
+    const mutation=runtime.beginMutation();mutation.replaceAll(createPublication(workload));
+    const preparedSnapshot=mutation.prepare();let preparedGpu;
     try {
-      resolve=await SparseShadingResolvePass.create(device,snapshot.pipelines,snapshot.revision,false);
+      preparedGpu=await gpuRevisions.prepare(preparedSnapshot);
+      runtime.commitMutation(mutation,0,features);const snapshot=publications.currentSnapshot();
+      const revision=gpuRevisions.publish(preparedGpu,snapshot,0),resolve=requireResource(revision.resolve,"candidate resolve");
       const oracle=await createOraclePipelines(device,snapshot.pipelines.slice().sort((a,b)=>a.programId-b.programId)
         .map((entry)=>entry.binId),workload);
       const shadow=workload==="rendering-lab-fixed"?await createRenderingLabShadowPipeline(device):null;
       const fixture=new SparseShadingCandidateFixture(device,canvasContext,canvasFormat,workload,resources,runtime,
-        binPass,resolve,oracle.validate,oracle.extract,snapshot,Object.freeze({sparseOracle:oracle.messages,
+        gpuRevisions,oracle.validate,oracle.extract,snapshot,Object.freeze({sparseOracle:oracle.messages,
           ...(shadow===null?{}:{shadow:shadow.messages})}),shadow?.pipeline??null);
       for(const value of buffers)fixture.buffers.add(value); for(const value of textures)fixture.textures.add(value);
       uploadStaticInputs(device,resources,snapshot,workload); return fixture;
     } catch(error) {
-      resolve?.destroy(); binPass.destroy(); runtime.destroy();
+      gpuRevisions.destroy(); runtime.destroy();
       for(const value of buffers)value.destroy(); for(const value of textures)value.destroy(); throw error;
     }
   }
@@ -271,10 +275,66 @@ export class SparseShadingCandidateFixture {
       memory:Object.freeze(frames.map((entry)=>entry.memory)),compilation:this.compilation});
   }
 
+  async runResizeLifecycle():Promise<Readonly<SparseCandidateEvidence>> {
+    if(this.workload!=="lifecycle-resize")throw new Error("runResizeLifecycle requires its dedicated fixture publication");
+    this.requireAlive();const initialSnapshot=this.runtimeSnapshot(),initialCamera=createCubeCamera(CUBE_NEAR_DISTANCE,1);
+    uploadFrameConfiguration(this.device,this.resources,initialSnapshot,initialCamera,0);
+    const resizeBoundary:{beforeCompletion?:ReturnType<SparseShadingCandidateGpuRevisionOwner["evidence"]>}={};
+    const initial=await this.runCandidateFrame("LifecycleResize/initial",0,1,
+      (bytes,snapshot)=>validateBasicCube(bytes,snapshot,initialCamera),{afterSubmitBeforeCompletion:async()=>{
+        const mutation=this.runtime.beginMutation();mutation.updateContext({...initialSnapshot.context,height:128});
+        const candidatePlan=this.runtime.prepareMutation(mutation,FEATURES),preparedSnapshot=mutation.prepare();
+        assertEqual(candidatePlan.width,WIDTH,"LifecycleResize prepared width");
+        assertEqual(candidatePlan.height,128,"LifecycleResize prepared height");
+        const preparedGpu=await this.gpuRevisions.prepare(preparedSnapshot);let committed=false;
+        try {
+          this.runtime.commitMutation(mutation,1,FEATURES);committed=true;
+          const published=this.runtimeSnapshot();this.gpuRevisions.publish(preparedGpu,published,1);
+          resizeBoundary.beforeCompletion=this.gpuRevisions.evidence();
+          uploadFrameConfiguration(this.device,this.resources,published,createCubeCamera(CUBE_NEAR_DISTANCE,2),1);
+        } catch(error) {
+          if(!committed){this.gpuRevisions.abort(preparedGpu);this.runtime.abortMutation(mutation);}
+          throw error;
+        }
+      }});
+    const beforeCompletion=resizeBoundary.beforeCompletion;
+    if(beforeCompletion===undefined)throw new Error("LifecycleResize did not capture the pre-completion retirement boundary");
+    const afterCompletion=this.gpuRevisions.evidence(),resizedSnapshot=this.runtimeSnapshot();
+    assertArray(beforeCompletion.retiringRevisions,[initialSnapshot.revision],"LifecycleResize in-flight revision");
+    assertEqual(beforeCompletion.retireCount,0,"LifecycleResize pre-completion retire count");
+    assertArray(afterCompletion.retiringRevisions,[],"LifecycleResize completed retiring revisions");
+    assertEqual(afterCompletion.retireCount,1,"LifecycleResize completed retire count");
+    if(resizedSnapshot.revision===initialSnapshot.revision)throw new Error("LifecycleResize did not publish a new revision");
+    if(resizedSnapshot.sizing.heapBytes>=initialSnapshot.sizing.heapBytes)throw new Error(
+      "LifecycleResize smaller extent did not reduce the revision-owned heap");
+    const resizedCamera=createCubeCamera(CUBE_NEAR_DISTANCE,2);
+    const resized=await this.runCandidateFrame("LifecycleResize/resized",1,2,
+      (bytes,snapshot)=>validateBasicCube(bytes,snapshot,resizedCamera));
+    const stableCreateCount=this.gpuRevisions.evidence().createCount;
+    uploadFrameConfiguration(this.device,this.resources,resizedSnapshot,resizedCamera,2);
+    const stable=await this.runCandidateFrame("LifecycleResize/stable",2,3,
+      (bytes,snapshot)=>validateBasicCube(bytes,snapshot,resizedCamera));
+    assertEqual(this.gpuRevisions.evidence().createCount,stableCreateCount,
+      "LifecycleResize stable-frame GPU revision creation");
+    return Object.freeze({scenario:Object.freeze({name:"LifecycleResize",passed:true,
+      extents:Object.freeze({initial:[initialSnapshot.context.width,initialSnapshot.context.height],
+        resized:[resizedSnapshot.context.width,resizedSnapshot.context.height]}),
+      revisions:Object.freeze({initial:initialSnapshot.revision,resized:resizedSnapshot.revision,
+        retiredAtSubmission:1,beforeCompletion,afterCompletion}),
+      heapBytes:Object.freeze({initial:initialSnapshot.sizing.heapBytes,resized:resizedSnapshot.sizing.heapBytes}),
+      frames:Object.freeze([initial.scenario,resized.scenario,stable.scenario])}),
+      graph:Object.freeze([initial.graph,resized.graph,stable.graph]),profile:Object.freeze([initial.profile,resized.profile,stable.profile]),
+      lifecycle:Object.freeze({candidate:this.runtime.evidence(),gpuRevisions:this.gpuRevisions.evidence()}),
+      memory:Object.freeze([initial.memory,resized.memory,stable.memory]),compilation:this.compilation});
+  }
+
   private async runCandidateFrame(scenario:string,frameIndex:number,serial:number,
-    validate:(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>)=>Readonly<Record<string,unknown>>):
+    validate:(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>)=>Readonly<Record<string,unknown>>,
+    options:Readonly<{afterSubmitBeforeCompletion?:()=>Promise<void>}>={}):
     Promise<Readonly<SparseCandidateEvidence>> {
     this.requireAlive(); const features=workloadFeatures(this.workload),ticket=this.runtime.beginFrame(features);
+    const gpuRevision=this.gpuRevisions.active(ticket.snapshot),binPass=requireResource(gpuRevision.bins,"candidate bins"),
+      resolve=requireResource(gpuRevision.resolve,"candidate resolve");
     const readback=this.trackBuffer(this.device.createBuffer({label:`ADR-0013 candidate ${scenario} readback`,
       size:READBACK_BYTES,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ}));
     const oracle=this.trackBuffer(this.device.createBuffer({label:`ADR-0013 candidate ${scenario} oracle scratch`,
@@ -345,14 +405,14 @@ export class SparseShadingCandidateFixture {
         hdr:textureView(frame.stageInputHdr,resources)},{bloom:false,sharpening:false,colorGrading:false},
         {lift:0,gamma:1,gain:1,saturation:1,contrast:1,sharpeningStrength:0,bloomIntensity:0,
           samplers:this.graphics.samplers},undefined,buffer(frame.heap,resources)); return; }
-      if(stage==="capture") { this.encodeCapture(command,frame,resources,presentation); return; }
+      if(stage==="capture") { this.encodeCapture(command,frame,resources,presentation,binPass); return; }
       throw new Error(`${scenario} does not enable candidate stage '${stage}'`);
     };
-    const executor=createSparseShadingCandidateExecutor({bins:this.binPass,settingsDynamicOffset:0,
-      createBinBindings:(frame,resources)=>this.binPass.createFrameBindingsForExecution({
+    const executor=createSparseShadingCandidateExecutor({bins:binPass,settingsDynamicOffset:0,
+      createBinBindings:(frame,resources)=>binPass.createFrameBindingsForExecution({
         shadingBinId:textureView(frame.shadingBinId,resources),settings:buffer(frame.settings,resources),
         settingsDynamicOffset:0,generation:ticket.snapshot.generation,layoutRevision:ticket.snapshot.layoutRevision}),
-      resolve:this.resolve,createResolveBindings:(frame,resources)=>this.createResolveBindings(frame,resources),
+      resolve,createResolveBindings:(frame,resources)=>this.createResolveBindings(gpuRevision,frame,resources),
       executeExternalStage:externalStage});
     const downstreamResources:RenderingLabDownstreamResources|null=labIds===null?null:Object.freeze({
       camera:ids.camera,previousCamera:labIds.previousCamera,previousDepth:labIds.previousDepth,view:labIds.view,
@@ -368,7 +428,7 @@ export class SparseShadingCandidateFixture {
             {swapchain:textureView(output,postResources),hdr:textureView(hdr,postResources)},
             {bloom:false,sharpening:false,colorGrading:false},{lift:0,gamma:1,gain:1,saturation:1,contrast:1,
               sharpeningStrength:0,bloomIntensity:0,samplers:this.graphics.samplers},undefined,
-            this.binPass.heap);
+             binPass.heap);
         });
         post.read(hdr);output=post.write(presentationResource);post.declareEncoderWork({renderPasses:1,draws:1});return output;
       }
@@ -379,7 +439,7 @@ export class SparseShadingCandidateFixture {
       lighting,shadows:labIds===null?[]:[labIds.shadowAtlas],
       presentation:ids.presentation,captureReadback:ids.readback,captureScratch:[ids.oracle],
       captureEncoderWork:{computePasses:1,dispatches:2},
-      binResources:{heap:this.binPass.heap,indirectArgs:this.binPass.indirectArgs,settings:this.resources.settings},
+      binResources:{heap:binPass.heap,indirectArgs:binPass.indirectArgs,settings:this.resources.settings},
       ...(downstreamResources===null?{}:{composeDownstream:(stage,ownerGraph,stageFrame)=>
         this.renderingLab!.compose(stage,ownerGraph,stageFrame,downstreamResources)})},executor);
     this.profiler.beginFrame(frameIndex); const command=ShadeGPUCommandContext.create(this.graphics,"Renderer/main-0");
@@ -393,26 +453,31 @@ export class SparseShadingCandidateFixture {
     if(profile===undefined)throw new Error(`${scenario} profiler did not publish a frame snapshot`);
     assertEqual(profile.submits.count,1,`${scenario} one-main-submit`);assertEqual(profile.graph.builds,1,`${scenario} graph builds`);
     assertEqual(profile.graph.compiles,1,`${scenario} graph compiles`);assertEqual(profile.graph.executes,1,`${scenario} graph executes`);
+    await options.afterSubmitBeforeCompletion?.();
     await this.device.queue.onSubmittedWorkDone();
-    this.runtime.completeSubmittedWork(serial);this.renderingLab?.commitSubmittedFrame(graph); await readback.mapAsync(GPUMapMode.READ);
+    this.runtime.completeSubmittedWork(serial);this.gpuRevisions.completeSubmittedWork(serial);
+    this.renderingLab?.commitSubmittedFrame(graph); await readback.mapAsync(GPUMapMode.READ);
     const bytes=new Uint8Array(readback.getMappedRange().slice(0)); readback.unmap();
     const graphDump=compiled.dump();validateCandidateTopology(graphDump,scenario);
     const evidence=Object.freeze({scenario:validate(bytes,ticket.snapshot),graph:graphDump,profile,
-      lifecycle:Object.freeze({candidate:this.runtime.evidence(),downstream:this.renderingLab?.evidence()??null}),memory:Object.freeze({plan:frame.plan.memory,live:this.graphics.memoryEvidence(),
+      lifecycle:Object.freeze({candidate:this.runtime.evidence(),gpuRevisions:this.gpuRevisions.evidence(),
+        downstream:this.renderingLab?.evidence()??null}),memory:Object.freeze({plan:frame.plan.memory,live:this.graphics.memoryEvidence(),
         captureBytes:READBACK_BYTES,captureScratchBytes:ORACLE_BYTES}),compilation:this.compilation});
     compiled.destroy(); this.destroyBuffer(readback); this.destroyBuffer(oracle); return evidence;
   }
 
   resourceCounts():Readonly<Record<string,number>> { return Object.freeze({buffers:this.buffers.size,
-    textures:this.textures.size,candidateRuntimeOwners:this.destroyed?0:1,graphicsOwners:this.destroyed?0:1}); }
-  destroy():void { if(this.destroyed)return; this.destroyed=true; this.tonemap.destroy(); this.resolve.destroy();
-    this.renderingLab?.destroy();this.binPass.destroy(); this.runtime.destroy(); this.graphics.destroy();
+    textures:this.textures.size,candidateRuntimeOwners:this.destroyed?0:2,graphicsOwners:this.destroyed?0:1}); }
+  destroy():void { if(this.destroyed)return; this.destroyed=true; this.tonemap.destroy();
+    this.renderingLab?.destroy();this.gpuRevisions.destroy(); this.runtime.destroy(); this.graphics.destroy();
     for(const value of this.buffers)value.destroy(); for(const value of this.textures)value.destroy();
     this.buffers.clear(); this.textures.clear(); }
 
-  private createResolveBindings(frame:Readonly<SparseShadingCandidateFrame>,resources:PassResources):readonly SparseShadingResolveFrameBinding[] {
-    const binding=(name:string):GPUBindingResource=>resolveBinding(name,frame,resources,this.resources,this.binPass);
-    return this.resolve.activeBinIds.map((binId)=>{const pipeline=this.resolve.pipelineForBin(binId);
+  private createResolveBindings(revision:Readonly<SparseShadingCandidateGpuRevision>,frame:Readonly<SparseShadingCandidateFrame>,
+    resources:PassResources):readonly SparseShadingResolveFrameBinding[] {
+    const bins=requireResource(revision.bins,"candidate bins"),resolve=requireResource(revision.resolve,"candidate resolve");
+    const binding=(name:string):GPUBindingResource=>resolveBinding(name,frame,resources,this.resources,bins);
+    return resolve.activeBinIds.map((binId)=>{const pipeline=resolve.pipelineForBin(binId);
       const groups=pipeline.descriptor.groups.map((group,index)=>this.device.createBindGroup({
         label:`ADR-0013 MixedBins bin ${binId} group ${index}`,layout:pipeline.bindGroupLayouts[index]!,
         entries:group.bindings.map((entry)=>({binding:entry.binding,resource:binding(entry.name)}))}));
@@ -435,27 +500,29 @@ export class SparseShadingCandidateFixture {
     pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.draw(CUBE_TRIANGLE_COUNT*3,this.resources.layout.workCount);pass.end();
   }
   private encodeCapture(command:ShadeGPUCommandContext,frame:Readonly<SparseShadingCandidateFrame>,
-    resources:PassResources,presentation:GPUTexture):void {
+    resources:PassResources,presentation:GPUTexture,bins:ShadingBinPass):void {
+    const width=frame.plan.width,height=frame.plan.height;
+    if(width!==WIDTH||height>HEIGHT)throw new Error(`Candidate capture extent ${width}x${height} exceeds its frozen row layout`);
     const output=buffer(frame.captureScratch[0]??null,resources); command.clearBuffer(output);
     const validateGroup=this.device.createBindGroup({layout:this.oracleValidate.getBindGroupLayout(0),entries:[
       {binding:0,resource:textureView(frame.visibilityKey,resources)},{binding:1,resource:textureView(frame.shadingBinId,resources)},
       {binding:2,resource:textureView(frame.hdr,resources)},{binding:3,resource:{buffer:output}}]});
     const extractGroup=this.device.createBindGroup({layout:this.oracleExtract.getBindGroupLayout(0),entries:[
-      {binding:0,resource:{buffer:this.binPass.heap}},{binding:1,resource:{buffer:this.binPass.indirectArgs}},
+      {binding:0,resource:{buffer:bins.heap}},{binding:1,resource:{buffer:bins.indirectArgs}},
       {binding:2,resource:{buffer:output}}]});
     const pass=command.beginComputePass({label:"ADR-0013 MixedBins capture oracle"});
     pass.setPipeline(this.oracleValidate); pass.setBindGroup(0,validateGroup);
-    pass.dispatchWorkgroups(Math.ceil(WIDTH/8),Math.ceil(HEIGHT/8)); pass.setPipeline(this.oracleExtract);
+    pass.dispatchWorkgroups(Math.ceil(width/8),Math.ceil(height/8)); pass.setPipeline(this.oracleExtract);
     pass.setBindGroup(0,extractGroup); pass.dispatchWorkgroups(1); pass.end();
     const readback=buffer(frame.captureReadback,resources);
     command.gpu_encoder.copyTextureToBuffer({texture:nativeTexture(resources.get(frame.hdr!))},
-      {buffer:readback,offset:HDR_OFFSET,bytesPerRow:HDR_ROW_BYTES,rowsPerImage:HEIGHT},[WIDTH,HEIGHT,1]);
+      {buffer:readback,offset:HDR_OFFSET,bytesPerRow:HDR_ROW_BYTES,rowsPerImage:height},[width,height,1]);
     command.gpu_encoder.copyTextureToBuffer({texture:presentation},
-      {buffer:readback,offset:PRESENT_OFFSET,bytesPerRow:PRESENT_ROW_BYTES,rowsPerImage:HEIGHT},[WIDTH,HEIGHT,1]);
+      {buffer:readback,offset:PRESENT_OFFSET,bytesPerRow:PRESENT_ROW_BYTES,rowsPerImage:height},[width,height,1]);
     command.gpu_encoder.copyTextureToBuffer({texture:nativeTexture(resources.get(frame.visibilityKey!))},
-      {buffer:readback,offset:VISIBILITY_OFFSET,bytesPerRow:VISIBILITY_ROW_BYTES,rowsPerImage:HEIGHT},[WIDTH,HEIGHT,1]);
+      {buffer:readback,offset:VISIBILITY_OFFSET,bytesPerRow:VISIBILITY_ROW_BYTES,rowsPerImage:height},[width,height,1]);
     command.gpu_encoder.copyTextureToBuffer({texture:nativeTexture(resources.get(frame.shadingBinId!))},
-      {buffer:readback,offset:BIN_OFFSET,bytesPerRow:BIN_ROW_BYTES,rowsPerImage:HEIGHT},[WIDTH,HEIGHT,1]);
+      {buffer:readback,offset:BIN_OFFSET,bytesPerRow:BIN_ROW_BYTES,rowsPerImage:height},[width,height,1]);
     command.copyBufferToBuffer(output,0,readback,ORACLE_OFFSET,ORACLE_BYTES);
     if(this.resources.renderingLab!==null)command.gpu_encoder.copyTextureToBuffer(
       {texture:this.resources.renderingLab.shadowAtlas,aspect:"depth-only"},
@@ -472,7 +539,7 @@ function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GP
   workload:SparseCandidateWorkload):CandidateResources {
   const layout=workloadLayout(workload),label=workload==="mixed-bins"?"MixedBins":
     workload==="basic-cube"?"BasicCube":workload==="unlit-vertex-color"?"UnlitVertexColor":
-    workload==="unlit-texture"?"UnlitTexture":"RenderingLabFixed";
+    workload==="unlit-texture"?"UnlitTexture":workload==="rendering-lab-fixed"?"RenderingLabFixed":"LifecycleResize";
   const lit=workload==="mixed-bins"||workload==="rendering-lab-fixed",textured=lit||workload==="unlit-texture";
   const makeBuffer=(label:string,size:number,usage:GPUBufferUsageFlags)=>{const value=device.createBuffer({label,size:Math.max(size,4),usage});buffers.add(value);return value;};
   const makeTexture=(descriptor:GPUTextureDescriptor)=>{const value=device.createTexture(descriptor);textures.add(value);return value;};
@@ -648,8 +715,8 @@ interface CubeCameraFrame {
   readonly viewProjection:Float32Array;readonly packed:ArrayBuffer;
 }
 
-function createCubeCamera(distance:number):CubeCameraFrame {
-  const camera=new PerspectiveCamera();camera.fov_degrees=CUBE_FOV_DEGREES;camera.aspect=1;camera.near=0.1;
+function createCubeCamera(distance:number,aspect=1):CubeCameraFrame {
+  const camera=new PerspectiveCamera();camera.fov_degrees=CUBE_FOV_DEGREES;camera.aspect=aspect;camera.near=0.1;
   camera.transform.position.set(0,0,distance);camera.transform.lookAt({x:0,y:0,z:0});camera.update();
   const transformInverse=new Float32Array(16),viewInverse=new Float32Array(16),projectionInverse=new Float32Array(16),
     viewProjectionInverse=new Float32Array(16);
@@ -720,13 +787,21 @@ function uploadCameraFrame(device:GPUDevice,r:CandidateResources,
   device.queue.writeBuffer(r.camera,0,camera.packed);device.queue.writeBuffer(r.shadingView,0,
     shadingView(snapshot,r.layout,camera.viewProjection,camera.position,frameIndex));
 }
+function uploadFrameConfiguration(device:GPUDevice,r:CandidateResources,
+  snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,camera:CubeCameraFrame,frameIndex:number):void {
+  device.queue.writeBuffer(r.settings,0,packGpuShadingBinSettings({width:snapshot.context.width,height:snapshot.context.height,
+    microtilesX:Math.ceil(snapshot.context.width/8),generation:snapshot.generation,
+    allowedMaskLo:snapshot.summary.activeBinMaskLo,allowedMaskHi:snapshot.summary.activeBinMaskHi,
+    maxDispatchDimension:device.limits.maxComputeWorkgroupsPerDimension,layoutRevision:snapshot.layoutRevision}));
+  uploadCameraFrame(device,r,snapshot,camera,frameIndex);
+}
 function shadingView(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,layout:WorkloadLayout,
   currentViewProjection:ArrayLike<number>,cameraPosition:readonly number[],frameIndex:number):ArrayBuffer {
   const geometryWords=GPU_GEOMETRY_RECORD_STRIDE/4,meshletWords=GPU_MESHLET_RECORD_STRIDE/4;
   const vertexWords=layout.vertexCount;
   const triangleWords=layout.triangleBytes/4;
   const output=new ArrayBuffer(240),view=new DataView(output);
-  [WIDTH,HEIGHT,layout.materialCount,layout.geometryCount,MATERIAL_GENERATION,TEXTURE_GENERATION,
+  [snapshot.context.width,snapshot.context.height,layout.materialCount,layout.geometryCount,MATERIAL_GENERATION,TEXTURE_GENERATION,
     GEOMETRY_GENERATION,snapshot.revision,0,layout.geometryCount*geometryWords,
     layout.geometryCount*geometryWords+layout.meshletCount*meshletWords,0,vertexWords,vertexWords+triangleWords,frameIndex,0]
     .forEach((value,index)=>view.setUint32(index*4,value,true));
@@ -736,7 +811,7 @@ function shadingView(snapshot:ReturnType<GpuShadingPublicationStore["currentSnap
 }
 
 function createGeometryData(workload:SparseCandidateWorkload,layout:WorkloadLayout){
-  if(workload==="basic-cube")return createCubeGeometryData(layout);
+  if(workload==="basic-cube"||workload==="lifecycle-resize")return createCubeGeometryData(layout);
   if(workload==="rendering-lab-fixed")return createRenderingLabGeometryData(layout);
   if(workload==="unlit-vertex-color"||workload==="unlit-texture")return createPlanarUnlitGeometryData(layout,workload);
   const geometryRecords=new Uint8Array(GPU_SHADING_PROGRAM_COUNT*GPU_GEOMETRY_RECORD_STRIDE);
@@ -919,8 +994,9 @@ function createInstances(workload:SparseCandidateWorkload):Uint8Array {
   }
   if(workload!=="mixed-bins")return new Uint8Array(packGpuInstanceRecord({geometryRecordIndex:0,materialHandle:0,
     flags:GPU_MESHLET_RASTER_FLAGS.DoubleSided,debugId:1,
-    boundsSphere:[0,0,0,workload==="basic-cube"?Math.sqrt(3):Math.sqrt(2)],
-    boundsMin:[-1,-1,workload==="basic-cube"?-1:0],boundsMax:[1,1,workload==="basic-cube"?1:0],
+    boundsSphere:[0,0,0,workload==="basic-cube"||workload==="lifecycle-resize"?Math.sqrt(3):Math.sqrt(2)],
+    boundsMin:[-1,-1,workload==="basic-cube"||workload==="lifecycle-resize"?-1:0],
+    boundsMax:[1,1,workload==="basic-cube"||workload==="lifecycle-resize"?1:0],
     currentObjectToWorld:IDENTITY,previousObjectToWorld:IDENTITY}));
   const output=new Uint8Array(GPU_SHADING_PROGRAM_COUNT*GPU_INSTANCE_RECORD_STRIDE);
   for(let program=0;program<GPU_SHADING_PROGRAM_COUNT;program++)output.set(packGpuInstanceRecord({geometryRecordIndex:program,
@@ -1125,7 +1201,7 @@ const BINS:array<u32,${GPU_SHADING_PROGRAM_COUNT}>=array<u32,${GPU_SHADING_PROGR
 @group(0) @binding(2) var hdr:texture_2d<f32>;
 @group(0) @binding(3) var<storage,read_write> output:array<atomic<u32>>;
 @compute @workgroup_size(8,8) fn validate(@builtin(global_invocation_id) id:vec3u){
-  if(id.x>=WIDTH||id.y>=HEIGHT){return;} atomicAdd(&output[0],1u);
+  if(any(id.xy>=textureDimensions(visibility))){return;} atomicAdd(&output[0],1u);
   let program=(id.x/2u)%${GPU_SHADING_PROGRAM_COUNT}u; let key=textureLoad(visibility,vec2u(id.xy),0).x;
   let bin_id=textureLoad(bin_ids,vec2u(id.xy),0).x; let color=textureLoad(hdr,vec2u(id.xy),0);
   if(key==0xffffffffu){atomicAdd(&output[1],1u);} if((key&0x00ffffffu)!=program){atomicAdd(&output[2],1u);}
@@ -1140,7 +1216,7 @@ const BINS:array<u32,${RENDERING_LAB_PROGRAMS.length}>=array<u32,${RENDERING_LAB
 @group(0) @binding(2) var hdr:texture_2d<f32>;
 @group(0) @binding(3) var<storage,read_write> output:array<atomic<u32>>;
 @compute @workgroup_size(8,8) fn validate(@builtin(global_invocation_id) id:vec3u){
-  if(id.x>=WIDTH||id.y>=HEIGHT){return;}atomicAdd(&output[0],1u);
+  if(any(id.xy>=textureDimensions(visibility))){return;}atomicAdd(&output[0],1u);
   let key=textureLoad(visibility,vec2u(id.xy),0).x;let bin_id=textureLoad(bin_ids,vec2u(id.xy),0).x;
   let color=textureLoad(hdr,vec2u(id.xy),0);let valid=key!=0xffffffffu;
   if(valid){atomicAdd(&output[7],1u);let work=key&0x00ffffffu;
@@ -1158,7 +1234,7 @@ const WIDTH:u32=${WIDTH}u; const HEIGHT:u32=${HEIGHT}u; const EXPECTED_BIN:u32=$
 @group(0) @binding(2) var hdr:texture_2d<f32>;
 @group(0) @binding(3) var<storage,read_write> output:array<atomic<u32>>;
 @compute @workgroup_size(8,8) fn validate(@builtin(global_invocation_id) id:vec3u){
-  if(id.x>=WIDTH||id.y>=HEIGHT){return;} atomicAdd(&output[0],1u);
+  if(any(id.xy>=textureDimensions(visibility))){return;} atomicAdd(&output[0],1u);
   let key=textureLoad(visibility,vec2u(id.xy),0).x;let bin_id=textureLoad(bin_ids,vec2u(id.xy),0).x;
   let color=textureLoad(hdr,vec2u(id.xy),0);let valid=key!=0xffffffffu;
   if(valid){atomicAdd(&output[7],1u);if((key&0x00ffffffu)!=0u){atomicAdd(&output[1],1u);}
@@ -1169,7 +1245,8 @@ const WIDTH:u32=${WIDTH}u; const HEIGHT:u32=${HEIGHT}u; const EXPECTED_BIN:u32=$
     if(any(abs(color)>vec4f(0.00001))){atomicAdd(&output[8],1u);}}
 }`;
   const label=workload==="mixed-bins"?"MixedBins":workload==="basic-cube"?"BasicCube":
-    workload==="unlit-vertex-color"?"UnlitVertexColor":workload==="unlit-texture"?"UnlitTexture":"RenderingLabFixed";
+    workload==="unlit-vertex-color"?"UnlitVertexColor":workload==="unlit-texture"?"UnlitTexture":
+    workload==="rendering-lab-fixed"?"RenderingLabFixed":"LifecycleResize";
   const validateModule=device.createShaderModule({label:`ADR-0013 ${label} visibility/HDR oracle`,code:validateSource});
   const extractModule=device.createShaderModule({label:`ADR-0013 ${label} bin heap/args oracle`,code:`
 @group(0) @binding(0) var<storage,read> heap:array<u32>;
@@ -1269,10 +1346,12 @@ function validateMixedBins(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublic
 function validateBasicCube(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,
   camera:CubeCameraFrame):Readonly<Record<string,unknown>> {
   if(bytes.byteLength!==READBACK_BYTES)throw new Error(`BasicCube readback length ${bytes.byteLength} != ${READBACK_BYTES}`);
+  const width=snapshot.context.width,height=snapshot.context.height,pixels=width*height;
+  if(width!==WIDTH||height>HEIGHT)throw new Error(`BasicCube validation extent ${width}x${height} exceeds its frozen row layout`);
   const association=snapshot.associations[0];if(association===undefined||snapshot.associations.length!==1)
     throw new Error(`BasicCube expected one immutable shading association, found ${snapshot.associations.length}`);
   const binId=association.identity.binId,oracle=new Uint32Array(bytes.buffer,bytes.byteOffset+ORACLE_OFFSET,ORACLE_WORDS);
-  assertEqual(oracle[0],PIXELS,"BasicCube oracle pixel count");
+  assertEqual(oracle[0],pixels,"BasicCube oracle pixel count");
   ["work-slot routing","ShadingBinId routing","primitive range","finite HDR","HDR alpha","background bin clear"]
     .forEach((label,index)=>assertEqual(oracle[index+1],0,`BasicCube ${label}`));
   assertEqual(oracle[8],0,"BasicCube background HDR clear");
@@ -1283,14 +1362,14 @@ function validateBasicCube(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublic
   assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.layoutRevision/4],snapshot.layoutRevision,"BasicCube finalized layout revision");
   const visibility=new DataView(bytes.buffer,bytes.byteOffset+VISIBILITY_OFFSET,VISIBILITY_BYTES);
   const binImage=bytes.subarray(BIN_OFFSET,BIN_OFFSET+BIN_BYTES),hdr=decodeHalfTexture(bytes.subarray(HDR_OFFSET,HDR_OFFSET+HDR_BYTES));
-  const bounds=cubeScreenBounds(camera),expectedMicrotiles=new Set<number>(),actualMicrotiles=new Set<number>();
+  const bounds=cubeScreenBounds(camera,width,height),expectedMicrotiles=new Set<number>(),actualMicrotiles=new Set<number>();
   let expectedPixels=0,visiblePixels=0,coverageMismatches=0,invalidKeys=0,workSlotMismatches=0,primitiveRangeErrors=0,
     binMismatches=0,backgroundBinErrors=0,backgroundHdrErrors=0,maxHdrError=0;
-  for(let y=0;y<HEIGHT;y++)for(let x=0;x<WIDTH;x++){
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
     const pixel=y*WIDTH+x,key=visibility.getUint32(pixel*4,true),valid=key!==0xffffffff;
     const expected=(x+0.5)>bounds.minX&&(x+0.5)<bounds.maxX&&(y+0.5)>bounds.minY&&(y+0.5)<bounds.maxY;
-    if(expected){expectedPixels++;expectedMicrotiles.add(Math.floor(y/8)*(WIDTH/8)+Math.floor(x/8));}
-    if(valid){visiblePixels++;actualMicrotiles.add(Math.floor(y/8)*(WIDTH/8)+Math.floor(x/8));
+    if(expected){expectedPixels++;expectedMicrotiles.add(Math.floor(y/8)*Math.ceil(width/8)+Math.floor(x/8));}
+    if(valid){visiblePixels++;actualMicrotiles.add(Math.floor(y/8)*Math.ceil(width/8)+Math.floor(x/8));
       if((key&0x00ffffff)!==0)workSlotMismatches++;if((key>>>24)>=CUBE_TRIANGLE_COUNT)primitiveRangeErrors++;
       if(binImage[pixel]!==binId)binMismatches++;
     }else if(expected)invalidKeys++;
@@ -1320,7 +1399,8 @@ function validateBasicCube(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublic
   }
   const presentation=bytes.subarray(PRESENT_OFFSET,PRESENT_OFFSET+PRESENT_BYTES);let coloredPixels=0,backgroundDitheredPixels=0,
     backgroundAboveDither=0,opaquePixels=0,diagnosticMagenta=0;
-  for(let pixel=0;pixel<PIXELS;pixel++){const offset=pixel*4,valid=visibility.getUint32(pixel*4,true)!==0xffffffff;
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){const pixel=y*WIDTH+x,offset=pixel*4,
+    valid=visibility.getUint32(pixel*4,true)!==0xffffffff;
     const nonBlack=presentation[offset]!+presentation[offset+1]!+presentation[offset+2]!>0;
     if(valid&&nonBlack)coloredPixels++;if(!valid&&nonBlack)backgroundDitheredPixels++;
     if(!valid&&(presentation[offset]!>1||presentation[offset+1]!>1||presentation[offset+2]!>1))backgroundAboveDither++;
@@ -1329,10 +1409,10 @@ function validateBasicCube(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublic
   }
   assertEqual(coloredPixels,visiblePixels,"BasicCube presentation colored coverage");
   assertEqual(backgroundAboveDither,0,"BasicCube background exceeds one-LSB SDR dither");
-  assertEqual(opaquePixels,PIXELS,"BasicCube presentation opaque pixels");assertEqual(diagnosticMagenta,0,"BasicCube diagnostic magenta");
+  assertEqual(opaquePixels,pixels,"BasicCube presentation opaque pixels");assertEqual(diagnosticMagenta,0,"BasicCube diagnostic magenta");
   assertEqual(oracle[7],visiblePixels,"BasicCube GPU/CPU visible pixel count");
   return Object.freeze({name:camera.distance===CUBE_NEAR_DISTANCE?"BasicCubeNear":"BasicCubeFar",passed:true,
-    camera:Object.freeze({distance:camera.distance,fovDegrees:camera.fovDegrees,position:camera.position,
+    extent:Object.freeze([width,height]),camera:Object.freeze({distance:camera.distance,fovDegrees:camera.fovDegrees,position:camera.position,
       viewProjection:Array.from(camera.viewProjection),screenBounds:bounds}),
     coverage:Object.freeze({expectedPixels,visiblePixels,coverageMismatches,expectedMicrotiles:expectedMicrotiles.size,
       actualMicrotiles:actualMicrotiles.size}),visibility:Object.freeze({invalidKeys,workSlotMismatches,primitiveRangeErrors,binMismatches}),
@@ -1561,9 +1641,9 @@ function validateRenderingLab(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPub
       diagnosticMagentaPixels:magenta,fnv1a32:fnv1a32(presentation)})});
 }
 
-function cubeScreenBounds(camera:CubeCameraFrame):Readonly<{minX:number;maxX:number;minY:number;maxY:number}> {
+function cubeScreenBounds(camera:CubeCameraFrame,width=WIDTH,height=HEIGHT):Readonly<{minX:number;maxX:number;minY:number;maxY:number}> {
   let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
-  for(const x of [-1,1])for(const y of [-1,1]){const point=projectScreen(camera.viewProjection,x,y,1);
+  for(const x of [-1,1])for(const y of [-1,1]){const point=projectScreen(camera.viewProjection,x,y,1,width,height);
     minX=Math.min(minX,point[0]);maxX=Math.max(maxX,point[0]);minY=Math.min(minY,point[1]);maxY=Math.max(maxY,point[1]);}
   return Object.freeze({minX,maxX,minY,maxY});
 }
@@ -1579,11 +1659,11 @@ function barycentric2d(point:readonly [number,number],a:readonly [number,number]
   const v=((c[1]-a[1])*(point[0]-c[0])+(a[0]-c[0])*(point[1]-c[1]))/denominator;
   return Object.freeze([u,v,1-u-v] as const);
 }
-function projectScreen(matrix:ArrayLike<number>,x:number,y:number,z:number):readonly [number,number] {
+function projectScreen(matrix:ArrayLike<number>,x:number,y:number,z:number,width=WIDTH,height=HEIGHT):readonly [number,number] {
   const clipX=matrix[0]!*x+matrix[4]!*y+matrix[8]!*z+matrix[12]!;
   const clipY=matrix[1]!*x+matrix[5]!*y+matrix[9]!*z+matrix[13]!;
   const clipW=matrix[3]!*x+matrix[7]!*y+matrix[11]!*z+matrix[15]!;
-  return Object.freeze([(clipX/clipW*0.5+0.5)*WIDTH,(0.5-clipY/clipW*0.5)*HEIGHT] as const);
+  return Object.freeze([(clipX/clipW*0.5+0.5)*width,(0.5-clipY/clipW*0.5)*height] as const);
 }
 function coverageEvidence(scenario:Readonly<Record<string,unknown>>):Readonly<{visiblePixels:number;expectedPixels:number}> {
   const coverage=scenario.coverage;if(coverage===null||typeof coverage!=="object")throw new Error("BasicCube frame omitted coverage evidence");

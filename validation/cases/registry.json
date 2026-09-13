@@ -45,7 +45,9 @@
     "DIAG-004": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Consumer identity mismatch invalidates the frame and suppresses the lane" },
     "DIAG-005": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Frame invalid never presents partial output" },
     "DIAG-006": { "ownerAdr": "ADR-0013", "layer": "L3", "description": "Ownership validation exists only in a diagnostics variant" },
-    "DIAG-007": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Readback is asynchronous and never controls current-frame construction" }
+    "DIAG-007": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Readback is asynchronous and never controls current-frame construction" },
+    "LIFE-003": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "In-flight frames retain immutable publication and GPU resource revisions" },
+    "LIFE-004": { "ownerAdr": "ADR-0013", "layer": "L4", "description": "Resize resources retire only after the referencing submission completes" }
   },
   "profiles": {
     "smoke": {
@@ -120,17 +122,17 @@
       "timestampRequired": false,
       "independentRuns": 1
     },
-    "sparse-shading-candidate-correctness-v5": {
+    "sparse-shading-candidate-correctness-v6": {
       "resolution": [1280, 720],
       "componentExtent": [256, 256],
       "deviceScaleFactor": 1,
       "renderScale": 1,
-      "quality": "adr-0013-step-6-correctness-l4-v5",
-      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1", "visibility-mrt", "sparse-indirect-resolve", "fixed-shadow-raster", "ibl", "ssgi", "ssr", "taa", "post"],
+      "quality": "adr-0013-step-6-correctness-l4-v6",
+      "features": ["core-features-and-limits", "subgroups", "texture-formats-tier1", "visibility-mrt", "sparse-indirect-resolve", "fixed-shadow-raster", "ibl", "ssgi", "ssr", "taa", "post", "lifecycle-resize"],
       "seed": 13006,
-      "cameraPath": "basic-cube-near-far-plus-rendering-lab-fixed",
+      "cameraPath": "basic-cube-near-far-plus-rendering-lab-fixed-plus-resize",
       "warmupFrames": 1,
-      "sampleFrames": 8,
+      "sampleFrames": 11,
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
@@ -242,9 +244,9 @@
       "requirements": [
         "CAP-005", "ID-005", "ID-006", "VIS-001", "VIS-003", "QUE-007", "CLS-006",
         "SHADE-001", "SHADE-003", "SHADE-004", "SHADE-006", "OFF-001", "OFF-003", "OFF-004",
-        "DIAG-001", "DIAG-007"
+        "DIAG-001", "DIAG-007", "LIFE-003", "LIFE-004"
       ],
-      "workloadId": "sparse-shading-candidate-correctness-v5",
+      "workloadId": "sparse-shading-candidate-correctness-v6",
       "profile": "smoke",
       "timeoutMs": 180000,
       "artifacts": ["result", "events", "screenshot", "readback"],
@@ -253,6 +255,7 @@
         "OEngine/src/render/pipeline/SparseShadingCandidatePipeline.ts",
         "OEngine/src/render/pipeline/SparseShadingCandidateExecutor.ts",
         "OEngine/src/render/pipeline/SparseShadingCandidateRuntime.ts",
+        "OEngine/src/render/pipeline/SparseShadingCandidateGpuRevision.ts",
         "OEngine/src/render/MeshletBucketRaster.ts",
         "OEngine/src/render/passes/ShadingBinPass.ts",
         "OEngine/src/render/passes/SparseShadingResolvePass.ts",

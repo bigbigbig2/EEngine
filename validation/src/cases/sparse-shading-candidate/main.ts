@@ -11,7 +11,7 @@ const canvas=document.querySelector<HTMLCanvasElement>("#output"),status=documen
 let device:GPUDevice|undefined,fixture:SparseShadingCandidateFixture|undefined;
 let errors:ReturnType<typeof attachGpuErrorCollection>|undefined,intentionalLoss=false;
 
-const controller=createValidationController({caseId:"sparse-shading-candidate",workloadId:"sparse-shading-candidate-correctness-v5"},async()=>{
+const controller=createValidationController({caseId:"sparse-shading-candidate",workloadId:"sparse-shading-candidate-correctness-v6"},async()=>{
   fixture?.destroy();errors?.remove();intentionalLoss=true;device?.destroy();
   const lost=errors===undefined?null:await Promise.race([errors.lost,new Promise<null>((resolve)=>setTimeout(()=>resolve(null),3000))]);
   return {...fixture?.resourceCounts(),devices:0,listeners:0,intentionalDeviceDestroy:intentionalLoss,
@@ -37,7 +37,7 @@ try {
         errors=attachGpuErrorCollection(device,controller,()=>intentionalLoss);
         const capability=captureGpuSparseShadingCapabilityRecord(plan,{features:device.features,limits:snapshotGpuLimits(device.limits),
           textureFormatFeatures:["rgba16float-storage","rgba16uint-storage","rg32uint-storage","rg16float-storage"],
-          formatProfile:"adr-0013-step-6-correctness-l4-v5"});
+          formatProfile:"adr-0013-step-6-correctness-l4-v6"});
         controller.addEvidence("capability",capability);const format=navigator.gpu.getPreferredCanvasFormat();
         const context=canvas.getContext("webgpu");if(context===null)throw new Error("Unable to create WebGPU canvas context");
         context.configure({device,format,alphaMode:"opaque",usage:GPUTextureUsage.RENDER_ATTACHMENT|GPUTextureUsage.COPY_SRC});
@@ -52,12 +52,16 @@ try {
         fixture=await SparseShadingCandidateFixture.create(device,context,format,capability,"unlit-texture");
         const unlitTexture=await fixture.runUnlitTexture();fixture.destroy();const unlitTextureDisposal=fixture.resourceCounts();
         fixture=await SparseShadingCandidateFixture.create(device,context,format,capability,"rendering-lab-fixed");
-        const renderingLabFixed=await fixture.runRenderingLabFixed();controller.transition("draining");
-        controller.addEvidence("readback",{schemaVersion:5,phase:"candidate-pipeline-gpu-execution-oracle",
-          scenarios:{mixedBins,basicCube,unlitVertexColor,unlitTexture,renderingLabFixed},intermediateDisposal:{mixedBins:mixedBinsDisposal,
-            basicCube:basicCubeDisposal,unlitVertexColor:unlitVertexColorDisposal,unlitTexture:unlitTextureDisposal}});
-        controller.addEvidence("submit",{main:8,private:0});if(status)status.textContent=
-          "passed ADR-0013 Step 6 candidate correctness workloads";
+        const renderingLabFixed=await fixture.runRenderingLabFixed();fixture.destroy();
+        const renderingLabDisposal=fixture.resourceCounts();
+        fixture=await SparseShadingCandidateFixture.create(device,context,format,capability,"lifecycle-resize");
+        const resizeLifecycle=await fixture.runResizeLifecycle();controller.transition("draining");
+        controller.addEvidence("readback",{schemaVersion:6,phase:"candidate-pipeline-gpu-execution-oracle",
+          scenarios:{mixedBins,basicCube,unlitVertexColor,unlitTexture,renderingLabFixed,resizeLifecycle},
+          intermediateDisposal:{mixedBins:mixedBinsDisposal,basicCube:basicCubeDisposal,unlitVertexColor:unlitVertexColorDisposal,
+            unlitTexture:unlitTextureDisposal,renderingLabFixed:renderingLabDisposal}});
+        controller.addEvidence("submit",{main:11,private:0});if(status)status.textContent=
+          "passed ADR-0013 Step 6 candidate correctness and resize lifecycle workloads";
         controller.pass();
       }
     }
