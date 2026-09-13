@@ -732,6 +732,7 @@ export function createProductionSparseDirectLightingWgsl(
     body = omitWgslFunction(body, name);
   }
   body = body
+    .replaceAll("uv_octahedral_unit_encode", "sparse_octahedral_unit_encode")
     .replaceAll("f32(view.height)", "f32(shading_view.height)")
     .replaceAll("vec2u(view.width, view.height)", "vec2u(shading_view.width, shading_view.height)")
     .replaceAll("active_light_list.written", "cluster_data.active_written")
@@ -764,7 +765,18 @@ fn shadowmap_get_directional_light_visibility(
 ) -> f32 { return 1.0; }
 `;
   }
-  return `${DIRECT_LIGHT_DATABASE_WGSL}\n${LIGHTING_DIRECT_CORE_WGSL.slice(typeStart, typeEnd)}\n${body}`;
+  const octahedralEncode = shadowSamplingEnabled ? /* wgsl */ `
+fn sparse_octahedral_unit_encode(value: vec3f) -> vec2f {
+  let denominator = abs(value.x) + abs(value.y) + abs(value.z);
+  var encoded = value.xy / denominator;
+  if value.z < 0.0 {
+    let signs = select(vec2f(-1.0), vec2f(1.0), encoded >= vec2f(0.0));
+    encoded = (vec2f(1.0) - abs(encoded.yx)) * signs;
+  }
+  return vec2f(0.5) + 0.5 * encoded;
+}
+` : "";
+  return `${DIRECT_LIGHT_DATABASE_WGSL}\n${LIGHTING_DIRECT_CORE_WGSL.slice(typeStart, typeEnd)}\n${octahedralEncode}\n${body}`;
 }
 
 function requireWgslMarker(source: string, marker: string): number {

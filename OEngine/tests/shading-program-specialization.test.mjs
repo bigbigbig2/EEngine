@@ -179,6 +179,11 @@ test("lit programs fuse BRDF, cluster traversal and shadow comparison in their s
   assert.match(source, /textureGatherCompare\(/u);
   assert.match(source, /fn shadowmap_csm_compute_cascade_blended/u);
   assert.match(source, /fn contact_harden_pcf_kernel/u);
+  assert.match(source, /fn sparse_octahedral_unit_encode/u);
+  assert.ok(
+    source.indexOf("fn sparse_octahedral_unit_encode") <
+    source.indexOf("sparse_octahedral_unit_encode(perturbed)")
+  );
   assert.match(source, /sparse_direct\(surface,pixel\)/u);
   assert.equal((source.match(/@compute/gu) ?? []).length, 1);
   assert.doesNotMatch(source, /shade_direct_pixel|SurfaceLite immediately/u);
