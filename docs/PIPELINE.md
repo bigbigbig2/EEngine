@@ -38,6 +38,8 @@ Hardware Visibility 使用 reverse-Z depth 并直接输出 `VisibilityKey`。Key
 
 Geometry consumer 通过共享 byte-addressed decode ABI 读取 `static-pbr-compact-v2`：AABB-relative UNORM16 position、oct SNORM16 normal、SNORM16 tangent、float16 UV 与 UNORM8 color。`GpuAssetStore` 在同一 resident/release command transaction 内把 geometry/meshlet/generation 与 meshlet-vertex/triangle/vertex-data 分别发布为 versioned `asset-metadata-heap`、`vertex-payload-heap`；五段 GPU copy 后的 word base、count、byte size 与 heap epoch 是正式 binding 数据，release 先发布下一 generation，abort 恢复旧 heap identity，旧 heap 等 submitted work 完成后销毁。派生 heap 的 resident/allocated/retiring bytes 纳入资产证据，不能当作零成本 alias。Meshlet/cluster bounds 必须包含 quantization 误差；Visibility、Shadow、Shading Resolve 与 Transparency 不得各自复制或猜测 decode 规则。
 
+ADR-0013 Step 7 的 production resolve binding 已冻结但尚未接入主管线：`GpuSparseShadingFrameAbi` 以 240 B uniform 原子携带 internal extent、material/texture/publication generation、资产 heap word bases、frame/PreExposure/upscale、camera 与 current/previous VP；reserved scene-global geometry generation 必须写零，真实 generation 只从 Instance V6 与资产逐 slot table 核对。Lit specialization 直接读取现有分页 `LightDatabase`，沿用生产 32×32×24 cluster、Filament BRDF、5×5 optimized shadow gather、directional CSM blend、point contact-hardening 与 spot shadow 语义。Direct-only sparse stage 不绑定 environment/IBL；这些输入继续由后继 long-range GI/opaque lighting owner 消费，不能用未读取的 dummy binding 填满上限。
+
 SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
 1. MaterialTileWork classifier 直接读取 VisibilityKey/material records，在 GPU 上发布固定 28 类 queue 与 indirect args。
@@ -60,7 +62,7 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 - `Bloom reconstructed pyramid`：从 `FinalColorPyramid` mip1 开始构建的 Bloom 专用阈值/重建结果，mip0 是 `output-half`；它不是另一个 scene-color pyramid，也不得标成 `output-full`。只有 one-shot post-color-grading capture 所需的 Bloom composite materialization 才回到 `output-full`。
 - `DirectLightingFrame`：direct-only linear HDR。
 - `OpaqueLightingFrame`：完整不透明 HDR、IBL specular、indirect diffuse。
-- `LightClusterFrame`：parameters/lookup/data、candidate/active light list 与可选 counters。
+- `LightClusterFrame`：parameters/lookup/ClusterData V2、candidate/active light list 与可选 counters；ClusterData 的固定前缀内嵌 active-list snapshot，供 ADR-0013 三-storage lighting group 在 overflow 时保持同一 fallback 语义。
 - `ShadowVisibilityFrame`：atlas、可选 contact visibility 与 cascade/filter 参数，不拥有 HDR target。
 - `AmbientOcclusionFrame`：visibility 与 bent normal。
 - `ReflectionFrame`：resolved specular、confidence、variance。
@@ -75,6 +77,8 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 MaterialTileWork 的 8×8 GPU classifier 先按 `KernelClassId × TextureBindingSetId` 生成 28 个有界 queue 和 indirect args。Production material evaluation 从 VisibilityKey V2 恢复 MeshletWork/local primitive，读取 canonical compact vertex，计算 perspective-correct barycentric 与显式 UV `ddx/ddy`，按 7 个 KernelClass × 最多 4 个 TextureBindingSet 执行固定 28 次 `dispatchWorkgroupsIndirect`。有效梯度使用 `textureSampleGrad`，退化梯度明确使用 `textureSampleLevel(..., 0)` 并通过 Surface flag/counter 暴露；active class 和可见材质均不回读 CPU。该 compute evaluator 是 opaque 完整材质求值的唯一 production owner，并写 queue consumed 与 exactly-once pixel claim。
 
 Clustered direct lighting 复用同一 MaterialTileWork，再以一个共享 compute pipeline 固定执行 28 次 indirect dispatch，消费 compact material working set、cluster 和 shadow 并写 HDR；它不再增加 material claim，只验证 evaluator 的 valid/shaded、unassigned、duplicate、overflow 和 generation closure，GPU finalizer 写 `frameInvalid`，Tonemap 将失败帧显示为 diagnostic magenta。旧 MaterialClassDepth probe/pass、class-discard owner、fullscreen raster material/direct-lighting 路径、Surface V1 bridge 及其 26 B/pixel attachments 已删除。
+
+Step 7.1 已让 sparse resolve 与上述过渡 Lighting consumer 从同一个 `lighting_direct` WGSL authority 获得 LightDatabase reader、BRDF、cluster traversal 与 shadow 实现；shadow-off specialization 会物理删除 atlas/sampler/sample chain。当前主管线仍由上一段的 MaterialTile/28-dispatch owner 执行，只有 Step 7.2 原子接入 `SurfaceFeature/LightingFeature/MainRenderPipeline` 且 Step 7.3 删除旧 owner 后，才能把 sparse composition 写成 production 事实。
 
 当前 SurfaceLite physical profile 为 `rgba16uint normal + rgba8unorm albedo/AO + rg32uint material/emissive`，无 motion consumer 时 20 B/pixel；Velocity consumer 存在时增加 `rg16float`，为 24 B/pixel。Velocity-off 使用独立静态 shader interface，bind layout、资源创建、clear/store 都不含 velocity，不使用 dummy texture。MaterialId debug 从 `VisibilityKey → MeshletWork` 恢复，不再复制 per-pixel material slot。主 HDR/颜色 history 的独立 ABI 为 `pre-exposed-rgba16float-v1`（8 B/pixel）；`rg11b10ufloat` 因无 alpha、无有符号表示且不能作为统一 render/storage/history 合同而没有成为主管线格式，仍可由 RGB-only companion product 单独门禁采用。
 

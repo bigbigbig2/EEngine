@@ -34,6 +34,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 可见像素身份 | `src/gpu/GpuVisibilityKeyAbi.ts`、Visibility owners | key ABI、sentinel、reverse-Z、diagnostics |
 | SurfaceLite/HDR ABI | `src/gpu/GpuComputeMaterialAbi.ts`、`GpuHdrAbi.ts` | compact working-set、conditional velocity、normal/flags 编码、HDR/history 格式与 bytes/pixel |
 | Surface 组合 | `src/render/features/SurfaceFeature.ts` | 唯一 MaterialTile compute evaluator 的装配、compact Surface/conditional velocity 产品生命周期；不存在可选 material-resolve backend |
+| ADR-0013 production cutover 准备 | `src/gpu/GpuSparseShadingFrameAbi.ts`、`GpuSparseShadingPipelineContract.ts`、`src/shaders/sparse_shading_resolve.ts`、`lighting_direct.ts`、`src/render/passes/LightClusterPass.ts` | 冻结 240 B sparse shading-view、直接消费生产 `LightDatabase`/32×32 cluster/shadow ABI，并从唯一生产 direct-lighting shader authority 生成 sparse specialization；当前仍待 `SurfaceFeature/MainRenderPipeline` 原子接线，不能冒充已完成主管线 cutover |
 | 主深度目标 | `src/render/RenderTargets.ts` | mip0-only current depth；仅在screen-space diffuse temporal、SSR temporal或主Temporal需要previous depth时启用提交感知双缓冲 |
 | 帧资源 | `src/framegraph/FrameGraph.ts` | 资源、依赖、pruning 和执行 |
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/shadow/main-view 顺序 |
@@ -58,6 +59,8 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 Runtime Asset 是设备无关事实；GPU owner 由设备和 Renderer 生命周期控制。资源释放必须经过提交边界，不能让 Loader、Scene 临时对象或 FrameGraph 外部引用隐式延长 GPU 对象寿命。持久 history、shadow atlas、LPV 和 asset residency 与 transient frame attachment 分开统计。主depth始终只有一张current mip0；previous-depth只随真实时域consumer启用第二张提交感知slot，并以独立`previousDepthBytes`计入history memory，关闭后经过submitted-work边界退役。颜色 pyramid 是当帧 transient 产品：`OpaqueColorPyramid` 与 `FinalColorPyramid` source stage 不同，禁止为了复用内存改写成同一 logical product；只有 descriptor/lifetime 兼容且不破坏语义时，FrameGraph 才可在底层复用 allocation。
 
 Geometry 默认生产变体是 `static-pbr-compact-v2`；position/normal/tangent/UV/color 的物理编码由 package profile 冻结，Shader 只能经共享 decode ABI 读取。`explicit-float32-fallback-v2` 需要 Cooker 显式选择。普通生产材质纹理由 `ShadeTexture.fromAssetPackageV2()` 携带设备无关 Texture Package：已有 GPU-native variant 直接进入 residency；KTX2 UASTC/ETC1S 先经 `GraphicsContext` 惰性持有的有界 `AssetCodecService` 和固定 Khronos libktx Worker/WASM 转为同一 Encoded Variant/package。两者随后统一经过 `GpuRenderWorld → TextureResidency`，按 exact format、extent 与完整离线 mip 分配 immutable segment，并由最多 4 个 `TextureBindingSet` 为同一 material colocate 全部语义。`KernelClassId × TextureBindingSetId` 的固定有界 consumer 覆盖 Material Resolve、Visibility MASK、Shadow MASK 与 Transparency；运行时 mip generation 只保留给显式未 Cook 的 development 输入。Runtime residency seam 只表达 chunk/request/budget/range 和退役，不拥有 scheduler；逻辑 asset/material handle 不含 GPU buffer offset、texture layer 或 mip/page 地址。
+
+`LightClusterPass` 的 ClusterData V2 在 32 B header 后保留固定 active-light tuple prefix，再从该 prefix 之后分配普通 cluster references；overflow metadata 和 `active_written` 因此允许 sparse resolve 只绑定 `light database + cluster lookup + cluster data` 三个 lighting storage buffer，仍完整执行 production active-list fallback，而不违反 ADR-0013 的 10-storage stage ceiling。当前旧 Lighting/Transparency consumer 仍可读取单独 `activeLightList` FrameProduct；该字段只在 Step 7.2/7.3 完成统一接线和删除审计后才能移除。
 
 Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证据。它不成为渲染 owner，也不从 DOM 或推测值重建指标；详细合同位于 `OEngine/src/addons/inspector/README.md`。
 
