@@ -4,17 +4,17 @@
 
 ```text
 scene-update
-  → optional shadow-update
   → main-view-graph
-  → VisibilityKey + depth
-  → Surface + optional velocity
-  → clustered direct light + shadow + GI/AO/reflection
+  → VisibilityKey + ShadingBinId + depth
+  → optional shadow/cluster producers
+  → sparse bin classify + finalize + specialized material/direct shading
+  → demanded compact Surface/velocity + GI/AO/reflection
   → transparency
   → temporal/upscale
   → HDR post + present
 ```
 
-`FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。`main-view-graph` 必须等待本帧启用的 scene 和 shadow 更新。旧对象 runtime 驱动的 probe-atlas 更新已经删除；现有 LPV atlas 是只读采样资源，不会生成独立更新图或 submit。
+`FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。Shadow atlas/light-record producer 已进入 `main-view-graph`，通过显式资源版本边连接 cluster 与 sparse lit resolve，不再用一个空的跨图 `shadow-update` stage 代替真实 GPU 依赖。旧对象 runtime 驱动的 probe-atlas 更新已经删除；现有 LPV atlas 是只读采样资源，不会生成独立更新图或 submit。
 
 主管线的 WebGPU specialization 遵循 [WEBGPU.md](./WEBGPU.md)：先冻结 capability record，再选择 Shader、format、compressed asset 和 pass-local resource 实现。能力差异只能改变同一节点/产品的内部实现和 cache key，不能复制 FramePlan、FrameProducts 或 Renderer。Visibility 在 `primitive-index` 已启用时消费 fragment builtin，缺失时消费 vertex 派生的 flat local triangle；两者写同一 VisibilityKey。Immediate Data 只替代小常量传递；Transient Attachment 只用于不离开当前 render pass 的 attachment。
 
@@ -22,9 +22,9 @@ scene-update
 
 `scene-update` 开始前必须从 `GpuRenderWorld` 解析已注册 runtime；未注册 Scene 直接失败。Packed source 的显式 batch 与普通 Scene adapter 的 `SceneChangeSet` 都由 `GpuRenderWorld.encodePendingPatch()` 转为同一 `GpuScene` patch。Instance record 的前 64 B 是低频 static identity/bounds；V6 在不增加 stride 的前提下使用原保留 lane 同时保存 geometry slot 对应的非零 AssetHandle generation，geometry consumer 必须逐实例与资产 generation table 核对，不能把混合资产场景压成单一 generation。后 112 B 是 current/previous-from-current affine、revision 与 motion state；static、transform、material、visibility/lifecycle patch 分流，稳定帧不写入，transform patch 只上传 dynamic region。普通 Scene 稳定帧不扫描对象树；transform/material assignment 增量提交，add/remove/geometry 变化要求调用 `resyncScene()`。共享 `GPUSceneEnvironmentContext` 独立同步 light/environment，`GPUViewContext` 只绑定环境和 camera/view/HZB。
 
-材质纹理的 CPU-heavy preparation 位于主帧外：GPU-native package 直接使用，KTX2 UASTC/ETC1S 则由惰性 `AssetCodecService → bounded Worker pool → pinned libktx WASM` 产生相同 Encoded Variant/package；Worker 不接收 GPU object。随后在同一 scene stage 事务内由 `TextureResidency` 选择 exact physical variant、直接写入完整离线 mip chain，并发布 stable handle、material-local TextureRef routing 和 `TextureBindingSetId`。每个 material 的所有 texture semantic 必须 preflight 到一个有界 set；GPU classification 以 `KernelClassId × TextureBindingSetId` 驱动固定数量的 Material Resolve、Visibility MASK、Shadow MASK 和 Transparency consumer，不回读可见材质。未 Cook `ShadeImage` 只作为 development fallback，仍可进入 RGBA8 size-class 与 runtime mip 路径，但不能作为 Texture Package V3 完成证据。
+材质纹理的 CPU-heavy preparation 位于主帧外：GPU-native package 直接使用，KTX2 UASTC/ETC1S 则由惰性 `AssetCodecService → bounded Worker pool → pinned libktx WASM` 产生相同 Encoded Variant/package；Worker 不接收 GPU object。随后在同一 scene stage 事务内由 `TextureResidency` 选择 exact physical variant、直接写入完整离线 mip chain，并发布 stable handle、material-local TextureRef routing 和 `TextureBindingSetId`。每个 material 的所有 texture semantic 必须 preflight 到一个有界 set；opaque publication 以 `ShadingProgramId × TextureBindingSetId` 形成最多 64 个可能 active bins，Visibility MASK、Shadow MASK 与 Transparency 继续读取同一 association material/routing truth，不回读可见材质。未 Cook `ShadeImage` 只作为 development fallback，仍可进入 RGBA8 size-class 与 runtime mip 路径，但不能作为 Texture Package V3 完成证据。
 
-`shadow-update` 由 Scene-scoped `ShadowFeature` 单入口编码。该 Feature 同时拥有 atlas、directional cascade fit/texel snapping、camera/content revision cache、统一 Render World hierarchy work generation/raster 和 GPU-completion retire；Packed source 与普通 Scene adapter 发布同一 `ShadowVisibilityFrame`、atlas、counter 与设置合同。关闭阴影时 `ShadowFeatureManager` 不创建 owner；已有 owner 在当前提交完成后销毁，Lighting 收到 cascade count 为零的产品。
+Scene-scoped `ShadowFeature` 仍是 atlas、directional cascade fit/texel snapping、camera/content revision cache、统一 Render World hierarchy work generation/raster 和 GPU-completion retire 的单一 owner；它现在通过 `ShadowFeature.addToGraph()` 在主图内同时写 atlas、LightDatabase 与 counter 的新资源版本。Packed source 与普通 Scene adapter 发布同一 `ShadowVisibilityFrame`、atlas、counter 与设置合同。关闭阴影时 `ShadowFeatureManager` 不创建 owner，主图也没有 shadow producer/resource edge；已有 owner 在当前提交完成后销毁。
 
 ## GPU Work Contract
 
@@ -34,18 +34,18 @@ scene-update
 
 ## Visibility-to-Surface Contract
 
-Hardware Visibility 使用 reverse-Z depth 并直接输出 `VisibilityKey`。Key 必须稳定定位 exact-raster identity 和材质 kernel class；无效 key 使用明确 sentinel，并由 counter/debug view 暴露。
+Hardware Visibility 使用 reverse-Z depth，并由同一个胜出 fragment 同时输出 `VisibilityKey r32uint` 与 `ShadingBinId r8uint`。Key 稳定定位 exact-raster identity，bin 只表达当前 immutable publication 的 specialized shading identity；两张纹理具有相同 extent、sample ownership、generation 和 FrameGraph lifetime。无效 key/bin 分别使用正式 sentinel，并由 counter/debug view 暴露。
 
 Geometry consumer 通过共享 byte-addressed decode ABI 读取 `static-pbr-compact-v2`：AABB-relative UNORM16 position、oct SNORM16 normal、SNORM16 tangent、float16 UV 与 UNORM8 color。`GpuAssetStore` 在同一 resident/release command transaction 内把 geometry/meshlet/generation 与 meshlet-vertex/triangle/vertex-data 分别发布为 versioned `asset-metadata-heap`、`vertex-payload-heap`；五段 GPU copy 后的 word base、count、byte size 与 heap epoch 是正式 binding 数据，release 先发布下一 generation，abort 恢复旧 heap identity，旧 heap 等 submitted work 完成后销毁。派生 heap 的 resident/allocated/retiring bytes 纳入资产证据，不能当作零成本 alias。Meshlet/cluster bounds 必须包含 quantization 误差；Visibility、Shadow、Shading Resolve 与 Transparency 不得各自复制或猜测 decode 规则。
 
-ADR-0013 Step 7 的 production resolve binding 已冻结但尚未接入主管线：`GpuSparseShadingFrameAbi` 以 240 B uniform 原子携带 internal extent、material/texture/publication generation、资产 heap word bases、frame/PreExposure/upscale、camera 与 current/previous VP；reserved scene-global geometry generation 必须写零，真实 generation 只从 Instance V6 与资产逐 slot table 核对。Lit specialization 直接读取现有分页 `LightDatabase`，沿用生产 32×32×24 cluster、Filament BRDF、5×5 optimized shadow gather、directional CSM blend、point contact-hardening 与 spot shadow 语义。Direct-only sparse stage 不绑定 environment/IBL；这些输入继续由后继 long-range GI/opaque lighting owner 消费，不能用未读取的 dummy binding 填满上限。
+ADR-0013 Step 7.2 已把 production resolve binding 接入唯一主管线：`GpuSparseShadingFrameAbi` 以 240 B uniform 原子携带 internal extent、material/texture/publication generation、资产 heap word bases、frame/PreExposure/upscale、camera 与 current/previous VP；reserved scene-global geometry generation 必须写零，真实 generation 只从 Instance V6 与资产逐 slot table 核对。Lit specialization 直接读取现有分页 `LightDatabase`，沿用生产 32×32×24 cluster、Filament BRDF、5×5 optimized shadow gather、directional CSM blend、point contact-hardening 与 spot shadow 语义。Direct-only sparse stage 不绑定 environment/IBL；这些输入继续由后继 long-range GI/opaque lighting owner 消费，不能用未读取的 dummy binding 填满上限。
 
-SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
+`SurfaceFeature` 消费正式 Visibility/ExactRaster 产品：
 
-1. MaterialTileWork classifier 直接读取 VisibilityKey/material records，在 GPU 上发布固定 28 类 queue 与 indirect args。
-2. Compute material evaluator 是唯一 opaque full-material owner；ClassDepth probe/pass 和 class-discard backend 不再初始化、编译或提交。
-3. evaluator 直接发布 versioned compact working set 与 `ShadingSurfaceLiteFrame`；consumer 按命名产品绑定，不再经过 Surface V1 格式 bridge，也不根据附件顺序猜测语义。
-4. TriangleSetup candidate cache 默认是显式 opt-in；关闭时没有 setup allocation、FrameGraph resource 或 clear。Compute evaluator 的默认 projected-triangle gradient 不依赖该 cache。
+1. `ShadingBinPass` 顺序读取 `ShadingBinId`，经 64×64 macro / 8×8 microtile / width-agnostic subgroup 聚合写 revision-owned heap 与独立 768 B indirect args；classifier 不再逐像素恢复 material。
+2. finalizer 验证 attempted/written/overflow、generation/layout 与 2D dispatch 后，按 active scene bins 完整写三字段 indirect args；错误帧把所有 shading args 归零。
+3. `SparseShadingResolvePass` 按 active bin 切换 creation-time specialized pipeline/bind group 并执行 `dispatchWorkgroupsIndirect`；同一 kernel 完成一次完整材质解析和 lit direct lighting，CPU 不读取当前可见 bin/count。
+4. HDR 必有且只做一次 attachment clear；normal/material/albedo-AO/velocity 只随 output dependency 创建并由 resolve 首次写入，不存在 dummy texture 或 compact Surface 全屏 clear。GTAO/SSGI/SSR/Temporal/debug/counter consumer 必须先验证同域 depth/visibility 再读取未定义背景 texel。
 
 旧 Visibility-to-Surface 选择背景见 [ADR-0004](./adr/0004-visibility-to-surface.md)；当前替代决定以 [ADR-0009](./adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md) 为准。
 
@@ -53,7 +53,8 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
 `FrameProducts.ts` 是跨 Pass 资源字段的事实源：
 
-- `ComputeMaterialEvaluationFrame`：唯一 full-material evaluator 的紧凑工作集，域为 `internal-full`，Velocity 按 consumer topology 可空。
+- `ShadingBinFrame`：revision-owned heap/indirect args、generation、active masks 与固定 8×8 microtile 的 GPU producer→consumer identity。
+- `SpecializedShadingFrame`：唯一 opaque specialized resolve 发布的 `DirectLightingFrame`、可空 `ShadingSurfaceLiteFrame`、可空 `DiffuseSurfaceLiteFrame` 与可空 Velocity；全部共享一个 `internal-full` domain。
 - `ShadingSurfaceLiteFrame`：world-space normal、roughness/flags 与可选 metallic/specular classification；不携带 depth 或 velocity。
 - `DiffuseSurfaceLiteFrame`：仅由 SSGI/refraction-like consumer 请求的 receiver diffuse/material-AO/validity 逻辑产品。
 - `PreExposedOpaqueHdrBaselineFrame`：screen-space diffuse 之后、SSR correction 之前的 opaque HDR；baseline specular 与 SSR consumer 同生同灭。
@@ -74,11 +75,9 @@ SurfaceFeature 消费正式 Visibility/ExactRaster 产品：
 
 ## Lighting、Transparency 与 Temporal
 
-MaterialTileWork 的 8×8 GPU classifier 先按 `KernelClassId × TextureBindingSetId` 生成 28 个有界 queue 和 indirect args。Production material evaluation 从 VisibilityKey V2 恢复 MeshletWork/local primitive，读取 canonical compact vertex，计算 perspective-correct barycentric 与显式 UV `ddx/ddy`，按 7 个 KernelClass × 最多 4 个 TextureBindingSet 执行固定 28 次 `dispatchWorkgroupsIndirect`。有效梯度使用 `textureSampleGrad`，退化梯度明确使用 `textureSampleLevel(..., 0)` 并通过 Surface flag/counter 暴露；active class 和可见材质均不回读 CPU。该 compute evaluator 是 opaque 完整材质求值的唯一 production owner，并写 queue consumed 与 exactly-once pixel claim。
+Production opaque shading 先按 `ShadingProgramId × TextureBindingSetId` 的 active scene summary 建立不可变 revision，再从 VisibilityKey V2 恢复 MeshletWork/local primitive，读取 canonical compact vertex，计算 perspective-correct barycentric 与显式 UV gradients。有效梯度使用 `textureSampleGrad`，退化梯度明确使用 `textureSampleLevel(..., 0)` 并通过 Surface flag/counter 暴露。每个命中 pixel 只在所属 specialized bin kernel 中完成一次 material evaluation；lit program 随即用同一个 `lighting_direct` WGSL authority 消费 LightDatabase/cluster/shadow 并写 HDR，不再执行第二轮 28-class direct-lighting dispatch。Unlit/textureless/output-off/shadow-off variant 在创建时物理删除无用 binding、读取与 store。
 
-Clustered direct lighting 复用同一 MaterialTileWork，再以一个共享 compute pipeline 固定执行 28 次 indirect dispatch，消费 compact material working set、cluster 和 shadow 并写 HDR；它不再增加 material claim，只验证 evaluator 的 valid/shaded、unassigned、duplicate、overflow 和 generation closure，GPU finalizer 写 `frameInvalid`，Tonemap 将失败帧显示为 diagnostic magenta。旧 MaterialClassDepth probe/pass、class-discard owner、fullscreen raster material/direct-lighting 路径、Surface V1 bridge 及其 26 B/pixel attachments 已删除。
-
-Step 7.1 已让 sparse resolve 与上述过渡 Lighting consumer 从同一个 `lighting_direct` WGSL authority 获得 LightDatabase reader、BRDF、cluster traversal 与 shadow 实现；shadow-off specialization 会物理删除 atlas/sampler/sample chain。当前主管线仍由上一段的 MaterialTile/28-dispatch owner 执行，只有 Step 7.2 原子接入 `SurfaceFeature/LightingFeature/MainRenderPipeline` 且 Step 7.3 删除旧 owner 后，才能把 sparse composition 写成 production 事实。
+`LightingFeature` 只保留 light-cluster producer与 background/empty-HDR composition；opaque direct lighting 已融合到 sparse resolve。Production diagnostics 只保留 queue/control 的 error-only counter，per-pixel claim/duplicate/unassigned oracle 只属于独立 diagnostics variant。Step 7.3 仍须从源树删除已不可达的旧 `MaterialTileWork`/dynamic KernelClass/`LightingPass` 文件、tests 与文档；它们不是 runtime fallback，不能重新接线。
 
 当前 SurfaceLite physical profile 为 `rgba16uint normal + rgba8unorm albedo/AO + rg32uint material/emissive`，无 motion consumer 时 20 B/pixel；Velocity consumer 存在时增加 `rg16float`，为 24 B/pixel。Velocity-off 使用独立静态 shader interface，bind layout、资源创建、clear/store 都不含 velocity，不使用 dummy texture。MaterialId debug 从 `VisibilityKey → MeshletWork` 恢复，不再复制 per-pixel material slot。主 HDR/颜色 history 的独立 ABI 为 `pre-exposed-rgba16float-v1`（8 B/pixel）；`rg11b10ufloat` 因无 alpha、无有符号表示且不能作为统一 render/storage/history 合同而没有成为主管线格式，仍可由 RGB-only companion product 单独门禁采用。
 
