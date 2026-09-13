@@ -134,6 +134,7 @@ test("Canonical Geometry V2 is deterministic, compact, and numerically faithful"
 
   const positions = source.attributes.get("position").data;
   const normals = source.attributes.get("normal").data;
+  const tangents = source.attributes.get("tangent").data;
   const uvs = source.attributes.get("uv0").data;
   const extent = [
     source.bounds.box[3] - source.bounds.box[0],
@@ -154,8 +155,9 @@ test("Canonical Geometry V2 is deterministic, compact, and numerically faithful"
     assert.ok(Math.abs(uv[0] - uvs[vertex * 2]) <= 0.0005);
     assert.ok(Math.abs(uv[1] - uvs[vertex * 2 + 1]) <= 0.0005);
     const tangent = decodeGeometryTangent(compact.asset, vertex);
-    assert.ok(Math.abs(tangent[0] - 1) <= 1 / 32767);
-    assert.deepEqual([...tangent.slice(1)], [0, 0, 1]);
+    for (let component = 0; component < 4; component++) {
+      assert.ok(Math.abs(tangent[component] - tangents[vertex * 4 + component]) <= 2 / 32767);
+    }
     const color = decodeGeometryColor(compact.asset, vertex);
     assert.ok(Math.abs(color[0] - 1) <= 1 / 255);
     assert.ok(Math.abs(color[1] - 128 / 255) <= 1 / 255);
@@ -436,13 +438,13 @@ function staticPbrBox() {
     normalized: stream.normalized,
     data: stream.data
   }));
-  const tangents = new Float32Array(box.vertexCount * 4);
+  const tangentStream = box.attributes.get("tangent");
+  assert.ok(tangentStream, "box source geometry must provide generated tangents");
+  const tangents = tangentStream.data;
   const colors = new Uint8Array(box.vertexCount * 4);
   for (let vertex = 0; vertex < box.vertexCount; vertex++) {
-    tangents.set([1, 0, 0, 1], vertex * 4);
     colors.set([255, 128, 0, 255], vertex * 4);
   }
-  attributes.push({ semantic: "tangent", componentCount: 4, data: tangents });
   attributes.push({ semantic: "color", componentCount: 4, normalized: true, data: colors });
   return createSourceGeometry({
     sourceId: "fixture://static-pbr-box-v2",

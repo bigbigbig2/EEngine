@@ -225,8 +225,10 @@ export function buildBoxSourceGeometry(
   segH = 1,
   segD = 1
 ): SourceGeometry {
+  const geometry = buildBoxMesh(width, height, depth, segW, segH, segD);
+  geometry.computeTangents();
   return geometryToSourceGeometry(
-    buildBoxMesh(width, height, depth, segW, segH, segD),
+    geometry,
     { sourceId: `box:${width}:${height}:${depth}:${segW}:${segH}:${segD}` }
   );
 }
