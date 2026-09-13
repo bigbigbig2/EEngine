@@ -24,7 +24,7 @@ OEngine 的主要产品能力线是 **WebGPU 2026 Desktop**，替代过去含义
 | --- | --- | --- | --- |
 | `core-features-and-limits` | 必需 | core WebGPU limits/validation 和现代图形 API 能力线 | 初始化失败；不降为 compatibility profile |
 | `indirect-first-instance` | 主路径需要时必需 | GPU work slot/range 到 indirect draw 的稳定映射 | 使用不依赖非零 `firstInstance` 的等价 mapping |
-| `subgroups` | opaque Shading Bin 必需；其他 consumer 按需启用 | queue compact、classification、scan/reduction、histogram | opaque Renderer 初始化失败；不提供旧 `MaterialTileWork` 或 workgroup-only classifier fallback；不得假设固定 subgroup size |
+| `subgroups` | opaque Shading Bin 必需；其他 consumer 按需启用 | queue compact、classification、scan/reduction、histogram | opaque Renderer 初始化失败；不提供旧 classifier 或 workgroup-only fallback；不得假设固定 subgroup size |
 | `primitive-index` | Visibility V2 默认优先启用 | fragment 阶段恢复 rasterized local primitive identity | 保持 meshlet work + local triangle 的等价 identity mapping |
 | `shader-f16` | 精度审计通过后优先启用 | 非 identity、非 depth、非 history-critical 的局部算术和中间值 | f32 specialization |
 | `texture-formats-tier1` | 目标 Surface/HZB 格式需要时必需 | 扩展 render/storage format 集；隐式包含 `rg11b10ufloat-renderable` | 选择 core-compatible format，或在无等价格式时拒绝配置 |

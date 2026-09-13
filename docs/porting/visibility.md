@@ -41,7 +41,7 @@
 
 ## VIS-LARGE-SETUP-V2 · Independent large-triangle shading setup
 
-- Local owner/source: `OEngine/src/render/LargeTriangleSetupCache.ts`、`OEngine/src/shaders/large_triangle_setup.ts`、`OEngine/src/gpu/GpuLargeTriangleSetupAbi.ts`、`OEngine/src/shaders/packed_material_resolve.ts`。
+- Local owner/source: `OEngine/src/render/LargeTriangleSetupCache.ts`、`OEngine/src/shaders/large_triangle_setup.ts`、`OEngine/src/gpu/GpuLargeTriangleSetupAbi.ts`。
 - Upstream: visibility-buffer barycentric reconstruction literature and the existing OEngine Surface oracle；未复制外部表达性代码。
 - License: local specification implementation。
 - Adoption: 按 ADR-0008 独立实现 optional optimization。
@@ -50,20 +50,20 @@
 - Fallback/lifecycle: 默认关闭时零资源、零 pass、零 evidence dispatch；容量外或无效 setup 逐像素重建，`setupOverflow` 只记录 optimization miss，不触发 correctness failure；release/device destroy 销毁 settings 与 records。
 - Local validation: CPU dense-index boundary oracle、真实 Chrome setup build/write/hit/fallback/overflow counters、Material Resolve consumer 与 GPU diagnostics。
 
-## VIS-MATERIAL-COMPUTE · Bounded MaterialTileWork and adaptive setup
+## VIS-MATERIAL-COMPUTE · Historical bounded material queue
 
-- Historical source/deletion targets: `OEngine/src/gpu/GpuMaterialTileWorkAbi.ts`、`OEngine/src/render/passes/MaterialTileClassificationPass.ts`、`ComputeMaterialResolvePass.ts`、`PackedMaterialResolvePass.ts`。这些文件在 ADR-0013 Step 7.2 后已无 production consumer，只等待 Step 7.3 零残留删除；`GpuComputeMaterialAbi.ts` 仍保存未被 supersede 的 compact Surface 编码语义。
+- Historical local implementation: ADR-0009 的 bounded tile/class queue、dynamic material evaluator 与第二轮 opaque lighting owner 已在 ADR-0013 Step 7 commit `cf9fbf5` 物理删除。`GpuComputeMaterialAbi.ts` 只保留仍被当前 compact Surface 使用的编码语义。
 - Upstream: Bevy <https://github.com/bevyengine/bevy>；Burns & Hunt, *The Visibility Buffer*；DAIS, *Deferred Attribute Interpolation Shading*；*NanoMesh: GPU-Driven Rendering for Particle-Based Discrete LOD Meshes*。
 - Revision: Bevy `b70463f072a3380ebb37c8803f1c4941357e64fa`；论文分别采用 JCGT 2013、HPG 2015 与 SIGGRAPH 2024 公开版本。
 - Upstream source: Bevy `crates/bevy_pbr/src/render/meshlet/resolve_render_targets.wesl`、`crates/bevy_pbr/src/render/meshlet/material_shade_nodes.rs`、`crates/bevy_pbr/src/render/meshlet/visibility_buffer_resolve.wesl`；论文仅作为算法与语义参考。
 - License: Bevy MIT OR Apache-2.0（本迁移按 MIT 条款追踪）；论文仅作为非代码语义参考，未复制表达性源码。
-- Adoption: historical traceable local reimplementation；ADR-0009 Step 2 曾把 MaterialClassDepth/class-discard 双 backend 替换为单一 GPU-authored `MaterialTileWork` compute path，ADR-0013 Step 7.2 已再将 production owner 切换到 Sparse Shading Bin。Surface V1 格式 bridge 仍保持删除状态。
+- Adoption: historical traceable local reimplementation；ADR-0013 Step 7 已把 production owner 切换到 Sparse Shading Bin，并删除被取代的调度实现。Surface V1 格式 bridge 仍保持删除状态。
 - Retained invariants: 固定且有界的 material kernel class、canonical vertex reconstruction、perspective-correct barycentric 与显式 gradient、候选 setup cache 的确定性容量与 fail-visible fallback。
 - OEngine/WebGPU differences: 采用 3-bit kernel class 与 `r32uint` VisibilityKey、7 个 material kernel class × 4 个 `TextureBindingSet`、固定 28 次 indirect compute dispatch；不依赖 bindless、subgroup、64-bit atomic、multi-draw-indirect 或 mesh shader。
 - Fallback/lifecycle: 非法 key、queue capacity overflow、duplicate/unassigned shading claim 必须计数并 fail-visible；退化 gradient 明确使用 LOD 0，禁止隐式 derivative；资源由 FrameGraph 按 consumer topology 创建和退役。
-- Local validation: `GpuVisibilityKeyAbi`、`GpuMaterialTileWorkAbi`、`GpuComputeMaterialAbi` CPU-WGSL oracle，真实 Chrome material cook/upload/sample/lighting consumer，invalid/overflow/duplicate/unassigned/gradient-fallback counter、截图/数值 parity、P50/P95、生命周期与 binding budget 门禁；当前开放项见 `docs/STATUS.md`，长期决定见 `docs/adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md`。
+- Local validation: 历史 CPU/WGSL oracle 与 Chrome artifacts 只用于冻结 baseline narrative；当前生产验证由 `VIS-SHADING-BIN-V1` 的 ABI/reference/shader/browser owners 接管。开放项见 `docs/STATUS.md`，长期决策见 `docs/adr/0009-compute-shading-and-advanced-frame-pipeline-v2.md`。
 
-- Supersession: 该物理实现已被 [ADR-0013](../adr/0013-sparse-shading-bin-pipeline.md) Step 7.2 从 production 主链移除；Step 7.3 必须删除全部旧 owner/counter/test/doc 残留。先前 MILESTONE/PERF 只保留为历史 baseline，不授权把旧实现恢复为 fallback。
+- Supersession: 该物理实现已被 [ADR-0013](../adr/0013-sparse-shading-bin-pipeline.md) Step 7 从 production 主链移除并删除。先前 MILESTONE/PERF 只保留为历史 baseline，不授权恢复第二套 backend。
 
 ## VIS-SHADING-BIN-V1 · Sparse Shading Bin work generation
 
@@ -78,5 +78,5 @@
 - Rejected source: Kooch `976eab6038f55edc477c42c57e49ed8918190bfe` 为 All Rights Reserved，状态固定为 `reject-adoption`；禁止复制、翻译或派生其 WGSL。其每材质扫描完整 target 的 scheduler 也不满足 OEngine 稀疏工作合同。
 - Retained invariants: 64 个 `ShadingProgramId × TextureBindingSetId` bins、64×64 macro、8×8 microtile、16×16 classifier、subgroup→workgroup→global 聚合、每 macro/bin 至多一次 bounded reservation、4 B microtile record、GPU-authored 12 B indirect args、GPU producer→GPU consumer 闭环。
 - OEngine/WebGPU differences: `subgroups` 是 opaque pipeline 的 required feature，但算法覆盖实际 `subgroupMinSize..subgroupMaxSize`，不请求 `subgroup-size-control`；coverage 由两个 `u32` 表示，不使用 64-bit atomic、MDI、mesh/task shader、buffer device address、bindless 或 sized binding arrays。Heap storage 与 indirect args 物理分离，避免同一 pass 的 storage-write/indirect usage 冲突。
-- Fallback/lifecycle: 缺 feature/limit 在 Renderer-owned resource 创建前失败，不存在 no-subgroup/旧 MaterialTile fallback。Queue 是 `CorrectnessCritical`；reservation all-or-nothing，overflow/invalid/revision mismatch 在 resolve 前将全部 args 归零。Resize、summary revision、aborted submit 和 device loss 遵循 immutable snapshot 与 submitted-work retirement。
-- Local validation: Step 1–5 CPU/oracle/source与真实GPU component已有各自冻结证据；Step 6 candidate只完成部分L4。Step 7.2 commit `cbdf97281ab3608e35b21f3288b9ce1214f6a103` 的L0/L1/L2命中矩阵通过typecheck、build:test与140个targeted tests，尚未运行production browser、截图、GPU timestamp或PERF。Step 7.3删除、当前指定RTX 2060 SUPER的完整L4/L5和Step 8 final audit仍open，因此不得声明External Algorithm/Pipeline Feature Complete；其他adapter对比为非阻塞补充。
+- Fallback/lifecycle: 缺 feature/limit 在 Renderer-owned resource 创建前失败，不存在 no-subgroup 或旧 classifier fallback。Queue 是 `CorrectnessCritical`；reservation all-or-nothing，overflow/invalid/revision mismatch 在 resolve 前将全部 args 归零。Resize、summary revision、aborted submit 和 device loss 遵循 immutable snapshot 与 submitted-work retirement。
+- Local validation: Step 1–5 CPU/oracle/source 与真实 GPU component 已有各自冻结证据。Step 7 deletion commit `cf9fbf5` 完成 source/public/shader/counter/test deletion oracle，counter schema v23 将已删除字段的 125–131 标为 reserved；随后 `a357ce8` 与 `3372713` 修复真实浏览器发现的 point-shadow helper closure 和 SSR derivative uniformity。clean commit `3372713` 的 `sparse-shading-candidate/correctness-v6` accepted，但 registry 仍将它定义为 internal candidate，GPU timestamp 不可用，WebGPU adapter info 只证明 NVIDIA/Turing 而非精确型号。production-entry L4、剩余 lifecycle、当前指定 RTX 2060 SUPER 的 L5 baseline/candidate 与 Step 8 final audit仍 open，因此不得声明 Runtime Validated、Performance Improved、Pipeline Feature Complete 或 ADR Complete；其他 adapter 对比为非阻塞补充。

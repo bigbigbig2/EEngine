@@ -2,7 +2,7 @@
 
 ## SHADE-SURFACE · Surface and material reconstruction
 
-- Local semantic owner/source: `GpuComputeMaterialAbi.ts`、`GpuHdrAbi.ts` 与 velocity/debug consumers；旧 `PackedMaterialResolvePass.ts`、`packed_material_compute.ts` 只作为 Step 7.3 待删的失效物理实现保留，不再是 production owner。
+- Local semantic owner/source: `GpuComputeMaterialAbi.ts`、`GpuHdrAbi.ts`、`sparse_shading_resolve.ts` 与 velocity/debug consumers；ADR-0009 的动态 evaluator 已在 ADR-0013 Step 7 物理删除。
 - Upstream: OEngine VisibilityKey/Material records；Filmic Worlds deferred attribute interpolation reference。
 - Revision: local ABI follows source version；external paper/reference has no copied source revision。
 - Upstream source: <https://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/>。
@@ -11,9 +11,9 @@
 - Retained invariants: one visible-pixel resolve、barycentric interpolation、analytic gradients、material decode、normal/tangent frame、current-minus-previous internal-pixel velocity。
 - OEngine/WebGPU differences: production ABI is the named compact 20 B/pixel working set plus consumer-driven 4 B velocity；metadata/PBR/emissive share `rg32uint`，MaterialId debug dereferences VisibilityKey/MeshletWork instead of storing a per-pixel slot；there is no Surface V1 conversion attachment or legacy Scene Surface producer。
 - Fallback/lifecycle: invalid key/material rejects visibly；singular previous transform invalidates motion instead of emitting non-finite velocity。
-- Local validation: compact ABI pack/unpack、static velocity-off/on shader interfaces、specialized sparse resolve、debug view/counters、既有 full Surface Chrome fixture and Rendering Lab base/full profiles；旧浏览器 artifact 只证明冻结 revision，当前 cutover 尚未复跑。
+- Local validation: compact ABI pack/unpack、static velocity-off/on shader interfaces、specialized sparse resolve、debug view/counters、既有 full Surface Chrome fixture and Rendering Lab base/full profiles；Step 7 clean commit `3372713` 的 internal candidate 已在真实 WebGPU 上通过，但 production-entry L4、剩余 lifecycle 与 formal PERF 仍 open。
 
-- Supersession: 当前 reconstruction/Surface 语义继续有效；production 物理 owner 已由 [ADR-0013](../adr/0013-sparse-shading-bin-pipeline.md) Step 7.2 切换到 specialized shading programs。`PackedMaterialResolvePass`、动态 KernelClass material kernel 和独立 direct-lighting consumer 已不可达，必须在 Step 7.3 删除，不能作为 fallback 恢复。
+- Supersession: 当前 reconstruction/Surface 语义继续有效；production 物理 owner 已由 [ADR-0013](../adr/0013-sparse-shading-bin-pipeline.md) Step 7 切换到 specialized shading programs，被取代的动态 material 与第二轮 opaque lighting owner 已物理删除，不能作为 fallback 恢复。
 
 ## SHADE-SPECIALIZED-BIN-V1 · Specialized compute material and fused direct lighting
 
