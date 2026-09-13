@@ -384,7 +384,13 @@ fn sparse_tangent(geometry_base: u32, vertex: u32) -> vec4f { return sparse_stre
 fn sparse_color(geometry_base: u32, vertex: u32) -> vec3f { return sparse_stream(geometry_base, 53u, vertex, vec4f(1.0)).xyz; }
 
 struct SparseBarycentric { weights: vec3f, ddx: vec3f, ddy: vec3f, valid: bool, }
-fn sparse_projected_pixel(value: vec4f) -> vec2f { return value.xy / value.w; }
+fn sparse_projected_pixel(value: vec4f) -> vec2f {
+  let ndc = value.xy / value.w;
+  return vec2f(
+    (ndc.x * 0.5 + 0.5) * f32(shading_view.width),
+    (0.5 - ndc.y * 0.5) * f32(shading_view.height)
+  );
+}
 fn sparse_barycentric(pixel: vec2f, c0: vec4f, c1: vec4f, c2: vec4f) -> SparseBarycentric {
   var result = SparseBarycentric(vec3f(1.0, 0.0, 0.0), vec3f(0.0), vec3f(0.0), false);
   let p0 = sparse_projected_pixel(c0); let p1 = sparse_projected_pixel(c1); let p2 = sparse_projected_pixel(c2);

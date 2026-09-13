@@ -121,6 +121,16 @@ test("textured variants use explicit gradients or explicit level only", () => {
   }
 });
 
+test("triangle reconstruction converts clip-space NDC to top-left pixel coordinates", () => {
+  const source = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrFactor,
+    GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite
+  )).source;
+  assert.match(source, /\(ndc\.x \* 0\.5 \+ 0\.5\) \* f32\(shading_view\.width\)/u);
+  assert.match(source, /\(0\.5 - ndc\.y \* 0\.5\) \* f32\(shading_view\.height\)/u);
+  assert.doesNotMatch(source, /fn sparse_projected_pixel\([^)]*\)[^{]*\{ return value\.xy \/ value\.w; \}/u);
+});
+
 test("actual WGSL binding pairs and output stores equal every concrete descriptor", () => {
   for (let programId = 0; programId < GPU_SHADING_PROGRAM_COUNT; programId++) {
     for (let mask = 0; mask < 8; mask++) {

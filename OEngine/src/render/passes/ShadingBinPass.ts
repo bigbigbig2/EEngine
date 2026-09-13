@@ -195,6 +195,20 @@ export class ShadingBinPass {
   async createFrameBindings(
     input: CreateShadingBinFrameBindingsInput
   ): Promise<Readonly<ShadingBinFrameBindings>> {
+    return checkedValidationScope(this.device, "ShadingBin bind group creation", () =>
+      this.createFrameBindingsForExecution(input)
+    );
+  }
+
+  /**
+   * Synchronous execution-time path for FrameGraph transient attachments.
+   * The caller must have registered the device uncaptured-error/loss collector
+   * before execution because an asynchronous error-scope pop cannot occur in a
+   * synchronous FrameGraph pass callback.
+   */
+  createFrameBindingsForExecution(
+    input: CreateShadingBinFrameBindingsInput
+  ): Readonly<ShadingBinFrameBindings> {
     this.requireAlive();
     if (!Number.isSafeInteger(input.settingsDynamicOffset) || input.settingsDynamicOffset < 0 ||
         input.settingsDynamicOffset % this.device.limits.minUniformBufferOffsetAlignment !== 0) {
@@ -209,7 +223,7 @@ export class ShadingBinPass {
     const diagnosticEntry = input.diagnosticFaults === undefined
       ? []
       : [{ binding: 4, resource: { buffer: input.diagnosticFaults, size: 16 } }];
-    const groups = await checkedValidationScope(this.device, "ShadingBin bind group creation", () => ({
+    const groups = {
       classifier: this.device.createBindGroup({
         label: "ADR-0013 ShadingBin classifier group0",
         layout: this.classifierLayout,
@@ -230,7 +244,7 @@ export class ShadingBinPass {
           ...diagnosticEntry
         ]
       })
-    }));
+    };
     return Object.freeze({
       ...groups,
       settingsDynamicOffset: input.settingsDynamicOffset,

@@ -265,6 +265,7 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     const stageFrames = new Map();
     const contexts = new Set();
     const commands = new Set();
+    const bindingFactoryResources = [];
     const executor = createSparseShadingCandidateExecutor({
       bins: {
         heap,
@@ -278,7 +279,16 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
           commands.add(command);
         }
       },
-      binBindings: {},
+      createBinBindings(frame, resources) {
+        bindingFactoryResources.push(resources.get(frame.shadingBinId));
+        return {
+          classifier: {},
+          finalizer: {},
+          settingsDynamicOffset: 0,
+          generation: value.generation,
+          layoutRevision: value.layoutRevision
+        };
+      },
       resolve: {
         publicationRevision: value.revision,
         activeBinIds: value.pipelines.map((pipeline) => pipeline.binId),
@@ -287,7 +297,10 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
           commands.add(command);
         }
       },
-      resolveBindings: value.pipelines.map((pipeline) => ({ binId: pipeline.binId, groups: [] })),
+      createResolveBindings(frame, resources) {
+        bindingFactoryResources.push(resources.get(frame.hdr));
+        return value.pipelines.map((pipeline) => ({ binId: pipeline.binId, groups: [] }));
+      },
       settingsDynamicOffset: 0,
       diagnostics: {
         encodeFinalize(command) {
@@ -355,6 +368,8 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     assert.equal(contexts.size, 1);
     assert.equal([...contexts][0], contextValue);
     assert.deepEqual([...commands], [contextValue.encoder]);
+    assert.equal(bindingFactoryResources.length, 2);
+    assert.ok(bindingFactoryResources.every((resource) => resource !== null && resource !== undefined));
     assert.deepEqual(stages, frame.plan.passes.filter((stage) => stage !== "temporal" && stage !== "gtao" && stage !== "ssr"));
     assert.ok(stageFrames.get("ssgi").historyInput !== null);
     assert.ok(stageFrames.get("ssgi").historyOutput !== null);

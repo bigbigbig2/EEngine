@@ -80,6 +80,12 @@ const NORMAL_SAMPLE = [128 / 255, 128 / 255, 1, 1] as const;
 const ORM_SAMPLE = [51 / 255, 179 / 255, 230 / 255, 1] as const;
 const EMISSIVE_SAMPLE = [128 / 255, 64 / 255, 1, 1] as const;
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+const PIXEL_VIEW_PROJECTION = new Float32Array([
+  2 / WIDTH, 0, 0, 0,
+  0, -2 / HEIGHT, 0, 0,
+  0, 0, 1, 0,
+  -1, 1, 0, 1
+]);
 
 export interface ResolveFixtureEvidence {
   readonly scenarios: readonly Readonly<Record<string, unknown>>[];
@@ -420,7 +426,8 @@ function uploadInputs(device: GPUDevice, resources: StaticResources, binIds: Uin
     .forEach((value, index) => v.setUint32(index * 4, value, true));
   v.setFloat32(64, 2, true); v.setFloat32(72, 1, true); v.setFloat32(76, 1, true);
   [16.5, 16, 100, 1].forEach((value, index) => v.setFloat32(96 + index * 4, value, true));
-  new Float32Array(view, 112, 16).set(IDENTITY); new Float32Array(view, 176, 16).set(IDENTITY);
+  new Float32Array(view, 112, 16).set(PIXEL_VIEW_PROJECTION);
+  new Float32Array(view, 176, 16).set(PIXEL_VIEW_PROJECTION);
   device.queue.writeBuffer(resources.view, 0, view);
   uploadR8(device, resources.binTexture, binIds);
   const keys = new Uint32Array(PIXELS);

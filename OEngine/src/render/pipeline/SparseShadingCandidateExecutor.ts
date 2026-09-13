@@ -18,12 +18,24 @@ export interface SparseShadingCandidateExecutorInput {
     ShadingBinPass,
     "heap" | "indirectArgs" | "encodeClassify" | "encodeFinalize"
   >;
-  readonly binBindings: Readonly<ShadingBinFrameBindings>;
+  /**
+   * FrameGraph transient textures do not exist until execution. Bind groups
+   * which reference Visibility/ShadingBin resources therefore belong to this
+   * execution-time factory, not to candidate-plan construction.
+   */
+  readonly createBinBindings: (
+    frame: Readonly<SparseShadingCandidateFrame>,
+    resources: PassResources
+  ) => Readonly<ShadingBinFrameBindings>;
   readonly resolve: Pick<
     SparseShadingResolvePass,
     "publicationRevision" | "activeBinIds" | "encode"
   >;
-  readonly resolveBindings: readonly SparseShadingResolveFrameBinding[];
+  /** Creates bind groups after every transient resolve target is materialized. */
+  readonly createResolveBindings: (
+    frame: Readonly<SparseShadingCandidateFrame>,
+    resources: PassResources
+  ) => readonly SparseShadingResolveFrameBinding[];
   readonly settingsDynamicOffset: number;
   readonly diagnostics?: Pick<SparseShadingDiagnosticsPass, "encodeFinalize" | "encodeCopy">;
   readonly executeExternalStage: SparseShadingCandidateStageExecutor;
@@ -40,22 +52,31 @@ export function createSparseShadingCandidateExecutor(
     throw new RangeError("Sparse shading settings offset must be a non-negative safe integer");
   }
   const activeBins = Object.freeze([...input.resolve.activeBinIds]);
-  if (new Set(activeBins).size !== activeBins.length ||
-      input.resolveBindings.length !== activeBins.length) {
-    throw new Error("Sparse shading resolve bindings must cover the immutable active-bin set");
+  if (new Set(activeBins).size !== activeBins.length) {
+    throw new Error("Sparse shading resolve owner has duplicate active bins");
   }
+  const binBindingsByExecution = new WeakMap<FrameGraphContext, Readonly<ShadingBinFrameBindings>>();
 
   return (stage, frame, resources, context): void => {
     const command = requireCommand(context);
     if (stage === "bin-clear-classify") {
       assertBinResources(frame, resources, input);
       clearDiagnostics(command, frame, resources);
-      input.bins.encodeClassify(command, input.binBindings);
+      const binBindings = input.createBinBindings(frame, resources);
+      if (binBindings.settingsDynamicOffset !== input.settingsDynamicOffset) {
+        throw new Error("Sparse shading bin bindings use a different settings offset");
+      }
+      binBindingsByExecution.set(context, binBindings);
+      input.bins.encodeClassify(command, binBindings);
       return;
     }
     if (stage === "bin-finalize") {
       assertBinResources(frame, resources, input);
-      input.bins.encodeFinalize(command, input.binBindings);
+      const binBindings = binBindingsByExecution.get(context);
+      if (binBindings === undefined) {
+        throw new Error("Sparse shading finalizer executed without classifier bindings");
+      }
+      input.bins.encodeFinalize(command, binBindings);
       return;
     }
     if (stage === "bin-resolve") {
@@ -66,13 +87,20 @@ export function createSparseShadingCandidateExecutor(
       if (!sameNumbers(frame.plan.activeBinIds, activeBins)) {
         throw new Error("Sparse shading resolve owner does not match the graph active-bin set");
       }
+      const resolveBindings = input.createResolveBindings(frame, resources);
+      if (resolveBindings.length !== activeBins.length ||
+          !sameNumbers(resolveBindings.map((binding) => binding.binId).sort((left, right) => left - right),
+            [...activeBins].sort((left, right) => left - right))) {
+        throw new Error("Sparse shading resolve bindings must cover the immutable active-bin set");
+      }
       input.resolve.encode(
         command,
         input.bins.indirectArgs,
         input.settingsDynamicOffset,
-        input.resolveBindings,
+        resolveBindings,
         frame.plan.publicationRevision
       );
+      binBindingsByExecution.delete(context);
       return;
     }
     if (stage === "diagnostics-finalize") {
