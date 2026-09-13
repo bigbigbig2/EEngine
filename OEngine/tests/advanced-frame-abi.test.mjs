@@ -1551,11 +1551,19 @@ test("ADR-0009 Step 9 statically specializes final-output bindings", () => {
     sharpening: true,
     colorGrading: true
   });
+  const sparseValidity = tonemapSdrWgsl({
+    bloom: false,
+    sharpening: false,
+    colorGrading: false
+  }, "shading-bin");
   assert.doesNotMatch(plain, /final_bloom|final_grade|let north/);
   assert.match(fused, /var final_bloom/);
   assert.match(fused, /fn final_grade/);
   assert.match(fused, /let north = load_post_color/);
   assert.match(fused, /rgb = load_final_hdr/);
+  assert.match(sparseValidity, /frame_control: OEngineShadingBinControl/);
+  assert.match(sparseValidity, /frame_control\.frame_flags/);
+  assert.doesNotMatch(sparseValidity, /frame_control\.frame_invalid/);
 });
 
 test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", () => {

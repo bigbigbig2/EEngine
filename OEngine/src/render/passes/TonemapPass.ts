@@ -13,7 +13,8 @@ import {
 } from "../../shaders/tonemap_hdr.js";
 import {
   finalOutputBindingPlan,
-  type FinalOutputShaderOptions
+  type FinalOutputShaderOptions,
+  type FinalOutputValidityAbi
 } from "../../shaders/final_output_input.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
@@ -67,7 +68,11 @@ export class TonemapPass {
   lastColorGradingFused = false;
   lastSharpeningFused = false;
 
-  constructor(private readonly device: GPUDevice, canvasFormat: GPUTextureFormat) {
+  constructor(
+    private readonly device: GPUDevice,
+    canvasFormat: GPUTextureFormat,
+    private readonly validityAbi: FinalOutputValidityAbi = "material-tile"
+  ) {
     this.canvasFormat = canvasFormat;
     this.validFrameControl = device.createBuffer({
       label: "Tonemap/valid frame-control fallback",
@@ -243,12 +248,16 @@ export class TonemapPass {
     hdr: boolean,
     options: FinalOutputShaderOptions
   ): CachedRenderPipelineDescriptor {
-    const key = `${hdr ? "hdr" : "sdr"}:${options.bloom ? 1 : 0}:${options.sharpening ? 1 : 0}:${options.colorGrading ? 1 : 0}`;
+    const key = `${this.validityAbi}:${hdr ? "hdr" : "sdr"}:` +
+      `${options.bloom ? 1 : 0}:${options.sharpening ? 1 : 0}:` +
+      `${options.colorGrading ? 1 : 0}`;
     let pipeline = this.pipelines.get(key);
     if (pipeline !== undefined) return pipeline;
     pipeline = createTonemapPipelineDescriptor(
       hdr ? "FinalOutput/HDR" : "FinalOutput/SDR",
-      hdr ? tonemapHdrWgsl(options) : tonemapSdrWgsl(options),
+      hdr
+        ? tonemapHdrWgsl(options, this.validityAbi)
+        : tonemapSdrWgsl(options, this.validityAbi),
       this.canvasFormat,
       createFinalOutputGroupLayout(options, hdr)
     );

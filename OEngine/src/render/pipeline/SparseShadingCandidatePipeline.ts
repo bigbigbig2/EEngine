@@ -1,5 +1,6 @@
 import type {
   FrameGraph,
+  FrameGraphEncoderWork,
   FrameGraphContext,
   PassResources
 } from "../../framegraph/FrameGraph.js";
@@ -86,6 +87,8 @@ export interface SparseShadingCandidateExternalResources {
   readonly captureReadback?: ResourceId;
   /** Validation-only GPU-written oracle/counter scratch copied into captureReadback. */
   readonly captureScratch?: readonly ResourceId[];
+  /** Exact validation capture command shape; omitted for a single-dispatch capture. */
+  readonly captureEncoderWork?: Readonly<Partial<FrameGraphEncoderWork>>;
   /** Revision-owned resources from ShadingBinPass; imported only when opaque work exists. */
   readonly binResources?: Readonly<{
     readonly heap: unknown;
@@ -532,7 +535,7 @@ export function addSparseShadingCandidateToGraph(
     captureFrame.captureReadback = mutable.captureReadback;
     captureFrame.captureScratch = mutable.captureScratch;
     Object.freeze(captureFrame);
-    capture.declareEncoderWork({ computePasses: 1, dispatches: 1 });
+    capture.declareEncoderWork(external.captureEncoderWork ?? { computePasses: 1, dispatches: 1 });
     capture.make_side_effect();
     previousPass = capture;
   }

@@ -4,6 +4,9 @@ export interface FinalOutputShaderOptions {
   readonly colorGrading: boolean;
 }
 
+/** Creation-time ABI for the GPU-authored fail-visible Final Output signal. */
+export type FinalOutputValidityAbi = "material-tile" | "shading-bin";
+
 export interface FinalOutputBindingPlan {
   readonly source: number;
   readonly bloom: number | null;
