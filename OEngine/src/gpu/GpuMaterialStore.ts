@@ -2,30 +2,62 @@ import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContex
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import {
-  GPU_MATERIAL_VISIBILITY_ABI_VERSION,
   GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
-  GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
-  materialVisibilitySource,
-  packGpuMaterialVisibilityRecord
+  materialVisibilitySource
 } from "./GpuMaterialVisibilityAbi.js";
+import {
+  GPU_SHADING_MATERIAL_ABI_VERSION,
+  GPU_SHADING_MATERIAL_RECORD_STRIDE,
+  GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
+  GPU_SHADING_TEXTURE_ROUTE_STRIDE,
+  packGpuShadingMaterialRecord,
+  packGpuShadingTextureRoute
+} from "./GpuShadingMaterialAbi.js";
 
-export const GPU_MATERIAL_CAPACITY = 4096;
+declare const GPU_MATERIAL_STAGE_HANDLE_BRAND: unique symbol;
+
+/**
+ * The previous capacity promised 4096 material dictionary entries. An unlit
+ * material can legally require two association records (color/no-color), so
+ * the association table preserves that promise with two slots per entry.
+ */
+export const GPU_MATERIAL_DICTIONARY_CAPACITY = 4096;
+export const GPU_MATERIAL_CAPACITY = GPU_MATERIAL_DICTIONARY_CAPACITY * 2;
+
+export interface GpuMaterialStageHandle {
+  readonly [GPU_MATERIAL_STAGE_HANDLE_BRAND]: true;
+}
 
 export interface GpuMaterialBindings {
   readonly abiVersion: number;
   readonly materialCapacity: number;
   readonly materialRecords: GPUBuffer;
+  readonly textureRouteRecords: GPUBuffer;
+}
+
+/** One immutable material × geometry-program association to publish. */
+export interface GpuMaterialAssociationSource {
+  readonly material: StandardShadeMaterial;
+  readonly programId: number;
+  readonly textureBindingSetId: number;
 }
 
 export interface GpuMaterialStage {
+  readonly handle: GpuMaterialStageHandle;
   readonly bindings: GpuMaterialBindings;
-  readonly materialSlots: readonly number[];
+  /** GPU slots in exactly the same order as the staged association sources. */
+  readonly associationSlots: readonly number[];
+  readonly materialGeneration: number;
+  readonly textureGeneration: number;
+  readonly publicationRevision: number;
 }
 
 export interface GpuMaterialStoreEvidence {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly abiVersion: number;
   readonly materialCapacity: number;
+  readonly residentPublicationCount: number;
+  readonly retiringPublicationCount: number;
   readonly residentMaterialSlotCount: number;
   readonly retiringMaterialSlotCount: number;
   readonly freeMaterialSlotCount: number;
@@ -35,114 +67,158 @@ export interface GpuMaterialStoreEvidence {
   readonly privateSubmitCount: 0;
 }
 
-interface ResidentMaterial {
-  readonly slot: number;
-  refCount: number;
-  retireGeneration: number;
+interface ResidentPublication {
+  readonly handle: GpuMaterialStageHandle;
+  readonly slots: readonly number[];
+  readonly generation: number;
+  state: "pending" | "resident" | "pending-release" | "retiring" | "aborted" | "released";
 }
 
-interface RetainOperation {
-  readonly material: StandardShadeMaterial;
-  readonly entry: ResidentMaterial;
-  readonly created: boolean;
-  readonly previousRetireGeneration: number;
-}
+const STAGE_RUNTIME = new WeakMap<object, {
+  readonly store: GpuMaterialStore;
+  readonly publication: ResidentPublication;
+}>();
 
-/** Stable material-record owner. Texture allocation is deliberately outside this class. */
+/**
+ * Unique owner for the production shading-material table and texture-routing
+ * table. Slots belong to one immutable RenderWorld publication instead of to
+ * a StandardShadeMaterial object: ShadingProgramId is an association property,
+ * so material-only deduplication is not a valid GPU identity.
+ */
 export class GpuMaterialStore {
   private readonly materialRecords: GPUBuffer;
-  private readonly resident = new Map<StandardShadeMaterial, ResidentMaterial>();
+  private readonly textureRouteRecords: GPUBuffer;
   private readonly freeSlots: number[] = [];
+  private readonly publications = new Set<ResidentPublication>();
   private readonly textureFallbackSlots = new Set<number>();
   private readonly samplerFallbackSlots = new Set<number>();
+  private committedGeneration = 0;
+  private pendingPublication: ResidentPublication | null = null;
   private destroyed = false;
 
-  constructor(device: GPUDevice) {
-    const bytes = GPU_MATERIAL_CAPACITY * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE;
-    if (bytes > Number(device.limits.maxBufferSize) ||
-        bytes > Number(device.limits.maxStorageBufferBindingSize)) {
-      throw new RangeError(`GpuMaterialStore requires ${bytes} bytes but the device limit is smaller`);
+  constructor(private readonly device: GPUDevice) {
+    const materialBytes = GPU_MATERIAL_CAPACITY * GPU_SHADING_MATERIAL_RECORD_STRIDE;
+    const routeBytes = GPU_MATERIAL_CAPACITY * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL *
+      GPU_SHADING_TEXTURE_ROUTE_STRIDE;
+    const storageLimit = Math.min(
+      Number(device.limits.maxBufferSize),
+      Number(device.limits.maxStorageBufferBindingSize)
+    );
+    if (materialBytes > storageLimit || routeBytes > storageLimit) {
+      throw new RangeError(
+        `GpuMaterialStore requires ${materialBytes} material bytes and ${routeBytes} route bytes ` +
+        `but the storage-buffer limit is ${storageLimit}`
+      );
     }
-    this.materialRecords = device.createBuffer({
-      label: "GpuMaterialStore/records",
-      size: bytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true
-    });
-    new Uint8Array(this.materialRecords.getMappedRange()).fill(0);
-    this.materialRecords.unmap();
+    this.materialRecords = createZeroBuffer(device, "GpuMaterialStore/shading-records", materialBytes);
+    this.textureRouteRecords = createZeroBuffer(device, "GpuMaterialStore/texture-routes", routeBytes);
     for (let slot = GPU_MATERIAL_CAPACITY - 1; slot >= 0; slot--) this.freeSlots.push(slot);
   }
 
   stage(
-    materials: readonly StandardShadeMaterial[],
+    associations: readonly GpuMaterialAssociationSource[],
     textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>,
-    textureBindingSetIds: ReadonlyMap<StandardShadeMaterial, number>,
     command: ShadeGPUCommandContext
   ): GpuMaterialStage {
-    this.preflight(materials);
-    const operations = this.retain(materials);
-    const previousFallbacks: Array<readonly [number, boolean, boolean]> = [];
+    this.assertStageCommand(command);
+    this.preflight(associations, textureRefsByMaterial);
+    const generation = nextGeneration(this.committedGeneration);
+    const slots = Object.freeze(associations.map(() => this.freeSlots.pop()!));
+    const handle = Object.freeze({}) as GpuMaterialStageHandle;
+    const publication: ResidentPublication = {
+      handle,
+      slots,
+      generation,
+      state: "pending"
+    };
+    this.pendingPublication = publication;
+    this.publications.add(publication);
+    STAGE_RUNTIME.set(handle as object, { store: this, publication });
+
     let rolledBack = false;
     const rollback = (): void => {
-      if (rolledBack) return;
+      if (rolledBack || publication.state !== "pending") return;
       rolledBack = true;
-      for (let index = previousFallbacks.length - 1; index >= 0; index--) {
-        const [slot, textureFallback, samplerFallback] = previousFallbacks[index]!;
-        writeSet(this.textureFallbackSlots, slot, textureFallback);
-        writeSet(this.samplerFallbackSlots, slot, samplerFallback);
+      publication.state = "aborted";
+      for (const slot of slots) {
+        this.textureFallbackSlots.delete(slot);
+        this.samplerFallbackSlots.delete(slot);
+        this.freeSlots.push(slot);
       }
-      for (let index = operations.length - 1; index >= 0; index--) {
-        const operation = operations[index]!;
-        operation.entry.refCount--;
-        operation.entry.retireGeneration = operation.previousRetireGeneration;
-        if (operation.created && operation.entry.refCount === 0 &&
-            this.resident.get(operation.material) === operation.entry) {
-          this.resident.delete(operation.material);
-          this.freeSlots.push(operation.entry.slot);
-        }
-      }
+      this.publications.delete(publication);
+      STAGE_RUNTIME.delete(handle as object);
+      if (this.pendingPublication === publication) this.pendingPublication = null;
     };
     command.onAborted.addOne(rollback);
+
     try {
-      const materialSlots = operations.map(({ entry }) => entry.slot);
-      for (let index = 0; index < materials.length; index++) {
-        const material = materials[index]!;
-        const slot = materialSlots[index]!;
-        const textureRefs = textureRefsByMaterial.get(material);
-        const textureBindingSetId = textureBindingSetIds.get(material);
-        if (textureRefs === undefined || textureBindingSetId === undefined) {
-          throw new Error(`GpuMaterialStore is missing TextureBindingSet routing for '${material.name}'`);
-        }
+      for (let index = 0; index < associations.length; index++) {
+        const association = associations[index]!;
+        const slot = slots[index]!;
+        const textureRefs = textureRefsByMaterial.get(association.material)!;
         const textureRef = (texture: ShadeTexture | undefined): number =>
           texture === undefined
             ? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
             : textureRefs.get(texture) ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
-        const source = materialVisibilitySource(material, {
-          baseColor: textureRef(material.texture_albedo),
-          normal: textureRef(material.texture_normal),
-          orm: textureRef(material.texture_orm),
-          emissive: textureRef(material.texture_emissive)
-        }, slot, textureBindingSetId);
-        previousFallbacks.push([
-          slot,
-          this.textureFallbackSlots.has(slot),
-          this.samplerFallbackSlots.has(slot)
-        ]);
-        const packed = packGpuMaterialVisibilityRecord(source.packed);
+        const source = materialVisibilitySource(association.material, {
+          baseColor: textureRef(association.material.texture_albedo),
+          normal: textureRef(association.material.texture_normal),
+          orm: textureRef(association.material.texture_orm),
+          emissive: textureRef(association.material.texture_emissive)
+        }, slot, association.textureBindingSetId);
+        const packed = packGpuShadingMaterialRecord({
+          programId: association.programId,
+          textureBindingSetId: association.textureBindingSetId,
+          materialGeneration: generation,
+          textureGeneration: generation,
+          publicationRevision: generation,
+          flags: 0
+        }, source.packed);
         command.writeBuffer(
           this.materialRecords,
-          slot * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
-          packed,
-          0,
+          slot * GPU_SHADING_MATERIAL_RECORD_STRIDE,
+          packed.buffer,
+          packed.byteOffset,
           packed.byteLength
         );
+        const routeRefs = [
+          source.packed.textureRef,
+          source.packed.normalTextureRef,
+          source.packed.ormTextureRef,
+          source.packed.emissiveTextureRef
+        ];
+        for (let routeIndex = 0; routeIndex < routeRefs.length; routeIndex++) {
+          const route = packGpuShadingTextureRoute({
+            textureRef: routeRefs[routeIndex]!,
+            textureGeneration: generation,
+            publicationRevision: generation,
+            textureBindingSetId: association.textureBindingSetId
+          });
+          const routeSlot = slot * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL + routeIndex;
+          command.writeBuffer(
+            this.textureRouteRecords,
+            routeSlot * GPU_SHADING_TEXTURE_ROUTE_STRIDE,
+            route.buffer,
+            route.byteOffset,
+            route.byteLength
+          );
+        }
         writeSet(this.textureFallbackSlots, slot, source.textureFallback);
         writeSet(this.samplerFallbackSlots, slot, source.samplerFallback);
       }
+      command.onFinished.addOne(() => {
+        if (publication.state !== "pending") return;
+        publication.state = "resident";
+        this.committedGeneration = generation;
+        if (this.pendingPublication === publication) this.pendingPublication = null;
+      });
       return Object.freeze({
+        handle,
         bindings: this.bindings(),
-        materialSlots: Object.freeze(materialSlots)
+        associationSlots: slots,
+        materialGeneration: generation,
+        textureGeneration: generation,
+        publicationRevision: generation
       });
     } catch (error) {
       rollback();
@@ -150,54 +226,68 @@ export class GpuMaterialStore {
     }
   }
 
-  release(materials: readonly StandardShadeMaterial[], command: ShadeGPUCommandContext): void {
-    const counts = countMaterials(materials);
-    for (const [material, count] of counts) {
-      const entry = this.resident.get(material);
-      if (entry === undefined || entry.refCount < count) {
-        throw new Error(`Material '${material.name}' has no matching resident slot reference`);
-      }
+  release(handle: GpuMaterialStageHandle, command: ShadeGPUCommandContext): void {
+    this.assertAlive();
+    if (command.device !== this.device) {
+      throw new Error("GpuMaterialStore release command belongs to another GPUDevice");
     }
+    const runtime = STAGE_RUNTIME.get(handle as object);
+    if (runtime === undefined || runtime.store !== this ||
+        runtime.publication.state !== "resident") {
+      throw new Error("GpuMaterialStageHandle is stale or not resident");
+    }
+    const publication = runtime.publication;
+    publication.state = "pending-release";
+    command.onAborted.addOne(() => {
+      if (publication.state === "pending-release") publication.state = "resident";
+    });
     command.onFinished.addOne(() => {
-      for (const [material, count] of counts) {
-        const entry = this.resident.get(material);
-        if (entry === undefined) continue;
-        entry.refCount -= count;
-        if (entry.refCount !== 0) continue;
-        this.textureFallbackSlots.delete(entry.slot);
-        this.samplerFallbackSlots.delete(entry.slot);
-        const generation = ++entry.retireGeneration;
-        const retire = (): void => this.retire(material, entry, generation);
-        void command.gpuDone.then(retire, retire);
-      }
+      if (publication.state !== "pending-release") return;
+      publication.state = "retiring";
+      const retire = (): void => this.retire(publication);
+      void command.gpuDone.then(retire, retire);
     });
   }
 
   bindings(): GpuMaterialBindings {
+    this.assertAlive();
     return Object.freeze({
-      abiVersion: GPU_MATERIAL_VISIBILITY_ABI_VERSION,
+      abiVersion: GPU_SHADING_MATERIAL_ABI_VERSION,
       materialCapacity: GPU_MATERIAL_CAPACITY,
-      materialRecords: this.materialRecords
+      materialRecords: this.materialRecords,
+      textureRouteRecords: this.textureRouteRecords
     });
   }
 
   evidence(): GpuMaterialStoreEvidence {
+    let residentPublicationCount = 0;
+    let retiringPublicationCount = 0;
     let residentMaterialSlotCount = 0;
     let retiringMaterialSlotCount = 0;
-    for (const entry of this.resident.values()) {
-      if (entry.refCount > 0) residentMaterialSlotCount++;
-      else retiringMaterialSlotCount++;
+    for (const publication of this.publications) {
+      if (publication.state === "resident" || publication.state === "pending-release") {
+        residentPublicationCount++;
+        residentMaterialSlotCount += publication.slots.length;
+      } else if (publication.state === "retiring") {
+        retiringPublicationCount++;
+        retiringMaterialSlotCount += publication.slots.length;
+      }
     }
     return Object.freeze({
-      schemaVersion: 1,
-      abiVersion: GPU_MATERIAL_VISIBILITY_ABI_VERSION,
+      schemaVersion: 2,
+      abiVersion: GPU_SHADING_MATERIAL_ABI_VERSION,
       materialCapacity: GPU_MATERIAL_CAPACITY,
+      residentPublicationCount,
+      retiringPublicationCount,
       residentMaterialSlotCount,
       retiringMaterialSlotCount,
       freeMaterialSlotCount: this.freeSlots.length,
       textureFallbackCount: this.textureFallbackSlots.size,
       samplerFallbackCount: this.samplerFallbackSlots.size,
-      allocatedBytes: GPU_MATERIAL_CAPACITY * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
+      allocatedBytes:
+        GPU_MATERIAL_CAPACITY * GPU_SHADING_MATERIAL_RECORD_STRIDE +
+        GPU_MATERIAL_CAPACITY * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL *
+          GPU_SHADING_TEXTURE_ROUTE_STRIDE,
       privateSubmitCount: 0
     });
   }
@@ -206,57 +296,97 @@ export class GpuMaterialStore {
     if (this.destroyed) return;
     this.destroyed = true;
     this.materialRecords.destroy();
-    this.resident.clear();
+    this.textureRouteRecords.destroy();
+    for (const publication of this.publications) {
+      publication.state = "released";
+      STAGE_RUNTIME.delete(publication.handle as object);
+    }
+    this.publications.clear();
     this.freeSlots.length = 0;
     this.textureFallbackSlots.clear();
     this.samplerFallbackSlots.clear();
+    this.pendingPublication = null;
   }
 
-  private preflight(materials: readonly StandardShadeMaterial[]): void {
-    const fresh = new Set(materials.filter((material) => !this.resident.has(material)));
-    if (fresh.size > this.freeSlots.length) {
+  private preflight(
+    associations: readonly GpuMaterialAssociationSource[],
+    textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>
+  ): void {
+    if (associations.length === 0) {
+      throw new RangeError("GpuMaterialStore requires at least one shading association");
+    }
+    if (associations.length > this.freeSlots.length) {
       throw new RangeError(
-        `GpuMaterialStore requires ${fresh.size} new slots but only ${this.freeSlots.length} ` +
-        `of ${GPU_MATERIAL_CAPACITY} are free`
+        `GpuMaterialStore requires ${associations.length} association slots but only ` +
+        `${this.freeSlots.length} of ${GPU_MATERIAL_CAPACITY} are free`
       );
     }
-    for (const material of materials) {
-      materialVisibilitySource(material, GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE, 0);
-    }
-  }
-
-  private retain(materials: readonly StandardShadeMaterial[]): RetainOperation[] {
-    const operations: RetainOperation[] = [];
-    for (const material of materials) {
-      let entry = this.resident.get(material);
-      let created = false;
-      if (entry === undefined) {
-        const slot = this.freeSlots.pop();
-        if (slot === undefined) throw new RangeError("GpuMaterialStore slot overflow");
-        entry = { slot, refCount: 0, retireGeneration: 0 };
-        this.resident.set(material, entry);
-        created = true;
+    for (const association of associations) {
+      if (!textureRefsByMaterial.has(association.material)) {
+        throw new Error(
+          `GpuMaterialStore is missing TextureBindingSet routing for '${association.material.name}'`
+        );
       }
-      const previousRetireGeneration = entry.retireGeneration;
-      if (!created && entry.refCount === 0) entry.retireGeneration++;
-      entry.refCount++;
-      operations.push({ material, entry, created, previousRetireGeneration });
+      const source = materialVisibilitySource(
+        association.material,
+        GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+        0,
+        association.textureBindingSetId
+      );
+      // Header validation is deliberately part of preflight, before slots are reserved.
+      packGpuShadingMaterialRecord({
+        programId: association.programId,
+        textureBindingSetId: association.textureBindingSetId,
+        materialGeneration: 1,
+        textureGeneration: 1,
+        publicationRevision: 1,
+        flags: 0
+      }, source.packed);
     }
-    return operations;
   }
 
-  private retire(material: StandardShadeMaterial, entry: ResidentMaterial, generation: number): void {
-    if (this.destroyed || entry.refCount !== 0 || entry.retireGeneration !== generation) return;
-    if (this.resident.get(material) !== entry) return;
-    this.resident.delete(material);
-    this.freeSlots.push(entry.slot);
+  private retire(publication: ResidentPublication): void {
+    if (this.destroyed || publication.state !== "retiring") return;
+    publication.state = "released";
+    for (const slot of publication.slots) {
+      this.textureFallbackSlots.delete(slot);
+      this.samplerFallbackSlots.delete(slot);
+      this.freeSlots.push(slot);
+    }
+    this.publications.delete(publication);
+    STAGE_RUNTIME.delete(publication.handle as object);
+  }
+
+  private assertStageCommand(command: ShadeGPUCommandContext): void {
+    this.assertAlive();
+    if (command.device !== this.device) {
+      throw new Error("GpuMaterialStore stage command belongs to another GPUDevice");
+    }
+    if (this.pendingPublication !== null) {
+      throw new Error("GpuMaterialStore already has a pending publication");
+    }
+  }
+
+  private assertAlive(): void {
+    if (this.destroyed) throw new Error("GpuMaterialStore has been destroyed");
   }
 }
 
-function countMaterials(materials: readonly StandardShadeMaterial[]): Map<StandardShadeMaterial, number> {
-  const counts = new Map<StandardShadeMaterial, number>();
-  for (const material of materials) counts.set(material, (counts.get(material) ?? 0) + 1);
-  return counts;
+function createZeroBuffer(device: GPUDevice, label: string, size: number): GPUBuffer {
+  const buffer = device.createBuffer({
+    label,
+    size,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true
+  });
+  new Uint8Array(buffer.getMappedRange()).fill(0);
+  buffer.unmap();
+  return buffer;
+}
+
+function nextGeneration(value: number): number {
+  const next = (value + 1) >>> 0;
+  return next === 0 ? 1 : next;
 }
 
 function writeSet(set: Set<number>, value: number, present: boolean): void {

@@ -2,7 +2,7 @@ import {
   GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT,
   GPU_MATERIAL_TILE_WORK_WGSL
 } from "../gpu/GpuMaterialTileWorkAbi.js";
-import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 
@@ -16,7 +16,7 @@ import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 export const MATERIAL_TILE_CLASSIFICATION_WGSL = /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
-${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_MATERIAL_TILE_WORK_WGSL}
 
 const TILE_WIDTH: u32 = 8u;
@@ -48,7 +48,7 @@ struct MaterialTileSettings {
 
 @group(0) @binding(0) var visibility_keys: texture_2d<u32>;
 @group(0) @binding(1) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
-@group(0) @binding(2) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(2) var<storage, read> materials: array<OEngineShadingMaterialRecord>;
 @group(0) @binding(3) var<storage, read_write> queue_words: array<atomic<u32>>;
 @group(0) @binding(4) var<storage, read_write> indirect_words: array<u32>;
 @group(0) @binding(5) var<storage, read_write> control: OEngineMaterialClassificationControl;
@@ -86,7 +86,7 @@ fn valid_pixel_dispatch_class(pixel: vec2u) -> u32 {
     atomicStore(&control.frame_invalid, 1u);
     return 0xfffffffeu;
   }
-  let material = materials[work.material_slot_or_range];
+  let material = materials[work.material_slot_or_range].payload;
   if material.kernel_class >= OENGINE_MATERIAL_KERNEL_CLASS_COUNT ||
       material.texture_binding_set_id >= 4u {
     atomicStore(&control.frame_invalid, 1u);

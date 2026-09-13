@@ -13,6 +13,7 @@ import type { ActiveShadingSummary } from "./GpuShadingPublicationPlan.js";
 import {
   deriveGpuShadingIdentity,
   GPU_SHADING_DEPENDENCY,
+  ShadingIdentityPublicationError,
   type GpuShadingGeometryProfile,
   type GpuShadingMaterialProfile
 } from "./GpuShadingProgramAbi.js";
@@ -25,6 +26,10 @@ import {
   type GpuPackedMaterialBindings
 } from "./GpuPackedMaterialBindings.js";
 import type { AssetHandle, GpuAssetBindings } from "./GpuAssetStore.js";
+import type {
+  GpuMaterialAssociationSource,
+  GpuMaterialStageHandle
+} from "./GpuMaterialStore.js";
 import type {
   GpuSceneBindings,
   InstancePatchBatch,
@@ -96,9 +101,15 @@ export interface GpuRenderWorldRuntime {
   readonly assetHandles: readonly AssetHandle[];
   readonly instanceHandle: InstanceSetHandle;
   readonly materials: readonly StandardShadeMaterial[];
-  /** Frozen material-dictionary population addressable by opaque Material Resolve. */
+  /** Frozen association-record population addressable by opaque shading. */
   readonly opaqueMaterialCount: number;
-  readonly materialSlots: readonly number[];
+  readonly materialPublication: GpuMaterialStageHandle;
+  /** material-major [materialIndex * 64 + ShadingBinId] GPU association slots. */
+  readonly materialBinSlots: Readonly<Uint32Array>;
+  readonly materialDictionaryCount: number;
+  readonly materialGeneration: number;
+  readonly textureGeneration: number;
+  readonly materialPublicationRevision: number;
   readonly materialResources: GpuPackedMaterialBindings;
   readonly instanceBegin: number;
   readonly instanceCount: number;
@@ -135,6 +146,14 @@ interface PackedSceneClassificationState {
   revision: number;
   summary: Readonly<ActiveShadingSummary>;
 }
+
+interface PackedSceneMaterialAssociationPlan {
+  readonly sources: readonly GpuMaterialAssociationSource[];
+  /** material-major indices into sources; 0xffffffff denotes an invalid association. */
+  readonly sourceIndexByMaterialBin: Uint32Array;
+}
+
+const INVALID_MATERIAL_ASSOCIATION = 0xffffffff;
 
 interface OrdinarySceneAdapterState {
   readonly meshes: readonly Mesh[];
@@ -184,21 +203,34 @@ export class GpuRenderWorld {
       source.geometryIndices
     );
     const textureStage = this.graphics.texture_residency.stage(source.materials, command);
-    const materialStage = this.graphics.material_store.stage(
-      source.materials,
-      textureStage.materialTextureRoutingRefs,
-      textureStage.materialBindingSetIds,
-      command
-    );
-    const geometryHandles = Object.freeze([...assetHandles]);
-    const materialHandles = new Uint32Array(source.count);
-    for (let index = 0; index < source.count; index++) {
-      materialHandles[index] = materialStage.materialSlots[source.materialIndices[index]!]!;
-    }
     const classification = createPackedSceneClassificationState(
       source,
       source.materials.map((material) => textureStage.materialBindingSetIds.get(material)!)
     );
+    const associationPlan = createPackedSceneMaterialAssociationPlan(
+      source.materials,
+      classification.geometryProfiles,
+      classification.materialBindingSetIds
+    );
+    const materialStage = this.graphics.material_store.stage(
+      associationPlan.sources,
+      textureStage.materialTextureRoutingRefs,
+      command
+    );
+    const materialBinSlots = mapMaterialAssociationSlots(
+      associationPlan,
+      materialStage.associationSlots
+    );
+    const geometryHandles = Object.freeze([...assetHandles]);
+    const materialHandles = new Uint32Array(source.count);
+    for (let index = 0; index < source.count; index++) {
+      materialHandles[index] = materialAssociationSlot(
+        materialBinSlots,
+        source.materials.length,
+        source.materialIndices[index]!,
+        classification.binIds[index]!
+      );
+    }
     const normalizedFlags = new Uint32Array(source.count);
     for (let index = 0; index < source.count; index++) {
       const material = source.materials[source.materialIndices[index]!]!;
@@ -236,10 +268,15 @@ export class GpuRenderWorld {
       assetHandles: geometryHandles,
       instanceHandle,
       materials: Object.freeze([...source.materials]),
-      opaqueMaterialCount: source.materials.filter(
-        (material) => material.transparency_mode !== ShadeTransparencyMode.Transparent
+      opaqueMaterialCount: associationPlan.sources.filter(
+        (association) => association.material.transparency_mode !== ShadeTransparencyMode.Transparent
       ).length,
-      materialSlots: materialStage.materialSlots,
+      materialPublication: materialStage.handle,
+      materialBinSlots,
+      materialDictionaryCount: source.materials.length,
+      materialGeneration: materialStage.materialGeneration,
+      textureGeneration: materialStage.textureGeneration,
+      materialPublicationRevision: materialStage.publicationRevision,
       materialResources: composeGpuPackedMaterialBindings(
         materialStage.bindings,
         textureStage.bindings
@@ -322,7 +359,7 @@ export class GpuRenderWorld {
     }
     this.releasingScenes.add(scene);
     try {
-      this.graphics.material_store.release(runtime.materials, command);
+      this.graphics.material_store.release(runtime.materialPublication, command);
       this.graphics.texture_residency.release(runtime.materials, command);
       this.graphics.gpu_scene.release(runtime.instanceHandle, command);
     } catch (error) {
@@ -364,7 +401,8 @@ export class GpuRenderWorld {
     const runtime = this.byScene.get(scene)!;
     const batch = toInstancePatchBatch(
       pending.batch,
-      runtime.materialSlots,
+      runtime.materialBinSlots,
+      runtime.materialDictionaryCount,
       runtime.materials,
       this.classificationByScene.get(scene)!
     );
@@ -449,7 +487,8 @@ export class GpuRenderWorld {
       runtime.instanceHandle,
       toInstancePatchBatch(
         batch,
-        runtime.materialSlots,
+        runtime.materialBinSlots,
+        runtime.materialDictionaryCount,
         runtime.materials,
         this.classificationByScene.get(scene)!
       ),
@@ -591,6 +630,111 @@ function createPackedSceneClassificationState(
   }
   state.summary = freezeActiveShadingSummary(state);
   return state;
+}
+
+/**
+ * Publishes every valid association reachable by an existing geometry and
+ * material dictionary. Invalid unused pairs remain explicit sentinels, while
+ * any pair referenced by the source has already failed in classification.
+ * Records are deduplicated only when material identity and ProgramId match;
+ * geometry attributes that do not change the program remain shader data.
+ */
+function createPackedSceneMaterialAssociationPlan(
+  materials: readonly StandardShadeMaterial[],
+  geometryProfiles: readonly Readonly<GpuShadingGeometryProfile>[],
+  materialBindingSetIds: readonly number[]
+): PackedSceneMaterialAssociationPlan {
+  const sourceIndexByMaterialBin = new Uint32Array(materials.length * 64);
+  sourceIndexByMaterialBin.fill(INVALID_MATERIAL_ASSOCIATION);
+  const sources: GpuMaterialAssociationSource[] = [];
+  const uniqueGeometryProfiles = new Map<number, Readonly<GpuShadingGeometryProfile>>();
+  for (const profile of geometryProfiles) {
+    uniqueGeometryProfiles.set(shadingGeometryProfileKey(profile), profile);
+  }
+  for (let materialIndex = 0; materialIndex < materials.length; materialIndex++) {
+    for (const geometryProfile of uniqueGeometryProfiles.values()) {
+      const material = materials[materialIndex]!;
+      let identity;
+      try {
+        identity = deriveGpuShadingIdentity(
+          shadingMaterialProfile(material, materialBindingSetIds[materialIndex]!),
+          geometryProfile
+        );
+      } catch (error) {
+        if (error instanceof ShadingIdentityPublicationError &&
+            (error.code === "MISSING_UV0" || error.code === "MISSING_NORMAL" ||
+             error.code === "MISSING_TANGENT")) {
+          continue;
+        }
+        throw error;
+      }
+      const lookupIndex = materialBinSlotIndex(materialIndex, identity.binId);
+      if (sourceIndexByMaterialBin[lookupIndex] === INVALID_MATERIAL_ASSOCIATION) {
+        const sourceIndex = sources.length;
+        sourceIndexByMaterialBin[lookupIndex] = sourceIndex;
+        sources.push(Object.freeze({
+          material,
+          programId: identity.programId,
+          textureBindingSetId: identity.textureBindingSetId
+        }));
+      }
+    }
+  }
+  return Object.freeze({
+    sources: Object.freeze(sources),
+    sourceIndexByMaterialBin
+  });
+}
+
+function mapMaterialAssociationSlots(
+  plan: PackedSceneMaterialAssociationPlan,
+  gpuSlots: readonly number[]
+): Uint32Array {
+  if (gpuSlots.length !== plan.sources.length) {
+    throw new Error("GpuMaterialStore association slots do not match the publication plan");
+  }
+  const result = new Uint32Array(plan.sourceIndexByMaterialBin.length);
+  for (let index = 0; index < result.length; index++) {
+    const sourceIndex = plan.sourceIndexByMaterialBin[index]!;
+    result[index] = sourceIndex === INVALID_MATERIAL_ASSOCIATION
+      ? INVALID_MATERIAL_ASSOCIATION
+      : gpuSlots[sourceIndex]!;
+  }
+  return result;
+}
+
+function materialAssociationSlot(
+  slots: Readonly<Uint32Array>,
+  materialCount: number,
+  materialIndex: number,
+  binId: number
+): number {
+  if (materialIndex >= materialCount || slots.length !== materialCount * 64) {
+    throw new RangeError("Material association table shape is invalid");
+  }
+  const slot = slots[materialBinSlotIndex(materialIndex, binId)];
+  if (slot === undefined || slot === INVALID_MATERIAL_ASSOCIATION) {
+    throw new ShadingIdentityPublicationError(
+      "INVALID_DEPENDENCY_MASK",
+      `Material ${materialIndex} has no published association for ShadingBinId ${binId}`
+    );
+  }
+  return slot;
+}
+
+function materialBinSlotIndex(materialIndex: number, binId: number): number {
+  if (!Number.isInteger(materialIndex) || materialIndex < 0 ||
+      !Number.isInteger(binId) || binId < 0 || binId >= 64) {
+    throw new RangeError("Material/bin association index is invalid");
+  }
+  return materialIndex * 64 + binId;
+}
+
+function shadingGeometryProfileKey(profile: Readonly<GpuShadingGeometryProfile>): number {
+  return (profile.hasAuthoredVertexColor ? 1 : 0) |
+    (profile.hasUv0 ? 2 : 0) |
+    (profile.hasNormal ? 4 : 0) |
+    (profile.hasTangent ? 8 : 0);
 }
 
 interface ClassificationPatchEntry {
@@ -892,7 +1036,8 @@ function isTransparentMaterial(material: StandardShadeMaterial): boolean {
 
 function toInstancePatchBatch(
   batch: PackedScenePatchBatch,
-  materialSlots: readonly number[],
+  materialBinSlots: Readonly<Uint32Array>,
+  materialDictionaryCount: number,
   materialsDictionary: readonly StandardShadeMaterial[],
   state: PackedSceneClassificationState
 ): InstancePatchBatch {
@@ -914,18 +1059,23 @@ function toInstancePatchBatch(
     const instanceIndex = materials.indices[index]!;
     assertInstanceIndex(instanceIndex, state, `material patch indices[${index}]`);
     const dictionaryIndex = materials.materialIndices[index]!;
-    if (dictionaryIndex >= materialSlots.length) {
+    if (dictionaryIndex >= materialDictionaryCount) {
       throw new RangeError(
         `Packed Scene materialIndices[${index}] is outside the material dictionary`
       );
     }
-    materialHandles[index] = materialSlots[dictionaryIndex]!;
     const identity = deriveGpuShadingIdentity(
       shadingMaterialProfile(
         materialsDictionary[dictionaryIndex]!,
         state.materialBindingSetIds[dictionaryIndex]!
       ),
       shadingGeometryProfileFromState(state, instanceIndex)
+    );
+    materialHandles[index] = materialAssociationSlot(
+      materialBinSlots,
+      materialDictionaryCount,
+      dictionaryIndex,
+      identity.binId
     );
     flags[index] = materialClassificationFlags(
       materialsDictionary[dictionaryIndex]!,

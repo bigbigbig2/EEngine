@@ -8,7 +8,7 @@ import {
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
-import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_TEXTURE_BANK_SAMPLE_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
@@ -21,7 +21,7 @@ ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
-${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -37,7 +37,7 @@ ${GBUFFER_ENCODE_WGSL}
 @group(0) @binding(7) var sampler_repeat_nearest: sampler;
 @group(0) @binding(8) var sampler_clamp_nearest: sampler;
 @group(0) @binding(9) var sampler_mirror_nearest: sampler;
-@group(0) @binding(10) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(10) var<storage, read> materials: array<OEngineShadingMaterialRecord>;
 @group(0) @binding(11) var oengine_texture_bank_1: texture_2d_array<f32>;
 @group(0) @binding(12) var oengine_texture_bank_2: texture_2d_array<f32>;
 @group(0) @binding(13) var oengine_texture_bank_3: texture_2d_array<f32>;

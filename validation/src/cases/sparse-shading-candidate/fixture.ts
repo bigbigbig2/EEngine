@@ -13,8 +13,7 @@ import { GPU_GEOMETRY_RECORD_STRIDE, GPU_GEOMETRY_RECORD_WGSL, GPU_GEOMETRY_VERT
 import { GraphicsContext } from "../../../../OEngine/src/gpu/GraphicsContext.js";
 import { GPU_INSTANCE_FLAGS, GPU_INSTANCE_RECORD_STRIDE, GPU_INSTANCE_RECORD_WGSL,
   packGpuInstanceRecord } from "../../../../OEngine/src/gpu/GpuInstanceAbi.js";
-import { GPU_MATERIAL_VISIBILITY_FLAGS, GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
-  packGpuMaterialVisibilityRecord } from "../../../../OEngine/src/gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../../../../OEngine/src/gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_MESHLET_BUCKET_STATE_STRIDE, GPU_MESHLET_DRAW_COUNT, GPU_MESHLET_DRAW_INDIRECT_STRIDE,
   GPU_MESHLET_RASTER_FLAGS, GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE, packGpuMeshletProfileLodBucket,
@@ -136,7 +135,7 @@ interface CandidateResources {
   readonly meshletRecords:GPUBuffer; readonly meshletVertexIndices:GPUBuffer;
   readonly meshletTriangleIndices:GPUBuffer; readonly vertexStreamData:GPUBuffer;
   readonly assetMetadata:GPUBuffer; readonly vertexPayload:GPUBuffer;
-  readonly visibilityMaterials:GPUBuffer; readonly shadingMaterials:GPUBuffer; readonly routes:GPUBuffer;
+  readonly shadingMaterials:GPUBuffer; readonly routes:GPUBuffer;
   readonly textureBanks:readonly GPUTexture[]; readonly textureBankViews:readonly GPUTextureView[];
   readonly materialSamplers:readonly GPUSampler[]; readonly lightDatabase:GPUBuffer|null;
   readonly clusterHeaders:GPUBuffer|null; readonly clusterIndices:GPUBuffer|null; readonly lightSettings:GPUBuffer|null;
@@ -184,7 +183,7 @@ export class SparseShadingCandidateFixture {
     this.raster=new MeshletBucketRaster(this.graphics); this.tonemap=new TonemapPass(device,canvasFormat,"shading-bin");
     this.renderingLab=workload==="rendering-lab-fixed"?new RenderingLabDownstream(this.graphics,WIDTH,HEIGHT):null;
     this.prepared=createPrepared(resources); this.assets=createAssetBindings(resources);
-    this.scene=createSceneBindings(resources); this.renderWorld=createRenderWorld(resources);
+    this.scene=createSceneBindings(resources); this.renderWorld=createRenderWorld(resources,publicationSnapshot);
   }
 
   static async create(device:GPUDevice, canvasContext:GPUCanvasContext, canvasFormat:GPUTextureFormat,
@@ -351,7 +350,6 @@ export class SparseShadingCandidateFixture {
       vertexStream:imported("candidate/vertex-stream",this.resources.vertexStreamData),
       assetMetadata:imported("candidate/asset-metadata",this.resources.assetMetadata),
       vertexPayload:imported("candidate/vertex-payload",this.resources.vertexPayload),
-      visibilityMaterials:imported("candidate/visibility-materials",this.resources.visibilityMaterials),
       shadingMaterials:imported("candidate/shading-materials",this.resources.shadingMaterials),
       routes:imported("candidate/texture-routes",this.resources.routes),
       presentation:imported("candidate/presentation",presentation), readback:imported("candidate/capture-readback",readback),
@@ -434,7 +432,7 @@ export class SparseShadingCandidateFixture {
     });
     const frame=addSparseShadingCandidateToGraph(graph,ticket.snapshot,features,{meshletWork:ids.meshletWork,
       sceneGeometry:[ids.camera,ids.instances,ids.geometry,ids.meshlets,ids.vertices,ids.triangles,ids.vertexStream,
-        ids.assetMetadata,ids.vertexPayload],materials:[ids.visibilityMaterials,ids.shadingMaterials,ids.routes],
+        ids.assetMetadata,ids.vertexPayload],materials:[ids.shadingMaterials,ids.routes],
       lighting,shadows:labIds===null?[]:[labIds.shadowAtlas],
       presentation:ids.presentation,captureReadback:ids.readback,captureScratch:[ids.oracle],
       captureEncoderWork:{computePasses:1,dispatches:2},
@@ -578,8 +576,6 @@ function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GP
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),
     vertexPayload:makeBuffer(`ADR-0013 ${label} resolve vertex payload`,vertexIndexBytes+triangleBytes+vertexBytes,
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),
-    visibilityMaterials:makeBuffer(`ADR-0013 ${label} visibility materials`,layout.materialCount*GPU_MATERIAL_VISIBILITY_RECORD_STRIDE,
-      GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),
     shadingMaterials:makeBuffer(`ADR-0013 ${label} shading materials`,layout.materialCount*GPU_SHADING_MATERIAL_RECORD_STRIDE,
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),
     routes:makeBuffer(`ADR-0013 ${label} texture routes`,layout.materialCount*4*GPU_SHADING_TEXTURE_ROUTE_STRIDE,
@@ -661,7 +657,7 @@ function uploadStaticInputs(device:GPUDevice,r:CandidateResources,snapshot:Retur
   device.queue.writeBuffer(r.instances,0,createInstances(workload));device.queue.writeBuffer(r.queue,0,createMeshletQueue(snapshot,workload));
   device.queue.writeBuffer(r.bucketStates,0,createBucketStates(r.layout));device.queue.writeBuffer(r.drawIndirect,0,createDrawIndirect(workload,r.layout));
   device.queue.writeBuffer(r.bucketSettings,0,createBucketSettings(device));const materials=createMaterials(snapshot,workload);
-  device.queue.writeBuffer(r.visibilityMaterials,0,materials.visibility);device.queue.writeBuffer(r.shadingMaterials,0,materials.shading);
+    device.queue.writeBuffer(r.shadingMaterials,0,materials.shading);
   device.queue.writeBuffer(r.routes,0,materials.routes);
   const bank=createTextureBankUpload(workload);
   for(const value of r.textureBanks)device.queue.writeTexture({texture:value},bank.bytes,
@@ -801,7 +797,6 @@ function uploadSnapshotDependentInputs(device:GPUDevice,r:CandidateResources,
   uploadFrameConfiguration(device,r,snapshot,camera,frameIndex);
   device.queue.writeBuffer(r.queue,0,createMeshletQueue(snapshot,r.workload));
   const materials=createMaterials(snapshot,r.workload);
-  device.queue.writeBuffer(r.visibilityMaterials,0,materials.visibility);
   device.queue.writeBuffer(r.shadingMaterials,0,materials.shading);
   device.queue.writeBuffer(r.routes,0,materials.routes);
 }
@@ -1047,7 +1042,6 @@ function createBucketSettings(device:GPUDevice):Uint32Array{const output=new Uin
 
 function createMaterials(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,workload:SparseCandidateWorkload){
   const programs=workloadProgramIds(workload),count=programs.length;
-  const visibility=new Uint8Array(count*GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
   const shading=new Uint8Array(count*GPU_SHADING_MATERIAL_RECORD_STRIDE);
   const routes=new Uint8Array(count*4*GPU_SHADING_TEXTURE_ROUTE_STRIDE);
   for(let materialSlot=0;materialSlot<count;materialSlot++){const program=programs[materialSlot]!;
@@ -1062,14 +1056,13 @@ function createMaterials(snapshot:ReturnType<GpuShadingPublicationStore["current
     if(orm!==GPU_TEXTURE_REF_INVALID)flags|=GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture;
     if(emissive!==GPU_TEXTURE_REF_INVALID)flags|=GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture;
     const payload=materialPayload(flags,set,base,normal,orm,emissive);
-    visibility.set(new Uint8Array(packGpuMaterialVisibilityRecord(payload)),materialSlot*GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
     shading.set(packGpuShadingMaterialRecord({programId:program,textureBindingSetId:set,materialGeneration:MATERIAL_GENERATION,
       textureGeneration:TEXTURE_GENERATION,publicationRevision:snapshot.revision,flags:0},payload),
       materialSlot*GPU_SHADING_MATERIAL_RECORD_STRIDE);
     [base,normal,orm,emissive].forEach((textureRef,textureSlot)=>routes.set(packGpuShadingTextureRoute({textureRef,
       textureGeneration:TEXTURE_GENERATION,publicationRevision:snapshot.revision,textureBindingSetId:set}),
       (materialSlot*4+textureSlot)*GPU_SHADING_TEXTURE_ROUTE_STRIDE));
-  }return {visibility,shading,routes};
+  }return {shading,routes};
 }
 function materialPayload(flags:number,set:number,base:number,normal:number,orm:number,emissive:number){return {
   kernelClass:0,alphaMode:0,flags,textureRef:base,baseColorFactorAlpha:1,alphaCutoff:0.5,textureUvSets:0,samplerClass:0,
@@ -1103,17 +1096,25 @@ function createSceneBindings(r:CandidateResources):GpuSceneBindings {
     recordStride:GPU_INSTANCE_RECORD_STRIDE,highWaterCount:r.layout.instanceCount,activeCount:r.layout.instanceCount});
 }
 
-function createRenderWorld(r:CandidateResources):GpuRenderWorldRuntime {
+function createRenderWorld(r:CandidateResources,
+  publication:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>):GpuRenderWorldRuntime {
   const banks=r.textureBankViews as [GPUTextureView,GPUTextureView,GPUTextureView,GPUTextureView,GPUTextureView,
     GPUTextureView,GPUTextureView,GPUTextureView,GPUTextureView];
   const program=workloadProgramIds(r.workload)[0]??0,bindingSetId=shadingProgramUsesTextures(program)?materialProfile(program).textureBindingSetId:0;
-  const activeKernelMasksByBindingSet=Array.from({length:bindingSetId+1},(_,id)=>id===bindingSetId?1:0);
+  const materialBinSlots=new Uint32Array(r.layout.materialCount*64);materialBinSlots.fill(0xffffffff);
+  workloadProgramIds(r.workload).forEach((programId,materialIndex)=>{const profile=materialProfile(programId);
+    const set=shadingProgramUsesTextures(programId)?profile.textureBindingSetId:0;
+    materialBinSlots[materialIndex*64+((set<<4)|programId)]=materialIndex;});
   return Object.freeze({handle:{},scene:{},sourceKind:"packed",assetHandles:[],instanceHandle:{},materials:[],
-    opaqueMaterialCount:r.layout.materialCount,materialSlots:Array.from({length:r.layout.materialCount},(_,index)=>index),
+    opaqueMaterialCount:r.layout.materialCount,materialPublication:{},
+    materialBinSlots,
+    materialDictionaryCount:r.layout.materialCount,materialGeneration:MATERIAL_GENERATION,
+    textureGeneration:TEXTURE_GENERATION,materialPublicationRevision:publication.revision,
     materialResources:Object.freeze({abiVersion:1,materialCapacity:r.layout.materialCount,
-      materialRecords:r.visibilityMaterials,textureCapacity:5,bindingSets:Object.freeze([{id:bindingSetId,generation:TEXTURE_GENERATION,
+      materialRecords:r.shadingMaterials,textureRouteRecords:r.routes,textureCapacity:5,
+      bindingSets:Object.freeze([{id:bindingSetId,generation:TEXTURE_GENERATION,
         textureBanks:banks,bankDescriptors:Object.freeze([])}])}),instanceBegin:0,instanceCount:r.layout.instanceCount,transparentInstanceCount:0,
-    activeKernelMask:1,activeKernelMasksByBindingSet:Object.freeze(activeKernelMasksByBindingSet),hierarchyTraversalCapacity:r.layout.workCount,
+    activeShadingSummary:publication.summary,hierarchyTraversalCapacity:r.layout.workCount,
     hierarchyVisibleClusterCapacity:r.layout.workCount,hierarchyRasterWorkCapacity:r.layout.workCount,counterSink:r.queue}) as unknown as GpuRenderWorldRuntime;
 }
 

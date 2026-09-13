@@ -174,7 +174,7 @@ fn evaluate_compute_material_tiles(
     compute_material_invalid(dispatch_class);
     return;
   }
-  let material_info = materials[work.material_slot_or_range];
+  let material_info = materials[work.material_slot_or_range].payload;
   if (material_info.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
     compute_material_invalid(dispatch_class);
     return;

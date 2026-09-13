@@ -5,7 +5,7 @@ import {
   GPU_UV_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
@@ -41,7 +41,7 @@ ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
-${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 
 override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
@@ -83,7 +83,7 @@ ${fragmentOutputDeclaration}
 @group(0) @binding(7) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(8) var<storage, read> meshlet_buckets: array<OEngineMeshletBucketStateRead>;
 @group(0) @binding(9) var<uniform> meshlet_bucket: OEngineMeshletBucketSettings;
-@group(0) @binding(10) var<storage, read> meshlet_materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(10) var<storage, read> meshlet_materials: array<OEngineShadingMaterialRecord>;
 @group(0) @binding(11) var oengine_texture_bank_0: texture_2d_array<f32>;
 @group(0) @binding(12) var oengine_texture_bank_1: texture_2d_array<f32>;
 @group(0) @binding(13) var oengine_texture_bank_2: texture_2d_array<f32>;
@@ -241,7 +241,7 @@ fn write_meshlet_mask(
   @location(8) @interpolate(flat) meshlet_work_slot: u32${fragmentShadingBinInput}
 ) -> ${fragmentReturnType} {
   if material_handle >= arrayLength(&meshlet_materials) { discard; }
-  let record = meshlet_materials[material_handle];
+  let record = meshlet_materials[material_handle].payload;
   if record.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET { discard; }
   var alpha = record.base_color_factor_alpha;
   let uv_set = record.texture_uv_sets & 0xffu;

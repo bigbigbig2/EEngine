@@ -6,7 +6,7 @@ import {
   GPU_MATERIAL_TILE_DISPATCH_CLASS_COUNT,
   GPU_MATERIAL_TILE_WORK_WGSL
 } from "../gpu/GpuMaterialTileWorkAbi.js";
-import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { LIGHTING_DIRECT_CORE_WGSL } from "./lighting_direct.js";
@@ -24,7 +24,7 @@ export const LIGHTING_DIRECT_COMPUTE_WGSL = /* wgsl */ `
 ${LIGHTING_DIRECT_CORE_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
-${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_MATERIAL_TILE_WORK_WGSL}
 
 const TILE_WIDTH: u32 = 8u;
@@ -55,7 +55,7 @@ struct MaterialTileSettings {
 
 @group(3) @binding(0) var tile_visibility_keys: texture_2d<u32>;
 @group(3) @binding(1) var<storage, read> tile_meshlet_work: OEngineMeshletWorkQueueRead;
-@group(3) @binding(2) var<storage, read> tile_materials: array<OEngineMaterialVisibilityRecord>;
+@group(3) @binding(2) var<storage, read> tile_materials: array<OEngineShadingMaterialRecord>;
 @group(3) @binding(3) var<storage, read_write> tile_queue_words: array<atomic<u32>>;
 @group(3) @binding(4) var<storage, read_write> tile_control: OEngineMaterialClassificationControl;
 @group(3) @binding(5) var<uniform> tile_settings: MaterialTileSettings;
@@ -143,7 +143,7 @@ fn shade_direct_material_tiles(
     atomicStore(&tile_control.frame_invalid, 1u);
     return;
   }
-  let material = tile_materials[work.material_slot_or_range];
+  let material = tile_materials[work.material_slot_or_range].payload;
   if oengine_material_dispatch_class_id(
       material.kernel_class,
       material.texture_binding_set_id

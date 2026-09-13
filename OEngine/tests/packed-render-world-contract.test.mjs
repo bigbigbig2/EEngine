@@ -403,6 +403,52 @@ test("GPU Render World publishes stage and release only when their command commi
   assert.equal(runtime.counterSink.destroyed, true);
 });
 
+test("GPU Render World publishes distinct material slots for geometry-dependent programs", () => {
+  const fixture = createPackedRegistryFixture();
+  const unlit = fixture.manifest.source.materials[0];
+  unlit.is_unlit = true;
+  const withoutColor = {
+    clusters: [],
+    meshlets: [{ triangleCount: 12 }],
+    vertexStreamDescriptors: [{ semantic: "position" }]
+  };
+  fixture.manifest.source.geometries.push(withoutColor);
+  fixture.manifest.packages = fixture.manifest.source.geometries;
+  fixture.assetHandles.push({});
+  fixture.manifest.source.count = 2;
+  fixture.manifest.source.geometryIndices = new Uint32Array([0, 1]);
+  fixture.manifest.source.materialIndices = new Uint32Array([0, 0]);
+  fixture.manifest.source.currentTransforms = identityMatrices(2);
+  fixture.manifest.source.boundsSpheres = new Float32Array([
+    0, 0, 0, 1,
+    2, 0, 0, 1
+  ]);
+
+  const command = new FakeCommand("geometry-dependent-material-stage");
+  fixture.registry.stage(
+    fixture.scene,
+    fixture.manifest,
+    fixture.assetHandles,
+    command
+  );
+  command.finish();
+
+  assert.deepEqual(
+    fixture.calls.materialAssociations[0].map(({ programId, textureBindingSetId }) =>
+      [programId, textureBindingSetId]),
+    [[1, 0], [0, 0]]
+  );
+  assert.deepEqual([...fixture.calls.instanceSources[0].materialHandles], [7, 8]);
+  assert.deepEqual(
+    [...fixture.calls.instanceSources[0].flags].map(decodeInstanceShadingBinId),
+    [1, 0]
+  );
+  const summary = fixture.registry.runtime(fixture.scene).activeShadingSummary;
+  assert.equal(summary.binRefCounts[0], 1);
+  assert.equal(summary.binRefCounts[1], 1);
+  assert.equal(summary.opaqueUnlitReceiverCount, 2);
+});
+
 test("GPU Render World abort leaves no published scene and release abort preserves ownership", () => {
   const fixture = createPackedRegistryFixture();
   const abortedStage = new FakeCommand("packed-stage-abort");
@@ -1132,7 +1178,8 @@ function createPackedRegistryFixture() {
     stages: [],
     releases: [],
     patches: [],
-    instanceSources: []
+    instanceSources: [],
+    materialAssociations: []
   };
   const dummyBuffer = {};
   const dummyView = {};
@@ -1200,15 +1247,25 @@ function createPackedRegistryFixture() {
       }
     },
     material_store: {
-      stage(materials, _textureRefs, _bindingSetIds, command) {
+      stage(associations, _textureRefs, command) {
         calls.stages.push("material");
+        calls.materialAssociations.push(associations);
         command.onAborted.addOne(() => calls.stages.push("material-abort"));
         return {
-          bindings: { abiVersion: 1, materialCapacity: 4096, materialRecords: dummyBuffer },
-          materialSlots: materials.map((_material, index) => 7 + index)
+          handle: {},
+          bindings: {
+            abiVersion: 1,
+            materialCapacity: 8192,
+            materialRecords: dummyBuffer,
+            textureRouteRecords: dummyBuffer
+          },
+          associationSlots: associations.map((_association, index) => 7 + index),
+          materialGeneration: 1,
+          textureGeneration: 1,
+          publicationRevision: 1
         };
       },
-      release(_materials, command) {
+      release(_publication, command) {
         calls.releases.push("material");
         command.onAborted.addOne(() => calls.releases.push("material-release-abort"));
       }

@@ -7,7 +7,7 @@
 
 import { GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_HDR_FORMAT } from "../gpu/GpuHdrAbi.js";
@@ -280,7 +280,7 @@ ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
-${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_VISIBILITY_DEBUG_STATUS_WGSL}
 
 struct R4DebugResolveSettings {
@@ -297,7 +297,7 @@ struct R4DebugResolveSettings {
 @group(0) @binding(1) var<storage, read> debug_instances: array<OEngineInstanceRecord>;
 @group(0) @binding(2) var<storage, read> debug_meshlets: array<GpuMeshletRecord>;
 @group(0) @binding(3) var<storage, read> debug_meshlet_work: OEngineMeshletWorkQueueRead;
-@group(0) @binding(4) var<storage, read> debug_materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(4) var<storage, read> debug_materials: array<OEngineShadingMaterialRecord>;
 @group(0) @binding(5) var<uniform> settings: R4DebugResolveSettings;
 
 ${DEBUG_VIEW_COORDINATE_WGSL}
@@ -400,7 +400,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   ) {
     return fail(OENGINE_VIS_DEBUG_MATERIAL_OOB);
   }
-  let material = debug_materials[work.material_slot_or_range];
+  let material = debug_materials[work.material_slot_or_range].payload;
   if (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
     return fail(OENGINE_VIS_DEBUG_MATERIAL_INVALID);
   }

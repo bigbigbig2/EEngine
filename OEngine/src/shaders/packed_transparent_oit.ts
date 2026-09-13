@@ -5,7 +5,7 @@ import {
   GPU_UV_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../gpu/GpuMaterialVisibilityAbi.js";
+import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_TEXTURE_BANK_SAMPLE_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_SECONDARY_RASTER_FLAGS } from "../gpu/GpuSecondaryRasterAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
@@ -56,7 +56,7 @@ ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
-${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_SHADING_MATERIAL_WGSL}
 
 struct QueueHeaderRead {
   written: u32, attempted: u32, peak: u32, overflow: u32,
@@ -92,7 +92,7 @@ struct TransparentVertexOutput {
 @group(0) @binding(5) var<storage, read> vertex_data: array<u32>;
 @group(0) @binding(6) var<storage, read> geometries: array<GpuGeometryRecord>;
 @group(0) @binding(7) var<storage, read> raster_work: SecondaryRasterQueue;
-@group(0) @binding(8) var<storage, read> materials: array<OEngineMaterialVisibilityRecord>;
+@group(0) @binding(8) var<storage, read> materials: array<OEngineShadingMaterialRecord>;
 @group(0) @binding(9) var oengine_texture_bank_0: texture_2d_array<f32>;
 @group(0) @binding(10) var sampler_repeat_linear: sampler;
 @group(0) @binding(11) var sampler_clamp_linear: sampler;
@@ -214,7 +214,7 @@ fn transform_uv(record: OEngineMaterialVisibilityRecord, slot: u32, uv: vec2f) -
   );
 }
 fn transparent_material(input: TransparentVertexOutput) -> OEngineMaterialVisibilityRecord {
-  return materials[min(input.material_handle, arrayLength(&materials) - 1u)];
+  return materials[min(input.material_handle, arrayLength(&materials) - 1u)].payload;
 }
 fn material_uv(input: TransparentVertexOutput, material: OEngineMaterialVisibilityRecord, slot: u32) -> vec2f {
   let uv_set = material_uv_set(material, slot);
