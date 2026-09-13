@@ -2,6 +2,8 @@
 
 Status: accepted
 
+> Transitional reset completed. Example Library V2 and the independent validation host boundary are defined by [ADR-0014](./0014-browser-validation-and-performance-host.md); this ADR continues to prohibit restoring the retired mixed example/runner architecture.
+
 ## Context
 
 原 `examples/` 同时承担教学示例、Storybook 目录、独立 WebGPU runtime、Canonical Browser Fixture、验证 Runner、Rendering Lab 和 formal benchmark。多种责任在同一包内长期演化，目录、脚本、测试与权威文档形成了紧耦合；继续在旧结构上增量修补会让下一代示例分类、runtime 生命周期和验证协议被既有实现反向限制。
@@ -22,6 +24,8 @@ Status: accepted
 仓库暂时失去真实浏览器回归、综合画质 fixture 和 formal 性能入口。TypeScript、WGSL 组合、CPU oracle、静态 ABI 与文档检查仍可运行，但它们不能替代 GPU 运行证据。依赖旧 Fixture 源码的单元测试必须删除该依赖，生产代码不得为了维持旧测试而保留兼容层。
 
 下一代示例库可以重新确定信息架构和验证边界，无需兼容旧 URL、Case id、Bridge、脚本名、场景资产或 artifact schema。恢复任何性能声明前，必须重新建立固定 adapter/browser/resolution/workload/cadence、错误采集和可复算 provenance。
+
+Example Library V2 现已以 standalone Vite MPA + Storybook iframe catalog 恢复，但不承担 Browser Validation 或 formal benchmark。独立宿主的长期边界由 ADR-0014 接管；本 ADR 中“只保留空壳”描述的是重置阶段，不再是当前目录事实。
 
 ## Verification
 

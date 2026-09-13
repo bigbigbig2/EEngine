@@ -96,15 +96,14 @@ test("ADR-0013 requirements have stable category ids and verification layers", (
   }
 });
 
-test("ADR-0013 formal baseline remains explicitly open until a real host exists", () => {
+test("ADR-0013 formal baseline names the current designated blocking device", () => {
   assert.equal(manifest.formalBaseline.status, "open");
-  assert.match(manifest.formalBaseline.blocker, /ADR-0012/u);
+  assert.match(manifest.formalBaseline.blocker, /ADR-0014/u);
   assert.deepEqual(manifest.formalBaseline.fixedConditions.outputExtent, [1920, 1080]);
   assert.equal(manifest.formalBaseline.fixedConditions.devicePixelRatio, 1);
-  assert.deepEqual(manifest.formalBaseline.fixedConditions.adapters, [
-    "NVIDIA GeForce GTX 1650 Ti",
-    "NVIDIA GeForce RTX 2060"
-  ]);
+  assert.equal(manifest.formalBaseline.fixedConditions.requiredAdapterPolicy, "current-designated-device");
+  assert.equal(manifest.formalBaseline.fixedConditions.designatedAdapter, "NVIDIA GeForce RTX 2060 SUPER");
+  assert.equal("adapters" in manifest.formalBaseline.fixedConditions, false);
   assert.ok(manifest.formalBaseline.fixedConditions.requiredFingerprint.length >= 10);
 });
 

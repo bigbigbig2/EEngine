@@ -17,7 +17,8 @@
 - Packed Render World 收敛实施入口：[ADR-0006](./adr/0006-packed-render-world-convergence.md)。
 - 外部算法、资产和许可证：[porting/](./porting/README.md)。
 - Performance Inspector：[`OEngine/src/addons/inspector/README.md`](../OEngine/src/addons/inspector/README.md)。
-- Storybook 空壳与示例库重建入口：[`examples/README.md`](../examples/README.md)、[ADR-0012](./adr/0012-example-library-reset.md)。
+- Example Library V2（standalone Vite MPA + Storybook catalog，不承担验证）：[`examples/README.md`](../examples/README.md)、[ADR-0012](./adr/0012-example-library-reset.md)。
+- 独立浏览器验证与性能宿主：[ADR-0014](./adr/0014-browser-validation-and-performance-host.md)、`validation/`。
 - 机器可读 benchmark 与审计结果：[`OEngine/benchmarks/README.md`](../OEngine/benchmarks/README.md)。
 - 非权威设计研究：`others/`；其中的日期性判断和候选方案必须回写到 PRODUCT、WEBGPU、ADR 或核心事实页后才生效。
 

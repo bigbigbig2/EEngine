@@ -53,8 +53,8 @@ src/index.ts
 
 - 普通 DEV 在 dependency/lockfile 未变化时不运行 `npm ci`；TypeScript/WGSL 改动运行 `npm run typecheck` 和命中的 targeted tests。
 - dependency/lockfile 变化、clean reproduction、CI 或正式 PERF 前运行 `npm ci`。
-- ADR-0012 生效期间没有 Browser Case 或 formal runner；`npm test` 不能替代真实 GPU 证据，渲染改动不得在替代宿主落地前升级为 Runtime Validated、Performance Evaluated/Improved、Pipeline Feature Complete 或 ADR Complete。
-- MILESTONE 与正式 PERF 必须等待后续 ADR 恢复真实浏览器宿主，并遵循 `docs/VALIDATION.md` 的 fixed-condition policy。
+- `examples/` 不承担 Browser Case 或 formal runner；`npm test` 不能替代真实 GPU 证据。渲染改动必须由 ADR-0014 的独立 `validation/` 宿主产生合格证据，才可升级为 Runtime Validated、Performance Evaluated/Improved、Pipeline Feature Complete 或 ADR Complete。
+- MILESTONE 与正式 PERF 必须使用 ADR-0014 的真实浏览器宿主，并遵循 `docs/VALIDATION.md` 的 fixed-condition policy。
 
 现有 `tests/` 已覆盖 R0/R1 的关键公共 seam；新增高风险 ABI、数学、资产解析和 GPU producer/consumer 路径时必须同步补验证入口。
 

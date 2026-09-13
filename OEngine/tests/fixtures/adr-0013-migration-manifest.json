@@ -5,14 +5,15 @@
   "inventoryCommit": "0102a61",
   "formalBaseline": {
     "status": "open",
-    "blocker": "ADR-0012 has removed the real browser validation and performance host.",
+    "blocker": "ADR-0014 browser validation and performance host is accepted but not implemented.",
     "workloadId": "adr-0013-sparse-shading-bin-comprehensive-v1",
     "evidenceSchemaId": "adr-0013-perf-evidence-v1",
     "fixedConditions": {
       "outputExtent": [1920, 1080],
       "devicePixelRatio": 1,
       "renderScale": 1,
-      "adapters": ["NVIDIA GeForce GTX 1650 Ti", "NVIDIA GeForce RTX 2060"],
+      "requiredAdapterPolicy": "current-designated-device",
+      "designatedAdapter": "NVIDIA GeForce RTX 2060 SUPER",
       "requiredFingerprint": [
         "browserBuild",
         "adapterInfo",
@@ -231,7 +232,7 @@
     {"id": "DIAG-006", "clause": "ownership validation exists only in a separate diagnostics variant", "layers": ["L0", "L2", "L3"]},
     {"id": "DIAG-007", "clause": "readback is asynchronous and never controls current-frame construction", "layers": ["L0", "L4"]},
     {"id": "PERF-001", "clause": "baseline and candidate use identical frozen conditions", "layers": ["L5"]},
-    {"id": "PERF-002", "clause": "formal evidence covers GTX 1650 Ti and RTX 2060", "layers": ["L5"]},
+    {"id": "PERF-002", "clause": "formal evidence covers the current designated adapter; supplementary adapters are non-blocking", "layers": ["L5"]},
     {"id": "PERF-003", "clause": "GPU timestamps report MRT classifier finalizer shading and removed lighting deltas", "layers": ["L5"]},
     {"id": "PERF-004", "clause": "near far mixed and feature-off workloads pass without trading one regression for another", "layers": ["L5"]},
     {"id": "PERF-005", "clause": "FPS or CPU frame cadence is not accepted as GPU performance proof", "layers": ["L5"]},

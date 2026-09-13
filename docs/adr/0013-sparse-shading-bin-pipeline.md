@@ -1043,14 +1043,14 @@ tests/packed-render-world-contract.test.mjs
 - L4：运行 BasicCubeNear/Far、UnlitVertexColor、UnlitTexture、MixedBins、RenderingLabFixed；检查截图/数值、queue closure、GPU diagnostics、one-main-submit。
 - L4：逐项运行 resize、material/association patch、TextureBindingSet relocation、feature toggle、scene replace、camera cut、aborted submit 和 device loss；旧 snapshot 只在 submitted-work boundary 后退役。
 - L4：feature-off 以 live topology 证明无 owner/resource/pass/history/readback/counter copy/独立 submit，不接受仅 uniform 分支。
-- L5：在 1650 Ti 捕获旧 clean baseline 与 candidate 的相同条件数据，2060 作第二 adapter；先分离 Visibility r8 MRT、classifier、finalizer、major programs 与 downstream phase，再看总 frame。
+- L5：在当前指定设备的真实 WebGPU adapter 上捕获旧 clean baseline 与 candidate 的相同条件数据；当前指定设备为 `NVIDIA GeForce RTX 2060 SUPER`。先分离 Visibility r8 MRT、classifier、finalizer、major programs 与 downstream phase，再看总 frame。其他 adapter 由用户后续补充，不阻塞本 ADR。
 - L5：若 cube 改善但 `MixedBins`/`RenderingLabFixed` P50/P95、内存或画质不合格，Step 6 不通过；不能只凭平均 FPS 进入 cutover。
 
 **Exit Gate**
 
 - L0–L4 全绿，所有 correctness-critical counter/diagnostic 为零，生命周期无 stale generation/resource leak。
 - L5 能解释 coverage slope、MRT 成本、classifier contention、mixed-tile rejected lanes 和 fused-lighting 收益；达到本 ADR `PERF gates` 的接受条件。
-- 新宿主或目标 1650 Ti 不可用时 Step 6 保持 open，并明确阻塞 Step 7；不得以 2060、任务管理器利用率或 CPU FPS 代替。
+- 新宿主或当前指定 WebGPU adapter 不可用时 Step 6 保持 open，并明确阻塞 Step 7；不得以 WMI 设备名、任务管理器利用率或 CPU FPS 代替浏览器 capability/timestamp 证据。
 
 #### Step 7 · 一次性 production cutover 与旧路径删除
 
@@ -1107,12 +1107,12 @@ npm run audit:shaders
 - L4：`MILESTONE gates` 定义的全部 deterministic states 加综合 workload；覆盖 cold start、warm cache、resize、scene replace、material/geometry/texture patch、feature toggle、camera cut、aborted submit、device loss/recovery。
 - 每个 scenario 同时记录 console/page/request error、validation error scopes、uncaptured error、device loss、live graph、resource bytes、counter、screenshot/readback 和 submit count。
 - 对 Feature-off 组合进行结构检查；不得用画面“看起来没变化”代替 owner/resource/pass 缺席证据。
-- 1650 Ti 是必需主 adapter，2060 是必需第二 adapter；任一 adapter correctness 失败都阻止验收。
+- 当前指定的 `NVIDIA GeForce RTX 2060 SUPER` 是本 ADR 唯一阻塞性 adapter；Runner 必须证明浏览器实际选择该 adapter。其他设备的 correctness/PERF 结果是非阻塞补充，不进入本 ADR Exit Gate。
 
 **C. 全量 formal PERF**
 
 - 使用 Step 0 冻结的旧 baseline commit 与 clean cutover commit；两边必须使用同一新宿主、浏览器 build、adapter、1920×1080、DPR 1、fixed render scale、quality/features、scene/seed/camera、warm-up/sample cadence。
-- 每个 adapter 使用多个独立 run group，保存逐 phase GPU P50/P95、CPU frame/build/submit、Present cadence、submit 数、memory 与所有 queue/error counters。
+- 当前指定 adapter 使用多个独立 run group，保存逐 phase GPU P50/P95、CPU frame/build/submit、Present cadence、submit 数、memory 与所有 queue/error counters。
 - BasicCubeNear/Far 用于 coverage slope，不单独代表综合成功；MixedBins 和 RenderingLabFixed 共同防止只优化单材质大三角形。
 - GPU timestamp 不可用的 run 只能作为 correctness evidence，不能进入 formal PERF；CPU FPS、浏览器 overlay 和任务管理器 GPU utilization 不能代替 timestamp。
 - 结果必须分别给出新增 r8 MRT、classifier/finalizer、各 shading family、删除第二轮 lighting 和删除 diagnostics 的成本/收益；无法解释的回归视为失败。
@@ -1121,7 +1121,7 @@ npm run audit:shaders
 
 1. **Architecture/ownership review**：GPU producer→GPU consumer、单主管线、FrameProduct owner、feature-off、无 CPU visible list、无 public GPU internals。
 2. **WebGPU/WGSL review**：feature/limit negotiation、resource usage、alignment、BGL/layout、MRT format、indirect buffer、pass ordering、subgroup/barrier uniformity、explicit gradients、device loss/error scopes。
-3. **Performance/resource review**：pipeline/bind-group cache、stable-frame allocation/readback/submit、timestamp 完整性、resident/transient/history/shadow/upload/readback budget、1650/2060 可解释结果。
+3. **Performance/resource review**：pipeline/bind-group cache、stable-frame allocation/readback/submit、timestamp 完整性、resident/transient/history/shadow/upload/readback budget、当前指定 adapter 上的可解释结果。
 4. **Source/deletion/documentation review**：upstream revision/license/adoption、无不可用源码派生、旧 owner 零残留、当前事实文档与实现一致、benchmark artifact 可复算。
 
 审查结论只能是 `pass` 或带 requirement id 的 `fail`；“建议以后处理”不能关闭本 ADR 的 MUST/不得条款。
@@ -1135,7 +1135,7 @@ npm run audit:shaders
 3. 先重跑失败 Step 的全部 Layer，不只重跑单个失败 case。
 4. 再重跑所有依赖该 ABI、Shader、FrameProduct、capability 或 lifecycle 的后续 Step Gate。
 5. 最后从 Step 8A 开始重新执行全量验收；旧 candidate 的成功结果不能拼接成新 revision 的全绿结论。
-6. 循环直到两个 adapter 的适用 Gate、四类 review、deletion scan 和 requirement matrix 全部通过。
+6. 循环直到当前指定 adapter 的适用 Gate、四类 review、deletion scan 和 requirement matrix 全部通过。
 
 禁止通过提高容差、删除 workload、降低内部分辨率/画质、关闭 feature、缩短采样窗口、只换更快 adapter、隐藏 validation error 或恢复旧 backend 让失败“变绿”。确需改变验收条件时必须在 ADR 中说明新依据、代价和被作废证据。
 
@@ -1265,7 +1265,7 @@ warm-up/sample cadence
 independent run groups
 ```
 
-GTX 1650 Ti 是主要低端门禁，RTX 2060 是第二 adapter；不能用 2060 结果替代 1650。保存 GPU P50/P95、CPU build/submit、present cadence、one-submit、memory 与 counters，CPU FPS 不冒充 GPU timing。
+本 ADR 的阻塞性性能门禁只使用当前指定的 `NVIDIA GeForce RTX 2060 SUPER`；Runner 必须保存浏览器实际 adapter identity，名称或设备选择不符时 run 无效。用户后续在 GTX 1650 Ti 或其他设备上的对比属于补充证据，不影响本 ADR 的 pass/fail。保存 GPU P50/P95、CPU build/submit、present cadence、one-submit、memory 与 counters，CPU FPS 不冒充 GPU timing。
 
 Timestamp phases 至少分离：
 
@@ -1303,6 +1303,6 @@ ADR-0013 只有同时满足以下条件才能标记 complete：
 - Production ownership diagnostics 物理不存在，diagnostics variant 仍能捕获错误。
 - 所有旧 MaterialTile/KernelClass/28-dispatch lighting owner、ABI、shader、tests 和文档已经删除或改写。
 - `docs/ARCHITECTURE.md`、`docs/PIPELINE.md`、`docs/STATUS.md`、`docs/WEBGPU.md` 和 porting ledger 与实际 cutover 同步。
-- 新 browser host 下 1650 Ti + 2060 MILESTONE/PERF 完成，正式证据没有 correctness-critical overflow 或 GPU diagnostics。
+- 新 browser host 下当前指定 adapter 的 MILESTONE/PERF 完成，正式证据没有 correctness-critical overflow 或 GPU diagnostics；额外 adapter 对比不作为本 ADR 完成条件。
 
-在 ADR-0012 的宿主缺口关闭前，本 ADR 最高只能达到 `Implementation Complete`，不得宣称 Runtime Validated、Performance Improved、Pipeline Feature Complete 或 ADR Complete。
+在 ADR-0014 宿主实现且命中 Gate 关闭前，本 ADR 最高只能达到 `Implementation Complete`，不得宣称 Runtime Validated、Performance Improved、Pipeline Feature Complete 或 ADR Complete。

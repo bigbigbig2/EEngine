@@ -10,14 +10,14 @@ npm ci
 npm test
 ```
 
-ADR-0012 生效期间，`examples/` 只提供 Storybook 空壳，不提供 WebGPU runtime、Browser Case、Validation Runner 或 formal benchmark。空壳验证从 `examples/` 执行：
+`examples/` 已恢复为 Example Library V2 的 standalone Vite MPA + Storybook iframe catalog，但不提供 Browser Case、Validation Runner 或 formal benchmark。示例库自身验证从 `examples/` 执行：
 
 ```powershell
 yarn typecheck
 yarn build
 ```
 
-这两个命令只验证 Storybook 工具链，不能作为 Renderer 或 GPU 证据。
+这两个命令只验证示例库与 Storybook 工具链，不能作为 Renderer 或 GPU 证据。真实浏览器验证与 formal PERF 由 [ADR-0014](./adr/0014-browser-validation-and-performance-host.md) 的独立 `validation/` 包负责。
 
 ## 验证层级
 
@@ -25,25 +25,25 @@ yarn build
 
 ### DEV
 
-用于普通迭代，目标是快速发现 ABI、数学和静态资源合同错误。按改动选择 typecheck、targeted unit/oracle 与 WGSL 组合检查。替代浏览器宿主落地前，DEV 无法关闭真实 WebGPU 集成、GPU validation、uncaptured error、device loss 或视觉 Gate。
+用于普通迭代，目标是快速发现 ABI、数学和静态资源合同错误。按改动选择 typecheck、targeted unit/oracle 与 WGSL 组合检查。ADR-0014 宿主未为命中 Case 产生合格 artifact 前，DEV 无法关闭真实 WebGPU 集成、GPU validation、uncaptured error、device loss 或视觉 Gate。
 
 DEV 不运行全量 Browser matrix 或 formal benchmark，也不产生可接受的性能基线。
 
 ### MILESTONE
 
-用于 ADR Step 完成、production candidate 判断、consumer cutover 和旧路径删除前。MILESTONE 必须包含真实目标浏览器中的 correctness seam、GPU diagnostics、生命周期和必要视觉/数值证据。当前仓库没有能够产生这些证据的宿主，因此新渲染工作最多记录为 Implementation Complete；不得用 `npm test` 或 Storybook build 代替 MILESTONE。
+用于 ADR Step 完成、production candidate 判断、consumer cutover 和旧路径删除前。MILESTONE 必须通过 ADR-0014 宿主，包含真实目标浏览器中的 correctness seam、GPU diagnostics、生命周期和必要视觉/数值证据；不得用 `npm test`、示例页面或 Storybook build 代替 MILESTONE。
 
 ### PERF
 
-用于阶段 baseline/final、重大 keep/revise/reject 决策、正式性能声明或重大回归调查。PERF 必须 clean、固定比较条件、运行独立 run group 并持久化可复算证据。当前 formal runner 已随旧示例体系移除，在后续 ADR 恢复固定综合 workload 和浏览器宿主前，不得产生新的 PERF 结论。
+用于阶段 baseline/final、重大 keep/revise/reject 决策、正式性能声明或重大回归调查。PERF 必须由 ADR-0014 宿主在 clean revision、固定比较条件下运行独立 run group，并持久化可复算证据；宿主或命中 Case 未完成时不得产生新的 PERF 结论。
 
 正确性、画质和性能 Gate 分开判断：ABI、identity、overflow、lifecycle 与 producer/consumer 闭环不能由 FPS 改善替代；视觉算法使用数值 seam 加少量代表性视角，不默认要求与旧算法 pixel-identical；性能优化只有受控 A/B 才能声明改善。
 
-## Browser Validation 重建边界
+## Browser Validation 边界
 
-旧 Fixture、Case Registry、ChromeRunner、Rendering Lab 和 artifact schema 已按 ADR-0012 删除，不是新体系的兼容目标。新宿主落地时至少重新定义：独立 runtime 和 GPU owner、唯一 Case identity、结果新鲜度、Chrome/adapter provenance、console/page/request error、GPU validation/uncaptured error、device loss、截图/readback/counter、资源销毁、三态或替代失败语义，以及本机 artifact 清理策略。
+旧 Fixture、Case Registry、ChromeRunner、Rendering Lab 和 artifact schema 已按 ADR-0012 删除，不是新体系的兼容目标。ADR-0014 重新定义独立 runtime 和 GPU owner、唯一 Case identity、结果新鲜度、Chrome/adapter provenance、console/page/request error、GPU validation/uncaptured error、device loss、截图/readback/counter、资源销毁、三态结果语义，以及本机 artifact 清理策略。
 
-在此之前：
+对尚未在 `validation/` 落地的 Case：
 
 - 不创建返回固定成功的占位 Fixture 或空 Runner。
 - 不把 Storybook iframe、静态页面或 CPU-only test 标成 Browser Validation。
@@ -62,7 +62,7 @@ DEV 不运行全量 Browser matrix 或 formal benchmark，也不产生可接受�
 
 - `docs/` 只包含入口、六份核心事实页、ADR、porting ledger 和非权威研究输入 `others/`。
 - 公共验证政策只进入本文件；领域不变量和完成条件进入对应 ADR；当前 Gate 状态只进入 `STATUS.md`。
-- 新示例库落地后，Case id、domain、changed-path 映射和 profile 名称必须由单一机器可读 owner 管理；当前不存在该 owner。
+- Case id、domain、changed-path 映射和 profile 名称必须由 `validation/cases/registry.json` 单一机器可读 owner 管理。
 - 顶层 `docs/` 不保存独立验证计划、阶段总矩阵或逐 Step 执行手册；完成融合的设计输入由 Git 历史保留。
 - Markdown 相对链接必须存在。
 - 权威文档不得引用 `temp/`、本机绝对路径或已删除的 owner。
@@ -72,7 +72,7 @@ DEV 不运行全量 Browser matrix 或 formal benchmark，也不产生可接受�
 
 ## 综合性能宿主
 
-当前没有综合浏览器 fixture 或 formal runner。下一代宿主必须使用唯一综合 workload，并把场景、相机、分辨率、DPR、画质、feature set、warm-up、采样窗口和 cadence 冻结为机器可读输入；正式结果仍要求 clean commit、多个独立 run、截图/provenance、GPU diagnostics 和 BenchmarkEvidenceGate。短 smoke 只能用于编排，不构成正式证据。
+ADR-0014 的综合宿主必须使用唯一综合 workload，并把场景、相机、分辨率、DPR、画质、feature set、warm-up、采样窗口和 cadence 冻结为机器可读输入；正式结果仍要求 clean commit、多个独立 run、截图/provenance、GPU diagnostics 和 BenchmarkEvidenceGate。短 smoke 只能用于编排，不构成正式证据。
 
 ## WebGPU 正确性
 

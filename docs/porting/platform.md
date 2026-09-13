@@ -12,7 +12,7 @@
 - Retained invariants: bounded lazy Workers、Transferable input/output、每 Worker 一次 WASM init、capability 与 exact transcoder target 双重选择、完整 mip、sRGB/normal/MASK semantic contract、block extent、atomic residency publication、确定性 metadata/checksum。
 - OEngine/WebGPU differences: Worker 不拥有 WebGPU/Renderer/Texture；KTX2 UASTC/ETC1S output 归一化为 OEngine encoded variant，并进入 ADR-0007 同一 residency transaction。Pinned v4.4.2 target matrix 是 BC1/3/4/5/7、ETC1/ETC2/EAC、ASTC 4×4 与 RGBA32；未宣称 BC6H 或可变 ASTC block target。`texture-compression-unaligned` 尚不作为 hard requirement。
 - Fallback/lifecycle: 已兼容的 GPU-native package 永远绕过 Worker/WASM；codec 不可用或无 exact target 时只选择 package 明示且 policy 允许的 uncompressed variant，否则在 GPU resource 创建前失败。取消/Worker crash 释放 CPU reservation，device loss 从 authoritative package/KTX2 input 重建。
-- Local validation: `asset-codec-service.test.mjs` 覆盖 protocol、priority/FIFO、Worker/memory bound、Transferable、cancel/failure/replacement、lazy lifecycle、policy，并以 SHA-256 `c59c2174a0db4e12d2bbbab8f830cd9f2f1716194bbda89fac5ccbd57aae5268` 的 upstream 32×32 UASTC fixture 真实调用 pinned WASM 转 BC7；`runtime-asset-v2.test.mjs` 继续覆盖 package/residency。GPU consumer 的旧浏览器证据只属于冻结 commit，当前 Gate 等待 ADR-0012 的后续宿主。
+- Local validation: `asset-codec-service.test.mjs` 覆盖 protocol、priority/FIFO、Worker/memory bound、Transferable、cancel/failure/replacement、lazy lifecycle、policy，并以 SHA-256 `c59c2174a0db4e12d2bbbab8f830cd9f2f1716194bbda89fac5ccbd57aae5268` 的 upstream 32×32 UASTC fixture 真实调用 pinned WASM 转 BC7；`runtime-asset-v2.test.mjs` 继续覆盖 package/residency。GPU consumer 的旧浏览器证据只属于冻结 commit，当前 Gate 等待 ADR-0014 的独立 `validation/` 宿主。
 
 ## PLAT-WEBGPU · WebGPU 2026/WGSL capability contract
 

@@ -14,5 +14,6 @@ ADR 只记录仍生效且跨多个模块的长期决定。`accepted` 表示迁�
 - [0011 · Asset Codec 与 GPU-Native Texture Pipeline V3](./0011-asset-codec-and-gpu-native-texture-pipeline-v3.md)
 - [0012 · 示例库重置与重建设计边界](./0012-example-library-reset.md)
 - [0013 · Sparse Shading Bin 与 Specialized Compute Shading](./0013-sparse-shading-bin-pipeline.md)
+- [0014 · 独立浏览器验证与性能宿主](./0014-browser-validation-and-performance-host.md)
 
 新 ADR 必须说明 Context、Decision、Consequences 和 Verification。被替代的演化过程只保留在 Git。

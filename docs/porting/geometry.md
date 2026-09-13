@@ -37,4 +37,4 @@
 - Retained invariants: target orbit、polar/azimuth/distance limits、rotate/dolly/pan、damping、events 和 explicit dispose。
 - OEngine/WebGPU differences: 使用 OEngine Vec3/Transform3D 和 +Z camera convention；不会把 three.js 对象带入渲染热路径。
 - Fallback/lifecycle: input 只累计 delta；`dispose()` 移除事件；无 GPU allocation。
-- Local validation: controls unit tests；浏览器交互 Gate 等待 ADR-0012 的后续宿主。
+- Local validation: controls unit tests；浏览器交互 Gate 等待 ADR-0014 的独立 `validation/` 宿主。
