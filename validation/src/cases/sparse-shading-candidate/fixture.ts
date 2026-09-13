@@ -72,7 +72,7 @@ const EMISSIVE_SAMPLE = [128/255,64/255,1,1] as const;
 const FEATURES = Object.freeze({ screenSpaceDiffuseMode:"off" as const, ssr:false, temporal:false,
   shadows:false, post:true, diagnostics:false });
 
-export type SparseCandidateWorkload = "mixed-bins"|"basic-cube";
+export type SparseCandidateWorkload = "mixed-bins"|"basic-cube"|"unlit-vertex-color";
 
 interface WorkloadLayout {
   readonly geometryCount:number; readonly meshletCount:number; readonly vertexCount:number;
@@ -87,10 +87,22 @@ const MIXED_LAYOUT:WorkloadLayout=Object.freeze({geometryCount:GPU_SHADING_PROGR
 const CUBE_VERTEX_COUNT=8,CUBE_TRIANGLE_COUNT=12;
 const CUBE_LAYOUT:WorkloadLayout=Object.freeze({geometryCount:1,meshletCount:1,vertexCount:CUBE_VERTEX_COUNT,
   triangleBytes:CUBE_TRIANGLE_COUNT*3,instanceCount:1,workCount:1,materialCount:1});
+const VERTEX_COLOR_VERTEX_COUNT=4,VERTEX_COLOR_TRIANGLE_COUNT=2;
+const VERTEX_COLOR_LAYOUT:WorkloadLayout=Object.freeze({geometryCount:1,meshletCount:1,vertexCount:VERTEX_COLOR_VERTEX_COUNT,
+  triangleBytes:8,instanceCount:1,workCount:1,materialCount:1});
 const CUBE_NEAR_DISTANCE=4,CUBE_FAR_DISTANCE=8,CUBE_FOV_DEGREES=60;
 
 function workloadLayout(workload:SparseCandidateWorkload):WorkloadLayout {
-  return workload==="mixed-bins"?MIXED_LAYOUT:CUBE_LAYOUT;
+  if(workload==="mixed-bins")return MIXED_LAYOUT;
+  return workload==="basic-cube"?CUBE_LAYOUT:VERTEX_COLOR_LAYOUT;
+}
+function workloadProgramIds(workload:SparseCandidateWorkload):readonly number[] {
+  return workload==="mixed-bins"?Object.freeze(Array.from({length:GPU_SHADING_PROGRAM_COUNT},(_,program)=>program)):
+    Object.freeze([workload==="basic-cube"?0:1]);
+}
+function workloadTriangleCount(workload:SparseCandidateWorkload):number {
+  if(workload==="mixed-bins")return TRIANGLES_PER_PROGRAM;
+  return workload==="basic-cube"?CUBE_TRIANGLE_COUNT:VERTEX_COLOR_TRIANGLE_COUNT;
 }
 
 interface CandidateResources {
@@ -191,6 +203,12 @@ export class SparseShadingCandidateFixture {
       coverageSlope:Object.freeze({nearPixels:nearCoverage.visiblePixels,farPixels:farCoverage.visiblePixels,
         actualRatio,expectedRatio})}),graph:Object.freeze([near.graph,far.graph]),profile:Object.freeze([near.profile,far.profile]),
       lifecycle:this.runtime.evidence(),memory:Object.freeze({near:near.memory,far:far.memory}),compilation:this.compilation});
+  }
+
+  async runUnlitVertexColor():Promise<Readonly<SparseCandidateEvidence>> {
+    if(this.workload!=="unlit-vertex-color")throw new Error("runUnlitVertexColor requires its dedicated fixture publication");
+    const camera=createCubeCamera(CUBE_NEAR_DISTANCE);uploadCameraFrame(this.device,this.resources,this.runtimeSnapshot(),camera,0);
+    return this.runCandidateFrame("UnlitVertexColor",0,1,(bytes,snapshot)=>validateUnlitVertexColor(bytes,snapshot,camera));
   }
 
   private async runCandidateFrame(scenario:string,frameIndex:number,serial:number,
@@ -325,11 +343,13 @@ export class SparseShadingCandidateFixture {
   private trackBuffer(value:GPUBuffer):GPUBuffer {this.buffers.add(value);return value;}
   private destroyBuffer(value:GPUBuffer):void {value.destroy();this.buffers.delete(value);}
   private requireAlive():void {if(this.destroyed)throw new Error("Sparse shading candidate fixture is destroyed");}
+  private runtimeSnapshot():ReturnType<GpuShadingPublicationStore["currentSnapshot"]> {this.requireAlive();return this.publicationSnapshot;}
 }
 
 function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GPUTexture>,
   workload:SparseCandidateWorkload):CandidateResources {
-  const layout=workloadLayout(workload),label=workload==="mixed-bins"?"MixedBins":"BasicCube";
+  const layout=workloadLayout(workload),label=workload==="mixed-bins"?"MixedBins":
+    workload==="basic-cube"?"BasicCube":"UnlitVertexColor";
   const lit=workload==="mixed-bins";
   const makeBuffer=(label:string,size:number,usage:GPUBufferUsageFlags)=>{const value=device.createBuffer({label,size:Math.max(size,4),usage});buffers.add(value);return value;};
   const makeTexture=(descriptor:GPUTextureDescriptor)=>{const value=device.createTexture(descriptor);textures.add(value);return value;};
@@ -383,11 +403,11 @@ function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GP
   };
 }
 
-function createPublication(workload:SparseCandidateWorkload){const count=workload==="mixed-bins"?GPU_SHADING_PROGRAM_COUNT:1;return {
-  materials:Array.from({length:count},(_,id)=>({id,profile:materialProfile(id),generation:MATERIAL_GENERATION,
+function createPublication(workload:SparseCandidateWorkload){const programs=workloadProgramIds(workload);return {
+  materials:programs.map((program,id)=>({id,profile:materialProfile(program),generation:MATERIAL_GENERATION,
     textureGeneration:TEXTURE_GENERATION})),
-  geometries:Array.from({length:count},(_,id)=>({id,profile:geometryProfile(id),generation:GEOMETRY_GENERATION})),
-  instances:Array.from({length:count},(_,id)=>({id,materialId:id,geometryId:id,active:true,transparent:false,
+  geometries:programs.map((program,id)=>({id,profile:geometryProfile(program),generation:GEOMETRY_GENERATION})),
+  instances:programs.map((_,id)=>({id,materialId:id,geometryId:id,active:true,transparent:false,
     generation:23}))};}
 function materialProfile(programId:number):GpuShadingMaterialProfile {const bits=textureBits(programId);return Object.freeze({
   shadingModel:programId<4?"unlit":"standard-pbr",hasBaseTexture:(bits&1)!==0,hasOrmTexture:(bits&2)!==0,
@@ -411,7 +431,7 @@ function uploadStaticInputs(device:GPUDevice,r:CandidateResources,snapshot:Retur
   device.queue.writeBuffer(r.assetMetadata,0,geometry.assetMetadata);device.queue.writeBuffer(r.vertexPayload,0,geometry.vertexPayload);
   device.queue.writeBuffer(r.instances,0,createInstances(workload));device.queue.writeBuffer(r.queue,0,createMeshletQueue(snapshot,workload));
   device.queue.writeBuffer(r.bucketStates,0,createBucketStates(r.layout));device.queue.writeBuffer(r.drawIndirect,0,createDrawIndirect(workload,r.layout));
-  device.queue.writeBuffer(r.bucketSettings,0,createBucketSettings(device));const materials=createMaterials(snapshot,r.layout.materialCount);
+  device.queue.writeBuffer(r.bucketSettings,0,createBucketSettings(device));const materials=createMaterials(snapshot,workload);
   device.queue.writeBuffer(r.visibilityMaterials,0,materials.visibility);device.queue.writeBuffer(r.shadingMaterials,0,materials.shading);
   device.queue.writeBuffer(r.routes,0,materials.routes);
   const bank=new Uint8Array(256*5);bank.set([255,255,255,255],0);bank.set([64,128,191,255],256);
@@ -481,6 +501,7 @@ function shadingView(snapshot:ReturnType<GpuShadingPublicationStore["currentSnap
 
 function createGeometryData(workload:SparseCandidateWorkload,layout:WorkloadLayout){
   if(workload==="basic-cube")return createCubeGeometryData(layout);
+  if(workload==="unlit-vertex-color")return createVertexColorGeometryData(layout);
   const geometryRecords=new Uint8Array(GPU_SHADING_PROGRAM_COUNT*GPU_GEOMETRY_RECORD_STRIDE);
   const meshletRecords=new Uint8Array(GPU_SHADING_PROGRAM_COUNT*GPU_MESHLET_RECORD_STRIDE);
   const meshletVertices=new Uint32Array(GPU_SHADING_PROGRAM_COUNT*VERTICES_PER_PROGRAM);
@@ -561,14 +582,52 @@ function createCubeGeometryData(layout:WorkloadLayout){
   vertexPayload.set(new Uint8Array(vertexStream),meshletVertices.byteLength+meshletTriangles.byteLength);
   return {geometryRecords,meshletRecords,meshletVertices,meshletTriangles,vertexStream,assetMetadata,vertexPayload};
 }
+
+const VERTEX_COLOR_POSITIONS=Object.freeze([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]] as const);
+const VERTEX_COLOR_VALUES=Object.freeze([[1,0,0,1],[0,1,0,1],[0,0,1,1],[1,1,1,1]] as const);
+const VERTEX_COLOR_TRIANGLES=Object.freeze([[0,1,2],[0,2,3]] as const);
+
+function createVertexColorGeometryData(layout:WorkloadLayout){
+  const geometryRecords=new Uint8Array(GPU_GEOMETRY_RECORD_STRIDE),meshletRecords=new Uint8Array(GPU_MESHLET_RECORD_STRIDE);
+  const meshletVertices=new Uint32Array(layout.vertexCount),meshletTriangles=new Uint8Array(layout.triangleBytes);
+  const vertexStream=new ArrayBuffer(layout.vertexCount*VERTEX_STRIDE),floats=new Float32Array(vertexStream);
+  for(let vertex=0;vertex<VERTEX_COLOR_POSITIONS.length;vertex++){
+    meshletVertices[vertex]=vertex;const base=vertex*VERTEX_STRIDE/4;floats.set(VERTEX_COLOR_POSITIONS[vertex]!,base);
+    floats.set([0,0],base+3);floats.set([0,0,1,0],base+5);floats.set([1,0,0,1],base+9);
+    floats.set(VERTEX_COLOR_VALUES[vertex]!,base+13);
+  }
+  meshletTriangles.set(VERTEX_COLOR_TRIANGLES.flat());
+  geometryRecords.set(packGpuGeometryRecord({boundsSphere:[0,0,0,Math.sqrt(2)],boundsMin:[-1,-1,0,0],boundsMax:[1,1,0,0],
+    vertexCount:layout.vertexCount,indexBegin:0,indexCount:VERTEX_COLOR_TRIANGLE_COUNT*3,meshletBegin:0,meshletCount:1,
+    clusterBegin:0,clusterRoot:0,clusterCount:0,bvhBegin:0,bvhRoot:0,bvhCount:0,materialRangeBegin:0,materialRangeCount:1,
+    streamDescriptorBegin:0,streamDescriptorCount:4,vertexDataByteBegin:0,vertexDataByteLength:vertexStream.byteLength,
+    positionByteOffset:0,positionStride:VERTEX_STRIDE,positionFormat:GPU_POSITION_FORMAT.Float32x3,flags:0,
+    uv0ByteOffset:12,uv0Stride:VERTEX_STRIDE,uv0Format:GPU_UV_FORMAT.Float32x2,uv1ByteOffset:0,uv1Stride:0,uv1Format:0,
+    uv2ByteOffset:0,uv2Stride:0,uv2Format:0,normalDescriptor:1,tangentDescriptor:2,colorDescriptor:3,
+    normalByteOffset:20,normalStride:VERTEX_STRIDE,normalFormat:GEOMETRY_VERTEX_DATA_TYPE_CODE.float32,normalNormalized:0,
+    tangentByteOffset:36,tangentStride:VERTEX_STRIDE,tangentFormat:GEOMETRY_VERTEX_DATA_TYPE_CODE.float32,tangentNormalized:0,
+    colorByteOffset:52,colorStride:VERTEX_STRIDE,colorFormat:GEOMETRY_VERTEX_DATA_TYPE_CODE.float32,colorNormalized:0}));
+  meshletRecords.set(packGpuMeshletRecords([{vertexOffset:0,vertexCount:layout.vertexCount,triangleByteOffset:0,
+    triangleCount:VERTEX_COLOR_TRIANGLE_COUNT,materialRangeIndex:0,materialId:0,flags:0,boundsMin:[-1,-1,0,0],boundsMax:[1,1,0,0],
+    boundsSphere:[0,0,0,Math.sqrt(2)],coneApex:[0,0,0,0],coneAxisCutoff:[0,0,1,1]}]));
+  const assetMetadata=new Uint8Array(geometryRecords.byteLength+meshletRecords.byteLength+4);
+  assetMetadata.set(geometryRecords);assetMetadata.set(meshletRecords,geometryRecords.byteLength);
+  new DataView(assetMetadata.buffer).setUint32(geometryRecords.byteLength+meshletRecords.byteLength,GEOMETRY_GENERATION,true);
+  const vertexPayload=new Uint8Array(meshletVertices.byteLength+meshletTriangles.byteLength+vertexStream.byteLength);
+  vertexPayload.set(new Uint8Array(meshletVertices.buffer));vertexPayload.set(meshletTriangles,meshletVertices.byteLength);
+  vertexPayload.set(new Uint8Array(vertexStream),meshletVertices.byteLength+meshletTriangles.byteLength);
+  return {geometryRecords,meshletRecords,meshletVertices,meshletTriangles,vertexStream,assetMetadata,vertexPayload};
+}
 function baseVertex(indices:Uint32Array,floats:Float32Array,indexBase:number,byteBase:number,local:number,x:number,y:number,corner:number):void{
   indices[indexBase+local]=local;const base=(byteBase+local*VERTEX_STRIDE)/4;floats.set([x,y,1],base);
   floats.set([corner>=2?1:0,corner===1||corner===2?1:0],base+3);floats.set([0,0,1,0],base+5);
   floats.set([1,0,0,1],base+9);floats.set([0.5,0.8,1,1],base+13);
 }
 function createInstances(workload:SparseCandidateWorkload):Uint8Array {
-  if(workload==="basic-cube")return new Uint8Array(packGpuInstanceRecord({geometryRecordIndex:0,materialHandle:0,
-    flags:GPU_MESHLET_RASTER_FLAGS.DoubleSided,debugId:1,boundsSphere:[0,0,0,Math.sqrt(3)],boundsMin:[-1,-1,-1],boundsMax:[1,1,1],
+  if(workload!=="mixed-bins")return new Uint8Array(packGpuInstanceRecord({geometryRecordIndex:0,materialHandle:0,
+    flags:GPU_MESHLET_RASTER_FLAGS.DoubleSided,debugId:1,
+    boundsSphere:[0,0,0,workload==="basic-cube"?Math.sqrt(3):Math.sqrt(2)],
+    boundsMin:[-1,-1,workload==="basic-cube"?-1:0],boundsMax:[1,1,workload==="basic-cube"?1:0],
     currentObjectToWorld:IDENTITY,previousObjectToWorld:IDENTITY}));
   const output=new Uint8Array(GPU_SHADING_PROGRAM_COUNT*GPU_INSTANCE_RECORD_STRIDE);
   for(let program=0;program<GPU_SHADING_PROGRAM_COUNT;program++)output.set(packGpuInstanceRecord({geometryRecordIndex:program,
@@ -576,8 +635,8 @@ function createInstances(workload:SparseCandidateWorkload):Uint8Array {
     boundsMin:[0,0,1],boundsMax:[WIDTH,HEIGHT,1],currentObjectToWorld:IDENTITY,previousObjectToWorld:IDENTITY}),
     program*GPU_INSTANCE_RECORD_STRIDE);return output;}
 function createMeshletQueue(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,workload:SparseCandidateWorkload):Uint8Array{
-  if(workload==="basic-cube"){
-    const association=snapshot.associations[0];if(association===undefined)throw new Error("Missing BasicCube publication association");
+  if(workload!=="mixed-bins"){
+    const association=snapshot.associations[0];if(association===undefined)throw new Error(`Missing ${workload} publication association`);
     const output=new Uint8Array(GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE+GPU_MESHLET_RASTER_WORK_RECORD_STRIDE);
     output.set(packGpuMeshletWorkQueueHeader({attemptedCount:1,writtenCount:1,consumedCount:1,capacity:1,overflowCount:0,
       generation:snapshot.generation,invalidCount:0}));
@@ -599,16 +658,17 @@ function createBucketStates(layout:WorkloadLayout):Uint32Array{const output=new 
   output.set([layout.workCount,0,layout.workCount,0],BUCKET*4);return output;}
 function createDrawIndirect(workload:SparseCandidateWorkload,layout:WorkloadLayout):Uint32Array{
   const output=new Uint32Array(GPU_MESHLET_DRAW_COUNT*GPU_MESHLET_DRAW_INDIRECT_STRIDE/4);
-  output.set([workload==="mixed-bins"?TRIANGLES_PER_PROGRAM*3:CUBE_TRIANGLE_COUNT*3,layout.workCount,0,0],BUCKET*4);return output;}
+  output.set([workloadTriangleCount(workload)*3,layout.workCount,0,0],BUCKET*4);return output;}
 function createBucketSettings(device:GPUDevice):Uint32Array{const output=new Uint32Array(GPU_MESHLET_DRAW_COUNT*MESHLET_BUCKET_SETTINGS_STRIDE/4);
   for(let bucket=0;bucket<GPU_MESHLET_DRAW_COUNT;bucket++){const base=bucket*MESHLET_BUCKET_SETTINGS_STRIDE/4;output[base]=bucket;
     output[base+1]=device.features.has("indirect-first-instance")?1:0;}return output;}
 
-function createMaterials(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,count:number){
+function createMaterials(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,workload:SparseCandidateWorkload){
+  const programs=workloadProgramIds(workload),count=programs.length;
   const visibility=new Uint8Array(count*GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
   const shading=new Uint8Array(count*GPU_SHADING_MATERIAL_RECORD_STRIDE);
   const routes=new Uint8Array(count*4*GPU_SHADING_TEXTURE_ROUTE_STRIDE);
-  for(let program=0;program<count;program++){
+  for(let materialSlot=0;materialSlot<count;materialSlot++){const program=programs[materialSlot]!;
     const profile=materialProfile(program),specialization=gpuShadingProgramSpecialization(program,0);
     const set=shadingProgramUsesTextures(program)?profile.textureBindingSetId:0;
     const base=specialization.baseTexture==="never"?GPU_TEXTURE_REF_INVALID:encodeGpuTextureRef(0,1);
@@ -620,13 +680,13 @@ function createMaterials(snapshot:ReturnType<GpuShadingPublicationStore["current
     if(orm!==GPU_TEXTURE_REF_INVALID)flags|=GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture;
     if(emissive!==GPU_TEXTURE_REF_INVALID)flags|=GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture;
     const payload=materialPayload(flags,set,base,normal,orm,emissive);
-    visibility.set(new Uint8Array(packGpuMaterialVisibilityRecord(payload)),program*GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
+    visibility.set(new Uint8Array(packGpuMaterialVisibilityRecord(payload)),materialSlot*GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
     shading.set(packGpuShadingMaterialRecord({programId:program,textureBindingSetId:set,materialGeneration:MATERIAL_GENERATION,
       textureGeneration:TEXTURE_GENERATION,publicationRevision:snapshot.revision,flags:0},payload),
-      program*GPU_SHADING_MATERIAL_RECORD_STRIDE);
-    [base,normal,orm,emissive].forEach((textureRef,slot)=>routes.set(packGpuShadingTextureRoute({textureRef,
+      materialSlot*GPU_SHADING_MATERIAL_RECORD_STRIDE);
+    [base,normal,orm,emissive].forEach((textureRef,textureSlot)=>routes.set(packGpuShadingTextureRoute({textureRef,
       textureGeneration:TEXTURE_GENERATION,publicationRevision:snapshot.revision,textureBindingSetId:set}),
-      (program*4+slot)*GPU_SHADING_TEXTURE_ROUTE_STRIDE));
+      (materialSlot*4+textureSlot)*GPU_SHADING_TEXTURE_ROUTE_STRIDE));
   }return {visibility,shading,routes};
 }
 function materialPayload(flags:number,set:number,base:number,normal:number,orm:number,emissive:number){return {
@@ -709,7 +769,7 @@ struct ClusterHeader { offset:u32, count:u32, overflow_count:u32, reserved:u32 }
 function clusterPipelineDescriptor(){return CLUSTER_PIPELINE_DESCRIPTOR;}
 
 async function createOraclePipelines(device:GPUDevice,binIds:readonly number[],workload:SparseCandidateWorkload) {
-  const expectedCount=workload==="mixed-bins"?GPU_SHADING_PROGRAM_COUNT:1;
+  const expectedCount=workload==="mixed-bins"?GPU_SHADING_PROGRAM_COUNT:1,triangleCount=workloadTriangleCount(workload);
   if(binIds.length!==expectedCount)throw new Error(`${workload} expected ${expectedCount} active shading programs`);
   const bins=binIds.map((value)=>`${value}u`).join(",");
   const validateSource=workload==="mixed-bins"?`
@@ -738,13 +798,13 @@ const WIDTH:u32=${WIDTH}u; const HEIGHT:u32=${HEIGHT}u; const EXPECTED_BIN:u32=$
   let key=textureLoad(visibility,vec2u(id.xy),0).x;let bin_id=textureLoad(bin_ids,vec2u(id.xy),0).x;
   let color=textureLoad(hdr,vec2u(id.xy),0);let valid=key!=0xffffffffu;
   if(valid){atomicAdd(&output[7],1u);if((key&0x00ffffffu)!=0u){atomicAdd(&output[1],1u);}
-    if(bin_id!=EXPECTED_BIN){atomicAdd(&output[2],1u);}if((key>>24u)>=${CUBE_TRIANGLE_COUNT}u){atomicAdd(&output[3],1u);}
+    if(bin_id!=EXPECTED_BIN){atomicAdd(&output[2],1u);}if((key>>24u)>=${triangleCount}u){atomicAdd(&output[3],1u);}
     if(any(color!=color)||any(abs(color)>vec4f(65504.0))){atomicAdd(&output[4],1u);}
     if(abs(color.a-1.0)>0.001){atomicAdd(&output[5],1u);}
   }else{if(bin_id!=${GPU_SHADING_BIN_INVALID_ID}u){atomicAdd(&output[6],1u);}
     if(any(abs(color)>vec4f(0.00001))){atomicAdd(&output[8],1u);}}
 }`;
-  const label=workload==="mixed-bins"?"MixedBins":"BasicCube";
+  const label=workload==="mixed-bins"?"MixedBins":workload==="basic-cube"?"BasicCube":"UnlitVertexColor";
   const validateModule=device.createShaderModule({label:`ADR-0013 ${label} visibility/HDR oracle`,code:validateSource});
   const extractModule=device.createShaderModule({label:`ADR-0013 ${label} bin heap/args oracle`,code:`
 @group(0) @binding(0) var<storage,read> heap:array<u32>;
@@ -919,11 +979,106 @@ function validateBasicCube(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublic
       opaquePixels,diagnosticMagentaPixels:diagnosticMagenta,fnv1a32:fnv1a32(presentation)})});
 }
 
+function validateUnlitVertexColor(bytes:Uint8Array,snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,
+  camera:CubeCameraFrame):Readonly<Record<string,unknown>> {
+  if(bytes.byteLength!==READBACK_BYTES)throw new Error(`UnlitVertexColor readback length ${bytes.byteLength} != ${READBACK_BYTES}`);
+  const association=snapshot.associations[0];if(association===undefined||snapshot.associations.length!==1)
+    throw new Error(`UnlitVertexColor expected one shading association, found ${snapshot.associations.length}`);
+  assertEqual(association.identity.programId,1,"UnlitVertexColor program identity");const binId=association.identity.binId;
+  const oracle=new Uint32Array(bytes.buffer,bytes.byteOffset+ORACLE_OFFSET,ORACLE_WORDS);assertEqual(oracle[0],PIXELS,"UnlitVertexColor oracle pixels");
+  ["work-slot routing","ShadingBinId routing","primitive range","finite HDR","HDR alpha","background bin clear"]
+    .forEach((label,index)=>assertEqual(oracle[index+1],0,`UnlitVertexColor ${label}`));
+  assertEqual(oracle[8],0,"UnlitVertexColor background HDR clear");
+  const control=oracle.subarray(16,24),counters=oracle.subarray(24,280),args=oracle.subarray(280,472);
+  assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.frameFlags/4],0,"UnlitVertexColor bin frame flags");
+  assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.errorCount/4],0,"UnlitVertexColor bin errors");
+  assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.finalizedGeneration/4],snapshot.generation,"UnlitVertexColor generation");
+  assertEqual(control[GPU_SHADING_BIN_CONTROL_OFFSETS.layoutRevision/4],snapshot.layoutRevision,"UnlitVertexColor layout revision");
+  const visibility=new DataView(bytes.buffer,bytes.byteOffset+VISIBILITY_OFFSET,VISIBILITY_BYTES);
+  const binImage=bytes.subarray(BIN_OFFSET,BIN_OFFSET+BIN_BYTES),hdr=decodeHalfTexture(bytes.subarray(HDR_OFFSET,HDR_OFFSET+HDR_BYTES));
+  const projected=VERTEX_COLOR_POSITIONS.map((position)=>projectScreen(camera.viewProjection,position[0],position[1],position[2]));
+  const bounds=screenBounds(projected),expectedMicrotiles=new Set<number>(),actualMicrotiles=new Set<number>();
+  let expectedPixels=0,visiblePixels=0,coverageMismatches=0,workSlotMismatches=0,primitiveRangeErrors=0,binMismatches=0,
+    backgroundBinErrors=0,backgroundHdrErrors=0,maxHdrError=0,minColor=Infinity,maxColor=-Infinity;
+  for(let y=0;y<HEIGHT;y++)for(let x=0;x<WIDTH;x++){
+    const pixel=y*WIDTH+x,key=visibility.getUint32(pixel*4,true),valid=key!==0xffffffff;
+    const expected=(x+0.5)>bounds.minX&&(x+0.5)<bounds.maxX&&(y+0.5)>bounds.minY&&(y+0.5)<bounds.maxY;
+    if(expected){expectedPixels++;expectedMicrotiles.add(Math.floor(y/8)*(WIDTH/8)+Math.floor(x/8));}
+    if(valid){visiblePixels++;actualMicrotiles.add(Math.floor(y/8)*(WIDTH/8)+Math.floor(x/8));
+      if((key&0x00ffffff)!==0)workSlotMismatches++;const primitive=key>>>24;
+      if(primitive>=VERTEX_COLOR_TRIANGLE_COUNT)primitiveRangeErrors++;if(binImage[pixel]!==binId)binMismatches++;
+      if(primitive<VERTEX_COLOR_TRIANGLE_COUNT){const triangle=VERTEX_COLOR_TRIANGLES[primitive]!,weights=barycentric2d(
+        [x+0.5,y+0.5],projected[triangle[0]]!,projected[triangle[1]]!,projected[triangle[2]]!);
+        const vertexColor=[0,1,2].map((component)=>weights[0]*VERTEX_COLOR_VALUES[triangle[0]]![component]!+
+          weights[1]*VERTEX_COLOR_VALUES[triangle[1]]![component]!+weights[2]*VERTEX_COLOR_VALUES[triangle[2]]![component]!);
+        const expectedHdr=[vertexColor[0]!*1.6,vertexColor[1]!*1,vertexColor[2]!*0.5,1],component=pixel*4;
+        for(let c=0;c<4;c++)maxHdrError=Math.max(maxHdrError,Math.abs(hdr[component+c]!-expectedHdr[c]!));
+        minColor=Math.min(minColor,hdr[component]!,hdr[component+1]!,hdr[component+2]!);
+        maxColor=Math.max(maxColor,hdr[component]!,hdr[component+1]!,hdr[component+2]!);
+      }
+    } else {if(binImage[pixel]!==GPU_SHADING_BIN_INVALID_ID)backgroundBinErrors++;const component=pixel*4;
+      if(hdr[component]!==0||hdr[component+1]!==0||hdr[component+2]!==0||hdr[component+3]!==0)backgroundHdrErrors++;}
+    if(valid!==expected)coverageMismatches++;
+  }
+  assertEqual(coverageMismatches,0,"UnlitVertexColor analytic coverage");assertEqual(workSlotMismatches,0,"UnlitVertexColor work slot");
+  assertEqual(primitiveRangeErrors,0,"UnlitVertexColor primitive range");assertEqual(binMismatches,0,"UnlitVertexColor bin routing");
+  assertEqual(backgroundBinErrors,0,"UnlitVertexColor background bin sentinel");assertEqual(backgroundHdrErrors,0,"UnlitVertexColor background HDR");
+  assertAtMost(maxHdrError,0.004,"UnlitVertexColor barycentric HDR reference error");
+  if(maxColor-minColor<1)throw new Error(`UnlitVertexColor gradient range ${maxColor-minColor} is too small`);
+  assertEqual(actualMicrotiles.size,expectedMicrotiles.size,"UnlitVertexColor microtile count");
+  for(const tile of actualMicrotiles)if(!expectedMicrotiles.has(tile))throw new Error(`UnlitVertexColor unexpected microtile ${tile}`);
+  const counterBase=binId*GPU_SHADING_BIN_COUNTER_STRIDE/4,attempted=counters[counterBase+GPU_SHADING_BIN_COUNTER_OFFSETS.attemptedCount/4]!,
+    written=counters[counterBase+GPU_SHADING_BIN_COUNTER_OFFSETS.writtenCount/4]!,
+    overflow=counters[counterBase+GPU_SHADING_BIN_COUNTER_OFFSETS.overflowCount/4]!,flags=counters[counterBase+GPU_SHADING_BIN_COUNTER_OFFSETS.flags/4]!;
+  assertEqual(attempted,expectedMicrotiles.size,"UnlitVertexColor attempted");assertEqual(written,expectedMicrotiles.size,"UnlitVertexColor written");
+  assertEqual(overflow,0,"UnlitVertexColor overflow");assertEqual(flags,0,"UnlitVertexColor flags");
+  assertArray(Array.from(args.subarray(binId*3,binId*3+3)),[expectedMicrotiles.size,1,1],"UnlitVertexColor indirect args");
+  let inactiveDispatchXNonZero=0;for(let candidate=0;candidate<64;candidate++)if(candidate!==binId){
+    const dispatch=Array.from(args.subarray(candidate*3,candidate*3+3));if(dispatch[0]!==0)inactiveDispatchXNonZero++;
+    assertArray(dispatch,[0,1,1],`UnlitVertexColor inactive bin ${candidate}`);
+  }
+  const presentation=bytes.subarray(PRESENT_OFFSET,PRESENT_OFFSET+PRESENT_BYTES),colors=new Set<number>();
+  let coloredPixels=0,backgroundAboveDither=0,opaquePixels=0,diagnosticMagenta=0;
+  for(let pixel=0;pixel<PIXELS;pixel++){const offset=pixel*4,valid=visibility.getUint32(pixel*4,true)!==0xffffffff;
+    const nonBlack=presentation[offset]!+presentation[offset+1]!+presentation[offset+2]!>0;
+    if(valid&&nonBlack){coloredPixels++;colors.add(presentation[offset]!|(presentation[offset+1]!<<8)|(presentation[offset+2]!<<16));}
+    if(!valid&&(presentation[offset]!>1||presentation[offset+1]!>1||presentation[offset+2]!>1))backgroundAboveDither++;
+    if(presentation[offset+3]===255)opaquePixels++;
+    if(presentation[offset]!>=250&&presentation[offset+1]!<=5&&presentation[offset+2]!>=250)diagnosticMagenta++;
+  }
+  assertEqual(coloredPixels,visiblePixels,"UnlitVertexColor presentation coverage");
+  assertEqual(backgroundAboveDither,0,"UnlitVertexColor background exceeds one-LSB dither");
+  assertEqual(opaquePixels,PIXELS,"UnlitVertexColor opaque presentation");assertEqual(diagnosticMagenta,0,"UnlitVertexColor diagnostic magenta");
+  if(colors.size<256)throw new Error(`UnlitVertexColor produced only ${colors.size} presentation colors`);
+  assertEqual(oracle[7],visiblePixels,"UnlitVertexColor GPU/CPU visible pixels");
+  return Object.freeze({name:"UnlitVertexColor",passed:true,programId:association.identity.programId,binId,
+    geometry:Object.freeze({vertices:VERTEX_COLOR_VERTEX_COUNT,triangles:VERTEX_COLOR_TRIANGLE_COUNT}),camera:Object.freeze({
+      distance:camera.distance,fovDegrees:camera.fovDegrees,screenBounds:bounds}),coverage:Object.freeze({expectedPixels,visiblePixels,
+      coverageMismatches,microtiles:expectedMicrotiles.size}),queue:Object.freeze({attempted,written,overflow,flags,inactiveDispatchXNonZero}),
+    visibility:Object.freeze({workSlotMismatches,primitiveRangeErrors,binMismatches}),background:Object.freeze({binSentinelErrors:backgroundBinErrors,
+      hdrNonZeroPixels:backgroundHdrErrors,presentationAboveOneLsbPixels:backgroundAboveDither}),hdr:Object.freeze({maxReferenceError:maxHdrError,
+      minComponent:minColor,maxComponent:maxColor,fnv1a32:fnv1a32(bytes.subarray(HDR_OFFSET,HDR_OFFSET+HDR_BYTES))}),
+    presentation:Object.freeze({coloredPixels,distinctRgbValues:colors.size,opaquePixels,diagnosticMagentaPixels:diagnosticMagenta,
+      fnv1a32:fnv1a32(presentation)})});
+}
+
 function cubeScreenBounds(camera:CubeCameraFrame):Readonly<{minX:number;maxX:number;minY:number;maxY:number}> {
   let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
   for(const x of [-1,1])for(const y of [-1,1]){const point=projectScreen(camera.viewProjection,x,y,1);
     minX=Math.min(minX,point[0]);maxX=Math.max(maxX,point[0]);minY=Math.min(minY,point[1]);maxY=Math.max(maxY,point[1]);}
   return Object.freeze({minX,maxX,minY,maxY});
+}
+function screenBounds(points:readonly (readonly [number,number])[]):Readonly<{minX:number;maxX:number;minY:number;maxY:number}> {
+  return Object.freeze({minX:Math.min(...points.map((point)=>point[0])),maxX:Math.max(...points.map((point)=>point[0])),
+    minY:Math.min(...points.map((point)=>point[1])),maxY:Math.max(...points.map((point)=>point[1]))});
+}
+function barycentric2d(point:readonly [number,number],a:readonly [number,number],b:readonly [number,number],
+  c:readonly [number,number]):readonly [number,number,number] {
+  const denominator=(b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]);
+  if(Math.abs(denominator)<1e-12)throw new Error("UnlitVertexColor projected triangle is degenerate");
+  const u=((b[1]-c[1])*(point[0]-c[0])+(c[0]-b[0])*(point[1]-c[1]))/denominator;
+  const v=((c[1]-a[1])*(point[0]-c[0])+(a[0]-c[0])*(point[1]-c[1]))/denominator;
+  return Object.freeze([u,v,1-u-v] as const);
 }
 function projectScreen(matrix:ArrayLike<number>,x:number,y:number,z:number):readonly [number,number] {
   const clipX=matrix[0]!*x+matrix[4]!*y+matrix[8]!*z+matrix[12]!;
