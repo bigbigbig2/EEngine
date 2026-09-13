@@ -475,11 +475,7 @@ export class SparseShadingCandidateFixture {
     const bins=requireResource(revision.bins,"candidate bins"),resolve=requireResource(revision.resolve,"candidate resolve");
     const settings=requireResource(revision.settings,"candidate settings");
     const binding=(name:string):GPUBindingResource=>resolveBinding(name,frame,resources,this.resources,bins,settings);
-    return resolve.activeBinIds.map((binId)=>{const pipeline=resolve.pipelineForBin(binId);
-      const groups=pipeline.descriptor.groups.map((group,index)=>this.device.createBindGroup({
-        label:`ADR-0013 MixedBins bin ${binId} group ${index}`,layout:pipeline.bindGroupLayouts[index]!,
-        entries:group.bindings.map((entry)=>({binding:entry.binding,resource:binding(entry.name)}))}));
-      return Object.freeze({binId,groups:Object.freeze(groups)});});
+    return resolve.createFrameBindingsForExecution(binding);
   }
   private encodeRenderingLabShadow(command:ShadeGPUCommandContext):void {
     const lab=requireResource(this.resources.renderingLab,"RenderingLab resources");

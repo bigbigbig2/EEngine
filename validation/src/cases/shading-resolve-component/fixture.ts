@@ -270,8 +270,13 @@ export class SparseShadingResolveFixture {
       layoutRevision: PUBLICATION_REVISION
     });
     const resolve = diagnosticsMode ? this.diagnostics : this.production;
-    const resolveBindings = createResolveBindings(this.device, resolve, this.descriptors,
-      this.binPass, this.resources, diagnosticState, claims);
+    const resolveBindings = createResolveBindings(
+      resolve,
+      this.binPass,
+      this.resources,
+      diagnosticState,
+      claims
+    );
     const readback = this.trackBuffer(this.device.createBuffer({
       label: `${kind} readback`, size: OUTPUT_BYTES * 5 + CONTROL_AND_ARGS_BYTES + 16,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
@@ -562,9 +567,7 @@ function createAssetMetadata(): Uint8Array {
 }
 
 function createResolveBindings(
-  device: GPUDevice,
   owner: SparseShadingResolvePass,
-  descriptors: readonly ReturnType<typeof createGpuSparseShadingPipelineDescriptor>[],
   binPass: ShadingBinPass,
   r: StaticResources,
   diagnostics?: GPUBuffer,
@@ -596,20 +599,12 @@ function createResolveBindings(
     if (name === "environment_sampler") return r.environmentSampler;
     throw new Error(`Missing validation resource ${name}`);
   };
-  return descriptors.map((descriptor) => {
-    const record = owner.pipelineForBin(descriptor.binId);
-    const groups = descriptor.groups.map((group, groupIndex) => {
-      const entries: GPUBindGroupEntry[] = group.bindings.map((binding) => ({
-        binding: binding.binding, resource: resource(binding.name)
-      }));
-      if (owner.diagnostics && groupIndex === 0) {
-        entries.push({ binding: 11, resource: { buffer: diagnostics! } },
-          { binding: 12, resource: { buffer: claims! } });
-      }
-      return device.createBindGroup({ layout: record.bindGroupLayouts[groupIndex]!, entries });
-    });
-    return Object.freeze({ binId: descriptor.binId, groups: Object.freeze(groups) });
-  });
+  return owner.createFrameBindingsForExecution(
+    resource,
+    owner.diagnostics
+      ? { diagnostics: diagnostics!, claims: claims! }
+      : undefined
+  );
 }
 
 async function createMutationPipelines(device: GPUDevice, recordBase: number, binId: number) {

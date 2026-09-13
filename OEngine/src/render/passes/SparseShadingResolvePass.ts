@@ -1,5 +1,6 @@
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { GPU_SHADING_BIN_INDIRECT_STRIDE } from "../../gpu/GpuShadingBinAbi.js";
+import { GpuBindGroupResourceCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import {
   gpuSparseShadingBindGroupLayoutDescriptors,
   type GpuSparseShadingPipelineDescriptor
@@ -22,24 +23,36 @@ export interface SparseShadingResolveFrameBinding {
   readonly groups: readonly GPUBindGroup[];
 }
 
+export interface SparseShadingResolveDiagnosticsBindings {
+  readonly diagnostics: GPUBuffer;
+  readonly claims: GPUBuffer;
+}
+
+interface CachedSparseShadingResolvePipelineRecord extends SparseShadingResolvePipelineRecord {
+  readonly groupCaches: readonly GpuBindGroupResourceCache[];
+}
+
 /**
  * Revision-owned cache of creation-time-specialized shading consumers.
  * Step 6 supplies FrameGraph resources/groups; this owner only compiles once,
  * reuses pipelines, and encodes GPU-authored indirect work without submitting.
  */
 export class SparseShadingResolvePass {
-  private readonly records = new Map<number, Readonly<SparseShadingResolvePipelineRecord>>();
+  private readonly records = new Map<number, Readonly<CachedSparseShadingResolvePipelineRecord>>();
+  private readonly device: GPUDevice;
   readonly diagnostics: boolean;
   readonly outputDependencyMask: number;
   readonly publicationRevision: number;
   private destroyed = false;
 
   private constructor(input: {
+    device: GPUDevice;
     diagnostics: boolean;
     outputDependencyMask: number;
     publicationRevision: number;
-    records: readonly Readonly<SparseShadingResolvePipelineRecord>[];
+    records: readonly Readonly<CachedSparseShadingResolvePipelineRecord>[];
   }) {
+    this.device = input.device;
     this.diagnostics = input.diagnostics;
     this.outputDependencyMask = input.outputDependencyMask;
     this.publicationRevision = input.publicationRevision;
@@ -66,12 +79,13 @@ export class SparseShadingResolvePass {
       seen.add(descriptor.binId);
     }
 
-    const records: SparseShadingResolvePipelineRecord[] = [];
+    const records: CachedSparseShadingResolvePipelineRecord[] = [];
     for (const descriptor of descriptors) {
       const variant = createSparseShadingShaderVariant(descriptor, diagnostics);
       records.push(await createPipelineRecord(device, variant));
     }
     return new SparseShadingResolvePass({
+      device,
       diagnostics,
       outputDependencyMask,
       publicationRevision,
@@ -88,6 +102,58 @@ export class SparseShadingResolvePass {
     const record = this.records.get(binId);
     if (record === undefined) throw new Error(`Sparse shading bin ${binId} is not active in this revision`);
     return record;
+  }
+
+  createFrameBindingsForExecution(
+    resource: (name: string) => GPUBindingResource,
+    diagnostics?: Readonly<SparseShadingResolveDiagnosticsBindings>
+  ): readonly Readonly<SparseShadingResolveFrameBinding>[] {
+    this.requireAlive();
+    if (this.diagnostics !== (diagnostics !== undefined)) {
+      throw new Error("Sparse shading resolve diagnostics bindings must match the pipeline variant");
+    }
+    const frames: SparseShadingResolveFrameBinding[] = [];
+    for (const [binId, record] of this.records) {
+      const groups = record.descriptor.groups.map((group, groupIndex) => {
+        const resources: GPUBindingResource[] = group.bindings.map((binding) =>
+          resource(binding.name));
+        const bindings = group.bindings.map((binding) => binding.binding);
+        if (groupIndex === 0 && diagnostics !== undefined) {
+          resources.push(
+            { buffer: diagnostics.diagnostics },
+            { buffer: diagnostics.claims }
+          );
+          bindings.push(11, 12);
+        }
+        return record.groupCaches[groupIndex]!.obtain(resources, () =>
+          this.device.createBindGroup({
+            label: `${record.descriptor.label} group ${groupIndex}`,
+            layout: record.bindGroupLayouts[groupIndex]!,
+            entries: resources.map((bindingResource, index) => ({
+              binding: bindings[index]!,
+              resource: bindingResource
+            }))
+          }));
+      });
+      frames.push(Object.freeze({ binId, groups: Object.freeze(groups) }));
+    }
+    return Object.freeze(frames);
+  }
+
+  bindingCacheEvidence(): Readonly<{
+    readonly requests: number;
+    readonly creations: number;
+  }> {
+    let requests = 0;
+    let creations = 0;
+    for (const record of this.records.values()) {
+      for (const cache of record.groupCaches) {
+        const evidence = cache.evidence();
+        requests += evidence.requestCount;
+        creations += evidence.creationCount;
+      }
+    }
+    return Object.freeze({ requests, creations });
   }
 
   encode(
@@ -124,6 +190,9 @@ export class SparseShadingResolvePass {
 
   destroy(): void {
     this.destroyed = true;
+    for (const record of this.records.values()) {
+      for (const cache of record.groupCaches) cache.clear();
+    }
     this.records.clear();
   }
 
@@ -135,7 +204,7 @@ export class SparseShadingResolvePass {
 async function createPipelineRecord(
   device: GPUDevice,
   variant: Readonly<SparseShadingShaderVariant>
-): Promise<Readonly<SparseShadingResolvePipelineRecord>> {
+): Promise<Readonly<CachedSparseShadingResolvePipelineRecord>> {
   const descriptor = variant.descriptor;
   const module = await createCheckedShaderModule(device, descriptor.label, variant.source);
   const nativeDescriptors = gpuSparseShadingBindGroupLayoutDescriptors(
@@ -164,7 +233,12 @@ async function createPipelineRecord(
       compute: { module, entryPoint: descriptor.entryPoint }
     });
   });
-  return Object.freeze({ descriptor, pipeline, bindGroupLayouts: Object.freeze(bindGroupLayouts) });
+  return Object.freeze({
+    descriptor,
+    pipeline,
+    bindGroupLayouts: Object.freeze(bindGroupLayouts),
+    groupCaches: Object.freeze(bindGroupLayouts.map(() => new GpuBindGroupResourceCache()))
+  });
 }
 
 async function createCheckedShaderModule(

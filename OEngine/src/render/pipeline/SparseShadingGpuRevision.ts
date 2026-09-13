@@ -22,6 +22,10 @@ export interface SparseShadingGpuRevisionEvidence {
   readonly activeHeapBytes: number;
   readonly activeIndirectBytes: number;
   readonly activeSettingsBytes: number;
+  readonly activeProducerBindGroupRequests: number;
+  readonly activeProducerBindGroupCreations: number;
+  readonly activeResolveBindGroupRequests: number;
+  readonly activeResolveBindGroupCreations: number;
   readonly retiringRevisions: readonly number[];
   readonly retiringBytes: number;
   readonly pendingPreparations: number;
@@ -185,12 +189,18 @@ export class SparseShadingGpuRevisionOwner {
 
   evidence(): Readonly<SparseShadingGpuRevisionEvidence> {
     const active = this.activeValue;
+    const producerBindings = active?.bins?.bindingCacheEvidence?.();
+    const resolveBindings = active?.resolve?.bindingCacheEvidence?.();
     return Object.freeze({
       activeRevision: active?.snapshot.revision ?? null,
       activeDeviceEpoch: active?.snapshot.deviceEpoch ?? null,
       activeHeapBytes: active?.heapBytes ?? 0,
       activeIndirectBytes: active?.indirectBytes ?? 0,
       activeSettingsBytes: active?.settingsBytes ?? 0,
+      activeProducerBindGroupRequests: producerBindings?.requests ?? 0,
+      activeProducerBindGroupCreations: producerBindings?.creations ?? 0,
+      activeResolveBindGroupRequests: resolveBindings?.requests ?? 0,
+      activeResolveBindGroupCreations: resolveBindings?.creations ?? 0,
       retiringRevisions: Object.freeze(this.retiring.map((entry) => entry.resources.snapshot.revision)),
       retiringBytes: this.retiring.reduce(
         (sum, entry) => sum + entry.resources.heapBytes + entry.resources.indirectBytes +

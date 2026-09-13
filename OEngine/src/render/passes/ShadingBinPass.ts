@@ -10,6 +10,7 @@ import {
   type GpuShadingBinSizing,
   packGpuShadingBinLayout
 } from "../../gpu/GpuShadingBinAbi.js";
+import { GpuBindGroupResourceCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import {
   SHADING_BIN_CLASSIFIER_DIAGNOSTICS_WGSL,
   SHADING_BIN_CLASSIFIER_WGSL
@@ -87,8 +88,9 @@ export function shadingBinResourceDescriptorOracle(
 }
 
 /**
- * Candidate GPU producer for ADR-0013 Step 4. Step 6 owns FrameGraph composition;
- * Step 7 owns production cutover, so this class has no live pipeline imports.
+ * Revision-owned GPU producer for ADR-0013 Step 4. FrameGraph composition owns
+ * scheduling; resource-tuple caches keep stable execution free of bind-group
+ * creation without making the producer depend on a Renderer service locator.
  */
 export class ShadingBinPass {
   readonly heap: GPUBuffer;
@@ -99,6 +101,8 @@ export class ShadingBinPass {
   private readonly finalizerLayout: GPUBindGroupLayout;
   private readonly classifierPipeline: GPUComputePipeline;
   private readonly finalizerPipeline: GPUComputePipeline;
+  private readonly classifierGroups = new GpuBindGroupResourceCache();
+  private readonly finalizerGroups = new GpuBindGroupResourceCache();
   private destroyed = false;
 
   private constructor(input: {
@@ -220,30 +224,40 @@ export class ShadingBinPass {
     if (this.diagnostics !== (input.diagnosticFaults !== undefined)) {
       throw new Error("ShadingBin diagnostic fault binding must match the pipeline variant");
     }
-    const diagnosticEntry = input.diagnosticFaults === undefined
+    const diagnosticResource = input.diagnosticFaults === undefined
       ? []
-      : [{ binding: 4, resource: { buffer: input.diagnosticFaults, size: 16 } }];
+      : [{ buffer: input.diagnosticFaults, size: 16 } satisfies GPUBufferBinding];
+    const classifierResources: readonly GPUBindingResource[] = [
+      input.shadingBinId,
+      { buffer: this.heap },
+      { buffer: input.settings, size: GPU_SHADING_BIN_SETTINGS_STRIDE },
+      ...diagnosticResource
+    ];
+    const finalizerResources: readonly GPUBindingResource[] = [
+      { buffer: this.heap },
+      { buffer: input.settings, size: GPU_SHADING_BIN_SETTINGS_STRIDE },
+      { buffer: this.indirectArgs },
+      ...diagnosticResource
+    ];
     const groups = {
-      classifier: this.device.createBindGroup({
-        label: "ADR-0013 ShadingBin classifier group0",
-        layout: this.classifierLayout,
-        entries: [
-          { binding: 0, resource: input.shadingBinId },
-          { binding: 1, resource: { buffer: this.heap } },
-          { binding: 2, resource: { buffer: input.settings, size: GPU_SHADING_BIN_SETTINGS_STRIDE } },
-          ...diagnosticEntry
-        ]
-      }),
-      finalizer: this.device.createBindGroup({
-        label: "ADR-0013 ShadingBin finalizer group0",
-        layout: this.finalizerLayout,
-        entries: [
-          { binding: 1, resource: { buffer: this.heap } },
-          { binding: 2, resource: { buffer: input.settings, size: GPU_SHADING_BIN_SETTINGS_STRIDE } },
-          { binding: 3, resource: { buffer: this.indirectArgs } },
-          ...diagnosticEntry
-        ]
-      })
+      classifier: this.classifierGroups.obtain(classifierResources, () =>
+        this.device.createBindGroup({
+          label: "ADR-0013 ShadingBin classifier group0",
+          layout: this.classifierLayout,
+          entries: classifierResources.map((resource, index) => ({
+            binding: index === 3 ? 4 : index,
+            resource
+          }))
+        })),
+      finalizer: this.finalizerGroups.obtain(finalizerResources, () =>
+        this.device.createBindGroup({
+          label: "ADR-0013 ShadingBin finalizer group0",
+          layout: this.finalizerLayout,
+          entries: finalizerResources.map((resource, index) => ({
+            binding: index === 3 ? 4 : index + 1,
+            resource
+          }))
+        }))
     };
     return Object.freeze({
       ...groups,
@@ -301,6 +315,20 @@ export class ShadingBinPass {
     this.destroyed = true;
     this.heap.destroy();
     this.indirectArgs.destroy();
+    this.classifierGroups.clear();
+    this.finalizerGroups.clear();
+  }
+
+  bindingCacheEvidence(): Readonly<{
+    readonly requests: number;
+    readonly creations: number;
+  }> {
+    const classifier = this.classifierGroups.evidence();
+    const finalizer = this.finalizerGroups.evidence();
+    return Object.freeze({
+      requests: classifier.requestCount + finalizer.requestCount,
+      creations: classifier.creationCount + finalizer.creationCount
+    });
   }
 
   private requireAlive(): void {

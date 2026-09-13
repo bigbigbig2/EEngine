@@ -304,6 +304,23 @@ test("resolve owner compiles once and encodes one indirect call per active bin",
     assert.deepEqual(owner.activeBinIds, [0, 37]);
     assert.equal(fake.modules.length, 2);
     assert.equal(fake.pipelines.length, 2);
+    const stableResources = new Map();
+    const resource = (name) => {
+      let value = stableResources.get(name);
+      if (value === undefined) {
+        value = { label: name };
+        stableResources.set(name, value);
+      }
+      return value;
+    };
+    const firstBindings = owner.createFrameBindingsForExecution(resource);
+    const reusedBindings = owner.createFrameBindingsForExecution(resource);
+    assert.deepEqual(
+      reusedBindings.map((frame) => frame.groups),
+      firstBindings.map((frame) => frame.groups)
+    );
+    assert.deepEqual(owner.bindingCacheEvidence(), { requests: 14, creations: 7 });
+    assert.equal(fake.bindGroups.length, 7);
     const calls = [];
     const command = fakeCommand(calls);
     owner.encode(command, { label: "args" }, 256, [
@@ -338,6 +355,7 @@ function materialPayload() {
 function fakeDevice() {
   const modules = [];
   const pipelines = [];
+  const bindGroups = [];
   const scopes = [];
   const device = {
     pushErrorScope() { scopes.push(null); },
@@ -348,9 +366,14 @@ function fakeDevice() {
     },
     createBindGroupLayout(value) { return { value }; },
     createPipelineLayout(value) { return { value }; },
-    createComputePipeline(value) { pipelines.push(value); return { value }; }
+    createComputePipeline(value) { pipelines.push(value); return { value }; },
+    createBindGroup(value) {
+      const group = { value };
+      bindGroups.push(group);
+      return group;
+    }
   };
-  return { device, modules, pipelines };
+  return { device, modules, pipelines, bindGroups };
 }
 
 function fakeCommand(calls) {

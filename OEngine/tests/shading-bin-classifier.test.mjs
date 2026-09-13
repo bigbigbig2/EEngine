@@ -391,13 +391,35 @@ test("candidate resource factory and encoder exercise checked WebGPU ownership w
     assert.equal(fake.calls.filter(([name]) => name === "createComputePipeline").length, 2);
     assert.equal(fake.calls.filter(([name]) => name === "writeBuffer")[0][2], 1056);
 
+    const shadingBinId = { label: "candidate r8uint view" };
+    const settings = { label: "frame ring" };
     const bindings = await producer.createFrameBindings({
-      shadingBinId: { label: "candidate r8uint view" },
-      settings: { label: "frame ring" },
+      shadingBinId,
+      settings,
       settingsDynamicOffset: 256,
       generation: 4,
       layoutRevision: 9
     });
+    const reusedBindings = producer.createFrameBindingsForExecution({
+      shadingBinId,
+      settings,
+      settingsDynamicOffset: 256,
+      generation: 4,
+      layoutRevision: 9
+    });
+    assert.equal(reusedBindings.classifier, bindings.classifier);
+    assert.equal(reusedBindings.finalizer, bindings.finalizer);
+    const changedViewBindings = producer.createFrameBindingsForExecution({
+      shadingBinId: { label: "replacement r8uint view" },
+      settings,
+      settingsDynamicOffset: 256,
+      generation: 4,
+      layoutRevision: 9
+    });
+    assert.notEqual(changedViewBindings.classifier, bindings.classifier);
+    assert.equal(changedViewBindings.finalizer, bindings.finalizer);
+    assert.deepEqual(producer.bindingCacheEvidence(), { requests: 6, creations: 3 });
+    assert.equal(fake.calls.filter(([name]) => name === "createBindGroup").length, 3);
     const encoded = [];
     const command = {
       clearBuffer(buffer, offset, size) { encoded.push(["clear", buffer.id, offset, size]); },
