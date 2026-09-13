@@ -14,18 +14,19 @@ import {
 
 const requiredFeatures = [...GPU_SPARSE_SHADING_REQUIRED_FEATURES];
 const exactLimits = { ...GPU_SPARSE_SHADING_REQUIRED_LIMITS };
-const adapterLimits = { ...exactLimits, subgroupMinSize: 4, subgroupMaxSize: 128 };
+const adapterLimits = { ...exactLimits };
 
 function adapter(overrides = {}) {
   return {
     features: overrides.features ?? requiredFeatures,
-    limits: overrides.limits ?? adapterLimits
+    limits: overrides.limits ?? adapterLimits,
+    info: overrides.info ?? { subgroupMinSize: 4, subgroupMaxSize: 128 }
   };
 }
 
 test("ADR-0013 capability plan requests exact sparse-shading features and thresholds", () => {
   const highLimits = Object.fromEntries(
-    Object.entries(adapterLimits).map(([name, value]) => [name, value * (name.startsWith("subgroup") ? 1 : 4)])
+    Object.entries(adapterLimits).map(([name, value]) => [name, value * 4])
   );
   const plan = createGpuSparseShadingCapabilityPlan(adapter({ limits: highLimits }));
   assert.equal(plan.schemaVersion, GPU_SPARSE_SHADING_CAPABILITY_SCHEMA_VERSION);
@@ -103,7 +104,7 @@ test("post-device record freezes actual limits, subgroup range, formats and stab
   const plan = createGpuSparseShadingCapabilityPlan(adapter());
   const device = {
     features: [...requiredFeatures].reverse(),
-    limits: { ...exactLimits, subgroupMinSize: 4, subgroupMaxSize: 128 },
+    limits: { ...exactLimits },
     textureFormatFeatures: ["rg32uint-storage", "rgba16uint-storage"],
     formatProfile: "desktop-tier1-v1"
   };
@@ -119,10 +120,10 @@ test("post-device record freezes actual limits, subgroup range, formats and stab
   assert.equal(first.fingerprint, reordered.fingerprint);
   assert.notEqual(
     first.fingerprint,
-    captureGpuSparseShadingCapabilityRecord(plan, {
-      ...device,
-      limits: { ...device.limits, subgroupMinSize: 32, subgroupMaxSize: 32 }
-    }).fingerprint
+    captureGpuSparseShadingCapabilityRecord(
+      createGpuSparseShadingCapabilityPlan(adapter({ info: { subgroupMinSize: 32, subgroupMaxSize: 32 } })),
+      device
+    ).fingerprint
   );
   assert.notEqual(
     first.fingerprint,
@@ -137,23 +138,15 @@ test("invalid subgroup ranges and post-device capability loss fail structurally"
   const plan = createGpuSparseShadingCapabilityPlan(adapter());
   const base = {
     features: requiredFeatures,
-    limits: { ...exactLimits, subgroupMinSize: 4, subgroupMaxSize: 128 },
+    limits: { ...exactLimits },
     textureFormatFeatures: [],
     formatProfile: "desktop-tier1-v1"
   };
   for (const [minimum, maximum] of [[0, 32], [3, 32], [8, 4], [6, 32], [4, 256]]) {
     assert.throws(
       () => createGpuSparseShadingCapabilityPlan(adapter({
-        limits: { ...adapterLimits, subgroupMinSize: minimum, subgroupMaxSize: maximum }
+        info: { subgroupMinSize: minimum, subgroupMaxSize: maximum }
       })),
-      (error) => error instanceof UnsupportedGpuPerformanceBaselineError &&
-        error.failureKind === "subgroup-range"
-    );
-    assert.throws(
-      () => captureGpuSparseShadingCapabilityRecord(plan, {
-        ...base,
-        limits: { ...base.limits, subgroupMinSize: minimum, subgroupMaxSize: maximum }
-      }),
       (error) => error instanceof UnsupportedGpuPerformanceBaselineError &&
         error.failureKind === "subgroup-range"
     );

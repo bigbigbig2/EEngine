@@ -27,12 +27,13 @@ import {
 
 const adapter = {
   features: GPU_SPARSE_SHADING_REQUIRED_FEATURES,
-  limits: { ...GPU_SPARSE_SHADING_REQUIRED_LIMITS, subgroupMinSize: 4, subgroupMaxSize: 128 }
+  limits: { ...GPU_SPARSE_SHADING_REQUIRED_LIMITS },
+  info: { subgroupMinSize: 4, subgroupMaxSize: 128 }
 };
 const plan = createGpuSparseShadingCapabilityPlan(adapter);
 const capability = captureGpuSparseShadingCapabilityRecord(plan, {
   features: GPU_SPARSE_SHADING_REQUIRED_FEATURES,
-  limits: { ...GPU_SPARSE_SHADING_REQUIRED_LIMITS, subgroupMinSize: 4, subgroupMaxSize: 128 },
+  limits: { ...GPU_SPARSE_SHADING_REQUIRED_LIMITS },
   textureFormatFeatures: ["texture-formats-tier1"],
   formatProfile: "desktop-tier1-v1"
 });
@@ -276,6 +277,7 @@ test("classifier contract WGSL enables only negotiated subgroups and passes sour
   );
   assert.match(source, /^enable subgroups;\nrequires texture_formats_tier1;/u);
   assert.doesNotMatch(source, /@subgroup_size/u);
+  assert.doesNotMatch(source, /\b(?:let|var|const)\s+(?:layout|active)\b/u);
   assert.doesNotMatch(source, /subgroupBallot\s*\([^)]*\)\.x/u);
   assert.doesNotMatch(source, /1u\s*<<\s*subgroup_invocation_id/u);
   assert.doesNotMatch(source, /diagnostic\s*\(\s*off\s*,\s*subgroup_uniformity/u);

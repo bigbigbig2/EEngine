@@ -38,13 +38,12 @@ import {
 } from "../.test-dist/shaders/sparse_shading_resolve.js";
 
 const adapterLimits = {
-  ...GPU_SPARSE_SHADING_REQUIRED_LIMITS,
-  subgroupMinSize: 4,
-  subgroupMaxSize: 128
+  ...GPU_SPARSE_SHADING_REQUIRED_LIMITS
 };
 const plan = createGpuSparseShadingCapabilityPlan({
   features: GPU_SPARSE_SHADING_REQUIRED_FEATURES,
-  limits: adapterLimits
+  limits: adapterLimits,
+  info: { subgroupMinSize: 4, subgroupMaxSize: 128 }
 });
 const capability = captureGpuSparseShadingCapabilityRecord(plan, {
   features: GPU_SPARSE_SHADING_REQUIRED_FEATURES,

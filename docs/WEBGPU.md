@@ -10,7 +10,7 @@ OEngine 的主要产品能力线是 **WebGPU 2026 Desktop**，替代过去含义
 
 - 请求并验证 core adapter；`adapter.features` 必须包含 `core-features-and-limits`，不把 compatibility mode 当作目标性能平台。
 - 以一条 Renderer、同一 FrameProducts、同一 GPU queue/asset ABI 承载能力 specialization；不存在 Core/Portable 两套主管线。
-- 先读取 `adapter.features`、`adapter.limits` 与 `navigator.gpu.wgslLanguageFeatures`，只把当前配置和已创建 owner 真正会使用的可选能力放入 `requiredFeatures` / `requiredLimits`。
+- 先读取 `adapter.features`、`adapter.limits`、`adapter.info` 与 `navigator.gpu.wgslLanguageFeatures`，只把当前配置和已创建 owner 真正会使用的可选能力放入 `requiredFeatures` / `requiredLimits`。WebGPU 2026 的 subgroup 支持范围从 `adapter.info.subgroupMinSize..subgroupMaxSize` 读取，不从 `GPUSupportedLimits` 猜测。
 - `device.features` 是实际启用集合；Shader、pipeline、asset variant、FrameGraph cache key 和 benchmark provenance 必须使用这一集合，而不能根据浏览器版本或 GPU 型号猜测。
 - 可选能力缺失时只能走同一逻辑合同的正确 specialization，或在创建任何依赖资源前明确拒绝初始化；不得静默编译错误 Shader、改变 ABI 语义或回退为 CPU 最终可见列表。
 
@@ -54,7 +54,7 @@ maxSamplersPerShaderStage >= 8
 maxBindGroups >= 4
 ```
 
-Host 只请求实际管线所需且 adapter 已支持的 limit；不能无条件请求 adapter 最大值。缺少任一下限时返回 `Unsupported OEngine GPU Performance Baseline`，不得创建 portable/no-subgroup classifier、旧 28-class backend 或 CPU visible-material dispatch fallback。`subgroup-size-control` 仍不是该管线的要求；classifier 必须覆盖实际 `subgroupMinSize..subgroupMaxSize`。
+Host 只请求实际管线所需且 adapter 已支持的 limit；不能无条件请求 adapter 最大值。缺少任一下限时返回 `Unsupported OEngine GPU Performance Baseline`，不得创建 portable/no-subgroup classifier、旧 28-class backend 或 CPU visible-material dispatch fallback。`subgroup-size-control` 仍不是该管线的要求；classifier 必须覆盖 `adapter.info` 报告的实际 `subgroupMinSize..subgroupMaxSize`，该范围不是 `requiredLimits` 成员。
 
 ## 2026 Core API 能力
 

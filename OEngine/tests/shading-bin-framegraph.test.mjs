@@ -29,13 +29,12 @@ const limits = Object.freeze({
   maxComputeWorkgroupsPerDimension: 65535
 });
 const adapterLimits = {
-  ...GPU_SPARSE_SHADING_REQUIRED_LIMITS,
-  subgroupMinSize: 4,
-  subgroupMaxSize: 128
+  ...GPU_SPARSE_SHADING_REQUIRED_LIMITS
 };
 const capabilityPlan = createGpuSparseShadingCapabilityPlan({
   features: GPU_SPARSE_SHADING_REQUIRED_FEATURES,
-  limits: adapterLimits
+  limits: adapterLimits,
+  info: { subgroupMinSize: 4, subgroupMaxSize: 128 }
 });
 const capability = captureGpuSparseShadingCapabilityRecord(capabilityPlan, {
   features: GPU_SPARSE_SHADING_REQUIRED_FEATURES,

@@ -28,18 +28,18 @@ struct OEngineShadingBinDiagnosticFaults {
 @group(0) @binding(4) var<uniform> shading_bin_faults: OEngineShadingBinDiagnosticFaults;
 ` : "";
   const classifierCapacity = diagnostics
-    ? `select(layout.capacity, shading_bin_faults.capacity_override,
+    ? `select(bin_layout.capacity, shading_bin_faults.capacity_override,
         (shading_bin_faults.flags & ${GPU_SHADING_BIN_DIAGNOSTIC_FAULT.ReservationOverflow}u) != 0u &&
         shading_bin_faults.target_bin == bin_id)`
-    : "layout.capacity";
+    : "bin_layout.capacity";
   const finalizerRevision = diagnostics
-    ? `select(layout.revision, layout.revision ^ 1u,
+    ? `select(bin_layout.revision, bin_layout.revision ^ 1u,
         (shading_bin_faults.flags & ${GPU_SHADING_BIN_DIAGNOSTIC_FAULT.LayoutRevisionMismatch}u) != 0u &&
         shading_bin_faults.target_bin == bin_id)`
-    : "layout.revision";
+    : "bin_layout.revision";
   const forcedCounterInvariant = diagnostics
-    ? `(shading_bin_faults.flags & ${GPU_SHADING_BIN_DIAGNOSTIC_FAULT.CounterInvariant}u) != 0u &&
-      shading_bin_faults.target_bin == bin_id`
+    ? `((shading_bin_faults.flags & ${GPU_SHADING_BIN_DIAGNOSTIC_FAULT.CounterInvariant}u) != 0u &&
+      shading_bin_faults.target_bin == bin_id)`
     : "false";
   const forcedFinalizerErrors = diagnostics ? /* wgsl */ `
   if shading_bin_faults.target_bin == bin_id &&
@@ -95,19 +95,22 @@ fn shading_bin_prefix_count(lo: u32, hi: u32, bit_index: u32) -> u32 {
 
 fn shading_bin_aggregate_word(local_bins: u32, tile_bits: vec2u, high_word: bool) {
   let subgroup_bins = subgroupOr(local_bins);
+  let elected = subgroupElect();
   var remaining = subgroup_bins;
-  loop {
-    if remaining == 0u { break; }
-    let word_bit = firstTrailingBit(remaining);
-    let lane_has_bin = (local_bins & (1u << word_bit)) != 0u;
+  // A fixed trip count keeps every subgroup collective in uniform control flow.
+  // Once the sparse mask is exhausted, remaining iterations contribute zero.
+  for (var iteration = 0u; iteration < 32u; iteration++) {
+    let has_remaining = remaining != 0u;
+    let word_bit = select(0u, firstTrailingBit(remaining), has_remaining);
+    let lane_has_bin = has_remaining && (local_bins & (1u << word_bit)) != 0u;
     let lane_tiles = select(vec2u(0u), tile_bits, lane_has_bin);
     let subgroup_tiles = subgroupOr(lane_tiles);
-    if subgroupElect() {
+    if elected && has_remaining {
       let bin_id = word_bit + select(0u, 32u, high_word);
       atomicOr(&bin_microtiles[bin_id * 2u], subgroup_tiles.x);
       atomicOr(&bin_microtiles[bin_id * 2u + 1u], subgroup_tiles.y);
     }
-    remaining &= remaining - 1u;
+    remaining &= remaining - select(0u, 1u, has_remaining);
   }
 }
 
@@ -166,11 +169,11 @@ fn classify_shading_bins(
     let hi = atomicLoad(&bin_microtiles[bin_id * 2u + 1u]);
     let local_count = countOneBits(lo) + countOneBits(hi);
     if local_count != 0u {
-      let layout = shading_bin_heap.layouts[bin_id];
-      let active = (layout.flags & OENGINE_SHADING_BIN_LAYOUT_ACTIVE) != 0u;
+      let bin_layout = shading_bin_heap.layouts[bin_id];
+      let bin_active = (bin_layout.flags & OENGINE_SHADING_BIN_LAYOUT_ACTIVE) != 0u;
       let allowed = shading_bin_allowed(bin_id);
-      let revision_matches = layout.revision == shading_bin_settings.layout_revision;
-      if !allowed || !active {
+      let revision_matches = bin_layout.revision == shading_bin_settings.layout_revision;
+      if !allowed || !bin_active {
         shading_bin_report_classifier_error(OENGINE_SHADING_BIN_FRAME_INACTIVE_BIN, 1u);
       } else if !revision_matches {
         shading_bin_report_classifier_error(
@@ -231,8 +234,8 @@ fn classify_shading_bins(
       let global_microtile = macro_id.xy * vec2u(8u, 8u) + macro_microtile;
       let global_microtile_id =
         global_microtile.y * shading_bin_settings.microtiles_x + global_microtile.x;
-      let layout = shading_bin_heap.layouts[bin_id];
-      shading_bin_heap.records[layout.record_base + reservation_base + rank] =
+      let bin_layout = shading_bin_heap.layouts[bin_id];
+      shading_bin_heap.records[bin_layout.record_base + reservation_base + rank] =
         global_microtile_id;
     }
   }
@@ -252,7 +255,7 @@ fn finalize_shading_bins(@builtin(local_invocation_index) bin_id: u32) {
   }
   workgroupBarrier();
 
-  let layout = shading_bin_heap.layouts[bin_id];
+  let bin_layout = shading_bin_heap.layouts[bin_id];
   let attempted = atomicLoad(&shading_bin_heap.counters[bin_id].attempted_count);
   let written = atomicLoad(&shading_bin_heap.counters[bin_id].written_count);
   let overflow = atomicLoad(&shading_bin_heap.counters[bin_id].overflow_count);
@@ -266,7 +269,7 @@ ${forcedFinalizerErrors}
   if !counter_invalid {
     counter_invalid = attempted - written != overflow;
   }
-  counter_invalid = counter_invalid || written > layout.capacity || ${forcedCounterInvariant};
+  counter_invalid = counter_invalid || written > bin_layout.capacity || ${forcedCounterInvariant};
   if counter_invalid {
     shading_bin_report_finalizer_error(OENGINE_SHADING_BIN_FRAME_COUNTER_INVARIANT_FAILURE);
   }
@@ -276,7 +279,7 @@ ${forcedFinalizerErrors}
   }
   atomicOr(&finalizer_flags, counter_flags);
   if written != 0u {
-    if (layout.flags & OENGINE_SHADING_BIN_LAYOUT_ACTIVE) == 0u || !shading_bin_allowed(bin_id) {
+    if (bin_layout.flags & OENGINE_SHADING_BIN_LAYOUT_ACTIVE) == 0u || !shading_bin_allowed(bin_id) {
       shading_bin_report_finalizer_error(OENGINE_SHADING_BIN_FRAME_INACTIVE_BIN);
     }
     if bin_id < 32u {

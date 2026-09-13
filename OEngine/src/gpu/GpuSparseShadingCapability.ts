@@ -29,6 +29,11 @@ export type GpuSparseShadingRequiredLimitName =
 export interface GpuSparseShadingAdapterSnapshot {
   readonly features: Iterable<string>;
   readonly limits: Readonly<Record<string, number | undefined>>;
+  /** WebGPU 2026 exposes the supported subgroup range on GPUAdapterInfo. */
+  readonly info: Readonly<{
+    subgroupMinSize: number | undefined;
+    subgroupMaxSize: number | undefined;
+  }>;
 }
 
 export interface GpuSparseShadingCapabilityDependencies {
@@ -136,8 +141,8 @@ export function createGpuSparseShadingCapabilityPlan(
       });
     }
   }
-  const subgroupMinSize = Number(adapter.limits.subgroupMinSize ?? 0);
-  const subgroupMaxSize = Number(adapter.limits.subgroupMaxSize ?? 0);
+  const subgroupMinSize = Number(adapter.info.subgroupMinSize ?? 0);
+  const subgroupMaxSize = Number(adapter.info.subgroupMaxSize ?? 0);
   validateSubgroupRange(subgroupMinSize, subgroupMaxSize);
   return Object.freeze({
     schemaVersion: GPU_SPARSE_SHADING_CAPABILITY_SCHEMA_VERSION as 1,
@@ -178,9 +183,8 @@ export function captureGpuSparseShadingCapabilityRecord(
     }
     actualLimits[name] = actual;
   }
-  const subgroupMinSize = Number(device.limits.subgroupMinSize ?? 0);
-  const subgroupMaxSize = Number(device.limits.subgroupMaxSize ?? 0);
-  validateSubgroupRange(subgroupMinSize, subgroupMaxSize);
+  const subgroupMinSize = plan.subgroupMinSize;
+  const subgroupMaxSize = plan.subgroupMaxSize;
   if (device.formatProfile.length === 0) {
     throw new RangeError("Sparse shading format profile must not be empty");
   }
