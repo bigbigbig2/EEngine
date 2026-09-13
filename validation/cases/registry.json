@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "hostProtocolVersion": 1,
+  "requirements": {
+    "HOST-PROTOCOL": { "ownerAdr": "ADR-0014", "layer": "L0", "description": "Versioned page protocol and state machine" },
+    "HOST-FRESHNESS": { "ownerAdr": "ADR-0014", "layer": "L0", "description": "Per-navigation run identity, nonce, hashes and timestamps" },
+    "HOST-DISPOSE": { "ownerAdr": "ADR-0014", "layer": "L4", "description": "Document, GPU and listener teardown is observed" },
+    "HOST-CAPABILITY": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Adapter, device and WGSL capability fingerprint" },
+    "HOST-GPU-ERRORS": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Compilation, error-scope, uncaptured-error and device-loss collection" },
+    "HOST-READBACK": { "ownerAdr": "ADR-0014", "layer": "L3", "description": "Bounded GPU execution and numeric readback" }
+  },
+  "profiles": {
+    "smoke": {
+      "headed": false,
+      "viewport": [1280, 720],
+      "deviceScaleFactor": 1,
+      "browserChannel": "chrome-stable"
+    },
+    "formal-1080p": {
+      "headed": true,
+      "viewport": [1920, 1080],
+      "deviceScaleFactor": 1,
+      "browserChannel": "chrome-stable"
+    }
+  },
+  "workloads": {
+    "protocol-self-test-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "orchestration-smoke-v1",
+      "features": [],
+      "seed": 0,
+      "cameraPath": "none",
+      "warmupFrames": 1,
+      "sampleFrames": 1,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
+    "webgpu-component-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "component-smoke-v1",
+      "features": ["core-features-and-limits"],
+      "seed": 0,
+      "cameraPath": "none",
+      "warmupFrames": 1,
+      "sampleFrames": 1,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    }
+  },
+  "cases": [
+    {
+      "id": "protocol-self-test",
+      "route": "/src/cases/protocol-self-test/index.html",
+      "kind": "orchestration",
+      "buildTarget": "host",
+      "ownerAdr": "ADR-0014",
+      "requirements": ["HOST-PROTOCOL", "HOST-FRESHNESS", "HOST-DISPOSE"],
+      "workloadId": "protocol-self-test-v1",
+      "profile": "smoke",
+      "timeoutMs": 15000,
+      "artifacts": ["result", "events"],
+      "changedPaths": ["validation/src/host", "validation/src/runner"]
+    },
+    {
+      "id": "webgpu-component",
+      "route": "/src/cases/webgpu-component/index.html",
+      "kind": "component",
+      "buildTarget": "host",
+      "ownerAdr": "ADR-0014",
+      "requirements": ["HOST-CAPABILITY", "HOST-GPU-ERRORS", "HOST-READBACK"],
+      "workloadId": "webgpu-component-v1",
+      "profile": "smoke",
+      "timeoutMs": 30000,
+      "artifacts": ["result", "events", "screenshot"],
+      "changedPaths": ["validation/src/cases/webgpu-component", "OEngine/src/gpu"],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
+          "ownerRequirement": "HOST-CAPABILITY"
+        }
+      ]
+    }
+  ]
+}

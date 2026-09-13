@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oengine-validation-artifact-v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "runId", "nonce", "caseId", "workloadId",
+    "registrySha256", "workloadSha256", "status", "evidenceStatus",
+    "provenance", "page", "events", "artifactManifest", "gate"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "pattern": "^[0-9TZ-]+-[a-z0-9-]+-[0-9a-f-]{36}$" },
+    "nonce": { "type": "string", "pattern": "^[0-9a-f]{48}$" },
+    "caseId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "workloadId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-v[0-9]+$" },
+    "registrySha256": { "$ref": "#/$defs/sha256" },
+    "workloadSha256": { "$ref": "#/$defs/sha256" },
+    "status": { "enum": ["passed", "failed", "unsupported"] },
+    "evidenceStatus": { "enum": ["accepted", "diagnostic-only"] },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "page": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/page" }] },
+    "events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
+    "artifactManifest": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+    "gate": {
+      "type": "object",
+      "required": ["freshness", "identity", "browserErrors", "pageOutcome", "disposed", "artifacts"],
+      "properties": {
+        "freshness": { "type": "boolean" },
+        "identity": { "type": "boolean" },
+        "browserErrors": { "type": "boolean" },
+        "pageOutcome": { "type": "boolean" },
+        "disposed": { "type": "boolean" },
+        "artifacts": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "isoDate": { "type": "string", "format": "date-time" },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "commit", "tree", "dirty", "hostBuildId", "browserExecutable",
+        "browserExecutableSha256", "browserVersion", "userAgent", "startedAt", "completedAt"
+      ],
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "tree": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "dirty": { "type": "boolean" },
+        "hostBuildId": { "type": "string", "minLength": 8 },
+        "browserExecutable": { "type": "string", "minLength": 1 },
+        "browserExecutableSha256": { "$ref": "#/$defs/sha256" },
+        "browserVersion": { "type": "string", "minLength": 1 },
+        "userAgent": { "type": "string", "minLength": 1 },
+        "startedAt": { "$ref": "#/$defs/isoDate" },
+        "completedAt": { "$ref": "#/$defs/isoDate" }
+      },
+      "additionalProperties": false
+    },
+    "page": {
+      "type": "object",
+      "required": [
+        "schemaVersion", "caseId", "workloadId", "runId", "nonce",
+        "registrySha256", "workloadSha256", "hostBuildId", "documentId",
+        "navigationCount", "state", "outcome", "startedAt", "completedAt",
+        "disposedAt", "phases", "evidence", "errors", "disposeEvidence"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "caseId": { "type": "string" },
+        "workloadId": { "type": "string" },
+        "runId": { "type": "string" },
+        "nonce": { "type": "string" },
+        "registrySha256": { "$ref": "#/$defs/sha256" },
+        "workloadSha256": { "$ref": "#/$defs/sha256" },
+        "hostBuildId": { "type": "string" },
+        "documentId": { "type": "string", "pattern": "^[0-9a-f-]{36}$" },
+        "navigationCount": { "const": 1 },
+        "state": { "const": "disposed" },
+        "outcome": { "enum": ["passed", "failed", "unsupported"] },
+        "startedAt": { "$ref": "#/$defs/isoDate" },
+        "completedAt": { "$ref": "#/$defs/isoDate" },
+        "disposedAt": { "$ref": "#/$defs/isoDate" },
+        "phases": { "type": "array", "minItems": 3 },
+        "evidence": { "type": "object" },
+        "errors": { "type": "array" },
+        "disposeEvidence": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": ["at", "source", "detail"],
+      "properties": {
+        "at": { "$ref": "#/$defs/isoDate" },
+        "source": { "type": "string", "minLength": 1 },
+        "detail": {}
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["kind", "path", "bytes", "sha256"],
+      "properties": {
+        "kind": { "enum": ["events", "result", "screenshot", "readback", "trace", "samples"] },
+        "path": { "type": "string", "pattern": "^[^\\\\/].*" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

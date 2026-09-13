@@ -8,6 +8,10 @@ dist
 coverage
 storybook-static
 examples-static
+validation/dist
+validation/node_modules
+validation/artifacts/*
+!validation/artifacts/README.md
 .grok/
 .codex-temp/
 .three.js/

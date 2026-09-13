@@ -1,0 +1,22 @@
+{
+  "name": "oengine-validation",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4178 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "test": "node --test tests/*.test.mjs",
+    "validate:registry": "node src/runner/validate-registry.mjs",
+    "run:protocol": "node src/runner/run-case.mjs protocol-self-test",
+    "run:webgpu": "node src/runner/run-case.mjs webgpu-component"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "@webgpu/types": "0.1.64",
+    "playwright-core": "1.63.0",
+    "typescript": "5.8.3",
+    "vite": "6.3.5"
+  }
+}
