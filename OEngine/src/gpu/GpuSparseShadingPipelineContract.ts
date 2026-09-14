@@ -13,8 +13,10 @@ import {
 } from "./GpuShadingProgramAbi.js";
 import type { GpuSparseShadingCapabilityRecord } from "./GpuSparseShadingCapability.js";
 import { GPU_SPARSE_SHADING_VIEW_BYTES } from "./GpuSparseShadingFrameAbi.js";
+import type { GpuShadingExecutionMode } from "./GpuShadingExecutionMode.js";
+import { GPU_TEXTURE_BANK_ALL_MASK, GPU_TEXTURE_BANK_COUNT } from "./GpuTextureRefAbi.js";
 
-export const GPU_SPARSE_SHADING_PIPELINE_SCHEMA_VERSION = 3;
+export const GPU_SPARSE_SHADING_PIPELINE_SCHEMA_VERSION = 4;
 export const GPU_SPARSE_SHADING_ENTRY_POINT = "shading_resolve";
 
 export const GPU_SHADING_OUTPUT_DEPENDENCY = Object.freeze({
@@ -59,11 +61,15 @@ export interface GpuSparseShadingPipelineIdentityInput {
   readonly outputDependencyMask: number;
   /** Creation-time physical specialization; false omits every shadow binding and sample. */
   readonly shadowSamplingEnabled: boolean;
+  /** Physical consumer ABI. Omitted only by legacy contract fixtures. */
+  readonly executionMode?: GpuShadingExecutionMode;
+  /** Static set-local bank signature; defaults to every bounded bank. */
+  readonly textureBankMask?: number;
   readonly capability: Pick<GpuSparseShadingCapabilityRecord, "fingerprint" | "formatProfile">;
 }
 
 export interface GpuSparseShadingPipelineDescriptor {
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 4;
   readonly cacheKey: string;
   readonly label: string;
   readonly entryPoint: typeof GPU_SPARSE_SHADING_ENTRY_POINT;
@@ -72,6 +78,8 @@ export interface GpuSparseShadingPipelineDescriptor {
   readonly binId: number;
   readonly outputDependencyMask: number;
   readonly shadowSamplingEnabled: boolean;
+  readonly executionMode: GpuShadingExecutionMode;
+  readonly textureBankMask: number;
   readonly capabilityFingerprint: string;
   readonly formatProfile: string;
   readonly groups: readonly Readonly<GpuSparseShadingBindGroupDescriptor>[];
@@ -93,6 +101,15 @@ export function createGpuSparseShadingPipelineDescriptor(
   if (input.capability.fingerprint.length === 0 || input.capability.formatProfile.length === 0) {
     throw new RangeError("Sparse shading capability and format profile must not be empty");
   }
+  const executionMode = input.executionMode ?? "sparse-microtile";
+  if (executionMode !== "sparse-microtile" && executionMode !== "direct-single-bin") {
+    throw new RangeError(`Unsupported sparse shading execution mode '${String(executionMode)}'`);
+  }
+  const textureBankMask = input.textureBankMask ?? GPU_TEXTURE_BANK_ALL_MASK;
+  if (!Number.isInteger(textureBankMask) || textureBankMask < 1 ||
+      (textureBankMask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
+    throw new RangeError(`Sparse shading texture bank mask must select at least one of ${GPU_TEXTURE_BANK_COUNT} banks`);
+  }
   const usesTextures = shadingProgramUsesTextures(input.programId);
   if (!usesTextures && input.textureBindingSetId !== 0) {
     throw new RangeError("Textureless sparse shading pipeline must use TextureBindingSet 0");
@@ -110,7 +127,8 @@ export function createGpuSparseShadingPipelineDescriptor(
   const evaluatesEnvironment =
     (input.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0;
 
-  const frameBindings: GpuSparseShadingBindingDescriptor[] = [
+  const frameBindings: GpuSparseShadingBindingDescriptor[] = executionMode === "sparse-microtile"
+    ? [
     uniformBinding(0, 0, "shading_bin_settings"),
     storageBufferBinding(0, 1, "shading_bin_heap", "storage"),
     textureBinding(0, 2, "shading_bin_id", "uint"),
@@ -118,6 +136,22 @@ export function createGpuSparseShadingPipelineDescriptor(
     ...(needsGeometry ? [textureBinding(0, 4, "visibility_depth", "depth")] : []),
     // PreExposure/frame revision are required even by UnlitFactor; geometry
     // specialization only controls depth/scene reconstruction dependencies.
+    uniformBinding(0, 5, "shading_view"),
+    storageTextureBinding(0, 6, "output_hdr", "rgba16float"),
+    ...(publishesShading ? [storageTextureBinding(0, 7, "output_normal", "rgba16uint")] : []),
+    ...(publishesDiffuse
+      ? [storageTextureBinding(0, 8, "output_albedo_ao", "rgba8unorm")]
+      : []),
+    ...(publishesShading || publishesDiffuse
+      ? [storageTextureBinding(0, 9, "output_material", "rg32uint")]
+      : []),
+    ...(publishesVelocity
+      ? [storageTextureBinding(0, 10, "output_velocity", "rg16float")]
+      : [])
+  ] : [
+    storageBufferBinding(0, 1, "shading_frame_status", "storage"),
+    textureBinding(0, 3, "visibility_key", "uint"),
+    ...(needsGeometry ? [textureBinding(0, 4, "visibility_depth", "depth")] : []),
     uniformBinding(0, 5, "shading_view"),
     storageTextureBinding(0, 6, "output_hdr", "rgba16float"),
     ...(publishesShading ? [storageTextureBinding(0, 7, "output_normal", "rgba16uint")] : []),
@@ -145,8 +179,9 @@ export function createGpuSparseShadingPipelineDescriptor(
       ? [storageBufferBinding(2, 1, "texture_descriptor_routing_heap", "read-only-storage")]
       : []),
     ...(usesTextures
-      ? Array.from({ length: 9 }, (_, index) =>
-          textureBinding(2, 2 + index, `material_texture_${index}`, "float", "2d-array"))
+      ? Array.from({ length: 9 }, (_, index) => (textureBankMask & (1 << index)) !== 0
+          ? textureBinding(2, 2 + index, `material_texture_${index}`, "float", "2d-array")
+          : null).filter((binding): binding is GpuSparseShadingBindingDescriptor => binding !== null)
       : []),
     ...(usesTextures
       ? Array.from({ length: 6 }, (_, index) =>
@@ -183,6 +218,8 @@ export function createGpuSparseShadingPipelineDescriptor(
     `t${input.textureBindingSetId}`,
     `o${input.outputDependencyMask}`,
     `h${Number(input.shadowSamplingEnabled)}`,
+    `m${executionMode}`,
+    `b${textureBankMask.toString(16)}`,
     lengthPrefixed("c", input.capability.fingerprint),
     lengthPrefixed("f", input.capability.formatProfile)
   ].join(":");
@@ -196,6 +233,8 @@ export function createGpuSparseShadingPipelineDescriptor(
     binId,
     outputDependencyMask: input.outputDependencyMask,
     shadowSamplingEnabled: input.shadowSamplingEnabled,
+    executionMode,
+    textureBankMask,
     capabilityFingerprint: input.capability.fingerprint,
     formatProfile: input.capability.formatProfile,
     groups: Object.freeze(groups)
@@ -243,7 +282,7 @@ export function gpuSparseShadingContractModuleWgsl(
   }
   return `enable subgroups;
 requires texture_formats_tier1;
-${GPU_SHADING_BIN_WGSL}
+${descriptor.executionMode === "sparse-microtile" ? GPU_SHADING_BIN_WGSL : "struct OEngineShadingFrameStatus { frame_flags: atomic<u32>, error_count: atomic<u32>, generation: u32, layout_revision: u32, reserved0: u32, reserved1: u32, reserved2: u32, reserved3: u32, };"}
 struct OEngineShadingView { value: vec4u, };
 ${gpuSparseShadingBindingDeclarationsWgsl(descriptor)}
 
@@ -379,6 +418,9 @@ function bindingDeclarationWgsl(binding: GpuSparseShadingBindingDescriptor): str
       }
       if (binding.name === "shading_bin_heap") {
         return `${prefix} var<storage, read_write> ${binding.name}: OEngineShadingBinHeap;`;
+      }
+      if (binding.name === "shading_frame_status") {
+        return `${prefix} var<storage, read_write> ${binding.name}: OEngineShadingFrameStatus;`;
       }
       const access = binding.resource.type === "storage" ? "read_write" : "read";
       return `${prefix} var<storage, ${access}> ${binding.name}: array<u32>;`;

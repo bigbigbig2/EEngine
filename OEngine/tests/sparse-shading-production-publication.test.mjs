@@ -54,10 +54,9 @@ test("production publication derives one atomic GPU revision and stable frames r
     cpu: [initial.snapshot.revision],
     gpu: [initial.snapshot.revision]
   });
-  assert.deepEqual(destroyed, [
-    `resolve:${initial.snapshot.revision}`,
-    `bins:${initial.snapshot.revision}`,
-    `settings:${initial.snapshot.revision}`
+    assert.deepEqual(destroyed, [
+      `resolve:${initial.snapshot.revision}`,
+    `status:${initial.snapshot.revision}`
   ]);
   coordinator.destroy();
 });
@@ -107,8 +106,7 @@ test("scene release publishes an empty closure and retires GPU work only at the 
   });
   assert.deepEqual(destroyed, [
     `resolve:${active.snapshot.revision}`,
-    `bins:${active.snapshot.revision}`,
-    `settings:${active.snapshot.revision}`
+    `status:${active.snapshot.revision}`
   ]);
   assert.equal(await coordinator.release(scene, 10), false);
   coordinator.destroy();
@@ -161,7 +159,7 @@ test("identical concurrent requests share preparation and destroy closes late fa
   releaseFactory();
   await assert.rejects(first, /invalidated by lifecycle change/u);
   await assert.rejects(second, /invalidated by lifecycle change/u);
-  assert.deepEqual(destroyed, ["resolve:2", "bins:2", "settings:2"]);
+  assert.deepEqual(destroyed, ["resolve:2", "status:2"]);
 });
 
 test("device loss invalidates the old epoch and rebuilds from retained CPU scene truth", async () => {
@@ -208,7 +206,7 @@ test("device loss during asynchronous preparation destroys the late provisional 
   releaseFactory();
 
   await assert.rejects(pending, /invalidated by lifecycle change/u);
-  assert.deepEqual(destroyed, ["resolve:2", "bins:2", "settings:2"]);
+  assert.deepEqual(destroyed, ["resolve:2", "status:2"]);
   assert.equal(coordinator.evidence().deviceLost, true);
   assert.equal(coordinator.evidence().gpu.pendingPreparations, 0);
   coordinator.destroy();
@@ -285,31 +283,40 @@ function fakeGpuRevisionFactory(destroyed) {
         settings: null,
         heapBytes: 0,
         indirectBytes: 0,
-        settingsBytes: 0
+        settingsBytes: 0,
+        status: null,
+        statusBytes: 0
       });
     }
-    const bins = {
+    const bins = publication.executionMode === "sparse-microtile" ? {
       diagnostics,
       sizing: publication.sizing,
       destroy() { destroyed.push(`bins:${publication.revision}`); }
-    };
+    } : null;
     const resolve = {
       diagnostics,
       publicationRevision: publication.revision,
+      executionMode: publication.executionMode === "none" ? "sparse-microtile" : publication.executionMode,
       destroy() { destroyed.push(`resolve:${publication.revision}`); }
     };
-    const settings = {
+    const settings = bins === null ? null : {
       size: 256,
       destroy() { destroyed.push(`settings:${publication.revision}`); }
     };
+    const status = bins === null ? {
+      size: 32,
+      destroy() { destroyed.push(`status:${publication.revision}`); }
+    } : null;
     return Object.freeze({
       snapshot: publication,
       bins,
       resolve,
       settings,
-      heapBytes: publication.sizing.heapBytes,
-      indirectBytes: publication.sizing.indirectBytes,
-      settingsBytes: settings.size
+      status,
+      heapBytes: bins?.sizing.heapBytes ?? 0,
+      indirectBytes: bins?.sizing.indirectBytes ?? 0,
+      settingsBytes: settings?.size ?? 0,
+      statusBytes: status?.size ?? 0
     });
   };
 }

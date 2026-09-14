@@ -10,12 +10,15 @@ import {
   gpuShadingBinVisibilityAttachmentContract,
   gpuShadingBinVisibilityNativeDescriptor,
   gpuShadingBinVisibilityRenderPassAttachments,
+  gpuVisibilityKeyRenderPassAttachments,
   resolveGpuShadingBinRasterOwnership
 } from "../.test-dist/gpu/GpuShadingBinVisibilityContract.js";
 import { GPU_VISIBILITY_KEY_EMPTY } from "../.test-dist/gpu/GpuVisibilityKeyAbi.js";
 import {
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
-  MESHLET_BUCKET_VISIBILITY_WGSL
+  MESHLET_BUCKET_VISIBILITY_WGSL,
+  MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL,
+  MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL
 } from "../.test-dist/shaders/meshlet_bucket_visibility.js";
 
 test("ShadingBinId attachment and dual-MRT render pass freeze the physical contract", () => {
@@ -68,6 +71,20 @@ test("CPU raster ownership keeps key and bin in the same winning depth sample do
   assert.ok(result.shadingBinIds.every((bin, pixel) =>
     (bin === 0xff) === (result.visibilityKeys[pixel] === GPU_VISIBILITY_KEY_EMPTY)
   ));
+});
+
+test("direct single-bin visibility uses one r32uint MRT and omits bin identity", () => {
+  const keyView = { label: "key" };
+  const attachments = gpuVisibilityKeyRenderPassAttachments(keyView);
+  assert.equal(attachments.length, 1);
+  assert.strictEqual(attachments[0].view, keyView);
+  assert.equal(attachments[0].clearValue.r, GPU_VISIBILITY_KEY_EMPTY);
+  for (const source of [MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL,
+    MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL]) {
+    assert.doesNotMatch(source, /@location\(9\).*shading_bin_id/su);
+    assert.doesNotMatch(source, /@location\(1\)\s+shading_bin_id/u);
+    assert.match(source, /@location\(0\) visibility_key:\s*u32/u);
+  }
 });
 
 test("raster ownership rejects invalid fragments before either target can change", () => {

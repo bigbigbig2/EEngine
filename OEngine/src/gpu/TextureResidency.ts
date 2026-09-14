@@ -14,6 +14,7 @@ import type { GraphicsContext } from "./GraphicsContext.js";
 import {
   GPU_TEXTURE_BANK_COUNT,
   GPU_TEXTURE_BANK_MAX_CAPACITIES,
+  GPU_TEXTURE_BANK_ALL_MASK,
   GPU_TEXTURE_BANK_SIZES,
   GPU_TEXTURE_PACKAGE_BANK_BEGIN,
   GPU_TEXTURE_PACKAGE_BANK_COUNT,
@@ -54,6 +55,8 @@ export interface TextureBindingSet {
     GPUTextureView, GPUTextureView, GPUTextureView, GPUTextureView
   ];
   readonly bankDescriptors: readonly TextureBindingSetBankDescriptor[];
+  /** Banks referenced by resident material descriptors in this set. */
+  readonly textureBankMask: number;
 }
 
 export interface TextureBindingSetBankDescriptor {
@@ -543,11 +546,32 @@ export class TextureResidency {
             segment: segment?.id ?? -1
           }))
         ];
+        let textureBankMask = 0;
+        for (const resident of this.materials.values()) {
+          if (resident.refCount <= 0 || resident.bindingSetId !== set.id) continue;
+          for (const entry of resident.textures) {
+            const packageSlot = entry.cooked
+              ? set.packageSlots.indexOf(this.packageSegments[entry.segment]!)
+              : -1;
+            if (entry.cooked && packageSlot < 0) {
+              throw new Error(`TextureBindingSet ${set.id} lost package segment ${entry.segment}`);
+            }
+            const bank = entry.cooked
+              ? GPU_TEXTURE_PACKAGE_BANK_BEGIN + packageSlot
+              : entry.bankClass;
+            if (bank >= 0 && bank < GPU_TEXTURE_BANK_COUNT) textureBankMask |= 1 << bank;
+          }
+        }
+        // A texture-capable material with no valid texture ref still needs a
+        // legal fallback binding; bank 0 is the shared fallback view.
+        if (textureBankMask === 0) textureBankMask = 1;
+        textureBankMask &= GPU_TEXTURE_BANK_ALL_MASK;
         return Object.freeze({
           id: set.id,
           generation: set.generation,
           textureBanks: Object.freeze(views),
-          bankDescriptors: Object.freeze(bankDescriptors)
+          bankDescriptors: Object.freeze(bankDescriptors),
+          textureBankMask
         });
       }))
     });

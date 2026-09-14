@@ -8,6 +8,18 @@
 > **Preserves:** Hardware Visibility、VisibilityKey、Packed Instances、单次完整材质求值、统一主管线、真实高级效果语义与提交感知的资源生命周期。
 > **Iteration policy:** 本次按用户要求采用轻量自动检查、以两个 Rendering Lab 示例的手动测试为主，不增加大型自动化矩阵或 formal PERF 前置流程。
 
+## 三阶段执行状态
+
+本 ADR 按三个有依赖关系的阶段实施。每个阶段都先完成代码合同和轻量自动检查，再用两个 Rendering Lab 做固定机位手动对照；阶段门槛不满足时停在当前阶段，不把后续重构叠加到未解释的 GPU 成本上。
+
+| 阶段 | 当前状态 | 可交付结果 | 允许进入下一阶段的条件 |
+| --- | --- | --- | --- |
+| 一、Demand-driven 基础光照融合 | 基础合同已落地，仍需浏览器画面和 GPU 时间复核 | effects-off 只保留 Visibility -> receiver/material/direct/IBL -> HDR；AO/GI/SSR 等真实 consumer 出现时才生成对应 Surface/provider | live graph 删除无消费者 Surface/provider/resolve，AO/IBL/pre-exposure 语义各应用一次，Full effects-off 的近景 GPU 时间有同条件记录 |
+| 二、0/1/>1 bin 调度收窄 | 代码和契约检查已完成，等待两个示例手动验证 | 0 bin 无 opaque consumer，1 bin 使用 DirectSingleBin status + 固定网格，>1 bin 保留 classifier/heap/indirect 的 GPU producer -> consumer 闭环；面板显示 mode、P/N/W 和资源字节 | single/multi 的 identity、overflow、resize、material patch 和 device-loss 语义稳定，并能解释远/中/近机位的绝对 GPU 时间 |
+| 三、receiver 热路径与纹理驻留 | 尚未实施 | 以 WGSL/source audit 为入口收窄真实字段、采样 bank 和 packed decode；只有 receiver 或 residency 仍主导时才尝试有界 setup 复用 | 生成 WGSL、binding/read set、纹理 residency ledger 和 off/on GPU 对照共同证明收益；否则删除实验并转独立性能问题 |
+
+阶段二的“已完成”只表示静态 ABI、FrameGraph 闭包和自动检查完成，不表示浏览器 Runtime Validated、Performance Improved 或 ADR Complete。后续提交按“阶段代码合同 -> 轻量检查 -> 手动记录”的顺序组织，阶段三不得与阶段一、二的未解释长尾同时修改。
+
 ## Context
 
 ### 1. 要解决的现象与证据边界

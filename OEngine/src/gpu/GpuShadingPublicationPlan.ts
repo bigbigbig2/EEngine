@@ -16,6 +16,12 @@ import {
   type GpuSparseShadingPipelineDescriptor
 } from "./GpuSparseShadingPipelineContract.js";
 import type { GpuSparseShadingCapabilityRecord } from "./GpuSparseShadingCapability.js";
+import { GPU_TEXTURE_BANK_ALL_MASK } from "./GpuTextureRefAbi.js";
+import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "./TextureBindingSetPolicy.js";
+import {
+  gpuShadingExecutionModeForBinCount,
+  type GpuShadingExecutionMode
+} from "./GpuShadingExecutionMode.js";
 
 export const GPU_SHADING_PUBLICATION_SCHEMA_VERSION = 1;
 
@@ -70,6 +76,8 @@ export interface GpuShadingPublicationContext {
   readonly outputDependencyMask: number;
   /** Opaque-lit shader specialization; false physically omits shadow bindings/sampling. */
   readonly shadowSamplingEnabled: boolean;
+  /** Per-set texture bank read mask; legacy contexts default to all banks. */
+  readonly textureBankMasks?: readonly number[];
   readonly capability: Readonly<GpuSparseShadingCapabilityRecord>;
   readonly sizingLimits: Readonly<GpuShadingBinSizingLimits>;
 }
@@ -80,6 +88,7 @@ export interface GpuShadingPublicationSnapshot {
   readonly layoutRevision: number;
   readonly generation: number;
   readonly deviceEpoch: number;
+  readonly executionMode: "none" | GpuShadingExecutionMode;
   readonly context: Readonly<GpuShadingPublicationContext>;
   readonly summary: Readonly<ActiveShadingSummary>;
   readonly sizing: Readonly<GpuShadingBinSizing>;
@@ -255,6 +264,7 @@ export class GpuShadingPublicationStore {
     validateContext(context);
     const summary = freezeSummary(state.summary, revision);
     const activeBinIds = activeBins(summary.binRefCounts);
+    const executionMode = gpuShadingExecutionModeForBinCount(activeBinIds.length);
     const sizing = preflightGpuShadingBinSizing(
       context.width,
       context.height,
@@ -272,6 +282,8 @@ export class GpuShadingPublicationStore {
         textureBindingSetId,
         outputDependencyMask: context.outputDependencyMask,
         shadowSamplingEnabled: context.shadowSamplingEnabled,
+        executionMode: executionMode === "none" ? "sparse-microtile" : executionMode,
+        textureBankMask: textureBankMaskForSet(context, textureBindingSetId),
         capability: context.capability
       });
       const cached = this.pipelineCache.get(candidate.cacheKey);
@@ -304,6 +316,7 @@ export class GpuShadingPublicationStore {
       layoutRevision: revision,
       generation: revision,
       deviceEpoch: this.deviceEpoch,
+      executionMode,
       context,
       summary,
       sizing,
@@ -837,6 +850,7 @@ function freezeContext(input: GpuShadingPublicationContext): Readonly<GpuShading
     height: input.height,
     outputDependencyMask: input.outputDependencyMask,
     shadowSamplingEnabled: input.shadowSamplingEnabled,
+    textureBankMasks: Object.freeze(normalizeTextureBankMasks(input.textureBankMasks)),
     capability: input.capability,
     sizingLimits: Object.freeze({ ...input.sizingLimits })
   });
@@ -852,6 +866,7 @@ function validateContext(input: GpuShadingPublicationContext): void {
   if (typeof input.shadowSamplingEnabled !== "boolean") {
     throw new TypeError("Sparse shading publication shadow specialization must be boolean");
   }
+  if (input.textureBankMasks !== undefined) validateTextureBankMasks(input.textureBankMasks);
   if (input.capability.fingerprint.length === 0 || input.capability.formatProfile.length === 0) {
     throw new RangeError("Sparse shading publication requires a capability/format fingerprint");
   }
@@ -899,12 +914,54 @@ function sameContext(
     left.outputDependencyMask === right.outputDependencyMask &&
     left.capability.fingerprint === right.capability.fingerprint &&
     left.shadowSamplingEnabled === right.shadowSamplingEnabled &&
+    sameTextureBankMasks(left.textureBankMasks, right.textureBankMasks) &&
     left.sizingLimits.maxTextureDimension2D === right.sizingLimits.maxTextureDimension2D &&
     left.sizingLimits.maxBufferSize === right.sizingLimits.maxBufferSize &&
     left.sizingLimits.maxStorageBufferBindingSize ===
       right.sizingLimits.maxStorageBufferBindingSize &&
     left.sizingLimits.maxComputeWorkgroupsPerDimension ===
       right.sizingLimits.maxComputeWorkgroupsPerDimension;
+}
+
+function normalizeTextureBankMasks(input: readonly number[] | undefined): readonly number[] {
+  const masks = input === undefined
+    ? Array.from({ length: TEXTURE_BINDING_SET_MAX_RESIDENT_SETS }, () => GPU_TEXTURE_BANK_ALL_MASK)
+    : [...input];
+  validateTextureBankMasks(masks);
+  while (masks.length < TEXTURE_BINDING_SET_MAX_RESIDENT_SETS) {
+    masks.push(GPU_TEXTURE_BANK_ALL_MASK);
+  }
+  return masks;
+}
+
+function validateTextureBankMasks(input: readonly number[]): void {
+  if (input.length > TEXTURE_BINDING_SET_MAX_RESIDENT_SETS) {
+    throw new RangeError("Sparse shading texture bank mask count exceeds resident set limit");
+  }
+  for (const mask of input) {
+    if (!Number.isInteger(mask) || mask < 1 || (mask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
+      throw new RangeError("Sparse shading texture bank mask must select at least one valid bank");
+    }
+  }
+}
+
+function textureBankMaskForSet(
+  context: Readonly<GpuShadingPublicationContext>,
+  textureBindingSetId: number
+): number {
+  const mask = context.textureBankMasks?.[textureBindingSetId];
+  if (mask === undefined) return GPU_TEXTURE_BANK_ALL_MASK;
+  validateTextureBankMasks([mask]);
+  return mask;
+}
+
+function sameTextureBankMasks(
+  left: readonly number[] | undefined,
+  right: readonly number[] | undefined
+): boolean {
+  const leftMasks = normalizeTextureBankMasks(left);
+  const rightMasks = normalizeTextureBankMasks(right);
+  return leftMasks.every((mask, index) => mask === rightMasks[index]);
 }
 
 function requireMapValue<K, V>(map: ReadonlyMap<K, V>, key: K, label: string): V {

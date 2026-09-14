@@ -9,6 +9,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_SHADING_BIN_FRAME_FLAG, GPU_SHADING_BIN_WGSL } from "../gpu/GpuShadingBinAbi.js";
+import { GPU_SHADING_FRAME_STATUS_WGSL } from "../gpu/GpuShadingFrameStatusAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import {
   GPU_SHADING_PROGRAM,
@@ -24,7 +25,7 @@ import {
   type GpuSparseShadingPipelineDescriptor
 } from "../gpu/GpuSparseShadingPipelineContract.js";
 import {
-  GPU_TEXTURE_BANK_SAMPLE_WGSL,
+  gpuTextureBankSampleWgsl,
   GPU_TEXTURE_REF_INVALID,
 } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
@@ -92,7 +93,7 @@ export function createSparseShadingShaderVariant(
   const fastUnlit = isFastUnlitFactor(descriptor);
   const source = [
     "requires texture_formats_tier1;",
-    GPU_SHADING_BIN_WGSL,
+    descriptor.executionMode === "sparse-microtile" ? GPU_SHADING_BIN_WGSL : GPU_SHADING_FRAME_STATUS_WGSL,
     GPU_VISIBILITY_KEY_WGSL,
     GPU_MESHLET_RASTER_WORK_WGSL,
     fastUnlit ? narrowUnlitMaterialWgsl() : GPU_SHADING_MATERIAL_WGSL,
@@ -100,7 +101,7 @@ export function createSparseShadingShaderVariant(
     frameBindingsWgsl(descriptor, diagnostics),
     identityWgsl(descriptor, diagnostics),
     specialization.reconstructTriangle ? geometryWgsl() : "",
-    usesTextures ? textureWgsl() : "",
+    usesTextures ? textureWgsl(descriptor) : "",
     specialization.lit ? lightingWgsl(
       descriptor.shadowSamplingEnabled,
       (descriptor.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0
@@ -118,6 +119,7 @@ export function createSparseShadingProgramFamily(input: {
   readonly outputDependencyMask: number;
   readonly shadowSamplingEnabled: boolean;
   readonly capability: Parameters<typeof createGpuSparseShadingPipelineDescriptor>[0]["capability"];
+  readonly textureBankMask?: number;
   readonly diagnostics?: boolean;
 }): readonly Readonly<SparseShadingShaderVariant>[] {
   return Object.freeze(Array.from({ length: GPU_SHADING_PROGRAM_COUNT }, (_, programId) => {
@@ -129,6 +131,7 @@ export function createSparseShadingProgramFamily(input: {
       textureBindingSetId,
       outputDependencyMask: input.outputDependencyMask,
       shadowSamplingEnabled: input.shadowSamplingEnabled,
+      textureBankMask: input.textureBankMask,
       capability: input.capability
     }), input.diagnostics ?? false);
   }));
@@ -185,12 +188,19 @@ function frameBindingsWgsl(
   descriptor: Readonly<GpuSparseShadingPipelineDescriptor>,
   diagnostics: boolean
 ): string {
+  const sparseDiagnostics = diagnostics && descriptor.executionMode === "sparse-microtile";
   const names = new Set(descriptor.groups.flatMap((group) => group.bindings.map((binding) => binding.name)));
   const lines = [
-    "@group(0) @binding(0) var<uniform> shading_bin_settings: OEngineShadingBinSettings;",
-    "@group(0) @binding(1) var<storage, read_write> shading_bin_heap: OEngineShadingBinHeap;",
-    "@group(0) @binding(2) var shading_bin_id: texture_2d<u32>;",
-    "@group(0) @binding(3) var visibility_key: texture_2d<u32>;",
+    ...(names.has("shading_bin_settings")
+      ? ["@group(0) @binding(0) var<uniform> shading_bin_settings: OEngineShadingBinSettings;"] : []),
+    ...(names.has("shading_bin_heap")
+      ? ["@group(0) @binding(1) var<storage, read_write> shading_bin_heap: OEngineShadingBinHeap;"] : []),
+    ...(names.has("shading_frame_status")
+      ? ["@group(0) @binding(1) var<storage, read_write> shading_frame_status: OEngineShadingFrameStatus;"] : []),
+    ...(names.has("shading_bin_id")
+      ? ["@group(0) @binding(2) var shading_bin_id: texture_2d<u32>;"] : []),
+    ...(names.has("visibility_key")
+      ? ["@group(0) @binding(3) var visibility_key: texture_2d<u32>;"] : []),
     ...(names.has("visibility_depth") ? ["@group(0) @binding(4) var visibility_depth: texture_depth_2d;"] : []),
     "@group(0) @binding(5) var<uniform> shading_view: OEngineSparseShadingView;",
     "@group(0) @binding(6) var output_hdr: texture_storage_2d<rgba16float, write>;",
@@ -229,7 +239,7 @@ function frameBindingsWgsl(
       ...(names.has("shadow_sampler")
         ? [`@group(3) @binding(${names.has("environment_diffuse") ? 9 : 5}) var u_int: sampler_comparison;`] : [])
     ] : []),
-    ...(diagnostics ? [
+    ...(sparseDiagnostics ? [
       "struct OEngineSparseShadingDiagnostics { flags: atomic<u32>, shaded: atomic<u32>, duplicate: atomic<u32>, unassigned: atomic<u32>, }",
       "@group(0) @binding(11) var<storage, read_write> shading_diagnostics: OEngineSparseShadingDiagnostics;",
       "@group(0) @binding(12) var<storage, read_write> shading_claims: array<atomic<u32>>;"
@@ -251,11 +261,15 @@ fn sparse_texture_route_valid(material_slot: u32, slot: u32, texture_ref: u32) -
     route.texture_binding_set_id == ${descriptor.textureBindingSetId}u;
 }
 ` : "";
+  const status = descriptor.executionMode === "sparse-microtile"
+    ? "shading_bin_heap.control"
+    : "shading_frame_status";
+  const sparseDiagnostics = diagnostics && descriptor.executionMode === "sparse-microtile";
   return /* wgsl */ `
 fn sparse_identity_error() {
-  atomicOr(&shading_bin_heap.control.frame_flags, OENGINE_IDENTITY_MISMATCH);
-  atomicAdd(&shading_bin_heap.control.error_count, 1u);
-  ${diagnostics ? `atomicOr(&shading_diagnostics.flags, ${GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG.IdentityMismatch}u);` : ""}
+  atomicOr(&${status}.frame_flags, OENGINE_IDENTITY_MISMATCH);
+  atomicAdd(&${status}.error_count, 1u);
+  ${sparseDiagnostics ? `atomicOr(&shading_diagnostics.flags, ${GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG.IdentityMismatch}u);` : ""}
 }
 
 fn sparse_material_identity_valid(record: ${materialType}) -> bool {
@@ -381,9 +395,9 @@ fn sparse_affine(instance: OEngineInstanceRecord) -> mat4x4f { return oengine_in
 `;
 }
 
-function textureWgsl(): string {
+function textureWgsl(descriptor: Readonly<GpuSparseShadingPipelineDescriptor>): string {
   return /* wgsl */ `
-${GPU_TEXTURE_BANK_SAMPLE_WGSL}
+${gpuTextureBankSampleWgsl(descriptor.textureBankMask)}
 fn sparse_sample(texture_ref: u32, sampler_class: u32, uv: vec2f, dx: vec2f, dy: vec2f, valid: bool, fallback: vec4f) -> vec4f {
   if valid { return oengine_sample_texture_bank(texture_ref, sampler_class, uv, dx, dy, fallback); }
   return oengine_sample_texture_bank_level_zero(texture_ref, sampler_class, uv, fallback);
@@ -578,16 +592,28 @@ function consumerWgsl(descriptor: Readonly<GpuSparseShadingPipelineDescriptor>, 
   const store = isFastUnlitFactor(descriptor)
     ? "sparse_store_unlit_factor(pixel,factor);"
     : "sparse_store(pixel,surface);";
-  return /* wgsl */ `
-@compute @workgroup_size(8,8,1)
-fn ${GPU_SPARSE_SHADING_ENTRY_POINT}(@builtin(workgroup_id) group_id:vec3u,@builtin(local_invocation_id) local_id:vec3u){
-  if shading_bin_heap.control.finalized_generation!=shading_bin_settings.generation{return;}let written=atomicLoad(&shading_bin_heap.counters[OENGINE_SHADING_BIN_ID].written_count);let dispatch_x=min(written,shading_bin_settings.max_dispatch_dimension);let record_index=group_id.y*dispatch_x+group_id.x;if record_index>=written{return;}
+  const direct = descriptor.executionMode === "direct-single-bin";
+  const directEvaluation = isFastUnlitFactor(descriptor)
+    ? "let factor=sparse_evaluate_unlit_factor(material);"
+    : reconstruct
+      ? "if work.geometry_slot>=shading_view.geometry_count||work.instance_slot>=arrayLength(&instance_records)||instance_records[work.instance_slot].geometry_record_index!=work.geometry_slot||asset_metadata_heap[shading_view.geometry_generation_word_base+work.geometry_slot]!=oengine_instance_geometry_generation(instance_records[work.instance_slot]){sparse_identity_error();return;}let surface=sparse_evaluate_geometry(pixel,work,oengine_visibility_key_local_primitive(key),material_slot,material);"
+      : "let surface=sparse_evaluate(material_slot,material);";
+  const directStatusCheck = "if atomicLoad(&shading_frame_status.frame_flags)!=0u{return;}";
+  const diagnosticsStore = diagnostics && descriptor.executionMode === "sparse-microtile"
+    ? `let claim=atomicAdd(&shading_claims[pixel.y*shading_view.width+pixel.x],1u);if claim!=0u{atomicOr(&shading_diagnostics.flags,${GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG.Duplicate}u);atomicAdd(&shading_diagnostics.duplicate,1u);return;}atomicAdd(&shading_diagnostics.shaded,1u);`
+    : "";
+  const sparseHeader = `if shading_bin_heap.control.finalized_generation!=shading_bin_settings.generation{return;}let written=atomicLoad(&shading_bin_heap.counters[OENGINE_SHADING_BIN_ID].written_count);let dispatch_x=min(written,shading_bin_settings.max_dispatch_dimension);let record_index=group_id.y*dispatch_x+group_id.x;if record_index>=written{return;}
   let bin_layout=shading_bin_heap.layouts[OENGINE_SHADING_BIN_ID];if bin_layout.revision!=shading_bin_settings.layout_revision{if all(local_id.xy==vec2u(0u)){sparse_identity_error();}return;}
   let microtile=shading_bin_heap.records[bin_layout.record_base+record_index];let pixel=vec2u((microtile%shading_bin_settings.microtiles_x)*8u,(microtile/shading_bin_settings.microtiles_x)*8u)+local_id.xy;if any(pixel>=vec2u(shading_view.width,shading_view.height)){return;}
-  if textureLoad(shading_bin_id,vec2i(pixel),0).x!=OENGINE_SHADING_BIN_ID{return;}let key=textureLoad(visibility_key,vec2i(pixel),0).x;if !oengine_visibility_key_is_valid(key){sparse_identity_error();return;}let work_slot=oengine_visibility_key_meshlet_work_slot(key);if work_slot>=meshlet_work.header.written_count||meshlet_work.header.generation==0u{sparse_identity_error();return;}let work=meshlet_work.elements[work_slot];if ((work.packed_raster_flags>>8u)&63u)!=OENGINE_SHADING_BIN_ID{sparse_identity_error();return;}let material_slot=work.material_slot_or_range;if material_slot>=shading_view.material_count{sparse_identity_error();return;}let material=material_records[material_slot];if !sparse_material_identity_valid(material){sparse_identity_error();return;}
-  ${evaluation}
-  if (atomicLoad(&shading_bin_heap.control.frame_flags)&OENGINE_IDENTITY_MISMATCH)!=0u{return;}
-  ${diagnostics ? `let claim=atomicAdd(&shading_claims[pixel.y*shading_view.width+pixel.x],1u);if claim!=0u{atomicOr(&shading_diagnostics.flags,${GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG.Duplicate}u);atomicAdd(&shading_diagnostics.duplicate,1u);return;}atomicAdd(&shading_diagnostics.shaded,1u);` : ""}
+  if textureLoad(shading_bin_id,vec2i(pixel),0).x!=OENGINE_SHADING_BIN_ID{return;}let key=textureLoad(visibility_key,vec2i(pixel),0).x;if !oengine_visibility_key_is_valid(key){sparse_identity_error();return;}let work_slot=oengine_visibility_key_meshlet_work_slot(key);if work_slot>=meshlet_work.header.written_count||meshlet_work.header.generation==0u{sparse_identity_error();return;}let work=meshlet_work.elements[work_slot];if ((work.packed_raster_flags>>8u)&63u)!=OENGINE_SHADING_BIN_ID{sparse_identity_error();return;}let material_slot=work.material_slot_or_range;if material_slot>=shading_view.material_count{sparse_identity_error();return;}let material=material_records[material_slot];if !sparse_material_identity_valid(material){sparse_identity_error();return;}`;
+  const directHeader = `let pixel=global_id.xy;if any(pixel>=vec2u(shading_view.width,shading_view.height)){return;}let key=textureLoad(visibility_key,vec2i(pixel),0).x;if !oengine_visibility_key_is_valid(key){return;}let work_slot=oengine_visibility_key_meshlet_work_slot(key);if work_slot>=meshlet_work.header.written_count||meshlet_work.header.generation==0u{sparse_identity_error();return;}let work=meshlet_work.elements[work_slot];if ((work.packed_raster_flags>>8u)&63u)!=OENGINE_SHADING_BIN_ID{sparse_identity_error();return;}let material_slot=work.material_slot_or_range;if material_slot>=shading_view.material_count{sparse_identity_error();return;}let material=material_records[material_slot];if !sparse_material_identity_valid(material){sparse_identity_error();return;}`;
+  return /* wgsl */ `
+@compute @workgroup_size(8,8,1)
+fn ${GPU_SPARSE_SHADING_ENTRY_POINT}(${direct ? "@builtin(global_invocation_id) global_id:vec3u" : "@builtin(workgroup_id) group_id:vec3u,@builtin(local_invocation_id) local_id:vec3u"}){
+  ${direct ? directHeader : sparseHeader}
+  ${direct ? directEvaluation : evaluation}
+  ${direct ? directStatusCheck : "if (atomicLoad(&shading_bin_heap.control.frame_flags)&OENGINE_IDENTITY_MISMATCH)!=0u{return;}"}
+  ${direct ? "" : diagnosticsStore}
   ${store}
 }`;
 }

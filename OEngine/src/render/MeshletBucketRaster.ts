@@ -7,13 +7,19 @@ import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import {
   MESHLET_BUCKET_SETTINGS_SIZE,
   MESHLET_BUCKET_SETTINGS_STRIDE,
+  MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL,
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
+  MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL,
   MESHLET_BUCKET_VISIBILITY_WGSL
 } from "../shaders/meshlet_bucket_visibility.js";
-import { gpuShadingBinVisibilityRenderPassAttachments } from
+import {
+  gpuShadingBinVisibilityRenderPassAttachments,
+  gpuVisibilityKeyRenderPassAttachments
+} from
   "../gpu/GpuShadingBinVisibilityContract.js";
 import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
+import type { GpuShadingExecutionMode } from "../gpu/GpuShadingExecutionMode.js";
 
 const MESHLET_BUCKET_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "ADR-0008 Meshlet bucket Hardware Visibility group0",
@@ -45,14 +51,17 @@ function bucketPipeline(
   doubleSided: boolean,
   mask: boolean,
   primitiveIndex: boolean,
-  textureBindingSetId: number
+  textureBindingSetId: number,
+  includeShadingBinId: boolean
 ): CachedRenderPipelineDescriptor {
   const specialization = primitiveIndex ? "primitive-index" : "portable-varying";
   const code = primitiveIndex
-    ? MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
-    : MESHLET_BUCKET_VISIBILITY_WGSL;
+    ? (includeShadingBinId
+      ? MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL
+      : MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL)
+    : (includeShadingBinId ? MESHLET_BUCKET_VISIBILITY_WGSL : MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL);
   return {
-    label: `ADR-0013 Meshlet bucket ${specialization} set ${textureBindingSetId} ${doubleSided ? "double-sided" : "back-face"} ${mask ? "MASK" : "OPAQUE"} + ShadingBinId`,
+    label: `ADR-0015 Meshlet bucket ${specialization} set ${textureBindingSetId} ${doubleSided ? "double-sided" : "back-face"} ${mask ? "MASK" : "OPAQUE"} ${includeShadingBinId ? "+ ShadingBinId" : "single VisibilityKey MRT"}`,
     layout: {
       label: "ADR-0013 Meshlet bucket Hardware Visibility layout",
       bindGroupLayouts: [MESHLET_BUCKET_RASTER_GROUP]
@@ -65,7 +74,9 @@ function bucketPipeline(
       module: { label: `ADR-0013 Meshlet bucket visibility/${specialization}`, code },
       entryPoint: mask ? "write_meshlet_mask" : "write_meshlet_opaque",
       constants: { OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId },
-      targets: [{ format: "r32uint" }, { format: "r8uint" }]
+      targets: includeShadingBinId
+        ? [{ format: "r32uint" }, { format: "r8uint" }]
+        : [{ format: "r32uint" }]
     },
     primitive: {
       topology: "triangle-list",
@@ -82,13 +93,14 @@ function bucketPipeline(
 
 function bucketPipelines(
   primitiveIndex: boolean,
-  textureBindingSetId: number
+  textureBindingSetId: number,
+  includeShadingBinId: boolean
 ): readonly CachedRenderPipelineDescriptor[] {
   return Object.freeze([
-    bucketPipeline(false, false, primitiveIndex, textureBindingSetId),
-    bucketPipeline(true, false, primitiveIndex, textureBindingSetId),
-    bucketPipeline(false, true, primitiveIndex, textureBindingSetId),
-    bucketPipeline(true, true, primitiveIndex, textureBindingSetId)
+    bucketPipeline(false, false, primitiveIndex, textureBindingSetId, includeShadingBinId),
+    bucketPipeline(true, false, primitiveIndex, textureBindingSetId, includeShadingBinId),
+    bucketPipeline(false, true, primitiveIndex, textureBindingSetId, includeShadingBinId),
+    bucketPipeline(true, true, primitiveIndex, textureBindingSetId, includeShadingBinId)
   ]);
 }
 
@@ -99,7 +111,7 @@ export interface MeshletBucketRasterInputs {
   readonly scene: GpuSceneBindings;
   readonly runtime: GpuRenderWorldRuntime;
   readonly visibilityKey: GPUTextureView;
-  readonly shadingBinId: GPUTextureView;
+  readonly shadingBinId: GPUTextureView | null;
   readonly depth: GPUTextureView;
 }
 
@@ -115,18 +127,22 @@ export class MeshletBucketRaster {
   encodeRaster(
     encoder: GPUCommandEncoder,
     inputs: MeshletBucketRasterInputs,
+    executionMode: GpuShadingExecutionMode | "none" = "sparse-microtile",
     primitiveIndexPath: "auto" | "portable" = "auto"
   ): void {
+    const includeShadingBinId = executionMode === "sparse-microtile";
+    if (includeShadingBinId !== (inputs.shadingBinId !== null)) {
+      throw new Error("Meshlet visibility MRT does not match the shading execution mode");
+    }
     const primitiveIndex = primitiveIndexPath === "auto" && this.primitiveIndexSupported;
     const bindingSets = inputs.runtime.materialResources.bindingSets;
     if (bindingSets.length === 0) throw new Error("Meshlet visibility requires one active TextureBindingSet");
     const groups = new Map(bindingSets.map((set) => [set.id, this.createRasterGroup(inputs, set.textureBanks)]));
     const pass = encoder.beginRenderPass({
       label: "ADR-0013 Meshlet bucket Hardware Visibility",
-      colorAttachments: gpuShadingBinVisibilityRenderPassAttachments(
-        inputs.visibilityKey,
-        inputs.shadingBinId
-      ),
+      colorAttachments: includeShadingBinId
+        ? gpuShadingBinVisibilityRenderPassAttachments(inputs.visibilityKey, inputs.shadingBinId!)
+        : gpuVisibilityKeyRenderPassAttachments(inputs.visibilityKey),
       depthStencilAttachment: {
         view: inputs.depth,
         depthClearValue: 0,
@@ -140,10 +156,10 @@ export class MeshletBucketRaster {
       const mask = ((pipelineBucket >>> 4) & 1) !== 0;
       const sets = mask ? bindingSets : bindingSets.slice(0, 1);
       for (const bindingSet of sets) {
-        const key = `${primitiveIndex ? 1 : 0}:${bindingSet.id}`;
+        const key = `${primitiveIndex ? 1 : 0}:${bindingSet.id}:${includeShadingBinId ? 1 : 0}`;
         let pipelines = this.rasterPipelines.get(key);
         if (pipelines === undefined) {
-          pipelines = bucketPipelines(primitiveIndex, bindingSet.id).map(
+          pipelines = bucketPipelines(primitiveIndex, bindingSet.id, includeShadingBinId).map(
             (descriptor) => this.graphics.render_pipelines.obtain(descriptor)
           );
           this.rasterPipelines.set(key, pipelines);

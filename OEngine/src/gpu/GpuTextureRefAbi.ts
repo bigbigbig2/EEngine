@@ -20,6 +20,7 @@ export const GPU_TEXTURE_RGBA_BANK_COUNT = GPU_TEXTURE_BANK_SIZES.length;
 export const GPU_TEXTURE_PACKAGE_BANK_COUNT = 4;
 export const GPU_TEXTURE_PACKAGE_BANK_BEGIN = GPU_TEXTURE_RGBA_BANK_COUNT;
 export const GPU_TEXTURE_BANK_COUNT = GPU_TEXTURE_RGBA_BANK_COUNT + GPU_TEXTURE_PACKAGE_BANK_COUNT;
+export const GPU_TEXTURE_BANK_ALL_MASK = (1 << GPU_TEXTURE_BANK_COUNT) - 1;
 
 export interface GpuTextureRef {
   readonly version: number;
@@ -117,20 +118,27 @@ const GPU_TEXTURE_BANK_BINDING_NAMES = Object.freeze([
   "oengine_texture_bank_8"
 ]);
 
-function sampleGradientBranches(sampler: string): string {
+function sampleGradientBranches(sampler: string, bankMask: number): string {
   return GPU_TEXTURE_BANK_BINDING_NAMES.map((texture, bank) =>
-    `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleGrad(${texture}, ${sampler}, uv, layer, uv_dx, uv_dy)); }`
-  ).join("\n");
+    (bankMask & (1 << bank)) === 0 ? "" :
+      `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleGrad(${texture}, ${sampler}, uv, layer, uv_dx, uv_dy)); }`
+  ).filter(Boolean).join("\n");
 }
 
-function sampleLevelBranches(sampler: string): string {
+function sampleLevelBranches(sampler: string, bankMask: number): string {
   return GPU_TEXTURE_BANK_BINDING_NAMES.map((texture, bank) =>
-    `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleLevel(${texture}, ${sampler}, uv, layer, 0.0)); }`
-  ).join("\n");
+    (bankMask & (1 << bank)) === 0 ? "" :
+      `  if bank == ${bank}u { return oengine_texture_ref_apply_routing(texture_ref, textureSampleLevel(${texture}, ${sampler}, uv, layer, 0.0)); }`
+  ).filter(Boolean).join("\n");
 }
 
-/** Shared explicit-bank sampling policy for Surface and Transparency consumers. */
-export const GPU_TEXTURE_BANK_SAMPLE_WGSL = /* wgsl */ `
+/** Shared explicit-bank sampling policy specialized to a static material read set. */
+export function gpuTextureBankSampleWgsl(bankMask = GPU_TEXTURE_BANK_ALL_MASK): string {
+  if (!Number.isInteger(bankMask) || bankMask < 1 ||
+      (bankMask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
+    throw new RangeError("Texture bank sample WGSL requires at least one valid bank");
+  }
+  return /* wgsl */ `
 fn oengine_sample_texture_bank(
   texture_ref: u32,
   sampler_class: u32,
@@ -146,18 +154,18 @@ fn oengine_sample_texture_bank(
   let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
   if linear {
     if address == 0u {
-${sampleGradientBranches("sampler_clamp_linear")}
+${sampleGradientBranches("sampler_clamp_linear", bankMask)}
     } else if address == 2u {
-${sampleGradientBranches("sampler_mirror_linear")}
+${sampleGradientBranches("sampler_mirror_linear", bankMask)}
     } else {
-${sampleGradientBranches("sampler_repeat_linear")}
+${sampleGradientBranches("sampler_repeat_linear", bankMask)}
     }
   } else if address == 0u {
-${sampleGradientBranches("sampler_clamp_nearest")}
+${sampleGradientBranches("sampler_clamp_nearest", bankMask)}
   } else if address == 2u {
-${sampleGradientBranches("sampler_mirror_nearest")}
+${sampleGradientBranches("sampler_mirror_nearest", bankMask)}
   } else {
-${sampleGradientBranches("sampler_repeat_nearest")}
+${sampleGradientBranches("sampler_repeat_nearest", bankMask)}
   }
   return fallback;
 }
@@ -175,22 +183,26 @@ fn oengine_sample_texture_bank_level_zero(
   let linear = (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) != 0u;
   if linear {
     if address == 0u {
-${sampleLevelBranches("sampler_clamp_linear")}
+${sampleLevelBranches("sampler_clamp_linear", bankMask)}
     } else if address == 2u {
-${sampleLevelBranches("sampler_mirror_linear")}
+${sampleLevelBranches("sampler_mirror_linear", bankMask)}
     } else {
-${sampleLevelBranches("sampler_repeat_linear")}
+${sampleLevelBranches("sampler_repeat_linear", bankMask)}
     }
   } else if address == 0u {
-${sampleLevelBranches("sampler_clamp_nearest")}
+${sampleLevelBranches("sampler_clamp_nearest", bankMask)}
   } else if address == 2u {
-${sampleLevelBranches("sampler_mirror_nearest")}
+${sampleLevelBranches("sampler_mirror_nearest", bankMask)}
   } else {
-${sampleLevelBranches("sampler_repeat_nearest")}
+${sampleLevelBranches("sampler_repeat_nearest", bankMask)}
   }
   return fallback;
 }
 `;
+}
+
+/** Shared all-bank policy retained for visibility/transparent consumers. */
+export const GPU_TEXTURE_BANK_SAMPLE_WGSL = gpuTextureBankSampleWgsl();
 
 /** Shared nearest-load primitives for alpha-tested visibility and shadow consumers. */
 export const GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL = /* wgsl */ `

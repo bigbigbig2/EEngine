@@ -105,7 +105,35 @@ test("shadow-off lit specialization physically omits atlas and comparison sample
   assert.ok(!names(shadowOff).includes("shadow_atlas"));
   assert.ok(!names(shadowOff).includes("shadow_sampler"));
   assert.equal(shadowOff.shadowSamplingEnabled, false);
-  assert.equal(shadowOff.schemaVersion, 3);
+  assert.equal(shadowOff.schemaVersion, 4);
+});
+
+test("direct single-bin descriptors remove sparse queue bindings and preserve the key/status ABI", () => {
+  const direct = descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 0, {
+    executionMode: "direct-single-bin",
+    textureBankMask: 1
+  });
+  const namesDirect = names(direct);
+  assert.equal(direct.executionMode, "direct-single-bin");
+  assert.ok(namesDirect.includes("shading_frame_status"));
+  assert.ok(namesDirect.includes("visibility_key"));
+  assert.ok(!namesDirect.includes("shading_bin_heap"));
+  assert.ok(!namesDirect.includes("shading_bin_id"));
+  assert.ok(!namesDirect.includes("shading_bin_settings"));
+  assert.ok(direct.cacheKey.includes(":mdirect-single-bin:"));
+  assert.ok(direct.cacheKey.includes(":b1:"));
+});
+
+test("material texture bank mask physically narrows declarations and changes cache identity", () => {
+  const all = descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 0);
+  const narrow = descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 0, { textureBankMask: 1 });
+  const allNames = names(all);
+  const narrowNames = names(narrow);
+  assert.notEqual(all.cacheKey, narrow.cacheKey);
+  assert.ok(allNames.includes("material_texture_8"));
+  assert.ok(!narrowNames.includes("material_texture_8"));
+  const source = gpuSparseShadingBindingDeclarationsWgsl(narrow);
+  assert.doesNotMatch(source, /material_texture_8/u);
 });
 
 test("widest PbrGeneric specialization stays within the frozen four-group ceiling", () => {

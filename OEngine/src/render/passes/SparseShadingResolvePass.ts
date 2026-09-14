@@ -9,6 +9,7 @@ import {
   createSparseShadingShaderVariant,
   type SparseShadingShaderVariant
 } from "../../shaders/sparse_shading_resolve.js";
+import type { GpuShadingExecutionMode } from "../../gpu/GpuShadingExecutionMode.js";
 
 export const SPARSE_SHADING_RESOLVE_LABEL = "ADR-0013 Sparse shading resolve";
 
@@ -42,20 +43,29 @@ export class SparseShadingResolvePass {
   private readonly device: GPUDevice;
   readonly diagnostics: boolean;
   readonly outputDependencyMask: number;
+  readonly executionMode: GpuShadingExecutionMode;
   readonly publicationRevision: number;
+  readonly dispatchWidth: number;
+  readonly dispatchHeight: number;
   private destroyed = false;
 
   private constructor(input: {
     device: GPUDevice;
     diagnostics: boolean;
     outputDependencyMask: number;
+    executionMode: GpuShadingExecutionMode;
     publicationRevision: number;
+    dispatchWidth: number;
+    dispatchHeight: number;
     records: readonly Readonly<CachedSparseShadingResolvePipelineRecord>[];
   }) {
     this.device = input.device;
     this.diagnostics = input.diagnostics;
     this.outputDependencyMask = input.outputDependencyMask;
+    this.executionMode = input.executionMode;
     this.publicationRevision = input.publicationRevision;
+    this.dispatchWidth = input.dispatchWidth;
+    this.dispatchHeight = input.dispatchHeight;
     for (const record of input.records) this.records.set(record.descriptor.binId, record);
   }
 
@@ -63,7 +73,9 @@ export class SparseShadingResolvePass {
     device: GPUDevice,
     descriptors: readonly Readonly<GpuSparseShadingPipelineDescriptor>[],
     publicationRevision: number,
-    diagnostics = false
+    diagnostics = false,
+    executionMode: GpuShadingExecutionMode = "sparse-microtile",
+    dispatchExtent?: Readonly<{ width: number; height: number }>
   ): Promise<SparseShadingResolvePass> {
     if (!Number.isInteger(publicationRevision) || publicationRevision <= 0 || publicationRevision > 0xffffffff) {
       throw new RangeError("Sparse shading publication revision must be a non-zero u32");
@@ -75,8 +87,21 @@ export class SparseShadingResolvePass {
       if (descriptor.outputDependencyMask !== outputDependencyMask) {
         throw new Error("Active sparse shading pipelines must share one FramePlan output mask");
       }
+      if (descriptor.executionMode !== executionMode) {
+        throw new Error("Active sparse shading pipelines must share the requested execution mode");
+      }
       if (seen.has(descriptor.binId)) throw new Error(`Duplicate sparse shading bin ${descriptor.binId}`);
       seen.add(descriptor.binId);
+    }
+    if (executionMode === "direct-single-bin" && descriptors.length !== 1) {
+      throw new Error("DirectSingleBin resolve requires exactly one active pipeline");
+    }
+    const dispatchWidth = dispatchExtent?.width ?? 0;
+    const dispatchHeight = dispatchExtent?.height ?? 0;
+    if (executionMode === "direct-single-bin" &&
+        (!Number.isInteger(dispatchWidth) || dispatchWidth <= 0 ||
+         !Number.isInteger(dispatchHeight) || dispatchHeight <= 0)) {
+      throw new RangeError("DirectSingleBin resolve requires a positive dispatch extent");
     }
 
     const records: CachedSparseShadingResolvePipelineRecord[] = [];
@@ -88,7 +113,10 @@ export class SparseShadingResolvePass {
       device,
       diagnostics,
       outputDependencyMask,
+      executionMode,
       publicationRevision,
+      dispatchWidth,
+      dispatchHeight,
       records
     });
   }
@@ -112,8 +140,12 @@ export class SparseShadingResolvePass {
     diagnostics?: Readonly<SparseShadingResolveDiagnosticsBindings>
   ): readonly Readonly<SparseShadingResolveFrameBinding>[] {
     this.requireAlive();
-    if (this.diagnostics !== (diagnostics !== undefined)) {
+    const sparseDiagnostics = this.executionMode === "sparse-microtile" && diagnostics !== undefined;
+    if (this.executionMode === "sparse-microtile" && this.diagnostics !== sparseDiagnostics) {
       throw new Error("Sparse shading resolve diagnostics bindings must match the pipeline variant");
+    }
+    if (this.executionMode === "direct-single-bin" && diagnostics !== undefined) {
+      throw new Error("DirectSingleBin uses ShadingFrameStatus and has no sparse diagnostic bindings");
     }
     const frames: SparseShadingResolveFrameBinding[] = [];
     for (const [binId, record] of this.records) {
@@ -121,7 +153,7 @@ export class SparseShadingResolvePass {
         const resources: GPUBindingResource[] = group.bindings.map((binding) =>
           resource(binding.name, record.descriptor));
         const bindings = group.bindings.map((binding) => binding.binding);
-        if (groupIndex === 0 && diagnostics !== undefined) {
+        if (groupIndex === 0 && sparseDiagnostics) {
           resources.push(
             { buffer: diagnostics.diagnostics },
             { buffer: diagnostics.claims }
@@ -161,7 +193,7 @@ export class SparseShadingResolvePass {
 
   encode(
     command: ShadeGPUCommandContext,
-    indirectArgs: GPUBuffer,
+    indirectArgs: GPUBuffer | null,
     settingsDynamicOffset: number,
     bindings: readonly SparseShadingResolveFrameBinding[],
     publicationRevision: number
@@ -180,19 +212,36 @@ export class SparseShadingResolvePass {
         throw new Error(`Sparse shading bin ${binId} bind-group closure is incomplete`);
       }
     }
-    // Validate the entire immutable closure before opening a pass. All active
-    // bins share one usage scope; the indirect arguments are a separate buffer
-    // from the classifier/resolve heap (ADR-0013).
+    // Validate the entire immutable closure before opening a pass. Sparse mode
+    // consumes GPU-authored indirect arguments; DirectSingleBin owns a fixed
+    // grid and has no indirect dependency.
     if (this.records.size === 0) return;
+    if (this.executionMode === "sparse-microtile" && indirectArgs === null) {
+      throw new Error("SparseMicrotile resolve requires indirect arguments");
+    }
+    if (this.executionMode === "direct-single-bin" && indirectArgs !== null) {
+      throw new Error("DirectSingleBin resolve must not receive indirect arguments");
+    }
     const pass = command.beginComputePass({ label: SPARSE_SHADING_RESOLVE_LABEL });
     try {
       for (const [binId, record] of this.records) {
         const frame = byBin.get(binId)!;
         pass.setPipeline(record.pipeline);
         for (let group = 0; group < frame.groups.length; group++) {
-          pass.setBindGroup(group, frame.groups[group]!, group === 0 ? [settingsDynamicOffset] : []);
+          const hasDynamicSettings = record.descriptor.groups[group]?.bindings.some(
+            (binding) => binding.name === "shading_bin_settings"
+          ) ?? false;
+          pass.setBindGroup(group, frame.groups[group]!, hasDynamicSettings ? [settingsDynamicOffset] : []);
         }
-        pass.dispatchWorkgroupsIndirect(indirectArgs, binId * GPU_SHADING_BIN_INDIRECT_STRIDE);
+        if (this.executionMode === "sparse-microtile") {
+          pass.dispatchWorkgroupsIndirect(indirectArgs!, binId * GPU_SHADING_BIN_INDIRECT_STRIDE);
+        } else {
+          pass.dispatchWorkgroups(
+            Math.ceil(this.dispatchWidth / 8),
+            Math.ceil(this.dispatchHeight / 8),
+            1
+          );
+        }
       }
     } finally {
       pass.end();
@@ -221,7 +270,7 @@ async function createPipelineRecord(
   const nativeDescriptors = gpuSparseShadingBindGroupLayoutDescriptors(
     descriptor,
     GPUShaderStage.COMPUTE
-  ).map((layout, group) => variant.diagnostics && group === 0 ? {
+  ).map((layout, group) => variant.diagnostics && descriptor.executionMode === "sparse-microtile" && group === 0 ? {
     ...layout,
     label: `${layout.label} diagnostics`,
     entries: [

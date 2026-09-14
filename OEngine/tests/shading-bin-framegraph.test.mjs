@@ -65,33 +65,43 @@ function fakeGpuRevisionFactory(destroyed) {
         bins: null,
         resolve: null,
         settings: null,
+        status: null,
         heapBytes: 0,
         indirectBytes: 0,
-        settingsBytes: 0
+        settingsBytes: 0,
+        statusBytes: 0
       });
     }
-    const bins = {
+    const sparse = publication.executionMode === "sparse-microtile";
+    const bins = sparse ? {
       diagnostics,
       sizing: publication.sizing,
       destroy() { destroyed.push(`bins:${publication.revision}`); }
-    };
+    } : null;
     const resolve = {
       diagnostics,
       publicationRevision: publication.revision,
+      executionMode: publication.executionMode,
       destroy() { destroyed.push(`resolve:${publication.revision}`); }
     };
-    const settings = {
+    const settings = sparse ? {
       size: 256,
       destroy() { destroyed.push(`settings:${publication.revision}`); }
+    } : null;
+    const status = sparse ? null : {
+      size: 32,
+      destroy() { destroyed.push(`status:${publication.revision}`); }
     };
     return Object.freeze({
       snapshot: publication,
       bins,
       resolve,
       settings,
+      status,
       heapBytes: publication.sizing.heapBytes,
-      indirectBytes: publication.sizing.indirectBytes,
-      settingsBytes: settings.size
+      indirectBytes: sparse ? publication.sizing.indirectBytes : 0,
+      settingsBytes: settings?.size ?? 0,
+      statusBytes: status?.size ?? 0
     });
   };
 }
@@ -110,39 +120,40 @@ function snapshot(kind, outputDependencyMask, options = {}) {
   if (kind === "empty") return { store, snapshot: store.currentSnapshot() };
   const textured = kind === "textured";
   const unlit = kind === "unlit";
+  const pipelineCount = options.pipelineCount ?? 1;
   const transaction = store.beginTransaction();
   transaction.replaceAll({
-    materials: [{
-      id: 0,
+    materials: Array.from({ length: pipelineCount }, (_, id) => ({
+      id,
       profile: {
         shadingModel: unlit ? "unlit" : "standard-pbr",
-        hasBaseTexture: textured,
+        hasBaseTexture: textured || (pipelineCount > 1 && id > 0),
         hasOrmTexture: false,
         hasNormalTexture: false,
         hasEmissiveTexture: false,
-        textureBindingSetId: textured ? 2 : 0
+        textureBindingSetId: textured || (pipelineCount > 1 && id > 0) ? 2 : 0
       },
-      generation: 3,
-      textureGeneration: 4
-    }],
+      generation: 3 + id,
+      textureGeneration: 4 + id
+    })),
     geometries: [{
       id: 0,
       profile: {
         hasAuthoredVertexColor: false,
-        hasUv0: textured,
+        hasUv0: textured || pipelineCount > 1,
         hasNormal: !unlit,
         hasTangent: false
       },
       generation: 5
     }],
-    instances: [{
-      id: 0,
-      materialId: 0,
+    instances: Array.from({ length: pipelineCount }, (_, id) => ({
+      id,
+      materialId: id,
       geometryId: 0,
       active: true,
       transparent: options.transparent ?? false,
-      generation: 6
-    }]
+      generation: 6 + id
+    }))
   });
   return { store, snapshot: transaction.commit(1) };
 }
@@ -160,11 +171,14 @@ function productionSurfaceFixture(publication) {
         bins: null,
         resolve: null,
         settings: null,
+        status: null,
         heapBytes: 0,
         indirectBytes: 0,
-        settingsBytes: 0
+        settingsBytes: 0,
+        statusBytes: 0
       })
-    : Object.freeze({
+    : publication.executionMode === "sparse-microtile"
+      ? Object.freeze({
         snapshot: publication,
         bins: {
           heap: { name: "bin-heap" },
@@ -178,13 +192,31 @@ function productionSurfaceFixture(publication) {
           encode() { throw new Error("compile-only fixture"); }
         },
         settings: { name: "bin-settings" },
+        status: null,
         heapBytes: publication.sizing.heapBytes,
         indirectBytes: publication.sizing.indirectBytes,
-        settingsBytes: 256
+        settingsBytes: 256,
+        statusBytes: 0
+      })
+      : Object.freeze({
+        snapshot: publication,
+        bins: null,
+        resolve: {
+          createFrameBindingsForExecution() { throw new Error("compile-only fixture"); },
+          encode() { throw new Error("compile-only fixture"); }
+        },
+        settings: null,
+        status: { size: 32, name: "direct-status" },
+        heapBytes: 0,
+        indirectBytes: 0,
+        settingsBytes: 0,
+        statusBytes: 32
       });
   const visibility = {
     visibilityKey: imported("production-visibility-key"),
-    shadingBinId: imported("production-shading-bin-id"),
+    shadingBinId: publication.executionMode === "sparse-microtile"
+      ? imported("production-shading-bin-id")
+      : null,
     depth: imported("production-depth"),
     meshletWork: { records: imported("production-meshlet-work") },
     domain: {
@@ -297,8 +329,13 @@ test("production SurfaceFeature prunes no-opaque and exact compact output resour
     const resolvePass = dump.passes.find(
       (pass) => pass.name === "SparseShading/active-bin production indirect resolve"
     );
-    assert.ok(passNames.includes("SparseShading/clear + classify production Visibility MRT"));
-    assert.ok(passNames.includes("SparseShading/finalize production indirect arguments"));
+    if (publication.executionMode === "sparse-microtile") {
+      assert.ok(passNames.includes("SparseShading/clear + classify production Visibility MRT"));
+      assert.ok(passNames.includes("SparseShading/finalize production indirect arguments"));
+    } else {
+      assert.ok(passNames.includes("SparseShading/clear DirectSingleBin status"));
+      assert.equal(passNames.some((name) => /classify|finalize/iu.test(name)), false);
+    }
     assert.ok(passNames.includes("SparseShading/initialize production HDR"));
     assert.ok(passNames.includes("SparseShading/active-bin production indirect resolve"));
     assert.ok(resolvePass);
@@ -915,7 +952,7 @@ test("diagnostics owner compiles separately and records finalize plus copy witho
 });
 
 test("sparse-shading GPU revisions publish atomically and retire only after submitted work", async () => {
-  const { store, snapshot: initialSnapshot } = snapshot("unlit", 0);
+  const { store, snapshot: initialSnapshot } = snapshot("unlit", 0, { pipelineCount: 2 });
   const destroyed = [];
   const owner = new SparseShadingGpuRevisionOwner(
     null,
@@ -931,6 +968,7 @@ test("sparse-shading GPU revisions publish atomically and retire only after subm
     activeHeapBytes: initialSnapshot.sizing.heapBytes,
     activeIndirectBytes: initialSnapshot.sizing.indirectBytes,
     activeSettingsBytes: 256,
+    activeStatusBytes: 0,
     activeProducerBindGroupRequests: 0,
     activeProducerBindGroupCreations: 0,
     activeResolveBindGroupRequests: 0,

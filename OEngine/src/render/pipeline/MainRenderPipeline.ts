@@ -2082,6 +2082,7 @@ export class MainRenderPipeline {
         meshletWorkCandidateCapacity: this.packed_meshlet_work_candidate_capacity,
         meshletWorkCompactionPath: this.packed_meshlet_work_compaction,
         primitiveIndexPath: this.packed_primitive_index,
+        executionMode: sparseRevision.snapshot.executionMode,
         triangleSetupEnabled: this.packed_triangle_setup_enabled,
         triangleSetupThresholdPixels: this.packed_triangle_setup_threshold_pixels,
         previousHzb: this.packed_visibility_hzb_enabled
@@ -2570,22 +2571,32 @@ export class MainRenderPipeline {
                 group.bindings.some((binding) => binding.name === "material_texture_0")))
               .map((pipeline) => pipeline.textureBindingSetId)
           )].sort((left, right) => left - right);
+          const textureBankMasks = new Map<number, number>();
+          for (const pipeline of sparseRevision.snapshot.pipelines) {
+            const previous = textureBankMasks.get(pipeline.textureBindingSetId) ?? 0;
+            textureBankMasks.set(
+              pipeline.textureBindingSetId,
+              (previous | pipeline.textureBankMask) >>> 0
+            );
+          }
           const textureBindingSets = activeTextureSetIds.map((setId) => Object.freeze({
             id: setId,
-            textureBanks: Object.freeze(Array.from({ length: 9 }, (_, bank) =>
-              graph.import_resource(
-                `SparseShading/texture-set-${setId}-bank-${bank}`,
-                { kind: "imported", label: `TextureBindingSet ${setId} bank ${bank}` },
-                bind(`sparse-texture-set-${setId}-bank-${bank}`, (bindings) => {
-                  const set = bindings.geometry.runtime.materialResources.bindingSets.find(
-                    (candidate) => candidate.id === setId
-                  );
-                  if (set === undefined) {
-                    throw new Error(`TextureBindingSet ${setId} is not resident`);
-                  }
-                  return set.textureBanks[bank]!;
-                })
-              )))
+            textureBanks: Object.freeze(Array.from({ length: 9 }, (_, bank) => {
+              if ((textureBankMasks.get(setId)! & (1 << bank)) === 0) return null;
+              return graph.import_resource(
+                  `SparseShading/texture-set-${setId}-bank-${bank}`,
+                  { kind: "imported", label: `TextureBindingSet ${setId} bank ${bank}` },
+                  bind(`sparse-texture-set-${setId}-bank-${bank}`, (bindings) => {
+                    const set = bindings.geometry.runtime.materialResources.bindingSets.find(
+                      (candidate) => candidate.id === setId
+                    );
+                    if (set === undefined) {
+                      throw new Error(`TextureBindingSet ${setId} is not resident`);
+                    }
+                    return set.textureBanks[bank]!;
+                  })
+                );
+            }))
           }));
           if (this._surfaceFeature === null) {
             throw new Error("Opaque publication is missing its production surface owner");
@@ -2646,8 +2657,9 @@ export class MainRenderPipeline {
         const gEmissiveRes = surfaceFlagsRes;
         const surfaceDomain = specializedShading?.domain ??
           textureDomain("internal-full", w, h, 1);
-        const shadingBinDiagnosticControlRes = specializedShading?.bins.heap;
-        if (specializedShading !== null && gpuCounterRes !== null) {
+        const shadingBinDiagnosticControlRes = specializedShading?.bins?.heap ?? null;
+        if (specializedShading?.bins !== null && specializedShading?.bins !== undefined &&
+            gpuCounterRes !== null) {
           gpuCounterRes = new SparseShadingCounterPass().addToGraph(
             graph, specializedShading.bins.heap, specializedShading.bins.indirectArgs, gpuCounterRes
           );
@@ -3618,7 +3630,7 @@ export class MainRenderPipeline {
               hdr: hdrRes,
               bloom: fuseBloom ? bloomReconstructedRes! : undefined,
               exposure: exposureRes ?? undefined,
-              diagnosticControl: shadingBinDiagnosticControlRes
+              diagnosticControl: shadingBinDiagnosticControlRes ?? undefined
             },
             {
               bloom: fuseBloom,
@@ -3940,6 +3952,9 @@ export class MainRenderPipeline {
       outputDependencyMask,
       shadowSamplingEnabled: topology.shadows &&
         publication.summary.opaqueLitReceiverCount > 0,
+      textureBankMasks: Object.freeze(Array.from({ length: 4 }, (_, id) =>
+        runtime.materialResources.bindingSets.find((set) => set.id === id)?.textureBankMask ?? 1
+      )),
       capability: this._sparseShadingCapability,
       sizingLimits: Object.freeze({
         maxTextureDimension2D: Number(this.device.limits.maxTextureDimension2D),
@@ -4314,10 +4329,29 @@ export class MainRenderPipeline {
     {
       const materialEvidence = this._graphics.material_store_if_created?.evidence();
       const textureEvidence = this._graphics.texture_residency_if_created?.evidence();
+      const sparseEvidence = this._sparseShadingPublications?.evidence();
+      const sparseGpu = sparseEvidence?.gpu;
+      const executionMode = this._surfaceFeature?.lastExecutionMode ?? "none";
+      const executionModeCode = executionMode === "direct-single-bin"
+        ? 1
+        : executionMode === "sparse-microtile" ? 2 : 0;
       profiler.recordCounter(
         "sparseShading.activeBins",
         this._surfaceFeature?.lastActiveBinCount ?? 0
       );
+      profiler.recordCounter("sparseShading.executionMode", executionModeCode);
+      profiler.recordCounter("sparseShading.publishedBins", sparseGpu?.activeRevision === null || sparseGpu === undefined
+        ? 0
+        : this._surfaceFeature?.lastActiveBinCount ?? 0);
+      profiler.recordCounter(
+        "sparseShading.internalPixels",
+        this._render_resolution.x * this._render_resolution.y
+      );
+      profiler.recordCounter("sparseShading.resolveRan", this._surfaceFeature?.lastResolveRan ? 1 : 0);
+      profiler.recordCounter("sparseShading.heapBytes", sparseGpu?.activeHeapBytes ?? 0);
+      profiler.recordCounter("sparseShading.indirectBytes", sparseGpu?.activeIndirectBytes ?? 0);
+      profiler.recordCounter("sparseShading.settingsBytes", sparseGpu?.activeSettingsBytes ?? 0);
+      profiler.recordCounter("sparseShading.statusBytes", sparseGpu?.activeStatusBytes ?? 0);
       profiler.recordCounter(
         "sparseShading.surfaceBytesPerPixel",
         this._surfaceFeature?.surfaceBytesPerPixel ?? 0

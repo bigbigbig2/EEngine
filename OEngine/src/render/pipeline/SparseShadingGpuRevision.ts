@@ -3,6 +3,10 @@ import {
   GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,
   packGpuShadingBinSettings
 } from "../../gpu/GpuShadingBinAbi.js";
+import {
+  GPU_SHADING_FRAME_STATUS_BYTES,
+  packGpuShadingFrameStatus
+} from "../../gpu/GpuShadingFrameStatusAbi.js";
 import { ShadingBinPass } from "../passes/ShadingBinPass.js";
 import { SparseShadingResolvePass } from "../passes/SparseShadingResolvePass.js";
 
@@ -11,9 +15,12 @@ export interface SparseShadingGpuRevision {
   readonly bins: ShadingBinPass | null;
   readonly resolve: SparseShadingResolvePass | null;
   readonly settings: GPUBuffer | null;
+  /** Present only for DirectSingleBin; sparse mode keeps status in its heap. */
+  readonly status: GPUBuffer | null;
   readonly heapBytes: number;
   readonly indirectBytes: number;
   readonly settingsBytes: number;
+  readonly statusBytes: number;
 }
 
 export interface SparseShadingGpuRevisionEvidence {
@@ -22,6 +29,7 @@ export interface SparseShadingGpuRevisionEvidence {
   readonly activeHeapBytes: number;
   readonly activeIndirectBytes: number;
   readonly activeSettingsBytes: number;
+  readonly activeStatusBytes: number;
   readonly activeProducerBindGroupRequests: number;
   readonly activeProducerBindGroupCreations: number;
   readonly activeResolveBindGroupRequests: number;
@@ -204,6 +212,7 @@ export class SparseShadingGpuRevisionOwner {
       activeHeapBytes: active?.heapBytes ?? 0,
       activeIndirectBytes: active?.indirectBytes ?? 0,
       activeSettingsBytes: active?.settingsBytes ?? 0,
+      activeStatusBytes: active?.statusBytes ?? 0,
       activeProducerBindGroupRequests: producerBindings?.requests ?? 0,
       activeProducerBindGroupCreations: producerBindings?.creations ?? 0,
       activeResolveBindGroupRequests: resolveBindings?.requests ?? 0,
@@ -211,7 +220,7 @@ export class SparseShadingGpuRevisionOwner {
       retiringRevisions: Object.freeze(this.retiring.map((entry) => entry.resources.snapshot.revision)),
       retiringBytes: this.retiring.reduce(
         (sum, entry) => sum + entry.resources.heapBytes + entry.resources.indirectBytes +
-          entry.resources.settingsBytes,
+          entry.resources.settingsBytes + entry.resources.statusBytes,
         0
       ),
       pendingPreparations: this.pending.size,
@@ -257,22 +266,29 @@ async function createGpuRevision(
   diagnostics: boolean
 ): Promise<Readonly<SparseShadingGpuRevision>> {
   if (snapshot.pipelines.length === 0) {
-    return freezeRevision(snapshot, null, null);
+    return freezeRevision(snapshot, null, null, null, null);
   }
-  const bins = await ShadingBinPass.create(device, snapshot.sizing, diagnostics);
+  const bins = snapshot.executionMode === "sparse-microtile"
+    ? await ShadingBinPass.create(device, snapshot.sizing, diagnostics)
+    : null;
   let settings: GPUBuffer | null = null;
+  let status: GPUBuffer | null = null;
   try {
-    settings = await createSettingsBuffer(device, snapshot);
+    settings = bins === null ? null : await createSettingsBuffer(device, snapshot);
+    status = bins === null ? await createStatusBuffer(device, snapshot) : null;
     const resolve = await SparseShadingResolvePass.create(
       device,
       snapshot.pipelines,
       snapshot.revision,
-      diagnostics
+      diagnostics,
+      snapshot.executionMode === "none" ? "sparse-microtile" : snapshot.executionMode,
+      { width: snapshot.context.width, height: snapshot.context.height }
     );
-    return freezeRevision(snapshot, bins, resolve, settings);
+    return freezeRevision(snapshot, bins, resolve, settings, status);
   } catch (error) {
     settings?.destroy();
-    bins.destroy();
+    status?.destroy();
+    bins?.destroy();
     throw error;
   }
 }
@@ -281,16 +297,19 @@ function freezeRevision(
   snapshot: Readonly<GpuShadingPublicationSnapshot>,
   bins: ShadingBinPass | null,
   resolve: SparseShadingResolvePass | null,
-  settings: GPUBuffer | null = null
+  settings: GPUBuffer | null = null,
+  status: GPUBuffer | null = null
 ): Readonly<SparseShadingGpuRevision> {
   return Object.freeze({
     snapshot,
     bins,
     resolve,
     settings,
+    status,
     heapBytes: bins?.sizing.heapBytes ?? 0,
     indirectBytes: bins?.sizing.indirectBytes ?? 0,
-    settingsBytes: settings?.size ?? 0
+    settingsBytes: settings?.size ?? 0,
+    statusBytes: status?.size ?? 0
   });
 }
 
@@ -304,26 +323,65 @@ function validateRevisionResources(
     throw new Error("Sparse shading GPU revision factory changed the publication snapshot");
   }
   const hasOpaque = snapshot.pipelines.length > 0;
-  if (hasOpaque !== (resources.bins !== null) || hasOpaque !== (resources.resolve !== null) ||
-      hasOpaque !== (resources.settings !== null)) {
+  const sparseMode = snapshot.executionMode === "sparse-microtile";
+  const directMode = snapshot.executionMode === "direct-single-bin";
+  if (hasOpaque !== (resources.resolve !== null) ||
+      sparseMode !== (resources.bins !== null) ||
+      sparseMode !== (resources.settings !== null) ||
+      directMode !== (resources.status !== null)) {
     destroyRevision(resources);
     throw new Error("Sparse shading GPU revision resource closure does not match active bins");
   }
   if (resources.bins !== null && (
-    resources.bins.diagnostics !== diagnostics ||
-    resources.bins.sizing !== snapshot.sizing ||
-    resources.resolve!.diagnostics !== diagnostics ||
-    resources.resolve!.publicationRevision !== snapshot.revision
+      resources.bins.diagnostics !== diagnostics ||
+      resources.bins.sizing !== snapshot.sizing ||
+      resources.resolve!.diagnostics !== diagnostics ||
+      resources.resolve!.publicationRevision !== snapshot.revision ||
+      resources.resolve!.executionMode !== snapshot.executionMode
   )) {
     destroyRevision(resources);
     throw new Error("Sparse shading GPU revision ABI does not match its publication snapshot");
   }
   if (resources.heapBytes !== (resources.bins?.sizing.heapBytes ?? 0) ||
       resources.indirectBytes !== (resources.bins?.sizing.indirectBytes ?? 0) ||
-      resources.settingsBytes !== (resources.settings?.size ?? 0)) {
+      resources.settingsBytes !== (resources.settings?.size ?? 0) ||
+      resources.statusBytes !== (resources.status?.size ?? 0)) {
     destroyRevision(resources);
     throw new Error("Sparse shading GPU revision memory evidence is inconsistent");
   }
+}
+
+async function createStatusBuffer(
+  device: GPUDevice,
+  snapshot: Readonly<GpuShadingPublicationSnapshot>
+): Promise<GPUBuffer> {
+  device.pushErrorScope("validation");
+  let buffer: GPUBuffer | null = null;
+  try {
+    buffer = device.createBuffer({
+      label: `ADR-0015 DirectSingleBin frame status revision ${snapshot.revision}`,
+      size: GPU_SHADING_FRAME_STATUS_BYTES,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      mappedAtCreation: true
+    });
+    new Uint8Array(buffer.getMappedRange()).set(packGpuShadingFrameStatus({
+      frameFlags: 0,
+      errorCount: 0,
+      generation: snapshot.generation,
+      layoutRevision: snapshot.layoutRevision
+    }));
+    buffer.unmap();
+  } catch (error) {
+    await device.popErrorScope();
+    buffer?.destroy();
+    throw error;
+  }
+  const validationError = await device.popErrorScope();
+  if (validationError !== null) {
+    buffer.destroy();
+    throw new Error(`DirectSingleBin status buffer failed validation: ${validationError.message}`);
+  }
+  return buffer;
 }
 
 async function createSettingsBuffer(
@@ -370,6 +428,7 @@ function destroyRevision(resources: Readonly<SparseShadingGpuRevision>): void {
   resources.resolve?.destroy();
   resources.bins?.destroy();
   resources.settings?.destroy();
+  resources.status?.destroy();
 }
 
 function assertSubmissionSerial(value: number, label: string): void {

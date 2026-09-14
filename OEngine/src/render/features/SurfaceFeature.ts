@@ -6,6 +6,7 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GpuSparseShadingAssetHeapBindings } from "../../gpu/GpuAssetStore.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import { GPU_SHADING_FRAME_STATUS_BYTES } from "../../gpu/GpuShadingFrameStatusAbi.js";
 import { GPU_SHADING_BIN_ABI_VERSION } from "../../gpu/GpuShadingBinAbi.js";
 import {
   GPU_SHADING_OUTPUT_DEPENDENCY
@@ -35,7 +36,8 @@ import {
 
 export interface SparseShadingTextureBindingSetResources {
   readonly id: number;
-  readonly textureBanks: readonly ResourceId[];
+  /** Sparse by physical bank index; null entries are not imported/read. */
+  readonly textureBanks: readonly (ResourceId | null)[];
 }
 
 export interface SurfaceFeatureJob {
@@ -78,12 +80,14 @@ export interface SurfaceFeatureInputs {
 export class SurfaceFeature {
   private viewBuffer: GPUBuffer | null = null;
   private activeBinCount = 0;
+  private executionMode: "none" | "direct-single-bin" | "sparse-microtile" = "none";
   private outputBytesPerPixel = 0;
   private resolveRan = false;
 
   constructor(private readonly graphics: GraphicsContext) {}
 
   get lastActiveBinCount(): number { return this.activeBinCount; }
+  get lastExecutionMode(): "none" | "direct-single-bin" | "sparse-microtile" { return this.executionMode; }
   get surfaceBytesPerPixel(): number { return this.outputBytesPerPixel; }
   get materialResolveBackend(): "sparse-shading-bin" { return "sparse-shading-bin"; }
   get lastResolveRan(): boolean { return this.resolveRan; }
@@ -92,6 +96,7 @@ export class SurfaceFeature {
   beginFrame(revision: Readonly<SparseShadingGpuRevision>): void {
     const snapshot = revision.snapshot;
     this.activeBinCount = snapshot.pipelines.length;
+    this.executionMode = snapshot.executionMode;
     this.outputBytesPerPixel = snapshot.pipelines.length === 0
       ? 0
       : sparseOutputBytesPerPixel(snapshot.context.outputDependencyMask);
@@ -107,14 +112,28 @@ export class SurfaceFeature {
     const bins = inputs.revision.bins;
     const resolveOwner = inputs.revision.resolve;
     const settingsBuffer = inputs.revision.settings;
+    const statusBuffer = inputs.revision.status;
     if (snapshot.pipelines.length === 0) {
-      if (bins !== null || resolveOwner !== null || settingsBuffer !== null) {
+      if (bins !== null || resolveOwner !== null || settingsBuffer !== null || statusBuffer !== null) {
         throw new Error("Sparse shading no-opaque revision retained GPU work owners");
       }
       return null;
     }
-    if (bins === null || resolveOwner === null || settingsBuffer === null) {
-      throw new Error("Sparse shading opaque revision is missing its GPU closure");
+    if (resolveOwner === null) {
+      throw new Error("Sparse shading opaque revision is missing its resolve owner");
+    }
+    if (snapshot.executionMode === "sparse-microtile" &&
+        (bins === null || settingsBuffer === null || statusBuffer !== null)) {
+      throw new Error("SparseMicrotile revision has an invalid GPU closure");
+    }
+    if (snapshot.executionMode === "direct-single-bin" &&
+        (bins !== null || settingsBuffer !== null || statusBuffer === null ||
+          statusBuffer.size !== GPU_SHADING_FRAME_STATUS_BYTES)) {
+      throw new Error("DirectSingleBin revision has an invalid GPU closure");
+    }
+    if (snapshot.executionMode !== "sparse-microtile" &&
+        snapshot.executionMode !== "direct-single-bin") {
+      throw new Error("Opaque revision has no executable shading mode");
     }
     if (snapshot.context.width !== inputs.visibility.domain.width ||
         snapshot.context.height !== inputs.visibility.domain.height) {
@@ -201,59 +220,92 @@ export class SurfaceFeature {
     );
     view = upload.write(view);
 
-    let heap = graph.import_resource(
-      "SparseShading/heap",
-      { kind: "imported", label: "ADR-0013 revision-owned shading-bin heap" },
-      bins.heap
-    );
-    let indirectArgs = graph.import_resource(
-      "SparseShading/indirect-args",
-      { kind: "imported", label: "ADR-0013 revision-owned indirect arguments" },
-      bins.indirectArgs
-    );
-    const settings = graph.import_resource(
-      "SparseShading/settings",
-      { kind: "imported", label: "ADR-0013 revision-owned bin settings" },
-      settingsBuffer
-    );
+    const sparseMode = snapshot.executionMode === "sparse-microtile";
+    let heap: ResourceId | null = null;
+    let indirectArgs: ResourceId | null = null;
+    let settings: ResourceId | null = null;
+    let status: ResourceId | null = null;
+    if (sparseMode) {
+      heap = graph.import_resource(
+        "SparseShading/heap",
+        { kind: "imported", label: "ADR-0013 revision-owned shading-bin heap" },
+        bins!.heap
+      );
+      indirectArgs = graph.import_resource(
+        "SparseShading/indirect-args",
+        { kind: "imported", label: "ADR-0013 revision-owned indirect arguments" },
+        bins!.indirectArgs
+      );
+      settings = graph.import_resource(
+        "SparseShading/settings",
+        { kind: "imported", label: "ADR-0013 revision-owned bin settings" },
+        settingsBuffer!
+      );
+    } else {
+      status = graph.import_resource(
+        "SparseShading/direct-status",
+        { kind: "imported", label: "ADR-0015 DirectSingleBin frame status" },
+        statusBuffer!
+      );
+    }
     const frameBindings = new WeakMap<FrameGraphContext, Readonly<ShadingBinFrameBindings>>();
-    const classifier = graph.add(
-      "SparseShading/clear + classify production Visibility MRT",
-      {},
-      (_data, resources, context) => {
-        const bindings = bins.createFrameBindingsForExecution({
-          shadingBinId: resolveTextureView(resources.get(inputs.visibility.shadingBinId)),
-          settings: requireBuffer(resources.get(settings), "sparse shading settings"),
-          settingsDynamicOffset: 0,
-          generation: snapshot.generation,
-          layoutRevision: snapshot.layoutRevision
-        });
-        frameBindings.set(context, bindings);
-        bins.encodeClassify(requireCommand(context), bindings);
-      }
-    );
-    classifier.read(inputs.visibility.shadingBinId);
-    classifier.read(settings);
-    heap = classifier.write(heap);
-    indirectArgs = classifier.write(indirectArgs);
-    classifier.declareEncoderWork({ computePasses: 1, dispatches: 1 });
-
-    const finalizer = graph.add(
-      "SparseShading/finalize production indirect arguments",
-      {},
-      (_data, _resources, context) => {
-        const bindings = frameBindings.get(context);
-        if (bindings === undefined) {
-          throw new Error("Sparse shading finalizer has no classifier binding snapshot");
+    let previousPass = upload;
+    if (sparseMode) {
+      const classifier = graph.add(
+        "SparseShading/clear + classify production Visibility MRT",
+        {},
+        (_data, resources, context) => {
+          const bindings = bins!.createFrameBindingsForExecution({
+            shadingBinId: resolveTextureView(resources.get(inputs.visibility.shadingBinId!)),
+            settings: requireBuffer(resources.get(settings!), "sparse shading settings"),
+            settingsDynamicOffset: 0,
+            generation: snapshot.generation,
+            layoutRevision: snapshot.layoutRevision
+          });
+          frameBindings.set(context, bindings);
+          bins!.encodeClassify(requireCommand(context), bindings);
         }
-        bins.encodeFinalize(requireCommand(context), bindings);
-      }
-    );
-    finalizer.dependsOn(classifier);
-    finalizer.read(heap);
-    heap = finalizer.write(heap);
-    indirectArgs = finalizer.write(indirectArgs);
-    finalizer.declareEncoderWork({ computePasses: 1, dispatches: 1 });
+      );
+      classifier.read(inputs.visibility.shadingBinId!);
+      classifier.read(settings!);
+      heap = classifier.write(heap!);
+      indirectArgs = classifier.write(indirectArgs!);
+      classifier.declareEncoderWork({ computePasses: 1, dispatches: 1 });
+
+      const finalizer = graph.add(
+        "SparseShading/finalize production indirect arguments",
+        {},
+        (_data, _resources, context) => {
+          const bindings = frameBindings.get(context);
+          if (bindings === undefined) {
+            throw new Error("Sparse shading finalizer has no classifier binding snapshot");
+          }
+          bins!.encodeFinalize(requireCommand(context), bindings);
+        }
+      );
+      finalizer.dependsOn(classifier);
+      finalizer.read(heap);
+      heap = finalizer.write(heap!);
+      indirectArgs = finalizer.write(indirectArgs!);
+      finalizer.declareEncoderWork({ computePasses: 1, dispatches: 1 });
+      previousPass = finalizer;
+    } else {
+      const statusClear = graph.add(
+        "SparseShading/clear DirectSingleBin status",
+        {},
+        (_data, resources, context) => {
+          requireCommand(context).clearBuffer(
+            requireBuffer(resources.get(status!), "DirectSingleBin status"),
+            0,
+            8
+          );
+        }
+      );
+      statusClear.read(status!);
+      status = statusClear.write(status!);
+      statusClear.declareEncoderWork({ computePasses: 0 });
+      previousPass = statusClear;
+    }
 
     const width = snapshot.context.width;
     const height = snapshot.context.height;
@@ -281,7 +333,7 @@ export class SurfaceFeature {
         pass.end();
       }
     );
-    outputInit.dependsOn(finalizer);
+    outputInit.dependsOn(previousPass);
     outputs.hdr = outputInit.create(
       "SparseShading/direct-hdr",
       sparseTexture(width, height, "rgba16float",
@@ -314,6 +366,7 @@ export class SurfaceFeature {
           const buffers: Readonly<Record<string, ResourceId | null>> = {
             shading_bin_settings: settings,
             shading_bin_heap: heap,
+            shading_frame_status: status,
             shading_view: view,
             meshlet_work: inputs.visibility.meshletWork.records,
             instance_records: inputs.instanceRecords,
@@ -362,7 +415,9 @@ export class SurfaceFeature {
           if (name.startsWith("material_texture_")) {
             const index = Number(name.slice("material_texture_".length));
             const id = textureSet(descriptor).textureBanks[index];
-            if (id === undefined) throw new Error(`Sparse shading binding '${name}' is out of range`);
+            if (id === undefined || id === null) {
+              throw new Error(`Sparse shading binding '${name}' is not resident in the static read set`);
+            }
             return resolveTextureView(resources.get(id));
           }
           if (name.startsWith("material_sampler_")) {
@@ -385,7 +440,7 @@ export class SurfaceFeature {
         const bindings = resolveOwner.createFrameBindingsForExecution(binding);
         resolveOwner.encode(
           requireCommand(context),
-          bins.indirectArgs,
+          indirectArgs === null ? null : requireBuffer(resources.get(indirectArgs), "sparse shading indirect args"),
           0,
           bindings,
           snapshot.revision
@@ -425,13 +480,18 @@ export class SurfaceFeature {
       );
     }
     resolve.read(inputs.visibility.visibilityKey);
-    resolve.read(inputs.visibility.shadingBinId);
+    if (sparseMode) resolve.read(inputs.visibility.shadingBinId!);
     resolve.read(inputs.visibility.depth);
     resolve.read(inputs.visibility.meshletWork.records);
-    resolve.read(heap);
-    heap = resolve.write(heap);
-    resolve.read(indirectArgs);
-    resolve.read(settings);
+    if (sparseMode) {
+      resolve.read(heap!);
+      heap = resolve.write(heap!);
+      resolve.read(indirectArgs!);
+      resolve.read(settings!);
+    } else {
+      resolve.read(status!);
+      status = resolve.write(status!);
+    }
     resolve.read(view);
     for (const id of [
       inputs.instanceRecords,
@@ -441,7 +501,9 @@ export class SurfaceFeature {
       inputs.textureDescriptorRoutingHeap
     ]) resolve.read(id);
     for (const set of inputs.textureBindingSets) {
-      for (const bank of set.textureBanks) resolve.read(bank);
+      for (const bank of set.textureBanks) {
+        if (bank !== null) resolve.read(bank);
+      }
     }
     if (opaqueLit) {
       resolve.read(inputs.lightDatabase!);
@@ -462,21 +524,21 @@ export class SurfaceFeature {
     if (outputs.velocity !== null) outputs.velocity = resolve.write(outputs.velocity);
     resolve.declareEncoderWork({
       computePasses: 1,
-      dispatches: snapshot.pipelines.length
+      dispatches: sparseMode ? snapshot.pipelines.length : 1
     });
 
     const domain = textureDomain("internal-full", width, height, 1);
-    const binProduct = shadingBinFrame({
+    const binProduct = sparseMode ? shadingBinFrame({
       abiVersion: GPU_SHADING_BIN_ABI_VERSION,
-      heap,
-      indirectArgs,
+      heap: heap!,
+      indirectArgs: indirectArgs!,
       generation: snapshot.generation,
       activeBinMaskLo: snapshot.summary.activeBinMaskLo,
       activeBinMaskHi: snapshot.summary.activeBinMaskHi,
       microtileWidth: 8,
       microtileHeight: 8,
       domain
-    });
+    }) : null;
     const publishesShading =
       (outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0 &&
       outputs.normal !== null && outputs.material !== null;
@@ -485,6 +547,7 @@ export class SurfaceFeature {
       outputs.albedoAo !== null && outputs.material !== null;
     return specializedShadingFrame({
       bins: binProduct,
+      status,
       direct: directLightingFrame({ hdr: outputs.hdr, domain }),
       shading: publishesShading
         ? shadingSurfaceLiteFrame({

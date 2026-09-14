@@ -80,12 +80,7 @@ export function gpuShadingBinVisibilityRenderPassAttachments(
   shadingBinId: GPUTextureView
 ): readonly GPURenderPassColorAttachment[] {
   return Object.freeze([
-    {
-      view: visibilityKey,
-      clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 },
-      loadOp: "clear",
-      storeOp: "store"
-    },
+    ...gpuVisibilityKeyRenderPassAttachments(visibilityKey),
     {
       view: shadingBinId,
       clearValue: { r: GPU_SHADING_BIN_INVALID_ID, g: 0, b: 0, a: 0 },
@@ -93,6 +88,18 @@ export function gpuShadingBinVisibilityRenderPassAttachments(
       storeOp: "store"
     }
   ]);
+}
+
+/** Single-MRT VisibilityKey path used when no per-pixel bin identity is consumed. */
+export function gpuVisibilityKeyRenderPassAttachments(
+  visibilityKey: GPUTextureView
+): readonly GPURenderPassColorAttachment[] {
+  return Object.freeze([{
+    view: visibilityKey,
+    clearValue: { r: GPU_VISIBILITY_KEY_EMPTY, g: 0, b: 0, a: 0 },
+    loadOp: "clear",
+    storeOp: "store"
+  }]);
 }
 
 /**

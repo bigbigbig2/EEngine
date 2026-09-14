@@ -36,7 +36,7 @@ export interface MeshletWorkFrame {
 export interface VisibilityFrame {
   readonly visibilityKey: ResourceId;
   /** Same depth winner as VisibilityKey; background is the 0xff sentinel. */
-  readonly shadingBinId: ResourceId;
+  readonly shadingBinId: ResourceId | null;
   readonly depth: ResourceId;
   readonly meshletWork: MeshletWorkFrame;
   readonly triangleSetup: TriangleSetupFrame;
@@ -111,7 +111,10 @@ export interface DirectLightingFrame {
  * shader/program name.
  */
 export interface SpecializedShadingFrame {
-  readonly bins: ShadingBinFrame;
+  /** Sparse queue product; physically absent for DirectSingleBin. */
+  readonly bins: ShadingBinFrame | null;
+  /** DirectSingleBin fail-closed status; sparse mode keeps this in bins.heap. */
+  readonly status: ResourceId | null;
   readonly direct: DirectLightingFrame;
   readonly shading: ShadingSurfaceLiteFrame | null;
   readonly diffuse: DiffuseSurfaceLiteFrame | null;
@@ -434,7 +437,7 @@ export function specializedShadingFrame(
   input: SpecializedShadingFrame
 ): SpecializedShadingFrame {
   const domain = requireInternalFullDomain(input.domain, "SpecializedShadingFrame");
-  const bins = shadingBinFrame(input.bins);
+  const bins = input.bins === null ? null : shadingBinFrame(input.bins);
   const direct = directLightingFrame(input.direct);
   const shading = input.shading === null
     ? null
@@ -442,7 +445,7 @@ export function specializedShadingFrame(
   const diffuse = input.diffuse === null
     ? null
     : diffuseSurfaceLiteFrame(input.diffuse);
-  requireMatchingDomain(bins.domain, domain, "SpecializedShadingFrame.bins");
+  if (bins !== null) requireMatchingDomain(bins.domain, domain, "SpecializedShadingFrame.bins");
   requireMatchingDomain(direct.domain, domain, "SpecializedShadingFrame.direct");
   if (shading !== null) {
     requireMatchingDomain(shading.domain, domain, "SpecializedShadingFrame.shading");
@@ -451,6 +454,7 @@ export function specializedShadingFrame(
     requireMatchingDomain(diffuse.domain, domain, "SpecializedShadingFrame.diffuse");
   }
   requireResourceId(input.velocity, "SpecializedShadingFrame.velocity");
+  requireResourceId(input.status, "SpecializedShadingFrame.status");
   return Object.freeze({ ...input, bins, direct, shading, diffuse, domain });
 }
 

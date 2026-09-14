@@ -9,6 +9,7 @@ import { gpuShadingBinVisibilityAttachmentContract } from
   "../../gpu/GpuShadingBinVisibilityContract.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import type { GpuShadingExecutionMode } from "../../gpu/GpuShadingExecutionMode.js";
 import {
   DEFAULT_GEOMETRY_WORK_BUDGET,
   normalizeGeometryWorkBudget,
@@ -76,6 +77,8 @@ export interface PackedVisibilityPrepareJob {
   readonly meshletWorkCompactionPath?: "auto" | "portable" | "subgroup";
   /** auto consumes primitive-index when negotiated; portable forces the flat varying oracle. */
   readonly primitiveIndexPath?: "auto" | "portable";
+  /** Publication-selected visibility ABI; single MRT is used for direct/none. */
+  readonly executionMode?: GpuShadingExecutionMode | "none";
   /** Evidence-gated TriangleSetup candidate cache; false keeps fallback-only Surface reconstruction. */
   readonly triangleSetupEnabled?: boolean;
   readonly triangleSetupThresholdPixels?: number;
@@ -211,7 +214,11 @@ export class PackedVisibilityPass {
     job: PackedVisibilityJob,
     inputs: PackedVisibilityInputs
   ): PackedVisibilityOutputs {
-    const output = { visibilityKey: -1, shadingBinId: -1 };
+    const output: { visibilityKey: ResourceId; shadingBinId: ResourceId | null } = {
+      visibilityKey: -1,
+      shadingBinId: null
+    };
+    const includeShadingBinId = (job.executionMode ?? "sparse-microtile") === "sparse-microtile";
     const builder = graph.add(
       "Packed Visibility/MeshletWork bucket producer",
       job,
@@ -225,7 +232,10 @@ export class PackedVisibilityPass {
           camera,
           counters,
           resolveTextureView(resources.get(output.visibilityKey)),
-          resolveTextureView(resources.get(output.shadingBinId)),
+          output.shadingBinId === null
+            ? null
+            : resolveTextureView(resources.get(output.shadingBinId)),
+          job.executionMode ?? "sparse-microtile",
           resolveDepthAttachmentView(resources.get(inputs.depth))
         );
       }
@@ -243,10 +253,12 @@ export class PackedVisibilityPass {
       "Packed VisibilityKey",
       packedVisibilityAttachmentDescriptor(job.width, job.height)
     );
-    output.shadingBinId = builder.create(
-      "Packed ShadingBinId",
-      packedShadingBinAttachmentDescriptor(job.width, job.height)
-    );
+    if (includeShadingBinId) {
+      output.shadingBinId = builder.create(
+        "Packed ShadingBinId",
+        packedShadingBinAttachmentDescriptor(job.width, job.height)
+      );
+    }
     builder.make_side_effect();
     const debugResolve = Object.freeze({
       resolve: (): PackedVisibilityDebugBindings =>
@@ -294,7 +306,8 @@ export class PackedVisibilityPass {
     camera: GPUBuffer,
     counters: GPUBuffer,
     visibilityKey: GPUTextureView,
-    shadingBinId: GPUTextureView,
+    shadingBinId: GPUTextureView | null,
+    executionMode: GpuShadingExecutionMode | "none",
     depth: GPUTextureView
   ): void {
     const prepared = job.prepared;
@@ -328,7 +341,7 @@ export class PackedVisibilityPass {
         visibilityKey,
         shadingBinId,
         depth
-      }, job.primitiveIndexPath ?? "auto");
+      }, job.executionMode ?? "sparse-microtile", job.primitiveIndexPath ?? "auto");
     this.debugBindings.set(job.runtime, Object.freeze({
       instances: job.scene.instances,
       meshlets: job.assets.meshletRecords,
