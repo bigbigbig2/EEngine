@@ -43,6 +43,7 @@ let animationFrame = 0;
 let disposed = false;
 let performancePanel: PerformancePanel | undefined;
 let variant: LabVariant = "basic";
+const multiBinFixture = new URLSearchParams(window.location.search).get("multiBin") === "1";
 
 async function start(): Promise<void> {
   if (navigator.gpu === undefined) {
@@ -90,6 +91,23 @@ async function start(): Promise<void> {
   if (variant === "basic") {
     for (const material of imported.materials) material.is_unlit = true;
   }
+  if (multiBinFixture && imported.materials.length > 0) {
+    const materialIndex = imported.materialIndices.find((index) => index >= 0) ?? 0;
+    const fixtureMaterial = imported.materials[materialIndex];
+    if (fixtureMaterial === undefined) {
+      throw new Error(`Multi-bin fixture material ${materialIndex} is unavailable`);
+    }
+    if (variant === "full") {
+      // Keep the full scene's PBR materials and introduce one real UnlitTexture
+      // association. This exercises a second published program through the
+      // normal material ABI without adding a synthetic draw list.
+      fixtureMaterial.is_unlit = true;
+    } else {
+      // Basic normally has only UnlitFactor associations. Make one referenced
+      // material PBR so the fixture exercises a second program identity.
+      fixtureMaterial.is_unlit = false;
+    }
+  }
 
   const lab = await createRenderingLab(imported);
   if (disposed) return;
@@ -106,6 +124,14 @@ async function start(): Promise<void> {
     const azimuth = -36 * Math.PI / 180;
     const elevation = 65 * Math.PI / 180;
     sun.forward = [Math.cos(elevation) * Math.cos(azimuth), -Math.sin(elevation), Math.cos(elevation) * Math.sin(azimuth)];
+    activeScene.addChild(sun);
+  }
+  if (variant === "basic" && multiBinFixture) {
+    const sun = new DirectionalLight();
+    sun.name = "Multi-bin fixture light";
+    sun.intensity = 1.5;
+    sun.casts_shadow = false;
+    sun.forward = [0.25, -0.8, 0.45];
     activeScene.addChild(sun);
   }
 
@@ -127,7 +153,7 @@ async function start(): Promise<void> {
 
   performancePanel = new PerformancePanel({
     renderer: activeRenderer, camera: activeCamera, controls, canvas, variant,
-    scene: { model: "dungeon_warkarma.glb", instances: lab.source.count, geometries: lab.source.geometries.length, materials: lab.source.materials.length },
+    scene: { model: `dungeon_warkarma.glb${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: lab.source.count, geometries: lab.source.geometries.length, materials: lab.source.materials.length },
     resetCamera: () => {
       activeCamera.transform.position.set(lab.bounds.center[0] + lab.bounds.radius * 1.5, lab.bounds.center[1] + lab.bounds.radius * 0.8, lab.bounds.center[2] + lab.bounds.radius * 1.8);
       controls!.target.set(...lab.bounds.center);
@@ -138,7 +164,7 @@ async function start(): Promise<void> {
   startResizeObserver(activeRenderer, activeCamera);
 
   status.dataset.state = "ready";
-  setLoading("Ready", `${lab.source.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"} · performance panel ready`, 1);
+  setLoading("Ready", `${lab.source.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"}${multiBinFixture ? " · multi-bin fixture" : ""} · performance panel ready`, 1);
   startFrameLoop(activeRenderer, activeScene, activeCamera);
 }
 
