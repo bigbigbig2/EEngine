@@ -345,6 +345,16 @@ type OpaqueShadingResult =
 
 三个阶段按依赖顺序实施。每个阶段都先完成资源合同和运行证据，再进入下一阶段；不维护长期双 backend，也不把阶段性诊断路径写成生产路径。
 
+#### 执行规则
+
+三阶段不是三个可以并行的优化清单，而是一条有门槛的迁移顺序：
+
+1. **阶段一只改变产品需求和基础光照的归属。** Visibility、bin 分类和 packed geometry 先保持现状，用来隔离“无消费者仍生成中间产品”这一结构性成本。阶段一结束前不得用单 bin 调度结果解释收益。
+2. **阶段二只改变调度 ABI 和资源声明。** 单 bin、多 bin 必须共用同一份 publication snapshot；单 bin 省略不需要的队列和 MRT，多 bin 保留完整的 GPU producer → GPU consumer 闭环。阶段二不同时改 PBR 数学，避免无法判断收益来源。
+3. **阶段三只处理已被证据确认的 receiver 热点。** 每个字段、纹理 bank 或 setup 复用实验都先做 source/layout audit，再做同条件 off/on 对照；没有稳定 GPU 或驻留收益的实验必须删除。
+
+每个阶段采用同一提交节奏：先提交代码合同，再提交轻量自动检查结果，最后提交两个 Rendering Lab 的手动记录。阶段门槛只看真实 live graph、GPU 时间、计数器和画面语义；“少了一个 Pass”或“GPU 利用率下降”不能单独作为通过条件。阶段中发现主导成本不在本 ADR 范围内时，保留已经验证的正确性修复并停止扩展，不为了凑齐三阶段而继续重构。
+
 | 阶段 | 先解决的主问题 | 主要 owner | 阶段产物 | 进入下一阶段的必要证据 |
 | --- | --- | --- | --- | --- |
 | 一 | effects-off 仍物化 Surface/provider/resolve，中间产品重复往返 | `MainRenderPipeline`、`SurfaceFeature`、`GIService`、receiver shader | demand snapshot、receiver-local 基础 IBL、收窄后的 live graph | 画面语义正确；无消费者产品消失；同条件 receiver/HDR GPU 时间可导出 |
@@ -352,6 +362,12 @@ type OpaqueShadingResult =
 | 三 | receiver 逐像素 setup、packed decode、材质访问或纹理驻留仍主导 | receiver shader、material/texture ABI、asset residency | 经过证据支持的字段/路由收窄，必要时有界 setup 复用 | source audit、驻留账本和 off/on 对照证明实际收益；否则停止并转独立问题 |
 
 阶段一没有完成前，不实现阶段二的单 bin consumer；阶段二没有证明调度成本已经收窄前，不引入阶段三的 setup/cache 实验。任何阶段若阶段门槛不满足，保留正确性修复并停在当前阶段，不以架构完整性代替性能证据。
+
+| 阶段 | 轻量自动检查 | 手动记录 | 阶段输出文件 |
+| --- | --- | --- | --- |
+| 一 | `cd OEngine; npm run typecheck`；命中 `FrameProducts`、Surface/lighting contract 的 targeted tests；静态检查 demand 位与 live graph recipe | Basic/Full 各远、中、近一次；Full effects-off 的 graph dump、receiver/HDR GPU 时间、PBR/IBL 截图 | demand snapshot、effects-off/advanced-on graph dump、删除清单 |
+| 二 | `cd OEngine; npm run typecheck`；publication、pipeline contract、FrameGraph、Visibility MRT 的 targeted tests；检查 0/1/>1 ABI | 同一机位分别观察 single-bin 和人工 multi-bin；一次 resize、一次 material patch；记录 `P`、`N`、coverage、classifier、receiver、总 GPU 时间 | mode snapshot、single/dual MRT layout、read-set 映射、before/after 导出 |
+| 三 | `cd OEngine; npm run typecheck` 与 `npm run audit:shaders`；命中的 material/texture ABI tests；不跑全量压力矩阵 | Full effects-off ORM 近景、斜视纹理、normal map、近裁剪面；一次 residency ledger，实验 off/on 各一轮 | WGSL diff、binding budget、texture residency ledger、setup 复用 off/on 对照 |
 
 #### 阶段一：Demand-driven 基础光照融合
 
