@@ -192,6 +192,25 @@ test("lit programs fuse BRDF, cluster traversal and shadow comparison in their s
   assert.doesNotMatch(unlit, /cluster_lookup|textureGatherCompare|fn re_direct_physical/u);
 });
 
+test("velocity-off receiver variants do not read previous clip transforms", () => {
+  const withoutVelocity = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrFactor,
+    GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite
+  )).source;
+  assert.doesNotMatch(withoutVelocity, /shading_view\.previous_view_projection\*/u);
+  assert.doesNotMatch(withoutVelocity, /oengine_instance_previous_from_current\(instance\)/u);
+  assert.match(withoutVelocity, /let velocity=vec2f\(0\.0\)/u);
+
+  const withVelocity = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrFactor,
+    GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
+      GPU_SHADING_OUTPUT_DEPENDENCY.Velocity
+  )).source;
+  assert.match(withVelocity, /previous_view_projection/u);
+  assert.match(withVelocity, /oengine_instance_previous_from_current\(instance\)/u);
+  assert.match(withVelocity, /textureStore\(output_velocity/u);
+});
+
 test("environment IBL specialization fuses prepared diffuse, specular and DFG sampling", () => {
   const source = createSparseShadingShaderVariant(descriptor(
     GPU_SHADING_PROGRAM.PbrGeneric,

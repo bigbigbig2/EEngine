@@ -2969,7 +2969,11 @@ export class MainRenderPipeline {
           });
         };
 
+        const needsOpaqueIndirectResolve = graphTopology.gtao ||
+          graphTopology.ssgi ||
+          graphTopology.ssr;
         if (
+          needsOpaqueIndirectResolve &&
           gtaoReady &&
           hdrRes !== null &&
           environmentRes !== null &&

@@ -14,9 +14,9 @@
 
 | 阶段 | 当前状态 | 可交付结果 | 允许进入下一阶段的条件 |
 | --- | --- | --- | --- |
-| 一、Demand-driven 基础光照融合 | 基础合同已落地，仍需浏览器画面和 GPU 时间复核 | effects-off 只保留 Visibility -> receiver/material/direct/IBL -> HDR；AO/GI/SSR 等真实 consumer 出现时才生成对应 Surface/provider | live graph 删除无消费者 Surface/provider/resolve，AO/IBL/pre-exposure 语义各应用一次，Full effects-off 的近景 GPU 时间有同条件记录 |
+| 一、Demand-driven 基础光照融合 | receiver-local IBL 与 effects-off provider gate 已落地，仍需浏览器画面和 GPU 时间复核 | effects-off 只保留 Visibility -> receiver/material/direct/IBL -> HDR；AO/GI/SSR 等真实 consumer 出现时才生成对应 Surface/provider | live graph 删除无消费者 Surface/provider/resolve，AO/IBL/pre-exposure 语义各应用一次，Full effects-off 的近景 GPU 时间有同条件记录 |
 | 二、0/1/>1 bin 调度收窄 | 代码和契约检查已完成，等待两个示例手动验证 | 0 bin 无 opaque consumer，1 bin 使用 DirectSingleBin status + 固定网格，>1 bin 保留 classifier/heap/indirect 的 GPU producer -> consumer 闭环；面板显示 mode、P/N/W 和资源字节 | single/multi 的 identity、overflow、resize、material patch 和 device-loss 语义稳定，并能解释远/中/近机位的绝对 GPU 时间 |
-| 三、receiver 热路径与纹理驻留 | 尚未实施 | 以 WGSL/source audit 为入口收窄真实字段、采样 bank 和 packed decode；只有 receiver 或 residency 仍主导时才尝试有界 setup 复用 | 生成 WGSL、binding/read set、纹理 residency ledger 和 off/on GPU 对照共同证明收益；否则删除实验并转独立性能问题 |
+| 三、receiver 热路径与纹理驻留 | 已开始 source audit（velocity-off 特化），其余字段/驻留实验未实施 | 以 WGSL/source audit 为入口收窄真实字段、采样 bank 和 packed decode；只有 receiver 或 residency 仍主导时才尝试有界 setup 复用 | 生成 WGSL、binding/read set、纹理 residency ledger 和 off/on GPU 对照共同证明收益；否则删除实验并转独立性能问题 |
 
 阶段二的“已完成”只表示静态 ABI、FrameGraph 闭包和自动检查完成，不表示浏览器 Runtime Validated、Performance Improved 或 ADR Complete。后续提交按“阶段代码合同 -> 轻量检查 -> 手动记录”的顺序组织，阶段三不得与阶段一、二的未解释长尾同时修改。
 
@@ -480,12 +480,13 @@ type OpaqueShadingResult =
 
 #### P0：需求驱动没有贯穿到发布上下文
 
-当前 [MainRenderPipeline](../../OEngine/src/render/pipeline/MainRenderPipeline.ts) 的
-`createSparseShadingPublicationContext` 在存在 opaque-lit receiver 时无条件加入
-`ShadingSurfaceLite | DiffuseSurfaceLite`。随后主图在这些资源存在时调用
-`GIService.resolveOpaqueLighting`，因此即使 GTAO/SSGI/SSR 和光照分量 debug 都关闭，仍会创建
-Surface 输出、long-range provider 和 OpaqueLightingResolve。这个行为正是当前 Full effects-off
-仍有约 5.368 ms provider + resolve 的代码层证据。
+早期版本的 [MainRenderPipeline](../../OEngine/src/render/pipeline/MainRenderPipeline.ts) 会在
+`gtaoReady` 为真时直接调用 `GIService.resolveOpaqueLighting`；由于 effects-off 下
+`gtaoReady = !graphTopology.gtao`，这会把没有消费者的 long-range provider 和
+`OpaqueLightingResolve` 也放进 live graph。当前代码已增加
+`needsOpaqueIndirectResolve = gtao || ssgi || ssr` gate，因而 provider/resolve 只在真实高级
+间接光 consumer 存在时建立；这项修正仍需通过浏览器 live graph 和 GPU 时间复核，不能仅凭静态
+条件宣称性能收益。
 
 高性能实现的共同模式是“consumer 先声明所需产品，producer 再生成产品”：Filament 的 IBL
 只在材质光照阶段消费，Bevy/The Forge 的 visibility resolve 不为不存在的后处理建立 G-buffer
@@ -494,18 +495,17 @@ Surface 输出、long-range provider 和 OpaqueLightingResolve。这个行为正
 lit 基础路径应只有 `Visibility -> Receiver/Material/Direct/IBL -> HDR`；无 consumer 时
 Surface、provider、resolve 的资源和 Pass 必须从 live graph 消失。
 
-#### P1：单 bin 模式没有向 Visibility 资源合同反向传播
+#### P1：单 bin 与材质 read set 的反向传播需要持续守约
 
-`PackedVisibilityPass.addToGraph` 目前始终创建 `Packed ShadingBinId` attachment。DirectSingleBin
-不需要读取每像素 bin identity；只有多 bin sparse consumer 或对应 debug view 才需要它。单 bin
-publication 应把 execution mode 传入 Visibility 产品规划，使 raster MRT 在不需要时省略该
-attachment。这样可减少一份全内部分辨率的 r32uint 写入和后续资源生命周期，但收益属于带宽/资源
-压力，不能直接按 Pass 数量折算毫秒。
+`PackedVisibilityPass.addToGraph` 现在已经接收 execution mode；DirectSingleBin 会省略
+`Packed ShadingBinId` attachment，多 bin 才保留双 MRT。这个合同必须继续与 clear、resize、
+debug view 和 pipeline cache key 同步；减少一份全内部分辨率的 r32uint 写入属于带宽/资源压力
+收益，不能直接按 Pass 数量折算毫秒。
 
-同样，`SurfaceFeature` 的 resolve 目前对每个 active `TextureBindingSet` 的 9 个 texture bank
-都声明 `read`，即使生成的 pipeline 只绑定其中一部分。`MaterialAccessSignature` 不应只收窄
-WGSL binding；它还必须成为 FrameGraph 的实际 read set，只导入和声明被 descriptor 使用的 bank。
-否则 shader 可能少采样了，但 residency、barrier 和资源存活范围仍被放大。
+同样，`SurfaceFeature` 的 resolve 现在只遍历上游按 `textureBankMask` 构造的非空 bank 资源；
+`MaterialAccessSignature`、WGSL binding、FrameGraph read set 和 residency accounting 必须
+继续使用同一签名。任何新增 package bank 或 fallback bank 都要补齐四者，否则 shader 可能少采样了，
+但 residency、barrier 和资源存活范围仍被放大。
 
 #### P1：主管线和 GIService 承担了过多决策
 

@@ -365,6 +365,17 @@ test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only
   );
 });
 
+test("ADR-0015 only materializes opaque indirect resolve for live consumers", () => {
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /const needsOpaqueIndirectResolve = graphTopology\.gtao \|\|\s*graphTopology\.ssgi \|\|\s*graphTopology\.ssr;/u
+  );
+  assert.match(
+    MAIN_PIPELINE_SOURCE,
+    /if \(\s*needsOpaqueIndirectResolve &&\s*gtaoReady &&[\s\S]*?this\._giService\.resolveOpaqueLighting\(/u
+  );
+});
+
 test("ADR-0009 Step 3 accepts one three-context comprehensive SurfaceLite run group", () => {
   const runs = [0, 1, 2].map((ordinal) => ({
     baselineBytesPerPixel: 58,
