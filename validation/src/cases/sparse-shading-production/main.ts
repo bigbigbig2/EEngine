@@ -116,6 +116,18 @@ try {
     const dictionaryMesh = Mesh.from(geometry, replacementMaterial);
     dictionaryMesh.transform_local.position.set(100, 0, 0);
     scene.add(dictionaryMesh);
+
+    // Keep another off-screen active association with a different program so
+    // the production case exercises the SparseMicrotile classifier faults as
+    // well as the DirectSingleBin path used by the visible cube. The patched
+    // material remains registered in the initial scene, preserving the
+    // ordinary-scene material publication contract.
+    const classifierMaterial = new StandardShadeMaterial();
+    classifierMaterial.is_unlit = false;
+    classifierMaterial.diffuse_color.set(0.05, 0.05, 0.05, 1);
+    const classifierMesh = Mesh.from(geometry, classifierMaterial);
+    classifierMesh.transform_local.position.set(200, 0, 0);
+    scene.add(classifierMesh);
     await renderer.uploadScene(scene, [{ geometry, asset: cooked.asset }]);
     const camera = new PerspectiveCamera();
     camera.near = 0.05; camera.aspect = 1280 / 720;

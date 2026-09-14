@@ -11,6 +11,7 @@ export class GPUStagingBufferAllocator {
   private readonly cache: GPUBuffer[] = [];
   private readonly buffers = new Set<GPUBuffer>();
   private readonly accountingHandles = new Map<GPUBuffer, AccountingResourceHandle>();
+  private destroyed = false;
 
   constructor(
     private readonly device: GPUDevice,
@@ -24,6 +25,7 @@ export class GPUStagingBufferAllocator {
   }
 
   get(size: number): GPUBuffer {
+    if (this.destroyed) throw new Error("GPUStagingBufferAllocator is destroyed");
     const resolvedSize = Math.max(4, Math.ceil(size / 4) * 4);
     const index = this.lowerBound(resolvedSize);
     const cached = index < this.cache.length
@@ -49,6 +51,9 @@ export class GPUStagingBufferAllocator {
   }
 
   release(buffer: GPUBuffer): void {
+    // A command can finish after renderer teardown. Its asynchronous remap is
+    // no longer useful once the allocator has been destroyed.
+    if (this.destroyed) return;
     const state = buffer.mapState;
     if (state === "mapped") {
       this.insert(buffer);
@@ -58,12 +63,20 @@ export class GPUStagingBufferAllocator {
       throw new Error(`Invalid map state: ${state}`);
     }
     buffer.mapAsync(GPUMapMode.WRITE).then(
-      () => this.insert(buffer),
-      (error) => console.error(error)
+      () => {
+        if (!this.destroyed) this.insert(buffer);
+      },
+      (error) => {
+        // destroy() intentionally aborts pending mapAsync requests. That is a
+        // normal teardown path and must not surface as an uncaptured error.
+        if (!this.destroyed) console.error(error);
+      }
     );
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     for (const buffer of this.buffers) {
       buffer.destroy();
       const handle = this.accountingHandles.get(buffer);

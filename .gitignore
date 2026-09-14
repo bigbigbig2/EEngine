@@ -12,6 +12,7 @@ validation/dist
 validation/node_modules
 validation/artifacts/*
 !validation/artifacts/README.md
+validation/temp-*.png
 .grok/
 .codex-temp/
 .three.js/

@@ -85,6 +85,21 @@ export interface GpuSparseShadingPipelineDescriptor {
   readonly groups: readonly Readonly<GpuSparseShadingBindGroupDescriptor>[];
 }
 
+/**
+ * Finds material TextureBindingSets that consume at least one physical bank.
+ * Bank zero is not special: cooked routes may use any bounded bank alone.
+ */
+export function gpuSparseShadingTextureBindingSetIds(
+  pipelines: readonly Pick<GpuSparseShadingPipelineDescriptor, "groups" | "textureBindingSetId">[]
+): readonly number[] {
+  return Object.freeze([...new Set(
+    pipelines
+      .filter((pipeline) => pipeline.groups.some((group) =>
+        group.bindings.some((binding) => binding.name.startsWith("material_texture_"))))
+      .map((pipeline) => pipeline.textureBindingSetId)
+  )].sort((left, right) => left - right));
+}
+
 const FRAME_OWNER = "frame/bin/output" as const;
 const SCENE_OWNER = "scene/geometry" as const;
 const MATERIAL_OWNER = "material/TextureBindingSet" as const;

@@ -17,7 +17,10 @@ import {
   GPU_SHADING_SURFACE_LITE_PROFILE,
   type GpuShadingSurfaceLiteProfile
 } from "../../gpu/GpuComputeMaterialAbi.js";
-import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
+import {
+  TEXTURE_RESIDENCY_MAX_SIZE,
+  type TextureResidencyEvidence
+} from "../../gpu/TextureResidency.js";
 import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
 import {
   captureGpuSparseShadingCapabilityRecord,
@@ -27,7 +30,8 @@ import {
   type GpuSparseShadingCapabilityRecord
 } from "../../gpu/GpuSparseShadingCapability.js";
 import {
-  GPU_SHADING_OUTPUT_DEPENDENCY
+  GPU_SHADING_OUTPUT_DEPENDENCY,
+  gpuSparseShadingTextureBindingSetIds
 } from "../../gpu/GpuSparseShadingPipelineContract.js";
 import type { GpuShadingPublicationContext } from "../../gpu/GpuShadingPublicationPlan.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
@@ -1399,6 +1403,11 @@ export class MainRenderPipeline {
     return Object.freeze({ ...graphics, historyBytes, historyOwners });
   }
 
+  /** Read-only texture residency ledger for diagnostics and fixed captures. */
+  textureResidencyEvidence(): TextureResidencyEvidence | null {
+    return this._graphics.texture_residency_if_created?.evidence() ?? null;
+  }
+
   /** Releases either Packed input or an ordinary Scene adapter registration. */
   async releaseScene(scene: Scene): Promise<void> {
     return this.releasePackedScene(scene);
@@ -2565,12 +2574,9 @@ export class MainRenderPipeline {
             bind("sparse-texture-routes", (bindings) =>
               bindings.geometry.runtime.materialResources.textureRouteRecords)
           );
-          const activeTextureSetIds = [...new Set(
+          const activeTextureSetIds = gpuSparseShadingTextureBindingSetIds(
             sparseRevision.snapshot.pipelines
-              .filter((pipeline) => pipeline.groups.some((group) =>
-                group.bindings.some((binding) => binding.name === "material_texture_0")))
-              .map((pipeline) => pipeline.textureBindingSetId)
-          )].sort((left, right) => left - right);
+          );
           const textureBankMasks = new Map<number, number>();
           for (const pipeline of sparseRevision.snapshot.pipelines) {
             const previous = textureBankMasks.get(pipeline.textureBindingSetId) ?? 0;

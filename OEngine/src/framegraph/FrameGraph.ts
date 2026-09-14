@@ -894,36 +894,40 @@ export class FrameGraph {
         this.__resource_registry[resourceId]!.resource = binding.resolve(bindings);
       }
       for (const pass of this.__execution_order) {
-
-      for (const id of pass.resource_creates) {
-        const entry = this.getResourceEntry(id);
-        if (!entry.imported) {
-          entry.resource = rm.get(entry.resource_descriptor);
+        for (const id of pass.resource_creates) {
+          const entry = this.getResourceEntry(id);
+          if (!entry.imported) {
+            entry.resource = rm.get(entry.resource_descriptor);
+          }
         }
-      }
 
-      const resources = new PassResources(this, pass);
-      const executePass = (): void => {
-        try {
-          const data = pass.data_binding === null
-            ? pass.data
-            : pass.data_binding.resolve(bindings);
-          pass.execute(data, resources, ctx);
-        } catch (cause) {
-          const err = new Error(`RenderPass '${pass.name}' failed to execute`);
-          (err as Error & { cause?: unknown }).cause = cause;
-          throw err;
-        }
-      };
-      if (ctx.pass_cpu_profiler === undefined) executePass();
-      else ctx.pass_cpu_profiler(`FrameGraph/${pass.name}`, executePass);
+        const resources = new PassResources(this, pass);
+        const executePass = (): void => {
+          try {
+            const data = pass.data_binding === null
+              ? pass.data
+              : pass.data_binding.resolve(bindings);
+            pass.execute(data, resources, ctx);
+          } catch (cause) {
+            const detail = cause instanceof Error
+              ? `${cause.name}: ${cause.message}`
+              : String(cause);
+            const err = new Error(
+              `RenderPass '${pass.name}' failed to execute: ${detail}`
+            );
+            (err as Error & { cause?: unknown }).cause = cause;
+            throw err;
+          }
+        };
+        if (ctx.pass_cpu_profiler === undefined) executePass();
+        else ctx.pass_cpu_profiler(`FrameGraph/${pass.name}`, executePass);
 
-      for (const entry of this.__resource_registry) {
-        if (entry.last === pass && isTransientEntry(entry)) {
-          rm.release(entry.resource);
-          entry.resource = null;
+        for (const entry of this.__resource_registry) {
+          if (entry.last === pass && isTransientEntry(entry)) {
+            rm.release(entry.resource);
+            entry.resource = null;
+          }
         }
-      }
       }
     } finally {
       for (const entry of this.__resource_registry) {

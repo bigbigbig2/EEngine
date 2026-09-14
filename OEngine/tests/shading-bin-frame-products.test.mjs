@@ -80,6 +80,7 @@ test("production SpecializedShadingFrame validates one exact internal-full compo
   const domain = textureDomain("internal-full", 1920, 1080, 1);
   const frame = specializedShadingFrame({
     bins: shadingBinFrame(validFrame()),
+    status: null,
     direct: directLightingFrame({ hdr: 20, domain }),
     shading: shadingSurfaceLiteFrame({
       normal: 21,

@@ -453,8 +453,14 @@ export function specializedShadingFrame(
   if (diffuse !== null) {
     requireMatchingDomain(diffuse.domain, domain, "SpecializedShadingFrame.diffuse");
   }
-  requireResourceId(input.velocity, "SpecializedShadingFrame.velocity");
-  requireResourceId(input.status, "SpecializedShadingFrame.status");
+  if (input.velocity !== null) {
+    requireResourceId(input.velocity, "SpecializedShadingFrame.velocity");
+  }
+  if (bins === null) {
+    requireResourceId(input.status, "SpecializedShadingFrame.status");
+  } else if (input.status !== null) {
+    throw new Error("SpecializedShadingFrame.status must be null when sparse bins are present");
+  }
   return Object.freeze({ ...input, bins, direct, shading, diffuse, domain });
 }
 

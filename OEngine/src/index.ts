@@ -298,7 +298,8 @@ export {
   type ScreenSpaceReflectionsRuntimeEvidence,
   type SharedColorPyramidRuntimeEvidence,
   type SharedDerivedProductsRuntimeEvidence,
-  type TemporalRuntimeEvidence
+  type TemporalRuntimeEvidence,
+  type TextureResidencyEvidence
 } from "./render/Renderer.js";
 export {
   DEFAULT_RENDERER_CONFIG,

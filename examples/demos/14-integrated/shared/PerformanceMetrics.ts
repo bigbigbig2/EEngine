@@ -14,6 +14,10 @@ export interface ExperimentFrame {
 
 export interface Distribution { count: number; p50: number; p95: number; mean: number; max: number }
 
+export function shadingExecutionModeLabel(value: number | undefined): string {
+  return value === 1 ? "DirectSingleBin" : value === 2 ? "SparseMicrotile" : value === 0 ? "None" : "不可用";
+}
+
 export function distribution(values: readonly number[]): Distribution | null {
   const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
   if (sorted.length === 0) return null;

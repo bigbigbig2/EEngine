@@ -11,6 +11,7 @@ import {
 import {
   createGpuSparseShadingPipelineDescriptor,
   GPU_SHADING_OUTPUT_DEPENDENCY,
+  gpuSparseShadingTextureBindingSetIds,
   gpuSparseShadingBindGroupLayoutDescriptors,
   gpuSparseShadingBindingDeclarationsWgsl,
   gpuSparseShadingContractModuleWgsl,
@@ -134,6 +135,19 @@ test("material texture bank mask physically narrows declarations and changes cac
   assert.ok(!narrowNames.includes("material_texture_8"));
   const source = gpuSparseShadingBindingDeclarationsWgsl(narrow);
   assert.doesNotMatch(source, /material_texture_8/u);
+});
+
+test("texture read-set discovery keeps a set when only a non-zero bank is bound", () => {
+  const bankEight = createGpuSparseShadingPipelineDescriptor({
+    programId: GPU_SHADING_PROGRAM.UnlitTexture,
+    textureBindingSetId: 2,
+    outputDependencyMask: 0,
+    shadowSamplingEnabled: false,
+    executionMode: "direct-single-bin",
+    textureBankMask: 1 << 8,
+    capability
+  });
+  assert.deepEqual(gpuSparseShadingTextureBindingSetIds([bankEight]), [2]);
 });
 
 test("widest PbrGeneric specialization stays within the frozen four-group ceiling", () => {

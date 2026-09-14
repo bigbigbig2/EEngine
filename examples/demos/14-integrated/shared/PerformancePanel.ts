@@ -1,5 +1,5 @@
 import type { OrbitControls, PerspectiveCamera, Renderer } from "../../../../OEngine/src/index.ts";
-import { distribution, frameSeries, gpuRows, sparseRatios, type Distribution, type ExperimentFrame } from "./PerformanceMetrics.ts";
+import { distribution, frameSeries, gpuRows, shadingExecutionModeLabel, sparseRatios, type Distribution, type ExperimentFrame } from "./PerformanceMetrics.ts";
 
 interface PanelOptions {
   renderer: Renderer;
@@ -22,6 +22,7 @@ interface Capture {
   diagnostics: Renderer["profiler"]["diagnostics"];
   graph: ReturnType<Renderer["mainFrameGraphEvidence"]>;
   memory: ReturnType<Renderer["memoryEvidence"]>;
+  textureResidency?: ReturnType<Renderer["textureResidencyEvidence"]>;
   completion: "completed" | "interrupted";
   warnings: string[];
   summary: { gpu: Distribution | null; cpu: Distribution | null; raf: Distribution | null; phases: Record<string, Distribution>; passes: Record<string, Distribution> };
@@ -214,6 +215,7 @@ export class PerformancePanel {
       conditions: this.captureConditions!, warmupSeconds: this.warmupSeconds, sampleSeconds: this.sampleSeconds,
       actualSampleSeconds: (this.sampleEndedAt - this.sampleStartedAt) / 1000,
       frames, diagnostics, graph: this.options.renderer.mainFrameGraphEvidence(), memory: this.options.renderer.memoryEvidence(),
+      textureResidency: this.options.renderer.textureResidencyEvidence(),
       completion: this.interrupted ? "interrupted" : "completed", warnings,
       summary: { gpu: distribution(frameSeries(frames, "gpu")), cpu: distribution(frameSeries(frames, "cpu")), raf: distribution(frameSeries(frames, "raf")), phases: Object.fromEntries(gpuRows(frames, "phase")), passes: Object.fromEntries(gpuRows(frames, "pass")) }
     };
@@ -313,10 +315,15 @@ export class PerformancePanel {
     const values = counterFrame?.gpuCounters.values ?? {};
     const ratios = counterFrame ? sparseRatios(counterFrame) : null;
     const bpp = counterFrame?.counters["sparseShading.surfaceBytesPerPixel"] ?? latest?.counters["sparseShading.surfaceBytesPerPixel"];
+    const executionMode = counterFrame?.counters["sparseShading.executionMode"] ?? latest?.counters["sparseShading.executionMode"];
+    const activeBins = counterFrame?.counters["sparseShading.activeBins"] ?? latest?.counters["sparseShading.activeBins"];
+    const internalPixels = counterFrame?.counters["sparseShading.internalPixels"] ?? latest?.counters["sparseShading.internalPixels"];
     this.view("sparse", keyValues([
       ["Counter 来源帧", counterFrame ? `#${counterFrame.frameIndex}` : "尚未完成 / 未采样"],
-      ["场景 bin / 本帧非零 bin", `${num(counterFrame?.counters["sparseShading.activeBins"])} / ${num(values.shadingBinIndirectNonzeroWords)}`],
-      ["有效可见像素 P", num(values.geometryVisiblePixels)], ["Tile records R / Workgroups W", `${num(values.shadingBinWritten)} / ${num(values.shadingBinIndirectWorkgroups)}`],
+      ["Execution mode", shadingExecutionModeLabel(executionMode)],
+      ["场景 bin / 本帧非零 bin", `${num(activeBins)} / ${num(values.shadingBinIndirectNonzeroWords)}`],
+      ["有效可见像素 P / 内部像素 N", `${num(values.geometryVisiblePixels)} / ${num(internalPixels)}`],
+      ["Tile records R / Workgroups W", `${num(values.shadingBinWritten)} / ${num(values.shadingBinIndirectWorkgroups)}`],
       ["Invocations 64×W", ratios ? num(ratios.invocations) : "不可用"], ["总 invocation 放大 64×W/P", ratios ? `${ratios.amplification.toFixed(3)}×` : "不可用（待采样或队列异常）"],
       ["Dispatch 补齐 W/R", ratios ? `${ratios.padding.toFixed(3)}×` : "不可用"],
       ["前景覆盖率", ratios ? `${(ratios.pixels / (condition.internalExtent[0] * condition.internalExtent[1]) * 100).toFixed(2)}%` : "不可用"],
@@ -336,8 +343,24 @@ export class PerformancePanel {
       ["Graph cache hits / misses", `${num(latest?.graph?.cacheHits)} / ${num(latest?.graph?.cacheMisses)}`]
     ]));
     const memory = this.result?.memory ?? this.options.renderer.memoryEvidence();
+    const textureResidency = this.result
+      ? this.result.textureResidency
+      : this.options.renderer.textureResidencyEvidence();
     const diagnostics = this.result?.diagnostics ?? this.options.renderer.profiler.diagnostics;
-    this.view("resources", `<p class="lab-note">Owner 字节核算，不是物理显存利用率。</p><pre>${escapeHtml(JSON.stringify({ memory, diagnostics }, null, 2))}</pre>`);
+    const textureSummary = textureResidency == null
+      ? '<p class="lab-note">TextureResidency 尚未创建或旧导出未包含 ledger。</p>'
+      : keyValues([
+          ["Logical resident bytes", bytes(textureResidency.logicalResidentBytes)],
+          ["Resident payload bytes", bytes(textureResidency.residentTextureBytes)],
+          ["Physical allocated bytes", bytes(textureResidency.physicalAllocatedBytes)],
+          ["Allocated bytes", bytes(textureResidency.allocatedBytes)],
+          ["Resident / retiring textures", `${num(textureResidency.residentTextureCount)} / ${num(textureResidency.retiringTextureCount)}`],
+          ["Segments", num(textureResidency.segmentCount)],
+          ["Binding sets", num(textureResidency.bindingSetCount)],
+          ["Uncompressed fallbacks", num(textureResidency.uncompressedFallbackCount)],
+          ["Binding preflight failures", num(textureResidency.bindingSetPreflightFailures)]
+        ]) + textureLedgerTable(textureResidency.textureLedger);
+    this.view("resources", `<p class="lab-note">Owner 字节核算，不是物理显存利用率。</p><h4>Texture residency</h4>${textureSummary}<details><summary>完整 memory / diagnostics JSON</summary><pre>${escapeHtml(JSON.stringify({ memory, diagnostics }, null, 2))}</pre></details>`);
     this.view("counters", keyValues(Object.entries(values).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, num(value)])));
     this.paintComparison();
     for (const button of this.root.querySelectorAll<HTMLButtonElement>("[data-action]")) {
@@ -434,6 +457,12 @@ function card(label: string, stats: Distribution | null, unit: string, extra?: s
   return `<div><small>${label}</small><strong>${stats ? stats.p50.toFixed(2) : "—"}<span> ${unit}</span></strong><small>${extra ?? (stats ? `P95 ${stats.p95.toFixed(2)} · N ${stats.count}` : "不可用 / 待采样")}</small></div>`;
 }
 function keyValues(rows: [string, string][]): string { return `<dl>${rows.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>`; }
+function textureLedgerTable(entries: readonly { assetIdentity: string; state: string; format: string; sourceWidth: number; sourceHeight: number; gpuWidth: number; gpuHeight: number; mipLevelCount: number; logicalBytes: number; residentBytes: number; allocatedBytes: number }[]): string {
+  if (entries.length === 0) return '<p class="lab-note">没有逐纹理 resident/retiring 条目。</p>';
+  return '<details><summary>逐纹理 textureLedger</summary><table><thead><tr><th>Asset</th><th>State / format</th><th>Source → GPU</th><th>Mips</th><th>Logical</th><th>Resident</th><th>Allocated</th></tr></thead><tbody>' +
+    entries.map((entry) => `<tr><td title="${escapeHtml(entry.assetIdentity)}">${escapeHtml(entry.assetIdentity)}</td><td>${escapeHtml(entry.state)} / ${escapeHtml(entry.format)}</td><td>${entry.sourceWidth}×${entry.sourceHeight} → ${entry.gpuWidth}×${entry.gpuHeight}</td><td>${entry.mipLevelCount}</td><td>${bytes(entry.logicalBytes)}</td><td>${bytes(entry.residentBytes)}</td><td>${bytes(entry.allocatedBytes)}</td></tr>`).join("") +
+    '</tbody></table></details>';
+}
 function escapeHtml(value: string): string { return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]!)); }
 function num(value: number | undefined): string { return value === undefined ? "不可用" : value.toLocaleString("en-US"); }
 function bytes(value: number | undefined): string { return value === undefined ? "不可用" : `${(value / 1048576).toFixed(2)} MiB`; }

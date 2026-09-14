@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { distribution, frameSeries, gpuRows, sparseRatios } from "../demos/14-integrated/shared/PerformanceMetrics.ts";
+import { distribution, frameSeries, gpuRows, shadingExecutionModeLabel, sparseRatios } from "../demos/14-integrated/shared/PerformanceMetrics.ts";
 
 function frame(index, segments, counters = {}) {
   return {
@@ -46,4 +46,11 @@ test("amplification uses complete same-frame queue evidence and includes dispatc
   assert.equal(sparseRatios(sample), null);
   delete values.shadingBinErrors;
   assert.equal(sparseRatios(sample), null);
+});
+
+test("execution mode labels preserve the three publication states", () => {
+  assert.equal(shadingExecutionModeLabel(0), "None");
+  assert.equal(shadingExecutionModeLabel(1), "DirectSingleBin");
+  assert.equal(shadingExecutionModeLabel(2), "SparseMicrotile");
+  assert.equal(shadingExecutionModeLabel(undefined), "不可用");
 });

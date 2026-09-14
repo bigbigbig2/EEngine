@@ -131,7 +131,9 @@ function snapshot(kind, outputDependencyMask, options = {}) {
         hasOrmTexture: false,
         hasNormalTexture: false,
         hasEmissiveTexture: false,
-        textureBindingSetId: textured || (pipelineCount > 1 && id > 0) ? 2 : 0
+        textureBindingSetId: textured
+          ? (pipelineCount > 1 && id > 0 ? 3 : 2)
+          : (pipelineCount > 1 && id > 0 ? 2 : 0)
       },
       generation: 3 + id,
       textureGeneration: 4 + id
@@ -385,7 +387,7 @@ test("static feature matrix prunes no-opaque, unlit, textureless and optional ou
   assert.deepEqual(emptyPlan.resources, []);
   assert.equal(emptyPlan.memory.totalBytes, 0);
 
-  const unlit = snapshot("unlit", 0).snapshot;
+  const unlit = snapshot("unlit", 0, { pipelineCount: 2 }).snapshot;
   const unlitPlan = createSparseShadingCandidatePlan(unlit, {
     ...OFF,
     screenSpaceDiffuseMode: "ssgi",
@@ -426,7 +428,7 @@ test("SSGI, temporal and diagnostics add only demanded resources, histories and 
   const mask = GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
     GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite |
     GPU_SHADING_OUTPUT_DEPENDENCY.Velocity;
-  const { snapshot: value } = snapshot("textured", mask, { width: 641, height: 359 });
+  const { snapshot: value } = snapshot("textured", mask, { width: 641, height: 359, pipelineCount: 2 });
   const plan = createSparseShadingCandidatePlan(value, {
     ...OFF,
     screenSpaceDiffuseMode: "ssgi",
@@ -526,7 +528,8 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
     const mask = GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
       GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
     const { snapshot: value } = snapshot("textured", mask, {
-      shadowSamplingEnabled: true
+      shadowSamplingEnabled: true,
+      pipelineCount: 2
     });
     const features = {
       ...OFF,
@@ -574,6 +577,7 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
           commands.add(command);
         }
       },
+      directStatus: null,
       createBinBindings(frame, resources) {
         bindingFactoryResources.push(resources.get(frame.shadingBinId));
         return {
@@ -587,6 +591,7 @@ test("FrameGraph recipe exposes explicit producer edges and executes on one shar
       resolve: {
         publicationRevision: value.revision,
         activeBinIds: value.pipelines.map((pipeline) => pipeline.binId),
+        executionMode: value.executionMode,
         encode(command) {
           stages.push("bin-resolve");
           commands.add(command);
@@ -738,7 +743,7 @@ test("candidate expands production downstream owners as real multi-pass subgraph
   try {
     const mask = GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
       GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
-    const { snapshot: value } = snapshot("textured", mask);
+    const { snapshot: value } = snapshot("textured", mask, { pipelineCount: 2 });
     const graph = new FrameGraph("ADR-0013 expanded downstream");
     const imported = (name) => graph.import_resource(name, { kind: "imported" }, { name });
     const presentation = imported("presentation");
@@ -806,7 +811,7 @@ test("HDR capture usage is absent when the validation capture boundary is absent
     MAP_READ: 32
   };
   try {
-    const { snapshot: value } = snapshot("unlit", 0);
+    const { snapshot: value } = snapshot("unlit", 0, { pipelineCount: 2 });
     const graph = new FrameGraph("ADR-0013 production usage closure");
     const imported = (name) => graph.import_resource(name, { kind: "imported" }, { name });
     const frame = addSparseShadingCandidateToGraph(graph, value, OFF, {

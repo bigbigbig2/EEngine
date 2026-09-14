@@ -91,7 +91,9 @@ const preserveConsumerAssetUrls = {
       return code.replace(avifWasmUrlSource, avifWasmUrlPlaceholder);
     }
     if (id.endsWith("/assets/codec/Ktx2BasisCodec.ts")) {
-      const code = readFileSync(id, "utf8");
+      // The repository may keep this source as CRLF on Windows, while the
+      // contract literal is intentionally written with normalized LF.
+      const code = readFileSync(id, "utf8").replace(/\r\n/g, "\n");
       if (!code.includes(ktxWasmUrlSource)) {
         throw new Error("libktx_read.wasm URL contract not found");
       }

@@ -487,7 +487,7 @@ test("ADR-0013 production raster has one dual-MRT pipeline with no single-target
     depth: {}
   };
   const raster = new MeshletBucketRaster(graphics);
-  raster.encodeRaster(encoder, inputs, "portable");
+  raster.encodeRaster(encoder, inputs, "sparse-microtile", "portable");
 
   assert.equal(renderPasses.length, 1);
   assert.equal(renderPasses[0].colorAttachments.length, 2);

@@ -40,6 +40,7 @@ export type {
   TemporalRuntimeEvidence,
   VisibilitySurfaceMigrationEvidence
 } from "./pipeline/MainRenderPipeline.js";
+export type { TextureResidencyEvidence } from "../gpu/TextureResidency.js";
 
 export class Renderer extends MainRenderPipeline {
   /** Present only when the development Debug UI was explicitly enabled. */
