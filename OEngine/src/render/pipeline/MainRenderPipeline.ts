@@ -2417,13 +2417,13 @@ export class MainRenderPipeline {
           environmentRes = graph.import_resource(
             "Ch/sec_radix_passes",
             { kind: "imported", label: "rgba16float environment" },
-            bind("environment", (bindings) => bindings.environment.lights.environment.gpu_texture)
+            bind("environment", (bindings) => bindings.environment.lights.environment)
           );
           diffuseIrradianceRes = graph.import_resource(
             "FX-03/diffuse irradiance",
             { kind: "imported", label: "rgba16float diffuse irradiance" },
             bind("diffuse-irradiance", (bindings) =>
-              bindings.environment.lights.diffuseIrradiance.gpu_texture)
+              bindings.environment.lights.diffuseIrradiance)
           );
           shadowAtlasRes = graphTopology.shadows
             ? graph.import_resource(

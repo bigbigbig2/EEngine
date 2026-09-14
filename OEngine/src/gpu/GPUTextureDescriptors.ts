@@ -160,7 +160,17 @@ export function createNativeTexture(
   device: GPUDevice,
   descriptor: GPUTextureDescriptor | id
 ): GPUTexture {
-  return device.createTexture(nativeTextureDescriptor(descriptor));
+  const native = nativeTextureDescriptor(descriptor);
+  return device.createTexture({
+    label: native.label,
+    size: [native.size[0], native.size[1], native.size[2]],
+    mipLevelCount: native.mipLevelCount,
+    sampleCount: native.sampleCount,
+    dimension: native.dimension,
+    format: native.format,
+    usage: native.usage,
+    viewFormats: native.viewFormats.slice()
+  });
 }
 
 export function createNativeTextureView(
