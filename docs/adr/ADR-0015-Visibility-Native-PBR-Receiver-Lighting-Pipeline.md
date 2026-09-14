@@ -10,7 +10,7 @@
 
 ## 三阶段执行状态
 
-本 ADR 按三个有依赖关系的阶段实施。每个阶段都先完成代码合同和轻量自动检查，再用两个 Rendering Lab 做固定机位手动对照；阶段门槛不满足时停在当前阶段，不把后续重构叠加到未解释的 GPU 成本上。表中的“当前状态”只描述实现和静态检查进度，不等同于 Runtime Validated、Performance Evaluated 或 ADR Complete。
+本 ADR **只按三个有依赖关系的阶段实施**，不再拆出第四阶段或并行维护另一条主管线。每个阶段固定包含四个实施步骤；步骤必须按表中顺序完成，阶段门槛不满足时停在当前阶段，不把后续重构叠加到未解释的 GPU 成本上。每个阶段都先完成代码合同和轻量自动检查，再用两个 Rendering Lab 做固定机位手动对照。表中的“当前状态”只描述实现和静态检查进度，不等同于 Runtime Validated、Performance Evaluated 或 ADR Complete。
 
 | 阶段 | 当前状态 | 可交付结果 | 允许进入下一阶段的条件 |
 | --- | --- | --- | --- |
@@ -21,6 +21,18 @@
 实现可以在阶段门槛完成前提前落地静态 ABI 或测试 fixture，但这不改变阶段顺序：后续阶段不得继续扩大默认生产路径，直到前一阶段的 live graph、GPU 时间、计数器和画面语义证据齐全。若当前工作树已经包含后续阶段代码，则按本 ADR 的门槛补齐证据；未通过前只能标记为 implementation complete。
 
 阶段二的“已完成”只表示静态 ABI、FrameGraph 闭包和自动检查完成，不表示浏览器 Runtime Validated、Performance Improved 或 ADR Complete。后续提交按“阶段代码合同 -> 轻量检查 -> 手动记录”的顺序组织，阶段三不得与阶段一、二的未解释长尾同时修改。
+
+### 三阶段重构顺序
+
+下面是实际执行顺序。每一行对应阶段内的一次可审查变更；同一阶段的下一步只能消费上一步已经冻结的合同和证据。
+
+| 阶段 | 步骤 1：先建立的合同 | 步骤 2：主重构 | 步骤 3：收窄与核对 | 步骤 4：清理与阶段门 |
+| --- | --- | --- | --- | --- |
+| 一、Demand-driven 基础光照融合 | 固定 `OpaqueShadingDemand`、基线导出和 live graph；确认哪些 consumer 真正需要 HDR、Surface、velocity、indirect components | 将 direct lighting、基础 Environment IBL、材质求值放入同一 receiver，保持 PBR 数学、颜色空间和 pre-exposure 语义 | 让 Surface/provider/opaque resolve、velocity 和 debug 产品只由真实下游 consumer 物化，并同步 FrameGraph read set | 删除 effects-off 的无消费者往返，保留高级效果开启时的真实产品；用两示例远/中/近导出决定是否进入阶段二 |
+| 二、`None / DirectSingleBin / SparseMicrotile` 调度 | 从 immutable publication 冻结 0/1/>1 bin mode、generation 和 cache key | 单 bin 使用固定 8×8 GPU consumer 与轻量 status；多 bin 保留 classifier、bounded heap、finalizer、indirect 的 GPU 闭环 | 按 mode 收窄 Visibility MRT、clear、read set、材质 binding 和 residency；补齐 resize、association patch、invalid/overflow 语义 | 清理单 bin 不需要的队列和 attachment；单/多 bin 同条件对照，若 receiver/总 GPU 变差则删除慢实验而保留正确性合同 |
+| 三、Receiver 热路径与纹理驻留 | 冻结生成 WGSL、bind layout、材质 signature 和 texture ledger，确认真实主导成本 | 只修改 audit 证明仍执行的 velocity、packed decode、材质字段、采样 bank 或 setup 工作 | 核对纹理 source/decoded 尺寸、格式、mip、logical/resident/allocated bytes；沿现有 GPU-native/KTX2/BC 路径处理驻留 | 仅在 setup 仍主导时做有界复用 off/on；无稳定收益就删除实验，并把 HZB/Final Output/提交长尾转独立问题 |
+
+阶段交接产物固定为：阶段一 `demand snapshot + effects-off/advanced-on graph`，阶段二 `mode/MRT/read-set + single/multi-bin 导出`，阶段三 `WGSL audit + texture ledger + receiver/setup off-on 导出`。缺少对应产物时，阶段在文档中保持 open，不以代码已合并或 Pass 数减少替代阶段完成。
 
 ## Context
 
