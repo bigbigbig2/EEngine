@@ -14,7 +14,7 @@ scene-update
   → HDR post + present
 ```
 
-上图描述当前主图的产品顺序，不等同于 ADR-0015 的目标状态。当前 `MainRenderPipeline` 在 opaque-lit receiver 存在时仍可能建立 `SurfaceLite`、long-range provider 和 `OpaqueLightingResolve`；`ShadingBinPass` 也仍是默认的分类/队列入口。ADR-0015 的三个阶段会把这些节点改为由真实 consumer demand 和 `0 / 1 / >1` bin mode 决定，完成前不能把融合或单 bin 直调写成当前能力。
+上图描述当前主图的产品顺序，不等同于 ADR-0015 的目标状态。当前 revision 已由 publication demand 裁剪无消费者的 Surface 输出；无 GTAO/SSGI/SSR 的 lit receiver 还会在 sparse kernel 内读取 prepared IBL。`ShadingBinPass` 仍是默认的分类/队列入口，单 bin 直调与 visibility attachment 收窄属于阶段二，浏览器和 GPU 时间证据完成前不能把阶段一切片写成已证明的性能收益。
 
 `FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。Shadow atlas/light-record producer 已进入 `main-view-graph`，通过显式资源版本边连接 cluster 与 sparse lit resolve，不再用一个空的跨图 `shadow-update` stage 代替真实 GPU 依赖。旧对象 runtime 驱动的 probe-atlas 更新已经删除；现有 LPV atlas 是只读采样资源，不会生成独立更新图或 submit。
 
@@ -40,7 +40,7 @@ Hardware Visibility 使用 reverse-Z depth，并由同一个胜出 fragment 同�
 
 Geometry consumer 通过共享 byte-addressed decode ABI 读取 `static-pbr-compact-v2`：AABB-relative UNORM16 position、oct SNORM16 normal、SNORM16 tangent、float16 UV 与 UNORM8 color。`GpuAssetStore` 在同一 resident/release command transaction 内把 geometry/meshlet/generation 与 meshlet-vertex/triangle/vertex-data 分别发布为 versioned `asset-metadata-heap`、`vertex-payload-heap`；五段 GPU copy 后的 word base、count、byte size 与 heap epoch 是正式 binding 数据，release 先发布下一 generation，abort 恢复旧 heap identity，旧 heap 等 submitted work 完成后销毁。派生 heap 的 resident/allocated/retiring bytes 纳入资产证据，不能当作零成本 alias。Meshlet/cluster bounds 必须包含 quantization 误差；Visibility、Shadow、Shading Resolve 与 Transparency 不得各自复制或猜测 decode 规则。
 
-ADR-0013 Step 7.2 已冻结 production resolve binding：`GpuSparseShadingFrameAbi` 以 240 B uniform 原子携带 internal extent、material/texture/publication generation、资产 heap word bases、frame/PreExposure/upscale、camera 与 current/previous VP；reserved scene-global geometry generation 必须写零，真实 generation 只从 Instance V6 与资产逐 slot table 核对。当前 lit specialization 直接读取现有分页 `LightDatabase`，沿用生产 32×32×24 cluster、Filament BRDF、5×5 optimized shadow gather、directional CSM blend、point contact-hardening 与 spot shadow 语义；基础环境光仍由后继 long-range GI/opaque lighting owner 组合。ADR-0015 阶段一才会把无复杂间接光 consumer 的 IBL 移入 receiver，并同步删除无消费者的 provider/resolve；在实现完成前，不应把该目标写成当前图事实。
+ADR-0013 Step 7.2 已冻结 production resolve binding：`GpuSparseShadingFrameAbi` 以 240 B uniform 原子携带 internal extent、material/texture/publication generation、资产 heap word bases、frame/PreExposure/upscale、camera 与 current/previous VP；reserved scene-global geometry generation 必须写零，真实 generation 只从 Instance V6 与资产逐 slot table 核对。当前 lit specialization 直接读取现有分页 `LightDatabase`，沿用生产 32×32×24 cluster、Filament BRDF、5×5 optimized shadow gather、directional CSM blend、point contact-hardening 与 spot shadow 语义；无复杂间接光 consumer 时的基础 IBL 已切入 receiver specialization，GTAO/SSGI/SSR 场景仍由后继 long-range GI/opaque lighting owner 组合。阶段一的 live graph 和画面/时间证据仍未完成，不应把该切片写成 ADR 完成。
 
 `SurfaceFeature` 消费正式 Visibility/ExactRaster 产品：
 

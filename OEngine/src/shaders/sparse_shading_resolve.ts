@@ -30,6 +30,8 @@ import {
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js";
 import { createProductionSparseDirectLightingWgsl } from "./lighting_direct.js";
+import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
+import { SPECULAR_AMBIENT_OCCLUSION_WGSL } from "./specular_ambient_occlusion.js";
 
 export const GPU_SPARSE_SHADING_DIAGNOSTIC_WORDS = 4;
 export const GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG = Object.freeze({
@@ -99,7 +101,10 @@ export function createSparseShadingShaderVariant(
     identityWgsl(descriptor, diagnostics),
     specialization.reconstructTriangle ? geometryWgsl() : "",
     usesTextures ? textureWgsl() : "",
-    specialization.lit ? lightingWgsl(descriptor.shadowSamplingEnabled) : "",
+    specialization.lit ? lightingWgsl(
+      descriptor.shadowSamplingEnabled,
+      (descriptor.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0
+    ) : "",
     materialEvaluationWgsl(descriptor),
     outputWgsl(descriptor),
     consumerWgsl(descriptor, diagnostics)
@@ -211,10 +216,18 @@ function frameBindingsWgsl(
       "@group(3) @binding(1) var<storage, read> cluster_lookup: array<ClusterMetadata>;",
       "@group(3) @binding(2) var<storage, read> cluster_data: ClusterData;",
       "@group(3) @binding(3) var<uniform> cluster_parameters: vec3f;",
+      ...(names.has("environment_diffuse")
+        ? ["@group(3) @binding(4) var environment_diffuse: texture_2d<f32>;"] : []),
+      ...(names.has("environment_specular")
+        ? ["@group(3) @binding(5) var environment_specular: texture_2d<f32>;"] : []),
+      ...(names.has("split_sum")
+        ? ["@group(3) @binding(6) var split_sum: texture_2d<f32>;"] : []),
+      ...(names.has("environment_sampler")
+        ? ["@group(3) @binding(7) var environment_sampler: sampler;"] : []),
       ...(names.has("shadow_atlas")
-        ? ["@group(3) @binding(4) var pass_descriptor: texture_depth_2d;"] : []),
+        ? [`@group(3) @binding(${names.has("environment_diffuse") ? 8 : 4}) var pass_descriptor: texture_depth_2d;`] : []),
       ...(names.has("shadow_sampler")
-        ? ["@group(3) @binding(5) var u_int: sampler_comparison;"] : [])
+        ? [`@group(3) @binding(${names.has("environment_diffuse") ? 9 : 5}) var u_int: sampler_comparison;`] : [])
     ] : []),
     ...(diagnostics ? [
       "struct OEngineSparseShadingDiagnostics { flags: atomic<u32>, shaded: atomic<u32>, duplicate: atomic<u32>, unassigned: atomic<u32>, }",
@@ -386,9 +399,14 @@ fn sparse_sampler(material: OEngineShadingMaterialRecord, slot: u32) -> u32 { if
 `;
 }
 
-function lightingWgsl(shadowSamplingEnabled: boolean): string {
+function lightingWgsl(
+  shadowSamplingEnabled: boolean,
+  environmentIblEnabled: boolean
+): string {
   return /* wgsl */ `
 ${createProductionSparseDirectLightingWgsl(shadowSamplingEnabled)}
+${environmentIblEnabled ? `${OCTAHEDRAL_SAMPLE_WGSL}
+${SPECULAR_AMBIENT_OCCLUSION_WGSL}` : ""}
 fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
   if (oengine_surface_has_flag(surface.flags, OENGINE_SURFACE_FLAG_UNLIT)) {
     return surface.emissive;
@@ -411,12 +429,48 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
     vec3u(pixel, shading_view.frame_index),
     vec3u(0xEE6B2807u, 7u, 0xD0974829u)
   );
-  return shade_standard_material_direct(
+  let direct = shade_standard_material_direct(
     material,
     geometry,
     vec2f(pixel) + vec2f(0.5),
     surface.view_depth
   );
+  ${environmentIblEnabled ? `
+  let no_v = clamp(dot(surface.shading_normal, geometry.view_direction), 0.0, 1.0);
+  let dfg = textureSampleLevel(
+    split_sum,
+    environment_sampler,
+    vec2f(no_v, material.roughness),
+    0.0
+  ).rg;
+  let specular_direction = normalize(mix(
+    reflect(-geometry.view_direction, surface.shading_normal),
+    surface.shading_normal,
+    material.roughness * material.roughness
+  ));
+  let radiance = sample_prefiltered_environment(
+    environment_specular,
+    specular_direction,
+    material.roughness
+  );
+  let irradiance = sample_prefiltered_environment(
+    environment_diffuse,
+    surface.shading_normal,
+    0.0
+  );
+  let directional_albedo = material.specularF0 * dfg.x + material.specularF90 * dfg.y;
+  let energy = clamp(vec3f(1.0) - directional_albedo, vec3f(0.0), vec3f(1.0));
+  let specular_ao = oengine_specular_ao_cones(
+    specular_direction,
+    surface.shading_normal,
+    material.occlusion,
+    material.roughness
+  );
+  let environment_specular_contribution = radiance * directional_albedo * specular_ao;
+  let environment_diffuse_contribution = irradiance * material.diffuse *
+    energy * ${1 / Math.PI} * material.occlusion;
+  return direct + environment_specular_contribution + environment_diffuse_contribution;` : `
+  return direct;`}
 }
 `;
 }

@@ -15,6 +15,7 @@ import {
   packGpuSparseShadingView
 } from "../../gpu/GpuSparseShadingFrameAbi.js";
 import {
+  LINEAR_CLAMP_SAMPLER_DESCRIPTOR,
   SHADOW_COMPARISON_SAMPLER_DESCRIPTOR
 } from "../../gpu/GPUSamplerCache.js";
 import type { LightClusterOutputs } from "../passes/LightClusterPass.js";
@@ -63,6 +64,9 @@ export interface SurfaceFeatureInputs {
   readonly lightDatabase: ResourceId | null;
   readonly clusters: LightClusterOutputs | null;
   readonly shadowAtlas: ResourceId | null;
+  readonly environment: ResourceId | null;
+  readonly diffuseIrradiance: ResourceId | null;
+  readonly splitSum: ResourceId | null;
 }
 
 /**
@@ -123,6 +127,15 @@ export class SurfaceFeature {
     if (snapshot.context.shadowSamplingEnabled !== (inputs.shadowAtlas !== null)) {
       throw new Error("Sparse shading shadow specialization does not match its atlas input");
     }
+    const environmentIbl = (snapshot.context.outputDependencyMask &
+      GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0;
+    if (environmentIbl && (
+      inputs.environment === null ||
+      inputs.diffuseIrradiance === null ||
+      inputs.splitSum === null
+    )) {
+      throw new Error("Sparse shading environment IBL specialization is missing its resources");
+    }
 
     this.viewBuffer ??= this.graphics.device.createBuffer({
       label: "ADR-0013 production sparse shading view",
@@ -147,6 +160,8 @@ export class SurfaceFeature {
             ));
           } else if (binding.name === "shadow_sampler") {
             samplers.set(binding.name, this.graphics.samplers.obtain(SHADOW_COMPARISON_SAMPLER_DESCRIPTOR));
+          } else if (binding.name === "environment_sampler") {
+            samplers.set(binding.name, this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR));
           }
         }
       }
@@ -327,7 +342,10 @@ export class SurfaceFeature {
             output_albedo_ao: outputs.albedoAo,
             output_material: outputs.material,
             output_velocity: outputs.velocity,
-            shadow_atlas: inputs.shadowAtlas
+            shadow_atlas: inputs.shadowAtlas,
+            environment_diffuse: inputs.diffuseIrradiance,
+            environment_specular: inputs.environment,
+            split_sum: inputs.splitSum
           };
           if (name in textures) {
             const id = textures[name];
@@ -355,6 +373,11 @@ export class SurfaceFeature {
           if (name === "shadow_sampler") {
             const sampler = samplers.get(name);
             if (sampler === undefined) throw new Error("Sparse shading shadow sampler is absent");
+            return sampler;
+          }
+          if (name === "environment_sampler") {
+            const sampler = samplers.get(name);
+            if (sampler === undefined) throw new Error("Sparse shading environment sampler is absent");
             return sampler;
           }
           throw new Error(`Unknown sparse shading production binding '${name}'`);
@@ -425,6 +448,11 @@ export class SurfaceFeature {
       resolve.read(inputs.clusters!.lookup);
       resolve.read(inputs.clusters!.data);
       resolve.read(inputs.clusters!.parameters);
+    }
+    if (environmentIbl) {
+      resolve.read(inputs.environment!);
+      resolve.read(inputs.diffuseIrradiance!);
+      resolve.read(inputs.splitSum!);
     }
     if (inputs.shadowAtlas !== null) resolve.read(inputs.shadowAtlas);
     outputs.hdr = resolve.write(outputs.hdr);

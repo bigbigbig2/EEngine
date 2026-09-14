@@ -92,7 +92,7 @@ test("pipeline cache identity changes for every compiled dimension and ignores r
   assert.equal(base.cacheKey, withNoise.cacheKey);
   assert.equal(base.binId, GPU_SHADING_PROGRAM.PbrGeneric);
   assert.throws(() => descriptor(GPU_SHADING_PROGRAM.UnlitFactor, 1, 0), /Textureless/u);
-  assert.throws(() => descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 8), /reserved bits/u);
+  assert.throws(() => descriptor(GPU_SHADING_PROGRAM.PbrGeneric, 0, 16), /reserved bits/u);
 });
 
 test("shadow-off lit specialization physically omits atlas and comparison sampler", () => {
@@ -172,6 +172,29 @@ test("direct-only lighting group uses native production inputs and no dead envir
   assert.ok(!names(value).some((name) => name.startsWith("environment_")));
 });
 
+test("environment IBL specialization owns prepared textures and preserves shadow bindings", () => {
+  const value = descriptor(
+    GPU_SHADING_PROGRAM.PbrGeneric,
+    3,
+    GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL
+  );
+  assert.deepEqual(value.groups[3].bindings.map(({ binding, name }) => [binding, name]), [
+    [0, "light_database"],
+    [1, "light_cluster_lookup"],
+    [2, "light_cluster_data"],
+    [3, "light_cluster_parameters"],
+    [4, "environment_diffuse"],
+    [5, "environment_specular"],
+    [6, "split_sum"],
+    [7, "environment_sampler"],
+    [8, "shadow_atlas"],
+    [9, "shadow_sampler"]
+  ]);
+  const budget = gpuSparseShadingPipelineBindingBudget(value, bindingLimits);
+  assert.equal(budget.totals.sampledTextures, 16);
+  assert.equal(budget.totals.samplers, 8);
+});
+
 test("all concrete program, set and output specializations derive legal budgets", () => {
   let variants = 0;
   for (let programId = 0; programId < 16; programId++) {
@@ -248,6 +271,11 @@ test("output dependency bits add only their exact storage outputs", () => {
     0,
     GPU_SHADING_OUTPUT_DEPENDENCY.Velocity
   ));
+  const environment = names(descriptor(
+    GPU_SHADING_PROGRAM.PbrGeneric,
+    0,
+    GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL
+  ));
   assert.ok(colorOnly.includes("output_hdr"));
   assert.ok(!colorOnly.includes("output_normal"));
   assert.ok(shading.includes("output_normal"));
@@ -259,6 +287,10 @@ test("output dependency bits add only their exact storage outputs", () => {
   assert.ok(diffuse.includes("output_material"));
   assert.ok(velocity.includes("output_velocity"));
   assert.ok(!velocity.includes("output_normal"));
+  assert.ok(environment.includes("environment_diffuse"));
+  assert.ok(environment.includes("environment_specular"));
+  assert.ok(environment.includes("split_sum"));
+  assert.ok(!environment.includes("output_normal"));
 });
 
 test("binding schema, generated WGSL and BGL descriptors agree on every binding", () => {

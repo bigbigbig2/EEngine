@@ -192,6 +192,23 @@ test("lit programs fuse BRDF, cluster traversal and shadow comparison in their s
   assert.doesNotMatch(unlit, /cluster_lookup|textureGatherCompare|fn re_direct_physical/u);
 });
 
+test("environment IBL specialization fuses prepared diffuse, specular and DFG sampling", () => {
+  const source = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrGeneric,
+    GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL,
+    3
+  )).source;
+  assert.match(source, /@group\(3\) @binding\(4\) var environment_diffuse/u);
+  assert.match(source, /@group\(3\) @binding\(5\) var environment_specular/u);
+  assert.match(source, /@group\(3\) @binding\(6\) var split_sum/u);
+  assert.match(source, /@group\(3\) @binding\(7\) var environment_sampler/u);
+  assert.match(source, /fn sample_prefiltered_environment/u);
+  assert.match(source, /oengine_specular_ao_cones/u);
+  assert.match(source, /textureSampleLevel\(\s*split_sum/u);
+  assert.match(source, /environment_specular_contribution/u);
+  assert.match(source, /environment_diffuse_contribution/u);
+});
+
 test("cluster data embeds the active-list fallback without an eleventh storage binding", () => {
   assert.equal(LIGHT_CLUSTER_DATA_HEADER_BYTES, 32);
   assert.ok(LIGHT_CLUSTER_LIST_CAPACITY > 0);

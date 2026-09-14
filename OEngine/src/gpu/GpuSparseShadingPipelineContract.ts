@@ -20,9 +20,11 @@ export const GPU_SPARSE_SHADING_ENTRY_POINT = "shading_resolve";
 export const GPU_SHADING_OUTPUT_DEPENDENCY = Object.freeze({
   ShadingSurfaceLite: 1 << 0,
   DiffuseSurfaceLite: 1 << 1,
-  Velocity: 1 << 2
+  Velocity: 1 << 2,
+  /** Lit receiver evaluates the prepared environment and DFG LUT in-kernel. */
+  EnvironmentIBL: 1 << 3
 } as const);
-export const GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK = (1 << 3) - 1;
+export const GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK = (1 << 4) - 1;
 
 type BindingResource =
   | Readonly<{ category: "buffer"; type: "uniform" | "read-only-storage" | "storage" }>
@@ -105,6 +107,8 @@ export function createGpuSparseShadingPipelineDescriptor(
     (input.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0;
   const publishesVelocity =
     (input.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0;
+  const evaluatesEnvironment =
+    (input.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0;
 
   const frameBindings: GpuSparseShadingBindingDescriptor[] = [
     uniformBinding(0, 0, "shading_bin_settings"),
@@ -155,10 +159,16 @@ export function createGpuSparseShadingPipelineDescriptor(
     storageBufferBinding(3, 1, "light_cluster_lookup", "read-only-storage"),
     storageBufferBinding(3, 2, "light_cluster_data", "read-only-storage"),
     uniformBinding(3, 3, "light_cluster_parameters"),
+    ...(evaluatesEnvironment ? [
+      textureBinding(3, 4, "environment_diffuse", "float"),
+      textureBinding(3, 5, "environment_specular", "float"),
+      textureBinding(3, 6, "split_sum", "float"),
+      samplerBinding(3, 7, "environment_sampler")
+    ] : []),
     ...(input.shadowSamplingEnabled
-      ? [textureBinding(3, 4, "shadow_atlas", "depth")] : []),
+      ? [textureBinding(3, evaluatesEnvironment ? 8 : 4, "shadow_atlas", "depth")] : []),
     ...(input.shadowSamplingEnabled
-      ? [samplerBinding(3, 5, "shadow_sampler", "comparison")] : [])
+      ? [samplerBinding(3, evaluatesEnvironment ? 9 : 5, "shadow_sampler", "comparison")] : [])
   ] : [];
 
   const groups: GpuSparseShadingBindGroupDescriptor[] = [

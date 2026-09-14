@@ -2402,6 +2402,7 @@ export class MainRenderPipeline {
         let hdrRes: ResourceId | null = null;
         let environmentRes: ResourceId | null = null;
         let diffuseIrradianceRes: ResourceId | null = null;
+        let splitSumRes: ResourceId | null = null;
         let lightDatabaseRes: ResourceId | null = null;
         let shadowAtlasRes: ResourceId | null = null;
         let clusters: LightClusterOutputs | null = null;
@@ -2425,6 +2426,17 @@ export class MainRenderPipeline {
             bind("diffuse-irradiance", (bindings) =>
               bindings.environment.lights.diffuseIrradiance)
           );
+          if ((mainBindings.sparseRevision.snapshot.context.outputDependencyMask &
+              GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0) {
+            const splitSum = this._graphics.textures.obtain(
+              STATIC_GRAPHICS_ENGINE_ASSETS.split_sum
+            );
+            splitSumRes = graph.import_resource(
+              "SparseShading/split_sum",
+              { kind: "imported", label: "rg16float sparse shading split_sum" },
+              splitSum.gpu_texture
+            );
+          }
           shadowAtlasRes = graphTopology.shadows
             ? graph.import_resource(
                 "Ch/pass_descriptor",
@@ -2616,7 +2628,10 @@ export class MainRenderPipeline {
               clusters: shadingSummary.opaqueLitReceiverCount > 0 ? clusters : null,
               shadowAtlas: sparseRevision.snapshot.context.shadowSamplingEnabled
                 ? shadowAtlasRes
-                : null
+                : null,
+              environment: environmentRes,
+              diffuseIrradiance: diffuseIrradianceRes,
+              splitSum: splitSumRes
             }
           );
         }
@@ -3900,8 +3915,16 @@ export class MainRenderPipeline {
       ? sparseDebugOutputDependencies(this.render_debug_view)
       : 0;
     if (publication.summary.opaqueLitReceiverCount > 0) {
-      outputDependencyMask |= GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
-        GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
+      outputDependencyMask |= sparseOpaqueSurfaceDependencies(
+        topology,
+        this.render_debug_view
+      );
+      // Basic PBR owns its prepared IBL in the receiver. Advanced indirect
+      // consumers keep the existing provider/resolve contract to avoid a
+      // second environment contribution.
+      if (!topology.gtao && !topology.ssgi && !topology.ssr) {
+        outputDependencyMask |= GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL;
+      }
     }
     const needsTemporalSurface = hasOpaque && (
       requiresPreviousDepth(topology) || topology.motionBlur ||
@@ -4964,6 +4987,25 @@ function sparseDebugOutputDependencies(view: RenderDebugViewT): number {
     default:
       return 0;
   }
+}
+
+/**
+ * Derives sparse receiver products from actual downstream consumers. The
+ * material/lighting kernel always writes HDR; compact Surface products exist
+ * only when an effect, temporal path, or debug view reads them.
+ */
+function sparseOpaqueSurfaceDependencies(
+  topology: MainFrameFeatureTopology,
+  debugView: RenderDebugViewT
+): number {
+  let mask = sparseDebugOutputDependencies(debugView);
+  const needsShadingSurface = topology.gtao || topology.ssgi || topology.ssr ||
+    requiresPreviousDepth(topology) || topology.motionBlur ||
+    debugView === RenderDebugView.Velocity;
+  const needsDiffuseSurface = topology.gtao || topology.ssgi || topology.ssr;
+  if (needsShadingSurface) mask |= GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite;
+  if (needsDiffuseSurface) mask |= GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
+  return mask;
 }
 
 function snapshotSupportedLimits(limits: GPUSupportedLimits): Readonly<Record<string, number>> {
