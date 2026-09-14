@@ -8,6 +8,7 @@
     "storybook": "concurrently --kill-others --success first \"yarn dev\" \"yarn storybook:catalog\"",
     "storybook:catalog": "yarn generate:stories && storybook dev -p 6006 --no-open",
     "generate:stories": "node scripts/generate-stories.mjs",
+    "test:performance-panel": "node --test tests/performance-metrics.test.mjs",
     "typecheck": "yarn generate:stories && tsc --noEmit",
     "build": "yarn typecheck && yarn build:examples && yarn build:storybook",
     "build:examples": "vite build",

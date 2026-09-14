@@ -18,8 +18,8 @@ const meta = {
   title: "Examples/14 Integrated",
   component: ExampleFrame,
   parameters: {
-    docs: { description: { story: "Only the loaded Dungeon model, with original base colors/textures, unlit shading, OrbitControls, and the same effects-off configuration as Basic Scene." } },
-    tags: ["integrated","packed-scene","gltf","unlit","effects-off"]
+    docs: { description: { story: "Dungeon model only, with Unlit shading and effects off, a shared camera and detailed GPU/CPU performance experiment panel." } },
+    tags: ["integrated","packed-scene","gltf","unlit","effects-off","profiling"]
   }
 } satisfies Meta<typeof ExampleFrame>;
 

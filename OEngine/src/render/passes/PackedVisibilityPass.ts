@@ -441,6 +441,10 @@ export class PackedVisibilityPass {
     }, {
       sseThreshold: job.sseThreshold,
       countersEnabled: job.countersEnabled,
+      // Runtime evidence comes from the sampled frame counter pass. Retaining
+      // test-only queue snapshots across counter-buffer rebinding would copy
+      // from the disabled sink on subsequent unsampled frames.
+      diagnosticsEnabled: false,
       rasterExpansionEnabled: false,
       traversalWorkCapacity: key.traversalCapacity
     });

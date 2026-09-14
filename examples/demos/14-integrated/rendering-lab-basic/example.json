@@ -3,6 +3,13 @@
   "title": "Rendering Lab - Basic Model",
   "category": "14-integrated",
   "order": 11,
-  "description": "Only the loaded Dungeon model, with original base colors/textures, unlit shading, OrbitControls, and the same effects-off configuration as Basic Scene.",
-  "tags": ["integrated", "packed-scene", "gltf", "unlit", "effects-off"]
+  "description": "Dungeon model only, with Unlit shading and effects off, a shared camera and detailed GPU/CPU performance experiment panel.",
+  "tags": [
+    "integrated",
+    "packed-scene",
+    "gltf",
+    "unlit",
+    "effects-off",
+    "profiling"
+  ]
 }

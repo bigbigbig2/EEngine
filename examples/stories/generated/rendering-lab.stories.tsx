@@ -18,8 +18,8 @@ const meta = {
   title: "Examples/14 Integrated",
   component: ExampleFrame,
   parameters: {
-    docs: { description: { story: "The historical Rendering Lab workload migrated to Example Library V2 with the current Renderer Debug UI and without the retired Inspector or benchmark harness." } },
-    tags: ["integrated","packed-scene","gltf","pbr","internal"]
+    docs: { description: { story: "Dungeon model only, with PBR and full effects, a shared camera and detailed GPU/CPU performance experiment panel." } },
+    tags: ["integrated","packed-scene","gltf","pbr","profiling"]
   }
 } satisfies Meta<typeof ExampleFrame>;
 

@@ -1,0 +1,46 @@
+.lab-performance {
+  color-scheme: dark; position: fixed; z-index: 20; top: 12px; right: 12px;
+  width: min(490px, calc(100vw - 24px)); max-height: calc(100vh - 24px);
+  display: flex; flex-direction: column; color: #e4ebf4; font: 12px/1.5 system-ui, sans-serif;
+  background: #0c121cee; border: 1px solid #34404e; border-radius: 12px;
+  box-shadow: 0 12px 40px #0007; overflow: hidden;
+}
+.lab-performance header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #ffffff16; }
+.lab-performance header small { color: #74dfc6; font-size: 10px; letter-spacing: .1em; }
+.lab-performance h2 { font-size: 18px; margin: 0; font-weight: 650; }
+.lab-performance h2 span { font-size: 11px; margin-left: 12px; color: #a7b5c5; font-weight: 400; }
+.lab-performance-body { padding: 12px 14px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.lab-performance.is-collapsed .lab-performance-body { display: none; }
+.lab-performance button, .lab-performance a, .lab-performance select { font: inherit; border: 1px solid #3a4859; background: #182434; color: #e7eff9; border-radius: 5px; padding: 5px 8px; text-decoration: none; cursor: pointer; }
+.lab-performance button:hover, .lab-performance a:hover { background: #273b52; }
+.lab-performance button:disabled { opacity: .4; cursor: default; }
+.lab-performance [data-action=record] { background: #1d5a4c; border-color: #448d7a; }
+.lab-performance :focus-visible { outline: 2px solid #74dfc6; outline-offset: 2px; }
+.lab-toolbar, .lab-sampling, .lab-features { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin: 4px 0 10px; }
+.lab-sampling label, .lab-features label { display: inline-flex; align-items: center; gap: 4px; }
+.lab-performance input[type=number] { width: 36px; font: inherit; padding: 3px; border: 1px solid #3a4859; border-radius: 4px; background: #121d2b; color: #fff; }
+.lab-performance input[type=checkbox] { accent-color: #74dfc6; }
+.lab-status { color: #88e1c8; min-height: 18px; margin: 8px 0; }
+.lab-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.lab-cards>div { background: #162130; border: 1px solid #ffffff12; border-radius: 8px; padding: 8px; }
+.lab-cards small { display: block; color: #a3b4c7; font-size: 10px; }
+.lab-cards strong { display: block; font-size: 23px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.lab-cards strong span { font-size: 10px; color: #a3b4c7; }
+.lab-trend { display: block; width: 100%; height: 82px; margin-top: 8px; }
+.lab-legend { display: flex; justify-content: center; gap: 16px; font-size: 10px; }
+.lab-legend span:nth-child(1) { color: #74dfc6; } .lab-legend span:nth-child(2) { color: #81b7ff; } .lab-legend span:nth-child(3) { color: #efc67d; }
+.lab-performance details { border-top: 1px solid #ffffff16; margin-top: 10px; }
+.lab-performance summary { padding: 10px 0; font-weight: 600; cursor: pointer; }
+.lab-performance dl { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); margin: 0 0 8px; }
+.lab-performance dt, .lab-performance dd { padding: 4px 0; margin: 0; border-bottom: 1px solid #ffffff08; overflow-wrap: anywhere; }
+.lab-performance dt { color: #a0b2c7; } .lab-performance dd { text-align: right; font-variant-numeric: tabular-nums; }
+.lab-performance table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+.lab-performance th { color: #a3b4c7; text-align: right; font-weight: 500; }
+.lab-performance th:first-child { width: 58%; text-align: left; }
+.lab-performance td, .lab-performance th { padding: 5px 3px; border-bottom: 1px solid #ffffff09; }
+.lab-performance td { text-align: right; font-variant-numeric: tabular-nums; }
+.lab-performance td:first-child { text-align: left; overflow-wrap: anywhere; }
+.lab-performance pre { font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 350px; overflow-y: auto; }
+.lab-note { color: #93a5b9; font-size: 10px; margin: 7px 0; }
+.lab-warning { color: #efc67d; font-size: 11px; }
+@media(max-width: 600px) { .identity { display: none; } .lab-performance { max-height: 65vh; } .lab-cards strong { font-size: 19px; } }
