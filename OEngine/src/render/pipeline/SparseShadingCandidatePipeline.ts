@@ -27,6 +27,7 @@ export type SparseShadingCandidateStage =
   | "visibility"
   | "light-cluster"
   | "shadow"
+  | "direct-status-clear"
   | "bin-clear-classify"
   | "bin-finalize"
   | "output-clear"
@@ -61,6 +62,7 @@ export interface SparseShadingCandidatePlan {
   readonly hasAnyLitConsumer: boolean;
   readonly hasAnyShadowConsumer: boolean;
   readonly activeBinIds: readonly number[];
+  readonly executionMode: "none" | "direct-single-bin" | "sparse-microtile";
   readonly outputDependencyMask: number;
   readonly passes: readonly SparseShadingCandidateStage[];
   readonly resources: readonly string[];
@@ -106,6 +108,8 @@ export interface SparseShadingCandidateExternalResources {
     readonly indirectArgs: unknown;
     readonly settings: unknown;
   }>;
+  /** Revision-owned status buffer used only by DirectSingleBin. */
+  readonly directStatus?: unknown;
   /** Imported ping-pong resources. Disabled histories must not be imported. */
   readonly histories?: Readonly<Partial<Record<
     SparseShadingCandidateHistoryStage,
@@ -121,6 +125,7 @@ export interface SparseShadingCandidateFrame {
   readonly heap: ResourceId | null;
   readonly indirectArgs: ResourceId | null;
   readonly settings: ResourceId | null;
+  readonly status: ResourceId | null;
   readonly shadingBins: ShadingBinFrame | null;
   readonly hdr: ResourceId | null;
   /** Input color for a downstream stage; null for producer stages. */
@@ -192,7 +197,14 @@ export function createSparseShadingCandidatePlan(
   if (hasOpaque) passes.push("visibility");
   if (hasAnyLitConsumer) passes.push("light-cluster");
   if (hasAnyShadowConsumer) passes.push("shadow");
-  if (hasOpaque) passes.push("bin-clear-classify", "bin-finalize", "output-clear", "bin-resolve");
+  if (hasOpaque) {
+    if (snapshot.executionMode === "sparse-microtile") {
+      passes.push("bin-clear-classify", "bin-finalize");
+    } else {
+      passes.push("direct-status-clear");
+    }
+    passes.push("output-clear", "bin-resolve");
+  }
   if (hasOpaqueLit && features.screenSpaceDiffuseMode === "gtao") passes.push("gtao");
   if (hasOpaqueLit && features.screenSpaceDiffuseMode === "ssgi") passes.push("ssgi");
   if (hasOpaqueLit && features.ssr) passes.push("ssr");
@@ -205,11 +217,10 @@ export function createSparseShadingCandidatePlan(
   const outputMask = snapshot.context.outputDependencyMask;
   const resources = hasOpaque ? [
     "visibility-key",
-    "shading-bin-id",
+    ...(snapshot.executionMode === "sparse-microtile" ? ["shading-bin-id"] : []),
     "reverse-z-depth",
-    "shading-bin-heap",
-    "shading-bin-indirect",
-    "shading-bin-settings",
+    ...(snapshot.executionMode === "sparse-microtile"
+      ? ["shading-bin-heap", "shading-bin-indirect", "shading-bin-settings"] : ["direct-status"]),
     "opaque-hdr",
     ...((outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0
       ? ["shading-normal"] : []),
@@ -239,7 +250,9 @@ export function createSparseShadingCandidatePlan(
     ? snapshot.context.width * snapshot.context.height * 4 + 32
     : 0;
   const memory = hasOpaque
-    ? memoryRecord(snapshot.sizing, outputBytes, diagnosticsBytes)
+    ? snapshot.executionMode === "sparse-microtile"
+      ? memoryRecord(snapshot.sizing, outputBytes, diagnosticsBytes)
+      : directMemoryRecord(snapshot.sizing, outputBytes, diagnosticsBytes)
     : emptyMemoryRecord();
   return Object.freeze({
     schemaVersion: SPARSE_SHADING_CANDIDATE_SCHEMA_VERSION as 1,
@@ -251,6 +264,7 @@ export function createSparseShadingCandidatePlan(
     hasAnyLitConsumer,
     hasAnyShadowConsumer,
     activeBinIds: Object.freeze(activeBinIds),
+    executionMode: snapshot.executionMode,
     outputDependencyMask: outputMask,
     passes: Object.freeze(passes),
     resources: Object.freeze(resources),
@@ -287,6 +301,7 @@ export function addSparseShadingCandidateToGraph(
     heap: null,
     indirectArgs: null,
     settings: null,
+    status: null,
     shadingBins: null,
     hdr: null,
     stageInputHdr: null,
@@ -348,10 +363,12 @@ export function addSparseShadingCandidateToGraph(
     plan, "r32uint", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
       (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
   ));
-  mutable.shadingBinId = visibility.create("sparse-shading/bin-id", texture(
-    plan, "r8uint", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
-      (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
-  ));
+  if (snapshot.executionMode === "sparse-microtile") {
+    mutable.shadingBinId = visibility.create("sparse-shading/bin-id", texture(
+      plan, "r8uint", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+        (external.captureReadback === undefined ? 0 : GPUTextureUsage.COPY_SRC)
+    ));
+  }
   mutable.depth = visibility.create("sparse-shading/depth", texture(
     plan, "depth32float", GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
       ((features.screenSpaceDiffuseMode !== "off" || features.ssr || features.temporal)
@@ -370,34 +387,60 @@ export function addSparseShadingCandidateToGraph(
   addLightingPass();
   addShadowPass();
 
-  const binResources = external.binResources;
-  if (binResources === undefined) {
-    throw new Error("Opaque sparse shading requires revision-owned bin resources");
+  const sparseMode = snapshot.executionMode === "sparse-microtile";
+  if (sparseMode) {
+    const binResources = external.binResources;
+    if (binResources === undefined) {
+      throw new Error("Opaque sparse shading requires revision-owned bin resources");
+    }
+    mutable.heap = graph.import_resource(
+      "sparse-shading/heap",
+      { kind: "imported", label: "ADR-0013 revision-owned shading-bin heap" },
+      binResources.heap
+    );
+    mutable.indirectArgs = graph.import_resource(
+      "sparse-shading/indirect",
+      { kind: "imported", label: "ADR-0013 revision-owned indirect arguments" },
+      binResources.indirectArgs
+    );
+    mutable.settings = graph.import_resource(
+      "sparse-shading/settings",
+      { kind: "imported", label: "ADR-0013 revision-owned frame settings" },
+      binResources.settings
+    );
+  } else {
+    if (external.directStatus === undefined) {
+      throw new Error("DirectSingleBin requires its revision-owned frame status buffer");
+    }
+    mutable.status = graph.import_resource(
+      "sparse-shading/direct-status",
+      { kind: "imported", label: "ADR-0015 DirectSingleBin frame status" },
+      external.directStatus
+    );
   }
-  mutable.heap = graph.import_resource(
-    "sparse-shading/heap",
-    { kind: "imported", label: "ADR-0013 revision-owned shading-bin heap" },
-    binResources.heap
-  );
-  mutable.indirectArgs = graph.import_resource(
-    "sparse-shading/indirect",
-    { kind: "imported", label: "ADR-0013 revision-owned indirect arguments" },
-    binResources.indirectArgs
-  );
-  mutable.settings = graph.import_resource(
-    "sparse-shading/settings",
-    { kind: "imported", label: "ADR-0013 revision-owned frame settings" },
-    binResources.settings
-  );
 
+  if (!sparseMode) {
+    const statusClearFrame = cloneMutableFrame(mutable);
+    const statusClear = graph.add("SparseShading/clear DirectSingleBin status", statusClearFrame,
+      (data, resources, context) => executeStage("direct-status-clear", data, resources, context));
+    statusClear.dependsOn(visibility);
+    statusClear.read(mutable.status!);
+    mutable.status = statusClear.write(mutable.status!);
+    statusClearFrame.status = mutable.status;
+    Object.freeze(statusClearFrame);
+    statusClear.declareEncoderWork({ computePasses: 0 });
+    previousPass = statusClear;
+  }
+
+  if (sparseMode) {
   const classifierFrame = cloneMutableFrame(mutable);
   const classifier = graph.add("SparseShading/clear + classify", classifierFrame,
     (data, resources, context) => executeStage("bin-clear-classify", data, resources, context));
   classifier.dependsOn(visibility);
-  classifier.read(mutable.shadingBinId);
-  mutable.heap = classifier.write(mutable.heap);
-  mutable.indirectArgs = classifier.write(mutable.indirectArgs);
-  classifier.read(mutable.settings);
+  classifier.read(mutable.shadingBinId!);
+  mutable.heap = classifier.write(mutable.heap!);
+  mutable.indirectArgs = classifier.write(mutable.indirectArgs!);
+  classifier.read(mutable.settings!);
   if (features.diagnostics) {
     mutable.claims = classifier.create("sparse-shading/claims", buffer(
       plan.width * plan.height * 4,
@@ -450,11 +493,12 @@ export function addSparseShadingCandidateToGraph(
   Object.freeze(finalizerFrame);
   finalizer.declareEncoderWork({ computePasses: 1, dispatches: 1 });
   previousPass = finalizer;
+  }
 
   const outputClearFrame = cloneMutableFrame(mutable);
   const outputClear = graph.add("SparseShading/clear sparse outputs", outputClearFrame,
     (data, resources, context) => executeStage("output-clear", data, resources, context));
-  outputClear.dependsOn(finalizer);
+  if (previousPass !== null) outputClear.dependsOn(previousPass);
   mutable.hdr = outputClear.create("sparse-shading/hdr", texture(
     plan,
     "rgba16float",
@@ -509,11 +553,11 @@ export function addSparseShadingCandidateToGraph(
   if (shadowPass !== null) resolve.dependsOn(shadowPass);
   for (const resource of [
     mutable.visibilityKey, mutable.shadingBinId, mutable.depth,
-    external.meshletWork, mutable.heap, mutable.indirectArgs, mutable.settings,
+    external.meshletWork, mutable.heap, mutable.indirectArgs, mutable.settings, mutable.status,
     ...external.sceneGeometry, ...external.materials,
     ...(plan.hasOpaqueLit ? lightingResources : []),
     ...(plan.hasAnyShadowConsumer ? shadowResources : [])
-  ]) resolve.read(resource);
+  ]) if (resource !== null) resolve.read(resource);
   mutable.hdr = resolve.write(mutable.hdr);
   if (mutable.normal !== null) mutable.normal = resolve.write(mutable.normal);
   if (mutable.albedoAo !== null) mutable.albedoAo = resolve.write(mutable.albedoAo);
@@ -528,7 +572,8 @@ export function addSparseShadingCandidateToGraph(
     material: mutable.material,
     velocity: mutable.velocity,
     claims: mutable.claims,
-    diagnostics: mutable.diagnostics
+    diagnostics: mutable.diagnostics,
+    status: mutable.status
   });
   Object.freeze(resolveFrame);
   resolve.declareEncoderWork({
@@ -618,7 +663,7 @@ export function addSparseShadingCandidateToGraph(
     const diagnostic = graph.add("SparseShading/diagnostics finalize", diagnosticFrame,
       (data, resources, context) => executeStage("diagnostics-finalize", data, resources, context));
     diagnostic.dependsOn(resolve);
-    diagnostic.read(mutable.shadingBinId);
+    diagnostic.read(mutable.shadingBinId!);
     diagnostic.read(mutable.claims);
     mutable.diagnostics = diagnostic.write(mutable.diagnostics);
     diagnosticFrame.diagnostics = mutable.diagnostics;
@@ -726,6 +771,27 @@ function memoryRecord(
     heapBytes: sizing.heapBytes,
     indirectBytes: GPU_SHADING_BIN_INDIRECT_BYTES,
     settingsBytes,
+    outputBytes,
+    diagnosticsBytes,
+    totalBytes
+  });
+}
+
+function directMemoryRecord(
+  sizing: Readonly<GpuShadingBinSizing>,
+  outputBytes: number,
+  diagnosticsBytes: number
+): SparseShadingCandidatePlan["memory"] {
+  const visibilityKeyBytes = sizing.width * sizing.height * 4;
+  const depthBytes = sizing.width * sizing.height * 4;
+  const totalBytes = visibilityKeyBytes + depthBytes + outputBytes + diagnosticsBytes;
+  return Object.freeze({
+    visibilityKeyBytes,
+    shadingBinIdBytes: 0,
+    depthBytes,
+    heapBytes: 0,
+    indirectBytes: 0,
+    settingsBytes: 0,
     outputBytes,
     diagnosticsBytes,
     totalBytes

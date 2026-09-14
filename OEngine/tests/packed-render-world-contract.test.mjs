@@ -919,6 +919,18 @@ test("Texture residency publishes cooked BC packages as authoritative material r
   command.finish();
 
   const evidence = residency.evidence();
+  assert.equal(evidence.schemaVersion, 6);
+  assert.equal(evidence.textureLedger.length, 5);
+  assert.ok(evidence.textureLedger.every((entry) =>
+    entry.state === "resident" &&
+    entry.sourceWidth === 8 && entry.sourceHeight === 8 &&
+    entry.decodedWidth === 8 && entry.decodedHeight === 8 &&
+    entry.gpuWidth >= 8 && entry.gpuHeight >= 8 &&
+    entry.mipLevelCount > 0 && entry.logicalBytes > 0 &&
+    entry.residentBytes > 0 && entry.allocatedBytes > 0 &&
+    entry.assetIdentity === assets.find((asset) =>
+      asset.runtime.manifest.assetId === entry.assetIdentity)?.runtime.manifest.assetId
+  ));
   assert.equal(evidence.cookedResidentTextureCount, 5);
   assert.equal(evidence.compressedResidentTextureCount, 5);
   assert.equal(evidence.runtimeMipGenerationCount, 0);

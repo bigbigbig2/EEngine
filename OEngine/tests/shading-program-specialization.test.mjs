@@ -129,6 +129,21 @@ test("textured variants use explicit gradients or explicit level only", () => {
   }
 });
 
+test("PbrOrm specialization reads only ORM texture data and required geometry", () => {
+  const source = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrOrm,
+    0,
+    2
+  )).source;
+  assert.match(source, /sparse_normal\(geometry_base/u);
+  assert.match(source, /sparse_texture_route_valid\(material_slot,\s*2u/u);
+  assert.doesNotMatch(source, /sparse_texture_route_valid\(material_slot,\s*0u/u);
+  assert.doesNotMatch(source, /sparse_texture_route_valid\(material_slot,\s*1u/u);
+  assert.doesNotMatch(source, /sparse_texture_route_valid\(material_slot,\s*3u/u);
+  assert.doesNotMatch(source, /sparse_tangent\(geometry_base,vertices/u);
+  assert.match(source, /sparse_color\(geometry_base,vertices/u);
+});
+
 test("triangle reconstruction converts clip-space NDC to top-left pixel coordinates", () => {
   const source = createSparseShadingShaderVariant(descriptor(
     GPU_SHADING_PROGRAM.PbrFactor,

@@ -128,7 +128,8 @@
       "classification": "authored-live",
       "directConsumers": [
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/shaders/opaque_lighting_resolve.ts"
+        "src/shaders/opaque_lighting_resolve.ts",
+        "src/shaders/sparse_shading_resolve.ts"
       ],
       "runtimeConsumers": [
         "src/addons/debug/RendererDebugController.ts",
@@ -139,14 +140,22 @@
         "src/index.ts",
         "src/render/features/GIService.ts",
         "src/render/features/LightingFeature.ts",
+        "src/render/features/SurfaceFeature.ts",
         "src/render/passes/EnvironmentBackgroundPass.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/EnvironmentBackgroundPass.ts",
-        "src/render/passes/OpaqueLightingResolvePass.ts"
+        "src/render/passes/OpaqueLightingResolvePass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -1161,7 +1170,8 @@
       "classification": "authored-live",
       "directConsumers": [
         "src/shaders/opaque_lighting_resolve.ts",
-        "src/shaders/screen_space_diffuse_resolve.ts"
+        "src/shaders/screen_space_diffuse_resolve.ts",
+        "src/shaders/sparse_shading_resolve.ts"
       ],
       "runtimeConsumers": [
         "src/addons/debug/RendererDebugController.ts",
@@ -1171,14 +1181,22 @@
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
         "src/render/features/GIService.ts",
+        "src/render/features/SurfaceFeature.ts",
         "src/render/passes/OpaqueLightingResolvePass.ts",
         "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
         "src/render/Renderer.ts"
       ],
       "pipelineOwners": [
         "src/render/passes/OpaqueLightingResolvePass.ts",
-        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts"
+        "src/render/passes/ScreenSpaceDiffuseResolvePass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

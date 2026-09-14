@@ -122,8 +122,30 @@ export interface TextureFormatDistributionEvidence {
   readonly residentBytes: number;
 }
 
+/** Per-texture residency ledger entry; allocation is the physical slot share, not the whole array. */
+export interface TextureResidencyLedgerEntry {
+  readonly assetIdentity: string;
+  readonly sourceUri: string | null;
+  readonly state: "resident" | "retiring";
+  readonly refCount: number;
+  readonly bankClass: number;
+  readonly segment: number;
+  readonly layer: number;
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
+  readonly decodedWidth: number;
+  readonly decodedHeight: number;
+  readonly gpuWidth: number;
+  readonly gpuHeight: number;
+  readonly format: GPUTextureFormat;
+  readonly mipLevelCount: number;
+  readonly logicalBytes: number;
+  readonly residentBytes: number;
+  readonly allocatedBytes: number;
+}
+
 export interface TextureResidencyEvidence {
-  readonly schemaVersion: 5;
+  readonly schemaVersion: 6;
   readonly textureCapacity: number;
   readonly residentTextureCount: number;
   readonly retiringTextureCount: number;
@@ -161,6 +183,7 @@ export interface TextureResidencyEvidence {
   readonly highResolutionArrayAllocated: boolean;
   readonly banks: readonly TextureBankEvidence[];
   readonly packageSegments: readonly TexturePackageSegmentEvidence[];
+  readonly textureLedger: readonly TextureResidencyLedgerEntry[];
   readonly privateSubmitCount: 0;
 }
 
@@ -604,8 +627,15 @@ export class TextureResidency {
     let workerTranscodeCount = 0;
     let uncompressedFallbackCount = 0;
     const formatDistribution = new Map<GPUTextureFormat, { count: number; bytes: number }>();
+    const textureLedger: TextureResidencyLedgerEntry[] = [];
     for (const entry of this.textures.values()) {
       const bytes = entry.residentBytes;
+      textureLedger.push(textureResidencyLedgerEntry(
+        entry,
+        entry.refCount > 0,
+        this.banks,
+        this.packageSegments
+      ));
       if (entry.refCount > 0) {
         residentTextureCount++;
         residentTextureBytes += bytes;
@@ -675,7 +705,7 @@ export class TextureResidency {
       0
     );
     return Object.freeze({
-      schemaVersion: 5,
+      schemaVersion: 6,
       textureCapacity: this.logicalCapacity(),
       residentTextureCount,
       retiringTextureCount,
@@ -719,6 +749,8 @@ export class TextureResidency {
       highResolutionArrayAllocated: this.banks.slice(1).some((bank) => bank.texture !== null),
       banks: Object.freeze(banks),
       packageSegments: Object.freeze(packageSegments),
+      textureLedger: Object.freeze(textureLedger.sort((left, right) =>
+        left.assetIdentity.localeCompare(right.assetIdentity) || left.layer - right.layer)),
       privateSubmitCount: 0
     });
   }
@@ -1549,7 +1581,15 @@ function arrayBytes(size: number, capacity: number): number {
 
 function logicalTextureBytes(texture: ShadeTexture): number {
   const asset = texture.runtime_asset_package_v2;
-  if (asset !== undefined) return asset.evidence.sourceBytes;
+  if (asset !== undefined) {
+    return estimateTextureBytes({
+      format: "rgba8unorm",
+      width: asset.width,
+      height: asset.height,
+      depthOrArrayLayers: 1,
+      mipLevelCount: mipCount(Math.max(asset.width, asset.height))
+    });
+  }
   const image = texture.image;
   if (image === undefined) return 0;
   return estimateTextureBytes({
@@ -1558,6 +1598,53 @@ function logicalTextureBytes(texture: ShadeTexture): number {
     height: image.height,
     depthOrArrayLayers: 1,
     mipLevelCount: mipCount(Math.max(image.width, image.height))
+  });
+}
+
+function textureResidencyLedgerEntry(
+  entry: ResidentTexture,
+  resident: boolean,
+  banks: readonly TextureBank[],
+  packageSegments: readonly TexturePackageSegment[]
+): TextureResidencyLedgerEntry {
+  const asset = entry.source.runtime_asset_package_v2;
+  const image = entry.source.image;
+  const sourceWidth = asset?.width ?? image?.width ?? 0;
+  const sourceHeight = asset?.height ?? image?.height ?? 0;
+  const segment = entry.cooked ? packageSegments[entry.segment] : undefined;
+  const bank = entry.cooked ? undefined : banks[entry.bankClass];
+  const gpuWidth = segment?.width ?? bank?.physicalSize ?? 0;
+  const gpuHeight = segment?.height ?? bank?.physicalSize ?? 0;
+  const mipLevelCount = segment?.mipLevelCount ?? bank?.mipLevelCount ?? 0;
+  const allocatedBytes = entry.cooked
+    ? segment === undefined ? 0 : texturePackageSegmentBytes(
+      segment.format,
+      segment.width,
+      segment.height,
+      segment.mipLevelCount,
+      1
+    )
+    : bank === undefined ? 0 : arrayBytes(bank.physicalSize, 1);
+  return Object.freeze({
+    assetIdentity: asset?.runtime.manifest.assetId ??
+      (image === undefined ? `texture-slot:${entry.slot}` : `image:${image.id}`),
+    sourceUri: asset?.runtime.manifest.sourceProvenance.uri ?? null,
+    state: resident ? "resident" : "retiring",
+    refCount: entry.refCount,
+    bankClass: entry.bankClass,
+    segment: entry.cooked ? entry.segment : -1,
+    layer: entry.layer,
+    sourceWidth,
+    sourceHeight,
+    decodedWidth: sourceWidth,
+    decodedHeight: sourceHeight,
+    gpuWidth,
+    gpuHeight,
+    format: entry.physicalFormat,
+    mipLevelCount,
+    logicalBytes: logicalTextureBytes(entry.source),
+    residentBytes: entry.residentBytes,
+    allocatedBytes
   });
 }
 

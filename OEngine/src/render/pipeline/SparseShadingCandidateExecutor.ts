@@ -17,7 +17,8 @@ export interface SparseShadingCandidateExecutorInput {
   readonly bins: Pick<
     ShadingBinPass,
     "heap" | "indirectArgs" | "encodeClassify" | "encodeFinalize"
-  >;
+  > | null;
+  readonly directStatus: GPUBuffer | null;
   /**
    * FrameGraph transient textures do not exist until execution. Bind groups
    * which reference Visibility/ShadingBin resources therefore belong to this
@@ -29,7 +30,7 @@ export interface SparseShadingCandidateExecutorInput {
   ) => Readonly<ShadingBinFrameBindings>;
   readonly resolve: Pick<
     SparseShadingResolvePass,
-    "publicationRevision" | "activeBinIds" | "encode"
+    "publicationRevision" | "activeBinIds" | "executionMode" | "encode"
   >;
   /** Creates bind groups after every transient resolve target is materialized. */
   readonly createResolveBindings: (
@@ -59,7 +60,18 @@ export function createSparseShadingCandidateExecutor(
 
   return (stage, frame, resources, context): void => {
     const command = requireCommand(context);
+    if (stage === "direct-status-clear") {
+      if (input.resolve.executionMode !== "direct-single-bin" || input.directStatus === null || frame.status === null) {
+        throw new Error("DirectSingleBin status clear received an invalid execution closure");
+      }
+      if (resources.get(frame.status) !== input.directStatus) {
+        throw new Error("DirectSingleBin graph and revision-owned status disagree");
+      }
+      command.clearBuffer(input.directStatus, 0, 8);
+      return;
+    }
     if (stage === "bin-clear-classify") {
+      if (input.bins === null) throw new Error("SparseMicrotile classifier requires bin resources");
       assertBinResources(frame, resources, input);
       clearDiagnostics(command, frame, resources);
       const binBindings = input.createBinBindings(frame, resources);
@@ -71,6 +83,7 @@ export function createSparseShadingCandidateExecutor(
       return;
     }
     if (stage === "bin-finalize") {
+      if (input.bins === null) throw new Error("SparseMicrotile finalizer requires bin resources");
       assertBinResources(frame, resources, input);
       const binBindings = binBindingsByExecution.get(context);
       if (binBindings === undefined) {
@@ -80,8 +93,15 @@ export function createSparseShadingCandidateExecutor(
       return;
     }
     if (stage === "bin-resolve") {
-      assertBinResources(frame, resources, input);
-      assertShadingBinProduct(frame, activeBins);
+      if (input.resolve.executionMode === "sparse-microtile") {
+        if (input.bins === null) throw new Error("SparseMicrotile resolve requires bin resources");
+        assertBinResources(frame, resources, input);
+        assertShadingBinProduct(frame, activeBins);
+      } else {
+        if (frame.status === null || input.directStatus === null || resources.get(frame.status) !== input.directStatus) {
+          throw new Error("DirectSingleBin resolve requires its status resource");
+        }
+      }
       if (frame.plan.publicationRevision !== input.resolve.publicationRevision) {
         throw new Error("Sparse shading resolve owner does not match the graph publication");
       }
@@ -96,7 +116,7 @@ export function createSparseShadingCandidateExecutor(
       }
       input.resolve.encode(
         command,
-        input.bins.indirectArgs,
+        input.resolve.executionMode === "sparse-microtile" ? input.bins!.indirectArgs : null,
         input.settingsDynamicOffset,
         resolveBindings,
         frame.plan.publicationRevision
@@ -183,6 +203,7 @@ function assertBinResources(
   resources: PassResources,
   input: Readonly<SparseShadingCandidateExecutorInput>
 ): void {
+  if (input.bins === null) throw new Error("SparseMicrotile graph requires revision-owned bin resources");
   if (frame.heap === null || frame.indirectArgs === null || frame.settings === null) {
     throw new Error("Sparse shading graph omitted required bin resources");
   }

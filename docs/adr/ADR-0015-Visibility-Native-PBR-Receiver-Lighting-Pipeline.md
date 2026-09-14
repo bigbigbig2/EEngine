@@ -441,7 +441,7 @@ type OpaqueShadingResult =
 
 1. **先做 source audit。** 审计 velocity-off 是否仍加载 previous/current clip，PbrOrm 是否仍进入 base/normal/emissive/tangent 分支，packed geometry metadata 是否被重复读取或解码。以生成 WGSL、真实 bind layout 和 shader source audit 为准，不能从 TypeScript 字段大小推算带宽；每项审计先记录当前读取、寄存器/采样变化和验证入口，再决定是否改 ABI。
 2. **收窄实际字段和路由。** 收窄 material record、texture route 和 sampler 的实际读取，保持 `MaterialAccessSignature`、pipeline cache key、binding declaration 与 FrameGraph read set 同步。若编译器已消除某段路径，删除重复的手工“优化”，避免增加新的变体和分支。提交物是生成 WGSL diff、binding budget 和最窄/最宽材质组合的 shader validation 结果。
-3. **核对纹理驻留证据。** 为每张纹理记录 source/decoded dimensions、GPU format、mip count、layer/capacity、logical/resident/allocated bytes 和 asset identity，核对 2048→4096 差异是统计错误、上传放大还是确有物理驻留。必要时用已有 GPU-native/KTX2/BC package 做一次同尺寸手动对照；不以降低 DPR、粗 mip 或删环境光换取收益。提交物是单次 residency ledger 和纹理采样工作集的导出。
+3. **核对纹理驻留证据。** 为每张纹理记录 source/decoded dimensions、GPU format、mip count、layer/capacity、logical/resident/allocated bytes 和 asset identity，核对 2048→4096 差异是统计错误、上传放大还是确有物理驻留。当前 `TextureResidencyEvidence.schemaVersion = 6` 的 `textureLedger` 是这份逐纹理账本；其中 `logicalBytes` 是完整未压缩 mip 链估算，`residentBytes` 是实际上传/压缩 payload，`allocatedBytes` 是该纹理占用的物理 slot 份额，不等于整个 texture array。必要时用已有 GPU-native/KTX2/BC package 做一次同尺寸手动对照；不以降低 DPR、粗 mip 或删环境光换取收益。提交物是单次 residency ledger 和纹理采样工作集的导出。
 4. **有界实验并可删除。** 只有 receiver setup 仍占主导时，才实验有界 subgroup/triangle setup 复用。为实验定义 producer、容量、溢出、fallback、统计和生命周期，先做 off/on 同 workload 对照；不建立无界跨帧 cache 或新的长期队列，若没有稳定收益就删除实验实现。提交物必须同时包含命中率、fallback、额外字节、GPU 时间和画面回归结果，否则实验不进入生产。
 
 **完成证据。**
