@@ -341,23 +341,79 @@ type OpaqueShadingResult =
 
 本 ADR 不重建 codec/residency 系统，不通过降低 DPR、分辨率、强制粗 mip 或删掉环境光获得默认收益。Final Output、几何/HZB 与系统级 GPU 长尾继续显示在整体报告中，但只有进一步定位后才扩展相应重构。
 
-### 9. 实施组织与可删除范围
+### 9. 三阶段执行计划
 
-以可解释的小批次推进，不要求恢复旧 renderer 或维护永久双 backend：
+三个阶段按依赖顺序实施。每个阶段都先完成资源合同和运行证据，再进入下一阶段；不维护长期双 backend，也不把阶段性诊断路径写成生产路径。
 
-| 批次 | 实现内容 | 本批次要看到的证据 |
-| --- | --- | --- |
-| A：基础光照数据流 | 共用 receiver/PBR 数学，先在现有环境表示下完成 InlineEnvironment 与 effects-off Surface/provider/resolve 裁剪；明确 AO 责任 | 图上对应 live resources/Pass 消失，PBR 图像语义成立 |
-| B：配套 IBL 表示 | SH/cube/DFG preparation 与 runtime 一起迁移，背景/高级环境采样迁到同一资源 owner | 环境能量、roughness、旋转正确；分开观察采样表示带来的变化 |
-| C：单 bin 调度 | 原子 publication mode、DirectSingleBin、轻量 status、无 sparse heap/args | 远近均为 direct；无 classifier/finalizer；背景和 patch 正确 |
-| D：材质热路径 | dependency 实审、MaterialAccessSignature、packed decode 收窄；可选局部 setup 复用 | 生成 Shader 减少真实工作，近景 GPU 时间与每像素成本下降 |
-| E：消费者与清理 | 手动高级效果 smoke、mixed bins、resize；清理被替代的基础路径与错误 UI 计时名称 | 没有重复 IBL/AO，资源关闭后退役，统计与实际图一致 |
+#### 阶段一：Demand-driven 基础光照融合
 
-A 中沿用现有 oct 只是迁移中间态，不保留为永久环境 backend。短手动观察用于归因，不把每批次都变成独立 benchmark 工程。局部 setup 复用若没有收益，可以明确不采用，不阻塞其余有效重构。
+**目标。** 让真实 consumer 决定需要哪些 opaque 产品，并把 effects-off 的基础 PBR 收敛为 receiver-local 的 direct lighting + IBL + HDR。高级效果没有 consumer 时，Surface、provider、opaque resolve 及其 transient 资源必须从 live graph 消失。
 
-主要修改 owner：`SurfaceFeature`、`SparseShadingPublicationCoordinator`、`GpuSparseShadingPipelineContract`、`sparse_shading_resolve`、`GIService`、环境 preparation/owner、`MainRenderPipeline`、`FrameProducts` 与现有性能导出。Receiver/PBR helpers 可按职责拆文件，但不预先创建无 consumer 的 controller/service。
+**代码边界。** 主要修改 `MainRenderPipeline.ts`、`SurfaceFeature.ts`、`GIService.ts`、`FrameProducts.ts`、`GpuSparseShadingPipelineContract.ts`、`sparse_shading_resolve.ts`；必要时调整 `LongRangeDiffuseProviderPass.ts`、`OpaqueLightingResolvePass.ts` 与环境 preparation owner。
 
-完成切换后删除：单 bin 无用 queue/indirect 资源依赖、effects-off 独立 IBL provider/resolve、重复基础 IBL 数学、过时输出依赖与不准确的统计字段。保留多 bin sparse scheduler 和高级消费者实际需要的 GI owner；它们不是旧 renderer fallback。相应更新架构、管线、能力和 porting 文档，当前实现状态只写入 STATUS。
+**执行步骤。**
+
+1. 定义不可变 `OpaqueShadingDemand`，至少包含 `needsHdr`、`needsSurface`、`needsDiffuseSurface`、`needsVelocity`、`needsIndirectComponents` 和 `needsLightingDebug`。从 feature topology、材质输出和真实下游读集合一次计算，传入 publication/context 和 FrameGraph recipe。
+2. 将基础路径固定为 `Visibility → Receiver/Material → Direct Lighting → Environment IBL → HDR`。receiver kernel 复用现有材质和 `lighting_direct` 数学；direct、emissive、unlit 与 Material AO 的责任要写在同一 ABI 注释和产品字段上，AO 只能应用一次。
+3. 只有 AO/SSGI/SSR/Brick4/Probe 或 lighting debug 请求时，才创建 Surface、velocity、indirect components、long-range provider 和后置 resolve。effects-off 时删除没有消费者的 attachment、bind group、Pass、readback 与独立 submit。
+4. 为 IBL 准备明确表示：diffuse 使用 SH9，specular 使用 prefiltered cubemap mip chain，BRDF 使用匹配的 DFG LUT。preparation 由环境变化触发，稳定帧只读已准备的资源；不在 receiver 内重复构建环境数据。
+5. 迁移完成后删除 effects-off 的独立 IBL provider/opaque resolve 往返和重复基础 IBL 数学。旧函数若只剩无消费者调用，直接删除；不保留只为兼容而存在的第二条基础路径。
+
+**完成证据。**
+
+- FrameGraph 的 live topology 中，effects-off 没有 Surface/provider/opaque-resolve 的无消费者节点或资源。
+- PBR/ORM、环境旋转与亮度、HDR/pre-exposure、背景和阴影关闭语义保持正确；没有重复 AO 或重复 HDR 合成。
+- 性能面板记录 Surface bytes/pixel、live transient texture 数量、provider/resolve Pass 数，以及 receiver/HDR 的 GPU 时间。收益按同一相机和分辨率的绝对 GPU 时间报告，不能把被搬入 receiver 的工作重复相加。
+- 高级效果开启时，所需的 Surface/indirect products 仍按 dependency 出现，且下游只读取命名的有效产品。
+
+**轻量手动测试。** 两个 Rendering Lab 都跑 Full effects-off 的远、中、近固定机位；Basic 只作同机位参照。加载和 Shader preparation 完成后，每个位置静置约 5--10 秒导出一次，检查 PBR/IBL 画面、live graph 和 GPU 面板。再逐项开启 AO、SSGI、SSR 和 temporal，确认对应资源出现、关闭后在提交边界退役。只保留必要截图、配置和导出，不建立新的压力矩阵。
+
+#### 阶段二：单 bin 调度与资源声明收窄
+
+**目标。** 在阶段一基础路径稳定后，让 publication 的 `0 / 1 / >1` bin 结果决定执行形态。单 bin 省去不需要的分类和队列；多 bin 继续保持 ADR-0013 的 GPU producer → GPU consumer 闭环。
+
+**代码边界。** 主要修改 `SparseShadingPublicationCoordinator.ts`、`GpuShadingPublicationPlan.ts`、`SurfaceFeature.ts`、`PackedVisibilityPass.ts`、`ShadingBinPass.ts`、`SparseShadingResolvePass.ts`、`sparse_shading_resolve.ts` 和 `FrameProducts.ts`。
+
+**执行步骤。**
+
+1. 在 immutable publication 中冻结 execution mode：`0 bin` 不创建 opaque shading；`1 bin` 选择 `DirectSingleBin`；多 bin 选择现有 SparseMicrotile classifier/finalizer/indirect 路径。该决定来自已发布 summary，不来自每帧 CPU 可见性扫描。
+2. 首版 `DirectSingleBin` 使用固定 8×8 compute 网格和轻量 status。它不创建 sparse heap、classifier/finalizer、768 B indirect args 或逐 bin queue；除非 debug 或多 bin consumer 明确需要，也不创建 `ShadingBinId` attachment。背景 lane 通过 VisibilityKey/depth validity 早返回。
+3. `PackedVisibilityPass` 接受 execution mode 作为产品需求，只有确实需要 bin identity 时才写第二个 MRT。多 bin 仍保留 `r32uint VisibilityKey + r8uint ShadingBinId`、bounded reservation、finalizer fail-closed 和 indirect dispatch ABI。
+4. 把 `MaterialAccessSignature` 从 WGSL specialization 扩展为 FrameGraph 实际 read set。每个 TextureBindingSet 只导入和声明 shader descriptor 真正使用的 bank，避免无用 residency、barrier 和生命周期。
+5. 对单 bin 和多 bin分别记录有效像素 `P`、内部像素 `N`、coverage、classifier、receiver 和总 GPU 时间。DirectSingleBin 不得因为“少一个 Pass”就默认更快；Full 约 62% coverage 时必须实测背景 early-out 是否抵消全屏 invocation 放大。若回退，删除慢实现或改成单 bin 稀疏 consumer，不恢复固定 70--75% 门槛。
+
+**完成证据。**
+
+- 单 bin graph 中 classifier/finalizer/queue/indirect 资源按预期不存在；多 bin 中 producer、consumer、capacity、overflow 和 error counter 完整存在。
+- VisibilityKey sentinel、背景写入、material association patch、resize 和 invalid identity 正确；无 queue overflow、invalid key 或 generation mismatch。
+- shader descriptor、FrameGraph read set 和 texture residency accounting 一致；未使用 texture bank 不再延长资源生命周期。
+- 面板能区分 publication mode 与本帧非零 bin，并同时显示 `P/N`，避免把 mode 当作性能结论。
+
+**轻量手动测试。** Basic 和 Full 使用完全相同的 camera、窗口、DPR 与画质，分别观察远、中、近机位；单 bin 场景再用一个人工多材质/多 association 场景确认多 bin 回路。做一次 resize 和一次 material patch，检查材质、背景、错误日志、截图及少量性能导出。不要把两种场景的不同视角直接做差。
+
+#### 阶段三：Receiver 热路径与纹理驻留核查
+
+**目标。** 只有前两阶段证明基础工作流和调度合同稳定后，才处理逐像素 receiver setup、packed decode、材质读取和纹理工作集。该阶段的收益必须由 shader 实际工作或 residency 证据支持。
+
+**代码边界。** 主要修改 `sparse_shading_resolve.ts`、`GpuShadingProgramOracle.ts`、`GpuComputeMaterialAbi.ts`、`GpuTextureRefAbi.ts`、`TextureResidency.ts`、`GpuAssetStore.ts`、环境 preparation owner；若证据支持，再评估 `LargeTriangleSetupCache.ts` 的有界局部复用。
+
+**执行步骤。**
+
+1. 审计 velocity-off 是否仍加载 previous/current clip，PbrOrm 是否仍进入 base/normal/emissive/tangent 分支，packed geometry metadata 是否被重复读取或解码。以生成 WGSL、真实 bind layout 和 shader source audit 为准，不能从 TypeScript 字段大小推算带宽。
+2. 收窄 material record 和 texture route 的实际字段读取，保持 `MaterialAccessSignature`、pipeline cache key、binding declaration 与 FrameGraph read set 同步。若编译器已经消除某段路径，不重复实现同一“优化”。
+3. 为每张纹理记录 source/decoded dimensions、GPU format、mip count、layer/capacity、logical/resident/allocated bytes 和 asset identity，核对 2048→4096 差异是统计错误、上传放大还是确有物理驻留。必要时用已有 GPU-native/KTX2/BC package 做一次同尺寸手动对照，不以降低 DPR、粗 mip 或删环境光换取收益。
+4. 只有 receiver setup 仍占主导时，才实验有界 subgroup/triangle setup 复用。定义 producer、容量、溢出、fallback、统计和生命周期；不建立无界跨帧 cache 或新的长期队列。若 off/on 没有稳定收益，删除实验实现。
+
+**完成证据。**
+
+- 生成 WGSL 不再包含实际未使用的字段、纹理路径或 velocity 读取；shader validation 和布局检查通过。
+- logical/physical texture evidence 一致；若驻留修复有效，报告中同时出现内存和长尾变化，不能只报纹理数量。
+- receiver setup 复用若采用，能显示命中率、fallback、额外字节和 GPU 时间；没有正确性回退。
+- 近裁剪面、斜视纹理、退化三角形、normal-map 和 mip 语义保持稳定。
+
+**轻量手动测试。** 以 Full effects-off 的 ORM 近景为主，补充斜视纹理、近裁剪面、退化三角形和一个带 normal map 的材质视角，检查 mip、UV、normal、tangent、颜色和闪烁。纹理 residency 做一次完整核查；subgroup/setup 实验只在前两阶段稳定后运行，不扩展成大型资产矩阵。
+
+三个阶段完成后，再清理被替代的基础路径、过时计数名称和无消费者 shader；保留多 bin scheduler 及高级效果实际需要的 GI/AO/SSR owner。当前实现状态只写入 `STATUS.md`，ADR 仍需满足验证章节的运行证据后才能改变状态。
 
 ### 10. 比较过但不作为当前默认决策的方案
 
@@ -371,6 +427,80 @@ A 中沿用现有 oct 只是迁移中间态，不保留为永久环境 backend�
 | 更复杂的 GI / ReSTIR | 改善特定照明算法的采样效率 | 不解释当前高级效果全关的成本，不纳入 |
 
 如果后续证据要求改变 Visibility 或数据结构，可以另行修改相应决策；本 ADR 不把现有架构或外部引擎的实现当不可推翻的权威。
+
+### 11. 架构审计补充：当前实现的强项与真实缺口
+
+#### 已经合理、暂不建议推翻的部分
+
+- `PackedVisibilityPass` 已经把层次工作生成、Hardware Visibility、VisibilityKey 和 MeshletWork 接成 GPU producer -> GPU consumer 闭环。它与 Nanite/meshlet 类方案的基本方向一致；当前数据中的队列溢出、无效 key 和 identity 错误也没有显示异常。没有同视角证据前，不应因为 Full 比 Basic 慢就重写这条几何前端。
+- `ShadingBinPass` 使用 GPU classifier、GPU heap 和 indirect dispatch，没有把可见像素读回 CPU。这符合 Visibility Buffer 和现代 GPU-driven 渲染的核心不变量。WebGPU 没有标准 multi-draw-indirect，因此保留有限 bin 的 indirect dispatch 是可移植的折中。
+- `FrameGraph` 已有 transient lifetime、pass culling 和 compiled topology。问题不在“缺少一个 render graph”，而在上层没有把真实 consumer demand 传到 graph recipe；这应通过收窄产品合同解决，而不是再造第二套管线。
+
+#### P0：需求驱动没有贯穿到发布上下文
+
+当前 [MainRenderPipeline](../../OEngine/src/render/pipeline/MainRenderPipeline.ts) 的
+`createSparseShadingPublicationContext` 在存在 opaque-lit receiver 时无条件加入
+`ShadingSurfaceLite | DiffuseSurfaceLite`。随后主图在这些资源存在时调用
+`GIService.resolveOpaqueLighting`，因此即使 GTAO/SSGI/SSR 和光照分量 debug 都关闭，仍会创建
+Surface 输出、long-range provider 和 OpaqueLightingResolve。这个行为正是当前 Full effects-off
+仍有约 5.368 ms provider + resolve 的代码层证据。
+
+高性能实现的共同模式是“consumer 先声明所需产品，producer 再生成产品”：Filament 的 IBL
+只在材质光照阶段消费，Bevy/The Forge 的 visibility resolve 不为不存在的后处理建立 G-buffer
+产品。EEngine 应把 `OpaqueShadingDemand`（HDR、Surface、velocity、indirect components）作为
+不可变 frame plan 先计算，再由 `SurfaceFeature` 和 `GIService` 按 demand 建图。effects-off 的
+lit 基础路径应只有 `Visibility -> Receiver/Material/Direct/IBL -> HDR`；无 consumer 时
+Surface、provider、resolve 的资源和 Pass 必须从 live graph 消失。
+
+#### P1：单 bin 模式没有向 Visibility 资源合同反向传播
+
+`PackedVisibilityPass.addToGraph` 目前始终创建 `Packed ShadingBinId` attachment。DirectSingleBin
+不需要读取每像素 bin identity；只有多 bin sparse consumer 或对应 debug view 才需要它。单 bin
+publication 应把 execution mode 传入 Visibility 产品规划，使 raster MRT 在不需要时省略该
+attachment。这样可减少一份全内部分辨率的 r32uint 写入和后续资源生命周期，但收益属于带宽/资源
+压力，不能直接按 Pass 数量折算毫秒。
+
+同样，`SurfaceFeature` 的 resolve 目前对每个 active `TextureBindingSet` 的 9 个 texture bank
+都声明 `read`，即使生成的 pipeline 只绑定其中一部分。`MaterialAccessSignature` 不应只收窄
+WGSL binding；它还必须成为 FrameGraph 的实际 read set，只导入和声明被 descriptor 使用的 bank。
+否则 shader 可能少采样了，但 residency、barrier 和资源存活范围仍被放大。
+
+#### P1：主管线和 GIService 承担了过多决策
+
+`MainRenderPipeline` 同时决定 publication、资源导入、材质 bank 路由、Surface 输出、GI/SSGI/SSR
+组合和 debug 产品，`GIService.resolveOpaqueLighting` 又把 provider 与最终 resolve 固定成一个
+调用。这样的 god-object 边界会让“关闭一个 consumer 后删除所有无用 producer”变得困难，也容易
+让同一 HDR 在多个 owner 之间重复解释。
+
+建议保留现有统一主管线，但把实现拆成三个纯计划层和三个资源 owner：
+
+1. `VisibilityPlan`：可见性 attachment、MeshletWork 和 execution mode；
+2. `OpaqueReceiverPlan`：按 material/receiver demand 生成 Direct/IBL 或 demanded Surface；
+3. `IndirectCompositionPlan`：仅接收真实存在的 AO/GI/SSR products。
+
+计划层只产生 immutable `FrameProducts` 合同，owner 负责 pipeline/bind group/resource 生命周期。
+这属于降低耦合和避免错误工作的架构重构；在 P0 demand 修正前，不应为了目录拆分单独做大规模搬迁。
+
+#### P2：单 bin 的“减少调度”不能预先当成收益
+
+当前 Full 捕获 foreground coverage 约 62.12%。Sparse resolve 的有效 invocation 约 1.089 M，
+而 DirectSingleBin 的固定全屏网格会处理约 1.754 M 像素。若两者每个命中的 receiver 成本相同，
+全屏路径的 receiver 部分理论上会放大到约 1.61 倍；它只有在省掉 classifier/queue、背景 early-out
+和更好的 locality 足以抵消这项放大时才会变快。Basic 的约 99.65% coverage 更有利于 DirectSingleBin，
+但不能把这个结论外推到 Full 或近景。
+
+因此不恢复 70--75% 的固定切换门槛，也不把 `binCount == 1` 写成性能承诺。保留 0/1/>1 的
+publication ABI 选择；单 bin 实现必须在同一 camera、同一 GPU 状态下同时记录
+`P`（有效像素）、`N`（内部像素）、classifier 时间和 receiver 时间。若 DirectSingleBin 回退，
+应删除它的实现或改成单 bin 的稀疏 consumer，而不是保留一个只因架构图好看的慢路径。
+
+#### 与高性能方案的边界
+
+Nanite、The Forge、Wicked Engine 和 Bevy 的共同点是紧凑可见性身份、GPU 侧工作生成、按材质/几何
+局部性组织 shading，以及只为真实 consumer 物化中间产品。它们在 bindless、mesh/task shader、
+原生 subgroup/64 位原子或平台专用缓存上有额外能力；这些能力不能直接成为 WebGPU 默认依赖。
+EEngine 当前最值得移植的是 demand-driven product graph、receiver-local fusion 和有限的
+triangle setup 复用，不是照搬它们的资源模型或前端调度器。
 
 ## Consequences
 

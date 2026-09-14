@@ -14,6 +14,8 @@ scene-update
   → HDR post + present
 ```
 
+上图描述当前主图的产品顺序，不等同于 ADR-0015 的目标状态。当前 `MainRenderPipeline` 在 opaque-lit receiver 存在时仍可能建立 `SurfaceLite`、long-range provider 和 `OpaqueLightingResolve`；`ShadingBinPass` 也仍是默认的分类/队列入口。ADR-0015 的三个阶段会把这些节点改为由真实 consumer demand 和 `0 / 1 / >1` bin mode 决定，完成前不能把融合或单 bin 直调写成当前能力。
+
 `FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。Shadow atlas/light-record producer 已进入 `main-view-graph`，通过显式资源版本边连接 cluster 与 sparse lit resolve，不再用一个空的跨图 `shadow-update` stage 代替真实 GPU 依赖。旧对象 runtime 驱动的 probe-atlas 更新已经删除；现有 LPV atlas 是只读采样资源，不会生成独立更新图或 submit。
 
 主管线的 WebGPU specialization 遵循 [WEBGPU.md](./WEBGPU.md)：先冻结 capability record，再选择 Shader、format、compressed asset 和 pass-local resource 实现。能力差异只能改变同一节点/产品的内部实现和 cache key，不能复制 FramePlan、FrameProducts 或 Renderer。Visibility 在 `primitive-index` 已启用时消费 fragment builtin，缺失时消费 vertex 派生的 flat local triangle；两者写同一 VisibilityKey。Immediate Data 只替代小常量传递；Transient Attachment 只用于不离开当前 render pass 的 attachment。
@@ -38,7 +40,7 @@ Hardware Visibility 使用 reverse-Z depth，并由同一个胜出 fragment 同�
 
 Geometry consumer 通过共享 byte-addressed decode ABI 读取 `static-pbr-compact-v2`：AABB-relative UNORM16 position、oct SNORM16 normal、SNORM16 tangent、float16 UV 与 UNORM8 color。`GpuAssetStore` 在同一 resident/release command transaction 内把 geometry/meshlet/generation 与 meshlet-vertex/triangle/vertex-data 分别发布为 versioned `asset-metadata-heap`、`vertex-payload-heap`；五段 GPU copy 后的 word base、count、byte size 与 heap epoch 是正式 binding 数据，release 先发布下一 generation，abort 恢复旧 heap identity，旧 heap 等 submitted work 完成后销毁。派生 heap 的 resident/allocated/retiring bytes 纳入资产证据，不能当作零成本 alias。Meshlet/cluster bounds 必须包含 quantization 误差；Visibility、Shadow、Shading Resolve 与 Transparency 不得各自复制或猜测 decode 规则。
 
-ADR-0013 Step 7.2 已把 production resolve binding 接入唯一主管线：`GpuSparseShadingFrameAbi` 以 240 B uniform 原子携带 internal extent、material/texture/publication generation、资产 heap word bases、frame/PreExposure/upscale、camera 与 current/previous VP；reserved scene-global geometry generation 必须写零，真实 generation 只从 Instance V6 与资产逐 slot table 核对。Lit specialization 直接读取现有分页 `LightDatabase`，沿用生产 32×32×24 cluster、Filament BRDF、5×5 optimized shadow gather、directional CSM blend、point contact-hardening 与 spot shadow 语义。Direct-only sparse stage 不绑定 environment/IBL；这些输入继续由后继 long-range GI/opaque lighting owner 消费，不能用未读取的 dummy binding 填满上限。
+ADR-0013 Step 7.2 已冻结 production resolve binding：`GpuSparseShadingFrameAbi` 以 240 B uniform 原子携带 internal extent、material/texture/publication generation、资产 heap word bases、frame/PreExposure/upscale、camera 与 current/previous VP；reserved scene-global geometry generation 必须写零，真实 generation 只从 Instance V6 与资产逐 slot table 核对。当前 lit specialization 直接读取现有分页 `LightDatabase`，沿用生产 32×32×24 cluster、Filament BRDF、5×5 optimized shadow gather、directional CSM blend、point contact-hardening 与 spot shadow 语义；基础环境光仍由后继 long-range GI/opaque lighting owner 组合。ADR-0015 阶段一才会把无复杂间接光 consumer 的 IBL 移入 receiver，并同步删除无消费者的 provider/resolve；在实现完成前，不应把该目标写成当前图事实。
 
 `SurfaceFeature` 消费正式 Visibility/ExactRaster 产品：
 
@@ -77,7 +79,7 @@ ADR-0013 Step 7.2 已把 production resolve binding 接入唯一主管线：`Gpu
 
 Production opaque shading 先按 `ShadingProgramId × TextureBindingSetId` 的 active scene summary 建立不可变 revision，再从 VisibilityKey V2 恢复 MeshletWork/local primitive，读取 canonical compact vertex，计算 perspective-correct barycentric 与显式 UV gradients。有效梯度使用 `textureSampleGrad`，退化梯度明确使用 `textureSampleLevel(..., 0)` 并通过 Surface flag/counter 暴露。每个命中 pixel 只在所属 specialized bin kernel 中完成一次 material evaluation；lit program 随即用同一个 `lighting_direct` WGSL authority 消费 LightDatabase/cluster/shadow 并写 HDR，不再执行第二轮 28-class direct-lighting dispatch。Unlit/textureless/output-off/shadow-off variant 在创建时物理删除无用 binding、读取与 store。
 
-`LightingFeature` 只保留 light-cluster producer 与 background/empty-HDR composition；opaque direct lighting 已融合到 sparse resolve。Production diagnostics 只保留 queue/control 的 error-only counter，per-pixel claim/duplicate/unassigned oracle 只属于独立 diagnostics variant。Step 7 cutover 已物理删除旧 queue/class mapping、material evaluator 与第二轮 opaque lighting owner；Final Output 也只接受 `ShadingBinControl.frame_flags`，不存在可选择的旧 validity ABI。
+当前 `LightingFeature` 负责 light-cluster producer 与 background/empty-HDR composition；sparse resolve 已消费 direct lighting，但 `GIService` 仍可在主图中连接 long-range provider 与 `OpaqueLightingResolve`。Production diagnostics 只保留 queue/control 的 error-only counter，per-pixel claim/duplicate/unassigned oracle 只属于独立 diagnostics variant。ADR-0015 阶段一完成后，effects-off 才能保证基础 direct/IBL 只写一次 HDR，并物理删除没有 consumer 的中间产品；Final Output 继续只接受 `ShadingBinControl.frame_flags`。
 
 当前 SurfaceLite physical profile 为 `rgba16uint normal + rgba8unorm albedo/AO + rg32uint material/emissive`，无 motion consumer 时 20 B/pixel；Velocity consumer 存在时增加 `rg16float`，为 24 B/pixel。Velocity-off 使用独立静态 shader interface，bind layout、资源创建、clear/store 都不含 velocity，不使用 dummy texture。MaterialId debug 从 `VisibilityKey → MeshletWork` 恢复，不再复制 per-pixel material slot。主 HDR/颜色 history 的独立 ABI 为 `pre-exposed-rgba16float-v1`（8 B/pixel）；`rg11b10ufloat` 因无 alpha、无有符号表示且不能作为统一 render/storage/history 合同而没有成为主管线格式，仍可由 RGB-only companion product 单独门禁采用。
 
