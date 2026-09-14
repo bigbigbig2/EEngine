@@ -18,7 +18,7 @@ const coreDocs = [
 ];
 
 const adrDocs = markdownFiles(path.join(docsRoot, "adr"), "adr")
-  .filter((relativePath) => relativePath === "adr/README.md" || /^adr\/\d{4}-.+\.md$/.test(relativePath))
+  .filter((relativePath) => relativePath === "adr/README.md" || /^adr\/(?:\d{4}|ADR-\d{4})-.+\.md$/.test(relativePath))
   .sort();
 const portingDocs = [
   "porting/geometry.md",
@@ -119,7 +119,7 @@ test("root-anchored repository paths in authoritative docs exist", () => {
 });
 
 test("ADRs keep the decision shape and an explicit lifecycle status", () => {
-  for (const relativePath of adrDocs.filter((name) => /^adr\/\d{4}-/.test(name))) {
+  for (const relativePath of adrDocs.filter((name) => /^adr\/(?:\d{4}|ADR-\d{4})-/.test(name))) {
     const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
     assert.match(
       source,
@@ -134,7 +134,7 @@ test("ADRs keep the decision shape and an explicit lifecycle status", () => {
 
 test("ADR index routes every numbered decision", () => {
   const source = readFileSync(path.join(docsRoot, "adr", "README.md"), "utf8");
-  for (const relativePath of adrDocs.filter((name) => /^adr\/\d{4}-/.test(name))) {
+  for (const relativePath of adrDocs.filter((name) => /^adr\/(?:\d{4}|ADR-\d{4})-/.test(name))) {
     const fileName = path.posix.basename(relativePath);
     assert.match(source, new RegExp(`\\((?:\\./)?${fileName.replaceAll(".", "\\.")}\\)`), relativePath);
   }
