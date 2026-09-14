@@ -2,7 +2,7 @@
 
 > **Status:** proposed；推荐的重构设计，尚未实现或证明性能收益。
 > **Date:** 2026-09-15
-> **Source revision:** `2337eb05853a253c9ac429cc2c29f0510982ac0f`
+> **Source revision:** `21208a9e7b4370d7231fdf41561a7de9e1a07b12`
 > **Scope:** 基础 opaque PBR 的像素成本、着色调度、属性重建、材质访问与环境光数据流；高级效果的依赖边界。
 > **Supersedes on adoption:** [ADR-0013](./0013-sparse-shading-bin-pipeline.md) 对所有 opaque publication 强制执行 classifier/queue 的物理要求，以及基础 IBL 必须经过 Surface → provider → lighting resolve 的组织方式。
 > **Preserves:** Hardware Visibility、VisibilityKey、Packed Instances、单次完整材质求值、统一主管线、真实高级效果语义与提交感知的资源生命周期。
@@ -14,9 +14,9 @@
 
 | 阶段 | 当前状态 | 可交付结果 | 允许进入下一阶段的条件 |
 | --- | --- | --- | --- |
-| 一、Demand-driven 基础光照融合 | receiver-local IBL 与 effects-off provider gate 已落地，仍需浏览器画面和 GPU 时间复核 | effects-off 只保留 Visibility -> receiver/material/direct/IBL -> HDR；AO/GI/SSR 等真实 consumer 出现时才生成对应 Surface/provider | live graph 删除无消费者 Surface/provider/resolve，AO/IBL/pre-exposure 语义各应用一次，Full effects-off 的近景 GPU 时间有同条件记录 |
-| 二、0/1/>1 bin 调度收窄 | 代码和契约检查已完成，等待两个示例手动验证 | 0 bin 无 opaque consumer，1 bin 使用 DirectSingleBin status + 固定网格，>1 bin 保留 classifier/heap/indirect 的 GPU producer -> consumer 闭环；面板显示 mode、P/N/W 和资源字节 | single/multi 的 identity、overflow、resize、material patch 和 device-loss 语义稳定，并能解释远/中/近机位的绝对 GPU 时间 |
-| 三、receiver 热路径与纹理驻留 | 已开始 source audit（velocity-off 特化），其余字段/驻留实验未实施 | 以 WGSL/source audit 为入口收窄真实字段、采样 bank 和 packed decode；只有 receiver 或 residency 仍主导时才尝试有界 setup 复用 | 生成 WGSL、binding/read set、纹理 residency ledger 和 off/on GPU 对照共同证明收益；否则删除实验并转独立性能问题 |
+| 一、Demand-driven 基础光照融合 | receiver-local IBL、effects-off provider gate 和按消费者建图已落地；仍缺两个 Rendering Lab 的 live graph、画面与 GPU 时间复核 | effects-off 只保留 Visibility -> receiver/material/direct/IBL -> HDR；AO/GI/SSR 等真实 consumer 出现时才生成对应 Surface/provider | live graph 删除无消费者 Surface/provider/resolve，AO/IBL/pre-exposure 语义各应用一次，Full effects-off 的近景 GPU 时间有同条件记录 |
+| 二、0/1/>1 bin 调度收窄 | `None / DirectSingleBin / SparseMicrotile` 生产路径、单/双 MRT 合同和面板指标已落地；仍缺两个 Rendering Lab 的单/多 bin 手动对照 | 0 bin 无 opaque consumer，1 bin 使用 DirectSingleBin status + 固定网格，>1 bin 保留 classifier/heap/indirect 的 GPU producer -> consumer 闭环；面板显示 mode、P/N/W 和资源字节 | single/multi 的 identity、overflow、resize、material patch 和 device-loss 语义稳定，并能解释远/中/近机位的绝对 GPU 时间 |
+| 三、receiver 热路径与纹理驻留 | velocity-off 特化、shader source audit 基础和 `textureLedger` 已落地；PbrOrm/geometry metadata/setup 主导性尚未证明，setup 复用未启用 | 以 WGSL/source audit 为入口收窄真实字段、采样 bank 和 packed decode；只有 receiver 或 residency 仍主导时才尝试有界 setup 复用 | 生成 WGSL、binding/read set、纹理 residency ledger 和 off/on GPU 对照共同证明收益；否则删除实验并转独立性能问题 |
 
 阶段二的“已完成”只表示静态 ABI、FrameGraph 闭包和自动检查完成，不表示浏览器 Runtime Validated、Performance Improved 或 ADR Complete。后续提交按“阶段代码合同 -> 轻量检查 -> 手动记录”的顺序组织，阶段三不得与阶段一、二的未解释长尾同时修改。
 
@@ -367,6 +367,13 @@ type OpaqueShadingResult =
 
 每个阶段采用同一提交节奏：先提交代码合同，再提交轻量自动检查结果，最后提交两个 Rendering Lab 的手动记录。阶段门槛只看真实 live graph、GPU 时间、计数器和画面语义；“少了一个 Pass”或“GPU 利用率下降”不能单独作为通过条件。阶段中发现主导成本不在本 ADR 范围内时，保留已经验证的正确性修复并停止扩展，不为了凑齐三阶段而继续重构。
 
+每一个编号步骤都必须留下四类信息，写入提交说明或对应导出旁车文件：
+
+1. **变更边界：** 改动的 owner、输入/输出资源和不改动的上游合同。
+2. **不变量：** identity、generation、overflow、resize、device-loss、颜色/深度/坐标和生命周期中哪些必须保持不变。
+3. **证据入口：** 具体的 typecheck、targeted test、WGSL/layout dump、live graph 或 Rendering Lab 导出字段。
+4. **失败处理：** 若门槛不满足，保留正确性修复，关闭或删除该步骤的实验路径，并记录转交到哪个独立性能问题；不把未证明的分支留在默认生产路径。
+
 | 阶段 | 先解决的主问题 | 主要 owner | 阶段产物 | 进入下一阶段的必要证据 |
 | --- | --- | --- | --- | --- |
 | 一 | effects-off 仍物化 Surface/provider/resolve，中间产品重复往返 | `MainRenderPipeline`、`SurfaceFeature`、`GIService`、receiver shader | demand snapshot、receiver-local 基础 IBL、收窄后的 live graph | 画面语义正确；无消费者产品消失；同条件 receiver/HDR GPU 时间可导出 |
@@ -389,11 +396,12 @@ type OpaqueShadingResult =
 
 **执行步骤（按此顺序提交）。**
 
-1. **冻结 demand 输入。** 定义不可变 `OpaqueShadingDemand`，至少包含 `needsHdr`、`needsSurface`、`needsDiffuseSurface`、`needsVelocity`、`needsIndirectComponents` 和 `needsLightingDebug`。在 graph build 开始时从 feature topology、材质输出和真实下游读集合计算一次；publication、`FrameProducts` 和 FrameGraph recipe 只能消费这份快照，不能在 Pass 执行期间临时改变。提交物是 demand 的类型、默认值、构造点和一条能打印最终 mask 的诊断记录。
-2. **合并基础 receiver。** 将 effects-off 路径固定为 `Visibility → Receiver/Material → Direct Lighting → Environment IBL → HDR`。复用 `lighting_direct` 的 BRDF、cluster 和 shadow 数学；在 ABI 注释和 shader source audit 中明确 direct、emissive、unlit 与 Material AO 的 owner，确保 emissive 只写一次、AO 只乘一次，并保持 pre-exposure 在唯一 HDR 写入点应用。提交物是 EnvironmentIBL specialization、binding layout 和最窄/最宽组合的生成 WGSL。
-3. **按 consumer 物化产品。** 只有 AO/SSGI/SSR/Brick4/Probe、temporal/motion-blur/velocity debug 或 lighting debug 请求时，才创建对应 Surface、velocity、indirect components、long-range provider 和后置 resolve。effects-off 时检查 compiled live graph，删除无消费者的 attachment、bind group、Pass、readback 与独立 submit，而不是只隐藏 UI 或把 Pass 标记为 no-op。提交物是 effects-off 与 advanced-on 两份 graph dump，能逐项对应 demand 位和资源 owner。
-4. **固定可验证的 IBL 表示。** 本阶段复用现有 `environment_diffuse` 与 `environment_specular` 的 octahedral 纹理表示，并使用已有的 prefiltered mip 与静态 split-sum DFG LUT；receiver 通过明确的 filtering sampler 读取它们。环境变化只触发既有 preparation owner，稳定帧只读已准备资源。SH9/cubemap 属于后续 cooker/资源格式替换候选，必须另做画质和驻留对照，不能把尚未接入的表示写成当前实现。提交物是资源格式、mip、sampler、pre-exposure 和 AO 责任的单一注释/表格，供 shader 与 FrameGraph 对照。
-5. **清理旧往返并设阶段门。** 迁移完成后删除 effects-off 的独立 IBL provider/opaque resolve 往返和重复基础 IBL 数学。旧函数若只剩无消费者调用，直接删除；不保留只为兼容而存在的第二条基础路径。提交物是删除清单和一次 live graph/GPU 导出。只有当 live topology、画面语义和同条件 GPU 时间证据都满足完成条件，才进入阶段二；若融合后 receiver 成为新的主导阶段，保留正确性并记录回退点，不提前扩展阶段二。
+0. **建立阶段一基线。** 固定两个 Rendering Lab 的窗口尺寸、`window.devicePixelRatio`、画质、灯光、资产和远/中/近相机；关闭高级效果但保留基础 PBR。等待加载和 shader preparation 完成后，各导出一次 GPU pass、live graph、Surface/provider/resolve 数量和截图。该基线只用于同条件前后对照，不把两个示例互相相减，也不把 GPU 利用率当作 shader 时间。
+1. **冻结 demand 输入。** 定义不可变 `OpaqueShadingDemand`，至少包含 `needsHdr`、`needsSurface`、`needsDiffuseSurface`、`needsVelocity`、`needsIndirectComponents` 和 `needsLightingDebug`。在 graph build 开始时从 feature topology、材质输出和真实下游读集合计算一次；publication、`FrameProducts` 和 FrameGraph recipe 只能消费这份快照，不能在 Pass 执行期间临时改变。提交物是 demand 的类型、默认值、构造点和一条能打印最终 mask 的诊断记录；若同一帧出现两个不同 mask，先修正计划生命周期再继续。
+2. **合并基础 receiver。** 将 effects-off 路径固定为 `Visibility → Receiver/Material → Direct Lighting → Environment IBL → HDR`。复用 `lighting_direct` 的 BRDF、cluster 和 shadow 数学；在 ABI 注释和 shader source audit 中明确 direct、emissive、unlit 与 Material AO 的 owner，确保 emissive 只写一次、AO 只乘一次，并保持 pre-exposure 在唯一 HDR 写入点应用。提交物是 EnvironmentIBL specialization、binding layout 和最窄/最宽组合的生成 WGSL；先用 Unlit、PbrFactor、PbrOrm 三个代表组合检查编译和输出，再扩展到完整材质集合。
+3. **按 consumer 物化产品。** 只有 AO/SSGI/SSR/Brick4/Probe、temporal/motion-blur/velocity debug 或 lighting debug 请求时，才创建对应 Surface、velocity、indirect components、long-range provider 和后置 resolve。effects-off 时检查 compiled live graph，删除无消费者的 attachment、bind group、Pass、readback 与独立 submit，而不是只隐藏 UI 或把 Pass 标记为 no-op。提交物是 effects-off 与 advanced-on 两份 graph dump，能逐项对应 demand 位和资源 owner；每个关闭项至少确认一次资源创建数和一次 GPU 时间，而不是只看 UI 开关状态。
+4. **固定可验证的 IBL 表示。** 本阶段复用现有 `environment_diffuse` 与 `environment_specular` 的 octahedral 纹理表示，并使用已有的 prefiltered mip 与静态 split-sum DFG LUT；receiver 通过明确的 filtering sampler 读取它们。环境变化只触发既有 preparation owner，稳定帧只读已准备资源。SH9/cubemap 属于后续 cooker/资源格式替换候选，必须另做画质和驻留对照，不能把尚未接入的表示写成当前实现。提交物是资源格式、mip、sampler、pre-exposure 和 AO 责任的单一注释/表格，供 shader 与 FrameGraph 对照；若 AO 归属无法从源码和截图确定，则阶段一停在语义修正，不进入调度改造。
+5. **清理旧往返并设阶段门。** 迁移完成后删除 effects-off 的独立 IBL provider/opaque resolve 往返和重复基础 IBL 数学。旧函数若只剩无消费者调用，直接删除；不保留只为兼容而存在的第二条基础路径。提交物是删除清单和一次 live graph/GPU 导出。只有当 live topology、画面语义和同条件 GPU 时间证据都满足完成条件，才进入阶段二；若融合后 receiver 成为新的主导阶段，保留正确性并记录回退点，不提前扩展阶段二。任何“资源少了但 receiver/HDR 时间上升”的结果都要原样记录，不能只汇报 Pass 数量下降。
 
 **完成证据。**
 
@@ -414,11 +422,12 @@ type OpaqueShadingResult =
 
 **执行步骤（按此顺序提交）。**
 
-1. **冻结 execution mode。** 在 immutable publication 中写入 `0 bin / 1 bin / >1 bin` 模式：`0 bin` 不创建 opaque shading；`1 bin` 选择 `DirectSingleBin`；多 bin 选择现有 SparseMicrotile classifier/finalizer/indirect 路径。决定只能来自已发布 summary，不允许每帧 CPU 遍历可见列表来补救。提交物是 snapshot/context 字段、cache key 字段和 mode counter；旧 publication 必须在新 revision 完成前继续有效。
-2. **实现单 bin consumer。** 首版使用固定 8×8 compute 网格和轻量 status；不创建 sparse heap、classifier/finalizer、768 B indirect args 或逐 bin queue。除非 debug 或多 bin consumer 明确需要，也不创建 `ShadingBinId` attachment；每个背景 lane 通过 VisibilityKey/depth validity 早返回，并记录实际 `N` 以衡量全屏放大。提交物是无 heap/indirect dependency 的 direct bind layout、dispatch 记录和背景 early-out 计数。
-3. **让 Visibility 合同反向收窄。** `PackedVisibilityPass` 接受 execution mode 作为产品需求，只有确实需要 bin identity 时才写第二个 MRT。多 bin 仍保留 `r32uint VisibilityKey + r8uint ShadingBinId`、bounded reservation、finalizer fail-closed 和 indirect dispatch ABI；任何省略 attachment 的路径都要更新 producer、consumer、clear、resize 和 pipeline cache key 的资源合同。提交物是 single-MRT 与 dual-MRT 两条 ABI 的 layout/clear/resize 断言。
-4. **同步材质 read set。** 把 `MaterialAccessSignature` 从 WGSL specialization 扩展为 FrameGraph 实际 read set。每个 `TextureBindingSet` 只导入和声明 descriptor 真正使用的 bank，并在 residency、barrier 和 pipeline cache key 中使用同一签名，避免只删 shader 采样却留下完整资源生命周期。提交物是 signature 到 binding/read-set 的可打印映射，以及 patch 前后 revision 的原子切换记录。
-5. **以数据决定保留。** 对单 bin 和多 bin分别记录有效像素 `P`、内部像素 `N`、coverage、classifier、receiver 和总 GPU 时间。DirectSingleBin 不得因为“少一个 Pass”就默认更快；Full 约 62% coverage 时必须实测背景 early-out 是否抵消全屏 invocation 放大。提交物是同一 camera、DPR、窗口和 workload 的 before/after 导出。若回退，删除慢实现或改成单 bin 稀疏 consumer，不恢复固定 70--75% 门槛。
+0. **复核阶段一门槛和调度基线。** 只在 effects-off 的 demand/live graph 已通过后继续；沿用阶段一相机和 DPR，额外导出当前 classifier、queue、finalizer、indirect args、MRT 和 receiver 时间。若这些资源在所谓单 bin 中已经不存在，不再重复做同一项重构，只补 ABI/验证记录。
+1. **冻结 execution mode。** 在 immutable publication 中写入 `0 bin / 1 bin / >1 bin` 模式：`0 bin` 不创建 opaque shading；`1 bin` 选择 `DirectSingleBin`；多 bin 选择现有 SparseMicrotile classifier/finalizer/indirect 路径。决定只能来自已发布 summary，不允许每帧 CPU 遍历可见列表来补救。提交物是 snapshot/context 字段、cache key 字段和 mode counter；旧 publication 必须在新 revision 完成前继续有效。任何 patch/resize 都必须先完成新 publication 再切换 mode。
+2. **实现单 bin consumer。** 首版使用固定 8×8 compute 网格和轻量 status；不创建 sparse heap、classifier/finalizer、768 B indirect args 或逐 bin queue。除非 debug 或多 bin consumer 明确需要，也不创建 `ShadingBinId` attachment；每个背景 lane 通过 VisibilityKey/depth validity 早返回，并记录实际 `N` 以衡量全屏放大。提交物是无 heap/indirect dependency 的 direct bind layout、dispatch 记录和背景 early-out 计数；同时保留单 MRT/双 MRT 的截图和 layout dump，证明没有把第二 attachment 通过别的 debug 路径偷偷保留。
+3. **让 Visibility 合同反向收窄。** `PackedVisibilityPass` 接受 execution mode 作为产品需求，只有确实需要 bin identity 时才写第二个 MRT。多 bin 仍保留 `r32uint VisibilityKey + r8uint ShadingBinId`、bounded reservation、finalizer fail-closed 和 indirect dispatch ABI；任何省略 attachment 的路径都要更新 producer、consumer、clear、resize 和 pipeline cache key 的资源合同。提交物是 single-MRT 与 dual-MRT 两条 ABI 的 layout/clear/resize 断言；故意注入一次 invalid identity/overflow 只验证 fail-closed，不把错误场景作为性能样本。
+4. **同步材质 read set。** 把 `MaterialAccessSignature` 从 WGSL specialization 扩展为 FrameGraph 实际 read set。每个 `TextureBindingSet` 只导入和声明 descriptor 真正使用的 bank，并在 residency、barrier 和 pipeline cache key 中使用同一签名，避免只删 shader 采样却留下完整资源生命周期。提交物是 signature 到 binding/read-set 的可打印映射，以及 patch 前后 revision 的原子切换记录；先核对一组 PbrOrm 和一组带 normal/emissive 的材质，确保省略路径没有错误地丢纹理。
+5. **以数据决定保留。** 对单 bin 和多 bin分别记录有效像素 `P`、内部像素 `N`、coverage、classifier、receiver 和总 GPU 时间。DirectSingleBin 不得因为“少一个 Pass”就默认更快；Full 约 62% coverage 时必须实测背景 early-out 是否抵消全屏 invocation 放大。提交物是同一 camera、DPR、窗口和 workload 的 before/after 导出，并注明 GPU timestamp 是否覆盖 clear/copy/submit 间隙。若回退，删除慢实现或改成单 bin 稀疏 consumer，不恢复固定 70--75% 门槛。
 
 **完成证据。**
 
@@ -439,10 +448,11 @@ type OpaqueShadingResult =
 
 **执行步骤（按此顺序提交）。**
 
-1. **先做 source audit。** 审计 velocity-off 是否仍加载 previous/current clip，PbrOrm 是否仍进入 base/normal/emissive/tangent 分支，packed geometry metadata 是否被重复读取或解码。以生成 WGSL、真实 bind layout 和 shader source audit 为准，不能从 TypeScript 字段大小推算带宽；每项审计先记录当前读取、寄存器/采样变化和验证入口，再决定是否改 ABI。
-2. **收窄实际字段和路由。** 收窄 material record、texture route 和 sampler 的实际读取，保持 `MaterialAccessSignature`、pipeline cache key、binding declaration 与 FrameGraph read set 同步。若编译器已消除某段路径，删除重复的手工“优化”，避免增加新的变体和分支。提交物是生成 WGSL diff、binding budget 和最窄/最宽材质组合的 shader validation 结果。
-3. **核对纹理驻留证据。** 为每张纹理记录 source/decoded dimensions、GPU format、mip count、layer/capacity、logical/resident/allocated bytes 和 asset identity，核对 2048→4096 差异是统计错误、上传放大还是确有物理驻留。当前 `TextureResidencyEvidence.schemaVersion = 6` 的 `textureLedger` 是这份逐纹理账本；其中 `logicalBytes` 是完整未压缩 mip 链估算，`residentBytes` 是实际上传/压缩 payload，`allocatedBytes` 是该纹理占用的物理 slot 份额，不等于整个 texture array。必要时用已有 GPU-native/KTX2/BC package 做一次同尺寸手动对照；不以降低 DPR、粗 mip 或删环境光换取收益。提交物是单次 residency ledger 和纹理采样工作集的导出。
-4. **有界实验并可删除。** 只有 receiver setup 仍占主导时，才实验有界 subgroup/triangle setup 复用。为实验定义 producer、容量、溢出、fallback、统计和生命周期，先做 off/on 同 workload 对照；不建立无界跨帧 cache 或新的长期队列，若没有稳定收益就删除实验实现。提交物必须同时包含命中率、fallback、额外字节、GPU 时间和画面回归结果，否则实验不进入生产。
+0. **建立 receiver/residency 基线。** 沿用前两阶段已经通过的 Full effects-off 近景，导出代表性 Unlit、PbrFactor、PbrOrm、normal-map/velocity 变体的生成 WGSL、绑定摘要和一次纹理 ledger。只记录一次稳定帧，不建立压力矩阵；若没有可比的 source/layout 和 residency 数据，阶段三不进入改码。
+1. **先做 source audit。** 审计 velocity-off 是否仍加载 previous/current clip，PbrOrm 是否仍进入 base/normal/emissive/tangent 分支，packed geometry metadata 是否被重复读取或解码。以生成 WGSL、真实 bind layout 和 shader source audit 为准，不能从 TypeScript 字段大小推算带宽；每项审计先记录当前读取、寄存器/采样变化和验证入口，再决定是否改 ABI。审计结论必须区分“源码存在但编译器已消除”和“真实 binding/load 仍存在”。
+2. **收窄实际字段和路由。** 收窄 material record、texture route 和 sampler 的实际读取，保持 `MaterialAccessSignature`、pipeline cache key、binding declaration 与 FrameGraph read set 同步。若编译器已消除某段路径，删除重复的手工“优化”，避免增加新的变体和分支。提交物是生成 WGSL diff、binding budget 和最窄/最宽材质组合的 shader validation 结果；任何字段删除都要同时更新 ABI 版本、patch 写入和旧 publication 退役规则。
+3. **核对纹理驻留证据。** 为每张纹理记录 source/decoded dimensions、GPU format、mip count、layer/capacity、logical/resident/allocated bytes 和 asset identity，核对 2048→4096 差异是统计错误、上传放大还是确有物理驻留。当前 `TextureResidencyEvidence.schemaVersion = 6` 的 `textureLedger` 是这份逐纹理账本；其中 `logicalBytes` 是完整未压缩 mip 链估算，`residentBytes` 是实际上传/压缩 payload，`allocatedBytes` 是该纹理占用的物理 slot 份额，不等于整个 texture array。必要时用已有 GPU-native/KTX2/BC package 做一次同尺寸手动对照；不以降低 DPR、粗 mip 或删环境光换取收益。提交物是单次 residency ledger 和纹理采样工作集的导出；若 ledger 与 bind/read set 不一致，先修复资源合同，不能继续做 setup cache。
+4. **有界实验并可删除。** 只有 receiver setup 仍占主导时，才实验有界 subgroup/triangle setup 复用。为实验定义 producer、容量、溢出、fallback、统计和生命周期，先做 off/on 同 workload 对照；不建立无界跨帧 cache 或新的长期队列，若没有稳定收益就删除实验实现。提交物必须同时包含命中率、fallback、额外字节、GPU 时间和画面回归结果，否则实验不进入生产。若 setup 只在单一静态近景命中，不能据此扩展成默认 cache；若长尾来自 HZB/Final Output/频率，直接结束阶段三。
 
 **完成证据。**
 
