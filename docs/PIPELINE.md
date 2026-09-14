@@ -14,7 +14,7 @@ scene-update
   → HDR post + present
 ```
 
-上图描述当前主图的产品顺序，不等同于 ADR-0015 的目标状态。当前 revision 已由 publication demand 裁剪无消费者的 Surface 输出；无 GTAO/SSGI/SSR 的 lit receiver 还会在 sparse kernel 内读取 prepared IBL。`ShadingBinPass` 仍是默认的分类/队列入口，单 bin 直调与 visibility attachment 收窄属于阶段二，浏览器和 GPU 时间证据完成前不能把阶段一切片写成已证明的性能收益。
+上图描述当前主图的产品顺序，不等同于 ADR-0015 的目标状态。当前 revision 已由 publication demand 裁剪无消费者的 Surface 输出；无 GTAO/SSGI/SSR 的 lit receiver 还会在 sparse kernel 内读取 prepared IBL。publication 已具备 `None / DirectSingleBin / SparseMicrotile` 三态：单 bin 可走 status-backed 直调并省略 `ShadingBinId` MRT，多 bin 仍进入 `ShadingBinPass` 的分类/队列闭环；阶段二的 ABI/read-set 代码已落地，但两个 Rendering Lab 的同条件 GPU 时间和画面证据仍未完成，因此不能把代码合同写成已证明的性能收益。
 
 `FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。Shadow atlas/light-record producer 已进入 `main-view-graph`，通过显式资源版本边连接 cluster 与 sparse lit resolve，不再用一个空的跨图 `shadow-update` stage 代替真实 GPU 依赖。旧对象 runtime 驱动的 probe-atlas 更新已经删除；现有 LPV atlas 是只读采样资源，不会生成独立更新图或 submit。
 
