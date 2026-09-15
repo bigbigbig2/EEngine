@@ -1,5 +1,18 @@
 # Geometry
 
+## GEO-NYX-OEG3 · Nyx Native Geometry Cooker / Runtime Page ABI
+
+- Local owner/source: `OEngine/tools/oengine-asset-core/`、`OEngine/src/assets/GeometryAbiV3.ts`、`OEngine/src/assets/OegPackV3.ts`、`OEngine/src/gpu/GeometryBootstrapResidencyV3.ts`、`OEngine/src/shaders/oegpack_v3_decode.ts`。
+- Upstream: 本地只读源码树 `D:/Nyx-main`；声明身份 `moonlovelj/Nyx@bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`。本次实现未从 GitHub 获取源码。
+- Verified source identity: `MeshletBuilder.cpp` SHA-256 `b749346382b0f9a1574f0c0566a2860bff2acfbc6521df6f153a42653c81e84a`；`ModelConvert.cpp` `8bdf016e0f36e70f0c1aa46d679ab0e1b4f57ea30e0748a6549675620cc8a059`；`MeshletStructs.h` `1edfaa25d2e12067b98d93599142b110e2509be96471fa09a00b029484ef9b23`；`DAGCull.slang` `6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e`。CMake 与 `tools/build-native-cooker.mjs` 在每次构建前都强制复核这些 hash。
+- Upstream source: `MiniEngine/Model/MeshletBuilder.cpp`、`MiniEngine/Model/ModelConvert.cpp`、`MiniEngine/Model/MeshletStructs.h`、`MiniEngine/Model/Shaders/DAGCull.slang`，以及本地 bundled `cgltf`、`meshoptimizer`、`lz4`。
+- License: Nyx/MiniEngine MIT（Microsoft）；meshoptimizer MIT（Arseny Kapoulkine）；cgltf MIT（Johannes Kuhlmann）；LZ4 BSD-2-Clause（Yann Collet）。完整文本见 `OEngine/tools/oengine-asset-core/THIRD_PARTY_NOTICES.md`。
+- Adoption: 可追溯局部移植。直接编译本地 Nyx bundled meshoptimizer 0.25、cgltf 和 LZ4；Group/DAG/Hierarchy/Page 算法按 Nyx 不变量移植到 OEngine 独立 V3 ABI，不把 Nyx runtime 作为 OEngine 运行时依赖。
+- Retained invariants: material-domain 边界；position-remap topology；同 LOD `partitionClusters`；跨 Group seam lock；`simplifyWithAttributes` 与带显式标志的 sloppy fallback；coarse meshlet `refineGroupId`；propagated parent error；每 LOD BVH8 加 top BVH；coarse/bootstrap 优先；固定 256 KiB decoded page；LZ4/raw 独立页；常驻 metadata；page-local vertex/index payload。
+- OEngine/WebGPU differences: 48 B hierarchy、64 B GroupHeader、48 B MeshletHeader 和 16 B GroupDirectory 是 OEngine `OEGPACK V3.0` 的显式 little-endian ABI；disk offset 使用 u64，GPU address 使用 bank/slot u32；128 MiB bank/512 slots；A 阶段只提供 bootstrap pinning，不实现 ADR-0016-B 的 demand scheduler/eviction/feedback。
+- Fallback/lifecycle: attribute-aware simplification未达到冻结比率时仅在 recipe 允许时使用 `meshopt_simplifySloppy`，并设置 `kGroupSimplificationFallback`、放大 error、计数；不做隐藏的 source-vertex runtime fallback。bootstrap owner 失败时销毁全部 bank，显式 `destroy()` 释放 GPUBuffer。
+- Local validation: C++ struct/offset `static_assert`；不同线程数 byte-identical golden pack；原生全页 reopen/CRC/hash/Group/refine/DAG/bootstrap validation；TS range reader 与 page independence；定点 corruption；真实 Chrome WGSL raw-record decode/readback；medium scene diagnostic cook。A9 正式冻结仍须满足 ADR-0014 的 clean-revision PERF 规则和 ADR-0016-A 指定的 Bistro/medium/stress 三场景矩阵。
+
 ## GEO-MESHOPT · meshoptimizer Cooker
 
 - Local owner/source: `OEngine/src/assets/GeometryAssetPackage.ts`、`OEngine/src/geometry/GeometryCooker.ts` 与 `meshoptimizer@1.0.0`。

@@ -22,8 +22,12 @@ export type {
 export {
   BEVY_MESHLET_REFERENCE_COMMIT,
   GEOMETRY_COOK_RECIPE_VERSION,
+  GEOMETRY_COOK_RECIPE_V3_VERSION,
   MESHOPTIMIZER_COOKER_COMMIT,
+  NYX_GEOMETRY_REFERENCE_COMMIT,
   createGeometryCookRecipe,
+  createGeometryCookRecipeV3,
+  geometryCookRecipeV3Key,
   geometryCookRecipeKey
 } from "./assets/GeometryCookRecipe.js";
 export type {
@@ -32,6 +36,7 @@ export type {
   GeometryFloatMode,
   GeometryCookRecipe,
   GeometryCookRecipeInput,
+  GeometryCookRecipeV3,
   GeometryVertexProfile,
   MissingAttributePolicy,
   NonManifoldPolicy
@@ -101,6 +106,17 @@ export type {
   UploadedTextureAssetV2
 } from "./assets/TextureAssetPackage.js";
 export { RuntimeAssetResidencyState } from "./assets/RuntimeAssetResidency.js";
+export {
+  HttpRangeReadablePackV3,
+  MemoryRangeReadablePackV3,
+  OegPackV3Error,
+  openOegPackV3
+} from "./assets/OegPackV3.js";
+export type {
+  OegPackHeaderV3,
+  OegPackV3,
+  RangeReadablePackV3
+} from "./assets/OegPackV3.js";
 export {
   AssetCodecService,
   AssetCodecTaskError,

@@ -1,5 +1,9 @@
 # OEngine 帧管线
 
+## 离线 Geometry V3 边界
+
+ADR-0016-A 的 `oengine-asset-cooker` 在主帧外执行 `cgltf canonical import → content dedup → meshoptimizer meshlet → Nyx group simplification/refine DAG → compact BVH8 → page-local compact vertex → 256 KiB page pack → LZ4/raw → hash/validate → scene + pack shards`。Runtime 的 `OegPackV3` 只读取 header 和 resident metadata range，再按 PageDirectory 独立取页；A8 固定 slot bootstrap proof 不构成 ADR-0016-B streaming scheduler，也尚未接管下面的 V2 production geometry consumer。
+
 ## 当前主帧
 
 ```text

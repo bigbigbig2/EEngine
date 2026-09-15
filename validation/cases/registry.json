@@ -32,6 +32,16 @@
       "layer": "L3",
       "description": "Bounded GPU execution and numeric readback"
     },
+    "GEO-ABI-DECODE": {
+      "ownerAdr": "ADR-0016",
+      "layer": "L3",
+      "description": "WGSL raw storage decode matches the frozen OEGPACK V3 record ABI"
+    },
+    "GEO-BOOTSTRAP-CONSUME": {
+      "ownerAdr": "ADR-0016",
+      "layer": "L3",
+      "description": "A fixed-slot resident geometry record closes into a WebGPU consumer"
+    },
     "CAP-001": {
       "ownerAdr": "ADR-0013",
       "layer": "L3",
@@ -295,6 +305,26 @@
       "timestampRequired": false,
       "independentRuns": 1
     },
+    "oegpack-v3-decode-v1": {
+      "resolution": [
+        1280,
+        720
+      ],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-a8-abi-decode-v1",
+      "features": [
+        "core-features-and-limits",
+        "oegpack-v3-raw-storage-decode"
+      ],
+      "seed": 16008,
+      "cameraPath": "none",
+      "warmupFrames": 1,
+      "sampleFrames": 1,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
     "shading-bin-component-v1": {
       "resolution": [
         1280,
@@ -454,6 +484,38 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
           "ownerRequirement": "HOST-CAPABILITY"
+        }
+      ]
+    },
+    {
+      "id": "oegpack-v3-component",
+      "route": "/src/cases/oegpack-v3-component/index.html",
+      "kind": "component",
+      "buildTarget": "host",
+      "ownerAdr": "ADR-0016",
+      "requirements": [
+        "GEO-ABI-DECODE",
+        "GEO-BOOTSTRAP-CONSUME"
+      ],
+      "workloadId": "oegpack-v3-decode-v1",
+      "profile": "smoke",
+      "timeoutMs": 60000,
+      "artifacts": [
+        "result",
+        "events",
+        "readback"
+      ],
+      "changedPaths": [
+        "validation/src/cases/oegpack-v3-component",
+        "OEngine/src/assets/GeometryAbiV3.ts",
+        "OEngine/src/shaders/oegpack_v3_decode.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while adapter identity is captured for the ABI decode proof.",
+          "ownerRequirement": "GEO-ABI-DECODE"
         }
       ]
     },
