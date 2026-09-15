@@ -51,6 +51,7 @@ const OFF = { shadows: false, screenSpaceDiffuseMode: "off" as const, screenSpac
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 function require(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 const results: Record<string, unknown> = {};
+let captureExtent = { width: 1280, height: 720 };
 
 async function frame(camera: PerspectiveCamera, scene: Scene): Promise<void> {
   for (let attempt = 0; attempt < 240; attempt++) {
@@ -60,7 +61,13 @@ async function frame(camera: PerspectiveCamera, scene: Scene): Promise<void> {
   throw new Error("Production Renderer did not submit a frame within 240 RAF callbacks");
 }
 async function capture(camera: PerspectiveCamera, scene: Scene): Promise<LinearHdrCaptureResult> {
-  const promise = renderer!.requestLinearHdrCapture({ x: 636, y: 356, width: 8, height: 8, stage: "lighting" });
+  const promise = renderer!.requestLinearHdrCapture({
+    x: Math.max(0, Math.floor(captureExtent.width / 2) - 4),
+    y: Math.max(0, Math.floor(captureExtent.height / 2) - 4),
+    width: 8,
+    height: 8,
+    stage: "lighting"
+  });
   await frame(camera, scene);
   return promise;
 }
@@ -141,6 +148,35 @@ try {
       await validateFactor(await capture(camera, scene), [0.12, 0.52, 0.92, 1], "BasicCubeFar");
       cube.material = replacementMaterial;
       await validateFactor(await capture(camera, scene), [0.3, 0.2, 0.1, 1], "MaterialAssociationPatch");
+      const resizeBefore = renderer!.sparseShadingPublicationEvidence();
+      renderer!.resize(1024, 640);
+      captureExtent = { width: 1024, height: 640 };
+      camera.aspect = 1024 / 640;
+      camera.update();
+      await validateFactor(await capture(camera, scene), [0.3, 0.2, 0.1, 1], "Resize1024x640");
+      const resizeAfter = renderer!.sparseShadingPublicationEvidence();
+      require(resizeAfter.activePublicationRevision !== resizeBefore.activePublicationRevision,
+        "Resize did not publish a new shading revision");
+      require(resizeAfter.gpu.activeRevision !== resizeBefore.gpu.activeRevision,
+        "Resize reused the previous GPU shading revision");
+      require(resizeAfter.gpu.activeDeviceEpoch === resizeBefore.gpu.activeDeviceEpoch,
+        "Resize changed the device epoch");
+      await renderer!.device.queue.onSubmittedWorkDone();
+      for (let attempt = 0; attempt < 120 && renderer!.sparseShadingPublicationEvidence().gpu.retiringRevisions.length > 0; attempt++) {
+        await nextFrame();
+      }
+      const resizeDrained = renderer!.sparseShadingPublicationEvidence();
+      require(resizeDrained.gpu.retiringRevisions.length === 0 && resizeDrained.gpu.retiringBytes === 0,
+        "Resize retained an obsolete GPU shading revision after submitted work drained");
+      results.ResizeLifecycle = {
+        before: resizeBefore,
+        after: resizeAfter,
+        drained: resizeDrained,
+        extent: { ...captureExtent },
+        graph: renderer!.mainFrameGraphEvidence(),
+        memory: renderer!.memoryEvidence()
+      };
+      controller.addEvidence("readback", { scenarios: results });
     });
     require(scoped.errors.length === 0, JSON.stringify(scoped.errors));
     const old = renderer;
