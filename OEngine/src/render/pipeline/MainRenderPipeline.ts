@@ -33,6 +33,9 @@ import {
   GPU_SHADING_OUTPUT_DEPENDENCY,
   gpuSparseShadingTextureBindingSetIds
 } from "../../gpu/GpuSparseShadingPipelineContract.js";
+import {
+  deriveOpaqueShadingDemand,
+} from "../../gpu/GpuOpaqueShadingDemand.js";
 import type { GpuShadingPublicationContext } from "../../gpu/GpuShadingPublicationPlan.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
 import type { GPUSceneEnvironmentContext } from "../../gpu/GPUSceneEnvironmentContext.js";
@@ -2407,8 +2410,15 @@ export class MainRenderPipeline {
           ]);
         }
 
-        const needsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
+        const opaqueDemand = mainBindings.sparseRevision.snapshot.context.opaqueDemand;
+        if (opaqueDemand === undefined) {
+          throw new Error("Opaque shading publication is missing its demand snapshot");
+        }
+        const frameNeedsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
           this.render_debug_view === RenderDebugView.Velocity;
+        const needsVelocity = opaqueDemand.hasOpaqueReceiver
+          ? opaqueDemand.needsVelocity
+          : frameNeedsVelocity;
         let hdrRes: ResourceId | null = null;
         let environmentRes: ResourceId | null = null;
         let diffuseIrradianceRes: ResourceId | null = null;
@@ -2541,7 +2551,10 @@ export class MainRenderPipeline {
         }
 
         const sparseRevision = mainBindings.sparseRevision;
-        const hasOpaque = sparseRevision.snapshot.pipelines.length > 0;
+        const hasOpaque = opaqueDemand.hasOpaqueReceiver;
+        if (hasOpaque !== (sparseRevision.snapshot.pipelines.length > 0)) {
+          throw new Error("Opaque shading demand does not match publication pipelines");
+        }
         let specializedShading: ReturnType<SurfaceFeature["addToGraph"]> = null;
         if (hasOpaque) {
           const instanceRecordsRes = graph.import_resource(
@@ -2975,9 +2988,7 @@ export class MainRenderPipeline {
           });
         };
 
-        const needsOpaqueIndirectResolve = graphTopology.gtao ||
-          graphTopology.ssgi ||
-          graphTopology.ssr;
+        const needsOpaqueIndirectResolve = opaqueDemand.needsIndirectComponents;
         if (
           needsOpaqueIndirectResolve &&
           gtaoReady &&
@@ -3931,37 +3942,23 @@ export class MainRenderPipeline {
     publication: Readonly<GpuRenderWorldShadingPublication> = runtime.shadingPublication
   ): Readonly<GpuShadingPublicationContext> {
     const topology = this.resolveFeatureTopology({ geometry: { runtime }, scene: runtime.scene });
-    const hasOpaque = publication.summary.opaqueLitReceiverCount > 0 ||
-      publication.summary.opaqueUnlitReceiverCount > 0;
-    let outputDependencyMask = hasOpaque
-      ? sparseDebugOutputDependencies(this.render_debug_view)
-      : 0;
-    if (publication.summary.opaqueLitReceiverCount > 0) {
-      outputDependencyMask |= sparseOpaqueSurfaceDependencies(
-        topology,
-        this.render_debug_view
-      );
-      // Basic PBR owns its prepared IBL in the receiver. Advanced indirect
-      // consumers keep the existing provider/resolve contract to avoid a
-      // second environment contribution.
-      if (!topology.gtao && !topology.ssgi && !topology.ssr) {
-        outputDependencyMask |= GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL;
-      }
-    }
-    const needsTemporalSurface = hasOpaque && (
-      requiresPreviousDepth(topology) || topology.motionBlur ||
-      this.render_debug_view === RenderDebugView.Velocity
-    );
-    if (needsTemporalSurface) {
-      outputDependencyMask |= GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite;
-      outputDependencyMask |= GPU_SHADING_OUTPUT_DEPENDENCY.Velocity;
-    }
+    const opaqueDemand = deriveOpaqueShadingDemand({
+      opaqueLitReceiverCount: publication.summary.opaqueLitReceiverCount,
+      opaqueUnlitReceiverCount: publication.summary.opaqueUnlitReceiverCount,
+      shadows: topology.shadows,
+      gtao: topology.gtao,
+      ssgi: topology.ssgi,
+      ssr: topology.ssr,
+      needsPreviousDepth: requiresPreviousDepth(topology),
+      motionBlur: topology.motionBlur,
+      debugView: this.render_debug_view
+    });
     return Object.freeze({
       width: this._render_resolution.x,
       height: this._render_resolution.y,
-      outputDependencyMask,
-      shadowSamplingEnabled: topology.shadows &&
-        publication.summary.opaqueLitReceiverCount > 0,
+      opaqueDemand,
+      outputDependencyMask: opaqueDemand.outputDependencyMask,
+      shadowSamplingEnabled: opaqueDemand.shadowSamplingEnabled,
       textureBankMasks: Object.freeze(Array.from({ length: 4 }, (_, id) =>
         runtime.materialResources.bindingSets.find((set) => set.id === id)?.textureBankMask ?? 1
       )),
@@ -5013,43 +5010,6 @@ function requireGpuBuffer(resource: unknown, label: string): GPUBuffer {
 
 function requiresPreviousDepth(topology: MainFrameFeatureTopology): boolean {
   return topology.screenSpaceDiffuseTemporal || topology.ssrTemporal || topology.temporal;
-}
-
-function sparseDebugOutputDependencies(view: RenderDebugViewT): number {
-  switch (view) {
-    case RenderDebugView.BaseColor:
-    case RenderDebugView.Occlusion:
-    case RenderDebugView.Emissive:
-      return GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
-    case RenderDebugView.ShadingNormal:
-    case RenderDebugView.Metallic:
-    case RenderDebugView.Roughness:
-    case RenderDebugView.HistoryValidity:
-    case RenderDebugView.Reactive:
-    case RenderDebugView.Velocity:
-      return GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite;
-    default:
-      return 0;
-  }
-}
-
-/**
- * Derives sparse receiver products from actual downstream consumers. The
- * material/lighting kernel always writes HDR; compact Surface products exist
- * only when an effect, temporal path, or debug view reads them.
- */
-function sparseOpaqueSurfaceDependencies(
-  topology: MainFrameFeatureTopology,
-  debugView: RenderDebugViewT
-): number {
-  let mask = sparseDebugOutputDependencies(debugView);
-  const needsShadingSurface = topology.gtao || topology.ssgi || topology.ssr ||
-    requiresPreviousDepth(topology) || topology.motionBlur ||
-    debugView === RenderDebugView.Velocity;
-  const needsDiffuseSurface = topology.gtao || topology.ssgi || topology.ssr;
-  if (needsShadingSurface) mask |= GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite;
-  if (needsDiffuseSurface) mask |= GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;
-  return mask;
 }
 
 function snapshotSupportedLimits(limits: GPUSupportedLimits): Readonly<Record<string, number>> {

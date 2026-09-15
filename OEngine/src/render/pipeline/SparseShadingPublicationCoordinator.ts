@@ -321,6 +321,21 @@ function publicationContextKey(context: Readonly<GpuShadingPublicationContext>):
   return JSON.stringify([
     context.width,
     context.height,
+    context.opaqueDemand === undefined ? null : [
+      Number(context.opaqueDemand.hasOpaqueReceiver),
+      Number(context.opaqueDemand.hasOpaqueLitReceiver),
+      Number(context.opaqueDemand.hasOpaqueUnlitReceiver),
+      Number(context.opaqueDemand.needsHdr),
+      Number(context.opaqueDemand.needsSurface),
+      Number(context.opaqueDemand.needsDiffuseSurface),
+      Number(context.opaqueDemand.needsVelocity),
+      Number(context.opaqueDemand.needsPreviousDepth),
+      Number(context.opaqueDemand.needsIndirectComponents),
+      Number(context.opaqueDemand.needsLightingDebug),
+      Number(context.opaqueDemand.needsEnvironmentIbl),
+      Number(context.opaqueDemand.shadowSamplingEnabled),
+      context.opaqueDemand.outputDependencyMask
+    ],
     context.outputDependencyMask,
     Number(context.shadowSamplingEnabled),
     ...(context.textureBankMasks ?? []),

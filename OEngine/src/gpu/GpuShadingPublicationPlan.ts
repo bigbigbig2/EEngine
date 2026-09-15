@@ -12,6 +12,7 @@ import {
 } from "./GpuShadingProgramAbi.js";
 import {
   createGpuSparseShadingPipelineDescriptor,
+  GPU_SHADING_OUTPUT_DEPENDENCY,
   GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK,
   type GpuSparseShadingPipelineDescriptor
 } from "./GpuSparseShadingPipelineContract.js";
@@ -22,6 +23,7 @@ import {
   gpuShadingExecutionModeForBinCount,
   type GpuShadingExecutionMode
 } from "./GpuShadingExecutionMode.js";
+import type { OpaqueShadingDemand } from "./GpuOpaqueShadingDemand.js";
 
 export const GPU_SHADING_PUBLICATION_SCHEMA_VERSION = 1;
 
@@ -73,6 +75,8 @@ export interface ActiveShadingSummary {
 export interface GpuShadingPublicationContext {
   readonly width: number;
   readonly height: number;
+  /** Immutable consumer-derived demand shared with the main graph recipe. */
+  readonly opaqueDemand?: Readonly<OpaqueShadingDemand>;
   readonly outputDependencyMask: number;
   /** Opaque-lit shader specialization; false physically omits shadow bindings/sampling. */
   readonly shadowSamplingEnabled: boolean;
@@ -848,6 +852,7 @@ function freezeContext(input: GpuShadingPublicationContext): Readonly<GpuShading
   return Object.freeze({
     width: input.width,
     height: input.height,
+    ...(input.opaqueDemand === undefined ? {} : { opaqueDemand: input.opaqueDemand }),
     outputDependencyMask: input.outputDependencyMask,
     shadowSamplingEnabled: input.shadowSamplingEnabled,
     textureBankMasks: Object.freeze(normalizeTextureBankMasks(input.textureBankMasks)),
@@ -859,6 +864,7 @@ function freezeContext(input: GpuShadingPublicationContext): Readonly<GpuShading
 function validateContext(input: GpuShadingPublicationContext): void {
   checkedId(input.width, "publication width");
   checkedId(input.height, "publication height");
+  if (input.opaqueDemand !== undefined) validateOpaqueDemand(input.opaqueDemand);
   if (!Number.isInteger(input.outputDependencyMask) || input.outputDependencyMask < 0 ||
       (input.outputDependencyMask & ~GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK) !== 0) {
     throw new RangeError("Sparse shading publication output dependency mask has reserved bits");
@@ -911,6 +917,7 @@ function sameContext(
   right: Readonly<GpuShadingPublicationContext>
 ): boolean {
   return left.width === right.width && left.height === right.height &&
+    sameOpaqueDemand(left.opaqueDemand, right.opaqueDemand) &&
     left.outputDependencyMask === right.outputDependencyMask &&
     left.capability.fingerprint === right.capability.fingerprint &&
     left.shadowSamplingEnabled === right.shadowSamplingEnabled &&
@@ -921,6 +928,62 @@ function sameContext(
       right.sizingLimits.maxStorageBufferBindingSize &&
     left.sizingLimits.maxComputeWorkgroupsPerDimension ===
       right.sizingLimits.maxComputeWorkgroupsPerDimension;
+}
+
+function sameOpaqueDemand(
+  left: Readonly<OpaqueShadingDemand> | undefined,
+  right: Readonly<OpaqueShadingDemand> | undefined
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.hasOpaqueReceiver === right.hasOpaqueReceiver &&
+    left.hasOpaqueLitReceiver === right.hasOpaqueLitReceiver &&
+    left.hasOpaqueUnlitReceiver === right.hasOpaqueUnlitReceiver &&
+    left.needsHdr === right.needsHdr &&
+    left.needsSurface === right.needsSurface &&
+    left.needsDiffuseSurface === right.needsDiffuseSurface &&
+    left.needsVelocity === right.needsVelocity &&
+    left.needsPreviousDepth === right.needsPreviousDepth &&
+    left.needsIndirectComponents === right.needsIndirectComponents &&
+    left.needsLightingDebug === right.needsLightingDebug &&
+    left.needsEnvironmentIbl === right.needsEnvironmentIbl &&
+    left.shadowSamplingEnabled === right.shadowSamplingEnabled &&
+    left.outputDependencyMask === right.outputDependencyMask;
+}
+
+function validateOpaqueDemand(value: Readonly<OpaqueShadingDemand>): void {
+  const booleans = [
+    value.hasOpaqueReceiver,
+    value.hasOpaqueLitReceiver,
+    value.hasOpaqueUnlitReceiver,
+    value.needsHdr,
+    value.needsSurface,
+    value.needsDiffuseSurface,
+    value.needsVelocity,
+    value.needsPreviousDepth,
+    value.needsIndirectComponents,
+    value.needsLightingDebug,
+    value.needsEnvironmentIbl,
+    value.shadowSamplingEnabled
+  ];
+  if (booleans.some((entry) => typeof entry !== "boolean")) {
+    throw new TypeError("Sparse shading opaque demand must contain boolean fields");
+  }
+  if (!Number.isInteger(value.outputDependencyMask) || value.outputDependencyMask < 0 ||
+      (value.outputDependencyMask & ~GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK) !== 0) {
+    throw new RangeError("Sparse shading opaque demand has an invalid output mask");
+  }
+  if (value.needsHdr !== value.hasOpaqueReceiver ||
+      value.hasOpaqueLitReceiver && !value.hasOpaqueReceiver ||
+      value.hasOpaqueUnlitReceiver && !value.hasOpaqueReceiver ||
+      value.needsDiffuseSurface && !value.needsSurface ||
+      value.needsEnvironmentIbl && !value.hasOpaqueLitReceiver ||
+      value.shadowSamplingEnabled && !value.hasOpaqueLitReceiver) {
+    throw new Error("Sparse shading opaque demand contains inconsistent implications");
+  }
+  if ((value.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0 &&
+      !value.needsEnvironmentIbl) {
+    throw new Error("Sparse shading opaque demand environment mask is not requested");
+  }
 }
 
 function normalizeTextureBankMasks(input: readonly number[] | undefined): readonly number[] {
