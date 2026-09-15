@@ -318,9 +318,16 @@ export class PerformancePanel {
     const executionMode = counterFrame?.counters["sparseShading.executionMode"] ?? latest?.counters["sparseShading.executionMode"];
     const activeBins = counterFrame?.counters["sparseShading.activeBins"] ?? latest?.counters["sparseShading.activeBins"];
     const internalPixels = counterFrame?.counters["sparseShading.internalPixels"] ?? latest?.counters["sparseShading.internalPixels"];
+    const demand = (name: string): number | undefined =>
+      counterFrame?.counters[`sparseShading.${name}`] ?? latest?.counters[`sparseShading.${name}`];
     this.view("sparse", keyValues([
       ["Counter 来源帧", counterFrame ? `#${counterFrame.frameIndex}` : "尚未完成 / 未采样"],
       ["Execution mode", shadingExecutionModeLabel(executionMode)],
+      ["Opaque demand mask", num(demand("demandMask"))],
+      ["Demand HDR / Surface / Diffuse / Velocity",
+        `${num(demand("demandHdr"))} / ${num(demand("demandSurface"))} / ${num(demand("demandDiffuseSurface"))} / ${num(demand("demandVelocity"))}`],
+      ["Demand indirect / lighting debug / receiver IBL / shadow",
+        `${num(demand("demandIndirectComponents"))} / ${num(demand("demandLightingDebug"))} / ${num(demand("demandEnvironmentIbl"))} / ${num(demand("demandShadowSampling"))}`],
       ["场景 bin / 本帧非零 bin", `${num(activeBins)} / ${num(values.shadingBinIndirectNonzeroWords)}`],
       ["有效可见像素 P / 内部像素 N", `${num(values.geometryVisiblePixels)} / ${num(internalPixels)}`],
       ["Tile records R / Workgroups W", `${num(values.shadingBinWritten)} / ${num(values.shadingBinIndirectWorkgroups)}`],

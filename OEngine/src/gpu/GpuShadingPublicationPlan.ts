@@ -852,7 +852,9 @@ function freezeContext(input: GpuShadingPublicationContext): Readonly<GpuShading
   return Object.freeze({
     width: input.width,
     height: input.height,
-    ...(input.opaqueDemand === undefined ? {} : { opaqueDemand: input.opaqueDemand }),
+    ...(input.opaqueDemand === undefined
+      ? {}
+      : { opaqueDemand: Object.freeze({ ...input.opaqueDemand }) }),
     outputDependencyMask: input.outputDependencyMask,
     shadowSamplingEnabled: input.shadowSamplingEnabled,
     textureBankMasks: Object.freeze(normalizeTextureBankMasks(input.textureBankMasks)),
@@ -871,6 +873,11 @@ function validateContext(input: GpuShadingPublicationContext): void {
   }
   if (typeof input.shadowSamplingEnabled !== "boolean") {
     throw new TypeError("Sparse shading publication shadow specialization must be boolean");
+  }
+  if (input.opaqueDemand !== undefined &&
+      (input.outputDependencyMask !== input.opaqueDemand.outputDependencyMask ||
+        input.shadowSamplingEnabled !== input.opaqueDemand.shadowSamplingEnabled)) {
+    throw new Error("Sparse shading publication context disagrees with its opaque demand");
   }
   if (input.textureBankMasks !== undefined) validateTextureBankMasks(input.textureBankMasks);
   if (input.capability.fingerprint.length === 0 || input.capability.formatProfile.length === 0) {
@@ -972,17 +979,27 @@ function validateOpaqueDemand(value: Readonly<OpaqueShadingDemand>): void {
       (value.outputDependencyMask & ~GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK) !== 0) {
     throw new RangeError("Sparse shading opaque demand has an invalid output mask");
   }
-  if (value.needsHdr !== value.hasOpaqueReceiver ||
+  if (value.hasOpaqueReceiver !==
+        (value.hasOpaqueLitReceiver || value.hasOpaqueUnlitReceiver) ||
+      value.needsHdr !== value.hasOpaqueReceiver ||
       value.hasOpaqueLitReceiver && !value.hasOpaqueReceiver ||
       value.hasOpaqueUnlitReceiver && !value.hasOpaqueReceiver ||
-      value.needsDiffuseSurface && !value.needsSurface ||
+      value.needsSurface && !value.hasOpaqueReceiver ||
+      value.needsDiffuseSurface && !value.hasOpaqueReceiver ||
+      value.needsVelocity && !value.hasOpaqueReceiver ||
+      value.needsIndirectComponents && !value.hasOpaqueLitReceiver ||
+      value.needsLightingDebug && !value.needsIndirectComponents ||
       value.needsEnvironmentIbl && !value.hasOpaqueLitReceiver ||
       value.shadowSamplingEnabled && !value.hasOpaqueLitReceiver) {
     throw new Error("Sparse shading opaque demand contains inconsistent implications");
   }
-  if ((value.outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0 &&
-      !value.needsEnvironmentIbl) {
-    throw new Error("Sparse shading opaque demand environment mask is not requested");
+  const expectedMask =
+    (value.needsSurface ? GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite : 0) |
+    (value.needsDiffuseSurface ? GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite : 0) |
+    (value.needsVelocity ? GPU_SHADING_OUTPUT_DEPENDENCY.Velocity : 0) |
+    (value.needsEnvironmentIbl ? GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL : 0);
+  if (value.outputDependencyMask !== expectedMask) {
+    throw new Error("Sparse shading opaque demand fields do not match its output mask");
   }
 }
 

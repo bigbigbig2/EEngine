@@ -33,9 +33,8 @@ import {
   GPU_SHADING_OUTPUT_DEPENDENCY,
   gpuSparseShadingTextureBindingSetIds
 } from "../../gpu/GpuSparseShadingPipelineContract.js";
-import {
-  deriveOpaqueShadingDemand,
-} from "../../gpu/GpuOpaqueShadingDemand.js";
+import type { OpaqueShadingDemand } from "../../gpu/GpuOpaqueShadingDemand.js";
+import { deriveOpaqueShadingDemand } from "./OpaqueShadingDemand.js";
 import type { GpuShadingPublicationContext } from "../../gpu/GpuShadingPublicationPlan.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
 import type { GPUSceneEnvironmentContext } from "../../gpu/GPUSceneEnvironmentContext.js";
@@ -1831,6 +1830,10 @@ export class MainRenderPipeline {
       this.createSparseShadingPublicationContext(registeredRuntime, nextShadingPublication)
     );
     if (sparseRevision === null) return false;
+    const opaqueDemand = sparseRevision.snapshot.context.opaqueDemand;
+    if (opaqueDemand === undefined) {
+      throw new Error("Opaque shading publication is missing its demand snapshot");
+    }
     this.reconcileDynamicResolutionProfiler();
     this._profiler.beginFrame(this._frame_count);
     let activeFrame: FrameEncoding | null = null;
@@ -2410,15 +2413,7 @@ export class MainRenderPipeline {
           ]);
         }
 
-        const opaqueDemand = mainBindings.sparseRevision.snapshot.context.opaqueDemand;
-        if (opaqueDemand === undefined) {
-          throw new Error("Opaque shading publication is missing its demand snapshot");
-        }
-        const frameNeedsVelocity = needsOcclusionConfidence || graphTopology.motionBlur ||
-          this.render_debug_view === RenderDebugView.Velocity;
-        const needsVelocity = opaqueDemand.hasOpaqueReceiver
-          ? opaqueDemand.needsVelocity
-          : frameNeedsVelocity;
+        const needsVelocity = opaqueDemand.needsVelocity;
         let hdrRes: ResourceId | null = null;
         let environmentRes: ResourceId | null = null;
         let diffuseIrradianceRes: ResourceId | null = null;
@@ -3849,7 +3844,8 @@ export class MainRenderPipeline {
       this.recordFrameCounters(
         viewHzb,
         shadowFeature,
-        environment.lights.environmentEvidence
+        environment.lights.environmentEvidence,
+        opaqueDemand
       );
       this._profiler.encodeGpuCounterReadback(cmd);
       if (frameLinearHdrCapture !== null) {
@@ -4260,7 +4256,8 @@ export class MainRenderPipeline {
       specularAllocatedBytes: number;
       diffuseAllocatedBytes: number;
       specularMipLevelCount: number;
-    }
+    },
+    opaqueDemand: Readonly<OpaqueShadingDemand>
   ): void {
     const profiler = this._profiler;
     profiler.recordCounter(
@@ -4345,6 +4342,30 @@ export class MainRenderPipeline {
       profiler.recordCounter(
         "sparseShading.activeBins",
         this._surfaceFeature?.lastActiveBinCount ?? 0
+      );
+      profiler.recordCounter("sparseShading.demandMask", opaqueDemand.outputDependencyMask);
+      profiler.recordCounter("sparseShading.demandHdr", opaqueDemand.needsHdr ? 1 : 0);
+      profiler.recordCounter("sparseShading.demandSurface", opaqueDemand.needsSurface ? 1 : 0);
+      profiler.recordCounter(
+        "sparseShading.demandDiffuseSurface",
+        opaqueDemand.needsDiffuseSurface ? 1 : 0
+      );
+      profiler.recordCounter("sparseShading.demandVelocity", opaqueDemand.needsVelocity ? 1 : 0);
+      profiler.recordCounter(
+        "sparseShading.demandIndirectComponents",
+        opaqueDemand.needsIndirectComponents ? 1 : 0
+      );
+      profiler.recordCounter(
+        "sparseShading.demandLightingDebug",
+        opaqueDemand.needsLightingDebug ? 1 : 0
+      );
+      profiler.recordCounter(
+        "sparseShading.demandEnvironmentIbl",
+        opaqueDemand.needsEnvironmentIbl ? 1 : 0
+      );
+      profiler.recordCounter(
+        "sparseShading.demandShadowSampling",
+        opaqueDemand.shadowSamplingEnabled ? 1 : 0
       );
       profiler.recordCounter("sparseShading.executionMode", executionModeCode);
       profiler.recordCounter("sparseShading.publishedBins", sparseGpu?.activeRevision === null || sparseGpu === undefined

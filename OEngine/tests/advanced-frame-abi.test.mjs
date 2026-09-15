@@ -368,7 +368,7 @@ test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only
 test("ADR-0015 only materializes opaque indirect resolve for live consumers", () => {
   assert.match(
     MAIN_PIPELINE_SOURCE,
-    /const needsOpaqueIndirectResolve = graphTopology\.gtao \|\|\s*graphTopology\.ssgi \|\|\s*graphTopology\.ssr;/u
+    /const needsOpaqueIndirectResolve = opaqueDemand\.needsIndirectComponents;/u
   );
   assert.match(
     MAIN_PIPELINE_SOURCE,

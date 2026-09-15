@@ -145,11 +145,12 @@ function shadingSummary(frame: ProfileFrame | undefined): string {
   const workgroups = read(frame, "gpu.counter.shadingBinIndirectWorkgroups").value;
   const surfaceBytes = read(frame, "sparseShading.surfaceBytesPerPixel").value;
   const heapBytes = read(frame, "sparseShading.heapBytes").value;
+  const demandMask = read(frame, "sparseShading.demandMask").value;
   if (mode === null && valid === null && internal === null) return "Shading: unsupported";
   const pixelText = valid === null || internal === null
     ? "P/N unsupported"
     : `P/N ${valid}/${internal}`;
-  return `Shading: ${modeLabel}, bins ${bins ?? "unsupported"}, ${pixelText}, W ${workgroups ?? "unsupported"}, surface ${surfaceBytes ?? "unsupported"} B/px, heap ${heapBytes ?? "unsupported"} B`;
+  return `Shading: ${modeLabel}, bins ${bins ?? "unsupported"}, demand ${demandMask ?? "unsupported"}, ${pixelText}, W ${workgroups ?? "unsupported"}, surface ${surfaceBytes ?? "unsupported"} B/px, heap ${heapBytes ?? "unsupported"} B`;
 }
 
 function geometryAmplificationSummary(frame: ProfileFrame | undefined): string {
