@@ -2,11 +2,13 @@
 
 这里是面向 Renderer 开发的独立示例库。每个 `demos/**/example.json` 对应一个独立 HTML 页面；Storybook 只从 metadata 生成目录，并用 iframe 打开同一份 Vite runtime。
 
-当前包含三条独立运行的示例：
+当前包含五条独立运行的示例：
 
 - `00-foundations/basic-scene`：最小生产 Renderer 场景。
 - `14-integrated/rendering-lab`：只有导入的 Dungeon 模型，保留 PBR、环境光、太阳和完整效果。
 - `14-integrated/rendering-lab-basic`：相同模型、变换、默认相机和 DPR，使用 Unlit，默认关闭效果。
+- `14-integrated/rendering-lab-large`：加载 `assets/oengine/large.glb`，保留 PBR、环境光、太阳和完整效果。
+- `14-integrated/rendering-lab-large-basic`：加载同一大型模型，使用 Unlit，默认关闭效果。
 
 其余分类仍只保留空目录。
 
@@ -23,6 +25,8 @@ yarn dev
 综合场景位于 <http://localhost:5173/demos/14-integrated/rendering-lab/>。
 
 Basic 对照位于 <http://localhost:5173/demos/14-integrated/rendering-lab-basic/>。
+
+大型模型的 Full 与 Basic 对照分别位于 <http://localhost:5173/demos/14-integrated/rendering-lab-large/> 和 <http://localhost:5173/demos/14-integrated/rendering-lab-large-basic/>。
 
 两个 Rendering Lab 页面共用右侧性能实验面板。点击“重置视角”，设置预热和记录秒数，再点击“开始采样”；采样期间锁定相机和功能开关，等待 GPU readback 完成后显示固定记录的 P50/P95。GPU 表列出全部 Pass 和阶段，Sparse 区列出有效可见像素、队列记录、间接工作组、总 invocation 放大、输出字节核算及异常计数。未采集指标显示不可用，融合 kernel 内的重建/采样/BRDF 不单独计时。
 

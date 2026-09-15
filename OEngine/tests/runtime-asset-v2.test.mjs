@@ -113,6 +113,7 @@ test("Texture Cooker V2 emits complete offline mip chains and capability-selecte
     "base-color-srgb": "bc3-rgba-unorm-srgb",
     "normal-linear": "bc5-rg-unorm",
     "orm-linear": "bc1-rgba-unorm",
+    "occlusion-linear": "bc4-r-unorm",
     "alpha-mask": "bc4-r-unorm"
   };
   for (const [semantic, format] of Object.entries(expected)) {

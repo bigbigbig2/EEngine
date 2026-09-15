@@ -55,7 +55,9 @@ export function encodeReferenceTextureVariantsV2(
       source.semantic,
       format,
       mips,
-      mips.map((mip) => encodeBlockCompressed(mip.rgba8, mip.width, mip.height, format))
+      mips.map((mip) => encodeBlockCompressed(
+        mip.rgba8, mip.width, mip.height, format, source.semantic
+      ))
     ));
   }
   if (includePortableFallback) {
@@ -163,7 +165,8 @@ function encodeBlockCompressed(
   rgba: Uint8Array,
   width: number,
   height: number,
-  format: GPUTextureFormat
+  format: GPUTextureFormat,
+  semantic: TextureSemanticV2
 ): Uint8Array {
   const layout = textureFormatBlockLayout(format);
   const output = new Uint8Array(Math.ceil(width / 4) * Math.ceil(height / 4) * layout.bytesPerBlock);
@@ -171,7 +174,7 @@ function encodeBlockCompressed(
   for (let by = 0; by < height; by += 4) for (let bx = 0; bx < width; bx += 4) {
     const block = gatherBlock(rgba, width, height, bx, by);
     if (format === "bc4-r-unorm") {
-      output.set(encodeBc4(block, 3), offset); offset += 8;
+      output.set(encodeBc4(block, semantic === "alpha-mask" ? 3 : 0), offset); offset += 8;
     } else if (format === "bc5-rg-unorm") {
       output.set(encodeBc4(block, 0), offset); output.set(encodeBc4(block, 1), offset + 8); offset += 16;
     } else if (format === "bc3-rgba-unorm-srgb") {
@@ -248,7 +251,7 @@ function encodeBc4(block: Uint8Array, channel: number): Uint8Array {
 
 function desktopFormat(semantic: TextureSemanticV2): GPUTextureFormat {
   if (semantic === "normal-linear") return "bc5-rg-unorm";
-  if (semantic === "alpha-mask") return "bc4-r-unorm";
+  if (semantic === "alpha-mask" || semantic === "occlusion-linear") return "bc4-r-unorm";
   if (semantic === "orm-linear") return "bc1-rgba-unorm";
   return "bc3-rgba-unorm-srgb";
 }

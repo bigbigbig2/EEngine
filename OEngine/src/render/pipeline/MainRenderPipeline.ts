@@ -1684,7 +1684,9 @@ export class MainRenderPipeline {
     this._graphics = new GraphicsContext(
       device,
       this._profiler,
-      effectiveConfig.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE
+      effectiveConfig.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE,
+      effectiveConfig.geometryResidency,
+      effectiveConfig.textureBankMaxCapacities
     );
     this._frameCoordinator = new FrameCoordinator(this._graphics);
     this._sparseShadingPublications = new SparseShadingPublicationCoordinator(device, false, undefined, this.deviceEpoch);

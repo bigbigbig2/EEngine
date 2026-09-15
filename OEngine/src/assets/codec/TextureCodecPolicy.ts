@@ -24,7 +24,9 @@ export function selectTextureTranscodeTarget(
   const candidates: Ktx2TranscodeTargetFormat[] = [];
   if (enabledFeatures.has("texture-compression-bc")) {
     if (request.semantic === "normal-linear") candidates.push("bc5-rg-unorm", "bc7-rgba-unorm");
-    else if (request.semantic === "alpha-mask") candidates.push("bc4-r-unorm", "bc7-rgba-unorm");
+    else if (request.semantic === "alpha-mask" || request.semantic === "occlusion-linear") {
+      candidates.push("bc4-r-unorm", "bc7-rgba-unorm");
+    }
     else if (request.semantic === "orm-linear") candidates.push("bc7-rgba-unorm", "bc3-rgba-unorm");
     else if (request.semantic !== "hdr-linear") {
       candidates.push(srgb ? "bc7-rgba-unorm-srgb" : "bc7-rgba-unorm");
@@ -36,7 +38,9 @@ export function selectTextureTranscodeTarget(
   }
   if (enabledFeatures.has("texture-compression-etc2") && request.semantic !== "hdr-linear") {
     if (request.semantic === "normal-linear") candidates.push("eac-rg11unorm", "etc2-rgba8unorm");
-    else if (request.semantic === "alpha-mask") candidates.push("eac-r11unorm", "etc2-rgba8unorm");
+    else if (request.semantic === "alpha-mask" || request.semantic === "occlusion-linear") {
+      candidates.push("eac-r11unorm", "etc2-rgba8unorm");
+    }
     else candidates.push(srgb ? "etc2-rgba8unorm-srgb" : "etc2-rgba8unorm");
   }
   return candidates.find((format) => transcoderTargets.has(format)) ?? null;

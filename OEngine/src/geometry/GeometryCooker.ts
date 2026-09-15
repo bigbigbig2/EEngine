@@ -1514,7 +1514,33 @@ function normalizeUpstreamBounds(
 
 function conservativeRadius(radius: number): number {
   if (radius === 0) return 0;
-  return Math.fround(radius * (1 + 1e-6));
+  return conservativeFloat32Maximum(radius * (1 + 1e-6));
+}
+
+const FLOAT32_STEP_BUFFER = new ArrayBuffer(4);
+const FLOAT32_STEP_VIEW = new DataView(FLOAT32_STEP_BUFFER);
+const FLOAT32_MIN_SUBNORMAL = 2 ** -149;
+
+/** Rounds a finite bound toward negative infinity in the serialized float32 domain. */
+function conservativeFloat32Minimum(value: number): number {
+  const rounded = Math.fround(value);
+  if (rounded <= value || rounded === -Infinity) return rounded;
+  if (rounded === 0) return -FLOAT32_MIN_SUBNORMAL;
+  FLOAT32_STEP_VIEW.setFloat32(0, rounded, true);
+  const bits = FLOAT32_STEP_VIEW.getUint32(0, true);
+  FLOAT32_STEP_VIEW.setUint32(0, rounded > 0 ? bits - 1 : bits + 1, true);
+  return FLOAT32_STEP_VIEW.getFloat32(0, true);
+}
+
+/** Rounds a finite bound toward positive infinity in the serialized float32 domain. */
+function conservativeFloat32Maximum(value: number): number {
+  const rounded = Math.fround(value);
+  if (rounded >= value || rounded === Infinity) return rounded;
+  if (rounded === 0) return FLOAT32_MIN_SUBNORMAL;
+  FLOAT32_STEP_VIEW.setFloat32(0, rounded, true);
+  const bits = FLOAT32_STEP_VIEW.getUint32(0, true);
+  FLOAT32_STEP_VIEW.setUint32(0, rounded > 0 ? bits + 1 : bits - 1, true);
+  return FLOAT32_STEP_VIEW.getFloat32(0, true);
 }
 
 function conservativeMeshletRadius(
@@ -1703,14 +1729,17 @@ function expandBoundsForPositionQuantization(
   const expand = <T extends GeometryMeshletRecord | GeometryClusterRecord>(record: T): T => ({
     ...record,
     boundsBox: new Float32Array([
-      record.boundsBox[0]! - halfStep[0]!,
-      record.boundsBox[1]! - halfStep[1]!,
-      record.boundsBox[2]! - halfStep[2]!,
-      record.boundsBox[3]! + halfStep[0]!,
-      record.boundsBox[4]! + halfStep[1]!,
-      record.boundsBox[5]! + halfStep[2]!
+      conservativeFloat32Minimum(record.boundsBox[0]! - halfStep[0]!),
+      conservativeFloat32Minimum(record.boundsBox[1]! - halfStep[1]!),
+      conservativeFloat32Minimum(record.boundsBox[2]! - halfStep[2]!),
+      conservativeFloat32Maximum(record.boundsBox[3]! + halfStep[0]!),
+      conservativeFloat32Maximum(record.boundsBox[4]! + halfStep[1]!),
+      conservativeFloat32Maximum(record.boundsBox[5]! + halfStep[2]!)
     ]),
-    bounds: { ...record.bounds, radius: record.bounds.radius + radiusExpansion }
+    bounds: {
+      ...record.bounds,
+      radius: conservativeFloat32Maximum(record.bounds.radius + radiusExpansion)
+    }
   });
   for (let index = 0; index < meshlets.length; index++) meshlets[index] = expand(meshlets[index]!);
   for (let index = 0; index < clusters.length; index++) clusters[index] = expand(clusters[index]!);

@@ -161,11 +161,26 @@ test("PbrGeneric retains all material-conditional texture slots", () => {
     0,
     2
   )).source;
-  for (const slot of [0, 1, 2, 3]) {
+  for (const slot of [0, 1, 2, 3, 4]) {
     assert.match(source, new RegExp(`fn sparse_transform_uv_${slot}\\(`, "u"));
     assert.match(source, new RegExp(`fn sparse_sampler_${slot}\\(`, "u"));
   }
+  assert.match(source, /material\.payload\.occlusion_texture_ref/u);
+  assert.match(source, /material\.payload\.occlusion_uv_set/u);
+  assert.match(source, /sparse_uv\(geometry_base,vertices\.x,uv_set_4\)/u);
   assert.match(source, /material\.payload\.flags&/u);
+});
+
+test("normal-textured PBR derives a transformed tangent basis when geometry omits tangents", () => {
+  const source = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrNormal,
+    0,
+    2
+  )).source;
+  assert.match(source, /sparse_meta_u32\(geometry_base, 51u\) != 0u/u);
+  assert.match(source, /normal_uv0=sparse_transform_uv_1/u);
+  assert.match(source, /derived_tangent=\(edge1\*duv2\.y-edge2\*duv1\.y\)/u);
+  assert.match(source, /normal_basis_valid=false/u);
 });
 
 test("triangle reconstruction converts clip-space NDC to top-left pixel coordinates", () => {
@@ -390,8 +405,8 @@ test("sparse surface outputs preserve compact flags, RGB9E5 and unlit diffuse se
 });
 
 test("material and texture-route publication ABI validates generations and exact strides", () => {
-  assert.equal(GPU_MATERIAL_VISIBILITY_ABI_VERSION, 7);
-  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 2);
+  assert.equal(GPU_MATERIAL_VISIBILITY_ABI_VERSION, 8);
+  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 3);
   const header = {
     programId: GPU_SHADING_PROGRAM.PbrGeneric,
     textureBindingSetId: 2,
@@ -402,7 +417,7 @@ test("material and texture-route publication ABI validates generations and exact
   };
   const bytes = packGpuShadingMaterialRecord(header, materialPayload());
   assert.equal(bytes.byteLength, GPU_SHADING_MATERIAL_RECORD_STRIDE);
-  assert.equal(bytes.byteLength, 272);
+  assert.equal(bytes.byteLength, 304);
   assert.equal(new DataView(bytes.buffer).getUint32(32, true), 0);
   assert.deepEqual(unpackGpuShadingMaterialHeader(bytes), header);
   assert.throws(
@@ -481,7 +496,10 @@ function materialPayload() {
     normalUvOffset: [0, 0], normalUvScale: [1, 1], normalRotationCos: 1, normalRotationSin: 0,
     ormUvOffset: [0, 0], ormUvScale: [1, 1], ormRotationCos: 1, ormRotationSin: 0,
     emissiveUvOffset: [0, 0], emissiveUvScale: [1, 1], emissiveRotationCos: 1, emissiveRotationSin: 0,
-    textureBindingSetId: 2
+    textureBindingSetId: 2,
+    occlusionTextureRef: 0xffffffff, occlusionUvSet: 1,
+    occlusionUvOffset: [0, 0], occlusionUvScale: [1, 1],
+    occlusionRotationCos: 1, occlusionRotationSin: 0
   };
 }
 

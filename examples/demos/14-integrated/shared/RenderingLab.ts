@@ -5,18 +5,25 @@ import {
   PerspectiveCamera,
   Renderer,
   Scene,
-  cookGeometryAssetPackage,
-  createGeometryCookRecipe,
   load_gltf_packed,
-  type GeometryAssetPackage,
   type PackedGltfSource,
   type PackedSceneSource
 } from "../../../../OEngine/src/index.ts";
 
+import { GeometryPackagePipeline } from "./GeometryPackagePipeline.ts";
 import { PerformancePanel } from "./PerformancePanel.ts";
 import "./performance-panel.css";
 
 export type LabVariant = "basic" | "full";
+
+export interface RenderingLabOptions {
+  readonly modelUrl?: string;
+  readonly modelName?: string;
+  readonly modelLabel?: string;
+  readonly comparisonExampleId?: string;
+  readonly geometryCacheKey?: string;
+  readonly geometryManifestUrl?: string;
+}
 
 type Bounds = {
   readonly min: [number, number, number];
@@ -25,7 +32,7 @@ type Bounds = {
   readonly radius: number;
 };
 
-const MODEL_URL = new URL(
+const DEFAULT_MODEL_URL = new URL(
   "../../../assets/three/rendering-lab/dungeon_warkarma.glb",
   import.meta.url
 ).href;
@@ -43,6 +50,13 @@ let animationFrame = 0;
 let disposed = false;
 let performancePanel: PerformancePanel | undefined;
 let variant: LabVariant = "basic";
+let modelUrl = DEFAULT_MODEL_URL;
+let modelName = "dungeon_warkarma.glb";
+let modelLabel = "Dungeon by Warkarma";
+let comparisonExampleId = "rendering-lab";
+let geometryCacheKey: string | undefined;
+let geometryManifestUrl: string | undefined;
+let geometryPackages: GeometryPackagePipeline | undefined;
 const multiBinFixture = new URLSearchParams(window.location.search).get("multiBin") === "1";
 
 async function start(): Promise<void> {
@@ -56,6 +70,14 @@ async function start(): Promise<void> {
   setLoading("Renderer", "Initializing WebGPU...", 0.04);
   const activeRenderer = new Renderer({
     debug: false,
+    ...(geometryManifestUrl === undefined ? {} : {
+      textureMaxResolution: 256 as const,
+      textureBankMaxCapacities: [64, 40, 72, 160, 288] as const,
+      geometryResidency: {
+        maxUploadBytes: 640 * 1024 * 1024,
+        maxResidentBytes: 1024 * 1024 * 1024
+      }
+    }),
     renderSettings: {
       features: {
         shadows: variant === "full",
@@ -78,13 +100,13 @@ async function start(): Promise<void> {
     pixelRatio: window.devicePixelRatio
   });
   rendererReady = true;
-  activeRenderer.packed_visibility_cone_enabled = true;
-  activeRenderer.packed_visibility_hzb_enabled = true;
+  activeRenderer.packed_visibility_cone_enabled = geometryManifestUrl === undefined;
+  activeRenderer.packed_visibility_hzb_enabled = geometryManifestUrl === undefined;
   activeRenderer.packed_visibility_sse_threshold = 4;
   if (disposed) return;
 
-  setLoading("Assets", "Loading Dungeon by Warkarma...", 0.1);
-  const imported = await load_gltf_packed(MODEL_URL);
+  setLoading("Assets", `Loading ${modelLabel}...`, 0.1);
+  const imported = await load_gltf_packed(modelUrl);
   if (disposed) return;
 
   // Both variants retain the imported geometry, UVs, vertex colors and alpha behavior.
@@ -153,7 +175,8 @@ async function start(): Promise<void> {
 
   performancePanel = new PerformancePanel({
     renderer: activeRenderer, camera: activeCamera, controls, canvas, variant,
-    scene: { model: `dungeon_warkarma.glb${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: lab.source.count, geometries: lab.source.geometries.length, materials: lab.source.materials.length },
+    comparisonExampleId,
+    scene: { model: `${modelName}${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: lab.source.count, geometries: lab.source.geometries.length, materials: lab.source.materials.length },
     resetCamera: () => {
       activeCamera.transform.position.set(lab.bounds.center[0] + lab.bounds.radius * 1.5, lab.bounds.center[1] + lab.bounds.radius * 0.8, lab.bounds.center[2] + lab.bounds.radius * 1.8);
       controls!.target.set(...lab.bounds.center);
@@ -172,7 +195,23 @@ async function createRenderingLab(imported: PackedGltfSource): Promise<{
   readonly source: PackedSceneSource;
   readonly bounds: Bounds;
 }> {
-  const geometries = await cookGeometries(imported.geometries);
+  geometryPackages = new GeometryPackagePipeline();
+  const geometries = await geometryPackages.prepare(imported.geometries, {
+    cacheKey: geometryCacheKey,
+    manifestUrl: geometryManifestUrl,
+    onProgress: ({ stage, completed, total }) => {
+      const label = stage === "pre-cooked"
+        ? "Loading pre-cooked geometry packages"
+        : stage === "cache"
+          ? "Restoring cached geometry packages"
+          : "Building meshlets and renderable LOD hierarchy in a Worker";
+      setLoading(
+        stage === "cook" ? "Geometry cooking" : "Geometry packages",
+        `${label} ${completed}/${total}...`,
+        0.18 + completed / Math.max(1, total) * 0.68
+      );
+    }
+  });
   const currentTransforms = fitPackedTransforms(imported, 5.4, [0, -1, 0]);
 
   return Object.freeze({
@@ -272,25 +311,6 @@ function computeWorldBounds(source: PackedGltfSource, transformedTransforms = so
   };
 }
 
-async function cookGeometries(
-  sources: PackedGltfSource["geometries"]
-): Promise<readonly GeometryAssetPackage[]> {
-  const recipe = createGeometryCookRecipe();
-  const packages: GeometryAssetPackage[] = [];
-  for (let index = 0; index < sources.length; index++) {
-    const ordinal = index + 1;
-    setLoading(
-      "Geometry cooking",
-      `Building meshlets and renderable LOD hierarchy ${ordinal}/${sources.length}...`,
-      0.18 + index / Math.max(1, sources.length) * 0.68
-    );
-    packages.push((await cookGeometryAssetPackage(sources[index]!, recipe)).asset);
-    if (ordinal % 3 === 0) await nextFrame();
-    if (disposed) break;
-  }
-  return Object.freeze(packages);
-}
-
 function createCamera(activeRenderer: Renderer, bounds: Bounds): PerspectiveCamera {
   const activeCamera = new PerspectiveCamera();
   activeCamera.aspect = activeRenderer.aspect_ratio;
@@ -369,12 +389,9 @@ function dispose(): void {
   resizeObserver?.disconnect();
   performancePanel?.dispose();
   controls?.dispose();
+  geometryPackages?.dispose();
   if (rendererReady) renderer?.destroy();
   canvas.getContext("webgpu")?.unconfigure();
-}
-
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 function requireElement<T extends Element>(selector: string): T {
@@ -385,7 +402,17 @@ function requireElement<T extends Element>(selector: string): T {
 
 window.addEventListener("pagehide", dispose, { once: true });
 
-export function startRenderingLab(selectedVariant: LabVariant): void {
+export function startRenderingLab(
+  selectedVariant: LabVariant,
+  options: Readonly<RenderingLabOptions> = {}
+): void {
   variant = selectedVariant;
+  modelUrl = options.modelUrl ?? DEFAULT_MODEL_URL;
+  modelName = options.modelName ?? "dungeon_warkarma.glb";
+  modelLabel = options.modelLabel ?? "Dungeon by Warkarma";
+  comparisonExampleId = options.comparisonExampleId ??
+    (selectedVariant === "basic" ? "rendering-lab" : "rendering-lab-basic");
+  geometryCacheKey = options.geometryCacheKey;
+  geometryManifestUrl = options.geometryManifestUrl;
   start().catch(showFatalError);
 }

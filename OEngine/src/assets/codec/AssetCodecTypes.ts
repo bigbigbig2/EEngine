@@ -242,7 +242,8 @@ export function assetCodecResultTransferList(result: AssetCodecTaskResult): Tran
 
 function isTextureSemantic(value: unknown): value is TextureSemanticV2 {
   return value === "base-color-srgb" || value === "normal-linear" ||
-    value === "orm-linear" || value === "alpha-mask" || value === "emissive-srgb";
+    value === "orm-linear" || value === "occlusion-linear" ||
+    value === "alpha-mask" || value === "emissive-srgb";
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

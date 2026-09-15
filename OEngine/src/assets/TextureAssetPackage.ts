@@ -18,12 +18,13 @@ import {
 import { requiredTextureCompressionFeature } from "./codec/TextureCodecPolicy.js";
 
 export const TEXTURE_ASSET_SCHEMA_VERSION = 2;
-export const TEXTURE_COOKER_VERSION = "oengine-texture-package-writer-v2.1.0";
+export const TEXTURE_COOKER_VERSION = "oengine-texture-package-writer-v2.2.0";
 
 export type TextureSemanticV2 =
   | "base-color-srgb"
   | "normal-linear"
   | "orm-linear"
+  | "occlusion-linear"
   | "alpha-mask"
   | "emissive-srgb";
 
@@ -633,7 +634,7 @@ function validatePackageSource(source: TexturePackageSourceV2): void {
     throw new RangeError("Texture alphaCutoff must be finite and in [0, 1]");
   }
 }
-function isTextureSemantic(value: unknown): value is TextureSemanticV2 { return value === "base-color-srgb" || value === "normal-linear" || value === "orm-linear" || value === "alpha-mask" || value === "emissive-srgb"; }
+function isTextureSemantic(value: unknown): value is TextureSemanticV2 { return value === "base-color-srgb" || value === "normal-linear" || value === "orm-linear" || value === "occlusion-linear" || value === "alpha-mask" || value === "emissive-srgb"; }
 function isRecord(value: unknown): value is Record<string, any> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 async function sha256Hex(bytes: Uint8Array): Promise<string> { const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes.slice().buffer)); return [...digest].map((value) => value.toString(16).padStart(2, "0")).join(""); }
 function textureSourceByteLength(source: TexturePackageSourceV2): number {

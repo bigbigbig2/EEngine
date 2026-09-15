@@ -10,6 +10,7 @@ const [
   { GpuMaterialStore, GPU_MATERIAL_CAPACITY },
   {
     GPU_SHADING_MATERIAL_RECORD_STRIDE,
+    GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
     GPU_SHADING_TEXTURE_ROUTE_STRIDE,
     unpackGpuShadingMaterialHeader,
     unpackGpuShadingTextureRoute
@@ -62,10 +63,10 @@ test("material store publishes geometry-dependent association records in one gen
     assert.equal(header.materialGeneration, 1);
     assert.equal(header.textureGeneration, 1);
     assert.equal(header.publicationRevision, 1);
-    for (let routeIndex = 0; routeIndex < 4; routeIndex++) {
+    for (let routeIndex = 0; routeIndex < GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL; routeIndex++) {
       const route = unpackGpuShadingTextureRoute(
         stage.bindings.textureRouteRecords.bytes,
-        (slot * 4 + routeIndex) * GPU_SHADING_TEXTURE_ROUTE_STRIDE
+        (slot * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL + routeIndex) * GPU_SHADING_TEXTURE_ROUTE_STRIDE
       );
       assert.equal(route.textureGeneration, 1);
       assert.equal(route.publicationRevision, 1);

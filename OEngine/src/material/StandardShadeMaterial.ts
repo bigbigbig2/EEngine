@@ -37,6 +37,11 @@ export class StandardShadeMaterial extends ShadeMaterial {
   orm_uv_offset: [number, number] = [0, 0];
   orm_uv_scale: [number, number] = [1, 1];
   orm_uv_rotation = 0;
+  texture_occlusion: ShadeTexture | undefined = undefined;
+  occlusion_uv_set = 0;
+  occlusion_uv_offset: [number, number] = [0, 0];
+  occlusion_uv_scale: [number, number] = [1, 1];
+  occlusion_uv_rotation = 0;
   texture_emissive: ShadeTexture | undefined = undefined;
   emissive_uv_set = 0;
   emissive_uv_offset: [number, number] = [0, 0];
@@ -54,7 +59,13 @@ export class StandardShadeMaterial extends ShadeMaterial {
   override get textures(): ShadeTexture[] {
     const textures = this.is_unlit
       ? [this.texture_albedo]
-      : [this.texture_albedo, this.texture_normal, this.texture_orm, this.texture_emissive];
+      : [
+          this.texture_albedo,
+          this.texture_normal,
+          this.texture_orm,
+          this.texture_emissive,
+          this.texture_occlusion
+        ];
     return textures.filter((e): e is ShadeTexture => e !== undefined);
   }
 
@@ -66,6 +77,7 @@ export class StandardShadeMaterial extends ShadeMaterial {
       hashOptional(this.texture_normal),
       hashFloat(this.normal_scale),
       hashOptional(this.texture_orm),
+      hashOptional(this.texture_occlusion),
       hashOptional(this.texture_emissive),
       this.is_unlit ? 1 : 0,
       hashFloat(this.alpha_cutoff),
@@ -87,6 +99,12 @@ export class StandardShadeMaterial extends ShadeMaterial {
       hashFloat(this.orm_uv_scale[0]),
       hashFloat(this.orm_uv_scale[1]),
       hashFloat(this.orm_uv_rotation),
+      this.occlusion_uv_set,
+      hashFloat(this.occlusion_uv_offset[0]),
+      hashFloat(this.occlusion_uv_offset[1]),
+      hashFloat(this.occlusion_uv_scale[0]),
+      hashFloat(this.occlusion_uv_scale[1]),
+      hashFloat(this.occlusion_uv_rotation),
       this.emissive_uv_set,
       hashFloat(this.emissive_uv_offset[0]),
       hashFloat(this.emissive_uv_offset[1]),
@@ -114,12 +132,14 @@ export class StandardShadeMaterial extends ShadeMaterial {
       this.base_color_uv_rotation === other.base_color_uv_rotation &&
       uvMappingEquals(this, other, "normal") &&
       uvMappingEquals(this, other, "orm") &&
+      uvMappingEquals(this, other, "occlusion") &&
       uvMappingEquals(this, other, "emissive") &&
       refOrDeepEquals(this.texture_albedo, other.texture_albedo) &&
       this.diffuse_color.equals(other.diffuse_color) &&
       refOrDeepEquals(this.texture_normal, other.texture_normal) &&
       this.normal_scale === other.normal_scale &&
       refOrDeepEquals(this.texture_orm, other.texture_orm) &&
+      refOrDeepEquals(this.texture_occlusion, other.texture_occlusion) &&
       refOrDeepEquals(this.texture_emissive, other.texture_emissive) &&
       this.is_unlit === other.is_unlit &&
       this.emissive_factor.equals(other.emissive_factor) &&
@@ -131,7 +151,7 @@ export class StandardShadeMaterial extends ShadeMaterial {
 function uvMappingEquals(
   left: StandardShadeMaterial,
   right: StandardShadeMaterial,
-  role: "normal" | "orm" | "emissive"
+  role: "normal" | "orm" | "occlusion" | "emissive"
 ): boolean {
   return left[`${role}_uv_set`] === right[`${role}_uv_set`] &&
     left[`${role}_uv_offset`][0] === right[`${role}_uv_offset`][0] &&

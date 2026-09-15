@@ -1,8 +1,8 @@
 import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "./TextureBindingSetPolicy.js";
 
 /** ADR-0013 compile-time shading identity shared by CPU publication and WGSL. */
-export const GPU_SHADING_PROGRAM_ABI_VERSION = 1;
-export const GPU_SHADING_DEPENDENCY_LUT_VERSION = 1;
+export const GPU_SHADING_PROGRAM_ABI_VERSION = 2;
+export const GPU_SHADING_DEPENDENCY_LUT_VERSION = 2;
 export const GPU_SHADING_PROGRAM_COUNT = 16;
 export const GPU_SHADING_PROGRAM_INVALID = 0xff;
 export const GPU_SHADING_BIN_PROGRAM_MASK = 0x0f;
@@ -38,10 +38,12 @@ export const GPU_SHADING_DEPENDENCY = Object.freeze({
   OrmTexture: 1 << 5,
   NormalTexture: 1 << 6,
   EmissiveTexture: 1 << 7,
-  Lit: 1 << 8
+  Lit: 1 << 8,
+  OcclusionTexture: 1 << 9
 } as const);
 
-export const GPU_SHADING_DEPENDENCY_VALID_MASK = (1 << 9) - 1;
+export const GPU_SHADING_DEPENDENCY_COUNT = 10;
+export const GPU_SHADING_DEPENDENCY_VALID_MASK = (1 << GPU_SHADING_DEPENDENCY_COUNT) - 1;
 
 export type GpuShadingModel = "unlit" | "standard-pbr";
 
@@ -51,12 +53,17 @@ export interface GpuShadingMaterialProfile {
   readonly hasOrmTexture: boolean;
   readonly hasNormalTexture: boolean;
   readonly hasEmissiveTexture: boolean;
+  readonly hasOcclusionTexture: boolean;
+  /** Bit 0/1/2 denote TEXCOORD_0/1/2 required by active texture roles. */
+  readonly requiredUvSetsMask: number;
   readonly textureBindingSetId: number;
 }
 
 export interface GpuShadingGeometryProfile {
   readonly hasAuthoredVertexColor: boolean;
   readonly hasUv0: boolean;
+  readonly hasUv1: boolean;
+  readonly hasUv2: boolean;
   readonly hasNormal: boolean;
   readonly hasTangent: boolean;
 }
@@ -71,6 +78,8 @@ export interface GpuShadingIdentity {
 export type ShadingIdentityPublicationErrorCode =
   | "UNSUPPORTED_SHADING_MODEL"
   | "MISSING_UV0"
+  | "MISSING_UV1"
+  | "MISSING_UV2"
   | "MISSING_NORMAL"
   | "MISSING_TANGENT"
   | "INVALID_TEXTURE_BINDING_SET"
@@ -134,27 +143,18 @@ export function deriveGpuShadingIdentity(
   }
 
   const usesAnyTexture = material.hasBaseTexture || material.hasOrmTexture ||
-    material.hasNormalTexture || material.hasEmissiveTexture;
-  if (usesAnyTexture && !geometry.hasUv0) {
-    throw new ShadingIdentityPublicationError(
-      "MISSING_UV0",
-      "Textured shading requires geometry UV0"
-    );
-  }
+    material.hasNormalTexture || material.hasEmissiveTexture || material.hasOcclusionTexture;
+  const requiredUvSetsMask = validateRequiredUvSetsMask(material.requiredUvSetsMask, usesAnyTexture);
+  validateRequiredUvSets(requiredUvSetsMask, geometry);
   if (material.shadingModel === "standard-pbr" && !geometry.hasNormal) {
     throw new ShadingIdentityPublicationError(
       "MISSING_NORMAL",
       "Standard PBR shading requires geometry normals"
     );
   }
-  if (material.hasNormalTexture && !geometry.hasTangent) {
-    throw new ShadingIdentityPublicationError(
-      "MISSING_TANGENT",
-      "Normal-textured shading requires geometry tangents"
-    );
-  }
   if (material.shadingModel === "unlit" &&
-      (material.hasOrmTexture || material.hasNormalTexture || material.hasEmissiveTexture)) {
+      (material.hasOrmTexture || material.hasNormalTexture || material.hasEmissiveTexture ||
+       material.hasOcclusionTexture)) {
     throw new ShadingIdentityPublicationError(
       "UNSUPPORTED_SHADING_MODEL",
       "Unlit V1 supports only factor and base texture dependencies"
@@ -168,11 +168,14 @@ export function deriveGpuShadingIdentity(
   if (material.shadingModel === "standard-pbr") {
     dependencyMask |= GPU_SHADING_DEPENDENCY.Lit | GPU_SHADING_DEPENDENCY.Normal;
   }
-  if (material.hasNormalTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.Tangent;
+  if (material.hasNormalTexture && geometry.hasTangent) {
+    dependencyMask |= GPU_SHADING_DEPENDENCY.Tangent;
+  }
   if (material.hasBaseTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.BaseTexture;
   if (material.hasOrmTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.OrmTexture;
   if (material.hasNormalTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.NormalTexture;
   if (material.hasEmissiveTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.EmissiveTexture;
+  if (material.hasOcclusionTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.OcclusionTexture;
 
   const programId = shadingProgramIdForDependencyMask(dependencyMask);
   const textureBindingSetId = shadingProgramUsesTextures(programId)
@@ -188,6 +191,9 @@ export function deriveGpuShadingIdentity(
 
 export function shadingProgramIdForDependencyMask(dependencyMask: number): number {
   validateDependencyMask(dependencyMask);
+  if ((dependencyMask & GPU_SHADING_DEPENDENCY.OcclusionTexture) !== 0) {
+    return GPU_SHADING_PROGRAM.PbrGeneric;
+  }
   const index = dependencyLutIndex(dependencyMask);
   const programId = GPU_SHADING_PROGRAM_LUT[index];
   if (programId === undefined || programId === GPU_SHADING_PROGRAM_INVALID) {
@@ -246,6 +252,7 @@ const OENGINE_SHADING_DEPENDENCY_ORM_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.Orm
 const OENGINE_SHADING_DEPENDENCY_NORMAL_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.NormalTexture}u;
 const OENGINE_SHADING_DEPENDENCY_EMISSIVE_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.EmissiveTexture}u;
 const OENGINE_SHADING_DEPENDENCY_LIT: u32 = ${GPU_SHADING_DEPENDENCY.Lit}u;
+const OENGINE_SHADING_DEPENDENCY_OCCLUSION_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.OcclusionTexture}u;
 ${GPU_SHADING_PROGRAM_NAMES.map((name, programId) =>
   `const OENGINE_SHADING_PROGRAM_${toWgslConstant(name)}: u32 = ${programId}u;`
 ).join("\n")}
@@ -254,6 +261,9 @@ const OENGINE_SHADING_PROGRAM_LUT: array<u32, ${LUT_ENTRY_COUNT}> = array<u32, $
 );
 
 fn oengine_shading_program_for_dependencies(dependency_mask: u32) -> u32 {
+  if ((dependency_mask & OENGINE_SHADING_DEPENDENCY_OCCLUSION_TEXTURE) != 0u) {
+    return OENGINE_SHADING_PROGRAM_PBR_GENERIC;
+  }
   let index =
     select(0u, ${LUT_LIT_BIT}u, (dependency_mask & ${GPU_SHADING_DEPENDENCY.Lit}u) != 0u) |
     select(0u, ${LUT_COLOR_BIT}u, (dependency_mask & ${GPU_SHADING_DEPENDENCY.AuthoredVertexColor}u) != 0u) |
@@ -335,15 +345,48 @@ function validateDependencyMask(dependencyMask: number): void {
     GPU_SHADING_DEPENDENCY.BaseTexture |
     GPU_SHADING_DEPENDENCY.OrmTexture |
     GPU_SHADING_DEPENDENCY.NormalTexture |
-    GPU_SHADING_DEPENDENCY.EmissiveTexture
+    GPU_SHADING_DEPENDENCY.EmissiveTexture |
+    GPU_SHADING_DEPENDENCY.OcclusionTexture
   )) !== 0;
   const normalTexture = (dependencyMask & GPU_SHADING_DEPENDENCY.NormalTexture) !== 0;
+  const occlusionTexture = (dependencyMask & GPU_SHADING_DEPENDENCY.OcclusionTexture) !== 0;
   if ((usesTexture && !uv) || (lit && !normalAttribute) ||
-      (normalTexture && !tangentAttribute) || (tangentAttribute && !normalTexture)) {
+      (tangentAttribute && !normalTexture) ||
+      (occlusionTexture && !lit)) {
     throw new ShadingIdentityPublicationError(
       "INVALID_DEPENDENCY_MASK",
       `Dependency mask 0x${dependencyMask.toString(16)} has inconsistent attributes`
     );
+  }
+}
+
+function validateRequiredUvSetsMask(mask: number, usesAnyTexture: boolean): number {
+  if (!Number.isInteger(mask) || mask < 0 || (mask & ~0x7) !== 0 ||
+      (usesAnyTexture && mask === 0) || (!usesAnyTexture && mask !== 0)) {
+    throw new ShadingIdentityPublicationError(
+      "INVALID_DEPENDENCY_MASK",
+      "Material required UV-set mask must exactly describe active texture roles"
+    );
+  }
+  return mask;
+}
+
+function validateRequiredUvSets(
+  mask: number,
+  geometry: GpuShadingGeometryProfile
+): void {
+  const available = (geometry.hasUv0 ? 1 : 0) |
+    (geometry.hasUv1 ? 2 : 0) |
+    (geometry.hasUv2 ? 4 : 0);
+  const missing = mask & ~available;
+  if ((missing & 1) !== 0) {
+    throw new ShadingIdentityPublicationError("MISSING_UV0", "Textured shading requires geometry UV0");
+  }
+  if ((missing & 2) !== 0) {
+    throw new ShadingIdentityPublicationError("MISSING_UV1", "Textured shading requires geometry UV1");
+  }
+  if ((missing & 4) !== 0) {
+    throw new ShadingIdentityPublicationError("MISSING_UV2", "Textured shading requires geometry UV2");
   }
 }
 

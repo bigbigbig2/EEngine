@@ -119,7 +119,7 @@ P = 有效前景像素，N = 内部分辨率像素，W = 排队 microtile 数
 - velocity 未输出时，源码仍构造 previous/current clip 与 velocity；编译器是否已消除不能仅凭源码判断。
 - lit 的 vertex color 仍按 geometry flag 分支，不能因为 Dungeon 不使用就对所有 PbrOrm 删除。
 - packed position 的 byte/word 解码、重复 geometry metadata 查询和三个顶点的变换存在收窄空间；不能假定每条源码 load 都变成独立 DRAM transaction。
-- 当前材质记录包含 32 B shading header + 240 B payload，但不能以 272 B × P 宣称实际带宽，编译器可能只取用字段。
+- 当前材质记录包含 32 B shading header + 272 B payload；新增的独立 AO 字段只由 `PbrGeneric`/透明 PBR consumer 读取，不能以 304 B × P 宣称实际带宽，编译器可能只取用字段。
 - 9×6 路由代表 Shader 源码与绑定选择空间，**不代表一次采样执行 54 次 texture sampling**。
 - 当前已有 EnvironmentPrefilterPass 和 split-sum LUT；本 ADR 改善其表示和消费位置，不把 prefilter/split-sum 描述成首次引入。
 

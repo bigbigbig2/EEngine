@@ -233,6 +233,8 @@ function source({ materialId }) {
         hasOrmTexture: false,
         hasNormalTexture: false,
         hasEmissiveTexture: false,
+        hasOcclusionTexture: false,
+        requiredUvSetsMask: 0,
         textureBindingSetId: 0
       }),
       generation: 3,
@@ -243,6 +245,8 @@ function source({ materialId }) {
       profile: Object.freeze({
         hasAuthoredVertexColor: false,
         hasUv0: false,
+        hasUv1: false,
+        hasUv2: false,
         hasNormal: false,
         hasTangent: false
       }),

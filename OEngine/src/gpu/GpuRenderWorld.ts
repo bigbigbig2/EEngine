@@ -19,6 +19,7 @@ import type {
 import {
   deriveGpuShadingIdentity,
   GPU_SHADING_DEPENDENCY,
+  GPU_SHADING_DEPENDENCY_COUNT,
   ShadingIdentityPublicationError,
   type GpuShadingGeometryProfile,
   type GpuShadingMaterialProfile
@@ -735,7 +736,7 @@ function createPackedSceneClassificationState(
     binIds: new Uint8Array(source.count),
     dependencyMasks: new Uint16Array(source.count),
     binRefCounts: new Uint32Array(64),
-    dependencyRefCounts: new Uint32Array(9),
+    dependencyRefCounts: new Uint32Array(GPU_SHADING_DEPENDENCY_COUNT),
     materialBindingSetIds: Object.freeze([...materialBindingSetIds]),
     geometryProfiles: Object.freeze(source.geometries.map(shadingGeometryProfile)),
     geometryPublicationIds: Object.freeze([]),
@@ -914,7 +915,8 @@ function createPackedSceneMaterialAssociationPlan(
         );
       } catch (error) {
         if (error instanceof ShadingIdentityPublicationError &&
-            (error.code === "MISSING_UV0" || error.code === "MISSING_NORMAL" ||
+            (error.code === "MISSING_UV0" || error.code === "MISSING_UV1" ||
+             error.code === "MISSING_UV2" || error.code === "MISSING_NORMAL" ||
              error.code === "MISSING_TANGENT")) {
           continue;
         }
@@ -986,7 +988,9 @@ function shadingGeometryProfileKey(profile: Readonly<GpuShadingGeometryProfile>)
   return (profile.hasAuthoredVertexColor ? 1 : 0) |
     (profile.hasUv0 ? 2 : 0) |
     (profile.hasNormal ? 4 : 0) |
-    (profile.hasTangent ? 8 : 0);
+    (profile.hasTangent ? 8 : 0) |
+    (profile.hasUv1 ? 16 : 0) |
+    (profile.hasUv2 ? 32 : 0);
 }
 
 interface ClassificationPatchEntry {
@@ -1126,14 +1130,34 @@ function shadingMaterialProfile(
   material: StandardShadeMaterial,
   textureBindingSetId: number
 ): GpuShadingMaterialProfile {
+  const hasBaseTexture = material.texture_albedo !== undefined;
+  const hasOrmTexture = !material.is_unlit && material.texture_orm !== undefined;
+  const hasNormalTexture = !material.is_unlit && material.texture_normal !== undefined;
+  const hasEmissiveTexture = !material.is_unlit && material.texture_emissive !== undefined;
+  const hasOcclusionTexture = !material.is_unlit && material.texture_occlusion !== undefined;
+  let requiredUvSetsMask = 0;
+  if (hasBaseTexture) requiredUvSetsMask |= uvSetMask(material.base_color_uv_set, material.name);
+  if (hasOrmTexture) requiredUvSetsMask |= uvSetMask(material.orm_uv_set, material.name);
+  if (hasNormalTexture) requiredUvSetsMask |= uvSetMask(material.normal_uv_set, material.name);
+  if (hasEmissiveTexture) requiredUvSetsMask |= uvSetMask(material.emissive_uv_set, material.name);
+  if (hasOcclusionTexture) requiredUvSetsMask |= uvSetMask(material.occlusion_uv_set, material.name);
   return {
     shadingModel: material.is_unlit ? "unlit" : "standard-pbr",
-    hasBaseTexture: material.texture_albedo !== undefined,
-    hasOrmTexture: !material.is_unlit && material.texture_orm !== undefined,
-    hasNormalTexture: !material.is_unlit && material.texture_normal !== undefined,
-    hasEmissiveTexture: !material.is_unlit && material.texture_emissive !== undefined,
+    hasBaseTexture,
+    hasOrmTexture,
+    hasNormalTexture,
+    hasEmissiveTexture,
+    hasOcclusionTexture,
+    requiredUvSetsMask,
     textureBindingSetId
   };
+}
+
+function uvSetMask(uvSet: number, materialName: string): number {
+  if (!Number.isInteger(uvSet) || uvSet < 0 || uvSet > 2) {
+    throw new RangeError(`Material '${materialName}' requests unsupported TEXCOORD_${uvSet}`);
+  }
+  return 1 << uvSet;
 }
 
 function shadingGeometryProfile(
@@ -1145,6 +1169,8 @@ function shadingGeometryProfile(
   return Object.freeze({
     hasAuthoredVertexColor: semantics.has("color"),
     hasUv0: semantics.has("uv0"),
+    hasUv1: semantics.has("uv1"),
+    hasUv2: semantics.has("uv2"),
     hasNormal: semantics.has("normal"),
     hasTangent: semantics.has("tangent")
   });

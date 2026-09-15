@@ -172,6 +172,50 @@ test("Canonical Geometry V2 is deterministic, compact, and numerically faithful"
   );
 });
 
+test("Compact Geometry V2 rounds quantized Meshlet bounds outward in float32", async () => {
+  // The first triangle reproduces a real large.glb failure: its local Z minimum
+  // rounds above the decoded UNORM16 position unless the serialized AABB is
+  // explicitly rounded toward -infinity. The second material range establishes
+  // the much wider source quantization extent without sharing a Meshlet.
+  const source = createSourceGeometry({
+    sourceId: "fixture://compact-bounds-float32-outward-rounding",
+    indices: [0, 1, 2, 3, 4, 5],
+    attributes: [{
+      semantic: "position",
+      componentCount: 3,
+      data: new Float32Array([
+        -2072.08154296875, -85761.5625, 1320.8377685546875,
+        -2060, -85700, 1340,
+        -2035.2003173828125, -85634.4765625, 1364.0418701171875,
+        -4621.07666015625, -88498.46875, 758.76416015625,
+        3450.54541015625, 172199.515625, 1388.9639892578125,
+        0, 0, 1000
+      ])
+    }],
+    materialRanges: [
+      {
+        firstTriangle: 0,
+        triangleCount: 1,
+        materialId: 0,
+        alphaMode: "opaque",
+        doubleSided: false
+      },
+      {
+        firstTriangle: 1,
+        triangleCount: 1,
+        materialId: 1,
+        alphaMode: "opaque",
+        doubleSided: false
+      }
+    ]
+  });
+
+  const cooked = await cookGeometryAssetPackage(source, createGeometryCookRecipe());
+  assert.equal(cooked.asset.validate().valid, true);
+  const decoded = decodeGeometryPosition(cooked.asset, 0);
+  assert.ok(decoded[2] >= cooked.asset.meshlets[0].boundsBox[2]);
+});
+
 test("Runtime residency has atomic budgets, explicit ranges, retirement, and device-loss reset", async () => {
   const cooked = await cookGeometryAssetPackage(staticPbrBox(), createGeometryCookRecipe());
   const { manifest } = cooked.asset.runtime;

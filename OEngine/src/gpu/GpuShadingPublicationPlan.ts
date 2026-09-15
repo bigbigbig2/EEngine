@@ -6,6 +6,7 @@ import {
 import {
   deriveGpuShadingIdentity,
   GPU_SHADING_DEPENDENCY,
+  GPU_SHADING_DEPENDENCY_COUNT,
   type GpuShadingGeometryProfile,
   type GpuShadingIdentity,
   type GpuShadingMaterialProfile
@@ -658,7 +659,7 @@ function emptyState(): PublicationState {
     geometryUsers: new Map(),
     summary: {
       binRefCounts: new Uint32Array(64),
-      dependencyRefCounts: new Uint32Array(9),
+      dependencyRefCounts: new Uint32Array(GPU_SHADING_DEPENDENCY_COUNT),
       opaqueLitReceiverCount: 0,
       opaqueUnlitReceiverCount: 0,
       transparentLitReceiverCount: 0
@@ -767,7 +768,7 @@ function removeContribution(
 }
 
 function updateDependencyCounts(counts: Uint32Array, mask: number, delta: 1 | -1): void {
-  for (let bit = 0; bit < 9; bit++) {
+  for (let bit = 0; bit < GPU_SHADING_DEPENDENCY_COUNT; bit++) {
     if ((mask & (1 << bit)) === 0) continue;
     counts[bit] = delta === 1
       ? incrementU32(counts[bit]!, `Dependency bit ${bit} refcount`)
@@ -784,7 +785,7 @@ function freezeSummary(summary: MutableSummary, revision: number): Readonly<Acti
     else activeBinMaskHi = (activeBinMaskHi | (1 << (binId - 32))) >>> 0;
   }
   let dependencyMask = 0;
-  for (let bit = 0; bit < 9; bit++) {
+  for (let bit = 0; bit < GPU_SHADING_DEPENDENCY_COUNT; bit++) {
     if (summary.dependencyRefCounts[bit] !== 0) dependencyMask |= 1 << bit;
   }
   return Object.freeze({
@@ -896,6 +897,8 @@ function sameMaterial(
     left.profile.hasOrmTexture === right.profile.hasOrmTexture &&
     left.profile.hasNormalTexture === right.profile.hasNormalTexture &&
     left.profile.hasEmissiveTexture === right.profile.hasEmissiveTexture &&
+    left.profile.hasOcclusionTexture === right.profile.hasOcclusionTexture &&
+    left.profile.requiredUvSetsMask === right.profile.requiredUvSetsMask &&
     left.profile.textureBindingSetId === right.profile.textureBindingSetId;
 }
 
@@ -906,6 +909,8 @@ function sameGeometry(
   return left.id === right.id && left.generation === right.generation &&
     left.profile.hasAuthoredVertexColor === right.profile.hasAuthoredVertexColor &&
     left.profile.hasUv0 === right.profile.hasUv0 &&
+    left.profile.hasUv1 === right.profile.hasUv1 &&
+    left.profile.hasUv2 === right.profile.hasUv2 &&
     left.profile.hasNormal === right.profile.hasNormal &&
     left.profile.hasTangent === right.profile.hasTangent;
 }

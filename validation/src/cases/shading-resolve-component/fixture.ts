@@ -29,6 +29,7 @@ import {
 } from "../../../../OEngine/src/gpu/GpuShadingBinAbi.js";
 import {
   GPU_SHADING_MATERIAL_RECORD_STRIDE,
+  GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
   GPU_SHADING_TEXTURE_ROUTE_STRIDE,
   packGpuShadingMaterialRecord,
   packGpuShadingTextureRoute
@@ -400,7 +401,7 @@ function createStaticResources(
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
     materials: buffer("ADR-0013 resolve materials", descriptors.length * GPU_SHADING_MATERIAL_RECORD_STRIDE,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
-    routes: buffer("ADR-0013 resolve routes", descriptors.length * 4 * GPU_SHADING_TEXTURE_ROUTE_STRIDE,
+    routes: buffer("ADR-0013 resolve routes", descriptors.length * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL * GPU_SHADING_TEXTURE_ROUTE_STRIDE,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST),
     textureBanks, samplers: Array.from({ length: 6 }, () => device.createSampler({
       addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", minFilter: "nearest", magFilter: "nearest"
@@ -496,7 +497,7 @@ function restoreMutableInputs(device: GPUDevice, resources: StaticResources): vo
   device.queue.writeBuffer(resources.meshletWork, 0, queue);
   const asset = createAssetMetadata(); device.queue.writeBuffer(resources.assetMetadata, 0, asset);
   const materialBytes = new Uint8Array(GPU_SHADING_PROGRAM_COUNT * GPU_SHADING_MATERIAL_RECORD_STRIDE);
-  const routeBytes = new Uint8Array(GPU_SHADING_PROGRAM_COUNT * 4 * GPU_SHADING_TEXTURE_ROUTE_STRIDE);
+  const routeBytes = new Uint8Array(GPU_SHADING_PROGRAM_COUNT * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL * GPU_SHADING_TEXTURE_ROUTE_STRIDE);
   for (let programId = 0; programId < GPU_SHADING_PROGRAM_COUNT; programId++) {
     const specialization = gpuShadingProgramSpecialization(programId, OUTPUT_MASK);
     const set = shadingProgramUsesTextures(programId) ? (programId % 3) + 1 : 0;
@@ -523,12 +524,14 @@ function restoreMutableInputs(device: GPUDevice, resources: StaticResources): vo
       normalUvOffset: [0, 0], normalUvScale: [1, 1], normalRotationCos: 1, normalRotationSin: 0,
       ormUvOffset: [0, 0], ormUvScale: [1, 1], ormRotationCos: 1, ormRotationSin: 0,
       emissiveUvOffset: [0, 0], emissiveUvScale: [1, 1], emissiveRotationCos: 1, emissiveRotationSin: 0,
-      textureBindingSetId: set
+      textureBindingSetId: set, occlusionTextureRef: GPU_TEXTURE_REF_INVALID,
+      occlusionUvSet: 0, occlusionUvOffset: [0, 0], occlusionUvScale: [1, 1],
+      occlusionRotationCos: 1, occlusionRotationSin: 0
     }), programId * GPU_SHADING_MATERIAL_RECORD_STRIDE);
-    [base, normal, orm, emissive].forEach((textureRef, slot) => routeBytes.set(
+    [base, normal, orm, emissive, GPU_TEXTURE_REF_INVALID].forEach((textureRef, slot) => routeBytes.set(
       packGpuShadingTextureRoute({ textureRef, textureGeneration: TEXTURE_GENERATION,
         publicationRevision: PUBLICATION_REVISION, textureBindingSetId: set }),
-      (programId * 4 + slot) * GPU_SHADING_TEXTURE_ROUTE_STRIDE));
+      (programId * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL + slot) * GPU_SHADING_TEXTURE_ROUTE_STRIDE));
   }
   device.queue.writeBuffer(resources.materials, 0, materialBytes);
   device.queue.writeBuffer(resources.routes, 0, routeBytes);

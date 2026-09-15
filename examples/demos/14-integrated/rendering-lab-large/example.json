@@ -1,0 +1,15 @@
+{
+  "id": "rendering-lab-large",
+  "title": "Rendering Lab - Large Model",
+  "category": "14-integrated",
+  "order": 12,
+  "description": "Large GLB model with PBR and full effects, automatic bounds fitting, and the shared GPU/CPU performance experiment panel.",
+  "tags": [
+    "integrated",
+    "large-model",
+    "packed-scene",
+    "gltf",
+    "pbr",
+    "profiling"
+  ]
+}

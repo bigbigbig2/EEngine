@@ -23,6 +23,7 @@ export interface GpuShadingProgramSpecialization {
   readonly ormTexture: "never" | "required" | "material-conditional";
   readonly normalTexture: "never" | "required" | "material-conditional";
   readonly emissiveTexture: "never" | "required" | "material-conditional";
+  readonly occlusionTexture: "never" | "required" | "material-conditional";
   readonly reconstructTriangle: boolean;
   readonly outputDependencyMask: number;
   readonly publishesShadingSurface: boolean;
@@ -49,6 +50,7 @@ export interface GpuShadingMaterialReferenceInput {
   readonly ormSample?: Vec4;
   readonly normalSample?: Vec4;
   readonly emissiveSample?: Vec4;
+  readonly occlusionSample?: Vec4;
   readonly shadingNormal: Vec3;
   readonly geometricNormal: Vec3;
   readonly tangent?: Vec4;
@@ -100,33 +102,34 @@ const FIXED_PROGRAM_DEPENDENCIES = Object.freeze([
     GPU_SHADING_DEPENDENCY.Lit,
   GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.BaseTexture |
     GPU_SHADING_DEPENDENCY.OrmTexture | GPU_SHADING_DEPENDENCY.Uv0 | GPU_SHADING_DEPENDENCY.Lit,
-  GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.Tangent |
+  GPU_SHADING_DEPENDENCY.Normal |
     GPU_SHADING_DEPENDENCY.NormalTexture | GPU_SHADING_DEPENDENCY.Uv0 | GPU_SHADING_DEPENDENCY.Lit,
-  GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.Tangent |
+  GPU_SHADING_DEPENDENCY.Normal |
     GPU_SHADING_DEPENDENCY.BaseTexture | GPU_SHADING_DEPENDENCY.NormalTexture |
     GPU_SHADING_DEPENDENCY.Uv0 | GPU_SHADING_DEPENDENCY.Lit,
-  GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.Tangent |
+  GPU_SHADING_DEPENDENCY.Normal |
     GPU_SHADING_DEPENDENCY.OrmTexture | GPU_SHADING_DEPENDENCY.NormalTexture |
     GPU_SHADING_DEPENDENCY.Uv0 | GPU_SHADING_DEPENDENCY.Lit,
-  GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.Tangent |
+  GPU_SHADING_DEPENDENCY.Normal |
     GPU_SHADING_DEPENDENCY.BaseTexture | GPU_SHADING_DEPENDENCY.OrmTexture |
     GPU_SHADING_DEPENDENCY.NormalTexture | GPU_SHADING_DEPENDENCY.Uv0 |
     GPU_SHADING_DEPENDENCY.Lit,
-  GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.Tangent |
+  GPU_SHADING_DEPENDENCY.Normal |
     GPU_SHADING_DEPENDENCY.BaseTexture | GPU_SHADING_DEPENDENCY.OrmTexture |
     GPU_SHADING_DEPENDENCY.NormalTexture | GPU_SHADING_DEPENDENCY.EmissiveTexture |
     GPU_SHADING_DEPENDENCY.Uv0 | GPU_SHADING_DEPENDENCY.Lit,
   GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.BaseTexture |
     GPU_SHADING_DEPENDENCY.EmissiveTexture | GPU_SHADING_DEPENDENCY.Uv0 |
     GPU_SHADING_DEPENDENCY.Lit,
-  GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.Tangent |
+  GPU_SHADING_DEPENDENCY.Normal |
     GPU_SHADING_DEPENDENCY.OrmTexture | GPU_SHADING_DEPENDENCY.NormalTexture |
     GPU_SHADING_DEPENDENCY.EmissiveTexture | GPU_SHADING_DEPENDENCY.Uv0 |
     GPU_SHADING_DEPENDENCY.Lit,
-  GPU_SHADING_DEPENDENCY.Normal | GPU_SHADING_DEPENDENCY.Tangent |
+  GPU_SHADING_DEPENDENCY.Normal |
     GPU_SHADING_DEPENDENCY.BaseTexture | GPU_SHADING_DEPENDENCY.OrmTexture |
     GPU_SHADING_DEPENDENCY.NormalTexture | GPU_SHADING_DEPENDENCY.EmissiveTexture |
-    GPU_SHADING_DEPENDENCY.Uv0 | GPU_SHADING_DEPENDENCY.Lit
+    GPU_SHADING_DEPENDENCY.OcclusionTexture | GPU_SHADING_DEPENDENCY.Uv0 |
+    GPU_SHADING_DEPENDENCY.Lit
 ]);
 
 export function gpuShadingProgramSpecialization(
@@ -159,6 +162,7 @@ export function gpuShadingProgramSpecialization(
     emissiveTexture: generic
       ? "material-conditional"
       : has(GPU_SHADING_DEPENDENCY.EmissiveTexture) ? "required" : "never",
+    occlusionTexture: generic ? "material-conditional" : "never",
     reconstructTriangle: lit || programId !== GPU_SHADING_PROGRAM.UnlitFactor ||
       (outputDependencyMask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0,
     outputDependencyMask,
@@ -287,7 +291,10 @@ export function evaluateGpuShadingProgramReference(
   const orm = specialization.ormTexture === "never"
     ? [1, 1, 1, 1] as const
     : material.ormSample ?? [1, 1, 1, 1] as const;
-  const ambientOcclusion = mix(1, orm[0], clamp01(material.occlusionStrength));
+  const occlusion = specialization.occlusionTexture === "never"
+    ? orm
+    : material.occlusionSample ?? orm;
+  const ambientOcclusion = mix(1, occlusion[0], clamp01(material.occlusionStrength));
   const metallic = clamp01(orm[2] * material.metallicFactor);
   const roughness = clamp01(orm[1] * material.roughnessFactor);
   const emissiveSample = specialization.emissiveTexture === "never"
@@ -332,7 +339,8 @@ export function evaluateGpuShadingProgramReference(
     emissive: freeze3(emissive),
     gradientFallback: specialization.baseTexture !== "never" ||
       specialization.ormTexture !== "never" || specialization.normalTexture !== "never" ||
-      specialization.emissiveTexture !== "never" ? !input.gradientValid : false,
+      specialization.emissiveTexture !== "never" || specialization.occlusionTexture !== "never"
+      ? !input.gradientValid : false,
     publishesShadingSurface: specialization.publishesShadingSurface,
     publishesDiffuseSurface: specialization.publishesDiffuseSurface,
     publishesVelocity: specialization.publishesVelocity

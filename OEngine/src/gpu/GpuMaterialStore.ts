@@ -164,7 +164,8 @@ export class GpuMaterialStore {
           baseColor: textureRef(association.material.texture_albedo),
           normal: textureRef(association.material.texture_normal),
           orm: textureRef(association.material.texture_orm),
-          emissive: textureRef(association.material.texture_emissive)
+          emissive: textureRef(association.material.texture_emissive),
+          occlusion: textureRef(association.material.texture_occlusion)
         }, slot, association.textureBindingSetId);
         const packed = packGpuShadingMaterialRecord({
           programId: association.programId,
@@ -185,7 +186,8 @@ export class GpuMaterialStore {
           source.packed.textureRef,
           source.packed.normalTextureRef,
           source.packed.ormTextureRef,
-          source.packed.emissiveTextureRef
+          source.packed.emissiveTextureRef,
+          source.packed.occlusionTextureRef
         ];
         for (let routeIndex = 0; routeIndex < routeRefs.length; routeIndex++) {
           const route = packGpuShadingTextureRoute({

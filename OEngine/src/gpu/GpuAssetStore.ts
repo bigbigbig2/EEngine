@@ -260,6 +260,11 @@ const U32_MAX = 0xffffffff;
 const ASSET_UPLOAD_TRANSACTION_BUDGET_BYTES = 8 * 1024 * 1024;
 const ASSET_RESIDENT_BUDGET_BYTES = 512 * 1024 * 1024;
 
+export interface GpuAssetStoreOptions {
+  readonly maxUploadBytes?: number;
+  readonly maxResidentBytes?: number;
+}
+
 /**
  * Unique owner for validated Geometry package residency.
  *
@@ -300,11 +305,22 @@ export class GpuAssetStore {
   private largestTransactionPackageCount = 0;
   private largestTransactionSourceBytes = 0;
   private readonly accountedBuffers = new Map<GPUBuffer, AccountingResourceHandle>();
+  private readonly maxUploadBytes: number;
+  private readonly maxResidentBytes: number;
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly resourceAccounting?: ResourceAccounting
+    private readonly resourceAccounting?: ResourceAccounting,
+    options: Readonly<GpuAssetStoreOptions> = {}
   ) {
+    this.maxUploadBytes = validatedResidencyBudget(
+      options.maxUploadBytes ?? ASSET_UPLOAD_TRANSACTION_BUDGET_BYTES,
+      "maxUploadBytes"
+    );
+    this.maxResidentBytes = validatedResidencyBudget(
+      options.maxResidentBytes ?? ASSET_RESIDENT_BUDGET_BYTES,
+      "maxResidentBytes"
+    );
     const definitions: readonly [BufferName, number][] = [
       ["geometryRecords", GPU_GEOMETRY_RECORD_STRIDE],
       ["meshletRecords", GPU_MESHLET_RECORD_STRIDE],
@@ -425,8 +441,8 @@ export class GpuAssetStore {
       const projectedResidentBytes = this.fallbackBytes() + this.activeResidentBytes +
         batchResidentBytes + sparseShadingLayout.assetMetadataBytes +
         sparseShadingLayout.vertexPayloadBytes;
-      if (batchUploadBytes > ASSET_UPLOAD_TRANSACTION_BUDGET_BYTES ||
-          projectedResidentBytes > ASSET_RESIDENT_BUDGET_BYTES) {
+      if (batchUploadBytes > this.maxUploadBytes ||
+          projectedResidentBytes > this.maxResidentBytes) {
         throw new RangeError("Geometry residency batch exceeds its upload/resident budget");
       }
       for (const buffer of this.orderedBuffers) {
@@ -985,8 +1001,8 @@ export class GpuAssetStore {
     const variant = asset.runtime.manifest.variants[0]!;
     const residency = new RuntimeAssetResidencyState(asset.runtime.manifest, variant);
     const residencyReservation = residency.request(variant.chunkIds, {
-      maxUploadBytes: ASSET_UPLOAD_TRANSACTION_BUDGET_BYTES,
-      maxResidentBytes: Math.max(0, ASSET_RESIDENT_BUDGET_BYTES - this.activeResidentBytes)
+      maxUploadBytes: this.maxUploadBytes,
+      maxResidentBytes: Math.max(0, this.maxResidentBytes - this.activeResidentBytes)
     });
     const residentRanges = Object.fromEntries(variant.chunkIds.map((chunkId) => {
       const chunk = asset.runtime.manifest.chunks.find((candidate) => candidate.id === chunkId)!;
@@ -1577,6 +1593,15 @@ function pad4(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
 
 function align4(value: number): number {
   return Math.ceil(value / 4) * 4;
+}
+
+function validatedResidencyBudget(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0 || value % 4 !== 0) {
+    throw new RangeError(
+      `GpuAssetStore ${label} must be a positive, 4-byte-aligned safe integer`
+    );
+  }
+  return value;
 }
 
 function assertU32(value: number, label: string): void {

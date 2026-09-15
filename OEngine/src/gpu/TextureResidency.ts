@@ -299,6 +299,7 @@ interface TexturePreflight {
   readonly bankPlans: readonly BankGrowthPlan[];
   readonly packagePlans: readonly TexturePackageSegmentPlan[];
   readonly packageAssignments: ReadonlyMap<ShadeTexture, TexturePackageAssignment>;
+  readonly uncookedBankAssignments: ReadonlyMap<ShadeTexture, number>;
   readonly bindingSetPlans: readonly TextureBindingSetPlan[];
   readonly materialBindingSetIds: ReadonlyMap<StandardShadeMaterial, number>;
 }
@@ -345,10 +346,14 @@ export class TextureResidency {
 
   constructor(
     private readonly graphics: GraphicsContext,
-    private readonly highResolutionMaxSize: number = TEXTURE_RESIDENCY_MAX_SIZE
+    private readonly highResolutionMaxSize: number = TEXTURE_RESIDENCY_MAX_SIZE,
+    bankMaxCapacities: readonly number[] = GPU_TEXTURE_BANK_MAX_CAPACITIES
   ) {
     if (!(GPU_TEXTURE_BANK_SIZES as readonly number[]).includes(highResolutionMaxSize)) {
       throw new RangeError("TextureResidency highResolutionMaxSize must be a supported size class");
+    }
+    if (bankMaxCapacities.length !== GPU_TEXTURE_BANK_COUNT - GPU_TEXTURE_PACKAGE_BANK_COUNT) {
+      throw new RangeError("TextureResidency requires one maximum capacity per RGBA bank");
     }
     const limits = graphics.device.limits;
     textureBindingSetPolicy(limits);
@@ -361,7 +366,10 @@ export class TextureResidency {
         size,
         physicalSize,
         mipLevelCount: mipCount(physicalSize),
-        maxCapacity: Math.min(GPU_TEXTURE_BANK_MAX_CAPACITIES[bindingSlot]!, Number(limits.maxTextureArrayLayers)),
+        maxCapacity: Math.min(
+          validatedBankCapacity(bankMaxCapacities[bindingSlot]!, bindingSlot),
+          Number(limits.maxTextureArrayLayers)
+        ),
         capacity: 0,
         descriptor: bankDescriptor(bindingSlot, size, physicalSize, 1),
         texture: null,
@@ -458,7 +466,8 @@ export class TextureResidency {
         const transition = this.transition(
           resident,
           materials[index]!,
-          preflight.packageAssignments
+          preflight.packageAssignments,
+          preflight.uncookedBankAssignments
         );
         transitions.push(transition);
         for (const operation of transition.added) if (operation.created) newTextures.push(operation.entry);
@@ -783,7 +792,7 @@ export class TextureResidency {
   }
 
   private preflight(materials: readonly StandardShadeMaterial[]): TexturePreflight {
-    const freshByBank = this.banks.map(() => new Set<ShadeTexture>());
+    const freshUncooked = new Set<ShadeTexture>();
     const freshPackages = new Map<ShadeTexture, Readonly<{
       asset: TextureAssetPackageV2;
       variant: SelectedTextureVariantV2;
@@ -805,15 +814,10 @@ export class TextureResidency {
             variant,
             key: texturePackageSegmentKey(asset, variant)
           });
-        } else if (canStageTexture(texture)) {
-          freshByBank[textureBankClass(texture)]!.add(texture);
-        }
+        } else if (canStageTexture(texture)) freshUncooked.add(texture);
       }
     }
-    const freshDescriptorCount = freshPackages.size + freshByBank.reduce(
-      (sum, textures) => sum + textures.size,
-      0
-    );
+    const freshDescriptorCount = freshPackages.size + freshUncooked.size;
     if (freshDescriptorCount > this.freeDescriptorSlots.length) {
       this.bindingSetPreflightFailures++;
       throw new RangeError(
@@ -821,15 +825,60 @@ export class TextureResidency {
         `${this.freeDescriptorSlots.length} remain`
       );
     }
+    const freshByBank = this.banks.map(() => new Set<ShadeTexture>());
+    const uncookedBankAssignments = new Map<ShadeTexture, number>();
+    const remainingLayers = this.banks.map((bank) => bank.texture === null
+      ? Math.max(0, bank.maxCapacity - 1)
+      : bank.freeLayers.length);
+    for (const texture of freshUncooked) {
+      const preferredBank = this.banks[textureBankClass(texture)]!;
+      const candidates = this.banks
+        .filter((bank) => bank.physicalSize === preferredBank.physicalSize && remainingLayers[bank.bankClass]! > 0)
+        .sort((left, right) => {
+          if (left === preferredBank) return -1;
+          if (right === preferredBank) return 1;
+          return remainingLayers[right.bankClass]! - remainingLayers[left.bankClass]!
+            || left.bankClass - right.bankClass;
+        });
+      const bank = candidates[0];
+      if (bank === undefined) {
+        this.bindingSetPreflightFailures++;
+        const compatibleBanks = this.banks.filter(
+          (candidate) => candidate.physicalSize === preferredBank.physicalSize
+        );
+        if (compatibleBanks.length === 1) {
+          const occupied = Math.max(
+            0,
+            preferredBank.capacity - 1 - preferredBank.freeLayers.length
+          );
+          const required = occupied + freshByBank[preferredBank.bankClass]!.size + 2;
+          const permitted = preferredBank.texture === null
+            ? preferredBank.maxCapacity
+            : preferredBank.capacity;
+          throw new RangeError(
+            `TextureResidency ${preferredBank.size}px bank requires ${required} layers but policy/device permits ${permitted}`
+          );
+        }
+        throw new RangeError(
+          `TextureResidency ${preferredBank.size}px logical bank has no free ${preferredBank.physicalSize}px physical layer; ` +
+          `${compatibleBanks.length} compatible banks are exhausted`
+        );
+      }
+      uncookedBankAssignments.set(texture, bank.bankClass);
+      freshByBank[bank.bankClass]!.add(texture);
+      remainingLayers[bank.bankClass] = remainingLayers[bank.bankClass]! - 1;
+    }
+
     const bankPlans: BankGrowthPlan[] = [];
     for (const bank of this.banks) {
       const freshCount = freshByBank[bank.bankClass]!.size;
       if (freshCount === 0) continue;
       const occupied = Math.max(0, bank.capacity - 1 - bank.freeLayers.length);
       const exactCapacity = occupied + freshCount + 1;
-      if (bank.maxCapacity === 0 || exactCapacity > bank.maxCapacity) {
+      const availableCapacity = bank.texture === null ? bank.maxCapacity : bank.capacity;
+      if (availableCapacity === 0 || exactCapacity > availableCapacity) {
         this.bindingSetPreflightFailures++;
-        throw new RangeError(`TextureResidency ${bank.size}px bank requires ${exactCapacity} layers but policy/device permits ${bank.maxCapacity}`);
+        throw new RangeError(`TextureResidency ${bank.size}px bank requires ${exactCapacity} layers but its immutable segment permits ${availableCapacity}`);
       }
       // Each size-class slot owns one immutable segment. Allocate its final bounded
       // capacity once; future loads only consume layers and never relocate it.
@@ -967,6 +1016,7 @@ export class TextureResidency {
       bankPlans: Object.freeze(bankPlans),
       packagePlans: Object.freeze(packagePlans),
       packageAssignments,
+      uncookedBankAssignments,
       bindingSetPlans: Object.freeze(bindingSetPlans),
       materialBindingSetIds
     });
@@ -1202,7 +1252,8 @@ export class TextureResidency {
   private transition(
     resident: ResidentMaterialTextures,
     material: StandardShadeMaterial,
-    packageAssignments: ReadonlyMap<ShadeTexture, TexturePackageAssignment>
+    packageAssignments: ReadonlyMap<ShadeTexture, TexturePackageAssignment>,
+    uncookedBankAssignments: ReadonlyMap<ShadeTexture, number>
   ): TextureTransition {
     const desired = [...new Set(material.textures)];
     const previous = resident.textures;
@@ -1216,7 +1267,11 @@ export class TextureResidency {
         next.push(current);
         continue;
       }
-      const operation = this.retainTexture(texture, packageAssignments.get(texture));
+      const operation = this.retainTexture(
+        texture,
+        packageAssignments.get(texture),
+        uncookedBankAssignments.get(texture)
+      );
       if (operation !== null) {
         next.push(operation.entry);
         added.push(operation);
@@ -1229,7 +1284,8 @@ export class TextureResidency {
 
   private retainTexture(
     texture: ShadeTexture,
-    packageAssignment?: TexturePackageAssignment
+    packageAssignment?: TexturePackageAssignment,
+    uncookedBankClass?: number
   ): TextureRetainOperation | null {
     if (!canStageTexture(texture)) return null;
     let entry = this.textures.get(texture);
@@ -1258,7 +1314,7 @@ export class TextureResidency {
         } catch {
           return null;
         }
-        bankClass = textureBankClass(texture);
+        bankClass = uncookedBankClass ?? textureBankClass(texture);
         segmentIndex = 0;
         const bank = this.banks[bankClass]!;
         layer = bank.freeLayers.pop();
@@ -1579,6 +1635,13 @@ function arrayBytes(size: number, capacity: number): number {
   });
 }
 
+function validatedBankCapacity(value: number, bankClass: number): number {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new RangeError(`TextureResidency bank ${bankClass} maximum capacity must be positive`);
+  }
+  return value;
+}
+
 function logicalTextureBytes(texture: ShadeTexture): number {
   const asset = texture.runtime_asset_package_v2;
   if (asset !== undefined) {
@@ -1733,7 +1796,7 @@ function packageRouting(
     : GPU_TEXTURE_REF_ROUTING.AlphaFromAlpha;
 }
 
-type MaterialTextureRole = "base-color" | "normal" | "orm" | "emissive";
+type MaterialTextureRole = "base-color" | "normal" | "orm" | "emissive" | "occlusion";
 
 function materialTextureEntries(
   material: StandardShadeMaterial
@@ -1751,6 +1814,9 @@ function materialTextureEntries(
   if (!material.is_unlit && material.texture_emissive !== undefined) {
     entries.push({ texture: material.texture_emissive, role: "emissive" });
   }
+  if (!material.is_unlit && material.texture_occlusion !== undefined) {
+    entries.push({ texture: material.texture_occlusion, role: "occlusion" });
+  }
   return entries;
 }
 
@@ -1765,7 +1831,9 @@ function validatePackageSemantic(
       ? asset.semantic === "normal-linear"
       : role === "orm"
         ? asset.semantic === "orm-linear"
-        : asset.semantic === "emissive-srgb";
+        : role === "emissive"
+          ? asset.semantic === "emissive-srgb"
+          : asset.semantic === "occlusion-linear" || asset.semantic === "orm-linear";
   if (!valid) {
     throw new Error(
       `Material '${materialName}' binds Texture Package semantic '${asset.semantic}' as ${role}`

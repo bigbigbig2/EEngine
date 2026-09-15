@@ -190,18 +190,21 @@ fn sample_material_texture(
   return oengine_sample_texture_bank(texture_ref, sampler_class, uv, uv_dx, uv_dy, fallback);
 }
 fn material_uv_set(material: OEngineMaterialVisibilityRecord, slot: u32) -> u32 {
+  if slot == 4u { return material.occlusion_uv_set; }
   return (material.texture_uv_sets >> (slot * 8u)) & 0xffu;
 }
 fn material_uv_offset_scale(material: OEngineMaterialVisibilityRecord, slot: u32) -> vec4f {
   if slot == 1u { return material.normal_uv_offset_scale; }
   if slot == 2u { return material.orm_uv_offset_scale; }
   if slot == 3u { return material.emissive_uv_offset_scale; }
+  if slot == 4u { return material.occlusion_uv_offset_scale; }
   return material.uv_offset_scale;
 }
 fn material_uv_rotation(material: OEngineMaterialVisibilityRecord, slot: u32) -> vec4f {
   if slot == 1u { return material.normal_uv_rotation; }
   if slot == 2u { return material.orm_uv_rotation; }
   if slot == 3u { return material.emissive_uv_rotation; }
+  if slot == 4u { return material.occlusion_uv_rotation; }
   return material.uv_rotation;
 }
 fn transform_uv(record: OEngineMaterialVisibilityRecord, slot: u32, uv: vec2f) -> vec2f {
@@ -413,6 +416,9 @@ fn packed_transparent_forward(
   let emissive_uv = material_uv(input, material, 3u);
   let emissive_uv_dx = dpdx(emissive_uv);
   let emissive_uv_dy = dpdy(emissive_uv);
+  let occlusion_uv = material_uv(input, material, 4u);
+  let occlusion_uv_dx = dpdx(occlusion_uv);
+  let occlusion_uv_dy = dpdy(occlusion_uv);
   let world_dx = dpdx(input.world_position);
   let world_dy = dpdy(input.world_position);
   if !validate_transparent_fragment(input, material, front) { discard; }
@@ -428,11 +434,23 @@ fn packed_transparent_forward(
   let emissive = sample_material_texture(material.emissive_texture_ref,
     material_sampler_class(material, 3u), emissive_uv, emissive_uv_dx, emissive_uv_dy,
     vec4f(1.0)).rgb * material.emissive_factor.rgb;
+  var occlusion = vec4f(1.0);
+  if (material.flags & OENGINE_MATERIAL_HAS_OCCLUSION_TEXTURE) != 0u {
+    occlusion = sample_material_texture(material.occlusion_texture_ref,
+      material_sampler_class(material, 4u), occlusion_uv, occlusion_uv_dx, occlusion_uv_dy,
+      vec4f(1.0));
+  }
   let albedo = base_sample.rgb * material.base_color_factor.rgb;
   let metallic = clamp(select(1.0, orm.b,
     (material.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u) * material.pbr_factors.x, 0.0, 1.0);
   let roughness = clamp(select(1.0, orm.g,
     (material.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u) * material.pbr_factors.y, 0.02, 1.0);
+  let ao_source = select(
+    select(1.0, orm.r, (material.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u),
+    occlusion.r,
+    (material.flags & OENGINE_MATERIAL_HAS_OCCLUSION_TEXTURE) != 0u
+  );
+  let material_ao = mix(1.0, ao_source, clamp(material.pbr_factors.w, 0.0, 1.0));
   let normal = surface_normal(input, material, front, normal_uv,
     normal_uv_dx, normal_uv_dy, world_dx, world_dy);
   let view_direction = normalize(camera.transform[3].xyz - input.world_position);
@@ -444,11 +462,11 @@ fn packed_transparent_forward(
     let irradiance = oct_sample(diffuse_irradiance_map, normal, 0u);
     let f0 = mix(vec3f(0.04), albedo, metallic);
     let dfg = textureSampleLevel(split_sum, linear_clamp, vec2f(nov, roughness), 0.0).rg;
-    let specular = radiance * (f0 * dfg.x + dfg.y);
-    let diffuse = irradiance * albedo * (1.0 - metallic) * 0.3183098861837907;
+    let specular = radiance * (f0 * dfg.x + dfg.y) * material_ao;
+    let diffuse = irradiance * albedo * (1.0 - metallic) * 0.3183098861837907 * material_ao;
     let direct_material = StandardMaterial(
       albedo * (1.0 - metallic), roughness,
-      clamp(select(1.0, orm.r, (material.flags & OENGINE_MATERIAL_HAS_ORM_TEXTURE) != 0u), 0.0, 1.0),
+      material_ao,
       f0, 1.0, emissive, opacity
     );
     let direct_geometry = SurfaceGeometry(normal, normal, input.world_position, view_direction);

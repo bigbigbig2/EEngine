@@ -3,8 +3,8 @@ import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { GPU_TEXTURE_REF_INVALID, GPU_TEXTURE_REF_WGSL } from "./GpuTextureRefAbi.js";
 
-export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 7;
-export const GPU_MATERIAL_VISIBILITY_RECORD_STRIDE = 240;
+export const GPU_MATERIAL_VISIBILITY_ABI_VERSION = 8;
+export const GPU_MATERIAL_VISIBILITY_RECORD_STRIDE = 272;
 export const GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE = GPU_TEXTURE_REF_INVALID;
 
 export const GPU_MATERIAL_VISIBILITY_ALPHA_MODE = Object.freeze({
@@ -22,7 +22,8 @@ export const GPU_MATERIAL_VISIBILITY_FLAGS = Object.freeze({
   HasNormalTexture: 1 << 5,
   HasOrmTexture: 1 << 6,
   HasEmissiveTexture: 1 << 7,
-  Unlit: 1 << 8
+  Unlit: 1 << 8,
+  HasOcclusionTexture: 1 << 9
 });
 
 export const GPU_MATERIAL_VISIBILITY_ADDRESS_MODE = Object.freeze({
@@ -60,7 +61,11 @@ export const GPU_MATERIAL_VISIBILITY_OFFSETS = Object.freeze({
   orm_uv_rotation: 176,
   emissive_uv_offset_scale: 192,
   emissive_uv_rotation: 208,
-  texture_binding_set_id: 224
+  texture_binding_set_id: 224,
+  occlusion_texture_ref: 228,
+  occlusion_uv_set: 232,
+  occlusion_uv_offset_scale: 240,
+  occlusion_uv_rotation: 256
 });
 
 export interface GpuMaterialVisibilityPackedSource {
@@ -99,6 +104,12 @@ export interface GpuMaterialVisibilityPackedSource {
   readonly emissiveRotationCos: number;
   readonly emissiveRotationSin: number;
   readonly textureBindingSetId: number;
+  readonly occlusionTextureRef: number;
+  readonly occlusionUvSet: number;
+  readonly occlusionUvOffset: ArrayLike<number>;
+  readonly occlusionUvScale: ArrayLike<number>;
+  readonly occlusionRotationCos: number;
+  readonly occlusionRotationSin: number;
 }
 
 export interface GpuMaterialVisibilitySource {
@@ -135,9 +146,11 @@ struct OEngineMaterialVisibilityRecord {
   emissive_uv_offset_scale: vec4f,
   emissive_uv_rotation: vec4f,
   texture_binding_set_id: u32,
-  _binding_set_pad0: u32,
-  _binding_set_pad1: u32,
-  _binding_set_pad2: u32,
+  occlusion_texture_ref: u32,
+  occlusion_uv_set: u32,
+  _occlusion_pad0: u32,
+  occlusion_uv_offset_scale: vec4f,
+  occlusion_uv_rotation: vec4f,
 };
 
 const OENGINE_MATERIAL_ALPHA_OPAQUE: u32 = ${GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Opaque}u;
@@ -150,6 +163,7 @@ const OENGINE_MATERIAL_HAS_NORMAL_TEXTURE: u32 = ${GPU_MATERIAL_VISIBILITY_FLAGS
 const OENGINE_MATERIAL_HAS_ORM_TEXTURE: u32 = ${GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture}u;
 const OENGINE_MATERIAL_HAS_EMISSIVE_TEXTURE: u32 = ${GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture}u;
 const OENGINE_MATERIAL_UNLIT: u32 = ${GPU_MATERIAL_VISIBILITY_FLAGS.Unlit}u;
+const OENGINE_MATERIAL_HAS_OCCLUSION_TEXTURE: u32 = ${GPU_MATERIAL_VISIBILITY_FLAGS.HasOcclusionTexture}u;
 const OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE: u32 = OENGINE_TEXTURE_REF_INVALID;
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask}u;
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits}u;
@@ -164,6 +178,7 @@ export function materialVisibilitySource(
     normal?: number;
     orm?: number;
     emissive?: number;
+    occlusion?: number;
   }> | number,
   materialSlot: number,
   textureBindingSetId = 0
@@ -177,15 +192,18 @@ export function materialVisibilitySource(
   const normalTextureRef = refs.normal ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
   const ormTextureRef = refs.orm ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
   const emissiveTextureRef = refs.emissive ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
+  const occlusionTextureRef = refs.occlusion ?? GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
   const texture = material.texture_albedo ?? null;
   const normalTexture = material.is_unlit ? undefined : material.texture_normal;
   const ormTexture = material.is_unlit ? undefined : material.texture_orm;
   const emissiveTexture = material.is_unlit ? undefined : material.texture_emissive;
+  const occlusionTexture = material.is_unlit ? undefined : material.texture_occlusion;
   const requestedTextures = [
     [material.texture_albedo, textureRef],
     [normalTexture, normalTextureRef],
     [ormTexture, ormTextureRef],
-    [emissiveTexture, emissiveTextureRef]
+    [emissiveTexture, emissiveTextureRef],
+    [occlusionTexture, occlusionTextureRef]
   ] as const;
   const baseTextureFallback = texture !== null && (
     !isUsableTexture(texture) || textureRef === GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
@@ -197,6 +215,7 @@ export function materialVisibilitySource(
   const normalSampler = encodeSamplerClass(normalTexture ?? null);
   const ormSampler = encodeSamplerClass(ormTexture ?? null);
   const emissiveSampler = encodeSamplerClass(emissiveTexture ?? null);
+  const occlusionSampler = encodeSamplerClass(occlusionTexture ?? null);
   let flags = GPU_MATERIAL_VISIBILITY_FLAGS.Valid;
   if (material.draw_side === ShadeDrawSide.Double) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.DoubleSided;
@@ -213,15 +232,23 @@ export function materialVisibilitySource(
   if (emissiveTexture !== undefined && emissiveTextureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture;
   }
+  if (occlusionTexture !== undefined && occlusionTextureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE) {
+    flags |= GPU_MATERIAL_VISIBILITY_FLAGS.HasOcclusionTexture;
+  }
   if (material.is_unlit) flags |= GPU_MATERIAL_VISIBILITY_FLAGS.Unlit;
   if (textureFallback) flags |= GPU_MATERIAL_VISIBILITY_FLAGS.TextureFallback;
-  if (sampler.fallback || normalSampler.fallback || ormSampler.fallback || emissiveSampler.fallback) {
+  if (
+    sampler.fallback || normalSampler.fallback || ormSampler.fallback ||
+    emissiveSampler.fallback || occlusionSampler.fallback
+  ) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.SamplerFallback;
   }
   const baseRotation = finiteOr(material.base_color_uv_rotation, 0);
   const normalRotation = finiteOr(material.normal_uv_rotation, 0);
   const ormRotation = finiteOr(material.orm_uv_rotation, 0);
   const emissiveRotation = finiteOr(material.emissive_uv_rotation, 0);
+  const occlusionRotation = finiteOr(material.occlusion_uv_rotation, 0);
+  const occlusionUvSet = checkedUvSet(material.occlusion_uv_set, material.name, "occlusion");
   const textureUvSets = packTextureUvSets(material);
   return Object.freeze({
     packed: Object.freeze({
@@ -256,10 +283,12 @@ export function materialVisibilitySource(
       normalTextureRef,
       ormTextureRef,
       emissiveTextureRef,
-      textureSamplerClasses:
+      textureSamplerClasses: (
         (normalSampler.value & 0xff) |
         ((ormSampler.value & 0xff) << 8) |
-        ((emissiveSampler.value & 0xff) << 16),
+        ((emissiveSampler.value & 0xff) << 16) |
+        ((occlusionSampler.value & 0xff) << 24)
+      ) >>> 0,
       normalUvOffset: material.normal_uv_offset,
       normalUvScale: material.normal_uv_scale,
       normalRotationCos: Math.cos(normalRotation),
@@ -272,7 +301,13 @@ export function materialVisibilitySource(
       emissiveUvScale: material.emissive_uv_scale,
       emissiveRotationCos: Math.cos(emissiveRotation),
       emissiveRotationSin: Math.sin(emissiveRotation),
-      textureBindingSetId
+      textureBindingSetId,
+      occlusionTextureRef,
+      occlusionUvSet,
+      occlusionUvOffset: material.occlusion_uv_offset,
+      occlusionUvScale: material.occlusion_uv_scale,
+      occlusionRotationCos: Math.cos(occlusionRotation),
+      occlusionRotationSin: Math.sin(occlusionRotation)
     }),
     texture: textureFallback ? null : texture,
     textures: Object.freeze(requestedTextures
@@ -280,7 +315,8 @@ export function materialVisibilitySource(
       .map(([candidate]) => candidate)),
     textureFallback,
     samplerFallback:
-      sampler.fallback || normalSampler.fallback || ormSampler.fallback || emissiveSampler.fallback
+      sampler.fallback || normalSampler.fallback || ormSampler.fallback ||
+      emissiveSampler.fallback || occlusionSampler.fallback
   });
 }
 
@@ -328,6 +364,11 @@ export function packGpuMaterialVisibilityRecord(
   writeUvTransform(view, 192, source.emissiveUvOffset, source.emissiveUvScale,
     source.emissiveRotationCos, source.emissiveRotationSin);
   view.setUint32(224, checkedU32(source.textureBindingSetId, "texture binding set id"), true);
+  view.setUint32(228, checkedU32(source.occlusionTextureRef, "occlusion texture ref"), true);
+  view.setUint32(232, checkedUvSet(source.occlusionUvSet, "<packed>", "occlusion"), true);
+  view.setUint32(236, 0, true);
+  writeUvTransform(view, 240, source.occlusionUvOffset, source.occlusionUvScale,
+    source.occlusionRotationCos, source.occlusionRotationSin);
   return target;
 }
 
@@ -340,16 +381,20 @@ function packTextureUvSets(material: StandardShadeMaterial): number {
   ];
   let packed = 0;
   for (let index = 0; index < sets.length; index++) {
-    const set = sets[index]!;
-    if (!Number.isInteger(set) || set < 0 || set > 2) {
-      throw new RangeError(
-        `Material '${material.name}' requests TEXCOORD_${set}; ` +
-        "MaterialRecord v4 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2"
-      );
-    }
+    const set = checkedUvSet(sets[index]!, material.name, `texture slot ${index}`);
     packed |= (set & 0xff) << (index * 8);
   }
   return packed >>> 0;
+}
+
+function checkedUvSet(value: number, materialName: string, role: string): number {
+  if (!Number.isInteger(value) || value < 0 || value > 2) {
+    throw new RangeError(
+      `Material '${materialName}' ${role} requests TEXCOORD_${value}; ` +
+      "MaterialRecord v8 supports TEXCOORD_0, TEXCOORD_1 and TEXCOORD_2"
+    );
+  }
+  return value;
 }
 
 function writeUvTransform(

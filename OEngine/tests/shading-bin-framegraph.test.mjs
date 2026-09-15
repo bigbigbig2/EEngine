@@ -131,6 +131,8 @@ function snapshot(kind, outputDependencyMask, options = {}) {
         hasOrmTexture: false,
         hasNormalTexture: false,
         hasEmissiveTexture: false,
+        hasOcclusionTexture: false,
+        requiredUvSetsMask: textured || (pipelineCount > 1 && id > 0) ? 1 : 0,
         textureBindingSetId: textured
           ? (pipelineCount > 1 && id > 0 ? 3 : 2)
           : (pipelineCount > 1 && id > 0 ? 2 : 0)
@@ -143,6 +145,8 @@ function snapshot(kind, outputDependencyMask, options = {}) {
       profile: {
         hasAuthoredVertexColor: false,
         hasUv0: textured || pipelineCount > 1,
+        hasUv1: false,
+        hasUv2: false,
         hasNormal: !unlit,
         hasTangent: false
       },

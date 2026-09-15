@@ -477,6 +477,50 @@ test("GPU Render World publishes distinct material slots for geometry-dependent 
   assert.equal(summary.opaqueUnlitReceiverCount, 2);
 });
 
+test("GPU Render World skips unused cross-UV pairs while publishing valid UV0 and UV1 associations", () => {
+  const fixture = createPackedRegistryFixture();
+  const uv0Material = createTexturedMaterial(createTexture(64, "association-uv0"), "association-uv0");
+  const uv1Material = createTexturedMaterial(createTexture(64, "association-uv1"), "association-uv1");
+  uv1Material.base_color_uv_set = 1;
+  fixture.manifest.source.materials[0] = uv0Material;
+  fixture.manifest.source.materials.push(uv1Material);
+  fixture.manifest.source.geometries.push({
+    clusters: [],
+    meshlets: [{ triangleCount: 12 }],
+    vertexStreamDescriptors: [
+      { semantic: "position" },
+      { semantic: "normal" },
+      { semantic: "uv1" }
+    ]
+  });
+  fixture.manifest.packages = fixture.manifest.source.geometries;
+  fixture.assetHandles.push({});
+  fixture.manifest.source.count = 2;
+  fixture.manifest.source.geometryIndices = new Uint32Array([0, 1]);
+  fixture.manifest.source.materialIndices = new Uint32Array([0, 1]);
+  fixture.manifest.source.currentTransforms = identityMatrices(2);
+  fixture.manifest.source.boundsSpheres = new Float32Array([
+    0, 0, 0, 1,
+    2, 0, 0, 1
+  ]);
+
+  const command = new FakeCommand("cross-uv-material-stage");
+  fixture.registry.stage(
+    fixture.scene,
+    fixture.manifest,
+    fixture.assetHandles,
+    command
+  );
+  command.finish();
+
+  assert.deepEqual(
+    fixture.calls.materialAssociations[0].map(({ material, programId }) =>
+      [material.name, programId]),
+    [["association-uv0", 5], ["association-uv1", 5]]
+  );
+  assert.deepEqual([...fixture.calls.instanceSources[0].materialHandles], [7, 8]);
+});
+
 test("GPU Render World abort leaves no published scene and release abort preserves ownership", () => {
   const fixture = createPackedRegistryFixture();
   const abortedStage = new FakeCommand("packed-stage-abort");
@@ -874,6 +918,7 @@ test("Texture residency publishes cooked BC packages as authoritative material r
     "normal-linear",
     "orm-linear",
     "emissive-srgb",
+    "occlusion-linear",
     "alpha-mask"
   ];
   const assets = await Promise.all(semantics.map(async (semantic) => {
@@ -900,9 +945,10 @@ test("Texture residency publishes cooked BC packages as authoritative material r
   pbr.texture_normal = textures[1];
   pbr.texture_orm = textures[2];
   pbr.texture_emissive = textures[3];
+  pbr.texture_occlusion = textures[4];
   const mask = new StandardShadeMaterial();
   mask.name = "cooked-mask";
-  mask.texture_albedo = textures[4];
+  mask.texture_albedo = textures[5];
 
   const command = new FakeCommand("cooked-texture-production-stage");
   const staged = residency.stage([pbr, mask], command);
@@ -920,7 +966,7 @@ test("Texture residency publishes cooked BC packages as authoritative material r
 
   const evidence = residency.evidence();
   assert.equal(evidence.schemaVersion, 6);
-  assert.equal(evidence.textureLedger.length, 5);
+  assert.equal(evidence.textureLedger.length, 6);
   assert.ok(evidence.textureLedger.every((entry) =>
     entry.state === "resident" &&
     entry.sourceWidth === 8 && entry.sourceHeight === 8 &&
@@ -931,8 +977,8 @@ test("Texture residency publishes cooked BC packages as authoritative material r
     entry.assetIdentity === assets.find((asset) =>
       asset.runtime.manifest.assetId === entry.assetIdentity)?.runtime.manifest.assetId
   ));
-  assert.equal(evidence.cookedResidentTextureCount, 5);
-  assert.equal(evidence.compressedResidentTextureCount, 5);
+  assert.equal(evidence.cookedResidentTextureCount, 6);
+  assert.equal(evidence.compressedResidentTextureCount, 6);
   assert.equal(evidence.runtimeMipGenerationCount, 0);
   assert.equal(evidence.cookedRuntimeMipGenerationCount, 0);
   assert.equal(evidence.resizeDispatchCount, 0);
@@ -942,7 +988,7 @@ test("Texture residency publishes cooked BC packages as authoritative material r
       .map(({ format }) => format).sort(),
     ["bc1-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc5-rg-unorm"]
   );
-  assert.equal(fixture.writes.length, 20);
+  assert.equal(fixture.writes.length, 24);
   assert.ok(textures.every((texture) =>
     residency.descriptor(staged.textureRefs.get(texture)) !== null));
   residency.destroy();
@@ -1205,6 +1251,32 @@ test("Texture residency quality and device resolution caps preserve logical text
   residency.destroy();
 });
 
+test("Texture residency spills capped textures across physically compatible banks", () => {
+  const fixture = createTextureResidencyFixture({ maxTextureArrayLayers: 256 });
+  const residency = new TextureResidency(
+    fixture.graphics,
+    256,
+    [64, 40, 72, 160, 288]
+  );
+  const textures = Array.from({ length: 267 }, (_, index) =>
+    createTexture(4096, `capped-4096-${index}`)
+  );
+  const materials = textures.map((texture, index) =>
+    createTexturedMaterial(texture, `capped-4096-material-${index}`)
+  );
+  const command = new FakeCommand("texture-compatible-bank-spill");
+  const staged = residency.stage(materials, command);
+  command.finish();
+
+  const bankClasses = textures.map((texture, index) => decodeGpuTextureRef(
+    staged.materialTextureRoutingRefs.get(materials[index]).get(texture)
+  )?.bankClass);
+  assert.equal(bankClasses.filter((bankClass) => bankClass === 4).length, 255);
+  assert.equal(bankClasses.filter((bankClass) => bankClass === 3).length, 12);
+  assert.equal(residency.evidence().residentTextureCount, 267);
+  residency.destroy();
+});
+
 test("Frame evidence detects extra submit, stable-graph rebuild, IO, and feature-off resources", () => {
   const profiler = new FrameProfiler({ enabled: true, now: () => 0 });
   profiler.beginFrame(7);
@@ -1384,7 +1456,7 @@ function createTextureResidencyFixture(options = {}) {
     device: {
       features: new Set(options.features ?? []),
       limits: {
-        maxTextureArrayLayers: 2048,
+        maxTextureArrayLayers: options.maxTextureArrayLayers ?? 2048,
         maxTextureDimension2D: options.maxTextureDimension2D ?? 8192,
         maxSampledTexturesPerShaderStage: 16,
         maxSamplersPerShaderStage: 16

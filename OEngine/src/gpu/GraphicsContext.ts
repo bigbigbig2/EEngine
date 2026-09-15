@@ -30,7 +30,7 @@ import {
   registerGpuQueueProfiler,
   unregisterGpuQueueProfiler
 } from "./GpuQueueEvidence.js";
-import { GpuAssetStore } from "./GpuAssetStore.js";
+import { GpuAssetStore, type GpuAssetStoreOptions } from "./GpuAssetStore.js";
 import { GpuScene } from "./GpuScene.js";
 import { GpuRenderWorld } from "./GpuRenderWorld.js";
 import { GpuMaterialStore } from "./GpuMaterialStore.js";
@@ -94,17 +94,23 @@ export class GraphicsContext {
   private textureResidencyValue: TextureResidency | undefined;
   private assetCodecServiceValue: AssetCodecService | undefined;
   private readonly textureMaxResolution: number;
+  private readonly textureBankMaxCapacities: readonly number[] | undefined;
+  private readonly assetStoreOptions: Readonly<GpuAssetStoreOptions>;
   private timerIncrementValue = 0;
   private destroyed = false;
 
   constructor(
     device: GPUDevice,
     profiler = new FrameProfiler(),
-    textureMaxResolution: number = TEXTURE_RESIDENCY_MAX_SIZE
+    textureMaxResolution: number = TEXTURE_RESIDENCY_MAX_SIZE,
+    assetStoreOptions: Readonly<GpuAssetStoreOptions> = {},
+    textureBankMaxCapacities?: readonly number[]
   ) {
     this.device = device;
     this.profiler = profiler;
     this.textureMaxResolution = textureMaxResolution;
+    this.textureBankMaxCapacities = textureBankMaxCapacities;
+    this.assetStoreOptions = assetStoreOptions;
     this.profiler.configure({
       gpuTimestampAvailable: device.features.has("timestamp-query")
     });
@@ -212,7 +218,11 @@ export class GraphicsContext {
 
   /** Lazily creates the package residency owner. */
   get assets(): GpuAssetStore {
-    this.assetStoreValue ??= new GpuAssetStore(this.device, this.resource_accounting);
+    this.assetStoreValue ??= new GpuAssetStore(
+      this.device,
+      this.resource_accounting,
+      this.assetStoreOptions
+    );
     return this.assetStoreValue;
   }
 
@@ -252,7 +262,11 @@ export class GraphicsContext {
 
   /** Lazily creates the independent texture residency owner. */
   get texture_residency(): TextureResidency {
-    this.textureResidencyValue ??= new TextureResidency(this, this.textureMaxResolution);
+    this.textureResidencyValue ??= new TextureResidency(
+      this,
+      this.textureMaxResolution,
+      this.textureBankMaxCapacities
+    );
     return this.textureResidencyValue;
   }
 

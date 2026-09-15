@@ -1,0 +1,16 @@
+{
+  "id": "rendering-lab-large-basic",
+  "title": "Rendering Lab - Large Model Basic",
+  "category": "14-integrated",
+  "order": 13,
+  "description": "Large GLB model with Unlit shading and effects off, automatic bounds fitting, and the shared GPU/CPU performance experiment panel.",
+  "tags": [
+    "integrated",
+    "large-model",
+    "packed-scene",
+    "gltf",
+    "unlit",
+    "effects-off",
+    "profiling"
+  ]
+}

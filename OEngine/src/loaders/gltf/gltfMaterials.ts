@@ -110,7 +110,6 @@ export function parseGltfMaterial(
 
   const pbr = e.pbrMetallicRoughness;
   const unlit = e.extensions?.KHR_materials_unlit !== undefined;
-  if (!unlit) validateOcclusionTextureContract(e);
   assignUvMapping(n, "base_color", normalizeUvMapping(
     pbr?.baseColorTexture, e.name, "baseColorTexture"
   ));
@@ -124,17 +123,8 @@ export function parseGltfMaterial(
     const occlusionUv = normalizeUvMapping(
       e.occlusionTexture, e.name, "occlusionTexture"
     );
-    if (
-      pbr?.metallicRoughnessTexture !== undefined &&
-      e.occlusionTexture !== undefined &&
-      !sameUvMapping(ormUv, occlusionUv)
-    ) {
-      throw new Error(
-        `glTF material '${e.name ?? "<unnamed>"}' uses one packed ORM texture with ` +
-        "different metallicRoughnessTexture and occlusionTexture UV mappings"
-      );
-    }
-    assignUvMapping(n, "orm", pbr?.metallicRoughnessTexture === undefined ? occlusionUv : ormUv);
+    assignUvMapping(n, "orm", ormUv);
+    assignUvMapping(n, "occlusion", occlusionUv);
     assignUvMapping(n, "emissive", normalizeUvMapping(
       e.emissiveTexture, e.name, "emissiveTexture"
     ));
@@ -207,6 +197,14 @@ export function parseGltfMaterial(
 
   const occ = unlit ? undefined : e.occlusionTexture;
   if (occ !== undefined) {
+    const orm = pbr?.metallicRoughnessTexture;
+    const sharesOrmSample = orm !== undefined &&
+      orm.index === occ.index &&
+      sameUvMapping(
+        normalizeUvMapping(orm, e.name, "metallicRoughnessTexture"),
+        normalizeUvMapping(occ, e.name, "occlusionTexture")
+      );
+    if (!sharesOrmSample) n.texture_occlusion = textures[occ.index]!;
     n.ambient_factors.a = saturate(occ.strength ?? 1);
     n.ambient_factors.b = 0;
   } else {
@@ -281,25 +279,6 @@ export function parseGltfMaterial(
   return n;
 }
 
-function validateOcclusionTextureContract(material: GltfMaterial): void {
-  const occlusion = material.occlusionTexture;
-  if (occlusion === undefined) return;
-  const metallicRoughness = material.pbrMetallicRoughness?.metallicRoughnessTexture;
-  const name = material.name ?? "<unnamed>";
-  if (metallicRoughness === undefined) {
-    throw new Error(
-      `glTF material '${name}' occlusionTexture requires metallicRoughnessTexture; ` +
-      "OEngine MaterialRecord v2 supports only a shared ORM texture"
-    );
-  }
-  if (occlusion.index !== metallicRoughness.index) {
-    throw new Error(
-      `glTF material '${name}' occlusionTexture must use the same texture index as ` +
-      "metallicRoughnessTexture; separate occlusion textures are unsupported"
-    );
-  }
-}
-
 interface UvMapping {
   readonly texCoord: number;
   readonly offset: [number, number];
@@ -346,7 +325,7 @@ function sameUvMapping(a: UvMapping, b: UvMapping): boolean {
 
 function assignUvMapping(
   material: StandardShadeMaterial,
-  role: "base_color" | "normal" | "orm" | "emissive",
+  role: "base_color" | "normal" | "orm" | "occlusion" | "emissive",
   mapping: UvMapping
 ): void {
   material[`${role}_uv_set`] = mapping.texCoord;

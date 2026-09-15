@@ -249,7 +249,7 @@ export interface PackedGltfSource {
   readonly debugIds: Uint32Array;
 }
 
-function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
+export function buildPackedGltfSource(doc: GltfDocument): PackedGltfSource {
   const textures = buildGltfTextures(doc);
   const materials = (doc.materials ?? []).map((material) =>
     parseGltfMaterial(material, textures)

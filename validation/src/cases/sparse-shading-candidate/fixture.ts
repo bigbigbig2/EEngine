@@ -20,7 +20,7 @@ import { GPU_MESHLET_BUCKET_STATE_STRIDE, GPU_MESHLET_DRAW_COUNT, GPU_MESHLET_DR
   packGpuMeshletRasterWork, packGpuMeshletWorkQueueHeader } from "../../../../OEngine/src/gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_SHADING_BIN_CONTROL_OFFSETS, GPU_SHADING_BIN_COUNTER_OFFSETS,
   GPU_SHADING_BIN_COUNTER_STRIDE, GPU_SHADING_BIN_INVALID_ID } from "../../../../OEngine/src/gpu/GpuShadingBinAbi.js";
-import { GPU_SHADING_MATERIAL_RECORD_STRIDE, GPU_SHADING_TEXTURE_ROUTE_STRIDE,
+import { GPU_SHADING_MATERIAL_RECORD_STRIDE, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL, GPU_SHADING_TEXTURE_ROUTE_STRIDE,
   packGpuShadingMaterialRecord, packGpuShadingTextureRoute } from "../../../../OEngine/src/gpu/GpuShadingMaterialAbi.js";
 import { GpuShadingPublicationStore } from "../../../../OEngine/src/gpu/GpuShadingPublicationPlan.js";
 import { GPU_SHADING_PROGRAM_COUNT, shadingProgramUsesTextures,
@@ -585,7 +585,7 @@ function createResources(device:GPUDevice,buffers:Set<GPUBuffer>,textures:Set<GP
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),
     shadingMaterials:makeBuffer(`ADR-0013 ${label} shading materials`,layout.materialCount*GPU_SHADING_MATERIAL_RECORD_STRIDE,
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),
-    routes:makeBuffer(`ADR-0013 ${label} texture routes`,layout.materialCount*4*GPU_SHADING_TEXTURE_ROUTE_STRIDE,
+    routes:makeBuffer(`ADR-0013 ${label} texture routes`,layout.materialCount*GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL*GPU_SHADING_TEXTURE_ROUTE_STRIDE,
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST),
     textureBanks,textureBankViews:textureBanks.map((value)=>value.createView({dimension:"2d-array"})),
     materialSamplers:textured?Array.from({length:6},()=>device.createSampler({addressModeU:"clamp-to-edge",addressModeV:"clamp-to-edge",
@@ -642,9 +642,11 @@ function createPublication(workload:SparseCandidateWorkload){const programs=work
     generation:23}))};}
 function materialProfile(programId:number):GpuShadingMaterialProfile {const bits=textureBits(programId);return Object.freeze({
   shadingModel:programId<4?"unlit":"standard-pbr",hasBaseTexture:(bits&1)!==0,hasOrmTexture:(bits&2)!==0,
-  hasNormalTexture:(bits&4)!==0,hasEmissiveTexture:(bits&8)!==0,textureBindingSetId:bits===0?0:(programId%3)+1});}
+  hasNormalTexture:(bits&4)!==0,hasEmissiveTexture:(bits&8)!==0,hasOcclusionTexture:false,
+  requiredUvSetsMask:bits===0?0:1,textureBindingSetId:bits===0?0:(programId%3)+1});}
 function geometryProfile(programId:number):GpuShadingGeometryProfile {const bits=textureBits(programId);return Object.freeze({
-  hasAuthoredVertexColor:programId===1||programId===3,hasUv0:bits!==0,hasNormal:programId>=4,hasTangent:(bits&4)!==0});}
+  hasAuthoredVertexColor:programId===1||programId===3,hasUv0:bits!==0,hasUv1:false,hasUv2:false,
+  hasNormal:programId>=4,hasTangent:(bits&4)!==0});}
 function textureBits(programId:number):number{return [0,0,1,1,0,1,2,3,4,5,6,7,15,9,14,8][programId]??0;}
 
 function uploadStaticInputs(device:GPUDevice,r:CandidateResources,snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,
@@ -1051,7 +1053,7 @@ function createBucketSettings(device:GPUDevice):Uint32Array{const output=new Uin
 function createMaterials(snapshot:ReturnType<GpuShadingPublicationStore["currentSnapshot"]>,workload:SparseCandidateWorkload){
   const programs=workloadProgramIds(workload),count=programs.length;
   const shading=new Uint8Array(count*GPU_SHADING_MATERIAL_RECORD_STRIDE);
-  const routes=new Uint8Array(count*4*GPU_SHADING_TEXTURE_ROUTE_STRIDE);
+  const routes=new Uint8Array(count*GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL*GPU_SHADING_TEXTURE_ROUTE_STRIDE);
   for(let materialSlot=0;materialSlot<count;materialSlot++){const program=programs[materialSlot]!;
     const profile=materialProfile(program),specialization=gpuShadingProgramSpecialization(program,0);
     const set=shadingProgramUsesTextures(program)?profile.textureBindingSetId:0;
@@ -1067,9 +1069,9 @@ function createMaterials(snapshot:ReturnType<GpuShadingPublicationStore["current
     shading.set(packGpuShadingMaterialRecord({programId:program,textureBindingSetId:set,materialGeneration:MATERIAL_GENERATION,
       textureGeneration:TEXTURE_GENERATION,publicationRevision:snapshot.revision,flags:0},payload),
       materialSlot*GPU_SHADING_MATERIAL_RECORD_STRIDE);
-    [base,normal,orm,emissive].forEach((textureRef,textureSlot)=>routes.set(packGpuShadingTextureRoute({textureRef,
+    [base,normal,orm,emissive,GPU_TEXTURE_REF_INVALID].forEach((textureRef,textureSlot)=>routes.set(packGpuShadingTextureRoute({textureRef,
       textureGeneration:TEXTURE_GENERATION,publicationRevision:snapshot.revision,textureBindingSetId:set}),
-      (materialSlot*4+textureSlot)*GPU_SHADING_TEXTURE_ROUTE_STRIDE));
+      (materialSlot*GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL+textureSlot)*GPU_SHADING_TEXTURE_ROUTE_STRIDE));
   }return {shading,routes};
 }
 function materialPayload(flags:number,set:number,base:number,normal:number,orm:number,emissive:number){return {
@@ -1080,7 +1082,9 @@ function materialPayload(flags:number,set:number,base:number,normal:number,orm:n
   normalUvOffset:[0,0] as const,normalUvScale:[1,1] as const,normalRotationCos:1,normalRotationSin:0,
   ormUvOffset:[0,0] as const,ormUvScale:[1,1] as const,ormRotationCos:1,ormRotationSin:0,
   emissiveUvOffset:[0,0] as const,emissiveUvScale:[1,1] as const,emissiveRotationCos:1,emissiveRotationSin:0,
-  textureBindingSetId:set};}
+  textureBindingSetId:set,occlusionTextureRef:GPU_TEXTURE_REF_INVALID,occlusionUvSet:0,
+  occlusionUvOffset:[0,0] as const,occlusionUvScale:[1,1] as const,
+  occlusionRotationCos:1,occlusionRotationSin:0};}
 
 function createPrepared(r:CandidateResources):PreparedMeshletWorkCandidate {
   return Object.freeze({queue:r.queue,bucketStates:r.bucketStates,drawIndirect:r.drawIndirect,

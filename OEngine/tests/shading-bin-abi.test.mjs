@@ -86,6 +86,8 @@ const generousLimits = Object.freeze({
 const fullGeometry = Object.freeze({
   hasAuthoredVertexColor: false,
   hasUv0: true,
+  hasUv1: false,
+  hasUv2: false,
   hasNormal: true,
   hasTangent: true
 });
@@ -97,13 +99,15 @@ function material(shadingModel, textureBits, textureBindingSetId = 3) {
     hasOrmTexture: (textureBits & 2) !== 0,
     hasNormalTexture: (textureBits & 4) !== 0,
     hasEmissiveTexture: (textureBits & 8) !== 0,
+    hasOcclusionTexture: false,
+    requiredUvSetsMask: textureBits === 0 ? 0 : 1,
     textureBindingSetId
   };
 }
 
 test("ADR-0013 freezes all sixteen program ids and a shared versioned LUT", () => {
-  assert.equal(GPU_SHADING_PROGRAM_ABI_VERSION, 1);
-  assert.equal(GPU_SHADING_DEPENDENCY_LUT_VERSION, 1);
+  assert.equal(GPU_SHADING_PROGRAM_ABI_VERSION, 2);
+  assert.equal(GPU_SHADING_DEPENDENCY_LUT_VERSION, 2);
   assert.equal(GPU_SHADING_PROGRAM_COUNT, 16);
   assert.equal(GPU_SHADING_PROGRAM_NAMES.length, 16);
   assert.deepEqual(Object.values(GPU_SHADING_PROGRAM), Array.from({ length: 16 }, (_, i) => i));
@@ -136,7 +140,7 @@ test("all sixteen programs and four texture sets round-trip through the six-bit 
 });
 
 test("unlit identity canonicalizes textureless sets and preserves color and texture dependencies", () => {
-  const noAttributes = { hasAuthoredVertexColor: false, hasUv0: false, hasNormal: false, hasTangent: false };
+  const noAttributes = { hasAuthoredVertexColor: false, hasUv0: false, hasUv1: false, hasUv2: false, hasNormal: false, hasTangent: false };
   assert.deepEqual(deriveGpuShadingIdentity(material("unlit", 0, 3), noAttributes), {
     dependencyMask: 0,
     programId: GPU_SHADING_PROGRAM.UnlitFactor,
@@ -180,6 +184,30 @@ test("every legal Standard PBR texture combination selects exactly one fixed or 
   }
 });
 
+test("independent AO selects generic PBR and validates its authored UV set", () => {
+  const aoMaterial = {
+    shadingModel: "standard-pbr",
+    hasBaseTexture: false,
+    hasOrmTexture: false,
+    hasNormalTexture: false,
+    hasEmissiveTexture: false,
+    hasOcclusionTexture: true,
+    requiredUvSetsMask: 2,
+    textureBindingSetId: 1
+  };
+  const identity = deriveGpuShadingIdentity(aoMaterial, {
+    ...fullGeometry,
+    hasUv0: false,
+    hasUv1: true
+  });
+  assert.equal(identity.programId, GPU_SHADING_PROGRAM.PbrGeneric);
+  assert.ok((identity.dependencyMask & GPU_SHADING_DEPENDENCY.OcclusionTexture) !== 0);
+  assert.throws(
+    () => deriveGpuShadingIdentity(aoMaterial, { ...fullGeometry, hasUv1: false }),
+    (error) => error instanceof ShadingIdentityPublicationError && error.code === "MISSING_UV1"
+  );
+});
+
 test("publication rejects unsupported models and missing geometry dependencies structurally", () => {
   const expectCode = (callback, code) => assert.throws(callback, (error) => {
     assert.ok(error instanceof ShadingIdentityPublicationError);
@@ -198,10 +226,12 @@ test("publication rejects unsupported models and missing geometry dependencies s
     () => deriveGpuShadingIdentity(material("standard-pbr", 0), { ...fullGeometry, hasNormal: false }),
     "MISSING_NORMAL"
   );
-  expectCode(
-    () => deriveGpuShadingIdentity(material("standard-pbr", 4), { ...fullGeometry, hasTangent: false }),
-    "MISSING_TANGENT"
+  const derivedTangent = deriveGpuShadingIdentity(
+    material("standard-pbr", 4),
+    { ...fullGeometry, hasTangent: false }
   );
+  assert.equal(derivedTangent.programId, GPU_SHADING_PROGRAM.PbrNormal);
+  assert.equal(derivedTangent.dependencyMask & GPU_SHADING_DEPENDENCY.Tangent, 0);
   expectCode(
     () => deriveGpuShadingIdentity(material("unlit", 2), fullGeometry),
     "UNSUPPORTED_SHADING_MODEL"

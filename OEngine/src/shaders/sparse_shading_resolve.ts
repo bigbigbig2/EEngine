@@ -10,7 +10,10 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js"
 import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_SHADING_BIN_FRAME_FLAG, GPU_SHADING_BIN_WGSL } from "../gpu/GpuShadingBinAbi.js";
 import { GPU_SHADING_FRAME_STATUS_WGSL } from "../gpu/GpuShadingFrameStatusAbi.js";
-import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
+import {
+  GPU_SHADING_MATERIAL_WGSL,
+  GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL
+} from "../gpu/GpuShadingMaterialAbi.js";
 import {
   GPU_SHADING_PROGRAM,
   GPU_SHADING_PROGRAM_COUNT,
@@ -180,7 +183,7 @@ struct OEngineSparseUnlitFactorRecord {
   _header_pad: vec2u,
   _factor_prefix: array<vec4u, 4>,
   base_color_factor: vec4f,
-  _factor_suffix: array<vec4u, 10>,
+  _factor_suffix: array<vec4u, 12>,
 }
 `;
 }
@@ -255,7 +258,9 @@ function identityWgsl(descriptor: Readonly<GpuSparseShadingPipelineDescriptor>, 
     : "OEngineShadingMaterialRecord";
   const textureRoute = shadingProgramUsesTextures(descriptor.programId) ? /* wgsl */ `
 fn sparse_texture_route_valid(material_slot: u32, slot: u32, texture_ref: u32) -> bool {
-  let route = texture_descriptor_routing_heap[material_slot * 4u + slot];
+  let route = texture_descriptor_routing_heap[
+    material_slot * ${GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL}u + slot
+  ];
   return route.texture_ref == texture_ref &&
     route.texture_generation == shading_view.texture_generation &&
     route.publication_revision == shading_view.publication_revision &&
@@ -335,9 +340,10 @@ fn sparse_position(geometry_base: u32, vertex: u32) -> vec3f {
   }
   return vec3f(0.0);
 }
-fn sparse_uv0(geometry_base: u32, vertex: u32) -> vec2f {
-  let byte_offset = sparse_meta_u32(geometry_base, 33u) + vertex * sparse_meta_u32(geometry_base, 34u);
-  let format = sparse_meta_u32(geometry_base, 35u);
+fn sparse_uv(geometry_base: u32, vertex: u32, uv_set: u32) -> vec2f {
+  let field = 33u + min(uv_set, 2u) * 3u;
+  let byte_offset = sparse_meta_u32(geometry_base, field) + vertex * sparse_meta_u32(geometry_base, field + 1u);
+  let format = sparse_meta_u32(geometry_base, field + 2u);
   let word = shading_view.vertex_data_word_base + (byte_offset >> 2u);
   if format == ${GPU_UV_FORMAT.Float32x2}u { return vec2f(bitcast<f32>(vertex_payload_heap[word]), bitcast<f32>(vertex_payload_heap[word + 1u])); }
   if format == ${GPU_UV_FORMAT.Unorm8x2}u { return vec2f(f32(sparse_payload_u8(byte_offset)), f32(sparse_payload_u8(byte_offset + 1u))) / 255.0; }
@@ -369,6 +375,10 @@ fn sparse_normal(geometry_base: u32, vertex: u32) -> vec3f {
   return normalize(sparse_stream(geometry_base, 45u, vertex, vec4f(0.0, 0.0, 1.0, 0.0)).xyz);
 }
 fn sparse_tangent(geometry_base: u32, vertex: u32) -> vec4f { return sparse_stream(geometry_base, 49u, vertex, vec4f(1.0, 0.0, 0.0, 1.0)); }
+fn sparse_fallback_tangent(normal: vec3f) -> vec3f {
+  let axis = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(normal.x) > 0.9);
+  return normalize(cross(axis, normal));
+}
 fn sparse_color(geometry_base: u32, vertex: u32) -> vec3f { return sparse_stream(geometry_base, 53u, vertex, vec4f(1.0)).xyz; }
 
 struct SparseBarycentric { weights: vec3f, ddx: vec3f, ddy: vec3f, valid: bool, }
@@ -405,13 +415,18 @@ function textureWgsl(descriptor: Readonly<GpuSparseShadingPipelineDescriptor>): 
     specialization.baseTexture !== "never" ? 0 : -1,
     specialization.normalTexture !== "never" ? 1 : -1,
     specialization.ormTexture !== "never" ? 2 : -1,
-    specialization.emissiveTexture !== "never" ? 3 : -1
+    specialization.emissiveTexture !== "never" ? 3 : -1,
+    specialization.occlusionTexture !== "never" ? 4 : -1
   ].filter((slot) => slot >= 0);
   return /* wgsl */ `
 ${gpuTextureBankSampleWgsl(descriptor.textureBankMask)}
 fn sparse_sample(texture_ref: u32, sampler_class: u32, uv: vec2f, dx: vec2f, dy: vec2f, valid: bool, fallback: vec4f) -> vec4f {
   if valid { return oengine_sample_texture_bank(texture_ref, sampler_class, uv, dx, dy, fallback); }
   return oengine_sample_texture_bank_level_zero(texture_ref, sampler_class, uv, fallback);
+}
+fn sparse_material_uv_set(material: OEngineShadingMaterialRecord, slot: u32) -> u32 {
+  if slot == 4u { return material.payload.occlusion_uv_set; }
+  return (material.payload.texture_uv_sets >> (slot * 8u)) & 255u;
 }
 ${slots.map((slot) => textureSlotAccessWgsl(slot)).join("\n")}
 `;
@@ -422,7 +437,8 @@ function textureSlotAccessWgsl(slot: number): string {
     ["uv_offset_scale", "uv_rotation", "material.payload.sampler_class"],
     ["normal_uv_offset_scale", "normal_uv_rotation", "material.payload.texture_sampler_classes&255u"],
     ["orm_uv_offset_scale", "orm_uv_rotation", "(material.payload.texture_sampler_classes>>8u)&255u"],
-    ["emissive_uv_offset_scale", "emissive_uv_rotation", "(material.payload.texture_sampler_classes>>16u)&255u"]
+    ["emissive_uv_offset_scale", "emissive_uv_rotation", "(material.payload.texture_sampler_classes>>16u)&255u"],
+    ["occlusion_uv_offset_scale", "occlusion_uv_rotation", "(material.payload.texture_sampler_classes>>24u)&255u"]
   ][slot];
   if (fields === undefined) throw new RangeError(`Unsupported material texture slot ${slot}`);
   return /* wgsl */ `
@@ -527,11 +543,59 @@ function materialEvaluationWgsl(descriptor: Readonly<GpuSparseShadingPipelineDes
   const needsOrm = s.ormTexture !== "never";
   const needsNormal = s.normalTexture !== "never";
   const needsEmissive = s.emissiveTexture !== "never";
+  const needsOcclusion = s.occlusionTexture !== "never";
   const generic = descriptor.programId === GPU_SHADING_PROGRAM.PbrGeneric;
+  const normalMapping = needsNormal ? /* wgsl */ `
+  var tangent: vec3f;
+  var bitangent: vec3f;
+  var normal_basis_valid = true;
+  if sparse_meta_u32(geometry_base, 51u) != 0u {
+    let tangent_value=sparse_tangent(geometry_base,vertices.x)*bary.weights.x+sparse_tangent(geometry_base,vertices.y)*bary.weights.y+sparse_tangent(geometry_base,vertices.z)*bary.weights.z;
+    tangent=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*tangent_value.xyz);
+    bitangent=normalize(cross(normal,tangent))*select(-1.0,1.0,tangent_value.w>=0.0);
+  } else {
+    let normal_uv_set=sparse_material_uv_set(material,1u);
+    let normal_uv0=sparse_transform_uv_1(material,sparse_uv(geometry_base,vertices.x,normal_uv_set),false);
+    let normal_uv1=sparse_transform_uv_1(material,sparse_uv(geometry_base,vertices.y,normal_uv_set),false);
+    let normal_uv2=sparse_transform_uv_1(material,sparse_uv(geometry_base,vertices.z,normal_uv_set),false);
+    let edge1=p1.xyz-p0.xyz;
+    let edge2=p2.xyz-p0.xyz;
+    let duv1=normal_uv1-normal_uv0;
+    let duv2=normal_uv2-normal_uv0;
+    let determinant=duv1.x*duv2.y-duv1.y*duv2.x;
+    if abs(determinant)>1e-8 {
+      let inverse_determinant=1.0/determinant;
+      let derived_tangent=(edge1*duv2.y-edge2*duv1.y)*inverse_determinant;
+      let derived_bitangent=(edge2*duv1.x-edge1*duv2.x)*inverse_determinant;
+      let orthogonal_tangent=derived_tangent-normal*dot(normal,derived_tangent);
+      if dot(orthogonal_tangent,orthogonal_tangent)>1e-12 {
+        tangent=normalize(orthogonal_tangent);
+        bitangent=normalize(cross(normal,tangent))*select(-1.0,1.0,dot(cross(normal,tangent),derived_bitangent)>=0.0);
+      } else {
+        normal_basis_valid=false;
+        tangent=sparse_fallback_tangent(normal);
+        bitangent=normalize(cross(normal,tangent));
+      }
+    } else {
+      normal_basis_valid=false;
+      tangent=sparse_fallback_tangent(normal);
+      bitangent=normalize(cross(normal,tangent));
+    }
+  }
+  if normal_basis_valid {
+    let mapped=vec3f((sample_1.xy*2.0-1.0)*material.payload.pbr_factors.z,sample_1.z*2.0-1.0);
+    normal=normalize(tangent*mapped.x+bitangent*mapped.y+normal*mapped.z);
+  }` : "";
+  const aoSource = needsOcclusion
+    ? `select(sample_2.r,sample_4.r,(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOcclusionTexture}u)!=0u)`
+    : "sample_2.r";
   const sample = (slot: number, ref: string, fallback: string, condition: string) => `
   if ${condition} {
     if !sparse_texture_route_valid(material_slot, ${slot}u, ${ref}) { sparse_identity_error(); return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u); }
-    let sampled_${slot}=sparse_sample(${ref},sparse_sampler_${slot}(material),sparse_transform_uv_${slot}(material,uv,false),sparse_transform_uv_${slot}(material,uv_dx,true),sparse_transform_uv_${slot}(material,uv_dy,true),gradient_valid,${fallback});
+    let uv_set_${slot}=sparse_material_uv_set(material,${slot}u);
+    let uv${slot}_0=sparse_uv(geometry_base,vertices.x,uv_set_${slot});let uv${slot}_1=sparse_uv(geometry_base,vertices.y,uv_set_${slot});let uv${slot}_2=sparse_uv(geometry_base,vertices.z,uv_set_${slot});
+    let uv_${slot}=uv${slot}_0*bary.weights.x+uv${slot}_1*bary.weights.y+uv${slot}_2*bary.weights.z;let uv_${slot}_dx=(uv${slot}_0*bary.ddx.x+uv${slot}_1*bary.ddx.y+uv${slot}_2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_${slot}_dy=(uv${slot}_0*bary.ddy.x+uv${slot}_1*bary.ddy.y+uv${slot}_2*bary.ddy.z)/shading_view.upscale_ratio.y;
+    let sampled_${slot}=sparse_sample(${ref},sparse_sampler_${slot}(material),sparse_transform_uv_${slot}(material,uv_${slot},false),sparse_transform_uv_${slot}(material,uv_${slot}_dx,true),sparse_transform_uv_${slot}(material,uv_${slot}_dy,true),gradient_valid,${fallback});
     sample_${slot}=sampled_${slot};
   }`;
   if (!s.reconstructTriangle) {
@@ -555,7 +619,7 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
   let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices(meshlet_base,primitive);let model=sparse_affine(instance);
   let p0=model*vec4f(sparse_position(geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position(geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position(geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;
   var color=vec3f(1.0);${usesColor ? "color=sparse_color(geometry_base,vertices.x)*bary.weights.x+sparse_color(geometry_base,vertices.y)*bary.weights.y+sparse_color(geometry_base,vertices.z)*bary.weights.z;" : ""}
-  var base_sample=vec4f(1.0);${usesBase ? `let u0=sparse_uv0(geometry_base,vertices.x);let u1=sparse_uv0(geometry_base,vertices.y);let u2=sparse_uv0(geometry_base,vertices.z);let uv=u0*bary.weights.x+u1*bary.weights.y+u2*bary.weights.z;let uv_dx=(u0*bary.ddx.x+u1*bary.ddx.y+u2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_dy=(u0*bary.ddy.x+u1*bary.ddy.y+u2*bary.ddy.z)/shading_view.upscale_ratio.y;if !sparse_texture_route_valid(material_slot,0u,material.payload.texture_ref){sparse_identity_error();return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u);}base_sample=sparse_sample(material.payload.texture_ref,sparse_sampler_0(material),sparse_transform_uv_0(material,uv,false),sparse_transform_uv_0(material,uv_dx,true),sparse_transform_uv_0(material,uv_dy,true),bary.valid,vec4f(1.0));` : ""}
+  var base_sample=vec4f(1.0);${usesBase ? `let uv_set=sparse_material_uv_set(material,0u);let u0=sparse_uv(geometry_base,vertices.x,uv_set);let u1=sparse_uv(geometry_base,vertices.y,uv_set);let u2=sparse_uv(geometry_base,vertices.z,uv_set);let uv=u0*bary.weights.x+u1*bary.weights.y+u2*bary.weights.z;let uv_dx=(u0*bary.ddx.x+u1*bary.ddx.y+u2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_dy=(u0*bary.ddy.x+u1*bary.ddy.y+u2*bary.ddy.z)/shading_view.upscale_ratio.y;if !sparse_texture_route_valid(material_slot,0u,material.payload.texture_ref){sparse_identity_error();return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u);}base_sample=sparse_sample(material.payload.texture_ref,sparse_sampler_0(material),sparse_transform_uv_0(material,uv,false),sparse_transform_uv_0(material,uv_dx,true),sparse_transform_uv_0(material,uv_dy,true),bary.valid,vec4f(1.0));` : ""}
   ${velocityCode}let factor=material.payload.base_color_factor;
   var surface_flags=OENGINE_SURFACE_FLAG_VALID|OENGINE_SURFACE_FLAG_UNLIT;${motionFlagCode}${usesBase ? "if !bary.valid{surface_flags|=OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK;}" : ""}
   return OEngineSparseSurface(factor.xyz*color*base_sample.xyz,factor.w*base_sample.a,vec3f(0.0,0.0,1.0),material.payload.pbr_factors.y,vec3f(0.0,0.0,1.0),material.payload.pbr_factors.x,vec3f(0.0),1.0,position,velocity,textureLoad(visibility_depth,vec2i(pixel),0),surface_flags);
@@ -567,15 +631,15 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
   let p0=model*vec4f(sparse_position(geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position(geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position(geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);
   let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;let local_normal=normalize(sparse_normal(geometry_base,vertices.x)*bary.weights.x+sparse_normal(geometry_base,vertices.y)*bary.weights.y+sparse_normal(geometry_base,vertices.z)*bary.weights.z);var normal=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*local_normal);let geometric=normalize(cross(p1.xyz-p0.xyz,p2.xyz-p0.xyz));
   var color=vec3f(1.0);${s.authoredVertexColor !== "never" ? "if sparse_meta_u32(geometry_base,44u)!=0u { color=sparse_color(geometry_base,vertices.x)*bary.weights.x+sparse_color(geometry_base,vertices.y)*bary.weights.y+sparse_color(geometry_base,vertices.z)*bary.weights.z; }" : ""}
-  var uv=vec2f(0.0);var uv_dx=vec2f(0.0);var uv_dy=vec2f(0.0);let gradient_valid=bary.valid;
-  ${shadingProgramUsesTextures(descriptor.programId) ? "let u0=sparse_uv0(geometry_base,vertices.x);let u1=sparse_uv0(geometry_base,vertices.y);let u2=sparse_uv0(geometry_base,vertices.z);uv=u0*bary.weights.x+u1*bary.weights.y+u2*bary.weights.z;uv_dx=(u0*bary.ddx.x+u1*bary.ddx.y+u2*bary.ddx.z)/shading_view.upscale_ratio.x;uv_dy=(u0*bary.ddy.x+u1*bary.ddy.y+u2*bary.ddy.z)/shading_view.upscale_ratio.y;" : ""}
-  var sample_0=vec4f(1.0);var sample_1=vec4f(0.5,0.5,1.0,1.0);var sample_2=vec4f(1.0);var sample_3=vec4f(1.0);
+  let gradient_valid=bary.valid;
+  var sample_0=vec4f(1.0);var sample_1=vec4f(0.5,0.5,1.0,1.0);var sample_2=vec4f(1.0);var sample_3=vec4f(1.0);var sample_4=vec4f(1.0);
   ${needsBase ? sample(0, "material.payload.texture_ref", "vec4f(1.0)", generic ? `(material.payload.texture_ref!=${GPU_TEXTURE_REF_INVALID}u)` : "true") : ""}
   ${needsNormal ? sample(1, "material.payload.normal_texture_ref", "vec4f(0.5,0.5,1.0,1.0)", generic ? `(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasNormalTexture}u)!=0u` : "true") : ""}
   ${needsOrm ? sample(2, "material.payload.orm_texture_ref", "vec4f(1.0)", generic ? `(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture}u)!=0u` : "true") : ""}
   ${needsEmissive ? sample(3, "material.payload.emissive_texture_ref", "vec4f(1.0)", generic ? `(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture}u)!=0u` : "true") : ""}
-  let base=material.payload.base_color_factor.xyz*color*sample_0.xyz;let metallic=clamp(material.payload.pbr_factors.x*sample_2.b,0.0,1.0);let roughness=clamp(material.payload.pbr_factors.y*sample_2.g,0.0,1.0);let ao=mix(1.0,sample_2.r,clamp(material.payload.pbr_factors.w,0.0,1.0));let emissive=material.payload.emissive_factor.xyz*sample_3.xyz;
-  ${needsNormal ? "let tangent_value=sparse_tangent(geometry_base,vertices.x)*bary.weights.x+sparse_tangent(geometry_base,vertices.y)*bary.weights.y+sparse_tangent(geometry_base,vertices.z)*bary.weights.z;let tangent=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*tangent_value.xyz);let bitangent=normalize(cross(normal,tangent))*select(-1.0,1.0,tangent_value.w>=0.0);let mapped=vec3f((sample_1.xy*2.0-1.0)*material.payload.pbr_factors.z,sample_1.z*2.0-1.0);normal=normalize(tangent*mapped.x+bitangent*mapped.y+normal*mapped.z);" : ""}
+  ${needsOcclusion ? sample(4, "material.payload.occlusion_texture_ref", "vec4f(1.0)", `(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOcclusionTexture}u)!=0u`) : ""}
+  let base=material.payload.base_color_factor.xyz*color*sample_0.xyz;let metallic=clamp(material.payload.pbr_factors.x*sample_2.b,0.0,1.0);let roughness=clamp(material.payload.pbr_factors.y*sample_2.g,0.0,1.0);let ao=mix(1.0,${aoSource},clamp(material.payload.pbr_factors.w,0.0,1.0));let emissive=material.payload.emissive_factor.xyz*sample_3.xyz;
+  ${normalMapping}
   ${writesVelocity ? "let previous_position=oengine_instance_previous_from_current(instance)*vec4f(position,1.0);let previous_clip=shading_view.previous_view_projection*previous_position;let current_clip=shading_view.current_view_projection*vec4f(position,1.0);let current_ndc=current_clip.xy/current_clip.w;let previous_ndc=previous_clip.xy/previous_clip.w;let velocity=(current_ndc-previous_ndc)*vec2f(0.5,-0.5);" : "let velocity=vec2f(0.0);"}
   var surface_flags=OENGINE_SURFACE_FLAG_VALID;${motionFlagCode}${shadingProgramUsesTextures(descriptor.programId) ? "if !gradient_valid{surface_flags|=OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK;}" : ""}${generic ? `if (material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasNormalTexture}u)!=0u{surface_flags|=OENGINE_SURFACE_FLAG_NORMAL_TEXTURE;}if (material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture}u)!=0u{surface_flags|=OENGINE_SURFACE_FLAG_ORM_TEXTURE;}if (material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture}u)!=0u{surface_flags|=OENGINE_SURFACE_FLAG_EMISSIVE_TEXTURE;}` : `${needsNormal ? "surface_flags|=OENGINE_SURFACE_FLAG_NORMAL_TEXTURE;" : ""}${needsOrm ? "surface_flags|=OENGINE_SURFACE_FLAG_ORM_TEXTURE;" : ""}${needsEmissive ? "surface_flags|=OENGINE_SURFACE_FLAG_EMISSIVE_TEXTURE;" : ""}`}
   return OEngineSparseSurface(base,material.payload.base_color_factor.w*sample_0.a,normal,roughness,geometric,metallic,emissive,ao,position,velocity,textureLoad(visibility_depth,vec2i(pixel),0),surface_flags);

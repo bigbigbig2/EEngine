@@ -21,6 +21,13 @@ export interface RendererConfig {
   readonly enableTAAU?: boolean;
   /** Maximum per-layer resolution used by the packed texture residency bank. */
   readonly textureMaxResolution?: 256 | 512 | 1024 | 2048 | 4096;
+  /** Optional bounded capacities for the 256/512/1024/2048/4096 logical banks. */
+  readonly textureBankMaxCapacities?: readonly [number, number, number, number, number];
+  /** Explicit bulk Geometry upload/residency ceilings for the selected workload. */
+  readonly geometryResidency?: Readonly<{
+    readonly maxUploadBytes?: number;
+    readonly maxResidentBytes?: number;
+  }>;
   /** 提交给 adapter/device 的额外必需能力；缺失时初始化明确失败。 */
   readonly requiredFeatures?: readonly GPUFeatureName[];
   /** 额外的最小设备限制；缺失时初始化明确失败。 */
@@ -86,6 +93,10 @@ export function mergeRendererConfig(
     requiredLimits: Object.freeze({
       ...base.requiredLimits,
       ...override.requiredLimits
+    }),
+    geometryResidency: Object.freeze({
+      ...base.geometryResidency,
+      ...override.geometryResidency
     })
   });
 }
@@ -134,6 +145,20 @@ export function validateRendererConfig(config: RendererConfig): void {
   if (config.textureMaxResolution !== undefined &&
       ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)) {
     throw new RangeError("textureMaxResolution must be one of 256, 512, 1024, 2048 or 4096");
+  }
+  if (config.textureBankMaxCapacities !== undefined) {
+    for (const [index, capacity] of config.textureBankMaxCapacities.entries()) {
+      if (!Number.isInteger(capacity) || capacity < 1) {
+        throw new RangeError(`textureBankMaxCapacities[${index}] must be a positive integer`);
+      }
+    }
+  }
+  for (const [name, value] of Object.entries(config.geometryResidency ?? {})) {
+    if (!Number.isSafeInteger(value) || value <= 0 || value % 4 !== 0) {
+      throw new RangeError(
+        `Renderer geometryResidency '${name}' must be a positive, 4-byte-aligned safe integer`
+      );
+    }
   }
   for (const feature of config.requiredFeatures ?? []) {
     if (feature.length === 0) throw new Error("Renderer required feature must not be empty");

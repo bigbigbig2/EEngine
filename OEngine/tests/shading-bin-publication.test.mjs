@@ -59,6 +59,8 @@ function material(id, shadingModel, textureBits = 0, textureBindingSetId = 0, ge
       hasOrmTexture: (textureBits & 2) !== 0,
       hasNormalTexture: (textureBits & 4) !== 0,
       hasEmissiveTexture: (textureBits & 8) !== 0,
+      hasOcclusionTexture: false,
+      requiredUvSetsMask: textureBits === 0 ? 0 : 1,
       textureBindingSetId
     },
     generation,
@@ -72,6 +74,8 @@ function geometry(id, overrides = {}, generation = 1) {
     profile: {
       hasAuthoredVertexColor: false,
       hasUv0: true,
+      hasUv1: false,
+      hasUv2: false,
       hasNormal: true,
       hasTangent: true,
       ...overrides

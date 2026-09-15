@@ -7,6 +7,7 @@ interface PanelOptions {
   controls: OrbitControls;
   canvas: HTMLCanvasElement;
   variant: "basic" | "full";
+  comparisonExampleId: string;
   scene: { model: string; instances: number; geometries: number; materials: number };
   resetCamera: () => void;
 }
@@ -78,7 +79,7 @@ export class PerformancePanel {
         <p class="lab-note">GPU 为已测 Pass 之和，不含全部 copy/clear/Pass 间成本；RAF 含显示刷新等待。</p>
         <details open><summary>对照条件与功能</summary><div data-view="conditions"></div>
           <div class="lab-features">${FEATURES.map(([key, label]) => `<label><input type="checkbox" data-feature="${key}">${label}</label>`).join("")}<label>Diffuse <select data-input="diffuse"><option value="off">Off</option><option value="gtao">GTAO</option><option value="ssgi">SSGI</option></select></label></div>
-          <div class="lab-toolbar"><button data-action="effects-off">全部效果关闭</button><button data-action="defaults">恢复默认效果</button><a href="../${options.variant === "basic" ? "rendering-lab" : "rendering-lab-basic"}/index.html">打开 ${options.variant === "basic" ? "PBR / Full" : "Unlit / Basic"}</a></div>
+          <div class="lab-toolbar"><button data-action="effects-off">全部效果关闭</button><button data-action="defaults">恢复默认效果</button><a href="../${options.comparisonExampleId}/index.html">打开 ${options.variant === "basic" ? "PBR / Full" : "Unlit / Basic"}</a></div>
         </details>
         <details open><summary>Sparse 队列、覆盖率与输出</summary><div data-view="sparse"></div><p class="lab-note">64×W/P 是总 invocation 放大，含 tile 覆盖不满、多 bin 重复与 dispatch 补齐。不同非空 tile 数 T、每 bin 像素密度尚未采集，无法单独算 R/T。</p><p class="lab-note">三角形重建、材质采样、GGX 与阴影采样融合在 resolve 中，当前不能分别计时。</p></details>
         <details open><summary>GPU 阶段 · P50 / P95</summary><div data-view="phases"></div></details>

@@ -94,10 +94,14 @@ test("specialization dependencies cover every published material and geometry id
           hasOrmTexture: (textureBits & 2) !== 0,
           hasNormalTexture: (textureBits & 4) !== 0,
           hasEmissiveTexture: (textureBits & 8) !== 0,
+          hasOcclusionTexture: false,
+          requiredUvSetsMask: textureBits === 0 ? 0 : 1,
           textureBindingSetId: 2
         }, {
           hasAuthoredVertexColor,
           hasUv0: true,
+          hasUv1: false,
+          hasUv2: false,
           hasNormal: true,
           hasTangent: true
         });
