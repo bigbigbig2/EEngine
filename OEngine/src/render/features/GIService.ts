@@ -38,7 +38,7 @@ export interface OpaqueLightingRequest {
   readonly fallbackDiffuseIrradiance: ResourceId;
   readonly providerJob: LongRangeProviderJob;
   readonly providerInputs: Omit<LongRangeProviderInputs,
-    "depth" | "normal" | "bentNormal" | "albedoAo" | "material" |
+    "depth" | "normal" | "bentNormal" | "material" |
     "metadata" | "camera">;
 }
 
@@ -88,7 +88,6 @@ export class GIService {
         depth: inputs.depth,
         normal: inputs.normal,
         bentNormal: inputs.bentNormal,
-        albedoAo: inputs.albedoAo,
         material: inputs.pbr,
         metadata: inputs.metadata,
         camera: inputs.camera

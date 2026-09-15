@@ -85,6 +85,7 @@ import {
   LONG_RANGE_PROVIDER_FORMAT
 } from "../.test-dist/shaders/long_range_diffuse_provider.js";
 import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../.test-dist/shaders/opaque_lighting_resolve.js";
+import { OENGINE_ENVIRONMENT_BRDF_WGSL } from "../.test-dist/shaders/environment_brdf.js";
 import {
   FILAMENT_SPECULAR_AO_REVISION,
   SPECULAR_AMBIENT_OCCLUSION_WGSL
@@ -352,6 +353,8 @@ test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only
     OPAQUE_LIGHTING_RESOLVE_WGSL,
     /indirect\[1\] \* material_ao \* ambient_visibility_value/
   );
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /oengine_ibl_directional_albedo\(/);
+  assert.doesNotMatch(OPAQUE_LIGHTING_RESOLVE_WGSL, /fn decode_typed_buffer\(/);
   assert.doesNotMatch(
     OPAQUE_LIGHTING_RESOLVE_WGSL,
     /fallback_diffuse_irradiance,[\s\S]{0,120}\) \* material_ao/
@@ -517,6 +520,12 @@ test("ADR-0009 Step 5 freezes one receiver-local long-range provider producer", 
   assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /lpv_lookup_cell\(position/);
   assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /provider_settings\.ibl_resident/);
   assert.match(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /PROVIDER_BLACK/);
+  assert.doesNotMatch(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /surface_albedo_ao/);
+  assert.doesNotMatch(LONG_RANGE_DIFFUSE_PROVIDER_WGSL, /\* material_ao/);
+  assert.match(
+    LONG_RANGE_DIFFUSE_PROVIDER_WGSL,
+    /sh3_color_estimate_for_cone\(diffuse_sample, 0\.0, bent_normal\)/
+  );
   assert.match(
     LONG_RANGE_DIFFUSE_PROVIDER_WGSL,
     /let depth = textureLoad\(surface_depth[\s\S]*?if \(depth <= 0\.0\) \{[\s\S]*?return ProviderOutputs/
@@ -779,6 +788,8 @@ test("ADR-0009 Step 0 freezes receiver-validity GI precedence and source stages"
   ]);
   const longRange = longRangeDiffuseFrame({
     radiance: 13,
+    radiometry: "receiver-resolved-diffuse-radiance",
+    receiverModulation: "applied-once",
     providerSelection: 14,
     counters: 15,
     selection: "receiver-validity",
@@ -788,6 +799,7 @@ test("ADR-0009 Step 0 freezes receiver-validity GI precedence and source stages"
     domain: full()
   });
   assert.equal(longRange.selection, "receiver-validity");
+  assert.equal(longRange.receiverModulation, "applied-once");
   assert.throws(
     () => longRangeDiffuseFrame({
       ...longRange,

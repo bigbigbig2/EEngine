@@ -31,6 +31,7 @@ import {
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js";
 import { createProductionSparseDirectLightingWgsl } from "./lighting_direct.js";
+import { OENGINE_ENVIRONMENT_BRDF_WGSL } from "./environment_brdf.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
 import { SPECULAR_AMBIENT_OCCLUSION_WGSL } from "./specular_ambient_occlusion.js";
 
@@ -420,6 +421,7 @@ function lightingWgsl(
   return /* wgsl */ `
 ${createProductionSparseDirectLightingWgsl(shadowSamplingEnabled)}
 ${environmentIblEnabled ? `${OCTAHEDRAL_SAMPLE_WGSL}
+${OENGINE_ENVIRONMENT_BRDF_WGSL}
 ${SPECULAR_AMBIENT_OCCLUSION_WGSL}` : ""}
 fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
   if (oengine_surface_has_flag(surface.flags, OENGINE_SURFACE_FLAG_UNLIT)) {
@@ -472,8 +474,12 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
     surface.shading_normal,
     0.0
   );
-  let directional_albedo = material.specularF0 * dfg.x + material.specularF90 * dfg.y;
-  let energy = clamp(vec3f(1.0) - directional_albedo, vec3f(0.0), vec3f(1.0));
+  let directional_albedo = oengine_ibl_directional_albedo(
+    dfg,
+    material.specularF0,
+    material.specularF90
+  );
+  let energy = oengine_ibl_diffuse_energy(directional_albedo);
   let specular_ao = oengine_specular_ao_cones(
     specular_direction,
     surface.shading_normal,

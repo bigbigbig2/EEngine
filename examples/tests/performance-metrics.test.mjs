@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { distribution, frameSeries, gpuRows, shadingExecutionModeLabel, sparseRatios } from "../demos/14-integrated/shared/PerformanceMetrics.ts";
+import { distribution, frameSeries, gpuRows, shadingDispatchEvidence, shadingExecutionModeLabel, sparseRatios } from "../demos/14-integrated/shared/PerformanceMetrics.ts";
 
 function frame(index, segments, counters = {}) {
   return {
@@ -53,4 +53,46 @@ test("execution mode labels preserve the three publication states", () => {
   assert.equal(shadingExecutionModeLabel(1), "DirectSingleBin");
   assert.equal(shadingExecutionModeLabel(2), "SparseMicrotile");
   assert.equal(shadingExecutionModeLabel(undefined), "不可用");
+});
+
+test("DirectSingleBin derives its fixed dispatch without sparse queue counters", () => {
+  const values = {
+    geometryVisiblePixels: 100,
+    shadingBinFrameFlags: 0,
+    shadingBinErrors: 0,
+    shadingBinOverflow: 0,
+    shadingBinWritten: 0,
+    shadingBinIndirectWorkgroups: 0
+  };
+  assert.deepEqual(shadingDispatchEvidence(frame(5, [], values), 1, [17, 9]), {
+    pixels: 100,
+    records: null,
+    workgroups: 6,
+    invocations: 384,
+    amplification: 3.84,
+    padding: null,
+    queueBased: false
+  });
+  assert.equal(shadingDispatchEvidence(frame(5, [], values), 0, [17, 9]), null);
+  assert.equal(shadingDispatchEvidence(frame(5, [], values), 1, [0, 9]), null);
+});
+
+test("SparseMicrotile dispatch evidence retains GPU-written record and padding semantics", () => {
+  const values = {
+    geometryVisiblePixels: 100,
+    shadingBinWritten: 4,
+    shadingBinIndirectWorkgroups: 6,
+    shadingBinFrameFlags: 0,
+    shadingBinErrors: 0,
+    shadingBinOverflow: 0
+  };
+  assert.deepEqual(shadingDispatchEvidence(frame(6, [], values), 2, [1920, 1080]), {
+    pixels: 100,
+    records: 4,
+    workgroups: 6,
+    invocations: 384,
+    amplification: 3.84,
+    padding: 1.5,
+    queueBased: true
+  });
 });

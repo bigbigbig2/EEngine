@@ -26,7 +26,6 @@ export interface LongRangeProviderInputs {
   readonly depth: ResourceId;
   readonly normal: ResourceId;
   readonly bentNormal: ResourceId;
-  readonly albedoAo: ResourceId;
   readonly material: ResourceId;
   readonly metadata: ResourceId;
   readonly camera: ResourceId;
@@ -73,9 +72,8 @@ const GROUP0: GPUBindGroupLayoutDescriptor = {
     { binding: 0, visibility: FRAGMENT, texture: { sampleType: "depth" } },
     { binding: 1, visibility: FRAGMENT, texture: { sampleType: "uint" } },
     { binding: 2, visibility: FRAGMENT, texture: { sampleType: "uint" } },
-    { binding: 3, visibility: FRAGMENT, texture: { sampleType: "float" } },
-    { binding: 4, visibility: FRAGMENT, texture: { sampleType: "uint" } },
-    { binding: 5, visibility: FRAGMENT, texture: { sampleType: "uint" } }
+    { binding: 3, visibility: FRAGMENT, texture: { sampleType: "uint" } },
+    { binding: 4, visibility: FRAGMENT, texture: { sampleType: "uint" } }
   ]
 };
 
@@ -200,7 +198,6 @@ export class LongRangeDiffuseProviderPass {
             texture(resources.get(inputs.depth)),
             texture(resources.get(inputs.normal)),
             texture(resources.get(inputs.bentNormal)),
-            texture(resources.get(inputs.albedoAo)),
             texture(resources.get(inputs.material)),
             texture(resources.get(inputs.metadata))
           ],

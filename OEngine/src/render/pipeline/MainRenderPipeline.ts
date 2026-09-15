@@ -2896,6 +2896,8 @@ export class MainRenderPipeline {
           });
           const longRange = longRangeDiffuseFrame({
             radiance: lighting.resolvedDiffuse,
+            radiometry: "receiver-resolved-diffuse-radiance",
+            receiverModulation: "applied-once",
             providerSelection: lighting.providerSelection,
             counters: gpuCounterRes,
             selection: "receiver-validity",

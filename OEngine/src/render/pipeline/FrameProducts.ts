@@ -161,6 +161,9 @@ export interface DiffuseSurfaceLiteFrame {
 /** Receiver-local authoritative long-range diffuse result. */
 export interface LongRangeDiffuseFrame {
   readonly radiance: ResourceId;
+  /** Receiver-resolved diffuse radiance after the shared BRDF/AO composition. */
+  readonly radiometry: "receiver-resolved-diffuse-radiance";
+  readonly receiverModulation: "applied-once";
   /** Optional materialized provider id; null means selection was fused into the producer. */
   readonly providerSelection: ResourceId | null;
   readonly counters: ResourceId | null;
@@ -598,6 +601,12 @@ export function longRangeDiffuseFrame(
   requireResourceId(input.counters, "LongRangeDiffuseFrame.counters");
   if (input.selection !== "receiver-validity") {
     throw new Error("LongRangeDiffuseFrame requires receiver-validity selection");
+  }
+  if (input.radiometry !== "receiver-resolved-diffuse-radiance") {
+    throw new Error("LongRangeDiffuseFrame requires receiver-resolved diffuse radiance");
+  }
+  if (input.receiverModulation !== "applied-once") {
+    throw new Error("LongRangeDiffuseFrame requires receiver modulation exactly once");
   }
   if (
     input.precedence.length !== LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE.length ||

@@ -14,6 +14,16 @@ export interface ExperimentFrame {
 
 export interface Distribution { count: number; p50: number; p95: number; mean: number; max: number }
 
+export interface ShadingDispatchEvidence {
+  readonly pixels: number;
+  readonly records: number | null;
+  readonly workgroups: number;
+  readonly invocations: number;
+  readonly amplification: number;
+  readonly padding: number | null;
+  readonly queueBased: boolean;
+}
+
 export function shadingExecutionModeLabel(value: number | undefined): string {
   return value === 1 ? "DirectSingleBin" : value === 2 ? "SparseMicrotile" : value === 0 ? "None" : "不可用";
 }
@@ -55,6 +65,52 @@ export function sparseRatios(frame: ExperimentFrame): { pixels: number; records:
   const workgroups = values.shadingBinIndirectWorkgroups!;
   if (pixels <= 0 || records <= 0 || workgroups < records) return null;
   return { pixels, records, workgroups, invocations: workgroups * 64, amplification: workgroups * 64 / pixels, padding: workgroups / records };
+}
+
+/**
+ * Resolves dispatch evidence for both physical consumers. DirectSingleBin has
+ * no queue records or indirect args; its fixed 8x8 grid is derived from the
+ * captured internal extent instead of presenting zeroed sparse counters.
+ */
+export function shadingDispatchEvidence(
+  frame: ExperimentFrame,
+  executionMode: number | undefined,
+  internalExtent: readonly number[]
+): ShadingDispatchEvidence | null {
+  const values = frame.gpuCounters.values;
+  if (!frame.gpuCounters.sampled || frame.gpuCounters.pending || frame.gpuCounters.dropped) {
+    return null;
+  }
+  const common = [
+    values.geometryVisiblePixels,
+    values.shadingBinFrameFlags,
+    values.shadingBinErrors,
+    values.shadingBinOverflow
+  ];
+  if (!common.every(Number.isFinite) || values.shadingBinFrameFlags !== 0 ||
+      values.shadingBinErrors !== 0 || values.shadingBinOverflow !== 0) return null;
+  const pixels = values.geometryVisiblePixels!;
+  if (pixels <= 0) return null;
+  if (executionMode === 1) {
+    const [width, height] = internalExtent;
+    if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
+      return null;
+    }
+    const workgroups = Math.ceil(width / 8) * Math.ceil(height / 8);
+    const invocations = workgroups * 64;
+    return Object.freeze({
+      pixels,
+      records: null,
+      workgroups,
+      invocations,
+      amplification: invocations / pixels,
+      padding: null,
+      queueBased: false
+    });
+  }
+  if (executionMode !== 2) return null;
+  const sparse = sparseRatios(frame);
+  return sparse === null ? null : Object.freeze({ ...sparse, queueBased: true });
 }
 
 export function frameSeries(frames: readonly ExperimentFrame[], metric: "gpu" | "cpu" | "raf"): number[] {

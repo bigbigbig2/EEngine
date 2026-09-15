@@ -5,6 +5,8 @@
  * executes after Brick4 rejected the receiver, and IBL is sampled only after
  * both spatial providers reject it. Provider identity is encoded exactly in
  * selected_diffuse.a (1=Brick4, 2=Probe Volume, 3=IBL, 4=black fallback).
+ * Both RGB outputs are incident-lighting products: receiver material AO and
+ * screen-space ambient visibility are intentionally not applied here.
  */
 
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
@@ -65,9 +67,8 @@ struct LongRangeProviderSettings {
 @group(0) @binding(0) var surface_depth: texture_depth_2d;
 @group(0) @binding(1) var surface_normal: texture_2d<u32>;
 @group(0) @binding(2) var surface_bent_normal: texture_2d<u32>;
-@group(0) @binding(3) var surface_albedo_ao: texture_2d<f32>;
-@group(0) @binding(4) var surface_material: texture_2d<u32>;
-@group(0) @binding(5) var surface_metadata: texture_2d<u32>;
+@group(0) @binding(3) var surface_material: texture_2d<u32>;
+@group(0) @binding(4) var surface_metadata: texture_2d<u32>;
 
 @group(1) @binding(0) var<uniform> camera: CommandEncoder;
 @group(1) @binding(1) var<uniform> view: PipelineCacheKey;
@@ -310,8 +311,7 @@ fn sample_brick4(
   normal: vec3f,
   bent_normal: vec3f,
   spec_direction: vec3f,
-  roughness: f32,
-  material_ao: f32
+  roughness: f32
 ) -> ProviderSample {
   let node = brick4_node_by_position(position);
   let probe_meta = brick4_node_sample_probes_meta(node.bounds, position, normal);
@@ -342,7 +342,9 @@ fn sample_brick4(
     probe0, probe1, specular_b / max(specular_a + specular_b, 1e-6)
   );
   return ProviderSample(
-    sh3_color_estimate_for_cone(diffuse_sample, sqrt(1.0 - material_ao), bent_normal),
+    // A cosine-weighted hemisphere (cos(theta)=0) yields raw irradiance. The
+    // final receiver composition owns material/screen-space visibility once.
+    sh3_color_estimate_for_cone(diffuse_sample, 0.0, bent_normal),
     sh3_color_get_radiance_with_ggx(specular_sample, spec_direction, roughness * roughness),
     PROVIDER_BRICK4
   );
@@ -356,8 +358,7 @@ fn select_provider(
   bent_normal: vec3f,
   spec_direction: vec3f,
   view_direction: vec3f,
-  roughness: f32,
-  material_ao: f32
+  roughness: f32
 ) -> ProviderSample {
   if (provider_settings.brick_registered != 0u) {
     if (provider_settings.brick_generation != provider_settings.brick_expected_generation) {
@@ -367,7 +368,7 @@ fn select_provider(
     } else if (brick4_receiver_valid(position)) {
       record_counter(${COUNTER_BRICK4}u);
       return sample_brick4(
-        pixel, position, normal, bent_normal, spec_direction, roughness, material_ao
+        pixel, position, normal, bent_normal, spec_direction, roughness
       );
     }
   }
@@ -386,7 +387,7 @@ fn select_provider(
         );
         record_counter(${COUNTER_PROBE}u);
         return ProviderSample(
-          lpv_irradiance(cell, weights, bent_normal) * material_ao,
+          lpv_irradiance(cell, weights, bent_normal),
           environment_sample(environment_specular, spec_direction, roughness),
           PROVIDER_PROBE_VOLUME
         );
@@ -397,7 +398,7 @@ fn select_provider(
   if (provider_settings.ibl_resident != 0u) {
     record_counter(${COUNTER_IBL}u);
     return ProviderSample(
-      environment_sample(environment_diffuse, bent_normal, 0.0) * material_ao,
+      environment_sample(environment_diffuse, bent_normal, 0.0),
       environment_sample(environment_specular, spec_direction, roughness),
       PROVIDER_IBL
     );
@@ -438,10 +439,9 @@ fn fs_main(
   let view_direction = normalize(camera.transform[3].xyz - position);
   let reflected = reflect(-view_direction, normal);
   let spec_direction = normalize(mix(reflected, normal, roughness * roughness));
-  let material_ao = textureLoad(surface_albedo_ao, vec2i(pixel), 0).a;
   let selected = select_provider(
     pixel, uv, position, normal, bent_normal, spec_direction,
-    view_direction, roughness, material_ao
+    view_direction, roughness
   );
   return ProviderOutputs(
     vec4f(selected.diffuse, selected.identity),

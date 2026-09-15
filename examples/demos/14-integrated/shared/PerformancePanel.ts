@@ -1,5 +1,5 @@
 import type { OrbitControls, PerspectiveCamera, Renderer } from "../../../../OEngine/src/index.ts";
-import { distribution, frameSeries, gpuRows, shadingExecutionModeLabel, sparseRatios, type Distribution, type ExperimentFrame } from "./PerformanceMetrics.ts";
+import { distribution, frameSeries, gpuRows, shadingDispatchEvidence, shadingExecutionModeLabel, type Distribution, type ExperimentFrame } from "./PerformanceMetrics.ts";
 
 interface PanelOptions {
   renderer: Renderer;
@@ -119,7 +119,8 @@ export class PerformancePanel {
     const { renderer, camera, controls, scene, variant, canvas } = this.options;
     const temporal = renderer.temporalEvidence();
     return {
-      variant, scene, adapter: renderer.adapter_info, capabilities: renderer.capabilities,
+      variant, scene, revision: import.meta.env.VITE_OENGINE_REVISION ?? "unlabeled-working-tree",
+      adapter: renderer.adapter_info, capabilities: renderer.capabilities,
       browser: navigator.userAgent, dpr: renderer.pixel_ratio,
       cssExtent: [canvas.clientWidth, canvas.clientHeight],
       internalExtent: [temporal.internalWidth, temporal.internalHeight], outputExtent: [temporal.outputWidth, temporal.outputHeight],
@@ -129,6 +130,11 @@ export class PerformancePanel {
       lighting: variant === "full" ? "HDR environment + Sun 2.8, azimuth -36°, elevation 65°" : "Unlit, no environment / Sun",
       instrumentation: { gpuInterval: renderer.profiler.gpuSampleInterval, counterInterval: renderer.profiler.gpuCounterSampleInterval, readbackRingSlots: renderer.profiler.readbackRingSlots, cpuPassTimings: renderer.profiler.cpuPassTimings }
     };
+  }
+
+  /** Read-only automation hook; export and comparison keep the same capture. */
+  captureJson(): string | null {
+    return this.result === null ? null : JSON.stringify(this.result, null, 2);
   }
 
   private conditionKey(): string { return JSON.stringify(this.conditions()); }
@@ -313,9 +319,16 @@ export class PerformancePanel {
     this.root.querySelector<HTMLSelectElement>('[data-input="diffuse"]')!.value = this.options.renderer.render_settings.features.screenSpaceDiffuseMode;
     const counterFrame = [...frames].sort((a, b) => b.frameIndex - a.frameIndex).find((frame) => frame.gpuCounters.sampled && !frame.gpuCounters.pending && Object.keys(frame.gpuCounters.values).length > 0);
     const values = counterFrame?.gpuCounters.values ?? {};
-    const ratios = counterFrame ? sparseRatios(counterFrame) : null;
-    const bpp = counterFrame?.counters["sparseShading.surfaceBytesPerPixel"] ?? latest?.counters["sparseShading.surfaceBytesPerPixel"];
     const executionMode = counterFrame?.counters["sparseShading.executionMode"] ?? latest?.counters["sparseShading.executionMode"];
+    const dispatch = counterFrame
+      ? shadingDispatchEvidence(
+          counterFrame,
+          executionMode,
+          condition.internalExtent
+        )
+      : null;
+    const queueBased = dispatch?.queueBased ?? executionMode === 2;
+    const bpp = counterFrame?.counters["sparseShading.surfaceBytesPerPixel"] ?? latest?.counters["sparseShading.surfaceBytesPerPixel"];
     const activeBins = counterFrame?.counters["sparseShading.activeBins"] ?? latest?.counters["sparseShading.activeBins"];
     const internalPixels = counterFrame?.counters["sparseShading.internalPixels"] ?? latest?.counters["sparseShading.internalPixels"];
     const demand = (name: string): number | undefined =>
@@ -328,16 +341,16 @@ export class PerformancePanel {
         `${num(demand("demandHdr"))} / ${num(demand("demandSurface"))} / ${num(demand("demandDiffuseSurface"))} / ${num(demand("demandVelocity"))}`],
       ["Demand indirect / lighting debug / receiver IBL / shadow",
         `${num(demand("demandIndirectComponents"))} / ${num(demand("demandLightingDebug"))} / ${num(demand("demandEnvironmentIbl"))} / ${num(demand("demandShadowSampling"))}`],
-      ["场景 bin / 本帧非零 bin", `${num(activeBins)} / ${num(values.shadingBinIndirectNonzeroWords)}`],
+      ["场景 bin / active indirect args", `${num(activeBins)} / ${executionMode === 1 ? "不适用（direct）" : num(values.shadingBinIndirectNonzeroWords)}`],
       ["有效可见像素 P / 内部像素 N", `${num(values.geometryVisiblePixels)} / ${num(internalPixels)}`],
-      ["Tile records R / Workgroups W", `${num(values.shadingBinWritten)} / ${num(values.shadingBinIndirectWorkgroups)}`],
-      ["Invocations 64×W", ratios ? num(ratios.invocations) : "不可用"], ["总 invocation 放大 64×W/P", ratios ? `${ratios.amplification.toFixed(3)}×` : "不可用（待采样或队列异常）"],
-      ["Dispatch 补齐 W/R", ratios ? `${ratios.padding.toFixed(3)}×` : "不可用"],
-      ["前景覆盖率", ratios ? `${(ratios.pixels / (condition.internalExtent[0] * condition.internalExtent[1]) * 100).toFixed(2)}%` : "不可用"],
+      ["Tile records R / Workgroups W", `${queueBased ? num(dispatch?.records ?? undefined) : "不适用"} / ${num(dispatch?.workgroups)}`],
+      ["Invocations 64×W", dispatch ? num(dispatch.invocations) : "不可用"], ["总 invocation 放大 64×W/P", dispatch ? `${dispatch.amplification.toFixed(3)}×` : "不可用（待采样或队列异常）"],
+      ["Dispatch 补齐 W/R", dispatch?.padding === null || dispatch?.padding === undefined ? "不适用" : `${dispatch.padding.toFixed(3)}×`],
+      ["前景覆盖率", dispatch ? `${(dispatch.pixels / (condition.internalExtent[0] * condition.internalExtent[1]) * 100).toFixed(2)}%` : "不可用"],
       ["输出格式字节", bpp === undefined ? "不可用" : `${bpp} B/有效着色像素`],
-      ["前景逻辑 store 估算", ratios && bpp !== undefined ? bytes(ratios.pixels * bpp) : "不可用"],
+      ["前景逻辑 store 估算", dispatch && bpp !== undefined ? bytes(dispatch.pixels * bpp) : "不可用"],
       ["输出 attachment 字节核算", bytes(counterFrame?.counters["sparseShading.surfaceAttachmentBytes"] ?? latest?.counters["sparseShading.surfaceAttachmentBytes"])],
-      ["Attempted / Written / Overflow", `${num(values.shadingBinAttempted)} / ${num(values.shadingBinWritten)} / ${num(values.shadingBinOverflow)}`],
+      ["Attempted / Written / Overflow", queueBased ? `${num(values.shadingBinAttempted)} / ${num(values.shadingBinWritten)} / ${num(values.shadingBinOverflow)}` : "不适用（direct status 无 queue）"],
       ["Frame flags / Errors", `${num(values.shadingBinFrameFlags)} / ${num(values.shadingBinErrors)}`]
     ]));
     this.view("phases", timingTable(gpuRows(frames, "phase")));

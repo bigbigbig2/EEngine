@@ -12,9 +12,9 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 46,
+  "shaderCount": 47,
   "summary": {
-    "authored-live": 45,
+    "authored-live": 46,
     "dead": 1
   },
   "entries": [
@@ -117,6 +117,41 @@
       ],
       "pipelineOwners": [
         "src/render/passes/ColorGradingPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/environment_brdf.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/opaque_lighting_resolve.ts",
+        "src/shaders/sparse_shading_resolve.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/GIService.ts",
+        "src/render/features/SurfaceFeature.ts",
+        "src/render/passes/OpaqueLightingResolvePass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
+        "src/render/Renderer.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/passes/OpaqueLightingResolvePass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,
@@ -690,6 +725,7 @@
         "src/render/passes/TonemapPass.ts",
         "src/render/passes/VisibilityCounterPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/OpaqueShadingDemand.ts",
         "src/render/pipeline/SparseShadingCandidateExecutor.ts",
         "src/render/pipeline/SparseShadingCandidatePipeline.ts",
         "src/render/pipeline/SparseShadingCandidateRuntime.ts",

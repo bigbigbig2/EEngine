@@ -43,6 +43,11 @@ import {
   LIGHT_CLUSTER_DATA_HEADER_BYTES,
   LIGHT_CLUSTER_LIST_CAPACITY
 } from "../.test-dist/shaders/light_cluster.js";
+import {
+  OENGINE_ENVIRONMENT_BRDF_WGSL,
+  evaluateEnvironmentBrdfReference
+} from "../.test-dist/shaders/environment_brdf.js";
+import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../.test-dist/shaders/opaque_lighting_resolve.js";
 
 const adapterLimits = {
   ...GPU_SPARSE_SHADING_REQUIRED_LIMITS
@@ -241,6 +246,34 @@ test("environment IBL specialization fuses prepared diffuse, specular and DFG sa
   assert.match(source, /textureSampleLevel\(\s*split_sum/u);
   assert.match(source, /environment_specular_contribution/u);
   assert.match(source, /environment_diffuse_contribution/u);
+  assert.match(source, /oengine_ibl_directional_albedo\(/u);
+  assert.equal(
+    (source.match(/fn oengine_ibl_directional_albedo\(/gu) ?? []).length,
+    1
+  );
+  assert.match(OPAQUE_LIGHTING_RESOLVE_WGSL, /oengine_ibl_directional_albedo\(/u);
+  assert.ok(source.includes(OENGINE_ENVIRONMENT_BRDF_WGSL.trim()));
+  assert.ok(OPAQUE_LIGHTING_RESOLVE_WGSL.includes(OENGINE_ENVIRONMENT_BRDF_WGSL.trim()));
+});
+
+test("shared environment BRDF oracle preserves split-sum multiple scattering and energy clamp", () => {
+  const result = evaluateEnvironmentBrdfReference([0.62, 0.21], [0.04, 0.5, 0.9], 1);
+  const ratio = (1 - 0.83) / 0.83;
+  const expected = [0.04, 0.5, 0.9].map((f0) => {
+    const single = f0 * 0.62 + 0.21;
+    return single + single * f0 * ratio;
+  });
+  for (let index = 0; index < 3; index++) {
+    assert.ok(Math.abs(result.directionalAlbedo[index] - expected[index]) < 1e-12);
+    assert.equal(
+      result.diffuseEnergy[index],
+      Math.min(1, Math.max(0, 1 - expected[index]))
+    );
+  }
+  assert.throws(
+    () => evaluateEnvironmentBrdfReference([Number.NaN, 0], [0.04, 0.04, 0.04], 1),
+    /must be finite/
+  );
 });
 
 test("cluster data embeds the active-list fallback without an eleventh storage binding", () => {

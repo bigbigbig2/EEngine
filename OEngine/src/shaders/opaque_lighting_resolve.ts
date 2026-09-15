@@ -8,6 +8,7 @@ import {
 } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_COMPUTE_MATERIAL_ABI_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
+import { OENGINE_ENVIRONMENT_BRDF_WGSL } from "./environment_brdf.js";
 import { SPECULAR_AMBIENT_OCCLUSION_WGSL } from "./specular_ambient_occlusion.js";
 
 export const OPAQUE_LIGHTING_RESOLVE_FORMAT = "rgba16float" as const;
@@ -17,6 +18,7 @@ ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_SHADING_SURFACE_LITE_WGSL}
 ${GPU_COMPUTE_MATERIAL_ABI_WGSL}
 ${OCTAHEDRAL_SAMPLE_WGSL}
+${OENGINE_ENVIRONMENT_BRDF_WGSL}
 ${SPECULAR_AMBIENT_OCCLUSION_WGSL}
 
 const PI: f32 = 3.1415926535897932384626433832795;
@@ -42,10 +44,6 @@ fn saturate_f32(value: f32) -> f32 {
   return clamp(value, 0.0, 1.0);
 }
 
-fn saturate_vec3(value: vec3f) -> vec3f {
-  return clamp(value, vec3f(0.0), vec3f(1.0));
-}
-
 fn uv_to_ndc(uv: vec2f) -> vec2f {
   return fma(uv, vec2f(2.0, -2.0), vec2f(-1.0, 1.0));
 }
@@ -59,21 +57,6 @@ fn metalness_to_specular_color(metalness: f32, albedo: vec3f) -> vec3f {
   return mix(vec3f(MIN_DIELECTRICS_F0), albedo, metalness);
 }
 
-fn decode_typed_buffer(
-  split_sum: vec2f,
-  specular_f0: vec3f,
-  specular_f90: f32,
-  single: ptr<function, vec3f>,
-  multi: ptr<function, vec3f>
-) {
-  let combined = specular_f0 * split_sum.x + specular_f90 * split_sum.y;
-  let sum = split_sum.x + split_sum.y;
-  let remaining = 1.0 - sum;
-  let ratio = remaining / max(sum, 1e-4);
-  *single += combined;
-  *multi += combined * (specular_f0 * ratio);
-}
-
 fn compute_indirect_specular(
   radiance: vec3f,
   irradiance: vec3f,
@@ -84,8 +67,6 @@ fn compute_indirect_specular(
   specular_f90: f32,
   roughness: f32
 ) -> mat2x3f {
-  var single = vec3f(0.0);
-  var multi = vec3f(0.0);
   let no_v = saturate_f32(dot(shading_normal, view_direction));
   let split_sum = textureSampleLevel(
     dependencies,
@@ -93,10 +74,13 @@ fn compute_indirect_specular(
     vec2f(no_v, roughness),
     0.0
   ).rg;
-  decode_typed_buffer(split_sum, specular_f0, specular_f90, &single, &multi);
-  let directional_albedo = single + multi;
+  let directional_albedo = oengine_ibl_directional_albedo(
+    split_sum,
+    specular_f0,
+    specular_f90
+  );
   let indirect_specular = radiance * directional_albedo;
-  let energy = saturate_vec3(vec3f(1.0) - directional_albedo);
+  let energy = oengine_ibl_diffuse_energy(directional_albedo);
   let indirect_diffuse = diffuse * energy * (irradiance * RECIPROCAL_PI);
   return mat2x3f(indirect_specular, indirect_diffuse);
 }
