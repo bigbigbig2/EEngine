@@ -1,44 +1,45 @@
-# OEngine 内部文档
+# OEngine 文档系统
 
-这里保存当前有效的工程事实；`docs/others/` 只保存尚未提升为产品/ADR 的非权威研究输入。历史阶段、旧指标、执行日志和被否决方案不在权威文档中保留，需要时使用 Git 查询。
+`docs/` 只保存仍影响当前产品、代码或交付的事实。已经完成的实施过程、被推翻的方案、逐提交记录和旧指标由 Git 历史保存，不在权威文档中复述。
 
-## 阅读顺序
+## 六类文档
 
-1. [PRODUCT.md](./PRODUCT.md)：产品范围、目标平台与非目标。
-2. [WEBGPU.md](./WEBGPU.md)：WebGPU 2026 能力线、协商、specialization 与更新规则。
-3. [ARCHITECTURE.md](./ARCHITECTURE.md)：当前模块、owner 和架构债务。
-4. [PIPELINE.md](./PIPELINE.md)：真实帧流程与跨模块数据合同。
-5. [STATUS.md](./STATUS.md)：唯一可变状态、开放风险和下一步。
-6. [VALIDATION.md](./VALIDATION.md)：完成、正确性和性能证据合同。
+| 类型 | 位置 | 回答的问题 | 允许的内容 |
+| --- | --- | --- | --- |
+| 产品事实 | `PRODUCT.md`、`WEBGPU.md` | 做什么、面向什么平台 | 目标、非目标、能力线 |
+| 当前事实 | `ARCHITECTURE.md`、`PIPELINE.md`、`STATUS.md` | 代码现在是什么 | owner、数据流、差距、下一步 |
+| 决策 | `adr/` | 为什么选择这条长期方向 | Context、Decision、Consequences、Verification |
+| 规范 | `specs/` | 两端必须精确一致什么 | ABI、格式、状态机、版本、兼容与验证 |
+| 实施 | `implementation/` | 下一批可交付切片怎么闭环 | 活跃切片、退出条件、删除目标 |
+| 来源 | `porting/` | 外部实现来自哪里 | revision、license、不变量、适配与验证 |
 
-## 专项入口
+`others/` 是非权威研究区，不参加上述结构约束。研究结论只有被提升到产品页、ADR、spec 或 porting ledger 后才生效。
 
-- 长期架构决定：[adr/](./adr/README.md)。
-- Packed Render World 收敛实施入口：[ADR-0006](./adr/0006-packed-render-world-convergence.md)。
-- 外部算法、资产和许可证：[porting/](./porting/README.md)。
-- Performance Inspector：[`OEngine/src/addons/inspector/README.md`](../OEngine/src/addons/inspector/README.md)。
-- Example Library V2（standalone Vite MPA + Storybook catalog，不承担验证）：[`examples/README.md`](../examples/README.md)、[ADR-0012](./adr/0012-example-library-reset.md)。
-- 独立浏览器验证与性能宿主：[ADR-0014](./adr/0014-browser-validation-and-performance-host.md)、`validation/`。
-- 机器可读 benchmark 与审计结果：[`OEngine/benchmarks/README.md`](../OEngine/benchmarks/README.md)。
-- 非权威设计研究：`others/`；其中的日期性判断和候选方案必须回写到 PRODUCT、WEBGPU、ADR 或核心事实页后才生效。
+## 最短阅读路径
 
-## 权威关系
+1. [PRODUCT.md](./PRODUCT.md) 与 [WEBGPU.md](./WEBGPU.md) 确认范围和平台。
+2. [ARCHITECTURE.md](./ARCHITECTURE.md) 与 [PIPELINE.md](./PIPELINE.md) 找当前 owner 和真实数据流。
+3. [STATUS.md](./STATUS.md) 看实现差距；[VALIDATION.md](./VALIDATION.md) 看证据等级。
+4. 只有发生长期取舍时读 [adr/](./adr/README.md)，需要精确互操作时读 [specs/](./specs/README.md)，执行活跃迁移时读 [implementation/](./implementation/README.md)。
 
-- 协作规则由仓库及最近的 `AGENTS.md` 决定。
-- 跨模块长期决定进入 ADR；实现事实进入 `ARCHITECTURE.md` 和 `PIPELINE.md`。
-- WebGPU/WGSL feature、limit、API surface 和 capability specialization 的当前规范只进入 `WEBGPU.md`；`docs/others/` 中的研究快照不能覆盖它。
-- 当前进度、风险和下一步只进入 `STATUS.md`。
-- 外部来源、许可证和本地移植边界只进入 porting ledger。
-- 源码、WGSL、测试和可复算 artifact 是运行事实；文档与运行事实冲突时修正文档。
+## 写入规则
 
-## 内容准入
+- ADR 不保存阶段日志、代码清单、当前测试数或大段实现教程；`accepted` 只表示决策获准。
+- spec 可以很精确，但必须声明状态、owner、版本/兼容和验证；未冻结字段不得伪装成 ABI。
+- implementation 只保留活跃工作。切片完成并同步当前事实后删除过程叙述，由 Git 留档。
+- `STATUS.md` 是唯一汇总可变进度和开放 gate 的页面；owner 附近 README 保存局部用法。
+- 验证策略写入 `VALIDATION.md`；机器可读 case 和证据分别由 `validation/` 与 `OEngine/benchmarks/` 管理。
+- 权威文档不得引用本机绝对路径、`temp/` 或研究区作为规范来源。
 
-- 顶层 `docs/` 不保存任务计划、阶段 checkpoint、逐提交日志或临时性能报告。
-- `docs/others/` 只允许保存会被当前设计引用的研究输入，不具有产品、能力或架构权威性。
-- 本机探索数据不能成为权威事实；被接受的性能基线必须满足 `VALIDATION.md` 并保存可复算 provenance。
-- 子系统用法放在 owner 附近的 README；不要在 `docs/` 复制一份。
-- 架构变更先查 ADR；采用或改写外部实现前先查 porting ledger。
+## 变更映射
 
-## 历史查询
+| 变更 | 必须同步 |
+| --- | --- |
+| 产品范围或能力线 | PRODUCT/WEBGPU；必要时新增 ADR |
+| 跨模块长期取舍 | ADR；实现状态另写 STATUS |
+| 二进制、GPU 或跨线程合同 | spec + 对应 oracle/golden test |
+| 新迁移阶段 | implementation；完成后回写 ARCHITECTURE/PIPELINE/STATUS |
+| 外部代码或算法 | porting ledger |
+| 运行或性能结论 | STATUS + 可复算 evidence，不塞进 ADR |
 
-工作树不设 archive。使用 `git log -- docs`、`git show <commit>:<path>` 查询旧阶段文档。
+历史查询统一使用 `git log -- docs` 和 `git show <revision>:<path>`，不建立 archive 目录。

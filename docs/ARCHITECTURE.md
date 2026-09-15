@@ -1,92 +1,51 @@
-# OEngine 架构
+# OEngine 当前架构
 
-## 当前实现
+本页描述当前代码事实，不描述目标阶段。长期取舍见 [ADR](./adr/README.md)，精确合同见 [specs](./specs/README.md)，未完成迁移见 [STATUS](./STATUS.md)。公开入口由 `OEngine/src/index.ts` 控制，内部 Pass、GPU 表和 Shader ABI 默认不公开。
 
-公开入口由 `OEngine/src/index.ts` 控制。生产依赖大体沿 `core → runtime assets/loaders → gpu → framegraph/render → public interface` 流动；内部 Pass、GPU 表和 Shader ABI 默认不公开。
-
-`OEngine/src/render/Renderer.ts` 是公开生命周期与顶层组合 shell；唯一主管线 recipe 位于 `OEngine/src/render/pipeline/MainRenderPipeline.ts`。它拥有 FramePlan、主 FrameGraph、Feature/Service 装配、compiled graph cache 与 graph evidence。每次 encode 使用冻结的 `FrameContext`，不会把完整公开入口或 GraphicsContext 作为 Pass service locator。
-
-当前 `MainRenderPipeline` 仍同时编排 publication、Visibility、材质 bank、Surface、GI/AO/SSR、debug 和最终输出；opaque-lit receiver 还可能连接 `SurfaceLite → long-range provider → OpaqueLightingResolve`。这是现状边界，不是性能目标。ADR-0015 拟在同一主管线内增加 `VisibilityPlan`、`OpaqueReceiverPlan` 和 `IndirectCompositionPlan` 三个纯计划层，由真实 consumer demand 生成 immutable `FrameProducts`，再由各 owner 管理资源生命周期；三阶段完成前不宣称该拆分已经落地。
-
-WebGPU/WGSL 的目标能力线、feature/limit/API 探测和 specialization 规则由 [WEBGPU.md](./WEBGPU.md) 单独定义。当前 device creation 强制请求 `core-features-and-limits`、`indirect-first-instance`、`float32-blendable` 与 `texture-formats-tier1`，并在创建 Renderer 资源前同时验证 WGSL language feature `texture_formats_tier1`；所有消费 Tier 1 storage texel format 的 Shader 以 `requires texture_formats_tier1;` 声明最低语言能力。在 adapter 支持时启用 `timestamp-query`、`subgroups`、`primitive-index` 和一族纹理压缩能力；初始化会冻结 adapter/device features、关键 limits、WGSL language features、Immediate Data/Transient Attachment API probe、TextureBindingSet slot/sampler/set/dispatch policy 与已选纹理 specialization。Visibility fragment 在 feature 已启用时以 `@builtin(primitive_index)` 恢复 meshlet-local triangle，缺失时由 vertex `vertex_index / 3` 的 flat varying 保持同一 VisibilityKey 语义。`shader-f16`、Immediate Data 和 Transient Attachments 仍没有生产 consumer，不能只因 record 已记录就写成已启用能力。
-
-## 依赖方向
+## 依赖与组合
 
 ```text
-Source asset
-  → validated Runtime Asset package
-  → GpuAssetStore / GpuScene / GpuRenderWorld
-  → FramePlan + FrameGraph
-  → Visibility / Surface / Lighting / Transparency / Temporal / Post
-  → present and asynchronous evidence
+source asset
+  -> validated runtime package
+  -> GpuAssetStore / GpuScene / GpuRenderWorld
+  -> FramePlan + MainRenderPipeline + FrameGraph
+  -> Visibility -> sparse shading -> lighting/effects -> temporal/post
+  -> present + asynchronous evidence
 ```
 
-CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见工作必须由 GPU 队列直接供 GPU consumer 使用，不能回读后由 CPU 重建 draw list。
+`OEngine/src/render/Renderer.ts` 是公开生命周期 shell；`OEngine/src/render/pipeline/MainRenderPipeline.ts` 是唯一主管线 recipe owner。CPU 负责导入、显式 patch、配置和命令编排；GPU 生成的最终可见工作必须由 GPU consumer 直接消费。
 
-## 模块与 Owner
+## Owner 表
 
-| 边界 | 当前 owner | 责任 |
+| 边界 | 当前 owner | 合同 |
 | --- | --- | --- |
-| Runtime Asset | `src/assets/RuntimeAssetManifestV2.ts`、`RuntimeAssetResidency.ts`、`GeometryAssetPackage.ts`、`OegPackV3.ts`、`GeometryAbiV3.ts`、`TextureAssetPackage.ts`、`Brick4LightMapPackage.ts`、`src/assets/codec/*`、loaders | V2 package/variant 与 OEGPACK V3 resident metadata/range/page 验证、稳定 content identity、Encoded Texture Variant、Brick4 monolithic tree/probe generation、惰性有界 Worker/WASM preparation、budget/request state 与 logical/physical resident range |
-| GPU 资产 | `src/gpu/GpuAssetStore.ts`、`TextureResidency.ts` | compact geometry residency；从同一 resident transaction 派生 ADR-0013 `asset-metadata-heap`/`vertex-payload-heap` 与逐 slot generation table；纹理 exact-format immutable segment、有界 multi `TextureBindingSet`、uncooked RGBA8 development segment、stable logical descriptor 与原子派生 routing |
-| 场景实例 | `src/gpu/GpuScene.ts` | 64 B static + 112 B dynamic Instance ABI V6；static identity 同时保存 geometry slot 与 AssetHandle generation，static/transform/material/visibility/lifecycle 显式窄 patch 与 CPU shadow accounting |
-| GPU Render World | `src/gpu/GpuRenderWorld.ts` | Packed source 与普通 Scene adapter 的统一 runtime 生命周期；原子发布 association-specific material/texture truth 与 `ActiveShadingSummary`，并为下一 patch 提供无副作用 sparse revision preview |
-| 场景环境 | `src/gpu/GPUSceneEnvironmentContext.ts` | Packed/普通 Scene 共享的 light、environment、light-probe 与 volumetric 数据 |
-| GPU 工作 | `src/gpu/GpuWorkGenerationAbi.ts` 及 work-generation owners | 队列 ABI、容量、overflow、indirect args |
-| 可见像素身份 | `src/gpu/GpuVisibilityKeyAbi.ts`、Visibility owners | key ABI、sentinel、reverse-Z、diagnostics |
-| SurfaceLite/HDR ABI | `src/gpu/GpuComputeMaterialAbi.ts`、`GpuHdrAbi.ts` | compact working-set、conditional velocity、normal/flags 编码、HDR/history 格式与 bytes/pixel |
-| Surface 组合 | `src/render/features/SurfaceFeature.ts`、`src/render/passes/ShadingBinPass.ts`、`SparseShadingResolvePass.ts` | 唯一 opaque production owner；组装 ShadingBin classify/finalize、active-bin indirect specialized material/fused direct lighting、HDR 与按 consumer 裁剪的 compact Surface/velocity；不存在 runtime backend switch |
-| Sparse shading ABI/publication | `src/gpu/GpuShadingProgramAbi.ts`、`GpuShadingBinAbi.ts`、`GpuSparseShadingFrameAbi.ts`、`GpuSparseShadingPipelineContract.ts`、`src/render/pipeline/SparseShadingPublicationCoordinator.ts` | 冻结 64-bin identity、240 B view、四组 concrete binding、revision-local pipeline/bind-group closure；在同步 frame encode 前原子准备并发布，旧 closure 仅在 submitted-work boundary 后退役 |
-| 主深度目标 | `src/render/RenderTargets.ts` | mip0-only current depth；仅在screen-space diffuse temporal、SSR temporal或主Temporal需要previous depth时启用提交感知双缓冲 |
-| 帧资源 | `src/framegraph/FrameGraph.ts` | 资源、依赖、pruning 和执行 |
-| 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/main-view 顺序；Shadow 是 main FrameGraph 内的显式资源 producer，不再是空跨图 stage |
-| 帧输入 | `src/render/pipeline/FrameContext.ts` | camera/view、分辨率域、feature topology、history validity、scene bindings、instrumentation 与 capture 请求 |
-| 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | `ShadingBinFrame`、`SpecializedShadingFrame`、compact Surface、lighting、AO、reflection、temporal、`OpaqueColorPyramid` 与 `FinalColorPyramid` 的 typed contract |
-| GPU 计数与最终有效性 | `src/debug/GpuFrameCounters.ts`、`src/render/passes/TonemapPass.ts` | counter schema V24 只保留 sparse shading 生产计数，已删除的旧 material backend 槽位 125–131 显式保留；Final Output 按 execution mode 消费 `ShadingBinControl` heap 或 `ShadingFrameStatus` 的共同 32 B fail-closed 前缀，并只读取 `frame_flags` |
-| 共享帧派生 | `src/render/passes/SharedColorPyramidPass.ts` | 按 consumer 生成语义隔离的 opaque/final HDR pyramid；SSR、Bloom、Exposure 不再各建等价 reduction |
-| Final Output | `src/render/passes/TonemapPass.ts`、`src/shaders/final_output_input.ts` | 静态变体融合 Bloom composite、Color Grading、optional Sharpen、Exposure与SDR/HDR display mapping；normal frame不物化full-resolution post HDR intermediate |
-| Persistent history | `src/render/TemporalHistoryRegistry.ts` | 六种 history 的 semantic/domain/format/count/generation、提交感知 ping-pong、pre-exposure 与统一失效原因；物理资源仍归 effect owner |
-| Temporal/DRS | `src/render/features/TemporalFeature.ts`、`DynamicResolutionScaling.ts`、`passes/TemporalAntiAliasingPass.ts`、`passes/NeuralSuperSamplingPass.ts` | 单一 owner 下互斥 TAA/NSS internal→output reconstruction、closest-surface reactive/disocclusion、output history confidence 与 fixed/adaptive delayed-GPU-timing policy；任何 sub-native scale 必须经过 reconstruction，配置只来自 RenderSettings |
-| Screen-space diffuse | `src/render/features/AOService.ts`、`ScreenSpaceDiffuseService.ts`、`src/render/passes/GtaoPass.ts`、`SsgiPass.ts`、`ScreenSpaceDiffuseResolvePass.ts` | 单值 `off/gtao/ssgi` exclusive owner；Three.js r186-derived GTAO 或 SSGI、同 trace AO/bent、共享 history registry、pre-SSGI source 与能量边界 resolve |
-| Long-range GI | `src/render/features/GIService.ts`、`src/render/passes/LongRangeDiffuseProviderPass.ts` | 单个逐 receiver producer，以早返回执行 Brick4 → Probe Volume → IBL → black；输出唯一 provider identity、diffuse irradiance 与 baseline specular radiance，不预计算三套 fullscreen candidate |
-| 阴影功能 | `src/render/features/ShadowFeature.ts`、`ShadowFeatureManager.ts` | Scene-scoped atlas、cascade/cache、统一 Render World work generation/raster 与 retire |
-| 功能组合 | `src/render/features/*.ts` | Feature/Service 生命周期与 feature-off |
-| 实时证据 UI | `src/addons/inspector` | 有界历史、view-model、实时面板 |
-| 主管线 | `src/render/pipeline/MainRenderPipeline.ts` | 唯一 Feature 顺序、FrameGraph recipe/cache/evidence 和单帧 encode |
-| 公开总装 | `src/render/Renderer.ts` | 公开 API、设备/画布生命周期入口和顶层组合 |
-| WebGPU capability | `src/render/pipeline/MainRenderPipeline.ts`、`src/gpu/GraphicsContext.ts` | adapter/device feature、limit、WGSL/API 探测，冻结 capability record 与 specialization key |
-| 浏览器验证宿主 | `validation/cases/registry.json`、`validation/src/host`、`validation/src/runner` | 独立 Document/Chrome 生命周期、versioned protocol、内容 identity、新鲜度、错误聚合、artifact/dispose Gate；不拥有 Renderer 算法 |
+| Runtime Asset | `src/assets`、`src/loaders` | 设备无关 package、内容身份、校验、range read 和 codec preparation |
+| OEGPACK V3 | `GeometryAbiV3.ts`、`OegPackV3.ts`、`GeometryBootstrapResidencyV3.ts` | V3 metadata/page 解析、校验、bootstrap residency；尚不是生产几何 consumer |
+| GPU 资产 | `GpuAssetStore.ts`、`TextureResidency.ts` | GPU allocation、稳定 handle/generation、资源发布与提交感知 retire |
+| Scene 与实例 | `GpuScene.ts`、`GpuRenderWorld.ts` | Packed instance、显式 patch、资产/材质关联与原子 publication |
+| GPU 工作/可见性 | `GpuWorkGenerationAbi.ts`、`GpuVisibilityKeyAbi.ts` 及 work/visibility owners | hierarchy/culling、容量和 overflow、indirect work、VisibilityKey |
+| Sparse shading | `SurfaceFeature.ts`、`ShadingBinPass.ts`、`SparseShadingResolvePass.ts` 及 publication owners | 可见像素分类、active-bin indirect specialization、一次材质解析、按需 Surface/velocity |
+| Lighting 与效果 | `src/render/features`、`src/render/passes` | shadow、direct/indirect lighting、AO/GI/SSR、transparency、temporal 与 post |
+| Frame resources | `FrameGraph.ts`、`FramePlan.ts`、`FrameContext.ts`、`FrameProducts.ts` | 依赖、pruning、冻结帧输入、typed products 和资源生命周期 |
+| Capability | `GraphicsContext.ts`、`MainRenderPipeline.ts` | feature/limit/WGSL/API probe、specialization 和 capability record |
+| Evidence | `src/debug`、`src/addons/inspector`、`OEngine/benchmarks`、`validation/` | counter、timestamp、资源统计、真实浏览器 artifact |
 
-## 生命周期与资源所有权
+## 资产边界
 
-Runtime Asset 是设备无关事实；GPU owner 由设备和 Renderer 生命周期控制。资源释放必须经过提交边界，不能让 Loader、Scene 临时对象或 FrameGraph 外部引用隐式延长 GPU 对象寿命。持久 history、shadow atlas、LPV 和 asset residency 与 transient frame attachment 分开统计。主depth始终只有一张current mip0；previous-depth只随真实时域consumer启用第二张提交感知slot，并以独立`previousDepthBytes`计入history memory，关闭后经过submitted-work边界退役。颜色 pyramid 是当帧 transient 产品：`OpaqueColorPyramid` 与 `FinalColorPyramid` source stage 不同，禁止为了复用内存改写成同一 logical product；只有 descriptor/lifetime 兼容且不破坏语义时，FrameGraph 才可在底层复用 allocation。
+Runtime Asset 是设备无关事实；GPU owner 由 Renderer/device 生命周期控制。Loader、Scene 临时对象和 FrameGraph 外部引用不得隐式延长 GPU 资源寿命。
 
-Geometry 默认生产变体是 `static-pbr-compact-v2`；position/normal/tangent/UV/color 的物理编码由 package profile 冻结，Shader 只能经共享 decode ABI 读取。`explicit-float32-fallback-v2` 需要 Cooker 显式选择。普通生产材质纹理由 `ShadeTexture.fromAssetPackageV2()` 携带设备无关 Texture Package：已有 GPU-native variant 直接进入 residency；KTX2 UASTC/ETC1S 先经 `GraphicsContext` 惰性持有的有界 `AssetCodecService` 和固定 Khronos libktx Worker/WASM 转为同一 Encoded Variant/package。两者随后统一经过 `GpuRenderWorld → TextureResidency`，按 exact format、extent 与完整离线 mip 分配 immutable segment，并由最多 4 个 `TextureBindingSet` 为同一 material colocate 全部语义。Opaque 以 `ShadingProgramId × TextureBindingSetId` 的最多 64 个稀疏 bins 调度，Visibility MASK、Shadow MASK 与 Transparency 读取同一 material/routing publication；运行时 mip generation 只保留给显式未 Cook 的 development 输入。Runtime residency seam 只表达 chunk/request/budget/range 和退役，不拥有 scheduler；逻辑 asset/material handle 不含 GPU buffer offset、texture layer 或 mip/page 地址。
+生产几何目前仍使用既有 package/GPU hierarchy/work/visibility 路径。OEGPACK V3 已拥有 native cooker、TypeScript parser、range source、固定页 ABI 与 bootstrap loader，但还没有接入 `GpuAssetStore -> hierarchy/work -> MeshletBucketRaster` 的生产闭环。迁移必须在同一主管线内替换几何来源和地址解析，不能新增第二套 renderer backend。
 
-ADR-0016-A 的设备无关 V3 seam 已并列存在：`tools/oengine-asset-core` 从 authoring GLB/glTF 离线生成 scene manifest 与多 asset `.oegpack`，`OegPackV3` 只做 header/metadata range fetch、强校验和独立 page decode，`GeometryBootstrapResidencyV3` 仅承担 A8 固定 128 MiB-class bank/256 KiB slot 的 bootstrap proof。它不进入当前 V2 production Renderer，也不包含 ADR-0016-B 的请求、淘汰、HTTP 合并或 OPFS scheduler；生产切换只能由后续 B/C 直接消费同一 V3 ABI 完成。
+纹理生产路径目前是 TextureAssetPackage V2 + GPU-native variants/KTX2 preparation + `TextureResidency` + 有界 `TextureBindingSet`。后续渐进 mip residency 应扩展这个所有权模型，不以“V3”名义重写已经有效的材质和绑定体系。
 
-`LightClusterPass` 的 ClusterData V2 在 32 B header 后保留固定 active-light tuple prefix，再从该 prefix 之后分配普通 cluster references；overflow metadata 和 `active_written` 因此允许 sparse resolve 只绑定 `light database + cluster lookup + cluster data` 三个 lighting storage buffer，仍完整执行 production active-list fallback，而不违反 ADR-0013 的 10-storage stage ceiling。当前 opaque lighting consumer 已直接消费该三-buffer ABI，但环境光与 Surface 的后置组合仍由现有 GI/lighting owner 管理；ADR-0015 阶段一会按 demand 收窄这条组合。Transparency 仍可读取独立 `activeLightList` FrameProduct，因为它拥有不同的 raster/OIT 语义，不能为删除旧 opaque backend 而误删。
+## 生命周期不变量
 
-Performance Inspector 只消费 Renderer/GPU owner 产生的 `ProfileFrame` 证据。它不成为渲染 owner，也不从 DOM 或推测值重建指标；详细合同位于 `OEngine/src/addons/inspector/README.md`。
+- 资源发布必须是原子的；旧 generation 只能在 submitted-work 边界后 retire。
+- persistent asset/history/shadow 资源与 transient attachment 分开统计。
+- feature 关闭时不创建对应 Pass、资源、history、readback 或独立 submit。
+- 新 GPU 队列必须定义元素 ABI、容量、overflow、producer、consumer 和 counter。
+- device loss、scene replace、resize、camera cut、提交失败和异步任务取消必须有明确失效语义。
 
-## 公开接口
+## 不属于本页
 
-设备丢失后的 production recovery 由公开 `Renderer.recoverAfterDeviceLoss()` 显式触发，返回新的 Renderer；应用必须替换旧引用。它重新请求 adapter/device，不接受旧 device 注入，重新执行全部 capability preflight，再从 CPU Scene、已 Cook geometry/texture package、已提交 Packed Instance shadow、材质 association 与 Brick4 package 重建全部 GPU owner。GPU handle、FrameGraph recipe/cache、bind group、pipeline、readback ring 和 temporal history 不跨设备继承；history/device lineage 与 sparse publication 使用新的 device epoch。普通 Scene 从当前 Application truth 重建，Packed source 从 committed CPU shadow 重建，未提交 patch 保持 queued，aborted patch 不进入 committed checkpoint。checkpoint 是冷恢复工作，不增加稳定帧扫描或 GPU readback。
-
-并发恢复调用共用一个 promise；旧 Renderer 停止提交并关闭 GPU owner，最多允许两次显式尝试，失败的新实例销毁，不能继续呈现部分重建场景。正常 `Renderer.destroy()` 是终态，禁止恢复；验证宿主可在冻结的 fault stage 销毁原始 device，再显式调用恢复，不能把这种 fault 注入当作普通 destroy 的自动恢复。新实例的历史起始 invalid，旧实例的 late completion 不推进新实例 revision/retirement/history。生产 Browser case 必须验证完整 scene/resource closure，而非仅检查 `_deviceLost` 标志。
-
-`src/index.ts` 是唯一公开 interface。新增内部 Feature、Pass、Shader、Profiler codec 或 ABI 不应自动导出；只有稳定且被外部调用方需要的能力才进入入口。
-
-`Renderer.uploadScene(scene, geometryAssets)` 建立普通 Scene adapter，`geometryAssets` 明确绑定 CPU geometry identity 与已 Cook package；缺失绑定、空 Scene、非 Standard material、`SkinnedMesh` 或设备容量失败都会在发布 runtime 前抛错。`Renderer.resyncScene()` 是 add/remove/geometry 结构变化的显式冷路径，会先释放旧 registration 再重新驻留；稳定帧只走 `SceneChangeSet` patch。`releaseScene()` 释放任一种 adapter registration；这些异步工具命令不属于 main-frame submit。
-
-## 当前帧输入边界
-
-Packed source 通过 `uploadPackedScene()`、普通 Application Scene 通过 `uploadScene()` 汇入同一个 `GpuRenderWorld`。普通 Scene adapter 只接受调用方显式提供的已 Cook `GeometryAssetPackage`，首次同步生成 bulk structure-of-arrays source；后续 transform/material assignment 从 `SceneChangeSet` 生成确定性 `GpuScene.patch()`。add/remove/geometry 结构变化必须由 `resyncScene()` 明确 full-resync；未注册 Scene 在 `render()` 前失败。
-
-两种输入都由 GPU hierarchy/work generation 直接供 indirect Visibility consumer，输出统一 `VisibilityKey`、必有 metadata 的 Surface、可选 velocity、shadow work 与透明 reactive 数据。旧对象场景 GPU runtime、双 ID visibility attachment、fullscreen material expand、独立 velocity 和旧 OIT/Shadow raster 实现已经删除；不存在隐藏 fallback。完整动画/蒙皮仍属产品 Deferred；`SkinnedMesh` 会显式报 unsupported。AO、SSR 与 GI 由 Service 组合；`AOService → GtaoPass` 是 `mode=gtao` 的唯一 production screen-space AO owner，以同一 Three.js r186-derived horizon trace 产生 visibility+bent normal，并由 OEngine history/joint resolve 消费，不依赖 three.js runtime 或额外 TRAA owner。Shadow atlas、cascade/cache、work generation、raster 和 retire 归 `src/render/features/ShadowFeature.ts` 单一所有。
-
-## 目标差距
-
-- Packed Render World 的固定收敛顺序、owner 删除条件和逐步验证见 [ADR-0006](./adr/0006-packed-render-world-convergence.md)。
-- 以真实多资产 Packed Instances、hierarchy/SSE 和固定目标设备证明 GPU 闭环。
-- 用同条件 GPU timestamp、counter、memory 和 feature-off 证据证明统一主管线。
+二进制字段偏移和状态机写入 spec；活跃切片和退出条件写入 implementation；完成度和风险写入 STATUS；算法来源写入 porting ledger。

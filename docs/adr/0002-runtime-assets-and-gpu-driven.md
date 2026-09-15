@@ -1,24 +1,19 @@
-# ADR-0002 · Runtime Asset 与 GPU-driven
+# ADR-0002: Runtime Asset 与 GPU-driven 边界
 
 Status: accepted
 
 ## Context
 
-Loader 对象、运行时资产事实和设备 GPU 对象若混为一体，会导致重复解析、生命周期不清和每帧 CPU 扫描。高实例/高几何场景需要稳定紧凑表和有界 GPU 工作队列。
+Loader 对象、设备无关资产与 GPU allocation 生命周期不同。把它们混为一个 owner 会导致重复上传、隐式持有和 CPU 每帧重建工作。
 
 ## Decision
 
-- Cooker 输出验证过、带 recipe/provenance 的设备无关 Runtime Asset。
-- `GpuAssetStore`、`GpuScene` 和 Packed registry 分别拥有 residency、instance patch 与 Packed runtime。
-- Geometry/Meshlet/Cluster/Material/Texture/Instance 使用明确紧凑 ABI。
-- hierarchy/SSE/culling 产生有界 GPU work；GPU producer 直接连接 indirect GPU consumer。
-- `VisibilityKey` 是可见像素到 instance/geometry/primitive/material 重建的稳定合同。
-- 每个队列定义 header、element stride、capacity、overflow、producer、consumer 和 counter。
+Cooker 生成可验证 Runtime Asset；`GpuAssetStore`、`GpuScene` 和 GPU work owners 分别管理资源、实例与工作队列。Loader 不持有长期 GPU 资源。GPU producer 输出必须由 GPU consumer 直接消费，并具有容量、overflow 和 counter。
 
 ## Consequences
 
-Loader 临时对象不能拥有长期 GPU 资源；共享资产与实例分离。Overflow 是可观测失败，不能静默丢工作。新数据表必须同步 TypeScript/WGSL schema、版本和验证；不得通过兼容层长期保留重复 owner。
+资产身份可以跨设备稳定，GPU generation 和 retire 由 Renderer 生命周期管理。实现复杂度转移到显式 publication、patch、residency 和提交边界，但避免 service locator 与 CPU visible-list fallback。
 
 ## Verification
 
-验证 package reopen/determinism、handle generation、显式 patch、capacity 边界、overflow counter、indirect args、CPU oracle 和 GPU consumer 闭环。外部算法来源见 [porting](../porting/README.md)。
+检查 ownership、重复上传、generation/retire、queue overflow 和 GPU producer -> consumer；完成术语遵循 [VALIDATION](../VALIDATION.md)。

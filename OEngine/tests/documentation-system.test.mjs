@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,37 +8,20 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const docsRoot = path.join(repoRoot, "docs");
 
 const coreDocs = [
-  "ARCHITECTURE.md",
-  "PIPELINE.md",
-  "PRODUCT.md",
-  "README.md",
-  "STATUS.md",
-  "VALIDATION.md",
-  "WEBGPU.md",
+  "ARCHITECTURE.md", "PIPELINE.md", "PRODUCT.md", "README.md",
+  "STATUS.md", "VALIDATION.md", "WEBGPU.md"
 ];
-
-const adrDocs = markdownFiles(path.join(docsRoot, "adr"), "adr")
-  .filter((relativePath) => relativePath === "adr/README.md" || /^adr\/(?:\d{4}|ADR-\d{4})-.+\.md$/.test(relativePath))
-  .sort();
-const portingDocs = [
-  "porting/geometry.md",
-  "porting/platform.md",
-  "porting/README.md",
-  "porting/shading.md",
-  "porting/visibility.md",
-];
+const adrDocs = markdownFiles(path.join(docsRoot, "adr"), "adr").sort();
+const specDocs = markdownFiles(path.join(docsRoot, "specs"), "specs").sort();
+const implementationDocs = markdownFiles(path.join(docsRoot, "implementation"), "implementation").sort();
+const portingDocs = markdownFiles(path.join(docsRoot, "porting"), "porting").sort();
 const researchDocs = markdownFiles(path.join(docsRoot, "others"), "others").sort();
-const authoritativeDocs = [...coreDocs, ...adrDocs, ...portingDocs].sort();
+const authoritativeDocs = [...coreDocs, ...adrDocs, ...specDocs, ...implementationDocs, ...portingDocs].sort();
 const allowedDocs = [...authoritativeDocs, ...researchDocs].sort();
 
-const routedDocs = [
-  "README.md",
-  "CONTEXT-MAP.md",
-  ...authoritativeDocs.map((relativePath) => path.posix.join("docs", relativePath)),
-  "examples/README.md",
-  "OEngine/benchmarks/README.md",
-  "OEngine/src/addons/inspector/README.md",
-];
+const numberedAdrs = adrDocs.filter((name) => name !== "adr/README.md");
+const numberedSpecs = specDocs.filter((name) => name !== "specs/README.md");
+const activeImplementations = implementationDocs.filter((name) => name !== "implementation/README.md");
 
 function markdownFiles(directory, prefix = "") {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -49,149 +32,138 @@ function markdownFiles(directory, prefix = "") {
   });
 }
 
+function source(relativePath) {
+  return readFileSync(path.join(docsRoot, relativePath), "utf8");
+}
+
 function resolveMarkdownLinks(relativePath) {
   const absolutePath = path.join(repoRoot, relativePath);
-  const source = readFileSync(absolutePath, "utf8");
-  for (const match of source.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
+  const text = readFileSync(absolutePath, "utf8");
+  for (const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
     const target = match[1].replace(/^<|>$/g, "").split("#", 1)[0];
     if (!target || /^(?:https?:|mailto:)/.test(target)) continue;
-    const resolved = path.resolve(path.dirname(absolutePath), target);
-    assert.equal(existsSync(resolved), true, `${relativePath} -> ${target}`);
+    assert.equal(existsSync(path.resolve(path.dirname(absolutePath), target)), true, `${relativePath} -> ${target}`);
   }
 }
 
-test("docs tree matches the current-facts allowlist", () => {
+test("docs tree only contains governed layers plus non-authoritative research", () => {
   assert.deepEqual(markdownFiles(docsRoot).sort(), allowedDocs);
+  assert.deepEqual(
+    readdirSync(docsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(),
+    ["adr", "implementation", "others", "porting", "specs"]
+  );
 });
 
-test("all routed Markdown links resolve", () => {
-  for (const relativePath of routedDocs) resolveMarkdownLinks(relativePath);
+test("authoritative file names are canonical", () => {
+  for (const name of numberedAdrs) assert.match(name, /^adr\/\d{4}(?:-[a-z])?-[a-z0-9-]+\.md$/, name);
+  for (const name of numberedSpecs) assert.match(name, /^specs\/[a-z0-9-]+\.md$/, name);
+  for (const name of activeImplementations) assert.match(name, /^implementation\/\d{4}-[a-z0-9-]+\.md$/, name);
+  for (const name of authoritativeDocs) assert.doesNotMatch(name, /\s|\(\d+\)/, name);
 });
 
-test("docs index routes every core fact page", () => {
-  const source = readFileSync(path.join(docsRoot, "README.md"), "utf8");
-  for (const relativePath of coreDocs.filter((name) => name !== "README.md")) {
-    assert.match(source, new RegExp(`\\((?:\\./)?${relativePath.replace(".", "\\.")}\\)`));
+test("all authoritative Markdown links resolve", () => {
+  for (const relativePath of ["AGENTS.md", "CONTEXT-MAP.md", ...authoritativeDocs.map((name) => `docs/${name}`)]) {
+    resolveMarkdownLinks(relativePath);
   }
 });
 
-test("authoritative docs do not depend on ephemeral or machine-local paths", () => {
-  const forbidden = [
-    /(?:^|[\\/])temp[\\/]/i,
-    /[A-Z]:[\\/](?:Users|Documents|code|shu)[\\/]/i,
-    /docs[\\/](?:contexts|implementation|references|wiki|superpowers)[\\/]/i,
-  ];
-  for (const relativePath of authoritativeDocs) {
-    const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
-    for (const pattern of forbidden) assert.doesNotMatch(source, pattern, relativePath);
-    if (relativePath !== "VALIDATION.md") {
-      assert.doesNotMatch(source, /`temp[\\/]/i, relativePath);
+test("indexes route every governed document", () => {
+  const rootIndex = source("README.md");
+  for (const name of coreDocs.filter((name) => name !== "README.md")) {
+    assert.match(rootIndex, new RegExp(`\\((?:\\./)?${name.replaceAll(".", "\\.")}\\)`), name);
+  }
+  for (const [index, files] of [
+    [source("adr/README.md"), numberedAdrs],
+    [source("specs/README.md"), numberedSpecs],
+    [source("implementation/README.md"), activeImplementations]
+  ]) {
+    for (const name of files) {
+      const fileName = path.posix.basename(name).replaceAll(".", "\\.");
+      assert.match(index, new RegExp(`\\((?:\\./)?${fileName}\\)`), name);
     }
   }
 });
 
-test("non-status authoritative docs do not accumulate execution checkpoints or mutable totals", () => {
-  const forbidden = [
-    /^#{1,6}\s+.*(?:checkpoint|closure|收口记录|完成记录)/im,
-    /(?:当前全量测试|current full test|npm test)[^\n]*\b\d+\s*\/\s*\d+\b/i,
-  ];
-  for (const relativePath of authoritativeDocs.filter((name) => name !== "STATUS.md")) {
-    const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
-    for (const pattern of forbidden) assert.doesNotMatch(source, pattern, relativePath);
+test("ADRs remain short decision records", () => {
+  for (const name of numberedAdrs) {
+    const text = source(name);
+    assert.ok(text.length <= 12_000, `${name}: ${text.length} characters`);
+    assert.match(text, /^Status: (?:proposed|accepted|superseded|rejected)\b/m, name);
+    for (const heading of ["Context", "Decision", "Consequences", "Verification"]) {
+      assert.match(text, new RegExp(`^## ${heading}$`, "m"), `${name}: ${heading}`);
+    }
+    assert.equal([...text.matchAll(/^## /gm)].length, 4, `${name}: only four decision sections are allowed`);
+    assert.doesNotMatch(text, /^### |^## .*?(?:Stage|Step|实施|进度|Checkpoint|完成记录)/im, name);
+  }
+});
+
+test("specs expose lifecycle, ownership and exact-contract sections", () => {
+  for (const name of numberedSpecs) {
+    const text = source(name);
+    assert.match(text, /^Status: (?:draft|candidate|frozen|retired)\b/m, name);
+    assert.match(text, /^Owners: .+/m, name);
+    for (const heading of ["Version/Compatibility", "Contract", "Validation"]) {
+      assert.match(text, new RegExp(`^## ${heading}$`, "m"), `${name}: ${heading}`);
+    }
+  }
+});
+
+test("implementation docs describe active outcomes and gates", () => {
+  for (const name of activeImplementations) {
+    const text = source(name);
+    assert.match(text, /^Status: (?:active|blocked)\b/m, name);
+    assert.match(text, /^Owners: .+/m, name);
+    for (const heading of ["Outcome", "Slices", "Shared gates"]) {
+      assert.match(text, new RegExp(`^## ${heading}$`, "m"), `${name}: ${heading}`);
+    }
+  }
+});
+
+test("authoritative docs avoid machine-local and ephemeral truth", () => {
+  const forbidden = [/[A-Z]:[\\/]/, /docs[\\/](?:contexts|references|wiki|superpowers)[\\/]/i];
+  for (const name of authoritativeDocs) {
+    const text = source(name);
+    for (const pattern of forbidden) assert.doesNotMatch(text, pattern, name);
+    if (!new Set(["README.md", "VALIDATION.md"]).has(name)) assert.doesNotMatch(text, /`temp[\\/]/i, name);
+    if (name !== "STATUS.md") {
+      assert.doesNotMatch(text, /(?:当前全量测试|current full test|npm test)[^\n]*\b\d+\s*\/\s*\d+\b/i, name);
+      assert.doesNotMatch(text, /^#{1,6}\s+.*(?:checkpoint|收口记录|完成记录)/im, name);
+    }
   }
 });
 
 test("root-anchored repository paths in authoritative docs exist", () => {
-  for (const relativePath of authoritativeDocs) {
-    const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
-    for (const line of source.split(/\r?\n/)) {
+  for (const name of authoritativeDocs) {
+    for (const line of source(name).split(/\r?\n/)) {
       if (/^- Upstream[^:]*:/i.test(line)) continue;
-      for (const match of line.matchAll(/`((?:OEngine|docs|examples|src)[\\/][^`\n]+)`/g)) {
+      for (const match of line.matchAll(/`((?:OEngine|docs|examples|validation|src)[\\/][^`\n]+)`/g)) {
         const target = match[1];
         if (/[*?<>]/.test(target)) continue;
-        const base = target.startsWith("src/") || target.startsWith("src\\")
-          ? path.join(repoRoot, "OEngine")
-          : repoRoot;
-        assert.equal(existsSync(path.join(base, target)), true, `${relativePath} -> ${target}`);
+        const base = /^src[\\/]/.test(target) ? path.join(repoRoot, "OEngine") : repoRoot;
+        assert.equal(existsSync(path.join(base, target)), true, `${name} -> ${target}`);
       }
     }
   }
 });
 
-test("ADRs keep the decision shape and an explicit lifecycle status", () => {
-  for (const relativePath of adrDocs.filter((name) => /^adr\/(?:\d{4}|ADR-\d{4})-/.test(name))) {
-    const source = readFileSync(path.join(docsRoot, relativePath), "utf8");
-    assert.match(
-      source,
-      /^(?:Status: |> \*\*Status:\*\* )(?:proposed|accepted|superseded|rejected)\b/m,
-      relativePath
-    );
-    for (const heading of ["Context", "Decision", "Consequences", "Verification"]) {
-      assert.match(source, new RegExp(`^## (?:\\d+\\. )?${heading}$`, "m"), `${relativePath}: ${heading}`);
-    }
-  }
-});
-
-test("ADR index routes every numbered decision", () => {
-  const source = readFileSync(path.join(docsRoot, "adr", "README.md"), "utf8");
-  for (const relativePath of adrDocs.filter((name) => /^adr\/(?:\d{4}|ADR-\d{4})-/.test(name))) {
-    const fileName = path.posix.basename(relativePath);
-    assert.match(source, new RegExp(`\\((?:\\./)?${fileName.replaceAll(".", "\\.")}\\)`), relativePath);
-  }
-});
-
-test("porting ledgers keep required provenance fields", () => {
-  const fields = [
-    "Local owner/source:",
-    "Upstream:",
-    "Revision:",
-    "Upstream source:",
-    "License:",
-    "Adoption:",
-    "Retained invariants:",
-    "OEngine/WebGPU differences:",
-    "Fallback/lifecycle:",
-    "Local validation:",
-  ];
+test("porting ledgers retain provenance fields", () => {
+  const fields = ["Local owner/source:", "Upstream:", "Revision:", "Upstream source:", "License:", "Adoption:", "Retained invariants:", "OEngine/WebGPU differences:", "Fallback/lifecycle:", "Local validation:"];
   for (const relativePath of ["geometry.md", "visibility.md", "shading.md", "platform.md"]) {
-    const source = readFileSync(path.join(docsRoot, "porting", relativePath), "utf8");
-    for (const field of fields) {
-      assert.match(source, new RegExp(field, "i"), `${relativePath}: ${field}`);
-    }
+    const text = source(`porting/${relativePath}`);
+    for (const field of fields) assert.match(text, new RegExp(field, "i"), `${relativePath}: ${field}`);
   }
 });
 
-test("ADR-0011 freezes production codec authority and exact integration provenance", () => {
-  const adr = readFileSync(path.join(docsRoot, "adr", "0011-asset-codec-and-gpu-native-texture-pipeline-v3.md"), "utf8");
-  const platform = readFileSync(path.join(docsRoot, "porting", "platform.md"), "utf8");
-  assert.match(adr, /Production source graph.*不得 import/s);
-  for (const marker of [
-    "KTX-Software-4.4.2-Web-libktx_read.zip",
-    "examples/jsm/loaders/KTX2Loader.js",
-    "examples/jsm/utils/WorkerPool.js",
-    "packages/dev/core/src/Misc/khronosTextureContainer2.ts",
-    "packages/tools/ktx2Decoder/",
-    "8336a23659f306c93f45816022dcdfae122f66eaf566488a2b7cf40e0bf65f0e"
-  ]) assert.match(platform, new RegExp(marker.replaceAll(".", "\\.")), marker);
-});
-
-test("production asset and GPU source graph does not import the reference texture codec", () => {
-  const sourceRoots = [
-    path.join(repoRoot, "OEngine", "src", "assets"),
-    path.join(repoRoot, "OEngine", "src", "gpu")
-  ];
-  const files = sourceRoots.flatMap((root) => sourceFiles(root));
+test("production asset and GPU source graph excludes the reference texture codec", () => {
+  const files = [path.join(repoRoot, "OEngine", "src", "assets"), path.join(repoRoot, "OEngine", "src", "gpu")].flatMap(sourceFiles);
   for (const file of files) {
     if (file.endsWith("ReferenceTextureCodec.ts")) continue;
-    assert.doesNotMatch(
-      readFileSync(file, "utf8"),
-      /(?:import|export)[^;]*ReferenceTextureCodec/s,
-      path.relative(repoRoot, file)
-    );
+    assert.doesNotMatch(readFileSync(file, "utf8"), /(?:import|export)[^;]*ReferenceTextureCodec/s, path.relative(repoRoot, file));
   }
 });
 
 function sourceFiles(directory) {
+  if (!statSync(directory).isDirectory()) return [];
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(absolute);

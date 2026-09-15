@@ -1,22 +1,19 @@
-# ADR-0001 · GPU-first 范围
+# ADR-0001: GPU-first 产品范围
 
-Status: accepted；能力口径由 [ADR-0010](./0010-webgpu-2026-capability-contract.md) 修订
+Status: accepted
 
 ## Context
 
-OEngine 需要在桌面浏览器中处理高几何密度和大量 mostly-static 实例。WebGPU 没有跨设备保证 native 引擎常用的 MDI、mesh shader、64 位原子或 buffer address。WebGPU 2026 已标准化的现代能力按 ADR-0010 和 `WEBGPU.md` 协商使用。
+OEngine 面向桌面 WebGPU 的中大型、高几何密度、mostly-static 场景。通用 Gameplay/ECS、超大世界和 three.js 兼容会稀释当前最关键的 GPU 数据与渲染闭环。
 
 ## Decision
 
-- 以桌面 WebGPU、独立 GPU 和中大型 mostly-static 场景为当前产品范围。
-- 以 Hardware-first Visibility 为生产路径；Software/Hybrid 只作为未来适配器，不是正确性前提。
-- 资产、工作生成、可见性、材质和效果按 GPU-first 数据流设计。
-- 不建设完整 Gameplay/ECS、超大世界或 three.js 兼容层。
+优先 GPU-ready 资产、紧凑 GPU 表、Packed Instances、GPU hierarchy/work、hardware visibility、一次材质解析及统一 lighting/temporal/post 管线。CPU 只处理导入、显式 patch、配置与编排，不构建最终可见列表。
 
 ## Consequences
 
-所有核心方案必须遵循 [WebGPU 2026 Desktop 能力合同](../WEBGPU.md)；主路径优先使用已标准化且目标设备暴露的现代能力，缺失时保持同一逻辑 ABI 的 specialization 或明确拒绝。CPU patch 可以存在，但 CPU 不负责构建最终可见列表。产品范围外能力进入 `PRODUCT.md` Deferred，而不是预埋第二套主管线。
+公开 API 和生命周期围绕渲染核心设计；完整 ECS、Gameplay、网络同步、超大世界和生态兼容均不进入当前范围。新增能力必须证明适合目标 workload，而非仅追求通用性。
 
 ## Verification
 
-检查 adapter capability、GPU producer/consumer、Hardware Visibility debug/counter、feature-off 和目标 workload。性能结论遵循 [VALIDATION.md](../VALIDATION.md)。
+范围审查以 [PRODUCT](../PRODUCT.md) 为准；GPU-driven 声明必须满足 [VALIDATION](../VALIDATION.md) 的 producer/consumer 与运行证据要求。

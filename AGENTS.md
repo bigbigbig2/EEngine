@@ -11,7 +11,7 @@ OEngine 当前阶段是面向桌面 WebGPU、中大型高几何密度场景的 G
 1. 完整阅读 `CONTEXT-MAP.md`。
 2. 按路由阅读 `docs/PRODUCT.md`、`docs/WEBGPU.md`、`docs/ARCHITECTURE.md` 或 `docs/PIPELINE.md`。
 3. 修改 `OEngine/` 时阅读 `OEngine/AGENTS.md`，并继续读取更近的 `AGENTS.md`。
-4. 架构变更先检查 `docs/adr/`；范围判断读取 `docs/PRODUCT.md`；验证或性能判断读取 `docs/VALIDATION.md`。
+4. 架构变更先检查 `docs/adr/`；精确 ABI/格式检查 `docs/specs/`；活跃迁移检查 `docs/implementation/`；范围与验证分别读取 `docs/PRODUCT.md`、`docs/VALIDATION.md`。
 
 ## 全局强制约束
 
@@ -52,13 +52,21 @@ OEngine 当前阶段是面向桌面 WebGPU、中大型高几何密度场景的 G
 - 默认采用与风险匹配的中等验证：本地检查、构建/测试和命中示例。除非用户明确要求或变更风险确实需要，不为普通验证扩散多个 review 子任务。
 - 最终说明必须列出已运行验证、未运行验证和原因。
 
-## 文档权威顺序
+## 文档治理
 
 1. `AGENTS.md` 与更近的局部 `AGENTS.md`：协作和所有权约束。
 2. `docs/adr/`：已接受的长期决策。
 3. `docs/PRODUCT.md`：产品方向、目标平台、workload 与非目标。
 4. `docs/WEBGPU.md`：WebGPU/WGSL 能力线、协商与 specialization 合同。
-5. `docs/ARCHITECTURE.md`、`docs/PIPELINE.md`：当前架构、owner 与帧合同。
-6. `docs/STATUS.md`：当前实现状态、风险与下一步。
-7. `docs/VALIDATION.md`：验证和性能证据合同。
-8. `docs/porting/`：外部来源与许可证，不自动决定项目设计。
+5. `docs/specs/`：被代码、文件、线程或 GPU producer/consumer 共同使用的精确合同。
+6. `docs/ARCHITECTURE.md`、`docs/PIPELINE.md`：当前架构、owner 与真实帧合同。
+7. `docs/STATUS.md`：当前实现状态、风险与下一步。
+8. `docs/implementation/`：活跃交付切片；不得覆盖已接受 ADR 或冻结 spec。
+9. `docs/VALIDATION.md`：验证和性能证据合同。
+10. `docs/porting/`：外部来源与许可证，不自动决定项目设计。
+
+- ADR 只记录长期取舍，不记录实现进度；`accepted` 不等于 implemented、validated 或 complete。
+- ABI、二进制格式、状态机和跨 owner 合同进入 spec，并同步 oracle/golden test。
+- implementation 只保留活跃切片；切片完成后把事实写回 ARCHITECTURE/PIPELINE/STATUS，再删除过程叙述。
+- 已完成、被替代或被否决的长篇执行记录不迁入新文档，使用 Git 历史查询。
+- `docs/others/` 是非权威研究输入，不得作为产品、能力、ABI 或完成状态的依据。
