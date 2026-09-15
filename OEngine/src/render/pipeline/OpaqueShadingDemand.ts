@@ -13,9 +13,32 @@ export interface OpaqueShadingDemandInput {
   readonly gtao: boolean;
   readonly ssgi: boolean;
   readonly ssr: boolean;
+  /** A registered Brick4 map or a complete Probe Volume requires receiver-local lookup. */
+  readonly spatialGiQuery: boolean;
   readonly needsPreviousDepth: boolean;
   readonly motionBlur: boolean;
   readonly debugView: RenderDebugViewT;
+}
+
+export interface SpatialGiQueryInput {
+  readonly brick4Registered: boolean;
+  readonly probeCount: number;
+  readonly probeTetrahedronCount: number;
+}
+
+/**
+ * Placement follows the published query domain, not transient GPU residency.
+ * An invalidated Brick4 generation must stay deferred so the receiver-local
+ * provider can fall through to Probe/IBL/black without changing PBR ownership.
+ */
+export function requiresSpatialGiQuery(input: SpatialGiQueryInput): boolean {
+  if (typeof input.brick4Registered !== "boolean") {
+    throw new TypeError("Brick4 registration must be boolean");
+  }
+  validateCount(input.probeCount, "probeCount");
+  validateCount(input.probeTetrahedronCount, "probeTetrahedronCount");
+  return input.brick4Registered ||
+    (input.probeCount >= 4 && input.probeTetrahedronCount > 0);
 }
 
 /**
@@ -43,17 +66,21 @@ export function deriveOpaqueShadingDemand(
     input.debugView === RenderDebugView.IndirectSpecular
   );
   const needsIndirectComponents = hasOpaqueLitReceiver && (
-    input.gtao || input.ssgi || input.ssr || needsLightingDebug
+    input.gtao || input.ssgi || input.ssr || input.spatialGiQuery || needsLightingDebug
   );
   const needsSurface = hasOpaqueReceiver && (
     input.needsPreviousDepth ||
     input.debugView === RenderDebugView.Velocity ||
     (debugDependencies & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0 ||
-    hasOpaqueLitReceiver && (input.gtao || input.ssgi || input.ssr || needsLightingDebug)
+    hasOpaqueLitReceiver && (
+      input.gtao || input.ssgi || input.ssr || input.spatialGiQuery || needsLightingDebug
+    )
   );
   const needsDiffuseSurface = hasOpaqueReceiver && (
     (debugDependencies & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0 ||
-    hasOpaqueLitReceiver && (input.gtao || input.ssgi || input.ssr || needsLightingDebug)
+    hasOpaqueLitReceiver && (
+      input.gtao || input.ssgi || input.ssr || input.spatialGiQuery || needsLightingDebug
+    )
   );
   const needsVelocity = hasOpaqueReceiver && (
     input.needsPreviousDepth || input.motionBlur ||
@@ -114,6 +141,7 @@ function validateBooleans(input: OpaqueShadingDemandInput): void {
     input.gtao,
     input.ssgi,
     input.ssr,
+    input.spatialGiQuery,
     input.needsPreviousDepth,
     input.motionBlur
   ];

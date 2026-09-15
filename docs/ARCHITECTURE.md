@@ -42,7 +42,7 @@ CPU 负责资产导入、显式 patch、帧配置和命令编排；最终可见�
 | 跨图调度 | `src/render/pipeline/FramePlan.ts` | scene/LPV/main-view 顺序；Shadow 是 main FrameGraph 内的显式资源 producer，不再是空跨图 stage |
 | 帧输入 | `src/render/pipeline/FrameContext.ts` | camera/view、分辨率域、feature topology、history validity、scene bindings、instrumentation 与 capture 请求 |
 | 跨 Pass 产品 | `src/render/pipeline/FrameProducts.ts` | `ShadingBinFrame`、`SpecializedShadingFrame`、compact Surface、lighting、AO、reflection、temporal、`OpaqueColorPyramid` 与 `FinalColorPyramid` 的 typed contract |
-| GPU 计数与最终有效性 | `src/debug/GpuFrameCounters.ts`、`src/render/passes/TonemapPass.ts` | counter schema V24 只保留 sparse shading 生产计数，已删除的旧 material backend 槽位 125–131 显式保留；Final Output 只消费 `ShadingBinControl.frame_flags` |
+| GPU 计数与最终有效性 | `src/debug/GpuFrameCounters.ts`、`src/render/passes/TonemapPass.ts` | counter schema V24 只保留 sparse shading 生产计数，已删除的旧 material backend 槽位 125–131 显式保留；Final Output 按 execution mode 消费 `ShadingBinControl` heap 或 `ShadingFrameStatus` 的共同 32 B fail-closed 前缀，并只读取 `frame_flags` |
 | 共享帧派生 | `src/render/passes/SharedColorPyramidPass.ts` | 按 consumer 生成语义隔离的 opaque/final HDR pyramid；SSR、Bloom、Exposure 不再各建等价 reduction |
 | Final Output | `src/render/passes/TonemapPass.ts`、`src/shaders/final_output_input.ts` | 静态变体融合 Bloom composite、Color Grading、optional Sharpen、Exposure与SDR/HDR display mapping；normal frame不物化full-resolution post HDR intermediate |
 | Persistent history | `src/render/TemporalHistoryRegistry.ts` | 六种 history 的 semantic/domain/format/count/generation、提交感知 ping-pong、pre-exposure 与统一失效原因；物理资源仍归 effect owner |

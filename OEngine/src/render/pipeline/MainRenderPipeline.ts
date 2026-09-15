@@ -34,7 +34,11 @@ import {
   gpuSparseShadingTextureBindingSetIds
 } from "../../gpu/GpuSparseShadingPipelineContract.js";
 import type { OpaqueShadingDemand } from "../../gpu/GpuOpaqueShadingDemand.js";
-import { deriveOpaqueShadingDemand } from "./OpaqueShadingDemand.js";
+import {
+  deriveOpaqueShadingDemand,
+  requiresSpatialGiQuery
+} from "./OpaqueShadingDemand.js";
+import { specializedShadingFinalControl } from "./FrameProducts.js";
 import type { GpuShadingPublicationContext } from "../../gpu/GpuShadingPublicationPlan.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
 import type { GPUSceneEnvironmentContext } from "../../gpu/GPUSceneEnvironmentContext.js";
@@ -2671,7 +2675,9 @@ export class MainRenderPipeline {
         const gEmissiveRes = surfaceFlagsRes;
         const surfaceDomain = specializedShading?.domain ??
           textureDomain("internal-full", w, h, 1);
-        const shadingBinDiagnosticControlRes = specializedShading?.bins?.heap ?? null;
+        const shadingBinDiagnosticControlRes = specializedShading === null
+          ? null
+          : specializedShadingFinalControl(specializedShading);
         if (specializedShading?.bins !== null && specializedShading?.bins !== undefined &&
             gpuCounterRes !== null) {
           gpuCounterRes = new SparseShadingCounterPass().addToGraph(
@@ -3940,6 +3946,12 @@ export class MainRenderPipeline {
     publication: Readonly<GpuRenderWorldShadingPublication> = runtime.shadingPublication
   ): Readonly<GpuShadingPublicationContext> {
     const topology = this.resolveFeatureTopology({ geometry: { runtime }, scene: runtime.scene });
+    const environment = this._environments.get(runtime.scene);
+    const spatialGiQuery = requiresSpatialGiQuery({
+      brick4Registered: environment?.volumetric_light_map.registered ?? false,
+      probeCount: runtime.scene.light_probe_volume.probe_count,
+      probeTetrahedronCount: runtime.scene.light_probe_volume.mesh.count
+    });
     const opaqueDemand = deriveOpaqueShadingDemand({
       opaqueLitReceiverCount: publication.summary.opaqueLitReceiverCount,
       opaqueUnlitReceiverCount: publication.summary.opaqueUnlitReceiverCount,
@@ -3947,6 +3959,7 @@ export class MainRenderPipeline {
       gtao: topology.gtao,
       ssgi: topology.ssgi,
       ssr: topology.ssr,
+      spatialGiQuery,
       needsPreviousDepth: requiresPreviousDepth(topology),
       motionBlur: topology.motionBlur,
       debugView: this.render_debug_view

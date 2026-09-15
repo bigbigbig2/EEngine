@@ -147,6 +147,25 @@ test("PbrOrm specialization reads only ORM texture data and required geometry", 
   assert.doesNotMatch(source, /sparse_texture_route_valid\(material_slot,\s*3u/u);
   assert.doesNotMatch(source, /sparse_tangent\(geometry_base,vertices/u);
   assert.match(source, /sparse_color\(geometry_base,vertices/u);
+  assert.match(source, /fn sparse_transform_uv_2\(/u);
+  assert.match(source, /fn sparse_sampler_2\(/u);
+  assert.doesNotMatch(source, /fn sparse_transform_uv_[013]\(/u);
+  assert.doesNotMatch(source, /material\.payload\.(?:uv_offset_scale|normal_uv_offset_scale|emissive_uv_offset_scale)/u);
+  assert.doesNotMatch(source, /material\.payload\.flags&/u);
+  assert.match(source, /surface_flags\|=OENGINE_SURFACE_FLAG_ORM_TEXTURE/u);
+});
+
+test("PbrGeneric retains all material-conditional texture slots", () => {
+  const source = createSparseShadingShaderVariant(descriptor(
+    GPU_SHADING_PROGRAM.PbrGeneric,
+    0,
+    2
+  )).source;
+  for (const slot of [0, 1, 2, 3]) {
+    assert.match(source, new RegExp(`fn sparse_transform_uv_${slot}\\(`, "u"));
+    assert.match(source, new RegExp(`fn sparse_sampler_${slot}\\(`, "u"));
+  }
+  assert.match(source, /material\.payload\.flags&/u);
 });
 
 test("triangle reconstruction converts clip-space NDC to top-left pixel coordinates", () => {

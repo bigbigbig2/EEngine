@@ -6,7 +6,7 @@ import { GPU_SHADING_OUTPUT_DEPENDENCY } from
   "../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
 import { GpuShadingPublicationStore } from
   "../.test-dist/gpu/GpuShadingPublicationPlan.js";
-import { deriveOpaqueShadingDemand } from
+import { deriveOpaqueShadingDemand, requiresSpatialGiQuery } from
   "../.test-dist/render/pipeline/OpaqueShadingDemand.js";
 import {
   captureGpuSparseShadingCapabilityRecord,
@@ -28,6 +28,7 @@ function demand(overrides = {}) {
     gtao: false,
     ssgi: false,
     ssr: false,
+    spatialGiQuery: false,
     needsPreviousDepth: false,
     motionBlur: false,
     debugView: RenderDebugView.None,
@@ -67,7 +68,7 @@ test("effects-off lit and unlit publications request only their real products", 
 });
 
 test("advanced indirect consumers request both compact surfaces and move IBL after receiver", () => {
-  for (const feature of ["gtao", "ssgi", "ssr"]) {
+  for (const feature of ["gtao", "ssgi", "ssr", "spatialGiQuery"]) {
     const value = demand({ [feature]: true });
     assert.equal(value.needsSurface, true, feature);
     assert.equal(value.needsDiffuseSurface, true, feature);
@@ -75,6 +76,11 @@ test("advanced indirect consumers request both compact surfaces and move IBL aft
     assert.equal(value.needsEnvironmentIbl, false, feature);
     assert.equal(value.outputDependencyMask, S | D, feature);
   }
+
+  const spatialGi = demand({ spatialGiQuery: true });
+  assert.equal(spatialGi.needsIndirectComponents, true);
+  assert.equal(spatialGi.needsEnvironmentIbl, false);
+  assert.equal(spatialGi.outputDependencyMask, S | D);
 
   for (const debugView of [RenderDebugView.IndirectDiffuse, RenderDebugView.IndirectSpecular]) {
     const value = demand({ debugView });
@@ -89,6 +95,29 @@ test("advanced indirect consumers request both compact surfaces and move IBL aft
   const linearHdr = demand({ debugView: RenderDebugView.LinearHdr });
   assert.equal(linearHdr.needsLightingDebug, false);
   assert.equal(linearHdr.outputDependencyMask, I);
+});
+
+test("spatial GI placement follows the published query domain instead of transient residency", () => {
+  assert.equal(requiresSpatialGiQuery({
+    brick4Registered: true,
+    probeCount: 0,
+    probeTetrahedronCount: 0
+  }), true);
+  assert.equal(requiresSpatialGiQuery({
+    brick4Registered: false,
+    probeCount: 4,
+    probeTetrahedronCount: 1
+  }), true);
+  assert.equal(requiresSpatialGiQuery({
+    brick4Registered: false,
+    probeCount: 4,
+    probeTetrahedronCount: 0
+  }), false);
+  assert.throws(() => requiresSpatialGiQuery({
+    brick4Registered: false,
+    probeCount: -1,
+    probeTetrahedronCount: 0
+  }), /non-negative/u);
 });
 
 test("temporal, motion and surface debug products remain independently demand-driven", () => {

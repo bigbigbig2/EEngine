@@ -7,6 +7,7 @@ import {
   directLightingFrame,
   shadingBinFrame,
   shadingSurfaceLiteFrame,
+  specializedShadingFinalControl,
   specializedShadingFrame,
   textureDomain
 } from "../.test-dist/render/pipeline/FrameProducts.js";
@@ -103,6 +104,7 @@ test("production SpecializedShadingFrame validates one exact internal-full compo
   assert.equal(Object.isFrozen(frame), true);
   assert.equal(frame.direct.hdr, 20);
   assert.equal(frame.bins.heap, 10);
+  assert.equal(specializedShadingFinalControl(frame), 10);
   assert.throws(
     () => specializedShadingFrame({
       ...frame,
@@ -120,17 +122,30 @@ test("production SpecializedShadingFrame validates one exact internal-full compo
     }),
     /does not match/u
   );
+
+  const direct = specializedShadingFrame({
+    bins: null,
+    status: 30,
+    direct: directLightingFrame({ hdr: 31, domain }),
+    shading: null,
+    diffuse: null,
+    velocity: null,
+    domain
+  });
+  assert.equal(specializedShadingFinalControl(direct), 30);
 });
 
 test("production SurfaceFeature owns the complete ShadingBin composition", async () => {
-  const surface = await readFile(
-    new URL("../src/render/features/SurfaceFeature.ts", import.meta.url),
-    "utf8"
-  );
+  const [surface, mainPipeline] = await Promise.all([
+    readFile(new URL("../src/render/features/SurfaceFeature.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/render/pipeline/MainRenderPipeline.ts", import.meta.url), "utf8")
+  ]);
   assert.match(surface, /SparseShading\/clear \+ classify production Visibility MRT/u);
   assert.match(surface, /SparseShading\/finalize production indirect arguments/u);
   assert.match(surface, /SparseShading\/active-bin production indirect resolve/u);
   assert.match(surface, /specializedShadingFrame\(/u);
+  assert.match(mainPipeline, /specializedShadingFinalControl\(specializedShading\)/u);
+  assert.doesNotMatch(mainPipeline, /specializedShading\?\.bins\?\.heap \?\? null/u);
 });
 
 test("compact Surface consumers validate depth before every background-sensitive read", async () => {

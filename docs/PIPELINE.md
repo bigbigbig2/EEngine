@@ -14,7 +14,7 @@ scene-update
   → HDR post + present
 ```
 
-上图描述当前主图的产品顺序，不等同于 ADR-0015 的目标状态。当前 revision 已由 publication demand 裁剪无消费者的 Surface 输出；无 GTAO/SSGI/SSR 的 lit receiver 还会在 sparse kernel 内读取 prepared IBL。publication 已具备 `None / DirectSingleBin / SparseMicrotile` 三态：单 bin 可走 status-backed 直调并省略 `ShadingBinId` MRT，多 bin 仍进入 `ShadingBinPass` 的分类/队列闭环；阶段二的 ABI/read-set 代码已落地，但两个 Rendering Lab 的同条件 GPU 时间和画面证据仍未完成，因此不能把代码合同写成已证明的性能收益。
+上图描述当前主图的产品顺序。当前 revision 已由 publication demand 裁剪无消费者的 Surface 输出；无 GTAO/SSGI/SSR、Brick4/Probe query 或 lighting-component debug 的 lit receiver 会在 sparse kernel 内读取 prepared IBL，空间 GI query 则保持 DeferredIndirect 并由 provider 按 Brick4 → Probe → IBL → black 选择。publication 已具备 `None / DirectSingleBin / SparseMicrotile` 三态：单 bin 走 status-backed 直调并省略 `ShadingBinId` MRT，多 bin 进入 `ShadingBinPass` 的分类/队列闭环；三个阶段的代码合同已落地，但两个 Rendering Lab 的统一人工 GPU 时间和画面证据仍未完成，因此不能把代码合同写成已证明的性能收益。
 
 `FramePlan` 只验证跨图依赖顺序；`MainRenderPipeline` 把启用阶段记录到唯一主 command context。Shadow atlas/light-record producer 已进入 `main-view-graph`，通过显式资源版本边连接 cluster 与 sparse lit resolve，不再用一个空的跨图 `shadow-update` stage 代替真实 GPU 依赖。旧对象 runtime 驱动的 probe-atlas 更新已经删除；现有 LPV atlas 是只读采样资源，不会生成独立更新图或 submit。
 
@@ -79,7 +79,7 @@ ADR-0013 Step 7.2 已冻结 production resolve binding：`GpuSparseShadingFrameA
 
 Production opaque shading 先按 `ShadingProgramId × TextureBindingSetId` 的 active scene summary 建立不可变 revision，再从 VisibilityKey V2 恢复 MeshletWork/local primitive，读取 canonical compact vertex，计算 perspective-correct barycentric 与显式 UV gradients。有效梯度使用 `textureSampleGrad`，退化梯度明确使用 `textureSampleLevel(..., 0)` 并通过 Surface flag/counter 暴露。每个命中 pixel 只在所属 specialized bin kernel 中完成一次 material evaluation；lit program 随即用同一个 `lighting_direct` WGSL authority 消费 LightDatabase/cluster/shadow 并写 HDR，不再执行第二轮 28-class direct-lighting dispatch。Unlit/textureless/output-off/shadow-off variant 在创建时物理删除无用 binding、读取与 store。
 
-当前 `LightingFeature` 负责 light-cluster producer 与 background/empty-HDR composition；sparse resolve 已消费 direct lighting，但 `GIService` 仍可在主图中连接 long-range provider 与 `OpaqueLightingResolve`。Production diagnostics 只保留 queue/control 的 error-only counter，per-pixel claim/duplicate/unassigned oracle 只属于独立 diagnostics variant。ADR-0015 阶段一完成后，effects-off 才能保证基础 direct/IBL 只写一次 HDR，并物理删除没有 consumer 的中间产品；Final Output 继续只接受 `ShadingBinControl.frame_flags`。
+当前 `LightingFeature` 负责 light-cluster producer 与 background/empty-HDR composition；sparse resolve 已消费 direct lighting，`GIService` 只在 AO/SSGI/SSR、Brick4/Probe 或 lighting-component consumer 存在时连接 long-range provider 与 `OpaqueLightingResolve`。Production diagnostics 只保留 queue/control 的 error-only counter，per-pixel claim/duplicate/unassigned oracle 只属于独立 diagnostics variant。effects-off 基础 direct/IBL 只写一次 HDR，并物理删除没有 consumer 的中间产品；Final Output 从当前 `SpecializedShadingFrame` 选择 sparse heap control 或 DirectSingleBin status，并统一拒绝非零 `frame_flags`。
 
 当前 SurfaceLite physical profile 为 `rgba16uint normal + rgba8unorm albedo/AO + rg32uint material/emissive`，无 motion consumer 时 20 B/pixel；Velocity consumer 存在时增加 `rg16float`，为 24 B/pixel。Velocity-off 使用独立静态 shader interface，bind layout、资源创建、clear/store 都不含 velocity，不使用 dummy texture。MaterialId debug 从 `VisibilityKey → MeshletWork` 恢复，不再复制 per-pixel material slot。主 HDR/颜色 history 的独立 ABI 为 `pre-exposed-rgba16float-v1`（8 B/pixel）；`rg11b10ufloat` 因无 alpha、无有符号表示且不能作为统一 render/storage/history 合同而没有成为主管线格式，仍可由 RGB-only companion product 单独门禁采用。
 

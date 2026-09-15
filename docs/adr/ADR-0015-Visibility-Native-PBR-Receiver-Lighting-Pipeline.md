@@ -1,26 +1,26 @@
 # ADR-0015 — Visibility-Native PBR Receiver & Lighting Pipeline
 
-> **Status:** proposed；推荐的重构设计，尚未实现或证明性能收益。
+> **Status:** proposed；三阶段代码合同已实施，统一人工验收与性能收益结论尚未完成。
 > **Date:** 2026-09-15
 > **Source revision:** `21208a9e7b4370d7231fdf41561a7de9e1a07b12`
 > **Scope:** 基础 opaque PBR 的像素成本、着色调度、属性重建、材质访问与环境光数据流；高级效果的依赖边界。
 > **Supersedes on adoption:** [ADR-0013](./0013-sparse-shading-bin-pipeline.md) 对所有 opaque publication 强制执行 classifier/queue 的物理要求，以及基础 IBL 必须经过 Surface → provider → lighting resolve 的组织方式。
 > **Preserves:** Hardware Visibility、VisibilityKey、Packed Instances、单次完整材质求值、统一主管线、真实高级效果语义与提交感知的资源生命周期。
-> **Iteration policy:** 本次按用户要求采用轻量自动检查、以两个 Rendering Lab 示例的手动测试为主，不增加大型自动化矩阵或 formal PERF 前置流程。
+> **Iteration policy:** 本次按用户要求先连续完成三个阶段的代码合同与轻量自动检查，再统一执行两个 Rendering Lab 示例的人工验收；人工验收与 formal PERF 都不是阶段一进入阶段二、阶段二进入阶段三的前置条件，不增加大型自动化矩阵或 formal PERF 前置流程。
 
 ## 三阶段执行状态
 
-本 ADR **只按三个有依赖关系的阶段实施**，不再拆出第四阶段或并行维护另一条主管线。每个阶段固定包含四个实施步骤；步骤必须按表中顺序完成，阶段门槛不满足时停在当前阶段，不把后续重构叠加到未解释的 GPU 成本上。每个阶段都先完成代码合同和轻量自动检查，再用两个 Rendering Lab 做固定机位手动对照。表中的“当前状态”只描述实现和静态检查进度，不等同于 Runtime Validated、Performance Evaluated 或 ADR Complete。
+本 ADR **只按三个有依赖关系的阶段实施**，不再拆出第四阶段或并行维护另一条主管线。每个阶段固定包含四个实施步骤；步骤必须按表中顺序完成。阶段间只以代码合同、静态不变量和命中的轻量自动检查作为实施门槛，允许三个阶段连续完成。两个 Rendering Lab 的固定机位人工对照统一放在三个阶段代码完成之后执行；在此之前只标记 implementation complete，不等同于 Runtime Validated、Performance Evaluated 或 ADR Complete。
 
-| 阶段 | 当前状态 | 可交付结果 | 允许进入下一阶段的条件 |
+| 阶段 | 当前状态 | 可交付结果 | 代码实施完成条件 |
 | --- | --- | --- | --- |
-| 一、Demand-driven 基础光照融合 | 代码已落地；Full effects-off 远/中/近与 AO、SSGI、SSR、temporal、shadow 的 live graph/面板导出已保存，GPU diagnostics 为零 | effects-off 只保留 Visibility -> receiver/material/direct/IBL -> HDR；AO/GI/SSR 等真实 consumer 出现时才生成对应 Surface/provider | 复核导出中的 receiver/HDR 时间、画面语义和资源退役；在当前 revision 上完成一次人工复核后才标记阶段门通过 |
-| 二、0/1/>1 bin 调度收窄 | 三态 publication、单/双 MRT 合同和面板指标已落地；Full/Basic 多 bin 夹具已产生 `activeBins=2` 的真实 indirect 证据，resize/material patch/device-loss 仍待手动复核 | 0 bin 无 opaque consumer，1 bin 使用 DirectSingleBin status + 固定网格，>1 bin 保留 classifier/heap/indirect 的 GPU producer -> consumer 闭环；面板显示 mode、P/N/W 和资源字节 | 完成单 bin 与多 bin 的 identity、overflow、resize、material patch、device-loss 对照，并解释远/中/近机位的绝对 GPU 时间 |
-| 三、receiver 热路径与纹理驻留 | velocity-off 特化、shader source audit 基础和 `textureLedger` 已落地；PbrOrm/geometry metadata/setup 主导性尚未证明，setup 复用未启用 | 以 WGSL/source audit 为入口收窄真实字段、采样 bank 和 packed decode；只有 receiver 或 residency 仍主导时才尝试有界 setup 复用 | 生成 WGSL、binding/read set、纹理 residency ledger 和 off/on GPU 对照共同证明收益；否则删除实验并转独立性能问题 |
+| 一、Demand-driven 基础光照融合 | 代码合同已完成；Brick4 注册或完整 Probe query domain 现在会进入 DeferredIndirect，临时 nonresident 仍由 provider 按 Probe/IBL/black fallback | effects-off 只保留 Visibility -> receiver/material/direct/IBL -> HDR；AO/GI/SSR/空间 GI 等真实 consumer 出现时才生成对应 Surface/provider | demand、FrameProducts、feature-off 资源合同通过 typecheck 与命中的 targeted tests；人工画面、绝对 GPU 时间和退役复核留到三阶段完成后统一执行 |
+| 二、0/1/>1 bin 调度收窄 | 代码合同已完成；三态 publication、单/双 MRT、status、面板指标和 DirectSingleBin → Final Output fail-closed 已贯通 | 0 bin 无 opaque consumer，1 bin 使用 DirectSingleBin status + 固定网格，>1 bin 保留 classifier/heap/indirect 的 GPU producer -> consumer 闭环；面板显示 mode、P/N/W 和资源字节 | 0/1/>1 ABI、Final Output fail-closed、MRT/read set、resize/patch 生命周期通过轻量检查；single/multi-bin 人工对照留到最终统一验收 |
+| 三、receiver 热路径与纹理驻留 | 代码合同已完成；velocity-off、texture bank read set、texture ledger 和 slot-specific UV/sampler WGSL 收窄已落地；setup cache 因缺少主导成本证据保持关闭 | 固定材质程序只生成真实使用的 texture slot 访问，PbrOrm 只保留 ORM slot；不因完成阶段而新增无证据的 setup producer/资源 | `benchmarks/adr-0015-receiver-source-audit.json` 冻结生成 WGSL 与 binding/read-set 决策；纹理 ledger、GPU 时间和截图在最终人工验收统一采集，formal PERF 非前置 |
 
-实现可以在阶段门槛完成前提前落地静态 ABI 或测试 fixture，但这不改变阶段顺序：后续阶段不得继续扩大默认生产路径，直到前一阶段的 live graph、GPU 时间、计数器和画面语义证据齐全。若当前工作树已经包含后续阶段代码，则按本 ADR 的门槛补齐证据；未通过前只能标记为 implementation complete。
+三个阶段仍按依赖顺序修改，但不要求在阶段之间插入 Rendering Lab 人工验收、GPU 时间解释或 formal PERF。每阶段代码合同和轻量检查通过后即可进入下一阶段；三个阶段完成后再统一补齐 live graph、GPU 时间、计数器、截图、画面语义和资源退役证据。在最终证据通过前只能标记为 implementation complete。
 
-阶段二的“已完成”只表示静态 ABI、FrameGraph 闭包和自动检查完成，不表示浏览器 Runtime Validated、Performance Improved 或 ADR Complete。后续提交按“阶段代码合同 -> 轻量检查 -> 手动记录”的顺序组织，阶段三不得与阶段一、二的未解释长尾同时修改。
+任一阶段的“代码已完成”只表示静态 ABI、FrameGraph 闭包和轻量自动检查完成，不表示浏览器 Runtime Validated、Performance Improved 或 ADR Complete。后续提交按“阶段一代码合同与轻量检查 -> 阶段二代码合同与轻量检查 -> 阶段三代码合同与轻量检查 -> 统一人工验收”的顺序组织。
 
 ### 三阶段重构顺序
 
@@ -28,7 +28,7 @@
 
 | 阶段 | 步骤 1：先建立的合同 | 步骤 2：主重构 | 步骤 3：收窄与核对 | 步骤 4：清理与阶段门 |
 | --- | --- | --- | --- | --- |
-| 一、Demand-driven 基础光照融合 | 固定 `OpaqueShadingDemand`、基线导出和 live graph；确认哪些 consumer 真正需要 HDR、Surface、velocity、indirect components | 将 direct lighting、基础 Environment IBL、材质求值放入同一 receiver，保持 PBR 数学、颜色空间和 pre-exposure 语义 | 让 Surface/provider/opaque resolve、velocity 和 debug 产品只由真实下游 consumer 物化，并同步 FrameGraph read set | 删除 effects-off 的无消费者往返，保留高级效果开启时的真实产品；用两示例远/中/近导出决定是否进入阶段二 |
+| 一、Demand-driven 基础光照融合 | 固定 `OpaqueShadingDemand` 与 graph recipe；确认哪些 consumer 真正需要 HDR、Surface、velocity、indirect components | 将 direct lighting、基础 Environment IBL、材质求值放入同一 receiver，保持 PBR 数学、颜色空间和 pre-exposure 语义 | 让 Surface/provider/opaque resolve、velocity 和 debug 产品只由真实下游 consumer 物化，并同步 FrameGraph read set | 删除 effects-off 的无消费者往返，保留高级效果开启时的真实产品；两示例远/中/近导出留到三阶段后的统一人工验收 |
 | 二、`None / DirectSingleBin / SparseMicrotile` 调度 | 从 immutable publication 冻结 0/1/>1 bin mode、generation 和 cache key | 单 bin 使用固定 8×8 GPU consumer 与轻量 status；多 bin 保留 classifier、bounded heap、finalizer、indirect 的 GPU 闭环 | 按 mode 收窄 Visibility MRT、clear、read set、材质 binding 和 residency；补齐 resize、association patch、invalid/overflow 语义 | 清理单 bin 不需要的队列和 attachment；单/多 bin 同条件对照，若 receiver/总 GPU 变差则删除慢实验而保留正确性合同 |
 | 三、Receiver 热路径与纹理驻留 | 冻结生成 WGSL、bind layout、材质 signature 和 texture ledger，确认真实主导成本 | 只修改 audit 证明仍执行的 velocity、packed decode、材质字段、采样 bank 或 setup 工作 | 核对纹理 source/decoded 尺寸、格式、mip、logical/resident/allocated bytes；沿现有 GPU-native/KTX2/BC 路径处理驻留 | 仅在 setup 仍主导时做有界复用 off/on；无稳定收益就删除实验，并把 HZB/Final Output/提交长尾转独立问题 |
 
@@ -369,17 +369,17 @@ type OpaqueShadingResult =
 
 ### 9. 三阶段执行计划
 
-本次重构只分三个阶段，按依赖顺序实施。每个阶段都先完成资源合同和运行证据，再进入下一阶段；不维护长期双 backend，也不把阶段性诊断路径写成生产路径。下面每个阶段中的编号步骤只是该阶段的提交顺序，不会再拆成新的 ADR 阶段。
+本次重构只分三个阶段，按依赖顺序连续实施。每个阶段先完成资源合同和轻量自动检查即可进入下一阶段；统一运行证据与人工验收放到三个阶段代码完成之后。不维护长期双 backend，也不把阶段性诊断路径写成生产路径。下面每个阶段中的编号步骤只是该阶段的提交顺序，不会再拆成新的 ADR 阶段。
 
 #### 执行规则
 
-三阶段不是三个可以并行的优化清单，而是一条有门槛的迁移顺序：
+三阶段不是三个可以并行的优化清单，而是一条有代码依赖的迁移顺序：
 
 1. **阶段一只改变产品需求和基础光照的归属。** Visibility、bin 分类和 packed geometry 先保持现状，用来隔离“无消费者仍生成中间产品”这一结构性成本。阶段一结束前不得用单 bin 调度结果解释收益。
 2. **阶段二只改变调度 ABI 和资源声明。** 单 bin、多 bin 必须共用同一份 publication snapshot；单 bin 省略不需要的队列和 MRT，多 bin 保留完整的 GPU producer → GPU consumer 闭环。阶段二不同时改 PBR 数学，避免无法判断收益来源。
-3. **阶段三只处理已被证据确认的 receiver 热点。** 每个字段、纹理 bank 或 setup 复用实验都先做 source/layout audit，再做同条件 off/on 对照；没有稳定 GPU 或驻留收益的实验必须删除。
+3. **阶段三只处理 source/layout audit 确认仍存在的 receiver 工作。** 字段、纹理 bank 和 packed decode 可以按生成 WGSL 与真实 bind layout 收窄；setup 复用只有在最终人工验收仍证明 receiver 主导时才进入实验，没有稳定 GPU 或驻留收益时必须删除。
 
-每个阶段采用同一提交节奏：先提交代码合同，再提交轻量自动检查结果，最后提交两个 Rendering Lab 的手动记录。阶段门槛只看真实 live graph、GPU 时间、计数器和画面语义；“少了一个 Pass”或“GPU 利用率下降”不能单独作为通过条件。阶段中发现主导成本不在本 ADR 范围内时，保留已经验证的正确性修复并停止扩展，不为了凑齐三阶段而继续重构。
+三个阶段的实施节奏是先提交代码合同，再提交轻量自动检查结果；全部代码完成后才统一提交两个 Rendering Lab 的人工记录。代码阶段可以用静态 ABI、生成 WGSL、layout/read-set 和 targeted tests 判断是否继续，但这些不能代替最终 live graph、GPU 时间、计数器和画面语义验收。“少了一个 Pass”或“GPU 利用率下降”不能单独作为性能结论。
 
 每一个编号步骤都必须留下四类信息，写入提交说明或对应导出旁车文件。步骤只有同时满足这四类信息才算完成：
 
@@ -388,17 +388,17 @@ type OpaqueShadingResult =
 3. **证据入口：** 具体的 typecheck、targeted test、WGSL/layout dump、live graph 或 Rendering Lab 导出字段。
 4. **失败处理：** 若门槛不满足，保留正确性修复，关闭或删除该步骤的实验路径，并记录转交到哪个独立性能问题；不把未证明的分支留在默认生产路径。
 
-因此每个步骤的实际执行格式固定为：**先写代码合同，再运行最小自动检查，随后做两个 Rendering Lab 的同条件手动对照，最后根据阶段门槛决定继续、回退或转交问题**。不能只完成代码而跳过证据，也不能只凭截图、Pass 数量或 GPU 利用率标记步骤完成。
+因此每个步骤的实施格式固定为：**先写代码合同，再运行最小自动检查；三个阶段代码全部完成后，再做两个 Rendering Lab 的同条件人工对照并作最终保留、回退或转交决定**。阶段实现不能跳过静态不变量，最终验收也不能只凭截图、Pass 数量或 GPU 利用率标记完成。
 
-| 阶段 | 先解决的主问题 | 主要 owner | 阶段产物 | 进入下一阶段的必要证据 |
+| 阶段 | 先解决的主问题 | 主要 owner | 阶段产物 | 进入下一阶段的代码证据 |
 | --- | --- | --- | --- | --- |
-| 一 | effects-off 仍物化 Surface/provider/resolve，中间产品重复往返 | `MainRenderPipeline`、`SurfaceFeature`、`GIService`、receiver shader | demand snapshot、receiver-local 基础 IBL、收窄后的 live graph | 画面语义正确；无消费者产品消失；同条件 receiver/HDR GPU 时间可导出 |
-| 二 | 单 bin 仍支付 classifier、queue、finalizer、第二 MRT 和完整 read set | publication、Visibility、`SurfaceFeature`、resolve | `None / DirectSingleBin / SparseMicrotile` 三态 ABI；单 bin 直接 consumer | 单/多 bin identity、overflow、resize、patch 均稳定；`P/N` 与总 GPU 时间可解释 |
-| 三 | receiver 逐像素 setup、packed decode、材质访问或纹理驻留仍主导 | receiver shader、material/texture ABI、asset residency | 经过证据支持的字段/路由收窄，必要时有界 setup 复用 | source audit、驻留账本和 off/on 对照证明实际收益；否则停止并转独立问题 |
+| 一 | effects-off 仍物化 Surface/provider/resolve，中间产品重复往返 | `MainRenderPipeline`、`SurfaceFeature`、`GIService`、receiver shader | demand snapshot、receiver-local 基础 IBL、按 consumer 收窄的 graph recipe | demand/FrameProducts/feature-off 不变量与 targeted tests 通过 |
+| 二 | 单 bin 仍支付 classifier、queue、finalizer、第二 MRT 和完整 read set | publication、Visibility、`SurfaceFeature`、resolve | `None / DirectSingleBin / SparseMicrotile` 三态 ABI；单 bin 直接 consumer | 单/多 bin identity、overflow、Final Output fail-closed、resize/patch 静态与 targeted tests 通过 |
+| 三 | receiver 逐像素 setup、packed decode、材质访问或纹理驻留仍主导 | receiver shader、material/texture ABI、asset residency | 生成 WGSL 支持的字段/路由收窄；setup cache 默认不启用 | source audit、binding/read-set、shader validation 和 material/texture targeted tests 通过 |
 
-对后续新增提交，阶段一的 live graph/基础光照门槛未通过前，不继续扩大阶段二的单 bin consumer；阶段二没有证明调度成本已经收窄前，不引入阶段三的 setup/cache 实验。已有静态实现不因门槛尚未通过而被误标为性能完成。任何阶段若门槛不满足，保留正确性修复并停在当前阶段，不以架构完整性代替性能证据。
+对后续新增提交，阶段一的 demand/基础光照代码合同通过轻量检查后即可进入阶段二；阶段二的调度 ABI 与 fail-closed 合同通过轻量检查后即可进入阶段三。阶段三可以继续生成 WGSL 与 read-set 收窄，但在最终人工数据证明 receiver 主导前不启用 setup/cache 实验。已有静态实现不得因人工验收尚未执行而阻塞后续代码阶段，也不得被误标为性能完成。
 
-| 阶段 | 轻量自动检查 | 手动记录 | 阶段输出文件 |
+| 阶段 | 阶段内轻量自动检查 | 三阶段完成后统一人工记录 | 输出文件 |
 | --- | --- | --- | --- |
 | 一 | `cd OEngine; npm run typecheck`；命中 `FrameProducts`、Surface/lighting contract 的 targeted tests；静态检查 demand 位与 live graph recipe | Basic/Full 各远、中、近一次；Full effects-off 的 graph dump、receiver/HDR GPU 时间、PBR/IBL 截图 | demand snapshot、effects-off/advanced-on graph dump、删除清单 |
 | 二 | `cd OEngine; npm run typecheck`；publication、pipeline contract、FrameGraph、Visibility MRT 的 targeted tests；检查 0/1/>1 ABI | 同一机位分别观察 single-bin 和人工 multi-bin；一次 resize、一次 material patch；记录 `P`、`N`、coverage、classifier、receiver、总 GPU 时间 | mode snapshot、single/dual MRT layout、read-set 映射、before/after 导出 |
@@ -410,14 +410,14 @@ type OpaqueShadingResult =
 
 **代码边界。** 主要修改 `MainRenderPipeline.ts`、`SurfaceFeature.ts`、`GIService.ts`、`FrameProducts.ts`、`GpuSparseShadingPipelineContract.ts`、`sparse_shading_resolve.ts`；必要时调整 `LongRangeDiffuseProviderPass.ts`、`OpaqueLightingResolvePass.ts` 与环境 preparation owner。
 
-**执行步骤（阶段一内按此顺序提交）。** 每一步都必须同时写清代码动作、不变量、最小检查、手动证据和失败处理；表格中的“停止点”表示不满足时停在阶段一，不把未解释的成本带入阶段二。
+**执行步骤（阶段一内按此顺序提交）。** 每一步必须写清代码动作、不变量、最小检查、最终人工证据入口和失败处理；表格中的“停止点”只约束代码合同或轻量检查失败，不要求阶段一完成时立即执行人工验收。
 
-| 步骤 | 代码动作与 owner | 必须保持的不变量 | 最小检查与手动证据 | 停止点/回退 |
+| 步骤 | 代码动作与 owner | 必须保持的不变量 | 阶段内最小检查与最终人工证据入口 | 停止点/回退 |
 | --- | --- | --- | --- | --- |
 | 1. 基线与 demand 快照 | 在 `MainRenderPipeline` graph build 入口计算不可变 `OpaqueShadingDemand`：`needsHdr`、`needsSurface`、`needsDiffuseSurface`、`needsVelocity`、`needsIndirectComponents`、`needsLightingDebug`。固定 Basic/Full 的窗口、`window.devicePixelRatio`、internal size、资产、画质和远/中/近机位，记录当前 live graph 与 GPU phase。 | 同一帧只允许一个 demand mask；publication generation、FrameProducts identity、resize/device-loss 生命周期不变；不改 Visibility/bin/packed geometry。 | `OEngine` typecheck、命中的 FrameProducts/lighting tests；两个示例各导出一次 demand mask、Surface/provider/resolve 数量、GPU 时间和截图。 | 若同一帧出现不同 mask 或基线条件不可复现，只修正 plan 生命周期，暂停后续步骤。 |
 | 2. receiver 内完成基础 PBR | 在 receiver shader 与 `GpuSparseShadingPipelineContract` 中加入 Environment IBL specialization，复用 direct BRDF/cluster/shadow；明确 direct、emissive、unlit、AO 与 pre-exposure 的唯一 owner。用 Unlit、PbrFactor、PbrOrm 生成最窄/最宽 WGSL 和 binding layout。 | VisibilityKey、坐标/深度、材质 ABI、颜色空间不变；emissive 只写一次，AO 只乘一次，HDR working-linear/pre-exposure 只在约定写入点应用。 | 生成 WGSL/layout dump、shader validation；Full effects-off 近景检查材质、环境旋转/亮度、阴影和 HDR 画面。 | 若出现重复 AO、亮度偏差或寄存器/绑定明显恶化，保留正确性修复，撤销融合变体并记录 receiver 热点转阶段三。 |
-| 3. 按 consumer 物化资源 | 让 `SurfaceFeature`、`GIService`、`FrameProducts` 只在 AO/SSGI/SSR/Brick4/Probe、temporal/velocity debug 或 lighting debug 真正读取时创建 Surface、velocity、provider 和后置 resolve；effects-off 的 live graph 删除对应 attachment、bind group、clear/copy/readback/submit。 | 高级效果开启时仍能得到命名的有效产品；提交边界才切换 generation，旧资源按 submitted-work retirement 回收；不使用 no-op Pass 伪装关闭。 | effects-off/advanced-on 两份 compiled graph dump；逐项开关一次，记录资源创建/退役和 provider/resolve GPU 时间；检查无 validation/uncaptured error。 | 只隐藏 UI、资源仍 live 或产品语义不完整时，停在 demand/graph owner 修正，不进入清理。 |
-| 4. 清理旧往返并设阶段门 | 复用现有 octahedral `environment_diffuse`/`environment_specular`、prefiltered mip 和 split-sum DFG；稳定帧只读 preparation owner 已完成的资源。删除 effects-off 独立 provider/opaque resolve 与重复 IBL 路径，更新删除清单。 | 环境替换、resize、scene replacement、device recovery 不复用旧 binding；SH9/cubemap 只作为另行验证的资源格式候选。 | Full/Basic 远中近各一轮同条件导出，面板记录 receiver/HDR、Surface bytes/pixel、live transient texture 和总 GPU 时间；画面对照通过后才审查删除。 | live graph 未收窄、画面不一致或 receiver/HDR 变慢且无法解释时，保留可运行旧 owner，停止阶段一并转交独立性能问题。 |
+| 3. 按 consumer 物化资源 | 让 `SurfaceFeature`、`GIService`、`FrameProducts` 只在 AO/SSGI/SSR/Brick4/Probe、temporal/velocity debug 或 lighting debug 真正读取时创建 Surface、velocity、provider 和后置 resolve；effects-off 的 graph recipe 删除对应 attachment、bind group、clear/copy/readback/submit。 | 高级效果开启时仍能得到命名的有效产品；提交边界才切换 generation，旧资源按 submitted-work retirement 回收；不使用 no-op Pass 伪装关闭。 | 阶段内以 recipe/FrameProducts targeted tests 检查 products 与图边；effects-off/advanced-on graph dump、逐项开关、退役和 GPU 时间留到统一人工验收。 | 静态合同仍保留无消费者产品或产品语义不完整时，停在 demand/graph owner 修正，不进入清理。 |
+| 4. 清理旧往返并设代码门 | 复用现有 octahedral `environment_diffuse`/`environment_specular`、prefiltered mip 和 split-sum DFG；稳定帧只读 preparation owner 已完成的资源。删除 effects-off 独立 provider/opaque resolve 与重复 IBL 路径，更新删除清单。 | 环境替换、resize、scene replacement、device recovery 不复用旧 binding；SH9/cubemap 只作为另行验证的资源格式候选。 | 阶段内检查 owner/read-set 删除与 targeted tests；Full/Basic 远中近、receiver/HDR、Surface bytes/pixel 和 live transient texture 留到统一人工验收。 | 代码合同失败立即修正；最终人工验收发现画面或 GPU 回退时，保留正确性修复并删除慢实验或转独立性能问题。 |
 
 **阶段一的具体交付物。** 步骤 1 必须先提交 demand 快照和基线导出，步骤 2 才能改变 receiver shader，步骤 3 才能删除 graph product，步骤 4 最后才删除旧 owner。建议使用以下固定命名，避免把不同机位或旧 revision 混在一起：
 
@@ -437,9 +437,9 @@ type OpaqueShadingResult =
 - 性能面板记录 Surface bytes/pixel、live transient texture 数量、provider/resolve Pass 数，以及 receiver/HDR 的 GPU 时间。收益按同一相机和分辨率的绝对 GPU 时间报告，不能把被搬入 receiver 的工作重复相加。
 - 高级效果开启时，所需的 Surface/indirect products 仍按 dependency 出现，且下游只读取命名的有效产品。
 
-**轻量手动测试。** 两个 Rendering Lab 都跑 Full effects-off 的远、中、近固定机位；Basic 只作同机位参照。加载和 Shader preparation 完成后，每个位置静置约 5--10 秒导出一次，检查 PBR/IBL 画面、live graph 和 GPU 面板。再逐项开启 AO、SSGI、SSR 和 temporal，确认对应资源出现、关闭后在提交边界退役。只保留必要截图、配置和导出，不建立新的压力矩阵。
+**最终统一人工验收中的阶段一记录。** 三个阶段代码完成后，两个 Rendering Lab 都跑 Full effects-off 的远、中、近固定机位；Basic 只作同机位参照。加载和 Shader preparation 完成后，每个位置静置约 5--10 秒导出一次，检查 PBR/IBL 画面、live graph 和 GPU 面板。再逐项开启 AO、SSGI、SSR 和 temporal，确认对应资源出现、关闭后在提交边界退役。该记录不在阶段一与阶段二之间执行。
 
-**阶段门槛。** 进入阶段二前必须能从一次导出回答：当前 execution mode、opaque 产品列表、Surface bytes/pixel、provider/resolve 数量、receiver/HDR GPU 时间，以及 advanced feature 重新打开后哪些产品重新出现。没有这些证据时只修正阶段一的合同，不继续扩大重构范围。
+**阶段一代码门槛。** demand snapshot、空间 GI placement、feature-off 产品声明和 FrameProducts 合同通过 typecheck 与命中的 targeted tests 后即可进入阶段二。execution mode、opaque 产品列表、Surface bytes/pixel、provider/resolve 数量、receiver/HDR GPU 时间和 advanced feature 重开记录统一留到三阶段完成后的人工验收。
 
 #### 阶段二：单 bin 调度与资源声明收窄
 
@@ -449,14 +449,14 @@ type OpaqueShadingResult =
 
 **执行步骤（阶段二内按此顺序提交）。** 阶段二只改变调度 ABI 和资源声明，不同时改 PBR 数学；这样可以把收益归因到分类/队列/MRT 的减少。
 
-| 步骤 | 代码动作与 owner | 必须保持的不变量 | 最小检查与手动证据 | 停止点/回退 |
+| 步骤 | 代码动作与 owner | 必须保持的不变量 | 阶段内最小检查与最终人工证据入口 | 停止点/回退 |
 | --- | --- | --- | --- | --- |
 | 1. 冻结三态 mode | 在 immutable publication 写入 `0 bin / 1 bin / >1 bin`：分别对应 `None`、`DirectSingleBin`、`SparseMicrotile`。mode 只来自已发布 summary，不允许 CPU 遍历可见列表补救；patch/resize 先完成新 publication 再切换。 | publication generation、VisibilityKey identity、旧 revision retirement、device-loss 恢复不变；FrameGraph/pipeline cache key 包含 mode 与 attachment layout。 | typecheck、publication/pipeline/FrameGraph targeted tests；导出 mode、published bin count、当前帧 non-zero bin count。 | mode 与 snapshot 不一致或切换期间读到旧资源时，停在 publication 生命周期修复。 |
 | 2. 落地 DirectSingleBin consumer | `SurfaceFeature` 使用固定 8×8 compute 网格和轻量 status；单 bin 不分配 sparse heap、classifier/finalizer、indirect args 或逐 bin queue。背景 lane 通过 VisibilityKey/depth validity 早返回并记录 `N`。 | 单 bin 仍由 GPU VisibilityKey 驱动，不生成 CPU visible list；单 MRT/双 MRT 选择与 debug/read set 一致。 | direct bind layout、dispatch、background early-out counter；单 bin screenshot 和 layout dump，确认没有隐式第二 MRT。 | receiver 成本因全屏 `N` 放大且总时间变差时，删除慢实现或改为单 bin 稀疏 consumer，不恢复覆盖率门槛。 |
 | 3. 让 Visibility/MRT 合同反向收窄 | `PackedVisibilityPass` 只在需要 bin identity 时写 `r8uint ShadingBinId`；多 bin 保留 `r32uint VisibilityKey + r8uint ShadingBinId`、bounded reservation、finalizer fail-closed 与 indirect ABI。同步 producer、consumer、clear、resize、cache key。 | invalid identity、overflow、sentinel、背景写入和 generation mismatch 的语义不变；多 bin 必须是 GPU producer → GPU consumer 闭环。 | single/dual MRT layout、clear、resize 断言；注入一次 invalid/overflow 验证 fail-closed，不将错误场景作为性能样本。 | 任一读写端仍假设第二 attachment，立即回退 attachment 收窄，保留多 bin 路径。 |
 | 4. 对齐材质 read set 并作收益决策 | 用同一 `MaterialAccessSignature` 驱动 WGSL specialization、`TextureBindingSet`、FrameGraph read set、barrier、residency 与 cache key；先核对 PbrOrm 及 normal/emissive 材质，再做单/多 bin 同条件对照。 | 省略未用 bank 不能丢真实纹理；patch 原子切换，旧绑定按 submitted-work retirement；不增加每帧全量 CPU 材质扫描。 | signature→binding/read-set 映射；记录 `P`、内部 `N`、coverage、classifier、receiver、总 GPU 时间和 timestamp 覆盖范围。 | 只有 Pass 数减少而 receiver/总时间无改善，删除或关闭 DirectSingleBin 实验，保留三态 ABI 与正确性修复。 |
 
-**阶段二的具体交付物。** 先用单 bin 固定 workload 验证 `DirectSingleBin`，再使用 URL-only 多材质夹具验证 `SparseMicrotile`，最后才做 resize 和 material patch。两个模式必须使用同一个 publication snapshot 规则，不能为夹具新增 CPU visible list。
+**阶段二的具体交付物。** 代码阶段先用 targeted tests 固定 `DirectSingleBin` 与 `SparseMicrotile` 的 publication、FrameGraph、fail-closed 和 resize/patch 合同。三个阶段完成后的统一人工验收再分别运行 single-bin 固定 workload 与 URL-only 多材质夹具。两个模式必须使用同一个 publication snapshot 规则，不能为夹具新增 CPU visible list。
 
 | 文件 | 内容 | 用途 |
 | --- | --- | --- |
@@ -472,30 +472,30 @@ type OpaqueShadingResult =
 - shader descriptor、FrameGraph read set 和 texture residency accounting 一致；未使用 texture bank 不再延长资源生命周期。
 - 面板能区分 publication mode 与本帧非零 bin，并同时显示 `P/N`，避免把 mode 当作性能结论。
 
-**轻量手动测试。** Basic 和 Full 使用完全相同的 camera、窗口、DPR 与画质，分别观察远、中、近机位；单 bin 场景再用一个人工多材质/多 association 场景确认多 bin 回路。做一次 resize 和一次 material patch，检查材质、背景、错误日志、截图及少量性能导出。不要把两种场景的不同视角直接做差。
+**最终统一人工验收中的阶段二记录。** Basic 和 Full 使用完全相同的 camera、窗口、DPR 与画质，分别观察远、中、近机位；单 bin 场景再用一个人工多材质/多 association 场景确认多 bin 回路。做一次 resize 和一次 material patch，检查材质、背景、错误日志、截图及少量性能导出。该记录不在阶段二与阶段三之间执行。
 
-**阶段门槛。** 进入阶段三前必须确认单 bin 与多 bin 的 ABI、overflow、identity 和 resize 行为稳定，并能解释单 bin 在远景和近景的绝对 GPU 时间；只出现“Pass 数量减少”而没有 receiver/总 GPU 数据，不算通过。
+**阶段二代码门槛。** 单 bin 与多 bin 的 ABI、overflow、identity、Final Output fail-closed、MRT/read set 和 resize/patch 生命周期通过 typecheck 与命中的 targeted tests 后即可进入阶段三。远景/近景绝对 GPU 时间和 single/multi-bin 性能解释统一留到最终人工验收；Pass 数减少本身不构成性能结论。
 
 #### 阶段三：Receiver 热路径与纹理驻留核查
 
-**目标。** 只有前两阶段证明基础工作流和调度合同稳定后，才处理逐像素 receiver setup、packed decode、材质读取和纹理工作集。该阶段的收益必须由 shader 实际工作或 residency 证据支持。
+**目标。** 前两阶段代码合同和轻量检查通过后，处理逐像素 receiver setup、packed decode、材质读取和纹理工作集。代码收窄必须由生成 shader 的实际工作或 binding/read-set 证据支持；GPU 收益结论留到最终统一人工验收。
 
 **代码边界。** 主要修改 `sparse_shading_resolve.ts`、`GpuShadingProgramOracle.ts`、`GpuComputeMaterialAbi.ts`、`GpuTextureRefAbi.ts`、`TextureResidency.ts`、`GpuAssetStore.ts`、环境 preparation owner；若证据支持，再评估 `LargeTriangleSetupCache.ts` 的有界局部复用。
 
-**执行步骤（阶段三内按此顺序提交）。** 阶段三只处理已经被阶段一、二的证据确认的 receiver 或 residency 热点；没有基线就不改 shader，没有收益就删除实验。
+**执行步骤（阶段三内按此顺序提交）。** 阶段三只处理 source/layout audit 已确认仍存在的 receiver 或 residency 工作；没有生成 WGSL/binding 基线就不改 shader。setup/cache 等增加资源或 dispatch 的实验必须等待最终人工数据证明 receiver 主导，不能为了完成代码阶段默认启用。
 
-| 步骤 | 代码动作与 owner | 必须保持的不变量 | 最小检查与手动证据 | 停止点/回退 |
+| 步骤 | 代码动作与 owner | 必须保持的不变量 | 阶段内最小检查与最终人工证据入口 | 停止点/回退 |
 | --- | --- | --- | --- | --- |
-| 1. 建立 source/residency 基线 | 沿用 Full effects-off 近景，导出 Unlit、PbrFactor、PbrOrm、normal-map/velocity 变体的生成 WGSL、bind layout 和一次 `textureLedger`。 | 不修改材质 ABI、资产格式或 DPR；导出必须带 asset identity、internal/output extent 和 capability fingerprint。 | `npm run audit:shaders`、typecheck、命中的 material/texture tests；保存一帧稳定的 WGSL/layout/residency 记录。 | 缺少可比 source/layout/residency 数据时，阶段三停在审计，不进入改码。 |
+| 1. 建立 source/residency 基线 | 阶段内导出 Unlit、PbrFactor、PbrOrm、normal-map/velocity 变体的生成 WGSL 与 bind layout；Full effects-off 的实际 `textureLedger` 留到统一人工验收。 | 不修改材质 ABI、资产格式或 DPR；source audit 带 capability fingerprint，运行时 ledger 带 asset identity 与 internal/output extent。 | `npm run audit:shaders`、`npm run audit:adr0015-receiver`、typecheck、命中的 material/texture tests；最终人工验收保存稳定的 layout/residency 记录。 | 缺少可比 source/layout 数据时停在审计；缺少尚未到期的人工 residency 数据不阻塞已由 source 证明的代码收窄。 |
 | 2. 审计并收窄真实读取 | 检查 velocity-off 的 clip/velocity load、PbrOrm 的 base/normal/emissive/tangent 分支、packed geometry metadata 与三个顶点解码；只按生成 WGSL 和真实 bind layout 判断。对确认存在的读取收窄 material record、texture route、sampler，并同步 `MaterialAccessSignature`、cache key、binding declaration、FrameGraph read set 和 ABI 版本。 | 不能把 TypeScript 字段大小当实际带宽；若编译器已消除路径，不增加手工变体；patch 与旧 publication 退役规则保持原子。 | WGSL diff、binding budget、最窄/最宽材质 shader validation；区分“源码存在但已消除”和“真实 load/binding 仍存在”。 | 任何 identity、UV、normal、tangent、颜色或 velocity 回归，回退字段收窄，保留审计结论。 |
 | 3. 核对纹理驻留与工作集 | 由 `TextureResidency`/`GpuAssetStore` 记录 source/decoded dimensions、format、mips、layer/capacity、logical/resident/allocated bytes、asset identity，核对 2048→4096 是统计错误、上传放大还是物理驻留。必要时对同尺寸 GPU-native/KTX2/BC package 做一次手动对照。 | `logicalBytes`（未压缩 mip 估算）、`residentBytes`（实际 payload）和 `allocatedBytes`（物理 slot 份额）语义不混用；不以降低 DPR、强制粗 mip 或删除环境光换收益。 | 一次完整 `textureLedger` 与 binding/read-set 映射；报告内存和长尾 GPU 时间的共同变化。 | ledger 与 bind/read set 不一致时，先修复 residency/资源合同，不进行 setup cache。 |
 | 4. 有界 setup 实验与最终裁决 | 仅当 receiver setup 仍是主导，才评估 `LargeTriangleSetupCache` 或 subgroup 局部复用；显式定义 producer、容量、overflow、fallback、命中计数、生命周期和 device-loss 行为。 | 不建立无界跨帧 cache/长期队列；正常帧不增加逐像素 atomic 或 CPU 可见列表；画质、近裁剪面、退化三角形和 mip 语义不变。 | off/on 同 workload 各一轮，记录 hit/fallback/额外字节、receiver/总 GPU 时间、截图与 diagnostics。 | 无稳定 GPU/驻留收益、只在单一静态镜头命中，或长尾来自 HZB/Final Output/提交间隔时，删除实验并转独立性能问题。 |
 
-**阶段三的具体交付物。** 步骤 1 的 source/residency 快照是后续唯一基线；步骤 2 只能修改 audit 已确认的实际 load/binding；步骤 3 先修正统计或资源合同再讨论压缩；步骤 4 必须有 off/on 对照，命中率不能单独算收益。
+**阶段三的具体交付物。** 代码阶段以 source/binding audit 为基线，步骤 2 只能修改 audit 已确认的实际 load/binding；步骤 3 完成 ledger 结构与 read-set 映射，真实场景 ledger 在最终人工验收采集；步骤 4 只有届时确认需要实验才产生 off/on 对照，命中率不能单独算收益。
 
 | 文件 | 内容 | 用途 |
 | --- | --- | --- |
-| `stage3-source-audit.json` | 生成 WGSL 的实际 load、binding、program/material signature 和 shader validation | 区分源码分支与真实执行路径 |
+| `OEngine/benchmarks/adr-0015-receiver-source-audit.json` | 生成 WGSL 的实际 material field、texture slot、binding、program/material signature 和静态合同验证 | 区分源码分支与真实执行路径；GPU 时间和视觉结论延后到统一人工验收 |
 | `stage3-texture-ledger.json` | 每张纹理的 asset identity、尺寸、格式、mip、logical/resident/allocated bytes 与 read set | 区分统计放大、上传放大和物理驻留 |
 | `stage3-receiver-off.json`、`stage3-receiver-on.json` | 同一 ORM/normal-map 近景的 receiver/总 GPU 时间、截图和 diagnostics | 判断字段收窄或 setup 复用是否有稳定收益 |
 | `stage3-setup-cache.json` | 仅实验启用时记录 hit、fallback、capacity、overflow、额外字节和 retirement | 证明 cache 没有引入无界生命周期或错误路径 |
@@ -507,9 +507,9 @@ type OpaqueShadingResult =
 - receiver setup 复用若采用，能显示命中率、fallback、额外字节和 GPU 时间；没有正确性回退。
 - 近裁剪面、斜视纹理、退化三角形、normal-map 和 mip 语义保持稳定。
 
-**轻量手动测试。** 以 Full effects-off 的 ORM 近景为主，补充斜视纹理、近裁剪面、退化三角形和一个带 normal map 的材质视角，检查 mip、UV、normal、tangent、颜色和闪烁。纹理 residency 做一次完整核查；subgroup/setup 实验只在前两阶段稳定后运行，不扩展成大型资产矩阵。
+**最终统一人工验收中的阶段三记录。** 以 Full effects-off 的 ORM 近景为主，补充斜视纹理、近裁剪面、退化三角形和一个带 normal map 的材质视角，检查 mip、UV、normal、tangent、颜色和闪烁。纹理 residency 做一次完整核查；subgroup/setup 实验只在统一验收确认 receiver 主导后运行，不扩展成大型资产矩阵。
 
-**阶段门槛。** 阶段三只在实际 receiver 或 residency 仍是主导成本时继续；如果主要长尾来自 HZB、compact、Final Output、提交间隔或频率变化，应停止本 ADR 的 shader 重构并转为独立证据任务。
+**阶段三代码门槛。** 生成 WGSL 不保留已确认可物理删除的读取，binding/read-set 与 texture ledger 合同一致，并通过 typecheck、shader/layout 和 material/texture targeted tests。最终人工验收若显示主要长尾来自 HZB、compact、Final Output、提交间隔或频率变化，则停止后续 receiver/setup 实验并转为独立证据任务。
 
 三个阶段完成后，再清理被替代的基础路径、过时计数名称和无消费者 shader；保留多 bin scheduler 及高级效果实际需要的 GI/AO/SSR owner。当前实现状态只写入 `STATUS.md`，ADR 仍需满足验证章节的运行证据后才能改变状态。
 
@@ -632,7 +632,7 @@ GPU 利用率不是越低越好：若解除了帧率限制，优化后帧率更�
 
 ### 1. 轻量自动检查
 
-本次文档与 Rendering Lab 夹具调整只做静态检查，不运行 Renderer 全量测试或 GPU benchmark；已有浏览器导出作为手动证据保存，不把它们写成正式 PERF 基线。
+三个代码阶段采用静态检查、命中的 targeted tests、生成 WGSL/layout audit 和必要的现有浏览器 component；不要求 Renderer 全量测试、人工 Rendering Lab 或 GPU benchmark 作为阶段间前置。三阶段完成后再统一执行人工主验收，既有或新产生的轻量浏览器结果都不写成 formal PERF 基线。
 
 未来实现按用户偏好采用中等强度的最小检查：
 
@@ -647,7 +647,7 @@ GPU 利用率不是越低越好：若解除了帧率限制，优化后帧率更�
 
 ### 2. 两个示例的手动主验收
 
-用户手动操作为主，每个 revision 一轮远/中/近通常足以决定下一步，不要求每批次重复全套。
+三个阶段代码与轻量自动检查全部完成后，再由用户执行一轮统一人工主验收；不要求每阶段或每批次重复全套。
 
 1. 保持当前示例 `window.devicePixelRatio`、internalScale、浏览器、窗口尺寸、灯光、画质与 instrumentation 相同。记录实际 internal/output 尺寸，避免将 DPR 变化当性能收益。
 2. Full 关闭所有高级效果，保留 PBR/环境/基础灯光；固定远、中、近三个 camera position/target。先让加载与 Shader preparation 完成，再每个位置静置约 5–10 秒并导出。拉近后原地转向可观察材质/几何变化。
@@ -685,4 +685,4 @@ GPU 利用率不是越低越好：若解除了帧率限制，优化后帧率更�
 - multi-bin、所需高级效果、patch/resize 与背景 identity 正确，关闭后释放资源；无 GPU validation/uncaptured error/device loss。
 - 只有实际采用且有效的局部优化留在生产；被替代的基础物理路径完成清理，来源与当前文档同步。
 
-这些是本次轻量迭代的完成条件，不把尚未运行的自动化、手动视觉或正式性能验证标为通过。
+这些是三阶段实现完成后的统一人工验收条件。formal PERF 不是本轮代码实施或人工主验收的前置条件；在人工验收或 formal PERF 尚未运行时如实保持未验证状态，不阻塞三个代码阶段连续完成。

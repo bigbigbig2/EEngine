@@ -122,6 +122,21 @@ export interface SpecializedShadingFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
+/**
+ * Returns the fail-closed control consumed by Final Output. SparseMicrotile
+ * stores it in the queue heap; DirectSingleBin owns the same 32-byte prefix in
+ * its lightweight status buffer. The two products are mutually exclusive.
+ */
+export function specializedShadingFinalControl(
+  frame: Readonly<SpecializedShadingFrame>
+): ResourceId {
+  const control = frame.bins?.heap ?? frame.status;
+  if (control === null) {
+    throw new Error("SpecializedShadingFrame has no Final Output control resource");
+  }
+  return control;
+}
+
 export type ScreenSpaceDiffuseMode = "off" | "gtao" | "ssgi";
 export type LongRangeDiffuseProvider = "brick4" | "probe-volume" | "ibl" | "black";
 
