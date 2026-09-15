@@ -86,7 +86,7 @@ export class PerformancePanel {
         <details><summary>CPU 分段、提交与 I/O</summary><div data-view="cpu"></div></details>
         <details><summary>资源与 GPU diagnostics</summary><div data-view="resources"></div></details>
         <details><summary>最新 GPU counters（原始值）</summary><div data-view="counters"></div></details>
-        <details open><summary>记录与两份结果对照</summary><div class="lab-toolbar"><button data-action="export" disabled>导出 JSON</button><button data-action="save" disabled>保存为对照</button><button data-action="import">导入对照 JSON</button><button data-action="load">读取已保存对照</button></div><input type="file" accept="application/json,.json" data-input="file" hidden><div data-view="comparison"></div></details>
+        <details open><summary>记录与两份结果对照</summary><div class="lab-toolbar"><button data-action="export" disabled>导出 JSON</button><button data-action="save" disabled>保存为对照</button><button data-action="import">导入对照 JSON</button><button data-action="load">读取已保存对照</button></div><input type="file" accept="application/json,.json" data-input="file" hidden><textarea data-output="capture" hidden readonly></textarea><div data-view="comparison"></div></details>
       </div>`;
     document.body.append(this.root);
     this.root.addEventListener("click", (event) => {
@@ -134,7 +134,8 @@ export class PerformancePanel {
 
   /** Read-only automation hook; export and comparison keep the same capture. */
   captureJson(): string | null {
-    return this.result === null ? null : JSON.stringify(this.result, null, 2);
+    const value = this.captureOutput().value;
+    return value.length === 0 ? null : value;
   }
 
   private conditionKey(): string { return JSON.stringify(this.conditions()); }
@@ -225,6 +226,7 @@ export class PerformancePanel {
       completion: this.interrupted ? "interrupted" : "completed", warnings,
       summary: { gpu: distribution(frameSeries(frames, "gpu")), cpu: distribution(frameSeries(frames, "cpu")), raf: distribution(frameSeries(frames, "raf")), phases: Object.fromEntries(gpuRows(frames, "phase")), passes: Object.fromEntries(gpuRows(frames, "pass")) }
     };
+    this.captureOutput().value = JSON.stringify(this.result, null, 2);
     this.options.controls.enabled = this.previousControlsEnabled;
     this.state = "done";
     this.message = `记录${this.interrupted ? "中断" : "完成"} · ${frames.length} 帧 · ${frames.filter((frame) => frame.gpuValid).length} 个有效 GPU 样本`;
@@ -247,7 +249,7 @@ export class PerformancePanel {
         this.options.renderer.configure({ features: { shadows: on, screenSpaceDiffuseMode: on ? "gtao" : "off", screenSpaceReflections: on, temporalAntiAliasing: on, bloom: on, automaticExposure: on, motionBlur: on, sharpening: on } });
         this.reset();
       } else if (action === "export" && this.result) {
-        const url = URL.createObjectURL(new Blob([JSON.stringify(this.result, null, 2)], { type: "application/json" }));
+        const url = URL.createObjectURL(new Blob([this.captureJson()!], { type: "application/json" }));
         const anchor = document.createElement("a");
         anchor.href = url; anchor.download = `oengine-${this.options.variant}-${Date.now()}.json`; anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -285,12 +287,14 @@ export class PerformancePanel {
 
   private reset(): void {
     this.result = null; this.recorded.clear(); this.live.clear(); this.state = "idle";
+    this.captureOutput().value = "";
     this.lastConditions = this.conditionKey();
     this.message = "统计已重置 · 配置稳定后开始采样";
     this.paint();
   }
 
   private input(name: string): HTMLInputElement { return this.root.querySelector<HTMLInputElement>(`[data-input="${name}"]`)!; }
+  private captureOutput(): HTMLTextAreaElement { return this.root.querySelector<HTMLTextAreaElement>('[data-output="capture"]')!; }
   private view(name: string, html: string): void { this.root.querySelector<HTMLElement>(`[data-view="${name}"]`)!.innerHTML = html; }
 
   private paint(): void {

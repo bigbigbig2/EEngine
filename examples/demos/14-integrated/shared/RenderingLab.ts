@@ -44,9 +44,6 @@ let disposed = false;
 let performancePanel: PerformancePanel | undefined;
 let variant: LabVariant = "basic";
 const multiBinFixture = new URLSearchParams(window.location.search).get("multiBin") === "1";
-const evidenceWindow = window as Window & {
-  __oengineRenderingLabCaptureJson?: () => string | null;
-};
 
 async function start(): Promise<void> {
   if (navigator.gpu === undefined) {
@@ -163,10 +160,6 @@ async function start(): Promise<void> {
       controls!.reset();
       activeRenderer.indicate_view_change();
     }
-  });
-  Object.defineProperty(evidenceWindow, "__oengineRenderingLabCaptureJson", {
-    configurable: true,
-    value: () => performancePanel?.captureJson() ?? null
   });
   startResizeObserver(activeRenderer, activeCamera);
 
@@ -375,7 +368,6 @@ function dispose(): void {
   cancelAnimationFrame(animationFrame);
   resizeObserver?.disconnect();
   performancePanel?.dispose();
-  delete evidenceWindow.__oengineRenderingLabCaptureJson;
   controls?.dispose();
   if (rendererReady) renderer?.destroy();
   canvas.getContext("webgpu")?.unconfigure();
