@@ -30,7 +30,7 @@ explicit scene/asset patches
 
 生产路径从 resident geometry 和 GPU Scene 生成 hierarchy/work queue，再由 indirect hardware raster 直接消费并写 `VisibilityKey + depth`。VisibilityKey 必须稳定标识 work/instance/local primitive；overflow 和无效 identity fail closed。
 
-OEGPACK V3 当前止于可校验 metadata、独立页和 bootstrap residency。目标迁移是在上述闭环中替换 geometry/hierarchy 地址来源，并加入 resident ancestor fallback 与 page demand；在 V3 真正到达现有 Visibility consumer 之前，不能称为虚拟几何运行时完成。
+OEGPACK V3 当前止于可校验 metadata、独立页和 bootstrap residency proof；Web Runtime Cooker 尚不存在。接受的目标迁移是先建立 Producer-neutral Geometry Product admission，让 Web live product 与 OEGPACK adapter 在此汇合，再在上述闭环中替换 geometry/hierarchy 地址来源并加入 resident ancestor fallback 与 page demand。在任何 Product 真正到达现有 Visibility consumer 之前，不能称为虚拟几何运行时完成。
 
 ### Sparse shading
 
@@ -44,11 +44,12 @@ Shadow、direct/indirect lighting、AO/GI/SSR、transparency、temporal 和 post
 
 每个队列必须同时具备：固定元素 ABI、容量来源、overflow 行为、GPU producer、GPU consumer、有效计数和 debug/evidence seam。CPU readback 只用于有界诊断或异步调度反馈，不得重建最终 draw/material list。
 
-## V3 迁移边界
+## Runtime-first Virtual Geometry 迁移边界
 
-- A：离线 cooker、OEGPACK V3 与 bootstrap loader，已实现基础能力。
-- B：page residency、feedback、range/decode/upload/eviction，尚未形成生产闭环。
-- C：把 V3 resident geometry 接入现有 hierarchy/work/visibility，不创建新 raster backend。
-- D：在现有 TextureAssetPackage/TextureResidency/TextureBindingSet 上增加渐进 mip residency；Virtual Texturing 不是基线。
+- Web 主路线：GLB/glTF Range source、WASM/Worker CookSession 与 progressive immutable Product，尚未实现。
+- A：独立 Offline Cooker/OEGPACK 第二路线已有基础能力，通过 adapter 接入共同 Product，不拥有独立 renderer。
+- B：Producer-neutral admission、page residency、feedback、provider/cook/decode/upload/eviction，尚未形成生产闭环。
+- C：把 active Product generation 接入现有 hierarchy/work/visibility，不创建新 raster backend。
+- D：先区分纹理渐进传输与真实物理 residency；在现有 TextureAssetPackage/TextureResidency/TextureBindingSet 上推进，Virtual Texturing 不是基线。
 
 当前顺序和退出条件见 [0016 实施文档](./implementation/0016-virtualized-assets.md)。

@@ -2,44 +2,174 @@
 
 Status: draft
 
-Owners: future geometry residency owner、`GpuAssetStore`、GPU hierarchy/work owner
+Owners: geometry admission/residency owner、`GpuAssetStore`、GPU hierarchy/work owner
 
 ## Version/Compatibility
 
-本文件冻结语义边界，不冻结尚未实现的 WGSL struct offset。任何 GPU-visible record 在实现前必须补齐字段/stride/align、TypeScript mirror 和 oracle，然后才能把本 spec 提升为 candidate。
+本规范消费 [Geometry Product V1](./geometry-product-v1.md)，不直接依赖 GLB、WASM Worker、OEGPACK 文件或 cache。V1 只支持 `oengine-vg-v1-v3-decoded`，因此 decoded page 固定 256 KiB，并复用 OEGPACK V3-compatible hierarchy/Group/Meshlet consumer。
 
-V1 消费 [OEGPACK V3](./oegpack-v3.md)，不改变 VisibilityKey、material identity 或 shading ABI。
+本文件冻结状态机、queue 和 publication 语义。GPU-visible layout 中已明确的记录必须按下文实现；尚未实现的 product metadata table 组合在 candidate 前仍需补齐字段/stride/align、TypeScript mirror、WGSL oracle 和 version gate。V1 不改变 VisibilityKey、material identity 或 Sparse Shading ABI。
+
+## Nyx Runtime 移植边界
+
+Residency、GPU traversal 和 Visibility consumer 的算法来源是本地 Nyx 快照 `D:\Nyx-main`，具体源文件与 producer hash 见 [Geometry Product V1 的 Nyx provenance](./geometry-product-v1.md#nyx-provenance-与移植合同)。Runtime 必须逐项移植：`GeometryStreaming.cpp`（`acb3aa4786eb6367e92b99e9e295c83e0aade516d59578f23ff38496f838a072`）和 `.h`（`4bee73ffc0c29ad7670bb7c5ac1567a281b3f33271adfc534d834dc88897c264`）的初始化、root pin、request mask、延迟 readback、page I/O、publish/revoke/evict；`DAGCull.slang`（`6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e`）的 `ProcessNodeBatch`、`ProcessMeshletBatch`、`computeMain`；以及 `VBufferMesh.slang`（`9f374a2437d5ab939ae4d98289c150097bdab17305191ff97abf3fd1d13c621d`）的 `BuildVertexOutput`、`meshMain`、`pixelMain`。
+
+WebGPU 适配只允许改变 DX12/Slang 的资源绑定、mesh shader/DispatchMesh 表达、I/O API、GPU address 表达和 fence/lifecycle API。request mask、wavefront/bounded reservation、SSE/HZB、resident ancestor fallback、refinement request、page-independent validation 和 local primitive identity 不得被 CPU visible-list、整包常驻、单层 frustum、普通 per-object draw 或无状态上传替代。没有 source function map 和 CPU/WASM/WGSL differential oracle 的实现不得提升为 candidate。
 
 ## Contract
 
-### 物理位置
+### Owner 边界
 
-decoded page 放入固定 256 KiB slot；bank 默认 128 MiB/512 slots。GPU-visible 位置至少表达 `bankIndex + slotIndex/byteOffset + generation + flags`。generation 不匹配视为 non-resident，禁止读取旧 occupant。
+| Owner | 拥有 | 不拥有 |
+| --- | --- | --- |
+| Product Provider | immutable descriptor、decoded page 生产、source/cook/cache 生命周期 | GPU object、physical slot、frame publication |
+| Admission | descriptor validation、budget reservation、product generation、replace transaction | 文件格式、最终可见 work |
+| Residency | page state、physical heap、upload、mapping、eviction、feedback scheduler | Cooker 算法、scene object graph |
+| GPU hierarchy/work | desired Group、fallback、demand、bounded raster work | 网络、Worker、CPU 最终可见列表 |
+| `GpuAssetStore`/`GpuRenderWorld` | asset/instance/material 与 active product generation 的原子引用 | Loader/Worker 临时 buffer |
 
-### 状态与 publication
+### Product admission 状态
 
-逻辑页状态至少区分 non-resident、requested、decoding、uploading、resident 和 retiring/failed。只有校验、upload 和地址表写入完成后才能发布 resident generation；eviction 先撤销可见映射，再等待 submitted-work 安全边界复用 slot。
+revision 的 CPU 状态机固定为：
 
-bootstrap 页在资产可绘制期间 pinned。非 bootstrap 页可以驱逐；任何 desired group 缺页时必须找到 resident ancestor/bootstrap fallback，或 fail closed，不得访问无效地址。
+```text
+offered
+  -> validating
+  -> reserving
+  -> filling-activation-cut
+  -> ready-to-activate
+  -> active
+  -> retiring
+  -> retired
+```
 
-### Demand feedback
+任何激活前状态都可进入 `failed` 或 `cancelled`。`active` revision 的后台 page failure 不使整个 revision 失效，只保持 ancestor fallback 并记录失败；descriptor/profile corruption、activation page failure或依赖不完整则禁止激活。
 
-GPU traversal 产生 page demand，运行时以 bitset 或等价去重结构聚合。合同必须包含容量、overflow 标志、有效计数和 frame/generation identity。CPU 只读取有界、延迟 feedback 来安排 I/O；最终 work/visibility 仍由 GPU 生成。
+Admission 为每次 offer 分配非零 `productGeneration: u32`。同一 `(ProductID, revision)` 的重复 offer 只允许在 descriptor 完全相同且复用同一 source transaction 时合并；否则拒绝。generation wrap 前必须清空相关异步任务和 GPU reference，不能静默复用仍可见的 generation。
 
-优先级至少能表达当前可见缺页、预计 refinement 与后台预取。重复 request 合并；过期 generation、已 resident 页和已取消资产的 request 丢弃。
+激活事务必须原子发布：
 
-### I/O、decode 与 upload
+```text
+validated descriptor + complete resident activation cut + dependencies
+  -> encode product metadata/page-table publication
+  -> submit with scene/GPU revision
+  -> future frozen FrameContext sees new productGeneration
+  -> old generation mappings become non-discoverable
+  -> wait submission safety boundary
+  -> release old slots/metadata/source
+```
 
-source 遵循异步 range-readable 接口。memory/HTTP 是基础适配器；OPFS/cache 可选且失败时退回 source。decode/verify 在有界 Worker/任务池执行，具有最大并发、队列长度、取消和 backpressure。
+不得在一个冻结 `FrameContext` 内混用不同 product generation。新事务失败或取消时回滚其 reservation，旧 active revision 不变。
 
-upload 按帧预算批处理，不为每页独立 submit。默认上限受 [VALIDATION](../VALIDATION.md) 的 8 MiB/frame 约束，改变需 evidence。readback 同样受 256 KiB/frame 上限约束。
+### 逻辑 page 状态
 
-### 故障与恢复
+每个 `(productGeneration, PageID)` 具有以下单向主状态：
 
-range、checksum、decode 或 upload 失败不得发布页；retry 有界并可观测。scene/asset replace 取消旧任务；device loss 使所有 physical location/generation 失效，恢复从 bootstrap 重建。feature-off 不保留 scheduler、feedback、heap 或 readback。
+```text
+absent -> queued -> producing-or-reading -> verified -> upload-queued
+       -> submitted -> resident -> retiring -> absent
+```
+
+`queued` 到 `submitted` 可因 cancel/failure 回到 `absent` 或进入带 retry deadline 的 `failed`。只有 page 长度、descriptor hash、payload bounds 和 product generation 全部有效后才进入 `verified`。`resident` 只能由已提交的 upload 和同批 mapping publication 建立；CPU 拷贝完成不代表 resident。
+
+迟到 page、旧 source session、旧 product generation、已 resident page 和已取消 revision 必须在占用 upload credit 前丢弃。重复 demand 合并到同一 page operation，并提升优先级而不是复制工作。
+
+### Physical heap 与地址表
+
+- decoded slot 固定 256 KiB；默认 bank 为 128 MiB、512 slots。
+- bank 数与总 slot 数来自设备 limit、全局 resident budget 和显式配置，不得依赖未协商能力。
+- slot 在 `submitted`/`resident`/`retiring` 状态有唯一 owner；禁止同帧重分配。
+- activation pages 在 revision active 期间 pinned；pinned 总量服从 admission budget。
+
+GPU-visible `GeometryPageLocationV1` 是 16-byte little-endian record：
+
+| Byte | 类型 | 字段 |
+| ---: | --- | --- |
+| 0 | `u32` | bank index；non-resident 为 `0xffffffff` |
+| 4 | `u32` | slot index；non-resident 为 `0xffffffff` |
+| 8 | `u32` | product generation；non-resident 为 0 |
+| 12 | `u32` | flags |
+
+flags bit 0 为 resident，bit 1 为 pinned；bits 2..31 必须为 0。`byteOffset = slotIndex << 18`。Shader 必须先验证 resident bit 和预期 product generation，再读取 page；失败视为 non-resident。地址表容量至少等于 descriptor page count，越界 PageID fail closed 并计数。
+
+映射撤销必须先将 record 写为 non-resident，并确保未来 frame 不再产生旧 work；slot 只有在引用旧 mapping 的所有提交完成后才能复用。不得在帧循环中 await `queue.onSubmittedWorkDone()`；retire owner 使用提交序号/fence 批次异步回收。
+
+### Demand queue ABI
+
+GPU hierarchy traversal 是 producer，CPU residency scheduler 是延迟 consumer。Queue header 为 16-byte little-endian：
+
+| Byte | 类型 | 字段 |
+| ---: | --- | --- |
+| 0 | `atomic<u32>` | attempted count |
+| 4 | `u32` | capacity |
+| 8 | `atomic<u32>` | overflow；0/1 |
+| 12 | `u32` | frame revision low 32 bit |
+
+每个 `GeometryPageDemandV1` 为 16 B：
+
+| Byte | 类型 | 字段 |
+| ---: | --- | --- |
+| 0 | `u32` | product table slot |
+| 4 | `u32` | product generation |
+| 8 | `u32` | PageID |
+| 12 | `u32` | packed priority/flags |
+
+`priority/flags` bits 0..15 是 unsigned priority（值越大越紧急），bit 16 表示 current-view missing，bit 17 表示 shadow demand，bit 18 表示 predictive prefetch，bits 19..31 必须为 0。有效数量是 `min(attempted, capacity)`；reservation 超容量时设置 overflow，并继续绘制 resident fallback，不得部分写一条 record。
+
+实现可以在 GPU 侧使用 product-local bitset 去重，但 queue ABI 和 overflow 语义不变。bitset 必须按 frame/generation 清理，不能让旧 revision 抑制新 demand。CPU 读取后再次按完整 key 去重，并丢弃不存在、已 resident、旧 generation 和 cancelled product。
+
+readback 使用至少双缓冲的延迟 ring，不在生成该 feedback 的帧等待 `mapAsync()`。每帧 readback 总量默认不超过 [VALIDATION](../VALIDATION.md) 的 256 KiB；overflow 触发统计、保守 fallback 和下一轮优先级/容量调整，不触发 CPU 可见列表重建。
+
+### Scheduler 与联合背压
+
+调度优先级至少按以下顺序组合，而不是只看 FIFO：
+
+1. 当前可见 missing page；
+2. 新 revision activation cut；
+3. 即将可见/相机预测 refinement；
+4. shadow-only demand；
+5. 后台 prefetch/cache fill。
+
+实际 score 还应包含 request age、SSE benefit、预计 source/cook/decode/upload bytes、retry penalty 和 asset fairness。饥饿避免必须有界；单一资产不得长期占满全部 Worker、in-flight bytes 或 upload budget。
+
+必须同时限制：active CookSession、Worker/WASM thread、source in-flight bytes、WASM memory、transferable output bytes、verified waiting bytes、upload bytes/frame、pending page operations、resident bytes、pinned bytes和 retire bytes。任何一层 credit 耗尽时，上游停止发新工作；不能只限制 Worker 数而让 page queue/WASM heap 无界增长。
+
+descriptor 尚未 offer 时，Web Provider 以 source-local priority 工作；descriptor offer 后，稳定 PageID demand 可以提升其 cook unit。两类 priority 在 Provider 内汇合，但 CPU scheduler 不向 GPU 暴露尚不存在的 PageID。
+
+### I/O、Worker 与 upload
+
+- HTTP OEGPACK source 使用精确 `206 Content-Range`、identity content encoding 和精确长度；GLB source 的 Range fallback 由 Provider 处理。
+- decode、hash、cook 和大 JSON parse 在有界 Worker 中执行。主/render thread 只做轻量协调、validation、GPU ownership 和 command encoding。
+- Worker 返回 exclusive `ArrayBuffer`；GPU object 不可 transfer。Worker crash/WASM OOM 失效整个 source session generation，已 active 的旧 revision继续工作。
+- 默认 upload 路径使用 `GPUQueue.writeBuffer`，offset/size 保持 4-byte aligned；单页或批量 staging 只有 benchmark 证明更好时采用。
+- upload 按帧聚合且不为每页独立 submit。默认上限为 8 MiB/frame；超限只能依据同条件 evidence 修改。
+- 不在 render loop await upload、mapping 或 queue completion。publication 使用未来 frame revision；retirement 单独异步推进。
+
+### Fallback、失败与 retry
+
+desired Group 的 page 不 resident 时，traversal 必须沿合法 hierarchy 找到同 product generation 的 resident ancestor/bootstrap Group；找不到则 fail closed，不能访问 invalid location。fallback 本身仍受 raster work queue capacity 约束。
+
+range、cook、decode、hash 或 upload validation 失败不得发布 page。retry 以 error class、最大次数、deadline 和 backoff 有界；确定性 corruption/unsupported profile 不重试。失败必须保留 `lastError`、attempt count 与受影响 key 的诊断，但不得把 source URL 写入 GPU record。
+
+Demand overflow、upload budget exhaustion 或短暂 source failure只降低 refinement，不应破坏已 active cut。activation cut 永久失败则拒绝该 revision；replacement 失败时保留旧 active revision。
+
+### Device loss、取消与 feature-off
+
+device loss 立即使全部 bank、location、product generation 的 GPU publication 和 pending upload 失效。恢复必须请求新 adapter/device、重建 heap/table/pipeline/bind group，从仍有效的 Product Provider 重新准入 activation cut；旧 device 的任何 GPU object 和 completion 不得进入新 generation。
+
+scene/asset replace、AbortSignal、Provider release 和 feature toggle 都要取消 queued/producing operation并丢弃迟到结果。已经 submit 的资源进入 retire，不可立即复用。feature-off 时不得创建 heap、demand queue、readback ring、Worker session 或额外 submit。
+
+### 必需证据与 counters
+
+至少暴露以下每帧/累计 counters：offered/admitted/active/failed revision，requested/deduplicated/stale/failed/resident/evicted page，demand attempted/valid/overflow，fallback Group，invalid location/generation，source/cook/decode/upload bytes 与 latency，in-flight/peak bytes，pinned/resident/retiring bytes，retry/cancel/late result，device recovery。
+
+Counter readback 必须有界且可以关闭；关闭诊断不能改变 correctness。所有 queue/table 记录其 ABI version、capacity、producer、consumer 和 overflow count。
 
 ## Validation
 
-候选 ABI 必须具备 CPU mirror/WGSL oracle、capacity/overflow、generation ABA、重复/过期 demand、budget/backpressure、corruption、cancel/replace、eviction race、aborted submit、device loss/recovery 与 feature-off 测试。
-
-MILESTONE 需要真实浏览器证明 `GPU desired LOD -> demand -> async resident -> GPU consumer`，并在缺页全过程持续由 ancestor/bootstrap 输出合法像素。
+- CPU mirror/WGSL oracle 覆盖 `GeometryPageLocationV1`、Demand header/record、reserved bits、bounds 与 generation check。
+- 状态机覆盖 duplicate/out-of-order page、stale generation、cancel/replace、activation rollback、generation ABA、slot retire race、aborted submit 和 recovery。
+- 压力用例覆盖 demand queue overflow、pinned admission failure、Worker/output/upload backpressure、8 MiB upload 和 256 KiB readback上限。
+- source/corruption matrix覆盖 Web live provider 与 OEGPACK adapter，并证明 source 差异未进入 GPU consumer。
+- MILESTONE 在 ADR-0014 宿主中证明 `GPU desired LOD -> delayed demand readback -> async source/cook -> upload/publication -> GPU consumer`，缺页全过程由 ancestor/bootstrap 输出合法像素。
+- feature-off 证明无 heap、queue、readback、Worker、Pass 和独立 submit；性能结论使用固定 adapter、分辨率/DPR、画质、workload、warm-up 与 capability fingerprint。

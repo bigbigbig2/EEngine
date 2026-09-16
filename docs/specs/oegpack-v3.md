@@ -8,7 +8,9 @@ Owners: `OEngine/tools/oengine-asset-core`、`OEngine/src/assets/GeometryAbiV3.t
 
 Magic 为 `OEGPACK\0`，major/minor 为 `3/0`，所有整数与 float 使用 little-endian。V3 reader 必须拒绝其他 major/minor、非零 reserved 字段和未知已占用 bit；扩展只能通过新版本或本规范明确保留的字段。
 
-本 ABI 已由 native writer 与 TypeScript reader 共同实现，但在第一个真实生产 Visibility consumer 通过前保持 `candidate`。
+本 ABI 已由 native writer 与 TypeScript reader 共同实现，但在第一个真实生产 Visibility consumer 通过前保持 `candidate`。OEGPACK 是 Native Offline Cooker 的文件容器，不是 Web Runtime Cooker 的中间格式；Runtime 通过 `OegPackProductSource` 将其映射到 [Geometry Product V1](./geometry-product-v1.md)。
+
+OEGPACK writer 的几何结果仍必须遵守 [Geometry Product V1](./geometry-product-v1.md) 的 Nyx provenance 和逐项移植合同。V3 文件布局可以适配 OEngine little-endian ABI，但不能因为已有 writer/parser 就跳过 Nyx 的 MeshletBuilder、hierarchy、streaming 和 consumer 算法来源。
 
 ## Contract
 
@@ -52,6 +54,18 @@ Group payload 顺序为 64 B GroupHeader、连续 MeshletHeader、triangle bytes
 
 Bootstrap page id 必须唯一、合法，并完整覆盖每个 asset 声明的 bootstrap range。bootstrap cut 必须不依赖未 resident 页即可形成合法可绘制表示。
 
+### Geometry Product 映射
+
+`OegPackProductSource` 必须执行以下无歧义映射：
+
+- OEGPACK metadata 中的 AssetRecord、root table、HierarchyNode、GroupDirectory、bootstrap page table 与 VertexFormat 原样进入 `oengine-vg-v1-v3-decoded` descriptor；
+- 每个 64 B OEGPACK PageDirectory 解压为一个 32 B Geometry Product page record，只保留 decoded hash、first GroupID、group count，并将 flags/reserved 置零；file offset、compressed bytes、codec 和 CRC 留在 source adapter；
+- OEGPACK bootstrap page table 原序映射为 `bootstrapPageIds`，以保留 AssetRecord range；它的去重升序集合映射为 `activationPageIds`，adapter 必须重新验证覆盖关系；
+- `readPage(PageID)` 完成精确 Range、CRC、decode、decoded hash 和 payload validation 后，返回恰好 256 KiB 的 exclusive buffer；
+- source identity 使用 `content-sha256 + packContentHash`；ProductID 等于 `packContentHash`，revision 为 0，`producerKind = offline-native`，`producerId = oengine-oegpack-v3`，`producerVersion = 3.0-adapter-v1`，recipeHash 取 header 同名字段。不得使用 URL 或 file offset 作为 identity，也不得与 Web product 共享局部 ID 作用域。
+
+该映射不允许 Runtime shader 读取 OEGPACK file directory，也不允许 Offline source 建立单独 residency/renderer path。
+
 ### Identity 与完整性
 
 - `recipeHash`：canonical geometry cook recipe JSON 的 SHA-256。
@@ -66,4 +80,4 @@ Bootstrap page id 必须唯一、合法，并完整覆盖每个 asset 声明的 
 - native `static_assert` 与 TypeScript constant/decode mirror 必须保持 stride/offset 一致。
 - golden pack 覆盖 raw/LZ4、bootstrap、multi-page、deterministic recook 和 native validator/TS reader 互读。
 - corruption matrix 覆盖 magic/version/endian/reserved、table overlap/range、hash/CRC、非法 tree、跨页 group、payload offset、vertex/triangle 越界和 refine edge。
-- `OEngine/tests/oegpack-v3.test.mjs` 是当前 DEV oracle；真实 V3 bootstrap geometry 到达生产 Visibility 并通过 MILESTONE 后才可冻结本 spec。
+- `OEngine/tests/oegpack-v3.test.mjs` 是当前 DEV oracle；还需增加 OEGPACK -> Geometry Product conformance golden。真实 V3 bootstrap geometry 经统一 admission 到达生产 Visibility 并通过 MILESTONE 后才可冻结本 spec。

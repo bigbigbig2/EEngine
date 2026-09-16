@@ -14,10 +14,12 @@
 
 | 部分 | 状态 | 当前事实 | 下一出口 |
 | --- | --- | --- | --- |
-| 0016-A cooker/package | implemented, validation open | native cooker、OEGPACK V3.0 parser、range source、页校验、bootstrap residency 与 targeted tests 已存在 | 让真实 V3 bootstrap geometry 到达生产 Visibility consumer，并冻结候选 spec |
-| 0016-B runtime residency | not implemented | 没有生产 page heap、feedback scheduler、异步 publish/evict 闭环 | 完成 demand -> range/decode/upload -> generation publish 的有界闭环 |
-| 0016-C renderer cutover | not implemented | 生产 renderer 仍消费既有 geometry package/hierarchy | 在同一主管线接入 V3、resident ancestor fallback，最后删除被替换的 V2 geometry path |
-| 0016-D texture streaming | proposed | 当前纹理按完整离线 mip/variant resident；无渐进高 mip residency | 先交付 mip tail + partial high-mip residency；VT 另行决策 |
+| Geometry Product V1 | specified, not implemented | Producer-neutral descriptor/page/provider 合同已进入 draft spec；代码中仍没有共同 validator/admission | 先让 OEGPACK adapter 经共同 Product 边界到达生产 Visibility |
+| Web Runtime Cooker 主路线 | not implemented | 当前 GLB loader 仍会完整 `arrayBuffer()`；没有 browser-first WASM CookSession、streaming Range source 或渐进 Product | 完成 GLB Range -> Worker/WASM bootstrap Product -> 同一生产像素路径 |
+| 0016-A Offline/OEGPACK | implemented, validation open | native cooker、OEGPACK V3 parser、range source、页校验和 bootstrap residency proof 已存在 | 实现 OEGPACK Product adapter并通过共同 production consumer；之后才能冻结候选 spec |
+| 0016-B admission/residency | not implemented | 没有生产 product admission、page heap、feedback scheduler、异步 publish/evict 闭环 | 完成 activation cut、demand -> provider -> upload -> generation publication 的有界闭环 |
+| 0016-C renderer cutover | not implemented | 生产 renderer 仍消费既有 V2 geometry package/hierarchy | 接入 Product generation、resident ancestor fallback，迁移 main/shadow/Scene adapter 后删除 V2 path |
+| 0016-D texture modes | accepted, not implemented | 当前纹理按完整离线 mip/variant resident；没有渐进传输，也未证明真实物理 mip residency | 先交付 Mode A mip tail/高 mip 渐进传输；有 allocation 证据后再决定 Mode B/VT |
 
 详细交付切片见 [implementation/0016-virtualized-assets.md](./implementation/0016-virtualized-assets.md)。
 
@@ -26,13 +28,14 @@
 - 1920x1080、DPR 1、完整目标画质下 16.667 ms GPU 尚无当前 revision 的正式目标设备基线。
 - resident、transient、history、shadow、upload 和 readback 预算仍需同条件真实浏览器证据。
 - Sparse shading 的剩余 lifecycle、production-entry 和正式 PERF case 尚未全部关闭；不得把静态结构等同 Runtime Validated 或 Performance Improved。
-- V3 geometry 尚无生产 GPU consumer，因此 OEGPACK ABI 仍是 candidate，不因 cooker/parser 测试通过自动冻结。
+- Geometry Product 与 Virtual Geometry Runtime 均是 draft 且无实现；V3 geometry 尚无生产 GPU consumer，因此 OEGPACK ABI 仍是 candidate。
+- Web Cooker 的 pthread/SAB 与多 Worker specialization 尚无同 workload 证据；cross-origin isolation 不是 correctness 前提，默认执行 profile 暂未冻结。
 - `shader-f16`、Immediate Data 与 Transient Attachment 没有生产 consumer；`primitive-index` 等 specialization 只按真实 capability 启用。
 - 普通 Scene adapter 不支持 `SkinnedMesh`；完整动画/蒙皮仍 deferred。
 
 ## 下一步
 
-1. 按 0016 实施文档先完成 V3 bootstrap 到现有 Visibility 的最小真实 consumer，再建立 page demand/residency 闭环。
-2. 补齐 ADR-0013/0014 命中的 lifecycle、production-entry 和正式 PERF evidence，不恢复旧 backend。
-3. 在 V3 geometry consumer 稳定后再 cut over 并删除被替换路径；删除前完成 source、compiled graph/shader 与 browser counter 三类审计。
-4. 纹理先验证渐进 mip residency 的真实收益，再决定是否需要新 container 或 Virtual Texturing ADR。
+1. 按 0016 S1 先完成 `OEGPACK -> Geometry Product -> production Visibility`，以最短路径冻结共同 consumer 边界；这不改变 Web Runtime-first 的产品优先级。
+2. 完成 S2/S3 的 `GLB Range -> Worker/WASM bootstrap/richer Product` 与联合背压，再接 S4 GPU demand/residency 闭环。
+3. 补齐 replacement/eviction/device-loss 后迁移 main、shadow、普通 Scene adapter；删除前完成 source、compiled graph/shader 与 browser counter 三层审计。
+4. 纹理先验证 Mode A 渐进传输；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。

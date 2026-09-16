@@ -14,7 +14,7 @@ OEngine 是面向桌面浏览器 WebGPU 的 GPU-first 渲染引擎核心，服�
 
 ## 核心能力
 
-- Cooker 生成可验证、可复现的 GPU-ready Runtime Asset。
+- Web 主路线从 GLB/glTF 通过有界 WASM + Worker Runtime Cooker 渐进生成可验证的 GPU-ready Geometry Product；独立 Native/OEGPACK 预处理是第二输入路线。两者共享 Runtime admission、Residency 与唯一 Renderer，不要求共享 Cooker 实现。
 - Runtime Asset 与 `GpuAssetStore`、`GpuScene`、Packed Scene GPU 资源所有权分离。
 - hierarchy/SSE/culling/work generation 在 GPU producer 到 indirect consumer 之间闭环。
 - Hardware-first Visibility 输出直接 `VisibilityKey`，材质按可见像素分类并解析一次。
